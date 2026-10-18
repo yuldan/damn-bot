@@ -2549,6 +2549,7 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 9. **Cancel (ADR-072/082):** SIGTERM ke pgid, tunggu ≤ 1 s; mati → `cancelled_confirmed`; belum → `still_running` + `Result.Done`, kill order berlanjut di background (sisa grace → SIGKILL → sweep) dan id tercatat di `Runner.Live` sampai mati.
 10. **Sweep:** Linux `/proc/*/environ` (proses uid sendiri; zombie ber-environ kosong dilewati), macOS `kern.procargs2` untuk uid sendiri, sampai 5 putaran selama marker baru masih muncul. Unix lain hanya process group.
 11. **Gagal spawn** → `Result{Status: spawn_failed}` + error ter-wrap; tidak ada fallback runner diam-diam (PTY di Windows sebelum ConPTY = `spawn_failed`).
+18. **`EPERM` saat sinyal ke grup = tidak ada yang bisa disinyal, bukan error.** macOS mengembalikan `EPERM` untuk `kill(-pgid)` bila anggota grup tinggal zombie; anggota yang berganti uid (setuid) memang tidak bisa dibunuh pemanggil. Ditolak: memperlakukannya sebagai kegagalan cleanup — call yang sudah selesai dilaporkan error.
 
 **Dampak terukur (SPEC §20).** Token 0. Dependency +1 (`github.com/creack/pty`, sudah di `deps.allow`). LOC `exec` dihitung per PR di F1-REPORT. Latensi spawn diukur `BenchmarkShellSpawn*` (PR P24).
 
