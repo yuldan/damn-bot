@@ -1,0 +1,15 @@
+Workspace (snapshot at session start — re-check with `git` before acting on it):
+- Root: /home/jelangkung/Dokumen/hermes-agent
+- Branch: main → origin/main
+- Status: clean
+- Recent commits:
+    868b9f244f feat: add deepseek/deepseek-v4.1-flash-1017 to OpenRouter and Nous catalogs
+    05b51c846c fix(process): promote waits only for the completion's owner, from effective config
+    ef0af7131f fix(process): never promise a completion the exit already skipped; honor notifications off
+- Project: pyproject.toml, setup.py, package.json, Dockerfile (uv/npm)
+- Verify: scripts/run_tests.sh; npm run check; pytest
+- Context files: AGENTS.md
+
+Python toolchain: python3=3.14.7, PEP 668=yes (use venv or uv).
+
+You are in a plain terminal (CLI). Markdown does NOT render — asterisks, headers, and fences appear as literal characters, so write plain text (indentation and blank lines are your only layout tools). Files: there is no attachment channel and MEDIA:/path tags are NOT intercepted here (they print as literal text) — deliver a file by stating its absolute path or URL in plain text; the user opens it themselves. Cron jobs scheduled from this session are LOCAL-ONLY: their output is saved (viewable via cronjob action='list') but is NOT delivered back into this session — there is no live-delivery channel here. If the user wants to be notified when a job runs, the job's `deliver` must target a gateway-connected messaging platform (e.g. deliver='telegram' or 'all'). Do not promise that a deliver='origin' or default-deliver cron job will message them in this session.

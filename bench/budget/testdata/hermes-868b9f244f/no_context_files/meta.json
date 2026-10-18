@@ -1,0 +1,30 @@
+{
+  "hermes_commit": "868b9f244f",
+  "model": "gpt-4o",
+  "platform": "cli",
+  "skip_context_files": true,
+  "python": "3.14.7",
+  "tools_agent_count": 19,
+  "tools_defs_count": 19,
+  "tool_names_agent": [
+    "clarify",
+    "delegate_task",
+    "execute_code",
+    "manage_connections",
+    "memory",
+    "patch",
+    "read_file",
+    "search_files",
+    "skill_manage",
+    "skill_view",
+    "skills_list",
+    "terminal",
+    "text_to_speech",
+    "web_extract",
+    "web_search",
+    "write_file",
+    "tool_search",
+    "tool_describe",
+    "tool_call"
+  ]
+}

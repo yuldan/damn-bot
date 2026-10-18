@@ -13,7 +13,7 @@ GOTAGS = -tags "$(TAGSCSV)"
 GOTOOL := go tool -modfile=tools/go.mod
 LICENSES_ALLOWED := MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,MPL-2.0
 
-.PHONY: all build lint test size-check loc loc-ratio deps-check vuln licenses check meta-test
+.PHONY: all build lint test size-check loc loc-ratio deps-check vuln licenses check meta-test bench-budget
 
 all: check
 
@@ -51,3 +51,8 @@ check: lint test size-check loc deps-check vuln licenses
 # Meta-test gate CI (ROADMAP F0): setiap gate harus gagal pada pelanggaran sintetis.
 meta-test:
 	scripts/ci-meta-test.sh
+
+# Harness token P1 (bench/go.mod terpisah, di luar E-45): tokenizer o200k_base = tiktoken,
+# reproduksi BASELINE-hermes.md ±5%.
+bench-budget:
+	cd bench && go test -count=1 ./budget/...

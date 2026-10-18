@@ -1,0 +1,440 @@
+{
+ "tokenizer": "o200k_base",
+ "ranks_sha256": "446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d",
+ "default": {
+  "stable": {
+   "bytes": 12561,
+   "chars": 12481,
+   "est_tokens_char4": 3121,
+   "o200k_tokens": 2613
+  },
+  "context": {
+   "bytes": 13646,
+   "chars": 13478,
+   "est_tokens_char4": 3370,
+   "o200k_tokens": 3410
+  },
+  "volatile": {
+   "bytes": 7302,
+   "chars": 7274,
+   "est_tokens_char4": 1819,
+   "o200k_tokens": 1693
+  },
+  "system_prompt": {
+   "bytes": 33513,
+   "chars": 33237,
+   "est_tokens_char4": 8310,
+   "o200k_tokens": 7716
+  },
+  "schema": {
+   "bytes": 37759,
+   "chars": 37759,
+   "est_tokens_char4": 9440,
+   "o200k_tokens": 9127
+  },
+  "schema_agent": {
+   "bytes": 36860,
+   "chars": 36860,
+   "est_tokens_char4": 9215,
+   "o200k_tokens": 8908
+  },
+  "schema_count": 19,
+  "per_tool": {
+   "clarify": {
+    "bytes": 1820,
+    "chars": 1820,
+    "est_tokens_char4": 455,
+    "o200k_tokens": 416
+   },
+   "delegate_task": {
+    "bytes": 4671,
+    "chars": 4671,
+    "est_tokens_char4": 1168,
+    "o200k_tokens": 1052
+   },
+   "execute_code": {
+    "bytes": 3092,
+    "chars": 3092,
+    "est_tokens_char4": 773,
+    "o200k_tokens": 781
+   },
+   "manage_connections": {
+    "bytes": 4526,
+    "chars": 4526,
+    "est_tokens_char4": 1132,
+    "o200k_tokens": 1092
+   },
+   "memory": {
+    "bytes": 3284,
+    "chars": 3284,
+    "est_tokens_char4": 821,
+    "o200k_tokens": 801
+   },
+   "patch": {
+    "bytes": 1014,
+    "chars": 1014,
+    "est_tokens_char4": 254,
+    "o200k_tokens": 235
+   },
+   "read_file": {
+    "bytes": 1223,
+    "chars": 1223,
+    "est_tokens_char4": 306,
+    "o200k_tokens": 319
+   },
+   "search_files": {
+    "bytes": 2329,
+    "chars": 2329,
+    "est_tokens_char4": 583,
+    "o200k_tokens": 567
+   },
+   "skill_manage": {
+    "bytes": 3725,
+    "chars": 3725,
+    "est_tokens_char4": 932,
+    "o200k_tokens": 954
+   },
+   "skill_view": {
+    "bytes": 929,
+    "chars": 929,
+    "est_tokens_char4": 233,
+    "o200k_tokens": 217
+   },
+   "skills_list": {
+    "bytes": 321,
+    "chars": 321,
+    "est_tokens_char4": 81,
+    "o200k_tokens": 77
+   },
+   "terminal": {
+    "bytes": 2741,
+    "chars": 2741,
+    "est_tokens_char4": 686,
+    "o200k_tokens": 645
+   },
+   "text_to_speech": {
+    "bytes": 1519,
+    "chars": 1519,
+    "est_tokens_char4": 380,
+    "o200k_tokens": 374
+   },
+   "tool_call": {
+    "bytes": 713,
+    "chars": 713,
+    "est_tokens_char4": 179,
+    "o200k_tokens": 173
+   },
+   "tool_describe": {
+    "bytes": 496,
+    "chars": 496,
+    "est_tokens_char4": 124,
+    "o200k_tokens": 121
+   },
+   "tool_search": {
+    "bytes": 2286,
+    "chars": 2286,
+    "est_tokens_char4": 572,
+    "o200k_tokens": 561
+   },
+   "web_extract": {
+    "bytes": 1122,
+    "chars": 1122,
+    "est_tokens_char4": 281,
+    "o200k_tokens": 274
+   },
+   "web_search": {
+    "bytes": 794,
+    "chars": 794,
+    "est_tokens_char4": 199,
+    "o200k_tokens": 205
+   },
+   "write_file": {
+    "bytes": 1116,
+    "chars": 1116,
+    "est_tokens_char4": 279,
+    "o200k_tokens": 262
+   }
+  },
+  "overhead_est_tokens_char4": 17750,
+  "overhead_o200k_tokens": 16843
+ },
+ "no_context_files": {
+  "stable": {
+   "bytes": 12561,
+   "chars": 12481,
+   "est_tokens_char4": 3121,
+   "o200k_tokens": 2613
+  },
+  "context": {
+   "bytes": 1582,
+   "chars": 1572,
+   "est_tokens_char4": 393,
+   "o200k_tokens": 386
+  },
+  "volatile": {
+   "bytes": 7302,
+   "chars": 7274,
+   "est_tokens_char4": 1819,
+   "o200k_tokens": 1693
+  },
+  "system_prompt": {
+   "bytes": 21449,
+   "chars": 21331,
+   "est_tokens_char4": 5333,
+   "o200k_tokens": 4692
+  },
+  "schema": {
+   "bytes": 37759,
+   "chars": 37759,
+   "est_tokens_char4": 9440,
+   "o200k_tokens": 9127
+  },
+  "schema_agent": {
+   "bytes": 36860,
+   "chars": 36860,
+   "est_tokens_char4": 9215,
+   "o200k_tokens": 8908
+  },
+  "schema_count": 19,
+  "per_tool": {
+   "clarify": {
+    "bytes": 1820,
+    "chars": 1820,
+    "est_tokens_char4": 455,
+    "o200k_tokens": 416
+   },
+   "delegate_task": {
+    "bytes": 4671,
+    "chars": 4671,
+    "est_tokens_char4": 1168,
+    "o200k_tokens": 1052
+   },
+   "execute_code": {
+    "bytes": 3092,
+    "chars": 3092,
+    "est_tokens_char4": 773,
+    "o200k_tokens": 781
+   },
+   "manage_connections": {
+    "bytes": 4526,
+    "chars": 4526,
+    "est_tokens_char4": 1132,
+    "o200k_tokens": 1092
+   },
+   "memory": {
+    "bytes": 3284,
+    "chars": 3284,
+    "est_tokens_char4": 821,
+    "o200k_tokens": 801
+   },
+   "patch": {
+    "bytes": 1014,
+    "chars": 1014,
+    "est_tokens_char4": 254,
+    "o200k_tokens": 235
+   },
+   "read_file": {
+    "bytes": 1223,
+    "chars": 1223,
+    "est_tokens_char4": 306,
+    "o200k_tokens": 319
+   },
+   "search_files": {
+    "bytes": 2329,
+    "chars": 2329,
+    "est_tokens_char4": 583,
+    "o200k_tokens": 567
+   },
+   "skill_manage": {
+    "bytes": 3725,
+    "chars": 3725,
+    "est_tokens_char4": 932,
+    "o200k_tokens": 954
+   },
+   "skill_view": {
+    "bytes": 929,
+    "chars": 929,
+    "est_tokens_char4": 233,
+    "o200k_tokens": 217
+   },
+   "skills_list": {
+    "bytes": 321,
+    "chars": 321,
+    "est_tokens_char4": 81,
+    "o200k_tokens": 77
+   },
+   "terminal": {
+    "bytes": 2741,
+    "chars": 2741,
+    "est_tokens_char4": 686,
+    "o200k_tokens": 645
+   },
+   "text_to_speech": {
+    "bytes": 1519,
+    "chars": 1519,
+    "est_tokens_char4": 380,
+    "o200k_tokens": 374
+   },
+   "tool_call": {
+    "bytes": 713,
+    "chars": 713,
+    "est_tokens_char4": 179,
+    "o200k_tokens": 173
+   },
+   "tool_describe": {
+    "bytes": 496,
+    "chars": 496,
+    "est_tokens_char4": 124,
+    "o200k_tokens": 121
+   },
+   "tool_search": {
+    "bytes": 2286,
+    "chars": 2286,
+    "est_tokens_char4": 572,
+    "o200k_tokens": 561
+   },
+   "web_extract": {
+    "bytes": 1122,
+    "chars": 1122,
+    "est_tokens_char4": 281,
+    "o200k_tokens": 274
+   },
+   "web_search": {
+    "bytes": 794,
+    "chars": 794,
+    "est_tokens_char4": 199,
+    "o200k_tokens": 205
+   },
+   "write_file": {
+    "bytes": 1116,
+    "chars": 1116,
+    "est_tokens_char4": 279,
+    "o200k_tokens": 262
+   }
+  },
+  "overhead_est_tokens_char4": 14773,
+  "overhead_o200k_tokens": 13819
+ },
+ "checks": [
+  {
+   "name": "stable_chars",
+   "source": "BASELINE-hermes §2",
+   "want": 12481,
+   "got": 12481,
+   "delta": 0,
+   "gate": true
+  },
+  {
+   "name": "context_chars",
+   "source": "BASELINE-hermes §2",
+   "want": 13413,
+   "got": 13478,
+   "delta": 0.0048460448818310594,
+   "gate": true,
+   "note": "memuat AGENTS.md + snapshot git workspace (bergantung mesin)"
+  },
+  {
+   "name": "volatile_chars",
+   "source": "BASELINE-hermes §2",
+   "want": 7289,
+   "got": 7274,
+   "delta": -0.0020578954589106874,
+   "gate": true,
+   "note": "memuat path HERMES_HOME + timestamp (bergantung mesin)"
+  },
+  {
+   "name": "stable_est_tokens",
+   "source": "BASELINE-hermes §2",
+   "want": 3121,
+   "got": 3121,
+   "delta": 0,
+   "gate": true
+  },
+  {
+   "name": "context_est_tokens",
+   "source": "BASELINE-hermes §2",
+   "want": 3354,
+   "got": 3370,
+   "delta": 0.004770423375074538,
+   "gate": true
+  },
+  {
+   "name": "volatile_est_tokens",
+   "source": "BASELINE-hermes §2",
+   "want": 1823,
+   "got": 1819,
+   "delta": -0.0021941854086670325,
+   "gate": true
+  },
+  {
+   "name": "schema_bytes",
+   "source": "BASELINE-hermes §2",
+   "want": 37758,
+   "got": 37759,
+   "delta": 0.000026484453625721702,
+   "gate": true,
+   "note": "json.dumps(get_tool_definitions()) default ensure_ascii=True"
+  },
+  {
+   "name": "schema_bytes_remeasure",
+   "source": "BASELINE-hermes §7",
+   "want": 37765,
+   "got": 37759,
+   "delta": -0.00015887726731100225,
+   "gate": true
+  },
+  {
+   "name": "schema_est_tokens",
+   "source": "BASELINE-hermes §2",
+   "want": 9440,
+   "got": 9440,
+   "delta": 0,
+   "gate": true
+  },
+  {
+   "name": "schema_count",
+   "source": "BASELINE-hermes §2",
+   "want": 19,
+   "got": 19,
+   "delta": 0,
+   "gate": true,
+   "note": "harus persis"
+  },
+  {
+   "name": "delegate_task_schema_bytes",
+   "source": "BASELINE-hermes §2",
+   "want": 4671,
+   "got": 4671,
+   "delta": 0,
+   "gate": true
+  },
+  {
+   "name": "overhead_floor_est_tokens",
+   "source": "BASELINE-hermes §2",
+   "want": 14500,
+   "got": 14773,
+   "delta": 0.018827586206896552,
+   "gate": true,
+   "note": "overhead per call tanpa AGENTS.md (prompt + schema)"
+  },
+  {
+   "name": "overhead_with_agents_est_tokens",
+   "source": "BASELINE-hermes §2 (Σ tier) / SCORECARD §1.1",
+   "want": 17736,
+   "got": 17750,
+   "delta": 0.0007893549842129003,
+   "gate": true,
+   "note": "overhead per call dengan AGENTS.md"
+  },
+  {
+   "name": "floor_prompt_chars",
+   "source": "BASELINE-hermes §2",
+   "want": 20240,
+   "got": 21331,
+   "delta": 0.05390316205533597,
+   "gate": false,
+   "note": "komponen floor; sisa tier context tanpa AGENTS.md = snapshot git workspace yang bergantung mesin/commit"
+  }
+ ],
+ "all_gates_ok": true
+}

@@ -1,0 +1,433 @@
+{
+ "tiktoken": "0.14.0",
+ "strings": [
+  {
+   "text": "",
+   "ids": []
+  },
+  {
+   "text": " ",
+   "ids": [
+    220
+   ]
+  },
+  {
+   "text": "  ",
+   "ids": [
+    256
+   ]
+  },
+  {
+   "text": "\n",
+   "ids": [
+    198
+   ]
+  },
+  {
+   "text": "\n\n\n",
+   "ids": [
+    2499
+   ]
+  },
+  {
+   "text": " \n ",
+   "ids": [
+    793,
+    220
+   ]
+  },
+  {
+   "text": "\t\tx",
+   "ids": [
+    197,
+    21395
+   ]
+  },
+  {
+   "text": "a  b",
+   "ids": [
+    64,
+    220,
+    287
+   ]
+  },
+  {
+   "text": "a   \n  b",
+   "ids": [
+    64,
+    10190,
+    220,
+    287
+   ]
+  },
+  {
+   "text": "hello world",
+   "ids": [
+    24912,
+    2375
+   ]
+  },
+  {
+   "text": "Hello, World!",
+   "ids": [
+    13225,
+    11,
+    5922,
+    0
+   ]
+  },
+  {
+   "text": "I'm you're they've he'll we'd it's DON'T I'M",
+   "ids": [
+    15390,
+    7163,
+    51676,
+    84355,
+    68530,
+    4275,
+    153384,
+    3413,
+    44
+   ]
+  },
+  {
+   "text": "123 4567 89012345",
+   "ids": [
+    7633,
+    220,
+    19354,
+    22,
+    220,
+    38518,
+    7633,
+    2548
+   ]
+  },
+  {
+   "text": "x=1;y=22;z=333",
+   "ids": [
+    87,
+    28,
+    16,
+    175025,
+    28,
+    1709,
+    26,
+    89,
+    28,
+    15517
+   ]
+  },
+  {
+   "text": "foo/bar\n/baz",
+   "ids": [
+    16660,
+    106617,
+    198,
+    7611,
+    1071
+   ]
+  },
+  {
+   "text": "  leading",
+   "ids": [
+    220,
+    8117
+   ]
+  },
+  {
+   "text": "trailing  ",
+   "ids": [
+    371,
+    24408,
+    256
+   ]
+  },
+  {
+   "text": "mixed\r\nline\rendings",
+   "ids": [
+    136877,
+    370,
+    1137,
+    201,
+    419,
+    963
+   ]
+  },
+  {
+   "text": "Ünïcödé façade naïve",
+   "ids": [
+    8858,
+    77,
+    191375,
+    43369,
+    377,
+    114665,
+    153475,
+    737
+   ]
+  },
+  {
+   "text": "日本語のテキストです。",
+   "ids": [
+    9048,
+    40909,
+    3385,
+    16056,
+    18368,
+    38236,
+    15121,
+    788
+   ]
+  },
+  {
+   "text": "中文文本，测试。",
+   "ids": [
+    10667,
+    145683,
+    979,
+    82843,
+    788
+   ]
+  },
+  {
+   "text": "한국어 텍스트",
+   "ids": [
+    114854,
+    5959,
+    57901,
+    235,
+    42321
+   ]
+  },
+  {
+   "text": "emoji 😀👍🏽 family 👨‍👩‍👧",
+   "ids": [
+    75339,
+    88038,
+    82514,
+    52622,
+    121,
+    3502,
+    61138,
+    101,
+    2524,
+    28823,
+    102,
+    2524,
+    28823,
+    100
+   ]
+  },
+  {
+   "text": "ÀB ǅungla ʰmod",
+   "ids": [
+    18724,
+    33,
+    220,
+    131,
+    227,
+    988,
+    1675,
+    220,
+    134,
+    108,
+    4847
+   ]
+  },
+  {
+   "text": "zero​width",
+   "ids": [
+    29221,
+    3310,
+    6015
+   ]
+  },
+  {
+   "text": "nbsp here　ideo",
+   "ids": [
+    9431,
+    5310,
+    19992,
+    1397,
+    2451
+   ]
+  },
+  {
+   "text": "{\"type\": \"object\", \"properties\": {\"a\": {\"type\": \"string\"}}}",
+   "ids": [
+    10848,
+    2493,
+    1243,
+    392,
+    3369,
+    672,
+    392,
+    35913,
+    1243,
+    10494,
+    64,
+    1243,
+    10494,
+    2493,
+    1243,
+    392,
+    1655,
+    57612,
+    92
+   ]
+  },
+  {
+   "text": "<|endoftext|> literal",
+   "ids": [
+    27,
+    91,
+    419,
+    1440,
+    919,
+    91,
+    29,
+    41271
+   ]
+  },
+  {
+   "text": "CamelCaseIdentifier snake_case_name kebab-case",
+   "ids": [
+    137910,
+    6187,
+    12966,
+    46964,
+    43667,
+    2483,
+    42196,
+    378,
+    83130
+   ]
+  },
+  {
+   "text": "    def f(x):\n        return x  # c\n",
+   "ids": [
+    271,
+    1056,
+    285,
+    4061,
+    1883,
+    309,
+    622,
+    1215,
+    220,
+    1069,
+    274,
+    198
+   ]
+  },
+  {
+   "text": "!!!???...,,,",
+   "ids": [
+    10880,
+    33110,
+    1008,
+    105617
+   ]
+  },
+  {
+   "text": " ?!",
+   "ids": [
+    1423,
+    0
+   ]
+  },
+  {
+   "text": "áé",
+   "ids": [
+    64,
+    13430,
+    68,
+    13430
+   ]
+  },
+  {
+   "text": "Ⅻ ½ ²³ ٣٤٥",
+   "ids": [
+    25371,
+    104,
+    220,
+    27124,
+    220,
+    13848,
+    45681,
+    220,
+    81473,
+    98713,
+    97336
+   ]
+  },
+  {
+   "text": " sep ",
+   "ids": [
+    51008,
+    46643,
+    318,
+    102
+   ]
+  }
+ ],
+ "files": [
+  {
+   "path": "testdata/hermes-868b9f244f/default/context.txt",
+   "count": 3410
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/default/meta.json",
+   "count": 167
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/default/stable.txt",
+   "count": 2613
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/default/system_prompt.txt",
+   "count": 7716
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/default/tools_agent.json",
+   "count": 8908
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/default/tools_defs.json",
+   "count": 9127
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/default/volatile.txt",
+   "count": 1693
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/no_context_files/context.txt",
+   "count": 386
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/no_context_files/meta.json",
+   "count": 175
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/no_context_files/stable.txt",
+   "count": 2613
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/no_context_files/system_prompt.txt",
+   "count": 4692
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/no_context_files/tools_agent.json",
+   "count": 8908
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/no_context_files/tools_defs.json",
+   "count": 9127
+  },
+  {
+   "path": "testdata/hermes-868b9f244f/no_context_files/volatile.txt",
+   "count": 1693
+  }
+ ]
+}
