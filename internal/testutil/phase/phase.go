@@ -49,13 +49,22 @@ func Current(tb testing.TB) Gate {
 	}
 }
 
-// readPhase reads dir/PHASE through os.Root (no path traversal).
+// readPhase reads dir/PHASE through os.Root (no path traversal). Only a
+// regular file counts: on case-insensitive file systems (macOS, Windows)
+// the package directory internal/testutil/phase also answers to "PHASE".
 func readPhase(dir string) ([]byte, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", dir, err)
 	}
-	b, err := root.ReadFile("PHASE")
+	var b []byte
+	st, err := root.Stat("PHASE")
+	switch {
+	case err == nil && !st.Mode().IsRegular():
+		err = os.ErrNotExist
+	case err == nil:
+		b, err = root.ReadFile("PHASE")
+	}
 	if cerr := root.Close(); err == nil && cerr != nil {
 		err = cerr
 	}

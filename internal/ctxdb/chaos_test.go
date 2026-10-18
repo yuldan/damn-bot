@@ -158,15 +158,18 @@ func startChild(t *testing.T, role, dir string) *child {
 }
 
 // kill9 SIGKILLs the child and reaps it; "already finished" and the
-// "signal: killed" exit status are the expected outcomes.
+// "signal: killed" exit status are the expected outcomes. A kill error is
+// only real if the child is still running afterwards: Windows reports a
+// child that exited on its own (TerminateProcess → "Access is denied") or
+// was already reaped ("invalid argument") as an error.
 func (c *child) kill9(t *testing.T) {
 	t.Helper()
-	if err := c.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		t.Fatal(err)
-	}
+	kerr := c.cmd.Process.Kill()
 	var ee *exec.ExitError
-	if err := c.cmd.Wait(); err != nil && !errors.As(err, &ee) && !strings.Contains(err.Error(), "Wait was already called") {
-		t.Fatal(err)
+	werr := c.cmd.Wait()
+	reaped := werr == nil || errors.As(werr, &ee) || strings.Contains(werr.Error(), "Wait was already called")
+	if !reaped {
+		t.Fatal(errors.Join(kerr, werr))
 	}
 }
 

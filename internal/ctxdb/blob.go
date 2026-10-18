@@ -59,13 +59,14 @@ func (t *Tx) Publish(p *PendingBlob) error {
 
 func (t *Tx) syncDir(dir string) error { return syncRootDir(t.s.root, dir) }
 
-// syncRootDir fsyncs a directory of the data dir (blob publication, spool).
+// syncRootDir fsyncs a directory of the data dir (blob publication, spool);
+// the directory must exist on every OS (see syncDirFile for Windows).
 func syncRootDir(root *os.Root, dir string) error {
 	f, err := root.Open(dir)
 	if err != nil {
 		return wrap(err)
 	}
-	return wrap(errors.Join(f.Sync(), f.Close()))
+	return wrap(errors.Join(syncDirFile(f), f.Close()))
 }
 
 // ReadBlob reads a blob. On ENOENT it re-reads the status: expired →
