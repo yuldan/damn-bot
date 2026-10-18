@@ -1,0 +1,212 @@
+package provider
+
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+	"time"
+
+	"github.com/damnbot/damnbot/internal/budget"
+	"github.com/damnbot/damnbot/internal/netx/retry"
+)
+
+// callAsm accumulates one streamed tool call.
+type callAsm struct {
+	idx      int
+	hasIdx   bool
+	id, name string
+	args     []byte
+}
+
+// assembler turns stream deltas into a Response (owned copies).
+type assembler struct {
+	content     []byte
+	reasonText  []byte
+	reasonParts []json.RawMessage // set once a non-string reasoning arrives
+	reasonField string
+	calls       []callAsm
+	finish      string
+	usage       DeltaUsage
+	model       string
+	ttft        time.Duration
+}
+
+func (a *assembler) add(d *Delta) {
+	a.content = append(a.content, d.Content...)
+	if len(d.ReasoningField) > 0 && a.reasonField == "" {
+		a.reasonField = string(d.ReasoningField)
+	}
+	switch {
+	case d.ReasoningRaw != nil:
+		if a.reasonParts == nil && len(a.reasonText) > 0 {
+			a.reasonParts = append(a.reasonParts, quote(a.reasonText))
+		}
+		a.reasonParts = append(a.reasonParts, bytes.Clone(d.ReasoningRaw))
+		a.reasonText = append(a.reasonText, partText(d.ReasoningRaw)...)
+	case len(d.Reasoning) > 0:
+		a.reasonText = append(a.reasonText, d.Reasoning...)
+		if a.reasonParts != nil {
+			a.reasonParts = append(a.reasonParts, quote(d.Reasoning))
+		}
+	}
+	for i := range d.ToolCalls {
+		a.tool(&d.ToolCalls[i])
+	}
+	if len(d.Finish) > 0 {
+		a.finish = string(d.Finish)
+	}
+	if d.Usage.Present {
+		a.usage = d.Usage
+	}
+	if len(d.Model) > 0 {
+		a.model = string(d.Model)
+	}
+}
+
+// tool routes a fragment to its call (EC-PROV-001, ADR-102 butir 3):
+// same id, else same index, else an id-less nameless fragment continues
+// the last call, else a new call.
+func (a *assembler) tool(t *ToolDelta) {
+	slot := -1
+	for i := range a.calls {
+		c := &a.calls[i]
+		if len(t.ID) > 0 && c.id == string(t.ID) || len(t.ID) == 0 && t.HasIndex && c.hasIdx && c.idx == t.Index {
+			slot = i
+		}
+	}
+	if slot < 0 && len(t.ID) == 0 && len(t.Name) == 0 && len(a.calls) > 0 {
+		slot = len(a.calls) - 1
+	}
+	if slot < 0 {
+		a.calls = append(a.calls, callAsm{idx: t.Index, hasIdx: t.HasIndex, id: string(t.ID)})
+		slot = len(a.calls) - 1
+	}
+	c := &a.calls[slot]
+	if c.id == "" {
+		c.id = string(t.ID)
+	}
+	c.name += string(t.Name)
+	c.args = append(c.args, t.Args...)
+}
+
+// result validates and returns the assembled response.
+func (a *assembler) result() (Response, error) {
+	if a.finish == "" {
+		return Response{}, &Error{Class: retry.StreamBroken, Err: ErrStreamBroken}
+	}
+	r := Response{
+		Content:      stripControl(string(a.content)),
+		FinishReason: normalizeFinish(a.finish),
+		Model:        a.model,
+		TTFT:         a.ttft,
+		Usage:        usage(a.usage),
+	}
+	for _, c := range a.calls {
+		r.ToolCalls = append(r.ToolCalls, ToolCall{ID: c.id, Name: c.name, ArgumentsRaw: string(c.args)})
+	}
+	if len(a.reasonText) > 0 || a.reasonParts != nil {
+		r.ReasoningText, r.ReasoningField = string(a.reasonText), a.reasonField
+		r.Reasoning = quote(a.reasonText)
+		if a.reasonParts != nil {
+			r.Reasoning = joinParts(a.reasonParts)
+		}
+	}
+	if r.FinishReason == FinishStop && strings.TrimSpace(r.Content) == "" && len(r.ToolCalls) == 0 {
+		return r, &Error{Class: retry.EmptyResponse, Err: ErrEmptyResponse}
+	}
+	return r, nil
+}
+
+func usage(u DeltaUsage) budget.Usage {
+	out := budget.Usage{Input: u.Prompt, CachedInput: u.Cached, Output: u.Output}
+	if u.HasCost {
+		out.CostUSD = &u.Cost
+	}
+	return out
+}
+
+// normalizeFinish maps provider synonyms to the SPEC set (ADR-102 butir 4).
+func normalizeFinish(f string) string {
+	switch f {
+	case FinishToolCalls, "function_call", "tool_use":
+		return FinishToolCalls
+	case FinishLength, "max_tokens":
+		return FinishLength
+	case FinishContentFilter:
+		return FinishContentFilter
+	}
+	return FinishStop
+}
+
+// controlTokens leak from some OpenAI-compatible servers (EC-PROV-013).
+func controlTokens() []string {
+	return []string{"<|im_end|>", "<|endoftext|>", "<|eot_id|>", "<|end|>", "</s>"}
+}
+
+// stripControl removes control tokens (and surrounding whitespace) only
+// at the end of s, repeatedly; s is unchanged when there are none.
+func stripControl(s string) string {
+	const ws = " \t\r\n"
+	orig := strings.TrimRight(s, ws)
+	t := orig
+	for {
+		u := t
+		for _, tok := range controlTokens() {
+			u = strings.TrimRight(strings.TrimSuffix(u, tok), ws)
+		}
+		if u == t {
+			break
+		}
+		t = u
+	}
+	if t == orig {
+		return s
+	}
+	return t
+}
+
+func quote(b []byte) json.RawMessage {
+	out, err := json.Marshal(string(b))
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+func joinParts(parts []json.RawMessage) json.RawMessage {
+	out, err := json.Marshal(parts)
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+// partText extracts display text from a non-string reasoning value: a
+// string, or the text/thinking/content fields of objects, recursively in
+// arrays (EC-PROV-006). Cold path.
+func partText(raw []byte) string {
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return ""
+	}
+	var b strings.Builder
+	var walk func(any)
+	walk = func(v any) {
+		switch x := v.(type) {
+		case string:
+			b.WriteString(x)
+		case []any:
+			for _, e := range x {
+				walk(e)
+			}
+		case map[string]any:
+			for _, k := range []string{"text", "thinking", "content"} {
+				if s, ok := x[k].(string); ok {
+					b.WriteString(s)
+				}
+			}
+		}
+	}
+	walk(v)
+	return b.String()
+}
