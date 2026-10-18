@@ -40,12 +40,12 @@ func TestRunDispatch(t *testing.T) {
 	t.Parallel()
 	v := newEnv(t)
 	ctx := context.Background()
-	for name, args := range map[string]string{
-		"write_file": `{"path":"a.txt","content":"x\n"}`, "read_file": `{"path":"a.txt"}`,
-		"glob": `{"pattern":"*.txt"}`, "grep": `{"pattern":"x"}`,
+	for _, c := range [][2]string{
+		{"write_file", `{"path":"a.txt","content":"x\n"}`}, {"read_file", `{"path":"a.txt"}`},
+		{"glob", `{"pattern":"*.txt"}`}, {"grep", `{"pattern":"x"}`},
 	} {
-		if _, err := v.e.Run(ctx, name, json.RawMessage(args), Opts{}); err != nil {
-			t.Errorf("%s: %v", name, err)
+		if _, err := v.e.Run(ctx, c[0], json.RawMessage(c[1]), Opts{}); err != nil {
+			t.Errorf("%s: %v", c[0], err)
 		}
 	}
 	_, err := v.e.Run(ctx, "edit_file", json.RawMessage(`{"path":"a.txt","tag":"00000000","edits":[{"bogus":1}]}`), Opts{})
