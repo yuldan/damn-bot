@@ -99,7 +99,7 @@ Konteks tier (SPEC §6) menulis shell one-shot dan shell sesi yang terdeteksi.
 ### A.3 Streaming ke UI dan ringkasan ke model
 
 **UI:**
-- Byte mentah lewat redaksi streaming (SPEC §14.3, ADR-071). Penyaring hanya menahan sufiks terpanjang yang masih bisa menjadi awal pola atau nilai secret yang dikenal (pencocokan parsial, batas per pola); chunk tanpa kecocokan parsial dikirim segera (0 latensi tambahan, P17). Pola berekor tak terbatas (`Bearer \S+`) ditahan sampai terminator atau 4 KiB lalu diredaksi fail-closed; setelah `-----BEGIN … PRIVATE KEY-----` terlihat, output ditahan sampai END atau akhir stream lalu seluruh blok diredaksi. Test: `TestStreamRedactSplit`.
+- Byte mentah lewat redaksi streaming (SPEC §14.3, ADR-071). Penyaring hanya menahan sufiks terpanjang yang masih bisa menjadi awal pola atau nilai secret yang dikenal (pencocokan parsial, batas per pola); chunk tanpa kecocokan parsial dikirim segera. Penahanan dimulai hanya setelah: literal `://` (userinfo), ≥ 8 digit diikuti `:` (Telegram), kecocokan parsial ≥ 4 char (prefix nilai secret yang dikenal), atau prefix literal lengkap (`sk-`, `ghp_`, `AKIA`, `-----BEGIN`, …); target ≤ 1 ms p95 tambahan pada first token untuk korpus teks natural (`TestFirstTokenLatency/redact`, P17, ADR-081). Pola berekor tak terbatas (`Bearer \S+`) ditahan sampai terminator atau 4 KiB lalu diredaksi fail-closed; setelah `-----BEGIN … PRIVATE KEY-----` terlihat, output ditahan sampai END atau akhir stream lalu seluruh blok diredaksi. Test: `TestStreamRedactSplit`.
 - Lalu masuk renderer terminal ringan (CR, `\x1b[K`, cursor-up untuk progress bar), di-throttle 30 fps.
 - Chunk tidak disimpan per event. DB hanya menyimpan hasil final + blob log penuh.
 
@@ -190,7 +190,7 @@ Notifikasi selesai:
 
 ### A.6 Prompt interaktif tanpa hang
 
-**Env non-interaktif** (ditambahkan ke env anak; nilai yang di-set user lewat `exec.env` — map nama → nilai untuk anak, bukan pewarisan dari induk, ADR-071 — menang, kecuali baris yang ditandai *keras*):
+**Env non-interaktif** (ditambahkan ke env anak; nilai yang di-set user lewat `exec.env` — map nama → nilai untuk anak, bukan pewarisan dari induk, ADR-071 — menang, kecuali baris yang ditandai *keras*). Entri `exec.env` bernilai secret ref `keychain:<id>` wajib punya cakupan `commands = ["gh", …]` (nama argv0) dan hanya disuntikkan ke proses yang dijalankan **langsung** (tanpa shell interpreter) sebagai simple command dengan argv0 ∈ `commands`; tidak pernah ke sesi shell, `bash -c`, atau proses lain (ADR-081, A.8):
 
 | Var | Nilai | Alasan |
 |---|---|---|
@@ -328,6 +328,7 @@ Ketiadaan label ini **tidak** menjamin apa pun (rekursi lewat symlink, filter gi
 **Env anak (ADR-071):**
 - Deny-by-default: hanya var di allowlist GAP-SEC-02 (SPEC §22.1) yang diwariskan dari env induk, ditambah `exec.env_allow` (daftar **nama persis** var induk, tanpa glob) dan nilai `exec.env` yang di-set (A.6).
 - Kunci provider hanya diwariskan bila namanya tercantum eksplisit di `exec.env_allow`.
+- **Secret ref `exec.env` (ADR-081).** Entri bernilai `keychain:<id>` wajib punya cakupan `commands` (nama argv0). Var itu hanya disuntikkan ke proses yang dijalankan langsung (tanpa shell interpreter) sebagai simple command dengan argv0 ∈ `commands`; tidak pernah ke sesi persisten, `bash -c`, atau proses lain. Perintah yang mereferensikan var secret (`$X`, `${X…}`) → label `unknown` (preview menandai "references secret"). Nilai tetap sumber redaksi SPEC §14.3. Nilai secret tidak pernah disuntikkan ke konteks model oleh Damn-Bot; transformasi nilai oleh program yang di-approve user = sisa risiko (TRUST-MODEL §3).
 
 **Redaksi:** SPEC §14.3 (termasuk pola ADR-071: blok PEM multi-baris fail-closed, Stripe, Google, GitLab, Hugging Face, npm, JWT, userinfo URL) diterapkan pada stream UI, ringkasan model, blob, dan log.
 
