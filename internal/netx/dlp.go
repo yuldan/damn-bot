@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"slices"
@@ -235,16 +236,18 @@ func (d *dlp) check(req *http.Request) error {
 
 // scan matches b, then up to dlpMaxDepth percent/form-decoded layers
 // (hex case-insensitive, '+' = space). Decoding never grows a layer, so the
-// work is ≤ (1+dlpMaxDepth)·len(b). A decoded layer is scanned only around
-// bytes the decoding changed (± d.region): a match touching no decoded byte
-// is a contiguous copy of the previous layer and was already checked there
+// work is ≤ (1+dlpMaxDepth)·len(b). On a decoded layer the §14.3 patterns
+// run over the whole layer (jwt and url_password have unbounded context,
+// NETX-26); the secret matcher runs only around bytes the decoding changed,
+// ± d.region folded bytes: an occurrence touching no decoded byte is a
+// contiguous copy of the previous layer and was already checked there
 // (NETX-15/16).
 func (d *dlp) scan(b []byte) error {
-	verify := dlpMaxVerify
 	if len(b) == 0 {
 		return nil
 	}
-	if err := d.hit(b, &verify); err != nil {
+	budget := verifyBudget{long: dlpMaxVerify, short: dlpMaxVerify + dlpShortVerifyPerByte*len(b)}
+	if err := d.hit(b, &budget); err != nil {
 		return err
 	}
 	bufs, ok := d.layers.Get().(*dlpLayers)
@@ -258,16 +261,15 @@ func (d *dlp) scan(b []byte) error {
 		if all && bytes.IndexByte(cur, '%') < 0 && bytes.IndexByte(cur, '+') < 0 || !all && len(cand) == 0 {
 			return nil
 		}
-		var nextCand []int
-		next, nextCand, bufs.spans = d.decode(next[:0], bufs.candB[:0], bufs.spans[:0], cur, cand, all)
-		bufs.candA, bufs.candB, cand, all = nextCand, cand, nextCand, false
+		var nextCand []int32
+		var overflow bool
+		next, nextCand, overflow, bufs.spans = d.decode(next[:0], bufs.candB[:0], bufs.spans[:0], cur, cand, all)
+		bufs.candA, bufs.candB, cand, all = nextCand, cand, nextCand, overflow
 		if len(bufs.spans) == 0 {
 			return nil
 		}
-		for _, sp := range bufs.spans {
-			if err := d.hit(next[sp[0]:sp[1]], &verify); err != nil {
-				return err
-			}
+		if err := d.layerHit(next, bufs.spans, &budget); err != nil {
+			return err
 		}
 		// Swap: the layer just checked becomes the source of the next one.
 		if &cur[0] == &b[0] {
@@ -280,25 +282,59 @@ func (d *dlp) scan(b []byte) error {
 	return nil
 }
 
+// layerHit checks a decoded layer: patterns over all of it, secrets in the
+// widened spans around decoded bytes.
+func (d *dlp) layerHit(layer []byte, spans [][2]int, budget *verifyBudget) error {
+	if d.patternHit(layer) {
+		return &classedError{err: ErrSecretEgress, class: retry.BadRequest}
+	}
+	for _, sp := range d.widen(layer, spans) {
+		if err := d.secretHit(layer[sp[0]:sp[1]], budget); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// dlpShortVerifyPerByte: bytes of short-secret (< dlpWindow) comparisons
+// allowed per scanned input byte on top of dlpMaxVerify. Short secrets have
+// 2-byte keys that natural text hits often; a separate linear budget keeps
+// them from exhausting the long-form budget on benign prose (NETX-27).
+const dlpShortVerifyPerByte = 8
+
+// verifyBudget bounds the bytes compared per scan (fail-closed).
+type verifyBudget struct{ long, short int }
+
 // dlpLayers are reusable decoding buffers of one scan.
 type dlpLayers struct {
 	a, b         []byte
-	candA, candB []int // positions of '%'/'+' written by the last decode
+	candA, candB []int32 // positions of '%'/'+' written by the last decode
 	spans        [][2]int
 }
 
 // hit checks one segment against the §14.3 patterns and the secret forms.
-func (d *dlp) hit(seg []byte, verify *int) error {
-	// Redact returns seg itself when nothing matches.
-	if out := d.pat.Redact(seg); len(out) != len(seg) || len(seg) > 0 && &out[0] != &seg[0] {
+func (d *dlp) hit(seg []byte, budget *verifyBudget) error {
+	if d.patternHit(seg) {
 		return &classedError{err: ErrSecretEgress, class: retry.BadRequest}
 	}
+	return d.secretHit(seg, budget)
+}
+
+// patternHit reports whether seg contains a §14.3 pattern (Redact returns
+// seg itself when nothing matches).
+func (d *dlp) patternHit(seg []byte) bool {
+	out := d.pat.Redact(seg)
+	return len(out) != len(seg) || len(seg) > 0 && &out[0] != &seg[0]
+}
+
+// secretHit checks seg against the known secret forms.
+func (d *dlp) secretHit(seg []byte, budget *verifyBudget) error {
 	buf, ok := d.scratch.Get().(*[]byte)
 	if !ok {
 		buf = new([]byte)
 	}
 	*buf = d.fold((*buf)[:0], seg)
-	found, err := d.match(*buf, verify)
+	found, err := d.match(*buf, budget)
 	d.scratch.Put(buf)
 	switch {
 	case err != nil:
@@ -309,18 +345,28 @@ func (d *dlp) hit(seg []byte, verify *int) error {
 	return nil
 }
 
+// maxCandShift bounds the candidate list to len(src) >> maxCandShift
+// entries; a layer with more '%'/'+' bytes than that is rescanned in full
+// (all) instead (NETX-28: an 8 MiB body of '%' must not allocate a list
+// per byte).
+const maxCandShift = 4
+
 // decode percent/form-decodes src into dst. With all set every byte of
 // src is examined; otherwise only the positions in cand (the '%'/'+' bytes
 // the previous decode emitted) can be escapes and the runs between them are
-// copied in bulk. It returns the positions of '%'/'+' written to dst and the
-// merged spans of dst within d.region of a decoded byte.
-func (d *dlp) decode(dst []byte, outCand []int, spans [][2]int, src []byte, cand []int, all bool) ([]byte, []int, [][2]int) {
+// copied in bulk. It returns the positions of '%'/'+' written to dst
+// (overflow: too many, the next layer examines every byte) and the merged
+// spans [first, last] of decoded positions in dst.
+func (d *dlp) decode(dst []byte, outCand []int32, spans [][2]int, src []byte, cand []int32, all bool) ([]byte, []int32, bool, [][2]int) {
 	if all {
 		return d.decodeAll(dst, outCand, spans, src)
 	}
 	from := 0
-	tr := spanTrack{r: d.region, hi: -1, spans: spans}
-	for _, i := range cand {
+	tr := spanTrack{gap: 2 * d.region, last: -1, spans: spans}
+	limit := len(src) >> maxCandShift
+	overflow := false
+	for _, ci := range cand {
+		i := int(ci)
 		if i < from {
 			continue // consumed by the previous escape
 		}
@@ -332,21 +378,31 @@ func (d *dlp) decode(dst []byte, outCand []int, spans [][2]int, src []byte, cand
 			n = 1
 		}
 		if c == '%' || c == '+' {
-			outCand = append(outCand, len(dst))
+			outCand, overflow = addCand(outCand, len(dst), limit, overflow)
 		}
 		dst = append(dst, c)
 		from = i + n
 	}
 	dst = append(dst, src[from:]...)
-	return dst, outCand, clampSpans(tr.done(), len(dst))
+	return dst, outCand, overflow, tr.done()
+}
+
+// addCand records candidate p unless the list is over limit.
+func addCand(cand []int32, p, limit int, overflow bool) ([]int32, bool) {
+	if overflow || len(cand) >= limit || p < 0 || p > math.MaxInt32 {
+		return cand[:0], true
+	}
+	return append(cand, int32(p)), false
 }
 
 // decodeAll is decode over every byte of src (the raw layer).
-func (d *dlp) decodeAll(dst []byte, outCand []int, spans [][2]int, src []byte) ([]byte, []int, [][2]int) {
+func (d *dlp) decodeAll(dst []byte, outCand []int32, spans [][2]int, src []byte) ([]byte, []int32, bool, [][2]int) {
 	base := len(dst)
 	dst = slices.Grow(dst, len(src))[:base+len(src)]
 	out, j := dst[base:], 0
-	tr := spanTrack{r: d.region, hi: -1, spans: spans}
+	tr := spanTrack{gap: 2 * d.region, last: -1, spans: spans}
+	limit := len(src) >> maxCandShift
+	overflow := false
 	for i := 0; i < len(src); i++ {
 		c := src[i]
 		if c != '+' && c != '%' {
@@ -360,33 +416,33 @@ func (d *dlp) decodeAll(dst []byte, outCand []int, spans [][2]int, src []byte) (
 			i += n - 1
 		}
 		if c == '%' || c == '+' {
-			outCand = append(outCand, base+j)
+			outCand, overflow = addCand(outCand, base+j, limit, overflow)
 		}
 		out[j] = c
 		j++
 	}
-	dst = dst[:base+j]
-	return dst, outCand, clampSpans(tr.done(), len(dst))
+	return dst[:base+j], outCand, overflow, tr.done()
 }
 
-// spanTrack merges the rescan windows (± r) of decoded output positions.
+// spanTrack merges decoded output positions into [first, last] spans;
+// positions within gap of the previous one join its span.
 type spanTrack struct {
-	lo, hi, r int // current window; hi < 0 = none
-	spans     [][2]int
+	first, last, gap int // current span; last < 0 = none
+	spans            [][2]int
 }
 
 func (t *spanTrack) add(p int) {
-	if t.hi >= 0 && p-t.r <= t.hi {
-		t.hi = p + t.r + 1
+	if t.last >= 0 && p-t.last <= t.gap {
+		t.last = p
 		return
 	}
 	t.flush()
-	t.lo, t.hi = max(p-t.r, 0), p+t.r+1
+	t.first, t.last = p, p
 }
 
 func (t *spanTrack) flush() {
-	if t.hi >= 0 {
-		t.spans = append(t.spans, [2]int{t.lo, t.hi})
+	if t.last >= 0 {
+		t.spans = append(t.spans, [2]int{t.first, t.last})
 	}
 }
 
@@ -395,12 +451,52 @@ func (t *spanTrack) done() [][2]int {
 	return t.spans
 }
 
-func clampSpans(spans [][2]int, n int) [][2]int {
-	for k := range spans {
-		spans[k][1] = min(spans[k][1], n)
+// widen turns [first, last] decoded-position spans of layer into the
+// half-open ranges the secret matcher scans: d.region folded bytes (CR/LF
+// dropped by fold do not count, NETX-26) before first and after last,
+// merged. Each walk starts where the previous range ended, so the work is
+// O(len(layer)) whatever the spans; a restarted forward count only widens
+// the range. spans is rewritten in place.
+func (d *dlp) widen(layer []byte, spans [][2]int) [][2]int {
+	out := spans[:0]
+	end := 0
+	for _, sp := range spans {
+		lo := d.walkBack(layer, sp[0], end)
+		hi := d.walkFwd(layer, max(sp[1]+1, end))
+		if len(out) > 0 && lo <= out[len(out)-1][1] {
+			out[len(out)-1][1] = hi
+		} else {
+			out = append(out, [2]int{lo, hi})
+		}
+		end = hi
 	}
-	return spans
+	return out
 }
+
+// walkBack returns the start of the d.region folded bytes before p, not
+// below floor.
+func (d *dlp) walkBack(layer []byte, p, floor int) int {
+	for n := 0; p > floor && n < d.region; {
+		p--
+		if !d.folds(layer[p]) {
+			n++
+		}
+	}
+	return p
+}
+
+// walkFwd returns the end of the d.region folded bytes from p.
+func (d *dlp) walkFwd(layer []byte, p int) int {
+	for n := 0; p < len(layer) && n < d.region; p++ {
+		if !d.folds(layer[p]) {
+			n++
+		}
+	}
+	return p
+}
+
+// folds reports whether fold drops c.
+func (d *dlp) folds(c byte) bool { return !d.keepCRLF && (c == '\r' || c == '\n') }
 
 // fold appends the ASCII-lowercased src to dst, dropping CR and LF when
 // no secret form contains them.
@@ -429,9 +525,9 @@ func (d *dlp) fold(dst, src []byte) []byte {
 
 // match reports whether folded contains a folded secret form; verify
 // bounds the bytes compared (adversarial prefix collisions fail closed).
-func (d *dlp) match(folded []byte, verify *int) (bool, error) {
+func (d *dlp) match(folded []byte, budget *verifyBudget) (bool, error) {
 	if d.hasShort1 || d.hasShort2 {
-		if hit, err := d.matchShort(folded, verify); hit || err != nil {
+		if hit, err := d.matchShort(folded, &budget.short); hit || err != nil {
 			return hit, err
 		}
 	}
@@ -448,7 +544,7 @@ func (d *dlp) match(folded []byte, verify *int) (bool, error) {
 			if d.filter[mix(k)/64]&(1<<(mix(k)%64)) == 0 {
 				continue
 			}
-			if hit, err := verifyAt(folded[s:], d.index[k], verify); hit || err != nil {
+			if hit, err := verifyAt(folded[s:], d.index[k], &budget.long); hit || err != nil {
 				return hit, err
 			}
 		}

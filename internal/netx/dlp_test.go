@@ -12,6 +12,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -435,5 +436,70 @@ func TestShortSecretOffsets(t *testing.T) {
 		if err := d.scan([]byte(strings.Repeat(".", 64))); err != nil {
 			t.Errorf("min %d: clean body: %v", minLen, err)
 		}
+	}
+}
+
+// TestDLPLongContext (NETX-26): a decoded byte far (> d.region) from the
+// rest of a match is still caught — patterns with unbounded context (jwt,
+// url_password) run over the whole decoded layer, and the secret window is
+// counted in folded bytes (CR/LF dropped by fold do not count).
+func TestDLPLongContext(t *testing.T) {
+	t.Parallel()
+	secret := "secret_tok_value_0123456789abcdef" // 33 B
+	d := newDLP([]string{secret})
+	b64 := func(n int) string { return strings.Repeat("A", n) }
+	for _, pad := range []int{200, 255, 256, 257, 260, 300, 1000, 5000} {
+		cases := map[string]string{
+			"jwt":          "GET /?t=eyJhbGciOiJIUzI1NiJ9." + b64(pad) + "%2E" + b64(43),
+			"jwt-dot-head": "t=eyJhbGciOiJIUzI1NiJ9%2E" + b64(pad) + "." + b64(43),
+			"url_password": "u=postgres://admin:hunter2" + strings.Repeat("x", pad) + "%40db.internal/app",
+			"secret-lf":    "%73ec" + strings.Repeat("\n", pad) + secret[3:],
+			"secret-crlf":  secret[:10] + strings.Repeat("\r\n", pad) + "%" + fmt.Sprintf("%02X", secret[10]) + secret[11:],
+			"secret-tail":  secret[:30] + strings.Repeat("\n", pad) + "%" + fmt.Sprintf("%02x", secret[30]) + secret[31:],
+		}
+		for name, body := range cases {
+			if err := d.scan([]byte(body)); !errors.Is(err, ErrSecretEgress) {
+				t.Errorf("%s pad %d: %v", name, pad, err)
+			}
+		}
+	}
+	// Benign long context stays clean.
+	if err := d.scan([]byte("u=https://example.com/" + strings.Repeat("x", 5000) + "%40v1&q=" + strings.Repeat("%20a\n", 300))); err != nil {
+		t.Errorf("benign long context: %v", err)
+	}
+}
+
+// TestDLPCandidateMemory (NETX-28): a body of undecodable '%' bytes keeps
+// the candidate list bounded and still scans (no secret, no error).
+//
+//nolint:paralleltest // measures process-wide TotalAlloc
+func TestDLPCandidateMemory(t *testing.T) {
+	d := newDLP(dlpSecrets(5))
+	body := bytes.Repeat([]byte("%"), dlpMaxBody)
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	before := ms.TotalAlloc
+	if err := d.scan(body); err != nil {
+		t.Fatal(err)
+	}
+	runtime.ReadMemStats(&ms)
+	if grew := ms.TotalAlloc - before; grew > 8*dlpMaxBody { // race mode drops pooled buffers
+		t.Fatalf("8 MiB of %% allocated %d MiB", grew>>20)
+	}
+}
+
+// TestDLPShortSecretsProse (NETX-27): 50 short secrets sharing a frequent
+// 2-byte key do not exhaust the verify budget on 72 KiB of benign prose
+// (≈ 260 KiB of short comparisons, over the old shared dlpMaxVerify).
+func TestDLPShortSecretsProse(t *testing.T) {
+	t.Parallel()
+	var secrets []string
+	for i := range 50 {
+		secrets = append(secrets, fmt.Sprintf("e %03d!", i)) // key "e " ends many words
+	}
+	d := newDLP(secrets)
+	prose := []byte(strings.Repeat("the interesting store on the corner has some cheap bread and milk; ", 1100))
+	if err := d.scan(prose); err != nil {
+		t.Fatalf("benign prose: %v", err)
 	}
 }
