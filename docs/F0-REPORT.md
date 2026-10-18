@@ -156,7 +156,7 @@ Commit: `ad458b6` (DDL), `529c947` (core), `7d9f025` (purge), `1e2c128` (restore
 | `go vet ./internal/ctxdb/` | 0 | |
 | `go test -count=1 ./internal/ctxdb/` | 0 | `ok … 20.7s` — TestScenario (86 subtest), TestKill9Chaos, TestMultiProcess, TestSmoke* |
 | `go test -count=1 -race -v ./internal/ctxdb/` @ `1e2c128` | 1 | TestKill9Chaos PASS (18,2 s), TestMultiProcess PASS (26,3 s), 0 DATA RACE, 0 goleak; TestScenario FAIL hanya S015 (`lock budget: max 1.029s`), total 522 s |
-| `go test -count=1 -race ./internal/ctxdb/` @ `0f5f91d` | lihat baris berikut | (diisi setelah run selesai) |
+| `go test -count=1 -race ./internal/ctxdb/` @ `0f5f91d` | 1 | 536 s; 0 DATA RACE; FAIL: S015 (`max 1.131s`, duty 18,3%, TS-P08) dan **TestMultiProcess: 1 `SQLITE_BUSY` sampai ke caller** di salah satu dari 4 proses (busy_timeout 5 s terlampaui di bawah race; P19 — lihat TS-P06). Semua subtest lain lulus. |
 | `scc --no-gen` non-test `internal/ctxdb` | — | 2.688 LOC > budget 2.500 |
 
 ## Temuan spec
