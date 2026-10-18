@@ -62,9 +62,11 @@ func writeFile(t testing.TB, p, content string) {
 	}
 }
 
-func (v *env) put(t testing.TB, rel, content string) {
+func (v *env) put(t testing.TB, rel, content string) string {
 	t.Helper()
-	writeFile(t, filepath.Join(v.root, filepath.FromSlash(rel)), content)
+	p := filepath.Join(v.root, filepath.FromSlash(rel))
+	writeFile(t, p, content)
+	return p
 }
 
 func (v *env) get(t testing.TB, rel string) string {
@@ -79,6 +81,17 @@ func (v *env) read(t testing.TB, a ReadArgs) Result {
 		t.Fatalf("Read(%+v): %v", a, err)
 	}
 	return r
+}
+
+// tag reads rel and returns its tag.
+func (v *env) tag(t testing.TB, rel string) string {
+	t.Helper()
+	r := v.read(t, ReadArgs{Path: rel})
+	s := metaStr(&r, "tag")
+	if s == "" {
+		t.Fatalf("%s: no tag", rel)
+	}
+	return s
 }
 
 func wantCode(t testing.TB, err error, c Code) {
