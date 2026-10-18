@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // testPrice: tarif > 0 (Price.Valid) agar cap aktif.
@@ -35,6 +36,25 @@ func post(t *testing.T, base, path, body string) int {
 	}
 	resp.Body.Close()
 	return resp.StatusCode
+}
+
+// waitRecorded menunggu sampai proxy selesai menulis n record: klien bisa menerima respons
+// sebelum handler mencatat biaya/error (write terjadi setelah body diteruskan).
+func waitRecorded(t *testing.T, r *Recorder, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		r.mu.Lock()
+		seq := r.seq
+		r.mu.Unlock()
+		if seq >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("proxy mencatat %d record, want %d", seq, n)
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 // TestLedgerCapAcrossRuns: biaya tiap run tersimpan di ledger; run berikutnya (Recorder baru,
@@ -107,6 +127,7 @@ func TestPriceRequired(t *testing.T) {
 	defer px.Close()
 	rec.Begin("a", "T", io.Discard)
 	got := post(t, px.URL, "/v1/chat/completions", `{"max_tokens":1}`)
+	waitRecorded(t, rec, 1)
 	_, errs := rec.End()
 	if got != http.StatusInternalServerError || *hits != 0 || len(errs) != 1 {
 		t.Fatalf("status=%d hits=%d errs=%v", got, *hits, errs)
@@ -181,6 +202,7 @@ func TestUsageMissing(t *testing.T) {
 			req := `{"max_tokens":1000,"messages":[{"role":"user","content":"hi"}]}`
 			rec.Begin("a", "T", io.Discard)
 			post(t, px.URL, "/v1/chat/completions", req)
+			waitRecorded(t, rec, 1)
 			_, errs := rec.End()
 			want := testPrice.Worst([]byte(req))
 			if len(errs) != 1 || !strings.Contains(errs[0], "usage_missing") || rec.Spent() != want {
