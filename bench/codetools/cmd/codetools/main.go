@@ -267,7 +267,7 @@ func benchHermes(c1, home string, q queries, runs int, tok *o200k.Tokenizer, rgC
 	mustJSON := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 	golden := slices.Concat(q.Literal, q.Regex[:10])
 	for i, pat := range golden {
-		add(fmt.Sprintf("search-%02d", i), "search_files", pat, speed.Op{Kind: "tool", Tool: "search_files", Capture: true,
+		add(fmt.Sprintf("search-%02d", i), "search_files", pat, speed.Op{Kind: "tool", Tool: "search_files", Capture: true, FreshTask: true,
 			Args: mustJSON(map[string]any{"pattern": pat, "path": c1})})
 	}
 	files, err := pickFiles(c1)
@@ -275,7 +275,7 @@ func benchHermes(c1, home string, q queries, runs int, tok *o200k.Tokenizer, rgC
 		return nil, err
 	}
 	for i, f := range files {
-		add(fmt.Sprintf("read-%02d", i), "read_file", f, speed.Op{Kind: "tool", Tool: "read_file",
+		add(fmt.Sprintf("read-%02d", i), "read_file", f, speed.Op{Kind: "tool", Tool: "read_file", FreshTask: true,
 			Args: mustJSON(map[string]any{"path": filepath.Join(c1, f), "offset": 1, "limit": 400})})
 		data, err := os.ReadFile(filepath.Join(c1, f))
 		if err != nil {

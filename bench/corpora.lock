@@ -1,0 +1,6 @@
+# Korpus code tools (CODE-TOOLS §10.1). sha256 C2/C3 = SHA-256 atas manifest "sha256(file)  path\n" berurut path
+# (bench/gencorpus.finish). Bangkitkan ulang: cd bench && go run ./gencorpus/cmd/gen-corpus -name <ID> -seed <s> -files <n> -mean <m> -out <dir>
+# Hasil harus byte-identik dengan digest di bawah (generator deterministik; TestDeterministic).
+C1 git=868b9f244f5aa3ad238e494048046fe4f29c28ba tracked_files=20076 tracked_bytes=224820903 source=hermes-agent (git ls-files)
+C2 seed=1 files=80000 mean=12500 total_files=81780 dirs=5055 bytes=1108410404 binary=800 large=80 minified=50 ignored=1424 sha256=279cb53ab6ab8c31b7885076d7ef2237818989e4acc5728b55cada294f45f775
+C3 seed=3 files=1000 mean=10700 total_files=1030 dirs=83 bytes=12314372 binary=10 large=1 minified=1 ignored=24 sha256=3117a2adcfdcf049633c2f67c220d103e8c88d8b9fa6ef89bdcd59a1dc849936

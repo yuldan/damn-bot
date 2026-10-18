@@ -65,7 +65,8 @@ func Generate(root string, p Params) (Stats, error) {
 		return Stats{}, fmt.Errorf("gencorpus: %s sudah ada", root)
 	}
 	r := rand.New(rand.NewPCG(p.Seed, p.Seed^0x9e3779b97f4a7c15))
-	ndirs := max(1, p.Files/16)
+	// ≈ files/27 direktori daun; dengan direktori perantara total ≈ 5.000 untuk 80.000 file.
+	ndirs := max(1, p.Files/27)
 	dirs := make([]string, ndirs)
 	for i := range dirs {
 		depth := 1 + r.IntN(4)
@@ -75,7 +76,9 @@ func Generate(root string, p Params) (Stats, error) {
 		}
 		dirs[i] = filepath.Join(parts...)
 	}
-	minified := max(1, p.Files*50/80000)
+	// minified: indeks i ≡ 21 (mod 1600) → 50 per 80.000 file; tidak pernah bertabrakan dengan
+	// biner (i ≡ 7 mod 100) atau file besar (i ≡ 13 mod 1000).
+	const minifiedEvery = 80000 / 50
 	var st Stats
 	for i := range p.Files {
 		dir := dirs[r.IntN(len(dirs))]
@@ -94,7 +97,7 @@ func Generate(root string, p Params) (Stats, error) {
 		case i%1000 == 13: // 0,1% file > 1 MB
 			data = textFile(r, l, 1<<20+r.IntN(1<<19))
 			st.Large++
-		case i < minified: // minified: satu baris panjang
+		case i%minifiedEvery == 21: // minified: satu baris panjang
 			name = fmt.Sprintf("bundle_%d.min.js", i)
 			data = []byte(strings.ReplaceAll(string(textFile(r, langs[2], 200_000)), "\n", ";"))
 			st.Minified++
