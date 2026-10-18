@@ -15,12 +15,16 @@ import (
 type lit struct {
 	s    string
 	fold bool // ASCII case-insensitive
+	rare int  // offset of the rarest byte, the IndexByte anchor
 }
+
+func newLit(s string, fold bool) lit { return lit{s, fold, rarest(s)} }
 
 // matcher finds matching lines: literal fast path, required-literal
 // prefilter, or plain RE2 (CODE-TOOLS §2.5).
 type matcher struct {
 	re        *regexp.Regexp // nil: pure literal
+	pre       *regexp.Regexp // buffer-wide candidate search when lits is empty
 	lits      []lit          // any-of prefilter; empty: RE2 over the buffer
 	multiline bool
 }
@@ -46,7 +50,7 @@ func compileMatcher(pattern, mode string) (*matcher, error) {
 	re0 = re0.Simplify()
 	m := &matcher{multiline: strings.Contains(pattern, `\n`) || strings.Contains(pattern, "\n")}
 	if s, f, ok := pureLiteral(re0); ok && !m.multiline {
-		m.lits = []lit{{s, f}}
+		m.lits = []lit{newLit(s, f)}
 		return m, nil
 	}
 	prefix := ""
@@ -59,7 +63,41 @@ func compileMatcher(pattern, mode string) (*matcher, error) {
 	if !m.multiline {
 		m.lits = required(re0)
 	}
-	return m, nil
+	if m.pre = m.re; len(m.lits) == 0 && !m.multiline {
+		m.pre, err = crlfPrefilter(pattern, flags, m.re)
+	}
+	return m, err
+}
+
+// crlfPrefilter is the buffer-wide RE2 of a pattern without required
+// literals: `$` also matches before "\r\n" because lines are verified
+// without their '\r'. It accepts a superset at no later start, so the
+// per-line verification stays exact.
+func crlfPrefilter(pattern string, flags syntax.Flags, re *regexp.Regexp) (*regexp.Regexp, error) {
+	t, err := syntax.Parse("(?m)"+pattern, flags)
+	if err != nil {
+		return nil, fmt.Errorf("codetools: pattern: %w", err)
+	}
+	root := &syntax.Regexp{Op: syntax.OpConcat, Sub: []*syntax.Regexp{t}}
+	if !crlfEnd(root) {
+		return re, nil
+	}
+	return regexp.Compile(root.String())
+}
+
+// crlfEnd rewrites every `$` below re into `\r?$`.
+func crlfEnd(re *syntax.Regexp) bool {
+	found := false
+	for i, s := range re.Sub {
+		if s.Op == syntax.OpEndLine {
+			cr := &syntax.Regexp{Op: syntax.OpQuest, Sub: []*syntax.Regexp{{Op: syntax.OpLiteral, Rune: []rune{'\r'}}}}
+			re.Sub[i] = &syntax.Regexp{Op: syntax.OpConcat, Sub: []*syntax.Regexp{cr, s}}
+			found = true
+		} else if crlfEnd(s) {
+			found = true
+		}
+	}
+	return found
 }
 
 func hasUpper(re *syntax.Regexp) bool {
@@ -92,13 +130,14 @@ func isASCII(s string) bool {
 }
 
 // required extracts a literal set of which at least one occurs in every
-// match: the longest literal of a concatenation, the union of an
+// match: the best literal set of a concatenation (runs of finite subpatterns
+// are expanded, so `^(def|fn) ` yields "def ", "fn "), the union of an
 // alternation of ≤ maxAltLits literal sets. nil = no usable literal.
 func required(re *syntax.Regexp) []lit {
 	op := re.Op
 	if op == syntax.OpLiteral {
 		if s, f, ok := pureLiteral(re); ok {
-			return []lit{{s, f}}
+			return []lit{newLit(s, f)}
 		}
 		return nil
 	}
@@ -106,12 +145,24 @@ func required(re *syntax.Regexp) []lit {
 		return required(re.Sub[0])
 	}
 	if op == syntax.OpConcat {
-		var best []lit
-		for _, s := range re.Sub {
-			if c := required(s); c != nil && minLen(c) > minLen(best) {
+		var best, run []lit
+		pick := func(c []lit) {
+			if minLen(c) > minLen(best) {
 				best = c
 			}
 		}
+		for _, s := range re.Sub {
+			e := exact(s)
+			if p := product(run, e); e != nil && p != nil {
+				run = p
+				continue
+			}
+			pick(run)
+			if run = e; e == nil {
+				pick(required(s))
+			}
+		}
+		pick(run)
 		return best
 	}
 	if op != syntax.OpAlternate {
@@ -128,6 +179,54 @@ func required(re *syntax.Regexp) []lit {
 	return all
 }
 
+// exact is the finite set of strings re matches (zero-width assertions
+// match ""), nil when unbounded or above maxAltLits.
+func exact(re *syntax.Regexp) []lit {
+	switch re.Op {
+	case syntax.OpLiteral:
+		if s, f, ok := pureLiteral(re); ok {
+			return []lit{newLit(s, f)}
+		}
+	case syntax.OpEmptyMatch, syntax.OpBeginLine, syntax.OpEndLine, syntax.OpBeginText, syntax.OpEndText, syntax.OpWordBoundary, syntax.OpNoWordBoundary:
+		return []lit{{}}
+	case syntax.OpCapture:
+		return exact(re.Sub[0])
+	case syntax.OpAlternate, syntax.OpConcat:
+		var set []lit
+		for i, s := range re.Sub {
+			e := exact(s)
+			if re.Op == syntax.OpConcat && i > 0 {
+				e = product(set, e)
+			} else if e != nil {
+				e = append(set, e...)
+			}
+			if set = e; e == nil || len(e) > maxAltLits {
+				return nil
+			}
+		}
+		return set
+	}
+	return nil
+}
+
+// product concatenates every pair of a and b (nil when either is nil, the
+// case modes differ or the set exceeds maxAltLits).
+func product(a, b []lit) []lit {
+	if a == nil || b == nil || len(a)*len(b) > maxAltLits {
+		return nil
+	}
+	out := make([]lit, 0, len(a)*len(b))
+	for _, x := range a {
+		for _, y := range b {
+			if x.s != "" && y.s != "" && x.fold != y.fold {
+				return nil
+			}
+			out = append(out, newLit(x.s+y.s, x.fold || y.fold))
+		}
+	}
+	return out
+}
+
 func minLen(ls []lit) int {
 	if ls == nil {
 		return 0
@@ -139,23 +238,22 @@ func minLen(ls []lit) int {
 	return n
 }
 
-// index finds the first occurrence of l in b (-1 when absent). Folded
-// literals search the rarer case variants of their rarest byte and verify
-// with bytes.EqualFold (CODE-TOOLS §2.5 butir 4).
+// index finds the first occurrence of l in b (-1 when absent): IndexByte
+// on the literal's rarest byte (both cases when folded), then a compare
+// (bytes.EqualFold when folded; CODE-TOOLS §2.5 butir 2 and 4).
 func (l *lit) index(b []byte) int {
-	if !l.fold {
-		return bytes.Index(b, []byte(l.s))
+	c := l.s[l.rare]
+	lo, up := c, c
+	if l.fold {
+		lo, up = bytes.ToLower([]byte{c})[0], bytes.ToUpper([]byte{c})[0]
 	}
-	pos := rarest(l.s)
-	c := l.s[pos]
-	lo, up := bytes.ToLower([]byte{c})[0], bytes.ToUpper([]byte{c})[0]
-	for i := pos; i < len(b); {
+	for i := l.rare; i < len(b); {
 		j := indexEither(b[i:], lo, up)
 		if j < 0 {
 			return -1
 		}
-		start := i + j - pos
-		if start+len(l.s) <= len(b) && bytes.EqualFold(b[start:start+len(l.s)], []byte(l.s)) {
+		start := i + j - l.rare
+		if end := start + len(l.s); end <= len(b) && (l.fold && bytes.EqualFold(b[start:end], []byte(l.s)) || !l.fold && string(b[start:end]) == l.s) {
 			return start
 		}
 		i += j + 1
@@ -211,8 +309,9 @@ func (m *matcher) scanBuf(buf []byte, base int, fn func(matchLine) bool) {
 		return
 	}
 	line, pos := base, 0 // line = number of the line starting at pos
+	at := [maxAltLits]int{-2, -2, -2, -2, -2, -2, -2, -2}
 	for pos < len(buf) {
-		hit, col := m.next(buf, pos)
+		hit, col := m.next(buf, pos, &at)
 		if hit < 0 {
 			return
 		}
@@ -234,23 +333,31 @@ func (m *matcher) scanBuf(buf []byte, base int, fn func(matchLine) bool) {
 
 // next finds the next candidate at or after pos and verifies it: hit is a
 // byte inside the matching line, col the match column (-1 = candidate line
-// without a match; the caller skips it).
-func (m *matcher) next(buf []byte, pos int) (hit, col int) {
+// without a match; the caller skips it). at caches each literal's next
+// occurrence (-1 none left, -2 unknown) so a rare literal of a set is not
+// searched again from every candidate of a frequent one.
+func (m *matcher) next(buf []byte, pos int, at *[maxAltLits]int) (hit, col int) {
 	hit = -1
 	if len(m.lits) == 0 {
 		// A buffer match starts no later than any single-line match; the
 		// line holding its start is then verified alone (no match across
 		// '\n' outside multiline mode, like rg).
-		if loc := m.re.FindIndex(buf[pos:]); loc != nil {
+		if loc := m.pre.FindIndex(buf[pos:]); loc != nil {
 			hit = pos + loc[0]
 		}
 	}
 	for i := range m.lits {
-		if j := m.lits[i].index(buf[pos:]); j >= 0 && (hit < 0 || pos+j < hit) {
-			hit = pos + j
+		if at[i] < pos && at[i] != -1 {
+			at[i] = m.lits[i].index(buf[pos:])
+			if at[i] >= 0 {
+				at[i] += pos
+			}
+		}
+		if at[i] >= 0 && (hit < 0 || at[i] < hit) {
+			hit = at[i]
 		}
 	}
-	if hit < 0 {
+	if hit < 0 || hit == len(buf) && hit > 0 && buf[hit-1] == '\n' { // no line after the final EOL
 		return -1, -1
 	}
 	ls := bytes.LastIndexByte(buf[pos:hit], '\n') + 1 + pos

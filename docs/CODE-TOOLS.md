@@ -515,9 +515,9 @@ edited internal/ctxdb/blob.go #3f9a12c0→#91cc0a7e · 1 edit · +3 -1
 
 | ID | Metrik | Target | Verifikasi |
 |---|---|---|---|
-| CT-01 | grep literal vs `rg` (C1, C2, C3; 40 kueri) | p50 dan p95 ≤ 1,2× | `BenchmarkGrepLiteral/{C1,C2,C3}` + `bench/compare-rg` (job `bench-codetools`, nightly; RC = gate) |
-| CT-02 | grep regex vs `rg` (40 kueri, termasuk tanpa literal wajib) | p50 dan p95 ≤ 1,5× | `BenchmarkGrepRegex/{C1,C2,C3}` + `bench/compare-rg` |
-| CT-03 | glob vs `rg --files` (+ filter glob setara) | p50 dan p95 ≤ 1,2× | `BenchmarkGlob/{C1,C2,C3}` |
+| CT-01 | grep literal vs `rg` (C1, C2, C3; 40 kueri) | p50 dan p95 ≤ 1,2× | `BenchmarkGrepLiteral/{C1,C2,C3}` + `TestGrepSpeedVsRg` (rasio Σp50/Σp95 per korpus × jenis, `make bench-codetools`, job `bench-codetools`, nightly; RC = gate) + laporan `cd bench && go run ./codetools/cmd/codetools -damnbot` |
+| CT-02 | grep regex vs `rg` (40 kueri, termasuk tanpa literal wajib) | p50 dan p95 ≤ 1,5× | `BenchmarkGrepRegex/{C1,C2,C3}` + `TestGrepSpeedVsRg` |
+| CT-03 | glob vs `rg --files` (+ filter glob setara) | p50 dan p95 ≤ 1,2× | `BenchmarkGlob/{C1,C2,C3}` + `TestGrepSpeedVsRg` |
 | CT-04 | grep end-to-end tool di C3 (cold process-cache, page cache hangat) | p95 ≤ 15 ms | `BenchmarkGrepToolC3` (PR perf job) |
 | CT-05 | read_file 400 baris dari file 1 MB (offset acak) | p95 ≤ 3 ms | `BenchmarkReadPage1MB` |
 | CT-06 | tail 100 baris file 100 MB (indeks dingin) | p95 ≤ 10 ms | `BenchmarkReadTail100MB` |

@@ -373,10 +373,14 @@ func appendID(ids []os.FileInfo, comps []string) []os.FileInfo {
 	return append(ids, fi)
 }
 
-func isGlob(c string) bool { return c == "**" || strings.ContainsAny(c, globMeta) }
+func isGlob(c string) bool { return c == "**" || hasMeta(c) }
 
-// globMeta are the bytes that make a pattern component a glob.
-const globMeta = `*?[\`
+// hasMeta reports the bytes that make a pattern component a glob; a byte
+// loop, since strings.ContainsAny costs a set lookup per byte on the
+// per-entry deny path (ADR-103).
+func hasMeta(s string) bool {
+	return strings.IndexFunc(s, func(r rune) bool { return r == '*' || r == '?' || r == '[' || r == '\\' }) >= 0
+}
 
 // canonicalPattern resolves the glob-free prefix of an absolute pattern at
 // New. A prefix that cannot be resolved (no permission, loop) keeps only
@@ -442,10 +446,10 @@ func splitPath(p string) []string { return appendComps(nil, p) }
 // like the patterns were (S15-3).
 func matchComp(pat, c string) bool {
 	if isASCII(c) {
-		if !strings.ContainsAny(pat, globMeta) {
+		if !hasMeta(pat) {
 			return len(c) == len(pat) && strings.EqualFold(c, pat)
 		}
-		if suf := pat[1:]; pat[0] == '*' && !strings.ContainsAny(suf, globMeta) {
+		if suf := pat[1:]; pat[0] == '*' && !hasMeta(suf) {
 			return len(c) >= len(suf) && strings.EqualFold(c[len(c)-len(suf):], suf)
 		}
 	}

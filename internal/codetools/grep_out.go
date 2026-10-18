@@ -122,7 +122,7 @@ func (b *block) match(m grepMatch) {
 	}
 	b.context(b.last+1, min(b.after, m.n-1))
 	from := max(b.last+1, m.n-b.c)
-	if b.last > 0 && from > b.last+1 {
+	if b.c > 0 && b.last > 0 && from > b.last+1 { // "--" separates context blocks only (like rg)
 		b.g.b = append(b.g.b, "--\n"...)
 	}
 	b.context(from, m.n-1)

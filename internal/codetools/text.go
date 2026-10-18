@@ -143,8 +143,8 @@ type magicSig struct {
 	sig, desc string
 }
 
-func magics() []magicSig {
-	return []magicSig{
+func magics() [21]magicSig { // an array: no allocation per sniffed file
+	return [...]magicSig{
 		{0, "\x89PNG\r\n\x1a\n", "PNG image"},
 		{0, "\xff\xd8\xff", "JPEG image"},
 		{0, "GIF87a", "GIF image"},

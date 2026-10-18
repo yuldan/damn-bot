@@ -314,6 +314,11 @@ func (w *walker) entry(n *dirNode, de os.DirEntry, st ignoreStack, top, prefix s
 		return nil // never .git; hidden by default; symlinks are not followed
 	case st.ignored(prefix+name, isDir):
 		return nil
+	case !isDir && w.spec.scan != nil && (w.spec.keepFile == nil || w.spec.keepFile(n.rel+name)):
+		// scanFile opens through OpenResolved, which enforces deny_paths
+		// and reports skipDenied: one deny match per file instead of two.
+		n.entries = append(n.entries, dirEntry{name: name})
+		return nil
 	case w.e.sb.Denied(filepath.Join(n.abs, name)):
 		n.denied++
 		return nil
