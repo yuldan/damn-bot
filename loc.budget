@@ -1,0 +1,26 @@
+# Budget LOC Go non-test per paket (ENGINEERING §2.4 E-19, tabel core; scc --no-gen, kolom Code).
+# Format: <grup> <LOC maks> <direktori...>. Sebuah file dihitung ke grup dengan prefix direktori terpanjang.
+loop              1500 internal/loop
+plan               600 internal/plan
+provider          2000 internal/provider
+provider/registry  400 internal/provider/registry
+netx              1800 internal/netx
+schema            1200 internal/schema
+tools             1800 internal/tools
+codetools         4500 internal/codetools
+exec              3000 internal/exec
+sandbox+redact    1300 internal/sandbox internal/redact
+boundary           150 internal/boundary
+ctxdb             2500 internal/ctxdb
+assemble          1000 internal/assemble
+compaction         900 internal/compaction
+memory+skills     2200 internal/memory internal/skills
+journal            900 internal/journal
+budget             700 internal/budget
+heal              1500 internal/heal
+config            1200 internal/config
+modules            1000 internal/modules
+hooks              700 internal/hooks
+i18n               300 internal/i18n
+# Total Go non-test seluruh repo (P21, ADR-033).
+TOTAL           190000

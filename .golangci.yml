@@ -1,0 +1,180 @@
+# golangci-lint v2.15.0 (tools/go.mod). ENGINEERING §5.1; tag goolm wajib (E-39).
+version: "2"
+
+run:
+  build-tags:
+    - goolm
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - errorlint
+    - wrapcheck
+    - nilerr
+    - nilnesserr
+    - gosec
+    - revive
+    - gocritic
+    - unparam
+    - bodyclose
+    - noctx
+    - contextcheck
+    - containedctx
+    - rowserrcheck
+    - sqlclosecheck
+    - depguard
+    - forbidigo
+    - gochecknoglobals
+    - gochecknoinits
+    - gocyclo
+    - gocognit
+    - funlen
+    - nestif
+    - interfacebloat
+    - iface
+    - exhaustive
+    - sloglint
+    - usetesting
+    - copyloopvar
+    - intrange
+    - modernize
+    - dupl
+    - misspell
+    - nolintlint
+
+  settings:
+    errcheck:
+      check-blank: true
+      check-type-assertions: true
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    errorlint:
+      errorf: true
+    revive:
+      rules:
+        - name: context-as-argument
+        - name: error-return
+        - name: error-strings
+        - name: exported
+        - name: unexported-return
+        - name: var-naming
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - performance
+    gocyclo:
+      min-complexity: 15
+    gocognit:
+      min-complexity: 20
+    funlen:
+      lines: 80
+      statements: -1
+      ignore-comments: true
+    nestif:
+      min-complexity: 4
+    interfacebloat:
+      max: 5
+    dupl:
+      threshold: 100
+    sloglint:
+      no-mixed-args: true
+      static-msg: true
+      key-naming-case: snake
+      context: scope
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^panic$
+          msg: "E-23: tanpa panic di kode library"
+        - pattern: ^recover$
+          msg: "E-24: recover() hanya di internal/boundary"
+        - pattern: ^fmt\.Print
+          msg: "E-25: pakai log/slog"
+        - pattern: ^print(ln)?$
+          msg: "E-25: pakai log/slog"
+        - pattern: ^log\.(Print|Fatal|Panic)
+          msg: "E-25/E-31: pakai log/slog"
+        - pattern: ^time\.Sleep$
+          msg: "E-30/E-72: pakai testing/synctest atau clock injeksi"
+        - pattern: ^os\.Exit$
+          msg: "E-31: os.Exit hanya di cmd/"
+    depguard:
+      rules:
+        global:
+          deny:
+            - pkg: "log$"
+              desc: "E-25: hanya log/slog"
+            - pkg: unsafe
+              desc: "E-38: tanpa unsafe"
+            - pkg: github.com/stretchr/testify
+              desc: "E-66: tanpa framework assert/mock"
+            - pkg: github.com/golang/mock
+              desc: "E-66: tanpa framework mock"
+            - pkg: go.uber.org/mock
+              desc: "E-66: tanpa framework mock"
+        sqlite:
+          files:
+            - "!**/internal/ctxdb/**"
+          deny:
+            - pkg: modernc.org/sqlite
+              desc: "E-04: hanya internal/ctxdb mengimpor driver SQLite"
+            - pkg: database/sql
+              desc: "E-04: hanya internal/ctxdb mengimpor database/sql"
+        frontend:
+          files:
+            - "**/internal/tui/**"
+            - "**/internal/acp/**"
+            - "**/internal/web/**"
+            - "**/internal/gateway/**"
+          deny:
+            - pkg: github.com/damnbot/damnbot/internal/ctxdb
+              desc: "E-03"
+            - pkg: github.com/damnbot/damnbot/internal/provider
+              desc: "E-03"
+            - pkg: github.com/damnbot/damnbot/internal/exec
+              desc: "E-03"
+            - pkg: github.com/damnbot/damnbot/internal/codetools
+              desc: "E-03"
+        hotpath:
+          files:
+            - "**/internal/netx/**"
+            - "**/internal/provider/**"
+            - "**/internal/tools/**"
+            - "**/internal/schema/**"
+            - "**/internal/loop/**"
+            - "**/internal/codetools/**"
+          deny:
+            - pkg: reflect
+              desc: "E-34: tanpa reflect di hot path"
+
+  exclusions:
+    rules:
+      - path: internal/boundary/
+        linters: [forbidigo]
+        text: "recover"
+      - path: internal/netx/retry/
+        linters: [forbidigo]
+        text: "time\\.Sleep"
+      - path: cmd/
+        linters: [forbidigo]
+        text: "os\\.Exit"
+      - path: internal/modules/
+        linters: [gochecknoinits]
+      - path: internal/gateway/
+        linters: [gochecknoinits]
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
