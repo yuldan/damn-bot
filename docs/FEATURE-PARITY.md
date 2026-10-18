@@ -870,7 +870,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | EXEC-006 | Terminal backend: vercel_sandbox | Vercel Sandbox | `tools/environments/vercel_sandbox.py`, `hermes_cli/vercel_auth.py` | opt-in | extra `vercel`, token |  | F5 | planned |
 | EXEC-007 | Terminal backend: ssh | Eksekusi remote via SSH (+ file sync) | `tools/environments/ssh.py`, `tools/environments/file_sync.py` | opt-in | ssh client |  | F5 | planned |
 | EXEC-008 | Terminal env plugin registry | Backend terminal tambahan via plugin | `agent/terminal_env_registry.py`, `agent/terminal_env_provider.py` | opt-in | — |  | F5 | planned |
-| EXEC-009 | Background processes | Proses background dengan registry, log, notifikasi | `tools/process_registry.py`, `tools/terminal_tool_background.py` | on | — | `/stop`, process dock | F1 | planned |
+| EXEC-009 | Background processes | Proses background dengan registry, log, notifikasi | `tools/process_registry.py`, `tools/terminal_tool_background.py` | on | — | `/stop`, process dock | F5 | planned |
 | EXEC-010 | PTY support | PTY untuk perintah interaktif | `hermes_cli/pty_session.py`, `hermes_cli/win_pty_bridge.py` | on | ptyprocess / pywinpty |  | F1 | planned |
 | EXEC-011 | Sudo handling | Prompt sudo aman | `tools/terminal_tool_sudo.py` | on | — |  | F1 | planned |
 | EXEC-012 | Code execution (execute_code) | Python yang memanggil tool via RPC; kernel persisten | `tools/code_execution_tool.py`, `tools/code_kernel.py`, `tools/code_execution_rpc.py` | on (`code_execution.mode: project`) | Python |  | F5 | planned |
