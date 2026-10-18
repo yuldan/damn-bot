@@ -10,7 +10,7 @@ Format sesuai `docs/HANDOFF-F0.md` §"Laporan pagi". Mesin: workstation (Kali, l
 | 1 | `bench/budget` (P1, o200k_base offline) | selesai | tokenizer = tiktoken 0.14.0 persis (id token & jumlah); 13/13 angka gate BASELINE dalam ±5%; job CI `bench-budget`. `TestFixedOverhead` sisi Damn-Bot menunggu `internal/assemble` (F1). |
 | 4 | Baseline hermes tanpa LLM | selesai, dengan pengecualian | Artefak `bench/speed/results/hermes-868b9f244f-nollm.json`. Isinya: overhead token dan schema (#1); startup frame pertama `hermes chat` p50 3.369 ms / p95 3.595 ms; `--version` p50 1.384 ms; RSS CLI median 106,8 MB; install 411,7 MB dan 33,5 s; config minimum 2 baris; 6 langkah setup. Pengecualian: prompt-ready dan idle RSS tidak terukur di netns (TS-11). Waktu install resmi dari VM bersih juga tidak diukur. Dimensi berbasis LLM ditandai "diukur di RC F9". |
 | 5 | `bench/speed` | selesai (kerangka + baseline hermes) | Ke-854 baris FEATURE-PARITY terklasifikasi (`TestEveryRowClassified`): **163 terukur**, 674 tidak terukur dengan alasan, 17 dropped. Dari 163 baris terukur, 27 adalah proxy `<cmd> --help`. Artefak: `bench/speed/results/hermes-868b9f244f.json`. Smoke LLM 10 task: **menunggu user**. |
-| 6 | Korpus code tools C1–C3 + baseline `rg`/hermes | belum | `rg` lokal hanya 13.0.0 (`/usr/lib/code-oss/.../rg`), oracle spec 15.1.0 belum tersedia. |
+| 6 | Korpus code tools C1–C3 + baseline `rg`/hermes | selesai (baseline) | `bench/corpora.lock`: C1 = hermes `868b9f24…` (20.076 file, 224,8 MB); C2/C3 sintetis deterministik. rg 15.1.0 (oracle spec) dijalankan pada C1/C2/C3 dengan 40 literal, 40 regex, dan 10 glob × 20 run. Tool hermes di C1: `search_files` 50, `read_file` 10, `patch` 10. Artefak `bench/codetools/results/f0-baseline.json`. Catatan TS-12. |
 | 2 | `bench/h2h` head-to-head berbasis LLM | menunggu user | butuh kredensial/biaya |
 | 3 | Eval set E1–E10 + manifest | selesai | `bench/evals/`: evalset/v1 530 task (E1 160 … E10 100) + `MANIFEST.sha256`; ID SWE-bench Verified & Terminal-Bench di-pin (URL + revisi + SHA-256); `go test ./evals/...` (modul bench) lulus; 60 task coding internal diverifikasi dengan toolchain nyata. |
 | 8 | Persistence spike `internal/ctxdb` | sebagian | DDL 0001–0008 (verbatim SPEC §11), store/mode/lease+fencing/purge 4 fase/gc/trash/journal recovery/barrier/migrasi/restore + 86 subtest `TestScenario/S001..S086`, `TestKill9Chaos`, `TestMultiProcess`: **semua lulus** tanpa `-race` (exit 0). Belum: (a) `go test -race`/`make test` masih 1 merah: S015 batas 200 ms/txn (lantai biaya SQLite di bawah `-race`, TS-P08); `db_busy` sudah hilang; (b) LOC non-test 2.598 > 2.500 (E-19, TS-P10); (c) `make lint` = 0 issues; (d) protokol gateway worker + konsumen approval ditulis sebagai implementasi referensi di `_test.go` (TS-P09). |
@@ -192,6 +192,45 @@ Pemilihan subset: `n` ID dengan `sha256("evalset/v1|"+id)` terkecil (stabil, tid
 | Verifikasi E1 internal (skrip sekali jalan di /tmp) | — | 60/60: versi ber-bug gagal dengan pesan `FAIL`/`panicked`, versi referensi lulus — Go, Python, Java, bash, TS (`tsc` 5.2.2), Rust (rustc 1.99.1 di /tmp, bukan instalasi sistem) |
 | `golangci-lint` atas `bench/evals` | — | bukan gate (`make lint` hanya modul root); 28 temuan non-fungsional tersisa (gochecknoglobals tabel data, dupl tabel bahasa, gosec permission) — sejenis dengan paket bench lain |
 
+### Korpus code tools C1–C3 + baseline (#6)
+
+Commit: `bf9e0b6` (kode + `corpora.lock` + hasil).
+
+**Generator** `bench/gencorpus`, PCG ber-seed. Uji `TestDeterministic`: seed sama → digest sama, seed beda → digest beda.
+
+| Korpus | File | Direktori | Ukuran | Komposisi | SHA-256 manifest |
+|---|---:|---:|---:|---|---|
+| C2 (`-seed 1 -files 80000 -mean 12500`) | 81.780 | 5.055 | 1.108.410.404 B | biner 800, file > 1 MB 80, minified 50, ter-ignore 1.424 | `279cb53a…` |
+| C3 (`-seed 3 -files 1000 -mean 10700`) | 1.030 | 83 | 12.314.372 B | 12 bahasa, `.gitignore` berlapis | `3117a2ad…` |
+
+Korpus dibangkitkan di `/tmp/damnbot-corpora`, tidak di-commit.
+
+**Oracle rg**: ripgrep 15.1.0, binary musl statis diunduh ke `/tmp/f0_rg` (bukan instalasi sistem). SHA-256 tarball `1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599` cocok dengan `.sha256` rilis GitHub. SHA-256 binary `ebeaf56f8a25e102e9419933423738b3a2a613a444fd749d695e15eba53f71f2`. rg lokal 13.0.0 tidak dipakai.
+
+| Perintah | Exit | Ringkasan |
+|---|---:|---|
+| `cd bench && go run ./gencorpus/cmd/gen-corpus …` (C3, C2) | 0 | baris lock di atas; C2 dibangkitkan dalam ≈ 35 s |
+| `/tmp/f0_ct_bin -rg /tmp/f0_rg/…/rg -c1 ~/Dokumen/hermes-agent -c2 … -c3 … -out codetools/results/f0-baseline.json` | 0 | 3.760 s wall; 0 error op hermes |
+| `cd bench && go vet ./... && go test -count=1 ./...` | 0 | |
+
+**rg 15.1.0** — median p50 per kueri. Page cache hangat, 1 warm-up, 20 run, `--no-config`. Output run terukur ke `/dev/null` (os/exec tanpa Stdout), sesuai §10.1. Output untuk hitung baris/token diambil dari run warm-up (pipe).
+
+| Korpus | Literal | Regex | Glob (`--files -g`) | p95 literal maks |
+|---|---:|---:|---:|---:|
+| C1 | 41,7 ms | 46,7 ms | 18,6 ms | 55,7 ms |
+| C2 | 283,3 ms | 284,5 ms | 26,5 ms | 337,2 ms |
+| C3 | 14,1 ms | 16,4 ms | 9,7 ms | 20,6 ms |
+
+**Tool hermes di C1** — in-process, `unshare -rn`, 1 warm-up + 5 run, `task_id` per run, median p50:
+
+| Tool | Median p50 | Maks | Op |
+|---|---:|---:|---:|
+| `search_files` | 106 ms | 463 ms | 50 |
+| `read_file` (400 baris) | 8,0 ms | — | 10 |
+| `patch` | 9,0 ms | — | 10 |
+
+**CT-11** (golden 50 kueri): Σ token o200k output `search_files` hermes = **65.262**. Hash SHA-256 setiap output disimpan per kueri di artefak. Σ token output rg tanpa batas = 63.550.214; ini hanya pembanding mentah karena hermes membatasi hasil.
+
 ## Skenario persistence
 
 Semua skenario = subtest `go test ./internal/ctxdb -run 'TestScenario/S0NN'` (DB SQLite temp nyata, jam/proses diinjeksi; proses OS nyata untuk #26, #37, #63, #62, #74, #85). Status = hasil `go test -count=1 ./internal/ctxdb/` @ `0f5f91d` (exit 0).
@@ -274,6 +313,7 @@ Commit: `ad458b6` (DDL), `529c947` (core), `7d9f025` (purge), `1e2c128` (restore
 | TS-09 | SCORECARD §3 mewajibkan benchmark per baris parity yang "dapat dieksekusi", tetapi FEATURE-PARITY tidak punya kolom tipe (a)/(b) atau op acuan. Akibatnya pemilihan op (mis. `skills list` untuk CLI-046) adalah keputusan harness. Selain itu, 27 baris CLI hanya punya proxy `--help` karena perintah aslinya mutating, interaktif, atau butuh jaringan. | `bench/speed/catalog.json` menjadi sumber op. Op proxy ditandai `proxy: true`. | ADR: tambah kolom `bench_op` di FEATURE-PARITY, atau tetapkan `bench/speed/catalog.json` sebagai sumber normatif. |
 | TS-10 | Tool `memory`, `todo_list`, dan `session_search` hermes diintersep agent loop (`model_tools.py:607`), sehingga tidak bisa diukur lewat dispatch. Guard pengulangan hermes juga memblokir panggilan identik ke-3/ke-4 dalam satu task. | Op berulang memakai `task_id` per run (`fresh_task`). Tool yang diintersep → menunggu fake provider. | ADR: speed parity tool yang diintersep diukur end-to-end dengan fake provider (F1), dengan protokol yang sama untuk kedua agent. |
 | TS-11 | Startup "prompt siap" dan idle RSS hermes tidak dapat diukur lewat harness tanpa jaringan. Lewat runner, `hermes chat` keluar dengan "Gateway connection failed; no local fallback" ≈ 4,8 s setelah start, dan daemon `hermes` yang ditinggalkannya harus dibunuh manual. Tiga percobaan gagal: env bersih, env warisan, bisect env. | Pakai frame pertama (p50 3.369 ms) sebagai metrik startup; RSS memakai `ru_maxrss` CLI. Observasi manual 1 run, bukan artefak gate: 131 MB proses (netns host) dan 356 MB pohon proses (netns, dipanggil langsung dari shell interaktif, chat tetap hidup). | ADR/keputusan user: izinkan pengukuran startup/RSS hermes di netns host (tanpa input = tanpa LLM call), atau definisikan prompt-ready lewat penanda UI. |
+| TS-12 | `search_files` hermes memakai ripgrep yang dipasang PM hermes, bukan `rg` di PATH (`tools/file_operations_search.py:298`). Di HERMES_HOME bersih tanpa PM ripgrep, backend hermes adalah fallback find/grep [INFERENCE: dari kode, backend tidak tercatat di output]. CODE-TOOLS §10 tidak menetapkan setup hermes acuan untuk CT-10/CT-11. | Angka hermes = konfigurasi offline tanpa PM ripgrep. | ADR: setup hermes acuan untuk CT-10/CT-11 = PM ripgrep terpasang (diukur ulang di RC dengan jaringan). |
 | TS-P01 | AF-01..AF-08 (REVIEW-1.0) terbuka di spec frozen. | Spike menerapkan usulan auditor apa adanya: `ON CONFLICT DO NOTHING` (bukan `OR IGNORE`); `turn_start`+journal di transaksi worker; urutan antrean per chat = `rowid`; balasan `__system__` sekali saat sesi chat dipegang proses lain; langkah 11 purge menghapus `blob_refs` owner `gateway_inbound`; spool untuk semua inbound tanpa redelivery; kill pgid berdasar anggota hidup (`/proc`); timer migrator di `run/migrate_blocked.json`. | ADR errata AF-01..AF-08 sesuai usulan REVIEW (semua lulus test #79–#86). |
 | TS-P02 | Tidak ada yang ditetapkan membuat baris `sessions('__system__')`, padahal FK `events`/`blob_refs` memerlukannya. | Setiap writer saat open: `INSERT … ON CONFLICT DO NOTHING`. | ADR: baris `__system__` di `0001_core.sql` (atau aturan open). |
 | TS-P03 | `dmb_maint()`/`dmb_lease_token()` per koneksi; modernc mendaftarkan fungsi per-`Driver`, bukan per koneksi; `SQLITE_INNOCUOUS` tidak dapat diset. | Satu `sqlite.Driver` privat per Store (writer + reader); trigger berjalan karena `trusted_schema` default ON. Commit/rollback hook tersedia (`HookRegisterer`) — [INFERENCE SPEC §11.11.3] terverifikasi. | ADR: catat mekanisme ini; tambah `PRAGMA trusted_schema` eksplisit. |
