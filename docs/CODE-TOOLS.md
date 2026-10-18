@@ -549,7 +549,7 @@ Komposisi `TestEditAccuracySuite` (330 kasus): CRLF/EOL campuran 30, UTF-8 BOM 1
 
 | ID | Metrik | Target | Verifikasi |
 |---|---|---|---|
-| P23 | Code tools cepat + akurat | CT-01…CT-36 semua lulus (ID berblok: CT-01..14 kinerja, CT-20..29 akurasi, CT-30..36 limit; CT-15..19 sengaja tidak dipakai — 31 ID: 14 + 10 + 7, ADR-063 m-15). Acceptance F1 = semua CT kecuali CT-08, CT-12, CT-13, CT-24, CT-28 (butuh `codeintel`/`codeindex`, F5) (ADR-077) | job `bench-codetools` + `TestEditAccuracySuite` (gate RC; akurasi gate PR); `TestCodeToolsIDsComplete` di gate dokumen `TestSpecDocs` (F1): 31 ID unik, masing-masing punya baris verifikasi (ADR-063 m-15) |
+| P23 | Code tools cepat + akurat | CT-01…CT-36 semua lulus (ID berblok: CT-01..14 kinerja, CT-20..29 akurasi, CT-30..36 limit; CT-15..19 sengaja tidak dipakai — 31 ID: 14 + 10 + 7, ADR-063 m-15). Acceptance F1 = semua CT kecuali CT-08, CT-12, CT-13, CT-24, CT-28, CT-34 bagian `TestIndexActivation`, dan sub-baris `codeindex` CT-35 (trigram resident 32 MB) dan CT-36 (`codeindex` ≤ 0,4 MB) (butuh `codeintel`/`codeindex`, F5) (ADR-077, ADR-086 NEW-31) | job `bench-codetools` + `TestEditAccuracySuite` (gate RC; akurasi gate PR); `TestCodeToolsIDsComplete` di gate dokumen `TestSpecDocs` (F1): 31 ID unik, masing-masing punya baris verifikasi (ADR-063 m-15) |
 | CT-01 | grep literal vs rg | ≤ 1,2× p50/p95 | `BenchmarkGrepLiteral` |
 | CT-02 | grep regex vs rg | ≤ 1,5× p50/p95 | `BenchmarkGrepRegex` |
 | CT-03 | glob vs `rg --files` | ≤ 1,2× p50/p95 | `BenchmarkGlob` |
