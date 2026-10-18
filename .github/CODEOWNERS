@@ -11,6 +11,7 @@
 
 /internal/archtest/ @yuldan
 /internal/boundary/ @yuldan
+/internal/codetools/ @yuldan
 /internal/ctxdb/ @yuldan
 /internal/netx/ @yuldan
 /internal/schema/ @yuldan
