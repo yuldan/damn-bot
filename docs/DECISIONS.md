@@ -1414,7 +1414,7 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-062 — Smoke LLM Damn-Bot pindah ke acceptance F1
 
-**Status:** Accepted 2026-10-18 (keputusan user). *(Diamandemen ADR-075: run smoke Damn-Bot F1 baru boleh dimulai setelah hardening `bench/h2h` — ledger cap persisten, oracle netral-agent, isolasi agent — ada di kode beserta test-nya; default `-cap-usd` = sisa ledger dari US$2,00.)*
+**Status:** Accepted 2026-10-18 (keputusan user). *(Diamandemen ADR-075 dan ADR-085: run smoke Damn-Bot F1 baru boleh dimulai setelah hardening `bench/h2h` — ledger cap persisten tunggal, oracle netral-agent, isolasi agent — ada di kode beserta test-nya; default `-cap-usd` = cap ledger, sehingga sisa yang berlaku = US$2,00 − Σ ledger; `-cap-usd` hanya bisa menurunkan.)*
 
 **Aturan penerapan.** Teks sudah diterapkan (2026-10-18): ROADMAP F0 (deliverable 5, acceptance smoke LLM) dan F1 (acceptance smoke LLM Damn-Bot + cap US$2,00).
 
@@ -1492,6 +1492,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan; pilihan konservatif: re-scope jujur, tanpa angka yang tidak diukur). Menutup AUD-004.
 
+*(Amandemen 2026-10-18: dilengkapi ADR-083 — baris "Token skill per turn" (F2), `not_measured` di artefak, bullet baseline per fase.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-18): ROADMAP F0 Acceptance (baris baseline tanpa LLM); SCORECARD intro (aturan baca sel "diukur di F0"). Setiap passage mengutip ADR-065. Baris #4 F0-REPORT dimiliki worker infra dan merujuk ADR ini.
 
 **Konteks.** ROADMAP mensyaratkan baseline hermes untuk "100% dimensi SCORECARD tipe tanpa LLM". Artefak `bench/speed/results/hermes-868b9f244f-nollm.json` berisi 11 kunci (9 dimensi). Banyak dimensi tanpa LLM membutuhkan harness pembanding yang baru bisa dibangun bersama komponen Damn-Bot yang setara (fake provider loop, TUI, soak `serve`, chaos), sehingga mengukur sisi hermes di F0 tidak menghasilkan angka yang sebanding.
@@ -1561,6 +1563,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Menutup AUD-022, AUD-023, AUD-024. Mengoreksi ADR-058 (fase implementasi).
 
+*(Amandemen 2026-10-18: butir 2 dikoreksi ADR-082 — sub-cap `<runtime>`, `user_changed` di slot notice volatile, kunci COST-07 tanpa `runtime`.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC P1 (alokasi volatile), P15, §4.5, §6 (stable tier aturan 3/11, baris Volatile), §22.1 GAP-COST-08/GAP-COST-09; ROADMAP F1/F2; DECISIONS ADR-058 (penanda). Setiap passage mengutip ADR-067.
 
 **Konteks.** Stable tier dikunci golden di F1, tetapi aturan 3 (katalog deferred, `tool_search`/`tool_invoke`) dan aturan 11 (`repo_map`) merujuk tool F2/F5. Volatile tier memuat `n/40` dan sisa budget yang berubah per iterasi, padahal tier ini dipasang di user message (render ulang memecah cache prefix), dan komponennya bisa melebihi 100 tok. P5/COST-08 (F1) memakai estimator COST-09 yang dijadwalkan F2.
@@ -1605,6 +1609,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 ## ADR-069 — Batas keamanan shell: classifier allowlist, path operand, irreversible, sudo, `shell_allow`, workspace trust (AUD-001, AUD-008, AUD-009, AUD-010, AUD-012, AUD-017)
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan; opsi paling aman di setiap titik). Menutup AUD-001 (BLOCKER), AUD-008, AUD-009, AUD-010, AUD-012, AUD-017.
+
+*(Amandemen 2026-10-18: butir 2, bagian auto butir 3, butir 4 (auto), butir 6, tabel 42 kasus, dan jalur auto verify **digantikan ADR-079** (shell tidak pernah di-auto-approve classifier; auto hanya `shell_allow` argv-persis). Butir 9 dikoreksi ADR-079 butir 8.)*
 
 **Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC §4.3 (langkah 5 dan 7), §12 (`[exec]`, `[security]`, `deny_paths` default), §14.1, §14.2, §14.5; EXEC-AND-CODING §A.8 (klasifikasi, kebijakan, sandbox cwd) dan §A.10/EXC-13; CODE-TOOLS §8; CROSS-CUTTING §1; TRUST-MODEL §1–§3. Setiap passage mengutip ADR-069.
 
@@ -1717,6 +1723,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Menutup AUD-011, AUD-013, AUD-014, AUD-015, AUD-016. AUD-011 menerapkan keputusan ADR-033 Q36 yang sudah ada.
 
+*(Amandemen bertanggal 2026-10-18, commit `a88680e`: butir 1 (secret ref `keychain:<id>` di `exec.env`), butir 4 (CT-20 = ≥ 330), dan Aturan penerapan diubah di tempat — dicatat di sini (NEW-49). Butir 1 dan 3 diamandemen lagi oleh ADR-081.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC P23, §12 (`[exec]`), §14.3, §15 (baris DEBUG), §16, §22.1 GAP-TOOL-03, P29; EXEC-AND-CODING §A.6, §A.8 (Env anak), EXC-15; CODE-TOOLS §5/§8 (guard sentinel) dan CT-20; CROSS-CUTTING §1; SCORECARD "Edit salah lokasi"; MITIGATION-MATRIX H-08, risiko validator, GAP-TOOL-03; ROADMAP F1. Setiap passage mengutip ADR-071.
 
 **Keputusan.**
@@ -1738,6 +1746,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan; AUD-021 opsi (b), permukaan terkecil). Menutup AUD-018, AUD-019, AUD-020, AUD-021.
 
+*(Amandemen 2026-10-18: butir 1 dan 3 dilengkapi ADR-082 — cabang `content_filter` + `tool_calls`, enum `ExecStatus`/`RecoveryStatus` tertutup.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC P2, P24, §3.5, §4.2, §4.3 (daftar kode error), §5.1 (`shell`), §12 (`exec.kill_grace_s`), §13.3 (pemetaan ACP), §22.1 GAP-REL-06; EXEC-AND-CODING §A.2, §A.3, §A.4, §A.5, §A.10; ROADMAP F1. Setiap passage mengutip ADR-072.
 
 **Keputusan.**
@@ -1757,6 +1767,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 ## ADR-073 — CI hardening dan gate arsitektur: sebagian diterapkan di F0, sisanya Deliverable F1 #0 (AUD-031, AUD-032, AUD-033, AUD-034, AUD-035)
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Menutup AUD-031..AUD-035. Mengoreksi ADR-048 butir 1 dan 3.
+
+*(Amandemen bertanggal 2026-10-18, commit `fc1a4a9`: Aturan penerapan diubah di tempat (menambah `scripts/ci-meta-test.sh`, commit `8288d53`) — dicatat di sini (NEW-49). Butir 1 (meta.yml) diamandemen ADR-085.)*
 
 **Aturan penerapan.** Teks diterapkan (2026-10-18): ROADMAP F1 (Deliverable #0, Acceptance); ENGINEERING §5 (job wajib, E-55, E-64); SPEC §16 (baris Perf/Unit); SELF-HEALING (rujukan `BenchmarkAppend`); DECISIONS ADR-048 (penanda); kode: `internal/ctxdb/*_test.go` (commit `fcc0af6`), `Makefile` (`test-timing`, `vet-cross`, `check`), `scripts/ci-meta-test.sh` (gate `vet-cross`), `.github/workflows/ci.yml`, `.github/workflows/meta.yml` (commit `8288d53`). Setiap passage dokumen mengutip ADR-073.
 
@@ -1799,6 +1811,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Menutup AUD-037, AUD-038, AUD-039, dan usulan TS-E05. Mengamandemen ADR-062 butir 2–3. **Butir 1 (AUD-037) diimplementasikan di F0** setelah perubahan `bench/h2h` worker lain di-commit: `bench/h2h/ledger.go`, `proxy.go`, `run.go`, `cmd/h2h/main.go`, test di `ledger_test.go`. **Butir 2–3 (AUD-038, AUD-039) ditunda ke F1** sebagai prasyarat run smoke Damn-Bot pertama: keduanya butuh driver `damnbot run` (deliverable F1) dan isolasi container, di luar tooling F0.
 
+*(Amandemen bertanggal 2026-10-18, commit `4cf5b9e`: Status dan butir 1 diubah di tempat setelah implementasi AUD-037 — dicatat di sini (NEW-49). Butir 1 dan 3 diamandemen ADR-085: ledger wajib di setiap `Recorder` berkunci, path tunggal, flock; gate isolasi bernama.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-18): ROADMAP F0 deliverable 2 dan F1 (Deliverable, Acceptance smoke); SCORECARD §2.3/§2.5. Setiap passage mengutip ADR-075.
 
 **Keputusan.** Run smoke Damn-Bot F1 (ADR-062) tidak boleh dimulai sebelum seluruh butir berikut ada di kode `bench/h2h` beserta test-nya:
@@ -1815,6 +1829,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Menutup AUD-040 (F5), AUD-041 (F4), AUD-042 (F5). Tidak ada kode F0/F1 terdampak.
 
+*(Amandemen 2026-10-18: butir 2 dan 3 dilengkapi ADR-084 — kanal P26 = kanal preview §18.2 termasuk ACP; NULL workspace = default turunan; field `origin` di `approval_request`.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC §9.2, §9.6, §9.7, §14.1, §14.2, §22.1 GAP-COST-10; EXEC-AND-CODING §B.7; TRUST-MODEL §2. Setiap passage mengutip ADR-076.
 
 **Keputusan.**
@@ -1829,6 +1845,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 ## ADR-077 — Acceptance F1 lengkap, edge case per fase, gate inkremental, metode ukur kinerja (AUD-025..AUD-030, AUD-080)
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Menutup AUD-025, AUD-026, AUD-027, AUD-028, AUD-029, AUD-030, dan AUD-080 (Aturan penerapan ADR-059 kini mencakup ROADMAP F1). Menutup TS-12.
+
+*(Amandemen 2026-10-18: butir 3 (semantik `PHASE`) dan butir 2 (EC-TERM-001) dikoreksi ADR-080; butir 6 (target `patch`) dikoreksi ADR-082. Aturan penerapan juga mencakup EXEC-AND-CODING §A.9/§A.10 (commit `11626de`) dan SCORECARD §1.3 (commit `96e03a1`) — NEW-49.)*
 
 **Aturan penerapan.** Teks diterapkan (2026-10-18): ROADMAP §"Regression suite dari EDGE-CASES", F0 Acceptance (rujukan speed baseline), F1 Acceptance; SPEC §16 (baris Edge-case, ambang ×1,5), §17.1, §17.3; CODE-TOOLS §10 (CT-10, ambang ×1,5); SCORECARD §1.2 (Code tools), §3; DECISIONS ADR-059 (penanda). Setiap passage mengutip ADR-077.
 
@@ -1906,3 +1924,216 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 **Dampak terukur (SPEC §20).** Token/latensi/LOC/binary/dependency 0.
 
 **Konsekuensi.** (+) Semua MINOR punya pemilik dan tenggat yang ditegakkan acceptance fase. (−) Backlog errata F1 cukup panjang (33 item).
+
+## ADR-079 — Shell tidak pernah di-auto-approve oleh classifier bawaan; auto hanya lewat `shell_allow` argv-persis (AUD-001, AUD-008, AUD-010, NEW-01, NEW-03, NEW-04, NEW-09)
+
+**Status:** Accepted 2026-10-18 (keputusan direktur proyek). **Menggantikan** ADR-069 butir 2 (allowlist `read_only` + hardening git), butir 3 bagian "auto" (operand tetap dipakai untuk label/`denied_path` best-effort), butir 4 (`tainted_session` untuk auto), butir 6 (`shell_allow` prefix), tabel 42 kasus, dan jalur auto verify di ADR-069/SPEC §14.1. ADR-069 butir 1, 5 (kelas `irreversible`/`privileged`, P26), 7 (workspace trust), 8 (baca di luar root lewat tool file), dan 9 (cakupan boundary, dikoreksi di sini) tetap berlaku. Menutup sisa AUD-001/008/010 (`AUDIT-F0-REVERIFY.md`), NEW-01, NEW-03, NEW-04, NEW-09; ikut menutup NEW-06 (verify), NEW-07 (definisi vulnerability), NEW-22, NEW-23, NEW-24, NEW-25, NEW-26, NEW-27.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC P26 (rujukan), §4.3 (langkah 5/7), §5.1 (baris `shell`), §10 (`run --unsafe-auto-shell`), §12 (`[exec]` `shell_allow = []`, `exec.auto_allow_verify` dihapus), §14.1, §14.2, §14.5, §22.1 GAP-SEC-28; EXEC-AND-CODING §A.8, §A.10, §B.2/§B.5 (verify), §D (EXC-13/EXC-14); CODE-TOOLS §8; TRUST-MODEL §1–§3; CROSS-CUTTING §1; ROADMAP F1 Acceptance; SCORECARD (catatan UX). Setiap passage mengutip ADR-079.
+
+**Konteks.** Dua putaran audit menemukan bypass baru di setiap versi allowlist `read_only` (`sort --files0-from`, rekursi lewat symlink, `git blame --contents`, `~user`/brace, `printf -v PATH`, filter `clean` git, `cd` sebelum operand relatif). Classifier shell berbasis AST tidak dapat dibuktikan lengkap terhadap semantik bash dan ratusan program; menambal per kasus tidak konvergen.
+
+**Keputusan.**
+1. **Tidak ada auto-approve shell berbasis classifier, di mode apa pun.** Baris "`shell` `read_only` → auto" dan allowlist `read_only` bawaan dihapus. Membaca/mencari file dilakukan lewat tool kode tersandbox (`read_file`, `grep`, `glob`) yang menegakkan root + `deny_paths` lewat `openat2(RESOLVE_BENEATH)`/verifikasi fd (§14.2). Stable tier menyatakan aturan ini kepada model.
+2. **Classifier tetap ada hanya untuk label risiko dan preview**: `mutating`/`destructive`/`unknown`/`irreversible`/`monetary`/`delegated_agent_bypass`, flag `privileged`/`network`, dan `denied_path` best-effort (operand yang ter-resolve statis ke `deny_paths` → ditolak tanpa bisa di-approve; ketiadaan label ini **tidak** menjamin apa pun). Label menentukan bentuk prompt (preview, larangan `allow_session` untuk P26) dan penolakan headless, tidak pernah menghasilkan auto.
+3. **`shell_allow` = satu-satunya jalur auto.** Default `shell_allow = []`. Entri = daftar token argv **persis** (contoh `["go", "test", "./..."]`); perintah cocok hanya bila string perintah di-parse menjadi **tepat satu** simple command tanpa metakarakter/ekspansi apa pun (tanpa `|`, `;`, `&`, `&&`, `||`, subshell, `$`, backtick, `~`, glob `*?[`, brace, redirect, assignment `VAR=`, heredoc, parameter `stdin`) dan token-token-nya sama persis dengan satu entri. argv0 entri harus nama tanpa path yang di-resolve lewat `PATH` sesi ke binary yang sama saat sesi dimulai. `cwd` dilacak: auto hanya bila `cwd` call (non-persisten) atau `cwd` hidup sesi persisten (dibaca runner lewat sentinel `pwd -P` setiap perintah) berada di dalam root, dan sesi persisten hanya pernah menjalankan perintah yang cocok `shell_allow` (perintah lain yang di-approve manual membuat sesi itu permanen tidak memenuhi syarat). Syarat tambahan: workspace trusted (ADR-069 butir 7), turn tidak tainted (ADR-070), kelas bukan `destructive`/`unknown`/P26 dan tanpa flag `privileged`, dan tidak ada file yang ditulis tanpa approval eksplisit di **sesi** ini sejak approval shell manual terakhir (NEW-27).
+4. **Kebijakan per mode untuk `shell`:** `ask`, `auto-edit`, dan `auto` interaktif → **tanya** (preview sesuai label) kecuali cocok butir 3. Headless tanpa approver → `denied` kecuali cocok butir 3, atau headless `--approval auto` **dengan** flag eksplisit `damnbot run --unsafe-auto-shell`: perintah berkelas `mutating` (dengan/tanpa `network`) berjalan tanpa approval, hanya bila workspace trusted dan turn tidak tainted; `destructive`, `unknown`, P26, `privileged`, dan `denied_path` tetap `denied`. Help flag dan dokumentasi menyatakan risikonya: "runs arbitrary shell commands chosen by the model without confirmation; use only in a disposable container".
+5. **Verify (NEW-06).** `exec.auto_allow_verify` dihapus. Verify runtime (B.2/B.5, `verify_on_stop = run`) mengikuti butir 3–4: auto hanya bila perintah verify persis ada di `shell_allow`; selain itu interaktif → tanya, headless → tidak dijalankan dan hasil `unverified` + `evidence_gap`.
+6. **Taint (NEW-09).** Selain sumber ADR-070, **setiap** output shell di workspace untrusted dibungkus `<untrusted source="workspace">` dan men-taint turn; output shell berflag `network` tetap men-taint di workspace trusted.
+7. **Tool kode (NEW-22, NEW-23).** Symlink yang ter-resolve keluar root diperlakukan sama dengan path di luar root (verdict `outside_root` → tanya; headless `outside_workspace`), bukan error. Default `deny_paths` += `/proc/*/task/*/environ`.
+8. **Boundary dan vulnerability (NEW-07, koreksi ADR-069 butir 9).** Sandbox path = boundary untuk tool kode. Shell **bukan** boundary path; kontrol shell = approval. Vulnerability = (a) perintah shell yang berjalan tanpa approval eksplisit, kecuali cocok butir 3 atau jalur `--unsafe-auto-shell` butir 4 yang terdokumentasi; (b) tool kode yang mengakses luar root/`deny_paths` tanpa verdict yang benar; (c) egress tool built-in yang lolos DLP `netx`. Efek perintah yang sudah di-approve user (termasuk filter git, rekursi symlink) = sisa risiko, dicatat di TRUST-MODEL §3 beserta TOCTOU antara preview dan eksekusi.
+
+**Test spec F1 (`internal/exec`, menggantikan tabel ADR-069).** `TestShellApprovalModel` (tabel di bawah, semua baris), `TestShellAllowExactMatch` (≥ 60 kasus: setiap metakarakter/ekspansi/redirect/assignment/pipeline × entri cocok → tidak auto), `TestShellAllowCwdTracked`, `TestShellNoClassifierAuto` (≥ 300 perintah korpus EXC-13, mode `ask`/`auto-edit`/`auto`, `shell_allow` kosong → 0 dieksekusi tanpa approval), `TestUnsafeAutoShellFlag`, `TestVerifyNeedsShellAllow`, `TestShellOutputUntrustedWorkspace`, `TestCodeToolsSymlinkOutsideRoot`. Konteks default: `shell_allow = [["go","test","./..."]]`, workspace trusted, turn bersih, tidak ada tulis auto di sesi.
+
+| # | Perintah / kondisi | Label | `ask` | `auto-edit` | `auto` | Headless | Headless `--unsafe-auto-shell` |
+|---|---|---|---|---|---|---|---|
+| 1 | `ls -la src` | `mutating` | tanya | tanya | tanya | `denied` | auto |
+| 2 | `cat README.md \| wc -l` | `mutating` | tanya | tanya | tanya | `denied` | auto |
+| 3 | `git status` | `mutating` | tanya | tanya | tanya | `denied` | auto |
+| 4 | `cat ~/.ssh/id_rsa` | `denied_path` | error | error | error | error | error |
+| 5 | `sort --files0-from=- <<< ~/.ssh/id_rsa` | `unknown` | tanya + preview | tanya + preview | tanya + preview | `denied` | `denied` |
+| 6 | `grep -R token .` (symlink keluar root di bawah `.`) | `mutating` | tanya | tanya | tanya | `denied` | auto (sisa risiko terdokumentasi) |
+| 7 | `printf -v PATH %s ./bin` (sesi persisten) | `mutating` | tanya | tanya | tanya | `denied` | auto; sesi tidak lagi memenuhi syarat `shell_allow` |
+| 8 | `cd ~ && cat .ssh/id_rsa` | `unknown` (cwd tak terlacak statis) | tanya + preview | tanya + preview | tanya + preview | `denied` | `denied` |
+| 9 | `go test ./...` | cocok `shell_allow` | auto | auto | auto | auto | auto |
+| 10 | `go test ./... -run X` | `mutating` (tidak persis) | tanya | tanya | tanya | `denied` | auto |
+| 11 | `go test ./... \| tee out` | `mutating` (pipeline) | tanya | tanya | tanya | `denied` | auto |
+| 12 | `GOFLAGS=-x go test ./...` | `mutating` (assignment) | tanya | tanya | tanya | `denied` | auto |
+| 13 | `go test ./...` di workspace untrusted | `mutating` | tanya | tanya | tanya | `denied` | `denied` |
+| 14 | `go test ./...` saat turn tainted | `mutating` | tanya | tanya | tanya | `denied` | `denied` |
+| 15 | `go test ./...` setelah `edit_file` auto di sesi ini (mode `auto-edit`) | `mutating` | tanya | tanya | tanya | `denied` | auto |
+| 16 | `./go test ./...` | `mutating` (argv0 relatif) | tanya | tanya | tanya | `denied` | auto |
+| 17 | `go test ./...` di sesi persisten yang sebelumnya menjalankan perintah manual | `mutating` | tanya | tanya | tanya | `denied` | auto |
+| 18 | `go test ./...` dengan `cwd` sesi di luar root | `mutating` | tanya | tanya | tanya | `denied` | `denied` |
+| 19 | `echo 'rm -rf ~' \| bash` | `unknown` | tanya + preview | tanya + preview | tanya + preview | `denied` | `denied` |
+| 20 | `rm -rf ~` | `destructive` | tanya + preview | tanya + preview | tanya + preview | `denied` | `denied` |
+| 21 | `git push origin main` | `irreversible` | tanya + preview (tanpa `allow_session`) | sama | sama | `denied` | `denied` |
+| 22 | `npm publish` | `irreversible` | tanya + preview | sama | sama | `denied` | `denied` |
+| 23 | `curl -X POST https://api.example.com -d @a.json` | `irreversible` | tanya + preview | sama | sama | `denied` | `denied` |
+| 24 | `curl -s https://example.com` | `mutating` + `network` | tanya | tanya | tanya | `denied` | auto (output men-taint) |
+| 25 | `sudo apt install jq` | `irreversible` + `privileged` | tanya + preview | sama | sama | `denied` | `denied` |
+| 26 | `sudo ls /root` | `mutating` + `privileged` | tanya per perintah | sama | sama | `denied` | `denied` |
+| 27 | `claude --dangerously-skip-permissions -p x` | `delegated_agent_bypass` | tanya + preview | sama | sama | `denied` | `denied` |
+| 28 | `npm install` | `mutating` + `network` | tanya | tanya | tanya | `denied` | auto (output men-taint) |
+| 29 | `ssh host 'ls'` | `irreversible` | tanya + preview | sama | sama | `denied` | `denied` |
+| 30 | `git diff` dengan `filter.x.clean` di `.git/config` | `mutating` | tanya | tanya | tanya | `denied` | auto (sisa risiko, workspace trusted) |
+| 31 | output `cat x` (di-approve) di workspace untrusted | — | output `<untrusted source="workspace">`, turn tainted | sama | sama | — | — |
+| 32 | `read_file ~/.ssh/id_rsa` | `denied_path` (tool kode) | error | error | error | error | error |
+| 33 | `read_file ../notes.txt` (luar root) | `outside_root` | tanya | tanya | tanya | `outside_workspace` | `outside_workspace` |
+| 34 | `read_file link` (symlink di root → luar root) | `outside_root` | tanya | tanya | tanya | `outside_workspace` | `outside_workspace` |
+| 35 | `read_file /proc/self/task/1/environ` | `denied_path` | error | error | error | error | error |
+| 36 | verify `go vet ./...` (tidak ada di `shell_allow`) | `mutating` | tanya | tanya | tanya | tidak dijalankan → `unverified` | auto |
+
+**Biaya UX vs parity hermes (dicatat jujur).** Hermes menjalankan perintah non-berbahaya tanpa konfirmasi di mode non-interaktif dan punya mode yolo interaktif; Damn-Bot kini **bertanya untuk setiap perintah shell** yang tidak persis ada di `shell_allow`, termasuk `ls`/`git status` dan termasuk mode `auto` interaktif. Akibatnya: lebih banyak prompt per task coding (setiap verify/build/test baru, setiap inspeksi git) dan task headless tanpa `shell_allow` atau `--unsafe-auto-shell` berhenti di `denied`. Mitigasi: tool kode untuk semua baca/cari; `allow_session` untuk subject persis (bukan P26); konfigurasi `shell_allow` per proyek; preview ringkas. Baris parity EXEC-013 (mode approval) dan EXEC-015 (allowlist) tetap dipenuhi secara fungsi, tetapi semantik `auto` interaktif lebih ketat dari yolo hermes; padanan yolo hanya headless + `--unsafe-auto-shell`. SCORECARD tidak punya metrik jumlah prompt; dampak ini diterima sebagai harga keamanan dan diamati di smoke F1/RC F9.
+
+**Dampak terukur (SPEC §20).** Token: aturan stable "baca lewat tool kode" ≤ 25 tok di dalam cap 1.200. Latensi 0. LOC: classifier mengecil (tanpa allowlist/resolusi auto); budget `exec/classify` ADR-081. Binary/dependency 0. CLI: +1 flag `run --unsafe-auto-shell` (§10; jumlah perintah top-level tetap). Default config: `shell_allow` dari 8 entri → `[]`; `exec.auto_allow_verify` dihapus.
+
+**Konsekuensi.** (+) Tidak ada lagi permukaan bypass classifier untuk eksekusi tanpa approval; boundary baca = satu implementasi tersandbox. (−) Lebih banyak prompt; pengguna yang ingin otomatisasi harus mengisi `shell_allow` atau memakai headless + container.
+
+## ADR-080 — Semantik `PHASE` gate inkremental, sinkronisasi katalog, EC-STATE/EC-WIN per ID (NEW-02, AUD-027, NEW-19, NEW-30)
+
+**Status:** Accepted 2026-10-18 (keputusan didelegasikan). Mengoreksi ADR-077 butir 2 (EC-TERM-001) dan butir 3 (semantik `PHASE`). Menutup NEW-02 (BLOCKER), sisa AUD-027, NEW-19, NEW-30.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC §10 (definisi `TestCLIDocsMatchHelp`), §16 (baris Edge-case); ROADMAP §"Regression suite", F1 #0, F1/F2/F4/F5/F7 Acceptance (EC); DECISIONS ADR-077 (penanda). Setiap passage mengutip ADR-080.
+
+**Keputusan.**
+1. **Gate PR** (`TestEdgeCaseCatalogSync`, `TestCLIDocsMatchHelp`, dan gate inkremental lain): item dengan fase **<** `PHASE` wajib `covered` (subtest ada dan lulus); item dengan fase = `PHASE` boleh `pending:<PHASE>` atau `covered` (bila subtest ada, wajib lulus); item dengan fase > `PHASE` wajib `pending`. Dengan `PHASE = F1` di Deliverable F1 #0, gate hijau sebelum paket F1 ditulis.
+2. **Job acceptance fase** (`make phase-acceptance`, dijalankan saat menaikkan `PHASE` dari Fx ke Fx+1, dan di PR yang mengubah file `PHASE`): semua item fase ≤ Fx wajib `covered`; PR penaikan `PHASE` gagal bila tidak. Di `PHASE = F9` tidak boleh ada `pending`.
+3. **Sinkronisasi katalog:** himpunan ID katalog = ID subtest ∪ ID berstatus `pending`; keduanya saling lepas. `n/a` beralasan dihitung `covered`.
+4. **EC per ID:** EC-TERM-001 → F5 (butuh proses background, ADR-072); EC-TERM F1 = 002, 006, 007 (3), F4 = 008..010, F5 = 001, 003, F7 = 004, 005. EC-STATE (16): F2 = 001, 002, 003, 005..011, 013..016 (14); F4 = 012; F7 = 004. EC-WIN (17): F1 = 001, 009, 010, 012, 013, 014, 016, 017 (8); F2 = 002, 005, 011; F4 = 003, 004, 006; F5 = 007, 008, 015. Entri EC-WIN dijalankan di runner Windows matrix CI (F1 #0) dan masuk acceptance fasenya; "penutupan F9" hanya untuk sisa yang belum covered karena bug, bukan fase default.
+
+**Dampak terukur (SPEC §20).** Token/latensi/LOC/binary/dependency 0. Acceptance F1 EC-TERM 4 → 3; F5 +1.
+
+**Konsekuensi.** (+) Gate inkremental dapat hijau sejak F1 #0 dan tetap tidak lulus kosong saat fase ditutup. (−) Satu job tambahan saat penaikan fase.
+
+## ADR-081 — Exec, redaksi, dan budget `exec`: secret ref terbatas, redaksi stream terukur, cakupan GAP-SEC-28 (NEW-05, NEW-08, NEW-20, sisa AUD-014, AUD-017)
+
+**Status:** Accepted 2026-10-18 (keputusan didelegasikan). Mengamandemen ADR-071 butir 1 dan 3. Menutup NEW-05, NEW-08, NEW-20, sisa AUD-014 dan AUD-017.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC P17, §3.2.4 (catatan exec), §12, §14.3, §22.1 GAP-SEC-28; EXEC-AND-CODING §A.6, §A.8; CROSS-CUTTING §1.2; TRUST-MODEL §3; ENGINEERING §2.4 + `loc.budget`. Setiap passage mengutip ADR-081.
+
+**Keputusan.**
+1. **Secret ref `exec.env` (NEW-05).** Entri bernilai `keychain:<id>` wajib punya cakupan `commands = ["gh", …]` (nama argv0). Var itu hanya disuntikkan ke proses yang dijalankan **langsung** (tanpa shell interpreter) sebagai simple command dengan argv0 ∈ `commands`; tidak pernah ke sesi shell, `bash -c`, atau proses lain. Perintah yang mereferensikan var secret (`$X`, `${X…}`) → label `unknown` (preview menandai "references secret"). Nilai tetap sumber redaksi §14.3. Sisa risiko (transformasi nilai oleh program yang di-approve user) dicatat di TRUST-MODEL §3; klaim "tidak pernah masuk konteks model" diganti "tidak pernah disuntikkan ke konteks model oleh Damn-Bot".
+2. **Redaksi stream (NEW-08, AUD-014).** Penahanan pola userinfo baru dimulai setelah literal `://` terlihat; pola Telegram setelah ≥ 8 digit diikuti `:`; prefix nilai secret yang dikenal hanya ditahan bila kecocokan parsial ≥ 4 char; pola berprefix literal (`sk-`, `ghp_`, `AKIA`, `-----BEGIN`, …) ditahan sejak prefix literal lengkap. Klaim "0 latensi tambahan" diganti target terukur: penyaring menambah ≤ 1 ms p95 pada first token untuk korpus teks natural (en/id, 200 respons) — `TestFirstTokenLatency/redact` dengan penyaring aktif, bagian dari P17 F1.
+3. **GAP-SEC-28 (AUD-017).** Teks requirement dibatasi sesuai TRUST-MODEL §1 (ADR-079 butir 8): DLP boundary hanya egress built-in `netx`; sandbox path boundary hanya tool kode; aktor "konten repo/workspace" ditambahkan.
+4. **Budget LOC `exec` (NEW-20).** `loc.budget`: `exec` 3.000 → **3.500** (runner PTY/pipe + Windows, env allowlist, registry `still_running`) dan baris baru `exec/classify` **1.500** (`internal/exec/classify`: parser label risiko + `shell_allow` argv-persis). Σ `exec` 5.000 ≤ SPEC §3.2.4 exec 7.000 (sisa 2.000 untuk background `process_*` F5). Total tabel ENGINEERING §2.4 31.450 → 33.450 ≤ 47.000 (SPEC §3.2.4 tidak berubah).
+
+**Dampak terukur (SPEC §20).** Token 0. Latensi: ≤ 1 ms p95 first token (target baru, terukur). LOC: `loc.budget` +2.000 dari headroom 47.000 − 31.450. Binary/dependency 0.
+
+**Konsekuensi.** (+) Secret subprocess tidak bisa dibaca lewat shell; klaim P17 terukur. (−) Skill/alat yang butuh secret harus dijalankan langsung, bukan lewat skrip shell.
+
+## ADR-082 — Kontrak loop/assemble/codetools: `content_filter`, enum status tunggal, sub-cap `<runtime>`, schema `shell` per fase, target `patch` setara durabilitas (sisa AUD-018, AUD-020, AUD-023, NEW-10, NEW-11, NEW-17, NEW-18)
+
+**Status:** Accepted 2026-10-18 (keputusan didelegasikan). Mengamandemen ADR-067 butir 2, ADR-072 butir 1/3, ADR-077 butir 6, dan SPEC P28. Menutup sisa AUD-018, AUD-020, AUD-023, serta NEW-10, NEW-11, NEW-17, NEW-18.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC P28, §4.2, §4.3, §5.1, §6, §22.1 GAP-COST-07, GAP-REL-13; EXEC-AND-CODING §A.2, §A.3, §A.5, §A.10, EXC-10; SELF-HEALING §3.4; CODE-TOOLS §10 (CT-10); SCORECARD §1.2 (Code tools), §3; MITIGATION-MATRIX T-13; ROADMAP F1 Acceptance. Setiap passage mengutip ADR-082.
+
+**Keputusan.**
+1. **`content_filter` (AUD-018).** Klasifikasi respons §4.2: `finish_reason=content_filter` → stop `content_filtered`, **apa pun** isinya; tool call di respons itu tidak dieksekusi dan disimpan di event `assistant_message{filtered:true}` bersama teks parsial. Test `TestContentFilterStop` mencakup kombinasi dengan `tool_calls`.
+2. **Satu enum status (AUD-020).** SPEC §4.3 memuat dua enum tertutup, `TestToolResultStatusClosed`: `ExecStatus` = `exited`, `signaled`, `timeout`, `idle_timeout`, `waiting_for_input`, `cancelled_confirmed`, `still_running`, `spawn_failed` (§5.1, A.3, A.10 memakai daftar ini persis; SIGTSTP = `signaled` dengan `signal:"SIGTSTP"`); `RecoveryStatus` (`by:"recovery"`, SELF-HEALING §3.4) = `interrupted`, `applied_verified`, `not_applied`, `conflict`, `outcome_unknown`. Nama test REL-13 tunggal: `TestACPChildStdinIsolation`.
+3. **Sub-cap `<runtime>` (AUD-023, NEW-10).** Sufiks ≤ 40 tok dengan urutan potong tetap: `n/40` 6, peringatan `no_progress` 14, notice proses 20 (notice pertama + `+N more`). `user_changed` diketahui saat turn mulai, jadi masuk slot notice volatile tier (beku per turn), bukan `<runtime>`. Notice proses EXEC §A.5 ≤ 20 tok, maks 1 per request + `+N more (process_list)` (F5). Kunci detektor COST-07 = `(tool, sha256(args kanonik), sha256(result tanpa field runtime))`. EXEC §A.5/EXC-10 dan MITIGATION T-13 diselaraskan.
+4. **Acceptance P15 F1 (NEW-11).** Acceptance F1 memuat "P15 subset ADR-067/082": `TestStableTierGolden` (varian), `TestPromptNoUnavailableTools`, `TestVolatileTierCaps`, `TestPrefixStableWithinTurn`, `TestRuntimeSuffixCaps`, `TestShellSchemaVariant`.
+5. **Schema `shell` per fase (NEW-18).** Deskripsi dan parameter schema eager dibangkitkan per build: varian F1 tanpa kalimat background dan tanpa parameter `background` (P3 menolak argumen tak dikenal → `invalid_args`, konsisten ADR-072); varian F5 menambahkannya. Golden P15 per varian (`TestShellSchemaVariant`).
+6. **Target `patch` setara durabilitas (NEW-17).** Hermes menulis tanpa fsync; Damn-Bot wajib fsync file + rename + fsync dir. P28 dan CT-10 diubah: `search_files` dan `read_file` ≥ 10× p50; `patch`/tulis ≥ **2×** p50 terhadap baseline hermes yang diukur ulang dengan durabilitas setara (driver hermes menambahkan `fsync(file)` + `fsync(dir)` pada path yang sama di dalam jendela waktu), dan ≤ 6 ms p95 absolut di mesin referensi Q14. Baseline durabel diukur di F1 sebelum acceptance codetools. Tidak ada operasi yang boleh lebih lambat dari hermes (P28 tetap).
+
+**Dampak terukur (SPEC §20).** Token: schema `shell` F1 berkurang (tanpa `background`). Target kinerja: `patch` 10× → 2× setara durabilitas (P28 dikoreksi, bukan dilonggarkan untuk operasi baca). LOC/binary/dependency 0.
+
+**Konsekuensi.** (+) Semua target F1 dapat dicapai dan diverifikasi; cache prefix dan detektor repetisi konsisten. (−) Perbandingan `patch` butuh driver hermes durabel tambahan.
+
+## ADR-083 — Baseline hermes per fase di acceptance, sisa AUD-004, test tertunda di acceptance fase (sisa AUD-004, NEW-12, NEW-39, NEW-42, NEW-46)
+
+**Status:** Accepted 2026-10-18 (keputusan didelegasikan). Melengkapi ADR-065. Menutup sisa AUD-004, NEW-12, NEW-39, NEW-42, NEW-46.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-18): ROADMAP F1–F9 Acceptance; SCORECARD §1.1 (Token skill per turn); F0-REPORT Status #4; `bench/speed/results/hermes-868b9f244f-nollm.json` (`not_measured`) + `bench/speed/nollm_test.go`. Setiap passage mengutip ADR-083.
+
+**Keputusan.**
+1. Tabel ADR-065 ditambah: **Token skill per turn** → F2 (butuh index skill Damn-Bot; sisi hermes diukur dari request yang direkam proxy dengan katalog skill bawaan).
+2. Artefak nollm memuat `not_measured: [{dimension, phase, reason}]` untuk setiap dimensi ADR-065 berstatus Fx; `TestNoLLMBaselineCoverage` (`bench/speed`) memastikan setiap entri punya fase F1..F9 dan alasan, dan daftar dimensi = tabel ADR-065/083.
+3. Acceptance setiap fase F1, F2, F3, F4, F6, F9 memuat bullet: "Baseline hermes untuk dimensi ADR-065/083 berstatus Fx diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`)".
+4. Test yang ditunda ke fase lain tercantum di acceptance fasenya: F1 `TestConfigDefaultsMatchSpec` (kunci F1), test ADR-075 (`TestOracleDamnbotToolNames`, `TestUnknownRuleKindFails`, `TestToolCallsFromFinalResponse`, `TestAgentIsolation`, `TestRecordingsNoKey`); F2 `TestModuleLifecycle/needs_attention`; F4 `TestBudgetGuardGatewayUser` (termasuk penolakan pra-turn turn ke-201), `TestGatewayUserRootIsolation`, `TestGatewayUserBlobScope`; F5 `TestMCPServeCannotSelfApprove`, `TestExecuteCodeRPCNetworkDeny`; F6 `TestBudgetGuardTools`.
+5. Acceptance F1, F4, F5, F8 memuat "backlog ADR-078/ADR-086 berfase Fx tertutup"; ROADMAP F1 #0 mendaftar item backlog berlabel "Deliverable #0".
+6. F0-REPORT baris #4 diperbaiki: pengecualian = semua dimensi berstatus Fx di ADR-065/083 (bukan hanya install VM); dimensi LLM diatur ADR-032 (bukan ADR-065).
+
+**Dampak terukur (SPEC §20).** Token/latensi/LOC produksi/binary/dependency 0.
+
+**Konsekuensi.** (+) Kewajiban baseline dan test tertunda dapat diperiksa per fase; artefak terbaca mesin. (−) Acceptance setiap fase lebih panjang.
+
+## ADR-084 — Kanal approval P26, workspace role `user`, asal permintaan `mcp serve` (NEW-16, sisa AUD-041, AUD-042)
+
+**Status:** Accepted 2026-10-18 (keputusan didelegasikan). Mengamandemen ADR-076 butir 2 dan 3. Menutup NEW-16 dan sisa AUD-041/AUD-042.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC §9.6, §9.7, §11.4 (komentar kolom), §11.11.10 (tabel otoritas), §12 (`[gateway.users.<id>]`), §14.1, §14.2, §18.2, §22.1 GAP-SEC-14, GAP-SEC-21, GAP-GW-02; TRUST-MODEL §2; ROADMAP F1/F4/F5 Acceptance. Setiap passage mengutip ADR-084.
+
+**Keputusan.**
+1. **Kanal P26 (NEW-16).** Kelas P26 hanya bisa disetujui lewat kanal interaktif yang merender preview §18.2: TUI, ACP (`session/request_permission` dengan konten preview), web UI, dan gateway owner (inline keyboard + preview). Bukan `mcp_serve`, bukan headless. Headless produksi tidak punya approver → P26 `denied`. Test F1 memakai approver palsu ber-preview (test double di paket test, tidak pernah di binary) untuk membuktikan alur tanya; subset SEC-14 F1 = sudo → prompt per perintah lewat approver palsu, tanpa approver → `denied`.
+2. **Workspace role `user` (AUD-041).** Kolom `gateway_identities.workspace` tetap nullable di DDL; NULL berarti default turunan `<data_dir>/gw-workspaces/<identity_hash>` (dibuat saat pairing), sehingga root tidak pernah kosong. Sumber kebenaran runtime = kolom (bila non-NULL) atau default turunan; kunci config `[gateway.users.<id>] workspace` (§12) menimpa dan ditulis ke kolom saat pairing/startup. Test `TestGatewayUserRootIsolation`, `TestGatewayUserBlobScope` masuk §22.1 GAP-GW-02 dan acceptance F4.
+3. **Asal `mcp serve` (AUD-042).** Payload JSON `approval_request` (turn_journal, tanpa DDL baru) memuat `origin` ∈ {`tui`, `acp`, `web`, `gateway`, `headless`, `mcp_serve`}. Tabel otoritas §11.11.10: sumber `mcp_serve` hanya boleh menjawab permintaan dengan `origin ≠ mcp_serve` dan kelas non-P26. `TestMCPServeCannotSelfApprove` masuk GAP-SEC-21 dan acceptance F5.
+
+**Dampak terukur (SPEC §20).** Token/latensi/LOC/binary/dependency 0; DDL 0 (field JSON).
+
+**Konsekuensi.** (+) ACP tetap kanal approval sah; tidak ada jalur self-approve. (−) Field `origin` wajib diisi semua pembuat `approval_request`.
+
+## ADR-085 — CI meta-test wajib, ledger biaya tunggal, isolasi h2h terukur, ctxdb lintas OS nyata (NEW-13, NEW-14, NEW-15, sisa AUD-034, AUD-037, AUD-039)
+
+**Status:** Accepted 2026-10-18 (keputusan didelegasikan). Mengamandemen ADR-073 butir 1 (meta.yml) dan ADR-075 butir 1/3. Menutup NEW-13, NEW-14, NEW-15, sisa AUD-034/037/039.
+
+**Aturan penerapan.** Diterapkan (2026-10-18): kode `.github/workflows/meta.yml`, `bench/h2h/{ledger.go,proxy.go,cmd/h2h,cmd/startup}`, `bench/h2h/results/f1-spend.json`, `internal/ctxdb/env_*.go` + test; teks ENGINEERING §5 (E-78, meta), ROADMAP F1 #0/F1, SCORECARD §2.3. Setiap passage mengutip ADR-085.
+
+**Keputusan.**
+1. **meta-test (NEW-13, AUD-034).** Workflow `meta` berjalan di **setiap** PR dan push `main`; job menghitung file berubah (`git diff --name-only` terhadap base) dan menjalankan `make meta-test` bila ada path gate yang berubah, selain itu lulus dengan pesan "no gate paths changed" — status selalu terlapor dan dijadikan required check (E-78). Path gate: `Makefile`, `scripts/**`, `.github/**`, `.golangci.yml`, `loc.budget`, `deps.allow`, `deps.mpl`, `go.mod`, `go.sum`, `tools/go.mod`, `tools/go.sum`, `internal/archtest/**`, `internal/testutil/**`, `internal/metaviolation/**`, `internal/ctxdb/timing_test.go`, `internal/ctxdb/race_*_test.go`, `internal/analyzers/**`. Nightly menjalankan semua gate tanpa syarat.
+2. **Ledger tunggal (NEW-14, AUD-037).** Setiap `Recorder` dengan kunci upstream wajib punya `Ledger` (request ditolak tanpa ledger). Path tunggal F1 = `bench/h2h/results/f1-spend.json` (konstanta `h2h.F1LedgerPath`, di-commit, cap 2,00 tersimpan di file); `cmd/h2h` dan `cmd/startup` sama-sama memakainya, tanpa flag path lain. Pembaruan ledger = read-modify-write di bawah `flock` eksklusif (proses lain melihat belanja terbaru sebelum reservasi); di OS tanpa `flock` ledger menolak dibuka (fail-closed). `Price.Valid` mengizinkan `CachedInput = 0` (provider tanpa diskon cache) tetapi input/output wajib > 0.
+3. **Isolasi h2h terukur (AUD-039).** Gate bernama, prasyarat smoke F1: `TestAgentIsolation` (uid agent dalam user namespace ≠ uid proxy, file kunci tidak ada setelah proxy membaca, env agent ⊆ allowlist) dan `TestRecordingsNoKey` (semua rekaman ter-commit dipindai pola token generik; bila `H2H_KEY_FILE` diset, juga literal/base64/base64url/hex/potongan 12 char kunci itu).
+4. **ctxdb lintas OS (NEW-15).** Probe proses nyata untuk darwin (sysctl `kern.proc.pid` start time, `kill(pid,0)`, process group via `kern.proc.pgrp`) dan windows (`OpenProcess` + `GetProcessTimes`); skenario yang butuh fitur yang tidak ada di OS itu (SIGSTOP/process group di Windows) adalah **platform-n/a** dengan daftar eksplisit yang dicek test (`TestPlatformNAList`), bukan skip diam-diam. Daftar ada di komentar test dan di `AUDIT-F0-RESOLUTION.md`.
+
+**Dampak terukur (SPEC §20).** Token/latensi/LOC produksi root (ctxdb probe dalam budget `ctxdb` 2.800)/binary/dependency 0. CI: workflow `meta` kini selalu melapor status.
+
+**Konsekuensi.** (+) Gate tidak bisa dilemahkan tanpa meta-test; cap biaya F1 tidak bisa dilewati lewat driver lain atau ledger baru. (−) Setiap PR menjalankan job meta ringan.
+
+## ADR-086 — Errata backlog MINOR putaran 2 (NEW-21..NEW-52) + keputusan item ADR-078 tanpa resolusi
+
+**Status:** Accepted 2026-10-18 (keputusan didelegasikan; pola ADR-078). Menetapkan fase untuk MINOR baru `AUDIT-F0-REVERIFY.md`, memperbaiki pelacak, dan memberi keputusan konkret untuk AUD-047, 048, 053, 064, 068 (NEW-48). Item ditutup paling lambat sebelum acceptance fase pemiliknya.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-18) untuk item berstatus "ditutup": SPEC §18.5 + GAP-INF-06 (AUD-053), P21 (AUD-064); DECISIONS (penanda NEW-49); `internal/archtest/parity_phase_test.go` (NEW-43); `.gitignore` (NEW-51); `AUDIT-F0-RESOLUTION.md` (NEW-47).
+
+**Keputusan item ADR-078 (NEW-48).**
+- **AUD-047:** cap input per turn menghitung **semua** token input termasuk `cached_input_tokens` (konservatif); config eval (`max_wall_s = 1800`, cap per turn sama untuk kedua agent) ditulis di artefak eval. Fase F1 (sebelum smoke).
+- **AUD-048:** TRUST-MODEL §3 menyatakan sisa risiko orphan juga berlaku untuk `shell` di Linux (tanpa sub-cgroup di 1.0). Fase F1.
+- **AUD-053:** cap per run eval scorecard terjadwal = **US$5,00** (angka lebih rendah; §18.5 diselaraskan dengan INF-06). Ditutup sekarang.
+- **AUD-064:** `TestBudgetTableSum` = Σ kolom binary §3.2.4 ≤ 52 MB **dan** Σ kolom LOC §3.2.4 ≤ 190.000 **dan** Σ `loc.budget` baris core ≤ 47.000 (core + codetools + exec + heal). Ditutup sekarang (P21).
+- **AUD-068:** depguard menolak `github.com/agnivade/levenshtein`, `github.com/texttheater/golang-levenshtein`, `github.com/lithammer/fuzzysearch`, `github.com/sahilm/fuzzy` untuk `internal/{loop,tools,modules}/**`. Fase F1 (sebelum `loop`/`tools`).
+
+**Pelacak (NEW-47).** AUD-081, AUD-082, AUD-049(a) = closed (teks sudah ada).
+
+| ID | Inti | Fase / status |
+|---|---|---|
+| NEW-21 | Pola PGP `BEGIN PGP PRIVATE KEY BLOCK`; userinfo username kosong | F1 (sebelum `redact`) |
+| NEW-22, NEW-23, NEW-24, NEW-25, NEW-26, NEW-27 | Symlink/`/proc` task/korpus/`network`/sisa allowlist/syarat per sesi | ditutup ADR-079 |
+| NEW-28 | `TestShellNetworkOutputUntrusted` → `TestShellOutputUntrustedWorkspace` (ADR-079), DEBUG di subset SEC-11, P17 dengan penyaring (ADR-081) | ditutup ADR-079/081 + ROADMAP F1 |
+| NEW-29 | Kode error `stale_tag` (petakan ke `stale_read`), `backup_auth_failed` (F2), `no_text_layer`/`unsupported` (F6) | F1 (§4.3 errata sebelum `tools`) |
+| NEW-30 | EC-TERM-001 → F5 | ditutup ADR-080 |
+| NEW-31 | P23 F1 mengecualikan CT-34 (`TestIndexActivation`), sub-baris codeindex CT-35/CT-36 | F1 (sebelum acceptance codetools) |
+| NEW-32 | Nama test eksplisit di acceptance; definisi `TestGoleakMain` = `goleak.VerifyTestMain` per paket | F1 (Deliverable #0) |
+| NEW-33 | ENGINEERING §5 job list = ROADMAP F1 #0 | F1 (Deliverable #0) |
+| NEW-34 | Baris `loc.budget` untuk `internal/testutil`, `internal/archtest` non-test, `internal/analyzers`; catatan background exec F5 | F1 (Deliverable #0) |
+| NEW-35 | Helper timing pakai pasangan konstanta `race`/`!race`, menerima `testing.TB` | F1 (Deliverable #0) |
+| NEW-36 | ≥ 1 kasus meta-test per gate arsitektur | F1 (Deliverable #0) |
+| NEW-37 | Ledger h2h: flock, `CachedInput = 0`, test abort/reservasi | ditutup ADR-085 (flock, cached) + test abort F1 sebelum smoke |
+| NEW-38 | Job `perf` memakai `-tags goolm,perf`; `ctxdb/ledgerstore` di deliverable F1 | F1 (Deliverable #0) |
+| NEW-39 | F0-REPORT #4, Token skill per turn | ditutup ADR-083 |
+| NEW-40 | Catatan GAP-COST-09 F1 (teks) di baris F1; fase cek penuh ADR-068 di baris fase pemilik | F1 |
+| NEW-41 | Alokasi P1 f1-core: stable ≤ 1.000, context ≤ 1.100, volatile ≤ 100, tool eager ≤ 1.800 (Σ 4.000); `tiers.json` memuat sub-slot context | F1 (sebelum `assemble`) |
+| NEW-42 | Test tertunda di acceptance fase | ditutup ADR-083 |
+| NEW-43 | `TestParityPhaseColumn` assert jumlah per fase | ditutup (kode) |
+| NEW-44 | Transisi `starting → needs_attention`; rujuk Discord 4004/401 GW-11 | F2 |
+| NEW-45 | Ukur ulang baris `budget` 400 setelah estimator | F1 |
+| NEW-46 | Tenggat backlog di ROADMAP | ditutup ADR-083 |
+| NEW-47 | Pelacak basi | ditutup |
+| NEW-48 | Keputusan 047/048/053/064/068 | ditutup (di atas) |
+| NEW-49 | ADR diedit tanpa penanda | ditutup: penanda amandemen ditambahkan di ADR-071, 073, 075; ADR-062 diselaraskan dengan ADR-075 |
+| NEW-50 | Speed parity F1 diukur di mesin referensi Q14, baseline hermes dan Damn-Bot berpasangan di mesin yang sama | F1 |
+| NEW-51 | `.gitignore` | ditutup (kode); `sisasisa` milik user tidak disentuh |
+| NEW-52 | Penomoran aturan stable: aturan dinomori ulang berurutan setelah aturan kondisional dihilangkan; F1 memakai varian aturan 11 tanpa `repo_map` (panduan grep/glob tetap) | F1 (sebelum `assemble`) |
+
+**Dampak terukur (SPEC §20).** Token/latensi/LOC/binary/dependency 0. Default: cap eval scorecard per run US$10 → US$5 (AUD-053).
+
+**Konsekuensi.** (+) Semua MINOR putaran 2 punya pemilik dan tenggat; lima item tanpa keputusan kini punya keputusan. (−) Backlog F1 bertambah.
