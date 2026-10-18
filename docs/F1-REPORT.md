@@ -170,7 +170,8 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | PR | Isi | Baris Go non-test (diff) | Hasil |
 |---|---|---:|---|
 | exec a | tipe hasil (`ExecStatus` ADR-082), lapisan proses per OS, capture | 509 | CI; menunggu auditor |
-| exec b | `Runner`: loop timeout/cancel, kill order, sweep marker, edge `exec → boundary` | lihat PR | CI; menunggu auditor |
+| exec b | `Runner`: loop timeout/cancel, kill order, sweep marker, edge `exec → boundary` | 574 | CI; menunggu auditor |
+| exec c | env anak, secret ref scope, mode one-shot, `NeedsTTY` | lihat PR | CI; menunggu auditor |
 
 | Item | Implementasi | Test | Status |
 |---|---|---|---|
@@ -180,4 +181,8 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | Timeout + kill order (§A.4, ADR-072) | `call.loop`, `killTree`, `waitDead` | `TestRunTimeout`, `TestRunTimeoutIgnoresTERM` (durasi ≤ timeout + grace + 1 s, P24.2), `TestRunTimeoutKillsJobWindows` | PR b |
 | Cancel ≤ 1 s (REL-06, ADR-072/082) | `call.cancelled`, `Result.Done`, `Runner.Live` | `TestRunCancelConfirmed`, `TestRunCancelStillRunning`, `TestRunCancelConfirmedWindows` | PR b |
 | 0 orphan per call (P24.1, sebagian) | kill sisa pgid + sweep marker | `TestRunStragglersKilled`, `TestRunSetsidEscapeSwept`, `TestRunStragglersKilledWindows` | PR b; `TestNoOrphans` 200 iterasi = PR P24 |
-| Env, mode one-shot, prompt interaktif, idle, ConPTY, summarize, P24 | — | — | PR berikutnya |
+| Env anak (GAP-SEC-02, ADR-071, §A.6) | `EnvPolicy.Env` | `TestEnvAllowlist` (50 var secret + 20 non-pola × pipe/PTY = 0 bocor), `TestEnvWindowsBasics` | PR c; sesi persisten belum ada |
+| Secret ref scope (ADR-081/088, NEW3-03) | `SecretEnv`, `Prepare` | `TestSecretRefScope` (mode b argv0 ∈ commands → ada; `bash -c` sama → tidak; ekspansi `${GH_TOKEN}` → tidak + notice; argv0 lain → tidak) | PR c |
+| Mode one-shot (§A.2) + resolusi argv0 (NEW3-04 sisi runner) | `Prepare`, `shellArgv`, `lookPath` | `TestLookPath`, `TestLookPathWindows` (`.bat`/`.cmd`, entri relatif) | PR c |
+| Pemilihan PTY (§A.1) | `NeedsTTY` | `TestNeedsTTY` | PR c |
+| Prompt interaktif, idle, ConPTY, summarize, P24 | — | — | PR berikutnya |
