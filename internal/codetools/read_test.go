@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -141,5 +143,66 @@ func TestBinarySniff(t *testing.T) {
 	r := v.read(t, ReadArgs{Path: "elf"})
 	if r.Content != "binary: ELF 64-bit, 1.2 kB" || r.Meta["binary"] != true {
 		t.Errorf("binary read %q", r.Content)
+	}
+}
+
+// TestReadLarge covers §4.5: files above 8 MiB are paged without loading
+// them; a cold tail numbers from the end, a later read is absolute.
+func TestReadLarge(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	var b strings.Builder
+	for i := 1; b.Len() <= fullHashMax; i++ {
+		fmt.Fprintf(&b, "%08d %s\n", i, strings.Repeat("z", 40))
+	}
+	total := strings.Count(b.String(), "\n")
+	v.put(t, "big.log", b.String())
+	r := v.read(t, ReadArgs{Path: "big.log", Offset: new(-2)})
+	if !strings.Contains(r.Content, "numbering=from-end") || !strings.Contains(r.Content, fmt.Sprintf("-1|%08d", total)) {
+		t.Fatalf("cold tail %q", r.Content)
+	}
+	r = v.read(t, ReadArgs{Path: "big.log", Offset: new(total - 1), Limit: 5})
+	if !strings.Contains(firstLine(r.Content), fmt.Sprintf("L%d-%d/%d", total-1, total, total)) ||
+		!strings.HasSuffix(r.Content, fmt.Sprintf("%d|%08d %s", total, total, strings.Repeat("z", 40))) {
+		t.Errorf("indexed page %q", r.Content)
+	}
+	r = v.read(t, ReadArgs{Path: "big.log", Offset: new(1001), Limit: 1})
+	if !strings.Contains(r.Content, "1001|00001001 ") {
+		t.Errorf("checkpoint seek %q", r.Content)
+	}
+	if tag := metaStr(&r, "tag"); tag != statTag(keyOf(filepath.Join(v.root, "big.log"), mustStat(t, filepath.Join(v.root, "big.log")))) {
+		t.Errorf("file > 8 MiB must carry a stat-tag")
+	}
+}
+
+func mustStat(t testing.TB, p string) os.FileInfo {
+	t.Helper()
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi
+}
+
+// TestOutline covers §4.6 (CT-07 functionality): go/ast symbols with
+// receivers, heuristic nesting for other languages, parse errors partial.
+func TestOutline(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	v.put(t, "a.go", "package a\n\ntype S struct{}\n\nfunc (s *S) M() {}\n\nfunc F() {\n}\n\nconst C = 1\n")
+	r := v.read(t, ReadArgs{Path: "a.go", Outline: true})
+	want := "· outline · go/ast · 4 symbols\nL3-3 type S struct\nL5-5 func (*S) M\nL7-8 func F\nL10-10 const C"
+	if !strings.Contains(r.Content, want) {
+		t.Errorf("go outline %q", r.Content)
+	}
+	v.put(t, "b.py", "class A:\n    def m(self):\n        pass\n\ndef f():\n    pass\n")
+	r = v.read(t, ReadArgs{Path: "b.py", Outline: true})
+	if !strings.Contains(r.Content, "heuristic · 3 symbols\nL1-4 class A\n  L2-4 def m\nL5-6 def f") {
+		t.Errorf("heuristic outline %q", r.Content)
+	}
+	v.put(t, "bad.go", "package a\nfunc Ok() {}\nfunc (\n")
+	r = v.read(t, ReadArgs{Path: "bad.go", Outline: true})
+	if !strings.Contains(r.Content, "parse_errors=") || !strings.Contains(r.Content, "func Ok") {
+		t.Errorf("partial outline %q", r.Content)
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/boundary"
 	"github.com/damnbot/damnbot/internal/sandbox"
 )
 
@@ -117,9 +118,11 @@ type Engine struct {
 	roots []string
 	fold  bool // case-insensitive root prefixes (Windows)
 
-	mu    sync.Mutex
-	idle  *time.Timer // idle cache release (CODE-TOOLS §7)
-	cache *caches
+	mu       sync.Mutex
+	bg       []bgTask // background index builds, stopped by Close
+	building map[fileKey]bool
+	idle     *time.Timer // idle cache release (CODE-TOOLS §7)
+	cache    *caches
 }
 
 // New builds an Engine; roots are canonicalized like the sandbox does.
@@ -127,7 +130,7 @@ func New(cfg *Config) (*Engine, error) {
 	if cfg == nil || cfg.Sandbox == nil || len(cfg.Roots) == 0 {
 		return nil, errors.New("codetools: sandbox and roots required")
 	}
-	e := &Engine{sb: cfg.Sandbox, fold: runtime.GOOS == "windows"}
+	e := &Engine{sb: cfg.Sandbox, fold: runtime.GOOS == "windows", building: map[fileKey]bool{}}
 	for _, r := range cfg.Roots {
 		abs, err := filepath.Abs(r)
 		if err != nil {
@@ -146,11 +149,41 @@ func New(cfg *Config) (*Engine, error) {
 // Close stops background work and drops every cache and tag.
 func (e *Engine) Close() {
 	e.mu.Lock()
+	bg := e.bg
+	e.bg = nil
 	e.cache = newCaches()
 	if e.idle != nil {
 		e.idle.Stop()
 	}
 	e.mu.Unlock()
+	for _, t := range bg {
+		t.cancel()
+		<-t.task.Done()
+	}
+}
+
+type bgTask struct {
+	task   *boundary.Task
+	cancel context.CancelFunc
+}
+
+// goBackground runs fn on an Engine-owned goroutine (E-26) that outlives
+// the request (ctx values kept, cancellation dropped) until Close.
+func (e *Engine) goBackground(ctx context.Context, name string, fn func(context.Context) error) {
+	bctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	live := e.bg[:0]
+	for _, t := range e.bg {
+		select {
+		case <-t.task.Done():
+			t.cancel()
+		default:
+			live = append(live, t)
+		}
+	}
+	live = append(live, bgTask{task: boundary.Go(bctx, name, fn), cancel: cancel})
+	e.bg = live
 }
 
 // abs resolves a tool path argument against the session cwd.

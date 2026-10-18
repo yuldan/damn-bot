@@ -60,7 +60,7 @@ func allowedImports() map[string][]string {
 		"internal/budget":             nil,
 		"internal/heal":               {"internal/ctxdb", "internal/config"},
 		"internal/importer":           {"internal/ctxdb", "internal/memory", "internal/skills", "internal/config"},
-		"internal/codetools":          {"internal/sandbox"},
+		"internal/codetools":          {"internal/sandbox", "internal/boundary"},
 		"internal/exec":               {"internal/exec/classify", "internal/sandbox", "internal/redact"},
 		"internal/exec/classify":      nil,
 		"internal/hooks":              groupExec(),
