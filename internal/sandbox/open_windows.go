@@ -1,6 +1,7 @@
 package sandbox
 
 import (
+	"cmp"
 	"fmt"
 	"io/fs"
 	"os"
@@ -32,6 +33,11 @@ func (s *Sandbox) openBeneath(dir, rel, want string, flag int, perm fs.FileMode)
 			return nil, escaped(want, err)
 		}
 		return nil, fmt.Errorf("sandbox: %w", err)
+	}
+	// Only disk files and directories (CT27-4); pipes and character devices
+	// such as CON are refused.
+	if t, terr := windows.GetFileType(windows.Handle(f.Fd())); terr != nil || t != windows.FILE_TYPE_DISK {
+		return nil, closeFail(f, &fs.PathError{Op: "open", Path: want, Err: cmp.Or(terr, ErrNotRegular)})
 	}
 	got, err := finalPath(f)
 	switch {
