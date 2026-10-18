@@ -64,7 +64,7 @@ func (s *Store) closeRoot() error { return wrap(s.root.Close()) }
 
 // installDB replaces the DB file (and its WAL/SHM) by a copy of backup.
 func (s *Store) installDB(backup string) error {
-	in, err := os.Open(backup) //nolint:gosec // caller-provided backup path (user CLI argument)
+	in, err := os.Open(filepath.Clean(backup)) // backup = caller-provided path (user CLI argument)
 	if err != nil {
 		return wrap(err)
 	}
@@ -168,6 +168,3 @@ func (t *Tx) closeJournals() error {
 	}
 	return err
 }
-
-// BackupPath returns the standard path of a backup file of a data dir.
-func BackupPath(dir, name string) string { return filepath.Join(dir, "backups", name) }

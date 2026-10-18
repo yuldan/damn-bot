@@ -1,0 +1,2 @@
+# PHASE dibaca byte-persis oleh internal/testutil/phase: LF di semua OS (checkout Windows memakai CRLF bila tidak dipin).
+PHASE text eol=lf

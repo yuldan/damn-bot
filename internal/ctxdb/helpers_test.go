@@ -91,9 +91,19 @@ type env struct {
 	boot  string
 }
 
+// newEnv creates a data dir. Its leak check is registered right after
+// TempDir, so it runs after every later cleanup (Store.Close, child kill)
+// and before the directory is removed: a handle still open there would
+// make RemoveAll fail on Windows (ADR-090 matrix).
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	return &env{t: t, dir: t.TempDir(), clk: newFakeClock(), procs: &fakeProcs{dead: map[int]bool{}}, boot: "boot-1"}
+	dir := t.TempDir()
+	t.Cleanup(func() {
+		if open := openUnder(dir); len(open) > 0 {
+			t.Errorf("handle leak under data dir after cleanup (Windows cannot delete open files): %v", open)
+		}
+	})
+	return &env{t: t, dir: dir, clk: newFakeClock(), procs: &fakeProcs{dead: map[int]bool{}}, boot: "boot-1"}
 }
 
 func (e *env) ident(pid int) *Ident {

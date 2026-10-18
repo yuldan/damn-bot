@@ -192,12 +192,13 @@ func (s *Store) yieldIfWaiters() error {
 	if !fairLocks {
 		return nil
 	}
-	f, err := tryLock(s.root, writerWaitFile, true)
-	if err != nil {
-		s.yieldUntil = time.Now().Add(writerYield)
-		return nil //nolint:nilerr // contention is the expected signal, not a failure
+	// Contention on the probe is the expected signal (a waiter exists), not a
+	// failure: yield the next BEGIN instead of returning the error.
+	if f, err := tryLock(s.root, writerWaitFile, true); err == nil {
+		return unlockFile(f)
 	}
-	return unlockFile(f)
+	s.yieldUntil = time.Now().Add(writerYield)
+	return nil
 }
 
 // endTx rolls back an unfinished transaction (and recovers its own trash,

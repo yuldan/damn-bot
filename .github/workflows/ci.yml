@@ -1,5 +1,8 @@
-# CI skeleton F0 (ROADMAP F0 #7, ENGINEERING §5). Setiap job memanggil target Makefile yang sama
-# dengan lokal (GAP-INF-05), sehingga meta-test `make meta-test` menguji perintah yang sama.
+# CI per PR dan push main (ENGINEERING §5, ROADMAP F1 #0, ADR-073). Setiap job memanggil target Makefile
+# yang sama dengan lokal (GAP-INF-05), sehingga `make meta-test` menguji perintah yang sama.
+# Action dipin SHA commit + komentar versi, checkout tanpa kredensial tersimpan (AUD-070).
+# Hemat menit runner (repo privat; macOS ×10, Windows ×2): hanya `test` berjalan di matrix OS, gate
+# lain (lint, size, loc, …) cukup di ubuntu karena hasilnya tidak bergantung OS host.
 name: ci
 
 on:
@@ -14,6 +17,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 env:
   CGO_ENABLED: "0"
 
@@ -22,56 +29,157 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache-dependency-path: |
             go.sum
             tools/go.sum
-      - run: make lint
+      - name: golangci-lint (E-51)
+        run: make lint
+      - name: Analyzer khusus nohttpclient (E-05)
+        run: make vet-custom
 
+  # E-55: 6 target berrunner — linux amd64/arm64, darwin arm64/amd64, windows amd64/arm64 (linux/arm +
+  # android/arm64 di QEMU tetap F9, ADR-073). ADR-090: ctxdb Windows termasuk TestFileLockSemantics,
+  # S023, S044, TestPlatformNAList. windows/arm64 tanpa -race (Go tidak punya race detector di sana).
   test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, race: -race, cgo: "1" }
+          - { os: ubuntu-24.04-arm, race: -race, cgo: "1" }
+          - { os: macos-latest, race: -race, cgo: "1" }
+          - { os: macos-15-intel, race: -race, cgo: "1" }
+          - { os: windows-latest, race: -race, cgo: "1" }
+          - { os: windows-11-arm, race: "", cgo: "0" }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     env:
-      CGO_ENABLED: "1" # -race butuh cgo di runner; build rilis tetap CGO_ENABLED=0 (job size-check)
+      CGO_ENABLED: ${{ matrix.cgo }} # -race butuh cgo; build rilis tetap CGO_ENABLED=0 (job size, build-matrix)
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - run: make test
+      - name: GNU make tersedia (image Windows)
+        if: runner.os == 'Windows'
+        run: command -v make || choco install make -y --no-progress
+      - run: make test RACE="${{ matrix.race }}"
 
-  # ADR-048 (TS-P08): budget waktu dinding (I11 ≤ 200 ms/txn, dll.) tanpa -race; cek kebenaran
-  # skenario yang sama tetap berjalan di job `test` (-race).
+  # ADR-048 (TS-P08): budget waktu dinding tanpa -race; cek kebenaran skenario yang sama tetap berjalan
+  # di job `test` (-race).
   test-timing:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - run: make test-timing
 
-  # ADR-073 (AUD-033): go vet lintas OS (windows/darwin × amd64/arm64) sampai runner macOS/Windows aktif.
+  # ADR-073 (AUD-033): go vet windows/darwin × amd64/arm64.
   vet-cross:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - run: make vet-cross
 
-  size-check:
+  # E-39/E-65: CGO_ENABLED=0 -tags goolm untuk 8 target kanonik.
+  build-matrix:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make build-matrix
+
+  # E-57: 60 s per target Fuzz*, 3 shard paralel.
+  fuzz:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make fuzz SHARD=${{ matrix.shard }}/3
+
+  # E-58 (+ AUD-059): kritis ≥ 80 %, lain ≥ 70 %.
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make coverage
+
+  # E-53: deadcode -test, GOOS linux/darwin/windows digabung.
+  deadcode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - run: make deadcode
+
+  # ADR-073/077, NEW-38: budget waktu absolut benchmark (-tags goolm,perf; ×1,5 runner bersama).
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make perf
+
+  size:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - run: make size-check
@@ -80,12 +188,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache-dependency-path: tools/go.sum
-      - name: LOC per paket + total (E-19)
+      - name: LOC per paket + total, direktori tak terpetakan (E-19, AUD-073)
         run: make loc
       - name: Rasio test:source (E-70)
         run: make loc-ratio
@@ -94,43 +204,82 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache-dependency-path: |
             go.sum
             tools/go.sum
-      - name: go mod tidy tanpa diff (E-46)
+            bench/go.sum
+      - name: go mod tidy tanpa diff, 3 modul (E-46)
         run: make tidy-check
-      - name: go mod verify (E-47)
+      - name: go mod verify, 3 modul (E-47)
         run: make mod-verify
       - name: deps allowlist (E-45, E-48)
         run: make deps-check
-      - name: go-licenses (E-40)
+      - name: go-licenses + TestMPLIsolation (E-40)
         run: make licenses
 
+  # E-54: per PR di sini, harian terhadap main di nightly.yml (AUD-071).
   vuln:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache-dependency-path: |
             go.sum
             tools/go.sum
+            bench/go.sum
       - run: make vuln
 
-  # meta-test pindah ke workflow meta.yml (paths filter + nightly, ADR-073 / AUD-034).
-
+  # Modul bench (NEW2-07): seluruh test modul bench, termasuk harness token P1.
   bench-budget:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: bench/go.mod
+          cache-dependency-path: bench/go.sum
       - run: make bench-budget
+
+  # ADR-080 butir 2: acceptance fase bila file PHASE berubah; selain itu lulus dengan pesan.
+  phase-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: PHASE berubah?
+        id: phase
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "base tidak diketahui: jalankan acceptance fase"; echo "run=true" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --name-only "$BASE" "$HEAD" | grep -qx PHASE; then
+            echo "PHASE berubah: $(cat PHASE)"; echo "run=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "PHASE tidak berubah: acceptance fase tidak perlu dijalankan"; echo "run=false" >>"$GITHUB_OUTPUT"
+          fi
+      - if: steps.phase.outputs.run == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - if: steps.phase.outputs.run == 'true'
+        run: make phase-acceptance
