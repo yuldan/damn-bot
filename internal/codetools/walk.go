@@ -319,7 +319,7 @@ func (w *walker) entry(n *dirNode, de os.DirEntry, st ignoreStack, top, prefix s
 		// and reports skipDenied: one deny match per file instead of two.
 		n.entries = append(n.entries, dirEntry{name: name})
 		return nil
-	case w.e.sb.Denied(filepath.Join(n.abs, name)):
+	case w.e.sb.DeniedEntry(n.abs, name): // n.abs is not denied: checked before the walk listed it
 		n.denied++
 		return nil
 	case !isDir:

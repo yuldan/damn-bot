@@ -7,11 +7,22 @@ import (
 	"path/filepath"
 )
 
-// Denied reports whether an absolute resolved path matches deny_paths,
-// without any syscall. Walkers (grep/glob, ADR-103) use it to skip entries
-// below a Check'ed directory, where an entry's lexical path is its
-// resolved path because the walk never follows symlinks.
-func (s *Sandbox) Denied(absResolved string) bool { return s.denied(absResolved) }
+// DeniedEntry reports, without any syscall, whether the entry name of the
+// absolute resolved directory dir matches deny_paths, for a dir that does
+// not (walkers, ADR-103: grep/glob skip entries below a Check'ed directory,
+// where an entry's lexical path is its resolved path because the walk never
+// follows symlinks, and prune denied subdirectories). dir/name can then
+// only match a pattern whose last component matches name or is "**", so
+// other names cost neither a join nor a split.
+func (s *Sandbox) DeniedEntry(dir, name string) bool {
+	ascii := isASCII(name)
+	for _, pat := range s.deny {
+		if last := &pat[len(pat)-1]; last.pat == "**" || last.match(name, ascii) {
+			return s.denied(filepath.Join(dir, name))
+		}
+	}
+	return false
+}
 
 // OpenResolved opens, read-only, a path a walker found below a Check'ed
 // directory, skipping Check's per-component symlink resolution: the open
@@ -50,7 +61,7 @@ func (s *Sandbox) OpenResolved(ctx context.Context, absResolved string, approved
 	if v == OutsideRoot && !approved {
 		return nil, OutsideRoot, nil
 	}
-	f, err := s.openResolved(dir, relTo(dir, p), p)
+	f, err := s.openBeneath(dir, relTo(dir, p), p, os.O_RDONLY, 0)
 	// Inside a root the handle's path needs no re-check (see vet); outside,
 	// the full post-open deny re-check of OpenApproved runs too (CT27-1).
 	return s.vet(f, err, v, v == OutsideRoot, v == Inside && !approved)

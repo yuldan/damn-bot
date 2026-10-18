@@ -9,4 +9,4 @@ import "os"
 func linkCountPath(string) (uint64, error) { return 1, nil }
 
 // linkCountFile: see linkCountPath.
-func linkCountFile(*os.File) (uint64, error) { return 1, nil }
+func linkCountFile(*os.File, os.FileInfo) (uint64, error) { return 1, nil }

@@ -17,11 +17,11 @@ func linkCountPath(p string) (uint64, error) {
 		return 0, fmt.Errorf("sandbox: open: %w", err)
 	}
 	defer closeDir(f)
-	return linkCountFile(f)
+	return linkCountFile(f, nil)
 }
 
 // linkCountFile reads NumberOfLinks (GetFileInformationByHandle).
-func linkCountFile(f *os.File) (uint64, error) {
+func linkCountFile(f *os.File, _ os.FileInfo) (uint64, error) {
 	var info windows.ByHandleFileInformation
 	if err := windows.GetFileInformationByHandle(windows.Handle(f.Fd()), &info); err != nil {
 		return 0, fmt.Errorf("sandbox: GetFileInformationByHandle: %w", err)

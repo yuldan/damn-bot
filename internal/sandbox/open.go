@@ -17,8 +17,9 @@ const writeFlags = os.O_WRONLY | os.O_RDWR | os.O_CREATE | os.O_TRUNC | os.O_APP
 // OpenFile checks p like Check (op derived from flag) and, when Inside,
 // opens the resolved path beneath its root without following any symlink
 // that appeared after the check (anti-TOCTOU, CODE-TOOLS §8):
-//   - Linux ≥ 5.6: openat2(RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|
-//     RESOLVE_NO_MAGICLINKS) relative to the root;
+//   - Linux ≥ 5.6: openat2(RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS) of
+//     the absolute path, which no symlink may lie on (so it stays beneath
+//     the canonical root, like RESOLVE_BENEATH from the root);
 //   - other Unix and Linux < 5.6: per-component openat(O_NOFOLLOW) walk
 //     from the root, plus /proc/self/fd verification on Linux;
 //   - Windows: os.Root, then GetFinalPathNameByHandle must equal the path.
@@ -102,6 +103,8 @@ func relTo(dir, p string) string {
 //   - single: a regular file with more than one link is closed and
 //     reported (nil, HardLinked, nil) (S16-7); an unreadable link count
 //     fails closed.
+//
+// Both handle checks share one stat (Unix: its link count; ADR-103).
 func (s *Sandbox) vet(f *os.File, err error, v Verdict, byPath, single bool) (*os.File, Verdict, error) {
 	if err != nil {
 		return nil, v, err
@@ -111,10 +114,10 @@ func (s *Sandbox) vet(f *os.File, err error, v Verdict, byPath, single bool) (*o
 		p, ok := handlePath(f)
 		denied = ok && s.denied(p)
 	}
-	if !denied && len(s.denyIDs) > 0 {
-		fi, serr := f.Stat()
-		if serr != nil {
-			return nil, v, closeFail(f, fmt.Errorf("sandbox: stat: %w", serr))
+	var fi os.FileInfo
+	if !denied && (len(s.denyIDs) > 0 || single) {
+		if fi, err = f.Stat(); err != nil {
+			return nil, v, closeFail(f, fmt.Errorf("sandbox: stat: %w", err))
 		}
 		denied = slices.ContainsFunc(s.denyIDs, func(d os.FileInfo) bool { return os.SameFile(fi, d) })
 	}
@@ -124,7 +127,7 @@ func (s *Sandbox) vet(f *os.File, err error, v Verdict, byPath, single bool) (*o
 	if !single {
 		return f, v, nil
 	}
-	switch n, lerr := linkCountFile(f); {
+	switch n, lerr := linkCountFile(f, fi); {
 	case lerr != nil:
 		return nil, v, closeFail(f, lerr)
 	case n > 1:

@@ -40,7 +40,7 @@ func TestDenied(t *testing.T) {
 		filepath.FromSlash("/proc/42/memx"):                  false,
 		f.root:                                               false,
 	} {
-		if got := f.sb.Denied(p); got != want {
+		if got := f.sb.denied(p); got != want {
 			t.Errorf("Denied(%q) = %v, want %v", p, got, want)
 		}
 	}
@@ -55,12 +55,12 @@ func TestDenied(t *testing.T) {
 		token: true, filepath.Join(f.out, "TOKEN"): true, filepath.Join(token, "x"): true,
 		token + "2": false, filepath.Join(f.out, "tok"): false, filepath.Join(f.root, "token"): false,
 	} {
-		if got := sb.Denied(p); got != want {
+		if got := sb.denied(p); got != want {
 			t.Errorf("literal: Denied(%q) = %v, want %v", p, got, want)
 		}
 	}
 	p := filepath.Join(f.root, "Sub", "Dir", "file.go")
-	if n := testing.AllocsPerRun(100, func() { f.sb.Denied(p) }); n != 0 {
+	if n := testing.AllocsPerRun(100, func() { f.sb.denied(p) }); n != 0 {
 		t.Errorf("Denied allocates %.0f times per ASCII path, want 0", n)
 	}
 }
