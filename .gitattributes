@@ -6,3 +6,4 @@ bench/budget/testdata/hermes-868b9f244f/** -text
 bench/h2h/results/**/*.proxy.jsonl.gz -text
 bench/evals/sources/* -text
 bench/budget/o200k/o200k_base.tiktoken.gz -text
+internal/schema/testdata/jsts/* -text
