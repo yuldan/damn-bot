@@ -123,14 +123,14 @@ Diperiksa tanpa temuan:
 | ID | Severity | Ringkas |
 |---|---|---|
 | ~~PROV-B1~~ | BLOCKER → **closed** (#36 `6fd631d`) | Rekursi `jscan.skip` tanpa batas kedalaman: satu event SSE membuat proses arm64 crash fatal |
-| PROV-M1 | MAJOR | Penggabungan nama tool kuadratik (CPU/alokasi DoS) |
-| PROV-M2 | MAJOR | Amplifikasi entri `{}` di `tool_calls` |
-| PROV-M3 | MAJOR | Reasoning parts menyimpan sekitar 40× cap |
-| PROV-M4 | MAJOR | Redirect meneruskan header kredensial kustom dan prompt ke host lain |
-| PROV-M5 | MAJOR | Fallback yang gagal tidak terlihat (P7) |
-| LED-1 | MAJOR | Test append-only vakum |
-| LED-2 | MAJOR | `usage.cost` raksasa menghasilkan biaya negatif |
-| LED-3 | MAJOR | Overflow token × harga menghasilkan biaya negatif atau mendekati 0 |
+| ~~PROV-M1~~ | closed (#38) | Penggabungan nama tool kuadratik (CPU/alokasi DoS) |
+| PROV-M2 | MAJOR (partial di #38: bypass duplicate key) | Amplifikasi entri `{}` di `tool_calls` |
+| ~~PROV-M3~~ | closed (#38) | Reasoning parts menyimpan sekitar 40× cap |
+| ~~PROV-M4~~ | closed (#38) | Redirect meneruskan header kredensial kustom dan prompt ke host lain |
+| ~~PROV-M5~~ | closed (#38) | Fallback yang gagal tidak terlihat (P7) |
+| ~~LED-1~~ | closed (#37) | Test append-only vakum |
+| ~~LED-2~~ | closed (#37) | `usage.cost` raksasa menghasilkan biaya negatif |
+| ~~LED-3~~ | closed (#37) | Overflow token × harga menghasilkan biaya negatif atau mendekati 0 |
 | NETX-26 | BLOCKER (PR #28, sebelum merge) | Jendela rescan lapisan decode melewatkan secret yang disisipi CR/LF serta JWT/userinfo dengan konteks > 256 B (regresi vs `main`) |
 
 ## Verifikasi perbaikan PROV-B1 (#36 @ `6fd631d`, sudah di `main`)
@@ -148,3 +148,44 @@ Perbaikan: `skip` kini iteratif (tumpukan jenis berbasis bit, bukan rekursi), da
 | Test bawaan PR | Test frame maksimum dan seed kedalaman 10.001 ada di `delta_test.go` (+54 baris) |
 
 **PROV-B1: closed.** Sisa yang belum ditangani PR ini: PROV-m1 (duplikat key) dan MAJOR PROV-M1..M5 (lewat #38) serta LED-1..3 (lewat #37). Ketiganya diverifikasi setelah PR-nya siap.
+
+## Verifikasi perbaikan putaran 2: PR #37 (ledger) dan PR #38 (provider)
+
+### PR #37 `f1-sec3-ledger` @ `2bcc15d` (LED-1..3): approve
+
+| ID | Status | Bukti |
+|---|---|---|
+| LED-1 | **closed** | `ledgerstore_test.go`: UPDATE dan DELETE kini diasersi dengan `errors.Is(err, ctxdb.ErrInternal)`, lalu isi ledger dicek tidak berubah. Mutasi dengan menghapus trigger `usage_no_update`/`usage_no_delete` dari `0001_core.sql` membuat test gagal untuk keduanya (`err = <nil>`, `Input:7`, `Calls:0`). |
+| LED-2 | **closed** | `ledger.go`: `CostUSD > MaxProviderCostUSD` (1e6, termasuk +Inf) → `ErrInvalidUsage` + `CostUnknown`. Konversi hanya untuk nilai ≤ 1e12 micro, sehingga eksak. NaN dan nilai negatif jatuh ke tabel harga. Kasus 1e14 dan Inf ada di `TestCost`. |
+| LED-3 | **closed** | `tableCost` memakai `bits.Mul64`/`Add64` dengan pemeriksaan overflow, menolak token > `MaxTokens` (1e12) dan harga negatif, lalu membulatkan ke atas. Overflow mana pun → `ErrInvalidUsage`, sehingga biaya tidak pernah wrap. Lima kasus batas ada di `TestCost`. |
+
+`go test -race ./internal/budget/... ./internal/ctxdb/ledgerstore/...`: ok.
+
+LED-4..7 (MINOR) belum ditangani dan tetap backlog. Untuk LED-4, perlu dipastikan batas token di sisi provider dan budget sama sebelum P8 dan pre-check budget memakai estimator.
+
+### PR #38 `f1-sec3-provider` @ `2e284be` (PROV-M1..M5): changes required (MAJOR, perbaikan satu baris)
+
+| ID | Status | Bukti |
+|---|---|---|
+| PROV-M1 | **closed** | Nama tool dibatasi 256 B: 200k fragmen ditolak di fragmen ke-257, dalam 129 µs dan 0 MiB (sebelumnya 13,6 s / 19,8 GiB). Event 4 MiB di atas nama 1 MiB ditolak dalam 3 ms. Mutasi tertangkap oleh `TestToolNameBound`. |
+| PROV-M2 | **partial (MAJOR)** | Repro asli (1,4 juta `{}`) ditolak di decoder (`ErrTooManyToolDeltas`, 8 MiB). **Bypass:** cap memeriksa index array (`i == maxChunkToolDeltas`), bukan `len(dd.d.ToolCalls)`. Key `"tool_calls"` atau `"choices"` yang diulang (PROV-m1) membuat index mulai lagi dari 0. Satu frame 4 MiB lalu menghasilkan 1,37 juta fragmen, dengan alokasi 636,7 MiB, live 138,6 MiB, dan waktu ≈ 0,3 s (e2e 648,8 MiB). Assembler menolak sesudahnya (tanpa retry), tetapi biaya per request tetap sekitar 155× ukuran frame. Perbaikan satu baris `len(dd.d.ToolCalls) == maxChunkToolDeltas` sudah diuji di salinan: ketiga varian ditolak di decoder (8 MiB, 2–4 ms) dan test yang ada tetap lulus. |
+| PROV-M3 | **closed** | `reasoningCost` menghitung ukuran yang benar-benar disimpan. Repro ditolak di frame kedua; heap 9,0 → 13,7 MiB di sekitar `result()` (sebelumnya 179 → 637 MiB). Ditangkap oleh `TestReasoningPartsBound` dan `TestQuotedLen`. |
+| PROV-M4 | **closed** | Inference tidak mengikuti redirect. Pada 301/302/307/308 ke host lain: evil menerima 0 request, fallback tidak dipicu, dan error berkelas `bad_request` non-retryable. Purpose Tool hanya mengikuti GET, dengan header kustom dibuang lintas host, https→http ditolak, maksimum 10 hop, POST tidak diikuti, dan gerbang DLP tetap berjalan sebelum hop pertama. Ketujuh mutan redirect tertangkap. |
+| PROV-M5 | **closed** | Fallback yang gagal kini memancarkan 2 event dengan route (`Done=false` sebelum, `Done=true` + `Outcome` sesudah). Mutan tertangkap oleh `TestFallbackFailedVisible` dan EC-PROV-015. |
+
+Temuan baru (semua MINOR, sebelum acceptance F1):
+
+| ID | Temuan | Rekomendasi |
+|---|---|---|
+| PROV-N1 | `partText` men-decode part reasoning mentah ke `any` tanpa batas. Satu event `[{},{},…]` 4 MiB mengalokasi 207,6 MiB dan 1,4 juta malloc (sudah ada di `main`). | Ekstrak teks lewat `jscan`, atau batasi jumlah elemen per part. |
+| PROV-N2 | `result()` tetap menjalankan `quote(a.reasonText)` di mode parts walaupun hasilnya dibuang. Dengan part 4 MiB berisi `<`, alokasinya 182,5 MiB (sekitar 11× cap, tidak dihitung). | Jalankan `quote()` hanya bila `reasonParts == nil`. |
+| PROV-N3 | Biaya 64 B per fragmen membuat argumen yang di-stream per token kecil dibatasi ≈ 0,9 MiB (≈ 250k fragmen). Belum ada false positive untuk batas output saat ini (128k token lulus), tetapi batas efektif ini tidak terdokumentasi di ADR-102 butir 13. | Bebankan biaya hanya ke fragmen kosong, atau gunakan penghitung fragmen terpisah, lalu dokumentasikan batasnya. |
+| PROV-N4 | Mutan yang lolos: (a) pemetaan `ErrTooManyToolDeltas` → `ErrResponseTooLarge` di `readStream` bisa dihapus tanpa test gagal (padahal kelasnya lalu menjadi `stream_broken`, yang di-retry 3× plus fallback); (b) bagian tunggal `reasoningCost`; (d) tidak ada test duplicate-key untuk M2. | Tambahkan test di level client dan test duplicate-key. |
+
+Perintah yang dijalankan:
+- `go test -race ./internal/provider/... ./internal/netx/...`: PASS.
+- `GOOS=windows|darwin go vet`: ok.
+- `FuzzDeltaDecode` 200 s (6,97 juta eksekusi): PASS.
+- 24 mutan: 17 tertangkap; 7 yang lolos tercantum di N4.
+
+Respons sah tetap bisa dirakit: 128 call dengan nama 256 B; reasoning parts identik sampai level byte; `Content` utuh.
