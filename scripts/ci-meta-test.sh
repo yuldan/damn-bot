@@ -80,6 +80,15 @@ marker() {
 	bench-budget) echo 'TestMetaBench' ;;
 	phase-file) echo 'PHASE GAGAL' ;;
 	phase-acceptance) echo 'PHASE GAGAL META-1: phase acceptance' ;;
+	arch-importgraph) echo 'E-01 edge ilegal: internal/loop → internal/ctxdb' ;;
+	arch-filelength) echo 'E-14/E-71 file terlalu panjang: internal/metaviolation/long\.go' ;;
+	arch-globals) echo 'E-10 global di luar allowlist: internal/metaviolation/g\.go:Meta' ;;
+	arch-goleak) echo 'E-29 goleak: paket internal/metaviolation' ;;
+	arch-budgetsum) echo 'Σ loc\.budget core = [0-9]+ > 47000' ;;
+	arch-codeowners) echo 'E-79 CODEOWNERS: direktori internal/metaviolation' ;;
+	arch-nolint) echo 'E-52 nolint tanpa linter/alasan: internal/metaviolation/n\.go' ;;
+	arch-workflows) echo 'AUD-070 action tidak dipin SHA: \.github/workflows/meta-violation\.yml' ;;
+	arch-mpl) echo 'E-40 MPL-2\.0 di luar deps\.mpl: example\.com/metampl' ;;
 	pr-title) echo 'PR-META GAGAL title' ;;
 	pr-changelog) echo 'PR-META GAGAL changelog' ;;
 	adrgate) echo 'PR-META GAGAL adrgate: deps.allow' ;;
@@ -427,6 +436,46 @@ func TestMetaPhase(t *testing.T) {
 	phase.Current(t).Item(t, "META-1", "F1", "pending:F1")
 }
 EOF
+		;;
+	arch-importgraph)
+		# E-02: loop hanya boleh mengimpor loop/event, boundary, stdlib.
+		printf 'package loop\n\nimport "github.com/damnbot/damnbot/internal/ctxdb"\n\n// ErrMeta melanggar E-02.\nvar ErrMeta = ctxdb.ErrDBBusy\n' |
+			gofile "$d/internal/loop/meta.go"
+		;;
+	arch-filelength)
+		{
+			printf 'package metaviolation\n\n'
+			for _ in $(seq 799); do printf '// x\n'; done
+		} | gofile "$d/internal/metaviolation/long.go"
+		;;
+	arch-globals)
+		printf 'package metaviolation\n\n// Meta melanggar E-10.\nvar Meta = map[string]int{} //nolint:gochecknoglobals // meta violation\n' |
+			gofile "$d/internal/metaviolation/g.go"
+		;;
+	arch-goleak)
+		printf 'package metaviolation\n\n// F meluncurkan goroutine tanpa goleak.\nfunc F() { go func() {}() }\n' | gofile "$d/internal/metaviolation/g.go"
+		;;
+	arch-budgetsum)
+		printf 'metabloat         20000 internal/metabloat\n' >>"$d/loc.budget"
+		;;
+	arch-codeowners)
+		printf 'package metaviolation\n' | gofile "$d/internal/metaviolation/doc.go"
+		;;
+	arch-nolint)
+		printf 'package metaviolation\n\n// F melanggar E-52.\nfunc F() {} //nolint\n' | gofile "$d/internal/metaviolation/n.go"
+		;;
+	arch-workflows)
+		printf 'name: meta\non: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n' \
+			>"$d/.github/workflows/meta-violation.yml"
+		;;
+	arch-mpl)
+		# Modul lokal MPL-2.0 di luar deps.mpl yang di-link ke cmd/damnbot (E-40, AUD-069).
+		mkdir -p "$d/metampl"
+		cp /usr/share/common-licenses/MPL-2.0 "$d/metampl/LICENSE"
+		printf 'module example.com/metampl\n\ngo 1.26\n' >"$d/metampl/go.mod"
+		printf 'package metampl\n\n// V dipakai cmd/damnbot.\nconst V = "mpl"\n' >"$d/metampl/metampl.go"
+		printf 'package main\n\nimport "example.com/metampl"\n\nvar _ = metampl.V\n' >"$d/cmd/damnbot/zz_meta_mpl.go"
+		(cd "$d" && go mod edit -require=example.com/metampl@v0.0.0 -replace=example.com/metampl=./metampl)
 		;;
 	pr-title)
 		printf 'Update stuff\n' >"$d/.meta-pr-title"

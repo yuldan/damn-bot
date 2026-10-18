@@ -1,0 +1,211 @@
+package archtest
+
+import (
+	"cmp"
+	"io/fs"
+	"path"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"testing"
+)
+
+// Plafon P13/P21 (SPEC §2) dan gabungan core loc.budget (ADR-033, ADR-086 AUD-064).
+const (
+	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
+	maxTotalLOC      = 190000
+	maxCoreLOC       = 47000
+	locTotalRow      = "TOTAL"
+	locGeneratedRow  = "GENERATED"
+)
+
+var (
+	binaryCellRe = regexp.MustCompile(`^(\d+)(?:,(\d))? MB`)
+	locCellRe    = regexp.MustCompile(`^\d{1,3}(?:\.\d{3})*`)
+	usesRe       = regexp.MustCompile(`^(\s*)(?:-\s+)?uses:\s*["']?([^\s"'#]+)["']?\s*(#.*)?$`)
+	pinnedRe     = regexp.MustCompile(`^[\w.-]+/[\w.-]+(?:/[\w./-]+)?@[0-9a-f]{40}$`)
+	versionRe    = regexp.MustCompile(`^#\s*v\d+(?:\.\d+)*`)
+	persistRe    = regexp.MustCompile(`^\s*persist-credentials:\s*["']?false["']?\s*(?:#.*)?$`)
+)
+
+// budgetRows mengembalikan sel baris tabel SPEC §3.2.4 (tanpa header, pemisah, dan baris Total).
+func budgetRows(t *testing.T, spec string) [][]string {
+	t.Helper()
+	_, section, ok := strings.Cut(spec, "\n#### 3.2.4 ")
+	if !ok {
+		t.Fatal("SPEC.md: bagian #### 3.2.4 tidak ditemukan")
+	}
+	if i := strings.Index(section, "\n#"); i >= 0 {
+		section = section[:i]
+	}
+	var rows [][]string
+	for raw := range strings.Lines(section) {
+		cells := tableCells(raw)
+		if len(cells) < 3 || cells[0] == "Modul" || strings.HasPrefix(cells[0], "---") ||
+			strings.HasPrefix(cells[0], "**Total**") {
+			continue
+		}
+		rows = append(rows, cells)
+	}
+	if len(rows) == 0 {
+		t.Fatal("SPEC.md §3.2.4: tabel budget kosong")
+	}
+	return rows
+}
+
+// TestBudgetTableSum (P21, ADR-086 AUD-064): Σ kolom binary SPEC §3.2.4 ≤ 52 MB, Σ kolom LOC
+// §3.2.4 ≤ 190.000, dan Σ baris core loc.budget ≤ 47.000. Baris core = tabel core ENGINEERING
+// §2.4 (core + codetools + exec + heal): semua baris `<grup> <LOC> <dir…>` kecuali TOTAL,
+// GENERATED, dan baris infra non-produksi (NEW-34) yang semua direktorinya di infraDirs.
+func TestBudgetTableSum(t *testing.T) {
+	t.Parallel()
+	binary, loc := 0, 0
+	for _, cells := range budgetRows(t, readRepoFile(t, "SPEC.md")) {
+		m := binaryCellRe.FindStringSubmatch(cells[1])
+		l := locCellRe.FindString(cells[2])
+		if m == nil || l == "" {
+			t.Errorf("SPEC.md §3.2.4: baris %q tidak ter-parse (binary %q, LOC %q)", cells[0], cells[1], cells[2])
+			continue
+		}
+		binary += 10*atoi(t, m[1]) + atoi(t, cmp.Or(m[2], "0"))
+		loc += atoi(t, strings.ReplaceAll(l, ".", ""))
+	}
+	if binary > maxBinaryTenthMB {
+		t.Errorf("P21 budget table: Σ binary §3.2.4 = %d,%d MB > 52 MB", binary/10, binary%10)
+	}
+	if loc > maxTotalLOC {
+		t.Errorf("P21 budget table: Σ LOC §3.2.4 = %d > %d", loc, maxTotalLOC)
+	}
+	core := 0
+	for _, line := range allowlist(readRepoFile(t, "loc.budget")) {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && (fields[0] == locTotalRow || fields[0] == locGeneratedRow) {
+			continue
+		}
+		n, err := 0, error(nil)
+		if len(fields) >= 3 {
+			n, err = strconv.Atoi(fields[1])
+		}
+		switch {
+		case len(fields) < 3 || err != nil:
+			t.Errorf("loc.budget: baris tidak valid %q", line)
+		case slices.ContainsFunc(fields[2:], isCoreDir): // baris infra murni di luar Σ core
+			core += n
+		}
+	}
+	if core > maxCoreLOC {
+		t.Errorf("P21 budget table: Σ loc.budget core = %d > %d", core, maxCoreLOC)
+	}
+}
+
+// infraDirs = direktori infra non-produksi loc.budget (ADR-086 NEW-34), di luar Σ core.
+func infraDirs() []string {
+	return []string{"internal/testutil", "internal/archtest", "tools/analyzers"}
+}
+
+// isCoreDir: dir bukan infra (sama dengan atau di bawah salah satu infraDirs). Direktori lain
+// selalu dihitung core (konservatif: baris baru tidak bisa lolos dari Σ diam-diam).
+func isCoreDir(dir string) bool {
+	return !slices.ContainsFunc(infraDirs(), func(infra string) bool {
+		return dir == infra || strings.HasPrefix(dir, infra+"/")
+	})
+}
+
+// TestCodeownersComplete (E-79): setiap direktori internal/* dan cmd/* punya baris eksplisit
+// sendiri (ber-owner) di .github/CODEOWNERS; fallback `*` tidak dihitung.
+func TestCodeownersComplete(t *testing.T) {
+	t.Parallel()
+	owned := map[string]bool{}
+	for _, line := range allowlist(readRepoFile(t, ".github/CODEOWNERS")) {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || !strings.HasPrefix(fields[1], "@") {
+			t.Errorf("E-79 CODEOWNERS: baris tanpa owner: %q", line)
+			continue
+		}
+		owned[strings.Trim(strings.TrimSuffix(fields[0], "/**"), "/")] = true
+	}
+	fsys := openRepo(t).FS()
+	for _, parent := range []string{"cmd", "internal"} {
+		entries, err := fs.ReadDir(fsys, parent)
+		if err != nil {
+			t.Fatalf("read %s: %v", parent, err)
+		}
+		for _, e := range entries {
+			if dir := path.Join(parent, e.Name()); e.IsDir() && !owned[dir] {
+				t.Errorf("E-79 CODEOWNERS: direktori %s tidak punya baris di .github/CODEOWNERS", dir)
+			}
+		}
+	}
+}
+
+// TestWorkflowsPinned (ADR-078 AUD-070): setiap `uses:` di .github/workflows dan .github/actions
+// memakai commit SHA 40-hex dengan komentar versi (`owner/repo@<sha> # vX.Y.Z`; action lokal
+// `./…` dikecualikan), dan setiap step actions/checkout punya `persist-credentials: false`.
+func TestWorkflowsPinned(t *testing.T) {
+	t.Parallel()
+	fsys := openRepo(t).FS()
+	var files []string
+	patterns := []string{
+		".github/workflows/*.yml", ".github/workflows/*.yaml",
+		".github/actions/*/action.yml", ".github/actions/*/action.yaml",
+	}
+	for _, pattern := range patterns {
+		m, err := fs.Glob(fsys, pattern)
+		if err != nil {
+			t.Fatalf("glob %s: %v", pattern, err)
+		}
+		files = append(files, m...)
+	}
+	if len(files) == 0 {
+		t.Fatal("tidak ada workflow di .github/workflows")
+	}
+	for _, name := range files {
+		lines := strings.Split(readRepoFile(t, name), "\n")
+		for i, line := range lines {
+			m := usesRe.FindStringSubmatch(line)
+			if len(m) < 4 || strings.HasPrefix(m[2], "./") {
+				continue
+			}
+			if !pinnedRe.MatchString(m[2]) || !versionRe.MatchString(m[3]) {
+				t.Errorf("AUD-070 action tidak dipin SHA: %s:%d: %s (format owner/repo@<sha40> # vX.Y.Z)",
+					name, i+1, strings.TrimSpace(line))
+			}
+			if strings.HasPrefix(m[2], "actions/checkout@") && !slices.ContainsFunc(stepLines(lines, i), persistRe.MatchString) {
+				t.Errorf("AUD-070 checkout tanpa persist-credentials: false: %s:%d", name, i+1)
+			}
+		}
+	}
+}
+
+// stepLines mengembalikan baris step YAML yang memuat baris ke-i: dari baris `- ` pembuka step
+// (indentasi < baris i, atau baris i sendiri) sampai baris berikutnya yang indentasinya ≤ `-`.
+func stepLines(lines []string, i int) []string {
+	indent := func(s string) int { return len(s) - len(strings.TrimLeft(s, " ")) }
+	isStepStart := func(j int) bool {
+		return strings.HasPrefix(strings.TrimSpace(lines[j]), "- ") && (j == i || indent(lines[j]) < indent(lines[i]))
+	}
+	start := i
+	for start >= 0 && !isStepStart(start) {
+		start--
+	}
+	if start < 0 {
+		return nil
+	}
+	dash := indent(lines[start])
+	end := start + 1
+	for end < len(lines) && (strings.TrimSpace(lines[end]) == "" || indent(lines[end]) > dash) {
+		end++
+	}
+	return lines[start:end]
+}
+
+// atoi mem-parse bilangan yang sudah dijamin regex pemanggil; kegagalan tetap dilaporkan.
+func atoi(t *testing.T, s string) int {
+	t.Helper()
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		t.Errorf("parse angka %q: %v", s, err)
+	}
+	return n
+}

@@ -44,14 +44,16 @@ build-matrix:
 lint:
 	$(GOTOOL) golangci-lint run --build-tags "$(TAGSCSV)" ./...
 
-# Analyzer khusus (ENGINEERING §5.1; kode di tools/analyzers, ADR-093): test analysistest + go vet -vettool.
+# Analyzer khusus (ENGINEERING §5.1; kode di tools/analyzers, ADR-094): test analysistest + go vet -vettool.
 vet-custom:
 	cd tools && go test -count=1 ./analyzers/...
 	cd tools && go build -o $(BIN)/damnbot-vet ./analyzers/cmd/damnbot-vet
 	go vet $(GOTAGS) -vettool=$(BIN)/damnbot-vet ./...
 
+# RACE kosong hanya untuk target tanpa race detector Go (windows/arm64, matrix E-55; ADR-094).
+RACE ?= -race
 test:
-	go test $(GOTAGS) -race -shuffle=on $(PKGS)
+	go test $(GOTAGS) $(RACE) -shuffle=on $(PKGS)
 
 # ADR-048 (TS-P08): asersi budget waktu dinding (I11 ≤ 200 ms/txn dll.) hanya ditegakkan di build
 # tanpa -race, lewat satu helper internal/testutil/timing (ADR-073, NEW-35). Suite yang sama juga
@@ -88,7 +90,7 @@ deadcode:
 	TAGS="$(TAGSCSV)" PKGS="$(PKGS)" DEADCODE=$(BIN)/deadcode scripts/deadcode.sh
 
 # ADR-073: deteksi flake nightly, -count=20 (tanpa -race: 20× suite -race melebihi budget menit CI,
-# ADR-093; race tetap di `make test` setiap PR).
+# ADR-094; race tetap di `make test` setiap PR).
 flake:
 	go test $(GOTAGS) -count=20 -shuffle=on $(PKGS)
 
