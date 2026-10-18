@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,7 @@ const (
 	readDefaultLimit = 400
 	readMaxLimit     = 2000
 	lineMaxChars     = 2000
+	fullHashMax      = 8 << 20  // full-content tag; above: stat-tag
 	inMemoryMax      = 64 << 20 // UTF-16 decode and string edits (§5.4)
 )
 
@@ -58,26 +60,95 @@ func (e *Engine) Read(ctx context.Context, a ReadArgs, o Opts) (res Result, err 
 	if fi.IsDir() {
 		return res, toolErr(CodeInvalidArgs, "use glob to list a directory", "%s is a directory", a.Path)
 	}
-	return e.readText(&fileView{t: t, key: keyOf(t.resolved, fi)}, off, limit, o)
+	e.touch()
+	f := &fileView{t: t, key: keyOf(t.resolved, fi)}
+	if err := f.sniff(); err != nil {
+		return res, err
+	}
+	if f.binary {
+		return f.binaryResult(e), nil
+	}
+	return e.readText(f, off, limit, o)
 }
 
 // fileView is an opened file with its sniffed head.
 type fileView struct {
-	t   *target
-	key fileKey
+	t      *target
+	key    fileKey
+	head   []byte
+	enc    textEnc
+	binary bool
+	desc   string
 }
+
+func (f *fileView) sniff() error {
+	f.head = make([]byte, sniffLen) // not the stat size: pseudo-files report 0
+	n, err := f.t.f.ReadAt(f.head, 0)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return &ToolError{Code: CodeInternal, Message: "read " + f.t.rel, Err: err}
+	}
+	f.head = f.head[:n]
+	f.enc = detectEnc(f.head)
+	f.binary, f.desc = sniffBinary(f.head, f.enc)
+	return nil
+}
+
+func (f *fileView) binaryResult(e *Engine) Result {
+	desc := f.desc
+	if desc == "" {
+		desc = "data"
+	}
+	tag := statTag(f.key)
+	ent := &tagEntry{sum: statSum(f.key), stat: f.key, at: time.Now()}
+	if f.key.size <= fullHashMax {
+		if sum, err := hashFile(f.t.f, f.key.size); err == nil {
+			ent.sum, tag = sum, sumTag(sum)
+		}
+	}
+	e.remember(f.t.resolved, tag, ent, nil)
+	return Result{
+		Content: e.wrapOutside(f.t, fmt.Sprintf("binary: %s, %s", desc, humanSize(f.key.size))),
+		Meta:    map[string]any{"binary": true, "kind": desc, "bytes": f.key.size, "tag": tag},
+	}
+}
+
+// statSum is the stat-tag digest for files above fullHashMax (CODE-TOOLS §5.1).
+func statSum(k fileKey) [32]byte {
+	b := make([]byte, 0, 96+len(k.path))
+	b = strconv.AppendUint(b, k.dev, 10)
+	b = strconv.AppendUint(append(b, ' '), k.ino, 10)
+	for _, v := range [...]int64{k.sdev, k.size, k.mtimeNs, k.ctimeNs} {
+		b = strconv.AppendInt(append(b, ' '), v, 10)
+	}
+	return sha256.Sum256(append(append(b, ' '), k.path...))
+}
+
+func statTag(k fileKey) string { s := statSum(k); return hex.EncodeToString(s[:4]) }
 
 func sumTag(s [32]byte) string { return hex.EncodeToString(s[:4]) }
 
-// remember records a tag handed to the model (CODE-TOOLS §5.1).
-func (e *Engine) remember(resolved, tag string, ent *tagEntry) {
+// remember records a tag handed to the model (CODE-TOOLS §5.1) and, for
+// files ≤ readCacheFile, the snapshot used by stale_read change summaries.
+func (e *Engine) remember(resolved, tag string, ent *tagEntry, snap []byte) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.cache.tags[tagKey(resolved, tag)] = *ent
+	k := tagKey(resolved, tag)
+	e.cache.tags[k] = *ent
+	if snap != nil && len(snap) <= readCacheFile {
+		e.cache.snaps.put(k, snap, len(snap))
+	}
 }
 
-// loadAll reads the whole file (≤ inMemoryMax) with its sha256.
+// loadAll reads the whole file (≤ inMemoryMax) with its sha256, through
+// the read cache (CODE-TOOLS §7): a hit needs an identical stat and a hash
+// taken more than racyWindow after the file's mtime.
 func (e *Engine) loadAll(f *fileView) ([]byte, [32]byte, error) {
+	e.mu.Lock()
+	ent, ok := e.cache.read.get(f.key)
+	e.mu.Unlock()
+	if ok && ent.data != nil && ent.at.Sub(time.Unix(0, f.key.mtimeNs)) > racyWindow {
+		return ent.data, ent.sum, nil
+	}
 	if f.key.size > inMemoryMax {
 		return nil, [32]byte{}, toolErr(CodeTooLarge, "use offset/limit pages or line-range edits", "%s is larger than %d MiB", f.t.rel, inMemoryMax>>20)
 	}
@@ -91,7 +162,28 @@ func (e *Engine) loadAll(f *fileView) ([]byte, [32]byte, error) {
 		return nil, [32]byte{}, toolErr(CodeTooLarge, "use offset/limit pages or line-range edits", "%s is larger than %d MiB", f.t.rel, inMemoryMax>>20)
 	}
 	data := b.Bytes()
-	return data, sha256.Sum256(data), nil
+	n := len(data)
+	sum := sha256.Sum256(data)
+	if int64(n) == f.key.size && n <= readCacheFile {
+		e.mu.Lock()
+		e.cache.read.put(f.key, readEntry{sum: sum, data: data, at: time.Now()}, n+64)
+		e.mu.Unlock()
+	}
+	return data, sum, nil
+}
+
+// logical returns the text view of raw file bytes: BOM stripped, UTF-16
+// decoded to (WTF-)UTF-8. EOLs are kept; callers split lines.
+func logical(raw []byte, enc textEnc) []byte {
+	raw = raw[len(enc.bom()):]
+	if enc.enc == EncUTF8 {
+		return raw
+	}
+	text, odd := decodeUTF16(raw, enc.enc == EncUTF16BE)
+	if odd != nil {
+		text = append(text, odd...) // shown as an invalid byte; edits fail closed
+	}
+	return text
 }
 
 func (e *Engine) readText(f *fileView, off, limit int, o Opts) (Result, error) {
@@ -100,8 +192,12 @@ func (e *Engine) readText(f *fileView, off, limit int, o Opts) (Result, error) {
 		return Result{}, err
 	}
 	tag, ent := sumTag(sum), tagEntry{sum: sum, stat: f.key, at: time.Now()}
-	e.remember(f.t.resolved, tag, &ent)
-	lines := splitLines(raw)
+	if f.key.size > fullHashMax { // UTF-16 above 8 MiB: stat-tag rule
+		tag, ent = statTag(f.key), tagEntry{sum: statSum(f.key), stat: f.key, at: ent.at, full: sum, hasFull: true}
+	}
+	e.remember(f.t.resolved, tag, &ent, raw)
+	text := logical(raw, f.enc)
+	lines := splitLines(text)
 	total := len(lines)
 	start := off
 	if off < 0 {
@@ -120,7 +216,7 @@ func (e *Engine) readText(f *fileView, off, limit int, o Opts) (Result, error) {
 	if last := start + pw.count - 1; last < total {
 		next = last + 1
 	}
-	hdr := header{rel: f.t.rel, tag: tag, first: start, count: pw.count, total: total}
+	hdr := header{rel: f.t.rel, tag: tag, first: start, count: pw.count, total: total, enc: f.enc, eol: eolLabel(text)}
 	return pw.result(e, f.t, &hdr, next), nil
 }
 
@@ -143,10 +239,27 @@ func trimEOL(l []byte) []byte {
 	return bytes.TrimSuffix(bytes.TrimSuffix(l, []byte{'\n'}), []byte{'\r'})
 }
 
+// eolLabel names the dominant line ending ("lf" when none; "mixed" appended
+// when both occur).
+func eolLabel(text []byte) string {
+	lf := bytes.Count(text, []byte{'\n'})
+	crlf := bytes.Count(text, []byte("\r\n"))
+	s := "lf"
+	if crlf*2 > lf {
+		s = "crlf"
+	}
+	if crlf > 0 && crlf < lf {
+		s += " mixed"
+	}
+	return s
+}
+
 // header is the first line of a read_file page (CODE-TOOLS §9.2).
 type header struct {
 	rel, tag            string
 	first, count, total int
+	enc                 textEnc
+	eol                 string
 	invalid             int
 }
 
@@ -200,13 +313,13 @@ func (p *page) result(e *Engine, t *target, h *header, next int) Result {
 	if h.count == 0 {
 		last = h.first - 1
 	}
-	fmt.Fprintf(&b, "%s #%s · L%d-%d/%d", h.rel, h.tag, h.first, last, h.total)
+	fmt.Fprintf(&b, "%s #%s · L%d-%d/%d · %s %s", h.rel, h.tag, h.first, last, h.total, h.enc, h.eol)
 	if h.invalid > 0 {
 		fmt.Fprintf(&b, " · invalid_utf8=%d", h.invalid)
 	}
 	b.WriteByte('\n')
 	b.WriteString(p.b.String())
-	meta := map[string]any{"tag": h.tag, "lines_total": h.total}
+	meta := map[string]any{"tag": h.tag, "lines_total": h.total, "encoding": h.enc.String(), "eol": h.eol}
 	if next != 0 {
 		fmt.Fprintf(&b, "next: offset=%d\n", next)
 		meta["next"] = next

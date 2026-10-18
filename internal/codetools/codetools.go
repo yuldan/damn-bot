@@ -19,6 +19,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/sandbox"
 )
@@ -117,6 +118,7 @@ type Engine struct {
 	fold  bool // case-insensitive root prefixes (Windows)
 
 	mu    sync.Mutex
+	idle  *time.Timer // idle cache release (CODE-TOOLS §7)
 	cache *caches
 }
 
@@ -145,6 +147,9 @@ func New(cfg *Config) (*Engine, error) {
 func (e *Engine) Close() {
 	e.mu.Lock()
 	e.cache = newCaches()
+	if e.idle != nil {
+		e.idle.Stop()
+	}
 	e.mu.Unlock()
 }
 
