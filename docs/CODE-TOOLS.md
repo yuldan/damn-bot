@@ -369,7 +369,7 @@ python, javascript, typescript, tsx, rust, c, cpp, java, ruby, php, bash, c_shar
 | `code_definition` | `path*`; `line*` ≥ 1; `column*` ≥ 1 | LSP `textDocument/definition`; fallback resolusi nama berbasis tags dengan label `heuristic` | Kolom = code point 1-based (dikonversi ke UTF-16 untuk LSP) |
 | `code_references` | `path*`; `line*`; `column*`; `limit` 1–500 (default 100) | LSP `textDocument/references`; fallback grep word-boundary dengan label `heuristic` | Format sama dengan grep (§9.1) + tag per file |
 | `code_diagnostics` | `path*` | LSP `publishDiagnostics` / pull diagnostics; tanpa server → `module_unavailable` + nama server yang perlu dipasang; workspace untrusted → `module_unavailable` hint "workspace not trusted" (ADR-089) | Diagnostik otomatis pasca-edit didefinisikan di [EXEC-AND-CODING.md](EXEC-AND-CODING.md) |
-| `code_rename` | `path*`; `line*`; `column*`; `new_name*`; `tag*` | LSP `textDocument/rename` → `WorkspaceEdit` | Lihat aturan di bawah |
+| `code_rename` | `path*`; `line*`; `column*`; `new_name*`; `tag*` | LSP `textDocument/rename` → `WorkspaceEdit`; workspace untrusted → `module_unavailable` (hint "workspace not trusted", ADR-089 butir 3) | Lihat aturan di bawah |
 
 Aturan `code_rename`:
 
