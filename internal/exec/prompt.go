@@ -83,18 +83,17 @@ func promptKind(rules []promptRule, line string) string {
 	return ""
 }
 
-// stripANSI appends src without ANSI escape sequences (CSI `ESC [ … final`,
-// OSC `ESC ] … BEL|ST`, and two-byte `ESC x`) to dst.
+// stripANSI appends src without ANSI escape sequences (CSI `ESC [ … final`;
+// OSC, DCS, SOS, PM, APC `ESC ]|P|X|^|_ … BEL|ST`; two-byte `ESC x`) to dst.
 func stripANSI(dst, src []byte) []byte {
-	for i := 0; i < len(src); i++ {
-		c := src[i]
-		if c != 0x1b || i+1 >= len(src) {
-			dst = append(dst, c)
-			continue
+	for {
+		i := bytes.IndexByte(src, 0x1b)
+		if i < 0 || i+1 >= len(src) {
+			return append(dst, src...)
 		}
-		i += escapeLen(src[i:]) - 1
+		dst = append(dst, src[:i]...)
+		src = src[i+escapeLen(src[i:]):]
 	}
-	return dst
 }
 
 // escapeLen is the length of the escape sequence at s[0] == ESC (the rest
@@ -107,7 +106,7 @@ func escapeLen(s []byte) int {
 				return k + 1
 			}
 		}
-	case ']': // OSC: until BEL or ESC '\'
+	case ']', 'P', 'X', '^', '_': // string sequences: until BEL or ESC '\'
 		for k := 2; k < len(s); k++ {
 			if s[k] == 0x07 {
 				return k + 1

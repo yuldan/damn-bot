@@ -172,7 +172,8 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | exec a | tipe hasil (`ExecStatus` ADR-082), lapisan proses per OS, capture | 509 | CI; menunggu auditor |
 | exec b | `Runner`: loop timeout/cancel, kill order, sweep marker, edge `exec → boundary` | 574 | CI; menunggu auditor |
 | exec c | env anak, secret ref scope, mode one-shot, `NeedsTTY` | 432 | CI; menunggu auditor |
-| exec d | prompt interaktif, idle-timeout | lihat PR | CI; menunggu auditor |
+| exec d | prompt interaktif, idle-timeout | 538 | CI; menunggu auditor |
+| exec e | ringkasan output ke model (§A.3) | lihat PR | CI; menunggu auditor |
 
 | Item | Implementasi | Test | Status |
 |---|---|---|---|
@@ -188,4 +189,5 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | Pemilihan PTY (§A.1) | `NeedsTTY` | `TestNeedsTTY` | PR c |
 | Prompt interaktif (§A.6, P24.2) | `prompt.go`, `call.prompt`, wchan `treeWaitsInput` | `TestPromptKind`, `TestLastLine`, `TestInteractiveCorpus` (40 fixture × pipe/PTY: apt, ssh host key, sudo, kredensial git, `mysql -p`, passphrase, `python input()`/`getpass`, `git commit` tanpa `-m`, `git rebase -i`, `less`, `vi`, …; status ∈ {exited, waiting_for_input}, PTY ≤ 2 s setelah prompt + grace) | PR d; Windows menunggu ConPTY |
 | Idle-timeout (§A.4) | `idleTracker`, `treeSampler` per OS | `TestRunIdleTimeout` (`sleep` → `idle_timeout`; loop CPU → `timeout`) | PR d |
-| ConPTY, summarize, P24 (`TestNoOrphans` 200×, `BenchmarkShellSpawn*`), sesi persisten | — | — | PR berikutnya |
+| Ringkasan ke model (§A.3, P5) | `Summarizer.Summarize` | `TestSummarizePipeline` (ANSI/OSC/DCS, CR, backspace, UTF-8, progress, dedupe, redaksi, header), `TestSummarizeSpill` (preview head/error/tail, blob ter-redaksi, preview pendek), `BenchmarkSummarize1MB` (≈ 7 ms lokal; gate 15 ms) | PR e |
+| ConPTY, P24 (`TestNoOrphans` 200×, `BenchmarkShellSpawn*`), sesi persisten | — | — | PR berikutnya |
