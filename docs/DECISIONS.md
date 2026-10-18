@@ -1186,6 +1186,8 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Status:** Accepted 2026-10-18 (keputusan user). Menutup TS-P10.
 
+*(Amandemen 2026-10-18: budget `ctxdb` 2.800 → 3.100 oleh ADR-087.)*
+
 **Aturan penerapan.** Teks sudah diterapkan (2026-10-18): ENGINEERING §2.4 (tabel budget, `ctxdb` 2.800, total 31.450); `loc.budget`.
 
 **Konteks.** Cakupan SPEC §11 (purge 31 langkah, gc dua fase, barrier, restore, migrasi, recovery journal, lease/fencing) terukur 2.598–2.610 LOC non-test di spike F0, walaupun langkah purge sudah dipindah ke `queries.sql` (tidak dihitung) dan protokol gateway/approval ke test (ADR-053). Budget E-19 2.500.
@@ -1582,6 +1584,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Menutup AUD-006.
 
+*(Amandemen 2026-10-18: subset SEC-14 F1 memakai approver palsu ber-preview; headless produksi `denied` — ADR-084 butir 1.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC §22.1 (kolom Fase baris di bawah), ROADMAP §"Adopsi GAP-SWEEP" (baris F1 + catatan subset). Setiap passage mengutip ADR-068.
 
 **Konteks.** Sekitar separuh verifikasi GAP berfase F1 memakai komponen F2–F7, sehingga F1 tidak bisa diterima dengan bukti.
@@ -1609,6 +1613,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 ## ADR-069 — Batas keamanan shell: classifier allowlist, path operand, irreversible, sudo, `shell_allow`, workspace trust (AUD-001, AUD-008, AUD-009, AUD-010, AUD-012, AUD-017)
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan; opsi paling aman di setiap titik). Menutup AUD-001 (BLOCKER), AUD-008, AUD-009, AUD-010, AUD-012, AUD-017.
+
+*(Amandemen 2026-10-18: "budget exec 7.000" dibaca `loc.budget` `exec` 3.500 + `exec/classify` 1.500 (ADR-081); `allow_session` untuk shell dihapus dan `outside_read` didefinisikan ulang oleh ADR-088.)*
 
 *(Amandemen 2026-10-18: butir 2, bagian auto butir 3, butir 4 (auto), butir 6, tabel 42 kasus, dan jalur auto verify **digantikan ADR-079** (shell tidak pernah di-auto-approve classifier; auto hanya `shell_allow` argv-persis). Butir 9 dikoreksi ADR-079 butir 8.)*
 
@@ -1703,6 +1709,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 ## ADR-070 — Taint lengket per turn (AUD-007)
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Menutup AUD-007.
+
+*(Amandemen 2026-10-18: sumber taint ditambah setiap output shell di workspace untrusted (ADR-079 butir 6) dan output `outside_read` (ADR-088 butir 2).)*
 
 **Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC §4.3 (langkah taint baru), §14.1 (baris taint), §14.5; CROSS-CUTTING §1; SCORECARD E10 (rujukan mekanisme). Setiap passage mengutip ADR-070.
 
@@ -1929,6 +1937,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan direktur proyek). **Menggantikan** ADR-069 butir 2 (allowlist `read_only` + hardening git), butir 3 bagian "auto" (operand tetap dipakai untuk label/`denied_path` best-effort), butir 4 (`tainted_session` untuk auto), butir 6 (`shell_allow` prefix), tabel 42 kasus, dan jalur auto verify di ADR-069/SPEC §14.1. ADR-069 butir 1, 5 (kelas `irreversible`/`privileged`, P26), 7 (workspace trust), 8 (baca di luar root lewat tool file), dan 9 (cakupan boundary, dikoreksi di sini) tetap berlaku. Menutup sisa AUD-001/008/010 (`AUDIT-F0-REVERIFY.md`), NEW-01, NEW-03, NEW-04, NEW-09; ikut menutup NEW-06 (verify), NEW-07 (definisi vulnerability), NEW-22, NEW-23, NEW-24, NEW-25, NEW-26, NEW-27.
 
+*(Amandemen 2026-10-18: `allow_session` tidak pernah berlaku untuk shell, definisi `outside_read`, dan jalur execve untuk `shell_allow` — ADR-088; `execute_code` bahasa shell = model ini — ADR-089.)*
+
 *(Amandemen bertanggal 2026-10-18 saat penerapan: (a) kunci `shell_allow` tetap di section `[approval]` contoh config SPEC §12 (bukan `[exec]`; tanpa rename kunci); (b) daftar label butir 2 mencakup atribut `non_mutating` (best-effort, hanya membatasi di plan mode butir 11); (c) aturan stable tier "baca lewat tool kode" butir 1 diwujudkan sebagai perluasan aturan 5 draf §6.)*
 
 **Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC P26 (rujukan), §4.3 (langkah 5/7), §5.1 (baris `shell`), §10 (`run --unsafe-auto-shell`), §11 (komentar `approvals.decision` `auto_class_readonly` dicadangkan), §12 (`[exec]` `shell_allow = []`, `exec.auto_allow_verify` dihapus, `allow_destructive`/`destructive_allow` dicadangkan), §14.1, §14.2, §14.5, §18.3 (plan mode), §22.1 GAP-SEC-28, GAP-UX-02; EXEC-AND-CODING §A.8, §A.10, §B.2/§B.5 (verify), §D (EXC-13/EXC-14); CODE-TOOLS §8; TRUST-MODEL §1–§3; CROSS-CUTTING §1; ROADMAP F1 Acceptance; SCORECARD (catatan UX). Setiap passage mengutip ADR-079.
@@ -2015,6 +2025,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Mengamandemen ADR-071 butir 1 dan 3. Menutup NEW-05, NEW-08, NEW-20, sisa AUD-014 dan AUD-017.
 
+*(Amandemen 2026-10-18: butir 1 dilengkapi ADR-088 — secret ref hanya lewat jalur execve langsung, `TestSecretRefScope`.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC P17, §3.2.4 (catatan exec), §12, §14.3, §22.1 GAP-SEC-28; EXEC-AND-CODING §A.6, §A.8; CROSS-CUTTING §1.2; TRUST-MODEL §3; ENGINEERING §2.4 + `loc.budget`. Setiap passage mengutip ADR-081.
 
 **Keputusan.**
@@ -2082,6 +2094,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Mengamandemen ADR-073 butir 1 (meta.yml) dan ADR-075 butir 1/3. Menutup NEW-13, NEW-14, NEW-15, sisa AUD-034/037/039.
 
+*(Amandemen 2026-10-18: "dalam budget ctxdb 2.800" dibaca 3.100 (ADR-087); butir 4 dilengkapi ADR-090 — LockFileEx Windows.)*
+
 **Aturan penerapan.** Diterapkan (2026-10-18): kode `.github/workflows/meta.yml`, `bench/h2h/{ledger.go,proxy.go,cmd/h2h,cmd/startup}`, `bench/h2h/results/f1-spend.json`, `internal/ctxdb/env_*.go` + test; teks ENGINEERING §5 (E-78, meta), ROADMAP F1 #0/F1, SCORECARD §2.3. Setiap passage mengutip ADR-085.
 
 **Keputusan.**
@@ -2147,6 +2161,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Menutup flake `TestMultiProcess` (GitHub Actions run 39117760522 attempt 1: "child multi exited before READY"). Menaikkan budget `ctxdb` untuk ADR-085 butir 4 (NEW-15) dan fairness ini.
 
+*(Amandemen 2026-10-18: butir 3 — Windows kini punya LockFileEx dan `fairLocks = true` (ADR-090).)*
+
 **Aturan penerapan.** Diterapkan (2026-10-18): kode `internal/ctxdb/tx.go` (`begin`, `yieldIfWaiters`), `store.go`, `lock_unix.go`/`lock_other.go` (`fairLocks`), `chaos_test.go` (diagnostik anak); `loc.budget` dan ENGINEERING §2.4 (`ctxdb` 3.100, total 33.750); SPEC §11.11.11 (urutan lock: catatan fairness). Setiap passage mengutip ADR-087.
 
 **Konteks.** Di runner CI (2 vCPU, fsync lambat, `-race`) anak ke-4 `TestMultiProcess` gagal saat `Open` ±5 s setelah start (total test 7,31 s), sedangkan tiga anak lain sudah menulis terus-menerus. Tidak tereproduksi di workstation dengan CPU dibatasi (`taskset -c 0,1`/`-c 0`, `GOMAXPROCS=1..2`, 4–8 anak, 50+ run, seed shuffle CI), tetapi **tereproduksi** dengan fsync diperlambat 30 ms (`strace -e inject=fsync,fdatasync:delay_exit=30000`): 1 dari 3 run gagal dengan `append after 5.067 s: db_busy (SQLITE_BUSY)`. Akar masalah: handler busy SQLite melakukan polling dengan jeda yang membesar sampai 100 ms dan tidak FIFO; saat lock tulis jenuh (hold lama karena fsync), proses yang commit lalu langsung `BEGIN IMMEDIATE` lagi terus menang, sehingga proses baru (`startupRecovery` di `Open`) atau writer lain menunggu melewati `busy_timeout` 5 s. `busy_timeout` yang lebih besar tidak menyelesaikan apa pun karena tanpa fairness tidak ada batas tunggu.
@@ -2161,3 +2177,83 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 **Dampak terukur (SPEC §20).** Token/binary/dependency 0. Latensi: 0 tanpa kontensi; di bawah kontensi writer yang baru commit menunggu ≤ 150 ms sebelum transaksi berikutnya (throughput turun, ekor latensi penunggu terbatas). LOC: `ctxdb` +300.
 
 **Konsekuensi.** (+) `db_busy` tidak lagi muncul karena kelaparan writer pada beban `TestMultiProcess`/P19; waktu tunggu terbatas. (−) Throughput tulis agregat sedikit turun saat banyak proses menulis bersamaan.
+
+## ADR-088 — Residu model shell: `allow_session` tidak berlaku untuk shell, satu definisi `outside_read`, jalur execve runner untuk `shell_allow` dan secret ref (NEW2-01, NEW2-02, NEW2-06, NEW2-15, sisa NEW-05)
+
+**Status:** Accepted 2026-10-18 (keputusan direktur proyek: opsi paling konservatif). Mengamandemen ADR-079 butir 2–3 dan ADR-081 butir 1. Menutup NEW2-01, NEW2-02, NEW2-06 (MAJOR), NEW2-15 (MINOR), dan sisa NEW-05 ([`AUDIT-F0-REVERIFY2.md`](AUDIT-F0-REVERIFY2.md)).
+
+**Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC §5.1 (baris `shell`), §13.3 (`allow_always` ACP), §14.1, §14.2; EXEC-AND-CODING §A.2, §A.6, §A.8 (tabel kebijakan, `shell_allow`, secret ref, taint), §D (EXC-15); ROADMAP F1 Acceptance. Setiap passage mengutip ADR-088.
+
+**Keputusan.**
+1. **`allow_session` tidak pernah berlaku untuk `shell` (NEW2-01).** Untuk tool `shell`, keputusan approval interaktif hanya `allow_once`, `deny`, atau `edit`; opsi `allow_session` tidak ditawarkan (TUI/web/gateway) dan ACP `allow_always` untuk shell dipetakan ke `allow_once`. Satu-satunya jalur auto shell tetap `shell_allow` argv-persis beserta syarat 1–5 ADR-079 butir 3. Kalimat "`allow_session` untuk subject persis" pada baris `privileged`/`outside_read` dihapus. `allow_session` tetap berlaku untuk tool lain sesuai §14.1 (P26 tidak pernah). Test F1: `TestShellNoAllowSession` (tabel ADR-079 + baris 37: `allow_session` diminta untuk `go test ./...` di `auto-edit`, lalu `edit_file` auto, lalu `go test ./...` → tanya; ACP `allow_always` → efek `allow_once`).
+2. **Satu definisi `outside_read` (NEW2-02).** `outside_read` = label best-effort classifier untuk operand baca yang ter-resolve statis keluar root (bukan boundary, ADR-079 butir 8). Efeknya fail-closed dan sama di semua dokumen: preview menandai "reads outside workspace"; headless, termasuk `--unsafe-auto-shell`, → `outside_workspace`; output yang di-approve dibungkus `<untrusted source="shell:outside_workspace">` dan men-taint turn; tidak pernah auto (juga bila cocok `shell_allow`). SPEC §14.2 kalimat "tidak ada flag `outside_read` untuk shell" diganti definisi ini.
+3. **Jalur execve runner (NEW2-06, NEW2-15).** Runner A.2 punya dua mode one-shot: (a) `bash -c` (default untuk perintah biasa, perilaku lama) dan (b) **execve langsung** (`exec.Cmd` dengan argv hasil parse, tanpa interpreter, `PATH` sesi dipakai hanya untuk resolve argv0 ke path absolut yang dicatat saat sesi mulai; PTY bila diminta). Mode (b) dipakai untuk **semua** eksekusi yang cocok `shell_allow` dan untuk setiap perintah yang memerlukan secret ref `exec.env`. Perintah yang mengandung karakter kontrol (U+0000–U+001F selain tab, U+007F), CR, atau NUL tidak pernah cocok `shell_allow` dan tidak pernah memakai mode (b). "Binary yang sama" = path absolut hasil resolve sama **dan** (dev, inode, size, mtime) sama dengan saat sesi mulai. Windows: `shell_allow` hanya untuk argv0 yang di-resolve ke `.exe` lewat `PATH` sesi (cwd tidak pernah dicari; `.bat`/`.cmd` tidak pernah cocok), dieksekusi via `CreateProcess` tanpa `cmd.exe`.
+4. **Secret ref (sisa NEW-05).** Var secret `exec.env` hanya disuntikkan pada mode (b) untuk argv0 ∈ `commands`; mode (a), sesi persisten, dan proses lain tidak pernah menerimanya. Test F1: `TestSecretRefScope` (argv0 dalam `commands` via mode (b) → var ada; `bash -c` dengan argv0 sama → var tidak ada; sesi persisten → tidak ada; argv0 lain → tidak ada; perintah yang mereferensikan `$X` → label `unknown`), dan kasus scope ditambahkan ke EXC-15 `TestEnvAllowlist`. `TestShellAllowExactMatch` += CR, NUL, karakter kontrol, `.bat`/cwd Windows.
+
+**Dampak terukur (SPEC §20).** Token/binary/dependency 0. LOC: dalam budget `exec` 3.500 + `exec/classify` 1.500 (ADR-081). UX: satu prompt per perintah shell non-`shell_allow`, tanpa "izinkan untuk sesi" (tambahan biaya prompt di atas ADR-079, dicatat jujur).
+
+**Konsekuensi.** (+) Tidak ada jalur auto shell selain `shell_allow`; semantik `shell_allow` tidak bergantung pada kesetaraan parser mvdan vs bash. (−) Pengulangan perintah shell yang sama di satu sesi tetap meminta approval kecuali ditambahkan ke `shell_allow`.
+
+## ADR-089 — Approval `execute_code` dan gerbang trust codeintel/LSP (NEW2-03, NEW2-04)
+
+**Status:** Accepted 2026-10-18 (keputusan direktur proyek). Melengkapi ADR-055, ADR-069 butir 7, ADR-076 butir 1, ADR-079. Menutup NEW2-03, NEW2-04 (MAJOR, sebelum F5).
+
+**Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC §9.2, §12 (`[exec] code_auto_languages`), §14.1 (baris `execute_code`), §22.1 GAP-COST-10; EXEC-AND-CODING §B.3/§B.4 (codeintel/LSP), §B.7; CODE-TOOLS §6 (codeintel); TRUST-MODEL §1–§3; ROADMAP F5 Acceptance. Setiap passage mengutip ADR-089.
+
+**Keputusan.**
+1. **`execute_code` (NEW2-03).** Baris §14.1 baru: `ask` dan `auto-edit` → **selalu tanya** + preview (bahasa, ringkasan kode, `network`); `auto` → tanya kecuali `language` ada di allowlist config `exec.code_auto_languages` (default `[]`, nilai ∈ {`python`, `javascript`, `go`, `starlark`}); headless → `denied` kecuali `language` ada di allowlist **dan** `--approval auto`. Syarat tambahan untuk auto: workspace trusted, turn tidak tainted, tidak ada tulis tanpa approval di sesi (syarat 3–5 ADR-079 butir 3). `language` `bash`/`sh`/`zsh`/`pwsh` (atau interpreter shell apa pun) diperlakukan persis seperti tool `shell` di bawah ADR-079/088: auto hanya bila isi kode cocok persis `shell_allow`, tidak pernah lewat `code_auto_languages`. `allow_session` tidak berlaku untuk `execute_code`. Panggilan tool dari dalam skrip (RPC/binding) tetap melewati pipeline §4.3 masing-masing (ADR-055, ADR-076). Definisi vulnerability (a) ADR-079 butir 8 diperluas: "perintah shell **atau kode `execute_code`** yang berjalan tanpa approval eksplisit di luar jalur auto terdokumentasi". Test F5: `TestExecuteCodeApproval` (mode × bahasa × allowlist × trust × taint; `bash` = model shell).
+2. **Codeintel/LSP (NEW2-04).** Language server, build script, proc-macro, plugin `node_modules`, Gradle/Maven, dan alat lain yang mengeksekusi kode proyek **tidak pernah** dimulai otomatis di workspace untrusted: diagnostik pasca-edit dan `repo_map` memakai jalur tanpa eksekusi (go/ast, tree-sitter WASM) saja; tool codeintel yang membutuhkan LSP → `module_unavailable` dengan hint "workspace not trusted". Di workspace trusted, LSP mulai otomatis dengan setting yang mematikan eksekusi build script/proc-macro bila server mendukungnya (mis. rust-analyzer `cargo.buildScripts.enable=false`, `procMacro.enable=false`; tsserver tanpa plugin workspace); eksekusi yang tidak bisa dimatikan = sisa risiko TRUST-MODEL §3. Test F5: `TestLSPWorkspaceTrustGate` (untrusted → 0 proses LSP/build; trusted → setting aman diterapkan).
+
+**Dampak terukur (SPEC §20).** Token/latensi/LOC/binary/dependency 0 (dalam budget F5). Config: +1 kunci `exec.code_auto_languages` (default `[]`).
+
+**Konsekuensi.** (+) Tidak ada jalur auto-eksekusi kode workspace di luar `shell_allow`/allowlist bahasa yang eksplisit. (−) `execute_code` di mode `auto` meminta approval sampai pengguna mengisi allowlist; diagnostik LSP tidak ada di workspace untrusted.
+
+## ADR-090 — Lock file Windows (LockFileEx) di `ctxdb` (NEW2-05, sisa NEW-15)
+
+**Status:** Accepted 2026-10-18 (keputusan didelegasikan). Mengamandemen ADR-085 butir 4 dan ADR-087 butir 3. Menutup NEW2-05 dan sisa NEW-15. Diimplementasikan di F0: commit `962c065`.
+
+**Aturan penerapan.** Diterapkan (2026-10-18): kode `internal/ctxdb/lock_windows.go` (baru), `lock_other.go` (`!unix && !windows`), `lock_test.go`; teks SPEC §11.11.1/§11.11.11, ROADMAP F1 #0 Acceptance. Setiap passage mengutip ADR-090.
+
+**Keputusan.**
+1. `tryLock` Windows = `LockFileEx` (`golang.org/x/sys/windows`, dependency yang sudah ada) pada byte 0 file lock, `LOCKFILE_FAIL_IMMEDIATELY` + `LOCKFILE_EXCLUSIVE_LOCK` untuk eksklusif; `ERROR_LOCK_VIOLATION` → `ErrDBBusy`, error lain → error nyata (bukan kontensi). Lock milik handle; dilepas saat handle ditutup atau proses mati. `fairLocks = true` di Windows (ADR-087 aktif).
+2. `TestFileLockSemantics` (semua OS CI) membuktikan semantik shared/exclusive non-blocking per handle yang dipakai barrier, urutan open, dan fairness.
+3. Acceptance Deliverable F1 #0: job matrix Windows menjalankan `go test ./internal/ctxdb/` hijau, termasuk `TestFileLockSemantics`, S023, S044, dan `TestPlatformNAList`; kegagalan probe Windows di runner = perbaikan F1 #0, bukan skip.
+4. OS non-CI (`!unix && !windows`) tetap fail-closed (`db_busy`).
+
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency 0. LOC: `ctxdb` 2.857 / 3.100 (ADR-087).
+
+**Konsekuensi.** (+) Store bisa dibuka dan probe Windows tereksekusi di matrix F1 #0. (−) Belum dieksekusi di runner Windows sampai F1 #0 (hanya vet + compile + lint lintas OS di F0).
+
+## ADR-091 — Errata backlog MINOR putaran 3 (NEW2-07..NEW2-27) + sisa partial AUD-020/NEW-10
+
+**Status:** Accepted 2026-10-18 (pola ADR-078/086). Menetapkan fase untuk MINOR [`AUDIT-F0-REVERIFY2.md`](AUDIT-F0-REVERIFY2.md); item ditutup paling lambat sebelum acceptance fase pemiliknya. NEW2-12 dan NEW2-13 (residu partial AUD-020, NEW-10) dan NEW2-15 (ADR-088) ditutup sekarang.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-18) untuk item "ditutup": SPEC §6, §17.4 (SIGTSTP); EXEC-AND-CODING §B (notice `user_changed`); SCORECARD; MITIGATION-MATRIX. Setiap passage mengutip ADR-091.
+
+| ID | Inti | Fase / status |
+|---|---|---|
+| NEW2-07 | `TestNoLLMBaselineCoverage` sematkan peta dimensi → fase; `bench-budget` = `cd bench && go test ./...` | F1 (Deliverable #0, bersama AUD-075) |
+| NEW2-08 | `--unsafe-auto-shell` tanpa `--approval auto` = error penggunaan (exit 2); event `system_notice{kind:"unsafe_auto_shell"}` + field hasil `unsafe_auto_shell:true` | F1 (sebelum `exec`) |
+| NEW2-09 | Hook `pre_tool` `allow` = lanjut ke kebijakan normal, tidak pernah meng-approve | F3 |
+| NEW2-10 | Gateway/cron: `shell_allow` tidak berlaku untuk turn gateway role `user`; owner gateway dan cron mengikuti trust root `serve` (workspace cron = trusted hanya bila tercantum `security.trusted_workspaces`) | F4 |
+| NEW2-11 | Syarat "tulis tanpa approval" direset hanya lewat review daftar file yang ditulis auto; dihitung per data dir lintas sesi | F1 (sebelum `exec`) |
+| NEW2-12 | SIGTSTP live = `signaled` (`signal:"SIGTSTP"`), bukan `interrupted`; `TestACPChildNoStdin` → `TestACPChildStdinIsolation` | **ditutup** |
+| NEW2-13 | Notice `user_changed` dirender ≤ 23 tok (path pertama + `+N more`) | **ditutup** |
+| NEW2-14 | Redaksi stream: lookbehind ≤ panjang prefix maksimum atas teks yang belum dipancarkan; "bocor" = ≥ 4 char nilai secret di output | F1 (sebelum `redact`) |
+| NEW2-15 | Parser `shell_allow` vs bash; Windows | **ditutup** ADR-088 butir 3 |
+| NEW2-16 | `non_mutating` = label hanya untuk perintah tanpa redirect/flag tulis yang **terdaftar** di testdata classifier; default perintah lain = tidak `non_mutating`; `TestPlanModeShell` F3 di SPEC/EXEC; penanda amandemen ADR-070; `TestShellAutoKeysIgnored` (F1); K-02/S-15 diselaraskan | F1 (sebelum `exec`) |
+| NEW2-17 | Ringkasan P28 (SPEC §1, ROADMAP F9, SCORECARD §3) menyebut pengecualian `patch` 2× | F1 |
+| NEW2-18 | Gate pengulangan `non_idempotent` setelah `outcome_unknown` menang atas `shell_allow`; baris 38 tabel ADR-079 | F1 (sebelum `exec`) |
+| NEW2-19 | Field `origin` di daftar field `approval_request` (SPEC, SELF-HEALING, komentar `0005_recovery.sql`, spike approval) | F5 |
+| NEW2-20 | `origin` cron/batch/kanban → `headless`; delegate → origin induk | F5 |
+| NEW2-21 | Verify tanpa `shell_allow` di headless → "unverified (`evidence_gap` menurut §7.2)" | F1 |
+| NEW2-22 | Bullet `make phase-acceptance` hijau di acceptance tiap fase; item covered lebih awal (fase > `PHASE`) diizinkan | F1 (Deliverable #0) |
+| NEW2-23 | `TestWriterFairness` (asersi tunggu maks, `DAMNBOT_TIMING`), analisis 50 klien, pengecualian Append di §17, `tryLock` membedakan `ErrDBBusy` dari error lain (Windows sudah, ADR-090), skenario "penunggu SIGSTOP" §11.11.13 | F2 |
+| NEW2-24 | Ledger h2h: `reserved_usd` di ledger di bawah flock, proxy berhenti bila `Add` gagal, path di-resolve terhadap direktori modul | F1 (sebelum smoke) |
+| NEW2-25 | Penanda amandemen ADR-049/068/069/085 dan komentar `loc.budget` (ADR-087) | **ditutup** (penanda ditambahkan bersama ADR ini) |
+| NEW2-26 | adrgate E-82 memicu pada `loc.budget` dan tabel ENGINEERING §2.4 | F1 (Deliverable #0) |
+| NEW2-27 | Komentar `0003_gateway.sql:11`, ROADMAP:117 pengecualian CT-34/35/36, bullet backlog F2, driver damnbot h2h + catatan asimetri `--yolo` di SCORECARD | F1 (0003/ROADMAP/SCORECARD) / F2 (bullet) |
+
+**Dampak terukur (SPEC §20).** Token/latensi/LOC/binary/dependency 0.
+
+**Konsekuensi.** (+) Semua MINOR putaran 3 punya pemilik dan tenggat. (−) Backlog F1 bertambah.
