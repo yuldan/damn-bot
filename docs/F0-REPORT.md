@@ -559,3 +559,26 @@ Verifikasi penutupan AUDIT-F0 (2026-10-18, workstation, go1.26.9 linux/amd64). T
 | `scripts/ci-meta-test.sh` @ `6866120` | 0 | **13/13 DETECTED** (gate baru `vet-cross`); 886 s |
 | `cd bench && go vet ./...` | 0 | — |
 | `cd bench && go test -count=1 ./...` | 0 | budget, budget/o200k, evals, gencorpus, h2h (termasuk 5 test ledger/cap ADR-075), speed ok |
+
+| Item | Butuh keputusan user |
+|---|---|
+| Putaran 2 — [`AUDIT-F0-REVERIFY.md`](AUDIT-F0-REVERIFY.md) | **Diputuskan → ADR-079..087** (model shell ADR-079 = keputusan direktur: shell tidak pernah di-auto-approve classifier, auto hanya `shell_allow` argv-persis / headless `--unsafe-auto-shell`). 16 partial + NEW-01/02 + NEW-03..20 punya ADR dan teks terapan; MINOR → ADR-086. Pelacak: [`AUDIT-F0-RESOLUTION.md`](AUDIT-F0-RESOLUTION.md). |
+| Flake `TestMultiProcess` (Actions run 39117760522, "child multi exited before READY") | **Diperbaiki → ADR-087.** Akar: handler busy SQLite tidak adil; pada lock tulis jenuh (fsync lambat) writer baru menunggu > `busy_timeout` 5 s → `db_busy` di `Open`. Reproduksi lokal dengan fsync +30 ms (`strace -e inject`): tanpa fix 2/9 run gagal (`db_busy` setelah 5,06–5,07 s), dengan fairness writer (`run/writer.wait` + yield 150 ms) 0/11. |
+
+Verifikasi putaran 2 (2026-10-18, workstation, go1.26.9 linux/amd64). Target `make` di HEAD `b0c9b85`; modul `bench` diulang di `e284d5a` (hanya `bench/h2h/ledger_test.go` berubah: tunggu record proxy sebelum `End`). Meta-test tidak diulang lokal; workflow `meta` CI menjalankannya karena `.github/**`/`Makefile` berubah. Log: `/tmp/r2_*.log`.
+
+| Perintah | Exit | Ringkasan |
+|---|---:|---|
+| `go test -tags goolm -race -count=20 -run '^TestMultiProcess$' ./internal/ctxdb/` | 0 | 20/20, 291 s |
+| `GOMAXPROCS=2 taskset -c 0,1 go test -tags goolm -race -count=20 -run '^TestMultiProcess$' ./internal/ctxdb/` | 0 | 20/20, 301 s |
+| `strace -f -e inject=fsync,fdatasync:delay_exit=30000 …ctxdb.test -test.run '^TestMultiProcess$'` (A/B) | — | sebelum fix 2/9 gagal; sesudah fix 0/11 |
+| `make lint` | 0 | `0 issues.` |
+| `make test` (`-race -shuffle=on`) | 0 | 170 s |
+| `make test-timing` | 0 | 29 s |
+| `make vet-cross` | 0 | windows/darwin × amd64/arm64 |
+| `make size-check` | 0 | — |
+| `make loc` | 0 | `ctxdb 2829 / 3100` (ADR-087) |
+| `make loc-ratio` | 0 | report-only (ADR-050) |
+| `make deps-check`, `make tidy-check`, `make mod-verify`, `make vuln`, `make licenses` | 0 | — |
+| `cd bench && go vet ./...` | 0 | — |
+| `cd bench && go test -count=1 ./...` @ `e284d5a` | 0 | termasuk `TestNoLLMBaselineCoverage`, `TestLedgerRequiredWithKey`, `TestLedgerSharedAcrossInstances` (@ `b0c9b85`: exit 1, race test `TestUsageMissing/zero_prompt`, diperbaiki `e284d5a`; 30× `-race` lulus) |
