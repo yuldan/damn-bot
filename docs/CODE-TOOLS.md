@@ -502,7 +502,7 @@ edited internal/ctxdb/blob.go #3f9a12c0→#91cc0a7e · 1 edit · +3 -1
 
 **Mesin dan prosedur ukur:**
 
-- Mesin referensi dan ambang runner CI ×1,5 mengikuti SPEC §17 / OPEN-QUESTIONS Q14.
+- Mesin referensi mengikuti SPEC §17 / OPEN-QUESTIONS Q14. Ambang runner CI ×1,5 hanya untuk metrik **waktu absolut** (CT-04..CT-09, CT-12, CT-13); rasio terhadap referensi yang diukur di runner yang sama (`rg`, hermes) dipakai apa adanya (ADR-077).
 - Page cache hangat (1 run warm-up), 20 run per kueri.
 - Oracle `ripgrep 15.1.0` dijalankan dengan `--no-config` dan output ke `/dev/null`.
 - Pembanding grep memakai API engine dengan `Limit=-1` (tanpa early exit, output terformat ke `io.Discard`), sehingga Damn-Bot tidak diuntungkan oleh limit.
@@ -521,8 +521,8 @@ edited internal/ctxdb/blob.go #3f9a12c0→#91cc0a7e · 1 edit · +3 -1
 | CT-07 | outline file Go 1 MB (`go/ast`) | p95 ≤ 50 ms | `BenchmarkOutlineGo1MB` |
 | CT-08 | outline Python 1 MB (tree-sitter WASM, modul terkompilasi ter-cache) | p95 ≤ 150 ms | `BenchmarkOutlineTreeSitter1MB` |
 | CT-09 | edit_file 1 MB termasuk `fsync` file + dir (ext4, NVMe) | p95 ≤ 20 ms | `BenchmarkEdit1MB` |
-| CT-10 | vs tool hermes end-to-end di C1 (`search_files`, `read_file`, `patch`; 60 operasi) | Damn-Bot ≥ 2× lebih cepat p50 per kategori | F0 harness `scorecard code-tools` ([SCORECARD.md](SCORECARD.md)) |
-| CT-11 | Token output grep vs hermes (50 kueri golden, tokenizer o200k_base) | Σ token Damn-Bot ≤ 0,6× Σ hermes | `TestGrepOutputTokens` (golden hermes direkam dari C1 via F0) |
+| CT-10 | vs tool hermes end-to-end di C1 (`search_files`, `read_file`, `patch`; 70 operasi: 50 `search_files`, 10 `read_file`, 10 `patch`) | Damn-Bot ≥ 10× lebih cepat p50 per kategori (ADR-077, selaras P28 dan SCORECARD) | `cd bench && go run ./codetools/cmd/codetools`; referensi hermes = setelan artefak `bench/codetools/results/f0-baseline.json` (`HERMES_HOME` bersih, tanpa ripgrep dari package manager → backend fallback); perubahan commit/setelan hermes = ukur ulang (ADR-077) |
+| CT-11 | Token output grep vs hermes (50 kueri golden, tokenizer o200k_base) | Σ token Damn-Bot ≤ 0,6× Σ hermes | `TestGrepOutputTokens` (golden hermes direkam dari C1 via F0; berlaku untuk setelan hermes `f0-baseline.json`, ADR-077) |
 | CT-12 | grep dengan `codeindex` siap di C2 (40 kueri literal) | p95 ≤ 100 ms | `BenchmarkGrepIndexedC2` |
 | CT-13 | Build `codeindex` C2 | ≤ 120 s; disk ≤ 0,5× byte teks | `BenchmarkIndexBuildC2` (nightly) |
 | CT-14 | Memori puncak heap selama grep C2 tanpa indeks | ≤ 96 MB | `TestCodeToolsMemCap` (`runtime/metrics`) |
@@ -548,7 +548,7 @@ Komposisi `TestEditAccuracySuite` (325 kasus): CRLF/EOL campuran 30, UTF-8 BOM 1
 
 | ID | Metrik | Target | Verifikasi |
 |---|---|---|---|
-| P23 | Code tools cepat + akurat | CT-01…CT-36 semua lulus (ID berblok: CT-01..14 kinerja, CT-20..29 akurasi, CT-30..36 limit; CT-15..19 sengaja tidak dipakai — 30 ID) | job `bench-codetools` + `TestEditAccuracySuite` (gate RC; akurasi gate PR) |
+| P23 | Code tools cepat + akurat | CT-01…CT-36 semua lulus (ID berblok: CT-01..14 kinerja, CT-20..29 akurasi, CT-30..36 limit; CT-15..19 sengaja tidak dipakai — 31 ID: 14 + 10 + 7, ADR-063 m-15). Acceptance F1 = semua CT kecuali CT-08, CT-12, CT-13, CT-24, CT-28 (butuh `codeintel`/`codeindex`, F5) (ADR-077) | job `bench-codetools` + `TestEditAccuracySuite` (gate RC; akurasi gate PR); `TestCodeToolsIDsComplete` di gate dokumen `TestSpecDocs` (F1): 31 ID unik, masing-masing punya baris verifikasi (ADR-063 m-15) |
 | CT-01 | grep literal vs rg | ≤ 1,2× p50/p95 | `BenchmarkGrepLiteral` |
 | CT-02 | grep regex vs rg | ≤ 1,5× p50/p95 | `BenchmarkGrepRegex` |
 | CT-03 | glob vs `rg --files` | ≤ 1,2× p50/p95 | `BenchmarkGlob` |
@@ -558,7 +558,7 @@ Komposisi `TestEditAccuracySuite` (325 kasus): CRLF/EOL campuran 30, UTF-8 BOM 1
 | CT-07 | outline Go 1 MB | p95 ≤ 50 ms | `BenchmarkOutlineGo1MB` |
 | CT-08 | outline tree-sitter 1 MB | p95 ≤ 150 ms | `BenchmarkOutlineTreeSitter1MB` |
 | CT-09 | edit 1 MB + fsync | p95 ≤ 20 ms | `BenchmarkEdit1MB` |
-| CT-10 | vs hermes C1 | ≥ 2× lebih cepat p50 | F0 `scorecard code-tools` |
+| CT-10 | vs hermes C1 | ≥ 10× lebih cepat p50 per kategori, 70 operasi (ADR-077) | `cd bench && go run ./codetools/cmd/codetools` |
 | CT-11 | token grep vs hermes | ≤ 0,6× | `TestGrepOutputTokens` |
 | CT-12 | grep terindeks C2 | p95 ≤ 100 ms | `BenchmarkGrepIndexedC2` |
 | CT-13 | build indeks C2 | ≤ 120 s; disk ≤ 0,5× teks | `BenchmarkIndexBuildC2` |
