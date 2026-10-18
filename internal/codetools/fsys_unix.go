@@ -11,6 +11,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// linkCount is the hard-link count of f (1 when unknown).
+func linkCount(f *os.File) uint64 {
+	var st unix.Stat_t
+	if unix.Fstat(int(f.Fd()), &st) != nil {
+		return 1
+	}
+	return uint64(st.Nlink)
+}
+
 // copyOwner gives dst the uid/gid of src when they differ; false when the
 // change was refused (EPERM) and the owner is not preserved (P14).
 func copyOwner(src, dst *os.File) bool {

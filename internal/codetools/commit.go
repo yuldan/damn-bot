@@ -30,6 +30,7 @@ var reOrphan = regexp.MustCompile(`^\..+\.damnbot-[a-z2-7]{12}$`)
 // commitInfo is what the write path reports in Meta (P14).
 type commitInfo struct {
 	ownerOK, modeOK, xattrOK bool
+	inplace                  bool
 	sum                      [32]byte
 	key                      fileKey
 }
@@ -37,8 +38,9 @@ type commitInfo struct {
 // commit replaces t's file with data (CODE-TOOLS §5.4): temp in the
 // resolved directory, mode set before the first byte, fsync(file), owner
 // and xattrs copied, re-stat against before (stale_read if changed),
-// rename + fsync(dir), then a read-back sha256 check (TOOL-03). mode 0
-// creates a new file with the umask-derived mode. On any
+// rename + fsync(dir), then a read-back sha256 check (TOOL-03). A
+// hard-linked target is rewritten in place instead (rename would break the
+// link). mode 0 creates a new file with the umask-derived mode. On any
 // failure the target keeps its old bytes.
 func (e *Engine) commit(ctx context.Context, t *target, before fileKey, mode fs.FileMode, data []byte) (commitInfo, error) {
 	return e.commitStream(ctx, t, before, mode, func(w io.Writer) error {
@@ -56,6 +58,7 @@ func (e *Engine) commit(ctx context.Context, t *target, before fileKey, mode fs.
 // so a failed fill (validation, no-op, disk full) never touches the target.
 func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mode fs.FileMode, fill func(io.Writer) error) (ci commitInfo, err error) {
 	ci = commitInfo{ownerOK: true, modeOK: true, xattrOK: true}
+	ci.inplace = t.f != nil && linkCount(t.f) > 1
 	tmp, tmpName, err := e.createTemp(ctx, t, "")
 	if err != nil {
 		return ci, err
@@ -68,6 +71,10 @@ func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mo
 	}
 	if werr := tmp.Sync(); werr != nil {
 		return ci, ioErr("fsync", t.rel, werr)
+	}
+	if ci.inplace {
+		err = e.copyInPlace(ctx, t, before, tmp, &ci)
+		return ci, err
 	}
 	if werr := e.at("pre-rename"); werr != nil {
 		return ci, ioErr("rename", t.rel, werr)
@@ -116,8 +123,11 @@ func (e *Engine) ensureMode(ctx context.Context, t *target, mode fs.FileMode, ci
 
 // prepareTemp copies owner and xattrs first (xattr writes need a writable
 // inode; chown clears setuid/setgid), then sets the final mode before the
-// first byte (§5.4 langkah 2).
+// first byte (§5.4 langkah 2). An in-place rewrite keeps the target's inode.
 func prepareTemp(t *target, before fileKey, mode fs.FileMode, tmp *os.File, ci *commitInfo) {
+	if ci.inplace {
+		return
+	}
 	if t.f != nil {
 		ci.ownerOK = copyOwner(t.f, tmp)
 		ci.xattrOK = copyXattrs(t.f, tmp)
@@ -148,6 +158,73 @@ func setMode(f *os.File, mode fs.FileMode) bool {
 	}
 	fi, err := f.Stat()
 	return err == nil && keepMode(fi) == mode
+}
+
+// copyInPlace rewrites a hard-linked target in place (rename would break
+// the link; approved per S16-7, CODE-TOOLS §5.4) from tmp, the complete
+// fsynced new content. Before the first byte: the old bytes go to the
+// Snapshot callback and to a fsynced backup ".<name>.damnbot-bak-<rand>",
+// and the new size is preallocated. A failed copy is undone from the
+// backup, so an error leaves the target byte-identical; only a crash
+// mid-copy leaves it partial, with the backup kept next to it (ADR-103).
+func (e *Engine) copyInPlace(ctx context.Context, t *target, before fileKey, tmp *os.File, ci *commitInfo) (err error) {
+	if uerr := e.unchanged(t, before); uerr != nil {
+		return uerr
+	}
+	if e.snapshot != nil {
+		if serr := e.snapshot(ctx, t.resolved, t.f); serr != nil {
+			return ioErr("snapshot", t.rel, serr)
+		}
+	}
+	bak, bakName, err := e.createTemp(ctx, t, "bak-")
+	if err != nil {
+		return err
+	}
+	keepBak := false
+	defer func() { discardTemp(bak, bakName, keepBak) }()
+	if werr := e.copyAt(bak, t.f, before.size, ""); werr != nil {
+		return ioErr("backup", t.rel, werr)
+	}
+	dst, _, err := e.openPath(ctx, t.resolved, t.rel, os.O_WRONLY, 0, t.outside)
+	if err != nil {
+		return err
+	}
+	defer closeInto(&err, dst)
+	fi, err := dst.Stat()
+	if err != nil || keyOf(t.resolved, fi) != before {
+		return toolErr(CodeStaleRead, "read the file again", "%s changed while writing", t.rel)
+	}
+	nfi, err := tmp.Stat()
+	if err != nil {
+		return ioErr("stat", t.rel, err)
+	}
+	if werr := preallocate(dst, nfi.Size()); werr != nil {
+		return ioErr("preallocate", t.rel, werr)
+	}
+	if werr := e.copyAt(dst, tmp, nfi.Size(), "mid-copy"); werr != nil {
+		if rerr := e.copyAt(dst, bak, before.size, ""); rerr != nil {
+			keepBak = true
+			return errors.Join(ioErr("write in place", t.rel, werr), fmt.Errorf("codetools: restore failed, old bytes kept in %s: %w", bakName, rerr))
+		}
+		return ioErr("write in place", t.rel, werr)
+	}
+	return e.readBack(ctx, t, ci)
+}
+
+// copyAt writes the first n bytes of src over dst from offset 0, sets
+// dst's size to n and fsyncs it; point names the test hook fired midway.
+func (e *Engine) copyAt(dst *os.File, src io.ReaderAt, n int64, point string) error {
+	w := io.Writer(io.NewOffsetWriter(dst, 0))
+	if point != "" {
+		w = e.hooked(w, point)
+	}
+	if _, err := io.Copy(w, io.NewSectionReader(src, 0, n)); err != nil {
+		return fmt.Errorf("codetools: copy: %w", err)
+	}
+	if err := errors.Join(dst.Truncate(n), dst.Sync()); err != nil {
+		return fmt.Errorf("codetools: copy: %w", err)
+	}
+	return nil
 }
 
 // at fires the test hook at a named commit point (nil in production).
