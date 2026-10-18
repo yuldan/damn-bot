@@ -101,11 +101,18 @@ func TestParityPhaseColumn(t *testing.T) {
 	report("fase di luar sel ROADMAP untuk prefixnya", r.badPhase)
 	report("baris "+droppedStatus+" wajib fase "+droppedPhase, r.badDropped)
 	report("prefix tidak ada di tabel ROADMAP", slices.Sorted(maps.Keys(r.unknownPfx)))
+	// Jumlah per fase = ADR-064 butir 3 (koreksi EXEC-009) dan ROADMAP §"Pemetaan parity → fase":
+	// memindahkan baris antar fase yang sama-sama diizinkan prefixnya tetap terlihat (ADR-086 NEW-43).
+	want := map[string]int{"F1": 46, "F2": 81, "F3": 116, "F4": 56, "F5": 200, "F6": 86, "F7": 101, "F8": 146, "F9": 5}
+	if !maps.Equal(r.perPhase, want) {
+		t.Errorf("jumlah per fase %v, want %v (ubah lewat ADR + ROADMAP)", r.perPhase, want)
+	}
 }
 
 // parityScan = hasil pemindaian baris ID FEATURE-PARITY terhadap fase yang diizinkan.
 type parityScan struct {
 	total, gate                    int
+	perPhase                       map[string]int
 	badPhase, badDropped, noHeader []string
 	unknownPfx                     map[string]bool
 	allowed                        map[string][]string
@@ -114,7 +121,7 @@ type parityScan struct {
 
 func scanParity(t *testing.T, text string, allowed map[string][]string) *parityScan {
 	t.Helper()
-	r := &parityScan{unknownPfx: map[string]bool{}, allowed: allowed, faseIdx: -1}
+	r := &parityScan{unknownPfx: map[string]bool{}, allowed: allowed, faseIdx: -1, perPhase: map[string]int{}}
 	for line := range strings.Lines(text) {
 		cells := tableCells(line)
 		if len(cells) > 0 && cells[0] == "ID" {
@@ -152,6 +159,7 @@ func (r *parityScan) row(pfx string, cells []string) {
 		return
 	}
 	r.gate++
+	r.perPhase[fase]++
 	if !slices.Contains(ok, fase) {
 		r.badPhase = append(r.badPhase, id+"="+fase)
 	}
