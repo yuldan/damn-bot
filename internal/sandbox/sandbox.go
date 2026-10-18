@@ -92,6 +92,8 @@ type Sandbox struct {
 	// foldRoot compares roots case-insensitively (Windows, EC-WIN-013).
 	// deny_paths always match case-insensitively (S15-3).
 	foldRoot bool
+	// noOpenat2 forces the Linux pre-5.6 fallback (test seam only).
+	noOpenat2 bool
 }
 
 // New validates cfg, canonicalizes every root (symlinks resolved) and
