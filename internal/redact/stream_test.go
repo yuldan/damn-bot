@@ -189,6 +189,11 @@ func TestStreamKnownSecrets(t *testing.T) {
 func FuzzRedactStream(f *testing.F) {
 	f.Add([]byte("pre "), []byte(" post"), uint64(1), uint8(3))
 	f.Add([]byte("https://u:"), []byte("@host"), uint64(2), uint8(1))
+	// S-02: seeds past the 4 KiB hold cap (S-01 repros and an unbounded token).
+	f.Add([]byte("see http://localhost:3000?q="+strings.Repeat("A", 5000)), []byte(" tail"), uint64(7), uint8(63))
+	f.Add([]byte(`{"u":"http://x:1","d":[`+strings.Repeat(`"1,"`, 1200)), []byte("]}"), uint64(8), uint8(0))
+	f.Add([]byte("x https://"+strings.Repeat("a", 5000)), []byte("@h tail"), uint64(9), uint8(96))
+	f.Add([]byte("Authorization: Bearer "+strings.Repeat("Ab0_", 1100)), []byte(" end"), uint64(10), uint8(31))
 	f.Add([]byte("Authorization: Bearer "), []byte("\n"), uint64(3), uint8(7))
 	f.Add([]byte("-----BEGIN RSA PRIVATE KEY-----\n"), []byte("\n-----END RSA PRIVATE KEY-----"), uint64(4), uint8(2))
 	f.Add([]byte("ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), []byte("sk-"), uint64(5), uint8(0))
@@ -205,6 +210,11 @@ func FuzzRedactStream(f *testing.F) {
 		}
 		if len(in) < holdCap && !bytes.Equal(got, whole) {
 			t.Fatalf("stream %q != whole %q", got, whole)
+		}
+		// Past the cap the stream may differ only by a fail-closed cut,
+		// which always leaves a sentinel (S-02).
+		if !bytes.Equal(got, whole) && !bytes.Contains(got, []byte(SentinelPrefix)) {
+			t.Fatalf("stream %.200q differs from whole %.200q without a fail-closed cut", got, whole)
 		}
 	})
 }
@@ -286,5 +296,103 @@ func TestStreamUserinfoHoldCap(t *testing.T) {
 	}
 	if bytes.Contains(out, []byte(`"k":"v"`)) {
 		t.Fatalf("dropped run leaked: %.200q", out)
+	}
+}
+
+// TestStreamUserinfoHoldCapRepro: the S-01 reproductions of the security
+// review (REVIEW-F1-SEC1 S-01) in 64-byte and 1-byte chunks: no panic, the
+// candidate is cut fail-closed and the text after the run survives.
+func TestStreamUserinfoHoldCapRepro(t *testing.T) {
+	t.Parallel()
+	const red = SentinelPrefix + "url_password]"
+	tests := []struct{ in, want string }{
+		{"see http://localhost:3000?q=" + strings.Repeat("A", 5000) + " tail", "see http://localhost:" + red + " tail"},
+		{`{"u":"http://x:1","d":[` + strings.Repeat(`"1,"`, 3000) + " tail", `{"u":"http://x:` + red + " tail"},
+		{"x https://" + strings.Repeat("a", 5000) + " tail", "x https" + red + " tail"},
+	}
+	r := New(Options{})
+	for _, tc := range tests {
+		for _, size := range []int{64, 1} {
+			if got := string(streamAll(r, slices.Collect(slices.Chunk([]byte(tc.in), size))...)); got != tc.want {
+				t.Errorf("chunk %d: stream = %.120q, want %.120q", size, got, tc.want)
+			}
+		}
+	}
+}
+
+// holdCapInput drives p to its first unbounded step and feeds it filler past
+// the 4 KiB hold cap, ending in "@h tail" (the '@' closes a URL password).
+// It returns the input and the filler byte; "" when p has no unbounded step.
+func holdCapInput(p *pattern) (string, byte) {
+	if p.pem {
+		return "-----BEGIN RSA PRIVATE KEY-----\n" + strings.Repeat("MIIEvQIBADAN\n", 500) + "@h tail", 'M'
+	}
+	var b strings.Builder
+	for _, s := range p.steps {
+		switch {
+		case s.op == opLit:
+			b.WriteString(s.lit)
+		case s.op == opBehind:
+			b.WriteString(strings.Repeat("1", s.min))
+		case s.op == opLastAt || (s.op == opRun && s.max == 0):
+			c := fillerByte(s.set)
+			b.WriteString(strings.Repeat(string(c), 2*holdCap))
+			b.WriteString("@h tail")
+			return b.String(), c
+		case s.op == opRun:
+			b.WriteString(strings.Repeat(string(fillerByte(s.set)), s.min))
+		}
+	}
+	return "", 0
+}
+
+func fillerByte(set *[256]bool) byte {
+	for _, c := range []byte("aA0") {
+		if set[c] {
+			return c
+		}
+	}
+	for c := range 256 {
+		if set[c] {
+			return byte(c)
+		}
+	}
+	return 0
+}
+
+// TestStreamHoldCapPerPattern (S-02): every built-in pattern, generated from
+// r.pats, driven past the 4 KiB cap in small chunks neither panics nor leaks
+// its filler, keeps the hold bounded and redacts with its own type; a known
+// secret longer than the cap streams to exactly the whole-blob result.
+func TestStreamHoldCapPerPattern(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("Zq9-", 1500) // known secret > 4 KiB
+	r := New(Options{Secrets: []string{long}})
+	if in := "pre " + long + " post"; string(streamAll(r, slices.Collect(slices.Chunk([]byte(in), 7))...)) != r.String(in) ||
+		strings.Contains(r.String(in), long[:16]) {
+		t.Error("known secret > 4 KiB: stream differs from whole blob or leaks")
+	}
+	r = New(Options{}) // built-in patterns at the plain 4 KiB cap
+	for k := range r.pats {
+		p := &r.pats[k]
+		in, c := holdCapInput(p)
+		if in == "" {
+			t.Fatalf("%s: no unbounded step", p.typ)
+		}
+		leak := []byte(strings.Repeat(string(c), 16))
+		for _, size := range []int{7, 64} {
+			s := r.NewStream()
+			var out []byte
+			for part := range slices.Chunk([]byte("x "+in), size) {
+				out = s.Push(out, part)
+				if len(s.buf) > r.hold+size {
+					t.Fatalf("%s/%d: hold %d > cap", p.typ, size, len(s.buf))
+				}
+			}
+			out = s.Flush(out)
+			if bytes.Contains(out, leak) || !bytes.Contains(out, []byte(SentinelPrefix+p.typ+"]")) {
+				t.Errorf("%s/%d: stream = %.160q", p.typ, size, out)
+			}
+		}
 	}
 }
