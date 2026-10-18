@@ -8,9 +8,9 @@ Format sesuai `docs/HANDOFF-F0.md` §"Laporan pagi". Mesin: workstation (Kali, l
 |---|---|---|---|
 | 7 | CI skeleton: lint, test -race, size-check, LOC, deps allowlist, govulncheck, go-licenses, meta-test | sebagian | 8/9 gate terbukti gagal pada pelanggaran sintetis; gate `loc-ratio` (E-70) sudah merah di baseline (lihat Temuan spec TS-03). Workflow GitHub belum pernah dijalankan di Actions (tanpa remote). |
 | 1 | `bench/budget` (P1, o200k_base offline) | selesai | tokenizer = tiktoken 0.14.0 persis (id token & jumlah); 13/13 angka gate BASELINE dalam ±5%; job CI `bench-budget`. `TestFixedOverhead` sisi Damn-Bot menunggu `internal/assemble` (F1). |
-| 4 | Baseline hermes tanpa LLM | belum | |
-| 5 | `bench/speed` | sebagian | smoke LLM 10 task: **menunggu user** (butuh kredensial/biaya) |
-| 6 | Korpus code tools C1–C3 + baseline `rg`/hermes | belum | |
+| 4 | Baseline hermes tanpa LLM | sebagian | Selesai: token overhead & schema bytes (#1). Probe manual (bukan artefak final): cold start CLI hermes 2,7–4,0 s per perintah (`--version` 4.041 ms, `config show` 2.834 ms, `sessions list` 3.241 ms, `status` 7.989 ms, `prompt-size` 6.752 ms); `chat` di PTY tanpa jaringan: output pertama ≈ 4,8 s, settle ≈ 6,0 s, RSS ≈ 131 MB (1 run). Belum: install size/time, baris config, langkah setup. |
+| 5 | `bench/speed` | sebagian | `bench/speed/hermes_driver.py` ditulis (mode `prepare`/`inproc`/`pty`, dijalankan di `unshare -rn` = tanpa jaringan); runner Go (parse FEATURE-PARITY 854 baris → measured / alasan) **belum ditulis**, driver belum dijalankan penuh. Smoke LLM 10 task: **menunggu user**. |
+| 6 | Korpus code tools C1–C3 + baseline `rg`/hermes | belum | `rg` lokal hanya 13.0.0 (`/usr/lib/code-oss/.../rg`), oracle spec 15.1.0 belum tersedia. |
 | 2 | `bench/h2h` head-to-head berbasis LLM | menunggu user | butuh kredensial/biaya |
 | 3 | Eval set E1–E10 + manifest | belum | di luar alokasi worker scaffold/bench |
 | 8 | Persistence spike `internal/ctxdb` | (diisi worker persistence) | |
