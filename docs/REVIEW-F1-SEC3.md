@@ -122,7 +122,7 @@ Diperiksa tanpa temuan:
 
 | ID | Severity | Ringkas |
 |---|---|---|
-| PROV-B1 | BLOCKER | Rekursi `jscan.skip` tanpa batas kedalaman: satu event SSE membuat proses arm64 crash fatal (task perbaikan segera) |
+| ~~PROV-B1~~ | BLOCKER → **closed** (#36 `6fd631d`) | Rekursi `jscan.skip` tanpa batas kedalaman: satu event SSE membuat proses arm64 crash fatal |
 | PROV-M1 | MAJOR | Penggabungan nama tool kuadratik (CPU/alokasi DoS) |
 | PROV-M2 | MAJOR | Amplifikasi entri `{}` di `tool_calls` |
 | PROV-M3 | MAJOR | Reasoning parts menyimpan sekitar 40× cap |
@@ -132,3 +132,19 @@ Diperiksa tanpa temuan:
 | LED-2 | MAJOR | `usage.cost` raksasa menghasilkan biaya negatif |
 | LED-3 | MAJOR | Overflow token × harga menghasilkan biaya negatif atau mendekati 0 |
 | NETX-26 | BLOCKER (PR #28, sebelum merge) | Jendela rescan lapisan decode melewatkan secret yang disisipi CR/LF serta JWT/userinfo dengan konteks > 256 B (regresi vs `main`) |
+
+## Verifikasi perbaikan PROV-B1 (#36 @ `6fd631d`, sudah di `main`)
+
+Perbaikan: `skip` kini iteratif (tumpukan jenis berbasis bit, bukan rekursi), dan `object`/`array`/`skip` berbagi penghitung kedalaman dengan batas `maxDepth = 10000` (sama dengan `encoding/json`) → `errJSON`.
+
+| Pemeriksaan | Hasil |
+|---|---|
+| Frame berukuran maksimum `{"x":` + 4.194.293 × `[` (amd64) | `malformed JSON chunk at byte 10005`, `StackInuse` 512 KiB (sebelumnya 512 MiB) |
+| Frame yang sama di arm64 (`qemu-aarch64`) | error yang sama, `StackInuse` 544 KiB; tidak ada fatal |
+| Reasoning bersarang 800.000 × `{"a":` | error di byte 50.015, stack 512 KiB |
+| Kedalaman 9.999 dan 10.000 (batas) | diterima (`err=nil`) |
+| `go test -race ./internal/provider/` | ok |
+| `FuzzDeltaDecode` 120 s (2,88 juta eksekusi) | PASS |
+| Test bawaan PR | Test frame maksimum dan seed kedalaman 10.001 ada di `delta_test.go` (+54 baris) |
+
+**PROV-B1: closed.** Sisa yang belum ditangani PR ini: PROV-m1 (duplikat key) dan MAJOR PROV-M1..M5 (lewat #38) serta LED-1..3 (lewat #37). Ketiganya diverifikasi setelah PR-nya siap.
