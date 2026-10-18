@@ -1,0 +1,34 @@
+hermes-agent — Nous Research
+Source: https://github.com/NousResearch/hermes-agent (commit 868b9f244f5aa3ad238e494048046fe4f29c28ba)
+License: MIT
+
+Used in Damn-Bot (benchmark/test data only, not shipped in the damnbot binary):
+- bench/budget/testdata/hermes-868b9f244f/** — snapshots of the hermes system prompt, context and tool schemas
+- bench/h2h/results/**/*.hermes.proxy.jsonl.gz, bench/h2h/results/**/ts11.proxy.jsonl.gz,
+  bench/h2h/results/**/background.proxy.jsonl.gz — recorded LLM traffic containing hermes prompts and tool schemas
+- bench/evals/sources/hermes-skills.tsv — name/description from hermes SKILL.md frontmatter
+See docs/ATTRIBUTION.md for the full list (ADR-018).
+
+------------------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2025 Nous Research
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
