@@ -7,6 +7,7 @@ require (
 	go.uber.org/goleak v1.3.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/sys v0.48.0
+	golang.org/x/text v0.43.0
 	modernc.org/sqlite v1.60.1
 )
 

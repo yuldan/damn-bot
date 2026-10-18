@@ -2,6 +2,7 @@ package codetools
 
 import (
 	"context"
+	"errors"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
@@ -123,6 +124,16 @@ func metaStr(r *Result, key string) string { //nolint:unparam // generic Meta ac
 		return ""
 	}
 	return s
+}
+
+// asToolErr returns err as *ToolError or fails the test.
+func asToolErr(t testing.TB, err error) *ToolError {
+	t.Helper()
+	te, ok := errors.AsType[*ToolError](err)
+	if !ok {
+		t.Fatalf("not a ToolError: %v", err)
+	}
+	return te
 }
 
 // firstLine is the header line of a result.
