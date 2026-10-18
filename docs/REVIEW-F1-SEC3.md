@@ -124,7 +124,7 @@ Diperiksa tanpa temuan:
 |---|---|---|
 | ~~PROV-B1~~ | BLOCKER → **closed** (#36 `6fd631d`) | Rekursi `jscan.skip` tanpa batas kedalaman: satu event SSE membuat proses arm64 crash fatal |
 | ~~PROV-M1~~ | closed (#38) | Penggabungan nama tool kuadratik (CPU/alokasi DoS) |
-| PROV-M2 | MAJOR (partial di #38: bypass duplicate key) | Amplifikasi entri `{}` di `tool_calls` |
+| ~~PROV-M2~~ | closed (#38 @ `b193027`) | Amplifikasi entri `{}` di `tool_calls` |
 | ~~PROV-M3~~ | closed (#38) | Reasoning parts menyimpan sekitar 40× cap |
 | ~~PROV-M4~~ | closed (#38) | Redirect meneruskan header kredensial kustom dan prompt ke host lain |
 | ~~PROV-M5~~ | closed (#38) | Fallback yang gagal tidak terlihat (P7) |
@@ -189,3 +189,19 @@ Perintah yang dijalankan:
 - 24 mutan: 17 tertangkap; 7 yang lolos tercantum di N4.
 
 Respons sah tetap bisa dirakit: 128 call dengan nama 256 B; reasoning parts identik sampai level byte; `Content` utuh.
+
+### PR #38 @ `b193027` (PROV-M2 diperbaiki): approve
+
+- `delta.go:154` kini memakai `len(dd.d.ToolCalls) == maxChunkToolDeltas`, sehingga entri yang di-decode dihitung, bukan index array.
+- Repro bypass berupa frame 4 MiB dengan blok `"tool_calls":[256×{}]` berulang kini ditolak di byte 819 (`too many tool_calls entries in one chunk`) dengan alokasi 12 MiB. Sebelumnya: 1,37 juta fragmen dan 637 MiB.
+- Mutasi yang menonaktifkan guard membuat `TestEmptyToolFragments` (duplikat `tool_calls`/`delta`/`choices`) dan `TestTooManyToolDeltasClass` gagal. Tanpa guard, kelasnya `stream_broken`, yang di-retry; seharusnya `ErrResponseTooLarge`. Jadi N4(a) dan N4(d) tertutup.
+- N2 tertutup: `result()` hanya melakukan quote di mode string.
+- N3: batas efektif sudah didokumentasikan di ADR-102 butir 13.
+- N1 tetap MINOR dan menjadi follow-up.
+- `go test -race ./internal/provider/... ./internal/budget/...`: ok.
+
+**PROV-M2: closed.** Semua MAJOR provider (M1..M5) dan ledger (LED-1..3) kini tertutup.
+
+### PR #28: menunggu head baru
+
+Head `b6234ef` (perbaikan NETX-26..28) gagal di gate perf `pct` menurut pemilik PR. Pemilik sedang mengoptimasinya dan akan mendorong head baru. Re-review NETX-26 dilakukan atas head itu, dan NETX-26 tetap **BLOCKER** sampai terverifikasi.
