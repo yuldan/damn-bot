@@ -331,6 +331,13 @@ Tidak ada kegagalan lingkungan runner; `ci.yml` tidak diubah olehku (job `test-t
 
 Run `39113299561` (push `2d002c8`, https://github.com/yuldan/damn-bot/actions/runs/39113299561): **success**. Job lint, test, test-timing, size-check, loc-budget, supply-chain, vuln, meta-test, dan bench-budget semuanya success. Merah run pertama hilang lewat ADR-048..061 (go1.26.9, gate timing terpisah, budget LOC); gate tidak dilemahkan, meta-test 12/12.
 
+Run `39117760522` (push `3717c8c`, https://github.com/yuldan/damn-bot/actions/runs/39117760522): **failure**. Ada dua job merah:
+
+- **lint**: `internal/archtest/parity_phase_test.go:84:1: cognitive complexity 28 of func TestParityPhaseColumn (> 20) (gocognit)`, masuk lewat `09660fe`. Ini temuan kode yang nyata, bukan masalah lingkungan. Perbaikannya ada di test tersebut (pecah fungsi); gate tidak diubah.
+- **test**: `TestMultiProcess` gagal dengan `chaos_test.go:365: child multi exited before READY`. Rerun job yang sama (id `117648108539`) **success**, jadi kegagalannya flaky dan perlu diselidiki di `ctxdb` (bukan diabaikan).
+
+Job lain (bench-budget, test-timing, loc-budget, supply-chain, vet-cross, vuln, size-check) success. Meta-test sekarang ada di `meta.yml` (paths + nightly) dan tidak terpicu oleh push ini.
+
 ## Skenario persistence
 
 Semua skenario = subtest `go test ./internal/ctxdb -run 'TestScenario/S0NN'` (DB SQLite temp nyata, jam/proses diinjeksi; proses OS nyata untuk #26, #37, #63, #62, #74, #85). Status = hasil `go test -count=1 ./internal/ctxdb/` @ `0f5f91d` (exit 0).
