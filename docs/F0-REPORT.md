@@ -12,7 +12,7 @@ Format sesuai `docs/HANDOFF-F0.md` §"Laporan pagi". Mesin: workstation (Kali, l
 | 5 | `bench/speed` | selesai (kerangka + baseline hermes) | Ke-854 baris FEATURE-PARITY terklasifikasi (`TestEveryRowClassified`): **163 terukur**, 674 tidak terukur dengan alasan, 17 dropped. Dari 163 baris terukur, 27 adalah proxy `<cmd> --help`. Artefak: `bench/speed/results/hermes-868b9f244f.json`. Smoke LLM 10 task: **menunggu user**. |
 | 6 | Korpus code tools C1–C3 + baseline `rg`/hermes | belum | `rg` lokal hanya 13.0.0 (`/usr/lib/code-oss/.../rg`), oracle spec 15.1.0 belum tersedia. |
 | 2 | `bench/h2h` head-to-head berbasis LLM | menunggu user | butuh kredensial/biaya |
-| 3 | Eval set E1–E10 + manifest | belum | di luar alokasi worker scaffold/bench |
+| 3 | Eval set E1–E10 + manifest | selesai | `bench/evals/`: evalset/v1 530 task (E1 160 … E10 100) + `MANIFEST.sha256`; ID SWE-bench Verified & Terminal-Bench di-pin (URL + revisi + SHA-256); `go test ./evals/...` (modul bench) lulus; 60 task coding internal diverifikasi dengan toolchain nyata. |
 | 8 | Persistence spike `internal/ctxdb` | sebagian | DDL 0001–0008 (verbatim SPEC §11), store/mode/lease+fencing/purge 4 fase/gc/trash/journal recovery/barrier/migrasi/restore + 86 subtest `TestScenario/S001..S086`, `TestKill9Chaos`, `TestMultiProcess`: **semua lulus** tanpa `-race` (exit 0). Belum: (a) `go test -race`/`make test` masih 1 merah: S015 batas 200 ms/txn (lantai biaya SQLite di bawah `-race`, TS-P08); `db_busy` sudah hilang; (b) LOC non-test 2.598 > 2.500 (E-19, TS-P10); (c) `make lint` = 0 issues; (d) protokol gateway worker + konsumen approval ditulis sebagai implementasi referensi di `_test.go` (TS-P09). |
 | 9 | Errata backlog ADR-047 | sebagian | 33 item terbuka dipetakan; 33 usulan ADR ditulis di laporan (menunggu keputusan user/auditor); 12 item menyangkut kode F0, 11 dengan test lulus. AF-01/AF-02 wajib sebelum F4. |
 
@@ -159,6 +159,39 @@ Ada 6 op yang gagal karena offline dan dicatat apa adanya sebagai alasan:
 
 Total tidak terukur: 674 baris.
 
+### Eval set E1–E10 (#3) — Bukti
+
+Lokasi `bench/evals/` (SCORECARD §2.2 menulis `eval/` → TS-E01). Generator deterministik `bench/evals` (Go, stdlib saja, tanpa LLM): `cd bench && go run ./evals/cmd/gen-evals -dir evals` membangun `v1/<set>.jsonl` dari daftar ter-pin di `sources/` dan menulis `MANIFEST.sha256` (format `sha256sum`; `cd bench/evals && grep -v '^#' MANIFEST.sha256 | sha256sum -c` → OK).
+
+| Set | Jumlah | Isi | Grader |
+|---|---|---|---|
+| E1 | 160 | 100 SWE-bench Verified + 60 internal (10 jenis bug × Go/Python/TS/Rust/Java/shell; satu fungsi ber-bug per task, file tes harus tidak berubah) | `swe-bench` resmi / `test` (perintah tes + file referensi) |
+| E2 | 40 | rename lintas file 10, CRLF 8, BOM 7, UTF-16LE 5, file besar 2.500 baris 10 | golden byte-exact / `lines` |
+| E3 | 30 | 10 kota fiktif × 3 fakta; halaman snapshot + halaman arsip pengecoh | regex angka |
+| E4 | 30 | 20 recall (N+1/N+3/N+10) + 10 koreksi fakta | regex per langkah |
+| E5 | 10 | 10 sesi × 120 turn inventaris deterministik, checkpoint tiap 20 turn | regex `<count> / <total>` |
+| E6 | 40 | timeout / HTTP 500 / file terkunci / JSON rusak × 10 | jawaban/golden + 7 aksi terlarang |
+| E7 | 50 | subset Terminal-Bench core 0.1.1 | grader resmi `tb run` |
+| E8 | 20 | fake Bot API: allowlist, pairing, approval inline, restart × 5 | assert panggilan Bot API (sama untuk kedua agent) |
+| E9 | 50 | 50 dari 211 skill hermes | top-3 label |
+| E10 | 100 | 5 vektor (web/file/MCP/chat/skill) × 20 pola payload; canary per task | oracle aksi terlarang + penyelesaian task |
+
+Sumber ter-pin (`bench/evals/sources/`, ikut di manifest):
+
+| Daftar | Sumber | Revisi | SHA-256 |
+|---|---|---|---|
+| SWE-bench Verified (500 ID) | https://huggingface.co/datasets/princeton-nlp/SWE-bench_Verified `data/test-00000-of-00001.parquet` | `c104f840cc67f8b6eec6f759ebc8b2693d585d4a` | parquet `a45b1fe4…dcd`; daftar ID dicek identik dengan kolom `instance_id` parquet |
+| Terminal-Bench core 0.1.1 (80 ID) | https://github.com/laude-institute/terminal-bench `registry.json` | registry @ `d28711d0`, task @ `91e10457` (semua 80 ada sebagai direktori) | registry `c485cf43…96a` |
+| Skill hermes (211) | hermes-agent `skills/` + `optional-skills/` | `868b9f244f` (= C1 `corpora.lock`) | lihat manifest |
+
+Pemilihan subset: `n` ID dengan `sha256("evalset/v1|"+id)` terkecil (stabil, tidak bergantung urutan sumber).
+
+| Perintah | Exit | Hasil |
+|---|---|---|
+| `cd bench && go test -count=1 ./evals/...` | 0 | `TestManifest`, `TestRegenerate` (byte-identik), `TestSources` (500/80/211), `TestCountsPerScorecard` (ukuran + komposisi per set, ID ter-pin, checkpoint E5, label E9, semua regex oracle terkompilasi) |
+| Verifikasi E1 internal (skrip sekali jalan di /tmp) | — | 60/60: versi ber-bug gagal dengan pesan `FAIL`/`panicked`, versi referensi lulus — Go, Python, Java, bash, TS (`tsc` 5.2.2), Rust (rustc 1.99.1 di /tmp, bukan instalasi sistem) |
+| `golangci-lint` atas `bench/evals` | — | bukan gate (`make lint` hanya modul root); 28 temuan non-fungsional tersisa (gochecknoglobals tabel data, dupl tabel bahasa, gosec permission) — sejenis dengan paket bench lain |
+
 ## Skenario persistence
 
 Semua skenario = subtest `go test ./internal/ctxdb -run 'TestScenario/S0NN'` (DB SQLite temp nyata, jam/proses diinjeksi; proses OS nyata untuk #26, #37, #63, #62, #74, #85). Status = hasil `go test -count=1 ./internal/ctxdb/` @ `0f5f91d` (exit 0).
@@ -252,6 +285,11 @@ Commit: `ad458b6` (DDL), `529c947` (core), `7d9f025` (purge), `1e2c128` (restore
 | TS-P09 | E-06 melarang modul gateway mengimpor ctxdb, tapi protokol poller/worker/outbox/approval (SELF-HEALING §5.1, §11.11.10) memerlukan transaksi ctxdb; lokasi produksinya tidak ditetapkan. | Spike: implementasi referensi di `gateway_ref_test.go`/`approval_ref_test.go` di atas `Tx` publik (guard DB tetap menegakkan invarian). | ADR: tetapkan lokasi (ctxdb vs `modules/host` storage) + budget. |
 | TS-P10 | Budget E-19 `ctxdb` 2.500 LOC terlalu kecil untuk cakupan §11 (purge 31 langkah, gc, barrier, restore, migrasi, recovery). Terukur 2.598 (2.688 → 2.573 → 2.598 setelah perbaikan starvation) walau langkah purge sudah dipindah ke `queries.sql` (dikecualikan budget) dan protokol gateway/approval ke test. | Dilaporkan; gate `loc` merah. | ADR: budget `ctxdb` 3.200 (atau pecah `ctxdb/maint` 700). |
 | TS-P11 | **Diselesaikan (false positive, bukan korupsi data).** `TestKill9Chaos` gagal ±1/3 run dengan `fts5: corruption found reading blob … "events_fts"`. Bukti: (1) salinan data dir saat kill → `integrity_check` = ok (tidak korup saat kill); (2) laporan muncul setelah `ResumePurge`; (3) replay salinan pristine deterministik hanya bila **koneksi reader pool yang sama** sudah menjalankan `integrity_check` sebelum purge; pada saat yang sama koneksi writer dan koneksi baru = `ok`, dan kueri MATCH di reader basi itu tetap benar; (4) bukan `query_only`; (5) reproduser sintetis deterministik `TestIntegrityCheckFreshConnection`. Akar: cache struktur FTS5 per-koneksi pada reader yang sudah memeriksa integritas menjadi basi setelah koneksi lain menulis ulang indeks `contentless_delete` (SQLite 3.53.4/modernc v1.60.1). Bahaya nyata: SELF-HEALING akan menganggapnya `SQLITE_CORRUPT` → auto-restore DB yang sehat. Perbaikan: `Store.IntegrityCheck` selalu memakai koneksi read-only baru. Alternatif `SetMaxIdleConns(0)` ditolak (1,76 ms vs 10 µs per baca, 175×). Hipotesis yang diperiksa dan tidak terbukti: replay FTS non-idempoten di resume/recovery, registrasi fungsi `dmb_*` hilang di koneksi recovery, ukuran unit purge. | Semua cek integritas (doctor, quick_check, test) lewat koneksi baru. | ADR: SELF-HEALING §3.5 — `quick_check`/`integrity_check` wajib di koneksi baru; klasifikasi `SQLITE_CORRUPT` dari koneksi reader pool diverifikasi ulang di koneksi baru sebelum auto-restore; laporkan upstream (SQLite FTS5). |
+| TS-E01 | SCORECARD §2.2 menaruh eval set di `eval/`; HANDOFF/permintaan user menaruhnya di `bench/evals/` (modul bench). | `bench/evals/`. | ADR errata: path eval set = `bench/evals/`. |
+| TS-E02 | E4 "30 … + 10 koreksi fakta": ambigu apakah 30 termasuk koreksi. | 30 total = 20 recall + 10 koreksi (sesuai kolom Jumlah). | ADR errata: tulis "20 + 10". |
+| TS-E03 | E1/E7 "di-pin" tanpa aturan pemilihan subset dan tanpa versi dataset Terminal-Bench. | 100 dari 500 Verified; 50 dari terminal-bench-core 0.1.1; urutan `sha256("evalset/v1|id")`. | ADR: tetapkan aturan subset + versi dataset. |
+| TS-E04 | E9 butuh query berlabel; tanpa LLM tidak ada parafrase. | Query = deskripsi skill tanpa token nama skill (lebih mudah dari query alami). | ADR: query parafrase manusia di `evalset/v2`. |
+| TS-E05 | Grader E8 "assert event" tidak menamai event; E6 "tanpa eksekusi tak diminta" tanpa daftar. | E8 diases pada panggilan fake Bot API (agnostik agent); E6 memakai 7 regex aksi terlarang (`sudo`, `rm -r`, `kill`, `git push`, `chmod`, tulis absolut/`..`). | ADR: kontrak oracle harness `bench/h2h`. |
 
 ## Errata backlog ADR-047
 
