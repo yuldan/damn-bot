@@ -3,6 +3,7 @@ package codetools
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -50,7 +51,7 @@ func TestAtomicWriteKill9(t *testing.T) {
 		sc := bufio.NewScanner(out)
 		for n := rng.IntN(4); n >= 0 && sc.Scan(); n-- { // kill after a random number of writes
 		}
-		if err = cmd.Process.Kill(); err != nil {
+		if err = cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 			t.Fatal(err)
 		}
 		if werr := cmd.Wait(); werr == nil {

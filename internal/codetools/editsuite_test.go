@@ -106,7 +106,7 @@ func loadSuite(t *testing.T) []suiteCase {
 		t.Fatalf("suite files: %v %d", err, len(files))
 	}
 	var out []suiteCase
-	sect := regexp.MustCompile(`(?m)^-- (\S+) --\n`)
+	sect := regexp.MustCompile(`(?m)^-- (\S+) --\r?\n`)
 	for _, f := range files {
 		data := readFixture(t, f)
 		locs := sect.FindAllSubmatchIndex(data, -1)

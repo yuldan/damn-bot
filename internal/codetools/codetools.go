@@ -238,11 +238,7 @@ func (e *Engine) rel(resolved string) string {
 }
 
 func hasPrefixPath(p, root string, fold bool) bool {
-	if len(p) < len(root) {
-		return false
-	}
-	head := p[:len(root)]
-	if head != root && (!fold || !strings.EqualFold(head, root)) {
+	if len(p) < len(root) || p[:len(root)] != root && (!fold || !strings.EqualFold(p[:len(root)], root)) {
 		return false
 	}
 	return len(p) == len(root) || os.IsPathSeparator(p[len(root)]) || os.IsPathSeparator(root[len(root)-1])
@@ -294,6 +290,14 @@ func mapOpenErr(p string, err error) error {
 		return &ToolError{Code: CodeDeniedPath, Message: p + ": permission denied by the OS", Err: err}
 	}
 	return &ToolError{Code: CodeInternal, Message: "open " + p, Err: err}
+}
+
+// close releases the target's read handle once (idempotent).
+func (t *target) close(err *error) {
+	if t.f != nil {
+		closeInto(err, t.f)
+		t.f = nil
+	}
 }
 
 // closeInto closes c and keeps its error in *err unless one is set.

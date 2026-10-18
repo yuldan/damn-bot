@@ -209,8 +209,9 @@ func TestGitConfigExcludes(t *testing.T) {
 	if got := v.e.gitConfigExcludes(ctx, ""); got != filepath.Join(v.home, "my ignore") {
 		t.Errorf("include.path %q", got)
 	}
-	writeFile(t, filepath.Join(v.root, ".git", "config"), "[core]\nexcludesfile = /abs/x\n")
-	if got := v.e.gitConfigExcludes(ctx, v.root); got != filepath.Clean("/abs/x") {
+	abs := filepath.Join(v.out, "x")
+	writeFile(t, filepath.Join(v.root, ".git", "config"), "[core]\nexcludesfile = "+filepath.ToSlash(abs)+"\n")
+	if got := v.e.gitConfigExcludes(ctx, v.root); filepath.Clean(got) != abs {
 		t.Errorf("repo config %q", got)
 	}
 }
