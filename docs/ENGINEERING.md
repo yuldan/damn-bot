@@ -265,6 +265,7 @@ flowchart TD
     SKL --> SCH
     JRN --> EV
     CT --> SBX
+    CT --> BND
     EXE --> SBX
     EXE --> RED
     HOOK --> EXE

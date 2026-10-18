@@ -7,6 +7,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 ### Added
 - `budget`: estimator token COST-09 (rasio per script + kalibrasi EMA 0,5–1,5 dari ledger, `TestTokenEstimatorCalibration` en/id/ru/ja), perhitungan biaya (provider/tabel harga/unknown), entri ledger; `ctxdb/ledgerstore`: insert `usage_ledger`, sampel kalibrasi, total sesi (ADR-101).
 - `provider`: decoder delta stream openai-chat tanpa reflect dan tanpa alokasi per chunk (content, reasoning, tool_calls, usage, finish; E-36, ADR-102).
+- `codetools`: tool file eager CODE-TOOLS §2–§5 — `read_file` (halaman 16.000/4.000 char, tail mundur, indeks baris + async > 8 MiB, deteksi encoding/BOM/UTF-16, byte invalid `\xNN`, deteksi biner/magic, outline `go/ast` + heuristik), `grep` (walker paralel berurut deterministik, engine gitignore sendiri, literal fast-path + RE2, mode matches/files/count, context, jendela 500 char), `glob` (doublestar), `edit_file` (exact-only, multi-edit atomik, kandidat `no_match` informatif, `stale_read` + rentang berubah, line-range termasuk > 64 MiB streaming), `write_file` (temp + fsync file + rename + fsync dir, read-back sha256, preservasi mode/owner/xattr, hardlink in-place) (ADR-103).
+- `sandbox`: `Denied` dan `OpenResolved` untuk walker grep/glob (satu `openat2` `RESOLVE_NO_SYMLINKS` + cek identitas deny pasca-open) (ADR-103).
 - Atribusi: sidecar `ORIGIN.md` (sumber, commit, lisensi, SHA-256) untuk setiap direktori file turunan pihak ketiga, diverifikasi `TestAttributionHeaders` (ADR-018 (b), ADR-099).
 - `netx/retry`: satu kebijakan retry P6 (kelas typed, backoff 1 s/4 s ±20 %, `Retry-After` ≤ 30 s, maks 3 attempt) + circuit breaker in-process (ADR-100).
 - `netx`: parser SSE WHATWG tanpa alokasi per event (E-35, ADR-100).

@@ -2523,3 +2523,24 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 **Dampak terukur (SPEC §20).** Token 0. Latensi `BenchmarkOpenFile` ≈ 9 µs/op, 34 alloc (Linux, openat2). LOC `sandbox` 574 (scc), baris `sandbox+redact` 1.085/1.300. Dependency 0 (`golang.org/x/sys` sudah ada).
 
 **Konsekuensi.** (+) Tidak ada open yang mengikuti symlink yang muncul setelah `Check` di keempat jalur; deny case-insensitive di FS case-insensitive. (−) macOS memakai cek inode alih-alih path fd (sisa risiko butir 4); drive mapped/`subst` di Windows ditolak; jalur Windows/macOS hanya diverifikasi di runner CI.
+
+## ADR-103 — `internal/codetools`: keputusan implementasi F1 di luar teks CODE-TOOLS
+
+**Status:** Accepted 2026-10-19 (keputusan didelegasikan; untuk setiap celah dipilih opsi paling konservatif, tanpa dependency di luar `deps.allow`). Melengkapi CODE-TOOLS §2–§5, §7, §10, ADR-014, ADR-031, ADR-071, ADR-079, ADR-082, ADR-097.
+
+**Keputusan** (setiap butir menyebut opsi yang ditolak):
+1. **Edge `codetools → boundary`** ditambahkan ke graf ENGINEERING §2.2.1 dan `archtest/allowed.go`: walker paralel dan indeks async butuh goroutine, dan E-26 hanya mengizinkan `boundary`. Ditolak: walker serial (gagal CT-01).
+2. **API sandbox walker (`Denied`, `OpenResolved`) — perlu review auditor keamanan.** Entri walk yang ditemukan di bawah direktori ter-`Check` tanpa mengikuti symlink dicocokkan `deny_paths` secara leksikal (`Denied`, tanpa syscall) dan dibuka dengan satu `openat2(AT_FDCWD, path, RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)` (fallback `openBeneath`); setelah open hanya cek identitas (`denyIDs`), karena path handle = path yang dibuka (tanpa symlink di seluruh path). Pencocokan komponen deny mendapat fast-path literal dan `*suffix` (hasil sama dengan `path.Match`). Ditolak: `Check`+`OpenFile` per file (13,6 µs/file vs 3 µs, 280 ms CPU di C1) dan `os.Open` biasa (TOCTOU).
+3. **Urutan output** = DFS dengan nama byte-sorted per direktori (bukan sort byte path utuh); jendela reorder **64 × GOMAXPROCS** (bukan 4×: 4× = 108 ms vs 69 ms di C1 karena head-of-line blocking). Penghitung `skipped:` diisi oleh emitter sesuai urutan sehingga deterministik saat early exit.
+4. **Ignore**: berkas di atas root sesi tidak pernah dibaca (`.gitignore` repo induk di luar root diabaikan); config git global dibaca lewat `OpenApproved` (deny tetap menang, isi tidak ke model); `includeIf` tidak didukung; `.ignore` di-reset bersama `.gitignore` di batas repo bersarang. Ditolak: membaca ke atas root (melanggar sandbox), meminta approval per grep.
+5. **Racy stat-tag** (§5.5): hash konten penuh dihitung oleh pass indeks (sync/async) hanya bila mtime ≤ 2 s; edit tanpa hash itu → `stale_read`.
+6. **read_file**: UTF-16 dimuat penuh ≤ 64 MiB (lebih → `too_large`); `invalid_utf8=K` dihitung atas baris yang ditampilkan; tail dingin dinomori `L-N..-1/?`; file semu (`/proc`, ukuran stat 0) dibaca sampai EOF. Deskripsi biner berbahasa Inggris dengan desimal titik (`1.2 MB`).
+7. **edit_file**: `new_text` satu `\n` di akhir = terminator baris terakhir, `""` = hapus baris; region multi-baris memakai EOL baris pertama region; line-range > 64 MiB distream, no-op terdeteksi selama stream (temp dibuang). Flock advisory pada temp tidak dipakai (temp unik tidak mengecualikan siapa pun): kunci per-path in-process + re-stat sebelum rename.
+8. **write_file baru**: mode dari umask (temp 0666), bukan 0644 paksa; direktori induk dibuat per komponen setelah `Check` (sisa risiko race direktori, file sendiri tetap via open tanpa symlink).
+9. **Temp yatim** dibersihkan lewat `Engine.CleanOrphanTemps` (dipanggil starter sesi); walk mengikuti aturan ignore.
+10. **Spill (P5)**: codetools hanya memotong halaman (`Opts.PageChars`, ADR-031); spill/agregat turn milik pipeline `internal/tools`.
+11. **Benchmark absolut** CT-04..07, CT-09 bernama `BenchmarkCodetools/<Spec>` agar cocok regex job `perf` (ADR-094 butir 5); CT-04 di test utama memakai korpus berbentuk C3 yang dibangkitkan di test, C3 asli diukur `bench/codetools`.
+12. **xattr** disalin di Linux dan macOS; OS lain melapor `xattr_preserved=false`. Windows: `MoveFileEx(REPLACE_EXISTING|WRITE_THROUGH)`, fsync dir no-op (ADR-094 butir 15).
+
+**Dampak terukur.** LOC `codetools` ≈ 4.200/4.500 (scc). Dependency langsung baru: `github.com/bmatcuk/doublestar/v4`, `golang.org/x/text` (keduanya sudah di `deps.allow`). Token schema: lihat CT-27.
+
