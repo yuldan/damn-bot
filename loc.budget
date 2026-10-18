@@ -8,11 +8,13 @@ netx              1800 internal/netx
 schema            1200 internal/schema
 tools             1800 internal/tools
 codetools         4500 internal/codetools
-exec              3000 internal/exec
+# ADR-081: exec 3000 -> 3500 + exec/classify 1500 (Σ core 31.450 -> 33.450 <= 47.000).
+exec              3500 internal/exec
+exec/classify     1500 internal/exec/classify
 sandbox+redact    1300 internal/sandbox internal/redact
 boundary           150 internal/boundary
 ctxdb             2800 internal/ctxdb
-# ADR-074: storage konsumen di internal/ctxdb/<consumer>store, dipotong dari baris konsumennya (Σ tetap 31.450).
+# ADR-074: storage konsumen di internal/ctxdb/<consumer>store, dipotong dari baris konsumennya (Σ tidak berubah oleh ADR-074).
 # ctxdb/gwstore (900) dihitung dari budget gateway SPEC §3.2.4; barisnya ditambah saat baris gateway dibuat (F4).
 ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore
 ctxdb/memstore     600 internal/ctxdb/memstore

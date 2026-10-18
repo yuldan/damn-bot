@@ -320,14 +320,15 @@ Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2
 | `schema` | 1.200 | `budget` (storage di `ctxdb/ledgerstore`, ADR-074) | 400 |
 | `tools` | 1.800 | `heal` | 1.500 |
 | `codetools` | 4.500 | `config` | 1.200 |
-| `exec` (unix + windows) | 3.000 | `modules` + `modules/host` | 1.000 |
+| `exec` (unix + windows; ADR-081) | 3.500 | `modules` + `modules/host` | 1.000 |
+| `exec/classify` (label risiko + `shell_allow` argv-persis, ADR-081) | 1.500 | | |
 | `sandbox` + `redact` | 1.300 | `hooks` | 700 |
 | `boundary` | 150 | `i18n` (Go) | 300 |
 | `ctxdb/ledgerstore` (F1, ADR-074) | 300 | `ctxdb/memstore` (F2, ADR-074) | 600 |
 | `ctxdb/skillstore` (F2, ADR-074) | 400 | `ctxdb/journalstore` (F2, ADR-074) | 400 |
-| **Total core** | **31.450** | | |
+| **Total core** | **33.450** | | |
 
-Total core per paket = 31.450 ≤ 47.000 (budget gabungan SPEC §3.2.4 untuk core + codetools + exec + heal; ADR-049 menaikkan `ctxdb` 2.500 → 2.800, total core 31.150 → 31.450). ADR-074 memindahkan storage konsumen ke baris `ctxdb/<consumer>store` yang dipotong dari baris konsumennya (`budget` 700 → 400 + `ctxdb/ledgerstore` 300; `memory` + `skills` 2.200 → 1.200 + `ctxdb/memstore` 600 + `ctxdb/skillstore` 400; `journal` 900 → 500 + `ctxdb/journalstore` 400), sehingga total tetap 31.450; `ctxdb/gwstore` 900 dihitung dari budget `gateway` SPEC §3.2.4 (F4, ADR-053), bukan tabel core. Longest-prefix `loc.budget` membuat setiap subdirektori `ctxdb/<consumer>store` menjadi grup terpisah dari `ctxdb`. Rencana total seluruh modul SPEC §3.2.4 = 184.900 ≤ 190.000 (P21, ADR-033, ADR-036). Baris core SPEC §3.2.4 kini 30.000 + exec 7.000 + heal/obs 5.500 + codetools 4.500 = 47.000 (gabungan). Jika per paket melebihi tabel ini tetapi masih di dalam baris SPEC, revisi tabel ini lewat PR biasa; melebihi baris SPEC butuh ADR (SPEC §20).
+Total core per paket = 33.450 ≤ 47.000 (budget gabungan SPEC §3.2.4 untuk core + codetools + exec + heal; ADR-049 menaikkan `ctxdb` 2.500 → 2.800, total core 31.150 → 31.450; ADR-081 menaikkan `exec` 3.000 → 3.500 dan menambah `exec/classify` 1.500 (`internal/exec/classify`), total core 31.450 → 33.450; Σ `exec` 5.000 ≤ baris exec SPEC §3.2.4 7.000, sisa 2.000 untuk background `process_*` F5). ADR-074 memindahkan storage konsumen ke baris `ctxdb/<consumer>store` yang dipotong dari baris konsumennya (`budget` 700 → 400 + `ctxdb/ledgerstore` 300; `memory` + `skills` 2.200 → 1.200 + `ctxdb/memstore` 600 + `ctxdb/skillstore` 400; `journal` 900 → 500 + `ctxdb/journalstore` 400), tanpa mengubah total; `ctxdb/gwstore` 900 dihitung dari budget `gateway` SPEC §3.2.4 (F4, ADR-053), bukan tabel core. Longest-prefix `loc.budget` membuat setiap subdirektori `ctxdb/<consumer>store` dan `exec/classify` menjadi grup terpisah dari induknya. Rencana total seluruh modul SPEC §3.2.4 = 184.900 ≤ 190.000 (P21, ADR-033, ADR-036). Baris core SPEC §3.2.4 kini 30.000 + exec 7.000 + heal/obs 5.500 + codetools 4.500 = 47.000 (gabungan). Jika per paket melebihi tabel ini tetapi masih di dalam baris SPEC, revisi tabel ini lewat PR biasa; melebihi baris SPEC butuh ADR (SPEC §20).
 
 ---
 
@@ -527,7 +528,7 @@ Target fuzz (minimal 9): `FuzzSSEParse` (`netx`), `FuzzDeltaDecode` (`provider`)
 
 Urutan job PR (paralel): `lint` (≤ 4 menit) · `test` ×6 target berrunner + 2 QEMU (≤ 8 menit, SPEC §16; matrix lintas OS di F1 #0, QEMU di F9, ADR-073) · `test-timing` (budget waktu dinding tanpa `-race`, ADR-048; benchmark `-bench=. -benchtime=1x`, ADR-073) · `vet-cross` (ADR-073) · `fuzz` ×3 shard (≤ 4 menit) · `coverage` · `supply-chain` (tidy, verify, go-licenses, deps.allow) · `size` · `loc-budget` · `vuln` · `deadcode` · `bench` (kondisional) · `perf` (F1 #0, ADR-073) · `pr-meta` (§7).
 
-Meta-test gate (ADR-073) ada di workflow terpisah `meta.yml`: berjalan pada PR/push yang menyentuh `Makefile`, `scripts/**`, `.github/**`, `.golangci.yml`, `loc.budget`, `deps.allow`, `go.mod`, `go.sum`, `tools/go.mod`, dan nightly (cron) terhadap `main`. Setiap job baru Deliverable F1 #0 punya ≥ 1 kasus di `scripts/ci-meta-test.sh`.
+Meta-test gate ada di workflow terpisah `meta.yml` (ADR-073, ADR-085) yang berjalan di **setiap** PR dan push `main`: job menghitung file berubah (`git diff --name-only` terhadap base) dan menjalankan `make meta-test` bila ada path gate yang berubah — `Makefile`, `scripts/**`, `.github/**`, `.golangci.yml`, `loc.budget`, `deps.allow`, `deps.mpl`, `go.mod`, `go.sum`, `tools/go.mod`, `tools/go.sum`, `internal/archtest/**`, `internal/testutil/**`, `internal/metaviolation/**`, `internal/ctxdb/timing_test.go`, `internal/ctxdb/race_*_test.go`, `internal/analyzers/**` — selain itu lulus dengan pesan "no gate paths changed". Statusnya selalu terlapor dan menjadi required check (E-78). Nightly (cron) menjalankan semua gate tanpa syarat terhadap `main`. Setiap job baru Deliverable F1 #0 punya ≥ 1 kasus di `scripts/ci-meta-test.sh`.
 
 ---
 
@@ -571,7 +572,7 @@ Struktur test: `TestXxx` per perilaku, subtest `t.Run(name)` per kasus tabel, `t
 
 | ID | Syarat | Verifikasi otomatis |
 |---|---|---|
-| E-78 | Semua job PR §5 hijau | branch protection `required_status_checks` |
+| E-78 | Semua job PR §5 hijau, termasuk job workflow `meta` (selalu melapor status, ADR-085) | branch protection `required_status_checks` |
 | E-79 | ≥ 1 review approve dari CODEOWNER direktori yang disentuh | branch protection `require_code_owner_reviews`; `TestCodeownersComplete`: setiap direktori `internal/*`, `cmd/*` punya baris di `.github/CODEOWNERS` |
 | E-80 | Judul PR (= commit squash) Conventional Commits | job `pr-meta`: regex `^(feat\|fix\|perf\|refactor\|test\|docs\|build\|ci\|chore)(\([a-z0-9/-]+\))?!?: .{1,72}$` |
 | E-81 | `CHANGELOG.md` bagian `Unreleased` berubah bila PR menyentuh `.go` non-test di `cmd/` atau `internal/` | `pr-meta`; dikecualikan tipe `refactor`, `test`, `ci`, `build` dengan label `no-changelog` |
