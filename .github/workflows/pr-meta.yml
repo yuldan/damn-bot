@@ -1,0 +1,47 @@
+# Gate meta PR (ENGINEERING §7.2 E-80..E-84, spec-guard SPEC §20, ADR-073, AUD-056, NEW2-26, ADR-094).
+# Workflow terpisah agar perubahan judul/label/review tidak menjalankan ulang matrix test.
+# Judul, deskripsi, dan label PR adalah input tak tepercaya: hanya lewat env, tidak pernah di-inline ke skrip.
+name: pr-meta
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-meta-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-meta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Approval (review terakhir per reviewer = APPROVED)
+        id: reviews
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          n=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews" |
+            jq -s 'add // [] | map(select(.state != "COMMENTED")) | group_by(.user.login) | map(last) | map(select(.state == "APPROVED")) | length')
+          echo "approvals=$n" >>"$GITHUB_OUTPUT"
+      - name: make pr-meta
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR_APPROVALS: ${{ steps.reviews.outputs.approvals }}
+        run: make pr-meta
