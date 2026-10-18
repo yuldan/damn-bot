@@ -116,7 +116,7 @@ func (t *Tx) AcquireLease(sid string, allowB bool) (int64, error) {
 		return 0, err
 	case mine == old:
 		return old, nil
-	case !t.s.takeoverOK("lease:"+sid, x, allowB):
+	case x.Ident != t.s.id && !t.s.takeoverOK("lease:"+sid, x, allowB): // own row after a drain: reissue
 		return 0, fmt.Errorf("ctxdb: session %s held by pid %d: %w", sid, x.PID, ErrSessionBusy)
 	default:
 		if _, err := t.Exec("DELETE FROM session_leases WHERE session_id = ? AND fence_token = ?", sid, old); err != nil {

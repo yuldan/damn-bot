@@ -78,7 +78,7 @@ func (s *Store) migrateIfNeeded(ctx context.Context) error {
 	if err := s.checkOldHolders(target); err != nil {
 		return err
 	}
-	b, err := AcquireBarrier(ctx, s.dir, s.id, reasonMigrate, 30, BarrierWait)
+	b, err := AcquireBarrier(ctx, s.dir, s.id, reasonMigrate, 30, s.opt.BarrierWait)
 	if err != nil {
 		return err
 	}

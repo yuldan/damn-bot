@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -49,6 +50,9 @@ type Barrier struct {
 // Every failure path removes the marker before releasing maint.owner (I7).
 // wait is the drain timeout (BarrierWait in production).
 func AcquireBarrier(ctx context.Context, dir string, id Ident, reason string, expectedS int, wait time.Duration) (*Barrier, error) {
+	if err := os.MkdirAll(filepath.Join(dir, "run", "maint.holders"), 0o700); err != nil {
+		return nil, fmt.Errorf("ctxdb: barrier: %w", err)
+	}
 	owner, ok := tryLock(runPath(dir, "maint.owner"), true)
 	if !ok {
 		return nil, fmt.Errorf("ctxdb: maintenance already running: %w", ErrDBBusy)
@@ -102,8 +106,13 @@ func clearStaleMarker(dir string) bool {
 // waiting up to 30 s + expected_s; stale markers are cleared within one poll.
 func (s *Store) waitSharedLock(ctx context.Context) (*os.File, error) {
 	start := time.Now()
-	limit := BarrierWait
+	limit := s.opt.BarrierWait
 	for {
+		if s.barrierOwner.Load() { // finishing a purge batch before draining: shared lock only
+			if f, ok := tryLock(runPath(s.dir, "maint.lock"), false); ok {
+				return f, nil
+			}
+		}
 		if !markerPresent(s.dir) || clearStaleMarker(s.dir) {
 			if f, ok := tryLock(runPath(s.dir, "maint.lock"), false); ok {
 				if !markerPresent(s.dir) {
@@ -114,7 +123,7 @@ func (s *Store) waitSharedLock(ctx context.Context) (*os.File, error) {
 		} else if m, err := os.ReadFile(runPath(s.dir, "maint.request")); err == nil {
 			var mi markerInfo
 			if json.Unmarshal(m, &mi) == nil {
-				limit = BarrierWait + time.Duration(mi.ExpectedS)*time.Second
+				limit = s.opt.BarrierWait + time.Duration(mi.ExpectedS)*time.Second
 			}
 		}
 		if time.Since(start) >= limit {
@@ -180,4 +189,23 @@ func writeAtomic(path string, b []byte) error {
 		return fmt.Errorf("ctxdb: write %s: %w", path, err)
 	}
 	return nil
+}
+
+// MaintenancePending reports a maintenance marker: adapters that cannot
+// write spool instead (§11.11.7 spool rule).
+func MaintenancePending(dir string) bool { return markerPresent(dir) }
+
+// Suspend is the SIGTSTP path (§11.11.7): wait for the running transaction,
+// close the connections and release maint.lock, keeping lease tokens; the
+// next write reattaches through the barrier open order (then CheckLease).
+func (s *Store) Suspend() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tokMu.Lock()
+	keep := maps.Clone(s.tokens)
+	s.tokMu.Unlock()
+	s.detach()
+	s.tokMu.Lock()
+	s.tokens = keep
+	s.tokMu.Unlock()
 }

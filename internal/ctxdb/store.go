@@ -34,6 +34,10 @@ type Options struct {
 	SchemaMax    int           // newest migration this binary knows; 0 = all embedded
 	ForceMigrate bool          // --force-migrate
 	BusyTimeout  time.Duration // default 5 s (SPEC §11 PRAGMA)
+	BarrierWait  time.Duration // drain timeout of the maintenance barrier; default 30 s
+	// OnTx observes every write transaction: mode and lock hold time
+	// (BEGIN IMMEDIATE → COMMIT/ROLLBACK), for I11 budgets and metrics.
+	OnTx func(mode string, held time.Duration)
 }
 
 // Store is one process's handle on the data dir: one writer connection
@@ -57,6 +61,9 @@ type Store struct {
 	// barrierOwner: this Store owns the maintenance barrier (restore), so the
 	// marker must not drain it; also set while a purge releases its lease.
 	barrierOwner atomic.Bool
+	purgeOrder   map[string][]string // txid → labelled sessions, descendants first (guarded by mu)
+	stop         context.CancelFunc // barrier watcher
+	done         chan struct{}
 }
 
 // DBPath returns the database file of a data dir.
@@ -65,6 +72,26 @@ func DBPath(dir string) string { return filepath.Join(dir, "damnbot.db") }
 // Open runs the open sequence: barrier check, migration (under barrier
 // reason=migrate), shared maint.lock, then startup recovery (SELF-HEALING §3.4).
 func Open(ctx context.Context, o Options) (*Store, error) {
+	s, err := newStore(o)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.migrateIfNeeded(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.attach(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.startupRecovery(ctx); err != nil {
+		return nil, errors.Join(err, s.Close())
+	}
+	wctx, stop := context.WithCancel(context.WithoutCancel(ctx))
+	s.stop, s.done = stop, make(chan struct{})
+	go s.watch(wctx)
+	return s, nil
+}
+
+func newStore(o Options) (*Store, error) {
 	if o.Clock == nil {
 		o.Clock = SystemClock{}
 	}
@@ -73,6 +100,9 @@ func Open(ctx context.Context, o Options) (*Store, error) {
 	}
 	if o.BusyTimeout == 0 {
 		o.BusyTimeout = 5 * time.Second
+	}
+	if o.BarrierWait == 0 {
+		o.BarrierWait = BarrierWait
 	}
 	s := &Store{opt: o, dir: o.Dir, clk: o.Clock, tokens: map[string]int64{}, obs: map[string]observation{}}
 	s.mode.Store("")
@@ -86,17 +116,29 @@ func Open(ctx context.Context, o Options) (*Store, error) {
 			return nil, fmt.Errorf("ctxdb: mkdir: %w", err)
 		}
 	}
-	if err := s.migrateIfNeeded(ctx); err != nil {
-		return nil, err
-	}
-	if err := s.attach(ctx); err != nil {
-		return nil, err
-	}
-	if err := s.startupRecovery(ctx); err != nil {
-		_ = s.Close()
-		return nil, err
-	}
 	return s, nil
+}
+
+// watch drains an idle Store within one poll when a maintenance marker
+// appears (§11.11.7 "dicek … tiap 1 s"); busy Stores drain in preWrite.
+func (s *Store) watch(ctx context.Context) {
+	defer close(s.done)
+	tk := time.NewTicker(barrierPoll)
+	defer tk.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tk.C:
+			if markerPresent(s.dir) && !s.barrierOwner.Load() {
+				s.mu.Lock()
+				if s.w != nil {
+					s.detach()
+				}
+				s.mu.Unlock()
+			}
+		}
+	}
 }
 
 // attach = barrier-respecting open of the SQL handles (§11.11.7 order:
@@ -245,6 +287,11 @@ func (s *Store) detach() {
 // Close releases leases' handles, the holder entry and the barrier lock.
 // The last process out truncates the WAL (SPEC §11).
 func (s *Store) Close() error {
+	if s.stop != nil {
+		s.stop()
+		<-s.done
+		s.stop = nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.w != nil {

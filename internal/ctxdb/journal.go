@@ -110,14 +110,14 @@ func (s *Store) RecoverJournals(ctx context.Context, allowB bool) ([]Recovered, 
 }
 
 func (s *Store) openJournals(ctx context.Context) ([]openJournal, error) {
-	rows, err := s.r.QueryContext(ctx, `SELECT j.turn_id, j.session_id, j.state, s.origin, coalesce(j.last_tool_call_id,''), coalesce(j.last_tool_name,''),
+	rows, err := s.query(ctx, `SELECT j.turn_id, j.session_id, j.state, s.origin, coalesce(j.last_tool_call_id,''), coalesce(j.last_tool_name,''),
 		coalesce(j.tool_class,''), coalesce(j.target_path,''), coalesce(j.before_sha,''), coalesce(j.after_sha,''), coalesce(j.tool_pgid_start,''),
 		coalesce(j.tool_pgid,0), l.owner_pid, l.owner_start, l.owner_host, l.owner_boot_id, l.heartbeat_at, l.expires_at
 		FROM turn_journal j JOIN sessions s ON s.id = j.session_id LEFT JOIN session_leases l ON l.session_id = j.session_id
 		WHERE j.state IN ('running','tool_pending','tool_done')
 		  AND NOT EXISTS (SELECT 1 FROM session_labels x WHERE x.session_id = j.session_id AND x.key = 'purge_state')`)
 	if err != nil {
-		return nil, classify(err)
+		return nil, err
 	}
 	defer rows.Close()
 	var out []openJournal

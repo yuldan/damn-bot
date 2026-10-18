@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -55,8 +56,8 @@ const (
 // then phases 0–3 in ≤ 200 ms transactions with a ≤ 20 % lock duty cycle.
 func (s *Store) Purge(ctx context.Context, req PurgeRequest) (PurgeReport, error) {
 	rep, err := s.purgeSet(ctx, req)
-	if err != nil {
-		return rep, err
+	if err != nil || len(rep.P) == 0 {
+		return rep, err // nothing selected: no purge is started
 	}
 	rep.TxID = newID()
 	if err := s.ledger(map[string]any{"type": "intent", "txid": rep.TxID, "P": rep.P}); err != nil {
@@ -199,6 +200,7 @@ func (t *Tx) phase0(txid string, p []string, v *purgeValue, start time.Time) err
 				return err
 			}
 			v.Excluded = append(v.Excluded, Excluded{IDs: anc, Reason: reason})
+			t.OnCommit(func() { _ = t.s.ledger(map[string]any{"type": "excluded", "txid": txid, "ids": anc, "reason": reason}) })
 			for _, a := range anc {
 				out[a] = true
 			}
@@ -270,52 +272,64 @@ func (t *Tx) abortPurge(txid string, v *purgeValue) error {
 }
 
 // labelledOrdered returns sessions whose latest purge_state label is txid,
-// descendants first (depth within the labelled forest, descending).
+// descendants first. The order is computed once per run and cached (the
+// labelled set only shrinks, by phase-3 commits, which pop the cache).
 func (t *Tx) labelledOrdered(txid string) ([]string, error) {
-	rows, err := t.c.QueryContext(t.ctx, `SELECT l.session_id, s.parent_id FROM session_labels l JOIN sessions s ON s.id = l.session_id
-		WHERE l.key = 'purge_state' AND l.value = ?1
-		  AND l.id = (SELECT max(id) FROM session_labels m WHERE m.session_id = l.session_id AND m.key = 'purge_state')`, txid)
+	if ids, ok := t.s.purgeOrder[txid]; ok {
+		return ids, nil
+	}
+	ids, err := t.Strings(`SELECT l.session_id FROM session_labels l WHERE l.key = 'purge_state' AND l.value = ?1
+		AND l.id = (SELECT max(id) FROM session_labels m WHERE m.session_id = l.session_id AND m.key = 'purge_state')`, txid)
+	if err == nil {
+		ids, err = t.descFirst(ids)
+	}
+	if err == nil {
+		t.s.purgeOrder = map[string][]string{txid: ids}
+	}
+	return ids, err
+}
+
+// descFirst orders ids by depth inside the set (descending), then id, so
+// every session comes after all of its descendants in the set.
+func (t *Tx) descFirst(ids []string) ([]string, error) {
+	set := map[string]bool{}
+	for _, id := range ids {
+		set[id] = true
+	}
+	rows, err := t.c.QueryContext(t.ctx, "SELECT id, coalesce(parent_id, '') FROM sessions WHERE id IN (SELECT value FROM json_each(?1))", jsonOf(ids))
 	if err != nil {
 		return nil, classify(err)
 	}
 	defer rows.Close()
 	parent := map[string]string{}
-	var ids []string
 	for rows.Next() {
-		var id string
-		var p *string
+		var id, p string
 		if err := rows.Scan(&id, &p); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
-		if p != nil {
-			parent[id] = *p
-		}
+		parent[id] = p
 	}
-	depth := func(id string) int {
-		d := 0
-		for p, ok := parent[id]; ok && slices.Contains(ids, p); p, ok = parent[p] {
-			d++
+	depth := map[string]int{}
+	var d func(string) int
+	d = func(id string) int {
+		if v, ok := depth[id]; ok {
+			return v
 		}
-		return d
+		v := 0
+		if p := parent[id]; set[p] {
+			v = d(p) + 1
+		}
+		depth[id] = v
+		return v
 	}
-	slices.SortFunc(ids, func(a, b string) int {
-		if da, db := depth(a), depth(b); da != db {
+	out := slices.Clone(ids)
+	slices.SortFunc(out, func(a, b string) int {
+		if da, db := d(a), d(b); da != db {
 			return db - da
 		}
-		return compareStr(a, b)
+		return strings.Compare(a, b)
 	})
-	return ids, rows.Err()
-}
-
-func compareStr(a, b string) int {
-	switch {
-	case a < b:
-		return -1
-	case a > b:
-		return 1
-	}
-	return 0
+	return out, rows.Err()
 }
 
 // phaseSessions runs phase 1 (steps 1–8) or phase 3 (cleanup + 27–30) for
@@ -327,6 +341,11 @@ func (t *Tx) phaseSessions(txid string, v *purgeValue, start time.Time, final bo
 	}
 	if !final {
 		ids = ids[min(v.Cursor, len(ids)):]
+	} else if len(ids) == 0 { // cache drained: confirm against the DB (authoritative)
+		delete(t.s.purgeOrder, txid)
+		if ids, err = t.labelledOrdered(txid); err != nil {
+			return err
+		}
 	}
 	if len(ids) == 0 {
 		if final {
@@ -348,7 +367,11 @@ func (t *Tx) phaseSessions(txid string, v *purgeValue, start time.Time, final bo
 		}
 		n++
 	}
-	v.Cursor += n
+	if final {
+		t.OnCommit(func() { t.s.purgeOrder[txid] = t.s.purgeOrder[txid][n:] })
+	} else {
+		v.Cursor += n
+	}
 	return nil
 }
 
@@ -391,8 +414,8 @@ func (t *Tx) purgeDone(txid string, v *purgeValue) error {
 // releasePurge sets value.expires_at = 0 (release form of the purge lease).
 // It may run while a maintenance marker is present (finish-then-release).
 func (s *Store) releasePurge(txid string) error {
-	s.barrierOwner.Store(true)
-	defer s.barrierOwner.Store(false)
+	prev := s.barrierOwner.Swap(true)
+	defer s.barrierOwner.Store(prev)
 	return s.Write(context.Background(), func(t *Tx) error {
 		_, err := t.Exec(`UPDATE module_state SET value = json_set(value, '$.expires_at', 0) WHERE module_id = 'purge' AND key = ?
 			AND json_extract(value, '$.owner_pid') = ? AND json_extract(value, '$.owner_start') = ?`, txid, s.id.PID, s.id.Start)
@@ -477,6 +500,7 @@ type ledgerEntry struct {
 	Type string   `json:"type"`
 	TxID string   `json:"txid"`
 	P    []string `json:"P"`
+	IDs  []string `json:"ids"`
 }
 
 func readLedger(dir string) []ledgerEntry {

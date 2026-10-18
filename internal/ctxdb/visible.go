@@ -36,9 +36,9 @@ func (s *Store) Search(ctx context.Context, q string) ([]string, error) {
 }
 
 func (s *Store) strings(ctx context.Context, q string, args ...any) ([]string, error) {
-	rows, err := s.r.QueryContext(ctx, q, args...)
+	rows, err := s.query(ctx, q, args...)
 	if err != nil {
-		return nil, classify(err)
+		return nil, err
 	}
 	defer rows.Close()
 	var out []string
@@ -61,11 +61,11 @@ type sessNode struct {
 // purgeSet computes P (descendants first) per §11.6 "Himpunan purge P".
 func (s *Store) purgeSet(ctx context.Context, req PurgeRequest) (PurgeReport, error) {
 	var rep PurgeReport
-	rows, err := s.r.QueryContext(ctx, `SELECT s.id, coalesce(s.parent_id, ''),
+	rows, err := s.query(ctx, `SELECT s.id, coalesce(s.parent_id, ''),
 		coalesce((SELECT created_at FROM events e WHERE e.session_id = s.id ORDER BY seq DESC LIMIT 1), s.created_at),
 		NOT `+notPurging("s.id")+` FROM sessions s WHERE s.id <> '__system__'`)
 	if err != nil {
-		return rep, classify(err)
+		return rep, err
 	}
 	nodes := map[string]sessNode{}
 	kids := map[string][]string{}

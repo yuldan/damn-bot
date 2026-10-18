@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 )
 
 // Connection modes of dmb_maint() (SPEC §11.11.3).
@@ -86,6 +87,7 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 	}
 	committed := false
 	var t *Tx
+	var began time.Time
 	defer func() {
 		bg := context.WithoutCancel(ctx)
 		if !committed {
@@ -94,6 +96,9 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 				err = errors.Join(err, recoverOwnTrash(bg, c, s, t.txid))
 			}
 		}
+		if s.opt.OnTx != nil && !began.IsZero() {
+			s.opt.OnTx(mode, time.Since(began))
+		}
 		s.mode.Store(modeNormal)
 		err = joinClose(err, c)
 	}()
@@ -101,6 +106,7 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 		committed = true // nothing to roll back
 		return classify(err)
 	}
+	began = time.Now()
 	var uv int
 	if err := c.QueryRowContext(ctx, "PRAGMA user_version").Scan(&uv); err != nil {
 		return classify(err)
@@ -163,15 +169,33 @@ func (s *Store) preWrite(ctx context.Context) error {
 
 // read helpers on the read-only pool -------------------------------------
 
+// query runs a read query, reattaching a drained Store first (barrier open
+// order) so reads never touch a replaced DB file.
+func (s *Store) query(ctx context.Context, q string, args ...any) (*sql.Rows, error) {
+	s.mu.Lock()
+	err := s.preWrite(ctx)
+	db := s.r
+	s.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, q, args...)
+	return rows, classify(err)
+}
+
 func (s *Store) get(ctx context.Context, q string, args []any, dest ...any) error {
-	if s.r == nil {
-		return fmt.Errorf("ctxdb: drained: %w", ErrDBBusy)
+	rows, err := s.query(ctx, q, args...)
+	if err != nil {
+		return err
 	}
-	err := s.r.QueryRowContext(ctx, q, args...).Scan(dest...)
-	if isNoRows(err) {
-		return fmt.Errorf("%w: %w", ErrNotFound, err)
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return classify(err)
+		}
+		return fmt.Errorf("%w: %w", ErrNotFound, errNoRows)
 	}
-	return classify(err)
+	return classify(rows.Scan(dest...))
 }
 
 // Count returns a single integer from a read query (tests, doctor).

@@ -23,7 +23,7 @@ type fakeClock struct {
 }
 
 func newFakeClock() *fakeClock {
-	return &fakeClock{boot: 1_000_000, mono: 1_000_000, wall: 1_700_000_000_000}
+	return &fakeClock{boot: 1_000_000, mono: 1_000_000, wall: time.Now().UnixMilli()}
 }
 
 func (c *fakeClock) BootMs() int64 { c.mu.Lock(); defer c.mu.Unlock(); return c.boot }
@@ -170,7 +170,7 @@ func checkIntegrity(t *testing.T, s *Store) {
 
 func verifyChains(t *testing.T, s *Store) string {
 	t.Helper()
-	rows, err := s.r.QueryContext(bg, "SELECT session_id, seq, kind, content, payload, coalesce(blob_sha,''), prev_hash, hash FROM events ORDER BY session_id, seq")
+	rows, err := s.query(bg, "SELECT session_id, seq, kind, content, payload, coalesce(blob_sha,''), prev_hash, hash FROM events ORDER BY session_id, seq")
 	must(t, err)
 	defer rows.Close()
 	prev, cur := "", ""

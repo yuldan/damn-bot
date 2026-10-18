@@ -93,9 +93,9 @@ func (s *Store) GC(ctx context.Context, scheduled bool) (GCStats, error) {
 // gcCandidates is step 2, outside the lock on the read pool.
 func (s *Store) gcCandidates(ctx context.Context, st *GCStats) ([]gcCand, error) {
 	tgc := s.clk.WallMs() - tCutMs - gcRetentionMs
-	rows, err := s.r.QueryContext(ctx, candidateSQL, tgc)
+	rows, err := s.query(ctx, candidateSQL, tgc)
 	if err != nil {
-		return nil, classify(err)
+		return nil, err
 	}
 	defer rows.Close()
 	var out []gcCand
@@ -201,7 +201,7 @@ const tCutMs = 7 * 24 * 3_600_000
 // Idle = 0 active journals with an alive lease and 0 inbound in the last
 // 60 s (single definition, §11.11.8). Orphan journals do not count.
 func (s *Store) Idle(ctx context.Context) (bool, error) {
-	rows, err := s.r.QueryContext(ctx, `SELECT l.owner_pid, l.owner_start, l.owner_host, l.owner_boot_id, l.heartbeat_at, l.expires_at
+	rows, err := s.query(ctx, `SELECT l.owner_pid, l.owner_start, l.owner_host, l.owner_boot_id, l.heartbeat_at, l.expires_at
 		FROM turn_journal j JOIN session_leases l ON l.session_id = j.session_id
 		WHERE j.state IN ('running','tool_pending','tool_done')`)
 	if err != nil {
