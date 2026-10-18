@@ -17,7 +17,7 @@ Konvensi: path hermes relatif terhadap root `hermes-agent`. `[INFERENCE]` = disi
 | Ukuran output | 50.000 char (`tools/tool_output_limits.py:13`), head/tail 40/60 (`tools/environments/base_output.py:38-40`), spill ≤ 5.000.000 char (`tools/environments/base_output.py:35`). | Hingga ~12.500 tok per call `[INFERENCE: 4 char/tok]`. | ≤ 4.000 char inline, preview 800 (A.3) |
 | CR/progress bar | `strip_ansi` hanya menghapus escape (`tools/ansi_strip.py:47-51`). CR→LF hanya di jalur tampilan (`tools/ansi_strip.py:69-70`). | Frame progress bar sampai ke model. | Collapse CR + dedupe `[×N]` (A.3) |
 | Orphan | `killpg` TERM → 1 s → KILL + sweep descendant (`tools/environments/local.py:929-986`). Kode mengakui "a rare orphaned grandchild may leak" (`tools/environments/local.py:943-950`). | Orphan diterima sebagai risiko. | Marker env + subreaper/Job Object, 0 orphan (A.4) |
-| Background | `MAX_PROCESSES=64` dengan LRU, TTL 30 menit (`tools/process_registry.py:62-63`). Notifikasi berupa pesan `[IMPORTANT: …]` yang di-inject (`tools/process_registry_notifications.py:463-464`). | Batas global longgar. Notifikasi memakan token prosa. | 8/sesi, 32 global, notice ≤ 40 tok (A.5) |
+| Background | `MAX_PROCESSES=64` dengan LRU, TTL 30 menit (`tools/process_registry.py:62-63`). Notifikasi berupa pesan `[IMPORTANT: …]` yang di-inject (`tools/process_registry_notifications.py:463-464`). | Batas global longgar. Notifikasi memakan token prosa. | 8/sesi, 32 global, notice ≤ 20 tok, 1/request (A.5, ADR-082) |
 | Prompt interaktif | Tidak ada deteksi generik. Yang ada hanya guard regex dev-server (`tools/terminal_tool_guards.py:67-121`) dan prompt sudo (`tools/terminal_tool_sudo.py:460-461`). `PAGER=cat` (`tools/environments/base_session_env.py:156`). `CI`/`DEBIAN_FRONTEND` tidak diset `[tidak terverifikasi]`. | Hang pada `[y/N]`, editor, host key ssh. | Env non-interaktif + `setsid` + deteksi prompt (A.6) |
 | Keamanan | Regex `HARDLINE_PATTERNS`/`DANGEROUS_PATTERNS` (`tools/approval_detection.py:107,228`). Perintah non-dangerous langsung disetujui (`tools/approval.py:1110-1112`). Dangerous auto-approve di konteks non-interaktif tanpa gateway (`tools/approval.py:1117`). Mode smart memakai LLM (`tools/approval_smart.py:88-146`). | Regex atas string mentah mudah diakali dengan quoting/`eval`. Auto-approve diam-diam. Approval smart memakai token. | Approval per perintah; auto hanya `shell_allow` argv-persis; classifier AST hanya label risiko (A.8, ADR-079) |
 | Biaya guidance | `CODING_AGENT_GUIDANCE` 3.021 byte (`agent/coding_context.py:84-132`, diukur `wc -c`), ≈ 750 tok `[INFERENCE]`. Deskripsi tool `terminal` 869 char (`tools/terminal_tool.py:160-165`), ditambah deskripsi parameter panjang (`tools/terminal_tool.py:1520-1557`). | Overhead tetap per call. | Aturan coding ≤ 120 tok (B.1); schema `shell` ≤ 200 tok (A.2) |
@@ -75,26 +75,27 @@ Konteks tier (SPEC §6) menulis shell one-shot dan shell sesi yang terdeteksi.
   2. Tunggu 3 s.
   3. Shell dibunuh dan dibuat ulang; `Meta.session_reset=true`.
 
-**Schema eager `shell` (final, menggantikan baris SPEC §5.1):**
+**Schema eager `shell` per fase (menggantikan baris SPEC §5.1; ADR-082).** Deskripsi dan parameter dibangkitkan per build. Varian F1 (tanpa kalimat background dan tanpa parameter `background`):
 
 ```json
 {"type":"function","function":{"name":"shell",
- "description":"Run a command non-interactively; output is summarized. background:true returns a process id. session keeps cwd/env across calls.",
+ "description":"Run a command non-interactively; output is summarized. session keeps cwd/env across calls.",
  "parameters":{"type":"object","properties":{
   "command":{"type":"string","minLength":1,"maxLength":65536},
   "timeout_s":{"type":"integer","minimum":1,"maximum":600},
   "cwd":{"type":"string"},
-  "background":{"type":"boolean"},
   "session":{"type":"string","pattern":"^[a-z0-9_-]{1,32}$"},
   "stdin":{"type":"string","maxLength":65536}},
   "required":["command"],"additionalProperties":false}}}
 ```
 
-- Deskripsi 128 char (≤ 160). Estimasi ≈ 150 tok `[INFERENCE]`; gate keras ≤ 200 tok o200k (`TestEagerSchemaTokens/shell`).
+Varian F5 (A.5) menambahkan kalimat `background:true returns a process id.` sebelum kalimat `session` (deskripsi 128 char) dan properti `"background":{"type":"boolean"}`.
+
+- Deskripsi F1 90 char, F5 128 char (≤ 160). Estimasi ≈ 150 tok `[INFERENCE]`; gate keras ≤ 200 tok o200k (`TestEagerSchemaTokens/shell`). Golden P15 per varian: `TestShellSchemaVariant` (ADR-082).
 - Tidak ada parameter `pty`, `notify`, atau `idle_timeout`, karena perilaku itu ditentukan runtime. Bandingkan dengan 5 parameter background hermes (`tools/terminal_tool.py:1524-1557`).
 - `timeout_s > 600` → `invalid_args` (P3). Perintah tidak dipromosikan diam-diam seperti di hermes. Hint error `use background:true` berlaku sejak F5 (ADR-072).
-- `background` dan `session` bersamaan → `invalid_args`.
-- Di build F1, `shell{background:true}` → `invalid_args` (hint "background not available; run in foreground with timeout_s"). Parameter `background` dan deskripsinya tetap di schema (0 tok perubahan); semantik background (A.5) datang di F5 (ADR-072).
+- F5: `background` dan `session` bersamaan → `invalid_args`.
+- Di build F1, argumen `background` adalah argumen tak dikenal → `invalid_args` oleh P3 (hint "background not available; run in foreground with timeout_s"), konsisten ADR-072; semantik background (A.5) datang di F5 (ADR-072, ADR-082).
 
 ### A.3 Streaming ke UI dan ringkasan ke model
 
@@ -124,7 +125,7 @@ Baris header selalu ada dan tidak dikompresi:
 [exit 1 · 2.341 ms · signal none · runner pipe · status exited]
 ```
 
-`status ∈ {exited, signaled, timeout, idle_timeout, waiting_for_input, cancelled_confirmed, still_running, spawn_failed}` (`cancelled_confirmed`/`still_running` menggantikan `cancelled`, ADR-072; A.4). `Meta`: `exit_code` (null jika signaled), `signal`, `duration_ms`, `status`, `runner`, `bytes_raw`, `chars_model`, `lines_collapsed`, `truncated`, `blob_sha`, `raw_blob_sha`, `process_id` (F1: hanya untuk `still_running`, registry internal), `killed`, `session_reset`. Exit ≠ 0 tetap `OK=true` dengan status `exited`, karena perintah memang berjalan. `exec_failed` hanya untuk `spawn_failed`.
+`status` ∈ `ExecStatus` = {`exited`, `signaled`, `timeout`, `idle_timeout`, `waiting_for_input`, `cancelled_confirmed`, `still_running`, `spawn_failed`} — enum tertutup tunggal SPEC §4.3, sama persis dengan §5.1 dan A.10 (`TestToolResultStatusClosed`, ADR-082; `cancelled_confirmed`/`still_running` menggantikan `cancelled`, ADR-072; A.4). Proses yang berhenti karena SIGTSTP = `signaled` dengan `signal:"SIGTSTP"` (ADR-082). Status pemulihan (`RecoveryStatus`, `by:"recovery"`) didefinisikan di [SELF-HEALING.md](SELF-HEALING.md) §3.4, bukan di `shell`. `Meta`: `exit_code` (null jika signaled), `signal`, `duration_ms`, `status`, `runner`, `bytes_raw`, `chars_model`, `lines_collapsed`, `truncated`, `blob_sha`, `raw_blob_sha`, `process_id` (F1: hanya untuk `still_running`, registry internal), `killed`, `session_reset`. Exit ≠ 0 tetap `OK=true` dengan status `exited`, karena perintah memang berjalan. `exec_failed` hanya untuk `spawn_failed`.
 
 ### A.4 Timeout, idle-timeout, cancel, 0 orphan
 
@@ -185,7 +186,7 @@ Batas dan siklus hidup:
 Notifikasi selesai:
 - Proses exit → event `system_notice` (payload `{kind:"process_exit", id, exit_code, signal, runtime_ms, blob_sha}`).
 - Notice dikirim ke model pada request LLM berikutnya, baik di turn berjalan setelah batch tool saat ini maupun di turn berikutnya. Tidak ada LLM call baru (P11).
-- Teks notice ≤ 40 tok, contoh: `bg p3 "npm run dev" exited 1 after 12,3 s; see process_output p3`. Maks 3 notice per request; sisanya `+N more (process_list)`.
+- Teks notice ≤ 20 tok, contoh: `bg p3 "npm run dev" exited 1 (12,3 s)`. Maks 1 notice per request; sisanya `+N more (process_list)`. Notice proses berada di sufiks `<runtime>` (≤ 40 tok, slot notice 20 tok; ADR-082).
 - UI menampilkan notifikasi seketika.
 
 ### A.6 Prompt interaktif tanpa hang
@@ -361,7 +362,7 @@ Job `perf` (Deliverable F1 #0, runner tetap, ADR-073) menegakkan benchmark di at
 | P24.2 | 0 hang | setiap call `shell` kembali ≤ `timeout_s` + `exec.kill_grace_s` (≤ 3 s, ADR-072) + 1 s; perintah yang menunggu input kembali ≤ 2 s setelah prompt tampil (pty) atau gagal cepat (pipe) | `TestInteractiveCorpus`: 40 fixture (apt tanpa `-y`, `git commit` tanpa `-m`, ssh host baru, `sudo`, `npm init`, `python -c 'input()'`, `read -p`, `less`, `vim`, `mysql -p`, `git rebase -i`, …) di runner pipe dan pty. Assert durasi + status ∈ {`exited`, `waiting_for_input`}. |
 | P24.3 | Spawn overhead | p95 < 15 ms (Unix), < 40 ms (Windows) | A.9 benchmark, gate PR job perf |
 
-Test cancel (ADR-072): `TestCancelConfirmed` (REL-06, F1: hasil ≤ 1 s setelah cancel, status `cancelled_confirmed` atau `still_running`), `TestCancelConfirmBeforeRedispatch` (F1: re-dispatch `non_idempotent` setelah `still_running` menunggu `cancelled_confirmed` atau konfirmasi user), `TestACPChildStdinIsolation` (REL-13, F3). Bagian test P24/EXC-09/EXC-11 yang membutuhkan `process_*` (background, `process_send`, reap waiting-for-input) adalah acceptance F5 (ADR-072).
+Test cancel (ADR-072): `TestCancelConfirmed` (REL-06, F1: hasil ≤ 1 s setelah cancel, status `cancelled_confirmed` atau `still_running`), `TestCancelConfirmBeforeRedispatch` (F1: re-dispatch `non_idempotent` setelah `still_running` menunggu `cancelled_confirmed` atau konfirmasi user), `TestACPChildStdinIsolation` (REL-13, F3; nama test tunggal, ADR-082). Status hasil di semua test P24 memakai enum `ExecStatus` A.3 (ADR-082). Bagian test P24/EXC-09/EXC-11 yang membutuhkan `process_*` (background, `process_send`, reap waiting-for-input) adalah acceptance F5 (ADR-072).
 
 Acceptance F1 P24 (ADR-077): `TestNoOrphans` (200 iterasi), `TestInteractiveCorpus` (40 fixture × pipe/pty), `BenchmarkShellSpawn*`, `TestCancelConfirmed`, `TestCancelConfirmBeforeRedispatch` (REL-13 di F3; Windows di matrix).
 
@@ -610,7 +611,7 @@ Harness `damnbot-eval` (F0, SCORECARD) menjalankan Damn-Bot dan hermes pada kond
 | EXC-07 | Pipeline ringkasan 1 MB | < 15 ms p95 | `BenchmarkSummarize1MB` |
 | EXC-08 | Sesi persisten exec | < 5 ms p95; maks 4 sesi; idle reap 30 menit | `BenchmarkShellSessionExec`, `TestShellSessionLimits` |
 | EXC-09 | Proses background (F5, ADR-072); F1: `background:true` → `invalid_args` | 8/sesi, 32 global, log ring 8 MiB, retensi 30 menit/64 | `TestProcessLimits` (F5) |
-| EXC-10 | Notice proses selesai | ≤ 40 tok, ≤ 3/request, 0 LLM call | `TestProcessNotice`, `TestNoBackgroundCalls` |
+| EXC-10 | Notice proses selesai (F5) | ≤ 20 tok, maks 1/request + `+N more (process_list)`, 0 LLM call (ADR-082) | `TestProcessNotice`, `TestNoBackgroundCalls` |
 | EXC-11 | Waiting-for-input | F1: pohon di-kill, `killed:true`, tanpa `process_id`; F5: reap 10 menit (ADR-072) | `TestInteractiveCorpus` (F1), `TestWaitingInputReap` (F5) |
 | EXC-12 | Classify perintah 2 KB | < 1 ms p95 | `BenchmarkClassify` |
 | EXC-13 | Shell tanpa approval (ADR-079) | 0 perintah dieksekusi tanpa approval di mode `ask`/`auto-edit`/`auto` dengan `shell_allow` kosong, pada korpus ≥ 300 perintah (termasuk obfuscation quoting/`eval`/`sh -c`); auto hanya untuk kecocokan argv-persis `shell_allow` (≥ 60 kasus metakarakter/ekspansi/redirect/assignment/pipeline → tidak auto); 36 baris tabel ADR-079 persis; output shell di workspace untrusted dibungkus + men-taint | `TestShellNoClassifierAuto`, `TestShellApprovalModel`, `TestShellAllowExactMatch`, `TestShellAllowCwdTracked`, `TestShellOutputUntrustedWorkspace`, `TestWorkspaceTrustGate` |

@@ -522,7 +522,7 @@ edited internal/ctxdb/blob.go #3f9a12c0→#91cc0a7e · 1 edit · +3 -1
 | CT-07 | outline file Go 1 MB (`go/ast`) | p95 ≤ 50 ms | `BenchmarkOutlineGo1MB` |
 | CT-08 | outline Python 1 MB (tree-sitter WASM, modul terkompilasi ter-cache) | p95 ≤ 150 ms | `BenchmarkOutlineTreeSitter1MB` |
 | CT-09 | edit_file 1 MB termasuk `fsync` file + dir (ext4, NVMe) | p95 ≤ 20 ms | `BenchmarkEdit1MB` |
-| CT-10 | vs tool hermes end-to-end di C1 (`search_files`, `read_file`, `patch`; 70 operasi: 50 `search_files`, 10 `read_file`, 10 `patch`) | Damn-Bot ≥ 10× lebih cepat p50 per kategori (ADR-077, selaras P28 dan SCORECARD) | `cd bench && go run ./codetools/cmd/codetools`; referensi hermes = setelan artefak `bench/codetools/results/f0-baseline.json` (`HERMES_HOME` bersih, tanpa ripgrep dari package manager → backend fallback); perubahan commit/setelan hermes = ukur ulang (ADR-077) |
+| CT-10 | vs tool hermes end-to-end di C1 (`search_files`, `read_file`, `patch`; 70 operasi: 50 `search_files`, 10 `read_file`, 10 `patch`) | `search_files` dan `read_file`: Damn-Bot ≥ 10× lebih cepat p50; `patch`/tulis: ≥ 2× lebih cepat p50 terhadap baseline hermes berdurabilitas setara (driver hermes menambahkan `fsync(file)` + `fsync(dir)` pada path yang sama di dalam jendela waktu) dan ≤ 6 ms p95 absolut di mesin referensi Q14; tidak ada kategori yang lebih lambat dari hermes (P28) (ADR-077, ADR-082) | `cd bench && go run ./codetools/cmd/codetools`; referensi hermes = setelan artefak `bench/codetools/results/f0-baseline.json` (`HERMES_HOME` bersih, tanpa ripgrep dari package manager → backend fallback); baseline `patch` durabel diukur ulang di F1 sebelum acceptance codetools (ADR-082); perubahan commit/setelan hermes = ukur ulang (ADR-077) |
 | CT-11 | Token output grep vs hermes (50 kueri golden, tokenizer o200k_base) | Σ token Damn-Bot ≤ 0,6× Σ hermes | `TestGrepOutputTokens` (golden hermes direkam dari C1 via F0; berlaku untuk setelan hermes `f0-baseline.json`, ADR-077) |
 | CT-12 | grep dengan `codeindex` siap di C2 (40 kueri literal) | p95 ≤ 100 ms | `BenchmarkGrepIndexedC2` |
 | CT-13 | Build `codeindex` C2 | ≤ 120 s; disk ≤ 0,5× byte teks | `BenchmarkIndexBuildC2` (nightly) |
@@ -559,7 +559,7 @@ Komposisi `TestEditAccuracySuite` (330 kasus): CRLF/EOL campuran 30, UTF-8 BOM 1
 | CT-07 | outline Go 1 MB | p95 ≤ 50 ms | `BenchmarkOutlineGo1MB` |
 | CT-08 | outline tree-sitter 1 MB | p95 ≤ 150 ms | `BenchmarkOutlineTreeSitter1MB` |
 | CT-09 | edit 1 MB + fsync | p95 ≤ 20 ms | `BenchmarkEdit1MB` |
-| CT-10 | vs hermes C1 | ≥ 10× lebih cepat p50 per kategori, 70 operasi (ADR-077) | `cd bench && go run ./codetools/cmd/codetools` |
+| CT-10 | vs hermes C1 | `search_files`/`read_file` ≥ 10× p50; `patch` ≥ 2× p50 vs hermes berdurabilitas setara + ≤ 6 ms p95 (Q14); 70 operasi (ADR-077, ADR-082) | `cd bench && go run ./codetools/cmd/codetools` |
 | CT-11 | token grep vs hermes | ≤ 0,6× | `TestGrepOutputTokens` |
 | CT-12 | grep terindeks C2 | p95 ≤ 100 ms | `BenchmarkGrepIndexedC2` |
 | CT-13 | build indeks C2 | ≤ 120 s; disk ≤ 0,5× teks | `BenchmarkIndexBuildC2` |
