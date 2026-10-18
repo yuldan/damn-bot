@@ -165,3 +165,152 @@ Diperiksa tanpa temuan:
 | NETX-3 | #17 | MAJOR | Budget 8 KB ≤ 50 µs tidak diukur dan tidak terpenuhi (65–290 µs, 4,97 ms adversarial) |
 | NETX-4 | #17 | MAJOR | Secret di host URL yang diblok tercetak di error dan log DEBUG |
 | NETX-5 | #17 | MAJOR | Test URL-encoding kosong (secret tanpa byte reserved), lokasi × encoding tidak dicakup |
+
+## Putaran 2 (re-review 2026-10-19)
+
+Reviewer sama, tetap independen. Kode yang direview tidak diubah. Eksperimen dijalankan di salinan `/tmp` yang dihapus setelah selesai, dan tidak ada secret yang dicetak. Untuk perbaikan yang diklaim, test-nya dicek non-vakum dengan cara memutasi kode perbaikan di salinan: test harus gagal ketika perbaikannya dilepas.
+
+| PR | Head | Base | Verdict putaran 2 | BLOCKER | MAJOR terbuka | MINOR terbuka/baru |
+|---|---|---|---|---:|---:|---:|
+| #13 | `be68a23` (sudah di-merge) | — | — (R-02 diverifikasi di `main`) | 0 | 0 | 2 (R-03, R-04) |
+| #14 redact stream | `7321615` | `main` | **approve** | 0 | 0 | 3 |
+| #15 sandbox verdict | `f7499c4` | `main` | **approve** | 0 | 0 | 4 |
+| #16 sandbox open | `c1095ed` | `f1-sandbox-a` | **approve** (MAJOR S16-7 wajib diputuskan sebelum acceptance F1) | 0 | 1 | 4 |
+| #17 netx DLP | `f40e83d` | `main` | **approve** (MAJOR NETX-15/16 wajib ditutup sebelum acceptance F1) | 0 | 2 | 9 |
+
+Definisi severity sama dengan putaran 1. Karena itu MAJOR tidak menahan merge, tetapi wajib ditutup sebelum acceptance F1.
+
+### Perintah yang dijalankan
+
+- `go test -race -count=1 ./internal/{netx,redact,sandbox}/...` di setiap head: semuanya ok.
+- `GOOS=windows|darwin|freebsd go vet` + `go test -c ./internal/sandbox`: ok.
+- CI GitHub:
+  - #15 `f7499c4`: run 39158150707, termasuk `test (windows-latest, -race)` dan `windows-11-arm` lulus. `TestJunctionVerdicts` dan `TestJunctionOpen` memakai `mklink /J` dengan `t.Fatalf`, jadi tidak pernah di-skip.
+  - #17 `f40e83d`: 24 lulus, 24 cancelled (run yang tergantikan). Status `mergeable`, tetapi *behind* `main`.
+- Benchmark:
+  - `BenchmarkDLPScan -count=5`
+  - `BenchmarkOpenFile`
+  - stream redact dengan chunk 1/4/64 B
+- Fuzz `FuzzRedactStream` sekitar 860 ribu eksekusi, ditambah seed > 4 KiB.
+- Repro coverage EC-SEC-008: 5/5 untuk set terarah dan 3/3 untuk `./...` penuh. Juga lulus dengan `-race -cpu 1,4,12`.
+
+### PR #17 — netx DLP @ `f40e83d`
+
+| ID | Status | Bukti | Catatan |
+|---|---|---|---|
+| NETX-1 | closed | `git diff origin/main...f40e83d` hanya berisi netx/docs/CHANGELOG/Makefile; `git merge-tree origin/main` bersih | |
+| NETX-2 | closed | `internal/netx/dlp.go:198-224` (lapisan decode), `:273-290` (`pctDecode`) | Diblok: percent setiap byte (hex huruf kecil, besar, dan campuran), double/triple, `%25` bersarang, form `+`, `QueryEscape`⁴, `json.Marshal` di dalam query. Celah sisa: NETX-17. |
+| NETX-3 | partial → digantikan NETX-16 | `dlp_test.go:305-327` (`BenchmarkDLPScan`), Makefile `PERF_BENCH` | Benchmark 8 KB sudah ada dan masuk `make perf`, tetapi korpus "plain" tidak memuat `%` atau `+`. |
+| NETX-4 | closed | `client.go:139-142` (error tanpa host), `:184` (`[blocked]`); `TestLogMetadataOnly` | Jalur refuse terpisah: NETX-21. |
+| NETX-5 | closed | `dlp_test.go:24` (`reservedValue`); tabel lokasi × encoding dengan `t.Run` | |
+| NETX-6 | closed | `dlp.go:166-174`; `TestDLPWire` host/trailer | |
+| NETX-7 | partial (MINOR) | `dlp.go:175-189` | Body dibaca sekali dengan cap 8 MiB+1 dan dipasang ulang. Sisa: NETX-18. |
+| NETX-8 | residual terdokumentasi | ADR-100 butir 8 | Bentuk JSON-marshal, hex case-insensitive, uppercase, dan strip CR/LF sudah ditambahkan. Escape `\/` dan pembungkus selain CR/LF **tidak** tercantum (NETX-19/20). |
+| NETX-9 | residual terdokumentasi | ADR-100 butir 8 | |
+| NETX-10 | closed | `client.go:20-31` (`iota+1`), `:125-126` (`ErrPurpose`) | Purpose 0/4/255 ditolak. |
+| NETX-11 | closed | `client.go:87` (`atomic.Pointer`, `SetSecrets`) | Probe `-race` 4 penulis × 4 `Do`: selalu diblok. |
+| NETX-12 | residual terdokumentasi | ADR-100 butir 8 (ditunda ke F2) | |
+| NETX-13 | closed | `dlp_test.go:305` | |
+| NETX-14 | closed | `dial.go:44-90`; `client_test.go:116-120` | Delapan rentang dari putaran 1 sudah non-publik. Sisa: NETX-22. |
+
+**Penilaian kinerja (toleransi ×1,5).** Untuk input 8 KiB "plain":
+
+| Ukuran | Hasil |
+|---|---|
+| Diklaim (CI EPYC, dari ADR) | 46–53 µs |
+| Mesin reviewer, `-cpu=1`, load rendah | plain/50 34–46 µs; plain/200 42–62 µs |
+
+SPEC §17 dan ADR-077 menetapkan ×1,5 hanya untuk waktu absolut di runner CI, sedangkan target persis diverifikasi di mesin referensi Q14 saat RC. Jadi melewati 50 µs **hanya** berkat ×1,5 pada input plain **dapat diterima** (paling berat MINOR).
+
+Masalahnya ada di korpus. Benchmark tidak mewakili request nyata, dan request realistis melewati 75 µs (= 50 × 1,5). Ini MAJOR, dicatat sebagai NETX-16.
+
+| Input | Waktu |
+|---|---|
+| plain + satu `+` | 81–82 µs |
+| 50 secret pendek (< 8 byte) | 92–96 µs |
+| decode/200 | 143–165 µs (batas adversarial terdokumentasi 150 µs) |
+
+#### Temuan baru #17
+
+| ID | Severity | Temuan | Bukti / repro | Rekomendasi |
+|---|---|---|---|---|
+| NETX-15 | MAJOR | Batas kerja `dlp_limit` memblok request yang sah. Budget dihitung `2·len + 2 KiB`, padahal setiap lapisan men-decode ulang seluruh buffer. Akibatnya satu token double-encoded (`%2520`, `redirect_uri`/link pelacak yang di-encode dua kali) di request ≥ ~1,5–2 KiB langsung kena `dlp_limit`, sehingga `web_fetch` gagal tanpa ada secret. `TestDLPBounds` malah mengunci perilaku ini. | `internal/netx/dlp.go:199-203`. Probe `check()` dengan 50 secret: query `next=`+`QueryEscape²(url)` + body prosa → pass di 512/1500 B, `dlp_limit` di ≥ 2048 B (sampai 64 KiB). `%252541` → `dlp_limit` mulai 1500 B. Body `"C++ … 50%25ab"` → `dlp_limit` di ≥ 2048 B. | `dlpMaxDepth` sudah membatasi kerja ke ≤ (1+3)·n. Hapus batas kerja tambahan atau jadikan ≥ 4n, atau decode hanya span di sekitar `%`/`+`. Tambahkan kasus negatif ini ke `TestDLPBounds`. |
+| NETX-16 | MAJOR | Budget GAP-SEC-16 (≤ 50 µs per 8 KB) tidak terpenuhi untuk request realistis. Satu `%` atau `+` di mana pun membuat seluruh buffer melewati lapisan decode. Secret pendek dicek dengan `bytes.Contains` per secret per lapisan. | `dlp.go:215`, `:245`; angka di tabel kinerja di atas | Tambahkan kasus `plain+pct` ke `BenchmarkDLPScan` (gate `make perf`). Decode hanya span yang berubah, dan masukkan secret pendek ke indeks. |
+| NETX-17 | MINOR | Kedalaman decode yang habis meloloskan request: pct-all lalu `%25` 3–4 kali **lolos** (request kecil), padahal batas lain fail-closed. | `dlp.go:215` (`depth == dlpMaxDepth` → `return nil`) | Bila lapisan ke-3 masih bisa di-decode, kembalikan `dlp_limit`. |
+| NETX-18 | MINOR | `Body` nil/`NoBody` dengan `GetBody` diset: setelah 307, isi `GetBody` terkirim tanpa di-scan. | `dlp.go:175`. Probe: 2 hop, `secret_on_wire=true` | Di cabang tanpa body, set `req.GetBody = nil`. |
+| NETX-19 | MINOR | `keepCRLF` bersifat global: satu secret multi-baris (PEM) mematikan deteksi base64 terbungkus untuk semua secret. Base64 yang dibungkus spasi, tab, U+2028, atau escape JSON literal `\r\n` lolos. | `dlp.go:66`, `:235` | Jalankan pass terpisah yang membuang whitespace/escape untuk bentuk base64/hex. Catat sisanya di ADR-100. |
+| NETX-20 | MINOR | Escape JSON `\/` (`{"k":"a\/b…"}`, juga di dalam `QueryEscape`) lolos dan tidak tercantum sebagai residual. | Probe | Tambahkan ke daftar residual ADR-100, atau tambahkan lapisan unescape JSON. |
+| NETX-21 | MINOR | Jalur refuse (Purpose tidak valid, background mati) masih mencetak host mentah. | `client.go:136` | Hilangkan host dari pesan, seperti perbaikan NETX-4. |
+| NETX-22 | MINOR | Sisa celah SSRF yang masih dianggap publik: NAT64 local-use `64:ff9b:1::/48`, Teredo `2001::/32`, SIIT `::ffff:0:0:0/96`. Rentang dokumentasi/benchmark yang tidak bisa dirutekan juga dianggap publik. | `dial.go:44-90`; `TestProbeIPs` (46 alamat) | Ekstrak IPv4 tertanam untuk ketiga bentuk itu, lalu tambahkan rentang IANA yang tersisa. |
+| NETX-23 | MINOR | Batas verifikasi absolut 256 KiB per request, dan setiap hit prefilter dibebani `len(form)` penuh. Contoh: 10 webhook Slack di vault + body 24 KB berisi 600 link → `dlp_limit` (false positive). | `dlp.go:261` | Hitung hanya byte yang benar-benar dibandingkan, atau skalakan batas dengan ukuran input. |
+| NETX-24 | MINOR | Matcher berupa indeks hash prefix 8 byte + bitset, bukan Aho-Corasick seperti teks GAP-SEC-16. Secara teknis tidak bermasalah: biaya tidak bergantung pada jumlah secret (plain/1000 ≈ 37 µs). Namun penyimpangan dari teks spec belum dicatat. | `dlp.go:41-78`, `:244-270` | Tambahkan satu kalimat amandemen di ADR-100. |
+| NETX-25 | MINOR | PR *behind* `main`. | API GitHub `mergeable_state=behind` | Rebase sebelum merge. |
+
+### PR #14 — redact stream @ `7321615` (approve)
+
+Diff #14 hanya mengubah `stream.go`, `stream_test.go`, `match.go` (hapus `nolint`), ADR-096 butir 9, dan CHANGELOG. Kode R-02 sudah ada di `main` lewat #13 (`be68a23`).
+
+| ID | Status | Bukti | Catatan |
+|---|---|---|---|
+| R-02 | closed (di `main`) | `internal/redact/patterns.go:113-121`, `:140` (user boleh kosong, `opLastAt` di atas `nonWS`, jangkar `://` dan `:\/\/`); `match.go:95-111`; `TestRedaction/url_password_forms` (`redact_test.go:33-55`); ADR-096 butir 6 | Lima mutasi (`@` pertama, tanpa jangkar `:\/\/`, user min 1, password tanpa `/`, tanpa drop) semuanya membuat test gagal. Bentuk `p@ss@db`, `p@ss@@db`, `:\/\/u:p@ss\/x@h`, dan `p\u200b@ss@h` diredaksi utuh tanpa sisa. False positive yang terdokumentasi: `localhost:4873/@babel/core`, `:443/@types/node`, `?u=a@b.com`. Yang tetap tidak terdampak: `git@github.com:…`, `mailto:`, `x.com/@user`, `ssh://git@…`. |
+| S-01 | closed | `patterns.go:114` (`drop: nonWS`); `stream.go` `process`/`dropTail` | Repro putaran 1 diulang dengan chunk 1/7/64/5000: hasilnya `see http://localhost:[REDACTED:url_password] tail` tanpa panic, maxHold 4096–4103. Mutasi "hapus drop" → `TestStreamUserinfoHoldCapRepro`, `TestStreamHoldCapPerPattern`, dan seed fuzz semuanya panic, jadi test-nya non-vakum. |
+| S-02 | closed | `stream_test.go:326-398` (dibangkitkan dari `r.pats`); seed > 4 KiB di `:193-196` | Setiap pola × 4 bentuk ekor × chunk 1/3/64/4097: tanpa panic, tanpa bocor. Catatan MINOR R2-S-01: oracle fuzz "beda hanya lewat potongan bersentinel" vakum untuk mutan "`dropTail` tidak membuang apa pun". Mutan itu hanya tertangkap unit test. |
+| S-03 | not closed (MINOR) | `stream_test.go:14-23`, `:225-236` | Chunk masih 20–80 B, tanpa ukuran "ditahan sampai delta berikutnya". |
+| S-04 | closed | doc `Stream` | |
+| R-01 / EC-SEC-008 | closed, tidak flaky | `perf_test.go:78-110` | |
+| R-03 | not closed (MINOR) | `match.go:282-289` | Untuk known secret `admin:hunter22`, `admin` tetap tampil. |
+| R-04 | not closed (MINOR) | `patterns.go:24`, `:106-109`; `redact.go:64` | Bearer ber-kutip tidak diredaksi; secret 10.000 B menaikkan hold di atas cap. |
+
+| ID | Severity | Temuan baru | Bukti / repro | Rekomendasi |
+|---|---|---|---|---|
+| R2-S-02 | MINOR | Ekor known secret bocor setelah potongan fail-closed di stream. Terjadi bila known secret berisi spasi dimulai di dalam kandidat `url_password` tepat sebelum hold mencapai 4 KiB. | Secret `"correct horse battery"`, input `"x http://h:"+N×'a'+secret+" end"` dengan N = 4085..4095, chunk 1. Hasil stream: `…[REDACTED:url_password] horse battery end`; whole-blob tidak bocor. Penyebab: `match.go:267` (`!m.cut` melewati `extend`) dan `dropTail` berhenti di whitespace. | Saat memotong, buang sampai akhir known secret parsial yang dimulai di dalam rentang potongan. Tambahkan kasusnya ke `TestStreamHoldCapPerPattern`. |
+| R2-S-03 | MINOR (info) | Biaya stream sebanding dengan hold / ukuran chunk, karena hold dipindai ulang setiap `Push`: chunk 1 B = 1.605 ns/B, 4 B = 396, 64 B = 43–46. Dengan known secret 64 KiB di chunk 4 B: 6.053 ns/B. Tetap linear dan dibatasi hold. | Benchmark sekali pakai `rep_sep_4000` | Ditangani bersama R-04(b/c): batasi panjang known secret. |
+| R2-S-04 | MINOR (dok) | `docs/F1-REPORT.md:122,134` (baris #14) belum mencantumkan test baru dan masih berstatus "menunggu review". | — | Perbarui saat merge. |
+
+### PR #15 — sandbox verdict @ `f7499c4` (approve)
+
+| ID | Status | Bukti | Catatan |
+|---|---|---|---|
+| S15-1 | closed | `internal/sandbox/sandbox.go:317-348` (bentuk kanonik prefix bebas-glob setiap pola absolut), `:377-389`; `Check` `:163-171`; `TestDenyAliases` | Live: `~/.ssh -> ~/dotfiles/ssh` dengan root `~/dotfiles`, Home asli maupun Home bersymlink → `ErrDeniedPath`. Mutasi "hapus canonicalPattern" → `TestDenyAliases` gagal (`sandbox_test.go:127`). Nit MINOR: komentar doc test menyebut OpenFile/OpenApproved padahal body test hanya memanggil `Check`, dan pola `<base>/absent/x` tidak diasersi. |
+| S15-2 | closed | `sandbox.go:198-302` (reparse `ModeSymlink\|ModeIrregular` diikuti `os.Readlink`, ≤ 40 hop, target relatif di-join ke induk ter-resolve); `junction_windows_test.go:26` | CI Windows lulus (run 39158150707). Target `\\?\Volume{GUID}` → `outside_root` (fail-closed, ADR-097 butir 6). Residu MINOR: `firstLink` mulai dari komponen ke-2, sehingga junction tepat di bawah volume bergantung pada `EvalSymlinks` (belum diverifikasi di runner). |
+| S15-3 | closed | `sandbox.go:396`, `:436-443` (fold di semua OS); `TestDenyPaths/case_folded*` | Mutasi "hapus ToLower" → test gagal di runner Linux. |
+| S15-4 | not closed (MINOR) | Tidak ada normalisasi NFC/NFD. Fold memakai `strings.ToLower`: İ→i, tetapi ß, K (U+212A), dan ſ (U+017F) tidak ikut di-fold. | Hanya relevan di FS yang melakukan folding (macOS). |
+| S15-5 | partial | lihat S16-7 | |
+| S15-6 | not closed (MINOR, spec) | `SPEC.md` §12 `deny_paths` tidak berubah | |
+| S15-7 | not closed (MINOR) | `sandbox.go:182-195`, `TestRelativePathUsesCwd` | |
+
+### PR #16 — sandbox open @ `c1095ed` (approve; MAJOR S16-7)
+
+| ID | Status | Bukti | Catatan |
+|---|---|---|---|
+| S16-1 | closed | `junction_windows_test.go:56` (`TestJunctionOpen`, kedua mode open); CI Windows race (job 117765680766) dan arm64 (117765836780) lulus | Path dari `Check` bebas reparse point, sehingga `os.Root` tidak lagi menolak junction di dalam root. |
+| S16-2 | closed untuk alias path dan file deny literal | `open.go:46-47`, `:70`, `:80` (`recheckDeny` di kedua jalur open); `open_linux.go:54-70` (`/proc/self/fd`); `open_windows.go:36-47` (`GetFinalPathNameByHandle`); `sandbox.go:350-362` (`os.SameFile` vs `denyIDs`) | Mutasi "hapus cabang identitas" → `TestOpenRecheckDeny` dan `TestRecheckDenyClosedHandle` gagal. Open → recheck berbasis fd, tanpa jendela TOCTOU. Race 3.000 iterasi diulang: LEAK=0 (opened/refused 537/402 dan 171/697). |
+| S16-3 | not closed (MINOR) | `walk_unix.go:222` | |
+| S16-4 | not closed (MINOR, residual) | `open_linux.go:44`; `open_windows.go:20` | |
+| S16-5 | not closed (MINOR) | `open.go:63` | Sebagian dimitigasi: target tertukar yang mengenai deny ditolak oleh `recheckDeny`. |
+| S16-6 | not closed (MINOR) | `open_test.go:133-152`, `:180-188` | |
+
+| ID | Severity | Temuan baru | Bukti / repro | Rekomendasi |
+|---|---|---|---|---|
+| S16-7 | MAJOR | `deny_paths` masih bisa dilewati lewat hard link ke file **di dalam direktori deny** atau ke target yang cocok glob (`**/.env`, `**/*.pem`). `denyIDs` hanya mencatat identitas pola yang sepenuhnya literal: direktori `~/.ssh` tercatat sebagai inode direktori, bukan inode file kunci, dan pola glob tidak dicatat sama sekali. Di Linux, `readlink(/proc/self/fd/N)` untuk hard link mengembalikan path di root, sehingga cek path juga tidak menangkapnya. ADR-097 butir 10 sudah mencantumkan "hard link ke file di dalam direktori deny" sebagai residual, dan eksploit ini butuh perintah yang sebelumnya di-approve (shell/tar), sehingga bukan BLOCKER. Namun klaim penutupan S15-5 hanya berlaku untuk file literal, dan `TestOpenRecheckDeny` vakum untuk kelas direktori/glob. | `internal/sandbox/sandbox.go:350-362`; `open.go:91-96`. Live di salinan `c1095ed`: `~/.ssh/id_rsa` + hard link `root/hl_key` → `Check=inside`, `OpenFile` membaca isi kunci. Sama untuk `root/.env`. Hard link ke `~/.netrc` (literal) ditolak. | Keputusan maintainer sebelum acceptance F1. Pilihan (a): tolak open file `st_nlink > 1` yang (dev, ino)-nya ada di bawah direktori deny literal, memakai himpunan yang dibangun di `New` lewat walk terbatas. Pilihan (b): tolak semua open `st_nlink > 1` untuk baca code tool di luar daftar izin. Pilihan (c): nyatakan eksplisit sebagai residual di TRUST-MODEL §3, dan perbaiki klaim S15-5 di ADR-097 + F1-REPORT. Tambahkan test direktori dan glob. |
+| S16-8 | MINOR | Angka `BenchmarkOpenFile` di ADR-097 (≈ 9 µs, 34 alloc) sudah usang: kini 11,6 µs, 3,16 kB, 44 alloc/op. `recheckDeny` menambah sekitar 2,5–3 µs. | Benchmark | Perbarui ADR-097. |
+
+Upaya bypass sandbox yang ditolak dengan benar (fail-closed atau `denied_path`):
+- `/proc/self/root/…/.ssh/id_rsa`, `/proc/<pid>/cwd`, `/proc/self/fd/N`, `/dev/fd/N`.
+- Target deny yang dibuat setelah `New`.
+- Symlink ke materi deny yang dibuat setelah `New`.
+- Glob `**/*.pem` lewat symlink di root.
+- Bentuk Windows (statis): 8.3, ADS `file:stream`/`file::$DATA`, UNC `\\localhost\C$`, `\\?\`, `\\.\`, GLOBALROOT.
+- Unicode Turkish İ/ı, ß, K (U+212A), ſ: tidak setara di FS case-sensitive, jadi tidak bocor. Relevansinya hanya di FS yang melakukan folding (S15-4).
+
+Bind mount tidak bisa didemonstrasikan karena tidak ada `CAP_SYS_ADMIN`. Berdasarkan pembacaan statis, bind mount di atas root adalah residual (cek berbasis path + identitas).
+
+### Daftar MAJOR terbuka setelah putaran 2 (wajib sebelum acceptance F1)
+
+| ID | PR | Ringkas |
+|---|---|---|
+| NETX-15 | #17 | `dlp_limit` memblok request sah yang memuat satu token double-encoded di request ≥ ~2 KiB |
+| NETX-16 | #17 | DLP 8 KB realistis (`+`/`%`, secret pendek) 81–96 µs, melewati 50 µs × 1,5. Benchmark tidak mewakili request nyata. |
+| S16-7 | #16 | Hard link ke file di dalam direktori deny atau target glob lolos `recheckDeny`. Perlu diperbaiki, atau dinyatakan sebagai residual secara eksplisit. |
+
+Semua BLOCKER putaran 1 (S-01, S15-1, NETX-1, NETX-2) sudah closed, dan tidak ada BLOCKER baru.
