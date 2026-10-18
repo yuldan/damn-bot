@@ -8,3 +8,5 @@ bench/evals/sources/* -text
 bench/budget/o200k/o200k_base.tiktoken.gz -text
 internal/schema/testdata/jsts/* -text
 internal/redact/testdata/*.tsv -text
+# Korpus kalibrasi estimator (ADR-101): byte-persis dengan hitungan o200k.tsv di semua OS.
+internal/budget/testdata/calibration/* -text
