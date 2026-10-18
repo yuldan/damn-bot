@@ -8,3 +8,5 @@ bench/evals/sources/* -text
 bench/budget/o200k/o200k_base.tiktoken.gz -text
 internal/schema/testdata/jsts/* -text
 internal/redact/testdata/*.tsv -text
+# CT-20 edit suite: byte-exact JSON cases, no EOL conversion (Windows).
+internal/codetools/testdata/** -text

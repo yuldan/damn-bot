@@ -88,7 +88,9 @@ func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mo
 	if werr := tmp.Sync(); werr != nil {
 		return ci, ioErr("fsync", t.rel, werr)
 	}
-	if werr := e.unchanged(t, before); werr != nil {
+	var cerr error
+	t.close(&cerr) // Windows cannot replace a file that is still open
+	if werr := errors.Join(cerr, e.unchanged(t, before)); werr != nil {
 		return ci, werr
 	}
 	if werr := tmp.Close(); werr != nil {
