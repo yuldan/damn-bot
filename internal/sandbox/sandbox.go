@@ -96,7 +96,7 @@ type root struct {
 // Sandbox is immutable after New and safe for concurrent use.
 type Sandbox struct {
 	roots []root
-	deny  [][]string
+	deny  [][]denyComp
 	// denyIDs are the objects that fully literal deny patterns named at New,
 	// matched against every opened handle (S16-2).
 	denyIDs []os.FileInfo
@@ -127,7 +127,7 @@ func New(cfg *Config) (*Sandbox, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.deny, s.denyIDs = deny, ids
+	s.deny, s.denyIDs = compileComps(deny), ids
 	return s, nil
 }
 
@@ -432,21 +432,79 @@ func compilePattern(pat string) ([]string, error) {
 
 // splitPath splits p into components; an absolute path starts with its
 // volume name ("" on Unix, "C:" or `\\srv\share` on Windows).
-func splitPath(p string) []string {
-	vol := filepath.VolumeName(p)
-	rest := p[len(vol):]
-	var comps []string
-	if vol != "" || (rest != "" && os.IsPathSeparator(rest[0])) {
-		comps = append(comps, vol)
-	}
-	return append(comps, strings.FieldsFunc(rest, func(r rune) bool {
-		return r == '/' || r == filepath.Separator
-	})...)
+func splitPath(p string) []string { return appendComps(nil, p) }
+
+// denyComp is one compiled, lower-cased deny_paths component. Literal and
+// "*suffix" components (".env", "*.pem": nearly every real pattern) skip
+// path.Match: walkers check every directory entry (ADR-103).
+type denyComp struct {
+	kind compKind
+	s    string // literal, suffix, or path.Match pattern
 }
 
-// denied matches p, lower-cased, against the lower-cased patterns.
+type compKind uint8
+
+const (
+	compAny    compKind = iota // "**"
+	compLit                    // no glob meta
+	compSuffix                 // "*" + literal
+	compGlob                   // anything else: path.Match
+)
+
+func compileComps(pats [][]string) [][]denyComp {
+	out := make([][]denyComp, len(pats))
+	for i, pat := range pats {
+		out[i] = make([]denyComp, len(pat))
+		for j, c := range pat {
+			switch {
+			case c == "**":
+				out[i][j] = denyComp{kind: compAny}
+			case !strings.ContainsAny(c, globMeta):
+				out[i][j] = denyComp{kind: compLit, s: c}
+			case c[0] == '*' && !strings.ContainsAny(c[1:], globMeta):
+				out[i][j] = denyComp{kind: compSuffix, s: c[1:]}
+			default:
+				out[i][j] = denyComp{kind: compGlob, s: c}
+			}
+		}
+	}
+	return out
+}
+
+// match reports whether component c matches d case-insensitively. ASCII
+// components compare in place (the common case); others are lower-cased
+// first, exactly like the patterns were (S15-3).
+func (d denyComp) match(c string) bool {
+	ascii := isASCII(c)
+	switch {
+	case d.kind == compLit && ascii:
+		return len(c) == len(d.s) && strings.EqualFold(c, d.s)
+	case d.kind == compSuffix && ascii:
+		return len(c) >= len(d.s) && strings.EqualFold(c[len(c)-len(d.s):], d.s)
+	case d.kind == compLit:
+		return strings.ToLower(c) == d.s
+	case d.kind == compSuffix:
+		return strings.HasSuffix(strings.ToLower(c), d.s)
+	}
+	ok, err := path.Match(d.s, strings.ToLower(c)) // err: validated in New
+	return ok && err == nil
+}
+
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// denied matches p case-insensitively against the lower-cased patterns.
+// The components live in a stack buffer: no allocation for ASCII paths of
+// up to 64 components.
 func (s *Sandbox) denied(p string) bool {
-	comps := splitPath(strings.ToLower(p))
+	var buf [64]string
+	comps := appendComps(buf[:0], p)
 	for _, pat := range s.deny {
 		if matchPrefix(pat, comps) {
 			return true
@@ -455,24 +513,44 @@ func (s *Sandbox) denied(p string) bool {
 	return false
 }
 
+// appendComps appends the components of p (as splitPath) to dst.
+func appendComps(dst []string, p string) []string {
+	vol := filepath.VolumeName(p)
+	rest := p[len(vol):]
+	if vol != "" || (rest != "" && os.IsPathSeparator(rest[0])) {
+		dst = append(dst, vol)
+	}
+	for rest != "" {
+		i := strings.IndexByte(rest, '/')
+		if j := strings.IndexByte(rest, filepath.Separator); j >= 0 && (i < 0 || j < i) {
+			i = j
+		}
+		if i < 0 {
+			return append(dst, rest)
+		}
+		if i > 0 {
+			dst = append(dst, rest[:i])
+		}
+		rest = rest[i+1:]
+	}
+	return dst
+}
+
 // matchPrefix reports whether pat matches comps or one of its ancestors.
-func matchPrefix(pat, comps []string) bool {
+func matchPrefix(pat []denyComp, comps []string) bool {
+	for len(pat) > 0 && pat[0].kind != compAny {
+		if len(comps) == 0 || !pat[0].match(comps[0]) {
+			return false
+		}
+		pat, comps = pat[1:], comps[1:]
+	}
 	if len(pat) == 0 {
 		return true
 	}
-	if pat[0] == "**" {
-		for i := range len(comps) + 1 {
-			if matchPrefix(pat[1:], comps[i:]) {
-				return true
-			}
+	for i := range len(comps) + 1 {
+		if matchPrefix(pat[1:], comps[i:]) {
+			return true
 		}
-		return false
 	}
-	if len(comps) == 0 {
-		return false
-	}
-	if ok, err := path.Match(pat[0], comps[0]); err != nil || !ok { // err: validated in New
-		return false
-	}
-	return matchPrefix(pat[1:], comps[1:])
+	return false
 }

@@ -249,17 +249,27 @@ type target struct {
 	f        *os.File
 	resolved string
 	rel      string
-	outside  bool // opened after an approved outside_root verdict
+	outside  bool // opened after an approved non-Inside verdict
 }
 
-// open opens a tool path through the sandbox (CODE-TOOLS §8). OutsideRoot
-// needs o.Approved (else outside_workspace); deny_paths is denied_path.
+// approval fails a verdict other than Inside (outside_root,
+// hardlinked_file) that the user did not approve (SPEC §4.3 langkah 7).
+func approval(v sandbox.Verdict, p string, approved bool) error {
+	if v == sandbox.Inside || approved {
+		return nil
+	}
+	return toolErr(CodeOutsideWorkspace, "needs the user's approval", "%s: %s", p, v)
+}
+
+// open opens a tool path through the sandbox (CODE-TOOLS §8). A verdict
+// other than Inside needs o.Approved (else outside_workspace); deny_paths
+// is denied_path.
 func (e *Engine) open(ctx context.Context, p string, flag int, perm fs.FileMode, o Opts) (*target, error) {
 	abs := e.abs(p)
 	f, v, err := e.sb.OpenFile(ctx, abs, flag, perm)
-	if err == nil && v == sandbox.OutsideRoot {
-		if !o.Approved {
-			return nil, toolErr(CodeOutsideWorkspace, "paths outside the workspace need approval", "%s is outside the workspace", p)
+	if err == nil && v != sandbox.Inside {
+		if err := approval(v, p, o.Approved); err != nil {
+			return nil, err
 		}
 		f, err = e.sb.OpenApproved(ctx, abs, flag, perm)
 	}
@@ -270,7 +280,7 @@ func (e *Engine) open(ctx context.Context, p string, flag int, perm fs.FileMode,
 	if _, r, cerr := e.sb.Check(ctx, abs, sandbox.OpRead); cerr == nil {
 		resolved = r
 	}
-	return &target{f: f, resolved: resolved, rel: e.rel(resolved), outside: v == sandbox.OutsideRoot}, nil
+	return &target{f: f, resolved: resolved, rel: e.rel(resolved), outside: v != sandbox.Inside}, nil
 }
 
 // mapOpenErr classifies sandbox/OS open failures by sentinel (E-21).

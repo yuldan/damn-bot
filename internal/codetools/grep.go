@@ -242,17 +242,17 @@ func (e *Engine) searchRoot(ctx context.Context, p string, o Opts) (*searchRoot,
 		p = "."
 	}
 	v, resolved, err := e.sb.Check(ctx, e.abs(p), sandbox.OpRead)
-	switch {
-	case err != nil:
+	if err != nil {
 		return nil, mapOpenErr(p, err)
-	case v == sandbox.OutsideRoot && !o.Approved:
-		return nil, toolErr(CodeOutsideWorkspace, "paths outside the workspace need approval", "%s is outside the workspace", p)
+	}
+	if err := approval(v, p, o.Approved); err != nil {
+		return nil, err
 	}
 	fi, err := os.Lstat(resolved)
 	if err != nil {
 		return nil, mapOpenErr(p, err)
 	}
-	r := &searchRoot{abs: resolved, rel: e.rel(resolved), dir: fi.IsDir(), outside: v == sandbox.OutsideRoot}
+	r := &searchRoot{abs: resolved, rel: e.rel(resolved), dir: fi.IsDir(), outside: v != sandbox.Inside}
 	if r.dir {
 		root := resolved
 		for _, s := range e.roots {
