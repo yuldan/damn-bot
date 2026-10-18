@@ -10,7 +10,7 @@ CREATE TABLE gateway_identities (
     pairing_until INTEGER,
     workspace     TEXT,                        -- batas workspace per user (opsional)
     tz            TEXT,                        -- zona IANA per identitas; NULL = zona host (PROV-03)
-    strength      TEXT    NOT NULL DEFAULT 'platform_authenticated' CHECK (strength IN ('cryptographic','platform_authenticated','weak')),  -- = Caps.IdentityStrength; weak → tidak bisa di-pair (SEC-10)
+    strength      TEXT    NOT NULL CHECK (strength IN ('cryptographic','platform_authenticated','weak')),  -- = Caps.IdentityStrength, wajib diisi adapter (tanpa DEFAULT: fail-closed, V-13/ADR-054); weak → tidak bisa di-pair (SEC-10)
     updated_at    INTEGER NOT NULL,
     PRIMARY KEY (platform, external_id)
 ) STRICT;

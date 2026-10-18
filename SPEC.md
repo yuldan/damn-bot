@@ -1307,12 +1307,12 @@ CREATE VIRTUAL TABLE skills_fts USING fts5(
     tokenize = "unicode61 remove_diacritics 2"
 );
 CREATE TRIGGER skills_ai AFTER INSERT ON skills BEGIN
-    INSERT INTO skills_fts(rowid, name, description, body) VALUES (NEW.id, NEW.name, dmb_fts_norm(NEW.description), dmb_fts_norm(NEW.body));
+    INSERT INTO skills_fts(rowid, name, description, body) VALUES (NEW.id, dmb_fts_norm(NEW.name), dmb_fts_norm(NEW.description), dmb_fts_norm(NEW.body));  -- name dinormalisasi (V-15, ADR-054)
 END;
 -- `skills` mutable (re-index saat file skill berubah): contentless_delete mengizinkan DELETE per rowid, lalu insert ulang.
 CREATE TRIGGER skills_au AFTER UPDATE ON skills BEGIN
     DELETE FROM skills_fts WHERE rowid = OLD.id;
-    INSERT INTO skills_fts(rowid, name, description, body) VALUES (NEW.id, NEW.name, dmb_fts_norm(NEW.description), dmb_fts_norm(NEW.body));
+    INSERT INTO skills_fts(rowid, name, description, body) VALUES (NEW.id, dmb_fts_norm(NEW.name), dmb_fts_norm(NEW.description), dmb_fts_norm(NEW.body));
 END;
 CREATE TRIGGER skills_ad AFTER DELETE ON skills BEGIN
     DELETE FROM skills_fts WHERE rowid = OLD.id;
@@ -1436,7 +1436,7 @@ CREATE TABLE gateway_identities (
     pairing_until INTEGER,
     workspace     TEXT,                        -- batas workspace per user (opsional)
     tz            TEXT,                        -- zona IANA per identitas; NULL = zona host (PROV-03)
-    strength      TEXT    NOT NULL DEFAULT 'platform_authenticated' CHECK (strength IN ('cryptographic','platform_authenticated','weak')),  -- = Caps.IdentityStrength; weak → tidak bisa di-pair (SEC-10)
+    strength      TEXT    NOT NULL CHECK (strength IN ('cryptographic','platform_authenticated','weak')),  -- = Caps.IdentityStrength, wajib diisi adapter (tanpa DEFAULT: fail-closed, V-13/ADR-054); weak → tidak bisa di-pair (SEC-10)
     updated_at    INTEGER NOT NULL,
     PRIMARY KEY (platform, external_id)
 ) STRICT;

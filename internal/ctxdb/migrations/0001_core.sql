@@ -275,12 +275,12 @@ CREATE VIRTUAL TABLE skills_fts USING fts5(
     tokenize = "unicode61 remove_diacritics 2"
 );
 CREATE TRIGGER skills_ai AFTER INSERT ON skills BEGIN
-    INSERT INTO skills_fts(rowid, name, description, body) VALUES (NEW.id, NEW.name, dmb_fts_norm(NEW.description), dmb_fts_norm(NEW.body));
+    INSERT INTO skills_fts(rowid, name, description, body) VALUES (NEW.id, dmb_fts_norm(NEW.name), dmb_fts_norm(NEW.description), dmb_fts_norm(NEW.body));  -- name dinormalisasi (V-15, ADR-054)
 END;
 -- `skills` mutable (re-index saat file skill berubah): contentless_delete mengizinkan DELETE per rowid, lalu insert ulang.
 CREATE TRIGGER skills_au AFTER UPDATE ON skills BEGIN
     DELETE FROM skills_fts WHERE rowid = OLD.id;
-    INSERT INTO skills_fts(rowid, name, description, body) VALUES (NEW.id, NEW.name, dmb_fts_norm(NEW.description), dmb_fts_norm(NEW.body));
+    INSERT INTO skills_fts(rowid, name, description, body) VALUES (NEW.id, dmb_fts_norm(NEW.name), dmb_fts_norm(NEW.description), dmb_fts_norm(NEW.body));
 END;
 CREATE TRIGGER skills_ad AFTER DELETE ON skills BEGIN
     DELETE FROM skills_fts WHERE rowid = OLD.id;
