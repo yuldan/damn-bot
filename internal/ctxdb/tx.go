@@ -128,7 +128,7 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 		return wrap(err)
 	}
 	t := &Tx{ctx: ctx, c: c, s: s, txid: fmt.Sprintf("%d-%s-%d", s.id.PID, s.id.Start, s.txSeq.Add(1))}
-	if _, err = c.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+	if err = s.begin(ctx, c); err != nil {
 		return errors.Join(wrap(err), wrap(c.Close()))
 	}
 	began, committed := time.Now(), false
@@ -154,6 +154,52 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 	return nil
 }
 
+// Writer fairness (ADR-087). SQLite's busy handler polls with growing sleeps
+// (≤ 100 ms) and is not FIFO: under a saturated write lock a process that
+// commits and immediately begins again keeps winning, so a newcomer can wait
+// past busy_timeout (5 s) and see db_busy. Waiters therefore announce a
+// pending BEGIN with a shared flock on writerWaitFile; a writer that ends a
+// transaction while someone waits does not begin again for writerYield.
+// writerYield exceeds the busy handler's longest sleep, so every waiter polls
+// at least once while the lock is free; a waiter thus gets the lock within
+// (writers − 1) × (hold + writerYield) instead of an unbounded time.
+const (
+	writerWaitFile = "run/writer.wait"
+	writerYield    = 150 * time.Millisecond
+)
+
+// begin starts BEGIN IMMEDIATE after this Store's fairness pause, announced
+// as a waiter for its whole duration (a failed announcement only loses
+// fairness for this one attempt, never correctness).
+func (s *Store) begin(ctx context.Context, c *sql.Conn) error {
+	if d := time.Until(s.yieldUntil); d > 0 {
+		if err := sleepReal(ctx, d); err != nil {
+			return err
+		}
+	}
+	f, aerr := tryLock(s.root, writerWaitFile, false)
+	_, err := c.ExecContext(ctx, "BEGIN IMMEDIATE")
+	err = wrap(err)
+	if aerr == nil {
+		err = errors.Join(err, unlockFile(f))
+	}
+	return err
+}
+
+// yieldIfWaiters runs after COMMIT/ROLLBACK: an exclusive probe of
+// writerWaitFile fails exactly while another writer announces a BEGIN.
+func (s *Store) yieldIfWaiters() error {
+	if !fairLocks {
+		return nil
+	}
+	f, err := tryLock(s.root, writerWaitFile, true)
+	if err != nil {
+		s.yieldUntil = time.Now().Add(writerYield)
+		return nil //nolint:nilerr // contention is the expected signal, not a failure
+	}
+	return unlockFile(f)
+}
+
 // endTx rolls back an unfinished transaction (and recovers its own trash,
 // gc trigger (c)), reports lock time, resets the mode and releases the conn.
 func (s *Store) endTx(ctx context.Context, t *Tx, mode string, began time.Time, committed bool) error {
@@ -171,7 +217,7 @@ func (s *Store) endTx(ctx context.Context, t *Tx, mode string, began time.Time, 
 		s.opt.OnTx(mode, time.Since(began))
 	}
 	s.mode.Store(modeNormal)
-	return errors.Join(err, wrap(t.c.Close()))
+	return errors.Join(err, wrap(t.c.Close()), s.yieldIfWaiters())
 }
 
 // recoverOwnTrash runs gc step 1 for this txid in a fresh transaction.

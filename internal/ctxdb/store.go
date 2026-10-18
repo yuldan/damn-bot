@@ -72,6 +72,7 @@ type Store struct {
 	chunk        int                 // purge phase-2 unit size, adapted to measured cost (mu)
 	closed       bool                // Close ran (mu)
 	bgErr        error               // error of a background drain, returned by Close (mu)
+	yieldUntil   time.Time           // writer fairness: no BEGIN before this (mu, ADR-087)
 	stop         context.CancelFunc  // barrier watcher
 	done         chan struct{}
 }

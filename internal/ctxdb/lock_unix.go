@@ -9,6 +9,9 @@ import (
 	"syscall"
 )
 
+// fairLocks: flock gives a reliable waiter signal for writer fairness (ADR-087).
+const fairLocks = true
+
 // tryLock takes a non-blocking flock on root/name (shared or exclusive).
 // flock is per open file description, so two Stores in one process contend
 // exactly like two processes; the kernel drops the lock when the holder

@@ -1929,6 +1929,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan direktur proyek). **Menggantikan** ADR-069 butir 2 (allowlist `read_only` + hardening git), butir 3 bagian "auto" (operand tetap dipakai untuk label/`denied_path` best-effort), butir 4 (`tainted_session` untuk auto), butir 6 (`shell_allow` prefix), tabel 42 kasus, dan jalur auto verify di ADR-069/SPEC §14.1. ADR-069 butir 1, 5 (kelas `irreversible`/`privileged`, P26), 7 (workspace trust), 8 (baca di luar root lewat tool file), dan 9 (cakupan boundary, dikoreksi di sini) tetap berlaku. Menutup sisa AUD-001/008/010 (`AUDIT-F0-REVERIFY.md`), NEW-01, NEW-03, NEW-04, NEW-09; ikut menutup NEW-06 (verify), NEW-07 (definisi vulnerability), NEW-22, NEW-23, NEW-24, NEW-25, NEW-26, NEW-27.
 
+*(Amandemen bertanggal 2026-10-18 saat penerapan: (a) kunci `shell_allow` tetap di section `[approval]` contoh config SPEC §12 (bukan `[exec]`; tanpa rename kunci); (b) daftar label butir 2 mencakup atribut `non_mutating` (best-effort, hanya membatasi di plan mode butir 11); (c) aturan stable tier "baca lewat tool kode" butir 1 diwujudkan sebagai perluasan aturan 5 draf §6.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC P26 (rujukan), §4.3 (langkah 5/7), §5.1 (baris `shell`), §10 (`run --unsafe-auto-shell`), §11 (komentar `approvals.decision` `auto_class_readonly` dicadangkan), §12 (`[exec]` `shell_allow = []`, `exec.auto_allow_verify` dihapus, `allow_destructive`/`destructive_allow` dicadangkan), §14.1, §14.2, §14.5, §18.3 (plan mode), §22.1 GAP-SEC-28, GAP-UX-02; EXEC-AND-CODING §A.8, §A.10, §B.2/§B.5 (verify), §D (EXC-13/EXC-14); CODE-TOOLS §8; TRUST-MODEL §1–§3; CROSS-CUTTING §1; ROADMAP F1 Acceptance; SCORECARD (catatan UX). Setiap passage mengutip ADR-079.
 
 **Konteks.** Dua putaran audit menemukan bypass baru di setiap versi allowlist `read_only` (`sort --files0-from`, rekursi lewat symlink, `git blame --contents`, `~user`/brace, `printf -v PATH`, filter `clean` git, `cd` sebelum operand relatif). Classifier shell berbasis AST tidak dapat dibuktikan lengkap terhadap semantik bash dan ratusan program; menambal per kasus tidak konvergen.
@@ -2140,3 +2142,22 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 **Dampak terukur (SPEC §20).** Token/latensi/LOC/binary/dependency 0. Default: cap eval scorecard per run US$10 → US$5 (AUD-053).
 
 **Konsekuensi.** (+) Semua MINOR putaran 2 punya pemilik dan tenggat; lima item tanpa keputusan kini punya keputusan. (−) Backlog F1 bertambah.
+
+## ADR-087 — Fairness writer lintas proses di `ctxdb` (flake `TestMultiProcess` CI) + budget `ctxdb` 3.100
+
+**Status:** Accepted 2026-10-18 (keputusan didelegasikan). Menutup flake `TestMultiProcess` (GitHub Actions run 39117760522 attempt 1: "child multi exited before READY"). Menaikkan budget `ctxdb` untuk ADR-085 butir 4 (NEW-15) dan fairness ini.
+
+**Aturan penerapan.** Diterapkan (2026-10-18): kode `internal/ctxdb/tx.go` (`begin`, `yieldIfWaiters`), `store.go`, `lock_unix.go`/`lock_other.go` (`fairLocks`), `chaos_test.go` (diagnostik anak); `loc.budget` dan ENGINEERING §2.4 (`ctxdb` 3.100, total 33.750); SPEC §11.11.11 (urutan lock: catatan fairness). Setiap passage mengutip ADR-087.
+
+**Konteks.** Di runner CI (2 vCPU, fsync lambat, `-race`) anak ke-4 `TestMultiProcess` gagal saat `Open` ±5 s setelah start (total test 7,31 s), sedangkan tiga anak lain sudah menulis terus-menerus. Tidak tereproduksi di workstation dengan CPU dibatasi (`taskset -c 0,1`/`-c 0`, `GOMAXPROCS=1..2`, 4–8 anak, 50+ run, seed shuffle CI), tetapi **tereproduksi** dengan fsync diperlambat 30 ms (`strace -e inject=fsync,fdatasync:delay_exit=30000`): 1 dari 3 run gagal dengan `append after 5.067 s: db_busy (SQLITE_BUSY)`. Akar masalah: handler busy SQLite melakukan polling dengan jeda yang membesar sampai 100 ms dan tidak FIFO; saat lock tulis jenuh (hold lama karena fsync), proses yang commit lalu langsung `BEGIN IMMEDIATE` lagi terus menang, sehingga proses baru (`startupRecovery` di `Open`) atau writer lain menunggu melewati `busy_timeout` 5 s. `busy_timeout` yang lebih besar tidak menyelesaikan apa pun karena tanpa fairness tidak ada batas tunggu.
+
+**Keputusan.**
+1. Writer mengumumkan `BEGIN IMMEDIATE` yang tertunda dengan flock **shared** pada `run/writer.wait` selama `BEGIN` berlangsung. Setelah COMMIT/ROLLBACK, writer mencoba flock **exclusive** non-blocking pada file itu; gagal = ada writer lain yang menunggu, sehingga Store ini tidak memulai transaksi berikutnya sebelum `writerYield` = 150 ms.
+2. Batas: 150 ms > jeda terpanjang handler busy SQLite (100 ms), sehingga setiap penunggu melakukan polling minimal sekali selama lock bebas. Waktu tunggu penunggu menjadi ≤ (jumlah writer − 1) × (hold + 150 ms); untuk 4 proses dan hold ≤ 400 ms (`-race`, ADR-048) ≈ 1,65 s < `busy_timeout` 5 s. Tanpa kontensi probe hanya satu syscall flock per transaksi; tidak ada jeda.
+3. Di OS tanpa flock (`!unix`, `fairLocks = false`) probe mati; operasi barrier di sana tetap fail-closed seperti sebelumnya (Windows LockFileEx = kerja F1).
+4. Diagnostik: anak yang keluar sebelum `READY` kini melaporkan exit status, stdout, dan stderr-nya.
+5. Budget `ctxdb` 2.800 → **3.100** (probe darwin/windows NEW-15 + fairness), total tabel ENGINEERING §2.4 33.450 → 33.750 ≤ 47.000; SPEC §3.2.4 tidak berubah.
+
+**Dampak terukur (SPEC §20).** Token/binary/dependency 0. Latensi: 0 tanpa kontensi; di bawah kontensi writer yang baru commit menunggu ≤ 150 ms sebelum transaksi berikutnya (throughput turun, ekor latensi penunggu terbatas). LOC: `ctxdb` +300.
+
+**Konsekuensi.** (+) `db_busy` tidak lagi muncul karena kelaparan writer pada beban `TestMultiProcess`/P19; waktu tunggu terbatas. (−) Throughput tulis agregat sedikit turun saat banyak proses menulis bersamaan.

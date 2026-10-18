@@ -312,7 +312,7 @@ Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2
 
 | Paket | LOC maks | Paket | LOC maks |
 |---|---:|---|---:|
-| `loop` + `loop/event` | 1.500 | `ctxdb` (tanpa file `.sql`; ADR-049) | 2.800 |
+| `loop` + `loop/event` | 1.500 | `ctxdb` (tanpa file `.sql`; ADR-049, ADR-087) | 3.100 |
 | `plan` | 600 | `assemble` | 1.000 |
 | `provider` (core OpenAI-compatible + `providertest`) | 2.000 | `compaction` | 900 |
 | `provider/registry` (Go; data TOML tidak dihitung) | 400 | `memory` + `skills` (storage di `ctxdb/memstore`/`ctxdb/skillstore`, ADR-074) | 1.200 |
@@ -326,9 +326,9 @@ Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2
 | `boundary` | 150 | `i18n` (Go) | 300 |
 | `ctxdb/ledgerstore` (F1, ADR-074) | 300 | `ctxdb/memstore` (F2, ADR-074) | 600 |
 | `ctxdb/skillstore` (F2, ADR-074) | 400 | `ctxdb/journalstore` (F2, ADR-074) | 400 |
-| **Total core** | **33.450** | | |
+| **Total core** | **33.750** | | |
 
-Total core per paket = 33.450 ≤ 47.000 (budget gabungan SPEC §3.2.4 untuk core + codetools + exec + heal; ADR-049 menaikkan `ctxdb` 2.500 → 2.800, total core 31.150 → 31.450; ADR-081 menaikkan `exec` 3.000 → 3.500 dan menambah `exec/classify` 1.500 (`internal/exec/classify`), total core 31.450 → 33.450; Σ `exec` 5.000 ≤ baris exec SPEC §3.2.4 7.000, sisa 2.000 untuk background `process_*` F5). ADR-074 memindahkan storage konsumen ke baris `ctxdb/<consumer>store` yang dipotong dari baris konsumennya (`budget` 700 → 400 + `ctxdb/ledgerstore` 300; `memory` + `skills` 2.200 → 1.200 + `ctxdb/memstore` 600 + `ctxdb/skillstore` 400; `journal` 900 → 500 + `ctxdb/journalstore` 400), tanpa mengubah total; `ctxdb/gwstore` 900 dihitung dari budget `gateway` SPEC §3.2.4 (F4, ADR-053), bukan tabel core. Longest-prefix `loc.budget` membuat setiap subdirektori `ctxdb/<consumer>store` dan `exec/classify` menjadi grup terpisah dari induknya. Rencana total seluruh modul SPEC §3.2.4 = 184.900 ≤ 190.000 (P21, ADR-033, ADR-036). Baris core SPEC §3.2.4 kini 30.000 + exec 7.000 + heal/obs 5.500 + codetools 4.500 = 47.000 (gabungan). Jika per paket melebihi tabel ini tetapi masih di dalam baris SPEC, revisi tabel ini lewat PR biasa; melebihi baris SPEC butuh ADR (SPEC §20).
+Total core per paket = 33.750 ≤ 47.000 (budget gabungan SPEC §3.2.4 untuk core + codetools + exec + heal; ADR-049 menaikkan `ctxdb` 2.500 → 2.800, total core 31.150 → 31.450; ADR-081 menaikkan `exec` 3.000 → 3.500 dan menambah `exec/classify` 1.500 (`internal/exec/classify`), total core 31.450 → 33.450; Σ `exec` 5.000 ≤ baris exec SPEC §3.2.4 7.000, sisa 2.000 untuk background `process_*` F5; ADR-087 menaikkan `ctxdb` 2.800 → 3.100 untuk probe proses darwin/windows (NEW-15) dan fairness writer lintas proses, total core 33.450 → 33.750). ADR-074 memindahkan storage konsumen ke baris `ctxdb/<consumer>store` yang dipotong dari baris konsumennya (`budget` 700 → 400 + `ctxdb/ledgerstore` 300; `memory` + `skills` 2.200 → 1.200 + `ctxdb/memstore` 600 + `ctxdb/skillstore` 400; `journal` 900 → 500 + `ctxdb/journalstore` 400), tanpa mengubah total; `ctxdb/gwstore` 900 dihitung dari budget `gateway` SPEC §3.2.4 (F4, ADR-053), bukan tabel core. Longest-prefix `loc.budget` membuat setiap subdirektori `ctxdb/<consumer>store` dan `exec/classify` menjadi grup terpisah dari induknya. Rencana total seluruh modul SPEC §3.2.4 = 184.900 ≤ 190.000 (P21, ADR-033, ADR-036). Baris core SPEC §3.2.4 kini 30.000 + exec 7.000 + heal/obs 5.500 + codetools 4.500 = 47.000 (gabungan). Jika per paket melebihi tabel ini tetapi masih di dalam baris SPEC, revisi tabel ini lewat PR biasa; melebihi baris SPEC butuh ADR (SPEC §20).
 
 ---
 
