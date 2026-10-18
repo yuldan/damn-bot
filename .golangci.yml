@@ -178,6 +178,10 @@ linters:
         linters: [gochecknoinits]
       - path: ^internal/gateway/[^/]+/
         linters: [gochecknoinits]
+      # ADR-105: Win32 Job Object calls take struct pointers (E-38 exception).
+      - path: ^internal/exec/[^/]+_windows\.go$
+        linters: [depguard, gosec]
+        text: "unsafe|G103"
 
 formatters:
   enable:
