@@ -305,13 +305,13 @@ Allowlist global (E-10), lengkap:
 | E-16 | Kompleksitas siklomatik | ≤ 15 | `gocyclo` (`min-complexity: 15`) | maks 102; 2.475 fungsi > 15 |
 | E-17 | Kompleksitas kognitif | ≤ 20 | `gocognit` (`min-complexity: 20`) | tidak diukur |
 | E-18 | Nesting | ≤ 4 | `nestif` (`min-complexity: 4`) | tidak diukur |
-| E-19 | LOC Go non-test per paket | tabel di bawah; total ≤ 190.000 (P21, ADR-033) | `scc --no-gen --by-file` per direktori, job `loc-budget` | `agent/` 141.805 |
+| E-19 | LOC Go non-test per paket | tabel di bawah; total ≤ 190.000 (P21, ADR-033) | `scc --no-gen --by-file` per direktori, job `loc-budget`; `TestBudgetTableSum` (jumlah tabel di bawah = baris Total core, V-20/ADR-054) | `agent/` 141.805 |
 
 Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2.4 — gabungan budget SPEC untuk keempat baris itu = 47.000 (ADR-033); baris modul fitur memakai angka §3.2.4 apa adanya):
 
 | Paket | LOC maks | Paket | LOC maks |
 |---|---:|---|---:|
-| `loop` + `loop/event` | 1.500 | `ctxdb` (tanpa file `.sql`) | 2.500 |
+| `loop` + `loop/event` | 1.500 | `ctxdb` (tanpa file `.sql`; ADR-049) | 2.800 |
 | `plan` | 600 | `assemble` | 1.000 |
 | `provider` (core OpenAI-compatible + `providertest`) | 2.000 | `compaction` | 900 |
 | `provider/registry` (Go; data TOML tidak dihitung) | 400 | `memory` + `skills` | 2.200 |
@@ -322,9 +322,9 @@ Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2
 | `exec` (unix + windows) | 3.000 | `modules` + `modules/host` | 1.000 |
 | `sandbox` + `redact` | 1.300 | `hooks` | 700 |
 | `boundary` | 150 | `i18n` (Go) | 300 |
-| **Total core** | **31.150** | | |
+| **Total core** | **31.450** | | |
 
-Total core per paket = 31.150 ≤ 47.000 (budget gabungan SPEC §3.2.4 untuk core + codetools + exec + heal). Rencana total seluruh modul SPEC §3.2.4 = 184.900 ≤ 190.000 (P21, ADR-033, ADR-036). Baris core SPEC §3.2.4 kini 30.000 + exec 7.000 + heal/obs 5.500 + codetools 4.500 = 47.000 (gabungan). Jika per paket melebihi tabel ini tetapi masih di dalam baris SPEC, revisi tabel ini lewat PR biasa; melebihi baris SPEC butuh ADR (SPEC §20).
+Total core per paket = 31.450 ≤ 47.000 (budget gabungan SPEC §3.2.4 untuk core + codetools + exec + heal; ADR-049 menaikkan `ctxdb` 2.500 → 2.800, total core 31.150 → 31.450). Rencana total seluruh modul SPEC §3.2.4 = 184.900 ≤ 190.000 (P21, ADR-033, ADR-036). Baris core SPEC §3.2.4 kini 30.000 + exec 7.000 + heal/obs 5.500 + codetools 4.500 = 47.000 (gabungan). Jika per paket melebihi tabel ini tetapi masih di dalam baris SPEC, revisi tabel ini lewat PR biasa; melebihi baris SPEC butuh ADR (SPEC §20).
 
 ---
 
@@ -413,7 +413,7 @@ func classify(ctx context.Context, err error) (code string, exitCode int) {
 
 | ID | Kriteria | Ambang | Verifikasi |
 |---|---|---|---|
-| E-39 | Pure Go | `CGO_ENABLED=0 go build -tags goolm ./...` lulus di **8 target rilis kanonik**: linux/{amd64,arm64,arm}, darwin/{amd64,arm64}, windows/{amd64,arm64}, android/arm64 (daftar tunggal yang dirujuk SPEC §16, SCORECARD §1.5, GAP-REL-04). Tag `goolm` wajib di semua job (build, test, lint, size-check, deadcode). Karena `-tags` di command line **menimpa** `-tags` dari `GOFLAGS` (tidak digabung), tag tidak pernah dipasang lewat `GOFLAGS`: Makefile membangun satu daftar `TAGS ?= goolm` dan target lain hanya menambah (`TAGS += minimal`, `TAGS += nomod_<id>`, `TAGS += grammars_embedded`), lalu memanggil `go … -tags "$(subst $(space),$(comma),$(TAGS))"`; hasilnya selalu `-tags goolm,minimal`, `-tags goolm,nomod_<id>`, `-tags goolm,grammars_embedded`. File guard `//go:build !goolm` sengaja gagal compile sehingga build tanpa tag tidak mungkin (M-04, backend Olm pure Go mautrix). Modul ber-CGO di luar binary utama (`desktop/go.mod`, ADR-011) tidak termasuk | job `build-matrix` (8 target), `TestGoolmGuard` |
+| E-39 | Pure Go | `CGO_ENABLED=0 go build -tags goolm ./...` lulus di **8 target rilis kanonik**: linux/{amd64,arm64,arm}, darwin/{amd64,arm64}, windows/{amd64,arm64}, android/arm64 (daftar tunggal yang dirujuk SPEC §16, SCORECARD §1.5, GAP-REL-04). Tag `goolm` wajib di semua job (build, test, lint, size-check, deadcode, perf). Karena `-tags` di command line **menimpa** `-tags` dari `GOFLAGS` (tidak digabung), tag tidak pernah dipasang lewat `GOFLAGS`: Makefile membangun satu daftar `TAGS ?= goolm` dan target lain hanya menambah (`TAGS += minimal`, `TAGS += nomod_<id>`, `TAGS += grammars_embedded`, `TAGS += perf`), lalu memanggil `go … -tags "$(subst $(space),$(comma),$(TAGS))"`; hasilnya selalu `-tags goolm,minimal`, `-tags goolm,nomod_<id>`, `-tags goolm,grammars_embedded`, `-tags goolm,perf` (V-10/ADR-054; bentuk tag di ADR-010/015 dibaca sesuai E-39). File guard `//go:build !goolm` sengaja gagal compile sehingga build tanpa tag tidak mungkin (M-04, backend Olm pure Go mautrix). Modul ber-CGO di luar binary utama (`desktop/go.mod`, ADR-011) tidak termasuk | job `build-matrix` (8 target), `TestGoolmGuard` |
 | E-40 | Lisensi | MIT, BSD-2/3-Clause, Apache-2.0, ISC; MPL-2.0 hanya bila terisolasi di modul lazy dan tidak dimodifikasi; daftar eksplisit modul MPL (langsung + transitif) di `deps.mpl`: `maunium.net/go/mautrix`, `go.mau.fi/util` (transitif mautrix) — modul MPL transitif lain yang muncul = PR merah sampai ditambahkan lewat ADR; GPL/AGPL/LGPL/zlib/lainnya ditolak tanpa ADR. **Binary `damnbot` 100% non-copyleft-kuat: `go.mau.fi/whatsmeow` dan `go.mau.fi/libsignal` (GPL-3.0) tidak pernah di-link** — WhatsApp Web lewat bridge eksternal (ADR-034); gate hanya memeriksa binary utama (repo bridge punya gate sendiri) | `go-licenses check ./... --allowed_licenses=MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,MPL-2.0` + `TestMPLIsolation` (modul MPL ⊆ `deps.mpl`, hanya diimpor paket `gateway/matrix`) + `TestNoGPLInBinary` (`go version -m` binary rilis tanpa `whatsmeow`/`libsignal`/modul GPL) |
 | E-41 | Terawat | rilis atau commit default branch ≤ 12 bulan saat ADR | `go list -m -f '{{.Version}} {{.Time}}' <mod>@latest` dan `@master`/`@main` |
 | E-42 | Dampak ukuran terukur | Δ binary dicatat di ADR; harus muat budget modul §3.2.4 | probe §4.3; `make size-check` |
@@ -503,7 +503,7 @@ Analyzer khusus (`tools/analyzers`, `go/analysis`, dijalankan via `go vet -vetto
 
 | ID | Gate | Angka | Job |
 |---|---|---|---|
-| E-55 | Unit + integrasi | 100% lulus, `go test -race -shuffle=on ./...` | `test` (matrix 6 target berrunner: linux amd64/arm64, darwin arm64/amd64, windows amd64/arm64; linux/arm + android/arm64 build + unit di QEMU; SPEC §16) |
+| E-55 | Unit + integrasi | 100% lulus, `go test -race -shuffle=on ./...`. Asersi budget waktu dinding (mis. I11 ≤ 200 ms/txn, duty lock) hanya ditegakkan di `make test-timing` (`DAMNBOT_TIMING=1`, **tanpa** `-race`, ADR-048); di bawah `-race` skenario yang sama tetap berjalan dengan semua cek kebenaran, hanya asersi waktunya yang dilewati | `test` (matrix 6 target berrunner: linux amd64/arm64, darwin arm64/amd64, windows amd64/arm64; linux/arm + android/arm64 build + unit di QEMU; SPEC §16) + `test-timing` |
 | E-56 | Goroutine leak | 0 (goleak di semua paket wajib, E-29) | `test` |
 | E-57 | Fuzz | 60 s per target per PR, 0 crash; corpus di `testdata/fuzz` di-commit | `fuzz` (3 shard paralel) |
 | E-58 | Coverage paket kritis | ≥ 80%: `loop`, `tools`, `schema`, `provider`, `ctxdb`, `assemble`, `compaction`, `journal`, `budget`, `heal`; ≥ 70%: paket lain | `coverage`: `go test -coverpkg=./internal/... -coverprofile`, `go tool cover -func` per paket, skrip gate |
@@ -522,7 +522,7 @@ Target fuzz (minimal 9): `FuzzSSEParse` (`netx`), `FuzzDeltaDecode` (`provider`)
 | E-64 | Wall time CI PR (semua job wajib, paralel) | ≤ 12 menit p90 30 hari | laporan mingguan dari API GitHub Actions; job > 12 menit 3× berturut → issue otomatis |
 | E-65 | `go build` dengan `CGO_ENABLED=0 -tags goolm` (+ tag tambahan digabung, E-39) | 8 target kanonik E-39 | `build-matrix` |
 
-Urutan job PR (paralel): `lint` (≤ 4 menit) · `test` ×6 target berrunner + 2 QEMU (≤ 8 menit, SPEC §16) · `fuzz` ×3 shard (≤ 4 menit) · `coverage` · `supply-chain` (tidy, verify, go-licenses, deps.allow) · `size` · `loc-budget` · `vuln` · `deadcode` · `bench` (kondisional) · `pr-meta` (§7).
+Urutan job PR (paralel): `lint` (≤ 4 menit) · `test` ×6 target berrunner + 2 QEMU (≤ 8 menit, SPEC §16) · `test-timing` (budget waktu dinding tanpa `-race`, ADR-048) · `fuzz` ×3 shard (≤ 4 menit) · `coverage` · `supply-chain` (tidy, verify, go-licenses, deps.allow) · `size` · `loc-budget` · `vuln` · `deadcode` · `bench` (kondisional) · `pr-meta` (§7).
 
 ---
 
@@ -534,7 +534,7 @@ Urutan job PR (paralel): `lint` (≤ 4 menit) · `test` ×6 target berrunner + 2
 | E-67 | Kasus serupa table-driven | 0 temuan `dupl` (100 token) di `_test.go` | `dupl` | — |
 | E-68 | Output model-facing (tool result, error ke model, prompt tier, schema, katalog) di-golden | 100% tool punya golden sukses + ≥ 1 golden error | `TestGoldenCoverage` (iterasi registry) ; update via `go test -update`, diff golden wajib terlihat di PR | — |
 | E-69 | Provider palsu deterministik (`internal/provider/providertest`): skrip respons, SSE replay, latensi dari fake clock | 0 call jaringan di `go test ./...` tanpa tag | `TestNoNetwork`: `netx` di mode test menolak dial non-loopback | — |
-| E-70 | Rasio LOC test:source (Go, `scc --no-gen`) | 0,8–1,2 | `loc-budget` | 1,48 |
+| E-70 | Rasio LOC test:source (Go, `scc --no-gen`) | 0,8–1,2; gate hanya bila Go non-test ≥ 5.000 LOC, di bawahnya laporan saja (ADR-050) | `loc-budget` | 1,48 |
 | E-71 | File test | ≤ 1.500 baris | `TestFileLength` | maks 23.074; 69 file > 1.500 |
 | E-72 | Tanpa sleep di test | 0 `time.Sleep` | `forbidigo` (E-30); waktu via `testing/synctest` atau clock injeksi | — |
 | E-73 | Flake | ≤ 0,1% eksekusi test | nightly `flake`: `go test -count=20 -shuffle=on ./...`; flake = test yang gagal di sebagian (bukan semua) run ÷ total eksekusi | — |
@@ -580,7 +580,7 @@ Struktur test: `TestXxx` per perilaku, subtest `t.Run(name)` per kasus tabel, `t
 
 | Dimensi (scorecard) | Metrik | Target Damn-Bot | Hermes (terukur) | Verifikasi |
 |---|---|---|---|---|
-| LOC per fitur | LOC non-test ÷ 837 baris penyebut gate FEATURE-PARITY (SPEC §8; `grep -E '^\| [A-Z]+-[0-9]{3} ' docs/FEATURE-PARITY.md \| grep -vc dropped-with-approval` = 837 dari 854) | ≤ 227 (190.000 ÷ 837) | ≈ 1.162 (972.645 ÷ 837, Python saja, tanpa `apps/desktop` 850.355) | `loc-budget` |
+| LOC per fitur | LOC non-test ÷ 837 baris penyebut gate FEATURE-PARITY (SPEC §8; `grep -E '^[|] [A-Z]+-[0-9]{3} ' docs/FEATURE-PARITY.md`, lalu `grep -vc dropped-with-approval` = 837 dari 854; pola `[|]` agar sel GFM tidak menjadi alternasi, V-29/ADR-054) | ≤ 227 (190.000 ÷ 837) | ≈ 1.162 (972.645 ÷ 837, Python saja, tanpa `apps/desktop` 850.355) | `loc-budget` |
 | LOC total | Go non-test | ≤ 190.000 + ≤ 10.000 JS/CSS | 972.645 Python | `scc --no-gen` |
 | File terbesar | baris non-test | ≤ 800 | 8.392 | `TestFileLength` |
 | File test terbesar | baris | ≤ 1.500 | 23.074 | `TestFileLength` |
@@ -596,7 +596,7 @@ Struktur test: `TestXxx` per perilaku, subtest `t.Run(name)` per kasus tabel, `t
 | Goroutine leak | jumlah | 0 | n/a | goleak |
 | Dependency langsung | `require` go.mod | ≤ 28 (rencana 26 = 23 runtime + 3 test, termasuk `go.starlark.net`, `github.com/ledongthuc/pdf`, `github.com/yuin/goldmark`; tanpa `whatsmeow`, ADR-034) | 45 baris requirement + 55 extras | `TestDirectDeps` |
 | Dependency CGO | jumlah | 0 | n/a | `build-matrix` |
-| Rasio test:source | LOC | 0,8–1,2 | 1,48 | `loc-budget` |
+| Rasio test:source | LOC | 0,8–1,2 (gate mulai Go non-test ≥ 5.000, ADR-050) | 1,48 | `loc-budget` |
 | Coverage | per paket | ≥ 80% kritis / ≥ 70% lain | tidak diukur | `coverage` |
 | Flake rate | eksekusi | ≤ 0,1% | tidak diukur | nightly `flake` |
 | Fuzz | target × durasi | ≥ 9 × 60 s/PR, 0 crash | tidak ada | `fuzz` |

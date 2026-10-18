@@ -1161,3 +1161,186 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 - (+) Spec terkunci; perubahan berikutnya dapat dilacak per ADR.
 - (+) Risiko utama (persistence) dibuktikan dengan kode sebelum fitur dibangun di atasnya.
 - (−) F0 lebih panjang (spike + errata backlog + review non-persistence).
+
+## ADR-048 — Budget waktu dinding di job terpisah tanpa `-race`
+
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup TS-P08 (`docs/F0-REPORT.md` §"Temuan spec").
+
+**Konteks.** E-55 menjalankan semua test dengan `-race`. Di bawah `-race`, mesin SQLite modernc yang terinstrumentasi butuh 175–400 ms per transaksi bahkan untuk unit 1 event; tanpa `-race` transaksi purge terbesar S015 = 51 ms. Akibatnya I11 (setiap transaksi purge ≤ 200 ms, duty lock ≤ 20 %) mengukur detektor race, bukan kode, dan `make test` merah hanya karena S015.
+
+**Keputusan.**
+1. Asersi budget waktu dinding (I11 per transaksi + duty di S015, writer tidak terblok > 500 ms oleh proses yang menutup, #26 ≤ 10 s, dan budget waktu lain yang ditambahkan kemudian, termasuk `BenchmarkAppend*`) hanya **ditegakkan** di `make test-timing`: `DAMNBOT_TIMING=1 go test -tags goolm -count=1 -shuffle=on ./...`, **tanpa** `-race`. Job CI `test-timing` memanggil target itu.
+2. Di `make test` (`-race`) skenario yang sama tetap berjalan penuh dan memeriksa **semua** invarian kebenaran: 0 `db_busy`, purge selesai, `schema_version` tidak berubah, `integrity_check`, `foreign_key_check`, hash chain. Yang dilewati hanya perbandingan durasi; hasil ukurnya tetap dicatat di log test.
+3. Satu helper (`timingEnforced`/`checkBudget` di `internal/ctxdb/timing_test.go`) menjadi satu-satunya pintu asersi waktu. `DAMNBOT_TIMING=1` pada build `-race` adalah error test, bukan skip.
+4. Meta-test CI punya gate `timing`: operasi nyata 300 ms terhadap budget 200 ms lewat helper yang sama harus membuat `make test-timing` gagal.
+
+**Dampak terukur (SPEC §20).** Token 0, latensi 0, ukuran binary 0, dependency 0, LOC non-test 0. CI: +1 job (`test-timing`). Angka I11 tidak berubah; hanya job penegaknya. ENGINEERING E-55 dan urutan job §5.3 diperbarui.
+
+**Konsekuensi.**
+- (+) `make test` hijau tanpa melemahkan cek kebenaran apa pun; budget kinerja diukur di build yang representatif.
+- (−) Satu job CI tambahan (suite tanpa `-race`).
+
+## ADR-049 — Budget LOC `ctxdb` 2.800
+
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup TS-P10.
+
+**Konteks.** Cakupan SPEC §11 (purge 31 langkah, gc dua fase, barrier, restore, migrasi, recovery journal, lease/fencing) terukur 2.598–2.610 LOC non-test di spike F0, walaupun langkah purge sudah dipindah ke `queries.sql` (tidak dihitung) dan protokol gateway/approval ke test (ADR-053). Budget E-19 2.500.
+
+**Keputusan.** Budget E-19 `ctxdb` (tanpa file `.sql`) = **2.800** (`loc.budget`, tabel ENGINEERING §2.4). Total core per paket 31.150 → **31.450**, tetap ≤ 47.000 (gabungan SPEC §3.2.4 core + codetools + exec + heal). Baris SPEC §3.2.4 dan Σ 184.900 tidak berubah, sehingga cukup revisi tabel ENGINEERING (aturan §2.4); ADR ini mencatat keputusannya.
+
+**Dampak terukur (SPEC §20).** LOC: budget +300 di `ctxdb`; Σ §3.2.4 tetap 184.900 ≤ 190.000. Token/latensi/binary/dependency 0. Headroom `ctxdb` saat ini ≈ 190 LOC.
+
+**Konsekuensi.**
+- (+) `make loc` hijau tanpa memecah paket secara artifisial.
+- (−) Sisa ruang `ctxdb` kecil; fitur storage F1+ (memory, skills, journal) tetap di paketnya masing-masing (E-03/E-09), bukan di `ctxdb`.
+
+## ADR-050 — E-70 (rasio test:source) menjadi gate mulai 5.000 LOC
+
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup TS-03.
+
+**Konteks.** Rasio 0,8–1,2 tidak bermakna pada basis kode kecil yang didominasi test spike (scaffold 121:29; F0 3.391:2.639 = 1,28). Gate merah permanen membuat meta-test-nya tidak bermakna.
+
+**Keputusan.** `make loc-ratio` selalu melaporkan rasio. Gate **gagal** hanya bila total Go non-test ≥ **5.000** LOC (`scc --no-gen`) dan rasio di luar 0,8–1,2. Di bawah ambang target exit 0 dengan baris `LOC ratio report-only: …`. Meta-test membuktikan gate tetap gagal pada pohon sintetis di atas ambang (5.000:5.000 lulus, +2.000 baris test gagal).
+
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency/LOC 0. ENGINEERING E-70 dan §8 diperbarui.
+
+**Konsekuensi.**
+- (+) Gate bermakna begitu kode produksi cukup besar (≈ F1).
+- (−) Di bawah 5.000 LOC rasio hanya terlihat di laporan CI.
+
+## ADR-051 — Toolchain go1.26.9 (GO-2026-6604)
+
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup blocker `vuln` F0 (E-44/E-54).
+
+**Konteks.** `govulncheck` melaporkan GO-2026-6604 (stdlib `os.Root`: `MkdirAll`/`Remove`/`RemoveAll`/`Rename`/`OpenFile`/`Stat` dapat mengikuti junction keluar root di Windows) terjangkau dari `internal/ctxdb`; diperbaiki di go1.26.9. Repo mem-pin go1.26.8.
+
+**Keputusan.** Direktif `go 1.26.9` di `go.mod`, `bench/go.mod`, `tools/go.mod` (tanpa baris `toolchain` terpisah: `go mod tidy` membuangnya bila sama dengan `go`). CI `actions/setup-go` membaca `go-version-file` sehingga ikut naik; lokal `GOTOOLCHAIN=auto` mengunduh go1.26.9. Teks ENGINEERING yang menyebut 1.26.8 adalah catatan pengukuran historis, bukan pin.
+
+**Dampak terukur (SPEC §20).** Token/latensi/LOC/dependency 0; ukuran binary diukur ulang oleh `make size-check`. `make vuln`: 0 vuln terjangkau.
+
+**Konsekuensi.** (+) Gate E-54 hijau. (−) Kontributor dengan Go lokal < 1.26.9 bergantung pada unduhan toolchain otomatis.
+
+## ADR-052 — Errata AF-01..AF-08 (pasca-freeze)
+
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup AF-01..AF-08 ([`REVIEW-1.0.md`](REVIEW-1.0.md) §"Verifikasi ADR-046"), backlog ADR-047 butir 2, TS-P01. Usulan ADR-E01..E08 di `docs/F0-REPORT.md`. Syarat ADR-047 "AF-01/AF-02 sebelum F4" terpenuhi.
+
+**Keputusan** (masing-masing dibuktikan skenario spike F0; teks SPEC/SELF-HEALING terdampak dibaca bersama ADR ini):
+
+| Temuan | Bagian terdampak | Keputusan | Bukti |
+|---|---|---|---|
+| AF-01 | SPEC §11.4 `gateway_inbound`, SELF-HEALING §5.1 | `INSERT … ON CONFLICT(platform, external_id) DO NOTHING` menggantikan `INSERT OR IGNORE` (juga ingest spool dan `blob_refs`). Dedupe PK tetap; pelanggaran CHECK/NOT NULL menjadi error → rollback → offset tidak maju → `inbound_invalid` dilaporkan, tidak pernah hilang diam-diam | #79 `TestScenario/S079_InvalidPayloadNotSilent` |
+| AF-02 | SELF-HEALING §3.3/§5.1 | `turn_start` + INSERT journal `running` berada di transaksi worker yang sama dengan `user_message` dan pengisian `event_id` | #80 `S080_CrashAfterWorkerCommitAnswered` |
+| AF-03 | SPEC §11.4 `idx_gw_inbound_queue`, SELF-HEALING §5.1 | Urutan kerja per chat = `rowid` `gateway_inbound` (urutan INSERT, juga saat ingest spool sesuai urutan baris); `received_at` hanya tampilan/retensi, bukan kunci urut | #81 `S081_PerChatOrderInsertion` |
+| AF-04 | SELF-HEALING §5.1, SPEC §22 REL-11 | Sesi chat di-lease proses lain → satu balasan `__system__` per chat per kejadian (delivery tanpa `event_id`, tanpa lease); keputusan overflow REL-11 dibuat poller dengan balasan `__system__` yang sama | #82 `S082_ChatSessionBusyNotice` |
+| AF-05 | SPEC §11.6 langkah 11/25 | Purge langkah 11 juga menghapus `blob_refs` owner `gateway_inbound` milik baris yang dihapus, sebelum langkah 25 | #83 `S083_PurgeInboundAttachment` |
+| AF-06 | SPEC §11.11.7 spool, TRUST-MODEL | Cakupan spool = setiap inbound yang **tidak akan dikirim ulang** platform bila tidak di-commit (wajib-ack maupun tanpa ack); platform ber-API riwayat memakai `gateway_cursors` untuk backfill | #84 `S084_SpoolDuringDrainBarrier` |
+| AF-07 | SPEC §11.11.4 (AE-05) | SIGKILL ke `tool_pgid` bila masih ada proses ber-`pgrp = tool_pgid` dengan cap start ≥ `tool_pgid_start` (pemindaian `/proc` / `proc_listpids`); leader yang sudah mati tidak membatalkan kill | #85 `S085_LeaderDeadNohupChildKilled` (Linux) |
+| AF-08 | SPEC §11.11.7 migrator | Persist `run/migrate_blocked.json` `{since_boot, boot_id, target_version}` (jam boot; reset saat `boot_id`/target berubah); `--force-migrate` otomatis bila `now_boot − since_boot ≥ 600 s`, terakumulasi lintas restart | #86 `S086_MigratorRestartsAccumulate` |
+
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency 0. LOC: termasuk budget `ctxdb` ADR-049. DDL: 0 kolom baru (AF-03 memakai `rowid`). Mekanisme baru: 1 file state (`run/migrate_blocked.json`).
+
+**Konsekuensi.** (+) Tidak ada pesan masuk yang hilang diam-diam atau tak terjawab pada jendela crash yang ditemukan auditor. (−) Indeks antrean `idx_gw_inbound_queue` disesuaikan dengan urutan `rowid` saat implementasi gateway F4 (kinerja, bukan semantik).
+
+## ADR-053 — Lokasi protokol gateway/approval: `internal/gateway`
+
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup TS-P09.
+
+**Konteks.** E-06 melarang modul gateway mengimpor `ctxdb`, tetapi protokol poller/worker/outbox/approval (SELF-HEALING §5.1, SPEC §11.11.10) memerlukan transaksi `ctxdb`. Spike F0 menulisnya sebagai implementasi referensi di `internal/ctxdb/gateway_ref_test.go` dan `approval_ref_test.go` di atas `Tx` publik.
+
+**Keputusan.**
+1. **Logika protokol** gateway dan approval (urutan poller → worker, spool, outbox, konsumen approval) milik paket `internal/gateway` (F4).
+2. `ctxdb` hanya menyediakan **primitif storage**: tabel spool/outbox/approval/inbound dan metode transaksional bertipe. `internal/gateway` mengonsumsinya lewat interface kecil yang dideklarasikan di sisi konsumen (E-03, E-09, ≤ 5 method); `cmd/damnbot` yang menyambungkan. Adapter platform (`gateway/<platform>`) tetap di bawah E-06.
+3. File `*_ref_test.go` tetap **test-only** sebagai oracle skenario sampai F4 memindahkan logikanya ke `internal/gateway`; setiap file diberi komentar penunjuk ke ADR ini.
+
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency 0. LOC: protokol dihitung di budget `gateway` SPEC §3.2.4 (bukan `ctxdb`). Arah import §2.2 tidak berubah.
+
+**Konsekuensi.** (+) `ctxdb` tetap sempit; invarian ditegakkan guard DB apa pun pemanggilnya. (−) F4 harus memindahkan dan menyesuaikan implementasi referensi.
+
+## ADR-054 — Errata pasca-freeze: klarifikasi + perbaikan DDL V-13/V-15
+
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup usulan ADR-E09, E11, E13, E14, E15, E17, E18, E19, E21, E22, E23, E24, E27, E28, E29, E30, E31, E32 (`docs/F0-REPORT.md` §"Errata backlog ADR-047"), backlog ADR-047 butir 2. V-13/V-15 mengubah DDL (fail-closed, normalisasi FTS) atas persetujuan eksplisit user; item lain yang mengubah perilaku/budget/invarian dipisah sebagai ADR-055..061 (Proposed).
+
+**Aturan penerapan.** ADR ini normatif untuk bagian terdampak. Teks yang sudah diterapkan: DDL SPEC §11 + `internal/ctxdb/migrations` (V-13, V-15) dan ENGINEERING E-19/E-39/§8 (V-10, V-20, V-29). Bagian lain dibaca dengan ADR ini sebagai pengganti teks lama.
+
+| Temuan | Bagian terdampak | Keputusan |
+|---|---|---|
+| V-06 | MITIGATION-MATRIX, SPEC §9.7.1 | Sisa risiko WA = "perlu rilis `damnbot-wa-bridge` baru (`health.reason=protocol_outdated` → `needs_attention`)"; kolom verifikasi menyebut `TestBridgeProtocolConformance` |
+| V-08 | SPEC §6 | Baris Volatile: "nama skill/tool relevan baru (≤ 20 tok)" |
+| V-10 | ENGINEERING E-39, SPEC §16, ADR-010/015 | `TAGS += perf` → `-tags goolm,perf`; bentuk tag final = E-39 |
+| V-11 | SPEC P21, ENGINEERING E-45 | P21 diukur dengan parse `require` langsung (non-`// indirect`) `go.mod` utama (`TestDirectDeps`) |
+| V-13 | SPEC §11.4 `gateway_identities.strength` | `NOT NULL` **tanpa DEFAULT**; adapter wajib mengisi dari `Caps.IdentityStrength` (fail-closed). Test: `TestErrataV13IdentityStrengthRequired` |
+| V-15 | SPEC §11.2 `skills_ai`/`skills_au` | Kolom `name` diindeks lewat `dmb_fts_norm(NEW.name)`, sama dengan `description`/`body`; re-index memakai ekspresi yang sama. Test: `TestErrataV15SkillNameNormalised` |
+| V-16 | SELF-HEALING §3.5 | Recovery FTS mencakup `tool_catalog_fts`: `delete-all` + bangun ulang dari `tool_catalog` |
+| V-17 | SELF-HEALING §3.5 | Rujukan DDL `fts_meta`/`blob_fts` = SPEC §11.2, §11.6; SELF-HEALING §3.5 |
+| V-19 | SPEC §22 PROV-01 | Payload seragam `system_notice{kind:"carrier_dropped", reason, count}` |
+| V-20 | SCORECARD §3.3/§4, ROADMAP F0/F9, ENGINEERING E-19 | Nama gate: `BenchmarkSpeedParity/<ID>` di `bench/speed`, `TestScorecardGate`, `TestBudgetTableSum` (E-19) |
+| V-21 | DECISIONS ADR-032 | Kalimat status freeze ADR-032 bersifat *(Historis — status saat ADR ditulis. Status terkini: SPEC §20 + ADR-030/047.)* |
+| V-22 | ROADMAP milestone freeze | Syarat freeze = ADR-033..036 terintegrasi + errata diverifikasi auditor (SPEC §20, ADR-030); terpenuhi oleh ADR-047 |
+| V-25 | SELF-HEALING §8, GAP OPS-06 | Exit code `damnbot doctor` = tabel OPS-06 (0/1/2/3), OPS-06 sumber normatif |
+| V-26 | SPEC §10 | `--version` = alias builtin untuk `version`, tidak dihitung |
+| V-27 | indeks dokumen (SPEC §21) | "65 temuan (ADR-035) + errata verifikasi N-01..N-36 (ADR-036)" |
+| V-28 | ROADMAP F9 | Gate parity = 837/837 baris penyebut (SPEC §8) |
+| V-29 | ENGINEERING §8 | Pola `grep -E '^[|] [A-Z]+-[0-9]{3} '` |
+| V-30 | FEATURE-PARITY PLUG-022, SPEC §9.10 | PLUG-022 = "slot/plugin memory provider (Honcho)", tetap planned; frasa "porsi PLUG-022 menjadi dropped-with-approval" tidak berlaku |
+
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency/LOC 0. DDL: V-13 menghapus 1 DEFAULT, V-15 menambah normalisasi 1 kolom FTS (belum ada data rilis; migrasi tidak diperlukan). Baris SCORECARD/MITIGATION: hanya teks V-06/V-20.
+
+**Konsekuensi.** (+) 18 dari 25 MINOR non-AF (V-06..V-31 kecuali V-12) tertutup; 7 sisanya = ADR-055..061 (Proposed). Dua lubang DDL fail-open/inkonsisten diperbaiki dengan test. (−) Teks lama di beberapa dokumen pendamping masih harus dibaca bersama ADR ini.
+
+## ADR-055 — Starlark: allowlist, `timeout_s`, mekanisme macOS (V-07)
+
+**Status:** Proposed 2026-10-18 — mengubah budget/perilaku; menunggu auditor. Usulan ADR-E10.
+
+**Konteks.** SPEC §9.2 mengizinkan "tool deferred/inti yang diizinkan approval", sedangkan EXEC-AND-CODING §B.7/COST-10 hanya 7 tool; batas waktu ≤ 30 s vs schema `timeout_s` 1–300; macOS `ulimit -v` vs `RLIMIT`.
+
+**Keputusan (usulan).** §9.2 merujuk allowlist 7 tool §B.7; `timeout_s` Starlark ≤ 30; mekanisme macOS disamakan; "sama dengan" → "mekanisme sama, cap 256 MiB".
+
+**Konsekuensi.** Mempersempit permukaan tool dan batas waktu (perubahan perilaku).
+
+## ADR-056 — Literal baris overflow katalog tool (V-09)
+
+**Status:** Proposed 2026-10-18 — menetapkan output golden model-facing; menunggu auditor. Usulan ADR-E12.
+
+**Keputusan (usulan).** Satu literal di SPEC §5.2 (mis. `- +<K> more groups: tool_search`) dirujuk P1/PROV-02/ADR-035; pengurutan alfabetis berlaku selalu, bukan hanya saat overflow.
+
+**Konsekuensi.** Golden prompt bergantung pada literal yang dipilih.
+
+## ADR-057 — Kriteria salvage `gateway_inbound`/`gateway_deliveries` (V-14)
+
+**Status:** Proposed 2026-10-18 — mendefinisikan perilaku recovery baru; menunggu auditor. Usulan ADR-E16.
+
+**Keputusan (usulan).** `gateway_inbound`: insert dengan dedupe lalu UPDATE `event_id` NULL→nilai (sah menurut guard). `gateway_deliveries`: status "terjauh" menang (sent/uncertain atas queued), selaras GAP-REL-10.
+
+**Konsekuensi.** Salvage menjadi deterministik untuk tabel mutable.
+
+## ADR-058 — Satu rumus estimator token (V-18)
+
+**Status:** Proposed 2026-10-18 — mengubah perhitungan budget; menunggu auditor. Usulan ADR-E20.
+
+**Keputusan (usulan).** SPEC §4.5 merujuk COST-09 sebagai satu-satunya rumus; default rasio sesi tanpa ledger = turunan per-script; `bytes/3,6` dihapus.
+
+**Konsekuensi.** Angka budget/compaction berubah untuk sesi tanpa ledger.
+
+## ADR-059 — Daftar frasa tertunda SPEC §20 (V-23)
+
+**Status:** Proposed 2026-10-18 — menetapkan isi gate dokumen; menunggu auditor. Usulan ADR-E25.
+
+**Keputusan (usulan).** Daftar literal, case-sensitive (mis. `Usulan:`, `Usulan resolusi:`, `diterapkan saat implementasi`, `menunggu persetujuan`, `TBD`); "kandidat freeze (menunggu verifikasi …)" di baris Status/§20 bukan frasa tertunda.
+
+**Konsekuensi.** Gate dokumen menjadi deterministik; isi daftar menentukan dokumen mana yang merah.
+
+## ADR-060 — Enkripsi bundle diagnostik (V-24)
+
+**Status:** Proposed 2026-10-18 — memilih perilaku user-visible; menunggu auditor/user. Usulan ADR-E26.
+
+**Keputusan (usulan, pilih satu).** (a) default zip lokal ter-redaksi `0600`, `--upload` = enkripsi ke kunci maintainer; atau (b) selalu terenkripsi, `--upload` dihapus/diganti nama. SPEC §10 dan CROSS-CUTTING §1.7 disamakan.
+
+**Konsekuensi.** Menentukan kontrak privasi bundle.
+
+## ADR-061 — Himpunan EC-PLAT Telegram untuk gate F4 (V-31)
+
+**Status:** Proposed 2026-10-18 — mengubah cakupan gate F4; menunggu auditor. Usulan ADR-E33.
+
+**Keputusan (usulan, pilih satu).** ROADMAP F4 menyebut ID eksplisit (mis. "EC-PLAT-001..023 kecuali 008"), atau tanda "(Telegram)" ditambahkan di 001/002/003/007 dan jumlahnya menjadi 19.
+
+**Konsekuensi.** Empat entri Telegram berpindah dari gate F7 ke F4.
