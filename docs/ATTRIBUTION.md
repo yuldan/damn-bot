@@ -13,3 +13,4 @@ Header asal ADR-018 (b) untuk file data = sidecar `ORIGIN.md` di direktori file 
 | `bench/evals/sources/swe-bench-verified.ids` | `instance_id` SWE-bench Verified (hanya ID) | MIT (proyek SWE-bench) | `third_party/manual/swe-bench.txt` |
 | `bench/evals/sources/terminal-bench-core-0.1.1.ids` | ID task Terminal-Bench core v0.1.1 (hanya ID) | Apache-2.0 | `third_party/manual/terminal-bench.txt` |
 | `internal/schema/testdata/jsts/*.json` | JSON-Schema-Test-Suite @ `55719286c3` (`tests/draft2020-12/`, subset keyword SPEC §4.4) | MIT, © 2012 Julian Berman | `third_party/manual/json-schema-test-suite.txt` |
+| `internal/redact/testdata/gitleaks-*.tsv` | sampel sintetis berformat rule `gitleaks.toml` gitleaks v8.28.0 @ `4fb43823ef` | MIT, © 2019 Zachary Rice | `third_party/manual/gitleaks.txt` |
