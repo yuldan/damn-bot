@@ -101,7 +101,8 @@ type syncBuffer struct {
 func (s *syncBuffer) Write(p []byte) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.b.Write(p)
+	n, _ := s.b.Write(p) // strings.Builder.Write never returns an error
+	return n, nil
 }
 
 func (s *syncBuffer) String() string {
