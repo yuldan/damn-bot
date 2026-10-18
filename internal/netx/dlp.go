@@ -466,23 +466,41 @@ func (d *dlp) decodeAll(dst []byte, outCand []int32, tr *spanTrack, src []byte) 
 	overflow := false
 	for i := 0; i < len(src); i++ {
 		c := src[i]
-		if c != '+' && c != '%' {
-			out[j] = c
-			j++
-			continue
-		}
-		if dc, n := decodeAt(src, i); n > 0 {
-			tr.add(base+j, dc)
-			c = dc
-			i += n - 1
-		}
-		if c == '%' || c == '+' {
+		switch {
+		case c == '+': // form space: the common case of form bodies, kept inline
+			c = ' '
+			tr.addSpan(base + j)
+		case c != '%':
+		case i+2 < len(src) && isHex(src[i+1]) && isHex(src[i+2]):
+			c = unhexByte(src[i+1])<<4 | unhexByte(src[i+2])
+			i += 2
+			tr.add(base+j, c)
+			if c == '%' || c == '+' {
+				outCand, overflow = addCand(outCand, base+j, limit, overflow)
+			}
+		default: // a literal '%' stays a candidate for the next layer
 			outCand, overflow = addCand(outCand, base+j, limit, overflow)
 		}
 		out[j] = c
 		j++
 	}
 	return dst[:base+j], outCand, overflow
+}
+
+// isHex and unhexByte: one hex digit (any case).
+func isHex(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
+}
+
+func unhexByte(c byte) byte {
+	switch {
+	case c <= '9':
+		return c - '0'
+	case c >= 'a':
+		return c - 'a' + 10
+	default:
+		return c - 'A' + 10
+	}
 }
 
 // spanTrack merges decoded output positions into [first, last] spans;
@@ -498,19 +516,31 @@ type spanTrack struct {
 }
 
 func (t *spanTrack) add(p int, c byte) {
-	if !isSpace(c) && !t.patFull {
-		if len(t.pats) >= t.patLimit || p < 0 || p > math.MaxInt32 {
-			t.patFull = true
-		} else {
-			t.pats = append(t.pats, int32(p))
-		}
+	if !isSpace(c) {
+		t.addPat(p)
 	}
+	t.addSpan(p)
+}
+
+// addSpan extends the current span to p or starts a new one (inlined in
+// the decode loops: '+' decodes to a space every few bytes of form data).
+func (t *spanTrack) addSpan(p int) {
 	if t.last >= 0 && p-t.last <= t.gap {
 		t.last = p
 		return
 	}
 	t.flush()
 	t.first, t.last = p, p
+}
+
+func (t *spanTrack) addPat(p int) {
+	switch {
+	case t.patFull:
+	case len(t.pats) >= t.patLimit || p < 0 || p > math.MaxInt32:
+		t.patFull = true
+	default:
+		t.pats = append(t.pats, int32(p))
+	}
 }
 
 func (t *spanTrack) flush() {
