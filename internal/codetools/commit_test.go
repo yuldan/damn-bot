@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -28,10 +29,10 @@ func linkedEnv(t *testing.T, content string) (v *env, p, other string) {
 	return v, p, other
 }
 
-// approvedTag reads rel with approval and returns its tag.
-func approvedTag(t *testing.T, v *env, rel string) string {
+// approvedTag reads f.txt with approval and returns its tag.
+func approvedTag(t *testing.T, v *env) string {
 	t.Helper()
-	r, err := v.e.Read(context.Background(), ReadArgs{Path: rel, Limit: 1}, Opts{Approved: true})
+	r, err := v.e.Read(context.Background(), ReadArgs{Path: "f.txt", Limit: 1}, Opts{Approved: true})
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestInPlaceFailuresKeepFile(t *testing.T) {
 				}
 				return nil
 			}
-			tag := approvedTag(t, v, "f.txt")
+			tag := approvedTag(t, v)
 			_, err := v.e.Edit(context.Background(), EditArgs{Path: "f.txt", Tag: tag, Edits: []EditItem{c.edit}}, Opts{Approved: true})
 			wantCode(t, err, c.want)
 			if got := v.get(t, "f.txt"); got != orig {
@@ -108,7 +109,7 @@ func TestInPlaceEdit(t *testing.T) {
 	v.e.snapshot = func(_ context.Context, resolved string, old *os.File) error {
 		var err error
 		if snap, err = io.ReadAll(io.NewSectionReader(old, 0, 1<<20)); err != nil {
-			return err
+			return fmt.Errorf("snapshot: %w", err)
 		}
 		if cur := readFixture(t, resolved); !bytes.Equal(cur, snap) {
 			t.Errorf("target already changed at snapshot: %q", cur)
@@ -116,9 +117,9 @@ func TestInPlaceEdit(t *testing.T) {
 		return nil
 	}
 	ctx := context.Background()
-	_, err := v.e.Edit(ctx, EditArgs{Path: "f.txt", Tag: approvedTag(t, v, "f.txt"), Edits: []EditItem{strEdit("beta", "BETA\ngamma")}}, Opts{})
+	_, err := v.e.Edit(ctx, EditArgs{Path: "f.txt", Tag: approvedTag(t, v), Edits: []EditItem{strEdit("beta", "BETA\ngamma")}}, Opts{})
 	wantCode(t, err, CodeOutsideWorkspace) // hardlinked_file needs approval
-	res, err := v.e.Edit(ctx, EditArgs{Path: "f.txt", Tag: approvedTag(t, v, "f.txt"), Edits: []EditItem{strEdit("beta", "BETA\ngamma")}}, Opts{Approved: true})
+	res, err := v.e.Edit(ctx, EditArgs{Path: "f.txt", Tag: approvedTag(t, v), Edits: []EditItem{strEdit("beta", "BETA\ngamma")}}, Opts{Approved: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,13 +150,13 @@ func TestInPlaceLargeFile(t *testing.T) {
 	}
 	one, last := 1, len(body)/len(line)+2
 	noop := "last"
-	_, err := v.e.Edit(ctx, EditArgs{Path: "f.txt", Tag: approvedTag(t, v, "f.txt"), Edits: []EditItem{{StartLine: &last, EndLine: &last, NewText: &noop}}}, Opts{Approved: true})
+	_, err := v.e.Edit(ctx, EditArgs{Path: "f.txt", Tag: approvedTag(t, v), Edits: []EditItem{{StartLine: &last, EndLine: &last, NewText: &noop}}}, Opts{Approved: true})
 	wantCode(t, err, CodeInvalidArgs)
 	if fi := mustStat(t, p); fi.Size() != int64(len(body)+11) {
 		t.Fatalf("no-op edit changed the size to %d", fi.Size())
 	}
 	first := "FIRST"
-	res, err := v.e.Edit(ctx, EditArgs{Path: "f.txt", Tag: approvedTag(t, v, "f.txt"), Edits: []EditItem{{StartLine: &one, EndLine: &one, NewText: &first}}}, Opts{Approved: true})
+	res, err := v.e.Edit(ctx, EditArgs{Path: "f.txt", Tag: approvedTag(t, v), Edits: []EditItem{{StartLine: &one, EndLine: &one, NewText: &first}}}, Opts{Approved: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,26 +186,33 @@ func TestEditLockAlias(t *testing.T) {
 			if err != nil {
 				t.Skipf("%s: %v", kind, err)
 			}
-			ctx, o := context.Background(), Opts{Approved: true}
 			for i := range 150 {
-				writeFile(t, p, "a\nb\n")
-				tag := approvedTag(t, v, "f.txt")
-				var wg sync.WaitGroup
-				errs := make([]error, 2)
-				for j, a := range []EditArgs{
-					{Path: "f.txt", Tag: tag, Edits: []EditItem{strEdit("a", "A")}},
-					{Path: "link.txt", Tag: tag, Edits: []EditItem{strEdit("b", "B")}},
-				} {
-					wg.Go(func() { _, errs[j] = v.e.Edit(ctx, a, o) })
-				}
-				wg.Wait()
-				got := v.get(t, "f.txt")
-				ok := (errs[0] == nil) != (errs[1] == nil)
-				if !ok || (got != "A\nb\n" && got != "a\nB\n") {
-					t.Fatalf("iteration %d: errs %v, file %q", i, errs, got)
-				}
+				aliasEditRace(t, v, p, i)
 			}
 		})
+	}
+}
+
+// aliasEditRace runs one TestEditLockAlias iteration: two concurrent
+// edits with one tag through f.txt and link.txt; exactly one must win.
+func aliasEditRace(t *testing.T, v *env, p string, i int) {
+	t.Helper()
+	ctx, o := context.Background(), Opts{Approved: true}
+	writeFile(t, p, "a\nb\n")
+	tag := approvedTag(t, v)
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for j, a := range []EditArgs{
+		{Path: "f.txt", Tag: tag, Edits: []EditItem{strEdit("a", "A")}},
+		{Path: "link.txt", Tag: tag, Edits: []EditItem{strEdit("b", "B")}},
+	} {
+		wg.Go(func() { _, errs[j] = v.e.Edit(ctx, a, o) })
+	}
+	wg.Wait()
+	got := v.get(t, "f.txt")
+	ok := (errs[0] == nil) != (errs[1] == nil)
+	if !ok || (got != "A\nb\n" && got != "a\nB\n") {
+		t.Fatalf("iteration %d: errs %v, file %q", i, errs, got)
 	}
 }
 

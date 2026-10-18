@@ -59,30 +59,13 @@ func (e *Engine) commit(ctx context.Context, t *target, before fileKey, mode fs.
 func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mode fs.FileMode, fill func(io.Writer) error) (ci commitInfo, err error) {
 	ci = commitInfo{ownerOK: true, modeOK: true, xattrOK: true}
 	ci.inplace = t.f != nil && linkCount(t.f) > 1
-	dir := filepath.Dir(t.resolved)
 	tmp, tmpName, err := e.createTemp(ctx, t, "")
 	if err != nil {
 		return ci, err
 	}
 	renamed := false
-	defer func() { // the temp is discarded unless renamed: close errors cannot lose data
-		if tmp != nil {
-			_ = tmp.Close()
-		}
-		if !renamed {
-			removeQuiet(tmpName)
-		}
-	}()
-	// Owner and xattrs first (xattr writes need a writable inode; chown
-	// clears setuid/setgid), then the final mode before the first byte
-	// (§5.4 langkah 2). An in-place rewrite keeps the target's inode.
-	if t.f != nil && !ci.inplace {
-		ci.ownerOK = copyOwner(t.f, tmp)
-		ci.xattrOK = copyXattrs(t.f, tmp)
-	}
-	if before != (fileKey{}) && !ci.inplace {
-		ci.modeOK = setMode(tmp, mode)
-	}
+	defer func() { discardTemp(tmp, tmpName, renamed) }()
+	prepareTemp(t, before, mode, tmp, &ci)
 	if werr := hashFill(e.hooked(tmp, "mid-temp"), fill, &ci); werr != nil {
 		return ci, fillErr("write", t.rel, werr)
 	}
@@ -90,7 +73,8 @@ func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mo
 		return ci, ioErr("fsync", t.rel, werr)
 	}
 	if ci.inplace {
-		return ci, e.copyInPlace(ctx, t, before, tmp, &ci)
+		err = e.copyInPlace(ctx, t, before, tmp, &ci)
+		return ci, err
 	}
 	if werr := e.at("pre-rename"); werr != nil {
 		return ci, ioErr("rename", t.rel, werr)
@@ -109,10 +93,27 @@ func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mo
 		return ci, ioErr("rename", t.rel, werr)
 	}
 	renamed = true
-	if werr := errors.Join(e.at("post-rename"), e.syncDir(ctx, dir, t.outside)); werr != nil {
+	if werr := errors.Join(e.at("post-rename"), e.syncDir(ctx, filepath.Dir(t.resolved), t.outside)); werr != nil {
 		return ci, ioErr("fsync dir", t.rel, werr)
 	}
-	return ci, e.readBack(ctx, t, &ci)
+	err = e.readBack(ctx, t, &ci)
+	return ci, err
+}
+
+// prepareTemp copies owner and xattrs first (xattr writes need a writable
+// inode; chown clears setuid/setgid), then sets the final mode before the
+// first byte (§5.4 langkah 2). An in-place rewrite keeps the target's inode.
+func prepareTemp(t *target, before fileKey, mode fs.FileMode, tmp *os.File, ci *commitInfo) {
+	if ci.inplace {
+		return
+	}
+	if t.f != nil {
+		ci.ownerOK = copyOwner(t.f, tmp)
+		ci.xattrOK = copyXattrs(t.f, tmp)
+	}
+	if before != (fileKey{}) {
+		ci.modeOK = setMode(tmp, mode)
+	}
 }
 
 // createTemp creates ".<name>.damnbot-<kind><rand>" next to the target,
@@ -146,8 +147,8 @@ func setMode(f *os.File, mode fs.FileMode) bool {
 // backup, so an error leaves the target byte-identical; only a crash
 // mid-copy leaves it partial, with the backup kept next to it (ADR-103).
 func (e *Engine) copyInPlace(ctx context.Context, t *target, before fileKey, tmp *os.File, ci *commitInfo) (err error) {
-	if err := e.unchanged(t, before); err != nil {
-		return err
+	if uerr := e.unchanged(t, before); uerr != nil {
+		return uerr
 	}
 	if e.snapshot != nil {
 		if serr := e.snapshot(ctx, t.resolved, t.f); serr != nil {
@@ -159,12 +160,7 @@ func (e *Engine) copyInPlace(ctx context.Context, t *target, before fileKey, tmp
 		return err
 	}
 	keepBak := false
-	defer func() { // bak was fsynced by copyAt: a close error cannot lose data
-		_ = bak.Close()
-		if !keepBak {
-			removeQuiet(bakName)
-		}
-	}()
+	defer func() { discardTemp(bak, bakName, keepBak) }()
 	if werr := e.copyAt(bak, t.f, before.size, ""); werr != nil {
 		return ioErr("backup", t.rel, werr)
 	}
@@ -410,6 +406,20 @@ func (e *Engine) removeIn(ctx context.Context, p string) error {
 	return errors.Join(removeAt(d, filepath.Base(p)), d.Close())
 }
 
-// removeQuiet removes a temp by path; a failure leaves an orphan for
-// CleanOrphanTemps, not an error for the edit.
-func removeQuiet(p string) { _ = os.Remove(p) }
+// discardTemp closes f (nil once handed off) and removes name unless
+// keep. Neither failure is the edit's: the temp is fsynced or abandoned,
+// never the only copy of any bytes, and a file left behind is an orphan
+// for CleanOrphanTemps (§5.4).
+func discardTemp(f *os.File, name string, keep bool) {
+	var errs []error
+	if f != nil {
+		errs = append(errs, f.Close())
+	}
+	if !keep {
+		errs = append(errs, os.Remove(name))
+	}
+	if err := errors.Join(errs...); err == nil || errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	// Any other failure is dropped by design (see above).
+}

@@ -354,8 +354,8 @@ func (e *Engine) create(ctx context.Context, a WriteArgs, abs string, o Opts) (R
 		return Result{}, mapOpenErr(a.Path, err)
 	}
 	outside := v != sandbox.Inside
-	if err := approval(v, a.Path, o.Approved); err != nil {
-		return Result{}, err
+	if aerr := approval(v, a.Path, o.Approved); aerr != nil {
+		return Result{}, aerr
 	}
 	if merr := e.mkdirs(ctx, filepath.Dir(resolved), outside); merr != nil {
 		return Result{}, merr

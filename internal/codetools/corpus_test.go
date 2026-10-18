@@ -80,7 +80,7 @@ func rgPath(tb testing.TB) string {
 	if rg == "" {
 		rg = "rg"
 	}
-	out, err := exec.Command(rg, "--version").Output() //nolint:gosec // G204: oracle binary chosen by the developer
+	out, err := exec.CommandContext(tb.Context(), rg, "--version").Output() //nolint:gosec // G204: oracle binary chosen by the developer
 	if err != nil || !bytes.HasPrefix(out, []byte("ripgrep 15.")) {
 		missing(tb, "ripgrep 15 not found (DAMNBOT_RG=%q): %v", rg, err)
 	}
@@ -88,16 +88,18 @@ func rgPath(tb testing.TB) string {
 }
 
 // specDenyPaths is the SPEC §12 deny_paths default (placeholders dropped).
-var specDenyPaths = []string{
-	"~/.ssh", "~/.gnupg", "~/.aws", "**/.env", "**/*.pem", "~/.netrc", "~/.git-credentials",
-	"~/.config/gh", "~/.docker/config.json", "~/.kube", "/proc/*/environ", "/proc/*/task/*/environ", "/proc/*/mem",
+func specDenyPaths() []string {
+	return []string{
+		"~/.ssh", "~/.gnupg", "~/.aws", "**/.env", "**/*.pem", "~/.netrc", "~/.git-credentials",
+		"~/.config/gh", "~/.docker/config.json", "~/.kube", "/proc/*/environ", "/proc/*/task/*/environ", "/proc/*/mem",
+	}
 }
 
 // corpusSandbox is a session sandbox over roots with the default deny list
 // and the real home (global git excludes as rg reads them).
 func corpusSandbox(tb testing.TB, roots ...string) *sandbox.Sandbox {
 	tb.Helper()
-	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: specDenyPaths})
+	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: specDenyPaths()})
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -114,12 +116,13 @@ func freshEngine(tb testing.TB, sb *sandbox.Sandbox, roots ...string) *Engine {
 	return e
 }
 
-// unlimited is the comparison setting of CODE-TOOLS §10.1: Limit=-1 and no
-// page cap, so the whole output is formatted.
-var unlimited = Opts{PageChars: math.MaxInt32}
+// unlimitedPage is the page cap of the CODE-TOOLS §10.1 comparison setting
+// (with Limit=-1), so the whole output is formatted.
+const unlimitedPage = math.MaxInt32
 
 // corpusOp runs one comparison query through the engine API.
 func corpusOp(ctx context.Context, e *Engine, kind, q string) (Result, error) {
+	unlimited := Opts{PageChars: unlimitedPage}
 	switch kind {
 	case "literal":
 		return e.Grep(ctx, &GrepArgs{Pattern: regexp.QuoteMeta(q), Case: "sensitive", Limit: -1}, unlimited)
@@ -144,17 +147,17 @@ func rgArgv(rg, kind, q string, extra ...string) []string {
 }
 
 // runRg runs rg; exit 1 (no match) is not an error.
-func runRg(argv []string, dir string, stdout *bytes.Buffer) error {
-	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // G204: oracle binary chosen by the developer
+func runRg(ctx context.Context, argv []string, dir string, stdout *bytes.Buffer) error {
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // G204: oracle binary chosen by the developer
 	cmd.Dir = dir
 	if stdout != nil {
 		cmd.Stdout = stdout
 	}
 	err := cmd.Run()
-	if ee := (*exec.ExitError)(nil); errors.As(err, &ee) && ee.ExitCode() == 1 {
+	if ee := (*exec.ExitError)(nil); err == nil || errors.As(err, &ee) && ee.ExitCode() == 1 {
 		return nil
 	}
-	return err
+	return fmt.Errorf("rg: %w", err)
 }
 
 func benchCorpus(b *testing.B, kind string, queries func(*benchQueries) []string) {
@@ -207,8 +210,9 @@ func grepHits(content string) map[hit]bool {
 		switch m := matchLineRe.FindStringSubmatch(l); {
 		case i == 0 || strings.HasPrefix(l, "skipped: "):
 		case m != nil && file != "":
-			n, _ := strconv.Atoi(m[1])
-			hits[hit{file, n}] = true
+			if n, err := strconv.Atoi(m[1]); err == nil {
+				hits[hit{file, n}] = true
+			}
 		default:
 			if j := strings.LastIndex(l, " #"); j > 0 {
 				file = l[:j]
@@ -257,7 +261,7 @@ func rgHits(tb testing.TB, rg, root, kind, q string) map[hit]bool {
 		q = rgOraclePattern(tb, q)
 	}
 	var out bytes.Buffer
-	if err := runRg(rgArgv(rg, kind, q, "--crlf", "--null"), root, &out); err != nil {
+	if err := runRg(tb.Context(), rgArgv(rg, kind, q, "--crlf", "--null"), root, &out); err != nil {
 		tb.Fatalf("rg %q: %v", q, err)
 	}
 	hits := map[hit]bool{}
@@ -310,24 +314,30 @@ func TestGrepParityRg(t *testing.T) {
 					t.Fatalf("%s %q: %v", c.kind, c.q, err)
 				}
 				got, want := grepHits(r.Content), rgHits(t, rg, root, c.kind, c.q)
-				var diff []string
-				for h := range got {
-					if !want[h] {
-						diff = append(diff, fmt.Sprintf("+%s:%d", h.path, h.line))
-					}
-				}
-				for h := range want {
-					if !got[h] {
-						diff = append(diff, fmt.Sprintf("-%s:%d", h.path, h.line))
-					}
-				}
-				if len(diff) > 0 {
-					slices.Sort(diff)
+				if diff := hitDiff(got, want); len(diff) > 0 {
 					t.Errorf("%s %q: %d differences (ours %d, rg %d): %v", c.kind, c.q, len(diff), len(got), len(want), diff[:min(len(diff), 10)])
 				}
 			}
 		})
 	}
+}
+
+// hitDiff lists "+path:line" (only in got) and "-path:line" (only in
+// want), sorted.
+func hitDiff(got, want map[hit]bool) []string {
+	var diff []string
+	for h := range got {
+		if !want[h] {
+			diff = append(diff, fmt.Sprintf("+%s:%d", h.path, h.line))
+		}
+	}
+	for h := range want {
+		if !got[h] {
+			diff = append(diff, fmt.Sprintf("-%s:%d", h.path, h.line))
+		}
+	}
+	slices.Sort(diff)
+	return diff
 }
 
 // percentiles returns the nearest-rank p50 and p95 in milliseconds (the

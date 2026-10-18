@@ -82,7 +82,11 @@ func crlfPrefilter(pattern string, flags syntax.Flags, re *regexp.Regexp) (*rege
 	if !crlfEnd(root) {
 		return re, nil
 	}
-	return regexp.Compile(root.String())
+	pre, err := regexp.Compile(root.String())
+	if err != nil {
+		return nil, fmt.Errorf("codetools: pattern: %w", err)
+	}
+	return pre, nil
 }
 
 // crlfEnd rewrites every `$` below re into `\r?$`.
@@ -145,25 +149,7 @@ func required(re *syntax.Regexp) []lit {
 		return required(re.Sub[0])
 	}
 	if op == syntax.OpConcat {
-		var best, run []lit
-		pick := func(c []lit) {
-			if minLen(c) > minLen(best) {
-				best = c
-			}
-		}
-		for _, s := range re.Sub {
-			e := exact(s)
-			if p := product(run, e); e != nil && p != nil {
-				run = p
-				continue
-			}
-			pick(run)
-			if run = e; e == nil {
-				pick(required(s))
-			}
-		}
-		pick(run)
-		return best
+		return requiredConcat(re.Sub)
 	}
 	if op != syntax.OpAlternate {
 		return nil // star, quest, classes, anchors: nothing required
@@ -177,6 +163,31 @@ func required(re *syntax.Regexp) []lit {
 		all = append(all, c...)
 	}
 	return all
+}
+
+// requiredConcat is required for a concatenation of subs: the longest
+// literal set among the expanded runs of finite subpatterns and the
+// required sets of the others.
+func requiredConcat(subs []*syntax.Regexp) []lit {
+	var best, run []lit
+	pick := func(c []lit) {
+		if minLen(c) > minLen(best) {
+			best = c
+		}
+	}
+	for _, s := range subs {
+		e := exact(s)
+		if p := product(run, e); e != nil && p != nil {
+			run = p
+			continue
+		}
+		pick(run)
+		if run = e; e == nil {
+			pick(required(s))
+		}
+	}
+	pick(run)
+	return best
 }
 
 // exact is the finite set of strings re matches (zero-width assertions
@@ -205,6 +216,8 @@ func exact(re *syntax.Regexp) []lit {
 			}
 		}
 		return set
+	case syntax.OpNoMatch, syntax.OpCharClass, syntax.OpAnyCharNotNL, syntax.OpAnyChar, syntax.OpStar, syntax.OpPlus, syntax.OpQuest, syntax.OpRepeat:
+		return nil // unbounded or too wide for a literal set
 	}
 	return nil
 }
@@ -337,7 +350,29 @@ func (m *matcher) scanBuf(buf []byte, base int, fn func(matchLine) bool) {
 // occurrence (-1 none left, -2 unknown) so a rare literal of a set is not
 // searched again from every candidate of a frequent one.
 func (m *matcher) next(buf []byte, pos int, at *[maxAltLits]int) (hit, col int) {
-	hit = -1
+	hit = m.candidate(buf, pos, at)
+	if hit < 0 || hit == len(buf) && hit > 0 && buf[hit-1] == '\n' { // no line after the final EOL
+		return -1, -1
+	}
+	ls := bytes.LastIndexByte(buf[pos:hit], '\n') + 1 + pos
+	if m.re == nil {
+		return hit, hit - ls
+	}
+	le := bytes.IndexByte(buf[hit:], '\n')
+	if le < 0 {
+		le = len(buf)
+	} else {
+		le += hit
+	}
+	if loc := m.re.FindIndex(buf[ls:trimCR(buf, ls, le)]); loc != nil {
+		return hit, loc[0]
+	}
+	return hit, -1
+}
+
+// candidate is the earliest candidate byte at or after pos (-1 = none).
+func (m *matcher) candidate(buf []byte, pos int, at *[maxAltLits]int) int {
+	hit := -1
 	if len(m.lits) == 0 {
 		// A buffer match starts no later than any single-line match; the
 		// line holding its start is then verified alone (no match across
@@ -357,23 +392,7 @@ func (m *matcher) next(buf []byte, pos int, at *[maxAltLits]int) (hit, col int) 
 			hit = at[i]
 		}
 	}
-	if hit < 0 || hit == len(buf) && hit > 0 && buf[hit-1] == '\n' { // no line after the final EOL
-		return -1, -1
-	}
-	ls := bytes.LastIndexByte(buf[pos:hit], '\n') + 1 + pos
-	if m.re == nil {
-		return hit, hit - ls
-	}
-	le := bytes.IndexByte(buf[hit:], '\n')
-	if le < 0 {
-		le = len(buf)
-	} else {
-		le += hit
-	}
-	if loc := m.re.FindIndex(buf[ls:trimCR(buf, ls, le)]); loc != nil {
-		return hit, loc[0]
-	}
-	return hit, -1
+	return hit
 }
 
 // scanMultiline runs RE2 over the whole buffer; every line a match touches

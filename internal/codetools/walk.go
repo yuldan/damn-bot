@@ -314,7 +314,7 @@ func (w *walker) entry(n *dirNode, de os.DirEntry, st ignoreStack, top, prefix s
 		return nil // never .git; hidden by default; symlinks are not followed
 	case st.ignored(prefix+name, isDir):
 		return nil
-	case !isDir && w.spec.scan != nil && (w.spec.keepFile == nil || w.spec.keepFile(n.rel+name)):
+	case !isDir && w.spec.scan != nil && w.keepsFile(n.rel+name):
 		// scanFile opens through OpenResolved, which enforces deny_paths
 		// and reports skipDenied: one deny match per file instead of two.
 		n.entries = append(n.entries, dirEntry{name: name})
@@ -323,7 +323,7 @@ func (w *walker) entry(n *dirNode, de os.DirEntry, st ignoreStack, top, prefix s
 		n.denied++
 		return nil
 	case !isDir:
-		if w.spec.keepFile == nil || w.spec.keepFile(n.rel+name) {
+		if w.keepsFile(n.rel + name) {
 			n.entries = append(n.entries, dirEntry{name: name})
 		}
 		return nil
@@ -336,6 +336,11 @@ func (w *walker) entry(n *dirNode, de os.DirEntry, st ignoreStack, top, prefix s
 	c := &dirNode{abs: filepath.Join(n.abs, name), rel: n.rel + name + "/", top: top, prefix: prefix + name + "/", st: st, done: make(chan struct{})}
 	n.entries = append(n.entries, dirEntry{name: name, child: c})
 	return c
+}
+
+// keepsFile reports whether the spec's file filter accepts rel.
+func (w *walker) keepsFile(rel string) bool {
+	return w.spec.keepFile == nil || w.spec.keepFile(rel)
 }
 
 // entryType is the listed type of name in the sorted ents.

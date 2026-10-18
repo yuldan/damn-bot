@@ -76,22 +76,7 @@ func TestOpenResolved(t *testing.T) {
 	symlink(t, f.out, filepath.Join(f.root, "link_out"))
 	modes(t, f.sb, func(t *testing.T, sb *Sandbox) {
 		ctx := t.Context()
-		for _, rel := range []string{"real.txt", "sub", "."} {
-			file, v, err := sb.OpenResolved(ctx, filepath.Join(f.root, rel), false)
-			if err != nil || v != Inside {
-				t.Fatalf("OpenResolved(%s) = %v, %v", rel, v, err)
-			}
-			closeT(t, file)
-		}
-		for rel, want := range map[string]error{
-			filepath.Join("sub", ".env"):            ErrDeniedPath,
-			"link_inside":                           ErrOutsideWorkspace,
-			filepath.Join("link_out", "secret.txt"): ErrOutsideWorkspace,
-		} {
-			if _, _, err := sb.OpenResolved(ctx, filepath.Join(f.root, rel), false); !errors.Is(err, want) {
-				t.Errorf("OpenResolved(%s) = %v, want %v", rel, err, want)
-			}
-		}
+		checkOpenInRoot(t, sb, f.root)
 		outside := filepath.Join(f.out, "secret.txt")
 		if file, v, err := sb.OpenResolved(ctx, outside, false); file != nil || err != nil || v != OutsideRoot {
 			t.Errorf("OpenResolved(outside, unapproved) = %v, %v; want outside_root", v, err)
@@ -113,6 +98,29 @@ func TestOpenResolved(t *testing.T) {
 			t.Errorf("OpenResolved(canceled) = %v, want context.Canceled", err)
 		}
 	})
+}
+
+// checkOpenInRoot: files and directories in root open Inside; a deny
+// match and symlinks (in root or leaving it) are refused.
+func checkOpenInRoot(t *testing.T, sb *Sandbox, root string) {
+	t.Helper()
+	ctx := t.Context()
+	for _, rel := range []string{"real.txt", "sub", "."} {
+		file, v, err := sb.OpenResolved(ctx, filepath.Join(root, rel), false)
+		if err != nil || v != Inside {
+			t.Fatalf("OpenResolved(%s) = %v, %v", rel, v, err)
+		}
+		closeT(t, file)
+	}
+	for rel, want := range map[string]error{
+		filepath.Join("sub", ".env"):            ErrDeniedPath,
+		"link_inside":                           ErrOutsideWorkspace,
+		filepath.Join("link_out", "secret.txt"): ErrOutsideWorkspace,
+	} {
+		if _, _, err := sb.OpenResolved(ctx, filepath.Join(root, rel), false); !errors.Is(err, want) {
+			t.Errorf("OpenResolved(%s) = %v, want %v", rel, err, want)
+		}
+	}
 }
 
 // TestOpenResolvedHardLinks (S16-2, S16-7, CT27-6): hard links inside the
@@ -145,21 +153,7 @@ func TestOpenResolvedHardLinks(t *testing.T) {
 	}
 	modes(t, sb, func(t *testing.T, sb *Sandbox) {
 		ctx := t.Context()
-		for _, p := range []string{in("alias.txt"), filepath.Join(f.out, "alias2.txt")} {
-			for _, approved := range []bool{false, true} {
-				if p == filepath.Join(f.out, "alias2.txt") && !approved {
-					continue // outside_root: refused before any open
-				}
-				if file, _, err := sb.OpenResolved(ctx, p, approved); file != nil || !errors.Is(err, ErrDeniedPath) {
-					t.Errorf("OpenResolved(%s, approved %v) = %v; want ErrDeniedPath", p, approved, err)
-				}
-			}
-		}
-		for _, name := range []string{"linked.txt", "key", "env"} {
-			if file, v, err := sb.OpenResolved(ctx, in(name), false); file != nil || err != nil || v != HardLinked {
-				t.Errorf("OpenResolved(%s, unapproved) = %v, %v; want hardlinked_file", name, v, err)
-			}
-		}
+		checkHardLinkRefusals(t, sb, f.root, f.out)
 		file, v, err := sb.OpenResolved(ctx, in("linked.txt"), true)
 		if err != nil || v != Inside {
 			t.Fatalf("OpenResolved(hard link, approved) = %v, %v", v, err)
@@ -170,6 +164,28 @@ func TestOpenResolvedHardLinks(t *testing.T) {
 		}
 		closeT(t, file)
 	})
+}
+
+// checkHardLinkRefusals: links to the literal deny target are refused
+// approved or not; links to other files are HardLinked unless approved.
+func checkHardLinkRefusals(t *testing.T, sb *Sandbox, root, out string) {
+	t.Helper()
+	ctx := t.Context()
+	for _, p := range []string{filepath.Join(root, "alias.txt"), filepath.Join(out, "alias2.txt")} {
+		for _, approved := range []bool{false, true} {
+			if p == filepath.Join(out, "alias2.txt") && !approved {
+				continue // outside_root: refused before any open
+			}
+			if file, _, err := sb.OpenResolved(ctx, p, approved); file != nil || !errors.Is(err, ErrDeniedPath) {
+				t.Errorf("OpenResolved(%s, approved %v) = %v; want ErrDeniedPath", p, approved, err)
+			}
+		}
+	}
+	for _, name := range []string{"linked.txt", "key", "env"} {
+		if file, v, err := sb.OpenResolved(ctx, filepath.Join(root, name), false); file != nil || err != nil || v != HardLinked {
+			t.Errorf("OpenResolved(%s, unapproved) = %v, %v; want hardlinked_file", name, v, err)
+		}
+	}
 }
 
 func closeT(t *testing.T, f *os.File) {

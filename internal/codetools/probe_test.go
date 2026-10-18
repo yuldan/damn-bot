@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/sandbox"
 )
 
 // probeCompare is one CT-01/02/03 query: engine API vs rg, same harness.
@@ -60,10 +62,9 @@ func TestCodetoolsProbe(t *testing.T) {
 	if parts == "" {
 		parts = "compare,ops"
 	}
-	load, _ := os.ReadFile("/proc/loadavg")
 	rep := probeReport{Meta: map[string]string{
 		"go": runtime.Version(), "gomaxprocs": strconv.Itoa(runtime.GOMAXPROCS(0)), "runs": strconv.Itoa(runs),
-		"loadavg_start": strings.TrimSpace(string(load)), "date": time.Now().Format(time.RFC3339),
+		"loadavg_start": loadavg(), "date": time.Now().Format(time.RFC3339),
 	}}
 	if strings.Contains(parts, "compare") {
 		rep.Compare = probeCompareAll(t, runs)
@@ -71,15 +72,23 @@ func TestCodetoolsProbe(t *testing.T) {
 	if strings.Contains(parts, "ops") || strings.Contains(parts, "search") {
 		rep.Ops = probeOps(t, runs, !strings.Contains(parts, "ops"))
 	}
-	load, _ = os.ReadFile("/proc/loadavg")
-	rep.Meta["loadavg_end"] = strings.TrimSpace(string(load))
+	rep.Meta["loadavg_end"] = loadavg()
 	data, err := json.MarshalIndent(rep, "", " ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(out, data, 0o600); err != nil {
+	if err := os.WriteFile(out, data, 0o600); err != nil { //nolint:gosec // G703: report path chosen by the bench driver
 		t.Fatal(err)
 	}
+}
+
+// loadavg is /proc/loadavg trimmed ("" where it does not exist).
+func loadavg() string {
+	b, err := os.ReadFile("/proc/loadavg")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 // benchRuns is DAMNBOT_BENCH_RUNS, default 20 (CODE-TOOLS §10.1).
@@ -91,7 +100,9 @@ func benchRuns() int {
 }
 
 // rgTargets are the CT-01/02/03 bounds on ours/rg (CODE-TOOLS §10.2).
-func rgTargets() map[string]float64 { return map[string]float64{"literal": 1.2, "regex": 1.5, "glob": 1.2} }
+func rgTargets() map[string]float64 {
+	return map[string]float64{"literal": 1.2, "regex": 1.5, "glob": 1.2}
+}
 
 // TestGrepSpeedVsRg is the CT-01/02/03 gate (job bench-codetools): per
 // corpus and query kind, Σp50 and Σp95 of the engine over the queries are
@@ -123,7 +134,6 @@ func TestGrepSpeedVsRg(t *testing.T) {
 func probeCompareAll(t *testing.T, runs int) []probeCompare {
 	rg := rgPath(t)
 	q := loadBenchQueries(t)
-	ctx := context.Background()
 	var res []probeCompare
 	for _, id := range []string{"C1", "C2", "C3"} {
 		if os.Getenv("DAMNBOT_CORPUS_"+id) == "" {
@@ -136,32 +146,40 @@ func probeCompareAll(t *testing.T, runs int) []probeCompare {
 			qs   []string
 		}{{"literal", q.Literal}, {"regex", q.Regex}, {"glob", q.Glob}} {
 			for _, query := range k.qs {
-				var ours, theirs []time.Duration
-				argv := rgArgv(rg, k.kind, query, root)
-				for i := range runs + 1 {
-					t0 := time.Now()
-					e := freshEngine(t, sb, root)
-					if _, err := corpusOp(ctx, e, k.kind, query); err != nil {
-						t.Fatalf("%s %s %q: %v", id, k.kind, query, err)
-					}
-					e.Close()
-					d := time.Since(t0)
-					t0 = time.Now()
-					if err := runRg(argv, "", nil); err != nil {
-						t.Fatalf("rg %q: %v", query, err)
-					}
-					if i > 0 {
-						ours, theirs = append(ours, d), append(theirs, time.Since(t0))
-					}
-				}
 				c := probeCompare{Corpus: id, Kind: k.kind, Query: query}
-				c.OursP50, c.OursP95 = percentiles(ours)
-				c.RgP50, c.RgP95 = percentiles(theirs)
+				probeQuery(t, sb, rg, root, runs, &c)
 				res = append(res, c)
 			}
 		}
 	}
 	return res
+}
+
+// probeQuery fills c's percentiles: 1 warm-up + runs of the engine (fresh
+// caches) and of rg, interleaved.
+func probeQuery(t *testing.T, sb *sandbox.Sandbox, rg, root string, runs int, c *probeCompare) {
+	t.Helper()
+	ctx := context.Background()
+	var ours, theirs []time.Duration
+	argv := rgArgv(rg, c.Kind, c.Query, root)
+	for i := range runs + 1 {
+		t0 := time.Now()
+		e := freshEngine(t, sb, root)
+		if _, err := corpusOp(ctx, e, c.Kind, c.Query); err != nil {
+			t.Fatalf("%s %s %q: %v", c.Corpus, c.Kind, c.Query, err)
+		}
+		e.Close()
+		d := time.Since(t0)
+		t0 = time.Now()
+		if err := runRg(ctx, argv, "", nil); err != nil {
+			t.Fatalf("rg %q: %v", c.Query, err)
+		}
+		if i > 0 {
+			ours, theirs = append(ours, d), append(theirs, time.Since(t0))
+		}
+	}
+	c.OursP50, c.OursP95 = percentiles(ours)
+	c.RgP50, c.RgP95 = percentiles(theirs)
 }
 
 // probeOps replays the hermes CT-10 operations through the JSON tool
@@ -182,8 +200,7 @@ func probeOps(t *testing.T, runs int, searchOnly bool) []probeOp {
 		t.Fatal(err)
 	}
 	sb := corpusSandbox(t, c1)
-	patchDir := os.Getenv("DAMNBOT_PATCH_DIR")
-	ctx := context.Background()
+	patchDir, _ := os.LookupEnv("DAMNBOT_PATCH_DIR") // unset or "": probePatch reports it
 	ops := make([]probeOp, 0, len(hermes.Ops))
 	for _, h := range hermes.Ops {
 		if searchOnly && h.Kind != "search_files" {
@@ -194,25 +211,9 @@ func probeOps(t *testing.T, runs int, searchOnly bool) []probeOp {
 		var err error
 		switch h.Kind {
 		case "search_files", "read_file":
-			tool, args := "grep", map[string]any{"pattern": h.Arg}
-			if n, err := strconv.Atoi(os.Getenv("DAMNBOT_PROBE_GREP_LIMIT")); err == nil && n > 0 {
-				args["limit"] = n // CT-11 at the hermes default limit (50)
-			}
-			if h.Kind == "read_file" {
-				tool, args = "read_file", map[string]any{"path": h.Arg, "offset": 1, "limit": 400}
-			}
-			raw, _ := json.Marshal(args)
-			ds, op.Output, err = timeOp(runs, func() (string, error) {
-				e := freshEngine(t, sb, c1)
-				defer e.Close()
-				r, err := e.Run(ctx, tool, raw, Opts{})
-				return r.Content, err
-			})
-			if h.Kind == "read_file" {
-				op.Output = ""
-			}
+			ds, op.Output, err = probeTool(t, sb, c1, h.Kind, h.Arg, runs)
 		case "patch":
-			ds, err = probePatch(t, c1, patchDir, h)
+			ds, err = probePatch(t, c1, patchDir, h.ID, h.Arg)
 		}
 		if err != nil {
 			op.Error = err.Error()
@@ -222,6 +223,34 @@ func probeOps(t *testing.T, runs int, searchOnly bool) []probeOp {
 		ops = append(ops, op)
 	}
 	return ops
+}
+
+// probeTool times one search_files (grep) or read_file (400 lines) op;
+// out is the grep output (CT-11 tokens), "" for read_file.
+func probeTool(t *testing.T, sb *sandbox.Sandbox, c1, kind, arg string, runs int) (ds []time.Duration, out string, err error) {
+	t.Helper()
+	tool, args := "grep", map[string]any{"pattern": arg}
+	if n, aerr := strconv.Atoi(os.Getenv("DAMNBOT_PROBE_GREP_LIMIT")); aerr == nil && n > 0 {
+		args["limit"] = n // CT-11 at the hermes default limit (50)
+	}
+	if kind == "read_file" {
+		tool, args = "read_file", map[string]any{"path": arg, "offset": 1, "limit": 400}
+	}
+	raw, err := json.Marshal(args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	ds, out, err = timeOp(runs, func() (string, error) {
+		e := freshEngine(t, sb, c1)
+		defer e.Close()
+		r, rerr := e.Run(ctx, tool, raw, Opts{})
+		return r.Content, rerr
+	})
+	if kind == "read_file" {
+		out = ""
+	}
+	return ds, out, err
 }
 
 // timeOp runs f once to warm up, then runs times; out is the last output.
@@ -239,24 +268,27 @@ func timeOp(runs int, f func() (string, error)) (ds []time.Duration, out string,
 	return ds, out, nil
 }
 
-// probePatch times edit_file on a copy of h.Arg reset before every run.
-func probePatch(t *testing.T, c1, dir string, h probeOp) ([]time.Duration, error) {
+// probePatch times edit_file on a copy of arg (op id) reset before every run.
+func probePatch(t *testing.T, c1, dir, id, arg string) ([]time.Duration, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("DAMNBOT_PATCH_DIR unset")
 	}
-	data, err := os.ReadFile(filepath.Join(c1, h.Arg)) //nolint:gosec // G304: corpus file named by the baseline
+	data, err := os.ReadFile(filepath.Join(c1, arg)) //nolint:gosec // G304: corpus file named by the baseline
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("patch source: %w", err)
 	}
 	target := uniqueDefLine(string(data))
-	dst := filepath.Join(dir, fmt.Sprintf("patch_%s.py", strings.TrimPrefix(h.ID, "patch-")))
+	dst := filepath.Join(dir, fmt.Sprintf("patch_%s.py", strings.TrimPrefix(id, "patch-")))
 	e := freshEngine(t, corpusSandbox(t, dir), dir)
 	defer e.Close()
 	ctx := context.Background()
 	edit := func(tag string) error {
-		raw, _ := json.Marshal(map[string]any{"path": dst, "tag": tag, "edits": []map[string]string{{"old_string": target, "new_string": target + "  # f0"}}})
-		_, err := e.Run(ctx, "edit_file", raw, Opts{})
-		return err
+		raw, merr := json.Marshal(map[string]any{"path": dst, "tag": tag, "edits": []map[string]string{{"old_string": target, "new_string": target + "  # f0"}}})
+		if merr != nil {
+			return fmt.Errorf("edit args: %w", merr)
+		}
+		_, rerr := e.Run(ctx, "edit_file", raw, Opts{})
+		return rerr
 	}
 	var ds []time.Duration
 	for i := range 21 {
@@ -272,7 +304,10 @@ func probePatch(t *testing.T, c1, dir string, h probeOp) ([]time.Duration, error
 			ds = append(ds, time.Since(t0))
 		}
 	}
-	return ds, os.Remove(dst)
+	if err := os.Remove(dst); err != nil {
+		return nil, fmt.Errorf("patch cleanup: %w", err)
+	}
+	return ds, nil
 }
 
 // resetPatch restores dst durably and reads it for the edit tag (outside
@@ -280,7 +315,7 @@ func probePatch(t *testing.T, c1, dir string, h probeOp) ([]time.Duration, error
 func resetPatch(ctx context.Context, e *Engine, dst string, data []byte) (string, error) {
 	f, err := os.Create(dst) //nolint:gosec // G304: probe patch target
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("reset: %w", err)
 	}
 	_, err = f.Write(data)
 	if err == nil {
@@ -318,7 +353,7 @@ func uniqueDefLine(s string) string {
 func fsyncPath(p string) error {
 	f, err := os.Open(p) //nolint:gosec // G304: probe patch directory
 	if err != nil {
-		return err
+		return fmt.Errorf("fsync dir: %w", err)
 	}
 	err = f.Sync()
 	if cerr := f.Close(); err == nil {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,11 +17,12 @@ import (
 	"github.com/damnbot/damnbot/internal/sandbox"
 )
 
-// Child-process protocol of the CT-25 crash tests: the parent sets these
-// variables, the child writes forever and prints "w" after each write and
-// "at" when it parks at the kill point.
+// Child-process protocol of the CT-25 crash tests: the parent starts the
+// child in the test directory and sets these variables, the child writes
+// forever and prints "w" after each write and "at" when it parks at the
+// kill point.
 const (
-	kill9Env      = "DAMNBOT_CT25_CHILD"
+	kill9Env      = "DAMNBOT_CT25_CHILD" // "1" in the child
 	kill9PointEnv = "DAMNBOT_CT25_POINT" // commit point to park at ("" = never)
 	kill9SkipEnv  = "DAMNBOT_CT25_SKIP"  // writes completed before parking
 	kill9LinkEnv  = "DAMNBOT_CT25_LINK"  // "1": f.txt is hard-linked (approved, in place)
@@ -91,7 +93,7 @@ func TestInPlaceKill9(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := string(readFixture(t, p))
-		baks, _ := filepath.Glob(filepath.Join(dir, ".f.txt.damnbot-bak-*"))
+		baks := crashBackups(t, dir)
 		// write n stores vers[(n+1)%2], so the parked write found vers[skip%2].
 		switch {
 		case point == "mid-temp" && (got != vers[skip%2] || len(baks) != 0):
@@ -100,14 +102,29 @@ func TestInPlaceKill9(t *testing.T) {
 			t.Fatalf("iteration %d: no whole backup of the previous version: %v", i, baks)
 		}
 		writeFile(t, p, vers[0]) // recover, as from file_snapshots
-		for _, b := range baks {
-			if err := os.Remove(b); err != nil {
-				t.Fatal(err)
-			}
-		}
+		removeFiles(t, baks)
 	}
 	if ents, err := os.ReadDir(dir); err != nil || len(ents) != 1 {
 		t.Errorf("crash temps left: %d entries (%v)", len(ents), err)
+	}
+}
+
+// crashBackups lists the in-place backups of f.txt left in dir.
+func crashBackups(t *testing.T, dir string) []string {
+	t.Helper()
+	baks, err := filepath.Glob(filepath.Join(dir, ".f.txt.damnbot-bak-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return baks
+}
+
+func removeFiles(t *testing.T, paths []string) {
+	t.Helper()
+	for _, p := range paths {
+		if err := os.Remove(p); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -117,38 +134,53 @@ func kill9Run(t *testing.T, dir, point string, skip int, link bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestAtomicWriteKill9$") //nolint:gosec // G204: re-exec of the test binary.
-	cmd.Env = append(os.Environ(), kill9Env+"="+dir, kill9PointEnv+"="+point, kill9SkipEnv+"="+strconv.Itoa(skip), kill9LinkEnv+"="+map[bool]string{true: "1"}[link])
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(ctx, exe, "-test.run=^TestAtomicWriteKill9$") //nolint:gosec // G204: re-exec of the test binary.
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), kill9Env+"=1", kill9PointEnv+"="+point, kill9SkipEnv+"="+strconv.Itoa(skip), kill9LinkEnv+"="+map[bool]string{true: "1"}[link])
 	out, err := cmd.StdoutPipe()
 	if err != nil {
+		t.Fatal(err)
+	}
+	// The child parks by reading stdin, which stays open (never written)
+	// until Wait closes it after the kill.
+	if _, err = cmd.StdinPipe(); err != nil {
 		t.Fatal(err)
 	}
 	if err = cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	sc := bufio.NewScanner(out)
-	writes, parked := 0, false
-	for !parked && sc.Scan() {
-		switch sc.Text() {
-		case "at":
-			parked = true
-		case "w":
-			if writes++; point == "" && writes > skip {
-				parked = true
-			} else if writes > skip+3 {
-				t.Fatalf("kill point %q not reached in %d writes", point, writes)
-			}
-		}
-	}
-	if !parked {
-		t.Fatalf("child ended before the kill point %q", point)
-	}
+	awaitKillPoint(t, out, point, skip)
 	if err = cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		t.Fatal(err)
 	}
 	if werr := cmd.Wait(); werr == nil {
 		t.Fatal("child exited by itself")
 	}
+}
+
+// awaitKillPoint reads the child's progress until it parks at point (or,
+// for point "", completes skip writes).
+func awaitKillPoint(t *testing.T, out io.Reader, point string, skip int) {
+	t.Helper()
+	sc := bufio.NewScanner(out)
+	writes := 0
+	for sc.Scan() {
+		switch sc.Text() {
+		case "at":
+			return
+		case "w":
+			if writes++; point == "" && writes > skip {
+				return
+			} else if writes > skip+3 {
+				t.Fatalf("kill point %q not reached in %d writes", point, writes)
+			}
+		}
+	}
+	t.Fatalf("child ended before the kill point %q", point)
 }
 
 func kill9Engine(t *testing.T, dir string) *Engine {
@@ -166,17 +198,28 @@ func kill9Engine(t *testing.T, dir string) *Engine {
 }
 
 // kill9Child alternates the two versions forever, printing after each
-// write; it sleeps at the chosen commit point until killed.
+// write; it parks at the chosen commit point until killed.
 func kill9Child(t *testing.T) {
-	dir, point := os.Getenv(kill9Env), os.Getenv(kill9PointEnv)
-	skip, _ := strconv.Atoi(os.Getenv(kill9SkipEnv))
+	point := os.Getenv(kill9PointEnv)
+	skip, err := strconv.Atoi(os.Getenv(kill9SkipEnv))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
 	e := kill9Engine(t, dir)
 	o := Opts{Approved: os.Getenv(kill9LinkEnv) == "1"}
 	i := 0
 	e.hook = func(p string) error {
 		if p == point && i >= skip {
 			fmt.Println("at") //nolint:forbidigo // progress protocol to the parent process.
-			time.Sleep(time.Hour)
+			// Park until killed: the parent holds stdin open and never writes.
+			if _, perr := io.Copy(io.Discard, os.Stdin); perr != nil {
+				return fmt.Errorf("ct25 park: %w", perr)
+			}
+			return errors.New("ct25 park: stdin closed before the kill")
 		}
 		return nil
 	}

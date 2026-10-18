@@ -10,12 +10,7 @@ import (
 	"testing"
 )
 
-// ID CT yang butuh codeintel/codeindex (F5), dikecualikan dari cek keberadaan test di F1
-// (CODE-TOOLS §11 P23, ROADMAP F1), plus nama test F5 di baris ID F1 (CT-34 bagian
-// TestIndexActivation).
 var (
-	ctF5IDs   = []string{"CT-08", "CT-12", "CT-13", "CT-24", "CT-28"}
-	ctF5Tests = []string{"TestIndexActivation"}
 	ctIDRe    = regexp.MustCompile(`^CT-\d{2}$`)
 	ctTestRe  = regexp.MustCompile("`((?:Test|Benchmark)[A-Za-z0-9_]+)(?:/[^`]*)?`")
 	ctOtherRe = regexp.MustCompile("`(make [a-z-]+|cd bench && go run \\./[a-z/]+)`")
@@ -62,7 +57,7 @@ func repoTestNames(t *testing.T) map[string]bool {
 		}
 		src, err := fs.ReadFile(fsys, p)
 		if err != nil {
-			return err
+			return fmt.Errorf("%s: %w", p, err)
 		}
 		for _, m := range goTestRe.FindAllStringSubmatch(string(src), -1) {
 			if m[1] != "" {
@@ -106,18 +101,28 @@ func TestCodeToolsIDsComplete(t *testing.T) {
 			t.Errorf("%s (§10): kolom verifikasi tanpa test/benchmark/driver: %q", id, row)
 		}
 	}
+	ctCheckTestsExist(t, summary, want)
+}
+
+// ctCheckTestsExist: setiap test/benchmark yang disebut baris ID F1 ada di sumber repo.
+// ID CT yang butuh codeintel/codeindex (F5) dikecualikan (CODE-TOOLS §11 P23, ROADMAP F1),
+// begitu pula nama test F5 di baris ID F1 (CT-34 bagian TestIndexActivation).
+func ctCheckTestsExist(t *testing.T, summary map[string]string, ids []string) {
+	t.Helper()
+	f5IDs := []string{"CT-08", "CT-12", "CT-13", "CT-24", "CT-28"}
+	f5Tests := []string{"TestIndexActivation"}
 	names := repoTestNames(t)
-	for _, id := range want {
+	for _, id := range ids {
 		row := summary[id]
 		tests := ctTestRe.FindAllStringSubmatch(row, -1)
 		if len(tests) == 0 && !ctOtherRe.MatchString(row) {
 			t.Errorf("%s: kolom verifikasi tanpa test/benchmark/driver: %q", id, row)
 		}
-		if slices.Contains(ctF5IDs, id) {
+		if slices.Contains(f5IDs, id) {
 			continue
 		}
 		for _, m := range tests {
-			if !names[m[1]] && !slices.Contains(ctF5Tests, m[1]) {
+			if !names[m[1]] && !slices.Contains(f5Tests, m[1]) {
 				t.Errorf("%s: %s tidak ada di *_test.go repo", id, m[1])
 			}
 		}

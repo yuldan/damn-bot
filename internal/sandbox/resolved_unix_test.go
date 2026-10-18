@@ -40,22 +40,7 @@ func swapRace(t *testing.T, sb *Sandbox, dir, deny string, approved bool) {
 	symlink(t, deny, lnk)
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
-	wg.Go(func() {
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-			// d is the real directory, then the symlink to deny, then real.
-			for _, mv := range [][2]string{{d, park}, {lnk, d}, {d, lnk}, {park, d}} {
-				if err := os.Rename(mv[0], mv[1]); err != nil {
-					t.Errorf("Rename: %v", err)
-					return
-				}
-			}
-		}
-	})
+	wg.Go(func() { flipDir(t, d, lnk, park, stop) })
 	p := filepath.Join(d, "f.txt")
 	opened, refused := 0, 0
 	deadline := time.Now().Add(10 * time.Second)
@@ -78,6 +63,24 @@ func swapRace(t *testing.T, sb *Sandbox, dir, deny string, approved bool) {
 	t.Logf("approved %v: opened %d, refused %d", approved, opened, refused)
 	if opened == 0 || refused == 0 {
 		t.Errorf("approved %v: opened %d, refused %d; want both > 0", approved, opened, refused)
+	}
+}
+
+// flipDir swaps d for the symlink lnk and back (via park) until stop.
+func flipDir(t *testing.T, d, lnk, park string, stop <-chan struct{}) {
+	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
+		// d is the real directory, then the symlink to deny, then real.
+		for _, mv := range [][2]string{{d, park}, {lnk, d}, {d, lnk}, {park, d}} {
+			if err := os.Rename(mv[0], mv[1]); err != nil {
+				t.Errorf("Rename: %v", err)
+				return
+			}
+		}
 	}
 }
 

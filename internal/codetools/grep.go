@@ -240,8 +240,8 @@ func (e *Engine) searchRoot(ctx context.Context, p string, o Opts) (*searchRoot,
 	if err != nil {
 		return nil, mapOpenErr(p, err)
 	}
-	if err := approval(v, p, o.Approved); err != nil {
-		return nil, err
+	if aerr := approval(v, p, o.Approved); aerr != nil {
+		return nil, aerr
 	}
 	fi, err := os.Lstat(resolved)
 	if err != nil {

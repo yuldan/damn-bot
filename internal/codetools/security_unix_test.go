@@ -5,8 +5,10 @@ package codetools
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -117,34 +119,59 @@ func TestGrepApprovedWalkRace(t *testing.T) {
 		var wg sync.WaitGroup
 		wg.Go(func() {
 			for !stop.Load() {
-				_ = os.Rename(sub, sub+".real")
-				_ = os.Symlink(ssh, sub)
-				time.Sleep(time.Microsecond)
-				_ = os.Remove(sub)
-				_ = os.Rename(sub+".real", sub)
+				if err := swapSymlink(sub, ssh); err != nil {
+					t.Errorf("swap: %v", err)
+					return
+				}
 			}
 		})
-		seen := 0
-		for i := range 300 {
-			r, err := v.e.Grep(context.Background(), &GrepArgs{Pattern: "K.YMATERIAL|safe", Path: path}, o)
-			if err != nil {
-				continue // the search root itself may be mid-swap
-			}
-			if strings.Contains(r.Content, "KEYMATERIAL") {
-				stop.Store(true)
-				wg.Wait()
-				t.Fatalf("outside=%v iteration %d leaked the key:\n%s", outside, i, r.Content)
-			}
-			if strings.Contains(r.Content, "safe") {
-				seen++
-			}
-		}
+		seen, leakAt, leak := raceGreps(v, path, o)
 		stop.Store(true)
 		wg.Wait()
+		if leak != "" {
+			t.Fatalf("outside=%v iteration %d leaked the key:\n%s", outside, leakAt, leak)
+		}
 		if seen == 0 {
 			t.Errorf("outside=%v: no grep saw the real file (vacuous)", outside)
 		}
 	}
+}
+
+// raceGreps runs up to 300 greps of path: seen counts those that saw the
+// real file; the first output holding the key stops it (leak, at leakAt).
+func raceGreps(v *env, path string, o Opts) (seen, leakAt int, leak string) {
+	for i := range 300 {
+		r, err := v.e.Grep(context.Background(), &GrepArgs{Pattern: "K.YMATERIAL|safe", Path: path}, o)
+		if err != nil {
+			continue // the search root itself may be mid-swap
+		}
+		if strings.Contains(r.Content, "KEYMATERIAL") {
+			return seen, i, r.Content
+		}
+		if strings.Contains(r.Content, "safe") {
+			seen++
+		}
+	}
+	return seen, 0, ""
+}
+
+// swapSymlink replaces dir by a symlink to target, yields, and restores
+// it (one TestGrepApprovedWalkRace swap).
+func swapSymlink(dir, target string) error {
+	if err := os.Rename(dir, dir+".real"); err != nil {
+		return fmt.Errorf("hide: %w", err)
+	}
+	if err := os.Symlink(target, dir); err != nil {
+		return fmt.Errorf("symlink: %w", err)
+	}
+	runtime.Gosched()
+	if err := os.Remove(dir); err != nil {
+		return fmt.Errorf("unlink: %w", err)
+	}
+	if err := os.Rename(dir+".real", dir); err != nil {
+		return fmt.Errorf("restore: %w", err)
+	}
+	return nil
 }
 
 // TestGrepSkipsHardLinked (CT27-13): a hard link inside the root to a file
@@ -209,33 +236,48 @@ func TestFIFONoHang(t *testing.T) {
 		}, ""},
 	}
 	for _, op := range ops {
-		for _, f := range fifos { // fresh FIFOs: no writer state left by a release
-			if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
-				t.Fatal(err)
-			}
-			if err := unix.Mkfifo(f, 0o600); err != nil {
-				t.Fatalf("Mkfifo: %v", err)
-			}
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		done := make(chan error, 1)
-		start := time.Now()
-		go func() { done <- op.run(ctx) }()
-		var err error
-		select {
-		case err = <-done:
-		case <-time.After(2500 * time.Millisecond):
-			t.Errorf("%s still blocked after %v", op.name, time.Since(start))
-			for _, f := range fifos { // a writer releases a blocked open
-				if w, werr := os.OpenFile(f, os.O_RDWR, 0); werr == nil {
-					_ = w.Close()
-				}
-			}
-			err = <-done
-		}
-		cancel()
+		remakeFIFOs(t, fifos) // fresh FIFOs: no writer state left by a release
+		err := runUnblocked(t, op.name, op.run, fifos)
 		if got := codeOf(err); got != op.want && (op.want != "" || got == "" && err != nil) {
 			t.Errorf("%s: code %q, want %q (err %v)", op.name, got, op.want, err)
 		}
+	}
+}
+
+// remakeFIFOs replaces every path in fifos by a new FIFO.
+func remakeFIFOs(t *testing.T, fifos []string) {
+	t.Helper()
+	for _, f := range fifos {
+		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if err := unix.Mkfifo(f, 0o600); err != nil {
+			t.Fatalf("Mkfifo: %v", err)
+		}
+	}
+}
+
+// runUnblocked runs op with a 2 s deadline; an op still blocked 0.5 s past
+// it fails the test and is released by opening a writer on each FIFO.
+func runUnblocked(t *testing.T, name string, op func(context.Context) error, fifos []string) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- op(ctx) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(2500 * time.Millisecond):
+		t.Errorf("%s still blocked after %v", name, time.Since(start))
+		for _, f := range fifos { // a writer releases a blocked open
+			if w, werr := os.OpenFile(filepath.Clean(f), os.O_RDWR, 0); werr == nil {
+				if cerr := w.Close(); cerr != nil {
+					t.Error(cerr)
+				}
+			}
+		}
+		return <-done
 	}
 }

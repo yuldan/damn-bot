@@ -292,8 +292,8 @@ func (e *Engine) open(ctx context.Context, p string, flag int, perm fs.FileMode,
 func (e *Engine) openPath(ctx context.Context, abs, p string, flag int, perm fs.FileMode, approved bool) (*os.File, sandbox.Verdict, error) {
 	f, v, err := e.sb.OpenFile(ctx, abs, flag, perm)
 	if err == nil && v != sandbox.Inside {
-		if err := approval(v, p, approved); err != nil {
-			return nil, v, err
+		if aerr := approval(v, p, approved); aerr != nil {
+			return nil, v, aerr
 		}
 		f, err = e.sb.OpenApproved(ctx, abs, flag, perm)
 	}
