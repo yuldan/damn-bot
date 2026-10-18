@@ -13,7 +13,7 @@ Format sesuai `docs/HANDOFF-F0.md` §"Laporan pagi". Mesin: workstation (Kali, l
 | 6 | Korpus code tools C1–C3 + baseline `rg`/hermes | belum | `rg` lokal hanya 13.0.0 (`/usr/lib/code-oss/.../rg`), oracle spec 15.1.0 belum tersedia. |
 | 2 | `bench/h2h` head-to-head berbasis LLM | menunggu user | butuh kredensial/biaya |
 | 3 | Eval set E1–E10 + manifest | belum | di luar alokasi worker scaffold/bench |
-| 8 | Persistence spike `internal/ctxdb` | sebagian | DDL 0001–0008 (verbatim SPEC §11), store/mode/lease+fencing/purge 4 fase/gc/trash/journal recovery/barrier/migrasi/restore + 86 subtest `TestScenario/S001..S086`, `TestKill9Chaos`, `TestMultiProcess`: **semua lulus** tanpa `-race` (exit 0). Belum: (a) `go test -race` masih 1 merah (S015, TS-P06/P08); (b) LOC non-test 2.573 > 2.500 (E-19, TS-P10); (c) `make lint` ctxdb masih 119 temuan (250 → 119; mayoritas errcheck di test referensi); (d) protokol gateway worker + konsumen approval ditulis sebagai implementasi referensi di `_test.go` (TS-P09). |
+| 8 | Persistence spike `internal/ctxdb` | sebagian | DDL 0001–0008 (verbatim SPEC §11), store/mode/lease+fencing/purge 4 fase/gc/trash/journal recovery/barrier/migrasi/restore + 86 subtest `TestScenario/S001..S086`, `TestKill9Chaos`, `TestMultiProcess`: **semua lulus** tanpa `-race` (exit 0). Belum: (a) `go test -race`/`make test` masih 1 merah: S015 batas 200 ms/txn (lantai biaya SQLite di bawah `-race`, TS-P08); `db_busy` sudah hilang; (b) LOC non-test 2.598 > 2.500 (E-19, TS-P10); (c) `make lint` = 0 issues; (d) protokol gateway worker + konsumen approval ditulis sebagai implementasi referensi di `_test.go` (TS-P09). |
 | 9 | Errata backlog ADR-047 | belum | |
 
 ## Bukti
@@ -179,7 +179,7 @@ Semua skenario = subtest `go test ./internal/ctxdb -run 'TestScenario/S0NN'` (DB
 | 12 | S012_CronKanbanAutoWritesRejected | lulus | 55 | S055_RemoteEditNeverExecuted | lulus |
 | 13 | S013_ACPHoldsSessionExcluded | lulus | 56 | S056_SigtstpLongStopFenced | lulus |
 | 14 | S014_TwoPurgesConcurrent | lulus | 57 | S057_OldBinaryOpensDuringMigration | lulus |
-| 15 | S015_LargePurgeLockBudget | lulus tanpa `-race` (max tx ≪ 200 ms, duty ≤ 20 %); gagal di bawah `-race` (penulis lain dapat `db_busy`; TS-P06/P08) | 58 | S058_UpgradeMigratesWhileOldServeRuns | lulus |
+| 15 | S015_LargePurgeLockBudget | lulus tanpa `-race` (max tx 51 ms, duty 12 %); gagal di bawah `-race` hanya pada batas 200 ms/txn (267 ms; 0 `db_busy`; TS-P08) | 58 | S058_UpgradeMigratesWhileOldServeRuns | lulus |
 | 16 | S016_RestoreWhileServeAndTUIRun | lulus | 59 | S059_EditToDangerousClass | lulus |
 | 17 | S017_AutoRestoreBlockedWriterTimeout | lulus | 60 | S060_InvalidRowDeniedConsumed | lulus |
 | 18 | S018_RestoreClosesOpenJournals | lulus | 61 | S061_PurgeAfterWakeOrCtrlZ | lulus |
@@ -213,16 +213,18 @@ Ringkas: 86/86 ditulis; 86 lulus tanpa `-race`; di bawah `-race` #15 gagal (budg
 
 ### Persistence spike (#8) — Bukti
 
-Commit: `ad458b6` (DDL), `529c947` (core), `7d9f025` (purge), `1e2c128` (restore + tes), `0f5f91d` (langkah purge sebagai SQL bernama `queries.sql`), `c23b900` (WAL TRUNCATE hanya oleh proses terakhir), `8a935e8` (refactor: `os.Root`, helper query bersama, pointer event, batch purge berbatas waktu).
+Commit: `ad458b6` (DDL), `529c947` (core), `7d9f025` (purge), `1e2c128` (restore + tes), `0f5f91d` (langkah purge sebagai SQL bernama `queries.sql`), `c23b900` (WAL TRUNCATE hanya oleh proses terakhir), `8a935e8` (refactor: `os.Root`, helper query bersama, pointer event, batch purge berbatas waktu), `4c342e8` (jeda purge/gc ≥ backoff busy-handler, redo batch saat `db_busy`, unit adaptif mulai 1 event, Close idempoten, lint 0 termasuk test).
 
 | Perintah | Exit | Ringkasan |
 |---|---:|---|
 | `go vet ./internal/ctxdb/` | 0 | |
 | `go test -count=1 ./internal/ctxdb/` @ `8a935e8` | 0 | `ok … 20.3s` — TestScenario (86 subtest), TestKill9Chaos, TestMultiProcess, TestSmoke* |
 | `go test -race -count=3 -run TestMultiProcess ./internal/ctxdb/` @ `c23b900` | 0 | `ok` 66,5 s — akar masalah `SQLITE_BUSY`: `PRAGMA wal_checkpoint(TRUNCATE)` saat Close menahan lock penulis sambil menunggu pembaca; repro `TestCloseCheckpointDoesNotBlockWriters` gagal (731 ms) pada kode lama, lulus < 0,3 s sesudahnya |
-| `go test -count=1 -race ./internal/ctxdb/` @ `8a935e8` | 1 | 216 s; 0 DATA RACE; FAIL hanya S015 (5.000 event, clock nyata): `db_busy` sampai ke penulis TUI (busy_timeout 5 s terlampaui di bawah `-race`; P19/TS-P06). Batch purge kini berbatas waktu adaptif (target 25 ms/unit), tetapi di bawah instrumentasi race + `synchronous=FULL` satu transaksi masih bisa melampaui 5 s |
-| `golangci-lint run ./internal/ctxdb/...` @ `8a935e8` | 1 | temuan **250 → 119**; sisa: errcheck ~60 (mayoritas di file test referensi), govet shadow 20, gosec 8 (G304/G204 di test, G703), wrapcheck 5, unparam 4, noctx 3, sisanya lain |
-| `scc --no-gen` non-test `internal/ctxdb` @ `8a935e8` | — | **2.573 LOC** > budget 2.500 (E-19) |
+| `go test -count=1 -race ./internal/ctxdb/` @ `4c342e8` (= `make test`, exit 2) | 1 | 174 s; 0 DATA RACE; `cmd/damnbot`, `internal/archtest` ok; FAIL **hanya** S015: `max tx 267 ms` > 200 ms (min gap 111 ms, duty 20,5 %, 3 txn > 200 ms lalu fail-fast). `db_busy` ke penulis lain **tidak lagi terjadi** |
+| Diagnosa S015 (`-race`, log per-txn) | — | Sebelum perbaikan: min gap antar txn purge **9,4 ms** < langkah tidur busy-handler SQLite (s.d. 100 ms) → penulis lain kelaparan → `db_busy`. Ini bug penjadwalan purge, bukan artefak `-race`. Sesudah: jeda = max(4×hold, 110 ms) → min gap 110–130 ms, 0 `db_busy`. Sisa: dengan unit **1 event** pun setiap txn purge ≥ 175–400 ms di bawah `-race` (lantai biaya per-transaksi mesin SQLite modernc yang terinstrumentasi; tanpa `-race` max 51 ms) → I11 tak tercapai di bawah `-race` (TS-P08) |
+| `go test -count=1 ./internal/ctxdb/` @ `4c342e8` | 0 | lulus semua; S015 tanpa `-race`: 5.000 event, max tx 51 ms, min gap 111 ms, duty 12 % |
+| `make lint` @ `4c342e8` | 0 | `0 issues.` (seluruh repo, termasuk `internal/ctxdb` + file test); nolint baru: 4 (G204×2 re-exec/test literal, G703, contextcheck tidak ada) |
+| `scc --no-gen` non-test `internal/ctxdb` @ `4c342e8` | — | **2.598 LOC** > budget 2.500 (E-19, TS-P10) |
 
 ## Temuan spec
 
@@ -244,11 +246,11 @@ Commit: `ad458b6` (DDL), `529c947` (core), `7d9f025` (purge), `1e2c128` (restore
 | TS-P03 | `dmb_maint()`/`dmb_lease_token()` per koneksi; modernc mendaftarkan fungsi per-`Driver`, bukan per koneksi; `SQLITE_INNOCUOUS` tidak dapat diset. | Satu `sqlite.Driver` privat per Store (writer + reader); trigger berjalan karena `trusted_schema` default ON. Commit/rollback hook tersedia (`HookRegisterer`) — [INFERENCE SPEC §11.11.3] terverifikasi. | ADR: catat mekanisme ini; tambah `PRAGMA trusted_schema` eksplisit. |
 | TS-P04 | Validator payload "kunci lain berisi hex 64 → ditolak" bertentangan dengan `approval_request.preview_sha`/`args_sha` dan `payload_sha` carrier. | Daftar tertutup kunci non-ref: `preview_sha`, `args_sha`, `payload_sha`. | ADR errata §11.6 konvensi kunci. |
 | TS-P05 | Pemetaan RAISE → kode tertutup hanya mungkin dengan membaca teks error SQLite (bertentangan dgn "klasifikasi hanya errors.Is"). | Satu fungsi `classify`: kode `SQLITE_CONSTRAINT_TRIGGER` (1811) + kecocokan **persis** teks RAISE. | ADR: kecualikan `ctxdb.classify` dari `nostringclassify`. |
-| TS-P06 | Busy handler SQLite tidak adil: penulis yang terus menulis tanpa jeda dapat membuat penulis lain kehabisan `busy_timeout` (direproduksi: purge mendapat SQLITE_BUSY saat writer lain menulis berturut-turut). P19 ("0 `SQLITE_BUSY` ke user") bergantung pada laju penulis. | Test #15 memakai laju realistis (1 event/10 ms). | ADR: retry `BEGIN IMMEDIATE` berjitter di writer goroutine (netx/retry) atau antrean writer lintas proses. |
+| TS-P06 | (diperbarui) Akar masalah ditemukan: purge/gc mengambil lock lagi lebih cepat dari backoff busy-handler (≤ 100 ms) → penulis lain kelaparan; diperbaiki dengan jeda ≥ 110 ms. Catatan asli: Busy handler SQLite tidak adil: penulis yang terus menulis tanpa jeda dapat membuat penulis lain kehabisan `busy_timeout` (direproduksi: purge mendapat SQLITE_BUSY saat writer lain menulis berturut-turut). P19 ("0 `SQLITE_BUSY` ke user") bergantung pada laju penulis. | Test #15 memakai laju realistis (1 event/10 ms). | ADR: retry `BEGIN IMMEDIATE` berjitter di writer goroutine (netx/retry) atau antrean writer lintas proses. |
 | TS-P07 | "dmb_maint panic → reset": E-24 melarang `recover` di `internal/`, jadi panic mematikan proses; yang bisa diuji adalah abort goroutine. | Reset mode di `defer` + commit/rollback hook; diuji dengan `runtime.Goexit`. | Errata teks TestMaintResetOnPanic. |
 | TS-P08 | Budget waktu I11 (≤ 200 ms/tx) tidak bermakna di bawah `-race` (instrumentasi 5–10×), sedangkan E-55 menjalankan semua test dengan `-race`. | Test tetap ketat → merah di `-race` (jujur, tidak di-skip). | ADR: gate kinerja (I11, BenchmarkAppend*) dijalankan tanpa `-race` di job terpisah. |
 | TS-P09 | E-06 melarang modul gateway mengimpor ctxdb, tapi protokol poller/worker/outbox/approval (SELF-HEALING §5.1, §11.11.10) memerlukan transaksi ctxdb; lokasi produksinya tidak ditetapkan. | Spike: implementasi referensi di `gateway_ref_test.go`/`approval_ref_test.go` di atas `Tx` publik (guard DB tetap menegakkan invarian). | ADR: tetapkan lokasi (ctxdb vs `modules/host` storage) + budget. |
-| TS-P10 | Budget E-19 `ctxdb` 2.500 LOC terlalu kecil untuk cakupan §11 (purge 31 langkah, gc, barrier, restore, migrasi, recovery). Terukur 2.573 setelah refactor (dari 2.688) walau langkah purge sudah dipindah ke `queries.sql` (dikecualikan budget) dan protokol gateway/approval ke test. | Dilaporkan; gate `loc` merah. | ADR: budget `ctxdb` 3.200 (atau pecah `ctxdb/maint` 700). |
+| TS-P10 | Budget E-19 `ctxdb` 2.500 LOC terlalu kecil untuk cakupan §11 (purge 31 langkah, gc, barrier, restore, migrasi, recovery). Terukur 2.598 (2.688 → 2.573 → 2.598 setelah perbaikan starvation) walau langkah purge sudah dipindah ke `queries.sql` (dikecualikan budget) dan protokol gateway/approval ke test. | Dilaporkan; gate `loc` merah. | ADR: budget `ctxdb` 3.200 (atau pecah `ctxdb/maint` 700). |
 
 ## Blocker
 
