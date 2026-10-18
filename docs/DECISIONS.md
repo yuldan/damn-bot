@@ -1258,7 +1258,7 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-054 — Errata pasca-freeze: klarifikasi + perbaikan DDL V-13/V-15
 
-**Status:** Accepted 2026-10-18 (keputusan user). Menutup usulan ADR-E09, E11, E13, E14, E15, E17, E18, E19, E21, E22, E23, E24, E27, E28, E29, E30, E31, E32 (`docs/F0-REPORT.md` §"Errata backlog ADR-047"), backlog ADR-047 butir 2. V-13/V-15 mengubah DDL (fail-closed, normalisasi FTS) atas persetujuan eksplisit user; item lain yang mengubah perilaku/budget/invarian dipisah sebagai ADR-055..061 (Proposed).
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup usulan ADR-E09, E11, E13, E14, E15, E17, E18, E19, E21, E22, E23, E24, E27, E28, E29, E30, E31, E32 (`docs/F0-REPORT.md` §"Errata backlog ADR-047"), backlog ADR-047 butir 2. V-13/V-15 mengubah DDL (fail-closed, normalisasi FTS) atas persetujuan eksplisit user; item lain yang mengubah perilaku/budget/invarian dipisah sebagai ADR-055..061 (Accepted 2026-10-18).
 
 **Aturan penerapan.** ADR ini normatif untuk bagian terdampak. Teks yang sudah diterapkan: DDL SPEC §11 + `internal/ctxdb/migrations` (V-13, V-15) dan ENGINEERING E-19/E-39/§8 (V-10, V-20, V-29). Bagian lain dibaca dengan ADR ini sebagai pengganti teks lama.
 
@@ -1285,62 +1285,103 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Dampak terukur (SPEC §20).** Token/latensi/binary/dependency/LOC 0. DDL: V-13 menghapus 1 DEFAULT, V-15 menambah normalisasi 1 kolom FTS (belum ada data rilis; migrasi tidak diperlukan). Baris SCORECARD/MITIGATION: hanya teks V-06/V-20.
 
-**Konsekuensi.** (+) 18 dari 25 MINOR non-AF (V-06..V-31 kecuali V-12) tertutup; 7 sisanya = ADR-055..061 (Proposed). Dua lubang DDL fail-open/inkonsisten diperbaiki dengan test. (−) Teks lama di beberapa dokumen pendamping masih harus dibaca bersama ADR ini.
+**Konsekuensi.** (+) 18 dari 25 MINOR non-AF (V-06..V-31 kecuali V-12) tertutup; 7 sisanya = ADR-055..061 (Accepted 2026-10-18). Dua lubang DDL fail-open/inkonsisten diperbaiki dengan test. (−) Teks lama di beberapa dokumen pendamping masih harus dibaca bersama ADR ini.
 
 ## ADR-055 — Starlark: allowlist, `timeout_s`, mekanisme macOS (V-07)
 
-**Status:** Proposed 2026-10-18 — mengubah budget/perilaku; menunggu auditor. Usulan ADR-E10.
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-07 (usulan ADR-E10). Normatif untuk SPEC §9.2 dan EXEC-AND-CODING §B.7 (teks lama dibaca bersama ADR ini, seperti ADR-054). Diimplementasikan di F5 (`execute_code` + Starlark, GAP-COST-10); tidak ada kode F0 terdampak.
 
 **Konteks.** SPEC §9.2 mengizinkan "tool deferred/inti yang diizinkan approval", sedangkan EXEC-AND-CODING §B.7/COST-10 hanya 7 tool; batas waktu ≤ 30 s vs schema `timeout_s` 1–300; macOS `ulimit -v` vs `RLIMIT`.
 
-**Keputusan (usulan).** §9.2 merujuk allowlist 7 tool §B.7; `timeout_s` Starlark ≤ 30; mekanisme macOS disamakan; "sama dengan" → "mekanisme sama, cap 256 MiB".
+**Keputusan.**
+1. **Allowlist:** binding `tool(name, **args)` Starlark hanya untuk 7 tool §B.7: `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `web_fetch`, `shell` (tanpa `background`/`session`). Tool lain → `invalid_args`. Setiap call tetap melewati pipeline SPEC §4.3 (schema, sandbox, approval).
+2. **Waktu:** untuk `language = "starlark"`, `timeout_s` 1–30 (default 30); nilai > 30 → `invalid_args` (P3, tanpa clamp diam-diam). Bahasa lain tetap 1–300.
+3. **Memori:** mekanisme sama dengan baris memori §B.7 per OS, dengan cap tetap 256 MiB untuk proses anak `damnbot __starlark`: Linux `RLIMIT_AS`, macOS shim `damnbot __exec-shim` `setrlimit` (`RLIMIT_DATA`; `ulimit -v` tidak dipakai), Windows Job Object. Frasa "batas OS yang sama dengan `execute_code`" dibaca "mekanisme sama, cap 256 MiB".
 
-**Konsekuensi.** Mempersempit permukaan tool dan batas waktu (perubahan perilaku).
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency/LOC 0 (budget modul exec F5 tidak berubah). Permukaan tool Starlark menyempit ke 7 tool; batas waktu Starlark maks 30 s. Test F5: `TestStarlarkMemoryLimit`, `TestStarlarkStepLimit`, `BenchmarkProgrammaticBatch` tetap; kasus allowlist/`timeout_s` > 30 → `invalid_args` ditambahkan di suite schema `execute_code`.
+
+**Konsekuensi.** (+) Satu kontrak Starlark; tidak ada jalur ke tool di luar §B.7. (−) Skrip yang butuh > 30 s atau tool lain harus memakai bahasa lain / loop tool biasa.
 
 ## ADR-056 — Literal baris overflow katalog tool (V-09)
 
-**Status:** Proposed 2026-10-18 — menetapkan output golden model-facing; menunggu auditor. Usulan ADR-E12.
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-09 (usulan ADR-E12). Normatif untuk SPEC P1, §5.2 (katalog deferred), GAP-PROV-02, ADR-035. Diimplementasikan di F2 (`modules` + katalog `tool_search`); tidak ada kode F0 terdampak.
 
-**Keputusan (usulan).** Satu literal di SPEC §5.2 (mis. `- +<K> more groups: tool_search`) dirujuk P1/PROV-02/ADR-035; pengurutan alfabetis berlaku selalu, bukan hanya saat overflow.
+**Konteks.** Baris overflow katalog ditulis dalam tiga bentuk (`+N groups`, `- +<K> more groups: tool_search`, `+K more groups`), dan klausa (3) terbaca seolah pengurutan alfabetis hanya berlaku saat overflow. Golden test butuh satu literal.
 
-**Konsekuensi.** Golden prompt bergantung pada literal yang dipilih.
+**Keputusan.**
+1. Satu-satunya bentuk baris overflow (mode normal dan mode degradasi PROV-02): `- +<K> more groups: tool_search`, `<K>` = jumlah grup yang tidak ditampilkan (desimal, tanpa pemisah ribuan). Bentuk lain di P1, PROV-02, dan ADR-035 merujuk literal ini.
+2. Grup modul **selalu** diurutkan alfabetis (byte-wise, id modul), dengan atau tanpa overflow; overflow hanya memotong ekor daftar yang sudah terurut.
+
+**Dampak terukur (SPEC §20).** Token 0 (literal ≤ 15 tok, sudah masuk hitungan 450 ≤ 600); latensi/binary/dependency/LOC 0. Golden: `TestStableTierGolden`, `TestCatalogDeterministic`, `TestContextTierBudget/degraded` memakai literal ini.
+
+**Konsekuensi.** (+) Katalog byte-identik dan golden deterministik. (−) Mengubah literal = ADR baru.
 
 ## ADR-057 — Kriteria salvage `gateway_inbound`/`gateway_deliveries` (V-14)
 
-**Status:** Proposed 2026-10-18 — mendefinisikan perilaku recovery baru; menunggu auditor. Usulan ADR-E16.
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-14 (usulan ADR-E16). Normatif untuk SELF-HEALING §3.5 (salvage) dan SPEC §11.11. Diimplementasikan di F4 (salvage `heal` + tabel gateway); salvage belum ada di spike F0, jadi tidak ada kode F0 terdampak.
 
-**Keputusan (usulan).** `gateway_inbound`: insert dengan dedupe lalu UPDATE `event_id` NULL→nilai (sah menurut guard). `gateway_deliveries`: status "terjauh" menang (sent/uncertain atas queued), selaras GAP-REL-10.
+**Konteks.** Kriteria salvage `id >` maksimum backup tidak terdefinisi untuk `gateway_inbound` (baris backup `event_id NULL` vs DB rusak `event_id` terisi: INSERT gagal PK, satu-satunya UPDATE sah = NULL→nilai) dan melewatkan perubahan status `gateway_deliveries` (mutable) setelah backup.
 
-**Konsekuensi.** Salvage menjadi deterministik untuk tabel mutable.
+**Keputusan.**
+1. **`gateway_inbound`:** `INSERT … ON CONFLICT(platform, external_id) DO NOTHING` (bentuk ADR-052 AF-01), lalu `UPDATE … SET event_id = ? WHERE event_id IS NULL` bila baris salvage punya `event_id` dan baris hasil restore masih NULL (sah menurut `gwin_update_guard`). `event_id` non-NULL yang sudah ada tidak pernah diubah.
+2. **`gateway_deliveries`:** dicocokkan per `idem_key` (bukan `id >`); status "terjauh" menang dengan urutan `queued` < `failed` < `sending` < `uncertain` < `dead` < `sent`; status sama → `updated_at` lebih besar. Status yang mungkin sudah terkirim (`sending`/`uncertain`/`sent`) tidak pernah mundur ke status yang memicu kirim otomatis, selaras GAP-REL-10 (bagian `sent` tidak pernah diulang).
+
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency/LOC 0; DDL 0 (memakai guard dan UNIQUE yang ada). Test F4: kasus salvage gateway di `TestAutoRestore` (inbound NULL→nilai, delivery `sent` di DB rusak vs `queued` di backup → 0 kirim ulang).
+
+**Konsekuensi.** (+) Salvage deterministik untuk tabel mutable; 0 duplikat keluar setelah auto-restore. (−) Salvage gateway membaca baris DB rusak per `idem_key`, bukan rentang `id`.
 
 ## ADR-058 — Satu rumus estimator token (V-18)
 
-**Status:** Proposed 2026-10-18 — mengubah perhitungan budget; menunggu auditor. Usulan ADR-E20.
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-18 (usulan ADR-E20). Normatif untuk SPEC §4.5 dan GAP-COST-09. Diimplementasikan di F2 (budget/compaction, GAP-COST-09); tidak ada kode F0 terdampak (harness `bench/budget` memakai tokenizer o200k_base, bukan estimator runtime).
 
-**Keputusan (usulan).** SPEC §4.5 merujuk COST-09 sebagai satu-satunya rumus; default rasio sesi tanpa ledger = turunan per-script; `bytes/3,6` dihapus.
+**Konteks.** Ada tiga definisi normatif estimator token: unit byte vs char, default 3,6 vs 3,0 vs per-script, kalibrasi satu call vs EMA.
 
-**Konsekuensi.** Angka budget/compaction berubah untuk sesi tanpa ledger.
+**Keputusan.**
+1. GAP-COST-09 adalah satu-satunya rumus estimator runtime: `prompt_tokens` nyata terakhir + delta lokal; delta = Σ char / rasio per script (Latin 4, Kiril/Arab/Devanagari 2, CJK 1 char/tok) × faktor kalibrasi EMA (`input_tokens`/`est_input_tokens`, dibatasi 0,7–1,5), diturunkan ulang dari ≤ 50 baris `usage_ledger` `purpose='turn'` saat sesi di-load.
+2. Sesi tanpa baris ledger: rasio per script tanpa kalibrasi (faktor 1,0).
+3. `ceil(bytes/3,6)` di SPEC §4.5 dihapus; §4.5 merujuk COST-09.
+
+**Dampak terukur (SPEC §20).** Token model 0; latensi/binary/dependency/LOC 0; DDL 0 (`usage_ledger.est_input_tokens` sudah ada). Angka pemicu budget/compaction berubah untuk sesi tanpa ledger (estimasi per script, bukan per byte). Test F2: `TestTokenEstimatorCalibration` (korpus en/id/ru/ja/gambar, rasio estimasi/real 0,9–1,1; SCORECARD GAP-COST-09).
+
+**Konsekuensi.** (+) Satu rumus; teks non-Latin tidak lagi salah estimasi ~2×. (−) Sesi baru tanpa ledger memakai rasio statis sampai call pertama.
 
 ## ADR-059 — Daftar frasa tertunda SPEC §20 (V-23)
 
-**Status:** Proposed 2026-10-18 — menetapkan isi gate dokumen; menunggu auditor. Usulan ADR-E25.
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-23 (usulan ADR-E25). Normatif untuk SPEC §20 (`TestSpecNoPendingAmendments`, `testdata/spec_pending_phrases.txt`). Diimplementasikan di F1 bersama gate dokumen `TestSpecDocs` (belum ada di F0; tidak ada kode F0 terdampak).
 
-**Keputusan (usulan).** Daftar literal, case-sensitive (mis. `Usulan:`, `Usulan resolusi:`, `diterapkan saat implementasi`, `menunggu persetujuan`, `TBD`); "kandidat freeze (menunggu verifikasi …)" di baris Status/§20 bukan frasa tertunda.
+**Konteks.** Isi daftar frasa tidak didefinisikan. Bila "Usulan" dicocokkan apa adanya, 11 header tabel di PROVIDERS dan EDGE-CASES ("Usulan Damn-Bot", "Usulan regression test") membuat gate merah; bila daftar memuat "menunggu …", baris Status SPEC dan §20 ikut merah.
 
-**Konsekuensi.** Gate dokumen menjadi deterministik; isi daftar menentukan dokumen mana yang merah.
+**Keputusan.**
+1. Isi `spec_pending_phrases.txt` = tepat 5 literal, case-sensitive, dicocokkan sebagai substring apa adanya (bukan regex): `Usulan:`, `Usulan resolusi:`, `diterapkan saat implementasi`, `menunggu persetujuan`, `TBD`.
+2. "kandidat freeze (menunggu verifikasi …)" di baris Status SPEC dan §20 bukan frasa tertunda (tidak cocok dengan literal mana pun). Header tabel "Usulan …" tanpa titik dua juga tidak cocok.
+3. Daftar pengecualian dokumen (§20, ADR-037) ditambah entri (6): paragraf Keputusan ADR-059 ini (definisi daftar) dan `docs/F0-REPORT.md` §"Errata backlog ADR-047" (teks usulan asli, historis).
+
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency/LOC 0. Hit di luar pengecualian per 2026-10-18: 0 (kemunculan yang ada hanya di SPEC §22.2 historis dan entri (6)).
+
+**Konsekuensi.** (+) Gate dokumen deterministik. (−) Menambah frasa atau pengecualian = ADR baru.
 
 ## ADR-060 — Enkripsi bundle diagnostik (V-24)
 
-**Status:** Proposed 2026-10-18 — memilih perilaku user-visible; menunggu auditor/user. Usulan ADR-E26.
+**Status:** Accepted 2026-10-18 (keputusan user, opsi a). Menutup V-24 (usulan ADR-E26). Normatif untuk SPEC §10 (`doctor bundle`), CROSS-CUTTING §1.7, GAP-SEC-17; teks "selalu terenkripsi" di SPEC §10 dan CROSS-CUTTING §1.7 dibaca bersama ADR ini. Diimplementasikan di F8 (GAP-SEC-17); tidak ada kode F0 terdampak.
 
-**Keputusan (usulan, pilih satu).** (a) default zip lokal ter-redaksi `0600`, `--upload` = enkripsi ke kunci maintainer; atau (b) selalu terenkripsi, `--upload` dihapus/diganti nama. SPEC §10 dan CROSS-CUTTING §1.7 disamakan.
+**Konteks.** SEC-17 berarti tanpa `--upload` hasilnya zip lokal tidak terenkripsi; SPEC §10 dan CROSS-CUTTING §1.7 menyatakan selalu terenkripsi.
 
-**Konsekuensi.** Menentukan kontrak privasi bundle.
+**Keputusan.**
+1. `damnbot doctor bundle [--out P]` default menulis **zip lokal ter-redaksi** (redaksi §14.3 + PII sesuai SEC-17) dengan mode file `0600` (ditulis ke temp `0600` lalu `rename`; Windows: ACL hanya user). Tidak terenkripsi.
+2. `--upload` = enkripsi bundle yang sama ke kunci publik maintainer (X25519, embedded) dan menyimpan file terenkripsi untuk dilampirkan manual; 0 host upload/pastebin di kode. Tidak ada `--no-redact`.
+
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency/LOC 0. Verifikasi F8 (SEC-17): grep kode 0 host pastebin; test mode file bundle = `0600`; test `--upload` menghasilkan ciphertext yang hanya terbuka dengan kunci privat fixture.
+
+**Konsekuensi.** (+) User bisa memeriksa isi bundle sebelum dikirim; kontrak privasi satu sumber. (−) Zip lokal tidak terenkripsi; perlindungannya mode `0600` + redaksi.
 
 ## ADR-061 — Himpunan EC-PLAT Telegram untuk gate F4 (V-31)
 
-**Status:** Proposed 2026-10-18 — mengubah cakupan gate F4; menunggu auditor. Usulan ADR-E33.
+**Status:** Accepted 2026-10-18 (keputusan user, opsi a). Menutup V-31 (usulan ADR-E33). Normatif untuk ROADMAP F4 (acceptance "EC-PLAT Telegram") dan tabel kategori EC; teks ROADMAP "15 entri" dibaca bersama ADR ini. Gate dijalankan di F4; tidak ada kode F0 terdampak.
 
-**Keputusan (usulan, pilih satu).** ROADMAP F4 menyebut ID eksplisit (mis. "EC-PLAT-001..023 kecuali 008"), atau tanda "(Telegram)" ditambahkan di 001/002/003/007 dan jumlahnya menjadi 19.
+**Konteks.** Bila hanya entri bertanda "(Telegram)" yang dihitung (009–023), empat entri Telegram lain (001/002/003/007) jatuh ke gate F7.
 
-**Konsekuensi.** Empat entri Telegram berpindah dari gate F7 ke F4.
+**Keputusan.** Gate F4 "EC-PLAT Telegram" = daftar ID eksplisit berikut (19 entri), diturunkan dari `docs/EDGE-CASES-hermes.md` §"Platform chat" dengan memeriksa setiap entri: EC-PLAT-001, 002, 003, 007 (gejala menyebut Telegram) dan EC-PLAT-009..023 (bertanda "(Telegram)"). Tidak termasuk: EC-PLAT-004, 005, 006, 008 (gateway umum, tanpa kaitan Telegram) dan EC-PLAT-024 (WhatsApp); kelimanya tetap di gate "EC-PLAT (non-Telegram)" F7. Contoh usulan "001..023 kecuali 008" tidak dipakai karena memasukkan 004–006.
+
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency/LOC 0. Cakupan gate F4: 15 → 19 entri `TestEdgeCases/EC-PLAT-*`; gate F7 berkurang 4 entri (Σ EC-PLAT tetap 24).
+
+**Konsekuensi.** (+) Semua entri Telegram dibuktikan di fase Telegram. (−) Acceptance F4 bertambah 4 regression test.
