@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"regexp"
 	"strings"
 	"sync"
@@ -38,18 +39,42 @@ type WriteArgs struct {
 	Tag     *string `json:"tag,omitempty"`
 }
 
-// pathLock serializes edits of one resolved path inside this process.
-func (e *Engine) pathLock(p string) func() {
-	e.mu.Lock()
-	m, ok := e.locks[p]
-	if !ok {
-		m = &sync.Mutex{}
-		e.locks[p] = m
+// pathMu is one per-file edit lock; n counts holders and waiters.
+type pathMu struct {
+	sync.Mutex
+	n int
+}
+
+// pathLock serializes edits of one file inside this process (CT27-5): the
+// key is the symlink-resolved path, case-folded where file systems
+// usually are (Windows, macOS), so aliases share a lock; unused locks are
+// dropped.
+func (e *Engine) pathLock(ctx context.Context, p string) func() {
+	key := e.abs(p)
+	if _, r, err := e.sb.Check(ctx, key, sandbox.OpRead); err == nil {
+		key = r
 	}
-	e.touch()
+	if e.fold || runtime.GOOS == "darwin" {
+		key = strings.ToLower(key)
+	}
+	e.mu.Lock()
+	m := e.locks[key]
+	if m == nil {
+		m = &pathMu{}
+		e.locks[key] = m
+	}
+	m.n++
 	e.mu.Unlock()
+	e.touch()
 	m.Lock()
-	return m.Unlock
+	return func() {
+		m.Unlock()
+		e.mu.Lock()
+		if m.n--; m.n == 0 {
+			delete(e.locks, key)
+		}
+		e.mu.Unlock()
+	}
 }
 
 // current is a target opened for an edit with its verified bytes.
@@ -152,8 +177,13 @@ func docLines(raw []byte) []string {
 	if err != nil {
 		return strings.Split(string(raw), "\n")
 	}
-	out := make([]string, len(d.lines))
-	for i, l := range d.lines {
+	return contents(d.lines)
+}
+
+// contents returns the logical content of each line.
+func contents(ls []docLine) []string {
+	out := make([]string, len(ls))
+	for i, l := range ls {
 		out[i] = l.content
 	}
 	return out
@@ -176,7 +206,7 @@ func (e *Engine) Edit(ctx context.Context, a EditArgs, o Opts) (res Result, err 
 	case len(a.Edits) == 0 || len(a.Edits) > maxEdits:
 		return res, toolErr(CodeInvalidArgs, "", "/edits: 1..%d items", maxEdits)
 	}
-	unlock := e.pathLock(e.abs(a.Path))
+	unlock := e.pathLock(ctx, a.Path)
 	defer unlock()
 	c, err := e.openCurrent(ctx, a.Path, a.Tag, o)
 	if c != nil {
@@ -201,7 +231,7 @@ func (e *Engine) Edit(ctx context.Context, a EditArgs, o Opts) (res Result, err 
 	if !ok {
 		return res, toolErr(CodeInvalidArgs, "", "%s: result is not representable in %s", c.t.rel, d.enc)
 	}
-	ci, err := e.commit(ctx, c.t, c.key, c.fi.Mode().Perm(), out)
+	ci, err := e.commit(ctx, c.t, c.key, keepMode(c.fi), out)
 	if err != nil {
 		return res, err
 	}
@@ -223,13 +253,7 @@ func (e *Engine) changed(c *current, d *doc, lines []docLine, out []byte, ci *co
 		e.cache.read.put(ci.key, readEntry{sum: sha256.Sum256(out), data: out, at: time.Now()}, len(out)+64)
 		e.mu.Unlock()
 	}
-	a, b := make([]string, len(d.lines)), make([]string, len(lines))
-	for i, l := range d.lines {
-		a[i] = l.content
-	}
-	for i, l := range lines {
-		b[i] = l.content
-	}
+	a, b := contents(d.lines), contents(lines)
 	ops, ok := lineDiff(a, b)
 	add, del := diffStat(ops)
 	body := ""
@@ -241,14 +265,9 @@ func (e *Engine) changed(c *current, d *doc, lines []docLine, out []byte, ci *co
 	if strings.HasSuffix(what, " edit") && !strings.HasPrefix(what, "1 ") {
 		what += "s"
 	}
-	verb := "edited"
+	head := fmt.Sprintf("edited %s #%s→#%s · %s · +%d -%d", c.t.rel, c.tag, tag, what, add, del)
 	if c.tag == "" {
-		verb = "created"
-	}
-	head := fmt.Sprintf("%s %s #%s→#%s · %s · +%d -%d", verb, c.t.rel, c.tag, tag, what, add, del)
-	if c.tag == "" {
-		head = fmt.Sprintf("%s %s #%s · %d lines", verb, c.t.rel, tag, len(lines))
-		body = ""
+		head, body = fmt.Sprintf("created %s #%s · %d lines", c.t.rel, tag, len(lines)), ""
 	}
 	meta := map[string]any{
 		"tag": tag, "replacements": repl, "diff_stat": fmt.Sprintf("+%d -%d", add, del),
@@ -284,7 +303,7 @@ func (e *Engine) Write(ctx context.Context, a WriteArgs, o Opts) (res Result, er
 		return res, toolErr(CodeInvalidArgs, "", "/tag: must match ^[0-9a-f]{8}$")
 	}
 	abs := e.abs(a.Path)
-	unlock := e.pathLock(abs)
+	unlock := e.pathLock(ctx, a.Path)
 	defer unlock()
 	if _, lerr := os.Lstat(abs); errors.Is(lerr, fs.ErrNotExist) {
 		return e.create(ctx, a, abs, o)
@@ -311,7 +330,7 @@ func (e *Engine) Write(ctx context.Context, a WriteArgs, o Opts) (res Result, er
 	if !ok {
 		return res, toolErr(CodeInvalidArgs, "", "%s: content is not representable in %s", c.t.rel, d.enc)
 	}
-	ci, err := e.commit(ctx, c.t, c.key, c.fi.Mode().Perm(), out)
+	ci, err := e.commit(ctx, c.t, c.key, keepMode(c.fi), out)
 	if err != nil {
 		return res, err
 	}

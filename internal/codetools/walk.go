@@ -50,6 +50,21 @@ func (s *walkStats) add(e *Engine, n *dirNode) {
 	}
 }
 
+// footer writes the "skipped:" lines; denied and unread are per-file scan
+// skips added to the walk counters (s may be nil).
+func (s *walkStats) footer(b *strings.Builder, denied, unread int) {
+	var paths []string
+	if s != nil {
+		denied, unread, paths = denied+s.denied, unread+s.nUnread, s.unreadable
+	}
+	if unread > 0 {
+		fmt.Fprintf(b, "skipped: %d unreadable %s\n", unread, strings.Join(paths, " "))
+	}
+	if denied > 0 {
+		fmt.Fprintf(b, "skipped: %d denied\n", denied)
+	}
+}
+
 // fileJob is one file in DFS order; out receives its scan result. A job
 // with stat set carries a directory's skip counts instead, so footers only
 // count what the ordered output reached (CT-22).
@@ -259,8 +274,8 @@ func (w *walker) work(ctx context.Context) error {
 // hidden/ignore/deny/prune rules of CODE-TOOLS §2.3 and §8.
 func (w *walker) readDir(ctx context.Context, n *dirNode) {
 	defer close(n.done)
-	f, err := w.e.sb.OpenResolved(ctx, n.abs, w.spec.approved)
-	if err != nil {
+	f, _, err := w.e.sb.OpenResolved(ctx, n.abs, w.spec.approved)
+	if err != nil || f == nil {
 		n.unread = ctx.Err() == nil
 		return
 	}

@@ -20,20 +20,23 @@ func (s *Sandbox) Denied(absResolved string) bool { return s.denied(absResolved)
 // the O_NOFOLLOW walk with its post-open verification, or os.Root plus
 // final-path verification on Windows), so a path that opens is its own
 // resolved path. deny_paths wins (ErrDeniedPath), on the path and after
-// the open on the handle identity (hard links to deny targets); a symlink anywhere on the
-// path, including one swapped in after the walk listed it, fails with
-// ErrOutsideWorkspace. Outside every root it needs approved, else
-// ErrOutsideWorkspace.
-func (s *Sandbox) OpenResolved(ctx context.Context, absResolved string, approved bool) (*os.File, error) {
+// the open on the handle identity (hard links to deny targets); a symlink
+// anywhere on the path, including one swapped in after the walk listed
+// it, fails with ErrOutsideWorkspace. Like OpenFile it returns (nil,
+// verdict, nil) when the open needs approval: OutsideRoot outside every
+// root, HardLinked for a regular file with more than one link, checked on
+// the handle (S16-7). approved accepts both; the returned verdict is
+// still the path's.
+func (s *Sandbox) OpenResolved(ctx context.Context, absResolved string, approved bool) (*os.File, Verdict, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("sandbox: %w", err)
+		return nil, Inside, fmt.Errorf("sandbox: %w", err)
 	}
 	p := filepath.Clean(absResolved)
 	if !filepath.IsAbs(p) {
-		return nil, ErrInvalidPath
+		return nil, Inside, ErrInvalidPath
 	}
 	if s.denied(p) {
-		return nil, ErrDeniedPath
+		return nil, Inside, ErrDeniedPath
 	}
 	for _, r := range s.roots {
 		if !hasPathPrefix(p, r.path, s.foldRoot) {
@@ -47,23 +50,35 @@ func (s *Sandbox) OpenResolved(ctx context.Context, absResolved string, approved
 			}
 		}
 		f, err := s.openResolved(r.path, rel, p)
-		if err != nil {
-			return nil, err
+		if err == nil {
+			f, err = s.recheckIdentity(f)
 		}
-		return s.recheckIdentity(f)
+		if err != nil {
+			return nil, Inside, err
+		}
+		if !approved {
+			if n, lerr := linkCountFile(f); lerr != nil || n > 1 {
+				return refuseLinked(f, lerr)
+			}
+		}
+		return f, Inside, nil
 	}
 	if !approved {
-		return nil, ErrOutsideWorkspace
+		return nil, OutsideRoot, nil
 	}
-	dir, base := filepath.Dir(p), filepath.Base(p)
-	if dir == p {
-		base = "."
+	// Outside every root: the same no-symlink open, from the volume root,
+	// so no ancestor can be swapped for a symlink (CT27-1), plus the full
+	// post-open deny re-check of OpenApproved.
+	vol := filepath.VolumeName(p) + string(filepath.Separator)
+	rel := "."
+	if len(p) > len(vol) {
+		rel = p[len(vol):]
 	}
-	f, err := s.openBeneath(dir, base, p, os.O_RDONLY, 0)
-	if err != nil {
-		return nil, err
+	f, err := s.openResolved(vol, rel, p)
+	if err == nil {
+		f, err = s.recheckDeny(f)
 	}
-	return s.recheckIdentity(f)
+	return f, OutsideRoot, err
 }
 
 // recheckIdentity is the identity half of recheckDeny (S16-2): the opened

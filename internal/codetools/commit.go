@@ -112,7 +112,7 @@ func (e *Engine) syncDir(ctx context.Context, dir string, outside bool) error {
 	if !dirSyncable {
 		return nil
 	}
-	d, err := e.sb.OpenResolved(ctx, dir, outside)
+	d, err := e.openResolved(ctx, dir, outside)
 	if err != nil {
 		return fmt.Errorf("codetools: open dir: %w", err)
 	}
@@ -181,9 +181,9 @@ func fillErr(op, rel string, err error) error {
 
 // readBack re-reads the committed file and compares sha256 (TOOL-03).
 func (e *Engine) readBack(ctx context.Context, t *target, ci *commitInfo) (err error) {
-	f, err := e.sb.OpenResolved(ctx, t.resolved, t.outside)
+	f, err := e.openResolved(ctx, t.resolved, t.outside)
 	if err != nil {
-		return mapOpenErr(t.rel, err)
+		return err
 	}
 	defer closeInto(&err, f)
 	h := sha256.New()

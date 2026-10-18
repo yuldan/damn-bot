@@ -195,3 +195,28 @@ func TestCodeToolsDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// TestHardLinkApproval (S16-7): a hard-linked file needs approval for
+// read_file and grep on its path; a directory grep skips it and says so.
+func TestHardLinkApproval(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	v.put(t, "a.txt", "needle a\n")
+	outside := filepath.Join(v.out, "shared.txt")
+	writeFile(t, outside, "needle shared\n")
+	if err := os.Link(outside, filepath.Join(v.root, "linked.txt")); err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	ctx := context.Background()
+	_, err := v.e.Read(ctx, ReadArgs{Path: "linked.txt"}, Opts{})
+	wantCode(t, err, CodeOutsideWorkspace)
+	_, err = v.e.Grep(ctx, &GrepArgs{Pattern: "needle", Path: "linked.txt"}, Opts{})
+	wantCode(t, err, CodeOutsideWorkspace)
+	if r, err := v.e.Read(ctx, ReadArgs{Path: "linked.txt"}, Opts{Approved: true}); err != nil || !strings.Contains(r.Content, "needle shared") {
+		t.Errorf("approved read = %q, %v", r.Content, err)
+	}
+	r := grep(t, v, &GrepArgs{Pattern: "needle"})
+	if r.Meta["files"] != 1 || !strings.Contains(r.Content, "skipped: 1 hard-linked") {
+		t.Errorf("grep over a hard link:\n%s", r.Content)
+	}
+}
