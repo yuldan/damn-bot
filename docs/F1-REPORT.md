@@ -9,7 +9,8 @@ Keputusan/deviasi: ADR-094. Mesin lokal: workstation Kali linux/amd64, `go1.26.9
 | PR | Isi | Baris Go non-test | Hasil |
 |---|---|---:|---|
 | #2 `f1-analyzers` | `tools/analyzers` (nohttpclient + vettool), pin tool dev, Makefile final, `scripts/pr-meta.sh`, `pr-meta.yml`, `testdata/docs_exclusions.txt` | 287 | hijau (ci 39137619713, meta 39137619723, pr-meta 39137619713); di-merge rebase → `45b61f1` |
-| #1 `f1-ci-hardening` | semua gate lain, archtest, testutil, PHASE, ctxdb Windows, dokumen, ADR-094 | 363 | lihat §Actions |
+| #1 `f1-ci-hardening` | semua gate lain, archtest, testutil, PHASE, ctxdb Windows, dokumen, ADR-094 | 363 | hijau, 22 job ci + meta (41/41 DETECTED) + pr-meta (ci 39139154438, meta 39139154412, pr-meta 39139154411); di-merge rebase → `ad961eb`; push main: ci 39139710761, meta 39139710788 hijau |
+| #3 `f1-ci-followup` | `windows-ctxdb.yml`: `RACE` kosong untuk arm64 (ekspresi `''` falsy), laporan ini | 0 | lihat PR |
 
 PR #1 awal (650 baris, satu PR) ditolak gate `pr-size` (642 > 600) — gate bekerja; pekerjaan dipecah, tanpa label pengecualian.
 
@@ -53,6 +54,12 @@ ok  github.com/damnbot/damnbot/internal/ctxdb  459.680s
 ```
 
 Akar masalah S017/S026/S057/S071: `MaintenancePending` (`return markerPresent(r) && r.Close() == nil`) tidak menutup `os.Root` saat marker tidak ada → handle direktori bocor → `RemoveAll` data dir gagal di Windows. Direproduksi di Linux dengan probe `/proc/self/fd` (4 skenario yang sama), lalu diperbaiki di kode produksi. `TestKill9Chaos`: DB salinan dihapus sebelum `db.Close()` (bug test).
+
+Konfirmasi arm64 (workflow `windows-ctxdb`, `workflow_dispatch` arch=arm64, run 39140395920, windows-11-arm, tanpa `-race`): `ok internal/ctxdb 92.729s`; PASS TestFileLockSemantics, TestPlatformNAList, TestKill9Chaos, TestPhaseFile, S017, S023, S026, S044, S057, S071. Matrix penuh PR #1: `test (windows-latest, -race, 1)` `ok internal/ctxdb 290.817s`, `test (windows-11-arm, 0)` `ok internal/ctxdb 88.965s`.
+
+### Proteksi `main`
+
+`PATCH /repos/yuldan/damn-bot/branches/main/protection/required_status_checks` (strict = true), diverifikasi dengan GET: PR wajib, 0 approval, `enforce_admins` = false, 24 check wajib: `lint`, `test (ubuntu-latest, -race, 1)`, `test (ubuntu-24.04-arm, -race, 1)`, `test (macos-latest, -race, 1)`, `test (macos-15-intel, -race, 1)`, `test (windows-latest, -race, 1)`, `test (windows-11-arm, 0)`, `test-timing`, `vet-cross`, `build-matrix`, `fuzz (1)`, `fuzz (2)`, `fuzz (3)`, `coverage`, `deadcode`, `perf`, `size`, `loc-budget`, `supply-chain`, `vuln`, `bench-budget`, `phase-acceptance`, `meta-test`, `pr-meta`.
 
 ### Perintah lokal (exit code)
 
