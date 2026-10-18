@@ -1,0 +1,15 @@
+# Daftar pengecualian dokumen (SPEC §20, ADR-037, ADR-059; laporan: ADR-078 AUD-056).
+# Satu entri per baris: `<path>` = seluruh file (glob diizinkan), `<path>#<anker>` = bagian/paragraf.
+# Dipakai TestSpecNoPendingAmendments dan TestCLIDocsMatchHelp (semua entri) serta spec-guard
+# `scripts/pr-meta.sh` (hanya entri seluruh file). Menambah entri = ADR baru (SPEC §20).
+SPEC.md#22.2-22.4 historis
+docs/OPEN-QUESTIONS.md
+docs/GAP-SWEEP.md
+docs/REVIEW-1.0.md
+docs/DECISIONS.md#paragraf (Historis …)
+docs/DECISIONS.md#ADR-059 Keputusan (definisi daftar)
+docs/F0-REPORT.md#Errata backlog ADR-047
+# Laporan (bukan spec; AUD-056): tidak dipantau spec-guard.
+docs/F[0-9]-REPORT.md
+docs/AUDIT-*.md
+docs/HANDOFF-*.md
