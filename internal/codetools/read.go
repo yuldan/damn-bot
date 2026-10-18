@@ -22,6 +22,8 @@ const (
 	lineMaxChars     = 2000
 	fullHashMax      = 8 << 20  // full-content tag; above: stat-tag
 	inMemoryMax      = 64 << 20 // UTF-16 decode and string edits (§5.4)
+	tailChunk        = 64 << 10
+	checkpointLines  = 1000
 )
 
 // ReadArgs are the read_file arguments (CODE-TOOLS §4.1).
@@ -65,10 +67,13 @@ func (e *Engine) Read(ctx context.Context, a ReadArgs, o Opts) (res Result, err 
 	if err := f.sniff(); err != nil {
 		return res, err
 	}
+	if a.Outline {
+		return e.outline(ctx, f, off, o)
+	}
 	if f.binary {
 		return f.binaryResult(e), nil
 	}
-	return e.readText(f, off, limit, o)
+	return e.readText(ctx, f, off, limit, o)
 }
 
 // fileView is an opened file with its sniffed head.
@@ -186,7 +191,10 @@ func logical(raw []byte, enc textEnc) []byte {
 	return text
 }
 
-func (e *Engine) readText(f *fileView, off, limit int, o Opts) (Result, error) {
+func (e *Engine) readText(ctx context.Context, f *fileView, off, limit int, o Opts) (Result, error) {
+	if f.key.size > fullHashMax && f.enc.enc == EncUTF8 {
+		return e.readLarge(ctx, f, off, limit, o)
+	}
 	raw, sum, err := e.loadAll(f)
 	if err != nil {
 		return Result{}, err
@@ -260,6 +268,7 @@ type header struct {
 	first, count, total int
 	enc                 textEnc
 	eol                 string
+	fromEnd             bool // numbering=from-end (tail before the index is ready)
 	invalid             int
 }
 
@@ -313,9 +322,16 @@ func (p *page) result(e *Engine, t *target, h *header, next int) Result {
 	if h.count == 0 {
 		last = h.first - 1
 	}
-	fmt.Fprintf(&b, "%s #%s · L%d-%d/%d · %s %s", h.rel, h.tag, h.first, last, h.total, h.enc, h.eol)
+	if h.fromEnd {
+		fmt.Fprintf(&b, "%s #%s · L%d..-1/? · %s %s", h.rel, h.tag, h.first, h.enc, h.eol)
+	} else {
+		fmt.Fprintf(&b, "%s #%s · L%d-%d/%d · %s %s", h.rel, h.tag, h.first, last, h.total, h.enc, h.eol)
+	}
 	if h.invalid > 0 {
 		fmt.Fprintf(&b, " · invalid_utf8=%d", h.invalid)
+	}
+	if h.fromEnd {
+		b.WriteString(" · numbering=from-end")
 	}
 	b.WriteByte('\n')
 	b.WriteString(p.b.String())
