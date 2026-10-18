@@ -7,7 +7,9 @@ import "time"
 const (
 	readCacheCap  = 16 << 20 // file bytes ≤ readCacheFile + sha256
 	readCacheFile = 2 << 20
+	indexCacheCap = 4 << 20  // line-offset checkpoints
 	snapshotCap   = 16 << 20 // stale_read diff snapshots, per session
+	outlineCap    = 4 << 20
 	idleRelease   = 10 * time.Minute
 	racyWindow    = 2 * time.Second
 )
@@ -103,16 +105,20 @@ type tagEntry struct {
 }
 
 type caches struct {
-	read  *lru[fileKey, readEntry]
-	snaps *lru[string, []byte] // tagKey → content at tag time (≤ readCacheFile)
-	tags  map[string]tagEntry  // tagKey(resolved, tag)
+	read     *lru[fileKey, readEntry]
+	index    *lru[fileKey, *lineIndex]
+	snaps    *lru[string, []byte] // tagKey → content at tag time (≤ readCacheFile)
+	outlines *lru[fileKey, *outlined]
+	tags     map[string]tagEntry // tagKey(resolved, tag)
 }
 
 func newCaches() *caches {
 	return &caches{
-		read:  newLRU[fileKey, readEntry](readCacheCap),
-		snaps: newLRU[string, []byte](snapshotCap),
-		tags:  map[string]tagEntry{},
+		read:     newLRU[fileKey, readEntry](readCacheCap),
+		index:    newLRU[fileKey, *lineIndex](indexCacheCap),
+		snaps:    newLRU[string, []byte](snapshotCap),
+		outlines: newLRU[fileKey, *outlined](outlineCap),
+		tags:     map[string]tagEntry{},
 	}
 }
 

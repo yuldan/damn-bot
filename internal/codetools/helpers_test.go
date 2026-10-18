@@ -82,5 +82,19 @@ func wantCode(t testing.TB, err error, c Code) {
 	}
 }
 
+// metaStr is a string Meta field of r ("" when absent).
+func metaStr(r *Result, key string) string {
+	s, ok := r.Meta[key].(string)
+	if !ok {
+		return ""
+	}
+	return s
+}
+
 // firstLine is the header line of a result.
 func firstLine(s string) string { h, _, _ := strings.Cut(s, "\n"); return h }
+
+// bytes reports the cached payload bytes (CT-35 tests).
+func (c *caches) bytes() int {
+	return c.read.used + c.index.used + c.snaps.used + c.outlines.used
+}
