@@ -49,17 +49,28 @@ type Runner struct {
 	Driver    string   // path absolut hermes_driver.py
 	WS        string   // workspace fixture
 	Env       []string // HOME/HERMES_HOME di /tmp
-	CLIRuns   int
-	cliCache  map[string]*Result
+	// Bind (opsional) = {src, dst}: src di-bind-mount ke dst (dst sudah ada) di namespace mount
+	// proses hermes saja, mis. direktori ext4 (fsync nyata) di path tanpa leluhur `.git` agar
+	// setelan hermes F0 tidak berubah (ADR-082 butir 6).
+	Bind     [2]string
+	CLIRuns  int
+	cliCache map[string]*Result
 }
 
 // command membuat proses di namespace jaringan baru yang hanya punya loopback (dinaikkan
 // sebelum exec): RPC lokal hermes (mis. kernel execute_code) jalan, tetapi tidak ada rute
 // keluar sehingga panggilan LLM/HTTP mustahil. Grup proses sendiri: timeout membunuh semua turunan.
 func (r *Runner) command(ctx context.Context, args ...string) *exec.Cmd {
-	argv := append([]string{"-rn", "sh", "-c", `ip link set lo up && exec "$0" "$@"`, "python3"}, args...)
+	flags, script := "-rn", `ip link set lo up && exec "$0" "$@"`
+	if r.Bind[0] != "" {
+		flags, script = "-rnm", `mount --bind "$CT_BIND_SRC" "$CT_BIND_DST" && `+script
+	}
+	argv := append([]string{flags, "sh", "-c", script, "python3"}, args...)
 	cmd := exec.CommandContext(ctx, "unshare", argv...)
 	cmd.Dir, cmd.Env = r.HermesDir, r.Env
+	if r.Bind[0] != "" {
+		cmd.Env = append(slices.Clip(r.Env), "CT_BIND_SRC="+r.Bind[0], "CT_BIND_DST="+r.Bind[1])
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 5 * time.Second
@@ -135,6 +146,7 @@ type driverOp struct {
 	Warmup    int             `json:"warmup"`
 	Capture   bool            `json:"capture,omitempty"`
 	FreshTask bool            `json:"fresh_task,omitempty"`
+	Fsync     string          `json:"fsync,omitempty"`
 }
 
 // inprocTimeout = batas satu proses driver per op (init hermes + warm-up + N run).
@@ -146,7 +158,7 @@ func (r *Runner) RunInproc(ctx context.Context, ids []string, ops map[string]Op,
 	res := map[string]*Result{}
 	for _, id := range ids {
 		op := ops[id]
-		d := driverOp{ID: id, Kind: op.Kind, Tool: op.Tool, Command: op.Command, Setup: op.Setup, Code: op.Code, Runs: runs, Warmup: 1, Capture: op.Capture, FreshTask: op.FreshTask}
+		d := driverOp{ID: id, Kind: op.Kind, Tool: op.Tool, Command: op.Command, Setup: op.Setup, Code: op.Code, Runs: runs, Warmup: 1, Capture: op.Capture, FreshTask: op.FreshTask, Fsync: r.expand(op.Fsync)}
 		if op.Args != nil {
 			d.Args = json.RawMessage(r.expand(string(op.Args)))
 		}

@@ -1,9 +1,15 @@
-// Command codetools mengukur baseline code tools F0 (CODE-TOOLS §10, SCORECARD §1.2 "Code tools"):
+// Command codetools mengukur baseline code tools (CODE-TOOLS §10, SCORECARD §1.2 "Code tools"):
 // `rg` (literal/regex/glob) di C1–C3, tool hermes (`search_files`, `read_file`, `patch`) di C1
 // in-process tanpa jaringan, dan token o200k output grep hermes vs rg (CT-11).
 //
+// `patch` hermes diukur berdurabilitas setara (ADR-082 butir 6, default `-durable`): fsync(file) +
+// fsync(dir) di dalam jendela waktu; target patch di `-patch-dir` (wajib bukan tmpfs, mis. ext4 NVMe).
+// Baseline F0 (non-durabel, target di tmpfs) = `-durable=false` tanpa `-patch-dir`.
+//
 //	cd bench && go run ./codetools/cmd/codetools -rg <rg> -c1 ~/Dokumen/hermes-agent \
-//	    -c2 /tmp/damnbot-corpora/C2 -c3 /tmp/damnbot-corpora/C3 -out codetools/results/f0-baseline.json
+//	    -c2 /tmp/damnbot-corpora/C2 -c3 /tmp/damnbot-corpora/C3 -durable=false -out codetools/results/f0-baseline.json
+//	cd bench && go run ./codetools/cmd/codetools -rg <rg> -c1 ~/Dokumen/hermes-agent -hermes-runs 20 \
+//	    -home /tmp/hermes-home-ct10 -patch-dir <dir ext4> -out codetools/results/hermes-868b9f244f-f1.json
 package main
 
 import (
@@ -62,6 +68,7 @@ type hermesOp struct {
 	OutputSHA  string  `json:"output_sha256,omitempty"`
 	RgTokens   int     `json:"rg_output_o200k_tokens,omitempty"`
 	OutputSize int     `json:"output_bytes,omitempty"`
+	Durable    bool    `json:"durable,omitempty"`
 }
 
 type report struct {
@@ -88,6 +95,8 @@ func run() error {
 	hruns := flag.Int("hermes-runs", 5, "run per op hermes")
 	out := flag.String("out", "codetools/results/f0-baseline.json", "artefak")
 	home := flag.String("home", "/tmp/hm_f0_ct", "HERMES_HOME (dibuat ulang)")
+	durable := flag.Bool("durable", true, "patch hermes + fsync(file)+fsync(dir) di jendela waktu (ADR-082)")
+	patchDir := flag.String("patch-dir", "", "induk direktori target patch (default: workspace di -home); bukan tmpfs bila -durable")
 	flag.Parse()
 	raw, err := os.ReadFile(*qpath)
 	if err != nil {
@@ -110,8 +119,12 @@ func run() error {
 			"rg": *rg, "rg_version": strings.SplitN(string(rgVer), "\n", 2)[0], "runs": fmt.Sprint(*runs),
 			"hermes_runs": fmt.Sprint(*hruns), "date": time.Now().Format(time.RFC3339),
 			"method": "page cache hangat (1 warm-up), rg --no-config, stdout ke /dev/null; hermes in-process via model_tools.handle_function_call, unshare -rn",
+			"cpu":    cpuModel(), "kernel": cmdOut("uname", "-sr"),
 		},
 		Corpora: map[string]*corpusResult{}, Summary: map[string]float64{},
+	}
+	if *c1 != "" {
+		rep.Meta["hermes_commit"] = cmdOut("git", "-C", *c1, "rev-parse", "HEAD")
 	}
 	for name, root := range map[string]string{"C1": *c1, "C2": *c2, "C3": *c3} {
 		if root == "" {
@@ -125,7 +138,12 @@ func run() error {
 		rep.Corpora[name] = cr
 	}
 	if *c1 != "" {
-		hops, err := benchHermes(*c1, *home, q, *hruns, tok, rep.Corpora["C1"])
+		pd, cleanup, err := patchTargetDir(*patchDir, *home, *durable, rep.Meta)
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+		hops, err := benchHermes(hermesConf{c1: *c1, home: *home, patchSrc: pd, durable: *durable}, q, *hruns, tok, rep.Corpora["C1"])
 		if err != nil {
 			return err
 		}
@@ -233,7 +251,66 @@ func uniqueDef(s string) string {
 	return ""
 }
 
-func benchHermes(c1, home string, q queries, runs int, tok *o200k.Tokenizer, rgC1 *corpusResult) ([]hermesOp, error) {
+// hermesConf = setelan run hermes di C1.
+type hermesConf struct {
+	c1, home string
+	patchSrc string // direktori asli target patch; "" = workspace di home (setelan F0)
+	durable  bool   // fsync(file)+fsync(dir) pada target patch di dalam jendela waktu (ADR-082)
+}
+
+// patchTargetDir membuat direktori sementara target patch di bawah parent dan mencatat
+// filesystem-nya di meta. hermes melihatnya lewat bind mount di `<home>/patch`: path tanpa
+// leluhur `.git` (diagnostik LSP hermes hanya aktif di worktree git; setelan F0 tetap) dengan fsync
+// nyata. parent "" = target di workspace `<home>/ws` (F0). tmpfs ditolak bila durable (fsync no-op).
+func patchTargetDir(parent, home string, durable bool, meta map[string]string) (string, func(), error) {
+	fsOf := parent
+	if parent == "" {
+		fsOf = filepath.Dir(home)
+	}
+	fs := cmdOut("findmnt", "-no", "FSTYPE,SOURCE", "-T", fsOf)
+	if durable && strings.HasPrefix(fs, "tmpfs") {
+		return "", nil, fmt.Errorf("target patch %s di tmpfs: fsync no-op, baseline durabel tidak sah (ADR-082); pakai -patch-dir", fsOf)
+	}
+	meta["patch_dir_fs"], meta["patch_durable"] = fs, fmt.Sprint(durable)
+	if durable {
+		meta["patch_method"] = "reset file + fsync(file)+fsync(dir) di luar jendela; jendela = handle_function_call(patch) + fsync(file) + fsync(dir) path yang sama (ADR-082 butir 6)"
+	}
+	if parent == "" {
+		meta["patch_target"] = filepath.Join(home, "ws")
+		return "", func() {}, nil
+	}
+	meta["patch_target"] = filepath.Join(home, "patch") + " = bind mount -patch-dir di namespace mount hermes (tanpa leluhur .git: LSP hermes nonaktif, setelan F0)"
+	dir, err := os.MkdirTemp(parent, "ct10-patch-")
+	if err != nil {
+		return "", nil, err
+	}
+	return dir, func() { _ = os.RemoveAll(dir) }, nil
+}
+
+// cmdOut = stdout perintah (trim); string kosong bila gagal (hanya untuk meta mesin).
+func cmdOut(name string, args ...string) string {
+	out, err := exec.Command(name, args...).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func cpuModel() string {
+	data, err := os.ReadFile("/proc/cpuinfo")
+	if err != nil {
+		return ""
+	}
+	for line := range strings.Lines(string(data)) {
+		if k, v, ok := strings.Cut(line, ":"); ok && strings.TrimSpace(k) == "model name" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+func benchHermes(hc hermesConf, q queries, runs int, tok *o200k.Tokenizer, rgC1 *corpusResult) ([]hermesOp, error) {
+	c1, home := hc.c1, hc.home
 	if !strings.HasPrefix(home, "/tmp/") {
 		return nil, errors.New("home harus di /tmp")
 	}
@@ -247,11 +324,18 @@ func benchHermes(c1, home string, q queries, runs int, tok *o200k.Tokenizer, rgC
 	if err != nil {
 		return nil, err
 	}
-	ws := filepath.Join(home, "ws")
+	ws, pdir := filepath.Join(home, "ws"), filepath.Join(home, "ws")
 	r := &speed.Runner{HermesDir: c1, Driver: driver, WS: ws, Env: []string{
 		"PATH=" + os.Getenv("PATH"), "LANG=C.UTF-8", "HOME=" + filepath.Join(home, "home"),
 		"HERMES_HOME=" + home, "PYTHONDONTWRITEBYTECODE=1", "OPENROUTER_API_KEY=inspect-only",
 	}}
+	if hc.patchSrc != "" {
+		pdir = filepath.Join(home, "patch")
+		if err := os.Mkdir(pdir, 0o700); err != nil {
+			return nil, err
+		}
+		r.Bind = [2]string{hc.patchSrc, pdir}
+	}
 	ctx := context.Background()
 	if err := r.Prepare(ctx); err != nil {
 		return nil, err
@@ -282,10 +366,15 @@ func benchHermes(c1, home string, q queries, runs int, tok *o200k.Tokenizer, rgC
 			return nil, err
 		}
 		target := uniqueDef(string(data))
-		dst := filepath.Join(ws, fmt.Sprintf("patch_%02d.py", i))
-		add(fmt.Sprintf("patch-%02d", i), "patch", f, speed.Op{Kind: "tool", Tool: "patch",
+		dst := filepath.Join(pdir, fmt.Sprintf("patch_%02d.py", i))
+		op := speed.Op{Kind: "tool", Tool: "patch",
 			Reset: &speed.Reset{Path: dst, Content: string(data)},
-			Args:  mustJSON(map[string]any{"path": dst, "old_string": target, "new_string": target + "  # f0"})})
+			Args:  mustJSON(map[string]any{"path": dst, "old_string": target, "new_string": target + "  # f0"})}
+		if hc.durable {
+			op.Fsync = dst
+		}
+		add(fmt.Sprintf("patch-%02d", i), "patch", f, op)
+		hops[len(hops)-1].Durable = hc.durable
 	}
 	res, err := r.RunInproc(ctx, ids, ops, runs)
 	if err != nil {
@@ -313,17 +402,19 @@ func benchHermes(c1, home string, q queries, runs int, tok *o200k.Tokenizer, rgC
 }
 
 func summarize(rep *report) {
-	per := map[string][]float64{}
+	per, per95 := map[string][]float64{}, map[string][]float64{}
 	tokH, tokRg := 0, 0
 	for _, h := range rep.Hermes {
 		if h.Error == "" {
 			per[h.Kind] = append(per[h.Kind], h.P50MS)
+			per95[h.Kind] = append(per95[h.Kind], h.P95MS)
 		}
 		tokH += h.Tokens
 		tokRg += h.RgTokens
 	}
 	for k, v := range per {
 		rep.Summary["hermes_"+k+"_median_p50_ms"] = speed.Percentile(v, 50)
+		rep.Summary["hermes_"+k+"_median_p95_ms"] = speed.Percentile(per95[k], 50)
 		rep.Summary["hermes_"+k+"_ok_ops"] = float64(len(v))
 	}
 	rep.Summary["ct11_hermes_tokens_sum"] = float64(tokH)

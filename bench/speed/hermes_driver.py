@@ -80,19 +80,35 @@ def _tool_error(raw: str) -> str | None:
     return None
 
 
+def _fsync_durable(path: str) -> None:
+    """Durabilitas setara Damn-Bot (ADR-082 butir 6): fsync(file) + fsync(dir) pada path yang ditulis
+    hermes (hermes sendiri: temp + os.replace tanpa fsync)."""
+    for p, flags in ((path, os.O_RDONLY), (os.path.dirname(path) or ".", os.O_RDONLY | os.O_DIRECTORY)):
+        fd = os.open(p, flags)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
 def _run_op(op: dict, call) -> dict:
     res = {"id": op["id"], "samples_ms": [], "error": None}
+    durable = op.get("fsync")
     signal.signal(signal.SIGALRM, _alarm)
     for i in range(op.get("warmup", 1) + op.get("runs", 20)):
         reset = op.get("reset")
         if reset:
             with open(reset["path"], "w", encoding="utf-8") as f:
                 f.write(reset["content"])
+            if durable:
+                _fsync_durable(reset["path"])  # di luar jendela: run terukur hanya membayar tulisan hermes
         signal.alarm(OP_TIMEOUT_S)
         try:
             with _quiet():
                 t0 = time.perf_counter_ns()
                 err = call(i)
+                if durable and not err:
+                    _fsync_durable(durable)  # di dalam jendela waktu (ADR-082)
                 dt = time.perf_counter_ns() - t0
         except BaseException as exc:  # op hermes boleh melempar apa saja; dicatat, bukan ditelan
             res["error"] = f"{type(exc).__name__}: {exc}"[:300]
