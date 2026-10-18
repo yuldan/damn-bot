@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Mode selects how Compile treats keywords outside the subset (SPEC §4.4).
@@ -73,10 +74,11 @@ type prop struct {
 	declared bool // listed in properties (false: only in required)
 }
 
-// Schema is an immutable compiled schema.
+// Schema is an immutable compiled schema, safe for concurrent Validate.
 type Schema struct {
 	root    *node
 	partial []string
+	pool    sync.Pool // *state scratch, reused across Validate calls
 }
 
 // Partial lists, sorted and unique, the keywords that were ignored or
