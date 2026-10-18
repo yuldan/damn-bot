@@ -30,7 +30,7 @@ Verifikasi penutupan (workstation, go1.26.9 linux/amd64, HEAD `de6430f`; kode id
 | `cd bench && go test -count=1 ./...` | 0 | budget, budget/o200k, evals, gencorpus, h2h, speed ok |
 | `make loc loc-ratio` | 0 | `ctxdb 2857 / 3100`; TOTAL 2.886 / 190.000; rasio 3.780:2.886 = 1,31 report-only (ADR-050) |
 
-GitHub Actions: run hijau terakhir sebelum penutupan = `b65b7bc` (laporan pengguna, AUDIT-F0-REVERIFY3). Run untuk HEAD penutupan dicatat di commit berikutnya.
+GitHub Actions untuk HEAD penutupan `da9ee3ef6089a37f7a697a4ac1f925448ed764e7` (push `master:main`, fast-forward dari `b65b7bc`): **hijau semua**. Workflow `ci` run [`39132690782`](https://github.com/yuldan/damn-bot/actions/runs/39132690782) success: job lint, test, test-timing, vet-cross, size-check, loc-budget, supply-chain, vuln, bench-budget semuanya success. Workflow `meta` run [`39132690762`](https://github.com/yuldan/damn-bot/actions/runs/39132690762) success (job meta-test success). **SHA Actions hijau terakhir: `da9ee3e`** (commit berikutnya hanya mencatat hasil ini di laporan).
 
 Belum diputuskan dan tanpa ADR (bukan temuan audit, tidak menahan gate): usulan §Temuan spec TS-01, 02, 04, 05, 06, 08, 09, 10, TS-P02..P07, TS-E01..E04.
 
