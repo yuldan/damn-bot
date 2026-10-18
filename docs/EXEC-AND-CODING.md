@@ -356,7 +356,7 @@ Overhead spawn = wall time dari `Run` dipanggil sampai hasil final siap, dikuran
 | `BenchmarkClassify` (perintah 2 KB) | < 1 ms | semua |
 | `BenchmarkSummarize1MB` (pipeline A.3) | < 15 ms | semua |
 
-Gate CI memakai ambang ×1,5 di runner bersama (SPEC §17).
+Job `perf` (Deliverable F1 #0, runner tetap, ADR-073) menegakkan benchmark di atas; ambang ×1,5 di runner bersama hanya untuk metrik waktu absolut (SPEC §17, ADR-077). Acceptance F1 spawn p95 < 15 ms diukur di mesin referensi Q14.
 
 ### A.10 Invariant P24
 
@@ -367,6 +367,8 @@ Gate CI memakai ambang ×1,5 di runner bersama (SPEC §17).
 | P24.3 | Spawn overhead | p95 < 15 ms (Unix), < 40 ms (Windows) | A.9 benchmark, gate PR job perf |
 
 Test cancel (ADR-072): `TestCancelConfirmed` (REL-06, F1: hasil ≤ 1 s setelah cancel, status `cancelled_confirmed` atau `still_running`), `TestCancelConfirmBeforeRedispatch` (F1: re-dispatch `non_idempotent` setelah `still_running` menunggu `cancelled_confirmed` atau konfirmasi user), `TestACPChildStdinIsolation` (REL-13, F3). Bagian test P24/EXC-09/EXC-11 yang membutuhkan `process_*` (background, `process_send`, reap waiting-for-input) adalah acceptance F5 (ADR-072).
+
+Acceptance F1 P24 (ADR-077): `TestNoOrphans` (200 iterasi), `TestInteractiveCorpus` (40 fixture × pipe/pty), `BenchmarkShellSpawn*`, `TestCancelConfirmed`, `TestCancelConfirmBeforeRedispatch` (REL-13 di F3; Windows di matrix).
 
 ---
 
@@ -535,6 +537,7 @@ Interpreter tidak ditemukan → `module_unavailable` + instruksi instalasi.
 - Tool yang diizinkan: `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `web_fetch`, `shell` (tanpa `background`/`session`). Binding `tool()` starlark hanya ke 7 tool ini; tool lain → `invalid_args` (ADR-055).
 - Setiap call melewati pipeline penuh SPEC §4.3 (schema, sandbox, approval) dan tercatat sebagai event anak.
 - Maks 50 call per eksekusi; melebihi → `too_large`.
+- **`network = "deny"` mencakup RPC (ADR-076):** RPC/binding ke `web_fetch` → `denied{reason:"network_deny"}`; `shell` lewat RPC dijalankan dengan penegakan jaringan yang sama (netns/sandbox-exec), dan bila penegakan tidak tersedia di OS itu → `denied`. Test F5: `TestExecuteCodeRPCNetworkDeny`.
 
 **`persist:true`** (python, javascript):
 - Interpreter long-lived per sesi dengan driver embedded (frame panjang+payload lewat pipe). State variabel bertahan.
