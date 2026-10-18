@@ -173,7 +173,8 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | exec b | `Runner`: loop timeout/cancel, kill order, sweep marker, edge `exec → boundary` | 574 | CI; menunggu auditor |
 | exec c | env anak, secret ref scope, mode one-shot, `NeedsTTY` | 432 | CI; menunggu auditor |
 | exec d | prompt interaktif, idle-timeout | 538 | CI; menunggu auditor |
-| exec e | ringkasan output ke model (§A.3) | lihat PR | CI; menunggu auditor |
+| exec e | ringkasan output ke model (§A.3) | 275 | CI; menunggu auditor |
+| exec f | P24: `SweepStale`, `TestNoOrphans`, benchmark spawn | lihat PR | CI; menunggu auditor |
 
 | Item | Implementasi | Test | Status |
 |---|---|---|---|
@@ -190,4 +191,7 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | Prompt interaktif (§A.6, P24.2) | `prompt.go`, `call.prompt`, wchan `treeWaitsInput` | `TestPromptKind`, `TestLastLine`, `TestInteractiveCorpus` (40 fixture × pipe/PTY: apt, ssh host key, sudo, kredensial git, `mysql -p`, passphrase, `python input()`/`getpass`, `git commit` tanpa `-m`, `git rebase -i`, `less`, `vi`, …; status ∈ {exited, waiting_for_input}, PTY ≤ 2 s setelah prompt + grace) | PR d; Windows menunggu ConPTY |
 | Idle-timeout (§A.4) | `idleTracker`, `treeSampler` per OS | `TestRunIdleTimeout` (`sleep` → `idle_timeout`; loop CPU → `timeout`) | PR d |
 | Ringkasan ke model (§A.3, P5) | `Summarizer.Summarize` | `TestSummarizePipeline` (ANSI/OSC/DCS, CR, backspace, UTF-8, progress, dedupe, redaksi, header), `TestSummarizeSpill` (preview head/error/tail, blob ter-redaksi, preview pendek), `BenchmarkSummarize1MB` (≈ 7 ms lokal; gate 15 ms) | PR e |
-| ConPTY, P24 (`TestNoOrphans` 200×, `BenchmarkShellSpawn*`), sesi persisten | — | — | PR berikutnya |
+| P24.1 0 orphan | sweep per call, `SweepStale` (start berikutnya) | `TestNoOrphans` (200 iterasi: exit normal dengan `&`/subshell/double fork/`nohup`/`disown`/`setsid`, timeout + `trap '' TERM`, cancel, `kill -9` pemilik + sweep), `TestMarkerPids` | PR f (Unix); Windows lewat Job Object, test matrix Windows bersama ConPTY |
+| P24.3 overhead spawn | — | `BenchmarkShellSpawnPipe` (≈ 5,7 ms p95 lokal), `BenchmarkShellSpawnPTY` (≈ 7,3 ms), `BenchmarkShellSpawnWindows` (gate 40 ms) di `PERF_BENCH` | PR f |
+| `TestCancelConfirmBeforeRedispatch` | primitif `Result.Done`/`Runner.Live` | `TestRunCancelStillRunning` | test re-dispatch = loop/tools |
+| ConPTY, sesi persisten | — | — | PR berikutnya |
