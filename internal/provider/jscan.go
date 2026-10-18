@@ -17,9 +17,24 @@ var errJSON = errors.New("malformed JSON chunk")
 // they hold escapes or invalid UTF-8 (replaced by U+FFFD like
 // encoding/json). out must have capacity ≥ len(b) so appends never move it.
 type jscan struct {
-	b   []byte
-	i   int
-	out []byte
+	b     []byte
+	i     int
+	out   []byte
+	depth int // open objects/arrays around the cursor (PROV-B1)
+}
+
+// maxDepth is the nesting limit of encoding/json (maxNestingDepth): deeper
+// frames are errJSON. Nothing in this reader recurses on input structure
+// (skip is iterative), so a 4 MiB frame of '[' costs no stack (PROV-B1).
+const maxDepth = 10000
+
+// open enters one object/array level.
+func (s *jscan) open() error {
+	if s.depth >= maxDepth {
+		return errJSON
+	}
+	s.depth++
+	return nil
 }
 
 func (s *jscan) ws() {
@@ -76,7 +91,11 @@ func (s *jscan) object(f func(key []byte) error) error {
 	if !s.eat('{') {
 		return errJSON
 	}
+	if err := s.open(); err != nil {
+		return err
+	}
 	if s.eat('}') {
+		s.depth--
 		return nil
 	}
 	for {
@@ -91,6 +110,7 @@ func (s *jscan) object(f func(key []byte) error) error {
 			return err
 		}
 		if s.eat('}') {
+			s.depth--
 			return nil
 		}
 		if !s.eat(',') {
@@ -107,7 +127,11 @@ func (s *jscan) array(f func(i int) error) error {
 	if !s.eat('[') {
 		return errJSON
 	}
+	if err := s.open(); err != nil {
+		return err
+	}
 	if s.eat(']') {
+		s.depth--
 		return nil
 	}
 	for n := 0; ; n++ {
@@ -115,6 +139,7 @@ func (s *jscan) array(f func(i int) error) error {
 			return err
 		}
 		if s.eat(']') {
+			s.depth--
 			return nil
 		}
 		if !s.eat(',') {
@@ -233,16 +258,89 @@ func hex4(b []byte) (rune, bool) {
 	return r, true
 }
 
-// skip consumes any value and returns its raw bytes.
+// skip consumes any value and returns its raw bytes. It is iterative
+// (PROV-B1): nesting costs a bit in kinds, never a stack frame.
 func (s *jscan) skip() ([]byte, error) {
-	start := s.peek()
-	from := s.i
+	s.ws()
+	from, base := s.i, s.depth
+	var kinds kindStack
+	err := s.skipLoop(base, &kinds)
+	if err != nil {
+		s.depth = base
+	}
+	return s.b[from:s.i], err
+}
+
+func (s *jscan) skipLoop(base int, kinds *kindStack) error {
+	for {
+		descend, err := s.valueStart(base, kinds)
+		if err != nil {
+			return err
+		}
+		if descend {
+			continue // positioned at the first member's value
+		}
+		done, err := s.afterValue(base, kinds)
+		if done || err != nil {
+			return err
+		}
+	}
+}
+
+// valueStart consumes a scalar or an empty container (false), or opens a
+// non-empty container and positions at its first value (true).
+func (s *jscan) valueStart(base int, kinds *kindStack) (bool, error) {
+	c := s.peek()
+	if c != '{' && c != '[' {
+		return false, s.scalar(c)
+	}
+	s.i++
+	if err := s.open(); err != nil {
+		return false, err
+	}
+	obj := c == '{'
+	kinds.set(s.depth-base, obj)
+	if s.eat(closer(obj)) {
+		s.depth--
+		return false, nil
+	}
+	return true, s.memberKey(obj)
+}
+
+// afterValue closes finished containers; it stops at a ',' (positioned at
+// the next value, after its key in an object) or when the skipped value is
+// complete (done).
+func (s *jscan) afterValue(base int, kinds *kindStack) (done bool, err error) {
+	for s.depth > base {
+		obj := kinds.get(s.depth - base)
+		if s.eat(',') {
+			return false, s.memberKey(obj)
+		}
+		if !s.eat(closer(obj)) {
+			return false, errJSON
+		}
+		s.depth--
+	}
+	return true, nil
+}
+
+// memberKey consumes `"key":` inside an object; arrays have none.
+func (s *jscan) memberKey(obj bool) error {
+	if !obj {
+		return nil
+	}
+	if _, err := s.str(); err != nil {
+		return err
+	}
+	if !s.eat(':') {
+		return errJSON
+	}
+	return nil
+}
+
+func (s *jscan) scalar(c byte) error {
 	var err error
-	switch start {
-	case '{':
-		err = s.object(func([]byte) error { _, e := s.skip(); return e })
-	case '[':
-		err = s.array(func(int) error { _, e := s.skip(); return e })
+	switch c {
 	case '"':
 		_, err = s.str()
 	case 't':
@@ -254,7 +352,45 @@ func (s *jscan) skip() ([]byte, error) {
 	default:
 		_, err = s.number()
 	}
-	return s.b[from:s.i], err
+	return err
+}
+
+func closer(obj bool) byte {
+	if obj {
+		return '}'
+	}
+	return ']'
+}
+
+// kindStack holds one bit per open container level ≥ 1 (1 = object): a
+// word for the first 64 levels, a slice beyond (deep input only).
+type kindStack struct {
+	w    uint64
+	more []uint64
+}
+
+func (k *kindStack) set(level int, obj bool) {
+	i, bit := (level-1)/64, uint64(1)<<((level-1)%64)
+	word := &k.w
+	if i > 0 {
+		for len(k.more) < i {
+			k.more = append(k.more, 0)
+		}
+		word = &k.more[i-1]
+	}
+	if obj {
+		*word |= bit
+	} else {
+		*word &^= bit
+	}
+}
+
+func (k *kindStack) get(level int) bool {
+	i, bit := (level-1)/64, uint64(1)<<((level-1)%64)
+	if i == 0 {
+		return k.w&bit != 0
+	}
+	return k.more[i-1]&bit != 0
 }
 
 // number reads a JSON number (RFC 8259 grammar) as float64, correctly
