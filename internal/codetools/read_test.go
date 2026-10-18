@@ -1,6 +1,7 @@
 package codetools
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -143,6 +144,93 @@ func TestBinarySniff(t *testing.T) {
 	r := v.read(t, ReadArgs{Path: "elf"})
 	if r.Content != "binary: ELF 64-bit, 1.2 kB" || r.Meta["binary"] != true {
 		t.Errorf("binary read %q", r.Content)
+	}
+}
+
+// TestBinarySniffCorpus is CT-29: 300 files (100 binary with/without
+// magic, 50 UTF-16 LE/BE ± BOM, 50 UTF-8 with ≤ 10% invalid bytes, 50
+// minified, 50 plain); 0 misclassified and the grep footer counts exactly
+// the binaries.
+//
+//nolint:gocognit,gocyclo // builds the 300-file CT-29 corpus inline
+func TestBinarySniffCorpus(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	rng := testRand(29)
+	text := func(n int) string {
+		var b strings.Builder
+		for b.Len() < n {
+			fmt.Fprintf(&b, "word%d needle ", rng.IntN(1000))
+			if rng.IntN(8) == 0 {
+				b.WriteByte('\n')
+			}
+		}
+		return b.String()
+	}
+	magics := magics()
+	want := map[string]bool{}
+	for i := range 100 { // binaries: half with a magic, half random with NULs
+		var b []byte
+		if i%2 == 0 {
+			m := magics[i/2%len(magics)]
+			b = append(bytes.Repeat([]byte{'x'}, m.off), m.sig...)
+			if m.off == 8 {
+				copy(b, "RIFF")
+			}
+			if m.off == 30 {
+				copy(b, "PK\x03\x04")
+			}
+		}
+		for range 250 + rng.IntN(2500) {
+			b = binary.LittleEndian.AppendUint64(b, rng.Uint64())
+		}
+		b = append(b, "\x00 needle"...)
+		name := fmt.Sprintf("bin/%03d.dat", i)
+		v.put(t, name, string(b))
+		want[name] = true
+	}
+	for i := range 50 {
+		s := text(500 + rng.IntN(5000))
+		var b []byte
+		switch i % 4 {
+		case 0:
+			b = append([]byte(bomUTF16LE), utf16le(s)...)
+		case 1:
+			b = append([]byte(bomUTF16BE), utf16be(s)...)
+		case 2:
+			b = utf16le(s)
+		default:
+			b = utf16be(s)
+		}
+		v.put(t, fmt.Sprintf("u16/%02d.txt", i), string(b))
+		inv := []byte(text(2000 + rng.IntN(4000)))
+		for range len(inv) / 12 { // < 10% invalid
+			inv[rng.IntN(len(inv))] = 0xff
+		}
+		v.put(t, fmt.Sprintf("inv/%02d.txt", i), string(inv))
+		v.put(t, fmt.Sprintf("min/%02d.js", i), strings.ReplaceAll(text(20000+rng.IntN(40000)), "\n", ";"))
+		v.put(t, fmt.Sprintf("txt/%02d.txt", i), text(100+rng.IntN(3000)))
+	}
+	err := filepath.WalkDir(v.root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b := readFixture(t, p)
+		rel := filepath.ToSlash(strings.TrimPrefix(p, v.root+string(filepath.Separator)))
+		if bin, _ := sniffBinary(b, detectEnc(b)); bin != want[rel] {
+			t.Errorf("%s: binary=%v want %v", rel, bin, want[rel])
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := v.e.Grep(context.Background(), &GrepArgs{Pattern: "needle", Mode: "files", Limit: grepMaxLimit}, Opts{PageChars: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.Content, "skipped: 100 binary") || r.Meta["files"] != 200 {
+		t.Errorf("grep footer/files: files=%v %q", r.Meta["files"], r.Content[len(r.Content)-80:])
 	}
 }
 
