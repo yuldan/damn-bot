@@ -13,7 +13,3 @@ func killPid(int) error { return nil }
 func isBrokenPipe(err error) bool {
 	return errors.Is(err, windows.ERROR_BROKEN_PIPE) || errors.Is(err, windows.ERROR_NO_DATA)
 }
-
-// processAlive: unused on Windows (no marker scan; jobs die with their
-// owner), reported alive so nothing is swept.
-func processAlive(int) bool { return true }

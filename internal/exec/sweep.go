@@ -1,3 +1,5 @@
+//go:build unix
+
 package exec
 
 import (
@@ -11,8 +13,7 @@ import (
 // that no longer runs (crash, kill -9): the "sweep on the next start" of
 // §A.4. The composition root calls it once at startup. Markers of live
 // owners — another damnbot instance — are left alone; a recycled owner
-// pid only makes the sweep skip (safe direction). Windows needs none: a
-// tree dies with its owner's Job Object handle.
+// pid only makes the sweep skip (safe direction).
 func SweepStale() (int, error) {
 	self := os.Getpid()
 	pids, err := markerPids(func(v []byte) bool {
