@@ -78,12 +78,24 @@ func TestRunCancelConfirmedWindows(t *testing.T) {
 	}
 }
 
-func TestRunPTYUnavailableWindows(t *testing.T) {
+func TestRunConPTYWindows(t *testing.T) {
 	t.Parallel()
-	s := cmd(t, "echo x")
+	s := cmd(t, "echo tty& exit 0")
 	s.PTY = true
-	if res, err := newTestRunner(t).Run(t.Context(), s); err == nil || res.Status != StatusSpawnFailed {
-		t.Fatalf("%v %s", err, res.Status)
+	res, err := newTestRunner(t).Run(t.Context(), s)
+	if err != nil || res.Status != StatusExited || res.Runner != RunnerPTY || !strings.Contains(string(res.Output), "tty") {
+		t.Fatalf("%v %+v %q", err, res, res.Output)
+	}
+}
+
+// TestRunConPTYPromptWindows (§A.6): a console prompt is detected.
+func TestRunConPTYPromptWindows(t *testing.T) {
+	t.Parallel()
+	s := cmd(t, "set /p x=Name: ")
+	s.PTY, s.KillGrace = true, time.Second
+	res, err := newTestRunner(t).Run(t.Context(), s)
+	if err != nil || res.Status != StatusWaitingForInput || res.InputKind != InputText || res.Duration > 5*time.Second {
+		t.Fatalf("%v %s %q %q after %v", err, res.Status, res.InputKind, res.Prompt, res.Duration)
 	}
 }
 

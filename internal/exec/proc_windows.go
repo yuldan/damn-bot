@@ -18,10 +18,11 @@ type osProc struct {
 	p   *os.Process
 	out *os.File
 	job windows.Handle
+	// ConPTY runner only (conpty_windows.go): the pseudo console and the
+	// write end of its input pipe when no stdin was given (kept open so
+	// the console reads block like a terminal).
+	console, consoleIn windows.Handle
 }
-
-// errPTY: ConPTY is not wired in this runner yet; callers select pipe.
-var errPTY = errors.New("exec: pty runner unavailable on windows")
 
 // basicAccounting mirrors JOBOBJECT_BASIC_ACCOUNTING_INFORMATION.
 type basicAccounting struct {
@@ -33,7 +34,7 @@ type basicAccounting struct {
 
 func start(s *Spec, in *os.File) (*osProc, error) {
 	if s.PTY {
-		return nil, errPTY
+		return startConPTY(s, in)
 	}
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -148,10 +149,11 @@ func (w *osProc) treeAlive() bool {
 
 // release closes the job handle; KILL_ON_JOB_CLOSE kills any survivor.
 func (w *osProc) release() error {
-	if err := windows.CloseHandle(w.job); err != nil {
-		return fmt.Errorf("exec: close job: %w", err)
+	err := w.closeConsole()
+	if cerr := windows.CloseHandle(w.job); cerr != nil {
+		err = errors.Join(err, fmt.Errorf("exec: close job: %w", cerr))
 	}
-	return nil
+	return err
 }
 
 func (w *osProc) wait() (exit, error) {

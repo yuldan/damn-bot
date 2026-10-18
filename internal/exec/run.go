@@ -373,6 +373,7 @@ func (c *call) finish() {
 		c.ex = <-c.exit
 		c.gone = true
 	}
+	c.note(c.p.closeConsole()) // ConPTY: lets the output reach EOF while drained
 	drain := time.NewTimer(drainAfterExit)
 	select {
 	case <-c.read:

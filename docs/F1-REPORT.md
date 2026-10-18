@@ -174,7 +174,8 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | exec c | env anak, secret ref scope, mode one-shot, `NeedsTTY` | 432 | CI; menunggu auditor |
 | exec d | prompt interaktif, idle-timeout | 538 | CI; menunggu auditor |
 | exec e | ringkasan output ke model (§A.3) | 275 | CI; menunggu auditor |
-| exec f | P24: `SweepStale`, `TestNoOrphans`, benchmark spawn | lihat PR | CI; menunggu auditor |
+| exec f | P24: `SweepStale`, `TestNoOrphans`, benchmark spawn | 52 | CI; menunggu auditor |
+| exec g | ConPTY (Windows) | lihat PR | CI; menunggu auditor |
 
 | Item | Implementasi | Test | Status |
 |---|---|---|---|
@@ -194,4 +195,5 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | P24.1 0 orphan | sweep per call, `SweepStale` (start berikutnya) | `TestNoOrphans` (200 iterasi: exit normal dengan `&`/subshell/double fork/`nohup`/`disown`/`setsid`, timeout + `trap '' TERM`, cancel, `kill -9` pemilik + sweep), `TestMarkerPids` | PR f (Unix); Windows lewat Job Object, test matrix Windows bersama ConPTY |
 | P24.3 overhead spawn | — | `BenchmarkShellSpawnPipe` (≈ 5,7 ms p95 lokal), `BenchmarkShellSpawnPTY` (≈ 7,3 ms), `BenchmarkShellSpawnWindows` (gate 40 ms) di `PERF_BENCH` | PR f |
 | `TestCancelConfirmBeforeRedispatch` | primitif `Result.Done`/`Runner.Live` | `TestRunCancelStillRunning` | test re-dispatch = loop/tools |
-| ConPTY, sesi persisten | — | — | PR berikutnya |
+| Runner PTY Windows (§A.1, ConPTY) | `startConPTY`, `closeConsole` | `TestProcConPTY`, `TestRunConPTYWindows`, `TestRunConPTYPromptWindows`, `BenchmarkShellSpawnWindows/conpty` | PR g |
+| Sesi persisten | — | — | PR berikutnya |
