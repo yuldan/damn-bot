@@ -18,3 +18,7 @@ func (*Sandbox) openBeneath(dir, rel, want string, flag int, perm fs.FileMode) (
 	}
 	return verifyInode(f, want)
 }
+
+// handlePath: macOS/BSD cannot report an fd's path without F_GETPATH
+// (ADR-097 butir 4); recheckDeny relies on the identity check there.
+func handlePath(*os.File) (string, bool) { return "", false }

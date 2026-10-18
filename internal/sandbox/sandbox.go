@@ -89,6 +89,9 @@ type root struct {
 type Sandbox struct {
 	roots []root
 	deny  [][]string
+	// denyIDs are the objects that fully literal deny patterns named at New,
+	// matched against every opened handle (S16-2).
+	denyIDs []os.FileInfo
 	// foldRoot compares roots case-insensitively (Windows, EC-WIN-013).
 	// deny_paths always match case-insensitively (S15-3).
 	foldRoot bool
@@ -112,11 +115,11 @@ func New(cfg *Config) (*Sandbox, error) {
 			s.roots = append(s.roots, root{path: p, readOnly: i == 1})
 		}
 	}
-	deny, err := compileDeny(cfg.DenyPaths, cfg.Home)
+	deny, ids, err := compileDeny(cfg.DenyPaths, cfg.Home)
 	if err != nil {
 		return nil, err
 	}
-	s.deny = deny
+	s.deny, s.denyIDs = deny, ids
 	return s, nil
 }
 
@@ -316,14 +319,15 @@ func hasPathPrefix(p, root string, fold bool) bool {
 // file systems (S15-3). An absolute pattern whose glob-free prefix resolves
 // elsewhere (symlinked deny dir or Home: ~/.ssh -> dotfiles/ssh, /home ->
 // /var/home) also yields its canonical form, so both spellings match (S15-1).
-func compileDeny(patterns []string, home string) ([][]string, error) {
+func compileDeny(patterns []string, home string) ([][]string, []os.FileInfo, error) {
 	out := make([][]string, 0, len(patterns))
+	var ids []os.FileInfo
 	for _, pat := range patterns {
 		if pat == "~" || strings.HasPrefix(pat, "~/") || strings.HasPrefix(pat, `~\`) {
 			if home == "" {
 				h, err := os.UserHomeDir()
 				if err != nil {
-					return nil, fmt.Errorf("sandbox: deny_paths %q: %w", pat, err)
+					return nil, nil, fmt.Errorf("sandbox: deny_paths %q: %w", pat, err)
 				}
 				home = h
 			}
@@ -331,15 +335,33 @@ func compileDeny(patterns []string, home string) ([][]string, error) {
 		}
 		comps, err := compilePattern(pat)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if canon, ok := canonicalPattern(comps); ok { // before lowerAll: resolves on disk
+			ids = appendID(ids, canon)
 			out = append(out, lowerAll(canon))
 		}
+		ids = appendID(ids, comps)
 		out = append(out, lowerAll(comps))
 	}
-	return out, nil
+	return out, ids, nil
 }
+
+// appendID appends the identity of the object a fully literal absolute
+// pattern names, when it exists (S16-2). os.SameFile(fi, fi) makes Windows
+// read the file ID now, at New, rather than lazily at comparison time.
+func appendID(ids []os.FileInfo, comps []string) []os.FileInfo {
+	if len(comps) == 0 || comps[0] == "**" || slices.ContainsFunc(comps[1:], isGlob) {
+		return ids
+	}
+	fi, err := os.Stat(joinComps(comps))
+	if err != nil || !os.SameFile(fi, fi) {
+		return ids
+	}
+	return append(ids, fi)
+}
+
+func isGlob(c string) bool { return c == "**" || strings.ContainsAny(c, globMeta) }
 
 // globMeta are the bytes that make a pattern component a glob.
 const globMeta = `*?[\`
@@ -352,7 +374,7 @@ func canonicalPattern(comps []string) ([]string, bool) {
 		return nil, false // relative: matches at any depth already
 	}
 	n := 1
-	for n < len(comps) && comps[n] != "**" && !strings.ContainsAny(comps[n], globMeta) {
+	for n < len(comps) && !isGlob(comps[n]) {
 		n++
 	}
 	real, err := resolve(joinComps(comps[:n]))

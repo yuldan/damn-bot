@@ -22,3 +22,7 @@ func (*Sandbox) openBeneath(dir, rel, _ string, flag int, perm fs.FileMode) (*os
 	}
 	return f, nil
 }
+
+// handlePath: no fd-path API on these OSes; recheckDeny relies on the
+// identity check.
+func handlePath(*os.File) (string, bool) { return "", false }
