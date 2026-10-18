@@ -229,6 +229,35 @@ func decodeUTF16(b []byte, be bool) (text, odd []byte) {
 	return out, odd
 }
 
+// encodeUTF16 is the inverse of decodeUTF16 for WTF-8 input. Bytes that are
+// neither UTF-8 nor encoded surrogates cannot come from decodeUTF16; they
+// make ok false so callers fail closed instead of writing a lossy file.
+func encodeUTF16(s []byte, be bool) (out []byte, ok bool) {
+	order := binary.AppendByteOrder(binary.LittleEndian)
+	if be {
+		order = binary.BigEndian
+	}
+	out = make([]byte, 0, len(s)*2)
+	var units [2]uint16
+	for i := 0; i < len(s); {
+		if s[i] == 0xED && i+2 < len(s) && s[i+1] >= 0xA0 && s[i+1] <= 0xBF && s[i+2]&0xC0 == 0x80 {
+			u := uint16(s[i]&0x0F)<<12 | uint16(s[i+1]&0x3F)<<6 | uint16(s[i+2]&0x3F)
+			out = order.AppendUint16(out, u)
+			i += 3
+			continue
+		}
+		r, n := utf8.DecodeRune(s[i:])
+		if r == utf8.RuneError && n <= 1 {
+			return nil, false
+		}
+		for _, u := range utf16.AppendRune(units[:0], r) {
+			out = order.AppendUint16(out, u)
+		}
+		i += n
+	}
+	return out, true
+}
+
 // escapeInvalid renders a line holding invalid UTF-8 injectively (CODE-TOOLS
 // §4.3): invalid bytes as \xNN and literal backslashes as \\. Valid lines
 // are returned unchanged with n = 0; U+FFFD is never produced.

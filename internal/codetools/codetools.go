@@ -126,12 +126,16 @@ type Engine struct {
 	fold   bool // case-insensitive root prefixes (Windows)
 	home   string
 	xdg    string
+	// hook is a test seam called at named commit points; an error aborts
+	// the write there (failure injection, CT-25 kill points).
+	hook func(point string) error
 
 	mu       sync.Mutex
 	bg       []bgTask // background index builds, stopped by Close
 	building map[fileKey]bool
 	idle     *time.Timer // idle cache release (CODE-TOOLS §7)
 	cache    *caches
+	locks    map[string]*pathMu // per-file edit locks, dropped when idle
 }
 
 // New builds an Engine; roots are canonicalized like the sandbox does.
@@ -139,7 +143,7 @@ func New(cfg *Config) (*Engine, error) {
 	if cfg == nil || cfg.Sandbox == nil || len(cfg.Roots) == 0 {
 		return nil, errors.New("codetools: sandbox and roots required")
 	}
-	e := &Engine{sb: cfg.Sandbox, newEOL: "\n", fold: runtime.GOOS == "windows", building: map[fileKey]bool{}}
+	e := &Engine{sb: cfg.Sandbox, newEOL: "\n", fold: runtime.GOOS == "windows", building: map[fileKey]bool{}, locks: map[string]*pathMu{}}
 	if cfg.NewEOL == "crlf" {
 		e.newEOL = "\r\n"
 	}

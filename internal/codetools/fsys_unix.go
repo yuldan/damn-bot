@@ -7,12 +7,36 @@ import (
 	"fmt"
 	"os"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
+
+// copyOwner gives dst the uid/gid of src when they differ; false when the
+// change was refused (EPERM) and the owner is not preserved (P14).
+func copyOwner(src, dst *os.File) bool {
+	var a, b unix.Stat_t
+	if unix.Fstat(int(src.Fd()), &a) != nil || unix.Fstat(int(dst.Fd()), &b) != nil {
+		return false
+	}
+	if a.Uid == b.Uid && a.Gid == b.Gid {
+		return true
+	}
+	return unix.Fchown(int(dst.Fd()), int(a.Uid), int(a.Gid)) == nil
+}
 
 // renameReplace atomically replaces dst with src.
 func renameReplace(src, dst string) error {
 	if err := os.Rename(src, dst); err != nil {
 		return fmt.Errorf("codetools: rename: %w", err)
+	}
+	return nil
+}
+
+// removeAt unlinks name relative to the directory d (unlinkat), so no
+// ancestor swapped for a symlink is followed (CT27-10).
+func removeAt(d *os.File, name string) error {
+	if err := unix.Unlinkat(int(d.Fd()), name, 0); err != nil {
+		return fmt.Errorf("codetools: unlinkat: %w", err)
 	}
 	return nil
 }

@@ -6,10 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -29,10 +32,135 @@ type WriteArgs struct {
 	Tag     *string `json:"tag,omitempty"`
 }
 
+// pathMu is one per-file edit lock; n counts holders and waiters.
+type pathMu struct {
+	sync.Mutex
+	n int
+}
+
+// pathLock serializes edits of one file inside this process (CT27-5): the
+// key is the symlink-resolved path, case-folded where file systems
+// usually are (Windows, macOS), so aliases share a lock; a hard-linked
+// file, rewritten in place, is keyed by its device+inode so every name of
+// it shares one lock. Unused locks are dropped.
+func (e *Engine) pathLock(ctx context.Context, p string) func() {
+	key := e.abs(p)
+	if v, r, err := e.sb.Check(ctx, key, sandbox.OpRead); err == nil {
+		key = r
+		if fi, serr := os.Stat(r); v == sandbox.HardLinked && serr == nil {
+			if k := keyOf(r, fi); k.ino != 0 {
+				key = fmt.Sprintf("\x00%d:%d:%d", k.dev, k.sdev, k.ino)
+			}
+		}
+	}
+	if e.fold || runtime.GOOS == "darwin" {
+		key = strings.ToLower(key)
+	}
+	e.mu.Lock()
+	m := e.locks[key]
+	if m == nil {
+		m = &pathMu{}
+		e.locks[key] = m
+	}
+	m.n++
+	e.mu.Unlock()
+	e.touch()
+	m.Lock()
+	return func() {
+		m.Unlock()
+		e.mu.Lock()
+		if m.n--; m.n == 0 {
+			delete(e.locks, key)
+		}
+		e.mu.Unlock()
+	}
+}
+
 // current is a target opened for an edit with its verified bytes.
 type current struct {
 	t   *target
+	fi  os.FileInfo
+	key fileKey
+	raw []byte // nil above inMemoryMax
 	tag string
+}
+
+// openCurrent opens path and checks tag (CODE-TOOLS §5.1, §5.3 butir 1-2):
+// unknown tag or changed content → stale_read with the fresh tag (which
+// becomes valid).
+func (e *Engine) openCurrent(ctx context.Context, p, tag string, o Opts) (*current, error) {
+	t, err := e.open(ctx, p, os.O_RDONLY, 0, o)
+	if codeOf(err) == CodeNotFound {
+		e.forget(e.abs(p))
+	}
+	if err != nil {
+		return nil, err
+	}
+	c := &current{t: t}
+	if c.fi, err = t.f.Stat(); err != nil {
+		return c, ioErr("stat", t.rel, err)
+	}
+	if !c.fi.Mode().IsRegular() {
+		return c, toolErr(CodeInvalidArgs, "", "%s is not a regular file", p)
+	}
+	c.key = keyOf(t.resolved, c.fi)
+	e.mu.Lock()
+	ent, known := e.cache.tags[tagKey(t.resolved, tag)]
+	e.mu.Unlock()
+	sum, err := e.currentSum(c)
+	if err != nil {
+		return c, err
+	}
+	if known && ent.sum == sum && e.provenUnchanged(c, &ent) {
+		return c, nil
+	}
+	fresh := &tagEntry{sum: sum, stat: c.key, at: time.Now()}
+	if c.key.size > fullHashMax {
+		if fresh, err = statEntry(t.f, c.key); err != nil {
+			return c, ioErr("hash", t.rel, err)
+		}
+	}
+	e.remember(t.resolved, c.tag, fresh, c.raw)
+	if !known {
+		return c, toolErr(CodeStaleRead, "read the file first (read_file or grep give a tag)", "%s: tag %s is not current for this session (now #%s)", t.rel, tag, c.tag)
+	}
+	return c, toolErr(CodeStaleRead, "read the file again", "%s changed since #%s (now #%s)", t.rel, tag, c.tag)
+}
+
+// currentSum loads files ≤ inMemoryMax and returns the digest the tag
+// rule compares: content sha256 ≤ fullHashMax, stat digest above.
+func (e *Engine) currentSum(c *current) ([32]byte, error) {
+	var sum [32]byte
+	if c.key.size <= inMemoryMax {
+		var err error
+		if c.raw, sum, err = e.loadAll(&fileView{t: c.t, key: c.key}); err != nil {
+			return sum, err
+		}
+	}
+	if c.key.size <= fullHashMax {
+		c.tag = sumTag(sum)
+		return sum, nil
+	}
+	c.tag = statTag(c.key)
+	return statSum(c.key), nil
+}
+
+// provenUnchanged: a racy stat-tag (mtime within racyWindow of the tag)
+// needs the content hash recorded with it to match the file now (§5.5);
+// without one the edit is stale.
+func (e *Engine) provenUnchanged(c *current, ent *tagEntry) bool {
+	if c.key.size <= fullHashMax || !ent.racy() {
+		return true
+	}
+	full, err := hashFile(c.t.f, c.key.size)
+	return err == nil && ent.hasFull && full == ent.full
+}
+
+// forget drops every tag of a deleted or renamed path (§5.5).
+func (e *Engine) forget(p string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	maps.DeleteFunc(e.cache.tags, func(k string, _ tagEntry) bool { return strings.HasPrefix(k, p+"\x00") })
 }
 
 // changed records the new tag and renders "edited path #a→#b · … · +x -y"
@@ -57,7 +185,7 @@ func (e *Engine) changed(c *current, d *doc, lines []docLine, out []byte, ci *co
 	meta := map[string]any{
 		"tag": tag, "replacements": repl,
 		"eol": eolName(d.dominantEOL() + map[bool]string{true: e.newEOL}[c.tag == ""]), "encoding": d.enc.String(), "bytes": len(out),
-		"mode_preserved": ci.modeOK,
+		"owner_preserved": ci.ownerOK, "mode_preserved": ci.modeOK, "xattr_preserved": ci.xattrOK,
 	}
 	return Result{Content: e.wrapOutside(c.t, head), Meta: meta}
 }
@@ -82,10 +210,38 @@ func (e *Engine) Write(ctx context.Context, a WriteArgs, o Opts) (res Result, er
 		return res, toolErr(CodeInvalidArgs, "", "/tag: must match ^[0-9a-f]{8}$")
 	}
 	abs := e.abs(a.Path)
+	unlock := e.pathLock(ctx, a.Path)
+	defer unlock()
 	if _, lerr := os.Lstat(abs); errors.Is(lerr, fs.ErrNotExist) {
 		return e.create(ctx, a, abs, o)
 	}
-	return res, toolErr(CodeStaleRead, "read_file first; overwriting needs its tag", "%s exists", a.Path)
+	if a.Tag == nil {
+		return res, toolErr(CodeStaleRead, "read_file first; overwriting needs its tag", "%s exists", a.Path)
+	}
+	c, err := e.openCurrent(ctx, a.Path, *a.Tag, o)
+	if c != nil {
+		defer c.t.close(&err)
+	}
+	if err != nil {
+		return res, err
+	}
+	if c.raw == nil {
+		return res, toolErr(CodeTooLarge, "use edit_file line ranges", "%s is larger than %d MiB", c.t.rel, inMemoryMax>>20)
+	}
+	d, terr := parseDoc(c.raw)
+	if terr != nil {
+		return res, terr
+	}
+	lines := splitDocLines(a.Content, d.dominantEOL())
+	out, ok := d.render(lines)
+	if !ok {
+		return res, toolErr(CodeInvalidArgs, "", "%s: content is not representable in %s", c.t.rel, d.enc)
+	}
+	ci, err := e.commit(ctx, c.t, c.key, keepMode(c.fi), out)
+	if err != nil {
+		return res, err
+	}
+	return e.changed(c, d, lines, out, &ci, "write", 1), nil
 }
 
 // create writes a new file: parents created inside the sandbox, UTF-8

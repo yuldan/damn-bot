@@ -26,6 +26,10 @@ func TestWriteReadBack(t *testing.T) {
 	wantCode(t, err, CodeStaleRead)
 	_, err = v.e.Write(ctx, WriteArgs{Path: "nope.txt", Content: "x", Tag: new("0badc0de")}, Opts{})
 	wantCode(t, err, CodeNotFound)
+	tag := metaStr(&r, "tag")
+	if _, err = v.e.Write(ctx, WriteArgs{Path: "deep/er/new.txt", Content: "c\n", Tag: &tag}, Opts{}); err != nil {
+		t.Fatal(err)
+	}
 	crlf, err := New(&Config{Sandbox: v.sb, Roots: []string{v.root}, NewEOL: "crlf", Home: v.home})
 	if err != nil {
 		t.Fatal(err)
