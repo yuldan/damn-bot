@@ -55,6 +55,17 @@ jobs:
           go-version-file: go.mod
       - run: make test-timing
 
+  # ADR-073 (AUD-033): go vet lintas OS (windows/darwin × amd64/arm64) sampai runner macOS/Windows aktif.
+  vet-cross:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make vet-cross
+
   size-check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -112,20 +123,7 @@ jobs:
             tools/go.sum
       - run: make vuln
 
-  meta-test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      CGO_ENABLED: "1"
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            tools/go.sum
-      - run: make meta-test
+  # meta-test pindah ke workflow meta.yml (paths filter + nightly, ADR-073 / AUD-034).
 
   bench-budget:
     runs-on: ubuntu-latest

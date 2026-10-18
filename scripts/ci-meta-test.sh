@@ -14,7 +14,7 @@ trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work"' EXIT
 # terisolasi gate mod-verify tidak mengunduh ulang toolchain.
 PATH="$(cd "$root" && go env GOROOT)/bin:$PATH"
 export GOTOOLCHAIN=local
-GATES=(lint test race timing size-check loc loc-ratio deps-check vuln licenses tidy-check mod-verify)
+GATES=(lint test race timing vet-cross size-check loc loc-ratio deps-check vuln licenses tidy-check mod-verify)
 [[ $# -gt 0 ]] && GATES=("$@")
 
 # fresh <dir>: ekspor HEAD (bukan worktree) agar hasil deterministik dan sama dengan CI.
@@ -34,6 +34,7 @@ marker() {
 	test) echo 'TestMetaViolation' ;;
 	race) echo 'WARNING: DATA RACE' ;;
 	timing) echo 'timing budget meta' ;;
+	vet-cross) echo 'undefined: undefinedMetaCross' ;;
 	size-check) echo 'SIZE GAGAL full' ;;
 	loc) echo 'LOC GAGAL boundary' ;;
 	loc-ratio) echo 'LOC ratio test:source' ;;
@@ -80,6 +81,11 @@ inject() { # <gate> <dir>
 		mkdir -p "$d/internal/metaviolation"
 		printf 'package metaviolation\n\nimport "testing"\n\nfunc TestMetaViolation(t *testing.T) { t.Fatal("pelanggaran sintetis") }\n' \
 			>"$d/internal/metaviolation/v_test.go"
+		;;
+	vet-cross)
+		# ADR-073: file khusus windows yang tidak compile; build linux tetap hijau, `make vet-cross` gagal.
+		mkdir -p "$d/internal/metaviolation"
+		printf 'package metaviolation\n\nvar _ = undefinedMetaCross\n' >"$d/internal/metaviolation/v_windows.go"
 		;;
 	timing)
 		# Operasi nyata 300 ms terhadap budget 200 ms lewat helper yang sama dengan S015 (ADR-048):

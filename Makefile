@@ -13,7 +13,7 @@ GOTAGS = -tags "$(TAGSCSV)"
 GOTOOL := go tool -modfile=tools/go.mod
 LICENSES_ALLOWED := MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,MPL-2.0
 
-.PHONY: all build lint test test-timing size-check loc loc-ratio deps-check tidy-check mod-verify vuln licenses check meta-test bench-budget
+.PHONY: all build lint test test-timing vet-cross size-check loc loc-ratio deps-check tidy-check mod-verify vuln licenses check meta-test bench-budget
 
 all: check
 
@@ -28,9 +28,19 @@ test:
 
 # ADR-048 (TS-P08): asersi budget waktu dinding (I11 ≤ 200 ms/txn dll.) hanya ditegakkan di build
 # tanpa -race. Suite yang sama juga berjalan di `make test` (-race) dengan semua cek kebenaran;
-# di sana hanya asersi waktunya yang dilewati.
+# di sana hanya asersi waktunya yang dilewati. ADR-073: benchmark ikut dijalankan sekali
+# (-benchtime=1x) agar benchmark yang memakai helper budget tidak lulus kosong; budget absolut
+# benchmark (mis. BenchmarkAppend*, F2) ditegakkan di job `perf` (Deliverable F1 #0).
 test-timing:
-	DAMNBOT_TIMING=1 go test $(GOTAGS) -count=1 -shuffle=on ./...
+	DAMNBOT_TIMING=1 go test $(GOTAGS) -count=1 -shuffle=on -bench=. -benchtime=1x ./...
+
+# ADR-073 (AUD-033): build test lintas OS sebagai gate murah sampai runner macOS/Windows aktif.
+VET_CROSS := windows/amd64 windows/arm64 darwin/amd64 darwin/arm64
+vet-cross:
+	@set -e; for p in $(VET_CROSS); do \
+		echo "go vet GOOS=$${p%/*} GOARCH=$${p#*/}"; \
+		GOOS=$${p%/*} GOARCH=$${p#*/} go vet $(GOTAGS) ./...; \
+	done
 
 size-check:
 	TAGS="$(TAGSCSV)" scripts/size-check.sh
@@ -60,7 +70,7 @@ tidy-check:
 mod-verify:
 	go mod verify
 
-check: lint test test-timing size-check loc loc-ratio deps-check tidy-check mod-verify vuln licenses
+check: lint test test-timing vet-cross size-check loc loc-ratio deps-check tidy-check mod-verify vuln licenses
 
 # Meta-test gate CI (ROADMAP F0): setiap gate harus gagal pada pelanggaran sintetis.
 meta-test:

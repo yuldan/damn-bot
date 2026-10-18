@@ -1,0 +1,58 @@
+# Meta-test gate CI (ROADMAP F0 acceptance, ADR-073 / AUD-034): setiap gate harus gagal pada pelanggaran
+# sintetis. Durasi ≈ 14 menit (> E-64 ≤ 12 menit untuk job wajib per PR), jadi hanya berjalan bila
+# berkas yang mendefinisikan gate berubah, plus nightly terhadap main.
+name: meta
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Makefile
+      - scripts/**
+      - .github/**
+      - .golangci.yml
+      - loc.budget
+      - deps.allow
+      - go.mod
+      - go.sum
+      - tools/go.mod
+      - tools/go.sum
+  pull_request:
+    paths:
+      - Makefile
+      - scripts/**
+      - .github/**
+      - .golangci.yml
+      - loc.budget
+      - deps.allow
+      - go.mod
+      - go.sum
+      - tools/go.mod
+      - tools/go.sum
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meta-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CGO_ENABLED: "1" # gate race butuh cgo di runner
+
+jobs:
+  meta-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - run: make meta-test
