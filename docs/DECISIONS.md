@@ -2553,3 +2553,21 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Dampak terukur.** LOC `codetools` ≈ 4.200/4.500 (scc). Dependency langsung baru: `github.com/bmatcuk/doublestar/v4`, `golang.org/x/text` (keduanya sudah di `deps.allow`). Token schema: lihat CT-27.
 
+
+## ADR-105 — Budget LOC `codetools` 4.500 → 4.800 (perbaikan REVIEW-F1-SEC2)
+
+**Status:** Accepted 2026-10-19. Merevisi tabel ENGINEERING §2.4 dan `loc.budget`; SPEC §3.2.4 tidak berubah.
+
+**Konteks.** `internal/codetools` mencapai tepat 4.500 baris (scc) sebelum perbaikan review keamanan REVIEW-F1-SEC2 atas PR #27. Perbaikan yang wajib sebelum merge menambah kode produksi yang tidak bisa dihilangkan tanpa melemahkan jaminan:
+- tulis in-place file ber-hard-link lewat temp lengkap, snapshot, backup ber-`fsync`, pre-alokasi, dan pemulihan (CT27-2, CT27-8; ADR-103 butir 13), termasuk `prealloc_*.go`;
+- kunci edit per identitas file (CT27-5), mode setuid/setgid/sticky terverifikasi (CT27-9), penghapusan temp yatim lewat fd direktori dengan pola ketat (CT27-10);
+- pemuatan ignore yang tidak pernah membaca file workspace di luar root (CT27-3) dan lewat entri non-reguler (CT27-4);
+- dua bug parity `rg` (baris kosong semu setelah newline akhir, `$` sebelum `\r\n`) dan prefilter literal untuk CT-01/CT-02.
+
+Duplikasi sudah dibuang lebih dulu (satu jalur open sandbox untuk baca/tulis; `recheckDeny`/`recheckIdentity`/`refuseLinked` disatukan di sandbox). Hasil terukur setelahnya: `codetools` 4.764 (scc, semua GOOS).
+
+**Keputusan.** Baris `codetools` di tabel ENGINEERING §2.4 dan `loc.budget` naik 4.500 → 4.800; total core per paket 33.900 → 34.200 ≤ 47.000 (budget gabungan SPEC §3.2.4 untuk core + codetools + exec + heal, ADR-033). `sandbox` + `redact` tetap 1.450 (terukur 1.447).
+
+**Ditolak.** (a) Membuang fitur atau test seam untuk masuk 4.500: jalur in-place tanpa backup/pemulihan adalah temuan BLOCKER CT27-2. (b) Memindahkan kode ke paket lain demi angka (memecah satu engine tanpa alasan desain). (c) Menaikkan baris codetools di SPEC §3.2.4: tidak perlu, karena tabel per paket berada di dalam budget gabungan.
+
+**Dampak terukur (SPEC §20).** Token 0, dependency 0. LOC: lihat di atas; sisa 36 baris untuk optimasi kinerja CT-01..03.
