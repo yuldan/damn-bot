@@ -50,14 +50,15 @@ type Runner struct {
 }
 
 // Run menjalankan semua task. Sebelum tiap task, proyeksi = terpakai + max(biaya task
-// termahal sejauh ini, FirstGuess) × 1,5; bila > CapUSD task dilewati (skipped_budget).
+// termahal sejauh ini, FirstGuess) × 1,5; bila > cap efektif (Recorder.Cap) task dilewati
+// (skipped_budget). Proxy tetap menolak setiap request di atas cap (reservasi, ADR-075).
 func (r *Runner) Run(ctx context.Context, tasks []evals.Task) []TaskResult {
 	var out []TaskResult
 	worst := r.FirstGuess
 	for i := range tasks {
 		t := &tasks[i]
 		res := TaskResult{ID: t.ID, Set: t.Set, Kind: t.Kind, Agent: "hermes", Damnbot: DamnbotNA, HarnessErrors: []string{}}
-		if cap := r.Recorder.CapUSD; cap > 0 && r.Recorder.Spent()+worst*1.5 > cap {
+		if cap := r.Recorder.Cap(); cap > 0 && r.Recorder.Spent()+worst*1.5 > cap {
 			res.Status = "skipped_budget"
 			out = append(out, res)
 			fmt.Fprintf(r.Log, "%s: dilewati, proyeksi %.4f > cap %.2f\n", t.ID, r.Recorder.Spent()+worst*1.5, cap)

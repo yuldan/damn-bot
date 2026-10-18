@@ -1,11 +1,16 @@
-// Command h2h menjalankan smoke LLM F0 (ROADMAP F0 #5) lewat proxy rekam bench/h2h:
+// Command h2h menjalankan smoke LLM (ROADMAP F0 #5, F1 ADR-062) lewat proxy rekam bench/h2h:
 // 10 task subset E1–E7 × 1 run, hermes vs Damn-Bot (N/A sampai F1).
 //
 //	cd bench && go run ./h2h/cmd/h2h -hermes ~/Dokumen/hermes-agent -key-file /tmp/f0-secrets/llm_key \
-//	    -upstream https://api.teamorouter.com -model gpt-5.4-mini -out h2h/results/2026-10-18
+//	    -upstream https://api.teamorouter.com -model gpt-5.4-mini -out h2h/results/2026-10-18 \
+//	    -price-in 0.09 -price-cached 0.009 -price-out 0.51
 //
 // Kunci upstream hanya dibaca dari -key-file dan hanya ada di memori proxy; agent memakai
 // kunci dummy. Rekaman menyimpan header Authorization sebagai REDACTED.
+//
+// Biaya (ADR-062 butir 3, ADR-075 AUD-037): setiap biaya dicatat ke ledger persisten -ledger
+// (default h2h/results/f1-spend.json, cap total US$2,00 saat dibuat); cap berlaku untuk jumlah
+// semua run. -cap-usd hanya bisa menurunkan cap ledger. Harga wajib > 0.
 package main
 
 import (
@@ -43,6 +48,7 @@ type summary struct {
 		Price        h2h.Price `json:"price_usd"`
 		PriceSource  string    `json:"price_source"`
 		CapUSD       float64   `json:"cap_usd"`
+		Ledger       string    `json:"ledger"`
 		HermesCommit string    `json:"hermes_commit"`
 		EvalSet      string    `json:"evalset"`
 		Selection    string    `json:"selection"`
@@ -57,7 +63,8 @@ type summary struct {
 		Passed        int       `json:"passed"`
 		HarnessErrors int       `json:"harness_errors"`
 		Usage         h2h.Usage `json:"usage"`
-		SpentUSD      float64   `json:"spent_usd_proxy_total"` // termasuk request di luar task
+		SpentUSD      float64   `json:"spent_usd_proxy_total"` // run ini, termasuk request di luar task
+		LedgerUSD     float64   `json:"ledger_spent_usd"`      // total ledger lintas run setelah run ini
 		// Request di luar jendela task (background.proxy.jsonl.gz); error-nya ikut harness_errors.
 		Background       h2h.Usage `json:"background_usage"`
 		BackgroundErrors []string  `json:"background_errors"`
@@ -65,6 +72,9 @@ type summary struct {
 	Damnbot string           `json:"damnbot"`
 	Results []h2h.TaskResult `json:"results"`
 }
+
+// F1CapUSD adalah cap total biaya LLM F1 untuk ledger baru (ADR-062 butir 3).
+const F1CapUSD = 2.00
 
 func run() error {
 	hermesDir := flag.String("hermes", "", "checkout hermes-agent (read-only)")
@@ -77,7 +87,8 @@ func run() error {
 	priceCached := flag.Float64("price-cached", 0, "USD per 1M token input ter-cache")
 	priceOut := flag.Float64("price-out", 0, "USD per 1M token output")
 	priceSrc := flag.String("price-source", "", "sumber tabel harga")
-	capUSD := flag.Float64("cap-usd", 3, "batas keras USD untuk seluruh run")
+	ledgerPath := flag.String("ledger", "h2h/results/f1-spend.json", "ledger biaya persisten lintas run (ADR-075)")
+	capUSD := flag.Float64("cap-usd", 0, "batas keras USD; 0 = cap ledger (US$2,00 saat ledger dibuat, ADR-062); hanya bisa menurunkan")
 	timeout := flag.Duration("timeout", 5*time.Minute, "timeout per task")
 	maxTurns := flag.Int("max-turns", 20, "batas iterasi tool per task (hermes --max-turns)")
 	home := flag.String("hermes-home", "/tmp/hm_h2h", "HERMES_HOME (di-reset per task)")
@@ -86,6 +97,14 @@ func run() error {
 	flag.Parse()
 	if *hermesDir == "" || *out == "" || *upstream == "" || *keyFile == "" || *model == "" {
 		return errors.New("h2h: -hermes, -out, -upstream, -key-file, -model wajib")
+	}
+	price := h2h.Price{Input: *priceIn, CachedInput: *priceCached, Output: *priceOut}
+	if !price.Valid() {
+		return errors.New("h2h: -price-in, -price-cached, -price-out wajib > 0 (ADR-075: harga 0 mematikan cap)")
+	}
+	ledger, err := h2h.OpenLedger(*ledgerPath, F1CapUSD)
+	if err != nil {
+		return err
 	}
 	keyb, err := os.ReadFile(*keyFile)
 	if err != nil {
@@ -117,13 +136,16 @@ func run() error {
 		tasks = sub
 	}
 
-	price := h2h.Price{Input: *priceIn, CachedInput: *priceCached, Output: *priceOut}
+	if ledger.Spent() >= ledger.CapUSD {
+		return fmt.Errorf("h2h: ledger %s habis: %.4f / %.2f USD", *ledgerPath, ledger.Spent(), ledger.CapUSD)
+	}
+	spentBefore := ledger.Spent()
 	bgFile, err := os.Create(filepath.Join(*out, "background.proxy.jsonl.gz"))
 	if err != nil {
 		return err
 	}
 	bgZip := gzip.NewWriter(bgFile)
-	rec := &h2h.Recorder{Upstream: up, Key: strings.TrimSpace(string(keyb)), Price: price, CapUSD: *capUSD,
+	rec := &h2h.Recorder{Upstream: up, Key: strings.TrimSpace(string(keyb)), Price: price, CapUSD: *capUSD, Ledger: ledger,
 		Client: &http.Client{Timeout: 10 * time.Minute}, Background: bgZip}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -149,7 +171,8 @@ func run() error {
 
 	var s summary
 	s.Meta.Date = time.Now().UTC().Format(time.RFC3339)
-	s.Meta.Upstream, s.Meta.Model, s.Meta.Price, s.Meta.PriceSource, s.Meta.CapUSD = up.String(), *model, price, *priceSrc, *capUSD
+	s.Meta.Upstream, s.Meta.Model, s.Meta.Price, s.Meta.PriceSource, s.Meta.CapUSD = up.String(), *model, price, *priceSrc, rec.Cap()
+	s.Meta.Ledger = *ledgerPath
 	s.Meta.EvalSet = "evalset/v1 " + *evalDir
 	s.Meta.Selection = fmt.Sprintf("per set %v: task eligible dengan sha256(%q+id) terkecil", h2h.SmokeQuota, h2h.SelectSalt)
 	s.Meta.TimeoutS, s.Meta.MaxTurns, s.Meta.GOOS, s.Meta.GOARCH = timeout.Seconds(), *maxTurns, runtime.GOOS, runtime.GOARCH
@@ -169,7 +192,8 @@ func run() error {
 		s.Totals.HarnessErrors += len(res.HarnessErrors)
 		s.Totals.Usage.Add(res.Usage)
 	}
-	s.Totals.SpentUSD = rec.Spent()
+	s.Totals.SpentUSD = ledger.Spent() - spentBefore
+	s.Totals.LedgerUSD = ledger.Spent()
 	s.Totals.Background, s.Totals.BackgroundErrors = rec.BackgroundStats()
 	if s.Totals.BackgroundErrors == nil {
 		s.Totals.BackgroundErrors = []string{}

@@ -73,6 +73,44 @@ func (p Price) Cost(u Usage) float64 {
 		float64(u.CompletionTokens)*p.Output) / 1e6
 }
 
+// Valid: semua tarif > 0. Tarif 0 membuat biaya = 0 sehingga cap tidak pernah terpicu (AUD-037).
+func (p Price) Valid() bool { return p.Input > 0 && p.CachedInput > 0 && p.Output > 0 }
+
+// DefaultMaxOutput adalah proyeksi token output bila request tidak membatasi max token.
+const DefaultMaxOutput = 32768
+
+// Worst memproyeksikan biaya terburuk satu request sebelum diteruskan (reservasi, ADR-075):
+// input = ceil(byte body / 2) token, selalu ≥ token nyata (o200k rata-rata > 2 byte/token pada
+// JSON), tanpa diskon cache; output = max_tokens/max_completion_tokens/max_output_tokens atau
+// DefaultMaxOutput.
+func (p Price) Worst(body []byte) float64 {
+	var m struct {
+		MaxTokens           int `json:"max_tokens"`
+		MaxCompletionTokens int `json:"max_completion_tokens"`
+		MaxOutputTokens     int `json:"max_output_tokens"`
+	}
+	_ = json.Unmarshal(body, &m) // body bukan JSON → default
+	out := max(m.MaxTokens, m.MaxCompletionTokens, m.MaxOutputTokens)
+	if out <= 0 {
+		out = DefaultMaxOutput
+	}
+	in := (len(body) + 1) / 2
+	return (float64(in)*p.Input + float64(out)*p.Output) / 1e6
+}
+
+// billablePaths: endpoint POST yang biayanya dihitung. POST lain ditolak, karena biayanya tidak
+// bisa dihitung proxy (AUD-037 butir 5).
+var billablePaths = []string{"/chat/completions", "/responses"}
+
+func billablePath(p string) bool {
+	for _, s := range billablePaths {
+		if strings.HasSuffix(p, s) {
+			return true
+		}
+	}
+	return false
+}
+
 // Record adalah satu pertukaran request/response; satu objek JSON per baris.
 type Record struct {
 	Seq          int         `json:"seq"`
@@ -95,6 +133,11 @@ type Record struct {
 	ClientAborted bool   `json:"client_aborted,omitempty"`
 	Note          string `json:"note,omitempty"`
 	Error         string `json:"error,omitempty"`
+	// ReservedUSD: proyeksi terburuk yang direservasi sebelum forward; ChargedUSD: yang dicatat ke
+	// biaya (usage nyata, atau ReservedUSD bila usage tidak diketahui: usage_missing, abort, error).
+	ReservedUSD float64 `json:"reserved_usd,omitempty"`
+	ChargedUSD  float64 `json:"charged_usd,omitempty"`
+	WorstCase   bool    `json:"worst_case_charged,omitempty"`
 }
 
 // Recorder adalah reverse proxy rekam. Klien (agent) memakai kunci dummy; kunci upstream
@@ -103,22 +146,26 @@ type Recorder struct {
 	Upstream *url.URL // mis. https://api.example.com (path request klien dipertahankan)
 	Key      string
 	Price    Price
-	CapUSD   float64 // 0 = tanpa batas; bila tercapai, request completion ditolak 402 tanpa diteruskan
-	Client   *http.Client
+	// CapUSD: batas keras (0 = tanpa batas). Bila Ledger ada, cap efektif = min(CapUSD, Ledger.CapUSD)
+	// dan biaya terpakai = total ledger lintas run. Request di atas cap ditolak 402 tanpa diteruskan.
+	CapUSD float64
+	Ledger *Ledger
+	Client *http.Client
 	// Background menerima rekaman request di luar task aktif (mis. daemon agent yang masih
 	// hidup); nil = hanya dihitung biayanya.
 	Background io.Writer
 
-	mu     sync.Mutex
-	w      io.Writer
-	agent  string
-	task   string
-	seq    int
-	spent  float64
-	usage  Usage
-	errs   []string
-	bg     Usage
-	bgErrs []string
+	mu       sync.Mutex
+	w        io.Writer
+	agent    string
+	task     string
+	seq      int
+	spent    float64
+	reserved float64
+	usage    Usage
+	errs     []string
+	bg       Usage
+	bgErrs   []string
 }
 
 // Begin mengarahkan rekaman berikutnya ke w dan me-reset akumulator per task.
@@ -138,11 +185,44 @@ func (r *Recorder) End() (Usage, []string) {
 	return u, e
 }
 
-// Spent adalah total USD sejak proxy dibuat.
+// Spent adalah total USD terpakai: total ledger lintas run bila Ledger ada, selain itu sejak
+// proxy dibuat.
 func (r *Recorder) Spent() float64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.spentLocked()
+}
+
+func (r *Recorder) spentLocked() float64 {
+	if r.Ledger != nil {
+		return r.Ledger.Spent()
+	}
 	return r.spent
+}
+
+// Cap adalah cap efektif (0 = tanpa batas).
+func (r *Recorder) Cap() float64 {
+	c := r.CapUSD
+	if r.Ledger != nil && (c <= 0 || r.Ledger.CapUSD < c) {
+		c = r.Ledger.CapUSD
+	}
+	return c
+}
+
+// reserve memesan proyeksi terburuk request sebelum diteruskan; gagal bila terpakai + reservasi
+// berjalan + proyeksi > cap.
+func (r *Recorder) reserve(rec *Record, body []byte) error {
+	capUSD := r.Cap()
+	proj := r.Price.Worst(body)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if capUSD > 0 && r.spentLocked()+r.reserved+proj > capUSD {
+		return fmt.Errorf("budget cap %.2f USD: terpakai %.4f + reservasi %.4f + proyeksi %.4f melebihi cap",
+			capUSD, r.spentLocked(), r.reserved, proj)
+	}
+	r.reserved += proj
+	rec.ReservedUSD = proj
+	return nil
 }
 
 func (r *Recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -158,11 +238,20 @@ func (r *Recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	_ = json.Unmarshal(body, &hdr) // body non-JSON (GET) → Stream=false
 	rec.Stream = hdr.Stream
-	billable := strings.HasSuffix(req.URL.Path, "/chat/completions")
-
-	if billable && r.CapUSD > 0 && r.Spent() >= r.CapUSD {
-		r.fail(w, &rec, http.StatusPaymentRequired, fmt.Sprintf("budget cap %.2f USD tercapai", r.CapUSD))
+	billable := req.Method == http.MethodPost
+	if billable && !billablePath(req.URL.Path) {
+		r.fail(w, &rec, http.StatusBadRequest, "POST "+req.URL.Path+" tidak dikenal: biayanya tidak bisa dihitung")
 		return
+	}
+	if billable && r.Cap() > 0 && !r.Price.Valid() {
+		r.fail(w, &rec, http.StatusInternalServerError, "harga input/cached/output wajib > 0 bila cap aktif (ADR-075)")
+		return
+	}
+	if billable {
+		if err := r.reserve(&rec, body); err != nil {
+			r.fail(w, &rec, http.StatusPaymentRequired, err.Error())
+			return
+		}
 	}
 
 	out, err := http.NewRequestWithContext(req.Context(), req.Method, r.Upstream.JoinPath(req.URL.Path).String(), bytes.NewReader(body))
@@ -238,7 +327,8 @@ func (r *Recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	rec.RespBody = buf.String()
 
 	if billable && resp.StatusCode == http.StatusOK {
-		if u, ok := ParseUsage(buf.Bytes(), rec.Stream); ok {
+		// usage tanpa prompt_tokens pada request non-kosong = usage tidak dapat dipercaya (AUD-037 butir 6).
+		if u, ok := ParseUsage(buf.Bytes(), rec.Stream); ok && (u.PromptTokens > 0 || len(body) == 0) {
 			u.CostUSD = r.Price.Cost(u)
 			rec.Usage = &u
 		} else if !rec.ClientAborted {
@@ -269,18 +359,36 @@ func (r *Recorder) write(rec *Record) {
 		// Di luar task: dicatat terpisah agar tidak hilang saat Begin me-reset akumulator.
 		usage, errs, w = &r.bg, &r.bgErrs, r.Background
 	}
-	if rec.ClientAborted && strings.HasSuffix(rec.Path, "/chat/completions") {
+	if rec.ClientAborted && billablePath(rec.Path) {
 		usage.AbortedCalls++
 	}
 	if rec.Usage != nil {
 		usage.Add(*rec.Usage)
-		r.spent += rec.Usage.CostUSD
+	}
+	// Biaya: usage nyata; bila usage tidak diketahui (usage_missing, abort, error transport) =
+	// proyeksi terburuk yang direservasi. Respons non-200 lengkap dari upstream = 0 (tidak ditagih).
+	charge := 0.0
+	switch {
+	case rec.Usage != nil:
+		charge = rec.Usage.CostUSD
+	case rec.ReservedUSD > 0 && (rec.UsageMissing || rec.ClientAborted || rec.Error != ""):
+		charge, rec.WorstCase = rec.ReservedUSD, true
+	}
+	r.reserved -= rec.ReservedUSD
+	if charge > 0 {
+		rec.ChargedUSD = charge
+		r.spent += charge
+		if r.Ledger != nil {
+			if err := r.Ledger.Add(charge); err != nil {
+				*errs = append(*errs, "ledger: "+err.Error())
+			}
+		}
 	}
 	if rec.Error != "" {
 		*errs = append(*errs, fmt.Sprintf("seq %d %s: %s", rec.Seq, rec.Path, rec.Error))
 	}
 	if rec.UsageMissing {
-		*errs = append(*errs, fmt.Sprintf("seq %d %s: usage tidak ada di respons", rec.Seq, rec.Path))
+		*errs = append(*errs, fmt.Sprintf("seq %d %s: usage_missing (usage tidak ada atau prompt_tokens = 0)", rec.Seq, rec.Path))
 	}
 	if w == nil {
 		return
@@ -327,6 +435,7 @@ func jsonOrString(b []byte) any {
 }
 
 type wireUsage struct {
+	// Chat Completions.
 	PromptTokens        int `json:"prompt_tokens"`
 	CompletionTokens    int `json:"completion_tokens"`
 	PromptTokensDetails struct {
@@ -335,18 +444,36 @@ type wireUsage struct {
 	CompletionTokensDetails struct {
 		ReasoningTokens int `json:"reasoning_tokens"`
 	} `json:"completion_tokens_details"`
+	// Responses API.
+	InputTokens        int `json:"input_tokens"`
+	OutputTokens       int `json:"output_tokens"`
+	InputTokensDetails struct {
+		CachedTokens int `json:"cached_tokens"`
+	} `json:"input_tokens_details"`
+	OutputTokensDetails struct {
+		ReasoningTokens int `json:"reasoning_tokens"`
+	} `json:"output_tokens_details"`
 }
 
 // ParseUsage mengambil usage dari body JSON atau, bila stream, dari chunk SSE terakhir
-// yang membawa usage (stream_options.include_usage).
+// yang membawa usage (Chat Completions `usage` dengan stream_options.include_usage, atau
+// Responses API `response.usage` pada event `response.completed`).
 func ParseUsage(body []byte, stream bool) (Usage, bool) {
 	var found *wireUsage
 	parse := func(b []byte) {
 		var m struct {
-			Usage *wireUsage `json:"usage"`
+			Usage    *wireUsage `json:"usage"`
+			Response *struct {
+				Usage *wireUsage `json:"usage"`
+			} `json:"response"`
 		}
-		if json.Unmarshal(b, &m) == nil && m.Usage != nil {
+		if json.Unmarshal(b, &m) != nil {
+			return
+		}
+		if m.Usage != nil {
 			found = m.Usage
+		} else if m.Response != nil && m.Response.Usage != nil {
+			found = m.Response.Usage
 		}
 	}
 	if stream {
@@ -369,9 +496,9 @@ func ParseUsage(body []byte, stream bool) (Usage, bool) {
 	}
 	return Usage{
 		Calls:            1,
-		PromptTokens:     found.PromptTokens,
-		CompletionTokens: found.CompletionTokens,
-		CachedTokens:     found.PromptTokensDetails.CachedTokens,
-		ReasoningTokens:  found.CompletionTokensDetails.ReasoningTokens,
+		PromptTokens:     found.PromptTokens + found.InputTokens,
+		CompletionTokens: found.CompletionTokens + found.OutputTokens,
+		CachedTokens:     found.PromptTokensDetails.CachedTokens + found.InputTokensDetails.CachedTokens,
+		ReasoningTokens:  found.CompletionTokensDetails.ReasoningTokens + found.OutputTokensDetails.ReasoningTokens,
 	}, true
 }

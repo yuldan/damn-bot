@@ -87,7 +87,7 @@ func TestProxyBudgetCap(t *testing.T) {
 	}))
 	defer up.Close()
 	u, _ := url.Parse(up.URL)
-	rec := &Recorder{Upstream: u, Price: Price{Input: 2}, CapUSD: 1, Client: up.Client()}
+	rec := &Recorder{Upstream: u, Price: Price{Input: 2, CachedInput: 1, Output: 1}, CapUSD: 1, Client: up.Client()}
 	px := httptest.NewServer(rec)
 	defer px.Close()
 	for range 2 {
