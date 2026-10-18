@@ -110,3 +110,27 @@ Perkiraan menit tertagih saat repo masih privat (durasi job × pengali Linux 1, 
 | EC-PROV-009, 010, 028, 029, 030 | — | `TestEdgeCases/<ID>` di `netx` (009, 028, 030) dan `netx/retry` (010, 029), gate `phase.Item(…, "F1", "covered")` | covered |
 
 Coverage (job `coverage`, run 39145102606): `netx` 96,9 %, `netx/retry` 99,0 %. LOC scc: `netx` 759/1.800 setelah #9 (891 dengan `f1-netx-3`). Matrix 6 runner hijau untuk kedua paket (ubuntu x64/arm, macOS arm/intel, Windows x64 `-race`, Windows arm64). Lokal: `go test -race -count=20 -shuffle=on ./internal/netx/...` hijau; golangci-lint 0 (linux/windows/darwin); `make vet-custom deadcode loc` 0.
+
+### `internal/schema`, `internal/boundary`, `internal/redact`, `internal/sandbox` (ADR-095..098)
+
+LOC = scc kolom Code, Go non-test (ENGINEERING E-19). Coverage = `go test -cover` paket (lokal, linux/amd64). Benchmark lokal linux/amd64 (12 thread), median 3 run. Actions = 24 check wajib per head (matrix 6 OS + gate).
+
+| Paket | PR | LOC / budget | Test utama | Coverage | Benchmark | Actions |
+|---|---|---:|---|---:|---|---|
+| `schema` (ADR-095) | [#4](https://github.com/yuldan/damn-bot/pull/4), [#10](https://github.com/yuldan/damn-bot/pull/10), [#11](https://github.com/yuldan/damn-bot/pull/11) — merged | 1.126 / 1.200 | `TestCheck`, `TestJSONNoDuplicateKeys`, `TestSchemaKeywordsSupported`, `TestCompileMCPPartial`, `TestValidate`, `TestEnumEquality`, `TestJSONSchemaTestSuite` (344 kasus dieksekusi, 39 dihitung di luar subset), `TestValidateAllocs`, `FuzzJSONCheck`, `FuzzToolArgs` | 98,3% | `BenchmarkValidate` 1 KiB 1,77 µs, 0 alloc; `BenchmarkCompile` 66 µs, 557 alloc | hijau 24/24 (0bd8973, e3dfcf9, 2fc6255) |
+| `boundary` (tanpa deviasi) | [#8](https://github.com/yuldan/damn-bot/pull/8) — merged | 75 / 150 | `TestRunPanic`, `TestPanicLogged`, `TestGo`, `TestGroupLimit`, `TestGroupPanicCancels`, goleak | 100% | — | hijau 24/24 (976b77b; pr-meta dijalankan ulang setelah edit deskripsi) |
+| `redact` (ADR-096) | [#13](https://github.com/yuldan/damn-bot/pull/13), [#14](https://github.com/yuldan/damn-bot/pull/14) — menunggu review | 511 / 1.300 (bersama `sandbox`) | `TestRedaction`, `TestStreamRedactSplit`, `TestStreamHoldCap`, `TestEdgeCases`/`TestStreamEdgeCases` (EC-SEC-001/005/007/008), `TestSentinelGuard`, `FuzzRedactStream`, `TestFirstTokenLatency/redact` | 92,3% (a) / 98,4% (a+b) | `BenchmarkRedact` 4 KiB 16,4 µs, 250 MB/s, 0 alloc; `BenchmarkStreamRedact` 18,5 µs, 222 MB/s, 0 alloc; first token p95 ≈ 1,2 µs | lihat §"Review keamanan" |
+| `sandbox` (ADR-097) | [#15](https://github.com/yuldan/damn-bot/pull/15), [#16](https://github.com/yuldan/damn-bot/pull/16) — menunggu review | 574 / 1.300 (bersama `redact`) | `TestCodeToolsSymlinkOutsideRoot`, `TestDenyPaths`, `TestSymlinkEscapeRace` (CT-26), `TestOpenFile`, `TestOpenOutsideRootVerdict`, `TestVerifyProcFd`, `TestVerifyInode`, `TestEdgeCases` (EC-WIN-010/012/013) | 91,3% (a) / 93,2% (a+b) | `BenchmarkOpenFile` ≈ 10 µs, 34 alloc | lihat §"Review keamanan" |
+
+Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket test-only dikeluarkan lewat allowlist `TESTONLY` di `loc.budget` ([#12](https://github.com/yuldan/damn-bot/pull/12), ADR-098). Rasio setelah #11: 5.529:4.890 = 1,13; perkiraan setelah `redact` + `sandbox` + `boundary`: 7.024:6.050 = 1,16.
+
+## Review keamanan
+
+PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (auditor). PR bagian b bertumpuk di atas bagian a (base = branch a); setelah a di-merge, base b diganti ke `main`.
+
+| PR | Isi | Kasus ancaman yang dicakup test |
+|---|---|---|
+| [#13](https://github.com/yuldan/damn-bot/pull/13) `redact` a | pola SPEC §14.3 + ADR-071 tanpa `regexp`, nilai secret yang dikenal, sentinel | 0 bocor: 42 sampel gitleaks v8.28.0 + 60 sintetis × 6 kanal (plain, JSON, log, query URL, blok kode, pesan error); EC-SEC-001 (error provider menggemakan key), EC-SEC-005 (header kustom), EC-SEC-007 (Authorization di dump Go/Python/JSON), EC-SEC-008 (input patologis linear); userinfo panjang (user 300 B, password 3.000 B); secret eksplisit pendek; sentinel di field tulis (ADR-071 butir 4); 0 false positive pada ≥ 300 hash/UUID/base64 |
+| [#14](https://github.com/yuldan/damn-bot/pull/14) `redact` b | penyaring stream | secret terpotong di setiap offset (2 chunk) dan 50 potongan 3-chunk per secret = output whole-blob; prefix parsial di akhir chunk; ekor tak terbatas > 4 KiB fail-closed; PEM tanpa END; fuzz `FuzzRedactStream` |
+| [#15](https://github.com/yuldan/damn-bot/pull/15) `sandbox` a | verdict `Check`, `deny_paths` | symlink file/dir keluar root (termasuk komponen tengah, dangling, relatif, loop), `..`, path absolut; symlink ke path deny; `/proc/*/environ`, `/proc/*/task/*/environ`, `/proc/*/mem`, `~/.ssh`, `**/.env`, `*.pem`, look-alike, varian huruf (Windows/macOS); MSYS/UNC/long path |
+| [#16](https://github.com/yuldan/damn-bot/pull/16) `sandbox` b | open anti-TOCTOU per OS | CT-26: proses lain membalik komponen direktori ↔ symlink keluar root selama 1.000 open per mekanisme (openat2, walk `O_NOFOLLOW`) = 0 file luar; symlink baru di dalam root setelah `Check` ditolak; verifikasi `/proc/self/fd` dan device+inode (macOS/BSD, sisa risiko ADR-097 butir 4); `OpenApproved` tetap menolak deny; create pada path deny tidak membuat file |
