@@ -234,7 +234,8 @@ func suiteAfter(t *testing.T, v *env, c *suiteCase, path string, modeBefore os.F
 	if runtime.GOOS != "windows" && mustStat(t, path).Mode() != modeBefore {
 		t.Errorf("mode %v → %v", modeBefore, mustStat(t, path).Mode())
 	}
-	if res.Meta["mode_preserved"] != true || res.Meta["owner_preserved"] != true {
+	wantOwner := runtime.GOOS != "windows" || res.Meta["inplace"] == "hardlink" // CT27-12
+	if res.Meta["mode_preserved"] != true || res.Meta["owner_preserved"] != wantOwner {
 		t.Errorf("meta %v", res.Meta)
 	}
 	if c.Xattr && runtime.GOOS == "linux" && res.Meta["xattr_preserved"] != true {

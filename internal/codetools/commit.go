@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -19,8 +20,12 @@ import (
 )
 
 // tempMarker names the atomic-write temp files: ".<name>.damnbot-<rand>"
-// (CODE-TOOLS §5.4), removed when orphaned by CleanOrphanTemps.
+// (CODE-TOOLS §5.4), removed when orphaned by CleanOrphanTemps; reOrphan
+// matches exactly those names (CT27-10), not the in-place backups
+// ".<name>.damnbot-bak-<rand>", which a crash leaves for recovery.
 const tempMarker = ".damnbot-"
+
+var reOrphan = regexp.MustCompile(`^\..+\.damnbot-[a-z2-7]{12}$`)
 
 // commitInfo is what the write path reports in Meta (P14).
 type commitInfo struct {
@@ -49,62 +54,204 @@ func (e *Engine) commit(ctx context.Context, t *target, before fileKey, mode fs.
 
 // commitStream is commit for content produced by fill (streaming edits);
 // an error from fill aborts the write and is returned as is when it is a
-// *ToolError.
+// *ToolError. The new bytes always go to a complete, fsynced temp first,
+// so a failed fill (validation, no-op, disk full) never touches the target.
 func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mode fs.FileMode, fill func(io.Writer) error) (ci commitInfo, err error) {
 	ci = commitInfo{ownerOK: true, modeOK: true, xattrOK: true}
-	if t.f != nil && linkCount(t.f) > 1 {
-		ci.inplace = true
-		err = e.writeInPlace(ctx, t, before, fill, &ci)
-		return ci, err
-	}
-	dir, name := filepath.Dir(t.resolved), filepath.Base(t.resolved)
-	tmpName := filepath.Join(dir, "."+name+tempMarker+randHex())
-	perm := fs.FileMode(0o600) // existing file: final mode set below
-	if mode == 0 {
-		perm = 0o666 // new file: the process umask applies
-	}
-	tmp, err := e.openWrite(ctx, tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm, t.outside)
+	ci.inplace = t.f != nil && linkCount(t.f) > 1
+	dir := filepath.Dir(t.resolved)
+	tmp, tmpName, err := e.createTemp(ctx, t, "")
 	if err != nil {
 		return ci, err
 	}
-	done := false
-	defer func() {
-		if !done {
-			err = errors.Join(err, tmp.Close(), os.Remove(tmpName))
+	renamed := false
+	defer func() { // the temp is discarded unless renamed: close errors cannot lose data
+		if tmp != nil {
+			_ = tmp.Close()
+		}
+		if !renamed {
+			removeQuiet(tmpName)
 		}
 	}()
-	// Owner and xattrs first (xattr writes need a writable inode), then the
-	// final mode before the first byte (§5.4 langkah 2).
-	if t.f != nil {
+	// Owner and xattrs first (xattr writes need a writable inode; chown
+	// clears setuid/setgid), then the final mode before the first byte
+	// (§5.4 langkah 2). An in-place rewrite keeps the target's inode.
+	if t.f != nil && !ci.inplace {
 		ci.ownerOK = copyOwner(t.f, tmp)
 		ci.xattrOK = copyXattrs(t.f, tmp)
 	}
-	if mode != 0 {
-		ci.modeOK = tmp.Chmod(mode) == nil
+	if before != (fileKey{}) && !ci.inplace {
+		ci.modeOK = setMode(tmp, mode)
 	}
-	if werr := hashFill(tmp, fill, &ci); werr != nil {
+	if werr := hashFill(e.hooked(tmp, "mid-temp"), fill, &ci); werr != nil {
 		return ci, fillErr("write", t.rel, werr)
 	}
 	if werr := tmp.Sync(); werr != nil {
 		return ci, ioErr("fsync", t.rel, werr)
+	}
+	if ci.inplace {
+		return ci, e.copyInPlace(ctx, t, before, tmp, &ci)
+	}
+	if werr := e.at("pre-rename"); werr != nil {
+		return ci, ioErr("rename", t.rel, werr)
 	}
 	var cerr error
 	t.close(&cerr) // Windows cannot replace a file that is still open
 	if werr := errors.Join(cerr, e.unchanged(t, before)); werr != nil {
 		return ci, werr
 	}
-	if werr := tmp.Close(); werr != nil {
+	werr := tmp.Close()
+	tmp = nil
+	if werr != nil {
 		return ci, ioErr("close", t.rel, werr)
 	}
-	done = true
 	if werr := renameReplace(tmpName, t.resolved); werr != nil {
-		return ci, errors.Join(ioErr("rename", t.rel, werr), os.Remove(tmpName))
+		return ci, ioErr("rename", t.rel, werr)
 	}
-	if werr := e.syncDir(ctx, dir, t.outside); werr != nil {
+	renamed = true
+	if werr := errors.Join(e.at("post-rename"), e.syncDir(ctx, dir, t.outside)); werr != nil {
 		return ci, ioErr("fsync dir", t.rel, werr)
 	}
-	err = e.readBack(ctx, t, &ci)
-	return ci, err
+	return ci, e.readBack(ctx, t, &ci)
+}
+
+// createTemp creates ".<name>.damnbot-<kind><rand>" next to the target,
+// through the sandbox (O_EXCL, mode 0o600; 0o666 minus umask for a new
+// file, whose mode is not set afterwards).
+func (e *Engine) createTemp(ctx context.Context, t *target, kind string) (*os.File, string, error) {
+	perm := fs.FileMode(0o600)
+	if t.f == nil {
+		perm = 0o666
+	}
+	name := filepath.Join(filepath.Dir(t.resolved), "."+filepath.Base(t.resolved)+tempMarker+kind+randHex())
+	f, err := e.openWrite(ctx, name, os.O_RDWR|os.O_CREATE|os.O_EXCL, perm, t.outside)
+	return f, name, err
+}
+
+// setMode sets mode on f and reports whether it holds afterwards (the
+// kernel may drop setgid for a group the process is not in).
+func setMode(f *os.File, mode fs.FileMode) bool {
+	if f.Chmod(mode) != nil {
+		return false
+	}
+	fi, err := f.Stat()
+	return err == nil && keepMode(fi) == mode
+}
+
+// copyInPlace rewrites a hard-linked target in place (rename would break
+// the link; approved per S16-7, CODE-TOOLS §5.4) from tmp, the complete
+// fsynced new content. Before the first byte: the old bytes go to the
+// Snapshot callback and to a fsynced backup ".<name>.damnbot-bak-<rand>",
+// and the new size is preallocated. A failed copy is undone from the
+// backup, so an error leaves the target byte-identical; only a crash
+// mid-copy leaves it partial, with the backup kept next to it (ADR-103).
+func (e *Engine) copyInPlace(ctx context.Context, t *target, before fileKey, tmp *os.File, ci *commitInfo) (err error) {
+	if err := e.unchanged(t, before); err != nil {
+		return err
+	}
+	if e.snapshot != nil {
+		if serr := e.snapshot(ctx, t.resolved, t.f); serr != nil {
+			return ioErr("snapshot", t.rel, serr)
+		}
+	}
+	bak, bakName, err := e.createTemp(ctx, t, "bak-")
+	if err != nil {
+		return err
+	}
+	keepBak := false
+	defer func() { // bak was fsynced by copyAt: a close error cannot lose data
+		_ = bak.Close()
+		if !keepBak {
+			removeQuiet(bakName)
+		}
+	}()
+	if werr := e.copyAt(bak, t.f, before.size, ""); werr != nil {
+		return ioErr("backup", t.rel, werr)
+	}
+	dst, err := e.openWrite(ctx, t.resolved, os.O_WRONLY, 0, t.outside)
+	if err != nil {
+		return err
+	}
+	defer closeInto(&err, dst)
+	fi, err := dst.Stat()
+	if err != nil || keyOf(t.resolved, fi) != before {
+		return toolErr(CodeStaleRead, "read the file again", "%s changed while writing", t.rel)
+	}
+	nfi, err := tmp.Stat()
+	if err != nil {
+		return ioErr("stat", t.rel, err)
+	}
+	if werr := preallocate(dst, nfi.Size()); werr != nil {
+		return ioErr("preallocate", t.rel, werr)
+	}
+	if werr := e.copyAt(dst, tmp, nfi.Size(), "mid-copy"); werr != nil {
+		if rerr := e.copyAt(dst, bak, before.size, ""); rerr != nil {
+			keepBak = true
+			return errors.Join(ioErr("write in place", t.rel, werr), fmt.Errorf("codetools: restore failed, old bytes kept in %s: %w", bakName, rerr))
+		}
+		return ioErr("write in place", t.rel, werr)
+	}
+	return e.readBack(ctx, t, ci)
+}
+
+// copyAt writes the first n bytes of src over dst from offset 0, sets
+// dst's size to n and fsyncs it; point names the test hook fired midway.
+func (e *Engine) copyAt(dst *os.File, src io.ReaderAt, n int64, point string) error {
+	w := io.Writer(io.NewOffsetWriter(dst, 0))
+	if point != "" {
+		w = e.hooked(w, point)
+	}
+	if _, err := io.Copy(w, io.NewSectionReader(src, 0, n)); err != nil {
+		return fmt.Errorf("codetools: copy: %w", err)
+	}
+	if err := errors.Join(dst.Truncate(n), dst.Sync()); err != nil {
+		return fmt.Errorf("codetools: copy: %w", err)
+	}
+	return nil
+}
+
+// at fires the test hook at a named commit point (nil in production).
+func (e *Engine) at(point string) error {
+	if e.hook == nil {
+		return nil
+	}
+	return e.hook(point)
+}
+
+// hooked returns w, or with a test hook set, a writer that fires point
+// once between the two halves of the first write: a CT-25 kill point or
+// injected failure inside a partially written file.
+func (e *Engine) hooked(w io.Writer, point string) io.Writer {
+	if e.hook == nil {
+		return w
+	}
+	return &hookWriter{w: w, fire: func() error { return e.hook(point) }}
+}
+
+type hookWriter struct {
+	w    io.Writer
+	fire func() error
+	done bool
+}
+
+func (h *hookWriter) Write(p []byte) (int, error) {
+	k := len(p)
+	if !h.done && k > 1 {
+		k /= 2
+	}
+	n, err := h.w.Write(p[:k])
+	if err == nil && k < len(p) {
+		h.done = true
+		if err = h.fire(); err == nil {
+			var m int
+			m, err = h.w.Write(p[k:])
+			n += m
+		}
+	}
+	if err != nil {
+		return n, fmt.Errorf("codetools: write: %w", err)
+	}
+	return n, nil
 }
 
 // syncDir fsyncs the directory of a renamed file, opened through the sandbox.
@@ -136,24 +283,6 @@ func (e *Engine) unchanged(t *target, before fileKey) error {
 		return toolErr(CodeStaleRead, "read the file again", "%s changed while writing", t.rel)
 	}
 	return nil
-}
-
-func (e *Engine) writeInPlace(ctx context.Context, t *target, before fileKey, fill func(io.Writer) error, ci *commitInfo) error {
-	if err := e.unchanged(t, before); err != nil {
-		return err
-	}
-	f, err := e.openWrite(ctx, t.resolved, os.O_WRONLY|os.O_TRUNC, 0, t.outside)
-	if err != nil {
-		return err
-	}
-	werr := hashFill(f, fill, ci)
-	if werr == nil {
-		werr = f.Sync()
-	}
-	if err := errors.Join(werr, f.Close()); err != nil {
-		return fillErr("write in place", t.rel, err)
-	}
-	return e.readBack(ctx, t, ci)
 }
 
 // hashFill runs fill into w through a buffer while hashing the bytes.
@@ -259,7 +388,8 @@ func keepMode(fi fs.FileInfo) fs.FileMode {
 }
 
 // CleanOrphanTemps removes ".<name>.damnbot-<rand>" files left by a crash
-// in the session roots (CODE-TOOLS §5.4); call it at session start.
+// in the session roots (CODE-TOOLS §5.4), each unlinked relative to its
+// directory opened through the sandbox; call it at session start.
 func (e *Engine) CleanOrphanTemps(ctx context.Context) (int, error) {
 	removed := 0
 	for _, root := range e.roots {
@@ -269,8 +399,7 @@ func (e *Engine) CleanOrphanTemps(ctx context.Context) (int, error) {
 		}
 		var found []string
 		spec := &walkSpec{root: r.abs, hidden: true, keepFile: func(rel string) bool {
-			base := filepath.Base(rel)
-			return base[0] == '.' && strings.Contains(base, tempMarker)
+			return reOrphan.MatchString(filepath.Base(rel))
 		}}
 		if _, err := e.walk(ctx, spec, r.st, r.top, func(j *fileJob, _ scanOut) bool {
 			found = append(found, j.abs)
@@ -279,10 +408,24 @@ func (e *Engine) CleanOrphanTemps(ctx context.Context) (int, error) {
 			return removed, fmt.Errorf("codetools: clean temps: %w", err)
 		}
 		for _, p := range found {
-			if os.Remove(p) == nil {
+			if e.removeIn(ctx, p) == nil {
 				removed++
 			}
 		}
 	}
 	return removed, nil
 }
+
+// removeIn unlinks p relative to its directory opened through the sandbox
+// (no symlinked ancestor is followed; by path on Windows).
+func (e *Engine) removeIn(ctx context.Context, p string) error {
+	d, err := e.openResolved(ctx, filepath.Dir(p), false)
+	if err != nil {
+		return err
+	}
+	return errors.Join(removeAt(d, filepath.Base(p)), d.Close())
+}
+
+// removeQuiet removes a temp by path; a failure leaves an orphan for
+// CleanOrphanTemps, not an error for the edit.
+func removeQuiet(p string) { _ = os.Remove(p) }

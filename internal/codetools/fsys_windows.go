@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"golang.org/x/sys/windows"
 )
@@ -17,11 +18,22 @@ func linkCount(f *os.File) uint64 {
 	return uint64(info.NumberOfLinks)
 }
 
-// copyOwner: Windows ACLs are inherited from the directory; nothing to copy.
-func copyOwner(_, _ *os.File) bool { return true }
+// copyOwner: the replacing file gets the creator as owner and the
+// directory's inherited ACL, so an explicit owner or ACL on the old file
+// is not kept; reported as owner_preserved=false (CT27-12).
+func copyOwner(_, _ *os.File) bool { return false }
 
 // copyXattrs: no extended attributes on Windows.
 func copyXattrs(_, _ *os.File) bool { return true }
+
+// removeAt removes name in the directory d (by path: Windows has no
+// unlinkat; d was opened and verified through the sandbox).
+func removeAt(d *os.File, name string) error {
+	if err := os.Remove(filepath.Join(d.Name(), name)); err != nil {
+		return fmt.Errorf("codetools: remove: %w", err)
+	}
+	return nil
+}
 
 // renameReplace replaces dst with MoveFileEx(REPLACE_EXISTING|WRITE_THROUGH)
 // (CODE-TOOLS §5.4).

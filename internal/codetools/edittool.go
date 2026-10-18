@@ -47,12 +47,18 @@ type pathMu struct {
 
 // pathLock serializes edits of one file inside this process (CT27-5): the
 // key is the symlink-resolved path, case-folded where file systems
-// usually are (Windows, macOS), so aliases share a lock; unused locks are
-// dropped.
+// usually are (Windows, macOS), so aliases share a lock; a hard-linked
+// file, rewritten in place, is keyed by its device+inode so every name of
+// it shares one lock. Unused locks are dropped.
 func (e *Engine) pathLock(ctx context.Context, p string) func() {
 	key := e.abs(p)
-	if _, r, err := e.sb.Check(ctx, key, sandbox.OpRead); err == nil {
+	if v, r, err := e.sb.Check(ctx, key, sandbox.OpRead); err == nil {
 		key = r
+		if fi, serr := os.Stat(r); v == sandbox.HardLinked && serr == nil {
+			if k := keyOf(r, fi); k.ino != 0 {
+				key = fmt.Sprintf("\x00%d:%d:%d", k.dev, k.sdev, k.ino)
+			}
+		}
 	}
 	if e.fold || runtime.GOOS == "darwin" {
 		key = strings.ToLower(key)

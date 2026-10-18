@@ -41,6 +41,15 @@ func renameReplace(src, dst string) error {
 	return nil
 }
 
+// removeAt unlinks name relative to the directory d (unlinkat), so no
+// ancestor swapped for a symlink is followed (CT27-10).
+func removeAt(d *os.File, name string) error {
+	if err := unix.Unlinkat(int(d.Fd()), name, 0); err != nil {
+		return fmt.Errorf("codetools: unlinkat: %w", err)
+	}
+	return nil
+}
+
 // dirSyncable: POSIX needs fsync(dir) for a durable rename (§5.4).
 const dirSyncable = true
 
