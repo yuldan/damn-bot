@@ -201,13 +201,13 @@ func (e *Engine) readBack(ctx context.Context, t *target, ci *commitInfo) (err e
 	return nil
 }
 
-// openWrite opens a path for writing through the sandbox; approved paths
-// outside the roots use OpenApproved (SPEC §4.3 langkah 7).
+// openWrite opens a path for writing through the sandbox; approved
+// non-Inside verdicts use OpenApproved (SPEC §4.3 langkah 7).
 func (e *Engine) openWrite(ctx context.Context, p string, flag int, perm fs.FileMode, outside bool) (*os.File, error) {
 	f, v, err := e.sb.OpenFile(ctx, p, flag, perm)
-	if err == nil && v == sandbox.OutsideRoot {
-		if !outside {
-			return nil, toolErr(CodeOutsideWorkspace, "paths outside the workspace need approval", "%s is outside the workspace", p)
+	if err == nil && v != sandbox.Inside {
+		if err := approval(v, e.rel(p), outside); err != nil {
+			return nil, err
 		}
 		f, err = e.sb.OpenApproved(ctx, p, flag, perm)
 	}
@@ -229,11 +229,11 @@ func (e *Engine) mkdirs(ctx context.Context, dir string, approved bool) error {
 	}
 	for _, d := range slices.Backward(missing) {
 		v, _, err := e.sb.Check(ctx, d, sandbox.OpWrite)
-		switch {
-		case err != nil:
+		if err != nil {
 			return mapOpenErr(e.rel(d), err)
-		case v == sandbox.OutsideRoot && !approved:
-			return toolErr(CodeOutsideWorkspace, "paths outside the workspace need approval", "%s is outside the workspace", d)
+		}
+		if err := approval(v, e.rel(d), approved); err != nil {
+			return err
 		}
 		if merr := os.Mkdir(d, 0o750); merr != nil && !errors.Is(merr, fs.ErrExist) {
 			return ioErr("mkdir", e.rel(d), merr)
