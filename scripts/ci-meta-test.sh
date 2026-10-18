@@ -55,7 +55,7 @@ target() {
 marker() {
 	case $1 in
 	lint) echo 'forbidigo' ;;
-	depguard) echo 'depguard.*E-04' ;;
+	depguard) echo "database/sql.*E-04.*\(depguard\)" ;;
 	lint-anchor) echo 'internal/tools/cmd/x\.go.*E-31' ;;
 	vet-custom) echo 'nohttpclient: E-05' ;;
 	test) echo 'TestMetaViolation' ;;
