@@ -25,6 +25,7 @@ func FuzzPairPrefilter(f *testing.F) {
 		"Authorization: Bearer abcdefgh", "AUTHORIZATION:bearer x", "https://u:p@h", "redis://:pw@h/0",
 		"123456789:" + strings.Repeat("A", 35), "ghp_" + strings.Repeat("a", 36), "-----BEGIN RSA PRIVATE KEY-----\nx",
 		"eyJabcdefgh.abcdefgh.abcdefgh", "sk-", "a:b:c", "x",
+		"Authorization: Bearer " + strings.Repeat("A", 4200), // past holdCap: forced cut
 	} {
 		f.Add([]byte(s), "k", uint8(5))
 	}
@@ -37,6 +38,14 @@ func FuzzPairPrefilter(f *testing.F) {
 		parts := slices.Collect(slices.Chunk(in, 1+int(chunk%17)))
 		if got, want := streamAll(r, parts...), streamAll(ref, parts...); !bytes.Equal(got, want) {
 			t.Fatalf("stream %q: %q, want %q", in, got, want)
+		}
+		parts = chunks(string(in), newRNG(uint64(chunk))) // random split points
+		bparts := make([][]byte, len(parts))
+		for i, p := range parts {
+			bparts[i] = []byte(p)
+		}
+		if got, want := streamAll(r, bparts...), streamAll(ref, bparts...); !bytes.Equal(got, want) {
+			t.Fatalf("random-chunk stream %q: %q, want %q", in, got, want)
 		}
 	})
 }

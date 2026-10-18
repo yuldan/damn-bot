@@ -46,8 +46,9 @@ type Redactor struct {
 	pats    []pattern
 	byFirst [256][]*pattern // patterns indexed by the first byte they can match
 	// pairs is the set of (byte, next byte) pairs some pattern can start
-	// with: exactly the positions where matchAt does more than its cheap
-	// second-byte reject, so scan skips the others without a call.
+	// with: a superset of the positions where matchAt does more than its
+	// cheap second-byte reject (the skip memo may still reject some), so
+	// scan skips the others without a call.
 	pairs [1 << 16 / 64]uint64
 	hold  int // longest pending suffix a Stream may hold
 }
