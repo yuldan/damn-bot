@@ -99,7 +99,7 @@ type Chunk struct {
 
 // Client is implemented by every protocol adapter.
 type Client interface {
-	Do(ctx context.Context, p Purpose, r Request, onChunk func(Chunk)) (Response, error)
+	Do(ctx context.Context, p Purpose, r *Request, onChunk func(Chunk)) (Response, error)
 }
 
 // Error is a typed provider failure (SPEC §4.1). Body is the provider's
@@ -146,4 +146,7 @@ var (
 	ErrEmptyResponse = errors.New("empty response")
 	// ErrNoRoute: the model reference has no configured route.
 	ErrNoRoute = errors.New("no route for model")
+	// ErrResponseTooLarge: the assembled response exceeds maxResponseBytes or
+	// maxToolCalls (hostile or broken endpoint; not retried).
+	ErrResponseTooLarge = errors.New("response too large")
 )

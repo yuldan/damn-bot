@@ -29,9 +29,19 @@ type assembler struct {
 	usage       DeltaUsage
 	model       string
 	ttft        time.Duration
+	size        int // assembled bytes so far
 }
 
-func (a *assembler) add(d *Delta) {
+// Assembly bounds against a hostile or broken endpoint (ADR-102 butir 10).
+const (
+	maxResponseBytes = 16 << 20 // content + reasoning + tool names/arguments
+	maxToolCalls     = 128
+)
+
+func (a *assembler) add(d *Delta) error {
+	if a.size += len(d.Content) + len(d.Reasoning) + len(d.ReasoningRaw); a.size > maxResponseBytes {
+		return &Error{Class: retry.Unclassified, Err: ErrResponseTooLarge}
+	}
 	a.content = append(a.content, d.Content...)
 	if len(d.ReasoningField) > 0 && a.reasonField == "" {
 		a.reasonField = string(d.ReasoningField)
@@ -50,7 +60,14 @@ func (a *assembler) add(d *Delta) {
 		}
 	}
 	for i := range d.ToolCalls {
-		a.tool(&d.ToolCalls[i])
+		t := &d.ToolCalls[i]
+		if a.size += len(t.ID) + len(t.Name) + len(t.Args); a.size > maxResponseBytes {
+			return &Error{Class: retry.Unclassified, Err: ErrResponseTooLarge}
+		}
+		a.tool(t)
+		if len(a.calls) > maxToolCalls {
+			return &Error{Class: retry.Unclassified, Err: ErrResponseTooLarge}
+		}
 	}
 	if len(d.Finish) > 0 {
 		a.finish = string(d.Finish)
@@ -61,6 +78,7 @@ func (a *assembler) add(d *Delta) {
 	if len(d.Model) > 0 {
 		a.model = string(d.Model)
 	}
+	return nil
 }
 
 // tool routes a fragment to its call (EC-PROV-001, ADR-102 butir 3):
