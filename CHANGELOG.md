@@ -5,6 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 ## Unreleased
 
 ### Added
+- `budget`: estimator token COST-09 (rasio per script + kalibrasi EMA 0,5–1,5 dari ledger, `TestTokenEstimatorCalibration` en/id/ru/ja), perhitungan biaya (provider/tabel harga/unknown), entri ledger; `ctxdb/ledgerstore`: insert `usage_ledger`, sampel kalibrasi, total sesi (ADR-101).
 - Atribusi: sidecar `ORIGIN.md` (sumber, commit, lisensi, SHA-256) untuk setiap direktori file turunan pihak ketiga, diverifikasi `TestAttributionHeaders` (ADR-018 (b), ADR-099).
 - `netx/retry`: satu kebijakan retry P6 (kelas typed, backoff 1 s/4 s ±20 %, `Retry-After` ≤ 30 s, maks 3 attempt) + circuit breaker in-process (ADR-100).
 - `netx`: parser SSE WHATWG tanpa alokasi per event (E-35, ADR-100).

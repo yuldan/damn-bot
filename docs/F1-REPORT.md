@@ -134,3 +134,13 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | [#14](https://github.com/yuldan/damn-bot/pull/14) `redact` b | penyaring stream | secret terpotong di setiap offset (2 chunk) dan 50 potongan 3-chunk per secret = output whole-blob; prefix parsial di akhir chunk; ekor tak terbatas > 4 KiB fail-closed; PEM tanpa END; fuzz `FuzzRedactStream` |
 | [#15](https://github.com/yuldan/damn-bot/pull/15) `sandbox` a | verdict `Check`, `deny_paths` | symlink file/dir keluar root (termasuk komponen tengah, dangling, relatif, loop), `..`, path absolut; symlink ke path deny; `/proc/*/environ`, `/proc/*/task/*/environ`, `/proc/*/mem`, `~/.ssh`, `**/.env`, `*.pem`, look-alike, varian huruf (Windows/macOS); MSYS/UNC/long path |
 | [#16](https://github.com/yuldan/damn-bot/pull/16) `sandbox` b | open anti-TOCTOU per OS | CT-26: proses lain membalik komponen direktori ↔ symlink keluar root selama 1.000 open per mekanisme (openat2, walk `O_NOFOLLOW`) = 0 file luar; symlink baru di dalam root setelah `Check` ditolak; verifikasi `/proc/self/fd` dan device+inode (macOS/BSD, sisa risiko ADR-097 butir 4); `OpenApproved` tetap menolak deny; create pada path deny tidak membuat file |
+
+### `internal/budget` + `internal/ctxdb/ledgerstore` (ADR-101)
+
+| Item | Implementasi | Test | Status |
+|---|---|---|---|
+| COST-09 estimator (ADR-058/067) | `budget.Count`/`Counts.Raw` (rasio per script), `Estimator` (jangkar `prompt_tokens` nyata + delta × faktor EMA 0,5–1,5, ≤ 50 sampel) | `TestTokenEstimatorCalibration` (en/id/ru/ja, o200k_base: call ≥ 2 = 0,95–1,02), `TestCalibrate`, `TestCount`, `BenchmarkCount` (≈ 90 MB/s, 0 alloc) | selesai |
+| Korpus o200k | `internal/budget/testdata/calibration/{en,id,ru,ja}.txt` + `o200k.tsv` | `bench/budget` `TestCalibrationCorpusCounts` (job `bench-budget`) | selesai |
+| Biaya ledger (SPEC §18.4) | `budget.Cost` (provider → tabel harga dibulatkan ke atas → unknown), `Entry.Account` | `TestCost`, `TestAccount` | selesai |
+| Storage ledger (ADR-074) | `ledgerstore.Insert` (transaksi pemanggil), `Calibration`, `SessionTotals` | `TestLedgerRoundTrip`, `TestLedgerAppendOnly` (event lintas sesi + UPDATE ditolak), `cmd/damnbot` `TestLedgerTypesConvertible` | selesai |
+| Guard P27 (cap 80 %/100 %) | — | — | F2 (ROADMAP F2 "budget guard") |

@@ -1,0 +1,11 @@
+Build gagal di runner kedua karena linker tidak menemukan file hasil generator. Saya menelusuri masalahnya sampai ke balapan antara dua langkah pipeline: generator kode menulis keluarannya ke direktori sementara, lalu langkah kompilasi mulai sebelum proses rename selesai. Menambahkan dependensi eksplisit antara kedua target memperbaikinya, dan tiga run berikutnya hijau.
+
+Sebelum mengubah konfigurasi, baca nilai saat ini dengan perintah status dan simpan salinannya. Sebagian besar pengaturan berlaku pada giliran berikutnya, tetapi opsi jaringan hanya dibaca saat aplikasi mulai, jadi perlu restart. Jika terjadi masalah, kembalikan salinan tersebut lalu jalankan perintah doctor untuk memastikan basis data dan keychain masih konsisten.
+
+Tim kami menghabiskan pagi hari untuk meninjau anggaran galat kuartal lalu. Latensi tetap di bawah target di semua wilayah kecuali satu, tempat load balancer yang salah konfigurasi mengirim sebagian lalu lintas ke kumpulan server yang masih dingin. Perbaikannya kecil, tetapi tinjauan pascainsiden menunjukkan bahwa peringatan kami terlambat dua puluh menit, sehingga ambangnya kami turunkan.
+
+Fungsi ini menerima daftar path, membuka setiap file dalam mode baca saja, lalu menghitung baris yang cocok dengan pola. File besar dibaca bertahap per enam puluh empat kilobita sehingga pemakaian memori tetap datar. File biner dilewati setelah potongan pertama bila memuat byte nol. Hasilnya diurutkan menurut path dan dikembalikan bersama jumlah total kecocokan.
+
+Ketika pengguna meminta ringkasan, buat singkat dan konkret: apa yang berubah, mengapa berubah, dan apa yang masih perlu diperhatikan. Jangan mengulang pertanyaannya. Jika ada langkah yang gagal, sebutkan perintah mana yang gagal, kutip baris galat yang relevan, dan usulkan satu tindakan berikutnya alih-alih daftar kemungkinan yang panjang.
+
+Hujan datang dari arah barat tak lama setelah tengah hari, dan menjelang malam permukaan sungai naik hampir satu meter. Kapal penyeberangan berhenti beroperasi, sehingga beberapa pengunjung terakhir berjalan kaki melewati jembatan batu tua sementara lampu-lampu desa menyala satu per satu. Tidak ada yang tampak keberatan; toko roti tetap buka hingga larut dan rotinya habis sebelum pukul sembilan.
