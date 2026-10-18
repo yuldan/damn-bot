@@ -199,7 +199,7 @@ func (t *Tx) phase0(txid string, p []string, v *purgeValue, start time.Time) err
 		if skip[p[i]] {
 			continue
 		}
-		if done >= phase0Batch || time.Since(start) >= unitBudget {
+		if done >= phase0Batch || time.Since(start) >= t.s.budget {
 			return nil // continue in the next transaction
 		}
 		var reason string
@@ -303,7 +303,7 @@ func (t *Tx) phaseSessions( //nolint:gocyclo // branchy but linear phase dispatc
 		return nil
 	}
 	n := 0
-	for ; err == nil && n < len(ids) && n < sessionBatch && (n == 0 || time.Since(start) < unitBudget); n++ {
+	for ; err == nil && n < len(ids) && n < sessionBatch && (n == 0 || time.Since(start) < t.s.budget); n++ {
 		if sb := jsonOf(ids[n : n+1]); final { // unit = one session, descendants first
 			err = t.purgeFinal(sb, v.Audit)
 		} else {
@@ -335,8 +335,8 @@ func (t *Tx) phaseEvents(txid string, v *purgeValue, start time.Time) error {
 		err = t.run("purge.events", jsonOf(ev[i:i+n]), v.Audit)
 		d := max(time.Since(c0), time.Microsecond)
 		i += n
-		t.s.chunk = min(max(int(int64(n)*int64(chunkTarget)/int64(d)), 1), eventBatch)
-		if time.Since(start)+d*time.Duration(t.s.chunk)/time.Duration(n) >= unitBudget {
+		t.s.chunk = min(max(int(int64(n)*int64(chunkTarget)/int64(d)), 1), t.s.chunkCap)
+		if time.Since(start)+d*time.Duration(t.s.chunk)/time.Duration(n) >= t.s.budget {
 			break
 		}
 	}

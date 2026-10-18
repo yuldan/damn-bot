@@ -67,6 +67,8 @@ type Store struct {
 	// marker must not drain it; also set while a purge releases its lease.
 	barrierOwner atomic.Bool
 	purgeOrder   map[string][]string // txid → labelled sessions, descendants first (mu)
+	chunkCap     int                 // upper bound of chunk (eventBatch; tests lower it)
+	budget       time.Duration       // per-transaction work budget (unitBudget; tests lower it)
 	chunk        int                 // purge phase-2 unit size, adapted to measured cost (mu)
 	closed       bool                // Close ran (mu)
 	bgErr        error               // error of a background drain, returned by Close (mu)
@@ -125,7 +127,7 @@ func newStore(o *Options) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{
-		opt: opt, dir: opt.Dir, root: root, clk: opt.Clock, q: q, migs: migs, chunk: firstChunk,
+		opt: opt, dir: opt.Dir, root: root, clk: opt.Clock, q: q, migs: migs, chunk: firstChunk, chunkCap: eventBatch, budget: unitBudget,
 		tokens: map[string]int64{}, obs: map[string]observation{},
 	}
 	s.mode.Store(modeNormal)
@@ -355,3 +357,20 @@ func (s *Store) Ident() Ident { return s.id }
 
 // Dir returns the data dir.
 func (s *Store) Dir() string { return s.dir }
+
+// IntegrityCheck runs PRAGMA integrity_check on a fresh read-only
+// connection. A pooled reader that already ran an FTS5 integrity check can
+// keep a stale FTS5 structure cache after another connection rewrites the
+// index (contentless_delete purge, SQLite 3.53.4): a later check on that
+// connection reports "fts5: corruption found" although the file is intact
+// (TS-P11). Reusing it would make SELF-HEALING auto-restore a healthy DB.
+func (s *Store) IntegrityCheck(ctx context.Context) (string, error) {
+	d, err := s.driver(false)
+	if err != nil {
+		return "", wrap(err)
+	}
+	db := sql.OpenDB(connector{d: d, dsn: s.dsn(true)})
+	var res string
+	err = getOne(ctx, db, "PRAGMA integrity_check", nil, &res)
+	return res, errors.Join(err, wrap(db.Close()))
+}

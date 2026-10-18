@@ -157,8 +157,8 @@ func appendMsg(t *testing.T, s *Store, sid, text string) int64 {
 // checkIntegrity asserts integrity_check, FK check and hash chains.
 func checkIntegrity(t *testing.T, s *Store) {
 	t.Helper()
-	var res string
-	must(t, s.get(context.Background(), "PRAGMA integrity_check", nil, &res))
+	res, err := s.IntegrityCheck(context.Background())
+	must(t, err)
 	if res != "ok" {
 		t.Fatalf("integrity_check: %s", res)
 	}

@@ -4,17 +4,21 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"modernc.org/sqlite"
 )
 
 const (
@@ -240,8 +244,12 @@ func TestKill9Chaos(t *testing.T) {
 		case <-t.Context().Done():
 		}
 		c.kill9(t)
+		pre := rawIntegrity(t, dir, fmt.Sprintf("%d-pre", round)) // state at kill time, before any recovery
 		s, err := Open(context.Background(), &Options{Dir: dir, Kind: "serve"})
 		must(t, err)
+		if pre != "ok" {
+			t.Fatalf("round %d: corrupt at kill time (before recovery): %s", round, pre)
+		}
 		checkIntegrity(t, s)
 		assertLiveBlobsHaveFiles(t, s)
 		if _, err := s.RecoverJournals(context.Background(), false); err != nil {
@@ -256,6 +264,25 @@ func TestKill9Chaos(t *testing.T) {
 		checkIntegrity(t, s)
 		must(t, s.Close())
 	}
+}
+
+// rawIntegrity copies the DB (+WAL) to /tmp/ts-p11-<tag>/ and runs
+// integrity_check on the copy through a plain driver connection (no ctxdb
+// functions, no recovery), so evidence survives and recovery cannot hide it.
+func rawIntegrity(t *testing.T, dir, tag string) string {
+	t.Helper()
+	dst := filepath.Join(os.TempDir(), "ts-p11-"+tag)
+	must(t, os.RemoveAll(dst))
+	must(t, os.CopyFS(dst, os.DirFS(dir))) // whole data dir: db, -wal, -shm, blobs, run/
+	d := &sqlite.Driver{}
+	db := sql.OpenDB(connector{d: d, dsn: "file:" + filepath.Join(dst, dbFile)})
+	defer func() { must(t, db.Close()) }()
+	var res string
+	must(t, db.QueryRowContext(context.Background(), "PRAGMA integrity_check").Scan(&res))
+	if res == "ok" {
+		must(t, os.RemoveAll(dst)) // keep the copy only as evidence of a failure
+	}
+	return res
 }
 
 type multiResult struct {

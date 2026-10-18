@@ -65,3 +65,33 @@ func TestPurgeFTSIntegrity(t *testing.T) {
 		t.Fatalf("fts hits %d, want 5", n)
 	}
 }
+
+// TestIntegrityCheckFreshConnection (TS-P11): after a reader connection has
+// run an FTS5 integrity check and a purge rewrote the contentless_delete
+// index, IntegrityCheck must report ok (it uses a fresh connection).
+func TestIntegrityCheckFreshConnection(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	ctx := context.Background()
+	for i := range 40 {
+		sid := "S" + itoa(int64(i))
+		session(t, s, sid, "")
+		for j := range 30 {
+			appendMsg(t, s, sid, "word"+itoa(int64(j))+" common text")
+		}
+		must(t, s.ReleaseLease(ctx, sid))
+	}
+	var pooled string
+	must(t, s.get(ctx, "PRAGMA integrity_check", nil, &pooled)) // warms the pooled reader's FTS5 cache
+	for i := 0; i < 40; i += 2 {
+		_, err := s.Purge(ctx, PurgeRequest{IDs: []string{"S" + itoa(int64(i))}})
+		must(t, err)
+	}
+	must(t, s.get(ctx, "PRAGMA integrity_check", nil, &pooled))
+	fresh, err := s.IntegrityCheck(ctx)
+	must(t, err)
+	t.Logf("pooled reader: %s", pooled)
+	if fresh != "ok" {
+		t.Fatalf("fresh integrity_check: %s", fresh)
+	}
+}
