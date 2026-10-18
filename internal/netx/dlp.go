@@ -59,6 +59,8 @@ type dlp struct {
 	region   int // bytes scanned around each decoded byte (≥ longest form)
 	// hasShort1/hasShort2: some 1-byte / 2..7-byte raw secret exists.
 	hasShort1, hasShort2 bool
+	shortStride          int       // probe stride = shortest 2..7-byte secret − 1
+	shortGrams           []uint64  // 2^16-bit set of 2-grams at offsets < shortStride
 	scratch              sync.Pool // *[]byte folding buffers
 	layers               sync.Pool // *dlpLayers decoding buffers
 	// keepCRLF: some secret form contains CR or LF, so folding keeps them.
@@ -74,7 +76,8 @@ func newDLP(secrets []string) *dlp {
 		grams:  make([]uint64, 1<<dlpFilterLog/64),
 		index:  map[uint64][][]byte{},
 		short2: make([]uint64, 1<<16/64), shortIdx: map[uint16][][]byte{},
-		region: dlpPatternReach,
+		shortGrams: make([]uint64, 1<<16/64),
+		region:     dlpPatternReach, shortStride: dlpWindow - 1,
 	}
 	d.initLower()
 	for _, form := range secretForms(secrets) {
@@ -88,6 +91,7 @@ func newDLP(secrets []string) *dlp {
 			continue
 		case len(f) < dlpWindow:
 			d.hasShort2 = true
+			d.shortStride = min(d.shortStride, len(f)-1)
 			k2 := uint16(f[0])<<8 | uint16(f[1])
 			d.short2[k2/64] |= 1 << (k2 % 64)
 			if !slices.ContainsFunc(d.shortIdx[k2], func(g []byte) bool { return bytes.Equal(g, f) }) {
@@ -103,6 +107,14 @@ func newDLP(secrets []string) *dlp {
 		}
 		if !slices.ContainsFunc(d.index[k], func(g []byte) bool { return bytes.Equal(g, f) }) {
 			d.index[k] = append(d.index[k], f)
+		}
+	}
+	for _, forms := range d.shortIdx {
+		for _, f := range forms {
+			for off := range d.shortStride { // 2-grams a stride probe can land on
+				g := uint16(f[off])<<8 | uint16(f[off+1])
+				d.shortGrams[g/64] |= 1 << (g % 64)
+			}
 		}
 	}
 	return d
@@ -297,16 +309,6 @@ func (d *dlp) hit(seg []byte, verify *int) error {
 	return nil
 }
 
-// addSpan extends the last span or opens one around output position p.
-func (d *dlp) addSpan(spans [][2]int, p int) [][2]int {
-	lo, hi := max(p-d.region, 0), p+d.region+1
-	if k := len(spans) - 1; k >= 0 && lo <= spans[k][1] {
-		spans[k][1] = hi
-		return spans
-	}
-	return append(spans, [2]int{lo, hi})
-}
-
 // decode percent/form-decodes src into dst. With all set every byte of
 // src is examined; otherwise only the positions in cand (the '%'/'+' bytes
 // the previous decode emitted) can be escapes and the runs between them are
@@ -317,6 +319,7 @@ func (d *dlp) decode(dst []byte, outCand []int, spans [][2]int, src []byte, cand
 		return d.decodeAll(dst, outCand, spans, src)
 	}
 	from := 0
+	tr := spanTrack{r: d.region, hi: -1, spans: spans}
 	for _, i := range cand {
 		if i < from {
 			continue // consumed by the previous escape
@@ -324,7 +327,7 @@ func (d *dlp) decode(dst []byte, outCand []int, spans [][2]int, src []byte, cand
 		dst = append(dst, src[from:i]...)
 		c, n := decodeAt(src, i)
 		if n > 0 {
-			spans = d.addSpan(spans, len(dst))
+			tr.add(len(dst))
 		} else {
 			n = 1
 		}
@@ -335,7 +338,7 @@ func (d *dlp) decode(dst []byte, outCand []int, spans [][2]int, src []byte, cand
 		from = i + n
 	}
 	dst = append(dst, src[from:]...)
-	return dst, outCand, clampSpans(spans, len(dst))
+	return dst, outCand, clampSpans(tr.done(), len(dst))
 }
 
 // decodeAll is decode over every byte of src (the raw layer).
@@ -343,6 +346,7 @@ func (d *dlp) decodeAll(dst []byte, outCand []int, spans [][2]int, src []byte) (
 	base := len(dst)
 	dst = slices.Grow(dst, len(src))[:base+len(src)]
 	out, j := dst[base:], 0
+	tr := spanTrack{r: d.region, hi: -1, spans: spans}
 	for i := 0; i < len(src); i++ {
 		c := src[i]
 		if c != '+' && c != '%' {
@@ -351,7 +355,7 @@ func (d *dlp) decodeAll(dst []byte, outCand []int, spans [][2]int, src []byte) (
 			continue
 		}
 		if dc, n := decodeAt(src, i); n > 0 {
-			spans = d.addSpan(spans, base+j)
+			tr.add(base + j)
 			c = dc
 			i += n - 1
 		}
@@ -362,7 +366,33 @@ func (d *dlp) decodeAll(dst []byte, outCand []int, spans [][2]int, src []byte) (
 		j++
 	}
 	dst = dst[:base+j]
-	return dst, outCand, clampSpans(spans, len(dst))
+	return dst, outCand, clampSpans(tr.done(), len(dst))
+}
+
+// spanTrack merges the rescan windows (± r) of decoded output positions.
+type spanTrack struct {
+	lo, hi, r int // current window; hi < 0 = none
+	spans     [][2]int
+}
+
+func (t *spanTrack) add(p int) {
+	if t.hi >= 0 && p-t.r <= t.hi {
+		t.hi = p + t.r + 1
+		return
+	}
+	t.flush()
+	t.lo, t.hi = max(p-t.r, 0), p+t.r+1
+}
+
+func (t *spanTrack) flush() {
+	if t.hi >= 0 {
+		t.spans = append(t.spans, [2]int{t.lo, t.hi})
+	}
+}
+
+func (t *spanTrack) done() [][2]int {
+	t.flush()
+	return t.spans
 }
 
 func clampSpans(spans [][2]int, n int) [][2]int {
@@ -434,21 +464,35 @@ func gram(b []byte) uint32 {
 // mix32 maps a 4-gram to a prefilter bit.
 func mix32(g uint32) uint32 { return (g * 0x9E3779B1) >> (32 - dlpFilterLog) }
 
-// matchShort matches the short raw secrets: 1-byte ones by set, longer
-// ones by their first two bytes.
+// matchShort matches the short raw secrets: 1-byte ones by set; 2..7-byte
+// ones by 2-gram probes every shortStride bytes (an occurrence of length
+// L ≥ shortStride+1 covers the 2-gram at some probe at offset < shortStride),
+// verifying the starts a probe can belong to.
 func (d *dlp) matchShort(folded []byte, verify *int) (bool, error) {
-	var prev byte
-	for i, c := range folded {
-		if d.short1[c/64]&(1<<(c%64)) != 0 {
-			return true, nil
+	if d.hasShort1 {
+		for _, c := range folded {
+			if d.short1[c/64]&(1<<(c%64)) != 0 {
+				return true, nil
+			}
 		}
-		k2 := uint16(prev)<<8 | uint16(c)
-		prev = c
-		if i == 0 || d.short2[k2/64]&(1<<(k2%64)) == 0 {
+	}
+	if !d.hasShort2 {
+		return false, nil
+	}
+	st := d.shortStride
+	for p := 0; p+2 <= len(folded); p += st {
+		g := uint16(folded[p])<<8 | uint16(folded[p+1])
+		if d.shortGrams[g/64]&(1<<(g%64)) == 0 {
 			continue
 		}
-		if hit, err := verifyAt(folded[i-1:], d.shortIdx[k2], verify); hit || err != nil {
-			return hit, err
+		for s := max(p-st+1, 0); s <= p && s+2 <= len(folded); s++ {
+			k2 := uint16(folded[s])<<8 | uint16(folded[s+1])
+			if d.short2[k2/64]&(1<<(k2%64)) == 0 {
+				continue
+			}
+			if hit, err := verifyAt(folded[s:], d.shortIdx[k2], verify); hit || err != nil {
+				return hit, err
+			}
 		}
 	}
 	return false, nil

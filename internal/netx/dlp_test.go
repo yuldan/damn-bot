@@ -416,3 +416,24 @@ func TestLogMetadataOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestShortSecretOffsets: stride probing finds every short secret (2–7
+// bytes, mixed lengths) at every offset, alone and next to longer ones.
+func TestShortSecretOffsets(t *testing.T) {
+	t.Parallel()
+	for minLen := 2; minLen <= 7; minLen++ {
+		secrets := []string{strings.Repeat("Z", 7)[:minLen-1] + "q", "~short7", "tok_prefix_long_value"}
+		d := newDLP(secrets)
+		for _, sec := range secrets {
+			for off := range 24 {
+				body := []byte(strings.Repeat(".", off) + sec + strings.Repeat(".", 24-off))
+				if err := d.scan(body); !errors.Is(err, ErrSecretEgress) {
+					t.Errorf("min %d: %q at offset %d: %v", minLen, sec, off, err)
+				}
+			}
+		}
+		if err := d.scan([]byte(strings.Repeat(".", 64))); err != nil {
+			t.Errorf("min %d: clean body: %v", minLen, err)
+		}
+	}
+}
