@@ -68,7 +68,7 @@ Konteks tier (SPEC §6) menulis shell one-shot dan shell sesi yang terdeteksi.
   2. Kirim ke shell: `. '<path>'` (bash/zsh/sh), `source '<path>'` (fish), `. '<path>'` (pwsh), atau `call "<path>"` (cmd). Path di-quote single-quote dengan escape `'\''` (pwsh: `''`). Isi perintah tidak pernah melewati quoting.
   3. Akhir perintah ditandai sentinel `printf '\036DB:%s:%d\036' <nonce128bit> $?` (fish: `$status`; pwsh: `$LASTEXITCODE`). Nonce acak per perintah, jadi output perintah tidak bisa memalsukan exit code.
 - cwd, env, fungsi, venv yang aktif, dan job bertahan antar call.
-- Fungsi yang didefinisikan di sesi dicatat classifier (A.8), sehingga pemanggilannya dinilai dengan kelas maksimum isi fungsi.
+- Fungsi yang didefinisikan di sesi dicatat classifier (A.8), sehingga pemanggilannya dinilai dengan kelas maksimum isi fungsi. Definisi fungsi, `alias`, `trap`, dan assignment `PATH`/`LD_PRELOAD`/`GIT_*` dkk. juga memberi flag `tainted_session`: perintah berikutnya di sesi itu minimal `mutating` sampai sesi ditutup (A.8, ADR-069).
 - Batas: 4 sesi per sesi agent. Sesi idle 30 menit di-reap.
 - Timeout di sesi:
   1. SIGINT ke foreground pgrp TTY (`tcgetpgrp`).
@@ -255,37 +255,76 @@ type Backend interface {
 
 ### A.8 Keamanan
 
-**Klasifikasi.** `internal/exec/classify` mem-parse perintah dengan `mvdan.cc/sh/v3/syntax` (dialek bash; dialek POSIX untuk `sh`). Setiap simple command dinilai, dan kelas akhir = maksimum: `read_only` < `mutating` < `destructive`.
-- Gagal parse → `unknown`, diperlakukan seperti `destructive` untuk approval (tanya), tetapi tidak ditolak permanen.
+**Klasifikasi (ADR-069).** `internal/exec/classify` mem-parse perintah dengan `mvdan.cc/sh/v3/syntax` (dialek bash; dialek POSIX untuk `sh`). Keluaran = `Verdict{class, flags, reasons}`. Kelas (urutan ketat approval): `read_only` < `mutating` < `destructive` = `unknown` < `irreversible`. Flag: `denied_path`, `outside_read`, `privileged`, `network`, `tainted_session`. Setiap simple command dinilai; kebijakan memakai kelas tertinggi dari semua simple command, dan flag selalu berlaku.
+- Gagal parse → `unknown` (tanya), tetapi tidak ditolak permanen.
 - PowerShell/cmd memakai lexer token sendiri. Struktur yang tidak dikenali → minimal `mutating`; pola destruktif tetap dicek per token.
 
 Aturan rekursi:
-- `bash|sh|zsh -c '<s>'`, `eval <s>`, `xargs <cmd>`, `find -exec <cmd>`, `sudo|doas <cmd>`, `env <cmd>`, `nohup <cmd>`, `timeout <n> <cmd>`: perintah di dalamnya ikut diklasifikasi.
-- `sudo` menaikkan kelas minimum ke `mutating`.
+- `bash|sh|zsh -c '<literal>'`, `eval <s>`, `xargs <cmd>`, `find -exec <cmd>`, `sudo|doas <cmd>`, `env <cmd>`, `nice <cmd>`, `nohup <cmd>`, `timeout <n> <cmd>`: perintah di dalamnya ikut diklasifikasi. `awk`/`sed`/`xargs`/`env`/`nice`/`timeout`/`nohup` sendiri tidak pernah `read_only` (ADR-069).
 - `$(…)` atau variabel di posisi `argv[0]` → `unknown`.
-- `ssh host '<s>'` → minimal `mutating`; isi `<s>` tetap discan pola destruktif.
+- `ssh host '<s>'` → `irreversible` (butir irreversible di bawah); isi `<s>` tetap discan pola destruktif.
+
+**`read_only` = allowlist positif (ADR-069)** (argv0 + flag), bukan daftar contoh. Perintah di luar tabel minimal `mutating`. Menambah entri = ADR.
+
+| argv0 | Flag/bentuk ditolak (→ minimal `mutating`) |
+|---|---|
+| `ls`, `cat`, `head`, `tail`, `wc`, `stat`, `file`, `du`, `pwd`, `which`, `basename`, `dirname`, `realpath`, `readlink`, `cut`, `tr`, `cmp`, `diff`, `true`, `false`, `echo`/`printf` (tanpa redirect) | redirect selain ke `/dev/null` |
+| `sort`, `uniq` | `-o`/`--output`, `--compress-program`, operand output kedua (`uniq`) |
+| `grep`/`egrep`/`fgrep` | — (operand `-f FILE` ikut dicek sebagai path) |
+| `rg` | `--pre`, `--pre-glob`, `-z`/`--search-zip` |
+| `find` | `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint`, `-fprint0`, `-fprintf`, `-fls` |
+| `tree` | `-o` |
+| `git status`, `diff`, `log`, `show`, `blame`, `rev-parse`, `ls-files`, `branch --list`, `remote -v` | `-c`, `--config-env`, `--exec-path`, `--git-dir`, `--work-tree`, `-C` di luar root, `--output`, `--ext-diff`, `--textconv`, `-O`/`--open-files-in-pager`; **dan** workspace belum trusted |
+| `go version`, `go env` | `-w`, `-u` |
+
+- `git` berkelas `read_only` selalu dijalankan runner dengan `--no-pager -c core.fsmonitor= -c core.hooksPath=/dev/null -c diff.external= -c core.sshCommand=false`, ditambah `--no-ext-diff --no-textconv` untuk `diff`/`log`/`show`/`blame`, dan env `GIT_TERMINAL_PROMPT=0`.
+- `go list` dan `go vet` (membangun paket, bisa mengunduh toolchain/modul) = `mutating`.
+
+**Operand path (ADR-069).** Untuk **setiap** simple command (semua kelas), operand path di-resolve: argumen posisi perintah file, `-f`/`--file`/`--ignore-file`/`--exclude-from`, redirect `<`/`>`/`>>`, starting point `find`, pathspec dan `-C` git. Resolusi: ekspansi `~` dan `$HOME` saja, `..`, glob terhadap filesystem, lalu symlink per komponen seperti SPEC §14.2. Hasil:
+- cocok `deny_paths` → flag `denied_path` → error `denied_path` di langkah 5 SPEC §4.3, **tidak bisa di-approve** di mode apa pun;
+- di luar root (bukan direktori blob) → flag `outside_read` (baca) atau kelas minimal `destructive` (tulis) → baris SPEC §14.1 "Read/write di luar workspace": tanya, `allow_session` hanya untuk himpunan path persis; headless → `outside_workspace`; output dibungkus `<untrusted source="shell:outside_workspace">`;
+- operand yang tidak bisa di-resolve statis (variabel selain `HOME`, `$(…)`, backtick, `<(…)`) → `unknown`.
+
+**Interpreter dan sesi persisten (ADR-069).** argv0 ∈ {`sh`, `bash`, `zsh`, `dash`, `ksh`, `fish`, `python*`, `node`, `deno`, `bun`, `perl`, `ruby`, `php`, `lua`, `pwsh`, `powershell`, `osascript`} dengan program dari stdin, pipe, heredoc/here-string, parameter `stdin` schema, atau string `-c`/`-e` non-literal → `unknown`. `-c '<literal>'` tetap direkursi. `source`/`.` → `unknown` (menjalankan isi file). Sesi persisten (A.2) yang menjalankan `alias`, definisi fungsi, `hash -p`, `trap`, `enable`, `shopt`, atau assignment/export `PATH`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `BASH_ENV`, `ENV`, `PROMPT_COMMAND`, `IFS`, `GIT_*` → flag `tainted_session`: semua perintah berikutnya di sesi itu minimal `mutating` sampai sesi ditutup.
 
 | Kelas | Contoh (cocok → kelas) |
 |---|---|
-| `read_only` | `ls`, `cat`, `head`, `tail`, `wc`, `stat`, `file`, `grep`, `rg`, `find` tanpa `-delete/-exec/-fprint*`, `git status/diff/log/show/blame/rev-parse/branch --list/remote -v`, `go list/env/version/vet`, `which`, `echo`/`printf` tanpa redirect. Tidak ada redirect `>`/`>>` kecuali ke `/dev/null`. |
-| `mutating` | Default untuk perintah lain: build, test, install paket, `git add/commit/checkout <branch>/merge/rebase/push` (tanpa force), `rm` di dalam workspace (bukan root workspace), redirect ke file di workspace, `npm run`, `make`. |
-| `destructive` | `rm -r`/`-rf`/`-fr` dengan target di luar root (setelah resolve `~`, `$HOME`, `..`, glob) atau = root workspace atau `.git`; `git push --force`/`-f`/`+refspec`/`--delete`/`--mirror`; `git reset --hard`; `git clean -f*`; `git checkout -- .`/`git restore .` (membuang perubahan worktree); `git branch -D`; `git stash drop/clear`; `git filter-branch`/`filter-repo`; `curl\|wget … \| sh\|bash\|zsh\|python\|node\|iex`; `mkfs*`, `dd of=/dev/*`, `fdisk`, `parted`, `wipefs`, `shred`, redirect ke `/dev/sd*`/`/dev/nvme*`; `chmod -R`/`chown -R` pada `/` atau di luar workspace; fork bomb (fungsi yang memanggil diri sendiri via pipe + `&`); `kill -9 -1`; `shutdown`/`reboot`/`halt`/`poweroff`; `crontab -r`; `docker system prune -a`, `docker volume rm`; `kubectl delete`; `terraform destroy`; `npm publish`, `cargo publish`, `twine upload`, `gh release create` (publikasi tak bisa ditarik); tulis ke `/etc`, `/usr`, `/boot`, `C:\Windows`; Windows: `Remove-Item -Recurse` di luar workspace, `rd /s`, `del /s`, `format`, `diskpart`, `reg delete`, `iwr … \| iex`. |
+| `read_only` | hanya tabel allowlist di atas, dengan semua operand path ter-resolve di dalam root dan tanpa flag. |
+| `mutating` | Default untuk perintah lain: build, test, `go list`/`go vet`, `git add/commit/checkout <branch>/merge/rebase`, `rm` di dalam workspace (bukan root workspace), redirect ke file di workspace, `npm run`, `make`. Instal dependency lokal proyek (`npm install\|ci`, `pnpm i`, `yarn`, `pip install` di venv dalam root, `go mod download`, `cargo fetch`) dan klien HTTP GET ke host non-loopback = `mutating` + flag `network` (ADR-069). |
+| `destructive` | `rm -r`/`-rf`/`-fr` dengan target di luar root (setelah resolve operand path) atau = root workspace atau `.git`; tulis ke path di luar root (ADR-069); `git push --force`/`-f`/`+refspec`/`--delete`/`--mirror` (sekaligus `irreversible` → diperlakukan `irreversible`, preview memuat keduanya); `git reset --hard`; `git clean -f*`; `git checkout -- .`/`git restore .` (membuang perubahan worktree); `git branch -D`; `git stash drop/clear`; `git filter-branch`/`filter-repo`; `curl\|wget … \| sh\|bash\|zsh\|python\|node\|iex`; `mkfs*`, `dd of=/dev/*`, `fdisk`, `parted`, `wipefs`, `shred`, redirect ke `/dev/sd*`/`/dev/nvme*`; `chmod -R`/`chown -R` pada `/` atau di luar workspace; fork bomb (fungsi yang memanggil diri sendiri via pipe + `&`); `kill -9 -1`; `shutdown`/`reboot`/`halt`/`poweroff`; `crontab -r`; `docker system prune -a`, `docker volume rm`; `kubectl delete`; `terraform destroy`; tulis ke `/etc`, `/usr`, `/boot`, `C:\Windows`; Windows: `Remove-Item -Recurse` di luar workspace, `rd /s`, `del /s`, `format`, `diskpart`, `reg delete`, `iwr … \| iex`. |
+| `irreversible` (P26, ADR-069) | `git push` (semua bentuk), `git send-email`; `npm\|pnpm\|yarn publish`, `npm unpublish\|deprecate\|dist-tag`, `cargo publish\|yank`, `twine upload`, `gem push\|yank`, `poetry publish`, `uv publish`, `docker push`, `helm push`; `gh`/`glab` yang mengubah state remote (`release`, `pr create\|merge\|close\|comment`, `issue create\|comment\|close`, `repo create\|delete\|edit`, `secret set`, `workflow run`, `api` dengan metode non-GET atau field `-f`/`-F`); klien HTTP (`curl`, `wget`, `http`, `xh`) dengan metode/body mutating (`-X` ≠ GET/HEAD, `-d*`, `--data*`, `-F`, `-T`, `--json`, `--post-*`, `--method`) atau host metadata/link-local (169.254.0.0/16, `fd00:ec2::254`, `metadata.google.internal`); `ssh`, `scp`, `sftp`, `rsync` ke host remote, `nc`/`ncat`/`socat`/`telnet`; package manager sistem (`apt`, `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, `apk`, `brew`, `port`, `snap`, `flatpak`, `choco`, `winget`, `scoop`) yang memasang/menghapus, dan `pip install` di luar venv di dalam root. |
 
-**Kebijakan** (sama dengan baris `shell` di SPEC §14.1; allowlist `shell_allow` tetap dicek lebih dulu dan hanya berlaku untuk `read_only`/`mutating`):
+- **`network`:** output perintah berflag `network` dibungkus `<untrusted source="shell:network">` (ADR-069, ADR-070). Egress subprocess **tidak** melewati gerbang DLP/SSRF `netx`.
+- **`privileged`:** `sudo`/`doas`/`su`/`pkexec`/`runas` → flag `privileged` (perintah di dalamnya tetap direkursi): tanya per perintah di **semua** mode termasuk `auto`, preview argv lengkap; `allow_session` hanya untuk subject persis; headless tanpa approver → `denied`; tidak pernah lewat `shell_allow`, `destructive_allow`, `allow_destructive`, atau `smart_approval` (SEC-14, ADR-069).
 
-| Kelas | `ask` (default) | `auto-edit` | `auto` | Headless tanpa approver |
+**Kebijakan** (sama dengan baris `shell` di SPEC §14.1; kelas tertinggi + semua flag berlaku, ADR-069):
+
+| Kelas / flag | `ask` (default) | `auto-edit` | `auto` | Headless tanpa approver |
 |---|---|---|---|---|
-| `read_only` | auto | auto | auto | auto |
-| `mutating` | tanya (perintah verify terdeteksi B.2: auto bila `exec.auto_allow_verify = true`, default) | tanya / `smart_approval` | auto | `denied` kecuali mode `auto` |
-| `destructive` / `unknown` | tanya | tanya | **tanya** | `denied` |
+| `read_only` (allowlist, operand di dalam root, tanpa flag) | auto | auto | auto | auto |
+| `mutating` | tanya (verify B.2 / `shell_allow`: auto hanya dengan syarat `shell_allow` di bawah) | tanya / `smart_approval` | auto | `denied` kecuali mode `auto` |
+| `destructive` | tanya + preview | tanya + preview | **tanya + preview** | `denied` |
+| `unknown` | tanya | tanya | **tanya** | `denied` |
+| `irreversible` (P26) | tanya + preview | tanya + preview | **tanya + preview** | `denied` |
+| flag `denied_path` | error `denied_path` | error | error | error |
+| flag `outside_read` | tanya (`allow_session` hanya himpunan path persis) | tanya | tanya | `outside_workspace` (`denied` bila juga `privileged`) |
+| flag `privileged` | tanya per perintah + preview argv | tanya per perintah | **tanya per perintah** | `denied` |
+| flag `tainted_session` | kelas minimal `mutating` | ← | ← | ← |
+| turn ter-taint (ADR-070): selain `read_only` murni di dalam root tanpa flag, termasuk `shell_allow` dan verify | tanya, tanpa `allow_session` | tanya | **tanya** | `denied` |
 
 - `destructive` hanya auto bila config `exec.allow_destructive = true`, atau pola persis cocok dengan `exec.destructive_allow` (glob atas perintah ter-normalisasi). `allow_session` untuk destructive hanya berlaku untuk subject yang persis sama.
+- `allow_session`, `allow_destructive`, `destructive_allow`, dan `smart_approval` **tidak pernah** berlaku untuk kelas P26 (`irreversible`, `monetary`, `delegated_agent_bypass`). Perintah `destructive` sekaligus `irreversible` diperlakukan sebagai `irreversible` (ADR-069).
+- **`shell_allow` (ADR-069).** Entri = prefix argv (token) setelah normalisasi. argv0 harus berupa nama tanpa path yang di-resolve lewat `PATH` ke binary yang sama dengan resolusi entri saat sesi dimulai; argv0 relatif/`./x` tidak pernah cocok. Cocok per simple command; pipeline/list cocok hanya bila setiap simple command cocok entri atau `read_only`. Flag eksekusi ditolak di semua entri: `-exec`, `-toolexec`, `-vettool`, `--pre`, `-o` di luar root. `shell_allow` hanya menaikkan `mutating` → auto dan tidak pernah mengabaikan `denied_path`, `outside_read`, `privileged`, `tainted_session`, `unknown`, `destructive`, `irreversible`. Verify (B.2, `exec.auto_allow_verify`) dan entri `shell_allow` yang menjalankan kode workspace (`go test`, `go build`, `make`, `npm test`, …) hanya auto bila (a) workspace trusted, (b) turn tidak tainted (ADR-070), dan (c) tidak ada file yang ditulis tanpa approval eksplisit di turn itu. Selain itu → tanya.
+- **Workspace trust (ADR-069).** Saat root dibuka pertama kali secara interaktif: prompt "trust workspace <path>?". Keputusan disimpan per path kanonik di config `security.trusted_workspaces`. Headless `run`: untrusted kecuali path ada di `security.trusted_workspaces`. Workspace untrusted: AGENTS.md dan context file dibungkus `<untrusted source="workspace">` (data, bukan aturan), konten file workspace men-taint turn (ADR-070), verify-auto dan `shell_allow` mati, `git` read tidak `read_only`, hook proyek tidak berjalan (F3).
+- **Taint turn (ADR-070).** Output shell berflag `network` atau `outside_read` adalah sumber taint: aktif sejak `tool_result` itu di-commit sampai `turn_end`, untuk semua iterasi berikutnya dalam turn. Selama taint aktif berlaku baris "turn ter-taint" di tabel; `user_message` berikutnya memulai turn tanpa taint.
 - Beda dengan hermes: tidak ada auto-approve diam-diam di konteks non-interaktif (`tools/approval.py:1117`), dan tidak ada LLM call untuk klasifikasi.
-- Batas classifier: tidak mendeteksi skrip yang ditulis lalu dijalankan (`./x.sh`). Perintah semacam itu adalah `mutating` (tanya di `ask`); isi file tidak dianalisis. Isolasi kuat = backend container (SPEC §14.2, OPEN-QUESTIONS Q10).
+- Batas classifier: tidak mendeteksi skrip yang ditulis lalu dijalankan (`./x.sh`). Perintah semacam itu adalah `mutating` (tanya di `ask`); isi file tidak dianalisis. Sandbox path = boundary hanya untuk jalur auto-approve shell (`read_only` dengan operand ter-resolve); shell non-`read_only` = heuristik (classifier + approval). Isolasi kuat = backend container (SPEC §14.2, OPEN-QUESTIONS Q10, ADR-069).
+
+**Test acceptance F1 (ADR-069, ADR-070):** `TestClassifyCorpus` (EXC-13, termasuk 42 kasus tabel ADR-069 dengan verdict dan kebijakan per mode persis), `TestShellDenyPaths` (≥ 30 perintah `cat`/`head`/`grep`/`cp`/`tar`/`base64`/`rg -f` × `deny_paths` default → 0 tereksekusi), `TestShellIrreversibleAlwaysAsk`, `TestSudoAlwaysAsk`, `TestShellAllowMatching`, `TestWorkspaceTrustGate`, `TestReadOutsideWorkspaceAsks`, `TestSessionTaintPersistent`, `TestTaintForcesApproval`, `TestShellNetworkOutputUntrusted`.
 
 **Sandbox cwd:**
 - `cwd` harus berada di dalam root sesi (SPEC §14.2), else `outside_workspace`.
-- `cd` di dalam perintah tidak dibatasi OS di backend local; classifier menaikkan kelas operasi tulis yang target path-nya terselesaikan di luar root.
+- `cd` di dalam perintah tidak dibatasi OS di backend local. Operand path setiap simple command di-resolve (butir "Operand path"): baca di luar root → flag `outside_read`, tulis di luar root → minimal `destructive`, cocok `deny_paths` → `denied_path` (ADR-069).
 
 **Env anak:**
 - Env proses asli dikurangi var yang namanya cocok dengan pola secret SPEC §14.3 dan semua isi `secrets.env`.
@@ -294,7 +333,7 @@ Aturan rekursi:
 **Redaksi:** SPEC §14.3 diterapkan pada stream UI, ringkasan model, blob, dan log.
 
 **Audit:** setiap perintah, termasuk yang dijalankan runtime (B.6), meninggalkan jejak di DB konteks:
-- event `tool_dispatch` dengan payload `exec: {class, reasons[≤5], argv0[], backend, runner, cwd, session}`;
+- event `tool_dispatch` dengan payload `exec: {class, flags, reasons[≤5], argv0[], backend, runner, cwd, session}` (`Verdict`, ADR-069);
 - event `tool_result` dengan payload `{exit_code, signal, status, duration_ms, bytes_raw, blob_sha, raw_blob_sha}` (konvensi kunci ref blob `*_blob_sha`, SPEC §11.6);
 - row `approvals` (`subject` = perintah ter-normalisasi, `decision` termasuk `auto_class_readonly`) untuk setiap keputusan non-allowlist;
 - verify runtime memakai event `verify_run` (sudah ada di daftar `events.kind`, SPEC §11.2).
@@ -568,8 +607,8 @@ Harness `damnbot-eval` (F0, SCORECARD) menjalankan Damn-Bot dan hermes pada kond
 | EXC-10 | Notice proses selesai | ≤ 40 tok, ≤ 3/request, 0 LLM call | `TestProcessNotice`, `TestNoBackgroundCalls` |
 | EXC-11 | Waiting-for-input reap | 10 menit | `TestWaitingInputReap` |
 | EXC-12 | Classify perintah 2 KB | < 1 ms p95 | `BenchmarkClassify` |
-| EXC-13 | Akurasi classifier | 0 destruktif lolos sebagai read_only/mutating pada korpus ≥ 300 perintah (termasuk obfuscation quoting/`eval`/`sh -c`) | `TestClassifyCorpus` |
-| EXC-14 | Destructive di mode `auto` | 100% tanya (kecuali `allow_destructive`/`destructive_allow`) | `TestDestructiveAlwaysAsk` |
+| EXC-13 | Akurasi classifier | 0 destruktif/irreversible lolos sebagai read_only/mutating dan 0 `read_only` yang mengeksekusi, menulis, atau membaca path `deny_paths`/luar root, pada korpus ≥ 300 perintah (termasuk obfuscation quoting/`eval`/`sh -c` dan 42 kasus tabel ADR-069); `deny_paths` default: 0 tereksekusi (ADR-069) | `TestClassifyCorpus`, `TestShellDenyPaths`, `TestSessionTaintPersistent`, `TestShellAllowMatching`, `TestWorkspaceTrustGate` |
+| EXC-14 | Destructive/irreversible/privileged/baca di luar root di mode `auto` | 100% tanya (destructive: kecuali `allow_destructive`/`destructive_allow`; irreversible dan `privileged`: tanpa pengecualian, ADR-069) | `TestDestructiveAlwaysAsk`, `TestShellIrreversibleAlwaysAsk`, `TestSudoAlwaysAsk`, `TestReadOutsideWorkspaceAsks` |
 | EXC-15 | Secret di env anak | 0 kunci provider terwariskan | `TestChildEnvScrub` |
 | EXC-16 | Kontrak backend | 100% test kontrak lulus per backend | `TestBackendContract/<id>` |
 | COD-01 | Aturan coding stable tier | ≤ 120 tok (dalam 1.200) | `TestStableTierBudget/coding` |
