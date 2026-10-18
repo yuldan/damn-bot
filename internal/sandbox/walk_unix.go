@@ -44,21 +44,13 @@ func walkOpen(dir, rel, want string, flag int, perm fs.FileMode) (*os.File, erro
 }
 
 // newFile wraps fd, opened O_NONBLOCK so that a FIFO or device can never
-// block the open (CT27-4): anything but a regular file or a directory is
-// closed and refused with ErrNotRegular; otherwise O_NONBLOCK is cleared
-// before os.NewFile, so the runtime treats f as an ordinary blocking file.
-// flag holds the open's status flags, set again without O_NONBLOCK (one
-// F_SETFL instead of a read-modify-write).
+// block the open (CT27-4); vet then refuses anything but a regular file or
+// a directory with ErrNotRegular, on the stat it needs anyway. O_NONBLOCK
+// is cleared before os.NewFile, so the runtime treats f as an ordinary
+// blocking file: flag holds the open's status flags, set again without
+// O_NONBLOCK (one F_SETFL instead of a read-modify-write).
 func newFile(fd, flag int, want string) (*os.File, error) {
-	var st unix.Stat_t
-	err := unix.Fstat(fd, &st)
-	if err == nil {
-		_, err = regularLinks(&st)
-	}
-	if err == nil {
-		_, err = unix.FcntlInt(uintptr(fd), unix.F_SETFL, flag&^unix.O_NONBLOCK)
-	}
-	if err != nil {
+	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFL, flag&^unix.O_NONBLOCK); err != nil {
 		closeDir(fdCloser(fd)) // nothing was read or written through fd
 		return nil, &fs.PathError{Op: "open", Path: want, Err: err}
 	}

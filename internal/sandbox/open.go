@@ -91,6 +91,8 @@ func relTo(dir, p string) string {
 
 // vet runs the post-open checks on f, the result of an open that failed
 // with err or not, and returns verdict v unless refused:
+//   - type (CT27-4): anything but a regular file or a directory is closed
+//     and refused with ErrNotRegular (the open itself never blocked);
 //   - deny_paths (S16-2): the handle's real path, when byPath and the OS
 //     reports one (Linux /proc/self/fd, Windows GetFinalPathNameByHandle),
 //     must not match, and the opened object must not be one a literal deny
@@ -104,22 +106,22 @@ func relTo(dir, p string) string {
 //     reported (nil, HardLinked, nil) (S16-7); an unreadable link count
 //     fails closed.
 //
-// Both handle checks share one stat (Unix: its link count; ADR-103).
+// All handle checks share one stat (Unix: its link count; ADR-103).
 func (s *Sandbox) vet(f *os.File, err error, v Verdict, byPath, single bool) (*os.File, Verdict, error) {
 	if err != nil {
 		return nil, v, err
 	}
-	denied := false
-	if byPath {
+	fi, err := f.Stat()
+	switch {
+	case err != nil:
+		return nil, v, closeFail(f, fmt.Errorf("sandbox: stat: %w", err))
+	case !fi.Mode().IsRegular() && !fi.IsDir():
+		return nil, v, closeFail(f, &fs.PathError{Op: "open", Path: f.Name(), Err: ErrNotRegular})
+	}
+	denied := slices.ContainsFunc(s.denyIDs, func(d os.FileInfo) bool { return os.SameFile(fi, d) })
+	if !denied && byPath {
 		p, ok := handlePath(f)
 		denied = ok && s.denied(p)
-	}
-	var fi os.FileInfo
-	if !denied && (len(s.denyIDs) > 0 || single) {
-		if fi, err = f.Stat(); err != nil {
-			return nil, v, closeFail(f, fmt.Errorf("sandbox: stat: %w", err))
-		}
-		denied = slices.ContainsFunc(s.denyIDs, func(d os.FileInfo) bool { return os.SameFile(fi, d) })
 	}
 	if denied {
 		return nil, v, closeFail(f, ErrDeniedPath)
