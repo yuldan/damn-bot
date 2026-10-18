@@ -553,3 +553,34 @@ func s086(t *testing.T) {
 	must(t, err)
 	must(t, s.Close())
 }
+
+// stallTracker is the serve-side reference of `db_write_stalled`
+// (§11.11.7): reporting without DB writes during the stall, DB event after.
+type stallTracker struct {
+	s     *Store
+	since int64
+}
+
+func (st *stallTracker) observe(t *testing.T, err error) {
+	t.Helper()
+	if !errors.Is(err, ErrDBBusy) {
+		return
+	}
+	now := st.s.clk.BootMs()
+	if st.since == 0 {
+		st.since = now
+	}
+	if now-st.since >= 30_000 {
+		b, err := json.Marshal(map[string]any{"since": st.since, "suspects": st.s.holders()})
+		must(t, err)
+		must(t, writeAtomic(testRoot(t, st.s.dir), "run/db_stall.json", b))
+	}
+}
+
+func (st *stallTracker) end() error {
+	_, err := st.s.Append(context.Background(), SystemSession, nil, Event{
+		Kind:    "system_notice",
+		Payload: jsonOf(map[string]any{"kind": "db_write_stalled", "since": st.since, "duration": st.s.clk.BootMs() - st.since}),
+	})
+	return err
+}

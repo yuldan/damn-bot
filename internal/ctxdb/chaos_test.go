@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -24,8 +23,6 @@ import (
 const (
 	childRoleEnv = "CTXDB_CHILD_ROLE"
 	childDirEnv  = "CTXDB_CHILD_DIR"
-	sigStop      = syscall.SIGSTOP
-	sigCont      = syscall.SIGCONT
 )
 
 func goexit() { runtime.Goexit() }
@@ -126,11 +123,6 @@ func startChild(t *testing.T, role, dir string) *child {
 		t.Fatalf("child %s not ready", role)
 	}
 	return c
-}
-
-func (c *child) signal(t *testing.T, sig syscall.Signal) {
-	t.Helper()
-	must(t, c.cmd.Process.Signal(sig))
 }
 
 // kill9 SIGKILLs the child and reaps it; "already finished" and the

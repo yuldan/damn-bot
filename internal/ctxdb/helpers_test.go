@@ -234,14 +234,6 @@ func testLock(t *testing.T, dir, name string, exclusive bool) (*os.File, bool) {
 // runPath is the absolute path of a run/ file (test helper).
 func runPath(dir, name string) string { return filepath.Join(dir, "run", name) }
 
-// startStamp reads the OS start stamp of a pid (test helper).
-func startStamp(t *testing.T, pid int) string {
-	t.Helper()
-	st, _, err := procStat(pid)
-	must(t, err)
-	return st
-}
-
 // procGroupMembers lists live members of a process group (test helper).
 func procGroupMembers(pgid int) []int {
 	m := pgroupMembers(pgid)
