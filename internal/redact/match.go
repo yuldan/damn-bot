@@ -259,7 +259,9 @@ func (r *Redactor) scan(dst, data []byte, from int, md mode) ([]byte, int, int, 
 	var skip [64]int
 	last := from
 	for i := from; i < len(data); {
-		if r.byFirst[data[i]] == nil {
+		// The last byte has no successor: it still reaches matchAt so a
+		// stream can hold a partial prefix.
+		if r.byFirst[data[i]] == nil || i+1 < len(data) && !r.pair(data[i], data[i+1]) {
 			i++
 			continue
 		}

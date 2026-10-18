@@ -45,7 +45,11 @@ type Options struct {
 type Redactor struct {
 	pats    []pattern
 	byFirst [256][]*pattern // patterns indexed by the first byte they can match
-	hold    int             // longest pending suffix a Stream may hold
+	// pairs is the set of (byte, next byte) pairs some pattern can start
+	// with: exactly the positions where matchAt does more than its cheap
+	// second-byte reject, so scan skips the others without a call.
+	pairs [1 << 16 / 64]uint64
+	hold  int // longest pending suffix a Stream may hold
 }
 
 // New builds a Redactor from the built-in patterns and opts.Secrets. Known
@@ -79,7 +83,40 @@ func New(opts Options) *Redactor {
 			r.byFirst[upper(c)] = append(r.byFirst[upper(c)], p)
 		}
 	}
+	r.indexPairs()
 	return r
+}
+
+// indexPairs fills r.pairs from byFirst, mirroring matchAt's reject: a
+// one-byte leading literal admits every next byte; a longer one admits its
+// second byte (either case when folded).
+func (r *Redactor) indexPairs() {
+	for c0 := range 256 {
+		for _, p := range r.byFirst[c0] {
+			head := p.first.lit
+			if len(head) == 1 {
+				for c1 := range 256 {
+					r.setPair(byte(c0), byte(c1))
+				}
+				continue
+			}
+			r.setPair(byte(c0), head[1])
+			if p.first.fold {
+				r.setPair(byte(c0), upper(head[1]))
+			}
+		}
+	}
+}
+
+func (r *Redactor) setPair(c0, c1 byte) {
+	k := uint16(c0)<<8 | uint16(c1)
+	r.pairs[k/64] |= 1 << (k % 64)
+}
+
+// pair reports whether a pattern can start with c0 c1.
+func (r *Redactor) pair(c0, c1 byte) bool {
+	k := uint16(c0)<<8 | uint16(c1)
+	return r.pairs[k/64]&(1<<(k%64)) != 0
 }
 
 // SecretsFromEnv returns the values of environ ("NAME=value" entries) whose
