@@ -34,7 +34,7 @@ PR #1 awal (650 baris, satu PR) ditolak gate `pr-size` (642 > 600) — gate beke
 | AUD-057/067/072/073/074/083 | CROSS-CUTTING §7; exclusion dijangkar; meta bench-budget/depguard; loc-check unmapped + GENERATED; 3 modul tidy/verify/vuln + job `size`; TS-11 ke `results/ts11/` | `lint-anchor`, `depguard`, `bench-budget`, `loc-unmapped` | selesai |
 | NEW2-07 | `bench-budget` = `cd bench && go test ./...`; `TestNoLLMBaselineCoverage` menyematkan peta 27 dimensi → fase (mutasi fase "Kode mati" F1→F2 → FAIL, diverifikasi) | `bench-budget` | selesai |
 | NEW-32/33/34 | ROADMAP F1 nama gate; ENGINEERING §5 = ROADMAP; baris loc.budget infra | — | selesai |
-| ADR-018(b) header asal per file + `TestAttributionHeaders` | **backlog F1** (sebelum acceptance F1; bukan F1 #0): file turunan hermes saat ini JSON/gz/tsv yang tidak bisa memuat header, sehingga butuh keputusan format (sidecar per direktori) — dicatat, tidak dikerjakan di F1 #0 | — | backlog F1 |
+| ADR-018(b) header asal per file + `TestAttributionHeaders` | ADR-099 (paket F1, bukan F1 #0): sidecar `ORIGIN.md` per direktori (sumber, commit, lisensi, SHA-256 byte-persis), himpunan file = glob `docs/ATTRIBUTION.md`, `.gitattributes` `-text` | `TestAttributionHeaders`, `TestAttributionChecker` (7 kelas pelanggaran) | selesai (PR `f1-attribution`) |
 
 ### Bukti Windows (workflow `windows-ctxdb`, run 39136866098, windows-latest, `-race`)
 

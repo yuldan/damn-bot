@@ -2335,3 +2335,20 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 **Dampak terukur (SPEC §20).** Token/latensi/binary/dependency produksi 0 (`golang.org/x/tools` v0.52.0, `golang.org/x/perf`, `honnef.co/go/tools` v0.8.2, `cyclonedx-gomod` v1.12.0 hanya di `tools/go.mod`, sesuai ENGINEERING §4.4). LOC produksi: `ctxdb` −3 (BackupPath) +8 (UnlockFileEx). LOC infra: `testutil` ≈ 130, `archtest` 63, `analyzers` 105. CI: +15 job PR (6 di antaranya matrix OS), +2 job harian; menit per run dicatat di F1-REPORT.
 
 **Konsekuensi.** (+) Semua gate ADR-073 punya job dan kasus meta-test; Windows/macOS/arm64 dieksekusi nyata. (−) Biaya menit Actions naik (macOS ×10 per run PR); E-78/E-79 menunggu langkah manusia.
+
+## ADR-099 — Header asal ADR-018 (b) untuk file data: sidecar `ORIGIN.md` per direktori + `TestAttributionHeaders`
+
+**Status:** Accepted 2026-10-18 (keputusan didelegasikan; opsi paling konservatif, tanpa dependency baru). Menerapkan ADR-018 butir (b) untuk file turunan yang formatnya tidak bisa memuat komentar; menutup backlog F1 "ADR-018(b) + `TestAttributionHeaders`" (`docs/F1-REPORT.md`).
+
+**Konteks.** ADR-018 (b) mewajibkan "header asal di setiap file yang disalin/diturunkan". Semua file turunan pihak ketiga saat ini berformat data (JSON, `.jsonl.gz`, `.tiktoken.gz`, TSV, daftar ID, teks prompt yang dibandingkan byte-persis oleh harness budget): menyisipkan header akan mengubah byte (merusak SHA/golden) atau membuat file tidak valid (JSON, gzip). `TestAttributionHeaders` dirujuk ADR-018 tetapi belum ada.
+
+**Keputusan.**
+1. **Sidecar per direktori.** Setiap direktori yang memuat file turunan punya `ORIGIN.md` = header asal untuk file di direktori itu (bukan subdirektori). Format: bagian `## <sumber>` dengan baris wajib `- Sumber: <URL>`, `- Commit: <commit/revisi>`, `- Lisensi: <lisensi + path notice>` (opsional `- Isi:`), lalu tabel `| File | SHA-256 |` berisi basename dalam backtick dan SHA-256 hex byte-persis. Satu direktori boleh memuat beberapa sumber (mis. `bench/evals/sources`).
+2. **Himpunan file turunan = glob `docs/ATTRIBUTION.md`** (ADR-018 (c)); `**` = nol atau lebih segmen. Satu sumber kebenaran: file yang cocok glob wajib tercantum di `ORIGIN.md`, entri `ORIGIN.md` wajib menunjuk file yang ada dan cocok glob, glob yang tidak cocok file apa pun dan notice `third_party/manual/*` yang hilang = gagal.
+3. **Byte-persis lintas OS.** SHA-256 dihitung atas byte checkout tanpa normalisasi EOL; path turunan dipasang `-text` di `.gitattributes` (Windows `core.autocrlf` tidak mengubahnya).
+4. **File kode sumber turunan** (Go, Markdown, YAML yang bisa memuat komentar) tetap wajib header asal di file itu sendiri menurut ADR-018 (b) apa adanya; ADR ini hanya menambah bentuk sidecar untuk data. Saat ini belum ada file kode turunan.
+5. **Test.** `TestAttributionHeaders` (`internal/archtest`, semua OS matrix) memeriksa butir 1–3 atas repo; `TestAttributionChecker` memastikan setiap kelas pelanggaran (sidecar hilang, SHA beda, file tak tercantum, entri basi, field hilang, glob mati, notice hilang) terdeteksi. Paket F1 yang menambah testdata pihak ketiga (JSON-Schema-Test-Suite `internal/schema`, korpus gitleaks `internal/redact`) menambah baris `ATTRIBUTION.md` + `ORIGIN.md` di PR-nya.
+
+**Dampak terukur (SPEC §20).** Token/latensi/LOC produksi/binary/dependency 0 (test + dokumen). Mengubah file turunan tanpa memperbarui SHA di `ORIGIN.md` = merah di semua OS.
+
+**Konsekuensi.** (+) Asal, revisi, dan lisensi setiap file turunan dapat dicek per file tanpa mengubah byte data; perubahan diam-diam pada data pihak ketiga terdeteksi. (−) Memperbarui data turunan wajib memperbarui SHA di sidecar.

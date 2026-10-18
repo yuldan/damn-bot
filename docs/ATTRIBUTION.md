@@ -2,6 +2,8 @@
 
 Daftar file di repo yang disalin atau diturunkan dari proyek pihak ketiga (ADR-018 (c), ENGINEERING E-50). Teks lisensi lengkap ada di `third_party/manual/*.txt`. Semua file di bawah adalah data benchmark/test; tidak ada yang di-embed di binary `damnbot`.
 
+Header asal ADR-018 (b) untuk file data = sidecar `ORIGIN.md` di direktori file itu (sumber, commit, lisensi, SHA-256 per file; ADR-099). Glob kolom File = himpunan yang diperiksa `TestAttributionHeaders` (`**` = nol atau lebih segmen).
+
 | File | Asal | Lisensi | Notice |
 |---|---|---|---|
 | `bench/budget/testdata/hermes-868b9f244f/**` | hermes-agent @ `868b9f244f` (prompt sistem, konteks, skema tool) | MIT, © 2025 Nous Research | `third_party/manual/hermes-agent.txt` |
