@@ -108,7 +108,7 @@ Format: Konteks / Keputusan / Konsekuensi. Status semua ADR: **diterima** kecual
 
 **Konteks.** Target awal 30 MB ditetapkan sebelum scope parity penuh. Parity menambah 27 adapter platform, browser CDP, MCP, voice, code-intel (WASM runtime), WhatsApp Web (semula `whatsmeow`; dikeluarkan dari binary oleh ADR-034), Matrix E2EE.
 
-**Keputusan.** P13: full build ≤ 52 MB stripped (linux/amd64), arsip rilis ≤ 22 MB, build `-tags minimal` (core + TUI + ACP + code tools) ≤ 22 MB. Budget per modul di SPEC §3.2.4; kontribusi modul diukur di CI dengan build `nomod_<id>`.
+**Keputusan.** P13: full build ≤ 52 MB stripped (linux/amd64), arsip rilis ≤ 22 MB, build `-tags minimal` (core + TUI + ACP + code tools) ≤ 22 MB. Budget per modul di SPEC §3.2.4; kontribusi modul diukur di CI dengan build `nomod_<id>`. Bentuk tag final: ENGINEERING E-39 (`-tags goolm,minimal`, `-tags goolm,nomod_<id>`; ADR-054 V-10).
 
 **Konsekuensi.**
 - (+) Masih satu file tanpa runtime; install hermes (venv Python + `node_modules` + Electron) diukur di F0 dan diperkirakan jauh lebih besar [INFERENCE sampai diukur F0].
@@ -173,7 +173,7 @@ Format: Konteks / Keputusan / Konsekuensi. Status semua ADR: **diterima** kecual
 
 **Konteks.** Repo map, outline file besar, dan edit berbasis simbol butuh parser multi-bahasa. Binding tree-sitter native butuh CGO.
 
-**Keputusan.** Go: `go/parser`/`go/ast` (stdlib). Bahasa lain: grammar tree-sitter dikompilasi ke WASM, dijalankan dengan `github.com/tetratelabs/wazero` (pure Go). Grammar tidak di-embed di build default: diunduh saat pertama dipakai dari rilis Damn-Bot yang di-pin SHA-256 ke cache, atau `damnbot doctor grammars install --offline <bundle.tar.gz>` (stdlib, tanpa zstd); build `-tags grammars_embedded` menyertakan 12 grammar populer. Tanpa grammar → outline heuristik regex. LSP client (diagnostics, definition, references, rename) sebagai modul lazy memakai language server yang terpasang.
+**Keputusan.** Go: `go/parser`/`go/ast` (stdlib). Bahasa lain: grammar tree-sitter dikompilasi ke WASM, dijalankan dengan `github.com/tetratelabs/wazero` (pure Go). Grammar tidak di-embed di build default: diunduh saat pertama dipakai dari rilis Damn-Bot yang di-pin SHA-256 ke cache, atau `damnbot doctor grammars install --offline <bundle.tar.gz>` (stdlib, tanpa zstd); build `-tags grammars_embedded` menyertakan 12 grammar populer (bentuk tag final: ENGINEERING E-39, `-tags goolm,grammars_embedded`; ADR-054 V-10). Tanpa grammar → outline heuristik regex. LSP client (diagnostics, definition, references, rename) sebagai modul lazy memakai language server yang terpasang.
 
 **Konsekuensi.**
 - (+) `CGO_ENABLED=0` tetap; modul code-intel ≤ 3 MB di binary default.
@@ -374,7 +374,7 @@ Format: Konteks / Keputusan / Konsekuensi. Status semua ADR: **diterima** kecual
 | Q30 | Paging tool berhalaman | ADR-031 Accepted |
 | — | Binary 52 MB | ADR-010 Accepted |
 
-**Konsekuensi.** Spec tetap **belum** dibekukan; freeze menunggu integrasi GAP-SWEEP (SPEC §20). Biaya LLM fase F0 kecil (10 task × model murah); biaya run penuh ditunda ke RC.
+**Konsekuensi.** *(Historis — status saat ADR ditulis. Status terkini: SPEC §20 + ADR-030/047; ADR-054 V-21.)* Spec tetap **belum** dibekukan; freeze menunggu integrasi GAP-SWEEP (SPEC §20). Biaya LLM fase F0 kecil (10 task × model murah); biaya run penuh ditunda ke RC.
 
 ## ADR-033 — Resolusi konflik GAP-SWEEP (eks-Q31–Q50)
 
@@ -427,7 +427,7 @@ Format: Konteks / Keputusan / Konsekuensi. Status semua ADR: **diterima** kecual
 
 **Status:** Accepted 2026-10-17. Menutup 65 temuan [`REVIEW-1.0.md`](REVIEW-1.0.md) (11 BLOCKER, 26 MAJOR, 28 MINOR) sebelum Spec 1.0 dibekukan. Verifikasi 2026-10-18 menilai 11 di antaranya parsial; penyelesaiannya di ADR-036.
 
-**Keputusan.** Seluruh keputusan §22.2/§22.3 diterapkan ke bagian normatif SPEC (§2, §3.5, §4, §9, §10, §11 DDL, §12, §14, §15, §17.1); §22.2–§22.4 menjadi log historis. Desain P1 tanpa menaikkan batas: katalog deferred = baris grup modul ≤ 15 tok + satu baris gabungan MCP ≤ 60 tok + overflow `+N more groups` (worst case 450 ≤ 600), urutan grup dan nama server MCP alfabetis murni sehingga byte-identik per (versi, config hash) (dipertegas ADR-036, N-01); context tier = sub-cap fakta 60 / snapshot 150 / AGENTS.md 400 / memori 300 (pinned ≤ 150 + BM25, sisanya via `recall`) / skill 150 / pemisah 40 = 1.100, dengan urutan potong AGENTS.md → memori non-pinned → skill. CLI dipangkas ke 20 perintah top-level. Matriks build tunggal 8 target dengan tag `goolm`. FEATURE-PARITY mendapat kolom `status` (837 baris penyebut gate = 836 `planned` + 1 `external-bridge`; 17 `dropped-with-approval` di luar penyebut).
+**Keputusan.** Seluruh keputusan §22.2/§22.3 diterapkan ke bagian normatif SPEC (§2, §3.5, §4, §9, §10, §11 DDL, §12, §14, §15, §17.1); §22.2–§22.4 menjadi log historis. Desain P1 tanpa menaikkan batas: katalog deferred = baris grup modul ≤ 15 tok + satu baris gabungan MCP ≤ 60 tok + overflow `- +<K> more groups: tool_search` (literal final ADR-056) (worst case 450 ≤ 600), urutan grup dan nama server MCP alfabetis murni sehingga byte-identik per (versi, config hash) (dipertegas ADR-036, N-01); context tier = sub-cap fakta 60 / snapshot 150 / AGENTS.md 400 / memori 300 (pinned ≤ 150 + BM25, sisanya via `recall`) / skill 150 / pemisah 40 = 1.100, dengan urutan potong AGENTS.md → memori non-pinned → skill. CLI dipangkas ke 20 perintah top-level. Matriks build tunggal 8 target dengan tag `goolm`. FEATURE-PARITY mendapat kolom `status` (837 baris penyebut gate = 836 `planned` + 1 `external-bridge`; 17 `dropped-with-approval` di luar penyebut).
 
 **Dampak terukur.** Token: P1 tetap 5.000 (hitungan per tier SPEC §2/§5.2/§6). Latensi: 0. LOC: Σ §3.2.4 = 184.900 (−1.600 vs rencana 186.500 sebelumnya; tidak ada scope yang dibuang — selisih = WhatsApp Web keluar dari binary dan konsolidasi angka). Ukuran: Σ 48,4 MB. Dependency: 26/28.
 
@@ -1166,6 +1166,8 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Status:** Accepted 2026-10-18 (keputusan user). Menutup TS-P08 (`docs/F0-REPORT.md` §"Temuan spec").
 
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): ENGINEERING E-55 dan urutan job §5.3, SPEC §16 (baris Unit); `Makefile` target `test-timing`.
+
 **Konteks.** E-55 menjalankan semua test dengan `-race`. Di bawah `-race`, mesin SQLite modernc yang terinstrumentasi butuh 175–400 ms per transaksi bahkan untuk unit 1 event; tanpa `-race` transaksi purge terbesar S015 = 51 ms. Akibatnya I11 (setiap transaksi purge ≤ 200 ms, duty lock ≤ 20 %) mengukur detektor race, bukan kode, dan `make test` merah hanya karena S015.
 
 **Keputusan.**
@@ -1184,6 +1186,8 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Status:** Accepted 2026-10-18 (keputusan user). Menutup TS-P10.
 
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): ENGINEERING §2.4 (tabel budget, `ctxdb` 2.800, total 31.450); `loc.budget`.
+
 **Konteks.** Cakupan SPEC §11 (purge 31 langkah, gc dua fase, barrier, restore, migrasi, recovery journal, lease/fencing) terukur 2.598–2.610 LOC non-test di spike F0, walaupun langkah purge sudah dipindah ke `queries.sql` (tidak dihitung) dan protokol gateway/approval ke test (ADR-053). Budget E-19 2.500.
 
 **Keputusan.** Budget E-19 `ctxdb` (tanpa file `.sql`) = **2.800** (`loc.budget`, tabel ENGINEERING §2.4). Total core per paket 31.150 → **31.450**, tetap ≤ 47.000 (gabungan SPEC §3.2.4 core + codetools + exec + heal). Baris SPEC §3.2.4 dan Σ 184.900 tidak berubah, sehingga cukup revisi tabel ENGINEERING (aturan §2.4); ADR ini mencatat keputusannya.
@@ -1197,6 +1201,8 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 ## ADR-050 — E-70 (rasio test:source) menjadi gate mulai 5.000 LOC
 
 **Status:** Accepted 2026-10-18 (keputusan user). Menutup TS-03.
+
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): ENGINEERING E-70 dan §8, SCORECARD §1.7; `scripts/loc-check.sh`.
 
 **Konteks.** Rasio 0,8–1,2 tidak bermakna pada basis kode kecil yang didominasi test spike (scaffold 121:29; F0 3.391:2.639 = 1,28). Gate merah permanen membuat meta-test-nya tidak bermakna.
 
@@ -1212,6 +1218,8 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Status:** Accepted 2026-10-18 (keputusan user). Menutup blocker `vuln` F0 (E-44/E-54).
 
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): ENGINEERING (baris Status, pin `go 1.26.9`); `go.mod`, `bench/go.mod`, `tools/go.mod`.
+
 **Konteks.** `govulncheck` melaporkan GO-2026-6604 (stdlib `os.Root`: `MkdirAll`/`Remove`/`RemoveAll`/`Rename`/`OpenFile`/`Stat` dapat mengikuti junction keluar root di Windows) terjangkau dari `internal/ctxdb`; diperbaiki di go1.26.9. Repo mem-pin go1.26.8.
 
 **Keputusan.** Direktif `go 1.26.9` di `go.mod`, `bench/go.mod`, `tools/go.mod` (tanpa baris `toolchain` terpisah: `go mod tidy` membuangnya bila sama dengan `go`). CI `actions/setup-go` membaca `go-version-file` sehingga ikut naik; lokal `GOTOOLCHAIN=auto` mengunduh go1.26.9. Teks ENGINEERING yang menyebut 1.26.8 adalah catatan pengukuran historis, bukan pin.
@@ -1224,7 +1232,9 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Status:** Accepted 2026-10-18 (keputusan user). Menutup AF-01..AF-08 ([`REVIEW-1.0.md`](REVIEW-1.0.md) §"Verifikasi ADR-046"), backlog ADR-047 butir 2, TS-P01. Usulan ADR-E01..E08 di `docs/F0-REPORT.md`. Syarat ADR-047 "AF-01/AF-02 sebelum F4" terpenuhi.
 
-**Keputusan** (masing-masing dibuktikan skenario spike F0; teks SPEC/SELF-HEALING terdampak dibaca bersama ADR ini):
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): SPEC §9.7, §11.4, §11.6 (langkah 11/25), §11.11.4, §11.11.7, §11.11.10, §22.1 GAP-REL-11; SELF-HEALING §3.3, §5.1; TRUST-MODEL §3. Setiap passage mengutip "ADR-052 AF-0x".
+
+**Keputusan** (masing-masing dibuktikan skenario spike F0):
 
 | Temuan | Bagian terdampak | Keputusan | Bukti |
 |---|---|---|---|
@@ -1245,6 +1255,8 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Status:** Accepted 2026-10-18 (keputusan user). Menutup TS-P09.
 
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): ENGINEERING §2.2. SPEC §3 sudah menulis `internal/gateway`; SELF-HEALING tidak menyatakan lokasi.
+
 **Konteks.** E-06 melarang modul gateway mengimpor `ctxdb`, tetapi protokol poller/worker/outbox/approval (SELF-HEALING §5.1, SPEC §11.11.10) memerlukan transaksi `ctxdb`. Spike F0 menulisnya sebagai implementasi referensi di `internal/ctxdb/gateway_ref_test.go` dan `approval_ref_test.go` di atas `Tx` publik.
 
 **Keputusan.**
@@ -1260,7 +1272,7 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Status:** Accepted 2026-10-18 (keputusan user). Menutup usulan ADR-E09, E11, E13, E14, E15, E17, E18, E19, E21, E22, E23, E24, E27, E28, E29, E30, E31, E32 (`docs/F0-REPORT.md` §"Errata backlog ADR-047"), backlog ADR-047 butir 2. V-13/V-15 mengubah DDL (fail-closed, normalisasi FTS) atas persetujuan eksplisit user; item lain yang mengubah perilaku/budget/invarian dipisah sebagai ADR-055..061 (Accepted 2026-10-18).
 
-**Aturan penerapan.** ADR ini normatif untuk bagian terdampak. Teks yang sudah diterapkan: DDL SPEC §11 + `internal/ctxdb/migrations` (V-13, V-15) dan ENGINEERING E-19/E-39/§8 (V-10, V-20, V-29). Bagian lain dibaca dengan ADR ini sebagai pengganti teks lama.
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18) ke semua bagian terdampak, masing-masing mengutip "V-xx/ADR-054" atau "ADR-054 V-xx": SPEC (indeks dokumen, P21, §4.1, §6, §9.7.1, §9.10, §10, DDL §11.2/§11.4 + `internal/ctxdb/migrations`, §14.3, §16, §22.1 GAP-PROV-05), SELF-HEALING §3.5, §8, ENGINEERING E-19/E-39/E-45/§8, SCORECARD §3/§3.3/§4, ROADMAP (milestone freeze, F0, F9), MITIGATION-MATRIX (GAP-GW-11, GAP-INF-02), FEATURE-PARITY PLUG-022, EXEC-AND-CODING (job `scorecard`), DECISIONS ADR-010/015 (V-10) dan ADR-032 (V-21).
 
 | Temuan | Bagian terdampak | Keputusan |
 |---|---|---|
@@ -1289,7 +1301,9 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-055 — Starlark: allowlist, `timeout_s`, mekanisme macOS (V-07)
 
-**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-07 (usulan ADR-E10). Normatif untuk SPEC §9.2 dan EXEC-AND-CODING §B.7 (teks lama dibaca bersama ADR ini, seperti ADR-054). Diimplementasikan di F5 (`execute_code` + Starlark, GAP-COST-10); tidak ada kode F0 terdampak.
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-07 (usulan ADR-E10). Diimplementasikan di F5 (`execute_code` + Starlark, GAP-COST-10); tidak ada kode F0 terdampak.
+
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): SPEC §9.2, §22.1 GAP-COST-10; EXEC-AND-CODING §B.7 (schema, binding, tabel limit, COD-11); MITIGATION-MATRIX GAP-COST-10.
 
 **Konteks.** SPEC §9.2 mengizinkan "tool deferred/inti yang diizinkan approval", sedangkan EXEC-AND-CODING §B.7/COST-10 hanya 7 tool; batas waktu ≤ 30 s vs schema `timeout_s` 1–300; macOS `ulimit -v` vs `RLIMIT`.
 
@@ -1304,7 +1318,9 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-056 — Literal baris overflow katalog tool (V-09)
 
-**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-09 (usulan ADR-E12). Normatif untuk SPEC P1, §5.2 (katalog deferred), GAP-PROV-02, ADR-035. Diimplementasikan di F2 (`modules` + katalog `tool_search`); tidak ada kode F0 terdampak.
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-09 (usulan ADR-E12). Diimplementasikan di F2 (`modules` + katalog `tool_search`); tidak ada kode F0 terdampak.
+
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): SPEC P1, §5.2, §22.1 GAP-PROV-02; DECISIONS ADR-035.
 
 **Konteks.** Baris overflow katalog ditulis dalam tiga bentuk (`+N groups`, `- +<K> more groups: tool_search`, `+K more groups`), dan klausa (3) terbaca seolah pengurutan alfabetis hanya berlaku saat overflow. Golden test butuh satu literal.
 
@@ -1318,7 +1334,9 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-057 — Kriteria salvage `gateway_inbound`/`gateway_deliveries` (V-14)
 
-**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-14 (usulan ADR-E16). Normatif untuk SELF-HEALING §3.5 (salvage) dan SPEC §11.11. Diimplementasikan di F4 (salvage `heal` + tabel gateway); salvage belum ada di spike F0, jadi tidak ada kode F0 terdampak.
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-14 (usulan ADR-E16). Diimplementasikan di F4 (salvage `heal` + tabel gateway); salvage belum ada di spike F0, jadi tidak ada kode F0 terdampak.
+
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): SELF-HEALING §3.5 (langkah salvage), SPEC §11.11.10.
 
 **Konteks.** Kriteria salvage `id >` maksimum backup tidak terdefinisi untuk `gateway_inbound` (baris backup `event_id NULL` vs DB rusak `event_id` terisi: INSERT gagal PK, satu-satunya UPDATE sah = NULL→nilai) dan melewatkan perubahan status `gateway_deliveries` (mutable) setelah backup.
 
@@ -1332,7 +1350,9 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-058 — Satu rumus estimator token (V-18)
 
-**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-18 (usulan ADR-E20). Normatif untuk SPEC §4.5 dan GAP-COST-09. Diimplementasikan di F2 (budget/compaction, GAP-COST-09); tidak ada kode F0 terdampak (harness `bench/budget` memakai tokenizer o200k_base, bukan estimator runtime).
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-18 (usulan ADR-E20). Diimplementasikan di F2 (budget/compaction, GAP-COST-09); tidak ada kode F0 terdampak (harness `bench/budget` memakai tokenizer o200k_base, bukan estimator runtime).
+
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): SPEC §4.5, §22.1 GAP-COST-08/GAP-COST-09; MITIGATION-MATRIX GAP-COST-09.
 
 **Konteks.** Ada tiga definisi normatif estimator token: unit byte vs char, default 3,6 vs 3,0 vs per-script, kalibrasi satu call vs EMA.
 
@@ -1347,7 +1367,9 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-059 — Daftar frasa tertunda SPEC §20 (V-23)
 
-**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-23 (usulan ADR-E25). Normatif untuk SPEC §20 (`TestSpecNoPendingAmendments`, `testdata/spec_pending_phrases.txt`). Diimplementasikan di F1 bersama gate dokumen `TestSpecDocs` (belum ada di F0; tidak ada kode F0 terdampak).
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-23 (usulan ADR-E25). Diimplementasikan di F1 bersama gate dokumen `TestSpecDocs` (`TestSpecNoPendingAmendments`, `testdata/spec_pending_phrases.txt`; belum ada di F0, tidak ada kode F0 terdampak).
+
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): SPEC §20 (isi daftar merujuk paragraf Keputusan di bawah; entri pengecualian (6)).
 
 **Konteks.** Isi daftar frasa tidak didefinisikan. Bila "Usulan" dicocokkan apa adanya, 11 header tabel di PROVIDERS dan EDGE-CASES ("Usulan Damn-Bot", "Usulan regression test") membuat gate merah; bila daftar memuat "menunggu …", baris Status SPEC dan §20 ikut merah.
 
@@ -1362,7 +1384,9 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-060 — Enkripsi bundle diagnostik (V-24)
 
-**Status:** Accepted 2026-10-18 (keputusan user, opsi a). Menutup V-24 (usulan ADR-E26). Normatif untuk SPEC §10 (`doctor bundle`), CROSS-CUTTING §1.7, GAP-SEC-17; teks "selalu terenkripsi" di SPEC §10 dan CROSS-CUTTING §1.7 dibaca bersama ADR ini. Diimplementasikan di F8 (GAP-SEC-17); tidak ada kode F0 terdampak.
+**Status:** Accepted 2026-10-18 (keputusan user, opsi a). Menutup V-24 (usulan ADR-E26). Diimplementasikan di F8 (GAP-SEC-17); tidak ada kode F0 terdampak.
+
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): SPEC §10 (`doctor bundle`), §22.1 GAP-SEC-17; CROSS-CUTTING §1.7; MITIGATION-MATRIX GAP-SEC-17.
 
 **Konteks.** SEC-17 berarti tanpa `--upload` hasilnya zip lokal tidak terenkripsi; SPEC §10 dan CROSS-CUTTING §1.7 menyatakan selalu terenkripsi.
 
@@ -1376,7 +1400,9 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-061 — Himpunan EC-PLAT Telegram untuk gate F4 (V-31)
 
-**Status:** Accepted 2026-10-18 (keputusan user, opsi a). Menutup V-31 (usulan ADR-E33). Normatif untuk ROADMAP F4 (acceptance "EC-PLAT Telegram") dan tabel kategori EC; teks ROADMAP "15 entri" dibaca bersama ADR ini. Gate dijalankan di F4; tidak ada kode F0 terdampak.
+**Status:** Accepted 2026-10-18 (keputusan user, opsi a). Menutup V-31 (usulan ADR-E33). Gate dijalankan di F4; tidak ada kode F0 terdampak.
+
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): ROADMAP (tabel kategori EC, acceptance F4 dan F7), SPEC §9.7 (regression), §16 (baris Edge-case).
 
 **Konteks.** Bila hanya entri bertanda "(Telegram)" yang dihitung (009–023), empat entri Telegram lain (001/002/003/007) jatuh ke gate F7.
 
@@ -1385,3 +1411,20 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 **Dampak terukur (SPEC §20).** Token/latensi/binary/dependency/LOC 0. Cakupan gate F4: 15 → 19 entri `TestEdgeCases/EC-PLAT-*`; gate F7 berkurang 4 entri (Σ EC-PLAT tetap 24).
 
 **Konsekuensi.** (+) Semua entri Telegram dibuktikan di fase Telegram. (−) Acceptance F4 bertambah 4 regression test.
+
+## ADR-062 — Smoke LLM Damn-Bot pindah ke acceptance F1
+
+**Status:** Accepted 2026-10-18 (keputusan user).
+
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): ROADMAP F0 (deliverable 5, acceptance smoke LLM) dan F1 (acceptance smoke LLM Damn-Bot + cap US$2,00).
+
+**Konteks.** Acceptance F0 ROADMAP menuntut "Smoke LLM 10 task selesai untuk kedua agent". Di F0 belum ada agent loop Damn-Bot (`damnbot run` adalah deliverable F1), jadi sisi Damn-Bot tidak bisa dijalankan. Sisi hermes sudah selesai: `bench/h2h/results/2026-10-18/` — 10/10 task, 0 error harness, 60 call, US$0,0238 (`docs/F0-REPORT.md` §"Smoke LLM 10 task + `bench/h2h`").
+
+**Keputusan.**
+1. Acceptance F0 smoke LLM terpenuhi untuk hermes oleh run `bench/h2h` 2026-10-18 (harness + proxy rekam terbukti end-to-end).
+2. Sisi Damn-Bot menjadi acceptance F1: run pertama `damnbot run` pada 10 task yang sama (seleksi deterministik `h2h-smoke/v1`) lewat `bench/h2h` dengan proxy rekam lengkap dan 0 error harness. Pass/fail tetap informatif (bukan gate kualitas vs hermes; perbandingan penuh di RC F9).
+3. Cap biaya LLM F1 = **US$2,00 total** (seluruh run smoke/uji F1, dihitung proxy `bench/h2h`; cap keras `-cap-usd`).
+
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency/LOC 0. ROADMAP F0: 1 butir acceptance dipersempit ke hermes; ROADMAP F1: +1 butir acceptance. Biaya LLM F1 ≤ US$2,00.
+
+**Konsekuensi.** (+) Gate F0 tidak menunggu kode F1; bukti harness tetap ada. (−) Smoke Damn-Bot pertama baru terlihat di F1.
