@@ -164,6 +164,7 @@ EOF
 		(cd "$d" && GOMODCACHE="$work/modcache" GOFLAGS=-modcacherw go mod download >/dev/null 2>&1)
 		local f
 		f=$(find "$work/modcache/go.uber.org/goleak@v1.3.0" -name '*.go' | sort | head -1)
+		chmod u+w "$f"
 		printf '\n// meta: dirusak\n' >>"$f"
 		;;
 	esac
@@ -180,28 +181,42 @@ run_gate() { # <gate> <dir> <log>
 
 declare -A result
 fail=0
+# scaffold <dir>: buang paket internal/* selain archtest. Dipakai HANYA bila baseline HEAD merah
+# (kode paket lain melanggar gate): mekanisme gate tetap diuji pada pohon yang bersih, dan status
+# HEAD yang merah tetap dilaporkan (HEAD_RED) — gate nyata tidak dilemahkan.
+scaffold() {
+	find "$1/internal" -mindepth 1 -maxdepth 1 -type d ! -name archtest -exec rm -rf {} +
+}
+
 for g in "${GATES[@]}"; do
-	base="$work/$g-base" viol="$work/$g-viol"
+	base="$work/$g-base" viol="$work/$g-viol" note=""
 	fresh "$base"
 	prepare "$g" "$base"
 	if ! run_gate "$g" "$base" "$work/$g-base.log"; then
-		result[$g]="BASELINE_RED (gate sudah gagal tanpa pelanggaran; lihat log)"
-		tail -5 "$work/$g-base.log" | sed "s/^/  [$g base] /"
+		tail -3 "$work/$g-base.log" | sed "s/^/  [$g HEAD] /"
+		scaffold "$base"
+		if ! run_gate "$g" "$base" "$work/$g-base.log"; then
+			result[$g]="BASELINE_RED (gagal juga pada pohon scaffold; lihat log)"
+			tail -5 "$work/$g-base.log" | sed "s/^/  [$g base] /"
+			fail=1
+			rm -rf "$base"
+			continue
+		fi
+		note=" (baseline scaffold; HEAD_RED)"
 		fail=1
-		rm -rf "$base"
-		continue
 	fi
 	rm -rf "$base"
 	fresh "$viol"
 	prepare "$g" "$viol"
+	[[ -n $note ]] && scaffold "$viol"
 	inject "$g" "$viol"
 	if run_gate "$g" "$viol" "$work/$g-viol.log"; then
-		result[$g]="MISSED (gate lulus pada pelanggaran)"
+		result[$g]="MISSED (gate lulus pada pelanggaran)$note"
 		fail=1
 	elif grep -Eq "$(marker "$g")" "$work/$g-viol.log"; then
-		result[$g]="DETECTED"
+		result[$g]="DETECTED$note"
 	else
-		result[$g]="WRONG_REASON (gagal, tapi penanda '$(marker "$g")' tidak ada)"
+		result[$g]="WRONG_REASON (gagal, tapi penanda '$(marker "$g")' tidak ada)$note"
 		tail -5 "$work/$g-viol.log" | sed "s/^/  [$g viol] /"
 		fail=1
 	fi
