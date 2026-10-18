@@ -148,8 +148,10 @@ func (dd *DeltaDecoder) deltaField(key []byte) error {
 		if s.null() {
 			return nil
 		}
-		return s.array(func(i int) error {
-			if i == maxChunkToolDeltas {
+		return s.array(func(int) error {
+			// Count decoded entries, not the array index: a repeated
+			// "tool_calls" or "choices" key restarts the index (PROV-M2).
+			if len(dd.d.ToolCalls) == maxChunkToolDeltas {
 				return ErrTooManyToolDeltas
 			}
 			return dd.toolCall()
