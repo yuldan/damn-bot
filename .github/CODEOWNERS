@@ -12,4 +12,5 @@
 /internal/archtest/ @yuldan
 /internal/ctxdb/ @yuldan
 /internal/netx/ @yuldan
+/internal/schema/ @yuldan
 /internal/testutil/ @yuldan
