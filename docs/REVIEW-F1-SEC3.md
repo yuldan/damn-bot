@@ -131,7 +131,7 @@ Diperiksa tanpa temuan:
 | ~~LED-1~~ | closed (#37) | Test append-only vakum |
 | ~~LED-2~~ | closed (#37) | `usage.cost` raksasa menghasilkan biaya negatif |
 | ~~LED-3~~ | closed (#37) | Overflow token × harga menghasilkan biaya negatif atau mendekati 0 |
-| NETX-26 | BLOCKER (PR #28, sebelum merge) | Jendela rescan lapisan decode melewatkan secret yang disisipi CR/LF serta JWT/userinfo dengan konteks > 256 B (regresi vs `main`) |
+| ~~NETX-26~~ | closed (#28 @ `d2ee9d5`); merge gate NETX-30 (rebase + CI perf) | Jendela rescan lapisan decode melewatkan secret yang disisipi CR/LF serta JWT/userinfo dengan konteks > 256 B (regresi vs `main`) |
 
 ## Verifikasi perbaikan PROV-B1 (#36 @ `6fd631d`, sudah di `main`)
 
@@ -205,3 +205,39 @@ Respons sah tetap bisa dirakit: 128 call dengan nama 256 B; reasoning parts iden
 ### PR #28: menunggu head baru
 
 Head `b6234ef` (perbaikan NETX-26..28) gagal di gate perf `pct` menurut pemilik PR. Pemilik sedang mengoptimasinya dan akan mendorong head baru. Re-review NETX-26 dilakukan atas head itu, dan NETX-26 tetap **BLOCKER** sampai terverifikasi.
+
+### PR #28 @ `d2ee9d5` (NETX-26..28 diperbaiki): kode approve, merge gate masih terbuka
+
+Perbaikan di head ini: pola §14.3 kini dijalankan pada seluruh run non-spasi hasil decode, dan jendela secret dihitung setelah fold. Perubahan ini disertai test diferensial milik PR sendiri (`TestDLPLongContext`, `TestDLPPatternDifferential`, `TestShortSecretOffsets`).
+
+Oracle diferensial auditor membandingkan head ini dengan `dlp.go` dari `main` dan dengan referensi "ideal" (algoritma `main` tanpa batas kerja maupun verifikasi). Total 259.823 kasus, ditambah `FuzzDiff` 271 s (2,97 juta eksekusi). Hasil: **0 regresi, 0 miss, 0 false positive.**
+
+| Kelompok | n | regresi |
+|---|---:|---:|
+| Set probe bypass + tabel `check()` | 7.999 | 0 |
+| Secret pendek 1–7 B × offset 0–39 × 7 filler × 7 encoding | 27.440 | 0 |
+| Split kedalaman per karakter | 17.720 | 0 |
+| Pad jendela 200 B–64 KiB, 1 MiB, ~8 MiB | 352 | 0 |
+| CR/LF/CRLF/`%0A`/`%250A` di antara setiap karakter | 2.088 | 0 |
+| JWT 1 B–64 KiB × `.`/`%2E`/`%2e`/`%252E` | 1.152 | 0 |
+| Userinfo dengan `%40`/`%3A`/`%2540` jauh dari `://` | 3.072 | 0 |
+| Acak | 200.000 | 0 |
+
+Ketiga bypass NETX-26 lewat `check()` kini menghasilkan `secret_egress`. Tujuh mutan non-ekuivalen tertangkap oleh test PR, termasuk mutan yang menghapus cek PEM. `go test -race`: ok. Uji pool 16 goroutine × 3 × 4.000 scan: 0 verdict salah.
+
+| ID | Status | Bukti |
+|---|---|---|
+| NETX-26 | **closed** | Oracle di atas |
+| NETX-27 | **closed** (prosa realistis) | Korpus komentar `net/http` dengan n=50/200 secret pendek, 8/32 KiB, raw maupun form: 0 false positive. Residu MINOR: prosa sintetis yang sangat padat `th`/` t` dengan n=200 menghasilkan `dlp_limit` (20/288 kasus, fail-closed). |
+| NETX-28 | **closed** | Body 8 MiB berisi `%`: 8,4–10,3 MB/op (main 50,1 MB/op), 50–53 ms (main 43–50 ms). |
+| NETX-15 | **closed** | 24/24 kasus lolos untuk 512 B–64 KiB. |
+| NETX-17 | open MINOR | Tidak berubah. |
+| NETX-29 | open MINOR | Angka pct di DECISIONS berasal dari CI `8a0cb66`, bukan head ini. Body PR masih menulis "DRAFT". |
+| NETX-31 | MINOR (saran) | `d.region` ≥ 256 kini tidak diperlukan untuk pola (mutan region=40 ekuivalen). |
+| **NETX-30** | **BLOCKER merge gate** (proses, bukan cacat kode) | Branch konflik `CHANGELOG.md` dengan `main` (`339d92a`), sehingga GitHub tidak menjalankan CI di head ini: 0 check-run. Gate perf di head sebelumnya `b6234ef` merah: pct 85,8/77,7/86,3 µs. Auditor mengukur `short50/pct` 68,7–73,7 µs di i7-1255U (P-core, `-cpu=1`), dan untuk CI memperkirakan sekitar 76–79 µs, yaitu tepat di atas 75 µs = 50 × 1,5. |
+
+**Verdict #28 @ `d2ee9d5`:**
+- Perubahan deteksi **approve**, karena tidak ada regresi keamanan.
+- **Merge hanya setelah** rebase ke `main` dan job `perf` CI hijau di head hasil rebase.
+- Bila `pct` tetap > 75 µs di CI, optimasi `pct` wajib dilakukan sebelum merge. Ini MAJOR NETX-16 per SPEC §17, bukan BLOCKER keamanan.
+- Setiap optimasi tambahan harus lolos ulang oracle diferensial; test PR sudah mencakupnya.
