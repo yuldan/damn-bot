@@ -167,9 +167,10 @@ func (a *assembler) result() (Response, error) {
 	}
 	if len(a.reasonText) > 0 || a.reasonParts != nil {
 		r.ReasoningText, r.ReasoningField = string(a.reasonText), a.reasonField
-		r.Reasoning = quote(a.reasonText)
 		if a.reasonParts != nil {
 			r.Reasoning = joinParts(a.reasonParts)
+		} else {
+			r.Reasoning = quote(a.reasonText)
 		}
 	}
 	if r.FinishReason == FinishStop && strings.TrimSpace(r.Content) == "" && len(r.ToolCalls) == 0 {

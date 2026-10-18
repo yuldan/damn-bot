@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -324,6 +325,17 @@ func TestEmptyToolFragments(t *testing.T) {
 	if _, err := dd.Decode(big); !errors.Is(err, ErrTooManyToolDeltas) {
 		t.Fatalf("4 MiB of {}: %v", err)
 	}
+	// Repeated keys restart the array index but not the per-chunk count.
+	arr := "[" + strings.TrimSuffix(strings.Repeat("{},", 200), ",") + "]"
+	for name, f := range map[string]string{
+		"tool_calls": `{"choices":[{"delta":{"tool_calls":` + arr + `,"tool_calls":` + arr + `}}]}`,
+		"delta":      `{"choices":[{"delta":{"tool_calls":` + arr + `},"delta":{"tool_calls":` + arr + `}}]}`,
+		"choices":    `{"choices":[{"delta":{"tool_calls":` + arr + `}}],"choices":[{"delta":{"tool_calls":` + arr + `}}]}`,
+	} {
+		if _, err := dd.Decode([]byte(f)); !errors.Is(err, ErrTooManyToolDeltas) {
+			t.Errorf("duplicate %s key: %v", name, err)
+		}
+	}
 	var a assembler
 	d := &Delta{ToolCalls: make([]ToolDelta, maxChunkToolDeltas)}
 	var err error
@@ -398,5 +410,26 @@ func TestRedirectNotFollowed(t *testing.T) {
 	_, err := attempt(t.Context(), n.Client("p", netx.Inference), rt, []byte(`{"model":"m"}`), 10, nil)
 	if retry.ClassifyErr(err) != retry.BadRequest || hits.Load() != 0 {
 		t.Fatalf("redirect: %v, %d requests reached the target", err, hits.Load())
+	}
+}
+
+// TestTooManyToolDeltasClass (PROV-M2): the decoder bound reaches the
+// caller as ErrResponseTooLarge, non-retryable (no retries, no fallback).
+func TestTooManyToolDeltasClass(t *testing.T) {
+	t.Parallel()
+	frame := `{"choices":[{"delta":{"tool_calls":[` + strings.TrimSuffix(strings.Repeat("{},", maxChunkToolDeltas+1), ",") + `]}}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if _, err := io.WriteString(w, "data: "+frame+"\n\n"); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	n := netx.New(netx.Config{})
+	t.Cleanup(n.CloseIdleConnections)
+	rt := &Route{Provider: "p", Model: "m", BaseURL: srv.URL}
+	_, err := attempt(t.Context(), n.Client("p", netx.Inference), rt, []byte(`{}`), 10, nil)
+	if !errors.Is(err, ErrResponseTooLarge) || retry.ClassifyErr(err).Retryable() {
+		t.Fatalf("%v (class %v)", err, retry.ClassifyErr(err))
 	}
 }
