@@ -47,8 +47,8 @@ section_changed() { # <file> <ERE>
 		function hit(r, a, n,   s) { if (r == "") return 0; split(r, s, " ")
 			if (n == 0) return (a >= s[1] && a <= s[2] + 1) # hapus murni: titik sisip
 			return (a <= s[2] && a + n - 1 >= s[1]) }
-		/^@@ / { split($2, o, ","); split($3, w, ","); oa = substr(o[1], 2); na = substr(w[1], 2)
-			on = (2 in o) ? o[2] : 1; nn = (2 in w) ? w[2] : 1
+		/^@@ / { split($2, o, ","); split($3, w, ","); oa = substr(o[1], 2) + 0; na = substr(w[1], 2) + 0 # numerik, bukan string ("7" > "16")
+			on = (2 in o) ? o[2] + 0 : 1; nn = (2 in w) ? w[2] + 0 : 1
 			if (hit(old, oa, on) || hit(new, na, nn)) { found = 1; exit } }
 		END { exit !found }' <<<"$diff"
 }

@@ -151,7 +151,13 @@ EOF
 		# (membuktikan cek tidak memblok perubahan yang sah). Pelanggaran ditambahkan di atasnya.
 		git -C "$d" init -q && pr_commit "$d" base
 		case $1 in
-		pr-title | pr-changelog) printf 'catatan\n' >"$d/notes.txt" ;;
+		pr-title) printf 'catatan\n' >"$d/notes.txt" ;;
+		pr-changelog)
+			# Kontrol sah: .go non-test + entri CHANGELOG di baris 1 digit (7) dalam bagian Unreleased yang
+			# berakhir di baris 2 digit — menangkap perbandingan string nomor baris di awk.
+			printf '\n// meta: perubahan non-test\n' >>"$d/internal/ctxdb/errors.go"
+			sed -i '6a - meta: entri changelog' "$d/CHANGELOG.md"
+			;;
 		adrgate) printf '\nmeta: perubahan dokumen biasa\n' >>"$d/docs/ROADMAP.md" ;;
 		adrgate-spec) sed -i '/^## 1\. /a meta: perubahan §1, bukan §2/§3.2.4/§17' "$d/SPEC.md" ;;
 		pr-size)
@@ -481,7 +487,8 @@ EOF
 		printf 'Update stuff\n' >"$d/.meta-pr-title"
 		;;
 	pr-changelog)
-		printf '\n// meta: perubahan non-test tanpa CHANGELOG\n' >>"$d/internal/ctxdb/errors.go"
+		# Perubahan .go yang sama tanpa entri CHANGELOG.
+		git -C "$d" checkout -q -- CHANGELOG.md
 		;;
 	adrgate)
 		printf '# meta: perubahan allowlist tanpa ADR\n' >>"$d/deps.allow"
