@@ -286,13 +286,13 @@ func (w *walker) readDir(ctx context.Context, n *dirNode) {
 	}
 	slices.SortFunc(ents, func(a, b os.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	st, top, prefix := n.st, n.top, n.prefix
-	if n.rel != "" && hasEntry(ents, ".git") { // nested repository: reset scope
+	if _, ok := entryType(ents, ".git"); n.rel != "" && ok { // nested repository: reset scope
 		top, prefix = n.abs, ""
 		st = w.e.repoBase(ctx, n.abs)
 	}
 	for _, name := range ignoreFiles() {
-		if hasEntry(ents, name) {
-			st = st.push(w.e.loadIgnore(ctx, filepath.Join(n.abs, name), prefix))
+		if t, ok := entryType(ents, name); ok && t.IsRegular() { // never a FIFO (CT27-4)
+			st = st.push(w.e.loadIgnore(ctx, filepath.Join(n.abs, name), prefix, false))
 		}
 	}
 	var children []*dirNode
@@ -333,14 +333,11 @@ func (w *walker) entry(n *dirNode, de os.DirEntry, st ignoreStack, top, prefix s
 	return c
 }
 
-func hasEntry(ents []os.DirEntry, name string) bool {
-	_, ok := slices.BinarySearchFunc(ents, name, func(d os.DirEntry, n string) int { return strings.Compare(d.Name(), n) })
-	return ok
-}
-
-// repoBase is the ignore stack at the root of a (nested) repository.
-func (e *Engine) repoBase(ctx context.Context, repo string) ignoreStack {
-	var st ignoreStack
-	st = st.push(e.loadIgnore(ctx, e.gitConfigExcludes(ctx, repo), ""))
-	return st.push(e.loadIgnore(ctx, filepath.Join(repo, ".git", "info", "exclude"), ""))
+// entryType is the listed type of name in the sorted ents.
+func entryType(ents []os.DirEntry, name string) (os.FileMode, bool) {
+	i, ok := slices.BinarySearchFunc(ents, name, func(d os.DirEntry, n string) int { return strings.Compare(d.Name(), n) })
+	if !ok {
+		return 0, false
+	}
+	return ents[i].Type(), true
 }

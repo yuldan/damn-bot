@@ -130,14 +130,25 @@ func (st ignoreStack) ignored(rel string, isDir bool) bool {
 // ignoreFiles are the per-directory sources, in increasing precedence.
 func ignoreFiles() [2]string { return [2]string{".gitignore", ".ignore"} }
 
-// readSmall reads a config/ignore file through the sandbox. Files outside
-// the roots (global git config and excludes) are opened like an approved
-// read: deny_paths still wins and the content never reaches the model
-// (ADR-103). Missing or unreadable files yield nil.
-func (e *Engine) readSmall(ctx context.Context, p string) []byte {
-	f, v, err := e.sb.OpenFile(ctx, p, os.O_RDONLY, 0)
-	if err == nil && v != sandbox.Inside {
-		f, err = e.sb.OpenApproved(ctx, p, os.O_RDONLY, 0)
+// readSmall reads a config/ignore file through the sandbox; missing or
+// unreadable files yield nil. A workspace-controlled file (trusted=false)
+// is read only when it is a regular file that opens Inside with no
+// symlink on its path (git ≥ 2.32 also refuses a symlinked .gitignore);
+// any other verdict counts as absent, never as an approval prompt
+// (CT27-3), and a FIFO is never opened (CT27-4). Trusted files are the
+// fixed global git config, its includes and excludes (ADR-103 butir 4):
+// they may lie outside the roots and open like an approved read, where
+// deny_paths still wins and the content never reaches the model.
+func (e *Engine) readSmall(ctx context.Context, p string, trusted bool) []byte {
+	var f *os.File
+	var err error
+	if trusted {
+		var v sandbox.Verdict
+		if f, v, err = e.sb.OpenFile(ctx, p, os.O_RDONLY, 0); err == nil && v != sandbox.Inside {
+			f, err = e.sb.OpenApproved(ctx, p, os.O_RDONLY, 0)
+		}
+	} else if fi, lerr := os.Lstat(p); lerr == nil && fi.Mode().IsRegular() {
+		f, _, err = e.sb.OpenResolved(ctx, p, false) // nil unless Inside
 	}
 	if err != nil || f == nil {
 		return nil
@@ -150,33 +161,35 @@ func (e *Engine) readSmall(ctx context.Context, p string) []byte {
 	return b
 }
 
-// gitConfigExcludes resolves core.excludesFile from the XDG git config,
-// ~/.gitconfig and repo/.git/config (later wins), following include.path
-// up to depth 5; unset → $XDG_CONFIG_HOME/git/ignore (CODE-TOOLS §2.3).
-func (e *Engine) gitConfigExcludes(ctx context.Context, repo string) string {
-	var excl string
-	var files []string
+// gitConfigExcludes resolves core.excludesFile from the XDG git config and
+// ~/.gitconfig (later wins; unset → $XDG_CONFIG_HOME/git/ignore), then
+// repo/.git/config, which overrides them but is workspace-controlled: it,
+// its includes and its excludes file are read only Inside the roots
+// (CODE-TOOLS §2.3, CT27-3). include.path is followed up to depth 5;
+// trusted reports whether the global configuration decided.
+func (e *Engine) gitConfigExcludes(ctx context.Context, repo string) (excl string, trusted bool) {
 	if e.xdg != "" {
-		files = append(files, filepath.Join(e.xdg, "git", "config"))
+		e.scanGitConfig(ctx, filepath.Join(e.xdg, "git", "config"), true, 0, &excl)
 	}
 	if e.home != "" {
-		files = append(files, filepath.Join(e.home, ".gitconfig"))
-	}
-	if repo != "" {
-		files = append(files, filepath.Join(repo, ".git", "config"))
-	}
-	for _, f := range files {
-		e.scanGitConfig(ctx, f, 0, &excl)
+		e.scanGitConfig(ctx, filepath.Join(e.home, ".gitconfig"), true, 0, &excl)
 	}
 	if excl == "" && e.xdg != "" {
-		return filepath.Join(e.xdg, "git", "ignore")
+		excl = filepath.Join(e.xdg, "git", "ignore")
 	}
-	return excl
+	if repo != "" {
+		var r string
+		if e.scanGitConfig(ctx, filepath.Join(repo, ".git", "config"), false, 0, &r); r != "" {
+			return r, false
+		}
+	}
+	return excl, true
 }
 
-// scanGitConfig reads core.excludesFile and include.path from one config.
-func (e *Engine) scanGitConfig(ctx context.Context, file string, depth int, excl *string) {
-	data := e.readSmall(ctx, file)
+// scanGitConfig reads core.excludesFile and include.path from one config;
+// includes inherit its trust.
+func (e *Engine) scanGitConfig(ctx context.Context, file string, trusted bool, depth int, excl *string) {
+	data := e.readSmall(ctx, file, trusted)
 	if data == nil || depth > 5 {
 		return
 	}
@@ -200,7 +213,7 @@ func (e *Engine) scanGitConfig(ctx context.Context, file string, depth int, excl
 		case section == "core" && k == "excludesfile":
 			*excl = e.expandHome(v, filepath.Dir(file))
 		case section == "include" && k == "path":
-			e.scanGitConfig(ctx, e.expandHome(v, filepath.Dir(file)), depth+1, excl)
+			e.scanGitConfig(ctx, e.expandHome(v, filepath.Dir(file)), trusted, depth+1, excl)
 		}
 	}
 }
@@ -230,14 +243,7 @@ func (e *Engine) ignoreBase(ctx context.Context, root, dir string) (st ignoreSta
 			break
 		}
 	}
-	repo := ""
-	if isGitDir(filepath.Join(top, ".git")) {
-		repo = top
-	}
-	st = st.push(e.loadIgnore(ctx, e.gitConfigExcludes(ctx, repo), ""))
-	if repo != "" {
-		st = st.push(e.loadIgnore(ctx, filepath.Join(repo, ".git", "info", "exclude"), ""))
-	}
+	st = e.repoBase(ctx, top)
 	rel, err := filepath.Rel(top, dir)
 	if err != nil || rel == "." {
 		return st, top
@@ -256,16 +262,34 @@ func (e *Engine) ignoreBase(ctx context.Context, root, dir string) (st ignoreSta
 // the matching root with a trailing '/').
 func (e *Engine) pushDirIgnores(ctx context.Context, st ignoreStack, dir, prefix string) ignoreStack {
 	for _, n := range ignoreFiles() {
-		st = st.push(e.loadIgnore(ctx, filepath.Join(dir, n), prefix))
+		st = st.push(e.loadIgnore(ctx, filepath.Join(dir, n), prefix, false))
 	}
 	return st
 }
 
-func (e *Engine) loadIgnore(ctx context.Context, file, base string) *ignoreSet {
+// repoBase is the ignore stack at the root of a (nested) repository or,
+// without a .git entry at top, of the session root: global excludes, then
+// info/exclude.
+func (e *Engine) repoBase(ctx context.Context, top string) ignoreStack {
+	repo := ""
+	if isGitDir(filepath.Join(top, ".git")) {
+		repo = top
+	}
+	var st ignoreStack
+	excl, trusted := e.gitConfigExcludes(ctx, repo)
+	st = st.push(e.loadIgnore(ctx, excl, "", trusted))
+	if repo == "" {
+		return st
+	}
+	return st.push(e.loadIgnore(ctx, filepath.Join(repo, ".git", "info", "exclude"), "", false))
+}
+
+// loadIgnore parses an ignore file read by readSmall.
+func (e *Engine) loadIgnore(ctx context.Context, file, base string, trusted bool) *ignoreSet {
 	if file == "" {
 		return nil
 	}
-	data := e.readSmall(ctx, file)
+	data := e.readSmall(ctx, file, trusted)
 	if data == nil {
 		return nil
 	}

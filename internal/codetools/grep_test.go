@@ -157,6 +157,21 @@ func TestGlobLimits(t *testing.T) {
 	}
 }
 
+// TestGlobDenied (CT27-6): deny_paths entries are hidden by name from glob;
+// only the "skipped: N denied" footer counts them (hidden entries are not
+// counted: they are skipped before the deny check).
+func TestGlobDenied(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	for _, f := range []string{"a.go", "k1.pem", "sub/b.go", "sub/k2.pem", "sub/deep/k3.pem", "sub/.env"} {
+		v.put(t, f, "x")
+	}
+	r, err := v.e.Glob(context.Background(), GlobArgs{Pattern: "**"}, Opts{})
+	if err != nil || strings.Contains(r.Content, ".pem") || !strings.HasSuffix(r.Content, "\nskipped: 3 denied") || r.Meta["count"] != 2 {
+		t.Errorf("glob: %v %v\n%q", err, r.Meta, r.Content)
+	}
+}
+
 // TestCodeToolsDeterministic is CT-22: grep and glob output is
 // byte-identical across GOMAXPROCS 1, 2, 4, 8, 16 and 100 runs.
 func TestCodeToolsDeterministic(t *testing.T) {
