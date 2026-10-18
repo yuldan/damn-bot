@@ -2651,8 +2651,8 @@ Disiplin & tooling rinci: [`ENGINEERING.md`](docs/ENGINEERING.md) §5–§6.
 | Undo / plan / budget | suite ≥ 100 skenario undo; plan deviasi; fake clock | P26, P27, §18 |
 | ACP | transcript JSON-RPC golden | initialize → new → prompt (tool + permission) → cancel → load |
 | TUI / web | `teatest` snapshot; HTML snapshot + headless Chromium (nightly) | layout, approval/preview, plan, badge, stop notice |
-| Edge-case hermes | [`EDGE-CASES-hermes.md`](docs/EDGE-CASES-hermes.md), satu subtest per entri: `TestEdgeCases/<EC-ID>`; laporan CI `edgecases.json` (ID → status `covered`/`n/a` + alasan, nama test) dibangkitkan dari test | Per kategori (= ringkasan EDGE-CASES-hermes.md): EC-PROV 30 (F1/F5), EC-TCALL 12 (F1), EC-CTX 22 (F2), EC-STATE 16 (F2/F4), EC-FIO 19 (F1), EC-TERM 10 (F1/F5), EC-WIN 17 (setiap fase, tutup F9), EC-PLAT 24 (F4: 19 ID Telegram §9.7, ADR-061; F7: 5 sisanya), EC-CFG 8 (F3), EC-SEC 8 (F1/F3/F4); Σ 166. Status/test per ID dilacak di `edgecases.json` (bukan kolom di EDGE-CASES-hermes.md, yang tetap katalog bukti); `TestEdgeCaseCatalogSync` gagal bila ID di katalog ≠ ID subtest. Gate F9: 166/166 covered atau n/a |
-| Perf | `-tags goolm,perf` (bentuk tag final = ENGINEERING E-39, ADR-054 V-10), runner tetap | P12, P13, P17, P18, P23, P24, §17 |
+| Edge-case hermes | [`EDGE-CASES-hermes.md`](docs/EDGE-CASES-hermes.md), satu subtest per entri: `TestEdgeCases/<EC-ID>`; laporan CI `edgecases.json` (ID → status `covered`/`n/a` + alasan, nama test, atau `pending:<Fx>`) dibangkitkan dari test | Satu fase per entri = fase pemilik komponen yang dibutuhkan untuk mereproduksi (ADR-077): EC-PROV 30 (F1: 001, 004..007, 009..013, 015, 016, 025, 028..030; F2: 008; F5: 002, 003, 014, 017..023, 026, 027; F6: 024), EC-TCALL 12 (F1: 001..003, 005..009, 012; F2: 010; F5: 004, 011), EC-CTX 22 (F2), EC-STATE 16 (F2/F4), EC-FIO 19 (F1: 001, 002, 004..006, 008, 009, 011..017, 019; F3: 007, 018; F5: 003, 010), EC-TERM 10 (F1: 001, 002, 006, 007 lewat runner internal tanpa `process_*`; F4: 008..010; F5: 003; F7: 004, 005), EC-WIN 17 (setiap fase, tutup F9), EC-PLAT 24 (F4: 19 ID Telegram §9.7, ADR-061; F7: 5 sisanya), EC-CFG 8 (F3), EC-SEC 8 (F1: 001, 005, 007, 008; F5: 002..004; F7: 006); Σ 166. Status/test per ID dilacak di `edgecases.json` (bukan kolom di EDGE-CASES-hermes.md, yang tetap katalog bukti). Gate inkremental (ADR-077): fase berjalan dibaca dari file `PHASE` di root repo (dibuat Deliverable F1 #0, isi `F1`); `TestEdgeCaseCatalogSync` gagal bila ID di katalog ≠ ID subtest, bila item dengan fase ≤ `PHASE` belum `covered`, atau bila masih ada `pending` saat `PHASE` = `F9`; item `pending` tidak menghasilkan subtest (tanpa `t.Skip`, REL-15); aturan sama untuk kolom fase `testdata/cli_surface.txt` (`TestCLIDocsMatchHelp`). Gate F9: 166/166 covered atau n/a |
+| Perf | `-tags goolm,perf` (bentuk tag final = ENGINEERING E-39, ADR-054 V-10), runner tetap; ambang ×1,5 hanya untuk metrik waktu absolut, rasio terhadap referensi di runner yang sama dipakai apa adanya (§17.1, ADR-077) | P12, P13, P17, P18, P23, P24, §17 |
 | Speed parity | `bench/speed` per baris FEATURE-PARITY | P28 (PR tipe a, nightly tipe b) |
 | Chaos (nightly) | kill -9 × 1.000 turn, network cut, disk penuh, config/DB korup, reboot VM | P19, P22 |
 | Soak (nightly) | 1.000 turn + 24 jam `serve` 3 fake platform | P18, crash/hang rate |
@@ -2691,7 +2691,7 @@ Disiplin & tooling rinci: [`ENGINEERING.md`](docs/ENGINEERING.md) §5–§6.
 | Install dari nol | ≤ 30 s (10 Mbit/s) + wizard ≤ 60 s | SCORECARD, RC |
 | LOC Go / dependency langsung | ≤ 190.000 (rencana = Σ §3.2.4 = 184.900) / ≤ 28 (rencana 26 = 23 runtime + 3 test, ENGINEERING E-45), 0 CGO | P21, PR |
 
-Ambang di runner CI bersama = target × 1,5 untuk metrik waktu; target persis diverifikasi di mesin referensi (Q14) pada RC.
+Ambang di runner CI bersama = target × 1,5 **hanya untuk metrik waktu absolut**; rasio terhadap referensi yang diukur di runner yang sama (`rg`, hermes, `main`) dipakai apa adanya. Target persis diverifikasi di mesin referensi (Q14) pada RC (ADR-077). Acceptance F1: waktu absolut (spawn p95 < 15 ms, P24) diukur di mesin referensi Q14 (CI menegakkan ×1,5 di PR); rasio (grep ≤ 1,2× `rg`, regex ≤ 1,5× `rg`) diukur apa adanya di runner CI dan di Q14.
 
 ### 17.2 Teknik implementasi wajib
 
@@ -2715,7 +2715,9 @@ Setiap butir punya benchmark/analyzer; pelanggaran = PR merah.
 
 ### 17.3 Speed parity gate (P28)
 
-Setiap baris FEATURE-PARITY yang dapat dieksekusi mendapat `bench/speed/<ID>` head-to-head vs hermes (mesin & input identik, p50/p95). Waktu dipisah: (a) dikendalikan agent — target ≥ 5× lebih cepat (≥ 10× untuk startup, resume, CLI non-LLM, file tools/grep, search sesi), tidak ada operasi yang lebih lambat; (b) model/jaringan — task end-to-end median ≥ 2× lebih cepat dengan model sama, tidak ada task > hermes × 1,10. PR: regresi (a) > 5% vs `main` = gagal; nightly: (b). Protokol & statistik: [`SCORECARD.md`](docs/SCORECARD.md) §2–§3.
+Setiap baris FEATURE-PARITY yang dapat dieksekusi mendapat `bench/speed/<ID>` head-to-head vs hermes (mesin & input identik, p50/p95). Waktu dipisah: (a) dikendalikan agent — target ≥ 5× lebih cepat (≥ 10× untuk startup, resume, CLI non-LLM, file tools/grep, search sesi), tidak ada operasi yang lebih lambat; (b) model/jaringan — task end-to-end median ≥ 2× lebih cepat dengan model sama, tidak ada task > hermes × 1,10. PR: regresi (a) > 5% vs `main` = gagal; nightly: (b). Rasio vs hermes/`main` dipakai apa adanya (tanpa ×1,5, ADR-077). Protokol & statistik: [`SCORECARD.md`](docs/SCORECARD.md) §2–§3.
+
+**Gate F1 (ADR-077).** `BenchmarkSpeedParity/<ID>` (testing.B di `bench/speed`, dibuat di F1) untuk setiap baris FEATURE-PARITY berfase F1 (kolom `fase`, ADR-064), dibandingkan dengan `bench/speed/results/hermes-868b9f244f.json`. Sampel CLI ≥ 20 run per sisi; baseline hermes untuk baris F1 diukur ulang dengan 20 run sebelum acceptance F1. Produsen baseline: `cd bench && go run ./speed/cmd/speed`.
 
 ---
 
