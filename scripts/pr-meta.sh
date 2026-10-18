@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Gate meta PR (ENGINEERING §7.2, ADR-073, ADR-078 AUD-056, ADR-091 NEW2-26, ADR-093).
+# Gate meta PR (ENGINEERING §7.2, ADR-073, ADR-078 AUD-056, ADR-091 NEW2-26, ADR-094).
 # Pemakaian: BASE=<sha> [HEAD=<sha>] PR_TITLE=… PR_BODY=… PR_LABELS="a,b" PR_APPROVALS=<n> scripts/pr-meta.sh [cek...]
 # Cek (default semua): title (E-80), changelog (E-81), adrgate (E-82), size (E-84), spec-guard (SPEC §20).
 # PR_APPROVALS = jumlah reviewer berbeda yang status review terakhirnya APPROVED (workflow mengisinya
@@ -78,7 +78,7 @@ check_adrgate() { # E-82 + NEW2-26
 	touched docs/DECISIONS.md || bad adrgate "${why[*]} berubah tanpa perubahan docs/DECISIONS.md (E-82)"
 }
 
-check_size() { # E-84 (ADR-093: baris Go non-test, non-generated, ditambah + dihapus)
+check_size() { # E-84 (ADR-094: baris Go non-test, non-generated, ditambah + dihapus)
 	local n=0 a d f tmp
 	tmp=$(mktemp)
 	while read -r a d f; do

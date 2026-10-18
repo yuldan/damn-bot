@@ -38,7 +38,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.sha }}
         run: |
-          # Path pendefinisi gate (ADR-085 butir 1; ADR-093: analyzer di tools/analyzers, helper timing di
+          # Path pendefinisi gate (ADR-085 butir 1; ADR-094: analyzer di tools/analyzers, helper timing di
           # internal/testutil, daftar pengecualian spec-guard).
           re='^(Makefile|scripts/|\.github/|\.golangci\.yml|loc\.budget|deps\.allow|deps\.mpl|go\.mod|go\.sum|tools/|internal/archtest/|internal/testutil/|internal/metaviolation/|testdata/docs_exclusions\.txt)'
           if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then

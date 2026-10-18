@@ -1,4 +1,4 @@
-# Gate meta PR (ENGINEERING §7.2 E-80..E-84, spec-guard SPEC §20, ADR-073, AUD-056, NEW2-26, ADR-093).
+# Gate meta PR (ENGINEERING §7.2 E-80..E-84, spec-guard SPEC §20, ADR-073, AUD-056, NEW2-26, ADR-094).
 # Workflow terpisah agar perubahan judul/label/review tidak menjalankan ulang matrix test.
 # Judul, deskripsi, dan label PR adalah input tak tepercaya: hanya lewat env, tidak pernah di-inline ke skrip.
 name: pr-meta

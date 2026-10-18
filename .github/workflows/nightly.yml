@@ -36,7 +36,7 @@ jobs:
       - run: make vuln
 
   # Flake: kode yang sama dengan malam sebelumnya sudah diuji 20×; tanpa commit baru 24 jam terakhir
-  # job lulus dengan pesan (hemat menit runner, ADR-093). workflow_dispatch selalu menjalankan.
+  # job lulus dengan pesan (hemat menit runner, ADR-094). workflow_dispatch selalu menjalankan.
   flake:
     runs-on: ubuntu-latest
     timeout-minutes: 60

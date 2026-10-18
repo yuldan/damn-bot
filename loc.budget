@@ -32,7 +32,7 @@ modules            1000 internal/modules
 hooks              700 internal/hooks
 i18n               300 internal/i18n
 # Infra non-produksi, di luar Σ core (ADR-086 NEW-34): helper test (timing ≤ 80, ADR-073), matriks
-# import archtest (allowed.go), analyzer khusus go/analysis (modul tools, ADR-093).
+# import archtest (allowed.go), analyzer khusus go/analysis (modul tools, ADR-094).
 testutil/timing     80 internal/testutil/timing
 testutil           200 internal/testutil
 archtest           300 internal/archtest
