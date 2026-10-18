@@ -117,7 +117,7 @@ func readFixture(t testing.TB, p string) []byte {
 }
 
 // metaStr is a string Meta field of r ("" when absent).
-func metaStr(r *Result, key string) string {
+func metaStr(r *Result, key string) string { //nolint:unparam // generic Meta accessor
 	s, ok := r.Meta[key].(string)
 	if !ok {
 		return ""
