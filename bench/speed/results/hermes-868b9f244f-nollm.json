@@ -15,5 +15,35 @@
   "config_lines_min": {"value": 2, "detail": "config.yaml: `model: openrouter/anthropic/claude-sonnet-4.5` (1) + .env: `OPENROUTER_API_KEY=<key>` (1), hasil `hermes config set` ×2 di HERMES_HOME kosong"},
   "setup_steps": {"value": 6, "detail": "quickstart.md: (1) curl install.sh | bash, (2) source ~/.bashrc, (3) set model (`hermes model` interaktif atau `config set`), (4) set API key, (5) `hermes`, (6) jawab prompt consent telemetri (teramati di run PTY pertama)"}
  },
- "llm_dimensions": "token/biaya/kualitas per task, recall memori, routing skill, error recovery, wall-clock end-to-end: diukur di RC F9 (SCORECARD intro, ADR-032)"
+ "llm_dimensions": "token/biaya/kualitas per task, recall memori, routing skill, error recovery, wall-clock end-to-end: diukur di RC F9 (SCORECARD intro, ADR-032)",
+ "not_measured_rule": "ADR-065 + ADR-083: setiap dimensi SCORECARD tanpa LLM yang tidak diukur di F0 tercantum di bawah dengan fase dan alasan; startup prompt-ready dan idle RSS diukur di hermes-868b9f244f-llm.json (TS-11)",
+ "not_measured": [
+  {"dimension": "Overhead agent per iterasi", "phase": "F1", "reason": "butuh endpoint fake provider latensi 0 untuk kedua agent (BenchmarkIterationOverhead, P17)"},
+  {"dimension": "First token di UI (headless)", "phase": "F1", "reason": "fake provider bertanda waktu; TUI di F3"},
+  {"dimension": "First token di UI (TUI)", "phase": "F3", "reason": "TUI baru ada di F3"},
+  {"dimension": "Peak RSS", "phase": "F4", "reason": "butuh soak 1.000 turn (harness soak serve); gate F9"},
+  {"dimension": "CPU idle", "phase": "F4", "reason": "butuh serve + fake Telegram untuk kedua agent"},
+  {"dimension": "Exec spawn overhead", "phase": "F1", "reason": "benchmark A.9 + driver tool terminal hermes di harness yang sama"},
+  {"dimension": "Voice end-to-end", "phase": "F6", "reason": "butuh fake STT/LLM/TTS (modul voice)"},
+  {"dimension": "Image preflight", "phase": "F6", "reason": "butuh suite 50 gambar (modul media)"},
+  {"dimension": "Crash/hang rate", "phase": "F4", "reason": "soak 24 jam serve; gate F9"},
+  {"dimension": "Pemulihan setelah kill -9", "phase": "F4", "reason": "chaos suite SELF-HEALING untuk kedua agent"},
+  {"dimension": "Self-healing", "phase": "F4", "reason": "chaos suite SELF-HEALING untuk kedua agent"},
+  {"dimension": "Konkurensi", "phase": "F2", "reason": "TestMultiProcess + harness multi-proses hermes_state"},
+  {"dimension": "Proses yatim / perintah hang", "phase": "F1", "reason": "suite EXEC lewat tool terminal hermes"},
+  {"dimension": "Edit salah lokasi", "phase": "F1", "reason": "CT-20 dijalankan pada tool edit kedua agent"},
+  {"dimension": "Error tertelan (injeksi)", "phase": "F1", "reason": "50 titik injeksi butuh fake provider; angka statis BASELINE §5 sudah ada"},
+  {"dimension": "Fallback tak terlihat", "phase": "F1", "reason": "injeksi 503 lewat fake provider"},
+  {"dimension": "Waktu install dari nol (VM bersih 10 Mbit/s)", "phase": "F9", "reason": "install_time_s F0 diukur di workstation, bukan VM bersih"},
+  {"dimension": "Error informatif", "phase": "F3", "reason": "suite 60 kesalahan butuh permukaan CLI/config/setup"},
+  {"dimension": "Dukungan OS", "phase": "F1", "reason": "matrix CI Damn-Bot (Deliverable F1 #0) + inventaris workflow CI hermes"},
+  {"dimension": "Secret redaction", "phase": "F1", "reason": "60 secret x 6 kanal butuh fake provider + kanal log/transcript"},
+  {"dimension": "Akses gateway orang asing", "phase": "F4", "reason": "E8 fake Telegram"},
+  {"dimension": "Supply chain", "phase": "F1", "reason": "pip-audit + npm audit hermes di job supply-chain"},
+  {"dimension": "Flake rate", "phase": "F1", "reason": "job nightly -count=20"},
+  {"dimension": "Waktu CI PR", "phase": "F1", "reason": "laporan CI"},
+  {"dimension": "Kode mati", "phase": "F1", "reason": "deadcode 3 GOOS; vulture hermes di job yang sama"},
+  {"dimension": "Waktu build bersih / inkremental", "phase": "F3", "reason": "job buildtime bersama release pipeline"},
+  {"dimension": "Token skill per turn", "phase": "F2", "reason": "butuh index skill Damn-Bot; sisi hermes dari request yang direkam proxy (ADR-083)"}
+ ]
 }
