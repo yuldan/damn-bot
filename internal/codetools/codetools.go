@@ -109,6 +109,8 @@ type Config struct {
 	// Roots are the session roots in sandbox order: Roots[0] is the cwd that
 	// relative paths resolve against; Roots[n>0] display as "@n/".
 	Roots []string
+	// NewEOL is files.new_eol for created files: "lf" (default) or "crlf".
+	NewEOL string
 	// Home and XDGConfigHome locate the global git config and excludes
 	// (CODE-TOOLS §2.3); empty = os.UserHomeDir / $XDG_CONFIG_HOME or
 	// Home/.config.
@@ -118,11 +120,12 @@ type Config struct {
 // Engine runs the file tools of one session. Close releases its caches and
 // stops background index builds.
 type Engine struct {
-	sb    *sandbox.Sandbox
-	roots []string
-	fold  bool // case-insensitive root prefixes (Windows)
-	home  string
-	xdg   string
+	sb     *sandbox.Sandbox
+	roots  []string
+	newEOL string
+	fold   bool // case-insensitive root prefixes (Windows)
+	home   string
+	xdg    string
 
 	mu       sync.Mutex
 	bg       []bgTask // background index builds, stopped by Close
@@ -136,7 +139,10 @@ func New(cfg *Config) (*Engine, error) {
 	if cfg == nil || cfg.Sandbox == nil || len(cfg.Roots) == 0 {
 		return nil, errors.New("codetools: sandbox and roots required")
 	}
-	e := &Engine{sb: cfg.Sandbox, fold: runtime.GOOS == "windows", building: map[fileKey]bool{}}
+	e := &Engine{sb: cfg.Sandbox, newEOL: "\n", fold: runtime.GOOS == "windows", building: map[fileKey]bool{}}
+	if cfg.NewEOL == "crlf" {
+		e.newEOL = "\r\n"
+	}
 	e.home, e.xdg = cfg.Home, cfg.XDGConfigHome
 	if h, err := os.UserHomeDir(); e.home == "" && err == nil {
 		e.home = h
@@ -286,6 +292,20 @@ func (e *Engine) openPath(ctx context.Context, abs, p string, flag int, perm fs.
 	return f, v, nil
 }
 
+// openResolved opens a path found by a walk or written by this Engine
+// (sandbox.OpenResolved); a verdict needing approval that approved does
+// not cover fails closed.
+func (e *Engine) openResolved(ctx context.Context, p string, approved bool) (*os.File, error) {
+	f, v, err := e.sb.OpenResolved(ctx, p, approved)
+	switch {
+	case err != nil:
+		return nil, mapOpenErr(e.rel(p), err)
+	case f == nil:
+		return nil, approval(v, e.rel(p), false)
+	}
+	return f, nil
+}
+
 // mapOpenErr classifies sandbox/OS open failures by sentinel (E-21).
 func mapOpenErr(p string, err error) error {
 	switch {
@@ -305,6 +325,14 @@ func mapOpenErr(p string, err error) error {
 		return &ToolError{Code: CodeDeniedPath, Message: p + ": permission denied by the OS", Err: err}
 	}
 	return &ToolError{Code: CodeInternal, Message: "open " + p, Err: err}
+}
+
+// close releases the target's read handle once (idempotent).
+func (t *target) close(err *error) {
+	if t.f != nil {
+		closeInto(err, t.f)
+		t.f = nil
+	}
 }
 
 // closeInto closes c and keeps its error in *err unless one is set.
