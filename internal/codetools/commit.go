@@ -252,6 +252,12 @@ func ioErr(op, rel string, err error) *ToolError {
 
 func randHex() string { return strings.ToLower(rand.Text()[:12]) }
 
+// keepMode is the mode an edit gives the rewritten file: the permission
+// bits plus setuid/setgid/sticky (CT27-9).
+func keepMode(fi fs.FileInfo) fs.FileMode {
+	return fi.Mode() & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)
+}
+
 // CleanOrphanTemps removes ".<name>.damnbot-<rand>" files left by a crash
 // in the session roots (CODE-TOOLS §5.4); call it at session start.
 func (e *Engine) CleanOrphanTemps(ctx context.Context) (int, error) {
