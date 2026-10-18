@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 20
     env:
       CGO_ENABLED: ${{ (github.event.inputs.arch || 'amd64') == 'arm64' && '0' || '1' }}
-      RACE: ${{ (github.event.inputs.arch || 'amd64') == 'arm64' && '' || '-race' }}
+      RACE: ${{ (github.event.inputs.arch || 'amd64') != 'arm64' && '-race' || '' }} # '' is falsy: put the non-empty branch first
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
