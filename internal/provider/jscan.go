@@ -3,6 +3,7 @@ package provider
 import (
 	"errors"
 	"math"
+	"strconv"
 	"unicode/utf16"
 	"unicode/utf8"
 )
@@ -256,9 +257,12 @@ func (s *jscan) skip() ([]byte, error) {
 	return s.b[from:s.i], err
 }
 
-// number reads a JSON number (RFC 8259 grammar) as float64.
+// number reads a JSON number (RFC 8259 grammar) as float64, correctly
+// rounded like strconv.ParseFloat: exact fast path (mantissa < 2^53,
+// |exp| ≤ 22), else ParseFloat on the literal (rare; may allocate).
 func (s *jscan) number() (float64, error) {
 	s.ws()
+	start := s.i
 	neg := s.at('-')
 	mant, n := s.digits(0)
 	if n == 0 || n > 1 && s.b[s.i-n] == '0' {
@@ -271,20 +275,46 @@ func (s *jscan) number() (float64, error) {
 		}
 		exp = -n
 	}
-	if s.at('e') || s.at('E') {
-		sign := 1.0
-		if s.at('-') {
-			sign = -1
-		} else {
-			s.at('+')
-		}
-		e, en := s.digits(0)
-		if en == 0 {
+	e, err := s.exponent()
+	if err != nil {
+		return 0, err
+	}
+	return s.compose(mant, exp+e, start, neg)
+}
+
+// exponent reads an optional e/E exponent (clamped to ±1000).
+func (s *jscan) exponent() (int, error) {
+	if !s.at('e') && !s.at('E') {
+		return 0, nil
+	}
+	sign := 1.0
+	if s.at('-') {
+		sign = -1
+	} else {
+		s.at('+')
+	}
+	e, n := s.digits(0)
+	if n == 0 {
+		return 0, errJSON
+	}
+	return int(sign * min(e, 1000)), nil
+}
+
+// compose returns mant × 10^exp for the literal b[start:i].
+func (s *jscan) compose(mant float64, exp, start int, neg bool) (float64, error) {
+	var v float64
+	switch {
+	case mant < 1<<53 && exp >= 0 && exp <= 22:
+		v = mant * math.Pow10(exp)
+	case mant < 1<<53 && exp < 0 && exp >= -22:
+		v = mant / math.Pow10(-exp)
+	default:
+		f, err := strconv.ParseFloat(string(s.b[start:s.i]), 64)
+		if err != nil && !errors.Is(err, strconv.ErrRange) {
 			return 0, errJSON
 		}
-		exp += int(sign * min(e, 1000))
+		return f, nil
 	}
-	v := mant * math.Pow10(exp)
 	if neg {
 		v = -v
 	}
