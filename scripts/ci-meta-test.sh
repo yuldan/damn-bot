@@ -8,7 +8,12 @@ set -uo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d /tmp/damnbot-meta.XXXXXX)
-trap 'rm -rf "$work"' EXIT
+# File modul di GOMODCACHE terisolasi read-only: beri izin tulis sebelum dihapus.
+trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work"' EXIT
+# Semua gate memakai toolchain yang dipilih go.mod (ADR-051) secara lokal, sehingga GOMODCACHE
+# terisolasi gate mod-verify tidak mengunduh ulang toolchain.
+PATH="$(cd "$root" && go env GOROOT)/bin:$PATH"
+export GOTOOLCHAIN=local
 GATES=(lint test race timing size-check loc loc-ratio deps-check vuln licenses tidy-check mod-verify)
 [[ $# -gt 0 ]] && GATES=("$@")
 
