@@ -27,7 +27,7 @@ func ignoreVocab() []string {
 }
 
 func ignoreNames() []string {
-	return []string{"a", "b", "c", "foo", "bar", "d1", "d2", "x.log", "y.txt", "1z.txt", "#h", "!n", "sp ", "q"}
+	return []string{"a", "b", "c", "foo", "bar", "d1", "d2", "x.log", "y.txt", "1z.txt", "#h", "!n", "q"} // no trailing-space names: invalid on Windows
 }
 
 // TestGitignoreConformance is CT-23: ≥ 500 path decisions over random
