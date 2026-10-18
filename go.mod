@@ -3,6 +3,7 @@ module github.com/damnbot/damnbot
 go 1.26.9
 
 require (
+	github.com/bmatcuk/doublestar/v4 v4.10.3
 	go.uber.org/goleak v1.3.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/sys v0.48.0
