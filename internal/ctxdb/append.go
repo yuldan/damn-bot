@@ -40,7 +40,7 @@ func (t *Tx) CreateSession(ss Session) (int64, error) {
 
 // CreateSession creates a session (+ lease) in its own transaction.
 func (s *Store) CreateSession(ctx context.Context, ss Session) (tok int64, err error) {
-	err = s.Write(ctx, func(t *Tx) error { tok, err = t.CreateSession(ss); return err })
+	err = s.Write(ctx, func(t *Tx) (cerr error) { tok, cerr = t.CreateSession(ss); return cerr })
 	return tok, err
 }
 
@@ -67,10 +67,8 @@ func nullable(s string) any {
 
 // AppendEvent appends one hash-chained event plus its attachments and
 // blob_refs in t. Guards P+F apply (lease token of this process).
-func (t *Tx) AppendEvent(sid string, e Event) (int64, error) {
-	if e.Payload == "" {
-		e.Payload = "{}"
-	}
+func (t *Tx) AppendEvent(sid string, e *Event) (int64, error) {
+	payload := cmp(e.Payload, "{}")
 	var seq int64
 	var prev string
 	err := t.Get("SELECT seq, hash FROM events WHERE session_id = ? ORDER BY seq DESC LIMIT 1", []any{sid}, &seq, &prev)
@@ -83,21 +81,26 @@ func (t *Tx) AppendEvent(sid string, e Event) (int64, error) {
 	err = t.Get(`INSERT INTO events(session_id, seq, turn_id, kind, role, content, tool_call_id, tool_name, payload, blob_sha, prev_hash, hash, created_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
 		[]any{sid, seq, nullable(e.TurnID), e.Kind, nullable(e.Role), e.Content, nullable(e.ToolCallID), nullable(e.ToolName),
-			e.Payload, nullable(e.Blob), prev, EventHash(prev, sid, seq, e.Kind, e.Content, e.Payload, e.Blob), now}, &id)
+			payload, nullable(e.Blob), prev, EventHash(prev, sid, seq, e.Kind, e.Content, payload, e.Blob), now}, &id)
 	if err != nil {
 		return 0, err
 	}
-	refs, err := BlobRefsOf("event", strconv.FormatInt(id, 10), map[string]string{"blob_sha": e.Blob}, map[string]string{"payload": e.Payload})
+	refs, err := BlobRefsOf("event", strconv.FormatInt(id, 10), map[string]string{"blob_sha": e.Blob}, map[string]string{"payload": payload})
+	for i := 0; err == nil && i < len(e.Attach); i++ {
+		_, err = t.Exec("INSERT INTO event_attachments(event_id, ord, blob_sha) VALUES (?,?,?)", id, i, e.Attach[i])
+		refs = append(refs, BlobRef{Sha: e.Attach[i], OwnerKind: "event_attachment", OwnerID: fmt.Sprintf("%d:%d", id, i), RefKey: "blob_sha"})
+	}
 	if err != nil {
 		return 0, err
-	}
-	for i, sha := range e.Attach {
-		if _, err := t.Exec("INSERT INTO event_attachments(event_id, ord, blob_sha) VALUES (?,?,?)", id, i, sha); err != nil {
-			return 0, err
-		}
-		refs = append(refs, BlobRef{Sha: sha, OwnerKind: "event_attachment", OwnerID: fmt.Sprintf("%d:%d", id, i), RefKey: "blob_sha"})
 	}
 	return id, t.InsertRefs(sid, now, refs)
+}
+
+func cmp(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
 }
 
 // Append publishes pending blobs and appends events in one transaction
@@ -111,8 +114,8 @@ func (s *Store) Append(ctx context.Context, sid string, pend []*PendingBlob, evs
 				return err
 			}
 		}
-		for _, e := range evs {
-			id, err := t.AppendEvent(sid, e)
+		for i := range evs {
+			id, err := t.AppendEvent(sid, &evs[i])
 			if err != nil {
 				return err
 			}
@@ -127,10 +130,15 @@ func (s *Store) Append(ctx context.Context, sid string, pend []*PendingBlob, evs
 type BlobRef struct{ Sha, OwnerKind, OwnerID, RefKey string }
 
 var (
-	reHex64     = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	reRefKey    = regexp.MustCompile(`(^|_)blob_shas?$`)
-	nonRefSha64 = map[string]bool{"preview_sha": true, "args_sha": true, "payload_sha": true}
+	reHex64  = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	reRefKey = regexp.MustCompile(`(^|_)blob_shas?$`)
 )
+
+// nonRefSha64 is the closed list of 64-hex keys that are not blob refs
+// (report TS-P04: approval_request.preview_sha/args_sha, carrier payload_sha).
+func nonRefSha64(key string) bool {
+	return key == "preview_sha" || key == "args_sha" || key == "payload_sha"
+}
 
 // BlobRefsOf derives every blob reference of one owner row (§11.6): cols are
 // ref columns (name → sha), docs are JSON documents (column → text) scanned
@@ -144,14 +152,14 @@ func BlobRefsOf(kind, id string, cols, docs map[string]string) ([]BlobRef, error
 		}
 	}
 	for col, doc := range docs {
+		var v any
 		if doc == "" {
 			continue
 		}
-		var v any
 		if err := json.Unmarshal([]byte(doc), &v); err != nil {
 			return nil, fmt.Errorf("ctxdb: %s.%s not JSON: %w", kind, col, ErrInternal)
 		}
-		if err := walkRefs(v, col, "", kind, id, &out); err != nil {
+		if err := walkRefs(v, col, "", BlobRef{OwnerKind: kind, OwnerID: id}, &out); err != nil {
 			return nil, err
 		}
 	}
@@ -159,29 +167,27 @@ func BlobRefsOf(kind, id string, cols, docs map[string]string) ([]BlobRef, error
 	return out, nil
 }
 
-func walkRefs(v any, path, key, kind, id string, out *[]BlobRef) error {
+func walkRefs(v any, path, key string, owner BlobRef, out *[]BlobRef) error {
+	var err error
 	switch x := v.(type) {
 	case map[string]any:
 		for k, c := range x {
-			if err := walkRefs(c, path+"."+k, k, kind, id, out); err != nil {
-				return err
-			}
+			err = errors.Join(err, walkRefs(c, path+"."+k, k, owner, out))
 		}
 	case []any:
 		for i, c := range x {
-			if err := walkRefs(c, fmt.Sprintf("%s[%d]", path, i), key, kind, id, out); err != nil {
-				return err
-			}
+			err = errors.Join(err, walkRefs(c, fmt.Sprintf("%s[%d]", path, i), key, owner, out))
 		}
 	case string:
 		switch {
 		case reRefKey.MatchString(key) && x != "":
-			*out = append(*out, BlobRef{Sha: x, OwnerKind: kind, OwnerID: id, RefKey: path})
-		case reHex64.MatchString(x) && !nonRefSha64[key]:
-			return fmt.Errorf("ctxdb: sha under non-ref key %q: %w", path, ErrInternal)
+			owner.Sha, owner.RefKey = x, path
+			*out = append(*out, owner)
+		case reHex64.MatchString(x) && !nonRefSha64(key):
+			err = fmt.Errorf("ctxdb: sha under non-ref key %q: %w", path, ErrInternal)
 		}
 	}
-	return nil
+	return err
 }
 
 // InsertRefs inserts blob_refs rows after checking, under the write lock,
@@ -192,9 +198,8 @@ func (t *Tx) InsertRefs(sid string, created int64, refs []BlobRef) error {
 		if err := t.checkLiveBlob(r.Sha); err != nil {
 			return err
 		}
-		_, err := t.Exec(`INSERT INTO blob_refs(sha256, owner_kind, owner_id, ref_key, session_id, created_at)
-			VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING`, r.Sha, r.OwnerKind, r.OwnerID, r.RefKey, sid, created)
-		if err != nil {
+		if _, err := t.Exec(`INSERT INTO blob_refs(sha256, owner_kind, owner_id, ref_key, session_id, created_at)
+			VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING`, r.Sha, r.OwnerKind, r.OwnerID, r.RefKey, sid, created); err != nil {
 			return err
 		}
 	}
@@ -206,11 +211,8 @@ func (t *Tx) checkLiveBlob(sha string) error {
 	var last string
 	err := t.Get(`SELECT EXISTS (SELECT 1 FROM blobs WHERE sha256 = ?1),
 		coalesce((SELECT kind FROM blob_expirations WHERE sha256 = ?1 ORDER BY id DESC LIMIT 1), '')`, []any{sha}, &exists, &last)
-	switch {
-	case err != nil:
-		return err
-	case exists == 0 || last == "expired":
-		return fmt.Errorf("ctxdb: blob %s: %w", sha, ErrBlobExpired)
+	if err == nil && (exists == 0 || last == "expired") {
+		err = fmt.Errorf("ctxdb: blob %s: %w", sha, ErrBlobExpired)
 	}
-	return nil
+	return err
 }

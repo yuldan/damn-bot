@@ -3,22 +3,27 @@ package ctxdb
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
-	"path/filepath"
+	"path"
 	"strconv"
 	"time"
 )
 
-// Maintenance barrier files (SPEC §11.11.7).
-func runPath(dir, name string) string { return filepath.Join(dir, "run", name) }
-
+// Maintenance barrier (SPEC §11.11.7). Paths are relative to the data dir root.
 const (
+	// BarrierWait is the drain timeout of the maintenance barrier (§11.11.7).
 	BarrierWait   = 30 * time.Second
 	barrierPoll   = 200 * time.Millisecond // ≤ 1 s cadence required by §11.11.7
 	reasonMigrate = "migrate"
 	reasonRestore = "restore"
+	ownerFile     = "run/maint.owner"
+	markerFile    = "run/maint.request"
+	lockFile      = "run/maint.lock"
+	holdersDir    = "run/maint.holders"
 )
 
 type markerInfo struct {
@@ -35,14 +40,42 @@ type holderInfo struct {
 	SchemaMax int    `json:"schema_max"`
 }
 
-func markerPresent(dir string) bool {
-	_, err := os.Stat(runPath(dir, "maint.request"))
+// openRoot creates the data dir layout and opens it as an os.Root, so every
+// file operation of ctxdb stays inside the data dir.
+func openRoot(dir string) (*os.Root, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, wrap(err)
+	}
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	for _, d := range []string{"blobs/tmp", "blobs/.trash", holdersDir, "backups"} {
+		if err := r.MkdirAll(d, 0o700); err != nil {
+			return nil, errors.Join(wrap(err), wrap(r.Close()))
+		}
+	}
+	return r, nil
+}
+
+func markerPresent(root *os.Root) bool {
+	_, err := root.Stat(markerFile)
 	return err == nil
+}
+
+// MaintenancePending reports a maintenance marker: adapters that cannot
+// write spool instead (§11.11.7 spool rule).
+func MaintenancePending(dir string) bool {
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		return false
+	}
+	return markerPresent(r) && r.Close() == nil
 }
 
 // Barrier is held by the maintenance owner (restore, auto-restore, migrate).
 type Barrier struct {
-	dir         string
+	root        *os.Root
 	owner, lock *os.File
 }
 
@@ -50,87 +83,90 @@ type Barrier struct {
 // Every failure path removes the marker before releasing maint.owner (I7).
 // wait is the drain timeout (BarrierWait in production).
 func AcquireBarrier(ctx context.Context, dir string, id Ident, reason string, expectedS int, wait time.Duration) (*Barrier, error) {
-	if err := os.MkdirAll(filepath.Join(dir, "run", "maint.holders"), 0o700); err != nil {
-		return nil, fmt.Errorf("ctxdb: barrier: %w", err)
-	}
-	owner, ok := tryLock(runPath(dir, "maint.owner"), true)
-	if !ok {
-		return nil, fmt.Errorf("ctxdb: maintenance already running: %w", ErrDBBusy)
-	}
-	b := &Barrier{dir: dir, owner: owner}
-	m, _ := json.Marshal(markerInfo{PID: id.PID, Start: id.Start, BootID: id.BootID, Reason: reason, ExpectedS: expectedS})
-	if err := writeAtomic(runPath(dir, "maint.request"), m); err != nil {
-		b.Release()
+	root, err := openRoot(dir)
+	if err != nil {
 		return nil, err
 	}
-	start := time.Now()
-	for {
-		if f, ok := tryLock(runPath(dir, "maint.lock"), true); ok {
-			b.lock = f
+	owner, err := tryLock(root, ownerFile, true)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("ctxdb: maintenance already running: %w", err), wrap(root.Close()))
+	}
+	b := &Barrier{root: root, owner: owner}
+	m, err := json.Marshal(markerInfo{PID: id.PID, Start: id.Start, BootID: id.BootID, Reason: reason, ExpectedS: expectedS})
+	if err == nil {
+		err = writeAtomic(root, markerFile, m)
+	}
+	for start := time.Now(); err == nil; {
+		if b.lock, err = tryLock(root, lockFile, true); err == nil {
 			return b, nil
 		}
 		if time.Since(start) >= wait {
-			b.Release()
-			return nil, fmt.Errorf("ctxdb: drain timeout: %w", ErrDBBusy)
-		}
-		if err := sleepReal(ctx, barrierPoll); err != nil {
-			b.Release()
-			return nil, fmt.Errorf("ctxdb: barrier: %w", err)
+			err = fmt.Errorf("ctxdb: drain timeout: %w", ErrDBBusy)
+		} else {
+			err = sleepReal(ctx, barrierPoll)
 		}
 	}
+	return nil, errors.Join(err, b.Release())
 }
 
 // Release removes the marker, then releases maint.lock and maint.owner.
-func (b *Barrier) Release() {
-	_ = os.Remove(runPath(b.dir, "maint.request"))
+func (b *Barrier) Release() error {
+	err := removeIfExists(b.root, markerFile)
 	if b.lock != nil {
-		unlockFile(b.lock)
+		err = errors.Join(err, unlockFile(b.lock))
 	}
-	unlockFile(b.owner)
+	return errors.Join(err, unlockFile(b.owner), wrap(b.root.Close()))
+}
+
+func removeIfExists(root *os.Root, name string) error {
+	if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return wrap(err)
+	}
+	return nil
 }
 
 // clearStaleMarker: a marker whose owner lock is free belongs to a dead owner
 // (the kernel released maint.owner); remove it while holding the owner lock
 // shared so no new owner can appear meanwhile (§11.11.7 state `stale`).
-func clearStaleMarker(dir string) bool {
-	f, ok := tryLock(runPath(dir, "maint.owner"), false)
-	if !ok {
+func clearStaleMarker(root *os.Root) bool {
+	f, err := tryLock(root, ownerFile, false)
+	if err != nil {
 		return false
 	}
-	defer unlockFile(f)
-	_ = os.Remove(runPath(dir, "maint.request"))
-	return true
+	return errors.Join(removeIfExists(root, markerFile), unlockFile(f)) == nil
 }
 
-// waitSharedLock implements the open order marker → shared lock → marker,
-// waiting up to 30 s + expected_s; stale markers are cleared within one poll.
+// sharedLock tries one step of the open order marker → shared lock → marker;
+// ErrDBBusy means "keep waiting". A purge finishing its batch before draining
+// (barrierOwner) skips the marker.
+func (s *Store) sharedLock() (*os.File, error) {
+	errWait := fmt.Errorf("ctxdb: maintenance marker present: %w", ErrDBBusy)
+	if !s.barrierOwner.Load() && markerPresent(s.root) && !clearStaleMarker(s.root) {
+		return nil, errWait
+	}
+	f, err := tryLock(s.root, lockFile, false)
+	if err == nil && !s.barrierOwner.Load() && markerPresent(s.root) {
+		return nil, errors.Join(errWait, unlockFile(f))
+	}
+	return f, err
+}
+
+// waitSharedLock waits up to BarrierWait + expected_s for sharedLock.
 func (s *Store) waitSharedLock(ctx context.Context) (*os.File, error) {
-	start := time.Now()
 	limit := s.opt.BarrierWait
-	for {
-		if s.barrierOwner.Load() { // finishing a purge batch before draining: shared lock only
-			if f, ok := tryLock(runPath(s.dir, "maint.lock"), false); ok {
-				return f, nil
-			}
+	if b, err := s.root.ReadFile(markerFile); err == nil {
+		var mi markerInfo
+		if json.Unmarshal(b, &mi) == nil {
+			limit += time.Duration(mi.ExpectedS) * time.Second
 		}
-		if !markerPresent(s.dir) || clearStaleMarker(s.dir) {
-			if f, ok := tryLock(runPath(s.dir, "maint.lock"), false); ok {
-				if !markerPresent(s.dir) {
-					return f, nil
-				}
-				unlockFile(f)
-			}
-		} else if m, err := os.ReadFile(runPath(s.dir, "maint.request")); err == nil {
-			var mi markerInfo
-			if json.Unmarshal(m, &mi) == nil {
-				limit = s.opt.BarrierWait + time.Duration(mi.ExpectedS)*time.Second
-			}
+	}
+	for start := time.Now(); ; {
+		f, err := s.sharedLock()
+		if !errors.Is(err, ErrDBBusy) || time.Since(start) >= limit {
+			return f, err
 		}
-		if time.Since(start) >= limit {
-			return nil, fmt.Errorf("ctxdb: maintenance barrier: %w", ErrDBBusy)
-		}
-		if err := sleepReal(ctx, barrierPoll); err != nil {
-			return nil, fmt.Errorf("ctxdb: barrier wait: %w", err)
+		if serr := sleepReal(ctx, barrierPoll); serr != nil {
+			return nil, serr
 		}
 	}
 }
@@ -141,26 +177,24 @@ func sleepReal(ctx context.Context, d time.Duration) error {
 	return SystemClock{}.Sleep(ctx, d)
 }
 
-func (s *Store) holderPath() string {
-	return runPath(s.dir, filepath.Join("maint.holders", strconv.Itoa(s.id.PID)))
-}
+func (s *Store) holderName() string { return path.Join(holdersDir, strconv.Itoa(s.id.PID)) }
 
 func (s *Store) registerHolder() error {
-	b, _ := json.Marshal(holderInfo{Ident: s.id, Kind: s.opt.Kind, SchemaMax: s.schemaMax()})
-	return writeAtomic(s.holderPath(), b)
+	b, err := json.Marshal(holderInfo{Ident: s.id, Kind: s.opt.Kind, SchemaMax: s.schemaMax()})
+	if err != nil {
+		return wrap(err)
+	}
+	return writeAtomic(s.root, s.holderName(), b)
 }
 
 // holders returns live registered processes other than this one.
 func (s *Store) holders() []holderInfo {
-	ents, _ := os.ReadDir(runPath(s.dir, "maint.holders"))
+	ents, err := fs.ReadDir(s.root.FS(), holdersDir)
 	var out []holderInfo
-	for _, e := range ents {
-		b, err := os.ReadFile(runPath(s.dir, filepath.Join("maint.holders", e.Name())))
+	for i := 0; err == nil && i < len(ents); i++ {
 		var h holderInfo
-		if err != nil || json.Unmarshal(b, &h) != nil || h.PID == s.id.PID {
-			continue
-		}
-		if h.Host == s.id.Host && s.opt.Procs.Gone(h.Ident) {
+		b, rerr := s.root.ReadFile(path.Join(holdersDir, ents[i].Name()))
+		if rerr != nil || json.Unmarshal(b, &h) != nil || h.PID == s.id.PID || h.Host == s.id.Host && s.opt.Procs.Gone(h.Ident) {
 			continue
 		}
 		out = append(out, h)
@@ -168,44 +202,35 @@ func (s *Store) holders() []holderInfo {
 	return out
 }
 
-// writeAtomic writes path via temp + fsync + rename (0600).
-func writeAtomic(path string, b []byte) error {
-	tmp := fmt.Sprintf("%s.tmp%d", path, os.Getpid())
-	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+// writeAtomic writes root/name via temp + fsync + rename (0600).
+func writeAtomic(root *os.Root, name string, b []byte) error {
+	tmp := name + ".tmp" + strconv.Itoa(os.Getpid())
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
-		return fmt.Errorf("ctxdb: write %s: %w", path, err)
+		return wrap(err)
 	}
 	_, err = f.Write(b)
 	if err == nil {
 		err = f.Sync()
 	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
+	if err = errors.Join(err, f.Close()); err == nil {
+		err = root.Rename(tmp, name)
 	}
-	if err == nil {
-		err = os.Rename(tmp, path)
-	}
-	if err != nil {
-		return fmt.Errorf("ctxdb: write %s: %w", path, err)
-	}
-	return nil
+	return wrap(err)
 }
-
-// MaintenancePending reports a maintenance marker: adapters that cannot
-// write spool instead (§11.11.7 spool rule).
-func MaintenancePending(dir string) bool { return markerPresent(dir) }
 
 // Suspend is the SIGTSTP path (§11.11.7): wait for the running transaction,
 // close the connections and release maint.lock, keeping lease tokens; the
 // next write reattaches through the barrier open order (then CheckLease).
-func (s *Store) Suspend() {
+func (s *Store) Suspend() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tokMu.Lock()
 	keep := maps.Clone(s.tokens)
 	s.tokMu.Unlock()
-	s.detach()
+	err := s.detach()
 	s.tokMu.Lock()
 	s.tokens = keep
 	s.tokMu.Unlock()
+	return err
 }

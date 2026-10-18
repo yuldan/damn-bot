@@ -26,8 +26,7 @@ func spawnGroup(t *testing.T, script string) (*exec.Cmd, int, string) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	must(t, cmd.Start())
 	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); _ = cmd.Wait() })
-	st, err := procStart(cmd.Process.Pid)
-	must(t, err)
+	st := startStamp(t, cmd.Process.Pid)
 	return cmd, cmd.Process.Pid, st
 }
 
@@ -37,11 +36,11 @@ func waitGroupGone(t *testing.T, pgid int) {
 	tk := time.NewTicker(20 * time.Millisecond)
 	defer tk.Stop()
 	deadline := time.After(10 * time.Second)
-	for len(pgroupMembers(pgid)) > 0 {
+	for len(procGroupMembers(pgid)) > 0 {
 		select {
 		case <-tk.C:
 		case <-deadline:
-			t.Fatalf("process group %d still has members %v", pgid, pgroupMembers(pgid))
+			t.Fatalf("process group %d still has members %v", pgid, procGroupMembers(pgid))
 		}
 	}
 }
@@ -52,11 +51,11 @@ func waitMembers(t *testing.T, pgid, n int) {
 	tk := time.NewTicker(10 * time.Millisecond)
 	defer tk.Stop()
 	deadline := time.After(10 * time.Second)
-	for len(pgroupMembers(pgid)) < n {
+	for len(procGroupMembers(pgid)) < n {
 		select {
 		case <-tk.C:
 		case <-deadline:
-			t.Fatalf("group %d has %d members", pgid, len(pgroupMembers(pgid)))
+			t.Fatalf("group %d has %d members", pgid, len(procGroupMembers(pgid)))
 		}
 	}
 }
@@ -121,7 +120,7 @@ func s074(t *testing.T) {
 		if err := tx.StartTurn("S", "T1"); err != nil {
 			return err
 		}
-		return tx.ToolPending("S", "T1", ToolCall{CallID: "c", Name: "shell", Class: "non_idempotent", ArgsSha: "a", Pgid: pg, PgidStart: st})
+		return tx.ToolPending("S", "T1", &ToolCall{CallID: "c", Name: "shell", Class: "non_idempotent", ArgsSha: "a", Pgid: pg, PgidStart: st})
 	}))
 	e.procs.kill(1)
 	srv := e.open(2, "serve") // startup recovery, case (a)
@@ -144,7 +143,7 @@ func s085(t *testing.T) {
 		if err := tx.StartTurn("S", "T1"); err != nil {
 			return err
 		}
-		return tx.ToolPending("S", "T1", ToolCall{CallID: "c", Name: "shell", Class: "non_idempotent", ArgsSha: "a", Pgid: pg, PgidStart: st})
+		return tx.ToolPending("S", "T1", &ToolCall{CallID: "c", Name: "shell", Class: "non_idempotent", ArgsSha: "a", Pgid: pg, PgidStart: st})
 	}))
 	e.procs.kill(1)
 	e.open(2, "serve")
@@ -158,7 +157,8 @@ type stallTracker struct {
 	since int64
 }
 
-func (st *stallTracker) observe(err error) {
+func (st *stallTracker) observe(t *testing.T, err error) {
+	t.Helper()
 	if !errors.Is(err, ErrDBBusy) {
 		return
 	}
@@ -168,7 +168,7 @@ func (st *stallTracker) observe(err error) {
 	}
 	if now-st.since >= 30_000 {
 		b, _ := json.Marshal(map[string]any{"since": st.since, "suspects": st.s.holders()})
-		_ = writeAtomic(runPath(st.s.dir, "db_stall.json"), b)
+		_ = writeAtomic(testRoot(t, st.s.dir), "run/db_stall.json", b)
 	}
 }
 

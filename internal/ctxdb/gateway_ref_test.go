@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -112,7 +113,7 @@ func (s *Store) ProcessInbound(ctx context.Context, platform, chat string) (Proc
 			att = append(att, a.BlobSha)
 		}
 		out.Session, out.NewSession, out.Turn = sid, isNew, newID()
-		if out.EventID, err = t.AppendEvent(sid, Event{Kind: "user_message", Role: "user", Content: p.Text, Attach: att,
+		if out.EventID, err = t.AppendEvent(sid, &Event{Kind: "user_message", Role: "user", Content: p.Text, Attach: att,
 			Payload: jsonOf(map[string]string{"inbound": platform + ":" + ext})}); err != nil {
 			return err
 		}
@@ -229,14 +230,14 @@ func (s *Store) ClaimDelivery(ctx context.Context) (int64, error) {
 // and fsyncs file and directory; only then may the push be acked (§11.11.7).
 // Used for every inbound the platform will not redeliver (AF-06).
 func (s *Store) SpoolInbound(seq int, m Inbound) error {
-	dir := runPath(s.dir, "inbound_spool")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("ctxdb: spool: %w", err)
+	const dir = "run/inbound_spool"
+	if err := s.root.MkdirAll(dir, 0o700); err != nil {
+		return wrap(err)
 	}
 	name := fmt.Sprintf("%s-%d-%s-%06d.jsonl", s.id.BootID, s.id.PID, s.id.Start, seq)
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	f, err := s.root.OpenFile(path.Join(dir, name), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
 	if err != nil {
-		return fmt.Errorf("ctxdb: spool: %w", err)
+		return wrap(err)
 	}
 	_, err = f.Write(append([]byte(jsonOf(m)), '\n'))
 	if err == nil {
@@ -245,16 +246,16 @@ func (s *Store) SpoolInbound(seq int, m Inbound) error {
 	if err = errors.Join(err, f.Close()); err != nil {
 		return fmt.Errorf("ctxdb: spool: %w", err)
 	}
-	return syncDir(dir)
+	return syncRootDir(s.root, dir)
 }
 
 // IngestSpool ingests spool files in name order, line order; a truncated
 // last line (crash before fsync, never acked) is ignored. Files are removed
 // only after COMMIT; duplicates are absorbed by the primary key.
 func (s *Store) IngestSpool(ctx context.Context) (int, error) {
-	dir := runPath(s.dir, "inbound_spool")
-	ents, err := os.ReadDir(dir)
-	if errors.Is(err, os.ErrNotExist) {
+	const dir = "run/inbound_spool"
+	ents, err := fs.ReadDir(s.root.FS(), dir)
+	if errors.Is(err, fs.ErrNotExist) {
 		return 0, nil
 	}
 	names := make([]string, 0, len(ents))
@@ -264,9 +265,9 @@ func (s *Store) IngestSpool(ctx context.Context) (int, error) {
 	slices.Sort(names)
 	total := 0
 	for _, n := range names {
-		b, err := os.ReadFile(filepath.Join(dir, n))
+		b, err := s.root.ReadFile(path.Join(dir, n))
 		if err != nil {
-			return total, fmt.Errorf("ctxdb: spool: %w", err)
+			return total, wrap(err)
 		}
 		var msgs []Inbound
 		lines := strings.Split(string(b), "\n")
@@ -281,8 +282,8 @@ func (s *Store) IngestSpool(ctx context.Context) (int, error) {
 			return total, err
 		}
 		total += len(msgs)
-		if err := os.Remove(filepath.Join(dir, n)); err != nil {
-			return total, fmt.Errorf("ctxdb: spool: %w", err)
+		if err := removeIfExists(s.root, path.Join(dir, n)); err != nil {
+			return total, err
 		}
 	}
 	return total, nil

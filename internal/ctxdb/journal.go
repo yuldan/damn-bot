@@ -3,11 +3,13 @@ package ctxdb
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 // ToolCall is the journal record written with tool_dispatch before Run.
@@ -18,25 +20,30 @@ type ToolCall struct {
 	PgidStart                    string
 }
 
+// jsonOf encodes values built from maps/slices of strings and numbers,
+// which cannot fail to marshal.
 func jsonOf(v any) string {
-	b, _ := json.Marshal(v)
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "null"
+	}
 	return string(b)
 }
 
-// StartTurn: INSERT journal `running` + turn_start (one transaction).
+// StartTurn inserts journal `running` + turn_start in one transaction.
 func (t *Tx) StartTurn(sid, turn string) error {
 	now := t.s.clk.WallMs()
 	if _, err := t.Exec(`INSERT INTO turn_journal(turn_id, session_id, state, started_at, updated_at) VALUES (?,?,'running',?,?)`,
 		turn, sid, now, now); err != nil {
 		return err
 	}
-	_, err := t.AppendEvent(sid, Event{Kind: "turn_start", TurnID: turn})
+	_, err := t.AppendEvent(sid, &Event{Kind: "turn_start", TurnID: turn})
 	return err
 }
 
 // ToolPending appends tool_dispatch and moves the journal to tool_pending.
-func (t *Tx) ToolPending(sid, turn string, c ToolCall) error {
-	if _, err := t.AppendEvent(sid, Event{Kind: "tool_dispatch", TurnID: turn, ToolCallID: c.CallID, ToolName: c.Name}); err != nil {
+func (t *Tx) ToolPending(sid, turn string, c *ToolCall) error {
+	if _, err := t.AppendEvent(sid, &Event{Kind: "tool_dispatch", TurnID: turn, ToolCallID: c.CallID, ToolName: c.Name}); err != nil {
 		return err
 	}
 	var pg any
@@ -52,7 +59,7 @@ func (t *Tx) ToolPending(sid, turn string, c ToolCall) error {
 
 // EndTurn appends turn_end and deletes the journal row.
 func (t *Tx) EndTurn(sid, turn, stop string) error {
-	if _, err := t.AppendEvent(sid, Event{Kind: "turn_end", TurnID: turn, Payload: jsonOf(map[string]string{"stop_reason": stop})}); err != nil {
+	if _, err := t.AppendEvent(sid, &Event{Kind: "turn_end", TurnID: turn, Payload: jsonOf(map[string]string{"stop_reason": stop})}); err != nil {
 		return err
 	}
 	_, err := t.Exec("DELETE FROM turn_journal WHERE turn_id = ?", turn)
@@ -66,11 +73,11 @@ type Recovered struct {
 }
 
 type openJournal struct {
-	turn, sid, state, origin   string
-	call, name, class, target  string
-	before, after, pgidStart   string
-	pgid                       int
-	lease                      *liveRec
+	turn, sid, state, origin  string
+	call, name, class, target string
+	before, after, pgidStart  string
+	pgid                      int
+	lease                     liveRec // PID 0 = no lease row
 }
 
 // RecoverJournals is SELF-HEALING §3.4 step 4 / §11.11.8: open journals of
@@ -78,84 +85,61 @@ type openJournal struct {
 // allowB, the background scanner) are closed with observed results.
 func (s *Store) RecoverJournals(ctx context.Context, allowB bool) ([]Recovered, error) {
 	js, err := s.openJournals(ctx)
-	if err != nil {
-		return nil, err
-	}
 	var out []Recovered
-	for _, j := range js {
-		if j.lease != nil {
-			if mine, _ := s.token(j.sid); !s.takeoverOK("lease:"+j.sid, *j.lease, allowB) || mine != 0 {
-				continue
-			}
+	for i := 0; err == nil && i < len(js); i++ {
+		j := &js[i]
+		if _, mine := s.token(j.sid); j.lease.PID != 0 && (mine || !s.takeoverOK("lease:"+j.sid, j.lease, allowB)) {
+			continue
 		}
-		if j.pgid > 0 && (j.lease == nil || j.lease.Host == s.id.Host) {
+		if j.pgid > 0 && (j.lease.PID == 0 || j.lease.Host == s.id.Host) {
 			killGroup(j.pgid, j.pgidStart) // before recovery (AE-05, AF-07)
 		}
 		var r Recovered
-		err := s.Write(ctx, func(t *Tx) error { r, err = t.recoverOne(j, allowB); return err })
+		werr := s.Write(ctx, func(t *Tx) (rerr error) { r, rerr = t.recoverOne(j, allowB); return rerr })
 		switch {
-		case errors.Is(err, ErrSessionBusy) || errors.Is(err, ErrSessionPurging) || errors.Is(err, ErrNotFound):
+		case errors.Is(werr, ErrSessionBusy) || errors.Is(werr, ErrSessionPurging) || errors.Is(werr, ErrNotFound):
 			continue // lost the race, or labelled meanwhile (I3)
-		case err != nil:
-			return out, err
-		}
-		if r.Decision != "auto_continue" {
-			if err := s.ReleaseLease(ctx, j.sid); err != nil {
-				return out, err
-			}
+		case werr != nil:
+			err = werr
+		case r.Decision != "auto_continue":
+			err = s.ReleaseLease(ctx, j.sid)
 		}
 		out = append(out, r)
 	}
-	return out, nil
+	return out, err
 }
 
 func (s *Store) openJournals(ctx context.Context) ([]openJournal, error) {
-	rows, err := s.query(ctx, `SELECT j.turn_id, j.session_id, j.state, s.origin, coalesce(j.last_tool_call_id,''), coalesce(j.last_tool_name,''),
-		coalesce(j.tool_class,''), coalesce(j.target_path,''), coalesce(j.before_sha,''), coalesce(j.after_sha,''), coalesce(j.tool_pgid_start,''),
-		coalesce(j.tool_pgid,0), l.owner_pid, l.owner_start, l.owner_host, l.owner_boot_id, l.heartbeat_at, l.expires_at
-		FROM turn_journal j JOIN sessions s ON s.id = j.session_id LEFT JOIN session_leases l ON l.session_id = j.session_id
-		WHERE j.state IN ('running','tool_pending','tool_done')
-		  AND NOT EXISTS (SELECT 1 FROM session_labels x WHERE x.session_id = j.session_id AND x.key = 'purge_state')`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 	var out []openJournal
-	for rows.Next() {
+	err := s.each(ctx, s.q["journal.open"], nil, func(r *sql.Rows) error {
 		var j openJournal
-		var pid *int
-		var x liveRec
-		var st, host, boot *string
-		var hb, exp *int64
-		if err := rows.Scan(&j.turn, &j.sid, &j.state, &j.origin, &j.call, &j.name, &j.class, &j.target, &j.before, &j.after,
-			&j.pgidStart, &j.pgid, &pid, &st, &host, &boot, &hb, &exp); err != nil {
-			return nil, err
-		}
-		if pid != nil {
-			x = liveRec{Ident: Ident{PID: *pid, Start: *st, Host: *host, BootID: *boot}, HeartbeatAt: *hb, ExpiresAt: *exp}
-			j.lease = &x
+		x := &j.lease
+		if err := r.Scan(&j.turn, &j.sid, &j.state, &j.origin, &j.call, &j.name, &j.class, &j.target, &j.before, &j.after,
+			&j.pgidStart, &j.pgid, &x.PID, &x.Start, &x.Host, &x.BootID, &x.HeartbeatAt, &x.ExpiresAt); err != nil {
+			return wrap(err)
 		}
 		out = append(out, j)
-	}
-	return out, rows.Err()
+		return nil
+	})
+	return out, err
 }
 
 // recoverOne applies the SELF-HEALING §3.4 table to one journal under lease.
-func (t *Tx) recoverOne(j openJournal, allowB bool) (Recovered, error) {
+func (t *Tx) recoverOne(j *openJournal, allowB bool) (Recovered, error) {
+	r := Recovered{Session: j.sid, Turn: j.turn, Decision: "auto_continue"}
 	if _, err := t.AcquireLease(j.sid, allowB); err != nil {
-		return Recovered{}, err
+		return r, err
 	}
 	var state string
 	if err := t.Get("SELECT state FROM turn_journal WHERE turn_id = ?", []any{j.turn}, &state); err != nil {
-		return Recovered{}, err
+		return r, err
 	}
 	if state != j.state {
-		return Recovered{}, fmt.Errorf("ctxdb: journal %s changed: %w", j.turn, ErrNotFound)
+		return r, fmt.Errorf("ctxdb: journal %s changed: %w", j.turn, ErrNotFound)
 	}
-	r := Recovered{Session: j.sid, Turn: j.turn, Decision: "auto_continue"}
 	if j.state == "tool_pending" {
 		r.Status, r.Decision = pendingOutcome(j)
-		if _, err := t.AppendEvent(j.sid, Event{Kind: "tool_result", TurnID: j.turn, ToolCallID: j.call, ToolName: j.name,
+		if _, err := t.AppendEvent(j.sid, &Event{Kind: "tool_result", TurnID: j.turn, ToolCallID: j.call, ToolName: j.name,
 			Payload: jsonOf(map[string]any{"status": r.Status, "retry_safe": r.Status != "outcome_unknown", "by": "recovery"})}); err != nil {
 			return r, err
 		}
@@ -168,10 +152,10 @@ func (t *Tx) recoverOne(j openJournal, allowB bool) (Recovered, error) {
 
 // closeCrashed writes turn_end{crashed} + crash_recovered and parks the row.
 func (t *Tx) closeCrashed(sid, turn, tool, decision string) error {
-	if _, err := t.AppendEvent(sid, Event{Kind: "turn_end", TurnID: turn, Payload: `{"stop_reason":"crashed"}`}); err != nil {
+	if _, err := t.AppendEvent(sid, &Event{Kind: "turn_end", TurnID: turn, Payload: `{"stop_reason":"crashed"}`}); err != nil {
 		return err
 	}
-	if _, err := t.AppendEvent(sid, Event{Kind: "crash_recovered", TurnID: turn,
+	if _, err := t.AppendEvent(sid, &Event{Kind: "crash_recovered", TurnID: turn,
 		Payload: jsonOf(map[string]string{"turn_id": turn, "last_tool": tool, "decision": decision})}); err != nil {
 		return err
 	}
@@ -183,26 +167,31 @@ func (t *Tx) closeCrashed(sid, turn, tool, decision string) error {
 	return err
 }
 
-func pendingOutcome(j openJournal) (status, decision string) {
+func pendingOutcome(j *openJournal) (status, decision string) {
 	switch j.class {
 	case "read":
 		return "interrupted", "auto_continue"
 	case "idempotent":
-		switch h := fileSha(j.target); h {
+		switch fileSha(j.target) {
 		case j.after:
 			return "applied_verified", "auto_continue"
 		case j.before:
 			return "not_applied", "auto_continue"
-		default:
-			return "conflict", "ask"
 		}
+		return "conflict", "ask"
 	}
 	return "outcome_unknown", "ask"
 }
 
+// fileSha hashes the tool's target file ("" when unreadable). The read goes
+// through an os.Root of the file's directory (no symlink escape upward).
 func fileSha(p string) string {
-	b, err := os.ReadFile(p)
+	root, err := os.OpenRoot(filepath.Dir(p))
 	if err != nil {
+		return ""
+	}
+	b, err := root.ReadFile(filepath.Base(p))
+	if root.Close() != nil || err != nil {
 		return ""
 	}
 	h := sha256.Sum256(b)

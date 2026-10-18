@@ -33,27 +33,29 @@ var (
 const (
 	codeBusy              = 5
 	codeFull              = 13
-	codeConstraint        = 19
 	codeConstraintTrigger = 1811
 )
 
-// raiseCodes maps RAISE(ABORT, '<msg>') texts of the §11 DDL to closed codes.
-// This is the single place where an SQLite message is inspected: the RAISE
-// text is the only channel a trigger has to carry its reason (SPEC §11.10
-// "Pesan RAISE dipetakan ke kode tertutup"); matching is exact, not substring.
-var raiseCodes = map[string]error{
-	"session_purging":      ErrSessionPurging,
-	"lease_fenced":         ErrLeaseFenced,
-	"approval_not_pending": ErrApprovalNotPending,
+// raiseCode maps the RAISE(ABORT, '<msg>') texts of the §11 DDL to closed
+// codes. This is the single place where an SQLite message is inspected: the
+// RAISE text is the only channel a trigger has to carry its reason (SPEC
+// §11.10); matching is exact, not substring (report TS-P05).
+func raiseCode(msg string) error {
+	switch msg {
+	case "session_purging":
+		return ErrSessionPurging
+	case "lease_fenced":
+		return ErrLeaseFenced
+	case "approval_not_pending":
+		return ErrApprovalNotPending
+	}
+	return ErrInternal
 }
 
 // classify wraps a driver error with its closed code, keeping the cause.
 func classify(err error) error {
-	if err == nil {
-		return nil
-	}
 	var se *sqlite.Error
-	if !errors.As(err, &se) {
+	if err == nil || !errors.As(err, &se) {
 		return err
 	}
 	switch code := se.Code(); {
@@ -62,22 +64,24 @@ func classify(err error) error {
 	case code&0xff == codeFull:
 		return fmt.Errorf("%w: %w", ErrDiskFull, err)
 	case code == codeConstraintTrigger:
-		if c, ok := raiseCodes[raiseText(se.Error())]; ok {
-			return fmt.Errorf("%w: %w", c, err)
-		}
-		return fmt.Errorf("%w: %w", ErrInternal, err)
+		return fmt.Errorf("%w: %w", raiseCode(raiseText(se.Error())), err)
 	}
 	return err
+}
+
+// wrap classifies and wraps any error crossing the package boundary.
+func wrap(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("ctxdb: %w", classify(err))
 }
 
 // raiseText extracts "<msg>" from the driver format "<errstr>: <msg> (<rc>)".
 func raiseText(s string) string {
 	_, rest, ok := strings.Cut(s, ": ")
-	if !ok {
-		return ""
-	}
-	if i := strings.LastIndex(rest, " ("); i >= 0 {
-		rest = rest[:i]
+	if i := strings.LastIndex(rest, " ("); ok && i >= 0 {
+		return rest[:i]
 	}
 	return rest
 }

@@ -2,8 +2,12 @@ package ctxdb
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -107,7 +111,7 @@ func (e *env) open(pid int, kind string, mods ...func(*Options)) *Store {
 	for _, m := range mods {
 		m(&o)
 	}
-	s, err := Open(context.Background(), o)
+	s, err := Open(context.Background(), &o)
 	if err != nil {
 		e.t.Fatalf("open pid %d: %v", pid, err)
 	}
@@ -170,7 +174,7 @@ func checkIntegrity(t *testing.T, s *Store) {
 
 func verifyChains(t *testing.T, s *Store) string {
 	t.Helper()
-	rows, err := s.query(bg, "SELECT session_id, seq, kind, content, payload, coalesce(blob_sha,''), prev_hash, hash FROM events ORDER BY session_id, seq")
+	rows, err := s.testRows(bg, "SELECT session_id, seq, kind, content, payload, coalesce(blob_sha,''), prev_hash, hash FROM events ORDER BY session_id, seq")
 	must(t, err)
 	defer rows.Close()
 	prev, cur := "", ""
@@ -198,4 +202,57 @@ func (t *Tx) execAll(args []any, qs ...string) error {
 		}
 	}
 	return nil
+}
+
+// testRows runs a read query on the read pool (test helper).
+func (s *Store) testRows(ctx context.Context, q string, args ...any) (*sql.Rows, error) {
+	db, err := s.reader(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return db.QueryContext(ctx, q, args...)
+}
+
+// testBlobPath is the on-disk path of a blob (test helper).
+func (s *Store) testBlobPath(sha string) string { return filepath.Join(s.dir, blobName(sha)) }
+
+// testRoot opens the data dir as an os.Root (test helper).
+func testRoot(t *testing.T, dir string) *os.Root {
+	t.Helper()
+	r, err := os.OpenRoot(dir)
+	must(t, err)
+	t.Cleanup(func() { must(t, r.Close()) })
+	return r
+}
+
+// testLock takes a non-blocking flock on a barrier file (test helper).
+func testLock(t *testing.T, dir, name string, exclusive bool) (*os.File, bool) {
+	t.Helper()
+	f, err := tryLock(testRoot(t, dir), name, exclusive)
+	return f, err == nil
+}
+
+// runPath is the absolute path of a run/ file (test helper).
+func runPath(dir, name string) string { return filepath.Join(dir, "run", name) }
+
+// optsPtr returns a pointer to o (test helper for newStore/Restore).
+func optsPtr(o Options) *Options { return &o }
+
+// startStamp reads the OS start stamp of a pid (test helper).
+func startStamp(t *testing.T, pid int) string {
+	t.Helper()
+	st, _, err := procStat(pid)
+	must(t, err)
+	return st
+}
+
+// procGroupMembers lists live members of a process group (test helper).
+func procGroupMembers(pgid int) []int {
+	m := pgroupMembers(pgid)
+	out := make([]int, 0, len(m))
+	for pid := range m {
+		out = append(out, pid)
+	}
+	slices.Sort(out)
+	return out
 }

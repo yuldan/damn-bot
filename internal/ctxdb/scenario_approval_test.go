@@ -81,7 +81,7 @@ func s030(t *testing.T) {
 		if _, err := tx.CreateSession(Session{ID: "I1", Origin: "import"}); err != nil {
 			return err
 		}
-		_, err := tx.AppendEvent("I1", Event{Kind: "imported", Content: "old"})
+		_, err := tx.AppendEvent("I1", &Event{Kind: "imported", Content: "old"})
 		return err
 	}))
 	must(t, cli.ReleaseLease(bg, "I1"))

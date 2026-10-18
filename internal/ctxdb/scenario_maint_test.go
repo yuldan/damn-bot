@@ -55,7 +55,7 @@ func (e *env) restore(t *testing.T, backup string, pid int) error {
 	t.Helper()
 	o := e.opts(pid, "cli")
 	o.BarrierWait = 10 * time.Second
-	return Restore(bg, o, backup)
+	return Restore(bg, &o, backup)
 }
 
 // #16: restore while serve and TUI run: both drain, reopen, reacquire.
@@ -91,14 +91,14 @@ func s017(t *testing.T) {
 		done <- w.Write(bg, func(tx *Tx) error {
 			close(inTx)
 			<-release
-			_, err := tx.AppendEvent("S", Event{Kind: "user_message", Content: "kept"})
+			_, err := tx.AppendEvent("S", &Event{Kind: "user_message", Content: "kept"})
 			return err
 		})
 	}()
 	<-inTx
 	o := e.opts(9, "cli")
 	o.BarrierWait = time.Second
-	wantErr(t, Restore(bg, o, bk), ErrDBBusy)
+	wantErr(t, Restore(bg, &o, bk), ErrDBBusy)
 	if MaintenancePending(e.dir) {
 		t.Fatal("marker left after failed restore")
 	}
@@ -142,7 +142,7 @@ func s019(t *testing.T) {
 	must(t, err)
 	must(t, e.restore(t, bk, 9))
 	wantErr(t, s.Visible(bg, "S1"), ErrNotFound)
-	if _, err := os.Stat(s.blobPath(pb.Sha)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(s.testBlobPath(pb.Sha)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("purged blob file revived")
 	}
 	e.procs.kill(9) // the restore command exited
@@ -162,9 +162,9 @@ func s020(t *testing.T) {
 	}
 	purgePhase0(t, s, "L")
 	ins := func(sid string) error {
-		return s.tx(bg, modeRestore, func(tx *Tx) error { _, err := tx.AppendEvent(sid, Event{Kind: "user_message"}); return err })
+		return s.tx(bg, modeRestore, func(tx *Tx) error { _, err := tx.AppendEvent(sid, &Event{Kind: "user_message"}); return err })
 	}
-	must(t, ins("S"))                    // no lease needed
+	must(t, ins("S"))                       // no lease needed
 	wantErr(t, ins("L"), ErrSessionPurging) // guard P
 	err := s.tx(bg, modeRestore, func(tx *Tx) error { _, err := tx.Exec("UPDATE events SET content = 'x'"); return err })
 	if err == nil {
@@ -192,7 +192,7 @@ func s026(t *testing.T) {
 }
 
 // #28: unknown/NULL modes are fail-closed; an aborted purge transaction
-// (Goexit stands in for a panic) leaves mode '' on the next transaction.
+// (Goexit stands in for a panic) leaves mode ” on the next transaction.
 func s028(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "tui")
@@ -231,13 +231,13 @@ func nullModeDelete(t *testing.T, dir string) error {
 	null := func(*sqlite.FunctionContext, []driver.Value) (driver.Value, error) { return nil, nil }
 	must(t, errors.Join(d.RegisterScalarFunction("dmb_maint", 0, null), d.RegisterScalarFunction("dmb_lease_token", 1, null),
 		d.RegisterScalarFunction("dmb_fts_norm", 1, func(_ *sqlite.FunctionContext, a []driver.Value) (driver.Value, error) { return a[0], nil })))
-	db := sql.OpenDB(connector{d, "file:" + DBPath(dir) + "?_pragma=busy_timeout(2000)&_pragma=foreign_keys(1)"})
-	defer db.Close()
-	_, err := db.Exec("DELETE FROM events")
+	db := sql.OpenDB(connector{d: d, dsn: "file:" + DBPath(dir) + "?_pragma=busy_timeout(2000)&_pragma=foreign_keys(1)"})
+	defer func() { must(t, db.Close()) }()
+	_, err := db.ExecContext(bg, "DELETE FROM events")
 	if err == nil {
 		return nil
 	}
-	_, err2 := db.Exec("INSERT INTO session_labels(session_id, key, value, created_at) VALUES ('S', 'purge_state', 'x', 0)")
+	_, err2 := db.ExecContext(bg, "INSERT INTO session_labels(session_id, key, value, created_at) VALUES ('S', 'purge_state', 'x', 0)")
 	return err2
 }
 
@@ -279,7 +279,7 @@ func s036(t *testing.T) {
 				return
 			}
 			if n++; n == 2 { // request the barrier mid-purge
-				owner, _ = tryLock(runPath(e.dir, "maint.owner"), true)
+				owner, _ = testLock(t, e.dir, ownerFile, true)
 				_ = os.WriteFile(runPath(e.dir, "maint.request"), []byte(`{"reason":"restore"}`), 0o600)
 			}
 		}
@@ -389,7 +389,7 @@ func s051(t *testing.T) {
 		done <- s.Write(bg, func(tx *Tx) error {
 			close(inTx)
 			<-release
-			_, err := tx.AppendEvent("S", Event{Kind: "user_message"})
+			_, err := tx.AppendEvent("S", &Event{Kind: "user_message"})
 			return err
 		})
 	}()
@@ -399,7 +399,7 @@ func s051(t *testing.T) {
 	close(release)
 	must(t, <-done)
 	<-susp
-	f, ok := tryLock(runPath(e.dir, "maint.lock"), true)
+	f, ok := testLock(t, e.dir, lockFile, true)
 	if !ok {
 		t.Fatal("maint.lock still held after Suspend")
 	}
@@ -419,22 +419,19 @@ func s057(t *testing.T) {
 	go func() {
 		o := e.opts(2, "tui")
 		o.SchemaMax = 7
-		s, err := Open(bg, o)
+		s, err := Open(bg, &o)
 		if err == nil {
 			err = s.Close()
 		}
 		res <- err
 	}()
-	mig, err := newStore(e.opts(9, "tui"))
+	mig, err := newStore(optsPtr(e.opts(9, "tui")))
 	must(t, err)
-	w, r, err := mig.openHandles()
+	mig.w, mig.r, err = mig.openHandles(bg)
 	must(t, err)
-	migs, err := migrations()
-	must(t, err)
-	must(t, applyMigration(bg, w, migs[7], 0))
-	_ = w.Close()
-	_ = r.Close()
-	b.Release()
+	must(t, mig.applyMigration(bg, len(mig.migs), mig.migs[len(mig.migs)-1]))
+	must(t, mig.detach())
+	must(t, b.Release())
 	wantErr(t, <-res, ErrSchemaNewer)
 }
 
@@ -471,7 +468,7 @@ func s063(t *testing.T) {
 	st := &stallTracker{s: s}
 	for range 4 { // 4 × busy, clock advanced 10 s each → ≥ 30 s
 		_, err := s.Append(bg, SystemSession, nil, Event{Kind: "system_notice"})
-		st.observe(err)
+		st.observe(t, err)
 		e.clk.Advance(10 * time.Second)
 	}
 	if _, err := os.Stat(runPath(e.dir, "db_stall.json")); err != nil {
@@ -498,7 +495,7 @@ func s067(t *testing.T) {
 	must(t, s.Close())
 	o := e.opts(2, "serve")
 	o.SchemaMax = 7
-	_, err := Open(bg, o)
+	_, err := Open(bg, &o)
 	wantErr(t, err, ErrSchemaNewer)
 	s2 := e.open(3, "serve")
 	if count(t, s2, "SELECT count(*) FROM gateway_inbound WHERE event_id IS NULL") != 1 {
@@ -516,7 +513,7 @@ func s071(t *testing.T) {
 	oldSrv, oldTui := e.openOld(1, "serve"), e.openOld(2, "tui")
 	_ = oldTui
 	o := e.opts(3, "tui")
-	_, err := Open(bg, o)
+	_, err := Open(bg, &o)
 	wantErr(t, err, ErrMigrationRefused)
 	if MaintenancePending(e.dir) {
 		t.Fatal("marker written for a refused migration")
@@ -530,10 +527,10 @@ func s078(t *testing.T) {
 	e.openOld(1, "tui")
 	o := e.opts(2, "serve")
 	o.BarrierWait = 5 * time.Second
-	_, err := Open(bg, o)
+	_, err := Open(bg, &o)
 	wantErr(t, err, ErrMigrationRefused)
 	e.clk.Advance(10 * time.Minute)
-	s, err := Open(bg, o)
+	s, err := Open(bg, &o)
 	must(t, err)
 	must(t, s.Close())
 }
@@ -546,13 +543,13 @@ func s086(t *testing.T) {
 	for i := range 4 { // each restart waits < 10 min on its own
 		o := e.opts(10+i, "serve")
 		o.BarrierWait = 5 * time.Second
-		_, err := Open(bg, o)
+		_, err := Open(bg, &o)
 		wantErr(t, err, ErrMigrationRefused)
 		e.clk.Advance(3 * time.Minute)
 	}
 	o := e.opts(20, "serve")
 	o.BarrierWait = 5 * time.Second
-	s, err := Open(context.Background(), o)
+	s, err := Open(context.Background(), &o)
 	must(t, err)
 	must(t, s.Close())
 }

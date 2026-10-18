@@ -8,7 +8,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
+	"syscall"
 )
 
 // PendingBlob is a temp file written by PutBlob, published later inside the
@@ -19,14 +20,14 @@ type PendingBlob struct {
 	tmp       string
 }
 
-func (s *Store) blobPath(sha string) string { return filepath.Join(s.dir, "blobs", sha[:2], sha) }
-func (s *Store) trashDir(txid string) string { return filepath.Join(s.dir, "blobs", ".trash", txid) }
+func blobName(sha string) string   { return path.Join("blobs", sha[:2], sha) }
+func trashName(txid string) string { return path.Join("blobs/.trash", txid) }
 
 // PutBlob writes blobs/tmp/<rand> and fsyncs it outside any lock.
 func (s *Store) PutBlob(data []byte, mime string) (*PendingBlob, error) {
 	h := sha256.Sum256(data)
-	p := &PendingBlob{Sha: hex.EncodeToString(h[:]), Mime: mime, Size: int64(len(data)), tmp: filepath.Join(s.dir, "blobs", "tmp", newID())}
-	if err := writeAtomic(p.tmp, data); err != nil { // temp + fsync + rename into tmp/
+	p := &PendingBlob{Sha: hex.EncodeToString(h[:]), Mime: mime, Size: int64(len(data)), tmp: path.Join("blobs/tmp", newID())}
+	if err := writeAtomic(s.root, p.tmp, data); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -36,45 +37,44 @@ func (s *Store) PutBlob(data []byte, mime string) (*PendingBlob, error) {
 // fsyncs the parent, inserts the blobs row and, when the sha's latest status
 // is expired, a `restored{rewrite}` row (TestBlobRewriteAfterGC).
 func (t *Tx) Publish(p *PendingBlob) error {
-	final := t.s.blobPath(p.Sha)
-	if err := os.MkdirAll(filepath.Dir(final), 0o700); err != nil {
-		return fmt.Errorf("ctxdb: publish: %w", err)
+	r, final := t.s.root, blobName(p.Sha)
+	err := r.MkdirAll(path.Dir(final), 0o700)
+	if _, serr := r.Stat(final); err == nil && serr == nil {
+		err = removeIfExists(r, p.tmp) // content-addressed: same bytes already published
+	} else if err == nil {
+		err = r.Rename(p.tmp, final)
 	}
-	if _, err := os.Stat(final); err == nil {
-		_ = os.Remove(p.tmp)
-	} else if err := os.Rename(p.tmp, final); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("ctxdb: publish: %w", err)
+	if err == nil {
+		err = t.syncDir(path.Dir(final))
 	}
-	if err := syncDir(filepath.Dir(final)); err != nil {
-		return err
+	if err != nil {
+		return wrap(err)
 	}
-	now := t.s.clk.WallMs()
-	if _, err := t.Exec("INSERT INTO blobs(sha256, size, mime, created_at) VALUES (?,?,?,?) ON CONFLICT DO NOTHING",
-		p.Sha, p.Size, p.Mime, now); err != nil {
-		return err
-	}
-	_, err := t.Exec(`INSERT INTO blob_expirations(sha256, kind, reason, at)
-		SELECT ?1, 'restored', 'rewrite', ?2 WHERE (SELECT kind FROM blob_expirations WHERE sha256 = ?1 ORDER BY id DESC LIMIT 1) = 'expired'`,
-		p.Sha, now)
+	_, err = t.Exec(`INSERT INTO blobs(sha256, size, mime, created_at) VALUES (?1,?2,?3,?4) ON CONFLICT DO NOTHING;
+		INSERT INTO blob_expirations(sha256, kind, reason, at) SELECT ?1, 'restored', 'rewrite', ?4
+		 WHERE (SELECT kind FROM blob_expirations WHERE sha256 = ?1 ORDER BY id DESC LIMIT 1) = 'expired'`,
+		p.Sha, p.Size, p.Mime, t.s.clk.WallMs())
 	return err
 }
 
-func syncDir(dir string) error {
-	f, err := os.Open(dir)
+func (t *Tx) syncDir(dir string) error { return syncRootDir(t.s.root, dir) }
+
+// syncRootDir fsyncs a directory of the data dir (blob publication, spool).
+func syncRootDir(root *os.Root, dir string) error {
+	f, err := root.Open(dir)
 	if err != nil {
-		return fmt.Errorf("ctxdb: fsync dir: %w", err)
+		return wrap(err)
 	}
-	err = f.Sync()
-	return errors.Join(err, f.Close())
+	return wrap(errors.Join(f.Sync(), f.Close()))
 }
 
 // ReadBlob reads a blob. On ENOENT it re-reads the status: expired →
 // blob_expired; live → recover this sha from .trash (gc step 1 for one sha)
 // under the write lock and read once more; then blob_missing.
 func (s *Store) ReadBlob(ctx context.Context, sha string) ([]byte, error) {
-	b, err := os.ReadFile(s.blobPath(sha))
-	if err == nil || !errors.Is(err, fs.ErrNotExist) {
-		return b, err
+	b, err := s.root.ReadFile(blobName(sha))
+	if !errors.Is(err, fs.ErrNotExist) {
+		return b, wrap(err)
 	}
 	var last string
 	if err := s.get(ctx, "SELECT coalesce((SELECT kind FROM blob_expirations WHERE sha256 = ? ORDER BY id DESC LIMIT 1), '')", []any{sha}, &last); err != nil {
@@ -86,10 +86,10 @@ func (s *Store) ReadBlob(ctx context.Context, sha string) ([]byte, error) {
 	if err := s.Write(ctx, func(t *Tx) error { return t.recoverTrash("", sha) }); err != nil {
 		return nil, err
 	}
-	if b, err = os.ReadFile(s.blobPath(sha)); errors.Is(err, fs.ErrNotExist) {
+	if b, err = s.root.ReadFile(blobName(sha)); errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("ctxdb: blob %s: %w", sha, ErrBlobMissing)
 	}
-	return b, err
+	return b, wrap(err)
 }
 
 // recoverTrash is gc step 1, always under the write lock: every owner of a
@@ -97,53 +97,54 @@ func (s *Store) ReadBlob(ctx context.Context, sha string) ([]byte, error) {
 // if its blobs row exists, its latest status is not expired and the final
 // path is free; otherwise it is deleted. txid/sha "" = all.
 func (t *Tx) recoverTrash(txid, sha string) error {
-	root := filepath.Join(t.s.dir, "blobs", ".trash")
-	dirs, err := os.ReadDir(root)
-	if err != nil {
-		return fmt.Errorf("ctxdb: trash: %w", err)
-	}
-	for _, d := range dirs {
-		if txid != "" && d.Name() != txid {
+	fsys := t.s.root.FS()
+	dirs, err := fs.ReadDir(fsys, "blobs/.trash")
+	for i := 0; err == nil && i < len(dirs); i++ {
+		if txid != "" && dirs[i].Name() != txid {
 			continue
 		}
-		files, _ := os.ReadDir(filepath.Join(root, d.Name()))
-		for _, f := range files {
-			if sha != "" && f.Name() != sha {
-				continue
-			}
-			if err := t.restoreOrDrop(filepath.Join(root, d.Name(), f.Name()), f.Name()); err != nil {
-				return err
+		dir := trashName(dirs[i].Name())
+		files, rerr := fs.ReadDir(fsys, dir)
+		err = rerr
+		for j := 0; err == nil && j < len(files); j++ {
+			if sha == "" || files[j].Name() == sha {
+				err = t.restoreOrDrop(path.Join(dir, files[j].Name()), files[j].Name())
 			}
 		}
-		_ = os.Remove(filepath.Join(root, d.Name())) // only succeeds when empty
+		if rerr := t.s.root.Remove(dir); err == nil && rerr != nil && !errors.Is(rerr, syscall.ENOTEMPTY) {
+			err = rerr // a dir still holding other shas stays
+		}
 	}
-	return nil
+	return wrap(err)
 }
 
 func (t *Tx) restoreOrDrop(src, sha string) error {
-	final := t.s.blobPath(sha)
-	_, statErr := os.Stat(final)
-	if t.checkLiveBlob(sha) == nil && errors.Is(statErr, fs.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(final), 0o700); err != nil {
-			return fmt.Errorf("ctxdb: trash restore: %w", err)
-		}
-		if err := os.Rename(src, final); err != nil {
-			return fmt.Errorf("ctxdb: trash restore: %w", err)
-		}
-		return syncDir(filepath.Dir(final))
+	r, final := t.s.root, blobName(sha)
+	if _, serr := r.Stat(final); t.checkLiveBlob(sha) != nil || !errors.Is(serr, fs.ErrNotExist) {
+		return wrap(r.Remove(src))
 	}
-	return os.Remove(src)
+	if err := r.MkdirAll(path.Dir(final), 0o700); err != nil {
+		return wrap(err)
+	}
+	if err := r.Rename(src, final); err != nil {
+		return wrap(err)
+	}
+	return t.syncDir(path.Dir(final))
 }
 
-// trashFile moves a final blob file into this transaction's trash dir.
+// trashFile moves a final blob file into this transaction's trash dir; the
+// dir is unlinked after COMMIT and recovered after a rollback.
 func (t *Tx) trashFile(sha string) error {
-	dir := t.s.trashDir(t.txid)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("ctxdb: trash: %w", err)
+	r, dir := t.s.root, trashName(t.txid)
+	if err := r.MkdirAll(dir, 0o700); err != nil {
+		return wrap(err)
 	}
-	if err := os.Rename(t.s.blobPath(sha), filepath.Join(dir, sha)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("ctxdb: trash %s: %w", sha, err)
+	if err := r.Rename(blobName(sha), path.Join(dir, sha)); err != nil {
+		return wrap(err)
 	}
-	t.OnCommit(func() { _ = os.RemoveAll(dir) })
+	if !t.trashed {
+		t.OnCommit(func() error { return r.RemoveAll(dir) })
+	}
+	t.trashed = true
 	return nil
 }

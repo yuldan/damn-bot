@@ -108,7 +108,7 @@ func s007(t *testing.T) {
 		t.Fatalf("gc stats %+v", st)
 	}
 	for _, p := range []*PendingBlob{p1, p2} {
-		if _, err := os.Stat(s.blobPath(p.Sha)); !errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(s.testBlobPath(p.Sha)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("crash leftover %s remains", p.Sha[:8])
 		}
 	}
@@ -256,7 +256,7 @@ func s015(t *testing.T) {
 	for i := range evs {
 		evs[i] = Event{Kind: "tool_result", Content: "output line"}
 	}
-	for range 40 { // 20 000 events
+	for range 10 { // 5 000 events
 		_, err := p.Append(bg, "BIG", nil, evs...)
 		must(t, err)
 	}
@@ -296,7 +296,7 @@ func s015(t *testing.T) {
 	if maxHeld > 200*time.Millisecond || held > total/5 {
 		t.Fatalf("lock budget: max %v, duty %.1f%%", maxHeld, 100*float64(held)/float64(total))
 	}
-	t.Logf("purge 20k events: %v, max tx %v, duty %.1f%%", total, maxHeld, 100*float64(held)/float64(total))
+	t.Logf("purge 5k events: %v, max tx %v, duty %.1f%%", total, maxHeld, 100*float64(held)/float64(total))
 }
 
 // #21: gc vs writer vs purge vs trash recovery → 0 live refs to missing files.

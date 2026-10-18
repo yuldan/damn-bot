@@ -18,55 +18,97 @@ const (
 
 // Tx is one BEGIN IMMEDIATE write transaction on the process writer.
 type Tx struct {
-	ctx      context.Context
+	ctx      context.Context //nolint:containedctx // a Tx lives exactly as long as the transaction begun with this ctx
 	c        *sql.Conn
 	s        *Store
 	txid     string
-	onCommit []func()
-	trashed  bool            // files moved to .trash/<txid>/ (recovered on rollback)
-	freed    map[string]bool // purge: shas whose refs were deleted here (step 25)
+	onCommit []func() error
+	trashed  bool // files moved to .trash/<txid>/ (recovered on rollback)
 }
 
-// Exec runs a statement and returns rows affected; errors are classified.
+type querier interface {
+	QueryContext(ctx context.Context, q string, args ...any) (*sql.Rows, error)
+}
+
+// each runs a query and calls scan for every row; rows are always closed
+// and every error is wrapped and classified.
+func each(ctx context.Context, db querier, q string, args []any, scan func(*sql.Rows) error) (err error) {
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return wrap(err)
+	}
+	defer func() { err = errors.Join(err, wrap(rows.Close())) }()
+	for rows.Next() {
+		if serr := scan(rows); serr != nil {
+			return wrap(serr)
+		}
+	}
+	return wrap(rows.Err())
+}
+
+// getOne scans the first row into dest; no row is ErrNotFound.
+func getOne(ctx context.Context, db querier, q string, args []any, dest ...any) error {
+	found := false
+	err := each(ctx, db, q, args, func(r *sql.Rows) error {
+		if found {
+			return nil
+		}
+		found = true
+		return r.Scan(dest...)
+	})
+	if err == nil && !found {
+		err = fmt.Errorf("ctxdb: %w: %w", ErrNotFound, sql.ErrNoRows)
+	}
+	return err
+}
+
+// column collects the first column of every row.
+func column[T any](ctx context.Context, db querier, q string, args ...any) ([]T, error) {
+	var out []T
+	err := each(ctx, db, q, args, func(r *sql.Rows) error {
+		var v T
+		out = append(out, v)
+		return r.Scan(&out[len(out)-1])
+	})
+	return out, err
+}
+
+// Exec runs one or more statements and returns rows affected by the last.
 func (t *Tx) Exec(q string, args ...any) (int64, error) {
 	res, err := t.c.ExecContext(t.ctx, q, args...)
 	if err != nil {
-		return 0, classify(err)
+		return 0, wrap(err)
 	}
-	return res.RowsAffected()
+	n, err := res.RowsAffected()
+	return n, wrap(err)
 }
 
 // Get scans one row; a missing row is ErrNotFound.
 func (t *Tx) Get(q string, args []any, dest ...any) error {
-	err := t.c.QueryRowContext(t.ctx, q, args...).Scan(dest...)
-	if isNoRows(err) {
-		return fmt.Errorf("%w: %w", ErrNotFound, err)
-	}
-	return classify(err)
+	return getOne(t.ctx, t.c, q, args, dest...)
 }
 
 // Strings returns the first column of every row.
 func (t *Tx) Strings(q string, args ...any) ([]string, error) {
-	rows, err := t.c.QueryContext(t.ctx, q, args...)
-	if err != nil {
-		return nil, classify(err)
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var v string
-		if err := rows.Scan(&v); err != nil {
-			return nil, err
-		}
-		out = append(out, v)
-	}
-	return out, rows.Err()
+	return column[string](t.ctx, t.c, q, args...)
 }
 
-// OnCommit runs f after a successful COMMIT (file unlinks, token updates).
-func (t *Tx) OnCommit(f func()) { t.onCommit = append(t.onCommit, f) }
+// Ints returns the first integer column of every row.
+func (t *Tx) Ints(q string, args ...any) ([]int64, error) {
+	return column[int64](t.ctx, t.c, q, args...)
+}
 
-// Write runs fn in a normal-mode ('') write transaction.
+// run executes a named block of queries.sql.
+func (t *Tx) run(name string, args ...any) error {
+	_, err := t.Exec(t.s.q[name], args...)
+	return err
+}
+
+// OnCommit runs f after a successful COMMIT (file unlinks, ledger lines).
+// Its errors cannot undo the commit; they are kept and returned by Close.
+func (t *Tx) OnCommit(f func() error) { t.onCommit = append(t.onCommit, f) }
+
+// Write runs fn in a normal-mode (”) write transaction.
 func (s *Store) Write(ctx context.Context, fn func(*Tx) error) error {
 	return s.tx(ctx, modeNormal, fn)
 }
@@ -83,119 +125,118 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 	}
 	c, err := s.w.Conn(ctx)
 	if err != nil {
-		return classify(err)
+		return wrap(err)
 	}
-	committed := false
-	var t *Tx
-	var began time.Time
-	defer func() {
-		bg := context.WithoutCancel(ctx)
-		if !committed {
-			_, _ = c.ExecContext(bg, "ROLLBACK")
-			if t != nil && t.trashed { // trigger (c): owner recovers its own .trash/<txid>/
-				err = errors.Join(err, recoverOwnTrash(bg, c, s, t.txid))
-			}
-		}
-		if s.opt.OnTx != nil && !began.IsZero() {
-			s.opt.OnTx(mode, time.Since(began))
-		}
-		s.mode.Store(modeNormal)
-		err = joinClose(err, c)
-	}()
-	if _, err := c.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		committed = true // nothing to roll back
-		return classify(err)
+	t := &Tx{ctx: ctx, c: c, s: s, txid: fmt.Sprintf("%d-%s-%d", s.id.PID, s.id.Start, s.txSeq.Add(1))}
+	if _, err = c.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return errors.Join(wrap(err), wrap(c.Close()))
 	}
-	began = time.Now()
+	began, committed := time.Now(), false
+	defer func() { err = errors.Join(err, s.endTx(t, mode, began, committed)) }()
 	var uv int
-	if err := c.QueryRowContext(ctx, "PRAGMA user_version").Scan(&uv); err != nil {
-		return classify(err)
+	if err = getOne(ctx, c, "PRAGMA user_version", nil, &uv); err == nil && uv > s.schemaMax() {
+		err = fmt.Errorf("ctxdb: db version %d > binary %d: %w", uv, s.schemaMax(), ErrSchemaNewer)
 	}
-	if uv > s.schemaMax() {
-		return fmt.Errorf("ctxdb: db version %d > binary %d: %w", uv, s.schemaMax(), ErrSchemaNewer)
+	if err != nil {
+		return err
 	}
 	s.mode.Store(mode)
-	t = &Tx{ctx: ctx, c: c, s: s, txid: fmt.Sprintf("%d-%s-%d", s.id.PID, s.id.Start, s.txSeq.Add(1)), freed: map[string]bool{}}
 	if err := fn(t); err != nil {
 		return err
 	}
-	if _, err := c.ExecContext(ctx, "COMMIT"); err != nil {
-		return classify(err)
+	if _, err = c.ExecContext(ctx, "COMMIT"); err != nil {
+		return wrap(err)
 	}
 	committed = true
 	for _, f := range t.onCommit {
-		f()
+		s.bgErr = errors.Join(s.bgErr, wrap(f()))
 	}
 	return nil
 }
 
-// recoverOwnTrash runs gc step 1 for one txid in a fresh transaction.
-func recoverOwnTrash(ctx context.Context, c *sql.Conn, s *Store, txid string) error {
-	if _, err := c.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return classify(err)
+// endTx rolls back an unfinished transaction (and recovers its own trash,
+// gc trigger (c)), reports lock time, resets the mode and releases the conn.
+func (s *Store) endTx( //nolint:contextcheck // the transaction ctx is carried in t
+	t *Tx, mode string, began time.Time, committed bool) error {
+	bg := context.WithoutCancel(t.ctx)
+	var err error
+	if !committed {
+		_, rerr := t.c.ExecContext(bg, "ROLLBACK")
+		err = wrap(rerr)
+		if t.trashed {
+			t.ctx = bg
+			err = errors.Join(err, t.recoverOwnTrash())
+		}
 	}
-	t := &Tx{ctx: ctx, c: c, s: s, txid: txid}
-	if err := t.recoverTrash(txid, ""); err != nil {
-		_, _ = c.ExecContext(ctx, "ROLLBACK")
-		return err
+	if s.opt.OnTx != nil {
+		s.opt.OnTx(mode, time.Since(began))
 	}
-	_, err := c.ExecContext(ctx, "COMMIT")
-	return classify(err)
+	s.mode.Store(modeNormal)
+	return errors.Join(err, wrap(t.c.Close()))
 }
 
-func joinClose(err error, c *sql.Conn) error {
-	if cerr := c.Close(); err == nil {
-		return cerr
+// recoverOwnTrash runs gc step 1 for this txid in a fresh transaction.
+func (t *Tx) recoverOwnTrash() error {
+	if _, err := t.c.ExecContext(t.ctx, "BEGIN IMMEDIATE"); err != nil {
+		return wrap(err)
+	}
+	if err := t.recoverTrash(t.txid, ""); err != nil {
+		_, rerr := t.c.ExecContext(t.ctx, "ROLLBACK")
+		return errors.Join(err, wrap(rerr))
+	}
+	_, err := t.c.ExecContext(t.ctx, "COMMIT")
+	return wrap(err)
+}
+
+// preWrite enforces I8 before every write transaction (and read): a
+// maintenance marker drains this process; a replaced DB file is reopened.
+func (s *Store) preWrite(ctx context.Context) error {
+	var err error
+	if s.w != nil && !s.barrierOwner.Load() && markerPresent(s.root) {
+		err = s.detach()
+	}
+	if s.w != nil {
+		if fi, serr := s.root.Stat(dbFile); serr != nil || !os.SameFile(fi, s.fi) {
+			err = errors.Join(err, s.detach())
+		}
+	}
+	if err == nil && s.w == nil {
+		err = s.attach(ctx)
 	}
 	return err
 }
 
-// preWrite enforces I8 before every write transaction: a maintenance marker
-// drains this process; a replaced DB file is reopened (os.SameFile).
-func (s *Store) preWrite(ctx context.Context) error {
-	if s.w != nil && markerPresent(s.dir) && !s.barrierOwner.Load() {
-		s.detach()
-	}
-	if s.w != nil {
-		if fi, err := os.Stat(DBPath(s.dir)); err != nil || !os.SameFile(fi, s.fi) {
-			s.detach()
-		}
-	}
-	if s.w == nil {
-		return s.attach(ctx)
-	}
-	return nil
-}
-
-// read helpers on the read-only pool -------------------------------------
-
-// query runs a read query, reattaching a drained Store first (barrier open
-// order) so reads never touch a replaced DB file.
-func (s *Store) query(ctx context.Context, q string, args ...any) (*sql.Rows, error) {
+// reader returns the read pool, reattaching a drained Store first (barrier
+// open order) so reads never touch a replaced DB file.
+func (s *Store) reader(ctx context.Context) (*sql.DB, error) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	err := s.preWrite(ctx)
-	db := s.r
-	s.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-	rows, err := db.QueryContext(ctx, q, args...)
-	return rows, classify(err)
+	return s.r, err
 }
 
 func (s *Store) get(ctx context.Context, q string, args []any, dest ...any) error {
-	rows, err := s.query(ctx, q, args...)
+	db, err := s.reader(ctx)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-	if !rows.Next() {
-		if err := rows.Err(); err != nil {
-			return classify(err)
-		}
-		return fmt.Errorf("%w: %w", ErrNotFound, errNoRows)
+	return getOne(ctx, db, q, args, dest...)
+}
+
+func (s *Store) each(ctx context.Context, q string, args []any, scan func(*sql.Rows) error) error {
+	db, err := s.reader(ctx)
+	if err != nil {
+		return err
 	}
-	return classify(rows.Scan(dest...))
+	return each(ctx, db, q, args, scan)
+}
+
+func (s *Store) strings(ctx context.Context, q string, args ...any) ([]string, error) {
+	db, err := s.reader(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return column[string](ctx, db, q, args...)
 }
 
 // Count returns a single integer from a read query (tests, doctor).

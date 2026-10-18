@@ -3,30 +3,30 @@
 package ctxdb
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"syscall"
 )
 
-// tryLock takes a non-blocking flock on path (shared or exclusive). flock is
-// per open file description, so two Stores in one process contend exactly
-// like two processes; the kernel drops the lock when the holder dies.
-func tryLock(path string, exclusive bool) (*os.File, bool) {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+// tryLock takes a non-blocking flock on root/name (shared or exclusive).
+// flock is per open file description, so two Stores in one process contend
+// exactly like two processes; the kernel drops the lock when the holder
+// dies or closes the file.
+func tryLock(root *os.Root, name string, exclusive bool) (*os.File, error) {
+	f, err := root.OpenFile(name, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
-		return nil, false
+		return nil, wrap(err)
 	}
 	how := syscall.LOCK_SH
 	if exclusive {
 		how = syscall.LOCK_EX
 	}
-	if syscall.Flock(int(f.Fd()), how|syscall.LOCK_NB) != nil {
-		_ = f.Close()
-		return nil, false
+	if err := syscall.Flock(int(f.Fd()), how|syscall.LOCK_NB); err != nil {
+		return nil, errors.Join(fmt.Errorf("ctxdb: %s locked: %w", name, ErrDBBusy), wrap(f.Close()))
 	}
-	return f, true
+	return f, nil
 }
 
-func unlockFile(f *os.File) {
-	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-	_ = f.Close()
-}
+// unlockFile releases a lock taken by tryLock (closing drops the flock).
+func unlockFile(f *os.File) error { return wrap(f.Close()) }

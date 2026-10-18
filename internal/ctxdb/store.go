@@ -24,10 +24,12 @@ import (
 // SystemSession owns audit/system rows (SPEC §11.11.10); never purged.
 const SystemSession = "__system__"
 
+const dbFile = "damnbot.db"
+
 // Options configures Open. Zero values select production defaults.
 type Options struct {
 	Dir          string // data dir: damnbot.db, blobs/, run/, purge.log
-	Kind         string // tui|acp|serve|run|cli|mcp_serve (holder kind)
+	Kind         string // tui|acp|serve|run|cli|mcp_serve|doctor (holder kind)
 	Clock        Clock
 	Procs        Procs
 	Ident        *Ident        // override (tests simulating processes)
@@ -46,8 +48,11 @@ type Store struct {
 	opt  Options
 	id   Ident
 	dir  string
+	root *os.Root // every file operation stays inside the data dir
 	clk  Clock
-	mu   sync.Mutex // serialises write transactions (the process writer)
+	q    map[string]string // named statements of queries.sql
+	migs []migration       // embedded migration ladder
+	mu   sync.Mutex        // serialises write transactions (the process writer)
 	w, r *sql.DB
 	fi   os.FileInfo // identity of the opened DB file (os.SameFile, I8)
 	lock *os.File    // run/maint.lock held shared while open (§11.11.7)
@@ -61,31 +66,34 @@ type Store struct {
 	// barrierOwner: this Store owns the maintenance barrier (restore), so the
 	// marker must not drain it; also set while a purge releases its lease.
 	barrierOwner atomic.Bool
-	purgeOrder   map[string][]string // txid → labelled sessions, descendants first (guarded by mu)
-	chunk        int                 // purge phase-2 unit size, adapted to measured cost (guarded by mu)
-	q            map[string]string   // named statements of queries.sql
-	stop         context.CancelFunc // barrier watcher
+	purgeOrder   map[string][]string // txid → labelled sessions, descendants first (mu)
+	chunk        int                 // purge phase-2 unit size, adapted to measured cost (mu)
+	bgErr        error               // error of a background drain, returned by Close (mu)
+	stop         context.CancelFunc  // barrier watcher
 	done         chan struct{}
 }
 
 // DBPath returns the database file of a data dir.
-func DBPath(dir string) string { return filepath.Join(dir, "damnbot.db") }
+func DBPath(dir string) string { return filepath.Join(dir, dbFile) }
 
 // Open runs the open sequence: barrier check, migration (under barrier
 // reason=migrate), shared maint.lock, then startup recovery (SELF-HEALING §3.4).
-func Open(ctx context.Context, o Options) (*Store, error) {
+func Open(ctx context.Context, o *Options) (*Store, error) {
 	s, err := newStore(o)
+	if err == nil {
+		err = s.migrateIfNeeded(ctx)
+	}
+	if err == nil {
+		err = s.attach(ctx)
+	}
+	if err == nil {
+		err = s.startupRecovery(ctx)
+	}
 	if err != nil {
+		if s != nil {
+			err = errors.Join(err, s.Close())
+		}
 		return nil, err
-	}
-	if err := s.migrateIfNeeded(ctx); err != nil {
-		return nil, err
-	}
-	if err := s.attach(ctx); err != nil {
-		return nil, err
-	}
-	if err := s.startupRecovery(ctx); err != nil {
-		return nil, errors.Join(err, s.Close())
 	}
 	wctx, stop := context.WithCancel(context.WithoutCancel(ctx))
 	s.stop, s.done = stop, make(chan struct{})
@@ -93,36 +101,43 @@ func Open(ctx context.Context, o Options) (*Store, error) {
 	return s, nil
 }
 
-func newStore(o Options) (*Store, error) {
-	if o.Clock == nil {
-		o.Clock = SystemClock{}
+func newStore(o *Options) (*Store, error) {
+	opt := *o
+	if opt.Clock == nil {
+		opt.Clock = SystemClock{}
 	}
-	if o.Procs == nil {
-		o.Procs = SystemProcs{}
+	if opt.Procs == nil {
+		opt.Procs = SystemProcs{}
 	}
-	if o.BusyTimeout == 0 {
-		o.BusyTimeout = 5 * time.Second
-	}
-	if o.BarrierWait == 0 {
-		o.BarrierWait = BarrierWait
-	}
+	opt.BusyTimeout = cmpOr(opt.BusyTimeout, 5*time.Second)
+	opt.BarrierWait = cmpOr(opt.BarrierWait, BarrierWait)
 	q, err := loadQueries()
 	if err != nil {
-		return nil, fmt.Errorf("ctxdb: queries: %w", err)
+		return nil, err
 	}
-	s := &Store{opt: o, dir: o.Dir, clk: o.Clock, q: q, chunk: firstChunk, tokens: map[string]int64{}, obs: map[string]observation{}}
-	s.mode.Store("")
-	if o.Ident != nil {
-		s.id = *o.Ident
-	} else {
-		s.id = SelfIdent()
+	migs, err := migrations()
+	if err != nil {
+		return nil, err
 	}
-	for _, d := range []string{"blobs/tmp", "blobs/.trash", "run/maint.holders", "backups"} {
-		if err := os.MkdirAll(filepath.Join(o.Dir, d), 0o700); err != nil {
-			return nil, fmt.Errorf("ctxdb: mkdir: %w", err)
-		}
+	root, err := openRoot(opt.Dir)
+	if err != nil {
+		return nil, err
+	}
+	s := &Store{opt: opt, dir: opt.Dir, root: root, clk: opt.Clock, q: q, migs: migs, chunk: firstChunk,
+		tokens: map[string]int64{}, obs: map[string]observation{}}
+	s.mode.Store(modeNormal)
+	s.id = SelfIdent()
+	if opt.Ident != nil {
+		s.id = *opt.Ident
 	}
 	return s, nil
+}
+
+func cmpOr(v, def time.Duration) time.Duration {
+	if v == 0 {
+		return def
+	}
+	return v
 }
 
 // watch drains an idle Store within one poll when a maintenance marker
@@ -136,13 +151,11 @@ func (s *Store) watch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-tk.C:
-			if markerPresent(s.dir) && !s.barrierOwner.Load() {
-				s.mu.Lock()
-				if s.w != nil {
-					s.detach()
-				}
-				s.mu.Unlock()
-			}
+		}
+		if markerPresent(s.root) && !s.barrierOwner.Load() {
+			s.mu.Lock()
+			s.bgErr = errors.Join(s.bgErr, s.detach())
+			s.mu.Unlock()
 		}
 	}
 }
@@ -155,23 +168,23 @@ func (s *Store) attach(ctx context.Context) error {
 		return err
 	}
 	s.lock = lk
-	if s.w, s.r, err = s.openHandles(); err != nil {
-		s.detach()
-		return err
+	if s.w, s.r, err = s.openHandles(ctx); err == nil {
+		s.fi, err = s.root.Stat(dbFile)
 	}
-	if s.fi, err = os.Stat(DBPath(s.dir)); err != nil {
-		s.detach()
-		return fmt.Errorf("ctxdb: stat db: %w", err)
+	if err == nil {
+		err = s.registerHolder()
 	}
-	return s.registerHolder()
+	if err != nil {
+		return errors.Join(wrap(err), s.detach())
+	}
+	return nil
 }
 
 func (s *Store) dsn(readOnly bool) string {
 	q := []string{
 		fmt.Sprintf("_pragma=busy_timeout(%d)", s.opt.BusyTimeout.Milliseconds()),
 		"_pragma=journal_mode(WAL)", "_pragma=synchronous(FULL)", "_pragma=foreign_keys(1)",
-		"_pragma=temp_store(MEMORY)", "_pragma=journal_size_limit(67108864)",
-		"_pragma=wal_autocheckpoint(1000)",
+		"_pragma=temp_store(MEMORY)", "_pragma=journal_size_limit(67108864)", "_pragma=wal_autocheckpoint(1000)",
 	}
 	if readOnly {
 		q = append(q, "_pragma=query_only(1)")
@@ -179,73 +192,79 @@ func (s *Store) dsn(readOnly bool) string {
 	return "file:" + DBPath(s.dir) + "?" + strings.Join(q, "&")
 }
 
-func (s *Store) openHandles() (w, r *sql.DB, err error) {
+func (s *Store) openHandles(ctx context.Context) (w, r *sql.DB, err error) {
 	dw, errW := s.driver(true)
 	dr, errR := s.driver(false)
 	if err = errors.Join(errW, errR); err != nil {
-		return nil, nil, fmt.Errorf("ctxdb: register functions: %w", err)
+		return nil, nil, wrap(err)
 	}
-	w = sql.OpenDB(connector{dw, s.dsn(false)})
+	w = sql.OpenDB(connector{d: dw, dsn: s.dsn(false), s: s})
 	w.SetMaxOpenConns(1)
 	w.SetConnMaxLifetime(0)
-	r = sql.OpenDB(connector{dr, s.dsn(true)})
+	r = sql.OpenDB(connector{d: dr, dsn: s.dsn(true)})
 	r.SetMaxOpenConns(4)
-	if err = w.Ping(); err == nil {
-		err = r.Ping()
+	if err = w.PingContext(ctx); err == nil {
+		err = r.PingContext(ctx)
 	}
 	if err != nil {
-		err = errors.Join(err, w.Close(), r.Close())
-		return nil, nil, fmt.Errorf("ctxdb: open: %w", classify(err))
+		return nil, nil, wrap(errors.Join(err, w.Close(), r.Close()))
 	}
 	return w, r, nil
 }
 
 // driver registers the per-connection functions of SPEC §11 on a private
 // Driver so dmb_maint()/dmb_lease_token() see this Store's state only.
-// Writer connections also get commit/rollback hooks that force the mode
-// back to '' (§11.11.3); tx() additionally resets it in a defer.
 func (s *Store) driver(writer bool) (*sqlite.Driver, error) {
 	d := &sqlite.Driver{}
-	err := errors.Join(
+	return d, errors.Join(
 		d.RegisterScalarFunction("dmb_maint", 0, func(*sqlite.FunctionContext, []driver.Value) (driver.Value, error) {
 			if !writer {
-				return "", nil
+				return modeNormal, nil
 			}
 			return s.mode.Load(), nil
 		}),
 		d.RegisterScalarFunction("dmb_lease_token", 1, func(_ *sqlite.FunctionContext, a []driver.Value) (driver.Value, error) {
-			sid, _ := a[0].(string)
-			s.tokMu.Lock()
-			defer s.tokMu.Unlock()
-			if t, ok := s.tokens[sid]; ok && writer {
+			sid, ok := a[0].(string)
+			if t, held := s.token(sid); ok && held && writer {
 				return t, nil
 			}
 			return nil, nil
 		}),
 		d.RegisterDeterministicScalarFunction("dmb_fts_norm", 1, func(_ *sqlite.FunctionContext, a []driver.Value) (driver.Value, error) {
-			t, _ := a[0].(string)
+			t, _ := a[0].(string) // non-text input normalises to ""
 			return ftsNorm(t), nil
 		}))
-	if writer {
-		d.RegisterConnectionHook(func(c sqlite.ExecQuerierContext, _ string) error {
-			if h, ok := c.(sqlite.HookRegisterer); ok {
-				h.RegisterCommitHook(func() int32 { s.mode.Store(""); return 0 })
-				h.RegisterRollbackHook(func() { s.mode.Store("") })
-			}
-			_, err := c.ExecContext(context.Background(), s.q["temp.tables"], nil) // purge scratch tables
-			return err
-		})
-	}
-	return d, err
 }
 
+// connector opens driver connections; for the writer (s != nil) it installs
+// commit/rollback hooks that force the mode back to ” (§11.11.3, tx()
+// also resets it in a defer) and creates the purge scratch tables.
 type connector struct {
 	d   *sqlite.Driver
 	dsn string
+	s   *Store
 }
 
-func (c connector) Connect(context.Context) (driver.Conn, error) { return c.d.Open(c.dsn) }
-func (c connector) Driver() driver.Driver                        { return c.d }
+func (c connector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := c.d.Open(c.dsn)
+	if err != nil || c.s == nil {
+		return conn, wrap(err)
+	}
+	if h, ok := conn.(sqlite.HookRegisterer); ok {
+		h.RegisterCommitHook(func() int32 { c.s.mode.Store(modeNormal); return 0 })
+		h.RegisterRollbackHook(func() { c.s.mode.Store(modeNormal) })
+	}
+	if ex, ok := conn.(driver.ExecerContext); ok {
+		if _, err := ex.ExecContext(ctx, c.s.q["temp.tables"], nil); err != nil {
+			err = wrap(err)
+			err = errors.Join(err, wrap(conn.Close()))
+			return nil, err
+		}
+	}
+	return conn, nil
+}
+
+func (c connector) Driver() driver.Driver { return c.d }
 
 // ftsNorm lowercases text and splits CJK runs into overlapping bigrams
 // (INF-01) so unicode61 tokenises them.
@@ -253,21 +272,20 @@ func ftsNorm(t string) string {
 	var b strings.Builder
 	var prev rune = -1
 	for _, r := range strings.ToLower(t) {
-		if unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul) {
-			if prev >= 0 {
-				b.WriteRune(prev)
-				b.WriteRune(r)
-				b.WriteByte(' ')
-			}
-			prev = r
-			continue
-		}
+		cjk := unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
 		if prev >= 0 {
 			b.WriteRune(prev)
+			if cjk {
+				b.WriteRune(r)
+			}
 			b.WriteByte(' ')
-			prev = -1
 		}
-		b.WriteRune(r)
+		prev = -1
+		if cjk {
+			prev = r
+		} else {
+			b.WriteRune(r)
+		}
 	}
 	if prev >= 0 {
 		b.WriteRune(prev)
@@ -276,25 +294,26 @@ func ftsNorm(t string) string {
 }
 
 // detach closes handles and releases the shared barrier lock (drain).
-func (s *Store) detach() {
+func (s *Store) detach() error {
+	var err error
 	if s.w != nil {
-		_ = s.w.Close()
-		_ = s.r.Close()
+		err = wrap(errors.Join(s.w.Close(), s.r.Close()))
 		s.w, s.r = nil, nil
 	}
 	if s.lock != nil {
-		unlockFile(s.lock)
+		err = errors.Join(err, unlockFile(s.lock))
 		s.lock = nil
 	}
 	s.tokMu.Lock()
 	clear(s.tokens) // drained processes discard lease tokens (§11.11.7)
 	s.tokMu.Unlock()
+	return err
 }
 
-// Close releases leases' handles, the holder entry and the barrier lock.
-// The last process out truncates the WAL (SPEC §11). "Last" is proven by
-// taking run/maint.lock exclusively (every open process holds it shared):
-// a TRUNCATE checkpoint holds the writer lock while it waits for readers, so
+// Close releases the holder entry, handles and barrier lock. The last
+// process out truncates the WAL (SPEC §11). "Last" is proven by taking
+// run/maint.lock exclusively (every open process holds it shared): a
+// TRUNCATE checkpoint holds the writer lock while it waits for readers, so
 // running it beside live processes stalls their BEGIN IMMEDIATE past
 // busy_timeout (root cause of SQLITE_BUSY in TestMultiProcess under -race).
 func (s *Store) Close() error {
@@ -305,20 +324,17 @@ func (s *Store) Close() error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var err error
+	err := s.bgErr
 	if s.w != nil && s.lock != nil {
-		unlockFile(s.lock)
+		err = errors.Join(err, unlockFile(s.lock))
 		s.lock = nil
-		if last, ok := tryLock(runPath(s.dir, "maint.lock"), true); ok {
-			_, err = s.w.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
-			unlockFile(last)
+		if last, lerr := tryLock(s.root, lockFile, true); lerr == nil {
+			_, cerr := s.w.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)") //nolint:contextcheck // Close has no ctx by design
+			err = errors.Join(err, wrap(cerr), unlockFile(last))
 		}
 	}
-	if rerr := os.Remove(s.holderPath()); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
-		err = errors.Join(err, rerr)
-	}
-	s.detach()
-	return classify(err)
+	err = errors.Join(err, removeIfExists(s.root, s.holderName()), s.detach(), wrap(s.root.Close()))
+	return err
 }
 
 // Ident returns the identity this Store writes into leases.
@@ -326,8 +342,3 @@ func (s *Store) Ident() Ident { return s.id }
 
 // Dir returns the data dir.
 func (s *Store) Dir() string { return s.dir }
-
-var errNoRows = sql.ErrNoRows
-
-// isNoRows reports a missing row from QueryRow.Scan.
-func isNoRows(err error) bool { return errors.Is(err, errNoRows) }

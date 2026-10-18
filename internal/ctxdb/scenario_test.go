@@ -211,7 +211,7 @@ func s033(t *testing.T) {
 		if err := tx.StartTurn("S", "T1"); err != nil {
 			return err
 		}
-		return tx.ToolPending("S", "T1", ToolCall{CallID: "c1", Name: "shell", Class: "non_idempotent", ArgsSha: "a"})
+		return tx.ToolPending("S", "T1", &ToolCall{CallID: "c1", Name: "shell", Class: "non_idempotent", ArgsSha: "a"})
 	}))
 	e.clk.Advance(11 * time.Second)
 	e.clk.Advance(observeGap * time.Millisecond)
@@ -268,14 +268,13 @@ func s040(t *testing.T) {
 // #44: start stamps are opaque strings compared exactly; wall steps do not
 // change them, so criterion 3 is unaffected.
 func s044(t *testing.T) {
-	st, err := procStart(os.Getpid())
-	must(t, err)
+	st := startStamp(t, os.Getpid())
 	if st == "" {
 		t.Fatal("no start stamp on Linux")
 	}
 	e := newEnv(t)
 	e.clk.StepWall(time.Hour)
-	st2, _ := procStart(os.Getpid())
+	st2 := startStamp(t, os.Getpid())
 	if st != st2 || (SystemProcs{}).Gone(Ident{PID: os.Getpid(), Start: st}) {
 		t.Fatal("start stamp changed or self gone")
 	}

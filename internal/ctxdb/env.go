@@ -2,6 +2,7 @@ package ctxdb
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -17,7 +18,7 @@ type Clock interface {
 }
 
 // Ident is a process identity (SPEC §11.11.1): host = "<hostname>#<pidns>",
-// Start = opaque OS start stamp compared verbatim, BootID opaque ('' unknown).
+// Start = opaque OS start stamp compared verbatim, BootID opaque (” unknown).
 type Ident struct {
 	Host   string `json:"owner_host"`
 	PID    int    `json:"owner_pid"`
@@ -42,7 +43,7 @@ func (SystemClock) Sleep(ctx context.Context, d time.Duration) error {
 	defer t.Stop()
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("ctxdb: %w", ctx.Err())
 	case <-t.C:
 		return nil
 	}

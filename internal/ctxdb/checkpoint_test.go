@@ -17,12 +17,11 @@ func TestCloseCheckpointDoesNotBlockWriters(t *testing.T) {
 	for range 50 {
 		appendMsg(t, c, "S", "fill the WAL")
 	}
-	rows, err := b.query(bg, "SELECT id FROM events") // long-lived reader snapshot
+	rc, err := b.r.Conn(bg) // long-lived read transaction: a WAL reader
 	must(t, err)
-	defer rows.Close()
-	if !rows.Next() {
-		t.Fatal("no rows")
-	}
+	defer func() { must(t, rc.Close()) }()
+	var n int
+	must(t, rc.QueryRowContext(bg, "BEGIN; SELECT count(*) FROM events").Scan(&n))
 	appendMsg(t, c, "S", "after reader snapshot") // reader is now behind the WAL head
 	done := make(chan error, 1)
 	go func() { done <- a.Close() }()

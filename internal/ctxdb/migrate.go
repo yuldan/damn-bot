@@ -3,15 +3,15 @@ package ctxdb
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
+	"io/fs"
+	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -20,32 +20,39 @@ import (
 var migFS embed.FS
 
 type migration struct {
-	ver        int
-	name, body string
-	sum        string
+	name, body, sum string
 }
 
-// migrations returns the embedded ladder; numbering must be gap-free (§11.1).
+// migrations returns the embedded ladder (file names sort by number); the
+// numbering must be gap-free (§11.1).
 func migrations() ([]migration, error) {
 	ents, err := migFS.ReadDir("migrations")
-	if err != nil {
-		return nil, fmt.Errorf("ctxdb: migrations: %w", err)
-	}
-	var out []migration
-	for _, e := range ents {
-		b, err := migFS.ReadFile("migrations/" + e.Name())
-		if err != nil {
-			return nil, fmt.Errorf("ctxdb: migrations: %w", err)
+	out := make([]migration, 0, len(ents))
+	for i := 0; err == nil && i < len(ents); i++ {
+		name := ents[i].Name()
+		var b []byte
+		if b, err = migFS.ReadFile("migrations/" + name); err == nil && !strings.HasPrefix(name, fmt.Sprintf("%04d_", i+1)) {
+			err = fmt.Errorf("ctxdb: migration gap at %s: %w", name, ErrInternal)
 		}
-		v, _ := strconv.Atoi(e.Name()[:4])
 		h := sha256.Sum256(b)
-		out = append(out, migration{ver: v, name: strings.TrimSuffix(e.Name(), ".sql"), body: string(b), sum: hex.EncodeToString(h[:])})
+		out = append(out, migration{name: strings.TrimSuffix(name, ".sql"), body: string(b), sum: hex.EncodeToString(h[:])})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ver < out[j].ver })
-	for i, m := range out {
-		if m.ver != i+1 {
-			return nil, fmt.Errorf("ctxdb: migration gap at %s: %w", m.name, ErrInternal)
-		}
+	return out, wrap(err)
+}
+
+// loadQueries parses queries.sql into named blocks ("-- name: <id>").
+func loadQueries() (map[string]string, error) {
+	b, err := migFS.ReadFile("queries.sql")
+	if err != nil {
+		return nil, wrap(err)
+	}
+	out := map[string]string{}
+	for _, blk := range strings.Split(string(b), "-- name: ")[1:] {
+		name, body, _ := strings.Cut(blk, "\n")
+		out[strings.TrimSpace(name)] = body
+	}
+	for k, v := range out {
+		out[k] = strings.ReplaceAll(v, "/*LIVE_REF*/", out["gc.live_ref"])
 	}
 	return out, nil
 }
@@ -55,24 +62,19 @@ func (s *Store) schemaMax() int {
 	if s.opt.SchemaMax > 0 {
 		return s.opt.SchemaMax
 	}
-	m, _ := migrations()
-	return len(m)
+	return len(s.migs)
 }
 
 // migrateIfNeeded applies pending migrations under the barrier reason=migrate
 // (§11.1, §11.11.7). Old non-serve holders refuse the migration before any
 // marker is written unless --force-migrate.
-func (s *Store) migrateIfNeeded(ctx context.Context) error {
-	migs, err := migrations()
-	if err != nil {
-		return err
-	}
-	target := s.schemaMax()
+func (s *Store) migrateIfNeeded(ctx context.Context) (err error) {
+	migs, target := s.migs, s.schemaMax()
 	cur, err := s.dbVersion(ctx, migs)
-	if err != nil || cur == target {
+	switch {
+	case err != nil || cur == target:
 		return err
-	}
-	if cur > target {
+	case cur > target:
 		return fmt.Errorf("ctxdb: db version %d > binary %d: %w", cur, target, ErrSchemaNewer)
 	}
 	if err := s.checkOldHolders(target); err != nil {
@@ -82,88 +84,93 @@ func (s *Store) migrateIfNeeded(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer b.Release()
+	defer func() { err = errors.Join(err, b.Release()) }()
 	if err := s.checkOldHolders(target); err != nil { // repeated in `draining`
 		return err
 	}
-	w, r, err := s.openHandles()
-	if err != nil {
+	if s.w, s.r, err = s.openHandles(ctx); err != nil {
 		return err
 	}
-	defer func() { _ = errors.Join(w.Close(), r.Close()) }()
+	defer func() { err = errors.Join(err, s.detach()) }()
 	if cur > 0 {
-		bk := filepath.Join(s.dir, "backups", fmt.Sprintf("premigrate-%d-%d.db", cur, target))
-		_ = os.Remove(bk)
-		if _, err := w.ExecContext(ctx, "VACUUM INTO ?", bk); err != nil {
-			return fmt.Errorf("ctxdb: premigrate backup: %w", classify(err))
-		}
-		pruneBackups(filepath.Join(s.dir, "backups"), "premigrate-", 2)
-	}
-	for _, m := range migs[cur:target] {
-		if err := applyMigration(ctx, w, m, s.clk.WallMs()); err != nil {
+		if err := s.backupPremigrate(ctx, cur, target); err != nil {
 			return err
 		}
 	}
-	_ = os.Remove(runPath(s.dir, "migrate_blocked.json"))
-	return nil
+	for i := cur; i < target && err == nil; i++ {
+		err = s.applyMigration(ctx, i+1, migs[i])
+	}
+	return errors.Join(err, removeIfExists(s.root, "run/migrate_blocked.json"))
+}
+
+// backupPremigrate = VACUUM INTO backups/premigrate-<from>-<to>.db, keep 2.
+func (s *Store) backupPremigrate(ctx context.Context, from, to int) error {
+	name := fmt.Sprintf("backups/premigrate-%d-%d.db", from, to)
+	err := removeIfExists(s.root, name)
+	if err == nil {
+		_, err = s.w.ExecContext(ctx, "VACUUM INTO ?", filepath.Join(s.dir, name))
+	}
+	ents, rerr := fs.ReadDir(s.root.FS(), "backups")
+	var old []string
+	for _, e := range ents {
+		if strings.HasPrefix(e.Name(), "premigrate-") {
+			old = append(old, e.Name())
+		}
+	}
+	slices.Sort(old) // premigrate-<from>-<to>: older ladders sort first
+	for i := 0; i+2 < len(old); i++ {
+		err = errors.Join(err, removeIfExists(s.root, path.Join("backups", old[i])))
+	}
+	return wrap(errors.Join(err, rerr))
 }
 
 // dbVersion reads user_version and verifies checksums of applied migrations.
-func (s *Store) dbVersion(ctx context.Context, migs []migration) (int, error) {
-	if _, err := os.Stat(DBPath(s.dir)); errors.Is(err, os.ErrNotExist) {
+func (s *Store) dbVersion(ctx context.Context, migs []migration) (v int, err error) {
+	if _, serr := s.root.Stat(dbFile); errors.Is(serr, fs.ErrNotExist) {
 		return 0, nil
 	}
-	w, r, err := s.openHandles()
-	if err != nil {
+	if s.w, s.r, err = s.openHandles(ctx); err != nil {
 		return 0, err
 	}
-	defer func() { _ = errors.Join(w.Close(), r.Close()) }()
-	var v int
-	if err := r.QueryRowContext(ctx, "PRAGMA user_version").Scan(&v); err != nil || v == 0 {
-		return 0, classify(err)
+	defer func() { err = errors.Join(err, s.detach()) }()
+	if err = getOne(ctx, s.r, "PRAGMA user_version", nil, &v); err != nil || v == 0 {
+		return 0, err
 	}
-	rows, err := r.QueryContext(ctx, "SELECT version, checksum FROM schema_migrations")
-	if err != nil {
-		return 0, classify(err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var ver int
-		var sum string
-		if err := rows.Scan(&ver, &sum); err != nil {
-			return 0, err
-		}
-		if ver <= len(migs) && migs[ver-1].sum != sum {
-			return 0, fmt.Errorf("ctxdb: migration %d checksum mismatch: %w", ver, ErrInternal)
+	sums, err := column[string](ctx, s.r, "SELECT checksum FROM schema_migrations ORDER BY version")
+	for i := 0; err == nil && i < len(sums) && i < len(migs); i++ {
+		if migs[i].sum != sums[i] {
+			err = fmt.Errorf("ctxdb: migration %s checksum mismatch: %w", migs[i].name, ErrInternal)
 		}
 	}
-	return v, rows.Err()
+	return v, err
 }
 
 // applyMigration runs one migration in one transaction and records it in
 // schema_migrations + PRAGMA user_version (§11.1).
-func applyMigration(ctx context.Context, w *sql.DB, m migration, now int64) (err error) {
-	c, err := w.Conn(ctx)
+func (s *Store) applyMigration(ctx context.Context, ver int, m migration) (err error) {
+	c, err := s.w.Conn(ctx)
 	if err != nil {
-		return classify(err)
+		return wrap(err)
 	}
-	defer func() { err = joinClose(err, c) }()
-	if _, err := c.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return classify(err)
+	defer func() { err = errors.Join(err, wrap(c.Close())) }()
+	steps := []struct {
+		q    string
+		args []any
+	}{
+		{"BEGIN IMMEDIATE", nil},
+		{m.body, nil},
+		{"INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?,?,?,?)", []any{ver, m.name, m.sum, s.clk.WallMs()}},
+		{"PRAGMA user_version = " + strconv.Itoa(ver), nil},
+		{"COMMIT", nil},
 	}
-	_, err = c.ExecContext(ctx, m.body)
-	if err == nil {
-		_, err = c.ExecContext(ctx, "INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?,?,?,?)", m.ver, m.name, m.sum, now)
-	}
-	if err == nil {
-		_, err = c.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", m.ver))
-	}
-	if err == nil {
-		_, err = c.ExecContext(ctx, "COMMIT")
-	}
-	if err != nil {
-		_, _ = c.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
-		return fmt.Errorf("ctxdb: migration %s: %w", m.name, classify(err))
+	for i, st := range steps {
+		if _, err = c.ExecContext(ctx, st.q, st.args...); err != nil {
+			if i > 0 {
+				_, rerr := c.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+				err = errors.Join(err, rerr)
+			}
+			return fmt.Errorf("ctxdb: migration %s: %w", m.name, classify(err))
+		}
 	}
 	return nil
 }
@@ -179,7 +186,7 @@ func (s *Store) checkOldHolders(target int) error {
 			old = append(old, fmt.Sprintf("%s pid %d", h.Kind, h.PID))
 		}
 	}
-	if len(old) == 0 || s.opt.ForceMigrate || (s.opt.Kind == "serve" && s.migrateBlockedLong(target)) {
+	if len(old) == 0 || s.opt.ForceMigrate || s.opt.Kind == "serve" && s.migrateBlockedLong(target) {
 		return nil
 	}
 	return fmt.Errorf("ctxdb: old processes running (%s): %w", strings.Join(old, ", "), ErrMigrationRefused)
@@ -194,28 +201,14 @@ type migrateBlocked struct {
 // migrateBlockedLong records the first refusal (boot clock) and reports
 // whether ≥ 600 s have elapsed since, resetting on a new boot or target.
 func (s *Store) migrateBlockedLong(target int) bool {
-	p := runPath(s.dir, "migrate_blocked.json")
+	const name = "run/migrate_blocked.json"
 	var mb migrateBlocked
-	b, err := os.ReadFile(p)
+	b, err := s.root.ReadFile(name)
 	if err != nil || json.Unmarshal(b, &mb) != nil || mb.BootID != s.id.BootID || mb.Target != target {
 		mb = migrateBlocked{SinceBoot: s.clk.BootMs(), BootID: s.id.BootID, Target: target}
-		nb, _ := json.Marshal(mb)
-		_ = writeAtomic(p, nb)
-	}
-	return s.clk.BootMs()-mb.SinceBoot >= 600_000
-}
-
-// pruneBackups keeps the newest `keep` files with the given prefix.
-func pruneBackups(dir, prefix string, keep int) {
-	ents, _ := os.ReadDir(dir)
-	var fs []os.FileInfo
-	for _, e := range ents {
-		if fi, err := e.Info(); err == nil && strings.HasPrefix(e.Name(), prefix) {
-			fs = append(fs, fi)
+		if nb, merr := json.Marshal(mb); merr != nil || writeAtomic(s.root, name, nb) != nil {
+			return false // cannot persist the timer: never force
 		}
 	}
-	sort.Slice(fs, func(i, j int) bool { return fs[i].ModTime().After(fs[j].ModTime()) })
-	for i := keep; i < len(fs); i++ {
-		_ = os.Remove(filepath.Join(dir, fs[i].Name()))
-	}
+	return s.clk.BootMs()-mb.SinceBoot >= 600_000
 }

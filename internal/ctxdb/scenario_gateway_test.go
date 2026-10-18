@@ -327,7 +327,7 @@ func s083(t *testing.T) {
 	finishTurn(t, s, p)
 	_, err = s.Purge(bg, PurgeRequest{IDs: []string{p.Session}})
 	must(t, err)
-	if _, err := os.Stat(s.blobPath(pb.Sha)); !os.IsNotExist(err) {
+	if _, err := os.Stat(s.testBlobPath(pb.Sha)); !os.IsNotExist(err) {
 		t.Fatal("attachment file left after purge")
 	}
 	if count(t, s, "SELECT count(*) FROM blob_refs WHERE sha256 = ?", pb.Sha)+count(t, s, "SELECT count(*) FROM blobs WHERE sha256 = ?", pb.Sha) != 0 {

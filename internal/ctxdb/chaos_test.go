@@ -43,7 +43,7 @@ func TestChildProcess(t *testing.T) {
 		_, _ = bufio.NewReader(os.Stdin).ReadString('\n') // block until killed
 		return
 	}
-	s, err := Open(ctx, Options{Dir: dir, Kind: "tui"})
+	s, err := Open(ctx, &Options{Dir: dir, Kind: "tui"})
 	must(t, err)
 	defer func() { must(t, s.Close()) }()
 	switch role {
@@ -181,7 +181,7 @@ func TestKill9Chaos(t *testing.T) {
 		case <-t.Context().Done():
 		}
 		c.kill9(t)
-		s, err := Open(bg, Options{Dir: dir, Kind: "serve"})
+		s, err := Open(bg, &Options{Dir: dir, Kind: "serve"})
 		must(t, err)
 		checkIntegrity(t, s)
 		assertLiveBlobsHaveFiles(t, s)
@@ -263,7 +263,7 @@ func multiWorker(t *testing.T, s *Store, n int) multiResult {
 // for, the shared session's chain is intact, 0 db_busy reached a caller.
 func TestMultiProcess(t *testing.T) {
 	dir := t.TempDir()
-	s, err := Open(bg, Options{Dir: dir, Kind: "serve"})
+	s, err := Open(bg, &Options{Dir: dir, Kind: "serve"})
 	must(t, err)
 	_, err = s.CreateSession(bg, Session{ID: "SHARED"})
 	must(t, err)
@@ -284,7 +284,7 @@ func TestMultiProcess(t *testing.T) {
 		}
 		shared += res.Shared
 	}
-	s, err = Open(bg, Options{Dir: dir, Kind: "serve"})
+	s, err = Open(bg, &Options{Dir: dir, Kind: "serve"})
 	must(t, err)
 	defer s.Close()
 	checkIntegrity(t, s)

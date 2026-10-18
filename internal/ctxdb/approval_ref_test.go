@@ -127,7 +127,7 @@ func (t *Tx) judge(req ApprovalRequest, r ApprovalResponse, owner string, validE
 // recordApproval appends the `approval` event + approvals row and moves the
 // journal out of awaiting_approval (or onto the new request after an edit).
 func (t *Tx) recordApproval(sid, turn string, req ApprovalRequest, r ApprovalResponse, d ApprovalDecision) error {
-	ev, err := t.AppendEvent(sid, Event{Kind: "approval", TurnID: turn, Payload: jsonOf(map[string]any{
+	ev, err := t.AppendEvent(sid, &Event{Kind: "approval", TurnID: turn, Payload: jsonOf(map[string]any{
 		"request_id": req.RequestID, "decision": d.Decision, "reason": d.Reason, "cross_channel": r.Source != "" && !slices.Contains(req.Channels, r.Source)})})
 	if err != nil {
 		return err
