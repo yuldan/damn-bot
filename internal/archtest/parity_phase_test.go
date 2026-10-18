@@ -84,64 +84,75 @@ func roadmapPhases(t *testing.T, text string) map[string][]string {
 func TestParityPhaseColumn(t *testing.T) {
 	t.Parallel()
 	allowed := roadmapPhases(t, readRepoFile(t, "docs/ROADMAP.md"))
+	r := scanParity(t, readRepoFile(t, "docs/FEATURE-PARITY.md"), allowed)
 
-	var total, gate int
-	var badPhase, badDropped, noHeader []string
-	unknownPfx := map[string]bool{}
-	faseIdx := -1 // indeks kolom `fase` dari header tabel aktif
-	for line := range strings.Lines(readRepoFile(t, "docs/FEATURE-PARITY.md")) {
+	if r.total != parityRows {
+		t.Errorf("baris ID = %d, want %d", r.total, parityRows)
+	}
+	if r.gate != parityGateRows {
+		t.Errorf("baris penyebut gate (non-%s) = %d, want %d", droppedStatus, r.gate, parityGateRows)
+	}
+	report := func(what string, ids []string) {
+		if len(ids) > 0 {
+			t.Errorf("%s (%d): %s", what, len(ids), strings.Join(ids, ", "))
+		}
+	}
+	report("baris tanpa header ber-kolom `fase`", r.noHeader)
+	report("fase di luar sel ROADMAP untuk prefixnya", r.badPhase)
+	report("baris "+droppedStatus+" wajib fase "+droppedPhase, r.badDropped)
+	report("prefix tidak ada di tabel ROADMAP", slices.Sorted(maps.Keys(r.unknownPfx)))
+}
+
+// parityScan = hasil pemindaian baris ID FEATURE-PARITY terhadap fase yang diizinkan.
+type parityScan struct {
+	total, gate                    int
+	badPhase, badDropped, noHeader []string
+	unknownPfx                     map[string]bool
+	allowed                        map[string][]string
+	faseIdx                        int // indeks kolom `fase` dari header tabel aktif; -1 = tidak ada
+}
+
+func scanParity(t *testing.T, text string, allowed map[string][]string) *parityScan {
+	t.Helper()
+	r := &parityScan{unknownPfx: map[string]bool{}, allowed: allowed, faseIdx: -1}
+	for line := range strings.Lines(text) {
 		cells := tableCells(line)
 		if len(cells) > 0 && cells[0] == "ID" {
-			faseIdx = slices.Index(cells, "fase")
-			if cells[len(cells)-1] != "status" || faseIdx != len(cells)-2 {
+			r.faseIdx = slices.Index(cells, "fase")
+			if cells[len(cells)-1] != "status" || r.faseIdx != len(cells)-2 {
 				t.Errorf("header tabel tanpa `fase` tepat sebelum `status` terakhir: %q", strings.TrimSpace(line))
-				faseIdx = -1
+				r.faseIdx = -1
 			}
 			continue
 		}
-		m := parityIDRe.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		total++
-		id := cells[0]
-		if faseIdx < 0 || faseIdx >= len(cells) {
-			noHeader = append(noHeader, id)
-			continue
-		}
-		fase, status := cells[faseIdx], cells[len(cells)-1]
-		ok, known := allowed[m[1]]
-		if !known {
-			unknownPfx[m[1]] = true
-		}
-		if strings.HasPrefix(status, droppedStatus) {
-			if fase != droppedPhase {
-				badDropped = append(badDropped, id+"="+fase)
-			}
-			continue
-		}
-		gate++
-		if !slices.Contains(ok, fase) {
-			badPhase = append(badPhase, id+"="+fase)
+		if m := parityIDRe.FindStringSubmatch(line); m != nil {
+			r.row(m[1], cells)
 		}
 	}
+	return r
+}
 
-	if total != parityRows {
-		t.Errorf("baris ID = %d, want %d", total, parityRows)
+// row memeriksa satu baris ID dengan prefix pfx.
+func (r *parityScan) row(pfx string, cells []string) {
+	r.total++
+	id := cells[0]
+	if r.faseIdx < 0 || r.faseIdx >= len(cells) {
+		r.noHeader = append(r.noHeader, id)
+		return
 	}
-	if gate != parityGateRows {
-		t.Errorf("baris penyebut gate (non-%s) = %d, want %d", droppedStatus, gate, parityGateRows)
+	fase, status := cells[r.faseIdx], cells[len(cells)-1]
+	ok, known := r.allowed[pfx]
+	if !known {
+		r.unknownPfx[pfx] = true
 	}
-	if len(noHeader) > 0 {
-		t.Errorf("baris tanpa header ber-kolom `fase` (%d): %s", len(noHeader), strings.Join(noHeader, ", "))
+	if strings.HasPrefix(status, droppedStatus) {
+		if fase != droppedPhase {
+			r.badDropped = append(r.badDropped, id+"="+fase)
+		}
+		return
 	}
-	if len(badPhase) > 0 {
-		t.Errorf("fase di luar sel ROADMAP untuk prefixnya (%d): %s", len(badPhase), strings.Join(badPhase, ", "))
-	}
-	if len(badDropped) > 0 {
-		t.Errorf("baris %s wajib fase %q (%d): %s", droppedStatus, droppedPhase, len(badDropped), strings.Join(badDropped, ", "))
-	}
-	if len(unknownPfx) > 0 {
-		t.Errorf("prefix tidak ada di tabel ROADMAP: %v", slices.Sorted(maps.Keys(unknownPfx)))
+	r.gate++
+	if !slices.Contains(ok, fase) {
+		r.badPhase = append(r.badPhase, id+"="+fase)
 	}
 }
