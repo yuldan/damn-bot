@@ -293,11 +293,20 @@ func s015(t *testing.T) {
 	p := e.open(1, "cli", func(o *Options) { o.Clock = SystemClock{}; o.OnTx = obs })
 	tui := e.open(2, "tui", func(o *Options) { o.Clock = SystemClock{} })
 	session(t, p, "BIG", "")
-	evs := make([]Event, 500)
+	// Under -race the instrumented engine makes the purge unit stay at a few
+	// events per transaction (yield ≥ 4× hold), so 5 000 events would take
+	// > 10 min. The race build purges a smaller corpus — still dozens of
+	// transactions against the live writer — and checks the same correctness
+	// invariants; the full corpus and its budgets run in `make test-timing`.
+	batches, perBatch := 10, 500 // 5 000 events
+	if raceEnabled {
+		batches, perBatch = 1, 100
+	}
+	evs := make([]Event, perBatch)
 	for i := range evs {
 		evs[i] = Event{Kind: "tool_result", Content: "output line"}
 	}
-	for range 10 { // 5 000 events
+	for range batches {
 		_, err := p.Append(context.Background(), "BIG", nil, evs...)
 		must(t, err)
 	}
@@ -323,7 +332,7 @@ func s015(t *testing.T) {
 		t.Fatal("purged session still present")
 	}
 	checkIntegrity(t, p)
-	t.Logf("purge 5k events: %v, max tx %v, min gap %v, duty %.1f%%", total, maxHeld, minGap, 100*float64(held)/float64(total))
+	t.Logf("purge %d events: %v, max tx %v, min gap %v, duty %.1f%%", batches*perBatch, total, maxHeld, minGap, 100*float64(held)/float64(total))
 }
 
 // #21: gc vs writer vs purge vs trash recovery → 0 live refs to missing files.
