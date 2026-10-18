@@ -171,6 +171,7 @@ Gate yang ditunda punya fase eksplisit (ADR-073): `TestNoCrossPackageEmbedding` 
 - Smoke E1 10 task dengan model murah lulus harness end-to-end (tanpa gate vs hermes; perbandingan kualitas penuh baru di RC F9, ADR-032).
 - Entri EC berfase F5 covered: EC-PROV 12, EC-TCALL-004/011, EC-FIO-003/010, EC-TERM-001 (ADR-080), EC-TERM-003, EC-SEC-002..004 (ADR-077); EC-WIN-007, 008, 015 di runner Windows (ADR-080); bagian test P24/EXC-09/EXC-11 yang butuh `process_*` hijau (ADR-072).
 - Test tertunda berfase F5 (ADR-083): `TestMCPServeCannotSelfApprove`, `TestExecuteCodeRPCNetworkDeny`.
+- ADR-089: `TestExecuteCodeApproval` (approval `execute_code` per mode × bahasa × `exec.code_auto_languages` × trust × taint; `bash` = model shell) dan `TestLSPWorkspaceTrustGate` (workspace untrusted → 0 proses LSP/build; trusted → setting aman build script/proc-macro diterapkan).
 - Backlog ADR-078/ADR-086 berfase F5 tertutup (ADR-083).
 
 ## F6 — Web, browser, media, voice

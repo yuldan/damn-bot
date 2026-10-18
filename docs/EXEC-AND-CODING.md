@@ -323,7 +323,7 @@ Ketiadaan label ini **tidak** menjamin apa pun (rekursi lewat symlink, filter gi
 - **Workspace trust (ADR-069).** Saat root dibuka pertama kali secara interaktif: prompt "trust workspace <path>?". Keputusan disimpan per path kanonik di config `security.trusted_workspaces`. Headless `run`: untrusted kecuali path ada di `security.trusted_workspaces`. Workspace untrusted: AGENTS.md dan context file dibungkus `<untrusted source="workspace">` (data, bukan aturan), konten file workspace men-taint turn (ADR-070), jalur auto `shell_allow` (termasuk verify) dan `--unsafe-auto-shell` mati, setiap output shell dibungkus `<untrusted source="workspace">` dan men-taint turn (ADR-079 butir 6), hook proyek tidak berjalan (F3).
 - **Taint turn (ADR-070, ADR-079 butir 6, ADR-088 butir 2).** Sumber taint shell: output berflag `network` (juga di workspace trusted), output berflag `outside_read` yang di-approve (dibungkus `<untrusted source="shell:outside_workspace">`), dan **setiap** output shell di workspace untrusted. Taint aktif sejak `tool_result` itu di-commit sampai `turn_end`, untuk semua iterasi berikutnya dalam turn. Selama taint aktif berlaku baris "turn ter-taint" di tabel; `user_message` berikutnya memulai turn tanpa taint.
 - Beda dengan hermes: tidak ada auto-approve diam-diam di konteks non-interaktif (`tools/approval.py:1117`), tidak ada auto-approve perintah "non-dangerous" (`tools/approval.py:1110-1112`), dan tidak ada LLM call untuk klasifikasi.
-- **Boundary dan vulnerability (ADR-079 butir 8, mengoreksi ADR-069 butir 9).** Sandbox path = boundary untuk tool kode (CODE-TOOLS §8). Shell **bukan** boundary path; kontrol shell = approval. Classifier tidak mendeteksi skrip yang ditulis lalu dijalankan (`./x.sh`, isi file tidak dianalisis); karena label tidak pernah memberi auto, ini tidak membuka jalur eksekusi tanpa approval. Vulnerability = (a) perintah shell yang berjalan tanpa approval eksplisit, kecuali cocok `shell_allow` atau jalur `--unsafe-auto-shell` yang terdokumentasi; (b) tool kode yang mengakses luar root/`deny_paths` tanpa verdict yang benar; (c) egress tool built-in yang lolos DLP `netx`. Efek perintah yang sudah di-approve user (termasuk filter git, rekursi symlink) dan TOCTOU antara preview dan eksekusi = sisa risiko (TRUST-MODEL §3). Isolasi kuat = backend container (SPEC §14.2, OPEN-QUESTIONS Q10).
+- **Boundary dan vulnerability (ADR-079 butir 8, mengoreksi ADR-069 butir 9; diperluas ADR-089 butir 1).** Sandbox path = boundary untuk tool kode (CODE-TOOLS §8). Shell **bukan** boundary path; kontrol shell = approval. Classifier tidak mendeteksi skrip yang ditulis lalu dijalankan (`./x.sh`, isi file tidak dianalisis); karena label tidak pernah memberi auto, ini tidak membuka jalur eksekusi tanpa approval. Vulnerability = (a) perintah shell **atau kode `execute_code`** yang berjalan tanpa approval eksplisit di luar jalur auto terdokumentasi (`shell_allow`, `--unsafe-auto-shell`, `exec.code_auto_languages` dengan syarat SPEC §14.1, B.7); (b) tool kode yang mengakses luar root/`deny_paths` tanpa verdict yang benar; (c) egress tool built-in yang lolos DLP `netx`. Efek perintah yang sudah di-approve user (termasuk filter git, rekursi symlink) dan TOCTOU antara preview dan eksekusi = sisa risiko (TRUST-MODEL §3). Isolasi kuat = backend container (SPEC §14.2, OPEN-QUESTIONS Q10).
 
 **Test acceptance F1 (ADR-079, menggantikan tabel dan test classifier ADR-069; ADR-070; ADR-088):** `TestShellApprovalModel` (36 baris tabel ADR-079, semua baris: label dan kebijakan per `ask`/`auto-edit`/`auto`/headless/headless `--unsafe-auto-shell` persis), `TestShellAllowExactMatch` (≥ 60 kasus: setiap metakarakter/ekspansi/redirect/assignment/pipeline × entri cocok → tidak auto; + CR, NUL, karakter kontrol, `.bat`/cwd Windows, ADR-088), `TestShellAllowCwdTracked`, `TestShellNoClassifierAuto` (EXC-13: ≥ 300 perintah korpus, mode `ask`/`auto-edit`/`auto`, `shell_allow` kosong → 0 dieksekusi tanpa approval), `TestUnsafeAutoShellFlag`, `TestVerifyNeedsShellAllow`, `TestShellOutputUntrustedWorkspace`, `TestCodeToolsSymlinkOutsideRoot` (CODE-TOOLS §8), `TestNoAutoClassReadonlyDecision`, `TestPlanModeShell` (ADR-079 butir 10–11), `TestShellNoAllowSession` (ADR-088 butir 1: tabel ADR-079 + baris 37 — `allow_session` diminta untuk `go test ./...` di `auto-edit`, lalu `edit_file` auto, lalu `go test ./...` → tanya; ACP `allow_always` → efek `allow_once`), `TestSecretRefScope` (ADR-088 butir 4, butir "Secret ref" di bawah); tetap dari ADR-069/070: `TestShellIrreversibleAlwaysAsk`, `TestSudoAlwaysAsk`, `TestWorkspaceTrustGate`, `TestReadOutsideWorkspaceAsks`, `TestTaintForcesApproval`. Konteks default tabel ADR-079: `shell_allow = [["go","test","./..."]]`, workspace trusted, turn bersih, tidak ada tulis auto di sesi.
 
@@ -425,7 +425,7 @@ Setiap `edit_file`/`write_file` yang sukses pada file kode menambahkan `Meta.dia
 
 1. **Sintaks lokal** (selalu): Go via `go/parser`; bahasa lain via tree-sitter WASM (node `ERROR`/`MISSING`, ADR-015); JSON/TOML/YAML via parser Go. Target ≤ 30 ms p95 untuk file 5.000 baris (`BenchmarkPostEditSyntax`).
 2. **LSP** (modul lazy `code-intel`, `code.lsp = "auto"`):
-   - Server terpasang (gopls, rust-analyzer, pyright/basedpyright, typescript-language-server, jdtls, clangd) di-start saat edit pertama pada bahasa itu.
+   - **Gerbang trust (ADR-089 butir 2).** Language server dan alat lain yang mengeksekusi kode proyek (build script, proc-macro, plugin `node_modules`, Gradle/Maven) **tidak pernah** dimulai otomatis di workspace untrusted: diagnostik pasca-edit hanya langkah 1 (tanpa eksekusi), dan tool codeintel yang butuh LSP → `module_unavailable` dengan hint "workspace not trusted". Di workspace trusted, server terpasang (gopls, rust-analyzer, pyright/basedpyright, typescript-language-server, jdtls, clangd) di-start saat edit pertama pada bahasa itu dengan setting yang mematikan eksekusi build script/proc-macro bila server mendukungnya (mis. rust-analyzer `cargo.buildScripts.enable=false`, `procMacro.enable=false`; tsserver tanpa plugin workspace); eksekusi yang tidak bisa dimatikan = sisa risiko (TRUST-MODEL §3). Test F5: `TestLSPWorkspaceTrustGate` (untrusted → 0 proses LSP/build; trusted → setting aman diterapkan).
    - `didChange` versioned, lalu tunggu `publishDiagnostics` untuk versi tersebut maks 1.500 ms.
    - Lewat batas: `diagnostics_pending:true`. Diagnostik terlambat ditempelkan ke tool result berikutnya pada file yang sama, atau ke `turn_result`.
    - Tidak pernah memaksa iterasi tambahan (beda dengan hermes, `agent/turn_stop_gates.py:95`).
@@ -436,7 +436,7 @@ Format tiap baris: `path:line:col: error|warning: msg [source]`. Cap 400 tok (o2
 ### B.4 Repo map dan workspace snapshot
 
 **Tool deferred** `repo_map{focus? ≤ 200 char, path?, max_tokens 200–1000 (default 600)}`:
-- Simbol (definisi + referensi) diambil dari `go/ast` / tree-sitter tags (mesin di [CODE-TOOLS.md](CODE-TOOLS.md)).
+- Simbol (definisi + referensi) diambil dari `go/ast` / tree-sitter tags (mesin di [CODE-TOOLS.md](CODE-TOOLS.md)); jalur ini tanpa eksekusi kode proyek, sehingga `repo_map` tersedia di workspace untrusted tanpa memulai LSP/build (ADR-089 butir 2).
 - Graf file→file berbobot jumlah referensi diperingkat dengan PageRank personalisasi (damping 0,85, 20 iterasi).
 - Vektor personalisasi:
   - file yang disebut di `focus`/history turn: bobot 10;
@@ -512,6 +512,15 @@ Schema deferred:
 ```text
 execute_code{language* enum[python,javascript,typescript,go,bash,starlark], code* ≤ 100.000 char, timeout_s 1–300 (default 30; starlark 1–30, > 30 → invalid_args tanpa clamp, ADR-055), stdin ≤ 65.536 char, network enum[deny,allow] (default deny), persist bool}
 ```
+
+**Approval (ADR-089 butir 1, SPEC §14.1 baris `execute_code`):**
+- `ask` dan `auto-edit` → **selalu tanya** + preview (bahasa, ringkasan kode, `network`).
+- `auto` → tanya kecuali `language` ada di allowlist config `exec.code_auto_languages` (default `[]`, nilai ∈ {`python`, `javascript`, `go`, `starlark`}, SPEC §12).
+- Headless → `denied` kecuali `language` ada di allowlist **dan** `--approval auto`.
+- Auto (di `auto` maupun headless) juga mensyaratkan workspace trusted, turn tidak tainted, dan tidak ada tulis tanpa approval di sesi (syarat 3–5 ADR-079 butir 3, A.8).
+- `language` `bash`/`sh`/`zsh`/`pwsh` (atau interpreter shell apa pun) diperlakukan persis seperti tool `shell` (A.8, ADR-079/088): auto hanya bila isi kode cocok persis `shell_allow`, tidak pernah lewat `code_auto_languages`.
+- `allow_session` tidak berlaku untuk `execute_code`. Panggilan tool dari dalam skrip tetap melewati pipeline SPEC §4.3 masing-masing (ADR-055, ADR-076).
+- Test F5: `TestExecuteCodeApproval` (mode × bahasa × allowlist × trust × taint; `bash` = model shell).
 
 **Interpreter sistem** (tidak di-bundle):
 
@@ -626,14 +635,14 @@ Harness `damnbot-eval` (F0, SCORECARD) menjalankan Damn-Bot dan hermes pada kond
 | COD-01 | Aturan coding stable tier | ≤ 120 tok (dalam 1.200) | `TestStableTierBudget/coding` |
 | COD-02 | Deteksi toolchain | ≤ 20 ms @ 10.000 file; 100% golden 30 fixture | `BenchmarkToolchainDetect`, `TestToolchainCorpus` |
 | COD-03 | Diagnostik sintaks pasca-edit | ≤ 30 ms p95 @ 5.000 baris; 0 miss pada 200 edit rusak | `BenchmarkPostEditSyntax`, `TestPostEditDiagCorpus` |
-| COD-04 | Diagnostik LSP | tunggu ≤ 1.500 ms; cap 400 tok inline | `TestLSPDiagnosticsDelta` |
+| COD-04 | Diagnostik LSP | tunggu ≤ 1.500 ms; cap 400 tok inline; workspace untrusted → 0 proses LSP/build (ADR-089) | `TestLSPDiagnosticsDelta`, `TestLSPWorkspaceTrustGate` |
 | COD-05 | Repo map | cap 1.000 tok (default 600); cold ≤ 1,5 s, warm ≤ 50 ms @ 10.000 file; recall top-10 ≥ 70% | `BenchmarkRepoMap`, `TestRepoMapRecall` |
 | COD-06 | Workspace snapshot | ≤ 150 tok | `TestWorkspaceSnapshotBudget` |
 | COD-07 | Checkpoint ref | ambang ≥ 5 file / ≥ 300 baris; ≤ 300 ms p95; GC 14 hari | `BenchmarkCheckpointRef`, `TestCheckpointThreshold` |
 | COD-08 | Rollback | 50 file ≤ 200 ms; 0 timpa perubahan user tanpa `--force` | `TestRollback`, `BenchmarkRollback50` |
 | COD-09 | Verify-on-stop `run` | 0 LLM call tambahan; ≤ 2 perintah; timeout 300 s | `TestVerifyOnStopRun` |
 | COD-10 | Verify-on-stop `repair` | ≤ 1 iterasi ekstra (dalam 40) | `TestVerifyOnStopRepair` |
-| COD-11 | execute_code | timeout 30 s (1–300), memori 512 MiB, ≤ 50 tool call, kernel persisten ≤ 2, idle 30 menit; starlark: `timeout_s` 1–30 (> 30 → `invalid_args`), 256 MiB, binding hanya 7 tool §B.7 (ADR-055) | `TestExecuteCodeLimits` |
+| COD-11 | execute_code | timeout 30 s (1–300), memori 512 MiB, ≤ 50 tool call, kernel persisten ≤ 2, idle 30 menit; starlark: `timeout_s` 1–30 (> 30 → `invalid_args`), 256 MiB, binding hanya 7 tool §B.7 (ADR-055); approval baris `execute_code` SPEC §14.1 (ADR-089) | `TestExecuteCodeLimits`, `TestExecuteCodeApproval` |
 | EVL-01 | Pass rate vs hermes | ≥ hermes; CI bawah selisih ≥ −2 pp | job `scorecard`, paired bootstrap |
 | EVL-02 | Tokens/task vs hermes | ≤ 0,60× (CI atas ≤ 0,65×) | job `scorecard`, Wilcoxon |
 | EVL-03 | Wall time/task | median ≤ 0,5× hermes; tidak ada task > 1,10× (SCORECARD §3.2) | job `scorecard` |
