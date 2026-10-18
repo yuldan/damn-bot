@@ -24,7 +24,7 @@ Notasi aturan menang: `↓` lebih kecil lebih baik, `↑` lebih besar lebih baik
 | **[I]** Recall memori lintas sesi ("ga pikun") | % fakta dari sesi N dijawab benar di sesi N+k (k = 1, 3, 10) | Eval E4: fakta ditanam, ditanya ulang di sesi baru | diukur di F0 | ≥ 90% (k=10) | ↑, ≥ hermes + 10 pp |
 | Fakta basi | % jawaban memakai memori yang sudah dikoreksi/kedaluwarsa | E4 varian koreksi fakta | diukur di F0 | ≤ 2% | ↓ |
 | Akurasi routing skill | % query E9 di mana skill benar ada di top-3 yang dimuat | E9: 50 query berlabel skill | diukur di F0 (index penuh, deskripsi 60 char: `agent/prompt_builder.py:1340-1395`) | ≥ 90% top-3 | ↑, ≥ hermes |
-| Token skill per turn | token index/isi skill di request | proxy rekam | diukur di F0 | ≤ 150 tok context tier + ≤ 20 tok volatile (SPEC §4.8) | ↓, ≤ 0,2× hermes |
+| Token skill per turn | token index/isi skill di request | proxy rekam | diukur di F2 (ADR-083; butuh index skill Damn-Bot, sisi hermes dari request yang direkam proxy dengan katalog skill bawaan) | ≤ 150 tok context tier + ≤ 20 tok volatile (SPEC §4.8) | ↓, ≤ 0,2× hermes |
 | Long-session stabilitas | pass rate tugas di turn 100+ (E5) & jumlah compaction LLM | E5 | diukur di F0 | ≥ hermes; compaction LLM ≤ 1 per turn | ↑ / ↓ |
 | Tool error recovery | % task E6 selesai setelah error tool yang disuntik | E6 | diukur di F0 | ≥ hermes + 5 pp | ↑ |
 
@@ -39,7 +39,7 @@ Notasi aturan menang: `↓` lebih kecil lebih baik, `↑` lebih besar lebih baik
 | Idle RSS | RSS setelah 5 s idle (TUI 1 sesi, 2.000 event) | `/proc/<pid>/status` | diukur di F0 | ≤ 50 MB | ↓, ≤ 0,3× |
 | Peak RSS | `VmHWM` selama soak 1.000 turn | idem | diukur di F0 | ≤ 300 MB | ↓, ≤ 0,5× |
 | CPU idle | % CPU rata-rata idle 60 s (`serve` + Telegram long-poll) | `pidstat` | diukur di F0 | ≤ 0,5% x86; ≤ 2% Raspberry Pi 4 | ↓ |
-| Code tools | grep/glob/read/edit p50/p95 korpus C1–C3; 70 operasi (50 `search_files`, 10 `read_file`, 10 `patch`) vs hermes (ADR-077) | [`CODE-TOOLS.md`](CODE-TOOLS.md) §10; `cd bench && go run ./codetools/cmd/codetools`; referensi hermes = setelan `bench/codetools/results/f0-baseline.json` (`HERMES_HOME` bersih, backend fallback tanpa ripgrep; ubah commit/setelan = ukur ulang) (ADR-077) | diukur di F0 | grep ≤ 1,2× `rg` (literal), ≥ 10× lebih cepat p50 per kategori dari tool hermes (ADR-077) | ↓, ≥ 10× vs hermes p50 per kategori (ADR-077) |
+| Code tools | grep/glob/read/edit p50/p95 korpus C1–C3; 70 operasi (50 `search_files`, 10 `read_file`, 10 `patch`) vs hermes (ADR-077) | [`CODE-TOOLS.md`](CODE-TOOLS.md) §10; `cd bench && go run ./codetools/cmd/codetools`; referensi hermes = setelan `bench/codetools/results/f0-baseline.json` (`HERMES_HOME` bersih, backend fallback tanpa ripgrep; ubah commit/setelan = ukur ulang) (ADR-077); untuk `patch`/tulis, baseline hermes diukur ulang dengan durabilitas setara (driver hermes menambahkan `fsync(file)` + `fsync(dir)` pada path yang sama di dalam jendela waktu), di F1 sebelum acceptance codetools (ADR-082) | diukur di F0 (`patch` durabel: F1, ADR-082) | grep ≤ 1,2× `rg` (literal); `search_files` dan `read_file` ≥ 10× lebih cepat p50 dari tool hermes; `patch`/tulis ≥ 2× p50 vs hermes durabilitas setara dan ≤ 6 ms p95 absolut di mesin referensi Q14 (ADR-077, ADR-082) | ↓, `search_files`/`read_file` ≥ 10×, `patch` ≥ 2× (setara durabilitas) vs hermes p50; tidak ada operasi lebih lambat dari hermes (ADR-082) |
 | Exec spawn overhead | waktu `shell` di luar runtime command, p95 | [`EXEC-AND-CODING.md`](EXEC-AND-CODING.md) | diukur di F0 | < 15 ms | ↓, ≥ 5× |
 | Voice end-to-end | akhir ucapan → audio pertama, di luar latensi provider STT/LLM/TTS | Fake STT/LLM/TTS bertanda waktu | diukur di F0 | overhead ≤ 200 ms; streaming TTS mulai ≤ 300 ms setelah kalimat pertama LLM | ↓ |
 | Image preflight | % gambar ditolak provider karena ukuran; waktu resize 12 MP | Suite 50 gambar besar | hermes shrink-and-resend setelah ditolak (`agent/conversation_compression.py:4306-4310`) | 0 penolakan; resize ≤ 150 ms | ↓ |
@@ -67,6 +67,8 @@ Notasi aturan menang: `↓` lebih kecil lebih baik, `↑` lebih besar lebih baik
 | Baris config minimum | baris non-komentar config yang wajib | Dokumentasi resmi + uji jalan | diukur di F0 | 2 | ↓ |
 | Error informatif | % pesan error (suite 60 kesalahan umum) yang menyebut penyebab + langkah perbaikan | Rubrik biner, 2 penilai | diukur di F0 | ≥ 95% | ↑ |
 | Migrasi dari hermes | % config/skill/memory/MCP/cron/sesi terimpor benar | `damnbot import hermes` pada 5 fixture `~/.hermes` | n/a | ≥ 99% item, 0 kehilangan diam-diam | ↑ |
+
+**Catatan UX approval shell (ADR-079, dicatat jujur).** Hermes menjalankan perintah non-berbahaya tanpa konfirmasi di mode non-interaktif dan punya mode yolo interaktif; Damn-Bot **bertanya untuk setiap perintah shell** yang tidak persis ada di `shell_allow`, termasuk `ls`/`git status` dan termasuk mode `auto` interaktif. Akibatnya lebih banyak prompt per task coding (setiap verify/build/test baru, setiap inspeksi git) dan task headless tanpa `shell_allow` atau `--unsafe-auto-shell` berhenti di `denied`. Mitigasi: tool kode untuk semua baca/cari; `allow_session` untuk subject persis (bukan P26); `shell_allow` per proyek; preview ringkas. Parity EXEC-013 (mode approval) dan EXEC-015 (allowlist) tetap dipenuhi secara fungsi, tetapi `auto` interaktif lebih ketat dari yolo hermes; padanan yolo hanya headless + `--unsafe-auto-shell`. Scorecard tidak punya metrik jumlah prompt; dampak ini diterima sebagai harga keamanan dan diamati di smoke F1/RC F9.
 
 ### 1.5 Cakupan & ekosistem
 
@@ -200,7 +202,7 @@ Baseline hermes: bukti di [`GAP-SWEEP.md`](GAP-SWEEP.md) atau diukur di F0 (tanp
 Eval set disimpan di `eval/` dengan manifest SHA-256; perubahan = versi eval baru (`evalset/v2`), hasil lintas versi tidak dibandingkan.
 
 ### 2.3 Harness
-- `bench/h2h` (F0): menjalankan hermes dan Damn-Bot per task, mencatat request/response lewat proxy rekam (mitm lokal), menghitung token/biaya/waktu dari data proxy — bukan dari laporan agent sendiri. ADR-075: di F0/F1 run berurutan per agent; run berpasangan dengan urutan diacak dan container wajib untuk RC F9. Sebelum smoke Damn-Bot F1: cap biaya ledger persisten (`bench/h2h/results/f1-spend.json`, reservasi proyeksi terburuk), oracle netral-agent (kanal jawaban final + pemetaan tool → `exec`/`fs_write`/`read` per adapter), dan isolasi (container rootless atau user+net namespace, env allowlist, pindai kunci di rekaman).
+- `bench/h2h` (F0): menjalankan hermes dan Damn-Bot per task, mencatat request/response lewat proxy rekam (mitm lokal), menghitung token/biaya/waktu dari data proxy — bukan dari laporan agent sendiri. ADR-075: di F0/F1 run berurutan per agent; run berpasangan dengan urutan diacak dan container wajib untuk RC F9. Sebelum smoke Damn-Bot F1: cap biaya lewat ledger tunggal `bench/h2h/results/f1-spend.json` (konstanta `h2h.F1LedgerPath`, di-commit, cap 2,00 tersimpan di file; dipakai `cmd/h2h` dan `cmd/startup` tanpa flag path lain; setiap `Recorder` berkunci upstream wajib punya `Ledger`; read-modify-write di bawah `flock` eksklusif, fail-closed tanpa `flock`; reservasi proyeksi terburuk) (ADR-085), oracle netral-agent (kanal jawaban final + pemetaan tool → `exec`/`fs_write`/`read` per adapter), dan isolasi (container rootless atau user+net namespace, env allowlist, pindai kunci di rekaman) yang ditegakkan gate bernama `TestAgentIsolation` dan `TestRecordingsNoKey` sebagai prasyarat smoke F1 (ADR-085).
 - Fake provider (latensi 0 atau profil latensi terekam) untuk metrik overhead; provider nyata untuk metrik kualitas dan end-to-end.
 
 ### 2.4 Jumlah run & statistik
@@ -234,7 +236,7 @@ Setiap baris [`FEATURE-PARITY.md`](FEATURE-PARITY.md) yang dapat dieksekusi (CLI
 | Kelas operasi (a) | Target vs hermes (median) | Contoh baris |
 |---|---|---|
 | Startup, resume sesi, command CLI non-LLM | ≥ 10× lebih cepat | CLI-*, OPS-011 doctor, OPS-012 status, MEM-013 resume |
-| Tool file/grep/glob/read/edit, search sesi (FTS) | ≥ 10× lebih cepat | TOOL file tools, MEM-012 |
+| Tool file/grep/glob/read/edit, search sesi (FTS) | ≥ 10× lebih cepat; `patch`/tulis ≥ 2× terhadap baseline hermes durabilitas setara (`fsync(file)` + `fsync(dir)`) dan ≤ 6 ms p95 absolut di mesin referensi Q14 (P28, ADR-082) | TOOL file tools, MEM-012 |
 | Operasi lain (a): slash command, memori/skill ops, assembly, compaction tahap deterministik, aksi platform di luar jaringan, cron dispatch, update (di luar unduh) | ≥ 5× lebih cepat | SLASH-*, SKILL-*, AUTO-005, GW-* |
 | Semua operasi (a) | tidak ada yang lebih lambat dari hermes | — |
 
