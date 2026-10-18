@@ -284,7 +284,7 @@ Encoding legacy (Latin-1, Shift-JIS, CP1252) tidak ditebak. File seperti itu tam
    - tag baru;
    - `Meta{replacements, diff_stat, eol, encoding, owner_preserved, mode_preserved}`.
 
-Redaksi (SPEC §14.3): `old_string`/`new_text` yang memuat sentinel redaksi → `invalid_args`, karena menulis sentinel ke file akan merusak secret asli.
+Redaksi (SPEC §14.3, ADR-071): `old_string`, `new_string`, `new_text`, dan `write_file.content` (§5.6) yang memuat sentinel `[REDACTED:` → `invalid_args`, hint "secret redacted; edit around it", karena menulis sentinel ke file akan merusak secret asli.
 
 ```mermaid
 flowchart TD
@@ -338,6 +338,7 @@ Schema: `{path*, content* (maxLength 1000000), tag (pattern ^[0-9a-f]{8}$)}`.
   - tanpa `tag` → `stale_read` hint "read_file first";
   - tag basi → `stale_read` seperti §5.3.
   - Encoding/BOM/EOL dominan/mode/owner file lama dipertahankan. `content` dianggap tampilan logis.
+- **Guard sentinel redaksi:** `content` yang memuat `[REDACTED:` → `invalid_args` (§5.3, ADR-071).
 - **Output:** `+a -b` + diff ≤ 60 baris + tag baru.
 
 Tag dari halaman parsial cukup, karena tag mengikat isi penuh. Hermes mensyaratkan baseline baca penuh (`tools/file_tools.py:541-545`). Damn-Bot memilih syarat konkurensi saja; risiko model menimpa bagian yang belum dibaca diarahkan ke `edit_file` lewat stable tier.
@@ -415,7 +416,7 @@ Ringkasan:
 - **Baca/tulis di luar root (ADR-069):** interaktif → approval "read outside workspace: <path>" / "write outside workspace: <path>" yang **tetap ditanya di semua mode**, termasuk `auto`. `allow_session` hanya untuk path persis. Headless/cron → selalu `outside_workspace`. Konten yang dibaca dari luar root dibungkus `<untrusted source="file:outside_workspace">` (men-taint turn, ADR-070). Tercantum di SPEC §14.1 (baris "Read/write di luar workspace") dan §14.2. Test: `TestReadOutsideWorkspaceAsks`.
 - **`deny_paths`:** menang atas root dan approval, tidak dapat di-override; tetap error di langkah 5 (ADR-069). grep/glob melewati path yang ditolak dan hanya mencatat jumlahnya di footer (`skipped: N denied`), tanpa nama.
 - **Approval tulis di workspace:** sesuai SPEC §14.1 (`ask` → tanya, `auto-edit`/`auto` → auto). Tool read-only tidak butuh approval untuk path di dalam root (di luar root: butir di atas, ADR-069).
-- **Redaksi** (SPEC §14.3) diterapkan ke output `read_file`/`grep` sebelum ke model. Interaksinya dengan edit dibahas di §5.3.
+- **Redaksi** (SPEC §14.3, termasuk pola ADR-071: blok PEM penuh fail-closed, Stripe, Google, GitLab, Hugging Face, npm, JWT, userinfo URL) diterapkan ke output `read_file`/`grep` sebelum ke model. Guard sentinel pada argumen tulis dibahas di §5.3 (ADR-071).
 - **Isi file adalah data.** Isi file workspace trusted tidak dibungkus `<untrusted>` (file workspace = konteks user), kecuali file di direktori blob hasil `web_fetch`/MCP yang sudah berlabel dan file di luar root (`source="file:outside_workspace"`). Workspace untrusted (ADR-069 butir 7): AGENTS.md dan context file dibungkus `<untrusted source="workspace">`, dan konten file workspace men-taint turn (ADR-070).
 
 ## 9. Format output ke model
@@ -531,7 +532,7 @@ edited internal/ctxdb/blob.go #3f9a12c0→#91cc0a7e · 1 edit · +3 -1
 
 | ID | Metrik | Target | Verifikasi |
 |---|---|---|---|
-| CT-20 | Suite akurasi edit: ≥ 325 kasus `testdata/editsuite/*.txtar` (+ read-back sha256 setelah tulis, TOOL-03) | 100% outcome sesuai ekspektasi; 0 edit di lokasi salah; 0 perubahan encoding/EOL/BOM/permission/owner yang tidak diminta | `TestEditAccuracySuite` (PR) |
+| CT-20 | Suite akurasi edit: ≥ 330 kasus `testdata/editsuite/*.txtar` (+ read-back sha256 setelah tulis, TOOL-03) | 100% outcome sesuai ekspektasi; 0 edit di lokasi salah; 0 perubahan encoding/EOL/BOM/permission/owner yang tidak diminta | `TestEditAccuracySuite` (PR) |
 | CT-21 | Parity match-set grep vs `rg --no-config` (C1, C3; 200 kueri) | 0 selisih (path, baris) | `TestGrepParityRg` |
 | CT-22 | Determinisme output grep/glob (GOMAXPROCS 1, 2, 4, 8, 16; 100 run) | byte-identik | `TestCodeToolsDeterministic` |
 | CT-23 | Konformansi ignore vs `git check-ignore` | ≥ 500 kasus, 0 selisih | `TestGitignoreConformance` |
@@ -542,7 +543,7 @@ edited internal/ctxdb/blob.go #3f9a12c0→#91cc0a7e · 1 edit · +3 -1
 | CT-28 | Lazy `codeintel`/`codeindex` | 0 goroutine/fd/proses sebelum pemakaian pertama | `TestLazyModules` (P16) |
 | CT-29 | Akurasi deteksi biner (§4.4): korpus 300 file (100 biner bermagic/tanpa magic, 50 UTF-16 LE/BE ± BOM, 50 UTF-8 dengan ≤ 10% byte invalid, 50 minified, 50 teks biasa) | 0 biner diperlakukan teks; 0 teks (termasuk UTF-16) dilewati sebagai biner; footer `skipped: N binary` = jumlah biner persis | `TestBinarySniffCorpus` |
 
-Komposisi `TestEditAccuracySuite` (325 kasus): CRLF/EOL campuran 30, UTF-8 BOM 15, UTF-16 LE/BE ± BOM 20, Unicode NFC/NFD 15, tab vs spasi 25, match ganda/`ambiguous_match`/`replace_all` 30, file berubah sejak baca (`stale_read`, termasuk save byte-identik) 30, symlink dalam/luar root 15, permission/owner/xattr 15, baris raksasa ≥ 1 MB 10, file kosong 10, tanpa newline akhir 15, byte UTF-8 invalid 15, multi-edit overlap/urutan 30, line-range termasuk negatif 25, file > 64 MiB 5, hardlink 5, Latin-1/CP1252 tak ditebak (byte-exact, line-range only) 15 (GAP-TOOL-03). Setiap kasus memuat byte input, args, dan ekspektasi (kode error **atau** byte output persis + stat mode/owner).
+Komposisi `TestEditAccuracySuite` (330 kasus): CRLF/EOL campuran 30, UTF-8 BOM 15, UTF-16 LE/BE ± BOM 20, Unicode NFC/NFD 15, tab vs spasi 25, match ganda/`ambiguous_match`/`replace_all` 30, file berubah sejak baca (`stale_read`, termasuk save byte-identik) 30, symlink dalam/luar root 15, permission/owner/xattr 15, baris raksasa ≥ 1 MB 10, file kosong 10, tanpa newline akhir 15, byte UTF-8 invalid 15, multi-edit overlap/urutan 30, line-range termasuk negatif 25, file > 64 MiB 5, hardlink 5, Latin-1/CP1252 tak ditebak (byte-exact, line-range only) 15 (GAP-TOOL-03), sentinel `[REDACTED:` → `invalid_args` di `old_string`, `new_string`, `new_text`, `write_file.content`, dan kombinasi multi-edit 5 (ADR-071). Setiap kasus memuat byte input, args, dan ekspektasi (kode error **atau** byte output persis + stat mode/owner).
 
 ## 11. Ringkasan angka
 
@@ -563,7 +564,7 @@ Komposisi `TestEditAccuracySuite` (325 kasus): CRLF/EOL campuran 30, UTF-8 BOM 1
 | CT-12 | grep terindeks C2 | p95 ≤ 100 ms | `BenchmarkGrepIndexedC2` |
 | CT-13 | build indeks C2 | ≤ 120 s; disk ≤ 0,5× teks | `BenchmarkIndexBuildC2` |
 | CT-14 | heap puncak grep C2 | ≤ 96 MB | `TestCodeToolsMemCap` |
-| CT-20 | akurasi edit | ≥ 325 kasus, 100%, 0 lokasi salah, 0 perubahan tak diminta, read-back verify | `TestEditAccuracySuite`, `TestWriteReadBack` |
+| CT-20 | akurasi edit | ≥ 330 kasus (termasuk 5 guard sentinel, ADR-071), 100%, 0 lokasi salah, 0 perubahan tak diminta, read-back verify | `TestEditAccuracySuite`, `TestWriteReadBack` |
 | CT-21 | parity match-set vs rg | 0 selisih / 200 kueri | `TestGrepParityRg` |
 | CT-22 | determinisme | byte-identik, 5 nilai GOMAXPROCS × 100 run | `TestCodeToolsDeterministic` |
 | CT-23 | konformansi ignore | ≥ 500 kasus, 0 selisih | `TestGitignoreConformance` |
