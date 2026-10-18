@@ -1,0 +1,103 @@
+{
+ "harness_errors": [],
+ "meta": {
+  "argv": [
+   "python3",
+   "-m",
+   "hermes_cli.main",
+   "chat"
+  ],
+  "cap_usd": 0.05,
+  "date": "2026-10-18T10:02:18Z",
+  "first_response": "query diketik per karakter, Enter, berhenti saat 'PONG' muncul di output PTY; durasi request upstream ada di rekaman",
+  "idle_rss": "Σ VmRSS pohon proses (termasuk gateway daemon anak) setelah 10 s diam di prompt",
+  "model": "gpt-5.4-mini",
+  "network": "jaringan normal; provider hermes = proxy rekam TCP 127.0.0.1 (hanya trafik LLM yang direkam; fetch lain hermes, mis. model catalog, tidak lewat proxy)",
+  "price_usd": {
+   "input_per_mtok": 0.09,
+   "cached_input_per_mtok": 0.009,
+   "output_per_mtok": 0.51
+  },
+  "prompt_ready": "output PTY (ANSI dibuang) pertama kali cocok ready_re = Welcome to Hermes Agent[\\s\\S]*❯; consent telemetry di-seed 'No thanks' sebelum run (setup)",
+  "query": "Reply with the word pong written in uppercase letters.",
+  "recording": "h2h/results/2026-10-18/ts11.proxy.jsonl.gz",
+  "upstream": "https://api.teamorouter.com",
+  "wall_s": 205.757617356
+ },
+ "runs": [
+  {
+   "first_output_ms": 3169.0024239997,
+   "prompt_ready_ms": 15407.076452000183,
+   "idle_rss_kb": 505340,
+   "first_response_ms": 7521.565761999227,
+   "daemons_killed": 1
+  },
+  {
+   "first_output_ms": 3154.13070500108,
+   "prompt_ready_ms": 15378.842661000817,
+   "idle_rss_kb": 507520,
+   "first_response_ms": 6916.603417999795,
+   "daemons_killed": 1
+  },
+  {
+   "first_output_ms": 3215.0948230009817,
+   "prompt_ready_ms": 15707.04026400017,
+   "idle_rss_kb": 503932,
+   "first_response_ms": 7530.0130840005295,
+   "daemons_killed": 1
+  },
+  {
+   "first_output_ms": 3158.471525001005,
+   "prompt_ready_ms": 14869.231231999947,
+   "idle_rss_kb": 504748,
+   "first_response_ms": 7031.818617999306,
+   "daemons_killed": 1
+  },
+  {
+   "first_output_ms": 3181.4463779992366,
+   "prompt_ready_ms": 19724.45047600013,
+   "idle_rss_kb": 504476,
+   "first_response_ms": 6927.628077000918,
+   "daemons_killed": 1
+  }
+ ],
+ "spent_usd": 0.0007272299999999999,
+ "summary": {
+  "first_output_ms": {
+   "n": 5,
+   "p50": 3169.0024239997,
+   "p95": 3215.0948230009817
+  },
+  "first_response_ms": {
+   "n": 5,
+   "p50": 7031.818617999306,
+   "p95": 7530.0130840005295
+  },
+  "idle_rss_mb": {
+   "n": 5,
+   "p50": 492.91796875,
+   "p95": 495.625
+  },
+  "prompt_ready_ms": {
+   "n": 5,
+   "p50": 15407.076452000183,
+   "p95": 19724.45047600013
+  }
+ },
+ "usage": {
+  "calls": 5,
+  "prompt_tokens": 55790,
+  "completion_tokens": 119,
+  "cached_tokens": 53760,
+  "reasoning_tokens": 0,
+  "cost_usd": 0.0007272299999999999,
+  "aborted_calls": 6
+ },
+ "warmup": {
+  "first_output_ms": 3367.823018001218,
+  "prompt_ready_ms": 15645.671580999988,
+  "idle_rss_kb": 512584,
+  "first_response_ms": 6742.5915700005135,
+  "daemons_killed": 1
+ }
+}
