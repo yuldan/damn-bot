@@ -156,6 +156,7 @@ func TestCost(t *testing.T) {
 	p := &Price{InputPerMTok: 3_000_000, CachedInputPerMTok: 300_000, OutputPerMTok: 15_000_000, Version: "2026-10"}
 	usd := 0.0123456
 	neg := -1.0
+	huge, maxUSD, inf := 1e14, float64(MaxProviderCostUSD), math.Inf(1)
 	cases := []struct {
 		u       Usage
 		p       *Price
@@ -171,6 +172,18 @@ func TestCost(t *testing.T) {
 		{Usage{Input: 10}, nil, -1, CostUnknown, false},
 		{Usage{Input: 1, CachedInput: 2}, p, -1, CostUnknown, true},
 		{Usage{Output: -1}, p, -1, CostUnknown, true},
+		// LED-2: implausible provider costs fail closed, never wrap negative.
+		{Usage{Input: 1, CostUSD: &huge}, p, -1, CostUnknown, true},
+		{Usage{Input: 1, CostUSD: &inf}, p, -1, CostUnknown, true},
+		{Usage{Input: 1, CostUSD: &maxUSD}, p, 1_000_000_000_000, CostProvider, false},
+		// LED-3: token bounds and checked arithmetic.
+		{Usage{Input: MaxTokens + 1}, p, -1, CostUnknown, true},
+		{Usage{Output: math.MaxInt64 / 2}, p, -1, CostUnknown, true},
+		{Usage{Input: 4e12}, p, -1, CostUnknown, true},
+		{Usage{Input: MaxTokens, Output: MaxTokens}, &Price{InputPerMTok: 9e6, OutputPerMTok: 9e6}, 18_000_000_000_000, CostPricingTable, false},
+		{Usage{Input: MaxTokens}, &Price{InputPerMTok: 1e8}, -1, CostUnknown, true}, // 10^20 overflows uint64
+		{Usage{Input: MaxTokens, Output: MaxTokens}, &Price{InputPerMTok: 9e6, OutputPerMTok: 9e6 + 1e7}, -1, CostUnknown, true},
+		{Usage{Input: 1}, &Price{InputPerMTok: -1}, -1, CostUnknown, true},
 	}
 	for i, c := range cases {
 		m, src, err := Cost(c.u, c.p)
