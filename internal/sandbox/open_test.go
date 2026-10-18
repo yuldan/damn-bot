@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -301,6 +302,72 @@ func TestOpenEdgeCases(t *testing.T) {
 			t.Fatalf("Close: %v", cerr)
 		}
 	})
+}
+
+// TestOpenRecheckDeny is S16-2: after every open the handle is re-checked
+// against deny_paths. A hard link inside the root to a literal deny file is
+// Inside for Check but refused by identity, in both open modes and for
+// OpenApproved; a handle at a deny path is refused by its real path where
+// the OS reports it (Linux, Windows) and by identity for literal targets.
+func TestOpenRecheckDeny(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	netrc := filepath.Join(f.home, ".netrc")
+	mkfile(t, netrc, "machine x password y")
+	sb, err := New(&Config{Roots: []string{f.root}, DenyPaths: []string{"~/.ssh", "~/.netrc"}, Home: f.home})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	hl := filepath.Join(f.root, "hl")
+	if err := os.Link(netrc, hl); err != nil {
+		t.Fatalf("Link: %v", err)
+	}
+	if v, _, err := sb.Check(t.Context(), hl, OpRead); err != nil || v != Inside {
+		t.Fatalf("Check(hard link) = %v, %v; want inside (path checks cannot see it)", v, err)
+	}
+	modes(t, sb, func(t *testing.T, sb *Sandbox) {
+		if _, _, err := sb.OpenFile(t.Context(), hl, os.O_RDONLY, 0); !errors.Is(err, ErrDeniedPath) {
+			t.Errorf("OpenFile(hard link) = %v, want ErrDeniedPath", err)
+		}
+		if _, err := sb.OpenApproved(t.Context(), hl, os.O_RDONLY, 0); !errors.Is(err, ErrDeniedPath) {
+			t.Errorf("OpenApproved(hard link) = %v, want ErrDeniedPath", err)
+		}
+	})
+	byPath := runtime.GOOS == "linux" || runtime.GOOS == "windows"
+	for p, want := range map[string]bool{netrc: true, filepath.Join(f.home, ".ssh", "id_rsa"): byPath, filepath.Join(f.root, "real.txt"): false} {
+		file, err := os.Open(p) //nolint:gosec // G304: fixture paths of this test
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		got, err := sb.recheckDeny(file)
+		if errors.Is(err, ErrDeniedPath) != want || (err == nil) == want {
+			t.Errorf("recheckDeny(%s) = %v, want denied %v", p, err, want)
+		}
+		if err == nil {
+			readAll(t, got)
+		}
+	}
+}
+
+// TestRecheckDenyClosedHandle (S16-2): a handle that cannot be inspected
+// fails closed (stat and close errors).
+func TestRecheckDenyClosedHandle(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	closed, err := os.Open(filepath.Join(f.root, "real.txt"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err = closed.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	sb, err := New(&Config{Roots: []string{f.root}, DenyPaths: []string{"~/.ssh/id_rsa"}, Home: f.home})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := sb.recheckDeny(closed); err == nil || !errors.Is(err, os.ErrClosed) {
+		t.Errorf("recheckDeny(closed) = %v, want an os.ErrClosed failure", err)
+	}
 }
 
 func readAll(t *testing.T, f *os.File) string {

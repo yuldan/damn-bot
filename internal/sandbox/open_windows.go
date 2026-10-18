@@ -17,7 +17,7 @@ import (
 // — even one pointing inside the root — fails with ErrOutsideWorkspace.
 // Known false positive (fail-closed): mapped/subst drives, whose final path
 // is the UNC/target volume.
-func (*Sandbox) openBeneath(dir, rel, want string, flag int, perm fs.FileMode) (*os.File, error) {
+func (s *Sandbox) openBeneath(dir, rel, want string, flag int, perm fs.FileMode) (*os.File, error) {
 	r, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, fmt.Errorf("sandbox: %w", err)
@@ -34,16 +34,21 @@ func (*Sandbox) openBeneath(dir, rel, want string, flag int, perm fs.FileMode) (
 		return nil, fmt.Errorf("sandbox: %w", err)
 	}
 	got, err := finalPath(f)
-	if err == nil && sameWindowsPath(got, want) {
+	switch {
+	case err == nil && sameWindowsPath(got, want):
 		return f, nil
-	}
-	if cerr := f.Close(); cerr != nil {
-		return nil, fmt.Errorf("sandbox: close: %w", cerr)
-	}
-	if err == nil {
+	case err == nil && s.denied(normalizeWindows(got)):
+		return nil, closeFail(f, ErrDeniedPath) // alias of a deny path (S16-2)
+	case err == nil:
 		err = fs.ErrInvalid
 	}
-	return nil, escaped(want, err)
+	return nil, closeFail(f, escaped(want, err))
+}
+
+// handlePath is the normalized final path of f (GetFinalPathNameByHandle).
+func handlePath(f *os.File) (string, bool) {
+	p, err := finalPath(f)
+	return normalizeWindows(p), err == nil
 }
 
 // finalPathFlags = FILE_NAME_NORMALIZED|VOLUME_NAME_DOS (both 0 in the

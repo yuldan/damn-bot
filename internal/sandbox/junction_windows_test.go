@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -45,5 +47,69 @@ func TestJunctionVerdicts(t *testing.T) {
 	}
 	if !sameWindowsPath(sb.roots[0].path, filepath.Join(f.root, "sub")) {
 		t.Errorf("junction root = %q, want its target", sb.roots[0].path)
+	}
+}
+
+// TestJunctionOpen is S16-1: a junction resolving inside the root opens (the
+// resolved path is free of reparse points, verified by the final path); one
+// leaving the root is an outside_root verdict, opened only via OpenApproved.
+func TestJunctionOpen(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	junction(t, filepath.Join(f.root, "sub"), filepath.Join(f.root, "jin"))
+	junction(t, f.out, filepath.Join(f.root, "jout"))
+	modes(t, f.sb, func(t *testing.T, sb *Sandbox) {
+		file, v, err := sb.OpenFile(t.Context(), filepath.Join(f.root, "jin", "a.txt"), os.O_RDONLY, 0)
+		if err != nil || v != Inside {
+			t.Fatalf("OpenFile(junction in) = %v, %v", v, err)
+		}
+		if got := readAll(t, file); got != "a" {
+			t.Errorf("read %q, want a", got)
+		}
+		out := filepath.Join(f.root, "jout", "secret.txt")
+		got, v, err := sb.OpenFile(t.Context(), out, os.O_RDONLY, 0)
+		if got != nil || err != nil || v != OutsideRoot {
+			t.Fatalf("OpenFile(junction out) = %v, %v", v, err)
+		}
+		file, err = sb.OpenApproved(t.Context(), out, os.O_RDONLY, 0)
+		if err != nil {
+			t.Fatalf("OpenApproved(junction out): %v", err)
+		}
+		if got := readAll(t, file); got != "outside" {
+			t.Errorf("read %q, want outside", got)
+		}
+	})
+}
+
+// TestOpenDriveAlias is S16-2 on Windows: a subst drive aliases the deny dir,
+// so Check may see an outside_root path, but the handle's final path is the
+// deny path and OpenApproved fails with ErrDeniedPath.
+func TestOpenDriveAlias(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	drive := ""
+	for _, l := range "PQRSTUVWXYZ" {
+		if _, err := os.Stat(string(l) + `:\`); err != nil {
+			drive = string(l) + ":"
+			break
+		}
+	}
+	if drive == "" {
+		t.Fatal("no free drive letter for subst")
+	}
+	subst := func(args ...string) {
+		cmd := exec.CommandContext(context.Background(), "subst", args...) //nolint:gosec // G204: fixed subst, args from the test
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("subst %v: %v: %s", args, err, out)
+		}
+	}
+	subst(drive, f.home)
+	t.Cleanup(func() { subst(drive, "/d") })
+	alias := drive + `\.ssh\id_rsa`
+	if v, _, err := f.sb.Check(t.Context(), alias, OpRead); !errors.Is(err, ErrDeniedPath) && (err != nil || v != OutsideRoot) {
+		t.Fatalf("Check(subst alias) = %v, %v; want outside_root or denied_path", v, err)
+	}
+	if _, err := f.sb.OpenApproved(t.Context(), alias, os.O_RDONLY, 0); !errors.Is(err, ErrDeniedPath) {
+		t.Errorf("OpenApproved(subst alias) = %v, want ErrDeniedPath", err)
 	}
 }
