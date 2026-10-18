@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -67,8 +68,6 @@ func TestCodeToolsSymlinkOutsideRoot(t *testing.T) {
 func TestDenyPaths(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
-	folded := *f.sb
-	folded.foldDeny = true
 	tests := []struct {
 		name string
 		sb   *Sandbox
@@ -86,9 +85,9 @@ func TestDenyPaths(t *testing.T) {
 		{"dotenv in root", f.sb, filepath.Join(f.root, "app", ".env"), true},
 		{"dotenv example", f.sb, filepath.Join(f.root, ".env.example"), false},
 		{"pem relative pattern", f.sb, filepath.Join(f.root, "certs", "key.pem"), true},
-		{"case sensitive", f.sb, filepath.Join(f.home, ".SSH", "id_rsa"), f.sb.foldDeny},
-		{"case folded", &folded, filepath.Join(f.home, ".SSH", "ID_RSA"), true},
-		{"case folded dotenv", &folded, filepath.Join(f.root, ".ENV"), true},
+		// S15-3: folded on every OS (WSL /mnt/c, vfat, ext4 casefold).
+		{"case folded", f.sb, filepath.Join(f.home, ".SSH", "ID_RSA"), true},
+		{"case folded dotenv", f.sb, filepath.Join(f.root, ".ENV"), true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -98,6 +97,72 @@ func TestDenyPaths(t *testing.T) {
 				t.Fatalf("Check(%q) err = %v, deny = %v, want %v", tc.path, err, got, tc.deny)
 			}
 		})
+	}
+}
+
+// TestDenyAliases is S15-1: a symlinked deny directory (~/.ssh ->
+// ~/dotfiles/ssh, root = ~/dotfiles) or a symlinked Home (/home ->
+// /var/home) still denies the physical path, for Check, OpenFile and
+// OpenApproved alike; globbed tails keep their resolved prefix.
+func TestDenyAliases(t *testing.T) {
+	t.Parallel()
+	base := realTemp(t)
+	realHome, linkHome := filepath.Join(base, "var-home"), filepath.Join(base, "home")
+	key := filepath.Join(realHome, "dotfiles", "ssh", "id_rsa")
+	mkfile(t, key, "key")
+	mkfile(t, filepath.Join(realHome, "conf", "app", "token"), "tok")
+	symlink(t, filepath.Join(realHome, "dotfiles", "ssh"), filepath.Join(realHome, ".ssh"))
+	symlink(t, realHome, linkHome)
+	for _, home := range []string{realHome, linkHome} {
+		sb, err := New(&Config{
+			Roots:     []string{filepath.Join(realHome, "dotfiles")},
+			DenyPaths: []string{"~/.ssh", filepath.Join(linkHome, "conf", "*", "token"), filepath.Join(base, "absent", "x")},
+			Home:      home,
+		})
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		for _, p := range []string{key, filepath.Join(realHome, "conf", "app", "token")} {
+			if _, _, err := sb.Check(t.Context(), p, OpRead); !errors.Is(err, ErrDeniedPath) {
+				t.Errorf("home %s: Check(%s) err = %v, want ErrDeniedPath", home, p, err)
+			}
+		}
+	}
+}
+
+// TestFirstLink: the junction expander of resolve (S15-2) treats any link
+// on the path; symlinks exercise it on every OS.
+func TestFirstLink(t *testing.T) {
+	t.Parallel()
+	base := realTemp(t)
+	mkfile(t, filepath.Join(base, "real", "f"), "x")
+	symlink(t, filepath.Join(base, "real"), filepath.Join(base, "link"))
+	got, ok, err := firstLink(filepath.Join(base, "link", "f"))
+	if err != nil || !ok || got != filepath.Join(base, "real", "f") {
+		t.Errorf("firstLink(link/f) = %q, %v, %v", got, ok, err)
+	}
+	if _, ok, err := firstLink(filepath.Join(base, "real", "f")); ok || err != nil {
+		t.Errorf("firstLink(real/f) = %v, %v; want no link", ok, err)
+	}
+	if _, _, err := firstLink(filepath.Join(base, "gone", "f")); err == nil {
+		t.Error("firstLink(missing) err = nil")
+	}
+	symlink(t, "real", filepath.Join(base, "rel"))
+	if got, ok, err := firstLink(filepath.Join(base, "rel", "f")); err != nil || !ok || got != filepath.Join(base, "real", "f") {
+		t.Errorf("firstLink(rel/f) = %q, %v, %v", got, ok, err)
+	}
+}
+
+// TestResolveLinkLimit: a chain of more than maxLinks dangling symlinks is
+// an error, not an endless walk.
+func TestResolveLinkLimit(t *testing.T) {
+	t.Parallel()
+	base := realTemp(t)
+	for i := range maxLinks + 1 {
+		symlink(t, filepath.Join(base, fmt.Sprint("l", i+1)), filepath.Join(base, fmt.Sprint("l", i)))
+	}
+	if _, err := resolve(filepath.Join(base, "l0")); !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("resolve(chain) err = %v, want fs.ErrInvalid", err)
 	}
 }
 
