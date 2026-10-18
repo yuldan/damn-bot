@@ -320,6 +320,8 @@ func mapOpenErr(p string, err error) error {
 		return &ToolError{Code: CodeNotFound, Message: p + " does not exist", Err: err}
 	case errors.Is(err, sandbox.ErrInvalidPath):
 		return &ToolError{Code: CodeInvalidArgs, Message: "invalid path " + p, Err: err}
+	case errors.Is(err, sandbox.ErrNotRegular):
+		return &ToolError{Code: CodeInvalidArgs, Message: p + " is not a regular file", Err: err}
 	case errors.Is(err, fs.ErrPermission):
 		return &ToolError{Code: CodeDeniedPath, Message: p + ": permission denied by the OS", Err: err}
 	}
