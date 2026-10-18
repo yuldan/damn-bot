@@ -139,7 +139,8 @@ internal/
   codetools/                engine grep/glob/read/edit (ADR-014, CODE-TOOLS.md)
   exec/                     runner, PTY/ConPTY, process group, backend lokal (ADR-016)
   codeintel/                go/ast + tree-sitter wazero + LSP client (modul lazy, ADR-015)
-  ctxdb/                    SQLite store, FTS5, migrasi; satu-satunya importir driver SQLite
+  ctxdb/                    SQLite store, FTS5, migrasi; satu-satunya importir driver SQLite (bersama subpaketnya, ADR-074)
+  ctxdb/<consumer>store/    storage konsumen: ledgerstore (F1), memstore, skillstore, journalstore (F2), gwstore (F4) (ADR-074)
   assemble/                 perakitan tier prompt (SPEC §6)
   compaction/               prune deterministik + summary (P8)
   memory/  skills/          memory & skill + karantina (ADR-007)
@@ -166,7 +167,7 @@ internal/
 | E-01 | Arah import mengikuti graf §2.2.1; edge di luar matriks dilarang | 0 edge ilegal | `go test ./internal/archtest -run TestImportGraph` (membaca `go list -deps -json ./...`, membandingkan dengan matriks `archtest/allowed.go`); `depguard` rule per paket (cepat, di editor) |
 | E-02 | `loop` hanya mengimpor `loop/event`, `boundary`, stdlib | 2 paket internal | `TestImportGraph` |
 | E-03 | Frontend (`tui`, `acp`, `web`, `gateway`) tidak mengimpor `ctxdb`, `provider`, `exec`, `codetools` | 0 | `depguard` rule `frontend`, `TestImportGraph` |
-| E-04 | Hanya `ctxdb` mengimpor `modernc.org/sqlite`/`database/sql` | 1 paket | `depguard` rule `sqlite` |
+| E-04 | Hanya `internal/ctxdb/...` (paket `ctxdb` dan subpaketnya) mengimpor `modernc.org/sqlite`/`database/sql`; storage konsumen ada di `internal/ctxdb/<consumer>store` (ADR-074) | 1 pohon paket | `depguard` rule `sqlite` |
 | E-05 | Hanya `netx` memanggil `&http.Client{}`, `http.DefaultClient`, `net.Dial*`, `http.Transport{}` | 1 paket | analyzer `nohttpclient` (SPEC §16) |
 | E-06 | Modul (`mcp`, `codeintel`, `gateway/<platform>`, semua modul fitur) hanya mengimpor `modules/host`, `netx` (termasuk `netx/jsonrpc`), `schema` | 0 edge lain | `TestImportGraph` rule `module`; tipe event, i18n, spawn proses, LLM, storage diakses lewat interface/tipe di `modules/host` |
 | E-07 | Tidak ada embedding struct lintas paket untuk mewarisi method (anti-pola §1.2) | 0 | `TestNoCrossPackageEmbedding` (go/types: field embedded bertipe struct dari paket internal lain → gagal; embedding interface dan tipe stdlib diizinkan) |
@@ -276,7 +277,7 @@ flowchart TD
     NET --> RED
 ```
 
-Penyimpanan untuk `journal`, `memory`, `skills`, `assemble`, `compaction`, `budget` dideklarasikan sebagai interface di paket konsumen dan diimplementasikan `ctxdb`; `cmd/damnbot` yang menyambungkan. Logika protokol gateway/approval (poller → worker, spool, outbox, konsumen approval) milik `internal/gateway`; `ctxdb` hanya menyediakan primitif storage (tabel spool/outbox/approval/inbound + metode transaksional bertipe) yang dikonsumsi `internal/gateway` lewat interface sisi konsumen (E-09, ≤ 5 method); adapter `gateway/<platform>` tetap di bawah E-06 (ADR-053). Panah tidak tergambar = dilarang.
+Penyimpanan untuk `journal`, `memory`, `skills`, `assemble`, `compaction`, `budget` dideklarasikan sebagai interface kecil di paket konsumen (E-09, ≤ 5 method) dan diimplementasikan di `internal/ctxdb` atau subpaket `internal/ctxdb/<consumer>store` (`ledgerstore` untuk `budget`, `memstore`, `skillstore`, `journalstore`; ADR-074); `cmd/damnbot` yang menyambungkan. Logika protokol gateway/approval (poller → worker, spool, outbox, konsumen approval) milik `internal/gateway`; `ctxdb` (subpaket `ctxdb/gwstore`, budget dari baris `gateway` SPEC §3.2.4, ADR-074) hanya menyediakan primitif storage (tabel spool/outbox/approval/inbound + metode transaksional bertipe) yang dikonsumsi `internal/gateway` lewat interface sisi konsumen (E-09, ≤ 5 method); adapter `gateway/<platform>` tetap di bawah E-06 (ADR-053). Panah tidak tergambar = dilarang.
 
 ### 2.3 Interface, state, DI
 
@@ -314,17 +315,19 @@ Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2
 | `loop` + `loop/event` | 1.500 | `ctxdb` (tanpa file `.sql`; ADR-049) | 2.800 |
 | `plan` | 600 | `assemble` | 1.000 |
 | `provider` (core OpenAI-compatible + `providertest`) | 2.000 | `compaction` | 900 |
-| `provider/registry` (Go; data TOML tidak dihitung) | 400 | `memory` + `skills` | 2.200 |
-| `netx` + `netx/jsonrpc` | 1.800 | `journal` | 900 |
-| `schema` | 1.200 | `budget` | 700 |
+| `provider/registry` (Go; data TOML tidak dihitung) | 400 | `memory` + `skills` (storage di `ctxdb/memstore`/`ctxdb/skillstore`, ADR-074) | 1.200 |
+| `netx` + `netx/jsonrpc` | 1.800 | `journal` (storage di `ctxdb/journalstore`, ADR-074) | 500 |
+| `schema` | 1.200 | `budget` (storage di `ctxdb/ledgerstore`, ADR-074) | 400 |
 | `tools` | 1.800 | `heal` | 1.500 |
 | `codetools` | 4.500 | `config` | 1.200 |
 | `exec` (unix + windows) | 3.000 | `modules` + `modules/host` | 1.000 |
 | `sandbox` + `redact` | 1.300 | `hooks` | 700 |
 | `boundary` | 150 | `i18n` (Go) | 300 |
+| `ctxdb/ledgerstore` (F1, ADR-074) | 300 | `ctxdb/memstore` (F2, ADR-074) | 600 |
+| `ctxdb/skillstore` (F2, ADR-074) | 400 | `ctxdb/journalstore` (F2, ADR-074) | 400 |
 | **Total core** | **31.450** | | |
 
-Total core per paket = 31.450 ≤ 47.000 (budget gabungan SPEC §3.2.4 untuk core + codetools + exec + heal; ADR-049 menaikkan `ctxdb` 2.500 → 2.800, total core 31.150 → 31.450). Rencana total seluruh modul SPEC §3.2.4 = 184.900 ≤ 190.000 (P21, ADR-033, ADR-036). Baris core SPEC §3.2.4 kini 30.000 + exec 7.000 + heal/obs 5.500 + codetools 4.500 = 47.000 (gabungan). Jika per paket melebihi tabel ini tetapi masih di dalam baris SPEC, revisi tabel ini lewat PR biasa; melebihi baris SPEC butuh ADR (SPEC §20).
+Total core per paket = 31.450 ≤ 47.000 (budget gabungan SPEC §3.2.4 untuk core + codetools + exec + heal; ADR-049 menaikkan `ctxdb` 2.500 → 2.800, total core 31.150 → 31.450). ADR-074 memindahkan storage konsumen ke baris `ctxdb/<consumer>store` yang dipotong dari baris konsumennya (`budget` 700 → 400 + `ctxdb/ledgerstore` 300; `memory` + `skills` 2.200 → 1.200 + `ctxdb/memstore` 600 + `ctxdb/skillstore` 400; `journal` 900 → 500 + `ctxdb/journalstore` 400), sehingga total tetap 31.450; `ctxdb/gwstore` 900 dihitung dari budget `gateway` SPEC §3.2.4 (F4, ADR-053), bukan tabel core. Longest-prefix `loc.budget` membuat setiap subdirektori `ctxdb/<consumer>store` menjadi grup terpisah dari `ctxdb`. Rencana total seluruh modul SPEC §3.2.4 = 184.900 ≤ 190.000 (P21, ADR-033, ADR-036). Baris core SPEC §3.2.4 kini 30.000 + exec 7.000 + heal/obs 5.500 + codetools 4.500 = 47.000 (gabungan). Jika per paket melebihi tabel ini tetapi masih di dalam baris SPEC, revisi tabel ini lewat PR biasa; melebihi baris SPEC butuh ADR (SPEC §20).
 
 ---
 
