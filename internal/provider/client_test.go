@@ -248,9 +248,34 @@ func ecFallbackSkipsBroken(t *testing.T) {
 		OnFallback: func(f provider.Fallback) { events = append(events, f) },
 	})
 	resp, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil)
-	if err != nil || resp.Content != "saved" || resp.FallbackFrom != "fake/m" || len(events) != 1 || events[0].To != "b/y" ||
-		retry.ClassifyErr(events[0].Err) != retry.Server {
+	if err != nil || resp.Content != "saved" || resp.FallbackFrom != "fake/m" || len(events) != 2 || events[0].To != "b/y" ||
+		retry.ClassifyErr(events[0].Err) != retry.Server || events[0].Done || !events[1].Done || events[1].Outcome != nil {
 		t.Errorf("%+v %v %+v", resp, err, events)
+	}
+}
+
+// TestFallbackFailedVisible (PROV-M5, P7): a fallback that fails is still
+// reported before its request and with its failure afterwards.
+func TestFallbackFailedVisible(t *testing.T) {
+	t.Parallel()
+	five := func() []providertest.Reply {
+		return []providertest.Reply{providertest.Status(500, "", ""), providertest.Status(500, "", ""), providertest.Status(500, "", "")}
+	}
+	prim := providertest.New(t, nil, five()...)
+	fb := providertest.New(t, nil, five()...)
+	var events []provider.Fallback
+	o := client(t, provider.Config{
+		Routes:     []provider.Route{route("m", prim.URL), {Provider: "b", Model: "f", BaseURL: fb.URL}},
+		Fallback:   []string{"b/f"},
+		OnFallback: func(f provider.Fallback) { events = append(events, f) },
+	})
+	_, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil)
+	if retry.ClassifyErr(err) != retry.Server || len(fb.Requests()) != 3 {
+		t.Fatalf("%v, %d fallback requests", err, len(fb.Requests()))
+	}
+	if len(events) != 2 || events[0].Done || events[0].To != "b/f" || !events[1].Done ||
+		retry.ClassifyErr(events[1].Outcome) != retry.Server {
+		t.Errorf("events %+v", events)
 	}
 }
 
