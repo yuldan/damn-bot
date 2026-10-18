@@ -1,6 +1,7 @@
 package ctxdb
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -17,11 +18,11 @@ func TestCloseCheckpointDoesNotBlockWriters(t *testing.T) {
 	for range 50 {
 		appendMsg(t, c, "S", "fill the WAL")
 	}
-	rc, err := b.r.Conn(bg) // long-lived read transaction: a WAL reader
+	rc, err := b.r.Conn(context.Background()) // long-lived read transaction: a WAL reader
 	must(t, err)
 	defer func() { must(t, rc.Close()) }()
 	var n int
-	must(t, rc.QueryRowContext(bg, "BEGIN; SELECT count(*) FROM events").Scan(&n))
+	must(t, rc.QueryRowContext(context.Background(), "BEGIN; SELECT count(*) FROM events").Scan(&n))
 	appendMsg(t, c, "S", "after reader snapshot") // reader is now behind the WAL head
 	done := make(chan error, 1)
 	go func() { done <- a.Close() }()
@@ -34,7 +35,7 @@ func TestCloseCheckpointDoesNotBlockWriters(t *testing.T) {
 		default:
 		}
 		start := time.Now()
-		_, err := c.Append(bg, "S", nil, Event{Kind: "user_message", Content: "while A closes"})
+		_, err := c.Append(context.Background(), "S", nil, Event{Kind: "user_message", Content: "while A closes"})
 		must(t, err)
 		worst = max(worst, time.Since(start))
 	}

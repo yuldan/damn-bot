@@ -11,11 +11,18 @@ import (
 
 // Batch limits shared by gc and purge (§11.6, I11).
 const (
-	batchDeadline = 150 * time.Millisecond
-	gcBatchShas   = 500
-	gcBatchRefs   = 20_000
-	dutyFactor    = 4 // lock released ≥ 4× batch duration (duty cycle ≤ 20 %)
-	tmpMaxAge     = 24 * time.Hour
+	gcBatchShas = 500
+	gcBatchRefs = 20_000
+	dutyFactor  = 4 // lock released ≥ 4× batch duration (duty cycle ≤ 20 %)
+	// minYield is the minimum pause between gc/purge batches. SQLite's busy
+	// handler sleeps up to 100 ms between retries; a shorter pause lets the
+	// batch loop re-take the write lock while waiting writers sleep, starving
+	// them past busy_timeout (S015). 110 ms > the largest backoff step.
+	minYield = 110 * time.Millisecond
+	// unitBudget leaves room for COMMIT (fsync, synchronous=FULL) inside the
+	// 200 ms per-transaction bound of I11.
+	unitBudget = 100 * time.Millisecond
+	tmpMaxAge  = 24 * time.Hour
 	// tCutMs is the undo horizon T_cut (§18.1); refs of actions/snapshots are
 	// released at T_gc = T_cut − 1 h.
 	tCutMs        = 7 * 24 * 3_600_000
@@ -34,6 +41,9 @@ type gcCand struct {
 	retain bool // last refs were action/snapshot → journal_retention
 	noRow  bool // final file without a blobs row (crashed writer)
 }
+
+// yieldAfter is the lock-free pause after a batch that held the lock d.
+func yieldAfter(d time.Duration) time.Duration { return max(dutyFactor*d, minYield) }
 
 func (s *Store) tGC() int64 { return s.clk.WallMs() - tCutMs - gcRetentionMs }
 
@@ -64,7 +74,7 @@ func (s *Store) GC(ctx context.Context, scheduled bool) (GCStats, error) {
 		st.MaxLock = max(st.MaxLock, d)
 		cands = cands[max(done, 1):]
 		if err == nil {
-			err = wrap(s.clk.Sleep(ctx, dutyFactor*d))
+			err = wrap(s.clk.Sleep(ctx, yieldAfter(d)))
 		}
 	}
 	return st, err
@@ -128,7 +138,7 @@ func (s *Store) dropOldTemp(p string, d fs.DirEntry, st *GCStats) error {
 func (t *Tx) gcBatch(cands []gcCand, st *GCStats) (int, error) {
 	start := time.Now()
 	for i, c := range cands {
-		if time.Since(start) >= batchDeadline {
+		if time.Since(start) >= unitBudget {
 			return i, nil
 		}
 		q := t.s.q["gc.recheck"]

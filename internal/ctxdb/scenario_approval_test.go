@@ -1,6 +1,7 @@
 package ctxdb
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -28,17 +29,18 @@ func approvalScenarios() []scenario {
 
 const owner = "owner"
 
-func pending(t *testing.T, s *Store, sid, turn, rid string, dangerous bool) ApprovalRequest {
+func pending(t *testing.T, s *Store, sid, turn, rid string, dangerous bool) {
 	t.Helper()
-	req := ApprovalRequest{RequestID: rid, Class: "shell", Dangerous: dangerous, PreviewSha: "p1",
-		Channels: []string{"web", "gateway", "mcp_serve"}, ExpiresAt: s.clk.WallMs() + 600_000}
-	must(t, s.Write(bg, func(tx *Tx) error {
+	req := ApprovalRequest{
+		RequestID: rid, Class: "shell", Dangerous: dangerous, PreviewSha: "p1",
+		Channels: []string{"web", "gateway", "mcp_serve"}, ExpiresAt: s.clk.WallMs() + 600_000,
+	}
+	must(t, s.Write(context.Background(), func(tx *Tx) error {
 		if err := tx.StartTurn(sid, turn); err != nil {
 			return err
 		}
-		return tx.RequestApproval(turn, req)
+		return tx.RequestApproval(turn, &req)
 	}))
-	return req
 }
 
 func token(t *testing.T, s *Store, id, scope, identity string, revoked bool) {
@@ -47,14 +49,14 @@ func token(t *testing.T, s *Store, id, scope, identity string, revoked bool) {
 	if revoked {
 		rev = 1
 	}
-	must(t, s.Write(bg, func(tx *Tx) error {
+	must(t, s.Write(context.Background(), func(tx *Tx) error {
 		_, err := tx.Exec("INSERT INTO mcp_serve_tokens(id_hash, profile, identity, scope, created_at, revoked_at) VALUES (?, 'p', ?, ?, 0, ?)", id, identity, scope, rev)
 		return err
 	}))
 }
 
-func answer(sid, turn, rid, decision, src, who string) ApprovalResponse {
-	r := ApprovalResponse{SessionID: sid, TurnID: turn, RequestID: rid, PreviewSha: "p1", Decision: decision, Source: src, Responder: who}
+func answer(sid, turn, rid, decision, src, who string) *ApprovalResponse {
+	r := &ApprovalResponse{SessionID: sid, TurnID: turn, RequestID: rid, PreviewSha: "p1", Decision: decision, Source: src, Responder: who}
 	if src == "mcp_serve" {
 		r.Token = "tok-" + who
 	}
@@ -69,23 +71,23 @@ func s030(t *testing.T) {
 	session(t, tui, "S", "")
 	pending(t, tui, "S", "T1", "r1", false)
 	token(t, tui, "tok-"+owner, "approve", owner, false)
-	must(t, mcp.RespondApproval(bg, answer("S", "T1", "r1", "allow_once", "mcp_serve", owner)))
-	d, err := tui.ConsumeApproval(bg, "S", "T1", owner, nil)
+	must(t, mcp.RespondApproval(context.Background(), answer("S", "T1", "r1", "allow_once", "mcp_serve", owner)))
+	d, err := tui.ConsumeApproval(context.Background(), "S", "T1", owner, nil)
 	must(t, err)
 	if d.Decision != "allow_once" {
 		t.Fatalf("decision %+v", d)
 	}
-	_, err = cli.AcquireLease(bg, "S") // undo from shell while TUI holds the session
+	_, err = cli.AcquireLease(context.Background(), "S") // undo from shell while TUI holds the session
 	wantErr(t, err, ErrSessionBusy)
-	must(t, cli.Write(bg, func(tx *Tx) error { // import batch: lease per batch
-		if _, err := tx.CreateSession(Session{ID: "I1", Origin: "import"}); err != nil {
-			return err
+	must(t, cli.Write(context.Background(), func(tx *Tx) error { // import batch: lease per batch
+		if _, ierr := tx.CreateSession(Session{ID: "I1", Origin: "import"}); ierr != nil {
+			return ierr
 		}
-		_, err := tx.AppendEvent("I1", &Event{Kind: "imported", Content: "old"})
-		return err
+		_, ierr := tx.AppendEvent("I1", &Event{Kind: "imported", Content: "old"})
+		return ierr
 	}))
-	must(t, cli.ReleaseLease(bg, "I1"))
-	_, err = tui.AcquireLease(bg, "I1")
+	must(t, cli.ReleaseLease(context.Background(), "I1"))
+	_, err = tui.AcquireLease(context.Background(), "I1")
 	must(t, err)
 }
 
@@ -95,8 +97,8 @@ func s041(t *testing.T) {
 	tui, srv := e.open(1, "tui"), e.open(2, "serve")
 	session(t, tui, "S", "")
 	pending(t, tui, "S", "T1", "r1", false)
-	must(t, tui.Write(bg, func(tx *Tx) error { return tx.EndTurn("S", "T1", "cancelled") }))
-	wantErr(t, srv.RespondApproval(bg, answer("S", "T1", "r1", "allow_once", "web", owner)), ErrApprovalNotPending)
+	must(t, tui.Write(context.Background(), func(tx *Tx) error { return tx.EndTurn("S", "T1", "cancelled") }))
+	wantErr(t, srv.RespondApproval(context.Background(), answer("S", "T1", "r1", "allow_once", "web", owner)), ErrApprovalNotPending)
 }
 
 // #43: a late/double answer for request #1 never answers request #2.
@@ -105,13 +107,13 @@ func s043(t *testing.T) {
 	tui, srv := e.open(1, "tui"), e.open(2, "serve")
 	session(t, tui, "S", "")
 	pending(t, tui, "S", "T1", "r1", false)
-	must(t, srv.RespondApproval(bg, answer("S", "T1", "r1", "deny", "web", owner)))
-	_, err := tui.ConsumeApproval(bg, "S", "T1", owner, nil)
+	must(t, srv.RespondApproval(context.Background(), answer("S", "T1", "r1", "deny", "web", owner)))
+	_, err := tui.ConsumeApproval(context.Background(), "S", "T1", owner, nil)
 	must(t, err)
-	must(t, tui.Write(bg, func(tx *Tx) error {
-		return tx.RequestApproval("T1", ApprovalRequest{RequestID: "r2", PreviewSha: "p1", Channels: []string{"web"}, ExpiresAt: e.clk.WallMs() + 60_000})
+	must(t, tui.Write(context.Background(), func(tx *Tx) error {
+		return tx.RequestApproval("T1", &ApprovalRequest{RequestID: "r2", PreviewSha: "p1", Channels: []string{"web"}, ExpiresAt: e.clk.WallMs() + 60_000})
 	}))
-	wantErr(t, srv.RespondApproval(bg, answer("S", "T1", "r1", "allow_once", "web", owner)), ErrApprovalNotPending)
+	wantErr(t, srv.RespondApproval(context.Background(), answer("S", "T1", "r1", "allow_once", "web", owner)), ErrApprovalNotPending)
 	if count(t, tui, "SELECT count(*) FROM approval_responses") != 0 {
 		t.Fatal("stale answer stored")
 	}
@@ -129,15 +131,15 @@ func s050(t *testing.T) {
 	if !hasServe(mcp) {
 		t.Fatal("serve not visible in holders")
 	}
-	_, err := mcp.CreateSession(bg, Session{ID: "M", Origin: "headless"})
+	_, err := mcp.CreateSession(context.Background(), Session{ID: "M", Origin: "headless"})
 	must(t, err)
 	pending(t, mcp, "M", "T1", "r1", true)
-	must(t, srv.RespondApproval(bg, answer("M", "T1", "r1", "allow_once", "web", owner)))
-	d, err := mcp.ConsumeApproval(bg, "M", "T1", owner, nil)
+	must(t, srv.RespondApproval(context.Background(), answer("M", "T1", "r1", "allow_once", "web", owner)))
+	d, err := mcp.ConsumeApproval(context.Background(), "M", "T1", owner, nil)
 	must(t, err)
 	ev := appendMsg(t, mcp, "M", "send")
-	must(t, mcp.Write(bg, func(tx *Tx) error {
-		_, err := tx.EnqueueDelivery(Delivery{IdemKey: "mcp:id:k", Platform: "telegram", Chat: "c", Body: "hi", EventID: ev})
+	must(t, mcp.Write(context.Background(), func(tx *Tx) error {
+		_, err := tx.EnqueueDelivery(&Delivery{IdemKey: "mcp:id:k", Platform: "telegram", Chat: "c", Body: "hi", EventID: ev})
 		return err
 	}))
 	if d.Decision != "allow_once" || count(t, srv, "SELECT count(*) FROM session_leases WHERE session_id = 'M' AND owner_kind = 'mcp_serve'") != 1 {
@@ -154,18 +156,19 @@ func hasServe(s *Store) bool {
 	return false
 }
 
-// #52: token with scope `send`, or another identity → deny{scope}.
+// #52: token with scope `send`, another identity, or revoked → deny{scope}.
 func s052(t *testing.T) {
 	e := newEnv(t)
 	tui := e.open(1, "tui")
 	session(t, tui, "S", "")
 	token(t, tui, "tok-x", "send", "x", false)
 	token(t, tui, "tok-y", "approve", "someone-else", false)
-	for i, who := range []string{"x", "y"} {
+	token(t, tui, "tok-z", "approve", "z", true)
+	for i, who := range []string{"x", "y", "z"} {
 		rid := "r" + itoa(int64(i))
 		pending(t, tui, "S", "T"+rid, rid, false)
-		must(t, tui.RespondApproval(bg, answer("S", "T"+rid, rid, "allow_once", "mcp_serve", who)))
-		d, err := tui.ConsumeApproval(bg, "S", "T"+rid, owner, nil)
+		must(t, tui.RespondApproval(context.Background(), answer("S", "T"+rid, rid, "allow_once", "mcp_serve", who)))
+		d, err := tui.ConsumeApproval(context.Background(), "S", "T"+rid, owner, nil)
 		must(t, err)
 		if d.Decision != "deny" || d.Reason != "scope" {
 			t.Fatalf("%s → %+v", who, d)
@@ -183,7 +186,9 @@ func s053(t *testing.T) {
 	errs := make([]error, 2)
 	for i, s := range []*Store{a, b} {
 		src := []string{"gateway", "web"}[i]
-		wg.Go(func() { errs[i] = s.RespondApproval(bg, answer("S", "T1", "r1", "allow_once", src, owner)) })
+		wg.Go(func() {
+			errs[i] = s.RespondApproval(context.Background(), answer("S", "T1", "r1", "allow_once", src, owner))
+		})
 	}
 	wg.Wait()
 	if (errs[0] == nil) == (errs[1] == nil) {
@@ -200,20 +205,21 @@ func s054(t *testing.T) {
 	pending(t, tui, "S", "T1", "r1", false)
 	ed := answer("S", "T1", "r1", "edit", "web", owner)
 	ed.EditedArgs = `{"cmd":"ls"}`
-	must(t, srv.RespondApproval(bg, ed))
+	must(t, srv.RespondApproval(context.Background(), ed))
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		_, _ = tui.ConsumeApproval(bg, "S", "T1", owner, func(string) bool { goexit(); return true })
+		d, err := tui.ConsumeApproval(context.Background(), "S", "T1", owner, func(string) bool { goexit(); return true })
+		t.Errorf("consumer survived Goexit: %+v %v", d, err)
 	}()
 	<-done
 	if count(t, srv, "SELECT count(*) FROM approval_responses") != 1 {
 		t.Fatal("answer lost by the crashed consumer")
 	}
 	e.procs.kill(1)
-	_, err := srv.AcquireLease(bg, "S")
+	_, err := srv.AcquireLease(context.Background(), "S")
 	must(t, err)
-	d, err := srv.ConsumeApproval(bg, "S", "T1", owner, func(string) bool { return true })
+	d, err := srv.ConsumeApproval(context.Background(), "S", "T1", owner, func(string) bool { return true })
 	must(t, err)
 	if d.Decision != "edit" || count(t, srv, "SELECT count(*) FROM approvals") != 1 || count(t, srv, "SELECT count(*) FROM approval_responses") != 0 {
 		t.Fatalf("consumed %+v", d)
@@ -229,21 +235,21 @@ func s055(t *testing.T) {
 	pending(t, tui, "S", "T1", "r1", false)
 	r := answer("S", "T1", "r1", "edit", "web", owner)
 	r.EditedArgs = `{"cmd":"rm -rf /"}`
-	must(t, tui.RespondApproval(bg, r))
-	d, err := tui.ConsumeApproval(bg, "S", "T1", owner, func(string) bool { return true })
+	must(t, tui.RespondApproval(context.Background(), r))
+	d, err := tui.ConsumeApproval(context.Background(), "S", "T1", owner, func(string) bool { return true })
 	must(t, err)
 	if d.Decision != "edit" || d.NewRequestID == "" || d.NewRequestID == "r1" {
 		t.Fatalf("decision %+v", d)
 	}
 	var state string
-	must(t, tui.get(bg, "SELECT state FROM turn_journal WHERE turn_id = 'T1'", nil, &state))
+	must(t, tui.get(context.Background(), "SELECT state FROM turn_journal WHERE turn_id = 'T1'", nil, &state))
 	if state != "awaiting_approval" {
 		t.Fatal("edited args executed without a new approval")
 	}
 	token(t, tui, "tok-"+owner, "approve", owner, false)
 	m := answer("S", "T1", d.NewRequestID, "edit", "mcp_serve", owner)
 	m.EditedArgs = "{}"
-	if err := tui.RespondApproval(bg, m); err == nil {
+	if err := tui.RespondApproval(context.Background(), m); err == nil {
 		t.Fatal("mcp_serve edit accepted")
 	}
 }
@@ -257,8 +263,8 @@ func s059(t *testing.T) {
 	pending(t, tui, "S", "T1", "r1", true)
 	r := answer("S", "T1", "r1", "edit", "gateway", "member")
 	r.EditedArgs = `{"cmd":"git push --force"}`
-	must(t, tui.RespondApproval(bg, r))
-	d, err := tui.ConsumeApproval(bg, "S", "T1", owner, func(string) bool { return true })
+	must(t, tui.RespondApproval(context.Background(), r))
+	d, err := tui.ConsumeApproval(context.Background(), "S", "T1", owner, func(string) bool { return true })
 	must(t, err)
 	if d.Decision != "deny" || d.Reason != "unauthorized" {
 		t.Fatalf("decision %+v", d)
@@ -273,8 +279,8 @@ func s060(t *testing.T) {
 	pending(t, tui, "S", "T1", "r1", false)
 	r := answer("S", "T1", "r1", "allow_once", "web", owner)
 	r.PreviewSha = "different"
-	must(t, tui.RespondApproval(bg, r))
-	d, err := tui.ConsumeApproval(bg, "S", "T1", owner, nil)
+	must(t, tui.RespondApproval(context.Background(), r))
+	d, err := tui.ConsumeApproval(context.Background(), "S", "T1", owner, nil)
 	must(t, err)
 	if d.Decision != "deny" || count(t, tui, "SELECT count(*) FROM approval_responses") != 0 ||
 		count(t, tui, "SELECT count(*) FROM approvals WHERE decision = 'deny'") != 1 {
@@ -289,7 +295,7 @@ func s064(t *testing.T) {
 	mcp := e.open(1, "mcp_serve")
 	session(t, mcp, "M", "")
 	pending(t, mcp, "M", "T1", "r1", false)
-	must(t, mcp.CancelApproval(bg, "M", "T1"))
+	must(t, mcp.CancelApproval(context.Background(), "M", "T1"))
 	if count(t, mcp, "SELECT count(*) FROM gateway_deliveries") != 0 ||
 		count(t, mcp, "SELECT count(*) FROM approvals WHERE decision = 'deny'") != 1 {
 		t.Fatal("cancel did not deny before delivery")
@@ -297,8 +303,8 @@ func s064(t *testing.T) {
 	ev := appendMsg(t, mcp, "M", "x")
 	var ids [2]int64
 	for i := range ids {
-		must(t, mcp.Write(bg, func(tx *Tx) (err error) {
-			ids[i], err = tx.EnqueueDelivery(Delivery{IdemKey: "mcp:id:k1", Platform: "t", Chat: "c", Body: "hi", EventID: ev})
+		must(t, mcp.Write(context.Background(), func(tx *Tx) (err error) {
+			ids[i], err = tx.EnqueueDelivery(&Delivery{IdemKey: "mcp:id:k1", Platform: "t", Chat: "c", Body: "hi", EventID: ev})
 			return err
 		}))
 	}
@@ -316,15 +322,15 @@ func s065(t *testing.T) {
 	pending(t, tui, "S", "T1", "r1", false)
 	e.procs.kill(1)
 	srv := e.open(2, "serve")
-	_, err := srv.AcquireLease(bg, "S")
+	_, err := srv.AcquireLease(context.Background(), "S")
 	must(t, err)
 	var rid string
-	must(t, srv.get(bg, "SELECT json_extract(approval_request, '$.request_id') FROM turn_journal WHERE turn_id = 'T1'", nil, &rid))
+	must(t, srv.get(context.Background(), "SELECT json_extract(approval_request, '$.request_id') FROM turn_journal WHERE turn_id = 'T1'", nil, &rid))
 	if rid != "r1" {
 		t.Fatal("request_id changed on replay")
 	}
-	must(t, srv.RespondApproval(bg, answer("S", "T1", "r1", "allow_once", "gateway", owner)))
-	d, err := srv.ConsumeApproval(bg, "S", "T1", owner, nil)
+	must(t, srv.RespondApproval(context.Background(), answer("S", "T1", "r1", "allow_once", "gateway", owner)))
+	d, err := srv.ConsumeApproval(context.Background(), "S", "T1", owner, nil)
 	must(t, err)
 	if d.Decision != "allow_once" {
 		t.Fatalf("decision %+v", d)
@@ -338,12 +344,12 @@ func s066(t *testing.T) {
 	session(t, tui, "S", "")
 	token(t, tui, "tok-"+owner, "approve", owner, false)
 	pending(t, tui, "S", "T1", "r1", false)
-	must(t, mcp.RespondApproval(bg, answer("S", "T1", "r1", "allow_once", "mcp_serve", owner)))
-	must(t, tui.Write(bg, func(tx *Tx) error {
+	must(t, mcp.RespondApproval(context.Background(), answer("S", "T1", "r1", "allow_once", "mcp_serve", owner)))
+	must(t, tui.Write(context.Background(), func(tx *Tx) error {
 		_, err := tx.Exec("UPDATE mcp_serve_tokens SET revoked_at = 1")
 		return err
 	}))
-	d, err := tui.ConsumeApproval(bg, "S", "T1", owner, nil)
+	d, err := tui.ConsumeApproval(context.Background(), "S", "T1", owner, nil)
 	must(t, err)
 	if d.Decision != "deny" || d.Reason != "scope" {
 		t.Fatalf("decision %+v", d)
@@ -359,12 +365,12 @@ func s068(t *testing.T) {
 	for i, rid := range []string{"r1", "r2"} {
 		turn := "T" + itoa(int64(i))
 		pending(t, mcp, "M", turn, rid, false)
-		must(t, srv.RespondApproval(bg, answer("M", turn, rid, "allow_once", "web", owner)))
-		_, err := mcp.ConsumeApproval(bg, "M", turn, owner, nil)
+		must(t, srv.RespondApproval(context.Background(), answer("M", turn, rid, "allow_once", "web", owner)))
+		_, err := mcp.ConsumeApproval(context.Background(), "M", turn, owner, nil)
 		must(t, err)
 		ev := appendMsg(t, mcp, "M", "send")
-		must(t, mcp.Write(bg, func(tx *Tx) error {
-			_, err := tx.EnqueueDelivery(Delivery{IdemKey: "mcp:id:" + newID(), Platform: "t", Chat: "c", Body: "hi", EventID: ev})
+		must(t, mcp.Write(context.Background(), func(tx *Tx) error {
+			_, err := tx.EnqueueDelivery(&Delivery{IdemKey: "mcp:id:" + newID(), Platform: "t", Chat: "c", Body: "hi", EventID: ev})
 			return err
 		}))
 	}
@@ -380,8 +386,8 @@ func s073(t *testing.T) {
 	session(t, s, "M", "")
 	ev := appendMsg(t, s, "M", "x")
 	enq := func(body string) error {
-		return s.Write(bg, func(tx *Tx) error {
-			_, err := tx.EnqueueDelivery(Delivery{IdemKey: "mcp:id:k", Platform: "t", Chat: "c", Body: body, EventID: ev})
+		return s.Write(context.Background(), func(tx *Tx) error {
+			_, err := tx.EnqueueDelivery(&Delivery{IdemKey: "mcp:id:k", Platform: "t", Chat: "c", Body: body, EventID: ev})
 			return err
 		})
 	}

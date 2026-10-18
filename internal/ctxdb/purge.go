@@ -45,11 +45,15 @@ const (
 	phase0Batch  = 2000
 	sessionBatch = 50
 	eventBatch   = 2000
-	firstChunk   = 16                    // initial events per unit before any measurement
+	firstChunk   = 1                     // first unit is a single event: measure before scaling up
 	chunkTarget  = 25 * time.Millisecond // target cost of one event unit
 	phaseDone    = 4
 	phaseAborted = 5
-	ledgerFile   = "purge.log"
+	// busyRetryMs bounds how long a purge keeps redoing a batch that lost the
+	// write lock (db_busy) since its last commit; < PurgeTTL so the lease
+	// heartbeat (written by each committed batch) never lapses meanwhile.
+	busyRetryMs = PurgeTTL / 2
+	ledgerFile  = "purge.log"
 )
 
 // Purge runs `damnbot sessions purge` in the foreground: P, ledger intent,
@@ -71,21 +75,28 @@ func (s *Store) Purge(ctx context.Context, req PurgeRequest) (PurgeReport, error
 // Stopping normally finishes the batch then releases (expires_at = 0).
 func (s *Store) runPurge(ctx context.Context, txid string, p []string, create bool) ([]Excluded, error) {
 	var v purgeValue
-	for i := 0; ; i++ {
+	lastOK := s.clk.MonoMs()
+	for {
 		if markerPresent(s.root) || ctx.Err() != nil {
 			return v.Excluded, errors.Join(s.releasePurge(ctx, txid), wrap(ctx.Err()), fmt.Errorf("ctxdb: purge paused: %w", ErrDBBusy))
 		}
 		start := time.Now()
-		err := s.tx(ctx, modePurge, func(t *Tx) (berr error) { v, berr = t.purgeBatch(txid, p, create && i == 0); return berr })
+		err := s.tx(ctx, modePurge, func(t *Tx) (berr error) { v, berr = t.purgeBatch(txid, p, create); return berr })
 		switch {
+		case errors.Is(err, ErrDBBusy) && s.clk.MonoMs()-lastOK < busyRetryMs:
+			// The batch rolled back and is redone ("rollback → batch diulang",
+			// §11.6): a foreground writer won the lock; purge is the one that
+			// waits, within the purge lease TTL.
 		case err != nil:
 			return v.Excluded, err
 		case v.Phase == phaseDone:
 			return v.Excluded, s.ledger(map[string]any{"type": "committed", "txid": txid})
 		case v.Phase == phaseAborted:
 			return v.Excluded, abortReason(v.Excluded)
+		default:
+			create, lastOK = false, s.clk.MonoMs()
 		}
-		if err = s.clk.Sleep(ctx, dutyFactor*time.Since(start)); err != nil {
+		if err = s.clk.Sleep(ctx, yieldAfter(time.Since(start))); err != nil {
 			return v.Excluded, errors.Join(s.releasePurge(ctx, txid), err)
 		}
 	}
@@ -188,7 +199,7 @@ func (t *Tx) phase0(txid string, p []string, v *purgeValue, start time.Time) err
 		if skip[p[i]] {
 			continue
 		}
-		if done >= phase0Batch || time.Since(start) >= batchDeadline {
+		if done >= phase0Batch || time.Since(start) >= unitBudget {
 			return nil // continue in the next transaction
 		}
 		var reason string
@@ -272,7 +283,8 @@ func (t *Tx) labelledOrdered(txid string) ([]string, error) {
 // phaseSessions runs phase 1 (steps 1–8) or phase 3 (cleanup + 27–30) for
 // ≤ 50 sessions within the deadline; the final phase-3 batch runs step 31.
 func (t *Tx) phaseSessions( //nolint:gocyclo // branchy but linear phase dispatch
-	txid string, v *purgeValue, start time.Time, final bool) error {
+	txid string, v *purgeValue, start time.Time, final bool,
+) error {
 	ids, err := t.labelledOrdered(txid)
 	if err == nil && final && len(ids) == 0 { // cache drained: confirm against the DB
 		delete(t.s.purgeOrder, txid)
@@ -291,7 +303,7 @@ func (t *Tx) phaseSessions( //nolint:gocyclo // branchy but linear phase dispatc
 		return nil
 	}
 	n := 0
-	for ; err == nil && n < len(ids) && n < sessionBatch && (n == 0 || time.Since(start) < batchDeadline); n++ {
+	for ; err == nil && n < len(ids) && n < sessionBatch && (n == 0 || time.Since(start) < unitBudget); n++ {
 		if sb := jsonOf(ids[n : n+1]); final { // unit = one session, descendants first
 			err = t.purgeFinal(sb, v.Audit)
 		} else {
@@ -324,7 +336,7 @@ func (t *Tx) phaseEvents(txid string, v *purgeValue, start time.Time) error {
 		d := max(time.Since(c0), time.Microsecond)
 		i += n
 		t.s.chunk = min(max(int(int64(n)*int64(chunkTarget)/int64(d)), 1), eventBatch)
-		if time.Since(start)+d*time.Duration(t.s.chunk)/time.Duration(n) >= batchDeadline {
+		if time.Since(start)+d*time.Duration(t.s.chunk)/time.Duration(n) >= unitBudget {
 			break
 		}
 	}

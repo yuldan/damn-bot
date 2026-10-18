@@ -1,6 +1,7 @@
 package ctxdb
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
@@ -26,7 +27,7 @@ func scenarioTable() []scenario {
 
 // acquireBg acquires a lease as a background scanner (takeover case (b) allowed).
 func acquireBg(s *Store, sid string) (tok int64, err error) {
-	err = s.Write(bg, func(t *Tx) error { tok, err = t.AcquireLease(sid, true); return err })
+	err = s.Write(context.Background(), func(t *Tx) error { tok, err = t.AcquireLease(sid, true); return err })
 	return tok, err
 }
 
@@ -46,22 +47,23 @@ func takeOverB(t *testing.T, e *env, s *Store, sid string) int64 {
 // right after labelling), returning the txid.
 func purgePhase0(t *testing.T, s *Store, ids ...string) string {
 	t.Helper()
-	rep, err := s.purgeSet(bg, PurgeRequest{IDs: ids, WithForks: true})
+	rep, err := s.purgeSet(context.Background(), PurgeRequest{IDs: ids, WithForks: true})
 	must(t, err)
 	txid := newID()
 	must(t, s.ledger(map[string]any{"type": "intent", "txid": txid, "P": rep.P}))
 	for i := 0; ; i++ {
 		var v purgeValue
-		must(t, s.tx(bg, modePurge, func(tx *Tx) (err error) { v, err = tx.purgeBatch(txid, rep.P, i == 0); return err }))
+		must(t, s.tx(context.Background(), modePurge, func(tx *Tx) (err error) { v, err = tx.purgeBatch(txid, rep.P, i == 0); return err }))
 		if v.Phase != 0 {
 			return txid
 		}
 	}
 }
 
-func isLabelled(t *testing.T, s *Store, sid string) bool {
+// labelledS reports whether session "S" carries a purge_state label.
+func labelledS(t *testing.T, s *Store) bool {
 	t.Helper()
-	return count(t, s, "SELECT count(*) FROM session_labels WHERE session_id = ? AND key = 'purge_state'", sid) > 0
+	return count(t, s, "SELECT count(*) FROM session_labels WHERE session_id = 'S' AND key = 'purge_state'") > 0
 }
 
 func leaseScenarios() []scenario {
@@ -86,14 +88,14 @@ func s001(t *testing.T) {
 	e := newEnv(t)
 	a, b := e.open(1, "tui"), e.open(2, "serve")
 	session(t, a, "S", "")
-	must(t, a.Write(bg, func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
+	must(t, a.Write(context.Background(), func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
 	e.clk.Advance(11 * time.Second) // A stopped: no heartbeat
 	tok := takeOverB(t, e, b, "S")
 	before := count(t, b, "SELECT count(*) FROM events WHERE session_id = 'S'")
-	wantErr(t, a.Heartbeat(bg, "S"), ErrLeaseFenced)
-	_, err := a.Append(bg, "S", nil, Event{Kind: "assistant_message", Content: "late"})
+	wantErr(t, a.Heartbeat(context.Background(), "S"), ErrLeaseFenced)
+	_, err := a.Append(context.Background(), "S", nil, Event{Kind: "assistant_message", Content: "late"})
 	wantErr(t, err, ErrLeaseFenced)
-	wantErr(t, a.CheckLease(bg, "S"), ErrLeaseFenced) // checkpoint before LLM/tool → turn cancelled
+	wantErr(t, a.CheckLease(context.Background(), "S"), ErrLeaseFenced) // checkpoint before LLM/tool → turn cancelled
 	if n := count(t, b, "SELECT count(*) FROM events WHERE session_id = 'S'"); n != before {
 		t.Fatalf("stale writer added %d events", n-before)
 	}
@@ -115,11 +117,11 @@ func s003(t *testing.T) {
 	e.clk.Suspend(10 * time.Minute) // all leases look expired at wake-up
 	_, err := acquireBg(b, "S")     // first observation only
 	wantErr(t, err, ErrSessionBusy)
-	must(t, a.Heartbeat(bg, "S")) // owner heartbeats within 2 s of waking
+	must(t, a.Heartbeat(context.Background(), "S")) // owner heartbeats within 2 s of waking
 	e.clk.Advance(3 * time.Second)
 	_, err = acquireBg(b, "S")
 	wantErr(t, err, ErrSessionBusy)
-	must(t, a.CheckLease(bg, "S"))
+	must(t, a.CheckLease(context.Background(), "S"))
 }
 
 // #4: reboot mid-turn → boot_id differs and pid gone → orphan cleaned.
@@ -127,7 +129,7 @@ func s004(t *testing.T) {
 	e := newEnv(t)
 	a := e.open(1, "tui")
 	session(t, a, "S", "")
-	must(t, a.Write(bg, func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
+	must(t, a.Write(context.Background(), func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
 	e.boot = "boot-2" // new kernel boot; old pid does not exist any more
 	e.procs.kill(1)
 	b := e.open(2, "tui") // startup recovery (case (a), synchronous)
@@ -144,12 +146,12 @@ func s005(t *testing.T) {
 	e := newEnv(t)
 	a := e.open(1, "tui")
 	session(t, a, "S", "")
-	must(t, a.Write(bg, func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
+	must(t, a.Write(context.Background(), func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
 	e.procs.kill(1)
 	b, c := e.open(2, "cli"), e.open(3, "cli") // b's startup already recovers
 	done := make(chan error, 2)
 	for _, s := range []*Store{b, c} {
-		go func() { _, err := s.RecoverJournals(bg, false); done <- err }()
+		go func() { _, err := s.RecoverJournals(context.Background(), false); done <- err }()
 	}
 	must(t, <-done)
 	must(t, <-done)
@@ -182,7 +184,7 @@ func s023(t *testing.T) {
 	session(t, a, "S", "")
 	e.procs.kill(1) // pid 1 dead in *our* namespace must not matter
 	e.clk.Advance(11 * time.Second)
-	_, err := b.AcquireLease(bg, "S") // synchronous path: case (a) only
+	_, err := b.AcquireLease(context.Background(), "S") // synchronous path: case (a) only
 	wantErr(t, err, ErrSessionBusy)
 	takeOverB(t, e, b, "S")
 }
@@ -192,13 +194,13 @@ func s027(t *testing.T) {
 	e := newEnv(t)
 	a := e.open(1, "tui")
 	session(t, a, "S", "")
-	must(t, a.Write(bg, func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
+	must(t, a.Write(context.Background(), func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
 	e.clk.StepWall(-time.Hour)
 	b := e.open(2, "acp") // startup recovery must not touch the live turn
 	if n := count(t, b, "SELECT count(*) FROM events WHERE kind = 'crash_recovered'"); n != 0 {
 		t.Fatal("live turn recovered after wall step")
 	}
-	must(t, a.CheckLease(bg, "S"))
+	must(t, a.CheckLease(context.Background(), "S"))
 }
 
 // #33: SIGSTOP right after COMMIT tool_pending → takeover reports
@@ -207,7 +209,7 @@ func s033(t *testing.T) {
 	e := newEnv(t)
 	a, b := e.open(1, "tui"), e.open(2, "serve")
 	session(t, a, "S", "")
-	must(t, a.Write(bg, func(tx *Tx) error {
+	must(t, a.Write(context.Background(), func(tx *Tx) error {
 		if err := tx.StartTurn("S", "T1"); err != nil {
 			return err
 		}
@@ -215,14 +217,18 @@ func s033(t *testing.T) {
 	}))
 	e.clk.Advance(11 * time.Second)
 	e.clk.Advance(observeGap * time.Millisecond)
-	_, _ = b.RecoverJournals(bg, true) // first observation
+	rec, err := b.RecoverJournals(context.Background(), true) // first observation
+	must(t, err)
+	if len(rec) != 0 {
+		t.Fatal("takeover on first observation")
+	}
 	e.clk.Advance(observeGap * time.Millisecond)
-	rec, err := b.RecoverJournals(bg, true)
+	rec, err = b.RecoverJournals(context.Background(), true)
 	must(t, err)
 	if len(rec) != 1 || rec[0].Status != "outcome_unknown" || rec[0].Decision != "ask" {
 		t.Fatalf("recovered %+v", rec)
 	}
-	wantErr(t, a.CheckLease(bg, "S"), ErrLeaseFenced)
+	wantErr(t, a.CheckLease(context.Background(), "S"), ErrLeaseFenced)
 }
 
 // #39: OS without boot_id: heartbeat stamp from the future = other boot.
@@ -251,7 +257,7 @@ func s040(t *testing.T) {
 	e := newEnv(t)
 	a, b := e.open(1, "tui"), e.open(2, "serve")
 	session(t, a, "S", "")
-	must(t, a.Write(bg, func(tx *Tx) error {
+	must(t, a.Write(context.Background(), func(tx *Tx) error {
 		_, err := tx.Exec("UPDATE session_leases SET heartbeat_at = heartbeat_at + 60000 WHERE session_id = 'S'")
 		return err
 	}))
@@ -259,9 +265,9 @@ func s040(t *testing.T) {
 		t.Fatal("clock_namespace_mismatch not detectable")
 	}
 	e.procs.kill(1)
-	_, err := b.AcquireLease(bg, "S")
+	_, err := b.AcquireLease(context.Background(), "S")
 	must(t, err)
-	_, err = a.Append(bg, "S", nil, Event{Kind: "assistant_message"})
+	_, err = a.Append(context.Background(), "S", nil, Event{Kind: "assistant_message"})
 	wantErr(t, err, ErrLeaseFenced)
 }
 
@@ -291,7 +297,7 @@ func s046(t *testing.T) {
 		_, err := acquireBg(b, "S")
 		wantErr(t, err, ErrSessionBusy)
 	}
-	must(t, a.Heartbeat(bg, "S"))
+	must(t, a.Heartbeat(context.Background(), "S"))
 	e.clk.Advance(5 * time.Second)
 	_, err := acquireBg(b, "S")
 	wantErr(t, err, ErrSessionBusy)
@@ -303,10 +309,10 @@ func s056(t *testing.T) {
 	e := newEnv(t)
 	a, b := e.open(1, "tui"), e.open(2, "serve")
 	session(t, a, "S", "")
-	a.Suspend()
+	must(t, a.Suspend())
 	e.clk.Advance(15 * time.Second)
 	takeOverB(t, e, b, "S")
-	wantErr(t, a.CheckLease(bg, "S"), ErrLeaseFenced) // SIGCONT: reattach, then the check point fails
-	_, err := a.Append(bg, "S", nil, Event{Kind: "assistant_message"})
+	wantErr(t, a.CheckLease(context.Background(), "S"), ErrLeaseFenced) // SIGCONT: reattach, then the check point fails
+	_, err := a.Append(context.Background(), "S", nil, Event{Kind: "assistant_message"})
 	wantErr(t, err, ErrLeaseFenced)
 }

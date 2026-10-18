@@ -139,8 +139,10 @@ func (t *Tx) recoverOne(j *openJournal, allowB bool) (Recovered, error) {
 	}
 	if j.state == "tool_pending" {
 		r.Status, r.Decision = pendingOutcome(j)
-		if _, err := t.AppendEvent(j.sid, &Event{Kind: "tool_result", TurnID: j.turn, ToolCallID: j.call, ToolName: j.name,
-			Payload: jsonOf(map[string]any{"status": r.Status, "retry_safe": r.Status != "outcome_unknown", "by": "recovery"})}); err != nil {
+		if _, err := t.AppendEvent(j.sid, &Event{
+			Kind: "tool_result", TurnID: j.turn, ToolCallID: j.call, ToolName: j.name,
+			Payload: jsonOf(map[string]any{"status": r.Status, "retry_safe": r.Status != "outcome_unknown", "by": "recovery"}),
+		}); err != nil {
 			return r, err
 		}
 	}
@@ -155,8 +157,10 @@ func (t *Tx) closeCrashed(sid, turn, tool, decision string) error {
 	if _, err := t.AppendEvent(sid, &Event{Kind: "turn_end", TurnID: turn, Payload: `{"stop_reason":"crashed"}`}); err != nil {
 		return err
 	}
-	if _, err := t.AppendEvent(sid, &Event{Kind: "crash_recovered", TurnID: turn,
-		Payload: jsonOf(map[string]string{"turn_id": turn, "last_tool": tool, "decision": decision})}); err != nil {
+	if _, err := t.AppendEvent(sid, &Event{
+		Kind: "crash_recovered", TurnID: turn,
+		Payload: jsonOf(map[string]string{"turn_id": turn, "last_tool": tool, "decision": decision}),
+	}); err != nil {
 		return err
 	}
 	next := map[string]string{"auto_continue": "resumed", "ask": "awaiting_confirmation"}[decision]

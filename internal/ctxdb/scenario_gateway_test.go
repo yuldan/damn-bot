@@ -1,6 +1,7 @@
 package ctxdb
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,20 +32,22 @@ func inbound(ext, chat, text string, att ...string) Inbound {
 	for _, a := range att {
 		as = append(as, map[string]string{"blob_sha": a})
 	}
-	return Inbound{Platform: "telegram", ExternalID: ext, ChatID: chat, SenderID: "u1",
-		Payload: jsonOf(map[string]any{"text": text, "attachments": as, "kind": "text"})}
+	return Inbound{
+		Platform: "telegram", ExternalID: ext, ChatID: chat, SenderID: "u1",
+		Payload: jsonOf(map[string]any{"text": text, "attachments": as, "kind": "text"}),
+	}
 }
 
 func ingest(t *testing.T, s *Store, msgs ...Inbound) {
 	t.Helper()
-	must(t, s.IngestInbound(bg, msgs, "telegram.offset", itoa(int64(len(msgs)))))
+	must(t, s.IngestInbound(context.Background(), msgs, "telegram.offset", itoa(int64(len(msgs)))))
 }
 
 // finishTurn ends the worker's turn and releases the chat session lease.
 func finishTurn(t *testing.T, s *Store, p Processed) {
 	t.Helper()
-	must(t, s.Write(bg, func(tx *Tx) error { return tx.EndTurn(p.Session, p.Turn, "end_turn") }))
-	must(t, s.ReleaseLease(bg, p.Session))
+	must(t, s.Write(context.Background(), func(tx *Tx) error { return tx.EndTurn(p.Session, p.Turn, "end_turn") }))
+	must(t, s.ReleaseLease(context.Background(), p.Session))
 }
 
 // #10: inbound to a chat whose session is labelled → new session + exactly
@@ -53,15 +56,15 @@ func s010(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "serve")
 	ingest(t, s, inbound("u:1", "c1", "first"))
-	p1, err := s.ProcessInbound(bg, "telegram", "c1")
+	p1, err := s.ProcessInbound(context.Background(), "telegram", "c1")
 	must(t, err)
 	finishTurn(t, s, p1)
 	purgePhase0(t, s, p1.Session)
 	ingest(t, s, inbound("u:2", "c1", "second"), inbound("u:3", "c1", "third"))
-	p2, err := s.ProcessInbound(bg, "telegram", "c1")
+	p2, err := s.ProcessInbound(context.Background(), "telegram", "c1")
 	must(t, err)
 	finishTurn(t, s, p2)
-	p3, err := s.ProcessInbound(bg, "telegram", "c1")
+	p3, err := s.ProcessInbound(context.Background(), "telegram", "c1")
 	must(t, err)
 	if !p2.NewSession || p3.NewSession || p3.Session != p2.Session || p2.Session == p1.Session {
 		t.Fatalf("sessions %+v %+v %+v", p1, p2, p3)
@@ -77,17 +80,17 @@ func s011(t *testing.T) {
 	s := e.open(1, "serve")
 	session(t, s, "S", "")
 	ev := appendMsg(t, s, "S", "answer")
-	must(t, s.Write(bg, func(tx *Tx) error {
-		_, err := tx.EnqueueDelivery(Delivery{IdemKey: "k1", Platform: "telegram", Chat: "c1", Body: "answer", EventID: ev})
+	must(t, s.Write(context.Background(), func(tx *Tx) error {
+		_, err := tx.EnqueueDelivery(&Delivery{IdemKey: "k1", Platform: "telegram", Chat: "c1", Body: "answer", EventID: ev})
 		return err
 	}))
-	must(t, s.ReleaseLease(bg, "S"))
+	must(t, s.ReleaseLease(context.Background(), "S"))
 	purgePhase0(t, s, "S")
-	_, err := s.ClaimDelivery(bg)
+	_, err := s.ClaimDelivery(context.Background())
 	wantErr(t, err, ErrNotFound)
-	err = s.Write(bg, func(tx *Tx) error {
-		_, err := tx.Exec("UPDATE gateway_deliveries SET status = 'sending' WHERE idem_key = 'k1'")
-		return err
+	err = s.Write(context.Background(), func(tx *Tx) error {
+		_, ierr := tx.Exec("UPDATE gateway_deliveries SET status = 'sending' WHERE idem_key = 'k1'")
+		return ierr
 	})
 	wantErr(t, err, ErrSessionPurging)
 }
@@ -105,10 +108,10 @@ func s069(t *testing.T) {
 	e.procs.kill(1)
 	s2 := e.open(2, "serve")
 	for i := range 5 {
-		p, err := s2.ProcessInbound(bg, "telegram", "c1")
+		p, err := s2.ProcessInbound(context.Background(), "telegram", "c1")
 		must(t, err)
 		var content string
-		must(t, s2.get(bg, "SELECT content FROM events WHERE id = ?", []any{p.EventID}, &content))
+		must(t, s2.get(context.Background(), "SELECT content FROM events WHERE id = ?", []any{p.EventID}, &content))
 		if content != "msg "+itoa(int64(i)) {
 			t.Fatalf("message %d = %q", i, content)
 		}
@@ -123,14 +126,15 @@ func s069(t *testing.T) {
 func s070(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "serve")
-	must(t, s.SpoolInbound(1, inbound("b:1", "c1", "via bridge")))
-	n, err := s.IngestSpool(bg)
+	must(t, s.SpoolInbound(1, new(inbound("b:1", "c1", "via bridge"))))
+	n, err := s.IngestSpool(context.Background())
 	must(t, err)
-	ents, _ := os.ReadDir(runPath(e.dir, "inbound_spool"))
+	ents, err := os.ReadDir(runPath(e.dir, "inbound_spool"))
+	must(t, err)
 	if n != 1 || len(ents) != 0 {
 		t.Fatalf("ingested %d, files left %d", n, len(ents))
 	}
-	p, err := s.ProcessInbound(bg, "telegram", "c1")
+	p, err := s.ProcessInbound(context.Background(), "telegram", "c1")
 	must(t, err)
 	if p.EventID == 0 {
 		t.Fatal("no user_message")
@@ -142,15 +146,16 @@ func s070(t *testing.T) {
 func s072(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "serve")
-	must(t, s.SpoolInbound(1, inbound("w:1", "c1", "acked")))
-	must(t, s.SpoolInbound(1, inbound("w:1", "c1", "acked")))
-	ents, _ := os.ReadDir(runPath(e.dir, "inbound_spool"))
+	must(t, s.SpoolInbound(1, new(inbound("w:1", "c1", "acked"))))
+	must(t, s.SpoolInbound(1, new(inbound("w:1", "c1", "acked"))))
+	ents, err := os.ReadDir(runPath(e.dir, "inbound_spool"))
+	must(t, err)
 	f, err := os.OpenFile(filepath.Join(runPath(e.dir, "inbound_spool"), ents[0].Name()), os.O_APPEND|os.O_WRONLY, 0o600)
 	must(t, err)
 	_, err = f.WriteString(`{"platform":"telegram","external_id":"w:2","chat_`)
 	must(t, err)
 	must(t, f.Close())
-	_, err = s.IngestSpool(bg)
+	_, err = s.IngestSpool(context.Background())
 	must(t, err)
 	if count(t, s, "SELECT count(*) FROM gateway_inbound") != 1 {
 		t.Fatal("want exactly one ingested row")
@@ -173,7 +178,7 @@ func s075(t *testing.T) {
 			s = e.open(pid, "serve")
 		}
 		for {
-			p, err := s.ProcessInbound(bg, "telegram", "c1")
+			p, err := s.ProcessInbound(context.Background(), "telegram", "c1")
 			if err != nil {
 				wantErr(t, err, ErrNotFound)
 				break
@@ -194,12 +199,12 @@ func s076(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "serve")
 	ingest(t, s, inbound("u:1", "c1", "one"))
-	p1, err := s.ProcessInbound(bg, "telegram", "c1")
+	p1, err := s.ProcessInbound(context.Background(), "telegram", "c1")
 	must(t, err)
 	finishTurn(t, s, p1)
 	ingest(t, s, inbound("u:2", "c1", "two"))
 	purgePhase0(t, s, p1.Session)
-	p2, err := s.ProcessInbound(bg, "telegram", "c1")
+	p2, err := s.ProcessInbound(context.Background(), "telegram", "c1")
 	must(t, err)
 	if !p2.NewSession || count(t, s, "SELECT count(*) FROM events WHERE session_id = ? AND content = 'two'", p2.Session) != 1 {
 		t.Fatal("queued message not routed to a new session")
@@ -219,11 +224,11 @@ func s077(t *testing.T) {
 		"UPDATE gateway_inbound SET chat_id = 'other', event_id = ?1, payload = NULL",
 		"DELETE FROM gateway_inbound WHERE ?1 = ?1",
 	} {
-		if err := s.Write(bg, func(tx *Tx) error { _, err := tx.Exec(q, ev); return err }); err == nil {
+		if err := s.Write(context.Background(), func(tx *Tx) error { _, err := tx.Exec(q, ev); return err }); err == nil {
 			t.Fatalf("%s accepted", q)
 		}
 	}
-	must(t, s.Write(bg, func(tx *Tx) error {
+	must(t, s.Write(context.Background(), func(tx *Tx) error {
 		_, err := tx.Exec("UPDATE gateway_inbound SET event_id = ?, payload = NULL", ev)
 		return err
 	}))
@@ -235,13 +240,15 @@ func s079(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "serve")
 	ingest(t, s, inbound("u:1", "c1", "ok"))
-	bad := []Inbound{{Platform: "telegram", ExternalID: "u:2", ChatID: "c1", SenderID: "u1", Payload: "base64:AAAA"},
-		{Platform: "telegram", ExternalID: "u:3", ChatID: "c1", SenderID: "u1"}}
+	bad := []Inbound{
+		{Platform: "telegram", ExternalID: "u:2", ChatID: "c1", SenderID: "u1", Payload: "base64:AAAA"},
+		{Platform: "telegram", ExternalID: "u:3", ChatID: "c1", SenderID: "u1"},
+	}
 	for _, m := range bad {
-		wantErr(t, s.IngestInbound(bg, []Inbound{m}, "telegram.offset", "99"), ErrInboundInvalid)
+		wantErr(t, s.IngestInbound(context.Background(), []Inbound{m}, "telegram.offset", "99"), ErrInboundInvalid)
 	}
 	var off string
-	must(t, s.get(bg, "SELECT value FROM module_state WHERE module_id = 'gateway' AND key = 'telegram.offset'", nil, &off))
+	must(t, s.get(context.Background(), "SELECT value FROM module_state WHERE module_id = 'gateway' AND key = 'telegram.offset'", nil, &off))
 	if off != "1" || count(t, s, "SELECT count(*) FROM gateway_inbound") != 1 {
 		t.Fatalf("offset %s advanced past an invalid message", off)
 	}
@@ -253,7 +260,7 @@ func s080(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "serve")
 	ingest(t, s, inbound("u:1", "c1", "please answer"))
-	p, err := s.ProcessInbound(bg, "telegram", "c1")
+	p, err := s.ProcessInbound(context.Background(), "telegram", "c1")
 	must(t, err)
 	if count(t, s, "SELECT count(*) FROM turn_journal WHERE turn_id = ? AND state = 'running'", p.Turn) != 1 {
 		t.Fatal("no journal in the worker transaction")
@@ -274,10 +281,10 @@ func s081(t *testing.T) {
 	e.clk.StepWall(-time.Hour)
 	ingest(t, s, inbound("u:1001", "c1", "third"))
 	for _, want := range []string{"first", "second", "third"} {
-		p, err := s.ProcessInbound(bg, "telegram", "c1")
+		p, err := s.ProcessInbound(context.Background(), "telegram", "c1")
 		must(t, err)
 		var c string
-		must(t, s.get(bg, "SELECT content FROM events WHERE id = ?", []any{p.EventID}, &c))
+		must(t, s.get(context.Background(), "SELECT content FROM events WHERE id = ?", []any{p.EventID}, &c))
 		if c != want {
 			t.Fatalf("got %q, want %q", c, want)
 		}
@@ -291,21 +298,21 @@ func s082(t *testing.T) {
 	e := newEnv(t)
 	srv, tui := e.open(1, "serve"), e.open(2, "tui")
 	ingest(t, srv, inbound("u:1", "c1", "one"))
-	p1, err := srv.ProcessInbound(bg, "telegram", "c1")
+	p1, err := srv.ProcessInbound(context.Background(), "telegram", "c1")
 	must(t, err)
 	finishTurn(t, srv, p1)
-	_, err = tui.AcquireLease(bg, p1.Session)
+	_, err = tui.AcquireLease(context.Background(), p1.Session)
 	must(t, err)
 	ingest(t, srv, inbound("u:2", "c1", "two"))
 	for range 3 {
-		_, err = srv.ProcessInbound(bg, "telegram", "c1")
+		_, err = srv.ProcessInbound(context.Background(), "telegram", "c1")
 		wantErr(t, err, ErrSessionBusy)
 	}
 	if n := count(t, srv, "SELECT count(*) FROM gateway_deliveries WHERE idem_key LIKE 'sys:busy_notice:%'"); n != 1 {
 		t.Fatalf("busy notices = %d", n)
 	}
-	must(t, tui.ReleaseLease(bg, p1.Session))
-	p2, err := srv.ProcessInbound(bg, "telegram", "c1")
+	must(t, tui.ReleaseLease(context.Background(), p1.Session))
+	p2, err := srv.ProcessInbound(context.Background(), "telegram", "c1")
 	must(t, err)
 	if p2.Session != p1.Session {
 		t.Fatal("message moved to another session")
@@ -322,10 +329,10 @@ func s083(t *testing.T) {
 	m := inbound("u:1", "c1", "look", pb.Sha)
 	m.Pending = []*PendingBlob{pb}
 	ingest(t, s, m)
-	p, err := s.ProcessInbound(bg, "telegram", "c1")
+	p, err := s.ProcessInbound(context.Background(), "telegram", "c1")
 	must(t, err)
 	finishTurn(t, s, p)
-	_, err = s.Purge(bg, PurgeRequest{IDs: []string{p.Session}})
+	_, err = s.Purge(context.Background(), PurgeRequest{IDs: []string{p.Session}})
 	must(t, err)
 	if _, err := os.Stat(s.testBlobPath(pb.Sha)); !os.IsNotExist(err) {
 		t.Fatal("attachment file left after purge")
@@ -341,16 +348,16 @@ func s083(t *testing.T) {
 func s084(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "serve")
-	b, err := AcquireBarrier(bg, e.dir, *e.ident(9), reasonRestore, 30, 5*time.Second)
+	b, err := AcquireBarrier(context.Background(), e.dir, *e.ident(9), reasonRestore, 30, 5*time.Second)
 	must(t, err)
 	if !MaintenancePending(e.dir) {
 		t.Fatal("barrier not visible")
 	}
 	ev := inbound("ws:1", "c1", "discord event")
 	ev.Platform = "discord"
-	must(t, s.SpoolInbound(1, ev))
-	b.Release()
-	_, err = s.IngestSpool(bg)
+	must(t, s.SpoolInbound(1, &ev))
+	must(t, b.Release())
+	_, err = s.IngestSpool(context.Background())
 	must(t, err)
 	if count(t, s, "SELECT count(*) FROM gateway_inbound WHERE platform = 'discord'") != 1 {
 		t.Fatal("event lost")

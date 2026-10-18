@@ -27,8 +27,8 @@ func Restore(ctx context.Context, o *Options, backup string) (err error) {
 	}
 	defer func() { err = errors.Join(err, b.Release()) }() // (6) removes the marker
 	s.barrierOwner.Store(true)
-	if err := s.installDB(backup); err != nil {
-		return err
+	if ierr := s.installDB(backup); ierr != nil {
+		return ierr
 	}
 	if s.w, s.r, err = s.openHandles(ctx); err == nil {
 		fi, serr := s.root.Stat(dbFile)
@@ -158,7 +158,7 @@ func (t *Tx) closeJournals() error {
 		nil, func(r *sql.Rows) error {
 			var j [3]string
 			if err := r.Scan(&j[0], &j[1], &j[2]); err != nil {
-				return err
+				return wrap(err)
 			}
 			js = append(js, j)
 			return nil

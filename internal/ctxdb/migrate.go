@@ -77,24 +77,24 @@ func (s *Store) migrateIfNeeded(ctx context.Context) (err error) {
 	case cur > target:
 		return fmt.Errorf("ctxdb: db version %d > binary %d: %w", cur, target, ErrSchemaNewer)
 	}
-	if err := s.checkOldHolders(target); err != nil {
-		return err
+	if herr := s.checkOldHolders(target); herr != nil {
+		return herr
 	}
 	b, err := AcquireBarrier(ctx, s.dir, s.id, reasonMigrate, 30, s.opt.BarrierWait)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, b.Release()) }()
-	if err := s.checkOldHolders(target); err != nil { // repeated in `draining`
-		return err
+	if herr := s.checkOldHolders(target); herr != nil { // repeated in `draining`
+		return herr
 	}
 	if s.w, s.r, err = s.openHandles(ctx); err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, s.detach()) }()
 	if cur > 0 {
-		if err := s.backupPremigrate(ctx, cur, target); err != nil {
-			return err
+		if berr := s.backupPremigrate(ctx, cur, target); berr != nil {
+			return berr
 		}
 	}
 	for i := cur; i < target && err == nil; i++ {

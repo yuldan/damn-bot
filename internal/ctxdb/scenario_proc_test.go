@@ -1,6 +1,8 @@
 package ctxdb
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -22,10 +24,13 @@ func procScenarios() []scenario {
 // spawnGroup starts `sh -c script` as leader of a new process group.
 func spawnGroup(t *testing.T, script string) (*exec.Cmd, int, string) {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", script)
+	cmd := exec.CommandContext(t.Context(), "sh", "-c", script) //nolint:gosec // G204: scripts are test literals
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	must(t, cmd.Start())
-	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); _ = cmd.Wait() })
+	t.Cleanup(func() {
+		t.Log(syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)) // ESRCH when the group is already gone
+		t.Log(cmd.Wait())
+	})
 	st := startStamp(t, cmd.Process.Pid)
 	return cmd, cmd.Process.Pid, st
 }
@@ -63,21 +68,22 @@ func waitMembers(t *testing.T, pgid, n int) {
 // resumeToolGroup is the SIGCONT reference path (§11.11.7 SIGTSTP): the
 // group continues only if this process still owns the lease, else SIGKILL.
 func resumeToolGroup(s *Store, sid string, pgid int) error {
-	if err := s.Write(bg, func(*Tx) error { return nil }); err != nil { // reopen
+	if err := s.Write(context.Background(), func(*Tx) error { return nil }); err != nil { // reopen
 		return err
 	}
-	if err := s.CheckLease(bg, sid); err != nil {
+	if err := s.CheckLease(context.Background(), sid); err != nil {
 		return errors.Join(err, syscall.Kill(-pgid, syscall.SIGKILL))
 	}
-	return syscall.Kill(-pgid, syscall.SIGCONT)
+	return wrap(syscall.Kill(-pgid, syscall.SIGCONT))
 }
 
 func procState(pid int) string {
-	b, _ := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	for i := len(b) - 1; i >= 0; i-- {
-		if b[i] == ')' && i+2 < len(b) {
-			return string(b[i+2])
-		}
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return ""
+	}
+	if i := bytes.LastIndexByte(b, ')'); i >= 0 && i+2 < len(b) {
+		return string(b[i+2])
 	}
 	return ""
 }
@@ -92,13 +98,13 @@ func s062(t *testing.T) {
 	}
 	_, pgA, _ := spawnGroup(t, "sleep 300")
 	_, pgB, _ := spawnGroup(t, "sleep 300")
-	tui.Suspend()
+	must(t, tui.Suspend())
 	for _, pg := range []int{pgA, pgB} {
 		must(t, syscall.Kill(-pg, syscall.SIGSTOP))
 	}
 	e.clk.Advance(15 * time.Second)
 	takeOverB(t, e, srv, "B")
-	must(t, tui.Heartbeat(bg, "A"))
+	must(t, tui.Heartbeat(context.Background(), "A"))
 	must(t, resumeToolGroup(tui, "A", pgA))
 	wantErr(t, resumeToolGroup(tui, "B", pgB), ErrLeaseFenced)
 	waitGroupGone(t, pgB)
@@ -116,7 +122,7 @@ func s074(t *testing.T) {
 	_, pg, st := spawnGroup(t, "nohup sleep 300 >/dev/null 2>&1 & sleep 300")
 	waitMembers(t, pg, 2)
 	must(t, syscall.Kill(-pg, syscall.SIGSTOP))
-	must(t, tui.Write(bg, func(tx *Tx) error {
+	must(t, tui.Write(context.Background(), func(tx *Tx) error {
 		if err := tx.StartTurn("S", "T1"); err != nil {
 			return err
 		}
@@ -137,9 +143,9 @@ func s085(t *testing.T) {
 	tui := e.open(1, "tui")
 	session(t, tui, "S", "")
 	leader, pg, st := spawnGroup(t, "nohup sleep 300 >/dev/null 2>&1 & echo started")
-	_ = leader.Wait() // leader exited; its child keeps pgrp = pg
+	t.Log(leader.Wait()) // leader exited; its child keeps pgrp = pg
 	waitMembers(t, pg, 1)
-	must(t, tui.Write(bg, func(tx *Tx) error {
+	must(t, tui.Write(context.Background(), func(tx *Tx) error {
 		if err := tx.StartTurn("S", "T1"); err != nil {
 			return err
 		}
@@ -167,13 +173,16 @@ func (st *stallTracker) observe(t *testing.T, err error) {
 		st.since = now
 	}
 	if now-st.since >= 30_000 {
-		b, _ := json.Marshal(map[string]any{"since": st.since, "suspects": st.s.holders()})
-		_ = writeAtomic(testRoot(t, st.s.dir), "run/db_stall.json", b)
+		b, err := json.Marshal(map[string]any{"since": st.since, "suspects": st.s.holders()})
+		must(t, err)
+		must(t, writeAtomic(testRoot(t, st.s.dir), "run/db_stall.json", b))
 	}
 }
 
 func (st *stallTracker) end() error {
-	_, err := st.s.Append(bg, SystemSession, nil, Event{Kind: "system_notice",
-		Payload: jsonOf(map[string]any{"kind": "db_write_stalled", "since": st.since, "duration": st.s.clk.BootMs() - st.since})})
+	_, err := st.s.Append(context.Background(), SystemSession, nil, Event{
+		Kind:    "system_notice",
+		Payload: jsonOf(map[string]any{"kind": "db_write_stalled", "since": st.since, "duration": st.s.clk.BootMs() - st.since}),
+	})
 	return err
 }

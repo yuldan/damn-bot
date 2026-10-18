@@ -120,8 +120,8 @@ func (s *Store) Write(ctx context.Context, fn func(*Tx) error) error {
 func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.preWrite(ctx); err != nil {
-		return err
+	if perr := s.preWrite(ctx); perr != nil {
+		return perr
 	}
 	c, err := s.w.Conn(ctx)
 	if err != nil {
@@ -132,7 +132,7 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 		return errors.Join(wrap(err), wrap(c.Close()))
 	}
 	began, committed := time.Now(), false
-	defer func() { err = errors.Join(err, s.endTx(t, mode, began, committed)) }()
+	defer func() { err = errors.Join(err, s.endTx(ctx, t, mode, began, committed)) }()
 	var uv int
 	if err = getOne(ctx, c, "PRAGMA user_version", nil, &uv); err == nil && uv > s.schemaMax() {
 		err = fmt.Errorf("ctxdb: db version %d > binary %d: %w", uv, s.schemaMax(), ErrSchemaNewer)
@@ -141,8 +141,8 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 		return err
 	}
 	s.mode.Store(mode)
-	if err := fn(t); err != nil {
-		return err
+	if ferr := fn(t); ferr != nil {
+		return ferr
 	}
 	if _, err = c.ExecContext(ctx, "COMMIT"); err != nil {
 		return wrap(err)
@@ -156,9 +156,8 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 
 // endTx rolls back an unfinished transaction (and recovers its own trash,
 // gc trigger (c)), reports lock time, resets the mode and releases the conn.
-func (s *Store) endTx( //nolint:contextcheck // the transaction ctx is carried in t
-	t *Tx, mode string, began time.Time, committed bool) error {
-	bg := context.WithoutCancel(t.ctx)
+func (s *Store) endTx(ctx context.Context, t *Tx, mode string, began time.Time, committed bool) error {
+	bg := context.WithoutCancel(ctx)
 	var err error
 	if !committed {
 		_, rerr := t.c.ExecContext(bg, "ROLLBACK")

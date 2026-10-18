@@ -1,6 +1,7 @@
 package ctxdb
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -42,15 +43,15 @@ func s002(t *testing.T) {
 	session(t, a, "S", "")
 	e.clk.Advance(11 * time.Second)
 	takeOverB(t, e, b, "S")
-	must(t, b.ReleaseLease(bg, "S"))
+	must(t, b.ReleaseLease(context.Background(), "S"))
 	purgePhase0(t, b, "S")
 	n0 := count(t, b, "SELECT count(*) FROM events")
-	err := a.Heartbeat(bg, "S")
+	err := a.Heartbeat(context.Background(), "S")
 	if !errors.Is(err, ErrLeaseFenced) && !errors.Is(err, ErrSessionPurging) {
 		t.Fatalf("heartbeat: %v", err)
 	}
 	a.setToken("S", 999_999) // even a forged token cannot pass guard P
-	_, err = a.Append(bg, "S", nil, Event{Kind: "assistant_message"})
+	_, err = a.Append(context.Background(), "S", nil, Event{Kind: "assistant_message"})
 	wantErr(t, err, ErrSessionPurging)
 	if count(t, b, "SELECT count(*) FROM events") != n0 {
 		t.Fatal("event written into labelled session")
@@ -62,24 +63,24 @@ func s006(t *testing.T) {
 	e := newEnv(t)
 	a := e.open(1, "tui")
 	session(t, a, "S", "")
-	must(t, a.Write(bg, func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
+	must(t, a.Write(context.Background(), func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
 	e.procs.kill(1)
 	b := e.open(2, "doctor")
 	// b's startup already recovered T1; build a second journal under a dead
 	// owner after labelling to exercise the skip path.
 	c := e.open(3, "tui")
 	session(t, c, "R", "")
-	must(t, c.Write(bg, func(tx *Tx) error { return tx.StartTurn("R", "T2") }))
-	must(t, c.ReleaseLease(bg, "R"))
+	must(t, c.Write(context.Background(), func(tx *Tx) error { return tx.StartTurn("R", "T2") }))
+	must(t, c.ReleaseLease(context.Background(), "R"))
 	purgePhase0(t, b, "R")
-	rec, err := b.RecoverJournals(bg, true)
+	rec, err := b.RecoverJournals(context.Background(), true)
 	must(t, err)
 	for _, r := range rec {
 		if r.Session == "R" {
 			t.Fatal("recovered a labelled session")
 		}
 	}
-	_, err = c.AcquireLease(bg, "R")
+	_, err = c.AcquireLease(context.Background(), "R")
 	wantErr(t, err, ErrSessionPurging)
 }
 
@@ -94,25 +95,25 @@ func s007(t *testing.T) {
 	p2, err := s.PutBlob([]byte("renamed, rolled back"), "text/plain")
 	must(t, err)
 	errCrash := errors.New("crash before COMMIT")
-	err = s.Write(bg, func(tx *Tx) error { must(t, tx.Publish(p2)); return errCrash })
+	err = s.Write(context.Background(), func(tx *Tx) error { must(t, tx.Publish(p2)); return errCrash })
 	wantErr(t, err, errCrash)
 	p3, err := s.PutBlob([]byte("committed"), "text/plain")
 	must(t, err)
-	_, err = s.Append(bg, "S", []*PendingBlob{p3}, Event{Kind: "tool_result", Blob: p3.Sha})
+	_, err = s.Append(context.Background(), "S", []*PendingBlob{p3}, Event{Kind: "tool_result", Blob: p3.Sha})
 	must(t, err)
 	e.clk.Advance(25 * time.Hour)
-	must(t, s.Heartbeat(bg, "S"))
-	st, err := s.GC(bg, false)
+	must(t, s.Heartbeat(context.Background(), "S"))
+	st, err := s.GC(context.Background(), false)
 	must(t, err)
 	if st.TmpRemoved != 1 || st.OrphanFiles != 1 {
 		t.Fatalf("gc stats %+v", st)
 	}
 	for _, p := range []*PendingBlob{p1, p2} {
-		if _, err := os.Stat(s.testBlobPath(p.Sha)); !errors.Is(err, os.ErrNotExist) {
+		if _, ierr := os.Stat(s.testBlobPath(p.Sha)); !errors.Is(ierr, os.ErrNotExist) {
 			t.Fatalf("crash leftover %s remains", p.Sha[:8])
 		}
 	}
-	b, err := s.ReadBlob(bg, p3.Sha)
+	b, err := s.ReadBlob(context.Background(), p3.Sha)
 	must(t, err)
 	if string(b) != "committed" {
 		t.Fatal("committed blob lost")
@@ -128,14 +129,14 @@ func s008(t *testing.T) {
 	session(t, s, "B", "A")
 	appendMsg(t, s, "A", "prefix")
 	for _, id := range []string{"A", "B"} {
-		must(t, s.ReleaseLease(bg, id))
+		must(t, s.ReleaseLease(context.Background(), id))
 	}
-	rep, err := s.purgeSet(bg, PurgeRequest{IDs: []string{"A"}, WithForks: true}) // preview
+	rep, err := s.purgeSet(context.Background(), PurgeRequest{IDs: []string{"A"}, WithForks: true}) // preview
 	must(t, err)
 	session(t, s, "F", "A") // new fork after preview
-	must(t, s.ReleaseLease(bg, "F"))
+	must(t, s.ReleaseLease(context.Background(), "F"))
 	rep.TxID = newID()
-	ex, err := s.runPurge(bg, rep.TxID, rep.P, true)
+	ex, err := s.runPurge(context.Background(), rep.TxID, rep.P, true)
 	must(t, err)
 	if len(ex) != 1 || ex[0].Reason != "has_forks" || ex[0].IDs[0] != "A" {
 		t.Fatalf("excluded %+v", ex)
@@ -147,9 +148,9 @@ func s008(t *testing.T) {
 		t.Fatal("ancestor prefix lost")
 	}
 	session(t, s, "X", "")
-	must(t, s.ReleaseLease(bg, "X"))
+	must(t, s.ReleaseLease(context.Background(), "X"))
 	purgePhase0(t, s, "X")
-	_, err = s.CreateSession(bg, Session{ID: "X2", ParentID: "X", Origin: "delegate"})
+	_, err = s.CreateSession(context.Background(), Session{ID: "X2", ParentID: "X", Origin: "delegate"})
 	wantErr(t, err, ErrSessionPurging)
 }
 
@@ -160,14 +161,14 @@ func s009(t *testing.T) {
 	s := e.open(1, "tui")
 	session(t, s, "S", "")
 	ev := appendMsg(t, s, "S", "edit")
-	must(t, s.Write(bg, func(tx *Tx) error {
+	must(t, s.Write(context.Background(), func(tx *Tx) error {
 		_, err := tx.Exec(`INSERT INTO actions(session_id, event_id, kind, reversibility, subject, created_at) VALUES ('S', ?, 'file_write', 'reversible', '/w/a', 0)`, ev)
 		return err
 	}))
-	must(t, s.ReleaseLease(bg, "S"))
+	must(t, s.ReleaseLease(context.Background(), "S"))
 	purgePhase0(t, s, "S")
 	cli := e.open(2, "cli")
-	_, err := cli.AcquireLease(bg, "S") // `damnbot undo` short lease
+	_, err := cli.AcquireLease(context.Background(), "S") // `damnbot undo` short lease
 	wantErr(t, err, ErrSessionPurging)
 }
 
@@ -176,14 +177,14 @@ func s012(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "serve")
 	session(t, s, "S", "")
-	must(t, s.Write(bg, func(tx *Tx) error {
+	must(t, s.Write(context.Background(), func(tx *Tx) error {
 		return tx.execAll(nil,
 			`INSERT INTO cron_jobs(id, name, schedule, prompt, prompt_sha, cwd, created_at, updated_at) VALUES ('j','j','* * * * *','p','x','/',0,0)`,
 			`INSERT INTO kanban_boards(id, name, created_at) VALUES ('b','b',0)`)
 	}))
-	must(t, s.ReleaseLease(bg, "S"))
+	must(t, s.ReleaseLease(context.Background(), "S"))
 	purgePhase0(t, s, "S")
-	sys, err := s.Append(bg, SystemSession, nil, Event{Kind: "system_notice"})
+	sys, err := s.Append(context.Background(), SystemSession, nil, Event{Kind: "system_notice"})
 	must(t, err)
 	for _, q := range []string{
 		"INSERT INTO cron_runs(job_id, session_id, scheduled_at) VALUES ('j','S',1)",
@@ -192,7 +193,7 @@ func s012(t *testing.T) {
 		"INSERT INTO memory(kind, scope, content, origin, source_session, created_at) VALUES ('memory','user','x','user','S',0)",
 		"INSERT INTO session_labels(session_id, key, value, created_at) VALUES ('S','title','t',0)",
 	} {
-		err := s.Write(bg, func(tx *Tx) error { _, err := tx.Exec(q); return err })
+		err := s.Write(context.Background(), func(tx *Tx) error { _, err := tx.Exec(q); return err })
 		wantErr(t, err, ErrSessionPurging)
 	}
 }
@@ -202,9 +203,9 @@ func s013(t *testing.T) {
 	e := newEnv(t)
 	acp, cli := e.open(1, "acp"), e.open(2, "cli")
 	session(t, acp, "S", "")
-	rep, err := cli.Purge(bg, PurgeRequest{IDs: []string{"S"}})
+	rep, err := cli.Purge(context.Background(), PurgeRequest{IDs: []string{"S"}})
 	wantErr(t, err, ErrSessionBusy)
-	if len(rep.Excluded) != 1 || rep.Excluded[0].Reason != "session_busy" || isLabelled(t, cli, "S") {
+	if len(rep.Excluded) != 1 || rep.Excluded[0].Reason != "session_busy" || labelledS(t, cli) {
 		t.Fatalf("report %+v", rep)
 	}
 	appendMsg(t, acp, "S", "still mine")
@@ -216,15 +217,15 @@ func s014(t *testing.T) {
 	a, b := e.open(1, "cli"), e.open(2, "cli")
 	for _, id := range []string{"X", "Y"} {
 		session(t, a, id, "")
-		must(t, a.ReleaseLease(bg, id))
+		must(t, a.ReleaseLease(context.Background(), id))
 	}
 	purgePhase0(t, a, "X") // A stops after phase 0 (still pending)
-	_, err := b.Purge(bg, PurgeRequest{IDs: []string{"Y"}})
+	_, err := b.Purge(context.Background(), PurgeRequest{IDs: []string{"Y"}})
 	wantErr(t, err, ErrPurgeInProgress)
 	var wg sync.WaitGroup // concurrent first transactions: never both succeed
 	errs := make([]error, 2)
 	for i, s := range []*Store{a, b} {
-		wg.Go(func() { _, errs[i] = s.Purge(bg, PurgeRequest{IDs: []string{"Y"}}) })
+		wg.Go(func() { _, errs[i] = s.Purge(context.Background(), PurgeRequest{IDs: []string{"Y"}}) })
 	}
 	wg.Wait()
 	for _, err := range errs {
@@ -234,20 +235,57 @@ func s014(t *testing.T) {
 	}
 }
 
+// streamWriter appends to sid every 10 ms (TUI/gateway streaming pace)
+// until the returned stop function is called; stop returns its first error.
+func streamWriter(s *Store, sid string) func() error {
+	stop := make(chan struct{})
+	var err error
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		tk := time.NewTicker(10 * time.Millisecond)
+		defer tk.Stop()
+		for err == nil {
+			select {
+			case <-stop:
+				return
+			case <-tk.C:
+			}
+			_, err = s.Append(context.Background(), sid, nil, Event{Kind: "user_message", Content: "x"})
+		}
+	})
+	return func() error {
+		close(stop)
+		wg.Wait()
+		return err
+	}
+}
+
 // #15: large purge while TUI and gateway write: every purge tx ≤ 200 ms,
 // lock duty ≤ 20 %, 0 schema changes, 0 db_busy for the other writers.
 func s015(t *testing.T) {
 	e := newEnv(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var mu sync.Mutex
 	var held, maxHeld time.Duration
+	minGap, overBudget := time.Hour, 0
+	var lastEnd time.Time
 	obs := func(mode string, d time.Duration) {
 		if mode != modePurge {
 			return
 		}
 		mu.Lock()
 		defer mu.Unlock()
-		held += d
-		maxHeld = max(maxHeld, d)
+		now := time.Now()
+		if !lastEnd.IsZero() {
+			minGap = min(minGap, now.Add(-d).Sub(lastEnd))
+		}
+		lastEnd, held, maxHeld = now, held+d, max(maxHeld, d)
+		if d > 200*time.Millisecond {
+			if overBudget++; overBudget == 3 {
+				cancel() // the budget is already violated: stop instead of running for minutes
+			}
+		}
 	}
 	p := e.open(1, "cli", func(o *Options) { o.Clock = SystemClock{}; o.OnTx = obs })
 	tui := e.open(2, "tui", func(o *Options) { o.Clock = SystemClock{} })
@@ -257,46 +295,29 @@ func s015(t *testing.T) {
 		evs[i] = Event{Kind: "tool_result", Content: "output line"}
 	}
 	for range 10 { // 5 000 events
-		_, err := p.Append(bg, "BIG", nil, evs...)
+		_, err := p.Append(context.Background(), "BIG", nil, evs...)
 		must(t, err)
 	}
-	must(t, p.ReleaseLease(bg, "BIG"))
+	must(t, p.ReleaseLease(context.Background(), "BIG"))
 	session(t, tui, "LIVE", "")
 	var sv0, sv1 int64
-	must(t, p.get(bg, "PRAGMA schema_version", nil, &sv0))
-	stop := make(chan struct{})
-	var busy error
-	var wg sync.WaitGroup
-	wg.Go(func() { // TUI/gateway writer: one event every 10 ms (streaming pace)
-		tk := time.NewTicker(10 * time.Millisecond)
-		defer tk.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-tk.C:
-			}
-			if _, err := tui.Append(bg, "LIVE", nil, Event{Kind: "user_message", Content: "x"}); err != nil {
-				busy = err
-				return
-			}
-		}
-	})
+	must(t, p.get(context.Background(), "PRAGMA schema_version", nil, &sv0))
+	stopWriter := streamWriter(tui, "LIVE")
 	start := time.Now()
-	_, err := p.Purge(bg, PurgeRequest{IDs: []string{"BIG"}})
+	_, err := p.Purge(ctx, PurgeRequest{IDs: []string{"BIG"}})
 	total := time.Since(start)
-	close(stop)
-	wg.Wait()
-	must(t, err)
-	must(t, busy)
-	must(t, p.get(bg, "PRAGMA schema_version", nil, &sv1))
-	if sv0 != sv1 {
-		t.Fatal("schema changed during purge")
-	}
+	busy := stopWriter()
+	t.Logf("max tx %v, min gap %v, txns over 200 ms: %d", maxHeld, minGap, overBudget)
+	must(t, busy) // writers are never starved by the purge (yield ≥ busy-handler backoff)
 	if maxHeld > 200*time.Millisecond || held > total/5 {
 		t.Fatalf("lock budget: max %v, duty %.1f%%", maxHeld, 100*float64(held)/float64(total))
 	}
-	t.Logf("purge 5k events: %v, max tx %v, duty %.1f%%", total, maxHeld, 100*float64(held)/float64(total))
+	must(t, err)
+	must(t, p.get(context.Background(), "PRAGMA schema_version", nil, &sv1))
+	if sv0 != sv1 {
+		t.Fatal("schema changed during purge")
+	}
+	t.Logf("purge 5k events: %v, max tx %v, min gap %v, duty %.1f%%", total, maxHeld, minGap, 100*float64(held)/float64(total))
 }
 
 // #21: gc vs writer vs purge vs trash recovery → 0 live refs to missing files.
@@ -308,16 +329,16 @@ func s021(t *testing.T) {
 	shared := []byte("shared payload")
 	pb, err := p.PutBlob(shared, "text/plain")
 	must(t, err)
-	_, err = p.Append(bg, "P", []*PendingBlob{pb}, Event{Kind: "tool_result", Blob: pb.Sha})
+	_, err = p.Append(context.Background(), "P", []*PendingBlob{pb}, Event{Kind: "tool_result", Blob: pb.Sha})
 	must(t, err)
-	must(t, p.ReleaseLease(bg, "P"))
+	must(t, p.ReleaseLease(context.Background(), "P"))
 	var wg sync.WaitGroup
 	errs := make(chan error, 3)
 	wg.Go(func() {
 		for range 60 {
 			b, err := w.PutBlob(shared, "text/plain")
 			if err == nil {
-				_, err = w.Append(bg, "W", []*PendingBlob{b}, Event{Kind: "tool_result", Blob: b.Sha})
+				_, err = w.Append(context.Background(), "W", []*PendingBlob{b}, Event{Kind: "tool_result", Blob: b.Sha})
 			}
 			if err != nil {
 				errs <- err
@@ -327,14 +348,14 @@ func s021(t *testing.T) {
 	})
 	wg.Go(func() {
 		for range 10 {
-			if _, err := g.GC(bg, false); err != nil {
+			if _, err := g.GC(context.Background(), false); err != nil {
 				errs <- err
 				return
 			}
 		}
 	})
 	wg.Go(func() {
-		if _, err := p.Purge(bg, PurgeRequest{IDs: []string{"P"}}); err != nil {
+		if _, err := p.Purge(context.Background(), PurgeRequest{IDs: []string{"P"}}); err != nil {
 			errs <- err
 		}
 	})
@@ -349,11 +370,11 @@ func s021(t *testing.T) {
 // assertLiveBlobsHaveFiles checks I9 over every ref.
 func assertLiveBlobsHaveFiles(t *testing.T, s *Store) {
 	t.Helper()
-	shas, err := s.strings(bg, `SELECT DISTINCT r.sha256 FROM blob_refs r WHERE coalesce((SELECT kind FROM blob_expirations e
+	shas, err := s.strings(context.Background(), `SELECT DISTINCT r.sha256 FROM blob_refs r WHERE coalesce((SELECT kind FROM blob_expirations e
 		WHERE e.sha256 = r.sha256 ORDER BY e.id DESC LIMIT 1), '') <> 'expired'`)
 	must(t, err)
 	for _, sha := range shas {
-		if _, err := s.ReadBlob(bg, sha); err != nil {
+		if _, err := s.ReadBlob(context.Background(), sha); err != nil {
 			t.Fatalf("live ref %s: %v", sha[:8], err)
 		}
 	}
@@ -366,15 +387,15 @@ func s022(t *testing.T) {
 	session(t, tui, "S", "")
 	for range 3 * 24 * 60 { // three days of heartbeats every minute
 		e.clk.Advance(time.Minute)
-		must(t, tui.Heartbeat(bg, "S"))
+		must(t, tui.Heartbeat(context.Background(), "S"))
 	}
-	idle, err := srv.Idle(bg)
+	idle, err := srv.Idle(context.Background())
 	must(t, err)
 	if !idle {
 		t.Fatal("open TUI without running turn blocks gc")
 	}
-	must(t, tui.Write(bg, func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
-	if idle, _ := srv.Idle(bg); idle {
+	must(t, tui.Write(context.Background(), func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
+	if idle, err := srv.Idle(context.Background()); err != nil || idle {
 		t.Fatal("running turn with alive lease counted idle")
 	}
 }
@@ -385,24 +406,24 @@ func s024(t *testing.T) {
 	e := newEnv(t)
 	a := e.open(1, "cli")
 	session(t, a, "S", "")
-	must(t, a.ReleaseLease(bg, "S"))
+	must(t, a.ReleaseLease(context.Background(), "S"))
 	purgePhase0(t, a, "S")
 	e.procs.kill(1)
 	srv := e.open(2, "serve")
-	must(t, srv.ResumePurge(bg, false))
+	must(t, srv.ResumePurge(context.Background(), false))
 	if count(t, srv, "SELECT count(*) FROM sessions WHERE id = 'S'") != 0 {
 		t.Fatal("purge not completed after takeover")
 	}
 	o := e.open(3, "cli", func(o *Options) { o.Ident.Host = "elsewhere#1" })
 	session(t, o, "R", "")
-	must(t, o.ReleaseLease(bg, "R"))
+	must(t, o.ReleaseLease(context.Background(), "R"))
 	purgePhase0(t, o, "R")
-	err := srv.ResumePurge(bg, true)
+	err := srv.ResumePurge(context.Background(), true)
 	wantErr(t, err, ErrPurgeInProgress) // still within TTL 30 s
 	e.clk.Advance(31 * time.Second)
-	wantErr(t, srv.ResumePurge(bg, true), ErrPurgeInProgress) // first observation
+	wantErr(t, srv.ResumePurge(context.Background(), true), ErrPurgeInProgress) // first observation
 	e.clk.Advance(observeGap * time.Millisecond)
-	must(t, srv.ResumePurge(bg, true))
+	must(t, srv.ResumePurge(context.Background(), true))
 	checkIntegrity(t, srv)
 }
 
@@ -411,12 +432,12 @@ func s025(t *testing.T) {
 	e := newEnv(t)
 	a := e.open(1, "cli")
 	session(t, a, "S", "")
-	must(t, a.ReleaseLease(bg, "S"))
+	must(t, a.ReleaseLease(context.Background(), "S"))
 	purgePhase0(t, a, "S")
 	e.procs.kill(1)
 	cli := e.open(2, "cli")
-	wantErr(t, cli.ResumePurge(bg, false), ErrPurgePending)
-	if !isLabelled(t, cli, "S") || count(t, cli, "SELECT count(*) FROM sessions WHERE id = 'S'") != 1 {
+	wantErr(t, cli.ResumePurge(context.Background(), false), ErrPurgePending)
+	if !labelledS(t, cli) || count(t, cli, "SELECT count(*) FROM sessions WHERE id = 'S'") != 1 {
 		t.Fatal("short process touched the purge")
 	}
 }
@@ -429,13 +450,13 @@ func s029(t *testing.T) {
 	session(t, s, "B", "")
 	evA := appendMsg(t, s, "A", "a")
 	q := "INSERT INTO usage_ledger(session_id, event_id, purpose, provider, model, input_tokens, output_tokens, cost_source, pricing_version, attempts, latency_ms, created_at) VALUES ('B', ?, 'turn', 'p', 'm', 1, 1, 'unknown', 'v', 1, 1, 0)"
-	err := s.Write(bg, func(tx *Tx) error { _, err := tx.Exec(q, evA); return err })
+	err := s.Write(context.Background(), func(tx *Tx) error { _, err := tx.Exec(q, evA); return err })
 	wantErr(t, err, ErrInternal)
-	must(t, s.ReleaseLease(bg, "A"))
+	must(t, s.ReleaseLease(context.Background(), "A"))
 	purgePhase0(t, s, "A")
-	err = s.Write(bg, func(tx *Tx) error {
-		_, err := tx.Exec("INSERT INTO approvals(session_id, event_id, tool_name, subject, decision, source, created_at) VALUES ('B', ?, 't', 's', 'deny', 'tui', 0)", evA)
-		return err
+	err = s.Write(context.Background(), func(tx *Tx) error {
+		_, ierr := tx.Exec("INSERT INTO approvals(session_id, event_id, tool_name, subject, decision, source, created_at) VALUES ('B', ?, 't', 's', 'deny', 'tui', 0)", evA)
+		return ierr
 	})
 	if err == nil {
 		t.Fatal("row referencing a labelled session's event accepted")
@@ -447,12 +468,12 @@ func s032(t *testing.T) {
 	e := newEnv(t)
 	srv, tui := e.open(1, "serve"), e.open(2, "tui")
 	session(t, tui, "S", "")
-	must(t, tui.Write(bg, func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
+	must(t, tui.Write(context.Background(), func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
 	e.procs.kill(2)
-	if idle, _ := srv.Idle(bg); !idle {
+	if idle, err := srv.Idle(context.Background()); err != nil || !idle {
 		t.Fatal("orphan journal of a dead owner blocks idle (I12)")
 	}
-	rec, err := srv.RecoverJournals(bg, true)
+	rec, err := srv.RecoverJournals(context.Background(), true)
 	must(t, err)
 	if len(rec) != 1 || rec[0].Decision != "deferred" {
 		t.Fatalf("recovered %+v", rec)
@@ -464,14 +485,14 @@ func s034(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "serve")
 	session(t, s, "S", "")
-	sys, err := s.Append(bg, SystemSession, nil, Event{Kind: "system_notice", Content: "insight"})
+	sys, err := s.Append(context.Background(), SystemSession, nil, Event{Kind: "system_notice", Content: "insight"})
 	must(t, err)
-	must(t, s.Write(bg, func(tx *Tx) error {
-		_, err := tx.Exec("INSERT INTO auto_session_refs(event_id, session_id) VALUES (?, 'S')", sys[0])
-		return err
+	must(t, s.Write(context.Background(), func(tx *Tx) error {
+		_, ierr := tx.Exec("INSERT INTO auto_session_refs(event_id, session_id) VALUES (?, 'S')", sys[0])
+		return ierr
 	}))
-	must(t, s.ReleaseLease(bg, "S"))
-	_, err = s.Purge(bg, PurgeRequest{IDs: []string{"S"}})
+	must(t, s.ReleaseLease(context.Background(), "S"))
+	_, err = s.Purge(context.Background(), PurgeRequest{IDs: []string{"S"}})
 	must(t, err)
 	if n := count(t, s, "SELECT count(*) FROM auto_session_refs"); n != 0 {
 		t.Fatalf("auto_session_refs left: %d", n)
@@ -503,32 +524,32 @@ func s038(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "tui")
 	session(t, s, "S", "")
-	must(t, s.ReleaseLease(bg, "S"))
+	must(t, s.ReleaseLease(context.Background(), "S"))
 	must(t, os.Mkdir(filepath.Join(e.dir, "purge.log"), 0o700)) // append impossible
-	_, err := s.Purge(bg, PurgeRequest{IDs: []string{"S"}})
+	_, err := s.Purge(context.Background(), PurgeRequest{IDs: []string{"S"}})
 	wantErr(t, err, ErrDiskFull)
-	if count(t, s, "SELECT count(*) FROM module_state WHERE module_id = 'purge'") != 0 || isLabelled(t, s, "S") {
+	if count(t, s, "SELECT count(*) FROM module_state WHERE module_id = 'purge'") != 0 || labelledS(t, s) {
 		t.Fatal("purge started without ledger intent")
 	}
 	must(t, os.Remove(filepath.Join(e.dir, "purge.log")))
 	var pages int64
-	must(t, s.get(bg, "PRAGMA page_count", nil, &pages))
-	_, err = s.w.Exec("PRAGMA max_page_count = " + itoa(pages))
+	must(t, s.get(context.Background(), "PRAGMA page_count", nil, &pages))
+	_, err = s.w.ExecContext(context.Background(), "PRAGMA max_page_count = "+itoa(pages))
 	must(t, err)
 	for range 20_000 { // fill every page under the cap
-		if _, err := s.Append(bg, SystemSession, nil, Event{Kind: "system_notice", Content: "f"}); err != nil {
-			wantErr(t, err, ErrDiskFull)
+		if _, ierr := s.Append(context.Background(), SystemSession, nil, Event{Kind: "system_notice", Content: "f"}); ierr != nil {
+			wantErr(t, ierr, ErrDiskFull)
 			break
 		}
 	}
-	_, err = s.Purge(bg, PurgeRequest{IDs: []string{"S"}})
+	_, err = s.Purge(context.Background(), PurgeRequest{IDs: []string{"S"}})
 	wantErr(t, err, ErrDiskFull)
-	_, err = s.w.Exec("PRAGMA max_page_count = 1073741823")
+	_, err = s.w.ExecContext(context.Background(), "PRAGMA max_page_count = 1073741823")
 	must(t, err)
-	if _, perr := s.PendingPurge(bg); perr == nil {
-		must(t, s.ResumePurge(bg, false))
+	if _, perr := s.PendingPurge(context.Background()); perr == nil {
+		must(t, s.ResumePurge(context.Background(), false))
 	} else {
-		_, err = s.Purge(bg, PurgeRequest{IDs: []string{"S"}})
+		_, err = s.Purge(context.Background(), PurgeRequest{IDs: []string{"S"}})
 		must(t, err)
 	}
 	assertNoSessionRefs(t, s, "S")
@@ -541,10 +562,10 @@ func s047(t *testing.T) {
 	session(t, s, "S", "")
 	pb, err := s.PutBlob([]byte("b"), "text/plain")
 	must(t, err)
-	_, err = s.Append(bg, "S", []*PendingBlob{pb}, Event{Kind: "tool_result", Blob: pb.Sha})
+	_, err = s.Append(context.Background(), "S", []*PendingBlob{pb}, Event{Kind: "tool_result", Blob: pb.Sha})
 	must(t, err)
 	for _, q := range []string{"DELETE FROM sessions WHERE id = 'S'", "DELETE FROM blobs", "UPDATE sessions SET cwd = 'x'", "UPDATE blobs SET mime = 'x'", "DELETE FROM events"} {
-		if err := s.Write(bg, func(tx *Tx) error { _, err := tx.Exec(q); return err }); err == nil {
+		if err := s.Write(context.Background(), func(tx *Tx) error { _, err := tx.Exec(q); return err }); err == nil {
 			t.Fatalf("%s accepted", q)
 		}
 	}
@@ -556,13 +577,13 @@ func s048(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "serve")
 	session(t, s, "S", "")
-	must(t, s.Write(bg, func(tx *Tx) error {
+	must(t, s.Write(context.Background(), func(tx *Tx) error {
 		return tx.execAll(nil, "INSERT INTO kanban_boards(id, name, created_at) VALUES ('b','b',0)",
 			"INSERT INTO kanban_tasks(id, board_id, title, status, created_at, updated_at) VALUES ('k','b','t','done',0,0)",
 			`INSERT INTO kanban_task_events(task_id, actor, kind, payload, created_at) VALUES ('k','agent','comment','{"session":"S"}',0)`)
 	}))
-	must(t, s.ReleaseLease(bg, "S"))
-	_, err := s.Purge(bg, PurgeRequest{IDs: []string{"S"}})
+	must(t, s.ReleaseLease(context.Background(), "S"))
+	_, err := s.Purge(context.Background(), PurgeRequest{IDs: []string{"S"}})
 	must(t, err)
 	assertNoSessionRefs(t, s, "S")
 	if count(t, s, `SELECT count(*) FROM kanban_task_events WHERE payload LIKE '%"S"%'`) != 1 {
@@ -576,11 +597,11 @@ func s061(t *testing.T) {
 	e := newEnv(t)
 	tui, cli := e.open(1, "tui"), e.open(2, "cli")
 	session(t, tui, "S", "")
-	tui.Suspend()
+	must(t, tui.Suspend())
 	e.clk.Suspend(20 * time.Minute)
-	_, err := cli.Purge(bg, PurgeRequest{IDs: []string{"S"}})
+	_, err := cli.Purge(context.Background(), PurgeRequest{IDs: []string{"S"}})
 	wantErr(t, err, ErrSessionBusy)
-	if isLabelled(t, cli, "S") {
+	if labelledS(t, cli) {
 		t.Fatal("labelled a session whose owner is present")
 	}
 }

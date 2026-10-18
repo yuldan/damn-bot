@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -43,7 +44,7 @@ type holderInfo struct {
 // openRoot creates the data dir layout and opens it as an os.Root, so every
 // file operation of ctxdb stays inside the data dir.
 func openRoot(dir string) (*os.Root, error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Clean(dir), 0o700); err != nil { //nolint:gosec // G703: dir is the operator-configured data dir, not untrusted input
 		return nil, wrap(err)
 	}
 	r, err := os.OpenRoot(dir)

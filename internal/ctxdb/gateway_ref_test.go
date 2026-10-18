@@ -30,26 +30,8 @@ type Inbound struct {
 // transaction (inbound_invalid) so the offset never advances past it.
 func (s *Store) IngestInbound(ctx context.Context, msgs []Inbound, offsetKey, offset string) error {
 	return s.Write(ctx, func(t *Tx) error {
-		for _, m := range msgs {
-			for _, p := range m.Pending {
-				if err := t.Publish(p); err != nil {
-					return err
-				}
-			}
-			ids, err := t.Strings(`INSERT INTO gateway_inbound(platform, external_id, chat_id, sender_id, payload, received_at)
-				VALUES (?,?,?,?,?,?) ON CONFLICT(platform, external_id) DO NOTHING RETURNING external_id`,
-				m.Platform, m.ExternalID, m.ChatID, m.SenderID, nullable(m.Payload), t.s.clk.WallMs())
-			if err != nil {
-				return fmt.Errorf("ctxdb: inbound %s:%s: %w: %w", m.Platform, m.ExternalID, ErrInboundInvalid, err)
-			}
-			if len(ids) == 0 {
-				continue // duplicate: original row and content kept
-			}
-			refs, err := BlobRefsOf("gateway_inbound", m.Platform+":"+m.ExternalID, nil, map[string]string{"payload": m.Payload})
-			if err != nil {
-				return err
-			}
-			if err := t.InsertRefs(SystemSession, t.s.clk.WallMs(), refs); err != nil {
+		for i := range msgs {
+			if err := t.ingestOne(&msgs[i]); err != nil {
 				return err
 			}
 		}
@@ -60,6 +42,29 @@ func (s *Store) IngestInbound(ctx context.Context, msgs []Inbound, offsetKey, of
 			ON CONFLICT(module_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`, offsetKey, offset, t.s.clk.WallMs())
 		return err
 	})
+}
+
+// ingestOne publishes the attachments and inserts one inbound row (+ refs).
+func (t *Tx) ingestOne(m *Inbound) error {
+	for _, p := range m.Pending {
+		if err := t.Publish(p); err != nil {
+			return err
+		}
+	}
+	ids, err := t.Strings(`INSERT INTO gateway_inbound(platform, external_id, chat_id, sender_id, payload, received_at)
+		VALUES (?,?,?,?,?,?) ON CONFLICT(platform, external_id) DO NOTHING RETURNING external_id`,
+		m.Platform, m.ExternalID, m.ChatID, m.SenderID, nullable(m.Payload), t.s.clk.WallMs())
+	if err != nil {
+		return fmt.Errorf("ctxdb: inbound %s:%s: %w: %w", m.Platform, m.ExternalID, ErrInboundInvalid, err)
+	}
+	if len(ids) == 0 {
+		return nil // duplicate: original row and content kept
+	}
+	refs, err := BlobRefsOf("gateway_inbound", m.Platform+":"+m.ExternalID, nil, map[string]string{"payload": m.Payload})
+	if err != nil {
+		return err
+	}
+	return t.InsertRefs(SystemSession, t.s.clk.WallMs(), refs)
 }
 
 // Processed is the worker outcome for one queued inbound row.
@@ -74,6 +79,19 @@ type inboundPayload struct {
 	Attachments []struct {
 		BlobSha string `json:"blob_sha"`
 	} `json:"attachments"`
+}
+
+// decodeInbound returns the text and attachment shas of a queued payload.
+func decodeInbound(payload string) (string, []string, error) {
+	var p inboundPayload
+	if err := json.Unmarshal([]byte(payload), &p); err != nil {
+		return "", nil, fmt.Errorf("ctxdb: inbound payload: %w: %w", ErrInboundInvalid, err)
+	}
+	att := make([]string, 0, len(p.Attachments))
+	for _, a := range p.Attachments {
+		att = append(att, a.BlobSha)
+	}
+	return p.Text, att, nil
 }
 
 // ProcessInbound is the worker transaction for one chat: oldest queued row
@@ -96,25 +114,18 @@ func (s *Store) ProcessInbound(ctx context.Context, platform, chat string) (Proc
 		if err != nil {
 			return err
 		}
-		if !isNew {
-			if _, err := t.AcquireLease(sid, false); errors.Is(err, ErrSessionBusy) {
-				busy = true // AF-04: reply once per chat per holder, keep the row queued
-				return t.systemNotice(platform, chat, "busy_notice:"+chat+":"+sid, "session in use elsewhere; message queued")
-			} else if err != nil {
-				return err
-			}
+		if busy, err = t.leaseChat(platform, chat, sid, isNew); busy || err != nil {
+			return err
 		}
-		var p inboundPayload
-		if err := json.Unmarshal([]byte(payload), &p); err != nil {
-			return fmt.Errorf("ctxdb: inbound payload: %w", ErrInboundInvalid)
-		}
-		var att []string
-		for _, a := range p.Attachments {
-			att = append(att, a.BlobSha)
+		text, att, err := decodeInbound(payload)
+		if err != nil {
+			return err
 		}
 		out.Session, out.NewSession, out.Turn = sid, isNew, newID()
-		if out.EventID, err = t.AppendEvent(sid, &Event{Kind: "user_message", Role: "user", Content: p.Text, Attach: att,
-			Payload: jsonOf(map[string]string{"inbound": platform + ":" + ext})}); err != nil {
+		if out.EventID, err = t.AppendEvent(sid, &Event{
+			Kind: "user_message", Role: "user", Content: text, Attach: att,
+			Payload: jsonOf(map[string]string{"inbound": platform + ":" + ext}),
+		}); err != nil {
 			return err
 		}
 		n, err := t.Exec("UPDATE gateway_inbound SET event_id = ?, payload = NULL WHERE platform = ? AND external_id = ? AND event_id IS NULL",
@@ -131,6 +142,20 @@ func (s *Store) ProcessInbound(ctx context.Context, platform, chat string) (Proc
 		err = fmt.Errorf("ctxdb: chat %s: %w", chat, ErrSessionBusy)
 	}
 	return out, err
+}
+
+// leaseChat takes the lease of an existing chat session. When another
+// process holds it (AF-04) one system reply is queued per chat per holder and
+// the row stays queued (busy = true).
+func (t *Tx) leaseChat(platform, chat, sid string, isNew bool) (bool, error) {
+	if isNew {
+		return false, nil
+	}
+	_, err := t.AcquireLease(sid, false)
+	if errors.Is(err, ErrSessionBusy) {
+		return true, t.systemNotice(platform, chat, "busy_notice:"+chat+":"+sid, "session in use elsewhere; message queued")
+	}
+	return false, err
 }
 
 // chatSession returns the latest conversation session of the chat, or a new
@@ -166,7 +191,7 @@ func (t *Tx) systemNotice(platform, chat, key, body string) error {
 	if err != nil || n == 0 {
 		return err
 	}
-	_, err = t.EnqueueDelivery(Delivery{IdemKey: "sys:" + key, Platform: platform, Chat: chat, Body: body})
+	_, err = t.EnqueueDelivery(&Delivery{IdemKey: "sys:" + key, Platform: platform, Chat: chat, Body: body})
 	return err
 }
 
@@ -179,7 +204,7 @@ type Delivery struct {
 // EnqueueDelivery inserts an outbox row; an existing idem_key with the same
 // chat/body/media returns the existing id, a different one is
 // idempotency_conflict (messages_send, §11.11.10).
-func (t *Tx) EnqueueDelivery(d Delivery) (int64, error) {
+func (t *Tx) EnqueueDelivery(d *Delivery) (int64, error) {
 	var id int64
 	var chat, body, media string
 	err := t.Get("SELECT id, chat_id, body, coalesce(media_blob_sha, '') FROM gateway_deliveries WHERE idem_key = ?", []any{d.IdemKey}, &id, &chat, &body, &media)
@@ -195,16 +220,19 @@ func (t *Tx) EnqueueDelivery(d Delivery) (int64, error) {
 	sid := SystemSession
 	if d.EventID != 0 {
 		ev = d.EventID
-		if err := t.Get("SELECT session_id FROM events WHERE id = ?", []any{d.EventID}, &sid); err != nil {
-			return 0, err
+		if ierr := t.Get("SELECT session_id FROM events WHERE id = ?", []any{d.EventID}, &sid); ierr != nil {
+			return 0, ierr
 		}
 	}
 	now := t.s.clk.WallMs()
-	if err := t.Get(`INSERT INTO gateway_deliveries(idem_key, platform, chat_id, event_id, body, media_blob_sha, status, next_at, updated_at)
-		VALUES (?,?,?,?,?,?,'queued',?,?) RETURNING id`, []any{d.IdemKey, d.Platform, d.Chat, ev, d.Body, nullable(d.Media), now, now}, &id); err != nil {
+	if ierr := t.Get(`INSERT INTO gateway_deliveries(idem_key, platform, chat_id, event_id, body, media_blob_sha, status, next_at, updated_at)
+		VALUES (?,?,?,?,?,?,'queued',?,?) RETURNING id`, []any{d.IdemKey, d.Platform, d.Chat, ev, d.Body, nullable(d.Media), now, now}, &id); ierr != nil {
+		return 0, ierr
+	}
+	refs, err := BlobRefsOf("gateway_delivery", strconv.FormatInt(id, 10), map[string]string{"media_blob_sha": d.Media}, nil)
+	if err != nil {
 		return 0, err
 	}
-	refs, _ := BlobRefsOf("gateway_delivery", strconv.FormatInt(id, 10), map[string]string{"media_blob_sha": d.Media}, nil)
 	return id, t.InsertRefs(sid, now, refs)
 }
 
@@ -216,7 +244,10 @@ func (s *Store) ClaimDelivery(ctx context.Context) (int64, error) {
 	if err != nil || len(ids) == 0 {
 		return 0, errors.Join(err, fmt.Errorf("ctxdb: no due delivery: %w", ErrNotFound))
 	}
-	id, _ := strconv.ParseInt(ids[0], 10, 64)
+	id, err := strconv.ParseInt(ids[0], 10, 64)
+	if err != nil {
+		return 0, wrap(err)
+	}
 	return id, s.Write(ctx, func(t *Tx) error {
 		n, err := t.Exec("UPDATE gateway_deliveries SET status = 'sending', updated_at = ? WHERE id = ? AND status = 'queued'", s.clk.WallMs(), id)
 		if err == nil && n == 0 {
@@ -229,7 +260,7 @@ func (s *Store) ClaimDelivery(ctx context.Context) (int64, error) {
 // SpoolInbound writes one line to run/inbound_spool/<boot>-<pid>-<start>-<seq>.jsonl
 // and fsyncs file and directory; only then may the push be acked (§11.11.7).
 // Used for every inbound the platform will not redeliver (AF-06).
-func (s *Store) SpoolInbound(seq int, m Inbound) error {
+func (s *Store) SpoolInbound(seq int, m *Inbound) error {
 	const dir = "run/inbound_spool"
 	if err := s.root.MkdirAll(dir, 0o700); err != nil {
 		return wrap(err)

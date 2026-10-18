@@ -68,6 +68,7 @@ type Store struct {
 	barrierOwner atomic.Bool
 	purgeOrder   map[string][]string // txid → labelled sessions, descendants first (mu)
 	chunk        int                 // purge phase-2 unit size, adapted to measured cost (mu)
+	closed       bool                // Close ran (mu)
 	bgErr        error               // error of a background drain, returned by Close (mu)
 	stop         context.CancelFunc  // barrier watcher
 	done         chan struct{}
@@ -91,7 +92,7 @@ func Open(ctx context.Context, o *Options) (*Store, error) {
 	}
 	if err != nil {
 		if s != nil {
-			err = errors.Join(err, s.Close())
+			err = errors.Join(err, s.close(ctx))
 		}
 		return nil, err
 	}
@@ -123,8 +124,10 @@ func newStore(o *Options) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Store{opt: opt, dir: opt.Dir, root: root, clk: opt.Clock, q: q, migs: migs, chunk: firstChunk,
-		tokens: map[string]int64{}, obs: map[string]observation{}}
+	s := &Store{
+		opt: opt, dir: opt.Dir, root: root, clk: opt.Clock, q: q, migs: migs, chunk: firstChunk,
+		tokens: map[string]int64{}, obs: map[string]observation{},
+	}
 	s.mode.Store(modeNormal)
 	s.id = SelfIdent()
 	if opt.Ident != nil {
@@ -231,7 +234,10 @@ func (s *Store) driver(writer bool) (*sqlite.Driver, error) {
 			return nil, nil
 		}),
 		d.RegisterDeterministicScalarFunction("dmb_fts_norm", 1, func(_ *sqlite.FunctionContext, a []driver.Value) (driver.Value, error) {
-			t, _ := a[0].(string) // non-text input normalises to ""
+			t, ok := a[0].(string)
+			if !ok {
+				return "", nil // non-text input normalises to ""
+			}
 			return ftsNorm(t), nil
 		}))
 }
@@ -316,7 +322,10 @@ func (s *Store) detach() error {
 // TRUNCATE checkpoint holds the writer lock while it waits for readers, so
 // running it beside live processes stalls their BEGIN IMMEDIATE past
 // busy_timeout (root cause of SQLITE_BUSY in TestMultiProcess under -race).
-func (s *Store) Close() error {
+// Close is close without a caller context (the process is shutting down).
+func (s *Store) Close() error { return s.close(context.Background()) }
+
+func (s *Store) close(ctx context.Context) error {
 	if s.stop != nil {
 		s.stop()
 		<-s.done
@@ -324,12 +333,16 @@ func (s *Store) Close() error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed { // idempotent: a second Close is a no-op
+		return nil
+	}
+	s.closed = true
 	err := s.bgErr
 	if s.w != nil && s.lock != nil {
 		err = errors.Join(err, unlockFile(s.lock))
 		s.lock = nil
 		if last, lerr := tryLock(s.root, lockFile, true); lerr == nil {
-			_, cerr := s.w.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)") //nolint:contextcheck // Close has no ctx by design
+			_, cerr := s.w.ExecContext(context.WithoutCancel(ctx), "PRAGMA wal_checkpoint(TRUNCATE)")
 			err = errors.Join(err, wrap(cerr), unlockFile(last))
 		}
 	}

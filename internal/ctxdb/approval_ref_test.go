@@ -28,7 +28,7 @@ type ApprovalResponse struct {
 }
 
 // RequestApproval parks the turn in awaiting_approval (holder of the lease).
-func (t *Tx) RequestApproval(turn string, r ApprovalRequest) error {
+func (t *Tx) RequestApproval(turn string, r *ApprovalRequest) error {
 	_, err := t.Exec("UPDATE turn_journal SET state = 'awaiting_approval', approval_request = ?, updated_at = ? WHERE turn_id = ?",
 		jsonOf(r), t.s.clk.WallMs(), turn)
 	return err
@@ -37,7 +37,7 @@ func (t *Tx) RequestApproval(turn string, r ApprovalRequest) error {
 // RespondApproval is the responder side (no lease): the DB rejects a second
 // answer (UNIQUE) and answers for a request that is not pending
 // (approval_not_pending) — late or stale answers are never stored.
-func (s *Store) RespondApproval(ctx context.Context, r ApprovalResponse) error {
+func (s *Store) RespondApproval(ctx context.Context, r *ApprovalResponse) error {
 	return s.Write(ctx, func(t *Tx) error {
 		_, err := t.Exec(`INSERT INTO approval_responses(session_id, turn_id, request_id, preview_sha, decision, edited_args, source, responder, responder_token, created_at)
 			VALUES (?,?,?,?,?,?,?,?,?,?)`, r.SessionID, r.TurnID, r.RequestID, r.PreviewSha, r.Decision, nullable(r.EditedArgs), r.Source,
@@ -75,16 +75,16 @@ func (s *Store) ConsumeApproval(ctx context.Context, sid, turn, owner string, va
 		switch {
 		case errors.Is(err, ErrNotFound) && s.clk.WallMs() >= req.ExpiresAt:
 			d = ApprovalDecision{Decision: "timeout", Reason: "expired"}
-			return t.recordApproval(sid, turn, req, r, d)
+			return t.recordApproval(sid, turn, &req, &r, d)
 		case err != nil:
 			return err
 		}
 		r.EditedArgs, r.Token = deref(edited), deref(token)
-		d = t.judge(req, r, owner, validEdit)
+		d = t.judge(&req, &r, owner, validEdit)
 		if _, err := t.Exec("DELETE FROM approval_responses WHERE id = ?", id); err != nil {
 			return err
 		}
-		return t.recordApproval(sid, turn, req, r, d)
+		return t.recordApproval(sid, turn, &req, &r, d)
 	})
 	return d, err
 }
@@ -97,17 +97,11 @@ func deref(p *string) string {
 }
 
 // judge re-validates a response (§11.11.10 authority table).
-func (t *Tx) judge(req ApprovalRequest, r ApprovalResponse, owner string, validEdit func(string) bool) ApprovalDecision {
+func (t *Tx) judge(req *ApprovalRequest, r *ApprovalResponse, owner string, validEdit func(string) bool) ApprovalDecision {
 	deny := func(reason string) ApprovalDecision { return ApprovalDecision{Decision: "deny", Reason: reason} }
-	if r.Source == "mcp_serve" {
-		var scope, identity string
-		var revoked *int64
-		err := t.Get("SELECT scope, identity, revoked_at FROM mcp_serve_tokens WHERE id_hash = ?", []any{r.Token}, &scope, &identity, &revoked)
-		if err != nil || scope != "approve" || revoked != nil || identity != r.Responder {
-			return deny("scope")
-		}
-	}
 	switch {
+	case !t.tokenOK(r):
+		return deny("scope")
 	case req.Dangerous && r.Responder != owner:
 		return deny("unauthorized")
 	case !slices.Contains(req.Channels, r.Source) && r.Responder != owner:
@@ -124,11 +118,24 @@ func (t *Tx) judge(req ApprovalRequest, r ApprovalResponse, owner string, validE
 	return ApprovalDecision{Decision: r.Decision}
 }
 
+// tokenOK re-validates an mcp_serve responder token: scope approve, not
+// revoked, identity = responder. Other sources carry no token.
+func (t *Tx) tokenOK(r *ApprovalResponse) bool {
+	if r.Source != "mcp_serve" {
+		return true
+	}
+	var scope, identity string
+	var revoked *int64
+	err := t.Get("SELECT scope, identity, revoked_at FROM mcp_serve_tokens WHERE id_hash = ?", []any{r.Token}, &scope, &identity, &revoked)
+	return err == nil && scope == "approve" && revoked == nil && identity == r.Responder
+}
+
 // recordApproval appends the `approval` event + approvals row and moves the
 // journal out of awaiting_approval (or onto the new request after an edit).
-func (t *Tx) recordApproval(sid, turn string, req ApprovalRequest, r ApprovalResponse, d ApprovalDecision) error {
+func (t *Tx) recordApproval(sid, turn string, req *ApprovalRequest, r *ApprovalResponse, d ApprovalDecision) error {
 	ev, err := t.AppendEvent(sid, &Event{Kind: "approval", TurnID: turn, Payload: jsonOf(map[string]any{
-		"request_id": req.RequestID, "decision": d.Decision, "reason": d.Reason, "cross_channel": r.Source != "" && !slices.Contains(req.Channels, r.Source)})})
+		"request_id": req.RequestID, "decision": d.Decision, "reason": d.Reason, "cross_channel": r.Source != "" && !slices.Contains(req.Channels, r.Source),
+	})})
 	if err != nil {
 		return err
 	}
@@ -136,9 +143,9 @@ func (t *Tx) recordApproval(sid, turn string, req ApprovalRequest, r ApprovalRes
 	if src == "" {
 		src = "recovery"
 	}
-	if _, err := t.Exec(`INSERT INTO approvals(session_id, event_id, tool_name, subject, decision, source, created_at) VALUES (?,?,?,?,?,?,?)`,
-		sid, ev, req.Class, req.RequestID, d.Decision, src, t.s.clk.WallMs()); err != nil {
-		return err
+	if _, ierr := t.Exec(`INSERT INTO approvals(session_id, event_id, tool_name, subject, decision, source, created_at) VALUES (?,?,?,?,?,?,?)`,
+		sid, ev, req.Class, req.RequestID, d.Decision, src, t.s.clk.WallMs()); ierr != nil {
+		return ierr
 	}
 	if d.Decision == "edit" {
 		req.RequestID = d.NewRequestID
@@ -160,6 +167,6 @@ func (s *Store) CancelApproval(ctx context.Context, sid, turn string) error {
 		if err := json.Unmarshal([]byte(raw), &req); err != nil {
 			return fmt.Errorf("ctxdb: approval_request: %w", err)
 		}
-		return t.recordApproval(sid, turn, req, ApprovalResponse{}, ApprovalDecision{Decision: "deny", Reason: "cancelled"})
+		return t.recordApproval(sid, turn, &req, &ApprovalResponse{}, ApprovalDecision{Decision: "deny", Reason: "cancelled"})
 	})
 }

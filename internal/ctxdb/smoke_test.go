@@ -1,6 +1,9 @@
 package ctxdb
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 func TestSmoke(t *testing.T) {
 	e := newEnv(t)
@@ -20,12 +23,12 @@ func TestSmokePurge(t *testing.T) {
 	session(t, s, "B", "A")
 	p, err := s.PutBlob([]byte("x"), "text/plain")
 	must(t, err)
-	_, err = s.Append(bg, "B", []*PendingBlob{p}, Event{Kind: "tool_result", Content: "r", Blob: p.Sha})
+	_, err = s.Append(context.Background(), "B", []*PendingBlob{p}, Event{Kind: "tool_result", Content: "r", Blob: p.Sha})
 	must(t, err)
 	appendMsg(t, s, "A", "hi")
-	must(t, s.ReleaseLease(bg, "A"))
-	must(t, s.ReleaseLease(bg, "B"))
-	rep, err := s.Purge(bg, PurgeRequest{IDs: []string{"A"}, WithForks: true})
+	must(t, s.ReleaseLease(context.Background(), "A"))
+	must(t, s.ReleaseLease(context.Background(), "B"))
+	rep, err := s.Purge(context.Background(), PurgeRequest{IDs: []string{"A"}, WithForks: true})
 	must(t, err)
 	t.Logf("%+v", rep)
 	if n := count(t, s, "SELECT count(*) FROM sessions WHERE id IN ('A','B')"); n != 0 {

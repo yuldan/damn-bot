@@ -77,14 +77,14 @@ func (s *Store) ReadBlob(ctx context.Context, sha string) ([]byte, error) {
 		return b, wrap(err)
 	}
 	var last string
-	if err := s.get(ctx, "SELECT coalesce((SELECT kind FROM blob_expirations WHERE sha256 = ? ORDER BY id DESC LIMIT 1), '')", []any{sha}, &last); err != nil {
-		return nil, err
+	if gerr := s.get(ctx, "SELECT coalesce((SELECT kind FROM blob_expirations WHERE sha256 = ? ORDER BY id DESC LIMIT 1), '')", []any{sha}, &last); gerr != nil {
+		return nil, gerr
 	}
 	if last == "expired" {
 		return nil, fmt.Errorf("ctxdb: blob %s: %w", sha, ErrBlobExpired)
 	}
-	if err := s.Write(ctx, func(t *Tx) error { return t.recoverTrash("", sha) }); err != nil {
-		return nil, err
+	if werr := s.Write(ctx, func(t *Tx) error { return t.recoverTrash("", sha) }); werr != nil {
+		return nil, werr
 	}
 	if b, err = s.root.ReadFile(blobName(sha)); errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("ctxdb: blob %s: %w", sha, ErrBlobMissing)

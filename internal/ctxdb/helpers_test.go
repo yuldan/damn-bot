@@ -36,7 +36,7 @@ func (c *fakeClock) WallMs() int64 { c.mu.Lock(); defer c.mu.Unlock(); return c.
 
 func (c *fakeClock) Sleep(ctx context.Context, d time.Duration) error {
 	c.Advance(d)
-	return ctx.Err()
+	return wrap(ctx.Err())
 }
 
 // Advance moves every clock by d (normal running time).
@@ -115,7 +115,7 @@ func (e *env) open(pid int, kind string, mods ...func(*Options)) *Store {
 	if err != nil {
 		e.t.Fatalf("open pid %d: %v", pid, err)
 	}
-	e.t.Cleanup(func() { _ = s.Close() })
+	e.t.Cleanup(func() { must(e.t, s.Close()) })
 	return s
 }
 
@@ -140,18 +140,16 @@ func count(t *testing.T, s *Store, q string, args ...any) int64 {
 	return n
 }
 
-var bg = context.Background()
-
 // session creates a session with lease held by s.
 func session(t *testing.T, s *Store, id, parent string) {
 	t.Helper()
-	_, err := s.CreateSession(bg, Session{ID: id, ParentID: parent, Cwd: "/w"})
+	_, err := s.CreateSession(context.Background(), Session{ID: id, ParentID: parent, Cwd: "/w"})
 	must(t, err)
 }
 
 func appendMsg(t *testing.T, s *Store, sid, text string) int64 {
 	t.Helper()
-	ids, err := s.Append(bg, sid, nil, Event{Kind: "user_message", Role: "user", Content: text})
+	ids, err := s.Append(context.Background(), sid, nil, Event{Kind: "user_message", Role: "user", Content: text})
 	must(t, err)
 	return ids[0]
 }
@@ -160,7 +158,7 @@ func appendMsg(t *testing.T, s *Store, sid, text string) int64 {
 func checkIntegrity(t *testing.T, s *Store) {
 	t.Helper()
 	var res string
-	must(t, s.get(bg, "PRAGMA integrity_check", nil, &res))
+	must(t, s.get(context.Background(), "PRAGMA integrity_check", nil, &res))
 	if res != "ok" {
 		t.Fatalf("integrity_check: %s", res)
 	}
@@ -174,9 +172,9 @@ func checkIntegrity(t *testing.T, s *Store) {
 
 func verifyChains(t *testing.T, s *Store) string {
 	t.Helper()
-	rows, err := s.testRows(bg, "SELECT session_id, seq, kind, content, payload, coalesce(blob_sha,''), prev_hash, hash FROM events ORDER BY session_id, seq")
+	rows, err := s.testRows(context.Background(), "SELECT session_id, seq, kind, content, payload, coalesce(blob_sha,''), prev_hash, hash FROM events ORDER BY session_id, seq")
 	must(t, err)
-	defer rows.Close()
+	defer func() { must(t, rows.Close()) }()
 	prev, cur := "", ""
 	for rows.Next() {
 		var sid, kind, content, payload, blob, ph, h string
@@ -210,7 +208,8 @@ func (s *Store) testRows(ctx context.Context, q string, args ...any) (*sql.Rows,
 	if err != nil {
 		return nil, err
 	}
-	return db.QueryContext(ctx, q, args...)
+	rows, err := db.QueryContext(ctx, q, args...)
+	return rows, wrap(err)
 }
 
 // testBlobPath is the on-disk path of a blob (test helper).
@@ -234,9 +233,6 @@ func testLock(t *testing.T, dir, name string, exclusive bool) (*os.File, bool) {
 
 // runPath is the absolute path of a run/ file (test helper).
 func runPath(dir, name string) string { return filepath.Join(dir, "run", name) }
-
-// optsPtr returns a pointer to o (test helper for newStore/Restore).
-func optsPtr(o Options) *Options { return &o }
 
 // startStamp reads the OS start stamp of a pid (test helper).
 func startStamp(t *testing.T, pid int) string {

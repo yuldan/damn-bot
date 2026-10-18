@@ -3,10 +3,11 @@ package ctxdb
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand/v2"
+	"math/big"
 	"os"
 	"os/exec"
 	"runtime"
@@ -25,42 +26,61 @@ const (
 
 func goexit() { runtime.Goexit() }
 
+// rnd returns a uniform int in [0, n) (crypto/rand: chaos needs no replay).
+func rnd(t *testing.T, n int) int {
+	t.Helper()
+	v, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	must(t, err)
+	return int(v.Int64())
+}
+
+// say writes one protocol line to the parent process.
+func say(t *testing.T, line string) {
+	t.Helper()
+	_, err := os.Stdout.WriteString(line + "\n")
+	must(t, err)
+}
+
+// waitStdin blocks until the parent closes stdin or kills the child.
+func waitStdin() error {
+	_, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	return wrap(err)
+}
+
 // TestChildProcess is the entry point of re-executed test binaries (real
 // OS processes for kill -9 / SIGSTOP / multi-process scenarios). Without
 // the role variable it has nothing to do.
 func TestChildProcess(t *testing.T) {
-	role := os.Getenv(childRoleEnv)
-	if role == "" {
+	role, dir := os.Getenv(childRoleEnv), os.Getenv(childDirEnv)
+	switch role {
+	case "":
 		return
-	}
-	dir := os.Getenv(childDirEnv)
-	ctx := context.Background()
-	if role == "barrier" {
-		b, err := AcquireBarrier(ctx, dir, SelfIdent(), reasonRestore, 30, BarrierWait)
+	case "barrier":
+		b, err := AcquireBarrier(context.Background(), dir, SelfIdent(), reasonRestore, 30, BarrierWait)
 		must(t, err)
-		defer b.Release()
-		fmt.Println("READY")
-		_, _ = bufio.NewReader(os.Stdin).ReadString('\n') // block until killed
+		say(t, "READY")
+		t.Log(waitStdin()) // EOF/killed: either way the barrier is released below
+		must(t, b.Release())
 		return
 	}
-	s, err := Open(ctx, &Options{Dir: dir, Kind: "tui"})
+	s, err := Open(context.Background(), &Options{Dir: dir, Kind: "tui"})
 	must(t, err)
 	defer func() { must(t, s.Close()) }()
 	switch role {
 	case "hold-tx":
-		_ = s.Write(ctx, func(*Tx) error {
-			fmt.Println("READY")
-			_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
+		must(t, s.Write(context.Background(), func(*Tx) error {
+			say(t, "READY")
+			t.Log(waitStdin())
 			return nil
-		})
+		}))
 	case "chaos":
-		fmt.Println("READY")
-		chaosLoop(t, s, rand.New(rand.NewPCG(uint64(os.Getpid()), 7)), 1<<30)
+		say(t, "READY")
+		chaosLoop(t, s, 1<<30)
 	case "multi":
-		fmt.Println("READY")
-		res := multiWorker(t, s, 150)
-		b, _ := json.Marshal(res)
-		fmt.Println("RESULT " + string(b))
+		say(t, "READY")
+		b, err := json.Marshal(multiWorker(t, s, 150))
+		must(t, err)
+		say(t, "RESULT "+string(b))
 	}
 }
 
@@ -71,16 +91,18 @@ type child struct {
 
 func startChild(t *testing.T, role, dir string) *child {
 	t.Helper()
-	cmd := exec.Command(os.Args[0], "-test.run=^TestChildProcess$", "-test.count=1")
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestChildProcess$", "-test.count=1") //nolint:gosec // G204: re-exec of this test binary
 	cmd.Env = append(os.Environ(), childRoleEnv+"="+role, childDirEnv+"="+dir)
 	stdout, err := cmd.StdoutPipe()
 	must(t, err)
 	stdin, err := cmd.StdinPipe()
 	must(t, err)
-	t.Cleanup(func() { _ = stdin.Close() })
 	must(t, cmd.Start())
 	c := &child{cmd: cmd, out: bufio.NewScanner(stdout)}
-	t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+	t.Cleanup(func() {
+		t.Log(stdin.Close())
+		c.kill9(t)
+	})
 	ready := make(chan bool, 1)
 	go func() {
 		for c.out.Scan() {
@@ -107,10 +129,17 @@ func (c *child) signal(t *testing.T, sig syscall.Signal) {
 	must(t, c.cmd.Process.Signal(sig))
 }
 
+// kill9 SIGKILLs the child and reaps it; "already finished" and the
+// "signal: killed" exit status are the expected outcomes.
 func (c *child) kill9(t *testing.T) {
 	t.Helper()
-	_ = c.cmd.Process.Kill()
-	_ = c.cmd.Wait()
+	if err := c.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		t.Fatal(err)
+	}
+	var ee *exec.ExitError
+	if err := c.cmd.Wait(); err != nil && !errors.As(err, &ee) && !strings.Contains(err.Error(), "Wait was already called") {
+		t.Fatal(err)
+	}
 }
 
 // result reads the child's RESULT line and waits for a clean exit.
@@ -126,45 +155,76 @@ func (c *child) result(t *testing.T) multiResult {
 	return r
 }
 
-// chaosLoop mixes every writer path: sessions, forks, events with shared
-// blobs, journals, inbound, purge, gc — until killed.
-func chaosLoop(t *testing.T, s *Store, r *rand.Rand, iters int) {
-	shared := []byte("shared-blob")
-	for i := range iters {
-		sid := fmt.Sprintf("c%d-%d", os.Getpid(), i)
-		parent := ""
-		if ids, _ := s.ListSessions(bg); len(ids) > 0 && r.IntN(3) == 0 {
-			parent = ids[r.IntN(len(ids))]
-		}
-		if _, err := s.CreateSession(bg, Session{ID: sid, ParentID: parent, Origin: "delegate"}); err != nil {
-			continue
-		}
-		data := shared
-		if r.IntN(2) == 0 {
-			data = []byte(sid)
-		}
-		if pb, err := s.PutBlob(data, "text/plain"); err == nil {
-			_, _ = s.Append(bg, sid, []*PendingBlob{pb}, Event{Kind: "tool_result", Blob: pb.Sha}, Event{Kind: "user_message", Content: sid})
-		}
-		_ = s.Write(bg, func(tx *Tx) error { return tx.StartTurn(sid, "t"+sid) })
-		if r.IntN(2) == 0 {
-			_ = s.Write(bg, func(tx *Tx) error { return tx.EndTurn(sid, "t"+sid, "end_turn") })
-			_ = s.ReleaseLease(bg, sid)
-		}
-		_ = s.IngestInbound(bg, []Inbound{inbound(sid, "chat", "hi")}, "", "")
-		_, _ = s.ProcessInbound(bg, "telegram", "chat")
-		switch r.IntN(6) {
-		case 0:
-			if ids, _ := s.ListSessions(bg); len(ids) > 0 {
-				_, _ = s.Purge(bg, PurgeRequest{IDs: []string{ids[r.IntN(len(ids))]}, WithForks: true})
-			}
-		case 1:
-			_, _ = s.GC(bg, false)
-		case 2:
-			_ = s.ResumePurge(bg, true)
+// expected reports the closed set of outcomes a random chaos step may
+// legitimately hit (races with other steps); anything else fails the run.
+func expected(err error) bool {
+	for _, e := range []error{
+		ErrSessionPurging, ErrLeaseFenced, ErrNotFound, ErrSessionBusy,
+		ErrPurgeInProgress, ErrHasForks, ErrBlobExpired, ErrPurgePending,
+	} {
+		if errors.Is(err, e) {
+			return true
 		}
 	}
-	_ = t
+	return err == nil
+}
+
+func check(t *testing.T, step string, err error) {
+	t.Helper()
+	if !expected(err) {
+		t.Fatalf("chaos %s: %v", step, err)
+	}
+}
+
+// chaosLoop mixes every writer path: sessions, forks, events with shared
+// blobs, journals, inbound, purge, gc — until killed.
+func chaosLoop(t *testing.T, s *Store, iters int) {
+	for i := range iters {
+		sid := fmt.Sprintf("c%d-%d", os.Getpid(), i)
+		ids, err := s.ListSessions(context.Background())
+		must(t, err)
+		parent := ""
+		if len(ids) > 0 && rnd(t, 3) == 0 {
+			parent = ids[rnd(t, len(ids))]
+		}
+		if _, cerr := s.CreateSession(context.Background(), Session{ID: sid, ParentID: parent, Origin: "delegate"}); cerr != nil {
+			check(t, "create", cerr)
+			continue
+		}
+		chaosTurn(t, s, sid)
+		switch rnd(t, 6) {
+		case 0:
+			if len(ids) > 0 {
+				_, err = s.Purge(context.Background(), PurgeRequest{IDs: []string{ids[rnd(t, len(ids))]}, WithForks: true})
+				check(t, "purge", err)
+			}
+		case 1:
+			_, err = s.GC(context.Background(), false)
+			check(t, "gc", err)
+		case 2:
+			check(t, "resume", s.ResumePurge(context.Background(), true))
+		}
+	}
+}
+
+func chaosTurn(t *testing.T, s *Store, sid string) {
+	t.Helper()
+	data := []byte("shared-blob")
+	if rnd(t, 2) == 0 {
+		data = []byte(sid)
+	}
+	pb, err := s.PutBlob(data, "text/plain")
+	must(t, err)
+	_, err = s.Append(context.Background(), sid, []*PendingBlob{pb}, Event{Kind: "tool_result", Blob: pb.Sha}, Event{Kind: "user_message", Content: sid})
+	check(t, "append", err)
+	check(t, "turn_start", s.Write(context.Background(), func(tx *Tx) error { return tx.StartTurn(sid, "t"+sid) }))
+	if rnd(t, 2) == 0 {
+		check(t, "turn_end", s.Write(context.Background(), func(tx *Tx) error { return tx.EndTurn(sid, "t"+sid, "end_turn") }))
+		check(t, "release", s.ReleaseLease(context.Background(), sid))
+	}
+	check(t, "ingest", s.IngestInbound(context.Background(), []Inbound{inbound(sid, "chat", "hi")}, "", ""))
+	_, err = s.ProcessInbound(context.Background(), "telegram", "chat")
+	check(t, "worker", err)
 }
 
 // TestKill9Chaos SIGKILLs a real writer process at random points, then
@@ -172,23 +232,22 @@ func chaosLoop(t *testing.T, s *Store, r *rand.Rand, iters int) {
 // complete), I3 (no live writes into labelled sessions after resume).
 func TestKill9Chaos(t *testing.T) {
 	dir := t.TempDir()
-	r := rand.New(rand.NewPCG(42, 1))
 	const rounds = 15
 	for round := range rounds {
 		c := startChild(t, "chaos", dir)
 		select {
-		case <-time.After(time.Duration(50+r.IntN(400)) * time.Millisecond):
+		case <-time.After(time.Duration(50+rnd(t, 400)) * time.Millisecond):
 		case <-t.Context().Done():
 		}
 		c.kill9(t)
-		s, err := Open(bg, &Options{Dir: dir, Kind: "serve"})
+		s, err := Open(context.Background(), &Options{Dir: dir, Kind: "serve"})
 		must(t, err)
 		checkIntegrity(t, s)
 		assertLiveBlobsHaveFiles(t, s)
-		if _, err := s.RecoverJournals(bg, false); err != nil {
+		if _, err := s.RecoverJournals(context.Background(), false); err != nil {
 			t.Fatalf("round %d recovery: %v", round, err)
 		}
-		if err := s.ResumePurge(bg, false); err != nil && !isBusy(err) {
+		if err := s.ResumePurge(context.Background(), false); err != nil {
 			t.Fatalf("round %d resume purge: %v", round, err)
 		}
 		if n := count(t, s, "SELECT count(*) FROM module_state WHERE module_id = 'purge'"); n != 0 {
@@ -199,75 +258,88 @@ func TestKill9Chaos(t *testing.T) {
 	}
 }
 
-func isBusy(err error) bool { return errors.Is(err, ErrDBBusy) }
-
 type multiResult struct {
 	Own, Shared, Busy int
 	Errors            []string
 }
 
+func (res *multiResult) note(op string, start time.Time, err error) {
+	if err == nil {
+		return
+	}
+	if errors.Is(err, ErrDBBusy) {
+		res.Busy++
+	}
+	res.Errors = append(res.Errors, fmt.Sprintf("%s after %v: %v", op, time.Since(start), err))
+}
+
 // multiWorker: own sessions + contention on one shared session + purge/gc.
 func multiWorker(t *testing.T, s *Store, n int) multiResult {
 	var res multiResult
-	r := rand.New(rand.NewPCG(uint64(os.Getpid()), 3))
-	start := time.Now()
-	note := func(op string, err error) {
-		if err != nil {
-			if isBusy(err) {
-				res.Busy++
-			}
-			res.Errors = append(res.Errors, fmt.Sprintf("%s after %v: %v", op, time.Since(start), err))
-		}
-	}
 	own := fmt.Sprintf("own-%d", os.Getpid())
-	_, err := s.CreateSession(bg, Session{ID: own})
-	note("create", err)
+	_, err := s.CreateSession(context.Background(), Session{ID: own})
+	res.note("create", time.Now(), err)
 	for range n {
-		start = time.Now()
-		if _, err := s.Append(bg, own, nil, Event{Kind: "user_message", Content: "x"}); err == nil {
-			res.Own++
+		start := time.Now()
+		if _, aerr := s.Append(context.Background(), own, nil, Event{Kind: "user_message", Content: "x"}); aerr != nil {
+			res.note("append", start, aerr)
 		} else {
-			note("append", err)
+			res.Own++
 		}
-		start = time.Now()
-		if _, err := s.AcquireLease(bg, "SHARED"); err == nil {
-			if _, err := s.Append(bg, "SHARED", nil, Event{Kind: "user_message", Content: own}); err == nil {
-				res.Shared++
-			}
-			start = time.Now()
-			note("release", s.ReleaseLease(bg, "SHARED"))
-		} else if !errors.Is(err, ErrSessionBusy) {
-			note("acquire", err)
-		}
-		start = time.Now()
-		switch r.IntN(10) {
-		case 0:
-			_, err := s.GC(bg, false)
-			note("gc", err)
-		case 1:
-			tmp := fmt.Sprintf("tmp-%d-%d", os.Getpid(), r.Int())
-			if _, err := s.CreateSession(bg, Session{ID: tmp}); err == nil {
-				note("release-tmp", s.ReleaseLease(bg, tmp))
-				start = time.Now()
-				if _, err := s.Purge(bg, PurgeRequest{IDs: []string{tmp}}); err != nil && !errors.Is(err, ErrPurgeInProgress) {
-					note("purge", err)
-				}
-			}
+		res.sharedStep(s, own)
+		if rnd(t, 10) < 2 {
+			res.maintStep(s, rnd(t, 2) == 0)
 		}
 	}
-	_ = t
 	return res
+}
+
+func (res *multiResult) sharedStep(s *Store, own string) {
+	start := time.Now()
+	_, err := s.AcquireLease(context.Background(), "SHARED")
+	if errors.Is(err, ErrSessionBusy) {
+		return
+	}
+	if err != nil {
+		res.note("acquire", start, err)
+		return
+	}
+	if _, err = s.Append(context.Background(), "SHARED", nil, Event{Kind: "user_message", Content: own}); err == nil {
+		res.Shared++
+	}
+	res.note("shared append", start, err)
+	res.note("release", start, s.ReleaseLease(context.Background(), "SHARED"))
+}
+
+func (res *multiResult) maintStep(s *Store, gc bool) {
+	start := time.Now()
+	if gc {
+		_, err := s.GC(context.Background(), false)
+		res.note("gc", start, err)
+		return
+	}
+	tmp := "tmp-" + newID()
+	_, err := s.CreateSession(context.Background(), Session{ID: tmp})
+	if err == nil {
+		err = s.ReleaseLease(context.Background(), tmp)
+	}
+	if err == nil {
+		if _, err = s.Purge(context.Background(), PurgeRequest{IDs: []string{tmp}}); errors.Is(err, ErrPurgeInProgress) {
+			err = nil
+		}
+	}
+	res.note("purge", start, err)
 }
 
 // TestMultiProcess: four OS processes on one DB. Every append is accounted
 // for, the shared session's chain is intact, 0 db_busy reached a caller.
 func TestMultiProcess(t *testing.T) {
 	dir := t.TempDir()
-	s, err := Open(bg, &Options{Dir: dir, Kind: "serve"})
+	s, err := Open(context.Background(), &Options{Dir: dir, Kind: "serve"})
 	must(t, err)
-	_, err = s.CreateSession(bg, Session{ID: "SHARED"})
+	_, err = s.CreateSession(context.Background(), Session{ID: "SHARED"})
 	must(t, err)
-	must(t, s.ReleaseLease(bg, "SHARED"))
+	must(t, s.ReleaseLease(context.Background(), "SHARED"))
 	must(t, s.Close())
 	var kids []*child
 	for range 4 {
@@ -284,9 +356,9 @@ func TestMultiProcess(t *testing.T) {
 		}
 		shared += res.Shared
 	}
-	s, err = Open(bg, &Options{Dir: dir, Kind: "serve"})
+	s, err = Open(context.Background(), &Options{Dir: dir, Kind: "serve"})
 	must(t, err)
-	defer s.Close()
+	defer func() { must(t, s.Close()) }()
 	checkIntegrity(t, s)
 	if n := count(t, s, "SELECT count(*) FROM events WHERE session_id = 'SHARED'"); int(n) != shared {
 		t.Fatalf("shared events %d, reported %d", n, shared)

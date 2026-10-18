@@ -80,8 +80,10 @@ func (t *Tx) AppendEvent(sid string, e *Event) (int64, error) {
 	var id int64
 	err = t.Get(`INSERT INTO events(session_id, seq, turn_id, kind, role, content, tool_call_id, tool_name, payload, blob_sha, prev_hash, hash, created_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
-		[]any{sid, seq, nullable(e.TurnID), e.Kind, nullable(e.Role), e.Content, nullable(e.ToolCallID), nullable(e.ToolName),
-			payload, nullable(e.Blob), prev, EventHash(prev, sid, seq, e.Kind, e.Content, payload, e.Blob), now}, &id)
+		[]any{
+			sid, seq, nullable(e.TurnID), e.Kind, nullable(e.Role), e.Content, nullable(e.ToolCallID), nullable(e.ToolName),
+			payload, nullable(e.Blob), prev, EventHash(prev, sid, seq, e.Kind, e.Content, payload, e.Blob), now,
+		}, &id)
 	if err != nil {
 		return 0, err
 	}
