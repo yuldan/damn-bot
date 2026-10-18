@@ -109,6 +109,10 @@ type Config struct {
 	// Roots are the session roots in sandbox order: Roots[0] is the cwd that
 	// relative paths resolve against; Roots[n>0] display as "@n/".
 	Roots []string
+	// Home and XDGConfigHome locate the global git config and excludes
+	// (CODE-TOOLS §2.3); empty = os.UserHomeDir / $XDG_CONFIG_HOME or
+	// Home/.config.
+	Home, XDGConfigHome string
 }
 
 // Engine runs the file tools of one session. Close releases its caches and
@@ -117,6 +121,8 @@ type Engine struct {
 	sb    *sandbox.Sandbox
 	roots []string
 	fold  bool // case-insensitive root prefixes (Windows)
+	home  string
+	xdg   string
 
 	mu       sync.Mutex
 	bg       []bgTask // background index builds, stopped by Close
@@ -131,6 +137,16 @@ func New(cfg *Config) (*Engine, error) {
 		return nil, errors.New("codetools: sandbox and roots required")
 	}
 	e := &Engine{sb: cfg.Sandbox, fold: runtime.GOOS == "windows", building: map[fileKey]bool{}}
+	e.home, e.xdg = cfg.Home, cfg.XDGConfigHome
+	if h, err := os.UserHomeDir(); e.home == "" && err == nil {
+		e.home = h
+	}
+	if e.xdg == "" {
+		e.xdg = os.Getenv("XDG_CONFIG_HOME")
+	}
+	if e.xdg == "" && e.home != "" {
+		e.xdg = filepath.Join(e.home, ".config")
+	}
 	for _, r := range cfg.Roots {
 		abs, err := filepath.Abs(r)
 		if err != nil {

@@ -2,6 +2,7 @@ package codetools
 
 import (
 	"context"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +33,7 @@ func newEnvDeny(t testing.TB, deny ...string) *env {
 		t.Fatalf("sandbox.New: %v", err)
 	}
 	v.sb = sb
-	e, err := New(&Config{Sandbox: sb, Roots: []string{v.root}})
+	e, err := New(&Config{Sandbox: sb, Roots: []string{v.root}, Home: v.home, XDGConfigHome: filepath.Join(v.home, ".config")})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -66,6 +67,11 @@ func (v *env) put(t testing.TB, rel, content string) {
 	writeFile(t, filepath.Join(v.root, filepath.FromSlash(rel)), content)
 }
 
+func (v *env) get(t testing.TB, rel string) string {
+	t.Helper()
+	return string(readFixture(t, filepath.Join(v.root, filepath.FromSlash(rel))))
+}
+
 func (v *env) read(t testing.TB, a ReadArgs) Result {
 	t.Helper()
 	r, err := v.e.Read(context.Background(), a, Opts{})
@@ -80,6 +86,21 @@ func wantCode(t testing.TB, err error, c Code) {
 	if got := codeOf(err); got != c {
 		t.Fatalf("code = %q, want %q (err %v)", got, c, err)
 	}
+}
+
+// testRand is deterministic test data (seeded), never secrets.
+func testRand(seed uint64) *rand.Rand {
+	return rand.New(rand.NewPCG(seed, seed)) //nolint:gosec // G404: deterministic test data, not secrets
+}
+
+// readFixture reads a file this test created.
+func readFixture(t testing.TB, p string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(p) //nolint:gosec // G304: fixture paths of this test
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	return b
 }
 
 // metaStr is a string Meta field of r ("" when absent).
