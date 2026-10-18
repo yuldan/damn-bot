@@ -116,7 +116,7 @@ type Client struct {
 
 // Client returns the egress point name with purpose p.
 func (n *Network) Client(name string, p Purpose) *Client {
-	c := &Client{n: n, name: name, hc: &http.Client{Transport: n.infra}, idle: StreamIdle}
+	c := &Client{n: n, name: name, hc: &http.Client{Transport: n.infra, CheckRedirect: checkRedirect(p)}, idle: StreamIdle}
 	switch {
 	case p == Tool:
 		c.hc.Transport, c.scan = n.tool, true
@@ -126,6 +126,39 @@ func (n *Network) Client(name string, p Purpose) *Client {
 		c.refuse = &classedError{err: fmt.Errorf("%w %d", ErrPurpose, p), class: retry.BadRequest}
 	}
 	return c
+}
+
+// maxRedirects is net/http's default chain limit.
+const maxRedirects = 10
+
+// checkRedirect is the redirect policy (REVIEW-F1-SEC3 PROV-M4, ADR-100):
+// Inference never follows one (the prompt and Route.Headers credentials
+// would reach the target; 3xx is returned as a status); other purposes
+// follow GET/HEAD only, never from https to http, and drop every header
+// but Accept/Accept-Language/User-Agent when the host changes (net/http
+// only drops Authorization and Cookie). A refused redirect returns the
+// 3xx response itself.
+func checkRedirect(p Purpose) func(*http.Request, []*http.Request) error {
+	if p == Inference {
+		return func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
+	return func(req *http.Request, via []*http.Request) error {
+		first := via[0]
+		switch {
+		case len(via) >= maxRedirects,
+			first.Method != http.MethodGet && first.Method != http.MethodHead,
+			first.URL.Scheme == "https" && req.URL.Scheme != "https":
+			return http.ErrUseLastResponse
+		}
+		if req.URL.Host != first.URL.Host {
+			for k := range req.Header {
+				if k != "Accept" && k != "Accept-Language" && k != "User-Agent" {
+					req.Header.Del(k)
+				}
+			}
+		}
+		return nil
+	}
 }
 
 // Do sends req. Any status is returned as a response, like net/http;

@@ -237,6 +237,9 @@ func FuzzDeltaDecode(f *testing.F) {
 	f.Fuzz(func(t *testing.T, frame []byte) {
 		var dd DeltaDecoder
 		got, err := dd.Decode(frame)
+		if errors.Is(err, ErrTooManyToolDeltas) {
+			return // PROV-M2 bound: stricter than encoding/json by design
+		}
 		want, ok := refDelta(frame)
 		if ok != (err == nil) {
 			t.Fatalf("%q: decoder err=%v, encoding/json ok=%v", frame, err, ok)
