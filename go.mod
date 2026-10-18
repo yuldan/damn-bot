@@ -1,6 +1,6 @@
 module github.com/damnbot/damnbot
 
-go 1.26.8
+go 1.26.9
 
 require (
 	go.uber.org/goleak v1.3.0

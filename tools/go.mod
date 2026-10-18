@@ -1,6 +1,6 @@
 module github.com/damnbot/damnbot/tools
 
-go 1.26.8
+go 1.26.9
 
 tool (
 	github.com/boyter/scc/v3
