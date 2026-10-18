@@ -13,7 +13,7 @@ Format sesuai `docs/HANDOFF-F0.md` §"Laporan pagi". Mesin: workstation (Kali, l
 | 6 | Korpus code tools C1–C3 + baseline `rg`/hermes | belum | `rg` lokal hanya 13.0.0 (`/usr/lib/code-oss/.../rg`), oracle spec 15.1.0 belum tersedia. |
 | 2 | `bench/h2h` head-to-head berbasis LLM | menunggu user | butuh kredensial/biaya |
 | 3 | Eval set E1–E10 + manifest | belum | di luar alokasi worker scaffold/bench |
-| 8 | Persistence spike `internal/ctxdb` | (diisi worker persistence) | |
+| 8 | Persistence spike `internal/ctxdb` | sebagian | DDL 0001–0008 (verbatim SPEC §11), store/mode/lease+fencing/purge 4 fase/gc/trash/journal recovery/barrier/migrasi/restore + 86 subtest `TestScenario/S001..S086`, `TestKill9Chaos`, `TestMultiProcess`: **semua lulus** tanpa `-race` (exit 0). Belum: (a) `-race` lihat Bukti; (b) LOC non-test 2.688 > 2.500 (E-19, TS-P10); (c) `make lint` belum dibersihkan (wrapcheck/check-blank dll.); (d) protokol gateway worker + konsumen approval ditulis sebagai implementasi referensi di `_test.go` (TS-P09). |
 | 9 | Errata backlog ADR-047 | belum | |
 
 ## Bukti
@@ -97,7 +97,67 @@ Token o200k_base nyata (belum ada di BASELINE): system prompt 7.716 (stable 2.61
 
 ## Skenario persistence
 
-(diisi worker persistence)
+Semua skenario = subtest `go test ./internal/ctxdb -run 'TestScenario/S0NN'` (DB SQLite temp nyata, jam/proses diinjeksi; proses OS nyata untuk #26, #37, #63, #62, #74, #85). Status = hasil `go test -count=1 ./internal/ctxdb/` @ `0f5f91d` (exit 0).
+
+| # | Subtest | Status | # | Subtest | Status |
+|---:|---|---|---:|---|---|
+| 1 | S001_SigstopTakeoverThenSigcont | lulus | 44 | S044_StartStampComparedVerbatim | lulus |
+| 2 | S002_StaleHolderWakesAfterLabel | lulus | 45 | S045_ReapplyPhase0Bounded | lulus |
+| 3 | S003_SleepAndWallClockStep | lulus | 46 | S046_WakeBeforeOwnerHeartbeat | lulus |
+| 4 | S004_RebootMidTurn | lulus | 47 | S047_DeleteSessionsBlobsRejected | lulus |
+| 5 | S005_TwoRecoverersSameJournal | lulus | 48 | S048_FreeJSONSessionIdResidue | lulus (residu terdokumentasi diverifikasi) |
+| 6 | S006_RecoverySkipsPurgingSession | lulus | 49 | S049_MigrationFencesOldBinary | lulus |
+| 7 | S007_CrashAtEveryAppendStep | lulus | 50 | S050_MCPServeMessagesSendUnderGuards | lulus |
+| 8 | S008_ForkFromLabelledOrDuringPhase0 | lulus | 51 | S051_SigtstpReleasesLocks | lulus |
+| 9 | S009_UndoInPurgingSession | lulus (bagian DB; residu jendela file = caller) | 52 | S052_WrongScopeOrIdentity | lulus |
+| 10 | S010_InboundToLabelledSession | lulus | 53 | S053_TwoResponders | lulus |
+| 11 | S011_OutboxSkipsLabelledSession | lulus | 54 | S054_ConsumerCrashBeforeCommit | lulus |
+| 12 | S012_CronKanbanAutoWritesRejected | lulus | 55 | S055_RemoteEditNeverExecuted | lulus |
+| 13 | S013_ACPHoldsSessionExcluded | lulus | 56 | S056_SigtstpLongStopFenced | lulus |
+| 14 | S014_TwoPurgesConcurrent | lulus | 57 | S057_OldBinaryOpensDuringMigration | lulus |
+| 15 | S015_LargePurgeLockBudget | lulus tanpa `-race` (20k event: max tx 81 ms, duty 19,6%); gagal di bawah `-race` (max tx 1,03 s) | 58 | S058_UpgradeMigratesWhileOldServeRuns | lulus |
+| 16 | S016_RestoreWhileServeAndTUIRun | lulus | 59 | S059_EditToDangerousClass | lulus |
+| 17 | S017_AutoRestoreBlockedWriterTimeout | lulus | 60 | S060_InvalidRowDeniedConsumed | lulus |
+| 18 | S018_RestoreClosesOpenJournals | lulus | 61 | S061_PurgeAfterWakeOrCtrlZ | lulus |
+| 19 | S019_RestoreBeforePurgeReapplies | lulus | 62 | S062_CtrlZDuringExecToolGroup | lulus (Linux) |
+| 20 | S020_SalvageModeRestoreGuards | lulus | 63 | S063_DbWriteStalledReport | lulus (pelapor = referensi test) |
+| 21 | S021_GCWriterPurgeTrashRace | lulus | 64 | S064_CancelBeforeDelivery | lulus |
+| 22 | S022_TUIOpenForDaysIdle | lulus | 65 | S065_ReplayKeepsRequestID | lulus |
+| 23 | S023_PIDReuseAndNamespace | lulus | 66 | S066_TokenRevokedBeforeConsume | lulus |
+| 24 | S024_PurgeOwnerDiesTakeover | lulus | 67 | S067_OldServeRestartedSchemaNewer | lulus |
+| 25 | S025_ShortProcessPurgePending | lulus | 68 | S068_RetryWithoutKeyTwoRequests | lulus (residu terdokumentasi diverifikasi) |
+| 26 | S026_RestorerKilledMarkerStale | lulus (proses nyata kill -9) | 69 | S069_QueuedInboundSurvivesRestart | lulus |
+| 27 | S027_WallStepThenSecondProcess | lulus | 70 | S070_SpoolIngestThenWorker | lulus |
+| 28 | S028_MaintModeFailClosedAndAbort | lulus (NULL lewat driver terpisah; abort = `runtime.Goexit`, bukan panic — E-24) | 71 | S071_MigrationRefusedKeepsOldServe | lulus |
+| 29 | S029_CrossSessionEventRef | lulus | 72 | S072_SpoolTruncatedLineNotAcked | lulus |
+| 30 | S030_InboxShortLeaseImportBatch | lulus | 73 | S073_SameKeyDifferentArgs | lulus |
+| 31 | S031_RestoreCancelsRunningTurn | lulus | 74 | S074_OrphanStoppedToolGroupKilled | lulus (Linux, pgid nyata) |
+| 32 | S032_TUIKilledServeScanner | lulus | 75 | S075_CrashBetweenPollerAndWorker | lulus (100 iterasi) |
+| 33 | S033_SigstopAfterToolPendingCommit | lulus | 76 | S076_WorkerVsPurgeLabel | lulus |
+| 34 | S034_AutoRefRemovedByPurge | lulus | 77 | S077_InboundUpdateGuard | lulus |
+| 35 | S035_TwoRestoresConcurrent | lulus | 78 | S078_ServeMigratorForcesAfter10Min | lulus |
+| 36 | S036_PurgePausesForBarrier | lulus | 79 | S079_InvalidPayloadNotSilent | lulus dengan perbaikan AF-01 (usulan ADR) |
+| 37 | S037_SigstopInsideWriteTx | lulus (proses nyata SIGSTOP; `db_busy` typed) | 80 | S080_CrashAfterWorkerCommitAnswered | lulus dengan perbaikan AF-02 |
+| 38 | S038_DiskFullLedgerAndBatch | lulus (`max_page_count` → SQLITE_FULL) | 81 | S081_PerChatOrderInsertion | lulus dengan perbaikan AF-03 (urut `rowid`) |
+| 39 | S039_LeaseFromPreviousBootNoBootID | lulus | 82 | S082_ChatSessionBusyNotice | lulus dengan perbaikan AF-04 |
+| 40 | S040_TimeNamespaceMismatchFencingHolds | lulus (deteksi + fencing) | 83 | S083_PurgeInboundAttachment | lulus dengan perbaikan AF-05 |
+| 41 | S041_ResponseAfterTurnEnd | lulus | 84 | S084_SpoolDuringDrainBarrier | lulus dengan perbaikan AF-06 |
+| 42 | S042_ForeignDataDirPurgesLabelled | lulus | 85 | S085_LeaderDeadNohupChildKilled | lulus dengan perbaikan AF-07 (scan anggota pgid) |
+| 43 | S043_StaleAnswerForPreviousRequest | lulus | 86 | S086_MigratorRestartsAccumulate | lulus dengan perbaikan AF-08 (`run/migrate_blocked.json`) |
+
+Ringkas: 86/86 ditulis; 86 lulus tanpa `-race`; di bawah `-race` #15 gagal (budget waktu absolut tidak bermakna dengan instrumentasi race). `TestKill9Chaos` (15 ronde SIGKILL proses anak nyata saat menulis; cek integrity_check, foreign_key_check, hash-chain, I9, purge tertunda selesai) dan `TestMultiProcess` (4 proses OS, 150 iterasi, sesi bersama + purge + gc; 0 `db_busy`, jumlah event cocok) lulus.
+
+### Persistence spike (#8) — Bukti
+
+Commit: `ad458b6` (DDL), `529c947` (core), `7d9f025` (purge), `1e2c128` (restore + tes), `0f5f91d` (langkah purge sebagai SQL bernama `queries.sql`).
+
+| Perintah | Exit | Ringkasan |
+|---|---:|---|
+| `go vet ./internal/ctxdb/` | 0 | |
+| `go test -count=1 ./internal/ctxdb/` | 0 | `ok … 20.7s` — TestScenario (86 subtest), TestKill9Chaos, TestMultiProcess, TestSmoke* |
+| `go test -count=1 -race -v ./internal/ctxdb/` @ `1e2c128` | 1 | TestKill9Chaos PASS (18,2 s), TestMultiProcess PASS (26,3 s), 0 DATA RACE, 0 goleak; TestScenario FAIL hanya S015 (`lock budget: max 1.029s`), total 522 s |
+| `go test -count=1 -race ./internal/ctxdb/` @ `0f5f91d` | lihat baris berikut | (diisi setelah run selesai) |
+| `scc --no-gen` non-test `internal/ctxdb` | — | 2.688 LOC > budget 2.500 |
 
 ## Temuan spec
 
@@ -111,6 +171,16 @@ Token o200k_base nyata (belum ada di BASELINE): system prompt 7.716 (stable 2.61
 | TS-06 | BASELINE-hermes.md §2 kolom "Bytes" sebenarnya jumlah **karakter** Python (`len(str)`): tier stable = 12.481 karakter persis, byte UTF-8 = 12.561. | Harness membandingkan karakter; byte UTF-8 juga dilaporkan. | ADR errata BASELINE: ganti judul kolom jadi "Char". |
 | TS-07 | Token di BASELINE §2 dan SCORECARD §1.1 ("14.500–17.700 tok") = estimasi ceil(char/4), bukan o200k_base, padahal SCORECARD/P1 mengukur dengan o200k. o200k nyata: 13.819–16.843 (schema dihitung sebagai teks JSON). | Gate reproduksi F0 memakai metode BASELINE (char/4); angka o200k dilaporkan terpisah sebagai baseline P1/SCORECARD. | ADR: baseline SCORECARD [I] Fixed overhead = 13.819–16.843 tok o200k (target ≤ 0,35× → ≤ 4.836 tok vs 5.075 dari angka lama); tetapkan juga bahwa schema dihitung sebagai JSON teks (format internal provider tidak teramati). |
 | TS-08 | "Floor tanpa AGENTS.md (prompt 20.240 B)" tidak menjelaskan cara ukur; sisa tier context tanpa AGENTS.md = snapshot git workspace (branch, 3 commit terakhir, path) yang bergantung mesin/commit → +5,39% di sini. Angka overhead (gabungan schema) tetap +1,88%. | Baris ini informatif, bukan gate. | ADR errata BASELINE §2: definisikan floor = `build_system_prompt_parts` dengan `skip_context_files=True` di cwd root hermes `868b9f244f`, angka 21.331 char. |
+| TS-P01 | AF-01..AF-08 (REVIEW-1.0) terbuka di spec frozen. | Spike menerapkan usulan auditor apa adanya: `ON CONFLICT DO NOTHING` (bukan `OR IGNORE`); `turn_start`+journal di transaksi worker; urutan antrean per chat = `rowid`; balasan `__system__` sekali saat sesi chat dipegang proses lain; langkah 11 purge menghapus `blob_refs` owner `gateway_inbound`; spool untuk semua inbound tanpa redelivery; kill pgid berdasar anggota hidup (`/proc`); timer migrator di `run/migrate_blocked.json`. | ADR errata AF-01..AF-08 sesuai usulan REVIEW (semua lulus test #79–#86). |
+| TS-P02 | Tidak ada yang ditetapkan membuat baris `sessions('__system__')`, padahal FK `events`/`blob_refs` memerlukannya. | Setiap writer saat open: `INSERT … ON CONFLICT DO NOTHING`. | ADR: baris `__system__` di `0001_core.sql` (atau aturan open). |
+| TS-P03 | `dmb_maint()`/`dmb_lease_token()` per koneksi; modernc mendaftarkan fungsi per-`Driver`, bukan per koneksi; `SQLITE_INNOCUOUS` tidak dapat diset. | Satu `sqlite.Driver` privat per Store (writer + reader); trigger berjalan karena `trusted_schema` default ON. Commit/rollback hook tersedia (`HookRegisterer`) — [INFERENCE SPEC §11.11.3] terverifikasi. | ADR: catat mekanisme ini; tambah `PRAGMA trusted_schema` eksplisit. |
+| TS-P04 | Validator payload "kunci lain berisi hex 64 → ditolak" bertentangan dengan `approval_request.preview_sha`/`args_sha` dan `payload_sha` carrier. | Daftar tertutup kunci non-ref: `preview_sha`, `args_sha`, `payload_sha`. | ADR errata §11.6 konvensi kunci. |
+| TS-P05 | Pemetaan RAISE → kode tertutup hanya mungkin dengan membaca teks error SQLite (bertentangan dgn "klasifikasi hanya errors.Is"). | Satu fungsi `classify`: kode `SQLITE_CONSTRAINT_TRIGGER` (1811) + kecocokan **persis** teks RAISE. | ADR: kecualikan `ctxdb.classify` dari `nostringclassify`. |
+| TS-P06 | Busy handler SQLite tidak adil: penulis yang terus menulis tanpa jeda dapat membuat penulis lain kehabisan `busy_timeout` (direproduksi: purge mendapat SQLITE_BUSY saat writer lain menulis berturut-turut). P19 ("0 `SQLITE_BUSY` ke user") bergantung pada laju penulis. | Test #15 memakai laju realistis (1 event/10 ms). | ADR: retry `BEGIN IMMEDIATE` berjitter di writer goroutine (netx/retry) atau antrean writer lintas proses. |
+| TS-P07 | "dmb_maint panic → reset": E-24 melarang `recover` di `internal/`, jadi panic mematikan proses; yang bisa diuji adalah abort goroutine. | Reset mode di `defer` + commit/rollback hook; diuji dengan `runtime.Goexit`. | Errata teks TestMaintResetOnPanic. |
+| TS-P08 | Budget waktu I11 (≤ 200 ms/tx) tidak bermakna di bawah `-race` (instrumentasi 5–10×), sedangkan E-55 menjalankan semua test dengan `-race`. | Test tetap ketat → merah di `-race` (jujur, tidak di-skip). | ADR: gate kinerja (I11, BenchmarkAppend*) dijalankan tanpa `-race` di job terpisah. |
+| TS-P09 | E-06 melarang modul gateway mengimpor ctxdb, tapi protokol poller/worker/outbox/approval (SELF-HEALING §5.1, §11.11.10) memerlukan transaksi ctxdb; lokasi produksinya tidak ditetapkan. | Spike: implementasi referensi di `gateway_ref_test.go`/`approval_ref_test.go` di atas `Tx` publik (guard DB tetap menegakkan invarian). | ADR: tetapkan lokasi (ctxdb vs `modules/host` storage) + budget. |
+| TS-P10 | Budget E-19 `ctxdb` 2.500 LOC terlalu kecil untuk cakupan §11 (purge 31 langkah, gc, barrier, restore, migrasi, recovery). Terukur 2.688 walau langkah purge sudah dipindah ke `queries.sql` (dikecualikan budget) dan protokol gateway/approval ke test. | Dilaporkan; gate `loc` merah. | ADR: budget `ctxdb` 3.200 (atau pecah `ctxdb/maint` 700). |
 
 ## Blocker
 
