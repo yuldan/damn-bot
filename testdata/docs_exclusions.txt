@@ -12,4 +12,6 @@ docs/F0-REPORT.md#Errata backlog ADR-047
 # Laporan (bukan spec; AUD-056): tidak dipantau spec-guard.
 docs/F[0-9]-REPORT.md
 docs/AUDIT-*.md
+# Artefak review keamanan/auditor (ADR-104): temuan + bukti, bukan spec.
+docs/REVIEW-*.md
 docs/HANDOFF-*.md
