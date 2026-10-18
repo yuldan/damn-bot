@@ -19,7 +19,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `redact`: penyaring stream `Redactor.NewStream` (`Push`/`Flush`, 0 alloc/Push, tanpa goroutine) dengan output identik whole-blob; menahan hanya sufiks yang bisa menjadi awal secret, batas tahanan 4 KiB fail-closed (ADR-096).
 - `netx`: gerbang DLP egress tunggal untuk request `tool` — URL/Host/header/trailer/body, lapisan percent/form-decode ≤ 3, secret case-insensitive dalam bentuk raw/hex/escape URL/JSON/base64, batas kerja fail-closed (`dlp_limit`), ≤ 50 µs per 8 KiB (GAP-SEC-16); log DEBUG metadata tanpa body/query/header, host/path ter-redaksi, request yang diblok tidak pernah menampilkan URL-nya; `Purpose` nol ditolak; `SetSecrets` (ADR-071, ADR-100).
 - `netx` (SSRF): IPv4 tertanam di NAT64/IPv4-compatible/6to4 dan rentang special-purpose IANA tidak lagi dianggap publik (ADR-100).
-- `sandbox`: verdict path tool kode SPEC §14.2 (`Check`: `inside`/`outside_root`, `ErrDeniedPath`) atas path ter-resolve symlink; `deny_paths` dicocokkan leksikal dan ter-resolve, case-insensitive di Windows/macOS; normalisasi path Windows/MSYS/long-path (ADR-097).
+- `sandbox`: verdict path tool kode SPEC §14.2 (`Check`: `inside`/`outside_root`, `ErrDeniedPath`) atas path ter-resolve symlink; `deny_paths` dicocokkan leksikal dan ter-resolve, juga dalam bentuk kanonik prefix pola (direktori deny/Home bersymlink, S15-1), case-insensitive di semua OS (S15-3); junction Windows di-resolve seperti symlink (S15-2); normalisasi path Windows/MSYS/long-path (ADR-097).
 
 ### Fixed
 - `ctxdb` (Windows): lock file dilepas eksplisit dengan `UnlockFileEx` sebelum handle ditutup (ADR-092 NEW3-01).

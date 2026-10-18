@@ -15,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -89,10 +90,8 @@ type Sandbox struct {
 	roots []root
 	deny  [][]string
 	// foldRoot compares roots case-insensitively (Windows, EC-WIN-013).
+	// deny_paths always match case-insensitively (S15-3).
 	foldRoot bool
-	// foldDeny matches deny_paths case-insensitively (Windows and macOS,
-	// whose default volumes are case-insensitive): fail-closed.
-	foldDeny bool
 }
 
 // New validates cfg, canonicalizes every root (symlinks resolved) and
@@ -102,7 +101,6 @@ func New(cfg *Config) (*Sandbox, error) {
 		return nil, ErrNoRoot
 	}
 	s := &Sandbox{foldRoot: runtime.GOOS == "windows"}
-	s.foldDeny = s.foldRoot || runtime.GOOS == "darwin" || runtime.GOOS == "ios"
 	for i, list := range [][]string{cfg.Roots, cfg.ReadOnlyExtra} {
 		for _, r := range list {
 			p, err := canonicalRoot(r)
@@ -125,7 +123,7 @@ func canonicalRoot(r string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p, err := filepath.EvalSymlinks(abs)
+	p, err := resolve(abs)
 	if err != nil {
 		return "", fmt.Errorf("sandbox: root: %w", err)
 	}
@@ -197,60 +195,105 @@ const maxLinks = 40
 // resolve resolves symlinks in every existing component of the clean
 // absolute path abs. A missing tail is appended lexically (it contains no
 // ".." since abs is clean); a dangling symlink is followed to its target so
-// a write through it is judged by where it would land.
+// a write through it is judged by where it would land. On Windows,
+// junctions (ModeIrregular since Go 1.23, not followed by EvalSymlinks)
+// are expanded like symlinks (S15-2), so the result is free of reparse
+// points and os.Root can open it (S16-1).
 func resolve(abs string) (string, error) {
 	p, tail := abs, ""
 	for links := 0; ; {
 		real, err := filepath.EvalSymlinks(p)
-		if err == nil {
+		next, isLink := "", false
+		switch {
+		case err == nil && runtime.GOOS != "windows":
 			return filepath.Join(real, tail), nil
+		case err == nil:
+			if next, isLink, err = firstLink(real); err == nil && !isLink {
+				return filepath.Join(real, tail), nil
+			}
+		case errors.Is(err, fs.ErrNotExist):
+			next, isLink, err = danglingTarget(p)
+		default:
+			err = fmt.Errorf("sandbox: resolve: %w", err)
 		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return "", fmt.Errorf("sandbox: resolve: %w", err)
-		}
-		target, isLink, lerr := danglingTarget(p)
-		if lerr != nil {
-			return "", lerr
+		if err != nil {
+			return "", err
 		}
 		if isLink {
 			if links++; links > maxLinks {
 				return "", fmt.Errorf("sandbox: resolve %q: too many links: %w", abs, fs.ErrInvalid)
 			}
-			p = target
+			p = next
 			continue
 		}
 		parent := filepath.Dir(p)
 		if parent == p {
-			return "", fmt.Errorf("sandbox: resolve: %w", err)
+			return "", fmt.Errorf("sandbox: resolve %q: %w", abs, fs.ErrNotExist)
 		}
 		tail = filepath.Join(filepath.Base(p), tail)
 		p = parent
 	}
 }
 
-// danglingTarget returns the absolute target of p when p is a symlink,
-// with a relative target joined to p's resolved parent (never lexically
-// through a symlinked parent).
+// firstLink expands the first component of the existing path p that is a
+// symlink or a junction; other reparse points (ModeIrregular without a
+// readable link target) are not links.
+func firstLink(p string) (string, bool, error) {
+	comps := splitPath(p)
+	for n := 2; n <= len(comps); n++ {
+		pre := joinComps(comps[:n])
+		fi, err := os.Lstat(pre)
+		if err != nil {
+			return "", false, fmt.Errorf("sandbox: resolve: %w", err)
+		}
+		if fi.Mode()&(fs.ModeSymlink|fs.ModeIrregular) == 0 {
+			continue
+		}
+		target, err := linkTarget(pre)
+		if err == nil {
+			return filepath.Join(append([]string{target}, comps[n:]...)...), true, nil
+		}
+		if fi.Mode()&fs.ModeSymlink != 0 {
+			return "", false, err
+		}
+	}
+	return "", false, nil
+}
+
+// joinComps is the inverse of splitPath for an absolute path.
+func joinComps(comps []string) string {
+	return comps[0] + string(filepath.Separator) + filepath.Join(comps[1:]...)
+}
+
+// danglingTarget returns the absolute target of p when p is a symlink
+// (see linkTarget). A dangling junction is expanded by resolve's firstLink.
 func danglingTarget(p string) (string, bool, error) {
 	fi, err := os.Lstat(p)
 	if err != nil || fi.Mode()&fs.ModeSymlink == 0 {
 		return "", false, nil //nolint:nilerr // missing p: caller climbs to the parent.
 	}
+	target, err := linkTarget(p)
+	return target, err == nil, err
+}
+
+// linkTarget returns the absolute target of the link p, a relative target
+// joined to p's resolved parent (never lexically through a symlinked parent).
+func linkTarget(p string) (string, error) {
 	target, err := os.Readlink(p)
 	if err != nil {
-		return "", false, fmt.Errorf("sandbox: readlink: %w", err)
+		return "", fmt.Errorf("sandbox: readlink: %w", err)
 	}
 	if runtime.GOOS == "windows" {
 		target = normalizeWindows(target)
 	}
 	if filepath.IsAbs(target) {
-		return filepath.Clean(target), true, nil
+		return filepath.Clean(target), nil
 	}
 	parent, err := filepath.EvalSymlinks(filepath.Dir(p))
 	if err != nil {
-		return "", false, fmt.Errorf("sandbox: resolve: %w", err)
+		return "", fmt.Errorf("sandbox: resolve: %w", err)
 	}
-	return filepath.Join(parent, target), true, nil
+	return filepath.Join(parent, target), nil
 }
 
 // hasPathPrefix reports whether p equals root or lies beneath it.
@@ -266,6 +309,11 @@ func hasPathPrefix(p, root string, fold bool) bool {
 		os.IsPathSeparator(root[len(root)-1])
 }
 
+// compileDeny compiles patterns, lower-cased: deny matching is
+// case-insensitive on every OS, since Linux also mounts case-insensitive
+// file systems (S15-3). An absolute pattern whose glob-free prefix resolves
+// elsewhere (symlinked deny dir or Home: ~/.ssh -> dotfiles/ssh, /home ->
+// /var/home) also yields its canonical form, so both spellings match (S15-1).
 func compileDeny(patterns []string, home string) ([][]string, error) {
 	out := make([][]string, 0, len(patterns))
 	for _, pat := range patterns {
@@ -283,9 +331,44 @@ func compileDeny(patterns []string, home string) ([][]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, comps)
+		if canon, ok := canonicalPattern(comps); ok { // before lowerAll: resolves on disk
+			out = append(out, lowerAll(canon))
+		}
+		out = append(out, lowerAll(comps))
 	}
 	return out, nil
+}
+
+// globMeta are the bytes that make a pattern component a glob.
+const globMeta = `*?[\`
+
+// canonicalPattern resolves the glob-free prefix of an absolute pattern at
+// New. A prefix that cannot be resolved (no permission, loop) keeps only
+// the configured form: links created later are caught after open (S16-2).
+func canonicalPattern(comps []string) ([]string, bool) {
+	if len(comps) == 0 || comps[0] == "**" {
+		return nil, false // relative: matches at any depth already
+	}
+	n := 1
+	for n < len(comps) && comps[n] != "**" && !strings.ContainsAny(comps[n], globMeta) {
+		n++
+	}
+	real, err := resolve(joinComps(comps[:n]))
+	if err != nil {
+		return nil, false
+	}
+	canon := append(splitPath(real), comps[n:]...)
+	if slices.EqualFunc(canon, comps, strings.EqualFold) {
+		return nil, false
+	}
+	return canon, true
+}
+
+func lowerAll(comps []string) []string {
+	for i, c := range comps {
+		comps[i] = strings.ToLower(c)
+	}
+	return comps
 }
 
 // compilePattern splits pat into components; a relative pattern (on
@@ -325,13 +408,11 @@ func splitPath(p string) []string {
 	})...)
 }
 
+// denied matches p, lower-cased, against the lower-cased patterns.
 func (s *Sandbox) denied(p string) bool {
-	if s.foldDeny {
-		p = strings.ToLower(p)
-	}
-	comps := splitPath(p)
+	comps := splitPath(strings.ToLower(p))
 	for _, pat := range s.deny {
-		if matchPrefix(pat, comps, s.foldDeny) {
+		if matchPrefix(pat, comps) {
 			return true
 		}
 	}
@@ -339,13 +420,13 @@ func (s *Sandbox) denied(p string) bool {
 }
 
 // matchPrefix reports whether pat matches comps or one of its ancestors.
-func matchPrefix(pat, comps []string, fold bool) bool {
+func matchPrefix(pat, comps []string) bool {
 	if len(pat) == 0 {
 		return true
 	}
 	if pat[0] == "**" {
 		for i := range len(comps) + 1 {
-			if matchPrefix(pat[1:], comps[i:], fold) {
+			if matchPrefix(pat[1:], comps[i:]) {
 				return true
 			}
 		}
@@ -354,12 +435,8 @@ func matchPrefix(pat, comps []string, fold bool) bool {
 	if len(comps) == 0 {
 		return false
 	}
-	p := pat[0]
-	if fold {
-		p = strings.ToLower(p)
-	}
-	if ok, err := path.Match(p, comps[0]); err != nil || !ok { // err: validated in New
+	if ok, err := path.Match(pat[0], comps[0]); err != nil || !ok { // err: validated in New
 		return false
 	}
-	return matchPrefix(pat[1:], comps[1:], fold)
+	return matchPrefix(pat[1:], comps[1:])
 }
