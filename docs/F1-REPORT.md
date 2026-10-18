@@ -91,7 +91,7 @@ Perkiraan menit tertagih saat repo masih privat (durasi job × pengali Linux 1, 
 | #6 `f1-attribution` | sidecar `ORIGIN.md` ×6 direktori, `TestAttributionHeaders` + `TestAttributionChecker`, `.gitattributes` `-text`, ADR-099 | 0 | hijau (ci 39143369064, meta 39143369055, pr-meta 39143369207); rebase → `50d45c3` |
 | #7 `f1-netx-1` | `netx/retry` (kelas, `Do`, `Breaker`), parser SSE, matriks import `netx/retry`, ADR-100 | 595 | hijau (ci 39144286024, meta 39144286006, pr-meta 39144285988); rebase → `17e7811` |
 | #9 `f1-netx-2` | `Network`/`Client`, penjaga dial (test/offline/SSRF), `egress_disabled`, `StatusError`, `Stream` + watchdog TTFB/idle | 452 | hijau (ci 39145102606, meta 39145102610, pr-meta 39145102612); rebase → `e8a1bac` |
-| #17 `f1-netx-3` | gerbang DLP egress `tool` + log DEBUG metadata via `redact` | 172 | stacked di atas #13 (`redact`, review independen); ci 39150214565: `netx`/`netx/retry` hijau di 6 runner, merah hanya `redact` `TestEdgeCases/EC-SEC-008` di 2 runner Windows (resolusi timer, milik #13); merge setelah #13 |
+| #17 `f1-netx-3` | gerbang DLP egress `tool` (kanonisasi percent/form ≤ 3 lapis, indeks prefix + prefilter, batas kerja fail-closed) + log DEBUG metadata via `redact`; perbaikan REVIEW-F1-SEC1 NETX-1..14 | 436 | direvisi setelah review auditor (`docs/REVIEW-F1-SEC1.md`); lihat tabel PR di #17 |
 
 | Item | Implementasi | Test | Status |
 |---|---|---|---|
@@ -105,8 +105,8 @@ Perkiraan menit tertagih saat repo masih privat (durasi job × pengali Linux 1, 
 | SPEC §14.4 SSRF | transport `tool`: IP publik saja | `TestDialRule` (18 alamat diblok, 5 publik) | selesai |
 | SPEC §17.2 pooling | satu transport per `Network` | `TestConnReuse` (20 call → 1 koneksi TCP) | selesai |
 | GAP-REL-07 | `TTFB(tok)`, idle 60 s | `TestTTFB`, `TestStream` | selesai (subset F1) |
-| GAP-SEC-16 | `dlp.check` (pola + secret raw/hex/URL/base64 3 alinyemen) | `TestEgressDLP/web_fetch` (4 encoding + pola → 5/5 diblok, 0 koneksi), `TestSecretForms`, `BenchmarkEgressDLP` (≈ 15 µs) | PR #17 (menunggu #13) |
-| ADR-071 butir 5 | `logRequest` DEBUG metadata, path ter-redaksi | `TestLogMetadataOnly` | PR #17 (menunggu #13) |
+| GAP-SEC-16 | `dlp.check`: URL/Host/header/trailer/body sekali baca, lapisan percent/form-decode ≤ 3, secret case-insensitive raw/hex/escape URL/JSON/base64 3 alinyemen, `dlp_limit` fail-closed | `TestEgressDLP` (132 subtest lokasi × encoding, secret ber-byte reserved), `TestDLPWire`, `TestDLPBounds`, `TestSecretForms`, `BenchmarkDLPScan` (CI EPYC 7763: plain 46–53 µs, adversarial ≤ 122 µs; budget 50/150 µs di `make perf`) | selesai (#17) |
+| ADR-071 butir 5 | `logRequest` DEBUG metadata, host/path ter-redaksi, request diblok = `[blocked]` | `TestLogMetadataOnly` | selesai (#17) |
 | EC-PROV-009, 010, 028, 029, 030 | — | `TestEdgeCases/<ID>` di `netx` (009, 028, 030) dan `netx/retry` (010, 029), gate `phase.Item(…, "F1", "covered")` | covered |
 
 Coverage (job `coverage`, run 39145102606): `netx` 96,9 %, `netx/retry` 99,0 %. LOC scc: `netx` 759/1.800 setelah #9 (891 dengan `f1-netx-3`). Matrix 6 runner hijau untuk kedua paket (ubuntu x64/arm, macOS arm/intel, Windows x64 `-race`, Windows arm64). Lokal: `go test -race -count=20 -shuffle=on ./internal/netx/...` hijau; golangci-lint 0 (linux/windows/darwin); `make vet-custom deadcode loc` 0.
