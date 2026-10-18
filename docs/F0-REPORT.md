@@ -15,6 +15,7 @@ Format sesuai `docs/HANDOFF-F0.md` §"Laporan pagi". Mesin: workstation (Kali, l
 | 3 | Eval set E1–E10 + manifest | selesai | `bench/evals/`: evalset/v1 530 task (E1 160 … E10 100) + `MANIFEST.sha256`; ID SWE-bench Verified & Terminal-Bench di-pin (URL + revisi + SHA-256); `go test ./evals/...` (modul bench) lulus; 60 task coding internal diverifikasi dengan toolchain nyata. |
 | 8 | Persistence spike `internal/ctxdb` | selesai | DDL 0001–0008 (SPEC §11 + errata V-13/V-15, ADR-054), store/mode/lease+fencing/purge 4 fase/gc/trash/journal recovery/barrier/migrasi/restore + 86 subtest `TestScenario/S001..S086`, `TestKill9Chaos`, `TestMultiProcess`: **lulus di `make test` (`-race`) dan `make test-timing`**. S015: budget I11 ditegakkan di `test-timing` (5.000 event, max tx 53 ms, duty 12,1 %); di `-race` semua cek kebenaran jalan pada korpus 100 event (ADR-048). LOC 2.610 / 2.800 (ADR-049). Protokol gateway/approval: lokasi produksi `internal/gateway` (F4), referensi tetap di `_test.go` (ADR-053). GO-2026-6604 tertutup dengan go1.26.9 (ADR-051). |
 | 9 | Errata backlog ADR-047 | selesai | **38/38 item** punya ADR Accepted (dikoreksi ADR-063; klaim lama "33/33" melewatkan 5 MINOR tabel backlog ADR-037, AUD-002): AF-01..AF-08 → ADR-052 (#79–#86 lulus); 18 V-item → ADR-054 (V-13/V-15 diimplementasikan, `TestErrataV13IdentityStrengthRequired`, `TestErrataV15SkillNameNormalised` lulus); V-07, V-09, V-14, V-18, V-23, V-24, V-31 → ADR-055..061 (Accepted 2026-10-18, keputusan user; semuanya cakupan F1+ — F1/F2/F4/F5/F8 — tanpa kode F0 terdampak, jadi tanpa test F0); m-15, N-15, N-24, N-33, V-05 → ADR-063 (N-33: `TestParityPhaseColumn` lulus, ADR-064; lainnya test F1–F7 bernama di ADR-063). AF-01/AF-02 tertutup sebelum F4. Teks ADR-048..063 sudah diterapkan ke SPEC, ROADMAP, SELF-HEALING, TRUST-MODEL, CROSS-CUTTING, ENGINEERING, EXEC-AND-CODING, CODE-TOOLS, SCORECARD, MITIGATION-MATRIX, FEATURE-PARITY (setiap passage mengutip ADR; "Aturan penerapan" tiap ADR mendaftar file). |
+| — | Gate sebelum F1: penutupan [`AUDIT-F0.md`](AUDIT-F0.md) | selesai (ADR) | 6/6 BLOCKER + 36/36 MAJOR ditutup lewat ADR-063..077 (Accepted 2026-10-18, keputusan didelegasikan pemilik proyek: opsi paling konservatif), teks diterapkan ke dokumen sasaran; 41 MINOR → backlog berfase ADR-078 (AUD-080 sudah ditutup ADR-077). Kode/test F0: kolom `fase` + `TestParityPhaseColumn` (AUD-003), test ctxdb lintas OS + `make vet-cross` (AUD-033), `meta.yml` paths + nightly (AUD-034), `test-timing` menjalankan benchmark (AUD-035), ledger cap `bench/h2h` (AUD-037). Ditunda dengan fase: AUD-038/039 (F1, prasyarat smoke), AUD-031/032 + sisa 034/035 (Deliverable F1 #0). Pelacak: [`AUDIT-F0-RESOLUTION.md`](AUDIT-F0-RESOLUTION.md); verifikasi di §Blocker. |
 
 ## Verifikasi akhir (HEAD `6ced31d`)
 
@@ -534,3 +535,27 @@ Ringkasan: 33 item; 12 menyangkut kode F0 (AF-01..08, V-11, V-13, V-15 dengan te
 | Protokol gateway/approval (TS-P09) | **Diputuskan → ADR-053.** Logika di `internal/gateway` (F4); `ctxdb` primitif storage; referensi tetap test-only sampai F4. |
 | Startup prompt-ready / idle RSS hermes (TS-11) | Selesai (lihat TS-11). |
 | Workflow GitHub Actions | Remote privat `github.com/yuldan/damn-bot`. Run `39113299561` @ `2d002c8` hijau semua (§GitHub Actions). |
+| Penutupan AUDIT-F0 (gate sebelum F1) | **Diputuskan → ADR-063..078** (delegasi pemilik proyek: opsi paling konservatif/aman, dalam budget SPEC §3.2.4/P1/P13/P21, tanpa dependency baru). Tidak ada BLOCKER/MAJOR tanpa ADR. Sisa kerja berfase tercatat di ADR-073 (Deliverable F1 #0), ADR-075 (prasyarat smoke F1), ADR-078 (MINOR). Verifikasi di bawah. |
+
+Verifikasi penutupan AUDIT-F0 (2026-10-18, workstation, go1.26.9 linux/amd64). Target `make` dijalankan di HEAD `03e432e`; `make lint` gagal di sana (gocognit 28 pada `TestParityPhaseColumn` baru), diperbaiki di `6866120` (hanya file test itu berubah) lalu diulang. Meta-test dijalankan atas `git archive` HEAD `6866120`. Modul `bench` tidak berubah sejak `4cf5b9e`; diuji di `a88680e`. Log: `/tmp/aud_*.log`.
+
+| Perintah | Exit | Ringkasan |
+|---|---:|---|
+| `make lint` @ `6866120` | 0 | `0 issues.` (@ `03e432e`: exit 2, gocognit `TestParityPhaseColumn`) |
+| `make test` (`-race -shuffle=on`) | 0 | `cmd/damnbot`, `internal/archtest`, `internal/ctxdb` ok (ctxdb 186,6 s) |
+| `make test-timing` (+ `-bench=. -benchtime=1x`, ADR-073) | 0 | semua paket ok (ctxdb 33,9 s) |
+| `make vet-cross` (windows/darwin × amd64/arm64, ADR-073) | 0 | 4/4 GOOS/GOARCH |
+| `GOOS=windows go vet -tags goolm ./internal/ctxdb/` | 0 | AUD-033 tertutup |
+| `GOOS=darwin go vet -tags goolm ./internal/ctxdb/` | 0 | AUD-033 tertutup |
+| `make size-check` | 0 | full 1.671.330 B / 52.000.000; minimal 1.671.330 B / 22.000.000 |
+| `make loc` | 0 | `ctxdb 2610 / 2800`; TOTAL 2.639 / 190.000 (`loc.budget` ADR-074) |
+| `make loc-ratio` | 0 | `3598:2639 = 1.36` → report-only (ADR-050) |
+| `make deps-check` | 0 | `TestDirectDeps`, `TestDirectRequiresParser` ok |
+| `make tidy-check` | 0 | tanpa diff |
+| `make mod-verify` | 0 | `all modules verified` |
+| `make vuln` | 0 | `No vulnerabilities found.` |
+| `make licenses` | 0 | hanya warning `non-Go code` |
+| `go test -tags goolm -count=1 ./internal/archtest ./cmd/...` @ `6866120` | 0 | termasuk `TestParityPhaseColumn` (837/837) |
+| `scripts/ci-meta-test.sh` @ `6866120` | 0 | **13/13 DETECTED** (gate baru `vet-cross`); 886 s |
+| `cd bench && go vet ./...` | 0 | — |
+| `cd bench && go test -count=1 ./...` | 0 | budget, budget/o200k, evals, gencorpus, h2h (termasuk 5 test ledger/cap ADR-075), speed ok |
