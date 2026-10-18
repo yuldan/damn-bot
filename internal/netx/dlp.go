@@ -49,6 +49,7 @@ type dlp struct {
 	pat    *redact.Redactor // built-in §14.3 patterns only
 	log    *redact.Redactor // patterns + raw secrets, for log fields
 	filter []uint64
+	grams  []uint64            // 2^20-bit prefilter of the 4-grams at form offsets 0..3
 	index  map[uint64][][]byte // folded 8-byte prefix → folded forms
 	// Folded raw secrets shorter than dlpWindow: 1-byte ones as a set,
 	// longer ones indexed by their first two bytes.
@@ -70,6 +71,7 @@ func newDLP(secrets []string) *dlp {
 		pat:    redact.New(redact.Options{}),
 		log:    redact.New(redact.Options{Secrets: secrets}),
 		filter: make([]uint64, 1<<dlpFilterLog/64),
+		grams:  make([]uint64, 1<<dlpFilterLog/64),
 		index:  map[uint64][][]byte{},
 		short2: make([]uint64, 1<<16/64), shortIdx: map[uint16][][]byte{},
 		region: dlpPatternReach,
@@ -95,6 +97,10 @@ func newDLP(secrets []string) *dlp {
 		}
 		k := key(f)
 		d.filter[mix(k)/64] |= 1 << (mix(k) % 64)
+		for off := range 4 { // the 4-grams a stride-4 probe can land on
+			g := gram(f[off:])
+			d.grams[mix32(g)/64] |= 1 << (mix32(g) % 64)
+		}
 		if !slices.ContainsFunc(d.index[k], func(g []byte) bool { return bytes.Equal(g, f) }) {
 			d.index[k] = append(d.index[k], f)
 		}
@@ -235,11 +241,14 @@ func (d *dlp) scan(b []byte) error {
 	}
 	defer d.layers.Put(bufs)
 	cur, next := b, bufs.a[:0]
+	cand, all := bufs.candA[:0], true // escape candidates of cur (all = unknown)
 	for range dlpMaxDepth {
-		if bytes.IndexByte(cur, '%') < 0 && bytes.IndexByte(cur, '+') < 0 {
+		if all && bytes.IndexByte(cur, '%') < 0 && bytes.IndexByte(cur, '+') < 0 || !all && len(cand) == 0 {
 			return nil
 		}
-		next, bufs.spans = d.decode(next[:0], bufs.spans[:0], cur)
+		var nextCand []int
+		next, nextCand, bufs.spans = d.decode(next[:0], bufs.candB[:0], bufs.spans[:0], cur, cand, all)
+		bufs.candA, bufs.candB, cand, all = nextCand, cand, nextCand, false
 		if len(bufs.spans) == 0 {
 			return nil
 		}
@@ -261,13 +270,15 @@ func (d *dlp) scan(b []byte) error {
 
 // dlpLayers are reusable decoding buffers of one scan.
 type dlpLayers struct {
-	a, b  []byte
-	spans [][2]int
+	a, b         []byte
+	candA, candB []int // positions of '%'/'+' written by the last decode
+	spans        [][2]int
 }
 
 // hit checks one segment against the §14.3 patterns and the secret forms.
 func (d *dlp) hit(seg []byte, verify *int) error {
-	if !bytes.Equal(d.pat.Redact(seg), seg) {
+	// Redact returns seg itself when nothing matches.
+	if out := d.pat.Redact(seg); len(out) != len(seg) || len(seg) > 0 && &out[0] != &seg[0] {
 		return &classedError{err: ErrSecretEgress, class: retry.BadRequest}
 	}
 	buf, ok := d.scratch.Get().(*[]byte)
@@ -296,32 +307,83 @@ func (d *dlp) addSpan(spans [][2]int, p int) [][2]int {
 	return append(spans, [2]int{lo, hi})
 }
 
-// decode percent/form-decodes src into dst and returns the merged spans of
-// dst within d.region of a decoded byte.
-func (d *dlp) decode(dst []byte, spans [][2]int, src []byte) ([]byte, [][2]int) {
-	dst = slices.Grow(dst, len(src))[:len(dst)+len(src)]
-	out, j := dst[len(dst)-len(src):], 0
-	base := len(dst) - len(src)
+// decode percent/form-decodes src into dst. With all set every byte of
+// src is examined; otherwise only the positions in cand (the '%'/'+' bytes
+// the previous decode emitted) can be escapes and the runs between them are
+// copied in bulk. It returns the positions of '%'/'+' written to dst and the
+// merged spans of dst within d.region of a decoded byte.
+func (d *dlp) decode(dst []byte, outCand []int, spans [][2]int, src []byte, cand []int, all bool) ([]byte, []int, [][2]int) {
+	if all {
+		return d.decodeAll(dst, outCand, spans, src)
+	}
+	from := 0
+	for _, i := range cand {
+		if i < from {
+			continue // consumed by the previous escape
+		}
+		dst = append(dst, src[from:i]...)
+		c, n := decodeAt(src, i)
+		if n > 0 {
+			spans = d.addSpan(spans, len(dst))
+		} else {
+			n = 1
+		}
+		if c == '%' || c == '+' {
+			outCand = append(outCand, len(dst))
+		}
+		dst = append(dst, c)
+		from = i + n
+	}
+	dst = append(dst, src[from:]...)
+	return dst, outCand, clampSpans(spans, len(dst))
+}
+
+// decodeAll is decode over every byte of src (the raw layer).
+func (d *dlp) decodeAll(dst []byte, outCand []int, spans [][2]int, src []byte) ([]byte, []int, [][2]int) {
+	base := len(dst)
+	dst = slices.Grow(dst, len(src))[:base+len(src)]
+	out, j := dst[base:], 0
 	for i := 0; i < len(src); i++ {
 		c := src[i]
+		if c != '+' && c != '%' {
+			out[j] = c
+			j++
+			continue
+		}
 		if dc, n := decodeAt(src, i); n > 0 {
 			spans = d.addSpan(spans, base+j)
 			c = dc
 			i += n - 1
 		}
+		if c == '%' || c == '+' {
+			outCand = append(outCand, base+j)
+		}
 		out[j] = c
 		j++
 	}
 	dst = dst[:base+j]
+	return dst, outCand, clampSpans(spans, len(dst))
+}
+
+func clampSpans(spans [][2]int, n int) [][2]int {
 	for k := range spans {
-		spans[k][1] = min(spans[k][1], len(dst))
+		spans[k][1] = min(spans[k][1], n)
 	}
-	return dst, spans
+	return spans
 }
 
 // fold appends the ASCII-lowercased src to dst, dropping CR and LF when
 // no secret form contains them.
 func (d *dlp) fold(dst, src []byte) []byte {
+	if !d.keepCRLF && bytes.IndexByte(src, '\n') < 0 && bytes.IndexByte(src, '\r') < 0 {
+		n := len(dst)
+		dst = slices.Grow(dst, len(src))[:n+len(src)]
+		out := dst[n:]
+		for i, c := range src {
+			out[i] = d.lower[c]
+		}
+		return dst
+	}
 	n := len(dst)
 	dst = slices.Grow(dst, len(src))[:n+len(src)]
 	out := dst[n:]
@@ -338,37 +400,58 @@ func (d *dlp) fold(dst, src []byte) []byte {
 // match reports whether folded contains a folded secret form; verify
 // bounds the bytes compared (adversarial prefix collisions fail closed).
 func (d *dlp) match(folded []byte, verify *int) (bool, error) {
-	var k uint64
-	for i, c := range folded {
-		k = k<<8 | uint64(c)
-		if hit, err := d.shortAt(folded, i, verify); hit || err != nil {
+	if d.hasShort1 || d.hasShort2 {
+		if hit, err := d.matchShort(folded, verify); hit || err != nil {
 			return hit, err
 		}
-		if i < dlpWindow-1 || d.filter[mix(k)/64]&(1<<(mix(k)%64)) == 0 {
+	}
+	// Every form is ≥ dlpWindow (8) bytes, so an occurrence starting at s
+	// covers the 4-gram at the stride-4 probe p ∈ [s, s+3]: only probes are
+	// filtered, and a probe hit verifies the four starts p-3..p.
+	for p := 0; p+4 <= len(folded); p += 4 {
+		g := gram(folded[p:])
+		if d.grams[mix32(g)/64]&(1<<(mix32(g)%64)) == 0 {
 			continue
 		}
-		if hit, err := verifyAt(folded[i+1-dlpWindow:], d.index[k], verify); hit || err != nil {
-			return hit, err
+		for s := max(p-3, 0); s <= p && s+dlpWindow <= len(folded); s++ {
+			k := key(folded[s:])
+			if d.filter[mix(k)/64]&(1<<(mix(k)%64)) == 0 {
+				continue
+			}
+			if hit, err := verifyAt(folded[s:], d.index[k], verify); hit || err != nil {
+				return hit, err
+			}
 		}
 	}
 	return false, nil
 }
 
-// shortAt matches the short raw secrets ending at folded[i] (1 byte) or
-// starting at folded[i-1].
-func (d *dlp) shortAt(folded []byte, i int, verify *int) (bool, error) {
-	c := folded[i]
-	if d.hasShort1 && d.short1[c/64]&(1<<(c%64)) != 0 {
-		return true, nil
+// gram is the little-endian 4-byte value at b.
+func gram(b []byte) uint32 {
+	return uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24
+}
+
+// mix32 maps a 4-gram to a prefilter bit.
+func mix32(g uint32) uint32 { return (g * 0x9E3779B1) >> (32 - dlpFilterLog) }
+
+// matchShort matches the short raw secrets: 1-byte ones by set, longer
+// ones by their first two bytes.
+func (d *dlp) matchShort(folded []byte, verify *int) (bool, error) {
+	var prev byte
+	for i, c := range folded {
+		if d.short1[c/64]&(1<<(c%64)) != 0 {
+			return true, nil
+		}
+		k2 := uint16(prev)<<8 | uint16(c)
+		prev = c
+		if i == 0 || d.short2[k2/64]&(1<<(k2%64)) == 0 {
+			continue
+		}
+		if hit, err := verifyAt(folded[i-1:], d.shortIdx[k2], verify); hit || err != nil {
+			return hit, err
+		}
 	}
-	if !d.hasShort2 || i == 0 {
-		return false, nil
-	}
-	k2 := uint16(folded[i-1])<<8 | uint16(c)
-	if d.short2[k2/64]&(1<<(k2%64)) == 0 {
-		return false, nil
-	}
-	return verifyAt(folded[i-1:], d.shortIdx[k2], verify)
+	return false, nil
 }
 
 // verifyAt reports whether at starts with one of forms.
