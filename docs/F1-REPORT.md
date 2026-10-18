@@ -81,3 +81,32 @@ Konfirmasi arm64 (workflow `windows-ctxdb`, `workflow_dispatch` arch=arm64, run 
 | 39137619752 / 39137619723 / 39137619713 | PR #2 | hijau |
 
 Perkiraan menit tertagih saat repo masih privat (durasi job × pengali Linux 1, Windows 2, macOS 10): run 1 ≈ 209, run 2 ≈ 210, windows-ctxdb ≈ 20 → ≈ 440 menit. Sejak repo publik (PR #2 dan sesudahnya) menit Actions tidak ditagih.
+
+## Paket F1
+
+### `internal/netx` + `internal/netx/retry` (ADR-100) dan atribusi (ADR-099)
+
+| PR | Isi | Baris Go non-test (diff) | Hasil |
+|---|---|---:|---|
+| #6 `f1-attribution` | sidecar `ORIGIN.md` ×6 direktori, `TestAttributionHeaders` + `TestAttributionChecker`, `.gitattributes` `-text`, ADR-099 | 0 | hijau (ci 39143369064, meta 39143369055, pr-meta 39143369207); rebase → `50d45c3` |
+| #7 `f1-netx-1` | `netx/retry` (kelas, `Do`, `Breaker`), parser SSE, matriks import `netx/retry`, ADR-100 | 595 | hijau (ci 39144286024, meta 39144286006, pr-meta 39144285988); rebase → `17e7811` |
+| #9 `f1-netx-2` | `Network`/`Client`, penjaga dial (test/offline/SSRF), `egress_disabled`, `StatusError`, `Stream` + watchdog TTFB/idle | 452 | hijau (ci 39145102606, meta 39145102610, pr-meta 39145102612); rebase → `e8a1bac` |
+| #17 `f1-netx-3` | gerbang DLP egress `tool` + log DEBUG metadata via `redact` | 172 | stacked di atas #13 (`redact`, review independen); ci 39150214565: `netx`/`netx/retry` hijau di 6 runner, merah hanya `redact` `TestEdgeCases/EC-SEC-008` di 2 runner Windows (resolusi timer, milik #13); merge setelah #13 |
+
+| Item | Implementasi | Test | Status |
+|---|---|---|---|
+| E-05 satu pembuat klien | `netx.New` → transport `infra` (proxy env) + `tool` (tanpa proxy) | analyzer `nohttpclient` (`make vet-custom`) | selesai |
+| P6/E-32 satu retry | `retry.Do`: 3 attempt, 1 s/4 s ±20 %, `Retry-After` ≤ 30 s (> 30 s → berhenti), ctx berakhir → tanpa retry | `TestRetryMatrix` (14 kelas × 3 jitter, synctest), `TestRetryScenarios`, `TestRetryCancel` | selesai |
+| Kelas §4.1.1 | `ClassifyStatus`, `ClassifyErr` (errors.Is/As), `Unclassified` non-retryable | `TestClassifyStatus`, `TestClassifyErr` | selesai |
+| Circuit breaker §4.1 | `retry.Breaker` in-process (5/60 s → open 30 s → 1 probe) | `TestBreaker` | selesai (lintas proses COST-06 = F4) |
+| E-35 SSE zero-alloc | `SSEParser` WHATWG | `TestSSEZeroAlloc`, `BenchmarkSSEParse` (139–148 ns/op, **0 B/op, 0 allocs/op**), `FuzzSSEParse` (60 s CI, 0 crash), `TestSSEParse`, `TestSSELimits` | selesai |
+| E-69 | dial non-loopback ditolak di binary test (`testing.Testing()`, `ControlContext`) | `TestNoNetwork` | selesai |
+| CROSS-CUTTING §4 offline, GAP-OPS-02 | `Config.Offline`, `Config.NoBackground` | `TestDialRule`, `TestEgressDisabled` | selesai (subset F1) |
+| SPEC §14.4 SSRF | transport `tool`: IP publik saja | `TestDialRule` (18 alamat diblok, 5 publik) | selesai |
+| SPEC §17.2 pooling | satu transport per `Network` | `TestConnReuse` (20 call → 1 koneksi TCP) | selesai |
+| GAP-REL-07 | `TTFB(tok)`, idle 60 s | `TestTTFB`, `TestStream` | selesai (subset F1) |
+| GAP-SEC-16 | `dlp.check` (pola + secret raw/hex/URL/base64 3 alinyemen) | `TestEgressDLP/web_fetch` (4 encoding + pola → 5/5 diblok, 0 koneksi), `TestSecretForms`, `BenchmarkEgressDLP` (≈ 15 µs) | PR #17 (menunggu #13) |
+| ADR-071 butir 5 | `logRequest` DEBUG metadata, path ter-redaksi | `TestLogMetadataOnly` | PR #17 (menunggu #13) |
+| EC-PROV-009, 010, 028, 029, 030 | — | `TestEdgeCases/<ID>` di `netx` (009, 028, 030) dan `netx/retry` (010, 029), gate `phase.Item(…, "F1", "covered")` | covered |
+
+Coverage (job `coverage`, run 39145102606): `netx` 96,9 %, `netx/retry` 99,0 %. LOC scc: `netx` 759/1.800 setelah #9 (891 dengan `f1-netx-3`). Matrix 6 runner hijau untuk kedua paket (ubuntu x64/arm, macOS arm/intel, Windows x64 `-race`, Windows arm64). Lokal: `go test -race -count=20 -shuffle=on ./internal/netx/...` hijau; golangci-lint 0 (linux/windows/darwin); `make vet-custom deadcode loc` 0.
