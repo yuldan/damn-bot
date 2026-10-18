@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -162,11 +163,7 @@ func docLines(raw []byte) []string {
 func (e *Engine) forget(p string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	for k := range e.cache.tags {
-		if strings.HasPrefix(k, p+"\x00") {
-			delete(e.cache.tags, k)
-		}
-	}
+	maps.DeleteFunc(e.cache.tags, func(k string, _ tagEntry) bool { return strings.HasPrefix(k, p+"\x00") })
 }
 
 // Edit runs edit_file (CODE-TOOLS §5.3).
@@ -183,7 +180,7 @@ func (e *Engine) Edit(ctx context.Context, a EditArgs, o Opts) (res Result, err 
 	defer unlock()
 	c, err := e.openCurrent(ctx, a.Path, a.Tag, o)
 	if c != nil {
-		defer closeInto(&err, c.t.f)
+		defer c.t.close(&err)
 	}
 	if err != nil {
 		return res, err
@@ -297,7 +294,7 @@ func (e *Engine) Write(ctx context.Context, a WriteArgs, o Opts) (res Result, er
 	}
 	c, err := e.openCurrent(ctx, a.Path, *a.Tag, o)
 	if c != nil {
-		defer closeInto(&err, c.t.f)
+		defer c.t.close(&err)
 	}
 	if err != nil {
 		return res, err
