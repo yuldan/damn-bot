@@ -1,11 +1,11 @@
 # AUDIT-F0 — status penutupan
 
-Pelacak penutupan temuan [`AUDIT-F0.md`](AUDIT-F0.md) (putaran 1), [`AUDIT-F0-REVERIFY.md`](AUDIT-F0-REVERIFY.md) (putaran 2), dan [`AUDIT-F0-REVERIFY2.md`](AUDIT-F0-REVERIFY2.md) (putaran 3); file audit tidak diubah. Gate ROADMAP sebelum F1: semua BLOCKER/MAJOR ditutup lewat ADR. Kebijakan keputusan: opsi paling konservatif/aman, dalam budget SPEC §3.2.4/P1/P13/P21, tanpa dependency baru; model shell ADR-079 = keputusan direktur proyek.
+Pelacak penutupan temuan [`AUDIT-F0.md`](AUDIT-F0.md) (putaran 1), [`AUDIT-F0-REVERIFY.md`](AUDIT-F0-REVERIFY.md) (putaran 2), [`AUDIT-F0-REVERIFY2.md`](AUDIT-F0-REVERIFY2.md) (putaran 3), dan [`AUDIT-F0-REVERIFY3.md`](AUDIT-F0-REVERIFY3.md) (putaran 4); file audit tidak diubah. Gate ROADMAP sebelum F1: semua BLOCKER/MAJOR ditutup lewat ADR. Kebijakan keputusan: opsi paling konservatif/aman, dalam budget SPEC §3.2.4/P1/P13/P21, tanpa dependency baru; model shell ADR-079 = keputusan direktur proyek.
 
 Status:
 - **selesai**: ADR Accepted, teks diterapkan, dan kode/test F0 ada dan lulus.
 - **ditutup (ADR)**: ADR Accepted dan teks diterapkan ke dokumen sasaran; test bernama = acceptance fase yang disebut (kode belum ada di F0).
-- **backlog Fx**: MINOR dengan pemilik dan fase di ADR-078/ADR-086; wajib tertutup sebelum acceptance fase itu.
+- **backlog Fx**: MINOR dengan pemilik dan fase di ADR-078/ADR-086/ADR-091/ADR-092; wajib tertutup sebelum acceptance fase itu.
 
 Commit ADR: putaran 1 `12de82e`, `fc1a4a9`, `a88680e`; putaran 2 `139958d` (ADR-079..086), `31e9cc0` (ADR-079 butir 9–11), `8a212e6` (ADR-087 + amandemen ADR-079); putaran 3 `cc6c676` (ADR-088..091), `90dcaae` (amandemen penerapan).
 
@@ -150,3 +150,14 @@ Temuan baru (MAJOR):
 MINOR NEW2-07..27 (ADR-091): ditutup = NEW2-12, NEW2-13, NEW2-15 (ADR-088), NEW2-25 (penanda amandemen `cc6c676`); backlog F1 = NEW2-07, 08, 11, 14, 16, 17, 18, 21, 22, 24, 26, 27 (sebagian F2); F2 = NEW2-23; F3 = NEW2-09; F4 = NEW2-10; F5 = NEW2-19, 20.
 
 Ringkasan putaran 3: 6/6 MAJOR baru dan 4/4 partial punya ADR Accepted dengan teks terapan; LockFileEx Windows diimplementasikan.
+
+## Putaran 4 — AUDIT-F0-REVERIFY3
+
+Verdict: 10/10 item closed (NEW2-01..06, AUD-020, NEW-05, NEW-10, NEW-15); 0 BLOCKER/MAJOR baru. **Gate F0 → F1 terpenuhi.**
+
+| ID | Sev | ADR | Test (fase) | Status |
+|---|---|---|---|---|
+| NEW3-01 | MINOR | ADR-092 | `TestFileLockSemantics`, probe fairness ADR-087 di runner Windows (F1 #0) | backlog F1 (Deliverable #0) |
+| NEW3-02 | MINOR | ADR-092 | `TestExecuteCodeApproval` (F5) | backlog F5 (sebelum `execute_code`) |
+| NEW3-03 | MINOR | ADR-092 | `TestSecretRefScope` (F1) | backlog F1 (sebelum `internal/exec`) |
+| NEW3-04 | MINOR | ADR-092 | `TestShellAllowExactMatch` (F1) | backlog F1 (sebelum `internal/exec`) |

@@ -2259,3 +2259,20 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 **Dampak terukur (SPEC §20).** Token/latensi/LOC/binary/dependency 0.
 
 **Konsekuensi.** (+) Semua MINOR putaran 3 punya pemilik dan tenggat. (−) Backlog F1 bertambah.
+
+## ADR-092 — Errata backlog MINOR putaran 4 (NEW3-01..NEW3-04)
+
+**Status:** Accepted 2026-10-18 (pola ADR-078/086/091). Menetapkan fase untuk MINOR [`AUDIT-F0-REVERIFY3.md`](AUDIT-F0-REVERIFY3.md); item ditutup paling lambat sebelum acceptance fase pemiliknya. Tidak ada item yang ditutup sekarang; perbaikan mengikuti rekomendasi audit.
+
+**Aturan penerapan.** Belum ada teks/kode yang diterapkan; setiap item diterapkan di fase pemiliknya dan passage-nya mengutip ADR-092.
+
+| ID | Inti | Fase pemilik |
+|---|---|---|
+| NEW3-01 | `unlockFile` Windows memanggil `windows.UnlockFileEx` sebelum `Close` (pelepasan lock saat close bergantung sumber daya sistem); `TestFileLockSemantics` dan probe fairness ADR-087 stabil di runner Windows | F1 (Deliverable #0, bersama matrix Windows ctxdb ADR-090) |
+| NEW3-02 | Auto headless `execute_code` untuk bahasa di `code_auto_languages` mensyaratkan `--unsafe-auto-shell` (atau flag `--unsafe-auto-code`), atau dicatat eksplisit sebagai residu TRUST-MODEL §3 | F5 (sebelum `execute_code`) |
+| NEW3-03 | Runner mode (b): perintah ber-secret-ref yang bukan simple command literal (glob/`~`/ekspansi) → mode (a) **tanpa** secret dengan notice, atau tolak `invalid_args`; kasus ditambah ke `TestSecretRefScope` | F1 (sebelum `internal/exec`) |
+| NEW3-04 | argv0 `shell_allow` yang ter-resolve ke path di dalam root (atau di bawah entri `PATH` relatif) tidak pernah cocok; kasus ditambah ke `TestShellAllowExactMatch` | F1 (sebelum `internal/exec`) |
+
+**Dampak terukur (SPEC §20).** Token/latensi/LOC/binary/dependency 0.
+
+**Konsekuensi.** (+) Semua MINOR putaran 4 punya pemilik dan tenggat; gate F0 → F1 tidak tertahan (MINOR tidak menahan gate). (−) Backlog F1 #0 dan `internal/exec` bertambah.
