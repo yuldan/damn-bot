@@ -181,14 +181,9 @@ func TestRunCancelConfirmed(t *testing.T) {
 	if d := time.Since(t0); d > CancelDeadline+500*time.Millisecond {
 		t.Fatalf("result after %v", d)
 	}
-	switch res.Status {
-	case StatusCancelledConfirmed:
-		if res.Done != nil {
-			t.Fatal("confirmed result with Done")
-		}
-	case StatusStillRunning:
+	if res.Status == StatusStillRunning {
 		<-res.Done
-	default:
+	} else if res.Status != StatusCancelledConfirmed || res.Done != nil {
 		t.Fatalf("%+v", res)
 	}
 	assertNoMarker(t, res.ExecID)
