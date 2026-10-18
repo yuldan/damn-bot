@@ -1,2 +1,8 @@
 # PHASE dibaca byte-persis oleh internal/testutil/phase: LF di semua OS (checkout Windows memakai CRLF bila tidak dipin).
 PHASE text eol=lf
+# File turunan pihak ketiga diverifikasi SHA-256 byte-persis oleh TestAttributionHeaders (ADR-099):
+# tanpa konversi EOL saat checkout (Windows).
+bench/budget/testdata/hermes-868b9f244f/** -text
+bench/h2h/results/**/*.proxy.jsonl.gz -text
+bench/evals/sources/* -text
+bench/budget/o200k/o200k_base.tiktoken.gz -text
