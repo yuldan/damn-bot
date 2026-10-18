@@ -1352,7 +1352,7 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-058 — Satu rumus estimator token (V-18)
 
-**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-18 (usulan ADR-E20). Diimplementasikan di F2 (budget/compaction, GAP-COST-09); tidak ada kode F0 terdampak (harness `bench/budget` memakai tokenizer o200k_base, bukan estimator runtime). *(Dikoreksi ADR-067: estimator teks diimplementasikan di **F1** dalam `internal/budget`; F2 hanya formula gambar + pemicu P8; `TestTokenEstimatorCalibration` korpus teks = acceptance F1.)*
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-18 (usulan ADR-E20). Diimplementasikan di F2 (budget/compaction, GAP-COST-09); tidak ada kode F0 terdampak (harness `bench/budget` memakai tokenizer o200k_base, bukan estimator runtime). *(Dikoreksi ADR-067: estimator teks diimplementasikan di **F1** dalam `internal/budget`; F2 hanya formula gambar + pemicu P8; `TestTokenEstimatorCalibration` korpus teks = acceptance F1.) *(Dikoreksi ADR-101: batas bawah kalibrasi 0,7 → 0,5; `est_input_tokens` = estimasi mentah tanpa kalibrasi.)*
 
 **Aturan penerapan.** Teks sudah diterapkan (2026-10-18): SPEC §4.5, §22.1 GAP-COST-08/GAP-COST-09; MITIGATION-MATRIX GAP-COST-09.
 
@@ -2449,3 +2449,22 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 **Dampak terukur (SPEC §20).** Token 0. Latensi: first token p95 ≈ 1,2 µs (budget ADR-081 1 ms); `BenchmarkRedact` 4 KiB ≈ 200 MB/s, 0 alloc; `BenchmarkStreamRedact` ≈ 215 MB/s, 0 alloc/Push. LOC `redact` 511 (scc), baris `sandbox+redact` 1.300. Dependency 0 (korpus = testdata).
 
 **Konsekuensi.** (+) 0 kebocoran di korpus untuk setiap offset pemotongan; biaya linear untuk input patologis. (−) False positive pada slug ber-`sk-`; ID bot Telegram tetap terlihat; secret eksplisit pendek meredaksi teks biasa.
+
+## ADR-101 — `internal/budget` F1: estimator COST-09 (batas kalibrasi 0,5–1,5, `est_input_tokens` mentah), biaya, ledger `ctxdb/ledgerstore`
+
+**Status:** Accepted 2026-10-19 (keputusan didelegasikan; opsi paling konservatif dalam budget `budget` 400 + `ctxdb/ledgerstore` 300, tanpa dependency baru). Menerapkan ADR-058/ADR-067 (estimator di F1) dan ADR-074 (storage ledger). Mengoreksi ADR-058 butir 1 (batas bawah).
+
+**Aturan penerapan.** Teks diterapkan: SPEC §4.5 dan §22.1 GAP-COST-09 (0,7–1,5 → 0,5–1,5); DECISIONS ADR-058 (penanda). Kode: `internal/budget` (`estimate.go`, `ledger.go`), `internal/ctxdb/ledgerstore`, korpus `internal/budget/testdata/calibration/` (teks asli proyek, bukan turunan pihak ketiga) dengan hitungan o200k_base `o200k.tsv` yang diverifikasi `bench/budget` `TestCalibrationCorpusCounts`.
+
+**Konteks.** Diukur atas korpus en/id/ru/ja (6 paragraf per bahasa, o200k_base): rasio estimasi statis/real = en 1,20–1,34, id 1,06–1,27, ru 1,59–2,01, ja 1,22–1,34. Rasio Kiril 2 char/tok (ADR-058) melebihi o200k (≈ 3,9 char/tok di prosa) ≈ 1,8×; dengan batas bawah 0,7 estimasi berkalibrasi bahasa Rusia tetap ≈ 1,13–1,3× real, sehingga acceptance ADR-058 (0,9–1,1) mustahil.
+
+**Keputusan.**
+1. **Batas faktor 0,5–1,5.** Rasio per script ADR-058 tetap (prior konservatif: sesi baru tidak pernah meng-under-estimate untuk tokenizer modern); hanya batas bawah kalibrasi diturunkan ke 0,5 sehingga data nyata boleh mengoreksi prior sampai 2×. Batas atas tetap 1,5.
+2. **`est_input_tokens` = estimasi mentah** seluruh request (Σ char per script / rasio, tanpa jangkar dan tanpa faktor). Faktor = EMA `input_tokens / est_input_tokens` (α = 0,3 untuk sampel terbaru, sampel pertama sebagai nilai awal) atas ≤ 50 baris `purpose='turn'` terbaru dengan estimasi > 0, dihitung ulang saat sesi di-load; jendela incremental identik dengan derivasi ulang (`TestCalibrate`). Menyimpan estimasi berkalibrasi akan membuat rasio konvergen ke 1 dan menghapus kalibrasi.
+3. **Kelas script.** Latin = ASCII + script Latin/Common/Inherited (4); CJK (Han, kana, Hangul, tanda baca CJK/fullwidth), rune di luar BMP (emoji), dan byte UTF-8 tidak valid = 1 char/tok; script lain (Kiril, Arab, Devanagari, Yunani, Ibrani, Thai, …) = 2.
+4. **Biaya.** `usage.cost` provider (dibulatkan ke micro-USD) menang; selain itu tabel harga (micro-USD per juta token, `cached` = 0 berarti tanpa diskon → harga input), dibulatkan **ke atas**; tanpa harga → `cost_usd_micros` NULL, `cost_source='unknown'`, `pricing_version='none'`. Usage negatif atau `cached > input` → `ErrInvalidUsage`.
+5. **Ledger.** `budget.Entry` dan `ledgerstore.Row`/`Sample` field-identik: komposisi mengonversi dengan konversi tipe Go biasa tanpa saling impor (matriks E-01: `budget` tanpa impor internal, `ledgerstore` hanya `ctxdb`). `ledgerstore.Insert` menulis di transaksi pemanggil (bersama event `llm_call`, P9); baca kalibrasi/total lewat `Store.Write` (satu-satunya API kueri multi-kolom `ctxdb`; dipanggil sekali saat sesi di-load). Guard budget P27 (cap, 80 %/100 %) tetap F2 sesuai ROADMAP.
+
+**Dampak terukur (SPEC §20).** Token model 0. Akurasi (`TestTokenEstimatorCalibration`, sesi 6 call, estimasi COST-09 vs o200k_base seluruh request): call ≥ 2 = 0,95–1,02 untuk keempat bahasa (call 1 tanpa kalibrasi 1,27–1,87, selalu over-estimate). `BenchmarkCount` ≈ 90 MB/s (teks campuran Latin/Kiril/CJK), 0 alokasi. LOC: `budget` + `ledgerstore` ≈ 230 dari 700. Binary/dependency 0.
+
+**Konsekuensi.** (+) Estimasi per bahasa akurat setelah satu call; prior tetap aman untuk budget. (−) Faktor dapat memangkas estimasi sampai setengah bila provider memakai tokenizer jauh lebih efisien dari prior; `est_input_tokens` di ledger bukan estimasi yang dipakai runtime.
