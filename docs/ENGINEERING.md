@@ -134,7 +134,8 @@ internal/
   plan/                     plan mode (kebijakan tool read-only + artefak rencana)
   provider/                 adapter protokol (OpenAI-compatible di core; lainnya modul providers-extra)
   provider/registry/        data provider deklaratif (embedded TOML) + loader
-  netx/                     satu-satunya pembuat http.Client/dialer; SSE parser, WS, retry, circuit breaker
+  netx/                     satu-satunya pembuat http.Client/dialer; SSE parser, WS
+  netx/retry/               satu-satunya retry/backoff (P6, E-32): kelas typed, Do, circuit breaker (ADR-100)
   netx/jsonrpc/             framing JSON-RPC 2.0 stdio/HTTP (dipakai acp, mcp, LSP di codeintel)
   schema/                   validator JSON-Schema subset (ADR-008) + tokenizer JSON tanpa reflect
   tools/                    pipeline dispatch: lookup → validate → policy → approve → journal → run → spill
@@ -171,7 +172,7 @@ internal/
 | E-03 | Frontend (`tui`, `acp`, `web`, `gateway`) tidak mengimpor `ctxdb`, `provider`, `exec`, `codetools` | 0 | `depguard` rule `frontend`, `TestImportGraph` |
 | E-04 | Hanya `internal/ctxdb/...` (paket `ctxdb` dan subpaketnya) mengimpor `modernc.org/sqlite`/`database/sql`; storage konsumen ada di `internal/ctxdb/<consumer>store` (ADR-074) | 1 pohon paket | `depguard` rule `sqlite` |
 | E-05 | Hanya `netx` memanggil `&http.Client{}`, `http.DefaultClient`, `net.Dial*`, `http.Transport{}` | 1 paket | analyzer `nohttpclient` (SPEC §16) |
-| E-06 | Modul (`mcp`, `codeintel`, `gateway/<platform>`, semua modul fitur) hanya mengimpor `modules/host`, `netx` (termasuk `netx/jsonrpc`), `schema` | 0 edge lain | `TestImportGraph` rule `module`; tipe event, i18n, spawn proses, LLM, storage diakses lewat interface/tipe di `modules/host` |
+| E-06 | Modul (`mcp`, `codeintel`, `gateway/<platform>`, semua modul fitur) hanya mengimpor `modules/host`, `netx` (termasuk `netx/jsonrpc`, `netx/retry`), `schema` | 0 edge lain | `TestImportGraph` rule `module`; tipe event, i18n, spawn proses, LLM, storage diakses lewat interface/tipe di `modules/host` |
 | E-07 | Tidak ada embedding struct lintas paket untuk mewarisi method (anti-pola §1.2) | 0 | `TestNoCrossPackageEmbedding` (go/types: field embedded bertipe struct dari paket internal lain → gagal; embedding interface dan tipe stdlib diizinkan) |
 | E-08 | `cmd/damnbot` satu-satunya composition root; paket `internal/` tidak memanggil konstruktor paket saudara selain yang ada di matriks | 0 | `TestImportGraph` |
 
@@ -212,7 +213,7 @@ flowchart TD
         HOST["modules/host"]
         DB["ctxdb"]
         CFG["config"]
-        NET["netx (+ netx/jsonrpc)"]
+        NET["netx (+ netx/jsonrpc, netx/retry)"]
     end
     subgraph LEAF["Leaf"]
         EV["loop/event"]

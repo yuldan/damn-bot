@@ -13,8 +13,10 @@ const compositionRoot = "cmd/damnbot"
 // gateway/<platform>), tidak termasuk <induk> sendiri.
 const moduleWildcard = "/*"
 
-// groupNetx = node NET "netx (+ netx/jsonrpc)".
-func groupNetx() []string { return []string{"internal/netx", "internal/netx/jsonrpc"} }
+// groupNetx = node NET "netx (+ netx/jsonrpc, netx/retry)" (ADR-100).
+func groupNetx() []string {
+	return []string{"internal/netx", "internal/netx/jsonrpc", "internal/netx/retry"}
+}
 
 // groupExec = node EXE: exec + exec/classify (ADR-081, satu baris SPEC §3.2.4).
 func groupExec() []string { return []string{"internal/exec", "internal/exec/classify"} }
@@ -71,8 +73,9 @@ func allowedImports() map[string][]string {
 		"internal/ctxdb/journalstore": storeImports(),
 		"internal/ctxdb/gwstore":      storeImports(),
 		"internal/config":             {"internal/schema"},
-		"internal/netx":               {"internal/netx/jsonrpc", "internal/redact"},
-		"internal/netx/jsonrpc":       {"internal/netx", "internal/redact"},
+		"internal/netx":               {"internal/netx/jsonrpc", "internal/netx/retry", "internal/redact"},
+		"internal/netx/jsonrpc":       {"internal/netx", "internal/netx/retry", "internal/redact"},
+		"internal/netx/retry":         nil,
 
 		// Leaf.
 		"internal/loop/event": nil,
