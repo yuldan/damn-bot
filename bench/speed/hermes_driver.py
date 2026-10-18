@@ -115,9 +115,12 @@ def _inproc(jobs_path: str, out_path: str) -> None:
         import model_tools
     cli = None
     for op in ops:
+        holder: dict = {}
         if op["kind"] == "tool":
-            def call(op=op):
-                return _tool_error(model_tools.handle_function_call(op["tool"], op.get("args", {}), task_id="f0-speed"))
+            def call(op=op, holder=holder):
+                raw = model_tools.handle_function_call(op["tool"], op.get("args", {}), task_id="f0-speed")
+                holder["raw"] = raw
+                return _tool_error(raw)
         elif op["kind"] == "slash":
             if cli is None:
                 t0 = time.perf_counter_ns()
@@ -129,10 +132,27 @@ def _inproc(jobs_path: str, out_path: str) -> None:
             def call(op=op):
                 cli.process_command(op["command"])
                 return None
+        elif op["kind"] == "py":
+            # Op Python bebas: `setup` dieksekusi sekali (di luar waktu), `code` diukur per run.
+            ns: dict = {}
+            try:
+                with _quiet():
+                    exec(op.get("setup", ""), ns)  # noqa: S102 — kode berasal dari katalog repo, bukan target
+            except BaseException as exc:
+                results.append({"id": op["id"], "samples_ms": [], "error": f"setup {type(exc).__name__}: {exc}"[:300]})
+                continue
+            code = compile(op["code"], op["id"], "exec")
+
+            def call(code=code, ns=ns):
+                exec(code, ns)  # noqa: S102
+                return None
         else:
             results.append({"id": op["id"], "samples_ms": [], "error": f"kind tidak dikenal: {op['kind']}"})
             continue
-        results.append(_run_op(op, call))
+        res = _run_op(op, call)
+        if op.get("capture") and "raw" in holder:
+            res["output"] = holder["raw"]  # output tool apa adanya (untuk token CT-11)
+        results.append(res)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump({"results": results}, f)
 

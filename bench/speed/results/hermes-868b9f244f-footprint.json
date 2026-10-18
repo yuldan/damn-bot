@@ -1,0 +1,62 @@
+{
+ "python": "3.14.7",
+ "checkout_tracked_bytes": 224820903,
+ "checkout_tracked_files": 20076,
+ "node_modules_bytes": 0,
+ "python_deps_count": 51,
+ "python_deps_bytes": 1212808,
+ "python_deps_missing": [
+  "nemo-relay",
+  "resvg-py",
+  "pillow-heif",
+  "watchfiles",
+  "httptools",
+  "browser-harness",
+  "firecrawl-anydoc",
+  "tomli-w",
+  "jiter"
+ ],
+ "python_deps_top10": [
+  [
+   "websockets",
+   1191735
+  ],
+  [
+   "mdurl",
+   21073
+  ],
+  [
+   "annotated-doc",
+   0
+  ],
+  [
+   "annotated-types",
+   0
+  ],
+  [
+   "anyio",
+   0
+  ],
+  [
+   "certifi",
+   0
+  ],
+  [
+   "charset-normalizer",
+   0
+  ],
+  [
+   "click",
+   0
+  ],
+  [
+   "croniter",
+   0
+  ],
+  [
+   "cryptography",
+   0
+  ]
+ ],
+ "total_bytes": 226033711
+}

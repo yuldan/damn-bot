@@ -1,0 +1,20 @@
+{
+ "comment": "Kueri baseline code tools F0 (CODE-TOOLS §10.2 CT-01/02/03/11). 40 literal + 40 regex + 10 glob. Golden token CT-11 = 40 literal + 10 regex pertama (50). Kosakata gencorpus muncul di C2/C3; kueri bergaya Python mengenai C1 (hermes).",
+ "literal": [
+  "parse", "render", "handler", "config", "session", "token", "buffer", "stream", "request", "response",
+  "client", "server", "cache", "index", "query", "search", "match", "pattern", "worker", "queue",
+  "lease", "fence", "journal", "commit", "rollback", "snapshot", "budget", "ledger", "schema", "validate",
+  "def build_system_prompt", "HERMES_HOME", "except Exception", "logger.debug", "import json",
+  "TODO", "async def", "subprocess.run", "return None", "fmt.Errorf"
+ ],
+ "regex": [
+  "def \\w+_prompt\\(", "\\bsession_\\w+", "[A-Z]{3,}_[A-Z]+", "\\d{5}", "^\\s*#", "fn \\w+\\(", "(?i)error", "\\w+_\\w+\\(",
+  "class \\w+\\(", "except \\w+ as \\w+",
+  "\\bparse_\\w+", "\\brender_\\w+", "\\bhandler_\\w+", "\\bconfig_\\w+", "\\btoken_\\w+", "\\bbuffer_\\w+",
+  "\\bstream_\\w+", "\\brequest_\\w+", "\\bresponse_\\w+", "\\bclient_\\w+", "\\bserver_\\w+", "\\bcache_\\w+",
+  "\\bindex_\\w+", "\\bquery_\\w+", "\\bsearch_\\w+", "\\bmatch_\\w+", "\\bworker_\\w+", "\\bqueue_\\w+",
+  "\\blease_\\w+", "\\bjournal_\\w+", "\\bcommit_\\w+", "\\bsnapshot_\\w+", "\\bbudget_\\w+", "\\bschema_\\w+",
+  "return \\w+\\(\\w+\\)", "\\$\\{?\\w+\\}?", "\"[a-z]+_[a-z]+\"", "[0-9]+\\.[0-9]+", "^(def|func|fn) ", "\\w+@\\w+"
+ ],
+ "glob": ["*.py", "*.go", "*.md", "*.json", "**/test_*.py", "*.{js,ts}", "*_test.go", "**/*.yaml", "*.sh", "*.min.js"]
+}
