@@ -39,15 +39,52 @@ func (r dialRule) check(ip netip.Addr) error {
 	return nil
 }
 
-// cgnat is RFC 6598 shared address space (100.64.0.0/10).
-func cgnat() netip.Prefix { return netip.PrefixFrom(netip.AddrFrom4([4]byte{100, 64, 0, 0}), 10) }
+// nonPublic lists special-purpose ranges outside the stdlib predicates
+// (IANA registries; REVIEW-F1-SEC1 NETX-14).
+func nonPublic() []netip.Prefix {
+	return []netip.Prefix{
+		netip.MustParsePrefix("0.0.0.0/8"),     // "this network"
+		netip.MustParsePrefix("100.64.0.0/10"), // CGNAT, RFC 6598
+		netip.MustParsePrefix("192.0.0.0/24"),  // IETF protocol assignments
+		netip.MustParsePrefix("198.18.0.0/15"), // benchmarking
+		netip.MustParsePrefix("240.0.0.0/4"),   // reserved (incl. broadcast)
+		netip.MustParsePrefix("fec0::/10"),     // deprecated site-local
+	}
+}
 
-// publicIP reports whether ip is a globally routable unicast address:
-// not loopback, private (RFC 1918, ULA), link-local (incl. cloud metadata
-// 169.254.169.254), CGNAT, unspecified, multicast, or broadcast.
+// embeddedV4 returns the IPv4 address carried by NAT64 (64:ff9b::/96),
+// IPv4-compatible (::/96), and 6to4 (2002::/16) IPv6 addresses.
+func embeddedV4(ip netip.Addr) (netip.Addr, bool) {
+	if !ip.Is6() || ip.Is4In6() {
+		return netip.Addr{}, false
+	}
+	b := ip.As16()
+	switch {
+	case netip.MustParsePrefix("64:ff9b::/96").Contains(ip), netip.MustParsePrefix("::/96").Contains(ip):
+		return netip.AddrFrom4([4]byte(b[12:16])), true
+	case netip.MustParsePrefix("2002::/16").Contains(ip):
+		return netip.AddrFrom4([4]byte(b[2:6])), true
+	}
+	return netip.Addr{}, false
+}
+
+// publicIP reports whether ip is a globally routable unicast address: not
+// loopback, private (RFC 1918, ULA), link-local (incl. cloud metadata
+// 169.254.169.254), special-purpose (nonPublic), unspecified, or
+// multicast; an IPv4 address embedded in IPv6 must itself be public.
 func publicIP(ip netip.Addr) bool {
-	return ip.IsGlobalUnicast() && !ip.IsPrivate() && !cgnat().Contains(ip) &&
-		ip != netip.AddrFrom4([4]byte{255, 255, 255, 255})
+	if v4, ok := embeddedV4(ip); ok {
+		return publicIP(v4)
+	}
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() {
+		return false
+	}
+	for _, p := range nonPublic() {
+		if p.Contains(ip) {
+			return false
+		}
+	}
+	return true
 }
 
 // dialer returns the DialContext of a transport under rule. The check runs

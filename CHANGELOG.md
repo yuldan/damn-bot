@@ -16,6 +16,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `boundary`: satu-satunya peluncur goroutine dan `recover` (E-24, E-26): `Go` (Task milik pemanggil, `Wait`/`Done`), `Run` (panggilan sinkron terjaga), `Group` (errgroup + `SetLimit`); panic menjadi `*PanicError` (`ErrPanic`) dan dicatat ERROR tanpa nilai panic (P29).
 - `redact`: redaksi secret whole-blob SPEC §14.3 tanpa `regexp` (biaya linear) untuk pola token, header Authorization, userinfo URL (user boleh kosong, password sampai `@` terakhir sebelum whitespace, bentuk JSON `:\/\/`; R-02), blok PEM, dan nilai secret yang dikenal (`SecretsFromEnv`, `Options.Secrets` tanpa panjang minimum); sentinel `[REDACTED:<tipe>]` + `ContainsSentinel` (ADR-096).
 - `redact`: penyaring stream `Redactor.NewStream` (`Push`/`Flush`, 0 alloc/Push, tanpa goroutine) dengan output identik whole-blob; menahan hanya sufiks yang bisa menjadi awal secret, batas tahanan 4 KiB fail-closed (ADR-096).
+- `netx`: gerbang DLP egress tunggal untuk request `tool` — URL/Host/header/trailer/body, lapisan percent/form-decode ≤ 3, secret case-insensitive dalam bentuk raw/hex/escape URL/JSON/base64, batas kerja fail-closed (`dlp_limit`), ≤ 50 µs per 8 KiB (GAP-SEC-16); log DEBUG metadata tanpa body/query/header, host/path ter-redaksi, request yang diblok tidak pernah menampilkan URL-nya; `Purpose` nol ditolak; `SetSecrets` (ADR-071, ADR-100).
+- `netx` (SSRF): IPv4 tertanam di NAT64/IPv4-compatible/6to4 dan rentang special-purpose IANA tidak lagi dianggap publik (ADR-100).
 
 ### Fixed
 - `ctxdb` (Windows): lock file dilepas eksplisit dengan `UnlockFileEx` sebelum handle ditutup (ADR-092 NEW3-01).
