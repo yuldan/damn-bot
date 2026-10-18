@@ -191,6 +191,7 @@ func (s *Store) dsn(readOnly bool) string {
 		fmt.Sprintf("_pragma=busy_timeout(%d)", s.opt.BusyTimeout.Milliseconds()),
 		"_pragma=journal_mode(WAL)", "_pragma=synchronous(FULL)", "_pragma=foreign_keys(1)",
 		"_pragma=temp_store(MEMORY)", "_pragma=journal_size_limit(67108864)", "_pragma=wal_autocheckpoint(1000)",
+		"_pragma=trusted_schema(1)", // ADR-093 (TS-P03): trigger functions cannot be SQLITE_INNOCUOUS
 	}
 	if readOnly {
 		q = append(q, "_pragma=query_only(1)")

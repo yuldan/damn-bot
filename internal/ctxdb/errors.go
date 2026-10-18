@@ -3,7 +3,7 @@ package ctxdb
 import (
 	"errors"
 	"fmt"
-	"strings"
+	"strconv"
 
 	"modernc.org/sqlite"
 )
@@ -36,18 +36,24 @@ const (
 	codeConstraintTrigger = 1811
 )
 
-// raiseCode maps the RAISE(ABORT, '<msg>') texts of the §11 DDL to closed
-// codes. This is the single place where an SQLite message is inspected: the
-// RAISE text is the only channel a trigger has to carry its reason (SPEC
-// §11.10); matching is exact, not substring (report TS-P05).
-func raiseCode(msg string) error {
-	switch msg {
-	case "session_purging":
-		return ErrSessionPurging
-	case "lease_fenced":
-		return ErrLeaseFenced
-	case "approval_not_pending":
-		return ErrApprovalNotPending
+// raiseMsg is the exact driver text of a trigger RAISE(ABORT, '<token>'):
+// sqlite3_errstr(SQLITE_CONSTRAINT_TRIGGER) + ": " + token + " (1811)", the
+// "%s: %s (%v)" form of modernc errstrForDB.
+func raiseMsg(token string) string {
+	return "constraint failed: " + token + " (" + strconv.Itoa(codeConstraintTrigger) + ")"
+}
+
+// raiseCode is the single E-21 exception (ADR-093, TS-P05): a trigger's RAISE
+// text is the only channel carrying its reason (SPEC §11.10), so for
+// SQLITE_CONSTRAINT_TRIGGER the whole message is compared for equality with
+// each closed token — no substring, prefix or parsing. Any other text,
+// including a changed driver format, is ErrInternal (fail-closed);
+// TestRaiseCodeExact pins the format.
+func raiseCode(se *sqlite.Error) error {
+	for _, code := range [...]error{ErrSessionPurging, ErrLeaseFenced, ErrApprovalNotPending} {
+		if se.Error() == raiseMsg(code.Error()) {
+			return code
+		}
 	}
 	return ErrInternal
 }
@@ -64,7 +70,7 @@ func classify(err error) error {
 	case code&0xff == codeFull:
 		return fmt.Errorf("%w: %w", ErrDiskFull, err)
 	case code == codeConstraintTrigger:
-		return fmt.Errorf("%w: %w", raiseCode(raiseText(se.Error())), err)
+		return fmt.Errorf("%w: %w", raiseCode(se), err)
 	}
 	return err
 }
@@ -75,13 +81,4 @@ func wrap(err error) error {
 		return nil
 	}
 	return fmt.Errorf("ctxdb: %w", classify(err))
-}
-
-// raiseText extracts "<msg>" from the driver format "<errstr>: <msg> (<rc>)".
-func raiseText(s string) string {
-	_, rest, ok := strings.Cut(s, ": ")
-	if i := strings.LastIndex(rest, " ("); ok && i >= 0 {
-		return rest[:i]
-	}
-	return rest
 }
