@@ -34,7 +34,11 @@ func TestProxyRecordsSSEAndRedacts(t *testing.T) {
 	}))
 	defer up.Close()
 	u, _ := url.Parse(up.URL)
-	rec := &Recorder{Upstream: u, Key: upstreamKey, Price: Price{Input: 1, CachedInput: 0.1, Output: 10}, Client: up.Client()}
+	ledger, lerr := OpenLedger(filepath.Join(t.TempDir(), "spend.json"), 10)
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	rec := &Recorder{Upstream: u, Key: upstreamKey, Price: Price{Input: 1, CachedInput: 0.1, Output: 10}, Ledger: ledger, Client: up.Client()}
 	px := httptest.NewServer(rec)
 	defer px.Close()
 

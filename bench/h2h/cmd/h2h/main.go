@@ -8,9 +8,10 @@
 // Kunci upstream hanya dibaca dari -key-file dan hanya ada di memori proxy; agent memakai
 // kunci dummy. Rekaman menyimpan header Authorization sebagai REDACTED.
 //
-// Biaya (ADR-062 butir 3, ADR-075 AUD-037): setiap biaya dicatat ke ledger persisten -ledger
-// (default h2h/results/f1-spend.json, cap total US$2,00 saat dibuat); cap berlaku untuk jumlah
-// semua run. -cap-usd hanya bisa menurunkan cap ledger. Harga wajib > 0.
+// Biaya (ADR-062 butir 3, ADR-075 AUD-037, ADR-085): setiap biaya dicatat ke ledger tunggal
+// h2h.F1LedgerPath (h2h/results/f1-spend.json, di-commit, cap total US$2,00), yang juga dipakai
+// cmd/startup; cap berlaku untuk jumlah semua run. -cap-usd hanya bisa menurunkan cap ledger.
+// Harga input/output wajib > 0.
 package main
 
 import (
@@ -73,8 +74,8 @@ type summary struct {
 	Results []h2h.TaskResult `json:"results"`
 }
 
-// F1CapUSD adalah cap total biaya LLM F1 untuk ledger baru (ADR-062 butir 3).
-const F1CapUSD = 2.00
+// F1CapUSD: lihat h2h.F1CapUSD.
+const F1CapUSD = h2h.F1CapUSD
 
 func run() error {
 	hermesDir := flag.String("hermes", "", "checkout hermes-agent (read-only)")
@@ -87,7 +88,8 @@ func run() error {
 	priceCached := flag.Float64("price-cached", 0, "USD per 1M token input ter-cache")
 	priceOut := flag.Float64("price-out", 0, "USD per 1M token output")
 	priceSrc := flag.String("price-source", "", "sumber tabel harga")
-	ledgerPath := flag.String("ledger", "h2h/results/f1-spend.json", "ledger biaya persisten lintas run (ADR-075)")
+	ledgerPath := new(string)
+	*ledgerPath = h2h.F1LedgerPath
 	capUSD := flag.Float64("cap-usd", 0, "batas keras USD; 0 = cap ledger (US$2,00 saat ledger dibuat, ADR-062); hanya bisa menurunkan")
 	timeout := flag.Duration("timeout", 5*time.Minute, "timeout per task")
 	maxTurns := flag.Int("max-turns", 20, "batas iterasi tool per task (hermes --max-turns)")
@@ -100,7 +102,7 @@ func run() error {
 	}
 	price := h2h.Price{Input: *priceIn, CachedInput: *priceCached, Output: *priceOut}
 	if !price.Valid() {
-		return errors.New("h2h: -price-in, -price-cached, -price-out wajib > 0 (ADR-075: harga 0 mematikan cap)")
+		return errors.New("h2h: -price-in dan -price-out wajib > 0, -price-cached ≥ 0 (ADR-075/085: harga 0 mematikan cap)")
 	}
 	ledger, err := h2h.OpenLedger(*ledgerPath, F1CapUSD)
 	if err != nil {

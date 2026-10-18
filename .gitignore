@@ -1,0 +1,7 @@
+# Artefak lokal sementara (AUD-083, ADR-086 NEW-51).
+*.tmp
+*.test
+/coverage.out
+# Lock dan temp ledger biaya h2h (ADR-085); ledger f1-spend.json sendiri di-commit.
+bench/h2h/results/*.lock
+bench/h2h/results/.ledger-*

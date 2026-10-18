@@ -73,8 +73,9 @@ func (p Price) Cost(u Usage) float64 {
 		float64(u.CompletionTokens)*p.Output) / 1e6
 }
 
-// Valid: semua tarif > 0. Tarif 0 membuat biaya = 0 sehingga cap tidak pernah terpicu (AUD-037).
-func (p Price) Valid() bool { return p.Input > 0 && p.CachedInput > 0 && p.Output > 0 }
+// Valid: tarif input dan output > 0, cached ≥ 0 (provider tanpa diskon cache, ADR-085). Tarif
+// input/output 0 membuat biaya = 0 sehingga cap tidak pernah terpicu (AUD-037).
+func (p Price) Valid() bool { return p.Input > 0 && p.CachedInput >= 0 && p.Output > 0 }
 
 // DefaultMaxOutput adalah proyeksi token output bila request tidak membatasi max token.
 const DefaultMaxOutput = 32768
@@ -243,8 +244,13 @@ func (r *Recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		r.fail(w, &rec, http.StatusBadRequest, "POST "+req.URL.Path+" tidak dikenal: biayanya tidak bisa dihitung")
 		return
 	}
+	// Kunci upstream nyata = biaya nyata: tanpa ledger lintas proses cap ADR-062 bisa dilewati (ADR-085).
+	if billable && r.Key != "" && r.Ledger == nil {
+		r.fail(w, &rec, http.StatusInternalServerError, "ledger wajib untuk Recorder berkunci upstream (ADR-085)")
+		return
+	}
 	if billable && r.Cap() > 0 && !r.Price.Valid() {
-		r.fail(w, &rec, http.StatusInternalServerError, "harga input/cached/output wajib > 0 bila cap aktif (ADR-075)")
+		r.fail(w, &rec, http.StatusInternalServerError, "harga input/output wajib > 0 bila cap aktif (ADR-075)")
 		return
 	}
 	if billable {

@@ -105,7 +105,15 @@ func run() error {
 	}
 	zw := gzip.NewWriter(f)
 	price := h2h.Price{Input: *priceIn, CachedInput: *priceCached, Output: *priceOut}
-	rec := &h2h.Recorder{Upstream: up, Key: strings.TrimSpace(string(keyb)), Price: price, CapUSD: *capUSD,
+	if !price.Valid() {
+		return errors.New("startup: -price-in dan -price-out wajib > 0 (ADR-075/085)")
+	}
+	// Belanja driver ini masuk ledger F1 yang sama dengan cmd/h2h (ADR-085 NEW-14).
+	ledger, err := h2h.OpenLedger(h2h.F1LedgerPath, h2h.F1CapUSD)
+	if err != nil {
+		return err
+	}
+	rec := &h2h.Recorder{Upstream: up, Key: strings.TrimSpace(string(keyb)), Price: price, CapUSD: *capUSD, Ledger: ledger,
 		Client: &http.Client{Timeout: 5 * time.Minute}}
 	// -netns: hermes di `unshare -rn`, egress hanya lewat relay unix socket ke proxy.
 	// Tanpa -netns: jaringan normal, provider hermes = proxy TCP lokal ini.

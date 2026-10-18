@@ -97,11 +97,12 @@ func TestReservationRejectsOverCap(t *testing.T) {
 	}
 }
 
-// TestPriceRequired: cap aktif dengan tarif 0 → error harness, tidak pernah diteruskan.
+// TestPriceRequired: cap aktif dengan tarif output 0 → error harness, tidak pernah diteruskan.
+// Tarif cached 0 sah (ADR-085).
 func TestPriceRequired(t *testing.T) {
 	t.Parallel()
 	u, c, hits := upstreamWith(t, 200, `{"usage":{"prompt_tokens":10,"completion_tokens":1}}`)
-	rec := &Recorder{Upstream: u, Price: Price{Input: 1, Output: 1}, CapUSD: 1, Client: c}
+	rec := &Recorder{Upstream: u, Price: Price{Input: 1}, CapUSD: 1, Client: c}
 	px := httptest.NewServer(rec)
 	defer px.Close()
 	rec.Begin("a", "T", io.Discard)
@@ -109,6 +110,57 @@ func TestPriceRequired(t *testing.T) {
 	_, errs := rec.End()
 	if got != http.StatusInternalServerError || *hits != 0 || len(errs) != 1 {
 		t.Fatalf("status=%d hits=%d errs=%v", got, *hits, errs)
+	}
+	if !(Price{Input: 1, Output: 1}).Valid() {
+		t.Fatal("cached 0 harus sah")
+	}
+}
+
+// TestLedgerRequiredWithKey: Recorder dengan kunci upstream tanpa ledger menolak request (ADR-085).
+func TestLedgerRequiredWithKey(t *testing.T) {
+	t.Parallel()
+	u, c, hits := upstreamWith(t, 200, `{"usage":{"prompt_tokens":10,"completion_tokens":1}}`)
+	rec := &Recorder{Upstream: u, Key: "k", Price: testPrice, CapUSD: 1, Client: c}
+	px := httptest.NewServer(rec)
+	defer px.Close()
+	if got := post(t, px.URL, "/v1/chat/completions", `{"max_tokens":1}`); got != http.StatusInternalServerError || *hits != 0 {
+		t.Fatalf("status=%d hits=%d, want 500/0", got, *hits)
+	}
+}
+
+// TestLedgerSharedAcrossInstances: dua Ledger pada file yang sama (flock per open file
+// description, perilakunya sama dengan dua proses) menambah bersamaan → tidak ada update hilang,
+// dan masing-masing melihat total terbaru.
+func TestLedgerSharedAcrossInstances(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "spend.json")
+	a, err := OpenLedger(path, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := OpenLedger(path, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 2)
+	for _, l := range []*Ledger{a, b} {
+		go func() {
+			for range 50 {
+				if aerr := l.Add(0.25); aerr != nil {
+					done <- aerr
+					return
+				}
+			}
+			done <- nil
+		}()
+	}
+	for range 2 {
+		if derr := <-done; derr != nil {
+			t.Fatal(derr)
+		}
+	}
+	if a.Spent() != 25 || b.Spent() != 25 {
+		t.Fatalf("spent a=%v b=%v, want 25", a.Spent(), b.Spent())
 	}
 }
 
