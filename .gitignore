@@ -5,3 +5,5 @@
 # Lock dan temp ledger biaya h2h (ADR-085); ledger f1-spend.json sendiri di-commit.
 bench/h2h/results/*.lock
 bench/h2h/results/.ledger-*
+# Binari alat lokal (damnbot-vet, target vet-custom).
+/.bin/
