@@ -115,24 +115,34 @@ type Config struct {
 	// (CODE-TOOLS §2.3); empty = os.UserHomeDir / $XDG_CONFIG_HOME or
 	// Home/.config.
 	Home, XDGConfigHome string
+	// Snapshot receives the old bytes of a hard-linked file before it is
+	// rewritten in place (CODE-TOOLS §5.4: rename would break the link, so
+	// a crash mid-copy is recoverable only from this snapshot); an error
+	// aborts the write with the file untouched. The dispatch pipeline
+	// stores it in file_snapshots (SPEC §4.3 langkah 9).
+	Snapshot func(ctx context.Context, resolved string, old *os.File) error
 }
 
 // Engine runs the file tools of one session. Close releases its caches and
 // stops background index builds.
 type Engine struct {
-	sb     *sandbox.Sandbox
-	roots  []string
-	newEOL string
-	fold   bool // case-insensitive root prefixes (Windows)
-	home   string
-	xdg    string
+	sb       *sandbox.Sandbox
+	roots    []string
+	newEOL   string
+	fold     bool // case-insensitive root prefixes (Windows)
+	home     string
+	xdg      string
+	snapshot func(ctx context.Context, resolved string, old *os.File) error
+	// hook is a test seam called at named commit points; an error aborts
+	// the write there (failure injection, CT-25 kill points).
+	hook func(point string) error
 
 	mu       sync.Mutex
 	bg       []bgTask // background index builds, stopped by Close
 	building map[fileKey]bool
 	idle     *time.Timer // idle cache release (CODE-TOOLS §7)
 	cache    *caches
-	locks    map[string]*sync.Mutex // per-path edit locks
+	locks    map[string]*pathMu // per-file edit locks, dropped when idle
 }
 
 // New builds an Engine; roots are canonicalized like the sandbox does.
@@ -140,7 +150,7 @@ func New(cfg *Config) (*Engine, error) {
 	if cfg == nil || cfg.Sandbox == nil || len(cfg.Roots) == 0 {
 		return nil, errors.New("codetools: sandbox and roots required")
 	}
-	e := &Engine{sb: cfg.Sandbox, newEOL: "\n", fold: runtime.GOOS == "windows", building: map[fileKey]bool{}, locks: map[string]*sync.Mutex{}}
+	e := &Engine{sb: cfg.Sandbox, newEOL: "\n", fold: runtime.GOOS == "windows", snapshot: cfg.Snapshot, building: map[fileKey]bool{}, locks: map[string]*pathMu{}}
 	if cfg.NewEOL == "crlf" {
 		e.newEOL = "\r\n"
 	}
@@ -281,6 +291,20 @@ func (e *Engine) open(ctx context.Context, p string, flag int, perm fs.FileMode,
 		resolved = r
 	}
 	return &target{f: f, resolved: resolved, rel: e.rel(resolved), outside: v != sandbox.Inside}, nil
+}
+
+// openResolved opens a path found by a walk or written by this Engine
+// (sandbox.OpenResolved); a verdict needing approval that approved does
+// not cover fails closed.
+func (e *Engine) openResolved(ctx context.Context, p string, approved bool) (*os.File, error) {
+	f, v, err := e.sb.OpenResolved(ctx, p, approved)
+	switch {
+	case err != nil:
+		return nil, mapOpenErr(e.rel(p), err)
+	case f == nil:
+		return nil, approval(v, e.rel(p), false)
+	}
+	return f, nil
 }
 
 // mapOpenErr classifies sandbox/OS open failures by sentinel (E-21).

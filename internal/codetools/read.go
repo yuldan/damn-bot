@@ -62,9 +62,7 @@ func (e *Engine) Read(ctx context.Context, a ReadArgs, o Opts) (res Result, err 
 	if fi.IsDir() {
 		return res, toolErr(CodeInvalidArgs, "use glob to list a directory", "%s is a directory", a.Path)
 	}
-	e.mu.Lock()
 	e.touch()
-	e.mu.Unlock()
 	f := &fileView{t: t, key: keyOf(t.resolved, fi)}
 	if err := f.sniff(); err != nil {
 		return res, err

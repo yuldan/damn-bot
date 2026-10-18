@@ -43,7 +43,7 @@ func (e *Engine) editLarge(ctx context.Context, c *current, edits []EditItem) (R
 		return Result{}, terr
 	}
 	eol := ""
-	ci, err := e.commitStream(ctx, c.t, c.key, c.fi.Mode().Perm(), func(w io.Writer) error {
+	ci, err := e.commitStream(ctx, c.t, c.key, keepMode(c.fi), func(w io.Writer) error {
 		var ferr error
 		eol, ferr = streamEdit(io.NewSectionReader(c.t.f, 0, c.key.size), w, rs)
 		return ferr

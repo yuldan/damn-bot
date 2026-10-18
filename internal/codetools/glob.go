@@ -38,9 +38,7 @@ func (e *Engine) Glob(ctx context.Context, a GlobArgs, o Opts) (Result, error) {
 	if a.Limit == 0 {
 		a.Limit = globDefaultLimit
 	}
-	e.mu.Lock()
 	e.touch()
-	e.mu.Unlock()
 	r, err := e.searchRoot(ctx, a.Path, o)
 	if err != nil {
 		return Result{}, err
@@ -164,12 +162,7 @@ func globResult(e *Engine, a *GlobArgs, r *searchRoot, paths []string, st *walkS
 	var b strings.Builder
 	fmt.Fprintf(&b, "glob %s · %d of %d\n%s", strconv.Quote(a.Pattern), shown, total, body.String())
 	meta := map[string]any{"count": total}
-	if d := st.denied; d > 0 {
-		fmt.Fprintf(&b, "skipped: %d denied\n", d)
-	}
-	if st.nUnread > 0 {
-		fmt.Fprintf(&b, "skipped: %d unreadable %s\n", st.nUnread, strings.Join(st.unreadable, " "))
-	}
+	st.footer(&b, 0, 0)
 	if next := from + shown; next < total {
 		fmt.Fprintf(&b, "next: offset=%d\n", next)
 		meta["next"] = next

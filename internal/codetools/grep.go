@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path"
 	"slices"
@@ -69,6 +70,7 @@ const (
 	skipBinary
 	skipDenied
 	skipUnreadable
+	skipLinked // hard-linked file needing approval (S16-7)
 )
 
 // langTypes is the built-in `type` table (CODE-TOOLS §2.1).
@@ -150,11 +152,7 @@ func fileFilter(glob, typ string) (func(string) bool, bool, error) {
 	if typ != "" {
 		g, ok := langTypes()[typ]
 		if !ok {
-			names := make([]string, 0, len(langTypes()))
-			for k := range langTypes() {
-				names = append(names, k)
-			}
-			slices.Sort(names)
+			names := slices.Sorted(maps.Keys(langTypes()))
 			return nil, false, toolErr(CodeInvalidArgs, "valid: "+strings.Join(names, ", "), "/type: unknown type %q", typ)
 		}
 		globs = g
@@ -191,9 +189,7 @@ func (e *Engine) Grep(ctx context.Context, a *GrepArgs, o Opts) (Result, error) 
 	if err != nil {
 		return Result{}, err
 	}
-	e.mu.Lock()
 	e.touch()
-	e.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, grepTimeout)
 	defer cancel()
 	r, err := e.searchRoot(ctx, a.Path, o)
@@ -204,7 +200,6 @@ func (e *Engine) Grep(ctx context.Context, a *GrepArgs, o Opts) (Result, error) 
 	if err != nil {
 		return Result{}, err
 	}
-	out = &grepOut{p: p, e: e, budget: o.pageChars() - 200}
 	scan := func(ctx context.Context, abs string, buf *[]byte) scanOut {
 		return e.scanFile(ctx, abs, p, r.outside, buf)
 	}
@@ -269,12 +264,14 @@ func (e *Engine) searchRoot(ctx context.Context, p string, o Opts) (*searchRoot,
 // scanFile searches one file through the sandbox (CODE-TOOLS §2.4); buf
 // is the worker's reusable read buffer (kept ≤ scratchMax).
 func (e *Engine) scanFile(ctx context.Context, abs string, p *grepPlan, outside bool, scratch *[]byte) (out scanOut) {
-	f, err := e.sb.OpenResolved(ctx, abs, outside)
+	f, _, err := e.sb.OpenResolved(ctx, abs, outside)
 	switch {
 	case errors.Is(err, sandbox.ErrDeniedPath):
 		return scanOut{skip: skipDenied}
 	case err != nil:
 		return scanOut{skip: skipUnreadable}
+	case f == nil: // hard-linked (S16-7): read_file asks for approval
+		return scanOut{skip: skipLinked}
 	}
 	defer closeInto(&err, f)
 	raw, fi, err := readScratch(f, scratch)
