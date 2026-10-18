@@ -52,7 +52,7 @@ Notasi aturan menang: `↓` lebih kecil lebih baik, `↑` lebih besar lebih baik
 | **[I]** Pemulihan setelah `kill -9` | korupsi DB, turn hilang tanpa penanda, tool mutating terulang tanpa konfirmasi | 200 kill acak (SPEC P19) | diukur di F0 | 0 / 0 / 0 | ↓, 0 |
 | **[I]** Self-healing | waktu kembali melayani setelah proses/OS hidup; pesan Telegram hilang/dobel | [`SELF-HEALING.md`](SELF-HEALING.md) chaos suite | diukur di F0 | ≤ 10 s; 0 hilang; 0 dobel di suite | ↓ |
 | Konkurensi | 4 proses × 50 turn + 2 proses berebut sesi; error `SQLITE_BUSY`/korupsi | SPEC P19 `TestMultiProcess` | diukur di F0 (riwayat WAL: `hermes_state.py:182-184`) | 0 | ↓ |
-| Proses yatim / perintah hang | proses tersisa setelah cancel/timeout; perintah interaktif yang menggantung | EXEC suite 200 skenario | orphan mungkin (`tools/environments/local.py:943-950`); tanpa idle timeout | 0 / 0 | ↓, 0 |
+| Proses yatim / perintah hang | proses tersisa setelah cancel/timeout; perintah interaktif yang menggantung | EXEC: `TestNoOrphans` (200 iterasi), `TestInteractiveCorpus` (40 fixture × pipe/pty) (ADR-077) | orphan mungkin (`tools/environments/local.py:943-950`); tanpa idle timeout | 0 / 0 | ↓, 0 |
 | Edit salah lokasi | edit diterapkan di lokasi selain yang dimaksud | CODE-TOOLS accuracy suite CT-20 ≥ 325 kasus (CODE-TOOLS §10.3), dijalankan pada tool edit kedua agent | fuzzy 9 strategi (`tools/fuzzy_match.py:289-298`) | 0 | ↓, 0 |
 | Error tertelan | error yang tidak muncul di log/transcript pada injeksi fault | 50 titik injeksi | 4.795 `except Exception` (BASELINE §5) | 0 | ↓ |
 | Fallback tak terlihat | fallback/retry tanpa jejak di UI/transcript | injeksi 503 | diukur di F0 | 0 | ↓ |
