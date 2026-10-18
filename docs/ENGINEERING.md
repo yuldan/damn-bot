@@ -549,7 +549,7 @@ Meta-test gate ada di workflow terpisah `meta.yml` (ADR-073, ADR-085) yang berja
 | E-67 | Kasus serupa table-driven | 0 temuan `dupl` (100 token) di `_test.go` | `dupl` | — |
 | E-68 | Output model-facing (tool result, error ke model, prompt tier, schema, katalog) di-golden | 100% tool punya golden sukses + ≥ 1 golden error | `TestGoldenCoverage` (iterasi registry) ; update via `go test -update`, diff golden wajib terlihat di PR | — |
 | E-69 | Provider palsu deterministik (`internal/provider/providertest`): skrip respons, SSE replay, latensi dari fake clock | 0 call jaringan di `go test ./...` tanpa tag | `TestNoNetwork`: `netx` di mode test menolak dial non-loopback | — |
-| E-70 | Rasio LOC test:source (Go, `scc --no-gen`) | 0,8–1,2; gate hanya bila Go non-test ≥ 5.000 LOC, di bawahnya laporan saja (ADR-050) | `loc-budget` | 1,48 |
+| E-70 | Rasio LOC test:source (Go, `scc --no-gen`) | 0,8–1,2; gate hanya bila Go non-test ≥ 5.000 LOC, di bawahnya laporan saja (ADR-050); paket test-only di allowlist eksplisit `TESTONLY <dir>` `loc.budget` (`internal/archtest`, `internal/testutil`) dikeluarkan dari rasio dan ambang, LOC-nya tetap dilaporkan (ADR-098) | `loc-budget` | 1,48 |
 | E-71 | File test | ≤ 1.500 baris | `TestFileLength` | maks 23.074; 69 file > 1.500 |
 | E-72 | Tanpa sleep di test | 0 `time.Sleep` | `forbidigo` (E-30); waktu via `testing/synctest` atau clock injeksi | — |
 | E-73 | Flake | ≤ 0,1% eksekusi test | nightly `flake`: `go test -count=20 -shuffle=on ./...`; flake = test yang gagal di sebagian (bukan semua) run ÷ total eksekusi | — |

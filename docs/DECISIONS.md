@@ -2391,3 +2391,21 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 **Dampak terukur (SPEC §20).** Token 0 (paket belum dipakai prompt). Latensi: validasi 1 KiB ≈ 1,8 µs, 0 alloc (budget E-37 ≤ 20 µs/≤ 2 alloc). LOC `schema` 1.128 / 1.200 (scc). Binary: belum di-link ke `damnbot` (dipakai `tools` F1). Dependency 0 (suite = testdata).
 
 **Konsekuensi.** (+) Validator dengan error presisi, kebenaran diuji suite resmi + fuzz diferensial terhadap `encoding/json`. (−) Dokumen dengan surrogate tunggal/UTF-8 rusak ditolak (model harus memperbaiki); `pattern` mengikuti RE2, bukan ECMA-262; sisa budget `schema` 72 LOC.
+
+## ADR-098 — E-70: paket test-only dikeluarkan dari rasio test:source lewat allowlist `TESTONLY`
+
+**Status:** Accepted 2026-10-19 (keputusan direktur proyek atas usulan pelaksana F1). Mengamandemen ADR-050 dan ENGINEERING E-70. Nomor ADR-098 semula dicadangkan untuk `internal/boundary`; paket itu tidak memerlukan deviasi, jadi bila kelak butuh ADR ia memakai nomor bebas berikutnya.
+
+**Aturan penerapan.** Diterapkan (2026-10-19): `scripts/loc-check.sh` (mode `ratio` dan `budget`), `loc.budget` (baris `TESTONLY`), `internal/archtest/repometa_test.go` (`TestBudgetTableSum` memvalidasi baris `TESTONLY`), `scripts/ci-meta-test.sh` (gate `loc-ratio-testonly`, penanda `LOC GAGAL ratio`), ENGINEERING E-70.
+
+**Konteks.** Bagian 3/3 `internal/schema` membuat Go non-test repo melewati 5.000 LOC, sehingga gate E-70 aktif pertama kali (ADR-050): rasio 6.753:5.091 = 1,33 > 1,20. Penyumbang utama `internal/archtest` (1.092 baris test : 66 baris kode) — paket test arsitektur tanpa kode produksi, yang tidak mengukur kecukupan test kode produksi mana pun. Tanpa paket test-only rasio = 1,08–1,13.
+
+**Keputusan.**
+1. **Allowlist eksplisit, bukan heuristik.** Paket test-only = direktori yang tercantum sebagai baris `TESTONLY <dir>` di `loc.budget`: `internal/archtest` dan `internal/testutil` (beserta subdirektorinya). Paket baru yang berat test tetap masuk rasio sampai ADR menambahkannya ke allowlist. `TestBudgetTableSum` menolak baris `TESTONLY` yang menunjuk direktori di luar infra non-produksi (ADR-086 NEW-34: `internal/testutil`, `internal/archtest`, `tools/analyzers`), sehingga paket produksi tidak bisa dikecualikan.
+2. **Dikecualikan dari rasio dan dari ambang 5.000 LOC; tetap dihitung di budget.** `make loc` tetap menghitung LOC paket itu terhadap baris budget-nya dan total P21; `make loc-ratio` mencetak satu baris `LOC ratio dikecualikan (TESTONLY, ADR-098) <dir> test:source = a:b` per direktori.
+3. **Penanda kegagalan.** Gate rasio yang gagal mencetak `LOC GAGAL ratio <r> di luar 0,80–1,20 (E-70)`; meta-test `loc-ratio` dan `loc-ratio-testonly` mencocokkan penanda itu (sebelumnya baris laporan yang juga muncul saat lulus).
+4. **Meta-test.** `loc-ratio`: pohon sintetis 5.000:5.000 lulus, +2.000 baris test gagal (ADR-050, tetap). `loc-ratio-testonly`: pohon yang sama + paket berat test (1:2.000) di `internal/archtest` lulus; isi yang sama di paket non-allowlist `internal/metaheavy` gagal.
+
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency/LOC produksi 0. Rasio repo saat ini (main + `schema` 3/3): 5.529:4.890 → laporan saja sampai Go non-test produksi ≥ 5.000 LOC.
+
+**Konsekuensi.** (+) E-70 mengukur test kode produksi; paket baru tidak bisa lolos diam-diam. (−) Ambang 5.000 LOC tercapai sedikit lebih lambat (infra test-only ≈ 200 LOC tidak dihitung).

@@ -2,7 +2,9 @@
 # Gate LOC (ENGINEERING E-19/E-61/E-70). Pemakaian:
 #   scripts/loc-check.sh budget   # per paket (loc.budget) + total; exit 1 bila melebihi
 #   scripts/loc-check.sh ratio    # rasio LOC test:source 0,8–1,2 (E-70); exit 1 bila di luar, tetapi hanya
-#                                 # bila Go non-test ≥ 5.000 LOC (ADR-050); di bawahnya laporan saja (exit 0)
+#                                 # bila Go non-test ≥ 5.000 LOC (ADR-050); di bawahnya laporan saja (exit 0).
+#                                 # Direktori baris `TESTONLY <dir>` loc.budget dilaporkan terpisah dan
+#                                 # tidak masuk rasio maupun ambang (ADR-098).
 # Butuh scc (SCC env; default `go tool -modfile=tools/go.mod scc`).
 # AUD-073: file Go non-test di internal/* yang tidak terpetakan ke baris loc.budget = gagal; file
 # generated hanya dikecualikan bila path-nya cocok glob baris `GENERATED <glob>` di loc.budget
@@ -37,7 +39,7 @@ budget)
 		while ((getline line < budget) > 0) {
 			if (line ~ /^#/ || line ~ /^[ \t]*$/) continue
 			n = split(line, f, FS)
-			if (f[1] == "GENERATED") continue
+			if (f[1] == "GENERATED" || f[1] == "TESTONLY") continue
 			if (f[1] == "TOTAL") { total_max = f[2]; continue }
 			max[f[1]] = f[2]; used[f[1]] = 0
 			for (i = 3; i <= n; i++) dirgroup[f[i]] = f[1]
@@ -67,11 +69,26 @@ budget)
 	}' <<<"$csv"
 	;;
 ratio)
-	awk -F, '
+	awk -F, -v budget=loc.budget '
+	BEGIN {
+		# ADR-098: allowlist eksplisit paket test-only (bukan heuristik), agar paket baru yang
+		# berat test tidak bisa lolos dari rasio diam-diam.
+		while ((getline line < budget) > 0) {
+			n = split(line, f, /[ \t]+/)
+			if (f[1] == "TESTONLY" && n >= 2) testonly[f[2]] = 1
+		}
+	}
 	NR == 1 { next }
-	$2 ~ /_test\.go$/ { test += $5; next }
-	{ src += $5 }
+	{
+		ex = ""
+		for (d in testonly) if (index($2, d "/") == 1) ex = d
+		kind = ($2 ~ /_test\.go$/) ? "test" : "src"
+		if (ex != "") { exl[ex, kind] += $5; next }
+		if (kind == "test") test += $5; else src += $5
+	}
 	END {
+		for (d in testonly)
+			printf "LOC ratio dikecualikan (TESTONLY, ADR-098) %s test:source = %d:%d\n", d, exl[d, "test"], exl[d, "src"]
 		if (src == 0) { print "LOC ratio: 0 source LOC"; exit 1 }
 		r = test / src
 		printf "LOC ratio test:source = %d:%d = %.2f (target 0,80–1,20, E-70)\n", test, src, r
@@ -81,6 +98,7 @@ ratio)
 			printf "LOC ratio report-only: Go non-test %d < 5000 (ADR-050); %s, tidak menggagalkan gate\n", src, (bad ? "di luar target" : "dalam target")
 			exit 0
 		}
+		if (bad) printf "LOC GAGAL ratio %.2f di luar 0,80–1,20 (E-70)\n", r
 		exit bad ? 1 : 0
 	}' <<<"$csv"
 	;;
