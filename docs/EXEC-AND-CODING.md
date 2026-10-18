@@ -573,7 +573,7 @@ Interpreter tidak ditemukan → `module_unavailable` + instruksi instalasi.
 ## C. Evaluasi (SCORECARD, gate 1.0)
 
 Harness `damnbot-eval` (F0, SCORECARD) menjalankan Damn-Bot dan hermes pada kondisi yang sama:
-- model sama (di-pin di `eval/model.toml`, termasuk versi provider);
+- model sama (di-pin di `bench/evals/model.toml`, termasuk versi provider);
 - temperatur 0 bila didukung;
 - cap budget per task identik (iterasi 40, wall 30 menit);
 - container bersih per task;
@@ -583,9 +583,11 @@ Harness `damnbot-eval` (F0, SCORECARD) menjalankan Damn-Bot dan hermes pada kond
 
 | Set | File | Isi | Seleksi deterministik |
 |---|---|---|---|
-| SWE-bench Verified | `eval/sets/swebench-verified-100.txt` | 100 instance_id | urut `sha256("damnbot-1.0:" + instance_id)`, ambil 100 pertama dengan stratifikasi proporsional per repo (pembulatan largest-remainder) |
-| Terminal-Bench | `eval/sets/terminal-bench-50.txt` | 50 task id (Terminal-Bench 2.0) | aturan hash yang sama, stratifikasi per kategori |
-| Internal multi-bahasa | `eval/sets/internal-60/` | 60 task: 10 per Go, Python, TypeScript, Rust, Java, shell. Per bahasa: 3 bugfix, 2 fitur, 2 refactor, 1 build-fix, 2 trap (prompt interaktif, server background, output > 1 MB, perubahan user di tengah task) | ditulis tim; tiap task punya test tersembunyi + `expect.json` (file yang boleh berubah, perintah verify) |
+| SWE-bench Verified | `bench/evals/sets/swebench-verified-100.txt` | 100 instance_id | urut `sha256("damnbot-1.0:" + instance_id)`, ambil 100 pertama dengan stratifikasi proporsional per repo (pembulatan largest-remainder) |
+| Terminal-Bench | `bench/evals/sets/terminal-bench-50.txt` | 50 task id (Terminal-Bench 2.0) | aturan hash yang sama, stratifikasi per kategori |
+| Internal multi-bahasa | `bench/evals/sets/internal-60/` | 60 task: 10 per Go, Python, TypeScript, Rust, Java, shell. Per bahasa: 3 bugfix, 2 fitur, 2 refactor, 1 build-fix, 2 trap (prompt interaktif, server background, output > 1 MB, perubahan user di tengah task) | ditulis tim; tiap task punya test tersembunyi + `expect.json` (file yang boleh berubah, perintah verify) |
+
+*(Amandemen ADR-093.)* **TS-E01** root eval = `bench/evals/` (modul `bench`), bukan `eval/`. **TS-E03** tabel ini tetap normatif untuk set gate; `evalset/v1` F0 (hash `evalset/v1|id` tanpa stratifikasi, Terminal-Bench core 0.1.1, internal 60 bugfix) hanya untuk smoke informatif. `evalset/v2` yang memenuhi tabel ini (revisi Terminal-Bench 2.0 dan SHA-256 di-pin saat dibangkitkan) wajib ada sebelum scorecard mingguan pertama (F3) — SCORECARD §2.2.
 
 **Metrik per task**, run n = 3 per agent per task:
 

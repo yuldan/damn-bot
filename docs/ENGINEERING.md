@@ -2,6 +2,8 @@
 
 Status: spesifikasi normatif. Berlaku untuk semua kode Go di repo Damn-Bot (binary `damnbot`, Go 1.26.x dengan pin direktif `go 1.26.9` di `go.mod`, `bench/go.mod`, `tools/go.mod` (ADR-051; sebutan Go 1.26.8 di dokumen ini = catatan pengukuran historis, bukan pin), `CGO_ENABLED=0`). Induk: [SPEC.md](../SPEC.md) §2 (P6, P13, P14, P16, P21), §3, §16; [DECISIONS.md](DECISIONS.md) ADR-001/002/008/009/011/014/015/016; [BASELINE-hermes.md](BASELINE-hermes.md). Setiap aturan bernomor `E-xx` punya angka dan alat verifikasi. Melanggar aturan = CI merah, kecuali disebut "laporan".
 
+Path modul (ADR-093, TS-01): `github.com/damnbot/damnbot` (root), `github.com/damnbot/damnbot/bench`, `github.com/damnbot/damnbot/tools`; tanpa vanity import.
+
 Referensi hermes: commit `868b9f244f` (`git log -1` = 2026-10-17 04:38 −0700); semua sitasi `path:line` relatif ke root `hermes-agent`. Pengukuran ulang: 2026-10-17, Go 1.26.8 linux/amd64, mesin workstation penulis (bukan mesin referensi Q14).
 
 ---
@@ -344,6 +346,8 @@ Total core per paket = 33.750 ≤ 47.000 (budget gabungan SPEC §3.2.4 untuk cor
 | E-23 | Tanpa `panic` di kode library | 0 `panic(` di `internal/` | `forbidigo` pattern `^panic$`; pengecualian: `regexp.MustCompile` literal level paket (E-10 #4) |
 | E-24 | `recover()` hanya di `internal/boundary` | 1 paket | `forbidigo` `^recover$` + exclusion path `internal/boundary` |
 
+*(Amandemen ADR-093, TS-P05.)* Satu-satunya pengecualian E-21 = `ctxdb.raiseCode`: alasan trigger hanya terbawa lewat teks `RAISE(ABORT, '<token>')` (SPEC §11.10). Untuk kode extended `SQLITE_CONSTRAINT_TRIGGER` (1811) saja, seluruh pesan driver dibandingkan **sama persis** dengan `constraint failed: <token> (1811)` untuk token tertutup `session_purging`, `lease_fenced`, `approval_not_pending` → sentinel; teks lain (termasuk perubahan format driver) → `internal` (fail-closed). Tanpa substring/prefix/parse. Analyzer `nostringclassify` (F1) meng-allowlist fungsi itu saja; `TestRaiseCodeExact` mengunci format.
+
 Contoh pola (bandingkan `tools/terminal_tool.py:1280`):
 
 ```go
@@ -424,6 +428,8 @@ func classify(ctx context.Context, err error) (code string, exitCode int) {
 | E-43 | Transitif ringan | modul ter-link (`go version -m`) dicatat; > 5 transitif butuh justifikasi ADR | probe §4.3 |
 | E-44 | Bersih kerentanan | 0 temuan reachable | `govulncheck ./...` |
 | E-45 | Budget dependency | ≤ 28 `require` langsung (non-`// indirect`) di `go.mod` utama (ADR-033) (runtime + test); tool dev di `tools/go.mod` terpisah | `TestDirectDeps` (parse `require` langsung non-`// indirect` `go.mod` utama; ukuran P21, V-11/ADR-054) + `deps.allow` |
+
+*(Amandemen ADR-093.)* E-39 — pengecualian bernama: (1) **TS-04** `go-licenses check` v2 tidak punya flag `-tags`, jadi target `licenses` memakai `GOFLAGS=-tags=goolm` tanpa `-tags` lain di command line (tidak ada penimpaan); larangan tag lewat `GOFLAGS` berlaku untuk semua target lain. (2) **TS-05** `go test -race` (E-55) butuh cgo: job CI `test` memakai `CGO_ENABLED=1` hanya untuk `-race`; build rilis, `size-check`, `build-matrix`, dan job `test-timing` tetap `CGO_ENABLED=0`.
 
 ### 4.2 Keputusan per kebutuhan
 

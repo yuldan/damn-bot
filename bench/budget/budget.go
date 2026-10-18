@@ -1,6 +1,6 @@
 // Package budget adalah harness token P1 (ROADMAP F0 #1, SPEC P1/§5.3): mengukur prompt per tier
-// dan tool schema dalam tiga satuan — byte UTF-8, karakter (satuan kolom "Bytes" BASELINE-hermes.md,
-// = Python len(str)), dan token o200k_base — plus estimasi hermes ceil(char/4)
+// dan tool schema dalam tiga satuan — byte UTF-8, karakter (satuan kolom "Char" BASELINE-hermes.md,
+// = Python len(str), ADR-093), dan token o200k_base — plus estimasi hermes ceil(char/4)
 // (agent/model_metadata.py CHARS_PER_TOKEN = 4) agar angka BASELINE dapat direproduksi.
 package budget
 

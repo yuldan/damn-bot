@@ -29,8 +29,8 @@ func check(name, source string, want, got int, gate bool, note string) Check {
 
 // Compare membandingkan snapshot default (cwd = root hermes, AGENTS.md dimuat) dan
 // snapshot tanpa file konteks dengan angka BASELINE-hermes.md §2/§7.
-// Kolom "Bytes" BASELINE = jumlah karakter Python (len(str)), bukan byte UTF-8:
-// tier stable cocok persis 12.481 karakter (byte UTF-8 = 12.561).
+// Kolom "Char" BASELINE (ADR-093, TS-06) = jumlah karakter Python (len(str)), bukan byte
+// UTF-8: tier stable cocok persis 12.481 karakter (byte UTF-8 = 12.561).
 func Compare(def, noCtx Snapshot) []Check {
 	const b2, b7 = "BASELINE-hermes §2", "BASELINE-hermes §7"
 	withAgents := ceilDiv(33183, charsPerToken) + 9440 // ceil(Σ tier §2 / 4) + schema §2

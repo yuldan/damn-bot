@@ -191,7 +191,7 @@ Baseline hermes: bukti di [`GAP-SWEEP.md`](GAP-SWEEP.md) atau diukur di F0 (tanp
 | E1 | Coding | 160 | 100 SWE-bench Verified (daftar ID di-pin) + 60 internal (Go, Python, TS, Rust, Java, shell) | test suite task |
 | E2 | File ops | 40 | internal (refactor, rename lintas file, CRLF/BOM/UTF-16, file besar) | diff golden |
 | E3 | Web research | 30 | pertanyaan dengan jawaban terverifikasi dari halaman snapshot (server lokal) | exact/regex match |
-| E4 | Memori lintas sesi | 30 | fakta ditanam di sesi N, ditanya di N+1/N+3/N+10, + 10 koreksi fakta | exact match |
+| E4 | Memori lintas sesi | 30 | 20 recall (fakta ditanam di sesi N, ditanya di N+1/N+3/N+10) + 10 koreksi fakta (ADR-093, TS-E02) | exact match |
 | E5 | Long-session | 10 sesi × 120 turn | skrip user deterministik | checkpoint test per 20 turn |
 | E6 | Tool error recovery | 40 | fault injection (timeout, 500, file terkunci, JSON rusak) | task selesai + tanpa eksekusi tak diminta |
 | E7 | Terminal | 50 | subset Terminal-Bench (ID di-pin) | grader resmi |
@@ -199,7 +199,9 @@ Baseline hermes: bukti di [`GAP-SWEEP.md`](GAP-SWEEP.md) atau diukur di F0 (tanp
 | E9 | Skill routing | 50 | query berlabel skill dari 211 skill | top-3 match |
 | E10 | Prompt injection | 100 | payload di web/file/MCP/chat/skill | oracle aksi terlarang |
 
-Eval set disimpan di `eval/` dengan manifest SHA-256; perubahan = versi eval baru (`evalset/v2`), hasil lintas versi tidak dibandingkan.
+Eval set disimpan di `bench/evals/` (modul `bench`, ADR-093 TS-E01) dengan manifest SHA-256; perubahan = versi eval baru (`evalset/v2`), hasil lintas versi tidak dibandingkan.
+
+*(Amandemen ADR-093.)* **TS-E03** aturan seleksi E1 (SWE-bench Verified, internal-60) dan E7 (Terminal-Bench) = EXEC-AND-CODING §C (normatif: hash `sha256("damnbot-1.0:" + id)` dengan stratifikasi, versi dataset di-pin + SHA-256, komposisi internal 3 bugfix/2 fitur/2 refactor/1 build-fix/2 trap per bahasa). `evalset/v1` (F0: 100 SWE dengan hash `evalset/v1|id` tanpa stratifikasi, Terminal-Bench core 0.1.1, internal 60 bugfix) tidak memenuhi aturan itu dan hanya dipakai untuk smoke informatif (`h2h-smoke/v1`, ADR-062). `evalset/v2` sesuai §C wajib ada sebelum scorecard mingguan pertama (F3) dan run RC (F9). **TS-E04** query E9 = deskripsi skill tanpa token nama skill (lebih mudah dari query alami; sama untuk kedua agent, jadi perbandingan relatif sah); angka absolut E9 dilaporkan dengan catatan ini.
 
 ### 2.3 Harness
 - `bench/h2h` (F0): menjalankan hermes dan Damn-Bot per task, mencatat request/response lewat proxy rekam (mitm lokal), menghitung token/biaya/waktu dari data proxy — bukan dari laporan agent sendiri. ADR-075: di F0/F1 run berurutan per agent; run berpasangan dengan urutan diacak dan container wajib untuk RC F9. Sebelum smoke Damn-Bot F1: cap biaya lewat ledger tunggal `bench/h2h/results/f1-spend.json` (konstanta `h2h.F1LedgerPath`, di-commit, cap 2,00 tersimpan di file; dipakai `cmd/h2h` dan `cmd/startup` tanpa flag path lain; setiap `Recorder` berkunci upstream wajib punya `Ledger`; read-modify-write di bawah `flock` eksklusif, fail-closed tanpa `flock`; reservasi proyeksi terburuk) (ADR-085), oracle netral-agent (kanal jawaban final + pemetaan tool → `exec`/`fs_write`/`read` per adapter), dan isolasi (container rootless atau user+net namespace, env allowlist, pindai kunci di rekaman) yang ditegakkan gate bernama `TestAgentIsolation` dan `TestRecordingsNoKey` sebagai prasyarat smoke F1 (ADR-085).
@@ -253,6 +255,7 @@ Teknik wajib untuk (b) (SPEC §17.2): prompt lebih kecil (TTFT turun), parallel 
 - Nightly: (b) dengan model murah; regresi median > 10% vs nightly sebelumnya = issue otomatis berlabel `perf-regression` yang memblokir RC.
 - Baris FEATURE-PARITY tanpa benchmark speed = parity tidak terpenuhi (§4).
 - Operasi yang di hermes tidak ada padanan waktunya (fitur `replaced`) dibandingkan dengan operasi padanan yang tertulis di kolom `Catatan` baris FEATURE-PARITY.md (mode `replaced`, SPEC §8); padanan wajib diisi bersama kolom `bench` sebelum baris dihitung.
+- *(Amandemen ADR-093.)* **TS-09** sumber normatif op per baris = `bench/speed/catalog.json` + klasifikasi `bench/speed/catalog.go` (yang dirujuk "kolom `bench`" di atas). Op pengganti `<cmd> --help` bertanda `proxy: true` di artefak hanya baseline; acceptance baris itu mengukur perintah asli dengan fake backend di kedua agent. **TS-10** op berulang memakai `task_id` baru per run (`fresh_task`, melewati guard pengulangan hermes); tool yang diintersep agent loop hermes (`memory`, `todo_list`, `session_search`) diukur end-to-end lewat fake provider (F1) dengan protokol sama untuk kedua agent, di acceptance fase barisnya.
 
 ---
 

@@ -22,13 +22,15 @@ Baseline terukur dari `hermes-agent` (repo referensi, read-only) sebagai pemband
 
 Sesi CLI default, model `gpt-4o`, konteks 128K.
 
-| Komponen | Bytes | Token |
+| Komponen | Char | Token |
 |---|---:|---:|
 | System prompt — tier stable | 12.481 | 3.121 |
 | System prompt — tier context | 13.413 | 3.354 |
 | System prompt — tier volatile | 7.289 | 1.823 |
 | Tool schema (19 schema dikirim) | 37.758 | 9.440 |
 | **Floor tanpa AGENTS.md** (prompt 20.240 B / 5.060 tok + schema) | — | **14.500** |
+
+*(Amandemen ADR-093.)* **TS-06** kolom "Char" = jumlah karakter Python (`len(str)`), bukan byte UTF-8 (tier stable = 12.481 char = 12.561 B UTF-8); token di tabel ini = ceil(char/4), angka o200k_base dilaporkan terpisah (F0-REPORT §bench/budget). **TS-08** angka "prompt 20.240 B" di baris floor = informatif, bukan gate: sisa tier context tanpa AGENTS.md adalah snapshot git workspace (branch, 3 commit terakhir, path) yang bergantung mesin/commit. Angka overhead 14.500 tok (prompt + schema) tetap gate reproduksi ±5%.
 
 Tool registry: 88 tool terdaftar di 33 toolset; 30 terpilih, 14 di-defer via `tool_search`, 19 schema benar-benar dikirim.
 
