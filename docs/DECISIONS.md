@@ -2276,3 +2276,34 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 **Dampak terukur (SPEC §20).** Token/latensi/LOC/binary/dependency 0.
 
 **Konsekuensi.** (+) Semua MINOR putaran 4 punya pemilik dan tenggat; gate F0 → F1 tidak tertahan (MINOR tidak menahan gate). (−) Backlog F1 #0 dan `internal/exec` bertambah.
+
+## ADR-093 — Penutupan temuan spec F0 yang belum diputuskan (TS-01..TS-10, TS-P02..P07, TS-E01..E04)
+
+**Status:** Accepted 2026-10-18 (keputusan direktur atas delegasi user: opsi paling konservatif, dalam budget, tanpa dependency baru). Menutup temuan [`F0-REPORT.md`](F0-REPORT.md) §Temuan spec yang belum punya ADR: TS-01, 02, 04, 05, 06, 08, 09, 10, TS-P02..P07, TS-E01..E04. Aturan umum: "Asumsi yang dipakai" F0 menjadi keputusan, kecuali bertentangan dengan aturan yang ada; pengecualian dicatat per baris (TS-P03, TS-P05, TS-P07, TS-E03).
+
+**Aturan penerapan.** Diterapkan (2026-10-18): kode `internal/ctxdb/errors.go` (`raiseCode` cocok persis), `store.go` (`trusted_schema`), komentar `recovery.go`/`append.go`, test `internal/ctxdb/errors_test.go` (`TestRaiseCodeExact`, `TestTrustedSchemaExplicit`, `TestNonRefShaClosedList`), komentar `bench/budget`; teks SPEC §2 (P13), §11 (PRAGMA), §11.6, §11.10, §11.11.3, §11.11.13; ENGINEERING header, E-21, E-39; SELF-HEALING §3.4; BASELINE-hermes §2; SCORECARD §2.2, §3.3; EXEC-AND-CODING §C. Setiap passage mengutip ADR-093.
+
+| ID | Keputusan | Diterapkan di |
+|---|---|---|
+| TS-01 | Path modul `github.com/damnbot/damnbot` (+ `/bench`, `/tools`), tanpa vanity import | ENGINEERING header |
+| TS-02 | "MB" P13 = desimal, 1 MB = 1.000.000 B (lebih ketat dari MiB) | SPEC §2 |
+| TS-04 | Pengecualian bernama E-39: target `licenses` memakai `GOFLAGS=-tags=goolm` (go-licenses v2 tanpa `-tags`) | ENGINEERING E-39 |
+| TS-05 | Pengecualian CGO E-39: hanya job `test` (`-race`) `CGO_ENABLED=1`; rilis/size/build-matrix/test-timing tetap 0 | ENGINEERING E-39 |
+| TS-06 | Kolom BASELINE §2 = "Char" (Python `len`), bukan byte | BASELINE-hermes §2 |
+| TS-08 | "prompt 20.240 B" floor = informatif, bukan gate; overhead 14.500 tok tetap gate ±5% | BASELINE-hermes §2 |
+| TS-09 | Sumber normatif op speed = `bench/speed/catalog.json` + `catalog.go`; op `proxy: true` hanya baseline, acceptance baris mengukur perintah asli | SCORECARD §3.3 |
+| TS-10 | `task_id` baru per run (`fresh_task`); tool yang diintersep hermes diukur end-to-end lewat fake provider (F1), protokol sama untuk kedua agent | SCORECARD §3.3 |
+| TS-P02 | Baris `sessions('__system__')` dibuat setiap writer saat open (`INSERT … ON CONFLICT DO NOTHING`, langkah 2 SELF-HEALING §3.4) | SPEC §11, SELF-HEALING §3.4 |
+| TS-P03 | `sqlite.Driver` privat per Store (writer/reader); **konflik** dengan SPEC "`SQLITE_INNOCUOUS`" (tidak dapat diset di modernc) → diganti: `trusted_schema=ON` **eksplisit** di DSN semua koneksi (tidak bergantung default kompilasi) | SPEC §11; `store.go`, `TestTrustedSchemaExplicit` |
+| TS-P04 | Daftar tertutup kunci 64-hex non-ref: `preview_sha`, `args_sha`, `payload_sha`; perubahan lewat ADR | SPEC §11.6; `TestNonRefShaClosedList` |
+| TS-P05 | **Konflik** dengan E-21 → mekanisme patuh: satu fungsi `ctxdb.raiseCode`, hanya untuk kode extended 1811, **kesamaan penuh** pesan driver dengan `constraint failed: <token> (1811)` untuk token tertutup → sentinel; selain itu `internal` (fail-closed). Tanpa substring/prefix/parse; pengecualian tunggal E-21, di-allowlist `nostringclassify` (F1) | ENGINEERING E-21, SPEC §11.10; `errors.go`, `TestRaiseCodeExact` |
+| TS-P06 | Tanpa retry `BEGIN IMMEDIATE` baru (`netx/retry`): akar starvation ditutup jeda purge/gc ≥ 110 ms (`4c342e8`) + fairness writer ADR-087; test #15 memakai laju realistis; `TestWriterFairness` tetap F2 (ADR-091 NEW2-23) | — (ADR-087 sudah diterapkan) |
+| TS-P07 | **Konflik** dengan E-24 (`recover` dilarang) → `TestMaintResetOnPanic` dibaca sebagai abort goroutine (`runtime.Goexit`, `defer` + rollback hook) = `TestScenario/S028_MaintModeFailClosedAndAbort`; panic sungguhan = proses mati, koneksi dan mode ikut mati | SPEC §11.11.3, §11.11.13 |
+| TS-E01 | Root eval set = `bench/evals/` (modul `bench`) | SCORECARD §2.2, EXEC-AND-CODING §C |
+| TS-E02 | E4 = 20 recall + 10 koreksi = 30 | SCORECARD §2.2 |
+| TS-E03 | **Konflik** dengan EXEC-AND-CODING §C (aturan seleksi normatif sudah ada) → §C menang: `evalset/v1` hanya smoke informatif; `evalset/v2` sesuai §C (hash `damnbot-1.0:` + stratifikasi, Terminal-Bench 2.0 di-pin, komposisi internal 3/2/2/1/2) wajib sebelum scorecard mingguan pertama (F3) | SCORECARD §2.2, EXEC-AND-CODING §C |
+| TS-E04 | Query E9 = deskripsi skill tanpa token nama skill (sama untuk kedua agent); angka absolut dilaporkan dengan catatan | SCORECARD §2.2 |
+
+**Dampak terukur (SPEC §20).** Token/latensi/binary/dependency 0. LOC `ctxdb` 2.851 / 3.100 (`raiseCode` lebih pendek; +1 pragma).
+
+**Konsekuensi.** (+) Tidak ada temuan spec F0 tanpa keputusan; satu-satunya pembacaan teks error kini kesamaan penuh yang diuji. (−) `evalset/v2` menjadi pekerjaan sebelum F3; `trusted_schema=ON` eksplisit (residu: schema DB dipercaya — hanya ditulis migrasi Damn-Bot di data dir 0700).
