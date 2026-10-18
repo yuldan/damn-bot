@@ -20,7 +20,7 @@ const (
 	setOpen   = "\"\"''[[" // quote or Go/Python list opener around a header value
 	setSep    = "::=="
 	setUser   = "^//::@@  \t\r" // [^/\s:@]
-	setPass   = "^//@@  \t\r"   // [^@\s/]
+	setNonWS  = "^  \t\r"       // \S
 	setHdrVal = "^\"\"''  \t\r" // \S without quotes, so JSON framing survives
 	setLabel  = "AZ09  "        // PEM label [A-Z0-9 ]
 )
@@ -35,6 +35,7 @@ const (
 	opMarkEnd            // replacement ends here (default: match end)
 	opKeyLabel           // PEM label read so far names a private key
 	opPEMEnd             // skip to the matching -----END … PRIVATE KEY-----
+	opLastAt             // run of set (≥ 1 byte) up to its last '@' (URL password)
 )
 
 type step struct {
@@ -108,6 +109,16 @@ func builtinPatterns() []pattern {
 			run(hdr, 1, 0),
 		}}
 	}
+	nonWS := compile(setNonWS)
+	userinfo := func(anchor string) pattern {
+		return pattern{typ: "url_password", drop: nonWS, steps: []step{
+			lit(anchor), run(compile(setUser), 0, 0), lit(":"),
+			{op: opMark},
+			{op: opLastAt, set: nonWS},
+			{op: opMarkEnd},
+			lit("@"),
+		}}
+	}
 	label := compile(setLabel)
 	slack, upDig, hex := compile(setSlack), compile(setUpDig), compile(setHex)
 	ps := []pattern{
@@ -123,14 +134,10 @@ func builtinPatterns() []pattern {
 		{typ: "telegram", drop: tok, steps: []step{
 			{op: opBehind, set: compile(setDigit), min: 8}, lit(":"), {op: opMark}, run(tok, 35, 0),
 		}},
-		// drop: after a fail-closed cut the rest of the userinfo run is dropped (ADR-096 butir 6, 9).
-		{typ: "url_password", drop: compile(setPass), steps: []step{
-			lit("://"), run(compile(setUser), 1, 0), lit(":"),
-			{op: opMark},
-			run(compile(setPass), 1, 0),
-			{op: opMarkEnd},
-			lit("@"),
-		}},
+		// User may be empty; the password runs to the last '@' before
+		// whitespace and may hold '/' and '@'; JSON-escaped ":\/\/" too
+		// (ADR-096 butir 6, R-02). A fail-closed cut drops the rest of the \S run.
+		userinfo(`://`), userinfo(`:\/\/`),
 		auth("bearer", "bearer"), auth("basic_auth", "basic"), auth("auth_token", "token"),
 	}
 	for _, pre := range [...]string{"ghp_", "gho_", "ghu_", "ghs_", "ghr_"} {

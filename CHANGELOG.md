@@ -13,7 +13,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `schema`: compiler `Compile(raw, ModeInternal|ModeMCP)` untuk subset keyword SPEC §4.4; mode internal menolak keyword di luar subset (`CompileError`, `ErrSchema`), mode MCP mengabaikannya dan melaporkan `Schema.Partial()` (ADR-095).
 - `schema`: `Schema.Validate` — validasi argumen tool satu lintasan tanpa reflect (0 alloc/op untuk 1 KiB, E-37), semantik draft 2020-12 (`enum`/`const` dengan kesamaan JSON), error pertama deterministik ber-JSON Pointer; diuji JSON-Schema-Test-Suite dan `FuzzToolArgs` (ADR-095).
 - `boundary`: satu-satunya peluncur goroutine dan `recover` (E-24, E-26): `Go` (Task milik pemanggil, `Wait`/`Done`), `Run` (panggilan sinkron terjaga), `Group` (errgroup + `SetLimit`); panic menjadi `*PanicError` (`ErrPanic`) dan dicatat ERROR tanpa nilai panic (P29).
-- `redact`: redaksi secret whole-blob SPEC §14.3 tanpa `regexp` (biaya linear) untuk pola token, header Authorization, userinfo URL, blok PEM, dan nilai secret yang dikenal (`SecretsFromEnv`, `Options.Secrets` tanpa panjang minimum); sentinel `[REDACTED:<tipe>]` + `ContainsSentinel` (ADR-096).
+- `redact`: redaksi secret whole-blob SPEC §14.3 tanpa `regexp` (biaya linear) untuk pola token, header Authorization, userinfo URL (user boleh kosong, password sampai `@` terakhir sebelum whitespace, bentuk JSON `:\/\/`; R-02), blok PEM, dan nilai secret yang dikenal (`SecretsFromEnv`, `Options.Secrets` tanpa panjang minimum); sentinel `[REDACTED:<tipe>]` + `ContainsSentinel` (ADR-096).
 
 ### Fixed
 - `ctxdb` (Windows): lock file dilepas eksplisit dengan `UnlockFileEx` sebelum handle ditutup (ADR-092 NEW3-01).

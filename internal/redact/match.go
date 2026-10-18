@@ -90,6 +90,26 @@ func matchRun(data []byte, j int, s *step, md mode) (int, status) {
 	return k, stOK
 }
 
+// lastAt runs set from j and stops at the run's last '@' (at least one byte
+// in): a URL password may itself hold '@' and '/' (ADR-096 butir 6, R-02).
+func lastAt(data []byte, j int, set *[256]bool, md mode) (int, status) {
+	at, k := -1, j
+	for ; k < len(data) && set[data[k]]; k++ {
+		if data[k] == '@' && k > j {
+			at = k
+		}
+	}
+	switch {
+	case k == len(data) && md == modeStream:
+		return k, stMore
+	case k == len(data) && md == modeForced:
+		return k, stCut
+	case at < 0:
+		return k, stNone
+	}
+	return at, stOK
+}
+
 func behind(data []byte, j int, s *step) status {
 	if j < s.min {
 		return stNone
@@ -165,6 +185,8 @@ func (p *pattern) match(data []byte, i int, md mode) (match, status) {
 			st = keyLabel(data[i:j])
 		case opPEMEnd:
 			j, st = pemEnd(data, j, s.set, md)
+		case opLastAt:
+			j, st = lastAt(data, j, s.set, md)
 		}
 		switch st {
 		case stNone, stMore:

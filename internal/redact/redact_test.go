@@ -30,6 +30,28 @@ func TestRedaction(t *testing.T) {
 	t.Run("gitleaks", func(t *testing.T) { t.Parallel(); checkChannels(t, r, corpus) })
 	t.Run("synthetic", func(t *testing.T) { t.Parallel(); checkChannels(t, r, synth) })
 	t.Run("negative", func(t *testing.T) { t.Parallel(); checkNegative(t, r) })
+	t.Run("url_password_forms", func(t *testing.T) { t.Parallel(); checkURLPasswordForms(t, r) })
+}
+
+// checkURLPasswordForms (R-02, ADR-096 butir 6): empty user, '/' and '@' in
+// the password and the JSON-escaped ":\/\/" form are redacted whole.
+func checkURLPasswordForms(t *testing.T, r *Redactor) {
+	t.Helper()
+	const red = SentinelPrefix + "url_password]"
+	tests := []struct{ in, want, secret string }{
+		{"redis://:Sup3rS3cretPw@cache:6379/0", "redis://:" + red + "@cache:6379/0", "Sup3rS3cretPw"},
+		{"postgres://app:pa/ss+w0rd@db", "postgres://app:" + red + "@db", "pa/ss+w0rd"},
+		{"postgres://app:p@ss@db x", "postgres://app:" + red + "@db x", "p@ss"},
+		{`{"u":"https:\/\/app:S3cretPw99@db"}`, `{"u":"https:\/\/app:` + red + `@db"}`, "S3cretPw99"},
+		{`https:\/\/:S3cretPw98@db`, `https:\/\/:` + red + `@db`, "S3cretPw98"},
+		{"ssh://git@github.com/x https://h:8443/p", "ssh://git@github.com/x https://h:8443/p", ""},
+	}
+	for _, tc := range tests {
+		got := r.String(tc.in)
+		if got != tc.want || (tc.secret != "" && strings.Contains(got, tc.secret)) {
+			t.Errorf("String(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
 }
 
 // checkChannels asserts 0 leaks for every sample in every channel and the
