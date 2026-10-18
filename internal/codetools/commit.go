@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -24,11 +25,13 @@ import (
 // ".<name>.damnbot-bak-<rand>", which a crash leaves for recovery.
 const tempMarker = ".damnbot-"
 
+var reOrphan = regexp.MustCompile(`^\..+\.damnbot-[a-z2-7]{12}$`)
+
 // commitInfo is what the write path reports in Meta (P14).
 type commitInfo struct {
-	modeOK bool
-	sum    [32]byte
-	key    fileKey
+	ownerOK, modeOK, xattrOK bool
+	sum                      [32]byte
+	key                      fileKey
 }
 
 // commit replaces t's file with data (CODE-TOOLS §5.4): temp in the
@@ -52,19 +55,22 @@ func (e *Engine) commit(ctx context.Context, t *target, before fileKey, mode fs.
 // *ToolError. The new bytes always go to a complete, fsynced temp first,
 // so a failed fill (validation, no-op, disk full) never touches the target.
 func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mode fs.FileMode, fill func(io.Writer) error) (ci commitInfo, err error) {
-	ci = commitInfo{modeOK: true}
+	ci = commitInfo{ownerOK: true, modeOK: true, xattrOK: true}
 	tmp, tmpName, err := e.createTemp(ctx, t, "")
 	if err != nil {
 		return ci, err
 	}
 	renamed := false
 	defer func() { discardTemp(tmp, tmpName, renamed) }()
-	prepareTemp(before, mode, tmp, &ci)
-	if werr := hashFill(tmp, fill, &ci); werr != nil {
+	prepareTemp(t, before, mode, tmp, &ci)
+	if werr := hashFill(e.hooked(tmp, "mid-temp"), fill, &ci); werr != nil {
 		return ci, fillErr("write", t.rel, werr)
 	}
 	if werr := tmp.Sync(); werr != nil {
 		return ci, ioErr("fsync", t.rel, werr)
+	}
+	if werr := e.at("pre-rename"); werr != nil {
+		return ci, ioErr("rename", t.rel, werr)
 	}
 	var cerr error
 	t.close(&cerr) // Windows cannot replace a file that is still open
@@ -80,15 +86,21 @@ func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mo
 		return ci, ioErr("rename", t.rel, werr)
 	}
 	renamed = true
-	if werr := e.syncDir(ctx, filepath.Dir(t.resolved), t.outside); werr != nil {
+	if werr := errors.Join(e.at("post-rename"), e.syncDir(ctx, filepath.Dir(t.resolved), t.outside)); werr != nil {
 		return ci, ioErr("fsync dir", t.rel, werr)
 	}
 	err = e.readBack(ctx, t, &ci)
 	return ci, err
 }
 
-// prepareTemp sets the final mode before the first byte (§5.4 langkah 2).
-func prepareTemp(before fileKey, mode fs.FileMode, tmp *os.File, ci *commitInfo) {
+// prepareTemp copies owner and xattrs first (xattr writes need a writable
+// inode; chown clears setuid/setgid), then sets the final mode before the
+// first byte (§5.4 langkah 2).
+func prepareTemp(t *target, before fileKey, mode fs.FileMode, tmp *os.File, ci *commitInfo) {
+	if t.f != nil {
+		ci.ownerOK = copyOwner(t.f, tmp)
+		ci.xattrOK = copyXattrs(t.f, tmp)
+	}
 	if before != (fileKey{}) {
 		ci.modeOK = setMode(tmp, mode)
 	}
@@ -115,6 +127,50 @@ func setMode(f *os.File, mode fs.FileMode) bool {
 	}
 	fi, err := f.Stat()
 	return err == nil && keepMode(fi) == mode
+}
+
+// at fires the test hook at a named commit point (nil in production).
+func (e *Engine) at(point string) error {
+	if e.hook == nil {
+		return nil
+	}
+	return e.hook(point)
+}
+
+// hooked returns w, or with a test hook set, a writer that fires point
+// once between the two halves of the first write: a CT-25 kill point or
+// injected failure inside a partially written file.
+func (e *Engine) hooked(w io.Writer, point string) io.Writer {
+	if e.hook == nil {
+		return w
+	}
+	return &hookWriter{w: w, fire: func() error { return e.hook(point) }}
+}
+
+type hookWriter struct {
+	w    io.Writer
+	fire func() error
+	done bool
+}
+
+func (h *hookWriter) Write(p []byte) (int, error) {
+	k := len(p)
+	if !h.done && k > 1 {
+		k /= 2
+	}
+	n, err := h.w.Write(p[:k])
+	if err == nil && k < len(p) {
+		h.done = true
+		if err = h.fire(); err == nil {
+			var m int
+			m, err = h.w.Write(p[k:])
+			n += m
+		}
+	}
+	if err != nil {
+		return n, fmt.Errorf("codetools: write: %w", err)
+	}
+	return n, nil
 }
 
 // syncDir fsyncs the directory of a renamed file, opened through the sandbox.
@@ -232,6 +288,45 @@ func randHex() string { return strings.ToLower(rand.Text()[:12]) }
 // bits plus setuid/setgid/sticky (CT27-9).
 func keepMode(fi fs.FileInfo) fs.FileMode {
 	return fi.Mode() & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)
+}
+
+// CleanOrphanTemps removes ".<name>.damnbot-<rand>" files left by a crash
+// in the session roots (CODE-TOOLS §5.4), each unlinked relative to its
+// directory opened through the sandbox; call it at session start.
+func (e *Engine) CleanOrphanTemps(ctx context.Context) (int, error) {
+	removed := 0
+	for _, root := range e.roots {
+		r, err := e.searchRoot(ctx, root, Opts{})
+		if err != nil {
+			return removed, err
+		}
+		var found []string
+		spec := &walkSpec{root: r.abs, hidden: true, keepFile: func(rel string) bool {
+			return reOrphan.MatchString(filepath.Base(rel))
+		}}
+		if _, err := e.walk(ctx, spec, r.st, r.top, func(j *fileJob, _ scanOut) bool {
+			found = append(found, j.abs)
+			return true
+		}); err != nil {
+			return removed, fmt.Errorf("codetools: clean temps: %w", err)
+		}
+		for _, p := range found {
+			if e.removeIn(ctx, p) == nil {
+				removed++
+			}
+		}
+	}
+	return removed, nil
+}
+
+// removeIn unlinks p relative to its directory opened through the sandbox
+// (no symlinked ancestor is followed; by path on Windows).
+func (e *Engine) removeIn(ctx context.Context, p string) error {
+	d, err := e.openResolved(ctx, filepath.Dir(p), false)
+	if err != nil {
+		return err
+	}
+	return errors.Join(removeAt(d, filepath.Base(p)), d.Close())
 }
 
 // discardTemp closes f (nil once handed off) and removes name unless

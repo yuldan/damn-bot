@@ -145,6 +145,19 @@ func (e *Engine) readLarge(ctx context.Context, f *fileView, off, limit int, o O
 	return pw.result(e, f.t, &hdr, next), nil
 }
 
+// statEntry is the tag entry of a stat-tagged file (CODE-TOOLS §5.1, §5.5):
+// a racy mtime (within racyWindow of now) also records the content hash so
+// a later edit can prove the content unchanged.
+func statEntry(f *os.File, k fileKey) (*tagEntry, error) {
+	ent := &tagEntry{sum: statSum(k), stat: k, at: time.Now()}
+	if !ent.racy() {
+		return ent, nil
+	}
+	full, err := hashFile(f, k.size)
+	ent.full, ent.hasFull = full, err == nil
+	return ent, err
+}
+
 // racy reports an entry whose file mtime is within racyWindow of the tag.
 func (t *tagEntry) racy() bool { return !time.Unix(0, t.stat.mtimeNs).Add(racyWindow).Before(t.at) }
 
