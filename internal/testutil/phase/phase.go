@@ -74,9 +74,10 @@ func readPhase(dir string) ([]byte, error) {
 	return b, nil
 }
 
-// Parse validates PHASE content: exactly one line "F1".."F9".
+// Parse validates PHASE content: exactly one line "F1".."F9", ending in LF,
+// CRLF (a Windows checkout without .gitattributes) or nothing.
 func Parse(s string) (Gate, error) {
-	n, err := num(strings.TrimSuffix(s, "\n"))
+	n, err := num(strings.TrimSuffix(strings.TrimSuffix(s, "\n"), "\r"))
 	if err != nil {
 		return Gate{}, fmt.Errorf("isi PHASE %q: %w", s, err)
 	}

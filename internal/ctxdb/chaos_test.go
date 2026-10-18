@@ -303,9 +303,9 @@ func rawIntegrity(t *testing.T, dir, tag string) string {
 	must(t, os.CopyFS(dst, os.DirFS(dir))) // whole data dir: db, -wal, -shm, blobs, run/
 	d := &sqlite.Driver{}
 	db := sql.OpenDB(connector{d: d, dsn: "file:" + filepath.Join(dst, dbFile)})
-	defer func() { must(t, db.Close()) }()
 	var res string
-	must(t, db.QueryRowContext(context.Background(), "PRAGMA integrity_check").Scan(&res))
+	qerr := db.QueryRowContext(context.Background(), "PRAGMA integrity_check").Scan(&res)
+	must(t, errors.Join(qerr, db.Close())) // closed before removal: Windows cannot delete an open DB
 	if res == "ok" {
 		must(t, os.RemoveAll(dst)) // keep the copy only as evidence of a failure
 	}

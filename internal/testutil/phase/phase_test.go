@@ -2,6 +2,8 @@ package phase
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -14,7 +16,10 @@ func TestPhaseFile(t *testing.T) {
 }
 
 func TestParse(t *testing.T) {
-	for in, ok := range map[string]bool{"F1": true, "F9\n": true, "F0": false, "F10": false, "f1": false, "F1\n\n": false, "": false} {
+	for in, ok := range map[string]bool{
+		"F1": true, "F9\n": true, "F1\r\n": true, // CRLF: Windows checkout (defense in depth beside .gitattributes)
+		"F0": false, "F10": false, "f1": false, "F1\n\n": false, "F1\r\n\r\n": false, "F1\r": true, "\rF1": false, "": false,
+	} {
 		if _, err := Parse(in); (err == nil) != ok {
 			t.Errorf("Parse(%q) err = %v, want ok %v", in, err, ok)
 		}
@@ -63,4 +68,19 @@ func TestItem(t *testing.T) {
 			t.Errorf("F%d acc=%v %s %q: run=%v errs=%q, want run=%v fail~%q", c.cur, c.acceptance, c.phase, c.status, run, got, c.run, c.fail)
 		}
 	}
+}
+
+// TestPhaseGitattributes pins PHASE to LF in every checkout (.gitattributes);
+// Parse also tolerates CRLF (TestParse) as defense in depth.
+func TestPhaseGitattributes(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "..", ".gitattributes"))
+	if err != nil {
+		t.Fatalf("PHASE GAGAL: %v", err)
+	}
+	for line := range strings.Lines(string(b)) {
+		if strings.Join(strings.Fields(line), " ") == "PHASE text eol=lf" {
+			return
+		}
+	}
+	t.Fatal("PHASE GAGAL: .gitattributes lacks `PHASE text eol=lf`")
 }

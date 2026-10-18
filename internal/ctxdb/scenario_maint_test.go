@@ -431,7 +431,7 @@ func s057(t *testing.T) {
 	mig.w, mig.r, err = mig.openHandles(context.Background())
 	must(t, err)
 	must(t, mig.applyMigration(context.Background(), len(mig.migs), mig.migs[len(mig.migs)-1]))
-	must(t, mig.detach())
+	must(t, errors.Join(mig.detach(), mig.closeRoot()))
 	must(t, b.Release())
 	wantErr(t, <-res, ErrSchemaNewer)
 }

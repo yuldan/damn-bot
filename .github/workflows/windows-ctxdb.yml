@@ -1,0 +1,42 @@
+# Iterasi murah ctxdb Windows (ADR-090, ADR-094): hanya suite ctxdb + testutil di satu runner Windows,
+# tanpa matrix penuh. Dipicu manual (workflow_dispatch, input arch) atau push ke branch f1-win-*.
+name: windows-ctxdb
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "amd64 (windows-latest) atau arm64 (windows-11-arm)"
+        required: true
+        default: amd64
+        type: choice
+        options: [amd64, arm64]
+  push:
+    branches: ["f1-win-*"]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ctxdb:
+    runs-on: ${{ (github.event.inputs.arch || 'amd64') == 'arm64' && 'windows-11-arm' || 'windows-latest' }}
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: ${{ (github.event.inputs.arch || 'amd64') == 'arm64' && '0' || '1' }}
+      RACE: ${{ (github.event.inputs.arch || 'amd64') == 'arm64' && '' || '-race' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: ctxdb + testutil (-v, bukti PASS per test)
+        run: go test -tags goolm $RACE -count=1 -v ./internal/ctxdb/ ./internal/testutil/... 2>&1 | tee test.log; exit "${PIPESTATUS[0]}"
+      - name: Bukti test ADR-090
+        if: always()
+        run: grep -E -- '--- (PASS|FAIL): (TestFileLockSemantics|TestPlatformNAList|TestScenario/S023|TestScenario/S044|TestPhaseFile)' test.log || true
