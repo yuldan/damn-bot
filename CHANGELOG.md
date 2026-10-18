@@ -4,6 +4,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+### Fixed
+- `provider`: decoder delta tidak lagi merekursi tanpa batas saat melewati nilai JSON bersarang — `skip` iteratif dan nesting dibatasi 10.000 seperti encoding/json; frame SSE 4 MiB berisi `[` kini `errJSON`, bukan stack overflow fatal (REVIEW-F1-SEC3 PROV-B1, ADR-102).
+
 ### Changed
 - `redact`: prefilter pasangan byte di `scan` — posisi yang dua byte pertamanya tidak bisa memulai pola mana pun dilewati tanpa `matchAt` (output identik, ≈ 3× lebih cepat pada prosa 8 KiB; dasar GAP-SEC-16 DLP ≤ 50 µs, REVIEW-F1-SEC1 NETX-16; ADR-096).
 

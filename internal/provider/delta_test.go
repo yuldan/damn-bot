@@ -3,8 +3,10 @@ package provider
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -229,6 +231,9 @@ func FuzzDeltaDecode(f *testing.F) {
 	for _, s := range deltaSamples() {
 		f.Add([]byte(s))
 	}
+	f.Add(deepFrame(maxDepth-1, false)) // PROV-B1: at the limit
+	f.Add(deepFrame(maxDepth, false))   // PROV-B1: 10001 levels
+	f.Add(deepFrame(maxDepth, true))
 	f.Fuzz(func(t *testing.T, frame []byte) {
 		var dd DeltaDecoder
 		got, err := dd.Decode(frame)
@@ -240,4 +245,53 @@ func FuzzDeltaDecode(f *testing.F) {
 			t.Fatalf("%q:\n got %+v\nwant %+v", frame, got, want)
 		}
 	})
+}
+
+// deepFrame nests n arrays (or objects) under an unknown key of the frame,
+// so the decoder skips them: absolute nesting = n + 1.
+func deepFrame(n int, obj bool) []byte {
+	open, closeTok := "[", "]"
+	if obj {
+		open, closeTok = `{"a":`, "}"
+	}
+	inner := "1"
+	if obj {
+		inner = "null"
+	}
+	return []byte(`{"x":` + strings.Repeat(open, n) + inner + strings.Repeat(closeTok, n) + `}`)
+}
+
+// TestDeltaDeepNesting (PROV-B1): nesting is bounded like encoding/json
+// (10000) without recursion; a maximal 4 MiB SSE frame of '[' is a clean
+// errJSON, not a stack overflow.
+func TestDeltaDeepNesting(t *testing.T) {
+	t.Parallel()
+	frames := map[string][]byte{
+		"limit-array":      deepFrame(maxDepth-1, false),
+		"over-array":       deepFrame(maxDepth, false),
+		"limit-object":     deepFrame(maxDepth-1, true),
+		"over-object":      deepFrame(maxDepth, true),
+		"open-4MiB":        append([]byte(`{"x":`), bytes.Repeat([]byte("["), 4<<20-5)...),
+		"open-4MiB-top":    bytes.Repeat([]byte("["), 4<<20),
+		"open-4MiB-object": append([]byte(`{"x":`), bytes.Repeat([]byte(`{"a":`), (4<<20)/5-1)...),
+		"mixed":            []byte(`{"x":[{"a":[1,{"b":[]},[[]]]},{}],"choices":[]}`),
+	}
+	for name, frame := range frames {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var dd DeltaDecoder
+			_, err := dd.Decode(frame)
+			_, ok := refDelta(frame)
+			if ok != (err == nil) {
+				t.Fatalf("decoder err=%v, encoding/json ok=%v", err, ok)
+			}
+			if strings.HasPrefix(name, "over") || strings.HasPrefix(name, "open") {
+				if !errors.Is(err, errJSON) {
+					t.Fatalf("want errJSON, got %v", err)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }
