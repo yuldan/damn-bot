@@ -51,17 +51,17 @@ NP-01..NP-21 diputuskan per ADR-022 (Accepted) dan ADR-033 (NP-21): sebagian `dr
 
 ## Regression suite dari EDGE-CASES
 
-[`EDGE-CASES-hermes.md`](EDGE-CASES-hermes.md) (166 entri) dipetakan ke fase; modul tidak dinyatakan selesai sebelum entri area terkait berstatus `covered` (test lulus) atau `n/a` (dengan alasan tertulis). ADR-077: satu fase per entri, yaitu fase pemilik komponen yang dibutuhkan untuk mereproduksinya (entri yang butuh komponen F2+ bukan F1). `edgecases.json` mendukung status `pending:<Fx>`; `TestEdgeCaseCatalogSync` gagal bila item dengan fase ≤ isi file `PHASE` belum `covered`, atau bila masih ada `pending` saat `PHASE` = `F9`; item `pending` tidak menghasilkan subtest (tanpa `t.Skip`, REL-15).
+[`EDGE-CASES-hermes.md`](EDGE-CASES-hermes.md) (166 entri) dipetakan ke fase; modul tidak dinyatakan selesai sebelum entri area terkait berstatus `covered` (test lulus) atau `n/a` (dengan alasan tertulis). ADR-077: satu fase per entri, yaitu fase pemilik komponen yang dibutuhkan untuk mereproduksinya (entri yang butuh komponen F2+ bukan F1). `edgecases.json` mendukung status `pending:<Fx>`; item `pending` tidak menghasilkan subtest (tanpa `t.Skip`, REL-15). Semantik gate PR (`TestEdgeCaseCatalogSync`, `TestCLIDocsMatchHelp`, dan gate inkremental lain, ADR-080): item dengan fase **<** isi file `PHASE` wajib `covered` (subtest ada dan lulus); fase **=** `PHASE` boleh `pending:<PHASE>` atau `covered` (bila subtest ada, wajib lulus); fase **>** `PHASE` wajib `pending`. Job acceptance fase `make phase-acceptance` (dijalankan saat menaikkan `PHASE` dari Fx ke Fx+1 dan di setiap PR yang mengubah file `PHASE`): semua item fase ≤ Fx wajib `covered`, PR penaikan gagal bila tidak; di `PHASE = F9` tidak boleh ada `pending`. Sinkronisasi katalog: himpunan ID katalog = ID subtest ∪ ID berstatus `pending`, keduanya saling lepas; `n/a` beralasan dihitung `covered` (ADR-080).
 
 | Area | Fase |
 |---|---|
 | `EC-PROV` provider/streaming (30) | F1: 001, 004..007, 009..013, 015, 016, 025, 028..030 (16); F2: 008; F5: 002, 003, 014, 017..023, 026, 027 (12); F6: 024 (ADR-077) |
 | `EC-TCALL` tool-call parsing (12) | F1: 001..003, 005..009, 012 (9); F2: 010; F5: 004, 011 (ADR-077) |
 | `EC-CTX` context/compaction | F2 |
-| `EC-STATE` state/SQLite | F2 (multi-proses, WAL, network FS), F4 (chaos) |
+| `EC-STATE` state/SQLite (16) | F2: 001, 002, 003, 005..011, 013..016 (14); F4: 012; F7: 004 (ADR-080) |
 | `EC-FIO` file I/O & encoding (19) | F1: 001, 002, 004..006, 008, 009, 011..017, 019 (15); F3: 007, 018; F5: 003, 010 (ADR-077) |
-| `EC-TERM` terminal/proses (10) | F1: 001, 002, 006, 007 (4; proses background 001/007 lewat runner internal tanpa `process_*`); F4: 008..010; F5: 003; F7: 004, 005 (ADR-077) |
-| `EC-WIN` Windows | setiap fase di matrix CI Windows; F9 penutupan |
+| `EC-TERM` terminal/proses (10) | F1: 002, 006, 007 (3); F4: 008..010; F5: 001 (butuh proses background, ADR-072), 003; F7: 004, 005 (ADR-077, ADR-080) |
+| `EC-WIN` Windows (17) | F1: 001, 009, 010, 012, 013, 014, 016, 017 (8); F2: 002, 005, 011; F4: 003, 004, 006; F5: 007, 008, 015. Dijalankan di runner Windows matrix CI (F1 #0) dan masuk acceptance fasenya; F9 hanya untuk sisa yang belum `covered` karena bug, bukan fase default (ADR-080) |
 | `EC-PLAT` platform chat (19 entri Telegram: EC-PLAT-001, 002, 003, 007, 009..023; ADR-061) | F4 (Telegram), F7 (lainnya: EC-PLAT-004, 005, 006, 008, 024; ADR-061) |
 | `EC-CFG` config/startup | F3 |
 | `EC-SEC` keamanan (8) | F1: 001, 005, 007, 008 (4); F5: 002..004; F7: 006 (ADR-077) |
@@ -100,7 +100,9 @@ NP-01..NP-21 diputuskan per ADR-022 (Accepted) dan ADR-033 (NP-21): sebagian `dr
 - helper budget waktu pindah dari `internal/ctxdb/timing_test.go` ke paket non-test `internal/testutil/timing` (build tag `!race`, baris `loc.budget` sendiri, ≤ 80 LOC) sebelum paket non-ctxdb pertama membutuhkan asersi waktu;
 - meta-test gate test/race/timing diuji pada pohon minimal (`./internal/metaviolation/...`);
 - gate arsitektur sebelum `loop`/`netx`/`provider` di-merge: `TestImportGraph` (E-01/E-02/E-06/E-08), analyzer `nohttpclient` (E-05), `TestFileLength` (E-14/E-71), `TestGlobalAllowlist` (E-10), `TestGoleakMain` (E-56), `TestBudgetTableSum` (P21);
-- file `PHASE` di root repo berisi `F1` (gate inkremental ADR-077).
+- workflow `meta` (ADR-085) berjalan di **setiap** PR dan push `main`: job menghitung file berubah (`git diff --name-only` terhadap base) dan menjalankan `make meta-test` bila ada path gate yang berubah (`Makefile`, `scripts/**`, `.github/**`, `.golangci.yml`, `loc.budget`, `deps.allow`, `deps.mpl`, `go.mod`, `go.sum`, `tools/go.mod`, `tools/go.sum`, `internal/archtest/**`, `internal/testutil/**`, `internal/metaviolation/**`, `internal/ctxdb/timing_test.go`, `internal/ctxdb/race_*_test.go`, `internal/analyzers/**`), selain itu lulus dengan pesan "no gate paths changed"; status selalu terlapor dan menjadi required check (E-78); nightly menjalankan semua gate tanpa syarat;
+- file `PHASE` di root repo berisi `F1` (gate inkremental ADR-077) dengan semantik ADR-080: item fase < `PHASE` wajib `covered`, fase = `PHASE` boleh `pending:F1` atau `covered`, fase > `PHASE` wajib `pending`, sehingga gate hijau sebelum paket F1 ditulis; job `make phase-acceptance` (semua item fase ≤ Fx `covered`) dijalankan saat menaikkan `PHASE` dan di PR yang mengubah file `PHASE`;
+- item backlog berlabel "Deliverable #0" (ADR-083 butir 5): ADR-078 AUD-056, AUD-057, AUD-059, AUD-067, AUD-069, AUD-070, AUD-071, AUD-072, AUD-073, AUD-074, AUD-083 (AUD-064 sudah ditutup ADR-086); ADR-086 NEW-32, NEW-33, NEW-34, NEW-35, NEW-36, NEW-38.
 
 Gate yang ditunda punya fase eksplisit (ADR-073): `TestNoCrossPackageEmbedding` F2 (bersama `modules`), `TestNolintDensity` acceptance F1.
 
@@ -109,12 +111,17 @@ Gate yang ditunda punya fase eksplisit (ADR-073): `TestNoCrossPackageEmbedding` 
 **Acceptance**
 - Deliverable F1 #0 hijau dan setiap job barunya terdeteksi meta-test; `TestNolintDensity` hijau (ADR-073).
 - P1 fase F1 = fixture `f1-core` ≤ 4.000 tok o200k_base atas JSON request (bukan usage provider), lewat hook golden `TestFixedOverheadGolden` (`internal/assemble`) + `TestFixedOverhead/f1-core` (modul `bench`, job `bench-budget`), total dan tiap tier ≤ alokasi P1 (ADR-066); P2, P3, P4, P5, P6, P9 (events), P14, P17 hijau di CI. `TestTokenEstimatorCalibration` korpus teks en/id/ru/ja hijau (ADR-067).
-- ADR-077: P7 (`TestFallbackVisible` untuk `run` headless); P26 bagian approval (`TestIrreversibleNeedsApproval`, `TestShellIrreversibleAlwaysAsk`, `TestAgentBypassFlagsAlwaysAsk`); P29 subset ADR-068; `TestTaintForcesApproval`, `TestRedaction`, `TestStreamRedactSplit`; suite sandbox CODE-TOOLS §8 termasuk `TestSymlinkEscapeRace` (CT-26); `TestClassifyCorpus` (EXC-13), `TestDestructiveAlwaysAsk` (EXC-14), dan test ADR-069; `TestSpecDocs` (`TestSpecNoPendingAmendments`, `TestCodeToolsIDsComplete`) + `TestCLIDocsMatchHelp` + kasus meta-test gate dokumen.
-- [`CODE-TOOLS.md`](CODE-TOOLS.md): P23 = semua CT kecuali CT-08, CT-12, CT-13, CT-24, CT-28 (butuh `codeintel`/`codeindex`, F5) (ADR-077); grep literal ≤ 1,2× `rg`, regex ≤ 1,5× `rg` (rasio diukur apa adanya di runner CI dan di mesin referensi Q14, ADR-077), edit suite CT-20 ≥ 330 kasus (ADR-071) 100% / 0 salah lokasi.
+- ADR-077: P7 (`TestFallbackVisible` untuk `run` headless); P26 bagian approval (`TestIrreversibleNeedsApproval`, `TestShellIrreversibleAlwaysAsk`, `TestAgentBypassFlagsAlwaysAsk`; subset SEC-14 F1 = sudo → prompt per perintah lewat approver palsu ber-preview di paket test, tanpa approver → `denied`, ADR-084); P29 subset ADR-068; `TestTaintForcesApproval`, `TestRedaction`, `TestStreamRedactSplit`, `TestFirstTokenLatency/redact` (penyaring aktif, P17, ADR-081); suite sandbox CODE-TOOLS §8 termasuk `TestSymlinkEscapeRace` (CT-26); `TestDestructiveAlwaysAsk` (EXC-14); `TestSpecDocs` (`TestSpecNoPendingAmendments`, `TestCodeToolsIDsComplete`) + `TestCLIDocsMatchHelp` + kasus meta-test gate dokumen.
+- Model approval shell ADR-079 (menggantikan tabel dan test classifier ADR-069): `TestShellApprovalModel` (36 baris tabel ADR-079), `TestShellAllowExactMatch` (≥ 60 kasus), `TestShellAllowCwdTracked`, `TestShellNoClassifierAuto` (EXC-13: ≥ 300 perintah korpus, mode `ask`/`auto-edit`/`auto`, `shell_allow` kosong → 0 dieksekusi tanpa approval), `TestUnsafeAutoShellFlag`, `TestVerifyNeedsShellAllow`, `TestShellOutputUntrustedWorkspace`, `TestCodeToolsSymlinkOutsideRoot`, `TestNoAutoClassReadonlyDecision` (`approvals.decision = 'auto_class_readonly'` dicadangkan, tidak pernah ditulis); `exec.allow_destructive`, `exec.destructive_allow`, dan `smart_approval` tidak berlaku untuk `shell` (ADR-079 butir 9–10); test ADR-069 yang tetap berlaku: `TestSudoAlwaysAsk`, `TestWorkspaceTrustGate`, `TestReadOutsideWorkspaceAsks`.
+- P15 subset ADR-067/082: `TestStableTierGolden` (varian), `TestPromptNoUnavailableTools`, `TestVolatileTierCaps`, `TestPrefixStableWithinTurn`, `TestRuntimeSuffixCaps`, `TestShellSchemaVariant`.
+- [`CODE-TOOLS.md`](CODE-TOOLS.md): P23 = semua CT kecuali CT-08, CT-12, CT-13, CT-24, CT-28 (butuh `codeintel`/`codeindex`, F5) (ADR-077); grep literal ≤ 1,2× `rg`, regex ≤ 1,5× `rg` (rasio diukur apa adanya di runner CI dan di mesin referensi Q14, ADR-077), edit suite CT-20 ≥ 330 kasus (ADR-071) 100% / 0 salah lokasi. CT-10 (ADR-082): `search_files` dan `read_file` ≥ 10× p50; `patch`/tulis ≥ 2× p50 terhadap baseline hermes yang diukur ulang dengan durabilitas setara (driver hermes menambahkan `fsync(file)` + `fsync(dir)`) dan ≤ 6 ms p95 absolut di mesin referensi Q14; baseline durabel diukur di F1 sebelum acceptance codetools; tidak ada operasi yang lebih lambat dari hermes.
 - [`EXEC-AND-CODING.md`](EXEC-AND-CODING.md) P24 (ADR-077): `TestNoOrphans` (200 iterasi), `TestInteractiveCorpus` (40 fixture × pipe/pty), `BenchmarkShellSpawn*` (spawn overhead p95 < 15 ms diukur di mesin referensi Q14; CI menegakkan ×1,5 di PR), `TestCancelConfirmed`, `TestCancelConfirmBeforeRedispatch` (REL-13 di F3; Windows di matrix).
-- Entri EC berfase F1 di tabel regression suite covered (EC-PROV 16, EC-TCALL 9, EC-FIO 15, EC-TERM 4, EC-SEC 4; ADR-077).
+- Entri EC berfase F1 di tabel regression suite covered (EC-PROV 16, EC-TCALL 9, EC-FIO 15, EC-TERM 3, EC-SEC 4; ADR-077, ADR-080) dan EC-WIN-001, 009, 010, 012, 013, 014, 016, 017 di runner Windows (ADR-080).
 - Speed parity (a): `BenchmarkSpeedParity/<ID>` (`bench/speed`) untuk setiap baris FEATURE-PARITY berfase F1 (ADR-064) ≥ target SCORECARD §3.2 vs `bench/speed/results/hermes-868b9f244f.json`; sampel CLI ≥ 20 run per sisi, baseline hermes baris F1 diukur ulang dengan 20 run sebelum acceptance (ADR-077).
-- Smoke LLM Damn-Bot (ADR-062): run pertama `damnbot run` pada 10 task smoke F0 yang sama (seleksi `h2h-smoke/v1`) lewat `bench/h2h`, rekaman proxy lengkap, 0 error harness; pass/fail informatif. Prasyarat (ADR-075): hardening `bench/h2h` (cap biaya ledger persisten, oracle netral-agent, isolasi) ada di kode beserta test-nya sebelum run pertama. Cap biaya LLM F1 total US$2,00, ditegakkan ledger `bench/h2h/results/f1-spend.json` (ADR-075).
+- Smoke LLM Damn-Bot (ADR-062): run pertama `damnbot run` pada 10 task smoke F0 yang sama (seleksi `h2h-smoke/v1`) lewat `bench/h2h`, rekaman proxy lengkap, 0 error harness; pass/fail informatif. Prasyarat (ADR-075, ADR-085): hardening `bench/h2h` ada di kode beserta test-nya sebelum run pertama, termasuk gate bernama `TestAgentIsolation` (uid agent dalam user namespace ≠ uid proxy, file kunci tidak ada setelah proxy membaca, env agent ⊆ allowlist) dan `TestRecordingsNoKey` (rekaman ter-commit dipindai pola token generik; bila `H2H_KEY_FILE` diset, juga literal/base64/base64url/hex/potongan 12 char kunci). Cap biaya LLM F1 total US$2,00, ditegakkan ledger tunggal `bench/h2h/results/f1-spend.json` (konstanta `h2h.F1LedgerPath`, di-commit, cap tersimpan di file) yang dipakai `cmd/h2h` dan `cmd/startup` tanpa flag path lain; setiap `Recorder` berkunci upstream wajib punya `Ledger`; pembaruan read-modify-write di bawah `flock` eksklusif, fail-closed tanpa `flock` (ADR-085).
+- Test tertunda berfase F1 (ADR-083): `TestConfigDefaultsMatchSpec` (kunci F1); test ADR-075 `TestOracleDamnbotToolNames`, `TestUnknownRuleKindFails`, `TestToolCallsFromFinalResponse`, `TestAgentIsolation`, `TestRecordingsNoKey`.
+- Baseline hermes untuk dimensi ADR-065/083 berstatus F1 diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`) (ADR-083).
+- Backlog ADR-078/ADR-086 berfase F1 tertutup (ADR-083).
 
 ## F2 — Context DB, memori, modul lazy
 
@@ -124,7 +131,9 @@ Gate yang ditunda punya fase eksplisit (ADR-073): `TestNoCrossPackageEmbedding` 
 - P1 penuh ≤ 5.000 tok o200k_base atas JSON request untuk fixture `all-modules` (katalog, memori, dan skill nyata), lewat hook golden yang sama (`all-modules.request.json`, ADR-066); P8, P9, P10, P15, P16, P19 hijau; `TestTokenEstimatorCalibration` varian gambar hijau (ADR-067); recall E4 ≥ 90% (k=10) dengan model referensi.
 - Undo: 100% aksi file pada suite undo (≥ 100 skenario) dapat dibatalkan dan menghasilkan byte identik.
 - `recall` ≤ 50 ms p95 @ 1.000.000 event (di luar purge berjalan; selama purge + filter `purging` dan jendela pemeliharaan, SPEC §11.6/§17.1); `Store.Append` ≤ 10 ms p99 (synchronous=FULL; di luar jendela pemeliharaan gc/purge SPEC §11.6, selama batch +≤ 200 ms; `BenchmarkAppend`, `BenchmarkAppendDuringGC`).
-- EC-CTX, EC-STATE (non-chaos), EC-PROV-008, EC-TCALL-010 covered (ADR-077).
+- EC-CTX, EC-STATE-001, 002, 003, 005..011, 013..016 (14; ADR-080), EC-PROV-008, EC-TCALL-010 covered (ADR-077); EC-WIN-002, 005, 011 di runner Windows (ADR-080).
+- Test tertunda berfase F2 (ADR-083): `TestModuleLifecycle/needs_attention`.
+- Baseline hermes untuk dimensi ADR-065/083 berstatus F2 (termasuk Token skill per turn) diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`) (ADR-083).
 
 ## F3 — Permukaan & plug-and-play
 
@@ -136,6 +145,7 @@ Gate yang ditunda punya fase eksplisit (ADR-073): `TestNoCrossPackageEmbedding` 
 - Wizard ≤ 3 langkah, ≤ 60 s; config minimum 2 baris.
 - Import 5 fixture `~/.hermes`: ≥ 99% item, 0 kehilangan diam-diam, idempoten.
 - EC-CFG, EC-FIO-007, EC-FIO-018 covered (ADR-077).
+- Baseline hermes untuk dimensi ADR-065/083 berstatus F3 diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`) (ADR-083).
 
 ## F4 — Telegram first + ketahanan
 
@@ -144,8 +154,11 @@ Gate yang ditunda punya fase eksplisit (ADR-073): `TestNoCrossPackageEmbedding` 
 **Acceptance**
 - E8: orang asing → 0 tool call, 0 LLM call; approval inline keyboard default timeout = reject.
 - Chaos suite (kill -9 × 1.000 turn, network cut, disk penuh, config/DB korup, reboot VM): 0 korupsi, 0 pesan Telegram masuk hilang/diproses ganda, 0 duplikat keluar pada suite, recovery ≤ 10 s, 0 tool non-idempoten terulang tanpa konfirmasi (P22).
-- EC-PLAT Telegram (19 entri eksplisit: EC-PLAT-001, 002, 003, 007, 009..023; ADR-061) + EC-STATE chaos + EC-TERM-008..010 covered (ADR-077).
+- EC-PLAT Telegram (19 entri eksplisit: EC-PLAT-001, 002, 003, 007, 009..023; ADR-061) + EC-STATE-012 (ADR-080) + EC-TERM-008..010 covered (ADR-077); EC-WIN-003, 004, 006 di runner Windows (ADR-080).
 - RSS `serve` + Telegram + cron ≤ 90 MB; CPU idle ≤ 0,5% (x86).
+- Test tertunda berfase F4 (ADR-083): `TestBudgetGuardGatewayUser` (termasuk penolakan pra-turn untuk turn ke-201), `TestGatewayUserRootIsolation`, `TestGatewayUserBlobScope`.
+- Baseline hermes untuk dimensi ADR-065/083 berstatus F4 diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`) (ADR-083).
+- Backlog ADR-078/ADR-086 berfase F4 tertutup (ADR-083).
 
 ## F5 — Provider, MCP, delegasi, coding
 
@@ -155,7 +168,9 @@ Gate yang ditunda punya fase eksplisit (ADR-073): `TestNoCrossPackageEmbedding` 
 - ≥ 88 provider lulus fixture replay; smoke nyata untuk ≥ 10 provider utama; custom provider dari 12 field berjalan tanpa kode.
 - 65/65 MCPX `tools/list` sukses; P1 tetap ≤ 5.000 dengan 65 server tercache.
 - Smoke E1 10 task dengan model murah lulus harness end-to-end (tanpa gate vs hermes; perbandingan kualitas penuh baru di RC F9, ADR-032).
-- Entri EC berfase F5 covered: EC-PROV 12, EC-TCALL-004/011, EC-FIO-003/010, EC-TERM-003, EC-SEC-002..004 (ADR-077); bagian test P24/EXC-09/EXC-11 yang butuh `process_*` hijau (ADR-072).
+- Entri EC berfase F5 covered: EC-PROV 12, EC-TCALL-004/011, EC-FIO-003/010, EC-TERM-001 (ADR-080), EC-TERM-003, EC-SEC-002..004 (ADR-077); EC-WIN-007, 008, 015 di runner Windows (ADR-080); bagian test P24/EXC-09/EXC-11 yang butuh `process_*` hijau (ADR-072).
+- Test tertunda berfase F5 (ADR-083): `TestMCPServeCannotSelfApprove`, `TestExecuteCodeRPCNetworkDeny`.
+- Backlog ADR-078/ADR-086 berfase F5 tertutup (ADR-083).
 
 ## F6 — Web, browser, media, voice
 
@@ -166,6 +181,8 @@ Gate yang ditunda punya fase eksplisit (ADR-073): `TestNoCrossPackageEmbedding` 
 - Voice overhead end-to-end ≤ 200 ms; TTS streaming mulai ≤ 300 ms setelah kalimat pertama.
 - Smoke E3 10 task dengan model murah lulus harness (perbandingan vs hermes di RC F9).
 - EC-PROV-024 covered (ADR-077).
+- Test tertunda berfase F6 (ADR-083): `TestBudgetGuardTools`.
+- Baseline hermes untuk dimensi ADR-065/083 berstatus F6 diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`) (ADR-083).
 
 ## F7 — Platform lain, API server, kanban
 
@@ -173,8 +190,8 @@ Gate yang ditunda punya fase eksplisit (ADR-073): `TestNoCrossPackageEmbedding` 
 
 **Acceptance**
 - PLAT 30/30 lulus fake server; smoke nyata nightly untuk adapter yang punya akun uji.
+- EC-PLAT (non-Telegram: EC-PLAT-004, 005, 006, 008, 024; ADR-061), EC-STATE-004 (ADR-080), EC-TERM-004/005, EC-SEC-006 covered (ADR-077).
 - Kontribusi binary adapter ≤ budget SPEC §3.2.4; P13 full ≤ 52 MB.
-- EC-PLAT (non-Telegram: EC-PLAT-004, 005, 006, 008, 024; ADR-061), EC-TERM-004/005, EC-SEC-006 covered (ADR-077).
 
 ## F8 — Web UI, ekosistem, otomatisasi
 
@@ -184,10 +201,11 @@ Gate yang ditunda punya fase eksplisit (ADR-073): `TestNoCrossPackageEmbedding` 
 - UI 28/28, AUTO 32/32, SKILL/SKCAT, PLUG lulus test parity.
 - P11: config default → 0 call `purpose=auto`; setiap fitur auto berhenti tepat di budget.
 - Web UI first token ≤ +50 ms; aset ≤ 1,5 MB; 0 key i18n hilang.
+- Backlog ADR-078/ADR-086 berfase F8 tertutup (ADR-083).
 
 ## F9 — Hardening & rilis 1.0
 
-**Deliverable**: penutupan EC-WIN & sisa edge-case, OS matrix lengkap (CROSS-CUTTING §7), soak 24 jam + 1.000 turn, chaos penuh, **head-to-head penuh pertama** (SWE-bench Verified subset 100 × 3 run + E2–E10, model frontier dan anggaran ditetapkan user saat RC — Q23-RC), aktivasi scorecard mingguan, gate parity 837/837 baris penyebut (SPEC §8; V-28/ADR-054), import sesi hermes, Docker 1 stage, Nix flake, installer, Termux, dokumentasi migrasi.
+**Deliverable**: penutupan sisa EC-WIN yang belum `covered` karena bug (EC-WIN masuk acceptance fasenya, ADR-080) & sisa edge-case, OS matrix lengkap (CROSS-CUTTING §7), soak 24 jam + 1.000 turn, chaos penuh, **head-to-head penuh pertama** (SWE-bench Verified subset 100 × 3 run + E2–E10, model frontier dan anggaran ditetapkan user saat RC — Q23-RC), aktivasi scorecard mingguan, gate parity 837/837 baris penyebut (SPEC §8; V-28/ADR-054), import sesi hermes, Docker 1 stage, Nix flake, installer, Termux, dokumentasi migrasi.
 
 **Acceptance (gate 1.0)**
 1. SCORECARD §4 (`TestScorecardGate`, V-20/ADR-054): semua dimensi ≥ hermes, dimensi inti menang dengan margin, speed parity (a) (`BenchmarkSpeedParity/<ID>` di `bench/speed`) ≥ 5×/10× tanpa satu operasi pun lebih lambat, (b) median ≥ 2× tanpa task > ×1,10.
@@ -195,6 +213,7 @@ Gate yang ditunda punya fase eksplisit (ADR-073): `TestNoCrossPackageEmbedding` 
 3. EDGE-CASES: 166/166 `covered` atau `n/a` beralasan; GAP-SWEEP: 118/118 requirement SPEC §22.1 terverifikasi (dengan resolusi ADR-033).
 4. Invariant P1–P29 hijau pada commit rilis.
 5. Artefak scorecard RC dipublikasikan.
+6. Baseline hermes untuk dimensi ADR-065/083 berstatus F9 diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`) (ADR-083).
 
 
 ## Adopsi GAP-SWEEP (118 gap → scope 1.0)
