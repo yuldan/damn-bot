@@ -134,6 +134,7 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | [#14](https://github.com/yuldan/damn-bot/pull/14) `redact` b | penyaring stream | secret terpotong di setiap offset (2 chunk) dan 50 potongan 3-chunk per secret = output whole-blob; prefix parsial di akhir chunk; ekor tak terbatas > 4 KiB fail-closed; PEM tanpa END; fuzz `FuzzRedactStream` |
 | [#15](https://github.com/yuldan/damn-bot/pull/15) `sandbox` a | verdict `Check`, `deny_paths` | symlink file/dir keluar root (termasuk komponen tengah, dangling, relatif, loop), `..`, path absolut; symlink ke path deny; `/proc/*/environ`, `/proc/*/task/*/environ`, `/proc/*/mem`, `~/.ssh`, `**/.env`, `*.pem`, look-alike, varian huruf (Windows/macOS); MSYS/UNC/long path |
 | [#16](https://github.com/yuldan/damn-bot/pull/16) `sandbox` b | open anti-TOCTOU per OS | CT-26: proses lain membalik komponen direktori ↔ symlink keluar root selama 1.000 open per mekanisme (openat2, walk `O_NOFOLLOW`) = 0 file luar; symlink baru di dalam root setelah `Check` ditolak; verifikasi `/proc/self/fd` dan device+inode (macOS/BSD, sisa risiko ADR-097 butir 4); `OpenApproved` tetap menolak deny; create pada path deny tidak membuat file |
+| [#22](https://github.com/yuldan/damn-bot/pull/22), [#30](https://github.com/yuldan/damn-bot/pull/30), [#31](https://github.com/yuldan/damn-bot/pull/31) `provider` (ADR-102) — **di-merge setelah CI hijau, review auditor menyusul** (input jarak jauh tidak tepercaya) | decoder delta tanpa reflect, rakitan stream, klien openai-chat (retry, breaker, fallback), `providertest` | **SSE/JSON rusak:** frame JSON tidak lengkap → `stream_broken` (retry, lalu gagal typed), stream terpotong tanpa `finish_reason` → `stream_broken`, angka di luar jangkauan/non-integer untuk token → chunk ditolak, `null` di posisi objek/array, UTF-8 rusak/surrogate tunggal → U+FFFD, kunci beda kapitalisasi diabaikan (`FuzzDeltaDecode` diferensial vs `encoding/json`, 3 crash fuzz diperbaiki + korpus; `TestDeltaDecode`; `TestHostileStream`); **delta besar:** satu event SSE > 4 MiB → `ErrEventTooLarge` (non-retry), rakitan > 16 MiB atau > 128 tool call → `ErrResponseTooLarge` (non-retry, tanpa fallback) (`TestAssemblyBounds`, `TestHostileStream`); **field injeksi tool call:** nama/argumen disimpan mentah tanpa ditafsirkan (`../../rm -rf` tetap string), fragmen dengan `id`/`index` berulang atau baru dirakit sesuai aturan EC-PROV-001 tanpa membuat call ekstra, field tak dikenal dilewati (`TestEdgeCases/EC-PROV-001`, `TestHostileStream`); **error di dalam stream 2xx** → kelas `server`, body disalin (tidak dieksekusi); **content_filter:** dikembalikan sebagai `FinishReason` bersama konten parsial + tool call untuk loop (stop `content_filtered`, ADR-072/082), tanpa retry/fallback (`TestAssemble`, `TestHostileStream`); **klasifikasi:** 429 = `rate_limited` apa pun body-nya (EC-PROV-029), `error.param` saja (bukan teks pesan) memicu pelepasan parameter (E-21); **body error** ≤ 64 KiB, tidak diredaksi di `provider` (redaksi saat log/tampil). Sisa: `providertest` hanya loopback (E-69) |
 
 ### `internal/budget` + `internal/ctxdb/ledgerstore` (ADR-101)
 
@@ -144,3 +145,20 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | Biaya ledger (SPEC §18.4) | `budget.Cost` (provider → tabel harga dibulatkan ke atas → unknown), `Entry.Account` | `TestCost`, `TestAccount` | selesai |
 | Storage ledger (ADR-074) | `ledgerstore.Insert` (transaksi pemanggil), `Calibration`, `SessionTotals` | `TestLedgerRoundTrip`, `TestLedgerAppendOnly` (event lintas sesi + UPDATE ditolak), `cmd/damnbot` `TestLedgerTypesConvertible` | selesai |
 | Guard P27 (cap 80 %/100 %) | — | — | F2 (ROADMAP F2 "budget guard") |
+
+### `internal/provider` + `providertest` (ADR-102)
+
+| PR | Isi | Baris Go non-test (diff) | Hasil |
+|---|---|---:|---|
+| [#22](https://github.com/yuldan/damn-bot/pull/22) | decoder delta tanpa reflect (`jscan.go`, `delta.go`), angka dibulatkan benar (fuzz `0a57b946`) | 574 | hijau; di-merge `43f2990` |
+| [#30](https://github.com/yuldan/damn-bot/pull/30) | tipe, encoder openai-chat, rakitan stream | 532 | hijau; di-merge `d44bac1` |
+| [#31](https://github.com/yuldan/damn-bot/pull/31) | `OpenAI` (retry, breaker per provider+credential, fallback ≤ 2, pelepasan parameter), batas rakitan, `providertest`, `retry.Policy.Wait` | 545 | lihat PR |
+
+| Item | Implementasi | Test | Status |
+|---|---|---|---|
+| E-36 decoder delta | `DeltaDecoder` (scratch ≥ frame, 0 realokasi) | `TestDeltaDecodeZeroAlloc` (10 jenis chunk), `BenchmarkDeltaDecode` (≈ 359 ns/op, 0 B/op, 0 allocs/op), `FuzzDeltaDecode` | selesai |
+| P6 kelas/retry/fallback | `toError`, `OpenAI.Do` via `retry.Do`, `retry.Breaker` | `TestToError`, `TestRetryAndClasses`, `TestCircuitOpen` | selesai |
+| P7 fallback terlihat | `Response.FallbackFrom`, `Config.OnFallback` | `TestEdgeCases/EC-PROV-015` (event) | selesai di `provider`; `TestFallbackVisible` = loop/`run` |
+| `content_filtered` (ADR-072/082) | finish `content_filter` diteruskan apa adanya | `TestAssemble`, `TestHostileStream` | selesai di `provider` |
+| E-69 `providertest` | server palsu loopback, skrip, replay fixture SSE, `FakeClock` | `TestFixtureAndLatency`, semua test klien | selesai |
+| EC-PROV F1 | 001, 004..007, 011..013, 015, 016, 025 di `provider`; 009/010/028..030 di `netx` | `TestEdgeCases/<ID>` (gate PHASE) | covered |

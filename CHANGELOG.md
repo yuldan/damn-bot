@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 ## Unreleased
 
 ### Added
+- `provider`: klien openai-chat `OpenAI` — retry P6 + circuit breaker per (provider, credential), fallback ≤ 2 model (mulai dari primer, lewati rute hilang/window kecil, event `provider_fallback`), parameter yang ditolak (`error.param`) dilepas per rute, batas respons 16 MiB/128 tool call; `providertest`: server palsu OpenAI-compatible (skrip, replay SSE, FakeClock) (ADR-102).
+- `netx/retry`: `Policy.Wait` untuk waktu tunggu yang diinjeksi test (ADR-102).
 - `provider`: tipe request/response/`Error` typed (SPEC §4.1), encoder request openai-chat deterministik (reasoning dikirim balik byte-identik), rakitan stream (tool call terfragmen, finish dinormalisasi, `stream_broken`, `empty_response`, strip token kontrol) (ADR-102).
 - `provider`: decoder delta stream openai-chat tanpa reflect dan tanpa alokasi per chunk (content, reasoning, tool_calls, usage, finish; E-36, ADR-102).
 - `budget`: estimator token COST-09 (rasio per script + kalibrasi EMA 0,5–1,5 dari ledger, `TestTokenEstimatorCalibration` en/id/ru/ja), perhitungan biaya (provider/tabel harga/unknown), entri ledger; `ctxdb/ledgerstore`: insert `usage_ledger`, sampel kalibrasi, total sesi (ADR-101).

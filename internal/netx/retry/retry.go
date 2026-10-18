@@ -46,6 +46,9 @@ type Policy struct {
 	Rand func() float64
 	// Notify, if set, observes every scheduled retry before the wait.
 	Notify func(Attempt)
+	// Wait blocks for d or until ctx ends; nil = a real timer. Tests that
+	// cannot run inside a synctest bubble (real sockets) inject a fake.
+	Wait func(ctx context.Context, d time.Duration) error
 }
 
 // Error is the failure returned by [Do]: the last attempt's error with its
@@ -94,7 +97,11 @@ func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int)
 		if p.Notify != nil {
 			p.Notify(Attempt{N: n, Class: class, Delay: delay, Err: err})
 		}
-		if werr := wait(ctx, delay); werr != nil {
+		w := wait
+		if p.Wait != nil {
+			w = p.Wait
+		}
+		if werr := w(ctx, delay); werr != nil {
 			return &Error{Class: ClassifyErr(werr), Attempts: n, Err: err}
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -23,7 +24,9 @@ func assemble(t *testing.T, frames ...string) (Response, error) {
 		if err != nil {
 			t.Fatalf("%s: %v", f, err)
 		}
-		a.add(d)
+		if err := a.add(d); err != nil {
+			return Response{}, err
+		}
 	}
 	return a.result()
 }
@@ -253,5 +256,29 @@ func ecControlTokens(t *testing.T) {
 		if got := stripControl(in); got != want {
 			t.Errorf("stripControl(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestAssemblyBounds: a hostile endpoint cannot grow a response beyond
+// maxResponseBytes or maxToolCalls (not retried).
+func TestAssemblyBounds(t *testing.T) {
+	t.Parallel()
+	var a assembler
+	chunk := bytes.Repeat([]byte("x"), 4<<20)
+	var err error
+	for range 5 {
+		if err = a.add(&Delta{Content: chunk}); err != nil {
+			break
+		}
+	}
+	if !errors.Is(err, ErrResponseTooLarge) || retry.ClassifyErr(err).Retryable() {
+		t.Errorf("content cap: %v", err)
+	}
+	var b assembler
+	for i := range maxToolCalls + 1 {
+		err = b.add(&Delta{ToolCalls: []ToolDelta{{Index: i, HasIndex: true, ID: []byte(fmt.Sprint("c", i)), Name: []byte("x")}}})
+	}
+	if !errors.Is(err, ErrResponseTooLarge) {
+		t.Errorf("tool-call cap: %v", err)
 	}
 }

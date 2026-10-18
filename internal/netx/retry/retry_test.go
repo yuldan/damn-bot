@@ -122,6 +122,24 @@ func TestRetryScenarios(t *testing.T) {
 	}
 }
 
+// TestRetryInjectedWait: Policy.Wait replaces the timer and its error ends
+// the loop with the error's class.
+func TestRetryInjectedWait(t *testing.T) {
+	t.Parallel()
+	var waits []time.Duration
+	p := Policy{Rand: func() float64 { return 0.5 }, Wait: func(_ context.Context, d time.Duration) error {
+		waits = append(waits, d)
+		if len(waits) == 2 {
+			return context.Canceled
+		}
+		return nil
+	}}
+	err := Do(t.Context(), p, func(context.Context, int) error { return classErr{c: Server} })
+	if ClassifyErr(err) != Cancelled || len(waits) != 2 || waits[0] != time.Second || waits[1] != 4*time.Second {
+		t.Errorf("err=%v waits=%v", err, waits)
+	}
+}
+
 // TestRetryCancel: a user cancel during the wait stops at once as cancelled;
 // a parent deadline is a timeout; neither retries.
 func TestRetryCancel(t *testing.T) {
