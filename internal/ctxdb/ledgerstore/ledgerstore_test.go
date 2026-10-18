@@ -2,6 +2,7 @@ package ledgerstore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -117,12 +118,22 @@ func TestLedgerAppendOnly(t *testing.T) {
 		t.Error("cross-session ledger row accepted")
 	}
 	insert(t, s, Row{SessionID: "a", EventID: ids[0], Purpose: "turn", CostSource: "unknown", PricingVersion: "none", TTFTMS: -1})
-	err = s.Write(t.Context(), func(tx *ctxdb.Tx) error {
-		_, uerr := tx.Exec(`UPDATE usage_ledger SET input_tokens = 1`)
-		return fmt.Errorf("update: %w", uerr)
-	})
-	if err == nil {
-		t.Error("UPDATE on usage_ledger accepted")
+	// LED-1: both statements are valid SQL that succeed without the
+	// usage_no_update/usage_no_delete triggers; the error is returned as is
+	// and the row must be unchanged afterwards.
+	for _, stmt := range []string{`UPDATE usage_ledger SET input_tokens = 7`, `DELETE FROM usage_ledger`} {
+		err = s.Write(t.Context(), func(tx *ctxdb.Tx) error {
+			if _, uerr := tx.Exec(stmt); uerr != nil {
+				return fmt.Errorf("%s: %w", stmt, uerr)
+			}
+			return nil
+		})
+		if !errors.Is(err, ctxdb.ErrInternal) {
+			t.Errorf("%s: err = %v, want the append-only trigger (ErrInternal)", stmt, err)
+		}
+		if tot, terr := SessionTotals(t.Context(), s, "a"); terr != nil || tot.Calls != 1 || tot.Input != 0 {
+			t.Errorf("%s changed the ledger: %+v %v", stmt, tot, terr)
+		}
 	}
 	if samples, last, err := Calibration(t.Context(), s, "a", 50); err != nil || len(samples) != 0 || last != 0 {
 		t.Errorf("no-estimate rows: %v %d %v", samples, last, err)

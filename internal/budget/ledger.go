@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/bits"
 )
 
 // Usage is the token and cost usage of one LLM call as reported by the
@@ -37,32 +38,73 @@ const (
 // PricingNone is the pricing_version of a call without a known price.
 const PricingNone = "none"
 
-// ErrInvalidUsage rejects negative token counts or a cached count larger
-// than the input (a malformed provider usage block).
+// ErrInvalidUsage rejects a usage block that cannot be accounted exactly:
+// negative or implausible token counts (> MaxTokens), a cached count larger
+// than the input, a provider cost above MaxProviderCostUSD, a negative
+// price, or a price-table cost that overflows int64 micro-USD. Callers fail
+// closed on it (REVIEW-F1-SEC3 LED-2/3): the call is never recorded as
+// cheaper than it was.
 var ErrInvalidUsage = errors.New("budget: invalid usage")
+
+// Plausibility bounds of one call (ADR-101 butir 4).
+const (
+	// MaxTokens bounds each token count of one call (10^12; context
+	// windows are ≤ 10^7).
+	MaxTokens = 1_000_000_000_000
+	// MaxProviderCostUSD bounds a provider-reported cost of one call.
+	MaxProviderCostUSD = 1_000_000
+)
 
 // Cost prices u (SPEC §18.4): the provider-reported cost wins, else the
 // price table, else unknown (micros = nil, the token caps still apply).
 func Cost(u Usage, p *Price) (micros *int64, src CostSource, err error) {
-	if u.Input < 0 || u.Output < 0 || u.CachedInput < 0 || u.CachedInput > u.Input {
+	if u.Input < 0 || u.Output < 0 || u.CachedInput < 0 || u.CachedInput > u.Input ||
+		u.Input > MaxTokens || u.Output > MaxTokens {
 		return nil, CostUnknown, fmt.Errorf("%w: input=%d cached=%d output=%d", ErrInvalidUsage, u.Input, u.CachedInput, u.Output)
 	}
+	if u.CostUSD != nil && *u.CostUSD > MaxProviderCostUSD { // incl. +Inf
+		return nil, CostUnknown, fmt.Errorf("%w: provider cost %g USD", ErrInvalidUsage, *u.CostUSD)
+	}
 	switch {
-	case u.CostUSD != nil && *u.CostUSD >= 0 && !math.IsInf(*u.CostUSD, 0):
-		m := int64(math.Round(*u.CostUSD * 1e6))
+	case u.CostUSD != nil && *u.CostUSD >= 0 && *u.CostUSD <= MaxProviderCostUSD:
+		m := int64(math.Round(*u.CostUSD * 1e6)) // ≤ 10^12: exact conversion
 		return &m, CostProvider, nil
 	case p != nil:
-		cached := p.CachedInputPerMTok
-		if cached == 0 {
-			cached = p.InputPerMTok
+		m, err := tableCost(u, p)
+		if err != nil {
+			return nil, CostUnknown, err
 		}
-		// Σ tokens × micros/MTok, rounded up to whole micro-USD.
-		num := (u.Input-u.CachedInput)*p.InputPerMTok + u.CachedInput*cached + u.Output*p.OutputPerMTok
-		m := (num + 999_999) / 1_000_000
 		return &m, CostPricingTable, nil
 	default:
 		return nil, CostUnknown, nil
 	}
+}
+
+// tableCost is Σ tokens × micros/MTok rounded up to whole micro-USD, in
+// checked arithmetic: any overflow is ErrInvalidUsage, never a wrapped
+// (negative or tiny) cost.
+func tableCost(u Usage, p *Price) (int64, error) {
+	cached := p.CachedInputPerMTok
+	if cached == 0 {
+		cached = p.InputPerMTok
+	}
+	if p.InputPerMTok < 0 || cached < 0 || p.OutputPerMTok < 0 {
+		return 0, fmt.Errorf("%w: negative price %+v", ErrInvalidUsage, *p)
+	}
+	var sum uint64
+	for _, t := range [...][2]int64{{u.Input - u.CachedInput, p.InputPerMTok}, {u.CachedInput, cached}, {u.Output, p.OutputPerMTok}} {
+		hi, lo := bits.Mul64(nonNeg(t[0]), nonNeg(t[1]))
+		var carry uint64
+		sum, carry = bits.Add64(sum, lo, 0)
+		if hi != 0 || carry != 0 {
+			return 0, fmt.Errorf("%w: cost overflows (tokens %d × %d µUSD/MTok)", ErrInvalidUsage, t[0], t[1])
+		}
+	}
+	m := sum/1_000_000 + min(sum%1_000_000, 1)
+	if m > math.MaxInt64 {
+		return 0, fmt.Errorf("%w: cost overflows int64", ErrInvalidUsage)
+	}
+	return int64(m), nil
 }
 
 // Entry is one usage_ledger row (SPEC §11.2), written in the same
@@ -100,4 +142,12 @@ func (e *Entry) Account(u Usage, p *Price, raw int64) error {
 		e.PricingVersion = p.Version
 	}
 	return nil
+}
+
+// nonNeg converts a count or price already checked to be ≥ 0.
+func nonNeg(v int64) uint64 {
+	if v < 0 {
+		return 0
+	}
+	return uint64(v)
 }
