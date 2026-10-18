@@ -59,10 +59,24 @@ func openat2Beneath(dir, rel, want string, flag int, perm fs.FileMode) (*os.File
 	return nil, escaped(want, unix.EAGAIN)
 }
 
+// handlePath is the real path of f: readlink /proc/self/fd/N.
+func handlePath(f *os.File) (string, bool) {
+	p, err := fdPath(f)
+	return p, err == nil
+}
+
+func fdPath(f *os.File) (string, error) {
+	p, err := os.Readlink("/proc/self/fd/" + strconv.FormatUint(uint64(f.Fd()), 10))
+	if err != nil {
+		return "", fmt.Errorf("sandbox: fd path: %w", err)
+	}
+	return p, nil
+}
+
 // verifyProcFd checks the real path of f against want (CODE-TOOLS §8:
 // readlink /proc/self/fd/N); failure, including no /proc, fails closed.
 func verifyProcFd(f *os.File, want string) (*os.File, error) {
-	got, err := os.Readlink("/proc/self/fd/" + strconv.FormatUint(uint64(f.Fd()), 10))
+	got, err := fdPath(f)
 	if err == nil && got == want {
 		return f, nil
 	}
