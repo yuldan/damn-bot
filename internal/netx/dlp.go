@@ -317,7 +317,14 @@ func (d *dlp) patternRunsHit(layer []byte, tr *spanTrack) bool {
 	if tr.patFull || containsAuthorization(layer) || bytes.Contains(layer, []byte("-----BEGIN")) {
 		return d.patternHit(layer)
 	}
-	end := 0
+	// The runs are scanned in one call, joined by '\n': no pattern but the
+	// two excluded above matches across whitespace, so the join creates no
+	// match, and one call avoids the per-call cost of hundreds of short runs.
+	buf, ok := d.scratch.Get().(*[]byte)
+	if !ok {
+		buf = new([]byte)
+	}
+	joined, end := (*buf)[:0], 0
 	for _, pi := range tr.pats {
 		p := int(pi)
 		if p < end {
@@ -331,12 +338,13 @@ func (d *dlp) patternRunsHit(layer []byte, tr *spanTrack) bool {
 		for hi < len(layer) && !isSpace(layer[hi]) {
 			hi++
 		}
-		if d.patternHit(layer[lo:hi]) {
-			return true
-		}
+		joined = append(append(joined, layer[lo:hi]...), '\n')
 		end = hi
 	}
-	return false
+	hit := len(joined) > 0 && d.patternHit(joined)
+	*buf = joined
+	d.scratch.Put(buf)
+	return hit
 }
 
 // isSpace is RE2 \s (redact's whitespace).
