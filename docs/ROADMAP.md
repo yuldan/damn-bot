@@ -144,6 +144,7 @@ Gate yang ditunda punya fase eksplisit (ADR-073): `TestNoCrossPackageEmbedding` 
 - ACP conformance transcript golden lulus; `tern acp` manual smoke terdokumentasi (Q1/Q3).
 - Wizard ≤ 3 langkah, ≤ 60 s; config minimum 2 baris.
 - Import 5 fixture `~/.hermes`: ≥ 99% item, 0 kehilangan diam-diam, idempoten.
+- Plan mode: `TestPlanModeShell` — shell hanya bila cocok persis `shell_allow` dan berlabel `non_mutating`, selain itu ditolak (ADR-079 butir 11).
 - EC-CFG, EC-FIO-007, EC-FIO-018 covered (ADR-077).
 - Baseline hermes untuk dimensi ADR-065/083 berstatus F3 diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`) (ADR-083).
 
