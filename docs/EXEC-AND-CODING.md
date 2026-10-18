@@ -42,7 +42,7 @@ Paket: `internal/exec` (core, backend `local`) dan `internal/modules/exec` (regi
 Aturan pilih otomatis (deterministik, dari AST `mvdan.cc/sh/v3/syntax`; model tidak memilih):
 1. `session` diset → `pty` (shell persisten interaktif).
 2. Salah satu `argv[0]` termasuk daftar `tty_required` → `pty`. Daftar: `top`, `htop`, `vim`, `vi`, `nano`, `less`, `more`, `man`, `ssh` tanpa perintah remote, `python`/`python3`/`node`/`irb` tanpa argumen skrip, `docker run|exec` dengan `-t`/`-it`, `script`, `tmux`, `screen`.
-3. `background:true` dan perintah adalah server/REPL interaktif menurut aturan 2 → `pty`.
+3. `background:true` (F5, ADR-072) dan perintah adalah server/REPL interaktif menurut aturan 2 → `pty`.
 4. Selain itu → `pipe`. Pipe lebih cepat (A.9), output bebas escape, dan tidak bisa membuka `/dev/tty` (A.6).
 
 `Meta.runner` selalu melaporkan pilihan. Runner tidak menjalankan ulang perintah otomatis dengan mode lain, karena efek samping tidak boleh diulang.
@@ -92,8 +92,9 @@ Konteks tier (SPEC §6) menulis shell one-shot dan shell sesi yang terdeteksi.
 
 - Deskripsi 128 char (≤ 160). Estimasi ≈ 150 tok `[INFERENCE]`; gate keras ≤ 200 tok o200k (`TestEagerSchemaTokens/shell`).
 - Tidak ada parameter `pty`, `notify`, atau `idle_timeout`, karena perilaku itu ditentukan runtime. Bandingkan dengan 5 parameter background hermes (`tools/terminal_tool.py:1524-1557`).
-- `timeout_s > 600` → `invalid_args` (P3). Perintah tidak dipromosikan diam-diam seperti di hermes. Hint error: `use background:true`.
+- `timeout_s > 600` → `invalid_args` (P3). Perintah tidak dipromosikan diam-diam seperti di hermes. Hint error `use background:true` berlaku sejak F5 (ADR-072).
 - `background` dan `session` bersamaan → `invalid_args`.
+- Di build F1, `shell{background:true}` → `invalid_args` (hint "background not available; run in foreground with timeout_s"). Parameter `background` dan deskripsinya tetap di schema (0 tok perubahan); semantik background (A.5) datang di F5 (ADR-072).
 
 ### A.3 Streaming ke UI dan ringkasan ke model
 
@@ -123,7 +124,7 @@ Baris header selalu ada dan tidak dikompresi:
 [exit 1 · 2.341 ms · signal none · runner pipe · status exited]
 ```
 
-`status ∈ {exited, signaled, timeout, idle_timeout, waiting_for_input, cancelled, spawn_failed}`. `Meta`: `exit_code` (null jika signaled), `signal`, `duration_ms`, `status`, `runner`, `bytes_raw`, `chars_model`, `lines_collapsed`, `truncated`, `blob_sha`, `raw_blob_sha`, `process_id`, `session_reset`. Exit ≠ 0 tetap `OK=true` dengan status `exited`, karena perintah memang berjalan. `exec_failed` hanya untuk `spawn_failed`.
+`status ∈ {exited, signaled, timeout, idle_timeout, waiting_for_input, cancelled_confirmed, still_running, spawn_failed}` (`cancelled_confirmed`/`still_running` menggantikan `cancelled`, ADR-072; A.4). `Meta`: `exit_code` (null jika signaled), `signal`, `duration_ms`, `status`, `runner`, `bytes_raw`, `chars_model`, `lines_collapsed`, `truncated`, `blob_sha`, `raw_blob_sha`, `process_id` (F1: hanya untuk `still_running`, registry internal), `killed`, `session_reset`. Exit ≠ 0 tetap `OK=true` dengan status `exited`, karena perintah memang berjalan. `exec_failed` hanya untuk `spawn_failed`.
 
 ### A.4 Timeout, idle-timeout, cancel, 0 orphan
 
@@ -131,26 +132,28 @@ Baris header selalu ada dan tidak dikompresi:
 |---|---|---|---|
 | `timeout_s` | 120 | 1–600 | argumen; config `exec.default_timeout_s` |
 | idle-timeout | 60 s | 10–600 | config `exec.idle_timeout_s` |
-| grace TERM→KILL | 3 s | 1–10 | config `exec.kill_grace_s` |
+| grace TERM→KILL | 3 s | 1–3 (> 3 ditolak validasi config, ADR-072) | config `exec.kill_grace_s` |
 
 **Idle** (tidak berlaku untuk proses background) terpicu bila tiga kondisi berlaku bersamaan selama jendela idle:
 - 0 byte output;
 - CPU pohon proses < 1% satu core: Linux `/proc/<pid>/stat`; macOS `sysctl KERN_PROC` + `proc_pid_rusage` via `unix.Syscall`; Windows `JobObjectBasicAccountingInformation`;
 - I/O < 64 KB: Linux `/proc/<pid>/io`; Windows job I/O accounting; macOS tanpa kriteria ini.
 
-Akibatnya `go build` yang sunyi tetapi sibuk CPU tidak dibunuh, sedangkan `sleep 100` dibunuh setelah 60 s dengan hint `use background:true for long silent waits`.
+Akibatnya `go build` yang sunyi tetapi sibuk CPU tidak dibunuh, sedangkan `sleep 100` dibunuh setelah 60 s dengan hint `use background:true for long silent waits` (hint ini sejak F5, ADR-072).
 
 **Identitas pohon proses.** Setiap anak mewarisi env `DAMNBOT_EXEC_ID=<ulid>`. Anak juga diberi:
 - Linux: `Setsid` (pgid = pid), `Pdeathsig=SIGKILL`. Spawn dilakukan dari goroutine `LockOSThread` yang tidak pernah exit, agar pdeathsig tidak terpicu oleh thread yang mati. Proses damnbot menjadi `PR_SET_CHILD_SUBREAPER` (`unix.Prctl`) saat runner pertama dipakai (lazy). Cucu yang lepas via `setsid`/double-fork tetap ter-reparent ke damnbot.
 - macOS: `Setsid`; tanpa subreaper.
 - Windows: Job Object dengan `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, tanpa `BREAKAWAY_OK`. Proses dibuat `CREATE_SUSPENDED`, dimasukkan ke job, baru di-resume, sehingga tidak ada celah race.
 
-**Urutan kill** (timeout, idle, cancel user, `process_kill`, akhir sesi):
+**Urutan kill** (timeout, idle, cancel user, `process_kill` (F5), akhir sesi):
 1. `kill(-pgid, SIGTERM)` (Windows: `TerminateJobObject` langsung, karena Windows tidak punya TERM yang setara untuk pohon proses).
-2. Tunggu grace 3 s.
+2. Tunggu `exec.kill_grace_s` (default 3 s, rentang 1–3, ADR-072). P24 "≤ `timeout_s` + 4 s" tetap berlaku.
 3. `kill(-pgid, SIGKILL)`.
 4. Sweep: semua pid yang env-nya memuat `DAMNBOT_EXEC_ID` yang sama (Linux `/proc/*/environ`, macOS `KERN_PROCARGS2`) atau anak hasil reparent subreaper → `SIGKILL`. Identitas dicek lewat marker, bukan pid saja, sehingga aman dari PID reuse yang dikhawatirkan hermes (`tools/environments/local.py:943-950`).
 5. Reaper `wait4(-1, WNOHANG)` pada SIGCHLD me-reap semua zombie, termasuk anak yatim hasil reparent.
+
+**Cancel (ADR-072, REL-06).** 1 s setelah cancel = tenggat **pengembalian hasil**. Pohon proses yang terbukti mati dalam 1 s → `tool_result{status:"cancelled_confirmed", by:"user"}`. Yang belum terbukti mati → `tool_result{status:"still_running", by:"user"}` + `process_id` registry internal (F1); urutan kill berlanjut di background dan hasilnya dicatat sebagai `system_notice{kind:"process_exit"}`. Re-dispatch tool `non_idempotent` setelah `still_running` wajib menunggu `cancelled_confirmed` atau konfirmasi user (P22/REL-06).
 
 **Crash damnbot (`kill -9`):**
 - Linux: pdeathsig membunuh leader; cucu yang lepas ditangkap oleh sweep saat start berikutnya.
@@ -159,7 +162,9 @@ Akibatnya `go build` yang sunyi tetapi sibuk CPU tidak dibunuh, sedangkan `sleep
 
 Sweep startup dijalankan lazy pada pemakaian `shell` pertama, atau oleh `damnbot doctor`.
 
-### A.5 Proses background
+### A.5 Proses background (F5, ADR-072)
+
+Di build F1, `shell{background:true}` → `invalid_args` (A.2). Background, `process_list/output/wait/send/kill`, dan pemindahan foreground → background datang di **F5** bersama TOOL-077/EXEC-009 (ADR-064, ADR-072). Registry proses internal (untuk `still_running`, A.4) tetap F1. Spesifikasi F5:
 
 `shell{background:true}` → registry di modul `exec`. Tool deferred (schema lewat `tool_search`):
 
@@ -218,12 +223,12 @@ Notifikasi selesai:
 Hasil:
 
 ```json
-{"status":"waiting_for_input","prompt":"Do you want to continue? [Y/n]","input_kind":"confirm","process_id":"p4"}
+{"status":"waiting_for_input","prompt":"Do you want to continue? [Y/n]","input_kind":"confirm","killed":true}
 ```
 
-- Proses foreground dipindahkan ke registry background dan dihitung terhadap batas A.5. Proses tetap hidup untuk `process_send`, dan di-kill jika tidak ada input 10 menit.
-- Jika batas A.5 penuh → kill + status `waiting_for_input` tanpa `process_id`.
-- `input_kind:"secret"`: `process_send` dari model → `denied`. Input hanya lewat UI (TUI/web/ACP memberi field input tersembunyi; nilai tidak masuk transcript, event hanya mencatat `secret_input:true`).
+- **F1 (ADR-072):** pohon proses foreground yang terdeteksi menunggu input di-kill (urutan A.4) lalu dikembalikan `status:"waiting_for_input"` dengan prompt yang tertangkap, `killed:true`, tanpa `process_id`.
+- **F5:** proses foreground dipindahkan ke registry background dan dihitung terhadap batas A.5 (hasil memuat `process_id`). Proses tetap hidup untuk `process_send`, dan di-kill jika tidak ada input 10 menit. Jika batas A.5 penuh → kill + status `waiting_for_input` tanpa `process_id`.
+- `input_kind:"secret"` (F5): `process_send` dari model → `denied`. Input hanya lewat UI (TUI/web/ACP memberi field input tersembunyi; nilai tidak masuk transcript, event hanya mencatat `secret_input:true`).
 
 ### A.7 Backend (modul lazy)
 
@@ -358,8 +363,10 @@ Gate CI memakai ambang ×1,5 di runner bersama (SPEC §17).
 | ID | Invariant | Angka | Verifikasi |
 |---|---|---|---|
 | P24.1 | 0 orphan | 0 proses bermarker `DAMNBOT_EXEC_ID` hidup ≤ 1 s setelah kill/timeout/akhir sesi (Linux/Windows); 0 setelah start berikutnya (macOS, pasca crash) | `TestNoOrphans`: fixture `setsid sleep 1000 &`, double-fork daemon, `nohup … &`, `disown`, `trap '' TERM`, `docker run -d`-style detach di backend fake, `kill -9` damnbot di tengah perintah (200 iterasi, mengikuti `TestKill9Chaos`). Matrix CI linux/macos/windows. |
-| P24.2 | 0 hang | setiap call `shell` kembali ≤ `timeout_s` + grace 3 s + 1 s; perintah yang menunggu input kembali ≤ 2 s setelah prompt tampil (pty) atau gagal cepat (pipe) | `TestInteractiveCorpus`: 40 fixture (apt tanpa `-y`, `git commit` tanpa `-m`, ssh host baru, `sudo`, `npm init`, `python -c 'input()'`, `read -p`, `less`, `vim`, `mysql -p`, `git rebase -i`, …) di runner pipe dan pty. Assert durasi + status ∈ {`exited`, `waiting_for_input`}. |
+| P24.2 | 0 hang | setiap call `shell` kembali ≤ `timeout_s` + `exec.kill_grace_s` (≤ 3 s, ADR-072) + 1 s; perintah yang menunggu input kembali ≤ 2 s setelah prompt tampil (pty) atau gagal cepat (pipe) | `TestInteractiveCorpus`: 40 fixture (apt tanpa `-y`, `git commit` tanpa `-m`, ssh host baru, `sudo`, `npm init`, `python -c 'input()'`, `read -p`, `less`, `vim`, `mysql -p`, `git rebase -i`, …) di runner pipe dan pty. Assert durasi + status ∈ {`exited`, `waiting_for_input`}. |
 | P24.3 | Spawn overhead | p95 < 15 ms (Unix), < 40 ms (Windows) | A.9 benchmark, gate PR job perf |
+
+Test cancel (ADR-072): `TestCancelConfirmed` (REL-06, F1: hasil ≤ 1 s setelah cancel, status `cancelled_confirmed` atau `still_running`), `TestCancelConfirmBeforeRedispatch` (F1: re-dispatch `non_idempotent` setelah `still_running` menunggu `cancelled_confirmed` atau konfirmasi user), `TestACPChildStdinIsolation` (REL-13, F3). Bagian test P24/EXC-09/EXC-11 yang membutuhkan `process_*` (background, `process_send`, reap waiting-for-input) adalah acceptance F5 (ADR-072).
 
 ---
 
@@ -598,14 +605,14 @@ Harness `damnbot-eval` (F0, SCORECARD) menjalankan Damn-Bot dan hermes pada kond
 | EXC-01 | Schema eager `shell` | ≤ 200 tok, deskripsi ≤ 160 char | `TestEagerSchemaTokens/shell` |
 | EXC-02 | Timeout default / maks | 120 s / 600 s | `TestShellTimeout` |
 | EXC-03 | Idle-timeout | 60 s (10–600), CPU < 1%, I/O < 64 KB | `TestShellIdleTimeout` |
-| EXC-04 | Grace TERM→KILL | 3 s | `TestKillSequence` |
+| EXC-04 | Grace TERM→KILL; cancel | 3 s (1–3, > 3 ditolak config); hasil cancel ≤ 1 s, status `cancelled_confirmed`/`still_running` (ADR-072) | `TestKillSequence`, `TestCancelConfirmed`, `TestCancelConfirmBeforeRedispatch` |
 | EXC-05 | Output inline / preview | ≤ 4.000 char / 800 (160 head + 240 error + 400 tail) | `TestShellSummary`, `TestSpill` |
 | EXC-06 | Baris error tersimpan di preview | 100% (≤ 3 baris) pada korpus | `TestShellSummaryCorpus` |
 | EXC-07 | Pipeline ringkasan 1 MB | < 15 ms p95 | `BenchmarkSummarize1MB` |
 | EXC-08 | Sesi persisten exec | < 5 ms p95; maks 4 sesi; idle reap 30 menit | `BenchmarkShellSessionExec`, `TestShellSessionLimits` |
-| EXC-09 | Proses background | 8/sesi, 32 global, log ring 8 MiB, retensi 30 menit/64 | `TestProcessLimits` |
+| EXC-09 | Proses background (F5, ADR-072); F1: `background:true` → `invalid_args` | 8/sesi, 32 global, log ring 8 MiB, retensi 30 menit/64 | `TestProcessLimits` (F5) |
 | EXC-10 | Notice proses selesai | ≤ 40 tok, ≤ 3/request, 0 LLM call | `TestProcessNotice`, `TestNoBackgroundCalls` |
-| EXC-11 | Waiting-for-input reap | 10 menit | `TestWaitingInputReap` |
+| EXC-11 | Waiting-for-input | F1: pohon di-kill, `killed:true`, tanpa `process_id`; F5: reap 10 menit (ADR-072) | `TestInteractiveCorpus` (F1), `TestWaitingInputReap` (F5) |
 | EXC-12 | Classify perintah 2 KB | < 1 ms p95 | `BenchmarkClassify` |
 | EXC-13 | Akurasi classifier | 0 destruktif/irreversible lolos sebagai read_only/mutating dan 0 `read_only` yang mengeksekusi, menulis, atau membaca path `deny_paths`/luar root, pada korpus ≥ 300 perintah (termasuk obfuscation quoting/`eval`/`sh -c` dan 42 kasus tabel ADR-069); `deny_paths` default: 0 tereksekusi (ADR-069) | `TestClassifyCorpus`, `TestShellDenyPaths`, `TestSessionTaintPersistent`, `TestShellAllowMatching`, `TestWorkspaceTrustGate` |
 | EXC-14 | Destructive/irreversible/privileged/baca di luar root di mode `auto` | 100% tanya (destructive: kecuali `allow_destructive`/`destructive_allow`; irreversible dan `privileged`: tanpa pengecualian, ADR-069) | `TestDestructiveAlwaysAsk`, `TestShellIrreversibleAlwaysAsk`, `TestSudoAlwaysAsk`, `TestReadOutsideWorkspaceAsks` |
