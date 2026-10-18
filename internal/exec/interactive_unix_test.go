@@ -14,6 +14,9 @@ import (
 // idle window; a silent CPU-busy one runs until its timeout.
 func TestRunIdleTimeout(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS != "linux" {
+		t.Skip("no tree accounting: never idle-killed (ADR-105 butir 16)")
+	}
 	s := sh(t, `echo start; sleep 30`)
 	s.IdleTimeout, s.KillGrace = time.Second, time.Second
 	res := run(t.Context(), t, newTestRunner(t), s)
