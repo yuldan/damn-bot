@@ -68,6 +68,66 @@ func TestAtomicWriteKill9(t *testing.T) {
 	}
 }
 
+// TestInPlaceKill9 is CT-25 for a hard-linked file, rewritten in place
+// (approved, CT27-8): killed while the temp is half written the file is
+// whole; killed mid-copy the file may be partial, but the fsynced backup
+// next to it holds the whole previous version, and CleanOrphanTemps keeps
+// it.
+func TestInPlaceKill9(t *testing.T) {
+	if os.Getenv(kill9Env) != "" {
+		t.Skip("child runs under TestAtomicWriteKill9")
+	}
+	t.Parallel()
+	dir, out := realTemp(t), realTemp(t)
+	vers := kill9Versions()
+	p := filepath.Join(dir, "f.txt")
+	writeFile(t, p, vers[0])
+	if err := os.Link(p, filepath.Join(out, "other.txt")); err != nil {
+		t.Skipf("Link: %v", err)
+	}
+	e := kill9Engine(t, dir)
+	for i := range 20 {
+		point, skip := []string{"mid-temp", "mid-copy"}[i%2], i%3
+		kill9Run(t, dir, point, skip, true)
+		if _, err := e.CleanOrphanTemps(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		got := string(readFixture(t, p))
+		baks := crashBackups(t, dir)
+		// write n stores vers[(n+1)%2], so the parked write found vers[skip%2].
+		switch {
+		case point == "mid-temp" && (got != vers[skip%2] || len(baks) != 0):
+			t.Fatalf("iteration %d: file changed before the copy (%d bytes, backups %v)", i, len(got), baks)
+		case point == "mid-copy" && (len(baks) != 1 || string(readFixture(t, baks[0])) != vers[skip%2]):
+			t.Fatalf("iteration %d: no whole backup of the previous version: %v", i, baks)
+		}
+		writeFile(t, p, vers[0]) // recover, as from file_snapshots
+		removeFiles(t, baks)
+	}
+	if ents, err := os.ReadDir(dir); err != nil || len(ents) != 1 {
+		t.Errorf("crash temps left: %d entries (%v)", len(ents), err)
+	}
+}
+
+// crashBackups lists the in-place backups of f.txt left in dir.
+func crashBackups(t *testing.T, dir string) []string {
+	t.Helper()
+	baks, err := filepath.Glob(filepath.Join(dir, ".f.txt.damnbot-bak-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return baks
+}
+
+func removeFiles(t *testing.T, paths []string) {
+	t.Helper()
+	for _, p := range paths {
+		if err := os.Remove(p); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // kill9Run starts a child that parks at point after skip writes (point
 // "": killed after skip writes) and kills it there.
 func kill9Run(t *testing.T, dir, point string, skip int, link bool) {

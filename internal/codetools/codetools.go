@@ -115,17 +115,24 @@ type Config struct {
 	// (CODE-TOOLS §2.3); empty = os.UserHomeDir / $XDG_CONFIG_HOME or
 	// Home/.config.
 	Home, XDGConfigHome string
+	// Snapshot receives the old bytes of a hard-linked file before it is
+	// rewritten in place (CODE-TOOLS §5.4: rename would break the link, so
+	// a crash mid-copy is recoverable only from this snapshot); an error
+	// aborts the write with the file untouched. The dispatch pipeline
+	// stores it in file_snapshots (SPEC §4.3 langkah 9).
+	Snapshot func(ctx context.Context, resolved string, old *os.File) error
 }
 
 // Engine runs the file tools of one session. Close releases its caches and
 // stops background index builds.
 type Engine struct {
-	sb     *sandbox.Sandbox
-	roots  []string
-	newEOL string
-	fold   bool // case-insensitive root prefixes (Windows)
-	home   string
-	xdg    string
+	sb       *sandbox.Sandbox
+	roots    []string
+	newEOL   string
+	fold     bool // case-insensitive root prefixes (Windows)
+	home     string
+	xdg      string
+	snapshot func(ctx context.Context, resolved string, old *os.File) error
 	// hook is a test seam called at named commit points; an error aborts
 	// the write there (failure injection, CT-25 kill points).
 	hook func(point string) error
@@ -143,7 +150,7 @@ func New(cfg *Config) (*Engine, error) {
 	if cfg == nil || cfg.Sandbox == nil || len(cfg.Roots) == 0 {
 		return nil, errors.New("codetools: sandbox and roots required")
 	}
-	e := &Engine{sb: cfg.Sandbox, newEOL: "\n", fold: runtime.GOOS == "windows", building: map[fileKey]bool{}, locks: map[string]*pathMu{}}
+	e := &Engine{sb: cfg.Sandbox, newEOL: "\n", fold: runtime.GOOS == "windows", snapshot: cfg.Snapshot, building: map[fileKey]bool{}, locks: map[string]*pathMu{}}
 	if cfg.NewEOL == "crlf" {
 		e.newEOL = "\r\n"
 	}

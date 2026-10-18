@@ -1,13 +1,220 @@
 package codetools
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
+
+// linkedEnv is an env whose f.txt (content) has a second name outside the
+// root, so edits need approval and run in place (S16-7, CT27-8).
+func linkedEnv(t *testing.T, content string) (v *env, p, other string) {
+	t.Helper()
+	v = newEnv(t)
+	p = v.put(t, "f.txt", content)
+	other = filepath.Join(v.out, "other.txt")
+	if err := os.Link(p, other); err != nil {
+		t.Skipf("Link: %v", err)
+	}
+	return v, p, other
+}
+
+// approvedTag reads f.txt with approval and returns its tag.
+func approvedTag(t *testing.T, v *env) string {
+	t.Helper()
+	r, err := v.e.Read(context.Background(), ReadArgs{Path: "f.txt", Limit: 1}, Opts{Approved: true})
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	return metaStr(&r, "tag")
+}
+
+// noTemps fails when a commit left a temp or backup next to dir's files.
+func noTemps(t *testing.T, dir string) {
+	t.Helper()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ents {
+		if strings.Contains(e.Name(), tempMarker) {
+			t.Errorf("leftover %s", e.Name())
+		}
+	}
+}
+
+// TestInPlaceFailuresKeepFile: every failure of an in-place rewrite of a
+// hard-linked file (disk full or I/O error mid-copy, while writing the
+// temp, a failed snapshot, a no-op edit) leaves both names byte-identical
+// and no temp or backup behind (CT27-2, CT27-8).
+func TestInPlaceFailuresKeepFile(t *testing.T) {
+	t.Parallel()
+	const orig = "alpha\nbeta\ngamma\n"
+	cases := []struct {
+		name string
+		hook string
+		herr error
+		snap error
+		edit EditItem
+		want Code
+	}{
+		{"enospc mid-copy", "mid-copy", syscall.ENOSPC, nil, strEdit("beta", strings.Repeat("B", 1<<17)), CodeDiskFull},
+		{"eio mid-copy", "mid-copy", syscall.EIO, nil, strEdit("beta", strings.Repeat("B", 1<<17)), CodeInternal},
+		{"enospc mid-temp", "mid-temp", syscall.ENOSPC, nil, strEdit("beta", "BETA"), CodeDiskFull},
+		{"snapshot fails", "", nil, errors.New("snapshot store down"), strEdit("beta", "BETA"), CodeInternal},
+		{"no-op", "", nil, nil, strEdit("beta", "beta"), CodeInvalidArgs},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			v, p, other := linkedEnv(t, orig)
+			v.e.snapshot = func(context.Context, string, *os.File) error { return c.snap }
+			v.e.hook = func(point string) error {
+				if point == c.hook {
+					return c.herr
+				}
+				return nil
+			}
+			tag := approvedTag(t, v)
+			_, err := v.e.Edit(context.Background(), EditArgs{Path: "f.txt", Tag: tag, Edits: []EditItem{c.edit}}, Opts{Approved: true})
+			wantCode(t, err, c.want)
+			if got := v.get(t, "f.txt"); got != orig {
+				t.Errorf("file changed: %q", got)
+			}
+			if !sameFile(t, p, other) {
+				t.Error("hard link broken")
+			}
+			noTemps(t, v.root)
+		})
+	}
+}
+
+// TestInPlaceEdit: an approved edit of a hard-linked file rewrites the
+// shared inode (both names see it), hands the old bytes to Snapshot before
+// the first byte changes, and leaves no temp or backup.
+func TestInPlaceEdit(t *testing.T) {
+	t.Parallel()
+	v, p, other := linkedEnv(t, "alpha\nbeta\n")
+	var snap []byte
+	v.e.snapshot = func(_ context.Context, resolved string, old *os.File) error {
+		var err error
+		if snap, err = io.ReadAll(io.NewSectionReader(old, 0, 1<<20)); err != nil {
+			return fmt.Errorf("snapshot: %w", err)
+		}
+		if cur := readFixture(t, resolved); !bytes.Equal(cur, snap) {
+			t.Errorf("target already changed at snapshot: %q", cur)
+		}
+		return nil
+	}
+	ctx := context.Background()
+	_, err := v.e.Edit(ctx, EditArgs{Path: "f.txt", Tag: approvedTag(t, v), Edits: []EditItem{strEdit("beta", "BETA\ngamma")}}, Opts{})
+	wantCode(t, err, CodeOutsideWorkspace) // hardlinked_file needs approval
+	res, err := v.e.Edit(ctx, EditArgs{Path: "f.txt", Tag: approvedTag(t, v), Edits: []EditItem{strEdit("beta", "BETA\ngamma")}}, Opts{Approved: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Meta["inplace"] != "hardlink" || string(snap) != "alpha\nbeta\n" {
+		t.Errorf("meta %v, snapshot %q", res.Meta, snap)
+	}
+	if got := string(readFixture(t, other)); got != "alpha\nBETA\ngamma\n" || !sameFile(t, p, other) {
+		t.Errorf("other name: %q", got)
+	}
+	noTemps(t, v.root)
+}
+
+// TestInPlaceLargeFile: hard-linked files above inMemoryMax take the
+// streaming line-range path; a real edit is applied to both names, and a
+// no-op edit fails with the file untouched (CT27-2 repro: 65 MiB).
+func TestInPlaceLargeFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("writes 65 MiB files")
+	}
+	t.Parallel()
+	line := strings.Repeat("x", 63) + "\n"
+	body := strings.Repeat(line, (inMemoryMax+1<<20)/len(line))
+	v, p, other := linkedEnv(t, "first\n"+body+"last\n")
+	ctx := context.Background()
+	old := time.Now().Add(-time.Hour) // a racy stat tag (§5.5) would need a full hash
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatal(err)
+	}
+	one, last := 1, len(body)/len(line)+2
+	noop := "last"
+	_, err := v.e.Edit(ctx, EditArgs{Path: "f.txt", Tag: approvedTag(t, v), Edits: []EditItem{{StartLine: &last, EndLine: &last, NewText: &noop}}}, Opts{Approved: true})
+	wantCode(t, err, CodeInvalidArgs)
+	if fi := mustStat(t, p); fi.Size() != int64(len(body)+11) {
+		t.Fatalf("no-op edit changed the size to %d", fi.Size())
+	}
+	first := "FIRST"
+	res, err := v.e.Edit(ctx, EditArgs{Path: "f.txt", Tag: approvedTag(t, v), Edits: []EditItem{{StartLine: &one, EndLine: &one, NewText: &first}}}, Opts{Approved: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := readFixture(t, other)
+	if !strings.HasPrefix(string(got), "FIRST\n"+line) || len(got) != len(body)+11 || !sameFile(t, p, other) {
+		t.Errorf("in-place large edit: %d bytes, meta %v", len(got), res.Meta)
+	}
+	noTemps(t, v.root)
+}
+
+// TestEditLockAlias is CT27-5: edits through two names of one file (a
+// symlink, and two hard links) are serialized: with one tag, exactly one
+// succeeds and the other is stale_read; no update is lost.
+func TestEditLockAlias(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"symlink", "hardlink"} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			v := newEnv(t)
+			p := v.put(t, "f.txt", "a\nb\n")
+			var err error
+			if kind == "symlink" {
+				err = os.Symlink("f.txt", filepath.Join(v.root, "link.txt"))
+			} else {
+				err = os.Link(p, filepath.Join(v.root, "link.txt"))
+			}
+			if err != nil {
+				t.Skipf("%s: %v", kind, err)
+			}
+			for i := range 150 {
+				aliasEditRace(t, v, p, i)
+			}
+		})
+	}
+}
+
+// aliasEditRace runs one TestEditLockAlias iteration: two concurrent
+// edits with one tag through f.txt and link.txt; exactly one must win.
+func aliasEditRace(t *testing.T, v *env, p string, i int) {
+	t.Helper()
+	ctx, o := context.Background(), Opts{Approved: true}
+	writeFile(t, p, "a\nb\n")
+	tag := approvedTag(t, v)
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for j, a := range []EditArgs{
+		{Path: "f.txt", Tag: tag, Edits: []EditItem{strEdit("a", "A")}},
+		{Path: "link.txt", Tag: tag, Edits: []EditItem{strEdit("b", "B")}},
+	} {
+		wg.Go(func() { _, errs[j] = v.e.Edit(ctx, a, o) })
+	}
+	wg.Wait()
+	got := v.get(t, "f.txt")
+	ok := (errs[0] == nil) != (errs[1] == nil)
+	if !ok || (got != "A\nb\n" && got != "a\nB\n") {
+		t.Fatalf("iteration %d: errs %v, file %q", i, errs, got)
+	}
+}
 
 // TestPathLockAliases is CT27-5 without timing luck: while one name of a
 // file holds its edit lock, locking any other name of it (symlink, hard
@@ -92,3 +299,8 @@ func TestCleanOrphanTempsPattern(t *testing.T) {
 }
 
 func strEdit(old, nw string) EditItem { return EditItem{OldString: &old, NewString: &nw} }
+
+func sameFile(t *testing.T, a, b string) bool {
+	t.Helper()
+	return os.SameFile(mustStat(t, a), mustStat(t, b))
+}

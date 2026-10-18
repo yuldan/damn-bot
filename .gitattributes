@@ -10,3 +10,5 @@ internal/schema/testdata/jsts/* -text
 internal/redact/testdata/*.tsv -text
 # Korpus kalibrasi estimator (ADR-101): byte-persis dengan hitungan o200k.tsv di semua OS.
 internal/budget/testdata/calibration/* -text
+# CT-20 edit suite: byte-exact JSON cases, no EOL conversion (Windows).
+internal/codetools/testdata/** -text
