@@ -39,4 +39,5 @@ jobs:
         run: go test -tags goolm $RACE -count=1 -v ./internal/ctxdb/ ./internal/testutil/... 2>&1 | tee test.log; exit "${PIPESTATUS[0]}"
       - name: Bukti test ADR-090
         if: always()
-        run: grep -E -- '--- (PASS|FAIL): (TestFileLockSemantics|TestPlatformNAList|TestScenario/S023|TestScenario/S044|TestPhaseFile)' test.log || true
+        run: |
+          grep -E -- '--- (PASS|FAIL): (TestFileLockSemantics|TestPlatformNAList|TestScenario/S023|TestScenario/S044|TestPhaseFile)' test.log || true
