@@ -6,7 +6,7 @@ Format sesuai `docs/HANDOFF-F0.md` §"Laporan pagi". Mesin: workstation (Kali, l
 
 | # | Deliverable F0 (ROADMAP) | Status | Catatan |
 |---|---|---|---|
-| 7 | CI skeleton: lint, test -race, size-check, LOC, deps allowlist, govulncheck, go-licenses, meta-test | sebagian | 8/9 gate terbukti gagal pada pelanggaran sintetis; gate `loc-ratio` (E-70) sudah merah di baseline (lihat Temuan spec TS-03). Workflow GitHub belum pernah dijalankan di Actions (tanpa remote). |
+| 7 | CI skeleton: lint, test -race, size-check, LOC, deps allowlist, tidy, verify, govulncheck, go-licenses, meta-test | selesai (mekanisme) | Meta-test terbaru @ `f917511`: **11/11 gate DETECTED**. `loc-ratio` diuji pada pohon sintetis dengan rasio 1,00; gate repo nyata tetap merah (TS-03). Di HEAD, `lint` dan `loc` **merah karena `internal/ctxdb`**: wrapcheck 19, unparam 2, unused 2; LOC 2.591 > 2.500. Untuk dua gate itu, meta-test memakai baseline pohon scaffold dan menandainya HEAD_RED. Worker persistence sudah diberi tahu. Workflow GitHub belum pernah dijalankan di Actions (tanpa remote). |
 | 1 | `bench/budget` (P1, o200k_base offline) | selesai | tokenizer = tiktoken 0.14.0 persis (id token & jumlah); 13/13 angka gate BASELINE dalam ±5%; job CI `bench-budget`. `TestFixedOverhead` sisi Damn-Bot menunggu `internal/assemble` (F1). |
 | 4 | Baseline hermes tanpa LLM | sebagian | Selesai: token overhead & schema bytes (#1). Probe manual (bukan artefak final): cold start CLI hermes 2,7–4,0 s per perintah (`--version` 4.041 ms, `config show` 2.834 ms, `sessions list` 3.241 ms, `status` 7.989 ms, `prompt-size` 6.752 ms); `chat` di PTY tanpa jaringan: output pertama ≈ 4,8 s, settle ≈ 6,0 s, RSS ≈ 131 MB (1 run). Belum: install size/time, baris config, langkah setup. |
 | 5 | `bench/speed` | sebagian | `bench/speed/hermes_driver.py` ditulis (mode `prepare`/`inproc`/`pty`, dijalankan di `unshare -rn` = tanpa jaringan); runner Go (parse FEATURE-PARITY 854 baris → measured / alasan) **belum ditulis**, driver belum dijalankan penuh. Smoke LLM 10 task: **menunggu user**. |
@@ -48,12 +48,16 @@ Meta-test (1 pelanggaran sintetis per gate; baseline harus lulus, pelanggaran ha
 | test -race | dua goroutine `n++` tanpa sinkronisasi | `WARNING: DATA RACE` | DETECTED |
 | size-check | `//go:embed` 53 MB acak di `cmd/damnbot` | `SIZE GAGAL full` | DETECTED |
 | loc | 200 baris kode di `internal/boundary` (budget 150) | `LOC GAGAL boundary` | DETECTED |
-| loc-ratio | +2.000 baris test | `LOC ratio` | BASELINE_RED (121:29 = 4,17 di HEAD) |
+| loc-ratio | pohon sintetis `internal/metaratio` 101:101 (baseline lulus) + 2.000 baris test | `LOC ratio` | DETECTED |
 | deps-check | require langsung `github.com/stretchr/testify` | `tidak ada di deps.allow` | DETECTED |
 | vuln | `gopkg.in/yaml.v2@v2.2.2` + `yaml.Unmarshal` | `GO-YYYY-NNNN` | DETECTED |
 | licenses | modul lokal `example.com/metagpl` (LICENSE = GPL-3) di-link ke `cmd/damnbot` | `GPL` | DETECTED |
+| tidy-check (`go mod tidy -diff`, E-46) | require `github.com/BurntSushi/toml` yang tidak dipakai | `BurntSushi/toml` | DETECTED |
+| mod-verify (`go mod verify`, E-47) | 1 file `goleak@v1.3.0` dirusak di `GOMODCACHE` terisolasi `$work/modcache` | `has been modified` | DETECTED |
 
-Belum dicakup meta-test: `go mod tidy`/`go mod verify` (E-46/E-47, job `supply-chain`), build-matrix 8 target, fuzz, coverage, deadcode, analyzer khusus `tools/analyzers` (belum ada; F1).
+Run kedua: `scripts/ci-meta-test.sh` @ `f917511`, exit 1 (karena HEAD_RED), 40,4 s. Hasil: lint dan loc DETECTED (baseline scaffold; HEAD_RED); sembilan gate lain DETECTED. Pada run pertama (@ `3520e0f`), loc-ratio masih BASELINE_RED; tidy dan verify belum dicakup. Job `supply-chain` sekarang memanggil `make tidy-check` dan `make mod-verify`.
+
+Belum dicakup meta-test: build-matrix 8 target, fuzz, coverage, deadcode, analyzer khusus `tools/analyzers` (belum ada; F1).
 
 ### bench/budget (#1)
 
