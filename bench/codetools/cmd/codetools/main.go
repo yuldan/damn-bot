@@ -1,4 +1,4 @@
-// Command codetools mengukur baseline code tools (CODE-TOOLS §10, SCORECARD §1.2 "Code tools"):
+// Command codetools mengukur code tools (CODE-TOOLS §10, SCORECARD §1.2 "Code tools"):
 // `rg` (literal/regex/glob) di C1–C3, tool hermes (`search_files`, `read_file`, `patch`) di C1
 // in-process tanpa jaringan, dan token o200k output grep hermes vs rg (CT-11).
 //
@@ -10,6 +10,17 @@
 //	    -c2 /tmp/damnbot-corpora/C2 -c3 /tmp/damnbot-corpora/C3 -durable=false -out codetools/results/f0-baseline.json
 //	cd bench && go run ./codetools/cmd/codetools -rg <rg> -c1 ~/Dokumen/hermes-agent -hermes-runs 20 \
 //	    -home /tmp/hermes-home-ct10 -patch-dir <dir ext4> -out codetools/results/hermes-868b9f244f-f1.json
+//
+// `-damnbot` mengukur Damn-Bot lewat TestCodetoolsProbe (internal/codetools): CT-01/02/03 = API
+// engine (Limit=-1, tanpa batas halaman, case-sensitive, literal = fixed string) vs
+// `rg --no-config --no-require-git` (stdout /dev/null) per kueri, 1 warm-up + `-runs` run
+// berselang-seling; rasio = Σp50 dan Σp95 Damn-Bot / rg per (korpus, jenis). CT-10 = tool JSON
+// Damn-Bot (Engine baru per run) vs op hermes `-hermes-baseline`; CT-11 = token o200k output
+// grep pada limit default dan limit 50 (default hermes).
+//
+//	cd bench && go run ./codetools/cmd/codetools -damnbot -rg <rg 15.1.0> -c1 ~/Dokumen/hermes-agent \
+//	    -c2 /tmp/damnbot-corpora/C2 -c3 /tmp/damnbot-corpora/C3 -patch-dir <dir ext4> \
+//	    -out codetools/results/f1-<commit>.json
 package main
 
 import (
@@ -97,6 +108,8 @@ func run() error {
 	home := flag.String("home", "/tmp/hm_f0_ct", "HERMES_HOME (dibuat ulang)")
 	durable := flag.Bool("durable", true, "patch hermes + fsync(file)+fsync(dir) di jendela waktu (ADR-082)")
 	patchDir := flag.String("patch-dir", "", "induk direktori target patch (default: workspace di -home); bukan tmpfs bila -durable")
+	damnbot := flag.Bool("damnbot", false, "ukur Damn-Bot (probe modul utama) vs rg dan baseline hermes")
+	hermesBase := flag.String("hermes-baseline", "codetools/results/hermes-868b9f244f-f1.json", "baseline hermes CT-10 (-damnbot)")
 	flag.Parse()
 	raw, err := os.ReadFile(*qpath)
 	if err != nil {
@@ -122,6 +135,16 @@ func run() error {
 			"cpu":    cpuModel(), "kernel": cmdOut("uname", "-sr"),
 		},
 		Corpora: map[string]*corpusResult{}, Summary: map[string]float64{},
+	}
+	if *damnbot {
+		pd := ""
+		if *c1 != "" {
+			if pd, err = durablePatchDir(*patchDir); err != nil {
+				return err
+			}
+			defer func() { _ = os.RemoveAll(pd) }()
+		}
+		return runDamnbot(*rg, *c1, *c2, *c3, pd, *hermesBase, *out, *runs, rep.Meta)
 	}
 	if *c1 != "" {
 		rep.Meta["hermes_commit"] = cmdOut("git", "-C", *c1, "rev-parse", "HEAD")

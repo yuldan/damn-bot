@@ -299,16 +299,17 @@ func (e *Engine) scanFile(ctx context.Context, abs string, p *grepPlan, outside 
 }
 
 // readScratch reads a whole file into the worker buffer. One read covers
-// most files without fstat (a short read of a regular file is EOF); raw is
-// nil for files above inMemoryScan, which are streamed instead.
+// most files without fstat (a short read of a regular file is EOF, so no
+// second read for the EOF); raw is nil for files above inMemoryScan, which
+// are streamed instead.
 func readScratch(f *os.File, scratch *[]byte) (raw []byte, fi os.FileInfo, err error) {
 	if cap(*scratch) < scratchMin {
 		*scratch = make([]byte, scratchMin)
 	}
 	buf := (*scratch)[:cap(*scratch)]
-	n, err := io.ReadFull(f, buf)
-	if err != nil {
-		if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+	n, err := f.Read(buf)
+	if n < len(buf) {
+		if err == nil || errors.Is(err, io.EOF) {
 			return buf[:n], nil, nil
 		}
 		return nil, nil, fmt.Errorf("codetools: read: %w", err)

@@ -172,6 +172,28 @@ jobs:
           go-version-file: go.mod
       - run: make perf
 
+  # CODE-TOOLS §10.3 CT-21: parity grep vs rg 15.1.0 di korpus nyata C1+C3 (bench/corpora.lock). Korpus +
+  # rg di-cache; tanpa korpus test gagal, bukan skip (DAMNBOT_REQUIRE_CORPORA=1). CT-01/02/03 dan CT-11
+  # berjalan di nightly bench-codetools.
+  bench-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            bench/go.sum
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ runner.temp }}/damnbot-corpora
+          key: corpora-c1c3-${{ hashFiles('bench/corpora.lock', 'scripts/corpora.sh', 'bench/gencorpus/**') }}
+      - run: make bench-parity CORPORA="C1 C3 rg" CORPORA_DIR="$RUNNER_TEMP/damnbot-corpora"
+
   size:
     runs-on: ubuntu-latest
     timeout-minutes: 10
