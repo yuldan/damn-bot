@@ -174,8 +174,21 @@ func TestRunCancelConfirmed(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	s := sh(t, `echo up; sleep 30`)
 	s.OnOutput = func([]byte) { cancel() }
+	t0 := time.Now()
 	res := run(ctx, t, newTestRunner(t), s)
-	if res.Status != StatusCancelledConfirmed || res.Done != nil {
+	// REL-06: a result ≤ 1 s after the cancel, confirmed or still running
+	// (a loaded runner may need longer than 1 s to tear the tree down).
+	if d := time.Since(t0); d > CancelDeadline+500*time.Millisecond {
+		t.Fatalf("result after %v", d)
+	}
+	switch res.Status {
+	case StatusCancelledConfirmed:
+		if res.Done != nil {
+			t.Fatal("confirmed result with Done")
+		}
+	case StatusStillRunning:
+		<-res.Done
+	default:
 		t.Fatalf("%+v", res)
 	}
 	assertNoMarker(t, res.ExecID)
