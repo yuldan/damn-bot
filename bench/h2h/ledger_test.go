@@ -222,7 +222,10 @@ func TestUnknownPathRejected(t *testing.T) {
 	if got := post(t, px.URL, "/v1/embeddings", `{}`); got != http.StatusBadRequest || *hits != 0 {
 		t.Fatalf("embeddings: status=%d hits=%d", got, *hits)
 	}
-	if got := post(t, px.URL, "/v1/responses", `{"max_output_tokens":1}`); got != http.StatusOK || rec.Spent() != 1 {
+	got := post(t, px.URL, "/v1/responses", `{"max_output_tokens":1}`)
+	// The ledger settles after the response body reached the client: wait for both records.
+	waitRecorded(t, rec, 2)
+	if got != http.StatusOK || rec.Spent() != 1 {
 		t.Fatalf("responses: status=%d spent=%v, want 200/1", got, rec.Spent())
 	}
 }
