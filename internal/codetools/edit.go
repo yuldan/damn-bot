@@ -79,13 +79,10 @@ func parseDoc(raw []byte) (*doc, *ToolError) {
 	}
 	d.text = b.String()
 	d.start = append(d.start, len(d.text))
-	// Line contents are substrings of text (one allocation, not one per line).
+	// Line contents are substrings of text (one allocation, not one per
+	// line); only the last line can lack the '\n'.
 	for i := range d.lines {
-		if end := d.start[i+1]; d.lines[i].eol == "" {
-			d.lines[i].content = d.text[d.start[i]:end]
-		} else {
-			d.lines[i].content = d.text[d.start[i] : end-1]
-		}
+		d.lines[i].content = strings.TrimSuffix(d.text[d.start[i]:d.start[i+1]], "\n")
 	}
 	return d, nil
 }
@@ -93,20 +90,17 @@ func parseDoc(raw []byte) (*doc, *ToolError) {
 // render encodes lines back to file bytes (BOM, UTF-16 restored).
 func (d *doc) render(lines []docLine) ([]byte, bool) {
 	var b bytes.Buffer
-	b.Grow(len(d.enc.bom()) + len(d.text) + len(lines))
-	if d.enc.enc == EncUTF8 {
-		b.WriteString(d.enc.bom())
-	}
+	b.Grow(len(d.text) + len(lines))
 	for _, l := range lines {
 		b.WriteString(l.content)
 		b.WriteString(l.eol)
 	}
-	if d.enc.enc == EncUTF8 {
-		return b.Bytes(), true
-	}
-	out, ok := encodeUTF16(b.Bytes(), d.enc.enc == EncUTF16BE)
-	if !ok {
-		return nil, false
+	out := b.Bytes()
+	if d.enc.enc != EncUTF8 {
+		var ok bool
+		if out, ok = encodeUTF16(out, d.enc.enc == EncUTF16BE); !ok {
+			return nil, false
+		}
 	}
 	return append([]byte(d.enc.bom()), out...), true
 }

@@ -53,7 +53,7 @@ func (s *Sandbox) OpenResolved(ctx context.Context, absResolved string, approved
 	// can be swapped for a symlink either (CT27-1).
 	dir, v := filepath.VolumeName(p)+string(filepath.Separator), OutsideRoot
 	for _, r := range s.roots {
-		if hasPathPrefix(p, r.path, s.foldRoot) {
+		if HasPathPrefix(p, r.path, s.foldRoot) {
 			dir, v = r.path, Inside
 			break
 		}

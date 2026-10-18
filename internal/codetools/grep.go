@@ -251,7 +251,7 @@ func (e *Engine) searchRoot(ctx context.Context, p string, o Opts) (*searchRoot,
 	if r.dir {
 		root := resolved
 		for _, s := range e.roots {
-			if hasPrefixPath(resolved, s, e.fold) {
+			if sandbox.HasPathPrefix(resolved, s, e.fold) {
 				root = s
 				break
 			}

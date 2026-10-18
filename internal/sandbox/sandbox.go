@@ -186,7 +186,7 @@ func (s *Sandbox) check(ctx context.Context, p string, op Op) (Verdict, string, 
 		return OutsideRoot, "", -1, ErrDeniedPath
 	}
 	for i, r := range s.roots {
-		if (op == OpRead || !r.readOnly) && hasPathPrefix(resolved, r.path, s.foldRoot) {
+		if (op == OpRead || !r.readOnly) && HasPathPrefix(resolved, r.path, s.foldRoot) {
 			n, err := linkCountPath(resolved)
 			if errors.Is(err, ErrNotRegular) {
 				return OutsideRoot, "", -1, err
@@ -322,8 +322,8 @@ func linkTarget(p string) (string, error) {
 	return filepath.Join(parent, target), nil
 }
 
-// hasPathPrefix reports whether p equals root or lies beneath it.
-func hasPathPrefix(p, root string, fold bool) bool {
+// HasPathPrefix reports whether p equals root or lies beneath it.
+func HasPathPrefix(p, root string, fold bool) bool {
 	if len(p) < len(root) {
 		return false
 	}

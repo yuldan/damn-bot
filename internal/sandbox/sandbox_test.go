@@ -316,8 +316,8 @@ func edgePathIdentity(t *testing.T) {
 		}
 	}
 	root := filepath.Join("C:", "Users", "X", "Proj")
-	if !hasPathPrefix(filepath.Join("c:", "users", "x", "proj", "a"), root, true) ||
-		hasPathPrefix(root+"2", root, true) || hasPathPrefix(strings.ToLower(root), root, false) {
+	if !HasPathPrefix(filepath.Join("c:", "users", "x", "proj", "a"), root, true) ||
+		HasPathPrefix(root+"2", root, true) || HasPathPrefix(strings.ToLower(root), root, false) {
 		t.Error("folded root prefix")
 	}
 }

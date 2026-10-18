@@ -1,7 +1,6 @@
 package sandbox
 
 import (
-	"math/rand/v2"
 	"path"
 	"path/filepath"
 	"strings"
@@ -73,35 +72,45 @@ func checkDeny(t *testing.T, s *Sandbox, p string) {
 	}
 }
 
-// denyAlphabet mixes literal, suffix, prefix and glob components, case
-// variants and non-ASCII runes whose case folding is irregular (ß, ſ, K).
-var denyAlphabet = []string{
-	"a", "A", "ab", "aB", ".env", ".ENV", "x.pem", "X.PEM", "pem", "é", "É", "ss", "ß", "ſ", "k", "K", "s",
-	"*", "**", "*.pem", "*.PEM", "a*", "AB*", "é*", "*é", "a?", "[ab]", "[!a]*", "*a*", "?", "*ſ", "k*",
-}
-
-func randComps(r *rand.Rand, n int) []string {
+// randComps draws n components mixing literal, suffix, prefix and glob
+// forms, case variants and non-ASCII runes whose case folding is
+// irregular (ß, ſ, K).
+func randComps(r *rng, n int) []string {
+	alphabet := []string{
+		"a", "A", "ab", "aB", ".env", ".ENV", "x.pem", "X.PEM", "pem", "é", "É", "ss", "ß", "ſ", "k", "K", "s",
+		"*", "**", "*.pem", "*.PEM", "a*", "AB*", "é*", "*é", "a?", "[ab]", "[!a]*", "*a*", "?", "*ſ", "k*",
+	}
 	cs := make([]string, n)
 	for i := range cs {
-		cs[i] = denyAlphabet[r.IntN(len(denyAlphabet))]
-		if strings.ContainsAny(cs[i], "*?[") && r.IntN(2) == 0 {
+		cs[i] = alphabet[r.intn(len(alphabet))]
+		if strings.ContainsAny(cs[i], "*?[") && r.intn(2) == 0 {
 			cs[i] = strings.Trim(cs[i], "*?[]!") + "z" // path component, not a pattern
 		}
 	}
 	return cs
 }
 
+// rng is a deterministic xorshift64 generator for reproducible cases.
+type rng uint64
+
+func (r *rng) intn(n int) int {
+	*r ^= *r << 13
+	*r ^= *r >> 7
+	*r ^= *r << 17
+	return int(uint64(*r) % uint64(n)) //nolint:gosec // G115: < n, an int.
+}
+
 // TestDenyDifferential: the classified matcher and DeniedEntry agree with
 // the old matcher on random patterns and paths.
 func TestDenyDifferential(t *testing.T) {
 	t.Parallel()
-	r := rand.New(rand.NewPCG(1, 2))
+	r := rng(0x9e3779b97f4a7c15)
 	root := t.TempDir()
 	for range 300 {
 		var pats []string
-		for range 1 + r.IntN(4) {
-			p := strings.Join(randComps(r, 1+r.IntN(3)), "/")
-			if r.IntN(2) == 0 {
+		for range 1 + r.intn(4) {
+			p := strings.Join(randComps(&r, 1+r.intn(3)), "/")
+			if r.intn(2) == 0 {
 				p = "/" + p
 			}
 			pats = append(pats, p)
@@ -111,7 +120,7 @@ func TestDenyDifferential(t *testing.T) {
 			continue // malformed glob: New refuses it
 		}
 		for range 50 {
-			checkDeny(t, s, "/"+strings.Join(randComps(r, r.IntN(6)), "/"))
+			checkDeny(t, s, "/"+strings.Join(randComps(&r, r.intn(6)), "/"))
 		}
 	}
 }

@@ -231,7 +231,7 @@ func (e *Engine) abs(p string) string {
 // add_dirs), or the absolute path when outside every root.
 func (e *Engine) rel(resolved string) string {
 	for i, r := range e.roots {
-		if !hasPrefixPath(resolved, r, e.fold) {
+		if !sandbox.HasPathPrefix(resolved, r, e.fold) {
 			continue
 		}
 		rel := strings.TrimLeft(resolved[len(r):], `/\`)
@@ -245,13 +245,6 @@ func (e *Engine) rel(resolved string) string {
 		return rel
 	}
 	return filepath.ToSlash(resolved)
-}
-
-func hasPrefixPath(p, root string, fold bool) bool {
-	if len(p) < len(root) || p[:len(root)] != root && (!fold || !strings.EqualFold(p[:len(root)], root)) {
-		return false
-	}
-	return len(p) == len(root) || os.IsPathSeparator(p[len(root)]) || os.IsPathSeparator(root[len(root)-1])
 }
 
 // target is an opened tool path.

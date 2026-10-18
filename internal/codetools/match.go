@@ -69,7 +69,7 @@ func compileMatcher(pattern, mode string) (*matcher, error) {
 	if m.pre = m.re; len(m.lits) == 0 && !m.multiline {
 		m.pre, err = crlfPrefilter(pattern, flags, m.re)
 	}
-	m.exact = m.pre == m.re && !strings.Contains(pattern, `\A`) && !strings.Contains(pattern, `\z`)
+	m.exact = m.pre == m.re && !textAnchored(pattern)
 	return m, err
 }
 
@@ -122,20 +122,16 @@ func pureLiteral(re *syntax.Regexp) (string, bool, bool) {
 	}
 	s := string(re.Rune)
 	fold := re.Flags&syntax.FoldCase != 0
-	if fold && !isASCII(s) {
+	if fold && slices.ContainsFunc(re.Rune, func(r rune) bool { return r >= utf8.RuneSelf }) {
 		return "", false, false // non-ASCII insensitive → RE2 (§2.5 butir 4)
 	}
 	return s, fold, s != ""
 }
 
-func isASCII(s string) bool {
-	for i := range len(s) {
-		if s[i] >= utf8.RuneSelf {
-			return false
-		}
-	}
-	return true
-}
+// textAnchored reports \A or \z in a pattern (conservatively: also an
+// escaped backslash before A or z), which match differently on a line
+// than inside the buffer.
+func textAnchored(p string) bool { return strings.Contains(p, `\A`) || strings.Contains(p, `\z`) }
 
 // required extracts a literal set of which at least one occurs in every
 // match: the best literal set of a concatenation (runs of finite subpatterns

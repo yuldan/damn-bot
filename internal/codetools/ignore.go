@@ -24,20 +24,20 @@ type ignorePat struct {
 }
 
 // ignoreSet is one ignore file; base is its directory relative to the
-// matching root ("" or "dir/sub/"). Pattern indices are bucketed for match:
-// literal basename and literal path patterns by their text, the rest in
-// file order, so an entry is compared with few patterns of a long file.
+// matching root ("" or "dir/sub/"). match looks literal basename patterns
+// up by their text and scans only the rest, in file order, so an entry is
+// compared with few patterns of a long file.
 type ignoreSet struct {
-	base           string
-	pats           []ignorePat
-	byBase, byPath map[string][]int
-	rest           []int
+	base   string
+	pats   []ignorePat
+	byBase map[string][]int
+	rest   []int
 }
 
 // parseIgnore parses gitignore content exactly like git: '#' comments,
 // unescaped trailing spaces trimmed, "!" negation, "\#"/"\!" escapes.
 func parseIgnore(base string, data []byte) *ignoreSet {
-	s := &ignoreSet{base: base, byBase: map[string][]int{}, byPath: map[string][]int{}}
+	s := &ignoreSet{base: base, byBase: map[string][]int{}}
 	for line := range bytes.SplitSeq(data, []byte{'\n'}) {
 		l := trimTrailingSpaces(string(line))
 		if l == "" || l[0] == '#' {
@@ -60,7 +60,7 @@ func parseIgnore(base string, data []byte) *ignoreSet {
 		case !strings.ContainsAny(p.pat, `*?[\`) && p.nodir:
 			p.kind, s.byBase[p.pat] = 1, append(s.byBase[p.pat], i)
 		case !strings.ContainsAny(p.pat, `*?[\`):
-			p.kind, s.byPath[p.pat] = 1, append(s.byPath[p.pat], i)
+			p.kind, s.rest = 1, append(s.rest, i)
 		case p.nodir && p.pat[0] == '*' && !strings.ContainsAny(p.pat[1:], `*?[\`):
 			p.kind, s.rest = 2, append(s.rest, i)
 		default:
@@ -84,23 +84,23 @@ func trimTrailingSpaces(l string) string {
 
 // match returns the decision of the last matching pattern of s for rel
 // (relative to the matching root), or decided=false: the highest index
-// matching in any bucket.
+// matching in either bucket.
 func (s *ignoreSet) match(rel string, isDir bool) (ignored, decided bool) {
 	if !strings.HasPrefix(rel, s.base) {
 		return false, false
 	}
 	rel = rel[len(s.base):]
 	base := rel[strings.LastIndexByte(rel, '/')+1:]
-	best := s.lastEligible(s.byBase[base], -1, isDir)
-	if len(s.byPath) > 0 {
-		best = s.lastEligible(s.byPath[rel], best, isDir)
-	}
-	for _, i := range slices.Backward(s.rest) {
-		if i <= best {
+	best := -1
+	for _, i := range slices.Backward(s.byBase[base]) {
+		if !s.pats[i].dirOnly || isDir {
+			best = i
 			break
 		}
-		if p := &s.pats[i]; (!p.dirOnly || isDir) && p.globMatch(rel, base) {
-			best = i
+	}
+	for _, i := range slices.Backward(s.rest) {
+		if p := &s.pats[i]; i < best || (!p.dirOnly || isDir) && p.restMatch(rel, base) {
+			best = max(best, i)
 			break
 		}
 	}
@@ -110,24 +110,13 @@ func (s *ignoreSet) match(rel string, isDir bool) (ignored, decided bool) {
 	return !s.pats[best].neg, true
 }
 
-// lastEligible is the highest index of idx above best whose pattern
-// applies to the entry type, else best.
-func (s *ignoreSet) lastEligible(idx []int, best int, isDir bool) int {
-	for _, i := range slices.Backward(idx) {
-		if i <= best {
-			break
-		}
-		if !s.pats[i].dirOnly || isDir {
-			return i
-		}
-	}
-	return best
-}
-
-// globMatch matches a non-literal pattern: "*" + suffix on the basename,
-// else wildmatch on the basename (no '/') or on rel.
-func (p *ignorePat) globMatch(rel, base string) bool {
+// restMatch matches a pattern other than a literal basename: a literal
+// path, "*" + suffix on the basename, else wildmatch on the basename (no
+// '/') or on rel.
+func (p *ignorePat) restMatch(rel, base string) bool {
 	switch {
+	case p.kind == 1:
+		return rel == p.pat
 	case p.kind == 2:
 		return strings.HasSuffix(base, p.pat[1:])
 	case p.nodir:
@@ -269,7 +258,7 @@ func (e *Engine) ignoreBase(ctx context.Context, root, dir string) (st ignoreSta
 			top = d
 			break
 		}
-		if d == root || filepath.Dir(d) == d || !hasPrefixPath(d, root, e.fold) {
+		if d == root || filepath.Dir(d) == d || !sandbox.HasPathPrefix(d, root, e.fold) {
 			break
 		}
 	}
