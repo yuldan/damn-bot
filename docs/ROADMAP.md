@@ -75,7 +75,7 @@ NP-01..NP-21 diputuskan per ADR-022 (Accepted) dan ADR-033 (NP-21): sebagian `dr
 2. `bench/h2h`: harness head-to-head menjalankan hermes (`868b9f244f`, container) dan Damn-Bot berdampingan dengan proxy rekam (SCORECARD §2.3).
 3. Eval set terkunci E1–E10 + manifest SHA-256 (SCORECARD §2.2), daftar ID SWE-bench Verified & Terminal-Bench di-pin.
 4. Baseline hermes **tanpa biaya LLM** untuk dimensi SCORECARD yang dapat diukur tanpa model: token overhead & schema bytes, startup, RSS, code tools vs `rg`, speed parity tipe (a), ukuran/waktu install, baris config & langkah setup (ADR-032, eks-Q23).
-5. `bench/speed`: kerangka speed parity per baris FEATURE-PARITY (SCORECARD §3), baseline hermes untuk semua operasi tipe (a). Smoke LLM harness: 10 task (subset E1–E7) × 1 run dengan model murah, hanya untuk membuktikan harness berjalan end-to-end pada kedua agent; angkanya tidak dipakai sebagai baseline gate.
+5. `bench/speed`: kerangka speed parity per baris FEATURE-PARITY (SCORECARD §3), baseline hermes untuk semua operasi tipe (a). Smoke LLM harness: 10 task (subset E1–E7) × 1 run dengan model murah, hanya untuk membuktikan harness berjalan end-to-end; di F0 dijalankan untuk hermes, sisi Damn-Bot di F1 (ADR-062); angkanya tidak dipakai sebagai baseline gate.
 6. Korpus code tools C1–C3 ([`CODE-TOOLS.md`](CODE-TOOLS.md) §10) + baseline `rg` dan tool hermes.
 7. CI skeleton: lint, size-check, LOC (`scc`), deps allowlist, govulncheck, go-licenses, meta-test gate.
 8. **Persistence spike** (ADR-047): prototipe Go `ctxdb` + lease/fencing/purge/gc + test skenario #1–#86 (SPEC §11.11.13 #1–#78, REVIEW-1.0 §"Verifikasi ADR-046" #79–#86) + chaos kill -9 + `TestMultiProcess`.
@@ -86,7 +86,7 @@ NP-01..NP-21 diputuskan per ADR-022 (Accepted) dan ADR-033 (NP-21): sebagian `dr
 - Setiap gate CI terbukti gagal pada pelanggaran sintetis (meta-test: 1 kasus per gate, 100% terdeteksi).
 - Baseline hermes tersedia untuk 100% dimensi SCORECARD tipe tanpa LLM; dimensi berbasis LLM ditandai "diukur di RC F9" di artefak.
 - Speed baseline hermes untuk 100% baris parity tipe (a) yang dapat dieksekusi tanpa kredensial berbayar (`BenchmarkSpeedParity/<ID>` di `bench/speed`, V-20/ADR-054); sisanya didaftar dengan alasan.
-- Smoke LLM 10 task selesai untuk kedua agent dengan rekaman proxy lengkap (0 error harness).
+- Smoke LLM 10 task selesai untuk hermes dengan rekaman proxy lengkap (0 error harness); terpenuhi oleh `bench/h2h` 2026-10-18. Sisi Damn-Bot pindah ke acceptance F1 (ADR-062).
 - Persistence spike: 86/86 skenario adversarial lulus sebagai test otomatis; chaos kill -9 dan `TestMultiProcess` hijau.
 - Errata backlog ADR-047: 100% item punya ADR penutup + test.
 - **Gate sebelum F1:** review penuh area non-persistence oleh auditor selesai; temuan BLOCKER/MAJOR ditutup lewat ADR.
@@ -101,6 +101,7 @@ NP-01..NP-21 diputuskan per ADR-022 (Accepted) dan ADR-033 (NP-21): sebagian `dr
 - [`EXEC-AND-CODING.md`](EXEC-AND-CODING.md): spawn overhead p95 < 15 ms; 0 orphan & 0 hang pada suite 200 skenario.
 - EC-TCALL, EC-FIO, EC-TERM (local), EC-PROV (openai-chat) covered.
 - Speed parity (a) untuk baris F1 ≥ target SCORECARD §3.2.
+- Smoke LLM Damn-Bot (ADR-062): run pertama `damnbot run` pada 10 task smoke F0 yang sama (seleksi `h2h-smoke/v1`) lewat `bench/h2h`, rekaman proxy lengkap, 0 error harness; pass/fail informatif. Cap biaya LLM F1 total US$2,00.
 
 ## F2 — Context DB, memori, modul lazy
 
