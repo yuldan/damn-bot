@@ -1,34 +1,13 @@
-# Meta-test gate CI (ROADMAP F0 acceptance, ADR-073 / AUD-034): setiap gate harus gagal pada pelanggaran
-# sintetis. Durasi ≈ 14 menit (> E-64 ≤ 12 menit untuk job wajib per PR), jadi hanya berjalan bila
-# berkas yang mendefinisikan gate berubah, plus nightly terhadap main.
+# Meta-test gate CI (ROADMAP F0 acceptance, ADR-073, ADR-085 / AUD-034, NEW-13): setiap gate harus
+# gagal pada pelanggaran sintetis. Workflow berjalan di SETIAP PR dan push main sehingga statusnya
+# selalu terlapor (required check, E-78); job menjalankan `make meta-test` (≈ 15 menit) hanya bila
+# ada berkas pendefinisi gate yang berubah, dan selalu pada jadwal nightly / workflow_dispatch.
 name: meta
 
 on:
   push:
     branches: [main]
-    paths:
-      - Makefile
-      - scripts/**
-      - .github/**
-      - .golangci.yml
-      - loc.budget
-      - deps.allow
-      - go.mod
-      - go.sum
-      - tools/go.mod
-      - tools/go.sum
   pull_request:
-    paths:
-      - Makefile
-      - scripts/**
-      - .github/**
-      - .golangci.yml
-      - loc.budget
-      - deps.allow
-      - go.mod
-      - go.sum
-      - tools/go.mod
-      - tools/go.sum
   schedule:
     - cron: "17 2 * * *"
   workflow_dispatch:
@@ -49,10 +28,37 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+        with:
+          fetch-depth: 0
+      - name: Berkas gate berubah?
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          # Path pendefinisi gate (ADR-085 butir 1).
+          re='^(Makefile|scripts/|\.github/|\.golangci\.yml|loc\.budget|deps\.allow|deps\.mpl|go\.mod|go\.sum|tools/go\.(mod|sum)|internal/archtest/|internal/testutil/|internal/metaviolation/|internal/analyzers/|internal/ctxdb/timing_test\.go|internal/ctxdb/race_[^/]*_test\.go)'
+          if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
+            echo "run=true" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "base tidak diketahui: jalankan semua gate"; echo "run=true" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          changed=$(git diff --name-only "$BASE" "$HEAD")
+          if printf '%s\n' "$changed" | grep -Eq "$re"; then
+            printf 'berkas gate berubah:\n%s\n' "$(printf '%s\n' "$changed" | grep -E "$re")"
+            echo "run=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "no gate paths changed: meta-test tidak perlu dijalankan"
+            echo "run=false" >>"$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache-dependency-path: |
             go.sum
             tools/go.sum
-      - run: make meta-test
+      - if: steps.gate.outputs.run == 'true'
+        run: make meta-test
