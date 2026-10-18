@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -48,6 +49,27 @@ func TestPathLockAliases(t *testing.T) {
 	}
 }
 
+// TestSetgidPreserved is CT27-9: an edit keeps setgid (and reports
+// mode_preserved), which chown and a plain permission copy would drop.
+func TestSetgidPreserved(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no setgid on Windows")
+	}
+	t.Parallel()
+	v := newEnv(t)
+	p := v.put(t, "f.txt", "a\n")
+	if err := os.Chmod(p, 0o640|os.ModeSetgid); err != nil || mustStat(t, p).Mode()&os.ModeSetgid == 0 {
+		t.Skipf("setgid not settable here: %v", err)
+	}
+	res, err := v.e.Edit(context.Background(), EditArgs{Path: "f.txt", Tag: v.tag(t, "f.txt"), Edits: []EditItem{strEdit("a", "b")}}, Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := mustStat(t, p).Mode(); m&os.ModeSetgid == 0 || m.Perm() != 0o640 || res.Meta["mode_preserved"] != true {
+		t.Errorf("mode %v, meta %v", m, res.Meta)
+	}
+}
+
 // TestCleanOrphanTempsPattern is CT27-10: only ".<name>.damnbot-<12
 // base32>" crash temps are removed; look-alikes and backups stay.
 func TestCleanOrphanTempsPattern(t *testing.T) {
@@ -68,3 +90,5 @@ func TestCleanOrphanTempsPattern(t *testing.T) {
 		}
 	}
 }
+
+func strEdit(old, nw string) EditItem { return EditItem{OldString: &old, NewString: &nw} }

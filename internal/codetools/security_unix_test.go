@@ -4,6 +4,7 @@ package codetools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"go.uber.org/goleak"
+	"golang.org/x/sys/unix"
 )
 
 // grepFiles lists the files of a files-mode grep (or fails the test).
@@ -186,5 +191,93 @@ func TestGrepSkipsHardLinked(t *testing.T) {
 		if err != nil || strings.Contains(r.Content, "KEYMATERIAL") || r.Meta["files"] != 1 || !strings.Contains(r.Content, "skipped: 1 hard-linked") {
 			t.Errorf("approved=%v: %v\n%s", o.Approved, err, r.Content)
 		}
+	}
+}
+
+// TestFIFONoHang (CT27-4): FIFOs as files and as ignore files never block
+// grep, glob, read_file or edit_file past their deadline, and leak no
+// goroutine.
+func TestFIFONoHang(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	v := newEnv(t)
+	v.put(t, "a.txt", "needle\n")
+	v.put(t, "sub/deep/b.txt", "needle\n")
+	fifos := []string{filepath.Join(v.root, "pipe"), filepath.Join(v.root, "sub", ".gitignore")}
+	edit := func(ctx context.Context) error {
+		s := "x"
+		_, err := v.e.Edit(ctx, EditArgs{Path: "pipe", Tag: "00000000", Edits: []EditItem{{OldString: &s, NewString: &s}}}, Opts{})
+		return err
+	}
+	grepIn := func(path string) func(context.Context) error {
+		return func(ctx context.Context) error {
+			r, err := v.e.Grep(ctx, &GrepArgs{Pattern: "needle", Path: path}, Opts{})
+			if err == nil && path != "pipe" && r.Meta["files"] == 0 {
+				return errors.New("no match: " + r.Content)
+			}
+			return err
+		}
+	}
+	ops := []struct {
+		name string
+		run  func(context.Context) error
+		want Code // "" = success or any tool error
+	}{
+		{"read_file", func(ctx context.Context) error {
+			_, err := v.e.Read(ctx, ReadArgs{Path: "pipe"}, Opts{})
+			return err
+		}, CodeInvalidArgs},
+		{"edit_file", edit, CodeInvalidArgs},
+		{"grep pipe", grepIn("pipe"), CodeInvalidArgs},
+		{"grep", grepIn("."), ""},
+		{"grep sub/deep", grepIn("sub/deep"), ""},
+		{"glob", func(ctx context.Context) error {
+			_, err := v.e.Glob(ctx, GlobArgs{Pattern: "**"}, Opts{})
+			return err
+		}, ""},
+	}
+	for _, op := range ops {
+		remakeFIFOs(t, fifos) // fresh FIFOs: no writer state left by a release
+		err := runUnblocked(t, op.name, op.run, fifos)
+		if got := codeOf(err); got != op.want && (op.want != "" || got == "" && err != nil) {
+			t.Errorf("%s: code %q, want %q (err %v)", op.name, got, op.want, err)
+		}
+	}
+}
+
+// remakeFIFOs replaces every path in fifos by a new FIFO.
+func remakeFIFOs(t *testing.T, fifos []string) {
+	t.Helper()
+	for _, f := range fifos {
+		if err := os.Remove(f); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(err)
+		}
+		if err := unix.Mkfifo(f, 0o600); err != nil {
+			t.Fatalf("Mkfifo: %v", err)
+		}
+	}
+}
+
+// runUnblocked runs op with a 2 s deadline; an op still blocked 0.5 s past
+// it fails the test and is released by opening a writer on each FIFO.
+func runUnblocked(t *testing.T, name string, op func(context.Context) error, fifos []string) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() { done <- op(ctx) }()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(2500 * time.Millisecond):
+		t.Errorf("%s still blocked after %v", name, time.Since(start))
+		for _, f := range fifos { // a writer releases a blocked open
+			if w, werr := os.OpenFile(filepath.Clean(f), os.O_RDWR, 0); werr == nil {
+				if cerr := w.Close(); cerr != nil {
+					t.Error(cerr)
+				}
+			}
+		}
+		return <-done
 	}
 }
