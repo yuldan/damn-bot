@@ -1,30 +1,33 @@
-//go:build !linux
+//go:build !linux && !darwin && !windows
 
 package ctxdb
 
-import "testing"
-
-// Stubs keeping the test build compiling off Linux (AUD-033): scenarios that
-// need /proc or SIGSTOP/SIGCONT skip here and run only on Linux.
-
-type osSignal string
-
-const (
-	sigStop osSignal = "SIGSTOP"
-	sigCont osSignal = "SIGCONT"
+import (
+	"runtime"
+	"testing"
 )
 
-func (c *child) signal(t *testing.T, sig osSignal) {
-	t.Helper()
-	t.Skipf("%s: Linux-only (AUD-033)", sig)
-}
-
-// startStamp needs /proc/<pid>/stat.
+// startStamp fails instead of skipping: there is no start-stamp probe on
+// this OS, so the rows that need it are listed in platformNA() (NEW-15).
 func startStamp(t *testing.T, _ int) string {
 	t.Helper()
-	t.Skip("start stamp needs /proc: Linux-only (AUD-033)")
+	t.Fatalf("no start-stamp probe on %s: the scenario must be in platformNA()", runtime.GOOS)
 	return ""
 }
 
-// procScenarios (process groups, kill(-pgid), /proc) exist only on Linux.
-func procScenarios() []scenario { return nil }
+// platformNA lists the scenarios this OS cannot run (env_other.go has no
+// probes); TestPlatformNAList pins the set.
+func platformNA() map[string]string {
+	const probe = "needs a start-stamp/Gone probe; env_other.go has none"
+	const stop = "SIGSTOP/SIGCONT helper not implemented for this OS"
+	const group = "process-group probe not implemented for this OS"
+	return map[string]string{
+		"S023_PIDReuseAndNamespace":         probe,
+		"S044_StartStampComparedVerbatim":   probe,
+		"S037_SigstopInsideWriteTx":         stop,
+		"S063_DbWriteStalledReport":         stop,
+		"S062_CtrlZDuringExecToolGroup":     group,
+		"S074_OrphanStoppedToolGroupKilled": group,
+		"S085_LeaderDeadNohupChildKilled":   group,
+	}
+}

@@ -49,5 +49,7 @@ func (SystemClock) Sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// SystemProcs probes /proc (Linux) for owner existence.
+// SystemProcs probes the OS for owner existence: /proc (Linux), sysctl
+// kern.proc (macOS), OpenProcess/GetProcessTimes (Windows); elsewhere it
+// never proves absence (unknown → present).
 type SystemProcs struct{}

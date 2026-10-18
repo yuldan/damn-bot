@@ -1,14 +1,12 @@
-//go:build linux
+//go:build linux || darwin
 
 package ctxdb
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"os"
 	"os/exec"
-	"strconv"
+	"slices"
 	"syscall"
 	"testing"
 	"time"
@@ -34,6 +32,17 @@ func spawnGroup(t *testing.T, script string) (*exec.Cmd, int, string) {
 	})
 	st := startStamp(t, cmd.Process.Pid)
 	return cmd, cmd.Process.Pid, st
+}
+
+// procGroupMembers lists live members of a process group (test helper).
+func procGroupMembers(pgid int) []int {
+	m := pgroupMembers(pgid)
+	out := make([]int, 0, len(m))
+	for pid := range m {
+		out = append(out, pid)
+	}
+	slices.Sort(out)
+	return out
 }
 
 // waitGroupGone waits (bounded, ticker — no sleep) until no live member remains.
@@ -76,17 +85,6 @@ func resumeToolGroup(s *Store, sid string, pgid int) error {
 		return errors.Join(err, syscall.Kill(-pgid, syscall.SIGKILL))
 	}
 	return wrap(syscall.Kill(-pgid, syscall.SIGCONT))
-}
-
-func procState(pid int) string {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return ""
-	}
-	if i := bytes.LastIndexByte(b, ')'); i >= 0 && i+2 < len(b) {
-		return string(b[i+2])
-	}
-	return ""
 }
 
 // #62: Ctrl-Z during exec: the group is stopped; on SIGCONT it continues

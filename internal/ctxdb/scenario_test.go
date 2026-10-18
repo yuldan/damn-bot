@@ -3,6 +3,8 @@ package ctxdb
 import (
 	"context"
 	"os"
+	"runtime"
+	"slices"
 	"testing"
 	"time"
 )
@@ -20,9 +22,61 @@ type scenario struct {
 	fn   func(*testing.T)
 }
 
+// scenarioTable is every scenario except the ones platformNA() declares
+// impossible on this OS; they are excluded explicitly, never skipped.
 func scenarioTable() []scenario {
+	na := platformNA()
+	return slices.DeleteFunc(allScenarios(), func(sc scenario) bool { _, ok := na[sc.name]; return ok })
+}
+
+func allScenarios() []scenario {
 	return append(append(append(append(leaseScenarios(), purgeScenarios()...), maintScenarios()...),
 		gatewayScenarios()...), append(approvalScenarios(), procScenarios()...)...)
+}
+
+// TestPlatformNAList pins the scenarios excluded per OS (NEW-15): the table
+// drops exactly platformNA(), every entry has a reason and names a real row,
+// and the set equals the golden below, so any change is a visible diff.
+func TestPlatformNAList(t *testing.T) {
+	golden := map[string][]string{
+		"linux":  nil,
+		"darwin": nil,
+		"windows": {
+			"S037_SigstopInsideWriteTx", "S062_CtrlZDuringExecToolGroup", "S063_DbWriteStalledReport",
+			"S074_OrphanStoppedToolGroupKilled", "S085_LeaderDeadNohupChildKilled",
+		},
+		"other": {
+			"S023_PIDReuseAndNamespace", "S037_SigstopInsideWriteTx", "S044_StartStampComparedVerbatim",
+			"S062_CtrlZDuringExecToolGroup", "S063_DbWriteStalledReport", "S074_OrphanStoppedToolGroupKilled",
+			"S085_LeaderDeadNohupChildKilled",
+		},
+	}
+	want, ok := golden[runtime.GOOS]
+	if !ok {
+		want = golden["other"]
+	}
+	var keys []string
+	for k, why := range platformNA() {
+		if why == "" {
+			t.Errorf("%s: platform-n/a without a reason", k)
+		}
+		keys = append(keys, k)
+	}
+	in := map[string]bool{}
+	for _, sc := range scenarioTable() {
+		in[sc.name] = true
+	}
+	var dropped []string
+	for _, sc := range allScenarios() {
+		if !in[sc.name] {
+			dropped = append(dropped, sc.name)
+		}
+	}
+	slices.Sort(keys)
+	slices.Sort(dropped)
+	if !slices.Equal(keys, want) || !slices.Equal(dropped, want) {
+		t.Fatalf("platform-n/a on %s: declared %v, dropped %v, golden %v", runtime.GOOS, keys, dropped, want)
+	}
 }
 
 // acquireBg acquires a lease as a background scanner (takeover case (b) allowed).
@@ -276,7 +330,7 @@ func s040(t *testing.T) {
 func s044(t *testing.T) {
 	st := startStamp(t, os.Getpid())
 	if st == "" {
-		t.Fatal("no start stamp on Linux")
+		t.Fatal("no start stamp")
 	}
 	e := newEnv(t)
 	e.clk.StepWall(time.Hour)

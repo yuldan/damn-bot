@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !darwin && !windows
 
 package ctxdb
 
@@ -7,13 +7,15 @@ import (
 	"time"
 )
 
-// Non-Linux fallbacks: the F0 spike targets Linux; macOS/Windows clock and
-// process probes are F1 work (SPEC §11.11.1 [INFERENCE] items).
+// Fallbacks for OSes without a probe (only Linux, macOS and Windows have
+// one): identity is partial and nothing is ever proven absent (unknown →
+// present).
 
-// BootMs falls back to the Go monotonic clock.
+// BootMs falls back to the wall clock: the only origin shared across
+// processes without an OS boot clock.
 func (SystemClock) BootMs() int64 { return time.Now().UnixMilli() }
 
-// MonoMs falls back to the wall clock reading's monotonic part.
+// MonoMs falls back to the wall clock as well.
 func (SystemClock) MonoMs() int64 { return time.Now().UnixMilli() }
 
 // SelfIdent returns a partial identity (start/boot unknown → ”).
@@ -28,6 +30,5 @@ func SelfIdent() Ident {
 // Gone never proves absence without an OS probe (unknown → present).
 func (SystemProcs) Gone(Ident) bool { return false }
 
-func pgroupMembers(int) map[int]string { return nil }
-
+// killGroup is platform-n/a: no group is enumerated or signalled.
 func killGroup(int, string) bool { return false }

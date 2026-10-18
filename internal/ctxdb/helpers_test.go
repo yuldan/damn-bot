@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -233,14 +232,3 @@ func testLock(t *testing.T, dir, name string, exclusive bool) (*os.File, bool) {
 
 // runPath is the absolute path of a run/ file (test helper).
 func runPath(dir, name string) string { return filepath.Join(dir, "run", name) }
-
-// procGroupMembers lists live members of a process group (test helper).
-func procGroupMembers(pgid int) []int {
-	m := pgroupMembers(pgid)
-	out := make([]int, 0, len(m))
-	for pid := range m {
-		out = append(out, pid)
-	}
-	slices.Sort(out)
-	return out
-}
