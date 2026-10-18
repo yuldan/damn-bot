@@ -14,7 +14,7 @@ Severity untuk kode yang sudah di-merge:
 |---|---|---:|---:|---:|
 | `internal/provider` + `providertest` (#22, #30, #31; ADR-072/082/102) | **perbaikan wajib** | 1 | 5 | 8 |
 | `internal/budget` + `internal/ctxdb/ledgerstore` (#20; ADR-101/074) | **perbaikan sebelum acceptance F1** | 0 | 3 | 4 |
-| netx DLP #28 (NETX-15/16) | *menunggu #28 ditandai ready* | | | |
+| netx DLP #28 (`8a0cb66`; NETX-15/16) | **changes required** | 1 | 0 | 3 |
 
 ## `internal/provider` (input jarak jauh tidak tepercaya)
 
@@ -78,9 +78,45 @@ Diperiksa tanpa temuan:
 - **Transaksi:** `Insert` berjalan di transaksi milik pemanggil. Probe konkuren 200 × `Insert` + `SessionTotals` dengan `-race`: total konsisten.
 - **Kalibrasi:** `prompt_tokens=0` diabaikan.
 
-## netx DLP #28 (NETX-15/16): putaran 3
+## netx DLP #28 (`f1-netx-dlp2` @ `8a0cb66`): putaran 3 NETX-15/16, changes required
 
-Belum ada. PR #28 masih berstatus draft; bagian ini ditambahkan setelah PR ditandai ready.
+PR ini menulis ulang gerbang DLP demi kinerja: prefilter gram stride-4, decode ulang hanya pada span kandidat, probe stride untuk secret pendek, dan buffer pool.
+
+Perintah yang dijalankan:
+- `go test -race ./internal/netx/... ./internal/redact/...`: ok.
+- CI 24/24 hijau.
+- `BenchmarkDLPScan -count=5 -cpu=1` (12 kasus).
+- Oracle diferensial terhadap `dlp.go` di `main`, total 288.526 kasus, 0 regresi:
+
+  | Kelompok probe | Jumlah |
+  |---|---:|
+  | Set probe bypass putaran 1/2 | 6.512 |
+  | Secret pendek 1–7 B × offset 0–39 × 5 filler × 5 encoding | 42.014 |
+  | Split per karakter di batas layer | 40.000 |
+  | Acak | 200.000 |
+
+- 48 probe jendela: 28 regresi.
+- `FuzzDiff` 125 s menemukan regresi JWT secara mandiri.
+- Isolasi pool: 16 goroutine × 3.000 scan dengan `-race`, 0 verdict salah.
+
+| ID | Status / Severity | Temuan | Bukti / repro | Rekomendasi |
+|---|---|---|---|---|
+| NETX-15 | **closed** | `next=QueryEscape²(url)`, `?v=%252541`, dan `"C++ … 50%25ab"` di 512 B–64 KiB kini lolos (di `main`: `dlp_limit` mulai 1.500/2.048 B). Batas kerja = (1+3)·len menurut lapisan decode. `TestDLPBounds` sudah diperbarui. | `internal/netx/dlp.go`; `dlp_test.go` | — |
+| NETX-16 | **closed (toleransi ×1,5, margin tipis)** | i7-1255U `-cpu=1`, dalam µs: plain 13–28; pct (50/200 secret) 45–47; 50 secret pendek + pct 51–54; decode 67–83; repro plain+`+` 28, plain+`%2F` 28, hex-heavy 34–40. CI EPYC menurut PR: pct 65–74 µs (≤ 75 = 50 × 1,5). PR sendiri memperkirakan 90–120 µs di runner Xeon yang lebih lambat. | Benchmark | Diterima sesuai SPEC §17/ADR-077 (target persis diukur di Q14 saat RC). Pantau job `perf` di runner lambat. |
+| **NETX-26** | **BLOCKER** | Regresi deteksi. `scan()` memeriksa lapisan hasil decode hanya dalam ±`d.region` (= max(256, bentuk terpanjang)) di sekitar setiap byte yang di-decode. (1) Jendela dihitung dalam byte sebelum fold, sedangkan pencocokan berjalan setelah fold membuang CR/LF, sehingga secret yang disisipi CR/LF melampaui jendela. (2) Pola §14.3 `jwt` (segmen tanpa batas) dan `url_password` (`://` … `@` terakhir) bisa butuh konteks > 256 B. Asumsi `dlpPatternReach` ("match terpendek < 256") tidak berarti setiap match muat dalam jendela. JWT dengan payload > 256 B adalah hal biasa untuk access token OAuth. | `dlp.go:236-281`, `:372-403` (`spanTrack`), `dlpPatternReach`. Lewat `check()`, secret 33 B, semua diblok `main` tetapi lolos di #28:<br>• query `t=eyJhbGciOiJIUzI1NiJ9.<payload 312 B>%2E<sig>`<br>• body `u=postgres://admin:hunter2<260×x>%40db.internal/app`<br>• body `%73ec` + 260×`\n` + `ret_tok_value_…`<br>Regresi jendela: 28/48 pada pad ≥ 200–260 B (raw/hex/base64 dengan LF/CRLF, JWT dengan `.` ter-encode, userinfo dengan `%40`/`%3A`). `FuzzDiff`: `"eyJ00000000.<~330×0>%2E00000000"`. | Hitung jendela dalam byte setelah fold (perluas melewati CR/LF sampai `region` byte non-CR/LF). Untuk pola, perluas span ke run non-whitespace yang melingkupinya plus reach, atau jalankan `d.pat.Redact` atas seluruh lapisan decode dan pakai jendela hanya untuk matcher secret. Kedua opsi tetap ≤ 4·len. Tambahkan test regresi untuk konteks > 256 B. Koreksi klaim "tanpa melemahkan deteksi" di ADR-100 butir 8 dan body PR. |
+| NETX-27 | MINOR | `matchShort` kini memakai budget verifikasi (di `main`: `bytes.Contains` tanpa budget). ≥ 50 secret 2–7 B yang berbagi 2-gram menyebabkan `dlp_limit` pada prosa bersih: n=50 di 32 KiB dan n=200 di 8 KiB (di `main` lolos). Fail-closed. | `dlp.go:471-512` | Kecualikan secret pendek dari budget verifikasi, atau skalakan budget dengan jumlah secret. |
+| NETX-28 | MINOR | Daftar kandidat `[]int` (8 B per `%`). Pada body 8 MiB berisi `%`: total alokasi 391 MiB (di `main` 47 MiB), dan 4 scan paralel butuh 433 ms vs 104 ms. Puncak `HeapInuse` setara. | `dlp.go:284-288`, `:317-370` | Gunakan `int32` atau beri cap. |
+| NETX-29 | MINOR | CHANGELOG mengklaim "≤ 50 µs termasuk `+`/`%` dan 50 secret pendek", bertentangan dengan angka CI di PR sendiri (pct 65–74 µs). Angka CI diambil dari `5ca4e43`, bukan head. Body PR masih menulis "DRAFT". Branch tertinggal 4 commit dari `main` (merge-tree bersih). | CHANGELOG, body PR | Koreksi teks dan rebase. |
+| NETX-17 | open, tidak memburuk | pct-all + `%25`×3/×4 lolos di `main` maupun #28 | — | Tetap MINOR dari putaran 2. |
+| NETX-23/24/25 | open | NETX-23 memburuk untuk secret pendek (lihat NETX-27). NETX-24: amandemen ADR untuk Aho-Corasick belum ada. NETX-25: branch masih tertinggal dari `main`. | — | — |
+
+Diperiksa tanpa temuan:
+- Prefilter 4-gram stride-4 sound: setiap bentuk ≥ 8 B selalu mencakup probe di offset 0..3.
+- Stride 2-gram untuk secret pendek sound: secret 1–7 B terdeteksi di setiap offset dan alignment.
+- Decode ulang khusus kandidat pada lapisan ≥ 2 setara dengan `pctDecode` penuh.
+- Buffer pool tidak bocor antar-request.
+- Lapisan mentah tetap dipindai penuh.
+- Tanpa regresi selama konteks ≤ region: pct-all, `QueryEscape`¹⁻⁴, `%25` bersarang, `json.Marshal` di dalam query, hex campuran case, base64 std/url/raw di 3 alignment, base64 terbungkus CRLF/LF/CR/`%0D%0A` di 8/76 kolom, secret uppercase, secret dengan karakter reserved.
 
 ## Daftar BLOCKER/MAJOR terbuka
 
@@ -95,3 +131,4 @@ Belum ada. PR #28 masih berstatus draft; bagian ini ditambahkan setelah PR ditan
 | LED-1 | MAJOR | Test append-only vakum |
 | LED-2 | MAJOR | `usage.cost` raksasa menghasilkan biaya negatif |
 | LED-3 | MAJOR | Overflow token × harga menghasilkan biaya negatif atau mendekati 0 |
+| NETX-26 | BLOCKER (PR #28, sebelum merge) | Jendela rescan lapisan decode melewatkan secret yang disisipi CR/LF serta JWT/userinfo dengan konteks > 256 B (regresi vs `main`) |
