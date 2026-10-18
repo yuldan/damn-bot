@@ -255,8 +255,6 @@ func (r *Redactor) extend(data []byte, m *match, md mode) status {
 // (still nil when nothing matched), last (start of the input tail not yet
 // copied to dst), safe (input before it is decided; in modeStream the rest
 // must be held) and the pattern of a fail-closed cut that ends the data.
-//
-//nolint:unparam // safe and cut are read by Stream (stream.go), which lands in the next PR of ADR-096.
 func (r *Redactor) scan(dst, data []byte, from int, md mode) ([]byte, int, int, *pattern) {
 	var skip [64]int
 	last := from
