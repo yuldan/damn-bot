@@ -1,6 +1,6 @@
 # SCORECARD — Damn-Bot vs hermes-agent
 
-Kriteria rilis terukur: Damn-Bot 1.0 hanya rilis jika **≥ hermes di semua dimensi** dan **menang dengan margin** di dimensi inti (SPEC P20, ditegakkan `TestScorecardGate`; V-20/ADR-054). Hasil tiap run disimpan sebagai artefak versi (§2.6). Baseline hermes diambil dari [`BASELINE-hermes.md`](BASELINE-hermes.md) bila ada; selain itu diukur oleh harness pada snapshot hermes yang di-pin (`868b9f244f`). Sel "diukur di F0" pada dimensi yang butuh LLM (token/biaya/kualitas per task, recall, routing skill, injection, error recovery, wall-clock end-to-end) dibaca sebagai **"diukur di RC F9"** (ADR-032); F0 hanya mengukur dimensi tanpa LLM.
+Kriteria rilis terukur: Damn-Bot 1.0 hanya rilis jika **≥ hermes di semua dimensi** dan **menang dengan margin** di dimensi inti (SPEC P20, ditegakkan `TestScorecardGate`; V-20/ADR-054). Hasil tiap run disimpan sebagai artefak versi (§2.6). Baseline hermes diambil dari [`BASELINE-hermes.md`](BASELINE-hermes.md) bila ada; selain itu diukur oleh harness pada snapshot hermes yang di-pin (`868b9f244f`). Sel "diukur di F0" pada dimensi yang butuh LLM (token/biaya/kualitas per task, recall, routing skill, injection, error recovery, wall-clock end-to-end) dibaca sebagai **"diukur di RC F9"** (ADR-032); F0 hanya mengukur dimensi tanpa LLM. Untuk dimensi tanpa LLM, status per dimensi ada di tabel ADR-065: sel "diukur di F0" pada dimensi berstatus `Fx` dibaca **"diukur di Fx (ADR-065)"**; sisi hermes diukur di fase itu dengan harness yang sama untuk kedua agent dan wajib ada sebelum acceptance fase tersebut.
 
 Notasi aturan menang: `↓` lebih kecil lebih baik, `↑` lebih besar lebih baik. "Margin" = syarat minimal terhadap hermes. Dimensi inti ditandai **[I]**.
 
@@ -39,7 +39,7 @@ Notasi aturan menang: `↓` lebih kecil lebih baik, `↑` lebih besar lebih baik
 | Idle RSS | RSS setelah 5 s idle (TUI 1 sesi, 2.000 event) | `/proc/<pid>/status` | diukur di F0 | ≤ 50 MB | ↓, ≤ 0,3× |
 | Peak RSS | `VmHWM` selama soak 1.000 turn | idem | diukur di F0 | ≤ 300 MB | ↓, ≤ 0,5× |
 | CPU idle | % CPU rata-rata idle 60 s (`serve` + Telegram long-poll) | `pidstat` | diukur di F0 | ≤ 0,5% x86; ≤ 2% Raspberry Pi 4 | ↓ |
-| Code tools | grep/glob/read/edit p50/p95 korpus C1–C3 | [`CODE-TOOLS.md`](CODE-TOOLS.md) §10 | diukur di F0 | grep ≤ 1,2× `rg` (literal), ≥ 10× lebih cepat dari tool hermes | ↓, ≥ 10× vs hermes |
+| Code tools | grep/glob/read/edit p50/p95 korpus C1–C3; 70 operasi (50 `search_files`, 10 `read_file`, 10 `patch`) vs hermes (ADR-077) | [`CODE-TOOLS.md`](CODE-TOOLS.md) §10; `cd bench && go run ./codetools/cmd/codetools`; referensi hermes = setelan `bench/codetools/results/f0-baseline.json` (`HERMES_HOME` bersih, backend fallback tanpa ripgrep; ubah commit/setelan = ukur ulang) (ADR-077) | diukur di F0 | grep ≤ 1,2× `rg` (literal), ≥ 10× lebih cepat p50 per kategori dari tool hermes (ADR-077) | ↓, ≥ 10× vs hermes p50 per kategori (ADR-077) |
 | Exec spawn overhead | waktu `shell` di luar runtime command, p95 | [`EXEC-AND-CODING.md`](EXEC-AND-CODING.md) | diukur di F0 | < 15 ms | ↓, ≥ 5× |
 | Voice end-to-end | akhir ucapan → audio pertama, di luar latensi provider STT/LLM/TTS | Fake STT/LLM/TTS bertanda waktu | diukur di F0 | overhead ≤ 200 ms; streaming TTS mulai ≤ 300 ms setelah kalimat pertama LLM | ↓ |
 | Image preflight | % gambar ditolak provider karena ukuran; waktu resize 12 MP | Suite 50 gambar besar | hermes shrink-and-resend setelah ditolak (`agent/conversation_compression.py:4306-4310`) | 0 penolakan; resize ≤ 150 ms | ↓ |
@@ -84,7 +84,7 @@ Notasi aturan menang: `↓` lebih kecil lebih baik, `↑` lebih besar lebih baik
 
 | Dimensi | Metrik | Cara ukur | Baseline hermes | Target Damn-Bot | Aturan menang |
 |---|---|---|---|---|---|
-| **[I]** Prompt-injection suite | % serangan berhasil (tool tak diminta dieksekusi / data dikirim keluar / instruksi diikuti) dari konten web, file, MCP, pesan chat, skill | E10: 100 kasus | diukur di F0 | ≤ 2% | ↓, ≤ 0,3× hermes |
+| **[I]** Prompt-injection suite | % serangan berhasil (tool tak diminta dieksekusi / data dikirim keluar / instruksi diikuti) dari konten web, file, MCP, pesan chat, skill | E10: 100 kasus; mekanisme = taint lengket per turn (aksi non-read setelah `<untrusted>` di iterasi mana pun dalam turn yang sama → approval paksa, ADR-070) | diukur di F0 | ≤ 2% | ↓, ≤ 0,3× hermes |
 | Secret redaction | secret sintetis yang lolos ke log/transcript/request/pesan keluar | 60 secret × 6 kanal | diukur di F0 | 0 | ↓, 0 |
 | Akses gateway orang asing | tool call / LLM call dipicu identitas non-allowlist | E8: 20 skenario Telegram | diukur di F0 | 0 / 0 | ↓, 0 |
 | Supply chain | temuan `govulncheck` reachable (semua severity); dependency langsung; lisensi di luar allowlist | CI | diukur di F0 (`pip-audit` + `npm audit`) | 0; ≤ 28; 0 | ↓ |
@@ -168,7 +168,7 @@ Baseline hermes: bukti di [`GAP-SWEEP.md`](GAP-SWEEP.md) atau diukur di F0 (tanp
 | GAP-UX-07 | Ukuran, instalasi, UX (§1.4) | pelanggaran axe serious/critical (12 halaman × 2 tema) | `TestContrastTokens` | GAP-SWEEP.md (bukti) / diukur F0 | 0 | ↓, < hermes |
 | GAP-UX-08 / GAP-OPS-02 | Keamanan (§1.6) | koneksi keluar non-provider dengan `background=false`/UI offline (proxy rekam 30 menit) | `TestWebAssetsNoExternalURL`, `TestHelpOffline`, `TestEgressRegistryComplete` | GAP-SWEEP.md (bukti) / diukur F0 | 0 | ↓, < hermes (≥ 7 fetch latar) |
 | GAP-OPS-03 | Ukuran, instalasi, UX (§1.4) | rc shell byte-identik setelah install+uninstall (4 shell) | `TestUninstallKeepsUserLines` | GAP-SWEEP.md (bukti) / diukur F0 | 4/4 | ↑ |
-| GAP-OPS-08 | Ukuran, instalasi, UX (§1.4) | jumlah perintah top-level terlihat / pasangan duplikat | `TestCLITopLevelCount`, `TestCLINoDuplicates`, `TestCLIDocsMatchHelp` | GAP-SWEEP.md (bukti) / diukur F0 | ≤ 20 / 0 | ↓, < hermes (66 file registrasi) |
+| GAP-OPS-08 | Ukuran, instalasi, UX (§1.4) | jumlah perintah top-level terlihat / pasangan duplikat | `TestCLITopLevelCount`, `TestCLINoDuplicates`, `TestCLIDocsMatchHelp` | GAP-SWEEP.md (bukti) / diukur F0 | `= 20 / 0` (jumlah perintah top-level persis = SPEC §10; ADR-063 N-24) | ↓, < hermes (66 file registrasi) |
 | GAP-INF-01 | Kinerja (§1.2) | `recall` query CJK 2 char @ 1.000.000 event p95 | `BenchmarkRecallCJK`, `TestRecallCJKOrder` | GAP-SWEEP.md (bukti) / diukur F0 | < 50 ms | ↓, ≥ 10× lebih cepat (P28 kelas search sesi) |
 | GAP-INF-03 | Ukuran, instalasi, UX (§1.4) | ukuran image Docker dasar terkompresi | kolom Verifikasi baris GAP terkait SPEC §22.1 | GAP-SWEEP.md (bukti) / diukur F0 | ≤ 23 MB | ↓, ≤ 0,2× hermes |
 | GAP-INF-08 | Cakupan & ekosistem (§1.5) | key kosong per locale (critical / total) | `TestI18nNoEmpty`, `TestNoUILiterals` | GAP-SWEEP.md (bukti) / diukur F0 | 0 / 0 | ↓, < hermes (≈ 2.246) |
@@ -200,7 +200,7 @@ Baseline hermes: bukti di [`GAP-SWEEP.md`](GAP-SWEEP.md) atau diukur di F0 (tanp
 Eval set disimpan di `eval/` dengan manifest SHA-256; perubahan = versi eval baru (`evalset/v2`), hasil lintas versi tidak dibandingkan.
 
 ### 2.3 Harness
-- `bench/h2h` (F0): menjalankan hermes dan Damn-Bot berdampingan per task (urutan diacak), mencatat request/response lewat proxy rekam (mitm lokal), menghitung token/biaya/waktu dari data proxy — bukan dari laporan agent sendiri.
+- `bench/h2h` (F0): menjalankan hermes dan Damn-Bot per task, mencatat request/response lewat proxy rekam (mitm lokal), menghitung token/biaya/waktu dari data proxy — bukan dari laporan agent sendiri. ADR-075: di F0/F1 run berurutan per agent; run berpasangan dengan urutan diacak dan container wajib untuk RC F9. Sebelum smoke Damn-Bot F1: cap biaya ledger persisten (`bench/h2h/results/f1-spend.json`, reservasi proyeksi terburuk), oracle netral-agent (kanal jawaban final + pemetaan tool → `exec`/`fs_write`/`read` per adapter), dan isolasi (container rootless atau user+net namespace, env allowlist, pindai kunci di rekaman).
 - Fake provider (latensi 0 atau profil latensi terekam) untuk metrik overhead; provider nyata untuk metrik kualitas dan end-to-end.
 
 ### 2.4 Jumlah run & statistik
@@ -209,7 +209,8 @@ Eval set disimpan di `eval/` dengan manifest SHA-256; perubahan = versi eval bar
 - Soak: 1 run 1.000 turn + 1 run 24 jam `serve`; metrik count (crash, hang, korupsi) harus 0 — tidak ada uji statistik.
 
 ### 2.5 Kapan dijalankan
-- F0: baseline tanpa LLM + smoke 10 task model murah (validasi harness saja).
+- F0: baseline tanpa LLM (status per dimensi ADR-065) + smoke 10 task model murah untuk hermes (validasi harness saja).
+- F1: smoke 10 task Damn-Bot (`h2h-smoke/v1`, ADR-062), cap total US$2,00 ditegakkan ledger `bench/h2h` (ADR-075); hanya setelah hardening ADR-075 ada di kode; pass/fail informatif.
 - PR: §3 tipe (a) (fake provider, tanpa biaya), size/LOC gates.
 - Nightly: soak 1.000 turn & chaos suite (fake provider); §3 tipe (b) model murah hanya setelah ada build fungsional (F3+).
 - Mingguan: scorecard otomatis (SPEC §18.5) setelah build fungsional, anggaran ditetapkan user.
@@ -244,7 +245,9 @@ Setiap baris [`FEATURE-PARITY.md`](FEATURE-PARITY.md) yang dapat dieksekusi (CLI
 Teknik wajib untuk (b) (SPEC §17.2): prompt lebih kecil (TTFT turun), parallel tool calls + eksekusi tool read-only paralel, streaming ke UI sejak token pertama, prefetch konteks saat user mengetik (assembly + retrieval + koneksi provider di-warm, tanpa LLM call), cache hit prompt tinggi (P15), tidak ada LLM call tambahan di jalur kritis (judul/ringkasan/review di luar jalur, P11).
 
 ### 3.3 Aturan gate
-- PR: setiap benchmark (a) `BenchmarkSpeedParity/<ID>` di `bench/speed` (V-20/ADR-054) dibandingkan dengan `main`; lebih lambat > 5% (median, CI 95% tidak memuat 0) = gagal. Rasio vs hermes dihitung ulang mingguan dan wajib memenuhi §3.2.
+- PR: setiap benchmark (a) `BenchmarkSpeedParity/<ID>` di `bench/speed` (V-20/ADR-054; dibuat di F1, ADR-077) dibandingkan dengan `main`; lebih lambat > 5% (median, CI 95% tidak memuat 0) = gagal. Rasio vs hermes dihitung ulang mingguan dan wajib memenuhi §3.2.
+- Gate per fase (ADR-077): acceptance fase Fx = `BenchmarkSpeedParity/<ID>` untuk setiap baris FEATURE-PARITY berfase Fx (kolom `fase`, ADR-064) memenuhi §3.2 terhadap `bench/speed/results/hermes-868b9f244f.json`; sampel CLI ≥ 20 run per sisi, baseline hermes baris fase itu diukur ulang dengan 20 run sebelum acceptance.
+- Ambang ×1,5 (ADR-077) hanya untuk metrik **waktu absolut** di runner CI bersama. Rasio terhadap referensi yang diukur di runner yang sama (`rg`, hermes, `main`) dipakai apa adanya.
 - Nightly: (b) dengan model murah; regresi median > 10% vs nightly sebelumnya = issue otomatis berlabel `perf-regression` yang memblokir RC.
 - Baris FEATURE-PARITY tanpa benchmark speed = parity tidak terpenuhi (§4).
 - Operasi yang di hermes tidak ada padanan waktunya (fitur `replaced`) dibandingkan dengan operasi padanan yang tertulis di kolom `Catatan` baris FEATURE-PARITY.md (mode `replaced`, SPEC §8); padanan wajib diisi bersama kolom `bench` sebelum baris dihitung.
