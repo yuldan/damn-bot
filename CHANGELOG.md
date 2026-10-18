@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 ## Unreleased
 
 ### Added
+- `provider`: tipe request/response/`Error` typed (SPEC §4.1), encoder request openai-chat deterministik (reasoning dikirim balik byte-identik), rakitan stream (tool call terfragmen, finish dinormalisasi, `stream_broken`, `empty_response`, strip token kontrol) (ADR-102).
+- `provider`: decoder delta stream openai-chat tanpa reflect dan tanpa alokasi per chunk (content, reasoning, tool_calls, usage, finish; E-36, ADR-102).
 - `budget`: estimator token COST-09 (rasio per script + kalibrasi EMA 0,5–1,5 dari ledger, `TestTokenEstimatorCalibration` en/id/ru/ja), perhitungan biaya (provider/tabel harga/unknown), entri ledger; `ctxdb/ledgerstore`: insert `usage_ledger`, sampel kalibrasi, total sesi (ADR-101).
 - `provider`: decoder delta stream openai-chat tanpa reflect dan tanpa alokasi per chunk (content, reasoning, tool_calls, usage, finish; E-36, ADR-102).
 - Atribusi: sidecar `ORIGIN.md` (sumber, commit, lisensi, SHA-256) untuk setiap direktori file turunan pihak ketiga, diverifikasi `TestAttributionHeaders` (ADR-018 (b), ADR-099).
