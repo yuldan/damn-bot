@@ -62,6 +62,7 @@ type Store struct {
 	// marker must not drain it; also set while a purge releases its lease.
 	barrierOwner atomic.Bool
 	purgeOrder   map[string][]string // txid → labelled sessions, descendants first (guarded by mu)
+	chunk        int                 // purge phase-2 unit size, adapted to measured cost (guarded by mu)
 	q            map[string]string   // named statements of queries.sql
 	stop         context.CancelFunc // barrier watcher
 	done         chan struct{}
@@ -109,7 +110,7 @@ func newStore(o Options) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ctxdb: queries: %w", err)
 	}
-	s := &Store{opt: o, dir: o.Dir, clk: o.Clock, q: q, tokens: map[string]int64{}, obs: map[string]observation{}}
+	s := &Store{opt: o, dir: o.Dir, clk: o.Clock, q: q, chunk: firstChunk, tokens: map[string]int64{}, obs: map[string]observation{}}
 	s.mode.Store("")
 	if o.Ident != nil {
 		s.id = *o.Ident
@@ -291,7 +292,11 @@ func (s *Store) detach() {
 }
 
 // Close releases leases' handles, the holder entry and the barrier lock.
-// The last process out truncates the WAL (SPEC §11).
+// The last process out truncates the WAL (SPEC §11). "Last" is proven by
+// taking run/maint.lock exclusively (every open process holds it shared):
+// a TRUNCATE checkpoint holds the writer lock while it waits for readers, so
+// running it beside live processes stalls their BEGIN IMMEDIATE past
+// busy_timeout (root cause of SQLITE_BUSY in TestMultiProcess under -race).
 func (s *Store) Close() error {
 	if s.stop != nil {
 		s.stop()
@@ -300,12 +305,20 @@ func (s *Store) Close() error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.w != nil {
-		_, _ = s.w.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+	var err error
+	if s.w != nil && s.lock != nil {
+		unlockFile(s.lock)
+		s.lock = nil
+		if last, ok := tryLock(runPath(s.dir, "maint.lock"), true); ok {
+			_, err = s.w.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+			unlockFile(last)
+		}
 	}
-	_ = os.Remove(s.holderPath())
+	if rerr := os.Remove(s.holderPath()); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+		err = errors.Join(err, rerr)
+	}
 	s.detach()
-	return nil
+	return classify(err)
 }
 
 // Ident returns the identity this Store writes into leases.

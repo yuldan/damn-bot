@@ -210,39 +210,47 @@ type multiResult struct {
 func multiWorker(t *testing.T, s *Store, n int) multiResult {
 	var res multiResult
 	r := rand.New(rand.NewPCG(uint64(os.Getpid()), 3))
-	note := func(err error) {
+	start := time.Now()
+	note := func(op string, err error) {
 		if err != nil {
 			if isBusy(err) {
 				res.Busy++
 			}
-			res.Errors = append(res.Errors, err.Error())
+			res.Errors = append(res.Errors, fmt.Sprintf("%s after %v: %v", op, time.Since(start), err))
 		}
 	}
 	own := fmt.Sprintf("own-%d", os.Getpid())
 	_, err := s.CreateSession(bg, Session{ID: own})
-	note(err)
+	note("create", err)
 	for range n {
+		start = time.Now()
 		if _, err := s.Append(bg, own, nil, Event{Kind: "user_message", Content: "x"}); err == nil {
 			res.Own++
 		} else {
-			note(err)
+			note("append", err)
 		}
+		start = time.Now()
 		if _, err := s.AcquireLease(bg, "SHARED"); err == nil {
 			if _, err := s.Append(bg, "SHARED", nil, Event{Kind: "user_message", Content: own}); err == nil {
 				res.Shared++
 			}
-			note(s.ReleaseLease(bg, "SHARED"))
+			start = time.Now()
+			note("release", s.ReleaseLease(bg, "SHARED"))
+		} else if !errors.Is(err, ErrSessionBusy) {
+			note("acquire", err)
 		}
+		start = time.Now()
 		switch r.IntN(10) {
 		case 0:
 			_, err := s.GC(bg, false)
-			note(err)
+			note("gc", err)
 		case 1:
 			tmp := fmt.Sprintf("tmp-%d-%d", os.Getpid(), r.Int())
 			if _, err := s.CreateSession(bg, Session{ID: tmp}); err == nil {
-				note(s.ReleaseLease(bg, tmp))
+				note("release-tmp", s.ReleaseLease(bg, tmp))
+				start = time.Now()
 				if _, err := s.Purge(bg, PurgeRequest{IDs: []string{tmp}}); err != nil && !errors.Is(err, ErrPurgeInProgress) {
-					note(err)
+					note("purge", err)
 				}
 			}
 		}

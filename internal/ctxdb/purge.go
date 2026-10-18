@@ -46,7 +46,8 @@ const (
 	phase0Batch   = 2000
 	sessionBatch  = 50
 	eventBatch    = 2000
-	eventChunk    = 250 // deadline is checked between chunks (unit = event)
+	firstChunk    = 16                    // initial events per unit before any measurement
+	chunkTarget   = 25 * time.Millisecond // target cost of one event unit
 	phaseDone     = 4
 	phaseAborted  = 5
 )
@@ -347,9 +348,19 @@ func (t *Tx) phaseEvents(txid string, v *purgeValue, start time.Time) error {
 		v.Phase, v.Cursor = 3, 0
 		return nil
 	}
-	for i := 0; i < len(ev) && (i == 0 || time.Since(start) < batchDeadline); i += eventChunk {
-		if err := t.run("purge.events", jsonOf(ev[i:min(i+eventChunk, len(ev))]), v.Audit); err != nil {
+	for i := 0; i < len(ev); {
+		n := min(max(t.s.chunk, 1), len(ev)-i)
+		c0 := time.Now()
+		if err := t.run("purge.events", jsonOf(ev[i:i+n]), v.Audit); err != nil {
 			return err
+		}
+		d := max(time.Since(c0), time.Microsecond)
+		i += n
+		// Time-bounded batching (I11): the unit size follows the measured cost so
+		// a batch ends before the deadline on slow machines too.
+		t.s.chunk = min(max(int(int64(n)*int64(chunkTarget)/int64(d)), 1), eventBatch)
+		if time.Since(start)+d*time.Duration(t.s.chunk)/time.Duration(n) >= batchDeadline {
+			break
 		}
 	}
 	return nil
