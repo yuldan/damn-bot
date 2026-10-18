@@ -124,7 +124,7 @@ func (e *Engine) createTemp(ctx context.Context, t *target, kind string) (*os.Fi
 		perm = 0o666
 	}
 	name := filepath.Join(filepath.Dir(t.resolved), "."+filepath.Base(t.resolved)+tempMarker+kind+randHex())
-	f, err := e.openWrite(ctx, name, os.O_RDWR|os.O_CREATE|os.O_EXCL, perm, t.outside)
+	f, _, err := e.openPath(ctx, name, e.rel(name), os.O_RDWR|os.O_CREATE|os.O_EXCL, perm, t.outside)
 	return f, name, err
 }
 
@@ -168,7 +168,7 @@ func (e *Engine) copyInPlace(ctx context.Context, t *target, before fileKey, tmp
 	if werr := e.copyAt(bak, t.f, before.size, ""); werr != nil {
 		return ioErr("backup", t.rel, werr)
 	}
-	dst, err := e.openWrite(ctx, t.resolved, os.O_WRONLY, 0, t.outside)
+	dst, _, err := e.openPath(ctx, t.resolved, t.rel, os.O_WRONLY, 0, t.outside)
 	if err != nil {
 		return err
 	}
@@ -328,22 +328,6 @@ func (e *Engine) readBack(ctx context.Context, t *target, ci *commitInfo) (err e
 	}
 	ci.key = keyOf(t.resolved, fi)
 	return nil
-}
-
-// openWrite opens a path for writing through the sandbox; approved
-// non-Inside verdicts use OpenApproved (SPEC §4.3 langkah 7).
-func (e *Engine) openWrite(ctx context.Context, p string, flag int, perm fs.FileMode, outside bool) (*os.File, error) {
-	f, v, err := e.sb.OpenFile(ctx, p, flag, perm)
-	if err == nil && v != sandbox.Inside {
-		if err := approval(v, e.rel(p), outside); err != nil {
-			return nil, err
-		}
-		f, err = e.sb.OpenApproved(ctx, p, flag, perm)
-	}
-	if err != nil {
-		return nil, mapOpenErr(e.rel(p), err)
-	}
-	return f, nil
 }
 
 // mkdirs creates the missing parents of p inside the sandbox, checking

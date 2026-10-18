@@ -276,21 +276,31 @@ func approval(v sandbox.Verdict, p string, approved bool) error {
 // is denied_path.
 func (e *Engine) open(ctx context.Context, p string, flag int, perm fs.FileMode, o Opts) (*target, error) {
 	abs := e.abs(p)
-	f, v, err := e.sb.OpenFile(ctx, abs, flag, perm)
-	if err == nil && v != sandbox.Inside {
-		if err := approval(v, p, o.Approved); err != nil {
-			return nil, err
-		}
-		f, err = e.sb.OpenApproved(ctx, abs, flag, perm)
-	}
+	f, v, err := e.openPath(ctx, abs, p, flag, perm, o.Approved)
 	if err != nil {
-		return nil, mapOpenErr(p, err)
+		return nil, err
 	}
 	resolved := f.Name()
 	if _, r, cerr := e.sb.Check(ctx, abs, sandbox.OpRead); cerr == nil {
 		resolved = r
 	}
 	return &target{f: f, resolved: resolved, rel: e.rel(resolved), outside: v != sandbox.Inside}, nil
+}
+
+// openPath opens abs (shown as p in errors) through the sandbox; a verdict
+// other than Inside needs approved, then OpenApproved (SPEC §4.3 langkah 7).
+func (e *Engine) openPath(ctx context.Context, abs, p string, flag int, perm fs.FileMode, approved bool) (*os.File, sandbox.Verdict, error) {
+	f, v, err := e.sb.OpenFile(ctx, abs, flag, perm)
+	if err == nil && v != sandbox.Inside {
+		if err := approval(v, p, approved); err != nil {
+			return nil, v, err
+		}
+		f, err = e.sb.OpenApproved(ctx, abs, flag, perm)
+	}
+	if err != nil {
+		return nil, v, mapOpenErr(p, err)
+	}
+	return f, v, nil
 }
 
 // openResolved opens a path found by a walk or written by this Engine
