@@ -22,7 +22,7 @@ Prinsip urutan: ukur dulu (F0) → core yang benar (F1–F2) → permukaan (F3) 
 
 LOC test non-generated: rasio 0,8–1,2× source ([`ENGINEERING.md`](ENGINEERING.md) §6), ≈ 150.000–225.000 (dari 184.900 source). Pembanding hermes: 972.645 LOC Python + 1.442.817 LOC test (BASELINE §1).
 
-Milestone **Spec 1.0 freeze**: sebelum F0 dimulai, setelah GAP-SWEEP diintegrasikan (SPEC §20).
+Milestone **Spec 1.0 freeze**: sebelum F0, setelah ADR-033..036 terintegrasi dan errata diverifikasi auditor (SPEC §20, ADR-030); terpenuhi oleh ADR-047 (V-22/ADR-054).
 
 ---
 
@@ -62,7 +62,7 @@ NP-01..NP-21 diputuskan per ADR-022 (Accepted) dan ADR-033 (NP-21): sebagian `dr
 | `EC-FIO` file I/O & encoding | F1 |
 | `EC-TERM` terminal/proses | F1 (local), F5 (backend) |
 | `EC-WIN` Windows | setiap fase di matrix CI Windows; F9 penutupan |
-| `EC-PLAT` platform chat (termasuk 15 entri Telegram) | F4 (Telegram), F7 (lainnya) |
+| `EC-PLAT` platform chat (19 entri Telegram: EC-PLAT-001, 002, 003, 007, 009..023; ADR-061) | F4 (Telegram), F7 (lainnya: EC-PLAT-004, 005, 006, 008, 024; ADR-061) |
 | `EC-CFG` config/startup | F3 |
 | `EC-SEC` keamanan | F1 (sandbox, redaksi), F3 (import), F4 (gateway) |
 
@@ -85,7 +85,7 @@ NP-01..NP-21 diputuskan per ADR-022 (Accepted) dan ADR-033 (NP-21): sebagian `dr
 - Harness mereproduksi angka BASELINE-hermes.md (overhead per call, schema bytes) dalam ±5%.
 - Setiap gate CI terbukti gagal pada pelanggaran sintetis (meta-test: 1 kasus per gate, 100% terdeteksi).
 - Baseline hermes tersedia untuk 100% dimensi SCORECARD tipe tanpa LLM; dimensi berbasis LLM ditandai "diukur di RC F9" di artefak.
-- Speed baseline hermes untuk 100% baris parity tipe (a) yang dapat dieksekusi tanpa kredensial berbayar; sisanya didaftar dengan alasan.
+- Speed baseline hermes untuk 100% baris parity tipe (a) yang dapat dieksekusi tanpa kredensial berbayar (`BenchmarkSpeedParity/<ID>` di `bench/speed`, V-20/ADR-054); sisanya didaftar dengan alasan.
 - Smoke LLM 10 task selesai untuk kedua agent dengan rekaman proxy lengkap (0 error harness).
 - Persistence spike: 86/86 skenario adversarial lulus sebagai test otomatis; chaos kill -9 dan `TestMultiProcess` hijau.
 - Errata backlog ADR-047: 100% item punya ADR penutup + test.
@@ -130,7 +130,7 @@ NP-01..NP-21 diputuskan per ADR-022 (Accepted) dan ADR-033 (NP-21): sebagian `dr
 **Acceptance**
 - E8: orang asing → 0 tool call, 0 LLM call; approval inline keyboard default timeout = reject.
 - Chaos suite (kill -9 × 1.000 turn, network cut, disk penuh, config/DB korup, reboot VM): 0 korupsi, 0 pesan Telegram masuk hilang/diproses ganda, 0 duplikat keluar pada suite, recovery ≤ 10 s, 0 tool non-idempoten terulang tanpa konfirmasi (P22).
-- EC-PLAT Telegram (15 entri) + EC-STATE chaos covered.
+- EC-PLAT Telegram (19 entri eksplisit: EC-PLAT-001, 002, 003, 007, 009..023; ADR-061) + EC-STATE chaos covered.
 - RSS `serve` + Telegram + cron ≤ 90 MB; CPU idle ≤ 0,5% (x86).
 
 ## F5 — Provider, MCP, delegasi, coding
@@ -159,7 +159,7 @@ NP-01..NP-21 diputuskan per ADR-022 (Accepted) dan ADR-033 (NP-21): sebagian `dr
 **Acceptance**
 - PLAT 30/30 lulus fake server; smoke nyata nightly untuk adapter yang punya akun uji.
 - Kontribusi binary adapter ≤ budget SPEC §3.2.4; P13 full ≤ 52 MB.
-- EC-PLAT (non-Telegram) covered.
+- EC-PLAT (non-Telegram: EC-PLAT-004, 005, 006, 008, 024; ADR-061) covered.
 
 ## F8 — Web UI, ekosistem, otomatisasi
 
@@ -172,10 +172,10 @@ NP-01..NP-21 diputuskan per ADR-022 (Accepted) dan ADR-033 (NP-21): sebagian `dr
 
 ## F9 — Hardening & rilis 1.0
 
-**Deliverable**: penutupan EC-WIN & sisa edge-case, OS matrix lengkap (CROSS-CUTTING §7), soak 24 jam + 1.000 turn, chaos penuh, **head-to-head penuh pertama** (SWE-bench Verified subset 100 × 3 run + E2–E10, model frontier dan anggaran ditetapkan user saat RC — Q23-RC), aktivasi scorecard mingguan, gate parity 854 baris, import sesi hermes, Docker 1 stage, Nix flake, installer, Termux, dokumentasi migrasi.
+**Deliverable**: penutupan EC-WIN & sisa edge-case, OS matrix lengkap (CROSS-CUTTING §7), soak 24 jam + 1.000 turn, chaos penuh, **head-to-head penuh pertama** (SWE-bench Verified subset 100 × 3 run + E2–E10, model frontier dan anggaran ditetapkan user saat RC — Q23-RC), aktivasi scorecard mingguan, gate parity 837/837 baris penyebut (SPEC §8; V-28/ADR-054), import sesi hermes, Docker 1 stage, Nix flake, installer, Termux, dokumentasi migrasi.
 
 **Acceptance (gate 1.0)**
-1. SCORECARD §4: semua dimensi ≥ hermes, dimensi inti menang dengan margin, speed parity (a) ≥ 5×/10× tanpa satu operasi pun lebih lambat, (b) median ≥ 2× tanpa task > ×1,10.
+1. SCORECARD §4 (`TestScorecardGate`, V-20/ADR-054): semua dimensi ≥ hermes, dimensi inti menang dengan margin, speed parity (a) (`BenchmarkSpeedParity/<ID>` di `bench/speed`) ≥ 5×/10× tanpa satu operasi pun lebih lambat, (b) median ≥ 2× tanpa task > ×1,10.
 2. FEATURE-PARITY: 100% baris non-`dropped-with-approval` lulus test + benchmark speed.
 3. EDGE-CASES: 166/166 `covered` atau `n/a` beralasan; GAP-SWEEP: 118/118 requirement SPEC §22.1 terverifikasi (dengan resolusi ADR-033).
 4. Invariant P1–P29 hijau pada commit rilis.

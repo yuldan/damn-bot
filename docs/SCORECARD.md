@@ -1,6 +1,6 @@
 # SCORECARD — Damn-Bot vs hermes-agent
 
-Kriteria rilis terukur: Damn-Bot 1.0 hanya rilis jika **≥ hermes di semua dimensi** dan **menang dengan margin** di dimensi inti (SPEC P20). Hasil tiap run disimpan sebagai artefak versi (§2.6). Baseline hermes diambil dari [`BASELINE-hermes.md`](BASELINE-hermes.md) bila ada; selain itu diukur oleh harness pada snapshot hermes yang di-pin (`868b9f244f`). Sel "diukur di F0" pada dimensi yang butuh LLM (token/biaya/kualitas per task, recall, routing skill, injection, error recovery, wall-clock end-to-end) dibaca sebagai **"diukur di RC F9"** (ADR-032); F0 hanya mengukur dimensi tanpa LLM.
+Kriteria rilis terukur: Damn-Bot 1.0 hanya rilis jika **≥ hermes di semua dimensi** dan **menang dengan margin** di dimensi inti (SPEC P20, ditegakkan `TestScorecardGate`; V-20/ADR-054). Hasil tiap run disimpan sebagai artefak versi (§2.6). Baseline hermes diambil dari [`BASELINE-hermes.md`](BASELINE-hermes.md) bila ada; selain itu diukur oleh harness pada snapshot hermes yang di-pin (`868b9f244f`). Sel "diukur di F0" pada dimensi yang butuh LLM (token/biaya/kualitas per task, recall, routing skill, injection, error recovery, wall-clock end-to-end) dibaca sebagai **"diukur di RC F9"** (ADR-032); F0 hanya mengukur dimensi tanpa LLM.
 
 Notasi aturan menang: `↓` lebih kecil lebih baik, `↑` lebih besar lebih baik. "Margin" = syarat minimal terhadap hermes. Dimensi inti ditandai **[I]**.
 
@@ -108,7 +108,7 @@ Rincian aturan & cara ukur: [`ENGINEERING.md`](ENGINEERING.md) §8. Angka hermes
 | Temuan lint | jumlah | golangci-lint (daftar ENGINEERING §5.1) | n/a | 0 | ↓, 0 |
 | Kebocoran goroutine | jumlah | goleak di semua paket yang memulai goroutine | n/a | 0 | ↓, 0 |
 | Dependency langsung / CGO | jumlah | `go.mod`, build matrix | 55 extras + `package.json` | ≤ 28 / 0 | ↓ |
-| Rasio test:source | LOC | `scc` | 1,48 (BASELINE; ukur ulang 1,46) | 0,8–1,2 | dalam rentang |
+| Rasio test:source | LOC | `scc` | 1,48 (BASELINE; ukur ulang 1,46) | 0,8–1,2 (gate mulai Go non-test ≥ 5.000 LOC, di bawahnya laporan saja; ADR-050) | dalam rentang |
 | Flake rate | eksekusi gagal tanpa perubahan | nightly `-count=20` | diukur di F0 | ≤ 0,1% | ↓ |
 | Waktu build bersih / inkremental | detik | job buildtime | diukur di F0 (install + build Node) | ≤ 90 / ≤ 10 | ↓ |
 | Waktu CI PR | p90 menit | laporan CI | diukur di F0 | ≤ 12 | ↓ |
@@ -222,7 +222,7 @@ Eval set disimpan di `eval/` dengan manifest SHA-256; perubahan = versi eval bar
 
 ## 3. Speed parity gate
 
-Setiap baris [`FEATURE-PARITY.md`](FEATURE-PARITY.md) yang dapat dieksekusi (CLI command, slash command, tool, aksi platform, operasi memori/sesi/skill, cron, startup, resume sesi, search sesi, compaction, update) mendapat benchmark head-to-head otomatis `bench/speed/<ID>` pada mesin & input identik, wall-clock p50/p95.
+Setiap baris [`FEATURE-PARITY.md`](FEATURE-PARITY.md) yang dapat dieksekusi (CLI command, slash command, tool, aksi platform, operasi memori/sesi/skill, cron, startup, resume sesi, search sesi, compaction, update) mendapat benchmark head-to-head otomatis `BenchmarkSpeedParity/<ID>` di `bench/speed` (P28, V-20/ADR-054) pada mesin & input identik, wall-clock p50/p95.
 
 ### 3.1 Dua komponen waktu
 - **(a) Dikendalikan agent**: startup, I/O, eksekusi tool (di luar runtime command user), DB, assembly prompt, parsing, render UI. Diukur dengan fake provider latensi 0 dan fake backend.
@@ -244,7 +244,7 @@ Setiap baris [`FEATURE-PARITY.md`](FEATURE-PARITY.md) yang dapat dieksekusi (CLI
 Teknik wajib untuk (b) (SPEC §17.2): prompt lebih kecil (TTFT turun), parallel tool calls + eksekusi tool read-only paralel, streaming ke UI sejak token pertama, prefetch konteks saat user mengetik (assembly + retrieval + koneksi provider di-warm, tanpa LLM call), cache hit prompt tinggi (P15), tidak ada LLM call tambahan di jalur kritis (judul/ringkasan/review di luar jalur, P11).
 
 ### 3.3 Aturan gate
-- PR: setiap benchmark (a) dibandingkan dengan `main`; lebih lambat > 5% (median, CI 95% tidak memuat 0) = gagal. Rasio vs hermes dihitung ulang mingguan dan wajib memenuhi §3.2.
+- PR: setiap benchmark (a) `BenchmarkSpeedParity/<ID>` di `bench/speed` (V-20/ADR-054) dibandingkan dengan `main`; lebih lambat > 5% (median, CI 95% tidak memuat 0) = gagal. Rasio vs hermes dihitung ulang mingguan dan wajib memenuhi §3.2.
 - Nightly: (b) dengan model murah; regresi median > 10% vs nightly sebelumnya = issue otomatis berlabel `perf-regression` yang memblokir RC.
 - Baris FEATURE-PARITY tanpa benchmark speed = parity tidak terpenuhi (§4).
 - Operasi yang di hermes tidak ada padanan waktunya (fitur `replaced`) dibandingkan dengan operasi padanan yang tertulis di kolom `Catatan` baris FEATURE-PARITY.md (mode `replaced`, SPEC §8); padanan wajib diisi bersama kolom `bench` sebelum baris dihitung.
@@ -253,7 +253,7 @@ Teknik wajib untuk (b) (SPEC §17.2): prompt lebih kecil (TTFT turun), parallel 
 
 ## 4. Aturan gate 1.0
 
-1. Semua dimensi §1 memenuhi "Aturan menang"; dimensi **[I]** memenuhi margin yang ditetapkan.
+1. Semua dimensi §1 memenuhi "Aturan menang"; dimensi **[I]** memenuhi margin yang ditetapkan. Ditegakkan `TestScorecardGate` di job `scorecard` tiap RC + mingguan (P20, V-20/ADR-054); anggaran LOC per paket ditegakkan `TestBudgetTableSum` (P21, ENGINEERING E-19).
 2. Satu dimensi kalah (termasuk satu operasi §3 lebih lambat dari hermes) → **bukan rilis**. Tidak ada pengecualian tanpa ADR yang disetujui user dan dimensi tersebut tetap dilaporkan merah di catatan rilis.
 3. 100% baris FEATURE-PARITY.md terpenuhi kecuali `dropped-with-approval` (persetujuan tercatat di DECISIONS.md ADR-022 + ADR-033, pemetaan NP → baris di FEATURE-PARITY.md).
 4. 100% entri [`EDGE-CASES-hermes.md`](EDGE-CASES-hermes.md) berstatus `covered` (test lulus) atau `n/a` dengan alasan.

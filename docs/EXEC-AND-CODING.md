@@ -460,7 +460,7 @@ Format tiap baris: `path:line:col: error|warning: msg [source]`. Cap 400 tok (o2
 Schema deferred:
 
 ```text
-execute_code{language* enum[python,javascript,typescript,go,bash,starlark], code* ≤ 100.000 char, timeout_s 1–300 (default 30), stdin ≤ 65.536 char, network enum[deny,allow] (default deny), persist bool}
+execute_code{language* enum[python,javascript,typescript,go,bash,starlark], code* ≤ 100.000 char, timeout_s 1–300 (default 30; starlark 1–30, > 30 → invalid_args tanpa clamp, ADR-055), stdin ≤ 65.536 char, network enum[deny,allow] (default deny), persist bool}
 ```
 
 **Interpreter sistem** (tidak di-bundle):
@@ -486,7 +486,7 @@ Interpreter tidak ditemukan → `module_unavailable` + instruksi instalasi.
 **Panggilan tool dari skrip** (parity `tools/code_execution_tool.py:43-45`):
 - Socket RPC `DAMNBOT_TOOL_SOCKET` (unix socket 0600; Windows named pipe ber-ACL user).
 - Modul klien kecil ditulis ke cwd: `damnbot_tools.py`, `damnbot_tools.mjs`; starlark memakai builtin `tool(name, **args)` lewat pipe JSON-RPC privat ke proses induk.
-- Tool yang diizinkan: `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `web_fetch`, `shell` (tanpa `background`/`session`).
+- Tool yang diizinkan: `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `web_fetch`, `shell` (tanpa `background`/`session`). Binding `tool()` starlark hanya ke 7 tool ini; tool lain → `invalid_args` (ADR-055).
 - Setiap call melewati pipeline penuh SPEC §4.3 (schema, sandbox, approval) dan tercatat sebagai event anak.
 - Maks 50 call per eksekusi; melebihi → `too_large`.
 
@@ -498,8 +498,8 @@ Interpreter tidak ditemukan → `module_unavailable` + instruksi instalasi.
 
 | Limit | Linux | macOS | Windows |
 |---|---|---|---|
-| Waktu | `timeout_s` + kill A.4 | sama | sama |
-| Memori 512 MiB (`code.memory_mb`, 64–4.096) | cgroup v2 sub-group delegasi user (`memory.max`, `pids.max=256`) bila writable; else shim `damnbot __exec-shim` `setrlimit` (`RLIMIT_AS` untuk python/bash; `--max-old-space-size` untuk node; `GOMEMLIMIT` + `RLIMIT_DATA` untuk go; starlark: proses anak `damnbot __starlark` `RLIMIT_AS` 256 MiB) | shim `setrlimit` (`RLIMIT_DATA`, `RLIMIT_NOFILE=256`, `RLIMIT_FSIZE=64 MiB`, `RLIMIT_CPU`) | Job Object `JOB_OBJECT_LIMIT_JOB_MEMORY`, `ActiveProcessLimit=64` |
+| Waktu | `timeout_s` + kill A.4 (starlark maks 30 s, ADR-055) | sama | sama |
+| Memori 512 MiB (`code.memory_mb`, 64–4.096) | cgroup v2 sub-group delegasi user (`memory.max`, `pids.max=256`) bila writable; else shim `damnbot __exec-shim` `setrlimit` (`RLIMIT_AS` untuk python/bash; `--max-old-space-size` untuk node; `GOMEMLIMIT` + `RLIMIT_DATA` untuk go; starlark: proses anak `damnbot __starlark` `RLIMIT_AS` 256 MiB) | shim `setrlimit` (`RLIMIT_DATA`, `RLIMIT_NOFILE=256`, `RLIMIT_FSIZE=64 MiB`, `RLIMIT_CPU`); starlark: shim `setrlimit` `RLIMIT_DATA` 256 MiB untuk `damnbot __starlark`, tanpa `ulimit -v` (ADR-055) | Job Object `JOB_OBJECT_LIMIT_JOB_MEMORY`, `ActiveProcessLimit=64`; starlark: Job Object 256 MiB (ADR-055) |
 | Jaringan `deny` | `CLONE_NEWUSER\|CLONE_NEWNET` via `SysProcAttr.Cloneflags` (loopback saja) | `sandbox-exec` profil `(deny network*)` | tidak ada penegakan |
 | Output | pipeline A.3 + P5 | sama | sama |
 
@@ -542,7 +542,7 @@ Harness `damnbot-eval` (F0, SCORECARD) menjalankan Damn-Bot dan hermes pada kond
 **Uji statistik:**
 - Pass rate: selisih berpasangan per task (rata-rata 3 run), paired bootstrap 10.000 resample atas task, CI 95%.
 - Tokens/task: rasio rata-rata geometrik per task, CI 95% bootstrap + Wilcoxon signed-rank.
-- Gate rilis 1.0 (P20, job `scorecard` di RC), per set dan gabungan:
+- Gate rilis 1.0 (P20, job `scorecard` di RC menjalankan `TestScorecardGate`, V-20/ADR-054), per set dan gabungan:
   1. estimasi pass rate Damn-Bot ≥ hermes dan batas bawah CI selisih ≥ −2 pp;
   2. rasio tokens/task ≤ 0,60 dan batas atas CI ≤ 0,65;
   3. hang, orphan, wrong-location, dan claim-without-evidence = 0 di seluruh 630 run Damn-Bot (210 task × 3).
@@ -582,7 +582,7 @@ Harness `damnbot-eval` (F0, SCORECARD) menjalankan Damn-Bot dan hermes pada kond
 | COD-08 | Rollback | 50 file ≤ 200 ms; 0 timpa perubahan user tanpa `--force` | `TestRollback`, `BenchmarkRollback50` |
 | COD-09 | Verify-on-stop `run` | 0 LLM call tambahan; ≤ 2 perintah; timeout 300 s | `TestVerifyOnStopRun` |
 | COD-10 | Verify-on-stop `repair` | ≤ 1 iterasi ekstra (dalam 40) | `TestVerifyOnStopRepair` |
-| COD-11 | execute_code | timeout 30 s (1–300), memori 512 MiB, ≤ 50 tool call, kernel persisten ≤ 2, idle 30 menit | `TestExecuteCodeLimits` |
+| COD-11 | execute_code | timeout 30 s (1–300), memori 512 MiB, ≤ 50 tool call, kernel persisten ≤ 2, idle 30 menit; starlark: `timeout_s` 1–30 (> 30 → `invalid_args`), 256 MiB, binding hanya 7 tool §B.7 (ADR-055) | `TestExecuteCodeLimits` |
 | EVL-01 | Pass rate vs hermes | ≥ hermes; CI bawah selisih ≥ −2 pp | job `scorecard`, paired bootstrap |
 | EVL-02 | Tokens/task vs hermes | ≤ 0,60× (CI atas ≤ 0,65×) | job `scorecard`, Wilcoxon |
 | EVL-03 | Wall time/task | median ≤ 0,5× hermes; tidak ada task > 1,10× (SCORECARD §3.2) | job `scorecard` |

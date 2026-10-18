@@ -1,6 +1,6 @@
 # ENGINEERING — standar kode, arsitektur paket, library, CI, test, review
 
-Status: spesifikasi normatif. Berlaku untuk semua kode Go di repo Damn-Bot (binary `damnbot`, Go 1.26.x, `CGO_ENABLED=0`). Induk: [SPEC.md](../SPEC.md) §2 (P6, P13, P14, P16, P21), §3, §16; [DECISIONS.md](DECISIONS.md) ADR-001/002/008/009/011/014/015/016; [BASELINE-hermes.md](BASELINE-hermes.md). Setiap aturan bernomor `E-xx` punya angka dan alat verifikasi. Melanggar aturan = CI merah, kecuali disebut "laporan".
+Status: spesifikasi normatif. Berlaku untuk semua kode Go di repo Damn-Bot (binary `damnbot`, Go 1.26.x dengan pin direktif `go 1.26.9` di `go.mod`, `bench/go.mod`, `tools/go.mod` (ADR-051; sebutan Go 1.26.8 di dokumen ini = catatan pengukuran historis, bukan pin), `CGO_ENABLED=0`). Induk: [SPEC.md](../SPEC.md) §2 (P6, P13, P14, P16, P21), §3, §16; [DECISIONS.md](DECISIONS.md) ADR-001/002/008/009/011/014/015/016; [BASELINE-hermes.md](BASELINE-hermes.md). Setiap aturan bernomor `E-xx` punya angka dan alat verifikasi. Melanggar aturan = CI merah, kecuali disebut "laporan".
 
 Referensi hermes: commit `868b9f244f` (`git log -1` = 2026-10-17 04:38 −0700); semua sitasi `path:line` relatif ke root `hermes-agent`. Pengukuran ulang: 2026-10-17, Go 1.26.8 linux/amd64, mesin workstation penulis (bukan mesin referensi Q14).
 
@@ -276,7 +276,7 @@ flowchart TD
     NET --> RED
 ```
 
-Penyimpanan untuk `journal`, `memory`, `skills`, `assemble`, `compaction`, `budget` dideklarasikan sebagai interface di paket konsumen dan diimplementasikan `ctxdb`; `cmd/damnbot` yang menyambungkan. Panah tidak tergambar = dilarang.
+Penyimpanan untuk `journal`, `memory`, `skills`, `assemble`, `compaction`, `budget` dideklarasikan sebagai interface di paket konsumen dan diimplementasikan `ctxdb`; `cmd/damnbot` yang menyambungkan. Logika protokol gateway/approval (poller → worker, spool, outbox, konsumen approval) milik `internal/gateway`; `ctxdb` hanya menyediakan primitif storage (tabel spool/outbox/approval/inbound + metode transaksional bertipe) yang dikonsumsi `internal/gateway` lewat interface sisi konsumen (E-09, ≤ 5 method); adapter `gateway/<platform>` tetap di bawah E-06 (ADR-053). Panah tidak tergambar = dilarang.
 
 ### 2.3 Interface, state, DI
 
@@ -419,7 +419,7 @@ func classify(ctx context.Context, err error) (code string, exitCode int) {
 | E-42 | Dampak ukuran terukur | Δ binary dicatat di ADR; harus muat budget modul §3.2.4 | probe §4.3; `make size-check` |
 | E-43 | Transitif ringan | modul ter-link (`go version -m`) dicatat; > 5 transitif butuh justifikasi ADR | probe §4.3 |
 | E-44 | Bersih kerentanan | 0 temuan reachable | `govulncheck ./...` |
-| E-45 | Budget dependency | ≤ 28 `require` langsung di `go.mod` utama (ADR-033) (runtime + test); tool dev di `tools/go.mod` terpisah | `TestDirectDeps` (parse `go.mod`) + `deps.allow` |
+| E-45 | Budget dependency | ≤ 28 `require` langsung (non-`// indirect`) di `go.mod` utama (ADR-033) (runtime + test); tool dev di `tools/go.mod` terpisah | `TestDirectDeps` (parse `require` langsung non-`// indirect` `go.mod` utama; ukuran P21, V-11/ADR-054) + `deps.allow` |
 
 ### 4.2 Keputusan per kebutuhan
 
@@ -503,7 +503,7 @@ Analyzer khusus (`tools/analyzers`, `go/analysis`, dijalankan via `go vet -vetto
 
 | ID | Gate | Angka | Job |
 |---|---|---|---|
-| E-55 | Unit + integrasi | 100% lulus, `go test -race -shuffle=on ./...`. Asersi budget waktu dinding (mis. I11 ≤ 200 ms/txn, duty lock) hanya ditegakkan di `make test-timing` (`DAMNBOT_TIMING=1`, **tanpa** `-race`, ADR-048); di bawah `-race` skenario yang sama tetap berjalan dengan semua cek kebenaran, hanya asersi waktunya yang dilewati | `test` (matrix 6 target berrunner: linux amd64/arm64, darwin arm64/amd64, windows amd64/arm64; linux/arm + android/arm64 build + unit di QEMU; SPEC §16) + `test-timing` |
+| E-55 | Unit + integrasi | 100% lulus, `go test -race -shuffle=on ./...`. Asersi budget waktu dinding (mis. I11 ≤ 200 ms/txn, duty lock) hanya ditegakkan di `make test-timing` (`DAMNBOT_TIMING=1`, **tanpa** `-race`, ADR-048); di bawah `-race` skenario yang sama tetap berjalan dengan semua cek kebenaran, hanya asersi waktunya yang dilewati. Satu pintu asersi waktu: helper `timingEnforced`/`checkBudget` (`internal/ctxdb/timing_test.go`); meta-test CI gate `timing`: operasi nyata 300 ms terhadap budget 200 ms lewat helper itu harus membuat `make test-timing` gagal (ADR-048) | `test` (matrix 6 target berrunner: linux amd64/arm64, darwin arm64/amd64, windows amd64/arm64; linux/arm + android/arm64 build + unit di QEMU; SPEC §16) + `test-timing` |
 | E-56 | Goroutine leak | 0 (goleak di semua paket wajib, E-29) | `test` |
 | E-57 | Fuzz | 60 s per target per PR, 0 crash; corpus di `testdata/fuzz` di-commit | `fuzz` (3 shard paralel) |
 | E-58 | Coverage paket kritis | ≥ 80%: `loop`, `tools`, `schema`, `provider`, `ctxdb`, `assemble`, `compaction`, `journal`, `budget`, `heal`; ≥ 70%: paket lain | `coverage`: `go test -coverpkg=./internal/... -coverprofile`, `go tool cover -func` per paket, skrip gate |

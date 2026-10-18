@@ -737,7 +737,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | PLUG-019 | Plugin: hermes-achievements | Achievement/gamifikasi di dashboard | `plugins/hermes-achievements/README.md` | opt-in | — |  | planned |
 | PLUG-020 | Plugin: image_gen | 8 backend generate gambar | `plugins/image_gen/_common.py` | opt-in | lihat MEDIA |  | planned |
 | PLUG-021 | Plugin: kanban (dashboard, systemd) | UI dashboard kanban & unit systemd | `plugins/kanban/dashboard`, `plugins/kanban/systemd` | opt-in | systemd |  | planned |
-| PLUG-022 | Plugin: memory | Provider memori bundled (byterover, retaindb) | `plugins/memory/__init__.py` | off | lihat MEM |  | planned |
+| PLUG-022 | Plugin: memory | Slot/plugin memory provider (Honcho) (V-30/ADR-054; byterover/retaindb = MEM-006/MEM-007, NP-21) | `plugins/memory/__init__.py` | off | lihat MEM |  | planned |
 | PLUG-023 | Plugin: model-providers | 41 direktori profil provider model | `plugins/model-providers/README.md` | on (bundled) | lihat PROV |  | planned |
 | PLUG-024 | Plugin: platforms | 27 adapter platform chat | `gateway/platforms/ADDING_A_PLATFORM.md` | per-platform | lihat PLAT |  | planned |
 | PLUG-025 | Plugin: security-guidance | Peringatan keamanan pada hasil write file | `plugins/security-guidance/plugin.yaml`, `plugins/security-guidance/patterns.py` | opt-in | — |  | planned |
