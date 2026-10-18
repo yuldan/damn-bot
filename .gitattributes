@@ -7,3 +7,4 @@ bench/h2h/results/**/*.proxy.jsonl.gz -text
 bench/evals/sources/* -text
 bench/budget/o200k/o200k_base.tiktoken.gz -text
 internal/schema/testdata/jsts/* -text
+internal/redact/testdata/*.tsv -text
