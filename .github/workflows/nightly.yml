@@ -1,0 +1,64 @@
+# Job harian terhadap main (ADR-073, AUD-071): govulncheck harian (E-54) dan deteksi flake -count=20.
+# Meta-test nightly ada di meta.yml (ADR-085).
+name: nightly
+
+on:
+  schedule:
+    - cron: "41 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  # Basis data kerentanan berubah tanpa commit: dijalankan setiap hari tanpa syarat.
+  vuln:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+            bench/go.sum
+      - run: make vuln
+
+  # Flake: kode yang sama dengan malam sebelumnya sudah diuji 20×; tanpa commit baru 24 jam terakhir
+  # job lulus dengan pesan (hemat menit runner, ADR-093). workflow_dispatch selalu menjalankan.
+  flake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 50
+      - name: Commit baru 24 jam?
+        id: fresh
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ] || [ -n "$(git log --since='24 hours ago' --format=%H -1)" ]; then
+            echo "run=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "tidak ada commit di main 24 jam terakhir: flake -count=20 sudah dijalankan untuk HEAD ini"
+            echo "run=false" >>"$GITHUB_OUTPUT"
+          fi
+      - if: steps.fresh.outputs.run == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - if: steps.fresh.outputs.run == 'true'
+        run: make flake

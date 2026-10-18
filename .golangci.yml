@@ -158,20 +158,22 @@ linters:
             - pkg: reflect
               desc: "E-34: tanpa reflect di hot path"
 
+  # AUD-067: path dijangkar (^) agar exclusion tidak meloloskan direktori bernama sama di tempat lain
+  # (mis. internal/tools/cmd/); gochecknoinits hanya untuk modules/... dan gateway/<platform>/ (E-11).
   exclusions:
     rules:
-      - path: internal/boundary/
+      - path: ^internal/boundary/
         linters: [forbidigo]
         text: "recover"
-      - path: internal/netx/retry/
+      - path: ^internal/netx/retry/
         linters: [forbidigo]
         text: "time\\.Sleep"
-      - path: cmd/
+      - path: ^cmd/
         linters: [forbidigo]
         text: "os\\.Exit"
-      - path: internal/modules/
+      - path: ^internal/modules/
         linters: [gochecknoinits]
-      - path: internal/gateway/
+      - path: ^internal/gateway/[^/]+/
         linters: [gochecknoinits]
 
 formatters:
