@@ -8,8 +8,8 @@ Format sesuai `docs/HANDOFF-F0.md` §"Laporan pagi". Mesin: workstation (Kali, l
 |---|---|---|---|
 | 7 | CI skeleton: lint, test -race, size-check, LOC, deps allowlist, tidy, verify, govulncheck, go-licenses, meta-test | selesai (mekanisme) | Meta-test terbaru @ `f917511`: **11/11 gate DETECTED**. `loc-ratio` diuji pada pohon sintetis dengan rasio 1,00; gate repo nyata tetap merah (TS-03). Di HEAD, `lint` dan `loc` **merah karena `internal/ctxdb`**: wrapcheck 19, unparam 2, unused 2; LOC 2.591 > 2.500. Untuk dua gate itu, meta-test memakai baseline pohon scaffold dan menandainya HEAD_RED. Worker persistence sudah diberi tahu. Workflow GitHub belum pernah dijalankan di Actions (tanpa remote). |
 | 1 | `bench/budget` (P1, o200k_base offline) | selesai | tokenizer = tiktoken 0.14.0 persis (id token & jumlah); 13/13 angka gate BASELINE dalam ±5%; job CI `bench-budget`. `TestFixedOverhead` sisi Damn-Bot menunggu `internal/assemble` (F1). |
-| 4 | Baseline hermes tanpa LLM | sebagian | Selesai: token overhead & schema bytes (#1). Probe manual (bukan artefak final): cold start CLI hermes 2,7–4,0 s per perintah (`--version` 4.041 ms, `config show` 2.834 ms, `sessions list` 3.241 ms, `status` 7.989 ms, `prompt-size` 6.752 ms); `chat` di PTY tanpa jaringan: output pertama ≈ 4,8 s, settle ≈ 6,0 s, RSS ≈ 131 MB (1 run). Belum: install size/time, baris config, langkah setup. |
-| 5 | `bench/speed` | sebagian | `bench/speed/hermes_driver.py` ditulis (mode `prepare`/`inproc`/`pty`, dijalankan di `unshare -rn` = tanpa jaringan); runner Go (parse FEATURE-PARITY 854 baris → measured / alasan) **belum ditulis**, driver belum dijalankan penuh. Smoke LLM 10 task: **menunggu user**. |
+| 4 | Baseline hermes tanpa LLM | selesai, dengan pengecualian | Artefak `bench/speed/results/hermes-868b9f244f-nollm.json`. Isinya: overhead token dan schema (#1); startup frame pertama `hermes chat` p50 3.369 ms / p95 3.595 ms; `--version` p50 1.384 ms; RSS CLI median 106,8 MB; install 411,7 MB dan 33,5 s; config minimum 2 baris; 6 langkah setup. Pengecualian: prompt-ready dan idle RSS tidak terukur di netns (TS-11). Waktu install resmi dari VM bersih juga tidak diukur. Dimensi berbasis LLM ditandai "diukur di RC F9". |
+| 5 | `bench/speed` | selesai (kerangka + baseline hermes) | Ke-854 baris FEATURE-PARITY terklasifikasi (`TestEveryRowClassified`): **163 terukur**, 674 tidak terukur dengan alasan, 17 dropped. Dari 163 baris terukur, 27 adalah proxy `<cmd> --help`. Artefak: `bench/speed/results/hermes-868b9f244f.json`. Smoke LLM 10 task: **menunggu user**. |
 | 6 | Korpus code tools C1–C3 + baseline `rg`/hermes | belum | `rg` lokal hanya 13.0.0 (`/usr/lib/code-oss/.../rg`), oracle spec 15.1.0 belum tersedia. |
 | 2 | `bench/h2h` head-to-head berbasis LLM | menunggu user | butuh kredensial/biaya |
 | 3 | Eval set E1–E10 + manifest | belum | di luar alokasi worker scaffold/bench |
@@ -95,6 +95,70 @@ Reproduksi BASELINE-hermes.md (satuan "Bytes" BASELINE = karakter, lihat TS-06; 
 
 Token o200k_base nyata (belum ada di BASELINE): system prompt 7.716 (stable 2.613, context 3.410, volatile 1.693), tanpa AGENTS.md 4.692; schema `get_tool_definitions` 9.127, `agent.tools` (yang dikirim AIAgent; `tool_search` lebih ringkas) 8.908. **Overhead per call o200k: 13.819 (tanpa AGENTS.md) – 16.843 (dengan AGENTS.md)**; via `agent.tools`: 13.600 – 16.624.
 
+### bench/speed + baseline hermes tanpa LLM (#4, #5)
+
+Commit: `a3823a4`, `92f5270`. Modul `bench/speed`:
+
+- `ParseParity`: membaca 854 baris dan menangani `\|` di dalam sel.
+- `Classify`: memetakan setiap baris ke op terukur atau alasan, dengan urutan op → alasan per ID → rentang → proxy `--help` (CLI) → alasan per prefix.
+- `Runner`: setiap proses hermes berjalan di `unshare -rn` dengan hanya `lo` yang dinaikkan. Tidak ada rute keluar, jadi panggilan LLM/HTTP mustahil. HOME/HERMES_HOME di `/tmp/hm_f0_speed`.
+- Tiga jenis pengukuran:
+  - CLI: cold start proses, 1 warm-up + 5 run, ditambah `ru_maxrss`.
+  - Op tool/slash/py: in-process lewat `hermes_driver.py`, satu proses per op dengan timeout 5 menit, 1 warm-up + 20 run.
+  - PTY: startup `chat`, 10 run.
+
+| Perintah | Exit | Ringkasan |
+|---|---:|---|
+| `cd bench && go test -count=1 ./...` | 0 | `TestParseParityCounts` (854/17), `TestEveryRowClassified`, gencorpus, budget |
+| `/tmp/f0_speed_bin -hermes ~/Dokumen/hermes-agent -out speed/results/hermes-868b9f244f.json` | 0 | 2.388 s wall |
+| idem `-only TOOL-046,TOOL-047,CLI-032,OPS-011,_startup_chat` | 0 | ukur ulang setelah perbaikan (task_id per run, `ok_exit` doctor = 1, sampel startup = frame pertama) |
+| `hermes config set model …` + `config set OPENROUTER_API_KEY …` di HERMES_HOME kosong (netns) | 0/0 | config.yaml 1 baris + .env 1 baris |
+| `pip install -r <45 dependency inti>` ke venv `/tmp/f0_hvenv` | 0 | 33,45 s; venv 186.730.930 B, 68 paket; source tree (`git archive`) 224.938.704 B. `pip install <hermes>` sendiri exit 1: build guard hermes menolak wheel/sdist |
+
+Hasil (`summary`):
+
+| Jenis op | n | median p50 | min | max |
+|---|---:|---:|---:|---:|
+| CLI cold start | 80 | 3.130 ms | 1.384 ms (`--version`) | 9.640 ms (`doctor`) |
+| tool in-process | 25 | 20,2 ms | 0,22 ms | 87,3 ms (`search_files` di `agent/`) |
+| slash in-process | 51 | 0,78 ms | 0,04 ms | 174,6 ms (`/help`) |
+| py (assembly, registry) | 7 | 3,5 ms | 0,02 ms | 38,3 ms |
+
+Contoh p50/p95:
+
+| Op | p50 / p95 |
+|---|---|
+| `read_file` 400 baris | 9,37 / 9,78 ms |
+| `patch` | 3,09 / 3,48 ms |
+| `write_file` | 2,45 / 2,65 ms |
+| `terminal true` | 33,9 / 47,1 ms |
+| `build_system_prompt_parts` | 6,11 / 10,34 ms |
+| `hermes status` | 4.478 / 4.491 ms |
+| HermesCLI init | 452 ms |
+
+Alasan "tidak terukur" per kategori:
+
+| Kategori | Baris |
+|---|---:|
+| Provider (komponen b; butuh fake provider F1) | 77 |
+| MCPX (server eksternal) | 65 |
+| TSET (bukan operasi) | 61 |
+| TOOL (browser, web, platform, desktop, diintersep agent loop) | 78 |
+| SLASH (LLM, interaktif, jaringan) | 50 |
+| Kategori lain | daftar per baris di artefak |
+
+Ada 6 op yang gagal karena offline dan dicatat apa adanya sebagai alasan:
+
+| Op | Penyebab |
+|---|---|
+| `webhook list` | butuh konfigurasi platform |
+| `security audit` | OSV butuh jaringan |
+| `pets list` | manifest remote |
+| `connectors list` | layanan Nous |
+| `usage` ×2 | butuh kredensial |
+
+Total tidak terukur: 674 baris.
+
 ## Skenario persistence
 
 Semua skenario = subtest `go test ./internal/ctxdb -run 'TestScenario/S0NN'` (DB SQLite temp nyata, jam/proses diinjeksi; proses OS nyata untuk #26, #37, #63, #62, #74, #85). Status = hasil `go test -count=1 ./internal/ctxdb/` @ `0f5f91d` (exit 0).
@@ -172,6 +236,9 @@ Commit: `ad458b6` (DDL), `529c947` (core), `7d9f025` (purge), `1e2c128` (restore
 | TS-06 | BASELINE-hermes.md §2 kolom "Bytes" sebenarnya jumlah **karakter** Python (`len(str)`): tier stable = 12.481 karakter persis, byte UTF-8 = 12.561. | Harness membandingkan karakter; byte UTF-8 juga dilaporkan. | ADR errata BASELINE: ganti judul kolom jadi "Char". |
 | TS-07 | Token di BASELINE §2 dan SCORECARD §1.1 ("14.500–17.700 tok") = estimasi ceil(char/4), bukan o200k_base, padahal SCORECARD/P1 mengukur dengan o200k. o200k nyata: 13.819–16.843 (schema dihitung sebagai teks JSON). | Gate reproduksi F0 memakai metode BASELINE (char/4); angka o200k dilaporkan terpisah sebagai baseline P1/SCORECARD. | ADR: baseline SCORECARD [I] Fixed overhead = 13.819–16.843 tok o200k (target ≤ 0,35× → ≤ 4.836 tok vs 5.075 dari angka lama); tetapkan juga bahwa schema dihitung sebagai JSON teks (format internal provider tidak teramati). |
 | TS-08 | "Floor tanpa AGENTS.md (prompt 20.240 B)" tidak menjelaskan cara ukur; sisa tier context tanpa AGENTS.md = snapshot git workspace (branch, 3 commit terakhir, path) yang bergantung mesin/commit → +5,39% di sini. Angka overhead (gabungan schema) tetap +1,88%. | Baris ini informatif, bukan gate. | ADR errata BASELINE §2: definisikan floor = `build_system_prompt_parts` dengan `skip_context_files=True` di cwd root hermes `868b9f244f`, angka 21.331 char. |
+| TS-09 | SCORECARD §3 mewajibkan benchmark per baris parity yang "dapat dieksekusi", tetapi FEATURE-PARITY tidak punya kolom tipe (a)/(b) atau op acuan. Akibatnya pemilihan op (mis. `skills list` untuk CLI-046) adalah keputusan harness. Selain itu, 27 baris CLI hanya punya proxy `--help` karena perintah aslinya mutating, interaktif, atau butuh jaringan. | `bench/speed/catalog.json` menjadi sumber op. Op proxy ditandai `proxy: true`. | ADR: tambah kolom `bench_op` di FEATURE-PARITY, atau tetapkan `bench/speed/catalog.json` sebagai sumber normatif. |
+| TS-10 | Tool `memory`, `todo_list`, dan `session_search` hermes diintersep agent loop (`model_tools.py:607`), sehingga tidak bisa diukur lewat dispatch. Guard pengulangan hermes juga memblokir panggilan identik ke-3/ke-4 dalam satu task. | Op berulang memakai `task_id` per run (`fresh_task`). Tool yang diintersep → menunggu fake provider. | ADR: speed parity tool yang diintersep diukur end-to-end dengan fake provider (F1), dengan protokol yang sama untuk kedua agent. |
+| TS-11 | Startup "prompt siap" dan idle RSS hermes tidak dapat diukur lewat harness tanpa jaringan. Lewat runner, `hermes chat` keluar dengan "Gateway connection failed; no local fallback" ≈ 4,8 s setelah start, dan daemon `hermes` yang ditinggalkannya harus dibunuh manual. Tiga percobaan gagal: env bersih, env warisan, bisect env. | Pakai frame pertama (p50 3.369 ms) sebagai metrik startup; RSS memakai `ru_maxrss` CLI. Observasi manual 1 run, bukan artefak gate: 131 MB proses (netns host) dan 356 MB pohon proses (netns, dipanggil langsung dari shell interaktif, chat tetap hidup). | ADR/keputusan user: izinkan pengukuran startup/RSS hermes di netns host (tanpa input = tanpa LLM call), atau definisikan prompt-ready lewat penanda UI. |
 | TS-P01 | AF-01..AF-08 (REVIEW-1.0) terbuka di spec frozen. | Spike menerapkan usulan auditor apa adanya: `ON CONFLICT DO NOTHING` (bukan `OR IGNORE`); `turn_start`+journal di transaksi worker; urutan antrean per chat = `rowid`; balasan `__system__` sekali saat sesi chat dipegang proses lain; langkah 11 purge menghapus `blob_refs` owner `gateway_inbound`; spool untuk semua inbound tanpa redelivery; kill pgid berdasar anggota hidup (`/proc`); timer migrator di `run/migrate_blocked.json`. | ADR errata AF-01..AF-08 sesuai usulan REVIEW (semua lulus test #79–#86). |
 | TS-P02 | Tidak ada yang ditetapkan membuat baris `sessions('__system__')`, padahal FK `events`/`blob_refs` memerlukannya. | Setiap writer saat open: `INSERT … ON CONFLICT DO NOTHING`. | ADR: baris `__system__` di `0001_core.sql` (atau aturan open). |
 | TS-P03 | `dmb_maint()`/`dmb_lease_token()` per koneksi; modernc mendaftarkan fungsi per-`Driver`, bukan per koneksi; `SQLITE_INNOCUOUS` tidak dapat diset. | Satu `sqlite.Driver` privat per Store (writer + reader); trigger berjalan karena `trusted_schema` default ON. Commit/rollback hook tersedia (`HookRegisterer`) — [INFERENCE SPEC §11.11.3] terverifikasi. | ADR: catat mekanisme ini; tambah `PRAGMA trusted_schema` eksplisit. |
