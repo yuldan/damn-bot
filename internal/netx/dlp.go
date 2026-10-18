@@ -36,10 +36,7 @@ const (
 	dlpMaxBody   = 8 << 20 // larger tool request bodies are refused
 	dlpMaxVerify = 1 << 18 // form bytes compared per request before fail-closed
 	dlpFilterLog = 20      // 2^20-bit prefilter
-	// dlpPatternReach: bytes around a decoded byte rescanned for §14.3
-	// patterns (every pattern's shortest match is < 256 bytes).
-	dlpPatternReach = 256
-	minEncoded      = 8 // shortest encoded (non-raw) form matched
+	minEncoded   = 8       // shortest encoded (non-raw) form matched
 )
 
 // dlp is the single egress DLP gate for Tool requests. Known secrets are
@@ -57,7 +54,11 @@ type dlp struct {
 	short1   [4]uint64
 	short2   []uint64 // 2^16-bit prefilter
 	shortIdx map[uint16][][]byte
-	region   int // bytes scanned around each decoded byte (≥ longest form)
+	region   int // folded bytes scanned around a decoded byte (= longest form)
+	// inForm: folded bytes that occur in some secret form; a decoded byte
+	// outside it (and kept by fold) cannot be part of an occurrence.
+	inForm      [256]bool
+	spaceInForm bool // inForm[' ']: form-encoded '+' needs a window
 	// hasShort1/hasShort2: some 1-byte / 2..7-byte raw secret exists.
 	hasShort1, hasShort2 bool
 	shortStride          int       // probe stride = shortest 2..7-byte secret − 1
@@ -78,13 +79,16 @@ func newDLP(secrets []string) *dlp {
 		index:  map[uint64][][]byte{},
 		short2: make([]uint64, 1<<16/64), shortIdx: map[uint16][][]byte{},
 		shortGrams: make([]uint64, 1<<16/64),
-		region:     dlpPatternReach, shortStride: dlpWindow - 1,
+		region:     dlpWindow, shortStride: dlpWindow - 1,
 	}
 	d.initLower()
 	for _, form := range secretForms(secrets) {
 		f := foldAll([]byte(form))
 		d.keepCRLF = d.keepCRLF || bytes.ContainsAny(f, "\r\n")
 		d.region = max(d.region, len(f))
+		for _, c := range f {
+			d.inForm[c] = true
+		}
 		switch {
 		case len(f) == 1:
 			d.short1[f[0]/64] |= 1 << (f[0] % 64)
@@ -118,6 +122,7 @@ func newDLP(secrets []string) *dlp {
 			}
 		}
 	}
+	d.spaceInForm = d.inForm[' ']
 	return d
 }
 
@@ -267,8 +272,8 @@ func (d *dlp) scan(b []byte) error {
 		next, nextCand, overflow = d.decode(next[:0], bufs.candB[:0], &tr, cur, cand, all)
 		bufs.candA, bufs.candB, cand, all = nextCand, cand, nextCand, overflow
 		bufs.spans, bufs.pats = tr.done(), tr.pats
-		if len(bufs.spans) == 0 {
-			return nil
+		if !tr.decoded {
+			return nil // nothing decoded: deeper layers are this one again
 		}
 		if err := d.layerHit(next, &tr, &budget); err != nil {
 			return err
@@ -435,7 +440,7 @@ func (d *dlp) decode(dst []byte, outCand []int32, tr *spanTrack, src []byte, can
 		dst = append(dst, src[from:i]...)
 		c, n := decodeAt(src, i)
 		if n > 0 {
-			tr.add(len(dst), c)
+			tr.add(len(dst), c, d.secretByte(c))
 		} else {
 			n = 1
 		}
@@ -469,12 +474,15 @@ func (d *dlp) decodeAll(dst []byte, outCand []int32, tr *spanTrack, src []byte) 
 		switch {
 		case c == '+': // form space: the common case of form bodies, kept inline
 			c = ' '
-			tr.addSpan(base + j)
+			tr.decoded = true
+			if d.spaceInForm {
+				tr.addSpan(base + j)
+			}
 		case c != '%':
 		case i+2 < len(src) && isHex(src[i+1]) && isHex(src[i+2]):
 			c = unhexByte(src[i+1])<<4 | unhexByte(src[i+2])
 			i += 2
-			tr.add(base+j, c)
+			tr.add(base+j, c, d.secretByte(c))
 			if c == '%' || c == '+' {
 				outCand, overflow = addCand(outCand, base+j, limit, overflow)
 			}
@@ -513,13 +521,17 @@ type spanTrack struct {
 	pats             []int32
 	patLimit         int
 	patFull          bool
+	decoded          bool // some byte of the layer was decoded
 }
 
-func (t *spanTrack) add(p int, c byte) {
+func (t *spanTrack) add(p int, c byte, secret bool) {
+	t.decoded = true
 	if !isSpace(c) {
 		t.addPat(p)
 	}
-	t.addSpan(p)
+	if secret {
+		t.addSpan(p)
+	}
 }
 
 // addSpan extends the current span to p or starts a new one (inlined in
@@ -597,6 +609,12 @@ func (d *dlp) walkFwd(layer []byte, p int) int {
 	}
 	return p
 }
+
+// secretByte reports whether decoded byte c can be part of a new secret
+// occurrence: it is kept by fold and occurs in some folded form, or fold
+// drops it (CR/LF), joining its neighbours. Other decoded bytes split any
+// occurrence, so no window is needed around them (NETX-26/31).
+func (d *dlp) secretByte(c byte) bool { return d.folds(c) || d.inForm[d.lower[c]] }
 
 // folds reports whether fold drops c.
 func (d *dlp) folds(c byte) bool { return !d.keepCRLF && (c == '\r' || c == '\n') }

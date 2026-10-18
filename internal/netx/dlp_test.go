@@ -569,3 +569,54 @@ func FuzzDLPPatterns(f *testing.F) {
 		}
 	})
 }
+
+// fullRef is the whole-layer reference for patterns and secrets: every
+// decoding layer folded and matched in full, with no verify bound.
+func fullRef(d *dlp, b []byte) bool {
+	layer := b
+	for depth := 0; ; depth++ {
+		budget := verifyBudget{long: 1 << 40, short: 1 << 40}
+		if d.patternHit(layer) {
+			return true
+		}
+		if found, _ := d.match(d.fold(nil, layer), &budget); found { //nolint:errcheck // unbounded budget
+			return true
+		}
+		if depth == dlpMaxDepth || bytes.IndexByte(layer, '%') < 0 && bytes.IndexByte(layer, '+') < 0 {
+			return false
+		}
+		layer = pctDecode(nil, layer)
+	}
+}
+
+// TestDLPSecretDifferential (NETX-26/31): windows only around decoded bytes
+// that can belong to a secret form give the verdict of full-layer scans.
+func TestDLPSecretDifferential(t *testing.T) {
+	t.Parallel()
+	vault := strings.Join([]string{"Vault", "-Tok3n_value+x/y z"}, "")
+	d := newDLP([]string{vault, "q~7"})
+	var pieces []string
+	for _, enc := range encodings() {
+		e := enc(vault)
+		pieces = append(pieces, e[:len(e)/2], e[len(e)/2:], e)
+	}
+	pieces = append(pieces, "Vault", "-Tok", "%2D", "%2d", "3n_", "value", "%2B", "+", "x/", "%2F", "y", " ", "%20", "z",
+		"\n", "%0A", "\r\n", "%0D%0A", "q", "~", "%7E", "7", "%25", "%", "a", ",", "%2C", ";", "%3B", "%2520")
+	rng := rand.New(rand.NewPCG(31, 31)) //nolint:gosec // G404: deterministic test data, not secrets
+	var b strings.Builder
+	for i := range 30_000 {
+		b.Reset()
+		for range 1 + rng.IntN(30) {
+			b.WriteString(pieces[rng.IntN(len(pieces))])
+			if rng.IntN(10) == 0 {
+				b.WriteString(strings.Repeat("y", rng.IntN(80)))
+			}
+		}
+		in := []byte(b.String())
+		want := fullRef(d, in)
+		got := errors.Is(d.scan(in), ErrSecretEgress)
+		if got != want {
+			t.Fatalf("case %d %q: scan=%v reference=%v", i, in, got, want)
+		}
+	}
+}
