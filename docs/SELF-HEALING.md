@@ -273,7 +273,7 @@ Saat hang terdeteksi (urutan tetap):
 
 Semua koneksi (writer dan pembaca): `journal_mode=WAL`, **`synchronous=FULL`**, `foreign_keys=ON`, `busy_timeout=5000`, `temp_store=MEMORY`, `journal_size_limit=67108864`; macOS tambahan `fullfsync=ON` + `checkpoint_fullfsync=ON` (fsync Apple tidak menjamin data sampai media; temuan sama di hermes `hermes_state_wal.py:104-114`). Alasan FULL: dengan NORMAL, transaksi yang sudah COMMIT dapat hilang saat power loss/BSOD — tidak dapat diterima karena `turn_journal` (§3.3) harus durable **sebelum** efek samping tool terjadi.
 
-Target: `Store.Append` ≤ 10 ms p99 (Linux/Windows, NVMe mesin referensi); macOS dengan `fullfsync` ≤ 30 ms p99 [INFERENCE: biaya F_FULLFSYNC, diukur F1]. Verifikasi: `BenchmarkAppend` (PR, ambang ×1,5 runner). Target berlaku di luar jendela pemeliharaan gc/purge (SPEC §11.6): Append yang menunggu satu batch gc/purge mendapat tambahan ≤ 200 ms (`BenchmarkAppendDuringGC` p99 ≤ 210 ms).
+Target: `Store.Append` ≤ 10 ms p99 (Linux/Windows, NVMe mesin referensi); macOS dengan `fullfsync` ≤ 30 ms p99 [INFERENCE: biaya F_FULLFSYNC, diukur F1]. Verifikasi: `BenchmarkAppend` (job `perf`, ambang ×1,5 runner untuk waktu absolut; tidak ditegakkan di `test-timing`, ADR-073). Target berlaku di luar jendela pemeliharaan gc/purge (SPEC §11.6): Append yang menunggu satu batch gc/purge mendapat tambahan ≤ 200 ms (`BenchmarkAppendDuringGC` p99 ≤ 210 ms, job `perf`, ADR-073).
 
 Blob: tulis temp → `fsync` file → `rename` → `fsync` direktori induk → `INSERT OR IGNORE` (fsync direktori menambah langkah SPEC §11.6). Config & file state (`*.lkg`, ledger): pola atomik yang sama.
 
@@ -614,7 +614,7 @@ Recovery-to-service: waktu dari exec proses (atau start unit pasca boot OS) samp
 | P22-6 | Ambang hang | store tx > 10 s; loop step > 30 s; stream idle > 60 s; adapter poll > 90 s; cron tick > 60 s; web handler > 30 s | `TestWatchdogHang/*` (PR) |
 | P22-7 | Stack dump | 20 file, ≤ 200 MiB total | `TestWatchdogHang/dump` (PR) |
 | P22-8 | systemd watchdog backstop | `WatchdogSec=30`, ping 10 s | `TestServiceUnitGolden` (PR) |
-| P22-9 | `Store.Append` dengan `synchronous=FULL` | ≤ 10 ms p99 (Linux/Windows); ≤ 30 ms p99 macOS; di luar jendela pemeliharaan gc/purge (SPEC §11.6), selama batch +≤ 200 ms | `BenchmarkAppend` (PR, ×1,5 runner), `BenchmarkAppendDuringGC` (p99 ≤ 210 ms) |
+| P22-9 | `Store.Append` dengan `synchronous=FULL` | ≤ 10 ms p99 (Linux/Windows); ≤ 30 ms p99 macOS; di luar jendela pemeliharaan gc/purge (SPEC §11.6), selama batch +≤ 200 ms | `BenchmarkAppend` (job `perf`, ×1,5 runner, ADR-073), `BenchmarkAppendDuringGC` (p99 ≤ 210 ms, job `perf`, ADR-073) |
 | P22-10 | Startup jalur normal | 0 `quick_check`, P12 ≤ 100 ms tetap | `TestQuickCheckOnlyAfterUnclean` (PR) |
 | P22-11 | `quick_check` setelah unclean | ≤ 3 s / 1 GiB | `BenchmarkQuickCheck1GiB` (nightly) |
 | P22-12 | Backup | harian simpan 3; pre-migrasi simpan 2 | `TestBackupRotation` (PR) |
