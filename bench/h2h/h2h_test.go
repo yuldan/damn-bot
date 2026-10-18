@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/damnbot/damnbot/bench/evals"
 )
@@ -98,6 +99,45 @@ func TestProxyBudgetCap(t *testing.T) {
 	}
 	if hits != 1 || rec.Spent() != 2 {
 		t.Fatalf("hits=%d spent=%v", hits, rec.Spent())
+	}
+}
+
+// TestProxyClientAbort: request yang diputus agent direkam sebagai client_aborted, bukan
+// error harness.
+func TestProxyClientAbort(t *testing.T) {
+	release := make(chan struct{})
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer up.Close()
+	defer close(release)
+	u, _ := url.Parse(up.URL)
+	rec := &Recorder{Upstream: u, Client: up.Client()}
+	px := httptest.NewServer(rec)
+	defer px.Close()
+	var buf bytes.Buffer
+	rec.Begin("hermes", "T", &buf)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "POST", px.URL+"/v1/chat/completions", strings.NewReader(`{}`))
+	if resp, err := http.DefaultClient.Do(req); err == nil {
+		resp.Body.Close()
+		t.Fatal("request seharusnya batal")
+	}
+	aborted := func() int { // dibaca di bawah mutex Recorder: write() selesai sebelum lock lepas
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		return rec.usage.AbortedCalls
+	}
+	for deadline := time.Now().Add(5 * time.Second); aborted() == 0 && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	usage, errs := rec.End()
+	if len(errs) != 0 || usage.AbortedCalls != 1 || !strings.Contains(buf.String(), `"client_aborted":true`) {
+		t.Fatalf("errs=%v usage=%+v rec=%s", errs, usage, buf.String())
 	}
 }
 

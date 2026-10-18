@@ -52,6 +52,7 @@ type Usage struct {
 	CachedTokens     int     `json:"cached_tokens"`
 	ReasoningTokens  int     `json:"reasoning_tokens"`
 	CostUSD          float64 `json:"cost_usd"`
+	AbortedCalls     int     `json:"aborted_calls"` // completion yang diputus agent; usage tak diketahui
 }
 
 // Add menjumlahkan u2 ke u.
@@ -62,6 +63,7 @@ func (u *Usage) Add(u2 Usage) {
 	u.CachedTokens += u2.CachedTokens
 	u.ReasoningTokens += u2.ReasoningTokens
 	u.CostUSD += u2.CostUSD
+	u.AbortedCalls += u2.AbortedCalls
 }
 
 // Cost menghitung USD dari tabel harga: input tak ter-cache, input ter-cache, output.
@@ -88,7 +90,11 @@ type Record struct {
 	RespBody     string      `json:"resp_body"` // byte respons persis (SSE utuh), sesudah dekompresi transport
 	Usage        *Usage      `json:"usage,omitempty"`
 	UsageMissing bool        `json:"usage_missing,omitempty"` // completion 200 tanpa objek usage
-	Error        string      `json:"error,omitempty"`
+	// ClientAborted: agent memutus request-nya sendiri sebelum selesai (bukan error harness);
+	// usage tidak diketahui, upstream mungkin tetap menagih sebagian.
+	ClientAborted bool   `json:"client_aborted,omitempty"`
+	Note          string `json:"note,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 // Recorder adalah reverse proxy rekam. Klien (agent) memakai kunci dummy; kunci upstream
@@ -176,8 +182,16 @@ func (r *Recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	out.Header.Del("X-Api-Key")
 	out.Header.Set("Authorization", "Bearer "+r.Key)
 
+	// Klien (agent) yang membatalkan request-nya sendiri — mis. panggilan judul sesi saat
+	// proses agent keluar — bukan kegagalan harness; direkam sebagai client_aborted.
+	clientGone := func() bool { return req.Context().Err() != nil }
 	resp, err := r.Client.Do(out)
 	if err != nil {
+		if clientGone() {
+			rec.Status, rec.ClientAborted, rec.Note = 499, true, "upstream: "+err.Error()
+			r.write(&rec)
+			return
+		}
 		r.fail(w, &rec, http.StatusBadGateway, "upstream: "+err.Error())
 		return
 	}
@@ -200,8 +214,8 @@ func (r *Recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		n, rerr := resp.Body.Read(chunk)
 		if n > 0 {
 			buf.Write(chunk[:n])
-			if _, werr := w.Write(chunk[:n]); werr != nil && rec.Error == "" {
-				rec.Error = "client write: " + werr.Error()
+			if _, werr := w.Write(chunk[:n]); werr != nil && rec.Note == "" {
+				rec.Note = "client write: " + werr.Error()
 			}
 			if fl != nil {
 				fl.Flush()
@@ -209,9 +223,16 @@ func (r *Recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 		if rerr != nil {
 			if !errors.Is(rerr, io.EOF) {
-				rec.Error = "upstream read: " + rerr.Error()
+				rec.Note = "upstream read: " + rerr.Error()
 			}
 			break
+		}
+	}
+	if rec.Note != "" {
+		if clientGone() {
+			rec.ClientAborted = true
+		} else {
+			rec.Error, rec.Note = rec.Note, ""
 		}
 	}
 	rec.RespBody = buf.String()
@@ -220,7 +241,7 @@ func (r *Recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if u, ok := ParseUsage(buf.Bytes(), rec.Stream); ok {
 			u.CostUSD = r.Price.Cost(u)
 			rec.Usage = &u
-		} else {
+		} else if !rec.ClientAborted {
 			rec.UsageMissing = true
 		}
 	}
@@ -247,6 +268,9 @@ func (r *Recorder) write(rec *Record) {
 	if w == nil {
 		// Di luar task: dicatat terpisah agar tidak hilang saat Begin me-reset akumulator.
 		usage, errs, w = &r.bg, &r.bgErrs, r.Background
+	}
+	if rec.ClientAborted && strings.HasSuffix(rec.Path, "/chat/completions") {
+		usage.AbortedCalls++
 	}
 	if rec.Usage != nil {
 		usage.Add(*rec.Usage)
