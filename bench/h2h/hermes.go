@@ -74,7 +74,7 @@ func (h *Hermes) Run(ctx context.Context, workdir, prompt, proxyURL string, time
 	cmd := exec.CommandContext(cctx, h.Python, "-m", "hermes_cli.main", "chat",
 		"-q", prompt, "-Q", "--yolo", "--source", "tool", "--max-turns", fmt.Sprint(h.MaxTurns))
 	cmd.Dir = workdir
-	cmd.Env = append(cleanEnv(), "HERMES_HOME="+h.Home, "PYTHONDONTWRITEBYTECODE=1",
+	cmd.Env = append(CleanEnv(), "HERMES_HOME="+h.Home, "PYTHONDONTWRITEBYTECODE=1",
 		"PYTHONPATH="+h.Dir, "HOME="+h.Home, "NO_COLOR=1", "TERM=dumb",
 		// HOME terisolasi: cache Go di bawah HERMES_HOME harus bisa dihapus saat reset.
 		"GOTOOLCHAIN=local", "GOFLAGS=-modcacherw")
@@ -144,8 +144,8 @@ func StopHomeProcesses(home string) int {
 	return len(pids)
 }
 
-// cleanEnv membuang kredensial provider dari environment agar hermes hanya melihat proxy.
-func cleanEnv() []string {
+// CleanEnv membuang kredensial provider dari environment agar hermes hanya melihat proxy.
+func CleanEnv() []string {
 	var out []string
 	for _, kv := range os.Environ() {
 		k, _, _ := strings.Cut(kv, "=")

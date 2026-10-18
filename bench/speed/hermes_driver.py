@@ -19,6 +19,7 @@ import contextlib
 import json
 import os
 import pty
+import re
 import select
 import shutil
 import signal
@@ -231,6 +232,130 @@ def _pty(out_path: str, runs: int, argv: list[str]) -> None:
         json.dump({"argv": argv, "runs": samples}, f)
 
 
+def _relay(port: int, sock_path: str) -> None:
+    """TCP 127.0.0.1:port (di dalam netns tanpa rute keluar) → unix socket proxy rekam di host.
+    Satu-satunya jalan keluar jaringan hermes adalah proxy LLM ini (TS-11)."""
+    import socket
+    import threading
+
+    srv = socket.create_server(("127.0.0.1", port))
+
+    def pipe(a, b):
+        with contextlib.suppress(OSError):
+            while data := a.recv(65536):
+                b.sendall(data)
+        with contextlib.suppress(OSError):
+            b.shutdown(socket.SHUT_WR)
+
+    def serve():
+        while True:
+            c, _ = srv.accept()
+            u = socket.socket(socket.AF_UNIX)
+            u.connect(sock_path)
+            threading.Thread(target=pipe, args=(c, u), daemon=True).start()
+            threading.Thread(target=pipe, args=(u, c), daemon=True).start()
+
+    threading.Thread(target=serve, daemon=True).start()
+
+
+def _kill_home_procs(home: str) -> int:
+    """Bunuh proses lain ber-HERMES_HOME=home (gateway daemon detached lolos dari killpg)."""
+    want, n = f"HERMES_HOME={home}".encode(), 0
+    for p in os.listdir("/proc"):
+        if not p.isdigit() or int(p) == os.getpid():
+            continue
+        try:
+            with open(f"/proc/{p}/environ", "rb") as f:
+                if want in f.read().split(b"\0"):
+                    os.kill(int(p), signal.SIGKILL)
+                    n += 1
+        except OSError:
+            pass
+    return n
+
+
+_ANSI = re.compile(rb"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]")
+
+
+def _pty_llm_once(argv: list[str], query: str, expect: bytes, ready_re: bytes, dump: str) -> dict:
+    """Satu sesi interaktif di PTY:
+    - prompt_ready_ms: output PTY (ANSI dibuang) pertama kali cocok `ready_re` (penanda prompt input);
+    - idle_rss_kb: Σ VmRSS pohon proses setelah 10 s diam di prompt;
+    - first_response_ms: dari Enter sampai `expect` muncul di output sesudah echo query.
+    Transkrip mentah disimpan ke `dump` sebagai bukti."""
+    t0 = time.monotonic()
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.execvp(argv[0], argv)
+    raw, first, ready = b"", None, None
+    rx = re.compile(ready_re)
+
+    def pump(until: float, stop=None) -> bool:
+        nonlocal raw, first
+        while time.monotonic() < until:
+            if not select.select([fd], [], [], 0.1)[0]:
+                continue
+            try:
+                data = os.read(fd, 65536)
+            except OSError:
+                return False
+            if not data:
+                return False
+            first = first or time.monotonic()
+            raw += data
+            if stop is not None and stop():
+                return True
+        return False
+
+    if pump(t0 + 120, lambda: rx.search(_ANSI.sub(b"", raw)) is not None):
+        ready = time.monotonic()
+    rss = resp = None
+    if ready is not None:
+        pump(time.monotonic() + 10.0)
+        rss = _tree_rss_kb(pid)
+        mark = len(raw)
+        for ch in query.encode():  # ketik per karakter seperti pengguna (tanpa bracketed paste)
+            os.write(fd, bytes([ch]))
+            time.sleep(0.005)
+        time.sleep(0.5)  # beri editor waktu memproses ketikan sebelum Enter
+        os.write(fd, b"\r")
+        t_send = time.monotonic()
+
+        def answered() -> bool:
+            # `expect` tidak ada di teks query; muncul hanya dari jawaban model.
+            return expect in _ANSI.sub(b"", raw[mark:])
+
+        if pump(t_send + 90, answered):
+            resp = time.monotonic()
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    with contextlib.suppress(ChildProcessError):
+        os.waitpid(pid, 0)
+    os.close(fd)
+    daemons = _kill_home_procs(os.environ["HERMES_HOME"])
+    with open(dump, "wb") as f:
+        f.write(raw)
+    ms = lambda t, base=t0: None if t is None else (t - base) * 1000  # noqa: E731
+    return {"first_output_ms": ms(first), "prompt_ready_ms": ms(ready), "idle_rss_kb": rss,
+            "first_response_ms": None if resp is None else (resp - t_send) * 1000, "daemons_killed": daemons}
+
+
+def _pty_llm(out_path: str, runs: int, sock: str, port: int, argv: list[str]) -> None:
+    from hermes_cli.observability.shared_metrics_consent import save_consent
+
+    # Dialog consent telemetry muncul sekali pada start pertama; pilihannya ("No thanks") adalah
+    # bagian setup, bukan startup yang diukur — sama dengan mode `prepare`.
+    save_consent(False, False)
+    if sock != "-":
+        _relay(port, sock)
+    query, expect = "Reply with the word pong written in uppercase letters.", b"PONG"
+    ready_re = os.environ.get("H2H_READY_RE", "").encode() or rb"(?!)"
+    samples = [_pty_llm_once(argv, query, expect, ready_re, f"{out_path}.run{i}.pty") for i in range(runs + 1)]
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump({"argv": argv, "query": query, "expect": expect.decode(), "ready_re": ready_re.decode(),
+                   "warmup": samples[0], "runs": samples[1:]}, f)
+
+
 def main() -> int:
     mode = sys.argv[1]
     if not os.environ.get("HERMES_HOME", "").startswith("/tmp/"):
@@ -243,6 +368,9 @@ def main() -> int:
     elif mode == "pty":
         sep = sys.argv.index("--")
         _pty(sys.argv[2], int(sys.argv[3]), sys.argv[sep + 1:])
+    elif mode == "ptyllm":
+        sep = sys.argv.index("--")
+        _pty_llm(sys.argv[2], int(sys.argv[3]), sys.argv[4], int(sys.argv[5]), sys.argv[sep + 1:])
     else:
         print(f"mode tidak dikenal: {mode}", file=sys.stderr)
         return 2
