@@ -74,6 +74,9 @@ type Op struct {
 	FreshTask bool `json:"fresh_task,omitempty"`
 	// OkExit: exit code non-nol yang tetap dianggap op sukses (mis. doctor = 1 bila ada temuan).
 	OkExit []int `json:"ok_exit,omitempty"`
+	// Fsync: path yang di-fsync (file + direktori induk) setelah op, di dalam jendela waktu, dan
+	// setelah Reset di luar jendela — baseline hermes berdurabilitas setara (ADR-082 butir 6).
+	Fsync string `json:"fsync,omitempty"`
 }
 
 // Reset = file yang ditulis ulang sebelum setiap run (di luar waktu ukur).
