@@ -22,7 +22,8 @@ type Tx struct {
 	s        *Store
 	txid     string
 	onCommit []func()
-	trashed  bool // files moved to .trash/<txid>/ (recovered on rollback)
+	trashed  bool            // files moved to .trash/<txid>/ (recovered on rollback)
+	freed    map[string]bool // purge: shas whose refs were deleted here (step 25)
 }
 
 // Exec runs a statement and returns rows affected; errors are classified.
@@ -108,7 +109,7 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 		return fmt.Errorf("ctxdb: db version %d > binary %d: %w", uv, s.schemaMax(), ErrSchemaNewer)
 	}
 	s.mode.Store(mode)
-	t = &Tx{ctx: ctx, c: c, s: s, txid: fmt.Sprintf("%d-%s-%d", s.id.PID, s.id.Start, s.txSeq.Add(1))}
+	t = &Tx{ctx: ctx, c: c, s: s, txid: fmt.Sprintf("%d-%s-%d", s.id.PID, s.id.Start, s.txSeq.Add(1)), freed: map[string]bool{}}
 	if err := fn(t); err != nil {
 		return err
 	}

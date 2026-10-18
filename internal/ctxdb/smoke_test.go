@@ -12,3 +12,27 @@ func TestSmoke(t *testing.T) {
 	}
 	checkIntegrity(t, s)
 }
+
+func TestSmokePurge(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(100, "tui")
+	session(t, s, "A", "")
+	session(t, s, "B", "A")
+	p, err := s.PutBlob([]byte("x"), "text/plain")
+	must(t, err)
+	_, err = s.Append(bg, "B", []*PendingBlob{p}, Event{Kind: "tool_result", Content: "r", Blob: p.Sha})
+	must(t, err)
+	appendMsg(t, s, "A", "hi")
+	must(t, s.ReleaseLease(bg, "A"))
+	must(t, s.ReleaseLease(bg, "B"))
+	rep, err := s.Purge(bg, PurgeRequest{IDs: []string{"A"}, WithForks: true})
+	must(t, err)
+	t.Logf("%+v", rep)
+	if n := count(t, s, "SELECT count(*) FROM sessions WHERE id IN ('A','B')"); n != 0 {
+		t.Fatalf("sessions left %d", n)
+	}
+	if n := count(t, s, "SELECT count(*) FROM blobs"); n != 0 {
+		t.Fatalf("blobs left %d", n)
+	}
+	checkIntegrity(t, s)
+}
