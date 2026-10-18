@@ -2449,3 +2449,34 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 **Dampak terukur (SPEC §20).** Token 0. Latensi: first token p95 ≈ 1,2 µs (budget ADR-081 1 ms); `BenchmarkRedact` 4 KiB ≈ 200 MB/s, 0 alloc; `BenchmarkStreamRedact` ≈ 215 MB/s, 0 alloc/Push. LOC `redact` 511 (scc), baris `sandbox+redact` 1.300. Dependency 0 (korpus = testdata).
 
 **Konsekuensi.** (+) 0 kebocoran di korpus untuk setiap offset pemotongan; biaya linear untuk input patologis. (−) False positive pada slug ber-`sk-`; ID bot Telegram tetap terlihat; secret eksplisit pendek meredaksi teks biasa.
+
+## ADR-097 — `internal/sandbox`: pencocokan `deny_paths`, open anti-TOCTOU per OS, macOS tanpa `F_GETPATH`
+
+**Status:** Accepted 2026-10-18 (keputusan didelegasikan; untuk setiap celah dipilih opsi paling konservatif = fail-closed, tanpa dependency baru dan tanpa `unsafe`). Melengkapi SPEC §14.2, CODE-TOOLS §8, ADR-069, ADR-079 (verdict `outside_root` untuk symlink keluar root), ADR-084 butir 2.
+
+**Aturan penerapan.** Diterapkan di `internal/sandbox` lewat dua PR berurutan (E-84, ≤ 600 baris Go non-test per PR): (a) verdict `Check` + `deny_paths` + normalisasi Windows `sandbox.go`/`normalize.go`; (b) open anti-TOCTOU `open*.go`/`walk_unix.go`. Review keamanan independen sebelum merge (F1-REPORT §"Review keamanan"). Sandbox = boundary hanya untuk tool kode (ADR-079 butir 8).
+
+**Mekanisme open (setelah `Check` = `Inside`, path yang dibuka = path ter-resolve).**
+
+| OS | Anti-TOCTOU | Verifikasi setelah open |
+|---|---|---|
+| Linux/Android ≥ 5.6 | `openat2(RESOLVE_BENEATH\|RESOLVE_NO_SYMLINKS\|RESOLVE_NO_MAGICLINKS)` relatif ke fd root; `EAGAIN`/`EINTR` diulang ≤ 16× lalu `ErrOutsideWorkspace` | tidak perlu |
+| Linux < 5.6, atau openat2 `ENOSYS`/`EPERM` (seccomp) | buka per komponen `openat(O_NOFOLLOW)` | `readlink /proc/self/fd/N` harus sama persis; `/proc` tidak ada = gagal |
+| macOS/BSD | buka per komponen `openat(O_NOFOLLOW)` | device+inode fd = `lstat(path)` (butir 4) |
+| Windows | `os.Root` | `GetFinalPathNameByHandle` dinormalisasi, sama persis (case-insensitive) |
+
+`RESOLVE_NO_SYMLINKS` (bukan hanya `BENEATH`): symlink yang muncul setelah `Check` ditolak walaupun menunjuk ke dalam root, karena symlink ke `.env` di dalam root akan melewati `deny_paths`. Karena alasan yang sama `os.Root` (mengikuti symlink di dalam root) hanya dipakai di Windows (dengan verifikasi path final) dan OS non-target.
+
+**Keputusan.** Setiap butir menyebut opsi yang ditolak.
+1. **`deny_paths` dicocokkan dua kali**: pada path leksikal (sebelum resolve) dan pada path ter-resolve; cocok di salah satu = `denied_path`. Pola yang cocok dengan direktori menolak semua turunannya. Pola relatif `x` = `**/x`; `*`/`?`/`[..]` dalam satu komponen, `**` lintas komponen; `~/` = `Home`. Placeholder (`<config_dir>`) di-expand pemanggil. Ditolak: hanya path ter-resolve (symlink rusak/loop ke path deny lolos ke error lain) atau hanya leksikal (symlink ke path deny lolos). Test: `TestDenyPaths`, `TestCodeToolsSymlinkOutsideRoot`.
+2. **Deny case-insensitive di Windows dan macOS** (volume default macOS case-insensitive), case-sensitive di OS lain. Prefix root case-insensitive hanya di Windows; di macOS beda huruf terhadap root = `outside_root` (minta approval), bukan `inside`. Ditolak: case-sensitive di macOS (`~/.SSH/id_rsa` membuka file yang sama dan lolos deny).
+3. **`OpenApproved` (SPEC tidak menetapkan cara membuka path `outside_root` setelah approval).** `deny_paths` tetap menang (`ErrDeniedPath`); target ter-resolve dibuka di bawah direktori induknya dengan jaminan tanpa-symlink yang sama dengan `OpenFile`. Ditolak: pemanggil membuka sendiri dengan `os.Open` (symlink yang ditukar setelah approval diikuti).
+4. **macOS/BSD tanpa `F_GETPATH`.** `golang.org/x/sys` v0.48.0 hanya mengekspor konstanta `F_GETPATH`; `FcntlInt` menerima argumen `int`, sehingga buffer path hanya bisa dioper lewat `unsafe.Pointer` (dilarang, E-38). Dipilih: walk per komponen `openat(O_NOFOLLOW)` dari fd root (setara `RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS` untuk path ter-resolve tanpa `..`) + **cek inode setelah open** (`verifyInode`): `lstat(path ter-resolve)` harus menunjuk device+inode yang sama dengan fd, jika tidak → `ErrOutsideWorkspace`. Ditolak: pengecualian `unsafe` satu file (melanggar E-38 tanpa menutup risiko yang tersisa di bawah), atau hanya walk tanpa cek (rename direktori di tengah walk tidak terdeteksi). **Sisa risiko (TRUST-MODEL §3):** (a) rename yang dikembalikan sebelum `lstat` (ABA) tidak terdeteksi, tetapi walk tidak pernah melewati symlink, sehingga objek yang dibuka selalu dicapai lewat entri direktori di bawah root saat walk; (b) hard link ke file luar root yang dibuat di dalam root tidak terdeteksi (sama di semua OS, juga `openat2`); (c) rename di dalam root antara `Check` dan open (mis. `.env` → nama lain) tidak terdeteksi oleh `deny_paths` — pelakunya butuh shell, yang memang bukan boundary (ADR-079 butir 8). Test: `TestVerifyInode` (semua Unix), `TestSymlinkEscapeRace` dan `TestOpenFile` dijalankan nyata di runner macOS CI.
+5. **Race terdeteksi → `ErrOutsideWorkspace`**: symlink yang muncul antara `Check` dan open (`ELOOP`, `EXDEV`, `EMLINK`, atau `ENOTDIR` yang ternyata symlink), verifikasi pasca-open gagal, `/proc` tidak tersedia di jalur fallback Linux. Pemanggil boleh mengulang; `Check` berikutnya melihat keadaan baru. Ditolak: mengulang otomatis di dalam paket (menyamarkan serangan sebagai sukses tertunda).
+6. **Windows fail-closed**: path final yang tidak sama setelah normalisasi = `ErrOutsideWorkspace`, termasuk drive mapped/`subst` (false positive yang diketahui); `\\?\Volume{GUID}\…` tidak dinormalisasi sehingga selalu `outside_root`. Sisa risiko: `O_CREATE` lewat symlink yang ditukar ke target **di dalam** root dapat membuat file kosong di sana sebelum verifikasi menolak open (tidak ada data yang terbaca atau keluar root).
+7. **Path MSYS/Cygwin** `/x/…` dan `/cygdrive/x/…` dengan satu huruf selalu diartikan sebagai drive `X:\` (EC-WIN-012), hanya di Windows; `\??\` dan `\\?\UNC\` dinormalisasi. Ditolak: menebak berdasarkan keberadaan direktori `\x` (hasil bergantung keadaan disk).
+8. **Test symlink tidak pernah di-skip.** `os.Symlink` yang ditolak = test gagal, juga di Windows (runner CI punya hak symlink); proses pembalik symlink `TestSymlinkFlipHelper` keluar tanpa skip saat dijalankan biasa.
+
+**Dampak terukur (SPEC §20).** Token 0. Latensi `BenchmarkOpenFile` ≈ 9 µs/op, 34 alloc (Linux, openat2). LOC `sandbox` 574 (scc), baris `sandbox+redact` 1.085/1.300. Dependency 0 (`golang.org/x/sys` sudah ada).
+
+**Konsekuensi.** (+) Tidak ada open yang mengikuti symlink yang muncul setelah `Check` di keempat jalur; deny case-insensitive di FS case-insensitive. (−) macOS memakai cek inode alih-alih path fd (sisa risiko butir 4); drive mapped/`subst` di Windows ditolak; jalur Windows/macOS hanya diverifikasi di runner CI.

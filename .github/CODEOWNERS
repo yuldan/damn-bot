@@ -15,4 +15,5 @@
 /internal/netx/ @yuldan
 /internal/schema/ @yuldan
 /internal/redact/ @yuldan
+/internal/sandbox/ @yuldan
 /internal/testutil/ @yuldan
