@@ -312,7 +312,7 @@ flowchart TD
   - Windows: `MoveFileExW(MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH)`, tanpa fsync dir.
 - **Owner:** `fchown` ke uid/gid lama jika berbeda. Gagal (`EPERM`) → `Meta.owner_preserved=false` + log WARN, tidak ditelan (P14).
 - **xattr** (termasuk label SELinux, Linux/macOS) disalin via `golang.org/x/sys/unix`. Gagal → `Meta.xattr_preserved=false`.
-- **Symlink:** target yang diedit, symlink tetap ada. Target wajib di dalam root (§8).
+- **Symlink:** target yang diedit, symlink tetap ada. Target di luar root → verdict `outside_root` (tanya; headless `outside_workspace`), sama dengan path di luar root (§8, ADR-079).
 - **Hardlink** (`nlink > 1`): `rename` akan memutus link, jadi file ditulis **in-place** (`O_TRUNC` + write + `fsync`) setelah snapshot isi lama masuk `file_snapshots` (SPEC §4.3 langkah 9) + `Meta.inplace=hardlink`.
 - **Ukuran file:**
   - ≤ 64 MiB: diproses in-memory.
@@ -412,12 +412,12 @@ Ringkasan:
 - **Anti-TOCTOU symlink:**
   - Linux ≥ 5.6: buka via `openat2(RESOLVE_BENEATH|RESOLVE_NO_MAGICLINKS)` (`golang.org/x/sys/unix`).
   - Kernel lama/macOS: buka lalu verifikasi path nyata fd (`/proc/self/fd/N` readlink, `F_GETPATH` di macOS, `GetFinalPathNameByHandle` di Windows) berprefix root. Gagal → `outside_workspace`.
-- **Symlink keluar root:** symlink di dalam root yang menunjuk keluar root → `outside_workspace` untuk baca dan tulis. Walker grep/glob tidak mengikuti symlink (§2.2).
+- **Symlink keluar root (ADR-079):** symlink di dalam root yang ter-resolve keluar root diperlakukan sama dengan path di luar root, untuk baca dan tulis: verdict `outside_root` → interaktif tanya, headless `outside_workspace` (butir berikut), bukan error. Target yang cocok `deny_paths` tetap error `denied_path`. Walker grep/glob tidak mengikuti symlink (§2.2). Test: `TestCodeToolsSymlinkOutsideRoot`.
 - **Baca/tulis di luar root (ADR-069):** interaktif → approval "read outside workspace: <path>" / "write outside workspace: <path>" yang **tetap ditanya di semua mode**, termasuk `auto`. `allow_session` hanya untuk path persis. Headless/cron → selalu `outside_workspace`. Konten yang dibaca dari luar root dibungkus `<untrusted source="file:outside_workspace">` (men-taint turn, ADR-070). Tercantum di SPEC §14.1 (baris "Read/write di luar workspace") dan §14.2. Test: `TestReadOutsideWorkspaceAsks`.
-- **`deny_paths`:** menang atas root dan approval, tidak dapat di-override; tetap error di langkah 5 (ADR-069). grep/glob melewati path yang ditolak dan hanya mencatat jumlahnya di footer (`skipped: N denied`), tanpa nama.
+- **`deny_paths`:** menang atas root dan approval, tidak dapat di-override; tetap error di langkah 5 (ADR-069). Default (SPEC §12) mencakup `/proc/*/environ`, `/proc/*/mem`, dan `/proc/*/task/*/environ` (ADR-079). grep/glob melewati path yang ditolak dan hanya mencatat jumlahnya di footer (`skipped: N denied`), tanpa nama.
 - **Approval tulis di workspace:** sesuai SPEC §14.1 (`ask` → tanya, `auto-edit`/`auto` → auto). Tool read-only tidak butuh approval untuk path di dalam root (di luar root: butir di atas, ADR-069).
 - **Redaksi** (SPEC §14.3, termasuk pola ADR-071: blok PEM penuh fail-closed, Stripe, Google, GitLab, Hugging Face, npm, JWT, userinfo URL) diterapkan ke output `read_file`/`grep` sebelum ke model. Guard sentinel pada argumen tulis dibahas di §5.3 (ADR-071).
-- **Isi file adalah data.** Isi file workspace trusted tidak dibungkus `<untrusted>` (file workspace = konteks user), kecuali file di direktori blob hasil `web_fetch`/MCP yang sudah berlabel dan file di luar root (`source="file:outside_workspace"`). Workspace untrusted (ADR-069 butir 7): AGENTS.md dan context file dibungkus `<untrusted source="workspace">`, dan konten file workspace men-taint turn (ADR-070).
+- **Isi file adalah data.** Isi file workspace trusted tidak dibungkus `<untrusted>` (file workspace = konteks user), kecuali file di direktori blob hasil `web_fetch`/MCP yang sudah berlabel dan file di luar root (`source="file:outside_workspace"`). Workspace untrusted (ADR-069 butir 7): AGENTS.md dan context file dibungkus `<untrusted source="workspace">`, dan konten file workspace men-taint turn (ADR-070). Shell bukan boundary path; sandbox path di bagian ini = boundary untuk tool kode (ADR-079 butir 8).
 
 ## 9. Format output ke model
 

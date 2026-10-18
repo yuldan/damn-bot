@@ -19,7 +19,7 @@ Konvensi: path hermes relatif terhadap root `hermes-agent`. `[INFERENCE]` = disi
 | Orphan | `killpg` TERM → 1 s → KILL + sweep descendant (`tools/environments/local.py:929-986`). Kode mengakui "a rare orphaned grandchild may leak" (`tools/environments/local.py:943-950`). | Orphan diterima sebagai risiko. | Marker env + subreaper/Job Object, 0 orphan (A.4) |
 | Background | `MAX_PROCESSES=64` dengan LRU, TTL 30 menit (`tools/process_registry.py:62-63`). Notifikasi berupa pesan `[IMPORTANT: …]` yang di-inject (`tools/process_registry_notifications.py:463-464`). | Batas global longgar. Notifikasi memakan token prosa. | 8/sesi, 32 global, notice ≤ 40 tok (A.5) |
 | Prompt interaktif | Tidak ada deteksi generik. Yang ada hanya guard regex dev-server (`tools/terminal_tool_guards.py:67-121`) dan prompt sudo (`tools/terminal_tool_sudo.py:460-461`). `PAGER=cat` (`tools/environments/base_session_env.py:156`). `CI`/`DEBIAN_FRONTEND` tidak diset `[tidak terverifikasi]`. | Hang pada `[y/N]`, editor, host key ssh. | Env non-interaktif + `setsid` + deteksi prompt (A.6) |
-| Keamanan | Regex `HARDLINE_PATTERNS`/`DANGEROUS_PATTERNS` (`tools/approval_detection.py:107,228`). Perintah non-dangerous langsung disetujui (`tools/approval.py:1110-1112`). Dangerous auto-approve di konteks non-interaktif tanpa gateway (`tools/approval.py:1117`). Mode smart memakai LLM (`tools/approval_smart.py:88-146`). | Regex atas string mentah mudah diakali dengan quoting/`eval`. Auto-approve diam-diam. Approval smart memakai token. | Klasifikasi AST + matriks kebijakan (A.8) |
+| Keamanan | Regex `HARDLINE_PATTERNS`/`DANGEROUS_PATTERNS` (`tools/approval_detection.py:107,228`). Perintah non-dangerous langsung disetujui (`tools/approval.py:1110-1112`). Dangerous auto-approve di konteks non-interaktif tanpa gateway (`tools/approval.py:1117`). Mode smart memakai LLM (`tools/approval_smart.py:88-146`). | Regex atas string mentah mudah diakali dengan quoting/`eval`. Auto-approve diam-diam. Approval smart memakai token. | Approval per perintah; auto hanya `shell_allow` argv-persis; classifier AST hanya label risiko (A.8, ADR-079) |
 | Biaya guidance | `CODING_AGENT_GUIDANCE` 3.021 byte (`agent/coding_context.py:84-132`, diukur `wc -c`), ≈ 750 tok `[INFERENCE]`. Deskripsi tool `terminal` 869 char (`tools/terminal_tool.py:160-165`), ditambah deskripsi parameter panjang (`tools/terminal_tool.py:1520-1557`). | Overhead tetap per call. | Aturan coding ≤ 120 tok (B.1); schema `shell` ≤ 200 tok (A.2) |
 | Verify-on-stop | Default OFF (`agent/verification_stop.py:53-79`). Jika aktif, memaksa iterasi LLM ekstra (≤ 2) lewat pesan user sintetis (`agent/turn_stop_gates.py:131-178`, `agent/verification_stop.py:161`). Catatan LSP terlambat ≤ 3 (`agent/turn_stop_gates.py:95`). | Default tanpa bukti; bila aktif, token bertambah. | Default `run` deterministik, 0 LLM call (B.6) |
 | Deteksi verify | `scripts/run_tests.sh`, script `package.json`, pytest, target Makefile; maks 8 perintah (`agent/coding_context.py:52-58,484-510`). | Tidak memilih target yang terdampak; tanpa Go/Cargo/JVM `[tidak terverifikasi]`. | 12 toolchain + affected-target (B.2) |
@@ -66,9 +66,9 @@ Konteks tier (SPEC §6) menulis shell one-shot dan shell sesi yang terdeteksi.
 - Pengiriman perintah:
   1. Tulis perintah ke file `<state_dir>/exec/sess/<id>/c<n>.<ext>` dengan mode 0600.
   2. Kirim ke shell: `. '<path>'` (bash/zsh/sh), `source '<path>'` (fish), `. '<path>'` (pwsh), atau `call "<path>"` (cmd). Path di-quote single-quote dengan escape `'\''` (pwsh: `''`). Isi perintah tidak pernah melewati quoting.
-  3. Akhir perintah ditandai sentinel `printf '\036DB:%s:%d\036' <nonce128bit> $?` (fish: `$status`; pwsh: `$LASTEXITCODE`). Nonce acak per perintah, jadi output perintah tidak bisa memalsukan exit code.
+  3. Akhir perintah ditandai sentinel `printf '\036DB:%s:%d\036' <nonce128bit> $?` (fish: `$status`; pwsh: `$LASTEXITCODE`). Nonce acak per perintah, jadi output perintah tidak bisa memalsukan exit code. Runner juga membaca `cwd` hidup sesi lewat sentinel `pwd -P` setiap perintah (syarat `shell_allow`, A.8, ADR-079).
 - cwd, env, fungsi, venv yang aktif, dan job bertahan antar call.
-- Fungsi yang didefinisikan di sesi dicatat classifier (A.8), sehingga pemanggilannya dinilai dengan kelas maksimum isi fungsi. Definisi fungsi, `alias`, `trap`, dan assignment `PATH`/`LD_PRELOAD`/`GIT_*` dkk. juga memberi flag `tainted_session`: perintah berikutnya di sesi itu minimal `mutating` sampai sesi ditutup (A.8, ADR-069).
+- Fungsi yang didefinisikan di sesi dicatat classifier (A.8), sehingga pemanggilannya diberi label maksimum isi fungsi. Sesi yang pernah menjalankan perintah yang tidak cocok `shell_allow` (termasuk definisi fungsi, `alias`, `trap`, assignment `PATH`/`LD_PRELOAD`/`GIT_*`, `printf -v PATH`, atau perintah lain yang di-approve manual) permanen tidak memenuhi syarat `shell_allow` sampai sesi ditutup (A.8, ADR-079 butir 3; menggantikan flag `tainted_session` ADR-069).
 - Batas: 4 sesi per sesi agent. Sesi idle 30 menit di-reap.
 - Timeout di sesi:
   1. SIGINT ke foreground pgrp TTY (`tcgetpgrp`).
@@ -260,76 +260,70 @@ type Backend interface {
 
 ### A.8 Keamanan
 
-**Klasifikasi (ADR-069).** `internal/exec/classify` mem-parse perintah dengan `mvdan.cc/sh/v3/syntax` (dialek bash; dialek POSIX untuk `sh`). Keluaran = `Verdict{class, flags, reasons}`. Kelas (urutan ketat approval): `read_only` < `mutating` < `destructive` = `unknown` < `irreversible`. Flag: `denied_path`, `outside_read`, `privileged`, `network`, `tainted_session`. Setiap simple command dinilai; kebijakan memakai kelas tertinggi dari semua simple command, dan flag selalu berlaku.
+**Klasifikasi = label risiko, bukan jalur auto (ADR-069, ADR-079).** `internal/exec/classify` mem-parse perintah dengan `mvdan.cc/sh/v3/syntax` (dialek bash; dialek POSIX untuk `sh`). Keluaran = `Verdict{class, flags, reasons}`. Label (urutan ketat approval): `mutating` < `destructive` = `unknown` < `irreversible` (kelas P26: `irreversible`, `monetary`, `delegated_agent_bypass`). Flag: `denied_path`, `outside_read`, `privileged`, `network`. Setiap simple command dinilai; label memakai kelas tertinggi dari semua simple command, dan flag selalu berlaku. Label hanya menentukan bentuk prompt (preview, larangan `allow_session` untuk P26) dan penolakan headless; label **tidak pernah** menghasilkan auto-approve, di mode apa pun (ADR-079 butir 1–2). Tidak ada kelas `read_only` dan tidak ada allowlist `read_only` bawaan: membaca/mencari file dilakukan lewat tool kode tersandbox (`read_file`, `grep`, `glob`) yang menegakkan root + `deny_paths` lewat `openat2(RESOLVE_BENEATH)`/verifikasi fd (SPEC §14.2, [CODE-TOOLS.md](CODE-TOOLS.md) §8); stable tier menyatakan aturan ini kepada model (ADR-079).
+- Label tambahan `non_mutating` (best-effort) hanya dipakai untuk **membatasi** di plan mode (butir "Plan mode" di bawah), tidak pernah untuk mengizinkan (ADR-079 butir 11).
 - Gagal parse → `unknown` (tanya), tetapi tidak ditolak permanen.
 - PowerShell/cmd memakai lexer token sendiri. Struktur yang tidak dikenali → minimal `mutating`; pola destruktif tetap dicek per token.
 
 Aturan rekursi:
-- `bash|sh|zsh -c '<literal>'`, `eval <s>`, `xargs <cmd>`, `find -exec <cmd>`, `sudo|doas <cmd>`, `env <cmd>`, `nice <cmd>`, `nohup <cmd>`, `timeout <n> <cmd>`: perintah di dalamnya ikut diklasifikasi. `awk`/`sed`/`xargs`/`env`/`nice`/`timeout`/`nohup` sendiri tidak pernah `read_only` (ADR-069).
+- `bash|sh|zsh -c '<literal>'`, `eval <s>`, `xargs <cmd>`, `find -exec <cmd>`, `sudo|doas <cmd>`, `env <cmd>`, `nice <cmd>`, `nohup <cmd>`, `timeout <n> <cmd>`: perintah di dalamnya ikut diklasifikasi.
 - `$(…)` atau variabel di posisi `argv[0]` → `unknown`.
 - `ssh host '<s>'` → `irreversible` (butir irreversible di bawah); isi `<s>` tetap discan pola destruktif.
 
-**`read_only` = allowlist positif (ADR-069)** (argv0 + flag), bukan daftar contoh. Perintah di luar tabel minimal `mutating`. Menambah entri = ADR.
-
-| argv0 | Flag/bentuk ditolak (→ minimal `mutating`) |
-|---|---|
-| `ls`, `cat`, `head`, `tail`, `wc`, `stat`, `file`, `du`, `pwd`, `which`, `basename`, `dirname`, `realpath`, `readlink`, `cut`, `tr`, `cmp`, `diff`, `true`, `false`, `echo`/`printf` (tanpa redirect) | redirect selain ke `/dev/null` |
-| `sort`, `uniq` | `-o`/`--output`, `--compress-program`, operand output kedua (`uniq`) |
-| `grep`/`egrep`/`fgrep` | — (operand `-f FILE` ikut dicek sebagai path) |
-| `rg` | `--pre`, `--pre-glob`, `-z`/`--search-zip` |
-| `find` | `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete`, `-fprint`, `-fprint0`, `-fprintf`, `-fls` |
-| `tree` | `-o` |
-| `git status`, `diff`, `log`, `show`, `blame`, `rev-parse`, `ls-files`, `branch --list`, `remote -v` | `-c`, `--config-env`, `--exec-path`, `--git-dir`, `--work-tree`, `-C` di luar root, `--output`, `--ext-diff`, `--textconv`, `-O`/`--open-files-in-pager`; **dan** workspace belum trusted |
-| `go version`, `go env` | `-w`, `-u` |
-
-- `git` berkelas `read_only` selalu dijalankan runner dengan `--no-pager -c core.fsmonitor= -c core.hooksPath=/dev/null -c diff.external= -c core.sshCommand=false`, ditambah `--no-ext-diff --no-textconv` untuk `diff`/`log`/`show`/`blame`, dan env `GIT_TERMINAL_PROMPT=0`.
-- `go list` dan `go vet` (membangun paket, bisa mengunduh toolchain/modul) = `mutating`.
-
-**Operand path (ADR-069).** Untuk **setiap** simple command (semua kelas), operand path di-resolve: argumen posisi perintah file, `-f`/`--file`/`--ignore-file`/`--exclude-from`, redirect `<`/`>`/`>>`, starting point `find`, pathspec dan `-C` git. Resolusi: ekspansi `~` dan `$HOME` saja, `..`, glob terhadap filesystem, lalu symlink per komponen seperti SPEC §14.2. Hasil:
+**Operand path = label best-effort (ADR-069, ADR-079 butir 2).** Untuk setiap simple command, operand path yang ter-resolve statis (argumen posisi perintah file, `-f`/`--file`/`--ignore-file`/`--exclude-from`, redirect `<`/`>`/`>>`, starting point `find`, pathspec dan `-C` git; ekspansi `~` dan `$HOME` saja, `..`, glob terhadap filesystem, lalu symlink per komponen seperti SPEC §14.2) dipakai untuk label:
 - cocok `deny_paths` → flag `denied_path` → error `denied_path` di langkah 5 SPEC §4.3, **tidak bisa di-approve** di mode apa pun;
-- di luar root (bukan direktori blob) → flag `outside_read` (baca) atau kelas minimal `destructive` (tulis) → baris SPEC §14.1 "Read/write di luar workspace": tanya, `allow_session` hanya untuk himpunan path persis; headless → `outside_workspace`; output dibungkus `<untrusted source="shell:outside_workspace">`;
-- operand yang tidak bisa di-resolve statis (variabel selain `HOME`, `$(…)`, backtick, `<(…)`) → `unknown`.
+- di luar root (bukan direktori blob) → flag `outside_read` (baca) atau kelas minimal `destructive` (tulis) → preview menandai path, `allow_session` hanya untuk himpunan path persis; headless → `outside_workspace`; output dibungkus `<untrusted source="shell:outside_workspace">`;
+- operand yang tidak bisa di-resolve statis (variabel selain `HOME`, `$(…)`, backtick, `<(…)`, `cd` sebelum operand relatif) → `unknown`.
 
-**Interpreter dan sesi persisten (ADR-069).** argv0 ∈ {`sh`, `bash`, `zsh`, `dash`, `ksh`, `fish`, `python*`, `node`, `deno`, `bun`, `perl`, `ruby`, `php`, `lua`, `pwsh`, `powershell`, `osascript`} dengan program dari stdin, pipe, heredoc/here-string, parameter `stdin` schema, atau string `-c`/`-e` non-literal → `unknown`. `-c '<literal>'` tetap direkursi. `source`/`.` → `unknown` (menjalankan isi file). Sesi persisten (A.2) yang menjalankan `alias`, definisi fungsi, `hash -p`, `trap`, `enable`, `shopt`, atau assignment/export `PATH`, `LD_PRELOAD`, `LD_LIBRARY_PATH`, `BASH_ENV`, `ENV`, `PROMPT_COMMAND`, `IFS`, `GIT_*` → flag `tainted_session`: semua perintah berikutnya di sesi itu minimal `mutating` sampai sesi ditutup.
+Ketiadaan label ini **tidak** menjamin apa pun (rekursi lewat symlink, filter git, dan bentuk lain tidak terdeteksi); shell bukan boundary path, kontrolnya approval (ADR-079 butir 8).
 
-| Kelas | Contoh (cocok → kelas) |
+**Interpreter (ADR-069).** argv0 ∈ {`sh`, `bash`, `zsh`, `dash`, `ksh`, `fish`, `python*`, `node`, `deno`, `bun`, `perl`, `ruby`, `php`, `lua`, `pwsh`, `powershell`, `osascript`} dengan program dari stdin, pipe, heredoc/here-string, parameter `stdin` schema, atau string `-c`/`-e` non-literal → `unknown`. `-c '<literal>'` tetap direkursi. `source`/`.` → `unknown` (menjalankan isi file). Sesi persisten (A.2) yang pernah menjalankan perintah yang tidak cocok `shell_allow` (mis. `alias`, definisi fungsi, `trap`, `export PATH=…`, `printf -v PATH …`, atau perintah lain yang di-approve manual) **permanen** tidak memenuhi syarat `shell_allow` sampai sesi ditutup (ADR-079 butir 3; menggantikan flag `tainted_session` ADR-069).
+
+| Label | Contoh (cocok → label) |
 |---|---|
-| `read_only` | hanya tabel allowlist di atas, dengan semua operand path ter-resolve di dalam root dan tanpa flag. |
-| `mutating` | Default untuk perintah lain: build, test, `go list`/`go vet`, `git add/commit/checkout <branch>/merge/rebase`, `rm` di dalam workspace (bukan root workspace), redirect ke file di workspace, `npm run`, `make`. Instal dependency lokal proyek (`npm install\|ci`, `pnpm i`, `yarn`, `pip install` di venv dalam root, `go mod download`, `cargo fetch`) dan klien HTTP GET ke host non-loopback = `mutating` + flag `network` (ADR-069). |
+| `mutating` | Default untuk semua perintah lain, termasuk perintah baca (`ls`, `cat`, `grep`, `git status`/`diff`/`log`; ADR-079): build, test, `go list`/`go vet`, `git add/commit/checkout <branch>/merge/rebase`, `rm` di dalam workspace (bukan root workspace), redirect ke file di workspace, `npm run`, `make`. Instal dependency lokal proyek (`npm install\|ci`, `pnpm i`, `yarn`, `pip install` di venv dalam root, `go mod download`, `cargo fetch`) dan klien HTTP GET ke host non-loopback = `mutating` + flag `network` (ADR-069). |
 | `destructive` | `rm -r`/`-rf`/`-fr` dengan target di luar root (setelah resolve operand path) atau = root workspace atau `.git`; tulis ke path di luar root (ADR-069); `git push --force`/`-f`/`+refspec`/`--delete`/`--mirror` (sekaligus `irreversible` → diperlakukan `irreversible`, preview memuat keduanya); `git reset --hard`; `git clean -f*`; `git checkout -- .`/`git restore .` (membuang perubahan worktree); `git branch -D`; `git stash drop/clear`; `git filter-branch`/`filter-repo`; `curl\|wget … \| sh\|bash\|zsh\|python\|node\|iex`; `mkfs*`, `dd of=/dev/*`, `fdisk`, `parted`, `wipefs`, `shred`, redirect ke `/dev/sd*`/`/dev/nvme*`; `chmod -R`/`chown -R` pada `/` atau di luar workspace; fork bomb (fungsi yang memanggil diri sendiri via pipe + `&`); `kill -9 -1`; `shutdown`/`reboot`/`halt`/`poweroff`; `crontab -r`; `docker system prune -a`, `docker volume rm`; `kubectl delete`; `terraform destroy`; tulis ke `/etc`, `/usr`, `/boot`, `C:\Windows`; Windows: `Remove-Item -Recurse` di luar workspace, `rd /s`, `del /s`, `format`, `diskpart`, `reg delete`, `iwr … \| iex`. |
 | `irreversible` (P26, ADR-069) | `git push` (semua bentuk), `git send-email`; `npm\|pnpm\|yarn publish`, `npm unpublish\|deprecate\|dist-tag`, `cargo publish\|yank`, `twine upload`, `gem push\|yank`, `poetry publish`, `uv publish`, `docker push`, `helm push`; `gh`/`glab` yang mengubah state remote (`release`, `pr create\|merge\|close\|comment`, `issue create\|comment\|close`, `repo create\|delete\|edit`, `secret set`, `workflow run`, `api` dengan metode non-GET atau field `-f`/`-F`); klien HTTP (`curl`, `wget`, `http`, `xh`) dengan metode/body mutating (`-X` ≠ GET/HEAD, `-d*`, `--data*`, `-F`, `-T`, `--json`, `--post-*`, `--method`) atau host metadata/link-local (169.254.0.0/16, `fd00:ec2::254`, `metadata.google.internal`); `ssh`, `scp`, `sftp`, `rsync` ke host remote, `nc`/`ncat`/`socat`/`telnet`; package manager sistem (`apt`, `apt-get`, `dnf`, `yum`, `pacman`, `zypper`, `apk`, `brew`, `port`, `snap`, `flatpak`, `choco`, `winget`, `scoop`) yang memasang/menghapus, dan `pip install` di luar venv di dalam root. |
 
-- **`network`:** output perintah berflag `network` dibungkus `<untrusted source="shell:network">` (ADR-069, ADR-070). Egress subprocess **tidak** melewati gerbang DLP/SSRF `netx`.
-- **`privileged`:** `sudo`/`doas`/`su`/`pkexec`/`runas` → flag `privileged` (perintah di dalamnya tetap direkursi): tanya per perintah di **semua** mode termasuk `auto`, preview argv lengkap; `allow_session` hanya untuk subject persis; headless tanpa approver → `denied`; tidak pernah lewat `shell_allow`, `destructive_allow`, `allow_destructive`, atau `smart_approval` (SEC-14, ADR-069).
+- **`network`:** output perintah berflag `network` dibungkus `<untrusted source="shell:network">` dan men-taint turn, juga di workspace trusted (ADR-069, ADR-070, ADR-079 butir 6). Egress subprocess **tidak** melewati gerbang DLP/SSRF `netx`.
+- **`privileged`:** `sudo`/`doas`/`su`/`pkexec`/`runas` → flag `privileged` (perintah di dalamnya tetap direkursi): tanya per perintah di **semua** mode termasuk `auto`, preview argv lengkap; `allow_session` hanya untuk subject persis; headless tanpa approver → `denied`; tidak pernah lewat `shell_allow`, `--unsafe-auto-shell`, `destructive_allow`, `allow_destructive`, atau `smart_approval` (SEC-14, ADR-069, ADR-079).
 
-**Kebijakan** (sama dengan baris `shell` di SPEC §14.1; kelas tertinggi + semua flag berlaku, ADR-069):
+**Kebijakan** (sama dengan baris `shell` di SPEC §14.1; ADR-079 butir 3–4): setiap perintah `shell` **ditanya** di `ask`, `auto-edit`, dan `auto` interaktif, kecuali cocok `shell_allow` (butir di bawah). Label menentukan bentuk prompt dan penolakan headless; label tertinggi + semua flag berlaku.
 
-| Kelas / flag | `ask` (default) | `auto-edit` | `auto` | Headless tanpa approver |
-|---|---|---|---|---|
-| `read_only` (allowlist, operand di dalam root, tanpa flag) | auto | auto | auto | auto |
-| `mutating` | tanya (verify B.2 / `shell_allow`: auto hanya dengan syarat `shell_allow` di bawah) | tanya / `smart_approval` | auto | `denied` kecuali mode `auto` |
-| `destructive` | tanya + preview | tanya + preview | **tanya + preview** | `denied` |
-| `unknown` | tanya | tanya | **tanya** | `denied` |
-| `irreversible` (P26) | tanya + preview | tanya + preview | **tanya + preview** | `denied` |
-| flag `denied_path` | error `denied_path` | error | error | error |
-| flag `outside_read` | tanya (`allow_session` hanya himpunan path persis) | tanya | tanya | `outside_workspace` (`denied` bila juga `privileged`) |
-| flag `privileged` | tanya per perintah + preview argv | tanya per perintah | **tanya per perintah** | `denied` |
-| flag `tainted_session` | kelas minimal `mutating` | ← | ← | ← |
-| turn ter-taint (ADR-070): selain `read_only` murni di dalam root tanpa flag, termasuk `shell_allow` dan verify | tanya, tanpa `allow_session` | tanya | **tanya** | `denied` |
+| Kondisi / label | `ask` (default) | `auto-edit` | `auto` | Headless tanpa approver | Headless `--approval auto --unsafe-auto-shell` |
+|---|---|---|---|---|---|
+| cocok `shell_allow` (semua syarat di bawah) | auto | auto | auto | auto | auto |
+| `mutating` (dengan/tanpa `network`) | tanya | tanya | **tanya** | `denied` | auto bila workspace trusted dan turn tidak tainted; selain itu `denied` |
+| `destructive` | tanya + preview | tanya + preview | **tanya + preview** | `denied` | `denied` |
+| `unknown` | tanya + preview | tanya + preview | **tanya + preview** | `denied` | `denied` |
+| `irreversible`/P26 | tanya + preview (tanpa `allow_session`) | sama | sama | `denied` | `denied` |
+| flag `denied_path` | error `denied_path` | error | error | error | error |
+| flag `outside_read` | tanya (`allow_session` hanya himpunan path persis) | tanya | tanya | `outside_workspace` | `outside_workspace` |
+| flag `privileged` | tanya per perintah + preview argv | tanya per perintah | **tanya per perintah** | `denied` | `denied` |
+| turn ter-taint (ADR-070, ADR-079 butir 6), termasuk perintah yang cocok `shell_allow` dan verify | tanya, tanpa `allow_session` | tanya | **tanya** | `denied` | `denied` |
 
-- `destructive` hanya auto bila config `exec.allow_destructive = true`, atau pola persis cocok dengan `exec.destructive_allow` (glob atas perintah ter-normalisasi). `allow_session` untuk destructive hanya berlaku untuk subject yang persis sama.
-- `allow_session`, `allow_destructive`, `destructive_allow`, dan `smart_approval` **tidak pernah** berlaku untuk kelas P26 (`irreversible`, `monetary`, `delegated_agent_bypass`). Perintah `destructive` sekaligus `irreversible` diperlakukan sebagai `irreversible` (ADR-069).
-- **`shell_allow` (ADR-069).** Entri = prefix argv (token) setelah normalisasi. argv0 harus berupa nama tanpa path yang di-resolve lewat `PATH` ke binary yang sama dengan resolusi entri saat sesi dimulai; argv0 relatif/`./x` tidak pernah cocok. Cocok per simple command; pipeline/list cocok hanya bila setiap simple command cocok entri atau `read_only`. Flag eksekusi ditolak di semua entri: `-exec`, `-toolexec`, `-vettool`, `--pre`, `-o` di luar root. `shell_allow` hanya menaikkan `mutating` → auto dan tidak pernah mengabaikan `denied_path`, `outside_read`, `privileged`, `tainted_session`, `unknown`, `destructive`, `irreversible`. Verify (B.2, `exec.auto_allow_verify`) dan entri `shell_allow` yang menjalankan kode workspace (`go test`, `go build`, `make`, `npm test`, …) hanya auto bila (a) workspace trusted, (b) turn tidak tainted (ADR-070), dan (c) tidak ada file yang ditulis tanpa approval eksplisit di turn itu. Selain itu → tanya.
-- **Workspace trust (ADR-069).** Saat root dibuka pertama kali secara interaktif: prompt "trust workspace <path>?". Keputusan disimpan per path kanonik di config `security.trusted_workspaces`. Headless `run`: untrusted kecuali path ada di `security.trusted_workspaces`. Workspace untrusted: AGENTS.md dan context file dibungkus `<untrusted source="workspace">` (data, bukan aturan), konten file workspace men-taint turn (ADR-070), verify-auto dan `shell_allow` mati, `git` read tidak `read_only`, hook proyek tidak berjalan (F3).
-- **Taint turn (ADR-070).** Output shell berflag `network` atau `outside_read` adalah sumber taint: aktif sejak `tool_result` itu di-commit sampai `turn_end`, untuk semua iterasi berikutnya dalam turn. Selama taint aktif berlaku baris "turn ter-taint" di tabel; `user_message` berikutnya memulai turn tanpa taint.
-- Beda dengan hermes: tidak ada auto-approve diam-diam di konteks non-interaktif (`tools/approval.py:1117`), dan tidak ada LLM call untuk klasifikasi.
-- Batas classifier: tidak mendeteksi skrip yang ditulis lalu dijalankan (`./x.sh`). Perintah semacam itu adalah `mutating` (tanya di `ask`); isi file tidak dianalisis. Sandbox path = boundary hanya untuk jalur auto-approve shell (`read_only` dengan operand ter-resolve); shell non-`read_only` = heuristik (classifier + approval). Isolasi kuat = backend container (SPEC §14.2, OPEN-QUESTIONS Q10, ADR-069).
+- **Kunci auto non-shell (ADR-079 butir 9).** `exec.allow_destructive`, `exec.destructive_allow`, dan `smart_approval` **tidak berlaku untuk `shell`**: satu-satunya jalur auto shell adalah kecocokan persis `shell_allow`, dan perintah berlabel `destructive`, `irreversible`, `monetary`, atau `delegated_agent_bypass` tidak pernah auto walau cocok (selalu tanya + preview; headless → `denied`). Kunci itu dicadangkan untuk operasi destruktif tool file (desain F1), default tanpa efek sampai ADR F1 mendefinisikannya. `allow_session` (approval user untuk subject yang persis sama) tetap berlaku untuk non-P26.
+- `allow_session` **tidak pernah** berlaku untuk kelas P26 (`irreversible`, `monetary`, `delegated_agent_bypass`). Perintah `destructive` sekaligus `irreversible` diperlakukan sebagai `irreversible` (ADR-069).
+- **Plan mode (ADR-079 butir 11, SPEC §18.3).** Selama plan mode, `shell` hanya diizinkan bila perintah cocok persis `shell_allow` **dan** classifier memberi label `non_mutating`; perintah lain ditolak. `non_mutating` adalah label best-effort yang hanya dipakai untuk **membatasi** (tidak pernah mengizinkan di luar `shell_allow`). Test: `TestPlanModeShell`.
+- **`shell_allow` = satu-satunya jalur auto (ADR-079 butir 3).** Default `shell_allow = []`. Entri = daftar token argv **persis** (contoh `["go", "test", "./..."]`); tidak ada pencocokan prefix. Perintah cocok hanya bila string `command` di-parse menjadi **tepat satu** simple command tanpa metakarakter/ekspansi apa pun (tanpa `|`, `;`, `&`, `&&`, `||`, subshell, `$`, backtick, `~`, glob `*?[`, brace, redirect, assignment `VAR=`, heredoc, parameter `stdin`) dan token-tokennya sama persis dengan satu entri. argv0 entri harus nama tanpa path yang di-resolve lewat `PATH` sesi ke binary yang sama saat sesi dimulai; argv0 relatif/`./x` tidak pernah cocok. Syarat tambahan, semuanya wajib:
+  1. `cwd` call (one-shot) atau `cwd` hidup sesi persisten (dibaca runner lewat sentinel `pwd -P` setiap perintah, A.2) berada di dalam root;
+  2. sesi persisten hanya pernah menjalankan perintah yang cocok `shell_allow` (perintah lain yang di-approve manual membuat sesi itu permanen tidak memenuhi syarat);
+  3. workspace trusted (ADR-069 butir 7) dan turn tidak tainted (ADR-070);
+  4. label bukan `destructive`/`unknown`/P26 dan tanpa flag `privileged` (`denied_path` selalu error);
+  5. tidak ada file yang ditulis tanpa approval eksplisit di **sesi** ini sejak approval shell manual terakhir.
 
-**Test acceptance F1 (ADR-069, ADR-070):** `TestClassifyCorpus` (EXC-13, termasuk 42 kasus tabel ADR-069 dengan verdict dan kebijakan per mode persis), `TestShellDenyPaths` (≥ 30 perintah `cat`/`head`/`grep`/`cp`/`tar`/`base64`/`rg -f` × `deny_paths` default → 0 tereksekusi), `TestShellIrreversibleAlwaysAsk`, `TestSudoAlwaysAsk`, `TestShellAllowMatching`, `TestWorkspaceTrustGate`, `TestReadOutsideWorkspaceAsks`, `TestSessionTaintPersistent`, `TestTaintForcesApproval`, `TestShellNetworkOutputUntrusted`.
+  Syarat tidak terpenuhi → baris label di tabel (tanya / `denied`).
+- **`damnbot run --unsafe-auto-shell` (ADR-079 butir 4).** Hanya headless `--approval auto` dengan flag eksplisit ini: perintah berlabel `mutating` (dengan/tanpa `network`) berjalan tanpa approval, hanya bila workspace trusted dan turn tidak tainted; `destructive`, `unknown`, P26, `privileged`, dan `denied_path` tetap `denied`. Help flag dan dokumentasi menyatakan risikonya: "runs arbitrary shell commands chosen by the model without confirmation; use only in a disposable container". Ini satu-satunya padanan mode yolo hermes; `auto` interaktif tetap bertanya.
+- **Workspace trust (ADR-069).** Saat root dibuka pertama kali secara interaktif: prompt "trust workspace <path>?". Keputusan disimpan per path kanonik di config `security.trusted_workspaces`. Headless `run`: untrusted kecuali path ada di `security.trusted_workspaces`. Workspace untrusted: AGENTS.md dan context file dibungkus `<untrusted source="workspace">` (data, bukan aturan), konten file workspace men-taint turn (ADR-070), jalur auto `shell_allow` (termasuk verify) dan `--unsafe-auto-shell` mati, setiap output shell dibungkus `<untrusted source="workspace">` dan men-taint turn (ADR-079 butir 6), hook proyek tidak berjalan (F3).
+- **Taint turn (ADR-070, ADR-079 butir 6).** Sumber taint shell: output berflag `network` (juga di workspace trusted) atau `outside_read`, dan **setiap** output shell di workspace untrusted. Taint aktif sejak `tool_result` itu di-commit sampai `turn_end`, untuk semua iterasi berikutnya dalam turn. Selama taint aktif berlaku baris "turn ter-taint" di tabel; `user_message` berikutnya memulai turn tanpa taint.
+- Beda dengan hermes: tidak ada auto-approve diam-diam di konteks non-interaktif (`tools/approval.py:1117`), tidak ada auto-approve perintah "non-dangerous" (`tools/approval.py:1110-1112`), dan tidak ada LLM call untuk klasifikasi.
+- **Boundary dan vulnerability (ADR-079 butir 8, mengoreksi ADR-069 butir 9).** Sandbox path = boundary untuk tool kode (CODE-TOOLS §8). Shell **bukan** boundary path; kontrol shell = approval. Classifier tidak mendeteksi skrip yang ditulis lalu dijalankan (`./x.sh`, isi file tidak dianalisis); karena label tidak pernah memberi auto, ini tidak membuka jalur eksekusi tanpa approval. Vulnerability = (a) perintah shell yang berjalan tanpa approval eksplisit, kecuali cocok `shell_allow` atau jalur `--unsafe-auto-shell` yang terdokumentasi; (b) tool kode yang mengakses luar root/`deny_paths` tanpa verdict yang benar; (c) egress tool built-in yang lolos DLP `netx`. Efek perintah yang sudah di-approve user (termasuk filter git, rekursi symlink) dan TOCTOU antara preview dan eksekusi = sisa risiko (TRUST-MODEL §3). Isolasi kuat = backend container (SPEC §14.2, OPEN-QUESTIONS Q10).
+
+**Test acceptance F1 (ADR-079, menggantikan tabel dan test classifier ADR-069; ADR-070):** `TestShellApprovalModel` (36 baris tabel ADR-079, semua baris: label dan kebijakan per `ask`/`auto-edit`/`auto`/headless/headless `--unsafe-auto-shell` persis), `TestShellAllowExactMatch` (≥ 60 kasus: setiap metakarakter/ekspansi/redirect/assignment/pipeline × entri cocok → tidak auto), `TestShellAllowCwdTracked`, `TestShellNoClassifierAuto` (EXC-13: ≥ 300 perintah korpus, mode `ask`/`auto-edit`/`auto`, `shell_allow` kosong → 0 dieksekusi tanpa approval), `TestUnsafeAutoShellFlag`, `TestVerifyNeedsShellAllow`, `TestShellOutputUntrustedWorkspace`, `TestCodeToolsSymlinkOutsideRoot` (CODE-TOOLS §8), `TestNoAutoClassReadonlyDecision`, `TestPlanModeShell` (ADR-079 butir 10–11); tetap dari ADR-069/070: `TestShellIrreversibleAlwaysAsk`, `TestSudoAlwaysAsk`, `TestWorkspaceTrustGate`, `TestReadOutsideWorkspaceAsks`, `TestTaintForcesApproval`. Konteks default tabel ADR-079: `shell_allow = [["go","test","./..."]]`, workspace trusted, turn bersih, tidak ada tulis auto di sesi.
 
 **Sandbox cwd:**
 - `cwd` harus berada di dalam root sesi (SPEC §14.2), else `outside_workspace`.
-- `cd` di dalam perintah tidak dibatasi OS di backend local. Operand path setiap simple command di-resolve (butir "Operand path"): baca di luar root → flag `outside_read`, tulis di luar root → minimal `destructive`, cocok `deny_paths` → `denied_path` (ADR-069).
+- `cd` di dalam perintah tidak dibatasi OS di backend local dan tidak dilacak statis oleh label (`cd ~ && cat .ssh/id_rsa` → `unknown`). `cwd` hidup sesi persisten dibaca lewat sentinel `pwd -P` dan dipakai untuk syarat `shell_allow` (ADR-079 butir 3). Shell bukan boundary path; kontrolnya approval (ADR-079 butir 8).
 
 **Env anak (ADR-071):**
 - Deny-by-default: hanya var di allowlist GAP-SEC-02 (SPEC §22.1) yang diwariskan dari env induk, ditambah `exec.env_allow` (daftar **nama persis** var induk, tanpa glob) dan nilai `exec.env` yang di-set (A.6).
@@ -340,7 +334,7 @@ Aturan rekursi:
 **Audit:** setiap perintah, termasuk yang dijalankan runtime (B.6), meninggalkan jejak di DB konteks:
 - event `tool_dispatch` dengan payload `exec: {class, flags, reasons[≤5], argv0[], backend, runner, cwd, session}` (`Verdict`, ADR-069);
 - event `tool_result` dengan payload `{exit_code, signal, status, duration_ms, bytes_raw, blob_sha, raw_blob_sha}` (konvensi kunci ref blob `*_blob_sha`, SPEC §11.6);
-- row `approvals` (`subject` = perintah ter-normalisasi, `decision` termasuk `auto_class_readonly`) untuk setiap keputusan non-allowlist;
+- row `approvals` (`subject` = perintah ter-normalisasi; `decision` `auto_allowlist` untuk cocok `shell_allow`, `auto_mode` untuk jalur `--unsafe-auto-shell`; nilai `auto_class_readonly` tetap di DDL, dicadangkan, dan tidak pernah ditulis, `TestNoAutoClassReadonlyDecision`, ADR-079 butir 10) untuk setiap keputusan;
 - verify runtime memakai event `verify_run` (sudah ada di daftar `events.kind`, SPEC §11.2).
 
 ### A.9 Latensi
@@ -415,6 +409,7 @@ Deteksi berjalan di `internal/code/toolchain`:
 
 - Workspace snapshot (B.4) menampilkan ≤ 2 perintah verify.
 - Pemilihan terdampak dipakai oleh B.6 dan disarankan ke model lewat `Meta.verify_hint` pada hasil edit.
+- Perintah verify (agent maupun runtime) mengikuti approval A.8: auto hanya bila perintah itu persis ada di `shell_allow` dengan semua syaratnya; selain itu interaktif → tanya, headless → tidak dijalankan (B.6). Tidak ada `exec.auto_allow_verify` (ADR-079 butir 5).
 - Akurasi diuji `TestToolchainCorpus`: 30 fixture repo, 100% perintah sesuai golden.
 
 ### B.3 Diagnostik setelah edit
@@ -452,7 +447,7 @@ Format tiap baris: `path:line:col: error|warning: msg [source]`. Cap 400 tok (o2
 
 ### B.5 Git awareness
 
-- **Ringkas:** runtime membaca `git status --porcelain=v2 -b -z` sendiri (hanya untuk snapshot/notice) dan merendernya ≤ 20 baris + `+N more`. Model memakai `shell` biasa untuk diff; output diff melewati A.3.
+- **Ringkas:** runtime membaca `git status --porcelain=v2 -b -z` sendiri (hanya untuk snapshot/notice) dan merendernya ≤ 20 baris + `+N more`. Model memakai `shell` biasa untuk diff (ditanya kecuali persis cocok `shell_allow`, A.8, ADR-079); output diff melewati A.3.
 - **Perubahan user di luar agent:**
   - Pada awal turn, runtime membandingkan sha file yang pernah dibaca/diedit sesi ini (`file_snapshots.after_sha`, sha baca terakhir) dengan isi disk.
   - Perbedaan → `system_notice` `{kind:"user_changed", paths[≤10]}` (≤ 40 tok).
@@ -472,7 +467,7 @@ Format tiap baris: `path:line:col: error|warning: msg [source]`. Cap 400 tok (o2
   - File dengan sha disk ≠ `after_sha` (diubah lagi sesudahnya) ditolak per file dengan laporan konflik, kecuali `--force`.
   - Hasil dicatat sebagai event `system_notice{kind:"rollback"}`.
   - Target 50 file ≤ 200 ms (`TestRollback`, `BenchmarkRollback50`).
-- **Commit hanya bila diminta:** aturan B.1 #15. `git commit` = `mutating` (tanya di `ask`), `git push --force` = `destructive` (A.8). Runtime tidak pernah membuat commit di branch user; checkpoint hanya ref di namespace `refs/damnbot/`.
+- **Commit hanya bila diminta:** aturan B.1 #15. `git commit` = `mutating` (tanya di `ask`/`auto-edit`/`auto` kecuali persis cocok `shell_allow`, ADR-079), `git push --force` = `destructive` + `irreversible` (A.8). Runtime tidak pernah membuat commit di branch user; checkpoint hanya ref di namespace `refs/damnbot/`.
 
 ### B.6 Tanpa klaim tanpa bukti
 
@@ -495,7 +490,7 @@ Format tiap baris: `path:line:col: error|warning: msg [source]`. Cap 400 tok (o2
 | `run` (default) | Saat turn akan berakhir `completed`: jika `files_changed` berisi file non-prosa (bukan `*.md`, `*.txt`, `*.rst`, `docs/**`) dan tidak ada entri `verification` dengan `exit_code=0` dan `after_last_edit=true`, runtime menjalankan ≤ 2 perintah verify terdampak (B.2). Timeout total `verify.timeout_s` 300 s. Event `verify_run`, hasil ke `verification[]` dengan `source:"runtime"`. Jawaban model tidak diubah; UI/footer menampilkan status. | 0 |
 | `repair` (opt-in) | Seperti `run`. Jika gagal: 1 iterasi LLM tambahan, dihitung terhadap batas 40 (P2) dan budget. Iterasi menerima `system_notice` berisi ringkasan kegagalan ≤ 1.500 char (A.3). Setelah edit perbaikan, verify dijalankan ulang sekali. Tidak ada repair kedua. | ≤ 1 iterasi |
 
-- Verify runtime mengikuti approval A.8: perintah verify terdeteksi = auto bila `exec.auto_allow_verify`. Selain itu, `ask` → tanya, headless → dilewati dengan `verification_skipped:"approval"`.
+- Verify runtime mengikuti approval A.8 (ADR-079 butir 5; `exec.auto_allow_verify` dihapus): auto hanya bila perintah verify persis ada di `shell_allow` dengan semua syaratnya. Selain itu interaktif (`ask`/`auto-edit`/`auto`) → tanya; headless → tidak dijalankan, jawaban ditandai `unverified` + `evidence_gap`. Headless `--unsafe-auto-shell` menjalankan verify berlabel `mutating` bila workspace trusted dan turn tidak tainted (A.8). Test: `TestVerifyNeedsShellAllow`.
 - Default `run` berlaku di semua surface. Gateway hanya menampilkan baris footer (bandingkan hermes yang mematikan verify di messaging, `agent/verification_stop.py:53-79`).
 - `evidence_gap` (SPEC §7.2) dihitung **setelah** verify. Klaim verifikasi di jawaban tanpa entri `verification` sukses `after_last_edit` → `true`. Turn yang mengubah kode, gagal verify, dan jawabannya mengklaim sukses → `evidence_gap:true` + `verification_failed:true`.
 - Test:
@@ -617,8 +612,8 @@ Harness `damnbot-eval` (F0, SCORECARD) menjalankan Damn-Bot dan hermes pada kond
 | EXC-10 | Notice proses selesai | ≤ 40 tok, ≤ 3/request, 0 LLM call | `TestProcessNotice`, `TestNoBackgroundCalls` |
 | EXC-11 | Waiting-for-input | F1: pohon di-kill, `killed:true`, tanpa `process_id`; F5: reap 10 menit (ADR-072) | `TestInteractiveCorpus` (F1), `TestWaitingInputReap` (F5) |
 | EXC-12 | Classify perintah 2 KB | < 1 ms p95 | `BenchmarkClassify` |
-| EXC-13 | Akurasi classifier | 0 destruktif/irreversible lolos sebagai read_only/mutating dan 0 `read_only` yang mengeksekusi, menulis, atau membaca path `deny_paths`/luar root, pada korpus ≥ 300 perintah (termasuk obfuscation quoting/`eval`/`sh -c` dan 42 kasus tabel ADR-069); `deny_paths` default: 0 tereksekusi (ADR-069) | `TestClassifyCorpus`, `TestShellDenyPaths`, `TestSessionTaintPersistent`, `TestShellAllowMatching`, `TestWorkspaceTrustGate` |
-| EXC-14 | Destructive/irreversible/privileged/baca di luar root di mode `auto` | 100% tanya (destructive: kecuali `allow_destructive`/`destructive_allow`; irreversible dan `privileged`: tanpa pengecualian, ADR-069) | `TestDestructiveAlwaysAsk`, `TestShellIrreversibleAlwaysAsk`, `TestSudoAlwaysAsk`, `TestReadOutsideWorkspaceAsks` |
+| EXC-13 | Shell tanpa approval (ADR-079) | 0 perintah dieksekusi tanpa approval di mode `ask`/`auto-edit`/`auto` dengan `shell_allow` kosong, pada korpus ≥ 300 perintah (termasuk obfuscation quoting/`eval`/`sh -c`); auto hanya untuk kecocokan argv-persis `shell_allow` (≥ 60 kasus metakarakter/ekspansi/redirect/assignment/pipeline → tidak auto); 36 baris tabel ADR-079 persis; output shell di workspace untrusted dibungkus + men-taint | `TestShellNoClassifierAuto`, `TestShellApprovalModel`, `TestShellAllowExactMatch`, `TestShellAllowCwdTracked`, `TestShellOutputUntrustedWorkspace`, `TestWorkspaceTrustGate` |
+| EXC-14 | Destructive/irreversible/privileged/baca di luar root di mode `auto`; headless `--unsafe-auto-shell`; verify | 100% tanya interaktif, tanpa pengecualian (ADR-069, ADR-079); headless `--unsafe-auto-shell`: hanya `mutating` di workspace trusted + turn tidak tainted, selain itu `denied`; verify auto hanya bila persis di `shell_allow` (ADR-079) | `TestDestructiveAlwaysAsk`, `TestShellIrreversibleAlwaysAsk`, `TestSudoAlwaysAsk`, `TestReadOutsideWorkspaceAsks`, `TestUnsafeAutoShellFlag`, `TestVerifyNeedsShellAllow` |
 | EXC-15 | Env anak (GAP-SEC-02) | 0 var di luar allowlist SEC-02 + `exec.env_allow` + `exec.env` (ADR-071) | `TestEnvAllowlist` |
 | EXC-16 | Kontrak backend | 100% test kontrak lulus per backend | `TestBackendContract/<id>` |
 | COD-01 | Aturan coding stable tier | ≤ 120 tok (dalam 1.200) | `TestStableTierBudget/coding` |
