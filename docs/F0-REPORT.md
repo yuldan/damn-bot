@@ -6,12 +6,12 @@ Format sesuai `docs/HANDOFF-F0.md` §"Laporan pagi". Mesin: workstation (Kali, l
 
 | # | Deliverable F0 (ROADMAP) | Status | Catatan |
 |---|---|---|---|
-| 7 | CI skeleton: lint, test -race, size-check, LOC, deps allowlist, tidy, verify, govulncheck, go-licenses, meta-test | sebagian | Mekanisme gate lengkap. Meta-test di `ad57fa1`: **10/11 DETECTED**. `tidy-check` = BASELINE_RED karena `go.mod` HEAD tidak tidy; setelah `8c1d6fc` (`go mod tidy`) `tidy-check` hijau dan meta-test-nya DETECTED → **11/11**. Gate yang masih merah: `test` (S015 `-race`), `loc` (ctxdb), `loc-ratio` (TS-03), `vuln` (GO-2026-6604 stdlib); rincian di §Verifikasi akhir. Workflow GitHub belum pernah dijalankan di Actions (tanpa remote). |
+| 7 | CI skeleton: lint, test -race, size-check, LOC, deps allowlist, tidy, verify, govulncheck, go-licenses, meta-test | sebagian | Mekanisme gate lengkap. Meta-test di `ad57fa1`: **10/11 DETECTED**. `tidy-check` = BASELINE_RED karena `go.mod` HEAD tidak tidy; setelah `8c1d6fc` (`go mod tidy`) `tidy-check` hijau dan meta-test-nya DETECTED → **11/11**. Gate yang masih merah: `test` (S015 `-race`), `loc` (ctxdb), `loc-ratio` (TS-03), `vuln` (GO-2026-6604 stdlib); rincian di §Verifikasi akhir. GitHub Actions (repo privat) sudah jalan: merahnya sama dengan lokal, meta-test di runner 11/11 DETECTED (§GitHub Actions). |
 | 1 | `bench/budget` (P1, o200k_base offline) | selesai | tokenizer = tiktoken 0.14.0 persis (id token & jumlah); 13/13 angka gate BASELINE dalam ±5%; job CI `bench-budget`. `TestFixedOverhead` sisi Damn-Bot menunggu `internal/assemble` (F1). |
 | 4 | Baseline hermes tanpa LLM | selesai, dengan pengecualian | Artefak `bench/speed/results/hermes-868b9f244f-nollm.json`. Isinya: overhead token dan schema (#1); startup frame pertama `hermes chat` p50 3.369 ms / p95 3.595 ms; `--version` p50 1.384 ms; RSS CLI median 106,8 MB; install 411,7 MB dan 33,5 s; config minimum 2 baris; 6 langkah setup. Pengecualian: prompt-ready dan idle RSS tidak terukur di netns (TS-11). Waktu install resmi dari VM bersih juga tidak diukur. Dimensi berbasis LLM ditandai "diukur di RC F9". |
-| 5 | `bench/speed` | selesai (kerangka + baseline hermes) | Ke-854 baris FEATURE-PARITY terklasifikasi (`TestEveryRowClassified`): **163 terukur**, 674 tidak terukur dengan alasan, 17 dropped. Dari 163 baris terukur, 27 adalah proxy `<cmd> --help`. Artefak: `bench/speed/results/hermes-868b9f244f.json`. Smoke LLM 10 task: **menunggu user**. |
+| 5 | `bench/speed` + smoke LLM | selesai | Ke-854 baris FEATURE-PARITY terklasifikasi (`TestEveryRowClassified`): **163 terukur**, 674 tidak terukur dengan alasan, 17 dropped. Dari 163 baris terukur, 27 adalah proxy `<cmd> --help`. Artefak: `bench/speed/results/hermes-868b9f244f.json`. Smoke LLM 10 task × 1 run (gpt-5.4-mini): 0 error harness, 10/10 lulus (informatif), US$0,0238 (§Smoke LLM). |
 | 6 | Korpus code tools C1–C3 + baseline `rg`/hermes | selesai (baseline) | `bench/corpora.lock`: C1 = hermes `868b9f24…` (20.076 file, 224,8 MB); C2/C3 sintetis deterministik. rg 15.1.0 (oracle spec) dijalankan pada C1/C2/C3 dengan 40 literal, 40 regex, dan 10 glob × 20 run. Tool hermes di C1: `search_files` 50, `read_file` 10, `patch` 10. Artefak `bench/codetools/results/f0-baseline.json`. Catatan TS-12. |
-| 2 | `bench/h2h` head-to-head berbasis LLM | menunggu user | butuh kredensial/biaya |
+| 2 | `bench/h2h` head-to-head berbasis LLM | sebagian | Proxy rekam + runner + grader selesai; run hermes 10 task: **0 error harness**, rekaman lengkap (§Smoke LLM). Sisi Damn-Bot: N/A: belum ada agent loop (F1). Run berdampingan + urutan acak menunggu F1. |
 | 3 | Eval set E1–E10 + manifest | selesai | `bench/evals/`: evalset/v1 530 task (E1 160 … E10 100) + `MANIFEST.sha256`; ID SWE-bench Verified & Terminal-Bench di-pin (URL + revisi + SHA-256); `go test ./evals/...` (modul bench) lulus; 60 task coding internal diverifikasi dengan toolchain nyata. |
 | 8 | Persistence spike `internal/ctxdb` | sebagian | DDL 0001–0008 (verbatim SPEC §11), store/mode/lease+fencing/purge 4 fase/gc/trash/journal recovery/barrier/migrasi/restore + 86 subtest `TestScenario/S001..S086`, `TestKill9Chaos`, `TestMultiProcess`: **semua lulus** tanpa `-race` (exit 0). Belum: (a) `go test -race`/`make test` masih 1 merah: S015 batas 200 ms/txn (lantai biaya SQLite di bawah `-race`, TS-P08; di `ad57fa1` max 210 ms); `db_busy` sudah hilang; (b) LOC non-test 2.610 > 2.500 di `ad57fa1` (E-19, TS-P10); (c) `make lint` = 0 issues; (d) protokol gateway worker + konsumen approval ditulis sebagai implementasi referensi di `_test.go` (TS-P09); (e) `go.mod` tidy sejak `8c1d6fc`; (f) GO-2026-6604 terjangkau lewat `os.Root` (Windows, butuh go1.26.9). Lihat §Blocker. |
 | 9 | Errata backlog ADR-047 | sebagian | 33 item terbuka dipetakan; 33 usulan ADR ditulis di laporan (menunggu keputusan user/auditor); 12 item menyangkut kode F0, 11 dengan test lulus. AF-01/AF-02 wajib sebelum F4. |
@@ -252,6 +252,61 @@ Korpus dibangkitkan di `/tmp/damnbot-corpora`, tidak di-commit.
 
 **CT-11** (golden 50 kueri): Σ token o200k output `search_files` hermes = **65.262**. Hash SHA-256 setiap output disimpan per kueri di artefak. Σ token output rg tanpa batas = 63.550.214; ini hanya pembanding mentah karena hermes membatasi hasil.
 
+### Smoke LLM 10 task + `bench/h2h` (#2, #5)
+
+Commit: `cc1631f`, `cb3bdb6` (kode); artefak `bench/h2h/results/2026-10-18/` (`summary.json`, `<id>.hermes.proxy.jsonl.gz` per task, `background.proxy.jsonl.gz` kosong). Modul `bench/h2h` (stdlib saja):
+
+- **Proxy rekam** (`Recorder`): reverse proxy lokal `127.0.0.1` ke upstream OpenAI-compatible. Setiap request/response direkam ke JSONL, termasuk body SSE utuh. Header `Authorization`/`X-Api-Key`/`Cookie` disimpan sebagai `REDACTED`. Agent hanya memegang kunci dummy; kunci asli dibaca dari file `/tmp` dan disuntik di request keluar. Ada lapisan kedua yang mengganti string kunci di setiap baris rekaman. Usage diambil dari respons provider (chunk SSE terakhir, `include_usage`), biaya dihitung dari tabel harga. Cap USD keras: setelah tercapai, completion ditolak 402 tanpa diteruskan. Request yang diputus agent sendiri ditandai `client_aborted`, bukan error harness.
+- **Server halaman/fault** per task (`{{BASE_URL}}`): `timeout` = koneksi ditahan 30 s lalu ditutup; `http_500`; `malformed_json` = body terpotong. Fault berlaku untuk `count` request pertama.
+- **Grader**: `test` (perintah tes + file `unchanged`), `golden`/`reference_b64` byte-exact, `lines`, `answer` (regex), plus aturan `forbidden` `exec:`/`fs_write:` atas tool call dari rekaman.
+- **Runner hermes**: `python3 -m hermes_cli.main chat -q … -Q --yolo --source tool --max-turns 20`, timeout 5 menit per task. `HERMES_HOME=/tmp/hm_h2h` di-reset per task, dengan `config.yaml` minimum `provider: custom`, `base_url` = proxy, `api_mode: chat_completions`. Env dibersihkan dari kredensial. `hermes chat` men-spawn gateway daemon detached yang tetap hidup setelah chat selesai. Daemon itu merusak run berikutnya: run pertama 10/10 gagal start "Gateway could not start", dan run itu dibuang. Karena itu harness kini menghentikan proses ber-`HERMES_HOME` itu setelah tiap task (`daemons_stopped` = 1–2 per task).
+- **Pemilihan task** (deterministik, `TestSelectDeterministic`): per set, task eligible dengan `sha256("h2h-smoke/v1|"+id)` terkecil. Kuota: E1 4 (internal, toolchain ada; Rust tidak ada → tidak eligible), E2 2, E3 2, E6 2 (tanpa `file_locked`). E4/E5 (multi-sesi), E7 (docker Terminal-Bench), dan SWE-bench dilewati. `TestGradeReferencePasses`: fixture asli gagal grader, referensi lulus, untuk ke-10 task.
+
+Model: `gpt-5.4-mini` via `https://api.teamorouter.com/v1` (`/v1/models` = 50 model). Uji tool-calling 1 call lulus. Harga dari https://teamorouter.cn/pricing (dibaca 2026-10-18): input US$0,09, cache US$0,009, output US$0,51 per 1 juta token (list US$0,75/0,075/4,50). Model termurah berbayar di tabel; varian `*-free` tidak dipakai karena tanpa jaminan. Endpoint saldo tidak tersedia: `/dashboard/billing/*` dan `/v1/credits` 404, `/api/user/self` forbidden. Biaya = hitungan proxy.
+
+| Perintah | Exit | Ringkasan |
+|---|---:|---|
+| `cd bench && go vet ./h2h/... && go test -count=1 -race ./h2h/...` | 0 | proxy SSE + redaksi, cap budget, client abort, seleksi, grader referensi, forbidden |
+| `/tmp/h2h_bin -hermes ~/Dokumen/hermes-agent -out h2h/results/2026-10-18 -model gpt-5.4-mini -price-in 0.09 -price-cached 0.009 -price-out 0.51 -cap-usd 3 -timeout 5m -max-turns 20 …` | 0 | `ran 10/10 pass 10 harness_errors 0 calls 60 spent 0.0238 USD`, 848 s |
+| scan rahasia artefak (`zcat *.gz; cat summary.json` × string token/kunci asli dan `ghp_…`/`sk-teamo`/`Bearer sk-`) | — | 0 hit; 200/210 record `Authorization` = `REDACTED`, 10 tanpa header |
+
+| Task | Jenis | Hermes | Call | Prompt tok (cache) | Output tok | USD | Tool call | Damn-Bot |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| E1-117 | python count_vowels | lulus | 6 | 77.637 (58.880) | 641 | 0,00254 | 8 | N/A: belum ada agent loop (F1) |
+| E1-124 | typescript reverse | lulus | 9 | 131.461 (111.104) | 974 | 0,00333 | 10 | N/A: belum ada agent loop (F1) |
+| E1-147 | java count_vowels | lulus | 6 | 80.449 (55.296) | 494 | 0,00301 | 6 | N/A: belum ada agent loop (F1) |
+| E1-149 | java clamp | lulus | 10 | 178.299 (143.872) | 866 | 0,00483 | 11 | N/A: belum ada agent loop (F1) |
+| E2-016 | crlf | lulus | 4 | 34.325 (22.016) | 203 | 0,00141 | 2 | N/A: belum ada agent loop (F1) |
+| E2-039 | large | lulus | 4 | 35.719 (10.752) | 297 | 0,00250 | 3 | N/A: belum ada agent loop (F1) |
+| E3-028 | founded | lulus | 5 | 46.671 (33.280) | 425 | 0,00172 | 3 | N/A: belum ada agent loop (F1) |
+| E3-013 | founded | lulus | 6 | 46.706 (44.032) | 479 | 0,00088 | 3 | N/A: belum ada agent loop (F1) |
+| E6-010 | timeout ×1 | lulus | 4 | 35.158 (21.504) | 305 | 0,00158 | 2 | N/A: belum ada agent loop (F1) |
+| E6-040 | malformed_json ×2 | lulus | 6 | 57.828 (44.032) | 742 | 0,00202 | 4 | N/A: belum ada agent loop (F1) |
+| **Total** | | **10/10** | **60** | **724.253 (544.768)** | **5.426** | **0,02382** | | |
+
+Error harness: **0** (task + background). Request yang diputus agent: 0. Pass/fail informatif (ROADMAP). Ada satu call per task untuk judul sesi (auxiliary, non-stream). Probe hermes `/api/tags`, `/props`, dan `/api/show` (404) juga terekam.
+
+Total biaya API sesi ini (hitungan proxy): run final US$0,0238, run sebelumnya (dibuang: 1 `client_aborted` yang saat itu dihitung error) US$0,0209, dua run uji 1 task US$0,0061, uji tool-calling curl 64 token ≈ US$0,00001. **Total ≈ US$0,051** dari cap US$3,00.
+
+### GitHub Actions (#7)
+
+Remote `https://github.com/yuldan/damn-bot` (privat; API `GET /repos/yuldan/damn-bot` → `"private": true, "visibility": "private"`). Branch lokal `master` di-push ke `main` tanpa force (`git push origin master:main`). Sebelum push pertama, riwayat dipindai (`git log --all -p`) untuk pola `ghp_`/`github_pat_`/`sk-…`/`AKIA`/kunci privat dan string kredensial asli. Hasilnya 1 hit, yaitu teks regex redaksi di SPEC, bukan rahasia; kredensial asli 0 hit. Kredensial hanya ada di `/tmp/f0-secrets` (600) lewat `GIT_ASKPASS`; URL remote polos.
+
+Run `39109020542` (push `3c98c11`):
+
+| Job | Hasil | Penyebab |
+|---|---|---|
+| lint | success | |
+| size-check | success | |
+| supply-chain (tidy, verify, deps, licenses) | success | |
+| bench-budget | success | |
+| test | failure | S015 `-race`: max tx 283 ms > 200 ms, 3 txn (TS-P08), sama dengan lokal |
+| loc-budget | failure | `LOC GAGAL ctxdb 2610 > 2500` (TS-P10) |
+| vuln | failure | GO-2026-6604 terjangkau (go1.26.8) |
+| meta-test | failure | 11/11 DETECTED; exit 1 karena HEAD_RED (desain skrip) |
+
+Tidak ada kegagalan lingkungan runner; `ci.yml` tidak diubah.
+
 ## Skenario persistence
 
 Semua skenario = subtest `go test ./internal/ctxdb -run 'TestScenario/S0NN'` (DB SQLite temp nyata, jam/proses diinjeksi; proses OS nyata untuk #26, #37, #63, #62, #74, #85). Status = hasil `go test -count=1 ./internal/ctxdb/` @ `0f5f91d` (exit 0).
@@ -436,10 +491,10 @@ Ringkasan: 33 item; 12 menyangkut kode F0 (AF-01..08, V-11, V-13, V-15 dengan te
 
 | Item | Butuh keputusan user |
 |---|---|
-| Smoke LLM 10 task, `bench/h2h` LLM | Kredensial + izin biaya (menunggu user). |
+| Smoke LLM 10 task, `bench/h2h` LLM | Selesai (kredensial diberikan user 2026-10-18; lihat §Smoke LLM). Sisa keputusan: model RC (Q23-RC) untuk run penuh. |
 | S015 di bawah `-race` (TS-P08) | `make test` merah: S015 max txn 210 ms > 200 ms (3 txn) di `ad57fa1`. Batas I11 ≤ 200 ms/txn tak tercapai di bawah `-race` (lantai biaya SQLite modernc terinstrumentasi 175–400 ms per txn bahkan untuk 1 event; tanpa `-race` max 51 ms). Opsi: **(1)** pindahkan gate kinerja (S015, I11, `BenchmarkAppend*`) ke job terpisah tanpa `-race`, semua cek kebenaran tetap di job `-race`; **(2)** terima `make test` merah pada S015. |
 | LOC `ctxdb` (TS-P10) | `make loc` merah: 2.610 LOC non-test > budget E-19 2.500 (`ad57fa1`). Opsi: **(1)** ADR menaikkan budget `ctxdb` ke 3.200; **(2)** pecah paket (mis. `ctxdb/maint` ≈ 700 LOC dengan budget sendiri). |
 | Rasio test:source E-70 (TS-03) | `make loc-ratio` merah: 3.391:2.639 = 1,28 > 1,20. Usulan ADR: E-70 berlaku mulai Go non-test ≥ 5.000 LOC atau akhir F1. |
 | govulncheck GO-2026-6604 (E-44/E-54) | `make vuln` exit 3: `os.Root.MkdirAll`/`Remove`/`RemoveAll`/`Rename`/`OpenFile`/`Stat` di `internal/ctxdb` bisa mengikuti junction keluar root di **Windows**; diperbaiki di go1.26.9. Lokal: go1.26.8, dan ENGINEERING mem-pin 1.26.8. Keputusan: naikkan toolchain ke go1.26.9 (`go.mod` `go`/`toolchain` + teks ENGINEERING) lewat ADR. |
 | Startup prompt-ready / idle RSS hermes (TS-11) | Izinkan pengukuran di netns host (tanpa input = tanpa LLM call), atau tetapkan penanda prompt-ready. |
-| Workflow GitHub Actions | Belum ada remote; `ci.yml` hanya divalidasi lewat Makefile lokal yang sama. |
+| Workflow GitHub Actions | Remote privat `github.com/yuldan/damn-bot`; run Actions pertama jalan. Job merah hanya gate yang sudah merah lokal (test S015, loc, vuln) + meta-test (HEAD_RED, 11/11 DETECTED); tidak ada kegagalan lingkungan runner. |
