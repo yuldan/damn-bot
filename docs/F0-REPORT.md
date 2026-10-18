@@ -327,7 +327,9 @@ Run `39109020542` (push `3c98c11`):
 | vuln | failure | GO-2026-6604 terjangkau (go1.26.8) |
 | meta-test | failure | 11/11 DETECTED; exit 1 karena HEAD_RED (desain skrip) |
 
-Tidak ada kegagalan lingkungan runner; `ci.yml` tidak diubah.
+Tidak ada kegagalan lingkungan runner; `ci.yml` tidak diubah olehku (job `test-timing` ditambah worker adr-gates).
+
+Run `39113299561` (push `2d002c8`, https://github.com/yuldan/damn-bot/actions/runs/39113299561): **success**. Job lint, test, test-timing, size-check, loc-budget, supply-chain, vuln, meta-test, dan bench-budget semuanya success. Merah run pertama hilang lewat ADR-048..061 (go1.26.9, gate timing terpisah, budget LOC); gate tidak dilemahkan, meta-test 12/12.
 
 ## Skenario persistence
 
