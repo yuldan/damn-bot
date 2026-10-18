@@ -136,7 +136,7 @@ func ignoreFiles() [2]string { return [2]string{".gitignore", ".ignore"} }
 // (ADR-103). Missing or unreadable files yield nil.
 func (e *Engine) readSmall(ctx context.Context, p string) []byte {
 	f, v, err := e.sb.OpenFile(ctx, p, os.O_RDONLY, 0)
-	if err == nil && v == sandbox.OutsideRoot {
+	if err == nil && v != sandbox.Inside {
 		f, err = e.sb.OpenApproved(ctx, p, os.O_RDONLY, 0)
 	}
 	if err != nil || f == nil {

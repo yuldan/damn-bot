@@ -329,8 +329,8 @@ func (e *Engine) create(ctx context.Context, a WriteArgs, abs string, o Opts) (R
 		return Result{}, mapOpenErr(a.Path, err)
 	}
 	outside := v != sandbox.Inside
-	if outside && !o.Approved {
-		return Result{}, toolErr(CodeOutsideWorkspace, "paths outside the workspace need approval", "%s is outside the workspace", a.Path)
+	if err := approval(v, a.Path, o.Approved); err != nil {
+		return Result{}, err
 	}
 	if merr := e.mkdirs(ctx, filepath.Dir(resolved), outside); merr != nil {
 		return Result{}, merr
