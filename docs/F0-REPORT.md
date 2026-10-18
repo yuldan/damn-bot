@@ -2,20 +2,52 @@
 
 Format sesuai `docs/HANDOFF-F0.md` §"Laporan pagi". Mesin: workstation (Kali, linux/amd64), **bukan** mesin referensi Q14. Toolchain: `go version go1.26.8 linux/amd64`. Python hermes: `Python 3.14.7` sistem, `HERMES_HOME=/tmp/hm_f0 PYTHONDONTWRITEBYTECODE=1`, hermes `868b9f244f` (2026-10-17 04:38:45 −0700).
 
+## Penutupan F0 (2026-10-18)
+
+**Gate F0 → F1 terpenuhi.** Gate ROADMAP ("review penuh area non-persistence oleh auditor selesai; temuan BLOCKER/MAJOR ditutup lewat ADR") dinyatakan terpenuhi oleh auditor di [`AUDIT-F0-REVERIFY3.md`](AUDIT-F0-REVERIFY3.md) (putaran 4: 10/10 closed, 0 BLOCKER/MAJOR baru, 4 MINOR). Rantai audit: [`AUDIT-F0.md`](AUDIT-F0.md) → [`AUDIT-F0-REVERIFY.md`](AUDIT-F0-REVERIFY.md) → [`AUDIT-F0-REVERIFY2.md`](AUDIT-F0-REVERIFY2.md) → [`AUDIT-F0-REVERIFY3.md`](AUDIT-F0-REVERIFY3.md); pelacak [`AUDIT-F0-RESOLUTION.md`](AUDIT-F0-RESOLUTION.md). MINOR NEW3-01..04 → ADR-092.
+
+Status akhir per deliverable (rincian di §Status):
+
+| # | Deliverable | Status akhir | Sisa berfase (ADR → fase) |
+|---|---|---|---|
+| 1 | `bench/budget` | selesai | `TestFixedOverhead/f1-core` sisi Damn-Bot (ADR-066 → F1) |
+| 2 | `bench/h2h` | selesai untuk F0 | run Damn-Bot 10 task (ADR-062 → F1); oracle/isolasi (ADR-075/085 → F1, prasyarat smoke) |
+| 3 | Eval set E1–E10 | selesai | — |
+| 4 | Baseline hermes tanpa LLM | selesai, pengecualian berfase | 27 dimensi `not_measured` (ADR-065/083 → fase masing-masing); dimensi LLM (ADR-032 → F9) |
+| 5 | `bench/speed` + smoke LLM | selesai | — |
+| 6 | Korpus C1–C3 + baseline | selesai (baseline) | — |
+| 7 | CI skeleton | selesai | runner macOS/Windows, job `perf` (ADR-073/085/090 → F1 #0) |
+| 8 | Persistence spike `ctxdb` | selesai | eksekusi Windows + NEW3-01 (ADR-090/092 → F1 #0); `internal/gateway` (ADR-053 → F4) |
+| 9 | Errata backlog ADR-047 | selesai (38/38 ber-ADR) | AF-01/AF-02 sebelum F4 (ADR-052); item F1+ di ADR-055..063 |
+
+ADR F0: **ADR-048..092** (Accepted 2026-10-18). MINOR berfase: ADR-078/086/091/092. Total biaya LLM F0 (hitungan proxy): smoke/h2h ≈ US$0,051 + TS-11 US$0,0034 = **≈ US$0,054**.
+
+Verifikasi penutupan (workstation, go1.26.9 linux/amd64, HEAD `de6430f`; kode identik dengan `b65b7bc`/`9859015`, hanya dokumen berubah). Log: `/tmp/close_*.log`.
+
+| Perintah | Exit | Ringkasan |
+|---|---:|---|
+| `make lint test` | 0 | lint `0 issues.`; `cmd/damnbot`, `internal/archtest`, `internal/ctxdb` ok (ctxdb 168,6 s, `-race`), 0 data race |
+| `cd bench && go test -count=1 ./...` | 0 | budget, budget/o200k, evals, gencorpus, h2h, speed ok |
+| `make loc loc-ratio` | 0 | `ctxdb 2857 / 3100`; TOTAL 2.886 / 190.000; rasio 3.780:2.886 = 1,31 report-only (ADR-050) |
+
+GitHub Actions: run hijau terakhir sebelum penutupan = `b65b7bc` (laporan pengguna, AUDIT-F0-REVERIFY3). Run untuk HEAD penutupan dicatat di commit berikutnya.
+
+Belum diputuskan dan tanpa ADR (bukan temuan audit, tidak menahan gate): usulan §Temuan spec TS-01, 02, 04, 05, 06, 08, 09, 10, TS-P02..P07, TS-E01..E04.
+
 ## Status
 
 | # | Deliverable F0 (ROADMAP) | Status | Catatan |
 |---|---|---|---|
-| 7 | CI skeleton: lint, test -race, test-timing, size-check, LOC, deps allowlist, tidy, verify, govulncheck, go-licenses, meta-test | selesai (lokal) | Setelah keputusan user (ADR-048..051): **semua gate hijau** di `6ced31d` dan meta-test **12/12 DETECTED** pada baseline HEAD (tanpa fallback scaffold); gate baru `timing` (`make test-timing`, job CI `test-timing`). Rincian §Verifikasi akhir (HEAD `6ced31d`). Run GitHub Actions di §GitHub Actions memakai HEAD lama (`3c98c11`); run untuk HEAD baru belum diamati di laporan ini. |
-| 1 | `bench/budget` (P1, o200k_base offline) | selesai | tokenizer = tiktoken 0.14.0 persis (id token & jumlah); 13/13 angka gate BASELINE dalam ±5%; job CI `bench-budget`. `TestFixedOverhead` sisi Damn-Bot menunggu `internal/assemble` (F1). |
+| 7 | CI skeleton: lint, test -race, test-timing, size-check, LOC, deps allowlist, tidy, verify, govulncheck, go-licenses, meta-test | selesai | Setelah keputusan user (ADR-048..051): semua gate hijau; meta-test **13/13 DETECTED** @ `6866120` (gate `vet-cross` ditambah ADR-073; 12/12 @ `6ced31d`). Gate `timing` (`make test-timing`, job CI `test-timing`); meta-test di `meta.yml` (paths + nightly, ADR-085). GitHub Actions hijau di HEAD penutupan — lihat §Penutupan F0. Ditunda berfase: runner macOS/Windows + job `perf` (ADR-073/085/090, F1 #0). |
+| 1 | `bench/budget` (P1, o200k_base offline) | selesai | tokenizer = tiktoken 0.14.0 persis (id token & jumlah); 13/13 angka gate BASELINE dalam ±5%; job CI `bench-budget`. `TestFixedOverhead` sisi Damn-Bot = acceptance F1 (`f1-core`, ADR-066), karena butuh `internal/assemble`. |
 | 4 | Baseline hermes tanpa LLM (+ startup interaktif dengan LLM) | selesai, dengan pengecualian berfase | Artefak `bench/speed/results/hermes-868b9f244f-nollm.json`. Isinya: overhead token dan schema (#1); startup frame pertama `hermes chat` p50 3.369 ms / p95 3.595 ms; `--version` p50 1.384 ms; RSS CLI median 106,8 MB; install 411,7 MB dan 33,5 s; config minimum 2 baris; 6 langkah setup. TS-11 tertutup lewat `bench/speed/results/hermes-868b9f244f-llm.json` (5 run): prompt-ready p50 15.407 / p95 19.724 ms; idle RSS pohon proses p50 492,9 / p95 495,6 MB; respons pertama p50 7.032 / p95 7.530 ms (gpt-5.4-mini lewat proxy rekam). **Pengecualian (ADR-065/ADR-083):** 27 dimensi tanpa LLM berstatus Fx — termasuk overhead per iterasi, first token, peak RSS, CPU idle, spawn exec, crash/kill -9/self-healing, konkurensi, secret redaction, Token skill per turn, dan waktu install VM bersih — tercantum terbaca mesin di `not_measured` artefak (fase + alasan; `TestNoLLMBaselineCoverage`) dan diukur di acceptance fase masing-masing. Dimensi berbasis LLM = "diukur di RC F9" (ADR-032). |
 | 5 | `bench/speed` + smoke LLM | selesai | Ke-854 baris FEATURE-PARITY terklasifikasi (`TestEveryRowClassified`): **163 terukur**, 674 tidak terukur dengan alasan, 17 dropped. Dari 163 baris terukur, 27 adalah proxy `<cmd> --help`. Artefak: `bench/speed/results/hermes-868b9f244f.json`. Smoke LLM 10 task × 1 run (gpt-5.4-mini): 0 error harness, 10/10 lulus (informatif), US$0,0238 (§Smoke LLM). |
 | 6 | Korpus code tools C1–C3 + baseline `rg`/hermes | selesai (baseline) | `bench/corpora.lock`: C1 = hermes `868b9f24…` (20.076 file, 224,8 MB); C2/C3 sintetis deterministik. rg 15.1.0 (oracle spec) dijalankan pada C1/C2/C3 dengan 40 literal, 40 regex, dan 10 glob × 20 run. Tool hermes di C1: `search_files` 50, `read_file` 10, `patch` 10. Artefak `bench/codetools/results/f0-baseline.json`. Catatan TS-12. |
 | 2 | `bench/h2h` head-to-head berbasis LLM | selesai untuk F0 (ADR-062) | Proxy rekam + runner + grader selesai; run hermes 10 task: **0 error harness**, rekaman lengkap (§Smoke LLM) — memenuhi acceptance F0 smoke LLM untuk hermes (ADR-062). Sisi Damn-Bot pindah ke acceptance F1: run pertama `damnbot run` pada 10 task yang sama lewat `bench/h2h`; cap biaya LLM F1 total US$2,00 (ADR-062). |
 | 3 | Eval set E1–E10 + manifest | selesai | `bench/evals/`: evalset/v1 530 task (E1 160 … E10 100) + `MANIFEST.sha256`; ID SWE-bench Verified & Terminal-Bench di-pin (URL + revisi + SHA-256); `go test ./evals/...` (modul bench) lulus; 60 task coding internal diverifikasi dengan toolchain nyata. |
-| 8 | Persistence spike `internal/ctxdb` | selesai | DDL 0001–0008 (SPEC §11 + errata V-13/V-15, ADR-054), store/mode/lease+fencing/purge 4 fase/gc/trash/journal recovery/barrier/migrasi/restore + 86 subtest `TestScenario/S001..S086`, `TestKill9Chaos`, `TestMultiProcess`: **lulus di `make test` (`-race`) dan `make test-timing`**. S015: budget I11 ditegakkan di `test-timing` (5.000 event, max tx 53 ms, duty 12,1 %); di `-race` semua cek kebenaran jalan pada korpus 100 event (ADR-048). LOC 2.610 / 2.800 (ADR-049). Protokol gateway/approval: lokasi produksi `internal/gateway` (F4), referensi tetap di `_test.go` (ADR-053). GO-2026-6604 tertutup dengan go1.26.9 (ADR-051). |
+| 8 | Persistence spike `internal/ctxdb` | selesai | DDL 0001–0008 (SPEC §11 + errata V-13/V-15, ADR-054), store/mode/lease+fencing/purge 4 fase/gc/trash/journal recovery/barrier/migrasi/restore + 86 subtest `TestScenario/S001..S086`, `TestKill9Chaos`, `TestMultiProcess`: **lulus di `make test` (`-race`) dan `make test-timing`**. S015: budget I11 ditegakkan di `test-timing` (5.000 event, max tx 53 ms, duty 12,1 %); di `-race` semua cek kebenaran jalan pada korpus 100 event (ADR-048). LOC 2.857 / 3.100 (ADR-049 → ADR-087; fairness writer ADR-087 menutup flake `TestMultiProcess`). Lock Windows = LockFileEx (ADR-090; vet/compile/lint windows, eksekusi di runner Windows = F1 #0 bersama NEW3-01/ADR-092). Protokol gateway/approval: lokasi produksi `internal/gateway` (F4), referensi tetap di `_test.go` (ADR-053). GO-2026-6604 tertutup dengan go1.26.9 (ADR-051). |
 | 9 | Errata backlog ADR-047 | selesai | **38/38 item** punya ADR Accepted (dikoreksi ADR-063; klaim lama "33/33" melewatkan 5 MINOR tabel backlog ADR-037, AUD-002): AF-01..AF-08 → ADR-052 (#79–#86 lulus); 18 V-item → ADR-054 (V-13/V-15 diimplementasikan, `TestErrataV13IdentityStrengthRequired`, `TestErrataV15SkillNameNormalised` lulus); V-07, V-09, V-14, V-18, V-23, V-24, V-31 → ADR-055..061 (Accepted 2026-10-18, keputusan user; semuanya cakupan F1+ — F1/F2/F4/F5/F8 — tanpa kode F0 terdampak, jadi tanpa test F0); m-15, N-15, N-24, N-33, V-05 → ADR-063 (N-33: `TestParityPhaseColumn` lulus, ADR-064; lainnya test F1–F7 bernama di ADR-063). AF-01/AF-02 tertutup sebelum F4. Teks ADR-048..063 sudah diterapkan ke SPEC, ROADMAP, SELF-HEALING, TRUST-MODEL, CROSS-CUTTING, ENGINEERING, EXEC-AND-CODING, CODE-TOOLS, SCORECARD, MITIGATION-MATRIX, FEATURE-PARITY (setiap passage mengutip ADR; "Aturan penerapan" tiap ADR mendaftar file). |
-| — | Gate sebelum F1: penutupan [`AUDIT-F0.md`](AUDIT-F0.md) | selesai (ADR) | 6/6 BLOCKER + 36/36 MAJOR ditutup lewat ADR-063..077 (Accepted 2026-10-18, keputusan didelegasikan pemilik proyek: opsi paling konservatif), teks diterapkan ke dokumen sasaran; 41 MINOR → backlog berfase ADR-078 (AUD-080 sudah ditutup ADR-077). Kode/test F0: kolom `fase` + `TestParityPhaseColumn` (AUD-003), test ctxdb lintas OS + `make vet-cross` (AUD-033), `meta.yml` paths + nightly (AUD-034), `test-timing` menjalankan benchmark (AUD-035), ledger cap `bench/h2h` (AUD-037). Ditunda dengan fase: AUD-038/039 (F1, prasyarat smoke), AUD-031/032 + sisa 034/035 (Deliverable F1 #0). Pelacak: [`AUDIT-F0-RESOLUTION.md`](AUDIT-F0-RESOLUTION.md); verifikasi di §Blocker. |
+| — | Gate sebelum F1: penutupan [`AUDIT-F0.md`](AUDIT-F0.md) | **terpenuhi** | 4 putaran audit: [`AUDIT-F0.md`](AUDIT-F0.md) (ADR-063..078), [`AUDIT-F0-REVERIFY.md`](AUDIT-F0-REVERIFY.md) (ADR-079..087), [`AUDIT-F0-REVERIFY2.md`](AUDIT-F0-REVERIFY2.md) (ADR-088..091), [`AUDIT-F0-REVERIFY3.md`](AUDIT-F0-REVERIFY3.md) (verdict: gate terpenuhi; 10/10 closed, 0 BLOCKER/MAJOR baru; 4 MINOR → ADR-092). Semua BLOCKER/MAJOR ditutup lewat ADR Accepted dengan teks terapan. Kode/test F0: kolom `fase` + `TestParityPhaseColumn` (AUD-003), test ctxdb lintas OS + `make vet-cross` (AUD-033), `meta.yml` paths + nightly (AUD-034), `test-timing` menjalankan benchmark (AUD-035), ledger cap `bench/h2h` (AUD-037, NEW-14), LockFileEx Windows (NEW2-05). Ditunda berfase: AUD-038/039 (ADR-075/085, F1 prasyarat smoke), AUD-031/032 + sisa 034/035 + matrix Windows ctxdb (ADR-073/085/090, F1 #0); MINOR → ADR-078/086/091/092 per fase. Pelacak: [`AUDIT-F0-RESOLUTION.md`](AUDIT-F0-RESOLUTION.md). |
 
 ## Verifikasi akhir (HEAD `6ced31d`)
 
@@ -527,15 +559,15 @@ Ringkasan: 33 item; 12 menyangkut kode F0 (AF-01..08, V-11, V-13, V-15 dengan te
 
 | Item | Butuh keputusan user |
 |---|---|
-| Smoke LLM 10 task, `bench/h2h` LLM | **Diputuskan → ADR-062.** Acceptance F0 terpenuhi untuk hermes (run 2026-10-18); sisi Damn-Bot = acceptance F1, cap biaya LLM F1 total US$2,00. Sisa keputusan: model RC (Q23-RC) untuk run penuh. |
+| Smoke LLM 10 task, `bench/h2h` LLM | **Diputuskan → ADR-062.** Acceptance F0 terpenuhi untuk hermes (run 2026-10-18); sisi Damn-Bot = acceptance F1, cap biaya LLM F1 total US$2,00. Model frontier untuk head-to-head penuh (Q23-RC) tetap terbuka sampai RC sesuai ADR-032/033 (F9), tidak menahan F1. |
 | S015 di bawah `-race` (TS-P08) | **Diputuskan → ADR-048.** Budget waktu dinding di `make test-timing` (tanpa `-race`, job CI `test-timing`); `make test` memeriksa semua invarian kebenaran. Kedua gate hijau di `6ced31d`. |
-| LOC `ctxdb` (TS-P10) | **Diputuskan → ADR-049.** Budget 2.800 (total core 31.450 ≤ 47.000); terukur 2.610. |
-| Rasio test:source E-70 (TS-03) | **Diputuskan → ADR-050.** Gate mulai Go non-test ≥ 5.000 LOC; di bawahnya report-only (saat ini 2.639 LOC, rasio 1,31). Meta-test membuktikan gate gagal di atas ambang. |
+| LOC `ctxdb` (TS-P10) | **Diputuskan → ADR-049, diamandemen ADR-087.** Budget 3.100 (awal 2.800); terukur 2.857 (@ `b65b7bc`, AUDIT-F0-REVERIFY3). |
+| Rasio test:source E-70 (TS-03) | **Diputuskan → ADR-050.** Gate mulai Go non-test ≥ 5.000 LOC; di bawahnya report-only (saat penutupan 2.886 LOC, rasio 3.780:2.886 = 1,31). Meta-test membuktikan gate gagal di atas ambang. |
 | govulncheck GO-2026-6604 (E-44/E-54) | **Diputuskan → ADR-051.** `go 1.26.9` di ketiga `go.mod`; `make vuln` = 0 vuln. |
 | Protokol gateway/approval (TS-P09) | **Diputuskan → ADR-053.** Logika di `internal/gateway` (F4); `ctxdb` primitif storage; referensi tetap test-only sampai F4. |
 | Startup prompt-ready / idle RSS hermes (TS-11) | Selesai (lihat TS-11). |
-| Workflow GitHub Actions | Remote privat `github.com/yuldan/damn-bot`. Run `39113299561` @ `2d002c8` hijau semua (§GitHub Actions). |
-| Penutupan AUDIT-F0 (gate sebelum F1) | **Diputuskan → ADR-063..078** (delegasi pemilik proyek: opsi paling konservatif/aman, dalam budget SPEC §3.2.4/P1/P13/P21, tanpa dependency baru). Tidak ada BLOCKER/MAJOR tanpa ADR. Sisa kerja berfase tercatat di ADR-073 (Deliverable F1 #0), ADR-075 (prasyarat smoke F1), ADR-078 (MINOR). Verifikasi di bawah. |
+| Workflow GitHub Actions | Remote privat `github.com/yuldan/damn-bot`. Run `39113299561` @ `2d002c8` hijau semua (§GitHub Actions); run terakhir di HEAD penutupan: §Penutupan F0. |
+| Penutupan AUDIT-F0 (gate sebelum F1) | **Diputuskan → ADR-063..078** (delegasi pemilik proyek: opsi paling konservatif/aman, dalam budget SPEC §3.2.4/P1/P13/P21, tanpa dependency baru), lalu putaran 2–4 di bawah. **Gate terpenuhi** ([`AUDIT-F0-REVERIFY3.md`](AUDIT-F0-REVERIFY3.md)). Sisa kerja berfase: ADR-073/085/090 (Deliverable F1 #0), ADR-075/085 (prasyarat smoke F1), ADR-078/086/091/092 (MINOR per fase). Verifikasi di bawah. |
 
 Verifikasi penutupan AUDIT-F0 (2026-10-18, workstation, go1.26.9 linux/amd64). Target `make` dijalankan di HEAD `03e432e`; `make lint` gagal di sana (gocognit 28 pada `TestParityPhaseColumn` baru), diperbaiki di `6866120` (hanya file test itu berubah) lalu diulang. Meta-test dijalankan atas `git archive` HEAD `6866120`. Modul `bench` tidak berubah sejak `4cf5b9e`; diuji di `a88680e`. Log: `/tmp/aud_*.log`.
 
@@ -564,6 +596,8 @@ Verifikasi penutupan AUDIT-F0 (2026-10-18, workstation, go1.26.9 linux/amd64). T
 |---|---|
 | Putaran 2 — [`AUDIT-F0-REVERIFY.md`](AUDIT-F0-REVERIFY.md) | **Diputuskan → ADR-079..087** (model shell ADR-079 = keputusan direktur: shell tidak pernah di-auto-approve classifier, auto hanya `shell_allow` argv-persis / headless `--unsafe-auto-shell`). 16 partial + NEW-01/02 + NEW-03..20 punya ADR dan teks terapan; MINOR → ADR-086. Pelacak: [`AUDIT-F0-RESOLUTION.md`](AUDIT-F0-RESOLUTION.md). |
 | Flake `TestMultiProcess` (Actions run 39117760522, "child multi exited before READY") | **Diperbaiki → ADR-087.** Akar: handler busy SQLite tidak adil; pada lock tulis jenuh (fsync lambat) writer baru menunggu > `busy_timeout` 5 s → `db_busy` di `Open`. Reproduksi lokal dengan fsync +30 ms (`strace -e inject`): tanpa fix 2/9 run gagal (`db_busy` setelah 5,06–5,07 s), dengan fairness writer (`run/writer.wait` + yield 150 ms) 0/11. |
+| Putaran 3 — [`AUDIT-F0-REVERIFY2.md`](AUDIT-F0-REVERIFY2.md) | **Diputuskan → ADR-088..091** (delegasi). NEW2-01..06 (MAJOR) + partial AUD-020/NEW-05/NEW-10/NEW-15 punya ADR dan teks terapan; LockFileEx Windows diimplementasikan (`962c065`); MINOR NEW2-07..27 → ADR-091. |
+| Putaran 4 — [`AUDIT-F0-REVERIFY3.md`](AUDIT-F0-REVERIFY3.md) | **Selesai.** 10/10 closed, 0 BLOCKER/MAJOR baru, gate F0 → F1 terpenuhi. MINOR NEW3-01..04 → ADR-092 (F1 #0, F1 sebelum `internal/exec`, F5). |
 
 Verifikasi putaran 2 (2026-10-18, workstation, go1.26.9 linux/amd64). Target `make` di HEAD `b0c9b85`; modul `bench` diulang di `e284d5a` (hanya `bench/h2h/ledger_test.go` berubah: tunggu record proxy sebelum `End`). Meta-test tidak diulang lokal; workflow `meta` CI menjalankannya karena `.github/**`/`Makefile` berubah. Log: `/tmp/r2_*.log`.
 
