@@ -323,8 +323,8 @@ Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2
 | `schema` | 1.200 | `budget` (storage di `ctxdb/ledgerstore`, ADR-074) | 400 |
 | `tools` | 1.800 | `heal` | 1.500 |
 | `codetools` | 4.500 | `config` | 1.200 |
-| `exec` (unix + windows; ADR-081) | 3.500 | `modules` + `modules/host` | 1.000 |
-| `exec/classify` (label risiko + `shell_allow` argv-persis, ADR-081) | 1.500 | | |
+| `exec` (unix + windows; ADR-081, ADR-106) | 3.400 | `modules` + `modules/host` | 1.000 |
+| `exec/classify` (label risiko + `shell_allow` argv-persis, ADR-081, ADR-106) | 1.600 | | |
 | `sandbox` + `redact` (ADR-097) | 1.450 | `hooks` | 700 |
 | `boundary` | 150 | `i18n` (Go) | 300 |
 | `ctxdb/ledgerstore` (F1, ADR-074) | 300 | `ctxdb/memstore` (F2, ADR-074) | 600 |
