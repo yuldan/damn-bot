@@ -63,38 +63,50 @@ func parseDoc(raw []byte) (*doc, *ToolError) {
 	var b strings.Builder
 	b.Grow(len(view))
 	for _, l := range splitLines(view) {
-		dl := docLine{content: string(l)}
+		var dl docLine
 		switch {
 		case bytes.HasSuffix(l, []byte("\r\n")):
-			dl.content, dl.eol = dl.content[:len(l)-2], "\r\n"
+			l, dl.eol = l[:len(l)-2], "\r\n"
 		case bytes.HasSuffix(l, []byte("\n")):
-			dl.content, dl.eol = dl.content[:len(l)-1], "\n"
+			l, dl.eol = l[:len(l)-1], "\n"
 		}
 		d.start = append(d.start, b.Len())
 		d.lines = append(d.lines, dl)
-		b.WriteString(dl.content)
+		b.Write(l)
 		if dl.eol != "" {
 			b.WriteByte('\n')
 		}
 	}
 	d.text = b.String()
 	d.start = append(d.start, len(d.text))
+	// Line contents are substrings of text (one allocation, not one per line).
+	for i := range d.lines {
+		if end := d.start[i+1]; d.lines[i].eol == "" {
+			d.lines[i].content = d.text[d.start[i]:end]
+		} else {
+			d.lines[i].content = d.text[d.start[i] : end-1]
+		}
+	}
 	return d, nil
 }
 
 // render encodes lines back to file bytes (BOM, UTF-16 restored).
 func (d *doc) render(lines []docLine) ([]byte, bool) {
 	var b bytes.Buffer
+	b.Grow(len(d.enc.bom()) + len(d.text) + len(lines))
+	if d.enc.enc == EncUTF8 {
+		b.WriteString(d.enc.bom())
+	}
 	for _, l := range lines {
 		b.WriteString(l.content)
 		b.WriteString(l.eol)
 	}
-	out := b.Bytes()
-	if d.enc.enc != EncUTF8 {
-		var ok bool
-		if out, ok = encodeUTF16(out, d.enc.enc == EncUTF16BE); !ok {
-			return nil, false
-		}
+	if d.enc.enc == EncUTF8 {
+		return b.Bytes(), true
+	}
+	out, ok := encodeUTF16(b.Bytes(), d.enc.enc == EncUTF16BE)
+	if !ok {
+		return nil, false
 	}
 	return append([]byte(d.enc.bom()), out...), true
 }

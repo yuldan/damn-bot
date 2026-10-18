@@ -33,10 +33,12 @@ func copyOwner(src, dst *os.File) bool {
 	return unix.Fchown(int(dst.Fd()), int(a.Uid), int(a.Gid)) == nil
 }
 
-// renameReplace atomically replaces dst with src.
+// renameReplace atomically replaces dst with src: rename(2) directly,
+// without the Lstat os.Rename adds to refuse a directory dst (rename(2)
+// itself fails for a file over a directory).
 func renameReplace(src, dst string) error {
-	if err := os.Rename(src, dst); err != nil {
-		return fmt.Errorf("codetools: rename: %w", err)
+	if err := unix.Rename(src, dst); err != nil {
+		return fmt.Errorf("codetools: rename: %w", &os.LinkError{Op: "rename", Old: src, New: dst, Err: err})
 	}
 	return nil
 }

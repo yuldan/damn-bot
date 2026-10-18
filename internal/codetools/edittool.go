@@ -54,8 +54,9 @@ func (e *Engine) pathLock(ctx context.Context, p string) func() {
 	key := e.abs(p)
 	if v, r, err := e.sb.Check(ctx, key, sandbox.OpRead); err == nil {
 		key = r
-		if fi, serr := os.Stat(r); v == sandbox.HardLinked && serr == nil {
-			if k := keyOf(r, fi); k.ino != 0 {
+		if v == sandbox.HardLinked {
+			if fi, serr := os.Stat(r); serr == nil && keyOf(r, fi).ino != 0 {
+				k := keyOf(r, fi)
 				key = fmt.Sprintf("\x00%d:%d:%d", k.dev, k.sdev, k.ino)
 			}
 		}

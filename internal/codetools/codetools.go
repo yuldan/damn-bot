@@ -273,18 +273,14 @@ func approval(v sandbox.Verdict, p string, approved bool) error {
 
 // open opens a tool path through the sandbox (CODE-TOOLS §8). A verdict
 // other than Inside needs o.Approved (else outside_workspace); deny_paths
-// is denied_path.
+// is denied_path. The sandbox names the handle by the resolved path it
+// opened, so no second Check resolves it again.
 func (e *Engine) open(ctx context.Context, p string, flag int, perm fs.FileMode, o Opts) (*target, error) {
-	abs := e.abs(p)
-	f, v, err := e.openPath(ctx, abs, p, flag, perm, o.Approved)
+	f, v, err := e.openPath(ctx, e.abs(p), p, flag, perm, o.Approved)
 	if err != nil {
 		return nil, err
 	}
-	resolved := f.Name()
-	if _, r, cerr := e.sb.Check(ctx, abs, sandbox.OpRead); cerr == nil {
-		resolved = r
-	}
-	return &target{f: f, resolved: resolved, rel: e.rel(resolved), outside: v != sandbox.Inside}, nil
+	return &target{f: f, resolved: f.Name(), rel: e.rel(f.Name()), outside: v != sandbox.Inside}, nil
 }
 
 // openPath opens abs (shown as p in errors) through the sandbox; a verdict

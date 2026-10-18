@@ -281,10 +281,12 @@ func (e *Engine) unchanged(t *target, before fileKey) error {
 	return nil
 }
 
-// hashFill runs fill into w through a buffer while hashing the bytes.
+// hashFill runs fill into w through a 64 KiB buffer while hashing the
+// bytes (a larger one costs more to allocate and zero than it saves in
+// writes, ADR-103).
 func hashFill(w io.Writer, fill func(io.Writer) error, ci *commitInfo) error {
 	h := sha256.New()
-	bw := bufio.NewWriterSize(io.MultiWriter(w, h), 1<<20)
+	bw := bufio.NewWriterSize(io.MultiWriter(w, h), 64<<10)
 	if err := fill(bw); err != nil {
 		return err
 	}
