@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/testutil/timing"
 )
 
 // TestCloseCheckpointDoesNotBlockWriters reproduces the TestMultiProcess
@@ -39,5 +41,5 @@ func TestCloseCheckpointDoesNotBlockWriters(t *testing.T) {
 		must(t, err)
 		worst = max(worst, time.Since(start))
 	}
-	checkBudget(t, "writer blocked by a closing process", worst, 500*time.Millisecond)
+	timing.Check(t, "writer blocked by a closing process", worst, 500*time.Millisecond)
 }

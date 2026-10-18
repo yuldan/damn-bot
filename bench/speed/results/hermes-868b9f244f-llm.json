@@ -20,7 +20,7 @@
   },
   "prompt_ready": "output PTY (ANSI dibuang) pertama kali cocok ready_re = Welcome to Hermes Agent[\\s\\S]*❯; consent telemetry di-seed 'No thanks' sebelum run (setup)",
   "query": "Reply with the word pong written in uppercase letters.",
-  "recording": "h2h/results/2026-10-18/ts11.proxy.jsonl.gz",
+  "recording": "h2h/results/ts11/2026-10-18.proxy.jsonl.gz",
   "upstream": "https://api.teamorouter.com",
   "wall_s": 205.757617356
  },

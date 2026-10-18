@@ -1,0 +1,9 @@
+# AUD-070: action dipin SHA; Dependabot memperbarui SHA + komentar versi lewat PR.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci

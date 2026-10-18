@@ -25,10 +25,11 @@ env:
 jobs:
   meta-test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Berkas gate berubah?
         id: gate
@@ -37,8 +38,9 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.sha }}
         run: |
-          # Path pendefinisi gate (ADR-085 butir 1).
-          re='^(Makefile|scripts/|\.github/|\.golangci\.yml|loc\.budget|deps\.allow|deps\.mpl|go\.mod|go\.sum|tools/go\.(mod|sum)|internal/archtest/|internal/testutil/|internal/metaviolation/|internal/analyzers/|internal/ctxdb/timing_test\.go|internal/ctxdb/race_[^/]*_test\.go)'
+          # Path pendefinisi gate (ADR-085 butir 1; ADR-094: analyzer di tools/analyzers, helper timing di
+          # internal/testutil, daftar pengecualian spec-guard).
+          re='^(Makefile|scripts/|\.github/|\.golangci\.yml|loc\.budget|deps\.allow|deps\.mpl|go\.mod|go\.sum|tools/|internal/archtest/|internal/testutil/|internal/metaviolation/|testdata/docs_exclusions\.txt)'
           if [ "$EVENT" = schedule ] || [ "$EVENT" = workflow_dispatch ]; then
             echo "run=true" >>"$GITHUB_OUTPUT"; exit 0
           fi
@@ -54,11 +56,12 @@ jobs:
             echo "run=false" >>"$GITHUB_OUTPUT"
           fi
       - if: steps.gate.outputs.run == 'true'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache-dependency-path: |
             go.sum
             tools/go.sum
+            bench/go.sum
       - if: steps.gate.outputs.run == 'true'
         run: make meta-test

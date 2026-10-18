@@ -104,10 +104,12 @@ Daftar target rilis kanonik = ENGINEERING E-39 (8 target, `CGO_ENABLED=0 -tags g
 
 | Target | Arch | CI | Catatan |
 |---|---|---|---|
-| Linux | amd64, arm64, arm (armv7) | build + unit + DB + exec + perf (amd64); arm: build + unit di QEMU | static, musl tidak diperlukan |
-| macOS | arm64, amd64 | unit + DB + exec | launchd |
-| Windows | amd64, arm64 | unit + DB + exec (ConPTY, Job Object) | Windows Service / Task Scheduler |
+| Linux | amd64, arm64, arm (armv7) | amd64/arm64: build + unit + DB + exec + ACP + headless (runner); perf (amd64); arm: build + unit di QEMU | static, musl tidak diperlukan |
+| macOS | arm64, amd64 | build + unit + DB + exec + ACP + headless (runner) | launchd |
+| Windows | amd64, arm64 | build + unit + DB + exec (ConPTY, Job Object) + ACP + headless (runner; arm64 tanpa `-race`, ADR-094) | Windows Service / Task Scheduler |
 | Android (Termux) | arm64 | build + unit di QEMU + smoke | parity OPS-031 |
+
+Sama dengan SPEC §16 baris "OS matrix" (AUD-057): 6 target berrunner menjalankan suite yang sama (`make test`, job matrix `test`, Deliverable F1 #0); ACP dan headless ikut suite itu begitu paketnya ada (F1/F3).
 
 Target perangkat lemah (Raspberry Pi 4, 4 GB): startup ≤ 300 ms, RSS idle TUI ≤ 40 MB, CPU idle `serve` (web + 3 adapter + cron) ≤ 2%, overhead iterasi p95 ≤ 60 ms. Verifikasi: job `perf-arm` (nightly, runner ARM fisik/QEMU dengan koreksi).
 

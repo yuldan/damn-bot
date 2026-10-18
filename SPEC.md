@@ -2829,7 +2829,7 @@ Replay sesi langkah demi langkah, model racing opt-in, Telegram Mini App, sinkro
 | Dampak scorecard/mitigasi | Baris SCORECARD & MITIGATION-MATRIX yang berubah |
 | Migrasi | Migrasi DB/config bila ada (§11.1) |
 
-- PR yang mengubah file spec tanpa ADR baru yang dirujuk = ditolak CI (`spec-guard`: diff pada `SPEC.md`/`docs/*.md` selain typo wajib menyertakan `ADR-NNN` di deskripsi PR dan file DECISIONS.md berubah).
+- PR yang mengubah file spec tanpa ADR baru yang dirujuk = ditolak CI (`spec-guard`, job `pr-meta`: diff pada `SPEC.md`/`docs/*.md` wajib menyertakan `ADR-NNN` di deskripsi PR dan file DECISIONS.md berubah). Satu-satunya pengecualian perbaikan typo: label `spec-typo` + ≥ 1 approver. Laporan (`docs/F*-REPORT.md`, `docs/AUDIT-*.md`, `docs/HANDOFF-*.md`) dan dokumen historis seluruh-file dikecualikan lewat entri `testdata/docs_exclusions.txt` (ADR-078 AUD-056, ADR-094).
 - Perubahan default perilaku di kode tanpa ADR juga ditolak (template PR + check config default golden).
 
 ---

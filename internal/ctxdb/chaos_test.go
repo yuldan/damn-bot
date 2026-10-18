@@ -158,15 +158,18 @@ func startChild(t *testing.T, role, dir string) *child {
 }
 
 // kill9 SIGKILLs the child and reaps it; "already finished" and the
-// "signal: killed" exit status are the expected outcomes.
+// "signal: killed" exit status are the expected outcomes. A kill error is
+// only real if the child is still running afterwards: Windows reports a
+// child that exited on its own (TerminateProcess → "Access is denied") or
+// was already reaped ("invalid argument") as an error.
 func (c *child) kill9(t *testing.T) {
 	t.Helper()
-	if err := c.cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		t.Fatal(err)
-	}
+	kerr := c.cmd.Process.Kill()
 	var ee *exec.ExitError
-	if err := c.cmd.Wait(); err != nil && !errors.As(err, &ee) && !strings.Contains(err.Error(), "Wait was already called") {
-		t.Fatal(err)
+	werr := c.cmd.Wait()
+	reaped := werr == nil || errors.As(werr, &ee) || strings.Contains(werr.Error(), "Wait was already called")
+	if !reaped {
+		t.Fatal(errors.Join(kerr, werr))
 	}
 }
 
@@ -300,9 +303,9 @@ func rawIntegrity(t *testing.T, dir, tag string) string {
 	must(t, os.CopyFS(dst, os.DirFS(dir))) // whole data dir: db, -wal, -shm, blobs, run/
 	d := &sqlite.Driver{}
 	db := sql.OpenDB(connector{d: d, dsn: "file:" + filepath.Join(dst, dbFile)})
-	defer func() { must(t, db.Close()) }()
 	var res string
-	must(t, db.QueryRowContext(context.Background(), "PRAGMA integrity_check").Scan(&res))
+	qerr := db.QueryRowContext(context.Background(), "PRAGMA integrity_check").Scan(&res)
+	must(t, errors.Join(qerr, db.Close())) // closed before removal: Windows cannot delete an open DB
 	if res == "ok" {
 		must(t, os.RemoveAll(dst)) // keep the copy only as evidence of a failure
 	}

@@ -37,5 +37,15 @@ func tryLock(root *os.Root, name string, exclusive bool) (*os.File, error) {
 	return f, nil
 }
 
-// unlockFile releases a lock taken by tryLock (closing the handle unlocks).
-func unlockFile(f *os.File) error { return wrap(f.Close()) }
+// unlockFile releases a lock taken by tryLock. Windows frees the lock of a
+// closed handle only "when system resources permit", so the byte range is
+// unlocked explicitly before Close (ADR-092 NEW3-01): a waiter's next
+// LockFileEx sees the lock free immediately.
+func unlockFile(f *os.File) error {
+	var ol windows.Overlapped // same range as tryLock: byte 0, length 1
+	uerr := windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, &ol)
+	if uerr != nil {
+		uerr = fmt.Errorf("ctxdb: unlock: %w", uerr)
+	}
+	return errors.Join(uerr, wrap(f.Close()))
+}

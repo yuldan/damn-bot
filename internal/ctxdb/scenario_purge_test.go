@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/testutil/timing"
 )
 
 func purgeScenarios() []scenario {
@@ -42,7 +44,7 @@ func s002(t *testing.T) {
 	a, b := e.open(1, "tui"), e.open(2, "serve")
 	session(t, a, "S", "")
 	e.clk.Advance(11 * time.Second)
-	takeOverB(t, e, b, "S")
+	takeOverB(t, e, b)
 	must(t, b.ReleaseLease(context.Background(), "S"))
 	purgePhase0(t, b, "S")
 	n0 := count(t, b, "SELECT count(*) FROM events")
@@ -266,7 +268,7 @@ func streamWriter(s *Store, sid string) func() error {
 // (ADR-048); every correctness invariant is checked in every build.
 func s015(t *testing.T) {
 	e := newEnv(t)
-	enforce := timingEnforced(t)
+	enforce := timing.Enforced(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var mu sync.Mutex
@@ -299,7 +301,7 @@ func s015(t *testing.T) {
 	// transactions against the live writer — and checks the same correctness
 	// invariants; the full corpus and its budgets run in `make test-timing`.
 	batches, perBatch := 10, 500 // 5 000 events
-	if raceEnabled {
+	if timing.RaceEnabled {
 		batches, perBatch = 1, 100
 	}
 	evs := make([]Event, perBatch)
@@ -321,8 +323,8 @@ func s015(t *testing.T) {
 	busy := stopWriter()
 	t.Logf("max tx %v, min gap %v, txns over 200 ms: %d", maxHeld, minGap, overBudget)
 	must(t, busy) // writers are never starved by the purge (yield ≥ busy-handler backoff)
-	checkBudget(t, "I11 purge tx", maxHeld, 200*time.Millisecond)
-	checkBudget(t, "I11 lock duty (20 % of purge wall time)", held, total/5)
+	timing.Check(t, "I11 purge tx", maxHeld, 200*time.Millisecond)
+	timing.Check(t, "I11 lock duty (20 % of purge wall time)", held, total/5)
 	must(t, err)
 	must(t, p.get(context.Background(), "PRAGMA schema_version", nil, &sv1))
 	if sv0 != sv1 {

@@ -79,20 +79,22 @@ func TestPlatformNAList(t *testing.T) {
 	}
 }
 
-// acquireBg acquires a lease as a background scanner (takeover case (b) allowed).
-func acquireBg(s *Store, sid string) (tok int64, err error) {
-	err = s.Write(context.Background(), func(t *Tx) error { tok, err = t.AcquireLease(sid, true); return err })
+// acquireBg acquires the lease of session "S" as a background scanner
+// (takeover case (b) allowed).
+func acquireBg(s *Store) (tok int64, err error) {
+	err = s.Write(context.Background(), func(t *Tx) error { tok, err = t.AcquireLease("S", true); return err })
 	return tok, err
 }
 
-// takeOverB performs the two-observation takeover (owner still present).
-func takeOverB(t *testing.T, e *env, s *Store, sid string) int64 {
+// takeOverB performs the two-observation takeover of session "S" (owner
+// still present). Every scenario names the taken-over session "S".
+func takeOverB(t *testing.T, e *env, s *Store) int64 {
 	t.Helper()
-	if _, err := acquireBg(s, sid); err == nil {
+	if _, err := acquireBg(s); err == nil {
 		t.Fatal("takeover on first observation")
 	}
 	e.clk.Advance(observeGap * time.Millisecond)
-	tok, err := acquireBg(s, sid)
+	tok, err := acquireBg(s)
 	must(t, err)
 	return tok
 }
@@ -144,7 +146,7 @@ func s001(t *testing.T) {
 	session(t, a, "S", "")
 	must(t, a.Write(context.Background(), func(tx *Tx) error { return tx.StartTurn("S", "T1") }))
 	e.clk.Advance(11 * time.Second) // A stopped: no heartbeat
-	tok := takeOverB(t, e, b, "S")
+	tok := takeOverB(t, e, b)
 	before := count(t, b, "SELECT count(*) FROM events WHERE session_id = 'S'")
 	wantErr(t, a.Heartbeat(context.Background(), "S"), ErrLeaseFenced)
 	_, err := a.Append(context.Background(), "S", nil, Event{Kind: "assistant_message", Content: "late"})
@@ -165,15 +167,15 @@ func s003(t *testing.T) {
 	session(t, a, "S", "")
 	for _, d := range []time.Duration{time.Hour, -time.Hour} {
 		e.clk.StepWall(d)
-		_, err := acquireBg(b, "S")
+		_, err := acquireBg(b)
 		wantErr(t, err, ErrSessionBusy)
 	}
 	e.clk.Suspend(10 * time.Minute) // all leases look expired at wake-up
-	_, err := acquireBg(b, "S")     // first observation only
+	_, err := acquireBg(b)          // first observation only
 	wantErr(t, err, ErrSessionBusy)
 	must(t, a.Heartbeat(context.Background(), "S")) // owner heartbeats within 2 s of waking
 	e.clk.Advance(3 * time.Second)
-	_, err = acquireBg(b, "S")
+	_, err = acquireBg(b)
 	wantErr(t, err, ErrSessionBusy)
 	must(t, a.CheckLease(context.Background(), "S"))
 }
@@ -240,7 +242,7 @@ func s023(t *testing.T) {
 	e.clk.Advance(11 * time.Second)
 	_, err := b.AcquireLease(context.Background(), "S") // synchronous path: case (a) only
 	wantErr(t, err, ErrSessionBusy)
-	takeOverB(t, e, b, "S")
+	takeOverB(t, e, b)
 }
 
 // #27: wall step on any OS, then a second process starts → lease intact.
@@ -348,12 +350,12 @@ func s046(t *testing.T) {
 	session(t, a, "S", "")
 	e.clk.Suspend(30 * time.Minute)
 	for range 3 { // scanner keeps observing before the owner heartbeats
-		_, err := acquireBg(b, "S")
+		_, err := acquireBg(b)
 		wantErr(t, err, ErrSessionBusy)
 	}
 	must(t, a.Heartbeat(context.Background(), "S"))
 	e.clk.Advance(5 * time.Second)
-	_, err := acquireBg(b, "S")
+	_, err := acquireBg(b)
 	wantErr(t, err, ErrSessionBusy)
 }
 
@@ -365,7 +367,7 @@ func s056(t *testing.T) {
 	session(t, a, "S", "")
 	must(t, a.Suspend())
 	e.clk.Advance(15 * time.Second)
-	takeOverB(t, e, b, "S")
+	takeOverB(t, e, b)
 	wantErr(t, a.CheckLease(context.Background(), "S"), ErrLeaseFenced) // SIGCONT: reattach, then the check point fails
 	_, err := a.Append(context.Background(), "S", nil, Event{Kind: "assistant_message"})
 	wantErr(t, err, ErrLeaseFenced)

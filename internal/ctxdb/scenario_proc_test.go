@@ -92,21 +92,21 @@ func resumeToolGroup(s *Store, sid string, pgid int) error {
 func s062(t *testing.T) {
 	e := newEnv(t)
 	tui, srv := e.open(1, "tui"), e.open(2, "serve")
-	for _, sid := range []string{"A", "B"} {
+	for _, sid := range []string{"A", "S"} {
 		session(t, tui, sid, "")
 	}
 	_, pgA, _ := spawnGroup(t, "sleep 300")
-	_, pgB, _ := spawnGroup(t, "sleep 300")
+	_, pgS, _ := spawnGroup(t, "sleep 300")
 	must(t, tui.Suspend())
-	for _, pg := range []int{pgA, pgB} {
+	for _, pg := range []int{pgA, pgS} {
 		must(t, syscall.Kill(-pg, syscall.SIGSTOP))
 	}
 	e.clk.Advance(15 * time.Second)
-	takeOverB(t, e, srv, "B")
+	takeOverB(t, e, srv) // serve takes over S; A keeps its lease
 	must(t, tui.Heartbeat(context.Background(), "A"))
 	must(t, resumeToolGroup(tui, "A", pgA))
-	wantErr(t, resumeToolGroup(tui, "B", pgB), ErrLeaseFenced)
-	waitGroupGone(t, pgB)
+	wantErr(t, resumeToolGroup(tui, "S", pgS), ErrLeaseFenced)
+	waitGroupGone(t, pgS)
 	if st := procState(pgA); st == "T" || st == "" {
 		t.Fatalf("group A state %q, want running", st)
 	}

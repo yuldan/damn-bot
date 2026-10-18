@@ -65,13 +65,16 @@ func markerPresent(root *os.Root) bool {
 }
 
 // MaintenancePending reports a maintenance marker: adapters that cannot
-// write spool instead (§11.11.7 spool rule).
+// write spool instead (§11.11.7 spool rule). The root is closed on every
+// path: a leaked directory handle blocks deleting/renaming the data dir on
+// Windows (and leaks one fd per call elsewhere).
 func MaintenancePending(dir string) bool {
 	r, err := os.OpenRoot(dir)
 	if err != nil {
 		return false
 	}
-	return markerPresent(r) && r.Close() == nil
+	present := markerPresent(r)
+	return r.Close() == nil && present
 }
 
 // Barrier is held by the maintenance owner (restore, auto-restore, migrate).

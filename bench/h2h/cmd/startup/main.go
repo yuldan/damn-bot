@@ -6,7 +6,7 @@
 //
 //	cd bench && go run ./h2h/cmd/startup -hermes ~/Dokumen/hermes-agent -key-file /tmp/f0-secrets/llm_key \
 //	    -upstream https://api.teamorouter.com -model gpt-5.4-mini -runs 5 \
-//	    -out speed/results/hermes-868b9f244f-llm.json -rec h2h/results/2026-10-18/ts11.proxy.jsonl.gz
+//	    -out speed/results/hermes-868b9f244f-llm.json -rec h2h/results/ts11/2026-10-18.proxy.jsonl.gz
 package main
 
 import (

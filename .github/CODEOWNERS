@@ -1,0 +1,14 @@
+# CODEOWNERS (ENGINEERING §7.2 E-79): setiap direktori internal/* dan cmd/* wajib punya baris
+# eksplisit sendiri (fallback `*` tidak dihitung), diverifikasi TestCodeownersComplete.
+# Baris terakhir yang cocok menang (semantik GitHub).
+* @yuldan
+
+/.github/ @yuldan
+/scripts/ @yuldan
+/docs/ @yuldan
+
+/cmd/damnbot/ @yuldan
+
+/internal/archtest/ @yuldan
+/internal/ctxdb/ @yuldan
+/internal/testutil/ @yuldan
