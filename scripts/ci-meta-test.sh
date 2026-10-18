@@ -9,7 +9,7 @@ set -uo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d /tmp/damnbot-meta.XXXXXX)
 trap 'rm -rf "$work"' EXIT
-GATES=(lint test race size-check loc loc-ratio deps-check vuln licenses)
+GATES=(lint test race size-check loc loc-ratio deps-check vuln licenses tidy-check mod-verify)
 [[ $# -gt 0 ]] && GATES=("$@")
 
 # fresh <dir>: ekspor HEAD (bukan worktree) agar hasil deterministik dan sama dengan CI.
@@ -33,6 +33,31 @@ marker() {
 	deps-check) echo 'tidak ada di deps.allow' ;;
 	vuln) echo 'GO-[0-9]{4}-[0-9]+' ;;
 	licenses) echo 'GPL' ;;
+	tidy-check) echo 'BurntSushi/toml' ;;
+	mod-verify) echo 'has been modified' ;;
+	esac
+}
+
+# prepare: penyiapan yang dipakai baseline DAN salinan pelanggaran (tidak melemahkan gate).
+# loc-ratio: rasio repo nyata sedang merah (TS-03), jadi gate diuji pada pohon sintetis
+# dengan rasio test:source = 1,00 (100:100) — baseline harus lulus, +2.000 baris test harus gagal.
+prepare() { # <gate> <dir>
+	local d=$2
+	case $1 in
+	loc-ratio)
+		find "$d/cmd" "$d/internal" -name '*.go' -delete
+		mkdir -p "$d/internal/metaratio"
+		{
+			printf 'package metaratio\n\n// F = 100 baris kode.\nfunc F() int {\n\tx := 0\n'
+			for _ in $(seq 96); do printf '\tx++\n'; done
+			printf '\treturn x\n}\n'
+		} >"$d/internal/metaratio/a.go"
+		{
+			printf 'package metaratio\n\nimport "testing"\n\nfunc TestF(t *testing.T) {\n\tx := 0\n'
+			for _ in $(seq 93); do printf '\tx++\n'; done
+			printf '\tif F() != 96 {\n\t\tt.Fatal(x)\n\t}\n}\n'
+		} >"$d/internal/metaratio/a_test.go"
+		;;
 	esac
 }
 
@@ -103,10 +128,10 @@ EOF
 		;;
 	loc-ratio)
 		{
-			printf 'package main\n\nimport "testing"\n\nfunc TestMetaRatio(t *testing.T) {\n\tx := 0\n'
+			printf 'package metaratio\n\nimport "testing"\n\nfunc TestMetaRatio(t *testing.T) {\n\tx := 0\n'
 			for _ in $(seq 2000); do printf '\tx++\n'; done
 			printf '\t_ = x\n}\n'
-		} >"$d/cmd/damnbot/zz_meta_ratio_test.go"
+		} >"$d/internal/metaratio/zz_meta_ratio_test.go"
 		;;
 	deps-check)
 		# Require langsung di luar deps.allow (testify ditolak E-66).
@@ -130,10 +155,26 @@ EOF
 		printf 'package main\n\nimport "example.com/metagpl"\n\nvar _ = metagpl.V\n' >"$d/cmd/damnbot/zz_meta_gpl.go"
 		(cd "$d" && go mod edit -require=example.com/metagpl@v0.0.0 -replace=example.com/metagpl=./metagpl)
 		;;
+	tidy-check)
+		# Require yang tidak dipakai → `go mod tidy -diff` harus menampilkan diff (E-46).
+		(cd "$d" && go mod edit -require=github.com/BurntSushi/toml@v1.6.0)
+		;;
+	mod-verify)
+		# Rusak satu file modul di cache terisolasi → `go mod verify` harus gagal (E-47).
+		(cd "$d" && GOMODCACHE="$work/modcache" GOFLAGS=-modcacherw go mod download >/dev/null 2>&1)
+		local f
+		f=$(find "$work/modcache/go.uber.org/goleak@v1.3.0" -name '*.go' | sort | head -1)
+		printf '\n// meta: dirusak\n' >>"$f"
+		;;
 	esac
 }
 
 run_gate() { # <gate> <dir> <log>
+	if [[ $1 == mod-verify ]]; then
+		# Cache modul terisolasi di $work (pelanggaran = cache yang dirusak; ~/go tidak disentuh).
+		(cd "$2" && GOMODCACHE="$work/modcache" GOFLAGS=-modcacherw make -s mod-verify) >"$3" 2>&1
+		return
+	fi
 	(cd "$2" && make -s "$(target "$1")") >"$3" 2>&1
 }
 
@@ -142,6 +183,7 @@ fail=0
 for g in "${GATES[@]}"; do
 	base="$work/$g-base" viol="$work/$g-viol"
 	fresh "$base"
+	prepare "$g" "$base"
 	if ! run_gate "$g" "$base" "$work/$g-base.log"; then
 		result[$g]="BASELINE_RED (gate sudah gagal tanpa pelanggaran; lihat log)"
 		tail -5 "$work/$g-base.log" | sed "s/^/  [$g base] /"
@@ -151,6 +193,7 @@ for g in "${GATES[@]}"; do
 	fi
 	rm -rf "$base"
 	fresh "$viol"
+	prepare "$g" "$viol"
 	inject "$g" "$viol"
 	if run_gate "$g" "$viol" "$work/$g-viol.log"; then
 		result[$g]="MISSED (gate lulus pada pelanggaran)"

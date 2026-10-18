@@ -13,7 +13,7 @@ GOTAGS = -tags "$(TAGSCSV)"
 GOTOOL := go tool -modfile=tools/go.mod
 LICENSES_ALLOWED := MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,MPL-2.0
 
-.PHONY: all build lint test size-check loc loc-ratio deps-check vuln licenses check meta-test bench-budget
+.PHONY: all build lint test size-check loc loc-ratio deps-check tidy-check mod-verify vuln licenses check meta-test bench-budget
 
 all: check
 
@@ -46,7 +46,15 @@ vuln:
 licenses:
 	GOFLAGS=-tags=$(TAGSCSV) $(GOTOOL) go-licenses check ./... --allowed_licenses=$(LICENSES_ALLOWED)
 
-check: lint test size-check loc deps-check vuln licenses
+# E-46: go.mod/go.sum sudah tidy (go mod tidy -diff: exit ≠ 0 + diff bila tidak).
+tidy-check:
+	go mod tidy -diff
+
+# E-47: integritas modul di cache cocok dengan go.sum.
+mod-verify:
+	go mod verify
+
+check: lint test size-check loc deps-check tidy-check mod-verify vuln licenses
 
 # Meta-test gate CI (ROADMAP F0): setiap gate harus gagal pada pelanggaran sintetis.
 meta-test:
