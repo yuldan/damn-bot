@@ -23,7 +23,7 @@ type grepOut struct {
 	more   bool
 	next   int
 	tags   map[string]string
-	skips  [4]int
+	skips  [5]int
 }
 
 // add consumes one file result; false stops the walk.
@@ -141,20 +141,10 @@ func (g *grepOut) result(st *walkStats, ctxErr error, r *searchRoot) Result {
 	if n := g.skips[skipBinary]; n > 0 {
 		fmt.Fprintf(&b, "skipped: %d binary\n", n)
 	}
-	unread := g.skips[skipUnreadable]
-	denied := g.skips[skipDenied]
-	var paths []string
-	if st != nil {
-		denied += st.denied
-		unread += st.nUnread
-		paths = st.unreadable
+	if n := g.skips[skipLinked]; n > 0 {
+		fmt.Fprintf(&b, "skipped: %d hard-linked (read_file asks approval)\n", n)
 	}
-	if unread > 0 {
-		fmt.Fprintf(&b, "skipped: %d unreadable %s\n", unread, strings.Join(paths, " "))
-	}
-	if denied > 0 {
-		fmt.Fprintf(&b, "skipped: %d denied\n", denied)
-	}
+	st.footer(&b, g.skips[skipDenied], g.skips[skipUnreadable])
 	meta := map[string]any{"matches": g.shown, "files": g.files, "tags": g.tags}
 	if errors.Is(ctxErr, context.DeadlineExceeded) {
 		b.WriteString("truncated: timeout\n")

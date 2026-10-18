@@ -127,6 +127,8 @@ func tagKey(resolved, tag string) string { return resolved + "\x00" + tag }
 // touch marks the Engine used and (re)arms the idle release timer: after
 // idleRelease without a file tool call every cache is dropped; tags stay.
 func (e *Engine) touch() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.idle == nil {
 		e.idle = time.AfterFunc(idleRelease, e.releaseIdle)
 		return
