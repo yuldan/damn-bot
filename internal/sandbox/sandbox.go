@@ -47,17 +47,25 @@ const (
 // Verdict is the non-error outcome of Check.
 type Verdict uint8
 
-// Verdicts. OutsideRoot is not an error: the caller asks for approval
-// (SPEC §4.3 langkah 7) or, headless, fails with ErrOutsideWorkspace.
+// Verdicts. Every verdict other than Inside is not an error but needs
+// approval: the caller asks the user (SPEC §4.3 langkah 7) or, headless,
+// fails with ErrOutsideWorkspace. HardLinked is a regular file inside a
+// root with more than one link: another name of it may be a deny_paths
+// file the path checks cannot see (S16-7, ADR-097 butir 12).
 const (
 	Inside Verdict = iota
 	OutsideRoot
+	HardLinked
 )
 
-// String returns the verdict name used in SPEC (inside, outside_root).
+// String returns the verdict name (inside, outside_root, hardlinked_file).
 func (v Verdict) String() string {
-	if v == Inside {
+	switch v {
+	case Inside:
 		return "inside"
+	case HardLinked:
+		return "hardlinked_file"
+	case OutsideRoot:
 	}
 	return "outside_root"
 }
@@ -143,8 +151,9 @@ func canonicalRoot(r string) (string, error) {
 }
 
 // Check classifies path for op: ErrDeniedPath when the lexical or the
-// resolved path matches deny_paths; else Inside when the resolved path lies
-// in a root allowing op; else OutsideRoot. resolved is the absolute path
+// resolved path matches deny_paths; else, when the resolved path lies in a
+// root allowing op, HardLinked for an existing regular file with more than
+// one link and Inside otherwise; else OutsideRoot. resolved is the absolute path
 // with every existing component's symlinks resolved; for a write target
 // that does not exist yet, its deepest existing ancestor is resolved and
 // the missing tail appended lexically.
@@ -173,6 +182,9 @@ func (s *Sandbox) check(ctx context.Context, p string, op Op) (Verdict, string, 
 	}
 	for i, r := range s.roots {
 		if (op == OpRead || !r.readOnly) && hasPathPrefix(resolved, r.path, s.foldRoot) {
+			if n, err := linkCountPath(resolved); err == nil && n > 1 {
+				return HardLinked, resolved, i, nil
+			}
 			return Inside, resolved, i, nil
 		}
 	}

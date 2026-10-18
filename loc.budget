@@ -11,7 +11,8 @@ codetools         4500 internal/codetools
 # ADR-081: exec 3000 -> 3500 + exec/classify 1500 (Σ core 31.450 -> 33.450 <= 47.000).
 exec              3500 internal/exec
 exec/classify     1500 internal/exec/classify
-sandbox+redact    1300 internal/sandbox internal/redact
+# ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).
+sandbox+redact    1450 internal/sandbox internal/redact
 boundary           150 internal/boundary
 # ctxdb: ADR-049 (2.800) → ADR-087 (3.100).
 ctxdb             3100 internal/ctxdb
