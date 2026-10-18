@@ -261,14 +261,16 @@ func (d *dlp) scan(b []byte) error {
 		if all && bytes.IndexByte(cur, '%') < 0 && bytes.IndexByte(cur, '+') < 0 || !all && len(cand) == 0 {
 			return nil
 		}
+		tr := spanTrack{gap: 2 * d.region, last: -1, spans: bufs.spans[:0], pats: bufs.pats[:0], patLimit: len(cur) >> maxCandShift}
 		var nextCand []int32
 		var overflow bool
-		next, nextCand, overflow, bufs.spans = d.decode(next[:0], bufs.candB[:0], bufs.spans[:0], cur, cand, all)
+		next, nextCand, overflow = d.decode(next[:0], bufs.candB[:0], &tr, cur, cand, all)
 		bufs.candA, bufs.candB, cand, all = nextCand, cand, nextCand, overflow
+		bufs.spans, bufs.pats = tr.done(), tr.pats
 		if len(bufs.spans) == 0 {
 			return nil
 		}
-		if err := d.layerHit(next, bufs.spans, &budget); err != nil {
+		if err := d.layerHit(next, &tr, &budget); err != nil {
 			return err
 		}
 		// Swap: the layer just checked becomes the source of the next one.
@@ -282,18 +284,78 @@ func (d *dlp) scan(b []byte) error {
 	return nil
 }
 
-// layerHit checks a decoded layer: patterns over all of it, secrets in the
-// widened spans around decoded bytes.
-func (d *dlp) layerHit(layer []byte, spans [][2]int, budget *verifyBudget) error {
-	if d.patternHit(layer) {
+// layerHit checks a decoded layer: the §14.3 patterns in the whitespace-
+// delimited runs holding a decoded non-space byte (or the whole layer, see
+// patternRuns), the secret forms in the widened spans around every decoded
+// byte.
+func (d *dlp) layerHit(layer []byte, tr *spanTrack, budget *verifyBudget) error {
+	if d.patternRunsHit(layer, tr) {
 		return &classedError{err: ErrSecretEgress, class: retry.BadRequest}
 	}
-	for _, sp := range d.widen(layer, spans) {
+	for _, sp := range d.widen(layer, tr.spans) {
 		if err := d.secretHit(layer[sp[0]:sp[1]], budget); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// patternRunsHit runs the §14.3 patterns over the whitespace-delimited
+// runs of layer that hold a decoded non-space byte (NETX-26). Every pattern
+// is a bounded literal head followed by runs of non-space bytes, except
+// `authorization` and PEM headers, which hold spaces in a bounded head; so
+// a match that is new in this layer (it touches a decoded byte) lies inside
+// such a run, unless the layer holds one of those two heads — then, or when
+// the decoded positions overflowed their list, the whole layer is scanned.
+// TestDLPPatternDifferential checks the result against whole-layer scans.
+func (d *dlp) patternRunsHit(layer []byte, tr *spanTrack) bool {
+	if tr.patFull || containsAuthorization(layer) || bytes.Contains(layer, []byte("-----BEGIN")) {
+		return d.patternHit(layer)
+	}
+	end := 0
+	for _, pi := range tr.pats {
+		p := int(pi)
+		if p < end {
+			continue // inside the previous run
+		}
+		lo := p
+		for lo > end && !isSpace(layer[lo-1]) {
+			lo--
+		}
+		hi := p + 1
+		for hi < len(layer) && !isSpace(layer[hi]) {
+			hi++
+		}
+		if d.patternHit(layer[lo:hi]) {
+			return true
+		}
+		end = hi
+	}
+	return false
+}
+
+// isSpace is RE2 \s (redact's whitespace).
+func isSpace(c byte) bool { return c == ' ' || c >= '\t' && c <= '\r' }
+
+// containsAuthorization reports whether b holds "authorization" in any
+// ASCII case. It pivots on the rare 'z' (SIMD IndexByte per case) instead
+// of testing every 'a'.
+func containsAuthorization(b []byte) bool {
+	const needle, pivot = "authorization", 7 // needle[pivot] == 'z'
+	for _, z := range [...]byte{'z', 'Z'} {
+		for i := 0; ; {
+			j := bytes.IndexByte(b[i:], z)
+			if j < 0 {
+				break
+			}
+			at := i + j - pivot
+			if at >= 0 && at+len(needle) <= len(b) && bytes.EqualFold(b[at:at+len(needle)], []byte(needle)) {
+				return true
+			}
+			i += j + 1
+		}
+	}
+	return false
 }
 
 // dlpShortVerifyPerByte: bytes of short-secret (< dlpWindow) comparisons
@@ -310,6 +372,7 @@ type dlpLayers struct {
 	a, b         []byte
 	candA, candB []int32 // positions of '%'/'+' written by the last decode
 	spans        [][2]int
+	pats         []int32 // decoded non-space positions (spanTrack.pats)
 }
 
 // hit checks one segment against the §14.3 patterns and the secret forms.
@@ -357,12 +420,11 @@ const maxCandShift = 4
 // copied in bulk. It returns the positions of '%'/'+' written to dst
 // (overflow: too many, the next layer examines every byte) and the merged
 // spans [first, last] of decoded positions in dst.
-func (d *dlp) decode(dst []byte, outCand []int32, spans [][2]int, src []byte, cand []int32, all bool) ([]byte, []int32, bool, [][2]int) {
+func (d *dlp) decode(dst []byte, outCand []int32, tr *spanTrack, src []byte, cand []int32, all bool) ([]byte, []int32, bool) {
 	if all {
-		return d.decodeAll(dst, outCand, spans, src)
+		return d.decodeAll(dst, outCand, tr, src)
 	}
 	from := 0
-	tr := spanTrack{gap: 2 * d.region, last: -1, spans: spans}
 	limit := len(src) >> maxCandShift
 	overflow := false
 	for _, ci := range cand {
@@ -373,7 +435,7 @@ func (d *dlp) decode(dst []byte, outCand []int32, spans [][2]int, src []byte, ca
 		dst = append(dst, src[from:i]...)
 		c, n := decodeAt(src, i)
 		if n > 0 {
-			tr.add(len(dst))
+			tr.add(len(dst), c)
 		} else {
 			n = 1
 		}
@@ -384,7 +446,7 @@ func (d *dlp) decode(dst []byte, outCand []int32, spans [][2]int, src []byte, ca
 		from = i + n
 	}
 	dst = append(dst, src[from:]...)
-	return dst, outCand, overflow, tr.done()
+	return dst, outCand, overflow
 }
 
 // addCand records candidate p unless the list is over limit.
@@ -396,11 +458,10 @@ func addCand(cand []int32, p, limit int, overflow bool) ([]int32, bool) {
 }
 
 // decodeAll is decode over every byte of src (the raw layer).
-func (d *dlp) decodeAll(dst []byte, outCand []int32, spans [][2]int, src []byte) ([]byte, []int32, bool, [][2]int) {
+func (d *dlp) decodeAll(dst []byte, outCand []int32, tr *spanTrack, src []byte) ([]byte, []int32, bool) {
 	base := len(dst)
 	dst = slices.Grow(dst, len(src))[:base+len(src)]
 	out, j := dst[base:], 0
-	tr := spanTrack{gap: 2 * d.region, last: -1, spans: spans}
 	limit := len(src) >> maxCandShift
 	overflow := false
 	for i := 0; i < len(src); i++ {
@@ -411,7 +472,7 @@ func (d *dlp) decodeAll(dst []byte, outCand []int32, spans [][2]int, src []byte)
 			continue
 		}
 		if dc, n := decodeAt(src, i); n > 0 {
-			tr.add(base + j)
+			tr.add(base+j, dc)
 			c = dc
 			i += n - 1
 		}
@@ -421,17 +482,29 @@ func (d *dlp) decodeAll(dst []byte, outCand []int32, spans [][2]int, src []byte)
 		out[j] = c
 		j++
 	}
-	return dst[:base+j], outCand, overflow, tr.done()
+	return dst[:base+j], outCand, overflow
 }
 
 // spanTrack merges decoded output positions into [first, last] spans;
-// positions within gap of the previous one join its span.
+// positions within gap of the previous one join its span. It also lists
+// the positions of decoded non-space bytes for the pattern runs, up to
+// patLimit (patFull: more, scan patterns over the whole layer).
 type spanTrack struct {
 	first, last, gap int // current span; last < 0 = none
 	spans            [][2]int
+	pats             []int32
+	patLimit         int
+	patFull          bool
 }
 
-func (t *spanTrack) add(p int) {
+func (t *spanTrack) add(p int, c byte) {
+	if !isSpace(c) && !t.patFull {
+		if len(t.pats) >= t.patLimit || p < 0 || p > math.MaxInt32 {
+			t.patFull = true
+		} else {
+			t.pats = append(t.pats, int32(p))
+		}
+	}
 	if t.last >= 0 && p-t.last <= t.gap {
 		t.last = p
 		return

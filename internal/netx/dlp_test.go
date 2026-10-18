@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"runtime"
@@ -502,4 +503,69 @@ func TestDLPShortSecretsProse(t *testing.T) {
 	if err := d.scan(prose); err != nil {
 		t.Fatalf("benign prose: %v", err)
 	}
+}
+
+// patternRef is the whole-layer reference for the §14.3 patterns: every
+// decoding layer scanned in full (main's behaviour before NETX-15/16).
+func patternRef(d *dlp, b []byte) bool {
+	layer := b
+	for depth := 0; ; depth++ {
+		if d.patternHit(layer) {
+			return true
+		}
+		if depth == dlpMaxDepth || bytes.IndexByte(layer, '%') < 0 && bytes.IndexByte(layer, '+') < 0 {
+			return false
+		}
+		layer = pctDecode(nil, layer)
+	}
+}
+
+func dlpPieces() []string {
+	return []string{
+		"eyJ", "abcdefgh", "ABCDEFGHIJ", ".", "%2E", "%2e", "%252E", "://", "%3A%2F%2F", ":", "%3A", "@", "%40", "%2540",
+		"admin", "+", " ", "\n", "\r\n", "%20", "%0A", "sk-", "%73k-", "ghp_", "%67hp_", strings.Repeat("A", 36), "12345678",
+		"%25", "x", "-", "_", "Authorization: Bearer ", "%41uthorization%3A+Bearer+", "-----BEGIN RSA PRIVATE KEY-----",
+		"%2D----BEGIN+RSA+PRIVATE+KEY-----", "postgres", "\"", "'", "github_pat_", "AKIA", "%41KIA", "0123456789ABCDEF",
+	}
+}
+
+// TestDLPPatternDifferential (NETX-26): scanning patterns only in the
+// decoded runs gives the same verdict as scanning every layer in full.
+func TestDLPPatternDifferential(t *testing.T) {
+	t.Parallel()
+	d := newDLP(nil)
+	pieces := dlpPieces()
+	rng := rand.New(rand.NewPCG(26, 26)) //nolint:gosec // G404: deterministic test data, not secrets
+	var b strings.Builder
+	for i := range 20_000 {
+		b.Reset()
+		for range 1 + rng.IntN(40) {
+			b.WriteString(pieces[rng.IntN(len(pieces))])
+			if rng.IntN(8) == 0 {
+				b.WriteString(strings.Repeat("y", rng.IntN(300)))
+			}
+		}
+		in := []byte(b.String())
+		want := patternRef(d, in)
+		got := errors.Is(d.scan(in), ErrSecretEgress)
+		if got != want {
+			t.Fatalf("case %d %q: scan=%v reference=%v", i, in, got, want)
+		}
+	}
+}
+
+// FuzzDLPPatterns: the same differential over fuzzed bodies.
+func FuzzDLPPatterns(f *testing.F) {
+	for _, p := range dlpPieces() {
+		f.Add([]byte("t=" + p + strings.Repeat("z", 260) + "%2E" + p))
+	}
+	d := newDLP(nil)
+	f.Fuzz(func(t *testing.T, in []byte) {
+		if len(in) > 1<<16 {
+			return
+		}
+		if got, want := errors.Is(d.scan(in), ErrSecretEgress), patternRef(d, in); got != want {
+			t.Fatalf("%q: scan=%v reference=%v", in, got, want)
+		}
+	})
 }
