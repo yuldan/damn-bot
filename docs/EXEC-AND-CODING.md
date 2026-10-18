@@ -457,7 +457,7 @@ Format tiap baris: `path:line:col: error|warning: msg [source]`. Cap 400 tok (o2
 - **Ringkas:** runtime membaca `git status --porcelain=v2 -b -z` sendiri (hanya untuk snapshot/notice) dan merendernya ≤ 20 baris + `+N more`. Model memakai `shell` biasa untuk diff (ditanya kecuali persis cocok `shell_allow`, A.8, ADR-079); output diff melewati A.3.
 - **Perubahan user di luar agent:**
   - Pada awal turn, runtime membandingkan sha file yang pernah dibaca/diedit sesi ini (`file_snapshots.after_sha`, sha baca terakhir) dengan isi disk.
-  - Perbedaan → `system_notice` `{kind:"user_changed", paths[≤10]}` (≤ 40 tok).
+  - Perbedaan → `system_notice` `{kind:"user_changed", paths[≤10]}`; teks yang dirender ke model ≤ 23 tok (slot notice volatile SPEC §6): path pertama + `+N more` (ADR-091 NEW2-13).
   - Edit ke file tersebut dengan tag lama → `stale_read` (tag check [CODE-TOOLS.md](CODE-TOOLS.md) §5.2). Model wajib `read_file` ulang untuk mendapat tag baru. Agent tidak pernah menimpa perubahan user.
 - **Checkpoint:**
   - `file_snapshots` (before/after sha per mutasi) adalah sumber rollback yang otoritatif, dengan atau tanpa git.

@@ -147,7 +147,7 @@ Baseline hermes: bukti di [`GAP-SWEEP.md`](GAP-SWEEP.md) atau diukur di F0 (tanp
 | GAP-REL-02 | Stabilitas | pesan Telegram hilang saat restart/update/409 (N=100) | `TestChaosTelegramRestart` | GAP-SWEEP.md (bukti) / diukur F0 | 0 | ↓, 0 |
 | GAP-REL-10 | Stabilitas | pesan hilang / duplikat tak berlabel pada 100 fault injection multi-bagian | kolom Verifikasi baris GAP terkait SPEC §22.1 | GAP-SWEEP.md (bukti) / diukur F0 | 0 / 0 | ↓, 0 |
 | GAP-REL-12 | Stabilitas | Δ FD dan Δ goroutine setelah soak 1.000 run cron | kolom Verifikasi baris GAP terkait SPEC §22.1 | GAP-SWEEP.md (bukti) / diukur F0 | ≤ 2 / 0 | ↓ |
-| GAP-REL-13 | Stabilitas | disconnect ACP per 1.000 tool call yang spawn child | `TestACPChildNoStdin` | GAP-SWEEP.md (bukti) / diukur F0 | 0 | ↓, 0 |
+| GAP-REL-13 | Stabilitas | disconnect ACP per 1.000 tool call yang spawn child | `TestACPChildStdinIsolation` (nama tunggal, ADR-082, ADR-091 NEW2-12) | GAP-SWEEP.md (bukti) / diukur F0 | 0 | ↓, 0 |
 | GAP-REL-14 | Stabilitas | skenario known-defects lulus | kolom Verifikasi baris GAP terkait SPEC §22.1 | GAP-SWEEP.md (bukti) / diukur F0 | 100% (≥ 10) | ↑, 100% |
 | GAP-REL-17 | Stabilitas | akurasi `/readyz` pada fault-injection (status benar / total skenario) | `TestReadyz`, `TestReadyAfterAdapters` | GAP-SWEEP.md (bukti) / diukur F0 | 100% | ↑ (hermes: tidak ada endpoint) |
 | GAP-PROV-01 | Stabilitas | error 400 signature/carrier setelah resume & fallback (Gemini 3, Claude thinking) | `TestReasoningCarrierReplay`, `TestCarrierDroppedEvent` | GAP-SWEEP.md (bukti) / diukur F0 | 0 | ↓, = 0 (hermes: diukur F0) |
