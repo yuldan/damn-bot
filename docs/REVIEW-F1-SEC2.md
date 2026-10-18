@@ -141,3 +141,22 @@ Dengan ini S16-7 (REVIEW-F1-SEC1 putaran 2) **closed** untuk `OpenFile`/`OpenApp
 | CT27-13 | #27 | MAJOR | `OpenResolved` inside tanpa cek `nlink`: grep membaca hard link ke file deny otomatis (S16-7 lewat codetools) |
 
 S16-7 (REVIEW-F1-SEC1) closed oleh `f1-s167` @ `ab819de`, berlaku setelah branch itu di-merge.
+
+### Addendum: PR #33 (S16-7) @ `32e9a38`, base `main` `cd1f2ff`
+
+Ini rebase dari `ab819de` (range-diff: 1 commit). Ada dua perubahan setelah draf:
+
+1. **Windows `linkCountPath`** kini memakai `os.Open` + `GetFileInformationByHandle`. File yang tidak bisa dibuka untuk dibaca → error di `Check` → `Check` mengembalikan `Inside`, lalu hard link-nya dinilai di handle oleh `openVerified` (`lerr != nil` → ditutup, fail-closed). Path sudah ter-resolve sehingga bebas reparse point; swap setelah resolve tetap tertangkap oleh cek handle. Dampak sampingan: `Check` membuka handle baca singkat dengan share mode default Go (MINOR S167-4, tanpa dampak keamanan).
+2. **Budget LOC** `sandbox+redact` naik 1.300 → 1.450, sedangkan Σ core naik 33.750 → 33.900 dan tetap ≤ 47.000.
+   - Diterapkan lewat ADR-097 butir 12 di `ENGINEERING.md` §2.4 dan `loc.budget`; `loc-check` saat ini 1.335/1.450.
+   - Sisa catatan MINOR: kalimat "Dampak" ADR-097 masih mengutip `BenchmarkOpenFile ≈ 9 µs, 34 alloc`; nilai terukur ≈ 11,6 µs / 44 alloc (S16-8).
+
+Pemeriksaan:
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `go test -race -count=1 ./internal/sandbox/` | ok |
+| `GOOS=windows\|darwin go vet` + `go test -c` | ok |
+| CI saat review | antre/berjalan, 0 gagal (`mergeable_state=blocked` menunggu check) |
+
+**Verdict PR #33: approve** (setelah CI hijau). Temuan putaran sebelumnya tetap berlaku: S167-1..3 MINOR, dan CT27-13 di stack codetools.
