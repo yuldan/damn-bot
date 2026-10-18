@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -86,8 +87,27 @@ func TestChildProcess(t *testing.T) {
 }
 
 type child struct {
-	cmd *exec.Cmd
-	out *bufio.Scanner
+	cmd    *exec.Cmd
+	out    *bufio.Scanner
+	stderr *syncBuffer
+}
+
+// syncBuffer collects child stderr; written by os/exec's copier goroutine.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 func startChild(t *testing.T, role, dir string) *child {
@@ -98,26 +118,37 @@ func startChild(t *testing.T, role, dir string) *child {
 	must(t, err)
 	stdin, err := cmd.StdinPipe()
 	must(t, err)
+	c := &child{cmd: cmd, out: bufio.NewScanner(stdout), stderr: &syncBuffer{}}
+	cmd.Stderr = c.stderr
 	must(t, cmd.Start())
-	c := &child{cmd: cmd, out: bufio.NewScanner(stdout)}
 	t.Cleanup(func() {
 		t.Log(stdin.Close())
 		c.kill9(t)
 	})
-	ready := make(chan bool, 1)
+	// The child's test framework writes its failure (t.Fatal output) to stdout before
+	// READY; keep those lines so an early exit is diagnosable instead of opaque.
+	type ready struct {
+		ok  bool
+		pre []string
+	}
+	ch := make(chan ready, 1)
 	go func() {
+		var pre []string
 		for c.out.Scan() {
 			if c.out.Text() == "READY" {
-				ready <- true
+				ch <- ready{ok: true}
 				return
 			}
+			pre = append(pre, c.out.Text())
 		}
-		ready <- false
+		ch <- ready{pre: pre}
 	}()
 	select {
-	case ok := <-ready:
-		if !ok {
-			t.Fatalf("child %s exited before READY", role)
+	case r := <-ch:
+		if !r.ok {
+			werr := cmd.Wait()
+			t.Fatalf("child %s exited before READY: %v\nstdout:\n%s\nstderr:\n%s",
+				role, werr, strings.Join(r.pre, "\n"), c.stderr.String())
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatalf("child %s not ready", role)
