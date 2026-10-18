@@ -445,7 +445,7 @@ Format: Konteks / Keputusan / Konsekuensi. Status semua ADR: **diterima** kecual
 - **N-05:** P29 memakai angka GAP-SEC-11 (TTL isi pesan default 24 jam, maks 72 jam).
 - **N-06 / M-20 / N-24..N-26, N-29 (CLI):** SPEC §10 menjadi satu-satunya sumber bentuk perintah; semua baris §22.1 dan dokumen pendamping memakai bentuk §10 (`sessions backup create|ls|verify [--include-secrets]`, `sessions restore <file> [--dry-run]`, `setup auth logout [--provider P|--all]`, `serve sessions revoke [--all|<id>]`, `doctor bundle [--out P] [--upload]`, `doctor tools fetch|verify|ls`, `serve open [--app|--remote]`, `setup --uninstall [--dry-run] [--purge-data]`, `setup secrets ls --refs`, `import archive <file>`, `setup completion <shell>`, flag service/supervisor/doctor SELF-HEALING); `help [topik]` = builtin parser, tidak dihitung. Nama test tunggal: `TestCLITopLevelCount`, `TestCLINoDuplicates`, `TestCLIDocsMatchHelp`.
 - **DDL:** `gateway_inbound` mutable terbatas (trigger `gwin_update_guard` hanya mengizinkan `event_id` NULL→nilai); `gateway_identities.strength` = `cryptographic|platform_authenticated|weak`; `approvals.source` + `mcp_serve`; trigger `skills_au`/`skills_ad`; tabel append-only `blob_expirations` (gc hanya menghapus file blob; skema didesain ulang menjadi event-log `expired`/`restored` oleh ADR-037); kolom `usage_ledger.est_input_tokens` (EMA kalibrasi token diturunkan dari ledger saat load, tidak dipersist); stop reason `budget_gateway_user`, `budget_tools`; `hook_note` = `system_notice{kind:"hook_note"}`.
-- **Angka tunggal:** Σ LOC 184.900 = Σ kolom fase ROADMAP (F1 29.500, F2 12.000, F3 21.500, F4 20.000, F5 30.500, F6 24.500, F7 25.100, F8 21.800; JS ≈ 9.900); dependency langsung rencana 26 ≤ 28; ACP 2.500 LOC; skill di context tier ≤ 150 tok; matriks test PR 6 target berrunner + 2 QEMU; job `sqlite-engine` 8 target; LOC per fitur ≤ 227 (190.000 ÷ 837); edge-case per kategori = katalog (Σ 166); CT-29 ditambahkan (30 ID berblok).
+- **Angka tunggal:** Σ LOC 184.900 = Σ kolom fase ROADMAP (F1 29.500, F2 12.000, F3 21.500, F4 20.000, F5 30.500, F6 24.500, F7 25.100, F8 21.800; JS ≈ 9.900); dependency langsung rencana 26 ≤ 28; ACP 2.500 LOC; skill di context tier ≤ 150 tok; matriks test PR 6 target berrunner + 2 QEMU; job `sqlite-engine` 8 target; LOC per fitur ≤ 227 (190.000 ÷ 837); edge-case per kategori = katalog (Σ 166); CT-29 ditambahkan (30 ID berblok; *dikoreksi ADR-063 m-15: 31 ID = 14 + 10 + 7*).
 - **Gate bernama:** P20 `TestScorecardGate`, P21 `TestBudgetTableSum`/`TestDirectDeps`/`TestFileLength`, P28 `BenchmarkSpeedParity*`; mode degradasi PROV-02 punya sub-cap + `TestContextTierBudget/degraded`; kebijakan cron overlap/gate/`idempotent`/`pause_after_crashes` ditulis di SELF-HEALING §6.
 
 **Dampak terukur (SPEC §20).** Token: 0 (P1 tetap 5.000; urutan katalog tidak mengubah ukuran; sub-cap degradasi ada di dalam cap degradasi yang sudah ada). Latensi: 0 (P12/P17). LOC: 0 (Σ §3.2.4 tetap 184.900; trigger/tabel baru termasuk budget modul core/gateway). Ukuran binary: 0 (Σ 48,4 MB). Dependency: 0 (26/28). Baris SCORECARD/MITIGATION yang terpengaruh: SCORECARD token skill, LOC per fitur, platform chat, GAP-COST-10, GAP-OPS-08; MITIGATION T-07, GAP-REL-04, GAP-GW-01, GAP-GW-08, GAP-COST-16, GAP-PROV-02, GAP-SEC-18, GAP-OPS-08.
@@ -1164,7 +1164,7 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-048 — Budget waktu dinding di job terpisah tanpa `-race`
 
-**Status:** Accepted 2026-10-18 (keputusan user). Menutup TS-P08 (`docs/F0-REPORT.md` §"Temuan spec").
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup TS-P08 (`docs/F0-REPORT.md` §"Temuan spec"). *(Butir 1 dan 3 dikoreksi ADR-073: `make test-timing` juga menjalankan benchmark sekali (`-bench=. -benchtime=1x`), budget absolut benchmark termasuk `BenchmarkAppend*` ditegakkan di job `perf`, dan helper pindah ke `internal/testutil/timing` di Deliverable F1 #0.)*
 
 **Aturan penerapan.** Teks sudah diterapkan (2026-10-18): ENGINEERING E-55 dan urutan job §5.3, SPEC §16 (baris Unit); `Makefile` target `test-timing`.
 
@@ -1196,7 +1196,7 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Konsekuensi.**
 - (+) `make loc` hijau tanpa memecah paket secara artifisial.
-- (−) Sisa ruang `ctxdb` kecil; fitur storage F1+ (memory, skills, journal) tetap di paketnya masing-masing (E-03/E-09), bukan di `ctxdb`.
+- (−) Sisa ruang `ctxdb` kecil; fitur storage F1+ (memory, skills, journal) tetap di paketnya masing-masing (E-03/E-09), bukan di `ctxdb`. *(Dikoreksi ADR-074: storage konsumen ada di `internal/ctxdb/<consumer>store` dengan baris `loc.budget` sendiri; rujukan E-03 seharusnya E-04.)*
 
 ## ADR-050 — E-70 (rasio test:source) menjadi gate mulai 5.000 LOC
 
@@ -1350,7 +1350,7 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-058 — Satu rumus estimator token (V-18)
 
-**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-18 (usulan ADR-E20). Diimplementasikan di F2 (budget/compaction, GAP-COST-09); tidak ada kode F0 terdampak (harness `bench/budget` memakai tokenizer o200k_base, bukan estimator runtime).
+**Status:** Accepted 2026-10-18 (keputusan user). Menutup V-18 (usulan ADR-E20). Diimplementasikan di F2 (budget/compaction, GAP-COST-09); tidak ada kode F0 terdampak (harness `bench/budget` memakai tokenizer o200k_base, bukan estimator runtime). *(Dikoreksi ADR-067: estimator teks diimplementasikan di **F1** dalam `internal/budget`; F2 hanya formula gambar + pemicu P8; `TestTokenEstimatorCalibration` korpus teks = acceptance F1.)*
 
 **Aturan penerapan.** Teks sudah diterapkan (2026-10-18): SPEC §4.5, §22.1 GAP-COST-08/GAP-COST-09; MITIGATION-MATRIX GAP-COST-09.
 
@@ -1369,7 +1369,7 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Status:** Accepted 2026-10-18 (keputusan user). Menutup V-23 (usulan ADR-E25). Diimplementasikan di F1 bersama gate dokumen `TestSpecDocs` (`TestSpecNoPendingAmendments`, `testdata/spec_pending_phrases.txt`; belum ada di F0, tidak ada kode F0 terdampak).
 
-**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): SPEC §20 (isi daftar merujuk paragraf Keputusan di bawah; entri pengecualian (6)).
+**Aturan penerapan.** Teks sudah diterapkan (2026-10-18): SPEC §20 (isi daftar merujuk paragraf Keputusan di bawah; entri pengecualian (6)); ROADMAP F1 Acceptance (`TestSpecDocs`, ditambahkan ADR-077, menutup AUD-080).
 
 **Konteks.** Isi daftar frasa tidak didefinisikan. Bila "Usulan" dicocokkan apa adanya, 11 header tabel di PROVIDERS dan EDGE-CASES ("Usulan Damn-Bot", "Usulan regression test") membuat gate merah; bila daftar memuat "menunggu …", baris Status SPEC dan §20 ikut merah.
 
@@ -1414,7 +1414,7 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 ## ADR-062 — Smoke LLM Damn-Bot pindah ke acceptance F1
 
-**Status:** Accepted 2026-10-18 (keputusan user).
+**Status:** Accepted 2026-10-18 (keputusan user). *(Diamandemen ADR-075: run smoke Damn-Bot F1 baru boleh dimulai setelah hardening `bench/h2h` — ledger cap persisten, oracle netral-agent, isolasi agent — ada di kode beserta test-nya; default `-cap-usd` = sisa ledger dari US$2,00.)*
 
 **Aturan penerapan.** Teks sudah diterapkan (2026-10-18): ROADMAP F0 (deliverable 5, acceptance smoke LLM) dan F1 (acceptance smoke LLM Damn-Bot + cap US$2,00).
 
@@ -1758,7 +1758,7 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Menutup AUD-031..AUD-035. Mengoreksi ADR-048 butir 1 dan 3.
 
-**Aturan penerapan.** Teks diterapkan (2026-10-18): ROADMAP F1 (Deliverable #0, Acceptance); ENGINEERING §5 (job wajib, E-55, E-64); SPEC §16 (baris Perf/Unit); SELF-HEALING (rujukan `BenchmarkAppend`); DECISIONS ADR-048 (penanda); kode: `internal/ctxdb/*_test.go` (commit `fcc0af6`), `Makefile` (`test-timing`, `vet-cross`), `.github/workflows/ci.yml`, `.github/workflows/meta.yml`. Setiap passage dokumen mengutip ADR-073.
+**Aturan penerapan.** Teks diterapkan (2026-10-18): ROADMAP F1 (Deliverable #0, Acceptance); ENGINEERING §5 (job wajib, E-55, E-64); SPEC §16 (baris Perf/Unit); SELF-HEALING (rujukan `BenchmarkAppend`); DECISIONS ADR-048 (penanda); kode: `internal/ctxdb/*_test.go` (commit `fcc0af6`), `Makefile` (`test-timing`, `vet-cross`, `check`), `scripts/ci-meta-test.sh` (gate `vet-cross`), `.github/workflows/ci.yml`, `.github/workflows/meta.yml` (commit `8288d53`). Setiap passage dokumen mengutip ADR-073.
 
 **Keputusan.**
 1. **Diterapkan di F0 (kecil, lingkup F0).**
