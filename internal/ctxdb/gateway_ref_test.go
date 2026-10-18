@@ -1,3 +1,8 @@
+// Test-only REFERENCE implementation (ADR-053, TS-P09). The gateway protocol logic
+// (poller/worker/spool/outbox) belongs in package internal/gateway (F4); ctxdb only
+// exposes storage primitives (tables + transactional methods) behind consumer-side
+// interfaces (ENGINEERING E-03/E-09). Kept here as the oracle of scenario_gateway_test.go until F4.
+
 package ctxdb
 
 import (
