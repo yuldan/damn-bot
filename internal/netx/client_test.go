@@ -330,8 +330,9 @@ func TestTTFB(t *testing.T) {
 	if !errors.Is(err, ErrTTFB) || retry.ClassifyErr(err) != retry.Timeout {
 		t.Errorf("stalled headers: %v (%s)", err, retry.ClassifyErr(err))
 	}
-	// Headers but no event: Next fails with ErrTTFB.
-	s := openStream(t, sseServer(t, []string{": hi\n\n"}, 0, true).URL, 50*time.Millisecond, time.Minute)
+	// Headers but no event: Next fails with ErrTTFB. The deadline leaves
+	// slow runners time to deliver the headers (flushed at once) first.
+	s := openStream(t, sseServer(t, []string{": hi\n\n"}, 0, true).URL, time.Second, time.Minute)
 	if _, err := s.Next(); !errors.Is(err, ErrTTFB) || retry.ClassifyErr(err) != retry.Timeout {
 		t.Errorf("no first event: %v", err)
 	}
