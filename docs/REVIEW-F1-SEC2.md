@@ -13,9 +13,9 @@ Severity mengikuti [`REVIEW-F1-SEC1.md`](REVIEW-F1-SEC1.md):
 
 | PR | Head | Base | Verdict | BLOCKER | MAJOR | MINOR |
 |---|---|---|---|---:|---:|---:|
-| #27 codetools engine | `34e35c9` | `f1-sandbox-b` | **changes required** | 2 | 6 | 4 |
+| #27 codetools engine | `34e35c9` | `f1-sandbox-b` | **changes required** | 2 | 7 | 4 |
 | #29 prefilter redact | `87ecebf` → `77a9d07` (rebase; isi `internal/redact` identik) | `main` | **approve** | 0 | 0 | 1 |
-| PR hard link S16-7 (f1-leaf.SecFixes) | — | — | *menunggu PR dibuka* | | | |
+| S16-7 hard link (`f1-s167`, draft; PR dibuka setelah #16 merge) | `ab819de` | `f1-sandbox-b` (`ecc7445`) | **approve** | 0 | 0 | 3 |
 
 Catatan rebase: head #15 `48648fa` dan #16 `ecc7445` adalah rebase ke `main` dengan isi `internal/sandbox` identik dengan `f7499c4`/`c1095ed` (`git diff` kosong). Verdict putaran 2 di REVIEW-F1-SEC1 tetap berlaku, termasuk MAJOR S16-7 yang masih terbuka.
 
@@ -93,12 +93,38 @@ Argumen kebenaran: posisi hanya dilewati bila setiap pola yang dimulai dengan by
 |---|---|---|---|
 | PF-1 | MINOR | CHANGELOG menulis "≈3× pada prosa 8 KiB", padahal `BenchmarkRedact` memakai 4 KiB. Satu-satunya bench 8 KiB (`BenchmarkDLPScan`) hanya naik 1,0–1,4×. | Koreksi menjadi "≈2–3× pada prosa 4 KiB (`BenchmarkRedact`)". |
 
-## PR hard link S16-7 (f1-leaf.SecFixes)
+## S16-7 — hard link butuh approval (`f1-s167` @ `ab819de`, approve)
 
-Belum ada PR terbuka per 2026-10-19. Bagian ini akan ditambahkan setelah PR tersedia. Perilaku yang diharapkan:
-- `nlink>1` → approval wajib, dengan reason `hardlinked_file`.
-- Amandemen ADR-097 dan TRUST-MODEL §3.
-- Interaksi dengan CT27-2/CT27-8 (jalur tulis in-place hard link di codetools).
+Diff `git diff ecc7445 ab819de`: `internal/sandbox/{open.go,sandbox.go,nlink_unix.go,nlink_windows.go,nlink_other.go,open_test.go}`, ADR-097 butir 12, TRUST-MODEL §3, `.golangci.yml` (misspell), CHANGELOG.
+
+Desain yang diverifikasi:
+- `Check` mengembalikan verdict baru `HardLinked` (`hardlinked_file`) untuk file reguler di dalam root dengan `nlink > 1`. Nilai diambil lewat `lstat` (Unix) atau handle atribut `FILE_FLAG_OPEN_REPARSE_POINT` + `NumberOfLinks` (Windows).
+- `OpenFile` → `openVerified(single=true)`. Urutannya: open **tanpa** `O_TRUNC`, `recheckDeny`, lalu `fstat`/`GetFileInformationByHandle` dihitung ulang dari **handle**. Bila hasilnya `nlink > 1` atau error, handle ditutup dan verdict `HardLinked` dikembalikan (fail-closed). Baru setelah itu `Truncate(0)`.
+- `OpenApproved` tetap menegakkan `deny_paths` + `recheckDeny`.
+
+| Pemeriksaan | Hasil |
+|---|---|
+| `go test -race -count=1 ./internal/sandbox/` | ok |
+| `GOOS=windows\|darwin\|freebsd go vet` + `go test -c` | ok |
+| Mutasi M1: cek `nlink` di handle dihapus | `TestHardLinkNeedsApproval` FAIL (kasus "linked after Check") |
+| Mutasi M2: `O_TRUNC` diteruskan ke open | FAIL (file yang ditolak ikut terpotong) |
+| Mutasi M3: cek `nlink` di `Check` dihapus | FAIL |
+| Cakupan test | Hard link ke file di dalam direktori deny (`~/.ssh/x`), hard link ke target glob (`**/.env`), baca dan tulis, kedua mode open (openat2 dan fallback), link dibuat setelah `Check`, isi file tidak terpotong, file `nlink = 1` tetap terbuka. |
+| Race | Link dibuat antara `Check` dan open tertangkap oleh cek handle. Link yang dibuat setelah open tidak mengubah identitas objek yang sudah terbuka. |
+
+Dengan ini S16-7 (REVIEW-F1-SEC1 putaran 2) **closed** untuk `OpenFile`/`OpenApproved`. File di dalam direktori deny dan target glob tidak lagi terbuka otomatis lewat hard link. Setelah di-approve, file itu bisa terbaca: residual ini terdokumentasi di TRUST-MODEL §3 dan preview menampilkan alasan `hardlinked_file`.
+
+| ID | Severity | Temuan | Bukti | Rekomendasi |
+|---|---|---|---|---|
+| S167-1 | MINOR | Verdict baru belum masuk teks normatif. SPEC §4.3 langkah 7 dan CODE-TOOLS §8 hanya mengenal `outside_root`. Belum ditetapkan teks prompt (sekarang "read outside workspace: <path>") dan apakah isi file hard link yang di-approve dibungkus `<untrusted>`. | `SPEC.md:507`; `docs/CODE-TOOLS.md` §8; ADR-097 butir 12 | Errata SPEC §4.3/§14.2 dan CODE-TOOLS §8: verdict `hardlinked_file` dengan prompt "file has other hard links: <path>". Tetapkan aturan pembungkus `<untrusted>` (saran: bungkus, karena nama lain objek itu tidak diketahui). |
+| S167-2 | MINOR | False positive yang diterima: setiap file store pnpm di `node_modules`, objek git hasil `clone --local`, dan backup `cp -al` memicu approval per file. Di headless hasilnya `outside_workspace`. Sudah tercatat di ADR-097 butir 12, tetapi `allow_session` hanya untuk path persis, sehingga UX di repo pnpm bisa berat. | ADR-097 butir 12 | Ukur dampaknya di smoke F1 (repo pnpm). Pertimbangkan `allow_session` per direktori induk untuk verdict `hardlinked_file` saja, sementara deny tetap menang. |
+| S167-3 | MINOR | OS tanpa API jumlah link (wasip1/js/plan9) menganggap semua file ber-link tunggal (fail-open). Bukan target rilis. | `internal/sandbox/nlink_other.go` | Dokumentasikan di ADR-097 (sudah) atau buat fail-closed. Tidak mendesak. |
+
+**Dampak lintas PR, dicatat sebagai MAJOR baru untuk #27:**
+
+| ID | Severity | Temuan | Bukti | Rekomendasi |
+|---|---|---|---|---|
+| CT27-13 | MAJOR | `OpenResolved` di #27 (cabang inside, dipakai walker grep/glob dan pemuatan ignore) tidak memeriksa `nlink`. Setelah #27 di-rebase ke S16-7, grep di root tetap membaca hard link ke `~/.ssh/x` atau `.env` secara otomatis. Itu adalah serangan S16-7 asli lewat jalur codetools. | `origin/f1-codetools-1:internal/sandbox/resolved.go:27-66` (hanya `recheckIdentity`) | Saat rebase: `OpenResolved` inside memanggil cek handle yang sama (`linkCountFile`), dan file `nlink > 1` dilewati walker dengan hitungan `skipped: N hardlinked` (atau diperlakukan sebagai approval-required untuk read_file). Tambah test grep di atas hard link ke file di direktori deny. |
 
 ## Daftar BLOCKER/MAJOR terbuka
 
@@ -112,4 +138,6 @@ Belum ada PR terbuka per 2026-10-19. Bagian ini akan ditambahkan setelah PR ters
 | CT27-6 | #27 | MAJOR | API sandbox baru dan CT-25 vakum di bawah mutasi |
 | CT27-7 | #27 | MAJOR | Test acceptance CT-01..03/11/21 dan `TestCodeToolsIDsComplete` belum ada |
 | CT27-8 | #27 | MAJOR | Tulis in-place hard link tanpa crash safety/snapshot pra-tulis |
-| S16-7 | #16 | MAJOR | (dari REVIEW-F1-SEC1 putaran 2) hard link ke file di direktori deny/glob, menunggu PR SecFixes |
+| CT27-13 | #27 | MAJOR | `OpenResolved` inside tanpa cek `nlink`: grep membaca hard link ke file deny otomatis (S16-7 lewat codetools) |
+
+S16-7 (REVIEW-F1-SEC1) closed oleh `f1-s167` @ `ab819de`, berlaku setelah branch itu di-merge.
