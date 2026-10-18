@@ -337,9 +337,9 @@ func TestOpenRecheckDeny(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Open: %v", err)
 		}
-		got, err := sb.recheckDeny(file)
+		got, _, err := sb.vet(file, nil, Inside, true, false)
 		if errors.Is(err, ErrDeniedPath) != want || (err == nil) == want {
-			t.Errorf("recheckDeny(%s) = %v, want denied %v", p, err, want)
+			t.Errorf("vet(%s) = %v, want denied %v", p, err, want)
 		}
 		if err == nil {
 			readAll(t, got)
@@ -363,8 +363,8 @@ func TestRecheckDenyClosedHandle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if _, err := sb.recheckDeny(closed); err == nil || !errors.Is(err, os.ErrClosed) {
-		t.Errorf("recheckDeny(closed) = %v, want an os.ErrClosed failure", err)
+	if _, _, err := sb.vet(closed, nil, Inside, true, false); err == nil || !errors.Is(err, os.ErrClosed) {
+		t.Errorf("vet(closed) = %v, want an os.ErrClosed failure", err)
 	}
 }
 
@@ -414,7 +414,7 @@ func TestHardLinkNeedsApproval(t *testing.T) {
 		if err := os.Link(late, late+".2"); err != nil {
 			t.Fatalf("Link: %v", err)
 		}
-		file, v, err := sb.openVerified(f.root, filepath.Base(late), late, os.O_WRONLY|os.O_TRUNC, 0, true)
+		file, v, err := sb.openVerified(f.root, late, os.O_WRONLY|os.O_TRUNC, 0, true)
 		if b, rerr := os.ReadFile(late); file != nil || err != nil || v != HardLinked || rerr != nil || string(b) != "data" { //nolint:gosec // G304: fixture path
 			t.Errorf("openVerified(late link) = %v, %v; content %q", v, err, b)
 		}
