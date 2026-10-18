@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/boundary"
@@ -39,8 +40,9 @@ var errCleanup = errors.New("exec: cleanup")
 // Runner runs commands on the local backend. Its goroutines belong to one
 // boundary group; Close kills every live tree and waits for them.
 type Runner struct {
-	g    *boundary.Group
-	stop chan struct{} // closed by Close: live calls are cancelled
+	g       *boundary.Group
+	prompts []promptRule
+	stop    chan struct{} // closed by Close: live calls are cancelled
 
 	mu     sync.Mutex
 	live   map[string]chan struct{} // exec id → closed when the tree is dead
@@ -51,7 +53,7 @@ type Runner struct {
 func New(ctx context.Context) *Runner {
 	g, _ := boundary.WithContext(ctx) // members never fail; ctx unused by them
 	g.SetLimit(maxTasks)
-	return &Runner{g: g, stop: make(chan struct{}), live: map[string]chan struct{}{}}
+	return &Runner{g: g, prompts: newPromptRules(), stop: make(chan struct{}), live: map[string]chan struct{}{}}
 }
 
 // Close kills still-running trees and waits for the runner's goroutines.
@@ -93,6 +95,8 @@ type call struct {
 	exit  chan exit
 	ex    exit
 	gone  bool // leader reaped
+	// lastOut is the time of the last output chunk (UnixNano).
+	lastOut atomic.Int64
 
 	mu   sync.Mutex
 	errs error // wait and cleanup failures, returned by Run
@@ -203,6 +207,7 @@ func (c *call) readLoop(context.Context) error {
 	for {
 		n, err := c.p.output().Read(buf)
 		if n > 0 {
+			c.lastOut.Store(time.Now().UnixNano())
 			c.out.write(buf[:n])
 			if c.s.OnOutput != nil {
 				c.s.OnOutput(buf[:n])
@@ -217,25 +222,88 @@ func (c *call) readLoop(context.Context) error {
 func (c *call) loop(ctx context.Context, res *Result) {
 	timeout := time.NewTimer(c.s.Timeout)
 	defer timeout.Stop()
-	select {
-	case c.ex = <-c.exit:
-		c.gone = true
-		res.Status = StatusExited
-		if c.ex.signal != "" {
-			res.Status = StatusSignaled
+	tick := time.NewTicker(watchEvery)
+	defer tick.Stop()
+	w := watch{idle: idleTracker{since: c.start}, nextSample: c.start.Add(idleSampleEvery)}
+	for done := false; !done; {
+		select {
+		case c.ex = <-c.exit:
+			c.gone = true
+			res.Status = StatusExited
+			if c.ex.signal != "" {
+				res.Status = StatusSignaled
+			}
+			done = true
+		case <-timeout.C:
+			c.killTree(c.s.KillGrace)
+			res.Status, done = StatusTimeout, true
+		case now := <-tick.C:
+			if st := c.check(now, &w, res); st != "" {
+				c.killTree(c.s.KillGrace)
+				res.Status, done = st, true
+			}
+		case <-ctx.Done():
+			c.cancelled(ctx, res)
+			return
+		case <-c.r.stop:
+			c.cancelled(ctx, res)
+			return
 		}
-	case <-timeout.C:
-		c.killTree(c.s.KillGrace)
-		res.Status = StatusTimeout
-	case <-ctx.Done():
-		c.cancelled(ctx, res)
-		return
-	case <-c.r.stop:
-		c.cancelled(ctx, res)
-		return
 	}
 	c.finish()
 	c.result(res)
+}
+
+// watchEvery paces prompt and idle checks.
+const watchEvery = 100 * time.Millisecond
+
+// watch is the prompt/idle state of one call.
+type watch struct {
+	idle       idleTracker
+	sampler    treeSampler
+	nextSample time.Time
+	waiting    bool // Linux wchan: blocked on terminal/pipe input
+}
+
+// prompt reports a detected prompt of a PTY or piped-stdin call (§A.6).
+func (c *call) prompt(silent time.Duration, waiting bool) (kind, line string) {
+	if !c.s.PTY && c.s.Stdin == nil || silent < promptSilence {
+		return "", ""
+	}
+	line = lastLine(c.out.tail(promptTail))
+	kind = promptKind(c.r.prompts, line)
+	if kind == "" && silent >= wchanSilence && waiting {
+		kind = InputText
+	}
+	return kind, line
+}
+
+// check returns waiting_for_input when a prompt is detected (§A.6: PTY or
+// piped stdin, silence ≥ 1.5 s and a prompt-like last line, or Linux wchan
+// after 5 s) or idle_timeout (§A.4), else "".
+func (c *call) check(now time.Time, w *watch, res *Result) Status {
+	last := time.Unix(0, c.lastOut.Load())
+	if last.Before(c.start) {
+		last = c.start
+	}
+	silent := now.Sub(last)
+	if kind, line := c.prompt(silent, w.waiting); kind != "" {
+		res.Prompt, res.InputKind = line, kind
+		return StatusWaitingForInput
+	}
+	if now.Before(w.nextSample) {
+		return ""
+	}
+	w.nextSample = now.Add(idleSampleEvery)
+	w.waiting = silent >= wchanSilence && treeWaitsInput(c.id, c.s.PTY)
+	if c.s.IdleTimeout <= 0 {
+		return ""
+	}
+	cpu, io, ok := w.sampler.sample(c.p, c.id)
+	if w.idle.observe(now, last, cpu, io, ok, c.s.IdleTimeout) {
+		return StatusIdleTimeout
+	}
+	return ""
 }
 
 // cancelled runs the kill order with a 1 s result deadline (REL-06): the
@@ -371,6 +439,9 @@ func (s *Spec) normalize() error {
 	}
 	if s.Timeout > MaxTimeout {
 		return errors.Join(ErrSpec, errors.New("timeout above 600 s"))
+	}
+	if s.IdleTimeout == 0 {
+		s.IdleTimeout = DefaultIdleTimeout
 	}
 	if s.KillGrace == 0 {
 		s.KillGrace = DefaultKillGrace

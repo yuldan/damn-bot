@@ -171,7 +171,8 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 |---|---|---:|---|
 | exec a | tipe hasil (`ExecStatus` ADR-082), lapisan proses per OS, capture | 509 | CI; menunggu auditor |
 | exec b | `Runner`: loop timeout/cancel, kill order, sweep marker, edge `exec → boundary` | 574 | CI; menunggu auditor |
-| exec c | env anak, secret ref scope, mode one-shot, `NeedsTTY` | lihat PR | CI; menunggu auditor |
+| exec c | env anak, secret ref scope, mode one-shot, `NeedsTTY` | 432 | CI; menunggu auditor |
+| exec d | prompt interaktif, idle-timeout | lihat PR | CI; menunggu auditor |
 
 | Item | Implementasi | Test | Status |
 |---|---|---|---|
@@ -185,4 +186,6 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | Secret ref scope (ADR-081/088, NEW3-03) | `SecretEnv`, `Prepare` | `TestSecretRefScope` (mode b argv0 ∈ commands → ada; `bash -c` sama → tidak; ekspansi `${GH_TOKEN}` → tidak + notice; argv0 lain → tidak) | PR c |
 | Mode one-shot (§A.2) + resolusi argv0 (NEW3-04 sisi runner) | `Prepare`, `shellArgv`, `lookPath` | `TestLookPath`, `TestLookPathWindows` (`.bat`/`.cmd`, entri relatif) | PR c |
 | Pemilihan PTY (§A.1) | `NeedsTTY` | `TestNeedsTTY` | PR c |
-| Prompt interaktif, idle, ConPTY, summarize, P24 | — | — | PR berikutnya |
+| Prompt interaktif (§A.6, P24.2) | `prompt.go`, `call.prompt`, wchan `treeWaitsInput` | `TestPromptKind`, `TestLastLine`, `TestInteractiveCorpus` (40 fixture × pipe/PTY: apt, ssh host key, sudo, kredensial git, `mysql -p`, passphrase, `python input()`/`getpass`, `git commit` tanpa `-m`, `git rebase -i`, `less`, `vi`, …; status ∈ {exited, waiting_for_input}, PTY ≤ 2 s setelah prompt + grace) | PR d; Windows menunggu ConPTY |
+| Idle-timeout (§A.4) | `idleTracker`, `treeSampler` per OS | `TestRunIdleTimeout` (`sleep` → `idle_timeout`; loop CPU → `timeout`) | PR d |
+| ConPTY, summarize, P24 (`TestNoOrphans` 200×, `BenchmarkShellSpawn*`), sesi persisten | — | — | PR berikutnya |
