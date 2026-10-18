@@ -283,9 +283,9 @@ Setiap tool mendeklarasikan kelas efek; kelas menentukan perilaku recovery.
 
 | Kelas | Contoh | Aturan |
 |---|---|---|
-| `read` | `read_file`, `glob`, `grep`, `web_fetch` (GET), `tool_search`, `recall`, shell yang cocok allowlist read-only hasil parse (`git status`, `ls`, `cat`) | Boleh diulang otomatis |
+| `read` | `read_file`, `glob`, `grep`, `web_fetch` (GET), `tool_search`, `recall` | Boleh diulang otomatis |
 | `idempotent` | `write_file`, `edit_file` (dijaga tag/stale check, [CODE-TOOLS.md](CODE-TOOLS.md)), `todo` | Diverifikasi hash after-image sebelum dianggap selesai/diulang |
-| `non_idempotent` | shell selain di atas, `send_message`, aksi browser, `computer_use`, API eksternal (konektor), `cron_create`, `kanban_*`, tool MCP tanpa override config | **Tidak pernah** diulang tanpa konfirmasi user |
+| `non_idempotent` | `shell` (semua perintah; tidak ada kelas shell read-only sejak allowlist `read_only` dihapus, ADR-079), `send_message`, aksi browser, `computer_use`, API eksternal (konektor), `cron_create`, `kanban_*`, tool MCP tanpa override config | **Tidak pernah** diulang tanpa konfirmasi user |
 
 Default konservatif: tool modul/MCP tanpa deklarasi → `non_idempotent`; `readOnlyHint` MCP tidak dipercaya (konten pihak ketiga) kecuali user menulis `effect = "read"` per tool di config. `tool_invoke` mewarisi kelas target. Parallel tool (`loop.parallel_tools`) hanya untuk batch yang seluruhnya `read`; batch campuran dieksekusi berurutan.
 
@@ -362,7 +362,7 @@ Recovery journal turn dijalankan saat start, setelah lease sesi kedaluwarsa dan 
 | `tool_pending` | `idempotent` | hash lain (diubah pihak lain) | `tool_result{status:"conflict", by:"recovery"}` | tanya user |
 | `tool_pending` | `non_idempotent` | tidak dapat diverifikasi | `tool_result{status:"outcome_unknown", retry_safe:false, by:"recovery"}` | **tanya user** (`awaiting_confirmation`) |
 
-- Semua hasil di atas adalah observasi nyata recovery (`by:"recovery"`), bukan history sintetis (P4). Turn selalu ditutup eksplisit `turn_end{stop_reason:"crashed"}` + `crash_recovered{turn_id, last_tool, decision}`.
+- Semua hasil di atas adalah observasi nyata recovery (`by:"recovery"`), bukan history sintetis (P4). Nilai `status` di tabel = enum tertutup `RecoveryStatus` (`interrupted`, `applied_verified`, `not_applied`, `conflict`, `outcome_unknown`; SPEC §4.3, `TestToolResultStatusClosed`), terpisah dari `ExecStatus` hasil eksekusi `shell` (ADR-082). Turn selalu ditutup eksplisit `turn_end{stop_reason:"crashed"}` + `crash_recovered{turn_id, last_tool, decision}`.
 - **Auto-continue** (`recovery.continue = "safe_auto"` default; `ask`; `off`): membuat turn baru `turn_start{resume_of}` dengan sisa iterasi `40 − current_iteration` dan sisa budget turn asal (P2 tidak dapat dilewati via resume). Maks 1 auto-continue per turn asal; lanjutan yang crash lagi → `ask`. Origin `cron` tidak pernah auto-continue (§6).
 - **Konfirmasi**: TUI dialog / web banner / Telegram (tombol `Lanjutkan`, `Batalkan`, atau `/resume <id>`, `/abort <id>`), berisi nama tool, argumen ter-redaksi, waktu dispatch. Timeout 24 jam → `turn_journal.state = 'crashed'` + `approvals.decision = 'timeout'`, dicatat.
 - **Gate pengulangan**: di turn lanjutan, tool call `non_idempotent` dengan `(tool_name, args_sha)` sama dengan yang `outcome_unknown` → approval wajib walau `approval.mode = "auto"` (decision `allow_once` tercatat di `approvals`). Ini enforcement kode, bukan instruksi prompt.
