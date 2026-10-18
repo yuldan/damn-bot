@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/testutil/timing"
 	"modernc.org/sqlite"
 )
 
@@ -184,7 +185,7 @@ func s026(t *testing.T) {
 	_, err := s.AcquireLease(context.Background(), "S") // drained during the barrier: tokens dropped, reacquire
 	must(t, err)
 	appendMsg(t, s, "S", "after restorer death")
-	checkBudget(t, "#26 others continue after restorer death", time.Since(start), 10*time.Second)
+	timing.Check(t, "#26 others continue after restorer death", time.Since(start), 10*time.Second)
 	if MaintenancePending(e.dir) {
 		t.Fatal("stale marker not cleared")
 	}
@@ -463,6 +464,9 @@ func s058(t *testing.T) {
 func s063(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "serve", func(o *Options) { o.BusyTimeout = 200 * time.Millisecond })
+	if count(t, s, `SELECT count(*) FROM events WHERE json_extract(payload, '$.kind') = 'db_write_stalled'`) != 0 {
+		t.Fatal("stall event before the stall")
+	}
 	child := startChild(t, "hold-tx", e.dir)
 	child.signal(t, sigStop)
 	st := &stallTracker{s: s}
