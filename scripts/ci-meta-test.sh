@@ -18,7 +18,7 @@ PATH="$(cd "$root" && go env GOROOT)/bin:$PATH"
 export GOTOOLCHAIN=local
 GATES=(
 	lint depguard lint-anchor vet-custom test race timing vet-cross build-matrix fuzz coverage deadcode flake perf
-	size-check loc loc-unmapped loc-ratio deps-check vuln licenses tidy-check mod-verify bench-budget
+	size-check loc loc-unmapped loc-ratio loc-ratio-testonly deps-check vuln licenses tidy-check mod-verify bench-budget
 	phase-file phase-acceptance
 	arch-importgraph arch-filelength arch-globals arch-goleak arch-budgetsum arch-codeowners arch-nolint
 	arch-workflows arch-mpl
@@ -43,6 +43,7 @@ target() {
 	fuzz) echo "fuzz PKGS=$MINI FUZZTIME=5s" ;;
 	coverage) echo "coverage PKGS=$MINI COVERPKG=$MINI" ;;
 	loc-unmapped) echo loc ;;
+	loc-ratio-testonly) echo loc-ratio ;;
 	phase-file) echo "test PKGS=./internal/testutil/phase/..." ;;
 	arch-mpl) echo licenses ;;
 	arch-*) echo archtest ;;
@@ -71,7 +72,7 @@ marker() {
 	size-check) echo 'SIZE GAGAL full' ;;
 	loc) echo 'LOC GAGAL boundary' ;;
 	loc-unmapped) echo 'LOC GAGAL unmapped internal/metaunmapped' ;;
-	loc-ratio) echo 'LOC ratio test:source' ;;
+	loc-ratio | loc-ratio-testonly) echo 'LOC GAGAL ratio' ;;
 	deps-check) echo 'tidak ada di deps.allow' ;;
 	vuln) echo 'GO-[0-9]{4}-[0-9]+' ;;
 	licenses) echo 'GPL' ;;
@@ -101,6 +102,18 @@ marker() {
 # gofile <path> <isi>: tulis satu file Go (direktori dibuat).
 gofile() { mkdir -p "$(dirname "$1")" && cat >"$1"; }
 
+# metaheavy <dir>: paket berat test (1 baris kode : 2.000 baris test) untuk gate loc-ratio-testonly.
+metaheavy() {
+	local pkg
+	pkg=$(basename "$1")
+	printf 'package %s\n\n// Heavy is the only source line.\nfunc Heavy() int { return 1 }\n' "$pkg" | gofile "$1/meta_heavy.go"
+	{
+		printf 'package %s\n\nimport "testing"\n\nfunc TestMetaHeavy(t *testing.T) {\n\tx := 0\n' "$pkg"
+		for _ in $(seq 2000); do printf '\tx++\n'; done
+		printf '\tif Heavy() != 1 {\n\t\tt.Fatal(x)\n\t}\n}\n'
+	} | gofile "$1/meta_heavy_test.go"
+}
+
 # pr_commit <dir>: commit semua perubahan worktree salinan (identitas sintetis).
 pr_commit() { git -C "$1" add -A && git -C "$1" -c user.name=meta -c user.email=meta@example.invalid commit -qm "$2" --allow-empty; }
 
@@ -129,7 +142,7 @@ func TestOk(t *testing.T) {
 }
 EOF
 		;;
-	loc-ratio)
+	loc-ratio | loc-ratio-testonly)
 		# loc-ratio: gate hanya menggagalkan bila Go non-test ≥ 5.000 LOC (ADR-050), jadi gate diuji pada
 		# pohon sintetis di atas ambang dengan rasio test:source ≈ 1,00 (5.000:5.000) — baseline harus
 		# lulus, +2.000 baris test (rasio 1,40) harus gagal. Pohon repo nyata < 5.000 LOC hanya dilaporkan.
@@ -145,6 +158,11 @@ EOF
 			for _ in $(seq 4993); do printf '\tx++\n'; done
 			printf '\tif F() != 4996 {\n\t\tt.Fatal(x)\n\t}\n}\n'
 		} >"$d/internal/metaratio/a_test.go"
+		if [[ $1 == loc-ratio-testonly ]]; then
+			# ADR-098: paket berat test di direktori TESTONLY (internal/archtest) tidak masuk rasio →
+			# baseline tetap lulus; inject memindahkan isi yang sama ke paket yang TIDAK di-allowlist.
+			metaheavy "$d/internal/archtest"
+		fi
 		;;
 	pr-* | adrgate* | spec-guard)
 		# Repo git sintetis: commit dasar = HEAD, lalu satu perubahan kontrol yang HARUS lolos cek itu
@@ -379,6 +397,10 @@ EOF
 	loc-unmapped)
 		# AUD-073: direktori internal/* tanpa baris loc.budget.
 		printf 'package metaunmapped\n\n// F tidak terpetakan.\nfunc F() int { return 1 }\n' | gofile "$d/internal/metaunmapped/f.go"
+		;;
+	loc-ratio-testonly)
+		rm -rf "$d/internal/archtest/meta_heavy.go" "$d/internal/archtest/meta_heavy_test.go"
+		metaheavy "$d/internal/metaheavy"
 		;;
 	loc-ratio)
 		{

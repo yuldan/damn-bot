@@ -18,6 +18,7 @@ const (
 	maxCoreLOC       = 47000
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
+	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)
 )
 
 var (
@@ -77,10 +78,27 @@ func TestBudgetTableSum(t *testing.T) {
 	if loc > maxTotalLOC {
 		t.Errorf("P21 budget table: Σ LOC §3.2.4 = %d > %d", loc, maxTotalLOC)
 	}
+	core := budgetCoreSum(t, readRepoFile(t, "loc.budget"))
+	if core > maxCoreLOC {
+		t.Errorf("P21 budget table: Σ loc.budget core = %d > %d", core, maxCoreLOC)
+	}
+}
+
+// budgetCoreSum menjumlah kolom LOC baris core loc.budget dan memvalidasi format setiap baris;
+// baris TESTONLY (ADR-098) hanya boleh menunjuk satu direktori infra non-produksi.
+func budgetCoreSum(t *testing.T, budget string) int {
+	t.Helper()
 	core := 0
-	for _, line := range allowlist(readRepoFile(t, "loc.budget")) {
+	for _, line := range allowlist(budget) {
 		fields := strings.Fields(line)
 		if len(fields) > 0 && (fields[0] == locTotalRow || fields[0] == locGeneratedRow) {
+			continue
+		}
+		if len(fields) > 0 && fields[0] == locTestOnlyRow {
+			// ADR-098: hanya direktori infra non-produksi yang boleh keluar dari rasio E-70.
+			if len(fields) != 2 || isCoreDir(fields[1]) {
+				t.Errorf("loc.budget: TESTONLY hanya untuk satu direktori infra (%v): %q", infraDirs(), line)
+			}
 			continue
 		}
 		n, err := 0, error(nil)
@@ -94,9 +112,7 @@ func TestBudgetTableSum(t *testing.T) {
 			core += n
 		}
 	}
-	if core > maxCoreLOC {
-		t.Errorf("P21 budget table: Σ loc.budget core = %d > %d", core, maxCoreLOC)
-	}
+	return core
 }
 
 // infraDirs = direktori infra non-produksi loc.budget (ADR-086 NEW-34), di luar Σ core.
