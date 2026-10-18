@@ -27,6 +27,9 @@ type matcher struct {
 	pre       *regexp.Regexp // buffer-wide candidate search when lits is empty
 	lits      []lit          // any-of prefilter; empty: RE2 over the buffer
 	multiline bool
+	// exact: a pre match free of '\r' and '\n' is the line's first match
+	// (pre is re and no \A or \z tells the buffer from the line).
+	exact bool
 }
 
 // maxAltLits bounds an alternation turned into a literal set.
@@ -66,6 +69,7 @@ func compileMatcher(pattern, mode string) (*matcher, error) {
 	if m.pre = m.re; len(m.lits) == 0 && !m.multiline {
 		m.pre, err = crlfPrefilter(pattern, flags, m.re)
 	}
+	m.exact = m.pre == m.re && !strings.Contains(pattern, `\A`) && !strings.Contains(pattern, `\z`)
 	return m, err
 }
 
@@ -348,14 +352,15 @@ func (m *matcher) scanBuf(buf []byte, base int, fn func(matchLine) bool) {
 // byte inside the matching line, col the match column (-1 = candidate line
 // without a match; the caller skips it). at caches each literal's next
 // occurrence (-1 none left, -2 unknown) so a rare literal of a set is not
-// searched again from every candidate of a frequent one.
+// searched again from every candidate of a frequent one. A line no longer
+// than grepLineChars is only tested (col 0): windowLine needs no column.
 func (m *matcher) next(buf []byte, pos int, at *[maxAltLits]int) (hit, col int) {
-	hit = m.candidate(buf, pos, at)
+	hit, end := m.candidate(buf, pos, at)
 	if hit < 0 || hit == len(buf) && hit > 0 && buf[hit-1] == '\n' { // no line after the final EOL
 		return -1, -1
 	}
 	ls := bytes.LastIndexByte(buf[pos:hit], '\n') + 1 + pos
-	if m.re == nil {
+	if m.re == nil || end >= 0 && m.exact && !bytes.ContainsAny(buf[hit:end], "\r\n") {
 		return hit, hit - ls
 	}
 	le := bytes.IndexByte(buf[hit:], '\n')
@@ -364,21 +369,29 @@ func (m *matcher) next(buf []byte, pos int, at *[maxAltLits]int) (hit, col int) 
 	} else {
 		le += hit
 	}
-	if loc := m.re.FindIndex(buf[ls:trimCR(buf, ls, le)]); loc != nil {
+	line := buf[ls:trimCR(buf, ls, le)]
+	if len(line) <= grepLineChars {
+		if m.re.Match(line) {
+			return hit, 0
+		}
+		return hit, -1
+	}
+	if loc := m.re.FindIndex(line); loc != nil {
 		return hit, loc[0]
 	}
 	return hit, -1
 }
 
-// candidate is the earliest candidate byte at or after pos (-1 = none).
-func (m *matcher) candidate(buf []byte, pos int, at *[maxAltLits]int) int {
-	hit := -1
+// candidate is the earliest candidate byte at or after pos (-1 = none);
+// end >= 0 is the end of the buffer-wide match that found it.
+func (m *matcher) candidate(buf []byte, pos int, at *[maxAltLits]int) (hit, end int) {
+	hit, end = -1, -1
 	if len(m.lits) == 0 {
 		// A buffer match starts no later than any single-line match; the
 		// line holding its start is then verified alone (no match across
 		// '\n' outside multiline mode, like rg).
 		if loc := m.pre.FindIndex(buf[pos:]); loc != nil {
-			hit = pos + loc[0]
+			hit, end = pos+loc[0], pos+loc[1]
 		}
 	}
 	for i := range m.lits {
@@ -392,7 +405,7 @@ func (m *matcher) candidate(buf []byte, pos int, at *[maxAltLits]int) int {
 			hit = at[i]
 		}
 	}
-	return hit
+	return hit, end
 }
 
 // scanMultiline runs RE2 over the whole buffer; every line a match touches
