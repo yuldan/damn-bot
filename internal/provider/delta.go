@@ -1,6 +1,9 @@
 package provider
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 // ToolDelta is one tool_calls fragment of a streamed chunk.
 type ToolDelta struct {
@@ -191,6 +194,9 @@ func (dd *DeltaDecoder) usage() error {
 				return nil
 			}
 			u.Cost, err = s.number()
+			if math.IsInf(u.Cost, 0) {
+				err = errJSON // out of float64 range (encoding/json rejects it too)
+			}
 			u.HasCost = err == nil
 		case "prompt_tokens_details":
 			if s.null() {
