@@ -2409,3 +2409,15 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 **Dampak terukur (SPEC §20).** Token/latensi/binary/dependency/LOC produksi 0. Rasio repo saat ini (main + `schema` 3/3): 5.529:4.890 → laporan saja sampai Go non-test produksi ≥ 5.000 LOC.
 
 **Konsekuensi.** (+) E-70 mengukur test kode produksi; paket baru tidak bisa lolos diam-diam. (−) Ambang 5.000 LOC tercapai sedikit lebih lambat (infra test-only ≈ 200 LOC tidak dihitung).
+
+## ADR-104 — Artefak review (`docs/REVIEW-*.md`) dikecualikan dari spec-guard
+
+**Status:** Accepted 2026-10-19 (keputusan didelegasikan; opsi paling sempit). Melengkapi ADR-078 AUD-056 (laporan bukan spec).
+
+**Konteks.** Auditor independen menulis temuan review paket F1 di `docs/REVIEW-<topik>.md` (mis. `REVIEW-F1-SEC1.md`, PR #23). Dokumen itu laporan temuan + bukti, bukan requirement, tetapi spec-guard (`scripts/pr-meta.sh`) memperlakukan setiap `docs/*.md` baru sebagai perubahan spec yang wajib merujuk ADR. `docs/AUDIT-*.md` dan `docs/F[0-9]-REPORT.md` sudah dikecualikan dengan alasan yang sama. `docs/REVIEW-1.0.md` (review spec historis) sudah dikecualikan sebagai seluruh file.
+
+**Keputusan.** `testdata/docs_exclusions.txt` menambah pola seluruh-file `docs/REVIEW-*.md`. Temuan review yang mengubah requirement tetap wajib diterapkan lewat ADR + perubahan dokumen spec (spec-guard tetap berlaku untuk dokumen itu).
+
+**Dampak terukur (SPEC §20).** Token/latensi/LOC/binary/dependency 0. Satu pola pengecualian tambahan.
+
+**Konsekuensi.** (+) PR auditor docs-only lolos spec-guard tanpa ADR per review. (−) Isi `docs/REVIEW-*.md` tidak pernah normatif; requirement di dalamnya baru berlaku setelah diangkat ke spec lewat ADR.
