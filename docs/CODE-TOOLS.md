@@ -412,7 +412,7 @@ Ringkasan:
 
 - **Path sandbox** [SPEC.md](../SPEC.md) §14.2 berlaku untuk `path` semua tool di dokumen ini sebelum I/O (pipeline SPEC §4.3 langkah 5). Path di luar root menghasilkan verdict `outside_root` (bukan error) yang diteruskan ke langkah 7 (approval); `deny_paths` tetap error di langkah 5 (ADR-069).
 - **Anti-TOCTOU symlink:**
-  - Linux ≥ 5.6: buka via `openat2(RESOLVE_BENEATH|RESOLVE_NO_MAGICLINKS)` (`golang.org/x/sys/unix`).
+  - Linux ≥ 5.6: buka path absolut ter-resolve via `openat2(RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)` (`golang.org/x/sys/unix`): tanpa symlink di komponen mana pun, setara `RESOLVE_BENEATH` dari root kanonik (ADR-103 butir 17).
   - Kernel lama/macOS: buka lalu verifikasi path nyata fd (`/proc/self/fd/N` readlink, `F_GETPATH` di macOS, `GetFinalPathNameByHandle` di Windows) berprefix root. Gagal → `outside_workspace`.
 - **Symlink keluar root (ADR-079):** symlink di dalam root yang ter-resolve keluar root diperlakukan sama dengan path di luar root, untuk baca dan tulis: verdict `outside_root` → interaktif tanya, headless `outside_workspace` (butir berikut), bukan error. Target yang cocok `deny_paths` tetap error `denied_path`. Walker grep/glob tidak mengikuti symlink (§2.2). Test: `TestCodeToolsSymlinkOutsideRoot`.
 - **Baca/tulis di luar root (ADR-069):** interaktif → approval "read outside workspace: <path>" / "write outside workspace: <path>" yang **tetap ditanya di semua mode**, termasuk `auto`. `allow_session` hanya untuk path persis. Headless/cron → selalu `outside_workspace`. Konten yang dibaca dari luar root dibungkus `<untrusted source="file:outside_workspace">` (men-taint turn, ADR-070). Tercantum di SPEC §14.1 (baris "Read/write di luar workspace") dan §14.2. Test: `TestReadOutsideWorkspaceAsks`.

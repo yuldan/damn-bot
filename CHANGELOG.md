@@ -9,6 +9,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `budget`: biaya ledger tidak lagi bisa negatif atau mendekati 0 — token > 10¹², biaya provider > 10⁶ USD (termasuk +Inf), harga negatif, dan overflow tokens × harga ditolak `ErrInvalidUsage` (aritmetika tercek); test append-only `usage_ledger` kini non-vakum untuk UPDATE dan DELETE (REVIEW-F1-SEC3 LED-1..3, ADR-101).
 
 ### Changed
+- `sandbox`/`codetools`: jalur panas lebih ringan — deny_paths terklasifikasi di `New` + `Sandbox.DeniedEntry` untuk walker (menggantikan `Denied`), open Linux satu `openat2` `RESOLVE_NO_SYMLINKS` dari path absolut + satu `fstat` per handle, ignore literal basename lewat map, `edit_file` tanpa `Check` ganda dan alokasi per baris, regex memakai `Match` untuk baris pendek (output identik; ADR-103 butir 17).
 - `redact`: prefilter pasangan byte di `scan` — posisi yang dua byte pertamanya tidak bisa memulai pola mana pun dilewati tanpa `matchAt` (output identik, ≈ 3× lebih cepat pada prosa 8 KiB; dasar GAP-SEC-16 DLP ≤ 50 µs, REVIEW-F1-SEC1 NETX-16; ADR-096).
 
 ### Added
