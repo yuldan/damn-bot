@@ -407,16 +407,16 @@ Ringkasan:
 
 ## 8. Keamanan
 
-- **Path sandbox** [SPEC.md](../SPEC.md) §14.2 berlaku untuk `path` semua tool di dokumen ini sebelum I/O (pipeline SPEC §4.3 langkah 5).
+- **Path sandbox** [SPEC.md](../SPEC.md) §14.2 berlaku untuk `path` semua tool di dokumen ini sebelum I/O (pipeline SPEC §4.3 langkah 5). Path di luar root menghasilkan verdict `outside_root` (bukan error) yang diteruskan ke langkah 7 (approval); `deny_paths` tetap error di langkah 5 (ADR-069).
 - **Anti-TOCTOU symlink:**
   - Linux ≥ 5.6: buka via `openat2(RESOLVE_BENEATH|RESOLVE_NO_MAGICLINKS)` (`golang.org/x/sys/unix`).
   - Kernel lama/macOS: buka lalu verifikasi path nyata fd (`/proc/self/fd/N` readlink, `F_GETPATH` di macOS, `GetFinalPathNameByHandle` di Windows) berprefix root. Gagal → `outside_workspace`.
 - **Symlink keluar root:** symlink di dalam root yang menunjuk keluar root → `outside_workspace` untuk baca dan tulis. Walker grep/glob tidak mengikuti symlink (§2.2).
-- **Tulis di luar root:** `outside_workspace` secara default. Frontend interaktif menawarkan approval "write outside workspace: <path>" yang **tetap ditanya di semua mode**, termasuk `auto`. `allow_session` hanya untuk path persis. Headless/cron → selalu `outside_workspace`. Tercantum di SPEC §14.1 (baris "Read/write di luar workspace") dan §14.2.
-- **`deny_paths`:** menang atas root dan approval, tidak dapat di-override. grep/glob melewati path yang ditolak dan hanya mencatat jumlahnya di footer (`skipped: N denied`), tanpa nama.
-- **Approval tulis di workspace:** sesuai SPEC §14.1 (`ask` → tanya, `auto-edit`/`auto` → auto). Tool read-only tidak pernah butuh approval.
+- **Baca/tulis di luar root (ADR-069):** interaktif → approval "read outside workspace: <path>" / "write outside workspace: <path>" yang **tetap ditanya di semua mode**, termasuk `auto`. `allow_session` hanya untuk path persis. Headless/cron → selalu `outside_workspace`. Konten yang dibaca dari luar root dibungkus `<untrusted source="file:outside_workspace">` (men-taint turn, ADR-070). Tercantum di SPEC §14.1 (baris "Read/write di luar workspace") dan §14.2. Test: `TestReadOutsideWorkspaceAsks`.
+- **`deny_paths`:** menang atas root dan approval, tidak dapat di-override; tetap error di langkah 5 (ADR-069). grep/glob melewati path yang ditolak dan hanya mencatat jumlahnya di footer (`skipped: N denied`), tanpa nama.
+- **Approval tulis di workspace:** sesuai SPEC §14.1 (`ask` → tanya, `auto-edit`/`auto` → auto). Tool read-only tidak butuh approval untuk path di dalam root (di luar root: butir di atas, ADR-069).
 - **Redaksi** (SPEC §14.3) diterapkan ke output `read_file`/`grep` sebelum ke model. Interaksinya dengan edit dibahas di §5.3.
-- **Isi file adalah data.** Isi file tidak dibungkus `<untrusted>` (file workspace = konteks user), kecuali file di direktori blob hasil `web_fetch`/MCP yang sudah berlabel.
+- **Isi file adalah data.** Isi file workspace trusted tidak dibungkus `<untrusted>` (file workspace = konteks user), kecuali file di direktori blob hasil `web_fetch`/MCP yang sudah berlabel dan file di luar root (`source="file:outside_workspace"`). Workspace untrusted (ADR-069 butir 7): AGENTS.md dan context file dibungkus `<untrusted source="workspace">`, dan konten file workspace men-taint turn (ADR-070).
 
 ## 9. Format output ke model
 
