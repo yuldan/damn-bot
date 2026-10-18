@@ -189,3 +189,13 @@ func verifyChains(t *testing.T, s *Store) string {
 	must(t, rows.Err())
 	return ""
 }
+
+// execAll runs statements in order with the same arguments.
+func (t *Tx) execAll(args []any, qs ...string) error {
+	for _, q := range qs {
+		if _, err := t.Exec(q, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}

@@ -117,7 +117,7 @@ func (s *Store) reapplyPurge(ctx context.Context) error {
 	err = s.tx(ctx, modePurge, func(t *Tx) error {
 		live, err := t.Strings("SELECT id FROM sessions WHERE id IN (SELECT value FROM json_each(?1))", jsonOf(p))
 		if err == nil {
-			p, err = t.descFirst(live)
+			p, err = t.Strings(t.s.q["desc_first"], jsonOf(live))
 		}
 		if err == nil {
 			_, err = t.Exec("DELETE FROM module_state WHERE module_id = 'purge'")

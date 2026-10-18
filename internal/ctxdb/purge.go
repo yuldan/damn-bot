@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 )
 
@@ -95,6 +94,9 @@ func (s *Store) runPurge(ctx context.Context, txid string, p []string, create bo
 // unit of the current phase, then the value is saved in the same tx.
 func (t *Tx) purgeBatch(txid string, p []string, create bool) (purgeValue, error) {
 	v, err := t.purgeLease(txid, create)
+	if err == nil {
+		err = t.run("purge.clear")
+	}
 	if err != nil {
 		return v, err
 	}
@@ -278,58 +280,14 @@ func (t *Tx) labelledOrdered(txid string) ([]string, error) {
 	if ids, ok := t.s.purgeOrder[txid]; ok {
 		return ids, nil
 	}
-	ids, err := t.Strings(`SELECT l.session_id FROM session_labels l WHERE l.key = 'purge_state' AND l.value = ?1
-		AND l.id = (SELECT max(id) FROM session_labels m WHERE m.session_id = l.session_id AND m.key = 'purge_state')`, txid)
+	ids, err := t.Strings(t.s.q["purge.labelled"], txid)
 	if err == nil {
-		ids, err = t.descFirst(ids)
+		ids, err = t.Strings(t.s.q["desc_first"], jsonOf(ids))
 	}
 	if err == nil {
 		t.s.purgeOrder = map[string][]string{txid: ids}
 	}
 	return ids, err
-}
-
-// descFirst orders ids by depth inside the set (descending), then id, so
-// every session comes after all of its descendants in the set.
-func (t *Tx) descFirst(ids []string) ([]string, error) {
-	set := map[string]bool{}
-	for _, id := range ids {
-		set[id] = true
-	}
-	rows, err := t.c.QueryContext(t.ctx, "SELECT id, coalesce(parent_id, '') FROM sessions WHERE id IN (SELECT value FROM json_each(?1))", jsonOf(ids))
-	if err != nil {
-		return nil, classify(err)
-	}
-	defer rows.Close()
-	parent := map[string]string{}
-	for rows.Next() {
-		var id, p string
-		if err := rows.Scan(&id, &p); err != nil {
-			return nil, err
-		}
-		parent[id] = p
-	}
-	depth := map[string]int{}
-	var d func(string) int
-	d = func(id string) int {
-		if v, ok := depth[id]; ok {
-			return v
-		}
-		v := 0
-		if p := parent[id]; set[p] {
-			v = d(p) + 1
-		}
-		depth[id] = v
-		return v
-	}
-	out := slices.Clone(ids)
-	slices.SortFunc(out, func(a, b string) int {
-		if da, db := d(a), d(b); da != db {
-			return db - da
-		}
-		return strings.Compare(a, b)
-	})
-	return out, rows.Err()
 }
 
 // phaseSessions runs phase 1 (steps 1–8) or phase 3 (cleanup + 27–30) for
@@ -360,7 +318,7 @@ func (t *Tx) phaseSessions(txid string, v *purgeValue, start time.Time, final bo
 		if final {
 			err = t.purgeFinal(sb, v.Audit)
 		} else {
-			err = t.purgeRelease(sb)
+			err = t.run("purge.release", sb)
 		}
 		if err != nil {
 			return err
@@ -381,7 +339,7 @@ func (t *Tx) phaseEvents(txid string, v *purgeValue, start time.Time) error {
 	if err != nil {
 		return err
 	}
-	ev, err := t.Ints("SELECT id FROM events WHERE session_id"+inSet+" ORDER BY id DESC LIMIT ?2", jsonOf(ids), eventBatch)
+	ev, err := t.Ints("SELECT id FROM events WHERE session_id IN (SELECT value FROM json_each(?1)) ORDER BY id DESC LIMIT ?2", jsonOf(ids), eventBatch)
 	if err != nil {
 		return err
 	}
@@ -390,7 +348,7 @@ func (t *Tx) phaseEvents(txid string, v *purgeValue, start time.Time) error {
 		return nil
 	}
 	for i := 0; i < len(ev) && (i == 0 || time.Since(start) < batchDeadline); i += eventChunk {
-		if err := t.purgeEvents(jsonOf(ev[i:min(i+eventChunk, len(ev))]), v.Audit); err != nil {
+		if err := t.run("purge.events", jsonOf(ev[i:min(i+eventChunk, len(ev))]), v.Audit); err != nil {
 			return err
 		}
 	}
@@ -402,9 +360,8 @@ func (t *Tx) purgeDone(txid string, v *purgeValue) error {
 	if _, err := t.AppendEvent(SystemSession, Event{Kind: "system_notice", Payload: jsonOf(map[string]any{"kind": "purge_done", "txid": txid})}); err != nil {
 		return err
 	}
-	if err := t.execAll([]any{txid},
-		"DELETE FROM module_state WHERE module_id = 'gateway' AND key LIKE 'purge_notice:%:' || ?1",
-		"DELETE FROM module_state WHERE module_id = 'purge' AND key = ?1"); err != nil {
+	if _, err := t.Exec(`DELETE FROM module_state WHERE module_id = 'gateway' AND key LIKE 'purge_notice:%:' || ?1;
+		DELETE FROM module_state WHERE module_id = 'purge' AND key = ?1`, txid); err != nil {
 		return err
 	}
 	v.Phase = phaseDone

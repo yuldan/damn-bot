@@ -62,6 +62,7 @@ type Store struct {
 	// marker must not drain it; also set while a purge releases its lease.
 	barrierOwner atomic.Bool
 	purgeOrder   map[string][]string // txid → labelled sessions, descendants first (guarded by mu)
+	q            map[string]string   // named statements of queries.sql
 	stop         context.CancelFunc // barrier watcher
 	done         chan struct{}
 }
@@ -104,7 +105,11 @@ func newStore(o Options) (*Store, error) {
 	if o.BarrierWait == 0 {
 		o.BarrierWait = BarrierWait
 	}
-	s := &Store{opt: o, dir: o.Dir, clk: o.Clock, tokens: map[string]int64{}, obs: map[string]observation{}}
+	q, err := loadQueries()
+	if err != nil {
+		return nil, fmt.Errorf("ctxdb: queries: %w", err)
+	}
+	s := &Store{opt: o, dir: o.Dir, clk: o.Clock, q: q, tokens: map[string]int64{}, obs: map[string]observation{}}
 	s.mode.Store("")
 	if o.Ident != nil {
 		s.id = *o.Ident
@@ -226,7 +231,8 @@ func (s *Store) driver(writer bool) (*sqlite.Driver, error) {
 				h.RegisterCommitHook(func() int32 { s.mode.Store(""); return 0 })
 				h.RegisterRollbackHook(func() { s.mode.Store("") })
 			}
-			return nil
+			_, err := c.ExecContext(context.Background(), s.q["temp.tables"], nil) // purge scratch tables
+			return err
 		})
 	}
 	return d, err

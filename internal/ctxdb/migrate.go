@@ -16,7 +16,7 @@ import (
 	"strings"
 )
 
-//go:embed migrations/*.sql
+//go:embed migrations/*.sql queries.sql
 var migFS embed.FS
 
 type migration struct {
