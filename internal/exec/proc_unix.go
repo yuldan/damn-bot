@@ -114,8 +114,11 @@ func (u *osProc) treeAlive() bool    { return syscall.Kill(-u.p.Pid, 0) == nil }
 func (u *osProc) release() error     { return nil }
 
 func (u *osProc) signal(sig syscall.Signal) error {
+	// ESRCH: the group is gone. EPERM: no member may be signalled — macOS
+	// reports it for a group of zombies, and a member that changed uid
+	// (setuid) cannot be killed by us anyway (ADR-105 butir 18).
 	err := syscall.Kill(-u.p.Pid, sig)
-	if err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err != nil && !errors.Is(err, syscall.ESRCH) && !errors.Is(err, syscall.EPERM) {
 		return fmt.Errorf("exec: kill -%d: %w", u.p.Pid, err)
 	}
 	return nil
