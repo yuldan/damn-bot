@@ -49,6 +49,9 @@ linters:
     - nolintlint
 
   settings:
+    misspell:
+      # hardlinked_file: sandbox verdict name (ADR-097 butir 12), not "hardline".
+      ignore-rules: [hardlinked]
     errcheck:
       check-blank: true
       check-type-assertions: true

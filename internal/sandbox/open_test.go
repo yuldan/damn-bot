@@ -322,13 +322,11 @@ func TestOpenRecheckDeny(t *testing.T) {
 	if err := os.Link(netrc, hl); err != nil {
 		t.Fatalf("Link: %v", err)
 	}
-	if v, _, err := sb.Check(t.Context(), hl, OpRead); err != nil || v != Inside {
-		t.Fatalf("Check(hard link) = %v, %v; want inside (path checks cannot see it)", v, err)
+	if v, _, err := sb.Check(t.Context(), hl, OpRead); err != nil || v != HardLinked {
+		t.Fatalf("Check(hard link) = %v, %v; want hardlinked_file (S16-7)", v, err)
 	}
 	modes(t, sb, func(t *testing.T, sb *Sandbox) {
-		if _, _, err := sb.OpenFile(t.Context(), hl, os.O_RDONLY, 0); !errors.Is(err, ErrDeniedPath) {
-			t.Errorf("OpenFile(hard link) = %v, want ErrDeniedPath", err)
-		}
+		// Approved anyway: the identity check still refuses it (S16-2).
 		if _, err := sb.OpenApproved(t.Context(), hl, os.O_RDONLY, 0); !errors.Is(err, ErrDeniedPath) {
 			t.Errorf("OpenApproved(hard link) = %v, want ErrDeniedPath", err)
 		}
@@ -367,6 +365,67 @@ func TestRecheckDenyClosedHandle(t *testing.T) {
 	}
 	if _, err := sb.recheckDeny(closed); err == nil || !errors.Is(err, os.ErrClosed) {
 		t.Errorf("recheckDeny(closed) = %v, want an os.ErrClosed failure", err)
+	}
+}
+
+// checkLinkedRefused: the hard link p to target is HardLinked for Check and
+// for OpenFile read and write+truncate, and target keeps its content.
+func checkLinkedRefused(t *testing.T, sb *Sandbox, p, target string) {
+	t.Helper()
+	if v, _, err := sb.Check(t.Context(), p, OpWrite); err != nil || v != HardLinked {
+		t.Errorf("Check(%s) = %v, %v; want hardlinked_file", p, v, err)
+	}
+	for _, flag := range []int{os.O_RDONLY, os.O_WRONLY | os.O_TRUNC} {
+		if file, v, err := sb.OpenFile(t.Context(), p, flag, 0); file != nil || err != nil || v != HardLinked {
+			t.Errorf("OpenFile(%s, %#x) = %v, %v; want hardlinked_file", p, flag, v, err)
+		}
+	}
+	if b, err := os.ReadFile(target); err != nil || len(b) == 0 { //nolint:gosec // G304: fixture path
+		t.Errorf("%s truncated or unreadable: %q, %v", target, b, err)
+	}
+}
+
+// TestHardLinkNeedsApproval is S16-7: a regular file with more than one
+// link is never opened automatically, whatever its other name: a hard link
+// to a file inside a deny dir (~/.ssh/x) or to a "**/.env" match is
+// HardLinked for Check and OpenFile (read and write, nothing truncated) in
+// both open modes, while OpenApproved still enforces deny_paths for the
+// literal-deny case. An ordinary singly linked file opens.
+func TestHardLinkNeedsApproval(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	key := filepath.Join(f.home, ".ssh", "x")
+	env := filepath.Join(f.out, "proj", ".env")
+	mkfile(t, key, "k3y")
+	mkfile(t, env, "TOKEN=v")
+	links := map[string]string{"key": key, "env": env}
+	for name, target := range links {
+		if err := os.Link(target, filepath.Join(f.root, name)); err != nil {
+			t.Fatalf("Link: %v", err)
+		}
+	}
+	modes(t, f.sb, func(t *testing.T, sb *Sandbox) {
+		for name, target := range links {
+			checkLinkedRefused(t, sb, filepath.Join(f.root, name), target)
+		}
+		// Linked after Check: the handle check refuses it before O_TRUNC.
+		late := filepath.Join(f.root, "late-"+filepath.Base(t.Name()))
+		mkfile(t, late, "data")
+		if err := os.Link(late, late+".2"); err != nil {
+			t.Fatalf("Link: %v", err)
+		}
+		file, v, err := sb.openVerified(f.root, filepath.Base(late), late, os.O_WRONLY|os.O_TRUNC, 0, true)
+		if b, rerr := os.ReadFile(late); file != nil || err != nil || v != HardLinked || rerr != nil || string(b) != "data" { //nolint:gosec // G304: fixture path
+			t.Errorf("openVerified(late link) = %v, %v; content %q", v, err, b)
+		}
+		single, v, err := sb.OpenFile(t.Context(), filepath.Join(f.root, "real.txt"), os.O_RDONLY, 0)
+		if err != nil || v != Inside {
+			t.Fatalf("OpenFile(nlink 1) = %v, %v", v, err)
+		}
+		readAll(t, single)
+	})
+	if v := HardLinked.String(); v != "hardlinked_file" {
+		t.Errorf("HardLinked.String() = %q", v)
 	}
 }
 

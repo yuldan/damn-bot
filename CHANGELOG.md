@@ -25,6 +25,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `sandbox`: `OpenFile`/`OpenApproved` anti-TOCTOU tanpa mengikuti symlink yang muncul setelah `Check`: openat2 `RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS` (Linux ≥ 5.6), walk `openat(O_NOFOLLOW)` + verifikasi `/proc/self/fd` (Linux lama) atau device+inode (macOS/BSD), `os.Root` + `GetFinalPathNameByHandle` (Windows); escape/race → `ErrOutsideWorkspace`; setiap handle dicek ulang terhadap `deny_paths` lewat path nyata handle dan identitas objek deny literal (`ErrDeniedPath`, S16-2); junction di dalam root bisa dibuka (S16-1) (ADR-097).
 
 ### Fixed
+- `sandbox`: file reguler ber-hard-link (jumlah link > 1) di dalam root tidak lagi dibuka otomatis: verdict baru `HardLinked` (`hardlinked_file`) dari `Check`/`OpenFile` butuh approval seperti `outside_root`; `O_TRUNC` diterapkan hanya setelah handle lolos cek deny dan hard link (ADR-097 butir 12, S16-7).
 - `ctxdb` (Windows): lock file dilepas eksplisit dengan `UnlockFileEx` sebelum handle ditutup (ADR-092 NEW3-01).
 - `ctxdb`: `MaintenancePending` menutup `os.Root` di semua jalur (sebelumnya 1 handle bocor per panggilan; di Windows data dir tak bisa dihapus) (ADR-094).
 - `ctxdb` (Windows): fsync direktori tidak lagi gagal "Access is denied" (no-op di Windows, ADR-094).
