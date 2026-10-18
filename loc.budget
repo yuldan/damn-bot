@@ -11,7 +11,7 @@ codetools         4500 internal/codetools
 exec              3000 internal/exec
 sandbox+redact    1300 internal/sandbox internal/redact
 boundary           150 internal/boundary
-ctxdb             2500 internal/ctxdb
+ctxdb             2800 internal/ctxdb
 assemble          1000 internal/assemble
 compaction         900 internal/compaction
 memory+skills     2200 internal/memory internal/skills

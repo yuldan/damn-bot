@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Gate LOC (ENGINEERING E-19/E-61/E-70). Pemakaian:
 #   scripts/loc-check.sh budget   # per paket (loc.budget) + total; exit 1 bila melebihi
-#   scripts/loc-check.sh ratio    # rasio LOC test:source 0,8–1,2 (E-70); exit 1 bila di luar
+#   scripts/loc-check.sh ratio    # rasio LOC test:source 0,8–1,2 (E-70); exit 1 bila di luar, tetapi hanya
+#                                 # bila Go non-test ≥ 5.000 LOC (ADR-050); di bawahnya laporan saja (exit 0)
 # Butuh scc (SCC env; default `go tool -modfile=tools/go.mod scc`).
 set -euo pipefail
 
@@ -58,7 +59,13 @@ ratio)
 		if (src == 0) { print "LOC ratio: 0 source LOC"; exit 1 }
 		r = test / src
 		printf "LOC ratio test:source = %d:%d = %.2f (target 0,80–1,20, E-70)\n", test, src, r
-		exit (r < 0.8 || r > 1.2) ? 1 : 0
+		bad = (r < 0.8 || r > 1.2)
+		# ADR-050: gate berlaku mulai 5.000 LOC Go non-test; di bawahnya hanya dilaporkan.
+		if (src < 5000) {
+			printf "LOC ratio report-only: Go non-test %d < 5000 (ADR-050); %s, tidak menggagalkan gate\n", src, (bad ? "di luar target" : "dalam target")
+			exit 0
+		}
+		exit bad ? 1 : 0
 	}' <<<"$csv"
 	;;
 *)
