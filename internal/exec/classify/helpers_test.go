@@ -62,3 +62,9 @@ func modes() [5]Mode {
 // decisionCodes: Q ask, P ask+preview, C ask per command, A auto, D denied,
 // E denied_path error, O outside_workspace, U unverified.
 func decisionCode(d Decision) byte { return "QPCADEOU"[d] }
+
+type labelCase struct {
+	cmd   string
+	class Class
+	flags Flag
+}
