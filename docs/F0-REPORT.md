@@ -6,15 +6,35 @@ Format sesuai `docs/HANDOFF-F0.md` §"Laporan pagi". Mesin: workstation (Kali, l
 
 | # | Deliverable F0 (ROADMAP) | Status | Catatan |
 |---|---|---|---|
-| 7 | CI skeleton: lint, test -race, size-check, LOC, deps allowlist, tidy, verify, govulncheck, go-licenses, meta-test | selesai (mekanisme) | Meta-test terbaru @ `f917511`: **11/11 gate DETECTED**. `loc-ratio` diuji pada pohon sintetis dengan rasio 1,00; gate repo nyata tetap merah (TS-03). Di HEAD, `lint` dan `loc` **merah karena `internal/ctxdb`**: wrapcheck 19, unparam 2, unused 2; LOC 2.591 > 2.500. Untuk dua gate itu, meta-test memakai baseline pohon scaffold dan menandainya HEAD_RED. Worker persistence sudah diberi tahu. Workflow GitHub belum pernah dijalankan di Actions (tanpa remote). |
+| 7 | CI skeleton: lint, test -race, size-check, LOC, deps allowlist, tidy, verify, govulncheck, go-licenses, meta-test | sebagian | Mekanisme gate lengkap. Meta-test di `ad57fa1`: **10/11 DETECTED**. `tidy-check` = BASELINE_RED karena `go.mod` HEAD tidak tidy. Di HEAD, gate yang merah: `test` (S015 `-race`), `loc` (ctxdb), `loc-ratio` (TS-03), `tidy-check`, `vuln` (GO-2026-6604 stdlib); rincian di §Verifikasi akhir. Workflow GitHub belum pernah dijalankan di Actions (tanpa remote). |
 | 1 | `bench/budget` (P1, o200k_base offline) | selesai | tokenizer = tiktoken 0.14.0 persis (id token & jumlah); 13/13 angka gate BASELINE dalam ±5%; job CI `bench-budget`. `TestFixedOverhead` sisi Damn-Bot menunggu `internal/assemble` (F1). |
 | 4 | Baseline hermes tanpa LLM | selesai, dengan pengecualian | Artefak `bench/speed/results/hermes-868b9f244f-nollm.json`. Isinya: overhead token dan schema (#1); startup frame pertama `hermes chat` p50 3.369 ms / p95 3.595 ms; `--version` p50 1.384 ms; RSS CLI median 106,8 MB; install 411,7 MB dan 33,5 s; config minimum 2 baris; 6 langkah setup. Pengecualian: prompt-ready dan idle RSS tidak terukur di netns (TS-11). Waktu install resmi dari VM bersih juga tidak diukur. Dimensi berbasis LLM ditandai "diukur di RC F9". |
 | 5 | `bench/speed` | selesai (kerangka + baseline hermes) | Ke-854 baris FEATURE-PARITY terklasifikasi (`TestEveryRowClassified`): **163 terukur**, 674 tidak terukur dengan alasan, 17 dropped. Dari 163 baris terukur, 27 adalah proxy `<cmd> --help`. Artefak: `bench/speed/results/hermes-868b9f244f.json`. Smoke LLM 10 task: **menunggu user**. |
 | 6 | Korpus code tools C1–C3 + baseline `rg`/hermes | selesai (baseline) | `bench/corpora.lock`: C1 = hermes `868b9f24…` (20.076 file, 224,8 MB); C2/C3 sintetis deterministik. rg 15.1.0 (oracle spec) dijalankan pada C1/C2/C3 dengan 40 literal, 40 regex, dan 10 glob × 20 run. Tool hermes di C1: `search_files` 50, `read_file` 10, `patch` 10. Artefak `bench/codetools/results/f0-baseline.json`. Catatan TS-12. |
 | 2 | `bench/h2h` head-to-head berbasis LLM | menunggu user | butuh kredensial/biaya |
 | 3 | Eval set E1–E10 + manifest | selesai | `bench/evals/`: evalset/v1 530 task (E1 160 … E10 100) + `MANIFEST.sha256`; ID SWE-bench Verified & Terminal-Bench di-pin (URL + revisi + SHA-256); `go test ./evals/...` (modul bench) lulus; 60 task coding internal diverifikasi dengan toolchain nyata. |
-| 8 | Persistence spike `internal/ctxdb` | sebagian | DDL 0001–0008 (verbatim SPEC §11), store/mode/lease+fencing/purge 4 fase/gc/trash/journal recovery/barrier/migrasi/restore + 86 subtest `TestScenario/S001..S086`, `TestKill9Chaos`, `TestMultiProcess`: **semua lulus** tanpa `-race` (exit 0). Belum: (a) `go test -race`/`make test` masih 1 merah: S015 batas 200 ms/txn (lantai biaya SQLite di bawah `-race`, TS-P08); `db_busy` sudah hilang; (b) LOC non-test 2.598 > 2.500 (E-19, TS-P10); (c) `make lint` = 0 issues; (d) protokol gateway worker + konsumen approval ditulis sebagai implementasi referensi di `_test.go` (TS-P09). |
+| 8 | Persistence spike `internal/ctxdb` | sebagian | DDL 0001–0008 (verbatim SPEC §11), store/mode/lease+fencing/purge 4 fase/gc/trash/journal recovery/barrier/migrasi/restore + 86 subtest `TestScenario/S001..S086`, `TestKill9Chaos`, `TestMultiProcess`: **semua lulus** tanpa `-race` (exit 0). Belum: (a) `go test -race`/`make test` masih 1 merah: S015 batas 200 ms/txn (lantai biaya SQLite di bawah `-race`, TS-P08; di `ad57fa1` max 210 ms); `db_busy` sudah hilang; (b) LOC non-test 2.610 > 2.500 di `ad57fa1` (E-19, TS-P10); (c) `make lint` = 0 issues; (d) protokol gateway worker + konsumen approval ditulis sebagai implementasi referensi di `_test.go` (TS-P09); (e) `go.mod` tidak tidy (`x/sys` dipakai langsung); (f) GO-2026-6604 terjangkau lewat `os.Root` (Windows, butuh go1.26.9). Lihat §Blocker. |
 | 9 | Errata backlog ADR-047 | sebagian | 33 item terbuka dipetakan; 33 usulan ADR ditulis di laporan (menunggu keputusan user/auditor); 12 item menyangkut kode F0, 11 dengan test lulus. AF-01/AF-02 wajib sebelum F4. |
+
+## Verifikasi akhir (HEAD `ad57fa1`)
+
+Dijalankan 2026-10-18 di workstation (go1.26.8 linux/amd64). `git status --short` hanya menampilkan `?? sisasisa` (bukan milik F0; dibiarkan). Log ada di `/tmp/f0_final_*.log`.
+
+| Perintah | Exit | Ringkasan |
+|---|---:|---|
+| `git status --short` | 0 | `?? sisasisa` saja |
+| `git log --oneline \| head -40` | 0 | 31 commit; `f81a549` (spec) … `ad57fa1` |
+| `make lint` | 0 | `0 issues.` |
+| `make test` | 2 | `cmd/damnbot` ok, `internal/archtest` ok; `internal/ctxdb` FAIL hanya `TestScenario/S015_LargePurgeLockBudget` (max tx 210 ms > 200 ms, 3 txn; TS-P08) |
+| `make loc` | 2 | `LOC GAGAL ctxdb 2610 > 2500` (TS-P10); TOTAL 2.639 / 190.000 ok |
+| `make loc-ratio` | 2 | `3391:2639 = 1.28` > 1,20 (E-70, TS-03) |
+| `make deps-check` | 0 | `TestDirectDeps`, `TestDirectRequiresParser` ok |
+| `make tidy-check` | 2 | diff: `golang.org/x/sys` harus jadi require langsung (dipakai `internal/ctxdb/env_linux.go`) |
+| `make vuln` | 3 | 1 vuln terjangkau: GO-2026-6604 (stdlib `os.Root`, Windows, fixed go1.26.9) via `internal/ctxdb`; 12 vuln di modul tidak terjangkau |
+| `make licenses` | 0 | hanya warning `non-Go code` (x/sys, modernc libc) |
+| `make size-check` | 0 | full 1.671.330 B / 52.000.000; minimal 1.671.330 B / 22.000.000 |
+| `scripts/ci-meta-test.sh` | 1 | 10/11 DETECTED: lint, size-check, loc-ratio, deps-check, licenses, mod-verify langsung; test, race, loc, vuln via baseline scaffold (HEAD_RED). `tidy-check` = BASELINE_RED (pohon scaffold juga tidak tidy karena `ctxdb` dibuang); 419 s |
+| `cd bench && go vet ./... && go test -count=1 ./...` | 0 | budget, budget/o200k, evals, gencorpus, speed ok |
 
 ## Bukti
 
@@ -416,6 +436,10 @@ Ringkasan: 33 item; 12 menyangkut kode F0 (AF-01..08, V-11, V-13, V-15 dengan te
 | Item | Butuh keputusan user |
 |---|---|
 | Smoke LLM 10 task, `bench/h2h` LLM | Kredensial + izin biaya (menunggu user). |
-| S015 di bawah `-race` (TS-P08) | Batas I11 ≤ 200 ms/txn tak tercapai di bawah `-race` (lantai biaya SQLite modernc terinstrumentasi 175–400 ms per txn bahkan untuk 1 event; tanpa `-race` max 51 ms). Opsi: **(1)** pindahkan gate kinerja (S015, I11, `BenchmarkAppend*`) ke job terpisah tanpa `-race`, semua cek kebenaran tetap di job `-race`; **(2)** terima `make test` merah pada S015. |
-| LOC `ctxdb` (TS-P10) | 2.598 LOC non-test > budget E-19 2.500. Opsi: **(1)** ADR menaikkan budget `ctxdb` ke 3.200; **(2)** pecah paket (mis. `ctxdb/maint` ≈ 700 LOC dengan budget sendiri). |
+| S015 di bawah `-race` (TS-P08) | `make test` merah: S015 max txn 210 ms > 200 ms (3 txn) di `ad57fa1`. Batas I11 ≤ 200 ms/txn tak tercapai di bawah `-race` (lantai biaya SQLite modernc terinstrumentasi 175–400 ms per txn bahkan untuk 1 event; tanpa `-race` max 51 ms). Opsi: **(1)** pindahkan gate kinerja (S015, I11, `BenchmarkAppend*`) ke job terpisah tanpa `-race`, semua cek kebenaran tetap di job `-race`; **(2)** terima `make test` merah pada S015. |
+| LOC `ctxdb` (TS-P10) | `make loc` merah: 2.610 LOC non-test > budget E-19 2.500 (`ad57fa1`). Opsi: **(1)** ADR menaikkan budget `ctxdb` ke 3.200; **(2)** pecah paket (mis. `ctxdb/maint` ≈ 700 LOC dengan budget sendiri). |
+| Rasio test:source E-70 (TS-03) | `make loc-ratio` merah: 3.391:2.639 = 1,28 > 1,20. Usulan ADR: E-70 berlaku mulai Go non-test ≥ 5.000 LOC atau akhir F1. |
+| `go.mod` tidak tidy (E-46) | `make tidy-check` merah: `ctxdb/env_linux.go` mengimpor `golang.org/x/sys/unix` langsung, tetapi `x/sys` bertanda `// indirect`. Perbaikan mekanis = `go mod tidy` oleh pemilik `ctxdb` (`x/sys` ada di `deps.allow`, jadi tidak perlu ADR). Akibatnya meta-test `tidy-check` = BASELINE_RED. |
+| govulncheck GO-2026-6604 (E-44/E-54) | `make vuln` exit 3: `os.Root.MkdirAll`/`Remove`/`RemoveAll`/`Rename`/`OpenFile`/`Stat` di `internal/ctxdb` bisa mengikuti junction keluar root di **Windows**; diperbaiki di go1.26.9. Lokal: go1.26.8, dan ENGINEERING mem-pin 1.26.8. Keputusan: naikkan toolchain ke go1.26.9 (`go.mod` `go`/`toolchain` + teks ENGINEERING) lewat ADR. |
+| Startup prompt-ready / idle RSS hermes (TS-11) | Izinkan pengukuran di netns host (tanpa input = tanpa LLM call), atau tetapkan penanda prompt-ready. |
 | Workflow GitHub Actions | Belum ada remote; `ci.yml` hanya divalidasi lewat Makefile lokal yang sama. |
