@@ -5,8 +5,11 @@ package exec
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -250,5 +253,38 @@ func TestKillGraceClamp(t *testing.T) {
 		if err := s.normalize(); err != nil || s.KillGrace != want {
 			t.Fatalf("%v → %v (%v)", in, s.KillGrace, err)
 		}
+	}
+}
+
+// TestMarkerPids: the sweep scan finds a live child by its marker (the
+// basis of P24.1 on Linux and macOS).
+func TestMarkerPids(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		t.Skip("no marker scan on this OS")
+	}
+	id := newExecID()
+	s := sh(t, `echo up; exec sleep 30`)
+	s.Env = withMarker(s.Env, id)
+	u, err := start(s, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 3)
+	if _, err := io.ReadFull(u.output(), buf); err != nil {
+		t.Fatal(err)
+	}
+	pids, serr := markerPids(func(v []byte) bool { return string(v) == id })
+	if serr != nil || !slices.Contains(pids, u.p.Pid) {
+		t.Errorf("marker scan: pids %v (child %d), err %v", pids, u.p.Pid, serr)
+	}
+	if err := u.kill(); err != nil {
+		t.Error(err)
+	}
+	if _, err := u.wait(); err != nil {
+		t.Error(err)
+	}
+	if err := u.closeOutput(); err != nil {
+		t.Error(err)
 	}
 }
