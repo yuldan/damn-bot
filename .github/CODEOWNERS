@@ -14,6 +14,7 @@
 /internal/budget/ @yuldan
 /internal/ctxdb/ @yuldan
 /internal/netx/ @yuldan
+/internal/provider/ @yuldan
 /internal/schema/ @yuldan
 /internal/redact/ @yuldan
 /internal/testutil/ @yuldan
