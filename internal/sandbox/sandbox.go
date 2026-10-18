@@ -33,6 +33,9 @@ var (
 	ErrNoRoot = errors.New("sandbox: no root")
 	// ErrInvalidPath reports an empty path or one containing NUL.
 	ErrInvalidPath = errors.New("sandbox: invalid path")
+	// ErrNotRegular reports an object that is neither a regular file nor a
+	// directory (FIFO, socket, device): never opened for a tool (CT27-4).
+	ErrNotRegular = errors.New("sandbox: not a regular file")
 )
 
 // Op is the access an operation needs.
@@ -152,8 +155,10 @@ func canonicalRoot(r string) (string, error) {
 
 // Check classifies path for op: ErrDeniedPath when the lexical or the
 // resolved path matches deny_paths; else, when the resolved path lies in a
-// root allowing op, HardLinked for an existing regular file with more than
-// one link and Inside otherwise; else OutsideRoot. resolved is the absolute path
+// root allowing op, ErrNotRegular for an existing FIFO, socket or device
+// (Unix; the open re-checks on the handle, CT27-4), HardLinked for an
+// existing regular file with more than one link and Inside otherwise; else
+// OutsideRoot. resolved is the absolute path
 // with every existing component's symlinks resolved; for a write target
 // that does not exist yet, its deepest existing ancestor is resolved and
 // the missing tail appended lexically.
@@ -182,7 +187,11 @@ func (s *Sandbox) check(ctx context.Context, p string, op Op) (Verdict, string, 
 	}
 	for i, r := range s.roots {
 		if (op == OpRead || !r.readOnly) && hasPathPrefix(resolved, r.path, s.foldRoot) {
-			if n, err := linkCountPath(resolved); err == nil && n > 1 {
+			n, err := linkCountPath(resolved)
+			if errors.Is(err, ErrNotRegular) {
+				return OutsideRoot, "", -1, err
+			}
+			if err == nil && n > 1 {
 				return HardLinked, resolved, i, nil
 			}
 			return Inside, resolved, i, nil

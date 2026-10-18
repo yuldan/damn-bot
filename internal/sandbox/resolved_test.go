@@ -33,9 +33,30 @@ func TestDenied(t *testing.T) {
 		filepath.FromSlash("/proc/42/task/7/environ"):        true,
 		filepath.FromSlash("/proc/42/status"):                false,
 		filepath.Join(f.root, filepath.FromSlash("a/b/c/d")): false,
+		filepath.Join(f.root, "x", "y.Pem"):                  true,
+		filepath.Join(f.home, ".Ssh", "sub", "deep"):         true,
+		filepath.Join(f.home, "ssh", "id_rsa"):               false,
+		filepath.FromSlash("/proc/42/mem"):                   true,
+		filepath.FromSlash("/proc/42/memx"):                  false,
+		f.root:                                               false,
 	} {
 		if got := f.sb.Denied(p); got != want {
 			t.Errorf("Denied(%q) = %v, want %v", p, got, want)
+		}
+	}
+	// A literal file pattern denies itself (any case) and anything below
+	// it, not its siblings or a name it prefixes.
+	token := filepath.Join(f.out, "token")
+	sb, err := New(&Config{Roots: []string{f.root}, DenyPaths: []string{token}, Home: f.home})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	for p, want := range map[string]bool{
+		token: true, filepath.Join(f.out, "TOKEN"): true, filepath.Join(token, "x"): true,
+		token + "2": false, filepath.Join(f.out, "tok"): false, filepath.Join(f.root, "token"): false,
+	} {
+		if got := sb.Denied(p); got != want {
+			t.Errorf("literal: Denied(%q) = %v, want %v", p, got, want)
 		}
 	}
 	p := filepath.Join(f.root, "Sub", "Dir", "file.go")
@@ -94,36 +115,58 @@ func TestOpenResolved(t *testing.T) {
 	})
 }
 
-// TestOpenResolvedHardLinks: a hard link inside the root to a file a
-// literal deny pattern names is refused after the open (S16-2), even when
-// approved; any other multiply linked file is HardLinked unless approved
-// (S16-7), checked on the handle.
+// TestOpenResolvedHardLinks (S16-2, S16-7, CT27-6): hard links inside the
+// root to a file a literal deny pattern names are refused after the open,
+// approved or not, and so is one outside every root on the approved
+// branch; a hard link to a file in a deny dir (~/.ssh) or to a "**/.env"
+// match, invisible to every path check, is HardLinked unless approved,
+// checked on the handle; a singly linked file opens.
 func TestOpenResolvedHardLinks(t *testing.T) {
 	t.Parallel()
 	f := newFixture(t)
 	secret := filepath.Join(f.out, "token.txt")
 	mkfile(t, secret, "tok")
-	sb, err := New(&Config{Roots: []string{f.root}, DenyPaths: []string{secret}, Home: f.home})
+	mkfile(t, filepath.Join(f.out, "proj", ".env"), "TOKEN=v")
+	sb, err := New(&Config{Roots: []string{f.root}, DenyPaths: []string{secret, "~/.ssh", "**/.env"}, Home: f.home})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	alias, linked := filepath.Join(f.root, "alias.txt"), filepath.Join(f.root, "linked.txt")
-	for old, link := range map[string]string{secret: alias, filepath.Join(f.out, "secret.txt"): linked} {
+	in := func(name string) string { return filepath.Join(f.root, name) }
+	for link, old := range map[string]string{
+		in("alias.txt"):                    secret,
+		filepath.Join(f.out, "alias2.txt"): secret,
+		in("linked.txt"):                   filepath.Join(f.out, "secret.txt"),
+		in("key"):                          filepath.Join(f.home, ".ssh", "id_rsa"),
+		in("env"):                          filepath.Join(f.out, "proj", ".env"),
+	} {
 		if err := os.Link(old, link); err != nil {
 			t.Fatalf("Link: %v", err)
 		}
 	}
 	modes(t, sb, func(t *testing.T, sb *Sandbox) {
 		ctx := t.Context()
-		if _, _, err := sb.OpenResolved(ctx, alias, true); !errors.Is(err, ErrDeniedPath) {
-			t.Errorf("OpenResolved(hard link to deny target) = %v, want ErrDeniedPath", err)
+		for _, p := range []string{in("alias.txt"), filepath.Join(f.out, "alias2.txt")} {
+			for _, approved := range []bool{false, true} {
+				if p == filepath.Join(f.out, "alias2.txt") && !approved {
+					continue // outside_root: refused before any open
+				}
+				if file, _, err := sb.OpenResolved(ctx, p, approved); file != nil || !errors.Is(err, ErrDeniedPath) {
+					t.Errorf("OpenResolved(%s, approved %v) = %v; want ErrDeniedPath", p, approved, err)
+				}
+			}
 		}
-		if file, v, err := sb.OpenResolved(ctx, linked, false); file != nil || err != nil || v != HardLinked {
-			t.Errorf("OpenResolved(hard link, unapproved) = %v, %v; want hardlinked_file", v, err)
+		for _, name := range []string{"linked.txt", "key", "env"} {
+			if file, v, err := sb.OpenResolved(ctx, in(name), false); file != nil || err != nil || v != HardLinked {
+				t.Errorf("OpenResolved(%s, unapproved) = %v, %v; want hardlinked_file", name, v, err)
+			}
 		}
-		file, v, err := sb.OpenResolved(ctx, linked, true)
+		file, v, err := sb.OpenResolved(ctx, in("linked.txt"), true)
 		if err != nil || v != Inside {
 			t.Fatalf("OpenResolved(hard link, approved) = %v, %v", v, err)
+		}
+		closeT(t, file)
+		if file, v, err = sb.OpenResolved(ctx, in("real.txt"), false); err != nil || v != Inside {
+			t.Fatalf("OpenResolved(nlink 1) = %v, %v", v, err)
 		}
 		closeT(t, file)
 	})
