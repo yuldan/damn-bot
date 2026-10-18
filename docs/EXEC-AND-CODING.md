@@ -98,7 +98,7 @@ Konteks tier (SPEC §6) menulis shell one-shot dan shell sesi yang terdeteksi.
 ### A.3 Streaming ke UI dan ringkasan ke model
 
 **UI:**
-- Byte mentah lewat redaksi streaming (SPEC §14.3). Redaksi menahan maks 256 byte sampai batas baris, agar secret yang terpotong antar chunk tetap tertangkap.
+- Byte mentah lewat redaksi streaming (SPEC §14.3, ADR-071). Penyaring hanya menahan sufiks terpanjang yang masih bisa menjadi awal pola atau nilai secret yang dikenal (pencocokan parsial, batas per pola); chunk tanpa kecocokan parsial dikirim segera (0 latensi tambahan, P17). Pola berekor tak terbatas (`Bearer \S+`) ditahan sampai terminator atau 4 KiB lalu diredaksi fail-closed; setelah `-----BEGIN … PRIVATE KEY-----` terlihat, output ditahan sampai END atau akhir stream lalu seluruh blok diredaksi. Test: `TestStreamRedactSplit`.
 - Lalu masuk renderer terminal ringan (CR, `\x1b[K`, cursor-up untuk progress bar), di-throttle 30 fps.
 - Chunk tidak disimpan per event. DB hanya menyimpan hasil final + blob log penuh.
 
@@ -185,7 +185,7 @@ Notifikasi selesai:
 
 ### A.6 Prompt interaktif tanpa hang
 
-**Env non-interaktif** (ditambahkan ke env anak; nilai user di `exec.env` menang, kecuali baris yang ditandai *keras*):
+**Env non-interaktif** (ditambahkan ke env anak; nilai yang di-set user lewat `exec.env` — map nama → nilai untuk anak, bukan pewarisan dari induk, ADR-071 — menang, kecuali baris yang ditandai *keras*):
 
 | Var | Nilai | Alasan |
 |---|---|---|
@@ -326,11 +326,11 @@ Aturan rekursi:
 - `cwd` harus berada di dalam root sesi (SPEC §14.2), else `outside_workspace`.
 - `cd` di dalam perintah tidak dibatasi OS di backend local. Operand path setiap simple command di-resolve (butir "Operand path"): baca di luar root → flag `outside_read`, tulis di luar root → minimal `destructive`, cocok `deny_paths` → `denied_path` (ADR-069).
 
-**Env anak:**
-- Env proses asli dikurangi var yang namanya cocok dengan pola secret SPEC §14.3 dan semua isi `secrets.env`.
-- Kunci provider tidak pernah diwariskan, kecuali didaftarkan di `exec.pass_env`.
+**Env anak (ADR-071):**
+- Deny-by-default: hanya var di allowlist GAP-SEC-02 (SPEC §22.1) yang diwariskan dari env induk, ditambah `exec.env_allow` (daftar **nama persis** var induk, tanpa glob) dan nilai `exec.env` yang di-set (A.6).
+- Kunci provider hanya diwariskan bila namanya tercantum eksplisit di `exec.env_allow`.
 
-**Redaksi:** SPEC §14.3 diterapkan pada stream UI, ringkasan model, blob, dan log.
+**Redaksi:** SPEC §14.3 (termasuk pola ADR-071: blok PEM multi-baris fail-closed, Stripe, Google, GitLab, Hugging Face, npm, JWT, userinfo URL) diterapkan pada stream UI, ringkasan model, blob, dan log.
 
 **Audit:** setiap perintah, termasuk yang dijalankan runtime (B.6), meninggalkan jejak di DB konteks:
 - event `tool_dispatch` dengan payload `exec: {class, flags, reasons[≤5], argv0[], backend, runner, cwd, session}` (`Verdict`, ADR-069);
@@ -609,7 +609,7 @@ Harness `damnbot-eval` (F0, SCORECARD) menjalankan Damn-Bot dan hermes pada kond
 | EXC-12 | Classify perintah 2 KB | < 1 ms p95 | `BenchmarkClassify` |
 | EXC-13 | Akurasi classifier | 0 destruktif/irreversible lolos sebagai read_only/mutating dan 0 `read_only` yang mengeksekusi, menulis, atau membaca path `deny_paths`/luar root, pada korpus ≥ 300 perintah (termasuk obfuscation quoting/`eval`/`sh -c` dan 42 kasus tabel ADR-069); `deny_paths` default: 0 tereksekusi (ADR-069) | `TestClassifyCorpus`, `TestShellDenyPaths`, `TestSessionTaintPersistent`, `TestShellAllowMatching`, `TestWorkspaceTrustGate` |
 | EXC-14 | Destructive/irreversible/privileged/baca di luar root di mode `auto` | 100% tanya (destructive: kecuali `allow_destructive`/`destructive_allow`; irreversible dan `privileged`: tanpa pengecualian, ADR-069) | `TestDestructiveAlwaysAsk`, `TestShellIrreversibleAlwaysAsk`, `TestSudoAlwaysAsk`, `TestReadOutsideWorkspaceAsks` |
-| EXC-15 | Secret di env anak | 0 kunci provider terwariskan | `TestChildEnvScrub` |
+| EXC-15 | Env anak (GAP-SEC-02) | 0 var di luar allowlist SEC-02 + `exec.env_allow` + `exec.env` (ADR-071) | `TestEnvAllowlist` |
 | EXC-16 | Kontrak backend | 100% test kontrak lulus per backend | `TestBackendContract/<id>` |
 | COD-01 | Aturan coding stable tier | ≤ 120 tok (dalam 1.200) | `TestStableTierBudget/coding` |
 | COD-02 | Deteksi toolchain | ≤ 20 ms @ 10.000 file; 100% golden 30 fixture | `BenchmarkToolchainDetect`, `TestToolchainCorpus` |
