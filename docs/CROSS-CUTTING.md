@@ -44,7 +44,7 @@ Bagian dari Spec 1.0 (dirujuk dari SPEC.md §21). Setiap area: mekanisme, target
 
 ### 1.7 Support bundle tanpa pastebin (GAP SEC-17)
 
-`damnbot doctor bundle` menulis file lokal terenkripsi ke kunci publik maintainer; redaksi PII (ID, nama, isi pesan) wajib; 0 host pastebin publik di kode. Requirement & verifikasi: SPEC §22.1 baris SEC-17.
+`damnbot doctor bundle [--out P]` default menulis **zip lokal ter-redaksi** (redaksi SPEC §14.3 + PII: ID, nama, isi pesan) dengan mode file `0600` (temp `0600` lalu `rename`; Windows: ACL hanya user), tidak terenkripsi; `--upload` mengenkripsi bundle yang sama ke kunci publik maintainer (X25519, embedded) dan menyimpan file terenkripsi untuk dilampirkan manual; tanpa `--no-redact`; 0 host upload/pastebin di kode (ADR-060). Requirement & verifikasi: SPEC §22.1 baris SEC-17.
 
 ### 1.8 Dokumentasi keamanan & privasi (GAP SEC-28)
 

@@ -37,4 +37,5 @@ Dokumen ringkas untuk pelapor keamanan dan implementer. Sumber normatif tetap [`
 | `messages_send` tanpa `idempotency_key` di-retry klien | Dapat menghasilkan dua permintaan (masing-masing butuh approval) | #68 |
 | macOS: turunan tool yang membuat session/process group baru (`setsid`) saat pemiliknya mati | Lolos dari SIGKILL pgid pengambil alih; Linux (`cgroup.kill`) dan Windows (Job Object) tidak terdampak | #74 |
 | Pesan masuk antre (`gateway_inbound.payload`) | Isi tersimpan di DB sampai diproses (lalu dikosongkan); dicakup `storage.encrypt` | ADR-046 |
+| Inbound dari platform yang tidak mengirim ulang event yang belum di-commit (push wajib-ack maupun tanpa ack) | Saat DB tidak bisa ditulis atau exit terencana, event masuk spool `run/inbound_spool/` (SPEC §11.11.7) dan tidak hilang. Platform ber-API riwayat memakai `gateway_cursors` untuk backfill sejak id terakhir yang ter-commit | ADR-052 AF-06 (`S084_SpoolDuringDrainBarrier`) |
 | ≤ 1 LLM call atau ≤ 1 start tool basi per turn | Dari proses yang terhenti tepat setelah titik cek lease; hasil tidak ditulis | I4 |
