@@ -9,7 +9,7 @@ set -uo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d /tmp/damnbot-meta.XXXXXX)
 trap 'rm -rf "$work"' EXIT
-GATES=(lint test race size-check loc loc-ratio deps-check vuln licenses tidy-check mod-verify)
+GATES=(lint test race timing size-check loc loc-ratio deps-check vuln licenses tidy-check mod-verify)
 [[ $# -gt 0 ]] && GATES=("$@")
 
 # fresh <dir>: ekspor HEAD (bukan worktree) agar hasil deterministik dan sama dengan CI.
@@ -18,8 +18,9 @@ fresh() {
 	git -C "$root" archive HEAD | tar -x -C "$1"
 }
 
-# target make per gate (race memakai target test yang sama: -race ada di `make test`).
-target() { case $1 in race) echo test ;; *) echo "$1" ;; esac; }
+# target make per gate (race memakai target test yang sama: -race ada di `make test`;
+# timing = `make test-timing`, budget waktu dinding tanpa -race, ADR-048).
+target() { case $1 in race) echo test ;; timing) echo test-timing ;; *) echo "$1" ;; esac; }
 
 # marker: regex yang wajib muncul di output gate saat pelanggaran terdeteksi.
 marker() {
@@ -27,9 +28,10 @@ marker() {
 	lint) echo 'forbidigo' ;;
 	test) echo 'TestMetaViolation' ;;
 	race) echo 'WARNING: DATA RACE' ;;
+	timing) echo 'timing budget meta' ;;
 	size-check) echo 'SIZE GAGAL full' ;;
 	loc) echo 'LOC GAGAL boundary' ;;
-	loc-ratio) echo 'LOC ratio' ;;
+	loc-ratio) echo 'LOC ratio test:source' ;;
 	deps-check) echo 'tidak ada di deps.allow' ;;
 	vuln) echo 'GO-[0-9]{4}-[0-9]+' ;;
 	licenses) echo 'GPL' ;;
@@ -39,8 +41,9 @@ marker() {
 }
 
 # prepare: penyiapan yang dipakai baseline DAN salinan pelanggaran (tidak melemahkan gate).
-# loc-ratio: rasio repo nyata sedang merah (TS-03), jadi gate diuji pada pohon sintetis
-# dengan rasio test:source = 1,00 (100:100) — baseline harus lulus, +2.000 baris test harus gagal.
+# loc-ratio: gate hanya menggagalkan bila Go non-test ≥ 5.000 LOC (ADR-050), jadi gate diuji pada pohon
+# sintetis di atas ambang dengan rasio test:source ≈ 1,00 (5.000:5.000) — baseline harus lulus,
+# +2.000 baris test (rasio 1,40) harus gagal. Pohon repo nyata < 5.000 LOC hanya dilaporkan.
 prepare() { # <gate> <dir>
 	local d=$2
 	case $1 in
@@ -48,14 +51,14 @@ prepare() { # <gate> <dir>
 		find "$d/cmd" "$d/internal" -name '*.go' -delete
 		mkdir -p "$d/internal/metaratio"
 		{
-			printf 'package metaratio\n\n// F = 100 baris kode.\nfunc F() int {\n\tx := 0\n'
-			for _ in $(seq 96); do printf '\tx++\n'; done
+			printf 'package metaratio\n\n// F = 5.000 baris kode.\nfunc F() int {\n\tx := 0\n'
+			for _ in $(seq 4996); do printf '\tx++\n'; done
 			printf '\treturn x\n}\n'
 		} >"$d/internal/metaratio/a.go"
 		{
 			printf 'package metaratio\n\nimport "testing"\n\nfunc TestF(t *testing.T) {\n\tx := 0\n'
-			for _ in $(seq 93); do printf '\tx++\n'; done
-			printf '\tif F() != 96 {\n\t\tt.Fatal(x)\n\t}\n}\n'
+			for _ in $(seq 4993); do printf '\tx++\n'; done
+			printf '\tif F() != 4996 {\n\t\tt.Fatal(x)\n\t}\n}\n'
 		} >"$d/internal/metaratio/a_test.go"
 		;;
 	esac
@@ -72,6 +75,25 @@ inject() { # <gate> <dir>
 		mkdir -p "$d/internal/metaviolation"
 		printf 'package metaviolation\n\nimport "testing"\n\nfunc TestMetaViolation(t *testing.T) { t.Fatal("pelanggaran sintetis") }\n' \
 			>"$d/internal/metaviolation/v_test.go"
+		;;
+	timing)
+		# Operasi nyata 300 ms terhadap budget 200 ms lewat helper yang sama dengan S015 (ADR-048):
+		# harus gagal di `make test-timing` (di `make test`/-race hanya dilaporkan).
+		cat >"$d/internal/ctxdb/zz_meta_timing_test.go" <<'EOF'
+package ctxdb
+
+import (
+	"testing"
+	"time"
+)
+
+func TestMetaTiming(t *testing.T) {
+	start := time.Now()
+	for time.Since(start) < 300*time.Millisecond { // busy wait: real wall time over budget
+	}
+	checkBudget(t, "meta tx", time.Since(start), 200*time.Millisecond)
+}
+EOF
 		;;
 	race)
 		# Lulus tanpa -race, gagal dengan -race: tulis bersamaan tanpa sinkronisasi.

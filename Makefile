@@ -13,7 +13,7 @@ GOTAGS = -tags "$(TAGSCSV)"
 GOTOOL := go tool -modfile=tools/go.mod
 LICENSES_ALLOWED := MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,MPL-2.0
 
-.PHONY: all build lint test size-check loc loc-ratio deps-check tidy-check mod-verify vuln licenses check meta-test bench-budget
+.PHONY: all build lint test test-timing size-check loc loc-ratio deps-check tidy-check mod-verify vuln licenses check meta-test bench-budget
 
 all: check
 
@@ -25,6 +25,12 @@ lint:
 
 test:
 	go test $(GOTAGS) -race -shuffle=on ./...
+
+# ADR-048 (TS-P08): asersi budget waktu dinding (I11 ≤ 200 ms/txn dll.) hanya ditegakkan di build
+# tanpa -race. Suite yang sama juga berjalan di `make test` (-race) dengan semua cek kebenaran;
+# di sana hanya asersi waktunya yang dilewati.
+test-timing:
+	DAMNBOT_TIMING=1 go test $(GOTAGS) -count=1 -shuffle=on ./...
 
 size-check:
 	TAGS="$(TAGSCSV)" scripts/size-check.sh
@@ -54,7 +60,7 @@ tidy-check:
 mod-verify:
 	go mod verify
 
-check: lint test size-check loc deps-check tidy-check mod-verify vuln licenses
+check: lint test test-timing size-check loc loc-ratio deps-check tidy-check mod-verify vuln licenses
 
 # Meta-test gate CI (ROADMAP F0): setiap gate harus gagal pada pelanggaran sintetis.
 meta-test:

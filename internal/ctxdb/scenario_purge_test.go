@@ -262,8 +262,11 @@ func streamWriter(s *Store, sid string) func() error {
 
 // #15: large purge while TUI and gateway write: every purge tx ≤ 200 ms,
 // lock duty ≤ 20 %, 0 schema changes, 0 db_busy for the other writers.
+// The two wall-clock budgets (I11) are asserted only under `make test-timing`
+// (ADR-048); every correctness invariant is checked in every build.
 func s015(t *testing.T) {
 	e := newEnv(t)
+	enforce := timingEnforced(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var mu sync.Mutex
@@ -282,7 +285,7 @@ func s015(t *testing.T) {
 		}
 		lastEnd, held, maxHeld = now, held+d, max(maxHeld, d)
 		if d > 200*time.Millisecond {
-			if overBudget++; overBudget == 3 {
+			if overBudget++; overBudget == 3 && enforce {
 				cancel() // the budget is already violated: stop instead of running for minutes
 			}
 		}
@@ -309,14 +312,17 @@ func s015(t *testing.T) {
 	busy := stopWriter()
 	t.Logf("max tx %v, min gap %v, txns over 200 ms: %d", maxHeld, minGap, overBudget)
 	must(t, busy) // writers are never starved by the purge (yield ≥ busy-handler backoff)
-	if maxHeld > 200*time.Millisecond || held > total/5 {
-		t.Fatalf("lock budget: max %v, duty %.1f%%", maxHeld, 100*float64(held)/float64(total))
-	}
+	checkBudget(t, "I11 purge tx", maxHeld, 200*time.Millisecond)
+	checkBudget(t, "I11 lock duty (20 % of purge wall time)", held, total/5)
 	must(t, err)
 	must(t, p.get(context.Background(), "PRAGMA schema_version", nil, &sv1))
 	if sv0 != sv1 {
 		t.Fatal("schema changed during purge")
 	}
+	if n := count(t, p, "SELECT count(*) FROM sessions WHERE id = 'BIG'"); n != 0 {
+		t.Fatal("purged session still present")
+	}
+	checkIntegrity(t, p)
 	t.Logf("purge 5k events: %v, max tx %v, min gap %v, duty %.1f%%", total, maxHeld, minGap, 100*float64(held)/float64(total))
 }
 

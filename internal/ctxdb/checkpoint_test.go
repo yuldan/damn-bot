@@ -39,7 +39,5 @@ func TestCloseCheckpointDoesNotBlockWriters(t *testing.T) {
 		must(t, err)
 		worst = max(worst, time.Since(start))
 	}
-	if worst > 500*time.Millisecond {
-		t.Fatalf("writer blocked %v by a closing process", worst)
-	}
+	checkBudget(t, "writer blocked by a closing process", worst, 500*time.Millisecond)
 }

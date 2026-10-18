@@ -184,9 +184,7 @@ func s026(t *testing.T) {
 	_, err := s.AcquireLease(context.Background(), "S") // drained during the barrier: tokens dropped, reacquire
 	must(t, err)
 	appendMsg(t, s, "S", "after restorer death")
-	if d := time.Since(start); d > 10*time.Second {
-		t.Fatalf("waited %v", d)
-	}
+	checkBudget(t, "#26 others continue after restorer death", time.Since(start), 10*time.Second)
 	if MaintenancePending(e.dir) {
 		t.Fatal("stale marker not cleared")
 	}

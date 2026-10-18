@@ -43,6 +43,18 @@ jobs:
           go-version-file: go.mod
       - run: make test
 
+  # ADR-048 (TS-P08): budget waktu dinding (I11 ≤ 200 ms/txn, dll.) tanpa -race; cek kebenaran
+  # skenario yang sama tetap berjalan di job `test` (-race).
+  test-timing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: make test-timing
+
   size-check:
     runs-on: ubuntu-latest
     timeout-minutes: 10
