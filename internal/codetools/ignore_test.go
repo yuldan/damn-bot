@@ -196,22 +196,23 @@ func TestWildmatch(t *testing.T) {
 }
 
 // TestGitConfigExcludes covers core.excludesFile lookup with include.path
-// and the XDG default (CODE-TOOLS §2.3 butir 1).
+// and the XDG default (CODE-TOOLS §2.3 butir 1); the repo config wins but
+// is untrusted (CT27-3).
 func TestGitConfigExcludes(t *testing.T) {
 	t.Parallel()
 	v := newEnv(t)
 	ctx := context.Background()
-	if got := v.e.gitConfigExcludes(ctx, ""); got != filepath.Join(v.home, ".config", "git", "ignore") {
-		t.Errorf("default %q", got)
+	if got, trusted := v.e.gitConfigExcludes(ctx, ""); got != filepath.Join(v.home, ".config", "git", "ignore") || !trusted {
+		t.Errorf("default %q %v", got, trusted)
 	}
 	writeFile(t, filepath.Join(v.home, ".gitconfig"), "[include]\n\tpath = inc.cfg\n")
 	writeFile(t, filepath.Join(v.home, "inc.cfg"), "[core]\n\texcludesFile = \"~/my ignore\"\n")
-	if got := v.e.gitConfigExcludes(ctx, ""); got != filepath.Join(v.home, "my ignore") {
-		t.Errorf("include.path %q", got)
+	if got, trusted := v.e.gitConfigExcludes(ctx, ""); got != filepath.Join(v.home, "my ignore") || !trusted {
+		t.Errorf("include.path %q %v", got, trusted)
 	}
-	abs := filepath.Join(v.out, "x")
+	abs := filepath.Join(v.root, "x")
 	writeFile(t, filepath.Join(v.root, ".git", "config"), "[core]\nexcludesfile = "+filepath.ToSlash(abs)+"\n")
-	if got := v.e.gitConfigExcludes(ctx, v.root); filepath.Clean(got) != abs {
-		t.Errorf("repo config %q", got)
+	if got, trusted := v.e.gitConfigExcludes(ctx, v.root); filepath.Clean(got) != abs || trusted {
+		t.Errorf("repo config %q %v", got, trusted)
 	}
 }

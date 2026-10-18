@@ -23,10 +23,13 @@ type env struct {
 	e               *Engine
 }
 
-func newEnv(t testing.TB) *env {
+func newEnv(t testing.TB) *env { return newEnvDeny(t, "**/.env", "*.pem") }
+
+// newEnvDeny is newEnv with the given deny_paths ("~/" = the fake home).
+func newEnvDeny(t testing.TB, deny ...string) *env {
 	t.Helper()
 	v := &env{root: realTemp(t), out: realTemp(t), home: realTemp(t)}
-	sb, err := sandbox.New(&sandbox.Config{Roots: []string{v.root}, DenyPaths: []string{"**/.env", "*.pem"}, Home: v.home})
+	sb, err := sandbox.New(&sandbox.Config{Roots: []string{v.root}, DenyPaths: deny, Home: v.home})
 	if err != nil {
 		t.Fatalf("sandbox.New: %v", err)
 	}
