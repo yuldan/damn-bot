@@ -1,0 +1,19 @@
+{
+ "hermes_commit": "868b9f244f",
+ "machine": "workstation i7-1255U, linux/amd64, Python 3.14.7 (bukan mesin referensi Q14)",
+ "date": "2026-10-18",
+ "dimensions": {
+  "fixed_overhead_tokens": {"value": "13.819 (tanpa AGENTS.md) – 16.843 (dengan AGENTS.md) tok o200k; metode BASELINE ceil(char/4): 14.773 – 17.750", "source": "bench/budget/results/hermes-868b9f244f.json"},
+  "schema_bytes": {"value": 37759, "count": 19, "source": "bench/budget"},
+  "startup_first_frame_ms": {"p50": 3369, "p95": 3595, "runs": 10, "method": "PTY, `hermes chat`, unshare -rn + loopback; waktu sampai byte output pertama", "source": "bench/speed/results/hermes-868b9f244f.json startup_chat_pty"},
+  "startup_version_ms": {"p50": 1384, "p95": 1418, "runs": 20, "op": "hermes --version (CLI-074)"},
+  "startup_prompt_ready_ms": {"value": null, "reason": "di netns, chat keluar 'Gateway connection failed; no local fallback' setelah ≈ 4,8 s (daemon gateway lokal tidak terjangkau); 3 percobaan gagal, lihat F0-REPORT"},
+  "idle_rss": {"value": null, "reason": "sama seperti prompt_ready; observasi manual di netns host tanpa unshare: 131 MB proses / 356 MB pohon proses (1 run, bukan artefak gate)"},
+  "cli_max_rss_kb": {"median": 109376, "max": 211428, "ops": 80, "method": "ru_maxrss per proses CLI"},
+  "install_size_bytes": {"source_tree": 224938704, "venv_core_deps": 186730930, "total": 411669634, "packages": 68, "method": "git archive 868b9f244f + venv Python 3.14 + pip install dependencies inti pyproject (45 pin). Tidak termasuk Node/npm, ripgrep, FFmpeg, uv yang dipasang install.sh lewat PM, dan extras", "note": "pip install paket hermes sendiri ditolak oleh build guard ('Building wheels or sdists for hermes-agent is not supported')"},
+  "install_time_s": {"value": 33.45, "method": "pip install -r deps inti, --no-cache-dir, jaringan workstation apa adanya (bukan 10 Mbit/s, bukan VM bersih); waktu install.sh resmi (uv + Node + tool) tidak diukur: butuh VM bersih + menjalankan skrip remote"},
+  "config_lines_min": {"value": 2, "detail": "config.yaml: `model: openrouter/anthropic/claude-sonnet-4.5` (1) + .env: `OPENROUTER_API_KEY=<key>` (1), hasil `hermes config set` ×2 di HERMES_HOME kosong"},
+  "setup_steps": {"value": 6, "detail": "quickstart.md: (1) curl install.sh | bash, (2) source ~/.bashrc, (3) set model (`hermes model` interaktif atau `config set`), (4) set API key, (5) `hermes`, (6) jawab prompt consent telemetri (teramati di run PTY pertama)"}
+ },
+ "llm_dimensions": "token/biaya/kualitas per task, recall memori, routing skill, error recovery, wall-clock end-to-end: diukur di RC F9 (SCORECARD intro, ADR-032)"
+}

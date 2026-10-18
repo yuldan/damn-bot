@@ -102,7 +102,8 @@ func (r *Runner) RunCLI(ctx context.Context, op Op) *Result {
 		err := cmd.Run()
 		dt := time.Since(t0)
 		cancel()
-		if err != nil {
+		var ee *exec.ExitError
+		if err != nil && !(errors.As(err, &ee) && slices.Contains(op.OkExit, ee.ExitCode())) {
 			res.Error = fmt.Sprintf("%v: %s", err, tail(out.Bytes()))
 			break
 		}
@@ -122,17 +123,18 @@ func (r *Runner) RunCLI(ctx context.Context, op Op) *Result {
 }
 
 type driverOp struct {
-	ID      string          `json:"id"`
-	Kind    string          `json:"kind"`
-	Tool    string          `json:"tool,omitempty"`
-	Args    json.RawMessage `json:"args,omitempty"`
-	Command string          `json:"command,omitempty"`
-	Setup   string          `json:"setup,omitempty"`
-	Code    string          `json:"code,omitempty"`
-	Reset   *Reset          `json:"reset,omitempty"`
-	Runs    int             `json:"runs"`
-	Warmup  int             `json:"warmup"`
-	Capture bool            `json:"capture,omitempty"`
+	ID        string          `json:"id"`
+	Kind      string          `json:"kind"`
+	Tool      string          `json:"tool,omitempty"`
+	Args      json.RawMessage `json:"args,omitempty"`
+	Command   string          `json:"command,omitempty"`
+	Setup     string          `json:"setup,omitempty"`
+	Code      string          `json:"code,omitempty"`
+	Reset     *Reset          `json:"reset,omitempty"`
+	Runs      int             `json:"runs"`
+	Warmup    int             `json:"warmup"`
+	Capture   bool            `json:"capture,omitempty"`
+	FreshTask bool            `json:"fresh_task,omitempty"`
 }
 
 // inprocTimeout = batas satu proses driver per op (init hermes + warm-up + N run).
@@ -144,7 +146,7 @@ func (r *Runner) RunInproc(ctx context.Context, ids []string, ops map[string]Op,
 	res := map[string]*Result{}
 	for _, id := range ids {
 		op := ops[id]
-		d := driverOp{ID: id, Kind: op.Kind, Tool: op.Tool, Command: op.Command, Setup: op.Setup, Code: op.Code, Runs: runs, Warmup: 1, Capture: op.Capture}
+		d := driverOp{ID: id, Kind: op.Kind, Tool: op.Tool, Command: op.Command, Setup: op.Setup, Code: op.Code, Runs: runs, Warmup: 1, Capture: op.Capture, FreshTask: op.FreshTask}
 		if op.Args != nil {
 			d.Args = json.RawMessage(r.expand(string(op.Args)))
 		}
@@ -245,7 +247,9 @@ func (r *Runner) RunPTY(ctx context.Context, op Op) (*Result, error) {
 			m[k] = *v
 		}
 		res.PTY = append(res.PTY, m)
-		res.SamplesMS = append(res.SamplesMS, m["settle_ms"])
+		// Sampel = waktu frame pertama. settle/idle RSS tidak valid di netns (lihat F0-REPORT: chat
+		// keluar "Gateway connection failed"), tetap disimpan apa adanya di PTY.
+		res.SamplesMS = append(res.SamplesMS, m["first_output_ms"])
 	}
 	res.finish()
 	return res, nil

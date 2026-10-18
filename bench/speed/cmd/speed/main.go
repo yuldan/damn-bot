@@ -46,7 +46,22 @@ func run() error {
 	catalogPath := flag.String("catalog", "speed/catalog.json", "katalog op")
 	out := flag.String("out", "speed/results/hermes.json", "artefak JSON")
 	home := flag.String("home", "/tmp/hm_f0_speed", "HERMES_HOME (dibuat ulang)")
+	only := flag.String("only", "", "ID dipisah koma: ukur ulang hanya ID ini (+ op baru); hasil lain diambil dari -out yang ada")
 	flag.Parse()
+	old, oldStartup, err := loadOld(*out, *only != "")
+	if err != nil {
+		return err
+	}
+	rerun := map[string]bool{}
+	for _, id := range strings.Split(*only, ",") {
+		rerun[strings.TrimSpace(id)] = true
+	}
+	reuse := func(id string) *speed.Result {
+		if rerun[id] {
+			return nil
+		}
+		return old[id]
+	}
 	if !strings.HasPrefix(*home, "/tmp/") || *hermes == "" {
 		return fmt.Errorf("butuh -hermes dan -home di /tmp")
 	}
@@ -90,7 +105,7 @@ func run() error {
 	// In-process dulu (satu proses driver), lalu PTY startup, lalu CLI cold start.
 	var inproc []string
 	for _, e := range entries {
-		if e.Op != nil && e.Op.Kind != "cli" {
+		if e.Op != nil && e.Op.Kind != "cli" && reuse(e.ID) == nil {
 			inproc = append(inproc, e.ID)
 		}
 	}
@@ -104,18 +119,23 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	startup, err := r.RunPTY(ctx, cat.Ops["_startup_chat"])
-	if err != nil {
-		return err
+	startup := oldStartup
+	if startup == nil || rerun["_startup_chat"] {
+		if startup, err = r.RunPTY(ctx, cat.Ops["_startup_chat"]); err != nil {
+			return err
+		}
 	}
 	sum := summary{ByClass: map[string]int{}}
 	for i := range entries {
 		e := &entries[i]
 		if e.Op != nil {
-			if e.Op.Kind == "cli" {
+			switch prev := reuse(e.ID); {
+			case prev != nil:
+				e.Result = prev
+			case e.Op.Kind == "cli":
 				fmt.Fprintf(os.Stderr, "cli %s %v\n", e.ID, e.Op.Argv)
 				e.Result = r.RunCLI(ctx, *e.Op)
-			} else {
+			default:
 				e.Result = res[e.ID]
 			}
 			if e.Result == nil || e.Result.Error != "" || len(e.Result.SamplesMS) == 0 {
@@ -152,4 +172,26 @@ func run() error {
 		return err
 	}
 	return os.WriteFile(*out, data, 0o644)
+}
+
+// loadOld membaca hasil sebelumnya (mode -only): ID → Result untuk baris yang punya op.
+func loadOld(path string, enabled bool) (map[string]*speed.Result, *speed.Result, error) {
+	if !enabled {
+		return nil, nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	var rep report
+	if err := json.Unmarshal(data, &rep); err != nil {
+		return nil, nil, err
+	}
+	m := map[string]*speed.Result{}
+	for _, e := range rep.Entries {
+		if e.Op != nil && e.Result != nil {
+			m[e.ID] = e.Result
+		}
+	}
+	return m, rep.Startup, nil
 }

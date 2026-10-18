@@ -70,6 +70,10 @@ type Op struct {
 	Proxy bool `json:"proxy,omitempty"`
 	// Capture: kembalikan output tool run terakhir (Result.Output), mis. untuk token CT-11.
 	Capture bool `json:"capture,omitempty"`
+	// FreshTask: task_id baru per run (lewati guard pengulangan hermes).
+	FreshTask bool `json:"fresh_task,omitempty"`
+	// OkExit: exit code non-nol yang tetap dianggap op sukses (mis. doctor = 1 bila ada temuan).
+	OkExit []int `json:"ok_exit,omitempty"`
 }
 
 // Reset = file yang ditulis ulang sebelum setiap run (di luar waktu ukur).

@@ -91,7 +91,7 @@ def _run_op(op: dict, call) -> dict:
         try:
             with _quiet():
                 t0 = time.perf_counter_ns()
-                err = call()
+                err = call(i)
                 dt = time.perf_counter_ns() - t0
         except BaseException as exc:  # op hermes boleh melempar apa saja; dicatat, bukan ditelan
             res["error"] = f"{type(exc).__name__}: {exc}"[:300]
@@ -117,8 +117,11 @@ def _inproc(jobs_path: str, out_path: str) -> None:
     for op in ops:
         holder: dict = {}
         if op["kind"] == "tool":
-            def call(op=op, holder=holder):
-                raw = model_tools.handle_function_call(op["tool"], op.get("args", {}), task_id="f0-speed")
+            def call(i, op=op, holder=holder):
+                # fresh_task: task_id baru per run — guard pengulangan hermes ("BLOCKED: … 3 times")
+                # memblokir panggilan identik dalam satu task, jadi run berulang butuh task terpisah.
+                task = f"f0-speed-{i}" if op.get("fresh_task") else "f0-speed"
+                raw = model_tools.handle_function_call(op["tool"], op.get("args", {}), task_id=task)
                 holder["raw"] = raw
                 return _tool_error(raw)
         elif op["kind"] == "slash":
@@ -129,7 +132,7 @@ def _inproc(jobs_path: str, out_path: str) -> None:
                     cli = HermesCLI(model="gpt-4o", api_key="inspect-only", base_url="https://openrouter.ai/api/v1")
                 results.append({"id": "_cli_init", "samples_ms": [(time.perf_counter_ns() - t0) / 1e6], "error": None})
 
-            def call(op=op):
+            def call(_i, op=op):
                 cli.process_command(op["command"])
                 return None
         elif op["kind"] == "py":
@@ -143,7 +146,7 @@ def _inproc(jobs_path: str, out_path: str) -> None:
                 continue
             code = compile(op["code"], op["id"], "exec")
 
-            def call(code=code, ns=ns):
+            def call(_i, code=code, ns=ns):
                 exec(code, ns)  # noqa: S102
                 return None
         else:
