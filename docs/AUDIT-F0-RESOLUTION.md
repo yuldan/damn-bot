@@ -1,13 +1,13 @@
 # AUDIT-F0 — status penutupan
 
-Pelacak penutupan temuan [`AUDIT-F0.md`](AUDIT-F0.md) (putaran 1) dan [`AUDIT-F0-REVERIFY.md`](AUDIT-F0-REVERIFY.md) (putaran 2; kedua file audit tidak diubah). Gate ROADMAP sebelum F1: semua BLOCKER/MAJOR ditutup lewat ADR. Kebijakan keputusan: opsi paling konservatif/aman, dalam budget SPEC §3.2.4/P1/P13/P21, tanpa dependency baru; model shell ADR-079 = keputusan direktur proyek.
+Pelacak penutupan temuan [`AUDIT-F0.md`](AUDIT-F0.md) (putaran 1), [`AUDIT-F0-REVERIFY.md`](AUDIT-F0-REVERIFY.md) (putaran 2), dan [`AUDIT-F0-REVERIFY2.md`](AUDIT-F0-REVERIFY2.md) (putaran 3); file audit tidak diubah. Gate ROADMAP sebelum F1: semua BLOCKER/MAJOR ditutup lewat ADR. Kebijakan keputusan: opsi paling konservatif/aman, dalam budget SPEC §3.2.4/P1/P13/P21, tanpa dependency baru; model shell ADR-079 = keputusan direktur proyek.
 
 Status:
 - **selesai**: ADR Accepted, teks diterapkan, dan kode/test F0 ada dan lulus.
 - **ditutup (ADR)**: ADR Accepted dan teks diterapkan ke dokumen sasaran; test bernama = acceptance fase yang disebut (kode belum ada di F0).
 - **backlog Fx**: MINOR dengan pemilik dan fase di ADR-078/ADR-086; wajib tertutup sebelum acceptance fase itu.
 
-Commit ADR: putaran 1 `12de82e`, `fc1a4a9`, `a88680e`; putaran 2 `139958d` (ADR-079..086), `31e9cc0` (ADR-079 butir 9–11), `8a212e6` (ADR-087 + amandemen ADR-079).
+Commit ADR: putaran 1 `12de82e`, `fc1a4a9`, `a88680e`; putaran 2 `139958d` (ADR-079..086), `31e9cc0` (ADR-079 butir 9–11), `8a212e6` (ADR-087 + amandemen ADR-079); putaran 3 `cc6c676` (ADR-088..091), `90dcaae` (amandemen penerapan).
 
 ## BLOCKER (putaran 1)
 
@@ -124,3 +124,29 @@ Verdict putaran 2: closed kecuali yang ditandai *partial → …* (ditutup putar
 | NEW-51 | ADR-086 | selesai (`.gitignore`; `sisasisa` milik user tidak disentuh) |
 
 Ringkasan: 6/6 BLOCKER asli, 36/36 MAJOR asli, 2/2 BLOCKER baru, dan 18/18 MAJOR baru punya ADR Accepted dengan teks terapan. Yang selesai beserta kode/test F0: AUD-003, 004, 033, 034, 035, 037; NEW-13, 14, 15, 20, 43, 51; flake `TestMultiProcess`. Sisa MINOR = backlog berfase ADR-078/ADR-086.
+
+## Putaran 3 — AUDIT-F0-REVERIFY2
+
+Partial putaran 2:
+
+| ID | ADR | Commit | Test (fase) | Status |
+|---|---|---|---|---|
+| AUD-020 | ADR-082 + ADR-091 (NEW2-12) | `21220ca` | `TestToolResultStatusClosed`, `TestACPChildStdinIsolation` | ditutup (ADR) |
+| NEW-05 | ADR-081 + ADR-088 butir 3–4 | `69f8e72` | `TestSecretRefScope`, EXC-15 (F1) | ditutup (ADR) |
+| NEW-10 | ADR-082 + ADR-091 (NEW2-13) | `21220ca` | `TestRuntimeSuffixCaps`, `TestVolatileTierCaps` (F1) | ditutup (ADR) |
+| NEW-15 | ADR-085 + ADR-090 | `962c065`, `1367cf9` | `TestFileLockSemantics`, `TestPlatformNAList`; matrix Windows F1 #0 | selesai (kode F0; eksekusi Windows F1 #0) |
+
+Temuan baru (MAJOR):
+
+| ID | ADR | Commit | Test (fase) | Status |
+|---|---|---|---|---|
+| NEW2-01 | ADR-088 butir 1, 5 | `69f8e72`, `90dcaae` | `TestShellNoAllowSession` (F1) | ditutup (ADR) |
+| NEW2-02 | ADR-088 butir 2 | `69f8e72` | `TestShellApprovalModel` baris `outside_read` (F1) | ditutup (ADR) |
+| NEW2-03 | ADR-089 butir 1, 3 | `267cd7a`, `90dcaae` | `TestExecuteCodeApproval` (F5) | ditutup (ADR) |
+| NEW2-04 | ADR-089 butir 2, 3 | `267cd7a`, `90dcaae` | `TestLSPWorkspaceTrustGate` (F5) | ditutup (ADR) |
+| NEW2-05 | ADR-090 | `962c065`, `1367cf9` | `TestFileLockSemantics` (lulus Linux; vet/compile/lint windows) | selesai |
+| NEW2-06 | ADR-088 butir 3–4 | `69f8e72` | `TestSecretRefScope` (F1) | ditutup (ADR) |
+
+MINOR NEW2-07..27 (ADR-091): ditutup = NEW2-12, NEW2-13, NEW2-15 (ADR-088), NEW2-25 (penanda amandemen `cc6c676`); backlog F1 = NEW2-07, 08, 11, 14, 16, 17, 18, 21, 22, 24, 26, 27 (sebagian F2); F2 = NEW2-23; F3 = NEW2-09; F4 = NEW2-10; F5 = NEW2-19, 20.
+
+Ringkasan putaran 3: 6/6 MAJOR baru dan 4/4 partial punya ADR Accepted dengan teks terapan; LockFileEx Windows diimplementasikan.
