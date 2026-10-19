@@ -79,6 +79,13 @@ func TestRuleLabels(t *testing.T) {
 		{"setsid --unknown rm -rf /", Unknown, 0},
 		{"unshare --unknown rm -rf /", Unknown, 0},
 		{"taskset -p 1234", Unknown, 0},
+		// CL5-10: launcher values and shell applets.
+		{"unshare --propagation private sh -c 'rm -rf ~'", Destructive, 0},
+		{"busybox ash -c 'rm -rf ~'", Destructive, 0},
+		{"busybox hush -c 'rm -rf ~'", Destructive, 0},
+		{"toybox sh -c 'rm -rf ~'", Destructive, 0},
+		{"toybox rm -rf ~", Destructive, 0},
+		{"busybox --unknown rm -rf /", Unknown, 0},
 	} {
 		v := Classify(c.cmd, testEnv())
 		if v.Class != c.class || v.Flags != c.flags {

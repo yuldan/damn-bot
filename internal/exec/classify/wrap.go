@@ -13,10 +13,10 @@ const (
 		" ssh:-p ssh:-i ssh:-o ssh:-l ssh:-F ssh:-J ssh:-L ssh:-R ssh:-D ssh:-b ssh:-c ssh:-E ssh:-e ssh:-m ssh:-S ssh:-w "
 	// inlineFlags start inline program text for non-shell interpreters.
 	inlineFlags  = " -c -e -E -p -r --eval --print --command "
-	interpreters = " sh bash zsh dash ksh fish pwsh powershell node deno bun perl ruby php lua osascript "
+	interpreters = " sh bash zsh dash ash hush ksh fish pwsh powershell node deno bun perl ruby php lua osascript "
 	privileged   = " sudo doas pkexec su runas "
 	wrappers     = " env nice nohup timeout stdbuf time command builtin exec xargs npx bunx pnpx uvx pipx" +
-		" setsid unshare systemd-run taskset busybox "
+		" setsid unshare systemd-run taskset busybox toybox "
 )
 
 // privileged flags sudo-like commands and classifies the elevated command
@@ -66,10 +66,10 @@ func (s *state) wrapper(name string, args []arg, in stdin) {
 		rest = s.launcherArgs(args[1:], unshareBool, unshareValued, "mpnuUifrcT")
 	case "taskset":
 		rest = s.tasksetArgs(args[1:])
-	case "busybox":
+	case "busybox", "toybox":
 		rest = args[1:]
 		if len(rest) == 0 || strings.HasPrefix(rest[0].s, "-") {
-			s.raise(Unknown, "busybox without an applet")
+			s.raise(Unknown, name+" without an applet")
 			return
 		}
 	case "systemd-run":
@@ -97,8 +97,8 @@ func (s *state) wrapper(name string, args []arg, in stdin) {
 // Launchers (CL5-2): unknown options are Unknown, never silently skipped.
 const (
 	unshareBool = " -m --mount -p --pid -n --net -u --uts -i --ipc -U --user -f --fork -r --map-root-user" +
-		" -c --cgroup -T --time --kill-child --mount-proc --propagation "
-	unshareValued = " --map-user --map-group --setuid --setgid --wd --root "
+		" -c --cgroup -T --time --kill-child --mount-proc "
+	unshareValued = " --map-user --map-group --setuid --setgid --wd --root --propagation "
 )
 
 // launcherArgs returns the command a launcher runs, or nil after raising
@@ -239,7 +239,7 @@ func (s *state) fromStdin(name string, in stdin) {
 func (s *state) interpreter(name string, args []arg, in stdin) {
 	s.mut = true
 	switch {
-	case inList(" sh bash zsh dash ksh ", name):
+	case inList(" sh bash zsh dash ash hush ksh ", name):
 		s.shellProgram(name, args[1:], in)
 	default:
 		s.program(name, args[1:], in)
@@ -280,7 +280,7 @@ func (s *state) shellProgram(name string, args []arg, in stdin) {
 		case strings.HasPrefix(v, "-") && !strings.HasPrefix(v, "--") && strings.Contains(v, "c"):
 			cmdMode = true
 		case strings.HasPrefix(v, "-") || strings.HasPrefix(v, "+"):
-		case cmdMode && (name == "sh" || name == "dash"):
+		case cmdMode && inList(" sh dash ash hush ", name):
 			s.inline(args[i:i+1], POSIX)
 			return
 		case cmdMode:
