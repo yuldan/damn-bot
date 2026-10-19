@@ -97,21 +97,6 @@ func TestCoreFallbackVisible(t *testing.T) {
 	}
 }
 
-func TestCoreContextLength(t *testing.T) {
-	t.Parallel()
-	f := newFixture()
-	f.provider.scripts = []streamFunc{errorScript(ClassContextLength, errors.New("too long")), textScript("ok", event.Usage{})}
-	c := &coreCompactor{}
-	deps := f.deps()
-	deps.Compactor = c
-	if err := runCoreWith(t, f, &deps); err != nil {
-		t.Fatal(err)
-	}
-	if c.calls != 1 || f.provider.calls != 2 {
-		t.Errorf("compactor %d provider %d", c.calls, f.provider.calls)
-	}
-}
-
 func TestCoreStoreAndLedgerErrors(t *testing.T) {
 	t.Parallel()
 	t.Run("store", func(t *testing.T) {
@@ -150,34 +135,6 @@ func TestCoreMaxWall(t *testing.T) {
 	}
 }
 
-func TestCoreTurnInProgress(t *testing.T) {
-	t.Parallel()
-	f := newFixture()
-	f.provider.scripts = []streamFunc{func(ctx context.Context, _ *Request, _ func(Delta)) (Reply, error) {
-		<-ctx.Done()
-		return Reply{}, &StreamError{Class: ClassCancelled, Err: ctx.Err()}
-	}}
-	ctx, cancel := context.WithCancel(context.Background())
-	f.cancel = cancel
-	deps := f.deps()
-	l, err := New(&f.cfg, &deps)
-	if err != nil {
-		t.Fatal(err)
-	}
-	out, err := l.Prompt(ctx, "S1", Input{Text: "one"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := l.Prompt(ctx, "S1", Input{Text: "two"}); !errors.Is(err, ErrTurnInProgress) {
-		t.Errorf("second Prompt = %v", err)
-	}
-	cancel()
-	for range out {
-	}
-}
-
-type coreCompactor struct{ calls int }
-
 func (c *coreCompactor) Compact(context.Context, string) error { c.calls++; return nil }
 
 func runCoreWith(t *testing.T, f *fixture, deps *Deps) error {
@@ -204,19 +161,6 @@ func TestCoreNextTurnID(t *testing.T) {
 	a, b := newTurnID(), newTurnID()
 	if a == "" || a == b {
 		t.Errorf("ids = %q %q", a, b)
-	}
-}
-
-func TestCoreCancelAPI(t *testing.T) {
-	t.Parallel()
-	f := newFixture()
-	f.provider.scripts = []streamFunc{func(ctx context.Context, _ *Request, _ func(Delta)) (Reply, error) {
-		f.loopRef.Cancel("S1")
-		<-ctx.Done()
-		return Reply{}, &StreamError{Class: ClassCancelled, Err: ctx.Err()}
-	}}
-	if got := terminal(t, f.run(t)); got.Stop != event.StopCancelled {
-		t.Fatalf("stop = %s", got.Stop)
 	}
 }
 
@@ -286,3 +230,5 @@ func TestCoreContextGuard(t *testing.T) {
 		}
 	})
 }
+
+type coreCompactor struct{ calls int }

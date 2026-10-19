@@ -436,3 +436,51 @@ func runWith(t *testing.T, f *fixture, deps *Deps) error {
 	}
 	return nil
 }
+
+// TestHistoryIncludesToolResults: iteration 2 sees the assistant tool-call
+// message and the tool result produced by iteration 1.
+func TestHistoryIncludesToolResults(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	f.provider.scripts = []streamFunc{
+		callScript(FinishToolCalls, ToolCall{ID: "a", Name: "read", Arguments: `{}`}),
+		textScript("done", event.Usage{}),
+	}
+	f.tools.add("read", &toolStub{dispatch: func(context.Context, *Prepared) (ToolResult, error) {
+		return ToolResult{Content: "content-1"}, nil
+	}})
+	if got := terminal(t, f.run(t)); got.Stop != event.StopEndTurn {
+		t.Fatalf("stop = %s", got.Stop)
+	}
+	f.asm.mu.Lock()
+	hs := f.asm.histories
+	f.asm.mu.Unlock()
+	if len(hs) < 2 {
+		t.Fatalf("assembler histories = %d", len(hs))
+	}
+	var tool, assistant bool
+	for _, m := range hs[1] {
+		if m.Role == "tool" && m.ToolCallID == "a" && m.Content == "content-1" {
+			tool = true
+		}
+		if m.Role == "assistant" && len(m.ToolCalls) == 1 && m.ToolCalls[0].Name == "read" {
+			assistant = true
+		}
+	}
+	if !tool || !assistant {
+		t.Fatalf("second history = %+v", hs[1])
+	}
+}
+
+// TestLedgerGetsEventID: usage is anchored to the llm_call event just appended.
+func TestLedgerGetsEventID(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	f.run(t)
+	f.ledger.mu.Lock()
+	ids := append([]int64(nil), f.ledger.eventIDs...)
+	f.ledger.mu.Unlock()
+	if len(ids) != 1 || ids[0] == 0 {
+		t.Fatalf("ledger event ids = %v", ids)
+	}
+}

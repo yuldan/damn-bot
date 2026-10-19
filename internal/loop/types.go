@@ -141,11 +141,13 @@ const (
 type Prepared struct {
 	Call      ToolCall
 	Effect    Effect
-	Subject   string // allow_session subject (exact pair); empty = the call
-	Preview   string // approval preview (SPEC §18.2)
+	Subject   string   // allow_session subject (exact pair); empty = the call
+	Subjects  []string // exact subjects when a decision grants several paths
+	Preview   string   // approval preview (SPEC §18.2)
 	Approval  ApprovalMode
 	NoSession bool // allow_session never applies (shell, P26, taint)
 	Terminal  bool // a denial ends the turn (approval_denied)
+	Approved  bool // adapter sets after the loop approver allows outside-root
 }
 
 // ToolError is a model-facing tool failure. Code is one of the closed
@@ -199,6 +201,10 @@ type AssembleRequest struct {
 	TurnID    string
 	Input     Input
 	Iteration int
+	// History is the exact model-visible sequence the loop produced: user
+	// message, assistant tool-call messages, and tool results. The Assembler
+	// merges it with its tiers; it never reads Store on the loop's behalf.
+	History []Message
 }
 
 // Decision is an approval answer (SPEC §4.2/§14.1).
@@ -259,7 +265,7 @@ type Compactor interface {
 // Store appends one transcript event atomically (ADR-074; ctxdb implements
 // the storage side, the loop only sees this one-method seam).
 type Store interface {
-	Append(ctx context.Context, sessionID, turnID string, ev *event.Event) error
+	Append(ctx context.Context, sessionID, turnID string, ev *event.Event) (int64, error)
 }
 
 // Approver answers one approval request (SPEC §4.2).
@@ -269,7 +275,7 @@ type Approver interface {
 
 // Ledger records one llm_call's usage (SPEC §18.4).
 type Ledger interface {
-	Record(ctx context.Context, sessionID, turnID string, u *event.Usage) error
+	Record(ctx context.Context, sessionID, turnID string, eventID int64, u *event.Usage) error
 }
 
 // Redactor removes secrets from text the loop persists or shows (SPEC §14.3).
