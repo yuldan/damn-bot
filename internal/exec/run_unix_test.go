@@ -34,7 +34,9 @@ func escapeeScript(t *testing.T) string {
 		if perr != nil || pid <= 0 {
 			return
 		}
-		_ = syscall.Kill(pid, syscall.SIGKILL)
+		if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			t.Errorf("kill escapee %d: %v", pid, err)
+		}
 	})
 	return `env -i setsid sh -c 'echo $$ > "$1"; exec sleep 9973' sh ` + testQuote(pidfile)
 }
