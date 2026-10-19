@@ -68,9 +68,9 @@ func TestInPlaceFailuresKeepFile(t *testing.T) {
 		edit EditItem
 		want Code
 	}{
-		{"enospc mid-copy", "mid-copy", syscall.ENOSPC, nil, strEdit("beta", strings.Repeat("B", 1<<17)), CodeDiskFull},
+		{"enospc mid-copy", "mid-copy", diskFullErr(), nil, strEdit("beta", strings.Repeat("B", 1<<17)), CodeDiskFull},
 		{"eio mid-copy", "mid-copy", syscall.EIO, nil, strEdit("beta", strings.Repeat("B", 1<<17)), CodeInternal},
-		{"enospc mid-temp", "mid-temp", syscall.ENOSPC, nil, strEdit("beta", "BETA"), CodeDiskFull},
+		{"enospc mid-temp", "mid-temp", diskFullErr(), nil, strEdit("beta", "BETA"), CodeDiskFull},
 		{"snapshot fails", "", nil, errors.New("snapshot store down"), strEdit("beta", "BETA"), CodeInternal},
 		{"no-op", "", nil, nil, strEdit("beta", "beta"), CodeInvalidArgs},
 	}

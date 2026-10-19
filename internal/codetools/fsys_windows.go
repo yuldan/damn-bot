@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 
 	"golang.org/x/sys/windows"
 )
@@ -59,7 +58,5 @@ const dirSyncable = false
 func isDiskFull(err error) bool {
 	// syscall.ENOSPC covers injected errors and the C errno; the Win32
 	// codes cover real CreateFile/WriteFile failures.
-	return errors.Is(err, windows.ERROR_DISK_FULL) ||
-		errors.Is(err, windows.ERROR_HANDLE_DISK_FULL) ||
-		errors.Is(err, syscall.ENOSPC)
+	return errors.Is(err, windows.ERROR_DISK_FULL) || errors.Is(err, windows.ERROR_HANDLE_DISK_FULL)
 }

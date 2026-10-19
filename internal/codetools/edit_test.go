@@ -101,7 +101,7 @@ func TestWriteReadBack(t *testing.T) {
 	// A byte swapped between write and read-back is write_verify_failed.
 	tgt := &target{resolved: filepath.Join(v.root, "w.txt"), rel: "w.txt"}
 	ci := commitInfo{sum: [32]byte{1}}
-	wantCode(t, v.e.readBack(ctx, tgt, &ci), CodeWriteVerifyFailed)
+	wantCode(t, v.e.readBack(ctx, tgt, &ci, 0), CodeWriteVerifyFailed)
 }
 
 // TestStatTagRacy is CT-34/§5.5: a stat-tag whose mtime is within 2 s of

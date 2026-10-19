@@ -55,9 +55,11 @@ func (e *Engine) pathLock(ctx context.Context, p string) func() {
 	if v, r, err := e.sb.Check(ctx, key, sandbox.OpRead); err == nil {
 		key = r
 		if fi, serr := os.Stat(r); v == sandbox.HardLinked && serr == nil {
-			if k := keyOf(r, fi); k.ino != 0 {
-				key = fmt.Sprintf("\x00%d:%d:%d", k.dev, k.sdev, k.ino)
-			}
+			// Unix: device+inode. Windows has no inode in os.FileInfo, but all
+			// names of one inode share size and mtime, so that pair serializes
+			// hard links too (unrelated same-stat files merely share a lock).
+			k := keyOf(r, fi)
+			key = fmt.Sprintf("\x00%d:%d:%d", k.dev, k.sdev, k.ino)
 		}
 	}
 	if e.fold || runtime.GOOS == "darwin" {

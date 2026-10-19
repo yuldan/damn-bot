@@ -96,32 +96,8 @@ func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mo
 	if werr := errors.Join(e.at("post-rename"), e.syncDir(ctx, filepath.Dir(t.resolved), t.outside)); werr != nil {
 		return ci, ioErr("fsync dir", t.rel, werr)
 	}
-	e.ensureMode(ctx, t, mode, &ci)
-	err = e.readBack(ctx, t, &ci)
+	err = e.readBack(ctx, t, &ci, mode)
 	return ci, err
-}
-
-// ensureMode makes mode_preserved reflect the committed file, not just the
-// temp: some file systems (macOS) drop setuid/setgid across the rename.
-// Re-setting the same mode through the sandbox repairs it; a failure is
-// reported as mode_preserved=false rather than hidden.
-func (e *Engine) ensureMode(ctx context.Context, t *target, mode fs.FileMode, ci *commitInfo) {
-	if ci.inplace || mode == 0 || !ci.modeOK {
-		return
-	}
-	if fi, err := os.Lstat(t.resolved); err == nil && keepMode(fi) == mode {
-		return
-	}
-	f, err := e.openResolved(ctx, t.resolved, t.outside)
-	if err != nil {
-		ci.modeOK = false
-		return
-	}
-	ci.modeOK = setMode(f, mode)
-	closeErr := f.Close()
-	if closeErr != nil {
-		ci.modeOK = false
-	}
 }
 
 // prepareTemp copies owner and xattrs first (xattr writes need a writable
@@ -211,7 +187,7 @@ func (e *Engine) copyInPlace(ctx context.Context, t *target, before fileKey, tmp
 		}
 		return ioErr("write in place", t.rel, werr)
 	}
-	return e.readBack(ctx, t, ci)
+	return e.readBack(ctx, t, ci, 0)
 }
 
 // copyAt writes the first n bytes of src over dst from offset 0, sets
@@ -329,7 +305,7 @@ func fillErr(op, rel string, err error) error {
 }
 
 // readBack re-reads the committed file and compares sha256 (TOOL-03).
-func (e *Engine) readBack(ctx context.Context, t *target, ci *commitInfo) (err error) {
+func (e *Engine) readBack(ctx context.Context, t *target, ci *commitInfo, mode fs.FileMode) (err error) {
 	f, err := e.openResolved(ctx, t.resolved, t.outside)
 	if err != nil {
 		return err
@@ -342,6 +318,14 @@ func (e *Engine) readBack(ctx context.Context, t *target, ci *commitInfo) (err e
 	fi, err := f.Stat()
 	if err != nil {
 		return ioErr("read back", t.rel, err)
+	}
+	// Some file systems (macOS) drop setuid/setgid across the rename; make
+	// mode_preserved describe the committed file, not the temp (CT27-9).
+	if mode != 0 && !ci.inplace && keepMode(fi) != mode {
+		ci.modeOK = setMode(f, mode)
+		if fi, err = f.Stat(); err != nil {
+			return ioErr("read back", t.rel, err)
+		}
 	}
 	if !bytes.Equal(h.Sum(nil), ci.sum[:]) {
 		return toolErr(CodeWriteVerifyFailed, "the file may have been changed concurrently; read it again", "%s: read-back sha256 differs from the written bytes", t.rel)
