@@ -246,3 +246,5 @@ Ini persis bentuk yang diminta diverifikasi (quoted-title) dan masih menjadi eks
 ### Tidak dicakup putaran 4
 
 - Runtime `cmd.exe` nyata; semantik `start` dengan title/opsi diuji deterministik via `Dialect`.
+
+**SIGN-OFF #46 @3e84b04: TIDAK LULUS (regresi baru).** (a) `cmd /c start "title" rd …` dan `cmd /c start /wait "title" rd …` = destructive/denied; (b) `start "title"` langsung, `cmd /c start /d`, `/machine`, `call`, `if/for/goto`, `echo` benar; (c) POSIX `sh -c 'rm -rf ~'` dan `cmd /c rd /s /q C:\proj` (dialek Bash) destructive. Namun bentuk command utuh ter-quote **regresi**: `cmd /s /c "rd /s /q C:\proj"`, `cmd /c "rd /s /q C:\proj"`, dan `cmd /c "echo a & rd /s /q C:\proj"` kini `mutating`/auto (sebelumnya `destructive`), karena `cmdShell` memanggil `s.nested(rest)` untuk satu token ter-quote tanpa me-re-lex isinya. Perbaiki hybrid: bila `len(rest)==1 && rest[0].quoted` → `winLine(rest[0].s)`; selain itu `nested(rest)`; tambah test untuk kedua bentuk.
