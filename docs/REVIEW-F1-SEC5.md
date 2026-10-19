@@ -187,3 +187,26 @@ Tidak ada MAJOR/BLOCKER baru di exec. Suite target (EX5-11 + PTY escapee) hijau;
 
 - Windows/macOS runtime untuk cwd junction dan ConPTY+stdin.
 - Full `TestNoOrphans`/`TestInteractiveCorpus`/fuzz/bench; stress race lebih luas.
+
+## Putaran 4 — final verification (2026-10-20)
+
+Head: `#40` `5f920df`, `#42` `2a841b3`, `#63` `c469f7b`. `#39`/`#44`/`#45`/`#47`/`#52`/`#62` tidak berubah.
+
+| PR | Verdict putaran 4 |
+|---|---|
+| #39, #44, #45, #47, #52, #62 | **approve** (tidak berubah) |
+| #40 | **approve** — EX5-15 cleanup terverifikasi; EX5-16 Task ditahan |
+| #42 | **approve** — EX5-14 doc fixed (`652a65d`) |
+| #63 | **approve** — merge repair memulihkan field sesi + redactor; EX5-10 residual diketahui (MINOR) |
+
+### Verifikasi
+
+- **EX5-15 fixed:** kedua test memakai `escapeeScript` dengan pidfile + `t.Cleanup` SIGKILL. Dijalankan: `TestRunEscapedStdinHolderDoesNotHang` 1,26 s, `TestRunPTYEscapeeDoesNotHang` 1,63 s; `pgrep '^sleep 9973$|^sleep 1000$'` kosong setelahnya.
+- **EX5-16 fixed:** `Runner.closeTask` disimpan di bawah `r.mu` (`run.go:97-102`); `Close` berikutnya menunggu Task yang sama. Tidak ada goroutine mentah; timeout 10 s tetap disengaja.
+- **EX5-14 fixed:** `OneShot.Root` di `2a841b3` menyatakan fail-closed untuk Root kosong.
+- **#63 merge repair:** `Runner.red`/`prompts`/`SetRedactor`, `call.more`/`in`/`red`, `session.killOnce`/`prevNonce`/O_EXCL semuanya ada kembali (`run.go:55-57,70-...`, `session.go:64-65,206-240,418`). `TestPromptRedactedAndSanitized`, `TestSessionPrompt`, `TestSessionStdinIsNotShellInput`, `TestSessionForeignFrameKept` lulus.
+- **EX5-10 tetap diketahui:** `cN.cwd` pra-buat O_EXCL memblokir symlink langsung; bypass `rm -f c2.cwd; ln -s target c2.cwd` masih menimpa target (MINOR, tidak berubah sejak putaran 3).
+
+### Tidak dicakup putaran 4
+
+- Runtime Windows/macOS; full `TestNoOrphans`/`TestInteractiveCorpus`/fuzz/bench.
