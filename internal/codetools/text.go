@@ -108,6 +108,9 @@ func sniffText(head []byte) (textEnc, bool) {
 	if d := magic(head); d != "" {
 		return textEnc{}, true
 	}
+	if len(head) > sniffLen {
+		head = head[:sniffLen]
+	}
 	ascii := true
 	for _, c := range head {
 		if c == 0 {
