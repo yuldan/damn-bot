@@ -71,9 +71,10 @@ func defaultPolicy(effect Effect, pc PolicyContext) PolicyDecision {
 		return PolicyDecision{Requirement: RequireAuto, Class: "write"}
 	case ModeHeadless:
 		return PolicyDecision{Requirement: RequireDeny, Class: "write"}
-	default:
+	case ModeAsk:
 		return PolicyDecision{Requirement: RequireAsk, Class: "write", AllowSession: true}
 	}
+	return PolicyDecision{Requirement: RequireDeny, Class: "write"}
 }
 
 // Approval is an interactive approver's answer. Edit (modify then retry) is
