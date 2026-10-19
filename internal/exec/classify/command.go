@@ -40,6 +40,8 @@ func (s *state) command(args []arg, in stdin) bool {
 		s.eval(args[1:], in)
 	case inList(privileged, name):
 		s.privileged(name, args)
+	case name == "cmd":
+		s.cmdShell(args, in)
 	case inList(wrappers, name):
 		s.wrapper(name, args, in)
 	case inList(interpreters, name) || strings.HasPrefix(name, "python"):

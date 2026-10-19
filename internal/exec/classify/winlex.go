@@ -230,6 +230,31 @@ func (s *state) pwsh(args []arg, in stdin) {
 	s.fromStdin("pwsh", in)
 }
 
+// cmdShell classifies `cmd [/flags] /c|/k command` by parsing the rest of
+// the line with the Cmd lexer. An interactive cmd (no /c|/k) is Unknown
+// (CL5-1): otherwise `cmd /c rd /s /q <root>` was labelled mutating and
+// auto-approved while bare rd follows the rm rules.
+func (s *state) cmdShell(args []arg, in stdin) {
+	for i := 1; i < len(args); i++ {
+		switch l := strings.ToLower(args[i].s); {
+		case l == "/c" || l == "/k":
+			rest := args[i+1:]
+			if len(rest) == 0 {
+				s.raise(Unknown, "cmd "+l+" without a command")
+				return
+			}
+			s.inline(rest, Cmd)
+			return
+		case strings.HasPrefix(l, "/"):
+			// /d, /q, /s, /v:on, /a, /u, ... carry no command.
+		default:
+			s.fromStdin("cmd", in)
+			return
+		}
+	}
+	s.fromStdin("cmd", in)
+}
+
 func isDigits(s string) bool {
 	return s != "" && strings.Trim(s, "0123456789") == ""
 }
