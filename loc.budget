@@ -1,6 +1,8 @@
 # Budget LOC Go non-test per paket (ENGINEERING §2.4 E-19, tabel core; scc --no-gen, kolom Code).
 # Format: <grup> <LOC maks> <direktori...>. Sebuah file dihitung ke grup dengan prefix direktori terpanjang.
-loop              1500 internal/loop
+# ADR-110 (amandemen REVIEW-F1-SEC8 LP8-16..20): loop 1500 -> 1800 (pairing setiap hasil tool +
+# redaksi lintas-delta; terukur 1.757; Σ core 35.200 -> 35.500 <= 47.000).
+loop              1800 internal/loop
 plan               600 internal/plan
 provider          2000 internal/provider
 provider/registry  400 internal/provider/registry
