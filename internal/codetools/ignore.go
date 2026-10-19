@@ -61,41 +61,56 @@ func parseIgnore(base string, data []byte) *ignoreSet {
 		if l == "" || l[0] == '#' {
 			continue
 		}
-		var p ignorePat
-		if l[0] == '!' {
-			p.neg, l = true, l[1:]
+		if p, ok := parseIgnoreLine(l); ok {
+			s.add(p)
 		}
-		if strings.HasSuffix(l, "/") {
-			p.dirOnly, l = true, l[:len(l)-1]
-		}
-		if l == "" {
-			continue
-		}
-		p.nodir = !strings.Contains(l, "/")
-		p.pat = strings.TrimPrefix(l, "/")
-		switch {
-		case !strings.ContainsAny(p.pat, `*?[\`):
-			p.kind = 1
-			if p.nodir {
-				if s.lit == nil {
-					s.lit = map[string][]int32{}
-				}
-				s.lit[p.pat] = append(s.lit[p.pat], int32(len(s.pats)))
-			} else {
-				if s.pathLit == nil {
-					s.pathLit = map[string][]int32{}
-				}
-				s.pathLit[p.pat] = append(s.pathLit[p.pat], int32(len(s.pats)))
-			}
-		case p.nodir && p.pat[0] == '*' && !strings.ContainsAny(p.pat[1:], `*?[\`):
-			p.kind = 2
-			s.addSuffix(p.pat[1:], int32(len(s.pats)))
-		default:
-			s.globs = append(s.globs, ignoreGlob{idx: int32(len(s.pats)), pat: p.pat, pre: literalPrefix(p.pat), nodir: p.nodir})
-		}
-		s.pats = append(s.pats, p)
 	}
 	return s
+}
+
+// parseIgnoreLine parses one non-comment line; ok=false skips it.
+func parseIgnoreLine(l string) (ignorePat, bool) {
+	var p ignorePat
+	if l[0] == '!' {
+		p.neg, l = true, l[1:]
+	}
+	if strings.HasSuffix(l, "/") {
+		p.dirOnly, l = true, l[:len(l)-1]
+	}
+	if l == "" {
+		return p, false
+	}
+	p.nodir = !strings.Contains(l, "/")
+	p.pat = strings.TrimPrefix(l, "/")
+	switch {
+	case !strings.ContainsAny(p.pat, `*?[\`):
+		p.kind = 1
+	case p.nodir && p.pat[0] == '*' && !strings.ContainsAny(p.pat[1:], `*?[\`):
+		p.kind = 2
+	}
+	return p, true
+}
+
+// add indexes and records one pattern.
+func (s *ignoreSet) add(p ignorePat) {
+	idx := int32(len(s.pats))
+	switch {
+	case p.kind == 1 && p.nodir:
+		if s.lit == nil {
+			s.lit = map[string][]int32{}
+		}
+		s.lit[p.pat] = append(s.lit[p.pat], idx)
+	case p.kind == 1:
+		if s.pathLit == nil {
+			s.pathLit = map[string][]int32{}
+		}
+		s.pathLit[p.pat] = append(s.pathLit[p.pat], idx)
+	case p.kind == 2:
+		s.addSuffix(p.pat[1:], idx)
+	default:
+		s.globs = append(s.globs, ignoreGlob{idx: idx, pat: p.pat, pre: literalPrefix(p.pat), nodir: p.nodir})
+	}
+	s.pats = append(s.pats, p)
 }
 
 // addSuffix indexes a kind 2 pattern by its literal suffix.

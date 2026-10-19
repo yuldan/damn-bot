@@ -89,13 +89,9 @@ func canMatchNL(re *syntax.Regexp) bool {
 		return true
 	case syntax.OpLiteral, syntax.OpCharClass:
 		return slices.Contains(re.Rune, '\n')
+	default:
 	}
-	for _, s := range re.Sub {
-		if canMatchNL(s) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(re.Sub, canMatchNL)
 }
 
 // maxSeqAtoms bounds the required atom sequence used as a prefilter.
@@ -250,8 +246,9 @@ func seqParts(re *syntax.Regexp, out []seqPart) []seqPart {
 	case syntax.OpEmptyMatch, syntax.OpBeginLine, syntax.OpEndLine,
 		syntax.OpBeginText, syntax.OpEndText, syntax.OpWordBoundary, syntax.OpNoWordBoundary:
 		return out // zero-width: contributes nothing
+	default:
+		return append(out, seqPart{}) // *, ?, alternation, unsupported: break
 	}
-	return append(out, seqPart{}) // *, ?, alternation, unsupported: break
 }
 
 // appendRepeat appends a repeat's required run: minRep copies of a fully
