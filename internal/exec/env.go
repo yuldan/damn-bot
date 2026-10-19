@@ -2,6 +2,7 @@ package exec
 
 import (
 	"net/url"
+	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -24,18 +25,22 @@ type EnvPolicy struct {
 }
 
 // SecretEnv is one exec.env secret ref (ADR-081, ADR-088 butir 4): Value
-// is injected only into a direct-exec child (mode b) whose argv0 name is in
-// Commands; shell-mode children and persistent sessions never get it.
+// is injected only into a direct-exec child (mode b) that resolves to the
+// same binary as one of Commands (absolute path plus dev/inode/size/mtime);
+// shell-mode children and persistent sessions never get it (EX42-1).
 type SecretEnv struct {
 	Name     string
 	Value    string
 	Commands []string
 }
 
-// Env builds the child environment from parent ("K=V" entries). direct is
-// the argv0 of a mode (b) call ("" for shell mode) and selects the secret
-// refs scoped to it; pty selects TERM.
-func (p *EnvPolicy) Env(parent []string, pty bool, direct string) []string {
+// Env builds the child environment from parent ("K=V" entries). pty
+// selects TERM. direct is the resolved absolute argv0 of a mode (b) call
+// ("" for shell mode) whose binary identity selects the secret refs; dir
+// resolves configured commands that contain a path separator and root, when
+// set, is the workspace root: a secret command resolving inside it is
+// never injected (EX42-1).
+func (p *EnvPolicy) Env(parent []string, pty bool, direct, dir, root string) []string {
 	out := make(map[string]string, len(parent))
 	for _, kv := range parent {
 		k, v, ok := strings.Cut(kv, "=")
@@ -60,10 +65,12 @@ func (p *EnvPolicy) Env(parent []string, pty bool, direct string) []string {
 		set(k, v)
 	}
 	if direct != "" {
-		name := commandName(direct)
-		for _, s := range p.Secrets {
-			if slices.ContainsFunc(s.Commands, func(c string) bool { return commandName(c) == name }) {
-				set(s.Name, s.Value)
+		if bin, ok := identify(direct); ok {
+			path := envValue(out, "PATH")
+			for _, s := range p.Secrets {
+				if p.secretMatches(s, bin, path, dir, root) {
+					set(s.Name, s.Value)
+				}
 			}
 		}
 	}
@@ -76,6 +83,19 @@ func (p *EnvPolicy) Env(parent []string, pty bool, direct string) []string {
 	}
 	slices.Sort(env)
 	return env
+}
+
+// Path returns parent's PATH value under this policy ("" when PATH is not
+// inherited), i.e. the PATH used to resolve argv0 before the child env is
+// built.
+func (p *EnvPolicy) Path(parent []string) string {
+	for _, kv := range parent {
+		k, v, ok := strings.Cut(kv, "=")
+		if ok && envKey(k) == envKey("PATH") && p.inherits(k) {
+			return v
+		}
+	}
+	return ""
 }
 
 // nonInteractive is the §A.6 table: pagers, editors and prompts fail or
@@ -105,26 +125,27 @@ func nonInteractive(pty bool) [][2]string {
 }
 
 // inherits reports whether parent variable k passes GAP-SEC-02 or
-// exec.env_allow.
+// exec.env_allow. Names are exact on Unix; only Windows folds case
+// (GAP-SEC-02; EX42-4).
 func (p *EnvPolicy) inherits(k string) bool {
-	if slices.ContainsFunc(p.Allow, func(a string) bool { return envKey(a) == envKey(k) }) {
+	n := envKey(k)
+	if slices.ContainsFunc(p.Allow, func(a string) bool { return envKey(a) == n }) {
 		return true
 	}
-	if envKey(k) == envKey("SSH_AUTH_SOCK") {
+	if n == envKey("SSH_AUTH_SOCK") {
 		return p.PassSSHAgent
 	}
-	u := strings.ToUpper(k)
-	if slices.Contains(baseAllow(), u) || isProxyVar(k) {
+	if slices.Contains(baseAllow(), n) || isProxyVar(k) {
 		return true
 	}
-	if runtime.GOOS == "windows" && slices.Contains(windowsAllow(), u) {
+	if runtime.GOOS == "windows" && slices.Contains(windowsAllow(), n) {
 		return true
 	}
 	switch {
-	case strings.HasPrefix(u, "LC_"), strings.HasPrefix(u, "XDG_"):
+	case strings.HasPrefix(n, "LC_"), strings.HasPrefix(n, "XDG_"):
 		return true
-	case strings.HasSuffix(u, "_HOME"):
-		return !secretName(u)
+	case strings.HasSuffix(n, "_HOME"):
+		return !secretName(strings.ToUpper(n))
 	}
 	return false
 }
@@ -160,7 +181,8 @@ func secretName(u string) bool {
 }
 
 func isProxyVar(k string) bool {
-	switch strings.ToUpper(k) {
+	// Exact names on Unix; envKey folds case on Windows only (GAP-SEC-02).
+	switch envKey(k) {
 	case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY":
 		return true
 	}
@@ -194,12 +216,81 @@ func hasKey(env map[string]string, k string) bool {
 	return ok
 }
 
-// commandName is the name argv0 is matched by in SecretEnv.Commands: the
-// base name, without .exe and case-insensitive on Windows.
-func commandName(argv0 string) string {
-	n := filepath.Base(argv0)
-	if runtime.GOOS == "windows" {
-		n = strings.TrimSuffix(strings.ToLower(n), ".exe")
+// envValue returns the value of k in a filtered env map ("K=V").
+func envValue(env map[string]string, k string) string {
+	if kv, ok := env[envKey(k)]; ok {
+		_, v, _ := strings.Cut(kv, "=")
+		return v
 	}
-	return n
+	return ""
+}
+
+// BinaryID is a resolved executable identity (ADR-088 butir 3): absolute
+// path and file identity. Secret refs match by identity, never by base
+// name, so "./gh" or a same-named workspace PATH entry cannot receive a
+// secret aimed at another binary (EX42-1).
+type BinaryID struct {
+	path string
+	fi   os.FileInfo
+}
+
+// identify stats path and normalizes it for comparison.
+func identify(path string) (BinaryID, bool) {
+	fi, err := os.Stat(path)
+	if err != nil || !fi.Mode().IsRegular() {
+		return BinaryID{}, false
+	}
+	p := filepath.Clean(path)
+	if runtime.GOOS == "windows" {
+		p = strings.ToLower(p)
+	}
+	return BinaryID{path: p, fi: fi}, true
+}
+
+// same reports whether b and o are the same file at the same path with the
+// same size and mtime (ADR-088 butir 3).
+func (b BinaryID) same(o BinaryID) bool {
+	return b.path == o.path && os.SameFile(b.fi, o.fi) &&
+		b.fi.Size() == o.fi.Size() && b.fi.ModTime().Equal(o.fi.ModTime())
+}
+
+// secretMatches resolves each configured command through the child PATH
+// and compares its identity with the spawned binary (EX42-1). A command
+// with a path separator is ignored: the scope is a bare command name
+// resolved by the session, as in shell_allow (ADR-088 butir 3). A binary
+// inside the workspace root never gets a secret (NEW3-04): a workspace
+// PATH entry must not shadow the intended command.
+func (p *EnvPolicy) secretMatches(s SecretEnv, bin BinaryID, path, dir, root string) bool {
+	for _, c := range s.Commands {
+		if strings.ContainsAny(c, `/\`) {
+			continue
+		}
+		id, ok := resolveBinary(c, path, dir)
+		if ok && !withinRoot(id.path, root) && id.same(bin) {
+			return true
+		}
+	}
+	return false
+}
+
+// withinRoot reports whether path is inside root (root "" = no check).
+func withinRoot(path, root string) bool {
+	if root == "" {
+		return false
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	rel, err := filepath.Rel(filepath.Clean(root), path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// resolveBinary resolves name exactly like mode (b) does and returns its
+// identity.
+func resolveBinary(name, path, dir string) (BinaryID, bool) {
+	p, err := lookPath(name, path, dir)
+	if err != nil {
+		return BinaryID{}, false
+	}
+	return identify(p)
 }
