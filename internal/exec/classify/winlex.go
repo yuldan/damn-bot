@@ -244,7 +244,14 @@ func (s *state) cmdShell(args []arg, in stdin) {
 				s.raise(Unknown, "cmd "+l+" without a command")
 				return
 			}
-			s.inline(rest, Cmd)
+			// Keep the lexed tokens: joining them into a string would drop
+			// arg.quoted, and cmd start's quoted first token is a title
+			// (CL5-9; round 4). The payload is always cmd syntax, so fold
+			// case even when the outer line came from the POSIX parser.
+			saved := s.fold
+			s.fold = true
+			s.nested(rest, stdinNone)
+			s.fold = saved
 			return
 		case strings.HasPrefix(l, "/"):
 			// /d, /q, /s, /v:on, /a, /u, ... carry no command.
