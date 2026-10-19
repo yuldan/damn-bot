@@ -117,7 +117,8 @@ func (l *Loop) Prompt(ctx context.Context, sessionID string, in Input) (<-chan e
 	out := make(chan event.Update, l.cfg.StreamBuffer) //damnbot:buffered stream, caller drains until close
 	t := &turn{
 		cfg: l.cfg, deps: l.deps, sessionID: sessionID, turnID: turnID,
-		input: in, out: out, start: l.cfg.Now(),
+		input: in, out: out, start: l.cfg.Now(), allowed: map[string]bool{},
+		seen: map[[32]byte]int{},
 	}
 	_ = boundary.Go(turnCtx, "loop.turn", func(ctx context.Context) error {
 		defer close(out)
