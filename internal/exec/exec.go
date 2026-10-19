@@ -7,6 +7,7 @@ package exec
 
 import (
 	"errors"
+	"os"
 	"time"
 )
 
@@ -85,6 +86,12 @@ type Result struct {
 	// Done is closed when a still_running tree has been confirmed dead;
 	// nil otherwise.
 	Done <-chan struct{}
+	// Cwd is a persistent session's working directory after the command
+	// (`pwd -P` sentinel, §A.2); "" for one-shot calls.
+	Cwd string
+	// SessionReset: the session shell was killed (timeout without a
+	// sentinel, prompt, cancel, exit) and is recreated on the next call.
+	SessionReset bool
 }
 
 // OutputCap bounds the raw output kept in memory per call.
@@ -109,3 +116,11 @@ const (
 	ptyCols = 120
 	ptyRows = 40
 )
+
+// closeIf closes f when the caller owns it.
+func closeIf(own bool, f *os.File) error {
+	if !own {
+		return nil
+	}
+	return closeAll(f)
+}

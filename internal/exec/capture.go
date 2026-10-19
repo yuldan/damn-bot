@@ -74,3 +74,10 @@ func (k *capture) tail(n int) []byte {
 	out = append(out, k.ring[:k.pos]...)
 	return out[max(len(out)-n, 0):]
 }
+
+// size is the number of bytes written so far.
+func (k *capture) size() int64 {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.total
+}

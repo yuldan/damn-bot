@@ -46,7 +46,7 @@ func Prepare(o *OneShot) (spec Spec, notice string, err error) {
 		direct = o.Direct[0]
 	}
 	env := policy.Env(o.Parent, o.PTY, direct)
-	path := lookupEnv(env, "PATH")
+	path := envPath(env)
 	var argv []string
 	if direct != "" {
 		bin, lerr := lookPath(direct, path, o.Dir)
@@ -143,11 +143,12 @@ func executable(p string) bool {
 	return fi.Mode().Perm()&0o111 != 0
 }
 
-// lookupEnv returns the value of k in env ("K=V" entries).
-func lookupEnv(env []string, k string) string {
+// envPath returns PATH from env ("K=V" entries; case-insensitive name on
+// Windows).
+func envPath(env []string) string {
 	i := slices.IndexFunc(env, func(kv string) bool {
 		n, _, _ := strings.Cut(kv, "=")
-		return envKey(n) == envKey(k)
+		return envKey(n) == envKey("PATH")
 	})
 	if i < 0 {
 		return ""
