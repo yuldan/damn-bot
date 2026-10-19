@@ -1,0 +1,17 @@
+// newEnvDeny is newEnv with the given deny_paths ("~/" = the fake home).
+func newEnvDeny(t testing.TB, deny ...string) *env {
+	t.Helper()
+	v := &env{root: realTemp(t), out: realTemp(t), home: realTemp(t)}
+	sb, err := sandbox.New(&sandbox.Config{Roots: []string{v.root}, DenyPaths: deny, Home: v.home})
+	if err != nil {
+		t.Fatalf("sandbox.New: %v", err)
+	}
+	v.sb = sb
+	e, err := New(&Config{Sandbox: sb, Roots: []string{v.root}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(e.Close)
+	v.e = e
+	return v
+}

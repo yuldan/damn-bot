@@ -1,0 +1,33 @@
+func (e *Engine) readText(f *fileView, off, limit int, o Opts) (Result, error) {
+	raw, sum, err := e.loadAll(f)
+	if err != nil {
+		return Result{}, err
+	}
+	tag, ent := sumTag(sum), tagEntry{sum: sum, stat: f.key, at: time.Now()}
+	if f.key.size > fullHashMax { // UTF-16 above 8 MiB: stat-tag rule
+		tag, ent = statTag(f.key), tagEntry{sum: statSum(f.key), stat: f.key, at: ent.at, full: sum, hasFull: true}
+	}
+	e.remember(f.t.resolved, tag, &ent, raw)
+	text := logical(raw, f.enc)
+	lines := splitLines(text)
+	total := len(lines)
+	start := off
+	if off < 0 {
+		start = max(1, total+off+1)
+	}
+	if total > 0 && start > total {
+		return Result{}, toolErr(CodeInvalidArgs, "", "/offset: %d is past the end (%d lines)", off, total)
+	}
+	pw := newPage(o.pageChars())
+	for n := start; n <= total && n < start+limit; n++ {
+		if !pw.add(strconv.Itoa(n), trimEOL(lines[n-1])) {
+			break
+		}
+	}
+	next := 0
+	if last := start + pw.count - 1; last < total {
+		next = last + 1
+	}
+	hdr := header{rel: f.t.rel, tag: tag, first: start, count: pw.count, total: total, enc: f.enc, eol: eolLabel(text)}
+	return pw.result(e, f.t, &hdr, next), nil
+}

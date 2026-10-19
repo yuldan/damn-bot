@@ -1,0 +1,18 @@
+Stage 13/13 of the F1 codetools stack (base: f1-ct-12); the tree equals
+f1-codetools-1 (b2fec95). Dispatch and F1 acceptance (CODE-TOOLS §10;
+ADR-103 butir 11):
+
+- `Schemas()` (CT-27: ≤ 200 tokens each) and `Engine.Run` with strict
+  JSON decoding (unknown fields fail).
+- Benchmarks `BenchmarkCodetools/<Spec>` (CT-04..07, CT-09) for the
+  `perf` job; corpus benches `BenchmarkGrepLiteral/GrepRegex/Glob` and
+  `TestGrepSpeedVsRg` (CT-01..03 ratios vs rg 15.1.0 on the same runner),
+  `TestGrepParityRg` (CT-21), token goldens (CT-11, bench module).
+- `scripts/corpora.sh` + `make corpora`, CI job `bench-parity` (PR) and
+  nightly `bench-codetools`; without corpora the tests fail, not skip
+  (`DAMNBOT_REQUIRE_CORPORA=1`).
+- `archtest.TestCodeToolsIDsComplete`: every CT ID of CODE-TOOLS §10 has
+  a test or benchmark.
+
+Docs: docs/CODE-TOOLS.md §10 (CT-01..03 gates), docs/DECISIONS.md
+(ADR-103 butir 11). REVIEW-F1-SEC2 closed here: CT27-7.

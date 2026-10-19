@@ -1,0 +1,32 @@
+// TestWriteReadBack is CT-20/TOOL-03: every write is read back and its
+// sha256 compared; new files get files.new_eol, no BOM, parents created.
+func TestWriteReadBack(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	ctx := context.Background()
+	r, err := v.e.Write(ctx, WriteArgs{Path: "deep/er/new.txt", Content: "a\nb\n"}, Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := v.get(t, "deep/er/new.txt"); got != "a\nb\n" || r.Meta["created"] != true || !strings.HasPrefix(r.Content, "created deep/er/new.txt #") {
+		t.Errorf("create: %q %v", got, r)
+	}
+	_, err = v.e.Write(ctx, WriteArgs{Path: "deep/er/new.txt", Content: "x"}, Opts{})
+	wantCode(t, err, CodeStaleRead)
+	_, err = v.e.Write(ctx, WriteArgs{Path: "nope.txt", Content: "x", Tag: new("0badc0de")}, Opts{})
+	wantCode(t, err, CodeNotFound)
+	crlf, err := New(&Config{Sandbox: v.sb, Roots: []string{v.root}, NewEOL: "crlf", Home: v.home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer crlf.Close()
+	if _, err = crlf.Write(ctx, WriteArgs{Path: "w.txt", Content: "1\n2\n"}, Opts{}); err != nil || v.get(t, "w.txt") != "1\r\n2\r\n" {
+		t.Errorf("new_eol crlf: %q %v", v.get(t, "w.txt"), err)
+	}
+	_, err = v.e.Write(ctx, WriteArgs{Path: ".env", Content: "x"}, Opts{})
+	wantCode(t, err, CodeDeniedPath)
+	// A byte swapped between write and read-back is write_verify_failed.
+	tgt := &target{resolved: filepath.Join(v.root, "w.txt"), rel: "w.txt"}
+	ci := commitInfo{sum: [32]byte{1}}
+	wantCode(t, v.e.readBack(ctx, tgt, &ci), CodeWriteVerifyFailed)
+}

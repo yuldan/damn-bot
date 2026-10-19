@@ -1,0 +1,5 @@
+func newCaches() *caches {
+	return &caches{
+		tags: map[string]tagEntry{},
+	}
+}

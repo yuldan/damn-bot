@@ -1,0 +1,22 @@
+Stage 1/13 of the F1 codetools stack (base: main). Sandbox API used by the
+codetools walker and ignore loader, plus the REVIEW-F1-SEC2 sandbox fixes.
+
+- `Sandbox.Denied`: lexical deny_paths match for walk entries (no syscall,
+  literal-component and `*suffix` fast path, same results as `path.Match`).
+- `Sandbox.OpenResolved`: read-only open with no symlink anywhere on the
+  path (one `openat2(RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS)` on Linux,
+  per-component `O_NOFOLLOW` elsewhere) + post-open deny/identity/nlink
+  re-check, for both the inside and the approved branch.
+- `ErrNotRegular`: FIFOs/devices/sockets are refused before open (lstat in
+  `Check`) and after open (fstat on the handle); the last component opens
+  `O_NONBLOCK` (cleared for regular files), so no open blocks past ctx.
+- `vet` merges recheckDeny/recheckIdentity/refuseLinked into one post-open
+  check shared by OpenFile/OpenApproved/OpenResolved.
+
+ADR-103 (butir 2, 15) is added to docs/DECISIONS.md with this stage.
+
+REVIEW-F1-SEC2 closed here: CT27-1 (approved OpenResolved followed
+ancestor symlinks), CT27-4 (sandbox part: blocking opens of FIFOs),
+CT27-6 (sandbox part: OpenResolved/Denied untested: swap race in both
+modes, hard links, Denied table), CT27-12 (deny fast path now exists),
+CT27-13 (OpenResolved checks nlink).

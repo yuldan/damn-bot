@@ -1,0 +1,20 @@
+// New builds an Engine; roots are canonicalized like the sandbox does.
+func New(cfg *Config) (*Engine, error) {
+	if cfg == nil || cfg.Sandbox == nil || len(cfg.Roots) == 0 {
+		return nil, errors.New("codetools: sandbox and roots required")
+	}
+	e := &Engine{sb: cfg.Sandbox, fold: runtime.GOOS == "windows"}
+	for _, r := range cfg.Roots {
+		abs, err := filepath.Abs(r)
+		if err != nil {
+			return nil, fmt.Errorf("codetools: root: %w", err)
+		}
+		c, err := filepath.EvalSymlinks(abs)
+		if err != nil {
+			return nil, fmt.Errorf("codetools: root: %w", err)
+		}
+		e.roots = append(e.roots, c)
+	}
+	e.cache = newCaches()
+	return e, nil
+}

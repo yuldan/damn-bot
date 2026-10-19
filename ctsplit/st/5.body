@@ -1,0 +1,20 @@
+Stage 5/13 of the F1 codetools stack (base: f1-ct-04). The ignore engine
+used by the grep/glob walker (CODE-TOOLS §2.3; ADR-103 butir 4):
+
+- `wildmatch`: port of git's wildmatch (`**`, character classes incl.
+  POSIX `[:alpha:]`, escapes, `WM_PATHNAME`), pinned by TestWildmatch.
+- Ignore stack per directory: `.gitignore`, `.ignore`, `.git/info/exclude`
+  of the repo containing the search root, negation, dir-only, anchored
+  patterns, trailing-space rules; `core.excludesFile` and `include.path`
+  from the repo and global git config (`$XDG_CONFIG_HOME/git`, `~`).
+- CT27-3/CT27-4: files above the session root are never read; in-tree
+  ignore files and the repo `.git/config` are read only via
+  `OpenResolved(approved=false)` when Inside and regular (symlinks,
+  FIFOs, devices = absent, as git ≥ 2.32). Only the global git config,
+  its includes and its excludes may be read outside the root.
+- `Config.Home` / `Config.XDGConfigHome` locate the global git config.
+
+Docs: docs/DECISIONS.md (ADR-103 butir 4). REVIEW-F1-SEC2 closed here:
+CT27-3 (ignore loading read files outside the root), CT27-4 (ignore
+part: FIFO `.gitignore`). Tests: TestWildmatch, TestGitignoreConformance
+(oracle `git check-ignore`, CT-23), TestGitConfigExcludes.

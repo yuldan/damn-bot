@@ -1,0 +1,19 @@
+Stage 4/13 of the F1 codetools stack (base: f1-ct-03). read_file above
+8 MiB and outline mode (CODE-TOOLS §4, §7; ADR-103 butir 1, 5):
+
+- Files > 8 MiB are never loaded whole: line-offset checkpoints every
+  1.000 lines (index LRU, 4 MB cap); a stat tag (§5.1) with the full hash
+  computed by the index pass. Negative offsets on a cold file read
+  backwards from EOF in 64 KiB chunks (`L-N..-1/?`,
+  `numbering=from-end`) while the index is built on an Engine-owned
+  background task.
+- Background work runs via `internal/boundary` (E-26) and stops on
+  `Engine.Close`. New import edge `codetools → boundary`: ENGINEERING
+  §2.2.1 graph + `archtest/allowed.go` (ADR-103 butir 1).
+- `outline=true`: Go via `go/ast` (types, funcs, methods with receiver,
+  consts/vars), other languages via a declaration regex heuristic;
+  outlines cached per file version (outline LRU, 4 MB).
+
+Docs: docs/ENGINEERING.md (edge `CT --> BND`), docs/DECISIONS.md
+(ADR-103 butir 1 and 5). Tests: TestReadLarge, TestOutline,
+TestCodeToolsMemCap (CT-35 caps).

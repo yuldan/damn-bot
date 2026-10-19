@@ -1,0 +1,6 @@
+// remember records a tag handed to the model (CODE-TOOLS §5.1).
+func (e *Engine) remember(resolved, tag string, ent *tagEntry) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.cache.tags[tagKey(resolved, tag)] = *ent
+}

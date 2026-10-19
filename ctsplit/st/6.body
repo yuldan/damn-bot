@@ -1,0 +1,18 @@
+Stage 6/13 of the F1 codetools stack (base: f1-ct-05). The `glob` tool and
+the walker shared with grep (CODE-TOOLS §2.2, §3; ADR-103 butir 3):
+
+- Parallel walker on `internal/boundary` tasks: DFS with byte-sorted
+  names per directory, emitted in order through a reorder window of
+  64 × GOMAXPROCS, so output is deterministic; skipped-entry counters are
+  filled by the emitter in order (deterministic on early exit).
+- Directories are listed after `sandbox.Check`, entries matched against
+  deny_paths with `Sandbox.Denied` (no deny-listed names leak), symlinks
+  not followed, non-regular entries skipped; ignore stack per directory.
+- `glob`: doublestar patterns (basename match without `/`), literal
+  prefix pruning, sort `path` | `mtime` (newest first), offset/limit,
+  page cap. New direct dependency `github.com/bmatcuk/doublestar/v4`
+  (already in deps.allow).
+
+Docs: docs/DECISIONS.md (ADR-103 butir 3). REVIEW-F1-SEC2: CT27-6 (walker
+part: glob must not list deny-listed names, TestGlobDenied). Tests:
+TestGlobLimits (CT-31), TestGlobDenied.

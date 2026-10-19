@@ -1,0 +1,15 @@
+// commit replaces t's file with data (CODE-TOOLS §5.4): temp in the
+// resolved directory, mode set before the first byte, fsync(file), owner
+// and xattrs copied, re-stat against before (stale_read if changed),
+// rename + fsync(dir), then a read-back sha256 check (TOOL-03). mode 0
+// creates a new file with the umask-derived mode. On any
+// failure the target keeps its old bytes.
+func (e *Engine) commit(ctx context.Context, t *target, before fileKey, mode fs.FileMode, data []byte) (commitInfo, error) {
+	return e.commitStream(ctx, t, before, mode, func(w io.Writer) error {
+		_, err := w.Write(data)
+		if err != nil {
+			return fmt.Errorf("codetools: write: %w", err)
+		}
+		return nil
+	})
+}

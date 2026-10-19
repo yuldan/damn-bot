@@ -1,0 +1,9 @@
+// Close stops background work and drops every cache and tag.
+func (e *Engine) Close() {
+	e.mu.Lock()
+	e.cache = newCaches()
+	if e.idle != nil {
+		e.idle.Stop()
+	}
+	e.mu.Unlock()
+}

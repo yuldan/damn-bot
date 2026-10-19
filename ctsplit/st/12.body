@@ -1,0 +1,24 @@
+Stage 12/13 of the F1 codetools stack (base: f1-ct-11). Hard-linked
+files and files above 64 MiB (CODE-TOOLS §5.4; ADR-103 butir 13;
+ADR-105):
+
+- In-place rewrite for `nlink > 1` (approved `hardlinked_file`, ADR-097
+  butir 12): the new content is first written completely to an fsynced
+  temp (validation, no-op or disk full stop there, target untouched);
+  then re-stat, old bytes to `Config.Snapshot`, fsynced backup
+  `.<name>.damnbot-bak-<rand>`, preallocation (`fallocate` on Linux),
+  copy, read-back. A failed copy is restored from the backup; only a
+  crash mid-copy leaves a partial file, with the backup kept.
+- Line-range edits on files > 64 MiB stream through the line index into
+  the temp, no-ops detected while streaming (temp discarded).
+- Edit accuracy suite CT-20 (330+ txtar cases incl. hardlink and huge),
+  `.gitattributes` keeps testdata byte-exact on Windows.
+- ADR-105: codetools LOC budget 4.500 → 4.800 (this stage reaches 4.728
+  scc); `loc.budget` and ENGINEERING §2.4 updated.
+
+Docs: docs/CODE-TOOLS.md §5.4, docs/TRUST-MODEL.md (in-place residual,
+path-based rename residual), docs/ENGINEERING.md §2.4, docs/DECISIONS.md
+(ADR-103 butir 13, ADR-105). REVIEW-F1-SEC2 closed here: CT27-2,
+CT27-8. Tests: TestEditAccuracySuite, TestInPlaceEdit,
+TestInPlaceFailuresKeepFile, TestInPlaceLargeFile, TestEditLockAlias,
+TestInPlaceKill9.

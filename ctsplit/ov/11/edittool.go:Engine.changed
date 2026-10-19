@@ -1,0 +1,41 @@
+// changed records the new tag and renders "edited path #a→#b · … · +x -y"
+// with the unified diff (CODE-TOOLS §9.4).
+func (e *Engine) changed(c *current, d *doc, lines []docLine, out []byte, ci *commitInfo, what string, repl int) Result {
+	tag := sumTag(ci.sum)
+	ent := &tagEntry{sum: ci.sum, stat: ci.key, at: time.Now()}
+	if len(out) > fullHashMax {
+		tag = statTag(ci.key)
+		ent.sum, ent.full, ent.hasFull = statSum(ci.key), ci.sum, true
+	}
+	e.remember(c.t.resolved, tag, ent, out)
+	if len(out) <= readCacheFile {
+		e.mu.Lock()
+		e.cache.read.put(ci.key, readEntry{sum: sha256.Sum256(out), data: out, at: time.Now()}, len(out)+64)
+		e.mu.Unlock()
+	}
+	a, b := contents(d.lines), contents(lines)
+	ops, ok := lineDiff(a, b)
+	add, del := diffStat(ops)
+	body := ""
+	if ok {
+		body = unified(ops, a, b)
+	} else {
+		add, del, body = len(b), len(a), "(diff omitted: too many changes)"
+	}
+	if strings.HasSuffix(what, " edit") && !strings.HasPrefix(what, "1 ") {
+		what += "s"
+	}
+	head := fmt.Sprintf("edited %s #%s→#%s · %s · +%d -%d", c.t.rel, c.tag, tag, what, add, del)
+	if c.tag == "" {
+		head, body = fmt.Sprintf("created %s #%s · %d lines", c.t.rel, tag, len(lines)), ""
+	}
+	meta := map[string]any{
+		"tag": tag, "replacements": repl, "diff_stat": fmt.Sprintf("+%d -%d", add, del),
+		"eol": eolName(d.dominantEOL() + map[bool]string{true: e.newEOL}[c.tag == ""]), "encoding": d.enc.String(), "bytes": len(out),
+		"owner_preserved": ci.ownerOK, "mode_preserved": ci.modeOK, "xattr_preserved": ci.xattrOK,
+	}
+	if body != "" {
+		head += "\n" + body
+	}
+	return Result{Content: e.wrapOutside(c.t, head), Meta: meta}
+}

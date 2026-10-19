@@ -1,0 +1,4 @@
+func (v *env) put(t testing.TB, rel, content string) {
+	t.Helper()
+	writeFile(t, filepath.Join(v.root, filepath.FromSlash(rel)), content)
+}

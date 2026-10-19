@@ -1,0 +1,14 @@
+Stage 7/13 of the F1 codetools stack (base: f1-ct-06). The line matcher
+used by grep (CODE-TOOLS §2.1, §2.4; ADR-103), standalone and unit-tested
+before the grep tool lands in the next stage:
+
+- Pure literal patterns (case-sensitive or ASCII case-folded) use a
+  rare-byte `IndexByte` scan; other patterns compile to RE2 (`regexp`),
+  smart-case by default.
+- Required-literal prefilter extracted from the RE2 syntax tree
+  (concatenations, bounded alternations ≤ 8, products) so most lines that
+  cannot match are skipped without running the regexp (CT-01/CT-02).
+- Line semantics match `rg`: `$` matches before `\r\n`, no phantom empty
+  line after a final newline; multiline patterns scan the whole buffer.
+
+Tests: TestMatcherLineEnds, TestRequiredLiterals.

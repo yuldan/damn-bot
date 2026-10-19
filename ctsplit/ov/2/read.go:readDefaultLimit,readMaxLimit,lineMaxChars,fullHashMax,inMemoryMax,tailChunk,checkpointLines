@@ -1,0 +1,7 @@
+// read_file limits (CODE-TOOLS §4, CT-32, CT-34).
+const (
+	readDefaultLimit = 400
+	readMaxLimit     = 2000
+	lineMaxChars     = 2000
+	inMemoryMax      = 64 << 20 // UTF-16 decode and string edits (§5.4)
+)

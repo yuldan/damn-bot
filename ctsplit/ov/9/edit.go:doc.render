@@ -1,0 +1,12 @@
+// render encodes lines back to file bytes (BOM, UTF-16 restored).
+func (d *doc) render(lines []docLine) ([]byte, bool) {
+	var b bytes.Buffer
+	for _, l := range lines {
+		b.WriteString(l.content)
+		b.WriteString(l.eol)
+	}
+	if d.enc.enc != EncUTF8 {
+		return nil, false
+	}
+	return append([]byte(d.enc.bom()), b.Bytes()...), true
+}

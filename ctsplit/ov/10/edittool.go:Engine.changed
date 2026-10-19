@@ -1,0 +1,26 @@
+// changed records the new tag and renders "edited path #a→#b · … · +x -y"
+// with the unified diff (CODE-TOOLS §9.4).
+func (e *Engine) changed(c *current, d *doc, lines []docLine, out []byte, ci *commitInfo, what string, repl int) Result {
+	tag := sumTag(ci.sum)
+	ent := &tagEntry{sum: ci.sum, stat: ci.key, at: time.Now()}
+	if len(out) > fullHashMax {
+		tag = statTag(ci.key)
+		ent.sum, ent.full, ent.hasFull = statSum(ci.key), ci.sum, true
+	}
+	e.remember(c.t.resolved, tag, ent, out)
+	if len(out) <= readCacheFile {
+		e.mu.Lock()
+		e.cache.read.put(ci.key, readEntry{sum: sha256.Sum256(out), data: out, at: time.Now()}, len(out)+64)
+		e.mu.Unlock()
+	}
+	head := fmt.Sprintf("edited %s #%s→#%s · %s", c.t.rel, c.tag, tag, what)
+	if c.tag == "" {
+		head = fmt.Sprintf("created %s #%s · %d lines", c.t.rel, tag, len(lines))
+	}
+	meta := map[string]any{
+		"tag": tag, "replacements": repl,
+		"eol": eolName(d.dominantEOL() + map[bool]string{true: e.newEOL}[c.tag == ""]), "encoding": d.enc.String(), "bytes": len(out),
+		"owner_preserved": ci.ownerOK, "mode_preserved": ci.modeOK, "xattr_preserved": ci.xattrOK,
+	}
+	return Result{Content: e.wrapOutside(c.t, head), Meta: meta}
+}

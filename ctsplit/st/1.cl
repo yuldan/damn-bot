@@ -1,0 +1,1 @@
+- `sandbox`: `Denied` dan `OpenResolved` untuk walker grep/glob (satu `openat2` `RESOLVE_NO_SYMLINKS` + cek identitas deny pasca-open) (ADR-103).

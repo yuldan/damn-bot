@@ -1,0 +1,23 @@
+Stage 10/13 of the F1 codetools stack (base: f1-ct-09). Overwrite with a
+tag and the safety pieces of the write path (CODE-TOOLS §5.1, §5.4, §5.5;
+ADR-103 butir 9, 12, 14):
+
+- `write_file` overwrites with the tag from read_file/grep: unknown or
+  outdated tag → `stale_read` with the fresh tag; racy stat-tags need the
+  recorded full hash (§5.5); encoding, BOM and dominant EOL preserved
+  (UTF-16 re-encoded from WTF-8, unrepresentable content fails closed).
+- Per-file edit lock keyed by the resolved path, case-folded on Windows
+  and macOS, and by device+inode for hard-linked files (CT27-5).
+- Owner and xattrs copied to the temp before the mode is set; setuid /
+  setgid / sticky kept and `mode_preserved` verified (CT27-9); Windows
+  reports `owner_preserved=false` for rename writes (CT27-12).
+- `Engine.CleanOrphanTemps`: removes only `^\..+\.damnbot-[a-z2-7]{12}$`,
+  unlinked relative to a directory fd opened through the sandbox
+  (CT27-10).
+- CT-25 kill points (`mid-temp`, `pre-rename`, `post-rename`) via a test
+  hook; TestAtomicWriteKill9 parks a child at each point and SIGKILLs it.
+
+REVIEW-F1-SEC2 closed here: CT27-5, CT27-9, CT27-10, CT27-12 (owner on
+Windows), CT27-6 (kill-test part). Docs: docs/DECISIONS.md (ADR-103
+butir 9, 12, 14). Tests: TestWriteReadBack (full), TestPathLockAliases,
+TestCleanOrphanTempsPattern, TestAtomicWriteKill9.

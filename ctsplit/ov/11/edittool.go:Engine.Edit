@@ -1,0 +1,41 @@
+// Edit runs edit_file (CODE-TOOLS §5.3).
+func (e *Engine) Edit(ctx context.Context, a EditArgs, o Opts) (res Result, err error) {
+	switch {
+	case a.Path == "":
+		return res, toolErr(CodeInvalidArgs, "", "/path: required")
+	case !reTag.MatchString(a.Tag):
+		return res, toolErr(CodeInvalidArgs, "read_file returns the tag", "/tag: must match ^[0-9a-f]{8}$")
+	case len(a.Edits) == 0 || len(a.Edits) > maxEdits:
+		return res, toolErr(CodeInvalidArgs, "", "/edits: 1..%d items", maxEdits)
+	}
+	unlock := e.pathLock(ctx, a.Path)
+	defer unlock()
+	c, err := e.openCurrent(ctx, a.Path, a.Tag, o)
+	if c != nil {
+		defer c.t.close(&err)
+	}
+	if err != nil {
+		return res, err
+	}
+	if c.raw == nil {
+		return res, toolErr(CodeTooLarge, "", "%s is larger than %d MiB", c.t.rel, inMemoryMax>>20)
+	}
+	d, terr := parseDoc(c.raw)
+	if terr != nil {
+		return res, terr
+	}
+	spans, terr := resolveEdits(d, c.t.rel, a.Edits)
+	if terr != nil {
+		return res, terr
+	}
+	lines := d.apply(spans)
+	out, ok := d.render(lines)
+	if !ok {
+		return res, toolErr(CodeInvalidArgs, "", "%s: result is not representable in %s", c.t.rel, d.enc)
+	}
+	ci, err := e.commit(ctx, c.t, c.key, keepMode(c.fi), out)
+	if err != nil {
+		return res, err
+	}
+	return e.changed(c, d, lines, out, &ci, fmt.Sprintf("%d edit", len(a.Edits)), len(spans)), nil
+}

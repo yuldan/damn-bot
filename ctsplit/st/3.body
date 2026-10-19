@@ -1,0 +1,16 @@
+Stage 3/13 of the F1 codetools stack (base: f1-ct-02). Completes the
+small-file read path of read_file (CODE-TOOLS §4.2–§4.4, §7; ADR-103):
+
+- Encoding detection on an 8 KiB head (§4.2): UTF-8 with/without BOM,
+  UTF-16 LE/BE with/without BOM decoded to WTF-8 (odd trailing byte shown
+  as invalid); header shows `utf-8 bom crlf`-style labels and EOL
+  (lf/crlf/mixed). Files above 8 MiB that are not UTF-8 get a stat tag
+  plus the full hash (§5.1).
+- Binary sniff (CT-34): NUL outside UTF-16, > 10 % invalid bytes, or one
+  of 21 magic signatures; a binary read is one descriptive line with a
+  tag, not an error (§4.4).
+- Bounded caches (§7, CT-35): byte-budgeted LRU for small-file bytes and
+  stale_read snapshots, validated against a fresh stat and the racy
+  window; every cache except tags is dropped after 10 minutes idle.
+
+ADR-103 butir 6 added. Tests: TestReadEncodings (full), TestBinarySniff.

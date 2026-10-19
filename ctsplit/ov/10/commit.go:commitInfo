@@ -1,0 +1,6 @@
+// commitInfo is what the write path reports in Meta (P14).
+type commitInfo struct {
+	ownerOK, modeOK, xattrOK bool
+	sum                      [32]byte
+	key                      fileKey
+}

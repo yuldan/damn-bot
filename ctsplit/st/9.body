@@ -1,0 +1,20 @@
+Stage 9/13 of the F1 codetools stack (base: f1-ct-08). The atomic commit
+path and `write_file` for new files (CODE-TOOLS §5.4, §5.6; ADR-103 butir
+8, 16):
+
+- Commit: temp `.<name>.damnbot-<rand>` created next to the target
+  through the sandbox (`O_EXCL`), content hashed while written, `fsync`,
+  re-stat (`stale_read` if the target changed or appeared), rename
+  (`MoveFileEx(REPLACE_EXISTING|WRITE_THROUGH)` on Windows), `fsync` of
+  the directory opened through the sandbox, then a read-back sha256
+  check (`write_verify_failed`, TOOL-03). Disk full → `disk_full`; the
+  temp is discarded on every failure.
+- `write_file` creates a file: parents created per component after
+  `sandbox.Check` (approval for non-Inside verdicts), mode from the umask
+  (temp 0666), UTF-8 without BOM, `files.new_eol` (`Config.NewEOL`),
+  1.000.000-char cap, redaction sentinel refused. An existing path is
+  `stale_read` here; overwriting with a tag is the next stage.
+
+Docs: docs/DECISIONS.md (ADR-103 butir 8, 16 — residual path-based
+rename/mkdir race, CT27-11 accepted). Tests: TestWriteReadBack (create
+part, new_eol crlf, deny, read-back mismatch), TestCodeToolsSymlinkOutsideRoot.

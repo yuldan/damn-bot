@@ -1,0 +1,20 @@
+func (p *page) result(e *Engine, t *target, h *header, next int) Result {
+	h.invalid = p.invalid
+	var b strings.Builder
+	last := h.first + h.count - 1
+	if h.count == 0 {
+		last = h.first - 1
+	}
+	fmt.Fprintf(&b, "%s #%s · L%d-%d/%d · %s %s", h.rel, h.tag, h.first, last, h.total, h.enc, h.eol)
+	if h.invalid > 0 {
+		fmt.Fprintf(&b, " · invalid_utf8=%d", h.invalid)
+	}
+	b.WriteByte('\n')
+	b.WriteString(p.b.String())
+	meta := map[string]any{"tag": h.tag, "lines_total": h.total, "encoding": h.enc.String(), "eol": h.eol}
+	if next != 0 {
+		fmt.Fprintf(&b, "next: offset=%d\n", next)
+		meta["next"] = next
+	}
+	return Result{Content: e.wrapOutside(t, strings.TrimSuffix(b.String(), "\n")), Meta: meta}
+}

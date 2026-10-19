@@ -1,0 +1,7 @@
+func newCaches() *caches {
+	return &caches{
+		read:     newLRU[fileKey, readEntry](readCacheCap),
+		snaps:    newLRU[string, []byte](snapshotCap),
+		tags:     map[string]tagEntry{},
+	}
+}

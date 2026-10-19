@@ -1,0 +1,6 @@
+// prepareTemp sets the final mode before the first byte (§5.4 langkah 2).
+func prepareTemp(before fileKey, mode fs.FileMode, tmp *os.File, ci *commitInfo) {
+	if before != (fileKey{}) {
+		ci.modeOK = setMode(tmp, mode)
+	}
+}

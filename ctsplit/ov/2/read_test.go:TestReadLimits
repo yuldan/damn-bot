@@ -1,0 +1,39 @@
+// TestReadLimits is CT-32: default 400 lines, max 2.000, lines cut at
+// 2.000 chars, offset 0 rejected, negative offsets read from the end.
+func TestReadLimits(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	v.put(t, "big.txt", numbered(3000))
+	v.put(t, "long.txt", "x"+strings.Repeat("é", 2500)+"\nshort\n")
+	r := v.read(t, ReadArgs{Path: "big.txt"})
+	if h := firstLine(r.Content); !strings.Contains(h, "L1-400/3000") {
+		t.Errorf("header %q", h)
+	}
+	if !strings.HasSuffix(r.Content, "400|line 400\nnext: offset=401") || r.Meta["next"] != 401 {
+		t.Errorf("default page tail %q", r.Content[len(r.Content)-40:])
+	}
+	r = v.read(t, ReadArgs{Path: "big.txt", Offset: new(-3)})
+	if !strings.HasSuffix(r.Content, "2998|line 2998\n2999|line 2999\n3000|line 3000") {
+		t.Errorf("tail %q", r.Content)
+	}
+	r = v.read(t, ReadArgs{Path: "long.txt"})
+	if !strings.Contains(r.Content, "1|x"+strings.Repeat("é", 1999)+"… [+501 chars]\n2|short") {
+		t.Errorf("long line not cut at 2000 chars: %q", r.Content[len(r.Content)-60:])
+	}
+	for _, a := range []ReadArgs{
+		{Path: "big.txt", Offset: new(0)},
+		{Path: "big.txt", Limit: readMaxLimit + 1},
+		{Path: "big.txt", Offset: new(3001)},
+		{Path: ""},
+		{Path: "."},
+	} {
+		_, err := v.e.Read(context.Background(), a, Opts{})
+		wantCode(t, err, CodeInvalidArgs)
+	}
+	_, err := v.e.Read(context.Background(), ReadArgs{Path: "missing.txt"}, Opts{})
+	wantCode(t, err, CodeNotFound)
+	r = v.read(t, ReadArgs{Path: "big.txt", Limit: readMaxLimit, Offset: new(1)})
+	if r.Meta["next"] == nil {
+		t.Errorf("2000 lines of 3000 must page")
+	}
+}

@@ -1,0 +1,18 @@
+// Write runs write_file (CODE-TOOLS §5.6).
+func (e *Engine) Write(ctx context.Context, a WriteArgs, o Opts) (res Result, err error) {
+	switch {
+	case a.Path == "":
+		return res, toolErr(CodeInvalidArgs, "", "/path: required")
+	case utf8.RuneCountInString(a.Content) > maxWriteChars:
+		return res, toolErr(CodeInvalidArgs, "split the file or use edit_file", "/content: more than %d chars", maxWriteChars)
+	case strings.Contains(a.Content, sentinel):
+		return res, toolErr(CodeInvalidArgs, "secret redacted; edit around it", "/content: contains a redaction sentinel")
+	case a.Tag != nil && !reTag.MatchString(*a.Tag):
+		return res, toolErr(CodeInvalidArgs, "", "/tag: must match ^[0-9a-f]{8}$")
+	}
+	abs := e.abs(a.Path)
+	if _, lerr := os.Lstat(abs); errors.Is(lerr, fs.ErrNotExist) {
+		return e.create(ctx, a, abs, o)
+	}
+	return res, toolErr(CodeStaleRead, "read_file first; overwriting needs its tag", "%s exists", a.Path)
+}

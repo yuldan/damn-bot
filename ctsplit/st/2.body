@@ -1,0 +1,19 @@
+Stage 2/13 of the F1 codetools stack (base: f1-ct-01). New package
+`internal/codetools` (CODE-TOOLS §4, ADR-103):
+
+- `Engine` (`New`/`Close`), `Config`, `Opts` (page caps of ADR-031:
+  16.000 / 4.000 chars), `Result`, `*ToolError` with SPEC §4.3 codes.
+- Every tool path opens through `internal/sandbox` (`OpenFile`, and
+  `OpenApproved` only after an approved non-Inside verdict); sandbox and
+  OS failures map to codes by sentinel (`mapOpenErr`); content read
+  outside the workspace is wrapped as untrusted.
+- `read_file` for text: default 400 / max 2.000 lines, negative offsets
+  from the end, lines cut at 2.000 chars, invalid UTF-8 escaped
+  injectively (`\xNN`, never U+FFFD), page cut at a whole line, file tag
+  = sha256 prefix recorded per session (CODE-TOOLS §5.1).
+- CODEOWNERS entry for the new package.
+
+Not yet in this stage (later stages of the stack): encodings/BOM/UTF-16,
+binary sniff, read cache, large files, outline, grep/glob, edits.
+
+ADR-103 butir 10 added. Tests: TestReadLimits (CT-32), TestPageCap.

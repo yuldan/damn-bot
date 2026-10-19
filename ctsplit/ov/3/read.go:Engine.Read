@@ -1,0 +1,38 @@
+// Read runs read_file.
+func (e *Engine) Read(ctx context.Context, a ReadArgs, o Opts) (res Result, err error) {
+	off, limit := 1, a.Limit
+	if a.Offset != nil {
+		off = *a.Offset
+	}
+	switch {
+	case a.Path == "":
+		return res, toolErr(CodeInvalidArgs, `read_file requires {"path": string}`, "/path: required")
+	case off == 0:
+		return res, toolErr(CodeInvalidArgs, "offset is 1-based; negative reads from the end", "/offset: 0 is not a line")
+	case limit < 0 || limit > readMaxLimit:
+		return res, toolErr(CodeInvalidArgs, "", "/limit: must be 1..%d", readMaxLimit)
+	case limit == 0:
+		limit = readDefaultLimit
+	}
+	t, err := e.open(ctx, a.Path, os.O_RDONLY, 0, o)
+	if err != nil {
+		return res, err
+	}
+	defer closeInto(&err, t.f)
+	fi, err := t.f.Stat()
+	if err != nil {
+		return res, &ToolError{Code: CodeInternal, Message: "stat " + a.Path, Err: err}
+	}
+	if fi.IsDir() {
+		return res, toolErr(CodeInvalidArgs, "use glob to list a directory", "%s is a directory", a.Path)
+	}
+	e.touch()
+	f := &fileView{t: t, key: keyOf(t.resolved, fi)}
+	if err := f.sniff(); err != nil {
+		return res, err
+	}
+	if f.binary {
+		return f.binaryResult(e), nil
+	}
+	return e.readText(f, off, limit, o)
+}

@@ -1,0 +1,23 @@
+Stage 8/13 of the F1 codetools stack (base: f1-ct-07). The `grep` tool
+(CODE-TOOLS §2; ADR-103 butir 3) on the walker (stage 6), ignore engine
+(stage 5) and matcher (stage 7):
+
+- Arguments: pattern, path, glob (doublestar), type (language table),
+  case smart|sensitive|insensitive, context 0..5, mode
+  matches|files|count, offset/limit (≤ 500); 30 s budget.
+- Files ≤ 8 MiB are scanned in pooled scratch buffers (binary skipped
+  via the sniff of stage 3); larger files stream in chunks with context
+  recovered by a second pass. Each file block carries its tag so
+  edit_file can follow grep without a read.
+- Output (CODE-TOOLS §9.1): per-file blocks, `N:` match / `N-` context
+  rows, matched lines windowed to 500 chars around the match, page cap,
+  `next: offset=…`, deterministic `skipped:` footer (binary, denied,
+  unreadable, hard-linked).
+- Hard-linked files and approved walks outside the root go through
+  `OpenResolved` with identity checks (CT27-1, CT27-13).
+
+REVIEW-F1-SEC2: CT27-6 (walker part: TestGrepApprovedWalkRace,
+TestGrepSkipsHardLinked). Tests: TestGrepLimits, TestGrepOutput,
+TestGrepIgnoreRules, TestCodeToolsDeterministic, TestHardLinkApproval,
+TestBinarySniffCorpus, TestIgnoreSymlinkOutsideRoot,
+TestRepoExcludesFileOutsideRoot.

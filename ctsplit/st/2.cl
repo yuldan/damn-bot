@@ -1,0 +1,2 @@
+- `codetools`: tool file eager CODE-TOOLS §2–§5 — `read_file` (halaman 16.000/4.000 char, offset negatif dari akhir, byte invalid `\xNN`) (ADR-103).
+- `sandbox`: `Denied` dan `OpenResolved` untuk walker grep/glob (satu `openat2` `RESOLVE_NO_SYMLINKS` + cek identitas deny pasca-open) (ADR-103).

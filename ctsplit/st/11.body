@@ -1,0 +1,19 @@
+Stage 11/13 of the F1 codetools stack (base: f1-ct-10). `edit_file`
+(CODE-TOOLS §5.2, §5.3, §9.4; ADR-103 butir 7):
+
+- Exact-only string edits (`old_string`/`new_string`/`replace_all`) and
+  line ranges (`start_line`/`end_line`/`new_text`), up to 50 per call,
+  applied atomically; overlaps, no-ops and redaction sentinels rejected.
+- `no_match` lists up to 3 informative candidates (whitespace, case,
+  NFC via `golang.org/x/text/unicode/norm`, EOL differences); ambiguous
+  matches list their lines.
+- `stale_read` reports the changed line ranges since the tag (Myers
+  diff against the snapshot cached at read time).
+- Result: `edited path #a→#b · N edits · +x -y` plus a bounded unified
+  diff. Files above 64 MiB are `too_large` here; streaming line-range
+  edits land in the next stage.
+- New direct dependency `golang.org/x/text` (already in deps.allow).
+
+Docs: docs/DECISIONS.md (ADR-103 butir 7). Tests: TestEditFormat,
+TestEditLimits (CT-33), TestStatTagRacy, TestCacheIdleRelease,
+TestEdgeCases, TestSetgidPreserved, TestFIFONoHang, FuzzEditApply.

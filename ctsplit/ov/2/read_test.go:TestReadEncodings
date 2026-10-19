@@ -1,0 +1,17 @@
+// TestReadEncodings covers §4.2/§4.3: BOMs, UTF-16 with and without BOM,
+// CRLF, invalid bytes escaped injectively, never U+FFFD.
+func TestReadEncodings(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	cases := []struct{ name, raw, header, body string }{
+		{"invalid", "ok\nbad\xff\\x\n", "L1-2/2 · invalid_utf8=1", "1|ok\n2|bad\\xFF\\\\x"},
+		{"empty", "", "L1-0/0", ""},
+	}
+	for _, c := range cases {
+		v.put(t, c.name, c.raw)
+		r := v.read(t, ReadArgs{Path: c.name})
+		if !strings.Contains(firstLine(r.Content), c.header) || !strings.Contains(r.Content, c.body) || strings.ContainsRune(r.Content, '\uFFFD') {
+			t.Errorf("%s: %q", c.name, r.Content)
+		}
+	}
+}

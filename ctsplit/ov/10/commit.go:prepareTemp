@@ -1,0 +1,12 @@
+// prepareTemp copies owner and xattrs first (xattr writes need a writable
+// inode; chown clears setuid/setgid), then sets the final mode before the
+// first byte (§5.4 langkah 2).
+func prepareTemp(t *target, before fileKey, mode fs.FileMode, tmp *os.File, ci *commitInfo) {
+	if t.f != nil {
+		ci.ownerOK = copyOwner(t.f, tmp)
+		ci.xattrOK = copyXattrs(t.f, tmp)
+	}
+	if before != (fileKey{}) {
+		ci.modeOK = setMode(tmp, mode)
+	}
+}

@@ -1,0 +1,17 @@
+// loadAll reads the whole file (≤ inMemoryMax) with its sha256.
+func (e *Engine) loadAll(f *fileView) ([]byte, [32]byte, error) {
+	if f.key.size > inMemoryMax {
+		return nil, [32]byte{}, toolErr(CodeTooLarge, "use offset/limit pages or line-range edits", "%s is larger than %d MiB", f.t.rel, inMemoryMax>>20)
+	}
+	// Read to EOF, not to the stat size: pseudo-files (/proc) report 0.
+	var b bytes.Buffer
+	b.Grow(int(f.key.size) + bytes.MinRead)
+	if _, err := b.ReadFrom(io.LimitReader(io.NewSectionReader(f.t.f, 0, inMemoryMax+1), inMemoryMax+1)); err != nil {
+		return nil, [32]byte{}, &ToolError{Code: CodeInternal, Message: "read " + f.t.rel, Err: err}
+	}
+	if b.Len() > inMemoryMax {
+		return nil, [32]byte{}, toolErr(CodeTooLarge, "use offset/limit pages or line-range edits", "%s is larger than %d MiB", f.t.rel, inMemoryMax>>20)
+	}
+	data := b.Bytes()
+	return data, sha256.Sum256(data), nil
+}

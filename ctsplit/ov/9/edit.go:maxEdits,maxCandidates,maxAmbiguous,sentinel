@@ -1,0 +1,4 @@
+// edit limits (CODE-TOOLS §5, CT-33).
+const (
+	sentinel = "[REDACTED:" // redaction sentinel never written (ADR-071)
+)

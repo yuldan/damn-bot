@@ -1,0 +1,9 @@
+// Cache caps of CODE-TOOLS §7 (CT-35). Every hit is validated against a
+// fresh stat; correctness never depends on invalidation.
+const (
+	readCacheCap  = 16 << 20 // file bytes ≤ readCacheFile + sha256
+	readCacheFile = 2 << 20
+	snapshotCap   = 16 << 20 // stale_read diff snapshots, per session
+	idleRelease   = 10 * time.Minute
+	racyWindow    = 2 * time.Second
+)
