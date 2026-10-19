@@ -1,6 +1,6 @@
 # REVIEW-F1-SEC8 — Review keamanan loop stack (#99–#103)
 
-**Status: lengkap.** Review independen pertama atas `internal/loop` (event, turn core, tool-call assembly/render, dispatch/approval/taint/spill). Reviewer tidak menulis kode yang direview. Tanggal: 2026-10-20.
+**Status: lengkap — approve setelah Putaran 3 (`#102` `d570441`, `#103` `d1adbdb`).** Review independen pertama atas `internal/loop` (event, turn core, tool-call assembly/render, dispatch/approval/taint/spill). Reviewer tidak menulis kode yang direview. Tanggal: 2026-10-20.
 
 Head yang direview (belum di-merge): `#99` `beae644`, `#100` `5821828`, `#101` `d641c08`, `#102` `d8e360a`, `#103` `9b21692`. Pemeriksaan di Linux. Probe berupa test sementara di worktree terpisah (tidak di-commit); output probe dikutip di bawah.
 
@@ -145,3 +145,33 @@ Head: `#102` `c25fdf1`, `#103` `d91071d`. Seluruh tes paket lulus; probe `-race`
 - Runtime Windows/macOS dan integrasi adapter produksi.
 - `go test -race ./internal/loop` seluruh suite: hanya probe LP8-2 yang dijalankan dengan `-race`; suite penuh belum.
 - Perbaikan setelah `d91071d`.
+
+## Putaran 3 — final verification (2026-10-20)
+
+Head: `#102` `d570441`, `#103` `d1adbdb`. Keduanya membawa perbaikan yang sama; `#103` hanya menambah dokumen. Verdict akhir:
+
+| PR | Verdict putaran 3 |
+|---|---|
+| #102 | **approve** — LP8-1..8 fixed; tidak ada BLOCKER/MAJOR residual |
+| #103 | **approve** — dokumen/komentar; kode sama dengan #102 |
+
+### Verifikasi
+
+- **LP8-1 status:** `deliver` hanya mengembalikan `cancelled_confirmed` bila `res.Status == "cancelled_confirmed"`; status `exited`/selesai menghasilkan `cancelled` setelah `tool_result` disimpan (`dispatch.go:411-417`). `TestLP81CancelPersistsResult` dan `TestLP81CompletedResultNotConfirmed` lulus; probe independen `Status:"exited"` → `stop=cancelled`, event ada.
+- **LP8-2 race:** `dispatchBatch` memberi setiap job channel buffered miliknya; slice hasil hanya ditulis koordinator. Timeout memakai `still_running`; late result dikirim ke channel yang tidak dibaca dan tidak menyentuh slice. `TestLP82BatchWaitBounded` lulus; probe `-race` (tool selesai setelah timeout + caller membaca hasil) lulus, tidak ada `DATA RACE`.
+- **LP8-6 args:** argumen tool-call diredaksi di `tool_call_args`/`tool_call_end`/`assistantPayload.tool_calls`/history; eksekusi memakai `calls` mentah. `TestLP86RedactsToolArgs` lulus; probe argumen `{"token":"sk-secret"}` tidak menemukan secret di update/event.
+- **LP8-7:** `modelContent` menambahkan `runeLen(out)` untuk semua cabang (error envelope, spill, truncation, plain). `TestLP87PreviewCountsInline` lulus; probe tanpa Spiller: `inline=84`, result kedua ter-truncate.
+- **LP8-3/4/5/8:** `TestLP83EmptySubjectNotCached`, `TestLP84ApprovedSet`, `TestLP85NoProgressKeepsResults`, `TestLP88Details` lulus.
+- **Suite:** `go test -race ./internal/loop` pada `d570441` dan `d1adbdb` hijau (1,03 s); probe `-race` tambahan juga hijau.
+
+### Catatan residual (bukan blocker)
+
+- Timeout `collect` tetap meninggalkan goroutine tool sampai tool menghormati ctx; late result dibuang. Ini disengaja (P24) dan tidak lagi menulis state bersama.
+- `modelContent` menghitung panjang sebelum redaksi; perbedaan panjang redaksi tidak material.
+- `collect` dengan `KillGrace <= 0` menunggu tanpa batas; konfigurasi default positif.
+
+### Tidak dicakup putaran 3
+
+- Runtime Windows/macOS dan integrasi adapter produksi.
+- Fuzz/bench dan stress konkurensi lebih luas.
+- Perbaikan setelah `d1adbdb`.
