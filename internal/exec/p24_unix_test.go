@@ -42,7 +42,9 @@ func TestNoOrphansHelper(t *testing.T) {
 // process — 0 processes with the marker survive (the last case after the
 // startup sweep).
 func TestNoOrphans(t *testing.T) {
-	t.Parallel()
+	// Not parallel: 200 iterations spawn many processes, and running this
+	// alongside the timing-sensitive prompt corpus made wchan detection
+	// miss P24.2 under CI load.
 	r := newTestRunner(t)
 	for i := range 200 {
 		switch {
