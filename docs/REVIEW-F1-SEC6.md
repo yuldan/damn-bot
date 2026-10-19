@@ -80,3 +80,70 @@ sh -c 'rm -rf ~'                           => destructive
 - Ekivalensi semantik penuh dengan bash/PowerShell (classifier bersifat best-effort per ADR-079; corpus di luar test tidak diuji).
 - Fuzz/bench/perf dan corpus 300 perintah di luar test (test lulus; tidak dijalankan ulang dengan `-count` > 1 sesuai batas CPU).
 - Interaksi `--unsafe-auto-shell` dengan tool layer (siapa yang boleh menyalakan flag) — di luar paket.
+
+## Putaran 2 — re-review perbaikan (2026-10-20)
+
+Head yang direview ulang: `#44` `2df9a7e` (`01dcdae`), `#46` `0551086` (`b606e8a`). `#41` `c12dfe9` dan `#43` `909212f` hanya merge main, tanpa perubahan kode baru; verdict putaran 1 tetap.
+
+| PR | Verdict putaran 2 |
+|---|---|
+| #41 | **approve** (tidak berubah; CL5-5/6/7 MINOR tetap) |
+| #43 | **approve** (tidak berubah; CL5-3 MINOR tetap) |
+| #44 | **changes required** — CL5-2 inti fixed, tetapi CL5-10 (MAJOR) masih lolos |
+| #46 | **changes required** — CL5-1 inti fixed, tetapi CL5-9 (MAJOR) masih lolos |
+
+### Perbaikan inti yang terverifikasi
+
+**CL5-1 (cmd /c) — fixed untuk payload langsung.** `cmdShell` (`winlex.go:237-260`) dipanggil dari `command.go:43-45`, mem-parse `/c`/`/k` dengan lexer Cmd.
+
+| Perintah (Dialect Cmd, root `C:\proj`) | Label |
+|---|---|
+| `cmd /c rd /s /q C:\proj` | destructive |
+| `cmd /s /c "rd /s /q C:\proj"` | destructive |
+| `cmd /c diskpart`, `cmd /c shutdown /s /t 0` | destructive |
+| `cmd /c cmd /c rd /s /q C:\proj` | destructive |
+| `cmd /c powershell -Command "Remove-Item -Recurse C:\proj"` | destructive |
+
+**CL5-2 (launcher) — fixed untuk bentuk uji.** `wrappers` (`wrap.go:18-20`) + `launcherArgs`/`tasksetArgs` (`wrap.go:60-180`).
+
+| Perintah | Label |
+|---|---|
+| `setsid sh -c 'rm -rf ~'` | destructive |
+| `busybox sh -c 'rm -rf ~'` | destructive |
+| `taskset -c 0-3 sh -c 'rm -rf ~'` / `taskset 0x3 rm -rf ~` | destructive |
+| `unshare -m sh -c 'rm -rf ~'` | destructive |
+| `systemd-run rm -rf ~` / `systemd-run --user --scope -- rm -rf ~` | destructive |
+| `systemd-run --user --scope rm -rf ~`, `setsid --unknown …`, `busybox --list`, `taskset -p 1234` | unknown (fail-closed) |
+
+`go test ./internal/exec/classify` (seluruh paket) hijau.
+
+### Temuan residual
+
+| ID | PR | Severity | Status | Temuan | Bukti |
+|---|---|---|---|---|---|
+| CL5-9 | #46 | MAJOR | confirmed | Builtin `cmd` yang menjalankan perintah tidak direkursi: `cmd /c start rd /s /q C:\proj`, `cmd /c call rd …`, `cmd /c if exist x rd …` = `mutating` → `AutoApprove` di `--unsafe-auto-shell`; `cmd /c rd …` = `destructive`/denied | `winlex.go:237-260`; probe di bawah |
+| CL5-10 | #44 | MAJOR | confirmed | `unshare --propagation private sh -c 'rm -rf ~'` = `mutating` karena `--propagation` salah dimasukkan sebagai bool padahal mengambil nilai; `busybox ash/hush -c 'rm -rf ~'` dan `toybox sh -c 'rm -rf ~'` = `mutating` (shell applet tidak dikenali) | `wrap.go:16, 99-101`; probe di bawah |
+
+Probe persis:
+
+```
+cmd /c start rd /s /q C:\proj                    => mutating   (auto di unsafe)
+cmd /c call rd /s /q C:\proj                     => mutating
+cmd /c if exist x rd /s /q C:\proj               => mutating
+cmd /c for %i in (x) do rd /s /q C:\proj         => unknown   (aman karena parens)
+unshare --propagation private sh -c 'rm -rf ~'   => mutating
+unshare --propagation=private sh -c 'rm -rf ~'   => unknown    (aman)
+busybox ash -c 'rm -rf ~'                        => mutating
+busybox hush -c 'rm -rf ~'                       => mutating
+toybox sh -c 'rm -rf ~'                          => mutating
+```
+
+Keduanya melanggar aturan "destructive/unknown tetap `denied` di `--unsafe-auto-shell`" (ADR-079 butir 4). Dampaknya hanya pada flag headless eksplisit itu; mode interaktif tetap bertanya dan headless biasa tetap `denied`, tetapi untuk acceptance F1 ini masih MAJOR.
+
+**Rekomendasi.** #46: perlakukan `start`/`call` sebagai wrapper (parse opsi `/b /d /wait …`, title, lalu perintah) atau `unknown` sampai isinya dianalisis; `if`/`for`/`do`/`goto` → `unknown` bila tidak dapat diparse. #44: pindahkan `--propagation` ke `unshareValued`; tambahkan `ash`/`hush` ke `interpreters` dan `toybox` (atau applet shell `busybox`) ke `wrappers`; untuk applet `busybox` yang tidak dikenal, pilih `unknown` alih-alih `mutating`. Tambah kasus di `TestRuleLabels`/`TestRuleNesting` dan `TestUnsafeAutoShellFlag`.
+
+### Tidak dicakup putaran 2
+
+- Runtime Windows (`cmd.exe` nyata) dan macOS; label diuji deterministik lewat `Dialect`.
+- Tabel opsi lengkap `start`/`call`/`if`/`for`, `unshare`, dan seluruh applet `busybox`/`toybox`.
+- Integrasi tool/approval end-to-end; CL5-9/CL5-10 hanya menjadi eksekusi tanpa approval lewat `--unsafe-auto-shell`.
