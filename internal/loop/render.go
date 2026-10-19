@@ -62,7 +62,9 @@ func (t *turn) modelContent(ctx context.Context, res *ToolResult) string {
 // available for a single oversized result.
 func (t *turn) trimmed(ctx context.Context, content string, n, keep int, tooLarge bool) string {
 	if ref, err := t.spill(ctx, content); err == nil && ref != "" {
-		return preview(content, keep) + "\n[spilled: " + ref + "]"
+		out := preview(content, keep) + "\n[spilled: " + ref + "]"
+		t.inline += runeLen(out)
+		return out
 	}
 	if tooLarge {
 		return errorEnvelope(&ToolError{

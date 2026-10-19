@@ -20,6 +20,7 @@ type turn struct {
 	sessionID string
 	turnID    string
 	input     Input
+	history   []Message
 	out       chan<- event.Update
 	start     time.Time
 
@@ -30,6 +31,7 @@ type turn struct {
 	seen      map[[32]byte]int
 	compacted bool
 	iteration int
+	pending   *outcome
 }
 
 // outcome is one terminal classification; err is already redacted.
@@ -64,16 +66,16 @@ func (t *turn) steps(ctx context.Context) outcome {
 			return *o
 		}
 	}
-	return outcome{stop: event.StopMaxIterations, detail: "max_iterations"}
+	return outcome{stop: event.StopMaxIterations, detail: event.DetailMaxIterations}
 }
 
 // begin appends the user message and turn_start.
 func (t *turn) begin(ctx context.Context) *outcome {
-	if err := t.append(ctx, &event.Event{Kind: event.UserMessage, Role: "user", Content: t.input.Text}); err != nil {
+	if _, err := t.append(ctx, &event.Event{Kind: event.UserMessage, Role: "user", Content: t.input.Text}); err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
 		return &o
 	}
-	if err := t.append(ctx, &event.Event{Kind: event.TurnStart, Payload: payload(turnStartPayload{
+	if _, err := t.append(ctx, &event.Event{Kind: event.TurnStart, Payload: payload(turnStartPayload{
 		Text: t.input.Text, PlanMode: t.input.PlanMode, TurnID: t.turnID,
 	})}); err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
@@ -119,7 +121,7 @@ func (t *turn) iterate(ctx context.Context, it int) (*outcome, bool) {
 // build assembles the prompt and applies the input budget and window guard.
 func (t *turn) build(ctx context.Context, it int) (*Prompt, *outcome, bool) {
 	p, err := t.deps.Assembler.Assemble(ctx, &AssembleRequest{
-		SessionID: t.sessionID, TurnID: t.turnID, Input: t.input, Iteration: it,
+		SessionID: t.sessionID, TurnID: t.turnID, Input: t.input, Iteration: it, History: t.history,
 	})
 	if err != nil {
 		if ctx.Err() != nil {
@@ -148,7 +150,7 @@ func (t *turn) preflight(ctx context.Context) (outcome, bool) {
 		return t.cancelled(), true
 	}
 	if t.cfg.MaxWall > 0 && t.cfg.Now().Sub(t.start) > t.cfg.MaxWall {
-		return outcome{stop: event.StopCancelled, detail: "max_wall"}, true
+		return outcome{stop: event.StopCancelled, detail: event.DetailMaxWall}, true
 	}
 	return outcome{}, false
 }
@@ -171,7 +173,7 @@ func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {
 	}
 	t.compacted = true
 	again, err := t.deps.Assembler.Assemble(ctx, &AssembleRequest{
-		SessionID: t.sessionID, TurnID: t.turnID, Input: t.input, Iteration: it,
+		SessionID: t.sessionID, TurnID: t.turnID, Input: t.input, Iteration: it, History: t.history,
 	})
 	if err != nil {
 		return t.fail(ctx, event.DetailInternal, err), true
@@ -199,7 +201,7 @@ func (t *turn) ask(ctx context.Context, p *Prompt) (Reply, []ToolCall, *outcome)
 		var b callBuilder
 		reply, err := t.deps.Provider.Stream(ctx, &p.Request, func(d Delta) {
 			if d.Text != "" {
-				t.emit(&event.Update{Kind: event.UpdateTextDelta, Text: d.Text})
+				t.emit(&event.Update{Kind: event.UpdateTextDelta, Text: t.redact(d.Text)})
 			}
 			b.add(d.ToolCalls, t.emit)
 		})
@@ -234,18 +236,19 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 		return &o, true
 	}
 	t.addUsage(&reply.Usage)
-	if err := t.record(ctx, &reply.Usage); err != nil {
-		o := t.fail(ctx, event.DetailInternal, err)
-		return &o, true
-	}
 	if reply.FallbackFrom != "" {
 		t.fallback(ctx, reply.FallbackFrom, reply.Model)
 	}
-	if err := t.append(ctx, &event.Event{Kind: event.LLMCall, Payload: payload(llmPayload{
+	eventID, err := t.append(ctx, &event.Event{Kind: event.LLMCall, Payload: payload(llmPayload{
 		Model: reply.Model, FinishReason: reply.FinishReason, FallbackFrom: reply.FallbackFrom,
 		Attempts: reply.Attempts, Input: reply.Usage.Input, CachedInput: reply.Usage.CachedInput,
 		Output: reply.Usage.Output, CostUSD: reply.Usage.CostUSD,
-	})}); err != nil {
+	})})
+	if err != nil {
+		o := t.fail(ctx, event.DetailInternal, err)
+		return &o, true
+	}
+	if err := t.record(ctx, eventID, &reply.Usage); err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
 		return &o, true
 	}
@@ -319,7 +322,7 @@ func (t *turn) classify(ctx context.Context, r *Reply, calls []ToolCall) (outcom
 	case r.FinishReason == FinishContentFilter:
 		return t.contentFiltered(ctx, r, calls)
 	case r.FinishReason == FinishLength && len(calls) == 0:
-		if err := t.append(ctx, &event.Event{
+		if _, err := t.append(ctx, &event.Event{
 			Kind: event.AssistantMessage, Role: "assistant", Content: r.Content,
 			Payload: payload(assistantPayload{FinishReason: r.FinishReason}),
 		}); err != nil {
@@ -336,10 +339,10 @@ func (t *turn) classify(ctx context.Context, r *Reply, calls []ToolCall) (outcom
 // contentFiltered stores the partial content and stops without executing.
 func (t *turn) contentFiltered(ctx context.Context, r *Reply, calls []ToolCall) (outcome, bool) {
 	ev := &event.Event{
-		Kind: event.AssistantMessage, Role: "assistant", Content: r.Content,
+		Kind: event.AssistantMessage, Role: "assistant", Content: t.redact(r.Content),
 		Payload: payload(assistantPayload{Filtered: true, FinishReason: r.FinishReason, ToolCalls: callPayloads(calls)}),
 	}
-	if err := t.append(ctx, ev); err != nil {
+	if _, err := t.append(ctx, ev); err != nil {
 		return t.fail(ctx, event.DetailInternal, err), true
 	}
 	t.emit(&event.Update{Kind: event.UpdateNotice, Text: "content filtered", Status: "content_filtered"})
@@ -349,10 +352,10 @@ func (t *turn) contentFiltered(ctx context.Context, r *Reply, calls []ToolCall) 
 // finalAnswer stores and returns the model's answer.
 func (t *turn) finalAnswer(ctx context.Context, r *Reply) (outcome, bool) {
 	ev := &event.Event{
-		Kind: event.AssistantMessage, Role: "assistant", Content: r.Content,
+		Kind: event.AssistantMessage, Role: "assistant", Content: t.redact(r.Content),
 		Payload: payload(assistantPayload{FinishReason: r.FinishReason}),
 	}
-	if err := t.append(ctx, ev); err != nil {
+	if _, err := t.append(ctx, ev); err != nil {
 		return t.fail(ctx, event.DetailInternal, err), true
 	}
 	if strings.TrimSpace(r.Content) == "" {
@@ -364,12 +367,13 @@ func (t *turn) finalAnswer(ctx context.Context, r *Reply) (outcome, bool) {
 // toolTurn persists the assistant message and dispatches its calls.
 func (t *turn) toolTurn(ctx context.Context, r *Reply, calls []ToolCall) (outcome, bool) {
 	ev := &event.Event{
-		Kind: event.AssistantMessage, Role: "assistant", Content: r.Content,
+		Kind: event.AssistantMessage, Role: "assistant", Content: t.redact(r.Content),
 		Payload: payload(assistantPayload{FinishReason: r.FinishReason, ToolCalls: callPayloads(calls)}),
 	}
-	if err := t.append(ctx, ev); err != nil {
+	if _, err := t.append(ctx, ev); err != nil {
 		return t.fail(ctx, event.DetailInternal, err), true
 	}
+	t.history = append(t.history, Message{Role: "assistant", Content: t.redact(r.Content), ToolCalls: calls})
 	for i := range calls {
 		t.emit(&event.Update{Kind: event.UpdateToolCallEnd, ToolCallID: calls[i].ID, ToolName: calls[i].Name, Text: calls[i].Arguments})
 	}
@@ -439,31 +443,32 @@ func (t *turn) recordApproval(ctx context.Context, tool string, d Decision) {
 func (t *turn) note(ctx context.Context, ev *event.Event) {
 	// Audit events survive a canceled turn: WithoutCancel keeps context
 	// values but not the cancellation.
-	if err := t.append(context.WithoutCancel(ctx), ev); err != nil {
+	if _, err := t.append(context.WithoutCancel(ctx), ev); err != nil {
 		return
 	}
 }
 
 // append writes one critical event unless persistence is disabled.
-func (t *turn) append(ctx context.Context, ev *event.Event) error {
+func (t *turn) append(ctx context.Context, ev *event.Event) (int64, error) {
 	if t.deps.Store == nil {
-		return nil
+		return 0, nil
 	}
 	if ev.Payload == nil {
 		ev.Payload = json.RawMessage(`{}`)
 	}
-	if err := t.deps.Store.Append(ctx, t.sessionID, t.turnID, ev); err != nil {
-		return fmt.Errorf("loop: store append: %w", err)
+	id, err := t.deps.Store.Append(ctx, t.sessionID, t.turnID, ev)
+	if err != nil {
+		return 0, fmt.Errorf("loop: store append: %w", err)
 	}
-	return nil
+	return id, nil
 }
 
 // record writes one usage row unless accounting is disabled.
-func (t *turn) record(ctx context.Context, u *event.Usage) error {
+func (t *turn) record(ctx context.Context, eventID int64, u *event.Usage) error {
 	if t.deps.Ledger == nil {
 		return nil
 	}
-	if err := t.deps.Ledger.Record(ctx, t.sessionID, t.turnID, u); err != nil {
+	if err := t.deps.Ledger.Record(ctx, t.sessionID, t.turnID, eventID, u); err != nil {
 		return fmt.Errorf("loop: ledger record: %w", err)
 	}
 	return nil
