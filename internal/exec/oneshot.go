@@ -75,8 +75,8 @@ func Prepare(o *OneShot) (spec Spec, notice string, err error) {
 // and direct is set only for a bare name resolved through PATH (secrets,
 // EX42-1).
 func resolveDirect(argv []string, path, dir string) (resolved []string, direct string, err error) {
-	if err := checkArgv(argv); err != nil {
-		return nil, "", err
+	if verr := checkArgv(argv); verr != nil {
+		return nil, "", verr
 	}
 	bin, err := lookPath(argv[0], path, dir)
 	if err != nil {
