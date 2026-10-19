@@ -66,9 +66,11 @@ func start(s *Spec, in *os.File) (*osProc, error) {
 	}
 	wp := &osProc{p: p, out: r, job: job}
 	if aerr := errors.Join(cerr, wp.attach()); aerr != nil {
-		// suspended, outside any job: only the leader exists
-		_, werr := p.Wait()
-		return nil, errors.Join(aerr, p.Kill(), werr, wp.release(), closeAll(r))
+		// Suspended, outside any job: only the leader exists. Kill it
+		// before Wait; a suspended process never exits on its own (EX39-2).
+		werr := p.Kill()
+		_, werr2 := p.Wait()
+		return nil, errors.Join(aerr, werr, werr2, wp.release(), closeAll(r))
 	}
 	return wp, nil
 }
