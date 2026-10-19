@@ -44,20 +44,28 @@ func (s *state) command(args []arg, in stdin) bool {
 		s.wrapper(name, args, in)
 	case inList(interpreters, name) || strings.HasPrefix(name, "python"):
 		s.interpreter(name, args, in)
+	case inList(httpClients, name):
+		s.http(args)
+	case inList(remoteCmds, name):
+		s.remoteCmd(name, args)
 	default:
 		s.tool(name, sub, args)
 	}
-	return inList(" curl wget ", name)
+	return inList(fetchers, name)
 }
 
 // cmdName is the lookup key: base name; on Windows dialects lower-cased,
-// without .exe.
+// without .exe, PowerShell/cmd aliases mapped to their POSIX equivalent.
 func (s *state) cmdName(a0 string) string {
 	name := path.Base(s.clean(a0))
 	if !s.fold {
 		return name
 	}
-	return strings.TrimSuffix(strings.ToLower(name), ".exe")
+	name = strings.TrimSuffix(strings.ToLower(name), ".exe")
+	if i := strings.Index(winAliases, " "+name+":"); i >= 0 && !strings.Contains(name, " ") {
+		name, _, _ = strings.Cut(winAliases[i+len(name)+2:], " ")
+	}
+	return name
 }
 
 // operands checks file operands: every positional argument of known file

@@ -24,7 +24,7 @@ const (
 func Classify(cmd string, env *Env) Verdict {
 	s := newState(env)
 	if env.Dialect >= Pwsh {
-		s.raise(Unknown, "PowerShell/cmd command not analysed")
+		s.winLine(cmd, env.Dialect)
 	} else {
 		s.shell(cmd, env.Dialect == POSIX, stdinNone)
 	}

