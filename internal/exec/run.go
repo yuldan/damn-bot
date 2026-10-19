@@ -48,6 +48,8 @@ type Runner struct {
 	// red redacts detected prompt lines (EX45-1): Prompt goes to the model
 	// and UI, so it never carries a known secret.
 	red *redact.Redactor
+	// closeTask is the retained Close waiter; a later Close waits on it.
+	closeTask *boundary.Task
 }
 
 // New returns a Runner whose goroutines stop when ctx is canceled.
@@ -85,21 +87,25 @@ func (r *Runner) Close() error {
 		r.closed = true
 		close(r.stop)
 	}
+	task := r.closeTask
+	if task == nil {
+		task = boundary.Go(context.Background(), "exec.close", func(context.Context) error {
+			return r.g.Wait()
+		})
+		r.closeTask = task
+	}
 	r.mu.Unlock()
-	done := make(chan error, 1)
-	_ = boundary.Go(context.Background(), "exec.close", func(context.Context) error {
-		done <- r.g.Wait()
-		return nil
-	})
 	timer := time.NewTimer(closeWait)
 	defer timer.Stop()
 	select {
-	case err := <-done:
-		if err != nil {
+	case <-task.Done():
+		if err := task.Wait(); err != nil {
 			return fmt.Errorf("exec: close: %w", err)
 		}
 		return nil
 	case <-timer.C:
+		// The task stays on the Runner: a later Close waits for it instead
+		// of abandoning a goroutine (REVIEW-F1-SEC5 EX5-16).
 		return fmt.Errorf("exec: close: %w", errCloseTimeout)
 	}
 }
@@ -130,6 +136,12 @@ type call struct {
 	gone  bool // leader reaped
 	// lastOut is the time of the last output chunk (UnixNano).
 	lastOut atomic.Int64
+	// more, if set, gets a non-blocking signal after each output chunk
+	// (persistent sessions wait on it for their sentinel).
+	more chan struct{}
+	// in, if set, is the child's stdin read end (pipe sessions); spawn
+	// closes it after the start.
+	in *os.File
 	// red redacts a detected prompt line (EX45-1).
 	red *redact.Redactor
 	// inW is the stdin write end; finish closes it so a blocked writer cannot hold Close (REVIEW-F1-SEC5, #40).
@@ -190,8 +202,8 @@ func (r *Runner) Run(ctx context.Context, spec *Spec) (Result, error) {
 }
 
 func (c *call) spawn(ctx context.Context) error {
-	var in, inW *os.File
-	if c.s.Stdin != nil {
+	in, inW := c.in, (*os.File)(nil) // c.in: a session's own input pipe
+	if in == nil && c.s.Stdin != nil {
 		var err error
 		if in, inW, err = os.Pipe(); err != nil {
 			return fmt.Errorf("exec: stdin pipe: %w", err)
@@ -248,6 +260,12 @@ func (c *call) readLoop(context.Context) error {
 			c.out.write(buf[:n])
 			if c.s.OnOutput != nil {
 				c.s.OnOutput(buf[:n])
+			}
+			if c.more != nil {
+				select {
+				case c.more <- struct{}{}:
+				default:
+				}
 			}
 		}
 		if err != nil {
