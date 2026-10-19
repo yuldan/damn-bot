@@ -135,7 +135,7 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | [#15](https://github.com/yuldan/damn-bot/pull/15) `sandbox` a | verdict `Check`, `deny_paths` | symlink file/dir keluar root (termasuk komponen tengah, dangling, relatif, loop), `..`, path absolut; symlink ke path deny; `/proc/*/environ`, `/proc/*/task/*/environ`, `/proc/*/mem`, `~/.ssh`, `**/.env`, `*.pem`, look-alike, varian huruf (Windows/macOS); MSYS/UNC/long path |
 | [#16](https://github.com/yuldan/damn-bot/pull/16) `sandbox` b | open anti-TOCTOU per OS | CT-26: proses lain membalik komponen direktori ↔ symlink keluar root selama 1.000 open per mekanisme (openat2, walk `O_NOFOLLOW`) = 0 file luar; symlink baru di dalam root setelah `Check` ditolak; verifikasi `/proc/self/fd` dan device+inode (macOS/BSD, sisa risiko ADR-097 butir 4); `OpenApproved` tetap menolak deny; create pada path deny tidak membuat file |
 | [#22](https://github.com/yuldan/damn-bot/pull/22), [#30](https://github.com/yuldan/damn-bot/pull/30), [#31](https://github.com/yuldan/damn-bot/pull/31) `provider` (ADR-102) — **di-merge setelah CI hijau, review auditor menyusul** (input jarak jauh tidak tepercaya) | decoder delta tanpa reflect, rakitan stream, klien openai-chat (retry, breaker, fallback), `providertest` | **SSE/JSON rusak:** frame JSON tidak lengkap → `stream_broken` (retry, lalu gagal typed), stream terpotong tanpa `finish_reason` → `stream_broken`, angka di luar jangkauan/non-integer untuk token → chunk ditolak, `null` di posisi objek/array, UTF-8 rusak/surrogate tunggal → U+FFFD, kunci beda kapitalisasi diabaikan (`FuzzDeltaDecode` diferensial vs `encoding/json`, 3 crash fuzz diperbaiki + korpus; `TestDeltaDecode`; `TestHostileStream`); **delta besar:** satu event SSE > 4 MiB → `ErrEventTooLarge` (non-retry), rakitan > 16 MiB atau > 128 tool call → `ErrResponseTooLarge` (non-retry, tanpa fallback) (`TestAssemblyBounds`, `TestHostileStream`); **field injeksi tool call:** nama/argumen disimpan mentah tanpa ditafsirkan (`../../rm -rf` tetap string), fragmen dengan `id`/`index` berulang atau baru dirakit sesuai aturan EC-PROV-001 tanpa membuat call ekstra, field tak dikenal dilewati (`TestEdgeCases/EC-PROV-001`, `TestHostileStream`); **error di dalam stream 2xx** → kelas `server`, body disalin (tidak dieksekusi); **content_filter:** dikembalikan sebagai `FinishReason` bersama konten parsial + tool call untuk loop (stop `content_filtered`, ADR-072/082), tanpa retry/fallback (`TestAssemble`, `TestHostileStream`); **klasifikasi:** 429 = `rate_limited` apa pun body-nya (EC-PROV-029), `error.param` saja (bukan teks pesan) memicu pelepasan parameter (E-21); **body error** ≤ 64 KiB, tidak diredaksi di `provider` (redaksi saat log/tampil). Sisa: `providertest` hanya loopback (E-69) |
-| `exec` a, b (ADR-105) — **tidak di-merge sampai auditor approve** | lapisan proses per OS: session/pgid sendiri (Unix, `Pdeathsig`), PTY `creack/pty` 120×40 sebagai controlling terminal, Job Object `KILL_ON_JOB_CLOSE` dengan start tersuspensi (Windows), capture head+tail | stdin `/dev/null` = EOF tanpa tty (sudo/ssh/`read -p` gagal cepat); kill grup menjangkau `sleep &` dan subshell; `trap '' TERM` tetap mati oleh KILL; tidak ada anak yang lolos dari Job sebelum assign (start tersuspensi); capture 16 MiB terbatas untuk output tak berujung (ring, tanpa geser); b: `sleep 1000 &`, `(sleep &)`, `nohup … &`, `setsid sleep &` tidak menahan call dan 0 proses bermarker tersisa; `trap '' TERM` → SIGKILL setelah grace; cancel mengembalikan hasil ≤ 1 s walau TERM diabaikan |
+| `exec` a (ADR-105) — **tidak di-merge sampai auditor approve** | lapisan proses per OS: session/pgid sendiri (Unix, `Pdeathsig`), PTY `creack/pty` 120×40 sebagai controlling terminal, Job Object `KILL_ON_JOB_CLOSE` dengan start tersuspensi (Windows), capture head+tail | stdin `/dev/null` = EOF tanpa tty (sudo/ssh/`read -p` gagal cepat); kill grup menjangkau `sleep &` dan subshell; `trap '' TERM` tetap mati oleh KILL; tidak ada anak yang lolos dari Job sebelum assign (start tersuspensi); capture 16 MiB terbatas untuk output tak berujung (ring, tanpa geser) |
 
 ### `internal/budget` + `internal/ctxdb/ledgerstore` (ADR-101)
 
@@ -169,15 +169,58 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 
 | PR | Isi | Baris Go non-test (diff) | Hasil |
 |---|---|---:|---|
-| exec a | tipe hasil (`ExecStatus` ADR-082), lapisan proses per OS, capture | 509 | CI; menunggu auditor |
-| exec b | `Runner`: loop timeout/cancel, kill order, sweep marker, edge `exec → boundary` | lihat PR | CI; menunggu auditor |
+| exec a | tipe hasil (`ExecStatus` ADR-082), lapisan proses per OS, capture | lihat PR | CI; menunggu auditor |
 
 | Item | Implementasi | Test | Status |
 |---|---|---|---|
 | Runner pipe/pty (§A.1) | `start` (`proc_unix.go`, `proc_windows.go`), `sysAttr` | `TestProcPipeExit`, `TestProcStdinPipe`, `TestProcPTY`, `TestProcJobExit` | PR a |
 | Kill pohon proses (§A.4) | `terminate`/`kill` ke pgid; `TerminateJobObject` | `TestProcGroupTerminate`, `TestProcGroupKillIgnoresTrap`, `TestProcJobKillTree` | PR a |
 | Capture output | `capture` head 8 MiB + ring 8 MiB | `TestCaptureHeadTail`, `TestCaptureHugeWrite`, `TestCaptureSmall` | PR a |
-| Timeout + kill order (§A.4, ADR-072) | `call.loop`, `killTree`, `waitDead` | `TestRunTimeout`, `TestRunTimeoutIgnoresTERM` (durasi ≤ timeout + grace + 1 s, P24.2), `TestRunTimeoutKillsJobWindows` | PR b |
-| Cancel ≤ 1 s (REL-06, ADR-072/082) | `call.cancelled`, `Result.Done`, `Runner.Live` | `TestRunCancelConfirmed`, `TestRunCancelStillRunning`, `TestRunCancelConfirmedWindows` | PR b |
-| 0 orphan per call (P24.1, sebagian) | kill sisa pgid + sweep marker | `TestRunStragglersKilled`, `TestRunSetsidEscapeSwept`, `TestRunStragglersKilledWindows` | PR b; `TestNoOrphans` 200 iterasi = PR P24 |
-| Env, mode one-shot, prompt interaktif, idle, ConPTY, summarize, P24 | — | — | PR berikutnya |
+| Loop timeout/cancel, sweep marker, env, mode one-shot, prompt interaktif, idle, ConPTY, summarize, P24 | — | — | PR berikutnya |
+## Handoff f1-net (pause)
+
+Status 2026-10-20 saat proyek di-pause. Semua kerja ada di branch remote; tidak ada yang hanya ada di `/tmp`. Tidak ada PR yang security-gated yang di-merge.
+
+### PR terbuka
+
+| PR | Branch (base) | Head | CI terakhir | Gate merge |
+|---|---|---|---|---|
+| #28 netx DLP NETX-15/16/26..31 | `f1-netx-dlp2` (main) | `17bbaad` | berjalan; head sebelumnya `8ed7e04` perf hijau (EPYC 9V74: plain 14–16 µs, pct 30–43 µs, prefix 15–24, decode 67–91; gagal hanya pr-meta size 615 dan `TestFileLength`, keduanya diperbaiki di `17bbaad`: helper dipindah ke `dlp_layer.go`, 598 baris) | auditor sudah APPROVE deteksi NETX-26 (@d2ee9d5); minta auditor re-check range-diff `d2ee9d5..17bbaad` (perf-only + split file) + oracle; merge setelah approve |
+| #39 exec a: lapisan proses, PTY, Job Object, capture | `f1-exec-1` (main) | `5a9e9e8` | berjalan | auditor |
+| #40 exec b: Runner, timeout/cancel/kill order, sweep | `f1-exec-2` (#39) | `6e508ff` | job `coverage` gagal (belum diselidiki; cek `TestFileLength`/coverage log) | auditor |
+| #42 exec c: env allowlist, secret-ref scope, one-shot (NEW3-03/04), `NeedsTTY` | `f1-exec-3` (#40) | `afc32ff` | berjalan | auditor |
+| #45 exec d: prompt interaktif, idle-timeout | `f1-exec-4` (#42) | `18ac833` | berjalan | auditor |
+| #47 exec e: ringkasan §A.3 | `f1-exec-5` (#45) | `e0c5c95` | berjalan | auditor |
+| #52 exec f: `SweepStale`, `TestNoOrphans` 200×, bench spawn | `f1-exec-6` (#47) | `ea6e8b5` | berjalan | auditor |
+| #62 exec g: ConPTY Windows | `f1-exec-7` (#52) | `31320bf` | **gagal** test windows-latest, windows-11-arm, ubuntu-24.04-arm (ConPTY belum pernah dijalankan di Windows; arm64 belum diselidiki) | perbaiki dulu, lalu auditor |
+| #63 exec h: sesi persisten | `f1-exec-8` (#62) | `a59fa64` | windows-11-arm gagal (kemungkinan dari #62), sisanya berjalan | auditor |
+| #41/#43/#44/#46 exec/classify (ClassifyLead) | `f1-classify-1..4` (berantai, #41 base main) | `11e5cfc`/`affd0e9`/`fa9f41c`/`d02bf38` | semua hijau | auditor; #41 memuat transfer budget exec 3.400 / classify 1.600 (disetujui owner) |
+
+Branch tanpa PR: `f1-classify-wip` (`29b28bc`, versi utuh classify sebelum dipecah; boleh dihapus), `f1-exec-wip` (WIP lama, digantikan `f1-exec-1..8`; boleh dihapus).
+
+### Worktree (lokal, boleh hilang)
+
+`/tmp/damnbot-f1net` → `f1-netx-dlp2` / `f1-handoff-net`; `/tmp/damnbot-f1exec` → `f1-exec-1..8`; `/tmp/damnbot-f1classify` → `f1-classify-*`. Semua bersih dan sama dengan remote. Pulihkan dengan `git worktree add /tmp/<dir> <branch>`.
+
+### Cara kerja yang perlu dibuat ulang bila `/tmp` hilang
+
+- Lint: `GOFLAGS=-modfile=tools/go.mod go build -o /tmp/golangci github.com/golangci/golangci-lint/v2/cmd/golangci-lint`, lalu `GOOS={linux,windows,darwin} /tmp/golangci run --build-tags goolm ./internal/...`. Gate lain: `make vet-custom deadcode loc`, `go test -tags goolm ./internal/archtest/`.
+- Restack exec setelah `main` bergerak: untuk b = 1..8, `git rebase --onto <tip baru b-1 (b=1: origin/main)> <tip lama b-1> f1-exec-b`; konflik CHANGELOG/DECISIONS/F1-REPORT = simpan kedua sisi (hapus baris penanda konflik), lalu periksa entri CHANGELOG/ADR yang terduplikasi. Push `-f` setiap branch.
+- pr-meta E-84 menghitung diff terhadap `main` terkini: PR yang tertinggal dari `main` bisa melebihi 600 baris → rebase.
+- Mesin lokal terbebani; angka benchmark lokal tidak bisa dipakai. Ukur di job `perf` CI (catat model CPU di log: EPYC 7763 ≈ 1,25× lebih lambat dari 9V74).
+- Skrip kredensial GitHub (`askpass`, wrapper API, watcher CI) ada di luar repo dan tidak didokumentasikan di sini; owner menyediakannya ulang.
+
+### Langkah berikut
+
+1. #28: tunggu CI `17bbaad` hijau; minta auditor re-review range-diff; merge (rebase) setelah approve. Keputusan terbuka NETX-16: gate pct 75 µs kini lolos dengan margin (≈ 43 µs short50 di 9V74, perkiraan ≈ 54 µs di 7763); tidak perlu mengubah target.
+2. #62 ConPTY: perbaiki kegagalan Windows/arm64 (lihat log job), lalu restack #63.
+3. #40 `coverage`: baca log job, perbaiki, restack c..h.
+4. Serahkan stack exec a..h + classify 1..4 ke auditor (urutan merge: classify #41 dulu karena memuat `loc.budget` exec 3.400 — exec saat ini ≈ 2.330 scc).
+5. Sisa F1 exec di luar stack: `TestCancelConfirmBeforeRedispatch` (loop/tools), Backend `§A.7` (hanya `local` di F1), wiring `shell` tool (tools/loop) ke `Runner`/`Sessions`/`classify`, panggilan `exec.SweepStale()` di composition root.
+
+### Keputusan yang tercatat (ADR-105, ADR-106) dan perlu diketahui reviewer
+
+- macOS: tanpa idle-kill (tidak ada akuntansi CPU/I/O per proses tanpa libproc); timeout tetap berlaku.
+- Setelah `kill -9` damnbot, pohon proses (selain leader di Linux) dibersihkan `SweepStale` pada start berikutnya di semua Unix.
+- Sesi Windows memakai pipe (bukan ConPTY); fish tidak dipakai sebagai shell sesi.
+- Pengecualian E-38 `unsafe` hanya untuk `internal/exec/*_windows.go`.
