@@ -17,6 +17,7 @@
 /internal/config/ @yuldan
 /internal/codetools/ @yuldan
 /internal/ctxdb/ @yuldan
+/internal/loop/ @yuldan
 /internal/exec/ @yuldan
 /internal/exec/classify/ @yuldan
 /internal/netx/ @yuldan
