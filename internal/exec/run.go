@@ -333,8 +333,10 @@ func (c *call) sweep() {
 			return
 		}
 		// Give SIGKILL time to take effect; an escapee forking while it
-		// dies shows up in the next scan.
-		time.Sleep(pollEvery)
+		// dies shows up in the next scan. A timer, not time.Sleep: the
+		// clock rule of E-30/E-72.
+		pause := time.NewTimer(pollEvery)
+		<-pause.C
 	}
 }
 

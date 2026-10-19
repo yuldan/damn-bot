@@ -331,7 +331,7 @@ func TestMarkerPids(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("marker scan: pids %v (child %d), err %v", pids, u.p.Pid, serr)
 		}
-		time.Sleep(pollEvery)
+		<-time.After(pollEvery)
 	}
 	if err := u.kill(); err != nil {
 		t.Error(err)
