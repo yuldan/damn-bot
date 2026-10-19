@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -121,14 +122,6 @@ func TestSymlinkEscapeRace(t *testing.T) {
 	f := newFixture(t)
 	mkfile(t, filepath.Join(f.root, "d", "f.txt"), "inside")
 	symlink(t, filepath.Join(f.out, "outdir"), filepath.Join(f.root, "d.link"))
-	inside, err := os.Stat(filepath.Join(f.root, "d", "f.txt"))
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	outside, err := os.Stat(filepath.Join(f.out, "outdir", "f.txt"))
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
 	startFlipper(t, f.root)
 	modes(t, f.sb, func(t *testing.T, sb *Sandbox) {
 		var opened, refused int
@@ -145,7 +138,7 @@ func TestSymlinkEscapeRace(t *testing.T) {
 					continue
 				}
 				opened++
-				assertSame(t, file.f, inside, outside)
+				assertSame(t, file.f)
 			}
 		}
 		t.Logf("opened %d, refused as escape %d", opened, refused)
@@ -188,17 +181,20 @@ func startFlipper(t *testing.T, root string) {
 	})
 }
 
-func assertSame(t *testing.T, file *os.File, inside, outside fs.FileInfo) {
+// assertSame reads the opened handle's bytes: comparing FileInfo is not
+// safe here because os.SameFile on Windows lazily re-opens the saved path,
+// which the flipper is renaming, so the comparison itself would race.
+func assertSame(t *testing.T, file *os.File) {
 	t.Helper()
-	fi, err := file.Stat()
+	b, err := io.ReadAll(file)
 	if err != nil {
-		t.Fatalf("Stat: %v", err)
+		t.Fatalf("Read: %v", err)
 	}
 	if cerr := file.Close(); cerr != nil {
 		t.Fatalf("Close: %v", cerr)
 	}
-	if os.SameFile(fi, outside) || !os.SameFile(fi, inside) {
-		t.Fatalf("opened a file outside the root: %v", fi)
+	if string(b) != "inside" {
+		t.Fatalf("opened a file outside the root: %q", b)
 	}
 }
 
@@ -337,9 +333,9 @@ func TestOpenRecheckDeny(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Open: %v", err)
 		}
-		got, err := sb.recheckDeny(file)
+		got, _, err := sb.vet(file, nil, Inside, true, false)
 		if errors.Is(err, ErrDeniedPath) != want || (err == nil) == want {
-			t.Errorf("recheckDeny(%s) = %v, want denied %v", p, err, want)
+			t.Errorf("vet(%s) = %v, want denied %v", p, err, want)
 		}
 		if err == nil {
 			readAll(t, got)
@@ -363,8 +359,8 @@ func TestRecheckDenyClosedHandle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if _, err := sb.recheckDeny(closed); err == nil || !errors.Is(err, os.ErrClosed) {
-		t.Errorf("recheckDeny(closed) = %v, want an os.ErrClosed failure", err)
+	if _, _, err := sb.vet(closed, nil, Inside, true, false); err == nil || !errors.Is(err, os.ErrClosed) {
+		t.Errorf("vet(closed) = %v, want an os.ErrClosed failure", err)
 	}
 }
 
@@ -414,7 +410,7 @@ func TestHardLinkNeedsApproval(t *testing.T) {
 		if err := os.Link(late, late+".2"); err != nil {
 			t.Fatalf("Link: %v", err)
 		}
-		file, v, err := sb.openVerified(f.root, filepath.Base(late), late, os.O_WRONLY|os.O_TRUNC, 0, true)
+		file, v, err := sb.openVerified(f.root, late, os.O_WRONLY|os.O_TRUNC, 0, true)
 		if b, rerr := os.ReadFile(late); file != nil || err != nil || v != HardLinked || rerr != nil || string(b) != "data" { //nolint:gosec // G304: fixture path
 			t.Errorf("openVerified(late link) = %v, %v; content %q", v, err, b)
 		}

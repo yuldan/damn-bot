@@ -33,6 +33,9 @@ var (
 	ErrNoRoot = errors.New("sandbox: no root")
 	// ErrInvalidPath reports an empty path or one containing NUL.
 	ErrInvalidPath = errors.New("sandbox: invalid path")
+	// ErrNotRegular reports an object that is neither a regular file nor a
+	// directory (FIFO, socket, device): never opened for a tool (CT27-4).
+	ErrNotRegular = errors.New("sandbox: not a regular file")
 )
 
 // Op is the access an operation needs.
@@ -152,8 +155,10 @@ func canonicalRoot(r string) (string, error) {
 
 // Check classifies path for op: ErrDeniedPath when the lexical or the
 // resolved path matches deny_paths; else, when the resolved path lies in a
-// root allowing op, HardLinked for an existing regular file with more than
-// one link and Inside otherwise; else OutsideRoot. resolved is the absolute path
+// root allowing op, ErrNotRegular for an existing FIFO, socket or device
+// (Unix; the open re-checks on the handle, CT27-4), HardLinked for an
+// existing regular file with more than one link and Inside otherwise; else
+// OutsideRoot. resolved is the absolute path
 // with every existing component's symlinks resolved; for a write target
 // that does not exist yet, its deepest existing ancestor is resolved and
 // the missing tail appended lexically.
@@ -182,7 +187,11 @@ func (s *Sandbox) check(ctx context.Context, p string, op Op) (Verdict, string, 
 	}
 	for i, r := range s.roots {
 		if (op == OpRead || !r.readOnly) && hasPathPrefix(resolved, r.path, s.foldRoot) {
-			if n, err := linkCountPath(resolved); err == nil && n > 1 {
+			n, err := linkCountPath(resolved)
+			if errors.Is(err, ErrNotRegular) {
+				return OutsideRoot, "", -1, err
+			}
+			if err == nil && n > 1 {
 				return HardLinked, resolved, i, nil
 			}
 			return Inside, resolved, i, nil
@@ -373,10 +382,14 @@ func appendID(ids []os.FileInfo, comps []string) []os.FileInfo {
 	return append(ids, fi)
 }
 
-func isGlob(c string) bool { return c == "**" || strings.ContainsAny(c, globMeta) }
+func isGlob(c string) bool { return c == "**" || hasMeta(c) }
 
-// globMeta are the bytes that make a pattern component a glob.
-const globMeta = `*?[\`
+// hasMeta reports the bytes that make a pattern component a glob; a byte
+// loop, since strings.ContainsAny costs a set lookup per byte on the
+// per-entry deny path (ADR-103).
+func hasMeta(s string) bool {
+	return strings.IndexFunc(s, func(r rune) bool { return r == '*' || r == '?' || r == '[' || r == '\\' }) >= 0
+}
 
 // canonicalPattern resolves the glob-free prefix of an absolute pattern at
 // New. A prefix that cannot be resolved (no permission, loop) keeps only
@@ -432,21 +445,41 @@ func compilePattern(pat string) ([]string, error) {
 
 // splitPath splits p into components; an absolute path starts with its
 // volume name ("" on Unix, "C:" or `\\srv\share` on Windows).
-func splitPath(p string) []string {
-	vol := filepath.VolumeName(p)
-	rest := p[len(vol):]
-	var comps []string
-	if vol != "" || (rest != "" && os.IsPathSeparator(rest[0])) {
-		comps = append(comps, vol)
+func splitPath(p string) []string { return appendComps(nil, p) }
+
+// matchComp matches path component c case-insensitively against the
+// lower-cased pattern component pat. Literal and "*suffix" patterns
+// (".env", "*.pem": nearly every real one) compare ASCII components in
+// place, without path.Match or allocation, since walkers check every
+// directory entry (ADR-103); anything else is lower-cased first, exactly
+// like the patterns were (S15-3).
+func matchComp(pat, c string) bool {
+	if isASCII(c) {
+		if !hasMeta(pat) {
+			return len(c) == len(pat) && strings.EqualFold(c, pat)
+		}
+		if suf := pat[1:]; pat[0] == '*' && !hasMeta(suf) {
+			return len(c) >= len(suf) && strings.EqualFold(c[len(c)-len(suf):], suf)
+		}
 	}
-	return append(comps, strings.FieldsFunc(rest, func(r rune) bool {
-		return r == '/' || r == filepath.Separator
-	})...)
+	ok, err := path.Match(pat, strings.ToLower(c)) // err: validated in New
+	return ok && err == nil
 }
 
-// denied matches p, lower-cased, against the lower-cased patterns.
+func isASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// denied matches p against the deny patterns; the components live in a
+// stack buffer (no allocation for ASCII paths up to 64 components).
 func (s *Sandbox) denied(p string) bool {
-	comps := splitPath(strings.ToLower(p))
+	var buf [64]string
+	comps := appendComps(buf[:0], p)
 	for _, pat := range s.deny {
 		if matchPrefix(pat, comps) {
 			return true
@@ -455,24 +488,36 @@ func (s *Sandbox) denied(p string) bool {
 	return false
 }
 
+// appendComps appends the components of p (as splitPath) to dst.
+func appendComps(dst []string, p string) []string {
+	vol := filepath.VolumeName(p)
+	rest := p[len(vol):]
+	if vol != "" || (rest != "" && os.IsPathSeparator(rest[0])) {
+		dst = append(dst, vol)
+	}
+	for c := range strings.FieldsFuncSeq(rest, isSep) {
+		dst = append(dst, c)
+	}
+	return dst
+}
+
+func isSep(r rune) bool { return r == '/' || r == filepath.Separator }
+
 // matchPrefix reports whether pat matches comps or one of its ancestors.
 func matchPrefix(pat, comps []string) bool {
+	for len(pat) > 0 && pat[0] != "**" {
+		if len(comps) == 0 || !matchComp(pat[0], comps[0]) {
+			return false
+		}
+		pat, comps = pat[1:], comps[1:]
+	}
 	if len(pat) == 0 {
 		return true
 	}
-	if pat[0] == "**" {
-		for i := range len(comps) + 1 {
-			if matchPrefix(pat[1:], comps[i:]) {
-				return true
-			}
+	for i := range len(comps) + 1 {
+		if matchPrefix(pat[1:], comps[i:]) {
+			return true
 		}
-		return false
 	}
-	if len(comps) == 0 {
-		return false
-	}
-	if ok, err := path.Match(pat[0], comps[0]); err != nil || !ok { // err: validated in New
-		return false
-	}
-	return matchPrefix(pat[1:], comps[1:])
+	return false
 }
