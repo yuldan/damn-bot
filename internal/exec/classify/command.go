@@ -20,22 +20,32 @@ const (
 // downloads (its output feeding an interpreter is curl | sh).
 func (s *state) command(args []arg, in stdin) bool {
 	s.v.Argv = append(s.v.Argv, argStrings(args))
-	s.mut = true
 	if !args[0].lit || args[0].glob {
 		s.raise(Unknown, "dynamic command name "+args[0].s)
+		s.mut = true
 		return false
 	}
 	name := s.cmdName(args[0].s)
+	if name == "git" {
+		args = s.gitGlobals(args)
+	}
+	pos := s.positional(args[1:])
+	sub := at(pos, 0)
+	keys := [3]string{name, name + ":" + sub, name + ":" + sub + ":" + at(pos, 1)}
+	s.mut = s.mut || !hasKey(nonMutatingKeys, keys)
+	s.tables(name, keys, at(argStrings(args), 1))
+	s.flagRules(name, sub, args[1:])
 	switch {
-	case inList(" sh bash zsh dash ksh ", name) && len(args) == 1:
-		if in == stdinFetch {
-			s.raise(Destructive, "download piped to "+name)
-		}
-		s.raise(Unknown, name+" reads its program from stdin")
-	case inList(" cd pushd popd ", name):
-		s.cwdOK = false
+	case name == "eval" || name == "iex" || name == "invoke-expression":
+		s.eval(args[1:], in)
+	case inList(privileged, name):
+		s.privileged(name, args)
+	case inList(wrappers, name):
+		s.wrapper(name, args, in)
+	case inList(interpreters, name) || strings.HasPrefix(name, "python"):
+		s.interpreter(name, args, in)
 	default:
-		s.operands(name, args[1:])
+		s.tool(name, sub, args)
 	}
 	return inList(" curl wget ", name)
 }
@@ -133,6 +143,13 @@ func (s *state) positional(args []arg) []string {
 		}
 	}
 	return out
+}
+
+func at(v []string, i int) string {
+	if i < len(v) {
+		return v[i]
+	}
+	return ""
 }
 
 func argStrings(args []arg) []string {
