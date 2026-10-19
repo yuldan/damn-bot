@@ -56,7 +56,10 @@ func compileMatcher(pattern, mode string) (*matcher, error) {
 	if m.re, err = regexp.Compile(prefix + "(?m)" + pattern); err != nil {
 		return nil, fmt.Errorf("codetools: pattern: %w", err)
 	}
-	return m, m.selectPrefilter(pattern, re0, fold)
+	if err := m.selectPrefilter(pattern, re0, fold); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 // matcherSyntax parses pattern with the smart/sensitive/insensitive mode.
@@ -106,12 +109,11 @@ func (m *matcher) selectPrefilter(pattern string, re0 *syntax.Regexp, fold bool)
 // may start on one line and end on the next, so a buffer match alone does
 // not prove a line match.
 func canMatchNL(re *syntax.Regexp) bool {
-	switch re.Op {
-	case syntax.OpAnyChar:
+	if re.Op == syntax.OpAnyChar {
 		return true
-	case syntax.OpLiteral, syntax.OpCharClass:
+	}
+	if re.Op == syntax.OpLiteral || re.Op == syntax.OpCharClass {
 		return slices.Contains(re.Rune, '\n')
-	default:
 	}
 	return slices.ContainsFunc(re.Sub, canMatchNL)
 }
@@ -135,6 +137,15 @@ func (a *seqAtom) match(c byte) bool {
 	return a.ch == c
 }
 
+// asciiByte narrows an ASCII rune to a byte. Every caller first rejects
+// r >= utf8.RuneSelf; the bounds check keeps the narrowing safe (G115).
+func asciiByte(r rune) byte {
+	if r < 0 || r >= utf8.RuneSelf {
+		return 0
+	}
+	return byte(r)
+}
+
 // atomLiteral compiles one literal rune; non-ASCII literals stop a
 // sequence (their UTF-8 bytes are not aligned with pattern positions).
 func atomLiteral(r rune, fold bool) (seqAtom, bool) {
@@ -142,16 +153,16 @@ func atomLiteral(r rune, fold bool) (seqAtom, bool) {
 		return seqAtom{}, false
 	}
 	if !fold {
-		return seqAtom{ch: byte(r), n: 1}, true
+		return seqAtom{ch: asciiByte(r), n: 1}, true
 	}
 	cls := &[256]bool{}
 	n := 1
-	cls[byte(r)] = true
+	cls[asciiByte(r)] = true
 	if r >= 'a' && r <= 'z' {
-		cls[byte(r-'a'+'A')] = true
+		cls[asciiByte(r-'a'+'A')] = true
 		n = 2
 	} else if r >= 'A' && r <= 'Z' {
-		cls[byte(r-'A'+'a')] = true
+		cls[asciiByte(r-'A'+'a')] = true
 		n = 2
 	}
 	return seqAtom{cls: cls, n: n}, true
@@ -168,7 +179,7 @@ func atomClass(re *syntax.Regexp) (seqAtom, bool) {
 			return seqAtom{}, false
 		}
 		for c := lo; c <= hi; c++ {
-			cls[byte(c)] = true
+			cls[asciiByte(c)] = true
 			n++
 		}
 	}
@@ -227,6 +238,7 @@ func requiredSeq(re *syntax.Regexp) ([]seqAtom, bool) {
 // repeats and break markers (ok=false) for elements that may consume a
 // variable number of bytes or none at all.
 func seqParts(re *syntax.Regexp, out []seqPart) []seqPart {
+	//nolint:exhaustive // default: every other op breaks the required run
 	switch re.Op {
 	case syntax.OpConcat:
 		for _, s := range re.Sub {

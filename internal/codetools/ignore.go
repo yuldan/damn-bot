@@ -31,22 +31,22 @@ type ignorePat struct {
 type ignoreSet struct {
 	base    string
 	pats    []ignorePat
-	lit     map[string][]int32 // kind 1, nodir: basename → indexes
-	pathLit map[string][]int32 // kind 1, path: rel → indexes
-	suffix  []ignoreSuffix     // kind 2: "*" + literal suffix
-	globs   []ignoreGlob       // kind 0: wildmatch
+	lit     map[string][]int // kind 1, nodir: basename → indexes
+	pathLit map[string][]int // kind 1, path: rel → indexes
+	suffix  []ignoreSuffix   // kind 2: "*" + literal suffix
+	globs   []ignoreGlob     // kind 0: wildmatch
 }
 
 // ignoreSuffix is a kind 2 pattern ("*.ext") with its indexes.
 type ignoreSuffix struct {
 	suf  string
-	idxs []int32
+	idxs []int
 }
 
 // ignoreGlob is a wildmatch pattern with the literal prefix every match
 // must start with ("" when it starts with a wildcard).
 type ignoreGlob struct {
-	idx   int32
+	idx   int
 	pat   string
 	pre   string
 	nodir bool
@@ -93,16 +93,16 @@ func parseIgnoreLine(l string) (ignorePat, bool) {
 
 // add indexes and records one pattern.
 func (s *ignoreSet) add(p ignorePat) {
-	idx := int32(len(s.pats))
+	idx := len(s.pats)
 	switch {
 	case p.kind == 1 && p.nodir:
 		if s.lit == nil {
-			s.lit = map[string][]int32{}
+			s.lit = map[string][]int{}
 		}
 		s.lit[p.pat] = append(s.lit[p.pat], idx)
 	case p.kind == 1:
 		if s.pathLit == nil {
-			s.pathLit = map[string][]int32{}
+			s.pathLit = map[string][]int{}
 		}
 		s.pathLit[p.pat] = append(s.pathLit[p.pat], idx)
 	case p.kind == 2:
@@ -114,14 +114,14 @@ func (s *ignoreSet) add(p ignorePat) {
 }
 
 // addSuffix indexes a kind 2 pattern by its literal suffix.
-func (s *ignoreSet) addSuffix(suf string, idx int32) {
+func (s *ignoreSet) addSuffix(suf string, idx int) {
 	for i := range s.suffix {
 		if s.suffix[i].suf == suf {
 			s.suffix[i].idxs = append(s.suffix[i].idxs, idx)
 			return
 		}
 	}
-	s.suffix = append(s.suffix, ignoreSuffix{suf: suf, idxs: []int32{idx}})
+	s.suffix = append(s.suffix, ignoreSuffix{suf: suf, idxs: []int{idx}})
 }
 
 // literalPrefix is the bytes of a wildmatch pattern before its first
@@ -152,7 +152,7 @@ func (s *ignoreSet) match(rel string, isDir bool) (ignored, decided bool) {
 	}
 	rel = rel[len(s.base):]
 	base := rel[strings.LastIndexByte(rel, '/')+1:]
-	best := int32(-1)
+	best := -1
 	s.consider(s.lit[base], isDir, &best)
 	s.consider(s.pathLit[rel], isDir, &best)
 	for i := range s.suffix {
@@ -170,7 +170,7 @@ func (s *ignoreSet) match(rel string, isDir bool) (ignored, decided bool) {
 }
 
 // consider records the highest index in idxs that applies to the entry.
-func (s *ignoreSet) consider(idxs []int32, isDir bool, best *int32) {
+func (s *ignoreSet) consider(idxs []int, isDir bool, best *int) {
 	for _, i := range idxs {
 		if (isDir || !s.pats[i].dirOnly) && i > *best {
 			*best = i
@@ -179,8 +179,8 @@ func (s *ignoreSet) consider(idxs []int32, isDir bool, best *int32) {
 }
 
 // bestGlob is the highest matching wildcard pattern index, or -1.
-func (s *ignoreSet) bestGlob(rel, base string, isDir bool) int32 {
-	best := int32(-1)
+func (s *ignoreSet) bestGlob(rel, base string, isDir bool) int {
+	best := -1
 	for i := range s.globs {
 		g := &s.globs[i]
 		if g.nodir {
