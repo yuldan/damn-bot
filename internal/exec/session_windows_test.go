@@ -1,6 +1,7 @@
 package exec
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,5 +30,25 @@ func TestSessionWindows(t *testing.T) {
 	}
 	if res := sessExec(t, ss, "w", get, 20*time.Second); strings.Contains(string(res.Output), "42") {
 		t.Fatal("state survived a reset")
+	}
+}
+
+// TestCmdSentinelNoCwd (REVIEW-F1-SEC5 EX5-3): the sentinel never echoes
+// the cwd (no %cd%/!cd!); the path goes to a fixed file instead, so a cwd
+// containing & cannot execute a command.
+func TestCmdSentinelNoCwd(t *testing.T) {
+	t.Parallel()
+	spec := cmdSession("cmd.exe")
+	if slices.Contains(spec.argv, "/v:on") {
+		t.Fatalf("cmd session should not need delayed expansion: %v", spec.argv)
+	}
+	cwd := `C:\work\c1.cwd`
+	for _, line := range []string{spec.again("abc", cwd), spec.line("x", cwd, "abc")} {
+		if strings.Contains(line, "%cd%") || strings.Contains(line, "!cd!") {
+			t.Fatalf("sentinel echoes the cwd: %q", line)
+		}
+		if !strings.Contains(line, cwd) {
+			t.Fatalf("cwd file missing from %q", line)
+		}
 	}
 }

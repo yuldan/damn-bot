@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -63,13 +64,34 @@ func TestStripFrames(t *testing.T) {
 	t.Parallel()
 	nonce := strings.Repeat("ab", 16)
 	frame := string(sentinelMark) + "DB:" + nonce + ":0:/tmp" + string(sentinelMark)
-	if got := string(stripFrames([]byte("before" + frame + "after"))); got != "beforeafter" {
+	if got := string(stripFrames([]byte("before"+frame+"after"), nonce)); got != "beforeafter" {
 		t.Fatalf("%q", got)
 	}
-	if in := "plain " + string(sentinelMark) + "still text"; string(stripFrames([]byte(in))) != in {
-		t.Fatalf("unterminated mark: %q", stripFrames([]byte(in)))
+	if in := "plain " + string(sentinelMark) + "still text"; string(stripFrames([]byte(in), nonce)) != in {
+		t.Fatalf("unterminated mark: %q", stripFrames([]byte(in), nonce))
 	}
-	if in := "a" + string(sentinelMark) + "DB:not-a-frame" + string(sentinelMark) + "b"; string(stripFrames([]byte(in))) != in {
-		t.Fatalf("non-frame: %q", stripFrames([]byte(in)))
+	if in := "a" + string(sentinelMark) + "DB:not-a-frame" + string(sentinelMark) + "b"; string(stripFrames([]byte(in), nonce)) != in {
+		t.Fatalf("non-frame: %q", stripFrames([]byte(in), nonce))
+	}
+	// A frame with a foreign nonce belongs to the command's own output.
+	foreign := strings.Repeat("cd", 16)
+	if got := string(stripFrames([]byte("x"+frame+"y"), foreign)); got != "x"+frame+"y" {
+		t.Fatalf("foreign frame removed: %q", got)
+	}
+}
+
+// TestSessionStdinIsNotShellInput (REVIEW-F1-SEC5 EX5-1): session input
+// is read line by line, so leftover stdin would run as new commands.
+func TestSessionStdinIsNotShellInput(t *testing.T) {
+	t.Parallel()
+	ss := newSessions(t, nil)
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "pwned")
+	res, err := ss.Exec(t.Context(), "s", "true", []byte("touch "+marker+"\n"), 5*time.Second)
+	if !errors.Is(err, ErrSpec) || res.Status != "" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if _, serr := os.Stat(marker); !os.IsNotExist(serr) {
+		t.Fatalf("session stdin executed: %v", serr)
 	}
 }
