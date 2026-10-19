@@ -3,7 +3,11 @@ package exec
 import (
 	"bytes"
 	"regexp"
+	"strings"
 	"time"
+	"unicode"
+
+	"github.com/damnbot/damnbot/internal/redact"
 )
 
 // Interactive prompt detection (§A.6, ADR-072): a foreground tree whose
@@ -18,6 +22,10 @@ const (
 	maxPromptLine = 200
 	// promptTail: bytes of the output tail examined for the last line.
 	promptTail = 1024
+	// maxEscape bounds an unterminated CSI/OSC/DCS sequence: a target
+	// cannot hide all following output behind one unfinished escape
+	// (EX47-1). The remainder is parsed as text.
+	maxEscape = 4096
 )
 
 // Input kinds of a detected prompt (Result.InputKind).
@@ -83,6 +91,27 @@ func promptKind(rules []promptRule, line string) string {
 	return ""
 }
 
+// sanitizePrompt prepares a detected prompt line for Result.Prompt: only
+// printable runes (plus newline and tab) survive, and known secrets are
+// redacted. The line is target output that goes to the model and UI
+// (EX45-1), so it gets the same treatment as summarized output.
+func sanitizePrompt(red *redact.Redactor, line string) string {
+	if line == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(line))
+	for _, r := range line {
+		if r == '\n' || r == '\t' || unicode.IsPrint(r) {
+			b.WriteRune(r)
+		}
+	}
+	if red == nil {
+		return b.String()
+	}
+	return red.String(b.String())
+}
+
 // stripANSI appends src without ANSI escape sequences (CSI `ESC [ … final`;
 // OSC, DCS, SOS, PM, APC `ESC ]|P|X|^|_ … BEL|ST`; two-byte `ESC x`) to dst.
 func stripANSI(dst, src []byte) []byte {
@@ -96,8 +125,8 @@ func stripANSI(dst, src []byte) []byte {
 	}
 }
 
-// escapeLen is the length of the escape sequence at s[0] == ESC (the rest
-// of s when unterminated).
+// escapeLen is the length of the escape sequence at s[0] == ESC. An
+// unterminated sequence consumes at most maxEscape bytes (EX47-1).
 func escapeLen(s []byte) int {
 	switch s[1] {
 	case '[': // CSI: parameters and intermediates, then a final 0x40–0x7E
@@ -118,5 +147,5 @@ func escapeLen(s []byte) int {
 	default:
 		return 2
 	}
-	return len(s)
+	return min(len(s), maxEscape)
 }

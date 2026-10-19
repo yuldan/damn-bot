@@ -43,6 +43,8 @@ func TestEnvAllowlist(t *testing.T) {
 		"CARGO_HOME=/c", "GH_AUTH_HOME=/leak", "TERM=xterm-kitty", "PAGER=less", "GIT_TERMINAL_PROMPT=1",
 		"HTTPS_PROXY=http://user:pw@proxy:3128", "NO_PROXY=localhost", "SSH_AUTH_SOCK=/tmp/agent",
 		"DAMNBOT_EXEC_ID=forged", "OPENAI_API_KEY=sk-allowed-by-name",
+		// Case-folded look-alikes: names are exact on Unix (EX42-4).
+		"Path=/leak-path", "Home=/leak-home", "Lang=xx", "Http_Proxy=http://leak:1", "My_Home=/leak-myh",
 	}
 	var leaks []string
 	for i := range 50 {
@@ -53,6 +55,7 @@ func TestEnvAllowlist(t *testing.T) {
 	for i := range 20 {
 		leaks = append(leaks, []string{"FOO_CREDS", "DATABASE_URL", "BAR", "MY_CONFIG", "SENTRY_DSN"}[i%5]+fmt.Sprint(i))
 	}
+	leaks = append(leaks, "Path", "Home", "Lang", "Http_Proxy", "My_Home")
 	for _, k := range leaks {
 		parent = append(parent, k+"=v-"+k)
 	}
@@ -86,23 +89,45 @@ func TestEnvAllowlist(t *testing.T) {
 	}
 }
 
-// TestSecretRefScope (ADR-081, ADR-088 butir 4, NEW3-03): a secret ref
-// reaches only a direct-exec child whose argv0 is in its commands.
+// TestSecretRefScope (ADR-081, ADR-088 butir 4, NEW3-03, EX42-1): a secret
+// ref reaches only a direct-exec child that is the same binary (identity)
+// as a configured command and is spawned from a bare argv0 resolved
+// through PATH.
 func TestSecretRefScope(t *testing.T) {
 	t.Parallel()
 	policy := &EnvPolicy{Secrets: []SecretEnv{{Name: "GH_TOKEN", Value: "ghp-secret", Commands: []string{"env"}}}}
 	parent := []string{"PATH=" + os.Getenv("PATH")}
 	got, notice := runEnv(t, &OneShot{Direct: []string{"env"}, Dir: t.TempDir(), Parent: parent, Policy: policy})
 	if got["GH_TOKEN"] != "ghp-secret" || notice != "" {
-		t.Errorf("mode b, argv0 in commands: %q %q", got["GH_TOKEN"], notice)
+		t.Errorf("mode b, bare argv0 resolving to the configured binary: %q %q", got["GH_TOKEN"], notice)
 	}
 	envBin, err := lookPath("env", os.Getenv("PATH"), "")
 	if err != nil {
 		t.Skip(err)
 	}
 	got, _ = runEnv(t, &OneShot{Direct: []string{envBin}, Dir: t.TempDir(), Parent: parent, Policy: policy})
-	if got["GH_TOKEN"] != "ghp-secret" {
-		t.Errorf("mode b, absolute argv0 with the same name: %q", got["GH_TOKEN"])
+	if got["GH_TOKEN"] != "" {
+		t.Errorf("absolute argv0 received a secret: %q", got["GH_TOKEN"])
+	}
+	// Same base name, different file: ./env in the workspace (EX42-1).
+	dir := t.TempDir()
+	local := "#!/bin/sh\nexec " + envBin + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "env"), []byte(local), 0o700); err != nil { //nolint:gosec // G306: must be executable
+		t.Fatal(err)
+	}
+	got, _ = runEnv(t, &OneShot{Direct: []string{"./env"}, Dir: dir, Parent: parent, Policy: policy, Root: dir})
+	if got["GH_TOKEN"] != "" || got["PATH"] == "" {
+		t.Errorf("workspace ./env: leaked=%q ran=%v", got["GH_TOKEN"], got["PATH"] != "")
+	}
+	// Workspace PATH entry shadowing the configured command (NEW3-04).
+	shadow := t.TempDir()
+	if err := os.WriteFile(filepath.Join(shadow, "env"), []byte(local), 0o700); err != nil { //nolint:gosec // G306: must be executable
+		t.Fatal(err)
+	}
+	shadowParent := []string{"PATH=" + shadow + string(filepath.ListSeparator) + os.Getenv("PATH")}
+	got, _ = runEnv(t, &OneShot{Direct: []string{"env"}, Dir: t.TempDir(), Parent: shadowParent, Policy: policy, Root: shadow})
+	if got["GH_TOKEN"] != "" || got["PATH"] == "" {
+		t.Errorf("workspace PATH entry: leaked=%q ran=%v", got["GH_TOKEN"], got["PATH"] != "")
 	}
 	got, notice = runEnv(t, &OneShot{Command: "env", Dir: t.TempDir(), Parent: parent, Policy: policy})
 	if _, ok := got["GH_TOKEN"]; ok || notice != "" {
@@ -115,6 +140,13 @@ func TestSecretRefScope(t *testing.T) {
 	got, _ = runEnv(t, &OneShot{Direct: []string{"printenv"}, Dir: t.TempDir(), Parent: parent, Policy: policy})
 	if len(got) == 0 || got["GH_TOKEN"] != "" {
 		t.Errorf("mode b, other argv0: %v", got["GH_TOKEN"])
+	}
+	// Control characters never run in mode (b) (EX42-3).
+	if _, _, err := Prepare(&OneShot{Direct: []string{"env", "a\x00b"}, Parent: parent, Policy: policy}); !errors.Is(err, ErrSpec) {
+		t.Errorf("NUL in direct argv: %v", err)
+	}
+	if _, _, err := Prepare(&OneShot{Direct: []string{"env", "a\rb"}, Parent: parent, Policy: policy}); !errors.Is(err, ErrSpec) {
+		t.Errorf("CR in direct argv: %v", err)
 	}
 }
 
@@ -144,8 +176,20 @@ func TestLookPath(t *testing.T) {
 	if _, err := lookPath("noexec", bin, root); err == nil {
 		t.Error("non-executable resolved")
 	}
-	if p, err := lookPath("bin/tool", "", root); err != nil || p != "bin/tool" {
+	if p, err := lookPath("bin/tool", "", root); err != nil || p != filepath.Join(root, "bin", "tool") {
 		t.Errorf("relative name: %q %v", p, err)
+	}
+	if p, err := lookPath(filepath.Join("bin", "tool"), "", root); err != nil || !filepath.IsAbs(p) {
+		t.Errorf("absolute-name result: %q %v", p, err)
+	}
+	// Prepare records the resolved absolute path, never the relative argv0
+	// (EX42-2/EX62-1: CreateProcess would otherwise use damnbot's cwd).
+	spec, _, err := Prepare(&OneShot{Direct: []string{"./bin/tool"}, Dir: root, Parent: []string{"PATH=" + bin}})
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if spec.Argv[0] != filepath.Join(root, "bin", "tool") || spec.Dir != root {
+		t.Errorf("prepare argv0 %q dir %q", spec.Argv[0], spec.Dir)
 	}
 	if _, _, err := Prepare(&OneShot{Command: "true", Parent: []string{"PATH=relative"}}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("no shell on a relative-only PATH: %v", err)

@@ -66,7 +66,13 @@ func (z *Summarizer) Summarize(res *Result, inlineLeft int, spill func(log, raw 
 		s.Text, s.CharsModel = string(text), n
 		return s, nil
 	}
-	s.Spilled, s.Log, s.Raw = true, text, z.red.Redact(res.Output)
+	raw := z.red.Redact(res.Output)
+	if stripped := z.red.Redact(stripANSI(nil, res.Output)); !bytes.Equal(stripped, stripANSI(nil, raw)) {
+		// SGR codes split a secret in the raw bytes; the ANSI-free,
+		// re-redacted form is the only safe blob (EX47-2).
+		raw = stripped
+	}
+	s.Spilled, s.Log, s.Raw = true, text, raw
 	path, err := spill(s.Log, s.Raw)
 	if err != nil {
 		return Summary{}, fmt.Errorf("exec: spill output: %w", err)
@@ -133,22 +139,47 @@ func applyCR(line []byte) string {
 	if i := bytes.LastIndexByte(line, '\r'); i >= 0 {
 		line = line[i+1:]
 	}
-	if bytes.IndexByte(line, '\b') < 0 && utf8.Valid(line) {
+	if bytes.IndexByte(line, '\b') < 0 && !hasCtl(line) && utf8.Valid(line) {
 		return string(line) // common case: nothing to rewrite
 	}
 	out := make([]rune, 0, len(line))
 	for len(line) > 0 {
 		r, size := utf8.DecodeRune(line)
 		line = line[size:]
-		if r == '\b' {
+		switch {
+		case r == '\b':
 			if len(out) > 0 {
 				out = out[:len(out)-1]
 			}
-			continue
+		case stripCtl(r):
+			// C0 (except tab), DEL and C1 are not text (EX47-1).
+		default:
+			out = append(out, r) // RuneError for an invalid byte = U+FFFD
 		}
-		out = append(out, r) // RuneError for an invalid byte = U+FFFD
 	}
 	return string(out)
+}
+
+// stripCtl reports whether r is a C0 control other than tab, DEL, or a C1
+// control: the model context keeps only printable text.
+func stripCtl(r rune) bool {
+	return (r < 0x20 && r != '\t') || (r >= 0x7f && r <= 0x9f)
+}
+
+// hasCtl is the fast-path check for [stripCtl]; C1 controls appear as
+// U+0080..U+009F (0xC2 0x80..0x9F in UTF-8).
+func hasCtl(b []byte) bool {
+	for _, c := range b {
+		if (c < 0x20 && c != '\t') || c == 0x7f {
+			return true
+		}
+	}
+	for i := 0; i+1 < len(b); i++ {
+		if b[i] == 0xc2 && b[i+1] >= 0x80 && b[i+1] <= 0x9f {
+			return true
+		}
+	}
+	return false
 }
 
 // progressKey appends the progress-collapsing key of s to dst: digits →
