@@ -158,3 +158,27 @@ func (r *recordingReader) Open(_ context.Context, path string) (io.ReadCloser, e
 	}
 	return io.NopCloser(strings.NewReader(body)), nil
 }
+
+// TestContextEmptyAndMultipleFiles covers the nil/empty fast path and the
+// per-file loop (more than one context file, each with its own heading).
+func TestContextEmptyAndMultipleFiles(t *testing.T) {
+	t.Parallel()
+	a := newAssembler(t, identity)
+	if got, err := a.Context(context.Background(), nil); err != nil || got.Text != "" {
+		t.Fatalf("nil context = %+v, %v", got, err)
+	}
+	if got, err := a.Context(context.Background(), &ContextInput{}); err != nil || got.Text != "" {
+		t.Fatalf("empty context = %+v, %v", got, err)
+	}
+	got, err := a.Context(context.Background(), &ContextInput{
+		Files:  []ContextFile{{Path: "A.md"}, {Path: "B.md"}},
+		Reader: fixtureReader{"A.md": "alpha", "B.md": "beta"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.Text, "# A.md") || !strings.Contains(got.Text, "# B.md") ||
+		!strings.Contains(got.Text, "alpha") || !strings.Contains(got.Text, "beta") {
+		t.Fatalf("multi-file context = %q", got.Text)
+	}
+}
