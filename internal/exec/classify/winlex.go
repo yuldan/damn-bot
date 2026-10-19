@@ -244,10 +244,15 @@ func (s *state) cmdShell(args []arg, in stdin) {
 				s.raise(Unknown, "cmd "+l+" without a command")
 				return
 			}
-			// Keep the lexed tokens: joining them into a string would drop
-			// arg.quoted, and cmd start's quoted first token is a title
-			// (CL5-9; round 4). The payload is always cmd syntax, so fold
-			// case even when the outer line came from the POSIX parser.
+			// A single quoted token is the whole command line and must be
+			// re-lexed (cmd /c "rd /s /q X"); several tokens keep their
+			// quotedness so start's title is recognized (CL5-9).
+			if len(rest) == 1 && rest[0].quoted {
+				s.winLine(rest[0].s, Cmd)
+				return
+			}
+			// The payload is always cmd syntax, so fold case even when the
+			// outer line came from the POSIX parser.
 			saved := s.fold
 			s.fold = true
 			s.nested(rest, stdinNone)
