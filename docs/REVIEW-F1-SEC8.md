@@ -104,3 +104,44 @@ Tidak ada `t.append`/`t.history` sebelum return. Bila tool mengembalikan `Status
 - Fuzz, `-race` seluruh paket, stress konkurensi Store, dan benchmark.
 - Perbaikan setelah head di atas; verdict berlaku untuk head tersebut.
 - Kebijakan `MaxIterations`/`MaxWall` di config dan pengalaman UI.
+
+## Putaran 2 — re-review perbaikan LP8-1..8 (2026-10-20)
+
+Head: `#102` `c25fdf1`, `#103` `d91071d`. Seluruh tes paket lulus; probe `-race` baru dijalankan.
+
+| PR | Verdict putaran 2 |
+|---|---|
+| #102 | **changes required** — LP8-2 data race baru (BLOCKER); LP8-6/LP8-7 belum lengkap (MAJOR) |
+| #103 | **changes required** — membawa kode #102 yang sama; dokumen hanya berbeda |
+
+### Fixed dan terverifikasi
+
+| ID | Status | Bukti |
+|---|---|---|
+| LP8-1 (persistensi) | fixed | `deliver` menulis `tool_result` + history sebelum klasifikasi cancel (`dispatch.go:376-395`); `TestLP81CancelPersistsResult` lulus; probe status `exited` tetap menyimpan event |
+| LP8-3 | fixed | `cached`/`grant` menolak subject `""` (`dispatch.go:222-252`); `TestLP83EmptySubjectNotCached` meminta approver dua kali |
+| LP8-4 | fixed | `p.Approved=true` untuk AllowOnce/AllowSession/Edit (`dispatch.go:197-210`); `TestLP84ApprovedSet` lulus |
+| LP8-5 | fixed | `t.pending` + `takePending` setelah semua result (`dispatch.go:108-130`, `:392-400`); `TestLP85NoProgressKeepsResults`: 2 result, stop `no_progress` |
+| LP8-8 | fixed | `DetailMaxWall`/`DetailMaxIterations` ditambahkan dan dipakai (`event.go:108-109`, `turn.go:68`, `:152`); `TestLP88Details` lulus |
+
+### Temuan residual
+
+| ID | PR | Severity | Status | Temuan | Bukti |
+|---|---|---|---|---|---|
+| LP8-2r | #102 | **BLOCKER** | confirmed (`-race`) | Perbaikan `waitTask` menulis `out.res` saat timer, sedangkan goroutine tool yang masih berjalan menulis `outs[i]` yang sama setelah `dispatchBatch` kembali. Ini data race dan hasil bisa saling menimpa. | `dispatch.go:325-340` (write `outs[i]`), `:353-368` (write `out.res`); probe `TestFixLP82Race`: `WARNING: DATA RACE`, write `dispatch.go:337` vs read |
+| LP8-6r | #102 | MAJOR | confirmed | Redaksi konten utama sudah ada, tetapi argumen tool-call tidak diredaksi: `UpdateToolCallEnd` dan `assistantPayload.tool_calls` menyimpan `calls[i].Arguments` mentah. Secret di argumen (mis. `{"token":"sk-secret"}`) bocor ke Store/UI. | `turn.go:374-379`; probe `TestFixLP86Args`: update `tool_call_args`/`tool_call_end` dan payload `assistant_message` mengandung `sk-secret` |
+| LP8-7r | #102 | MAJOR | confirmed | `trimmed` hanya menambah `t.inline` di cabang spill. Bila Spiller nil/error dan pemotongan budget (`tooLarge=false`), preview 400 char tidak dihitung; dua result berturut-turut tetap preview penuh dan `t.inline=0`. | `render.go:63-77`; probe `TestFixLP87NoSpiller`: `MaxInlineTurn=5`, dua result 10 char, `inline=0` |
+| LP8-1s | #102 | MINOR | confirmed | Hasil yang sudah selesai (`Status:"exited"`) setelah cancel tetap menghasilkan `StopCancelledConfirmed`. Jika definisi “confirmed” = tidak ada tool yang masih berjalan, ini benar; jika berarti “tool dibatalkan”, labelnya salah. Test LP8-1 hanya memakai `Status:"cancelled_confirmed"`. | probe `TestFixLP81Status`: `stop=cancelled_confirmed detail=cancelled` untuk status `exited` |
+
+### Rekomendasi
+
+- LP8-2r: jangan berbagi slice hasil antara goroutine dan `waitTask`. Gunakan channel per task (`chan dispatchOutcome`) atau salinan lokal; pada timeout, tandai `still_running` di salinan dan biarkan goroutine menulis ke channel yang tidak dibaca (atau drain). Tambah test `-race` dengan tool yang selesai setelah timeout dan caller membaca hasil.
+- LP8-6r: redaksi juga `callPayloads(calls)` dan `UpdateToolCallEnd.Text` (atau jangan masukkan argumen mentah ke event/UI); pertahankan salinan mentah hanya untuk eksekusi.
+- LP8-7r: tambahkan `t.inline += runeLen(out)` di cabang `tooLarge=false` yang tidak spill, atau set `t.inline = MaxInlineTurn` saat memotong; test dengan Spiller nil.
+- LP8-1s: putuskan semantik `cancelled_confirmed`; bila perlu bedakan `cancelled_confirmed` (tool berhenti) vs `cancelled` (hasil selesai) dan test status `exited`.
+
+### Tidak dicakup putaran 2
+
+- Runtime Windows/macOS dan integrasi adapter produksi.
+- `go test -race ./internal/loop` seluruh suite: hanya probe LP8-2 yang dijalankan dengan `-race`; suite penuh belum.
+- Perbaikan setelah `d91071d`.
