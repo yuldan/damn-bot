@@ -469,3 +469,40 @@ Perubahan lossless yang tersisa (separator `--` saat context 0) sudah diterapkan
 | #63 sesi Windows/macOS | `${LASTEXITCODE}` (bukan `$LASTEXITCODE:`); frame protokol `\x1eDB:…\x1e` dibuang dari output sesi (frame `again` yang telat tidak lagi bocor ke perintah berikutnya). | `TestSessionWindows`, `TestStripFrames`, `TestSessionOutputFramesStripped` |
 
 Yang **belum** dicakup: eksekusi runtime ConPTY/sesi Windows diverifikasi lewat CI (bukan mesin lokal); `TestNoOrphans` 200× dan benchmark spawn dibaca dari job CI; stack classify #41/#43/#44/#46 masih menunggu review auditor. Sisa F1 di luar stack tetap seperti daftar handoff di atas.
+
+## Handoff codetools 2 (budget pause)
+
+Status 2026-10-19. Branch stack ada di remote; `/tmp/damnbot-ct` (stack) dan `/tmp/damnbot-docs` (dokumen) boleh hilang.
+
+### Head dan kondisi stack
+
+| PR | Branch | Head | Kondisi |
+|---|---|---|---|
+| #48 | `f1-ct-01` | `9a61f9b` | CI berjalan (antrean runner); belum merge — `main` strict up-to-date |
+| #49–#60 | `f1-ct-02` … `f1-ct-12` | chain hasil rebase di atas `main` `2046c24` | menunggu CI; tidak ada kegagalan yang diketahui |
+| #61 | `f1-ct-13` | `c1150c9` | dispatch + parity + benchmark CT-04..07/09; codetools 4.800/4.800 scc LOC |
+| #67 | `f1-ct-14` | `70e613b` | driver + `TestCodeToolsIDsComplete` + nightly |
+| #68 | `f1-report-ct-security` | `c1adc4e` | entri Review keamanan (dokumen ini) |
+
+Final stages #61/#67 **belum boleh merge** sebelum auditor menyetujui #68.
+
+### Restack setelah `main` bergerak
+
+Branch berantai (`base PR k = branch k−1`) dan `main` memakai strict status check. Untuk setiap merge, rebase branch berikutnya ke `main` baru:
+
+```sh
+git fetch origin main
+git checkout f1-ct-NN
+git rebase --onto origin/main <old-head-NN-1>   # atau cherry-pick commit tahap NN
+git push --force-with-lease origin f1-ct-NN
+```
+
+Setelah #48 merge (rebase), branch #49 harus direbase ke `main`, lalu #50, dst. Jangan gunakan merge commit (metode merge owner: `gh pr merge <n> --rebase --delete-branch`).
+
+### Sisa pekerjaan
+
+1. Tunggu CI #48; merge berurutan. Tiap kali `main` bergerak, rebase PR berikutnya (di atas).
+2. #61/#67: CI `perf` dan `test-timing` lulus lokal dengan warm-up `measure()`; `GrepToolC3` gagal 1× saat host menanggung benchmark C2 — ulangi di runner idle. `edit 1 MB` p95 di runner bersama pernah 104 ms (rata-rata, bukan ekor); pantau.
+3. Kinerja grep belum memenuhi target: C1 literal 1,84× (target 1,2), C1 regex 2,68× (1,5), C3 literal 1,53×, C3 regex 1,64×; C3 glob 0,24× lulus. C2 sedang diukur (`/tmp/ct-c2.json` bila selesai). Gate `TestGrepSpeedVsRg` sengaja tetap merah; jangan longgarkan.
+4. CT-10: search ×12,4 dan read ×15,9 lulus; patch ×2,2 p50 tetapi p95 maks 10,4 ms > 6 ms → belum lulus. CT-11 0,906× (limit 50) / 1,686× (default); target 0,6× tetap `pending:F1`.
+5. CT27-9: repair mode macOS ada di `readBack` (bukan `ensureMode`); Windows hard-link lock memakai creation time NTFS (stabil, dibagi semua hard link). `codetools` tepat 4.800/4.800 — tambahan baris produksi harus disertai pemangkasan.
