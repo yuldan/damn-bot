@@ -18,3 +18,10 @@ func killPid(pid int) error {
 
 // isBrokenPipe: the child stopped reading its stdin.
 func isBrokenPipe(err error) bool { return errors.Is(err, syscall.EPIPE) }
+
+// processAlive reports whether pid exists (EPERM: it exists, owned by
+// another user).
+func processAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
