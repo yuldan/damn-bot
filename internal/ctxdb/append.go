@@ -18,6 +18,8 @@ type Session struct {
 	ID, ParentID string
 	ForkSeq      int64
 	Origin, Cwd  string
+	Model        string // provider/model; empty = the caller did not resolve one
+	ConfigSHA    string // sessions.config_sha snapshot
 }
 
 // CreateSession inserts a session and acquires its lease in the same
@@ -31,7 +33,7 @@ func (t *Tx) CreateSession(ss Session) (int64, error) {
 		ss.Origin = "tui"
 	}
 	_, err := t.Exec(`INSERT INTO sessions(id, parent_id, fork_seq, origin, cwd, model, config_sha, context_tier, created_at)
-		VALUES (?,?,?,?,?,'test/model','cfg','',?)`, ss.ID, parent, fork, ss.Origin, ss.Cwd, t.s.clk.WallMs())
+		VALUES (?,?,?,?,?,?,?,'',?)`, ss.ID, parent, fork, ss.Origin, ss.Cwd, ss.Model, ss.ConfigSHA, t.s.clk.WallMs())
 	if err != nil {
 		return 0, err
 	}
