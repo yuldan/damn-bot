@@ -29,9 +29,9 @@ Ringkasan: **1 BLOCKER, 3 MAJOR, 5 MINOR.** Temuan MAJOR/MINOR lama EX39-1, EX39
 | EX5-2 | #40 (+#63) | MAJOR | confirmed (Linux) | `Runner.Close` menggantung bila `Stdin` lebih besar dari kapasitas pipe dan proses yang lolos (`env -i setsid`, foreground) memegang ujung baca stdin; writer tidak pernah ditutup di `finish` | `run.go:186-214`, `:405-422` |
 | EX5-3 | #63 | MAJOR | static (Windows) | Sentinel sesi `cmd` menggemakan `%cd%` tanpa quoting; nama direktori ber-`&` menjalankan perintah `cmd` tambahan tanpa approval | `session_windows.go:37-41` |
 | EX5-9 | #63 | MAJOR | confirmed (`-race`) | `session.killed` tidak disinkronkan: `Sessions.Close`/`drop` dan jalur timeout/cancel `wait` memanggil `kill()` bersamaan; dua `finish()` dapat berjalan dan salah satunya memblokir `<-c.exit`, menggantung shutdown | `session.go:148`, `:242`, `:371-380` |
-| EX5-4 | #42 | MINOR | static | `withinRoot` memakai `filepath.Rel` leksikal (peka huruf pada Windows) dan tidak me-resolve symlink; `Root == ""` melewati pemeriksaan sepenuhnya (fail-open) | `env.go:266-292`; `oneshot.go:22-26`, `:86-90` |
+| EX5-4 | #42 | MINOR | static | `withinRoot` memakai `filepath.Rel` leksikal (peka huruf pada Windows) dan tidak me-resolve symlink; `Root == ""` melewati pemeriksaan sepenuhnya (fail-open) | `env.go:266-292`; `oneshot.go:22-26`, `:74` |
 | EX5-5 | #39 | MINOR | confirmed | `TestRunPTYEscapeeDoesNotHang` me-redirect stdout/stderr escapee ke `/dev/null`, sehingga escapee **tidak** memegang slave PTY; test tidak mereproduksi EX39-1 | `run_unix_test.go:217-218` |
-| EX5-6 | #63 | MINOR | static | `stripFrames` membuang setiap output berbentuk frame (32 hex + kode), sehingga output perintah dapat menyembunyikan teksnya sendiri dari model/UI | `session.go:295-331` |
+| EX5-6 | #63 | MINOR | static | `stripFrames` membuang setiap output berbentuk frame (32 hex + kode), sehingga output perintah dapat menyembunyikan teksnya sendiri dari model/UI | `session.go:303-353` |
 | EX5-7 | #63 | MINOR | static | file perintah sesi ditulis dengan `os.WriteFile` (mengikuti symlink) ke nama `cN.<ext>` yang dapat diprediksi; symlink yang ditanam perintah sebelumnya menimpa file di luar workspace | `session.go:199` |
 | EX5-8 | #39 | MINOR | static | `Run` memercayai `Spec.Direct` tanpa memvalidasi bahwa argv berasal dari `classify.DirectArgv`; kontrak mode (b) hanya didokumentasikan | `oneshot.go:42-70`; `exec.go` `Spec` |
 
@@ -47,7 +47,7 @@ ss.Exec(ctx, "s", "true", []byte("touch /tmp/pwned\n"), 5*time.Second)
 // 200 ms kemudian: /tmp/pwned ada
 ```
 
-Perintah `touch` berjalan tanpa approval kedua; preview hanya menunjukkan `true` (+ `stdin` sebagai input perintah). Ini melanggar definisi vulnerability ADR-079 butir 8(a): perintah shell berjalan tanpa approval eksplisit. Di Windows dampaknya sama (stdin pipe dibaca `cmd`/`pwsh` sebagai baris berikutnya).
+Perintah `touch` berjalan tanpa approval kedua; preview yang disetujui adalah perintah `true` dengan `stdin` yang diposisikan sebagai input perintah. Ini melanggar definisi vulnerability ADR-079 butir 8(a): perintah shell berjalan tanpa approval eksplisit. Di Windows dampaknya sama (stdin pipe dibaca `cmd`/`pwsh` sebagai baris berikutnya).
 
 **Rekomendasi (wajib):** tolak `stdin` non-kosong pada `Sessions.Exec` (`ErrSpec`, `invalid_args` di tool layer), atau kirim stdin lewat file dan redirect yang terikat hanya pada perintah. Tambah regression test `TestSessionStdinIsNotShellInput` (assert file tidak dibuat + output tidak berisi efek).
 
@@ -61,7 +61,7 @@ Repro (dijalankan): `Stdin` 1 MiB, `PTY:false`, `sh -c 'env -i setsid sleep 9973
 
 ### EX5-3 (MAJOR) — injeksi cwd pada sentinel sesi `cmd`
 
-`session_windows.go:40` membentuk `echo \x1eDB:<nonce>:<code>:%cd%\x1e`. Ekspansi `%cd%` terjadi sebelum `cmd` mem-parse baris, sehingga `&`, `|`, `<`, `>` di nama direktori menjadi operator. Direktori `x&calc.exe&rem` (valid di NTFS) membuat sentinel menjalankan `calc.exe` saat perintah sesi berikutnya selesai — tanpa approval perintah itu. Nama direktori berasal dari repo (mis. `cd sub` yang di-approve), jadi model/prompt-injection dapat memicunya.
+`session_windows.go:40` membentuk `echo \x1eDB:<nonce>:<code>:%cd%\x1e`. Ekspansi `%cd%` terjadi sebelum `cmd` mem-parse baris, sehingga `&`, `|`, `<`, `>` di nama direktori menjadi operator. Direktori `x&calc.exe&rem` (valid di NTFS) membuat sentinel perintah yang **mengubah cwd ke direktori itu** menjalankan `calc.exe` — tanpa approval perintah itu. Nama direktori berasal dari repo (mis. `cd sub` yang di-approve), jadi model/prompt-injection dapat memicunya.
 
 **Rekomendasi:** jangan menggemakan `%cd%`; tulis cwd ke file terpisah dengan mekanisme yang tidak di-parse ulang (mis. delayed expansion yang tidak me-reparse nilai, atau minta shell menulis `cd > temp` dengan path tetap), dan tolak cwd yang memuat metakarakter `cmd` sampai ada jalur aman. Tambah test cwd `a&calc&rem` di runner Windows.
 
@@ -92,7 +92,7 @@ Repro (dijalankan): `Stdin` 1 MiB, `PTY:false`, `sh -c 'env -i setsid sleep 9973
 - **Cancel:** hasil ≤ ~1,3 s (`cancelled_confirmed`/`still_running`), kill berlanjut di background; `TestRunCancelConfirmed` lulus.
 - **Capture:** head 8 MiB + ring 8 MiB, `BytesRaw` total, tidak ada alokasi per chunk; test capture lulus.
 - **Job Object (statis):** `KILL_ON_JOB_CLOSE`, tanpa `BREAKAWAY_OK`, `CREATE_SUSPENDED` → assign → resume, `TerminateJobObject`; handle creation ConPTY dipertahankan sampai `CreateProcess` (fix EX62-1) dan ditutup setelahnya; `bInheritHandles=false`.
-- **Sesi (selain temuan):** batas 4 sesi, nama tervalidasi, dir 0700/file 0600, alias/line-editing mati, sentinel nonce 128-bit per perintah, timeout SIGINT → 3 s → kill/recreate, env sesi tanpa secret (`TestSessionSecretRefScope`), `SessionReset`, `TestSessionTimeout`, `TestSessionAliasesOff`, `TestSessionPersistentState` lulus.
+- **Sesi (selain temuan):** batas 4 sesi, nama tervalidasi, dir 0700/file 0600, alias/line-editing mati, sentinel nonce 128-bit per perintah, timeout SIGINT → 3 s → kill/recreate, env sesi tanpa secret (`TestSessionSecretRefScope`), `SessionReset`, `TestSessionTimeout`, `TestSessionAliasesOff`, `TestSessionPersistsState` lulus.
 - **Suite:** `go test ./internal/exec` target (PTY, env, secret, prompt, summarize, session, cancel, straggler) hijau; `-race` dengan `Sessions.Close` konkuren menemukan EX5-9 (repro terpisah, bukan bagian suite); cross-build Windows/darwin/linux hijau. `TestNoOrphans` 200 iterasi dan `TestInteractiveCorpus` tidak dijalankan lokal (dibiarkan ke CI sesuai batas CPU).
 
 ## Tidak dicakup
