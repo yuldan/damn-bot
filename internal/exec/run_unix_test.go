@@ -14,6 +14,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
+
+	"github.com/damnbot/damnbot/internal/redact"
 )
 
 func newTestRunner(t *testing.T) *Runner {
@@ -170,6 +173,32 @@ func TestRunSetsidEscapeSwept(t *testing.T) {
 		t.Fatal(res.Status)
 	}
 	assertNoMarker(t, res.ExecID)
+}
+
+// TestPromptRedactedAndSanitized (EX45-1): Result.Prompt is target output
+// that goes to the model and UI: known secrets are redacted and only
+// printable runes (plus newline and tab) survive.
+func TestPromptRedactedAndSanitized(t *testing.T) {
+	t.Parallel()
+	r := newTestRunner(t)
+	r.SetRedactor(redact.New(redact.Options{Secrets: []string{"hunter2-secret"}}))
+	s := sh(t, `printf '\a\001Proceed with hunter2-secret? [y/n] '; read a`)
+	s.PTY, s.Timeout, s.KillGrace = true, 10*time.Second, time.Second
+	res := run(t.Context(), t, r, s)
+	if res.Status != StatusWaitingForInput || res.InputKind != InputConfirm {
+		t.Fatalf("%s %q %q", res.Status, res.InputKind, res.Prompt)
+	}
+	if strings.Contains(res.Prompt, "hunter2") {
+		t.Fatalf("prompt leaked the secret: %q", res.Prompt)
+	}
+	for _, c := range res.Prompt {
+		if c != '\n' && c != '\t' && !unicode.IsPrint(c) {
+			t.Fatalf("prompt kept control rune %U: %q", c, res.Prompt)
+		}
+	}
+	if !strings.Contains(res.Prompt, "Proceed with") {
+		t.Errorf("prompt text lost: %q", res.Prompt)
+	}
 }
 
 // TestRunPTYEscapeeDoesNotHang (EX39-1, P24): a process that escapes the
