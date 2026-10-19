@@ -1,6 +1,6 @@
 # REVIEW-F1-SEC8 — Review keamanan loop stack (#99–#103)
 
-**Status: lengkap.** Review independen pertama atas `internal/loop` (event, turn core, tool-call assembly/render, dispatch/approval/taint/spill). Reviewer tidak menulis kode yang direview. Tanggal: 2026-10-20.
+**Status: lengkap — changes required setelah Putaran 4 (`#102` `d570441`, `#103` `d1adbdb`).** Putaran 3 sempat approve; probe independen lanjutan menemukan LP8-16 (BLOCKER), LP8-17/18/19 (MAJOR), LP8-20 (MINOR). Review independen pertama atas `internal/loop` (event, turn core, tool-call assembly/render, dispatch/approval/taint/spill). Reviewer tidak menulis kode yang direview. Tanggal: 2026-10-20.
 
 Head yang direview (belum di-merge): `#99` `beae644`, `#100` `5821828`, `#101` `d641c08`, `#102` `d8e360a`, `#103` `9b21692`. Pemeriksaan di Linux. Probe berupa test sementara di worktree terpisah (tidak di-commit); output probe dikutip di bawah.
 
@@ -104,3 +104,113 @@ Tidak ada `t.append`/`t.history` sebelum return. Bila tool mengembalikan `Status
 - Fuzz, `-race` seluruh paket, stress konkurensi Store, dan benchmark.
 - Perbaikan setelah head di atas; verdict berlaku untuk head tersebut.
 - Kebijakan `MaxIterations`/`MaxWall` di config dan pengalaman UI.
+
+## Putaran 2 — re-review perbaikan LP8-1..8 (2026-10-20)
+
+Head: `#102` `c25fdf1`, `#103` `d91071d`. Seluruh tes paket lulus; probe `-race` baru dijalankan.
+
+| PR | Verdict putaran 2 |
+|---|---|
+| #102 | **changes required** — LP8-2 data race baru (BLOCKER); LP8-6/LP8-7 belum lengkap (MAJOR) |
+| #103 | **changes required** — membawa kode #102 yang sama; dokumen hanya berbeda |
+
+### Fixed dan terverifikasi
+
+| ID | Status | Bukti |
+|---|---|---|
+| LP8-1 (persistensi) | fixed | `deliver` menulis `tool_result` + history sebelum klasifikasi cancel (`dispatch.go:376-395`); `TestLP81CancelPersistsResult` lulus; probe status `exited` tetap menyimpan event |
+| LP8-3 | fixed | `cached`/`grant` menolak subject `""` (`dispatch.go:222-252`); `TestLP83EmptySubjectNotCached` meminta approver dua kali |
+| LP8-4 | fixed | `p.Approved=true` untuk AllowOnce/AllowSession/Edit (`dispatch.go:197-210`); `TestLP84ApprovedSet` lulus |
+| LP8-5 | fixed | `t.pending` + `takePending` setelah semua result (`dispatch.go:108-130`, `:392-400`); `TestLP85NoProgressKeepsResults`: 2 result, stop `no_progress` |
+| LP8-8 | fixed | `DetailMaxWall`/`DetailMaxIterations` ditambahkan dan dipakai (`event.go:108-109`, `turn.go:68`, `:152`); `TestLP88Details` lulus |
+
+### Temuan residual
+
+| ID | PR | Severity | Status | Temuan | Bukti |
+|---|---|---|---|---|---|
+| LP8-2r | #102 | **BLOCKER** | confirmed (`-race`) | Perbaikan `waitTask` menulis `out.res` saat timer, sedangkan goroutine tool yang masih berjalan menulis `outs[i]` yang sama setelah `dispatchBatch` kembali. Ini data race dan hasil bisa saling menimpa. | `dispatch.go:325-340` (write `outs[i]`), `:353-368` (write `out.res`); probe `TestFixLP82Race`: `WARNING: DATA RACE`, write `dispatch.go:337` vs read |
+| LP8-6r | #102 | MAJOR | confirmed | Redaksi konten utama sudah ada, tetapi argumen tool-call tidak diredaksi: `UpdateToolCallEnd` dan `assistantPayload.tool_calls` menyimpan `calls[i].Arguments` mentah. Secret di argumen (mis. `{"token":"sk-secret"}`) bocor ke Store/UI. | `turn.go:374-379`; probe `TestFixLP86Args`: update `tool_call_args`/`tool_call_end` dan payload `assistant_message` mengandung `sk-secret` |
+| LP8-7r | #102 | MAJOR | confirmed | `trimmed` hanya menambah `t.inline` di cabang spill. Bila Spiller nil/error dan pemotongan budget (`tooLarge=false`), preview 400 char tidak dihitung; dua result berturut-turut tetap preview penuh dan `t.inline=0`. | `render.go:63-77`; probe `TestFixLP87NoSpiller`: `MaxInlineTurn=5`, dua result 10 char, `inline=0` |
+| LP8-1s | #102 | MINOR | confirmed | Hasil yang sudah selesai (`Status:"exited"`) setelah cancel tetap menghasilkan `StopCancelledConfirmed`. Jika definisi “confirmed” = tidak ada tool yang masih berjalan, ini benar; jika berarti “tool dibatalkan”, labelnya salah. Test LP8-1 hanya memakai `Status:"cancelled_confirmed"`. | probe `TestFixLP81Status`: `stop=cancelled_confirmed detail=cancelled` untuk status `exited` |
+
+### Rekomendasi
+
+- LP8-2r: jangan berbagi slice hasil antara goroutine dan `waitTask`. Gunakan channel per task (`chan dispatchOutcome`) atau salinan lokal; pada timeout, tandai `still_running` di salinan dan biarkan goroutine menulis ke channel yang tidak dibaca (atau drain). Tambah test `-race` dengan tool yang selesai setelah timeout dan caller membaca hasil.
+- LP8-6r: redaksi juga `callPayloads(calls)` dan `UpdateToolCallEnd.Text` (atau jangan masukkan argumen mentah ke event/UI); pertahankan salinan mentah hanya untuk eksekusi.
+- LP8-7r: tambahkan `t.inline += runeLen(out)` di cabang `tooLarge=false` yang tidak spill, atau set `t.inline = MaxInlineTurn` saat memotong; test dengan Spiller nil.
+- LP8-1s: putuskan semantik `cancelled_confirmed`; bila perlu bedakan `cancelled_confirmed` (tool berhenti) vs `cancelled` (hasil selesai) dan test status `exited`.
+
+### Tidak dicakup putaran 2
+
+- Runtime Windows/macOS dan integrasi adapter produksi.
+- `go test -race ./internal/loop` seluruh suite: hanya probe LP8-2 yang dijalankan dengan `-race`; suite penuh belum.
+- Perbaikan setelah `d91071d`.
+
+## Putaran 3 — final verification (2026-10-20)
+
+Head: `#102` `d570441`, `#103` `d1adbdb`. Keduanya membawa perbaikan yang sama; `#103` hanya menambah dokumen. Verdict akhir:
+
+| PR | Verdict putaran 3 |
+|---|---|
+| #102 | **approve** — LP8-1..8 fixed; tidak ada BLOCKER/MAJOR residual |
+| #103 | **approve** — dokumen/komentar; kode sama dengan #102 |
+
+### Verifikasi
+
+- **LP8-1 status:** `deliver` hanya mengembalikan `cancelled_confirmed` bila `res.Status == "cancelled_confirmed"`; status `exited`/selesai menghasilkan `cancelled` setelah `tool_result` disimpan (`dispatch.go:411-417`). `TestLP81CancelPersistsResult` dan `TestLP81CompletedResultNotConfirmed` lulus; probe independen `Status:"exited"` → `stop=cancelled`, event ada.
+- **LP8-2 race:** `dispatchBatch` memberi setiap job channel buffered miliknya; slice hasil hanya ditulis koordinator. Timeout memakai `still_running`; late result dikirim ke channel yang tidak dibaca dan tidak menyentuh slice. `TestLP82BatchWaitBounded` lulus; probe `-race` (tool selesai setelah timeout + caller membaca hasil) lulus, tidak ada `DATA RACE`.
+- **LP8-6 args:** argumen tool-call diredaksi di `tool_call_args`/`tool_call_end`/`assistantPayload.tool_calls`/history; eksekusi memakai `calls` mentah. `TestLP86RedactsToolArgs` lulus; probe argumen `{"token":"sk-secret"}` tidak menemukan secret di update/event.
+- **LP8-7:** `modelContent` menambahkan `runeLen(out)` untuk semua cabang (error envelope, spill, truncation, plain). `TestLP87PreviewCountsInline` lulus; probe tanpa Spiller: `inline=84`, result kedua ter-truncate.
+- **LP8-3/4/5/8:** `TestLP83EmptySubjectNotCached`, `TestLP84ApprovedSet`, `TestLP85NoProgressKeepsResults`, `TestLP88Details` lulus.
+- **Suite:** `go test -race ./internal/loop` pada `d570441` dan `d1adbdb` hijau (1,03 s); probe `-race` tambahan juga hijau.
+
+### Catatan residual (bukan blocker)
+
+- Timeout `collect` tetap meninggalkan goroutine tool sampai tool menghormati ctx; late result dibuang. Ini disengaja (P24) dan tidak lagi menulis state bersama.
+- `modelContent` menghitung panjang sebelum redaksi; perbedaan panjang redaksi tidak material.
+- `collect` dengan `KillGrace <= 0` menunggu tanpa batas; konfigurasi default positif.
+
+### Tidak dicakup putaran 3
+
+- Runtime Windows/macOS dan integrasi adapter produksi.
+- Fuzz/bench dan stress konkurensi lebih luas.
+- Perbaikan setelah `d1adbdb`.
+
+## Putaran 4 — koreksi akhir (2026-10-20)
+
+Probe independen (auditor lanjutan, direproduksi) menemukan residual behavioral pada `d570441`/`d1adbdb`. Verdict final:
+
+| PR | Verdict final |
+|---|---|
+| #99 | **approve** (tidak berubah) |
+| #100, #101 | **approve sebagai bagian stack** — head tidak berubah; LP8-6/7/8 ditutup di #102 |
+| #102, #103 | **changes required** — LP8-16 BLOCKER; LP8-17/18/19 MAJOR; LP8-20 MINOR |
+
+### Temuan residual
+
+| ID | PR | Severity | Status | Temuan | Bukti |
+|---|---|---|---|---|---|
+| LP8-16 | #102 | **BLOCKER** | confirmed | `runParallel` mengembalikan terminal pada `deliver` pertama, termasuk terminal non-cancel (`tool_error`), sehingga result call lain yang sudah dieksekusi tidak pernah ditulis/emit. Serupa di serial: tool call yang error/cancel meninggalkan assistant tool_call tanpa tool result. Melanggar amandemen DECISIONS “hasil tool yang selesai saat ctx batal tetap ditulis”. | `dispatch.go:99-111`; `:411-418`; probe 2 parallel read, call kedua error: `stop=tool_error tool_results=1 ran=2`; probe 2 parallel selesai + cancel: `stop=cancelled tool_results=1 ran=2`; probe serial 2 call, call pertama cancel: `assistant_calls=2 tool_results=1 ran=1` |
+| LP8-17 | #102 | MAJOR | confirmed | `approve` return awal untuk grant cached **sebelum** `p.Approved=true`; call kedua dengan subject sama mendapat `Prepared.Approved=false`. Tools memetakan `p.Approved` → `Env.Approved`; approval user tidak sampai ke tool. | `dispatch.go:181-183`, `:198-209`; `internal/tools/dispatch.go:240`; probe: `approved=[true false] reqs=1` |
+| LP8-18 | #102 | MAJOR | confirmed | `collect` memasang timer `KillGrace` tanpa melihat `ctx.Err()`. Read normal yang lebih lambat dari `KillGrace` dilaporkan `still_running`; late success dibuang, meski tidak ada cancel. | `dispatch.go:349-373`; probe dua read 20 ms, `KillGrace=5 ms`, tanpa cancel: `status=still_running`, `late-a`/`late-b` tidak pernah dipersist |
+| LP8-19 | #102 | MAJOR | confirmed | Redaksi per-delta dapat dilewati fragmen: `"key sk-"` + `"secret end"` masing-masing lolos redactor, tetapi concatenation UI = `key sk-secret end`. Argumen tool-call juga dipecah per-delta. Payload/store yang dirakit aman. | `turn.go:202-209`; `toolcalls.go:47-52`; `payloads.go:82-97`; probe: `concat_text="key sk-secret end"`, `concat_args="{\"tok\":\"sk-secret\"}"`, leak=true |
+| LP8-20 | #102 | MINOR | confirmed | Member batch yang tidak pernah mulai (ctx batal sebelum semaphore) disintesis `Status:"cancelled_confirmed"`; bukan hasil tool. | `dispatch.go:336-340`; probe ctx cancel sebelum dispatchBatch: `outs=[{Status:cancelled_confirmed}]` |
+
+### Rekomendasi
+
+- LP8-16: jangan `return` pada terminal `deliver` di tengah batch; tandai terminal, teruskan `deliver` untuk semua hasil yang sudah ada, lalu kembalikan outcome terminal setelah loop. Untuk serial, pastikan setiap tool_call yang dieksekusi punya tool message (termasuk error/cancel) sebelum terminal. Tambah probe parallel/serial yang mengunci jumlah `tool_results == ran`.
+- LP8-17: set `p.Approved=true` sebelum early return `cached` (atau di `approve` saat `cached()` true).
+- LP8-18: aktifkan timer `KillGrace` hanya bila `ctx.Err()!=nil`; tanpa cancel, tunggu result normal.
+- LP8-19: redaksi streaming harus memakai buffer lintas-delta (atau tahan output sampai aman), dan redaksi fragmen argumen sebelum digabung; test split secret di teks dan argumen.
+- LP8-20: gunakan status `cancelled`/`not_started`, bukan `cancelled_confirmed`, untuk member yang tidak pernah mulai.
+
+### Verifikasi yang tetap berlaku
+
+- LP8-1 (persist + label) fixed; LP8-2 race fixed; LP8-3/4/5/8 fixed; LP8-6 payload/store redaction fixed (kecuali split-delta LP8-19); LP8-7 accounting fixed.
+- `go test -race ./internal/loop` hijau pada `d570441`/`d1adbdb`; probe race LP8-2 hijau. Residual di atas behavioral, bukan race.
+
+### Tidak dicakup putaran 4
+
+- Runtime Windows/macOS dan integrasi adapter produksi.
+- Fuzz/bench dan stress konkurensi lebih luas.
+- Perbaikan setelah `d1adbdb`.
