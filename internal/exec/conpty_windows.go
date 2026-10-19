@@ -86,6 +86,12 @@ func (w *osProc) createProcess(s *Spec) (err error) {
 	}
 	si := windows.StartupInfoEx{ProcThreadAttributeList: attrs.List()}
 	si.Cb = uint32(unsafe.Sizeof(si))
+	// STARTF_USESTDHANDLES with zero handles makes the child use the
+	// pseudo console's standard handles. Without the flag Windows
+	// duplicates the parent's stdio into the child, so when damnbot's own
+	// stdout is redirected (CI, service, pipe) the command's output never
+	// reaches the ConPTY pipe (Windows Terminal discussion #15814).
+	si.Flags = windows.STARTF_USESTDHANDLES
 	app, err := windows.UTF16PtrFromString(s.Argv[0])
 	if err != nil {
 		return fmt.Errorf("exec: argv0: %w", err)
