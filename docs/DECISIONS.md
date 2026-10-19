@@ -2599,3 +2599,20 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 **Dampak terukur (SPEC §20).** Token 0. Latensi: `BenchmarkClassify` (perintah 2 KiB) ≈ 0,7 ms/op < 1 ms (dicek `timing.Check` di `make perf`). LOC `exec/classify` ≈ 1.525/1.600 scc. Dependency: `mvdan.cc/sh/v3` (sudah di `deps.allow`, ENGINEERING §4). Binary: paket `syntax` mvdan (tanpa `interp`/`expand`).
 
 **Konsekuensi.** (+) Satu-satunya jalur auto shell (`shell_allow`) bergantung pada kecocokan byte-ketat + identitas biner, terlepas dari label; label tidak pernah memberi auto, sehingga celah classifier hanya menurunkan kualitas preview. (−) Lebih banyak `unknown` (kode inline bahasa lain, operand setelah `cd`, `xargs`); perintah ber-kutip yang memuat karakter terlarang tidak bisa masuk `shell_allow`.
+
+## ADR-107 — Lingkungan pengembangan di VPS Debian dan bootstrap idempoten
+
+**Status:** Accepted 2026-10-20 (keputusan user). Panduan operasional; tidak mengubah perilaku produk, spec, atau protokol.
+
+**Konteks.** Pengembangan dilakukan dari ponsel terhadap VPS Debian. Mesin pengembangan perlu menyediakan toolchain repo (Go 1.26.9, race detector, `make`), akses jarak jauh yang tahan putus, dan hardening dasar tanpa membuka desktop ke internet. Lingkungan ini tidak diatur SPEC karena bukan requirement produk, tetapi harus dapat dibuat ulang dan diaudit.
+
+**Keputusan.**
+1. **Host pengembangan = Debian 12/13 (Linux amd64/arm64).** Windows+RDP ditolak: test dengan build tag `linux || darwin` (proses grup) serta `openat2`/sandbox dan semantik setgid/inode hanya nyata di Unix. Portabilitas Windows/macOS tetap dicakup matriks CI (`.github/workflows/ci.yml`, `windows-ctxdb.yml`), bukan mesin pengembangan.
+2. **Satu skrip bootstrap idempoten** `scripts/vps-bootstrap.sh` (`set -euo pipefail`, `--help`, root check, `--code-server`, `--desktop`, `--apply-ssh`): paket dasar, user `dev` + grup sudo + salinan `authorized_keys`, snippet `/etc/ssh/sshd_config.d/99-damnbot.conf` (`PasswordAuthentication no`, `PermitRootLogin no`) yang hanya direload dengan `--apply-ssh`, ufw (default deny, allow port SSH efektif, deny 3389/5900), Go 1.26.9 dari tarball resmi, gh 2.102.0, dan drop-in `user-<uid>.slice` (CPU 350%, RAM 6G). Tidak ada `curl | bash`; setiap unduhan dipin versi + sha256; tidak ada rahasia di argv.
+3. **Akses grafis bukan jalur utama dan tidak pernah publik.** code-server (opsional) hanya bind `127.0.0.1:8080` dengan password acak bermode 0600. `scripts/vps-desktop.sh` memasang XFCE (default) atau Cinnamon + xrdp, menulis `~dev/.xsession`, mematikan compositor XFCE/efek Cinnamon, mengatur `--res 1280x720|1920x1080` (best-effort; xorgxrdp mengikuti klien), menolak 3389 publik, dan hanya mengizinkan `tailscale0`. `deploy/cloud-init.yaml` memberi jalur RDP-first tanpa SSH. `deploy/guacamole/` memberi Guacamole clientless (webapp bind `127.0.0.1:8080`, image tag+digest). RustDesk, MeshCentral, noVNC/TigerVNC, dan Sunshine/Moonlight didokumentasikan sebagai alat host — bukan dependency repo.
+4. **`docs/VPS.md` adalah panduan operasional, bukan spec.** Seluruh file dikecualikan dari spec-guard lewat `testdata/docs_exclusions.txt` (pola sama dengan ADR-104 untuk artefak review); perubahan requirement tetap wajib lewat ADR.
+5. **Verifikasi tanpa eksekusi nyata di CI:** `bash -n`, `shellcheck` (bila tersedia), `--help`, `yaml.safe_load` untuk user-data/compose, dan `xmllint` untuk contoh user-mapping; skrip tidak dijalankan pada CI/repo. `docker compose config` dijalankan bila plugin Compose tersedia.
+
+**Dampak terukur (SPEC §20).** Token, latensi, LOC produk, ukuran binary, dan dependency: 0. Dua skrip operasional, satu user-data cloud-init, satu compose, satu contoh konfigurasi, dan satu entri pengecualian dokumen.
+
+**Konsekuensi.** (+) Lingkungan pengembangan/desktop dapat dibuat ulang, hardened secara default, dan tidak bergantung pada RDP publik. (−) Versi Go/gh/code-server serta digest image Guacamole harus dinaikkan manual; panduan VPS tidak normatif dan tidak diuji otomatis selain syntax/YAML.
