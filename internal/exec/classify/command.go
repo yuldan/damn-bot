@@ -35,29 +35,53 @@ func (s *state) command(args []arg, in stdin) bool {
 	s.mut = s.mut || !hasKey(nonMutatingKeys, keys)
 	s.tables(name, keys, at(argStrings(args), 1))
 	s.flagRules(name, sub, args[1:])
+	s.dispatch(name, sub, args, in)
+	return inList(fetchers, name)
+}
+
+// dispatch routes one simple command to its classifier.
+func (s *state) dispatch(name, sub string, args []arg, in stdin) {
 	switch {
 	case name == "eval" || name == "iex" || name == "invoke-expression":
 		s.eval(args[1:], in)
 	case inList(privileged, name):
 		s.privileged(name, args)
+	case s.winBuiltin(name, args, in):
 	case inList(wrappers, name):
 		s.wrapper(name, args, in)
 	case inList(interpreters, name) || strings.HasPrefix(name, "python"):
 		s.interpreter(name, args, in)
+	case inList(httpClients, name):
+		s.http(args)
+	case inList(remoteCmds, name):
+		s.remoteCmd(name, args)
 	default:
 		s.tool(name, sub, args)
 	}
-	return inList(" curl wget ", name)
+}
+
+// winBuiltin handles cmd.exe's own dispatch (CL5-1). The start/call and
+// control-flow handling is added by the stacked PR (CL5-9).
+func (s *state) winBuiltin(name string, args []arg, in stdin) bool {
+	if name != "cmd" {
+		return false
+	}
+	s.cmdShell(args, in)
+	return true
 }
 
 // cmdName is the lookup key: base name; on Windows dialects lower-cased,
-// without .exe.
+// without .exe, PowerShell/cmd aliases mapped to their POSIX equivalent.
 func (s *state) cmdName(a0 string) string {
 	name := path.Base(s.clean(a0))
 	if !s.fold {
 		return name
 	}
-	return strings.TrimSuffix(strings.ToLower(name), ".exe")
+	name = strings.TrimSuffix(strings.ToLower(name), ".exe")
+	if i := strings.Index(winAliases, " "+name+":"); i >= 0 && !strings.Contains(name, " ") {
+		name, _, _ = strings.Cut(winAliases[i+len(name)+2:], " ")
+	}
+	return name
 }
 
 // operands checks file operands: every positional argument of known file

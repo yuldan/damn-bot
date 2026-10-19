@@ -82,6 +82,9 @@ func (s *state) tables(name string, keys [3]string, first string) {
 // flagRules applies the option tables: each entry "name:sub:flag" (sub
 // empty = any) whose flag some argument carries.
 func (s *state) flagRules(name, sub string, args []arg) {
+	if !mentions(destructiveFlags+irreversibleFlags, name+":") {
+		return
+	}
 	for _, t := range [...]struct {
 		table string
 		class Class

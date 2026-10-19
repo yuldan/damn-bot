@@ -93,7 +93,7 @@ func (s *state) check(p string, write bool) string {
 		}
 	}
 	switch {
-	case s.denied(p) || s.denied(real):
+	case s.denied(p) || (real != p && s.denied(real)):
 		s.flag(DeniedPath, "denied path: "+p)
 		return real
 	case inList(" /dev/null /dev/zero /dev/random /dev/urandom /dev/stdin /dev/stdout /dev/stderr /dev/tty ", p),
@@ -191,7 +191,11 @@ func matchPrefix(pat, comps []string) bool {
 	if len(comps) == 0 {
 		return false
 	}
-	if ok, err := path.Match(pat[0], comps[0]); err != nil || !ok {
+	if !strings.ContainsAny(pat[0], `*?[\`) {
+		if pat[0] != comps[0] {
+			return false
+		}
+	} else if ok, err := path.Match(pat[0], comps[0]); err != nil || !ok {
 		return false
 	}
 	return matchPrefix(pat[1:], comps[1:])
