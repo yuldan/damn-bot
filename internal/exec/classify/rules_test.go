@@ -68,6 +68,17 @@ func TestRuleLabels(t *testing.T) {
 		{"npx -y claude --yolo", DelegatedAgentBypass, Network},
 		{"git add ~/.ssh/id_rsa", Mutating, DeniedPath},
 		{"sudo ls /root", Mutating, Privileged | OutsideRead},
+		// CL5-2: standard launchers recurse into the wrapped command.
+		{"setsid sh -c 'rm -rf ~'", Destructive, 0},
+		{"busybox rm -rf ~", Destructive, 0},
+		{"taskset -c 0-3 sh -c 'rm -rf ~'", Destructive, 0},
+		{"taskset 0x3 rm -rf ~", Destructive, 0},
+		{"unshare -m sh -c 'rm -rf ~'", Destructive, 0},
+		{"systemd-run rm -rf ~", Destructive, 0},
+		{"systemd-run -p X rm -rf ~", Unknown, 0},
+		{"setsid --unknown rm -rf /", Unknown, 0},
+		{"unshare --unknown rm -rf /", Unknown, 0},
+		{"taskset -p 1234", Unknown, 0},
 	} {
 		v := Classify(c.cmd, testEnv())
 		if v.Class != c.class || v.Flags != c.flags {
