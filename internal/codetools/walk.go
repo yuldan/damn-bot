@@ -87,11 +87,11 @@ type dirNode struct {
 	st       ignoreStack
 	done     chan struct{} //damnbot:unbuffered closed once the entries are read
 	entries  []dirEntry
-	denied   int  // entries matching deny_paths
-	unread   bool // the directory itself could not be listed
-	ref      *dirRef
-	comps    []string           // this directory's components + one slot per entry
-	deny     *sandbox.DenyBelow // deny patterns that can match below this directory
+	denied   int                    // entries matching deny_paths
+	unread   bool                   // the directory itself could not be listed
+	ref      atomic.Pointer[dirRef] // published by readDir before done closes
+	comps    []string               // this directory's components + one slot per entry
+	deny     *sandbox.DenyBelow     // deny patterns that can match below this directory
 }
 
 // dirRef shares one opened directory handle between the traverser and the
@@ -143,7 +143,7 @@ func (w *walker) releaseDir(d *sandbox.Dir) {
 	w.openMu.Lock()
 	delete(w.open, d)
 	w.openMu.Unlock()
-	d.Close()
+	_ = d.Close()
 }
 
 // closeDirs closes handles a cancelled walk left queued.
@@ -156,14 +156,14 @@ func (w *walker) closeDirs() {
 	w.open = map[*sandbox.Dir]struct{}{}
 	w.openMu.Unlock()
 	for _, d := range left {
-		d.Close()
+		_ = d.Close()
 	}
 }
 
 // releaseRef drops the traverser's reference to the handle.
 func (n *dirNode) releaseRef() {
-	if n.ref != nil {
-		n.ref.release()
+	if r := n.ref.Load(); r != nil {
+		r.release()
 	}
 }
 
@@ -297,9 +297,9 @@ func (w *walker) traverse(ctx context.Context, n *dirNode, order chan<- *fileJob
 
 // file queues one file in output order and, when scanning, for a worker.
 func (w *walker) file(ctx context.Context, n *dirNode, name string, order chan<- *fileJob) error {
-	j := &fileJob{abs: filepath.Join(n.abs, name), rel: n.rel + name, name: name, out: make(chan scanOut, 1), ref: n.ref}
-	if n.ref != nil {
-		n.ref.acquire()
+	j := &fileJob{abs: filepath.Join(n.abs, name), rel: n.rel + name, name: name, out: make(chan scanOut, 1), ref: n.ref.Load()}
+	if j.ref != nil {
+		j.ref.acquire()
 	}
 	if w.spec.scan == nil {
 		j.out <- scanOut{}
@@ -396,7 +396,7 @@ func (w *walker) lockDir(ctx context.Context, n *dirNode) ([]os.DirEntry, bool) 
 	}
 	if err != nil || f == nil {
 		if dir != nil {
-			dir.Close()
+			_ = dir.Close()
 		}
 		n.unread = ctx.Err() == nil
 		return nil, false
@@ -404,19 +404,20 @@ func (w *walker) lockDir(ctx context.Context, n *dirNode) ([]os.DirEntry, bool) 
 	ents, err := f.ReadDir(-1)
 	if err != nil {
 		if dir != nil {
-			dir.Close()
+			_ = dir.Close()
 		} else {
-			f.Close()
+			_ = f.Close()
 		}
 		n.unread = true
 		return nil, false
 	}
 	if dir != nil {
-		n.ref = &dirRef{d: dir, w: w}
-		n.ref.refs.Store(1) // the traverser's reference
+		r := &dirRef{d: dir, w: w}
+		r.refs.Store(1) // the traverser's reference
+		n.ref.Store(r)
 		w.trackDir(dir)
 	} else {
-		f.Close()
+		_ = f.Close()
 	}
 	slices.SortFunc(ents, func(a, b os.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	return ents, true
