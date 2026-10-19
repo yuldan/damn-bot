@@ -32,7 +32,7 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 
 .PHONY: all build build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio \
 	deps-check tidy-check mod-verify vuln licenses check meta-test bench-budget fuzz coverage deadcode \
-	flake perf pr-meta phase-acceptance corpora bench-parity
+	flake perf pr-meta phase-acceptance corpora bench-parity bench-codetools
 
 all: check
 
@@ -168,3 +168,8 @@ corpora:
 bench-parity: corpora
 	$(CORPUS_ENV) go test $(GOTAGS) -count=1 -timeout 0 -run '^TestGrepParityRg$$' ./internal/codetools
 
+# CODE-TOOLS §10 dengan korpus nyata (job nightly bench-codetools; RC = gate): CT-01/02/03 vs rg
+# (TestGrepSpeedVsRg, 20 run), CT-21 parity, CT-11 token vs golden hermes (modul bench).
+bench-codetools: corpora
+	$(CORPUS_ENV) go test $(GOTAGS) -count=1 -timeout 0 -run '^(TestGrepParityRg|TestGrepSpeedVsRg)$$' ./internal/codetools
+	cd bench && $(CORPUS_ENV) go test -count=1 -timeout 0 -run '^TestGrepOutputTokens$$' ./codetools
