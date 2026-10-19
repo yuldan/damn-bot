@@ -8,9 +8,9 @@ Head yang direview (semua branch bertumpuk, belum di-merge): `#39` `5d3caf0`, `#
 
 | PR | Isi | Verdict |
 |---|---|---|
-| #39 | lapisan proses per OS, PTY, Job Object, capture | **approve** (perbaikan EX39-1/39-2 terverifikasi; EX5-6 test quality) |
+| #39 | lapisan proses per OS, PTY, Job Object, capture | **approve** (perbaikan EX39-1/39-2 terverifikasi; EX5-5 test quality) |
 | #40 | `Runner`, timeout/cancel, kill order, marker | **changes required** (EX5-2) |
-| #42 | env allowlist, secret ref, mode one-shot | **approve** (EX42-1/2/3/4 terverifikasi; EX5-5 MINOR) |
+| #42 | env allowlist, secret ref, mode one-shot | **approve** (EX42-1/2/3/4 terverifikasi; EX5-4 MINOR) |
 | #45 | deteksi prompt, idle timeout | **approve** (EX45-1 terverifikasi) |
 | #47 | pipeline ringkasan §A.3 | **approve** (EX47-1/47-2 terverifikasi) |
 | #52 | startup sweep, `TestNoOrphans`, benchmark | **approve** |
