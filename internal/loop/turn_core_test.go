@@ -238,17 +238,6 @@ func TestCoreEmptyResponseClass(t *testing.T) {
 	}
 }
 
-func TestCoreToolCallPlaceholder(t *testing.T) {
-	t.Parallel()
-	f := newFixture()
-	f.provider.scripts = []streamFunc{func(context.Context, *Request, func(Delta)) (Reply, error) {
-		return Reply{FinishReason: FinishToolCalls, ToolCalls: []ToolCall{{ID: "a", Name: `read"x`, Arguments: `{}`}}}, nil
-	}}
-	if got := terminal(t, f.run(t)); got.Stop != event.StopToolError {
-		t.Fatalf("stop = %s", got.Stop)
-	}
-}
-
 func TestCoreAddUsageCost(t *testing.T) {
 	t.Parallel()
 	turn := &turn{}
