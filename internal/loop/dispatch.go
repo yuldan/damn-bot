@@ -320,50 +320,68 @@ type dispatchOutcome struct {
 }
 
 // dispatchBatch runs read-only calls concurrently, bounded by ParallelTools.
-// Each member never fails the batch: a tool failure is data for its call.
+// Each member owns its result channel; the slice is written only by this
+// goroutine, so a timed-out member can never race a late result.
 func (t *turn) dispatchBatch(ctx context.Context, ps []Prepared) []dispatchOutcome {
-	outs := make([]dispatchOutcome, len(ps))
+	out := make([]dispatchOutcome, len(ps))
 	sem := make(chan struct{}, t.cfg.ParallelTools) //damnbot:bounded parallel reads
-	tasks := make([]*boundary.Task, len(ps))
+	type job struct {
+		ch   chan dispatchOutcome
+		task *boundary.Task
+	}
+	jobs := make([]job, len(ps))
 	for i := range ps {
-		tasks[i] = boundary.Go(ctx, "loop.read", func(ctx context.Context) error {
+		ch := make(chan dispatchOutcome, 1) //damnbot:late result owned by its goroutine
+		tasks := boundary.Go(ctx, "loop.read", func(ctx context.Context) error {
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
-				return nil // never started: nothing can be running
+				ch <- dispatchOutcome{res: ToolResult{Status: "cancelled_confirmed"}}
+				return nil
 			}
 			defer func() { <-sem }()
 			res, err := t.deps.Toolset.Dispatch(ctx, &ps[i])
-			outs[i] = dispatchOutcome{res: res, err: err}
+			ch <- dispatchOutcome{res: res, err: err}
 			return nil
 		})
+		jobs[i] = job{ch: ch, task: tasks}
 	}
-	for i := range tasks {
-		t.waitTask(tasks[i], &outs[i])
+	for i := range jobs {
+		out[i] = t.collect(jobs[i].ch, jobs[i].task)
 	}
-	return outs
+	return out
 }
 
-// waitTask bounds a batch member by KillGrace so Cancel cannot hang on a
-// tool that ignores ctx; a timed-out member is reported still_running and its
-// goroutine exits when the tool honours ctx.
-func (t *turn) waitTask(task *boundary.Task, out *dispatchOutcome) {
+// collect waits for one batch job at most KillGrace. A late result is
+// discarded by its owning goroutine; a panic becomes the call's error.
+func (t *turn) collect(ch chan dispatchOutcome, task *boundary.Task) dispatchOutcome {
 	if t.cfg.KillGrace <= 0 {
-		<-task.Done()
-		if err := task.Wait(); err != nil {
-			out.err = fmt.Errorf("loop: dispatch: %w", err)
-		}
-		return
+		return t.finishJob(ch, task)
 	}
 	timer := time.NewTimer(t.cfg.KillGrace)
 	defer timer.Stop()
 	select {
-	case <-task.Done():
+	case o := <-ch:
 		if err := task.Wait(); err != nil {
-			out.err = fmt.Errorf("loop: dispatch: %w", err)
+			return dispatchOutcome{err: fmt.Errorf("loop: dispatch: %w", err)}
 		}
+		return o
+	case <-task.Done():
+		return t.finishJob(ch, task)
 	case <-timer.C:
-		out.res = ToolResult{Status: "still_running"}
+		return dispatchOutcome{res: ToolResult{Status: "still_running"}}
+	}
+}
+
+func (t *turn) finishJob(ch chan dispatchOutcome, task *boundary.Task) dispatchOutcome {
+	if err := task.Wait(); err != nil {
+		return dispatchOutcome{err: fmt.Errorf("loop: dispatch: %w", err)}
+	}
+	select {
+	case o := <-ch:
+		return o
+	default:
+		return dispatchOutcome{res: ToolResult{Status: "still_running"}}
 	}
 }
 
@@ -393,10 +411,10 @@ func (t *turn) deliver(ctx context.Context, c ToolCall, res *ToolResult, callErr
 	t.history = append(t.history, Message{Role: "tool", Content: content, ToolCallID: c.ID})
 	t.emit(&event.Update{Kind: event.UpdateToolResult, ToolCallID: c.ID, ToolName: c.Name, Text: content, Status: res.Status})
 	if ctx.Err() != nil {
-		if res.Status == "still_running" {
-			return t.cancelled(), true
+		if res.Status == "cancelled_confirmed" {
+			return outcome{stop: event.StopCancelledConfirmed, detail: event.DetailCancelled}, true
 		}
-		return outcome{stop: event.StopCancelledConfirmed, detail: event.DetailCancelled}, true
+		return t.cancelled(), true
 	}
 	if t.bump(noProgressKey(c, content)) >= t.cfg.MaxIdentical {
 		t.note(ctx, &event.Event{Kind: event.SystemNotice, Payload: payload(auditPayload{Kind: "no_progress", Tool: c.Name})})
