@@ -13,6 +13,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `redact`: prefilter pasangan byte di `scan` — posisi yang dua byte pertamanya tidak bisa memulai pola mana pun dilewati tanpa `matchAt` (output identik, ≈ 3× lebih cepat pada prosa 8 KiB; dasar GAP-SEC-16 DLP ≤ 50 µs, REVIEW-F1-SEC1 NETX-16; ADR-096).
 
 ### Added
+- `config`: loader TOML F1 (`internal/config`) — default SPEC §12 untuk kunci core F1, penolakan key tak dikenal dengan path/baris, validasi rentang, path per OS/profil, `Deps` DI (satu-satunya `os.Getenv`), dan `Config` immutable dengan `Clone` + `FuzzConfigTOML` (ADR-107).
 - `provider`: klien openai-chat `OpenAI` — retry P6 + circuit breaker per (provider, credential), fallback ≤ 2 model (mulai dari primer, lewati rute hilang/window kecil, event `provider_fallback`), parameter yang ditolak (`error.param`) dilepas per rute, batas respons 16 MiB/128 tool call; `providertest`: server palsu OpenAI-compatible (skrip, replay SSE, FakeClock) (ADR-102).
 - `netx/retry`: `Policy.Wait` untuk waktu tunggu yang diinjeksi test (ADR-102).
 - `provider`: tipe request/response/`Error` typed (SPEC §4.1), encoder request openai-chat deterministik (reasoning dikirim balik byte-identik), rakitan stream (tool call terfragmen, finish dinormalisasi, `stream_broken`, `empty_response`, strip token kontrol) (ADR-102).

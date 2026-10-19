@@ -124,6 +124,13 @@ LOC = scc kolom Code, Go non-test (ENGINEERING E-19). Coverage = `go test -cover
 
 Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket test-only dikeluarkan lewat allowlist `TESTONLY` di `loc.budget` ([#12](https://github.com/yuldan/damn-bot/pull/12), ADR-098). Rasio setelah #11: 5.529:4.890 = 1,13; perkiraan setelah `redact` + `sandbox` + `boundary`: 7.024:6.050 = 1,16.
 
+### `internal/config` (ADR-107)
+
+| PR | Isi | Baris Go non-test (diff) | Hasil |
+|---|---|---:|---|
+| `f1-config-1` | struct + default SPEC §12, decode TOML ketat (key tak dikenal + path/baris), DI `Deps`, `FuzzConfigTOML` | 497 | lihat PR |
+| `f1-config-2` | validasi rentang semua kunci F1, path per OS/profil, `<config_dir>`, `Clone` immutable | 310 | lihat PR |
+
 ## Review keamanan
 
 PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (auditor). PR bagian b bertumpuk di atas bagian a (base = branch a); setelah a di-merge, base b diganti ke `main`.
