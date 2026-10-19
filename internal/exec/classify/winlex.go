@@ -103,6 +103,7 @@ func (lx *lexer) plain(c byte) {
 
 // quoted reads a quoted section; PowerShell double quotes expand $ and `.
 func (lx *lexer) quoted(q byte) {
+	lx.tok.quoted = true
 	for lx.i < len(lx.src) {
 		c := lx.src[lx.i]
 		lx.i++
@@ -262,13 +263,33 @@ func (s *state) cmdShell(args []arg, in stdin) {
 func (s *state) cmdBuiltin(name string, args []arg, in stdin) {
 	rest := args[1:]
 	if name == "start" {
-		for len(rest) > 0 && (rest[0].s == "" || strings.HasPrefix(rest[0].s, "/")) {
-			v := strings.ToLower(rest[0].s)
-			rest = rest[1:]
-			if v == "/node" || v == "/affinity" {
-				if len(rest) > 0 {
+		// start [options] [title] program: a quoted first token is the
+		// window title, /d|/machine|/node|/affinity take a value, any other
+		// option is Unknown (CL5-9).
+	scan:
+		for len(rest) > 0 {
+			v := rest[0]
+			switch {
+			case v.s == "" || v.quoted:
+				rest = rest[1:]
+			case strings.HasPrefix(v.s, "/"):
+				opt := strings.ToLower(v.s)
+				rest = rest[1:]
+				switch opt {
+				case "/d", "/machine", "/node", "/affinity":
+					if len(rest) == 0 {
+						s.raise(Unknown, "start "+opt+" without a value")
+						return
+					}
 					rest = rest[1:]
+				case "/b", "/i", "/min", "/max", "/low", "/normal", "/high", "/realtime",
+					"/abovenormal", "/belownormal", "/wait", "/separate", "/shared", "/restricted":
+				default:
+					s.raise(Unknown, "start option "+opt)
+					return
 				}
+			default:
+				break scan
 			}
 		}
 	}

@@ -78,7 +78,8 @@ func isLetter(c byte) bool { return c|0x20 >= 'a' && c|0x20 <= 'z' }
 // arg is one evaluated word. lit = statically known (only ~ and $HOME
 // expanded); otherwise s is the source text. glob = unquoted * ? [.
 type arg struct {
-	s    string
-	lit  bool
-	glob bool
+	s      string
+	lit    bool
+	glob   bool
+	quoted bool // any part was quoted; cmd start treats it as a title
 }
