@@ -78,7 +78,8 @@ type summary struct {
 const F1CapUSD = h2h.F1CapUSD
 
 func run() error {
-	hermesDir := flag.String("hermes", "", "checkout hermes-agent (read-only)")
+	hermesDir := flag.String("hermes", "", "checkout hermes-agent (read-only; empty = Damn-Bot only)")
+	damnbotBin := flag.String("damnbot", "", "binary cmd/damnbot (empty = hermes only)")
 	evalDir := flag.String("evals", "evals/v1", "direktori eval set v1")
 	out := flag.String("out", "", "direktori hasil (rekaman + summary.json)")
 	upstream := flag.String("upstream", "", "base URL provider tanpa /v1, mis. https://api.example.com")
@@ -97,8 +98,8 @@ func run() error {
 	work := flag.String("work", "/tmp/h2h_work", "root workdir task")
 	only := flag.String("only", "", "subset ID dipisah koma (debug)")
 	flag.Parse()
-	if *hermesDir == "" || *out == "" || *upstream == "" || *keyFile == "" || *model == "" {
-		return errors.New("h2h: -hermes, -out, -upstream, -key-file, -model wajib")
+	if *out == "" || *upstream == "" || *keyFile == "" || *model == "" || (*hermesDir == "" && *damnbotBin == "") {
+		return errors.New("h2h: -out, -upstream, -key-file, -model and one of -hermes/-damnbot are required")
 	}
 	price := h2h.Price{Input: *priceIn, CachedInput: *priceCached, Output: *priceOut}
 	if !price.Valid() {
@@ -159,8 +160,12 @@ func run() error {
 
 	r := &h2h.Runner{
 		Recorder: rec, ProxyURL: "http://" + ln.Addr().String() + "/v1",
-		Hermes: &h2h.Hermes{Dir: *hermesDir, Home: *home, Python: "python3", Model: *model, MaxTurns: *maxTurns},
 		OutDir: *out, WorkRoot: *work, Timeout: *timeout, FirstGuess: 0.10, Log: os.Stderr,
+	}
+	if *damnbotBin != "" {
+		r.Damnbot = &h2h.Damnbot{Binary: *damnbotBin, Model: *model}
+	} else {
+		r.Hermes = &h2h.Hermes{Dir: *hermesDir, Home: *home, Python: "python3", Model: *model, MaxTurns: *maxTurns}
 	}
 	results := r.Run(context.Background(), tasks)
 	_ = psrv.Close()
@@ -178,10 +183,15 @@ func run() error {
 	s.Meta.EvalSet = "evalset/v1 " + *evalDir
 	s.Meta.Selection = fmt.Sprintf("per set %v: task eligible dengan sha256(%q+id) terkecil", h2h.SmokeQuota, h2h.SelectSalt)
 	s.Meta.TimeoutS, s.Meta.MaxTurns, s.Meta.GOOS, s.Meta.GOARCH = timeout.Seconds(), *maxTurns, runtime.GOOS, runtime.GOARCH
-	if b, err := exec.Command("git", "-C", *hermesDir, "rev-parse", "HEAD").Output(); err == nil {
-		s.Meta.HermesCommit = strings.TrimSpace(string(b))
+	if *hermesDir != "" {
+		if b, err := exec.Command("git", "-C", *hermesDir, "rev-parse", "HEAD").Output(); err == nil {
+			s.Meta.HermesCommit = strings.TrimSpace(string(b))
+		}
 	}
 	s.Damnbot = h2h.DamnbotNA
+	if *damnbotBin != "" {
+		s.Damnbot = "damnbot run (F1 integration) via " + *damnbotBin
+	}
 	s.Results = results
 	s.Totals.Tasks = len(results)
 	for _, res := range results {

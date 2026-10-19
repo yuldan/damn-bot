@@ -8,6 +8,7 @@ import (
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/exec/classify"
+	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
@@ -48,4 +49,46 @@ func runtimeDialect() classify.Dialect {
 	default:
 		return classify.Bash
 	}
+}
+
+// History reconstructs the chat history from the session transcript, including
+// assistant tool calls and tool results, so every loop iteration sees them.
+func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, error) {
+	const q = `SELECT coalesce(json_group_array(json_object(
+		'kind',kind,'role',coalesce(role,''),'content',coalesce(content,''),
+		'tool_call_id',coalesce(tool_call_id,''),'payload',coalesce(payload,'{}'))),'[]')
+		FROM (SELECT * FROM events WHERE session_id = ? ORDER BY seq)`
+	var raw string
+	if err := s.db.Write(ctx, func(tx *ctxdb.Tx) error { return tx.Get(q, []any{sid}, &raw) }); err != nil {
+		return nil, err
+	}
+	var rows []struct {
+		Kind, Role, Content, ToolCallID string
+		Payload                         string
+	}
+	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
+		return nil, err
+	}
+	out := make([]loop.Message, 0, len(rows))
+	for _, r := range rows {
+		switch r.Kind {
+		case "user_message":
+			out = append(out, loop.Message{Role: "user", Content: r.Content})
+		case "assistant_message":
+			m := loop.Message{Role: "assistant", Content: r.Content}
+			var p struct {
+				ToolCalls []struct {
+					ID, Name, Arguments string
+				} `json:"tool_calls"`
+			}
+			_ = json.Unmarshal([]byte(r.Payload), &p)
+			for _, c := range p.ToolCalls {
+				m.ToolCalls = append(m.ToolCalls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.Arguments})
+			}
+			out = append(out, m)
+		case "tool_result":
+			out = append(out, loop.Message{Role: "tool", Content: r.Content, ToolCallID: r.ToolCallID})
+		}
+	}
+	return out, nil
 }

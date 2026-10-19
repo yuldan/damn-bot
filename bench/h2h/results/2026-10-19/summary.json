@@ -1,0 +1,492 @@
+{
+ "meta": {
+  "date": "2026-10-19T17:10:01Z",
+  "upstream": "https://api.teamorouter.com",
+  "model": "gpt-5.4-mini",
+  "price_usd": {
+   "input_per_mtok": 0.09,
+   "cached_input_per_mtok": 0.009,
+   "output_per_mtok": 0.51
+  },
+  "price_source": "",
+  "cap_usd": 2,
+  "ledger": "h2h/results/f1-spend.json",
+  "hermes_commit": "",
+  "evalset": "evalset/v1 evals/v1",
+  "selection": "per set [{E1 4} {E2 2} {E3 2} {E6 2}]: task eligible dengan sha256(\"h2h-smoke/v1|\"+id) terkecil",
+  "timeout_s_per_task": 180,
+  "max_turns": 20,
+  "goos": "linux",
+  "goarch": "amd64"
+ },
+ "totals": {
+  "tasks": 10,
+  "ran": 10,
+  "passed": 0,
+  "harness_errors": 0,
+  "usage": {
+   "calls": 10,
+   "prompt_tokens": 24014,
+   "completion_tokens": 1744,
+   "cached_tokens": 2048,
+   "reasoning_tokens": 0,
+   "cost_usd": 0.0028848120000000005,
+   "aborted_calls": 5
+  },
+  "spent_usd_proxy_total": 0.025318812000000003,
+  "ledger_spent_usd": 0.033700404,
+  "background_usage": {
+   "calls": 0,
+   "prompt_tokens": 0,
+   "completion_tokens": 0,
+   "cached_tokens": 0,
+   "reasoning_tokens": 0,
+   "cost_usd": 0,
+   "aborted_calls": 0
+  },
+  "background_errors": []
+ },
+ "damnbot": "damnbot run (F1 integration) via /home/jelangkung/.cache/damnbot/bin/damnbot",
+ "results": [
+  {
+   "id": "E1-117",
+   "set": "E1",
+   "kind": "internal-python:count_vowels",
+   "agent": "damnbot",
+   "status": "ran",
+   "run": {
+    "exit_code": 2,
+    "timed_out": false,
+    "duration_s": 98.399631153,
+    "answer": "",
+    "stderr_tail": "",
+    "daemons_stopped": 0,
+    "stop_reason": "error",
+    "stop_detail": "provider_error"
+   },
+   "verdict": {
+    "pass": false,
+    "detail": [
+     "python3 test_solution.py: exit status 1: FAIL count_vowels(\"education\"): got 4, want 5"
+    ]
+   },
+   "usage": {
+    "calls": 1,
+    "prompt_tokens": 2394,
+    "completion_tokens": 170,
+    "cached_tokens": 1024,
+    "reasoning_tokens": 0,
+    "cost_usd": 0.000219216,
+    "aborted_calls": 1
+   },
+   "tool_calls": [
+    {
+     "name": "glob",
+     "arguments": "{\"limit\":20,\"offset\":0,\"path\":\".\",\"pattern\":\"**/solution.py\",\"sort\":\"path\"}"
+    },
+    {
+     "name": "glob",
+     "arguments": "{\"limit\":20,\"offset\":0,\"path\":\".\",\"pattern\":\"**/test_solution.py\",\"sort\":\"path\"}"
+    }
+   ],
+   "recording": "E1-117.damnbot.proxy.jsonl.gz",
+   "recording_sha256": "e06d9e856c90b02df9b6c0af3c82b2d93c76fdfd609b2663eb0e2aaa790fe971",
+   "harness_errors": [],
+   "damnbot": "exit=2 stop=error/provider_error"
+  },
+  {
+   "id": "E1-124",
+   "set": "E1",
+   "kind": "internal-typescript:reverse",
+   "agent": "damnbot",
+   "status": "ran",
+   "run": {
+    "exit_code": 2,
+    "timed_out": false,
+    "duration_s": 84.642090195,
+    "answer": "",
+    "stderr_tail": "",
+    "daemons_stopped": 0,
+    "stop_reason": "error",
+    "stop_detail": "provider_error"
+   },
+   "verdict": {
+    "pass": false,
+    "detail": [
+     "tsc --strict --target es2022 --module commonjs --outDir out solution.ts test_solution.ts \u0026\u0026 node out/test_solution.js: exit status 1: at Object..js (node:internal/modules/cjs/loader:2003:10)\n    at Module.load (node:internal/modules/cjs/loader:1594:32)\n    at Module._load (node:internal/modules/cjs/loader:1396:12)\n    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)\n    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)\n    at node:internal/main/run_main_module:33:47\n\nNode.js v24.19.0"
+    ]
+   },
+   "usage": {
+    "calls": 1,
+    "prompt_tokens": 2440,
+    "completion_tokens": 170,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "cost_usd": 0.0003063,
+    "aborted_calls": 0
+   },
+   "tool_calls": [
+    {
+     "name": "glob",
+     "arguments": "{\"limit\":20,\"offset\":0,\"path\":\".\",\"pattern\":\"**/solution.ts\",\"sort\":\"path\"}"
+    },
+    {
+     "name": "glob",
+     "arguments": "{\"limit\":20,\"offset\":0,\"path\":\".\",\"pattern\":\"**/test_solution.ts\",\"sort\":\"path\"}"
+    }
+   ],
+   "recording": "E1-124.damnbot.proxy.jsonl.gz",
+   "recording_sha256": "d53cb8f1f3508190e5b820a0fb0614adfd03d46cba134e0c3a6a4570dd4903f6",
+   "harness_errors": [],
+   "damnbot": "exit=2 stop=error/provider_error"
+  },
+  {
+   "id": "E1-147",
+   "set": "E1",
+   "kind": "internal-java:count_vowels",
+   "agent": "damnbot",
+   "status": "ran",
+   "run": {
+    "exit_code": 2,
+    "timed_out": false,
+    "duration_s": 52.736068385,
+    "answer": "",
+    "stderr_tail": "",
+    "daemons_stopped": 0,
+    "stop_reason": "error",
+    "stop_detail": "provider_error"
+   },
+   "verdict": {
+    "pass": false,
+    "detail": [
+     "javac Solution.java SolutionTest.java \u0026\u0026 java SolutionTest: exit status 1: FAIL Solution.countVowels(\"education\"): got 4, want 5"
+    ]
+   },
+   "usage": {
+    "calls": 1,
+    "prompt_tokens": 2406,
+    "completion_tokens": 170,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "cost_usd": 0.00030324000000000003,
+    "aborted_calls": 0
+   },
+   "tool_calls": [
+    {
+     "name": "glob",
+     "arguments": "{\"limit\":20,\"offset\":0,\"path\":\".\",\"pattern\":\"**/Solution.java\",\"sort\":\"path\"}"
+    },
+    {
+     "name": "glob",
+     "arguments": "{\"limit\":20,\"offset\":0,\"path\":\".\",\"pattern\":\"**/SolutionTest.java\",\"sort\":\"path\"}"
+    }
+   ],
+   "recording": "E1-147.damnbot.proxy.jsonl.gz",
+   "recording_sha256": "24dbcd4f0f22ca069df8a762ab49faa4c854aafc8d34713cadfe0eddb04878e3",
+   "harness_errors": [],
+   "damnbot": "exit=2 stop=error/provider_error"
+  },
+  {
+   "id": "E1-149",
+   "set": "E1",
+   "kind": "internal-java:clamp",
+   "agent": "damnbot",
+   "status": "ran",
+   "run": {
+    "exit_code": 2,
+    "timed_out": false,
+    "duration_s": 110.474318922,
+    "answer": "",
+    "stderr_tail": "",
+    "daemons_stopped": 0,
+    "stop_reason": "error",
+    "stop_detail": "provider_error"
+   },
+   "verdict": {
+    "pass": false,
+    "detail": [
+     "javac Solution.java SolutionTest.java \u0026\u0026 java SolutionTest: exit status 1: FAIL Solution.clamp(5, 0, 3): got 0, want 3"
+    ]
+   },
+   "usage": {
+    "calls": 1,
+    "prompt_tokens": 2406,
+    "completion_tokens": 170,
+    "cached_tokens": 1024,
+    "reasoning_tokens": 0,
+    "cost_usd": 0.00022029599999999998,
+    "aborted_calls": 2
+   },
+   "tool_calls": [
+    {
+     "name": "glob",
+     "arguments": "{\"limit\":20,\"offset\":0,\"path\":\".\",\"pattern\":\"**/Solution.java\",\"sort\":\"path\"}"
+    },
+    {
+     "name": "glob",
+     "arguments": "{\"limit\":20,\"offset\":0,\"path\":\".\",\"pattern\":\"**/SolutionTest.java\",\"sort\":\"path\"}"
+    }
+   ],
+   "recording": "E1-149.damnbot.proxy.jsonl.gz",
+   "recording_sha256": "63c0bc498689a35df79ed45c94a18617c045a5adde5774f4fb4a315dcc34603c",
+   "harness_errors": [],
+   "damnbot": "exit=2 stop=error/provider_error"
+  },
+  {
+   "id": "E2-016",
+   "set": "E2",
+   "kind": "crlf",
+   "agent": "damnbot",
+   "status": "ran",
+   "run": {
+    "exit_code": 2,
+    "timed_out": false,
+    "duration_s": 101.993887399,
+    "answer": "",
+    "stderr_tail": "",
+    "daemons_stopped": 0,
+    "stop_reason": "error",
+    "stop_detail": "provider_error"
+   },
+   "verdict": {
+    "pass": false,
+    "detail": [
+     "settings.ini tidak byte-identik dengan referensi"
+    ]
+   },
+   "usage": {
+    "calls": 1,
+    "prompt_tokens": 2382,
+    "completion_tokens": 62,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "cost_usd": 0.000246,
+    "aborted_calls": 0
+   },
+   "tool_calls": [
+    {
+     "name": "read_file",
+     "arguments": "{\"limit\":200,\"offset\":0,\"outline\":false,\"path\":\"settings.ini\"}"
+    }
+   ],
+   "recording": "E2-016.damnbot.proxy.jsonl.gz",
+   "recording_sha256": "84c3b6dbf8a9d48ce696302b38cfb18d1394b63033a6537efe305014c738f4ef",
+   "harness_errors": [],
+   "damnbot": "exit=2 stop=error/provider_error"
+  },
+  {
+   "id": "E2-039",
+   "set": "E2",
+   "kind": "large",
+   "agent": "damnbot",
+   "status": "ran",
+   "run": {
+    "exit_code": 2,
+    "timed_out": false,
+    "duration_s": 81.302156809,
+    "answer": "",
+    "stderr_tail": "",
+    "daemons_stopped": 0,
+    "stop_reason": "error",
+    "stop_detail": "provider_error"
+   },
+   "verdict": {
+    "pass": false,
+    "detail": [
+     "data.csv: baris 2041 bukan \"2040,SKU-68106,777\" atau byte lain berubah"
+    ]
+   },
+   "usage": {
+    "calls": 1,
+    "prompt_tokens": 2392,
+    "completion_tokens": 196,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "cost_usd": 0.00031524,
+    "aborted_calls": 0
+   },
+   "tool_calls": [
+    {
+     "name": "grep",
+     "arguments": "{\"case\":\"sensitive\",\"context\":2,\"glob\":\"data.csv\",\"limit\":20,\"mode\":\"matches\",\"offset\":0,\"path\":\".\",\"pattern\":\"^2040,\",\"type\":\"txt\"}"
+    },
+    {
+     "name": "read_file",
+     "arguments": "{\"limit\":20,\"offset\":0,\"outline\":false,\"path\":\"data.csv\"}"
+    }
+   ],
+   "recording": "E2-039.damnbot.proxy.jsonl.gz",
+   "recording_sha256": "fbab96ea019295826e386853648e36526c754937822b6320fa4d210d7f9ec7ec",
+   "harness_errors": [],
+   "damnbot": "exit=2 stop=error/provider_error"
+  },
+  {
+   "id": "E3-028",
+   "set": "E3",
+   "kind": "founded",
+   "agent": "damnbot",
+   "status": "ran",
+   "run": {
+    "exit_code": 2,
+    "timed_out": false,
+    "duration_s": 77.212729648,
+    "answer": "",
+    "stderr_tail": "",
+    "daemons_stopped": 0,
+    "stop_reason": "error",
+    "stop_detail": "provider_error"
+   },
+   "verdict": {
+    "pass": false,
+    "detail": [
+     "jawaban tidak cocok (^|\\D)1728(\\D|$)"
+    ]
+   },
+   "usage": {
+    "calls": 1,
+    "prompt_tokens": 2408,
+    "completion_tokens": 192,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "cost_usd": 0.00031464,
+    "aborted_calls": 0
+   },
+   "tool_calls": [
+    {
+     "name": "shell",
+     "arguments": "{\"command\":\"python - \u003c\u003c'PY'\\nimport urllib.request, re\\nhtml=urllib.request.urlopen('http://127.0.0.1:40603/index.html').read().decode('utf-8','ignore')\\nprint(html[:5000])\\nPY\",\"cwd\":\"/tmp/h2h_work/E3-028\",\"session\":\"s1\",\"stdin\":\"\",\"timeout_s\":10}"
+    }
+   ],
+   "recording": "E3-028.damnbot.proxy.jsonl.gz",
+   "recording_sha256": "7c92b8efa9f2175f1e0a1e783276f6b1ca87ef82d5452fd29b30b88bc9e1e0ca",
+   "harness_errors": [],
+   "damnbot": "exit=2 stop=error/provider_error"
+  },
+  {
+   "id": "E3-013",
+   "set": "E3",
+   "kind": "founded",
+   "agent": "damnbot",
+   "status": "ran",
+   "run": {
+    "exit_code": 2,
+    "timed_out": false,
+    "duration_s": 122.566758032,
+    "answer": "",
+    "stderr_tail": "",
+    "daemons_stopped": 0,
+    "stop_reason": "error",
+    "stop_detail": "provider_error"
+   },
+   "verdict": {
+    "pass": false,
+    "detail": [
+     "jawaban tidak cocok (^|\\D)1909(\\D|$)"
+    ]
+   },
+   "usage": {
+    "calls": 1,
+    "prompt_tokens": 2410,
+    "completion_tokens": 200,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "cost_usd": 0.0003189,
+    "aborted_calls": 2
+   },
+   "tool_calls": [
+    {
+     "name": "shell",
+     "arguments": "{\"command\":\"python - \u003c\u003c'PY'\\nimport urllib.request, re\\nurl='http://127.0.0.1:37003/index.html'\\nprint(urllib.request.urlopen(url, timeout=10).read().decode('utf-8','ignore')[:5000])\\nPY\",\"cwd\":\"/tmp/h2h_work/E3-013\",\"session\":\"s1\",\"stdin\":\"\",\"timeout_s\":20}"
+    }
+   ],
+   "recording": "E3-013.damnbot.proxy.jsonl.gz",
+   "recording_sha256": "9f6e2beb9893be77595749c45e849710fdf9dffe0d5c9736dc031c77a78894db",
+   "harness_errors": [],
+   "damnbot": "exit=2 stop=error/provider_error"
+  },
+  {
+   "id": "E6-010",
+   "set": "E6",
+   "kind": "timeout",
+   "agent": "damnbot",
+   "status": "ran",
+   "run": {
+    "exit_code": 2,
+    "timed_out": false,
+    "duration_s": 92.670813197,
+    "answer": "",
+    "stderr_tail": "",
+    "daemons_stopped": 0,
+    "stop_reason": "error",
+    "stop_detail": "provider_error"
+   },
+   "verdict": {
+    "pass": false,
+    "detail": [
+     "jawaban tidak cocok (^|\\D)15333(\\D|$)"
+    ]
+   },
+   "usage": {
+    "calls": 1,
+    "prompt_tokens": 2388,
+    "completion_tokens": 202,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "cost_usd": 0.00031794,
+    "aborted_calls": 0
+   },
+   "tool_calls": [
+    {
+     "name": "shell",
+     "arguments": "{\"command\":\"python3 - \u003c\u003c'PY'\\nimport urllib.request, json\\nurl='http://127.0.0.1:36019/api/rate.json'\\nwith urllib.request.urlopen(url, timeout=10) as r:\\n    data=json.load(r)\\nprint(data)\\nPY\",\"cwd\":\"/tmp/h2h_work/E6-010\",\"session\":\"fetchrate\",\"stdin\":\"\",\"timeout_s\":20}"
+    }
+   ],
+   "recording": "E6-010.damnbot.proxy.jsonl.gz",
+   "recording_sha256": "e411fcfae74d70ed43e45882ca877ba506e8523f994c465ce705d4b4c572f708",
+   "harness_errors": [],
+   "damnbot": "exit=2 stop=error/provider_error"
+  },
+  {
+   "id": "E6-040",
+   "set": "E6",
+   "kind": "malformed_json",
+   "agent": "damnbot",
+   "status": "ran",
+   "run": {
+    "exit_code": 2,
+    "timed_out": false,
+    "duration_s": 89.394090705,
+    "answer": "",
+    "stderr_tail": "",
+    "daemons_stopped": 0,
+    "stop_reason": "error",
+    "stop_detail": "provider_error"
+   },
+   "verdict": {
+    "pass": false,
+    "detail": [
+     "jawaban tidak cocok (?i)user09@example\\.test"
+    ]
+   },
+   "usage": {
+    "calls": 1,
+    "prompt_tokens": 2388,
+    "completion_tokens": 212,
+    "cached_tokens": 0,
+    "reasoning_tokens": 0,
+    "cost_usd": 0.00032303999999999997,
+    "aborted_calls": 0
+   },
+   "tool_calls": [
+    {
+     "name": "shell",
+     "arguments": "{\"command\":\"python3 - \u003c\u003c'PY'\\nimport urllib.request, json\\nurl='http://127.0.0.1:42343/api/user.json'\\nwith urllib.request.urlopen(url, timeout=10) as r:\\n    data=r.read().decode('utf-8')\\nprint(data)\\nPY\",\"cwd\":\"/tmp/h2h_work/E6-040\",\"session\":\"fetchuser\",\"stdin\":\"\",\"timeout_s\":20}"
+    }
+   ],
+   "recording": "E6-040.damnbot.proxy.jsonl.gz",
+   "recording_sha256": "e61c4f45f86025c2f73957e3473cf700ddaa0bebafb3482de3ba4a021ab8bbc1",
+   "harness_errors": [],
+   "damnbot": "exit=2 stop=error/provider_error"
+  }
+ ]
+}

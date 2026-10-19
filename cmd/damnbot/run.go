@@ -170,7 +170,7 @@ func runOne(ctx context.Context, o runOptions, stdout, stderr io.Writer) (int, e
 		ParallelTools:   cfg.Loop.ParallelTools,
 	}, &loop.Deps{
 		Provider:  model.provider,
-		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, cwd: model.cwd, model: modelRef, maxTokens: cfg.Provider.MaxOutput, prompt: o.prompt},
+		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, cwd: model.cwd, model: modelRef, maxTokens: cfg.Provider.MaxOutput, store: model.store},
 		Toolset:   &toolsetAdapter{disp: disp},
 		Store:     model.store,
 		Ledger:    model.ledger,
@@ -330,10 +330,14 @@ func providerEndpoint(ref string, o runOptions) (base, key string, err error) {
 }
 
 func approvalMode(o runOptions) tools.Mode {
-	if o.approval == "auto" && o.unsafeShell {
+	switch o.approval {
+	case "auto":
 		return tools.ModeHeadlessAuto
+	case "auto-edit":
+		return tools.ModeAutoEdit
+	default:
+		return tools.ModeHeadless
 	}
-	return tools.ModeHeadless
 }
 
 func newSessionID() (string, error) {
@@ -357,7 +361,11 @@ type providerAdapter struct {
 func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
 	preq := &provider.Request{Model: req.Model, MaxTokens: req.MaxTokens}
 	for _, m := range req.Messages {
-		preq.Messages = append(preq.Messages, provider.Message{Role: m.Role, Content: m.Content})
+		pm := provider.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
+		for _, c := range m.ToolCalls {
+			pm.ToolCalls = append(pm.ToolCalls, provider.ToolCall{ID: c.ID, Name: c.Name, ArgumentsRaw: c.Arguments})
+		}
+		preq.Messages = append(preq.Messages, pm)
 	}
 	for _, t := range req.Tools {
 		preq.Tools = append(preq.Tools, provider.ToolSchema{Name: t.Name, Description: t.Description, Parameters: t.Parameters})
@@ -394,7 +402,7 @@ type assemblerAdapter struct {
 	cwd       string
 	model     string
 	maxTokens int
-	prompt    string
+	store     *ctxStore
 }
 
 func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleRequest) (loop.Prompt, error) {
@@ -410,11 +418,20 @@ func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleReque
 		return loop.Prompt{}, err
 	}
 	out := loop.Prompt{InputTokens: int64(est.Total)}
-	out.Model = a.model
-	out.MaxTokens = a.maxTokens
-	for _, m := range r.Messages {
-		out.Messages = append(out.Messages, loop.Message{Role: m.Role, Content: m.Content})
+	out.Model, out.MaxTokens = a.model, a.maxTokens
+	// The system prompt and tools come from assemble; history comes from the
+	// transcript so assistant tool_calls and tool results survive iterations.
+	if len(r.Messages) > 0 {
+		out.Messages = append(out.Messages, loop.Message{Role: r.Messages[0].Role, Content: r.Messages[0].Content})
 	}
+	history, err := a.store.History(ctx, req.SessionID)
+	if err != nil {
+		return loop.Prompt{}, err
+	}
+	if len(history) == 0 {
+		history = []loop.Message{{Role: "user", Content: req.Input.Text}}
+	}
+	out.Messages = append(out.Messages, history...)
 	for _, t := range r.Tools {
 		out.Tools = append(out.Tools, loop.ToolSchema{Name: t.Name, Description: t.Description, Parameters: t.Parameters})
 	}

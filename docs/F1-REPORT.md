@@ -145,6 +145,33 @@ Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket 
 | P15 subset ADR-067/082 | stable kondisional (aturan 3/`repo_map`), volatile beku, runtime suffix, schema shell per fase | `TestStableTierGolden` (3 varian), `TestPromptNoUnavailableTools`, `TestVolatileTierCaps`, `TestPrefixStableWithinTurn`, `TestRuntimeSuffixCaps`, `TestShellSchemaVariant` | selesai |
 | Keamanan prompt | `Deps.Scrub` wajib pada semua teks pemanggil; context file hanya lewat `FileReader` sandbox, `ErrUnavailable` → file dihilangkan | `TestContextScrub`, `TestContextSandboxRefusalOmitsFile` | selesai |
 
+### Smoke LLM F1 (ADR-062, 2026-10-19)
+
+`damnbot run` dari `f1-integration` lewat proxy rekam `bench/h2h`, model `gpt-5.4-mini` (0,09/0,009/0,51 USD per Mtok), 10 task `h2h-smoke/v1` × 1 run, timeout 180 s/task, cap ledger US$2,00.
+
+```bash
+cd bench && go run ./h2h/cmd/h2h -damnbot ~/.cache/damnbot/bin/damnbot \
+  -out h2h/results/2026-10-19 -upstream https://api.teamorouter.com \
+  -key-file /tmp/f0-secrets/llm_key -model gpt-5.4-mini \
+  -price-in 0.09 -price-cached 0.009 -price-out 0.51 -timeout 180s \
+  -only E1-117,E1-124,E1-147,E1-149,E2-016,E2-039,E3-028,E3-013,E6-010,E6-040
+```
+
+| Task | stop | calls | input tok | output tok | USD | pass |
+|---|---|---|---:|---:|---:|---|
+| E1-117 | error/provider_error | 1 | 2394 | 170 | 0.0002 | tidak |
+| E1-124 | error/provider_error | 1 | 2440 | 170 | 0.0003 | tidak |
+| E1-147 | error/provider_error | 1 | 2406 | 170 | 0.0003 | tidak |
+| E1-149 | error/provider_error | 1 | 2406 | 170 | 0.0002 | tidak |
+| E2-016 | error/provider_error | 1 | 2382 | 62 | 0.0002 | tidak |
+| E2-039 | error/provider_error | 1 | 2392 | 196 | 0.0003 | tidak |
+| E3-028 | error/provider_error | 1 | 2408 | 192 | 0.0003 | tidak |
+| E3-013 | error/provider_error | 1 | 2410 | 200 | 0.0003 | tidak |
+| E6-010 | error/provider_error | 1 | 2388 | 202 | 0.0003 | tidak |
+| E6-040 | error/provider_error | 1 | 2388 | 212 | 0.0003 | tidak |
+
+Totals: 10/10 ran, **0 harness errors**, 10 completion calls (+5 aborted), 24.014 input / 1.744 output tok, **US$0,0253** run ini, ledger **US$0,0337 / 2,00**. Setiap task mendapat satu respons SSE sukses, lalu upstream mengembalikan 499/503 `upstream_unavailable` pada retry; loop berhenti `error/provider_error` (pass/fail informatif, ADR-062). Artefak: 10 rekaman `.jsonl.gz` + `summary.json`, 40 request, semua `Authorization: REDACTED`; scan nilai kunci pada artefak = 0 hit. `TestAgentIsolation`/`TestRecordingsNoKey` belum ada di pohon (ADR-085); verifikasi manual + `go test ./h2h` hijau.
+
 ## Review keamanan
 
 PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (auditor). PR bagian b bertumpuk di atas bagian a (base = branch a); setelah a di-merge, base b diganti ke `main`.
