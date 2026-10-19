@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -121,14 +122,6 @@ func TestSymlinkEscapeRace(t *testing.T) {
 	f := newFixture(t)
 	mkfile(t, filepath.Join(f.root, "d", "f.txt"), "inside")
 	symlink(t, filepath.Join(f.out, "outdir"), filepath.Join(f.root, "d.link"))
-	inside, err := os.Stat(filepath.Join(f.root, "d", "f.txt"))
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	outside, err := os.Stat(filepath.Join(f.out, "outdir", "f.txt"))
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
 	startFlipper(t, f.root)
 	modes(t, f.sb, func(t *testing.T, sb *Sandbox) {
 		var opened, refused int
@@ -145,7 +138,7 @@ func TestSymlinkEscapeRace(t *testing.T) {
 					continue
 				}
 				opened++
-				assertSame(t, file.f, inside, outside)
+				assertSame(t, file.f)
 			}
 		}
 		t.Logf("opened %d, refused as escape %d", opened, refused)
@@ -188,17 +181,20 @@ func startFlipper(t *testing.T, root string) {
 	})
 }
 
-func assertSame(t *testing.T, file *os.File, inside, outside fs.FileInfo) {
+// assertSame reads the opened handle's bytes: comparing FileInfo is not
+// safe here because os.SameFile on Windows lazily re-opens the saved path,
+// which the flipper is renaming, so the comparison itself would race.
+func assertSame(t *testing.T, file *os.File) {
 	t.Helper()
-	fi, err := file.Stat()
+	b, err := io.ReadAll(file)
 	if err != nil {
-		t.Fatalf("Stat: %v", err)
+		t.Fatalf("Read: %v", err)
 	}
 	if cerr := file.Close(); cerr != nil {
 		t.Fatalf("Close: %v", cerr)
 	}
-	if os.SameFile(fi, outside) || !os.SameFile(fi, inside) {
-		t.Fatalf("opened a file outside the root: %v", fi)
+	if string(b) != "inside" {
+		t.Fatalf("opened a file outside the root: %q", b)
 	}
 }
 
