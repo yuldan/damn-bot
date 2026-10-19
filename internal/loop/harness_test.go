@@ -2,6 +2,7 @@ package loop
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -41,6 +42,18 @@ func textScript(text string, u event.Usage) streamFunc {
 	return func(_ context.Context, _ *Request, emit func(Delta)) (Reply, error) {
 		emit(Delta{Text: text})
 		return Reply{Content: text, FinishReason: FinishStop, Usage: u, Model: "fake/m"}, nil
+	}
+}
+
+// callScript emits each call in one delta, so the reply carries a full call.
+func callScript(finish string, calls ...ToolCall) streamFunc {
+	return func(_ context.Context, _ *Request, emit func(Delta)) (Reply, error) {
+		var ds []ToolCallDelta
+		for i, c := range calls {
+			ds = append(ds, ToolCallDelta{Index: i, HasIndex: true, ID: c.ID, Name: c.Name, Arguments: c.Arguments})
+		}
+		emit(Delta{ToolCalls: ds})
+		return Reply{FinishReason: finish, Model: "fake/m", ToolCalls: calls}, nil
 	}
 }
 
@@ -96,6 +109,8 @@ type fakeToolset struct {
 
 func newFakeToolset() *fakeToolset { return &fakeToolset{stubs: map[string]*toolStub{}} }
 
+func (f *fakeToolset) add(name string, s *toolStub) { f.stubs[name] = s }
+
 func (f *fakeToolset) Prepare(ctx context.Context, c ToolCall) (Prepared, error) {
 	f.mu.Lock()
 	f.prepared = append(f.prepared, c)
@@ -121,6 +136,12 @@ func (f *fakeToolset) Dispatch(ctx context.Context, p *Prepared) (ToolResult, er
 	return ToolResult{Content: "tool-ok"}, nil
 }
 
+func (f *fakeToolset) ranCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.ran)
+}
+
 // ---- other fakes ---------------------------------------------------------
 
 type fakeStore struct {
@@ -137,6 +158,27 @@ func (s *fakeStore) Append(_ context.Context, _, _ string, ev *event.Event) erro
 	}
 	s.events = append(s.events, *ev)
 	return nil
+}
+
+func (s *fakeStore) kinds() []event.Kind {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]event.Kind, 0, len(s.events))
+	for _, e := range s.events {
+		out = append(out, e.Kind)
+	}
+	return out
+}
+
+func (s *fakeStore) find(k event.Kind) (event.Event, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range s.events {
+		if e.Kind == k {
+			return e, true
+		}
+	}
+	return event.Event{}, false
 }
 
 type fakeLedger struct {
@@ -276,3 +318,9 @@ func terminal(t *testing.T, ups []event.Update) event.Update {
 }
 
 // payloadOf decodes an event payload.
+func payloadOf(t *testing.T, e *event.Event, v any) {
+	t.Helper()
+	if err := json.Unmarshal(e.Payload, v); err != nil {
+		t.Fatalf("payload %s: %v", e.Payload, err)
+	}
+}
