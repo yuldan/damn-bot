@@ -31,8 +31,9 @@ const (
 	grepTimeout      = 30 * time.Second
 	inMemoryScan     = 16 << 20 // larger files are streamed in scanChunk steps
 	scanChunk        = 1 << 20
-	scratchMin       = 256 << 10 // per-worker read buffer: initial size (one read for most files)
-	scratchMax       = 1 << 20  // and the largest size kept between files
+	// per-worker read buffer: initial size (one read for most files)
+	scratchMin = 256 << 10
+	scratchMax = 1 << 20 // and the largest size kept between files
 )
 
 // GrepArgs are the grep arguments (CODE-TOOLS §2.1).

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -137,13 +138,19 @@ func (w *walker) trackDir(d *sandbox.Dir) {
 	w.openMu.Unlock()
 }
 
+// closeQuiet closes a read-only handle: a close error cannot change the
+// result the walk already reported for that handle.
+func closeQuiet(c io.Closer) {
+	_ = c.Close() //nolint:errcheck // read-only handle: close errors are not actionable
+}
+
 // releaseDir closes a directory handle once every job that may use it is
 // done (dirNode.release) and drops it from the registry.
 func (w *walker) releaseDir(d *sandbox.Dir) {
 	w.openMu.Lock()
 	delete(w.open, d)
 	w.openMu.Unlock()
-	_ = d.Close()
+	closeQuiet(d)
 }
 
 // closeDirs closes handles a cancelled walk left queued.
@@ -156,7 +163,7 @@ func (w *walker) closeDirs() {
 	w.open = map[*sandbox.Dir]struct{}{}
 	w.openMu.Unlock()
 	for _, d := range left {
-		_ = d.Close()
+		closeQuiet(d)
 	}
 }
 
@@ -396,7 +403,7 @@ func (w *walker) lockDir(ctx context.Context, n *dirNode) ([]os.DirEntry, bool) 
 	}
 	if err != nil || f == nil {
 		if dir != nil {
-			_ = dir.Close()
+			closeQuiet(dir)
 		}
 		n.unread = ctx.Err() == nil
 		return nil, false
@@ -404,9 +411,9 @@ func (w *walker) lockDir(ctx context.Context, n *dirNode) ([]os.DirEntry, bool) 
 	ents, err := f.ReadDir(-1)
 	if err != nil {
 		if dir != nil {
-			_ = dir.Close()
+			closeQuiet(dir)
 		} else {
-			_ = f.Close()
+			closeQuiet(f)
 		}
 		n.unread = true
 		return nil, false
@@ -417,7 +424,7 @@ func (w *walker) lockDir(ctx context.Context, n *dirNode) ([]os.DirEntry, bool) 
 		n.ref.Store(r)
 		w.trackDir(dir)
 	} else {
-		_ = f.Close()
+		closeQuiet(f)
 	}
 	slices.SortFunc(ents, func(a, b os.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	return ents, true
