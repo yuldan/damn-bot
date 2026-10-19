@@ -15,11 +15,14 @@
 /internal/budget/ @yuldan
 /internal/codetools/ @yuldan
 /internal/config/ @yuldan
+/internal/codetools/ @yuldan
 /internal/ctxdb/ @yuldan
 /internal/exec/ @yuldan
+/internal/exec/classify/ @yuldan
 /internal/netx/ @yuldan
 /internal/provider/ @yuldan
 /internal/schema/ @yuldan
 /internal/redact/ @yuldan
 /internal/sandbox/ @yuldan
 /internal/testutil/ @yuldan
+/internal/tools/ @yuldan
