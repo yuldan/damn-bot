@@ -20,8 +20,7 @@ type OneShot struct {
 	Direct []string
 	Dir    string
 	// Root is the workspace root: a secret ref whose command resolves
-	// inside it (or anywhere, when Root is empty) is never injected
-	// (NEW3-04, EX42-1; fail-closed per EX5-4).
+	// inside it is never injected (NEW3-04, EX42-1). "" skips the check.
 	Root      string
 	Stdin     []byte
 	PTY       bool

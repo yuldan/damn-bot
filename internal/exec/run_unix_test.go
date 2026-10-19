@@ -17,7 +17,13 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode"
+
+	"github.com/damnbot/damnbot/internal/redact"
 )
+
+// testQuote single-quotes p for POSIX shells.
+func testQuote(p string) string { return "'" + strings.ReplaceAll(p, "'", `'\''`) + "'" }
 
 // escapeeScript starts a setsid process that records its pid before exec,
 // so the test can kill it: `env -i` strips the runner marker and SweepStale
@@ -40,9 +46,6 @@ func escapeeScript(t *testing.T) string {
 	})
 	return `env -i setsid sh -c 'echo $$ > "$1"; exec sleep 9973' sh ` + testQuote(pidfile)
 }
-
-// testQuote single-quotes p for POSIX shells.
-func testQuote(p string) string { return "'" + strings.ReplaceAll(p, "'", `'\''`) + "'" }
 
 func newTestRunner(t *testing.T) *Runner {
 	t.Helper()
@@ -203,6 +206,32 @@ func TestRunSetsidEscapeSwept(t *testing.T) {
 	assertNoMarker(t, res.ExecID)
 }
 
+// TestPromptRedactedAndSanitized (EX45-1): Result.Prompt is target output
+// that goes to the model and UI: known secrets are redacted and only
+// printable runes (plus newline and tab) survive.
+func TestPromptRedactedAndSanitized(t *testing.T) {
+	t.Parallel()
+	r := newTestRunner(t)
+	r.SetRedactor(redact.New(redact.Options{Secrets: []string{"hunter2-secret"}}))
+	s := sh(t, `printf '\a\001Proceed with hunter2-secret? [y/n] '; read a`)
+	s.PTY, s.Timeout, s.KillGrace = true, 10*time.Second, time.Second
+	res := run(t.Context(), t, r, s)
+	if res.Status != StatusWaitingForInput || res.InputKind != InputConfirm {
+		t.Fatalf("%s %q %q", res.Status, res.InputKind, res.Prompt)
+	}
+	if strings.Contains(res.Prompt, "hunter2") {
+		t.Fatalf("prompt leaked the secret: %q", res.Prompt)
+	}
+	for _, c := range res.Prompt {
+		if c != '\n' && c != '\t' && !unicode.IsPrint(c) {
+			t.Fatalf("prompt kept control rune %U: %q", c, res.Prompt)
+		}
+	}
+	if !strings.Contains(res.Prompt, "Proceed with") {
+		t.Errorf("prompt text lost: %q", res.Prompt)
+	}
+}
+
 // TestRunPTYEscapeeDoesNotHang (EX39-1, P24): a process that escapes the
 // tree with `env -i setsid` keeps the PTY slave open, but must not hold
 // Run (or Runner.Close) after the leader exits or the timeout fires.
@@ -216,8 +245,8 @@ func TestRunPTYEscapeeDoesNotHang(t *testing.T) {
 		script  string
 		timeout time.Duration
 	}{
-		{"leader-exits", escapeeScript(t) + ` & sleep 0.1; echo hi`, 5 * time.Second},
-		{"timeout", escapeeScript(t) + ` & echo hi; sleep 1000`, time.Second},
+		{"leader-exits", `env -i setsid sleep 1000 & sleep 0.1; echo hi`, 5 * time.Second},
+		{"timeout", `env -i setsid sleep 1000 & echo hi; sleep 1000`, time.Second},
 	} {
 		r := New(context.Background())
 		s := sh(t, tc.script)
@@ -386,7 +415,7 @@ func TestRunEscapedStdinHolderDoesNotHang(t *testing.T) {
 	r := New(context.Background())
 	// The real shape from REVIEW-F1-SEC5 EX5-2/EX5-11: a foreground
 	// escapee keeps the stdin read end and never reads 1 MiB of stdin.
-	s := sh(t, escapeeScript(t))
+	s := sh(t, `env -i setsid sleep 9973`)
 	s.Stdin = bytes.Repeat([]byte("x"), 1<<20)
 	s.Timeout, s.KillGrace = time.Second, time.Second
 	res, err := r.Run(t.Context(), s)
