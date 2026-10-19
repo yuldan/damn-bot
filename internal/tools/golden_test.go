@@ -42,8 +42,11 @@ func newGolden(t *testing.T) *goldenEnv {
 	w.write("edit.txt", "one\ntwo\nthree\n")
 	w.write("sub/b.txt", "alpha two\n")
 	asker := &askerRec{answer: "ok"}
+	sh, closeFn := testShell(t, w)
+	t.Cleanup(closeFn)
 	appr := &approverRec{answer: ApprovalAllowOnce}
-	reg := mustReg(t, append(w.tools, NewTodo(), NewClarify(asker))...)
+
+	reg := mustReg(t, append(w.tools, NewTodo(), NewClarify(asker), sh)...)
 	d, err := NewDispatcher(&Config{
 		Registry: reg, Journal: &journalRec{}, Spill: newMemSpill(), Redactor: testRedactor(), Mode: ModeAsk,
 		Approver: appr, WorkspaceTrusted: true, Cwd: w.root,
@@ -97,6 +100,10 @@ var goldenCases = map[string][]goldenCase{ //nolint:gochecknoglobals // table of
 	"grep": {
 		{"success", func(*goldenEnv) string { return `{"pattern":"alpha"}` }},
 		{"bad_regex", func(*goldenEnv) string { return `{"pattern":"("}` }},
+	},
+	"shell": {
+		{"success", func(*goldenEnv) string { return `{"command":"echo hi"}` }},
+		{"missing_command", func(*goldenEnv) string { return `{"timeout_s":5}` }},
 	},
 	"todo": {
 		{"success", func(*goldenEnv) string {
@@ -192,7 +199,9 @@ func TestGoldenCoverage(t *testing.T) {
 func allGoldenTools(t *testing.T) []Tool {
 	t.Helper()
 	w := newWorkspace(t)
-	return append(w.tools, NewTodo(), NewClarify(&askerRec{answer: "ok"}))
+	sh, closeFn := testShell(t, w)
+	t.Cleanup(closeFn)
+	return append(w.tools, NewTodo(), NewClarify(&askerRec{answer: "ok"}), sh)
 }
 
 func renderGolden(out Outcome, g *goldenEnv) []byte {
