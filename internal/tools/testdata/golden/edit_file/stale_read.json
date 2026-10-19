@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "error": {
+    "code": "stale_read",
+    "message": "edit.txt: tag 00000000 is not current for this session (now #b6285c57)",
+    "hint": "read the file first (read_file or grep give a tag)"
+  }
+}

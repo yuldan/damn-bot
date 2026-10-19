@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "error": {
+    "code": "invalid_args",
+    "message": "/question: must be at least 1 characters long",
+    "hint": "fix the argument named by the JSON Pointer, then retry"
+  }
+}
