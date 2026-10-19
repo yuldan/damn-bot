@@ -205,3 +205,44 @@ Tidak ada temuan baru #44; suite `go test ./internal/exec/classify` hijau.
 
 - Runtime `cmd.exe` nyata; semantik title/opsi `start` diuji via `Dialect` deterministik.
 - Seluruh tabel opsi `start` (mis. `/node`, `/affinity` sudah; kombinasi lain) dan applet `busybox`/`toybox` di luar shell.
+
+## Putaran 4 — final verification (2026-10-20)
+
+Head: `#46` `55f5cf3`; `#44` `e080f4b` tidak berubah.
+
+| PR | Verdict putaran 4 |
+|---|---|
+| #44 | **approve** (tidak berubah) |
+| #46 | **changes** — title ter-quote masih lolos lewat jalur `cmd /c` |
+
+### Terverifikasi fixed
+
+| Perintah | Label |
+|---|---|
+| `cmd /c start /d C:\proj rd …` | destructive |
+| `cmd /c start /machine x64 rd …` | destructive |
+| `cmd /c start /node n1 rd …` | destructive |
+| `cmd /c start /affinity 1 rd …` | destructive |
+| `cmd /c start /wait "title" rd …` | **mutating (masih bocor)** |
+| `cmd /c start "title" rd …` | **mutating (masih bocor)** |
+| `cmd /c start /unknown rd …`, `/title`, `/d"C:\proj"`, `/machine:x64` | unknown |
+| `start "title" rd …` (dialek Cmd, tanpa `cmd /c`) | destructive |
+| `cmd /c start "" /d C:\proj rd`, `/b /d`, `/b`, `/high`, `/wait` | destructive |
+
+### CL5-9 residual
+
+`cmdBuiltin` sekarang benar menangani title ter-quote dan opsi bernilai jika `arg.quoted` tersedia. Namun `cmdShell` memanggil `s.inline(rest, Cmd)`, dan `inline` melakukan `strings.Join(argStrings(args), " ")` (`wrap.go:217-226`) sehingga flag `quoted` hilang saat re-parse. Akibatnya:
+
+```
+start "title" rd /s /q C:\proj        (dialek Cmd langsung) => destructive
+cmd /c start "title" rd /s /q C:\proj (re-parse via inline)  => mutating -> auto di unsafe
+cmd /c start /wait "title" rd …                              => mutating -> auto
+```
+
+Ini persis bentuk yang diminta diverifikasi (quoted-title) dan masih menjadi eksekusi tanpa approval di `--unsafe-auto-shell`.
+
+**Rekomendasi:** di `cmdShell`, untuk `rest` yang bukan satu argumen ter-quote utuh, panggil `s.command(rest, stdinNone)` (mempertahankan `arg.quoted`) alih-alih `inline`; hanya re-lex string bila seluruh command dibungkus satu quote. Atau buat `inline` yang sadar `quoted` (re-quote token ber-quoted) dengan jalur khusus untuk command utuh ter-quote. Tambah `cmd /c start "title" rd …` ke `TestUnsafeAutoShellCmdBuiltins`.
+
+### Tidak dicakup putaran 4
+
+- Runtime `cmd.exe` nyata; semantik `start` dengan title/opsi diuji deterministik via `Dialect`.
