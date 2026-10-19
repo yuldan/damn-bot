@@ -119,6 +119,12 @@ type call struct {
 	gone  bool // leader reaped
 	// lastOut is the time of the last output chunk (UnixNano).
 	lastOut atomic.Int64
+	// more, if set, gets a non-blocking signal after each output chunk
+	// (persistent sessions wait on it for their sentinel).
+	more chan struct{}
+	// in, if set, is the child's stdin read end (pipe sessions); spawn
+	// closes it after the start.
+	in *os.File
 	// red redacts a detected prompt line (EX45-1).
 	red *redact.Redactor
 
@@ -178,8 +184,8 @@ func (r *Runner) Run(ctx context.Context, spec *Spec) (Result, error) {
 }
 
 func (c *call) spawn(ctx context.Context) error {
-	var in, inW *os.File
-	if c.s.Stdin != nil {
+	in, inW := c.in, (*os.File)(nil) // c.in: a session's own input pipe
+	if in == nil && c.s.Stdin != nil {
 		var err error
 		if in, inW, err = os.Pipe(); err != nil {
 			return fmt.Errorf("exec: stdin pipe: %w", err)
@@ -235,6 +241,12 @@ func (c *call) readLoop(context.Context) error {
 			c.out.write(buf[:n])
 			if c.s.OnOutput != nil {
 				c.s.OnOutput(buf[:n])
+			}
+			if c.more != nil {
+				select {
+				case c.more <- struct{}{}:
+				default:
+				}
 			}
 		}
 		if err != nil {

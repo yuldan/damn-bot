@@ -44,7 +44,7 @@ func TestEnvWindowsBasics(t *testing.T) {
 	if !strings.Contains(got, "SystemRoot=C:\\Windows") || !strings.Contains(got, "Path=C:\\x") || strings.Contains(got, "AWS_SECRET") {
 		t.Errorf("%v", env)
 	}
-	if lookupEnv(env, "PATH") != "C:\\x" {
+	if envPath(env) != "C:\\x" {
 		t.Errorf("case-insensitive PATH: %v", env)
 	}
 }

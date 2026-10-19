@@ -186,11 +186,12 @@ func executable(p string) bool {
 	return fi.Mode().Perm()&0o111 != 0
 }
 
-// lookupEnv returns the value of k in env ("K=V" entries).
-func lookupEnv(env []string, k string) string {
+// envPath returns PATH from env ("K=V" entries; case-insensitive name on
+// Windows).
+func envPath(env []string) string {
 	i := slices.IndexFunc(env, func(kv string) bool {
 		n, _, _ := strings.Cut(kv, "=")
-		return envKey(n) == envKey(k)
+		return envKey(n) == envKey("PATH")
 	})
 	if i < 0 {
 		return ""
