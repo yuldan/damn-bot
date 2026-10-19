@@ -101,11 +101,15 @@ func BenchmarkShellSpawnPTY(b *testing.B) {
 	benchSpawn(b, true, 15*time.Millisecond, "shell spawn overhead p95, pty (§A.9)")
 }
 
-// BenchmarkShellSpawnWindows (§A.9, P24.3): p95 < 40 ms, pipe (ConPTY in
-// its own PR).
+// BenchmarkShellSpawnWindows (§A.9, P24.3): p95 < 40 ms, pipe and ConPTY.
 func BenchmarkShellSpawnWindows(b *testing.B) {
 	if runtime.GOOS != "windows" {
 		b.Skip("windows only")
 	}
-	benchSpawn(b, false, 40*time.Millisecond, "shell spawn overhead p95, windows pipe (§A.9)")
+	b.Run("pipe", func(b *testing.B) {
+		benchSpawn(b, false, 40*time.Millisecond, "shell spawn overhead p95, windows pipe (§A.9)")
+	})
+	b.Run("conpty", func(b *testing.B) {
+		benchSpawn(b, true, 40*time.Millisecond, "shell spawn overhead p95, windows ConPTY (§A.9)")
+	})
 }

@@ -103,3 +103,9 @@ type exit struct {
 	code   int
 	signal string
 }
+
+// ptyCols × ptyRows is the fixed PTY / ConPTY geometry of §A.1.
+const (
+	ptyCols = 120
+	ptyRows = 40
+)
