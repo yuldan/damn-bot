@@ -99,7 +99,7 @@ type root struct {
 // Sandbox is immutable after New and safe for concurrent use.
 type Sandbox struct {
 	roots []root
-	deny  [][]string
+	deny  [][]denyComp
 	// denyIDs are the objects that fully literal deny patterns named at New,
 	// matched against every opened handle (S16-2).
 	denyIDs []os.FileInfo
@@ -340,8 +340,8 @@ func hasPathPrefix(p, root string, fold bool) bool {
 // file systems (S15-3). An absolute pattern whose glob-free prefix resolves
 // elsewhere (symlinked deny dir or Home: ~/.ssh -> dotfiles/ssh, /home ->
 // /var/home) also yields its canonical form, so both spellings match (S15-1).
-func compileDeny(patterns []string, home string) ([][]string, []os.FileInfo, error) {
-	out := make([][]string, 0, len(patterns))
+func compileDeny(patterns []string, home string) ([][]denyComp, []os.FileInfo, error) {
+	out := make([][]denyComp, 0, len(patterns))
 	var ids []os.FileInfo
 	for _, pat := range patterns {
 		if pat == "~" || strings.HasPrefix(pat, "~/") || strings.HasPrefix(pat, `~\`) {
@@ -360,10 +360,10 @@ func compileDeny(patterns []string, home string) ([][]string, []os.FileInfo, err
 		}
 		if canon, ok := canonicalPattern(comps); ok { // before lowerAll: resolves on disk
 			ids = appendID(ids, canon)
-			out = append(out, lowerAll(canon))
+			out = append(out, compileComps(lowerAll(canon)))
 		}
 		ids = appendID(ids, comps)
-		out = append(out, lowerAll(comps))
+		out = append(out, compileComps(lowerAll(comps)))
 	}
 	return out, ids, nil
 }
@@ -413,6 +413,30 @@ func canonicalPattern(comps []string) ([]string, bool) {
 	return canon, true
 }
 
+// denyComp is one compiled deny_paths component: the fast paths (literal,
+// "*suffix") are decided without re-scanning the pattern for metacharacters
+// on every walk entry (ADR-103).
+type denyComp struct {
+	pat      string
+	starStar bool
+	meta     bool
+	suffix   string // "*" + suffix: suffix without the star
+	suffixOK bool
+}
+
+// compileComps compiles lower-cased pattern components.
+func compileComps(comps []string) []denyComp {
+	out := make([]denyComp, len(comps))
+	for i, c := range comps {
+		d := denyComp{pat: c, starStar: c == "**", meta: hasMeta(c)}
+		if d.meta && c[0] == '*' && !hasMeta(c[1:]) {
+			d.suffix, d.suffixOK = c[1:], true
+		}
+		out[i] = d
+	}
+	return out
+}
+
 func lowerAll(comps []string) []string {
 	for i, c := range comps {
 		comps[i] = strings.ToLower(c)
@@ -453,16 +477,16 @@ func splitPath(p string) []string { return appendComps(nil, p) }
 // place, without path.Match or allocation, since walkers check every
 // directory entry (ADR-103); anything else is lower-cased first, exactly
 // like the patterns were (S15-3).
-func matchComp(pat, c string) bool {
+func matchComp(p *denyComp, c string) bool {
 	if isASCII(c) {
-		if !hasMeta(pat) {
-			return len(c) == len(pat) && strings.EqualFold(c, pat)
+		if !p.meta {
+			return len(c) == len(p.pat) && strings.EqualFold(c, p.pat)
 		}
-		if suf := pat[1:]; pat[0] == '*' && !hasMeta(suf) {
-			return len(c) >= len(suf) && strings.EqualFold(c[len(c)-len(suf):], suf)
+		if p.suffixOK {
+			return len(c) >= len(p.suffix) && strings.EqualFold(c[len(c)-len(p.suffix):], p.suffix)
 		}
 	}
-	ok, err := path.Match(pat, strings.ToLower(c)) // err: validated in New
+	ok, err := path.Match(p.pat, strings.ToLower(c)) // err: validated in New
 	return ok && err == nil
 }
 
@@ -503,10 +527,73 @@ func appendComps(dst []string, p string) []string {
 
 func isSep(r rune) bool { return r == '/' || r == filepath.Separator }
 
+// PathComponents splits a clean absolute path into its volume (if any) and
+// components, exactly like denied. Walkers split a directory once and
+// reuse the slice for every entry instead of joining and splitting a path
+// per entry (ADR-103).
+func PathComponents(p string) []string { return appendComps(nil, p) }
+
+// DenyBelow is the deny_paths matcher restricted to paths at or below one
+// resolved directory: patterns that cannot match beneath it are dropped
+// once per directory, so a walk checks a handful of patterns per entry
+// instead of the whole deny list.
+type DenyBelow struct {
+	pats [][]denyComp
+}
+
+// DenyBelow compiles the matcher for entries of a directory whose
+// components are dirComps (from PathComponents).
+func (s *Sandbox) DenyBelow(dirComps []string) *DenyBelow {
+	d := &DenyBelow{pats: make([][]denyComp, 0, len(s.deny))}
+	for _, pat := range s.deny {
+		if patternBelow(pat, dirComps) {
+			d.pats = append(d.pats, pat)
+		}
+	}
+	return d
+}
+
+// Denied reports whether the component path comps matches a deny pattern.
+func (d *DenyBelow) Denied(comps []string) bool {
+	for _, pat := range d.pats {
+		if matchPrefix(pat, comps) {
+			return true
+		}
+	}
+	return false
+}
+
+// patternBelow reports whether pat can match comps or a path beneath it. A
+// pattern that matched the directory itself is not live (the walker never
+// enters a denied directory).
+func patternBelow(pat []denyComp, comps []string) bool {
+	for len(pat) > 0 && !pat[0].starStar {
+		if len(comps) == 0 {
+			return true // pattern remains: may match a child
+		}
+		if !matchComp(&pat[0], comps[0]) {
+			return false
+		}
+		pat, comps = pat[1:], comps[1:]
+	}
+	if len(pat) == 0 {
+		return false // exhausted at the directory: it matched (and was skipped)
+	}
+	if len(pat) == 1 {
+		return true // a trailing "**" matches everything below
+	}
+	for i := range len(comps) + 1 { // "**" consumes zero or more components
+		if patternBelow(pat[1:], comps[i:]) {
+			return true
+		}
+	}
+	return false
+}
+
 // matchPrefix reports whether pat matches comps or one of its ancestors.
-func matchPrefix(pat, comps []string) bool {
-	for len(pat) > 0 && pat[0] != "**" {
-		if len(comps) == 0 || !matchComp(pat[0], comps[0]) {
+func matchPrefix(pat []denyComp, comps []string) bool {
+	for len(pat) > 0 && !pat[0].starStar {
+		if len(comps) == 0 || !matchComp(&pat[0], comps[0]) {
 			return false
 		}
 		pat, comps = pat[1:], comps[1:]
