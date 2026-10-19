@@ -1,6 +1,6 @@
 # REVIEW-F1-SEC8 — Review keamanan loop stack (#99–#103)
 
-**Status: lengkap — approve setelah Putaran 3 (`#102` `d570441`, `#103` `d1adbdb`).** Review independen pertama atas `internal/loop` (event, turn core, tool-call assembly/render, dispatch/approval/taint/spill). Reviewer tidak menulis kode yang direview. Tanggal: 2026-10-20.
+**Status: lengkap — changes required setelah Putaran 4 (`#102` `d570441`, `#103` `d1adbdb`).** Putaran 3 sempat approve; probe independen lanjutan menemukan LP8-16 (BLOCKER), LP8-17/18/19 (MAJOR), LP8-20 (MINOR). Review independen pertama atas `internal/loop` (event, turn core, tool-call assembly/render, dispatch/approval/taint/spill). Reviewer tidak menulis kode yang direview. Tanggal: 2026-10-20.
 
 Head yang direview (belum di-merge): `#99` `beae644`, `#100` `5821828`, `#101` `d641c08`, `#102` `d8e360a`, `#103` `9b21692`. Pemeriksaan di Linux. Probe berupa test sementara di worktree terpisah (tidak di-commit); output probe dikutip di bawah.
 
@@ -171,6 +171,45 @@ Head: `#102` `d570441`, `#103` `d1adbdb`. Keduanya membawa perbaikan yang sama; 
 - `collect` dengan `KillGrace <= 0` menunggu tanpa batas; konfigurasi default positif.
 
 ### Tidak dicakup putaran 3
+
+- Runtime Windows/macOS dan integrasi adapter produksi.
+- Fuzz/bench dan stress konkurensi lebih luas.
+- Perbaikan setelah `d1adbdb`.
+
+## Putaran 4 — koreksi akhir (2026-10-20)
+
+Probe independen (auditor lanjutan, direproduksi) menemukan residual behavioral pada `d570441`/`d1adbdb`. Verdict final:
+
+| PR | Verdict final |
+|---|---|
+| #99 | **approve** (tidak berubah) |
+| #100, #101 | **approve sebagai bagian stack** — head tidak berubah; LP8-6/7/8 ditutup di #102 |
+| #102, #103 | **changes required** — LP8-16 BLOCKER; LP8-17/18/19 MAJOR; LP8-20 MINOR |
+
+### Temuan residual
+
+| ID | PR | Severity | Status | Temuan | Bukti |
+|---|---|---|---|---|---|
+| LP8-16 | #102 | **BLOCKER** | confirmed | `runParallel` mengembalikan terminal pada `deliver` pertama, termasuk terminal non-cancel (`tool_error`), sehingga result call lain yang sudah dieksekusi tidak pernah ditulis/emit. Serupa di serial: tool call yang error/cancel meninggalkan assistant tool_call tanpa tool result. Melanggar amandemen DECISIONS “hasil tool yang selesai saat ctx batal tetap ditulis”. | `dispatch.go:99-111`; `:411-418`; probe 2 parallel read, call kedua error: `stop=tool_error tool_results=1 ran=2`; probe 2 parallel selesai + cancel: `stop=cancelled tool_results=1 ran=2`; probe serial 2 call, call pertama cancel: `assistant_calls=2 tool_results=1 ran=1` |
+| LP8-17 | #102 | MAJOR | confirmed | `approve` return awal untuk grant cached **sebelum** `p.Approved=true`; call kedua dengan subject sama mendapat `Prepared.Approved=false`. Tools memetakan `p.Approved` → `Env.Approved`; approval user tidak sampai ke tool. | `dispatch.go:181-183`, `:198-209`; `internal/tools/dispatch.go:240`; probe: `approved=[true false] reqs=1` |
+| LP8-18 | #102 | MAJOR | confirmed | `collect` memasang timer `KillGrace` tanpa melihat `ctx.Err()`. Read normal yang lebih lambat dari `KillGrace` dilaporkan `still_running`; late success dibuang, meski tidak ada cancel. | `dispatch.go:349-373`; probe dua read 20 ms, `KillGrace=5 ms`, tanpa cancel: `status=still_running`, `late-a`/`late-b` tidak pernah dipersist |
+| LP8-19 | #102 | MAJOR | confirmed | Redaksi per-delta dapat dilewati fragmen: `"key sk-"` + `"secret end"` masing-masing lolos redactor, tetapi concatenation UI = `key sk-secret end`. Argumen tool-call juga dipecah per-delta. Payload/store yang dirakit aman. | `turn.go:202-209`; `toolcalls.go:47-52`; `payloads.go:82-97`; probe: `concat_text="key sk-secret end"`, `concat_args="{\"tok\":\"sk-secret\"}"`, leak=true |
+| LP8-20 | #102 | MINOR | confirmed | Member batch yang tidak pernah mulai (ctx batal sebelum semaphore) disintesis `Status:"cancelled_confirmed"`; bukan hasil tool. | `dispatch.go:336-340`; probe ctx cancel sebelum dispatchBatch: `outs=[{Status:cancelled_confirmed}]` |
+
+### Rekomendasi
+
+- LP8-16: jangan `return` pada terminal `deliver` di tengah batch; tandai terminal, teruskan `deliver` untuk semua hasil yang sudah ada, lalu kembalikan outcome terminal setelah loop. Untuk serial, pastikan setiap tool_call yang dieksekusi punya tool message (termasuk error/cancel) sebelum terminal. Tambah probe parallel/serial yang mengunci jumlah `tool_results == ran`.
+- LP8-17: set `p.Approved=true` sebelum early return `cached` (atau di `approve` saat `cached()` true).
+- LP8-18: aktifkan timer `KillGrace` hanya bila `ctx.Err()!=nil`; tanpa cancel, tunggu result normal.
+- LP8-19: redaksi streaming harus memakai buffer lintas-delta (atau tahan output sampai aman), dan redaksi fragmen argumen sebelum digabung; test split secret di teks dan argumen.
+- LP8-20: gunakan status `cancelled`/`not_started`, bukan `cancelled_confirmed`, untuk member yang tidak pernah mulai.
+
+### Verifikasi yang tetap berlaku
+
+- LP8-1 (persist + label) fixed; LP8-2 race fixed; LP8-3/4/5/8 fixed; LP8-6 payload/store redaction fixed (kecuali split-delta LP8-19); LP8-7 accounting fixed.
+- `go test -race ./internal/loop` hijau pada `d570441`/`d1adbdb`; probe race LP8-2 hijau. Residual di atas behavioral, bukan race.
+
+### Tidak dicakup putaran 4
 
 - Runtime Windows/macOS dan integrasi adapter produksi.
 - Fuzz/bench dan stress konkurensi lebih luas.
