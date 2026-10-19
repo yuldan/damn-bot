@@ -140,6 +140,31 @@ func TestProcPTY(t *testing.T) {
 	}
 }
 
+// TestProcPTYCloseUnblocksRead (EX39-1): a pending read on the master
+// returns when the master is closed, even while a live process holds the
+// slave. A blocking master would hold Run and Runner.Close forever.
+func TestProcPTYCloseUnblocksRead(t *testing.T) {
+	t.Parallel()
+	u := startSh(t, `exec sleep 30`, true, nil)
+	done := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1)
+		_, err := u.output().Read(buf)
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond) // let the read block on the master
+	if err := u.closeOutput(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Read still blocked after Close (EX39-1)")
+	}
+	_ = u.kill()
+	_, _ = u.wait()
+}
+
 func TestProcStartFails(t *testing.T) {
 	t.Parallel()
 	for _, tty := range []bool{false, true} {

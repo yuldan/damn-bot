@@ -133,7 +133,7 @@ func fixtureSpec(t *testing.T, f interactiveFixture, pty bool) *Spec {
 	if err != nil {
 		t.Skip("no sh")
 	}
-	env := (&EnvPolicy{}).Env([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}, pty, "")
+	env := (&EnvPolicy{}).Env([]string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}, pty, "", "", "")
 	return &Spec{
 		Argv: []string{shPath, "-c", f.script}, Dir: t.TempDir(), PTY: pty, Env: env,
 		Timeout: 20 * time.Second, KillGrace: time.Second,

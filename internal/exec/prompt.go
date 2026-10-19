@@ -3,7 +3,11 @@ package exec
 import (
 	"bytes"
 	"regexp"
+	"strings"
 	"time"
+	"unicode"
+
+	"github.com/damnbot/damnbot/internal/redact"
 )
 
 // Interactive prompt detection (§A.6, ADR-072): a foreground tree whose
@@ -85,6 +89,27 @@ func promptKind(rules []promptRule, line string) string {
 		}
 	}
 	return ""
+}
+
+// sanitizePrompt prepares a detected prompt line for Result.Prompt: only
+// printable runes (plus newline and tab) survive, and known secrets are
+// redacted. The line is target output that goes to the model and UI
+// (EX45-1), so it gets the same treatment as summarized output.
+func sanitizePrompt(red *redact.Redactor, line string) string {
+	if line == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(line))
+	for _, r := range line {
+		if r == '\n' || r == '\t' || unicode.IsPrint(r) {
+			b.WriteRune(r)
+		}
+	}
+	if red == nil {
+		return b.String()
+	}
+	return red.String(b.String())
 }
 
 // stripANSI appends src without ANSI escape sequences (CSI `ESC [ … final`;
