@@ -271,3 +271,29 @@ func TestCoreContentFilterWithCall(t *testing.T) {
 		t.Fatalf("stop = %s", got.Stop)
 	}
 }
+
+func TestCoreContextGuard(t *testing.T) {
+	t.Parallel()
+	t.Run("compact", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture()
+		f.asm.prompt.InputTokens, f.asm.prompt.WindowTokens = 80, 100
+		c := &coreCompactor{}
+		deps := f.deps()
+		deps.Compactor = c
+		if err := runCoreWith(t, f, &deps); err != nil {
+			t.Fatal(err)
+		}
+		if c.calls != 1 {
+			t.Errorf("compactor calls = %d", c.calls)
+		}
+	})
+	t.Run("overflow", func(t *testing.T) {
+		t.Parallel()
+		f := newFixture()
+		f.asm.prompt.InputTokens, f.asm.prompt.WindowTokens = 95, 100
+		if got := terminal(t, f.run(t)); got.Stop != event.StopMaxTokens || got.Detail != event.DetailContextOverflow {
+			t.Fatalf("stop = %s/%s", got.Stop, got.Detail)
+		}
+	})
+}
