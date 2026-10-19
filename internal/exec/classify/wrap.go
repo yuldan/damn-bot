@@ -15,7 +15,8 @@ const (
 	inlineFlags  = " -c -e -E -p -r --eval --print --command "
 	interpreters = " sh bash zsh dash ksh fish pwsh powershell node deno bun perl ruby php lua osascript "
 	privileged   = " sudo doas pkexec su runas "
-	wrappers     = " env nice nohup timeout stdbuf time command builtin exec xargs npx bunx pnpx uvx pipx "
+	wrappers     = " env nice nohup timeout stdbuf time command builtin exec xargs npx bunx pnpx uvx pipx" +
+		" setsid unshare systemd-run taskset busybox "
 )
 
 // privileged flags sudo-like commands and classifies the elevated command
@@ -59,6 +60,31 @@ func (s *state) wrapper(name string, args []arg, in stdin) {
 		if len(rest) > 0 {
 			rest = append(slices.Clone(rest), arg{s: "<stdin>"})
 		}
+	case "setsid":
+		rest = s.launcherArgs(args[1:], " -c -f -w -V --ctty --fork --wait --version ", "", "")
+	case "unshare":
+		rest = s.launcherArgs(args[1:], unshareBool, unshareValued, "mpnuUifrcT")
+	case "taskset":
+		rest = s.tasksetArgs(args[1:])
+	case "busybox":
+		rest = args[1:]
+		if len(rest) == 0 || strings.HasPrefix(rest[0].s, "-") {
+			s.raise(Unknown, "busybox without an applet")
+			return
+		}
+	case "systemd-run":
+		rest = args[1:]
+		if len(rest) > 0 && strings.HasPrefix(rest[0].s, "-") {
+			if i := slices.IndexFunc(rest, func(a arg) bool { return a.s == "--" }); i >= 0 {
+				rest = rest[i+1:]
+			} else {
+				s.raise(Unknown, "systemd-run options")
+				return
+			}
+		}
+	}
+	if rest == nil {
+		return
 	}
 	if inList(" npx bunx pnpx uvx pipx ", name) {
 		s.flag(Network, "network: "+name)
@@ -66,6 +92,88 @@ func (s *state) wrapper(name string, args []arg, in stdin) {
 	if len(rest) > 0 {
 		s.nested(rest, in)
 	}
+}
+
+// Launchers (CL5-2): unknown options are Unknown, never silently skipped.
+const (
+	unshareBool = " -m --mount -p --pid -n --net -u --uts -i --ipc -U --user -f --fork -r --map-root-user" +
+		" -c --cgroup -T --time --kill-child --mount-proc --propagation "
+	unshareValued = " --map-user --map-group --setuid --setgid --wd --root "
+)
+
+// launcherArgs returns the command a launcher runs, or nil after raising
+// Unknown for an option it cannot account for.
+func (s *state) launcherArgs(args []arg, boolOpts, valued, shorts string) []arg {
+	for len(args) > 0 {
+		v := args[0].s
+		if v == "--" {
+			args = args[1:]
+			break
+		}
+		if !strings.HasPrefix(v, "-") {
+			break
+		}
+		switch {
+		case inList(boolOpts, v):
+			args = args[1:]
+		case inList(valued, v):
+			if len(args) < 2 {
+				s.raise(Unknown, "launcher option without a value: "+v)
+				return nil
+			}
+			args = args[2:]
+		case len(v) > 2 && v[1] != '-' && strings.Trim(v[1:], shorts) == "":
+			args = args[1:]
+		default:
+			s.raise(Unknown, "launcher option "+v)
+			return nil
+		}
+	}
+	if len(args) == 0 {
+		s.raise(Unknown, "launcher without a command")
+		return nil
+	}
+	return args
+}
+
+// tasksetArgs skips options and the CPU mask, then returns the command.
+func (s *state) tasksetArgs(args []arg) []arg {
+	list := false
+	for len(args) > 0 && strings.HasPrefix(args[0].s, "-") {
+		v := args[0].s
+		switch {
+		case v == "-p" || v == "--pid":
+			s.raise(Unknown, "taskset -p operates on a pid")
+			return nil
+		case v == "-c" || v == "--cpu-list":
+			list = true
+			if len(args) < 2 {
+				s.raise(Unknown, "taskset -c without a list")
+				return nil
+			}
+			args = args[2:]
+		case strings.HasPrefix(v, "--cpu-list="):
+			list = true
+			args = args[1:]
+		case v == "-a" || v == "--all-tasks" || v == "-V" || v == "--version" || v == "--":
+			args = args[1:]
+		default:
+			s.raise(Unknown, "taskset option "+v)
+			return nil
+		}
+	}
+	if len(args) == 0 {
+		s.raise(Unknown, "taskset without a command")
+		return nil
+	}
+	if !list { // the next positional is the CPU mask
+		args = args[1:]
+	}
+	if len(args) == 0 {
+		s.raise(Unknown, "taskset without a command")
+		return nil
+	}
+	return args
 }
 
 // skipOpts drops the leading options of a wrapper (with their values).
