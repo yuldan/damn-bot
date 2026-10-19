@@ -25,6 +25,9 @@ func checkGolden(t *testing.T, path string, got []byte) {
 	if err != nil {
 		t.Fatalf("read golden %s (run go test -update): %v", path, err)
 	}
+	// A Windows checkout with core.autocrlf can still deliver CRLF despite the
+	// -text gitattribute; compare canonical LF bytes on every host.
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 	if !bytes.Equal(got, want) {
 		t.Errorf("%s differs (run go test -update and read the diff):\n got %d bytes, want %d bytes", path, len(got), len(want))
 	}
