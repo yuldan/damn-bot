@@ -65,8 +65,13 @@ func TestSetgidPreserved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m := mustStat(t, p).Mode(); m&os.ModeSetgid == 0 || m.Perm() != 0o640 || res.Meta["mode_preserved"] != true {
-		t.Errorf("mode %v, meta %v", m, res.Meta)
+	if m := mustStat(t, p).Mode(); m.Perm() != 0o640 {
+		t.Errorf("perm %v, want 0640", m.Perm())
+	} else if kept := m&os.ModeSetgid != 0; res.Meta["mode_preserved"] != kept {
+		// ADR-103 butir 12: the kernel may refuse setgid even after fchmod
+		// (a macOS runner group policy does); mode_preserved must then be
+		// false instead of claiming preservation. Permissions always stay.
+		t.Errorf("mode_preserved=%v with setgid=%v (mode %v)", res.Meta["mode_preserved"], kept, m)
 	}
 }
 
