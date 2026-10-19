@@ -56,3 +56,20 @@ func TestShellSessionLimits(t *testing.T) {
 		t.Fatalf("after idle reap: %+v", res)
 	}
 }
+
+// TestStripFrames (EX63-1): a well-formed protocol frame is removed from
+// command output; plain 0x1E text and malformed frames are preserved.
+func TestStripFrames(t *testing.T) {
+	t.Parallel()
+	nonce := strings.Repeat("ab", 16)
+	frame := string(sentinelMark) + "DB:" + nonce + ":0:/tmp" + string(sentinelMark)
+	if got := string(stripFrames([]byte("before" + frame + "after"))); got != "beforeafter" {
+		t.Fatalf("%q", got)
+	}
+	if in := "plain " + string(sentinelMark) + "still text"; string(stripFrames([]byte(in))) != in {
+		t.Fatalf("unterminated mark: %q", stripFrames([]byte(in)))
+	}
+	if in := "a" + string(sentinelMark) + "DB:not-a-frame" + string(sentinelMark) + "b"; string(stripFrames([]byte(in))) != in {
+		t.Fatalf("non-frame: %q", stripFrames([]byte(in)))
+	}
+}

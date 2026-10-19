@@ -210,6 +210,7 @@ func (s *session) run(ctx context.Context, command string, stdin []byte, timeout
 		}
 	}
 	reset := s.wait(ctx, nonce, from, timeout, &res)
+	res.Output = stripFrames(res.Output)
 	res.Duration = time.Since(start)
 	return res, reset, nil
 }
@@ -288,6 +289,61 @@ func (s *session) sentinel(nonce string, from int64) ([]byte, int, string, bool)
 		return nil, 0, "", false
 	}
 	return before, code, strings.TrimSpace(cwd), true
+}
+
+// stripFrames removes session protocol frames
+// ("\x1eDB:<nonce>:<code>:<cwd>\x1e") from command output. After an
+// interrupt a shell may run both the command-line sentinel and the queued
+// interrupt sentinel; the second frame can surface while the next command
+// runs, so protocol bytes never reach the caller (EX63-1).
+func stripFrames(out []byte) []byte {
+	if bytes.IndexByte(out, sentinelMark) < 0 {
+		return out
+	}
+	var b []byte
+	rest := out
+	for {
+		i := bytes.IndexByte(rest, sentinelMark)
+		if i < 0 {
+			break
+		}
+		j := bytes.IndexByte(rest[i+1:], sentinelMark)
+		if j < 0 {
+			break
+		}
+		if !frameBody(rest[i+1 : i+1+j]) {
+			b = append(b, rest[:i+1]...)
+			rest = rest[i+1:]
+			continue
+		}
+		b = append(b, rest[:i]...)
+		rest = rest[i+1+j+1:]
+	}
+	return append(b, rest...)
+}
+
+// frameBody reports whether body (between two sentinel marks) has the
+// "DB:<32 hex nonce>:<code>:<cwd>" shape of a protocol frame.
+func frameBody(body []byte) bool {
+	body, ok := bytes.CutPrefix(body, []byte("DB:"))
+	if !ok {
+		return false
+	}
+	nonce, rest, ok := bytes.Cut(body, []byte(":"))
+	if !ok || len(nonce) != 32 {
+		return false
+	}
+	for _, c := range nonce {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	code, _, ok := bytes.Cut(rest, []byte(":"))
+	if !ok {
+		return false
+	}
+	_, err := strconv.Atoi(strings.TrimSpace(string(code)))
+	return err == nil
 }
 
 // since returns the output after offset from (the command's own output),

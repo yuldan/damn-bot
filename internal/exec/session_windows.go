@@ -27,7 +27,7 @@ func pwshSession(bin string) sessionShellSpec {
 		argv: []string{bin, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"},
 		ext:  ".ps1", setup: "$ProgressPreference = 'SilentlyContinue'",
 		line: func(path, nonce string) string {
-			return "$global:LASTEXITCODE = 0; . '" + strings.ReplaceAll(path, "'", "''") + "'; " + sentinel(nonce, "$LASTEXITCODE")
+			return "$global:LASTEXITCODE = 0; . '" + strings.ReplaceAll(path, "'", "''") + "'; " + sentinel(nonce, "${LASTEXITCODE}")
 		},
 		again: func(nonce string) string { return sentinel(nonce, "130") },
 	}

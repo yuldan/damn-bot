@@ -125,3 +125,15 @@ func BenchmarkShellSessionExec(b *testing.B) {
 		timing.Check(b, "session exec p95 (§A.9)", p95(ds), 5*time.Millisecond)
 	}
 }
+
+// TestSessionOutputFramesStripped (EX63-1): a protocol frame printed by a
+// command (or arriving late after an interrupt) never reaches the caller.
+func TestSessionOutputFramesStripped(t *testing.T) {
+	t.Parallel()
+	ss := newSessions(t, nil)
+	nonce := strings.Repeat("a", 32)
+	res := sessExec(t, ss, "s", `printf '\036DB:`+nonce+`:0:/tmp\036kept\n'`, 5*time.Second)
+	if strings.ContainsRune(string(res.Output), sentinelMark) || !strings.Contains(string(res.Output), "kept") {
+		t.Fatalf("%q", res.Output)
+	}
+}
