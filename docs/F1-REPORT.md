@@ -61,6 +61,8 @@ Konfirmasi arm64 (workflow `windows-ctxdb`, `workflow_dispatch` arch=arm64, run 
 
 `PATCH /repos/yuldan/damn-bot/branches/main/protection/required_status_checks` (strict = true), diverifikasi dengan GET: PR wajib, 0 approval, `enforce_admins` = false, 24 check wajib: `lint`, `test (ubuntu-latest, -race, 1)`, `test (ubuntu-24.04-arm, -race, 1)`, `test (macos-latest, -race, 1)`, `test (macos-15-intel, -race, 1)`, `test (windows-latest, -race, 1)`, `test (windows-11-arm, 0)`, `test-timing`, `vet-cross`, `build-matrix`, `fuzz (1)`, `fuzz (2)`, `fuzz (3)`, `coverage`, `deadcode`, `perf`, `size`, `loc-budget`, `supply-chain`, `vuln`, `bench-budget`, `phase-acceptance`, `meta-test`, `pr-meta`.
 
+Catatan 2026-10-20: `required_status_checks.strict` diubah `true` → `false`. Alasan: kelaparan CI serial dengan ~25 PR bertumpuk — tiap PR menunggu seluruh matriks sebelum boleh merge, sedangkan kuota runner terbatas sehingga antrean tidak selesai. Ke-24 check wajib tetap dipertahankan; kompensasi: CI `main` pasca-merge menangkap regresi antar-PR.
+
 ### Perintah lokal (exit code)
 
 | Perintah | Exit |
