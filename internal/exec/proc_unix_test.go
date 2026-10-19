@@ -3,6 +3,7 @@
 package exec
 
 import (
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -156,7 +157,12 @@ func TestProcPTYCloseUnblocksRead(t *testing.T) {
 	}
 	var flags int
 	if cerr := conn.Control(func(fd uintptr) {
-		flags, _ = unix.FcntlInt(fd, syscall.F_GETFL, 0)
+		fl, ferr := unix.FcntlInt(fd, syscall.F_GETFL, 0)
+		if ferr != nil {
+			t.Errorf("fcntl(F_GETFL): %v", ferr)
+			return
+		}
+		flags = fl
 	}); cerr != nil {
 		t.Fatal(cerr)
 	}
@@ -172,7 +178,10 @@ func TestProcPTYCloseUnblocksRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	select {
-	case <-done:
+	case rerr := <-done:
+		if !errors.Is(rerr, os.ErrClosed) {
+			t.Fatalf("Read after Close: %v, want os.ErrClosed", rerr)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Read still blocked after Close (EX39-1)")
 	}
