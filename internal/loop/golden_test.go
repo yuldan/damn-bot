@@ -11,7 +11,11 @@ import (
 	"github.com/damnbot/damnbot/internal/loop/event"
 )
 
-var update = flag.Bool("update", false, "update golden files") //nolint:gochecknoglobals // -update is the standard golden-test flag (E-68).
+// updateGolden reports -update without a package-level variable (E-10).
+func updateGolden() bool {
+	f := flag.Lookup("update")
+	return f != nil && f.Value.String() == "true"
+}
 
 // TestGoldenTurnOrdering (E-68): the stream update order of a two-iteration
 // turn (text, tool fragments, result, final answer) is fixed.
@@ -46,7 +50,7 @@ func TestGoldenTurnOrdering(t *testing.T) {
 	}
 	b = append(b, '\n')
 	const path = "testdata/turn_ordering.golden.json"
-	if *update {
+	if updateGolden() {
 		if mkErr := os.MkdirAll("testdata", 0o750); mkErr != nil {
 			t.Fatal(mkErr)
 		}
@@ -130,7 +134,7 @@ func TestGoldenToolRendering(t *testing.T) {
 	}
 	b = append(b, '\n')
 	const path = "testdata/tool_render.golden.json"
-	if *update {
+	if updateGolden() {
 		if mkErr := os.MkdirAll("testdata", 0o750); mkErr != nil {
 			t.Fatal(mkErr)
 		}
