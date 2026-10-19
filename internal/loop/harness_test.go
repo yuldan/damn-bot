@@ -147,17 +147,20 @@ func (f *fakeToolset) ranCount() int {
 type fakeStore struct {
 	mu     sync.Mutex
 	events []event.Event
+	ids    []int64
 	err    error
 }
 
-func (s *fakeStore) Append(_ context.Context, _, _ string, ev *event.Event) error {
+func (s *fakeStore) Append(_ context.Context, _, _ string, ev *event.Event) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.err != nil {
-		return s.err
+		return 0, s.err
 	}
 	s.events = append(s.events, *ev)
-	return nil
+	id := int64(len(s.events))
+	s.ids = append(s.ids, id)
+	return id, nil
 }
 
 func (s *fakeStore) kinds() []event.Kind {
@@ -182,18 +185,20 @@ func (s *fakeStore) find(k event.Kind) (event.Event, bool) {
 }
 
 type fakeLedger struct {
-	mu    sync.Mutex
-	usage []event.Usage
-	err   error
+	mu       sync.Mutex
+	usage    []event.Usage
+	eventIDs []int64
+	err      error
 }
 
-func (l *fakeLedger) Record(_ context.Context, _, _ string, u *event.Usage) error {
+func (l *fakeLedger) Record(_ context.Context, _, _ string, eventID int64, u *event.Usage) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.err != nil {
 		return l.err
 	}
 	l.usage = append(l.usage, *u)
+	l.eventIDs = append(l.eventIDs, eventID)
 	return nil
 }
 

@@ -139,3 +139,30 @@ func TestLedgerAppendOnly(t *testing.T) {
 		t.Errorf("no-estimate rows: %v %d %v", samples, last, err)
 	}
 }
+
+// TestEventAnchor: a row anchored to a same-session event is accepted; an
+// event id from another session fails closed (trigger 1811).
+func TestEventAnchor(t *testing.T) {
+	t.Parallel()
+	s, ids := open(t, "A", 1)
+	row := Row{SessionID: "A", TurnID: "t1", EventID: ids[0], Purpose: "turn", Provider: "p", Model: "m",
+		InputTokens: 1, OutputTokens: 1, CostSource: "unknown", PricingVersion: "none", Attempts: 1, TTFTMS: -1}
+	insert(t, s, row)
+
+	if _, err := s.CreateSession(t.Context(), ctxdb.Session{ID: "B", Origin: "headless", Cwd: "/"}); err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := s.Append(t.Context(), "B", nil, ctxdb.Event{Kind: "llm_call", Role: "system", Payload: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cross := row
+	cross.EventID = foreign[0]
+	err = s.Write(t.Context(), func(tx *ctxdb.Tx) error {
+		_, ierr := Insert(tx, &cross)
+		return ierr
+	})
+	if err == nil {
+		t.Fatal("cross-session event id was accepted")
+	}
+}

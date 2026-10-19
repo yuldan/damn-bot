@@ -259,7 +259,7 @@ type Compactor interface {
 // Store appends one transcript event atomically (ADR-074; ctxdb implements
 // the storage side, the loop only sees this one-method seam).
 type Store interface {
-	Append(ctx context.Context, sessionID, turnID string, ev *event.Event) error
+	Append(ctx context.Context, sessionID, turnID string, ev *event.Event) (int64, error)
 }
 
 // Approver answers one approval request (SPEC §4.2).
@@ -269,7 +269,7 @@ type Approver interface {
 
 // Ledger records one llm_call's usage (SPEC §18.4).
 type Ledger interface {
-	Record(ctx context.Context, sessionID, turnID string, u *event.Usage) error
+	Record(ctx context.Context, sessionID, turnID string, eventID int64, u *event.Usage) error
 }
 
 // Redactor removes secrets from text the loop persists or shows (SPEC §14.3).

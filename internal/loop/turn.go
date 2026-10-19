@@ -234,18 +234,19 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 		return &o, true
 	}
 	t.addUsage(&reply.Usage)
-	if err := t.record(ctx, &reply.Usage); err != nil {
-		o := t.fail(ctx, event.DetailInternal, err)
-		return &o, true
-	}
 	if reply.FallbackFrom != "" {
 		t.fallback(ctx, reply.FallbackFrom, reply.Model)
 	}
-	if err := t.append(ctx, &event.Event{Kind: event.LLMCall, Payload: payload(llmPayload{
+	eventID, err := t.appendID(ctx, &event.Event{Kind: event.LLMCall, Payload: payload(llmPayload{
 		Model: reply.Model, FinishReason: reply.FinishReason, FallbackFrom: reply.FallbackFrom,
 		Attempts: reply.Attempts, Input: reply.Usage.Input, CachedInput: reply.Usage.CachedInput,
 		Output: reply.Usage.Output, CostUSD: reply.Usage.CostUSD,
-	})}); err != nil {
+	})})
+	if err != nil {
+		o := t.fail(ctx, event.DetailInternal, err)
+		return &o, true
+	}
+	if err := t.record(ctx, eventID, &reply.Usage); err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
 		return &o, true
 	}
@@ -446,24 +447,32 @@ func (t *turn) note(ctx context.Context, ev *event.Event) {
 
 // append writes one critical event unless persistence is disabled.
 func (t *turn) append(ctx context.Context, ev *event.Event) error {
+	_, err := t.appendID(ctx, ev)
+	return err
+}
+
+// appendID writes one critical event and returns its storage id (0 when
+// persistence is disabled). The llm_call id anchors the usage_ledger row.
+func (t *turn) appendID(ctx context.Context, ev *event.Event) (int64, error) {
 	if t.deps.Store == nil {
-		return nil
+		return 0, nil
 	}
 	if ev.Payload == nil {
 		ev.Payload = json.RawMessage(`{}`)
 	}
-	if err := t.deps.Store.Append(ctx, t.sessionID, t.turnID, ev); err != nil {
-		return fmt.Errorf("loop: store append: %w", err)
+	id, err := t.deps.Store.Append(ctx, t.sessionID, t.turnID, ev)
+	if err != nil {
+		return 0, fmt.Errorf("loop: store append: %w", err)
 	}
-	return nil
+	return id, nil
 }
 
-// record writes one usage row unless accounting is disabled.
-func (t *turn) record(ctx context.Context, u *event.Usage) error {
+// record writes one usage row anchored to eventID (the llm_call event).
+func (t *turn) record(ctx context.Context, eventID int64, u *event.Usage) error {
 	if t.deps.Ledger == nil {
 		return nil
 	}
-	if err := t.deps.Ledger.Record(ctx, t.sessionID, t.turnID, u); err != nil {
+	if err := t.deps.Ledger.Record(ctx, t.sessionID, t.turnID, eventID, u); err != nil {
 		return fmt.Errorf("loop: ledger record: %w", err)
 	}
 	return nil
