@@ -86,3 +86,11 @@ func TestRunPTYUnavailableWindows(t *testing.T) {
 		t.Fatalf("%v %s", err, res.Status)
 	}
 }
+
+// TestSweepStaleWindows: Job Objects leave nothing to sweep.
+func TestSweepStaleWindows(t *testing.T) {
+	t.Parallel()
+	if n, err := SweepStale(); n != 0 || err != nil {
+		t.Fatalf("%d %v", n, err)
+	}
+}
