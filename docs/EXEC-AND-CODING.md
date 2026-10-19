@@ -148,7 +148,7 @@ Baris header selalu ada dan tidak dikompresi:
 Akibatnya `go build` yang sunyi tetapi sibuk CPU tidak dibunuh, sedangkan `sleep 100` dibunuh setelah 60 s dengan hint `use background:true for long silent waits` (hint ini sejak F5, ADR-072).
 
 **Identitas pohon proses.** Setiap anak mewarisi env `DAMNBOT_EXEC_ID=<ulid>`. Anak juga diberi:
-- Linux: `Setsid` (pgid = pid), `Pdeathsig=SIGKILL`. Spawn dilakukan dari goroutine `LockOSThread` yang tidak pernah exit, agar pdeathsig tidak terpicu oleh thread yang mati. Proses damnbot menjadi `PR_SET_CHILD_SUBREAPER` (`unix.Prctl`) saat runner pertama dipakai (lazy). Cucu yang lepas via `setsid`/double-fork tetap ter-reparent ke damnbot.
+- Linux: `Setsid` (pgid = pid), `Pdeathsig=SIGKILL`. Tanpa goroutine spawner `LockOSThread` (ADR-105 butir 2): sinyal terpicu saat proses damnbot mati. Tidak ada `PR_SET_CHILD_SUBREAPER` dan tidak ada `wait4(-1)`: leader di-reap per pid, sehingga cucu yang lepas via `setsid`/double-fork di-reap init (ADR-105 butir 1).
 - macOS: `Setsid`; tanpa subreaper.
 - Windows: Job Object dengan `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, tanpa `BREAKAWAY_OK`. Proses dibuat `CREATE_SUSPENDED`, dimasukkan ke job, baru di-resume, sehingga tidak ada celah race.
 
@@ -156,8 +156,10 @@ Akibatnya `go build` yang sunyi tetapi sibuk CPU tidak dibunuh, sedangkan `sleep
 1. `kill(-pgid, SIGTERM)` (Windows: `TerminateJobObject` langsung, karena Windows tidak punya TERM yang setara untuk pohon proses).
 2. Tunggu `exec.kill_grace_s` (default 3 s, rentang 1–3, ADR-072). P24 "≤ `timeout_s` + 4 s" tetap berlaku.
 3. `kill(-pgid, SIGKILL)`.
-4. Sweep: semua pid yang env-nya memuat `DAMNBOT_EXEC_ID` yang sama (Linux `/proc/*/environ`, macOS `KERN_PROCARGS2`) atau anak hasil reparent subreaper → `SIGKILL`. Identitas dicek lewat marker, bukan pid saja, sehingga aman dari PID reuse yang dikhawatirkan hermes (`tools/environments/local.py:943-950`).
-5. Reaper `wait4(-1, WNOHANG)` pada SIGCHLD me-reap semua zombie, termasuk anak yatim hasil reparent.
+4. Sweep: semua pid yang env-nya memuat `DAMNBOT_EXEC_ID` yang sama (Linux `/proc/*/environ`, macOS `KERN_PROCARGS2`) yang lepas dari process group → `SIGKILL`. Identitas dicek lewat marker, bukan pid saja, sehingga aman dari PID reuse yang dikhawatirkan hermes (`tools/environments/local.py:943-950`). Sweep menunggu (dibatasi 250 ms) sampai tidak ada lagi proses bermarker, bukan sekadar mengirim sinyal.
+5. Reaper: leader di-reap per pid (`os.Process.Wait`); cucu yang lepas di-reap init. P24.1 diukur lewat marker (`TestNoOrphans`), bukan lewat parent (ADR-105 butir 1).
+
+**Residu yang tidak terjangkau** (TRUST-MODEL §3; EX39-3/EX40-1): proses yang menghapus marker lebih dulu (`env -i … setsid …`), `sudo`/`setuid`, `systemd-run --user`, `at`/`cron`, dan WMI/schtasks dapat lolos dari pgid maupun marker. Proses yang menghapus marker tetapi tetap memegang PTY tidak lagi menahan call: master PTY ditutup dan pembacaan yang tertunda dibatalkan (EX39-1).
 
 **Cancel (ADR-072, REL-06).** 1 s setelah cancel = tenggat **pengembalian hasil**. Pohon proses yang terbukti mati dalam 1 s → `tool_result{status:"cancelled_confirmed", by:"user"}`. Yang belum terbukti mati → `tool_result{status:"still_running", by:"user"}` + `process_id` registry internal (F1); urutan kill berlanjut di background dan hasilnya dicatat sebagai `system_notice{kind:"process_exit"}`. Re-dispatch tool `non_idempotent` setelah `still_running` wajib menunggu `cancelled_confirmed` atau konfirmasi user (P22/REL-06).
 

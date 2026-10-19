@@ -24,9 +24,6 @@ const (
 	// is gone; a writer outside the tree (marker removed by `env -i` and
 	// setsid) cannot hold the call open.
 	drainAfterExit = 250 * time.Millisecond
-	// sweepRounds re-scans while marker processes keep appearing (forks
-	// racing the kill).
-	sweepRounds = 5
 	// maxTasks bounds the runner's goroutines (E-27): reader, waiter and
 	// stdin writer per live call.
 	maxTasks = 3 * 256
@@ -316,18 +313,28 @@ func (c *call) finish() {
 	c.note(c.p.release())
 }
 
-// sweep kills every process carrying this call's marker (§A.4).
+// sweepWait bounds how long the sweep waits for killed marker processes
+// to disappear: SIGKILL is asynchronous, and a caller that asserts P24.1
+// right after Run must not observe a process that is already dying.
+const sweepWait = 250 * time.Millisecond
+
+// sweep kills every process carrying this call's marker (§A.4) and waits,
+// up to sweepWait, until none is visible.
 func (c *call) sweep() {
 	id := []byte(c.id)
-	for range sweepRounds {
+	deadline := time.Now().Add(sweepWait)
+	for {
 		pids, err := markerPids(func(v []byte) bool { return bytes.Equal(v, id) })
 		c.note(err)
-		if len(pids) == 0 {
-			return
-		}
 		for _, pid := range pids {
 			c.note(killPid(pid))
 		}
+		if len(pids) == 0 || !time.Now().Before(deadline) {
+			return
+		}
+		// Give SIGKILL time to take effect; an escapee forking while it
+		// dies shows up in the next scan.
+		time.Sleep(pollEvery)
 	}
 }
 
