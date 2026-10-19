@@ -42,6 +42,10 @@ func (s *state) command(args []arg, in stdin) bool {
 		s.privileged(name, args)
 	case name == "cmd":
 		s.cmdShell(args, in)
+	case name == "start" || name == "call":
+		s.cmdBuiltin(name, args, in)
+	case name == "if" || name == "for" || name == "do" || name == "else" || name == "goto":
+		s.raise(Unknown, "cmd control flow")
 	case inList(wrappers, name):
 		s.wrapper(name, args, in)
 	case inList(interpreters, name) || strings.HasPrefix(name, "python"):

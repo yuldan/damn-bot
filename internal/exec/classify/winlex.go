@@ -255,6 +255,34 @@ func (s *state) cmdShell(args []arg, in stdin) {
 	s.fromStdin("cmd", in)
 }
 
+// cmdBuiltin recurses into cmd builtins that launch a command: start
+// [options] [title] program and call program. A quoted title token is
+// skipped, and a label call is Unknown; control flow (if/for/do/goto) is
+// Unknown in command (CL5-9).
+func (s *state) cmdBuiltin(name string, args []arg, in stdin) {
+	rest := args[1:]
+	if name == "start" {
+		for len(rest) > 0 && (rest[0].s == "" || strings.HasPrefix(rest[0].s, "/")) {
+			v := strings.ToLower(rest[0].s)
+			rest = rest[1:]
+			if v == "/node" || v == "/affinity" {
+				if len(rest) > 0 {
+					rest = rest[1:]
+				}
+			}
+		}
+	}
+	if len(rest) == 0 {
+		s.raise(Unknown, name+" without a command")
+		return
+	}
+	if name == "call" && strings.HasPrefix(rest[0].s, ":") {
+		s.raise(Unknown, "call label")
+		return
+	}
+	s.nested(rest, in)
+}
+
 func isDigits(s string) bool {
 	return s != "" && strings.Trim(s, "0123456789") == ""
 }

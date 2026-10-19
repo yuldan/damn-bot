@@ -264,3 +264,31 @@ func TestNoReadOnlyClass(t *testing.T) {
 		}
 	}
 }
+
+// TestUnsafeAutoShellCmdBuiltins (CL5-9): cmd builtins that launch a
+// command (start/call) keep the payload's label; control flow that is not
+// fully parsed is Unknown, so --unsafe-auto-shell cannot approve it.
+func TestUnsafeAutoShellCmdBuiltins(t *testing.T) {
+	t.Parallel()
+	env := testEnv()
+	env.Roots = []string{`C:\proj`}
+	env.Home = `C:\Users\u`
+	env.Dialect = Cmd
+	cases := map[string]Decision{
+		`cmd /c start rd /s /q C:\proj`:            Denied,
+		`cmd /c call rd /s /q C:\proj`:             Denied,
+		`cmd /c if exist x rd /s /q C:\proj`:       Denied,
+		`cmd /c for %i in (x) do rd /s /q C:\proj`: Denied,
+		`cmd /c goto :eof`:                         Denied,
+		`cmd /c start "" echo hi`:                  AutoApprove,
+		`cmd /c call echo hi`:                      AutoApprove,
+		`cmd /c echo hi`:                           AutoApprove,
+	}
+	for cmd, want := range cases {
+		v := Classify(cmd, env)
+		c := Context{Mode: ModeUnsafeAutoShell, WorkspaceTrusted: true, CwdInRoot: true}
+		if got := Decide(&v, &c); got != want {
+			t.Errorf("%q = %s (%s), want %s", cmd, got, v.Class, want)
+		}
+	}
+}
