@@ -412,7 +412,7 @@ func (c *call) finish() {
 // sweepWait bounds how long the sweep waits for killed marker processes
 // to disappear: SIGKILL is asynchronous, and a caller that asserts P24.1
 // right after Run must not observe a process that is already dying.
-const sweepWait = 250 * time.Millisecond
+const sweepWait = time.Second
 
 // sweep kills every process carrying this call's marker (§A.4) and waits,
 // up to sweepWait, until none is visible.
