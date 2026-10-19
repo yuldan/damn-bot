@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -10,10 +11,11 @@ import (
 type Paths struct {
 	ConfigDir string
 	DataDir   string
+	goos      string // path convention used to build the strings
 }
 
 // ConfigFile returns <ConfigDir>/config.toml.
-func (p Paths) ConfigFile() string { return filepath.Join(p.ConfigDir, "config.toml") }
+func (p Paths) ConfigFile() string { return joinOS(p.goos, p.ConfigDir, "config.toml") }
 
 // Paths resolves the config and data directories for profile ("" = default
 // profile). A non-empty profile must match [a-z0-9][a-z0-9_-]{0,63}; anything
@@ -27,10 +29,10 @@ func (l *Loader) Paths(profile string) (Paths, error) {
 		return Paths{}, err
 	}
 	if profile != "" {
-		cfgBase = filepath.Join(cfgBase, "profiles", profile)
-		dataBase = filepath.Join(dataBase, "profiles", profile)
+		cfgBase = joinOS(l.deps.GOOS, cfgBase, "profiles", profile)
+		dataBase = joinOS(l.deps.GOOS, dataBase, "profiles", profile)
 	}
-	return Paths{ConfigDir: cfgBase, DataDir: dataBase}, nil
+	return Paths{ConfigDir: cfgBase, DataDir: dataBase, goos: l.deps.GOOS}, nil
 }
 
 func (l *Loader) baseDirs() (configDir, dataDir string, err error) {
@@ -38,34 +40,51 @@ func (l *Loader) baseDirs() (configDir, dataDir string, err error) {
 	if err != nil {
 		return "", "", &Error{Kind: ErrHome, Cause: err, Msg: "cannot resolve home directory"}
 	}
+	j := func(elem ...string) string { return joinOS(l.deps.GOOS, elem...) }
 	switch l.deps.GOOS {
 	case "windows":
 		appData := l.deps.Getenv("APPDATA")
 		if appData == "" {
-			appData = filepath.Join(home, "AppData", "Roaming")
+			appData = j(home, "AppData", "Roaming")
 		}
 		local := l.deps.Getenv("LOCALAPPDATA")
 		if local == "" {
-			local = filepath.Join(home, "AppData", "Local")
+			local = j(home, "AppData", "Local")
 		}
-		return filepath.Join(appData, "damnbot"), filepath.Join(local, "damnbot"), nil
+		return j(appData, "damnbot"), j(local, "damnbot"), nil
 	case "darwin":
-		base := filepath.Join(home, "Library", "Application Support", "damnbot")
+		base := j(home, "Library", "Application Support", "damnbot")
 		return base, base, nil
 	default:
-		cfg := absoluteXDG(l.deps.Getenv("XDG_CONFIG_HOME"), filepath.Join(home, ".config"))
-		data := absoluteXDG(l.deps.Getenv("XDG_DATA_HOME"), filepath.Join(home, ".local", "share"))
-		return filepath.Join(cfg, "damnbot"), filepath.Join(data, "damnbot"), nil
+		cfg := absoluteXDG(l.deps.GOOS, l.deps.Getenv("XDG_CONFIG_HOME"), j(home, ".config"))
+		data := absoluteXDG(l.deps.GOOS, l.deps.Getenv("XDG_DATA_HOME"), j(home, ".local", "share"))
+		return j(cfg, "damnbot"), j(data, "damnbot"), nil
 	}
 }
 
 // absoluteXDG ignores a relative XDG value: the XDG base directory spec says
 // implementations must ignore relative paths.
-func absoluteXDG(value, fallback string) string {
-	if value != "" && filepath.IsAbs(value) {
+func absoluteXDG(goos, value, fallback string) string {
+	if value != "" && absOS(goos, value) {
 		return value
 	}
 	return fallback
+}
+
+// joinOS uses the target OS's separator, not the host's: tests exercise all
+// three path conventions on one machine.
+func joinOS(goos string, elem ...string) string {
+	if goos == "windows" {
+		return filepath.Join(elem...)
+	}
+	return path.Join(elem...)
+}
+
+func absOS(goos, p string) bool {
+	if goos == "windows" {
+		return filepath.IsAbs(p)
+	}
+	return path.IsAbs(p)
 }
 
 func validProfile(s string) bool {

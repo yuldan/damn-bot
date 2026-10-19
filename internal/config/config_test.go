@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"io/fs"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -323,10 +324,10 @@ func TestConfigPaths(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Paths: %v", err)
 			}
-			if got.ConfigDir != tc.wantCfg || got.DataDir != tc.wantData {
+			if filepath.ToSlash(got.ConfigDir) != tc.wantCfg || filepath.ToSlash(got.DataDir) != tc.wantData {
 				t.Errorf("Paths = %+v, want cfg %s data %s", got, tc.wantCfg, tc.wantData)
 			}
-			if want := filepath.Join(tc.wantCfg, "config.toml"); got.ConfigFile() != want {
+			if want := path.Join(tc.wantCfg, "config.toml"); filepath.ToSlash(got.ConfigFile()) != want {
 				t.Errorf("ConfigFile = %q, want %q", got.ConfigFile(), want)
 			}
 		})
