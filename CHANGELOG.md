@@ -13,6 +13,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `redact`: prefilter pasangan byte di `scan` — posisi yang dua byte pertamanya tidak bisa memulai pola mana pun dilewati tanpa `matchAt` (output identik, ≈ 3× lebih cepat pada prosa 8 KiB; dasar GAP-SEC-16 DLP ≤ 50 µs, REVIEW-F1-SEC1 NETX-16; ADR-096).
 
 ### Added
+- `exec`: sesi persisten (`session`, §A.2) — ≤ 4 shell per sesi agent (bash/zsh di PTY; pwsh/powershell/cmd lewat pipe di Windows), perintah di-source dari file 0600 dengan sentinel bernonce 128-bit (exit code + `pwd -P`), timeout lewat SIGINT ke job foreground lalu reset shell, idle 30 menit di-reap, tanpa secret ref; `BenchmarkShellSessionExec` < 5 ms (ADR-105).
 - `exec`: runner PTY di Windows lewat ConPTY 120×40 di dalam Job Object (prompt interaktif terdeteksi seperti di Unix); `BenchmarkShellSpawnWindows` mengukur pipe dan ConPTY (ADR-105).
 - `exec`: deteksi prompt interaktif (PTY dan pipe ber-stdin: diam ≥ 1,5 s + baris prompt §A.6, wchan Linux setelah 5 s) → `waiting_for_input` dengan `prompt`/`input_kind` dan pohon di-kill; idle-timeout 60 s berbasis output + CPU + I/O pohon (Linux `/proc`, Windows Job Object; macOS tanpa idle-kill karena tidak ada akuntansi tanpa libproc) (ADR-105).
 - `exec`: `SweepStale` membunuh pohon proses milik damnbot yang sudah mati (sweep saat start, P24.1); `TestNoOrphans` 200 iterasi termasuk `kill -9` pemilik; benchmark overhead spawn p95 `BenchmarkShellSpawnPipe`/`PTY`/`Windows` di job `perf` (ADR-105).

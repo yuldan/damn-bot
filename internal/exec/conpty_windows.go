@@ -49,8 +49,8 @@ func startConPTY(s *Spec, in *os.File) (_ *osProc, err error) {
 	}
 	// conhost holds its own duplicates of both ends; a close failure here
 	// cannot invalidate the already-started process.
-	_ = closeHandle(inR)
-	_ = closeHandle(outW)
+	_ = closeHandle(inR)  //nolint:errcheck // close cannot invalidate the started process
+	_ = closeHandle(outW) //nolint:errcheck // close cannot invalidate the started process
 	return w, nil
 }
 
