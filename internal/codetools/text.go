@@ -111,23 +111,14 @@ func sniffText(head []byte) (textEnc, bool) {
 	if len(head) > sniffLen {
 		head = head[:sniffLen]
 	}
-	ascii := true
 	for _, c := range head {
-		if c == 0 {
+		if c == 0 || c >= utf8.RuneSelf {
 			enc := detectEnc(head)
 			bin, _ := sniffBinary(head, enc)
 			return enc, bin
 		}
-		if c >= utf8.RuneSelf {
-			ascii = false
-		}
 	}
-	if ascii {
-		return textEnc{}, false
-	}
-	enc := detectEnc(head)
-	bin, _ := sniffBinary(head, enc)
-	return enc, bin
+	return textEnc{}, false
 }
 
 // sniffBinary reports whether head is binary (CODE-TOOLS §2.4, CT-34): a
