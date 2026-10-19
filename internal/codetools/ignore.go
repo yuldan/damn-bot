@@ -153,20 +153,34 @@ func (s *ignoreSet) match(rel string, isDir bool) (ignored, decided bool) {
 	rel = rel[len(s.base):]
 	base := rel[strings.LastIndexByte(rel, '/')+1:]
 	best := int32(-1)
-	take := func(idxs []int32) {
-		for _, i := range idxs {
-			if (isDir || !s.pats[i].dirOnly) && i > best {
-				best = i
-			}
-		}
-	}
-	take(s.lit[base])
-	take(s.pathLit[rel])
+	s.consider(s.lit[base], isDir, &best)
+	s.consider(s.pathLit[rel], isDir, &best)
 	for i := range s.suffix {
 		if strings.HasSuffix(base, s.suffix[i].suf) {
-			take(s.suffix[i].idxs)
+			s.consider(s.suffix[i].idxs, isDir, &best)
 		}
 	}
+	if g := s.bestGlob(rel, base, isDir); g > best {
+		best = g
+	}
+	if best < 0 {
+		return false, false
+	}
+	return !s.pats[best].neg, true
+}
+
+// consider records the highest index in idxs that applies to the entry.
+func (s *ignoreSet) consider(idxs []int32, isDir bool, best *int32) {
+	for _, i := range idxs {
+		if (isDir || !s.pats[i].dirOnly) && i > *best {
+			*best = i
+		}
+	}
+}
+
+// bestGlob is the highest matching wildcard pattern index, or -1.
+func (s *ignoreSet) bestGlob(rel, base string, isDir bool) int32 {
+	best := int32(-1)
 	for i := range s.globs {
 		g := &s.globs[i]
 		if g.nodir {
@@ -180,10 +194,7 @@ func (s *ignoreSet) match(rel string, isDir bool) (ignored, decided bool) {
 			best = g.idx
 		}
 	}
-	if best < 0 {
-		return false, false
-	}
-	return !s.pats[best].neg, true
+	return best
 }
 
 // ignoreStack is the ordered list of ignore sets in effect (lowest

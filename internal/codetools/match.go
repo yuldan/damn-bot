@@ -40,19 +40,10 @@ const maxAltLits = 8
 // compileMatcher compiles pattern with the case mode (smart, sensitive,
 // insensitive). Smart = insensitive unless a literal has an upper case letter.
 func compileMatcher(pattern, mode string) (*matcher, error) {
-	re0, err := syntax.Parse(pattern, syntax.Perl)
+	re0, fold, err := matcherSyntax(pattern, mode)
 	if err != nil {
-		return nil, fmt.Errorf("codetools: pattern: %w", err)
+		return nil, err
 	}
-	fold := mode == "insensitive" || mode != "sensitive" && !hasUpper(re0)
-	flags := syntax.Perl
-	if fold {
-		flags |= syntax.FoldCase
-	}
-	if re0, err = syntax.Parse(pattern, flags); err != nil {
-		return nil, fmt.Errorf("codetools: pattern: %w", err)
-	}
-	re0 = re0.Simplify()
 	m := &matcher{multiline: strings.Contains(pattern, `\n`) || strings.Contains(pattern, "\n")}
 	if s, f, ok := pureLiteral(re0); ok && !m.multiline {
 		m.lits = []lit{newLit(s, f)}
@@ -65,6 +56,29 @@ func compileMatcher(pattern, mode string) (*matcher, error) {
 	if m.re, err = regexp.Compile(prefix + "(?m)" + pattern); err != nil {
 		return nil, fmt.Errorf("codetools: pattern: %w", err)
 	}
+	return m, m.selectPrefilter(pattern, re0, fold)
+}
+
+// matcherSyntax parses pattern with the smart/sensitive/insensitive mode.
+func matcherSyntax(pattern, mode string) (*syntax.Regexp, bool, error) {
+	re0, err := syntax.Parse(pattern, syntax.Perl)
+	if err != nil {
+		return nil, false, fmt.Errorf("codetools: pattern: %w", err)
+	}
+	fold := mode == "insensitive" || mode != "sensitive" && !hasUpper(re0)
+	flags := syntax.Perl
+	if fold {
+		flags |= syntax.FoldCase
+	}
+	if re0, err = syntax.Parse(pattern, flags); err != nil {
+		return nil, false, fmt.Errorf("codetools: pattern: %w", err)
+	}
+	return re0.Simplify(), fold, nil
+}
+
+// selectPrefilter chooses the required literal set, the required class run
+// or the plain RE2 candidate search.
+func (m *matcher) selectPrefilter(pattern string, re0 *syntax.Regexp, fold bool) error {
 	if !m.multiline {
 		m.lits = required(re0)
 		if seq, ok := requiredSeq(re0); ok && len(seq) >= 2 && !canMatchNL(re0) &&
@@ -73,10 +87,18 @@ func compileMatcher(pattern, mode string) (*matcher, error) {
 		}
 	}
 	if m.pre = m.re; len(m.lits) == 0 && m.seq == nil && !m.multiline {
+		flags := syntax.Perl
+		if fold {
+			flags |= syntax.FoldCase
+		}
+		var err error
 		m.pre, err = crlfPrefilter(pattern, flags, m.re)
+		if err != nil {
+			return err
+		}
 		m.preTrust = m.pre == m.re && !canMatchNL(re0)
 	}
-	return m, err
+	return nil
 }
 
 // canMatchNL reports whether re can consume a newline (a character class
@@ -673,31 +695,37 @@ func (m *matcher) next(buf []byte, pos int, at *[maxAltLits]int) (hit, col int) 
 
 // candidate is the earliest candidate byte at or after pos (-1 = none).
 func (m *matcher) candidate(buf []byte, pos int, at *[maxAltLits]int) int {
-	hit := -1
 	if m.seq != nil {
 		if j := m.seq.index(buf[pos:]); j >= 0 {
-			hit = pos + j
+			return pos + j
 		}
+		return -1
 	}
-	if len(m.lits) == 0 && m.seq == nil {
+	if len(m.lits) == 0 {
 		// A buffer match starts no later than any single-line match; the
 		// line holding its start is then verified alone (no match across
 		// '\n' outside multiline mode, like rg).
 		if loc := m.pre.FindIndex(buf[pos:]); loc != nil {
-			hit = pos + loc[0]
+			return pos + loc[0]
 		}
+		return -1
 	}
-	if m.seq == nil {
-		for i := range m.lits {
-			if at[i] < pos && at[i] != -1 {
-				at[i] = m.lits[i].index(buf[pos:])
-				if at[i] >= 0 {
-					at[i] += pos
-				}
+	return m.earliestLit(buf, pos, at)
+}
+
+// earliestLit is the earliest literal occurrence at or after pos, reusing
+// the cached positions in at.
+func (m *matcher) earliestLit(buf []byte, pos int, at *[maxAltLits]int) int {
+	hit := -1
+	for i := range m.lits {
+		if at[i] < pos && at[i] != -1 {
+			at[i] = m.lits[i].index(buf[pos:])
+			if at[i] >= 0 {
+				at[i] += pos
 			}
-			if at[i] >= 0 && (hit < 0 || at[i] < hit) {
-				hit = at[i]
-			}
+		}
+		if at[i] >= 0 && (hit < 0 || at[i] < hit) {
+			hit = at[i]
 		}
 	}
 	return hit
