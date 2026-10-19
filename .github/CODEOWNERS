@@ -18,6 +18,7 @@
 /internal/ctxdb/ @yuldan
 /internal/exec/ @yuldan
 /internal/exec/classify/ @yuldan
+/internal/loop/ @yuldan
 /internal/netx/ @yuldan
 /internal/provider/ @yuldan
 /internal/schema/ @yuldan

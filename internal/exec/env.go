@@ -307,3 +307,13 @@ func resolveBinary(name, path, dir string) (BinaryID, bool) {
 	}
 	return identify(p)
 }
+
+// lookupEnv returns the last value of key in an env slice, or "".
+func lookupEnv(env []string, key string) string {
+	for i := len(env) - 1; i >= 0; i-- {
+		if k, v, ok := strings.Cut(env[i], "="); ok && k == key {
+			return v
+		}
+	}
+	return ""
+}
