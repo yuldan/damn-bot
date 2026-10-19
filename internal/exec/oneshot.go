@@ -17,8 +17,11 @@ type OneShot struct {
 	// Direct is mode (b): the argv of a single literal simple command
 	// (classify.DirectArgv), executed without an interpreter. nil = mode
 	// (a), the command as one argument of `bash -c` (sh, pwsh, cmd).
-	Direct    []string
-	Dir       string
+	Direct []string
+	Dir    string
+	// Root is the workspace root: a secret ref whose command resolves
+	// inside it is never injected (NEW3-04, EX42-1). "" skips the check.
+	Root      string
 	Stdin     []byte
 	PTY       bool
 	Timeout   time.Duration
@@ -32,26 +35,34 @@ type OneShot struct {
 var ErrNotFound = errors.New("exec: command not found")
 
 // Prepare turns o into a Spec. argv0 resolves through the child's PATH
-// (absolute entries only). notice is non-empty when a secret ref scoped
-// to the command is not injected because the command is not a single
-// literal simple command (NEW3-03, ADR-105 butir 14): it runs in mode (a)
-// without the secret.
+// (absolute entries only) and is recorded as an absolute path (EX42-2).
+// notice is non-empty when a secret ref scoped to the command is not
+// injected because the command is not a single literal simple command
+// (NEW3-03, ADR-105 butir 14): it runs in mode (a) without the secret.
 func Prepare(o *OneShot) (spec Spec, notice string, err error) {
 	policy := o.Policy
 	if policy == nil {
 		policy = &EnvPolicy{}
 	}
-	direct := ""
-	if len(o.Direct) > 0 {
-		direct = o.Direct[0]
+	dir := o.Dir
+	if dir != "" && !filepath.IsAbs(dir) {
+		if dir, err = filepath.Abs(dir); err != nil {
+			return Spec{}, "", fmt.Errorf("exec: dir: %w", err)
+		}
 	}
-	env := policy.Env(o.Parent, o.PTY, direct)
-	path := lookupEnv(env, "PATH")
+	path := policy.Path(o.Parent)
+	direct := ""
 	var argv []string
-	if direct != "" {
-		bin, lerr := lookPath(direct, path, o.Dir)
+	if len(o.Direct) > 0 {
+		if err := checkArgv(o.Direct); err != nil {
+			return Spec{}, "", err
+		}
+		bin, lerr := lookPath(o.Direct[0], path, dir)
 		if lerr != nil {
 			return Spec{}, "", lerr
+		}
+		if !strings.ContainsAny(o.Direct[0], `/\`) {
+			direct = bin // secrets only for a bare name resolved via PATH (EX42-1)
 		}
 		argv = append([]string{bin}, o.Direct[1:]...)
 	} else {
@@ -60,10 +71,24 @@ func Prepare(o *OneShot) (spec Spec, notice string, err error) {
 		}
 		notice = secretNotice(o.Command, policy.Secrets)
 	}
+	env := policy.Env(o.Parent, o.PTY, direct, dir, o.Root)
 	return Spec{
-		Argv: argv, Dir: o.Dir, Env: env, Stdin: o.Stdin, PTY: o.PTY,
+		Argv: argv, Dir: dir, Env: env, Stdin: o.Stdin, PTY: o.PTY,
 		Timeout: o.Timeout, KillGrace: o.KillGrace,
 	}, notice, nil
+}
+
+// checkArgv rejects control characters, CR and NUL in a direct-exec argv:
+// mode (b) never runs a command containing them (ADR-088 butir 3, EX42-3).
+func checkArgv(argv []string) error {
+	for _, a := range argv {
+		for _, r := range a {
+			if (r < 0x20 && r != '\t') || r == 0x7f {
+				return fmt.Errorf("%w: control character in argv", ErrSpec)
+			}
+		}
+	}
+	return nil
 }
 
 // shellArgv is mode (a): bash, else sh (Unix); pwsh, powershell, else cmd
@@ -92,16 +117,24 @@ func shellArgv(command, path string) ([]string, error) {
 // lookPath resolves name like a shell, but only through absolute PATH
 // entries: an empty or relative entry would resolve against the working
 // directory, i.e. inside the workspace (NEW3-04). A name with a separator
-// is taken as is, relative to dir. On Windows only .exe and .com run
-// (CreateProcess would start cmd.exe for .bat/.cmd, ADR-088).
+// is resolved once against dir and returned as an absolute, clean path, so
+// the spawned binary is exactly the one that was checked and approved —
+// CreateProcess would otherwise resolve it against damnbot's own cwd
+// (EX42-2/EX62-1). On Windows only .exe and .com run (CreateProcess would
+// start cmd.exe for .bat/.cmd, ADR-088).
 func lookPath(name, path, dir string) (string, error) {
 	if strings.ContainsAny(name, `/\`) {
 		p := name
 		if !filepath.IsAbs(p) {
 			p = filepath.Join(dir, p)
 		}
-		if executable(p) {
-			return name, nil
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return "", fmt.Errorf("%w: %s", ErrNotFound, name)
+		}
+		abs = filepath.Clean(abs)
+		if executable(abs) {
+			return abs, nil
 		}
 		return "", fmt.Errorf("%w: %s", ErrNotFound, name)
 	}

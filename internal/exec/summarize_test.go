@@ -35,6 +35,7 @@ func TestSummarizePipeline(t *testing.T) {
 		"progress":  {"step 1/3\nstep 2/3\nstep 3/3\nok\n", "step 3/3 [×3]\nok"},
 		"dedupe":    {"same\nsame\nsame\nother\n", "same [×3]\nother"},
 		"redact":    {"token ghp_" + strings.Repeat("a", 36) + " pw hunter2-secret\n", "token [REDACTED:github] pw [REDACTED:secret]"},
+		"controls":  {"a\x07b\x00c\x7f\u0085d\n", "abcd"},
 	} {
 		s, blobs := summarize(t, c.in, TurnInlineChars)
 		if s.Text != c.want || s.Spilled || blobs != nil {
@@ -102,5 +103,38 @@ func BenchmarkSummarize1MB(b *testing.B) {
 	}
 	if b.N >= 100 {
 		timing.Check(b, "summarize 1 MiB (§A.9)", b.Elapsed()/time.Duration(b.N), 15*time.Millisecond)
+	}
+}
+
+// TestSummarizeUnterminatedEscape (EX47-1): one unterminated OSC/DCS
+// cannot hide everything after it; at most maxEscape bytes are consumed
+// and the following text still reaches the model.
+func TestSummarizeUnterminatedEscape(t *testing.T) {
+	t.Parallel()
+	for _, esc := range []string{"\x1b]0;title", "\x1bP1;2q", "\x1b[9999"} {
+		out := "head\n" + esc + strings.Repeat("A", maxEscape*2) + "\nvisible tail\n"
+		s, _ := summarize(t, out, TurnInlineChars)
+		if !strings.Contains(s.Text, "visible tail") {
+			t.Errorf("%q: text after an unterminated escape was hidden", esc)
+		}
+	}
+}
+
+// TestSummarizeSplitSecretNotLeaked (EX47-2): an SGR code between two
+// halves of a known secret must not leave the raw blob readable.
+func TestSummarizeSplitSecretNotLeaked(t *testing.T) {
+	t.Parallel()
+	var b strings.Builder
+	b.WriteString(strings.Repeat("filler ", 800))
+	b.WriteString("\n")
+	b.WriteString("value hunter2-\x1b[31msecret end\n")
+	s, blobs := summarize(t, b.String(), InlineChars)
+	if !s.Spilled || len(blobs) != 2 {
+		t.Fatalf("not spilled: %d", len(blobs))
+	}
+	for k, blob := range blobs {
+		if strings.Contains(string(blob), "hunter2-") {
+			t.Errorf("blob %d leaks the split secret: %q", k, blob)
+		}
 	}
 }

@@ -57,8 +57,15 @@ func startPTY(s *Spec, in *os.File) (*osProc, error) {
 	if err != nil {
 		return nil, fmt.Errorf("exec: pty: %w", err)
 	}
-	if serr := pty.Setsize(master, &pty.Winsize{Rows: ptyRows, Cols: ptyCols}); serr != nil {
+	// Size the slave, not the master: pty.Setsize calls File.Fd, which puts
+	// the File back into blocking mode, undoing the poller registration
+	// below (EX39-1).
+	if serr := pty.Setsize(tty, &pty.Winsize{Rows: ptyRows, Cols: ptyCols}); serr != nil {
 		return nil, errors.Join(fmt.Errorf("exec: pty size: %w", serr), closeAll(master, tty))
+	}
+	master, err = pollableMaster(master)
+	if err != nil {
+		return nil, errors.Join(err, closeAll(tty))
 	}
 	stdin := tty
 	if in != nil {
@@ -79,6 +86,29 @@ func startPTY(s *Spec, in *os.File) (*osProc, error) {
 		return nil, errors.Join(cerr, killLeader(p), closeAll(master))
 	}
 	return &osProc{p: p, out: master}, nil
+}
+
+// pollableMaster returns the PTY master as a descriptor registered with
+// the runtime poller. A File returned by pty.Open is switched back to
+// blocking mode as soon as anything calls File.Fd (pty.Setsize, for one),
+// and a blocking read on a master cannot be interrupted by Close: a process
+// that escaped the tree but still holds the slave would then hold Run and
+// Runner.Close forever (EX39-1). The descriptor is dup'ed after the last
+// Fd call, marked non-blocking and re-wrapped, so a pending Read returns
+// os.ErrClosed when the master is closed.
+func pollableMaster(f *os.File) (*os.File, error) {
+	fd, err := unix.Dup(int(f.Fd()))
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("exec: pty dup: %w", err), f.Close())
+	}
+	if err := unix.SetNonblock(fd, true); err != nil {
+		return nil, errors.Join(fmt.Errorf("exec: pty nonblock: %w", err), unix.Close(fd), f.Close())
+	}
+	nf := os.NewFile(uintptr(fd), f.Name())
+	if nf == nil {
+		return nil, errors.Join(errors.New("exec: pty master"), unix.Close(fd), f.Close())
+	}
+	return nf, f.Close()
 }
 
 // stdinFile returns in, or /dev/null opened for the child (EOF on read).
