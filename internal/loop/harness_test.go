@@ -257,6 +257,7 @@ type fixture struct {
 	approver *fakeApprover
 	spiller  *fakeSpiller
 	redactor Redactor
+	stream   func() StreamFilter
 
 	cancel  context.CancelFunc
 	loopRef *Loop
@@ -280,6 +281,7 @@ func (f *fixture) deps() Deps {
 	return Deps{
 		Provider: f.provider, Assembler: f.asm, Toolset: f.tools, Store: f.store,
 		Ledger: f.ledger, Approver: f.approver, Spiller: f.spiller, Redactor: f.redactor,
+		NewRedactStream: f.stream,
 	}
 }
 

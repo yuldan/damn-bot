@@ -16,6 +16,7 @@ type callAsm struct {
 	id        string
 	name      strings.Builder
 	args      strings.Builder
+	argsOut   *deltaBuf // nil = emit argument fragments as they arrive
 	announced bool
 }
 
@@ -24,6 +25,9 @@ type callAsm struct {
 // nameless fragment continues the last call, else a new call.
 type callBuilder struct {
 	items []*callAsm
+	// newBuf, when set, returns the redaction buffer for one call's
+	// arguments. Nil keeps the fragment-per-update behavior (no redactor).
+	newBuf func() *deltaBuf
 }
 
 // add routes one batch of fragments and emits the start/args stream updates.
@@ -45,9 +49,34 @@ func (b *callBuilder) add(ds []ToolCallDelta, emit func(*event.Update)) {
 			emit(&event.Update{Kind: event.UpdateToolCallStart, ToolCallID: c.id, ToolName: sanitizeName(c.name.String())})
 		}
 		if d.Arguments != "" {
+			if c.argsOut == nil && b.newBuf != nil {
+				c.argsOut = b.newBuf()
+			}
+			text := d.Arguments
+			if c.argsOut != nil {
+				text = c.argsOut.push(d.Arguments)
+			}
+			if text != "" {
+				emit(&event.Update{
+					Kind: event.UpdateToolCallArgs, ToolCallID: c.id,
+					ToolName: sanitizeName(c.name.String()), Text: text,
+				})
+			}
+		}
+	}
+}
+
+// flushArgs emits the tail of each call's arguments that the redactor held
+// back. Without a buffer there is nothing left.
+func (b *callBuilder) flushArgs(emit func(*event.Update), redact func(string) string) {
+	for _, c := range b.items {
+		if c.argsOut == nil {
+			continue
+		}
+		if text := c.argsOut.flush(redact); text != "" {
 			emit(&event.Update{
 				Kind: event.UpdateToolCallArgs, ToolCallID: c.id,
-				ToolName: sanitizeName(c.name.String()), Text: d.Arguments,
+				ToolName: sanitizeName(c.name.String()), Text: text,
 			})
 		}
 	}
