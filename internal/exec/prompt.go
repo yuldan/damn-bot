@@ -18,6 +18,10 @@ const (
 	maxPromptLine = 200
 	// promptTail: bytes of the output tail examined for the last line.
 	promptTail = 1024
+	// maxEscape bounds an unterminated CSI/OSC/DCS sequence: a target
+	// cannot hide all following output behind one unfinished escape
+	// (EX47-1). The remainder is parsed as text.
+	maxEscape = 4096
 )
 
 // Input kinds of a detected prompt (Result.InputKind).
@@ -96,8 +100,8 @@ func stripANSI(dst, src []byte) []byte {
 	}
 }
 
-// escapeLen is the length of the escape sequence at s[0] == ESC (the rest
-// of s when unterminated).
+// escapeLen is the length of the escape sequence at s[0] == ESC. An
+// unterminated sequence consumes at most maxEscape bytes (EX47-1).
 func escapeLen(s []byte) int {
 	switch s[1] {
 	case '[': // CSI: parameters and intermediates, then a final 0x40–0x7E
@@ -118,5 +122,5 @@ func escapeLen(s []byte) int {
 	default:
 		return 2
 	}
-	return len(s)
+	return min(len(s), maxEscape)
 }
