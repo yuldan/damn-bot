@@ -1,0 +1,191 @@
+internal/codetools/commit.go:70:4: Error return value of `tmp.Close` is not checked (errcheck)
+			_ = tmp.Close()
+			^
+internal/codetools/commit.go:163:3: Error return value of `bak.Close` is not checked (errcheck)
+		_ = bak.Close()
+		^
+internal/codetools/commit.go:415:30: Error return value of `os.Remove` is not checked (errcheck)
+func removeQuiet(p string) { _ = os.Remove(p) }
+                             ^
+internal/codetools/corpus_test.go:210:7: Error return value of `strconv.Atoi` is not checked (errcheck)
+			n, _ := strconv.Atoi(m[1])
+			   ^
+internal/codetools/kill_test.go:94:9: Error return value of `filepath.Glob` is not checked (errcheck)
+		baks, _ := filepath.Glob(filepath.Join(dir, ".f.txt.damnbot-bak-*"))
+		      ^
+internal/codetools/kill_test.go:172:8: Error return value of `strconv.Atoi` is not checked (errcheck)
+	skip, _ := strconv.Atoi(os.Getenv(kill9SkipEnv))
+	      ^
+internal/codetools/probe_test.go:63:8: Error return value of `os.ReadFile` is not checked (errcheck)
+	load, _ := os.ReadFile("/proc/loadavg")
+	      ^
+internal/codetools/probe_test.go:74:8: Error return value of `os.ReadFile` is not checked (errcheck)
+	load, _ = os.ReadFile("/proc/loadavg")
+	      ^
+internal/codetools/probe_test.go:204:9: Error return value of `json.Marshal` is not checked (errcheck)
+			raw, _ := json.Marshal(args)
+			     ^
+internal/codetools/probe_test.go:257:8: Error return value of `json.Marshal` is not checked (errcheck)
+		raw, _ := json.Marshal(map[string]any{"path": dst, "tag": tag, "edits": []map[string]string{{"old_string": target, "new_string": target + "  # f0"}}})
+		     ^
+internal/codetools/security_unix_test.go:120:5: Error return value of `os.Rename` is not checked (errcheck)
+				_ = os.Rename(sub, sub+".real")
+				^
+internal/codetools/security_unix_test.go:121:5: Error return value of `os.Symlink` is not checked (errcheck)
+				_ = os.Symlink(ssh, sub)
+				^
+internal/codetools/security_unix_test.go:123:5: Error return value of `os.Remove` is not checked (errcheck)
+				_ = os.Remove(sub)
+				^
+internal/codetools/security_unix_test.go:124:5: Error return value of `os.Rename` is not checked (errcheck)
+				_ = os.Rename(sub+".real", sub)
+				^
+internal/codetools/security_unix_test.go:231:6: Error return value of `w.Close` is not checked (errcheck)
+					_ = w.Close()
+					^
+internal/codetools/match.go:185:2: missing cases in expression switch: syntax.OpNoMatch, syntax.OpCharClass, syntax.OpAnyCharNotNL, syntax.OpAnyChar, syntax.OpStar, syntax.OpPlus, syntax.OpQuest, syntax.OpRepeat (exhaustive)
+	switch re.Op {
+	^
+internal/codetools/kill_test.go:179:4: use of `time.Sleep` forbidden because "E-30/E-72: pakai testing/synctest atau clock injeksi" (forbidigo)
+			time.Sleep(time.Hour)
+			^
+internal/codetools/security_unix_test.go:122:5: use of `time.Sleep` forbidden because "E-30/E-72: pakai testing/synctest atau clock injeksi" (forbidigo)
+				time.Sleep(time.Microsecond)
+				^
+internal/archtest/codetools_ids_test.go:17:2: ctF5IDs is a global variable (gochecknoglobals)
+	ctF5IDs   = []string{"CT-08", "CT-12", "CT-13", "CT-24", "CT-28"}
+	^
+internal/archtest/codetools_ids_test.go:18:2: ctF5Tests is a global variable (gochecknoglobals)
+	ctF5Tests = []string{"TestIndexActivation"}
+	^
+internal/codetools/corpus_test.go:91:5: specDenyPaths is a global variable (gochecknoglobals)
+var specDenyPaths = []string{
+    ^
+internal/codetools/corpus_test.go:119:5: unlimited is a global variable (gochecknoglobals)
+var unlimited = Opts{PageChars: math.MaxInt32}
+    ^
+internal/archtest/codetools_ids_test.go:87:1: cognitive complexity 22 of func `TestCodeToolsIDsComplete` is high (> 20) (gocognit)
+func TestCodeToolsIDsComplete(t *testing.T) {
+^
+internal/codetools/commit_test.go:172:1: cognitive complexity 21 of func `TestEditLockAlias` is high (> 20) (gocognit)
+func TestEditLockAlias(t *testing.T) {
+^
+internal/codetools/corpus_test.go:287:1: cognitive complexity 33 of func `TestGrepParityRg` is high (> 20) (gocognit)
+func TestGrepParityRg(t *testing.T) {
+^
+internal/codetools/match.go:136:1: cognitive complexity 25 of func `required` is high (> 20) (gocognit)
+func required(re *syntax.Regexp) []lit {
+^
+internal/codetools/match.go:339:1: cognitive complexity 21 of func `(*matcher).next` is high (> 20) (gocognit)
+func (m *matcher) next(buf []byte, pos int, at *[maxAltLits]int) (hit, col int) {
+^
+internal/codetools/probe_test.go:123:1: cognitive complexity 27 of func `probeCompareAll` is high (> 20) (gocognit)
+func probeCompareAll(t *testing.T, runs int) []probeCompare {
+^
+internal/codetools/probe_test.go:172:1: cognitive complexity 21 of func `probeOps` is high (> 20) (gocognit)
+func probeOps(t *testing.T, runs int, searchOnly bool) []probeOp {
+^
+internal/codetools/security_unix_test.go:173:1: cognitive complexity 28 of func `TestFIFONoHang` is high (> 20) (gocognit)
+func TestFIFONoHang(t *testing.T) {
+^
+internal/sandbox/resolved_test.go:71:1: cognitive complexity 24 of func `TestOpenResolved` is high (> 20) (gocognit)
+func TestOpenResolved(t *testing.T) {
+^
+internal/sandbox/resolved_test.go:124:1: cognitive complexity 31 of func `TestOpenResolvedHardLinks` is high (> 20) (gocognit)
+func TestOpenResolvedHardLinks(t *testing.T) {
+^
+internal/sandbox/resolved_unix_test.go:36:1: cognitive complexity 23 of func `swapRace` is high (> 20) (gocognit)
+func swapRace(t *testing.T, sb *Sandbox, dir, deny string, approved bool) {
+^
+internal/codetools/commit.go:93:14: evalOrder: may want to evaluate e.copyInPlace(ctx, t, before, tmp, &ci) before the return statement (gocritic)
+		return ci, e.copyInPlace(ctx, t, before, tmp, &ci)
+		           ^
+internal/codetools/commit.go:115:13: evalOrder: may want to evaluate e.readBack(ctx, t, &ci) before the return statement (gocritic)
+	return ci, e.readBack(ctx, t, &ci)
+	           ^
+internal/codetools/probe_test.go:243:47: hugeParam: h is heavy (96 bytes); consider passing it by pointer (gocritic)
+func probePatch(t *testing.T, c1, dir string, h probeOp) ([]time.Duration, error) {
+                                              ^
+internal/codetools/commit.go:59:1: cyclomatic complexity 17 of func `(*Engine).commitStream` is high (> 15) (gocyclo)
+func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mode fs.FileMode, fill func(io.Writer) error) (ci commitInfo, err error) {
+^
+internal/codetools/walk.go:309:1: cyclomatic complexity 17 of func `(*walker).entry` is high (> 15) (gocyclo)
+func (w *walker) entry(n *dirNode, de os.DirEntry, st ignoreStack, top, prefix string) *dirNode {
+^
+internal/codetools/probe_test.go:94:1: File is not properly formatted (gofumpt)
+func rgTargets() map[string]float64 { return map[string]float64{"literal": 1.2, "regex": 1.5, "glob": 1.2} }
+^
+internal/codetools/commit.go:338:24: G703: Path traversal via taint analysis (gosec)
+		if _, err := os.Lstat(d); err == nil || filepath.Dir(d) == d {
+		                     ^
+internal/codetools/edittool.go:57:25: G703: Path traversal via taint analysis (gosec)
+		if fi, serr := os.Stat(r); v == sandbox.HardLinked && serr == nil {
+		                      ^
+internal/codetools/edittool.go:314:24: G703: Path traversal via taint analysis (gosec)
+	if _, lerr := os.Lstat(abs); errors.Is(lerr, fs.ErrNotExist) {
+	                      ^
+internal/codetools/security_unix_test.go:230:19: G304: Potential file inclusion via variable (gosec)
+				if w, werr := os.OpenFile(f, os.O_RDWR, 0); werr == nil {
+				              ^
+internal/codetools/codetools.go:295:6: shadow: declaration of "err" shadows declaration at line 293 (govet)
+		if err := approval(v, p, approved); err != nil {
+		   ^
+internal/codetools/commit.go:149:5: shadow: declaration of "err" shadows declaration at line 148 (govet)
+	if err := e.unchanged(t, before); err != nil {
+	   ^
+internal/codetools/edittool.go:357:5: shadow: declaration of "err" shadows declaration at line 352 (govet)
+	if err := approval(v, a.Path, o.Approved); err != nil {
+	   ^
+internal/codetools/grep.go:243:5: shadow: declaration of "err" shadows declaration at line 239 (govet)
+	if err := approval(v, p, o.Approved); err != nil {
+	   ^
+internal/codetools/probe_test.go:198:10: shadow: declaration of "err" shadows declaration at line 194 (govet)
+			if n, err := strconv.Atoi(os.Getenv("DAMNBOT_PROBE_GREP_LIMIT")); err == nil && n > 0 {
+			      ^
+internal/codetools/probe_test.go:208:8: shadow: declaration of "err" shadows declaration at line 194 (govet)
+				r, err := e.Run(ctx, tool, raw, Opts{})
+				   ^
+internal/codetools/corpus_test.go:83:26: os/exec.Command must not be called. use os/exec.CommandContext (noctx)
+	out, err := exec.Command(rg, "--version").Output() //nolint:gosec // G204: oracle binary chosen by the developer
+	                        ^
+internal/codetools/corpus_test.go:148:21: os/exec.Command must not be called. use os/exec.CommandContext (noctx)
+	cmd := exec.Command(argv[0], argv[1:]...) //nolint:gosec // G204: oracle binary chosen by the developer
+	                   ^
+internal/codetools/commit_test.go:32:40: approvedTag - rel always receives "f.txt" (unparam)
+func approvedTag(t *testing.T, v *env, rel string) string {
+                                       ^
+internal/archtest/codetools_ids_test.go:65:11: error returned from external package is unwrapped: sig: func io/fs.ReadFile(fsys io/fs.FS, name string) ([]byte, error) (wrapcheck)
+			return err
+			       ^
+internal/codetools/commit_test.go:111:11: error returned from external package is unwrapped: sig: func io.ReadAll(r io.Reader) ([]byte, error) (wrapcheck)
+			return err
+			       ^
+internal/codetools/corpus_test.go:157:9: error returned from external package is unwrapped: sig: func (*os/exec.Cmd).Run() error (wrapcheck)
+	return err
+	       ^
+internal/codetools/match.go:85:9: error returned from external package is unwrapped: sig: func regexp.Compile(expr string) (*regexp.Regexp, error) (wrapcheck)
+	return regexp.Compile(root.String())
+	       ^
+internal/codetools/probe_test.go:249:15: error returned from external package is unwrapped: sig: func os.ReadFile(name string) ([]byte, error) (wrapcheck)
+		return nil, err
+		            ^
+internal/codetools/probe_test.go:283:14: error returned from external package is unwrapped: sig: func os.Create(name string) (*os.File, error) (wrapcheck)
+		return "", err
+		           ^
+internal/codetools/probe_test.go:321:10: error returned from external package is unwrapped: sig: func os.Open(name string) (*os.File, error) (wrapcheck)
+		return err
+		       ^
+59 issues:
+* errcheck: 15
+* exhaustive: 1
+* forbidigo: 2
+* gochecknoglobals: 4
+* gocognit: 11
+* gocritic: 3
+* gocyclo: 2
+* gofumpt: 1
+* gosec: 4
+* govet: 6
+* noctx: 2
+* unparam: 1
+* wrapcheck: 7

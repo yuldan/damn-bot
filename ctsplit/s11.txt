@@ -1,0 +1,41 @@
+stage sandbox
+!TestMain
+stage read
+TestMain Engine.Read New Engine.Close ToolError.Error ToolError.Unwrap TestReadLimits TestPageCap TestReadOutsideWorkspaceAsks TestReadEncodings
+!Engine.outline !Engine.readLarge !pathMu !Engine.goBackground !caches.index !caches.outlines !Engine.locks !Engine.building !Engine.bg !bgTask
+!sniffBinary !lru !lru.* !newLRU !caches.read !caches.snaps !Engine.touch !fileView.binaryResult !readEntry
+!Config.Snapshot !Config.Home,XDGConfigHome !Engine.home !Engine.xdg !Engine.snapshot !Engine.hook !Engine.newEOL !Config.NewEOL !Engine.idle
+!readCacheCap,readCacheFile,indexCacheCap,snapshotCap,outlineCap,idleRelease,racyWindow
+!TestOutline !TestReadLarge !fileView.binary !fileView.desc !lineIndex !outlined
+!fileView.sniff !fileView.head !fileView.enc !textEnc !textEnc.* !detectEnc !decodeUTF16 !logical !eolLabel !statSum !statTag !tagEntry.full !tagEntry.hasFull
+!bomUTF8,bomUTF16LE,bomUTF16BE !utf16le !utf16be !fileKey.sdev !header.enc !header.eol !header.fromEnd !Encoding !EncUTF8,EncUTF16LE,EncUTF16BE
+stage read-enc
+fileView.sniff fileView.binaryResult detectEnc logical eolLabel Engine.touch lru.* newLRU caches.read caches.snaps readCacheCap,readCacheFile,indexCacheCap,snapshotCap,outlineCap,idleRelease,racyWindow
+header.enc header.eol fileView.head fileView.enc fileView.binary fileView.desc tagEntry.full tagEntry.hasFull statSum statTag Engine.idle readEntry
+sniffBinary textEnc textEnc.* Encoding EncUTF8,EncUTF16LE,EncUTF16BE decodeUTF16 lru
+utf16le utf16be fileKey.sdev bomUTF8,bomUTF16LE,bomUTF16BE
+TestReadEncodings TestBinarySniff
+stage large-outline
+Engine.readLarge Engine.outline header.fromEnd caches.index caches.outlines Engine.building Engine.bg Engine.goBackground bgTask lineIndex outlined
+!statEntry
+TestOutline TestReadLarge TestCodeToolsMemCap
+stage ignore
+Config.Home,XDGConfigHome Engine.home Engine.xdg
+TestWildmatch TestGitignoreConformance TestGitConfigExcludes
+stage glob
+Engine.Glob
+TestGlobLimits TestGlobDenied
+stage match
+TestMatcherLineEnds TestRequiredLiterals
+stage grep
+Engine.Grep
+!TestGrepParityRg !TestGrepSpeedVsRg !BenchmarkGlob !BenchmarkGrepLiteral !BenchmarkGrepRegex !TestCodetoolsProbe
+stage write
+Engine.Write Engine.newEOL Config.NewEOL
+!Engine.openCurrent !Engine.currentSum !Engine.provenUnchanged !Engine.forget !parseDoc !Engine.pathLock !pathMu !statEntry !encodeUTF16 !Engine.locks !copyOwner !copyXattrs !staleErr !Engine.copyInPlace !Engine.hooked !Engine.at !hookWriter !linkCount !commitInfo.inplace !lineDiff !diffStat !unified !Engine.snapshot !Config.Snapshot !Engine.hook !docLines !Engine.CleanOrphanTemps !Engine.removeIn !preallocate !TestPathLockAliases
+stage overwrite
+Engine.openCurrent Engine.currentSum Engine.provenUnchanged Engine.forget parseDoc Engine.pathLock pathMu Engine.locks statEntry encodeUTF16 copyOwner copyXattrs TestPathLockAliases Engine.CleanOrphanTemps Engine.removeIn Engine.hooked Engine.at hookWriter hookWriter.* Engine.hook TestCleanOrphanTempsPattern TestAtomicWriteKill9
+!TestInPlaceKill9
+stage edit
+Engine.Edit staleErr docLines lineDiff diffStat unified
+!Engine.editLarge !Engine.copyInPlace !linkCount !commitInfo.inplace !Engine.snapshot !Config.Snapshot

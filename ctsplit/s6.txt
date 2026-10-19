@@ -1,0 +1,27 @@
+stage sandbox
+!TestMain
+stage read
+TestMain Engine.Read New Engine.Close ToolError.Error ToolError.Unwrap TestReadLimits TestPageCap TestReadOutsideWorkspaceAsks TestReadEncodings
+!Engine.outline !Engine.readLarge !pathMu !Engine.goBackground !caches.index !caches.outlines !Engine.locks !Engine.building !Engine.bg !bgTask
+!sniffBinary !lru !lru.* !newLRU !caches.read !caches.snaps !Engine.touch !fileView.binaryResult !readEntry
+!Config.Snapshot !Config.Home,XDGConfigHome !Engine.home !Engine.xdg !Engine.snapshot !Engine.hook !Engine.newEOL !Config.NewEOL !Engine.idle
+!readCacheCap,readCacheFile,indexCacheCap,snapshotCap,outlineCap,idleRelease,racyWindow
+!TestOutline !TestReadLarge !fileView.binary !fileView.desc !lineIndex !outlined
+!fileView.sniff !fileView.head !fileView.enc !textEnc !textEnc.* !detectEnc !decodeUTF16 !logical !eolLabel !statSum !statTag !tagEntry.full !tagEntry.hasFull
+!bomUTF8,bomUTF16LE,bomUTF16BE !utf16le !utf16be !fileKey.sdev !header.enc !header.eol !header.fromEnd !Encoding !EncUTF8,EncUTF16LE,EncUTF16BE
+stage read-enc
+fileView.sniff fileView.binaryResult detectEnc logical eolLabel Engine.touch lru.* newLRU caches.read caches.snaps readCacheCap,readCacheFile,indexCacheCap,snapshotCap,outlineCap,idleRelease,racyWindow
+header.enc header.eol fileView.head fileView.enc fileView.binary fileView.desc tagEntry.full tagEntry.hasFull statSum statTag Engine.idle readEntry
+sniffBinary textEnc textEnc.* Encoding EncUTF8,EncUTF16LE,EncUTF16BE decodeUTF16 lru
+utf16le utf16be fileKey.sdev bomUTF8,bomUTF16LE,bomUTF16BE
+TestReadEncodings TestBinarySniff
+stage large-outline
+Engine.readLarge Engine.outline header.fromEnd caches.index caches.outlines Engine.building Engine.bg Engine.goBackground bgTask lineIndex outlined
+!statEntry
+TestOutline TestReadLarge TestCodeToolsMemCap
+stage ignore
+Config.Home,XDGConfigHome Engine.home Engine.xdg
+TestWildmatch TestGitignoreConformance TestGitConfigExcludes
+stage glob
+Engine.Glob
+TestGlobLimits TestGlobDenied

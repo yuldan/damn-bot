@@ -1,0 +1,7 @@
+stage sandbox
+stage read
+Engine.Read New Engine.Close ToolError.Error ToolError.Unwrap
+!Engine.outline !Engine.readLarge !pathMu !Engine.goBackground !caches.index !caches.outlines !Engine.locks !Engine.building !Engine.bg
+!sniffBinary !lru !lru.* !newLRU !caches.read !caches.snaps !Engine.touch !fileView.binaryResult
+!Config.Snapshot !Config.Home,XDGConfigHome !Engine.home !Engine.xdg !Engine.snapshot !Engine.hook
+!TestOutline !TestReadLarge

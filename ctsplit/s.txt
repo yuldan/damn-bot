@@ -1,0 +1,6 @@
+stage read
+Engine.Read New Engine.Close ToolError.Error ToolError.Unwrap
+!Engine.outline !Engine.readLarge !pathMu !Engine.goBackground !caches.index !caches.outlines !Engine.locks !Engine.building !Engine.bg
+!detectEnc !sniffBinary !decodeUTF16 !logical !lru !lru.* !newLRU !caches.read !caches.snaps !Engine.touch !fileView.binaryResult !header.enc !textEnc.String !textEnc !fileView.enc
+!Config.Snapshot !Config.Home,XDGConfigHome !Engine.home !Engine.xdg !Engine.snapshot !Engine.hook
+!TestOutline !TestReadLarge
