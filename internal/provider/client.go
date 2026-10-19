@@ -40,6 +40,8 @@ type Config struct {
 	Fallback   []string // "provider/model" refs, ≤ MaxFallback
 	OnFallback func(Fallback)
 	OnRetry    func(retry.Attempt) // WARN + event per retry (SPEC §15)
+	// Attempts bounds the provider retry policy; 0 = retry.MaxAttempts.
+	Attempts int
 	// Wait is the retry wait (retry.Policy.Wait); nil = real timer. Tests
 	// over real loopback sockets inject an instant wait.
 	Wait func(ctx context.Context, d time.Duration) error
@@ -54,6 +56,7 @@ type OpenAI struct {
 	onFB     func(Fallback)
 	onRetry  func(retry.Attempt)
 	wait     func(ctx context.Context, d time.Duration) error
+	attempts int
 
 	mu       sync.Mutex
 	breakers map[string]*retry.Breaker // per (provider, credential)
@@ -67,7 +70,7 @@ func NewOpenAI(c *netx.Client, cfg Config) (*OpenAI, error) {
 	}
 	o := &OpenAI{
 		c: c, routes: map[string]Route{}, fallback: append([]string(nil), cfg.Fallback...),
-		onFB: cfg.OnFallback, onRetry: cfg.OnRetry, wait: cfg.Wait,
+		onFB: cfg.OnFallback, onRetry: cfg.OnRetry, wait: cfg.Wait, attempts: cfg.Attempts,
 		breakers: map[string]*retry.Breaker{}, drop: map[string]map[string]bool{},
 	}
 	for _, r := range cfg.Routes {
@@ -129,7 +132,7 @@ func (o *OpenAI) call(ctx context.Context, rt *Route, r *Request, est int64, onC
 	br := o.breaker(rt)
 	var resp Response
 	attempts := 0
-	err := retry.Do(ctx, retry.Policy{Notify: o.onRetry, Wait: o.wait}, func(ctx context.Context, n int) error {
+	err := retry.Do(ctx, retry.Policy{Notify: o.onRetry, Wait: o.wait, Attempts: o.attempts}, func(ctx context.Context, n int) error {
 		if err := br.Allow(); err != nil {
 			return fmt.Errorf("%s: %w", rt.Ref(), err)
 		}

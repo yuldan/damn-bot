@@ -145,33 +145,34 @@ Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket 
 | P15 subset ADR-067/082 | stable kondisional (aturan 3/`repo_map`), volatile beku, runtime suffix, schema shell per fase | `TestStableTierGolden` (3 varian), `TestPromptNoUnavailableTools`, `TestVolatileTierCaps`, `TestPrefixStableWithinTurn`, `TestRuntimeSuffixCaps`, `TestShellSchemaVariant` | selesai |
 | Keamanan prompt | `Deps.Scrub` wajib pada semua teks pemanggil; context file hanya lewat `FileReader` sandbox, `ErrUnavailable` → file dihilangkan | `TestContextScrub`, `TestContextSandboxRefusalOmitsFile` | selesai |
 
-### Smoke LLM F1 (ADR-062, 2026-10-20)
+### Smoke LLM F1 (ADR-062, 2026-10-20c)
 
-`damnbot run` dari `f1-integration` lewat proxy rekam `bench/h2h`, model `gpt-5.4-mini` (0,09/0,009/0,51 USD per Mtok), 10 task `h2h-smoke/v1` × 1 run, timeout 300 s/task (180 s menghasilkan timeout upstream), cap ledger US$2,00.
+`damnbot run` dari `f1-integration` lewat proxy rekam `bench/h2h`, model `gpt-5.4-mini` (0,09/0,009/0,51 USD per Mtok), 10 task `h2h-smoke/v1` x 1 run, timeout 300 s/task, `-task-retries 1`, provider retry 2 attempt, cap ledger US$2,00. Probe 1-token 3x berturut-turut 200 sebelum run.
 
 ```bash
 cd bench && go run ./h2h/cmd/h2h -damnbot ~/.cache/damnbot/bin/damnbot \
-  -out h2h/results/2026-10-20 -upstream https://api.teamorouter.com \
+  -out h2h/results/2026-10-20c -upstream https://api.teamorouter.com \
   -key-file /tmp/f0-secrets/llm_key -model gpt-5.4-mini \
-  -price-in 0.09 -price-cached 0.009 -price-out 0.51 -timeout 300s \
+  -price-in 0.09 -price-cached 0.009 -price-out 0.51 -timeout 300s -task-retries 1 \
   -only E1-117,E1-124,E1-147,E1-149,E2-016,E2-039,E3-028,E3-013,E6-010,E6-040
 ```
 
 | Task | stop | category | calls | input tok | output tok | USD | pass |
 |---|---|---|---:|---:|---:|---:|---|
-| E1-117 | error/provider_error | upstream_unavailable | 0 | 0 | 0 | 0.0000 | tidak |
-| E1-124 | error/provider_error | upstream_unavailable | 0 | 0 | 0 | 0.0000 | tidak |
-| E1-147 | error/provider_error | upstream_unavailable | 0 | 0 | 0 | 0.0000 | tidak |
-| E1-149 | error/provider_error | upstream_unavailable | 1 | 2406 | 170 | 0.0002 | tidak |
-| E2-016 | error/provider_error | upstream_unavailable | 3 | 7740 | 294 | 0.0006 | tidak |
-| E2-039 | error/provider_error | upstream_unavailable | 1 | 2392 | 196 | 0.0002 | tidak |
-| E3-028 | error/provider_error | upstream_unavailable | 0 | 0 | 0 | 0.0000 | tidak |
-| E3-013 | error/provider_error | upstream_unavailable | 0 | 0 | 0 | 0.0000 | tidak |
-| E6-010 | error/provider_error | upstream_unavailable | 1 | 2388 | 202 | 0.0002 | tidak |
-| E6-040 | error/provider_error | upstream_unavailable | 0 | 0 | 0 | 0.0000 | tidak |
+| E1-117 | end_turn/no_progress | no_progress | 12 | 69170 | 2646 | 0.0055 | tidak |
+| E1-124 | end_turn/completed | ok | 16 | 127692 | 5154 | 0.0096 | **ya** |
+| E1-147 | end_turn/no_progress | no_progress | 11 | 69068 | 1980 | 0.0049 | tidak |
+| E1-149 | end_turn/no_progress | no_progress | 12 | 80808 | 1790 | 0.0055 | tidak |
+| E2-016 | end_turn/no_progress | no_progress | 8 | 25942 | 1052 | 0.0022 | tidak |
+| E2-039 | end_turn/no_progress | no_progress | 9 | 36668 | 1772 | 0.0032 | tidak |
+| E3-028 | end_turn/completed | ok | 13 | 51336 | 2264 | 0.0043 | tidak |
+| E3-013 | end_turn/completed | ok | 8 | 27300 | 1152 | 0.0022 | tidak |
+| E6-010 | end_turn/completed | ok | 6 | 18918 | 1222 | 0.0018 | tidak |
+| E6-040 | end_turn/completed | ok | 7 | 23160 | 1450 | 0.0022 | tidak |
 
-Totals: 10/10 ran, **0 harness errors**, categories `{upstream_unavailable:10}`, 6 completion calls (+36 aborted), 14.926 input / 862 output tok, run US$0,4862, ledger **US$0,6745 / 2,00**. Artefak: 10 rekaman `.jsonl.gz` + `summary.json`; semua `Authorization: REDACTED`, scan nilai kunci = 0 hit. E1-124 pernah mencapai `end_turn/completed` pada run 2026-10-20 sebelumnya; run ini seluruhnya upstream 503 setelah retry netx + task retry.
+Totals: 10/10 ran, **0 harness errors**, categories `{no_progress:5, ok:5}`, pass 1/10, 102 calls (+1 aborted), 530.062 input / 20.482 output tok (205.312 cached), run US$0,0549, ledger **US$0,7294 / 2,00**. Empat task sempat `upstream_unavailable` pada attempt pertama lalu retry 1/1; sisanya selesai `end_turn`. Artefak: 10 rekaman `.jsonl.gz` + `summary.json`; semua `Authorization: REDACTED`, scan nilai kunci = 0 hit.
 
+**Status acceptance.** Bukti yang ada: **0 harness errors** dan harness end-to-end terbukti (10/10 rekaman proxy, 102 call, request kedua multi-turn 200, tool flow berjalan). E1-124 lulus penuh; 4 task selesai (`completed`) tetapi verdict model gagal; 5 berhenti `no_progress` (guard anti-loop harness). Jadi task completion kini dibatasi **kualitas model**, bukan harness; provider 503 hanya memicu retry. `upstream_unavailable` tetap diklasifikasikan sebagai environment blocker, bukan harness error/ADR-062. Untuk membatasi biaya: probe 1-token harus sukses 3x berturut-turut sebelum run, `-task-retries 1` + provider retry 2 attempt, dan ledger menolak start bila proyeksi worst-case (`FirstGuess` 0,02 x task x (1+retry)) melebihi sisa cap.
 
 **Diagnosis request kedua.** Request kedua yang gagal (499) bukan body invalid: ia berisi assistant `tool_calls` **tanpa** `tool_call_id` pada pesan `tool` dan menduplikasi setiap hasil (journal dispatcher + event loop). 499 adalah client-close karena harness membunuh proses di timeout 180 s (upstream melihat 499); 503 adalah `upstream_unavailable` dari provider. Perbaikan di `cmd/damnbot`: history dibaca dari transcript dengan `json:"tool_call_id"`/tool_calls bertag, duplikat `tool_result` digabung per `tool_call_id` (konten loop menang), dan `assistant.tool_calls` diteruskan ke wire provider. Request kedua sekarang 200 (terlihat di E1-117/E1-124); regression test `TestHistoryDedupeToolResults` + assertion dua iterasi di `TestRunHeadlessToolCall`.
 
