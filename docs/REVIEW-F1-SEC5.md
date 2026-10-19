@@ -102,3 +102,59 @@ Repro (dijalankan): `Stdin` 1 MiB, `PTY:false`, `sh -c 'env -i setsid sleep 9973
 - `TestNoOrphans` penuh, `TestInteractiveCorpus` 40×2, fuzz, benchmark, dan stress konkurensi (batas CPU malam ini).
 - Integrasi lapisan tool/approval (`internal/modules/exec`, dispatch) belum ada di stack ini; `Decide`/`MatchAllow` dipakai lewat test saja. Temuan EX5-1/EX5-3 akan menjadi vulnerability penuh hanya bila tool layer mengizinkan kombinasi parameter tersebut (schema saat ini mengizinkan `session` + `stdin`).
 - TOCTOU preview→eksekusi dan perubahan PATH/filesystem antara cek dan spawn tetap residu TRUST-MODEL §3.
+
+## Putaran 2 — re-review perbaikan (2026-10-20)
+
+Head yang direview ulang: `#40` `a31659e`, `#63` `382c76f`. Spot-check restack: `#39` `4b5a19b`, `#42` `fdf9a1f`, `#45` `166f39c`, `#47` `bc2b377`, `#52` `dcd1aa0`, `#62` `3121698` (semua berisi perbaikan yang disetujui). Tes dijalankan di Linux; Windows/macOS statis + cross-build.
+
+| PR | Verdict putaran 2 |
+|---|---|
+| #39 | **approve** (pollable PTY; test fcntl/read; tidak ada regresi) |
+| #40 | **approve** (EX5-2 fixed; EX5-11/12/13 MINOR) |
+| #42 | **approve** (EX5-4 fixed, diverifikasi) |
+| #45 | **approve** (sanitizePrompt tetap ada) |
+| #47 | **approve** (split-secret tetap ada) |
+| #52 | **approve** (sweepWait 1 s; catatan EX5-13) |
+| #62 | **approve** (handle creation ConPTY tetap) |
+| #63 | **approve — BLOCKER ditutup** (EX5-1/3/6/7/9 fixed; EX5-10 MINOR baru) |
+
+### Status temuan putaran 1
+
+| ID | Status | Bukti |
+|---|---|---|
+| EX5-1 (BLOCKER) | **fixed** | `session.go:83-88` menolak `len(stdin)>0` dengan `ErrSpec` sebelum `ss.get`; `TestSessionStdinIsNotShellInput` lulus; probe `touch`, spasi, dan newline semuanya `ErrSpec` |
+| EX5-2 (MAJOR) | **fixed** | `call.inW` (`run.go:146-149`) ditutup di `finish` (`:429-430`); repro asli (foreground `env -i setsid`, `Stdin` 1 MiB) kini `timeout` lalu `Close` 1,29 s (sebelumnya hang >4 s) |
+| EX5-3 (MAJOR) | **fixed** (injeksi) | `%cd%` dihapus dari sentinel; cwd ditulis ke file (`session_unix.go:40-44`, `session_windows.go:27,56,60`); tidak ada ekspansi cwd ke baris perintah. Residu symlink = EX5-10 |
+| EX5-4 (MINOR) | **fixed** | `secretMatches` fail-closed bila `Root==""` (`env.go:283-286`); `withinRoot` EvalSymlinks + Abs + Rel (`:304-320`; `filepath.Rel` memakai `sameWord`, case-insensitive di Windows). Probe: symlink luar→dalam root = 0 secret; `Root=""` = 0 secret; binary normal di luar root = secret ada |
+| EX5-5 (MINOR) | **fixed** | `run_unix_test.go:218-219` tidak lagi me-redirect stdout/stderr escapee; test lulus |
+| EX5-6 (MINOR) | **fixed** | `stripFrames(out, nonce, prevNonce)` (`session.go:225-226, 323-353`); `TestSessionForeignFrameKept` lulus; probe frame asing dipertahankan |
+| EX5-7 (MINOR) | **fixed** (command file) | `O_CREATE\|O_EXCL` (`session.go:208`); symlink di `cN.ext` gagal dan tidak ditimpa. Catatan: perintah dapat menanam file `cN+1.*` dan membuat call berikutnya gagal (DoS), tetapi dapat juga `exit` |
+| EX5-8 (MINOR) | **fixed** (docs) | `exec.go:56-58` mendokumentasikan kontrak `classify.DirectArgv` untuk mode (b) |
+| EX5-9 (MAJOR) | **fixed** | `killOnce sync.Once` (`session.go:64, 403-410`); `go test -race` 3 iterasi `Sessions.Close` + cancel: 0 `DATA RACE`, `Exec`/`Close` tidak menggantung. Klaim "5 s bounded wait" tidak ada di kode; batas yang ada `Runner.Close` 10 s (EX5-12) |
+
+### Temuan baru putaran 2
+
+| ID | PR | Severity | Status | Temuan | Bukti |
+|---|---|---|---|---|---|
+| EX5-10 | #63 | MINOR | confirmed | File cwd ditulis shell dengan `>` dan mengikuti symlink yang ditanam perintah di `cN.cwd`; target di luar workspace ditimpa. Sama kelasnya dengan EX5-7, tetapi file cwd tidak O_EXCL | `session.go:217`; `session_unix.go:40,44`; `session_windows.go:56,60` |
+| EX5-11 | #40 | MINOR | confirmed (statis) | `TestRunEscapedStdinHolderDoesNotHang` memakai `… &`; dash me-redirect stdin proses background ke `/dev/null`, jadi escapee tidak memegang pipe stdin dan test tidak mereproduksi EX5-2 | `run_unix_test.go:386` |
+| EX5-12 | #40 | MINOR | static | `Runner.Close` dibatasi 10 s tetapi memulai goroutine mentah di luar `boundary` (`E-26`) dan meninggalkannya saat timeout; gunakan `boundary.Go`/`Task` dan dokumentasikan bahwa shutdown berlanjut dengan task hidup | `run.go:32-33, 97-104` |
+| EX5-13 | #40/#52 | MINOR | static | `sweepWait` 1 s + `drainAfterExit` 250 ms setelah grace dapat melewati batas P24.2 (+1 s) pada kasus proses bermarker yang lambat mati; normalnya sweep berhenti lebih awal | `run.go:453`; `run.go:426-444` |
+
+Repro EX5-10 (dijalankan): perintah pertama sesi `ln -s <target> c2.cwd`; setelah sentinel, isi `<target>` berubah dari `ORIGINAL` menjadi path direktori sesi (`…/965247.e57c9b…`). Rekomendasi: buat `cN.cwd` dengan `O_EXCL` sebelum mengirim baris, verifikasi objeknya file reguler setelah perintah (bukan symlink), atau baca cwd lewat fd/pipe yang tidak dapat diganti perintah.
+
+### Verifikasi spot-check restack
+
+- `#39`: `pollableMaster` hadir di semua head (`proc_unix.go`); test PTY diperketat (fcntl/read errors).
+- `#42`: `root == ""` fail-closed + `EvalSymlinks` hadir di `fdf9a1f`; `TestSecretRefScope` lulus.
+- `#45`: `sanitizePrompt` hadir di `166f39c`.
+- `#47`: redaksi ANSI-strip blob hadir di `bc2b377`.
+- `#52`: `sweepWait = time.Second` hadir di `dcd1aa0`.
+- `#62`: komentar/handle creation ConPTY hadir di `3121698`.
+- `go test ./internal/exec/classify` dan tes exec target (termasuk `-race` Close+cancel) hijau.
+
+### Tidak dicakup putaran 2
+
+- Windows/macOS runtime untuk sentinel `cmd`, junction cwd (EX5-10), ConPTY+stdin.
+- `TestNoOrphans` 200×, `TestInteractiveCorpus`, fuzz/bench, stress race lebih luas (hanya satu skenario Close+cancel).
+- Integrasi tool layer (schema masih mengizinkan `session`+`stdin`; runner sudah menolak).
