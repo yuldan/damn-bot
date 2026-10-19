@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/damnbot/damnbot/internal/loop/event"
 	"strings"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/loop/event"
 )
 
 type turn struct {
@@ -19,6 +20,7 @@ type turn struct {
 	out       chan<- event.Update
 	start     time.Time
 	usage     event.Usage
+	inline    int
 	compacted bool
 	iteration int
 }
@@ -36,6 +38,7 @@ func (t *turn) run(ctx context.Context) {
 	o := t.steps(ctx)
 	t.end(ctx, o)
 }
+
 func (t *turn) steps(ctx context.Context) outcome {
 	if o := t.begin(ctx); o != nil {
 		return *o
@@ -49,6 +52,7 @@ func (t *turn) steps(ctx context.Context) outcome {
 	}
 	return outcome{stop: event.StopMaxIterations, detail: "max_iterations"}
 }
+
 func (t *turn) begin(ctx context.Context) *outcome {
 	if err := t.append(ctx, &event.Event{Kind: event.UserMessage, Role: "user", Content: t.input.Text}); err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
@@ -62,6 +66,7 @@ func (t *turn) begin(ctx context.Context) *outcome {
 	}
 	return nil
 }
+
 func (t *turn) iterate(ctx context.Context, it int) (*outcome, bool) {
 	if o, ok := t.preflight(ctx); ok {
 		return &o, true
@@ -94,6 +99,7 @@ func (t *turn) iterate(ctx context.Context, it int) (*outcome, bool) {
 	}
 	return nil, false
 }
+
 func (t *turn) build(ctx context.Context, it int) (*Prompt, *outcome, bool) {
 	p, err := t.deps.Assembler.Assemble(ctx, &AssembleRequest{
 		SessionID: t.sessionID, TurnID: t.turnID, Input: t.input, Iteration: it,
@@ -109,12 +115,16 @@ func (t *turn) build(ctx context.Context, it int) (*Prompt, *outcome, bool) {
 	if p.MaxTokens <= 0 {
 		p.MaxTokens = 8192 // SPEC §4.1 default
 	}
+	if o, ok := t.guard(ctx, &p, it); ok {
+		return nil, &o, true
+	}
 	if cap := t.cfg.MaxInputTokens; cap > 0 && t.usage.Input+p.InputTokens > cap {
 		o := outcome{stop: event.StopMaxTokens, detail: event.DetailBudgetInput}
 		return nil, &o, true
 	}
 	return &p, nil, false
 }
+
 func (t *turn) preflight(ctx context.Context) (outcome, bool) {
 	if ctx.Err() != nil {
 		return t.cancelled(), true
@@ -124,6 +134,45 @@ func (t *turn) preflight(ctx context.Context) (outcome, bool) {
 	}
 	return outcome{}, false
 }
+
+// guard enforces the context-window thresholds: one compaction at CompactAt,
+// a hard stop at OverflowAt (SPEC §4.2, §4.7).
+func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {
+	if p.WindowTokens <= 0 {
+		return outcome{}, false
+	}
+	pct := p.InputTokens * 100 / p.WindowTokens
+	if pct < int64(t.cfg.CompactAt) || t.compacted || t.deps.Compactor == nil {
+		return t.windowStop(pct)
+	}
+	if err := t.deps.Compactor.Compact(ctx, t.sessionID); err != nil {
+		if ctx.Err() != nil {
+			return t.cancelled(), true
+		}
+		return t.fail(ctx, event.DetailInternal, err), true
+	}
+	t.compacted = true
+	again, err := t.deps.Assembler.Assemble(ctx, &AssembleRequest{
+		SessionID: t.sessionID, TurnID: t.turnID, Input: t.input, Iteration: it,
+	})
+	if err != nil {
+		return t.fail(ctx, event.DetailInternal, err), true
+	}
+	if again.MaxTokens <= 0 {
+		again.MaxTokens = p.MaxTokens
+	}
+	*p = again
+	return t.windowStop(p.InputTokens * 100 / p.WindowTokens)
+}
+
+// windowStop is the hard context-window stop.
+func (t *turn) windowStop(pct int64) (outcome, bool) {
+	if pct >= int64(t.cfg.OverflowAt) {
+		return outcome{stop: event.StopMaxTokens, detail: event.DetailContextOverflow}, true
+	}
+	return outcome{}, false
+}
+
 func (t *turn) ask(ctx context.Context, p *Prompt) (Reply, []ToolCall, *outcome) {
 	var st askState
 	for {
@@ -155,6 +204,7 @@ func (t *turn) ask(ctx context.Context, p *Prompt) (Reply, []ToolCall, *outcome)
 		return reply, calls, nil
 	}
 }
+
 func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 	if ctx.Err() != nil {
 		o := t.cancelled()
@@ -179,6 +229,7 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 	t.emit(&event.Update{Kind: event.UpdateUsage, Usage: &reply.Usage})
 	return nil, false
 }
+
 func (t *turn) streamError(ctx context.Context, p *Prompt, err error, st *askState) (bool, *outcome) {
 	if ctx.Err() != nil {
 		o := t.cancelled()
@@ -209,6 +260,7 @@ func (t *turn) streamError(ctx context.Context, p *Prompt, err error, st *askSta
 	o := t.fail(ctx, event.DetailProviderError, err)
 	return false, &o
 }
+
 func (t *turn) retryContextLength(ctx context.Context, p *Prompt, st *askState) (bool, *outcome) {
 	if st.contextRetried || t.compacted || t.deps.Compactor == nil {
 		return false, nil
@@ -232,6 +284,7 @@ func (t *turn) retryContextLength(ctx context.Context, p *Prompt, st *askState) 
 	*p = again
 	return true, nil
 }
+
 func (t *turn) classify(ctx context.Context, r *Reply, calls []ToolCall) (outcome, bool) {
 	switch {
 	case r.FinishReason == FinishContentFilter:
@@ -251,6 +304,7 @@ func (t *turn) classify(ctx context.Context, r *Reply, calls []ToolCall) (outcom
 		return o, true
 	}
 }
+
 func (t *turn) contentFiltered(ctx context.Context, r *Reply, calls []ToolCall) (outcome, bool) {
 	ev := &event.Event{
 		Kind: event.AssistantMessage, Role: "assistant", Content: r.Content,
@@ -262,6 +316,7 @@ func (t *turn) contentFiltered(ctx context.Context, r *Reply, calls []ToolCall) 
 	t.emit(&event.Update{Kind: event.UpdateNotice, Text: "content filtered", Status: "content_filtered"})
 	return outcome{stop: event.StopContentFiltered, detail: event.DetailContentFiltered}, true
 }
+
 func (t *turn) finalAnswer(ctx context.Context, r *Reply) (outcome, bool) {
 	ev := &event.Event{
 		Kind: event.AssistantMessage, Role: "assistant", Content: r.Content,
@@ -275,6 +330,7 @@ func (t *turn) finalAnswer(ctx context.Context, r *Reply) (outcome, bool) {
 	}
 	return outcome{stop: event.StopEndTurn, detail: event.DetailCompleted}, true
 }
+
 func (t *turn) end(ctx context.Context, o outcome) {
 	errText := t.redact(o.err)
 	t.note(ctx, &event.Event{Kind: event.TurnEnd, Payload: payload(endPayload{
@@ -283,9 +339,11 @@ func (t *turn) end(ctx context.Context, o outcome) {
 	})})
 	t.emit(&event.Update{Kind: event.UpdateStop, Stop: o.stop, Detail: o.detail, Usage: &t.usage, Err: errText})
 }
+
 func (t *turn) cancelled() outcome {
 	return outcome{stop: event.StopCancelled, detail: event.DetailCancelled}
 }
+
 func (t *turn) fail(ctx context.Context, detail event.StopDetail, err error) outcome {
 	msg := t.redact(err.Error())
 	stop := event.StopError
@@ -296,15 +354,18 @@ func (t *turn) fail(ctx context.Context, detail event.StopDetail, err error) out
 	t.emit(&event.Update{Kind: event.UpdateNotice, Text: msg, Err: msg})
 	return outcome{stop: stop, detail: detail, err: msg}
 }
+
 func (t *turn) fallback(ctx context.Context, from, to string) {
 	t.note(ctx, &event.Event{Kind: event.ProviderFallback, Payload: payload(auditPayload{From: from, To: to})})
 	t.emit(&event.Update{Kind: event.UpdateNotice, Text: fmt.Sprintf("provider fallback: %s -> %s", from, to), ToolName: "fallback"})
 }
+
 func (t *turn) note(ctx context.Context, ev *event.Event) {
 	if err := t.append(context.WithoutCancel(ctx), ev); err != nil {
 		return
 	}
 }
+
 func (t *turn) append(ctx context.Context, ev *event.Event) error {
 	if t.deps.Store == nil {
 		return nil
@@ -317,6 +378,7 @@ func (t *turn) append(ctx context.Context, ev *event.Event) error {
 	}
 	return nil
 }
+
 func (t *turn) record(ctx context.Context, u *event.Usage) error {
 	if t.deps.Ledger == nil {
 		return nil
@@ -326,15 +388,18 @@ func (t *turn) record(ctx context.Context, u *event.Usage) error {
 	}
 	return nil
 }
+
 func (t *turn) emit(u *event.Update) {
 	t.out <- *u
 }
+
 func (t *turn) redact(s string) string {
 	if t.deps.Redactor == nil || s == "" {
 		return s
 	}
 	return t.deps.Redactor.Redact(s)
 }
+
 func (t *turn) addUsage(u *event.Usage) {
 	t.usage.Input += u.Input
 	t.usage.CachedInput += u.CachedInput
@@ -346,6 +411,7 @@ func (t *turn) addUsage(u *event.Usage) {
 		*t.usage.CostUSD += *u.CostUSD
 	}
 }
+
 func payload(v any) json.RawMessage {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -353,6 +419,7 @@ func payload(v any) json.RawMessage {
 	}
 	return b
 }
+
 func sanitizeName(name string) string {
 	for i, r := range name {
 		switch {
