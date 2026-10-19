@@ -51,7 +51,9 @@ func Prepare(o *OneShot) (spec Spec, notice string, err error) {
 			return Spec{}, "", fmt.Errorf("exec: dir: %w", err)
 		}
 	}
-	path := policy.Path(o.Parent)
+	// Resolve against the child PATH, including exec.env overrides.
+	base := policy.Env(o.Parent, o.PTY, "", "", o.Root)
+	path := envPath(base)
 	direct := ""
 	var argv []string
 	if len(o.Direct) > 0 {

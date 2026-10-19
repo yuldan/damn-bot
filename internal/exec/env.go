@@ -67,23 +67,6 @@ func (p *EnvPolicy) Env(parent []string, pty bool, direct, dir, root string) []s
 	return env
 }
 
-// Path returns parent's PATH value under this policy ("" when PATH is not
-// inherited), i.e. the PATH used to resolve argv0 before the child env is
-// built.
-func (p *EnvPolicy) Path(parent []string) string {
-	if !p.inherits("PATH") {
-		return ""
-	}
-	path := ""
-	for _, kv := range parent { // last value wins, as in execve
-		k, v, ok := strings.Cut(kv, "=")
-		if ok && envKey(k) == envKey("PATH") {
-			path = v
-		}
-	}
-	return path
-}
-
 // inheritInto copies the allowed parent variables into out.
 func (p *EnvPolicy) inheritInto(out map[string]string, parent []string) {
 	for _, kv := range parent {
