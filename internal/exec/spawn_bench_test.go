@@ -69,7 +69,7 @@ func benchSpawn(b *testing.B, pty bool, budget time.Duration, name string) {
 			b.Error(err)
 		}
 	})
-	env := (&EnvPolicy{}).Env(os.Environ(), pty, "")
+	env := (&EnvPolicy{}).Env(os.Environ(), pty, "", "", "")
 	ds := make([]time.Duration, 0, b.N)
 	for b.Loop() {
 		s := Spec{Argv: argv, Dir: os.TempDir(), Env: env, PTY: pty}

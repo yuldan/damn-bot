@@ -13,7 +13,7 @@ func newSessions(t testing.TB, env []string) *Sessions {
 	t.Helper()
 	r := New(context.Background())
 	if env == nil {
-		env = (&EnvPolicy{}).Env(append(os.Environ(), "HOME="+t.TempDir()), true, "")
+		env = (&EnvPolicy{}).Env(append(os.Environ(), "HOME="+t.TempDir()), true, "", "", "")
 	}
 	ss := r.NewSessions(t.TempDir(), env)
 	t.Cleanup(func() {

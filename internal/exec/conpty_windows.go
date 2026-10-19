@@ -32,18 +32,25 @@ func startConPTY(s *Spec, in *os.File) (_ *osProc, err error) {
 		return nil, errors.Join(fmt.Errorf("exec: pty pipe: %w", err), closeHandle(inR))
 	}
 	w.out = os.NewFile(uintptr(outR), "conpty")
-	err = windows.CreatePseudoConsole(windows.Coord{X: ptyCols, Y: ptyRows}, inR, outW, 0, &w.console)
-	// The console holds its own duplicates of both ends.
-	err = errors.Join(err, closeHandle(inR), closeHandle(outW))
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("exec: pseudo console: %w", err), closeAll(w.out))
+	// The creation handles must stay open until CreateProcess: the child is
+	// attached to the pseudo console during that call (Microsoft docs).
+	// Closing them right after CreatePseudoConsole left the child without
+	// console std handles — conhost started (VT init bytes) but the
+	// command's own output was lost (EX62-1).
+	if err = windows.CreatePseudoConsole(windows.Coord{X: ptyCols, Y: ptyRows}, inR, outW, 0, &w.console); err != nil {
+		return nil, errors.Join(fmt.Errorf("exec: pseudo console: %w", err),
+			closeAll(w.out), closeHandle(inR), closeHandle(outW))
 	}
 	if w.job, err = newJob(); err != nil {
-		return nil, errors.Join(err, closeAll(w.out))
+		return nil, errors.Join(err, closeAll(w.out), closeHandle(inR), closeHandle(outW))
 	}
 	if err = w.createProcess(s); err != nil {
-		return nil, errors.Join(err, closeAll(w.out))
+		return nil, errors.Join(err, closeAll(w.out), closeHandle(inR), closeHandle(outW))
 	}
+	// conhost holds its own duplicates of both ends; a close failure here
+	// cannot invalidate the already-started process.
+	_ = closeHandle(inR)
+	_ = closeHandle(outW)
 	return w, nil
 }
 

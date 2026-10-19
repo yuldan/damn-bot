@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/testutil/timing"
 )
 
@@ -79,9 +80,13 @@ func TestSessionTimeout(t *testing.T) {
 func TestSessionPrompt(t *testing.T) {
 	t.Parallel()
 	ss := newSessions(t, nil)
-	res := sessExec(t, ss, "s", "printf 'Proceed? [y/N] '; read a", 10*time.Second)
+	ss.r.SetRedactor(redact.New(redact.Options{Secrets: []string{"hunter2-secret"}}))
+	res := sessExec(t, ss, "s", "printf 'Proceed with hunter2-secret? [y/N] '; read a", 10*time.Second)
 	if res.Status != StatusWaitingForInput || res.InputKind != InputConfirm || !res.SessionReset {
 		t.Fatalf("%+v", res)
+	}
+	if strings.Contains(res.Prompt, "hunter2") {
+		t.Fatalf("session prompt leaked the secret: %q", res.Prompt)
 	}
 	assertNoMarker(t, res.ExecID)
 }
@@ -91,7 +96,7 @@ func TestSessionPrompt(t *testing.T) {
 func TestSessionSecretRefScope(t *testing.T) {
 	t.Parallel()
 	policy := &EnvPolicy{Secrets: []SecretEnv{{Name: "GH_TOKEN", Value: "ghp-secret", Commands: []string{"env"}}}}
-	ss := newSessions(t, policy.Env([]string{"PATH=" + os.Getenv("PATH")}, true, ""))
+	ss := newSessions(t, policy.Env([]string{"PATH=" + os.Getenv("PATH")}, true, "", "", ""))
 	if res := sessExec(t, ss, "s", "env", 5*time.Second); strings.Contains(string(res.Output), "GH_TOKEN") {
 		t.Fatal("secret ref reached a session")
 	}
@@ -100,7 +105,7 @@ func TestSessionSecretRefScope(t *testing.T) {
 func TestSessionCloseNoOrphans(t *testing.T) {
 	t.Parallel()
 	r := New(context.Background())
-	ss := r.NewSessions(t.TempDir(), (&EnvPolicy{}).Env([]string{"PATH=" + os.Getenv("PATH")}, true, ""))
+	ss := r.NewSessions(t.TempDir(), (&EnvPolicy{}).Env([]string{"PATH=" + os.Getenv("PATH")}, true, "", "", ""))
 	res := sessExec(t, ss, "s", "sleep 1000 & (sleep 1000 &); true", 5*time.Second)
 	if err := errors.Join(ss.Close(), r.Close()); err != nil {
 		t.Fatal(err)

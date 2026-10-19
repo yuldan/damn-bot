@@ -39,7 +39,7 @@ func TestLookPathWindows(t *testing.T) {
 // TestEnvWindowsBasics: the variables a Win32 child needs are inherited.
 func TestEnvWindowsBasics(t *testing.T) {
 	t.Parallel()
-	env := (&EnvPolicy{}).Env([]string{"SystemRoot=C:\\Windows", "Path=C:\\x", "AWS_SECRET=1"}, false, "")
+	env := (&EnvPolicy{}).Env([]string{"SystemRoot=C:\\Windows", "Path=C:\\x", "AWS_SECRET=1"}, false, "", "", "")
 	got := strings.Join(env, "\n")
 	if !strings.Contains(got, "SystemRoot=C:\\Windows") || !strings.Contains(got, "Path=C:\\x") || strings.Contains(got, "AWS_SECRET") {
 		t.Errorf("%v", env)

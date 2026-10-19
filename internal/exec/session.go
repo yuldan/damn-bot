@@ -248,7 +248,8 @@ func (s *session) wait(ctx context.Context, nonce string, from int64, timeout ti
 			return true
 		}
 		if st, line, kind := s.check(from, interrupted); st != "" {
-			res.Status, res.Prompt, res.InputKind, res.Output = st, line, kind, s.since(from)
+			res.Status, res.InputKind, res.Output = st, kind, s.since(from)
+			res.Prompt = sanitizePrompt(s.c.r.redactor(), line)
 			s.kill()
 			return true
 		}
