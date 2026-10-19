@@ -124,29 +124,26 @@ LOC = scc kolom Code, Go non-test (ENGINEERING E-19). Coverage = `go test -cover
 
 Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket test-only dikeluarkan lewat allowlist `TESTONLY` di `loc.budget` ([#12](https://github.com/yuldan/damn-bot/pull/12), ADR-098). Rasio setelah #11: 5.529:4.890 = 1,13; perkiraan setelah `redact` + `sandbox` + `boundary`: 7.024:6.050 = 1,16.
 
-### `internal/exec/classify` (ADR-106)
-
-Paket murni (tanpa import internal, `PathResolver` diinjeksi runner): label risiko + `shell_allow` + kebijakan approval shell. LOC scc 1.532 / 1.600 (budget dipindah dari `exec` 3.500 → 3.400, persetujuan owner, ADR-106 butir 10). Coverage paket 94,9 % (lokal). `BenchmarkClassify` (perintah 2 KiB, linux/amd64 12 thread, beban host ≈ 10): ≈ 0,82 ms/op, 100 KB, 2.221 alloc (< 1 ms; `timing.Check` di `make perf`).
+### `internal/config` (ADR-107)
 
 | PR | Isi | Baris Go non-test (diff) | Hasil |
 |---|---|---:|---|
-| [#41](https://github.com/yuldan/damn-bot/pull/41) `f1-classify-1` | tipe API, operand path (`deny_paths`, `outside_read`, tulis luar root), `Decide`, `OutputSource`, ADR-106, budget, CODEOWNERS | 501 | hijau (`11e5cfc`); menunggu review |
-| [#43](https://github.com/yuldan/damn-bot/pull/43) `f1-classify-2` | `Classify` bash/POSIX (AST mvdan), kata/redirect/substitusi, perintah generik | 419 | menunggu review |
-| [#44](https://github.com/yuldan/damn-bot/pull/44) `f1-classify-3` | tabel label, aturan opsi, wrapper, interpreter, `non_mutating` | 446 | menunggu review |
-| [#46](https://github.com/yuldan/damn-bot/pull/46) `f1-classify-4` | HTTP/remote, lexer PowerShell/cmd, `DirectArgv`/`MatchAllow`, test acceptance, laporan ini | 534 | menunggu review |
+| `f1-config-1` | struct + default SPEC §12, decode TOML ketat (key tak dikenal + path/baris), DI `Deps`, `FuzzConfigTOML` | 497 | [#71](https://github.com/yuldan/damn-bot/pull/71) |
+| `f1-config-2` | validasi rentang semua kunci F1, path per OS/profil, `<config_dir>`, `Clone` immutable | 322 | [#72](https://github.com/yuldan/damn-bot/pull/72) |
+
+### `internal/assemble` (ADR-108)
+
+| PR | Isi | Baris Go non-test (diff) | Hasil |
+|---|---|---:|---|
+| `f1-assemble-1` | stable kondisional + golden per varian, katalog, volatile beku (Σ 100), `<runtime>` (≤ 40), DI `Counter`/`Scrub` | 574 | [#73](https://github.com/yuldan/damn-bot/pull/73) |
+| `f1-assemble-2` | context sub-cap + urutan potong SPEC §6, baca context file lewat sandbox, filter schema `shell` per fase | 523 | [#74](https://github.com/yuldan/damn-bot/pull/74) |
+| `f1-assemble-3` | `Build` wire `messages`+`tools`, fixture P1 `f1-core` + hook `bench/budget` | 170 | [#75](https://github.com/yuldan/damn-bot/pull/75) |
 
 | Item | Implementasi | Test | Status |
 |---|---|---|---|
-| A.8 label + tabel ADR-079 (36 baris) | `Classify` + `MatchAllow` + `Decide` | `TestShellApprovalModel` (baris 1–36; 31 via `OutputSource`; 32–35 verdict tool kode) | selesai |
-| ADR-079 butir 3, ADR-088 butir 3/5, NEW3-04 | `DirectArgv`, `MatchAllow` (identitas biner, biner di luar root/cwd, Windows `.exe` saja) | `TestShellAllowExactMatch`, `TestShellAllowCwdTracked`, `TestDirectArgv` | selesai |
-| EXC-13 | label tidak pernah auto | `TestShellNoClassifierAuto` (650 perintah × 4 mode) | selesai |
-| ADR-079 butir 4, 5, 11 | `Decide` headless/`--unsafe-auto-shell`/verify/plan mode | `TestUnsafeAutoShellFlag`, `TestVerifyNeedsShellAllow`, `TestPlanModeShell`, `TestDecideMatrix`, `TestShellAllowConditions` | selesai |
-| ADR-079 butir 10 (tingkat kebijakan) | tidak ada kelas/keputusan `read_only` | `TestNoReadOnlyClass` | selesai (penulisan `approvals` di `exec`/`tools`) |
-| Operand path, `outside_read` (ADR-088 butir 2) | `operand`, `check`, `glob`, `compileDeny` | `TestOperandLabels`, `TestSymlinkAndGlobOperands`, `TestWithinAndDeny`, `TestCwdRelative` | selesai |
-| Label A.8, GAP-SEC-12/14/15 | tabel + aturan opsi + wrapper + interpreter + HTTP/remote + lexer PowerShell/cmd | `TestClassifyCorpus` (≈ 215 perintah), `TestParseLabels`, `TestRuleLabels`, `TestDialects`, `TestNonMutating` | selesai |
-| Secret ref → `unknown` (ADR-081/088 butir 4) | flag `references_secret` | `TestClassifyCorpus`, `TestDialects` | selesai (`TestSecretRefScope` di runner `exec`, #42) |
-| `BenchmarkClassify` < 1 ms / 2 KiB | — | `BenchmarkClassify` (`make perf`) | selesai |
-| EC-TERM-006 | alasan pada setiap `unknown` | `TestEdgeCases/EC-TERM-006`, gate `phase.Item(…, "F1", "covered")` | covered |
+| ADR-066 P1 `f1-core` | `TestFixedOverheadGolden` → `internal/assemble/testdata/p1/f1-core.{request,tiers}.json`; `bench/budget TestFixedOverhead/f1-core` mengukur o200k_base | total **2.203** (stable 341, catalog 0, context 812, volatile 92, tools 897) ≤ 4.000; tiap tier ≤ alokasi NEW-41 | selesai |
+| P15 subset ADR-067/082 | stable kondisional (aturan 3/`repo_map`), volatile beku, runtime suffix, schema shell per fase | `TestStableTierGolden` (3 varian), `TestPromptNoUnavailableTools`, `TestVolatileTierCaps`, `TestPrefixStableWithinTurn`, `TestRuntimeSuffixCaps`, `TestShellSchemaVariant` | selesai |
+| Keamanan prompt | `Deps.Scrub` wajib pada semua teks pemanggil; context file hanya lewat `FileReader` sandbox, `ErrUnavailable` → file dihilangkan | `TestContextScrub`, `TestContextSandboxRefusalOmitsFile` | selesai |
 
 ## Review keamanan
 
@@ -159,8 +156,6 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | [#15](https://github.com/yuldan/damn-bot/pull/15) `sandbox` a | verdict `Check`, `deny_paths` | symlink file/dir keluar root (termasuk komponen tengah, dangling, relatif, loop), `..`, path absolut; symlink ke path deny; `/proc/*/environ`, `/proc/*/task/*/environ`, `/proc/*/mem`, `~/.ssh`, `**/.env`, `*.pem`, look-alike, varian huruf (Windows/macOS); MSYS/UNC/long path |
 | [#16](https://github.com/yuldan/damn-bot/pull/16) `sandbox` b | open anti-TOCTOU per OS | CT-26: proses lain membalik komponen direktori ↔ symlink keluar root selama 1.000 open per mekanisme (openat2, walk `O_NOFOLLOW`) = 0 file luar; symlink baru di dalam root setelah `Check` ditolak; verifikasi `/proc/self/fd` dan device+inode (macOS/BSD, sisa risiko ADR-097 butir 4); `OpenApproved` tetap menolak deny; create pada path deny tidak membuat file |
 | [#22](https://github.com/yuldan/damn-bot/pull/22), [#30](https://github.com/yuldan/damn-bot/pull/30), [#31](https://github.com/yuldan/damn-bot/pull/31) `provider` (ADR-102) — **di-merge setelah CI hijau, review auditor menyusul** (input jarak jauh tidak tepercaya) | decoder delta tanpa reflect, rakitan stream, klien openai-chat (retry, breaker, fallback), `providertest` | **SSE/JSON rusak:** frame JSON tidak lengkap → `stream_broken` (retry, lalu gagal typed), stream terpotong tanpa `finish_reason` → `stream_broken`, angka di luar jangkauan/non-integer untuk token → chunk ditolak, `null` di posisi objek/array, UTF-8 rusak/surrogate tunggal → U+FFFD, kunci beda kapitalisasi diabaikan (`FuzzDeltaDecode` diferensial vs `encoding/json`, 3 crash fuzz diperbaiki + korpus; `TestDeltaDecode`; `TestHostileStream`); **delta besar:** satu event SSE > 4 MiB → `ErrEventTooLarge` (non-retry), rakitan > 16 MiB atau > 128 tool call → `ErrResponseTooLarge` (non-retry, tanpa fallback) (`TestAssemblyBounds`, `TestHostileStream`); **field injeksi tool call:** nama/argumen disimpan mentah tanpa ditafsirkan (`../../rm -rf` tetap string), fragmen dengan `id`/`index` berulang atau baru dirakit sesuai aturan EC-PROV-001 tanpa membuat call ekstra, field tak dikenal dilewati (`TestEdgeCases/EC-PROV-001`, `TestHostileStream`); **error di dalam stream 2xx** → kelas `server`, body disalin (tidak dieksekusi); **content_filter:** dikembalikan sebagai `FinishReason` bersama konten parsial + tool call untuk loop (stop `content_filtered`, ADR-072/082), tanpa retry/fallback (`TestAssemble`, `TestHostileStream`); **klasifikasi:** 429 = `rate_limited` apa pun body-nya (EC-PROV-029), `error.param` saja (bukan teks pesan) memicu pelepasan parameter (E-21); **body error** ≤ 64 KiB, tidak diredaksi di `provider` (redaksi saat log/tampil). Sisa: `providertest` hanya loopback (E-69) |
-| `exec` a (ADR-105) — **tidak di-merge sampai auditor approve** | lapisan proses per OS: session/pgid sendiri (Unix, `Pdeathsig`), PTY `creack/pty` 120×40 sebagai controlling terminal, Job Object `KILL_ON_JOB_CLOSE` dengan start tersuspensi (Windows), capture head+tail | stdin `/dev/null` = EOF tanpa tty (sudo/ssh/`read -p` gagal cepat); kill grup menjangkau `sleep &` dan subshell; `trap '' TERM` tetap mati oleh KILL; tidak ada anak yang lolos dari Job sebelum assign (start tersuspensi); capture 16 MiB terbatas untuk output tak berujung (ring, tanpa geser) |
-| [#41](https://github.com/yuldan/damn-bot/pull/41), [#43](https://github.com/yuldan/damn-bot/pull/43), [#44](https://github.com/yuldan/damn-bot/pull/44), [#46](https://github.com/yuldan/damn-bot/pull/46) `exec/classify` (ADR-106) — bertumpuk, **tidak di-merge** sebelum review auditor | label risiko shell, operand path, `shell_allow` argv-persis, `Decide` | **Tidak ada auto dari label:** 650 perintah korpus × ask/auto-edit/auto/headless dengan `shell_allow` kosong = 0 auto (`TestShellNoClassifierAuto`); 36 baris ADR-079 persis (`TestShellApprovalModel`). **Bypass `shell_allow`:** setiap metakarakter, ekspansi (`$`, backtick, `$'…'`, `${}`), glob, brace, `~`, redirect, heredoc/here-string, assignment, pipeline, `!`, `#`, `time`/`coproc`/`if`, CR/NUL/ESC/DEL, NBSP/zero-width/bidi override, `./go`/`/usr/bin/go`, argumen tambahan; biner beda inode/mtime/path, biner di dalam root atau entri PATH relatif (NEW3-04), `.bat`/`.cmd`, `%VAR%`/`$env:`/`^`/backtick Windows (`TestShellAllowExactMatch`, 80+ kasus); cwd di luar root, `..`, prefix sibling (`TestShellAllowCwdTracked`). **Penyamaran label:** perintah di `bash -c`/`sh -c`/`eval`/`sudo`/`env`/`timeout`/`nohup`/`xargs`/`find -exec`/`npx`/`ssh '<cmd>'`/`$(…)`/`<(…)`, `curl \| sh`, `iwr \| iex`, fork bomb, `rm -rf *` di root, `git push +ref`, cluster `-fdx`, `-XPOST` tergabung, `--data @~/.ssh/id_rsa` (deny), symlink/glob ke `~/.ssh` (resolver palsu), `cd ~ && cat .ssh/x`, interpreter dari pipe/heredoc, kode inline python/node, `PATH=`/`LD_PRELOAD=`, `git -c`, var secret (`$X`, `${X}`, `$env:X`, `%X%`) = `unknown` + `references_secret`, nesting > 8 (`TestClassifyCorpus`, `TestDialects`, `TestRuleNesting`). Batas: label best-effort, shell bukan boundary (ADR-079 butir 8). |
 
 ### `internal/budget` + `internal/ctxdb/ledgerstore` (ADR-101)
 
@@ -189,19 +184,6 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | E-69 `providertest` | server palsu loopback, skrip, replay fixture SSE, `FakeClock` | `TestFixtureAndLatency`, semua test klien | selesai |
 | EC-PROV F1 | 001, 004..007, 011..013, 015, 016, 025 di `provider`; 009/010/028..030 di `netx` | `TestEdgeCases/<ID>` (gate PHASE) | covered |
 
-
-### `internal/exec` (ADR-105)
-
-| PR | Isi | Baris Go non-test (diff) | Hasil |
-|---|---|---:|---|
-| exec a | tipe hasil (`ExecStatus` ADR-082), lapisan proses per OS, capture | lihat PR | CI; menunggu auditor |
-
-| Item | Implementasi | Test | Status |
-|---|---|---|---|
-| Runner pipe/pty (§A.1) | `start` (`proc_unix.go`, `proc_windows.go`), `sysAttr` | `TestProcPipeExit`, `TestProcStdinPipe`, `TestProcPTY`, `TestProcJobExit` | PR a |
-| Kill pohon proses (§A.4) | `terminate`/`kill` ke pgid; `TerminateJobObject` | `TestProcGroupTerminate`, `TestProcGroupKillIgnoresTrap`, `TestProcJobKillTree` | PR a |
-| Capture output | `capture` head 8 MiB + ring 8 MiB | `TestCaptureHeadTail`, `TestCaptureHugeWrite`, `TestCaptureSmall` | PR a |
-| Loop timeout/cancel, sweep marker, env, mode one-shot, prompt interaktif, idle, ConPTY, summarize, P24 | — | — | PR berikutnya |
 ## Handoff f1-net (pause)
 
 Status 2026-10-20 saat proyek di-pause. Semua kerja ada di branch remote; tidak ada yang hanya ada di `/tmp`. Tidak ada PR yang security-gated yang di-merge.
@@ -332,26 +314,3 @@ Perubahan lossless yang tersisa (separator `--` saat context 0) sudah diterapkan
 4. Rebase `f1-ct-perf2-wip` ke `f1-ct-13`, lalu buka PR ke-14 (body wajib menyebut ADR-103; coverage dan parity belum dijalankan ulang setelah rebase).
 5. Minta review auditor untuk #48–#61 (+ PR perf). Merge berurutan dengan metode rebase; ganti base PR berikutnya ke `main` setelah tiap merge.
 6. CT-01/02/10/11 belum memenuhi target. Butuh keputusan owner: engine regex, CT-11 (opsi 0,74–0,78× dengan kehilangan informasi, atau revisi target lewat ADR).
-## Review keamanan — exec (tindak lanjut REVIEW-F1-SEC4, 2026-10-19)
-
-**Status: temuan ditutup di kode; CI stack belum hijau penuh saat entri ini ditulis. Tidak ada PR exec/classify yang di-merge.** Auditor diminta memverifikasi perbaikan di bawah sebelum merge.
-
-| Temuan | Perbaikan | Bukti/test |
-|---|---|---|
-| EX39-1 (MAJOR, hang PTY) | Master PTY di-`dup` setelah `File.Fd` terakhir, `O_NONBLOCK`, di-wrap `os.NewFile` (poller). `pty.Setsize` memakai slave, bukan master. Close kini membatalkan `Read` yang tertunda; `Run`/`Close` kembali walau proses lepas (`env -i setsid`) memegang slave. | `TestProcPTYCloseUnblocksRead`, `TestRunPTYEscapeeDoesNotHang` (leader exit + timeout) |
-| EX39-2 (MINOR) | Leader suspended di-`Kill` sebelum `Wait` saat attach/resume gagal. | jalur `proc_windows.go` |
-| EX39-3/EX40-1 (MINOR, docs) | A.4 diamandemen ke ADR-105 (reaper per pid, tanpa subreaper); residu `env -i`+setsid, sudo, `systemd-run --user`, `at`/cron, WMI/schtasks dicatat di TRUST-MODEL §3. | docs |
-| EX42-1 (MAJOR, secret) | Secret cocok berdasarkan identitas binary (path absolut + `os.SameFile` dev/inode + size + mtime), hanya argv0 **tanpa separator**; binary di dalam `OneShot.Root` dikecualikan. Bukan lagi base name. | `TestSecretRefScope` (./env, PATH workspace, argv0 absolut → 0 secret) |
-| EX42-2/EX62-1 (MAJOR) | argv0 ber-separator di-resolve sekali ke path absolut+clean; `Dir` relatif dibuat absolut sebelum spawn; ConPTY tidak lagi me-resolve terhadap cwd damnbot. | `TestLookPath`, `Prepare` argv0 absolut |
-| EX42-3 (MINOR) | Mode (b) menolak C0 (selain tab), DEL, CR, NUL. | `TestSecretRefScope` (NUL/CR) |
-| EX42-4 (MINOR) | Nama GAP-SEC-02/`env_allow`/proxy persis di Unix; lipat huruf hanya Windows. | `TestEnvAllowlist` (Path/Home/Lang/Http_Proxy) |
-| EX45-1 (MAJOR, prompt) | `Result.Prompt` melewati `redact.Redactor` (pola + secret sesi via `SetRedactor`) dan hanya menyisakan rune printable, `\n`, `\t`; dipakai juga oleh sesi persisten. | `TestPromptRedactedAndSanitized`, `TestSessionPrompt` |
-| EX47-1 (MINOR) | Escape tanpa terminator dibatasi 4 KiB; sisa output tetap terlihat; C0 (kecuali tab), DEL, C1 dibuang dari ringkasan. | `TestSummarizeUnterminatedEscape`, `TestSummarizePipeline/controls` |
-| EX47-2 (MINOR) | Blob `Raw` memakai bentuk strip-ANSI yang di-redaksi ulang bila redaksi raw berbeda (secret terpisah SGR). | `TestSummarizeSplitSecretNotLeaked` |
-| EX52-1 (MINOR) | A.10 mencatat `TestNoOrphans` hanya mengukur proses bermarker. | docs |
-| EX62-1 (ConPTY output hilang) | Handle kreasi ConPTY ditutup setelah `CreateProcess` (bukan setelah `CreatePseudoConsole`); sebelumnya child kehilangan std handle console sehingga output perintah hilang. | `TestProcConPTY`, `TestRunConPTYWindows`, `TestRunConPTYPromptWindows` (Windows CI) |
-| SEC5-1 (BLOCKER) | `Sessions.Exec` menolak `stdin` non-kosong (`ErrSessionStdin`): byte yang tidak dikonsumsi perintah tidak lagi dieksekusi shell sebagai perintah baru tanpa approval. | `TestSessionStdinRejected` |
-| SEC5-2 (MAJOR) | Sentinelsesi `cmd` memakai `!cd!` dengan `/v:on` (delayed expansion) alih-alih `%cd%`, sehingga cwd ber-`&`/`|`/`>` tidak menjalankan perintah. | `TestCmdSentinelDelayedExpansion` |
-| #63 sesi Windows/macOS | `${LASTEXITCODE}` (bukan `$LASTEXITCODE:`); frame protokol `\x1eDB:…\x1e` dibuang dari output sesi (frame `again` yang telat tidak lagi bocor ke perintah berikutnya). | `TestSessionWindows`, `TestStripFrames`, `TestSessionOutputFramesStripped` |
-
-Yang **belum** dicakup: eksekusi runtime ConPTY/sesi Windows diverifikasi lewat CI (bukan mesin lokal); `TestNoOrphans` 200× dan benchmark spawn dibaca dari job CI; stack classify #41/#43/#44/#46 masih menunggu review auditor. Sisa F1 di luar stack tetap seperti daftar handoff di atas.
