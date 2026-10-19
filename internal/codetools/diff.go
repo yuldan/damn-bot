@@ -19,8 +19,7 @@ type lineOp struct {
 	old, new int // 0-based line numbers (old for ' '/'-', new for '+')
 }
 
-// lineDiff is a Myers O(ND) diff over lines after trimming the common
-// prefix and suffix; ok=false when the distance exceeds diffMaxD.
+// lineDiff is a Myers O(ND) diff over lines after trimming the common prefix and suffix; ok=false when the distance exceeds diffMaxD.
 func lineDiff(a, b []string) (ops []lineOp, ok bool) {
 	pre := 0
 	for pre < len(a) && pre < len(b) && a[pre] == b[pre] {
@@ -114,7 +113,6 @@ func backtrack(trace [][]int, x, y, d int) []lineOp {
 	return ops
 }
 
-// diffStat counts added and removed lines.
 func diffStat(ops []lineOp) (add, del int) {
 	for _, o := range ops {
 		switch o.kind {
@@ -127,8 +125,7 @@ func diffStat(ops []lineOp) (add, del int) {
 	return add, del
 }
 
-// unified renders hunks with diffContext lines of context, cut at
-// diffMaxLines rows (CODE-TOOLS §9.4).
+// unified renders hunks with diffContext lines of context, cut at diffMaxLines rows (CODE-TOOLS §9.4).
 func unified(ops []lineOp, a, b []string) string {
 	var out []string
 	for i := 0; i < len(ops); {
@@ -186,8 +183,7 @@ func hunk(ops []lineOp, a, b []string) []string {
 	return append([]string{fmt.Sprintf("@@ -%d,%d +%d,%d @@", oldStart+1, oldN, newStart+1, newN)}, rows...)
 }
 
-// changedRanges summarizes which current lines differ from a snapshot:
-// "L40-52, L118 (+6 -2)" (CODE-TOOLS §5.3 butir 2), or "changes: unknown".
+// changedRanges summarizes which current lines differ from a snapshot: "L40-52, L118 (+6 -2)" (CODE-TOOLS §5.3 butir 2), or "changes: unknown".
 func changedRanges(snap, cur []string) (summary, firstRange string) {
 	ops, ok := lineDiff(snap, cur)
 	if !ok {

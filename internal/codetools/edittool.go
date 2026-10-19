@@ -177,7 +177,6 @@ func staleErr(c *current, tag string, snap []byte, hasSnap bool) *ToolError {
 	return toolErr(CodeStaleRead, hint, "%s changed since #%s (now #%s): %s", c.t.rel, tag, c.tag, changes)
 }
 
-// docLines returns the logical lines of raw (for change summaries).
 func docLines(raw []byte) []string {
 	d, err := parseDoc(raw)
 	if err != nil {
@@ -186,7 +185,6 @@ func docLines(raw []byte) []string {
 	return contents(d.lines)
 }
 
-// contents returns the logical content of each line.
 func contents(ls []docLine) []string {
 	out := make([]string, len(ls))
 	for i, l := range ls {

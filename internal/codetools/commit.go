@@ -94,10 +94,8 @@ func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mo
 	return ci, err
 }
 
-// ensureMode makes mode_preserved reflect the committed file, not just the
-// temp: some file systems (macOS) drop setuid/setgid across the rename.
-// Re-setting the same mode through the sandbox repairs it; a failure is
-// reported as mode_preserved=false rather than hidden.
+// ensureMode makes mode_preserved reflect the committed file: macOS may drop
+// setuid/setgid across the rename; re-set and re-verify through the sandbox.
 func (e *Engine) ensureMode(ctx context.Context, t *target, mode fs.FileMode, ci *commitInfo) {
 	if mode == 0 || !ci.modeOK {
 		return

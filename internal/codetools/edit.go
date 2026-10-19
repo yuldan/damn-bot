@@ -19,8 +19,7 @@ const (
 	sentinel      = "[REDACTED:" // redaction sentinel never written (ADR-071)
 )
 
-// EditItem is one edit_file edit: {old_string, new_string, replace_all} or
-// {start_line, end_line, new_text} (CODE-TOOLS §5.2).
+// EditItem is one edit_file edit: {old_string, new_string, replace_all} or {start_line, end_line, new_text} (CODE-TOOLS §5.2).
 type EditItem struct {
 	OldString  *string `json:"old_string,omitempty"`
 	NewString  *string `json:"new_string,omitempty"`
@@ -122,16 +121,13 @@ func (d *doc) dominantEOL() string {
 	return "\n"
 }
 
-// span is one resolved edit on the logical text.
 type span struct {
 	idx        int // edit index (0-based)
 	start, end int // logical byte span [start, end)
 	repl       string
 }
 
-// resolveEdits resolves every edit against the original text (order does
-// not matter) and rejects no-ops, overlaps and redaction sentinels
-// (CODE-TOOLS §5.3 butir 4).
+// resolveEdits resolves every edit against the original text (order-independent) and rejects no-ops, overlaps and redaction sentinels (CODE-TOOLS §5.3 butir 4).
 func resolveEdits(d *doc, rel string, edits []EditItem) ([]span, *ToolError) {
 	if len(edits) == 0 || len(edits) > maxEdits {
 		return nil, toolErr(CodeInvalidArgs, "", "/edits: 1..%d items", maxEdits)
@@ -155,8 +151,7 @@ func resolveEdits(d *doc, rel string, edits []EditItem) ([]span, *ToolError) {
 	return spans, nil
 }
 
-// form validates the edit shape (§5.2: exactly one form) and the redaction
-// sentinel guard (ADR-071); line reports the line-range form.
+// form validates the edit shape (§5.2: exactly one form) and the redaction sentinel guard (ADR-071); line reports the line-range form.
 func (ed *EditItem) form(i int) (line bool, err *ToolError) {
 	str := ed.OldString != nil || ed.NewString != nil || ed.ReplaceAll
 	line = ed.StartLine != nil || ed.EndLine != nil || ed.NewText != nil
@@ -206,7 +201,6 @@ func resolveOne(d *doc, rel string, i int, ed *EditItem) ([]span, *ToolError) {
 	return spans, nil
 }
 
-// occurrences lists the non-overlapping offsets of s in text.
 func occurrences(text, s string) []int {
 	var at []int
 	for off := 0; ; {
@@ -219,9 +213,7 @@ func occurrences(text, s string) []int {
 	}
 }
 
-// resolveLines maps a line range (1-based, or both negative from the end)
-// to a span. new_text replaces the lines; one trailing "\n" is the last
-// line's terminator; "" deletes the lines.
+// resolveLines maps a 1-based line range (negative from the end) to a span; one trailing "\n" is the last terminator, "" deletes the lines.
 func resolveLines(d *doc, i, s, e int, text string) ([]span, *ToolError) {
 	n := len(d.lines)
 	if s < 0 && e < 0 {
@@ -243,9 +235,7 @@ func resolveLines(d *doc, i, s, e int, text string) ([]span, *ToolError) {
 	return []span{{idx: i, start: start, end: end, repl: text}}, nil
 }
 
-// apply rewrites the lines the spans touch; lines outside keep their bytes,
-// "\n" in new text takes the EOL of the region's first line (fallback: the
-// dominant EOL) (CODE-TOOLS §5.3 butir 5).
+// apply rewrites the lines the spans touch; outside bytes are kept and "\n" takes the region's first EOL (fallback: dominant) (CODE-TOOLS §5.3 butir 5).
 func (d *doc) apply(spans []span) []docLine {
 	out := make([]docLine, 0, len(d.lines)+8)
 	next := 0 // first line not yet copied
@@ -291,8 +281,7 @@ func splitDocLines(s, eol string) []docLine {
 	return out
 }
 
-// noMatch reports ≤ maxCandidates nearest windows as information only;
-// they are never applied (P4, ADR-005).
+// noMatch reports ≤ maxCandidates nearest windows as information only; they are never applied (P4, ADR-005).
 func noMatch(d *doc, rel string, i int, old, repl string) *ToolError {
 	te := toolErr(CodeNoMatch, "", "edit %d: old_string not found in %s", i+1, rel)
 	oldLines := strings.Split(strings.TrimSuffix(old, "\n"), "\n")
@@ -315,9 +304,7 @@ func noMatch(d *doc, rel string, i int, old, repl string) *ToolError {
 
 type candidate struct{ from, score int }
 
-// candidates are the ≤ maxCandidates windows of len(oldLines) lines
-// anchored on old's first or last line, scored by how many old lines they
-// contain (compared with lineKey; no edit distance).
+// candidates are the ≤ maxCandidates windows anchored on old's first or last line, scored by contained old lines (lineKey; no edit distance).
 func candidates(d *doc, oldLines []string) []candidate {
 	want := map[string]bool{}
 	for _, l := range oldLines {
@@ -353,11 +340,9 @@ func candidates(d *doc, oldLines []string) []candidate {
 	return cs[:min(len(cs), maxCandidates)]
 }
 
-// lineKey compares lines for candidate search only: trimmed, inner
-// whitespace collapsed, NFC. It never decides what an edit changes.
+// lineKey compares lines for candidate search only: trimmed, inner whitespace collapsed, NFC; it never decides what an edit changes.
 func lineKey(l string) string { return norm.NFC.String(strings.Join(strings.Fields(l), " ")) }
 
-// reason labels why a candidate window differs from old_string.
 func reason(win, old string, score, n int) string {
 	squash := func(s string) string { return strings.Join(strings.Fields(s), " ") }
 	switch {
