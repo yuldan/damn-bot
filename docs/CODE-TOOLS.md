@@ -313,7 +313,7 @@ flowchart TD
 - **Owner:** `fchown` ke uid/gid lama jika berbeda. Gagal (`EPERM`) → `Meta.owner_preserved=false` + log WARN, tidak ditelan (P14).
 - **xattr** (termasuk label SELinux, Linux/macOS) disalin via `golang.org/x/sys/unix`. Gagal → `Meta.xattr_preserved=false`.
 - **Symlink:** target yang diedit, symlink tetap ada. Target di luar root → verdict `outside_root` (tanya; headless `outside_workspace`), sama dengan path di luar root (§8, ADR-079).
-- **Hardlink** (`nlink > 1`): `rename` akan memutus link, jadi file ditulis **in-place** (`O_TRUNC` + write + `fsync`) setelah snapshot isi lama masuk `file_snapshots` (SPEC §4.3 langkah 9) + `Meta.inplace=hardlink`.
+- **Hardlink** (`nlink > 1`): butuh approval `hardlinked_file` (ADR-097 butir 12). `rename` akan memutus link, jadi file ditulis **in-place** tanpa pernah parsial karena error: isi baru lengkap ke temp + `fsync` dulu, isi lama ke snapshot (`file_snapshots`, SPEC §4.3 langkah 9) dan backup ber-`fsync`, pre-alokasi, salin dari offset 0 + `ftruncate` + `fsync`; error saat salin → dipulihkan dari backup (ADR-103 butir 13). `Meta.inplace=hardlink`.
 - **Ukuran file:**
   - ≤ 64 MiB: diproses in-memory.
   - \> 64 MiB: hanya mode line-range, via salin streaming (prefix → teks baru → suffix). Edit string → `too_large` + hint line-range.
@@ -515,9 +515,9 @@ edited internal/ctxdb/blob.go #3f9a12c0→#91cc0a7e · 1 edit · +3 -1
 
 | ID | Metrik | Target | Verifikasi |
 |---|---|---|---|
-| CT-01 | grep literal vs `rg` (C1, C2, C3; 40 kueri) | p50 dan p95 ≤ 1,2× | `BenchmarkGrepLiteral/{C1,C2,C3}` + `bench/compare-rg` (job `bench-codetools`, nightly; RC = gate) |
-| CT-02 | grep regex vs `rg` (40 kueri, termasuk tanpa literal wajib) | p50 dan p95 ≤ 1,5× | `BenchmarkGrepRegex/{C1,C2,C3}` + `bench/compare-rg` |
-| CT-03 | glob vs `rg --files` (+ filter glob setara) | p50 dan p95 ≤ 1,2× | `BenchmarkGlob/{C1,C2,C3}` |
+| CT-01 | grep literal vs `rg` (C1, C2, C3; 40 kueri) | p50 dan p95 ≤ 1,2× | `BenchmarkGrepLiteral/{C1,C2,C3}` + `TestGrepSpeedVsRg` (rasio Σp50/Σp95 per korpus × jenis, `make bench-codetools`, job `bench-codetools`, nightly; RC = gate) + laporan `cd bench && go run ./codetools/cmd/codetools -damnbot` |
+| CT-02 | grep regex vs `rg` (40 kueri, termasuk tanpa literal wajib) | p50 dan p95 ≤ 1,5× | `BenchmarkGrepRegex/{C1,C2,C3}` + `TestGrepSpeedVsRg` |
+| CT-03 | glob vs `rg --files` (+ filter glob setara) | p50 dan p95 ≤ 1,2× | `BenchmarkGlob/{C1,C2,C3}` + `TestGrepSpeedVsRg` |
 | CT-04 | grep end-to-end tool di C3 (cold process-cache, page cache hangat) | p95 ≤ 15 ms | `BenchmarkGrepToolC3` (PR perf job) |
 | CT-05 | read_file 400 baris dari file 1 MB (offset acak) | p95 ≤ 3 ms | `BenchmarkReadPage1MB` |
 | CT-06 | tail 100 baris file 100 MB (indeks dingin) | p95 ≤ 10 ms | `BenchmarkReadTail100MB` |

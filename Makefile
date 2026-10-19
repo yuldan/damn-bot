@@ -24,10 +24,15 @@ TARGETS := linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/a
 PERF_BENCH ?= ^(BenchmarkShellSpawn|BenchmarkShellSessionExec|BenchmarkClassify|BenchmarkIterationOverhead|BenchmarkCodetools|BenchmarkAppend|BenchmarkDLPScan|BenchmarkSummarize)
 FUZZTIME ?= 60s
 SHARD ?= 1/1
+# Korpus code tools + oracle rg (CODE-TOOLS §10.1, bench/corpora.lock), dibangun `make corpora`.
+CORPORA_DIR ?= /tmp/damnbot-corpora
+CORPORA ?= C1 C2 C3 rg
+CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORPUS_C1=$(CORPORA_DIR)/C1 \
+	DAMNBOT_CORPUS_C3=$(CORPORA_DIR)/C3 $(if $(filter C2,$(CORPORA)),DAMNBOT_CORPUS_C2=$(CORPORA_DIR)/C2)
 
 .PHONY: all build build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio \
 	deps-check tidy-check mod-verify vuln licenses check meta-test bench-budget fuzz coverage deadcode \
-	flake perf pr-meta phase-acceptance
+	flake perf pr-meta phase-acceptance corpora bench-parity bench-codetools
 
 all: check
 
@@ -154,3 +159,17 @@ meta-test:
 # harness token P1 (tokenizer o200k_base = tiktoken, reproduksi BASELINE-hermes.md ±5%).
 bench-budget:
 	cd bench && go test -count=1 ./...
+
+corpora:
+	CORPORA_DIR=$(CORPORA_DIR) CORPORA="$(CORPORA)" scripts/corpora.sh
+
+# CT-21 parity vs rg di C1+C3 (job PR bench-parity). Korpus wajib ada: tanpa korpus test GAGAL,
+# bukan skip (DAMNBOT_REQUIRE_CORPORA=1).
+bench-parity: corpora
+	$(CORPUS_ENV) go test $(GOTAGS) -count=1 -timeout 0 -run '^TestGrepParityRg$$' ./internal/codetools
+
+# CODE-TOOLS §10 dengan korpus nyata (job nightly bench-codetools; RC = gate): CT-01/02/03 vs rg
+# (TestGrepSpeedVsRg, 20 run), CT-21 parity, CT-11 token vs golden hermes (modul bench).
+bench-codetools: corpora
+	$(CORPUS_ENV) go test $(GOTAGS) -count=1 -timeout 0 -run '^(TestGrepParityRg|TestGrepSpeedVsRg)$$' ./internal/codetools
+	cd bench && $(CORPUS_ENV) go test -count=1 -timeout 0 -run '^TestGrepOutputTokens$$' ./codetools
