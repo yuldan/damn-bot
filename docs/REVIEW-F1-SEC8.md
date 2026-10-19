@@ -1,6 +1,6 @@
 # REVIEW-F1-SEC8 — Review keamanan loop stack (#99–#103)
 
-**Status: lengkap — changes required setelah Putaran 4 (`#102` `d570441`, `#103` `d1adbdb`).** Putaran 3 sempat approve; probe independen lanjutan menemukan LP8-16 (BLOCKER), LP8-17/18/19 (MAJOR), LP8-20 (MINOR). Review independen pertama atas `internal/loop` (event, turn core, tool-call assembly/render, dispatch/approval/taint/spill). Reviewer tidak menulis kode yang direview. Tanggal: 2026-10-20.
+**Status: lengkap — approve setelah Putaran 5 (`loop-d` `37c89bf`, `loop-e` `f408422`; kode identik).** Putaran 4 menemukan LP8-16 (BLOCKER), LP8-17/18/19 (MAJOR), LP8-20 (MINOR); Putaran 5 memverifikasi perbaikannya dengan probe independen dan `-race`. Tersisa satu MINOR baru (LP8-21: agregasi `cancelled_confirmed` bergantung urutan), non-blocking. Review independen pertama atas `internal/loop` (event, turn core, tool-call assembly/render, dispatch/approval/taint/spill). Reviewer tidak menulis kode yang direview. Tanggal: 2026-10-20.
 
 Head yang direview (belum di-merge): `#99` `beae644`, `#100` `5821828`, `#101` `d641c08`, `#102` `d8e360a`, `#103` `9b21692`. Pemeriksaan di Linux. Probe berupa test sementara di worktree terpisah (tidak di-commit); output probe dikutip di bawah.
 
@@ -214,3 +214,45 @@ Probe independen (auditor lanjutan, direproduksi) menemukan residual behavioral 
 - Runtime Windows/macOS dan integrasi adapter produksi.
 - Fuzz/bench dan stress konkurensi lebih luas.
 - Perbaikan setelah `d1adbdb`.
+
+## Putaran 5 — verifikasi LP8-16..20 (2026-10-20)
+
+Head: `loop-d` `37c89bf`, `loop-e` `f408422`. `git diff 37c89bf f408422 -- internal/loop` kosong; `loop-e` hanya menambah `docs/DECISIONS.md` dan `docs/F1-REPORT.md` (amandemen ADR-110 LP8-16..20, LOC `loop` 1.769/1.800). Probe Putaran 4 dijalankan ulang pada `f408422`, ditambah `-race` suite penuh dan gate arsitektur.
+
+### Verdict
+
+| Head | Isi | Verdict |
+|---|---|---|
+| `loop-d` `37c89bf` | fix LP8-16..20 (akan dipecah jadi PR stage + fix di bawah E-84) | **approve** — lima temuan tertutup; satu MINOR residual (LP8-21), non-blocking |
+| `loop-e` `f408422` | dokumentasi/ADR/F1-REPORT | **approve** — amandemen cocok dengan kode dan angka LOC |
+
+### Status LP8-16..20
+
+| ID | Status | Bukti (probe independen pada `f408422`) |
+|---|---|---|
+| LP8-16 | **fixed** | `runParallel` menunda outcome terminal dan mengirim semua result (`dispatch.go:102-120`); `runSerial` memasangkan call yang tidak dijalankan sebagai `not_started` (`:135-160`); jalur prepare/dispatch-event error dan `truncated` memanggil `pairNotRun`; `deliverFailure`/`recordResult` menulis `tool_result` untuk error Go (`:476-535`). Probe: dua read paralel selesai lalu cancel → `tool_results=2 ran=2`; batch dengan satu `tool_error` → `tool_results=2`; serial 2 call → `tool_results=2 ran=1` (result kedua `not_started`); assistant `tool_calls` selalu berpasangan. |
+| LP8-17 | **fixed** | `approve` menyetel `p.Approved=true` pada jalur `cached` (`dispatch.go:216`). Probe: dua call subject sama, `AllowSession` → `approved=[true true]`, approver dipanggil sekali. |
+| LP8-18 | **fixed** | `collect` menunggu `ch`/`task.Done` pada turn hidup dan hanya memakai `KillGrace` setelah `ctx.Done` (`dispatch.go:396-435`). Probe dua read 20 ms, `KillGrace=5 ms`, tanpa cancel: `content="late-a"`/`"late-b"`, tidak ada `still_running`. |
+| LP8-19 | **fixed** | `deltaBuf`/`streamCollector` menahan sufiks rawan dan meredaksi pada batas assembly; argumen tool memakai buffer per call + `flushArgs` (`stream.go:23-94`, `toolcalls.go:49-83`). Probe secret terpecah: `concat_text="key [REDACTED] end"`, `concat_args="{\"tok\":\"[REDACTED]\"}"`, `leak=false`; payload/store tetap aman. |
+| LP8-20 | **fixed** | Member yang tidak pernah mulai memakai `statusNotStarted` (`dispatch.go:371-382`, `:544`). Probe ctx batal sebelum batch: `outs[0].res.Status="not_started"`, `ran=0`. |
+
+LP8-1/2/3/5/6/7/8 tetap terverifikasi pada head ini (probe Putaran 2/4 lulus); `go test ./internal/loop/... -race` hijau.
+
+### Residual baru (MINOR, non-blocking)
+
+| ID | Severity | Temuan | Bukti |
+|---|---|---|---|
+| LP8-21 | MINOR | Agregasi `cancelled_confirmed` bergantung urutan result. `runParallel` menyimpan outcome terminal pertama (`term == nil`); bila satu tool mengembalikan `cancelled_confirmed` dan tool lain `still_running`, stop bisa `cancelled_confirmed` atau `cancelled` tergantung urutan call. ADR-110 butir 2 mensyaratkan **setiap** tool yang berjalan mengembalikan `cancelled_confirmed`. | probe `TestZZLP813MixedConfirm`: urutan `[confirmed, still_running]` → `stop=cancelled_confirmed/cancelled`; urutan `[still_running, confirmed]` → `stop=cancelled/cancelled` |
+
+**Rekomendasi:** setelah loop deliver selesai, hitung `confirmed = semua status == cancelled_confirmed` (atau tidak ada yang `still_running`) sebelum mengembalikan outcome; jangan biarkan urutan `tool_calls` menentukan label. Tidak perlu head baru untuk blocker.
+
+### Gate dan catatan
+
+- `go test ./internal/loop/... -race` hijau; `TestLP816*`, `TestLP817*`, `TestLP818*`, `TestLP819*`, `TestLP820*` lulus.
+- `go test ./internal/archtest/...` hijau (E-10: flag golden didaftarkan di `TestMain` dan dibaca lewat `flag.Lookup`; `TestFileLength`, `TestGlobalAllowlist`, `TestGoleakMain` lulus). LOC 1.769/1.800 sesuai amandemen ADR-110.
+- Fallback redaksi stream tanpa `Deps.NewRedactStream`: teks/argumen ditahan sampai assembly lalu diredaksi utuh (aman, tetapi bukan streaming langsung). `internal/redact.Stream` sudah ada (`stream.go`), jadi composition root produksi harus mengisinya; bukan temuan keamanan.
+
+### Tidak dicakup Putaran 5
+
+- Windows/macOS, fuzz/bench, integrasi adapter produksi.
+- Verdict berlaku untuk head `37c89bf`/`f408422`; PR pengganti #102/#103 hasil split harus membawa isi kode yang sama.
