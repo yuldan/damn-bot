@@ -54,17 +54,10 @@ func Prepare(o *OneShot) (spec Spec, notice string, err error) {
 	direct := ""
 	var argv []string
 	if len(o.Direct) > 0 {
-		if err := checkArgv(o.Direct); err != nil {
+		argv, direct, err = resolveDirect(o.Direct, path, dir)
+		if err != nil {
 			return Spec{}, "", err
 		}
-		bin, lerr := lookPath(o.Direct[0], path, dir)
-		if lerr != nil {
-			return Spec{}, "", lerr
-		}
-		if !strings.ContainsAny(o.Direct[0], `/\`) {
-			direct = bin // secrets only for a bare name resolved via PATH (EX42-1)
-		}
-		argv = append([]string{bin}, o.Direct[1:]...)
 	} else {
 		if argv, err = shellArgv(o.Command, path); err != nil {
 			return Spec{}, "", err
@@ -76,6 +69,23 @@ func Prepare(o *OneShot) (spec Spec, notice string, err error) {
 		Argv: argv, Dir: dir, Env: env, Stdin: o.Stdin, PTY: o.PTY,
 		Timeout: o.Timeout, KillGrace: o.KillGrace,
 	}, notice, nil
+}
+
+// resolveDirect resolves a mode (b) argv: argv0 becomes an absolute path
+// and direct is set only for a bare name resolved through PATH (secrets,
+// EX42-1).
+func resolveDirect(argv []string, path, dir string) (resolved []string, direct string, err error) {
+	if err := checkArgv(argv); err != nil {
+		return nil, "", err
+	}
+	bin, err := lookPath(argv[0], path, dir)
+	if err != nil {
+		return nil, "", err
+	}
+	if !strings.ContainsAny(argv[0], `/\`) {
+		direct = bin
+	}
+	return append([]string{bin}, argv[1:]...), direct, nil
 }
 
 // checkArgv rejects control characters, CR and NUL in a direct-exec argv:
