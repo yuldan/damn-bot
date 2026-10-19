@@ -13,6 +13,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `redact`: prefilter pasangan byte di `scan` — posisi yang dua byte pertamanya tidak bisa memulai pola mana pun dilewati tanpa `matchAt` (output identik, ≈ 3× lebih cepat pada prosa 8 KiB; dasar GAP-SEC-16 DLP ≤ 50 µs, REVIEW-F1-SEC1 NETX-16; ADR-096).
 
 ### Added
+- `loop`: dispatch tool, approval/taint, spill, no_progress, golden (ADR-110).
 - `loop`: rakitan tool call, render model-facing, primitif dispatch, context guard (ADR-110).
 - `loop`: state machine turn — streaming, klasifikasi respons, budget, cancel + kill grace, clock/turn-id disuntik (ADR-110).
 - `loop/event`: kosakata event persistensi tertutup (CHECK `events.kind` SPEC §11.2), update stream, stop reason kasar + detail SPEC §3.5; tipe/interface konsumen `loop` (ADR-110).

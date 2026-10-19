@@ -2,6 +2,7 @@ package loop
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"strings"
 
@@ -166,4 +167,14 @@ func (s *keyState) value(tok any) bool {
 
 func (s *keyState) topObject() bool {
 	return len(s.frames) > 0 && s.frames[len(s.frames)-1].obj
+}
+
+func noProgressKey(c ToolCall, content string) [32]byte {
+	var buf bytes.Buffer
+	buf.WriteString(c.Name)
+	buf.WriteByte(0)
+	buf.WriteString(c.Arguments)
+	buf.WriteByte(0)
+	buf.WriteString(content)
+	return sha256.Sum256(buf.Bytes())
 }
