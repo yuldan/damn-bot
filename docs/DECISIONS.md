@@ -2670,3 +2670,15 @@ Duplikasi sudah dibuang lebih dulu (satu jalur open sandbox untuk baca/tulis; `r
 **Dampak terukur (SPEC §20).** Token 0. LOC `config` 648/1.200 (scc Code). Dependency: +`BurntSushi/toml` v1.6.0 (runtime) dan `google/go-cmp` v0.7.0 (test), keduanya sudah di `deps.allow`; binary bertambah < 100 KB.
 
 **Konsekuensi.** (+) Default F1 terukur dan typo key gagal saat start dengan path/baris. (−) File config yang sudah memuat section F2 ditolak sampai fase pemiliknya menambah struct; ini disengaja agar penambahan section terlihat di review.
+
+## ADR-112 — Budget `exec/classify`: 1.600 → 1.800 (aturan keamanan stack classify)
+
+**Status:** Accepted 2026-10-20 (keputusan owner saat review stack classify #41–#46; melengkapi ADR-106 butir 10; naikkan budget, jangan pangkas aturan).
+
+**Konteks.** ADR-106 butir 10 menetapkan `exec/classify` 1.600 dengan proyeksi ≈1.525 scc. Implementasi menambah aturan yang tidak ada di proyeksi: rekursi builtin `cmd` (`start`/`call`; `if`/`for`/`goto` = `unknown`), wrapper launcher (`setsid`, `busybox`, `unshare`, `systemd-run`, `taskset`), lexer token PowerShell/cmd (alias, `$env:`/`%VAR%`, `-EncodedCommand`), serta `DirectArgv`/`MatchAllow` untuk `shell_allow` argv-persis dan identitas biner (NEW3-04). `loc-budget` merah: #111 = 1.682, #112 = 1.737 baris non-test (scc), > 1.600.
+
+**Keputusan.** `loc.budget` `exec/classify` 1.600 → 1.800; Σ core 33.900 → 34.100 (≤ 47.000, ADR-033); TOTAL 190.000 tidak berubah. Headroom 63 baris (3,6%) untuk #112. Tidak ada aturan atau test yang dipangkas. Test table-driven yang menyertai aturan tidak dihitung gate (hanya file non-test).
+
+**Alternatif ditolak.** Memangkas komentar/aturan agar muat 1.600: bertentangan dengan preferensi kejelasan ADR-106 butir 10 dan menurunkan cakupan label keamanan. Memecah paket: churn API/archtest tanpa manfaat.
+
+**Konsekuensi.** Cakupan label keamanan dan `shell_allow` tetap utuh; budget naik tercatat (bukan diam-diam), dengan sisa 63 baris sebelum perlu ADR berikutnya.
