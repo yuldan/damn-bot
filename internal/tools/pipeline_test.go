@@ -600,3 +600,60 @@ func TestUntrustedBoundaryCaseInsensitive(t *testing.T) {
 		}
 	}
 }
+
+func TestDispatchApprovesExactlyOnce(t *testing.T) {
+	t.Parallel()
+	tool := &stubTool{name: "write", schema: echoSchema("write"), kind: KindEdit, effect: EffectIdempotent}
+	appr := &approverRec{answer: ApprovalAllowOnce}
+	d, err := NewDispatcher(&Config{
+		Registry: mustReg(t, tool), Journal: &journalRec{}, Spill: newMemSpill(),
+		Redactor: testRedactor(),
+		Mode:     ModeAsk, Approver: appr, WorkspaceTrusted: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := d.Dispatch(context.Background(), callOf("write", `{"body":"x"}`))
+	if out.Err != nil {
+		t.Fatal(out.Err)
+	}
+	if tool.CallCount() != 1 || len(appr.requests()) != 1 {
+		t.Fatalf("tool=%d prompts=%d", tool.CallCount(), len(appr.requests()))
+	}
+}
+
+// A prepared call must not execute without approval, and it must execute at
+// most once (REVIEW-F1-SEC7 TL7-11).
+func TestDispatchPreparedDeniesAndIsSingleUse(t *testing.T) {
+	t.Parallel()
+	tool := &stubTool{name: "write", schema: echoSchema("write"), kind: KindEdit, effect: EffectIdempotent}
+	appr := &approverRec{answer: ApprovalDeny}
+	d, err := NewDispatcher(&Config{
+		Registry: mustReg(t, tool), Journal: &journalRec{}, Spill: newMemSpill(),
+		Redactor: testRedactor(),
+		Mode:     ModeAsk, Approver: appr, WorkspaceTrusted: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := d.Prepare(context.Background(), callOf("write", `{"body":"x"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := d.DispatchPrepared(context.Background(), &p); out.Err == nil || !out.Denied {
+		t.Fatalf("denied prepared call ran: %+v", out.Err)
+	}
+	if tool.CallCount() != 0 {
+		t.Fatalf("tool ran %d times without approval", tool.CallCount())
+	}
+	p.Approved = true
+	if out := d.DispatchPrepared(context.Background(), &p); out.Err != nil {
+		t.Fatalf("approved prepared call: %v", out.Err)
+	}
+	if out := d.DispatchPrepared(context.Background(), &p); out.Err == nil {
+		t.Fatal("prepared call executed twice")
+	}
+	if tool.CallCount() != 1 {
+		t.Fatalf("tool ran %d times", tool.CallCount())
+	}
+}
