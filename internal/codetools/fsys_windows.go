@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"golang.org/x/sys/windows"
 )
@@ -47,5 +48,9 @@ func renameReplace(src, dst string) error {
 const dirSyncable = false
 
 func isDiskFull(err error) bool {
-	return errors.Is(err, windows.ERROR_DISK_FULL) || errors.Is(err, windows.ERROR_HANDLE_DISK_FULL)
+	// syscall.ENOSPC covers injected errors and the C errno; the Win32
+	// codes cover real CreateFile/WriteFile failures.
+	return errors.Is(err, windows.ERROR_DISK_FULL) ||
+		errors.Is(err, windows.ERROR_HANDLE_DISK_FULL) ||
+		errors.Is(err, syscall.ENOSPC)
 }
