@@ -22,6 +22,10 @@ const (
 	maxPromptLine = 200
 	// promptTail: bytes of the output tail examined for the last line.
 	promptTail = 1024
+	// maxEscape bounds an unterminated CSI/OSC/DCS sequence: a target
+	// cannot hide all following output behind one unfinished escape
+	// (EX47-1). The remainder is parsed as text.
+	maxEscape = 4096
 )
 
 // Input kinds of a detected prompt (Result.InputKind).
@@ -109,21 +113,20 @@ func sanitizePrompt(red *redact.Redactor, line string) string {
 }
 
 // stripANSI appends src without ANSI escape sequences (CSI `ESC [ … final`;
-// OSC `ESC ] … BEL|ST`, and two-byte `ESC x`) to dst.
+// OSC, DCS, SOS, PM, APC `ESC ]|P|X|^|_ … BEL|ST`; two-byte `ESC x`) to dst.
 func stripANSI(dst, src []byte) []byte {
-	for i := 0; i < len(src); i++ {
-		c := src[i]
-		if c != 0x1b || i+1 >= len(src) {
-			dst = append(dst, c)
-			continue
+	for {
+		i := bytes.IndexByte(src, 0x1b)
+		if i < 0 || i+1 >= len(src) {
+			return append(dst, src...)
 		}
-		i += escapeLen(src[i:]) - 1
+		dst = append(dst, src[:i]...)
+		src = src[i+escapeLen(src[i:]):]
 	}
-	return dst
 }
 
-// escapeLen is the length of the escape sequence at s[0] == ESC (the rest
-// of s when unterminated).
+// escapeLen is the length of the escape sequence at s[0] == ESC. An
+// unterminated sequence consumes at most maxEscape bytes (EX47-1).
 func escapeLen(s []byte) int {
 	switch s[1] {
 	case '[': // CSI: parameters and intermediates, then a final 0x40–0x7E
@@ -132,7 +135,7 @@ func escapeLen(s []byte) int {
 				return k + 1
 			}
 		}
-	case ']': // OSC: until BEL or ESC '\'
+	case ']', 'P', 'X', '^', '_': // string sequences: until BEL or ESC '\'
 		for k := 2; k < len(s); k++ {
 			if s[k] == 0x07 {
 				return k + 1
@@ -144,5 +147,5 @@ func escapeLen(s []byte) int {
 	default:
 		return 2
 	}
-	return len(s)
+	return min(len(s), maxEscape)
 }
