@@ -170,7 +170,7 @@ cd bench && go run ./h2h/cmd/h2h -damnbot ~/.cache/damnbot/bin/damnbot \
 | E6-010 | error/provider_error | 1 | 2388 | 202 | 0.0003 | tidak |
 | E6-040 | error/provider_error | 1 | 2388 | 212 | 0.0003 | tidak |
 
-Totals: 10/10 ran, **0 harness errors**, 10 completion calls (+5 aborted), 24.014 input / 1.744 output tok, **US$0,0253** run ini, ledger **US$0,0337 / 2,00**. Setiap task mendapat satu respons SSE sukses, lalu upstream mengembalikan 499/503 `upstream_unavailable` pada retry; loop berhenti `error/provider_error` (pass/fail informatif, ADR-062). Artefak: 10 rekaman `.jsonl.gz` + `summary.json`, 40 request, semua `Authorization: REDACTED`; scan nilai kunci pada artefak = 0 hit. `TestAgentIsolation`/`TestRecordingsNoKey` belum ada di pohon (ADR-085); verifikasi manual + `go test ./h2h` hijau.
+Totals: 10/10 ran, **0 harness errors**, 10 completion calls (+5 aborted), 24.014 input / 1.744 output tok, **US$0,0253** run ini, ledger **US$0,0385 / 2,00**. Setiap task mendapat satu respons SSE sukses, lalu upstream mengembalikan 499/503 `upstream_unavailable` pada retry; probe ulang E1-117 pada 2026-10-20 juga `provider_error`; loop berhenti `error/provider_error` (pass/fail informatif, ADR-062). Artefak: 10 rekaman `.jsonl.gz` + `summary.json`, 40 request, semua `Authorization: REDACTED`; scan nilai kunci pada artefak = 0 hit. `TestAgentIsolation`/`TestRecordingsNoKey` belum ada di pohon (ADR-085); verifikasi manual + `go test ./h2h` hijau.
 
 ## Review keamanan
 
