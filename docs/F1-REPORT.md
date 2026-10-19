@@ -128,16 +128,16 @@ Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket 
 
 | PR | Isi | Baris Go non-test (diff) | Hasil |
 |---|---|---:|---|
-| `f1-config-1` | struct + default SPEC §12, decode TOML ketat (key tak dikenal + path/baris), DI `Deps`, `FuzzConfigTOML` | 497 | lihat PR |
-| `f1-config-2` | validasi rentang semua kunci F1, path per OS/profil, `<config_dir>`, `Clone` immutable | 310 | lihat PR |
+| `f1-config-1` | struct + default SPEC §12, decode TOML ketat (key tak dikenal + path/baris), DI `Deps`, `FuzzConfigTOML` | 497 | [#71](https://github.com/yuldan/damn-bot/pull/71) |
+| `f1-config-2` | validasi rentang semua kunci F1, path per OS/profil, `<config_dir>`, `Clone` immutable | 322 | [#72](https://github.com/yuldan/damn-bot/pull/72) |
 
 ### `internal/assemble` (ADR-108)
 
 | PR | Isi | Baris Go non-test (diff) | Hasil |
 |---|---|---:|---|
-| `f1-assemble-1` | stable kondisional + golden per varian, katalog, volatile beku (Σ 100), `<runtime>` (≤ 40), DI `Counter`/`Scrub` | 574 | lihat PR |
-| `f1-assemble-2` | context sub-cap + urutan potong SPEC §6, baca context file lewat sandbox, filter schema `shell` per fase | 504 | lihat PR |
-| `f1-assemble-3` | `Build` wire `messages`+`tools`, fixture P1 `f1-core` + hook `bench/budget` | 189 | lihat PR |
+| `f1-assemble-1` | stable kondisional + golden per varian, katalog, volatile beku (Σ 100), `<runtime>` (≤ 40), DI `Counter`/`Scrub` | 574 | [#73](https://github.com/yuldan/damn-bot/pull/73) |
+| `f1-assemble-2` | context sub-cap + urutan potong SPEC §6, baca context file lewat sandbox, filter schema `shell` per fase | 523 | [#74](https://github.com/yuldan/damn-bot/pull/74) |
+| `f1-assemble-3` | `Build` wire `messages`+`tools`, fixture P1 `f1-core` + hook `bench/budget` | 170 | [#75](https://github.com/yuldan/damn-bot/pull/75) |
 
 | Item | Implementasi | Test | Status |
 |---|---|---|---|
