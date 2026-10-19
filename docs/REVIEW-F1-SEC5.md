@@ -15,9 +15,9 @@ Head yang direview (semua branch bertumpuk, belum di-merge): `#39` `5d3caf0`, `#
 | #47 | pipeline ringkasan §A.3 | **approve** (EX47-1/47-2 terverifikasi) |
 | #52 | startup sweep, `TestNoOrphans`, benchmark | **approve** |
 | #62 | ConPTY | **approve** (statis; runtime Windows tidak dijalankan) |
-| #63 | sesi shell persisten §A.2 | **changes required — BLOCKER** (EX5-1; EX5-3) |
+| #63 | sesi shell persisten §A.2 | **changes required — BLOCKER** (EX5-1; EX5-3, EX5-9) |
 
-Ringkasan: **1 BLOCKER, 2 MAJOR, 6 MINOR.** Temuan MAJOR/MINOR lama EX39-1, EX39-2, EX42-1, EX42-2/EX62-1, EX45-1, EX47-1, EX47-2, EX52-1 sudah diperbaiki di head masing-masing; verifikasi ada di bawah.
+Ringkasan: **1 BLOCKER, 3 MAJOR, 5 MINOR.** Temuan MAJOR/MINOR lama EX39-1, EX39-2, EX42-1, EX42-2/EX62-1, EX45-1, EX47-1, EX47-2, EX52-1 sudah diperbaiki di head masing-masing; verifikasi ada di bawah.
 
 ## Temuan
 
@@ -28,6 +28,7 @@ Ringkasan: **1 BLOCKER, 2 MAJOR, 6 MINOR.** Temuan MAJOR/MINOR lama EX39-1, EX39
 | EX5-1 | #63 | **BLOCKER** | confirmed (Linux) | `stdin` pada sesi ditulis ke input shell, bukan dibatasi ke perintah; sisa baris dieksekusi shell sebagai perintah baru tanpa approval terpisah | `session.go:78`, `:191-210`; `session_unix.go:38-40`; `session_windows.go:45-46` |
 | EX5-2 | #40 (+#63) | MAJOR | confirmed (Linux) | `Runner.Close` menggantung bila `Stdin` lebih besar dari kapasitas pipe dan proses yang lolos (`env -i setsid`, foreground) memegang ujung baca stdin; writer tidak pernah ditutup di `finish` | `run.go:186-214`, `:405-422` |
 | EX5-3 | #63 | MAJOR | static (Windows) | Sentinel sesi `cmd` menggemakan `%cd%` tanpa quoting; nama direktori ber-`&` menjalankan perintah `cmd` tambahan tanpa approval | `session_windows.go:37-41` |
+| EX5-9 | #63 | MAJOR | confirmed (`-race`) | `session.killed` tidak disinkronkan: `Sessions.Close`/`drop` dan jalur timeout/cancel `wait` memanggil `kill()` bersamaan; dua `finish()` dapat berjalan dan salah satunya memblokir `<-c.exit`, menggantung shutdown | `session.go:148`, `:242`, `:371-380` |
 | EX5-4 | #42 | MINOR | static | `withinRoot` memakai `filepath.Rel` leksikal (peka huruf pada Windows) dan tidak me-resolve symlink; `Root == ""` melewati pemeriksaan sepenuhnya (fail-open) | `env.go:266-292`; `oneshot.go:22-26`, `:86-90` |
 | EX5-5 | #39 | MINOR | confirmed | `TestRunPTYEscapeeDoesNotHang` me-redirect stdout/stderr escapee ke `/dev/null`, sehingga escapee **tidak** memegang slave PTY; test tidak mereproduksi EX39-1 | `run_unix_test.go:217-218` |
 | EX5-6 | #63 | MINOR | static | `stripFrames` membuang setiap output berbentuk frame (32 hex + kode), sehingga output perintah dapat menyembunyikan teksnya sendiri dari model/UI | `session.go:295-331` |
@@ -64,6 +65,12 @@ Repro (dijalankan): `Stdin` 1 MiB, `PTY:false`, `sh -c 'env -i setsid sleep 9973
 
 **Rekomendasi:** jangan menggemakan `%cd%`; tulis cwd ke file terpisah dengan mekanisme yang tidak di-parse ulang (mis. delayed expansion yang tidak me-reparse nilai, atau minta shell menulis `cd > temp` dengan path tetap), dan tolak cwd yang memuat metakarakter `cmd` sampai ada jalur aman. Tambah test cwd `a&calc&rem` di runner Windows.
 
+### EX5-9 (MAJOR) — data race pada teardown sesi
+
+`session.kill` memeriksa/menulis `s.killed` tanpa mutex (`session.go:371-380`). `Sessions.Close`/`drop` memanggilnya tanpa memegang `s.mu` (`:110`, `:148`), sedangkan `session.wait` memanggilnya pada `ctx.Done()` (`:242`). Pada shutdown, call sesi yang sedang berjalan dan/atau dibatalkan dapat memanggil `kill()` dua kali. `go test -race` dengan `Sessions.Close` konkuren + cancel melaporkan `WARNING: DATA RACE` (read `session.go:372` vs write `:375`). Akibatnya dua `finish()` dapat berjalan; yang kedua dapat memblokir `<-c.exit` (`run.go:409-411`), sehingga `Close` menggantung.
+
+**Rekomendasi:** lindungi `killed` (dan seluruh teardown) dengan `s.mu` atau `sync.Once`; jangan panggil `kill` dari `drop` tanpa mengambil `s.mu`/menunggu command selesai. Tambah test race `Close` + cancel.
+
 ### MINOR
 
 - **EX5-4:** `withinRoot`/`allowedBinary` membandingkan string path. Pada Windows, root `C:\ws` dan PATH `C:\WS\bin` tidak dianggap "di dalam root" (`filepath.Rel` peka huruf), dan symlink di luar root ke binary di dalam root juga lolos; `OneShot.Root == ""` mematikan pemeriksaan. Secret ref dapat mencapai binary yang dikontrol workspace pada kombinasi ini. Rekomendasi: `EvalSymlinks` + perbandingan case-insensitive per komponen; wajibkan `Root` (fail-closed) untuk injeksi secret.
@@ -86,11 +93,12 @@ Repro (dijalankan): `Stdin` 1 MiB, `PTY:false`, `sh -c 'env -i setsid sleep 9973
 - **Capture:** head 8 MiB + ring 8 MiB, `BytesRaw` total, tidak ada alokasi per chunk; test capture lulus.
 - **Job Object (statis):** `KILL_ON_JOB_CLOSE`, tanpa `BREAKAWAY_OK`, `CREATE_SUSPENDED` → assign → resume, `TerminateJobObject`; handle creation ConPTY dipertahankan sampai `CreateProcess` (fix EX62-1) dan ditutup setelahnya; `bInheritHandles=false`.
 - **Sesi (selain temuan):** batas 4 sesi, nama tervalidasi, dir 0700/file 0600, alias/line-editing mati, sentinel nonce 128-bit per perintah, timeout SIGINT → 3 s → kill/recreate, env sesi tanpa secret (`TestSessionSecretRefScope`), `SessionReset`, `TestSessionTimeout`, `TestSessionAliasesOff`, `TestSessionPersistentState` lulus.
-- **Suite:** `go test ./internal/exec` target (PTY, env, secret, prompt, summarize, session, cancel, straggler) hijau; cross-build Windows/darwin/linux hijau. `TestNoOrphans` 200 iterasi dan `TestInteractiveCorpus` tidak dijalankan lokal (dibiarkan ke CI sesuai batas CPU).
+- **Suite:** `go test ./internal/exec` target (PTY, env, secret, prompt, summarize, session, cancel, straggler) hijau; `-race` dengan `Sessions.Close` konkuren menemukan EX5-9 (repro terpisah, bukan bagian suite); cross-build Windows/darwin/linux hijau. `TestNoOrphans` 200 iterasi dan `TestInteractiveCorpus` tidak dijalankan lokal (dibiarkan ke CI sesuai batas CPU).
 
 ## Tidak dicakup
 
 - Runtime Windows dan macOS (ConPTY, Job Object, wmic/schtasks, `%cd%`) — hanya statis/cross-build. EX5-3 perlu repro di runner Windows.
+- Stress race lebih luas (Close vs semua jalur sesi) — hanya satu skenario `-race` yang dijalankan.
 - `TestNoOrphans` penuh, `TestInteractiveCorpus` 40×2, fuzz, benchmark, dan stress konkurensi (batas CPU malam ini).
 - Integrasi lapisan tool/approval (`internal/modules/exec`, dispatch) belum ada di stack ini; `Decide`/`MatchAllow` dipakai lewat test saja. Temuan EX5-1/EX5-3 akan menjadi vulnerability penuh hanya bila tool layer mengizinkan kombinasi parameter tersebut (schema saat ini mengizinkan `session` + `stdin`).
 - TOCTOU preview→eksekusi dan perubahan PATH/filesystem antara cek dan spawn tetap residu TRUST-MODEL §3.
