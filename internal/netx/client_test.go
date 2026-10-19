@@ -464,3 +464,78 @@ func ecMidBodyReset(t *testing.T, n *Network) {
 		t.Errorf("mid-body reset: %v", err)
 	}
 }
+
+// TestRedirectPolicy (PROV-M4): Inference never follows a redirect; other
+// purposes follow GET only, strip credentials across hosts, and never
+// downgrade https → http.
+func TestRedirectPolicy(t *testing.T) {
+	t.Parallel()
+	var evilHits atomic.Int32
+	var leaked atomic.Value
+	evil, _ := server(t, func(_ http.ResponseWriter, r *http.Request) {
+		evilHits.Add(1)
+		leaked.Store(r.Header.Clone())
+	})
+	origin, _ := server(t, func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, evil.URL+"/steal", http.StatusTemporaryRedirect)
+	})
+	n := newNet(t, Config{})
+	send := func(p Purpose, method string) int {
+		req, err := http.NewRequestWithContext(t.Context(), method, origin.URL, strings.NewReader(`{"messages":[]}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("X-Api-Key", "secret-key")
+		req.Header.Set("Api-Key", "secret-key")
+		req.Header.Set("Accept", "text/event-stream")
+		resp, err := n.Client("c", p).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := resp.Body.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return resp.StatusCode
+	}
+	for _, c := range []struct {
+		p      Purpose
+		method string
+	}{{Inference, http.MethodPost}, {Inference, http.MethodGet}, {Background, http.MethodPost}} {
+		if code := send(c.p, c.method); code != http.StatusTemporaryRedirect || evilHits.Load() != 0 {
+			t.Fatalf("purpose %d %s: status %d, %d requests reached the redirect target", c.p, c.method, code, evilHits.Load())
+		}
+	}
+	if code := send(Background, http.MethodGet); code != http.StatusOK || evilHits.Load() != 1 {
+		t.Fatalf("background GET: status %d, hits %d", code, evilHits.Load())
+	}
+	h, ok := leaked.Load().(http.Header)
+	if !ok || h.Get("X-Api-Key") != "" || h.Get("Api-Key") != "" || h.Get("Accept") != "text/event-stream" {
+		t.Fatalf("cross-host redirect headers: %v", h)
+	}
+}
+
+// TestRedirectChecks: downgrade and chain limit of the non-inference policy.
+func TestRedirectChecks(t *testing.T) {
+	t.Parallel()
+	check := checkRedirect(Background)
+	mk := func(raw string) *http.Request {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, raw, http.NoBody)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return req
+	}
+	if err := check(mk("http://example.com/x"), []*http.Request{mk("https://example.com/")}); !errors.Is(err, http.ErrUseLastResponse) {
+		t.Fatalf("https → http downgrade followed: %v", err)
+	}
+	via := make([]*http.Request, maxRedirects)
+	for i := range via {
+		via[i] = mk("https://example.com/")
+	}
+	if err := check(mk("https://example.com/y"), via); !errors.Is(err, http.ErrUseLastResponse) {
+		t.Fatalf("redirect chain limit: %v", err)
+	}
+	if err := check(mk("https://example.com/y"), via[:1]); err != nil {
+		t.Fatalf("same-host https redirect refused: %v", err)
+	}
+}
