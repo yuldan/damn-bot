@@ -133,7 +133,7 @@ Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket 
 | `f1-config-1` | struct + default SPEC §12, decode TOML ketat (key tak dikenal + path/baris), DI `Deps`, `FuzzConfigTOML` | 497 | lihat PR |
 | `f1-config-2` | validasi rentang semua kunci F1, path per OS/profil, `<config_dir>`, `Clone` immutable | 310 | lihat PR |
 
-### `internal/assemble` (ADR-108)
+### `internal/assemble` (ADR-114)
 
 | PR | Isi | Baris Go non-test (diff) | Hasil |
 |---|---|---:|---|
