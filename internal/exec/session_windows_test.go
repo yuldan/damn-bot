@@ -1,6 +1,7 @@
 package exec
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -29,5 +30,20 @@ func TestSessionWindows(t *testing.T) {
 	}
 	if res := sessExec(t, ss, "w", get, 20*time.Second); strings.Contains(string(res.Output), "42") {
 		t.Fatal("state survived a reset")
+	}
+}
+
+// TestCmdSentinelDelayedExpansion (REVIEW-F1-SEC5): %cd% is expanded before
+// cmd parses metacharacters, so a cwd containing & would run a command.
+func TestCmdSentinelDelayedExpansion(t *testing.T) {
+	t.Parallel()
+	spec := cmdSession("cmd.exe")
+	if !slices.Contains(spec.argv, "/v:on") {
+		t.Fatalf("cmd session lacks delayed expansion: %v", spec.argv)
+	}
+	for _, line := range []string{spec.again("abc"), spec.line("x", "abc")} {
+		if strings.Contains(line, "%cd%") || !strings.Contains(line, "!cd!") {
+			t.Fatalf("sentinel must use delayed !cd!: %q", line)
+		}
 	}
 }

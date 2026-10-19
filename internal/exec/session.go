@@ -32,6 +32,11 @@ var (
 	ErrSessionLimit = errors.New("exec: session limit reached")
 	// ErrSessionName rejects a name outside ^[a-z0-9_-]{1,32}$.
 	ErrSessionName = errors.New("exec: invalid session name")
+	// ErrSessionStdin: a persistent session never accepts stdin bytes.
+	// The session shell reads its input pipe line by line, so bytes the
+	// approved command does not consume would be executed as new commands
+	// without another approval (REVIEW-F1-SEC5 blocker).
+	ErrSessionStdin = errors.New("exec: session stdin not supported")
 )
 
 // Sessions holds the persistent shells of one agent session.
@@ -79,6 +84,9 @@ func (ss *Sessions) Exec(ctx context.Context, name, command string, stdin []byte
 	if !validSessionName(name) {
 		return Result{}, ErrSessionName
 	}
+	if len(stdin) > 0 {
+		return Result{}, ErrSessionStdin
+	}
 	s, err := ss.get(ctx, name)
 	if err != nil {
 		return Result{Status: StatusSpawnFailed}, err
@@ -87,7 +95,7 @@ func (ss *Sessions) Exec(ctx context.Context, name, command string, stdin []byte
 		timeout = DefaultTimeout
 	}
 	s.mu.Lock()
-	res, reset, err := s.run(ctx, command, stdin, timeout)
+	res, reset, err := s.run(ctx, command, timeout)
 	s.lastUse = ss.now()
 	s.mu.Unlock()
 	if reset {
@@ -179,7 +187,7 @@ func (ss *Sessions) start(ctx context.Context) (*session, error) {
 	if sh.pty {
 		s.input = c.p.output()
 	}
-	if _, reset, err := s.run(ctx, sh.setup, nil, 10*time.Second); err != nil || reset {
+	if _, reset, err := s.run(ctx, sh.setup, 10*time.Second); err != nil || reset {
 		s.kill()
 		return nil, errors.Join(errors.New("exec: session setup failed"), err, os.RemoveAll(dir))
 	}
@@ -188,7 +196,7 @@ func (ss *Sessions) start(ctx context.Context) (*session, error) {
 
 // run sends one command and waits for its sentinel. reset reports that the
 // shell was killed (timeout without sentinel, prompt, cancel, shell exit).
-func (s *session) run(ctx context.Context, command string, stdin []byte, timeout time.Duration) (Result, bool, error) {
+func (s *session) run(ctx context.Context, command string, timeout time.Duration) (Result, bool, error) {
 	res := Result{Runner: RunnerPipe, ExecID: s.c.id}
 	if s.sh.pty {
 		res.Runner = RunnerPTY
@@ -203,11 +211,6 @@ func (s *session) run(ctx context.Context, command string, stdin []byte, timeout
 	from := s.c.out.size()
 	if _, err := s.input.WriteString(s.sh.line(path, nonce)); err != nil {
 		return res, true, fmt.Errorf("exec: session write: %w", err)
-	}
-	if len(stdin) > 0 {
-		if _, err := s.input.Write(stdin); err != nil {
-			return res, true, fmt.Errorf("exec: session stdin: %w", err)
-		}
 	}
 	reset := s.wait(ctx, nonce, from, timeout, &res)
 	res.Output = stripFrames(res.Output)

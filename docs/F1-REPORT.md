@@ -243,6 +243,8 @@ Branch tanpa PR: `f1-classify-wip` (`29b28bc`, versi utuh classify sebelum dipec
 | EX47-2 (MINOR) | Blob `Raw` memakai bentuk strip-ANSI yang di-redaksi ulang bila redaksi raw berbeda (secret terpisah SGR). | `TestSummarizeSplitSecretNotLeaked` |
 | EX52-1 (MINOR) | A.10 mencatat `TestNoOrphans` hanya mengukur proses bermarker. | docs |
 | EX62-1 (ConPTY output hilang) | Handle kreasi ConPTY ditutup setelah `CreateProcess` (bukan setelah `CreatePseudoConsole`); sebelumnya child kehilangan std handle console sehingga output perintah hilang. | `TestProcConPTY`, `TestRunConPTYWindows`, `TestRunConPTYPromptWindows` (Windows CI) |
+| SEC5-1 (BLOCKER) | `Sessions.Exec` menolak `stdin` non-kosong (`ErrSessionStdin`): byte yang tidak dikonsumsi perintah tidak lagi dieksekusi shell sebagai perintah baru tanpa approval. | `TestSessionStdinRejected` |
+| SEC5-2 (MAJOR) | Sentinelsesi `cmd` memakai `!cd!` dengan `/v:on` (delayed expansion) alih-alih `%cd%`, sehingga cwd ber-`&`/`|`/`>` tidak menjalankan perintah. | `TestCmdSentinelDelayedExpansion` |
 | #63 sesi Windows/macOS | `${LASTEXITCODE}` (bukan `$LASTEXITCODE:`); frame protokol `\x1eDB:…\x1e` dibuang dari output sesi (frame `again` yang telat tidak lagi bocor ke perintah berikutnya). | `TestSessionWindows`, `TestStripFrames`, `TestSessionOutputFramesStripped` |
 
 Yang **belum** dicakup: eksekusi runtime ConPTY/sesi Windows diverifikasi lewat CI (bukan mesin lokal); `TestNoOrphans` 200× dan benchmark spawn dibaca dari job CI; stack classify #41/#43/#44/#46 masih menunggu review auditor. Sisa F1 di luar stack tetap seperti daftar handoff di atas.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -71,5 +72,21 @@ func TestStripFrames(t *testing.T) {
 	}
 	if in := "a" + string(sentinelMark) + "DB:not-a-frame" + string(sentinelMark) + "b"; string(stripFrames([]byte(in))) != in {
 		t.Fatalf("non-frame: %q", stripFrames([]byte(in)))
+	}
+}
+
+// TestSessionStdinRejected (REVIEW-F1-SEC5): session input is read line by
+// line by the shell, so leftover stdin bytes would run as new commands.
+func TestSessionStdinRejected(t *testing.T) {
+	t.Parallel()
+	ss := newSessions(t, nil)
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "pwned")
+	res, err := ss.Exec(t.Context(), "s", "true", []byte("touch "+marker+"\n"), 5*time.Second)
+	if !errors.Is(err, ErrSessionStdin) || res.Status != "" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if _, serr := os.Stat(marker); !os.IsNotExist(serr) {
+		t.Fatalf("session stdin executed: %v", serr)
 	}
 }

@@ -35,12 +35,14 @@ func pwshSession(bin string) sessionShellSpec {
 
 func cmdSession(bin string) sessionShellSpec {
 	// %errorlevel% is expanded when its line is read, so the sentinel is a
-	// line of its own, read after the call returned.
+	// line of its own, read after the call returned. !cd! uses delayed
+	// expansion (/v:on): a cwd containing &, | or > is expanded after the
+	// command line is parsed and can never run a command (REVIEW-F1-SEC5).
 	sentinel := func(nonce, code string) string {
-		return "echo \x1eDB:" + nonce + ":" + code + ":%cd%\x1e\r\n"
+		return "echo \x1eDB:" + nonce + ":" + code + ":!cd!\x1e\r\n"
 	}
 	return sessionShellSpec{
-		argv: []string{bin, "/d", "/q"}, ext: ".cmd", setup: "rem",
+		argv: []string{bin, "/d", "/v:on", "/q"}, ext: ".cmd", setup: "rem",
 		line: func(path, nonce string) string {
 			return `call "` + path + `"` + "\r\n" + sentinel(nonce, "%errorlevel%")
 		},
