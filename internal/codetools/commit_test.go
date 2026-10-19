@@ -75,6 +75,40 @@ func TestSetgidPreserved(t *testing.T) {
 	}
 }
 
+// TestSetgidDropAfterRename models the macOS runners without needing one:
+// the commit hook drops setgid from the freshly renamed inode, so only a
+// mode check on the committed file can report mode_preserved truthfully.
+// The check re-applies the mode; when the kernel keeps refusing, the flag
+// must still follow the committed file (false), never the temp's true.
+func TestSetgidDropAfterRename(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no setgid on Windows")
+	}
+	t.Parallel()
+	v := newEnv(t)
+	p := v.put(t, "f.txt", "a\n")
+	if err := os.Chmod(p, 0o640|os.ModeSetgid); err != nil || mustStat(t, p).Mode()&os.ModeSetgid == 0 {
+		t.Skipf("setgid not settable here: %v", err)
+	}
+	v.e.hook = func(point string) error {
+		if point == "post-rename" {
+			return os.Chmod(p, 0o640) //nolint:gosec // G302: the fixture is a 0640 file, not a secret
+		}
+		return nil
+	}
+	res, err := v.e.Edit(context.Background(), EditArgs{Path: "f.txt", Tag: v.tag(t, "f.txt"), Edits: []EditItem{strEdit("a", "b")}}, Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mustStat(t, p).Mode()
+	if m.Perm() != 0o640 {
+		t.Errorf("perm %v, want 0640", m.Perm())
+	}
+	if kept := m&os.ModeSetgid != 0; res.Meta["mode_preserved"] != kept {
+		t.Errorf("mode_preserved=%v with setgid=%v (mode %v)", res.Meta["mode_preserved"], kept, m)
+	}
+}
+
 // TestCleanOrphanTempsPattern is CT27-10: only ".<name>.damnbot-<12
 // base32>" crash temps are removed; look-alikes and backups stay.
 func TestCleanOrphanTempsPattern(t *testing.T) {
