@@ -1,5 +1,5 @@
 {
- "comment": "Kueri baseline code tools F0 (CODE-TOOLS §10.2 CT-01/02/03/11). 40 literal + 40 regex + 10 glob. Golden token CT-11 = 40 literal + 10 regex pertama (50). Kosakata gencorpus muncul di C2/C3; kueri bergaya Python mengenai C1 (hermes).",
+ "comment": "Kueri code tools (CODE-TOOLS §10.2 CT-01/02/03/11, §10.3 CT-21). 40 literal + 40 regex + 10 glob (baseline F0). Golden token CT-11 = 40 literal + 10 regex pertama (50). parity = 120 regex tambahan CT-21 (alternasi, (?i), tanpa literal wajib, anchor, escape/tanpa match, kosakata gencorpus): 40 + 40 + 120 = 200. Kosakata gencorpus muncul di C2/C3; kueri bergaya Python mengenai C1 (hermes).",
  "literal": [
   "parse", "render", "handler", "config", "session", "token", "buffer", "stream", "request", "response",
   "client", "server", "cache", "index", "query", "search", "match", "pattern", "worker", "queue",
@@ -16,5 +16,19 @@
   "\\blease_\\w+", "\\bjournal_\\w+", "\\bcommit_\\w+", "\\bsnapshot_\\w+", "\\bbudget_\\w+", "\\bschema_\\w+",
   "return \\w+\\(\\w+\\)", "\\$\\{?\\w+\\}?", "\"[a-z]+_[a-z]+\"", "[0-9]+\\.[0-9]+", "^(def|func|fn) ", "\\w+@\\w+"
  ],
- "glob": ["*.py", "*.go", "*.md", "*.json", "**/test_*.py", "*.{js,ts}", "*_test.go", "**/*.yaml", "*.sh", "*.min.js"]
+ "glob": ["*.py", "*.go", "*.md", "*.json", "**/test_*.py", "*.{js,ts}", "*_test.go", "**/*.yaml", "*.sh", "*.min.js"],
+ "parity": [
+  "parse|render", "(session|token)_\\w+", "TODO (match|stream)_\\w+", "def (parse|render)_\\w+", "import (os|sys|json)", "from \\w+ import (Any|Dict)", "(GET|POST|PUT)", "\\b(true|false)\\b", "(foo|bar|baz)", "(lease|fence)_[0-9]",
+  "commit_(buffer|lease|config)", "(?:ledger|budget)_server", "(class|struct) \\w+", "(raise|throw) \\w+", "(self|this)\\.\\w+_\\w+", "(return|yield) self", "(int|str|bool)\\(", "(http|https)://", "(error|warn|info)\\(", "(snapshot|rollback)\\b",
+  "(?i)parse", "(?i)todo", "(?i)hermes", "(?i)session_token", "(?i)class \\w+", "(?i)http", "(?i)config", "(?i)def main", "(?i)return none", "(?i)import",
+  "(?i)ledger_\\w+", "(?i)\\bapi\\b", "(?i)json", "(?i)error:", "(?i)warning", "(?i)select .* from", "(?i)utf-?8", "(?i)usage", "(?i)password", "(?i)stream",
+  "\\d+", "[a-z]+_[a-z]+_[a-z]+", "\\s{8,}\\S", "^\\S", "^$", "^.{120,}$", "\\t", "[^\\x00-\\x7F]", "\\p{Greek}", "\\p{Han}",
+  "[A-Z][a-z]+[A-Z]", "\\b\\w{20,}\\b", "^\\s+$", "\\d{4}-\\d{2}-\\d{2}", "0x[0-9a-fA-F]+", "[{}]$", "[;]$", "\\w+=\\d+", "^[A-Z_]+ = ", "\\.\\.\\.",
+  "^def ", "^class ", "^import ", "^from ", "^\\s*return\\b", "^\\s*pass$", "^#", "^\\s*//", "^\\s*\\*", ":$",
+  "\\)$", "^func ", "^fn ", "^package ", "^\\s*if ", "^\\s*for \\w+ in ", "^\\s*@\\w+", "^\\s*try:", "^\\s*except", "^\\s*else:",
+  "zzz_absent_qq", "\\bqqqxj\\b", "fmt\\.Sprintf", "os\\.environ\\[", "\\[\\]", "\\(\\)", "\\$HOME", "\\\\n", "'''", "\"\"\"",
+  "==", "!=", "->", "=>", "&&", "\\|\\|", "\\?\\?", "::", "@@", "#!",
+  "parse_\\d+", "render_[0-7]\\b", "n=\\d{5}\\)", "self\\.\\w+_snapshot\\(n\\)", "class \\w+_token:", "def \\w+_\\w+\\(self, n=\\d+\\):", "TODO \\w+_cache", "return self\\.(query|queue)_\\w+", "budget_ledger", "fence_lease",
+  "journal_commit", "rollback_snapshot", "schema_validate", "worker_queue", "index_query", "search_match", "pattern_worker", "client_server", "request_response", "stream_buffer"
+ ]
 }
