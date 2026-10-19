@@ -20,26 +20,21 @@ import (
 // Tunables of the run loop.
 const (
 	readChunk = 32 << 10
-	// drainAfterExit bounds reading output still buffered after the tree
-	// is gone; a writer outside the tree (marker removed by `env -i` and
-	// setsid) cannot hold the call open.
+	// drainAfterExit bounds reading after the tree is gone (an escaped writer cannot hold the call open).
 	drainAfterExit = 250 * time.Millisecond
-	// maxTasks bounds the runner's goroutines (E-27): reader, waiter and
-	// stdin writer per live call.
+	// maxTasks bounds the runner's goroutines (E-27): reader, waiter, stdin writer.
 	maxTasks = 3 * 256
 	// closeWait bounds Runner.Close when a task cannot finish.
 	closeWait = 10 * time.Second
 )
 
-// errCleanup marks failures of the kill order or descriptor cleanup; the
-// result is still valid, the error reports what could not be confirmed.
+// errCleanup marks cleanup failures; the result is still valid (the error reports what was not confirmed).
 var errCleanup = errors.New("exec: cleanup")
 
 // errCloseTimeout reports that Close gave up waiting for a runner task.
 var errCloseTimeout = errors.New("exec: close timeout")
 
-// Runner runs commands on the local backend. Its goroutines belong to one
-// boundary group; Close kills every live tree and waits for them.
+// Runner runs commands on the local backend; Close kills every live tree and waits for its goroutines.
 type Runner struct {
 	g    *boundary.Group
 	stop chan struct{} // closed by Close: live calls are cancelled
@@ -57,9 +52,7 @@ func New(ctx context.Context) *Runner {
 	return &Runner{g: g, stop: make(chan struct{}), live: map[string]chan struct{}{}}
 }
 
-// Close kills still-running trees and waits for the runner's goroutines,
-// bounded by closeWait: a task stuck in an uninterruptible state must not
-// hang shutdown (REVIEW-F1-SEC5 EX5-2).
+// Close kills still-running trees and waits, bounded by closeWait (a stuck task must not hang shutdown; REVIEW-F1-SEC5 EX5-2).
 func (r *Runner) Close() error {
 	r.mu.Lock()
 	if !r.closed {
@@ -89,8 +82,7 @@ func (r *Runner) Close() error {
 	}
 }
 
-// Live reports exec ids of trees returned as still_running and not yet
-// confirmed dead.
+// Live reports exec ids of trees returned as still_running and not yet confirmed dead.
 func (r *Runner) Live() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -114,9 +106,7 @@ type call struct {
 	exit  chan exit
 	ex    exit
 	gone  bool // leader reaped
-	// inW is the stdin pipe's write end: finish closes it so a writer
-	// blocked on a pipe held by an escaped reader cannot hold Close
-	// (REVIEW-F1-SEC5, #40).
+	// inW is the stdin write end; finish closes it so a blocked writer cannot hold Close (REVIEW-F1-SEC5, #40).
 	inW *os.File
 
 	mu   sync.Mutex
@@ -142,9 +132,8 @@ func (c *call) err() error {
 	return fmt.Errorf("%w: %w", errCleanup, c.errs)
 }
 
-// Run executes s and returns once the tree is dead, or 1 s after ctx is
-// canceled (cancelled_confirmed / still_running, ADR-072). A spawn failure
-// is Result{Status: StatusSpawnFailed} with the cause in the error.
+// Run executes s and returns once the tree is dead, or 1 s after ctx is canceled (ADR-072).
+// A spawn failure is StatusSpawnFailed with the cause in the error.
 func (r *Runner) Run(ctx context.Context, spec *Spec) (Result, error) {
 	s := *spec
 	if err := s.normalize(); err != nil {
@@ -264,9 +253,7 @@ func (c *call) loop(ctx context.Context, res *Result) {
 	c.result(res)
 }
 
-// cancelled runs the kill order with a 1 s result deadline (REL-06): the
-// tree is confirmed dead or returned still_running while the kill order
-// continues in the background (Result.Done).
+// cancelled runs the kill order with a 1 s result deadline (REL-06); the tree is confirmed dead or returned still_running (kill continues, Result.Done).
 func (c *call) cancelled(ctx context.Context, res *Result) {
 	deadline := time.Now().Add(CancelDeadline)
 	c.note(c.p.terminate())
@@ -293,8 +280,7 @@ func (c *call) cancelled(ctx context.Context, res *Result) {
 	res.Duration = time.Since(c.start)
 }
 
-// killTree is the kill order of §A.4: TERM to the tree, up to grace for it
-// to exit, then KILL.
+// killTree is the kill order of §A.4: TERM to the tree, up to grace, then KILL.
 func (c *call) killTree(grace time.Duration) {
 	c.note(c.p.terminate())
 	if !c.waitDead(time.Now().Add(grace)) {
@@ -302,8 +288,7 @@ func (c *call) killTree(grace time.Duration) {
 	}
 }
 
-// waitDead reaps the leader and polls the tree until it is gone or the
-// deadline passes.
+// waitDead reaps the leader and polls the tree until it is gone or the deadline passes.
 func (c *call) waitDead(deadline time.Time) bool {
 	tick := time.NewTicker(pollEvery)
 	defer tick.Stop()
@@ -322,11 +307,9 @@ func (c *call) waitDead(deadline time.Time) bool {
 	}
 }
 
-// finish kills what is left of the tree (stragglers of an exited leader,
-// setsid escapees by marker), reaps the leader and drains the output.
+// finish kills stragglers and setsid escapees, reaps the leader and drains the output.
 func (c *call) finish() {
-	// Release a stdin writer blocked on a pipe still held by a process that
-	// escaped the tree (REVIEW-F1-SEC5, #40).
+	// Release a stdin writer blocked on a pipe held by an escaped process (REVIEW-F1-SEC5, #40).
 	if c.inW != nil {
 		c.note(ignoreClosed(c.inW.Close()))
 	}
@@ -347,13 +330,10 @@ func (c *call) finish() {
 	c.note(c.p.release())
 }
 
-// sweepWait bounds how long the sweep waits for killed marker processes
-// to disappear: SIGKILL is asynchronous, and a caller that asserts P24.1
-// right after Run must not observe a process that is already dying.
+// sweepWait bounds waiting for killed marker processes to disappear (SIGKILL is asynchronous; P24.1 asserts right after Run).
 const sweepWait = time.Second
 
-// sweep kills every process carrying this call's marker (§A.4) and waits,
-// up to sweepWait, until none is visible.
+// sweep kills every process carrying this call's marker (§A.4), up to sweepWait, until none is visible.
 func (c *call) sweep() {
 	id := []byte(c.id)
 	deadline := time.Now().Add(sweepWait)
@@ -384,16 +364,14 @@ func (c *call) result(res *Result) {
 	}
 }
 
-// newExecID is "<owner pid>.<random>": the owner pid lets the crash sweep
-// tell trees of a dead damnbot from those of a live one.
+// newExecID is "<owner pid>.<random>"; the owner pid tells a dead damnbot's trees from a live one's.
 func newExecID() string {
 	var b [8]byte
 	_, _ = rand.Read(b[:]) // crypto/rand never fails on supported platforms
 	return strconv.Itoa(os.Getpid()) + "." + hex.EncodeToString(b[:])
 }
 
-// withMarker returns env with MarkerEnv=id and DAMNBOT=1 (hard values,
-// §A.6), replacing any inherited ones.
+// withMarker returns env with MarkerEnv=id and DAMNBOT=1 (hard values, §A.6), replacing any inherited ones.
 func withMarker(env []string, id string) []string {
 	out := make([]string, 0, len(env)+2)
 	for _, kv := range env {
