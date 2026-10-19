@@ -245,8 +245,8 @@ func TestRunPTYEscapeeDoesNotHang(t *testing.T) {
 		script  string
 		timeout time.Duration
 	}{
-		{"leader-exits", `env -i setsid sleep 1000 & sleep 0.1; echo hi`, 5 * time.Second},
-		{"timeout", `env -i setsid sleep 1000 & echo hi; sleep 1000`, time.Second},
+		{"leader-exits", escapeeScript(t) + ` & sleep 0.1; echo hi`, 5 * time.Second},
+		{"timeout", escapeeScript(t) + ` & echo hi; sleep 1000`, time.Second},
 	} {
 		r := New(context.Background())
 		s := sh(t, tc.script)
@@ -415,7 +415,7 @@ func TestRunEscapedStdinHolderDoesNotHang(t *testing.T) {
 	r := New(context.Background())
 	// The real shape from REVIEW-F1-SEC5 EX5-2/EX5-11: a foreground
 	// escapee keeps the stdin read end and never reads 1 MiB of stdin.
-	s := sh(t, `env -i setsid sleep 9973`)
+	s := sh(t, escapeeScript(t))
 	s.Stdin = bytes.Repeat([]byte("x"), 1<<20)
 	s.Timeout, s.KillGrace = time.Second, time.Second
 	res, err := r.Run(t.Context(), s)
