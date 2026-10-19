@@ -103,6 +103,7 @@ func (lx *lexer) plain(c byte) {
 
 // quoted reads a quoted section; PowerShell double quotes expand $ and `.
 func (lx *lexer) quoted(q byte) {
+	lx.tok.quoted = true
 	for lx.i < len(lx.src) {
 		c := lx.src[lx.i]
 		lx.i++
@@ -232,7 +233,8 @@ func (s *state) pwsh(args []arg, in stdin) {
 
 // cmdShell classifies `cmd [/flags] /c|/k command` by parsing the rest of
 // the line with the Cmd lexer. An interactive cmd (no /c|/k) is Unknown
-// (CL5-1).
+// (CL5-1): otherwise `cmd /c rd /s /q <root>` was labelled mutating and
+// auto-approved while bare rd follows the rm rules.
 func (s *state) cmdShell(args []arg, in stdin) {
 	for i := 1; i < len(args); i++ {
 		switch l := strings.ToLower(args[i].s); {
@@ -242,15 +244,76 @@ func (s *state) cmdShell(args []arg, in stdin) {
 				s.raise(Unknown, "cmd "+l+" without a command")
 				return
 			}
-			s.inline(rest, Cmd)
+			// A single quoted token is the whole command line and must be
+			// re-lexed (cmd /c "rd /s /q X"); several tokens keep their
+			// quotedness so start's title is recognized (CL5-9).
+			if len(rest) == 1 && rest[0].quoted {
+				s.winLine(rest[0].s, Cmd)
+				return
+			}
+			// The payload is always cmd syntax, so fold case even when the
+			// outer line came from the POSIX parser.
+			saved := s.fold
+			s.fold = true
+			s.nested(rest, stdinNone)
+			s.fold = saved
 			return
 		case strings.HasPrefix(l, "/"):
+			// /d, /q, /s, /v:on, /a, /u, ... carry no command.
 		default:
 			s.fromStdin("cmd", in)
 			return
 		}
 	}
 	s.fromStdin("cmd", in)
+}
+
+// cmdBuiltin recurses into cmd builtins that launch a command: start
+// [options] [title] program and call program. A quoted title token is
+// skipped, and a label call is Unknown; control flow (if/for/do/goto) is
+// Unknown in command (CL5-9).
+func (s *state) cmdBuiltin(name string, args []arg, in stdin) {
+	rest := args[1:]
+	if name == "start" {
+		// start [options] [title] program: a quoted first token is the
+		// window title, /d|/machine|/node|/affinity take a value, any other
+		// option is Unknown (CL5-9).
+	scan:
+		for len(rest) > 0 {
+			v := rest[0]
+			switch {
+			case v.s == "" || v.quoted:
+				rest = rest[1:]
+			case strings.HasPrefix(v.s, "/"):
+				opt := strings.ToLower(v.s)
+				rest = rest[1:]
+				switch opt {
+				case "/d", "/machine", "/node", "/affinity":
+					if len(rest) == 0 {
+						s.raise(Unknown, "start "+opt+" without a value")
+						return
+					}
+					rest = rest[1:]
+				case "/b", "/i", "/min", "/max", "/low", "/normal", "/high", "/realtime",
+					"/abovenormal", "/belownormal", "/wait", "/separate", "/shared", "/restricted":
+				default:
+					s.raise(Unknown, "start option "+opt)
+					return
+				}
+			default:
+				break scan
+			}
+		}
+	}
+	if len(rest) == 0 {
+		s.raise(Unknown, name+" without a command")
+		return
+	}
+	if name == "call" && strings.HasPrefix(rest[0].s, ":") {
+		s.raise(Unknown, "call label")
+		return
+	}
+	s.nested(rest, in)
 }
 
 func isDigits(s string) bool {
