@@ -158,3 +158,32 @@ Repro EX5-10 (dijalankan): perintah pertama sesi `ln -s <target> c2.cwd`; setela
 - Windows/macOS runtime untuk sentinel `cmd`, junction cwd (EX5-10), ConPTY+stdin.
 - `TestNoOrphans` 200×, `TestInteractiveCorpus`, fuzz/bench, stress race lebih luas (hanya satu skenario Close+cancel).
 - Integrasi tool layer (schema masih mengizinkan `session`+`stdin`; runner sudah menolak).
+
+## Putaran 3 — final narrow check (2026-10-20)
+
+Head: `#40` `52d01f7`, `#42` `a00f651`, `#63` `ec54c9e` (`9321eba`). `#39`/`#45`/`#47`/`#52`/`#62` tidak berubah sejak putaran 2; verdict tetap approve.
+
+| PR | Verdict putaran 3 |
+|---|---|
+| #39, #45, #47, #52, #62 | **approve** (tidak berubah) |
+| #40 | **approve** — EX5-11 fixed; EX5-12 E-26 fixed; EX5-15/16 MINOR |
+| #42 | **approve** — kode EX5-4 tetap; catatan: doc EX5-14 tidak ada di `a00f651`, baru di `#63`/`9321eba` |
+| #63 | **approve** — EX5-10 hanya sebagian: symlink langsung diblokir, bypass `rm`+`ln` masih ada (MINOR) |
+
+### Verifikasi
+
+- **EX5-11 fixed:** `TestRunEscapedStdinHolderDoesNotHang` kini memakai `env -i setsid sleep 9973` di foreground + `Stdin` 1 MiB (`run_unix_test.go:359-370`); test lulus 1,26 s dan `Close` kembali. Bentuk ini benar-benar memegang ujung baca stdin (bandingkan putaran 2).
+- **EX5-12 fixed (E-26):** `Close` memakai `boundary.Go` (`run.go:70`), bukan goroutine mentah. Sisa: `Task` dibuang (`_ =`) dan pada timeout 10 s goroutine tetap menunggu `g.Wait` (EX5-16).
+- **EX5-10 sebagian:** pra-buat `cN.cwd` dengan `O_EXCL` + cek `IsRegular` (`session.go:217-231`). Repro:
+  - `ln -s <target> c2.cwd` → gagal, target tetap `ORIGINAL` (fixed).
+  - `rm -f c2.cwd; ln -s <target> c2.cwd; true` → **target ditimpa** path cwd sesi (bypass). Pemeriksaan regular-file terjadi **sebelum** perintah; perintah dapat menghapus/mengganti file sebelum shell `pwd -P >`/`cd >` menulis. Rekomendasi: tulis cwd lewat fd/pipe yang tidak dapat diarahkan ulang, atau jangan tulis cwd ke path host (set `Cwd` kosong) sampai ada mekanisme aman.
+- **EX5-14:** `OneShot.Root` di `a00f651` masih berbunyi `"" skips the check`; komentar fail-closed baru ada di `ec54c9e` (`9321eba`). Bila #42 di-merge tanpa #63, dokumen masih usang.
+- **EX5-15 MINOR (test hygiene):** `TestRunEscapedStdinHolderDoesNotHang` tidak membersihkan escapee `sleep 9973`; `TestRunPTYEscapeeDoesNotHang` juga meninggalkan `sleep 1000`. Karena `env -i`/tanpa marker, sweep tidak membunuhnya. Tambah cleanup (`pkill`/pid yang dicatat) atau gunakan proses ber-marker.
+- **EX5-16 MINOR:** `boundary.Go` untuk `Close` menghasilkan `Task` yang tidak pernah di-`Wait`/`Done`; pada timeout, goroutine tetap menunggu `g.Wait`. Dokumentasikan atau simpan Task untuk `Wait` berikutnya (batas 10 s tetap disengaja).
+
+Tidak ada MAJOR/BLOCKER baru di exec. Suite target (EX5-11 + PTY escapee) hijau; `go test ./internal/exec/classify` hijau di #46.
+
+### Tidak dicakup putaran 3
+
+- Windows/macOS runtime untuk cwd junction dan ConPTY+stdin.
+- Full `TestNoOrphans`/`TestInteractiveCorpus`/fuzz/bench; stress race lebih luas.
