@@ -21,12 +21,6 @@ type osProc struct {
 	out *os.File // read end: pipe or PTY master
 }
 
-// ptySize is the fixed PTY geometry of §A.1.
-const (
-	ptyCols = 120
-	ptyRows = 40
-)
-
 // start launches s.Argv with stdin from in (nil: /dev/null) and stdout and
 // stderr merged into one pipe, or into a PTY when s.PTY.
 func start(s *Spec, in *os.File) (*osProc, error) {
@@ -145,6 +139,9 @@ func (u *osProc) kill() error        { return u.signal(syscall.SIGKILL) }
 func (u *osProc) closeOutput() error { return closeAll(u.out) }
 func (u *osProc) treeAlive() bool    { return syscall.Kill(-u.p.Pid, 0) == nil }
 func (u *osProc) release() error     { return nil }
+
+// closeConsole: the PTY master is closed by closeOutput.
+func (u *osProc) closeConsole() error { return nil }
 
 func (u *osProc) signal(sig syscall.Signal) error {
 	// ESRCH: the group is gone. EPERM: no member may be signalled — macOS

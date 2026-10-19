@@ -72,9 +72,35 @@ func TestProcJobKillTree(t *testing.T) {
 	}
 }
 
-func TestProcPTYUnavailableWindows(t *testing.T) {
+// TestProcConPTY (§A.1): a ConPTY child sees a console; its output reaches
+// EOF once the pseudo console is closed.
+func TestProcConPTY(t *testing.T) {
 	t.Parallel()
-	if _, err := start(&Spec{Argv: []string{"cmd"}, PTY: true}, nil); err == nil {
-		t.Fatal("pty accepted")
+	p, err := exec.LookPath("cmd")
+	if err != nil {
+		t.Skip("no cmd.exe")
+	}
+	env := []string{"PATH=" + os.Getenv("PATH"), "SystemRoot=" + os.Getenv("SystemRoot")}
+	w, err := start(&Spec{Argv: []string{p, "/d", "/c", "echo tty& exit 5"}, Dir: t.TempDir(), Env: env, PTY: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := w.release(); err != nil {
+			t.Error(err)
+		}
+	})
+	ex, werr := w.wait()
+	if werr != nil || ex.code != 5 {
+		t.Fatalf("%+v %v", ex, werr)
+	}
+	// The few bytes fit the pipe buffer, so closing before reading cannot
+	// block the console.
+	if cerr := w.closeConsole(); cerr != nil {
+		t.Fatal(cerr)
+	}
+	out, _ := io.ReadAll(w.output()) //nolint:errcheck // EOF or a broken pipe ends the read
+	if !strings.Contains(string(out), "tty") {
+		t.Fatalf("%q", out)
 	}
 }
