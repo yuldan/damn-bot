@@ -128,7 +128,7 @@ Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket 
 
 | PR | Isi | Baris Go non-test (diff) | Hasil |
 |---|---|---:|---|
-| `f1-config-1` | struct + default SPEC §12, decode TOML ketat (key tak dikenal + path/baris), DI `Deps`, `FuzzConfigTOML` | 497 | [#71](https://github.com/yuldan/damn-bot/pull/71) |
+| `f1-config-1` | struct + default SPEC §12, decode TOML ketat (key tak dikenal + path/baris), DI `Deps`, `FuzzConfigTOML` | 485 | [#71](https://github.com/yuldan/damn-bot/pull/71) |
 | `f1-config-2` | validasi rentang semua kunci F1, path per OS/profil, `<config_dir>`, `Clone` immutable | 322 | [#72](https://github.com/yuldan/damn-bot/pull/72) |
 
 ### `internal/assemble` (ADR-108)
