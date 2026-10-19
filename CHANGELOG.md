@@ -5,7 +5,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 ## Unreleased
 
 ### Fixed
+- `provider`/`netx`: endpoint jahat tidak lagi bisa memicu CPU/memori tak sebanding — nama tool di-`append` dan dibatasi 256 B, ≤ 256 entri `tool_calls` per chunk dan setiap fragmen dihitung ke cap respons, reasoning dihitung termasuk salinan replay ter-quote; egress Inference tidak pernah mengikuti redirect (3xx = `bad_request`), purpose lain membuang header kredensial lintas host dan menolak https → http; fallback dilaporkan sebelum dan sesudah setiap percobaan termasuk yang gagal (REVIEW-F1-SEC3 PROV-M1..M5, ADR-100, ADR-102).
 - `provider`: decoder delta tidak lagi merekursi tanpa batas saat melewati nilai JSON bersarang — `skip` iteratif dan nesting dibatasi 10.000 seperti encoding/json; frame SSE 4 MiB berisi `[` kini `errJSON`, bukan stack overflow fatal (REVIEW-F1-SEC3 PROV-B1, ADR-102).
+- `budget`: biaya ledger tidak lagi bisa negatif atau mendekati 0 — token > 10¹², biaya provider > 10⁶ USD (termasuk +Inf), harga negatif, dan overflow tokens × harga ditolak `ErrInvalidUsage` (aritmetika tercek); test append-only `usage_ledger` kini non-vakum untuk UPDATE dan DELETE (REVIEW-F1-SEC3 LED-1..3, ADR-101).
 
 ### Changed
 - `redact`: prefilter pasangan byte di `scan` — posisi yang dua byte pertamanya tidak bisa memulai pola mana pun dilewati tanpa `matchAt` (output identik, ≈ 3× lebih cepat pada prosa 8 KiB; dasar GAP-SEC-16 DLP ≤ 50 µs, REVIEW-F1-SEC1 NETX-16; ADR-096).
@@ -20,6 +22,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `provider`: decoder delta stream openai-chat tanpa reflect dan tanpa alokasi per chunk (content, reasoning, tool_calls, usage, finish; E-36, ADR-102).
 - `budget`: estimator token COST-09 (rasio per script + kalibrasi EMA 0,5–1,5 dari ledger, `TestTokenEstimatorCalibration` en/id/ru/ja), perhitungan biaya (provider/tabel harga/unknown), entri ledger; `ctxdb/ledgerstore`: insert `usage_ledger`, sampel kalibrasi, total sesi (ADR-101).
 - `provider`: decoder delta stream openai-chat tanpa reflect dan tanpa alokasi per chunk (content, reasoning, tool_calls, usage, finish; E-36, ADR-102).
+- `codetools`: tool file eager CODE-TOOLS §2–§5 — `read_file` (halaman 16.000/4.000 char, offset negatif dari akhir, byte invalid `\xNN`) (ADR-103).
+- `sandbox`: `Denied` dan `OpenResolved` untuk walker grep/glob (satu `openat2` `RESOLVE_NO_SYMLINKS` + cek identitas deny pasca-open) (ADR-103).
 - Atribusi: sidecar `ORIGIN.md` (sumber, commit, lisensi, SHA-256) untuk setiap direktori file turunan pihak ketiga, diverifikasi `TestAttributionHeaders` (ADR-018 (b), ADR-099).
 - `netx/retry`: satu kebijakan retry P6 (kelas typed, backoff 1 s/4 s ±20 %, `Retry-After` ≤ 30 s, maks 3 attempt) + circuit breaker in-process (ADR-100).
 - `netx`: parser SSE WHATWG tanpa alokasi per event (E-35, ADR-100).

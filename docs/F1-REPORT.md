@@ -162,3 +162,134 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | `content_filtered` (ADR-072/082) | finish `content_filter` diteruskan apa adanya | `TestAssemble`, `TestHostileStream` | selesai di `provider` |
 | E-69 `providertest` | server palsu loopback, skrip, replay fixture SSE, `FakeClock` | `TestFixtureAndLatency`, semua test klien | selesai |
 | EC-PROV F1 | 001, 004..007, 011..013, 015, 016, 025 di `provider`; 009/010/028..030 di `netx` | `TestEdgeCases/<ID>` (gate PHASE) | covered |
+
+## Handoff f1-net (pause)
+
+Status 2026-10-20 saat proyek di-pause. Semua kerja ada di branch remote; tidak ada yang hanya ada di `/tmp`. Tidak ada PR yang security-gated yang di-merge.
+
+### PR terbuka
+
+| PR | Branch (base) | Head | CI terakhir | Gate merge |
+|---|---|---|---|---|
+| #28 netx DLP NETX-15/16/26..31 | `f1-netx-dlp2` (main) | `17bbaad` | berjalan; head sebelumnya `8ed7e04` perf hijau (EPYC 9V74: plain 14–16 µs, pct 30–43 µs, prefix 15–24, decode 67–91; gagal hanya pr-meta size 615 dan `TestFileLength`, keduanya diperbaiki di `17bbaad`: helper dipindah ke `dlp_layer.go`, 598 baris) | auditor sudah APPROVE deteksi NETX-26 (@d2ee9d5); minta auditor re-check range-diff `d2ee9d5..17bbaad` (perf-only + split file) + oracle; merge setelah approve |
+| #39 exec a: lapisan proses, PTY, Job Object, capture | `f1-exec-1` (main) | `5a9e9e8` | berjalan | auditor |
+| #40 exec b: Runner, timeout/cancel/kill order, sweep | `f1-exec-2` (#39) | `6e508ff` | job `coverage` gagal (belum diselidiki; cek `TestFileLength`/coverage log) | auditor |
+| #42 exec c: env allowlist, secret-ref scope, one-shot (NEW3-03/04), `NeedsTTY` | `f1-exec-3` (#40) | `afc32ff` | berjalan | auditor |
+| #45 exec d: prompt interaktif, idle-timeout | `f1-exec-4` (#42) | `18ac833` | berjalan | auditor |
+| #47 exec e: ringkasan §A.3 | `f1-exec-5` (#45) | `e0c5c95` | berjalan | auditor |
+| #52 exec f: `SweepStale`, `TestNoOrphans` 200×, bench spawn | `f1-exec-6` (#47) | `ea6e8b5` | berjalan | auditor |
+| #62 exec g: ConPTY Windows | `f1-exec-7` (#52) | `31320bf` | **gagal** test windows-latest, windows-11-arm, ubuntu-24.04-arm (ConPTY belum pernah dijalankan di Windows; arm64 belum diselidiki) | perbaiki dulu, lalu auditor |
+| #63 exec h: sesi persisten | `f1-exec-8` (#62) | `a59fa64` | windows-11-arm gagal (kemungkinan dari #62), sisanya berjalan | auditor |
+| #41/#43/#44/#46 exec/classify (ClassifyLead) | `f1-classify-1..4` (berantai, #41 base main) | `11e5cfc`/`affd0e9`/`fa9f41c`/`d02bf38` | semua hijau | auditor; #41 memuat transfer budget exec 3.400 / classify 1.600 (disetujui owner) |
+
+Branch tanpa PR: `f1-classify-wip` (`29b28bc`, versi utuh classify sebelum dipecah; boleh dihapus), `f1-exec-wip` (WIP lama, digantikan `f1-exec-1..8`; boleh dihapus).
+
+### Worktree (lokal, boleh hilang)
+
+`/tmp/damnbot-f1net` → `f1-netx-dlp2` / `f1-handoff-net`; `/tmp/damnbot-f1exec` → `f1-exec-1..8`; `/tmp/damnbot-f1classify` → `f1-classify-*`. Semua bersih dan sama dengan remote. Pulihkan dengan `git worktree add /tmp/<dir> <branch>`.
+
+### Cara kerja yang perlu dibuat ulang bila `/tmp` hilang
+
+- Lint: `GOFLAGS=-modfile=tools/go.mod go build -o /tmp/golangci github.com/golangci/golangci-lint/v2/cmd/golangci-lint`, lalu `GOOS={linux,windows,darwin} /tmp/golangci run --build-tags goolm ./internal/...`. Gate lain: `make vet-custom deadcode loc`, `go test -tags goolm ./internal/archtest/`.
+- Restack exec setelah `main` bergerak: untuk b = 1..8, `git rebase --onto <tip baru b-1 (b=1: origin/main)> <tip lama b-1> f1-exec-b`; konflik CHANGELOG/DECISIONS/F1-REPORT = simpan kedua sisi (hapus baris penanda konflik), lalu periksa entri CHANGELOG/ADR yang terduplikasi. Push `-f` setiap branch.
+- pr-meta E-84 menghitung diff terhadap `main` terkini: PR yang tertinggal dari `main` bisa melebihi 600 baris → rebase.
+- Mesin lokal terbebani; angka benchmark lokal tidak bisa dipakai. Ukur di job `perf` CI (catat model CPU di log: EPYC 7763 ≈ 1,25× lebih lambat dari 9V74).
+- Skrip kredensial GitHub (`askpass`, wrapper API, watcher CI) ada di luar repo dan tidak didokumentasikan di sini; owner menyediakannya ulang.
+
+### Langkah berikut
+
+1. #28: tunggu CI `17bbaad` hijau; minta auditor re-review range-diff; merge (rebase) setelah approve. Keputusan terbuka NETX-16: gate pct 75 µs kini lolos dengan margin (≈ 43 µs short50 di 9V74, perkiraan ≈ 54 µs di 7763); tidak perlu mengubah target.
+2. #62 ConPTY: perbaiki kegagalan Windows/arm64 (lihat log job), lalu restack #63.
+3. #40 `coverage`: baca log job, perbaiki, restack c..h.
+4. Serahkan stack exec a..h + classify 1..4 ke auditor (urutan merge: classify #41 dulu karena memuat `loc.budget` exec 3.400 — exec saat ini ≈ 2.330 scc).
+5. Sisa F1 exec di luar stack: `TestCancelConfirmBeforeRedispatch` (loop/tools), Backend `§A.7` (hanya `local` di F1), wiring `shell` tool (tools/loop) ke `Runner`/`Sessions`/`classify`, panggilan `exec.SweepStale()` di composition root.
+
+### Keputusan yang tercatat (ADR-105, ADR-106) dan perlu diketahui reviewer
+
+- macOS: tanpa idle-kill (tidak ada akuntansi CPU/I/O per proses tanpa libproc); timeout tetap berlaku.
+- Setelah `kill -9` damnbot, pohon proses (selain leader di Linux) dibersihkan `SweepStale` pada start berikutnya di semua Unix.
+- Sesi Windows memakai pipe (bukan ConPTY); fish tidak dipakai sebagai shell sesi.
+- Pengecualian E-38 `unsafe` hanya untuk `internal/exec/*_windows.go`.
+
+## Handoff codetools (pause)
+
+Status 2026-10-19 saat proyek dijeda. **Tidak ada PR codetools yang di-merge**: review auditor atas stack baru belum ada. Semua WIP ada di remote; `/tmp` boleh hilang.
+
+### PR dan branch
+
+| Item | Head | Keterangan |
+|---|---|---|
+| #33 S16-7 hard link | merged (`f154049`) | rebase dari `32e9a38` yang di-approve auditor; range-diff identik |
+| #32 REVIEW-F1-SEC2 | merged (`8560b32`) | — |
+| #27 codetools (lama) | closed | digantikan stack #48–#61 |
+| Stack #48–#61 (`f1-ct-01` … `f1-ct-13`), base berantai (PR k → branch k−1) | `6aeb132`, `811a850`, `bdbe4e3`, `51614a5`, `66a7f4e`, `782c891`, `910719d`, `c6c8b88`, `5f765a2`, `1b40ddc`, `ec9ed9f`, `103e5df`, `0f38722` | base `main` `5b3b78d`; tree `f1-ct-13` = referensi `b2fec95` + perubahan main sesudahnya; setiap tahap ≤ 600 baris Go non-test (pr-meta lokal), lint/deadcode/coverage ≥ 80 % lokal ok |
+| `f1-codetools-wip` | `b2fec95` | referensi lint-clean (sumber stack) |
+| `f1-ct-perf2-wip` | `7cce131` | putaran perf 2 di atas `b2fec95` (437 baris Go non-test; belum masuk stack, rencananya PR ke-14) |
+| `f1-ct-split-tools` (orphan) | `4209020` | builder stack (`ctsplit/build.sh 1 13`, `check.sh K`, `stages.txt`, manifest berisi judul/body/gate per PR) |
+| `f1-ct-sb-wip`, `f1-ct-ign-wip`, `f1-ct-perf-wip`, `f1-codetools-wip-79b66b5` | `398e16f`, `55ba3a6`, `6911602`, `79b66b5` | riwayat cabang kerja (sudah terkandung di referensi) |
+
+CI stack saat jeda (24 check wajib): #48–#52 dan #55 hijau. Merah:
+- **#53 (`f1-ct-06`) windows-latest `TestSymlinkEscapeRace/primary`: "opened a file outside the root".** Ini test sandbox dari `main`; tahap 6 tidak menyentuh sandbox, dan tahap 1 hijau di Windows. **Prioritas pertama:** ulang job; bila berulang, ini temuan keamanan Windows (`os.Root` + final path) yang harus dianalisis sebelum merge apa pun.
+- **#56–#57 `perf`:** `BenchmarkDLPScan/secrets=50/decode` 273 µs > 225 µs (netx, di luar codetools; noise runner atau regresi main).
+- **#58–#61 macOS/Windows:**
+  - `TestCleanOrphanTempsPattern`: fixture `.f.txt.damnbot-ABCDEFGH2345` bertabrakan dengan nama huruf kecil di FS case-insensitive. Ini bug test; buat fixture huruf besar di direktori lain.
+  - `TestPathLockAliases/hard.txt` gagal di Windows: `keyOf` tidak punya file ID, sehingga lock hard link jatuh ke path. Perbaikan: kunci volume+file ID lewat `GetFileInformationByHandle` (CT27-5 belum tertutup di Windows).
+- **#61 `test-timing`:** CT-05 3,23 ms > 3 ms; CT-07 54 ms > 50 ms.
+
+### Penutupan temuan REVIEW-F1-SEC2 (#27)
+
+| ID | Status | Tahap | Bukti |
+|---|---|---|---|
+| CT27-1 BLOCKER | diperbaiki | 1 | cabang approved `OpenResolved`: open tanpa symlink dari root volume + cek ulang deny path+identitas; `TestOpenResolvedSwapRace` (2 mode × 2 cabang); mutasi `Resolve=0` / tanpa cek path tertangkap |
+| CT27-2 BLOCKER | diperbaiki | 12 | in-place lewat temp lengkap → snapshot + backup ber-`fsync` → pre-alokasi → salin → pulih dari backup (ADR-103 butir 13); `TestInPlaceLargeFile` (65 MiB), `TestInPlaceFailuresKeepFile` (ENOSPC/EIO/no-op/snapshot gagal = byte-identik) |
+| CT27-3 MAJOR | diperbaiki | 5 | ignore/config workspace hanya Inside + reguler; `TestIgnoreSymlinkOutsideRoot`, `TestRepoExcludesFileOutsideRoot` |
+| CT27-4 MAJOR | diperbaiki | 1, 5 | `ErrNotRegular`, `O_NONBLOCK`; `TestOpenNonRegular`, `TestFIFONoHang` (goleak) |
+| CT27-5 MAJOR | diperbaiki Unix; **terbuka Windows** | 10 | `TestPathLockAliases` deterministik; Windows lihat di atas |
+| CT27-6 MAJOR | diperbaiki | 1, 6, 10 | test sandbox + kill point CT-25 (`mid-temp`, `pre-rename`, `post-rename`); mutasi "semua tulis in-place" tertangkap |
+| CT27-7 MAJOR | sebagian | 13 | `TestGrepParityRg` (CT-21, 0 selisih C1/C3), `TestGrepOutputTokens` (CT-11, gagal), `TestGrepSpeedVsRg` (CT-01..03), `TestCodeToolsIDsComplete`; job `bench-parity` (PR) dan `bench-codetools` (nightly) dengan `make corpora` |
+| CT27-8 MAJOR | diperbaiki | 12 | sama dengan CT27-2; `TestInPlaceKill9`: backup utuh saat kill di tengah salinan |
+| CT27-13 MAJOR | diperbaiki | 1, 8 | cek `nlink` di handle; `TestGrepSkipsHardLinked` |
+| CT27-9..12 MINOR | diperbaiki (11: residual diterima ADR-103 butir 16) | 1, 9, 10 | `TestSetgidPreserved`, `TestCleanOrphanTempsPattern`, owner Windows `false` |
+
+### Kinerja (host lokal 12 thread, load 6–13, 20 run/kueri; `bench/codetools/results/f1-perf2-4ade771.json` di `f1-ct-perf2-wip`)
+
+| Korpus × jenis | Σp50 / Σp95 vs `rg` 15.1.0 | Target |
+|---|---|---|
+| C1 literal | 1,79 / 1,94 | ≤ 1,2 ✗ |
+| C1 regex | 2,62 / 2,75 | ≤ 1,5 ✗ |
+| C1 glob | 1,07 / 1,08 | ≤ 1,2 ✓ |
+| C2 literal / regex / glob | 2,21 / 3,46 / 1,41 | ✗ |
+| C3 literal / regex / glob | 1,55 / 1,62 / 0,20 | ✗ / ✗ / ✓ |
+
+Angka putaran sebelumnya (`f1-7d0f6bd.json`, 5 run) untuk C3 literal/regex lolos (1,07 / 1,28). Selisihnya dengan tabel di atas tidak bisa dipisahkan dari load host; ukur ulang di mesin idle (Q14).
+
+CT-10 vs hermes C1 (baseline durabel PR #25): `search_files` p50 10,6 ms (×9,9, target ≥ 10 ✗), `read_file` 0,35 ms (×20,9 ✓), `patch` p50 4,48 ms (×2,6 ✓) dengan p95 median 5,72 ms / maks 8,8 ms (target ≤ 6 ms p95 ✗ untuk maks).
+
+Hambatan: `regexp` Go ≈ 35 MB/s per core untuk pola tanpa literal, sehingga CT-02 di C1 tidak tercapai tanpa engine regex lain. Literal: syscall 6/file vs ≈ 4 di `rg`, sha256 tag, walker channel-per-file.
+
+### CT-11 (token grep vs hermes): menunggu keputusan owner
+
+Hermes@868b9f244f sudah mengelompokkan match per file, sehingga estimasi CODE-TOOLS §9 (0,5–0,65×) usang. Terukur pada 50 kueri golden (o200k):
+- limit sama (50): 0,906× (24,6 tok/match);
+- default limit 100: 1,69×.
+
+Simulasi perubahan format:
+
+| Perubahan | Rasio | Informasi yang hilang |
+|---|---|---|
+| tanpa header | 0,895 | hitungan match/file |
+| strip indentasi | 0,874 | indentasi |
+| tag 6 hex | 0,894 | tag lebih lemah |
+| jendela baris 120 | 0,822 | konteks baris |
+| gabungan + jendela 80 | 0,738 | semua di atas |
+
+Perubahan lossless yang tersisa (separator `--` saat context 0) sudah diterapkan. Target 0,6× tidak tercapai tanpa kehilangan informasi. `TestGrepOutputTokens` menegakkan 0,6× dan gagal; CT-11 tetap `pending:F1`.
+
+### Langkah berikut
+
+1. Analisis kegagalan Windows `TestSymlinkEscapeRace` di #53 (keamanan).
+2. Perbaiki dua bug test/Windows (`TestCleanOrphanTempsPattern` di FS case-insensitive; lock hard link via file ID). Bangun ulang stack dengan `ctsplit/build.sh` setelah memindahkan perbaikan ke referensi. Builder memakai `/tmp/ctsplit`: clone branch `f1-ct-split-tools` ke sana.
+3. Budget CT-05/CT-07 `test-timing`: optimasi read page 1 MB / outline atau ukur ulang di runner.
+4. Rebase `f1-ct-perf2-wip` ke `f1-ct-13`, lalu buka PR ke-14 (body wajib menyebut ADR-103; coverage dan parity belum dijalankan ulang setelah rebase).
+5. Minta review auditor untuk #48–#61 (+ PR perf). Merge berurutan dengan metode rebase; ganti base PR berikutnya ke `main` setelah tiap merge.
+6. CT-01/02/10/11 belum memenuhi target. Butuh keputusan owner: engine regex, CT-11 (opsi 0,74–0,78× dengan kehilangan informasi, atau revisi target lewat ADR).

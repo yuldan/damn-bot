@@ -167,5 +167,8 @@ func toError(err error) *Error {
 		}
 	}
 	e.Class = retry.ClassifyStatus(se.StatusCode, e.Code)
+	if se.StatusCode >= 300 && se.StatusCode < 400 {
+		e.Class = retry.BadRequest // a redirect is never followed (PROV-M4)
+	}
 	return e
 }

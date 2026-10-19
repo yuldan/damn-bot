@@ -24,9 +24,14 @@ const MaxFallback = 2
 var ErrConfig = errors.New("provider config")
 
 // Fallback reports a switch to another model (event provider_fallback, P7).
+// OnFallback receives it twice per fallback attempt (PROV-M5): before the
+// request is sent (Done false: the prompt is about to reach To) and after
+// it (Done true, Outcome nil on success), so a failed fallback is visible.
 type Fallback struct {
 	From, To string
 	Err      error // the failure that caused the switch
+	Done     bool
+	Outcome  error // result of the attempt on To (Done only)
 }
 
 // Config configures [NewOpenAI].
@@ -93,13 +98,14 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 		case !ok, i > 0 && rt.ContextWindow > 0 && est > rt.ContextWindow:
 			continue // EC-PROV-015, EC-PROV-025
 		}
+		fb := &Fallback{From: r.Model, To: ref, Err: lastErr}
+		o.notify(i, fb)
 		resp, err := o.call(ctx, &rt, r, est, onChunk)
+		fb.Done, fb.Outcome = true, err
+		o.notify(i, fb)
 		if err == nil {
 			if i > 0 {
 				resp.FallbackFrom = r.Model
-				if o.onFB != nil {
-					o.onFB(Fallback{From: r.Model, To: ref, Err: lastErr})
-				}
 			}
 			return resp, nil
 		}
@@ -109,6 +115,13 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 		lastErr = err
 	}
 	return Response{}, lastErr
+}
+
+// notify reports a fallback attempt (i > 0) before and after it (PROV-M5).
+func (o *OpenAI) notify(i int, fb *Fallback) {
+	if i > 0 && o.onFB != nil {
+		o.onFB(*fb)
+	}
 }
 
 // call runs one route through the retry policy and its breaker.
@@ -254,6 +267,9 @@ func readStream(st *netx.Stream, start time.Time, onChunk func(Chunk)) (Response
 			break
 		}
 		d, err := dec.Decode(ev.Data)
+		if errors.Is(err, ErrTooManyToolDeltas) {
+			return Response{}, &Error{Class: retry.Unclassified, Err: fmt.Errorf("%w: %w", ErrResponseTooLarge, err)}
+		}
 		if err != nil {
 			return Response{}, &Error{Class: retry.StreamBroken, Err: err}
 		}

@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"errors"
 	"fmt"
 	"math"
 )
@@ -36,6 +37,14 @@ type Delta struct {
 	Usage          DeltaUsage
 	Error          []byte // raw "error" object sent inside a 2xx stream
 }
+
+// maxChunkToolDeltas bounds the tool_calls entries of one chunk (PROV-M2):
+// a 4 MiB frame of `{}` would otherwise decode into ~1.4 M fragments.
+const maxChunkToolDeltas = 256
+
+// ErrTooManyToolDeltas reports that a chunk carries more than maxChunkToolDeltas
+// tool_calls entries; the client reports it as ErrResponseTooLarge.
+var ErrTooManyToolDeltas = errors.New("too many tool_calls entries in one chunk")
 
 // DeltaDecoder decodes chunks without reflection and, after warmup,
 // without allocation (E-36). Not safe for concurrent use.
@@ -139,7 +148,14 @@ func (dd *DeltaDecoder) deltaField(key []byte) error {
 		if s.null() {
 			return nil
 		}
-		return s.array(func(int) error { return dd.toolCall() })
+		return s.array(func(int) error {
+			// Count decoded entries, not the array index: a repeated
+			// "tool_calls" or "choices" key restarts the index (PROV-M2).
+			if len(dd.d.ToolCalls) == maxChunkToolDeltas {
+				return ErrTooManyToolDeltas
+			}
+			return dd.toolCall()
+		})
 	}
 	_, err := s.skip()
 	return err
