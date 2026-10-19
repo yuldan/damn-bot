@@ -26,7 +26,7 @@ func escapeeScript(t *testing.T) string {
 	t.Helper()
 	pidfile := filepath.Join(t.TempDir(), "esc.pid")
 	t.Cleanup(func() {
-		b, err := os.ReadFile(pidfile)
+		b, err := os.ReadFile(pidfile) //nolint:gosec // G304: test-created temp path
 		if err != nil {
 			return
 		}
