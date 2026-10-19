@@ -3,7 +3,6 @@ package netx
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -240,14 +239,10 @@ func (d *dlp) check(req *http.Request) error {
 	return d.scan(buf.Bytes())
 }
 
-// scan matches b, then up to dlpMaxDepth percent/form-decoded layers
-// (hex case-insensitive, '+' = space). Decoding never grows a layer, so the
-// work is ≤ (1+dlpMaxDepth)·len(b). On a decoded layer the §14.3 patterns
-// run over the whole layer (jwt and url_password have unbounded context,
-// NETX-26); the secret matcher runs only around bytes the decoding changed,
-// ± d.region folded bytes: an occurrence touching no decoded byte is a
-// contiguous copy of the previous layer and was already checked there
-// (NETX-15/16).
+// scan matches b, then up to dlpMaxDepth percent/form-decoded layers.
+// Decoding never grows a layer: work ≤ (1+dlpMaxDepth)·len(b). A decoded
+// layer is rechecked only where a match could be new (layerHit, NETX-15/16,
+// NETX-26).
 func (d *dlp) scan(b []byte) error {
 	if len(b) == 0 {
 		return nil
@@ -290,10 +285,8 @@ func (d *dlp) scan(b []byte) error {
 	return nil
 }
 
-// layerHit checks a decoded layer: the §14.3 patterns in the whitespace-
-// delimited runs holding a decoded non-space byte (or the whole layer, see
-// patternRuns), the secret forms in the widened spans around every decoded
-// byte.
+// layerHit checks a decoded layer: patterns in the runs around decoded
+// bytes, secrets in the windows around form-relevant decoded bytes.
 func (d *dlp) layerHit(layer []byte, tr *spanTrack, budget *verifyBudget) error {
 	if d.patternRunsHit(layer, tr) {
 		return &classedError{err: ErrSecretEgress, class: retry.BadRequest}
@@ -306,76 +299,8 @@ func (d *dlp) layerHit(layer []byte, tr *spanTrack, budget *verifyBudget) error 
 	return nil
 }
 
-// patternRunsHit runs the §14.3 patterns over the whitespace-delimited
-// runs of layer that hold a decoded non-space byte (NETX-26). Every pattern
-// is a bounded literal head followed by runs of non-space bytes, except
-// `authorization` and PEM headers, which hold spaces in a bounded head; so
-// a match that is new in this layer (it touches a decoded byte) lies inside
-// such a run, unless the layer holds one of those two heads — then, or when
-// the decoded positions overflowed their list, the whole layer is scanned.
-// TestDLPPatternDifferential checks the result against whole-layer scans.
-func (d *dlp) patternRunsHit(layer []byte, tr *spanTrack) bool {
-	if tr.patFull || containsAuthorization(layer) || bytes.Contains(layer, []byte("-----BEGIN")) {
-		return d.patternHit(layer)
-	}
-	// The runs are scanned in one call, joined by '\n': no pattern but the
-	// two excluded above matches across whitespace, so the join creates no
-	// match, and one call avoids the per-call cost of hundreds of short runs.
-	buf, ok := d.scratch.Get().(*[]byte)
-	if !ok {
-		buf = new([]byte)
-	}
-	joined, end := (*buf)[:0], 0
-	for _, pi := range tr.pats {
-		p := int(pi)
-		if p < end {
-			continue // inside the previous run
-		}
-		lo := p
-		for lo > end && !isSpace(layer[lo-1]) {
-			lo--
-		}
-		hi := p + 1
-		for hi < len(layer) && !isSpace(layer[hi]) {
-			hi++
-		}
-		joined = append(append(joined, layer[lo:hi]...), '\n')
-		end = hi
-	}
-	hit := len(joined) > 0 && d.patternHit(joined)
-	*buf = joined
-	d.scratch.Put(buf)
-	return hit
-}
-
-// isSpace is RE2 \s (redact's whitespace).
-func isSpace(c byte) bool { return c == ' ' || c >= '\t' && c <= '\r' }
-
-// containsAuthorization reports whether b holds "authorization" in any
-// ASCII case. It pivots on the rare 'z' (SIMD IndexByte per case) instead
-// of testing every 'a'.
-func containsAuthorization(b []byte) bool {
-	const needle, pivot = "authorization", 7 // needle[pivot] == 'z'
-	for _, z := range [...]byte{'z', 'Z'} {
-		for i := 0; ; {
-			j := bytes.IndexByte(b[i:], z)
-			if j < 0 {
-				break
-			}
-			at := i + j - pivot
-			if at >= 0 && at+len(needle) <= len(b) && bytes.EqualFold(b[at:at+len(needle)], []byte(needle)) {
-				return true
-			}
-			i += j + 1
-		}
-	}
-	return false
-}
-
-// dlpShortVerifyPerByte: bytes of short-secret (< dlpWindow) comparisons
-// allowed per scanned input byte on top of dlpMaxVerify. Short secrets have
-// 2-byte keys that natural text hits often; a separate linear budget keeps
-// them from exhausting the long-form budget on benign prose (NETX-27).
+// dlpShortVerifyPerByte: short-secret comparison bytes allowed per input
+// byte on top of dlpMaxVerify (2-byte keys hit prose often; NETX-27).
 const dlpShortVerifyPerByte = 8
 
 // verifyBudget bounds the bytes compared per scan (fail-closed).
@@ -422,18 +347,14 @@ func (d *dlp) secretHit(seg []byte, budget *verifyBudget) error {
 	return nil
 }
 
-// maxCandShift bounds the candidate list to len(src) >> maxCandShift
-// entries; a layer with more '%'/'+' bytes than that is rescanned in full
-// (all) instead (NETX-28: an 8 MiB body of '%' must not allocate a list
-// per byte).
+// maxCandShift: more than len>>maxCandShift '%'/'+' candidates make the
+// next layer a full pass instead of a list (NETX-28).
 const maxCandShift = 4
 
-// decode percent/form-decodes src into dst. With all set every byte of
-// src is examined; otherwise only the positions in cand (the '%'/'+' bytes
-// the previous decode emitted) can be escapes and the runs between them are
-// copied in bulk. It returns the positions of '%'/'+' written to dst
-// (overflow: too many, the next layer examines every byte) and the merged
-// spans [first, last] of decoded positions in dst.
+// decode percent/form-decodes src into dst: every byte (all), or only the
+// '%'/'+' candidates cand left by the previous decode, copying the runs
+// between them. It returns dst's candidates (overflow: too many) and
+// records decoded positions in tr.
 func (d *dlp) decode(dst []byte, outCand []int32, tr *spanTrack, src []byte, cand []int32, all bool) ([]byte, []int32, bool) {
 	if all {
 		return d.decodeAll(dst, outCand, tr, src)
@@ -511,153 +432,6 @@ func (d *dlp) decodeAll(dst []byte, outCand []int32, tr *spanTrack, src []byte) 
 	}
 	return dst[:base+j], outCand, overflow
 }
-
-// plusSpans adds a secret window at each '+' of run (written at off): a
-// space can be part of a secret form.
-func plusSpans(tr *spanTrack, off int, run []byte) {
-	for k, c := range run {
-		if c == '+' {
-			tr.addSpan(off + k)
-		}
-	}
-}
-
-// copyFormSpaces copies src to dst with every '+' replaced by ' ', eight
-// bytes at a time (SWAR): form bodies have a '+' every few bytes, which
-// makes a byte loop branch-bound. It returns len(src).
-func copyFormSpaces(dst, src []byte) int {
-	const (
-		ones = 0x0101010101010101
-		high = 0x8080808080808080
-		low7 = 0x7f7f7f7f7f7f7f7f
-		plus = '+' * ones
-		toSp = ('+' ^ ' ') * ones // XOR turning '+' into ' '
-	)
-	n := len(src)
-	k := 0
-	for ; k+8 <= n; k += 8 {
-		w := binary.LittleEndian.Uint64(src[k:])
-		t := w ^ plus // zero bytes where w has '+'
-		m := ^((t&low7 + low7) | t) & high
-		binary.LittleEndian.PutUint64(dst[k:], w^((m>>7)*0xff&toSp))
-	}
-	for ; k < n; k++ {
-		c := src[k]
-		if c == '+' {
-			c = ' '
-		}
-		dst[k] = c
-	}
-	return n
-}
-
-// spanTrack merges decoded output positions into [first, last] spans;
-// positions within gap of the previous one join its span. It also lists
-// the positions of decoded non-space bytes for the pattern runs, up to
-// patLimit (patFull: more, scan patterns over the whole layer).
-type spanTrack struct {
-	first, last, gap int // current span; last < 0 = none
-	spans            [][2]int
-	pats             []int32
-	patLimit         int
-	patFull          bool
-	decoded          bool // some byte of the layer was decoded
-}
-
-func (t *spanTrack) add(p int, c byte, secret bool) {
-	t.decoded = true
-	if !isSpace(c) {
-		t.addPat(p)
-	}
-	if secret {
-		t.addSpan(p)
-	}
-}
-
-// addSpan extends the current span to p or starts a new one (inlined in
-// the decode loops: '+' decodes to a space every few bytes of form data).
-func (t *spanTrack) addSpan(p int) {
-	if t.last >= 0 && p-t.last <= t.gap {
-		t.last = p
-		return
-	}
-	t.flush()
-	t.first, t.last = p, p
-}
-
-func (t *spanTrack) addPat(p int) {
-	switch {
-	case t.patFull:
-	case len(t.pats) >= t.patLimit || p < 0 || p > math.MaxInt32:
-		t.patFull = true
-	default:
-		t.pats = append(t.pats, int32(p))
-	}
-}
-
-func (t *spanTrack) flush() {
-	if t.last >= 0 {
-		t.spans = append(t.spans, [2]int{t.first, t.last})
-	}
-}
-
-func (t *spanTrack) done() [][2]int {
-	t.flush()
-	return t.spans
-}
-
-// widen turns [first, last] decoded-position spans of layer into the
-// half-open ranges the secret matcher scans: d.region folded bytes (CR/LF
-// dropped by fold do not count, NETX-26) before first and after last,
-// merged. Each walk starts where the previous range ended, so the work is
-// O(len(layer)) whatever the spans; a restarted forward count only widens
-// the range. spans is rewritten in place.
-func (d *dlp) widen(layer []byte, spans [][2]int) [][2]int {
-	out := spans[:0]
-	end := 0
-	for _, sp := range spans {
-		lo := d.walkBack(layer, sp[0], end)
-		hi := d.walkFwd(layer, max(sp[1]+1, end))
-		if len(out) > 0 && lo <= out[len(out)-1][1] {
-			out[len(out)-1][1] = hi
-		} else {
-			out = append(out, [2]int{lo, hi})
-		}
-		end = hi
-	}
-	return out
-}
-
-// walkBack returns the start of the d.region folded bytes before p, not
-// below floor.
-func (d *dlp) walkBack(layer []byte, p, floor int) int {
-	for n := 0; p > floor && n < d.region; {
-		p--
-		if !d.folds(layer[p]) {
-			n++
-		}
-	}
-	return p
-}
-
-// walkFwd returns the end of the d.region folded bytes from p.
-func (d *dlp) walkFwd(layer []byte, p int) int {
-	for n := 0; p < len(layer) && n < d.region; p++ {
-		if !d.folds(layer[p]) {
-			n++
-		}
-	}
-	return p
-}
-
-// secretByte reports whether decoded byte c can be part of a new secret
-// occurrence: it is kept by fold and occurs in some folded form, or fold
-// drops it (CR/LF), joining its neighbours. Other decoded bytes split any
-// occurrence, so no window is needed around them (NETX-26/31).
-func (d *dlp) secretByte(c byte) bool { return d.folds(c) || d.inForm[d.lower[c]] }
-
-// folds reports whether fold drops c.
-func (d *dlp) folds(c byte) bool { return !d.keepCRLF && (c == '\r' || c == '\n') }
 
 // fold appends the ASCII-lowercased src to dst, dropping CR and LF when
 // no secret form contains them.
