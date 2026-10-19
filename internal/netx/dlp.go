@@ -3,6 +3,7 @@ package netx
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -477,25 +478,33 @@ func (d *dlp) decodeAll(dst []byte, outCand []int32, tr *spanTrack, src []byte) 
 	out, j := dst[base:], 0
 	limit := len(src) >> maxCandShift
 	overflow := false
-	for i := 0; i < len(src); i++ {
-		c := src[i]
+	if bytes.IndexByte(src, '+') >= 0 {
+		tr.decoded = true // '+' decodes to a space
+	}
+	for i := 0; i < len(src); {
+		// The run up to the next '%' is copied in bulk with '+' → ' '.
+		end := len(src)
+		if k := bytes.IndexByte(src[i:], '%'); k >= 0 {
+			end = i + k
+		}
+		if d.spaceInForm {
+			plusSpans(tr, base+j, src[i:end])
+		}
+		j += copyFormSpaces(out[j:], src[i:end])
+		if i = end; i == len(src) {
+			break
+		}
+		c, n := decodeAt(src, i)
 		switch {
-		case c == '+': // form space: the common case of form bodies, kept inline
-			c = ' '
-			tr.decoded = true
-			if d.spaceInForm {
-				tr.addSpan(base + j)
-			}
-		case c != '%':
-		case i+2 < len(src) && isHex(src[i+1]) && isHex(src[i+2]):
-			c = unhexByte(src[i+1])<<4 | unhexByte(src[i+2])
-			i += 2
+		case n > 0:
 			tr.add(base+j, c, d.secretByte(c))
 			if c == '%' || c == '+' {
 				outCand, overflow = addCand(outCand, base+j, limit, overflow)
 			}
+			i += n
 		default: // a literal '%' stays a candidate for the next layer
 			outCand, overflow = addCand(outCand, base+j, limit, overflow)
+			i++
 		}
 		out[j] = c
 		j++
@@ -503,20 +512,43 @@ func (d *dlp) decodeAll(dst []byte, outCand []int32, tr *spanTrack, src []byte) 
 	return dst[:base+j], outCand, overflow
 }
 
-// isHex and unhexByte: one hex digit (any case).
-func isHex(c byte) bool {
-	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
+// plusSpans adds a secret window at each '+' of run (written at off): a
+// space can be part of a secret form.
+func plusSpans(tr *spanTrack, off int, run []byte) {
+	for k, c := range run {
+		if c == '+' {
+			tr.addSpan(off + k)
+		}
+	}
 }
 
-func unhexByte(c byte) byte {
-	switch {
-	case c <= '9':
-		return c - '0'
-	case c >= 'a':
-		return c - 'a' + 10
-	default:
-		return c - 'A' + 10
+// copyFormSpaces copies src to dst with every '+' replaced by ' ', eight
+// bytes at a time (SWAR): form bodies have a '+' every few bytes, which
+// makes a byte loop branch-bound. It returns len(src).
+func copyFormSpaces(dst, src []byte) int {
+	const (
+		ones = 0x0101010101010101
+		high = 0x8080808080808080
+		low7 = 0x7f7f7f7f7f7f7f7f
+		plus = '+' * ones
+		toSp = ('+' ^ ' ') * ones // XOR turning '+' into ' '
+	)
+	n := len(src)
+	k := 0
+	for ; k+8 <= n; k += 8 {
+		w := binary.LittleEndian.Uint64(src[k:])
+		t := w ^ plus // zero bytes where w has '+'
+		m := ^((t&low7 + low7) | t) & high
+		binary.LittleEndian.PutUint64(dst[k:], w^((m>>7)*0xff&toSp))
 	}
+	for ; k < n; k++ {
+		c := src[k]
+		if c == '+' {
+			c = ' '
+		}
+		dst[k] = c
+	}
+	return n
 }
 
 // spanTrack merges decoded output positions into [first, last] spans;

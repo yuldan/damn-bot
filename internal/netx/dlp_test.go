@@ -620,3 +620,32 @@ func TestDLPSecretDifferential(t *testing.T) {
 		}
 	}
 }
+
+// TestCopyFormSpaces: the SWAR copy equals a byte loop for every byte value
+// and alignment.
+func TestCopyFormSpaces(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewPCG(7, 7)) //nolint:gosec // G404: deterministic test data, not secrets
+	for range 2000 {
+		src := make([]byte, rng.IntN(40))
+		for i := range src {
+			src[i] = byte(rng.Uint32() & 0xff)
+			if rng.IntN(4) == 0 {
+				src[i] = '+'
+			}
+		}
+		dst := make([]byte, len(src))
+		if n := copyFormSpaces(dst, src); n != len(src) {
+			t.Fatalf("n=%d", n)
+		}
+		for i, c := range src {
+			want := c
+			if c == '+' {
+				want = ' '
+			}
+			if dst[i] != want {
+				t.Fatalf("%q → %q at %d", src, dst, i)
+			}
+		}
+	}
+}
