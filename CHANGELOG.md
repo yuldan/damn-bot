@@ -13,6 +13,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `redact`: prefilter pasangan byte di `scan` — posisi yang dua byte pertamanya tidak bisa memulai pola mana pun dilewati tanpa `matchAt` (output identik, ≈ 3× lebih cepat pada prosa 8 KiB; dasar GAP-SEC-16 DLP ≤ 50 µs, REVIEW-F1-SEC1 NETX-16; ADR-096).
 
 ### Added
+- `loop/event`: kosakata event persistensi tertutup (sama dengan CHECK `events.kind` SPEC §11.2), update stream (`text_delta`, tool-call, usage, stop), stop reason kasar + detail SPEC §3.5 (ADR-107).
+- `loop`: state machine turn — iterasi 40, klasifikasi respons (`content_filtered`, retry kosong sekali, `context_length` → compaction sekali), budget input/output, guard window (compact 75 %, stop 90 %), cancel + kill grace 1 s, clock/turn-id disuntik, transcript + stream (ADR-107).
+- `loop`: dispatch tool — rakitan fragmen EC-PROV-001, EC-TCALL id ganda/nama kotor/args duplikat, approval + taint + `allow_session`, spill P5, paralel read ≤ 4, `no_progress` COST-07, golden urutan update dan render tool E-68 (ADR-107).
 - `provider`: klien openai-chat `OpenAI` — retry P6 + circuit breaker per (provider, credential), fallback ≤ 2 model (mulai dari primer, lewati rute hilang/window kecil, event `provider_fallback`), parameter yang ditolak (`error.param`) dilepas per rute, batas respons 16 MiB/128 tool call; `providertest`: server palsu OpenAI-compatible (skrip, replay SSE, FakeClock) (ADR-102).
 - `netx/retry`: `Policy.Wait` untuk waktu tunggu yang diinjeksi test (ADR-102).
 - `provider`: tipe request/response/`Error` typed (SPEC §4.1), encoder request openai-chat deterministik (reasoning dikirim balik byte-identik), rakitan stream (tool call terfragmen, finish dinormalisasi, `stream_broken`, `empty_response`, strip token kontrol) (ADR-102).

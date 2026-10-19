@@ -1,0 +1,7 @@
+{
+  "error_envelope": "{\"ok\":false,\"error\":{\"code\":\"invalid_args\",\"message\":\"/path: required property missing\",\"hint\":\"read_file requires {\\\"path\\\": string}\"}}",
+  "spilled": "0123456789abcdefghij\n[spilled: blob://sha256/abc]",
+  "success_unchanged": "{\"x\":1}\nWarning: appended by the tool",
+  "too_large_without_spiller": "{\"ok\":false,\"error\":{\"code\":\"too_large\",\"message\":\"tool output too large: 10 chars\",\"hint\":\"request a smaller range or page\"}}",
+  "turn_aggregate_truncated": "0123456789\n[truncated: turn inline budget]"
+}

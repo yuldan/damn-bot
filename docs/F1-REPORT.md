@@ -163,6 +163,49 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | E-69 `providertest` | server palsu loopback, skrip, replay fixture SSE, `FakeClock` | `TestFixtureAndLatency`, semua test klien | selesai |
 | EC-PROV F1 | 001, 004..007, 011..013, 015, 016, 025 di `provider`; 009/010/028..030 di `netx` | `TestEdgeCases/<ID>` (gate PHASE) | covered |
 
+### `internal/loop` + `internal/loop/event` (ADR-107)
+
+| PR | Isi | Baris Go non-test (diff) | Hasil |
+|---|---|---:|---|
+| TBD | `loop/event` + tipe/interface konsumen | 326 | TBD |
+| TBD | `Loop`, state machine turn, klasifikasi/budget/guard/cancel | 531 | TBD |
+| TBD | dispatch tool, approval/taint, spill, seluruh test, ADR-107 | 594 | TBD |
+
+LOC `loop` + `loop/event` = 1.492 / 1.500 (scc, Go non-test; E-19). Coverage lokal `go test -cover ./internal/loop/...` = 88,3 % (ambang E-58 80 %). `go test -race` hijau; `golangci-lint` 0 issue; gate arsitektur (`TestImportGraph`, `TestFileLength`, `TestGlobalAllowlist`, `TestGoleakMain`, `TestCodeownersComplete`) hijau. Golden E-68: `testdata/turn_ordering.golden.json` (urutan update satu turn dua iterasi) dan `testdata/tool_render.golden.json` (sukses byte-identik, envelope error, spill, too_large, truncation agregat).
+
+| Item | Implementasi | Test | Status |
+|---|---|---|---|
+| State machine `Turn` | `steps`/`iterate`/`build`/`ask`/`classify`; satu turn aktif per sesi (`ErrTurnInProgress`) | `TestStopReasonMatrix`, `TestTurnInProgress` | selesai |
+| Iterasi + stop reason | 9 `StopReason` kasar + `StopDetail` SPEC §3.5 (ADR-107) | matrix 11 baris (termasuk `still_running` dan `max_wall`) | selesai |
+| Streaming | text delta, tool-call start/args/end, tool result, usage, stop | `TestGoldenTurnOrdering`, `TestCallBuilder` | selesai |
+| Rakitan tool call (EC-PROV-001) | fragmen per index/id, id-less continuation, nama dirapikan | `TestEdgeCases/EC-PROV-001`, `TestCallBuilder` | covered |
+| Args duplikat / id ganda | duplikat kunci JSON → `invalid_args`; id ganda → satu dispatch + `tool_rejected` | `TestNormalizeArgs`, `TestDuplicateJSONKeysRejected`, `TestEdgeCases/EC-TCALL-002` | covered |
+| Approval | `Approver` + `allow_session` per `(tool, subject)`, edit divalidasi ulang, deny terminal | `TestStopReasonMatrix/approval_denied`, `TestAllowSessionCachesApproval`, `TestApprovalEditRevalidated`, `TestNoSessionNeverCached`, `TestApproverErrorIsDenial` | selesai |
+| Taint (ADR-070) | flag lengket dari `ToolResult.Tainted`; non-read dipaksa tanya, `allow_session` diturunkan | `TestTaintForcesApproval` | selesai |
+| Cancel + kill grace | `cancelled`/`cancelled_confirmed`, `still_running` dari grace, batas wall-clock | `TestStopReasonMatrix/cancelled*`, `TestCancelAPI`, `TestMaxWall` | selesai |
+| Guard konteks + budget | compaction 75 %, stop 90 %, cap input/output | `TestContextGuard`, `TestStopReasonMatrix/max_tokens_*` | selesai |
+| Spill P5 | 4.000 char/hasil, 24.000 char/turn, preview 800/400, `too_large` tanpa Spiller | `TestGoldenToolRendering` | selesai |
+| no_progress COST-07 | kunci `sha256(tool|args|result)`, ambang 3 | `TestNoProgress` | selesai |
+| Golden E-68 | urutan update + render model-facing | `TestGoldenTurnOrdering`, `TestGoldenToolRendering` | selesai |
+| EC F1 | EC-PROV-001/015; EC-TCALL-001, 002, 003, 005, 006, 007, 008, 012 | `TestEdgeCases/<ID>` (`phase.Item` F1) | covered |
+| Determinisme | `Config.Now`/`NewTurnID` disuntik, tanpa I/O/jam nyata, goroutine via `boundary` | goleak `TestMain`, `TestDefaultTurnID` | selesai |
+
+Stop-reason matrix (ringkas):
+
+| `StopReason` | `StopDetail` | Pemicu | Test |
+|---|---|---|---|
+| `end_turn` | `completed` | final non-kosong | `TestStopReasonMatrix/end_turn` |
+| `end_turn` | `empty_response` | kosong setelah satu retry tanpa nudge | `TestEmptyResponseRetry` |
+| `end_turn` | `no_progress` | `(tool,args,result)` identik ke-3 | `TestNoProgress` |
+| `max_iterations` | `max_iterations` | iterasi 40 selesai, model masih minta tool | `TestStopReasonMatrix/max_iterations` |
+| `max_tokens` | `output_truncated`, `budget_input_tokens`, `budget_output_tokens`, `context_overflow` | finish `length` tanpa tool, cap token, window > 90 % | `TestStopReasonMatrix/max_tokens_*`, `TestContextGuard` |
+| `cancelled` | `cancelled`, `max_wall` | ctx/Cancel di luar dispatch atau `still_running` | `TestStopReasonMatrix/cancelled*`, `TestCancelAPI`, `TestMaxWall` |
+| `cancelled_confirmed` | `cancelled` | cancel saat dispatch, semua tool `cancelled_confirmed` | `TestStopReasonMatrix/cancelled_confirmed` |
+| `content_filtered` | `content_filtered` | `finish_reason=content_filter`, tool call tidak dieksekusi | `TestContentFilterStop` |
+| `error` | `provider_error`, `internal` | provider/assembler/store/ledger gagal | `TestStopReasonMatrix/error`, `TestLedgerErrorStops`, `TestStoreErrorStops` |
+| `approval_denied` | `approval_denied` | deny pada `Prepared.Terminal` | `TestStopReasonMatrix/approval_denied` |
+| `tool_error` | `tool_error` | `Prepare`/`Dispatch` mengembalikan error Go (bukan `*ToolError`) | `TestStopReasonMatrix/tool_error`, `TestPrepareFatal` |
+
 ## Handoff f1-net (pause)
 
 Status 2026-10-20 saat proyek di-pause. Semua kerja ada di branch remote; tidak ada yang hanya ada di `/tmp`. Tidak ada PR yang security-gated yang di-merge.

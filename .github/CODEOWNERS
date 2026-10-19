@@ -13,6 +13,7 @@
 /internal/boundary/ @yuldan
 /internal/budget/ @yuldan
 /internal/ctxdb/ @yuldan
+/internal/loop/ @yuldan
 /internal/netx/ @yuldan
 /internal/provider/ @yuldan
 /internal/schema/ @yuldan
