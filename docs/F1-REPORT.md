@@ -135,6 +135,7 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | [#15](https://github.com/yuldan/damn-bot/pull/15) `sandbox` a | verdict `Check`, `deny_paths` | symlink file/dir keluar root (termasuk komponen tengah, dangling, relatif, loop), `..`, path absolut; symlink ke path deny; `/proc/*/environ`, `/proc/*/task/*/environ`, `/proc/*/mem`, `~/.ssh`, `**/.env`, `*.pem`, look-alike, varian huruf (Windows/macOS); MSYS/UNC/long path |
 | [#16](https://github.com/yuldan/damn-bot/pull/16) `sandbox` b | open anti-TOCTOU per OS | CT-26: proses lain membalik komponen direktori ↔ symlink keluar root selama 1.000 open per mekanisme (openat2, walk `O_NOFOLLOW`) = 0 file luar; symlink baru di dalam root setelah `Check` ditolak; verifikasi `/proc/self/fd` dan device+inode (macOS/BSD, sisa risiko ADR-097 butir 4); `OpenApproved` tetap menolak deny; create pada path deny tidak membuat file |
 | [#22](https://github.com/yuldan/damn-bot/pull/22), [#30](https://github.com/yuldan/damn-bot/pull/30), [#31](https://github.com/yuldan/damn-bot/pull/31) `provider` (ADR-102) — **di-merge setelah CI hijau, review auditor menyusul** (input jarak jauh tidak tepercaya) | decoder delta tanpa reflect, rakitan stream, klien openai-chat (retry, breaker, fallback), `providertest` | **SSE/JSON rusak:** frame JSON tidak lengkap → `stream_broken` (retry, lalu gagal typed), stream terpotong tanpa `finish_reason` → `stream_broken`, angka di luar jangkauan/non-integer untuk token → chunk ditolak, `null` di posisi objek/array, UTF-8 rusak/surrogate tunggal → U+FFFD, kunci beda kapitalisasi diabaikan (`FuzzDeltaDecode` diferensial vs `encoding/json`, 3 crash fuzz diperbaiki + korpus; `TestDeltaDecode`; `TestHostileStream`); **delta besar:** satu event SSE > 4 MiB → `ErrEventTooLarge` (non-retry), rakitan > 16 MiB atau > 128 tool call → `ErrResponseTooLarge` (non-retry, tanpa fallback) (`TestAssemblyBounds`, `TestHostileStream`); **field injeksi tool call:** nama/argumen disimpan mentah tanpa ditafsirkan (`../../rm -rf` tetap string), fragmen dengan `id`/`index` berulang atau baru dirakit sesuai aturan EC-PROV-001 tanpa membuat call ekstra, field tak dikenal dilewati (`TestEdgeCases/EC-PROV-001`, `TestHostileStream`); **error di dalam stream 2xx** → kelas `server`, body disalin (tidak dieksekusi); **content_filter:** dikembalikan sebagai `FinishReason` bersama konten parsial + tool call untuk loop (stop `content_filtered`, ADR-072/082), tanpa retry/fallback (`TestAssemble`, `TestHostileStream`); **klasifikasi:** 429 = `rate_limited` apa pun body-nya (EC-PROV-029), `error.param` saja (bukan teks pesan) memicu pelepasan parameter (E-21); **body error** ≤ 64 KiB, tidak diredaksi di `provider` (redaksi saat log/tampil). Sisa: `providertest` hanya loopback (E-69) |
+| `exec` a (ADR-105) — **tidak di-merge sampai auditor approve** | lapisan proses per OS: session/pgid sendiri (Unix, `Pdeathsig`), PTY `creack/pty` 120×40 sebagai controlling terminal, Job Object `KILL_ON_JOB_CLOSE` dengan start tersuspensi (Windows), capture head+tail | stdin `/dev/null` = EOF tanpa tty (sudo/ssh/`read -p` gagal cepat); kill grup menjangkau `sleep &` dan subshell; `trap '' TERM` tetap mati oleh KILL; tidak ada anak yang lolos dari Job sebelum assign (start tersuspensi); capture 16 MiB terbatas untuk output tak berujung (ring, tanpa geser) |
 
 ### `internal/budget` + `internal/ctxdb/ledgerstore` (ADR-101)
 
@@ -163,6 +164,19 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | E-69 `providertest` | server palsu loopback, skrip, replay fixture SSE, `FakeClock` | `TestFixtureAndLatency`, semua test klien | selesai |
 | EC-PROV F1 | 001, 004..007, 011..013, 015, 016, 025 di `provider`; 009/010/028..030 di `netx` | `TestEdgeCases/<ID>` (gate PHASE) | covered |
 
+
+### `internal/exec` (ADR-105)
+
+| PR | Isi | Baris Go non-test (diff) | Hasil |
+|---|---|---:|---|
+| exec a | tipe hasil (`ExecStatus` ADR-082), lapisan proses per OS, capture | lihat PR | CI; menunggu auditor |
+
+| Item | Implementasi | Test | Status |
+|---|---|---|---|
+| Runner pipe/pty (§A.1) | `start` (`proc_unix.go`, `proc_windows.go`), `sysAttr` | `TestProcPipeExit`, `TestProcStdinPipe`, `TestProcPTY`, `TestProcJobExit` | PR a |
+| Kill pohon proses (§A.4) | `terminate`/`kill` ke pgid; `TerminateJobObject` | `TestProcGroupTerminate`, `TestProcGroupKillIgnoresTrap`, `TestProcJobKillTree` | PR a |
+| Capture output | `capture` head 8 MiB + ring 8 MiB | `TestCaptureHeadTail`, `TestCaptureHugeWrite`, `TestCaptureSmall` | PR a |
+| Loop timeout/cancel, sweep marker, env, mode one-shot, prompt interaktif, idle, ConPTY, summarize, P24 | — | — | PR berikutnya |
 ## Handoff f1-net (pause)
 
 Status 2026-10-20 saat proyek di-pause. Semua kerja ada di branch remote; tidak ada yang hanya ada di `/tmp`. Tidak ada PR yang security-gated yang di-merge.
@@ -293,3 +307,26 @@ Perubahan lossless yang tersisa (separator `--` saat context 0) sudah diterapkan
 4. Rebase `f1-ct-perf2-wip` ke `f1-ct-13`, lalu buka PR ke-14 (body wajib menyebut ADR-103; coverage dan parity belum dijalankan ulang setelah rebase).
 5. Minta review auditor untuk #48–#61 (+ PR perf). Merge berurutan dengan metode rebase; ganti base PR berikutnya ke `main` setelah tiap merge.
 6. CT-01/02/10/11 belum memenuhi target. Butuh keputusan owner: engine regex, CT-11 (opsi 0,74–0,78× dengan kehilangan informasi, atau revisi target lewat ADR).
+## Review keamanan — exec (tindak lanjut REVIEW-F1-SEC4, 2026-10-19)
+
+**Status: temuan ditutup di kode; CI stack belum hijau penuh saat entri ini ditulis. Tidak ada PR exec/classify yang di-merge.** Auditor diminta memverifikasi perbaikan di bawah sebelum merge.
+
+| Temuan | Perbaikan | Bukti/test |
+|---|---|---|
+| EX39-1 (MAJOR, hang PTY) | Master PTY di-`dup` setelah `File.Fd` terakhir, `O_NONBLOCK`, di-wrap `os.NewFile` (poller). `pty.Setsize` memakai slave, bukan master. Close kini membatalkan `Read` yang tertunda; `Run`/`Close` kembali walau proses lepas (`env -i setsid`) memegang slave. | `TestProcPTYCloseUnblocksRead`, `TestRunPTYEscapeeDoesNotHang` (leader exit + timeout) |
+| EX39-2 (MINOR) | Leader suspended di-`Kill` sebelum `Wait` saat attach/resume gagal. | jalur `proc_windows.go` |
+| EX39-3/EX40-1 (MINOR, docs) | A.4 diamandemen ke ADR-105 (reaper per pid, tanpa subreaper); residu `env -i`+setsid, sudo, `systemd-run --user`, `at`/cron, WMI/schtasks dicatat di TRUST-MODEL §3. | docs |
+| EX42-1 (MAJOR, secret) | Secret cocok berdasarkan identitas binary (path absolut + `os.SameFile` dev/inode + size + mtime), hanya argv0 **tanpa separator**; binary di dalam `OneShot.Root` dikecualikan. Bukan lagi base name. | `TestSecretRefScope` (./env, PATH workspace, argv0 absolut → 0 secret) |
+| EX42-2/EX62-1 (MAJOR) | argv0 ber-separator di-resolve sekali ke path absolut+clean; `Dir` relatif dibuat absolut sebelum spawn; ConPTY tidak lagi me-resolve terhadap cwd damnbot. | `TestLookPath`, `Prepare` argv0 absolut |
+| EX42-3 (MINOR) | Mode (b) menolak C0 (selain tab), DEL, CR, NUL. | `TestSecretRefScope` (NUL/CR) |
+| EX42-4 (MINOR) | Nama GAP-SEC-02/`env_allow`/proxy persis di Unix; lipat huruf hanya Windows. | `TestEnvAllowlist` (Path/Home/Lang/Http_Proxy) |
+| EX45-1 (MAJOR, prompt) | `Result.Prompt` melewati `redact.Redactor` (pola + secret sesi via `SetRedactor`) dan hanya menyisakan rune printable, `\n`, `\t`; dipakai juga oleh sesi persisten. | `TestPromptRedactedAndSanitized`, `TestSessionPrompt` |
+| EX47-1 (MINOR) | Escape tanpa terminator dibatasi 4 KiB; sisa output tetap terlihat; C0 (kecuali tab), DEL, C1 dibuang dari ringkasan. | `TestSummarizeUnterminatedEscape`, `TestSummarizePipeline/controls` |
+| EX47-2 (MINOR) | Blob `Raw` memakai bentuk strip-ANSI yang di-redaksi ulang bila redaksi raw berbeda (secret terpisah SGR). | `TestSummarizeSplitSecretNotLeaked` |
+| EX52-1 (MINOR) | A.10 mencatat `TestNoOrphans` hanya mengukur proses bermarker. | docs |
+| EX62-1 (ConPTY output hilang) | Handle kreasi ConPTY ditutup setelah `CreateProcess` (bukan setelah `CreatePseudoConsole`); sebelumnya child kehilangan std handle console sehingga output perintah hilang. | `TestProcConPTY`, `TestRunConPTYWindows`, `TestRunConPTYPromptWindows` (Windows CI) |
+| SEC5-1 (BLOCKER) | `Sessions.Exec` menolak `stdin` non-kosong (`ErrSessionStdin`): byte yang tidak dikonsumsi perintah tidak lagi dieksekusi shell sebagai perintah baru tanpa approval. | `TestSessionStdinRejected` |
+| SEC5-2 (MAJOR) | Sentinelsesi `cmd` memakai `!cd!` dengan `/v:on` (delayed expansion) alih-alih `%cd%`, sehingga cwd ber-`&`/`|`/`>` tidak menjalankan perintah. | `TestCmdSentinelDelayedExpansion` |
+| #63 sesi Windows/macOS | `${LASTEXITCODE}` (bukan `$LASTEXITCODE:`); frame protokol `\x1eDB:…\x1e` dibuang dari output sesi (frame `again` yang telat tidak lagi bocor ke perintah berikutnya). | `TestSessionWindows`, `TestStripFrames`, `TestSessionOutputFramesStripped` |
+
+Yang **belum** dicakup: eksekusi runtime ConPTY/sesi Windows diverifikasi lewat CI (bukan mesin lokal); `TestNoOrphans` 200× dan benchmark spawn dibaca dari job CI; stack classify #41/#43/#44/#46 masih menunggu review auditor. Sisa F1 di luar stack tetap seperti daftar handoff di atas.
