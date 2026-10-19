@@ -10,3 +10,6 @@ internal/schema/testdata/jsts/* -text
 internal/redact/testdata/*.tsv -text
 # Korpus kalibrasi estimator (ADR-101): byte-persis dengan hitungan o200k.tsv di semua OS.
 internal/budget/testdata/calibration/* -text
+
+# Golden loop (P15/E-68) dibandingkan byte-persis; checkout Windows tidak boleh CRLF.
+internal/loop/testdata/** -text
