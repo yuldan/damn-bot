@@ -145,6 +145,29 @@ Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket 
 | P15 subset ADR-067/082 | stable kondisional (aturan 3/`repo_map`), volatile beku, runtime suffix, schema shell per fase | `TestStableTierGolden` (3 varian), `TestPromptNoUnavailableTools`, `TestVolatileTierCaps`, `TestPrefixStableWithinTurn`, `TestRuntimeSuffixCaps`, `TestShellSchemaVariant` | selesai |
 | Keamanan prompt | `Deps.Scrub` wajib pada semua teks pemanggil; context file hanya lewat `FileReader` sandbox, `ErrUnavailable` → file dihilangkan | `TestContextScrub`, `TestContextSandboxRefusalOmitsFile` | selesai |
 
+### `internal/tools` (ADR-109)
+
+Base PR berantai: `f1-tools-base` menggabungkan dependency yang masih direview (#67 `codetools`, #63 `exec`, #46 `classify`, #75 `assemble`/`config`); setelah dependency merge, base diganti ke `main` dan PR di-rebase berurutan.
+
+| PR | Isi | Baris Go non-test (diff) | Hasil |
+|---|---|---:|---|
+| [#78](https://github.com/yuldan/damn-bot/pull/78) `f1-tools-1` | tipe pipeline, daftar kode error tertutup, `Registry` + validasi `internal/schema` (0 alloc/1 KiB), `null` = opsional, tipe approval (`Inspector`, `ApprovalRequest`, `AllowSession`), interface `Spill` | 550 | `TestRegistry`, `TestRegistryRejects`, `TestErrorCodeSet`; `vet` bersih |
+| [#79](https://github.com/yuldan/damn-bot/pull/79) `f1-tools-2` | pipeline SPEC §4.3: lookup → validasi → policy/taint → approval → journal → run → redaksi/paging/spill → render; `Journal` wajib 2 metode; dedupe call id; agregat 24.000; pemetaan error `codetools` lewat tipe | 572 | `TestDispatchSuccess/UnknownTool/InvalidArgs/DuplicateCallID/JournalRequired/JournalFailure/Panic/Cancellation/InvalidEffectAndCode`; `TestDispatchAllocs` 0 alloc; `BenchmarkDispatch` 1 KiB **2,98 µs/op, 0 allocs/op** |
+| [#80](https://github.com/yuldan/damn-bot/pull/80) `f1-tools-3` | adapter 5 tool file (`codetools` + verdict sandbox sebelum `Run`), `todo`, `clarify`, `FileSpill` (`blobs/<sha[0:2]>/<sha>`), golden 7 tool, matriks approval/taint/spill/agregat, EC-TCALL | 410 | 80,4 % coverage; `TestGolden` + `TestGoldenCoverage` (sukses + ≥ 1 error per tool), `TestOutsideReadAsks`, `TestDeniedPathNeverApproved`, `TestAllowSessionExactPath`, `TestTaintForcesApproval`, `TestSpillOversizedResult`, `TestPagedToolCapDropsAfterAggregate`, `TestEdgeCases` EC-TCALL-001..003/005..008 |
+| [#81](https://github.com/yuldan/damn-bot/pull/81) `f1-tools-4` | `shell` + `classify.Decide`/`MatchAllow` (resolver binary diinjeksi), tanpa `allow_session`, headless `denied`, sesi `exec.Sessions`, ringkasan/spill `log`+`raw`, output untrusted men-taint | 356 | `TestApprovalModesShell`, `TestShellHeadlessDenied`, `TestShellAllowExact`, `TestShellAllowNonMatchAsks`, `TestShellSessionStdinRejected`, `TestShellBackgroundRejected`, `TestShellOutputUntrustedWorkspace`, golden shell |
+| `f1-tools-5` | dokumen: ADR-109, tabel ini, CHANGELOG | 0 | — |
+
+| Item | Implementasi | Test | Status |
+|---|---|---|---|
+| P4 registry + error tertutup | `Registry` (schema eager, nama unik, urut byte-wise), `CodeSet` 37 kode, `closedError` fail-closed | `TestRegistry*`, `TestErrorCodeSet`, `TestInvalidEffectAndCode` | selesai |
+| SPEC §4.3 pipeline | urutan tetap lookup → JSON/schema → effect → policy → taint → approval → `ToolDispatch` → `Run` → redaksi → spill → `ToolResult`; panic → `internal` | `TestDispatchSuccess`, `TestInvalidArgs`, `TestPanicBecomesInternal`, `TestJournalRequired` | selesai |
+| Approval §14.1 | `RequireAuto/Ask/Deny/Outside/DeniedPath`, `allow_session` path persis, approver nil → `denied`, `Outcome.Denied` untuk `approval_denied` | matriks 5 mode × {baca, tulis, outside baca/tulis, deny_paths, allow_session, shell} (`TestWriteModeMatrix`, `TestOutside*`, `TestDeniedPathNeverApproved`, `TestAllowSessionExactPath`) | selesai |
+| ADR-070 taint | `MarkTainted`/`BeginTurn`, non-read dipaksa tanya tanpa `allow_session`, headless `denied`; baca luar/untuk workspace untrusted membungkus `<untrusted>` | `TestTaintForcesApproval`, `TestTaintFromUntrustedReadResets`, `TestShellOutputUntrustedWorkspace` | selesai |
+| P5/ADR-031 spill | `Spill` + `FileSpill` content-addressed (temp+fsync+rename); preview 800/400; paged 16.000 → 4.000; shell `log`/`raw` | `TestFileSpillRoundTrip`, `TestFileSpillErrors`, `TestSpillOversizedResult`, `TestSpillShortPreviewAfterAggregate`, `TestPagedToolCapDropsAfterAggregate` | selesai |
+| E-68 golden | 8 tool × (sukses + ≥ 1 error), `-update`, normalisasi durasi/path | `TestGolden`, `TestGoldenCoverage` | selesai |
+| E-37 dispatch | lookup + validasi 1 KiB | `TestDispatchAllocs` ≤ 2 alloc; `BenchmarkDispatch` 2,98 µs/op, 0 allocs/op (lokal `-cpu 2`) | selesai |
+| EC-TCALL F1 (subset paket) | 001 args kosong, 002 id duplikat, 003 tanpa hasil yatim, 005 JSON terpotong, 006 nama sisa XML, 007 teks setelah JSON, 008 null→default | `TestEdgeCases` dengan `phase.Item(..., "F1", "covered")`; 009/012 milik `loop`/`provider`, 004/011 F5 (ADR-077) | covered |
+
 ## Review keamanan
 
 PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (auditor). PR bagian b bertumpuk di atas bagian a (base = branch a); setelah a di-merge, base b diganti ke `main`.
