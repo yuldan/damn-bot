@@ -145,8 +145,10 @@ func TestLedgerAppendOnly(t *testing.T) {
 func TestEventAnchor(t *testing.T) {
 	t.Parallel()
 	s, ids := open(t, "A", 1)
-	row := Row{SessionID: "A", TurnID: "t1", EventID: ids[0], Purpose: "turn", Provider: "p", Model: "m",
-		InputTokens: 1, OutputTokens: 1, CostSource: "unknown", PricingVersion: "none", Attempts: 1, TTFTMS: -1}
+	row := Row{
+		SessionID: "A", TurnID: "t1", EventID: ids[0], Purpose: "turn", Provider: "p", Model: "m",
+		InputTokens: 1, OutputTokens: 1, CostSource: "unknown", PricingVersion: "none", Attempts: 1, TTFTMS: -1,
+	}
 	insert(t, s, row)
 
 	if _, err := s.CreateSession(t.Context(), ctxdb.Session{ID: "B", Origin: "headless", Cwd: "/"}); err != nil {
