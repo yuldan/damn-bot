@@ -114,7 +114,10 @@ func pollableMaster(f *os.File) (*os.File, error) {
 	if nf == nil {
 		return nil, errors.Join(errors.New("exec: pty master"), unix.Close(fd), f.Close())
 	}
-	return nf, f.Close()
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("exec: close pty master: %w", err)
+	}
+	return nf, nil
 }
 
 // stdinFile returns in, or /dev/null opened for the child (EOF on read).
