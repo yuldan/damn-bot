@@ -42,18 +42,7 @@ type SecretEnv struct {
 // never injected (EX42-1).
 func (p *EnvPolicy) Env(parent []string, pty bool, direct, dir, root string) []string {
 	out := make(map[string]string, len(parent))
-	for _, kv := range parent {
-		k, v, ok := strings.Cut(kv, "=")
-		if !ok || k == "" || !p.inherits(k) {
-			continue
-		}
-		if isProxyVar(k) {
-			if v, ok = stripUserinfo(v); !ok {
-				continue // unparsable proxy URL that may hold credentials
-			}
-		}
-		out[envKey(k)] = k + "=" + v
-	}
+	p.inheritInto(out, parent)
 	set := func(k, v string) { out[envKey(k)] = k + "=" + v }
 	for _, kv := range nonInteractive(pty) {
 		set(kv[0], kv[1])
@@ -65,14 +54,7 @@ func (p *EnvPolicy) Env(parent []string, pty bool, direct, dir, root string) []s
 		set(k, v)
 	}
 	if direct != "" {
-		if bin, ok := identify(direct); ok {
-			path := envValue(out, "PATH")
-			for _, s := range p.Secrets {
-				if p.secretMatches(s, bin, path, dir, root) {
-					set(s.Name, s.Value)
-				}
-			}
-		}
+		p.injectSecrets(out, direct, dir, root)
 	}
 	set("GIT_TERMINAL_PROMPT", "0") // hard values (§A.6): never overridden
 	delete(out, envKey(MarkerEnv))  // the runner sets the marker and DAMNBOT
@@ -89,13 +71,41 @@ func (p *EnvPolicy) Env(parent []string, pty bool, direct, dir, root string) []s
 // inherited), i.e. the PATH used to resolve argv0 before the child env is
 // built.
 func (p *EnvPolicy) Path(parent []string) string {
+	if !p.inherits("PATH") {
+		return ""
+	}
+	return lookupEnv(parent, "PATH")
+}
+
+// inheritInto copies the allowed parent variables into out.
+func (p *EnvPolicy) inheritInto(out map[string]string, parent []string) {
 	for _, kv := range parent {
 		k, v, ok := strings.Cut(kv, "=")
-		if ok && envKey(k) == envKey("PATH") && p.inherits(k) {
-			return v
+		if !ok || k == "" || !p.inherits(k) {
+			continue
+		}
+		if isProxyVar(k) {
+			if v, ok = stripUserinfo(v); !ok {
+				continue // unparsable proxy URL that may hold credentials
+			}
+		}
+		out[envKey(k)] = k + "=" + v
+	}
+}
+
+// injectSecrets adds the secret refs whose command resolves to the spawned
+// binary (mode b only).
+func (p *EnvPolicy) injectSecrets(out map[string]string, direct, dir, root string) {
+	bin, ok := identify(direct)
+	if !ok {
+		return
+	}
+	path := envValue(out, "PATH")
+	for _, s := range p.Secrets {
+		if p.secretMatches(s, bin, path, dir, root) {
+			out[envKey(s.Name)] = s.Name + "=" + s.Value
 		}
 	}
-	return ""
 }
 
 // nonInteractive is the §A.6 table: pagers, editors and prompts fail or
