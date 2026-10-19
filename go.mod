@@ -3,6 +3,8 @@ module github.com/damnbot/damnbot
 go 1.26.9
 
 require (
+	github.com/BurntSushi/toml v1.6.0
+	github.com/google/go-cmp v0.7.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/sync v0.24.0
 	golang.org/x/sys v0.48.0
