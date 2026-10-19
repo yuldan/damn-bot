@@ -145,32 +145,36 @@ Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket 
 | P15 subset ADR-067/082 | stable kondisional (aturan 3/`repo_map`), volatile beku, runtime suffix, schema shell per fase | `TestStableTierGolden` (3 varian), `TestPromptNoUnavailableTools`, `TestVolatileTierCaps`, `TestPrefixStableWithinTurn`, `TestRuntimeSuffixCaps`, `TestShellSchemaVariant` | selesai |
 | Keamanan prompt | `Deps.Scrub` wajib pada semua teks pemanggil; context file hanya lewat `FileReader` sandbox, `ErrUnavailable` → file dihilangkan | `TestContextScrub`, `TestContextSandboxRefusalOmitsFile` | selesai |
 
-### Smoke LLM F1 (ADR-062, 2026-10-19)
+### Smoke LLM F1 (ADR-062, 2026-10-20)
 
-`damnbot run` dari `f1-integration` lewat proxy rekam `bench/h2h`, model `gpt-5.4-mini` (0,09/0,009/0,51 USD per Mtok), 10 task `h2h-smoke/v1` × 1 run, timeout 180 s/task, cap ledger US$2,00.
+`damnbot run` dari `f1-integration` lewat proxy rekam `bench/h2h`, model `gpt-5.4-mini` (0,09/0,009/0,51 USD per Mtok), 10 task `h2h-smoke/v1` × 1 run, timeout 300 s/task (180 s menghasilkan timeout upstream), cap ledger US$2,00.
 
 ```bash
 cd bench && go run ./h2h/cmd/h2h -damnbot ~/.cache/damnbot/bin/damnbot \
-  -out h2h/results/2026-10-19 -upstream https://api.teamorouter.com \
+  -out h2h/results/2026-10-20 -upstream https://api.teamorouter.com \
   -key-file /tmp/f0-secrets/llm_key -model gpt-5.4-mini \
-  -price-in 0.09 -price-cached 0.009 -price-out 0.51 -timeout 180s \
+  -price-in 0.09 -price-cached 0.009 -price-out 0.51 -timeout 300s \
   -only E1-117,E1-124,E1-147,E1-149,E2-016,E2-039,E3-028,E3-013,E6-010,E6-040
 ```
 
 | Task | stop | calls | input tok | output tok | USD | pass |
 |---|---|---|---:|---:|---:|---|
-| E1-117 | error/provider_error | 1 | 2394 | 170 | 0.0002 | tidak |
-| E1-124 | error/provider_error | 1 | 2440 | 170 | 0.0003 | tidak |
-| E1-147 | error/provider_error | 1 | 2406 | 170 | 0.0003 | tidak |
-| E1-149 | error/provider_error | 1 | 2406 | 170 | 0.0002 | tidak |
-| E2-016 | error/provider_error | 1 | 2382 | 62 | 0.0002 | tidak |
-| E2-039 | error/provider_error | 1 | 2392 | 196 | 0.0003 | tidak |
-| E3-028 | error/provider_error | 1 | 2408 | 192 | 0.0003 | tidak |
-| E3-013 | error/provider_error | 1 | 2410 | 200 | 0.0003 | tidak |
+| E1-117 | timeout | 14 | 89014 | 3210 | 0.0067 | tidak |
+| E1-124 | end_turn/completed | 14 | 97392 | 3964 | 0.0076 | ya |
+| E1-147 | end_turn/no_progress | 12 | 73042 | 2100 | 0.0053 | tidak |
+| E1-149 | error/provider_error | 2 | 5104 | 232 | 0.0004 | tidak |
+| E2-016 | error/provider_error | 0 | 0 | 0 | 0.0000 | tidak |
+| E2-039 | error/provider_error | 0 | 0 | 0 | 0.0000 | tidak |
+| E3-028 | error/provider_error | 1 | 2408 | 68 | 0.0003 | tidak |
+| E3-013 | error/provider_error | 0 | 0 | 0 | 0.0000 | tidak |
 | E6-010 | error/provider_error | 1 | 2388 | 202 | 0.0003 | tidak |
-| E6-040 | error/provider_error | 1 | 2388 | 212 | 0.0003 | tidak |
+| E6-040 | error/provider_error | 0 | 0 | 0 | 0.0000 | tidak |
 
-Totals: 10/10 ran, **0 harness errors**, 10 completion calls (+5 aborted), 24.014 input / 1.744 output tok, **US$0,0253** run ini, ledger **US$0,0385 / 2,00**. Setiap task mendapat satu respons SSE sukses, lalu upstream mengembalikan 499/503 `upstream_unavailable` pada retry; probe ulang E1-117 pada 2026-10-20 juga `provider_error`; loop berhenti `error/provider_error` (pass/fail informatif, ADR-062). Artefak: 10 rekaman `.jsonl.gz` + `summary.json`, 40 request, semua `Authorization: REDACTED`; scan nilai kunci pada artefak = 0 hit. `TestAgentIsolation`/`TestRecordingsNoKey` belum ada di pohon (ADR-085); verifikasi manual + `go test ./h2h` hijau.
+Totals: 10/10 ran, 1 lolos (E1-124, `end_turn/completed`), 44 completion calls (+25 aborted), 269.348 input / 9.776 output tok, run US$0,1335, ledger **US$0,1883 / 2,00**. Artefak: 10 rekaman `.jsonl.gz` + `summary.json`; semua `Authorization: REDACTED`, scan nilai kunci = 0 hit.
+
+**Diagnosis request kedua.** Request kedua yang gagal (499) bukan body invalid: ia berisi assistant `tool_calls` **tanpa** `tool_call_id` pada pesan `tool` dan menduplikasi setiap hasil (journal dispatcher + event loop). 499 adalah client-close karena harness membunuh proses di timeout 180 s (upstream melihat 499); 503 adalah `upstream_unavailable` dari provider. Perbaikan di `cmd/damnbot`: history dibaca dari transcript dengan `json:"tool_call_id"`/tool_calls bertag, duplikat `tool_result` digabung per `tool_call_id` (konten loop menang), dan `assistant.tool_calls` diteruskan ke wire provider. Request kedua sekarang 200 (terlihat di E1-117/E1-124); regression test `TestHistoryDedupeToolResults` + assertion dua iterasi di `TestRunHeadlessToolCall`.
+
+`TestAgentIsolation`/`TestRecordingsNoKey` **milik Deliverable F1 #0 (ADR-085)** dan belum ada di pohon; statusnya **pending**, bukan di-skip. Verifikasi manual (0 hit kunci, semua Authorization REDACTED) dan `go test ./h2h` hijau; gate bernama itu harus ditambahkan sebelum acceptance F1.
 
 ## Review keamanan
 

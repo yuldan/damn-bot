@@ -67,4 +67,43 @@ func TestRunHeadlessToolCall(t *testing.T) {
 	if !strings.Contains(out.String(), "done after tool") {
 		t.Errorf("stdout = %s", out.String())
 	}
+	reqs := srv.Requests()
+	if len(reqs) != 2 {
+		t.Fatalf("provider calls = %d, want 2", len(reqs))
+	}
+	var second struct {
+		Messages []struct {
+			Role       string `json:"role"`
+			Content    string `json:"content"`
+			ToolCallID string `json:"tool_call_id"`
+			ToolCalls  []struct {
+				ID string `json:"id"`
+			} `json:"tool_calls"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(reqs[1], &second); err != nil {
+		t.Fatalf("second request: %v", err)
+	}
+	var assistantCalls, toolMsgs int
+	var callID string
+	for _, m := range second.Messages {
+		switch m.Role {
+		case "assistant":
+			assistantCalls += len(m.ToolCalls)
+			if len(m.ToolCalls) > 0 {
+				callID = m.ToolCalls[0].ID
+			}
+		case "tool":
+			toolMsgs++
+			if m.ToolCallID == "" {
+				t.Errorf("tool message without tool_call_id: %+v", m)
+			}
+		}
+	}
+	if assistantCalls != 1 || toolMsgs != 1 {
+		t.Errorf("assistant tool_calls=%d tool messages=%d, want 1/1", assistantCalls, toolMsgs)
+	}
+	if callID == "" {
+		t.Error("assistant tool call id missing")
+	}
 }

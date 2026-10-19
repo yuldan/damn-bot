@@ -63,8 +63,11 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 		return nil, err
 	}
 	var rows []struct {
-		Kind, Role, Content, ToolCallID string
-		Payload                         string
+		Kind       string `json:"kind"`
+		Role       string `json:"role"`
+		Content    string `json:"content"`
+		ToolCallID string `json:"tool_call_id"`
+		Payload    string `json:"payload"`
 	}
 	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
 		return nil, err
@@ -78,7 +81,9 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 			m := loop.Message{Role: "assistant", Content: r.Content}
 			var p struct {
 				ToolCalls []struct {
-					ID, Name, Arguments string
+					ID        string `json:"id"`
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
 				} `json:"tool_calls"`
 			}
 			_ = json.Unmarshal([]byte(r.Payload), &p)
@@ -87,8 +92,29 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 			}
 			out = append(out, m)
 		case "tool_result":
+			// The dispatcher journal and the loop both record a tool_result;
+			// keep one message per tool_call_id, preferring the non-empty
+			// loop result.
+			if r.ToolCallID == "" {
+				continue
+			}
+			if i := findToolMessage(out, r.ToolCallID); i >= 0 {
+				if out[i].Content == "" && r.Content != "" {
+					out[i].Content = r.Content
+				}
+				continue
+			}
 			out = append(out, loop.Message{Role: "tool", Content: r.Content, ToolCallID: r.ToolCallID})
 		}
 	}
 	return out, nil
+}
+
+func findToolMessage(msgs []loop.Message, callID string) int {
+	for i := range msgs {
+		if msgs[i].Role == "tool" && msgs[i].ToolCallID == callID {
+			return i
+		}
+	}
+	return -1
 }
