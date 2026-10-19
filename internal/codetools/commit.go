@@ -89,8 +89,29 @@ func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mo
 	if werr := errors.Join(e.at("post-rename"), e.syncDir(ctx, filepath.Dir(t.resolved), t.outside)); werr != nil {
 		return ci, ioErr("fsync dir", t.rel, werr)
 	}
+	e.ensureMode(ctx, t, mode, &ci)
 	err = e.readBack(ctx, t, &ci)
 	return ci, err
+}
+
+// ensureMode makes mode_preserved reflect the committed file: macOS may drop
+// setuid/setgid across the rename; re-set and re-verify through the sandbox.
+func (e *Engine) ensureMode(ctx context.Context, t *target, mode fs.FileMode, ci *commitInfo) {
+	if mode == 0 || !ci.modeOK {
+		return
+	}
+	if fi, err := os.Lstat(t.resolved); err == nil && keepMode(fi) == mode {
+		return
+	}
+	f, err := e.openResolved(ctx, t.resolved, t.outside)
+	if err != nil {
+		ci.modeOK = false
+		return
+	}
+	ci.modeOK = setMode(f, mode)
+	if cerr := f.Close(); cerr != nil {
+		ci.modeOK = false
+	}
 }
 
 // prepareTemp copies owner and xattrs first (xattr writes need a writable
