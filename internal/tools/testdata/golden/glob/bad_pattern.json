@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "error": {
+    "code": "invalid_args",
+    "message": "/pattern: invalid \"[\"",
+    "hint": "doublestar syntax: **, {a,b}, [...]"
+  }
+}

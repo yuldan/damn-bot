@@ -1,0 +1,4 @@
+{
+  "ok": true,
+  "content": "glob \"**/*.txt\" · 3 of 3\na.txt\nedit.txt\nsub/b.txt"
+}
