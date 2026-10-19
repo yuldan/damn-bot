@@ -10,8 +10,10 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/damnbot/damnbot/internal/boundary"
+	"github.com/damnbot/damnbot/internal/sandbox"
 )
 
 // walkSpec configures one ordered parallel walk (CODE-TOOLS §2.2, §3).
@@ -28,8 +30,9 @@ type walkSpec struct {
 	dirs        bool
 	keepDirItem func(rel string) bool
 	// scan runs on a worker for every kept file with the worker's reusable
-	// buffer; nil = list only.
-	scan func(ctx context.Context, abs string, buf *[]byte) scanOut
+	// buffer; ref is the validated directory handle (nil: open by path).
+	// nil scan = list only.
+	scan func(ctx context.Context, abs string, ref *dirRef, buf *[]byte) scanOut
 }
 
 // walkStats are the footer counters (P14: skips are reported, not silent),
@@ -67,11 +70,14 @@ func (s *walkStats) footer(b *strings.Builder, denied, unread int) {
 
 // fileJob is one file in DFS order; out receives its scan result. A job
 // with stat set carries a directory's skip counts instead, so footers only
-// count what the ordered output reached (CT-22).
+// count what the ordered output reached (CT-22). dir is the validated
+// directory handle the file is opened through (nil: absolute open).
 type fileJob struct {
 	abs, rel string
+	name     string
 	out      chan scanOut // capacity 1
 	stat     *dirNode
+	ref      *dirRef
 }
 
 type dirNode struct {
@@ -83,6 +89,27 @@ type dirNode struct {
 	entries  []dirEntry
 	denied   int  // entries matching deny_paths
 	unread   bool // the directory itself could not be listed
+	ref      *dirRef
+	comps    []string           // this directory's components + one slot per entry
+	deny     *sandbox.DenyBelow // deny patterns that can match below this directory
+}
+
+// dirRef shares one opened directory handle between the traverser and the
+// file jobs of that directory; the last release closes the handle.
+type dirRef struct {
+	d    *sandbox.Dir
+	w    *walker
+	refs atomic.Int32
+}
+
+// acquire adds one reference to the handle.
+func (r *dirRef) acquire() { r.refs.Add(1) }
+
+// release drops one reference; the last one closes the handle.
+func (r *dirRef) release() {
+	if r.refs.Add(-1) == 0 {
+		r.w.releaseDir(r.d)
+	}
 }
 
 type dirEntry struct {
@@ -97,6 +124,54 @@ type walker struct {
 	stats *walkStats
 	jobs  chan *fileJob
 	dirs  dirQueue
+	// open tracks every directory handle this walk opened, so a cancelled
+	// or early-stopped walk closes what queued jobs never scanned.
+	openMu sync.Mutex
+	open   map[*sandbox.Dir]struct{}
+}
+
+// trackDir registers an opened directory handle.
+func (w *walker) trackDir(d *sandbox.Dir) {
+	w.openMu.Lock()
+	w.open[d] = struct{}{}
+	w.openMu.Unlock()
+}
+
+// releaseDir closes a directory handle once every job that may use it is
+// done (dirNode.release) and drops it from the registry.
+func (w *walker) releaseDir(d *sandbox.Dir) {
+	w.openMu.Lock()
+	delete(w.open, d)
+	w.openMu.Unlock()
+	d.Close()
+}
+
+// closeDirs closes handles a cancelled walk left queued.
+func (w *walker) closeDirs() {
+	w.openMu.Lock()
+	left := make([]*sandbox.Dir, 0, len(w.open))
+	for d := range w.open {
+		left = append(left, d)
+	}
+	w.open = map[*sandbox.Dir]struct{}{}
+	w.openMu.Unlock()
+	for _, d := range left {
+		d.Close()
+	}
+}
+
+// releaseRef drops the traverser's reference to the handle.
+func (n *dirNode) releaseRef() {
+	if n.ref != nil {
+		n.ref.release()
+	}
+}
+
+// releaseRef drops the job's reference to its directory handle.
+func (j *fileJob) releaseRef() {
+	if j.ref != nil {
+		j.ref.release()
+	}
 }
 
 // dirQueue is an unbounded LIFO of directories to prefetch.
@@ -145,7 +220,8 @@ func (e *Engine) walk(parent context.Context, spec *walkSpec, st ignoreStack, to
 	defer cancel()
 	n := runtime.GOMAXPROCS(0)
 	window := 64 * n
-	w := &walker{e: e, spec: spec, stats: &walkStats{}, jobs: make(chan *fileJob, window), dirs: dirQueue{signal: make(chan struct{}, 1)}}
+	w := &walker{e: e, spec: spec, stats: &walkStats{}, jobs: make(chan *fileJob, window), dirs: dirQueue{signal: make(chan struct{}, 1)}, open: map[*sandbox.Dir]struct{}{}}
+	defer w.closeDirs()
 	order := make(chan *fileJob, window)
 	prefix, err := filepath.Rel(top, spec.root)
 	if err != nil {
@@ -194,6 +270,7 @@ func (e *Engine) walk(parent context.Context, spec *walkSpec, st ignoreStack, to
 
 // traverse visits nodes depth-first in sorted order and enqueues files.
 func (w *walker) traverse(ctx context.Context, n *dirNode, order chan<- *fileJob) error {
+	defer n.releaseRef() // the traverser's own reference
 	select {
 	case <-n.done:
 	case <-ctx.Done():
@@ -220,15 +297,23 @@ func (w *walker) traverse(ctx context.Context, n *dirNode, order chan<- *fileJob
 
 // file queues one file in output order and, when scanning, for a worker.
 func (w *walker) file(ctx context.Context, n *dirNode, name string, order chan<- *fileJob) error {
-	j := &fileJob{abs: filepath.Join(n.abs, name), rel: n.rel + name, out: make(chan scanOut, 1)}
+	j := &fileJob{abs: filepath.Join(n.abs, name), rel: n.rel + name, name: name, out: make(chan scanOut, 1), ref: n.ref}
+	if n.ref != nil {
+		n.ref.acquire()
+	}
 	if w.spec.scan == nil {
 		j.out <- scanOut{}
 		return send(ctx, order, j)
 	}
 	if err := send(ctx, order, j); err != nil {
+		j.releaseRef()
 		return err
 	}
-	return send(ctx, w.jobs, j)
+	if err := send(ctx, w.jobs, j); err != nil {
+		j.releaseRef()
+		return err
+	}
+	return nil
 }
 
 func send(ctx context.Context, ch chan<- *fileJob, j *fileJob) error {
@@ -243,13 +328,17 @@ func send(ctx context.Context, ch chan<- *fileJob, j *fileJob) error {
 // work serves scan jobs first (they gate output), then directory reads.
 func (w *walker) work(ctx context.Context) error {
 	var buf []byte
+	scan := func(j *fileJob) {
+		j.out <- w.spec.scan(ctx, j.abs, j.ref, &buf)
+		j.releaseRef()
+	}
 	for {
 		select {
 		case j, ok := <-w.jobs:
 			if !ok {
 				return nil
 			}
-			j.out <- w.spec.scan(ctx, j.abs, &buf)
+			scan(j)
 			continue
 		default:
 		}
@@ -262,7 +351,7 @@ func (w *walker) work(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
-			j.out <- w.spec.scan(ctx, j.abs, &buf)
+			scan(j)
 		case <-w.dirs.signal:
 		case <-ctx.Done():
 			return nil
@@ -288,19 +377,46 @@ func (w *walker) readDir(ctx context.Context, n *dirNode) {
 	w.dirs.push(children)
 }
 
-// lockDir opens and lists n through the sandbox, then sorts the entries.
+// lockDir opens n through the sandbox, lists its entries and sorts them.
 // It reports false when the directory could not be listed; n.unread is set
 // for every failure other than cancellation.
 func (w *walker) lockDir(ctx context.Context, n *dirNode) ([]os.DirEntry, bool) {
-	f, _, err := w.e.sb.OpenResolved(ctx, n.abs, w.spec.approved)
+	var dir *sandbox.Dir
+	var f *os.File
+	var err error
+	if w.spec.scan != nil && !w.spec.approved {
+		// Keep the validated handle: the files of this directory open
+		// through openat instead of resolving their full path again.
+		dir, err = w.e.sb.OpenDir(ctx, n.abs, false)
+		if dir != nil {
+			f = dir.File()
+		}
+	} else {
+		f, _, err = w.e.sb.OpenResolved(ctx, n.abs, w.spec.approved)
+	}
 	if err != nil || f == nil {
+		if dir != nil {
+			dir.Close()
+		}
 		n.unread = ctx.Err() == nil
 		return nil, false
 	}
 	ents, err := f.ReadDir(-1)
-	if cerr := f.Close(); err != nil || cerr != nil {
+	if err != nil {
+		if dir != nil {
+			dir.Close()
+		} else {
+			f.Close()
+		}
 		n.unread = true
 		return nil, false
+	}
+	if dir != nil {
+		n.ref = &dirRef{d: dir, w: w}
+		n.ref.refs.Store(1) // the traverser's reference
+		w.trackDir(dir)
+	} else {
+		f.Close()
 	}
 	slices.SortFunc(ents, func(a, b os.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	return ents, true
@@ -314,6 +430,13 @@ func (w *walker) prepareDir(ctx context.Context, n *dirNode, ents []os.DirEntry)
 		top, prefix = n.abs, ""
 		st = w.e.repoBase(ctx, n.abs)
 	}
+	// Split the directory once and keep only the deny patterns that can
+	// match below it: entries are checked without joining and splitting a
+	// path each time (ADR-103).
+	dirComps := sandbox.PathComponents(n.abs)
+	n.comps = make([]string, len(dirComps)+1)
+	copy(n.comps, dirComps)
+	n.deny = w.e.sb.DenyBelow(dirComps)
 	for _, name := range ignoreFiles() {
 		if t, ok := entryType(ents, name); ok && t.IsRegular() { // never a FIFO (CT27-4)
 			st = st.push(w.e.loadIgnore(ctx, filepath.Join(n.abs, name), prefix, false))
@@ -333,6 +456,13 @@ func (w *walker) entry(n *dirNode, de os.DirEntry, st ignoreStack, top, prefix s
 	if st.ignored(prefix+name, isDir) {
 		return nil
 	}
+	if n.deny != nil {
+		n.comps[len(n.comps)-1] = name
+		if n.deny.Denied(n.comps) {
+			n.denied++
+			return nil
+		}
+	}
 	if !isDir {
 		w.entryFile(n, name)
 		return nil
@@ -340,16 +470,10 @@ func (w *walker) entry(n *dirNode, de os.DirEntry, st ignoreStack, top, prefix s
 	return w.entryDir(n, name, st, top, prefix)
 }
 
-// entryFile records a regular file on n, or only counts its deny skip.
+// entryFile records a regular file on n.
 func (w *walker) entryFile(n *dirNode, name string) {
 	if w.spec.scan != nil && w.keepsFile(n.rel+name) {
-		// scanFile opens through OpenResolved, which enforces deny_paths
-		// and reports skipDenied: one deny match per file instead of two.
 		n.entries = append(n.entries, dirEntry{name: name})
-		return
-	}
-	if w.e.sb.Denied(filepath.Join(n.abs, name)) {
-		n.denied++
 		return
 	}
 	if w.keepsFile(n.rel + name) {
@@ -357,13 +481,9 @@ func (w *walker) entryFile(n *dirNode, name string) {
 	}
 }
 
-// entryDir applies the deny/prune rules to a subdirectory and records it
-// on n; the node is returned so the walker can prefetch it.
+// entryDir applies the prune rules to a subdirectory and records it on n;
+// the node is returned so the walker can prefetch it.
 func (w *walker) entryDir(n *dirNode, name string, st ignoreStack, top, prefix string) *dirNode {
-	if w.e.sb.Denied(filepath.Join(n.abs, name)) {
-		n.denied++
-		return nil
-	}
 	if w.spec.keepDir != nil && !w.spec.keepDir(n.rel+name) {
 		return nil
 	}
