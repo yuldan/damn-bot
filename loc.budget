@@ -9,8 +9,9 @@ schema            1200 internal/schema
 tools             1800 internal/tools
 codetools         4500 internal/codetools
 # ADR-081: exec 3000 -> 3500 + exec/classify 1500 (Σ core 31.450 -> 33.450 <= 47.000).
-exec              3500 internal/exec
-exec/classify     1500 internal/exec/classify
+# ADR-106 butir 10: exec 3500 -> 3400, exec/classify 1500 -> 1600 (Σ core tetap).
+exec              3400 internal/exec
+exec/classify     1600 internal/exec/classify
 # ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).
 sandbox+redact    1450 internal/sandbox internal/redact
 boundary           150 internal/boundary
