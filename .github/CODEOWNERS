@@ -12,9 +12,7 @@
 /internal/archtest/ @yuldan
 /internal/boundary/ @yuldan
 /internal/budget/ @yuldan
-/internal/codetools/ @yuldan
 /internal/ctxdb/ @yuldan
-/internal/exec/ @yuldan
 /internal/netx/ @yuldan
 /internal/provider/ @yuldan
 /internal/schema/ @yuldan
