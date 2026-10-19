@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/boundary"
+	"github.com/damnbot/damnbot/internal/redact"
 )
 
 // Tunables of the run loop.
@@ -47,13 +48,37 @@ type Runner struct {
 	mu     sync.Mutex
 	live   map[string]chan struct{} // exec id → closed when the tree is dead
 	closed bool
+	// red redacts detected prompt lines (EX45-1): Prompt goes to the model
+	// and UI, so it never carries a known secret.
+	red *redact.Redactor
 }
 
 // New returns a Runner whose goroutines stop when ctx is canceled.
 func New(ctx context.Context) *Runner {
 	g, _ := boundary.WithContext(ctx) // members never fail; ctx unused by them
 	g.SetLimit(maxTasks)
-	return &Runner{g: g, prompts: newPromptRules(), stop: make(chan struct{}), live: map[string]chan struct{}{}}
+	return &Runner{
+		g: g, prompts: newPromptRules(), stop: make(chan struct{}),
+		live: map[string]chan struct{}{}, red: redact.New(redact.Options{}),
+	}
+}
+
+// SetRedactor installs the session's redactor (built-in patterns plus its
+// known secrets) for detected prompt lines. Call it before the first Run.
+func (r *Runner) SetRedactor(red *redact.Redactor) {
+	if red == nil {
+		red = redact.New(redact.Options{})
+	}
+	r.mu.Lock()
+	r.red = red
+	r.mu.Unlock()
+}
+
+// redactor returns the current prompt redactor.
+func (r *Runner) redactor() *redact.Redactor {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.red
 }
 
 // Close kills still-running trees and waits for the runner's goroutines.
@@ -97,6 +122,8 @@ type call struct {
 	gone  bool // leader reaped
 	// lastOut is the time of the last output chunk (UnixNano).
 	lastOut atomic.Int64
+	// red redacts a detected prompt line (EX45-1).
+	red *redact.Redactor
 
 	mu   sync.Mutex
 	errs error // wait and cleanup failures, returned by Run
@@ -136,7 +163,7 @@ func (r *Runner) Run(ctx context.Context, spec *Spec) (Result, error) {
 		return Result{}, ErrClosed
 	}
 	c := &call{
-		r: r, s: s, id: newExecID(), out: newCapture(),
+		r: r, s: s, id: newExecID(), out: newCapture(), red: r.redactor(),
 		read: make(chan struct{}), exit: make(chan exit, 1),
 	}
 	c.s.Env = withMarker(s.Env, c.id)
@@ -288,7 +315,7 @@ func (c *call) check(now time.Time, w *watch, res *Result) Status {
 	}
 	silent := now.Sub(last)
 	if kind, line := c.prompt(silent, w.waiting); kind != "" {
-		res.Prompt, res.InputKind = line, kind
+		res.Prompt, res.InputKind = sanitizePrompt(c.red, line), kind
 		return StatusWaitingForInput
 	}
 	if now.Before(w.nextSample) {
