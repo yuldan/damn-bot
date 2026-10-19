@@ -83,7 +83,19 @@ func (l *Loader) Parse(data []byte, source string) (Config, error) {
 			Msg:  "key is not part of the F1 config",
 		}
 	}
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// LoadProfile loads <config_dir>/profiles/<profile>/config.toml.
+func (l *Loader) LoadProfile(profile string) (Config, error) {
+	p, err := l.Paths(profile)
+	if err != nil {
+		return Config{}, err
+	}
+	return l.Load(p.ConfigFile())
 }
 
 func syntaxError(source string, err error) *Error {
