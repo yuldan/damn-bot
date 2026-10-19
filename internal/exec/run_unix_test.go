@@ -201,6 +201,50 @@ func TestPromptRedactedAndSanitized(t *testing.T) {
 	}
 }
 
+// TestRunPTYEscapeeDoesNotHang (EX39-1, P24): a process that escapes the
+// tree with `env -i setsid` keeps the PTY slave open, but must not hold
+// Run (or Runner.Close) after the leader exits or the timeout fires.
+func TestRunPTYEscapeeDoesNotHang(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("setsid"); err != nil {
+		t.Skip("no setsid binary")
+	}
+	for _, tc := range []struct {
+		name    string
+		script  string
+		timeout time.Duration
+	}{
+		{"leader-exits", `env -i setsid sleep 1000 >/dev/null 2>&1 & sleep 0.1; echo hi`, 5 * time.Second},
+		{"timeout", `env -i setsid sleep 1000 >/dev/null 2>&1 & echo hi; sleep 1000`, time.Second},
+	} {
+		r := New(context.Background())
+		s := sh(t, tc.script)
+		s.PTY = true
+		s.Timeout, s.KillGrace = tc.timeout, time.Second
+		t0 := time.Now()
+		res, err := r.Run(t.Context(), s)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if d := time.Since(t0); d > s.Timeout+s.KillGrace+time.Second {
+			t.Fatalf("%s: escaped PTY holder returned after %v", tc.name, d)
+		}
+		if !strings.Contains(string(res.Output), "hi") {
+			t.Fatalf("%s: output %q", tc.name, res.Output)
+		}
+		closed := make(chan error, 1)
+		go func() { closed <- r.Close() }()
+		select {
+		case err := <-closed:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("Runner.Close hung on an escaped PTY holder")
+		}
+	}
+}
+
 func TestRunCancelConfirmed(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(t.Context())
@@ -303,9 +347,20 @@ func TestMarkerPids(t *testing.T) {
 	if _, err := io.ReadFull(u.output(), buf); err != nil {
 		t.Fatal(err)
 	}
-	pids, serr := markerPids(func(v []byte) bool { return string(v) == id })
-	if serr != nil || !slices.Contains(pids, u.p.Pid) {
-		t.Errorf("marker scan: pids %v (child %d), err %v", pids, u.p.Pid, serr)
+	// environ is briefly empty while the sh forks and execs sleep; poll
+	// instead of asserting one instantaneous scan.
+	deadline := time.Now().Add(2 * time.Second)
+	var pids []int
+	var serr error
+	for {
+		pids, serr = markerPids(func(v []byte) bool { return string(v) == id })
+		if serr == nil && slices.Contains(pids, u.p.Pid) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("marker scan: pids %v (child %d), err %v", pids, u.p.Pid, serr)
+		}
+		time.Sleep(pollEvery)
 	}
 	if err := u.kill(); err != nil {
 		t.Error(err)
