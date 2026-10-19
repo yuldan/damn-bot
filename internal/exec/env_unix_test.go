@@ -93,41 +93,21 @@ func TestEnvAllowlist(t *testing.T) {
 // ref reaches only a direct-exec child that is the same binary (identity)
 // as a configured command and is spawned from a bare argv0 resolved
 // through PATH.
+func secretTestPolicy() *EnvPolicy {
+	return &EnvPolicy{Secrets: []SecretEnv{{Name: "GH_TOKEN", Value: "ghp-secret", Commands: []string{"env"}}}}
+}
+
 func TestSecretRefScope(t *testing.T) {
 	t.Parallel()
-	policy := &EnvPolicy{Secrets: []SecretEnv{{Name: "GH_TOKEN", Value: "ghp-secret", Commands: []string{"env"}}}}
+	policy := secretTestPolicy()
 	parent := []string{"PATH=" + os.Getenv("PATH")}
 	got, notice := runEnv(t, &OneShot{Direct: []string{"env"}, Dir: t.TempDir(), Parent: parent, Policy: policy})
 	if got["GH_TOKEN"] != "ghp-secret" || notice != "" {
 		t.Errorf("mode b, bare argv0 resolving to the configured binary: %q %q", got["GH_TOKEN"], notice)
 	}
-	envBin, err := lookPath("env", os.Getenv("PATH"), "")
-	if err != nil {
-		t.Skip(err)
-	}
-	got, _ = runEnv(t, &OneShot{Direct: []string{envBin}, Dir: t.TempDir(), Parent: parent, Policy: policy})
-	if got["GH_TOKEN"] != "" {
-		t.Errorf("absolute argv0 received a secret: %q", got["GH_TOKEN"])
-	}
-	// Same base name, different file: ./env in the workspace (EX42-1).
-	dir := t.TempDir()
-	local := "#!/bin/sh\nexec " + envBin + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "env"), []byte(local), 0o700); err != nil { //nolint:gosec // G306: must be executable
-		t.Fatal(err)
-	}
-	got, _ = runEnv(t, &OneShot{Direct: []string{"./env"}, Dir: dir, Parent: parent, Policy: policy, Root: dir})
-	if got["GH_TOKEN"] != "" || got["PATH"] == "" {
-		t.Errorf("workspace ./env: leaked=%q ran=%v", got["GH_TOKEN"], got["PATH"] != "")
-	}
-	// Workspace PATH entry shadowing the configured command (NEW3-04).
-	shadow := t.TempDir()
-	if err := os.WriteFile(filepath.Join(shadow, "env"), []byte(local), 0o700); err != nil { //nolint:gosec // G306: must be executable
-		t.Fatal(err)
-	}
-	shadowParent := []string{"PATH=" + shadow + string(filepath.ListSeparator) + os.Getenv("PATH")}
-	got, _ = runEnv(t, &OneShot{Direct: []string{"env"}, Dir: t.TempDir(), Parent: shadowParent, Policy: policy, Root: shadow})
-	if got["GH_TOKEN"] != "" || got["PATH"] == "" {
-		t.Errorf("workspace PATH entry: leaked=%q ran=%v", got["GH_TOKEN"], got["PATH"] != "")
+	got, _ = runEnv(t, &OneShot{Direct: []string{"printenv"}, Dir: t.TempDir(), Parent: parent, Policy: policy})
+	if len(got) == 0 || got["GH_TOKEN"] != "" {
+		t.Errorf("mode b, other argv0: %v", got["GH_TOKEN"])
 	}
 	got, notice = runEnv(t, &OneShot{Command: "env", Dir: t.TempDir(), Parent: parent, Policy: policy})
 	if _, ok := got["GH_TOKEN"]; ok || notice != "" {
@@ -137,25 +117,53 @@ func TestSecretRefScope(t *testing.T) {
 	if _, ok := got["GH_TOKEN"]; ok || got["t"] != "" || !strings.Contains(notice, "GH_TOKEN") {
 		t.Errorf("NEW3-03 expansion: leaked=%v t=%q notice=%q", ok, got["t"], notice)
 	}
-	got, _ = runEnv(t, &OneShot{Direct: []string{"printenv"}, Dir: t.TempDir(), Parent: parent, Policy: policy})
-	if len(got) == 0 || got["GH_TOKEN"] != "" {
-		t.Errorf("mode b, other argv0: %v", got["GH_TOKEN"])
+	for _, argv := range [][]string{{"env", "a\x00b"}, {"env", "a\rb"}} {
+		if _, _, err := Prepare(&OneShot{Direct: argv, Parent: parent, Policy: policy}); !errors.Is(err, ErrSpec) {
+			t.Errorf("control character in %q: %v", argv, err)
+		}
 	}
-	// Control characters never run in mode (b) (EX42-3).
-	if _, _, err := Prepare(&OneShot{Direct: []string{"env", "a\x00b"}, Parent: parent, Policy: policy}); !errors.Is(err, ErrSpec) {
-		t.Errorf("NUL in direct argv: %v", err)
+}
+
+// TestSecretRefIdentity (EX42-1): a same-named binary that is not the
+// configured file never receives the secret, even through PATH.
+func TestSecretRefIdentity(t *testing.T) {
+	t.Parallel()
+	policy := secretTestPolicy()
+	parent := []string{"PATH=" + os.Getenv("PATH")}
+	envBin, err := lookPath("env", os.Getenv("PATH"), "")
+	if err != nil {
+		t.Skip(err)
 	}
-	if _, _, err := Prepare(&OneShot{Direct: []string{"env", "a\rb"}, Parent: parent, Policy: policy}); !errors.Is(err, ErrSpec) {
-		t.Errorf("CR in direct argv: %v", err)
+	got, _ := runEnv(t, &OneShot{Direct: []string{envBin}, Dir: t.TempDir(), Parent: parent, Policy: policy})
+	if got["GH_TOKEN"] != "" {
+		t.Errorf("absolute argv0 received a secret: %q", got["GH_TOKEN"])
+	}
+	dir := t.TempDir()
+	local := "#!/bin/sh\nexec " + envBin + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "env"), []byte(local), 0o700); err != nil { //nolint:gosec // G306: must be executable
+		t.Fatal(err)
+	}
+	got, _ = runEnv(t, &OneShot{Direct: []string{"./env"}, Dir: dir, Parent: parent, Policy: policy, Root: dir})
+	if got["GH_TOKEN"] != "" || got["PATH"] == "" {
+		t.Errorf("workspace ./env: leaked=%q ran=%v", got["GH_TOKEN"], got["PATH"] != "")
+	}
+	shadow := t.TempDir()
+	if err := os.WriteFile(filepath.Join(shadow, "env"), []byte(local), 0o700); err != nil { //nolint:gosec // G306: must be executable
+		t.Fatal(err)
+	}
+	shadowParent := []string{"PATH=" + shadow + string(filepath.ListSeparator) + os.Getenv("PATH")}
+	got, _ = runEnv(t, &OneShot{Direct: []string{"env"}, Dir: t.TempDir(), Parent: shadowParent, Policy: policy, Root: shadow})
+	if got["GH_TOKEN"] != "" || got["PATH"] == "" {
+		t.Errorf("workspace PATH entry: leaked=%q ran=%v", got["GH_TOKEN"], got["PATH"] != "")
 	}
 }
 
 // TestLookPath (NEW3-04): relative and empty PATH entries never resolve;
 // names with a separator are taken relative to the working directory.
-func TestLookPath(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	bin := filepath.Join(root, "bin")
+func lookPathFixture(t *testing.T) (root, bin string) {
+	t.Helper()
+	root = t.TempDir()
+	bin = filepath.Join(root, "bin")
 	if err := os.MkdirAll(bin, 0o750); err != nil {
 		t.Fatal(err)
 	}
@@ -165,6 +173,12 @@ func TestLookPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "noexec"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	return root, bin
+}
+
+func TestLookPath(t *testing.T) {
+	t.Parallel()
+	root, bin := lookPathFixture(t)
 	for _, path := range []string{"bin", "./bin", "", ":bin:"} {
 		if p, err := lookPath("tool", path, root); err == nil {
 			t.Errorf("PATH %q resolved %s", path, p)
@@ -176,14 +190,19 @@ func TestLookPath(t *testing.T) {
 	if _, err := lookPath("noexec", bin, root); err == nil {
 		t.Error("non-executable resolved")
 	}
+}
+
+// TestLookPathSeparator (EX42-2/EX62-1): a name with a separator is
+// resolved once to an absolute path before spawn.
+func TestLookPathSeparator(t *testing.T) {
+	t.Parallel()
+	root, bin := lookPathFixture(t)
 	if p, err := lookPath("bin/tool", "", root); err != nil || p != filepath.Join(root, "bin", "tool") {
 		t.Errorf("relative name: %q %v", p, err)
 	}
 	if p, err := lookPath(filepath.Join("bin", "tool"), "", root); err != nil || !filepath.IsAbs(p) {
 		t.Errorf("absolute-name result: %q %v", p, err)
 	}
-	// Prepare records the resolved absolute path, never the relative argv0
-	// (EX42-2/EX62-1: CreateProcess would otherwise use damnbot's cwd).
 	spec, _, err := Prepare(&OneShot{Direct: []string{"./bin/tool"}, Dir: root, Parent: []string{"PATH=" + bin}})
 	if err != nil {
 		t.Fatalf("prepare: %v", err)
