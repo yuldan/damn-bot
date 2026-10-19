@@ -31,7 +31,7 @@ const (
 	grepTimeout      = 30 * time.Second
 	inMemoryScan     = 16 << 20 // larger files are streamed in scanChunk steps
 	scanChunk        = 1 << 20
-	scratchMin       = 64 << 10 // per-worker read buffer: initial size
+	scratchMin       = 256 << 10 // per-worker read buffer: initial size (one read for most files)
 	scratchMax       = 1 << 20  // and the largest size kept between files
 )
 
@@ -293,8 +293,8 @@ func (e *Engine) scanFile(ctx context.Context, abs string, ref *dirRef, p *grepP
 		return e.scanLarge(ctx, f, keyOf(abs, fi), p)
 	}
 	n := len(raw)
-	enc := detectEnc(raw)
-	if bin, _ := sniffBinary(raw, enc); bin {
+	enc, bin := sniffText(raw)
+	if bin {
 		return scanOut{skip: skipBinary}
 	}
 	text := logical(raw, enc)
