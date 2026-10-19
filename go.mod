@@ -4,6 +4,7 @@ go 1.26.9
 
 require (
 	github.com/BurntSushi/toml v1.6.0
+	github.com/creack/pty v1.1.24
 	github.com/google/go-cmp v0.7.0
 	go.uber.org/goleak v1.3.0
 	golang.org/x/sync v0.24.0
