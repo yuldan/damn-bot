@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "error": {
+    "code": "stale_read",
+    "message": "a.txt exists",
+    "hint": "read_file first; overwriting needs its tag"
+  }
+}

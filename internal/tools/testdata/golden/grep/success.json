@@ -1,0 +1,4 @@
+{
+  "ok": true,
+  "content": "grep \"alpha\" · 2 matches · 2 files\na.txt #e49c81e2\n1:alpha\nsub/b.txt #389831cf\n1:alpha two"
+}
