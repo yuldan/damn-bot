@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/netx"
@@ -280,5 +283,153 @@ func TestAssemblyBounds(t *testing.T) {
 	}
 	if !errors.Is(err, ErrResponseTooLarge) {
 		t.Errorf("tool-call cap: %v", err)
+	}
+}
+
+// TestToolNameBound (PROV-M1): names are appended, and capped at
+// maxToolName, so 200k one-byte fragments fail fast instead of costing
+// quadratic CPU.
+func TestToolNameBound(t *testing.T) {
+	t.Parallel()
+	var a assembler
+	frag := &Delta{ToolCalls: []ToolDelta{{Index: 0, HasIndex: true, Name: []byte("a")}}}
+	var err error
+	n := 0
+	for ; n < 200_000 && err == nil; n++ {
+		err = a.add(frag)
+	}
+	if !errors.Is(err, ErrResponseTooLarge) || n != maxToolName+1 {
+		t.Fatalf("after %d fragments: %v", n, err)
+	}
+	var b assembler
+	if err := b.add(&Delta{ToolCalls: []ToolDelta{{Name: bytes.Repeat([]byte("n"), maxToolName)}}, Finish: []byte("tool_calls")}); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := b.result(); err != nil || len(r.ToolCalls[0].Name) != maxToolName {
+		t.Fatalf("%v %v", r, err)
+	}
+}
+
+// TestEmptyToolFragments (PROV-M2): `{}` entries are bounded per chunk by
+// the decoder and charged to the response budget by the assembler.
+func TestEmptyToolFragments(t *testing.T) {
+	t.Parallel()
+	frame := func(n int) []byte {
+		return []byte(`{"choices":[{"delta":{"tool_calls":[` + strings.TrimSuffix(strings.Repeat("{},", n), ",") + `]}}]}`)
+	}
+	var dd DeltaDecoder
+	if d, err := dd.Decode(frame(maxChunkToolDeltas)); err != nil || len(d.ToolCalls) != maxChunkToolDeltas {
+		t.Fatalf("at the bound: %v", err)
+	}
+	big := frame((4 << 20) / 3)
+	if _, err := dd.Decode(big); !errors.Is(err, ErrTooManyToolDeltas) {
+		t.Fatalf("4 MiB of {}: %v", err)
+	}
+	// Repeated keys restart the array index but not the per-chunk count.
+	arr := "[" + strings.TrimSuffix(strings.Repeat("{},", 200), ",") + "]"
+	for name, f := range map[string]string{
+		"tool_calls": `{"choices":[{"delta":{"tool_calls":` + arr + `,"tool_calls":` + arr + `}}]}`,
+		"delta":      `{"choices":[{"delta":{"tool_calls":` + arr + `},"delta":{"tool_calls":` + arr + `}}]}`,
+		"choices":    `{"choices":[{"delta":{"tool_calls":` + arr + `}}],"choices":[{"delta":{"tool_calls":` + arr + `}}]}`,
+	} {
+		if _, err := dd.Decode([]byte(f)); !errors.Is(err, ErrTooManyToolDeltas) {
+			t.Errorf("duplicate %s key: %v", name, err)
+		}
+	}
+	var a assembler
+	d := &Delta{ToolCalls: make([]ToolDelta, maxChunkToolDeltas)}
+	var err error
+	adds := 0
+	for ; adds < 10_000 && err == nil; adds++ {
+		err = a.add(d)
+	}
+	if !errors.Is(err, ErrResponseTooLarge) || adds > maxResponseBytes/(maxChunkToolDeltas*toolFragmentCost)+1 {
+		t.Fatalf("empty fragments after %d chunks: %v", adds, err)
+	}
+}
+
+// TestReasoningPartsBound (PROV-M3): every byte kept for reasoning (text,
+// parts, replay value) counts toward maxResponseBytes, so the assembled
+// response stays within a small multiple of the cap.
+func TestReasoningPartsBound(t *testing.T) {
+	t.Parallel()
+	esc := `"` + strings.Repeat(`\u0001`, (1<<20)/6) + `"` // expands ×6 when quoted
+	raw := []byte(`[{"type":"text","text":` + esc + `}]`)
+	var a assembler
+	var err error
+	for range 1000 {
+		if err = a.add(&Delta{Reasoning: []byte(strings.Repeat("\x01<", 1<<18))}); err != nil {
+			break
+		}
+		if err = a.add(&Delta{ReasoningRaw: raw}); err != nil {
+			break
+		}
+	}
+	if !errors.Is(err, ErrResponseTooLarge) {
+		t.Fatalf("reasoning never hit the cap: %v", err)
+	}
+	kept := len(a.reasonText)
+	for _, p := range a.reasonParts {
+		kept += len(p)
+	}
+	a.finish = "stop"
+	a.content = []byte("x")
+	r, rerr := a.result()
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if total := kept + len(r.Reasoning); total > maxResponseBytes {
+		t.Fatalf("kept %d B + replay %d B > cap %d", kept, len(r.Reasoning), maxResponseBytes)
+	}
+}
+
+// TestQuotedLen: quotedLen bounds encoding/json's quoting.
+func TestQuotedLen(t *testing.T) {
+	t.Parallel()
+	for _, s := range []string{"", "plain", "\"\\\n\r\t", "\x00\x01\x1f\x7f", "<a>&", "\u2028\u2029", "é😀", "\xff\xfe", "a\xc3"} {
+		if got, want := quotedLen([]byte(s)), len(quote([]byte(s))); got < want {
+			t.Errorf("%q: quotedLen %d < %d", s, got, want)
+		}
+	}
+}
+
+// TestRedirectNotFollowed (PROV-M4): a 307 to another host is a
+// non-retryable bad_request; the prompt and Route.Headers never reach it.
+func TestRedirectNotFollowed(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	evil := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hits.Add(1) }))
+	t.Cleanup(evil.Close)
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, evil.URL+"/steal", http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(origin.Close)
+	n := netx.New(netx.Config{})
+	t.Cleanup(n.CloseIdleConnections)
+	rt := &Route{Provider: "p", Model: "m", BaseURL: origin.URL, APIKey: "sk-test", Headers: map[string]string{"api-key": "k"}}
+	_, err := attempt(t.Context(), n.Client("p", netx.Inference), rt, []byte(`{"model":"m"}`), 10, nil)
+	if retry.ClassifyErr(err) != retry.BadRequest || hits.Load() != 0 {
+		t.Fatalf("redirect: %v, %d requests reached the target", err, hits.Load())
+	}
+}
+
+// TestTooManyToolDeltasClass (PROV-M2): the decoder bound reaches the
+// caller as ErrResponseTooLarge, non-retryable (no retries, no fallback).
+func TestTooManyToolDeltasClass(t *testing.T) {
+	t.Parallel()
+	frame := `{"choices":[{"delta":{"tool_calls":[` + strings.TrimSuffix(strings.Repeat("{},", maxChunkToolDeltas+1), ",") + `]}}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if _, err := io.WriteString(w, "data: "+frame+"\n\n"); err != nil {
+			t.Error(err)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	n := netx.New(netx.Config{})
+	t.Cleanup(n.CloseIdleConnections)
+	rt := &Route{Provider: "p", Model: "m", BaseURL: srv.URL}
+	_, err := attempt(t.Context(), n.Client("p", netx.Inference), rt, []byte(`{}`), 10, nil)
+	if !errors.Is(err, ErrResponseTooLarge) || retry.ClassifyErr(err).Retryable() {
+		t.Fatalf("%v (class %v)", err, retry.ClassifyErr(err))
 	}
 }
