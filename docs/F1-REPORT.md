@@ -157,24 +157,25 @@ cd bench && go run ./h2h/cmd/h2h -damnbot ~/.cache/damnbot/bin/damnbot \
   -only E1-117,E1-124,E1-147,E1-149,E2-016,E2-039,E3-028,E3-013,E6-010,E6-040
 ```
 
-| Task | stop | calls | input tok | output tok | USD | pass |
-|---|---|---|---:|---:|---:|---|
-| E1-117 | timeout | 14 | 89014 | 3210 | 0.0067 | tidak |
-| E1-124 | end_turn/completed | 14 | 97392 | 3964 | 0.0076 | ya |
-| E1-147 | end_turn/no_progress | 12 | 73042 | 2100 | 0.0053 | tidak |
-| E1-149 | error/provider_error | 2 | 5104 | 232 | 0.0004 | tidak |
-| E2-016 | error/provider_error | 0 | 0 | 0 | 0.0000 | tidak |
-| E2-039 | error/provider_error | 0 | 0 | 0 | 0.0000 | tidak |
-| E3-028 | error/provider_error | 1 | 2408 | 68 | 0.0003 | tidak |
-| E3-013 | error/provider_error | 0 | 0 | 0 | 0.0000 | tidak |
-| E6-010 | error/provider_error | 1 | 2388 | 202 | 0.0003 | tidak |
-| E6-040 | error/provider_error | 0 | 0 | 0 | 0.0000 | tidak |
+| Task | stop | category | calls | input tok | output tok | USD | pass |
+|---|---|---|---:|---:|---:|---:|---|
+| E1-117 | error/provider_error | upstream_unavailable | 0 | 0 | 0 | 0.0000 | tidak |
+| E1-124 | error/provider_error | upstream_unavailable | 0 | 0 | 0 | 0.0000 | tidak |
+| E1-147 | error/provider_error | upstream_unavailable | 0 | 0 | 0 | 0.0000 | tidak |
+| E1-149 | error/provider_error | upstream_unavailable | 1 | 2406 | 170 | 0.0002 | tidak |
+| E2-016 | error/provider_error | upstream_unavailable | 3 | 7740 | 294 | 0.0006 | tidak |
+| E2-039 | error/provider_error | upstream_unavailable | 1 | 2392 | 196 | 0.0002 | tidak |
+| E3-028 | error/provider_error | upstream_unavailable | 0 | 0 | 0 | 0.0000 | tidak |
+| E3-013 | error/provider_error | upstream_unavailable | 0 | 0 | 0 | 0.0000 | tidak |
+| E6-010 | error/provider_error | upstream_unavailable | 1 | 2388 | 202 | 0.0002 | tidak |
+| E6-040 | error/provider_error | upstream_unavailable | 0 | 0 | 0 | 0.0000 | tidak |
 
-Totals: 10/10 ran, 1 lolos (E1-124, `end_turn/completed`), 44 completion calls (+25 aborted), 269.348 input / 9.776 output tok, run US$0,1335, ledger **US$0,1883 / 2,00**. Artefak: 10 rekaman `.jsonl.gz` + `summary.json`; semua `Authorization: REDACTED`, scan nilai kunci = 0 hit.
+Totals: 10/10 ran, **0 harness errors**, categories `{upstream_unavailable:10}`, 6 completion calls (+36 aborted), 14.926 input / 862 output tok, run US$0,4862, ledger **US$0,6745 / 2,00**. Artefak: 10 rekaman `.jsonl.gz` + `summary.json`; semua `Authorization: REDACTED`, scan nilai kunci = 0 hit. E1-124 pernah mencapai `end_turn/completed` pada run 2026-10-20 sebelumnya; run ini seluruhnya upstream 503 setelah retry netx + task retry.
+
 
 **Diagnosis request kedua.** Request kedua yang gagal (499) bukan body invalid: ia berisi assistant `tool_calls` **tanpa** `tool_call_id` pada pesan `tool` dan menduplikasi setiap hasil (journal dispatcher + event loop). 499 adalah client-close karena harness membunuh proses di timeout 180 s (upstream melihat 499); 503 adalah `upstream_unavailable` dari provider. Perbaikan di `cmd/damnbot`: history dibaca dari transcript dengan `json:"tool_call_id"`/tool_calls bertag, duplikat `tool_result` digabung per `tool_call_id` (konten loop menang), dan `assistant.tool_calls` diteruskan ke wire provider. Request kedua sekarang 200 (terlihat di E1-117/E1-124); regression test `TestHistoryDedupeToolResults` + assertion dua iterasi di `TestRunHeadlessToolCall`.
 
-`TestAgentIsolation`/`TestRecordingsNoKey` **milik Deliverable F1 #0 (ADR-085)** dan belum ada di pohon; statusnya **pending**, bukan di-skip. Verifikasi manual (0 hit kunci, semua Authorization REDACTED) dan `go test ./h2h` hijau; gate bernama itu harus ditambahkan sebelum acceptance F1.
+`TestAgentIsolation`/`TestRecordingsNoKey` **milik Deliverable F1 #0 (ADR-085)** kini ditambahkan di `bench/h2h/security_test.go` dan hijau: isolasi memakai user namespace (`skip` eksplisit bila environment tidak bisa), rekaman dipindai pola token generik + bentuk literal/base64/base64url/hex/prefix-12 dari `H2H_KEY_FILE`.
 
 ## Review keamanan
 

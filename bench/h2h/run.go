@@ -34,20 +34,23 @@ type TaskResult struct {
 	Recording       string     `json:"recording"`
 	RecordingSHA256 string     `json:"recording_sha256"`
 	HarnessErrors   []string   `json:"harness_errors"`
+	UpstreamErrors  []string   `json:"upstream_errors,omitempty"`
+	Category        string     `json:"category"` // ok|no_progress|upstream_unavailable|task_timeout|harness_error
 	Damnbot         string     `json:"damnbot"`
 }
 
 // Runner menjalankan task smoke secara berurutan lewat satu Recorder.
 type Runner struct {
-	Recorder   *Recorder
-	ProxyURL   string // mis. http://127.0.0.1:PORT/v1
-	Hermes     *Hermes
-	Damnbot    *Damnbot
-	OutDir     string // rekaman <id>.hermes.proxy.jsonl.gz
-	WorkRoot   string // workdir per task (di /tmp)
-	Timeout    time.Duration
-	FirstGuess float64 // perkiraan biaya task pertama untuk proyeksi anggaran
-	Log        io.Writer
+	Recorder    *Recorder
+	ProxyURL    string // mis. http://127.0.0.1:PORT/v1
+	Hermes      *Hermes
+	Damnbot     *Damnbot
+	OutDir      string // rekaman <id>.hermes.proxy.jsonl.gz
+	WorkRoot    string // workdir per task (di /tmp)
+	Timeout     time.Duration
+	TaskRetries int
+	FirstGuess  float64 // perkiraan biaya task pertama untuk proyeksi anggaran
+	Log         io.Writer
 }
 
 // Run menjalankan semua task. Sebelum tiap task, proyeksi = terpakai + max(biaya task
@@ -72,7 +75,18 @@ func (r *Runner) Run(ctx context.Context, tasks []evals.Task) []TaskResult {
 			fmt.Fprintf(r.Log, "%s: dilewati, proyeksi %.4f > cap %.2f\n", t.ID, r.Recorder.Spent()+worst*1.5, cap)
 			continue
 		}
-		r.runOne(ctx, t, &res)
+		for attempt := 0; ; attempt++ {
+			r.runOne(ctx, t, &res)
+			if res.Category != "upstream_unavailable" || attempt >= r.TaskRetries {
+				break
+			}
+			fmt.Fprintf(r.Log, "%s: upstream unavailable, retry %d/%d\n", t.ID, attempt+1, r.TaskRetries)
+			select {
+			case <-ctx.Done():
+			case <-time.After(time.Duration(attempt+1) * 2 * time.Second):
+			}
+			res = TaskResult{ID: t.ID, Set: t.Set, Kind: t.Kind, Agent: r.agent(), Damnbot: DamnbotNA, HarnessErrors: []string{}}
+		}
 		worst = max(worst, res.Usage.CostUSD)
 		fmt.Fprintf(r.Log, "%s: exit=%d timeout=%v pass=%v calls=%d cost=%.4f total=%.4f harness_errors=%d\n",
 			t.ID, res.Run.ExitCode, res.Run.TimedOut, res.Verdict != nil && res.Verdict.Pass,
@@ -129,8 +143,8 @@ func (r *Runner) runOne(ctx context.Context, t *evals.Task, res *TaskResult) {
 	}
 	usage, perrs := r.Recorder.End()
 	res.Run, res.Usage = run, usage
-	res.HarnessErrors = append(res.HarnessErrors, perrs...)
-	if runErr != nil {
+	res.UpstreamErrors = append(res.UpstreamErrors, perrs...)
+	if runErr != nil && !run.TimedOut {
 		herr("%v", runErr)
 	}
 	if err := zw.Close(); err != nil {
@@ -140,7 +154,7 @@ func (r *Runner) runOne(ctx context.Context, t *evals.Task, res *TaskResult) {
 		herr("close recording: %v", err)
 	}
 	if usage.Calls == 0 {
-		herr("tidak ada completion terekam (agent tidak pernah memanggil provider lewat proxy)")
+		res.UpstreamErrors = append(res.UpstreamErrors, "tidak ada completion terekam (provider tidak pernah menjawab)")
 	}
 	if sum, err := fileSHA256(recPath); err == nil {
 		res.RecordingSHA256 = sum
@@ -158,6 +172,26 @@ func (r *Runner) runOne(ctx context.Context, t *evals.Task, res *TaskResult) {
 	res.PageHits = pages.Hits()
 	v := Grade(ctx, t, workdir, run.Answer, calls)
 	res.Verdict = &v
+	res.Category = categorizeRun(run, res.Usage, runErr)
+}
+
+func categorizeRun(run AgentRun, usage Usage, runErr error) string {
+	switch {
+	case run.TimedOut:
+		return "task_timeout"
+	case runErr != nil:
+		return "harness_error"
+	case run.StopReason == "error":
+		return "upstream_unavailable"
+	case run.StopReason == "end_turn" && run.StopDetail == "completed":
+		return "ok"
+	case run.StopReason == "end_turn" && run.StopDetail == "no_progress":
+		return "no_progress"
+	case run.StopReason == "end_turn":
+		return "model_other"
+	default:
+		return "upstream_unavailable"
+	}
 }
 
 func fileSHA256(path string) (string, error) {
