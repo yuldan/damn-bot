@@ -54,7 +54,7 @@ func TestCleanOrphanTempsPattern(t *testing.T) {
 	t.Parallel()
 	v := newEnv(t)
 	gone := []string{".f.txt.damnbot-abcdefgh2345", "sub/.g.go.damnbot-zzzzzzzzzzzz"}
-	kept := []string{".notes.damnbot-readme", ".f.txt.damnbot-bak-abcdefgh2345", "f.damnbot-abcdefgh2345", ".f.txt.damnbot-ABCDEFGH2345", ".f.txt.damnbot-abcdefgh23456"}
+	kept := []string{".notes.damnbot-readme", ".f.txt.damnbot-bak-abcdefgh2345", "f.damnbot-abcdefgh2345", ".f.txt.damnbot-ZYXWVUTSRQPO", ".f.txt.damnbot-abcdefgh23456"}
 	for _, n := range append(gone, kept...) {
 		v.put(t, n, "x")
 	}
