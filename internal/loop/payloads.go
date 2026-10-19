@@ -76,3 +76,26 @@ func callPayloads(calls []ToolCall) []toolCallPayload {
 	}
 	return out
 }
+
+// callPayloadsRedacted is the Store/UI projection: execution keeps the raw
+// arguments, the transcript never does.
+func callPayloadsRedacted(calls []ToolCall, redact func(string) string) []toolCallPayload {
+	out := callPayloads(calls)
+	for i := range out {
+		out[i].Arguments = redact(out[i].Arguments)
+	}
+	return out
+}
+
+// redactCalls keeps history model-facing while execution uses the raw calls.
+func redactCalls(calls []ToolCall, redact func(string) string) []ToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	out := make([]ToolCall, len(calls))
+	copy(out, calls)
+	for i := range out {
+		out[i].Arguments = redact(out[i].Arguments)
+	}
+	return out
+}

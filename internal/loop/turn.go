@@ -203,7 +203,10 @@ func (t *turn) ask(ctx context.Context, p *Prompt) (Reply, []ToolCall, *outcome)
 			if d.Text != "" {
 				t.emit(&event.Update{Kind: event.UpdateTextDelta, Text: t.redact(d.Text)})
 			}
-			b.add(d.ToolCalls, t.emit)
+			b.add(d.ToolCalls, func(u *event.Update) {
+				u.Text = t.redact(u.Text)
+				t.emit(u)
+			})
 		})
 		calls := b.calls()
 		if err != nil {
@@ -340,7 +343,7 @@ func (t *turn) classify(ctx context.Context, r *Reply, calls []ToolCall) (outcom
 func (t *turn) contentFiltered(ctx context.Context, r *Reply, calls []ToolCall) (outcome, bool) {
 	ev := &event.Event{
 		Kind: event.AssistantMessage, Role: "assistant", Content: t.redact(r.Content),
-		Payload: payload(assistantPayload{Filtered: true, FinishReason: r.FinishReason, ToolCalls: callPayloads(calls)}),
+		Payload: payload(assistantPayload{Filtered: true, FinishReason: r.FinishReason, ToolCalls: callPayloadsRedacted(calls, t.redact)}),
 	}
 	if _, err := t.append(ctx, ev); err != nil {
 		return t.fail(ctx, event.DetailInternal, err), true
@@ -368,14 +371,14 @@ func (t *turn) finalAnswer(ctx context.Context, r *Reply) (outcome, bool) {
 func (t *turn) toolTurn(ctx context.Context, r *Reply, calls []ToolCall) (outcome, bool) {
 	ev := &event.Event{
 		Kind: event.AssistantMessage, Role: "assistant", Content: t.redact(r.Content),
-		Payload: payload(assistantPayload{FinishReason: r.FinishReason, ToolCalls: callPayloads(calls)}),
+		Payload: payload(assistantPayload{FinishReason: r.FinishReason, ToolCalls: callPayloadsRedacted(calls, t.redact)}),
 	}
 	if _, err := t.append(ctx, ev); err != nil {
 		return t.fail(ctx, event.DetailInternal, err), true
 	}
-	t.history = append(t.history, Message{Role: "assistant", Content: t.redact(r.Content), ToolCalls: calls})
+	t.history = append(t.history, Message{Role: "assistant", Content: t.redact(r.Content), ToolCalls: redactCalls(calls, t.redact)})
 	for i := range calls {
-		t.emit(&event.Update{Kind: event.UpdateToolCallEnd, ToolCallID: calls[i].ID, ToolName: calls[i].Name, Text: calls[i].Arguments})
+		t.emit(&event.Update{Kind: event.UpdateToolCallEnd, ToolCallID: calls[i].ID, ToolName: calls[i].Name, Text: t.redact(calls[i].Arguments)})
 	}
 	if r.FinishReason == FinishLength {
 		return t.truncated(ctx, calls)

@@ -28,6 +28,24 @@ func TestLP81CancelPersistsResult(t *testing.T) {
 	}
 }
 
+// LP8-1b: a completed ("exited") result is persisted and the stop is plain cancelled.
+func TestLP81CompletedResultNotConfirmed(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	f.provider.scripts = []streamFunc{callScript(FinishToolCalls, ToolCall{ID: "a", Name: "work", Arguments: `{}`})}
+	f.tools.add("work", &toolStub{dispatch: func(ctx context.Context, _ *Prepared) (ToolResult, error) {
+		f.cancel()
+		return ToolResult{Content: "done", Status: "exited"}, nil
+	}})
+	got := terminal(t, f.run(t))
+	if got.Stop != event.StopCancelled {
+		t.Fatalf("stop = %s", got.Stop)
+	}
+	if _, ok := f.store.find(event.ToolResult); !ok {
+		t.Fatal("completed result dropped")
+	}
+}
+
 // LP8-2: batch waits are bounded by KillGrace.
 func TestLP82BatchWaitBounded(t *testing.T) {
 	t.Parallel()
@@ -132,8 +150,31 @@ func TestLP86RedactsStreamAndAssistant(t *testing.T) {
 	f.store.mu.Lock()
 	defer f.store.mu.Unlock()
 	for _, e := range f.store.events {
-		if strings.Contains(e.Content, "sk-secret") {
+		if strings.Contains(e.Content, "sk-secret") || strings.Contains(string(e.Payload), "sk-secret") {
 			t.Fatalf("event leaked: %+v", e)
+		}
+	}
+}
+
+// LP8-6b: tool-call arguments are redacted in stream updates and payloads.
+func TestLP86RedactsToolArgs(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	f.redactor = fakeRedactor{}
+	f.provider.scripts = []streamFunc{callScript(FinishToolCalls, ToolCall{ID: "a", Name: "read", Arguments: `{"token":"sk-secret"}`})}
+	f.tools.add("read", &toolStub{})
+	f.cfg.MaxIterations = 1
+	ups := f.run(t)
+	for i := range ups {
+		if strings.Contains(ups[i].Text, "sk-secret") {
+			t.Fatalf("update leaked: %+v", ups[i])
+		}
+	}
+	f.store.mu.Lock()
+	defer f.store.mu.Unlock()
+	for _, e := range f.store.events {
+		if strings.Contains(string(e.Payload), "sk-secret") {
+			t.Fatalf("payload leaked: %+v", e)
 		}
 	}
 }
@@ -152,6 +193,19 @@ func TestLP87PreviewCountsInline(t *testing.T) {
 	got := tr.modelContent(context.Background(), &ToolResult{Content: "0123456789"})
 	if !strings.Contains(got, "truncated") && !strings.Contains(got, "spilled") {
 		t.Fatalf("second result bypassed budget: %q", got)
+	}
+
+	// No Spiller + small aggregate budget must still count truncation.
+	cfg2 := Config{MaxInline: 100, MaxInlineTurn: 5}
+	withDefaults(&cfg2)
+	tr2 := &turn{cfg: cfg2, deps: Deps{}, out: make(chan event.Update, 8)}
+	_ = tr2.modelContent(context.Background(), &ToolResult{Content: "0123456789"})
+	if tr2.inline == 0 {
+		t.Fatal("truncation not counted")
+	}
+	got2 := tr2.modelContent(context.Background(), &ToolResult{Content: "0123456789"})
+	if !strings.Contains(got2, "truncated") || !strings.Contains(got2, "[truncated: turn inline budget]") {
+		t.Fatalf("second result bypassed budget: %q", got2)
 	}
 }
 
