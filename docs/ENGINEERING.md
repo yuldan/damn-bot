@@ -265,6 +265,7 @@ flowchart TD
     SKL --> SCH
     JRN --> EV
     CT --> SBX
+    CT --> BND
     EXE --> SBX
     EXE --> RED
     HOOK --> EXE
@@ -323,8 +324,8 @@ Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2
 | `schema` | 1.200 | `budget` (storage di `ctxdb/ledgerstore`, ADR-074) | 400 |
 | `tools` | 1.800 | `heal` | 1.500 |
 | `codetools` | 4.500 | `config` | 1.200 |
-| `exec` (unix + windows; ADR-081) | 3.500 | `modules` + `modules/host` | 1.000 |
-| `exec/classify` (label risiko + `shell_allow` argv-persis, ADR-081) | 1.500 | | |
+| `exec` (unix + windows; ADR-081, ADR-106) | 3.400 | `modules` + `modules/host` | 1.000 |
+| `exec/classify` (label risiko + `shell_allow` argv-persis, ADR-081, ADR-106) | 1.600 | | |
 | `sandbox` + `redact` (ADR-097) | 1.450 | `hooks` | 700 |
 | `boundary` | 150 | `i18n` (Go) | 300 |
 | `ctxdb/ledgerstore` (F1, ADR-074) | 300 | `ctxdb/memstore` (F2, ADR-074) | 600 |
@@ -412,7 +413,7 @@ func classify(ctx context.Context, err error) (code string, exitCode int) {
 | E-35 | Parser SSE (framing `data:`/`event:`/`id:`/`retry:`) zero-alloc | 0 allocs/op per event setelah warmup | `TestSSEZeroAlloc` (`testing.AllocsPerRun` = 0) + `BenchmarkSSEParse -benchmem` |
 | E-36 | Decoder delta streaming provider (content, tool_calls, usage) tanpa `encoding/json` reflektif; hasil berupa slice ke buffer frame yang valid sampai event berikutnya | 0 allocs/op per event delta | `TestDeltaDecodeZeroAlloc`, `BenchmarkDeltaDecode -benchmem`; event tak dikenal jatuh ke `encoding/json` (jalur dingin, dicatat counter) |
 | E-37 | Jalur sukses dispatch (lookup + validasi schema args 1 KB) | ≤ 2 allocs/op, ≤ 20 µs | `TestDispatchAllocs`, `BenchmarkDispatch` |
-| E-38 | Tanpa `unsafe` | 0 import di repo | `depguard` deny `unsafe` |
+| E-38 | Tanpa `unsafe` | 0 import di repo, kecuali `internal/exec/*_windows.go` (Job Object/ConPTY, ADR-105) | `depguard` deny `unsafe` (pengecualian path di `.golangci.yml`) |
 
 `encoding/json/v2` di Go 1.26.8 masih eksperimen: `go doc encoding/json/v2` → `cannot find package`; dengan `GOEXPERIMENT=jsonv2` paket ditemukan; `$GOROOT/src/encoding/json/v2/arshal.go` ber-tag `//go:build goexperiment.jsonv2`. Build rilis tidak memakai `GOEXPERIMENT` (`TestReleaseBuildFlags` memeriksa `go version -m damnbot` tidak memuat `GOEXPERIMENT`). Migrasi ke `encoding/json/jsontext` = ADR saat v2 GA.
 

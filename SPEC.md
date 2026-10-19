@@ -278,7 +278,7 @@ Library terpilih per kebutuhan: [`ENGINEERING.md`](docs/ENGINEERING.md) §4. Ang
 |---|---|---|---|
 | core (loop, plan, assemble, compaction, provider openai-chat, netx + DLP, tools, schema, sandbox, redact, budget, journal, memory, skills, hooks, modules, ctxdb, config) | 14,0 MB (termasuk runtime Go, `net/http`, TLS, SQLite) | 30.000 | F1 (18.000) + F2 (12.000) |
 | codetools (grep/glob/read/edit) | 0,6 MB | 4.500 | F1 |
-| exec (runner PTY/pipe, classify, sesi, proses background, env allowlist; ADR-081: `loc.budget` `exec` 3.500 + `exec/classify` 1.500 = 5.000 di F1, sisa 2.000 untuk background `process_*` F5) | 0,8 MB | 7.000 | F1 (5.000) + F5 (2.000) |
+| exec (runner PTY/pipe, classify, sesi, proses background, env allowlist; ADR-081, ADR-106: `loc.budget` `exec` 3.400 + `exec/classify` 1.600 = 5.000 di F1, sisa 2.000 untuk background `process_*` F5) | 0,8 MB | 7.000 | F1 (5.000) + F5 (2.000) |
 | heal (supervisor gate, watchdog, repair, service install) + obs (`/healthz`, `/readyz`, `/metrics`) | 0,6 MB | 5.500 | F4 |
 | tui | 2,5 MB | 10.000 | F3 |
 | acp | 0,3 MB | 2.500 | F3 |

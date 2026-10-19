@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: meta-${{ github.ref }}
+  group: meta-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
