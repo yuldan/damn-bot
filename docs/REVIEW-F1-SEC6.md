@@ -147,3 +147,61 @@ Keduanya melanggar aturan "destructive/unknown tetap `denied` di `--unsafe-auto-
 - Runtime Windows (`cmd.exe` nyata) dan macOS; label diuji deterministik lewat `Dialect`.
 - Tabel opsi lengkap `start`/`call`/`if`/`for`, `unshare`, dan seluruh applet `busybox`/`toybox`.
 - Integrasi tool/approval end-to-end; CL5-9/CL5-10 hanya menjadi eksekusi tanpa approval lewat `--unsafe-auto-shell`.
+
+## Putaran 3 — final narrow check (2026-10-20)
+
+Head: `#44` `e080f4b`, `#46` `16b1871`. `#41`/`#43` tidak berubah.
+
+| PR | Verdict putaran 3 |
+|---|---|
+| #41, #43 | **approve** (tidak berubah; MINOR lama) |
+| #44 | **approve** — CL5-10 fixed; tidak ada bypass baru untuk bentuk yang diminta |
+| #46 | **changes** — CL5-9 hanya sebagian; `start` dengan title non-kosong atau `/d`/`/machine` masih lolos |
+
+### #44 — CL5-10 terverifikasi
+
+| Perintah | Label |
+|---|---|
+| `unshare --propagation shared sh -c 'rm -rf ~'` | destructive |
+| `unshare --propagation=shared sh -c 'rm -rf ~'` | unknown (fail-closed) |
+| `busybox ash -c 'rm -rf ~'`, `busybox hush …`, `busybox sh …` | destructive |
+| `busybox su -c 'rm -rf ~'` | destructive (privileged) |
+| `busybox --install -s` | unknown |
+| `toybox sh -c 'rm -rf ~'`, `toybox rm -rf ~`, `toybox ash -c …` | destructive |
+
+`--propagation` kini valued (`wrap.go:99-101`), `ash`/`hush` masuk `interpreters`, `toybox` masuk `wrappers`; suite classify hijau. Catatan di luar CL5-10: `busybox awk 'BEGIN{system(…)}'` tetap `mutating` (celah interpreter generik yang sudah ada, bukan regresi).
+
+### #46 — CL5-9 masih bocor lewat bentuk `start` standar
+
+Bentuk yang diminta lulus:
+
+| Perintah | Label/decision |
+|---|---|
+| `cmd /c start /wait rd /s /q C:\proj` | destructive/denied |
+| `cmd /c start "" /wait rd …` | destructive/denied |
+| `cmd /c start /affinity 1 rd …` | destructive/denied |
+| `cmd /c start cmd /c rd …` | destructive/denied |
+| `cmd /c cmd /c cmd /c rd …` | destructive/denied |
+| `cmd /c call rd …` | destructive/denied |
+| `cmd /c call :label` | unknown/denied |
+| `if errorlevel`, `if exist`, `if defined` | unknown/denied |
+| `for /r …`, `for /d …`, `goto` | unknown/denied |
+
+Namun tiga bentuk `start` yang umum masih `mutating` → `AutoApprove` di `--unsafe-auto-shell`:
+
+```
+cmd /c start "title" rd /s /q C:\proj            => mutating (auto)
+cmd /c start /d C:\proj rd /s /q C:\proj         => mutating (auto)
+cmd /c start /machine x64 rd /s /q C:\proj       => mutating (auto)
+```
+
+Penyebab: `cmdBuiltin` (`winlex.go:258-283`) hanya melewati title kosong (`""`) dan hanya mengonsumsi nilai `/node` dan `/affinity`; `/d <dir>` dan `/machine <arch>` juga mengambil nilai, dan title non-kosong (`start "Judul" prog`) dianggap argv0. `start "title" /wait rd …` kebetulan `denied` karena flag `outside_read`, tetapi bentuk tanpa `/wait` auto.
+
+**Rekomendasi:** pertahankan status "quoted" pada token lexer (atau aturan konservatif: token pertama `start` yang bukan opsi dan diikuti token lain = title), konsumsi nilai `/d` dan `/machine`, dan `unknown` untuk opsi `start` yang tidak dikenal. Tambah kasus title/`/d`/`/machine` ke `TestUnsafeAutoShellCmdBuiltins`/`TestRuleLabels`.
+
+Tidak ada temuan baru #44; suite `go test ./internal/exec/classify` hijau.
+
+### Tidak dicakup putaran 3
+
+- Runtime `cmd.exe` nyata; semantik title/opsi `start` diuji via `Dialect` deterministik.
+- Seluruh tabel opsi `start` (mis. `/node`, `/affinity` sudah; kombinasi lain) dan applet `busybox`/`toybox` di luar shell.
