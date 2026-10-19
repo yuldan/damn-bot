@@ -1,11 +1,16 @@
 package codetools
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
 
 func numbered(n int) string {
@@ -24,7 +29,7 @@ func TestReadLimits(t *testing.T) {
 	v.put(t, "big.txt", numbered(3000))
 	v.put(t, "long.txt", "x"+strings.Repeat("é", 2500)+"\nshort\n")
 	r := v.read(t, ReadArgs{Path: "big.txt"})
-	if h := firstLine(r.Content); !strings.Contains(h, "L1-400/3000") {
+	if h := firstLine(r.Content); !strings.Contains(h, "L1-400/3000 · utf-8 lf") {
 		t.Errorf("header %q", h)
 	}
 	if !strings.HasSuffix(r.Content, "400|line 400\nnext: offset=401") || r.Meta["next"] != 401 {
@@ -88,7 +93,10 @@ func TestReadEncodings(t *testing.T) {
 	t.Parallel()
 	v := newEnv(t)
 	cases := []struct{ name, raw, header, body string }{
-		{"invalid", "ok\nbad\xff\\x\n", "L1-2/2 · invalid_utf8=1", "1|ok\n2|bad\\xFF\\\\x"},
+		{"bom", bomUTF8 + "a\r\nb\r\n", "utf-8 bom crlf", "1|a\n2|b"},
+		{"le", bomUTF16LE + string(utf16le("hi\nyo\n")), "utf-16le bom lf", "1|hi\n2|yo"},
+		{"be-nobom", string(utf16be("ab\ncd\n")), "utf-16be lf", "1|ab\n2|cd"},
+		{"invalid", "ok\nbad\xff\\x\n", "utf-8 lf · invalid_utf8=1", "1|ok\n2|bad\\xFF\\\\x"},
 		{"empty", "", "L1-0/0", ""},
 	}
 	for _, c := range cases {
@@ -97,5 +105,192 @@ func TestReadEncodings(t *testing.T) {
 		if !strings.Contains(firstLine(r.Content), c.header) || !strings.Contains(r.Content, c.body) || strings.ContainsRune(r.Content, '\uFFFD') {
 			t.Errorf("%s: %q", c.name, r.Content)
 		}
+	}
+}
+
+func utf16le(s string) []byte {
+	var b []byte
+	for _, u := range utf16.Encode([]rune(s)) {
+		b = binary.LittleEndian.AppendUint16(b, u)
+	}
+	return b
+}
+
+func utf16be(s string) []byte {
+	var b []byte
+	for _, u := range utf16.Encode([]rune(s)) {
+		b = binary.BigEndian.AppendUint16(b, u)
+	}
+	return b
+}
+
+// TestBinarySniff is CT-34: 8 KiB window, NUL, > 10% invalid, magic; a
+// binary read is one descriptive line, not an error (§4.4).
+func TestBinarySniff(t *testing.T) {
+	t.Parallel()
+	ten := strings.Repeat("a", 90) + strings.Repeat("\xff", 10)
+	eleven := strings.Repeat("a", 89) + strings.Repeat("\xff", 11)
+	late := strings.Repeat("a", sniffLen) + "\x00"
+	for _, c := range []struct {
+		in  string
+		bin bool
+	}{{ten, false}, {eleven, true}, {"hello world\x00 more text", true}, {late, false}, {"\x7fELF\x02rest", true}, {"plain", false}} {
+		if bin, _ := sniffBinary([]byte(c.in), detectEnc([]byte(c.in))); bin != c.bin {
+			t.Errorf("sniff(%q…) = %v", c.in[:min(8, len(c.in))], bin)
+		}
+	}
+	v := newEnv(t)
+	v.put(t, "elf", "\x7fELF\x02\x01\x01"+strings.Repeat("\x00", 1200))
+	r := v.read(t, ReadArgs{Path: "elf"})
+	if r.Content != "binary: ELF 64-bit, 1.2 kB" || r.Meta["binary"] != true {
+		t.Errorf("binary read %q", r.Content)
+	}
+}
+
+// TestBinarySniffCorpus is CT-29: 300 files (100 binary with/without
+// magic, 50 UTF-16 LE/BE ± BOM, 50 UTF-8 with ≤ 10% invalid bytes, 50
+// minified, 50 plain); 0 misclassified and the grep footer counts exactly
+// the binaries.
+//
+//nolint:gocognit,gocyclo // builds the 300-file CT-29 corpus inline
+func TestBinarySniffCorpus(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	rng := testRand(29)
+	text := func(n int) string {
+		var b strings.Builder
+		for b.Len() < n {
+			fmt.Fprintf(&b, "word%d needle ", rng.IntN(1000))
+			if rng.IntN(8) == 0 {
+				b.WriteByte('\n')
+			}
+		}
+		return b.String()
+	}
+	magics := magics()
+	want := map[string]bool{}
+	for i := range 100 { // binaries: half with a magic, half random with NULs
+		var b []byte
+		if i%2 == 0 {
+			m := magics[i/2%len(magics)]
+			b = append(bytes.Repeat([]byte{'x'}, m.off), m.sig...)
+			if m.off == 8 {
+				copy(b, "RIFF")
+			}
+			if m.off == 30 {
+				copy(b, "PK\x03\x04")
+			}
+		}
+		for range 250 + rng.IntN(2500) {
+			b = binary.LittleEndian.AppendUint64(b, rng.Uint64())
+		}
+		b = append(b, "\x00 needle"...)
+		name := fmt.Sprintf("bin/%03d.dat", i)
+		v.put(t, name, string(b))
+		want[name] = true
+	}
+	for i := range 50 {
+		s := text(500 + rng.IntN(5000))
+		var b []byte
+		switch i % 4 {
+		case 0:
+			b = append([]byte(bomUTF16LE), utf16le(s)...)
+		case 1:
+			b = append([]byte(bomUTF16BE), utf16be(s)...)
+		case 2:
+			b = utf16le(s)
+		default:
+			b = utf16be(s)
+		}
+		v.put(t, fmt.Sprintf("u16/%02d.txt", i), string(b))
+		inv := []byte(text(2000 + rng.IntN(4000)))
+		for range len(inv) / 12 { // < 10% invalid
+			inv[rng.IntN(len(inv))] = 0xff
+		}
+		v.put(t, fmt.Sprintf("inv/%02d.txt", i), string(inv))
+		v.put(t, fmt.Sprintf("min/%02d.js", i), strings.ReplaceAll(text(20000+rng.IntN(40000)), "\n", ";"))
+		v.put(t, fmt.Sprintf("txt/%02d.txt", i), text(100+rng.IntN(3000)))
+	}
+	err := filepath.WalkDir(v.root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b := readFixture(t, p)
+		rel := filepath.ToSlash(strings.TrimPrefix(p, v.root+string(filepath.Separator)))
+		if bin, _ := sniffBinary(b, detectEnc(b)); bin != want[rel] {
+			t.Errorf("%s: binary=%v want %v", rel, bin, want[rel])
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := v.e.Grep(context.Background(), &GrepArgs{Pattern: "needle", Mode: "files", Limit: grepMaxLimit}, Opts{PageChars: 1 << 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(r.Content, "skipped: 100 binary") || r.Meta["files"] != 200 {
+		t.Errorf("grep footer/files: files=%v %q", r.Meta["files"], r.Content[len(r.Content)-80:])
+	}
+}
+
+// TestReadLarge covers §4.5: files above 8 MiB are paged without loading
+// them; a cold tail numbers from the end, a later read is absolute.
+func TestReadLarge(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	var b strings.Builder
+	for i := 1; b.Len() <= fullHashMax; i++ {
+		fmt.Fprintf(&b, "%08d %s\n", i, strings.Repeat("z", 40))
+	}
+	total := strings.Count(b.String(), "\n")
+	v.put(t, "big.log", b.String())
+	r := v.read(t, ReadArgs{Path: "big.log", Offset: new(-2)})
+	if !strings.Contains(r.Content, "numbering=from-end") || !strings.Contains(r.Content, fmt.Sprintf("-1|%08d", total)) {
+		t.Fatalf("cold tail %q", r.Content)
+	}
+	r = v.read(t, ReadArgs{Path: "big.log", Offset: new(total - 1), Limit: 5})
+	if !strings.Contains(firstLine(r.Content), fmt.Sprintf("L%d-%d/%d", total-1, total, total)) ||
+		!strings.HasSuffix(r.Content, fmt.Sprintf("%d|%08d %s", total, total, strings.Repeat("z", 40))) {
+		t.Errorf("indexed page %q", r.Content)
+	}
+	r = v.read(t, ReadArgs{Path: "big.log", Offset: new(1001), Limit: 1})
+	if !strings.Contains(r.Content, "1001|00001001 ") {
+		t.Errorf("checkpoint seek %q", r.Content)
+	}
+	if tag := metaStr(&r, "tag"); tag != statTag(keyOf(filepath.Join(v.root, "big.log"), mustStat(t, filepath.Join(v.root, "big.log")))) {
+		t.Errorf("file > 8 MiB must carry a stat-tag")
+	}
+}
+
+func mustStat(t testing.TB, p string) os.FileInfo {
+	t.Helper()
+	fi, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi
+}
+
+// TestOutline covers §4.6 (CT-07 functionality): go/ast symbols with
+// receivers, heuristic nesting for other languages, parse errors partial.
+func TestOutline(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	v.put(t, "a.go", "package a\n\ntype S struct{}\n\nfunc (s *S) M() {}\n\nfunc F() {\n}\n\nconst C = 1\n")
+	r := v.read(t, ReadArgs{Path: "a.go", Outline: true})
+	want := "· outline · go/ast · 4 symbols\nL3-3 type S struct\nL5-5 func (*S) M\nL7-8 func F\nL10-10 const C"
+	if !strings.Contains(r.Content, want) {
+		t.Errorf("go outline %q", r.Content)
+	}
+	v.put(t, "b.py", "class A:\n    def m(self):\n        pass\n\ndef f():\n    pass\n")
+	r = v.read(t, ReadArgs{Path: "b.py", Outline: true})
+	if !strings.Contains(r.Content, "heuristic · 3 symbols\nL1-4 class A\n  L2-4 def m\nL5-6 def f") {
+		t.Errorf("heuristic outline %q", r.Content)
+	}
+	v.put(t, "bad.go", "package a\nfunc Ok() {}\nfunc (\n")
+	r = v.read(t, ReadArgs{Path: "bad.go", Outline: true})
+	if !strings.Contains(r.Content, "parse_errors=") || !strings.Contains(r.Content, "func Ok") {
+		t.Errorf("partial outline %q", r.Content)
 	}
 }

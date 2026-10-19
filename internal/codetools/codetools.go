@@ -19,7 +19,9 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/damnbot/damnbot/internal/boundary"
 	"github.com/damnbot/damnbot/internal/sandbox"
 )
 
@@ -107,17 +109,33 @@ type Config struct {
 	// Roots are the session roots in sandbox order: Roots[0] is the cwd that
 	// relative paths resolve against; Roots[n>0] display as "@n/".
 	Roots []string
+	// NewEOL is files.new_eol for created files: "lf" (default) or "crlf".
+	NewEOL string
+	// Home and XDGConfigHome locate the global git config and excludes
+	// (CODE-TOOLS §2.3); empty = os.UserHomeDir / $XDG_CONFIG_HOME or
+	// Home/.config.
+	Home, XDGConfigHome string
 }
 
 // Engine runs the file tools of one session. Close releases its caches and
 // stops background index builds.
 type Engine struct {
-	sb    *sandbox.Sandbox
-	roots []string
-	fold  bool // case-insensitive root prefixes (Windows)
+	sb     *sandbox.Sandbox
+	roots  []string
+	newEOL string
+	fold   bool // case-insensitive root prefixes (Windows)
+	home   string
+	xdg    string
+	// hook is a test seam called at named commit points; an error aborts
+	// the write there (failure injection, CT-25 kill points).
+	hook func(point string) error
 
-	mu    sync.Mutex
-	cache *caches
+	mu       sync.Mutex
+	bg       []bgTask // background index builds, stopped by Close
+	building map[fileKey]bool
+	idle     *time.Timer // idle cache release (CODE-TOOLS §7)
+	cache    *caches
+	locks    map[string]*pathMu // per-file edit locks, dropped when idle
 }
 
 // New builds an Engine; roots are canonicalized like the sandbox does.
@@ -125,7 +143,20 @@ func New(cfg *Config) (*Engine, error) {
 	if cfg == nil || cfg.Sandbox == nil || len(cfg.Roots) == 0 {
 		return nil, errors.New("codetools: sandbox and roots required")
 	}
-	e := &Engine{sb: cfg.Sandbox, fold: runtime.GOOS == "windows"}
+	e := &Engine{sb: cfg.Sandbox, newEOL: "\n", fold: runtime.GOOS == "windows", building: map[fileKey]bool{}, locks: map[string]*pathMu{}}
+	if cfg.NewEOL == "crlf" {
+		e.newEOL = "\r\n"
+	}
+	e.home, e.xdg = cfg.Home, cfg.XDGConfigHome
+	if h, err := os.UserHomeDir(); e.home == "" && err == nil {
+		e.home = h
+	}
+	if e.xdg == "" {
+		e.xdg = os.Getenv("XDG_CONFIG_HOME")
+	}
+	if e.xdg == "" && e.home != "" {
+		e.xdg = filepath.Join(e.home, ".config")
+	}
 	for _, r := range cfg.Roots {
 		abs, err := filepath.Abs(r)
 		if err != nil {
@@ -144,8 +175,41 @@ func New(cfg *Config) (*Engine, error) {
 // Close stops background work and drops every cache and tag.
 func (e *Engine) Close() {
 	e.mu.Lock()
+	bg := e.bg
+	e.bg = nil
 	e.cache = newCaches()
+	if e.idle != nil {
+		e.idle.Stop()
+	}
 	e.mu.Unlock()
+	for _, t := range bg {
+		t.cancel()
+		<-t.task.Done()
+	}
+}
+
+type bgTask struct {
+	task   *boundary.Task
+	cancel context.CancelFunc
+}
+
+// goBackground runs fn on an Engine-owned goroutine (E-26) that outlives
+// the request (ctx values kept, cancellation dropped) until Close.
+func (e *Engine) goBackground(ctx context.Context, name string, fn func(context.Context) error) {
+	bctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	live := e.bg[:0]
+	for _, t := range e.bg {
+		select {
+		case <-t.task.Done():
+			t.cancel()
+		default:
+			live = append(live, t)
+		}
+	}
+	live = append(live, bgTask{task: boundary.Go(bctx, name, fn), cancel: cancel})
+	e.bg = live
 }
 
 // abs resolves a tool path argument against the session cwd.
@@ -232,6 +296,20 @@ func (e *Engine) openPath(ctx context.Context, abs, p string, flag int, perm fs.
 	return f, v, nil
 }
 
+// openResolved opens a path found by a walk or written by this Engine
+// (sandbox.OpenResolved); a verdict needing approval that approved does
+// not cover fails closed.
+func (e *Engine) openResolved(ctx context.Context, p string, approved bool) (*os.File, error) {
+	f, v, err := e.sb.OpenResolved(ctx, p, approved)
+	switch {
+	case err != nil:
+		return nil, mapOpenErr(e.rel(p), err)
+	case f == nil:
+		return nil, approval(v, e.rel(p), false)
+	}
+	return f, nil
+}
+
 // mapOpenErr classifies sandbox/OS open failures by sentinel (E-21).
 func mapOpenErr(p string, err error) error {
 	switch {
@@ -251,6 +329,14 @@ func mapOpenErr(p string, err error) error {
 		return &ToolError{Code: CodeDeniedPath, Message: p + ": permission denied by the OS", Err: err}
 	}
 	return &ToolError{Code: CodeInternal, Message: "open " + p, Err: err}
+}
+
+// close releases the target's read handle once (idempotent).
+func (t *target) close(err *error) {
+	if t.f != nil {
+		closeInto(err, t.f)
+		t.f = nil
+	}
 }
 
 // closeInto closes c and keeps its error in *err unless one is set.
