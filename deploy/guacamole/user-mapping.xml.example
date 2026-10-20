@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Contoh user-mapping Apache Guacamole (docs/VPS.md §7).
+  SALIN ke user-mapping.xml lalu ganti CHANGE_ME; file hasil salinan berisi
+  password dan TIDAK boleh di-commit. Password di sini plaintext sesuai format
+  user-mapping Guacamole; lindungi dengan chmod 600 dan disk terenkripsi.
+-->
+<user-mapping>
+  <authorize username="dev" password="CHANGE_ME">
+    <connection name="Damn-Bot XFCE">
+      <protocol>rdp</protocol>
+      <param name="hostname">127.0.0.1</param>
+      <param name="port">3389</param>
+      <param name="username">dev</param>
+      <param name="password">CHANGE_ME_RDP</param>
+      <param name="security">any</param>
+      <param name="ignore-cert">true</param>
+      <param name="resize-method">display-update</param>
+      <param name="width">1280</param>
+      <param name="height">720</param>
+    </connection>
+  </authorize>
+</user-mapping>

@@ -1,0 +1,33 @@
+# Apache Guacamole (Apache-2.0) — RDP lewat browser, tanpa klien khusus.
+# Dokumen: docs/VPS.md §7. Salin lalu sesuaikan:
+#   cp user-mapping.xml.example user-mapping.xml && chmod 600 user-mapping.xml
+#   docker compose up -d
+#   sudo tailscale serve --bg 8080     # HTTPS di nama MagicDNS tailnet
+#
+# Web hanya listen di 127.0.0.1:8080. Jangan mengganti bind ke 0.0.0.0.
+# Image dipin tag + digest. Perbarui digest bila sengaja upgrade.
+version: "3.8"
+
+services:
+  guacd:
+    # guacd memakai network host agar bisa menghubungi xrdp di 127.0.0.1:3389.
+    image: guacamole/guacd:1.6.0@sha256:8974eaa9ba32f713daf311e7cc8cd7e4cdfba1edea39eed75524e78ef4b08f4f
+    container_name: damnbot-guacd
+    restart: unless-stopped
+    network_mode: host
+
+  guacamole:
+    image: guacamole/guacamole:1.6.0@sha256:f344085e618bb05e22b964b0208dbd06d3468275bac70206f93805245e067b40
+    container_name: damnbot-guacamole
+    restart: unless-stopped
+    depends_on:
+      - guacd
+    ports:
+      - "127.0.0.1:8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      GUACD_HOSTNAME: host.docker.internal
+      GUACD_PORT: "4822"
+    volumes:
+      - ./user-mapping.xml:/etc/guacamole/user-mapping.xml:ro

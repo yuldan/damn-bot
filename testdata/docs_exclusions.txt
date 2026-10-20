@@ -15,3 +15,5 @@ docs/AUDIT-*.md
 # Artefak review keamanan/auditor (ADR-104): temuan + bukti, bukan spec.
 docs/REVIEW-*.md
 docs/HANDOFF-*.md
+# Panduan operasional (bukan spec; ADR-107).
+docs/VPS.md

@@ -1,0 +1,74 @@
+#cloud-config
+# Bootstrap "RDP-first" untuk VPS Debian: desktop + xrdp + Tailscale tanpa SSH.
+# Dokumen lengkap: docs/VPS.md §6.
+#
+# WAJIB DIGANTI sebelum dipakai (jangan commit salinan yang sudah diisi):
+#  1. passwd: hash SHA-512 password user dev.
+#       openssl passwd -6 'password-anda'
+#     Alternatif plaintext (tidak disarankan untuk file yang disimpan):
+#       chpasswd: [{name: dev, password: "password-anda", type: text}]
+#  2. TS_AUTHKEY: auth key Tailscale sekali pakai
+#       https://login.tailscale.com/admin/settings/keys
+#
+# UFW: 3389 ditolak untuk publik; hanya antarmuka tailscale0 yang diizinkan.
+
+package_update: true
+
+packages:
+  - xfce4
+  - xfce4-goodies
+  - xrdp
+  - xorgxrdp
+  - dbus-x11
+  - ufw
+  - curl
+  - ca-certificates
+  - sudo
+
+users:
+  - name: dev
+    gecos: Damn-Bot developer
+    groups: [sudo]
+    shell: /bin/bash
+    lock_passwd: false
+    # Hash SHA-512 dari password pilihan Anda (lihat header di atas).
+    passwd: "CHANGE_ME"
+
+write_files:
+  - path: /home/dev/.xsession
+    owner: dev
+    permissions: '0755'
+    content: |
+      startxfce4
+  - path: /home/dev/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml
+    owner: dev
+    permissions: '0600'
+    content: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <channel name="xfwm4" version="1.0">
+        <property name="general" type="empty">
+          <property name="use_compositing" type="bool" value="false"/>
+        </property>
+      </channel>
+
+runcmd: |
+  # Tidak memakai `set -e`: satu langkah gagal tidak boleh membatalkan langkah lain.
+  set -u
+  systemctl enable --now xrdp
+  ufw default deny incoming
+  ufw default allow outgoing
+  ufw deny 3389/tcp
+  ufw --force enable
+  codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+  curl -fsSL "https://pkgs.tailscale.com/stable/debian/${codename}.noarmor.gpg" \
+    -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+  curl -fsSL "https://pkgs.tailscale.com/stable/debian/${codename}.tailscale-keyring.list" \
+    -o /etc/apt/sources.list.d/tailscale.list
+  apt-get update
+  apt-get install -y tailscale
+  # GANTI TS_AUTHKEY. Tanpa auth key, jalankan `sudo tailscale up` lewat konsol penyedia.
+  tailscale up --auth-key=CHANGE_ME_TS_AUTHKEY --hostname=damnbot-vps || true
+  # tailnet boleh RDP; rule disisipkan di atas DENY 3389 agar menang urutan.
+  ufw insert 1 allow in on tailscale0 to any port 3389 proto tcp || true
+
+final_message: "Damn-Bot RDP-first siap. Sambungkan Windows App ke nama MagicDNS VPS (port 3389) lewat Tailscale."
