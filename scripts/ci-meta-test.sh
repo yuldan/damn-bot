@@ -76,7 +76,7 @@ marker() {
 	deps-check) echo 'tidak ada di deps.allow' ;;
 	vuln) echo 'GO-[0-9]{4}-[0-9]+' ;;
 	licenses) echo 'GPL' ;;
-	tidy-check) echo 'BurntSushi/toml' ;;
+	tidy-check) echo 'example.com/meta/tidy' ;;
 	mod-verify) echo 'has been modified' ;;
 	bench-budget) echo 'TestMetaBench' ;;
 	phase-file) echo 'PHASE GAGAL' ;;
@@ -430,8 +430,17 @@ EOF
 		(cd "$d" && go mod edit -require=example.com/metagpl@v0.0.0 -replace=example.com/metagpl=./metagpl)
 		;;
 	tidy-check)
-		# Require yang tidak dipakai → `go mod tidy -diff` harus menampilkan diff (E-46).
-		(cd "$d" && go mod edit -require=github.com/BurntSushi/toml@v1.6.0)
+		# Require modul lokal yang tidak diimpor -> `go mod tidy -diff` harus
+		# menampilkan diff (E-46). Modul ini sengaja TIDAK ada di go.mod asli,
+		# sehingga gate tidak bisa lolos hanya karena dependency nyata.
+		gofile "$d/metatidy/meta.go" <<'GOEOF'
+package metatidy
+
+// V is unused: the synthetic require must be removed by tidy.
+const V = "meta"
+GOEOF
+		printf 'module example.com/meta/tidy\n\ngo 1.26\n' >"$d/metatidy/go.mod"
+		(cd "$d" && go mod edit -require=example.com/meta/tidy@v0.0.0 -replace=example.com/meta/tidy=./metatidy)
 		;;
 	mod-verify)
 		# Rusak satu file modul di cache terisolasi → `go mod verify` harus gagal (E-47).

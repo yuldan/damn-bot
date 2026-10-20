@@ -10,9 +10,11 @@
 /cmd/damnbot/ @yuldan
 
 /internal/archtest/ @yuldan
+/internal/assemble/ @yuldan
 /internal/boundary/ @yuldan
 /internal/budget/ @yuldan
 /internal/codetools/ @yuldan
+/internal/config/ @yuldan
 /internal/ctxdb/ @yuldan
 /internal/exec/ @yuldan
 /internal/netx/ @yuldan
