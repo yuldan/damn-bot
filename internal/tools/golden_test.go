@@ -12,8 +12,7 @@ import (
 	"testing"
 )
 
-//nolint:gochecknoglobals // test flag
-var updateGolden = flag.Bool("update", false, "rewrite model-facing golden files")
+var updateGolden = flag.Bool("update", false, "rewrite model-facing golden files") //nolint:gochecknoglobals // test-only update flag
 
 // goldenDoc is the committed model-facing shape (E-68).
 type goldenDoc struct {
@@ -74,8 +73,7 @@ type goldenCase struct {
 	args func(*goldenEnv) string
 }
 
-//nolint:gochecknoglobals // table of golden cases
-var goldenCases = map[string][]goldenCase{
+var goldenCases = map[string][]goldenCase{ //nolint:gochecknoglobals // table of golden cases
 	"read_file": {
 		{"success", func(*goldenEnv) string { return `{"path":"a.txt"}` }},
 		{"missing_path", func(*goldenEnv) string { return `{}` }},
