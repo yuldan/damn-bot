@@ -187,6 +187,19 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | E-69 `providertest` | server palsu loopback, skrip, replay fixture SSE, `FakeClock` | `TestFixtureAndLatency`, semua test klien | selesai |
 | EC-PROV F1 | 001, 004..007, 011..013, 015, 016, 025 di `provider`; 009/010/028..030 di `netx` | `TestEdgeCases/<ID>` (gate PHASE) | covered |
 
+
+### `internal/exec` (ADR-105)
+
+| PR | Isi | Baris Go non-test (diff) | Hasil |
+|---|---|---:|---|
+| exec a | tipe hasil (`ExecStatus` ADR-082), lapisan proses per OS, capture | lihat PR | CI; menunggu auditor |
+
+| Item | Implementasi | Test | Status |
+|---|---|---|---|
+| Runner pipe/pty (§A.1) | `start` (`proc_unix.go`, `proc_windows.go`), `sysAttr` | `TestProcPipeExit`, `TestProcStdinPipe`, `TestProcPTY`, `TestProcJobExit` | PR a |
+| Kill pohon proses (§A.4) | `terminate`/`kill` ke pgid; `TerminateJobObject` | `TestProcGroupTerminate`, `TestProcGroupKillIgnoresTrap`, `TestProcJobKillTree` | PR a |
+| Capture output | `capture` head 8 MiB + ring 8 MiB | `TestCaptureHeadTail`, `TestCaptureHugeWrite`, `TestCaptureSmall` | PR a |
+| Loop timeout/cancel, sweep marker, env, mode one-shot, prompt interaktif, idle, ConPTY, summarize, P24 | — | — | PR berikutnya |
 ## Handoff f1-net (pause)
 
 Status 2026-10-20 saat proyek di-pause. Semua kerja ada di branch remote; tidak ada yang hanya ada di `/tmp`. Tidak ada PR yang security-gated yang di-merge.
