@@ -90,12 +90,15 @@ func interactiveFixtures(t *testing.T) []interactiveFixture {
 // TestInteractiveCorpus (P24.2, §A.6): every fixture returns quickly with
 // status exited or waiting_for_input — pipe (stdin = /dev/null fails
 // fast) and PTY (prompt detected, tree killed).
+//
+// Not parallel: the wchan fixtures all reach the 5 s silence mark together,
+// and each Runner scans /proc once a second; running the corpus alongside
+// itself (and TestNoOrphans does not run parallel either) made those scans
+// contend and pushed vi/pty past its 8 s bound on CI (P24.2).
 func TestInteractiveCorpus(t *testing.T) {
-	t.Parallel()
 	for _, f := range interactiveFixtures(t) {
 		for _, pty := range []bool{false, true} {
 			t.Run(f.name+map[bool]string{false: "/pipe", true: "/pty"}[pty], func(t *testing.T) {
-				t.Parallel()
 				skipFixture(t, f, pty)
 				res := run(t.Context(), t, newTestRunner(t), fixtureSpec(t, f, pty))
 				if msg := checkFixture(f, pty, &res); msg != "" {
