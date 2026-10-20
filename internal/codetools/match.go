@@ -26,7 +26,12 @@ type matcher struct {
 	re        *regexp.Regexp // nil: pure literal
 	pre       *regexp.Regexp // buffer-wide candidate search when lits is empty
 	lits      []lit          // any-of prefilter; empty: RE2 over the buffer
+	seq       *preSeq        // required class sequence when no literal is better
 	multiline bool
+	// preTrust: a pre match is already the line's match (pre is the exact
+	// regex and the pattern cannot match '\n'), so the line is not run
+	// through RE2 a second time.
+	preTrust bool
 }
 
 // maxAltLits bounds an alternation turned into a literal set.
@@ -35,19 +40,10 @@ const maxAltLits = 8
 // compileMatcher compiles pattern with the case mode (smart, sensitive,
 // insensitive). Smart = insensitive unless a literal has an upper case letter.
 func compileMatcher(pattern, mode string) (*matcher, error) {
-	re0, err := syntax.Parse(pattern, syntax.Perl)
+	re0, fold, err := matcherSyntax(pattern, mode)
 	if err != nil {
-		return nil, fmt.Errorf("codetools: pattern: %w", err)
+		return nil, err
 	}
-	fold := mode == "insensitive" || mode != "sensitive" && !hasUpper(re0)
-	flags := syntax.Perl
-	if fold {
-		flags |= syntax.FoldCase
-	}
-	if re0, err = syntax.Parse(pattern, flags); err != nil {
-		return nil, fmt.Errorf("codetools: pattern: %w", err)
-	}
-	re0 = re0.Simplify()
 	m := &matcher{multiline: strings.Contains(pattern, `\n`) || strings.Contains(pattern, "\n")}
 	if s, f, ok := pureLiteral(re0); ok && !m.multiline {
 		m.lits = []lit{newLit(s, f)}
@@ -60,13 +56,352 @@ func compileMatcher(pattern, mode string) (*matcher, error) {
 	if m.re, err = regexp.Compile(prefix + "(?m)" + pattern); err != nil {
 		return nil, fmt.Errorf("codetools: pattern: %w", err)
 	}
+	if err := m.selectPrefilter(pattern, re0, fold); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// matcherSyntax parses pattern with the smart/sensitive/insensitive mode.
+func matcherSyntax(pattern, mode string) (*syntax.Regexp, bool, error) {
+	re0, err := syntax.Parse(pattern, syntax.Perl)
+	if err != nil {
+		return nil, false, fmt.Errorf("codetools: pattern: %w", err)
+	}
+	fold := mode == "insensitive" || mode != "sensitive" && !hasUpper(re0)
+	flags := syntax.Perl
+	if fold {
+		flags |= syntax.FoldCase
+	}
+	if re0, err = syntax.Parse(pattern, flags); err != nil {
+		return nil, false, fmt.Errorf("codetools: pattern: %w", err)
+	}
+	return re0.Simplify(), fold, nil
+}
+
+// selectPrefilter chooses the required literal set, the required class run
+// or the plain RE2 candidate search.
+func (m *matcher) selectPrefilter(pattern string, re0 *syntax.Regexp, fold bool) error {
 	if !m.multiline {
 		m.lits = required(re0)
+		if seq, ok := requiredSeq(re0); ok && len(seq) >= 2 && !canMatchNL(re0) &&
+			(m.lits == nil || len(seq) > minLen(m.lits)) {
+			m.seq = newPreSeq(seq)
+		}
 	}
-	if m.pre = m.re; len(m.lits) == 0 && !m.multiline {
+	if m.pre = m.re; len(m.lits) == 0 && m.seq == nil && !m.multiline {
+		flags := syntax.Perl
+		if fold {
+			flags |= syntax.FoldCase
+		}
+		var err error
 		m.pre, err = crlfPrefilter(pattern, flags, m.re)
+		if err != nil {
+			return err
+		}
+		m.preTrust = m.pre == m.re && !canMatchNL(re0)
 	}
-	return m, err
+	return nil
+}
+
+// canMatchNL reports whether re can consume a newline (a character class
+// such as [^x] does, unlike '.' without (?s)); a match of such a pattern
+// may start on one line and end on the next, so a buffer match alone does
+// not prove a line match.
+func canMatchNL(re *syntax.Regexp) bool {
+	if re.Op == syntax.OpAnyChar {
+		return true
+	}
+	if re.Op == syntax.OpLiteral || re.Op == syntax.OpCharClass {
+		return slices.Contains(re.Rune, '\n')
+	}
+	return slices.ContainsFunc(re.Sub, canMatchNL)
+}
+
+// maxSeqAtoms bounds the required atom sequence used as a prefilter.
+const maxSeqAtoms = 16
+
+// seqAtom matches one byte of a required sequence: a literal byte or an
+// ASCII byte class (a bytewise superset for multi-byte runes is sound: an
+// occurrence may only add candidates, never hide a match).
+type seqAtom struct {
+	cls *[256]bool // nil: literal byte
+	ch  byte
+	n   int // class cardinality (anchor choice)
+}
+
+func (a *seqAtom) match(c byte) bool {
+	if a.cls != nil {
+		return a.cls[c]
+	}
+	return a.ch == c
+}
+
+// asciiByte narrows an ASCII rune to a byte. Every caller first rejects
+// r >= utf8.RuneSelf; the bounds check keeps the narrowing safe (G115).
+func asciiByte(r rune) byte {
+	if r < 0 || r >= utf8.RuneSelf {
+		return 0
+	}
+	return byte(r)
+}
+
+// atomLiteral compiles one literal rune; non-ASCII literals stop a
+// sequence (their UTF-8 bytes are not aligned with pattern positions).
+func atomLiteral(r rune, fold bool) (seqAtom, bool) {
+	if r >= utf8.RuneSelf {
+		return seqAtom{}, false
+	}
+	if !fold {
+		return seqAtom{ch: asciiByte(r), n: 1}, true
+	}
+	cls := &[256]bool{}
+	n := 1
+	cls[asciiByte(r)] = true
+	if r >= 'a' && r <= 'z' {
+		cls[asciiByte(r-'a'+'A')] = true
+		n = 2
+	} else if r >= 'A' && r <= 'Z' {
+		cls[asciiByte(r-'A'+'a')] = true
+		n = 2
+	}
+	return seqAtom{cls: cls, n: n}, true
+}
+
+// atomClass compiles an ASCII character class; any non-ASCII range stops
+// the sequence (a bytewise check could otherwise miss a match).
+func atomClass(re *syntax.Regexp) (seqAtom, bool) {
+	cls := &[256]bool{}
+	n := 0
+	for i := 0; i+1 < len(re.Rune); i += 2 {
+		lo, hi := re.Rune[i], re.Rune[i+1]
+		if hi >= utf8.RuneSelf {
+			return seqAtom{}, false
+		}
+		for c := lo; c <= hi; c++ {
+			cls[asciiByte(c)] = true
+			n++
+		}
+	}
+	if n == 0 {
+		return seqAtom{}, false
+	}
+	return seqAtom{cls: cls, n: n}, true
+}
+
+// seqPart is one element of a pattern run: the atoms it contributes at
+// fixed offsets, and whether it can consume more bytes than len(atoms)
+// (a variable-length repeat shifts everything after it).
+type seqPart struct {
+	atoms  []seqAtom
+	varLen bool
+	ok     bool
+}
+
+// requiredSeq is the longest run of bytes every match of re must contain
+// (nil, false: none). It is the class-aware counterpart of required: a
+// pattern such as \d{5} or \w+_\w+\( has no useful literal, but every
+// match still contains five digits or a word byte, '_', a word byte.
+//
+// A run is sound only while its atoms sit at fixed offsets: atoms after a
+// variable-length element are shifted by however many extra bytes it
+// consumed. The builder therefore ends a run at a variable element and
+// restarts it at that element's last byte, which is adjacent to the next
+// pattern element (the last byte of X+ is always followed by what follows
+// the repeat).
+func requiredSeq(re *syntax.Regexp) ([]seqAtom, bool) {
+	parts := seqParts(re, nil)
+	var best, run []seqAtom
+	for _, p := range parts {
+		if !p.ok {
+			run = nil // variable gap: restart at the next fixed element
+			continue
+		}
+		if len(p.atoms) == 0 {
+			continue
+		}
+		run = append(run, p.atoms...)
+		if len(run) > maxSeqAtoms {
+			run = run[:maxSeqAtoms]
+		}
+		if len(run) > len(best) {
+			best = append([]seqAtom(nil), run...)
+		}
+		if p.varLen {
+			run = []seqAtom{p.atoms[len(p.atoms)-1]} // continue from the last byte
+		}
+	}
+	return best, best != nil
+}
+
+// seqParts flattens re into run elements: fixed-width atoms, variable
+// repeats and break markers (ok=false) for elements that may consume a
+// variable number of bytes or none at all.
+func seqParts(re *syntax.Regexp, out []seqPart) []seqPart {
+	//nolint:exhaustive // default: every other op breaks the required run
+	switch re.Op {
+	case syntax.OpConcat:
+		for _, s := range re.Sub {
+			out = seqParts(s, out)
+		}
+		return out
+	case syntax.OpLiteral:
+		fold := re.Flags&syntax.FoldCase != 0
+		atoms := make([]seqAtom, 0, len(re.Rune))
+		for _, r := range re.Rune {
+			a, ok := atomLiteral(r, fold)
+			if !ok {
+				return append(out, seqPart{})
+			}
+			atoms = append(atoms, a)
+		}
+		return append(out, seqPart{atoms: atoms, ok: true})
+	case syntax.OpCharClass:
+		a, ok := atomClass(re)
+		if !ok {
+			return append(out, seqPart{})
+		}
+		return append(out, seqPart{atoms: []seqAtom{a}, ok: true})
+	case syntax.OpAnyCharNotNL:
+		cls := &[256]bool{}
+		for c := range 256 {
+			cls[c] = byte(c) != '\n'
+		}
+		return append(out, seqPart{atoms: []seqAtom{{cls: cls, n: 255}}, ok: true})
+	case syntax.OpCapture:
+		return seqParts(re.Sub[0], out)
+	case syntax.OpPlus:
+		return appendRepeat(out, seqParts(re.Sub[0], nil), 1, true)
+	case syntax.OpRepeat:
+		if re.Min < 1 {
+			return append(out, seqPart{})
+		}
+		return appendRepeat(out, seqParts(re.Sub[0], nil), re.Min, re.Max != re.Min)
+	case syntax.OpEmptyMatch, syntax.OpBeginLine, syntax.OpEndLine,
+		syntax.OpBeginText, syntax.OpEndText, syntax.OpWordBoundary, syntax.OpNoWordBoundary:
+		return out // zero-width: contributes nothing
+	default:
+		return append(out, seqPart{}) // *, ?, alternation, unsupported: break
+	}
+}
+
+// appendRepeat appends a repeat's required run: minRep copies of a fully
+// fixed sub, or just the sub's first fixed element when the sub itself
+// contains a variable part.
+func appendRepeat(out, sub []seqPart, minRep int, variable bool) []seqPart {
+	fixed := len(sub) > 0
+	for _, p := range sub {
+		if !p.ok || p.varLen || len(p.atoms) == 0 {
+			fixed = false
+			break
+		}
+	}
+	if !fixed {
+		if len(sub) == 0 || !sub[0].ok || len(sub[0].atoms) == 0 {
+			return append(out, seqPart{})
+		}
+		sub = sub[:1]
+	}
+	atoms := make([]seqAtom, 0, maxSeqAtoms)
+	for _, p := range sub {
+		atoms = append(atoms, p.atoms...)
+	}
+	n := min(minRep, maxSeqAtoms)
+	rep := make([]seqAtom, 0, min(len(atoms)*n, maxSeqAtoms))
+	for range n {
+		rep = append(rep, atoms...)
+		if len(rep) >= maxSeqAtoms {
+			break
+		}
+	}
+	return append(out, seqPart{atoms: rep[:min(len(rep), maxSeqAtoms)], varLen: variable, ok: true})
+}
+
+// preSeq is a required atom sequence with its rarest atom as the anchor:
+// only anchor occurrences are checked, so a scan costs one byte search
+// plus one window check per occurrence.
+type preSeq struct {
+	atoms  []seqAtom
+	anchor int
+	acls   *[256]bool
+	ach    byte
+}
+
+// newPreSeq picks the most selective atom as anchor: a literal by byte
+// rarity, otherwise the class with the fewest members.
+func newPreSeq(atoms []seqAtom) *preSeq {
+	best, at := -1, 0
+	for i := range atoms {
+		score := 1000 + rarestRank(atoms[i].ch)
+		if atoms[i].cls != nil {
+			score = 100 - atoms[i].n
+		}
+		if score > best {
+			best, at = score, i
+		}
+	}
+	return &preSeq{atoms: atoms, anchor: at, acls: atoms[at].cls, ach: atoms[at].ch}
+}
+
+// rarestRank is the byteRank position of c (higher is rarer).
+func rarestRank(c byte) int {
+	if i := strings.IndexByte(byteRank, c); i >= 0 {
+		return i
+	}
+	return len(byteRank)
+}
+
+// index returns the first start where the whole sequence occurs, or -1.
+func (s *preSeq) index(b []byte) int {
+	n := len(s.atoms)
+	if len(b) < n {
+		return -1
+	}
+	last := len(b) - n
+	for i := 0; i <= last; {
+		occ := s.findAnchor(b, i+s.anchor)
+		if occ < 0 {
+			return -1
+		}
+		start := occ - s.anchor
+		if start > last {
+			return -1
+		}
+		if s.matchAt(b, start) {
+			return start
+		}
+		i = start + 1
+	}
+	return -1
+}
+
+// findAnchor is the first anchor match at or after pos.
+func (s *preSeq) findAnchor(b []byte, pos int) int {
+	if pos >= len(b) {
+		return -1
+	}
+	if s.acls == nil {
+		if j := bytes.IndexByte(b[pos:], s.ach); j >= 0 {
+			return pos + j
+		}
+		return -1
+	}
+	for i := pos; i < len(b); i++ {
+		if s.acls[b[i]] {
+			return i
+		}
+	}
+	return -1
+}
+
+// matchAt reports whether every atom matches at start.
+func (s *preSeq) matchAt(b []byte, start int) bool {
+	for k := range s.atoms {
+		if !s.atoms[k].match(b[start+k]) {
+			return false
+		}
+	}
+	return true
 }
 
 // crlfPrefilter is the buffer-wide RE2 of a pattern without required
@@ -355,7 +690,7 @@ func (m *matcher) next(buf []byte, pos int, at *[maxAltLits]int) (hit, col int) 
 		return -1, -1
 	}
 	ls := bytes.LastIndexByte(buf[pos:hit], '\n') + 1 + pos
-	if m.re == nil {
+	if m.re == nil || m.preTrust {
 		return hit, hit - ls
 	}
 	le := bytes.IndexByte(buf[hit:], '\n')
@@ -372,15 +707,28 @@ func (m *matcher) next(buf []byte, pos int, at *[maxAltLits]int) (hit, col int) 
 
 // candidate is the earliest candidate byte at or after pos (-1 = none).
 func (m *matcher) candidate(buf []byte, pos int, at *[maxAltLits]int) int {
-	hit := -1
+	if m.seq != nil {
+		if j := m.seq.index(buf[pos:]); j >= 0 {
+			return pos + j
+		}
+		return -1
+	}
 	if len(m.lits) == 0 {
 		// A buffer match starts no later than any single-line match; the
 		// line holding its start is then verified alone (no match across
 		// '\n' outside multiline mode, like rg).
 		if loc := m.pre.FindIndex(buf[pos:]); loc != nil {
-			hit = pos + loc[0]
+			return pos + loc[0]
 		}
+		return -1
 	}
+	return m.earliestLit(buf, pos, at)
+}
+
+// earliestLit is the earliest literal occurrence at or after pos, reusing
+// the cached positions in at.
+func (m *matcher) earliestLit(buf []byte, pos int, at *[maxAltLits]int) int {
+	hit := -1
 	for i := range m.lits {
 		if at[i] < pos && at[i] != -1 {
 			at[i] = m.lits[i].index(buf[pos:])

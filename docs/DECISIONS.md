@@ -2636,3 +2636,15 @@ Duplikasi sudah dibuang lebih dulu (satu jalur open sandbox untuk baca/tulis; `r
 **Ditolak.** (a) Membuang fitur atau test seam untuk masuk 4.500: jalur in-place tanpa backup/pemulihan adalah temuan BLOCKER CT27-2. (b) Memindahkan kode ke paket lain demi angka (memecah satu engine tanpa alasan desain). (c) Menaikkan baris codetools di SPEC §3.2.4: tidak perlu, karena tabel per paket berada di dalam budget gabungan.
 
 **Dampak terukur (SPEC §20).** Token 0, dependency 0. LOC: lihat di atas; sisa 36 baris untuk optimasi kinerja CT-01..03.
+
+## ADR-108 — Budget LOC `codetools` 4.800 → 5.250 dan `sandbox`+`redact` 1.450 → 1.700 (prefilter CT-01..03)
+
+**Status:** Accepted 2026-10-20. Merevisi tabel ENGINEERING §2.4 dan `loc.budget`; SPEC §3.2.4 tidak berubah.
+
+**Konteks.** ADR-111 menyisakan 36 baris untuk optimasi CT-01..03; pengukuran pada korpus terkunci menunjukkan target CODE-TOOLS §10.2 belum tercapai (C1 literal 1,84×, regex 2,68×, glob 1,75× `rg`). Optimasi terukur yang tidak bisa dihilangkan tanpa kehilangan hasil: buka file lewat `openat(O_NOFOLLOW)` relatif ke direktori walk yang sudah divalidasi + pruning `deny_paths` per direktori (`sandbox`), ignore terindeks, prefilter kelas wajib regex, dan sniff ASCII satu lintasan. Hasil: C1 regex 2,68× → 1,85×, glob 1,75× → 1,34×, literal 1,84× → 1,75×; kode produksi menjadi `codetools` 5.235 dan `sandbox`+`redact` 1.639 (scc --no-gen, semua GOOS).
+
+**Keputusan.** `codetools` 4.800 → 5.250 dan `sandbox`+`redact` 1.450 → 1.700 di tabel ENGINEERING §2.4 dan `loc.budget`. Total core per paket 34.200 → 34.900 ≤ 47.000; total proyek ≤ 190.000 (tetap). Tidak ada baris lain yang berubah. Sisa gap terhadap 1,2×/1,5× bersifat struktural: setiap baris kandidat diverifikasi RE2 Go (backtracker ≈1,5 µs/baris), sedangkan `rg` memakai lazy DFA + SIMD memchr; menutupnya butuh executor DFA byte-level (di luar lingkup F1).
+
+**Ditolak.** (a) Membuang prefilter untuk muat 4.800: kehilangan perbaikan terukur di atas. (b) `//nolint` massal untuk kompleksitas: E-52 membatasi density; fungsi dipecah menjadi helper. (c) Menaikkan baris `codetools` di SPEC §3.2.4.
+
+**Dampak terukur (SPEC §20).** Token 0, dependency 0.

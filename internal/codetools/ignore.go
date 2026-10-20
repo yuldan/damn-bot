@@ -24,10 +24,32 @@ type ignorePat struct {
 }
 
 // ignoreSet is one ignore file; base is its directory relative to the
-// matching root ("" or "dir/sub/").
+// matching root ("" or "dir/sub/"). The indexes split pats by the matcher
+// that can decide them, so an entry is matched with a few map lookups and
+// the (usually few) wildmatch patterns instead of every line of a large
+// .gitignore (hermes: 206 lines) (CT-16).
 type ignoreSet struct {
-	base string
-	pats []ignorePat
+	base    string
+	pats    []ignorePat
+	lit     map[string][]int // kind 1, nodir: basename → indexes
+	pathLit map[string][]int // kind 1, path: rel → indexes
+	suffix  []ignoreSuffix   // kind 2: "*" + literal suffix
+	globs   []ignoreGlob     // kind 0: wildmatch
+}
+
+// ignoreSuffix is a kind 2 pattern ("*.ext") with its indexes.
+type ignoreSuffix struct {
+	suf  string
+	idxs []int
+}
+
+// ignoreGlob is a wildmatch pattern with the literal prefix every match
+// must start with ("" when it starts with a wildcard).
+type ignoreGlob struct {
+	idx   int
+	pat   string
+	pre   string
+	nodir bool
 }
 
 // parseIgnore parses gitignore content exactly like git: '#' comments,
@@ -39,27 +61,76 @@ func parseIgnore(base string, data []byte) *ignoreSet {
 		if l == "" || l[0] == '#' {
 			continue
 		}
-		var p ignorePat
-		if l[0] == '!' {
-			p.neg, l = true, l[1:]
+		if p, ok := parseIgnoreLine(l); ok {
+			s.add(p)
 		}
-		if strings.HasSuffix(l, "/") {
-			p.dirOnly, l = true, l[:len(l)-1]
-		}
-		if l == "" {
-			continue
-		}
-		p.nodir = !strings.Contains(l, "/")
-		p.pat = strings.TrimPrefix(l, "/")
-		switch {
-		case !strings.ContainsAny(p.pat, `*?[\`):
-			p.kind = 1
-		case p.nodir && p.pat[0] == '*' && !strings.ContainsAny(p.pat[1:], `*?[\`):
-			p.kind = 2
-		}
-		s.pats = append(s.pats, p)
 	}
 	return s
+}
+
+// parseIgnoreLine parses one non-comment line; ok=false skips it.
+func parseIgnoreLine(l string) (ignorePat, bool) {
+	var p ignorePat
+	if l[0] == '!' {
+		p.neg, l = true, l[1:]
+	}
+	if strings.HasSuffix(l, "/") {
+		p.dirOnly, l = true, l[:len(l)-1]
+	}
+	if l == "" {
+		return p, false
+	}
+	p.nodir = !strings.Contains(l, "/")
+	p.pat = strings.TrimPrefix(l, "/")
+	switch {
+	case !strings.ContainsAny(p.pat, `*?[\`):
+		p.kind = 1
+	case p.nodir && p.pat[0] == '*' && !strings.ContainsAny(p.pat[1:], `*?[\`):
+		p.kind = 2
+	}
+	return p, true
+}
+
+// add indexes and records one pattern.
+func (s *ignoreSet) add(p ignorePat) {
+	idx := len(s.pats)
+	switch {
+	case p.kind == 1 && p.nodir:
+		if s.lit == nil {
+			s.lit = map[string][]int{}
+		}
+		s.lit[p.pat] = append(s.lit[p.pat], idx)
+	case p.kind == 1:
+		if s.pathLit == nil {
+			s.pathLit = map[string][]int{}
+		}
+		s.pathLit[p.pat] = append(s.pathLit[p.pat], idx)
+	case p.kind == 2:
+		s.addSuffix(p.pat[1:], idx)
+	default:
+		s.globs = append(s.globs, ignoreGlob{idx: idx, pat: p.pat, pre: literalPrefix(p.pat), nodir: p.nodir})
+	}
+	s.pats = append(s.pats, p)
+}
+
+// addSuffix indexes a kind 2 pattern by its literal suffix.
+func (s *ignoreSet) addSuffix(suf string, idx int) {
+	for i := range s.suffix {
+		if s.suffix[i].suf == suf {
+			s.suffix[i].idxs = append(s.suffix[i].idxs, idx)
+			return
+		}
+	}
+	s.suffix = append(s.suffix, ignoreSuffix{suf: suf, idxs: []int{idx}})
+}
+
+// literalPrefix is the bytes of a wildmatch pattern before its first
+// metacharacter: every match must start with them.
+func literalPrefix(pat string) string {
+	if i := strings.IndexAny(pat, `*?[\`); i >= 0 {
+		return pat[:i]
+	}
+	return pat
 }
 
 func trimTrailingSpaces(l string) string {
@@ -81,29 +152,49 @@ func (s *ignoreSet) match(rel string, isDir bool) (ignored, decided bool) {
 	}
 	rel = rel[len(s.base):]
 	base := rel[strings.LastIndexByte(rel, '/')+1:]
-	for i := len(s.pats) - 1; i >= 0; i-- {
-		p := &s.pats[i]
-		if p.dirOnly && !isDir {
-			continue
-		}
-		var ok bool
-		switch {
-		case p.kind == 1 && p.nodir:
-			ok = base == p.pat
-		case p.kind == 1:
-			ok = rel == p.pat
-		case p.kind == 2:
-			ok = strings.HasSuffix(base, p.pat[1:])
-		case p.nodir:
-			ok = wildmatch(p.pat, base, false)
-		default:
-			ok = wildmatch(p.pat, rel, true)
-		}
-		if ok {
-			return !p.neg, true
+	best := -1
+	s.consider(s.lit[base], isDir, &best)
+	s.consider(s.pathLit[rel], isDir, &best)
+	for i := range s.suffix {
+		if strings.HasSuffix(base, s.suffix[i].suf) {
+			s.consider(s.suffix[i].idxs, isDir, &best)
 		}
 	}
-	return false, false
+	if g := s.bestGlob(rel, base, isDir); g > best {
+		best = g
+	}
+	if best < 0 {
+		return false, false
+	}
+	return !s.pats[best].neg, true
+}
+
+// consider records the highest index in idxs that applies to the entry.
+func (s *ignoreSet) consider(idxs []int, isDir bool, best *int) {
+	for _, i := range idxs {
+		if (isDir || !s.pats[i].dirOnly) && i > *best {
+			*best = i
+		}
+	}
+}
+
+// bestGlob is the highest matching wildcard pattern index, or -1.
+func (s *ignoreSet) bestGlob(rel, base string, isDir bool) int {
+	best := -1
+	for i := range s.globs {
+		g := &s.globs[i]
+		if g.nodir {
+			if !wildmatch(g.pat, base, false) {
+				continue
+			}
+		} else if !strings.HasPrefix(rel, g.pre) || !wildmatch(g.pat, rel, true) {
+			continue
+		}
+		if (isDir || !s.pats[g.idx].dirOnly) && g.idx > best {
+			best = g.idx
+		}
+	}
+	return best
 }
 
 // ignoreStack is the ordered list of ignore sets in effect (lowest
