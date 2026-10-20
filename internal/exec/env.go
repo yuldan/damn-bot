@@ -121,6 +121,9 @@ func nonInteractive(pty bool) [][2]string {
 		{"GIT_MERGE_AUTOEDIT", "no"},
 		{"PYTHONUNBUFFERED", "1"},
 		{"TERM", term},
+		// less shows the file name, not a prompt, on its first screen; a
+		// fixed "--More--" prompt makes it a detectable pager (ADR-105 butir 17).
+		{"LESS", "-Ps--More--"},
 	}
 }
 

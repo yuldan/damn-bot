@@ -33,11 +33,12 @@ const (
 
 // Limits (§A.4, ADR-072).
 const (
-	DefaultTimeout   = 120 * time.Second
-	MaxTimeout       = 600 * time.Second
-	DefaultKillGrace = 3 * time.Second
-	MinKillGrace     = time.Second
-	MaxKillGrace     = 3 * time.Second
+	DefaultTimeout     = 120 * time.Second
+	MaxTimeout         = 600 * time.Second
+	DefaultIdleTimeout = 60 * time.Second
+	DefaultKillGrace   = 3 * time.Second
+	MinKillGrace       = time.Second
+	MaxKillGrace       = 3 * time.Second
 	// CancelDeadline is the time after a cancel by which a result is
 	// returned (cancelled_confirmed or still_running, REL-06).
 	CancelDeadline = time.Second
@@ -51,13 +52,14 @@ const pollEvery = 10 * time.Millisecond
 
 // Spec is one command execution.
 type Spec struct {
-	Argv      []string // Argv[0] absolute, or resolved through PATH in Env
-	Dir       string   // working directory (validated by the caller, SPEC §14.2)
-	Env       []string // complete child environment (see BuildEnv)
-	Stdin     []byte   // nil: /dev/null (NUL); never the parent's stdin
-	PTY       bool
-	Timeout   time.Duration // 0: DefaultTimeout
-	KillGrace time.Duration // 0: DefaultKillGrace; clamped to 1–3 s
+	Argv        []string // Argv[0] absolute, or resolved through PATH in Env
+	Dir         string   // working directory (validated by the caller, SPEC §14.2)
+	Env         []string // complete child environment (see BuildEnv)
+	Stdin       []byte   // nil: /dev/null (NUL); never the parent's stdin
+	PTY         bool
+	Timeout     time.Duration // 0: DefaultTimeout
+	IdleTimeout time.Duration // 0: DefaultIdleTimeout; < 0: disabled
+	KillGrace   time.Duration // 0: DefaultKillGrace; clamped to 1–3 s
 	// OnOutput, if set, receives raw output chunks as they arrive (UI
 	// streaming, redacted by the caller); the slice is reused after return.
 	OnOutput func([]byte)

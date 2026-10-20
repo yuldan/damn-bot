@@ -1,6 +1,9 @@
 package exec
 
-import "sync"
+import (
+	"bytes"
+	"sync"
+)
 
 // capture keeps the first and last OutputCap/2 bytes of the output; the
 // tail is a fixed ring, so arbitrarily long output costs O(len) copying.
@@ -55,4 +58,19 @@ func (k *capture) bytes() ([]byte, bool, int64) {
 	}
 	out = append(out, k.ring[:k.pos]...)
 	return out, k.total > OutputCap, k.total
+}
+
+// tail returns a copy of the last n bytes of the output.
+func (k *capture) tail(n int) []byte {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.ring == nil {
+		return bytes.Clone(k.head[max(len(k.head)-n, 0):])
+	}
+	out := make([]byte, 0, n)
+	if k.full {
+		out = append(out, k.ring[k.pos:]...)
+	}
+	out = append(out, k.ring[:k.pos]...)
+	return out[max(len(out)-n, 0):]
 }
