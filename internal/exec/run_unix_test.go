@@ -147,7 +147,10 @@ func TestRunPTY(t *testing.T) {
 
 func TestRunTimeout(t *testing.T) {
 	t.Parallel()
-	s := sh(t, `echo start; sleep 30`)
+	// exec: the leader is sleep itself, so a shell cannot print its own
+	// "Terminated" job notice into the captured output when the tree dies
+	// (macOS /bin/sh does that race-dependently).
+	s := sh(t, `echo start; exec sleep 30`)
 	s.Timeout = 200 * time.Millisecond
 	s.KillGrace = time.Second
 	res := run(t.Context(), t, newTestRunner(t), s)
