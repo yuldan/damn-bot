@@ -2714,3 +2714,7 @@ Duplikasi sudah dibuang lebih dulu (satu jalur open sandbox untuk baca/tulis; `r
 **Dampak terukur (SPEC §20).** Token: P1 `f1-core` 2.203 o200k (stable 341 + context 812 + volatile 92 + tools 897); volatile tetap ≤ 100 dan `<runtime>` ≤ 40 per iterasi. LOC `assemble` 993/1.000 (scc Code). Latensi/binary/dependency 0 (semua lewat DI).
 
 **Konsekuensi.** (+) P1 terukur sejak F1 tanpa require baru di root dan tanpa melanggar graf impor; prompt tidak pernah menyebut tool yang tidak ada dan prefix stabil dalam turn. (−) Dua artefak golden harus diregenerasi setiap prompt/schema berubah (diff terlihat di review); `Build` memakai tipe `assemble.Request`, sehingga loop perlu satu pemetaan kecil ke `provider.Request`.
+
+## Catatan implementasi — resolusi `docs/ENGINEERING.md` §2.4 (2026-10-20)
+
+Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel budget ENGINEERING §2.4 dari penggabungan `f1-classify-4`. Resolusi (REVIEW-F1-SEC7 TL7-14) memakai angka `loc.budget` sebagai otoritas: `codetools` 4.800 (ADR-105), `exec` 3.400 dan `exec/classify` 1.600 (ADR-081, ADR-106). Tidak ada budget yang berubah; hanya penanda konflik yang dihapus dan prosa total core dirapikan (Σ core tetap 34.200).
