@@ -248,7 +248,7 @@ func (s *state) inline(args []arg, d Dialect) {
 		return
 	}
 	if src := strings.Join(argStrings(args), " "); d >= Pwsh {
-		s.raise(Unknown, "PowerShell/cmd command not analysed")
+		s.winLine(src, d)
 	} else {
 		s.shell(src, d == POSIX, stdinNone)
 	}
@@ -267,6 +267,8 @@ func (s *state) fromStdin(name string, in stdin) {
 func (s *state) interpreter(name string, args []arg, in stdin) {
 	s.mut = true
 	switch {
+	case name == "pwsh" || name == "powershell":
+		s.pwsh(args[1:], in)
 	case inList(" sh bash zsh dash ash hush ksh ", name):
 		s.shellProgram(name, args[1:], in)
 	default:
