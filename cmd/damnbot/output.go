@@ -30,15 +30,19 @@ func drainRun(ch <-chan event.Update, output string, stdout io.Writer) runResult
 			if up.Usage != nil {
 				r.usage = *up.Usage
 			}
+		default:
+			// Other updates are streamed below; nothing is accumulated here.
 		}
 		if output == "stream-json" {
-			writeStreamEvent(stdout, up)
+			if err := writeStreamEvent(stdout, up); err != nil && r.err == "" {
+				r.err = err.Error()
+			}
 		}
 	}
 	return r
 }
 
-func writeStreamEvent(w io.Writer, up event.Update) {
+func writeStreamEvent(w io.Writer, up event.Update) error {
 	line := struct {
 		Type   string `json:"type"`
 		Text   string `json:"text,omitempty"`
@@ -51,7 +55,7 @@ func writeStreamEvent(w io.Writer, up event.Update) {
 		Type: string(up.Kind), Text: up.Text, Tool: up.ToolName, Status: up.Status,
 		Stop: string(up.Stop), Detail: string(up.Detail), Error: up.Err,
 	}
-	encodeLine(w, line)
+	return encodeLine(w, line)
 }
 
 type turnOutput struct {
@@ -105,10 +109,10 @@ func writeRunResult(r runResult, output string, stdout io.Writer) int {
 func encodeLine(w io.Writer, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode json: %w", err)
 	}
 	if _, err := w.Write(append(b, '\n')); err != nil {
-		return err
+		return fmt.Errorf("write json line: %w", err)
 	}
 	return nil
 }
