@@ -147,6 +147,16 @@ Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket 
 | P15 subset ADR-067/082 | stable kondisional (aturan 3/`repo_map`), volatile beku, runtime suffix, schema shell per fase | `TestStableTierGolden` (3 varian), `TestPromptNoUnavailableTools`, `TestVolatileTierCaps`, `TestPrefixStableWithinTurn`, `TestRuntimeSuffixCaps`, `TestShellSchemaVariant` | selesai |
 | Keamanan prompt | `Deps.Scrub` wajib pada semua teks pemanggil; context file hanya lewat `FileReader` sandbox, `ErrUnavailable` → file dihilangkan | `TestContextScrub`, `TestContextSandboxRefusalOmitsFile` | selesai |
 
+### Smoke LLM (ADR-062, snapshot integrasi `22cafba`)
+
+- Tanggal: 2026-10-20 (13:10 UTC).
+- Snapshot: `origin/f1-integration` `22cafba` — **bukan** `main` tergabung.
+- Model: `gpt-5.4-mini` via upstream `https://api.teamorouter.com`.
+- Hasil: 10 task dijalankan (`h2h-smoke/v1`, 1 run/task, timeout 300 s), 1 lulus, 9 gagal — kegagalan bersifat informasional untuk smoke, bukan gate acceptance; 0 harness error.
+- Biaya: $0,09397377 untuk run ini; ledger `bench/h2h/results/f1-spend.json` 0,7294329 → 0,82340667, sisa $1,17659333 dari cap $2,00.
+- Artefak: `bench/h2h/results/2026-10-20-llm-smoke/` (`summary.json`, `background.proxy.jsonl.gz`, 10 rekaman `*.damnbot.proxy.jsonl.gz`, `ORIGIN.md`). Rekaman tidak memuat key/token (pemindaian pola redaksi ADR-071 kosong; `Authorization` diredaksi).
+- Rerun pada `main` setelah stack loop/tools tergabung masih menunggu; **F1 acceptance belum selesai**.
+
 ## Review keamanan
 
 PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (auditor). PR bagian b bertumpuk di atas bagian a (base = branch a); setelah a di-merge, base b diganti ke `main`.
