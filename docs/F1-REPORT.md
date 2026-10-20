@@ -133,6 +133,20 @@ Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket 
 | `f1-config-1` | struct + default SPEC §12, decode TOML ketat (key tak dikenal + path/baris), DI `Deps`, `FuzzConfigTOML` | 497 | lihat PR |
 | `f1-config-2` | validasi rentang semua kunci F1, path per OS/profil, `<config_dir>`, `Clone` immutable | 310 | lihat PR |
 
+### `internal/assemble` (ADR-108)
+
+| PR | Isi | Baris Go non-test (diff) | Hasil |
+|---|---|---:|---|
+| `f1-assemble-1` | stable kondisional + golden per varian, katalog, volatile beku (Σ 100), `<runtime>` (≤ 40), DI `Counter`/`Scrub` | 574 | lihat PR |
+| `f1-assemble-2` | context sub-cap + urutan potong SPEC §6, baca context file lewat sandbox, filter schema `shell` per fase | 504 | lihat PR |
+| `f1-assemble-3` | `Build` wire `messages`+`tools`, fixture P1 `f1-core` + hook `bench/budget` | 189 | lihat PR |
+
+| Item | Implementasi | Test | Status |
+|---|---|---|---|
+| ADR-066 P1 `f1-core` | `TestFixedOverheadGolden` → `internal/assemble/testdata/p1/f1-core.{request,tiers}.json`; `bench/budget TestFixedOverhead/f1-core` mengukur o200k_base | total **2.203** (stable 341, catalog 0, context 812, volatile 92, tools 897) ≤ 4.000; tiap tier ≤ alokasi NEW-41 | selesai |
+| P15 subset ADR-067/082 | stable kondisional (aturan 3/`repo_map`), volatile beku, runtime suffix, schema shell per fase | `TestStableTierGolden` (3 varian), `TestPromptNoUnavailableTools`, `TestVolatileTierCaps`, `TestPrefixStableWithinTurn`, `TestRuntimeSuffixCaps`, `TestShellSchemaVariant` | selesai |
+| Keamanan prompt | `Deps.Scrub` wajib pada semua teks pemanggil; context file hanya lewat `FileReader` sandbox, `ErrUnavailable` → file dihilangkan | `TestContextScrub`, `TestContextSandboxRefusalOmitsFile` | selesai |
+
 ## Review keamanan
 
 PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (auditor). PR bagian b bertumpuk di atas bagian a (base = branch a); setelah a di-merge, base b diganti ke `main`.
