@@ -210,6 +210,58 @@ PR berikut **tidak di-merge** pelaksana; menunggu review keamanan independen (au
 | [#22](https://github.com/yuldan/damn-bot/pull/22), [#30](https://github.com/yuldan/damn-bot/pull/30), [#31](https://github.com/yuldan/damn-bot/pull/31) `provider` (ADR-102) — **di-merge setelah CI hijau, review auditor menyusul** (input jarak jauh tidak tepercaya) | decoder delta tanpa reflect, rakitan stream, klien openai-chat (retry, breaker, fallback), `providertest` | **SSE/JSON rusak:** frame JSON tidak lengkap → `stream_broken` (retry, lalu gagal typed), stream terpotong tanpa `finish_reason` → `stream_broken`, angka di luar jangkauan/non-integer untuk token → chunk ditolak, `null` di posisi objek/array, UTF-8 rusak/surrogate tunggal → U+FFFD, kunci beda kapitalisasi diabaikan (`FuzzDeltaDecode` diferensial vs `encoding/json`, 3 crash fuzz diperbaiki + korpus; `TestDeltaDecode`; `TestHostileStream`); **delta besar:** satu event SSE > 4 MiB → `ErrEventTooLarge` (non-retry), rakitan > 16 MiB atau > 128 tool call → `ErrResponseTooLarge` (non-retry, tanpa fallback) (`TestAssemblyBounds`, `TestHostileStream`); **field injeksi tool call:** nama/argumen disimpan mentah tanpa ditafsirkan (`../../rm -rf` tetap string), fragmen dengan `id`/`index` berulang atau baru dirakit sesuai aturan EC-PROV-001 tanpa membuat call ekstra, field tak dikenal dilewati (`TestEdgeCases/EC-PROV-001`, `TestHostileStream`); **error di dalam stream 2xx** → kelas `server`, body disalin (tidak dieksekusi); **content_filter:** dikembalikan sebagai `FinishReason` bersama konten parsial + tool call untuk loop (stop `content_filtered`, ADR-072/082), tanpa retry/fallback (`TestAssemble`, `TestHostileStream`); **klasifikasi:** 429 = `rate_limited` apa pun body-nya (EC-PROV-029), `error.param` saja (bukan teks pesan) memicu pelepasan parameter (E-21); **body error** ≤ 64 KiB, tidak diredaksi di `provider` (redaksi saat log/tampil). Sisa: `providertest` hanya loopback (E-69) |
 | `exec` a (ADR-105) — **tidak di-merge sampai auditor approve** | lapisan proses per OS: session/pgid sendiri (Unix, `Pdeathsig`), PTY `creack/pty` 120×40 sebagai controlling terminal, Job Object `KILL_ON_JOB_CLOSE` dengan start tersuspensi (Windows), capture head+tail | stdin `/dev/null` = EOF tanpa tty (sudo/ssh/`read -p` gagal cepat); kill grup menjangkau `sleep &` dan subshell; `trap '' TERM` tetap mati oleh KILL; tidak ada anak yang lolos dari Job sebelum assign (start tersuspensi); capture 16 MiB terbatas untuk output tak berujung (ring, tanpa geser) |
 
+### Stack `internal/codetools` (#48–#61, #67) — review keamanan F1
+
+Rantai 14 PR, base berantai (#48 → main, #49 → #48, …), tiap PR ≤ 600 baris Go non-test (E-84); `codetools` 4.798/4.800 scc LOC. Temuan `REVIEW-F1-SEC2` (2 BLOCKER, 7 MAJOR) ditutup di stack ini; S16-7 (`hardlinked_file`) sudah di `main` lewat PR #33. **Tahap akhir (#61/#67) tidak di-merge sebelum auditor menyetujui entri ini.**
+
+| PR | Tahap | Kasus ancaman yang dicakup test |
+|---|---|---|
+| [#48](https://github.com/yuldan/damn-bot/pull/48) | walker + `OpenResolved` sandbox | swap leluhur ↔ symlink selama open (openat2 `RESOLVE_NO_SYMLINKS`, fallback walk `O_NOFOLLOW` + verifikasi `/proc/self/fd`/inode) = 0 file luar; deny dicek di path dan identitas handle; hard link = verdict `HardLinked`; FIFO/device ditolak tanpa blokir; `TestSymlinkEscapeRace`, `TestOpenResolvedSwapRace`, `TestOpenNonRegular` |
+| [#49](https://github.com/yuldan/damn-bot/pull/49) | engine core + `read_file` | file biner/UTF-8, path di luar root butuh approval, tag sha256, halaman terpotong di baris utuh |
+| [#50](https://github.com/yuldan/damn-bot/pull/50) | encoding | BOM, UTF-16 LE/BE (termasuk surrogate), byte invalid ditampilkan `\xNN` tanpa U+FFFD, CRLF dipertahankan byte-exact |
+| [#51](https://github.com/yuldan/damn-bot/pull/51) | file besar | streaming > 8 MiB, tail 100 MiB, indeks baris async, race ukuran/mtime → `stale_read` |
+| [#53](https://github.com/yuldan/damn-bot/pull/53) | ignore engine | `.gitignore`/`.ignore` symlink atau FIFO tidak dibaca; repo `.git/config` hanya Inside; config global di luar root lewat `OpenApproved` (deny menang, isi tidak ke model); `TestIgnoreSymlinkOutsideRoot`, `TestRepoExcludesFileOutsideRoot`, `TestFIFONoHang` |
+| [#54](https://github.com/yuldan/damn-bot/pull/54) | glob/walker | symlink tidak diikuti, hidden/ignore/deny, nama di direktori deny tidak bocor, urutan deterministik |
+| [#55](https://github.com/yuldan/damn-bot/pull/55) | matcher grep | literal fast-path + prefilter literal wajib, RE2 hanya baris kandidat, jendela 500 char |
+| [#56](https://github.com/yuldan/damn-bot/pull/56) | tool grep | timeout 30 s + hasil parsial berlabel, `skipped:` dihitung, hard link ke file deny dilewati (`TestGrepSkipsHardLinked`), parity vs `rg` (CT-21) |
+| [#57](https://github.com/yuldan/damn-bot/pull/57) | `write_file` baru | temp `O_CREAT|O_EXCL` + fsync + rename + fsync dir, mode umask, symlink keluar root ditolak |
+| [#58](https://github.com/yuldan/damn-bot/pull/58) | overwrite + lock | lock per identitas ter-resolve (dev+inode; Windows size+mtime bila `os.FileInfo` tanpa inode), `stale_read` fail-closed, owner/xattr/mode |
+| [#59](https://github.com/yuldan/damn-bot/pull/59) | `edit_file` | exact-only, `ambiguous_match`/overlap/no-op fail-closed, sentinel `[REDACTED:` ditolak, tulis atomik + read-back sha256 |
+| [#60](https://github.com/yuldan/damn-bot/pull/60) | in-place hard link | snapshot callback + backup ber-fsync sebelum byte pertama, pre-alokasi, pemulihan ENOSPC/EIO, kill mid-copy menyisakan backup utuh |
+| [#61](https://github.com/yuldan/damn-bot/pull/61) | dispatch + parity/perf | JSON ketat (field tak dikenal gagal), schema ≤ 200 token, CT-21 parity, benchmark CT-04..07/09 |
+| [#67](https://github.com/yuldan/damn-bot/pull/67) | driver + completeness | probe CT-01..03/10/11, token golden CT-11, `TestCodeToolsIDsComplete` |
+
+Penutupan temuan (mutasi tercatat di handoff; auditor memverifikasi):
+
+| ID | Perbaikan | Test / bukti |
+|---|---|---|
+| CT27-1 BLOCKER | cabang approved `OpenResolved` membuka dari root volume tanpa symlink; deny dicek ulang lewat path handle + identitas | `TestOpenResolvedSwapRace` (2 mode × 2 cabang, `opened>0 && refused>0`); mutan `Resolve=0`/tanpa cek path tertangkap |
+| CT27-2 BLOCKER | file > 64 MiB ber-hard-link: temp lengkap + snapshot/backup ber-fsync + pre-alokasi + pemulihan; ENOSPC/no-op = byte-identik | `TestInPlaceLargeFile` (65 MiB), `TestInPlaceFailuresKeepFile` |
+| CT27-3 MAJOR | ignore/config workspace hanya file reguler Inside; symlink/FIFO = tidak ada; global config lewat approval | `TestIgnoreSymlinkOutsideRoot`, `TestRepoExcludesFileOutsideRoot` |
+| CT27-4 MAJOR | `O_NONBLOCK` + cek handle regular; FIFO/device → `ErrNotRegular`, tanpa goroutine bocor | `TestOpenNonRegular`, `TestFIFONoHang` (goleak) |
+| CT27-5 MAJOR | lock pada path ter-resolve; hard link pada dev+inode (Windows: size+mtime saat tanpa inode) | `TestPathLockAliases`, `TestEditLockAlias` (150 iterasi) |
+| CT27-6 MAJOR | API sandbox dan titik kill CT-25 diuji; mutan “semua tulis in-place” gagal | `TestOpenResolvedSwapRace`, `TestAtomicWriteKill9` (200×), `TestInPlaceKill9` |
+| CT27-7 MAJOR | test acceptance CT-01..03/11/21 + `TestCodeToolsIDsComplete`; job `bench-parity` + nightly `bench-codetools` | PR #61/#67 |
+| CT27-8 MAJOR | `Config.Snapshot` dipanggil sebelum byte pertama; backup `.<nama>.damnbot-bak-*` ber-fsync | `TestInPlaceEdit`, `TestInPlaceKill9` |
+| CT27-13 MAJOR | `OpenResolved` inside memeriksa `nlink` pada handle; walker menghitung `skipped: N hardlinked` | `TestOpenResolvedHardLinks`, `TestGrepSkipsHardLinked` |
+| CT27-9..12 MINOR | mode diverifikasi pada file ter-commit; pola temp yatim ketat + `unlinkat`; residual race rename didokumentasikan (ADR-103 butir 16); Windows `owner_preserved=false` | `TestSetgidPreserved`, `TestCleanOrphanTempsPattern`, ADR-103 |
+
+**Kinerja terukur** (host 12 thread, korpus `bench/corpora.lock`, `rg` 15.1.0 SHA-256 `ebeaf56f…f71f2`, interleaved 20 run; gate `TestGrepSpeedVsRg`):
+
+| Korpus × jenis | Σp50 / Σp95 vs `rg` | Target | Status |
+|---|---|---|---|
+| C1 literal | 1,84 / 1,85 | ≤ 1,2 | ✗ |
+| C1 regex | 2,68 / 2,66 | ≤ 1,5 | ✗ |
+| C1 glob | 1,75 / 1,83 | ≤ 1,2 | ✗ |
+| C3 literal | 1,53 / 1,53 | ≤ 1,2 | ✗ |
+| C3 regex | 1,64 / 1,69 | ≤ 1,5 | ✗ |
+| C3 glob | 0,24 / 0,34 | ≤ 1,2 | ✓ |
+| C2 | diukur terpisah (nightly) | — | — |
+
+CT-10 (baseline hermes durabel `bench/codetools/results/hermes-868b9f244f-f1.json`): `search_files` ×12,4, `read_file` ×15,9, `patch` ×2,2 p50 (min op ×1,6) tetapi p95 maks 10,4 ms > 6 ms → belum lulus. CT-11: 0,906× pada limit 50 dan 1,686× pada limit default; target 0,6× tetap dan status `pending:F1` (keputusan owner).
+
+Selisih literal berasal dari biaya struktural per file (open sandbox + sniff encoding/biner + tag sha256 untuk file yang match); regex tanpa literal wajib memakai `regexp` Go (~35 MB/s/core) melawan engine `rg`. Gate tidak dilonggarkan: `TestGrepSpeedVsRg` tetap merah sampai target terpenuhi.
+
 ### `internal/budget` + `internal/ctxdb/ledgerstore` (ADR-101)
 
 | Item | Implementasi | Test | Status |
@@ -417,3 +469,40 @@ Perubahan lossless yang tersisa (separator `--` saat context 0) sudah diterapkan
 | #63 sesi Windows/macOS | `${LASTEXITCODE}` (bukan `$LASTEXITCODE:`); frame protokol `\x1eDB:…\x1e` dibuang dari output sesi (frame `again` yang telat tidak lagi bocor ke perintah berikutnya). | `TestSessionWindows`, `TestStripFrames`, `TestSessionOutputFramesStripped` |
 
 Yang **belum** dicakup: eksekusi runtime ConPTY/sesi Windows diverifikasi lewat CI (bukan mesin lokal); `TestNoOrphans` 200× dan benchmark spawn dibaca dari job CI; stack classify #41/#43/#44/#46 masih menunggu review auditor. Sisa F1 di luar stack tetap seperti daftar handoff di atas.
+
+## Handoff codetools 2 (budget pause)
+
+Status 2026-10-19. Branch stack ada di remote; `/tmp/damnbot-ct` (stack) dan `/tmp/damnbot-docs` (dokumen) boleh hilang.
+
+### Head dan kondisi stack
+
+| PR | Branch | Head | Kondisi |
+|---|---|---|---|
+| #48 | `f1-ct-01` | `9a61f9b` | CI berjalan (antrean runner); belum merge — `main` strict up-to-date |
+| #49–#60 | `f1-ct-02` … `f1-ct-12` | chain hasil rebase di atas `main` `2046c24` | menunggu CI; tidak ada kegagalan yang diketahui |
+| #61 | `f1-ct-13` | `c1150c9` | dispatch + parity + benchmark CT-04..07/09; codetools 4.800/4.800 scc LOC |
+| #67 | `f1-ct-14` | `70e613b` | driver + `TestCodeToolsIDsComplete` + nightly |
+| #68 | `f1-report-ct-security` | `c1adc4e` | entri Review keamanan (dokumen ini) |
+
+Final stages #61/#67 **belum boleh merge** sebelum auditor menyetujui #68.
+
+### Restack setelah `main` bergerak
+
+Branch berantai (`base PR k = branch k−1`) dan `main` memakai strict status check. Untuk setiap merge, rebase branch berikutnya ke `main` baru:
+
+```sh
+git fetch origin main
+git checkout f1-ct-NN
+git rebase --onto origin/main <old-head-NN-1>   # atau cherry-pick commit tahap NN
+git push --force-with-lease origin f1-ct-NN
+```
+
+Setelah #48 merge (rebase), branch #49 harus direbase ke `main`, lalu #50, dst. Jangan gunakan merge commit (metode merge owner: `gh pr merge <n> --rebase --delete-branch`).
+
+### Sisa pekerjaan
+
+1. Tunggu CI #48; merge berurutan. Tiap kali `main` bergerak, rebase PR berikutnya (di atas).
+2. #61/#67: CI `perf` dan `test-timing` lulus lokal dengan warm-up `measure()`; `GrepToolC3` gagal 1× saat host menanggung benchmark C2 — ulangi di runner idle. `edit 1 MB` p95 di runner bersama pernah 104 ms (rata-rata, bukan ekor); pantau.
+3. Kinerja grep belum memenuhi target: C1 literal 1,84× (target 1,2), C1 regex 2,68× (1,5), C3 literal 1,53×, C3 regex 1,64×; C3 glob 0,24× lulus. C2 sedang diukur (`/tmp/ct-c2.json` bila selesai). Gate `TestGrepSpeedVsRg` sengaja tetap merah; jangan longgarkan.
+4. CT-10: search ×12,4 dan read ×15,9 lulus; patch ×2,2 p50 tetapi p95 maks 10,4 ms > 6 ms → belum lulus. CT-11 0,906× (limit 50) / 1,686× (default); target 0,6× tetap `pending:F1`.
+5. CT27-9: repair mode macOS ada di `readBack` (bukan `ensureMode`); Windows hard-link lock memakai creation time NTFS (stabil, dibagi semua hard link). `codetools` tepat 4.800/4.800 — tambahan baris produksi harus disertai pemangkasan.
