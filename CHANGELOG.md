@@ -23,6 +23,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ### Added
 - `cmd/damnbot`: penulis output headless `text|json|stream-json` dengan skema `damnbot.turn_result/v1` dan pemetaan stop reason ke exit code; `config.OS()` menyediakan dependency produksi `Loader` (E-11) untuk composition root.
+- `cmd/damnbot`: subcommand `run` headless satu turn — config, provider openai-chat, tier `assemble` (volatile beku), loop, dan ctxdb session/store/ledger; prompt dari flag/posisi dengan approval headless.
 - `bench(h2h)`: bukti smoke LLM 10 task pada snapshot integrasi `origin/f1-integration` `22cafba` — model `gpt-5.4-mini` lewat `https://api.teamorouter.com`, 10 ran / 1 pass / 9 fail (informasional), 0 harness error, biaya $0,09397377; ledger `f1-spend.json` 0,7294329 → 0,82340667 (sisa $1,17659333 dari cap $2,00); rekaman, `summary.json`, dan `ORIGIN.md` di `bench/h2h/results/2026-10-20-llm-smoke/` (ADR-062). Rerun pada `main` tergabung masih menunggu; F1 acceptance belum selesai.
 - `docs/VPS.md` + `scripts/vps-bootstrap.sh`/`scripts/vps-desktop.sh` + `deploy/`: panduan dan bootstrap idempoten VPS Debian untuk pengembangan dari ponsel — Go 1.26.9, gh 2.102.0, code-server 4.141.0 (versi + sha256 dipin), user `dev`, hardening SSH/ufw, batas slice CPU/RAM, code-server loopback, XFCE/Cinnamon + xrdp opt-in, cloud-init RDP-first, dan Guacamole clientless (ADR-107).
 - `exec`: sesi persisten (`session`, §A. (rincian di PR lanjutan).
