@@ -2,6 +2,7 @@ package config
 
 import (
 	"errors"
+	"os"
 	"runtime"
 	"slices"
 	"strings"
@@ -27,6 +28,17 @@ type Deps struct {
 	HomeDir func() (string, error)
 	// GOOS selects the path convention; empty means runtime.GOOS.
 	GOOS string
+}
+
+// OS returns the production dependencies. It is added with its first
+// consumer, the composition root's headless run command.
+func OS() Deps {
+	return Deps{
+		ReadFile: os.ReadFile,
+		Getenv:   os.Getenv,
+		HomeDir:  os.UserHomeDir,
+		GOOS:     runtime.GOOS,
+	}
 }
 
 // Loader loads config files with injected I/O. It is immutable and safe for
