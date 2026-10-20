@@ -220,7 +220,7 @@ func (e *Engine) Edit(ctx context.Context, a EditArgs, o Opts) (res Result, err 
 		return res, err
 	}
 	if c.raw == nil {
-		return res, toolErr(CodeTooLarge, "", "%s is larger than %d MiB", c.t.rel, inMemoryMax>>20)
+		return e.editLarge(ctx, c, a.Edits)
 	}
 	d, terr := parseDoc(c.raw)
 	if terr != nil {
@@ -277,6 +277,9 @@ func (e *Engine) changed(c *current, d *doc, lines []docLine, out []byte, ci *co
 		"tag": tag, "replacements": repl, "diff_stat": fmt.Sprintf("+%d -%d", add, del),
 		"eol": eolName(d.dominantEOL() + map[bool]string{true: e.newEOL}[c.tag == ""]), "encoding": d.enc.String(), "bytes": len(out),
 		"owner_preserved": ci.ownerOK, "mode_preserved": ci.modeOK, "xattr_preserved": ci.xattrOK,
+	}
+	if ci.inplace {
+		meta["inplace"] = "hardlink"
 	}
 	if body != "" {
 		head += "\n" + body

@@ -313,7 +313,7 @@ flowchart TD
 - **Owner:** `fchown` ke uid/gid lama jika berbeda. Gagal (`EPERM`) → `Meta.owner_preserved=false` + log WARN, tidak ditelan (P14).
 - **xattr** (termasuk label SELinux, Linux/macOS) disalin via `golang.org/x/sys/unix`. Gagal → `Meta.xattr_preserved=false`.
 - **Symlink:** target yang diedit, symlink tetap ada. Target di luar root → verdict `outside_root` (tanya; headless `outside_workspace`), sama dengan path di luar root (§8, ADR-079).
-- **Hardlink** (`nlink > 1`): `rename` akan memutus link, jadi file ditulis **in-place** (`O_TRUNC` + write + `fsync`) setelah snapshot isi lama masuk `file_snapshots` (SPEC §4.3 langkah 9) + `Meta.inplace=hardlink`.
+- **Hardlink** (`nlink > 1`): butuh approval `hardlinked_file` (ADR-097 butir 12). `rename` akan memutus link, jadi file ditulis **in-place** tanpa pernah parsial karena error: isi baru lengkap ke temp + `fsync` dulu, isi lama ke snapshot (`file_snapshots`, SPEC §4.3 langkah 9) dan backup ber-`fsync`, pre-alokasi, salin dari offset 0 + `ftruncate` + `fsync`; error saat salin → dipulihkan dari backup (ADR-103 butir 13). `Meta.inplace=hardlink`.
 - **Ukuran file:**
   - ≤ 64 MiB: diproses in-memory.
   - \> 64 MiB: hanya mode line-range, via salin streaming (prefix → teks baru → suffix). Edit string → `too_large` + hint line-range.

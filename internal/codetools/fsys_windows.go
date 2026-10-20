@@ -10,6 +10,15 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// linkCount is the hard-link count of f (1 when unknown).
+func linkCount(f *os.File) uint64 {
+	var info windows.ByHandleFileInformation
+	if windows.GetFileInformationByHandle(windows.Handle(f.Fd()), &info) != nil {
+		return 1
+	}
+	return uint64(info.NumberOfLinks)
+}
+
 // copyOwner: the replacing file gets the creator as owner and the
 // directory's inherited ACL, so an explicit owner or ACL on the old file
 // is not kept; reported as owner_preserved=false (CT27-12).
