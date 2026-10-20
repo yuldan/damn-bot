@@ -178,7 +178,7 @@ func runOne(ctx context.Context, o runOptions, stdout, stderr io.Writer) (int, e
 	}
 	result := drainRun(stream, o.output, stdout)
 	result.sessionID = model.sessionID
-	return writeRunResult(result, o.output, stdout), nil
+	return writeRunResult(&result, o.output, stdout), nil
 }
 
 type runModel struct {
