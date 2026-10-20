@@ -145,6 +145,13 @@ func run() error {
 		return fmt.Errorf("h2h: ledger %s habis: %.4f / %.2f USD", *ledgerPath, ledger.Spent(), ledger.CapUSD)
 	}
 	spentBefore := ledger.Spent()
+	// Refuse before spending anything when the worst-case projection for this
+	// run (FirstGuess per task per attempt) would exceed the remaining cap.
+	const firstGuess = 0.02
+	projected := spentBefore + float64(len(tasks))*firstGuess*float64(1+*taskRetries)
+	if projected > ledger.CapUSD {
+		return fmt.Errorf("h2h: projected worst case %.4f USD + spent %.4f > cap %.2f; refusing to start", projected, spentBefore, ledger.CapUSD)
+	}
 	bgFile, err := os.Create(filepath.Join(*out, "background.proxy.jsonl.gz"))
 	if err != nil {
 		return err
@@ -162,10 +169,10 @@ func run() error {
 
 	r := &h2h.Runner{
 		Recorder: rec, ProxyURL: "http://" + ln.Addr().String() + "/v1",
-		OutDir: *out, WorkRoot: *work, Timeout: *timeout, TaskRetries: *taskRetries, FirstGuess: 0.10, Log: os.Stderr,
+		OutDir: *out, WorkRoot: *work, Timeout: *timeout, TaskRetries: *taskRetries, FirstGuess: firstGuess, Log: os.Stderr,
 	}
 	if *damnbotBin != "" {
-		r.Damnbot = &h2h.Damnbot{Binary: *damnbotBin, Model: *model}
+		r.Damnbot = &h2h.Damnbot{Binary: *damnbotBin, Model: *model, ProviderAttempts: 2}
 	} else {
 		r.Hermes = &h2h.Hermes{Dir: *hermesDir, Home: *home, Python: "python3", Model: *model, MaxTurns: *maxTurns}
 	}

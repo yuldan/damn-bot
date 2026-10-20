@@ -38,16 +38,17 @@ import (
 )
 
 type runOptions struct {
-	prompt      string
-	model       string
-	approval    string
-	unsafeShell bool
-	configPath  string
-	dataDir     string
-	output      string
-	offline     bool
-	baseURL     string
-	apiKey      string
+	prompt           string
+	model            string
+	approval         string
+	unsafeShell      bool
+	configPath       string
+	dataDir          string
+	output           string
+	offline          bool
+	baseURL          string
+	apiKey           string
+	providerAttempts int
 }
 
 func runHeadless(args []string, stdout, stderr io.Writer) int {
@@ -80,6 +81,7 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	fs.BoolVar(&o.offline, "offline", false, "network.offline: loopback only")
 	fs.StringVar(&o.baseURL, "base-url", "", "internal/test: provider base URL")
 	fs.StringVar(&o.apiKey, "api-key", "", "internal/test: provider API key")
+	fs.IntVar(&o.providerAttempts, "provider-attempts", 0, "internal/test: provider retry attempts (0 = default 3)")
 	if err := fs.Parse(args); err != nil {
 		return runOptions{}, fmt.Errorf("parse flags: %w", err)
 	}
@@ -284,8 +286,9 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
 	net := netx.New(netx.Config{Offline: o.offline})
-	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), provider.Config{
-		Routes: []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok)}},
+	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
+		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok)}},
+		Attempts: o.providerAttempts,
 	})
 	if err != nil {
 		return nil, fail(fmt.Errorf("provider: %w", err))
