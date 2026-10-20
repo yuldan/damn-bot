@@ -21,30 +21,44 @@ func sessionShell(path string) sessionShellSpec {
 
 func pwshSession(bin string) sessionShellSpec {
 	sentinel := func(nonce, code string) string {
-		return `[Console]::Out.Write("$([char]30)DB:` + nonce + `:` + code + `:$((Get-Location).ProviderPath)$([char]30)")` + "\n"
+		return `[Console]::Out.Write("$([char]30)DB:` + nonce + `:` + code + `:$([char]30)")` + "\n"
+	}
+	writeCwd := func(cwd string) string {
+		return "Set-Content -LiteralPath '" + strings.ReplaceAll(cwd, "'", "''") +
+			"' -Value (Get-Location).ProviderPath; "
 	}
 	return sessionShellSpec{
 		argv: []string{bin, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"},
 		ext:  ".ps1", setup: "$ProgressPreference = 'SilentlyContinue'",
-		line: func(path, nonce string) string {
-			return "$global:LASTEXITCODE = 0; . '" + strings.ReplaceAll(path, "'", "''") + "'; " + sentinel(nonce, "${LASTEXITCODE}")
+		line: func(path, cwd, nonce string) string {
+			return "$global:LASTEXITCODE = 0; . '" + strings.ReplaceAll(path, "'", "''") + "'; " +
+				writeCwd(cwd) + sentinel(nonce, "${LASTEXITCODE}")
 		},
-		again: func(nonce string) string { return sentinel(nonce, "130") },
+		again: func(nonce, cwd string) string {
+			return writeCwd(cwd) + sentinel(nonce, "130")
+		},
 	}
 }
 
 func cmdSession(bin string) sessionShellSpec {
-	// %errorlevel% is expanded when its line is read, so the sentinel is a
-	// line of its own, read after the call returned.
+	// The sentinel carries only the nonce and the saved exit code: the cwd
+	// goes to a file, so no `%cd%`/`!cd!` is ever expanded into a command
+	// line (REVIEW-F1-SEC5 EX5-3). `cd` writes the provider path without
+	// being reparsed; the saved %__dmb% survives the extra line.
 	sentinel := func(nonce, code string) string {
-		return "echo \x1eDB:" + nonce + ":" + code + ":%cd%\x1e\r\n"
+		return "echo \x1eDB:" + nonce + ":" + code + ":\x1e\r\n"
 	}
 	return sessionShellSpec{
 		argv: []string{bin, "/d", "/q"}, ext: ".cmd", setup: "rem",
-		line: func(path, nonce string) string {
-			return `call "` + path + `"` + "\r\n" + sentinel(nonce, "%errorlevel%")
+		line: func(path, cwd, nonce string) string {
+			return `call "` + path + `"` + "\r\n" +
+				`set "__dmb=%errorlevel%"` + "\r\n" +
+				`cd > "` + cwd + `"` + "\r\n" +
+				sentinel(nonce, "%__dmb%")
 		},
-		again: func(nonce string) string { return sentinel(nonce, "130") },
+		again: func(nonce, cwd string) string {
+			return `cd > "` + cwd + `"` + "\r\n" + sentinel(nonce, "130")
+		},
 	}
 }
 

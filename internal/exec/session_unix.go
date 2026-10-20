@@ -31,15 +31,18 @@ func sessionShell(path string) sessionShellSpec {
 			argv = []string{sh, "-f", "+Z"}
 		}
 	}
-	const sentinel = `printf '\036DB:%s:%d:%s\036' `
+	const sentinel = `printf '\036DB:%s:%d:\036' `
 	return sessionShellSpec{
 		argv: argv, pty: true, ext: ".sh",
 		setup: "stty -echo 2>/dev/null; PS1=''; PS2=''; PROMPT_COMMAND=''; " +
 			"shopt -u expand_aliases 2>/dev/null; unsetopt aliases 2>/dev/null; unalias -a 2>/dev/null; true",
-		line: func(path, nonce string) string {
-			return ". " + shQuote(path) + "; __dmb_s=$?; " + sentinel + nonce + ` "$__dmb_s" "$(pwd -P)"` + "\n"
+		line: func(path, cwd, nonce string) string {
+			return ". " + shQuote(path) + "; __dmb_s=$?; pwd -P > " + shQuote(cwd) + "; " +
+				sentinel + nonce + ` "$__dmb_s"` + "\n"
 		},
-		again: func(nonce string) string { return sentinel + nonce + ` 130 "$(pwd -P)"` + "\n" },
+		again: func(nonce, cwd string) string {
+			return "pwd -P > " + shQuote(cwd) + "; " + sentinel + nonce + ` 130` + "\n"
+		},
 	}
 }
 

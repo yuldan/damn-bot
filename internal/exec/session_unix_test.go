@@ -131,14 +131,34 @@ func BenchmarkShellSessionExec(b *testing.B) {
 	}
 }
 
-// TestSessionOutputFramesStripped (EX63-1): a protocol frame printed by a
-// command (or arriving late after an interrupt) never reaches the caller.
-func TestSessionOutputFramesStripped(t *testing.T) {
+// TestSessionForeignFrameKept (EX5-6): a command printing a well-formed
+// frame with an unknown nonce cannot hide its own output.
+func TestSessionForeignFrameKept(t *testing.T) {
 	t.Parallel()
 	ss := newSessions(t, nil)
 	nonce := strings.Repeat("a", 32)
-	res := sessExec(t, ss, "s", `printf '\036DB:`+nonce+`:0:/tmp\036kept\n'`, 5*time.Second)
-	if strings.ContainsRune(string(res.Output), sentinelMark) || !strings.Contains(string(res.Output), "kept") {
+	res := sessExec(t, ss, "s", `printf '\036DB:`+nonce+`:0:\036kept\n'`, 5*time.Second)
+	if !strings.ContainsRune(string(res.Output), sentinelMark) || !strings.Contains(string(res.Output), "kept") {
 		t.Fatalf("%q", res.Output)
+	}
+}
+
+// TestSessionConcurrentClose (REVIEW-F1-SEC5 EX5-9): kill/finish are idempotent
+// and mutex-safe when Close races a running command (run with -race).
+func TestSessionConcurrentClose(t *testing.T) {
+	t.Parallel()
+	r := New(context.Background())
+	ss := r.NewSessions(t.TempDir(), (&EnvPolicy{}).Env([]string{"PATH=" + os.Getenv("PATH")}, true, "", "", ""))
+	sessExec(t, ss, "s", "true", 5*time.Second)
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		if _, err := ss.Exec(t.Context(), "s", "sleep 30", nil, 5*time.Second); err != nil {
+			t.Logf("concurrent Exec: %v", err)
+		}
+	}()
+	<-started
+	if err := errors.Join(ss.Close(), r.Close()); err != nil {
+		t.Fatal(err)
 	}
 }

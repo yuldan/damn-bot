@@ -353,3 +353,27 @@ Perubahan lossless yang tersisa (separator `--` saat context 0) sudah diterapkan
 | Kill pohon proses (§A.4) | `terminate`/`kill` ke pgid; `TerminateJobObject` | `TestProcGroupTerminate`, `TestProcGroupKillIgnoresTrap`, `TestProcJobKillTree` | PR a |
 | Capture output | `capture` head 8 MiB + ring 8 MiB | `TestCaptureHeadTail`, `TestCaptureHugeWrite`, `TestCaptureSmall` | PR a |
 | Loop timeout/cancel, sweep marker, env, mode one-shot, prompt interaktif, idle, ConPTY, summarize, P24 | — | — | PR berikutnya |
+
+## Review keamanan — exec (tindak lanjut REVIEW-F1-SEC4, 2026-10-19)
+
+**Status: temuan ditutup di kode; CI stack belum hijau penuh saat entri ini ditulis. Tidak ada PR exec/classify yang di-merge.** Auditor diminta memverifikasi perbaikan di bawah sebelum merge.
+
+| Temuan | Perbaikan | Bukti/test |
+|---|---|---|
+| EX39-1 (MAJOR, hang PTY) | Master PTY di-`dup` setelah `File.Fd` terakhir, `O_NONBLOCK`, di-wrap `os.NewFile` (poller). `pty.Setsize` memakai slave, bukan master. Close kini membatalkan `Read` yang tertunda; `Run`/`Close` kembali walau proses lepas (`env -i setsid`) memegang slave. | `TestProcPTYCloseUnblocksRead`, `TestRunPTYEscapeeDoesNotHang` (leader exit + timeout) |
+| EX39-2 (MINOR) | Leader suspended di-`Kill` sebelum `Wait` saat attach/resume gagal. | jalur `proc_windows.go` |
+| EX39-3/EX40-1 (MINOR, docs) | A.4 diamandemen ke ADR-105 (reaper per pid, tanpa subreaper); residu `env -i`+setsid, sudo, `systemd-run --user`, `at`/cron, WMI/schtasks dicatat di TRUST-MODEL §3. | docs |
+| EX42-1 (MAJOR, secret) | Secret cocok berdasarkan identitas binary (path absolut + `os.SameFile` dev/inode + size + mtime), hanya argv0 **tanpa separator**; binary di dalam `OneShot.Root` dikecualikan. Bukan lagi base name. | `TestSecretRefScope` (./env, PATH workspace, argv0 absolut → 0 secret) |
+| EX42-2/EX62-1 (MAJOR) | argv0 ber-separator di-resolve sekali ke path absolut+clean; `Dir` relatif dibuat absolut sebelum spawn; ConPTY tidak lagi me-resolve terhadap cwd damnbot. | `TestLookPath`, `Prepare` argv0 absolut |
+| EX42-3 (MINOR) | Mode (b) menolak C0 (selain tab), DEL, CR, NUL. | `TestSecretRefScope` (NUL/CR) |
+| EX42-4 (MINOR) | Nama GAP-SEC-02/`env_allow`/proxy persis di Unix; lipat huruf hanya Windows. | `TestEnvAllowlist` (Path/Home/Lang/Http_Proxy) |
+| EX45-1 (MAJOR, prompt) | `Result.Prompt` melewati `redact.Redactor` (pola + secret sesi via `SetRedactor`) dan hanya menyisakan rune printable, `\n`, `\t`; dipakai juga oleh sesi persisten. | `TestPromptRedactedAndSanitized`, `TestSessionPrompt` |
+| EX47-1 (MINOR) | Escape tanpa terminator dibatasi 4 KiB; sisa output tetap terlihat; C0 (kecuali tab), DEL, C1 dibuang dari ringkasan. | `TestSummarizeUnterminatedEscape`, `TestSummarizePipeline/controls` |
+| EX47-2 (MINOR) | Blob `Raw` memakai bentuk strip-ANSI yang di-redaksi ulang bila redaksi raw berbeda (secret terpisah SGR). | `TestSummarizeSplitSecretNotLeaked` |
+| EX52-1 (MINOR) | A.10 mencatat `TestNoOrphans` hanya mengukur proses bermarker. | docs |
+| EX62-1 (ConPTY output hilang) | Handle kreasi ConPTY ditutup setelah `CreateProcess` (bukan setelah `CreatePseudoConsole`); sebelumnya child kehilangan std handle console sehingga output perintah hilang. | `TestProcConPTY`, `TestRunConPTYWindows`, `TestRunConPTYPromptWindows` (Windows CI) |
+| SEC5-1 (BLOCKER) | `Sessions.Exec` menolak `stdin` non-kosong (`ErrSessionStdin`): byte yang tidak dikonsumsi perintah tidak lagi dieksekusi shell sebagai perintah baru tanpa approval. | `TestSessionStdinRejected` |
+| SEC5-2 (MAJOR) | Sentinelsesi `cmd` memakai `!cd!` dengan `/v:on` (delayed expansion) alih-alih `%cd%`, sehingga cwd ber-`&`/`|`/`>` tidak menjalankan perintah. | `TestCmdSentinelDelayedExpansion` |
+| #63 sesi Windows/macOS | `${LASTEXITCODE}` (bukan `$LASTEXITCODE:`); frame protokol `\x1eDB:…\x1e` dibuang dari output sesi (frame `again` yang telat tidak lagi bocor ke perintah berikutnya). | `TestSessionWindows`, `TestStripFrames`, `TestSessionOutputFramesStripped` |
+
+Yang **belum** dicakup: eksekusi runtime ConPTY/sesi Windows diverifikasi lewat CI (bukan mesin lokal); `TestNoOrphans` 200× dan benchmark spawn dibaca dari job CI; stack classify #41/#43/#44/#46 masih menunggu review auditor. Sisa F1 di luar stack tetap seperti daftar handoff di atas.

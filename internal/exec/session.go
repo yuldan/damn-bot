@@ -54,30 +54,37 @@ func (r *Runner) NewSessions(dir string, env []string) *Sessions {
 
 // session is one live shell.
 type session struct {
-	mu      sync.Mutex // one command at a time
-	c       *call      // the shell process (call state; finished by kill)
-	sh      sessionShellSpec
-	input   *os.File // PTY master or the write end of the stdin pipe
-	dir     string
-	n       int
-	lastUse time.Time
-	killed  bool
+	mu        sync.Mutex // one command at a time
+	c         *call      // the shell process (call state; finished by kill)
+	sh        sessionShellSpec
+	input     *os.File // PTY master or the write end of the stdin pipe
+	dir       string
+	n         int
+	lastUse   time.Time
+	killOnce  sync.Once
+	prevNonce string // previous command's sentinel nonce (EX5-6)
 }
 
 // sessionShellSpec is the per-OS shell dialect of a session.
 type sessionShellSpec struct {
 	argv  []string
 	pty   bool
-	ext   string                          // command file extension
-	setup string                          // first command: echo, prompts, aliases off
-	line  func(path, nonce string) string // runs path, then prints the sentinel
-	again func(nonce string) string       // the sentinel alone, status 130
+	ext   string                               // command file extension
+	setup string                               // first command: echo, prompts, aliases off
+	line  func(path, cwd, nonce string) string // runs path, writes cwd, prints the sentinel
+	again func(nonce, cwd string) string       // the sentinel alone, status 130
 }
 
 // Exec runs command in session name, creating the shell on first use.
 func (ss *Sessions) Exec(ctx context.Context, name, command string, stdin []byte, timeout time.Duration) (Result, error) {
 	if !validSessionName(name) {
 		return Result{}, ErrSessionName
+	}
+	if len(stdin) > 0 {
+		// The shell reads its input line by line: bytes the approved
+		// command does not consume would run as new, unapproved commands
+		// (REVIEW-F1-SEC5 EX5-1).
+		return Result{}, fmt.Errorf("%w: session stdin is not shell input", ErrSpec)
 	}
 	s, err := ss.get(ctx, name)
 	if err != nil {
@@ -87,7 +94,7 @@ func (ss *Sessions) Exec(ctx context.Context, name, command string, stdin []byte
 		timeout = DefaultTimeout
 	}
 	s.mu.Lock()
-	res, reset, err := s.run(ctx, command, stdin, timeout)
+	res, reset, err := s.run(ctx, command, timeout)
 	s.lastUse = ss.now()
 	s.mu.Unlock()
 	if reset {
@@ -179,7 +186,7 @@ func (ss *Sessions) start(ctx context.Context) (*session, error) {
 	if sh.pty {
 		s.input = c.p.output()
 	}
-	if _, reset, err := s.run(ctx, sh.setup, nil, 10*time.Second); err != nil || reset {
+	if _, reset, err := s.run(ctx, sh.setup, 10*time.Second); err != nil || reset {
 		s.kill()
 		return nil, errors.Join(errors.New("exec: session setup failed"), err, os.RemoveAll(dir))
 	}
@@ -188,7 +195,7 @@ func (ss *Sessions) start(ctx context.Context) (*session, error) {
 
 // run sends one command and waits for its sentinel. reset reports that the
 // shell was killed (timeout without sentinel, prompt, cancel, shell exit).
-func (s *session) run(ctx context.Context, command string, stdin []byte, timeout time.Duration) (Result, bool, error) {
+func (s *session) run(ctx context.Context, command string, timeout time.Duration) (Result, bool, error) {
 	res := Result{Runner: RunnerPipe, ExecID: s.c.id}
 	if s.sh.pty {
 		res.Runner = RunnerPTY
@@ -196,36 +203,56 @@ func (s *session) run(ctx context.Context, command string, stdin []byte, timeout
 	start := time.Now()
 	s.n++
 	path := filepath.Join(s.dir, "c"+strconv.Itoa(s.n)+s.sh.ext)
-	if err := os.WriteFile(path, []byte(command+"\n"), 0o600); err != nil {
+	// O_EXCL: a symlink planted at the predictable command-file name by a
+	// previous command must not redirect the write (REVIEW-F1-SEC5 EX5-7).
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: path under the 0700 session dir
+	if err != nil {
+		return res, false, fmt.Errorf("exec: session command file: %w", err)
+	}
+	_, werr := f.WriteString(command + "\n")
+	if err := errors.Join(werr, f.Close()); err != nil {
 		return res, false, fmt.Errorf("exec: session command file: %w", err)
 	}
 	nonce := newNonce()
+	cwdPath := filepath.Join(s.dir, "c"+strconv.Itoa(s.n)+".cwd")
+	// Pre-create the cwd file with O_EXCL and require a regular file: a
+	// symlink planted at the predictable name cannot redirect the shell's
+	// `pwd -P >`/`cd >`/Set-Content (REVIEW-F1-SEC5 EX5-10).
+	cf, cerr := os.OpenFile(cwdPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: path under the 0700 session dir
+	if cerr != nil {
+		return res, false, fmt.Errorf("exec: session cwd file: %w", cerr)
+	}
+	fi, serr := cf.Stat()
+	if err := errors.Join(serr, cf.Close()); err != nil {
+		return res, false, fmt.Errorf("exec: session cwd file: %w", err)
+	}
+	if fi == nil || !fi.Mode().IsRegular() {
+		return res, false, fmt.Errorf("exec: session cwd file is not regular")
+	}
 	from := s.c.out.size()
-	if _, err := s.input.WriteString(s.sh.line(path, nonce)); err != nil {
+	if _, err := s.input.WriteString(s.sh.line(path, cwdPath, nonce)); err != nil {
 		return res, true, fmt.Errorf("exec: session write: %w", err)
 	}
-	if len(stdin) > 0 {
-		if _, err := s.input.Write(stdin); err != nil {
-			return res, true, fmt.Errorf("exec: session stdin: %w", err)
-		}
-	}
-	reset := s.wait(ctx, nonce, from, timeout, &res)
-	res.Output = stripFrames(res.Output)
+	reset := s.wait(ctx, nonce, cwdPath, from, timeout, &res)
+	// Only our own frames may be removed: a command printing a forged frame
+	// must not be able to hide its output from the model (EX5-6).
+	res.Output = stripFrames(res.Output, nonce, s.prevNonce)
+	s.prevNonce = nonce
 	res.Duration = time.Since(start)
 	return res, reset, nil
 }
 
 // wait follows the output until the sentinel, a prompt, the timeout, a
 // cancel, or the shell's exit.
-func (s *session) wait(ctx context.Context, nonce string, from int64, timeout time.Duration, res *Result) bool {
+func (s *session) wait(ctx context.Context, nonce, cwdPath string, from int64, timeout time.Duration, res *Result) bool {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 	tick := time.NewTicker(watchEvery)
 	defer tick.Stop()
 	var interrupted time.Time
 	for {
-		if out, code, cwd, ok := s.sentinel(nonce, from); ok {
-			res.Output, res.Cwd = out, cwd
+		if out, code, ok := s.sentinel(nonce, from); ok {
+			res.Output, res.Cwd = out, readCwd(cwdPath)
 			res.Status, res.ExitCode = StatusExited, &code
 			if !interrupted.IsZero() {
 				res.Status, res.ExitCode = StatusTimeout, nil
@@ -236,7 +263,7 @@ func (s *session) wait(ctx context.Context, nonce string, from int64, timeout ti
 		case <-s.c.more:
 		case <-tick.C:
 		case <-deadline.C:
-			s.interrupt(nonce)
+			s.interrupt(nonce, cwdPath)
 			interrupted = time.Now()
 		case <-ctx.Done():
 			s.kill()
@@ -273,23 +300,33 @@ func (s *session) check(from int64, interrupted time.Time) (st Status, line, kin
 	return "", "", ""
 }
 
-// sentinel looks for "\x1eDB:<nonce>:<code>:<cwd>\x1e" after from.
-func (s *session) sentinel(nonce string, from int64) ([]byte, int, string, bool) {
+// sentinel looks for "\x1eDB:<nonce>:<code>:\x1e" after from.
+func (s *session) sentinel(nonce string, from int64) ([]byte, int, bool) {
 	out := s.since(from)
 	before, rest, found := bytes.Cut(out, []byte(string(sentinelMark)+"DB:"+nonce+":"))
 	if !found {
-		return nil, 0, "", false
+		return nil, 0, false
 	}
 	body, _, closed := bytes.Cut(rest, []byte{sentinelMark})
 	if !closed {
-		return nil, 0, "", false
+		return nil, 0, false
 	}
-	codeS, cwd, ok := strings.Cut(string(body), ":")
+	codeS, _, _ := strings.Cut(string(body), ":")
 	code, err := strconv.Atoi(strings.TrimSpace(codeS))
-	if !ok || err != nil {
-		return nil, 0, "", false
+	if err != nil {
+		return nil, 0, false
 	}
-	return before, code, strings.TrimSpace(cwd), true
+	return before, code, true
+}
+
+// readCwd returns the cwd the shell wrote for the last command (the path
+// is never echoed into the sentinel, EX5-3).
+func readCwd(path string) string {
+	b, err := os.ReadFile(path) //nolint:gosec // G304: path under the 0700 session dir
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
 }
 
 // stripFrames removes session protocol frames
@@ -297,9 +334,15 @@ func (s *session) sentinel(nonce string, from int64) ([]byte, int, string, bool)
 // interrupt a shell may run both the command-line sentinel and the queued
 // interrupt sentinel; the second frame can surface while the next command
 // runs, so protocol bytes never reach the caller (EX63-1).
-func stripFrames(out []byte) []byte {
+func stripFrames(out []byte, nonces ...string) []byte {
 	if bytes.IndexByte(out, sentinelMark) < 0 {
 		return out
+	}
+	known := make(map[string]struct{}, len(nonces))
+	for _, n := range nonces {
+		if n != "" {
+			known[n] = struct{}{}
+		}
 	}
 	var b []byte
 	rest := out
@@ -312,7 +355,7 @@ func stripFrames(out []byte) []byte {
 		if j < 0 {
 			break
 		}
-		if !frameBody(rest[i+1 : i+1+j]) {
+		if !frameBody(rest[i+1:i+1+j], known) {
 			b = append(b, rest[:i+1]...)
 			rest = rest[i+1:]
 			continue
@@ -323,15 +366,18 @@ func stripFrames(out []byte) []byte {
 	return append(b, rest...)
 }
 
-// frameBody reports whether body (between two sentinel marks) has the
-// "DB:<32 hex nonce>:<code>:<cwd>" shape of a protocol frame.
-func frameBody(body []byte) bool {
+// frameBody reports whether body (between two sentinel marks) is one of
+// our protocol frames ("DB:<32 hex nonce>:<code>:").
+func frameBody(body []byte, known map[string]struct{}) bool {
 	body, ok := bytes.CutPrefix(body, []byte("DB:"))
 	if !ok {
 		return false
 	}
 	nonce, rest, ok := bytes.Cut(body, []byte(":"))
 	if !ok || len(nonce) != 32 {
+		return false
+	}
+	if _, found := known[string(nonce)]; !found {
 		return false
 	}
 	for _, c := range nonce {
@@ -358,26 +404,24 @@ func (s *session) since(from int64) []byte {
 // interrupt stops the foreground job (§A.2: SIGINT on Unix) and sends the
 // sentinel again: an interactive shell abandons the rest of an interrupted
 // line. The sentinel runs once the job has ended.
-func (s *session) interrupt(nonce string) {
+func (s *session) interrupt(nonce, cwdPath string) {
 	if err := interruptForeground(s); err != nil {
 		s.c.note(fmt.Errorf("exec: session interrupt: %w", err))
 	}
-	if _, err := s.input.WriteString(s.sh.again(nonce)); err != nil {
+	if _, err := s.input.WriteString(s.sh.again(nonce, cwdPath)); err != nil {
 		s.c.note(fmt.Errorf("exec: session write: %w", err))
 	}
 }
 
 // kill ends the shell tree once (kill order, sweep, drain).
 func (s *session) kill() {
-	if s.killed {
-		return
-	}
-	s.killed = true
-	s.c.killTree(s.c.s.KillGrace)
-	s.c.finish()
-	if !s.sh.pty {
-		s.c.note(ignoreClosed(s.input.Close()))
-	}
+	s.killOnce.Do(func() {
+		s.c.killTree(s.c.s.KillGrace)
+		s.c.finish()
+		if !s.sh.pty {
+			s.c.note(ignoreClosed(s.input.Close()))
+		}
+	})
 }
 
 func newNonce() string {
