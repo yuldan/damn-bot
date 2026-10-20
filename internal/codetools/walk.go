@@ -274,17 +274,41 @@ func (w *walker) work(ctx context.Context) error {
 // hidden/ignore/deny/prune rules of CODE-TOOLS §2.3 and §8.
 func (w *walker) readDir(ctx context.Context, n *dirNode) {
 	defer close(n.done)
+	ents, ok := w.lockDir(ctx, n)
+	if !ok {
+		return
+	}
+	st, top, prefix := w.prepareDir(ctx, n, ents)
+	var children []*dirNode
+	for _, de := range ents {
+		if c := w.entry(n, de, st, top, prefix); c != nil {
+			children = append(children, c)
+		}
+	}
+	w.dirs.push(children)
+}
+
+// lockDir opens and lists n through the sandbox, then sorts the entries.
+// It reports false when the directory could not be listed; n.unread is set
+// for every failure other than cancellation.
+func (w *walker) lockDir(ctx context.Context, n *dirNode) ([]os.DirEntry, bool) {
 	f, _, err := w.e.sb.OpenResolved(ctx, n.abs, w.spec.approved)
 	if err != nil || f == nil {
 		n.unread = ctx.Err() == nil
-		return
+		return nil, false
 	}
 	ents, err := f.ReadDir(-1)
 	if cerr := f.Close(); err != nil || cerr != nil {
 		n.unread = true
-		return
+		return nil, false
 	}
 	slices.SortFunc(ents, func(a, b os.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+	return ents, true
+}
+
+// prepareDir derives the ignore scope of n from its listed entries: a
+// nested repository resets the scope, and ignore files push their rules.
+func (w *walker) prepareDir(ctx context.Context, n *dirNode, ents []os.DirEntry) (ignoreStack, string, string) {
 	st, top, prefix := n.st, n.top, n.prefix
 	if _, ok := entryType(ents, ".git"); n.rel != "" && ok { // nested repository: reset scope
 		top, prefix = n.abs, ""
@@ -295,13 +319,7 @@ func (w *walker) readDir(ctx context.Context, n *dirNode) {
 			st = st.push(w.e.loadIgnore(ctx, filepath.Join(n.abs, name), prefix, false))
 		}
 	}
-	var children []*dirNode
-	for _, de := range ents {
-		if c := w.entry(n, de, st, top, prefix); c != nil {
-			children = append(children, c)
-		}
-	}
-	w.dirs.push(children)
+	return st, top, prefix
 }
 
 // entry applies the CODE-TOOLS §2.3/§8 rules to one directory entry and
@@ -309,25 +327,44 @@ func (w *walker) readDir(ctx context.Context, n *dirNode) {
 func (w *walker) entry(n *dirNode, de os.DirEntry, st ignoreStack, top, prefix string) *dirNode {
 	name, typ := de.Name(), de.Type()
 	isDir := typ.IsDir()
-	switch {
-	case name == ".git", !w.spec.hidden && name[0] == '.', !isDir && !typ.IsRegular():
+	if name == ".git" || !w.spec.hidden && name[0] == '.' || !isDir && !typ.IsRegular() {
 		return nil // never .git; hidden by default; symlinks are not followed
-	case st.ignored(prefix+name, isDir):
+	}
+	if st.ignored(prefix+name, isDir) {
 		return nil
-	case !isDir && w.spec.scan != nil && w.keepsFile(n.rel+name):
+	}
+	if !isDir {
+		w.entryFile(n, name)
+		return nil
+	}
+	return w.entryDir(n, name, st, top, prefix)
+}
+
+// entryFile records a regular file on n, or only counts its deny skip.
+func (w *walker) entryFile(n *dirNode, name string) {
+	if w.spec.scan != nil && w.keepsFile(n.rel+name) {
 		// scanFile opens through OpenResolved, which enforces deny_paths
 		// and reports skipDenied: one deny match per file instead of two.
 		n.entries = append(n.entries, dirEntry{name: name})
-		return nil
-	case w.e.sb.Denied(filepath.Join(n.abs, name)):
+		return
+	}
+	if w.e.sb.Denied(filepath.Join(n.abs, name)) {
+		n.denied++
+		return
+	}
+	if w.keepsFile(n.rel + name) {
+		n.entries = append(n.entries, dirEntry{name: name})
+	}
+}
+
+// entryDir applies the deny/prune rules to a subdirectory and records it
+// on n; the node is returned so the walker can prefetch it.
+func (w *walker) entryDir(n *dirNode, name string, st ignoreStack, top, prefix string) *dirNode {
+	if w.e.sb.Denied(filepath.Join(n.abs, name)) {
 		n.denied++
 		return nil
-	case !isDir:
-		if w.keepsFile(n.rel + name) {
-			n.entries = append(n.entries, dirEntry{name: name})
-		}
-		return nil
-	case w.spec.keepDir != nil && !w.spec.keepDir(n.rel+name):
+	}
+	if w.spec.keepDir != nil && !w.spec.keepDir(n.rel+name) {
 		return nil
 	}
 	if w.spec.dirs && w.spec.keepDirItem(n.rel+name) {
