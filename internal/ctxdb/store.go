@@ -329,6 +329,10 @@ func (s *Store) detach() error {
 // Close is close without a caller context (the process is shutting down).
 func (s *Store) Close() error { return s.close(context.Background()) }
 
+// CloseContext closes the store using the caller's context for the shutdown
+// barrier. Prefer it where a context is already in scope.
+func (s *Store) CloseContext(ctx context.Context) error { return s.close(ctx) }
+
 func (s *Store) close(ctx context.Context) error {
 	if s.stop != nil {
 		s.stop()
