@@ -60,13 +60,18 @@ func (s *state) dispatch(name, sub string, args []arg, in stdin) {
 	}
 }
 
-// winBuiltin handles cmd.exe's own dispatch (CL5-1). The start/call and
-// control-flow handling is added by the stacked PR (CL5-9).
+// winBuiltin handles cmd.exe's own dispatch forms (CL5-1/CL5-9).
 func (s *state) winBuiltin(name string, args []arg, in stdin) bool {
-	if name != "cmd" {
+	switch name {
+	case "cmd":
+		s.cmdShell(args, in)
+	case "start", "call":
+		s.cmdBuiltin(name, args, in)
+	case "if", "for", "do", "else", "goto":
+		s.raise(Unknown, "cmd control flow")
+	default:
 		return false
 	}
-	s.cmdShell(args, in)
 	return true
 }
 

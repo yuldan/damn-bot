@@ -132,3 +132,25 @@ func TestRuleNesting(t *testing.T) {
 		t.Fatalf("deep wrappers = %s, want unknown", v.Class)
 	}
 }
+
+// TestWindowsShellRecursion (CL5-1): cmd /c|/k parses the rest of the line
+// with the Cmd dialect, so rd/del follow the rm rules; an interactive cmd
+// is Unknown.
+func TestWindowsShellRecursion(t *testing.T) {
+	t.Parallel()
+	env := testEnv()
+	env.Roots = []string{`C:\proj`}
+	env.Home = `C:\Users\u`
+	for _, c := range []labelCase{
+		{`cmd /c rd /s /q C:\proj`, Destructive, 0},
+		{`cmd /k del /s /q C:\proj`, Destructive, 0},
+		{`cmd /c echo hi`, Mutating, 0},
+		{`cmd /c`, Unknown, 0},
+		{`cmd`, Unknown, 0},
+	} {
+		v := Classify(c.cmd, env)
+		if v.Class != c.class || v.Flags != c.flags {
+			t.Errorf("Classify(%q) = %s %v, want %s %v; %q", c.cmd, v.Class, v.Flags.Names(), c.class, c.flags.Names(), v.Reasons)
+		}
+	}
+}
