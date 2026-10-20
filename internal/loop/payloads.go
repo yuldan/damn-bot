@@ -1,5 +1,7 @@
 package loop
 
+import "encoding/json"
+
 type turnStartPayload struct {
 	Text     string `json:"text"`
 	PlanMode bool   `json:"plan_mode"`
@@ -22,6 +24,14 @@ type toolCallPayload struct {
 type dispatchPayload struct {
 	ArgsSHA string `json:"args_sha"`
 	Effect  string `json:"effect"`
+}
+
+type resultPayload struct {
+	Status  string          `json:"status,omitempty"`
+	Tainted bool            `json:"tainted,omitempty"`
+	BlobSHA string          `json:"blob_sha,omitempty"`
+	Error   *ToolError      `json:"error,omitempty"`
+	Meta    json.RawMessage `json:"meta,omitempty"`
 }
 
 type llmPayload struct {
@@ -52,6 +62,7 @@ type endPayload struct {
 	Input      int64    `json:"input_tokens"`
 	Output     int64    `json:"output_tokens"`
 	CostUSD    *float64 `json:"cost_usd,omitempty"`
+	Tainted    bool     `json:"tainted,omitempty"`
 	Error      string   `json:"error,omitempty"`
 }
 
@@ -62,6 +73,29 @@ func callPayloads(calls []ToolCall) []toolCallPayload {
 	out := make([]toolCallPayload, 0, len(calls))
 	for _, c := range calls {
 		out = append(out, toolCallPayload(c))
+	}
+	return out
+}
+
+// callPayloadsRedacted is the Store/UI projection: execution keeps the raw
+// arguments, the transcript never does.
+func callPayloadsRedacted(calls []ToolCall, redact func(string) string) []toolCallPayload {
+	out := callPayloads(calls)
+	for i := range out {
+		out[i].Arguments = redact(out[i].Arguments)
+	}
+	return out
+}
+
+// redactCalls keeps history model-facing while execution uses the raw calls.
+func redactCalls(calls []ToolCall, redact func(string) string) []ToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	out := make([]ToolCall, len(calls))
+	copy(out, calls)
+	for i := range out {
+		out[i].Arguments = redact(out[i].Arguments)
 	}
 	return out
 }

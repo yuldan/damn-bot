@@ -2,6 +2,7 @@ package loop
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -44,6 +45,18 @@ func textScript(text string, u event.Usage) streamFunc {
 	}
 }
 
+// callScript emits each call in one delta, so the reply carries a full call.
+func callScript(finish string, calls ...ToolCall) streamFunc {
+	return func(_ context.Context, _ *Request, emit func(Delta)) (Reply, error) {
+		var ds []ToolCallDelta
+		for i, c := range calls {
+			ds = append(ds, ToolCallDelta{Index: i, HasIndex: true, ID: c.ID, Name: c.Name, Arguments: c.Arguments})
+		}
+		emit(Delta{ToolCalls: ds})
+		return Reply{FinishReason: finish, Model: "fake/m", ToolCalls: calls}, nil
+	}
+}
+
 func errorScript(class Class, err error) streamFunc {
 	return func(_ context.Context, _ *Request, _ func(Delta)) (Reply, error) {
 		return Reply{}, &StreamError{Class: class, Err: err}
@@ -53,15 +66,17 @@ func errorScript(class Class, err error) streamFunc {
 // ---- fake assembler ------------------------------------------------------
 
 type fakeAssembler struct {
-	mu     sync.Mutex
-	prompt Prompt
-	err    error
-	calls  int
+	mu        sync.Mutex
+	prompt    Prompt
+	err       error
+	calls     int
+	histories [][]Message
 }
 
-func (a *fakeAssembler) Assemble(_ context.Context, _ *AssembleRequest) (Prompt, error) {
+func (a *fakeAssembler) Assemble(_ context.Context, req *AssembleRequest) (Prompt, error) {
 	a.mu.Lock()
 	a.calls++
+	a.histories = append(a.histories, append([]Message(nil), req.History...))
 	err := a.err
 	p := a.prompt
 	a.mu.Unlock()
@@ -96,6 +111,8 @@ type fakeToolset struct {
 
 func newFakeToolset() *fakeToolset { return &fakeToolset{stubs: map[string]*toolStub{}} }
 
+func (f *fakeToolset) add(name string, s *toolStub) { f.stubs[name] = s }
+
 func (f *fakeToolset) Prepare(ctx context.Context, c ToolCall) (Prepared, error) {
 	f.mu.Lock()
 	f.prepared = append(f.prepared, c)
@@ -121,37 +138,68 @@ func (f *fakeToolset) Dispatch(ctx context.Context, p *Prepared) (ToolResult, er
 	return ToolResult{Content: "tool-ok"}, nil
 }
 
+func (f *fakeToolset) ranCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.ran)
+}
+
 // ---- other fakes ---------------------------------------------------------
 
 type fakeStore struct {
 	mu     sync.Mutex
 	events []event.Event
+	next   int64
 	err    error
 }
 
-func (s *fakeStore) Append(_ context.Context, _, _ string, ev *event.Event) error {
+func (s *fakeStore) Append(_ context.Context, _, _ string, ev *event.Event) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.err != nil {
-		return s.err
+		return 0, s.err
 	}
+	s.next++
 	s.events = append(s.events, *ev)
-	return nil
+	return s.next, nil
+}
+
+func (s *fakeStore) kinds() []event.Kind {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]event.Kind, 0, len(s.events))
+	for _, e := range s.events {
+		out = append(out, e.Kind)
+	}
+	return out
+}
+
+func (s *fakeStore) find(k event.Kind) (event.Event, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range s.events {
+		if e.Kind == k {
+			return e, true
+		}
+	}
+	return event.Event{}, false
 }
 
 type fakeLedger struct {
-	mu    sync.Mutex
-	usage []event.Usage
-	err   error
+	mu       sync.Mutex
+	usage    []event.Usage
+	eventIDs []int64
+	err      error
 }
 
-func (l *fakeLedger) Record(_ context.Context, _, _ string, u *event.Usage) error {
+func (l *fakeLedger) Record(_ context.Context, _, _ string, eventID int64, u *event.Usage) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.err != nil {
 		return l.err
 	}
 	l.usage = append(l.usage, *u)
+	l.eventIDs = append(l.eventIDs, eventID)
 	return nil
 }
 
@@ -276,3 +324,9 @@ func terminal(t *testing.T, ups []event.Update) event.Update {
 }
 
 // payloadOf decodes an event payload.
+func payloadOf(t *testing.T, e *event.Event, v any) {
+	t.Helper()
+	if err := json.Unmarshal(e.Payload, v); err != nil {
+		t.Fatalf("payload %s: %v", e.Payload, err)
+	}
+}

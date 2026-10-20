@@ -1,6 +1,8 @@
 package loop
 
 import (
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/loop/event"
@@ -98,5 +100,59 @@ func TestSanitizeName(t *testing.T) {
 		if got := sanitizeName(in); got != want {
 			t.Errorf("sanitizeName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestToolCallAssemblyTurnsEndToEnd: fragments from the provider stream are
+// dispatched as one call with the joined arguments (EC-PROV-001).
+func TestToolCallAssemblyTurnsEndToEnd(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	f.provider.scripts = []streamFunc{func(_ context.Context, _ *Request, emit func(Delta)) (Reply, error) {
+		emit(Delta{ToolCalls: []ToolCallDelta{
+			{Index: 0, HasIndex: true, ID: "c", Name: "read_", Arguments: `{"pa`},
+			{Index: 0, HasIndex: true, Name: "file", Arguments: `th":"a.go"}`},
+		}})
+		return Reply{FinishReason: FinishToolCalls}, nil
+	}}
+	f.tools.add("read_file", &toolStub{dispatch: func(_ context.Context, p *Prepared) (ToolResult, error) {
+		if p.Call.Arguments != `{"path":"a.go"}` {
+			t.Errorf("arguments = %q", p.Call.Arguments)
+		}
+		return ToolResult{Content: "ok"}, nil
+	}})
+	// The second script is the repeated last one; the turn would loop until
+	// the iteration budget. Stop after one dispatch via no_progress.
+	f.cfg.MaxIdentical = 1
+	got := terminal(t, f.run(t))
+	if got.Stop != event.StopEndTurn || got.Detail != event.DetailNoProgress {
+		t.Fatalf("stop = %s/%s", got.Stop, got.Detail)
+	}
+	if f.tools.ranCount() != 1 {
+		t.Errorf("dispatched %d calls, want 1", f.tools.ranCount())
+	}
+}
+
+// TestDuplicateJSONKeysRejected: the duplicate-key check is applied before
+// Prepare; the model gets invalid_args and nothing runs.
+func TestDuplicateJSONKeysRejected(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	f.provider.scripts = []streamFunc{callScript(FinishToolCalls,
+		ToolCall{ID: "a", Name: "read", Arguments: `{"p":1,"p":2}`})}
+	f.tools.add("read", &toolStub{})
+	f.cfg.MaxIdentical = 1
+	ups := f.run(t)
+	ev, ok := f.store.find(event.ToolRejected)
+	if !ok {
+		t.Fatalf("no tool_rejected event: %+v", ups)
+	}
+	var p auditPayload
+	payloadOf(t, &ev, &p)
+	if p.Code != CodeInvalidArgs || !strings.Contains(p.Message, "duplicate") {
+		t.Errorf("payload = %+v", p)
+	}
+	if f.tools.ranCount() != 0 {
+		t.Errorf("invalid args were dispatched")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -12,6 +13,21 @@ import (
 	"github.com/damnbot/damnbot/internal/loop/event"
 )
 
+// dispatchCalls prepares and runs one model batch in order. The fast path
+// where every call is a plain read dispatches the batch concurrently.
+func (t *turn) dispatchCalls(ctx context.Context, calls []ToolCall) (outcome, bool) {
+	prepared, errs, fatal := t.prepareBatch(ctx, calls)
+	if fatal != nil {
+		return t.fail(ctx, event.DetailToolError, fatal), true
+	}
+	if errs == nil && t.canParallel(prepared) {
+		return t.runParallel(ctx, prepared)
+	}
+	return t.runSerial(ctx, calls, prepared, errs)
+}
+
+// prepareBatch sanitizes, validates, and decodes every call. A duplicate
+// tool_call id (EC-TCALL-002) is rejected without a second dispatch.
 func (t *turn) prepareBatch(ctx context.Context, calls []ToolCall) ([]Prepared, []*ToolError, error) {
 	prepared := make([]Prepared, len(calls))
 	errs := make([]*ToolError, len(calls))
@@ -43,6 +59,7 @@ func (t *turn) prepareBatch(ctx context.Context, calls []ToolCall) ([]Prepared, 
 	return prepared, errs, nil
 }
 
+// prepare sanitizes, validates, and asks the Toolset to decode the call.
 func (t *turn) prepare(ctx context.Context, c ToolCall) (Prepared, *ToolError, error) {
 	c.Name = sanitizeName(c.Name)
 	args, te := normalizeArgs(c.Arguments)
@@ -64,25 +81,94 @@ func (t *turn) prepare(ctx context.Context, c ToolCall) (Prepared, *ToolError, e
 	return p, nil, nil
 }
 
+// canParallel is the SPEC §4.2 read fast path: only read-effect calls that
+// need no approval may run together.
 func (t *turn) canParallel(ps []Prepared) bool {
 	if len(ps) < 2 || t.cfg.ParallelTools < 2 {
 		return false
 	}
 	for i := range ps {
-		if ps[i].Approval != ApprovalNone || ps[i].Effect != EffectRead {
+		if ps[i].Approval != ApprovalNone || ps[i].Effect != EffectRead || ps[i].NeedsApproval(t.tainted) {
 			return false
 		}
 	}
 	return true
 }
 
+// runParallel dispatches a batch of plain reads, then delivers in order.
+func (t *turn) runParallel(ctx context.Context, prepared []Prepared) (outcome, bool) {
+	for i := range prepared {
+		if err := t.dispatchEvent(ctx, &prepared[i]); err != nil {
+			return t.fail(ctx, event.DetailInternal, err), true
+		}
+	}
+	outs := t.dispatchBatch(ctx, prepared)
+	for i := range prepared {
+		if o, ok := t.deliver(ctx, prepared[i].Call, &outs[i].res, outs[i].err); ok {
+			return o, true
+		}
+	}
+	return t.takePending()
+}
+
+// runSerial dispatches calls one at a time so taint and approvals see the
+// committed order.
+func (t *turn) runSerial(ctx context.Context, calls []ToolCall, prepared []Prepared, errs []*ToolError) (outcome, bool) {
+	for i := range calls {
+		if len(errs) > i && errs[i] != nil {
+			t.reject(ctx, calls[i], errs[i])
+			if o, ok := t.deliver(ctx, calls[i], &ToolResult{Err: errs[i]}, nil); ok {
+				return o, true
+			}
+			continue
+		}
+		if o, ok := t.runCall(ctx, &prepared[i]); ok {
+			return o, true
+		}
+	}
+	return t.takePending()
+}
+
+// takePending returns a deferred no_progress stop after all results landed.
+func (t *turn) takePending() (outcome, bool) {
+	if t.pending == nil {
+		return outcome{}, false
+	}
+	o := *t.pending
+	return o, true
+}
+
+// runCall approves and dispatches one prepared call.
+func (t *turn) runCall(ctx context.Context, p *Prepared) (outcome, bool) {
+	o, terminal, denied := t.approve(ctx, p)
+	if terminal {
+		if denied {
+			t.reject(ctx, p.Call, &ToolError{Code: CodeDenied, Message: "denied by user"})
+		}
+		return o, true
+	}
+	if denied {
+		te := &ToolError{Code: CodeDenied, Message: "denied by user", Hint: "ask the user for a different approach"}
+		t.reject(ctx, p.Call, te)
+		return t.deliver(ctx, p.Call, &ToolResult{Err: te}, nil)
+	}
+	if err := t.dispatchEvent(ctx, p); err != nil {
+		return t.fail(ctx, event.DetailInternal, err), true
+	}
+	res, err := t.dispatch(ctx, p)
+	return t.deliver(ctx, p.Call, &res, err)
+}
+
+// dispatchEvent persists the dispatch marker before a tool runs.
 func (t *turn) dispatchEvent(ctx context.Context, p *Prepared) error {
-	return t.append(ctx, &event.Event{
+	_, err := t.append(ctx, &event.Event{
 		Kind: event.ToolDispatch, ToolCallID: p.Call.ID, ToolName: p.Call.Name,
 		Payload: payload(dispatchPayload{ArgsSHA: argsSHA(p.Call.Arguments), Effect: string(p.Effect)}),
 	})
+	return err
 }
 
+// reject persists a pre-dispatch rejection (SPEC §4.3 step 7).
 func (t *turn) reject(ctx context.Context, c ToolCall, te *ToolError) {
 	t.note(ctx, &event.Event{
 		Kind: event.ToolRejected, ToolCallID: c.ID, ToolName: c.Name,
@@ -90,6 +176,113 @@ func (t *turn) reject(ctx context.Context, c ToolCall, te *ToolError) {
 	})
 }
 
+// approve consults the Approver when needed. denied reports that the call
+// must not run; terminal reports a turn-ending denial.
+func (t *turn) approve(ctx context.Context, p *Prepared) (o outcome, terminal, denied bool) {
+	if !p.NeedsApproval(t.tainted) || t.cached(p) {
+		return outcome{}, false, false
+	}
+	if t.deps.Approver == nil {
+		return t.deny(ctx, p), p.Terminal, true
+	}
+	res, err := t.deps.Approver.Approve(ctx, &ApprovalRequest{
+		SessionID: t.sessionID, TurnID: t.turnID, Tool: p.Call.Name, Args: json.RawMessage(p.Call.Arguments),
+		Preview: p.Preview, Effect: p.Effect, Tainted: t.tainted, Terminal: p.Terminal,
+	})
+	if err != nil {
+		if ctx.Err() != nil {
+			return t.cancelled(), true, true
+		}
+		return outcome{}, false, true
+	}
+	switch res.Decision {
+	case DecisionAllowOnce:
+		p.Approved = true
+		t.recordApproval(ctx, p.Call.Name, res.Decision)
+	case DecisionAllowSession:
+		p.Approved = true
+		t.grant(ctx, p, res.Decision)
+	case DecisionEdit:
+		if !t.edit(ctx, p, &res) {
+			return t.deny(ctx, p), p.Terminal, true
+		}
+		p.Approved = true
+	case DecisionDeny:
+		return t.deny(ctx, p), p.Terminal, true
+	default: // any unknown decision is a denial
+		return t.deny(ctx, p), p.Terminal, true
+	}
+	return outcome{}, false, false
+}
+
+// cached reports a remembered allow_session grant (never applies while the
+// turn is tainted or the class forbids session grants).
+func (t *turn) cached(p *Prepared) bool {
+	if p.NoSession || (t.tainted && p.Effect != EffectRead) {
+		return false
+	}
+	for _, s := range t.subjects(p) {
+		if s != "" && t.allowed[p.Call.Name+"\x00"+s] {
+			return true
+		}
+	}
+	return false
+}
+
+// subjects returns the exact allow_session subjects (Decision.Paths when the
+// adapter provides several, else the single Subject).
+func (t *turn) subjects(p *Prepared) []string {
+	if len(p.Subjects) > 0 {
+		return p.Subjects
+	}
+	return []string{p.Subject}
+}
+
+// grant records an allow_session decision, downgraded to allow_once when the
+// class or taint forbids remembering it.
+func (t *turn) grant(ctx context.Context, p *Prepared, d Decision) {
+	if p.NoSession || (t.tainted && p.Effect != EffectRead) {
+		t.recordApproval(ctx, p.Call.Name, DecisionAllowOnce)
+		return
+	}
+	for _, s := range t.subjects(p) {
+		if s != "" {
+			t.allowed[p.Call.Name+"\x00"+s] = true
+		}
+	}
+	t.recordApproval(ctx, p.Call.Name, d)
+}
+
+// edit re-prepares edited arguments; false means the edit was rejected.
+func (t *turn) edit(ctx context.Context, p *Prepared, res *ApprovalResult) bool {
+	edited, te, fatal := t.prepare(ctx, ToolCall{ID: p.Call.ID, Name: p.Call.Name, Arguments: string(res.Args)})
+	if fatal != nil || te != nil {
+		t.recordApproval(ctx, p.Call.Name, DecisionDeny)
+		return false
+	}
+	*p = edited
+	t.recordApproval(ctx, p.Call.Name, res.Decision)
+	return true
+}
+
+// deny records the denial and builds its terminal classification.
+func (t *turn) deny(ctx context.Context, p *Prepared) outcome {
+	t.recordApproval(ctx, p.Call.Name, DecisionDeny)
+	if p.Terminal {
+		return outcome{stop: event.StopApprovalDenied, detail: event.DetailApprovalDenied}
+	}
+	return outcome{}
+}
+
+// NeedsApproval is true when the tool asked for approval or taint forces it
+// for a non-read action (ADR-070).
+func (p *Prepared) NeedsApproval(tainted bool) bool {
+	return p.Approval == ApprovalAsk || tainted && p.Effect != EffectRead
+}
+
+// dispatch runs one call behind the kill-grace window (REL-06) through
+// boundary (E-26). A tool that does not return inside the grace is reported
+// still_running; its goroutine exits when the tool finally honours ctx.
 func (t *turn) dispatch(ctx context.Context, p *Prepared) (ToolResult, error) {
 	ch := make(chan dispatchOutcome, 1) //damnbot:buffered close-only completion signal
 	task := boundary.Go(ctx, "loop.dispatch", func(ctx context.Context) error {
@@ -112,6 +305,8 @@ func (t *turn) dispatch(ctx context.Context, p *Prepared) (ToolResult, error) {
 	}
 }
 
+// settle waits for the guarded goroutine and reports a panic (a tool's own
+// error is data, not a panic).
 func settle(task *boundary.Task, o *dispatchOutcome) (ToolResult, error) {
 	if err := task.Wait(); err != nil {
 		return ToolResult{}, fmt.Errorf("loop: dispatch: %w", err)
@@ -124,31 +319,112 @@ type dispatchOutcome struct {
 	err error
 }
 
+// dispatchBatch runs read-only calls concurrently, bounded by ParallelTools.
+// Each member owns its result channel; the slice is written only by this
+// goroutine, so a timed-out member can never race a late result.
 func (t *turn) dispatchBatch(ctx context.Context, ps []Prepared) []dispatchOutcome {
-	outs := make([]dispatchOutcome, len(ps))
+	out := make([]dispatchOutcome, len(ps))
 	sem := make(chan struct{}, t.cfg.ParallelTools) //damnbot:bounded parallel reads
-	tasks := make([]*boundary.Task, len(ps))
+	type job struct {
+		ch   chan dispatchOutcome
+		task *boundary.Task
+	}
+	jobs := make([]job, len(ps))
 	for i := range ps {
-		tasks[i] = boundary.Go(ctx, "loop.read", func(ctx context.Context) error {
+		ch := make(chan dispatchOutcome, 1) //damnbot:late result owned by its goroutine
+		tasks := boundary.Go(ctx, "loop.read", func(ctx context.Context) error {
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
-				return nil // never started: nothing can be running
+				ch <- dispatchOutcome{res: ToolResult{Status: "cancelled_confirmed"}}
+				return nil
 			}
 			defer func() { <-sem }()
 			res, err := t.deps.Toolset.Dispatch(ctx, &ps[i])
-			outs[i] = dispatchOutcome{res: res, err: err}
+			ch <- dispatchOutcome{res: res, err: err}
 			return nil
 		})
+		jobs[i] = job{ch: ch, task: tasks}
 	}
-	for i := range tasks {
-		if err := tasks[i].Wait(); err != nil {
-			outs[i] = dispatchOutcome{err: fmt.Errorf("loop: dispatch: %w", err)}
-		}
+	for i := range jobs {
+		out[i] = t.collect(jobs[i].ch, jobs[i].task)
 	}
-	return outs
+	return out
 }
 
+// collect waits for one batch job at most KillGrace. A late result is
+// discarded by its owning goroutine; a panic becomes the call's error.
+func (t *turn) collect(ch chan dispatchOutcome, task *boundary.Task) dispatchOutcome {
+	if t.cfg.KillGrace <= 0 {
+		return t.finishJob(ch, task)
+	}
+	timer := time.NewTimer(t.cfg.KillGrace)
+	defer timer.Stop()
+	select {
+	case o := <-ch:
+		if err := task.Wait(); err != nil {
+			return dispatchOutcome{err: fmt.Errorf("loop: dispatch: %w", err)}
+		}
+		return o
+	case <-task.Done():
+		return t.finishJob(ch, task)
+	case <-timer.C:
+		return dispatchOutcome{res: ToolResult{Status: "still_running"}}
+	}
+}
+
+func (t *turn) finishJob(ch chan dispatchOutcome, task *boundary.Task) dispatchOutcome {
+	if err := task.Wait(); err != nil {
+		return dispatchOutcome{err: fmt.Errorf("loop: dispatch: %w", err)}
+	}
+	select {
+	case o := <-ch:
+		return o
+	default:
+		return dispatchOutcome{res: ToolResult{Status: "still_running"}}
+	}
+}
+
+// deliver persists one tool result, applies spill/taint/no_progress, and
+// emits the model-facing update. ok reports a terminal outcome.
+func (t *turn) deliver(ctx context.Context, c ToolCall, res *ToolResult, callErr error) (outcome, bool) {
+	if callErr != nil {
+		if ctx.Err() != nil || errors.Is(callErr, context.Canceled) {
+			return t.cancelled(), true
+		}
+		return t.fail(ctx, event.DetailToolError, callErr), true
+	}
+	if res.Tainted && !t.tainted {
+		t.tainted = true
+		t.note(ctx, &event.Event{Kind: event.SystemNotice, Payload: payload(auditPayload{Kind: "taint", Tool: c.Name})})
+	}
+	content := t.redact(t.modelContent(ctx, res))
+	ev := &event.Event{
+		Kind: event.ToolResult, Role: "tool", Content: content, ToolCallID: c.ID, ToolName: c.Name,
+		BlobSHA: res.BlobSHA, Payload: payload(resultPayload{
+			Status: res.Status, Tainted: res.Tainted, BlobSHA: res.BlobSHA, Error: res.Err, Meta: res.Meta,
+		}),
+	}
+	if _, err := t.append(ctx, ev); err != nil {
+		return t.fail(ctx, event.DetailInternal, err), true
+	}
+	t.history = append(t.history, Message{Role: "tool", Content: content, ToolCallID: c.ID})
+	t.emit(&event.Update{Kind: event.UpdateToolResult, ToolCallID: c.ID, ToolName: c.Name, Text: content, Status: res.Status})
+	if ctx.Err() != nil {
+		if res.Status == "cancelled_confirmed" {
+			return outcome{stop: event.StopCancelledConfirmed, detail: event.DetailCancelled}, true
+		}
+		return t.cancelled(), true
+	}
+	if t.bump(noProgressKey(c, content)) >= t.cfg.MaxIdentical {
+		t.note(ctx, &event.Event{Kind: event.SystemNotice, Payload: payload(auditPayload{Kind: "no_progress", Tool: c.Name})})
+		o := outcome{stop: event.StopEndTurn, detail: event.DetailNoProgress}
+		t.pending = &o
+	}
+	return outcome{}, false
+}
+
+// argsSHA is the dispatch event's argument digest (never the raw arguments).
 func argsSHA(args string) string {
 	sum := sha256.Sum256([]byte(args))
 	return hex.EncodeToString(sum[:])

@@ -42,19 +42,23 @@ func preview(s string, n int) string {
 // modelContent renders the model-facing tool content: an error envelope, the
 // unchanged success text (EC-TCALL-007), or a P5 spill notice.
 func (t *turn) modelContent(ctx context.Context, res *ToolResult) string {
-	if res.Err != nil {
-		return errorEnvelope(res.Err)
+	var out string
+	switch {
+	case res.Err != nil:
+		out = errorEnvelope(res.Err)
+	default:
+		n := runeLen(res.Content)
+		switch {
+		case n > t.cfg.MaxInline:
+			out = t.trimmed(ctx, res.Content, n, 800, true)
+		case t.cfg.MaxInlineTurn > 0 && t.inline+n > t.cfg.MaxInlineTurn:
+			out = t.trimmed(ctx, res.Content, 0, 400, false)
+		default:
+			out = res.Content
+		}
 	}
-	content := res.Content
-	n := runeLen(content)
-	if n > t.cfg.MaxInline {
-		return t.trimmed(ctx, content, n, 800, true)
-	}
-	if t.cfg.MaxInlineTurn > 0 && t.inline+n > t.cfg.MaxInlineTurn {
-		return t.trimmed(ctx, content, 0, 400, false)
-	}
-	t.inline += n
-	return content
+	t.inline += runeLen(out)
+	return out
 }
 
 // trimmed spills or truncates an oversized result. keep is the preview

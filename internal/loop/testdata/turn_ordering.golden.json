@@ -1,0 +1,45 @@
+[
+  {
+    "kind": "text_delta",
+    "text": "Let me look. "
+  },
+  {
+    "kind": "tool_call_start",
+    "tool": "read_file"
+  },
+  {
+    "kind": "tool_call_args",
+    "text": "{\"pa",
+    "tool": "read_file"
+  },
+  {
+    "kind": "tool_call_args",
+    "text": "th\":\"a.go\"}",
+    "tool": "read_file"
+  },
+  {
+    "kind": "usage"
+  },
+  {
+    "kind": "tool_call_end",
+    "text": "{\"path\":\"a.go\"}",
+    "tool": "read_file"
+  },
+  {
+    "kind": "tool_result",
+    "text": "file-content",
+    "tool": "read_file"
+  },
+  {
+    "kind": "text_delta",
+    "text": "Done."
+  },
+  {
+    "kind": "usage"
+  },
+  {
+    "kind": "stop",
+    "stop": "end_turn",
+    "detail": "completed"
+  }
+]
