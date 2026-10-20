@@ -239,6 +239,70 @@ func TestShellAllowTOCTOUFailsClosed(t *testing.T) {
 	}
 }
 
+// Inspect records only an approved direct argv: a shell-mode call has no
+// execution mode to protect and must not leave a record behind
+// (REVIEW-F1-SEC7 TL7-15).
+func TestShellInspectWithoutAllowLeavesNoRecord(t *testing.T) {
+	t.Parallel()
+	w := newWorkspace(t)
+	id := classify.BinaryID{Path: "/bin/echo", Dev: 1, Ino: 2, Size: 3, MtimeNs: 4}
+	sh := fakeShell(t, w, &fakeRunner{}, []classify.AllowEntry{{"echo", "hi"}}, func(string) (classify.BinaryID, bool) {
+		return id, true
+	})
+	in, ok := sh.(Inspector)
+	if !ok {
+		t.Fatal("shell tool does not implement Inspector")
+	}
+	st, ok := sh.(*shellTool)
+	if !ok {
+		t.Fatal("shell tool is not *shellTool")
+	}
+	env := Env{CallID: "c1", Cwd: w.root, InlineLeft: TurnInlineChars}
+	args := json.RawMessage(`{"command":"echo bye"}`)
+	if _, err := in.Inspect(context.Background(), env, args, PolicyContext{Mode: ModeAsk, WorkspaceTrusted: true}); err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	st.mu.Lock()
+	n := len(st.rec)
+	st.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("records after a non-matching Inspect = %d, want 0", n)
+	}
+}
+
+// A shell_allow match that appears only at Run was never approved and must
+// fail closed instead of running argv the approval never saw
+// (REVIEW-F1-SEC7 TL7-4, TL7-15).
+func TestShellAllowAppearsAfterInspectFailsClosed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX argv binary")
+	}
+	t.Parallel()
+	w := newWorkspace(t)
+	id := classify.BinaryID{Path: "/bin/echo", Dev: 1, Ino: 2, Size: 3, MtimeNs: 4}
+	var resolvable atomic.Bool
+	runner := &fakeRunner{}
+	sh := fakeShell(t, w, runner, []classify.AllowEntry{{"echo", "hi"}}, func(string) (classify.BinaryID, bool) {
+		return id, resolvable.Load()
+	})
+	in, ok := sh.(Inspector)
+	if !ok {
+		t.Fatal("shell tool does not implement Inspector")
+	}
+	env := Env{CallID: "c1", Cwd: w.root, InlineLeft: TurnInlineChars}
+	args := json.RawMessage(`{"command":"echo hi"}`)
+	if _, err := in.Inspect(context.Background(), env, args, PolicyContext{Mode: ModeAsk, WorkspaceTrusted: true}); err != nil {
+		t.Fatalf("inspect: %v", err)
+	}
+	resolvable.Store(true)
+	if _, err := sh.Run(context.Background(), env, args); codeOf(err) != CodeDenied {
+		t.Fatalf("code = %q (%v), want denied", codeOf(err), err)
+	}
+	if runner.calls != 0 {
+		t.Fatalf("runner ran %d times for an unapproved shell_allow match", runner.calls)
+	}
+}
+
 // A cwd outside the workspace is refused instead of being passed to the child
 // (REVIEW-F1-SEC7 TL7-5).
 func TestShellCwdOutsideWorkspaceDenied(t *testing.T) {

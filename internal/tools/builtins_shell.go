@@ -56,9 +56,8 @@ type shellTool struct {
 	rec map[string]shellApproval
 }
 
-// shellApproval is the execution mode Inspect approved for one call: the
-// exact argv for mode (b), or nil for shell mode. Run refuses to execute in a
-// different mode (REVIEW-F1-SEC7 TL7-4).
+// shellApproval is the direct argv Inspect approved for one call. Run
+// refuses to execute in a different mode (REVIEW-F1-SEC7 TL7-4).
 type shellApproval struct{ direct []string }
 
 // shellRecordLimit bounds outstanding Inspect records (one per in-flight
@@ -129,9 +128,13 @@ func (t *shellTool) Inspect(_ context.Context, env Env, args json.RawMessage, pc
 	if !ok {
 		return PolicyDecision{}, toolErr(CodeDenied, "shell_allow matched a command that is not a direct argv", "")
 	}
-	// Remember the approved execution mode: Run refuses any change between
-	// this decision and the spawn (REVIEW-F1-SEC7 TL7-4).
-	t.remember(env.CallID, direct)
+	// Remember only an approved direct argv: shell-mode calls have no
+	// execution mode to protect, and a denied or terminal call must not
+	// leave a record behind (REVIEW-F1-SEC7 TL7-4/TL7-15). The record still
+	// lets Run refuse any change between this decision and the spawn.
+	if matched && direct != nil {
+		t.remember(env.CallID, direct)
+	}
 	cctx := &classify.Context{
 		Mode: t.classifyMode(pc.Mode), AllowMatched: matched,
 		WorkspaceTrusted: pc.WorkspaceTrusted, TurnTainted: pc.Tainted,
@@ -335,14 +338,14 @@ func (t *shellTool) directArgv(command string, matched bool) ([]string, bool) {
 	return classify.DirectArgv(command, t.cfg.Dialect)
 }
 
-// remember records the execution mode Inspect approved for one call.
+// remember records the direct argv Inspect approved for one shell_allow call.
 func (t *shellTool) remember(callID string, direct []string) {
 	t.mu.Lock()
 	if t.rec == nil {
 		t.rec = make(map[string]shellApproval)
 	}
-	// A denied call never reaches Run and would leave its record behind, so
-	// the map is bounded: entries are consumed by Run or dropped here.
+	// Only direct approvals are stored, and Run consumes them; the map is
+	// still bounded so a caller that never runs leaves no unbounded growth.
 	if len(t.rec) >= shellRecordLimit {
 		clear(t.rec)
 	}
