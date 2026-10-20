@@ -403,8 +403,11 @@ func (c *call) finish() {
 	if c.inW != nil {
 		c.note(ignoreClosed(c.inW.Close()))
 	}
+	// A live tree may still be forking or exec'ing an escapee: the marker
+	// sweep then needs a settle scan (see sweep).
+	hadTree := c.p.treeAlive()
 	c.note(c.p.kill())
-	c.sweep()
+	c.sweep(hadTree)
 	if !c.gone {
 		c.ex = <-c.exit
 		c.gone = true
@@ -423,17 +426,33 @@ func (c *call) finish() {
 // sweepWait bounds waiting for killed marker processes to disappear (SIGKILL is asynchronous; P24.1 asserts right after Run).
 const sweepWait = time.Second
 
-// sweep kills every process carrying this call's marker (§A.4), up to sweepWait, until none is visible.
-func (c *call) sweep() {
+// sweep kills every process carrying this call's marker (§A.4), up to
+// sweepWait, until none is visible. A scan reads /proc/<pid>/environ, and a
+// process between two execve calls reports an empty or partial environ
+// (measured: ~1% of reads on a re-exec loop), so one clean scan does not
+// prove the tree is gone while an escapee may still be exec'ing. When the
+// tree was alive at kill time, or a scan found marked processes, a second
+// clean scan after pollEvery confirms it (P24.1); a call with no descendants
+// keeps the single-scan fast path (P24.3 spawn budget).
+func (c *call) sweep(settle bool) {
 	id := []byte(c.id)
 	deadline := time.Now().Add(sweepWait)
+	clean := false
 	for {
 		pids, err := markerPids(func(v []byte) bool { return bytes.Equal(v, id) })
 		c.note(err)
 		for _, pid := range pids {
 			c.note(killPid(pid))
 		}
-		if len(pids) == 0 || !time.Now().Before(deadline) {
+		switch {
+		case len(pids) > 0:
+			clean, settle = false, true
+		case !settle || clean:
+			return
+		default:
+			clean = true
+		}
+		if !time.Now().Before(deadline) {
 			return
 		}
 		// Give SIGKILL time to take effect; an escapee forking while it
