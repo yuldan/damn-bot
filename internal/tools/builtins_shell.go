@@ -109,11 +109,8 @@ func (t *shellTool) Inspect(_ context.Context, env Env, args json.RawMessage, pc
 	if err != nil {
 		return PolicyDecision{}, err
 	}
-	if a.Session != "" && a.Stdin != "" {
-		return PolicyDecision{}, toolErr(CodeInvalidArgs, "persistent sessions never accept stdin", "/stdin: not allowed with /session")
-	}
-	if a.Session != "" && a.Cwd != "" {
-		return PolicyDecision{}, toolErr(CodeInvalidArgs, "cwd is fixed when a persistent session starts", "/cwd: not allowed with /session")
+	if err := validateSessionArgs(a); err != nil {
+		return PolicyDecision{}, err
 	}
 	cwd := t.callCwd(a)
 	// The child runs with this cwd: a directory outside the workspace would
@@ -135,17 +132,41 @@ func (t *shellTool) Inspect(_ context.Context, env Env, args json.RawMessage, pc
 	if matched && direct != nil {
 		t.remember(env.CallID, direct)
 	}
-	cctx := &classify.Context{
+	dec := classify.Decide(&v, &classify.Context{
 		Mode: t.classifyMode(pc.Mode), AllowMatched: matched,
 		WorkspaceTrusted: pc.WorkspaceTrusted, TurnTainted: pc.Tainted,
 		Session: a.Session != "", Stdin: a.Stdin != "", CwdInRoot: true,
+	})
+	return shellDecision(dec, shellClassLabel(v), shellPreview(a.Command, v))
+}
+
+// validateSessionArgs rejects combinations a persistent session cannot honor
+// (SPEC §A.2); one-shot calls may still accept stdin.
+func validateSessionArgs(a shellArgs) error {
+	if a.Session == "" {
+		return nil
 	}
-	dec := classify.Decide(&v, cctx)
+	if a.Stdin != "" {
+		return toolErr(CodeInvalidArgs, "persistent sessions never accept stdin", "/stdin: not allowed with /session")
+	}
+	if a.Cwd != "" {
+		return toolErr(CodeInvalidArgs, "cwd is fixed when a persistent session starts", "/cwd: not allowed with /session")
+	}
+	return nil
+}
+
+// shellClassLabel is the audit label of one classified command.
+func shellClassLabel(v classify.Verdict) string {
 	class := "shell:" + v.Class.String()
 	if names := v.Flags.Names(); len(names) > 0 {
 		class += " flags:" + strings.Join(names, ",")
 	}
-	preview := shellPreview(a.Command, v)
+	return class
+}
+
+// shellDecision turns classify.Decide's answer into one tool policy decision.
+// Denied and unverified share the same fail-closed requirement.
+func shellDecision(dec classify.Decision, class, preview string) (PolicyDecision, error) {
 	switch dec {
 	case classify.AutoApprove:
 		return PolicyDecision{Requirement: RequireAuto, Class: class}, nil
@@ -153,9 +174,7 @@ func (t *shellTool) Inspect(_ context.Context, env Env, args json.RawMessage, pc
 		return PolicyDecision{}, &ToolError{Code: CodeDeniedPath, Message: "command resolves to a deny_paths file", Hint: "choose another command", Err: nil}
 	case classify.OutsideWorkspace:
 		return PolicyDecision{}, &ToolError{Code: CodeOutsideWorkspace, Message: "command reads outside the workspace", Hint: "headless runs never approve outside paths"}
-	case classify.Denied:
-		return PolicyDecision{Requirement: RequireDeny, Class: class, Preview: preview}, nil
-	case classify.Unverified:
+	case classify.Denied, classify.Unverified:
 		return PolicyDecision{Requirement: RequireDeny, Class: class, Preview: preview}, nil
 	case classify.Ask, classify.AskPreview, classify.AskPerCommand:
 		return PolicyDecision{Requirement: RequireAsk, Class: class, Preview: preview, AllowSession: false}, nil
