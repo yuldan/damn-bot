@@ -283,6 +283,16 @@ type Redactor interface {
 	Redact(text string) string
 }
 
+// StreamFilter is the cross-delta redaction filter of ADR-081 butir 3
+// (internal/redact.Stream): Push appends to dst the bytes that became final
+// and holds only the suffix that may still become a secret; Flush decides
+// the held tail. For every chunking, the concatenated output equals
+// Redact of the concatenated input.
+type StreamFilter interface {
+	Push(dst, chunk []byte) []byte
+	Flush(dst []byte) []byte
+}
+
 // Spiller persists oversized tool output and returns a stable reference
 // (SPEC P5). The F1 tools package implements the real spill.
 type Spiller interface {
@@ -319,6 +329,10 @@ type Deps struct {
 	Compactor Compactor
 	Redactor  Redactor // nil = no redaction (tests only)
 	Spiller   Spiller  // nil = oversized results become too_large
+	// NewRedactStream returns a fresh cross-delta filter for one streamed
+	// field. Without it (and with a Redactor) the loop holds the field until
+	// the call returns and redacts it whole (LP8-19).
+	NewRedactStream func() StreamFilter
 }
 
 // TurnResult is the terminal state of one turn.

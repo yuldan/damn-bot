@@ -191,17 +191,9 @@ func (t *turn) windowStop(pct int64) (outcome, bool) {
 func (t *turn) ask(ctx context.Context, p *Prompt) (Reply, []ToolCall, *outcome) {
 	var st askState
 	for {
-		var b callBuilder
-		reply, err := t.deps.Provider.Stream(ctx, &p.Request, func(d Delta) {
-			if d.Text != "" {
-				t.emit(&event.Update{Kind: event.UpdateTextDelta, Text: t.redact(d.Text)})
-			}
-			b.add(d.ToolCalls, func(u *event.Update) {
-				u.Text = t.redact(u.Text)
-				t.emit(u)
-			})
-		})
-		calls := b.calls()
+		sc := newStreamCollector(t)
+		reply, err := t.deps.Provider.Stream(ctx, &p.Request, sc.emit)
+		calls := sc.flush()
 		if err != nil {
 			retry, o := t.streamError(ctx, p, err, &st)
 			if retry {
@@ -382,6 +374,7 @@ func (t *turn) truncated(ctx context.Context, calls []ToolCall) (outcome, bool) 
 			Hint: "resend the complete call",
 		}
 		if o, ok := t.deliver(ctx, calls[i], &ToolResult{Err: e}, nil); ok {
+			t.pairNotRun(ctx, calls[i+1:], "turn ended before dispatch")
 			return o, true
 		}
 	}

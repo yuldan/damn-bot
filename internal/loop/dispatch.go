@@ -18,6 +18,7 @@ import (
 func (t *turn) dispatchCalls(ctx context.Context, calls []ToolCall) (outcome, bool) {
 	prepared, errs, fatal := t.prepareBatch(ctx, calls)
 	if fatal != nil {
+		t.pairNotRun(ctx, calls, "prepare failed")
 		return t.fail(ctx, event.DetailToolError, fatal), true
 	}
 	if errs == nil && t.canParallel(prepared) {
@@ -95,34 +96,59 @@ func (t *turn) canParallel(ps []Prepared) bool {
 	return true
 }
 
-// runParallel dispatches a batch of plain reads, then delivers in order.
+// runParallel dispatches a batch of plain reads, then delivers in order. A
+// terminal classification is deferred until every result is written, so a
+// batch never loses the tool results of calls that already ran (LP8-16).
 func (t *turn) runParallel(ctx context.Context, prepared []Prepared) (outcome, bool) {
 	for i := range prepared {
 		if err := t.dispatchEvent(ctx, &prepared[i]); err != nil {
+			t.pairNotRun(ctx, callList(prepared), "dispatch marker not persisted")
 			return t.fail(ctx, event.DetailInternal, err), true
 		}
 	}
 	outs := t.dispatchBatch(ctx, prepared)
+	var term *outcome
 	for i := range prepared {
-		if o, ok := t.deliver(ctx, prepared[i].Call, &outs[i].res, outs[i].err); ok {
-			return o, true
+		if o, ok := t.deliver(ctx, prepared[i].Call, &outs[i].res, outs[i].err); ok && term == nil {
+			term = &o
 		}
+	}
+	if term != nil {
+		return *term, true
 	}
 	return t.takePending()
 }
 
+// callList copies the calls of a prepared batch (error paths only).
+func callList(prepared []Prepared) []ToolCall {
+	calls := make([]ToolCall, len(prepared))
+	for i := range prepared {
+		calls[i] = prepared[i].Call
+	}
+	return calls
+}
+
 // runSerial dispatches calls one at a time so taint and approvals see the
-// committed order.
+// committed order. A terminal result still pairs every assistant tool_call
+// with a tool message: the ones that ran keep their result and the rest are
+// marked not started (LP8-16).
 func (t *turn) runSerial(ctx context.Context, calls []ToolCall, prepared []Prepared, errs []*ToolError) (outcome, bool) {
 	for i := range calls {
 		if len(errs) > i && errs[i] != nil {
 			t.reject(ctx, calls[i], errs[i])
 			if o, ok := t.deliver(ctx, calls[i], &ToolResult{Err: errs[i]}, nil); ok {
+				t.pairNotRun(ctx, calls[i+1:], "turn ended before dispatch")
 				return o, true
 			}
 			continue
 		}
-		if o, ok := t.runCall(ctx, &prepared[i]); ok {
+		o, terminal, delivered := t.runCall(ctx, &prepared[i])
+		if terminal {
+			start := i
+			if delivered {
+				start = i + 1
+			}
+			t.pairNotRun(ctx, calls[start:], "turn ended before dispatch")
 			return o, true
 		}
 	}
@@ -138,25 +164,29 @@ func (t *turn) takePending() (outcome, bool) {
 	return o, true
 }
 
-// runCall approves and dispatches one prepared call.
-func (t *turn) runCall(ctx context.Context, p *Prepared) (outcome, bool) {
+// runCall approves and dispatches one prepared call. delivered reports that
+// the call's tool result was recorded (a terminal return without it must be
+// paired explicitly).
+func (t *turn) runCall(ctx context.Context, p *Prepared) (o outcome, terminal, delivered bool) {
 	o, terminal, denied := t.approve(ctx, p)
 	if terminal {
 		if denied {
 			t.reject(ctx, p.Call, &ToolError{Code: CodeDenied, Message: "denied by user"})
 		}
-		return o, true
+		return o, true, false
 	}
 	if denied {
 		te := &ToolError{Code: CodeDenied, Message: "denied by user", Hint: "ask the user for a different approach"}
 		t.reject(ctx, p.Call, te)
-		return t.deliver(ctx, p.Call, &ToolResult{Err: te}, nil)
+		od, ok := t.deliver(ctx, p.Call, &ToolResult{Err: te}, nil)
+		return od, ok, true
 	}
 	if err := t.dispatchEvent(ctx, p); err != nil {
-		return t.fail(ctx, event.DetailInternal, err), true
+		return t.fail(ctx, event.DetailInternal, err), true, false
 	}
 	res, err := t.dispatch(ctx, p)
-	return t.deliver(ctx, p.Call, &res, err)
+	o, ok := t.deliver(ctx, p.Call, &res, err)
+	return o, ok, true
 }
 
 // dispatchEvent persists the dispatch marker before a tool runs.
@@ -179,7 +209,11 @@ func (t *turn) reject(ctx context.Context, c ToolCall, te *ToolError) {
 // approve consults the Approver when needed. denied reports that the call
 // must not run; terminal reports a turn-ending denial.
 func (t *turn) approve(ctx context.Context, p *Prepared) (o outcome, terminal, denied bool) {
-	if !p.NeedsApproval(t.tainted) || t.cached(p) {
+	if !p.NeedsApproval(t.tainted) {
+		return outcome{}, false, false
+	}
+	if t.cached(p) {
+		p.Approved = true // a remembered grant still reaches DispatchPrepared
 		return outcome{}, false, false
 	}
 	if t.deps.Approver == nil {
@@ -333,10 +367,14 @@ func (t *turn) dispatchBatch(ctx context.Context, ps []Prepared) []dispatchOutco
 	for i := range ps {
 		ch := make(chan dispatchOutcome, 1) //damnbot:late result owned by its goroutine
 		tasks := boundary.Go(ctx, "loop.read", func(ctx context.Context) error {
+			if ctx.Err() != nil {
+				ch <- dispatchOutcome{res: ToolResult{Status: statusNotStarted}}
+				return nil
+			}
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
-				ch <- dispatchOutcome{res: ToolResult{Status: "cancelled_confirmed"}}
+				ch <- dispatchOutcome{res: ToolResult{Status: statusNotStarted}}
 				return nil
 			}
 			defer func() { <-sem }()
@@ -347,14 +385,27 @@ func (t *turn) dispatchBatch(ctx context.Context, ps []Prepared) []dispatchOutco
 		jobs[i] = job{ch: ch, task: tasks}
 	}
 	for i := range jobs {
-		out[i] = t.collect(jobs[i].ch, jobs[i].task)
+		out[i] = t.collect(ctx, jobs[i].ch, jobs[i].task)
 	}
 	return out
 }
 
-// collect waits for one batch job at most KillGrace. A late result is
-// discarded by its owning goroutine; a panic becomes the call's error.
-func (t *turn) collect(ch chan dispatchOutcome, task *boundary.Task) dispatchOutcome {
+// collect waits for one batch job. A live turn always takes the result it
+// produced; KillGrace only bounds how long a canceled turn waits for a tool
+// that has not returned yet (LP8-18).
+func (t *turn) collect(ctx context.Context, ch chan dispatchOutcome, task *boundary.Task) dispatchOutcome {
+	select {
+	case o := <-ch:
+		return settleJob(task, &o)
+	case <-task.Done():
+		return t.finishJob(ch, task)
+	case <-ctx.Done():
+		return t.collectCancelled(ch, task)
+	}
+}
+
+// collectCancelled applies the kill-grace window after a cancellation.
+func (t *turn) collectCancelled(ch chan dispatchOutcome, task *boundary.Task) dispatchOutcome {
 	if t.cfg.KillGrace <= 0 {
 		return t.finishJob(ch, task)
 	}
@@ -362,15 +413,20 @@ func (t *turn) collect(ch chan dispatchOutcome, task *boundary.Task) dispatchOut
 	defer timer.Stop()
 	select {
 	case o := <-ch:
-		if err := task.Wait(); err != nil {
-			return dispatchOutcome{err: fmt.Errorf("loop: dispatch: %w", err)}
-		}
-		return o
+		return settleJob(task, &o)
 	case <-task.Done():
 		return t.finishJob(ch, task)
 	case <-timer.C:
-		return dispatchOutcome{res: ToolResult{Status: "still_running"}}
+		return dispatchOutcome{res: ToolResult{Status: statusStillRunning}}
 	}
+}
+
+// settleJob reports a panic from the guarded goroutine instead of its result.
+func settleJob(task *boundary.Task, o *dispatchOutcome) dispatchOutcome {
+	if err := task.Wait(); err != nil {
+		return dispatchOutcome{err: fmt.Errorf("loop: dispatch: %w", err)}
+	}
+	return *o
 }
 
 func (t *turn) finishJob(ch chan dispatchOutcome, task *boundary.Task) dispatchOutcome {
@@ -386,32 +442,22 @@ func (t *turn) finishJob(ch chan dispatchOutcome, task *boundary.Task) dispatchO
 }
 
 // deliver persists one tool result, applies spill/taint/no_progress, and
-// emits the model-facing update. ok reports a terminal outcome.
+// emits the model-facing update. ok reports a terminal outcome. A call whose
+// dispatch failed still leaves a paired tool message (LP8-16).
 func (t *turn) deliver(ctx context.Context, c ToolCall, res *ToolResult, callErr error) (outcome, bool) {
 	if callErr != nil {
-		if ctx.Err() != nil || errors.Is(callErr, context.Canceled) {
-			return t.cancelled(), true
-		}
-		return t.fail(ctx, event.DetailToolError, callErr), true
+		return t.deliverFailure(ctx, c, res, callErr)
 	}
 	if res.Tainted && !t.tainted {
 		t.tainted = true
 		t.note(ctx, &event.Event{Kind: event.SystemNotice, Payload: payload(auditPayload{Kind: "taint", Tool: c.Name})})
 	}
 	content := t.redact(t.modelContent(ctx, res))
-	ev := &event.Event{
-		Kind: event.ToolResult, Role: "tool", Content: content, ToolCallID: c.ID, ToolName: c.Name,
-		BlobSHA: res.BlobSHA, Payload: payload(resultPayload{
-			Status: res.Status, Tainted: res.Tainted, BlobSHA: res.BlobSHA, Error: res.Err, Meta: res.Meta,
-		}),
-	}
-	if _, err := t.append(ctx, ev); err != nil {
+	if err := t.recordResult(ctx, c, res, content, res.Err); err != nil {
 		return t.fail(ctx, event.DetailInternal, err), true
 	}
-	t.history = append(t.history, Message{Role: "tool", Content: content, ToolCallID: c.ID})
-	t.emit(&event.Update{Kind: event.UpdateToolResult, ToolCallID: c.ID, ToolName: c.Name, Text: content, Status: res.Status})
 	if ctx.Err() != nil {
-		if res.Status == "cancelled_confirmed" {
+		if res.Status == statusCancelledConfirmed {
 			return outcome{stop: event.StopCancelledConfirmed, detail: event.DetailCancelled}, true
 		}
 		return t.cancelled(), true
@@ -423,6 +469,80 @@ func (t *turn) deliver(ctx context.Context, c ToolCall, res *ToolResult, callErr
 	}
 	return outcome{}, false
 }
+
+// deliverFailure persists the tool message for a call whose dispatch returned
+// an error: a cancellation keeps its result, and a fatal Go error becomes the
+// turn's tool_error after the pairing is written.
+func (t *turn) deliverFailure(ctx context.Context, c ToolCall, res *ToolResult, callErr error) (outcome, bool) {
+	msg := t.redact(callErr.Error())
+	te := &ToolError{Code: CodeInternal, Message: msg}
+	cancelled := ctx.Err() != nil || errors.Is(callErr, context.Canceled)
+	status := res.Status
+	switch {
+	case status != "":
+	case cancelled:
+		status = "cancelled"
+	default:
+		status = "error"
+	}
+	content := t.redact(errorEnvelope(te))
+	if err := t.recordResult(ctx, c, &ToolResult{Status: status, BlobSHA: res.BlobSHA, Meta: res.Meta}, content, te); err != nil {
+		return t.fail(ctx, event.DetailInternal, err), true
+	}
+	if cancelled {
+		if status == statusCancelledConfirmed {
+			return outcome{stop: event.StopCancelledConfirmed, detail: event.DetailCancelled}, true
+		}
+		return t.cancelled(), true
+	}
+	return t.fail(ctx, event.DetailToolError, callErr), true
+}
+
+// pairNotRun writes an explicit not_started tool result for calls that never
+// ran, so an assistant tool_calls list is never left unpaired (LP8-16).
+func (t *turn) pairNotRun(ctx context.Context, calls []ToolCall, reason string) {
+	for i := range calls {
+		te := &ToolError{Code: CodeInternal, Message: reason}
+		res := &ToolResult{Status: statusNotStarted}
+		// A pairing failure cannot be reported here without recursing into
+		// the same broken Store; the terminal outcome stays the primary one.
+		if err := t.recordResult(ctx, calls[i], res, t.redact(errorEnvelope(te)), te); err != nil {
+			return
+		}
+	}
+}
+
+// recordResult writes one tool_result event, the matching history message,
+// and the stream update. A canceled turn still persists completed results.
+func (t *turn) recordResult(ctx context.Context, c ToolCall, res *ToolResult, content string, te *ToolError) error {
+	ev := &event.Event{
+		Kind: event.ToolResult, Role: "tool", Content: content, ToolCallID: c.ID, ToolName: c.Name,
+		BlobSHA: res.BlobSHA, Payload: payload(resultPayload{
+			Status: res.Status, Tainted: res.Tainted, BlobSHA: res.BlobSHA, Error: te, Meta: res.Meta,
+		}),
+	}
+	if _, err := t.append(resultCtx(ctx), ev); err != nil {
+		return err
+	}
+	t.history = append(t.history, Message{Role: "tool", Content: content, ToolCallID: c.ID})
+	t.emit(&event.Update{Kind: event.UpdateToolResult, ToolCallID: c.ID, ToolName: c.Name, Text: content, Status: res.Status})
+	return nil
+}
+
+// resultCtx keeps a completed tool result persistable after cancellation.
+func resultCtx(ctx context.Context) context.Context {
+	if ctx.Err() != nil {
+		return context.WithoutCancel(ctx)
+	}
+	return ctx
+}
+
+// Execute statuses the loop synthesizes for a result the tool did not send.
+const (
+	statusStillRunning       = "still_running"
+	statusCancelledConfirmed = "cancelled_confirmed"
+	statusNotStarted         = "not_started"
+)
 
 // argsSHA is the dispatch event's argument digest (never the raw arguments).
 func argsSHA(args string) string {
