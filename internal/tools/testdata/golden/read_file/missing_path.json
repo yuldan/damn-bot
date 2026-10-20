@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "error": {
+    "code": "invalid_args",
+    "message": "/: missing required property \"path\"",
+    "hint": "fix the argument named by the JSON Pointer, then retry"
+  }
+}

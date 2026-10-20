@@ -6,3 +6,5 @@
 # Baris '#' dan kosong diabaikan. Maks 10 baris; setiap baris harus masih punya nolint-nya
 # (baris basi = gagal), dan setiap nolint gochecknoglobals harus punya baris di sini.
 internal/assemble/golden_helpers_test.go:update test-only golden flag
+internal/tools/golden_test.go:updateGolden test-only golden update flag
+internal/tools/golden_test.go:goldenCases table of golden cases

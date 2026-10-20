@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "error": {
+    "code": "invalid_args",
+    "message": "/items/1/id: duplicate \"1\"",
+    "hint": "ids must be unique"
+  }
+}
