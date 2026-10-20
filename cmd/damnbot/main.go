@@ -18,6 +18,9 @@ func main() {
 
 // run memisahkan logika dari os.Exit agar dapat diuji.
 func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "run" {
+		return runHeadless(args[1:], stdout, stderr)
+	}
 	fs := flag.NewFlagSet("damnbot", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "tampilkan versi lalu keluar")

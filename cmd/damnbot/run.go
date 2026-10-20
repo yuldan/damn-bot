@@ -1,0 +1,525 @@
+// Headless one-turn runner (SPEC §10 `damnbot run`). The composition root is
+// the only package allowed to import every layer (E-08).
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/damnbot/damnbot/internal/assemble"
+	"github.com/damnbot/damnbot/internal/budget"
+	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/ctxdb/ledgerstore"
+	"github.com/damnbot/damnbot/internal/loop"
+	"github.com/damnbot/damnbot/internal/loop/event"
+	"github.com/damnbot/damnbot/internal/netx"
+	"github.com/damnbot/damnbot/internal/netx/retry"
+	"github.com/damnbot/damnbot/internal/provider"
+	"github.com/damnbot/damnbot/internal/redact"
+	"github.com/damnbot/damnbot/internal/tools"
+)
+
+type runOptions struct {
+	prompt      string
+	model       string
+	approval    string
+	unsafeShell bool
+	configPath  string
+	dataDir     string
+	output      string
+	offline     bool
+	baseURL     string
+	apiKey      string
+}
+
+func runHeadless(args []string, stdout, stderr io.Writer) int {
+	opts, err := parseRunFlags(args, stderr)
+	if err != nil {
+		return 2
+	}
+	code, err := runOne(context.Background(), &opts, stdout)
+	if err != nil {
+		if _, werr := fmt.Fprintf(stderr, "run: %v\n", err); werr != nil {
+			return 2
+		}
+		return 2
+	}
+	return code
+}
+
+func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
+	var o runOptions
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&o.prompt, "p", "", "prompt (also accepted as positional text)")
+	fs.StringVar(&o.prompt, "prompt", "", "prompt (also accepted as positional text)")
+	fs.StringVar(&o.model, "model", "", "provider/model reference")
+	fs.StringVar(&o.approval, "approval", "ask", "ask|auto-edit|auto")
+	fs.BoolVar(&o.unsafeShell, "unsafe-auto-shell", false, "runs arbitrary shell commands chosen by the model without confirmation; use only in a disposable container")
+	fs.StringVar(&o.configPath, "config", "", "config.toml path (default: profile path)")
+	fs.StringVar(&o.dataDir, "data-dir", "", "data directory (default: SPEC §11)")
+	fs.StringVar(&o.output, "output", "text", "text|json|stream-json")
+	fs.BoolVar(&o.offline, "offline", false, "network.offline: loopback only")
+	fs.StringVar(&o.baseURL, "base-url", "", "internal/test: provider base URL")
+	fs.StringVar(&o.apiKey, "api-key", "", "internal/test: provider API key")
+	if err := fs.Parse(args); err != nil {
+		return runOptions{}, fmt.Errorf("parse flags: %w", err)
+	}
+	if o.prompt == "" {
+		o.prompt = strings.Join(fs.Args(), " ")
+	}
+	switch o.output {
+	case "text", "json", "stream-json":
+	default:
+		return runOptions{}, fmt.Errorf("invalid --output %q", o.output)
+	}
+	if o.prompt == "" {
+		return runOptions{}, errors.New("prompt required")
+	}
+	return o, nil
+}
+
+func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err error) {
+	loader, err := config.New(config.OS())
+	if err != nil {
+		return 0, fmt.Errorf("config deps: %w", err)
+	}
+	cfg, err := loadRunConfig(loader, o.configPath)
+	if err != nil {
+		return 0, err
+	}
+	paths, err := loader.Paths("")
+	if err != nil {
+		return 0, fmt.Errorf("config paths: %w", err)
+	}
+	dataDir := o.dataDir
+	if dataDir == "" {
+		dataDir = paths.DataDir
+	}
+	modelRef := o.model
+	if modelRef == "" {
+		modelRef = cfg.Provider.Model
+	}
+	if modelRef == "" {
+		return 0, errors.New("--model or provider.model is required")
+	}
+	model, err := startRunModel(ctx, &cfg, dataDir, modelRef, o)
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if cerr := model.close(ctx); cerr != nil && err == nil {
+			err = fmt.Errorf("close run model: %w", cerr)
+		}
+	}()
+	return runTurn(ctx, &cfg, o, model, modelRef, dataDir, stdout)
+}
+
+func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef, dataDir string, stdout io.Writer) (int, error) {
+	red := redact.New(redact.Options{})
+	asm, err := assemble.New(assemble.Deps{
+		Tokens: budgetCounter{},
+		Scrub:  func(s string) string { return red.String(s) },
+	})
+	if err != nil {
+		return 0, fmt.Errorf("assemble: %w", err)
+	}
+	turn := asm.Freeze(&assemble.VolatileInput{
+		Now:             time.Now(),
+		RemainingTokens: int64(cfg.Loop.TurnMaxInputTok),
+		RemainingUSD:    cfg.Budget.TurnUSD,
+	})
+	toolList, err := runTools(model.registry)
+	if err != nil {
+		return 0, err
+	}
+	disp, err := tools.NewDispatcher(&tools.Config{
+		Registry:         model.registry,
+		Journal:          noJournal{},
+		Spill:            diskSpill{dir: filepath.Join(dataDir, "run-spill")},
+		Redactor:         red,
+		Mode:             approvalMode(o),
+		WorkspaceTrusted: true,
+		Cwd:              model.cwd,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("tools dispatcher: %w", err)
+	}
+	disp.BeginTurn()
+	lp, err := loop.New(&loop.Config{
+		MaxIterations:   cfg.Loop.MaxIterations,
+		MaxInputTokens:  int64(cfg.Loop.TurnMaxInputTok),
+		MaxOutputTokens: int64(cfg.Loop.TurnMaxOutputTok),
+		MaxWall:         time.Duration(cfg.Loop.MaxWallS) * time.Second,
+		MaxIdentical:    cfg.Loop.MaxIdentical,
+		ParallelTools:   cfg.Loop.ParallelTools,
+	}, &loop.Deps{
+		Provider:  model.provider,
+		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, cwd: model.cwd, model: modelRef, maxTokens: cfg.Provider.MaxOutput, prompt: o.prompt},
+		Toolset:   &toolsetAdapter{disp: disp},
+		Store:     model.store,
+		Ledger:    model.ledger,
+		Redactor:  redactorAdapter{red: red},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("loop: %w", err)
+	}
+	stream, err := lp.Prompt(ctx, model.sessionID, loop.Input{Text: o.prompt})
+	if err != nil {
+		return 0, fmt.Errorf("prompt: %w", err)
+	}
+	result := drainRun(stream, o.output, stdout)
+	result.sessionID = model.sessionID
+	return writeRunResult(&result, o.output, stdout), nil
+}
+
+type runModel struct {
+	provider  *providerAdapter
+	registry  *tools.Registry
+	store     *ctxStore
+	ledger    *ctxLedger
+	sessionID string
+	cwd       string
+	db        *ctxdb.Store
+}
+
+func (m *runModel) close(ctx context.Context) error {
+	if m.db == nil {
+		return nil
+	}
+	if err := m.db.CloseContext(ctx); err != nil {
+		return fmt.Errorf("close ctxdb: %w", err)
+	}
+	return nil
+}
+
+func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions) (*runModel, error) {
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run"})
+	if err != nil {
+		return nil, fmt.Errorf("open ctxdb: %w", err)
+	}
+	sid, err := newSessionID()
+	if err != nil {
+		return nil, closeDB(ctx, db, err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, closeDB(ctx, db, fmt.Errorf("getwd: %w", err))
+	}
+	if _, serr := db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: cwd}); serr != nil {
+		return nil, closeDB(ctx, db, fmt.Errorf("create session: %w", serr))
+	}
+	reg, err := tools.NewRegistry(tools.NewTodo())
+	if err != nil {
+		return nil, closeDB(ctx, db, fmt.Errorf("registry: %w", err))
+	}
+	base, key, err := providerEndpoint(modelRef, o)
+	if err != nil {
+		return nil, closeDB(ctx, db, err)
+	}
+	provName, modelName, _ := strings.Cut(modelRef, "/")
+	net := netx.New(netx.Config{Offline: o.offline})
+	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), provider.Config{
+		Routes: []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok)}},
+	})
+	if err != nil {
+		return nil, closeDB(ctx, db, fmt.Errorf("provider: %w", err))
+	}
+	return &runModel{
+		provider:  &providerAdapter{client: openai, model: modelRef},
+		registry:  reg,
+		store:     &ctxStore{db: db},
+		ledger:    &ctxLedger{db: db, provider: provName, model: modelName},
+		sessionID: sid,
+		cwd:       cwd,
+		db:        db,
+	}, nil
+}
+
+func closeDB(ctx context.Context, db *ctxdb.Store, cause error) error {
+	if cerr := db.CloseContext(ctx); cerr != nil {
+		return errors.Join(cause, fmt.Errorf("close ctxdb: %w", cerr))
+	}
+	return cause
+}
+
+func loadRunConfig(loader *config.Loader, path string) (config.Config, error) {
+	if path == "" {
+		p, err := loader.Paths("")
+		if err != nil {
+			return config.Config{}, fmt.Errorf("config paths: %w", err)
+		}
+		path = p.ConfigFile()
+	}
+	cfg, err := loader.Load(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return config.Default(), nil
+	}
+	if err != nil {
+		return config.Config{}, fmt.Errorf("load config: %w", err)
+	}
+	return cfg, nil
+}
+
+func providerEndpoint(ref string, o *runOptions) (base, key string, err error) {
+	prov, _, ok := strings.Cut(ref, "/")
+	if !ok {
+		return "", "", fmt.Errorf("model %q is not provider/model", ref)
+	}
+	base = o.baseURL
+	if base == "" {
+		switch prov {
+		case "openai":
+			base = "https://api.openai.com/v1"
+		case "openrouter":
+			base = "https://openrouter.ai/api/v1"
+		default:
+			return "", "", fmt.Errorf("provider %q needs --base-url in F1", prov)
+		}
+	}
+	key = o.apiKey
+	if key == "" {
+		key = os.Getenv(strings.ToUpper(prov) + "_API_KEY")
+	}
+	return base, key, nil
+}
+
+func approvalMode(o *runOptions) tools.Mode {
+	if o.approval == "auto" && o.unsafeShell {
+		return tools.ModeHeadlessAuto
+	}
+	return tools.ModeHeadless
+}
+
+func newSessionID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("session id: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+// budgetCounter adapts COST-09 to assemble.Counter (one formula, one owner).
+type budgetCounter struct{}
+
+func (budgetCounter) Count(s string) int { return int(budget.Count(s).Raw()) }
+
+type providerAdapter struct {
+	client *provider.OpenAI
+	model  string
+}
+
+func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
+	preq := &provider.Request{Model: req.Model, MaxTokens: req.MaxTokens}
+	for _, m := range req.Messages {
+		preq.Messages = append(preq.Messages, provider.Message{Role: m.Role, Content: m.Content})
+	}
+	for _, t := range req.Tools {
+		preq.Tools = append(preq.Tools, provider.ToolSchema{Name: t.Name, Description: t.Description, Parameters: t.Parameters})
+	}
+	resp, err := p.client.Do(ctx, provider.PurposeTurn, preq, func(ch provider.Chunk) {
+		if len(ch.Content) > 0 {
+			emit(loop.Delta{Text: string(ch.Content)})
+		}
+	})
+	if err != nil {
+		class := loop.ClassProvider
+		if retry.ClassifyErr(err) == retry.ContextLength {
+			class = loop.ClassContextLength
+		}
+		return loop.Reply{}, &loop.StreamError{Class: class, Err: err}
+	}
+	reply := loop.Reply{
+		Content: resp.Content, FinishReason: resp.FinishReason, Usage: event.Usage{
+			Input: resp.Usage.Input, CachedInput: resp.Usage.CachedInput,
+			Output: resp.Usage.Output, CostUSD: resp.Usage.CostUSD,
+		},
+		Model: resp.Model, FallbackFrom: resp.FallbackFrom, Attempts: resp.Attempts,
+	}
+	for _, c := range resp.ToolCalls {
+		reply.ToolCalls = append(reply.ToolCalls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.ArgumentsRaw})
+	}
+	return reply, nil
+}
+
+type assemblerAdapter struct {
+	asm       *assemble.Assembler
+	turn      *assemble.Turn
+	tools     []assemble.Tool
+	cwd       string
+	model     string
+	maxTokens int
+	prompt    string
+}
+
+func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleRequest) (loop.Prompt, error) {
+	view := &assemble.SessionView{
+		Phase:   assemble.PhaseF1,
+		Context: &assemble.ContextInput{Facts: "os=" + runtime.GOOS + "; shell=headless; cwd=" + a.cwd + "; frontend=headless"},
+		Tools:   a.tools,
+		Turn:    a.turn,
+		History: []assemble.Message{{Role: "user", Content: req.Input.Text}},
+	}
+	r, est, err := a.asm.Build(ctx, view)
+	if err != nil {
+		return loop.Prompt{}, fmt.Errorf("assemble build: %w", err)
+	}
+	out := loop.Prompt{InputTokens: int64(est.Total)}
+	out.Model = a.model
+	out.MaxTokens = a.maxTokens
+	for _, m := range r.Messages {
+		out.Messages = append(out.Messages, loop.Message{Role: m.Role, Content: m.Content})
+	}
+	for _, t := range r.Tools {
+		out.Tools = append(out.Tools, loop.ToolSchema{Name: t.Name, Description: t.Description, Parameters: t.Parameters})
+	}
+	return out, nil
+}
+
+func runTools(reg *tools.Registry) ([]assemble.Tool, error) {
+	out := make([]assemble.Tool, 0, len(reg.Schemas()))
+	for _, raw := range reg.Schemas() {
+		var doc struct {
+			Name        string          `json:"name"`
+			Description string          `json:"description"`
+			Parameters  json.RawMessage `json:"parameters"`
+		}
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return nil, fmt.Errorf("tool schema: %w", err)
+		}
+		out = append(out, assemble.Tool{Name: doc.Name, Description: doc.Description, Parameters: doc.Parameters})
+	}
+	return out, nil
+}
+
+type toolsetAdapter struct{ disp *tools.Dispatcher }
+
+func (t *toolsetAdapter) Prepare(_ context.Context, c loop.ToolCall) (loop.Prepared, error) {
+	return loop.Prepared{Call: c, Effect: loop.EffectRead, Approval: loop.ApprovalNone}, nil
+}
+
+func (t *toolsetAdapter) Dispatch(ctx context.Context, p *loop.Prepared) (loop.ToolResult, error) {
+	out := t.disp.Dispatch(ctx, tools.Call{CallID: p.Call.ID, Name: p.Call.Name, Args: json.RawMessage(p.Call.Arguments)})
+	res := loop.ToolResult{Content: out.Render(), Tainted: out.Tainted}
+	if out.Denied {
+		res.Err = &loop.ToolError{Code: loop.CodeDenied, Message: "denied"}
+	}
+	if out.Err != nil {
+		res.Err = &loop.ToolError{Code: string(out.Err.Code), Message: out.Err.Message, Hint: out.Err.Hint}
+	}
+	return res, nil
+}
+
+type redactorAdapter struct{ red *redact.Redactor }
+
+func (r redactorAdapter) Redact(s string) string { return r.red.String(s) }
+
+type ctxStore struct{ db *ctxdb.Store }
+
+func (s *ctxStore) Append(ctx context.Context, sid, tid string, ev *event.Event) (int64, error) {
+	ids, err := s.db.Append(ctx, sid, nil, ctxdb.Event{
+		Kind: string(ev.Kind), Role: ev.Role, Content: ev.Content, TurnID: tid,
+		ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, Payload: string(ev.Payload), Blob: ev.BlobSHA,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("append event: %w", err)
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	return ids[0], nil
+}
+
+type ctxLedger struct {
+	db              *ctxdb.Store
+	provider, model string
+}
+
+func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, u *event.Usage) error {
+	var micros *int64
+	src := "unknown"
+	if u.CostUSD != nil {
+		m := int64(*u.CostUSD*1e6 + 0.5)
+		micros, src = &m, "provider"
+	}
+	err := l.db.Write(ctx, func(tx *ctxdb.Tx) error {
+		var anchor int64
+		if gerr := tx.Get("SELECT id FROM events WHERE session_id = ? ORDER BY seq DESC LIMIT 1", []any{sid}, &anchor); gerr != nil {
+			if errors.Is(gerr, ctxdb.ErrNotFound) {
+				return nil
+			}
+			return fmt.Errorf("find event anchor: %w", gerr)
+		}
+		_, ierr := ledgerstore.Insert(tx, &ledgerstore.Row{
+			EventID:   anchor,
+			SessionID: sid, TurnID: tid, Purpose: "turn", Provider: l.provider, Model: l.model,
+			InputTokens: u.Input, CachedInputTokens: u.CachedInput, OutputTokens: u.Output,
+			CostMicros: micros, CostSource: src, PricingVersion: "none", Attempts: 1,
+			TTFTMS: 0, CreatedAt: time.Now().UnixMilli(),
+		})
+		if ierr != nil {
+			return fmt.Errorf("insert ledger row: %w", ierr)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("record ledger: %w", err)
+	}
+	return nil
+}
+
+type noJournal struct{}
+
+func (noJournal) ToolDispatch(context.Context, string, string, string, tools.Effect, [32]byte) error {
+	return nil
+}
+
+func (noJournal) ToolResult(context.Context, string, string, string, bool, string, string) error {
+	return nil
+}
+
+type diskSpill struct{ dir string }
+
+func (d diskSpill) Put(_ context.Context, data []byte) (tools.BlobRef, error) {
+	sum := sha256.Sum256(data)
+	sha := hex.EncodeToString(sum[:])
+	if err := os.MkdirAll(d.dir, 0o700); err != nil {
+		return tools.BlobRef{}, fmt.Errorf("create spill dir: %w", err)
+	}
+	path := filepath.Join(d.dir, sha)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return tools.BlobRef{}, fmt.Errorf("write spill blob: %w", err)
+	}
+	return tools.BlobRef{SHA: sha, Size: int64(len(data)), Path: path}, nil
+}
+
+func (d diskSpill) Get(_ context.Context, sha string) (data []byte, err error) {
+	root, err := os.OpenRoot(d.dir)
+	if err != nil {
+		return nil, fmt.Errorf("open spill dir: %w", err)
+	}
+	defer func() {
+		if cerr := root.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close spill dir: %w", cerr)
+		}
+	}()
+	data, err = root.ReadFile(sha)
+	if err != nil {
+		return nil, fmt.Errorf("read spill blob: %w", err)
+	}
+	return data, nil
+}
