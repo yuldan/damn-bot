@@ -44,3 +44,27 @@ func TestRunHeadlessFakeProvider(t *testing.T) {
 		t.Errorf("provider calls = %d, want 1", len(srv.Requests()))
 	}
 }
+
+// TestRunHeadlessToolCall exercises the full tool pipeline: the fake model
+// calls todo, the dispatcher executes it, and the second reply completes.
+func TestRunHeadlessToolCall(t *testing.T) {
+	t.Parallel()
+	call := `{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"todo","arguments":"{\"items\":[{\"id\":\"1\",\"text\":\"smoke\",\"status\":\"pending\"}]}"}}]}}]}`
+	end := `{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`
+	usage := `{"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":10}}`
+	srv := providertest.New(t, nil,
+		providertest.Reply{Frames: []string{call, end, usage, "[DONE]"}},
+		providertest.Text("done after tool"),
+	)
+	var out, errb bytes.Buffer
+	code := run([]string{
+		"run", "-p", "use todo", "--model", "openai/gpt-fake",
+		"--base-url", srv.URL, "--data-dir", t.TempDir(), "--output", "json",
+	}, &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %s, stdout = %s", code, errb.String(), out.String())
+	}
+	if !strings.Contains(out.String(), "done after tool") {
+		t.Errorf("stdout = %s", out.String())
+	}
+}

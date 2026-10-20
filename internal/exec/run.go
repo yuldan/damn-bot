@@ -80,8 +80,12 @@ func (r *Runner) redactor() *redact.Redactor {
 	return r.red
 }
 
-// Close kills still-running trees and waits, bounded by closeWait (a stuck task must not hang shutdown; REVIEW-F1-SEC5 EX5-2).
-func (r *Runner) Close() error {
+// Close is [Runner.CloseContext] with a background context.
+func (r *Runner) Close() error { return r.CloseContext(context.Background()) }
+
+// CloseContext kills still-running trees and waits, bounded by closeWait (a stuck task must not hang shutdown; REVIEW-F1-SEC5 EX5-2).
+// The context scopes the shutdown goroutine; the wait stays bounded by closeWait.
+func (r *Runner) CloseContext(ctx context.Context) error {
 	r.mu.Lock()
 	if !r.closed {
 		r.closed = true
@@ -89,7 +93,7 @@ func (r *Runner) Close() error {
 	}
 	task := r.closeTask
 	if task == nil {
-		task = boundary.Go(context.Background(), "exec.close", func(context.Context) error {
+		task = boundary.Go(ctx, "exec.close", func(context.Context) error {
 			return r.g.Wait()
 		})
 		r.closeTask = task

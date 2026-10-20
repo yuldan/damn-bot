@@ -21,15 +21,19 @@ import (
 
 	"github.com/damnbot/damnbot/internal/assemble"
 	"github.com/damnbot/damnbot/internal/budget"
+	"github.com/damnbot/damnbot/internal/codetools"
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/ledgerstore"
+	"github.com/damnbot/damnbot/internal/exec"
+	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/netx/retry"
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/redact"
+	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
@@ -117,7 +121,13 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	if modelRef == "" {
 		return 0, errors.New("--model or provider.model is required")
 	}
-	model, err := startRunModel(ctx, &cfg, dataDir, modelRef, o)
+	red := redact.New(redact.Options{})
+	spill := diskSpill{dir: filepath.Join(dataDir, "run-spill")}
+	configDir, home := paths.ConfigDir, ""
+	if h, herr := os.UserHomeDir(); herr == nil {
+		home = h
+	}
+	model, err := startRunModel(ctx, &cfg, dataDir, modelRef, o, red, spill, configDir, home)
 	if err != nil {
 		return 0, err
 	}
@@ -126,11 +136,10 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 			err = fmt.Errorf("close run model: %w", cerr)
 		}
 	}()
-	return runTurn(ctx, &cfg, o, model, modelRef, dataDir, stdout)
+	return runTurn(ctx, &cfg, o, model, modelRef, red, spill, stdout)
 }
 
-func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef, dataDir string, stdout io.Writer) (int, error) {
-	red := redact.New(redact.Options{})
+func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef string, red *redact.Redactor, spill tools.Spill, stdout io.Writer) (int, error) {
 	asm, err := assemble.New(assemble.Deps{
 		Tokens: budgetCounter{},
 		Scrub:  func(s string) string { return red.String(s) },
@@ -149,8 +158,8 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	}
 	disp, err := tools.NewDispatcher(&tools.Config{
 		Registry:         model.registry,
-		Journal:          noJournal{},
-		Spill:            diskSpill{dir: filepath.Join(dataDir, "run-spill")},
+		Journal:          &ctxJournal{db: model.db, sid: model.sessionID},
+		Spill:            spill,
 		Redactor:         red,
 		Mode:             approvalMode(o),
 		WorkspaceTrusted: true,
@@ -192,22 +201,33 @@ type runModel struct {
 	registry  *tools.Registry
 	store     *ctxStore
 	ledger    *ctxLedger
+	engine    *codetools.Engine
+	runner    *exec.Runner
 	sessionID string
 	cwd       string
 	db        *ctxdb.Store
 }
 
 func (m *runModel) close(ctx context.Context) error {
+	if m.engine != nil {
+		m.engine.Close()
+	}
+	var err error
+	if m.runner != nil {
+		if cerr := m.runner.CloseContext(ctx); cerr != nil {
+			err = fmt.Errorf("close runner: %w", cerr)
+		}
+	}
 	if m.db == nil {
-		return nil
+		return err
 	}
-	if err := m.db.CloseContext(ctx); err != nil {
-		return fmt.Errorf("close ctxdb: %w", err)
+	if cerr := m.db.CloseContext(ctx); cerr != nil {
+		return errors.Join(err, fmt.Errorf("close ctxdb: %w", cerr))
 	}
-	return nil
+	return err
 }
 
-func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions) (*runModel, error) {
+func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runModel, error) {
 	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run"})
 	if err != nil {
 		return nil, fmt.Errorf("open ctxdb: %w", err)
@@ -220,16 +240,47 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, closeDB(ctx, db, fmt.Errorf("getwd: %w", err))
 	}
-	if _, serr := db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: cwd}); serr != nil {
+	if _, serr := db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: cwd, Model: modelRef, ConfigSHA: "f1"}); serr != nil {
 		return nil, closeDB(ctx, db, fmt.Errorf("create session: %w", serr))
 	}
-	reg, err := tools.NewRegistry(tools.NewTodo())
+	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
+	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
 	if err != nil {
-		return nil, closeDB(ctx, db, fmt.Errorf("registry: %w", err))
+		return nil, closeDB(ctx, db, fmt.Errorf("sandbox: %w", err))
+	}
+	engine, err := codetools.New(&codetools.Config{Sandbox: sb, Roots: roots, Home: home})
+	if err != nil {
+		return nil, closeDB(ctx, db, fmt.Errorf("codetools: %w", err))
+	}
+	runner := exec.New(ctx)
+	fail := func(cause error) error {
+		engine.Close()
+		if cerr := runner.CloseContext(ctx); cerr != nil {
+			cause = errors.Join(cause, fmt.Errorf("close runner: %w", cerr))
+		}
+		return closeDB(ctx, db, cause)
+	}
+	allow := make([]classify.AllowEntry, 0, len(cfg.Approval.ShellAllow))
+	for _, argv := range cfg.Approval.ShellAllow {
+		allow = append(allow, classify.AllowEntry(argv))
+	}
+	list := tools.FileTools(engine, sb)
+	list = append(list,
+		tools.NewShell(&tools.ShellConfig{
+			Runner: runner, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
+			Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
+			EnvPolicy:        &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent},
+			WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
+		}),
+		tools.NewTodo(), tools.NewClarify(nil),
+	)
+	reg, err := tools.NewRegistry(list...)
+	if err != nil {
+		return nil, fail(fmt.Errorf("registry: %w", err))
 	}
 	base, key, err := providerEndpoint(modelRef, o)
 	if err != nil {
-		return nil, closeDB(ctx, db, err)
+		return nil, fail(fmt.Errorf("provider endpoint: %w", err))
 	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
 	net := netx.New(netx.Config{Offline: o.offline})
@@ -237,7 +288,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		Routes: []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok)}},
 	})
 	if err != nil {
-		return nil, closeDB(ctx, db, fmt.Errorf("provider: %w", err))
+		return nil, fail(fmt.Errorf("provider: %w", err))
 	}
 	return &runModel{
 		provider:  &providerAdapter{client: openai, model: modelRef},
@@ -247,6 +298,8 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		sessionID: sid,
 		cwd:       cwd,
 		db:        db,
+		engine:    engine,
+		runner:    runner,
 	}, nil
 }
 
@@ -479,16 +532,6 @@ func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, 
 	if err != nil {
 		return fmt.Errorf("record ledger: %w", err)
 	}
-	return nil
-}
-
-type noJournal struct{}
-
-func (noJournal) ToolDispatch(context.Context, string, string, string, tools.Effect, [32]byte) error {
-	return nil
-}
-
-func (noJournal) ToolResult(context.Context, string, string, string, bool, string, string) error {
 	return nil
 }
 
