@@ -1798,6 +1798,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Konsekuensi.** (+) Gate lintas OS dan arsitektur ada sebelum kode F1 yang bergantung padanya; waktu CI PR turun. (−) Perubahan infra di luar daftar path tidak memicu meta-test sampai nightly.
 
+**Errata (2026-10-20, REVIEW-F1-SEC7 TL7-12).** Matriks E-01 (`internal/archtest/allowed.go`) dan graf ENGINEERING §2.2.1 mendapat edge `internal/tools → internal/boundary`. Edge ini diizinkan karena E-24 mewajibkan `recover` hanya di `internal/boundary`, dan `Prepare`/`DispatchPrepared` memakai `boundary.Run` agar panic sebuah tool menjadi error terklasifikasi (`internal`) alih-alih mematikan turn. Tidak ada keputusan policy yang berpindah ke `boundary`.
+
 ## ADR-074 — Storage modul konsumen di `internal/ctxdb/<consumer>store` (AUD-036)
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Menutup AUD-036. Mengoreksi kalimat konsekuensi ADR-049.

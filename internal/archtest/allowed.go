@@ -49,7 +49,7 @@ func allowedImports() map[string][]string {
 		// Core.
 		"internal/loop":               {"internal/loop/event", "internal/boundary"}, // E-02
 		"internal/plan":               {"internal/loop/event"},
-		"internal/tools":              append([]string{"internal/schema", "internal/sandbox", "internal/codetools", "internal/redact", "internal/journal", "internal/budget", "internal/hooks", "internal/modules"}, groupExec()...),
+		"internal/tools":              append([]string{"internal/schema", "internal/sandbox", "internal/codetools", "internal/redact", "internal/journal", "internal/budget", "internal/hooks", "internal/modules", "internal/boundary"}, groupExec()...),
 		"internal/provider":           append([]string{"internal/provider/registry", "internal/schema", "internal/budget"}, groupNetx()...),
 		"internal/provider/registry":  nil,
 		"internal/assemble":           {"internal/loop/event"},

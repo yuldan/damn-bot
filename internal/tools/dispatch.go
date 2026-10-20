@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/damnbot/damnbot/internal/boundary"
 	"github.com/damnbot/damnbot/internal/codetools"
 	"github.com/damnbot/damnbot/internal/redact"
 )
@@ -192,7 +193,16 @@ type Prepared struct {
 // taint gate, Inspector policy) and returns the classification. It never
 // consults the approver, writes the journal or runs the tool.
 func (d *Dispatcher) Prepare(ctx context.Context, call Call) (Prepared, error) {
-	return d.prepare(ctx, call)
+	var p Prepared
+	err := boundary.Run(ctx, "tools.prepare", func(ctx context.Context) error {
+		got, perr := d.prepare(ctx, call)
+		p = got
+		return perr
+	})
+	if err != nil {
+		return Prepared{}, closedError(err)
+	}
+	return p, nil
 }
 
 func (d *Dispatcher) prepare(ctx context.Context, call Call) (Prepared, error) {
@@ -219,7 +229,15 @@ func (d *Dispatcher) prepare(ctx context.Context, call Call) (Prepared, error) {
 // DispatchPrepared runs steps 7–10 for a prepared call: journal dispatch,
 // Run, redaction/paging/spill and journal result. It never re-runs policy.
 func (d *Dispatcher) DispatchPrepared(ctx context.Context, p *Prepared) Outcome {
-	return d.dispatchPrepared(ctx, p)
+	var out Outcome
+	err := boundary.Run(ctx, "tools.dispatch", func(ctx context.Context) error {
+		out = d.dispatchPrepared(ctx, p)
+		return nil
+	})
+	if err != nil {
+		return fromError(err)
+	}
+	return out
 }
 
 func (d *Dispatcher) dispatchPrepared(ctx context.Context, p *Prepared) Outcome {
