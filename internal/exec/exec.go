@@ -7,6 +7,7 @@ package exec
 
 import (
 	"errors"
+	"os"
 	"time"
 )
 
@@ -52,7 +53,10 @@ const pollEvery = 10 * time.Millisecond
 
 // Spec is one command execution.
 type Spec struct {
-	Argv        []string // Argv[0] absolute, or resolved through PATH in Env
+	// Argv[0] absolute, or resolved through PATH in Env. Mode (b) callers
+	// must pass classify.DirectArgv output: Prepare validates control
+	// characters but does not re-parse a shell line (EX5-8).
+	Argv        []string
 	Dir         string   // working directory (validated by the caller, SPEC §14.2)
 	Env         []string // complete child environment (see BuildEnv)
 	Stdin       []byte   // nil: /dev/null (NUL); never the parent's stdin
@@ -85,6 +89,12 @@ type Result struct {
 	// Done is closed when a still_running tree has been confirmed dead;
 	// nil otherwise.
 	Done <-chan struct{}
+	// Cwd is a persistent session's working directory after the command
+	// (`pwd -P` sentinel, §A.2); "" for one-shot calls.
+	Cwd string
+	// SessionReset: the session shell was killed (timeout without a
+	// sentinel, prompt, cancel, exit) and is recreated on the next call.
+	SessionReset bool
 }
 
 // OutputCap bounds the raw output kept in memory per call.
@@ -109,3 +119,11 @@ const (
 	ptyCols = 120
 	ptyRows = 40
 )
+
+// closeIf closes f when the caller owns it.
+func closeIf(own bool, f *os.File) error {
+	if !own {
+		return nil
+	}
+	return closeAll(f)
+}

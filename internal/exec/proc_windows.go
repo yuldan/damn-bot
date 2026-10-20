@@ -76,13 +76,6 @@ func start(s *Spec, in *os.File) (*osProc, error) {
 	return wp, nil
 }
 
-func closeIf(own bool, f *os.File) error {
-	if !own {
-		return nil
-	}
-	return closeAll(f)
-}
-
 func newJob() (windows.Handle, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
