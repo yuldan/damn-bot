@@ -166,8 +166,8 @@ func (e *Engine) scanLarge(ctx context.Context, f *os.File, key fileKey, p *grep
 	if err != nil && !errors.Is(err, io.EOF) {
 		return scanOut{skip: skipUnreadable}
 	}
-	enc := detectEnc(head[:n])
-	if bin, _ := sniffBinary(head[:n], enc); bin || enc.enc != EncUTF8 {
+	enc, bin := sniffText(head[:n])
+	if bin || enc.enc != EncUTF8 {
 		return scanOut{skip: skipBinary} // UTF-16 above 16 MiB is not transcoded (ADR-103)
 	}
 	var out scanOut

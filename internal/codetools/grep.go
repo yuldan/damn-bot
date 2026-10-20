@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -30,8 +31,9 @@ const (
 	grepTimeout      = 30 * time.Second
 	inMemoryScan     = 16 << 20 // larger files are streamed in scanChunk steps
 	scanChunk        = 1 << 20
-	scratchMin       = 64 << 10 // per-worker read buffer: initial size
-	scratchMax       = 1 << 20  // and the largest size kept between files
+	// per-worker read buffer: initial size (one read for most files)
+	scratchMin = 256 << 10
+	scratchMax = 1 << 20 // and the largest size kept between files
 )
 
 // GrepArgs are the grep arguments (CODE-TOOLS §2.1).
@@ -173,14 +175,13 @@ func fileFilter(glob, typ string) (func(string) bool, bool, error) {
 }
 
 // globMatch applies a doublestar pattern; without '/' it matches the
-// basename at any depth (CODE-TOOLS §3).
+// basename at any depth (CODE-TOOLS §3). Every caller validates the
+// pattern once, so the per-file match skips re-validation.
 func globMatch(pattern, rel, base string) bool {
 	if !strings.Contains(pattern, "/") {
-		ok, err := doublestar.Match(pattern, base)
-		return ok && err == nil
+		return doublestar.MatchUnvalidated(pattern, base)
 	}
-	ok, err := doublestar.Match(pattern, rel)
-	return ok && err == nil
+	return doublestar.MatchUnvalidated(pattern, rel)
 }
 
 // Grep runs grep.
@@ -200,12 +201,12 @@ func (e *Engine) Grep(ctx context.Context, a *GrepArgs, o Opts) (Result, error) 
 	if err != nil {
 		return Result{}, err
 	}
-	scan := func(ctx context.Context, abs string, buf *[]byte) scanOut {
-		return e.scanFile(ctx, abs, p, r.outside, buf)
+	scan := func(ctx context.Context, abs string, ref *dirRef, buf *[]byte) scanOut {
+		return e.scanFile(ctx, abs, ref, p, r.outside, buf)
 	}
 	if !r.dir {
 		var buf []byte
-		out.add(r.rel, scan(ctx, r.abs, &buf))
+		out.add(r.rel, scan(ctx, r.abs, nil, &buf))
 		return out.result(nil, ctx.Err(), r), nil
 	}
 	spec := &walkSpec{root: r.abs, hidden: p.hidden, approved: r.outside, keepFile: p.filter, scan: scan}
@@ -262,9 +263,20 @@ func (e *Engine) searchRoot(ctx context.Context, p string, o Opts) (*searchRoot,
 }
 
 // scanFile searches one file through the sandbox (CODE-TOOLS §2.4); buf
-// is the worker's reusable read buffer (kept ≤ scratchMax).
-func (e *Engine) scanFile(ctx context.Context, abs string, p *grepPlan, outside bool, scratch *[]byte) (out scanOut) {
-	f, _, err := e.sb.OpenResolved(ctx, abs, outside)
+// is the worker's reusable read buffer (kept ≤ scratchMax). With ref set,
+// the file is opened with openat relative to the walk-validated directory
+// handle instead of resolving its whole path again; deny_paths is still
+// checked on the full path.
+func (e *Engine) scanFile(ctx context.Context, abs string, ref *dirRef, p *grepPlan, outside bool, scratch *[]byte) (out scanOut) {
+	var f *os.File
+	var err error
+	if ref != nil {
+		// The walk already applied deny_paths with the per-directory matcher;
+		// Dir.Open still checks the handle identity against the deny list.
+		f, _, err = ref.d.Open(filepath.Base(abs))
+	} else {
+		f, _, err = e.sb.OpenResolved(ctx, abs, outside)
+	}
 	switch {
 	case errors.Is(err, sandbox.ErrDeniedPath):
 		return scanOut{skip: skipDenied}
@@ -282,8 +294,8 @@ func (e *Engine) scanFile(ctx context.Context, abs string, p *grepPlan, outside 
 		return e.scanLarge(ctx, f, keyOf(abs, fi), p)
 	}
 	n := len(raw)
-	enc := detectEnc(raw)
-	if bin, _ := sniffBinary(raw, enc); bin {
+	enc, bin := sniffText(raw)
+	if bin {
 		return scanOut{skip: skipBinary}
 	}
 	text := logical(raw, enc)

@@ -99,6 +99,28 @@ func detectEnc(head []byte) textEnc {
 	return textEnc{}
 }
 
+// sniffText classifies a file head for grep in one pass: known magic first,
+// then a byte scan. A head with no NUL and no byte >= 0x80 is ASCII (valid
+// UTF-8) text, so the decoder and utf8.Valid are skipped for the common
+// source file (CT-16); anything else falls back to the full encoding and
+// binary tables.
+func sniffText(head []byte) (textEnc, bool) {
+	if d := magic(head); d != "" {
+		return textEnc{}, true
+	}
+	if len(head) > sniffLen {
+		head = head[:sniffLen]
+	}
+	for _, c := range head {
+		if c == 0 || c >= utf8.RuneSelf {
+			enc := detectEnc(head)
+			bin, _ := sniffBinary(head, enc)
+			return enc, bin
+		}
+	}
+	return textEnc{}, false
+}
+
 // sniffBinary reports whether head is binary (CODE-TOOLS §2.4, CT-34): a
 // known magic, a NUL byte outside detected UTF-16, or more than 10% bytes
 // that are not valid UTF-8. desc names the magic ("" when unknown).

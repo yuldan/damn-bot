@@ -9,7 +9,8 @@ schema            1200 internal/schema
 tools             1800 internal/tools
 # ADR-111: codetools 4500 -> 4800 (perbaikan REVIEW-F1-SEC2; Σ core 33.900 -> 34.200 <= 47.000).
 # ADR-108: codetools 4800 -> 5250 (prefilter CT-01..03; Σ core 34.200 -> 34.650 <= 47.000).
-codetools         5250 internal/codetools
+# ADR-108 amendment: codetools 5250 -> 5350 (open relatif fd direktori + deny pruning; terukur 5.292; Σ core 34.900 -> 35.000 <= 47.000).
+codetools         5350 internal/codetools
 # ADR-081: exec 3000 -> 3500 + exec/classify 1500 (Σ core 31.450 -> 33.450 <= 47.000).
 # ADR-106 butir 10: exec 3500 -> 3400, exec/classify 1500 -> 1600 (Σ core tetap).
 exec              3400 internal/exec

@@ -10,6 +10,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `budget`: biaya ledger tidak lagi bisa negatif atau mendekati 0 — token > 10¹², biaya provider > 10⁶ USD (termasuk +Inf), harga negatif, dan overflow tokens × harga ditolak `ErrInvalidUsage` (aritmetika tercek); test append-only `usage_ledger` kini non-vakum untuk UPDATE dan DELETE (REVIEW-F1-SEC3 LED-1..3, ADR-101).
 
 ### Changed
+- `codetools`: file walk membuka tiap file dengan `openat(O_NOFOLLOW)` relatif ke direktori yang sudah divalidasi dan mengecek `deny_paths` sekali per direktori (komponen path dipakai ulang); deteksi encoding/biner berhenti di satu lintasan ASCII (file ASCII tidak menjalankan decoder/`utf8.Valid`) dan read buffer awal 256 KiB — C1 glob ≈1,3×, literal ≈1,7× `rg`; sandbox tetap satu-satunya jalur akses file (CT-01/02/03, #97).
 - `codetools`: pencocokan `.gitignore` diindeks per literal/sufiks/wildcard dan regex memakai prefilter kelas wajib — C1 glob ≈1,3× `rg` (dari 1,75×), `\d{5}` 1,8 s → 0,25 s; paritas `rg` tetap (CT-01/02/03, #96).
 - `redact`: prefilter pasangan byte di `scan` — posisi yang dua byte pertamanya tidak bisa memulai pola mana pun dilewati tanpa `matchAt` (output identik, ≈ 3× lebih cepat pada prosa 8 KiB; dasar GAP-SEC-16 DLP ≤ 50 µs, REVIEW-F1-SEC1 NETX-16; ADR-096).
 
