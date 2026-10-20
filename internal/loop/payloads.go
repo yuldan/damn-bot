@@ -19,6 +19,11 @@ type toolCallPayload struct {
 	Arguments string `json:"arguments"`
 }
 
+type dispatchPayload struct {
+	ArgsSHA string `json:"args_sha"`
+	Effect  string `json:"effect"`
+}
+
 type llmPayload struct {
 	Model        string   `json:"model"`
 	FinishReason string   `json:"finish_reason"`

@@ -20,6 +20,7 @@ type turn struct {
 	out       chan<- event.Update
 	start     time.Time
 	usage     event.Usage
+	inline    int
 	compacted bool
 	iteration int
 }
@@ -108,6 +109,9 @@ func (t *turn) build(ctx context.Context, it int) (*Prompt, *outcome, bool) {
 	if p.MaxTokens <= 0 {
 		p.MaxTokens = 8192 // SPEC §4.1 default
 	}
+	if o, ok := t.guard(ctx, &p, it); ok {
+		return nil, &o, true
+	}
 	if cap := t.cfg.MaxInputTokens; cap > 0 && t.usage.Input+p.InputTokens > cap {
 		return nil, &outcome{stop: event.StopMaxTokens, detail: event.DetailBudgetInput}, true
 	}
@@ -120,6 +124,44 @@ func (t *turn) preflight(ctx context.Context) (outcome, bool) {
 	}
 	if t.cfg.MaxWall > 0 && t.cfg.Now().Sub(t.start) > t.cfg.MaxWall {
 		return outcome{stop: event.StopCancelled, detail: "max_wall"}, true
+	}
+	return outcome{}, false
+}
+
+// guard enforces the context-window thresholds: one compaction at CompactAt,
+// a hard stop at OverflowAt (SPEC §4.2, §4.7).
+func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {
+	if p.WindowTokens <= 0 {
+		return outcome{}, false
+	}
+	pct := p.InputTokens * 100 / p.WindowTokens
+	if pct < int64(t.cfg.CompactAt) || t.compacted || t.deps.Compactor == nil {
+		return t.windowStop(pct)
+	}
+	if err := t.deps.Compactor.Compact(ctx, t.sessionID); err != nil {
+		if ctx.Err() != nil {
+			return t.cancelled(), true
+		}
+		return t.fail(ctx, event.DetailInternal, err), true
+	}
+	t.compacted = true
+	again, err := t.deps.Assembler.Assemble(ctx, &AssembleRequest{
+		SessionID: t.sessionID, TurnID: t.turnID, Input: t.input, Iteration: it,
+	})
+	if err != nil {
+		return t.fail(ctx, event.DetailInternal, err), true
+	}
+	if again.MaxTokens <= 0 {
+		again.MaxTokens = p.MaxTokens
+	}
+	*p = again
+	return t.windowStop(p.InputTokens * 100 / p.WindowTokens)
+}
+
+// windowStop is the hard context-window stop.
+func (t *turn) windowStop(pct int64) (outcome, bool) {
+	if pct >= int64(t.cfg.OverflowAt) {
+		return outcome{stop: event.StopMaxTokens, detail: event.DetailContextOverflow}, true
 	}
 	return outcome{}, false
 }
