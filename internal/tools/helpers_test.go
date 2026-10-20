@@ -80,11 +80,11 @@ func (w *workspace) read(rel string) string {
 	return string(b)
 }
 
-func (w *workspace) dispatcher(t *testing.T, mode Mode, appr Approver) (*Dispatcher, *journalRec, *memSpill) {
+func (w *workspace) dispatcher(t *testing.T, mode Mode, appr Approver, extra ...Tool) (*Dispatcher, *journalRec, *memSpill) {
 	t.Helper()
 	j := &journalRec{}
 	sp := newMemSpill()
-	reg, err := NewRegistry(w.tools...)
+	reg, err := NewRegistry(append(w.tools, extra...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
