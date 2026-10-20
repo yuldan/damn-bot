@@ -18,11 +18,13 @@ type Session struct {
 	ID, ParentID string
 	ForkSeq      int64
 	Origin, Cwd  string
+	Model        string // provider/model; empty = the caller did not resolve one
+	ConfigSHA    string // sessions.config_sha snapshot
 }
 
 // CreateSession inserts a session and acquires its lease in the same
 // transaction (fork/rewind/delegate rule, §11.11.10). Guard P on parent_id.
-func (t *Tx) CreateSession(ss Session) (int64, error) {
+func (t *Tx) CreateSession(ss Session) (int64, error) { //nolint:gocritic // value API: callers pass a literal
 	var parent, fork any
 	if ss.ParentID != "" {
 		parent, fork = ss.ParentID, ss.ForkSeq
@@ -31,7 +33,7 @@ func (t *Tx) CreateSession(ss Session) (int64, error) {
 		ss.Origin = "tui"
 	}
 	_, err := t.Exec(`INSERT INTO sessions(id, parent_id, fork_seq, origin, cwd, model, config_sha, context_tier, created_at)
-		VALUES (?,?,?,?,?,'test/model','cfg','',?)`, ss.ID, parent, fork, ss.Origin, ss.Cwd, t.s.clk.WallMs())
+		VALUES (?,?,?,?,?,?,?,'',?)`, ss.ID, parent, fork, ss.Origin, ss.Cwd, ss.Model, ss.ConfigSHA, t.s.clk.WallMs())
 	if err != nil {
 		return 0, err
 	}
@@ -39,7 +41,7 @@ func (t *Tx) CreateSession(ss Session) (int64, error) {
 }
 
 // CreateSession creates a session (+ lease) in its own transaction.
-func (s *Store) CreateSession(ctx context.Context, ss Session) (tok int64, err error) {
+func (s *Store) CreateSession(ctx context.Context, ss Session) (tok int64, err error) { //nolint:gocritic // value API: callers pass a literal
 	err = s.Write(ctx, func(t *Tx) (cerr error) { tok, cerr = t.CreateSession(ss); return cerr })
 	return tok, err
 }
