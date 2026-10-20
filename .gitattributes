@@ -16,3 +16,5 @@ internal/codetools/testdata/** -text
 internal/assemble/testdata/** -text
 # Golden tools (E-68) dibandingkan byte-persis; checkout Windows tidak boleh CRLF.
 internal/tools/testdata/** -text
+# Golden loop (P15/E-68) dibandingkan byte-persis; checkout Windows tidak boleh CRLF.
+internal/loop/testdata/** -text
