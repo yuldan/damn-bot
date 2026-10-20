@@ -5,7 +5,13 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/damnbot/damnbot/internal/redact"
 )
+
+// testRedactor is the minimal redactor every dispatcher test needs: the
+// constructor requires one (REVIEW-F1-SEC7 TL7-3).
+func testRedactor() *redact.Redactor { return redact.New(redact.Options{}) }
 
 func TestToolErrorAndCodes(t *testing.T) {
 	t.Parallel()
