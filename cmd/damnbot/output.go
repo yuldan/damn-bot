@@ -30,11 +30,12 @@ func drainRun(ch <-chan event.Update, output string, stdout io.Writer) runResult
 			if up.Usage != nil {
 				r.usage = *up.Usage
 			}
-		default:
-			// Other updates are streamed below; nothing is accumulated here.
+		case event.UpdateToolCallStart, event.UpdateToolCallArgs, event.UpdateToolCallEnd,
+			event.UpdateToolResult, event.UpdateUsage, event.UpdateNotice:
+			// Streamed below; nothing is accumulated here.
 		}
 		if output == "stream-json" {
-			if err := writeStreamEvent(stdout, up); err != nil && r.err == "" {
+			if err := writeStreamEvent(stdout, &up); err != nil && r.err == "" {
 				r.err = err.Error()
 			}
 		}
@@ -42,7 +43,7 @@ func drainRun(ch <-chan event.Update, output string, stdout io.Writer) runResult
 	return r
 }
 
-func writeStreamEvent(w io.Writer, up event.Update) error {
+func writeStreamEvent(w io.Writer, up *event.Update) error {
 	line := struct {
 		Type   string `json:"type"`
 		Text   string `json:"text,omitempty"`
@@ -77,7 +78,7 @@ type usageOut struct {
 	Iterations  int      `json:"iterations"`
 }
 
-func writeRunResult(r runResult, output string, stdout io.Writer) int {
+func writeRunResult(r *runResult, output string, stdout io.Writer) int {
 	switch output {
 	case "text":
 		if _, err := fmt.Fprintln(stdout, r.answer); err != nil {

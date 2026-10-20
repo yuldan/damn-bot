@@ -12,7 +12,7 @@ import (
 func TestWriteStreamEvent(t *testing.T) {
 	var buf bytes.Buffer
 	up := event.Update{Kind: event.UpdateTextDelta, Text: "hi"}
-	if err := writeStreamEvent(&buf, up); err != nil {
+	if err := writeStreamEvent(&buf, &up); err != nil {
 		t.Fatalf("writeStreamEvent: %v", err)
 	}
 	if got := buf.String(); !strings.Contains(got, `"hi"`) || !strings.Contains(got, `"type":"text_delta"`) {
@@ -60,7 +60,7 @@ func TestWriteRunResultModes(t *testing.T) {
 	r := runResult{answer: "ok", stop: event.StopEndTurn, detail: event.DetailCompleted, sessionID: "s1", usage: event.Usage{Input: 2}}
 	for _, mode := range []string{"text", "json", "stream-json"} {
 		var buf bytes.Buffer
-		if code := writeRunResult(r, mode, &buf); code != 0 {
+		if code := writeRunResult(&r, mode, &buf); code != 0 {
 			t.Fatalf("%s: exit code %d", mode, code)
 		}
 		if buf.Len() == 0 {
@@ -69,7 +69,7 @@ func TestWriteRunResultModes(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if code := writeRunResult(runResult{stop: event.StopMaxTokens}, "text", &buf); code != 2 {
+	if code := writeRunResult(&runResult{stop: event.StopMaxTokens}, "text", &buf); code != 2 {
 		t.Fatalf("unfinished turn: exit code %d", code)
 	}
 }
