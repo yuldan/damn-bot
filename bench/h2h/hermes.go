@@ -38,7 +38,9 @@ type AgentRun struct {
 	Stderr    string  `json:"stderr_tail"`
 	// DaemonsStopped = proses dengan HERMES_HOME ini yang masih hidup setelah `chat` selesai
 	// (gateway daemon detached yang di-spawn hermes) dan dihentikan harness.
-	DaemonsStopped int `json:"daemons_stopped"`
+	DaemonsStopped int    `json:"daemons_stopped"`
+	StopReason     string `json:"stop_reason,omitempty"`
+	StopDetail     string `json:"stop_detail,omitempty"`
 }
 
 // config adalah config.yaml minimum: provider custom OpenAI-compatible ke proxy lokal.

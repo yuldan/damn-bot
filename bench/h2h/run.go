@@ -42,6 +42,7 @@ type Runner struct {
 	Recorder   *Recorder
 	ProxyURL   string // mis. http://127.0.0.1:PORT/v1
 	Hermes     *Hermes
+	Damnbot    *Damnbot
 	OutDir     string // rekaman <id>.hermes.proxy.jsonl.gz
 	WorkRoot   string // workdir per task (di /tmp)
 	Timeout    time.Duration
@@ -52,12 +53,19 @@ type Runner struct {
 // Run menjalankan semua task. Sebelum tiap task, proyeksi = terpakai + max(biaya task
 // termahal sejauh ini, FirstGuess) × 1,5; bila > cap efektif (Recorder.Cap) task dilewati
 // (skipped_budget). Proxy tetap menolak setiap request di atas cap (reservasi, ADR-075).
+func (r *Runner) agent() string {
+	if r.Damnbot != nil {
+		return "damnbot"
+	}
+	return "hermes"
+}
+
 func (r *Runner) Run(ctx context.Context, tasks []evals.Task) []TaskResult {
 	var out []TaskResult
 	worst := r.FirstGuess
 	for i := range tasks {
 		t := &tasks[i]
-		res := TaskResult{ID: t.ID, Set: t.Set, Kind: t.Kind, Agent: "hermes", Damnbot: DamnbotNA, HarnessErrors: []string{}}
+		res := TaskResult{ID: t.ID, Set: t.Set, Kind: t.Kind, Agent: r.agent(), Damnbot: DamnbotNA, HarnessErrors: []string{}}
 		if cap := r.Recorder.Cap(); cap > 0 && r.Recorder.Spent()+worst*1.5 > cap {
 			res.Status = "skipped_budget"
 			out = append(out, res)
@@ -102,7 +110,7 @@ func (r *Runner) runOne(ctx context.Context, t *evals.Task, res *TaskResult) {
 	defer srv.Close()
 	baseURL := "http://" + ln.Addr().String()
 
-	res.Recording = t.ID + ".hermes.proxy.jsonl.gz"
+	res.Recording = t.ID + "." + r.agent() + ".proxy.jsonl.gz"
 	recPath := filepath.Join(r.OutDir, res.Recording)
 	f, err := os.Create(recPath)
 	if err != nil {
@@ -110,8 +118,15 @@ func (r *Runner) runOne(ctx context.Context, t *evals.Task, res *TaskResult) {
 		return
 	}
 	zw := gzip.NewWriter(f)
-	r.Recorder.Begin("hermes", t.ID, zw)
-	run, runErr := r.Hermes.Run(ctx, workdir, Prompt(t, baseURL), r.ProxyURL, r.Timeout)
+	r.Recorder.Begin(r.agent(), t.ID, zw)
+	var run AgentRun
+	var runErr error
+	if r.Damnbot != nil {
+		run, runErr = r.Damnbot.Run(ctx, workdir, Prompt(t, baseURL), r.ProxyURL, r.Timeout)
+		res.Damnbot = fmt.Sprintf("exit=%d stop=%s/%s", run.ExitCode, run.StopReason, run.StopDetail)
+	} else {
+		run, runErr = r.Hermes.Run(ctx, workdir, Prompt(t, baseURL), r.ProxyURL, r.Timeout)
+	}
 	usage, perrs := r.Recorder.End()
 	res.Run, res.Usage = run, usage
 	res.HarnessErrors = append(res.HarnessErrors, perrs...)
