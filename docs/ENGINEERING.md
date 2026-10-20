@@ -250,6 +250,7 @@ flowchart TD
     TOOLS --> BUD
     TOOLS --> HOOK
     TOOLS --> REG
+    TOOLS --> BND
     REG --> HOST
     REG --> BND
     HOST --> SCH

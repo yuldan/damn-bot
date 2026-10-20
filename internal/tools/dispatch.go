@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/damnbot/damnbot/internal/boundary"
 	"github.com/damnbot/damnbot/internal/codetools"
 	"github.com/damnbot/damnbot/internal/redact"
 )
@@ -180,14 +181,28 @@ type Prepared struct {
 	// Approved is set by the caller when an outside_root/hardlinked verdict
 	// was approved; DispatchPrepared passes it to the tool.
 	Approved bool
-	entry    *Entry
+	// authorized records that the dispatcher itself approved this prepared
+	// call; done records that it has been executed. Both keep policy and
+	// execution single-shot (REVIEW-F1-SEC7 TL7-11).
+	authorized bool
+	done       bool
+	entry      *Entry
 }
 
 // Prepare runs steps 1–6 (lookup, strict JSON/schema, effect, sandbox,
 // taint gate, Inspector policy) and returns the classification. It never
 // consults the approver, writes the journal or runs the tool.
 func (d *Dispatcher) Prepare(ctx context.Context, call Call) (Prepared, error) {
-	return d.prepare(ctx, call)
+	var p Prepared
+	err := boundary.Run(ctx, "tools.prepare", func(ctx context.Context) error {
+		got, perr := d.prepare(ctx, call)
+		p = got
+		return perr
+	})
+	if err != nil {
+		return Prepared{}, closedError(err)
+	}
+	return p, nil
 }
 
 func (d *Dispatcher) prepare(ctx context.Context, call Call) (Prepared, error) {
@@ -214,7 +229,15 @@ func (d *Dispatcher) prepare(ctx context.Context, call Call) (Prepared, error) {
 // DispatchPrepared runs steps 7–10 for a prepared call: journal dispatch,
 // Run, redaction/paging/spill and journal result. It never re-runs policy.
 func (d *Dispatcher) DispatchPrepared(ctx context.Context, p *Prepared) Outcome {
-	return d.dispatchPrepared(ctx, p)
+	var out Outcome
+	err := boundary.Run(ctx, "tools.dispatch", func(ctx context.Context) error {
+		out = d.dispatchPrepared(ctx, p)
+		return nil
+	})
+	if err != nil {
+		return fromError(err)
+	}
+	return out
 }
 
 func (d *Dispatcher) dispatchPrepared(ctx context.Context, p *Prepared) Outcome {
@@ -224,6 +247,26 @@ func (d *Dispatcher) dispatchPrepared(ctx context.Context, p *Prepared) Outcome 
 	if p == nil || p.entry == nil {
 		return failure(CodeInternal, "dispatch of an unprepared call", "call Prepare first")
 	}
+	if p.done {
+		return failure(CodeInternal, "prepared call already dispatched", "call Prepare again")
+	}
+	// Approval runs exactly once: Dispatch authorizes before calling here,
+	// the loop may authorize itself and set Approved, and a bare caller gets
+	// authorized here. Hard denials are re-derived and never executable
+	// (REVIEW-F1-SEC7 TL7-11, ADR-079).
+	switch p.Decision.Requirement {
+	case RequireDeny, RequireDeniedPath:
+		if fail := d.authorize(ctx, p); fail != nil {
+			return *fail
+		}
+	case RequireAuto, RequireOutside, RequireAsk:
+		if !p.authorized && !p.Approved {
+			if fail := d.authorize(ctx, p); fail != nil {
+				return *fail
+			}
+		}
+	}
+	p.done = true
 	p.Env.Approved = p.Approved
 	return d.execute(ctx, p)
 }
@@ -587,3 +630,110 @@ func clipRunes(s string, n int) string {
 func itoa(n int) string { return strconv.Itoa(n) }
 
 func quote(s string) string { return `"` + s + `"` }
+
+// Dispatch is the standalone convenience for frontends that delegate
+// approval to the dispatcher: Prepare once, approve, then DispatchPrepared.
+// The loop uses Prepare + its own Approver + DispatchPrepared instead.
+func (d *Dispatcher) Dispatch(ctx context.Context, call Call) Outcome {
+	p, err := d.Prepare(ctx, call)
+	if err != nil {
+		return fromError(err)
+	}
+	if fail := d.authorize(ctx, &p); fail != nil {
+		return *fail
+	}
+	return d.DispatchPrepared(ctx, &p)
+}
+
+// authorize applies one prepared call's approval requirement. It is the only
+// place that consults the approver or session approvals.
+func (d *Dispatcher) authorize(ctx context.Context, p *Prepared) *Outcome {
+	p.Env.Approved = false
+	switch p.Decision.Requirement {
+	case RequireAuto:
+		p.authorized = true
+		return nil
+	case RequireDeniedPath:
+		out := failure(CodeDeniedPath, "path matches deny_paths: "+strings.Join(p.Decision.Paths, ", "), "choose another path")
+		return &out
+	case RequireDeny:
+		out := failure(CodeDenied, p.Call.Name+" is not allowed in this mode", "")
+		out.Denied = true
+		return &out
+	case RequireOutside:
+		if d.mode.Headless() {
+			out := failure(CodeOutsideWorkspace, "path is outside the workspace: "+strings.Join(p.Decision.Paths, ", "), "headless runs never approve outside paths")
+			return &out
+		}
+		return d.ask(ctx, p, true)
+	case RequireAsk:
+		return d.ask(ctx, p, false)
+	}
+	out := failure(CodeInternal, "unknown policy requirement", "")
+	return &out
+}
+
+// ask consults a session approval or the approver for one prepared call.
+func (d *Dispatcher) ask(ctx context.Context, p *Prepared, outside bool) *Outcome {
+	dec := p.Decision
+	if dec.AllowSession && d.sessionAllowed(p.Call.Name, dec.Paths) {
+		p.Approved = outside
+		p.authorized = true
+		return nil
+	}
+	req := ApprovalRequest{
+		Tool: p.Call.Name, CallID: p.Call.CallID, Effect: p.Effect, Class: dec.Class,
+		Paths: dec.Paths, Preview: dec.Preview, Tainted: d.tainted.Load(),
+		AllowSession: dec.AllowSession,
+	}
+	if d.approver == nil {
+		out := failure(CodeDenied, "no approver is available", "interactive approval is required")
+		out.Denied = true
+		return &out
+	}
+	answer, err := d.approver.Approve(ctx, req)
+	if err != nil {
+		out := fromError(err)
+		return &out
+	}
+	switch answer {
+	case ApprovalAllowOnce:
+		p.Approved = outside
+		p.authorized = true
+		return nil
+	case ApprovalAllowSession:
+		if req.AllowSession && len(req.Paths) > 0 {
+			d.mu.Lock()
+			for _, path := range req.Paths {
+				d.sessions[toolSubject(req.Tool, path)] = true
+			}
+			d.mu.Unlock()
+		}
+		p.Approved = outside
+		p.authorized = true
+		return nil
+	case ApprovalDeny:
+	}
+	code, msg := CodeDenied, "approval denied for "+p.Call.Name
+	if outside {
+		code, msg = CodeOutsideWorkspace, "outside-workspace access was not approved"
+	}
+	out := failure(code, msg, "")
+	out.Denied = true
+	return &out
+}
+
+// sessionAllowed reports an earlier allow_session for every exact subject.
+func (d *Dispatcher) sessionAllowed(tool string, paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, p := range paths {
+		if !d.sessions[toolSubject(tool, p)] {
+			return false
+		}
+	}
+	return true
+}
