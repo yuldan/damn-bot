@@ -10,8 +10,10 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -255,25 +257,31 @@ func TestSecretForms(t *testing.T) {
 	}
 }
 
-// dlpBody8K is an 8 KiB web_fetch-style body (prose + an embedded hex
-// dump) with no secret, or an adversarial body: "prefix" collides with the
-// shared form prefix at every position, "decode" forces every decoding
-// layer and the CR/LF variant of each.
+// dlpBody8K returns an 8 KiB request body without secrets:
+//   - plain: prose + an embedded hex dump;
+//   - pct: realistic web_fetch form traffic — '+' spaces, %20/%2F escapes,
+//     a double-encoded redirect_uri (%2520), "C++", "50%25";
+//   - prefix (adversarial): every 8-byte window collides with the shared
+//     prefix of the secret forms (maximal verification work);
+//   - decode (adversarial): every byte is part of a triple-encoded escape.
 func dlpBody8K(kind string) []byte {
-	if kind == "decode" {
-		return bytes.Repeat([]byte("%252525+\r\nAa"), 8<<10/12+1)[:8<<10]
+	var unit string
+	switch kind {
+	case "decode":
+		unit = "%252525+\r\nAa"
+	case "prefix":
+		unit = hex.EncodeToString([]byte("tok_prefix"))[:8]
+	case "pct":
+		// A form-encoded prose body ('+' spaces, a few single escapes) and
+		// one double-encoded redirect_uri, as in NETX-15/16.
+		form := strings.ReplaceAll("the quick brown fox jumps over the lazy dog, C++ is 50% faster; ", " ", "+")
+		form = strings.NewReplacer(",", "%2C", "%", "%25", ";", "%3B").Replace(form)
+		body := "redirect_uri=" + url.QueryEscape(url.QueryEscape("https://app.example/cb?x=1&y=two words")) + "&text="
+		return []byte((body + strings.Repeat(form, 8<<10/len(form)+1))[:8<<10])
+	default:
+		unit = "The quick brown fox jumps over the lazy dog; " + hex.EncodeToString([]byte("0123456789"))
 	}
-	if kind == "prefix" {
-		// Every 8-byte window collides with the shared prefix of the hex
-		// forms: maximal verification work.
-		return bytes.Repeat([]byte(hex.EncodeToString([]byte("tok_prefix"))[:8]), 1024)
-	}
-	var b bytes.Buffer
-	for b.Len() < 8<<10 {
-		b.WriteString("The quick brown fox jumps over the lazy dog; ")
-		b.WriteString(hex.EncodeToString([]byte(fmt.Sprint(b.Len()))))
-	}
-	return b.Bytes()[:8<<10]
+	return bytes.Repeat([]byte(unit), 8<<10/len(unit)+1)[:8<<10]
 }
 
 // dlpSecrets returns n distinct secrets sharing a prefix (worst case for
@@ -286,27 +294,39 @@ func dlpSecrets(n int) []string {
 	return out
 }
 
+// dlpShortSecrets returns n short (4–7 byte) vault values that never occur
+// in the corpus bodies.
+func dlpShortSecrets(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("~%c%c%c%s", 'J'+i%10, 'V'+i/10%4, 'W'+i/40, strings.Repeat("#", i%4))
+	}
+	return out
+}
+
 // dlpBudgetMinRuns is the iteration count from which BenchmarkDLPScan
 // asserts its budget (make perf runs 100).
 const dlpBudgetMinRuns = 100
 
-// dlpBudget is GAP-SEC-16's ≤ 50 µs per 8 KiB request; adversarial
-// bodies are bounded at 3× by the work cap (fail-closed beyond it).
+// dlpBudget is GAP-SEC-16's ≤ 50 µs per 8 KiB request for realistic
+// bodies; adversarial ones are only bounded by (1+dlpMaxDepth)·len work.
 func dlpBudget(kind string) time.Duration {
-	if kind == "plain" {
-		return 50 * time.Microsecond
+	if kind == "prefix" || kind == "decode" {
+		return 200 * time.Microsecond
 	}
-	return 150 * time.Microsecond
+	return 50 * time.Microsecond
 }
 
-// BenchmarkDLPScan (GAP-SEC-16, NETX-3/13): gate cost for an 8 KiB request
-// with 50 and 200 known secrets, plain and adversarial bodies. The budget
-// is asserted in `make perf` (×1.5 on shared runners, ADR-077).
+// BenchmarkDLPScan (GAP-SEC-16, NETX-3/13/16): gate cost for an 8 KiB
+// request with 50 and 200 long secrets or 50 short ones, over realistic
+// and adversarial bodies. The budget is asserted in `make perf` (×1.5 on
+// shared runners, ADR-077).
 func BenchmarkDLPScan(b *testing.B) {
-	for _, n := range []int{50, 200} {
-		for _, kind := range []string{"plain", "prefix", "decode"} {
-			b.Run(fmt.Sprintf("secrets=%d/%s", n, kind), func(b *testing.B) {
-				d := newDLP(dlpSecrets(n))
+	sets := map[string][]string{"long50": dlpSecrets(50), "long200": dlpSecrets(200), "short50": dlpShortSecrets(50)}
+	for _, set := range []string{"long50", "long200", "short50"} {
+		for _, kind := range []string{"plain", "pct", "prefix", "decode"} {
+			b.Run(set+"/"+kind, func(b *testing.B) {
+				d := newDLP(sets[set])
 				body := dlpBody8K(kind)
 				b.SetBytes(int64(len(body)))
 				b.ReportAllocs()
@@ -319,27 +339,47 @@ func BenchmarkDLPScan(b *testing.B) {
 				// cold single scan measures warm-up, not the gate; the budget is
 				// asserted by make perf (-benchtime=100x).
 				if b.N >= dlpBudgetMinRuns {
-					timing.Check(b, fmt.Sprintf("DLP scan 8 KiB, %d secrets, %s (GAP-SEC-16)", n, kind), b.Elapsed()/time.Duration(b.N), dlpBudget(kind))
+					timing.Check(b, fmt.Sprintf("DLP scan 8 KiB, %s secrets, %s body (GAP-SEC-16)", set, kind), b.Elapsed()/time.Duration(b.N), dlpBudget(kind))
 				}
 			})
 		}
 	}
 }
 
-// TestDLPBounds (NETX-3): adversarial bodies end within the work caps:
-// prefix collisions and multi-layer encodings fail closed, plain passes.
+// TestDLPBounds (NETX-3/15): legitimate inputs are never refused for
+// work — encoded traffic of any size passes — and only prefix-collision
+// floods fail closed; secrets stay blocked through every layer.
 func TestDLPBounds(t *testing.T) {
 	t.Parallel()
 	d := newDLP(dlpSecrets(50))
-	for kind, want := range map[string]error{"plain": nil, "prefix": ErrDLPLimit, "decode": ErrDLPLimit} {
+	for kind, want := range map[string]error{"plain": nil, "pct": nil, "decode": nil, "prefix": ErrDLPLimit} {
 		if err := d.scan(dlpBody8K(kind)); !errors.Is(err, want) || (want == nil) != (err == nil) {
 			t.Errorf("%s: %v, want %v", kind, err, want)
 		}
 	}
-	// Small multi-encoded spans stay within the cap: a triple-encoded
-	// secret in a query is found, not refused.
-	if err := d.scan([]byte("q=" + url.QueryEscape(url.QueryEscape(url.QueryEscape(dlpSecrets(1)[0]))))); !errors.Is(err, ErrSecretEgress) {
-		t.Errorf("triple-encoded: %v", err)
+	sec := dlpSecrets(1)[0]
+	prose := strings.Repeat("plain prose with C++ and 50%25 off ", 2000) // 70 KiB
+	for _, size := range []int{512, 1500, 2048, 8 << 10, 64 << 10} {
+		body := []byte(prose[:size] + "&next=" + url.QueryEscape(url.QueryEscape("https://app.example/cb?x=1")))
+		if err := d.scan(body); err != nil {
+			t.Errorf("%d B body with a double-encoded redirect_uri: %v", size, err)
+		}
+		for _, enc := range []string{url.QueryEscape(url.QueryEscape(sec)), url.QueryEscape(url.QueryEscape(url.QueryEscape(sec))), pctAll(sec, true)} {
+			if err := d.scan([]byte(prose[:size] + "&leak=" + enc)); !errors.Is(err, ErrSecretEgress) {
+				t.Errorf("%d B body, encoded secret %.20q…: %v", size, enc, err)
+			}
+		}
+	}
+	// A §14.3 pattern visible only after decoding, inside a large body.
+	if err := d.scan([]byte(prose[:8<<10] + "&t=" + pctAll("ghp_"+strings.Repeat("a", 36), false))); !errors.Is(err, ErrSecretEgress) {
+		t.Errorf("percent-encoded token pattern: %v", err)
+	}
+	short := newDLP(dlpShortSecrets(50))
+	if err := short.scan([]byte(prose[:2048] + url.QueryEscape(dlpShortSecrets(50)[17]))); !errors.Is(err, ErrSecretEgress) {
+		t.Errorf("short secret: %v", err)
+	}
+	if err := short.scan(dlpBody8K("pct")); err != nil {
+		t.Errorf("short secrets on clean pct body: %v", err)
 	}
 }
 
@@ -375,6 +415,237 @@ func TestLogMetadataOnly(t *testing.T) {
 	for _, want := range []string{`"egress":"telegram"`, `"status":200`, `"req_bytes":12`, `"class":"bad_request"`, "REDACTED", `"host":"[blocked]"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("log lacks %s:\n%s", want, out)
+		}
+	}
+}
+
+// TestShortSecretOffsets: stride probing finds every short secret (2–7
+// bytes, mixed lengths) at every offset, alone and next to longer ones.
+func TestShortSecretOffsets(t *testing.T) {
+	t.Parallel()
+	for minLen := 2; minLen <= 7; minLen++ {
+		secrets := []string{strings.Repeat("Z", 7)[:minLen-1] + "q", "~short7", "tok_prefix_long_value"}
+		d := newDLP(secrets)
+		for _, sec := range secrets {
+			for off := range 24 {
+				body := []byte(strings.Repeat(".", off) + sec + strings.Repeat(".", 24-off))
+				if err := d.scan(body); !errors.Is(err, ErrSecretEgress) {
+					t.Errorf("min %d: %q at offset %d: %v", minLen, sec, off, err)
+				}
+			}
+		}
+		if err := d.scan([]byte(strings.Repeat(".", 64))); err != nil {
+			t.Errorf("min %d: clean body: %v", minLen, err)
+		}
+	}
+}
+
+// TestDLPLongContext (NETX-26): a decoded byte far (> d.region) from the
+// rest of a match is still caught — patterns with unbounded context (jwt,
+// url_password) run over the whole decoded layer, and the secret window is
+// counted in folded bytes (CR/LF dropped by fold do not count).
+func TestDLPLongContext(t *testing.T) {
+	t.Parallel()
+	secret := "secret_tok_value_0123456789abcdef" // 33 B
+	d := newDLP([]string{secret})
+	b64 := func(n int) string { return strings.Repeat("A", n) }
+	for _, pad := range []int{200, 255, 256, 257, 260, 300, 1000, 5000} {
+		cases := map[string]string{
+			"jwt":          "GET /?t=eyJhbGciOiJIUzI1NiJ9." + b64(pad) + "%2E" + b64(43),
+			"jwt-dot-head": "t=eyJhbGciOiJIUzI1NiJ9%2E" + b64(pad) + "." + b64(43),
+			"url_password": "u=postgres://admin:hunter2" + strings.Repeat("x", pad) + "%40db.internal/app",
+			"secret-lf":    "%73ec" + strings.Repeat("\n", pad) + secret[3:],
+			"secret-crlf":  secret[:10] + strings.Repeat("\r\n", pad) + "%" + fmt.Sprintf("%02X", secret[10]) + secret[11:],
+			"secret-tail":  secret[:30] + strings.Repeat("\n", pad) + "%" + fmt.Sprintf("%02x", secret[30]) + secret[31:],
+		}
+		for name, body := range cases {
+			if err := d.scan([]byte(body)); !errors.Is(err, ErrSecretEgress) {
+				t.Errorf("%s pad %d: %v", name, pad, err)
+			}
+		}
+	}
+	// Benign long context stays clean.
+	if err := d.scan([]byte("u=https://example.com/" + strings.Repeat("x", 5000) + "%40v1&q=" + strings.Repeat("%20a\n", 300))); err != nil {
+		t.Errorf("benign long context: %v", err)
+	}
+}
+
+// TestDLPCandidateMemory (NETX-28): a body of undecodable '%' bytes keeps
+// the candidate list bounded and still scans (no secret, no error).
+//
+//nolint:paralleltest // measures process-wide TotalAlloc
+func TestDLPCandidateMemory(t *testing.T) {
+	d := newDLP(dlpSecrets(5))
+	body := bytes.Repeat([]byte("%"), dlpMaxBody)
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	before := ms.TotalAlloc
+	if err := d.scan(body); err != nil {
+		t.Fatal(err)
+	}
+	runtime.ReadMemStats(&ms)
+	if grew := ms.TotalAlloc - before; grew > 8*dlpMaxBody { // race mode drops pooled buffers
+		t.Fatalf("8 MiB of %% allocated %d MiB", grew>>20)
+	}
+}
+
+// TestDLPShortSecretsProse (NETX-27): 50 short secrets sharing a frequent
+// 2-byte key do not exhaust the verify budget on 72 KiB of benign prose
+// (≈ 260 KiB of short comparisons, over the old shared dlpMaxVerify).
+func TestDLPShortSecretsProse(t *testing.T) {
+	t.Parallel()
+	var secrets []string
+	for i := range 50 {
+		secrets = append(secrets, fmt.Sprintf("e %03d!", i)) // key "e " ends many words
+	}
+	d := newDLP(secrets)
+	prose := []byte(strings.Repeat("the interesting store on the corner has some cheap bread and milk; ", 1100))
+	if err := d.scan(prose); err != nil {
+		t.Fatalf("benign prose: %v", err)
+	}
+}
+
+// patternRef is the whole-layer reference for the §14.3 patterns: every
+// decoding layer scanned in full (main's behaviour before NETX-15/16).
+func patternRef(d *dlp, b []byte) bool {
+	layer := b
+	for depth := 0; ; depth++ {
+		if d.patternHit(layer) {
+			return true
+		}
+		if depth == dlpMaxDepth || bytes.IndexByte(layer, '%') < 0 && bytes.IndexByte(layer, '+') < 0 {
+			return false
+		}
+		layer = pctDecode(nil, layer)
+	}
+}
+
+func dlpPieces() []string {
+	return []string{
+		"eyJ", "abcdefgh", "ABCDEFGHIJ", ".", "%2E", "%2e", "%252E", "://", "%3A%2F%2F", ":", "%3A", "@", "%40", "%2540",
+		"admin", "+", " ", "\n", "\r\n", "%20", "%0A", "sk-", "%73k-", "ghp_", "%67hp_", strings.Repeat("A", 36), "12345678",
+		"%25", "x", "-", "_", "Authorization: Bearer ", "%41uthorization%3A+Bearer+", "-----BEGIN RSA PRIVATE KEY-----",
+		"%2D----BEGIN+RSA+PRIVATE+KEY-----", "postgres", "\"", "'", "github_pat_", "AKIA", "%41KIA", "0123456789ABCDEF",
+	}
+}
+
+// TestDLPPatternDifferential (NETX-26): scanning patterns only in the
+// decoded runs gives the same verdict as scanning every layer in full.
+func TestDLPPatternDifferential(t *testing.T) {
+	t.Parallel()
+	d := newDLP(nil)
+	pieces := dlpPieces()
+	rng := rand.New(rand.NewPCG(26, 26)) //nolint:gosec // G404: deterministic test data, not secrets
+	var b strings.Builder
+	for i := range 20_000 {
+		b.Reset()
+		for range 1 + rng.IntN(40) {
+			b.WriteString(pieces[rng.IntN(len(pieces))])
+			if rng.IntN(8) == 0 {
+				b.WriteString(strings.Repeat("y", rng.IntN(300)))
+			}
+		}
+		in := []byte(b.String())
+		want := patternRef(d, in)
+		got := errors.Is(d.scan(in), ErrSecretEgress)
+		if got != want {
+			t.Fatalf("case %d %q: scan=%v reference=%v", i, in, got, want)
+		}
+	}
+}
+
+// FuzzDLPPatterns: the same differential over fuzzed bodies.
+func FuzzDLPPatterns(f *testing.F) {
+	for _, p := range dlpPieces() {
+		f.Add([]byte("t=" + p + strings.Repeat("z", 260) + "%2E" + p))
+	}
+	d := newDLP(nil)
+	f.Fuzz(func(t *testing.T, in []byte) {
+		if len(in) > 1<<16 {
+			return
+		}
+		if got, want := errors.Is(d.scan(in), ErrSecretEgress), patternRef(d, in); got != want {
+			t.Fatalf("%q: scan=%v reference=%v", in, got, want)
+		}
+	})
+}
+
+// fullRef is the whole-layer reference for patterns and secrets: every
+// decoding layer folded and matched in full, with no verify bound.
+func fullRef(d *dlp, b []byte) bool {
+	layer := b
+	for depth := 0; ; depth++ {
+		budget := verifyBudget{long: 1 << 40, short: 1 << 40}
+		if d.patternHit(layer) {
+			return true
+		}
+		if found, _ := d.match(d.fold(nil, layer), &budget); found { //nolint:errcheck // unbounded budget
+			return true
+		}
+		if depth == dlpMaxDepth || bytes.IndexByte(layer, '%') < 0 && bytes.IndexByte(layer, '+') < 0 {
+			return false
+		}
+		layer = pctDecode(nil, layer)
+	}
+}
+
+// TestDLPSecretDifferential (NETX-26/31): windows only around decoded bytes
+// that can belong to a secret form give the verdict of full-layer scans.
+func TestDLPSecretDifferential(t *testing.T) {
+	t.Parallel()
+	vault := strings.Join([]string{"Vault", "-Tok3n_value+x/y z"}, "")
+	d := newDLP([]string{vault, "q~7"})
+	var pieces []string
+	for _, enc := range encodings() {
+		e := enc(vault)
+		pieces = append(pieces, e[:len(e)/2], e[len(e)/2:], e)
+	}
+	pieces = append(pieces, "Vault", "-Tok", "%2D", "%2d", "3n_", "value", "%2B", "+", "x/", "%2F", "y", " ", "%20", "z",
+		"\n", "%0A", "\r\n", "%0D%0A", "q", "~", "%7E", "7", "%25", "%", "a", ",", "%2C", ";", "%3B", "%2520")
+	rng := rand.New(rand.NewPCG(31, 31)) //nolint:gosec // G404: deterministic test data, not secrets
+	var b strings.Builder
+	for i := range 30_000 {
+		b.Reset()
+		for range 1 + rng.IntN(30) {
+			b.WriteString(pieces[rng.IntN(len(pieces))])
+			if rng.IntN(10) == 0 {
+				b.WriteString(strings.Repeat("y", rng.IntN(80)))
+			}
+		}
+		in := []byte(b.String())
+		want := fullRef(d, in)
+		got := errors.Is(d.scan(in), ErrSecretEgress)
+		if got != want {
+			t.Fatalf("case %d %q: scan=%v reference=%v", i, in, got, want)
+		}
+	}
+}
+
+// TestCopyFormSpaces: the SWAR copy equals a byte loop for every byte value
+// and alignment.
+func TestCopyFormSpaces(t *testing.T) {
+	t.Parallel()
+	rng := rand.New(rand.NewPCG(7, 7)) //nolint:gosec // G404: deterministic test data, not secrets
+	for range 2000 {
+		src := make([]byte, rng.IntN(40))
+		for i := range src {
+			src[i] = byte(rng.Uint32() & 0xff)
+			if rng.IntN(4) == 0 {
+				src[i] = '+'
+			}
+		}
+		dst := make([]byte, len(src))
+		if n := copyFormSpaces(dst, src); n != len(src) {
+			t.Fatalf("n=%d", n)
+		}
+		for i, c := range src {
+			want := c
+			if c == '+' {
+				want = ' '
+			}
+			if dst[i] != want {
+				t.Fatalf("%q → %q at %d", src, dst, i)
+			}
 		}
 	}
 }
