@@ -1,7 +1,8 @@
 // Package compaction owns the staged P8 compaction contract (SPEC §4.7,
-// ADR-122, ADR-123): the threshold trigger and the deterministic stage-1
-// prune of the request view. Keeping the trigger here gives the
-// loop/assembly boundary one typed vocabulary without importing the
+// ADR-122, ADR-123): the threshold trigger, the deterministic stage-1 prune
+// of the request view, the single stage-2 summary, and the Compactor that
+// the loop calls and the assembler reads. Keeping the trigger here gives
+// the loop/assembly boundary one typed vocabulary without importing the
 // implementation.
 package compaction
 

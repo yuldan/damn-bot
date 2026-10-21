@@ -158,7 +158,7 @@ func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {
 	if pct < int64(t.cfg.CompactAt) || t.compacted || t.deps.Compactor == nil {
 		return t.windowStop(pct)
 	}
-	if err := t.deps.Compactor.Compact(ctx, t.sessionID); err != nil {
+	if err := t.deps.Compactor.Compact(ctx, t.sessionID, false); err != nil {
 		if ctx.Err() != nil {
 			return t.cancelled(), true
 		}
@@ -281,7 +281,7 @@ func (t *turn) retryContextLength(ctx context.Context, p *Prompt, st *askState) 
 		return false, nil
 	}
 	st.contextRetried = true
-	if err := t.deps.Compactor.Compact(ctx, t.sessionID); err != nil {
+	if err := t.deps.Compactor.Compact(ctx, t.sessionID, true); err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
 		return false, &o
 	}

@@ -1,0 +1,88 @@
+{
+ "FixtureTokens": 163230,
+ "Before": 350390,
+ "Result": {
+  "Outcome": "ineffective",
+  "Estimate": 188542,
+  "Window": 200000,
+  "SummaryID": 1,
+  "Stats": {
+   "Dups": 0,
+   "Stale": 1,
+   "Old": 0,
+   "Trimmed": 0,
+   "Images": 0,
+   "Orphans": 0
+  },
+  "Cause": ""
+ },
+ "SummaryInputTokens": 162085,
+ "Summaries": [
+  {
+   "ID": 1,
+   "FromSeq": 2,
+   "ToSeq": 508,
+   "Content": "{\"goal\":\"ship the parser\",\"decisions\":[\"keep the lexer\"],\"files\":[\"f.go\"],\"open_items\":[\"tests\"],\"facts\":[\"go 1.26\"]}",
+   "Model": "m",
+   "InputTokens": 1000,
+   "OutputTokens": 40,
+   "Tainted": false
+  }
+ ],
+ "Messages": [
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 196,
+   "Head": "[summary of events 2-508: earlier context, not a new request"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 11629,
+   "Head": "turn 39: refactor pkg/f4.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c79:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c79",
+   "Runes": 33,
+   "Head": "[stale: file modified at seq 518]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c80:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c80",
+   "Runes": 1380,
+   "Head": "pkg/f4.go:1: TODO tidy\npkg/f4.go:1: TODO tidy\npkg/f4.go:1: T"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e39:edit_file",
+   "Runes": 423,
+   "Head": "Editing pkg/f4.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e39",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f4.go. summary summary summary summary summary"
+  }
+ ]
+}
