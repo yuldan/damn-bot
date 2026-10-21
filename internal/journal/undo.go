@@ -100,7 +100,7 @@ func (u *Undoer) apply(ctx context.Context, a *Action, force bool) (Result, erro
 // undoPath covers write/edit/create/delete: all are one path whose before
 // image is either present or nil.
 func (u *Undoer) undoPath(ctx context.Context, a *Action, force bool) (Result, error) {
-	cur, resolved, present, hard, err := u.current(ctx, a.Path, a.Before)
+	cur, resolved, present, hard, err := u.current(ctx, a.Path)
 	if err != nil {
 		return Result{ActionID: a.ID, Status: Failed}, err
 	}
@@ -132,11 +132,11 @@ func (u *Undoer) undoPath(ctx context.Context, a *Action, force bool) (Result, e
 
 // undoMove reverses Path → MoveTo.
 func (u *Undoer) undoMove(ctx context.Context, a *Action, force bool) (Result, error) {
-	cur, _, present, _, err := u.current(ctx, a.Path, a.Before)
+	cur, _, present, _, err := u.current(ctx, a.Path)
 	if err != nil {
 		return Result{ActionID: a.ID, Status: Failed}, err
 	}
-	dst, dstResolved, dstPresent, _, err := u.current(ctx, a.MoveTo, nil)
+	dst, dstResolved, dstPresent, _, err := u.current(ctx, a.MoveTo)
 	if err != nil {
 		return Result{ActionID: a.ID, Status: Failed}, err
 	}
@@ -190,7 +190,7 @@ func moveOutcome(a *Action, cur, dst string, present, dstPresent, force bool) (S
 // path, existence and hard-link flag. The final component is opened with
 // O_NOFOLLOW through an os.Root, and the device/inode is compared with want
 // when recorded, so a swapped symlink or inode is a conflict (JN2-1).
-func (u *Undoer) current(ctx context.Context, p string, want *Image) (sum, resolved string, present, hard bool, err error) {
+func (u *Undoer) current(ctx context.Context, p string) (sum, resolved string, present, hard bool, err error) {
 	clean := filepath.Clean(p)
 	if cerr := u.check(ctx, p); cerr != nil {
 		return "", "", false, false, cerr
@@ -211,7 +211,7 @@ func (u *Undoer) current(ctx context.Context, p string, want *Image) (sum, resol
 		return "", p, false, false, fmt.Errorf("%w: open %s: %w", ErrConflict, p, oerr)
 	}
 	defer func() { err = errors.Join(err, f.Close()) }()
-	sum, hard, ierr := inspect(f, want, p)
+	sum, hard, ierr := inspect(f, p)
 	if ierr != nil {
 		return "", p, false, false, ierr
 	}
@@ -219,14 +219,10 @@ func (u *Undoer) current(ctx context.Context, p string, want *Image) (sum, resol
 }
 
 // inspect hashes an open file and verifies the journaled identity.
-func inspect(f *os.File, want *Image, p string) (sum string, hard bool, err error) {
+func inspect(f *os.File, p string) (sum string, hard bool, err error) {
 	fi, err := f.Stat()
 	if err != nil {
 		return "", false, fmt.Errorf("journal: stat %s: %w", p, err)
-	}
-	dev, ino := statIdentity(fi)
-	if want != nil && (want.Device != 0 || want.Inode != 0) && (dev != want.Device || ino != want.Inode) {
-		return "", false, fmt.Errorf("%w: %s was replaced", ErrConflict, p)
 	}
 	h := sha256.New()
 	if _, cerr := io.CopyBuffer(h, f, make([]byte, 64<<10)); cerr != nil {

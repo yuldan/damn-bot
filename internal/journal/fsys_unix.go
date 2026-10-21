@@ -27,14 +27,6 @@ func syncDir(dir string) error {
 	return errors.Join(f.Sync(), f.Close(), root.Close())
 }
 
-func statIdentity(fi fs.FileInfo) (dev, ino uint64) {
-	st, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, 0
-	}
-	return uint64(st.Dev), uint64(st.Ino)
-}
-
 func hardLinks(fi fs.FileInfo) uint64 {
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok {
