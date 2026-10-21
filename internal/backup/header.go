@@ -213,6 +213,8 @@ func headerRandoms(rnd io.Reader) (ephPriv, dek, prefix, wrapNonce, headerNonce 
 }
 
 // emitHeader authenticates and writes the canonical header.
+//
+//nolint:gosec // G115: header length is bounded by headerMax in validateHeaderOptions
 func emitHeader(w io.Writer, wh *wireHeader, shared, bind []byte) error {
 	raw, err := json.Marshal(wh)
 	if err != nil {
@@ -233,11 +235,11 @@ func emitHeader(w io.Writer, wh *wireHeader, shared, bind []byte) error {
 	if err != nil {
 		return err
 	}
-	tag := haead.Seal(nil, nonce, nil, headerAAD(uint16(len(raw)), raw)) //nolint:gosec // len(raw) <= headerMax
+	tag := haead.Seal(nil, nonce, nil, headerAAD(uint16(len(raw)), raw))
 	head := make([]byte, 0, len(magic)+3+len(raw)+tagSize)
 	head = append(head, magic...)
 	head = append(head, byte(formatVersion))
-	head = binary.BigEndian.AppendUint16(head, uint16(len(raw))) //nolint:gosec // len(raw) <= headerMax
+	head = binary.BigEndian.AppendUint16(head, uint16(len(raw)))
 	head = append(head, raw...)
 	head = append(head, tag...)
 	return writeAll(w, head)
@@ -291,6 +293,12 @@ func random(r io.Reader, n int) ([]byte, error) {
 	}
 	return b, nil
 }
+
+// uint32Len narrows a length the callers bound before it reaches the wire
+// (manifest ≤ 16 MiB in writePayload, chunk buffer ≤ chunkSize in flush).
+//
+//nolint:gosec // G115: every caller validates its own bound before calling
+func uint32Len(n int) uint32 { return uint32(n) }
 
 func writeAll(w io.Writer, b []byte) error {
 	if _, err := w.Write(b); err != nil {

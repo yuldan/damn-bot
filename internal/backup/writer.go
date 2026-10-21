@@ -67,7 +67,7 @@ func (w *Writer) Close() error {
 }
 
 func (w *Writer) flush(final bool) error {
-	n := uint32(len(w.buf)) //nolint:gosec // buffered len <= chunkSize
+	n := uint32Len(len(w.buf))
 	ct := w.aead.Seal(nil, chunkNonce(w.prefix, w.n), w.buf, chunkAAD(w.hash, w.n, n, final))
 	var lb [4]byte
 	hdr := n

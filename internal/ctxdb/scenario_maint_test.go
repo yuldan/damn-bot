@@ -57,7 +57,7 @@ func (e *env) restore(t *testing.T, backup string) error {
 	t.Helper()
 	o := e.opts(9, "cli")
 	o.BarrierWait = 10 * time.Second
-	return Restore(context.Background(), &o, backup)
+	return Restore(context.Background(), &o, RestoreSet{DB: backup})
 }
 
 // #16: restore while serve and TUI run: both drain, reopen, reacquire.
@@ -100,7 +100,7 @@ func s017(t *testing.T) {
 	<-inTx
 	o := e.opts(9, "cli")
 	o.BarrierWait = time.Second
-	wantErr(t, Restore(context.Background(), &o, bk), ErrDBBusy)
+	wantErr(t, Restore(context.Background(), &o, RestoreSet{DB: bk}), ErrDBBusy)
 	if MaintenancePending(e.dir) {
 		t.Fatal("marker left after failed restore")
 	}

@@ -70,6 +70,15 @@ func Create(ctx context.Context, o *CreateOptions) (res Result, err error) {
 }
 
 func snapshotFile(dir string) (string, error) {
+	stale, gerr := filepath.Glob(filepath.Join(dir, ".snapshot-*"))
+	if gerr != nil {
+		return "", fmt.Errorf("backup: stale snapshot glob: %w", gerr)
+	}
+	for _, p := range stale {
+		if err := removeFile(p); err != nil {
+			return "", err
+		}
+	}
 	f, err := os.CreateTemp(dir, ".snapshot-")
 	if err != nil {
 		return "", fmt.Errorf("backup: snapshot: %w", err)
@@ -262,7 +271,7 @@ func publish(ctx context.Context, o *CreateOptions, manifest []byte, snap string
 
 func writePayload(ctx context.Context, w *Writer, manifest []byte, o *CreateOptions, snap string) error {
 	var lb [4]byte
-	binary.BigEndian.PutUint32(lb[:], uint32(len(manifest))) //nolint:gosec // manifest <= 16 MiB
+	binary.BigEndian.PutUint32(lb[:], uint32Len(len(manifest)))
 	if _, err := w.Write(lb[:]); err != nil {
 		return err
 	}
