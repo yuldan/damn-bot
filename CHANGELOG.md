@@ -7,6 +7,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 ### Added
 - `journal`: action journal F2 (`internal/journal` + `internal/ctxdb/journalstore`) — before/after image disimpan sebagai blob content-addressed, baris `actions` + event `tool_dispatch` ditulis dalam satu transaksi sebelum side effect; `Get`/`List` melaporkan aksi kedaluwarsa (`T_cut` 30 hari / 2 GiB) dan turn yang masih terbuka (ADR-117, SPEC §18.1).
 - `journal`: executor undo — create/modify/delete/move, mode/setuid/setgid/sticky dipulihkan, konflik hash ditolak (`--force` menimpa), undo idempotent, `pending`/`expired`/`blob` hilang ditolak, path divalidasi `sandbox` (deny_paths, symlink keluar root, hard link), hasil dicatat sebagai event `undo` + `action_undos` di sesi pemanggil (ADR-117, SPEC §18.1).
+- `journal`: gate acceptance `TestUndoSuite` — 200 skenario file-action (5 operasi × 10 isi × 4 mode) kembali byte-identik dengan mode yang benar, undo kedua idempotent; `TestUndoSuiteRefusals` mencakup crash sebelum side effect, konten parsial, konflik, sandbox escape, retensi, turn terbuka, blob hilang, aksi irreversible, hard link, dan `TestUndoSuiteMultiFile` untuk undo N berurutan mundur (P26, ADR-117).
 
 ### Fixed
 - `codetools`: `write_file` membuat path yang belum ada tanpa memedulikan `tag` — tag hanya snapshot file eksisting, format `^[0-9a-f]{8}$` tetap divalidasi, dan hasil menandai `tag_ignored`; `stale_read` untuk file eksisting tidak berubah (ADR-116, C13 matriks skenario LLM).

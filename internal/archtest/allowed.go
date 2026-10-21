@@ -70,7 +70,7 @@ func allowedImports() map[string][]string {
 		"internal/ctxdb/ledgerstore":  storeImports(),
 		"internal/ctxdb/memstore":     storeImports(),
 		"internal/ctxdb/skillstore":   storeImports(),
-		"internal/ctxdb/journalstore": append(storeImports(), "internal/journal"),
+		"internal/ctxdb/journalstore": append(storeImports(), "internal/journal", "internal/sandbox"),
 		"internal/ctxdb/gwstore":      storeImports(),
 		"internal/config":             {"internal/schema"},
 		"internal/netx":               {"internal/netx/jsonrpc", "internal/netx/retry", "internal/redact"},
