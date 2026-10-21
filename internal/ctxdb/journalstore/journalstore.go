@@ -7,16 +7,24 @@ package journalstore
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
+	"regexp"
 	"strconv"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/journal"
 )
+
+// reSHA is the only blob sha shape ctxdb.ReadBlob accepts; slicing a
+// truncated sha would panic in blobName (JN2-7).
+var reSHA = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 // Defaults of SPEC §18.1 ([journal] retention_days / max_bytes).
 const (
@@ -79,6 +87,9 @@ type invImage struct {
 	BlobSHA string `json:"blob_sha"`
 	Size    int64  `json:"size"`
 	Mode    uint32 `json:"mode"`
+	ModeSet bool   `json:"mode_set"`
+	Device  uint64 `json:"device,omitempty"`
+	Inode   uint64 `json:"inode,omitempty"`
 }
 
 // Record publishes the images and inserts one actions row in the same
@@ -90,6 +101,9 @@ func (s *Store) Record(ctx context.Context, r *journal.Record) (int64, error) {
 	}
 	var pend []*ctxdb.PendingBlob
 	inv := inverse{Path: r.Path, MoveTo: r.MoveTo, CallID: r.CallID, Tool: r.ToolName}
+	if r.Before != nil && r.Before.Device == 0 && r.Before.Inode == 0 {
+		r.Before.Device, r.Before.Inode = fileIdentity(r.Path)
+	}
 	held := map[string]int64{}
 	img := func(sn *journal.Snapshot, field **invImage) error {
 		if sn == nil {
@@ -101,7 +115,10 @@ func (s *Store) Record(ctx context.Context, r *journal.Record) (int64, error) {
 		}
 		pend = append(pend, p)
 		held[p.Sha] = p.Size
-		*field = &invImage{BlobSHA: p.Sha, Size: p.Size, Mode: uint32(sn.Mode & keepMode)}
+		*field = &invImage{
+			BlobSHA: p.Sha, Size: p.Size, Mode: uint32(sn.Mode & keepMode),
+			ModeSet: sn.ModeSet || sn.Mode != 0, Device: sn.Device, Inode: sn.Inode,
+		}
 		return nil
 	}
 	if err := errors.Join(img(r.Before, &inv.Before), img(r.After, &inv.After)); err != nil {
@@ -243,14 +260,31 @@ func (s *Store) List(ctx context.Context, sessionID string, limit int) ([]journa
 }
 
 // Blob returns a before/after image; a blob no longer on disk is ErrBlob
-// (expired blobs keep ctxdb.ErrBlobExpired in the chain).
+// (expired blobs keep ctxdb.ErrBlobExpired in the chain). The sha is
+// validated and the content re-hashed, so a corrupted blob fails closed
+// instead of being restored (JN2-3/JN2-7).
 func (s *Store) Blob(ctx context.Context, sha string) ([]byte, error) {
+	if !reSHA.MatchString(sha) {
+		return nil, fmt.Errorf("%w: invalid sha %q", journal.ErrBlob, sha)
+	}
 	b, err := s.db.ReadBlob(ctx, sha)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", journal.ErrBlob, err)
 	}
+	if int64(len(b)) > maxBlobSize {
+		return nil, fmt.Errorf("%w: blob %s exceeds %d bytes", journal.ErrBlob, sha, maxBlobSize)
+	}
+	h := sha256.Sum256(b)
+	if hex.EncodeToString(h[:]) != sha {
+		return nil, fmt.Errorf("%w: blob %s is corrupt", journal.ErrBlob, sha)
+	}
 	return b, nil
 }
+
+// maxBlobSize bounds the memory an undo needs for one before image. The
+// writer (codetools) caps files well below this, so a larger blob is
+// corruption or a forged journal row.
+const maxBlobSize = 1 << 30
 
 // Finish appends the undo event and its action_undos row in one transaction
 // in the caller session (guard F), as SPEC §18.1 requires.
@@ -280,21 +314,49 @@ func (s *Store) Finish(ctx context.Context, u journal.Undo) error {
 }
 
 // cutoff is T_cut (§18.1): max(now − retention, created_at of the oldest
-// action that still fits when bytes_held is summed newest-first ≤ max_bytes).
+// action that still fits when unique blob bytes are summed newest-first ≤
+// max_bytes). Shared blobs are counted once across actions (JN2-9); the
+// newest action always survives, even when it alone exceeds the cap
+// (JN2-8).
 func cutoff(tx *ctxdb.Tx, o Options) (int64, error) {
-	now := o.Now()
-	var oldest int64
-	err := tx.Get(`SELECT COALESCE(MIN(created_at), 0) FROM (
-		SELECT created_at, SUM(bytes_held) OVER (ORDER BY id DESC ROWS UNBOUNDED PRECEDING) AS held
-		FROM actions) WHERE held <= ?1`, []any{o.MaxBytes}, &oldest)
+	cut := o.Now() - int64(o.RetentionDays)*dayMs
+	ids, err := tx.Ints("SELECT id FROM actions ORDER BY id DESC")
 	if err != nil {
-		return 0, fmt.Errorf("journalstore: cutoff: %w", err)
+		return 0, fmt.Errorf("journalstore: cutoff ids: %w", err)
 	}
-	cut := now - int64(o.RetentionDays)*dayMs
-	if oldest == 0 {
-		return now, nil // not even the newest action fits the byte cap
+	seen := map[string]struct{}{}
+	var held, lastFit int64
+	for _, id := range ids {
+		var created int64
+		var doc string
+		if err := tx.Get("SELECT created_at, inverse FROM actions WHERE id = ?1", []any{id}, &created, &doc); err != nil {
+			return 0, fmt.Errorf("journalstore: cutoff row %d: %w", id, err)
+		}
+		var x inverse
+		if err := json.Unmarshal([]byte(doc), &x); err != nil {
+			return 0, fmt.Errorf("journalstore: cutoff inverse %d: %w", id, err)
+		}
+		var add int64
+		for _, img := range []*invImage{x.Before, x.After} {
+			if img == nil {
+				continue
+			}
+			if _, ok := seen[img.BlobSHA]; ok {
+				continue
+			}
+			seen[img.BlobSHA] = struct{}{}
+			add += img.Size
+		}
+		if held > 0 && held+add > o.MaxBytes {
+			if lastFit > 0 {
+				cut = max(cut, lastFit)
+			}
+			break
+		}
+		held += add
+		lastFit = created
 	}
-	return max(cut, oldest), nil
+	return cut, nil
 }
 
 func decode(a *journal.Action, doc string) error {
@@ -312,5 +374,18 @@ func image(i *invImage) *journal.Image {
 	if i == nil {
 		return nil
 	}
-	return &journal.Image{BlobSHA: i.BlobSHA, Size: i.Size, Mode: fs.FileMode(i.Mode) & keepMode}
+	return &journal.Image{
+		BlobSHA: i.BlobSHA, Size: i.Size, Mode: fs.FileMode(i.Mode) & keepMode,
+		ModeSet: i.ModeSet, Device: i.Device, Inode: i.Inode,
+	}
+}
+
+// fileIdentity journals the device/inode of path (0/0 when it does not exist
+// or the platform has no inode numbers). Undo compares it before mutating.
+func fileIdentity(p string) (dev, ino uint64) {
+	fi, err := os.Stat(p)
+	if err != nil {
+		return 0, 0
+	}
+	return statIdentity(fi)
 }

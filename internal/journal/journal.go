@@ -45,19 +45,26 @@ var (
 )
 
 // Snapshot is the content and permission bits of one side of a file action;
-// nil means the path did not exist on that side.
+// nil means the path did not exist on that side. ModeSet distinguishes an
+// authoritative mode 0000 from "not recorded"; Device/Inode are the journaled
+// identity (0/0 on platforms without inode numbers) used to refuse an undo
+// when the path was swapped for another object (JN2-1).
 type Snapshot struct {
-	Data []byte
-	Mode fs.FileMode
+	Data          []byte
+	Mode          fs.FileMode
+	ModeSet       bool
+	Device, Inode uint64
 }
 
 // Image is the stored form of a Snapshot: a content-addressed blob (§11.6)
 // and the mode to restore. BlobSHA is a full sha256, so it is also the hash
 // used to detect that a file changed after the action.
 type Image struct {
-	BlobSHA string
-	Size    int64
-	Mode    fs.FileMode
+	BlobSHA       string
+	Size          int64
+	Mode          fs.FileMode
+	ModeSet       bool
+	Device, Inode uint64
 }
 
 // Record is one action the caller is about to perform (SPEC §4.3 step 8:

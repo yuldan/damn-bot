@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"go.uber.org/goleak"
@@ -162,22 +163,10 @@ func TestFinishRecordsUndo(t *testing.T) {
 	}
 }
 
-// TestRetentionExpiry: T_cut is now − retention and the byte cap moves it
-// forward, exactly as SPEC §18.1 defines.
+// TestRetentionExpiry: T_cut is now − retention.
 func TestRetentionExpiry(t *testing.T) {
 	t.Parallel()
-	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: t.TempDir(), Kind: "run"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if cerr := db.Close(); cerr != nil {
-			t.Error(cerr)
-		}
-	})
-	if _, serr := db.CreateSession(t.Context(), ctxdb.Session{ID: "s1", Origin: "headless", Cwd: "/"}); serr != nil {
-		t.Fatal(serr)
-	}
+	db, _ := open(t)
 	now := int64(10 * dayMs)
 	js, err := New(db, &Options{RetentionDays: 1, Now: func() int64 { return now }})
 	if err != nil {
@@ -195,17 +184,40 @@ func TestRetentionExpiry(t *testing.T) {
 			t.Fatalf("action %d expired = %v, %v", id, a.Expired, gerr)
 		}
 	}
-	// Byte cap: only the newest action fits, so the older one expires even
-	// inside the time window.
-	js, err = New(db, &Options{RetentionDays: 30, MaxBytes: 2, Now: func() int64 { return now }})
+}
+
+// TestRetentionByteCap: the byte cap moves T_cut forward but the newest
+// action always survives, even when it alone exceeds max_bytes (JN2-8).
+func TestRetentionByteCap(t *testing.T) {
+	t.Parallel()
+	db, _ := open(t)
+	now := int64(10 * dayMs)
+	js, err := New(db, &Options{RetentionDays: 30, Now: func() int64 { return now }})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a, err := js.Get(t.Context(), first); err != nil || !a.Expired {
-		t.Fatalf("first expired by cap = %v, %v", a.Expired, err)
+	first := record(t, js, writeRecord()) // 8 bytes
+	now += dayMs
+	r := writeRecord()
+	r.Before, r.After = &journal.Snapshot{Data: []byte("x"), Mode: 0o600}, &journal.Snapshot{Data: []byte("y"), Mode: 0o600}
+	second := record(t, js, r) // 2 bytes
+
+	cap2, err := New(db, &Options{RetentionDays: 30, MaxBytes: 2, Now: func() int64 { return now }})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if a, err := js.Get(t.Context(), second); err != nil || a.Expired {
-		t.Fatalf("second expired by cap = %v, %v", a.Expired, err)
+	if a, gerr := cap2.Get(t.Context(), first); gerr != nil || !a.Expired {
+		t.Fatalf("first expired by cap = %v, %v", a.Expired, gerr)
+	}
+	if a, gerr := cap2.Get(t.Context(), second); gerr != nil || a.Expired {
+		t.Fatalf("second expired by cap = %v, %v", a.Expired, gerr)
+	}
+	cap1, err := New(db, &Options{RetentionDays: 30, MaxBytes: 1, Now: func() int64 { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, gerr := cap1.Get(t.Context(), second); gerr != nil || a.Expired {
+		t.Fatalf("newest over cap expired = %v, %v", a.Expired, gerr)
 	}
 }
 
@@ -242,6 +254,18 @@ func TestAppendOnly(t *testing.T) {
 		})
 		if err == nil {
 			t.Fatalf("%q succeeded", q)
+		}
+	}
+}
+
+// TestBlobRejectsBadSHA: a malformed or missing sha never reaches
+// blobName's two-byte slice (JN2-7) and is reported as ErrBlob.
+func TestBlobRejectsBadSHA(t *testing.T) {
+	t.Parallel()
+	_, js := open(t)
+	for _, sha := range []string{"", "abc", strings.Repeat("z", 64), strings.Repeat("0", 64)} {
+		if _, err := js.Blob(t.Context(), sha); !errors.Is(err, journal.ErrBlob) {
+			t.Errorf("Blob(%q) = %v, want ErrBlob", sha, err)
 		}
 	}
 }
