@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 // corpusSkill parses testdata/lint/<kind>/<name>/SKILL.md and opens its
@@ -148,18 +149,44 @@ func TestLintFailsClosed(t *testing.T) {
 	if _, err := Lint(&sk, LintEnv{Files: dirFS}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("directory as script: %v", err)
 	}
+}
+
+// TestLintSymlinks: a symlink anywhere in the skill directory, including one
+// whose target is inside, is rejected rather than followed (SEC10-12).
+func TestLintSymlinks(t *testing.T) {
+	t.Parallel()
+	plain, _ := corpusSkill(t, "good", "plain-review", SourceUser)
+	inside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(inside, "a.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(inside, "a.txt"), filepath.Join(inside, "link.txt")); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	rootIn, err := os.OpenRoot(inside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := rootIn.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	}()
+	if _, lerr := Lint(&plain, LintEnv{Files: rootIn.FS()}); !errors.Is(lerr, ErrInvalid) || !strings.Contains(lerr.Error(), "symlink") {
+		t.Errorf("file symlink not rejected: %v", lerr)
+	}
 
 	base := t.TempDir()
 	outside := filepath.Join(base, "outside.sh")
-	if err := os.WriteFile(outside, []byte("cat .env\n"), 0o600); err != nil {
-		t.Fatal(err)
+	if werr := os.WriteFile(outside, []byte("cat .env\n"), 0o600); werr != nil {
+		t.Fatal(werr)
 	}
 	dir := filepath.Join(base, "skill")
-	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o700); err != nil {
-		t.Fatal(err)
+	if merr := os.MkdirAll(filepath.Join(dir, "scripts"), 0o700); merr != nil {
+		t.Fatal(merr)
 	}
-	if err := os.Symlink(outside, filepath.Join(dir, "scripts", "x.sh")); err != nil {
-		t.Skipf("symlink: %v", err)
+	if serr := os.Symlink(outside, filepath.Join(dir, "scripts", "x.sh")); serr != nil {
+		t.Skipf("symlink: %v", serr)
 	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
@@ -170,7 +197,7 @@ func TestLintFailsClosed(t *testing.T) {
 			t.Error(cerr)
 		}
 	}()
-	got, err := Lint(&sk, LintEnv{Files: root.FS()})
+	got, err := Lint(&plain, LintEnv{Files: root.FS()})
 	if !errors.Is(err, ErrInvalid) || len(got) != 0 {
 		t.Errorf("symlink escape: findings %v err %v, want invalid_skill without reading the target", got, err)
 	}
@@ -335,5 +362,40 @@ func TestInstallLintFindings(t *testing.T) {
 	st, res, err = installCorpus(t, "bad", "payment-undeclared", SourceHub)
 	if err != nil || res.Status != StatusScanned || st.rejected || !strings.Contains(st.scanResult, `"payment_undeclared"`) {
 		t.Fatalf("undeclared payment: %+v %v %s", res, err, st.scanResult)
+	}
+}
+
+// TestLintLargeFile: a 1 MiB file with many assignments lints in under a
+// second (SEC10-11); the old per-assignment whole-text replace was quadratic.
+func TestLintLargeFile(t *testing.T) {
+	t.Parallel()
+	line := "x0=gh; $x0 auth token\n"
+	data := strings.Repeat(line, MaxScanBytes/len(line)+1)[:MaxScanBytes]
+	sk := Skill{
+		Name: "big", Description: "d", Body: "Read the helper.", Path: "/s/big/SKILL.md",
+		SHA256: strings.Repeat("a", 64), Source: SourceUser,
+	}
+	start := time.Now()
+	got, err := Lint(&sk, LintEnv{Files: fstest.MapFS{"big.py": {Data: []byte(data)}}})
+	if err != nil || len(got) == 0 {
+		t.Fatalf("findings %v err %v", categories(got), err)
+	}
+	if d := time.Since(start); !raceEnabled && d > time.Second {
+		t.Fatalf("1 MiB lint took %v, want < 1 s", d)
+	}
+}
+
+func BenchmarkLintLargeFile(b *testing.B) {
+	line := "x0=gh; $x0 auth token\n"
+	data := strings.Repeat(line, MaxScanBytes/len(line)+1)[:MaxScanBytes]
+	sk := Skill{
+		Name: "big", Description: "d", Body: "Read the helper.", Path: "/s/big/SKILL.md",
+		SHA256: strings.Repeat("a", 64), Source: SourceUser,
+	}
+	files := fstest.MapFS{"big.py": {Data: []byte(data)}}
+	for b.Loop() {
+		if _, err := Lint(&sk, LintEnv{Files: files}); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

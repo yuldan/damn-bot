@@ -113,7 +113,13 @@ func scanDir(files fs.FS) ([]string, error) {
 		if d.IsDir() {
 			return nil
 		}
-		if p == "SKILL.md" || !d.Type().IsRegular() {
+		if p == "SKILL.md" {
+			return nil
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("%w: symlink %s in skill directory", ErrInvalid, p) // SEC10-12: no outside reads
+		}
+		if !d.Type().IsRegular() {
 			return nil
 		}
 		info, ierr := d.Info()
@@ -171,20 +177,36 @@ func foldText(s string) string {
 }
 
 // expandLiterals substitutes simple literal shell assignments (`a=gh;
-// $a auth token`) and drops empty quote pairs (`tok""en`). Values with
-// substitutions or quotes are skipped; the pass is bounded by the input.
+// $a auth token`) and drops empty quote pairs (`tok""en`). One scan collects
+// the assignments and one pass replaces references, so the cost is linear in
+// the text (SEC10-11); at most 32 assignments and 1 MiB are considered.
 func expandLiterals(s string) string {
 	s = strings.NewReplacer(`""`, "", `''`, "").Replace(s)
-	assign := regexp.MustCompile(`(?m)(?:^|[;\s` + "`" + `])\s*([a-z_][a-z0-9_]{0,15})=([^\s;&|]{1,64})`)
-	for _, m := range assign.FindAllStringSubmatch(s, -1) {
-		v := strings.Trim(m[2], `"'`)
-		if v == "" || strings.ContainsAny(v, "$`(<>") {
-			continue
-		}
-		sub := regexp.MustCompile(`\$\{` + m[1] + `\}|\$` + m[1] + `\b`)
-		s = sub.ReplaceAllString(s, v)
+	if len(s) > 2*MaxScanBytes {
+		return s
 	}
-	return s
+	assign := regexp.MustCompile(`(?m)(?:^|[;\s` + "`" + `])\s*([a-z_][a-z0-9_]{0,15})=([^\s;&|]{1,64})`)
+	vals := make(map[string]string, 8)
+	for _, m := range assign.FindAllStringSubmatchIndex(s, 33) {
+		if len(vals) >= 32 {
+			break
+		}
+		v := strings.Trim(s[m[4]:m[5]], `"'`)
+		if v != "" && !strings.ContainsAny(v, "$`(<>") {
+			vals[s[m[2]:m[3]]] = v
+		}
+	}
+	if len(vals) == 0 {
+		return s
+	}
+	ref := regexp.MustCompile(`\$\{([a-z_][a-z0-9_]{0,15})\}|\$([a-z_][a-z0-9_]{0,15})\b`)
+	return ref.ReplaceAllStringFunc(s, func(m string) string {
+		name := strings.Trim(m, "${}")
+		if v, ok := vals[name]; ok {
+			return v
+		}
+		return m
+	})
 }
 
 func foldRune(r rune) rune {
@@ -210,15 +232,22 @@ func foldRune(r rune) rune {
 // credential returns the first credential_access match in lower-cased
 // text, line by line, or "".
 func (r *lintRules) credential(lower string) string {
+	cmds, files := credentialCommands(), secretFiles()
+	words := []string{"key", "token", "secret", "password", "passwd", "credential"}
 	for ln := range strings.SplitSeq(lower, "\n") {
 		ln = strings.Trim(ln, " \t`>-*")
-		if p := containsAny(ln, credentialCommands()); p != "" {
+		if p := containsAny(ln, cmds); p != "" {
 			return p
 		}
-		if f := secretFile(ln); f != "" && r.readVerb.MatchString(ln) {
+		if f := secretFile(ln, files); f != "" && r.readVerb.MatchString(ln) {
 			return "reads " + f
 		}
-		if (r.printVerb.MatchString(ln) && r.secretRef.MatchString(ln)) || r.envDump.MatchString(ln) || r.tellSecret.MatchString(ln) {
+		if containsAny(ln, words) != "" &&
+			(r.printVerb.MatchString(ln) && r.secretRef.MatchString(ln) || r.tellSecret.MatchString(ln)) {
+			return "prints a secret"
+		}
+		if (strings.Contains(ln, "env") || strings.Contains(ln, "export -p") || strings.HasPrefix(ln, "set")) &&
+			r.envDump.MatchString(ln) {
 			return "prints a secret"
 		}
 	}
@@ -238,11 +267,15 @@ func credentialCommands() []string {
 
 // secretFile returns a credential file named on the line: `.env` (and
 // `.env.<suffix>`, but not `process.env` or `.envrc`) or a fixed list.
-func secretFile(ln string) string {
-	if f := containsAny(ln, []string{
+func secretFiles() []string {
+	return []string{
 		".git-credentials", ".netrc", ".npmrc", ".pypirc", ".aws/credentials",
 		"gh/hosts.yml", ".docker/config.json", ".ssh/id_", ".kube/config", "secrets.enc",
-	}); f != "" {
+	}
+}
+
+func secretFile(ln string, files []string) string {
+	if f := containsAny(ln, files); f != "" {
 		return f
 	}
 	word := func(b byte) bool {

@@ -72,13 +72,24 @@ func loadSkills(root string) (list []skills.Skill, extra []string, err error) {
 
 // loadSkill parses one skill directory; ok is false when it is not a skill.
 func loadSkill(root, name string) (sk skills.Skill, ok bool, err error) {
-	p := filepath.Join(root, name, "SKILL.md")
-	data, err := os.ReadFile(p) //nolint:gosec // fixed config path, not user input
+	dir := filepath.Join(root, name)
+	p := filepath.Join(dir, "SKILL.md")
+	r, err := os.OpenRoot(dir) // SEC10-12: SKILL.md cannot symlink outside
 	if errors.Is(err, fs.ErrNotExist) {
 		return sk, false, nil
 	}
 	if err != nil {
 		return sk, false, fmt.Errorf("skills: %s: %w", name, err)
+	}
+	data, rerr := r.ReadFile("SKILL.md")
+	if cerr := r.Close(); cerr != nil {
+		return sk, false, fmt.Errorf("skills: %s: %w", name, cerr)
+	}
+	if errors.Is(rerr, fs.ErrNotExist) {
+		return sk, false, nil
+	}
+	if rerr != nil {
+		return sk, false, fmt.Errorf("skills: %s: %w", name, rerr)
 	}
 	sk, err = skills.Parse(data, p, skills.SourceUser)
 	if err != nil {

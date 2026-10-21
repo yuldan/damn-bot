@@ -13,7 +13,10 @@ func TestPaymentSkillMonetary(t *testing.T) {
 	t.Parallel()
 	env := testEnv()
 	env.MonetaryPaths = []string{testPaySkill + "/"}
-	env.Resolver = fakeFS{links: map[string]string{testRoot + "/pay.sh": testPaySkill + "/scripts/charge.sh"}}
+	env.Resolver = fakeFS{links: map[string]string{
+		testRoot + "/pay.sh":              testPaySkill + "/scripts/charge.sh",
+		testPaySkill + "/scripts/link.py": "/tmp/outside.py",
+	}}
 	cases := []struct {
 		cmd  string
 		want Class
@@ -21,6 +24,7 @@ func TestPaymentSkillMonetary(t *testing.T) {
 		{testPaySkill + "/scripts/charge.sh --amount 100", Monetary},
 		{"python3 " + testPaySkill + "/scripts/charge.py --amount 100", Monetary},
 		{"bash " + testPaySkill + "/run.sh", Monetary},
+		{"cat " + testPaySkill + "/scripts/link.py", Monetary}, // symlink target outside (SEC10-12)
 		{"cd /tmp && node " + testPaySkill + "/scripts/pay.js", Monetary},
 		{"./pay.sh", Monetary}, // symlink inside the workspace resolves into the skill
 		{"sh -c 'python3 " + testPaySkill + "/scripts/x.py'", Monetary},

@@ -72,6 +72,23 @@ func TestPaymentSkillDirs(t *testing.T) {
 			t.Errorf("missing gate dir %s in %v", want, dirs)
 		}
 	}
+	// A SKILL.md symlink escaping the skill directory is rejected (SEC10-12).
+	cfg2 := t.TempDir()
+	out := t.TempDir()
+	if err := os.WriteFile(filepath.Join(out, "outside.md"), []byte("---\nname: escape\ndescription: d\n---\nbody\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(cfg2, "skills", "escape")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(out, "outside.md"), filepath.Join(dir, "SKILL.md")); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	if _, err := paymentSkillDirs(cfg2); err == nil {
+		t.Fatal("escaping SKILL.md symlink must fail closed")
+	}
+
 	bad := writeSkill(t, cfg, "broken", "", "", nil)
 	if err := os.WriteFile(filepath.Join(bad, "SKILL.md"), []byte("no front matter"), 0o600); err != nil {
 		t.Fatal(err)
