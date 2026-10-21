@@ -41,6 +41,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return runHeadless(args[1:], stdout, stderr)
 		case "undo":
 			return runUndo(args[1:], stdout, stderr)
+		case "review":
+			return runReview(args[1:], stdout, stderr)
 		}
 	}
 	if len(args) > 0 && args[0] == "sessions" {
