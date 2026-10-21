@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/damnbot/damnbot/internal/sandbox"
 )
@@ -18,7 +19,10 @@ import (
 // Undoer restores file actions through the sandbox. It never trusts the
 // journal alone: the current bytes must equal the recorded before image
 // (idempotent no-op) or after image (restore), otherwise the undo refuses
-// with ErrConflict unless force is set (SPEC §18.1).
+// with ErrConflict unless force is set (SPEC §18.1). Every file operation
+// goes through an os.Root of the parent directory with O_NOFOLLOW on the
+// final component, and the journaled device/inode is compared before
+// mutating (JN2-1/JN2-10).
 type Undoer struct {
 	store Store
 	sb    *sandbox.Sandbox
@@ -96,7 +100,7 @@ func (u *Undoer) apply(ctx context.Context, a *Action, force bool) (Result, erro
 // undoPath covers write/edit/create/delete: all are one path whose before
 // image is either present or nil.
 func (u *Undoer) undoPath(ctx context.Context, a *Action, force bool) (Result, error) {
-	cur, resolved, present, err := u.current(ctx, a.Path)
+	cur, resolved, present, hard, err := u.current(ctx, a.Path, a.Before)
 	if err != nil {
 		return Result{ActionID: a.ID, Status: Failed}, err
 	}
@@ -111,64 +115,42 @@ func (u *Undoer) undoPath(ctx context.Context, a *Action, force bool) (Result, e
 		return res, ErrConflict
 	}
 	if a.Before == nil {
-		if present {
-			if rerr := u.remove(resolved); rerr != nil {
-				res.Status, res.Files = Failed, nil
-				return res, rerr
-			}
-		}
-		res.Detail = "removed the file created by the action"
-		return res, nil
+		return u.undoCreate(resolved, present, hard, force, res)
 	}
-	data, err := u.store.Blob(ctx, a.Before.BlobSHA)
-	if err != nil {
+	data, berr := u.store.Blob(ctx, a.Before.BlobSHA)
+	if berr != nil {
 		res.Status, res.Files = Failed, nil
-		return res, fmt.Errorf("journal: before blob: %w", err)
+		return res, fmt.Errorf("journal: before blob: %w", berr)
 	}
-	if werr := u.write(ctx, resolved, data, a.Before.Mode, force); werr != nil {
+	if werr := u.write(resolved, data, a.Before, hard, force); werr != nil {
 		res.Status, res.Files = Failed, nil
 		return res, werr
 	}
 	res.Detail = "restored the before image"
-	if force && !match(cur, a.After) {
-		res.Detail = "restored the before image (forced over a changed file)"
-	}
 	return res, nil
 }
 
 // undoMove reverses Path → MoveTo.
 func (u *Undoer) undoMove(ctx context.Context, a *Action, force bool) (Result, error) {
-	cur, _, present, err := u.current(ctx, a.Path)
+	cur, _, present, _, err := u.current(ctx, a.Path, a.Before)
 	if err != nil {
 		return Result{ActionID: a.ID, Status: Failed}, err
 	}
-	dst, dstResolved, dstPresent, err := u.current(ctx, a.MoveTo)
+	dst, dstResolved, dstPresent, _, err := u.current(ctx, a.MoveTo, nil)
 	if err != nil {
 		return Result{ActionID: a.ID, Status: Failed}, err
 	}
 	res := Result{ActionID: a.ID, Status: Undone, Files: []string{a.Path}}
-	switch {
-	case match(cur, a.Before) && !dstPresent:
-		res.Detail = "already at the before image"
+	st, detail, oerr := moveOutcome(a, cur, dst, present, dstPresent, force)
+	if oerr != nil {
+		res.Status, res.Detail, res.Files = st, detail, nil
+		return res, oerr
+	}
+	if detail != "" {
+		res.Detail = detail
 		return res, nil
-	case !dstPresent:
-		res.Status, res.Files = Failed, nil
-		res.Detail = "move destination is gone"
-		return res, ErrState
-	case !match(dst, a.After) && !force:
-		res.Status, res.Files = Conflict, nil
-		res.Detail = "move destination changed since the action"
-		return res, ErrConflict
-	case present && !force:
-		res.Status, res.Files = Conflict, nil
-		res.Detail = "move destination and source both exist"
-		return res, ErrConflict
 	}
-	_, srcResolved, err := u.check(ctx, a.Path)
-	if err != nil {
-		res.Status, res.Files = Failed, nil
-		return res, err
-	}
+	srcResolved := filepath.Clean(a.Path)
 	if present {
 		if rerr := u.remove(srcResolved); rerr != nil {
 			res.Status, res.Files = Failed, nil
@@ -179,130 +161,256 @@ func (u *Undoer) undoMove(ctx context.Context, a *Action, force bool) (Result, e
 		res.Status, res.Files = Failed, nil
 		return res, merr
 	}
+	if a.Before != nil && (a.Before.ModeSet || a.Before.Mode != 0) {
+		if cerr := u.chmod(srcResolved, a.Before.Mode); cerr != nil {
+			res.Status, res.Files = Failed, nil
+			return res, cerr
+		}
+	}
 	res.Detail = "moved the destination back to the source"
 	return res, nil
 }
 
+// moveOutcome classifies the state of a move before touching the files.
+func moveOutcome(a *Action, cur, dst string, present, dstPresent, force bool) (Status, string, error) {
+	switch {
+	case match(cur, a.Before) && !dstPresent:
+		return Undone, "already at the before image", nil
+	case !dstPresent:
+		return Failed, "move destination is gone", ErrState
+	case !match(dst, a.After) && !force:
+		return Conflict, "move destination changed since the action", ErrConflict
+	case present && !force:
+		return Conflict, "move destination and source both exist", ErrConflict
+	}
+	return Undone, "", nil
+}
+
 // current returns the sha256 of p ("" when absent), its sandbox-resolved
-// path and existence. Outside, denied and non-regular paths are refused.
-func (u *Undoer) current(ctx context.Context, p string) (sum, resolved string, present bool, err error) {
-	_, resolved, err = u.check(ctx, p)
+// path, existence and hard-link flag. The final component is opened with
+// O_NOFOLLOW through an os.Root, and the device/inode is compared with want
+// when recorded, so a swapped symlink or inode is a conflict (JN2-1).
+func (u *Undoer) current(ctx context.Context, p string, want *Image) (sum, resolved string, present, hard bool, err error) {
+	clean := filepath.Clean(p)
+	if cerr := u.check(ctx, p); cerr != nil {
+		return "", "", false, false, cerr
+	}
+	root, base, rerr := parentRoot(clean)
+	if errors.Is(rerr, fs.ErrNotExist) {
+		return "", p, false, false, nil
+	}
+	if rerr != nil {
+		return "", p, false, false, rerr
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	f, oerr := root.OpenFile(base, os.O_RDONLY|oNoFollow, 0)
+	if errors.Is(oerr, fs.ErrNotExist) {
+		return "", p, false, false, nil
+	}
+	if oerr != nil {
+		return "", p, false, false, fmt.Errorf("%w: open %s: %w", ErrConflict, p, oerr)
+	}
+	defer func() { err = errors.Join(err, f.Close()) }()
+	sum, hard, ierr := inspect(f, want, p)
+	if ierr != nil {
+		return "", p, false, false, ierr
+	}
+	return sum, p, true, hard, nil
+}
+
+// inspect hashes an open file and verifies the journaled identity.
+func inspect(f *os.File, want *Image, p string) (sum string, hard bool, err error) {
+	fi, err := f.Stat()
 	if err != nil {
-		return "", "", false, err
+		return "", false, fmt.Errorf("journal: stat %s: %w", p, err)
 	}
-	f, verdict, err := u.sb.OpenFile(ctx, p, os.O_RDONLY, 0)
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", resolved, false, nil
+	dev, ino := statIdentity(fi)
+	if want != nil && (want.Device != 0 || want.Inode != 0) && (dev != want.Device || ino != want.Inode) {
+		return "", false, fmt.Errorf("%w: %s was replaced", ErrConflict, p)
 	}
-	if err != nil {
-		return "", resolved, false, fmt.Errorf("journal: open %s: %w", p, err)
+	h := sha256.New()
+	if _, cerr := io.CopyBuffer(h, f, make([]byte, 64<<10)); cerr != nil {
+		return "", false, fmt.Errorf("journal: read %s: %w", p, cerr)
 	}
-	if f == nil && verdict == sandbox.HardLinked {
-		if f, err = u.sb.OpenApproved(ctx, p, os.O_RDONLY, 0); err != nil {
-			return "", resolved, false, fmt.Errorf("journal: open %s: %w", p, err)
-		}
-	}
-	if f == nil {
-		return "", resolved, false, fmt.Errorf("journal: open %s: %w", p, ErrUnsafePath)
-	}
-	defer func() {
-		if cerr := f.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("journal: close %s: %w", p, cerr)
-		}
-	}()
-	b, err := io.ReadAll(f)
-	if err != nil {
-		return "", resolved, false, fmt.Errorf("journal: read %s: %w", p, err)
-	}
-	return hash(b), resolved, true, nil
+	return hex.EncodeToString(h.Sum(nil)), hardLinks(fi) > 1, nil
 }
 
 // check requires a path the sandbox classifies as inside a root. Hard links
-// are reported separately by current/write; outside_root and deny_paths are
-// never undoable.
-func (u *Undoer) check(ctx context.Context, p string) (verdict sandbox.Verdict, resolved string, err error) {
-	v, resolved, err := u.sb.Check(ctx, p, sandbox.OpWrite)
+// are reported separately; outside_root and deny_paths are never undoable.
+func (u *Undoer) check(ctx context.Context, p string) error {
+	v, _, err := u.sb.Check(ctx, p, sandbox.OpWrite)
 	if err != nil {
-		return v, resolved, fmt.Errorf("journal: %s: %w", p, errors.Join(ErrUnsafePath, err))
+		return fmt.Errorf("journal: %s: %w", p, errors.Join(ErrUnsafePath, err))
 	}
 	if v != sandbox.Inside && v != sandbox.HardLinked {
-		return v, resolved, fmt.Errorf("journal: %s: %w", p, ErrUnsafePath)
+		return fmt.Errorf("journal: %s: %w", p, ErrUnsafePath)
 	}
-	return v, resolved, nil
+	return nil
 }
 
-// write replaces resolved with data and mode. A hard link is rewritten in
-// place only when force is set (the link must keep its inode); otherwise it
-// is refused like the codetools approval verdict.
-func (u *Undoer) write(ctx context.Context, resolved string, data []byte, mode fs.FileMode, force bool) error {
-	if mode == 0 {
+// undoCreate removes a path the action created.
+func (u *Undoer) undoCreate(resolved string, present, hard, force bool, res Result) (Result, error) {
+	if !present {
+		return res, nil
+	}
+	if hard && !force {
+		res.Status, res.Files = Conflict, nil
+		res.Detail = "created path is now a hard link; use --force"
+		return res, ErrUnsafePath
+	}
+	if err := u.remove(resolved); err != nil {
+		res.Status, res.Files = Failed, nil
+		return res, err
+	}
+	res.Detail = "removed the file created by the action"
+	return res, nil
+}
+
+// write replaces resolved with data and the recorded mode. The temp file is
+// written first, chmodded after the bytes (setuid/setgid survive), fsynced
+// and renamed through the same directory root; hard links are rewritten in
+// place only with force (JN2-5/JN2-12).
+func (u *Undoer) write(resolved string, data []byte, img *Image, hard, force bool) (err error) {
+	mode, modeSet := img.Mode, img.ModeSet || img.Mode != 0
+	if !modeSet {
 		mode = 0o644
 	}
 	mode &= fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky
-	v, _, err := u.check(ctx, resolved)
+	root, base, err := parentRoot(resolved)
 	if err != nil {
 		return err
 	}
-	if v == sandbox.HardLinked {
+	defer func() { err = errors.Join(err, root.Close()) }()
+	if hard {
 		if !force {
 			return fmt.Errorf("journal: %s: hard link: %w", resolved, ErrUnsafePath)
 		}
-		f, oerr := u.sb.OpenApproved(ctx, resolved, os.O_WRONLY|os.O_TRUNC, 0)
-		if oerr != nil {
-			return fmt.Errorf("journal: open %s: %w", resolved, oerr)
-		}
-		werr := writeAll(f, data)
-		if serr := f.Sync(); werr == nil {
-			werr = serr
-		}
-		return errors.Join(werr, f.Close())
+		return writeInPlace(root, base, data, mode)
 	}
-	tmp := filepath.Join(filepath.Dir(resolved), ".damnbot-undo-"+randHex())
-	f, _, err := u.sb.OpenFile(ctx, tmp, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	tmp := base + ".damnbot-undo-" + randHex()
+	f, err := root.OpenFile(tmp, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("journal: temp %s: %w", tmp, err)
 	}
-	if cerr := f.Chmod(mode); cerr != nil {
-		xerr := f.Close()
-		rerr := os.Remove(tmp)
-		return fmt.Errorf("journal: mode %s: %w", tmp, errors.Join(cerr, xerr, rerr))
-	}
 	werr := writeAll(f, data)
-	if serr := f.Sync(); werr == nil {
-		werr = serr
+	if werr == nil {
+		werr = f.Chmod(mode)
 	}
-	if cerr := f.Close(); werr == nil {
-		werr = cerr
+	if werr == nil {
+		werr = f.Sync()
 	}
+	werr = errors.Join(werr, f.Close())
 	if werr != nil {
-		rerr := os.Remove(tmp)
-		return fmt.Errorf("journal: write %s: %w", tmp, errors.Join(werr, rerr))
+		return errors.Join(fmt.Errorf("journal: write %s: %w", tmp, werr), root.Remove(tmp))
 	}
-	if rerr := replaceFile(tmp, resolved); rerr != nil {
-		xerr := os.Remove(tmp)
-		return fmt.Errorf("journal: replace %s: %w", resolved, errors.Join(rerr, xerr))
+	if werr = root.Rename(tmp, base); werr != nil {
+		return errors.Join(fmt.Errorf("journal: replace %s: %w", resolved, werr), root.Remove(tmp))
 	}
 	return syncDir(filepath.Dir(resolved))
 }
 
-func (u *Undoer) remove(resolved string) error {
-	if err := os.Remove(resolved); err != nil && !errors.Is(err, fs.ErrNotExist) {
+func writeInPlace(root *os.Root, base string, data []byte, mode fs.FileMode) error {
+	f, err := root.OpenFile(base, os.O_WRONLY|oNoFollow, 0)
+	if err != nil {
+		return fmt.Errorf("journal: open %s: %w", base, err)
+	}
+	werr := f.Truncate(0)
+	if werr == nil {
+		werr = writeAll(f, data)
+	}
+	if werr == nil {
+		werr = f.Chmod(mode)
+	}
+	if werr == nil {
+		werr = f.Sync()
+	}
+	return errors.Join(werr, f.Close())
+}
+
+// remove unlinks the final component through its directory root after
+// current verified the identity; no textual path is passed to os.Remove
+// (JN2-10).
+func (u *Undoer) remove(resolved string) (err error) {
+	root, base, err := parentRoot(resolved)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	if err = root.Remove(base); err != nil {
 		return fmt.Errorf("journal: remove %s: %w", resolved, err)
 	}
 	return syncDir(filepath.Dir(resolved))
 }
 
-func (u *Undoer) rename(ctx context.Context, src, dst string) error {
-	if _, _, err := u.check(ctx, src); err != nil {
-		return err
+// rename moves src to dst through a root at their common ancestor, so both
+// names stay dirfd-relative (JN2-10).
+func (u *Undoer) rename(ctx context.Context, src, dst string) (err error) {
+	if serr := u.check(ctx, src); serr != nil {
+		return serr
 	}
-	if _, _, err := u.check(ctx, dst); err != nil {
-		return err
+	if derr := u.check(ctx, dst); derr != nil {
+		return derr
 	}
-	if err := replaceFile(src, dst); err != nil {
+	common := commonDir(filepath.Dir(src), filepath.Dir(dst))
+	root, err := os.OpenRoot(common)
+	if err != nil {
+		return fmt.Errorf("journal: open dir %s: %w", common, err)
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	relSrc, err := filepath.Rel(common, src) // common is an ancestor of both
+	if err != nil {
+		return fmt.Errorf("journal: relative %s: %w", src, err)
+	}
+	relDst, err := filepath.Rel(common, dst)
+	if err != nil {
+		return fmt.Errorf("journal: relative %s: %w", dst, err)
+	}
+	if err = root.Rename(relSrc, relDst); err != nil {
 		return fmt.Errorf("journal: rename %s: %w", src, err)
 	}
 	return errors.Join(syncDir(filepath.Dir(src)), syncDir(filepath.Dir(dst)))
+}
+
+func (u *Undoer) chmod(resolved string, mode fs.FileMode) (err error) {
+	root, base, err := parentRoot(resolved)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	mode &= fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky
+	if err = root.Chmod(base, mode); err != nil {
+		return fmt.Errorf("journal: chmod %s: %w", resolved, err)
+	}
+	return nil
+}
+
+// parentRoot opens the directory of resolved; the final component is passed
+// to Root methods so no symlink in it is followed.
+func parentRoot(resolved string) (*os.Root, string, error) {
+	dir, base := filepath.Split(resolved)
+	if base == "" || base == "." || base == ".." {
+		return nil, "", fmt.Errorf("journal: %s: %w", resolved, ErrUnsafePath)
+	}
+	root, err := os.OpenRoot(filepath.Clean(dir))
+	if err != nil {
+		return nil, "", fmt.Errorf("journal: open dir %s: %w", filepath.Clean(dir), err)
+	}
+	return root, base, nil
+}
+
+// commonDir is the deepest directory containing both paths.
+func commonDir(a, b string) string {
+	for {
+		rel, err := filepath.Rel(a, b)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return a
+		}
+		parent := filepath.Dir(a)
+		if parent == a {
+			return a
+		}
+		a = parent
+	}
 }
 
 func writeAll(f *os.File, data []byte) error {
@@ -314,11 +422,6 @@ func writeAll(f *os.File, data []byte) error {
 		data = data[n:]
 	}
 	return nil
-}
-
-func hash(b []byte) string {
-	h := sha256.Sum256(b)
-	return hex.EncodeToString(h[:])
 }
 
 func match(cur string, img *Image) bool {

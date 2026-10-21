@@ -2,6 +2,8 @@ package journal
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"io/fs"
@@ -366,4 +368,9 @@ func TestUndoLastReverseOrder(t *testing.T) {
 	if string(read(t, p1)) != "old1" || string(read(t, p2)) != "old2" {
 		t.Fatal("files not restored")
 	}
+}
+
+func hash(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
 }

@@ -5,16 +5,13 @@ package journal
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"syscall"
 )
 
-// replaceFile atomically replaces dst with src.
-func replaceFile(src, dst string) error {
-	if err := os.Rename(src, dst); err != nil {
-		return fmt.Errorf("journal: rename: %w", err)
-	}
-	return nil
-}
+// oNoFollow refuses a symlink in the final component of a Root open.
+const oNoFollow = syscall.O_NOFOLLOW
 
 // syncDir makes a rename/remove durable (POSIX). os.Root keeps the path
 // relative to the sandbox-resolved directory (gosec G304).
@@ -28,4 +25,20 @@ func syncDir(dir string) error {
 		return errors.Join(fmt.Errorf("journal: open dir: %w", err), root.Close())
 	}
 	return errors.Join(f.Sync(), f.Close(), root.Close())
+}
+
+func statIdentity(fi fs.FileInfo) (dev, ino uint64) {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, 0
+	}
+	return uint64(st.Dev), uint64(st.Ino)
+}
+
+func hardLinks(fi fs.FileInfo) uint64 {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 1
+	}
+	return uint64(st.Nlink)
 }

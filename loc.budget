@@ -33,7 +33,7 @@ ctxdb/journalstore 400 internal/ctxdb/journalstore
 assemble          1000 internal/assemble
 compaction         900 internal/compaction
 memory+skills     1200 internal/memory internal/skills
-journal            500 internal/journal
+journal            520 internal/journal
 budget             400 internal/budget
 heal              1500 internal/heal
 config            1200 internal/config
