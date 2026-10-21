@@ -29,6 +29,7 @@ type CreateOptions struct {
 	App            string
 	IncludeSecrets bool
 	Key            secret.BackupKey
+	Codec          ctxdb.Codec
 	Now            time.Time
 }
 
@@ -54,7 +55,7 @@ func Create(ctx context.Context, o *CreateOptions) (res Result, err error) {
 		return res, err
 	}
 	defer func() { err = errors.Join(err, removeFile(snap)) }()
-	live, err := ctxdb.SnapshotTo(ctx, o.DataDir, snap)
+	live, err := ctxdb.SnapshotTo(ctx, o.DataDir, snap, o.Codec)
 	if err != nil {
 		return res, fmt.Errorf("backup: snapshot: %w", err)
 	}

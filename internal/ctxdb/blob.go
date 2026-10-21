@@ -27,7 +27,15 @@ func trashName(txid string) string { return path.Join("blobs/.trash", txid) }
 func (s *Store) PutBlob(data []byte, mime string) (*PendingBlob, error) {
 	h := sha256.Sum256(data)
 	p := &PendingBlob{Sha: hex.EncodeToString(h[:]), Mime: mime, Size: int64(len(data)), tmp: path.Join("blobs/tmp", newID())}
-	if err := writeAtomic(s.root, p.tmp, data); err != nil {
+	stored := data
+	if s.codec != nil {
+		sealed, err := s.codec.Seal("blob:"+p.Sha, data)
+		if err != nil {
+			return nil, fmt.Errorf("ctxdb: seal blob: %w", err)
+		}
+		stored = sealed
+	}
+	if err := writeAtomic(s.root, p.tmp, stored); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -73,6 +81,25 @@ func syncRootDir(root *os.Root, dir string) error {
 // blob_expired; live → recover this sha from .trash (gc step 1 for one sha)
 // under the write lock and read once more; then blob_missing.
 func (s *Store) ReadBlob(ctx context.Context, sha string) ([]byte, error) {
+	b, err := s.readBlob(ctx, sha)
+	if err != nil {
+		return nil, err
+	}
+	if s.codec == nil {
+		return b, nil
+	}
+	pt, err := s.codec.Open("blob:"+sha, b)
+	if err != nil {
+		return nil, fmt.Errorf("ctxdb: open blob: %w", err)
+	}
+	sum := sha256.Sum256(pt)
+	if hex.EncodeToString(sum[:]) != sha {
+		return nil, fmt.Errorf("ctxdb: blob %s hash: %w", sha, ErrInternal)
+	}
+	return pt, nil
+}
+
+func (s *Store) readBlob(ctx context.Context, sha string) ([]byte, error) {
 	b, err := s.root.ReadFile(blobName(sha))
 	if !errors.Is(err, fs.ErrNotExist) {
 		return b, wrap(err)
