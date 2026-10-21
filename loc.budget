@@ -10,6 +10,7 @@ plan               600 internal/plan
 # ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
 provider          2100 internal/provider
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
+# ADR-128: tabel harga providers.toml + lookup base_url+model; tetap 300 (terukur 257, sisa 43; Σ tetap).
 provider/registry  300 internal/provider/registry
 netx              1800 internal/netx
 schema            1200 internal/schema

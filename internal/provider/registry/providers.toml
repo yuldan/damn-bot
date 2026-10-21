@@ -1,0 +1,24 @@
+# Provider registry data (SPEC §4.1, ADR-128). Go LOC ignores this file.
+#
+# Prices are integer micro-USD per million tokens (input / cached_input /
+# output) and are keyed by the ACTUAL route: base_url + model. A reseller
+# route never inherits the upstream vendor price; a route+model absent here
+# is unpriced, and any monetary budget cap then fails closed (ADR-123).
+#
+# Every entry needs a cited source and an effective date. kind is
+# "vendor" (published list price) or "operator-contracted" (reseller price
+# agreed by the operator). The ledger records
+# pricing_version = "<version>/<id>".
+
+version = "providers-2026-10-21"
+
+[[price]]
+id = "teamorouter-gpt-5.4-mini"
+base_url = "https://api.teamorouter.com/v1"
+model = "gpt-5.4-mini"
+kind = "operator-contracted"
+source = "operator-contracted, owner decision 2026-10-21; docs/F1-LLM-SMOKE.md"
+from = "2026-10-21"
+input = 150000
+cached_input = 15000
+output = 600000

@@ -32,6 +32,7 @@ import (
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/netx/retry"
 	"github.com/damnbot/damnbot/internal/provider"
+	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/tools"
@@ -282,9 +283,17 @@ func newRunProvider(cfg *config.Config, modelRef string, o *runOptions) (loop.Pr
 		return nil, fmt.Errorf("provider endpoint: %w", err)
 	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
+	table, err := registry.DefaultPriceTable()
+	if err != nil {
+		return nil, fmt.Errorf("pricing table: %w", err)
+	}
+	prices, err := provider.RoutePrices(table, base, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("pricing: %w", err)
+	}
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
-		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family}},
+		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family, Prices: prices}},
 		Attempts: o.providerAttempts,
 	})
 	if err != nil {
