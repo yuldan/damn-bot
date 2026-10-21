@@ -1,10 +1,12 @@
 package ctxdb
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 )
 
@@ -192,6 +194,83 @@ func TestReadOnlyRefusesAttachVacuum(t *testing.T) {
 		}
 		if _, serr := os.Stat(target); serr == nil {
 			t.Fatalf("%q created %s", q, target)
+		}
+	}
+}
+
+// TestReadOnlyNoFallbackWithLiveHolder (SEC9-8): immutable=1 is only for a
+// genuinely read-only dir with no process that may still write.
+func TestReadOnlyNoFallbackWithLiveHolder(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	s, err := Open(t.Context(), &Options{Dir: dir, Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cerr := s.Close(); cerr != nil {
+		t.Fatal(cerr)
+	}
+	hb, jerr := json.Marshal(holderInfo{Ident: SelfIdent(), Kind: "run"})
+	if jerr != nil {
+		t.Fatal(jerr)
+	}
+	if merr := os.MkdirAll(filepath.Join(dir, holdersDir), 0o700); merr != nil {
+		t.Fatal(merr)
+	}
+	if werr := os.WriteFile(filepath.Join(dir, holdersDir, strconv.Itoa(os.Getpid())), hb, 0o600); werr != nil {
+		t.Fatal(werr)
+	}
+	if merr := os.Chmod(dir, 0o500); merr != nil { //nolint:gosec // fixture: read-only media
+		t.Fatal(merr)
+	}
+	t.Cleanup(func() {
+		if merr := os.Chmod(dir, 0o700); merr != nil { //nolint:gosec // restore test dir
+			t.Errorf("restore mode: %v", merr)
+		}
+	})
+	id := SelfIdent()
+	id.PID, id.Start = os.Getpid()+1, "other"
+	if ro, oerr := Open(t.Context(), &Options{Dir: dir, Kind: "cli", ReadOnly: true, Ident: &id}); oerr == nil {
+		if cerr := ro.Close(); cerr != nil {
+			t.Errorf("close: %v", cerr)
+		}
+		t.Fatal("immutable fallback ran with a live holder")
+	}
+}
+
+// TestReadOnlySQLGate (SEC9-7): the gate tokenizes, so names/literals/comments
+// are not keyword hits while real DML/PRAGMA/ATTACH and multi-statement SQL
+// are rejected.
+func TestReadOnlySQLGate(t *testing.T) {
+	t.Parallel()
+	allowed := []string{
+		"SELECT created_at FROM sessions",
+		"SELECT * FROM pragma_table_info('sessions')",
+		"VALUES (1)",
+		"-- comment\nSELECT 1",
+		"/* comment */ SELECT 1",
+		"SELECT 'DELETE FROM x'",
+		`SELECT "update" FROM sessions`,
+		"SELECT 1;",
+		"WITH x AS (SELECT 1) SELECT * FROM x",
+	}
+	for _, q := range allowed {
+		if !readOnlyQuery(q) {
+			t.Errorf("readOnlyQuery(%q) = false, want true", q)
+		}
+	}
+	denied := []string{
+		"INSERT INTO x VALUES (1)",
+		"PRAGMA table_info(x)",
+		"ATTACH DATABASE 'x' AS y",
+		"VACUUM INTO 'x'",
+		"SELECT 1; DELETE FROM t",
+		"CREATE TABLE x(a)",
+		"SELECT * FROM t; PRAGMA wal_checkpoint",
+	}
+	for _, q := range denied {
+		if readOnlyQuery(q) {
+			t.Errorf("readOnlyQuery(%q) = true, want false", q)
 		}
 	}
 }

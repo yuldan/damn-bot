@@ -200,6 +200,32 @@ func (s *Store) registerHolder() error {
 	return writeAtomic(s.root, s.holderName(), b)
 }
 
+// liveHolder reports another process that may still write the data dir. A
+// holder on an unknown host is treated as live (cannot be proven gone).
+func (s *Store) liveHolder() bool {
+	ents, err := fs.ReadDir(s.root.FS(), holdersDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range ents {
+		b, rerr := s.root.ReadFile(path.Join(holdersDir, e.Name()))
+		if rerr != nil {
+			continue
+		}
+		var h holderInfo
+		if json.Unmarshal(b, &h) != nil {
+			continue
+		}
+		if h.PID == s.id.PID && h.Host == s.id.Host {
+			continue
+		}
+		if h.Host != s.id.Host || !s.opt.Procs.Gone(h.Ident) {
+			return true
+		}
+	}
+	return false
+}
+
 // holders returns live registered processes other than this one.
 func (s *Store) holders() []holderInfo {
 	ents, err := fs.ReadDir(s.root.FS(), holdersDir)

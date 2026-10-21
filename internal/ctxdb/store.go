@@ -129,14 +129,38 @@ func (s *Store) openReadOnly(ctx context.Context) error {
 	if err == nil {
 		return nil
 	}
-	// A WAL database with no -wal on disk is complete; on read-only media
-	// SQLite cannot create -shm, so read it as an immutable snapshot.
-	if !s.walOnDisk() {
+	// A WAL database with no -wal on disk is complete. Only read-only media
+	// errors qualify: an immutable snapshot is safe only when the dir cannot
+	// be written, no live holder exists, and no WAL holds unmerged data.
+	if readOnlyMediaError(err) && !s.walOnDisk() && !s.liveHolder() && !dirWritable(s.dir) {
 		if ierr := open(true); ierr == nil {
 			return nil
 		}
 	}
 	return wrap(err)
+}
+
+// readOnlyMediaError reports SQLITE_READONLY / SQLITE_CANTOPEN, the errors a
+// read-only directory produces when SQLite must create -shm.
+func readOnlyMediaError(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	return se.Code()&0xff == codeReadOnly || se.Code()&0xff == codeCantOpen
+}
+
+// dirWritable probes writability without creating the store layout.
+func dirWritable(dir string) bool {
+	f, err := os.CreateTemp(dir, ".ro-probe-")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	if cerr := f.Close(); cerr != nil {
+		return false
+	}
+	return os.Remove(name) == nil
 }
 
 func (s *Store) walOnDisk() bool {
