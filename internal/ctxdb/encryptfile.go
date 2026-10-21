@@ -263,7 +263,7 @@ func sealCarriers(ctx context.Context, tx *sql.Tx, codec Codec) error {
 	}
 	for _, r := range rs {
 		identity := fmt.Sprintf("%d|%d", num(r[1]), num(r[2]))
-		enc, err := codec.Seal("reasoning_carriers.payload", append([]byte(identity+"\x00"), binary(r[3])...))
+		enc, err := codec.Seal("reasoning_carriers.payload", append([]byte(identity+"\x00"), bytesOf(r[3])...))
 		if err != nil {
 			return wrap(err)
 		}
@@ -341,7 +341,7 @@ func num(v any) int64 {
 	}
 }
 
-func binary(v any) []byte {
+func bytesOf(v any) []byte {
 	if b, ok := v.([]byte); ok {
 		return b
 	}
