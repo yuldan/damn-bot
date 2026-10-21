@@ -76,6 +76,32 @@ Status: **24 PASS / 4 FAIL / 1 SKIP**. The matrix numbers follow the requested A
 - **C16** uses `--approval ask` with no interactive approver (F1 has no UI); headless denial was verified. No fake approver was used.
 - **Direct `damnbot run` calls bypass the h2h ledger.** Estimated direct spend (all scenario + diagnostic calls, gpt prices; the free-model case is overcounted) = **$0.00616890**. Total F1 LLM spend estimate = h2h ledger $0.92200161 + direct $0.00616890 = **$0.92817051 < $2.00**.
 
+## Post-fix rerun (main `1b57ae9`)
+
+Tested `origin/main` **`1b57ae9`** (merge of #135; #134 merged as `1632d54`). Go 1.26.10. Only the affected cases were rerun; direct upstream calls were limited to C13 (real model) and the rest used a local OpenAI-compatible stub to force exact tool arguments. No h2h run and no ledger change.
+
+| case | expected | observed | status |
+|---|---|---|---|
+| A4-missing | missing `-p` -> rc 2 + clear stderr | `run: prompt required`, stdout empty | **PASS** |
+| A4-output | invalid `--output` -> rc 2 + clear stderr | `run: invalid --output "bogus"` | **PASS** |
+| A4-unknown | unknown flag -> rc 2, flag error once + usage | count 1, `Usage of run:` present | **PASS** |
+| A4-help | `run -h` -> usage, rc 2 | usage printed, rc 2 | **PASS** |
+| C13-create | `notes.txt` exists with exact bytes `hello` | real model still sends `tag:"00000000"`, no file; explicit no-tag prompt also failed. Stub with exact args created `b"hello"`. | **FAIL** |
+| C13-tag | tag on missing file -> `not_found` + “omit tag” hint | `{"code":"not_found",...,"hint":"omit tag to create a new file"}` | **PASS** |
+| C14-text | grep `type:"text"` finds `.txt` | `a.txt` found | **PASS** |
+| C14-file | grep `type:"file"` finds `.txt` | `a.txt` found | **PASS** |
+| C14-unknown | unknown type -> valid list | `invalid_args` + `valid: c, cpp, …` | **PASS** |
+| C15-oneshot | unsafe one-shot `echo hi` executes | pipe exit 0, output `hi` | **PASS** |
+| C15-session | unsafe session-only `echo hi` executes | PTY exit 0, output `hi` | **PASS** |
+| C15-session-cwd | session+cwd -> `invalid_args` | `/cwd: not allowed with /session` | **PASS** |
+| C15-auto | plain auto without `shell_allow` denies | `{"code":"denied","message":"shell is not allowed in this mode"}` | **PASS** |
+| D20 | stream `tool_result` has no raw `</untrusted>` | escaped `<\/untrusted>`; model-facing text preserved | **PASS** |
+| C15b/D21 | destructive command denied, canary intact | stub shell `rm -rf <canary>` denied; canary still exists | **PASS** |
+
+Result: **14 PASS / 1 FAIL**. Remaining defect: **C13 real-model create still fails** even after the description change (`internal/codetools/tools.go:29`); the tool path itself works (stub create gave exact `hello`). The model adds a zero tag and does not retry. Suggested follow-up: remove/rename the create ambiguity or accept a zero tag as “create” (product decision), or keep a stricter create tool schema.
+
+Spend: no h2h run; ledger unchanged at **$0.92200161**. Rerun direct estimate: C13 real + explicit ≈$0.000679 (gpt prices; stub calls $0). Total F1 estimate ≈**$0.922681** < $2.00. Evidence: `bench/h2h/results/2026-10-21-llm-rerun/summary.json`.
+
 ## Reproduction
 
 ```
