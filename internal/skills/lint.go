@@ -111,9 +111,6 @@ func scanDir(files fs.FS) ([]string, error) {
 			return fmt.Errorf("%w: %s: %w", ErrInvalid, p, err)
 		}
 		if d.IsDir() {
-			if p != "." && strings.HasPrefix(d.Name(), ".") {
-				return fs.SkipDir
-			}
 			return nil
 		}
 		if p == "SKILL.md" || !d.Type().IsRegular() {
@@ -157,25 +154,50 @@ func newLintRules() *lintRules {
 			nouns + `\b`),
 		mainnet: regexp.MustCompile(`https?://[^\s'"` + "`" + `)]*mainnet[^\s'"` + "`" + `)]*|--(?:url|rpc-url|network|cluster|chain)[ =]mainnet\S*|(?:^|\s)-um(?:\s|$)`),
 		obfuscated: regexp.MustCompile(`base64\s+(?:-d|--decode|-[dD])\b[^\n|]*\|\s*(?:ba|z|da|k)?sh\b|` +
-			`\beval\s+["']?\$\(|\bexec\s*\(\s*base64`),
+			`\b(?:base64\s*\.\s*b64decode|b64decode)\s*\(|` +
+			`\beval\s+["']?\$\(|\bexec\s*\(\s*(?:base64|b64decode)|` +
+			`(?:zcat|gunzip|rev)\b[^\n|]*\|\s*(?:ba|z|da|k)?sh\b`),
 	}
 }
 
-// foldText normalises before every match (SEC10-4): NFKC, lower case, and a
-// small Cyrillic/Greek confusable fold, so `gh аuth token` (Cyrillic а) and
-// fullwidth spellings hit the same rules.
+// foldText normalises before every match (SEC10-4): NFKC, lower case,
+// literal-assignment expansion, empty-quote removal, format-character
+// stripping (zero-width, Cf) and a Cyrillic/Greek confusable fold, so
+// `gh аuth token`, `gh au​th token` and `a=gh; $a auth token` hit the
+// same rules.
 func foldText(s string) string {
-	return strings.Map(foldRune, strings.ToLower(norm.NFKC.String(s)))
+	s = expandLiterals(strings.ToLower(norm.NFKC.String(s)))
+	return strings.Map(foldRune, s)
+}
+
+// expandLiterals substitutes simple literal shell assignments (`a=gh;
+// $a auth token`) and drops empty quote pairs (`tok""en`). Values with
+// substitutions or quotes are skipped; the pass is bounded by the input.
+func expandLiterals(s string) string {
+	s = strings.NewReplacer(`""`, "", `''`, "").Replace(s)
+	assign := regexp.MustCompile(`(?m)(?:^|[;\s` + "`" + `])\s*([a-z_][a-z0-9_]{0,15})=([^\s;&|]{1,64})`)
+	for _, m := range assign.FindAllStringSubmatch(s, -1) {
+		v := strings.Trim(m[2], `"'`)
+		if v == "" || strings.ContainsAny(v, "$`(<>") {
+			continue
+		}
+		sub := regexp.MustCompile(`\$\{` + m[1] + `\}|\$` + m[1] + `\b`)
+		s = sub.ReplaceAllString(s, v)
+	}
+	return s
 }
 
 func foldRune(r rune) rune {
+	if unicode.Is(unicode.Cf, r) {
+		return -1
+	}
 	from := [...]rune{
 		'а', 'α', 'е', 'ε', 'о', 'ο', 'օ', 'р', 'ρ', 'с', 'ϲ', 'х', 'χ', 'у', 'γ', 'і', 'ι', 'ı',
-		'ѕ', 'ԁ', 'һ', 'ј', 'ӏ', 'ν', 'ɡ', 'т',
+		'ѕ', 'ԁ', 'һ', 'ј', 'ӏ', 'ν', 'ɡ', 'т', 'г',
 	}
 	to := [...]rune{
 		'a', 'a', 'e', 'e', 'o', 'o', 'o', 'p', 'p', 'c', 'c', 'x', 'x', 'y', 'y', 'i', 'i', 'i',
-		's', 'd', 'h', 'j', 'l', 'v', 'g', 't',
+		's', 'd', 'h', 'j', 'l', 'v', 'g', 't', 'r',
 	}
 	for i := range from {
 		if from[i] == r {

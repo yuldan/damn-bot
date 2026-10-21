@@ -11,57 +11,63 @@ import (
 )
 
 // paymentSkillDirs computes the shell-gate directories for the skills under
-// <config>/skills (SPEC §4.8, SEC-15/SEC-26, ADR-133 amendment SEC10-6).
-// Every skill directory is parsed and linted before use; a skill that cannot
-// be read or is invalid fails the run instead of silently leaving its files
-// ungated (fail closed). PaymentDirs covers declared payment, undeclared
-// payment text, and skills that are not approved yet.
+// <config>/skills (SPEC §4.8, SEC-15/SEC-26, ADR-133 amendment). Every skill
+// directory is parsed and linted before use; a symlinked skill is resolved
+// and both names are gated; a directory without SKILL.md is gated as well. A
+// skill that cannot be read or is invalid fails the run instead of silently
+// leaving its files ungated (fail closed).
 func paymentSkillDirs(configDir string) ([]string, error) {
 	if configDir == "" {
 		return nil, nil
 	}
-	list, err := loadSkills(filepath.Join(configDir, "skills"))
+	list, extra, err := loadSkills(filepath.Join(configDir, "skills"))
 	if err != nil {
 		return nil, err
 	}
-	return skills.PaymentDirs(list), nil
+	dirs := append(skills.PaymentDirs(list), extra...)
+	return resolveDirs(dirs)
 }
 
-// loadSkills parses and lints every directory under root that has a
-// SKILL.md. A missing root is no skills.
-func loadSkills(root string) ([]skills.Skill, error) {
+// loadSkills parses and lints every directory under root. extra holds
+// directories that are not skills (no SKILL.md) and are gated anyway.
+func loadSkills(root string) (list []skills.Skill, extra []string, err error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("skills: %w", err)
+		return nil, nil, fmt.Errorf("skills: %w", err)
 	}
-	var list []skills.Skill
 	known := map[string]bool{}
 	for _, e := range entries {
-		if !e.IsDir() {
+		p := filepath.Join(root, e.Name())
+		info, serr := os.Stat(p) // follows a symlinked skill directory (SEC10-10)
+		if serr != nil {
+			return nil, nil, fmt.Errorf("skills: %s: %w", e.Name(), serr)
+		}
+		if !info.IsDir() {
 			continue
 		}
 		sk, ok, lerr := loadSkill(root, e.Name())
 		if lerr != nil {
-			return nil, lerr
+			return nil, nil, lerr
 		}
 		if !ok {
+			extra = append(extra, p)
 			continue
 		}
 		if known[sk.Name] {
-			return nil, fmt.Errorf("%w: duplicate skill name %q", skills.ErrInvalid, sk.Name)
+			return nil, nil, fmt.Errorf("%w: duplicate skill name %q", skills.ErrInvalid, sk.Name)
 		}
 		known[sk.Name] = true
 		list = append(list, sk)
 	}
 	for i := range list {
 		if err := checkLoaded(&list[i], known); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return list, nil
+	return list, extra, nil
 }
 
 // loadSkill parses one skill directory; ok is false when it is not a skill.
@@ -81,8 +87,9 @@ func loadSkill(root, name string) (sk skills.Skill, ok bool, err error) {
 	return sk, true, nil
 }
 
-// checkLoaded lints one skill through os.Root and rejects a high finding,
-// matching Service.Install for a trusted source.
+// checkLoaded lints one skill through os.Root, records file-level payment
+// findings on the skill (SEC10-9) and rejects a high finding, matching
+// Service.Install for a trusted source.
 func checkLoaded(sk *skills.Skill, known map[string]bool) error {
 	root, err := os.OpenRoot(filepath.Dir(sk.Path))
 	if err != nil {
@@ -93,10 +100,31 @@ func checkLoaded(sk *skills.Skill, known map[string]bool) error {
 	if err != nil {
 		return fmt.Errorf("skills: %s: %w", sk.Name, err)
 	}
+	sk.AddFindings(findings)
 	for _, f := range findings {
 		if f.Severity == "high" {
 			return fmt.Errorf("%w: %s: %s", skills.ErrInvalid, sk.Name, f.Category)
 		}
 	}
 	return nil
+}
+
+// resolveDirs adds each symlink target to the gate and dedupes. A link that
+// cannot be resolved fails closed.
+func resolveDirs(dirs []string) ([]string, error) {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		real, err := filepath.EvalSymlinks(d)
+		if err != nil {
+			return nil, fmt.Errorf("skills: %s: %w", d, err)
+		}
+		for _, p := range []string{d, real} {
+			if !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+	}
+	return out, nil
 }

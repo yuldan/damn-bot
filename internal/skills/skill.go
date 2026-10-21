@@ -83,6 +83,17 @@ type Skill struct {
 	MemoryID    int64 // 0 = indexed directly (trusted source)
 	SideEffects []SideEffect
 	Requires    []string // skill names this skill depends on
+	filePayment bool     // a lint finding found payment use in a file (SEC10-9)
+}
+
+// AddFindings records that lint found payment use in the skill's files, so
+// the shell gate covers code that only appears in a script (SEC10-9).
+func (s *Skill) AddFindings(findings []Finding) {
+	for _, f := range findings {
+		if f.Category == "payment" || f.Category == "payment_undeclared" {
+			s.filePayment = true
+		}
+	}
 }
 
 // Payment reports whether the skill declares side_effects: [payment].
@@ -93,7 +104,7 @@ func (s *Skill) Payment() bool { return slices.Contains(s.SideEffects, EffectPay
 // pattern without declaring one (SEC10-3). Files are covered by the lint
 // finding of the same name.
 func (s *Skill) Sensitive() bool {
-	return s.Payment() || containsAny(foldText(s.Description+"\n"+s.Body), paymentPatterns()) != ""
+	return s.Payment() || s.filePayment || containsAny(foldText(s.Description+"\n"+s.Body), paymentPatterns()) != ""
 }
 
 // PaymentDirs returns the directories of the sensitive skills in list: the

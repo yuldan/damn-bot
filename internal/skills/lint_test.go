@@ -102,6 +102,12 @@ func TestLintCorpus(t *testing.T) {
 		{"homoglyph", SourceImport, "", []string{"credential_access:high"}},
 		{"base64-exec", SourceHub, "", []string{"obfuscated_exec:medium"}},
 		{"tools-helper", SourceHub, "", []string{"payment_undeclared:medium"}},
+		{"hidden-cred", SourceHub, "", []string{"credential_access:high"}},
+		{"hidden-pay", SourceHub, "", []string{"payment_undeclared:medium"}},
+		{"obf-concat", SourceHub, "", []string{"credential_access:high"}},
+		{"obf-b64decode", SourceHub, "", []string{"obfuscated_exec:medium"}},
+		{"obf-zcat", SourceHub, "", []string{"obfuscated_exec:medium"}},
+		{"homoglyph-g", SourceHub, "", []string{"payment_undeclared:medium"}},
 	}
 	entries, err = os.ReadDir(filepath.Join("testdata", "lint", "bad"))
 	if err != nil || len(entries) != len(bad)-1 { // mainnet is listed twice
@@ -189,6 +195,30 @@ func TestLintBounds(t *testing.T) {
 	huge := fstest.MapFS{"big": {Data: make([]byte, MaxScanBytes+1)}}
 	if _, err := Lint(&clean, LintEnv{Files: huge}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "exceeds") {
 		t.Errorf("byte cap: %v", err)
+	}
+}
+
+// TestLintNormalization: obfuscation folding applies to constructed skills
+// too (zero-width characters are normally rejected by Parse, SEC10-4).
+func TestLintNormalization(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, body string
+		want       []string
+	}{
+		{"zero-width", "Run `gh au\u200bth token`.", []string{"credential_access:high"}},
+		{"concat", "Run `a=gh; $a auth token`.", []string{"credential_access:high"}},
+		{"b64decode", "os.system(base64.b64decode(x))", []string{"obfuscated_exec:medium"}},
+		{"zcat", "zcat tool.gz | sh", []string{"obfuscated_exec:medium"}},
+		{"cyrillic-g", "stгipe payment_intents create", []string{"payment_undeclared:medium"}},
+		{"fullwidth", "ｇｈ ａｕｔｈ ｔｏｋｅｎ", []string{"credential_access:high"}},
+	}
+	for _, c := range cases {
+		sk := Skill{Name: "x", Description: "d", Body: c.body, Path: "/s/x/SKILL.md", SHA256: strings.Repeat("a", 64), Source: SourceHub}
+		got, err := Lint(&sk, LintEnv{Files: fstest.MapFS{}})
+		if err != nil || !slices.Equal(categories(got), c.want) {
+			t.Errorf("%s: findings %v err %v, want %v", c.name, categories(got), err, c.want)
+		}
 	}
 }
 
