@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 type trigger struct{ name, sql string }
@@ -133,7 +134,7 @@ func encryptDB(ctx context.Context, dbPath string, codec Codec, trigs []trigger)
 	if _, serr := db.ExecContext(ctx, "PRAGMA secure_delete=ON"); serr != nil {
 		return wrap(serr)
 	}
-	if ferr := clearFTS(ctx, db); ferr != nil {
+	if ferr := rebuildFTS(ctx, db, codec); ferr != nil {
 		return ferr
 	}
 	tx, terr := db.BeginTx(ctx, nil)
@@ -346,6 +347,74 @@ func clearFTS(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+func rebuildFTS(ctx context.Context, db *sql.DB, codec Codec) error {
+	if err := clearFTS(ctx, db); err != nil {
+		return err
+	}
+	items := []struct{ q, fts string }{
+		{`SELECT id, content FROM events WHERE kind IN ('user_message','assistant_message','tool_result','imported')`, "events_fts"},
+		{`SELECT id, content FROM summaries`, "summaries_fts"},
+		{`SELECT id, content FROM memory`, "memory_fts"},
+	}
+	for _, it := range items {
+		if err := rebuildOne(ctx, db, it.q, it.fts, codec); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func rebuildOne(ctx context.Context, db *sql.DB, q, fts string, codec Codec) (err error) {
+	rows, err := db.QueryContext(ctx, q)
+	if err != nil {
+		return wrap(err)
+	}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	type row struct {
+		id      int64
+		content string
+	}
+	var rs []row
+	for rows.Next() {
+		var r row
+		if serr := rows.Scan(&r.id, &r.content); serr != nil {
+			return wrap(serr)
+		}
+		rs = append(rs, r)
+	}
+	if rerr := rows.Err(); rerr != nil {
+		return wrap(rerr)
+	}
+	if cerr := rows.Close(); cerr != nil {
+		return wrap(cerr)
+	}
+	ins := map[string]string{
+		"events_fts":    "INSERT INTO events_fts(rowid, content) VALUES (?,?)",
+		"summaries_fts": "INSERT INTO summaries_fts(rowid, content) VALUES (?,?)",
+		"memory_fts":    "INSERT INTO memory_fts(rowid, content) VALUES (?,?)",
+	}[fts]
+	if ins == "" {
+		return ErrInternal
+	}
+	for _, r := range rs {
+		if _, xerr := db.ExecContext(ctx, ins, r.id, encFTS(codec, r.content)); xerr != nil {
+			return wrap(xerr)
+		}
+	}
+	return nil
+}
+
+func encFTS(codec Codec, s string) string {
+	fields := strings.FieldsFunc(ftsNorm(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		out = append(out, codec.FTS(f))
+	}
+	return strings.Join(out, " ")
 }
 
 func encryptBlobs(dir string, codec Codec) error {
