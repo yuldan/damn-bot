@@ -119,3 +119,61 @@ func unsymlinkDir(dir, parked string) error {
 	}
 	return os.Rename(parked, dir)
 }
+
+// TestUndoDryRunRelativeSymlinkToDeniedDir (REVIEW-F2-SEC5-15): an ancestor
+// swapped for a symlink to a deny_paths directory inside the root must not
+// let --dry-run read it.
+func TestUndoDryRunRelativeSymlinkToDeniedDir(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sb, err := sandbox.New(&sandbox.Config{
+		Roots:     []string{root},
+		DenyPaths: []string{filepath.Join(root, ".ssh")},
+		Home:      root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied := filepath.Join(root, ".ssh")
+	if err := os.Mkdir(denied, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(denied, "f.txt"), []byte("DENIED-SECRET"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "sub")
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "f.txt"), []byte("insider"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "f.txt")
+	if data, refusal := readInSandbox(t.Context(), sb, path); refusal != "" || string(data) != "insider" {
+		t.Fatalf("pre-race read = %q, %q; want insider", data, refusal)
+	}
+
+	done := make(chan struct{})
+	errc := make(chan error, 1)
+	var wg sync.WaitGroup
+	wg.Go(func() { swapDir(dir, dir+".parked", ".ssh", done, errc) })
+
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		select {
+		case err := <-errc:
+			close(done)
+			wg.Wait()
+			t.Fatal(err)
+		default:
+		}
+		if data, _ := readInSandbox(t.Context(), sb, path); bytes.Contains(data, []byte("DENIED")) {
+			close(done)
+			wg.Wait()
+			t.Fatalf("dry-run read a denied directory: %q", data)
+		}
+	}
+	close(done)
+	wg.Wait()
+}

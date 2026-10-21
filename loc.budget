@@ -58,6 +58,9 @@ assemble          1300 internal/assemble
 compaction         900 internal/compaction
 memory+skills     1230 internal/memory internal/skills
 # ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).
+# ADR-117 amendment (REVIEW-F2-SEC5-15): journal 560 -> 565 (preview undo lewat OpenResolved;
+# terukur 562; Σ core 38.150 -> 38.155 <= 47.000).
+journal            565 internal/journal
 # Amandemen (undo mode Windows, 2026-10-22): journal 560 -> 590 (chmodFile per-OS; Windows memakai
 # os.Root.Chmod "atribut-saja" agar undo file 0o440 tidak gagal Access is denied; terukur 573 di #181 dan
 # 583 di #174 sesudah undo CLI; Σ core +30).
