@@ -667,11 +667,12 @@ type ctxLedger struct {
 }
 
 // Record writes one usage_ledger row through budget.Entry.Account, so the
-// charge is the provider-reported cost when it is valid, else the dated
-// route price (ADR-125 precedence), and pricing_version comes from that
-// entry. Account rejects implausible usage (negative tokens, cached > input,
-// out-of-range provider cost), which fails the turn rather than recording a
-// spend that can hide an exhausted cap (REVIEW-F2-SEC6 SEC6-1/2).
+// charge is max(table, provider) for a priced route and the provider cost
+// for an unpriced one (ADR-125/128), with pricing_version from the value
+// actually charged. Account rejects implausible usage; the row is then
+// still written with NULL/unknown cost so the guard sees the spend and
+// later calls under a monetary cap are denied (REVIEW-F2-SEC6 SEC6-8),
+// while Record returns the error so the turn fails visibly.
 func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, u *event.Usage) error {
 	var price *budget.Price
 	if u.Price != nil {
@@ -685,8 +686,14 @@ func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, 
 		Provider: l.provider, Model: l.model, Attempts: 1,
 		TTFTMS: 0, CreatedAt: time.Now().UnixMilli(),
 	}
-	if aerr := e.Account(budget.Usage{Input: u.Input, CachedInput: u.CachedInput, Output: u.Output, CostUSD: u.CostUSD}, price, 0); aerr != nil {
-		return fmt.Errorf("account ledger: %w", aerr)
+	acctErr := e.Account(budget.Usage{Input: u.Input, CachedInput: u.CachedInput, Output: u.Output, CostUSD: u.CostUSD}, price, 0)
+	if acctErr != nil {
+		// The call already happened and was paid for: record it as
+		// unknown-cost with clamped token counts instead of losing it.
+		e.InputTokens = max(u.Input, 0)
+		e.CachedInputTokens = min(max(u.CachedInput, 0), e.InputTokens)
+		e.OutputTokens = max(u.Output, 0)
+		e.CostMicros, e.CostSource, e.PricingVersion = nil, string(budget.CostUnknown), budget.PricingNone
 	}
 	err := l.db.Write(ctx, func(tx *ctxdb.Tx) error {
 		var anchor int64
@@ -705,6 +712,9 @@ func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, 
 	})
 	if err != nil {
 		return fmt.Errorf("record ledger: %w", err)
+	}
+	if acctErr != nil {
+		return fmt.Errorf("account ledger: %w", acctErr)
 	}
 	return nil
 }

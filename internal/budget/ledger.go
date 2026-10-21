@@ -55,29 +55,49 @@ const (
 	MaxProviderCostUSD = 1_000_000
 )
 
-// Cost prices u (SPEC §18.4): the provider-reported cost wins, else the
-// price table, else unknown (micros = nil, the token caps still apply).
+// Cost prices u (SPEC §18.4). When p is set, the charge is the larger of the
+// dated table price and a valid provider-reported cost: a reseller that
+// reports zero or a low cost can never undercut the contract price of a
+// priced route (ADR-128 amandemen SEC6-6). Without a table entry the
+// ADR-125 precedence holds (provider cost, else unknown: micros = nil, the
+// token caps still apply).
 func Cost(u Usage, p *Price) (micros *int64, src CostSource, err error) {
 	if u.Input < 0 || u.Output < 0 || u.CachedInput < 0 || u.CachedInput > u.Input ||
 		u.Input > MaxTokens || u.Output > MaxTokens {
 		return nil, CostUnknown, fmt.Errorf("%w: input=%d cached=%d output=%d", ErrInvalidUsage, u.Input, u.CachedInput, u.Output)
 	}
-	if u.CostUSD != nil && *u.CostUSD > MaxProviderCostUSD { // incl. +Inf
-		return nil, CostUnknown, fmt.Errorf("%w: provider cost %g USD", ErrInvalidUsage, *u.CostUSD)
+	provider, err := providerCost(u.CostUSD)
+	if err != nil {
+		return nil, CostUnknown, err
 	}
-	switch {
-	case u.CostUSD != nil && *u.CostUSD >= 0 && *u.CostUSD <= MaxProviderCostUSD:
-		m := int64(math.Round(*u.CostUSD * 1e6)) // ≤ 10^12: exact conversion
-		return &m, CostProvider, nil
-	case p != nil:
-		m, err := tableCost(u, p)
-		if err != nil {
-			return nil, CostUnknown, err
+	if p != nil {
+		table, terr := tableCost(u, p)
+		if terr != nil {
+			return nil, CostUnknown, terr
 		}
-		return &m, CostPricingTable, nil
-	default:
-		return nil, CostUnknown, nil
+		if provider != nil && *provider > table {
+			return provider, CostProvider, nil
+		}
+		return &table, CostPricingTable, nil
 	}
+	if provider != nil {
+		return provider, CostProvider, nil
+	}
+	return nil, CostUnknown, nil
+}
+
+// providerCost converts a provider-reported USD cost to micro-USD. It
+// rejects an implausible cost (> MaxProviderCostUSD, including +Inf) and
+// returns nil for a value that cannot be a charge: negative, NaN, or absent.
+func providerCost(usd *float64) (*int64, error) {
+	if usd == nil || *usd < 0 || math.IsNaN(*usd) { // NaN compares false, so test it
+		return nil, nil
+	}
+	if *usd > MaxProviderCostUSD { // incl. +Inf
+		return nil, fmt.Errorf("%w: provider cost %g USD", ErrInvalidUsage, *usd)
+	}
+	m := int64(math.Round(*usd * 1e6)) // ≤ 10^12: exact conversion
+	return &m, nil
 }
 
 // tableCost is Σ tokens × micros/MTok rounded up to whole micro-USD, in
@@ -138,7 +158,7 @@ func (e *Entry) Account(u Usage, p *Price, raw int64) error {
 	}
 	e.InputTokens, e.CachedInputTokens, e.OutputTokens, e.EstInputTokens = u.Input, u.CachedInput, u.Output, raw
 	e.CostMicros, e.CostSource, e.PricingVersion = micros, string(src), PricingNone
-	if p != nil && src != CostUnknown {
+	if p != nil && src == CostPricingTable { // a provider charge has no table version
 		e.PricingVersion = p.Version
 	}
 	return nil

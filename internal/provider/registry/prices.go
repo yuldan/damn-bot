@@ -122,14 +122,14 @@ func ParsePriceTable(data []byte) (PriceTable, error) {
 
 // parse validates one entry and returns it with its lookup key.
 func (e *priceEntry) parse(table string) (Price, string, error) {
-	if !plainToken(e.ID) {
-		return Price{}, "", fmt.Errorf("id %q is not [A-Za-z0-9._:/-]+", e.ID)
+	if !plainToken(e.ID, false) {
+		return Price{}, "", fmt.Errorf("id %q is not [A-Za-z0-9._:-]+", e.ID)
 	}
 	key, err := NormalizeBaseURL(e.BaseURL)
 	if err != nil {
 		return Price{}, "", err
 	}
-	if !plainToken(e.Model) {
+	if !plainToken(e.Model, true) {
 		return Price{}, "", fmt.Errorf("model %q is not [A-Za-z0-9._:/-]+", e.Model)
 	}
 	kind := PriceKind(strings.TrimSpace(e.Kind))
@@ -177,17 +177,19 @@ func (e *priceEntry) columns() (in, cached, out int64, err error) {
 }
 
 // plainToken reports whether s is a non-empty unquoted registry token:
-// letters, digits, '.', '_', ':', '/', and '-'. No whitespace, no control
-// characters; ids and model names flow into the ledger's pricing_version and
-// the route key.
-func plainToken(s string) bool {
+// letters, digits, '.', '_', ':', '-', and (when slash) '/'. No whitespace,
+// no control characters; ids and model names flow into the ledger's
+// pricing_version and the route key. The id forbids '/', which is the
+// pricing_version separator.
+func plainToken(s string, slash bool) bool {
 	if s == "" {
 		return false
 	}
 	for _, r := range s {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
-			r == '.', r == '_', r == ':', r == '/', r == '-':
+			r == '.', r == '_', r == ':', r == '-':
+		case r == '/' && slash:
 		default:
 			return false
 		}

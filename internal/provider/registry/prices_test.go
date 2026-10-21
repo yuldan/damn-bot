@@ -178,6 +178,7 @@ func TestParsePriceTableRejectsInvalid(t *testing.T) {
 		{"blank id", mutate(func(e *priceEntry) { e.ID = " " })},
 		{"id whitespace", mutate(func(e *priceEntry) { e.ID = "vendor-m " })},
 		{"id control character", mutate(func(e *priceEntry) { e.ID = "vendor\am" })},
+		{"id slash", mutate(func(e *priceEntry) { e.ID = "vendor/m" })},
 		{"model whitespace", mutate(func(e *priceEntry) { e.Model = " m" })},
 		{"base_url query", mutate(func(e *priceEntry) { e.BaseURL = "https://api.example.com/v1?k=v" })},
 		{"duplicate id", second(func(e *priceEntry) { e.BaseURL = "https://api.other.example/v1" })},
