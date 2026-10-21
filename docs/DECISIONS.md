@@ -1866,6 +1866,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 *(Amandemen 2026-10-18: butir 3 (semantik `PHASE`) dan butir 2 (EC-TERM-001) dikoreksi ADR-080; butir 6 (target `patch`) dikoreksi ADR-082. Aturan penerapan juga mencakup EXEC-AND-CODING §A.9/§A.10 (commit `11626de`) dan SCORECARD §1.3 (commit `96e03a1`) — NEW-49.)*
 
+*(Amandemen 2026-10-21: butir 4 dilengkapi ADR-127 — di runner CI bersama, CT-09 (edit + `fsync`) ditegakkan relatif terhadap referensi tulis-durabel yang diukur di runner yang sama; nilai absolut CT-09 tetap diverifikasi di Q14.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-18): ROADMAP §"Regression suite dari EDGE-CASES", F0 Acceptance (rujukan speed baseline), F1 Acceptance; SPEC §16 (baris Edge-case, ambang ×1,5), §17.1, §17.3; CODE-TOOLS §10 (CT-10, ambang ×1,5); SCORECARD §1.2 (Code tools), §3; DECISIONS ADR-059 (penanda). Setiap passage mengutip ADR-077.
 
 **Keputusan.**
@@ -2321,6 +2323,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 ## ADR-094 — Penerapan Deliverable F1 #0 (CI hardening): klarifikasi dan deviasi
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan; opsi paling konservatif dalam batas menit Actions repo privat). Menerapkan ADR-073 butir 2, ADR-077 butir 3–4, ADR-080, ADR-085 butir 1, ADR-090 butir 3; menutup backlog "Deliverable #0" ADR-078 (AUD-056, 057, 059, 067, 069, 070, 071, 072, 073, 074, 083), ADR-086 (NEW-32..36, NEW-38), ADR-091 (NEW2-22, NEW2-26; NEW2-07 bagian `bench-budget`), ADR-092 (NEW3-01). Mengamandemen daftar path ADR-085 butir 1 dan penempatan analyzer NEW-34.
+
+*(Amandemen 2026-10-21: butir 5 dilengkapi ADR-127 — runner tetap `bench-ref` tetap belum ada (keputusan owner), sehingga CT-09 di job `perf` memakai gate relatif interim.)*
 
 **Aturan penerapan.** Diterapkan (2026-10-18), branch `f1-ci-hardening`: kode `Makefile`, `scripts/{ci-meta-test,coverage,fuzz,deadcode,pr-meta,loc-check}.sh`, `.github/workflows/{ci,meta,pr-meta,nightly}.yml`, `.github/{CODEOWNERS,dependabot.yml}`, `.golangci.yml`, `loc.budget`, `deps.mpl`, `PHASE`, `CHANGELOG.md`, `testdata/docs_exclusions.txt`, `internal/testutil/{timing,phase}`, `internal/archtest/*`, `tools/analyzers/*`, `internal/ctxdb/{lock_windows,restore,tx}.go` + test; teks ENGINEERING §2.4/§4.4/§5/§7.2, CROSS-CUTTING §7, SPEC §20, ROADMAP F1. Rincian per item + kasus meta-test: [`F1-REPORT.md`](F1-REPORT.md) §"Deliverable F1 #0". Setiap passage mengutip ADR-094.
 
@@ -2947,4 +2951,28 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Dampak terukur (SPEC §20).** Token model/prompt 0; dependency baru 0; 0 request probe. `Window` = paling banyak 1 query PK `model_limits` (lookup map lebih dulu). Test: `TestModelLimitsPrecedence`, `TestLearnedContextWindow`, `TestModelLimitsFailClosed` (`registry`), `TestModelLimitsRoundTrip` (tutup/buka ulang DB), `TestModelLimitsDiscoveryOverLearned` (`limitstore`), `TestModelLimitsPersisted` (registry + limitstore + ctxdb nyata, seluruh urutan sumber setelah restart), `TestImageFormulaMapping`, `TestEstimatorImages`.
 
 **Konsekuensi.** (+) Window model lokal/tak dikenal mulai di 32K dan terkoreksi permanen setelah satu observasi; formula gambar per model eksplisit dan gagal-tertutup. (−) Sumber data masih harus disambungkan: `providers.toml` (window + `image_token_formula`), kunci config `[[providers.custom]] models[].context_length`, discovery `/models`, parser window dari error `context_length`, dan pemakaian `Limits` oleh composition root/assemble (mode degradasi 8K–64K) — sampai itu `Route.ContextWindow` tetap dari `loop.turn_max_input_tok`.
+
+## ADR-127 — Gate CT-09 di runner CI bersama: p95 di atas referensi tulis-durabel (interim tanpa `bench-ref`)
+
+**Status:** Accepted 2026-10-21 (keputusan owner atas draft opsi 2; opsi 1, runner tetap `bench-ref`, ditolak untuk sekarang). Melengkapi ADR-077 butir 4 dan ADR-094 butir 5. Tidak mengubah ADR-073 (budget absolut benchmark tetap di job `perf`, sampel 100, p95).
+
+**Aturan penerapan.** Diterapkan (2026-10-21): CODE-TOOLS §10 (prosedur ukur) dan §10.2 (baris CT-09, kedua tabel); kode `internal/codetools/bench_test.go` (`measureDurable`, `durableWrite`, `durableGate`), `internal/testutil/timing` (`SharedRunner`); bukti `bench/codetools/results/ct09-ci-jobs-2026-10-21.csv`. Setiap passage mengutip ADR-127.
+
+**Konteks.** CT-09 (edit_file 1 MB termasuk `fsync` file + dir, p95 ≤ 20 ms) ditegakkan job `perf` di runner GitHub bersama dengan margin ×1,5 (ADR-077 butir 4, ADR-094 butir 5), padahal ROADMAP F1 #0, E-59, dan ADR-073 meminta runner tetap. Dari 315 job `perf` (19–21 Oktober 2026, semua attempt; CSV di atas), 38 gagal CT-09 (12,1 %): EPYC 7763 2 %, EPYC 9V74 31 %, 9V45 15 %, Xeon 8573C 21 %. Pohon `internal/codetools` yang sama lulus dan gagal, dan rerun commit yang sama berpindah antara 44 dan 268 ms. Sub-benchmark CPU di job yang gagal normal, sedangkan iowait 17–41 %. Di instance 9V74 dengan disk `MSFT NVMe Accelerator`, write request 3–13 ms dan p95 per sampel dari 3.000 edit = 30,1 ms, tanpa terpengaruh `sync(2)`, isolasi, atau `nodiscard`. Margin ×1,5 menutup runner yang seragam lebih lambat, bukan ekor I/O per instance. Akibatnya gate absolut mengukur disk VM, bukan kode.
+
+**Keputusan.**
+1. **Referensi.** `BenchmarkCodetools/Edit1MB` mengukur, berselang-seling di setiap iterasi (urutan bergantian, di luar ns/op), referensi tulis-durabel: isi berukuran sama ditulis ke temp di direktori yang sama, `fsync(file)`, rename menimpa, `fsync(dir)` bila platform punya (primitif engine yang sama: `renameReplace`, `dirSyncable`). Referensi ini tidak mengerjakan apa pun milik edit_file (baca, match, diff, hash, salin mode/xattr, read-back). Metrik `p95-ms` dan `ref-p95-ms` selalu dilaporkan.
+2. **Gate runner bersama (build `perf`).** p95(edit) − p95(referensi) ≤ 20 ms × 1,5 = 30 ms (selisih negatif = 0). Latensi disk runner muncul di kedua sisi dan saling meniadakan; biaya yang ditambahkan edit_file di atas satu tulis durabel tidak.
+3. **Gate absolut di Q14.** Di luar build `perf` (`DAMNBOT_TIMING=1`, ≥ 100 sampel) yang ditegakkan tetap p95(edit) ≤ 20 ms apa adanya. Nilai ini wajib diverifikasi di mesin referensi Q14 saat acceptance/RC (seperti CT-10 ≤ 6 ms p95).
+4. **CT-04..CT-07 tetap absolut ×1,5.** Hanya CT-09 yang dibatasi `fsync`; benchmark lain tidak berubah.
+5. **Interim.** Bila runner tetap `bench-ref` tersedia, job `perf` pindah ke sana dan butir 2 dicabut lewat ADR baru.
+
+**Dampak terukur (SPEC §20).** Token/latensi produksi/binary/dependency 0. LOC: `internal/testutil/timing` +2 (konstanta `SharedRunner`). Waktu job `perf` naik ≈ 100 tulis durabel 1 MB per run (≈ 0,1–1 s di runner sehat). Validasi lintas runner dilakukan dengan workflow diag sekali pakai: 8 gelombang × 3 job `ubuntu-latest`, run 39601466828 … 39609554582. Ke-24 job terdiri dari EPYC 7763/`sda` 18, 9V74/`sda` 1, 9V45/NVMe 3, Xeon 6973P/NVMe 1, dan 9V74/NVMe 1. Tiap job menjalankan 12 run `BenchmarkCodetools` 100× ditambah regresi buatan per edit.
+- **Runner sehat (`sda`):** 228/228 run tanpa regresi lulus. Selisih p95 5–9 ms, referensi p95 1,3–3,6 ms. Regresi +35 ms tertangkap 19/19. Regresi +15 ms lolos 76/76 (di bawah sensitivitas). +4 tulis durabel tertangkap 3/76.
+- **Disk NVMe yang bursty:** 2/60 run tanpa regresi gagal, yaitu selisih 48,5 ms (Xeon) dan 72,3 ms (9V45). Gate absolut ×1,5 gagal ≥ 4/60 pada run yang sama. +35 ms tertangkap 5/8; di instance 9V74/NVMe hanya 1/4, karena p95 referensi ikut melonjak (19–136 ms). +15 ms tertangkap 2/20.
+- **Instance 9V74/NVMe:** 12/12 run tanpa regresi lulus, tetapi gate absolut juga lulus 12/12 di instance itu.
+
+Statistik alternatif, p95 dari selisih berpasangan per iterasi (diukur di gelombang 7–8 saja): pada disk bursty gagal 1/36 tanpa regresi dan menangkap +35 ms 6/6.
+
+**Konsekuensi.** (+) Gate CT-09 di PR tidak lagi mengukur disk VM pada runner sehat dan stabil. Regresi besar yang menambah kerja sinkron di jalur edit (≥ ≈ 25 ms di atas selisih sehat) tetap tertangkap. (−) Sensitivitas di runner bersama lebih rendah daripada gate absolut. Regresi di bawah ≈ 30 ms dikurangi selisih sehat tidak tertangkap di PR; regresi itu baru tertangkap di Q14 saat acceptance/RC. Di instance dengan disk bursty, formula ini masih kadang gagal tanpa regresi (≈ 3 % run pada sampel di atas). Formula ini juga bisa meloloskan regresi besar bila burst kebetulan menaikkan p95 referensi. Bila owner memilih p95 selisih berpasangan, butir 2 diamandemen lewat ADR baru.
 

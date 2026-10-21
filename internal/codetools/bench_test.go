@@ -2,6 +2,7 @@ package codetools
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -31,20 +32,120 @@ func p95(ds []time.Duration) time.Duration {
 // DAMNBOT_TIMING=1, ×1,5 in the perf build).
 func measure(b *testing.B, name string, budget time.Duration, op func(i int)) {
 	b.Helper()
-	op(0) // warm-up outside the timer: every sample is steady state
-	ds := make([]time.Duration, 0, b.N)
-	b.ResetTimer()
-	for i := 1; b.Loop(); i++ {
-		t0 := time.Now()
-		op(i)
-		ds = append(ds, time.Since(t0))
-	}
+	ds, _ := sample(b, op, nil)
 	if b.N < codetoolsBudgetMinRuns {
 		return
 	}
 	p := p95(ds)
 	b.ReportMetric(float64(p)/float64(time.Millisecond), "p95-ms") // the gated statistic, not only the mean ns/op
 	timing.Check(b, name, p, budget)
+}
+
+// measureDurable is measure for an operation bounded by fsync (CT-09,
+// ADR-127). ref, the bare durable write of the same size in the same
+// directory, is timed alongside op in every iteration. On shared runners
+// (perf build) the budget, ×1,5, applies to p95(op) − p95(ref): the shared
+// disk's latency cancels out, the cost edit_file adds on top of it does
+// not. Elsewhere, i.e. on the reference machine Q14 at acceptance, the
+// absolute p95(op) is checked as written.
+func measureDurable(b *testing.B, name string, budget time.Duration, op func(i int), ref func()) {
+	b.Helper()
+	ds, rs := sample(b, op, ref)
+	if b.N < codetoolsBudgetMinRuns {
+		return
+	}
+	p, r := p95(ds), p95(rs)
+	b.ReportMetric(float64(p)/float64(time.Millisecond), "p95-ms")
+	b.ReportMetric(float64(r)/float64(time.Millisecond), "ref-p95-ms")
+	if timing.SharedRunner {
+		name += " over the durable-write reference"
+	}
+	timing.Check(b, name, durableGate(p, r, timing.SharedRunner), budget)
+}
+
+// durableGate is the statistic measureDurable checks (ADR-127).
+func durableGate(p95Op, p95Ref time.Duration, shared bool) time.Duration {
+	if !shared {
+		return p95Op
+	}
+	return max(p95Op-p95Ref, 0)
+}
+
+// sample runs op b.N times after one warm-up outside the timer, so every
+// sample is steady state. A non-nil ref is warmed and timed once per
+// iteration too, outside ns/op, alternating which of the two runs first so
+// neither always meets the other's dirty pages or journal commit.
+func sample(b *testing.B, op func(i int), ref func()) (ds, rs []time.Duration) {
+	b.Helper()
+	op(0)
+	if ref != nil {
+		ref()
+	}
+	ds = make([]time.Duration, 0, b.N)
+	rs = make([]time.Duration, 0, b.N)
+	timeRef := func() {
+		b.StopTimer()
+		t0 := time.Now()
+		ref()
+		rs = append(rs, time.Since(t0))
+		b.StartTimer()
+	}
+	b.ResetTimer()
+	for i := 1; b.Loop(); i++ {
+		if ref != nil && i%2 == 0 {
+			timeRef()
+		}
+		t0 := time.Now()
+		op(i)
+		ds = append(ds, time.Since(t0))
+		if ref != nil && i%2 == 1 {
+			timeRef()
+		}
+	}
+	return ds, rs
+}
+
+// durableWrite is the CT-09 reference (ADR-127): the bare durable replace of
+// data in dir with the engine's own primitives (temp write, fsync(file),
+// rename, fsync(dir) where the platform has it) and none of edit_file's
+// work (read, match, diff, hash, mode/xattr copy, read-back).
+func durableWrite(b *testing.B, dir string, data []byte) func() {
+	dst := filepath.Join(dir, "ref.dat")
+	return func() {
+		f, err := os.CreateTemp(dir, ".ref-*")
+		if err != nil {
+			b.Fatal(err)
+		}
+		_, err = f.Write(data)
+		if err = errors.Join(err, f.Sync(), f.Close()); err == nil {
+			err = renameReplace(f.Name(), dst)
+		}
+		if err == nil && dirSyncable {
+			err = fsyncPath(dir)
+		}
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// TestDurableGate: on shared runners CT-09 is the p95 excess over the
+// durable-write reference (never negative), on Q14 the absolute p95.
+func TestDurableGate(t *testing.T) {
+	ms := time.Millisecond
+	for _, c := range []struct {
+		op, ref time.Duration
+		shared  bool
+		want    time.Duration
+	}{
+		{25 * ms, 20 * ms, true, 5 * ms},
+		{25 * ms, 30 * ms, true, 0},
+		{25 * ms, 20 * ms, false, 25 * ms},
+	} {
+		if got := durableGate(c.op, c.ref, c.shared); got != c.want {
+			t.Errorf("durableGate(%v, %v, shared=%v) = %v, want %v", c.op, c.ref, c.shared, got, c.want)
+		}
+	}
 }
 
 // TestMeasureBudgetNeedsPerfSamples: the single run per benchmark of make
@@ -67,11 +168,15 @@ func TestMeasureBudgetNeedsPerfSamples(t *testing.T) {
 		if err := bt.Value.Set(c.benchtime); err != nil {
 			t.Fatal(err)
 		}
-		// Every p95 exceeds a negative budget; testing.Benchmark returns a
-		// zero result when the benchmark fails.
-		r := testing.Benchmark(func(b *testing.B) { measure(b, "min runs", -1, func(int) {}) })
-		if enforced := r.N == 0; enforced != c.enforced {
-			t.Errorf("-benchtime=%s: budget enforced = %v, want %v", c.benchtime, enforced, c.enforced)
+		// Every gated statistic (≥ 0) exceeds a negative budget;
+		// testing.Benchmark returns a zero result when the benchmark fails.
+		for name, f := range map[string]func(*testing.B){
+			"measure":        func(b *testing.B) { measure(b, "min runs", -1, func(int) {}) },
+			"measureDurable": func(b *testing.B) { measureDurable(b, "min runs", -1, func(int) {}, func() {}) },
+		} {
+			if enforced := testing.Benchmark(f).N == 0; enforced != c.enforced {
+				t.Errorf("%s -benchtime=%s: budget enforced = %v, want %v", name, c.benchtime, enforced, c.enforced)
+			}
 		}
 	}
 }
@@ -97,9 +202,10 @@ func c3Like(b *testing.B, v *env) {
 	}
 }
 
-// BenchmarkCodetools holds the absolute budgets of CODE-TOOLS §10.2
-// enforced by the perf job (ADR-094 butir 5): CT-04, CT-05, CT-06, CT-07,
-// CT-09.
+// BenchmarkCodetools holds the budgets of CODE-TOOLS §10.2 enforced by the
+// perf job (ADR-094 butir 5): CT-04, CT-05, CT-06, CT-07 absolute (×1,5),
+// CT-09 relative to a durable-write reference on shared runners and
+// absolute on Q14 (ADR-127).
 func BenchmarkCodetools(b *testing.B) {
 	ctx := context.Background()
 	b.Run("GrepToolC3", func(b *testing.B) { // CT-04: p95 ≤ 15 ms
@@ -153,9 +259,11 @@ func BenchmarkCodetools(b *testing.B) {
 	})
 	b.Run("Edit1MB", func(b *testing.B) { // CT-09: p95 ≤ 20 ms incl. fsync file + dir
 		v := newEnv(b)
-		v.put(b, "e.txt", strings.Repeat(strings.Repeat("e", 99)+"\n", 10<<10)+"marker 0\n")
+		content := strings.Repeat(strings.Repeat("e", 99)+"\n", 10<<10) + "marker 0\n"
+		v.put(b, "e.txt", content)
 		tag := v.tag(b, "e.txt") //nolint:contextcheck // setup read with a background context
-		measure(b, "CT-09 edit 1 MB", 20*time.Millisecond, func(i int) {
+		ref := durableWrite(b, v.root, []byte(content))
+		measureDurable(b, "CT-09 edit 1 MB", 20*time.Millisecond, func(i int) {
 			r, err := v.e.Edit(ctx, EditArgs{Path: "e.txt", Tag: tag, Edits: []EditItem{{
 				OldString: new(fmt.Sprintf("marker %d\n", i)), NewString: new(fmt.Sprintf("marker %d\n", i+1)),
 			}}}, Opts{})
@@ -163,7 +271,7 @@ func BenchmarkCodetools(b *testing.B) {
 				b.Fatal(err)
 			}
 			tag = metaStr(&r, "tag")
-		})
+		}, ref)
 	})
 }
 
