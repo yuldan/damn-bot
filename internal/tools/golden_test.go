@@ -46,10 +46,15 @@ func newGolden(t *testing.T) *goldenEnv {
 	t.Cleanup(closeFn)
 	appr := &approverRec{answer: ApprovalAllowOnce}
 
-	reg := mustReg(t, append(w.tools, NewTodo(), NewClarify(asker), sh)...)
+	catalog, deferredTools := goldenDeferred(t)
+	list := make([]Tool, 0, len(w.tools)+3+len(deferredTools))
+	list = append(list, w.tools...)
+	list = append(list, NewTodo(), NewClarify(asker), sh)
+	reg := mustReg(t, append(list, deferredTools...)...)
 	d, err := NewDispatcher(&Config{
 		Registry: reg, Journal: &journalRec{}, Spill: newMemSpill(), Redactor: testRedactor(), Mode: ModeAsk,
 		Approver: appr, WorkspaceTrusted: true, Cwd: w.root,
+		Deferred: &Deferred{Catalog: catalog},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -117,6 +122,32 @@ var goldenCases = map[string][]goldenCase{ //nolint:gochecknoglobals // table of
 		{"success", func(*goldenEnv) string { return `{"question":"which file?","choices":["a","b"]}` }},
 		{"empty_question", func(*goldenEnv) string { return `{"question":""}` }},
 	},
+	"tool_search": {
+		{"success", func(*goldenEnv) string { return `{"query":"probe"}` }},
+		{"bad_k", func(*goldenEnv) string { return `{"query":"probe","k":9}` }},
+	},
+	"tool_invoke": {
+		{"success", func(*goldenEnv) string {
+			return `{"name":"read_file","arguments":{"path":"a.txt"}}`
+		}},
+		{"unknown", func(*goldenEnv) string { return `{"name":"nope"}` }},
+	},
+}
+
+// goldenDeferred is the deferred catalog shared by the golden environment
+// and the coverage scan (E-68).
+func goldenDeferred(t *testing.T) (*Catalog, []Tool) {
+	t.Helper()
+	catalog, err := NewCatalog([]DeferredTool{{
+		Name: "module_probe", Description: "probe module state", Group: "code", Module: "browser",
+		Effect: "read",
+		Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := func(string) string { return "dormant" }
+	return catalog, []Tool{NewToolSearch(catalog, status), NewToolInvoke()}
 }
 
 var durationRE = regexp.MustCompile(`\b\d+ ms\b`)
@@ -201,7 +232,8 @@ func allGoldenTools(t *testing.T) []Tool {
 	w := newWorkspace(t)
 	sh, closeFn := testShell(t, w)
 	t.Cleanup(closeFn)
-	return append(w.tools, NewTodo(), NewClarify(&askerRec{answer: "ok"}), sh)
+	_, deferredTools := goldenDeferred(t)
+	return append(append(w.tools, NewTodo(), NewClarify(&askerRec{answer: "ok"}), sh), deferredTools...)
 }
 
 func renderGolden(out Outcome, g *goldenEnv) []byte {

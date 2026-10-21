@@ -8,7 +8,8 @@ provider          2000 internal/provider
 provider/registry  400 internal/provider/registry
 netx              1800 internal/netx
 schema            1200 internal/schema
-tools             1800 internal/tools
+# ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).
+tools             2200 internal/tools
 # ADR-111: codetools 4500 -> 4800 (perbaikan REVIEW-F1-SEC2; Σ core 33.900 -> 34.200 <= 47.000).
 # ADR-108: codetools 4800 -> 5250 (prefilter CT-01..03; Σ core 34.200 -> 34.650 <= 47.000).
 # ADR-108 amendment: codetools 5250 -> 5350 (open relatif fd direktori + deny pruning; terukur 5.292; Σ core 34.900 -> 35.000 <= 47.000).

@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "error": {
+    "code": "unknown_tool",
+    "message": "unknown tool \"nope\"",
+    "hint": "use a name returned by tool_search"
+  }
+}

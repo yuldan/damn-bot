@@ -1,0 +1,8 @@
+{
+  "ok": false,
+  "error": {
+    "code": "invalid_args",
+    "message": "/k: must be <= 5",
+    "hint": "fix the argument named by the JSON Pointer, then retry"
+  }
+}
