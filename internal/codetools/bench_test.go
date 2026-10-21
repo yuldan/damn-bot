@@ -2,6 +2,7 @@ package codetools
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -20,7 +21,7 @@ import (
 // AUD-035(1)).
 const codetoolsBudgetMinRuns = 100
 
-// p95 of the per-iteration samples.
+// p95 of the per-iteration samples. ds is sorted in place.
 func p95(ds []time.Duration) time.Duration {
 	slices.Sort(ds)
 	return ds[(len(ds)*95+99)/100-1]
@@ -31,14 +32,7 @@ func p95(ds []time.Duration) time.Duration {
 // DAMNBOT_TIMING=1, ×1,5 in the perf build).
 func measure(b *testing.B, name string, budget time.Duration, op func(i int)) {
 	b.Helper()
-	op(0) // warm-up outside the timer: every sample is steady state
-	ds := make([]time.Duration, 0, b.N)
-	b.ResetTimer()
-	for i := 1; b.Loop(); i++ {
-		t0 := time.Now()
-		op(i)
-		ds = append(ds, time.Since(t0))
-	}
+	ds, _ := sample(b, op, nil)
 	if b.N < codetoolsBudgetMinRuns {
 		return
 	}
@@ -47,12 +41,201 @@ func measure(b *testing.B, name string, budget time.Duration, op func(i int)) {
 	timing.Check(b, name, p, budget)
 }
 
-// TestMeasureBudgetNeedsPerfSamples: the single run per benchmark of make
-// test-timing never asserts a p95 budget, make perf's 100 samples do
-// (ADR-073 AUD-035(1)). The enforced run also fails under -race, where
-// timing refuses enforcement (ADR-048), so the expectation holds in both.
-func TestMeasureBudgetNeedsPerfSamples(t *testing.T) {
-	t.Setenv(timing.Env, "1")
+// measureDurable is measure for an operation bounded by fsync (CT-09,
+// ADR-127). ref, the bare durable write of the same size in the same
+// directory, is timed alongside op in every iteration. On shared runners
+// (perf build) the budget, ×1,5, applies to the p95 over iterations of the
+// paired difference op_i − ref_i: a disk stall that hits one iteration
+// lands on both of its samples and cancels, the cost edit_file adds on top
+// of a durable write does not. Elsewhere, i.e. on the reference machine
+// Q14 at acceptance, the absolute p95(op) is checked as written.
+func measureDurable(b *testing.B, name string, budget time.Duration, op func(i int), ref func()) {
+	b.Helper()
+	ds, rs := sample(b, op, ref)
+	if b.N < codetoolsBudgetMinRuns {
+		return
+	}
+	// The gate pairs ds[i] with rs[i]: compute it before p95 sorts either.
+	gate := durableGate(ds, rs, timing.SharedRunner)
+	b.ReportMetric(float64(durableGate(ds, rs, true))/float64(time.Millisecond), "paired-p95-ms")
+	b.ReportMetric(float64(p95(ds))/float64(time.Millisecond), "p95-ms")
+	b.ReportMetric(float64(p95(rs))/float64(time.Millisecond), "ref-p95-ms")
+	if timing.SharedRunner {
+		name += " paired over the durable-write reference"
+	}
+	timing.Check(b, name, gate, budget)
+}
+
+// durableGate is the statistic measureDurable checks (ADR-127): on shared
+// runners p95_i(op_i − ref_i), never negative, where op_i and ref_i were
+// timed in the same iteration (sample appends both in lockstep); otherwise
+// p95(op). Neither input is modified, so the pairing survives for later use.
+func durableGate(ops, refs []time.Duration, shared bool) time.Duration {
+	if !shared {
+		return p95(slices.Clone(ops))
+	}
+	diff := make([]time.Duration, len(ops))
+	for i, d := range ops {
+		diff[i] = d - refs[i]
+	}
+	return max(p95(diff), 0)
+}
+
+// sample runs op b.N times after one warm-up outside the timer, so every
+// sample is steady state. A non-nil ref is warmed and timed once per
+// iteration too, outside ns/op, alternating which of the two runs first so
+// neither always meets the other's dirty pages or journal commit.
+func sample(b *testing.B, op func(i int), ref func()) (ds, rs []time.Duration) {
+	b.Helper()
+	op(0)
+	if ref != nil {
+		ref()
+	}
+	ds = make([]time.Duration, 0, b.N)
+	rs = make([]time.Duration, 0, b.N)
+	timeRef := func() {
+		b.StopTimer()
+		t0 := time.Now()
+		ref()
+		rs = append(rs, time.Since(t0))
+		b.StartTimer()
+	}
+	b.ResetTimer()
+	for i := 1; b.Loop(); i++ {
+		if ref != nil && i%2 == 0 {
+			timeRef()
+		}
+		t0 := time.Now()
+		op(i)
+		ds = append(ds, time.Since(t0))
+		if ref != nil && i%2 == 1 {
+			timeRef()
+		}
+	}
+	return ds, rs
+}
+
+// durableWrite is the CT-09 reference (ADR-127): the bare durable replace of
+// data in dir with the engine's own primitives (temp write, fsync(file),
+// rename, fsync(dir) where the platform has it) and none of edit_file's
+// work (read, match, diff, hash, mode/xattr copy, read-back).
+func durableWrite(b *testing.B, dir string, data []byte) func() {
+	dst := filepath.Join(dir, "ref.dat")
+	return func() {
+		f, err := os.CreateTemp(dir, ".ref-*")
+		if err != nil {
+			b.Fatal(err)
+		}
+		_, err = f.Write(data)
+		if err = errors.Join(err, f.Sync(), f.Close()); err == nil {
+			err = renameReplace(f.Name(), dst)
+		}
+		if err == nil && dirSyncable {
+			err = fsyncPath(dir)
+		}
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// samples is the perf job's codetoolsBudgetMinRuns per-iteration durations
+// of base each, with extra added to the iterations it names (a disk stall,
+// or a regression's cost). p95 of them is then the 95th smallest.
+func samples(base time.Duration, extra map[int]time.Duration) []time.Duration {
+	ds := make([]time.Duration, codetoolsBudgetMinRuns)
+	for i := range ds {
+		ds[i] = base + extra[i]
+	}
+	return ds
+}
+
+// TestDurableGate: on shared runners CT-09 is p95 over iterations of
+// edit_i − ref_i (never negative), on Q14 the absolute p95(edit).
+func TestDurableGate(t *testing.T) {
+	const n, ms = codetoolsBudgetMinRuns, time.Millisecond
+	budget := 30 * ms // CT-09 20 ms × 1,5 in the perf build
+	stall := func(from, count int, d time.Duration) map[int]time.Duration {
+		m := make(map[int]time.Duration, count)
+		for i := from; i < from+count; i++ {
+			m[i] = d
+		}
+		return m
+	}
+	// varying is a healthy reference whose latency drifts per iteration;
+	// healthy edits cost it plus 5 ms in the same iteration.
+	varying, healthy := make([]time.Duration, n), make([]time.Duration, n)
+	for i := range n {
+		varying[i] = time.Duration(2+i%7) * ms
+		healthy[i] = varying[i] + 5*ms
+	}
+	for _, c := range []struct {
+		name      string
+		ops, refs []time.Duration
+		shared    bool
+		want      time.Duration
+		pass      bool
+	}{
+		{"drifting disk cancels per iteration", healthy, varying, true, 5 * ms, true},
+		{
+			"stall hitting both samples of an iteration cancels",
+			samples(15*ms, stall(10, 10, 200*ms)), samples(10*ms, stall(10, 10, 200*ms)), true, 5 * ms, true,
+		},
+		// p95(edit) − p95(ref) would be 50 − 210 → 0 here and pass a
+		// +40 ms regression; pairing keeps the 40 ms of the other 94.
+		{
+			"reference-only burst does not hide a regression",
+			samples(50*ms, nil), samples(10*ms, stall(0, 6, 200*ms)), true, 40 * ms, false,
+		},
+		// Unrelated stalls of equal size on each side: unpaired p95s would
+		// cancel them (215 − 210 = 5 ms) though no iteration's edit was
+		// matched by its own reference.
+		{
+			"edit stalls not offset by reference stalls in other iterations",
+			samples(15*ms, stall(0, 6, 200*ms)), samples(10*ms, stall(50, 6, 200*ms)), true, 205 * ms, false,
+		},
+		{
+			"edit-only stalls in 5 % of iterations are p95 tail",
+			samples(15*ms, stall(0, 5, 200*ms)), samples(10*ms, nil), true, 5 * ms, true,
+		},
+		{
+			"edit-only stalls in 6 % of iterations reach p95",
+			samples(15*ms, stall(0, 6, 200*ms)), samples(10*ms, nil), true, 205 * ms, false,
+		},
+		{"edit faster than the reference clamps to zero", samples(5*ms, nil), samples(8*ms, nil), true, 0, true},
+		{"regression at the threshold passes", samples(40*ms, nil), samples(10*ms, nil), true, 30 * ms, true},
+		{
+			"Q14: absolute p95, reference ignored",
+			samples(25*ms, stall(0, 6, 5*ms)), samples(20*ms, stall(0, 50, 100*ms)), false, 30 * ms, true,
+		},
+		{"Q14: edit over budget fails whatever the reference", samples(31*ms, nil), samples(31*ms, nil), false, 31 * ms, false},
+	} {
+		ops, refs := slices.Clone(c.ops), slices.Clone(c.refs)
+		got := durableGate(c.ops, c.refs, c.shared)
+		if got != c.want {
+			t.Errorf("%s: durableGate = %v, want %v", c.name, got, c.want)
+		}
+		if pass := got <= budget; pass != c.pass {
+			t.Errorf("%s: gate %v ≤ %v is %v, want %v", c.name, got, budget, pass, c.pass)
+		}
+		// measureDurable reports p95 of each side after the gate; the
+		// gate must not reorder the samples it pairs.
+		if !slices.Equal(c.ops, ops) || !slices.Equal(c.refs, refs) {
+			t.Errorf("%s: durableGate modified its samples", c.name)
+		}
+	}
+}
+
+// spin busy-waits d: a sample of known minimum length without time.Sleep
+// (E-30/E-72).
+func spin(d time.Duration) {
+	for t0 := time.Now(); time.Since(t0) < d; {
+	}
+}
+
+// setBenchtime sets -test.benchtime for testing.Benchmark until cleanup.
+func setBenchtime(t *testing.T, v string) {
+	t.Helper()
 	bt := flag.Lookup("test.benchtime")
 	old := bt.Value.String()
 	t.Cleanup(func() {
@@ -60,18 +243,61 @@ func TestMeasureBudgetNeedsPerfSamples(t *testing.T) {
 			t.Error(err)
 		}
 	})
+	if err := bt.Value.Set(v); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestMeasureBudgetNeedsPerfSamples: the single run per benchmark of make
+// test-timing never asserts a p95 budget, make perf's 100 samples do
+// (ADR-073 AUD-035(1)). The enforced run also fails under -race, where
+// timing refuses enforcement (ADR-048), so the expectation holds in both.
+func TestMeasureBudgetNeedsPerfSamples(t *testing.T) {
+	t.Setenv(timing.Env, "1")
 	for _, c := range []struct {
 		benchtime string
 		enforced  bool
 	}{{"1x", false}, {fmt.Sprintf("%dx", codetoolsBudgetMinRuns-1), false}, {fmt.Sprintf("%dx", codetoolsBudgetMinRuns), true}} {
-		if err := bt.Value.Set(c.benchtime); err != nil {
-			t.Fatal(err)
+		setBenchtime(t, c.benchtime)
+		// Every gated statistic (≥ 0, the paired difference clamped even
+		// when the reference is the slower side) exceeds a negative
+		// budget; testing.Benchmark returns a zero result when the
+		// benchmark fails.
+		for name, f := range map[string]func(*testing.B){
+			"measure":        func(b *testing.B) { measure(b, "min runs", -1, func(int) {}) },
+			"measureDurable": func(b *testing.B) { measureDurable(b, "min runs", -1, func(int) {}, func() {}) },
+			"measureDurable slow reference": func(b *testing.B) {
+				measureDurable(b, "min runs", -1, func(int) {}, func() { spin(50 * time.Microsecond) })
+			},
+		} {
+			if enforced := testing.Benchmark(f).N == 0; enforced != c.enforced {
+				t.Errorf("%s -benchtime=%s: budget enforced = %v, want %v", name, c.benchtime, enforced, c.enforced)
+			}
 		}
-		// Every p95 exceeds a negative budget; testing.Benchmark returns a
-		// zero result when the benchmark fails.
-		r := testing.Benchmark(func(b *testing.B) { measure(b, "min runs", -1, func(int) {}) })
-		if enforced := r.N == 0; enforced != c.enforced {
-			t.Errorf("-benchtime=%s: budget enforced = %v, want %v", c.benchtime, enforced, c.enforced)
+	}
+}
+
+// TestMeasureDurableMetrics: from codetoolsBudgetMinRuns samples on,
+// measureDurable reports the paired statistic next to both sides' p95, and
+// since ref_i ≥ 0 the paired p95 never exceeds the edit's own p95.
+func TestMeasureDurableMetrics(t *testing.T) {
+	t.Setenv(timing.Env, "") // report only: the budget itself is TestMeasureBudgetNeedsPerfSamples'
+	for _, runs := range []int{codetoolsBudgetMinRuns - 1, codetoolsBudgetMinRuns} {
+		setBenchtime(t, fmt.Sprintf("%dx", runs))
+		r := testing.Benchmark(func(b *testing.B) {
+			measureDurable(b, "metrics", time.Hour, func(int) { spin(100 * time.Microsecond) }, func() { spin(50 * time.Microsecond) })
+		})
+		paired, okPaired := r.Extra["paired-p95-ms"]
+		op, okOp := r.Extra["p95-ms"]
+		ref, okRef := r.Extra["ref-p95-ms"]
+		if reported := okPaired && okOp && okRef; reported != (runs >= codetoolsBudgetMinRuns) {
+			t.Fatalf("%d runs: metrics %v, want reported = %v", runs, r.Extra, runs >= codetoolsBudgetMinRuns)
+		}
+		if runs < codetoolsBudgetMinRuns {
+			continue
+		}
+		if ref < 0.05 || op < 0.1 || paired < 0 || paired > op {
+			t.Errorf("metrics paired %v, edit %v, ref %v ms: want ref ≥ 0,05, edit ≥ 0,1, 0 ≤ paired ≤ edit", paired, op, ref)
 		}
 	}
 }
@@ -97,9 +323,10 @@ func c3Like(b *testing.B, v *env) {
 	}
 }
 
-// BenchmarkCodetools holds the absolute budgets of CODE-TOOLS §10.2
-// enforced by the perf job (ADR-094 butir 5): CT-04, CT-05, CT-06, CT-07,
-// CT-09.
+// BenchmarkCodetools holds the budgets of CODE-TOOLS §10.2 enforced by the
+// perf job (ADR-094 butir 5): CT-04, CT-05, CT-06, CT-07 absolute (×1,5),
+// CT-09 relative to a durable-write reference on shared runners and
+// absolute on Q14 (ADR-127).
 func BenchmarkCodetools(b *testing.B) {
 	ctx := context.Background()
 	b.Run("GrepToolC3", func(b *testing.B) { // CT-04: p95 ≤ 15 ms
@@ -153,9 +380,11 @@ func BenchmarkCodetools(b *testing.B) {
 	})
 	b.Run("Edit1MB", func(b *testing.B) { // CT-09: p95 ≤ 20 ms incl. fsync file + dir
 		v := newEnv(b)
-		v.put(b, "e.txt", strings.Repeat(strings.Repeat("e", 99)+"\n", 10<<10)+"marker 0\n")
+		content := strings.Repeat(strings.Repeat("e", 99)+"\n", 10<<10) + "marker 0\n"
+		v.put(b, "e.txt", content)
 		tag := v.tag(b, "e.txt") //nolint:contextcheck // setup read with a background context
-		measure(b, "CT-09 edit 1 MB", 20*time.Millisecond, func(i int) {
+		ref := durableWrite(b, v.root, []byte(content))
+		measureDurable(b, "CT-09 edit 1 MB", 20*time.Millisecond, func(i int) {
 			r, err := v.e.Edit(ctx, EditArgs{Path: "e.txt", Tag: tag, Edits: []EditItem{{
 				OldString: new(fmt.Sprintf("marker %d\n", i)), NewString: new(fmt.Sprintf("marker %d\n", i+1)),
 			}}}, Opts{})
@@ -163,7 +392,7 @@ func BenchmarkCodetools(b *testing.B) {
 				b.Fatal(err)
 			}
 			tag = metaStr(&r, "tag")
-		})
+		}, ref)
 	})
 }
 
