@@ -56,7 +56,7 @@ func allowedImports() map[string][]string {
 		"internal/compaction":         {"internal/loop/event", "internal/budget"},
 		"internal/memory":             {"internal/redact"},
 		"internal/skills":             {"internal/schema"},
-		"internal/journal":            {"internal/loop/event"},
+		"internal/journal":            {"internal/loop/event", "internal/sandbox"},
 		"internal/budget":             nil,
 		"internal/heal":               {"internal/ctxdb", "internal/config"},
 		"internal/importer":           {"internal/ctxdb", "internal/memory", "internal/skills", "internal/config"},

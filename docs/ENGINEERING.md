@@ -265,6 +265,7 @@ flowchart TD
     MEM --> RED
     SKL --> SCH
     JRN --> EV
+    JRN --> SBX
     CT --> SBX
     CT --> BND
     EXE --> SBX
