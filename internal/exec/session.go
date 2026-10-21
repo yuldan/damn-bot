@@ -105,6 +105,13 @@ func (ss *Sessions) Exec(ctx context.Context, name, command string, stdin []byte
 		res.SessionReset = true
 		err = errors.Join(err, ss.drop(name))
 	}
+	if err != nil && ss.isClosed() {
+		// Close killed this shell while the command was being sent: the PTY
+		// write fails (EIO on darwin, EPIPE elsewhere) or the command file is
+		// already gone. The cause stays wrapped, but the outcome is the same
+		// on every platform: the session table is closed.
+		err = fmt.Errorf("%w: %w", ErrSessionsClosed, err)
+	}
 	return res, err
 }
 
@@ -129,6 +136,14 @@ func (ss *Sessions) Close() error {
 		err = errors.Join(err, ss.drop(n))
 	}
 	return err
+}
+
+// isClosed reports whether Close has run; Exec uses it to give a command
+// that raced the close the same outcome on every platform.
+func (ss *Sessions) isClosed() bool {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	return ss.closed
 }
 
 func (ss *Sessions) get(ctx context.Context, name string) (*session, error) {

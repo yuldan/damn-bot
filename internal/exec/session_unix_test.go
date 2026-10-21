@@ -190,6 +190,9 @@ func TestSessionExecAfterClose(t *testing.T) {
 
 // TestSessionCloseRacingExec: every interleaving of Close with a first Exec
 // ends with Runner.Close bounded by its normal shutdown, never by closeWait.
+// The Exec either completed before Close killed its shell (nil) or reports
+// ErrSessionsClosed; a raw platform error (darwin EIO on the PTY master,
+// ENOENT on the command file) never escapes.
 func TestSessionCloseRacingExec(t *testing.T) {
 	t.Parallel()
 	for range 50 {
