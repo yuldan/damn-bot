@@ -322,17 +322,20 @@ func (u *Undoer) write(resolved string, data []byte, img *Image, hard, force boo
 	}
 	werr := writeAll(f, data)
 	if werr == nil {
-		werr = f.Chmod(mode)
-	}
-	if werr == nil {
 		werr = f.Sync()
 	}
 	werr = errors.Join(werr, f.Close())
 	if werr != nil {
 		return errors.Join(fmt.Errorf("journal: write %s: %w", tmp, werr), root.Remove(tmp))
 	}
+	if werr = makeReplaceable(root, base); werr != nil {
+		return errors.Join(fmt.Errorf("journal: prepare replace %s: %w", resolved, werr), root.Remove(tmp))
+	}
 	if werr = root.Rename(tmp, base); werr != nil {
 		return errors.Join(fmt.Errorf("journal: replace %s: %w", resolved, werr), root.Remove(tmp))
+	}
+	if werr = root.Chmod(base, mode); werr != nil {
+		return fmt.Errorf("journal: mode %s: %w", resolved, werr)
 	}
 	return syncDir(filepath.Dir(resolved))
 }

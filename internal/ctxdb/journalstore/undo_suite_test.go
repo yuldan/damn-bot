@@ -490,6 +490,9 @@ func TestUndoRefusalIrreversible(t *testing.T) {
 }
 
 func TestUndoRefusalHardlinkCreate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("hard link detection is unavailable on Windows")
+	}
 	db, js, u, root, _ := refusalEnv(t)
 	session(t.Context(), t, db, "r-hard")
 	d := refusalDir(t, root, "hard")
