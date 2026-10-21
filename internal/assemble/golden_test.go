@@ -28,7 +28,7 @@ func buildF1Core(t *testing.T) (requestJSON, tiersJSON []byte, est Estimate, ctx
 	}
 	view := SessionView{
 		Phase:   PhaseF1,
-		Context: fixtureContext(),
+		Context: renderContext(t, a, fixtureContext()),
 		Tools:   fixtureTools(),
 		Turn:    turn,
 		History: []Message{{Role: "user", Content: "Fix the failing test in internal/foo."}},

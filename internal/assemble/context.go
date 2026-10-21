@@ -48,14 +48,31 @@ type FileReader interface {
 	Open(ctx context.Context, path string) (io.ReadCloser, error)
 }
 
-// ContextInput is the caller-provided context tier.
+// Retriever is the consumer view of memory and skill retrieval (ADR-120,
+// ADR-121; E-09). The composition root adapts memory.Service.Recall (approved,
+// unexpired, pinned first, then BM25 rank) and skills.Service.Offer (at most
+// three "- <name>: <description> (<path>)" lines, best first). Order is the
+// contract: assemble never re-ranks, it only cuts at entry boundaries.
+type Retriever interface {
+	Memories(ctx context.Context, query string) ([]Memory, error)
+	Skills(ctx context.Context, query string) ([]string, error)
+}
+
+// ContextInput is the caller-provided context tier. It is rendered once per
+// session by [Assembler.Context]; the result is frozen (P15).
 type ContextInput struct {
 	Facts     string
 	Workspace string
 	Files     []ContextFile
-	Memory    []Memory
-	Skills    []string
 	Reader    FileReader
+	// UntrustedFiles wraps the context files in <untrusted source="workspace">
+	// for an untrusted workspace (SPEC §14, ADR-069): they are data, not rules.
+	UntrustedFiles bool
+	// Query is the text memories and skills are ranked against (the first
+	// user message of the session, SPEC §4.8).
+	Query string
+	// Retriever supplies memories and skills; nil renders neither slot.
+	Retriever Retriever
 }
 
 // ContextSlots is each rendered slot, including its heading. The strings are
@@ -74,32 +91,41 @@ type ContextResult struct {
 	Slots ContextSlots
 }
 
+// untrustedWorkspace opens the wrapper of untrusted context files.
+const untrustedWorkspace = `<untrusted source="workspace">`
+
 // Context renders the context tier. It returns [ErrDeps] when files are
 // requested without a reader and [ErrContextPath] for an empty path; a sandbox
-// refusal (ErrUnavailable) or a missing file omits that file.
+// refusal (ErrUnavailable) or a missing file omits that file. A retrieval
+// error is returned, never skipped silently (SPEC §4.8).
 func (a *Assembler) Context(ctx context.Context, in *ContextInput) (ContextResult, error) {
 	if in == nil {
 		return ContextResult{}, nil
 	}
-	filesFull, err := a.readContextFiles(ctx, in)
+	filesBody, err := a.readContextFiles(ctx, in)
+	if err != nil {
+		return ContextResult{}, err
+	}
+	memories, skills, err := retrieve(ctx, in)
 	if err != nil {
 		return ContextResult{}, err
 	}
 	state := contextState{
 		asm:        a,
-		facts:      slot("# Environment", a.scrub(in.Facts), CapFacts, a.tokens),
-		workspace:  slot("# Workspace", a.scrub(in.Workspace), CapWorkspace, a.tokens),
-		filesFull:  filesFull,
-		memories:   in.Memory,
-		skillNames: in.Skills,
+		facts:      slot("# Environment", a.data(in.Facts), CapFacts, a.tokens),
+		workspace:  slot("# Workspace", a.data(in.Workspace), CapWorkspace, a.tokens),
+		filesBody:  filesBody,
+		marker:     a.fileMarker(in.Files),
+		untrusted:  in.UntrustedFiles,
+		memories:   memories,
+		skillNames: skills,
 	}
-	marker := a.fileMarker(in.Files)
-	state.files = clip(filesFull, CapFiles, marker, a.tokens)
-	state.memory = a.renderMemory(in.Memory, -1)
-	state.skills = a.renderSkills(in.Skills, -1)
+	state.files = state.renderFiles(CapFiles)
+	state.memory = a.renderMemory(memories, -1)
+	state.skills = a.renderSkills(skills, -1)
 
 	if state.over() {
-		state.shrinkFiles(marker)
+		state.shrinkFiles()
 	}
 	if state.over() {
 		state.shrinkMemory()
@@ -109,16 +135,33 @@ func (a *Assembler) Context(ctx context.Context, in *ContextInput) (ContextResul
 	}
 	text := state.join()
 	if state.over() {
-		text = clip(text, CapContext, "\n[truncated]", a.tokens)
+		text = clipWrappedTier(text, CapContext, "\n[truncated]", a.tokens)
 	}
 	return ContextResult{Text: text, Slots: state.slots()}, nil
+}
+
+func retrieve(ctx context.Context, in *ContextInput) ([]Memory, []string, error) {
+	if in.Retriever == nil {
+		return nil, nil, nil
+	}
+	memories, err := in.Retriever.Memories(ctx, in.Query)
+	if err != nil {
+		return nil, nil, fmt.Errorf("assemble: retrieve memories: %w", err)
+	}
+	skills, err := in.Retriever.Skills(ctx, in.Query)
+	if err != nil {
+		return nil, nil, fmt.Errorf("assemble: retrieve skills: %w", err)
+	}
+	return memories, skills, nil
 }
 
 type contextState struct {
 	asm        *Assembler
 	facts      string
 	workspace  string
-	filesFull  string
+	filesBody  string
+	marker     string
+	untrusted  bool
 	files      string
 	memory     string
 	skills     string
@@ -146,16 +189,29 @@ func (s *contextState) slots() ContextSlots {
 
 func (s *contextState) over() bool { return s.asm.tokens.Count(s.join()) > CapContext }
 
+// renderFiles renders the files slot within limit tokens. Untrusted files keep
+// their wrapper whole: only the body is cut, so the closing tag always lands.
+func (s *contextState) renderFiles(limit int) string {
+	if s.filesBody == "" {
+		return ""
+	}
+	if !s.untrusted {
+		return clip("# Context files"+s.filesBody, limit, s.marker, s.asm.tokens)
+	}
+	return clipWrapped("# Context files\n"+untrustedWorkspace, s.filesBody,
+		"\n</untrusted>", s.marker, limit, s.asm.tokens)
+}
+
 // shrinkFiles reduces the files tier from [CapFiles] towards [CapFilesMin]
 // until the total fits, so AGENTS.md is the first casualty (SPEC §6).
-func (s *contextState) shrinkFiles(marker string) {
+func (s *contextState) shrinkFiles() {
 	for limit := CapFiles - 10; limit >= CapFilesMin; limit -= 10 {
-		s.files = clip(s.filesFull, limit, marker, s.asm.tokens)
+		s.files = s.renderFiles(limit)
 		if !s.over() {
 			return
 		}
 	}
-	s.files = clip(s.filesFull, CapFilesMin, marker, s.asm.tokens)
+	s.files = s.renderFiles(CapFilesMin)
 }
 
 // shrinkMemory drops non-pinned memories from the tail (lowest rank).
@@ -189,6 +245,8 @@ func (s *contextState) shrinkSkills() {
 	s.skills = ""
 }
 
+// readContextFiles returns the files body: "\n# <path>\n<content>" per file
+// that the sandbox opened, without the slot heading.
 func (a *Assembler) readContextFiles(ctx context.Context, in *ContextInput) (string, error) {
 	if len(in.Files) == 0 {
 		return "", nil
@@ -197,7 +255,6 @@ func (a *Assembler) readContextFiles(ctx context.Context, in *ContextInput) (str
 		return "", fmt.Errorf("assemble: context files: %w", ErrDeps)
 	}
 	var b strings.Builder
-	b.WriteString("# Context files")
 	for _, f := range in.Files {
 		if f.Path == "" {
 			return "", fmt.Errorf("assemble: %w: empty path", ErrContextPath)
@@ -213,9 +270,6 @@ func (a *Assembler) readContextFiles(ctx context.Context, in *ContextInput) (str
 		b.WriteString(a.promptPath(f.Path))
 		b.WriteByte('\n')
 		b.WriteString(body)
-	}
-	if b.Len() == len("# Context files") {
-		return "", nil
 	}
 	return b.String(), nil
 }
@@ -233,75 +287,78 @@ func (a *Assembler) readContextFile(ctx context.Context, r FileReader, path stri
 	if closeErr != nil {
 		return "", fmt.Errorf("assemble: close context file %s: %w", path, closeErr)
 	}
-	return a.scrub(string(data)), nil
+	return a.data(string(data)), nil
 }
 
-// renderMemory renders pinned entries under [CapPinned] first, then non-pinned
-// entries under [CapMemory]. maxNonPinned < 0 means all non-pinned entries.
-func (a *Assembler) renderMemory(mem []Memory, maxNonPinned int) string {
-	var pinned, rest []string
+// renderMemory renders pinned entries under [CapPinned] first, then ranked
+// entries under [CapMemory], cutting only at entry boundaries; the rest is
+// counted in the "[+N memories: recall]" closer (SPEC §4.8). maxRanked < 0
+// means every ranked entry is a candidate.
+func (a *Assembler) renderMemory(mem []Memory, maxRanked int) string {
+	var pinned, ranked []string
 	for _, m := range mem {
-		if m.Text == "" {
+		text := oneLine(a.data(m.Text))
+		if text == "" {
 			continue
 		}
-		line := "\n- " + a.scrub(m.Text)
 		if m.Pinned {
-			pinned = append(pinned, line)
+			pinned = append(pinned, "\n- "+text)
 		} else {
-			rest = append(rest, line)
+			ranked = append(ranked, "\n- "+text)
 		}
 	}
-	if len(pinned) == 0 && len(rest) == 0 {
-		return ""
+	omitted := 0
+	if maxRanked >= 0 && maxRanked < len(ranked) {
+		omitted = len(ranked) - maxRanked
+		ranked = ranked[:maxRanked]
 	}
 	var b strings.Builder
-	if len(pinned) > 0 {
-		b.WriteString(clip("# Memory"+strings.Join(pinned, ""), CapPinned, "\n[truncated]", a.tokens))
+	b.WriteString("# Memory")
+	omitted += a.appendEntries(&b, pinned, CapPinned)
+	omitted += a.appendEntries(&b, ranked, CapMemory)
+	if omitted > 0 {
+		a.appendNote(&b, fmt.Sprintf("[+%d memories: recall]", omitted), CapMemory)
 	}
-	limited := rest
-	if maxNonPinned >= 0 && maxNonPinned < len(rest) {
-		limited = rest[:maxNonPinned]
-	}
-	omitted := len(rest) - len(limited)
-	if b.Len() == 0 {
-		b.WriteString("# Memory")
-	}
-	for i, line := range limited {
-		if a.tokens.Count(b.String()+line) > CapMemory {
-			omitted += len(limited) - i
-			break
-		}
-		b.WriteString(line)
-	}
-	a.appendNote(&b, fmt.Sprintf("[+%d memories: recall]", omitted), CapMemory)
-	if b.String() == "# Memory" {
+	if b.Len() == len("# Memory") {
 		return ""
 	}
 	return b.String()
 }
 
-// renderSkills renders at most [MaxSkills] skills under [CapSkills].
+// appendEntries appends entries in rank order while the builder stays within
+// capTokens and returns how many did not fit. It never skips ahead to a
+// smaller, lower-ranked entry.
+func (a *Assembler) appendEntries(b *strings.Builder, entries []string, capTokens int) int {
+	for i, e := range entries {
+		if a.tokens.Count(b.String()+e) > capTokens {
+			return len(entries) - i
+		}
+		b.WriteString(e)
+	}
+	return 0
+}
+
+// renderSkills renders at most [MaxSkills] one-line skills under [CapSkills].
 func (a *Assembler) renderSkills(names []string, maxN int) string {
 	limit := min(len(names), MaxSkills)
 	if maxN >= 0 && maxN < limit {
 		limit = maxN
 	}
-	if limit == 0 {
-		return ""
-	}
 	var b strings.Builder
 	b.WriteString("# Skills")
 	for _, name := range names[:limit] {
-		b.WriteString("\n- ")
-		b.WriteString(a.scrub(name))
+		if line := oneLine(a.data(name)); line != "" {
+			b.WriteString("\n- ")
+			b.WriteString(strings.TrimPrefix(line, "- "))
+		}
+	}
+	if b.Len() == len("# Skills") {
+		return ""
 	}
 	return clip(b.String(), CapSkills, "\n[truncated]", a.tokens)
 }
 
 func (a *Assembler) appendNote(b *strings.Builder, note string, capTokens int) {
-	if note == "" {
-		return
-	}
 	if a.tokens.Count(b.String()+"\n"+note) <= capTokens {
 		b.WriteString("\n")
 		b.WriteString(note)
@@ -323,7 +380,13 @@ func (a *Assembler) fileMarker(files []ContextFile) string {
 	return "\n[truncated; read_file " + a.promptPath(files[0].Path) + "]"
 }
 
-// promptPath is the form of a context file path shown in the prompt: scrubbed,
-// with line breaks turned into spaces and control/format runes dropped
-// ([lineRune]). The sandbox still opens the path as given.
-func (a *Assembler) promptPath(p string) string { return strings.Map(lineRune, a.scrub(p)) }
+// promptPath is the form of a context file path shown in the prompt: data
+// ([Assembler.data]) with line breaks turned into spaces and control/format
+// runes dropped ([lineRune]). The sandbox still opens the path as given.
+func (a *Assembler) promptPath(p string) string { return strings.Map(lineRune, a.data(p)) }
+
+// data prepares caller text for the context tier: scrubbed, with every
+// <untrusted boundary escaped, so the only live tags in the frozen tier are
+// the wrapper this package writes and [Assembler.Build] can validate it
+// (REVIEW-F2-SEC4 ASM4-2/3).
+func (a *Assembler) data(s string) string { return escapeUntrusted(a.scrub(s)) }
