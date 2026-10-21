@@ -240,3 +240,21 @@ func (h *recordingHost) LLM(string) host.Completer { return nil }
 func (h *recordingHost) Storage(string) (host.Store, error) {
 	return nil, errors.New("not implemented")
 }
+
+// TestRecordingHost keeps every inert method of the test double live: the
+// lifecycle tests replace this fake with one that records emitted events.
+func TestRecordingHost(t *testing.T) {
+	var h host.Host = &recordingHost{}
+	if err := h.Emit(context.Background(), host.Event{}); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	if h.I18n() != nil || h.LLM("purpose") != nil {
+		t.Fatal("recordingHost must have no translator or completer")
+	}
+	if _, err := h.Spawn(context.Background(), host.SpawnSpec{}); err == nil {
+		t.Fatal("Spawn must report not implemented")
+	}
+	if _, err := h.Storage("module/test"); err == nil {
+		t.Fatal("Storage must report not implemented")
+	}
+}
