@@ -3,8 +3,11 @@ package ctxdb
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
+	"unicode"
 )
 
 // notPurging(col) is the purging(s) filter of §11.6, O(log n) per session
@@ -32,6 +35,91 @@ func (s *Store) ListSessions(ctx context.Context) ([]string, error) {
 func (s *Store) Search(ctx context.Context, q string) ([]string, error) {
 	return s.strings(ctx, `SELECT e.session_id FROM events_fts f JOIN events e ON e.id = f.rowid
 		WHERE events_fts MATCH dmb_fts_norm(?) AND `+notPurging("e.session_id")+` ORDER BY bm25(events_fts)`, q)
+}
+
+// RecallHit is one matching event (SPEC §11.6 `recall`).
+type RecallHit struct {
+	SessionID string
+	EventID   int64
+}
+
+// ftsQuery turns free text into a conservative FTS5 expression: runs of
+// letters/digits become terms and everything else is a separator. CJK runs
+// stay contiguous so dmb_fts_norm can expand them to bigrams.
+func ftsQuery(text string) string {
+	var b strings.Builder
+	for _, r := range text {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte(' ')
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+// broadMatches bounds exact bm25 ranking: above it a query would score every
+// matching event. Broad terms fall back to newest-first candidates.
+const broadMatches = 15000
+
+// Recall is the `recall` query of SPEC §11.6: the k best visible event
+// matches of text. Visibility (the purging label) is applied inside SQL before
+// ORDER BY/LIMIT, so only visible candidates are ranked: no OFFSET paging, no
+// quadratic rescan, and a purged prefix cannot starve k (JN3-12/JN3-14). A
+// broad term (probe above [broadMatches]) uses newest-first order instead of
+// scoring every match. Free text is tokenised (see ftsQuery), so
+// quotes/parentheses/column filters cannot become a MATCH syntax error.
+func (s *Store) Recall(ctx context.Context, text string, k int) ([]RecallHit, error) {
+	if k <= 0 {
+		k = 10
+	}
+	q := ftsQuery(text)
+	if q == "" {
+		return nil, nil
+	}
+	probe, err := s.ints(ctx, `SELECT rowid FROM events_fts
+		WHERE events_fts MATCH dmb_fts_norm(?) LIMIT ?`, q, broadMatches+1)
+	if err != nil {
+		return nil, fmt.Errorf("ctxdb: recall probe: %w", err)
+	}
+	broad := len(probe) > broadMatches
+	purged, err := s.Count(ctx, `SELECT count(*) FROM session_labels WHERE key = 'purge_state'`)
+	if err != nil {
+		return nil, fmt.Errorf("ctxdb: recall purge check: %w", err)
+	}
+	from := "events_fts f"
+	where := "events_fts MATCH dmb_fts_norm(?)"
+	args := []any{q}
+	if purged > 0 {
+		// Materialize the small visible-rowid set once; FTS then probes it,
+		// instead of doing an events+labels lookup for every purged match
+		// (JN3-14).
+		where += ` AND f.rowid IN (SELECT e2.id FROM events e2 WHERE e2.session_id NOT IN
+			(SELECT vl.session_id FROM session_labels vl WHERE vl.key = 'purge_state'))`
+	}
+	order := "bm25(events_fts)"
+	if broad {
+		order = "f.rowid DESC"
+	}
+	args = append(args, k)
+	ids, err := s.ints(ctx, "SELECT f.rowid FROM "+from+" WHERE "+where+" ORDER BY "+order+" LIMIT ?", args...)
+	if err != nil {
+		return nil, fmt.Errorf("ctxdb: recall query: %w", err)
+	}
+	out := make([]RecallHit, 0, len(ids))
+	for _, id := range ids {
+		var h RecallHit
+		gerr := s.get(ctx, `SELECT e.id, e.session_id FROM events e WHERE e.id = ? AND `+notPurging("e.session_id"),
+			[]any{id}, &h.EventID, &h.SessionID)
+		if errors.Is(gerr, ErrNotFound) {
+			continue
+		}
+		if gerr != nil {
+			return nil, fmt.Errorf("ctxdb: recall hit: %w", gerr)
+		}
+		out = append(out, h)
+	}
+	return out, nil
 }
 
 type sessNode struct {
