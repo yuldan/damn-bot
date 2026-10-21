@@ -69,8 +69,11 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 		return nil, fmt.Errorf("history query: %w", err)
 	}
 	var rows []struct {
-		Kind, Role, Content, ToolCallID string
-		Payload                         string
+		Kind       string `json:"kind"`
+		Role       string `json:"role"`
+		Content    string `json:"content"`
+		ToolCallID string `json:"tool_call_id"`
+		Payload    string `json:"payload"`
 	}
 	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
 		return nil, fmt.Errorf("history rows: %w", err)
@@ -81,21 +84,51 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 		case "user_message":
 			out = append(out, loop.Message{Role: "user", Content: r.Content})
 		case "assistant_message":
-			m := loop.Message{Role: "assistant", Content: r.Content}
-			var p struct {
-				ToolCalls []struct {
-					ID, Name, Arguments string
-				} `json:"tool_calls"`
-			}
-			if err := json.Unmarshal([]byte(r.Payload), &p); err == nil {
-				for _, c := range p.ToolCalls {
-					m.ToolCalls = append(m.ToolCalls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.Arguments})
-				}
-			}
-			out = append(out, m)
+			out = append(out, loop.Message{Role: "assistant", Content: r.Content, ToolCalls: assistantToolCalls(r.Payload)})
 		case "tool_result":
+			// The dispatcher journal and the loop both record a tool_result;
+			// keep one message per tool_call_id, preferring the non-empty
+			// loop result.
+			if r.ToolCallID == "" {
+				continue
+			}
+			if i := findToolMessage(out, r.ToolCallID); i >= 0 {
+				if out[i].Content == "" && r.Content != "" {
+					out[i].Content = r.Content
+				}
+				continue
+			}
 			out = append(out, loop.Message{Role: "tool", Content: r.Content, ToolCallID: r.ToolCallID})
 		}
 	}
 	return out, nil
+}
+
+func findToolMessage(msgs []loop.Message, callID string) int {
+	for i := range msgs {
+		if msgs[i].Role == "tool" && msgs[i].ToolCallID == callID {
+			return i
+		}
+	}
+	return -1
+}
+
+// assistantToolCalls decodes the tool_calls stored in an assistant payload. A
+// malformed payload yields no calls: the assistant text is still valid history.
+func assistantToolCalls(payload string) []loop.ToolCall {
+	var p struct {
+		ToolCalls []struct {
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+		} `json:"tool_calls"`
+	}
+	if err := json.Unmarshal([]byte(payload), &p); err != nil {
+		return nil
+	}
+	calls := make([]loop.ToolCall, 0, len(p.ToolCalls))
+	for _, c := range p.ToolCalls {
+		calls = append(calls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.Arguments})
+	}
+	return calls
 }
