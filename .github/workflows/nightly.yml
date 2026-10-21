@@ -1,6 +1,8 @@
 # Job harian terhadap main (ADR-073, AUD-071): govulncheck harian (E-54), deteksi flake -count=20, dan
 # bench-codetools (CODE-TOOLS §10, korpus nyata).
 # Meta-test nightly ada di meta.yml (ADR-085).
+# ADR-135 butir 3: nightly juga menjalankan workflow `ci` dengan matrix PENUH (semua target berrunner,
+# coverage, dst.) terhadap main — tier PR yang diperkecil tidak pernah menjadi satu-satunya cakupan.
 name: nightly
 
 on:
@@ -19,6 +21,11 @@ env:
   CGO_ENABLED: "0"
 
 jobs:
+  # ADR-135 butir 3: seluruh gate `ci` dengan matrix penuh (6 target `test`, coverage, perf, fuzz, …)
+  # dijalankan terhadap main setiap hari, bukan hanya tier PR yang diperkecil.
+  ci-full:
+    uses: ./.github/workflows/ci.yml
+
   # Basis data kerentanan berubah tanpa commit: dijalankan setiap hari tanpa syarat.
   vuln:
     runs-on: ubuntu-latest
