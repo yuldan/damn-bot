@@ -23,6 +23,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `config`: validasi rentang/path F1 ditambahkan; `Parse` memanggil `Validate` dan profil memakai path SPEC §4.9 (ADR-113).- `redact`: prefilter pasangan byte di `scan` — posisi yang dua byte pertamanya tidak bisa memulai pola mana pun dilewati tanpa `matchAt` (output identik, ≈ 3× lebih cepat pada prosa 8 KiB; dasar GAP-SEC-16 DLP ≤ 50 µs, REVIEW-F1-SEC1 NETX-16; ADR-096).
 
 ### Added
+- `bench(h2h)`: smoke LLM final pada `main` tergabung `3a2a10d` (Go 1.26.10) — 10 task h2h 10 ran / 1 pass / 0 harness error, ledger 0,82340667 → 0,92200161 (sisa $1,07799839); matriks skenario 29 kasus (24 PASS / 4 FAIL / 1 SKIP) di `bench/h2h/results/2026-10-21-llm-scenarios/summary.json` dan `docs/F1-LLM-SMOKE.md`; temuan: bad-arg exit tanpa pesan, mismatch schema `write_file`/`grep`/`shell`; biaya langsung ≈$0,00617, total ≈$0,92817 < $2,00 (ADR-062).
 - `cmd/damnbot`: penulis output headless `text|json|stream-json` dengan skema `damnbot.turn_result/v1` dan pemetaan stop reason ke exit code; `config.OS()` menyediakan dependency produksi `Loader` (E-11) untuk composition root.
 - `cmd/damnbot`: subcommand `run` headless satu turn — config, provider openai-chat, tier `assemble` (volatile beku), loop, dan ctxdb session/store/ledger; prompt dari flag/posisi dengan approval headless.
 - `cmd/damnbot`: tool set F1 lengkap pada `run` (read_file, write_file, edit_file, glob, grep, shell, todo, clarify) lewat sandbox + codetools Engine + exec.Runner + classifier, dijurnal ke ctxdb.

@@ -156,6 +156,13 @@ Gate E-70 (rasio test:source) aktif saat `schema` 3/3 melewati 5.000 LOC; paket 
 - Biaya: $0,09397377 untuk run ini; ledger `bench/h2h/results/f1-spend.json` 0,7294329 → 0,82340667, sisa $1,17659333 dari cap $2,00.
 - Artefak: `bench/h2h/results/2026-10-20-llm-smoke/` (`summary.json`, `background.proxy.jsonl.gz`, 10 rekaman `*.damnbot.proxy.jsonl.gz`, `ORIGIN.md`). Rekaman tidak memuat key/token (pemindaian pola redaksi ADR-071 kosong; `Authorization` diredaksi).
 - Rerun pada `main` setelah stack loop/tools tergabung masih menunggu; **F1 acceptance belum selesai**.
+
+### Smoke final pada `main` tergabung (2026-10-21)
+
+- Commit teruji: **`3a2a10d`** (Go 1.26.10). H2h 10 task: 10 ran, 1 pass, 0 harness error, tanpa 402; ledger `bench/h2h/results/f1-spend.json` **0,82340667 → 0,92200161** (sisa $1,07799839 dari cap $2,00). Artefak: `bench/h2h/results/2026-10-21-llm-smoke-final/`.
+- Matriks 29 skenario penggunaan: **24 PASS / 4 FAIL / 1 SKIP**; detail, ekspektasi, dan repro di `docs/F1-LLM-SMOKE.md` + `bench/h2h/results/2026-10-21-llm-scenarios/summary.json`.
+- Defect terbuka: bad-arg exit 2 tanpa pesan (`cmd/damnbot/run.go:54-59`); `write_file` create-loop dengan `tag` nol; `grep` menerima `type` yang ditolak runtime; `shell` tidak terpakai di auto/headless dan `exec.Sessions` tidak di-wire.
+- Biaya langsung skenario ≈$0,00617 (estimasi harga gpt; model free dihitung 0 pada kenyataan), total ≈$0,92817 < $2,00. Belum ada perubahan kode produk.
 ### `internal/tools` (ADR-109)
 
 Base PR berantai: `f1-tools-base` menggabungkan dependency yang masih direview (#67 `codetools`, #63 `exec`, #46 `classify`, #75 `assemble`/`config`); setelah dependency merge, base diganti ke `main` dan PR di-rebase berurutan.
