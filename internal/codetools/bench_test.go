@@ -55,15 +55,57 @@ func measureDurable(b *testing.B, name string, budget time.Duration, op func(i i
 	if b.N < codetoolsBudgetMinRuns {
 		return
 	}
-	// The gate pairs ds[i] with rs[i]: compute it before p95 sorts either.
+	// The gate pairs ds[i] with rs[i]: compute everything that reads the
+	// samples before p95 sorts either of them.
 	gate := durableGate(ds, rs, timing.SharedRunner)
-	b.ReportMetric(float64(durableGate(ds, rs, true))/float64(time.Millisecond), "paired-p95-ms")
+	paired := durableGate(ds, rs, true)
+	median := pairedGate(ds, rs)
+	worst := pairedOutliers(ds, rs, 5)
+	b.ReportMetric(float64(median)/float64(time.Millisecond), "paired-p50-ms")
+	b.ReportMetric(float64(paired)/float64(time.Millisecond), "paired-p95-ms")
 	b.ReportMetric(float64(p95(ds))/float64(time.Millisecond), "p95-ms")
 	b.ReportMetric(float64(p95(rs))/float64(time.Millisecond), "ref-p95-ms")
+	// timing.Check calls b.Fatalf, and the testing package prints the
+	// metrics above only once the benchmark returns: a red CT-09 run used to
+	// carry just "49.469109ms > 30ms", with no edit/ref p95 and no
+	// attribution. Log the gated numbers and the iterations behind them
+	// first; Logf output is printed for a failed benchmark (ADR-127).
+	b.Logf("%s: n=%d samples, edit p95 %v, ref p95 %v, paired p50 %v, paired p95 %v, budget %v",
+		name, b.N, p95(ds), p95(rs), median, paired, budget)
+	for _, o := range worst {
+		b.Logf("%s: paired outlier iteration %d: edit %v, ref %v, paired %v", name, o.i, o.op, o.ref, o.d)
+	}
 	if timing.SharedRunner {
 		name += " paired over the durable-write reference"
 	}
 	timing.Check(b, name, gate, budget)
+}
+
+// outlier is one iteration's samples, captured before p95 sorts the slices.
+type outlier struct {
+	i          int
+	op, ref, d time.Duration
+}
+
+// pairedOutliers returns the n iterations with the largest op_i − ref_i,
+// largest first. These are the samples the p95 paired gate is made of: a
+// failing run reports where its tail came from (edit-side stall, reference
+// stall, or both).
+func pairedOutliers(ops, refs []time.Duration, n int) []outlier {
+	out := make([]outlier, len(ops))
+	for i := range ops {
+		out[i] = outlier{i: i, op: ops[i], ref: refs[i], d: ops[i] - refs[i]}
+	}
+	slices.SortFunc(out, func(a, b outlier) int {
+		switch {
+		case a.d > b.d:
+			return -1
+		case a.d < b.d:
+			return 1
+		}
+		return 0
+	})
+	return out[:min(n, len(out))]
 }
 
 // durableGate is the statistic measureDurable checks (ADR-127): on shared
@@ -79,6 +121,21 @@ func durableGate(ops, refs []time.Duration, shared bool) time.Duration {
 		diff[i] = d - refs[i]
 	}
 	return max(p95(diff), 0)
+}
+
+// pairedGate is the median over iterations of op_i − ref_i, never negative.
+// It is reported next to the p95 gate: on a shared runner the p95 of the
+// difference is the tail of a one-sided fsync stall, while the median is the
+// cost edit_file adds systematically (measured 2026-10-21: a 185 ms fsync
+// paired with a 6 ms reference). Report only - ADR-127 gates on p95 as
+// accepted.
+func pairedGate(ops, refs []time.Duration) time.Duration {
+	diff := make([]time.Duration, len(ops))
+	for i, d := range ops {
+		diff[i] = d - refs[i]
+	}
+	slices.Sort(diff)
+	return max(diff[len(diff)/2], 0)
 }
 
 // sample runs op b.N times after one warm-up outside the timer, so every
@@ -222,6 +279,54 @@ func TestDurableGate(t *testing.T) {
 		// gate must not reorder the samples it pairs.
 		if !slices.Equal(c.ops, ops) || !slices.Equal(c.refs, refs) {
 			t.Errorf("%s: durableGate modified its samples", c.name)
+		}
+	}
+}
+
+// TestPairedOutliers: the report names the iterations the paired p95 is made
+// of, largest difference first, and does not reorder the samples.
+func TestPairedOutliers(t *testing.T) {
+	const ms = time.Millisecond
+	ops := []time.Duration{10 * ms, 50 * ms, 20 * ms, 15 * ms}
+	refs := []time.Duration{5 * ms, 5 * ms, 30 * ms, 6 * ms}
+	want := []outlier{
+		{i: 1, op: 50 * ms, ref: 5 * ms, d: 45 * ms},
+		{i: 3, op: 15 * ms, ref: 6 * ms, d: 9 * ms},
+	}
+	if got := pairedOutliers(ops, refs, 2); !slices.Equal(got, want) {
+		t.Errorf("pairedOutliers = %v, want %v", got, want)
+	}
+	if got := pairedOutliers(ops, refs, 10); len(got) != len(ops) {
+		t.Errorf("pairedOutliers n > len = %d entries, want %d", len(got), len(ops))
+	}
+	if !slices.Equal(ops, []time.Duration{10 * ms, 50 * ms, 20 * ms, 15 * ms}) ||
+		!slices.Equal(refs, []time.Duration{5 * ms, 5 * ms, 30 * ms, 6 * ms}) {
+		t.Errorf("pairedOutliers modified its samples: ops %v refs %v", ops, refs)
+	}
+}
+
+// TestPairedGate: the reported median ignores a minority of one-sided
+// stalls while still moving when every iteration gets slower.
+func TestPairedGate(t *testing.T) {
+	const ms = time.Millisecond
+	stall := func(from, count int, d time.Duration) map[int]time.Duration {
+		m := make(map[int]time.Duration, count)
+		for i := from; i < from+count; i++ {
+			m[i] = d
+		}
+		return m
+	}
+	for _, c := range []struct {
+		name      string
+		ops, refs []time.Duration
+		want      time.Duration
+	}{
+		{"healthy 5 ms overhead", samples(15*ms, nil), samples(10*ms, nil), 5 * ms},
+		{"5 % one-sided stalls", samples(15*ms, stall(0, 5, 200*ms)), samples(10*ms, nil), 5 * ms},
+		{"systematic +35 ms regression", samples(45*ms, nil), samples(10*ms, nil), 35 * ms},
+	} {
+		if got := pairedGate(c.ops, c.refs); got != c.want {
+			t.Errorf("%s: pairedGate = %v, want %v", c.name, got, c.want)
 		}
 	}
 }
