@@ -388,7 +388,9 @@ func attempt(ctx context.Context, c *netx.Client, rt *Route, body []byte, est in
 	}
 	defer func() {
 		if cerr := st.Close(); cerr != nil && err == nil {
-			resp, err = Response{}, toError(cerr)
+			// The 2xx stream was opened and consumed: the attempt may be
+			// billed even though Close failed (SEC6-12).
+			resp, err = Response{responded: true}, toError(cerr)
 		}
 	}()
 	return readStream(st, start, onChunk)

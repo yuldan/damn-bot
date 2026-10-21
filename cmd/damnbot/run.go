@@ -545,9 +545,15 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 		}
 	})
 	warnings := p.notes.take()
+	maxTok := int64(req.MaxTokens)
+	if maxTok <= 0 {
+		maxTok = provider.DefaultMaxTokens
+	}
+	billed := billedUsage(&resp, maxTok)
 	if err != nil {
 		se := streamError(err)
 		se.Billed = resp.BilledFailed
+		se.Usage = billed
 		return loop.Reply{}, se
 	}
 	reply := loop.Reply{
@@ -561,6 +567,7 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 		CarrierDrops: eventDrops(resp.CarrierDrops), ReasoningText: resp.ReasoningText,
 		BudgetWarnings: warnings,
 		BilledFailed:   resp.BilledFailed,
+		BilledUsage:    billed,
 	}
 	for _, c := range resp.ToolCalls {
 		reply.ToolCalls = append(reply.ToolCalls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.ArgumentsRaw})
@@ -687,6 +694,16 @@ func (s *ctxStore) EndTurn(ctx context.Context, sid, tid string, payload json.Ra
 		return fmt.Errorf("end turn: %w", err)
 	}
 	return nil
+}
+
+// billedUsage is the conservative per-attempt projection of a priced route
+// for the ledger rows of failed attempts (SEC6-11): the estimated input plus
+// max_tokens at the route prices. Nil for an unpriced route (NULL/unknown).
+func billedUsage(resp *provider.Response, maxTok int64) *event.Usage {
+	if resp.Price == nil {
+		return nil
+	}
+	return &event.Usage{Input: resp.EstInputTokens, Output: maxTok, Price: eventPrice(resp.Price)}
 }
 
 // eventPrice converts the provider response price entry to the loop's wire

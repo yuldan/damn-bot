@@ -3108,6 +3108,12 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 3. **Test.** `TestBilledFailedAttempts`, `TestBilledRetryStopsUnderCap` (unpriced fail-closed, 0 request), `TestBilledRetryStopsPricedUnderCap`, `TestBilledBreakerOpenNoDoubleCount`, `TestBilledRetryProjectionCumulative` (1x/2x/3x projection), `TestBilledAttemptsRecorded`, `TestRunBrokenStreamRecordsAttempts`, dan `TestRunBrokenStreamStopsUnderCap` dengan guard nyata.
 4. **LOC.** `loop` 2.050 → 2.100 (Σ core +50), Total core 38.080 → 38.130 ≤ 47.000; `provider` tetap 2.100 (terukur 2.093), `budget` tetap 580 (terukur 571).
 
+**Amandemen round 4 — 2026-10-21 (REVIEW-F2-SEC6 SEC6-10/11/12).**
+1. **Akuntansi sebelum pembatalan (SEC6-10).** `turn.accept` menulis attempt berbayar dan usage call sukses dengan `context.WithoutCancel` **sebelum** memeriksa `ctx.Err()`; notifikasi fallback/`budget_warning` dan update usage tetap sesudah cek. Pembatalan yang berlomba dengan akhir stream tidak lagi menghilangkan spend yang sudah dibayar.
+2. **Proyeksi untuk route berharga (SEC6-11).** `StreamError.Usage`/`Reply.BilledUsage` membawa proyeksi konservatif per attempt (estimasi input + `max_tokens` pada harga route) bila route punya entri tabel; loop menulis baris `pricing_table` dengan nilai itu, sehingga satu stream putus tidak mengunci seluruh periode cap sebagai biaya tidak diketahui. Route tanpa harga tetap menulis `NULL`/`unknown` (gagal-tertutup). Proyeksi memakai harga route dari respons terakhir; pada fallback lintas route ini aproksimasi konservatif, bukan tagihan pasti.
+3. **Close gagal (SEC6-12).** Bila stream 2xx sukses tetapi `st.Close()` gagal, attempt tetap ditandai `responded` sehingga dihitung sebagai attempt berbayar, bukan diganti `Response{}`.
+4. **Test.** `TestBilledAttemptsRecorded` (proyeksi berharga; cancel tepat setelah stream selesai tetap menulis attempt + usage), `TestRunBrokenStreamStopsUnderCap` (baris proyeksi positif, call berikutnya ditolak cap tanpa request), `TestRunBrokenStreamRecordsAttempts` (route tanpa harga tetap 3 baris `NULL`/`unknown`).
+
 ## ADR-131 — Carrier reasoning opaque GAP-PROV-01: `ctxdb/carrierstore`, kunci (family, model), proyeksi per route, dan penolakan signature tahan restart
 
 **Status:** Accepted 2026-10-21 (F2 storage; proyeksi provider/assemble menyusul di PR terpisah pada workstream yang sama). Menerapkan GAP-PROV-01 (SPEC §4.1, §11.9, §14.3; CROSS-CUTTING §1.3) di atas tabel `reasoning_carriers`/`reasoning_carrier_rejections` yang sudah ada di migrasi 0007.
