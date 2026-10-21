@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/budget"
@@ -118,7 +119,9 @@ func (e *Error) Error() string {
 	msg := fmt.Sprintf("provider %s", e.Class)
 	if e.HTTPStatus != 0 {
 		msg += fmt.Sprintf(" (HTTP %d", e.HTTPStatus)
-		if e.Code != "" {
+		// Some providers put the status in error.code too; printing it again
+		// yields "HTTP 401 401" and adds nothing.
+		if e.Code != "" && e.Code != strconv.Itoa(e.HTTPStatus) {
 			msg += " " + e.Code
 		}
 		msg += ")"

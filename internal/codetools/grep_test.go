@@ -88,6 +88,21 @@ func TestGrepOutput(t *testing.T) {
 	}
 }
 
+// TestGrepTextTypeAlias covers C14: text and file select every scanned file,
+// exactly like omitting type, instead of failing as an unknown language.
+func TestGrepTextTypeAlias(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	v.put(t, "a.go", "Sync\n")
+	v.put(t, "b.py", "Sync\n")
+	for _, typ := range []string{"text", "file"} {
+		r := grep(t, v, &GrepArgs{Pattern: "Sync", Type: typ, Mode: "files"})
+		if r.Meta["files"] != 2 || !strings.Contains(r.Content, "a.go") || !strings.Contains(r.Content, "b.py") {
+			t.Errorf("type %q: %q %v", typ, r.Content, r.Meta)
+		}
+	}
+}
+
 // TestGrepIgnoreRules covers CODE-TOOLS §2.3: .gitignore (also outside a
 // repo), .ignore, nested repo reset, hidden files, explicit paths win,
 // .git never searched, deny_paths counted without names.
