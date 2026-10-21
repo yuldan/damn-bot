@@ -78,7 +78,10 @@ jobs:
           # Dokumen yang dibaca test Go (readRepoFile/parity/codetools/attribution) atau mendefinisikan
           # budget: perubahan di sini wajib menjalankan test yang memvalidasinya.
           validated='^(SPEC\.md|docs/(ENGINEERING|DECISIONS|ROADMAP|FEATURE-PARITY|CODE-TOOLS|ATTRIBUTION)\.md)$'
-          if printf '%s\n' "$changed" | grep -Ev '^(docs/|.*\.md$)' | grep -q .; then
+          # Docs-only = setiap path di docs/** ATAU Markdown di AKAR repo (README/CHANGELOG). Markdown di
+          # subdirektori lain (internal/**/testdata/SKILL.md, template, golden, .github/*.md) bukan docs:
+          # file itu dibaca test/kode Go dan tetap memicu semua job Go (ADR-135 butir 2).
+          if printf '%s\n' "$changed" | grep -Ev '^(docs/|[^/]*\.md$)' | grep -q .; then
             echo "ada path non-dokumen: job Go berjalan"
             echo "code=true" >>"$GITHUB_OUTPUT"
           elif printf '%s\n' "$changed" | grep -Eq "$validated"; then
