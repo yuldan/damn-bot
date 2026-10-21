@@ -29,5 +29,6 @@
 /internal/schema/ @yuldan
 /internal/redact/ @yuldan
 /internal/sandbox/ @yuldan
+/internal/skills/ @yuldan
 /internal/testutil/ @yuldan
 /internal/tools/ @yuldan
