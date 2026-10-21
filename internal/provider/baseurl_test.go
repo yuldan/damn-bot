@@ -1,6 +1,9 @@
 package provider
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNormalizeBaseURL(t *testing.T) {
 	t.Parallel()
@@ -22,5 +25,14 @@ func TestNormalizeBaseURL(t *testing.T) {
 		if got, err := NormalizeBaseURL(bad); err == nil {
 			t.Errorf("NormalizeBaseURL(%q) = %q, want error", bad, got)
 		}
+	}
+	// An error must never echo credentials or query secrets.
+	if _, err := NormalizeBaseURL("https://" + "user" + ":" + "pw" + "@"); err == nil ||
+		strings.Contains(err.Error(), "pw") {
+		t.Fatalf("error leaks credentials: %v", err)
+	}
+	if _, err := NormalizeBaseURL("https:///v1?token=SECRET"); err == nil ||
+		strings.Contains(err.Error(), "SECRET") {
+		t.Fatalf("error leaks query: %v", err)
 	}
 }
