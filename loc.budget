@@ -33,7 +33,8 @@ ctxdb/journalstore 400 internal/ctxdb/journalstore
 assemble          1000 internal/assemble
 compaction         900 internal/compaction
 memory+skills     1200 internal/memory internal/skills
-journal            520 internal/journal
+# ADR-117 amendment: journal 545 -> 560 (Windows-safe replace; terukur 557; Σ core 35.560 <= 47.000).
+journal            560 internal/journal
 # ADR-123: budget 400 -> 520 (guard harian/bulanan/provider + formula token gambar; terukur 481).
 budget             520 internal/budget
 heal              1500 internal/heal

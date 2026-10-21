@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"strings"
 )
 
@@ -90,16 +91,22 @@ func (r *Record) Validate() error {
 	default:
 		return fmt.Errorf("journal: kind %q: %w", r.Kind, ErrIrreversible)
 	}
-	if r.SessionID == "" || r.Path == "" || !strings.HasPrefix(r.Path, "/") {
+	if r.SessionID == "" || r.Path == "" || !absolute(r.Path) {
 		return fmt.Errorf("journal: record needs session and absolute path: %w", ErrIrreversible)
 	}
-	if r.Kind == FileMove && (r.MoveTo == "" || !strings.HasPrefix(r.MoveTo, "/")) {
+	if r.Kind == FileMove && (r.MoveTo == "" || !absolute(r.MoveTo)) {
 		return fmt.Errorf("journal: move needs absolute destination: %w", ErrIrreversible)
 	}
 	if r.Before == nil && r.After == nil {
 		return fmt.Errorf("journal: action has no images: %w", ErrIrreversible)
 	}
 	return nil
+}
+
+// absolute accepts native absolute paths (C:\... on Windows) and the
+// POSIX-rooted form used by callers with logical journal paths.
+func absolute(p string) bool {
+	return filepath.IsAbs(p) || strings.HasPrefix(p, "/")
 }
 
 // Action is one stored actions row.
@@ -148,6 +155,12 @@ type Store interface {
 	List(ctx context.Context, sessionID string, limit int) ([]Action, error)
 	Blob(ctx context.Context, sha string) ([]byte, error)
 	Finish(ctx context.Context, u Undo) error
+}
+
+// BatchFinisher is the optional batch form of Store.Finish: journalstore
+// implements it so `undo N` writes one transaction instead of N commits.
+type BatchFinisher interface {
+	FinishBatch(ctx context.Context, undos []Undo) error
 }
 
 // Result is one undone action. Status is what was recorded in action_undos.

@@ -196,23 +196,14 @@ const actionColumns = `id, session_id, coalesce(turn_id, ''), event_id, kind, re
 // P visibility), not as an internal error.
 func (s *Store) Get(ctx context.Context, id int64) (journal.Action, error) {
 	var a journal.Action
-	var inv, kind, rev string
 	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
-		if gerr := tx.Get("SELECT "+actionColumns+" FROM actions WHERE id = ?1", []any{id},
-			&a.ID, &a.SessionID, &a.TurnID, &a.EventID, &kind, &rev, &a.Path, &inv,
-			&a.BytesHeld, &a.CreatedAt, &a.Open); gerr != nil {
-			return fmt.Errorf("journalstore: read action: %w", gerr)
-		}
-		a.Kind, a.Reversibility = journal.Kind(kind), journal.Reversibility(rev)
 		cut, cerr := cutoff(tx, s.opt)
 		if cerr != nil {
 			return cerr
 		}
-		a.Expired = a.CreatedAt < cut
-		if derr := decode(&a, inv); derr != nil {
-			return derr
-		}
-		return nil
+		var rerr error
+		a, rerr = readAction(tx, id, cut)
+		return rerr
 	})
 	if err != nil {
 		return journal.Action{}, fmt.Errorf("journalstore: get action %d: %w", id, err)
@@ -223,9 +214,8 @@ func (s *Store) Get(ctx context.Context, id int64) (journal.Action, error) {
 	return a, nil
 }
 
-// List returns the newest limit actions of sessionID (0 = all). Row ids are
-// read in one transaction, then each action through Get (a handful of rows
-// per undo command; no unbounded scan).
+// List returns the newest limit actions of sessionID (0 = all) in one
+// transaction: the cutoff scan and every row share the same snapshot.
 func (s *Store) List(ctx context.Context, sessionID string, limit int) ([]journal.Action, error) {
 	if err := s.db.Visible(ctx, sessionID); err != nil {
 		return nil, fmt.Errorf("journalstore: list: %w", err)
@@ -233,33 +223,53 @@ func (s *Store) List(ctx context.Context, sessionID string, limit int) ([]journa
 	if limit < 0 {
 		limit = 0
 	}
-	var ids []int64
+	var out []journal.Action
 	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
+		cut, cerr := cutoff(tx, s.opt)
+		if cerr != nil {
+			return cerr
+		}
 		q := "SELECT id FROM actions WHERE session_id = ?1 ORDER BY id DESC"
 		args := []any{sessionID}
 		if limit > 0 {
 			q += " LIMIT ?2"
 			args = append(args, limit)
 		}
-		var qerr error
-		ids, qerr = tx.Ints(q, args...)
+		ids, qerr := tx.Ints(q, args...)
 		if qerr != nil {
 			return fmt.Errorf("journalstore: list ids: %w", qerr)
+		}
+		out = make([]journal.Action, 0, len(ids))
+		for _, id := range ids {
+			a, rerr := readAction(tx, id, cut)
+			if rerr != nil {
+				return rerr
+			}
+			out = append(out, a)
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("journalstore: list: %w", err)
 	}
-	out := make([]journal.Action, 0, len(ids))
-	for _, id := range ids {
-		a, err := s.Get(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
 	return out, nil
+}
+
+// readAction scans one actions row in an existing transaction.
+func readAction(tx *ctxdb.Tx, id, cut int64) (journal.Action, error) {
+	var a journal.Action
+	var inv, kind, rev string
+	if gerr := tx.Get("SELECT "+actionColumns+" FROM actions WHERE id = ?1", []any{id},
+		&a.ID, &a.SessionID, &a.TurnID, &a.EventID, &kind, &rev, &a.Path, &inv,
+		&a.BytesHeld, &a.CreatedAt, &a.Open); gerr != nil {
+		return a, fmt.Errorf("journalstore: read action: %w", gerr)
+	}
+	a.Kind, a.Reversibility = journal.Kind(kind), journal.Reversibility(rev)
+	a.Expired = a.CreatedAt < cut
+	if derr := decode(&a, inv); derr != nil {
+		return a, derr
+	}
+	return a, nil
 }
 
 // Blob returns a before/after image; a blob no longer on disk is ErrBlob
@@ -292,26 +302,60 @@ const maxBlobSize = 1 << 30
 // Finish appends the undo event and its action_undos row in one transaction
 // in the caller session (guard F), as SPEC §18.1 requires.
 func (s *Store) Finish(ctx context.Context, u journal.Undo) error {
-	switch u.Status {
-	case journal.Undone, journal.Conflict, journal.Expired, journal.Failed:
-	default:
-		return fmt.Errorf("journalstore: undo status %q: %w", u.Status, journal.ErrIrreversible)
+	if err := validStatus(u.Status); err != nil {
+		return err
 	}
-	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
-		ev, aerr := tx.AppendEvent(u.SessionID, &ctxdb.Event{
-			Kind: "undo", Payload: fmt.Sprintf(`{"action_id":%d,"status":%q}`, u.ActionID, u.Status),
-		})
-		if aerr != nil {
-			return fmt.Errorf("journalstore: undo event: %w", aerr)
+	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error { return finishTx(tx, s.opt.Now(), &u) })
+	if err != nil {
+		return fmt.Errorf("journalstore: finish undo: %w", err)
+	}
+	return nil
+}
+
+// FinishBatch records many undo outcomes in one transaction (one commit for
+// `undo N`, SPEC §18.1). Statuses are validated before the write.
+func (s *Store) FinishBatch(ctx context.Context, undos []journal.Undo) error {
+	for i := range undos {
+		if err := validStatus(undos[i].Status); err != nil {
+			return err
 		}
-		if _, xerr := tx.Exec(`INSERT INTO action_undos(action_id, status, detail, event_id, created_at) VALUES (?1,?2,?3,?4,?5)`,
-			u.ActionID, string(u.Status), u.Detail, ev, s.opt.Now()); xerr != nil {
-			return fmt.Errorf("journalstore: insert undo: %w", xerr)
+	}
+	if len(undos) == 0 {
+		return nil
+	}
+	now := s.opt.Now()
+	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
+		for i := range undos {
+			if err := finishTx(tx, now, &undos[i]); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("journalstore: finish undo: %w", err)
+		return fmt.Errorf("journalstore: finish undo batch: %w", err)
+	}
+	return nil
+}
+
+func validStatus(st journal.Status) error {
+	switch st {
+	case journal.Undone, journal.Conflict, journal.Expired, journal.Failed:
+		return nil
+	}
+	return fmt.Errorf("journalstore: undo status %q: %w", st, journal.ErrIrreversible)
+}
+
+func finishTx(tx *ctxdb.Tx, now int64, u *journal.Undo) error {
+	ev, aerr := tx.AppendEvent(u.SessionID, &ctxdb.Event{
+		Kind: "undo", Payload: fmt.Sprintf(`{"action_id":%d,"status":%q}`, u.ActionID, u.Status),
+	})
+	if aerr != nil {
+		return fmt.Errorf("journalstore: undo event: %w", aerr)
+	}
+	if _, xerr := tx.Exec(`INSERT INTO action_undos(action_id, status, detail, event_id, created_at) VALUES (?1,?2,?3,?4,?5)`,
+		u.ActionID, string(u.Status), u.Detail, ev, now); xerr != nil {
+		return fmt.Errorf("journalstore: insert undo: %w", xerr)
 	}
 	return nil
 }

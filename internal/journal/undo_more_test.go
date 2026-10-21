@@ -128,16 +128,16 @@ func TestUndoSymlinkInsideRoot(t *testing.T) {
 		t.Skipf("symlink: %v", err)
 	}
 	f.add(action(1, FileWrite, p, f.put([]byte("old"), 0o644), f.put([]byte("new"), 0o644)))
-	if _, err := u.Undo(t.Context(), "s1", 1, false); !errors.Is(err, ErrConflict) {
-		t.Fatalf("symlink write: %v", err)
+	if res, err := u.Undo(t.Context(), "s1", 1, false); !errors.Is(err, ErrConflict) || res.Status != Conflict {
+		t.Fatalf("symlink write: %+v, %v", res, err)
 	}
 	if string(read(t, q)) != "new" {
 		t.Fatal("symlink target changed")
 	}
 	f.acts = map[int64]Action{}
 	f.add(action(2, FileWrite, p, nil, f.put([]byte("new"), 0o644)))
-	if _, err := u.Undo(t.Context(), "s1", 2, false); !errors.Is(err, ErrConflict) {
-		t.Fatalf("symlink create: %v", err)
+	if res, err := u.Undo(t.Context(), "s1", 2, false); !errors.Is(err, ErrConflict) || res.Status != Conflict {
+		t.Fatalf("symlink create: %+v, %v", res, err)
 	}
 	if string(read(t, q)) != "new" {
 		t.Fatal("symlink target removed")

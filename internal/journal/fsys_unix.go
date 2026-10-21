@@ -34,3 +34,7 @@ func hardLinks(fi fs.FileInfo) uint64 {
 	}
 	return uint64(st.Nlink)
 }
+
+// makeReplaceable is a no-op on POSIX: rename replaces the directory entry
+// regardless of the destination mode.
+func makeReplaceable(*os.Root, string) error { return nil }
