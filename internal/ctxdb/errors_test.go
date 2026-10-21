@@ -84,6 +84,10 @@ func TestNonRefShaClosedList(t *testing.T) {
 	if len(refs) != 1 || refs[0].Sha != b {
 		t.Fatalf("refs = %+v, want only blob_sha", refs)
 	}
+	nested := `{"x":{"sha":"` + a + `"},"attachments":[{"sha":"` + a + `"}]}`
+	if _, err := BlobRefsOf("approval", "1", nil, map[string]string{"payload": nested}); !errors.Is(err, ErrInternal) {
+		t.Errorf("nested sha accepted: %v", err)
+	}
 	for _, k := range []string{"other_sha", "sha256", "preview"} {
 		if _, err := BlobRefsOf("approval", "1", nil, map[string]string{"payload": `{"` + k + `":"` + a + `"}`}); !errors.Is(err, ErrInternal) {
 			t.Errorf("key %q: %v, want rejected", k, err)
