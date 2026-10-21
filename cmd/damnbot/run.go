@@ -31,6 +31,7 @@ import (
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
+	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/registry"
@@ -230,10 +231,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		Mode:             approvalMode(o),
 		WorkspaceTrusted: true,
 		Cwd:              model.cwd,
-		// P5 amendment / GAP-COST-08: the turn inline aggregate scales with
-		// the route window and the session's char/token ratio.
-		WindowTokens:  model.inlineCap,
-		CharsPerToken: charsPerToken(o.prompt),
+		Deferred:         model.modules.deferred,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("tools dispatcher: %w", err)
@@ -282,6 +280,7 @@ type runModel struct {
 	engine    *codetools.Engine
 	runner    *exec.Runner
 	sessions  *exec.Sessions
+	modules   runModules
 	sessionID string
 	cwd       string
 	window    int64  // effective model window (registry.Limits: config/registry/learned/fallback)
@@ -298,6 +297,11 @@ func (m *runModel) close(ctx context.Context) error {
 		m.engine.Close()
 	}
 	var err error
+	if m.modules.runtime != nil {
+		if serr := m.modules.runtime.Shutdown(ctx); serr != nil {
+			err = fmt.Errorf("stop modules: %w", serr)
+		}
+	}
 	if m.sessions != nil {
 		if cerr := m.sessions.Close(); cerr != nil {
 			err = errors.Join(err, fmt.Errorf("close sessions: %w", cerr))
@@ -364,7 +368,64 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runModel, error) {
 	w, err := newRunWiring(ctx, cfg, dataDir, modelRef, o, red, spill, configDir, home)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open ctxdb: %w", err)
+	}
+	sid, cwd, err := newRunSession(ctx, db, modelRef)
+	if err != nil {
+		return nil, closeDB(ctx, db, "", err)
+	}
+	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
+	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
+	if err != nil {
+		return nil, closeDB(ctx, db, sid, fmt.Errorf("sandbox: %w", err))
+	}
+	scope, err := journalScope(roots, cfg.DenyPaths(configDir), home)
+	if err != nil {
+		return nil, closeDB(ctx, db, sid, err)
+	}
+	engine, err := codetools.New(&codetools.Config{Sandbox: sb, Roots: roots, Home: home})
+	if err != nil {
+		return nil, closeDB(ctx, db, sid, fmt.Errorf("codetools: %w", err))
+	}
+	runner := exec.New(ctx)
+	envPolicy := &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent}
+	// Persistent sessions share the runner but never receive secret refs
+	// (ADR-088): direct is empty and Env only inherits the allowlist.
+	sessions := runner.NewSessions(filepath.Join(dataDir, "exec", "sess"), envPolicy.Env(os.Environ(), true, "", "", ""))
+	// A failed start closes what it opened with the same teardown as a
+	// finished run: modules, engine, sessions, runner, lease, DB (SEC5-5/11).
+	started := &runModel{db: db, sessionID: sid, engine: engine, runner: runner, sessions: sessions}
+	fail := func(cause error) error { return errors.Join(cause, started.close(ctx)) }
+	allow, monetary, err := shellGate(cfg, configDir)
+	if err != nil {
+		return nil, fail(err)
+	}
+	shellTool, err := tools.NewShell(&tools.ShellConfig{
+		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
+		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
+		EnvPolicy:        envPolicy,
+		WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
+		MonetaryPaths: monetary, Canonicalize: monetaryKey,
+	})
+	if err != nil {
+		return nil, fail(fmt.Errorf("shell tool: %w", err))
+	}
+	list, err := journaledFileTools(db, sid, scope, engine, sb)
+	if err != nil {
+		return nil, fail(err)
+	}
+	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil))
+	started.modules, err = newRunModules(modules.Default(), nil)
+	if err != nil {
+		return nil, fail(err)
+	}
+	reg, err := tools.NewRegistry(append(list, started.modules.meta...)...)
+	if err != nil {
+		return nil, fail(fmt.Errorf("registry: %w", err))
+	}
+	prov, err := newRunProvider(cfg, db, modelRef, o)
+	if err != nil {
+		return nil, fail(err)
 	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
 	limits, err := registry.NewLimits(nil, nil, limitstore.Store{DB: w.db}, nil)
@@ -381,18 +442,16 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	}
 	return &runModel{
 		provider:  prov,
-		registry:  w.registry,
-		store:     &ctxStore{db: w.db},
-		ledger:    &ctxLedger{db: w.db, provider: provName, model: modelName},
-		sessionID: w.sid,
-		cwd:       w.cwd,
-		window:    win.ContextWindow,
-		winSource: string(win.Source),
-		inlineCap: w.inlineCap,
-		db:        w.db,
-		engine:    w.engine,
-		runner:    w.runner,
-		sessions:  w.sessions,
+		registry:  reg,
+		store:     &ctxStore{db: db},
+		ledger:    &ctxLedger{db: db, provider: provName, model: modelName},
+		sessionID: sid,
+		cwd:       cwd,
+		db:        db,
+		engine:    engine,
+		runner:    runner,
+		sessions:  sessions,
+		modules:   started.modules,
 	}, nil
 }
 
