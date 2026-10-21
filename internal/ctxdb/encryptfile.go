@@ -397,9 +397,8 @@ func sealGateway(ctx context.Context, tx *sql.Tx, codec Codec) (err error) {
 
 func rebuildFTS(ctx context.Context, db *sql.DB, codec Codec) error {
 	for _, fts := range []string{"events_fts", "summaries_fts", "memory_fts"} {
-		q := `INSERT INTO ` + fts + `(` + fts + `) VALUES('delete-all')` //nolint:gosec // fixed names
-		if _, err := db.ExecContext(ctx, q); err != nil {
-			return wrap(err)
+		if err := clearFTS(ctx, db, fts); err != nil {
+			return err
 		}
 	}
 	items := []struct{ q, fts string }{
@@ -440,12 +439,37 @@ func rebuildOne(ctx context.Context, db *sql.DB, q, fts string, codec Codec) err
 		return wrap(err)
 	}
 	for _, r := range rs {
-		q := `INSERT INTO ` + fts + `(rowid, content) VALUES (?,?)` //nolint:gosec // fixed names
-		if _, err := db.ExecContext(ctx, q, r.id, encFTS(codec, r.content)); err != nil {
-			return wrap(err)
+		if err := insertFTS(ctx, db, fts, r.id, encFTS(codec, r.content)); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func clearFTS(ctx context.Context, db *sql.DB, fts string) error {
+	q := map[string]string{
+		"events_fts":    "INSERT INTO events_fts(events_fts) VALUES('delete-all')",
+		"summaries_fts": "INSERT INTO summaries_fts(summaries_fts) VALUES('delete-all')",
+		"memory_fts":    "INSERT INTO memory_fts(memory_fts) VALUES('delete-all')",
+	}[fts]
+	if q == "" {
+		return ErrInternal
+	}
+	_, err := db.ExecContext(ctx, q)
+	return wrap(err)
+}
+
+func insertFTS(ctx context.Context, db *sql.DB, fts string, id int64, tokens string) error {
+	q := map[string]string{
+		"events_fts":    "INSERT INTO events_fts(rowid, content) VALUES (?,?)",
+		"summaries_fts": "INSERT INTO summaries_fts(rowid, content) VALUES (?,?)",
+		"memory_fts":    "INSERT INTO memory_fts(rowid, content) VALUES (?,?)",
+	}[fts]
+	if q == "" {
+		return ErrInternal
+	}
+	_, err := db.ExecContext(ctx, q, id, tokens)
+	return wrap(err)
 }
 
 func encFTS(codec Codec, s string) string {
