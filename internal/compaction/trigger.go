@@ -36,6 +36,16 @@ func (k Kind) String() string {
 	return "none"
 }
 
+// Reason is which SPEC §4.7 trigger started a compaction; it is persisted
+// with the Run's Attempt.
+type Reason string
+
+// Trigger reasons.
+const (
+	ReasonEstimate      Reason = "estimate"       // estimate ≥ compact_at (Decide = Compact)
+	ReasonContextLength Reason = "context_length" // provider rejected the request as too long: stage 2 is forced
+)
+
 // Thresholds are percentages of the context window (SPEC §12 [context] and
 // §4.7): compact_at defaults to 75, overflow_at to 90. A zero field selects
 // the default; an invalid pair is rejected by New.
