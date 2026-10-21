@@ -148,6 +148,48 @@ func (s *jscan) array(f func(i int) error) error {
 	}
 }
 
+// pos is a rewind point: cursor, depth and scratch length.
+type pos struct{ i, depth, out int }
+
+func (s *jscan) mark() pos { return pos{s.i, s.depth, len(s.out)} }
+
+// settle finishes decoding the value of a known key, last key wins like
+// encoding/json: a well-formed value of the wrong shape (`"delta":0`) is
+// skipped and marks bit in *bad, and a later duplicate that decodes clears
+// it; the owner fails the object via unresolved if a bit survives. Call it
+// as s.settle(s.mark(), decode(), &bad, bit): calls evaluate left to right,
+// so the mark precedes the decode. Fields the decode set belong to this
+// key, so a later duplicate resets them or the frame fails.
+func (s *jscan) settle(p pos, err error, bad *uint8, bit uint8) error {
+	if err != nil {
+		return s.mistyped(p, err, bad, bit)
+	}
+	*bad &^= bit
+	return nil
+}
+
+// mistyped is settle's cold path: errJSON is either a malformed value
+// (fatal) or a well-formed value of the wrong shape (deferred).
+func (s *jscan) mistyped(p pos, err error, bad *uint8, bit uint8) error {
+	if !errors.Is(err, errJSON) {
+		return err
+	}
+	s.i, s.depth, s.out = p.i, p.depth, s.out[:p.out]
+	if _, err := s.skip(); err != nil {
+		return err
+	}
+	*bad |= bit
+	return nil
+}
+
+// unresolved fails an object whose known key kept a mistyped last value.
+func unresolved(err error, bad uint8) error {
+	if err == nil && bad != 0 {
+		return errJSON
+	}
+	return err
+}
+
 // str reads a string value.
 func (s *jscan) str() ([]byte, error) {
 	if !s.eat('"') {
