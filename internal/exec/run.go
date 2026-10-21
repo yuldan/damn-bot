@@ -446,41 +446,75 @@ func (c *call) finish() {
 	c.note(c.p.release())
 }
 
-// sweepWait bounds waiting for killed marker processes to disappear (SIGKILL is asynchronous; P24.1 asserts right after Run).
+// sweepWait bounds waiting for killed marker processes to disappear (SIGKILL
+// is asynchronous; P24.1 asserts right after Run).
 const sweepWait = time.Second
 
-// sweep kills every process carrying this call's marker (§A.4), up to
-// sweepWait, until none is visible. A scan reads /proc/<pid>/environ, and a
-// process between two execve calls reports an empty or partial environ
-// (measured: ~1% of reads on a re-exec loop), so one clean scan does not
-// prove the tree is gone while an escapee may still be exec'ing. When the
-// tree was alive at kill time, or a scan found marked processes, a second
-// clean scan after pollEvery confirms it (P24.1); a call with no descendants
+// sweepQuiet is the clean observation required after the last kill: two
+// observations, at least pollEvery apart. A process inside execve is
+// invisible to the marker scan — Linux reports an empty /proc/<pid>/environ
+// and macOS fails kern.procargs2 — so one clean scan does not prove the tree
+// is gone while an escapee may still be exec'ing (ADR-105 butir 10). Two
+// scans also outlast the delivery of a SIGKILL on a loaded runner, where each
+// scan itself takes longer than the window.
+const sweepQuiet = 2 * pollEvery
+
+// sweep kills every process carrying this call's marker (§A.4) with the
+// confirmation of killMarked: one clean scan does not prove the tree is gone
+// — an escapee between two execve calls reports an empty environ — so the
+// sweep waits for a quiet window (sweepQuiet) after the last kill and
+// reports processes still visible at sweepWait as a cleanup failure. settle
+// covers a tree that was alive at kill time; a call with no descendants
 // keeps the single-scan fast path (P24.3 spawn budget).
 func (c *call) sweep(settle bool) {
 	id := []byte(c.id)
+	left, _, err := killMarked(func(v []byte) bool { return bytes.Equal(v, id) }, settle)
+	c.note(err)
+	if len(left) > 0 {
+		c.note(fmt.Errorf("exec: sweep: %d marked processes survived", len(left)))
+	}
+}
+
+// killMarked kills every process accepted by match and returns once a scan
+// sees none for sweepQuiet, bounded by sweepWait. It returns the pids still
+// visible at the bound (empty when the sweep confirmed them gone) and the
+// number of kills it issued. settle requires the quiet window even when the
+// first scan is clean, for a caller that had a tree at kill time; a scan
+// that finds (and kills) processes requires it in any case, so a caller
+// never returns straight from a kill without observing its effect.
+func killMarked(match func([]byte) bool, settle bool) (left []int, killed int, err error) {
 	deadline := time.Now().Add(sweepWait)
-	clean := false
+	var quietSince time.Time
+	seen := make(map[int]bool)
 	for {
-		pids, err := markerPids(func(v []byte) bool { return bytes.Equal(v, id) })
-		c.note(err)
+		pids, serr := markerPids(match)
+		err = errors.Join(err, serr)
 		for _, pid := range pids {
-			c.note(killPid(pid))
+			if kerr := killPid(pid); kerr != nil {
+				err = errors.Join(err, kerr)
+				continue
+			}
+			if !seen[pid] {
+				seen[pid] = true
+				killed++
+			}
 		}
+		now := time.Now()
 		switch {
 		case len(pids) > 0:
-			clean, settle = false, true
-		case !settle || clean:
-			return
-		default:
-			clean = true
+			settle, quietSince = true, time.Time{}
+		case !settle:
+			return nil, killed, err // no tree and nothing found: single scan
+		case quietSince.IsZero():
+			quietSince = now
 		}
-		if !time.Now().Before(deadline) {
-			return
+		if !quietSince.IsZero() && now.Sub(quietSince) >= sweepQuiet {
+			return nil, killed, err
 		}
-		// Give SIGKILL time to take effect; an escapee forking while it
-		// dies shows up in the next scan. A timer, not time.Sleep: the
-		// clock rule of E-30/E-72.
+		if !now.Before(deadline) {
+			return pids, killed, err
+		}
+		// A timer, not time.Sleep: the clock rule of E-30/E-72.
 		pause := time.NewTimer(pollEvery)
 		<-pause.C
 	}
