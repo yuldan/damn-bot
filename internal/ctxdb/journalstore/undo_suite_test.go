@@ -610,6 +610,7 @@ func TestUndo50Files(t *testing.T) {
 	start := time.Now()
 	res, err := u.UndoLast(t.Context(), "fifty", n, false)
 	elapsed := time.Since(start)
+	t.Logf("undo 50 files: %v", elapsed)
 	if err != nil || len(res) != n {
 		t.Fatalf("undo 50 = %d, %v", len(res), err)
 	}

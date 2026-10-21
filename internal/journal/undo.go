@@ -21,8 +21,7 @@ import (
 // (idempotent no-op) or after image (restore), otherwise the undo refuses
 // with ErrConflict unless force is set (SPEC §18.1). Every file operation
 // goes through an os.Root of the parent directory with O_NOFOLLOW on the
-// final component, and the journaled device/inode is compared before
-// mutating (JN2-1/JN2-10).
+// original path's final component (JN2-1/JN2-10).
 type Undoer struct {
 	store Store
 	sb    *sandbox.Sandbox
@@ -45,17 +44,26 @@ func (u *Undoer) Undo(ctx context.Context, caller string, id int64, force bool) 
 	if err != nil {
 		return Result{ActionID: id, Status: Failed}, fmt.Errorf("journal: get action %d: %w", id, err)
 	}
-	res := Result{ActionID: id}
+	res, uerr := u.undoAction(ctx, &a, force)
+	return u.finish(ctx, caller, res, res.Status, res.Detail, uerr)
+}
+
+// undoAction restores the action without recording the undo; Undo/UndoLast
+// record one outcome or a batch.
+func (u *Undoer) undoAction(ctx context.Context, a *Action, force bool) (Result, error) {
+	res := Result{ActionID: a.ID}
 	switch {
 	case a.Expired:
-		return u.finish(ctx, caller, res, Expired, "action is outside the retention window", ErrExpired)
+		res.Status, res.Detail = Expired, "action is outside the retention window"
+		return res, ErrExpired
 	case a.Reversibility != Reversible:
-		return u.finish(ctx, caller, res, Failed, "action has no inverse", ErrIrreversible)
+		res.Status, res.Detail = Failed, "action has no inverse"
+		return res, ErrIrreversible
 	case a.Open:
-		return u.finish(ctx, caller, res, Failed, "the action's turn is still open", ErrPending)
+		res.Status, res.Detail = Failed, "the action's turn is still open"
+		return res, ErrPending
 	}
-	res, err = u.apply(ctx, &a, force)
-	return u.finish(ctx, caller, res, res.Status, res.Detail, err)
+	return u.apply(ctx, a, force)
 }
 
 // UndoLast undoes the newest n actions of session in reverse order. Every
@@ -69,13 +77,35 @@ func (u *Undoer) UndoLast(ctx context.Context, caller string, n int, force bool)
 		return nil, fmt.Errorf("journal: list actions: %w", err)
 	}
 	out := make([]Result, 0, len(acts))
+	undos := make([]Undo, 0, len(acts))
 	var errs []error
 	for i := range acts {
-		r, uerr := u.Undo(ctx, caller, acts[i].ID, force)
+		r, uerr := u.undoAction(ctx, &acts[i], force)
 		out = append(out, r)
 		errs = append(errs, uerr)
+		undos = append(undos, Undo{ActionID: r.ActionID, SessionID: caller, Status: r.Status, Detail: r.Detail})
 	}
+	ferr := u.finishBatch(ctx, undos)
+	errs = append(errs, ferr)
 	return out, errors.Join(errs...)
+}
+
+// finishBatch records all outcomes in one transaction when the store
+// supports it (undo N); otherwise it falls back to one commit per action.
+func (u *Undoer) finishBatch(ctx context.Context, undos []Undo) error {
+	if bf, ok := u.store.(BatchFinisher); ok {
+		if err := bf.FinishBatch(ctx, undos); err != nil {
+			return fmt.Errorf("journal: record undo batch: %w", err)
+		}
+		return nil
+	}
+	var errs []error
+	for i := range undos {
+		if err := u.store.Finish(ctx, undos[i]); err != nil {
+			errs = append(errs, fmt.Errorf("journal: record undo: %w", err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (u *Undoer) finish(ctx context.Context, caller string, r Result, status Status, detail string, err error) (Result, error) {
@@ -102,7 +132,7 @@ func (u *Undoer) apply(ctx context.Context, a *Action, force bool) (Result, erro
 func (u *Undoer) undoPath(ctx context.Context, a *Action, force bool) (Result, error) {
 	cur, resolved, present, hard, err := u.current(ctx, a.Path)
 	if err != nil {
-		return Result{ActionID: a.ID, Status: Failed}, err
+		return Result{ActionID: a.ID, Status: statusFor(err)}, err
 	}
 	res := Result{ActionID: a.ID, Status: Undone, Files: []string{a.Path}}
 	switch {
@@ -134,11 +164,11 @@ func (u *Undoer) undoPath(ctx context.Context, a *Action, force bool) (Result, e
 func (u *Undoer) undoMove(ctx context.Context, a *Action, force bool) (Result, error) {
 	cur, _, present, _, err := u.current(ctx, a.Path)
 	if err != nil {
-		return Result{ActionID: a.ID, Status: Failed}, err
+		return Result{ActionID: a.ID, Status: statusFor(err)}, err
 	}
 	dst, dstResolved, dstPresent, _, err := u.current(ctx, a.MoveTo)
 	if err != nil {
-		return Result{ActionID: a.ID, Status: Failed}, err
+		return Result{ActionID: a.ID, Status: statusFor(err)}, err
 	}
 	res := Result{ActionID: a.ID, Status: Undone, Files: []string{a.Path}}
 	st, detail, oerr := moveOutcome(a, cur, dst, present, dstPresent, force)
@@ -188,8 +218,10 @@ func moveOutcome(a *Action, cur, dst string, present, dstPresent, force bool) (S
 
 // current returns the sha256 of p ("" when absent), its sandbox-resolved
 // path, existence and hard-link flag. The final component is opened with
-// O_NOFOLLOW through an os.Root, and the device/inode is compared with want
-// when recorded, so a swapped symlink or inode is a conflict (JN2-1).
+// O_NOFOLLOW through an os.Root on the original path, so a swapped symlink
+// is a conflict (JN2-1). Journaled device/inode is retained for a future
+// two-phase after-image settle; it is not enforced because temp+rename
+// changes the inode on every legitimate write (ADR-117).
 func (u *Undoer) current(ctx context.Context, p string) (sum, resolved string, present, hard bool, err error) {
 	clean := filepath.Clean(p)
 	if cerr := u.check(ctx, p); cerr != nil {
@@ -418,6 +450,13 @@ func writeAll(f *os.File, data []byte) error {
 		data = data[n:]
 	}
 	return nil
+}
+
+func statusFor(err error) Status {
+	if errors.Is(err, ErrConflict) {
+		return Conflict
+	}
+	return Failed
 }
 
 func match(cur string, img *Image) bool {

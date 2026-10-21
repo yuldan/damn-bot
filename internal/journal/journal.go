@@ -150,6 +150,12 @@ type Store interface {
 	Finish(ctx context.Context, u Undo) error
 }
 
+// BatchFinisher is the optional batch form of Store.Finish: journalstore
+// implements it so `undo N` writes one transaction instead of N commits.
+type BatchFinisher interface {
+	FinishBatch(ctx context.Context, undos []Undo) error
+}
+
 // Result is one undone action. Status is what was recorded in action_undos.
 type Result struct {
 	ActionID int64
