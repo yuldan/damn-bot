@@ -551,3 +551,38 @@ Probe (codec `secret` nyata; dijalankan lalu dihapus): `TestZZR8` (`internal/bac
 - `gateway_inbound`: konversi menyegel baris, tetapi belum ada penulis/pembaca runtime. Saat writer gateway mendarat, berlaku syarat yang sama dengan carrier.
 
 **Ringkasan:** #199 **APPROVE**; #217 **APPROVE dengan MINOR** (SEC7-55); #201 **REQUEST CHANGES (kecil)**, karena satu temuan MEDIUM yang lama masih terbuka (SEC7-37b: taint summary dan cooldown compaction hilang di DB terenkripsi). Selain itu seluruh SEC7-44..54 tertutup dengan codec nyata, archtest hijau, dan Total core konsisten.
+
+## Round 9 — 2026-10-21 (SEC7-37b, SEC7-55)
+
+Head: #201 `bf1ae24` (`939fccc` dekripsi payload `summary_ref`/`compaction` di compactstore + `bf1ae24` budget `compactstore 350`), #217 `e9e7ab2` (`ccc91c2` = carrier yang sama dengan `76790a7` plus amandemen ADR yang disesuaikan, + `e9e7ab2` `payload_sha` berkunci). `git range-diff 11e9230..76790a7 bf1ae24..e9e7ab2`: `76790a7 → ccc91c2` hanya berbeda di teks amandemen PR 4 dan baris ENGINEERING/Total core (compactstore 350, Total 40.870). Kode carrier tidak berubah.
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #201 | `bf1ae24` | **APPROVE** (SEC7-37b FIXED; nit dokumen di bawah) |
+| #217 | `e9e7ab2` | **APPROVE** (SEC7-55 FIXED; syarat merge Round 8 tetap) |
+
+Gate di kedua head: `go vet -tags goolm ./...` + `GOOS=windows|darwin go vet ./internal/ctxdb/... ./internal/backup` bersih; `make deadcode` 0; `go test -race -tags goolm -count=1 ./internal/archtest ./internal/integration ./internal/backup ./internal/ctxdb/{compactstore,memstore}` (+ `carrierstore` di `e9e7ab2`) → ok; `./internal/ctxdb -race -run 'AtRest|Restore|Migrat|FTS|Search'` → ok. `make loc`: `bf1ae24` `ctxdb 4279/4400`, `compactstore 330/350`; `e9e7ab2` `ctxdb 4282/4400`, `compactstore 330/350`, `carrierstore 297/400`. Total core ENGINEERING **40.470** / **40.870** = Σ `loc.budget` core (archtest `repometa` lulus). Kenaikan `compactstore 300 → 350` didukung angka terukur 330 (dekripsi payload per event `compaction`/`summary_ref`).
+
+Probe (codec `secret` nyata; dijalankan lalu dihapus):
+
+| Skenario | Plaintext | Terenkripsi |
+|---|---|---|
+| `compactstore.Commit` 2 summary (`Tainted` true lalu false, Attempt summarized `AtMS` 11 lalu 22) → `Load` | `tainted=[true false]`, `LastCall={summarized context_length 22}` | **`tainted=[true false]`, `LastCall={summarized context_length 22}`** ✔ (Round 8: `[false]`, `nil`) |
+| `carrierstore.Save` → kolom `payload_sha` | = sha256(plaintext) | **≠ sha256(plaintext)** (HMAC `codec.Hash`) ✔ |
+| `Refs()[0].SHA` = kolom; `Load().SHA` = kolom | ✔ | ✔ |
+| `BySHA(Store.PayloadSHA(p))` / `BySHA(sha256 plaintext)` | `[1]` / `[1]` | `[1]` / **`[]`** ✔ (tidak ada oracle sha polos) |
+| Arsip plaintext berisi carrier → restore `encrypt=true` | – | `Load` 1 carrier, payload utuh, `SHA` = hash berkunci, `BySHA(keyed)=[1]`, `BySHA(plain)=[]` ✔ (`sealCarriers` menulis ulang `payload_sha`) |
+
+| ID | Verdict | Bukti |
+|---|---|---|
+| SEC7-37b | **FIXED** (#201) | `summariesQ` mengambil `payload`/`payload_enc` event `summary_ref`, lalu `OpenRow("events.payload", sid|seq)` → `refPayload.Tainted`. `lastCall` membaca event `compaction` (terbaru dulu) lewat `OpenRow` dan memakai yang `Called`. Probe di atas. |
+| SEC7-55 | **FIXED** (#217) | `Store.PayloadSHA` = `codec.Hash(payload)` saat `Encrypted()`, selain itu sha256. Dipakai oleh `Save`, `Refs`, dan (via pemanggil) `BySHA`. Konversi restore menulis `payload_sha = codec.Hash(...)`. |
+
+Catatan (tidak memblokir):
+- **Nit dokumen #201**: di `bf1ae24`, amandemen ADR-124 PR 4 masih menulis "`ctxdb/compactstore` 250→300" sementara tabel ENGINEERING dan `loc.budget` sudah 350 (Total 40.470). Teks baru menjadi "250→350" di commit carrier (`ccc91c2`). Perbaiki di #201 agar commit itu konsisten sendiri. Komentar `loc.budget` carrierstore "terukur 291", padahal `make loc` 297.
+- **Coupling dengan rebase carrier (#190/#193/#200)**: `BySHA` mencocokkan nilai yang diberikan pemanggil. Setelah rebase, `RejectCarriers` di `cmd/damnbot` wajib mengirim `Store.PayloadSHA(raw)` (atau SHA hasil `Load`), bukan sha256 yang dihitung `provider.captureCarriers`. Ref `carriers:[{ord,sha}]` di payload event assistant juga harus memakai `Store.Refs`, bukan sha provider. Kalau tidak, penolakan signature tidak pernah terpetakan di DB terenkripsi (regresi SEC8-2: carrier yang ditolak di-replay lagi). Uji ulang probe replay SEC8 Round 2 (400 `invalid_signature` → carrier tidak dikirim lagi) dengan `storage.encrypt=true` setelah rebase.
+- `codec.Hash` memakai subkunci yang sama dengan hash chain event (tanpa label domain). Format input kedua domain berbeda (`prev|sid|seq|…` vs JSON carrier), jadi risiko tumbukan lintas domain dapat diabaikan. Opsional: awali input carrier dengan `"carrier\x00"`.
+
+**Ringkasan:** #201 dan #217 **APPROVE**. Seluruh temuan SEC7 pada stack kripto tertutup dan terverifikasi dengan codec nyata. Syarat merge Round 8 tetap berlaku: #198/#199/#201/#217 dalam satu jendela, satu `carrierstore` (versi #217) yang menggantikan versi #190, dan uji replay penolakan signature dengan `storage.encrypt=true` setelah rebase carrier.
