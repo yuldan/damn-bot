@@ -5,7 +5,8 @@
 loop              1800 internal/loop
 plan               600 internal/plan
 provider          2000 internal/provider
-provider/registry  400 internal/provider/registry
+# ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
+provider/registry  300 internal/provider/registry
 netx              1800 internal/netx
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).
@@ -31,6 +32,7 @@ ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore
 ctxdb/memstore     600 internal/ctxdb/memstore
 ctxdb/skillstore   400 internal/ctxdb/skillstore
 ctxdb/journalstore 400 internal/ctxdb/journalstore
+ctxdb/limitstore   100 internal/ctxdb/limitstore
 assemble          1000 internal/assemble
 compaction         900 internal/compaction
 memory+skills     1200 internal/memory internal/skills
