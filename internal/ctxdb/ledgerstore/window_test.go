@@ -70,8 +70,8 @@ func seedMillion(tb testing.TB, s *ctxdb.Store) {
 				Attempts: 1, LatencyMS: 10, TTFTMS: -1,
 				CreatedAt: int64(i%30) * 86_400_000,
 			}
-			if _, err := Insert(tx, &r); err != nil {
-				return fmt.Errorf("row %d: %w", i, err)
+			if _, ierr := Insert(tx, &r); ierr != nil {
+				return fmt.Errorf("row %d: %w", i, ierr)
 			}
 		}
 		return nil
