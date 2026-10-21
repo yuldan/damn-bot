@@ -194,7 +194,7 @@ func (s *Store) dsn(readOnly bool) string {
 		"_pragma=trusted_schema(1)", // ADR-093 (TS-P03): trigger functions cannot be SQLITE_INNOCUOUS
 	}
 	if readOnly {
-		q = append(q, "_pragma=query_only(1)")
+		q = append(q, "_pragma=query_only(1)", "_pragma=cache_size(-12288)")
 	}
 	return "file:" + DBPath(s.dir) + "?" + strings.Join(q, "&")
 }

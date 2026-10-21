@@ -285,6 +285,15 @@ func (s *Store) strings(ctx context.Context, q string, args ...any) ([]string, e
 	return column[string](ctx, db, q, args...)
 }
 
+// ints is strings for an integer column (recall candidates).
+func (s *Store) ints(ctx context.Context, q string, args ...any) ([]int64, error) {
+	db, err := s.reader(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return column[int64](ctx, db, q, args...)
+}
+
 // Count returns a single integer from a read query (tests, doctor).
 func (s *Store) Count(ctx context.Context, q string, args ...any) (int64, error) {
 	var n int64
