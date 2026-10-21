@@ -89,7 +89,7 @@ func buildP1(t *testing.T, fx *p1Fixture) p1Render {
 	r := p1Render{est: est, ctx: ctxResult, stable: Stable(stableOpts), tools: filtered}
 	tiers := tiersFile{
 		Stable:   r.stable,
-		Catalog:  Catalog(fx.catalog, a.tokens),
+		Catalog:  a.Catalog(fx.catalog),
 		Context:  ctxResult.Text,
 		Volatile: turn.String(),
 		Tools:    string(toolsJSON),

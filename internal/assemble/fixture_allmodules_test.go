@@ -19,12 +19,13 @@ import (
 const allModulesQuery = "Fix the failing test in internal/foo."
 
 // allModulesCatalog is one registry line per module group (≤ 15 tokens each,
-// ADR-119), the SPEC §5.2 worst case of 24 groups.
+// ADR-119, under both o200k_base and the runtime estimator that
+// Assembler.Catalog enforces), the SPEC §5.2 worst case of 24 groups.
 func allModulesCatalog() []CatalogGroup {
 	return []CatalogGroup{
 		{Name: "ask", Summary: "ask_user one question with choices"},
 		{Name: "browser", Summary: "navigate, click, type, read, screenshot pages"},
-		{Name: "code", Summary: "symbols, definitions, references, diagnostics, rename"},
+		{Name: "code", Summary: "definitions, references, diagnostics, rename"},
 		{Name: "computer", Summary: "screen capture, mouse and keyboard control"},
 		{Name: "connectors", Summary: "Graph, Feishu, Meet and OSV lookups"},
 		{Name: "cron", Summary: "schedule, list, pause and remove recurring jobs"},
@@ -246,6 +247,11 @@ func TestAllModulesFixtureShape(t *testing.T) {
 	t.Parallel()
 	if n := len(allModulesCatalog()); n != CatalogMaxGroups {
 		t.Errorf("catalog groups = %d, want %d", n, CatalogMaxGroups)
+	}
+	// Every group line fits CatalogLineMax under the runtime counter, so none
+	// is moved to the overflow line.
+	if got := newAssembler(t, identity).Catalog(allModulesCatalog()); strings.Contains(got, "more groups") {
+		t.Errorf("all-modules catalog overflows:\n%s", got)
 	}
 	checkAllModulesMemory(t)
 	skills := allModulesSkills()
