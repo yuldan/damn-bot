@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"testing"
 
 	"go.uber.org/goleak"
@@ -33,8 +34,8 @@ func open(t *testing.T) (*ctxdb.Store, *Store) {
 			t.Error(cerr)
 		}
 	})
-	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "s1", Origin: "headless", Cwd: "/"}); err != nil {
-		t.Fatal(err)
+	if _, serr := db.CreateSession(ctx, ctxdb.Session{ID: "s1", Origin: "headless", Cwd: "/"}); serr != nil {
+		t.Fatal(serr)
 	}
 	js, err := New(db, nil)
 	if err != nil {
@@ -43,8 +44,8 @@ func open(t *testing.T) (*ctxdb.Store, *Store) {
 	return db, js
 }
 
-func writeRecord() journal.Record {
-	return journal.Record{
+func writeRecord() *journal.Record {
+	return &journal.Record{
 		SessionID: "s1", TurnID: "t1", CallID: "c1", ToolName: "write_file",
 		Kind: journal.FileWrite, Path: "/w/a.txt",
 		Before: &journal.Snapshot{Data: []byte("old\n"), Mode: 0o644},
@@ -52,7 +53,7 @@ func writeRecord() journal.Record {
 	}
 }
 
-func record(t *testing.T, js *Store, r journal.Record) int64 {
+func record(t *testing.T, js *Store, r *journal.Record) int64 {
 	t.Helper()
 	id, err := js.Record(t.Context(), r)
 	if err != nil {
@@ -61,24 +62,18 @@ func record(t *testing.T, js *Store, r journal.Record) int64 {
 	return id
 }
 
-// TestRecordGetRoundTrip: the row, its images and the inverse survive a
-// round trip through the real database.
-func TestRecordGetRoundTrip(t *testing.T) {
-	t.Parallel()
-	_, js := open(t)
-	ctx := t.Context()
-	id := record(t, js, writeRecord())
-
-	a, err := js.Get(ctx, id)
-	if err != nil {
-		t.Fatal(err)
-	}
+func checkRecordIdentity(t *testing.T, a *journal.Action) {
+	t.Helper()
 	if a.SessionID != "s1" || a.TurnID != "t1" || a.Kind != journal.FileWrite || a.Reversibility != journal.Reversible {
 		t.Fatalf("action = %+v", a)
 	}
 	if a.Path != "/w/a.txt" || a.MoveTo != "" {
 		t.Fatalf("paths = %q %q", a.Path, a.MoveTo)
 	}
+}
+
+func checkRecordImages(t *testing.T, a *journal.Action) {
+	t.Helper()
 	if a.Before == nil || a.Before.BlobSHA != sha([]byte("old\n")) || a.Before.Mode != 0o644 || a.Before.Size != 4 {
 		t.Fatalf("before = %+v", a.Before)
 	}
@@ -88,10 +83,37 @@ func TestRecordGetRoundTrip(t *testing.T) {
 	if a.BytesHeld != 8 || a.Expired || a.Open {
 		t.Fatalf("held/expired/open = %d/%v/%v", a.BytesHeld, a.Expired, a.Open)
 	}
+}
+
+// TestRecordGetRoundTrip: the row and its inverse survive a round trip
+// through the real database.
+func TestRecordGetRoundTrip(t *testing.T) {
+	t.Parallel()
+	_, js := open(t)
+	id := record(t, js, writeRecord())
+	a, err := js.Get(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkRecordIdentity(t, &a)
+	checkRecordImages(t, &a)
+}
+
+// TestRecordBlobsAndList: images are readable, List returns them newest
+// first and a missing id is not_found.
+func TestRecordBlobsAndList(t *testing.T) {
+	t.Parallel()
+	_, js := open(t)
+	ctx := t.Context()
+	id := record(t, js, writeRecord())
+	a, err := js.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for want, img := range map[string]*journal.Image{"old\n": a.Before, "new\n": a.After} {
-		got, err := js.Blob(ctx, img.BlobSHA)
-		if err != nil || string(got) != want {
-			t.Fatalf("blob %s = %q, %v", img.BlobSHA, got, err)
+		got, berr := js.Blob(ctx, img.BlobSHA)
+		if berr != nil || string(got) != want {
+			t.Fatalf("blob %s = %q, %v", img.BlobSHA, got, berr)
 		}
 	}
 	list, err := js.List(ctx, "s1", 10)
@@ -148,9 +170,13 @@ func TestRetentionExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
-	if _, err := db.CreateSession(t.Context(), ctxdb.Session{ID: "s1", Origin: "headless", Cwd: "/"}); err != nil {
-		t.Fatal(err)
+	t.Cleanup(func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	})
+	if _, serr := db.CreateSession(t.Context(), ctxdb.Session{ID: "s1", Origin: "headless", Cwd: "/"}); serr != nil {
+		t.Fatal(serr)
 	}
 	now := int64(10 * dayMs)
 	js, err := New(db, &Options{RetentionDays: 1, Now: func() int64 { return now }})
@@ -164,9 +190,9 @@ func TestRetentionExpiry(t *testing.T) {
 	second := record(t, js, r)
 	now += 2 * dayMs // both are older than now−1 day
 	for _, id := range []int64{first, second} {
-		a, err := js.Get(t.Context(), id)
-		if err != nil || !a.Expired {
-			t.Fatalf("action %d expired = %v, %v", id, a.Expired, err)
+		a, gerr := js.Get(t.Context(), id)
+		if gerr != nil || !a.Expired {
+			t.Fatalf("action %d expired = %v, %v", id, a.Expired, gerr)
 		}
 	}
 	// Byte cap: only the newest action fits, so the older one expires even
@@ -194,9 +220,9 @@ func TestValidateRejects(t *testing.T) {
 		"move":   func(r *journal.Record) { r.Kind, r.MoveTo = journal.FileMove, "" },
 		"images": func(r *journal.Record) { r.Before, r.After = nil, nil },
 	} {
-		rr := r
+		rr := *r
 		mod(&rr)
-		if _, err := js.Record(t.Context(), rr); err == nil {
+		if _, err := js.Record(t.Context(), &rr); err == nil {
 			t.Errorf("%s: record accepted", name)
 		}
 	}
@@ -209,8 +235,10 @@ func TestAppendOnly(t *testing.T) {
 	id := record(t, js, writeRecord())
 	for _, q := range []string{"UPDATE actions SET subject = 'x' WHERE id = ?", "DELETE FROM actions WHERE id = ?"} {
 		err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
-			_, err := tx.Exec(q, id)
-			return err
+			if _, xerr := tx.Exec(q, id); xerr != nil {
+				return fmt.Errorf("append-only probe: %w", xerr)
+			}
+			return nil
 		})
 		if err == nil {
 			t.Fatalf("%q succeeded", q)
@@ -228,8 +256,8 @@ func TestOpenTurnRefuses(t *testing.T) {
 	if err != nil || a.Open {
 		t.Fatalf("closed turn: open = %v, %v", a.Open, err)
 	}
-	if err := db.Write(t.Context(), func(tx *ctxdb.Tx) error { return tx.StartTurn("s1", "t1") }); err != nil {
-		t.Fatal(err)
+	if werr := db.Write(t.Context(), func(tx *ctxdb.Tx) error { return tx.StartTurn("s1", "t1") }); werr != nil {
+		t.Fatal(werr)
 	}
 	a, err = js.Get(t.Context(), id)
 	if err != nil || !a.Open {

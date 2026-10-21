@@ -115,6 +115,7 @@ type Action struct {
 // Status is the action_undos.status vocabulary of SPEC §11.8.
 type Status string
 
+// Undo outcome statuses recorded in `action_undos`.
 const (
 	Undone   Status = "undone"
 	Conflict Status = "conflict"
@@ -134,7 +135,7 @@ type Undo struct {
 // record before the side effect, read actions and their before-image blobs,
 // and record the undo outcome.
 type Store interface {
-	Record(ctx context.Context, r Record) (int64, error)
+	Record(ctx context.Context, r *Record) (int64, error)
 	Get(ctx context.Context, id int64) (Action, error)
 	List(ctx context.Context, sessionID string, limit int) ([]Action, error)
 	Blob(ctx context.Context, sha string) ([]byte, error)

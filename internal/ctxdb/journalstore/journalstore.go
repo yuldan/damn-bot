@@ -84,9 +84,9 @@ type invImage struct {
 // Record publishes the images and inserts one actions row in the same
 // transaction as its tool_dispatch event. The caller must perform the side
 // effect only after Record returns nil (SPEC §4.3 step 8).
-func (s *Store) Record(ctx context.Context, r journal.Record) (int64, error) {
+func (s *Store) Record(ctx context.Context, r *journal.Record) (int64, error) {
 	if err := r.Validate(); err != nil {
-		return 0, err
+		return 0, fmt.Errorf("journalstore: record: %w", err)
 	}
 	var pend []*ctxdb.PendingBlob
 	inv := inverse{Path: r.Path, MoveTo: r.MoveTo, CallID: r.CallID, Tool: r.ToolName}
@@ -97,7 +97,7 @@ func (s *Store) Record(ctx context.Context, r journal.Record) (int64, error) {
 		}
 		p, err := s.db.PutBlob(sn.Data, "application/octet-stream")
 		if err != nil {
-			return err
+			return fmt.Errorf("journalstore: put blob: %w", err)
 		}
 		pend = append(pend, p)
 		held[p.Sha] = p.Size
@@ -116,34 +116,43 @@ func (s *Store) Record(ctx context.Context, r journal.Record) (int64, error) {
 		bytesHeld += n
 	}
 	var id int64
+	now := s.opt.Now()
 	err = s.db.Write(ctx, func(tx *ctxdb.Tx) error {
-		for _, p := range pend {
-			if err := tx.Publish(p); err != nil {
-				return err
-			}
-		}
-		ev, err := tx.AppendEvent(r.SessionID, &ctxdb.Event{
-			Kind: "tool_dispatch", TurnID: r.TurnID, ToolCallID: r.CallID, ToolName: r.ToolName,
-		})
-		if err != nil {
-			return err
-		}
-		now := s.opt.Now()
-		if err := tx.Get(`INSERT INTO actions(session_id, turn_id, event_id, kind, reversibility, subject, inverse, bytes_held, created_at)
-			VALUES (?1,?2,?3,?4,'reversible',?5,?6,?7,?8) RETURNING id`,
-			[]any{r.SessionID, null(r.TurnID), ev, string(r.Kind), r.Path, string(doc), bytesHeld, now}, &id); err != nil {
-			return err
-		}
-		refs, err := ctxdb.BlobRefsOf("action", strconv.FormatInt(id, 10), nil, map[string]string{"inverse": string(doc)})
-		if err != nil {
-			return err
-		}
-		return tx.InsertRefs(r.SessionID, now, refs)
+		return s.recordTx(tx, r, pend, doc, bytesHeld, now, &id)
 	})
 	if err != nil {
 		return 0, fmt.Errorf("journalstore: record: %w", err)
 	}
 	return id, nil
+}
+
+// recordTx publishes the pending images, appends the dispatch event, inserts
+// the actions row and its blob refs in the caller's transaction.
+func (s *Store) recordTx(tx *ctxdb.Tx, r *journal.Record, pend []*ctxdb.PendingBlob, doc []byte, held, now int64, id *int64) error {
+	for _, p := range pend {
+		if perr := tx.Publish(p); perr != nil {
+			return fmt.Errorf("journalstore: publish: %w", perr)
+		}
+	}
+	ev, aerr := tx.AppendEvent(r.SessionID, &ctxdb.Event{
+		Kind: "tool_dispatch", TurnID: r.TurnID, ToolCallID: r.CallID, ToolName: r.ToolName,
+	})
+	if aerr != nil {
+		return fmt.Errorf("journalstore: dispatch event: %w", aerr)
+	}
+	if gerr := tx.Get(`INSERT INTO actions(session_id, turn_id, event_id, kind, reversibility, subject, inverse, bytes_held, created_at)
+		VALUES (?1,?2,?3,?4,'reversible',?5,?6,?7,?8) RETURNING id`,
+		[]any{r.SessionID, null(r.TurnID), ev, string(r.Kind), r.Path, string(doc), held, now}, id); gerr != nil {
+		return fmt.Errorf("journalstore: insert action: %w", gerr)
+	}
+	refs, berr := ctxdb.BlobRefsOf("action", strconv.FormatInt(*id, 10), nil, map[string]string{"inverse": string(doc)})
+	if berr != nil {
+		return fmt.Errorf("journalstore: blob refs: %w", berr)
+	}
+	if rerr := tx.InsertRefs(r.SessionID, now, refs); rerr != nil {
+		return fmt.Errorf("journalstore: insert refs: %w", rerr)
+	}
+	return nil
 }
 
 // keepMode is the mode an undo restores: permission bits plus
@@ -169,23 +178,29 @@ func (s *Store) Get(ctx context.Context, id int64) (journal.Action, error) {
 	var a journal.Action
 	var inv, kind, rev string
 	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
-		if err := tx.Get("SELECT "+actionColumns+" FROM actions WHERE id = ?1", []any{id},
+		if gerr := tx.Get("SELECT "+actionColumns+" FROM actions WHERE id = ?1", []any{id},
 			&a.ID, &a.SessionID, &a.TurnID, &a.EventID, &kind, &rev, &a.Path, &inv,
-			&a.BytesHeld, &a.CreatedAt, &a.Open); err != nil {
-			return err
+			&a.BytesHeld, &a.CreatedAt, &a.Open); gerr != nil {
+			return fmt.Errorf("journalstore: read action: %w", gerr)
 		}
 		a.Kind, a.Reversibility = journal.Kind(kind), journal.Reversibility(rev)
-		cut, err := cutoff(tx, s.opt)
-		if err != nil {
-			return err
+		cut, cerr := cutoff(tx, s.opt)
+		if cerr != nil {
+			return cerr
 		}
 		a.Expired = a.CreatedAt < cut
-		return decode(&a, inv)
+		if derr := decode(&a, inv); derr != nil {
+			return derr
+		}
+		return nil
 	})
 	if err != nil {
 		return journal.Action{}, fmt.Errorf("journalstore: get action %d: %w", id, err)
 	}
-	return a, s.db.Visible(ctx, a.SessionID)
+	if verr := s.db.Visible(ctx, a.SessionID); verr != nil {
+		return journal.Action{}, fmt.Errorf("journalstore: get action %d: %w", id, verr)
+	}
+	return a, nil
 }
 
 // List returns the newest limit actions of sessionID (0 = all). Row ids are
@@ -208,7 +223,10 @@ func (s *Store) List(ctx context.Context, sessionID string, limit int) ([]journa
 		}
 		var qerr error
 		ids, qerr = tx.Ints(q, args...)
-		return qerr
+		if qerr != nil {
+			return fmt.Errorf("journalstore: list ids: %w", qerr)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("journalstore: list: %w", err)
@@ -243,15 +261,17 @@ func (s *Store) Finish(ctx context.Context, u journal.Undo) error {
 		return fmt.Errorf("journalstore: undo status %q: %w", u.Status, journal.ErrIrreversible)
 	}
 	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
-		ev, err := tx.AppendEvent(u.SessionID, &ctxdb.Event{
+		ev, aerr := tx.AppendEvent(u.SessionID, &ctxdb.Event{
 			Kind: "undo", Payload: fmt.Sprintf(`{"action_id":%d,"status":%q}`, u.ActionID, u.Status),
 		})
-		if err != nil {
-			return err
+		if aerr != nil {
+			return fmt.Errorf("journalstore: undo event: %w", aerr)
 		}
-		_, err = tx.Exec(`INSERT INTO action_undos(action_id, status, detail, event_id, created_at) VALUES (?1,?2,?3,?4,?5)`,
-			u.ActionID, string(u.Status), u.Detail, ev, s.opt.Now())
-		return err
+		if _, xerr := tx.Exec(`INSERT INTO action_undos(action_id, status, detail, event_id, created_at) VALUES (?1,?2,?3,?4,?5)`,
+			u.ActionID, string(u.Status), u.Detail, ev, s.opt.Now()); xerr != nil {
+			return fmt.Errorf("journalstore: insert undo: %w", xerr)
+		}
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("journalstore: finish undo: %w", err)
@@ -268,7 +288,7 @@ func cutoff(tx *ctxdb.Tx, o Options) (int64, error) {
 		SELECT created_at, SUM(bytes_held) OVER (ORDER BY id DESC ROWS UNBOUNDED PRECEDING) AS held
 		FROM actions) WHERE held <= ?1`, []any{o.MaxBytes}, &oldest)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("journalstore: cutoff: %w", err)
 	}
 	cut := now - int64(o.RetentionDays)*dayMs
 	if oldest == 0 {
