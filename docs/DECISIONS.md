@@ -2777,3 +2777,13 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Dampak terukur (SPEC §20).** Token 0 (tidak ada teks prompt/schema baru). Latensi: turn tanpa tool menambah satu goroutine `boundary` dan satu channel; tidak ada I/O sinkron baru. Penyaring lintas-delta hanya menahan sufiks parsial; tanpa penyaring delta ditahan sampai call selesai (fallback aman, bukan jalur produksi). LOC `loop` + `loop/event` = 1.757 (scc, non-test) / 1.800 (amandemen LP8-16..20); dependency 0. Test: 89,7 % statement; matrix 9 stop reason + EC subtests + golden urutan update dan render tool (E-68).
 
 **Konsekuensi.** (+) Semua keadaan terminal punya alasan SPEC yang eksplisit, approval/taint/cancel dapat diuji tanpa jaringan, dan paket tetap murni (tanpa I/O/jam nyata). (−) Paralelisme read hanya untuk fast path all-read; batch campuran berjalan serial sampai tools membuktikan kontrak ctx per tool. `cancelled_confirmed` adalah istilah internal, bukan `stop_reason` SPEC; pemetaan ke `cancelled` dilakukan di frontend.
+
+## ADR-115 — Toolchain Go 1.26.10 (GO-2026-6809)
+
+**Status:** Accepted 2026-10-21. Menggantikan angka pin ADR-051; ADR-051 tetap menjadi catatan historis keputusan 1.26.9.
+
+**Konteks.** `govulncheck` (job `vuln`) melaporkan GO-2026-6809: stdlib `crypto/x509` masih mempercayai sertifikat intermediate yang seharusnya ditolak. Perbaikan tersedia di Go 1.26.10. Repo mem-pin `go 1.26.9` di tiga modul (ADR-051), sehingga `vuln` merah tanpa ada dependency baru.
+
+**Keputusan.** Direktif `go 1.26.10` di `go.mod`, `bench/go.mod`, `tools/go.mod` (tanpa baris `toolchain` terpisah: `go mod tidy -diff` bersih di ketiganya). CI `actions/setup-go` membaca `go-version-file` (`go.mod`/`bench/go.mod`) sehingga ikut naik; tidak ada pin versi literal di `.github/` atau `Makefile`. Baris Status `docs/ENGINEERING.md` diperbarui ke 1.26.10. Catatan pengukuran historis yang menyebut `go1.26.8`/`go1.26.9` tidak diubah.
+
+**Konsekuensi.** (+) `vuln` hijau untuk GO-2026-6809; toolchain lokal dan CI konsisten di 1.26.10. (−) Kontributor dengan Go lokal lebih lama bergantung pada `GOTOOLCHAIN=auto` untuk mengunduh 1.26.10.

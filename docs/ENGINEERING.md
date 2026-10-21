@@ -1,6 +1,6 @@
 # ENGINEERING — standar kode, arsitektur paket, library, CI, test, review
 
-Status: spesifikasi normatif. Berlaku untuk semua kode Go di repo Damn-Bot (binary `damnbot`, Go 1.26.x dengan pin direktif `go 1.26.9` di `go.mod`, `bench/go.mod`, `tools/go.mod` (ADR-051; sebutan Go 1.26.8 di dokumen ini = catatan pengukuran historis, bukan pin), `CGO_ENABLED=0`). Induk: [SPEC.md](../SPEC.md) §2 (P6, P13, P14, P16, P21), §3, §16; [DECISIONS.md](DECISIONS.md) ADR-001/002/008/009/011/014/015/016; [BASELINE-hermes.md](BASELINE-hermes.md). Setiap aturan bernomor `E-xx` punya angka dan alat verifikasi. Melanggar aturan = CI merah, kecuali disebut "laporan".
+Status: spesifikasi normatif. Berlaku untuk semua kode Go di repo Damn-Bot (binary `damnbot`, Go 1.26.x dengan pin direktif `go 1.26.10` di `go.mod`, `bench/go.mod`, `tools/go.mod` (ADR-051, ADR-115; sebutan Go 1.26.8 di dokumen ini = catatan pengukuran historis, bukan pin), `CGO_ENABLED=0`). Induk: [SPEC.md](../SPEC.md) §2 (P6, P13, P14, P16, P21), §3, §16; [DECISIONS.md](DECISIONS.md) ADR-001/002/008/009/011/014/015/016; [BASELINE-hermes.md](BASELINE-hermes.md). Setiap aturan bernomor `E-xx` punya angka dan alat verifikasi. Melanggar aturan = CI merah, kecuali disebut "laporan".
 
 Path modul (ADR-093, TS-01): `github.com/damnbot/damnbot` (root), `github.com/damnbot/damnbot/bench`, `github.com/damnbot/damnbot/tools`; tanpa vanity import.
 
