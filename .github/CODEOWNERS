@@ -12,6 +12,7 @@
 /internal/archtest/ @yuldan
 /internal/assemble/ @yuldan
 /internal/boundary/ @yuldan
+/internal/backup/ @yuldan
 /internal/budget/ @yuldan
 /internal/codetools/ @yuldan
 /internal/compaction/ @yuldan
