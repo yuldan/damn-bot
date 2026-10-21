@@ -130,8 +130,27 @@ deadcode:
 
 # ADR-073: deteksi flake nightly, -count=20 (tanpa -race: 20× suite -race melebihi budget menit CI,
 # ADR-094; race tetap di `make test` setiap PR).
+# -timeout go test berlaku per binary paket dan bawaannya 10 menit tanpa peduli -count: 20 putaran
+# paket lambat melewatinya dengan run yang sehat (internal/exec: corpus P24.2 ~68 s/putaran,
+# internal/ctxdb ~45 s/putaran), sehingga setiap malam job panic "test timed out" dan hasil kedua
+# paket itu hilang — flake tidak pernah terdeteksi. Putaran dipecah menjadi FLAKE_WAVES gelombang
+# dengan batas waktu tetap 10 menit: total putaran per test tetap FLAKE_COUNT, dan hang sungguhan
+# tetap dilaporkan dengan stack dalam ≤ 10 menit. Satu gelombang -count=2 memakan ≤ 3 menit per
+# paket terukur (internal/exec, 4 vCPU, 2026-10-21), jadi timeout 10 menit tetap >3× jarak. Butuh
+# FLAKE_COUNT habis dibagi FLAKE_WAVES.
+FLAKE_COUNT ?= 20
+FLAKE_WAVES ?= 10
 flake:
-	go test $(GOTAGS) -count=20 -shuffle=on $(PKGS)
+	@set -e; \
+	if [ $$(( $(FLAKE_COUNT) % $(FLAKE_WAVES) )) -ne 0 ]; then \
+		echo "FLAKE_COUNT ($(FLAKE_COUNT)) harus habis dibagi FLAKE_WAVES ($(FLAKE_WAVES))" >&2; \
+		exit 2; \
+	fi; \
+	n=$$(( $(FLAKE_COUNT) / $(FLAKE_WAVES) )); \
+	for w in $$(seq 1 $(FLAKE_WAVES)); do \
+		echo "flake wave $$w/$(FLAKE_WAVES): -count=$$n -shuffle=on"; \
+		go test $(GOTAGS) -count=$$n -shuffle=on $(PKGS); \
+	done
 
 # ADR-073/077, NEW-38: budget waktu absolut benchmark, tag perf (helper timing ×1,5 di runner bersama).
 perf: TAGS += perf
