@@ -96,6 +96,9 @@ type Reply struct {
 	RejectedCarriers []event.Carrier
 	CarrierDrops     []event.CarrierDrop
 	ReasoningText    string
+	// BudgetWarnings are the caps whose warn_at the guard reported before
+	// this call (SPEC §18.4: budget_warning, once per cap per period).
+	BudgetWarnings []string
 }
 
 // Class is the only provider-error classification the loop acts on. The
@@ -109,6 +112,7 @@ const (
 	ClassEmptyResponse
 	ClassContextLength
 	ClassCancelled
+	ClassBudget // budget guard denied the call (P27); Detail is the budget_* stop
 )
 
 // StreamError is a classified provider failure. An adapter wraps the
@@ -116,6 +120,8 @@ const (
 type StreamError struct {
 	Class Class
 	Err   error
+	// Detail is the SPEC §3.5 budget_* stop of a ClassBudget denial.
+	Detail event.StopDetail
 }
 
 func (e *StreamError) Error() string { return "provider: " + e.Err.Error() }
