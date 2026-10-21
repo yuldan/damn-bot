@@ -8,7 +8,8 @@ import (
 // StableOptions selects the conditional stable-tier rules (ADR-067, NEW-52).
 type StableOptions struct {
 	// Deferred renders rule 3 (deferred catalog, tool_search/tool_invoke)
-	// when at least one deferred module group is active.
+	// when at least one deferred module group is active. [Assembler.Build]
+	// ignores the caller's value and sets it from the rendered catalog.
 	Deferred bool
 	// Codeintel adds repo_map to the locate-code rule when codeintel is
 	// active. The F1 variant keeps grep/glob guidance without repo_map.

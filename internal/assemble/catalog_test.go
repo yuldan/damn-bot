@@ -1,6 +1,8 @@
 package assemble
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -9,7 +11,7 @@ func TestCatalogSortedAndOverflow(t *testing.T) {
 	t.Parallel()
 	groups := make([]CatalogGroup, 30)
 	for i := range groups {
-		groups[i] = CatalogGroup{Name: string(rune('a' + i)), Tools: []string{"one", "two"}}
+		groups[i] = CatalogGroup{Name: string(rune('a' + i)), Summary: "one, two"}
 	}
 	// Reverse input order; output must be sorted byte-wise.
 	for i, j := 0, len(groups)-1; i < j; i, j = i+1, j-1 {
@@ -17,13 +19,16 @@ func TestCatalogSortedAndOverflow(t *testing.T) {
 	}
 	text := Catalog(groups, asciiCounter())
 	lines := strings.Split(text, "\n")
-	if len(lines) != CatalogMaxGroups+1 {
-		t.Fatalf("lines = %d, want %d + overflow", len(lines), CatalogMaxGroups)
+	if len(lines) != 1+CatalogMaxGroups+1 {
+		t.Fatalf("lines = %d, want header + %d + overflow", len(lines), CatalogMaxGroups)
 	}
-	if !strings.Contains(lines[len(lines)-1], "+6 more groups: tool_search") {
-		t.Errorf("overflow line = %q", lines[len(lines)-1])
+	if lines[0] != catalogHeader {
+		t.Errorf("header = %q", lines[0])
 	}
-	for i := 1; i < CatalogMaxGroups; i++ {
+	if got := lines[len(lines)-1]; got != "- +6 more groups: tool_search" {
+		t.Errorf("overflow line = %q", got)
+	}
+	for i := 2; i <= CatalogMaxGroups; i++ {
 		if lines[i] < lines[i-1] {
 			t.Errorf("groups not sorted: %q before %q", lines[i-1], lines[i])
 		}
@@ -35,16 +40,105 @@ func TestCatalogEmpty(t *testing.T) {
 	if got := Catalog(nil, asciiCounter()); got != "" {
 		t.Errorf("empty catalog = %q", got)
 	}
+	if got := Catalog([]CatalogGroup{{Name: " \n", Summary: "x"}}, asciiCounter()); got != "" {
+		t.Errorf("nameless group rendered %q", got)
+	}
 }
 
 func TestCatalogCap(t *testing.T) {
 	t.Parallel()
 	groups := []CatalogGroup{
-		{Name: "a", Tools: []string{strings.Repeat("tool ", 200)}},
-		{Name: "b", Tools: []string{"short"}},
+		{Name: "a", Summary: strings.Repeat("tool ", 200)},
+		{Name: "b", Summary: "short"},
 	}
 	text := Catalog(groups, asciiCounter())
 	if n := asciiCounter().Count(text); n > CapCatalog {
 		t.Errorf("catalog = %d tokens, cap %d", n, CapCatalog)
+	}
+}
+
+// TestCatalogDeterministic: the catalog is a pure function of the group set
+// (P15, SPEC §5.2): input order, duplicate registrations, whitespace and an
+// already-prefixed registry line never change the bytes.
+func TestCatalogDeterministic(t *testing.T) {
+	t.Parallel()
+	a := []CatalogGroup{
+		{Name: "web", Summary: "search the web and extract pages"},
+		{Name: "browser", Summary: "- browser: navigate, click,\ntype, read"},
+		{Name: "code", Summary: "symbols, definitions"},
+		{Name: "code", Summary: "rename"},
+		{Name: "code", Summary: "rename"},
+		{Name: "undo", Summary: ""},
+	}
+	b := []CatalogGroup{a[5], a[3], a[0], a[4], a[2], a[1]}
+	want := catalogHeader + "\n" +
+		"- browser: navigate, click, type, read\n" +
+		"- code: rename; symbols, definitions\n" +
+		"- undo\n" +
+		"- web: search the web and extract pages"
+	for i, groups := range [][]CatalogGroup{a, b} {
+		if got := Catalog(groups, asciiCounter()); got != want {
+			t.Errorf("order %d:\n%s\nwant\n%s", i, got, want)
+		}
+	}
+}
+
+// TestCatalogOverflow: 40 module groups at the 15-token line limit still fit
+// the 600-token tier with the single overflow line (SPEC P1, §5.2).
+func TestCatalogOverflow(t *testing.T) {
+	t.Parallel()
+	groups := make([]CatalogGroup, 40)
+	for i := range groups {
+		groups[i] = CatalogGroup{
+			Name:    fmt.Sprintf("group%02d", i),
+			Summary: "list, read, write, search, run and stop items",
+		}
+	}
+	c := asciiCounter()
+	text := Catalog(groups, c)
+	if n := c.Count(text); n > CapCatalog {
+		t.Fatalf("catalog = %d tokens, cap %d", n, CapCatalog)
+	}
+	lines := strings.Split(text, "\n")
+	shown := len(lines) - 2
+	if shown > CatalogMaxGroups || shown < 1 {
+		t.Fatalf("shown groups = %d", shown)
+	}
+	if want := fmt.Sprintf("- +%d more groups: tool_search", 40-shown); lines[len(lines)-1] != want {
+		t.Errorf("overflow = %q, want %q", lines[len(lines)-1], want)
+	}
+	if lines[1] != "- group00: "+groups[0].Summary {
+		t.Errorf("first group = %q", lines[1])
+	}
+}
+
+// TestBuildRule3FollowsCatalog: stable rule 3 (tool_search/tool_invoke) is
+// rendered exactly when the deferred catalog is, whatever the caller set.
+func TestBuildRule3FollowsCatalog(t *testing.T) {
+	t.Parallel()
+	a := newAssembler(t, identity)
+	for _, tc := range []struct {
+		name    string
+		catalog []CatalogGroup
+		opt     bool
+		want    bool
+	}{
+		{"none", nil, true, false},
+		{"groups", []CatalogGroup{{Name: "web", Summary: "search pages"}}, false, true},
+	} {
+		req, est, err := a.Build(context.Background(), &SessionView{
+			Phase: PhaseF1, Stable: StableOptions{Deferred: tc.opt}, Catalog: tc.catalog,
+			History: []Message{{Role: "user", Content: "hi"}},
+		})
+		if err != nil {
+			t.Fatalf("%s: Build: %v", tc.name, err)
+		}
+		system := req.Messages[0].Content
+		if got := strings.Contains(system, "tool_invoke with that exact name"); got != tc.want {
+			t.Errorf("%s: rule 3 rendered = %v, want %v", tc.name, got, tc.want)
+		}
+		if got := strings.Contains(system, catalogHeader); got != tc.want || (est.Catalog > 0) != tc.want {
+			t.Errorf("%s: catalog rendered = %v (est %d), want %v", tc.name, got, est.Catalog, tc.want)
+		}
 	}
 }

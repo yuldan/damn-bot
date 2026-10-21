@@ -66,7 +66,11 @@ func (a *Assembler) Build(ctx context.Context, v *SessionView) (Request, Estimat
 	if err != nil {
 		return Request{}, Estimate{}, err
 	}
-	stable := Stable(v.Stable)
+	// Rule 3 names tool_search/tool_invoke and "the deferred catalog below",
+	// so it is rendered exactly when the catalog is (ADR-067, ADR-121).
+	opts := v.Stable
+	opts.Deferred = catalog != ""
+	stable := Stable(opts)
 	system := joinNonEmpty([]string{stable, catalog, ctxResult.Text})
 	history, err := v.messagesWithVolatile()
 	if err != nil {

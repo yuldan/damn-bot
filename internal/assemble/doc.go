@@ -4,9 +4,10 @@
 // F1 scope is the three stable parts of the system message and the frozen
 // volatile tier:
 //
-//	stable tier    identity + rules; conditional rule 3 (deferred catalog) and
-//	               the repo_map mention are selected from [StableOptions]
-//	catalog        deferred module groups (empty in F1)
+//	stable tier    identity + rules; rule 3 (deferred catalog) is rendered
+//	               exactly when the catalog is, repo_map with [StableOptions]
+//	catalog        deferred module groups from the module registry, sorted,
+//	               ≤ 24 lines + overflow, ≤ 600 tokens (ADR-121)
 //	context        facts, workspace snapshot, sandboxed context files, memory,
 //	               skills, each with its SPEC §6 sub-cap
 //	volatile       time, remaining budget, todos, new names, notices; rendered
