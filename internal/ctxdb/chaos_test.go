@@ -64,6 +64,12 @@ func TestChildProcess(t *testing.T) {
 		t.Log(waitStdin()) // EOF/killed: either way the barrier is released below
 		must(t, b.Release())
 		return
+	case "hold-fd":
+		// EC-STATE-016: keep an inherited descriptor (flock) alive while the
+		// parent drops its own copy.
+		say(t, "READY")
+		t.Log(waitStdin())
+		return
 	}
 	s, err := Open(context.Background(), &Options{Dir: dir, Kind: "tui"})
 	must(t, err)

@@ -31,11 +31,7 @@ func (s *Store) ListSessions(ctx context.Context) ([]string, error) {
 	return s.strings(ctx, "SELECT id FROM sessions s WHERE id <> '__system__' AND "+notPurging("s.id")+" ORDER BY created_at DESC, id")
 }
 
-// Search is `recall`/`sessions search`: FTS match filtered per candidate.
-func (s *Store) Search(ctx context.Context, q string) ([]string, error) {
-	return s.strings(ctx, `SELECT e.session_id FROM events_fts f JOIN events e ON e.id = f.rowid
-		WHERE events_fts MATCH dmb_fts_norm(?) AND `+notPurging("e.session_id")+` ORDER BY bm25(events_fts)`, q)
-}
+// Search and History live in read.go.
 
 // RecallHit is one matching event (SPEC §11.6 `recall`).
 type RecallHit struct {
@@ -134,18 +130,38 @@ type sessForest struct {
 	kids  map[string][]string
 }
 
-// sub returns id and all its descendants.
+// sub returns id and all its descendants. It walks without a depth limit
+// (EC-STATE-014) but with a visited set, so a corrupt parent_id cycle cannot
+// recurse forever.
 func (f *sessForest) sub(id string) []string {
-	out := []string{id}
-	for _, k := range f.kids[id] {
-		out = append(out, f.sub(k)...)
+	out := make([]string, 0, 1)
+	seen := map[string]bool{}
+	stack := []string{id}
+	for len(stack) > 0 {
+		x := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[x] {
+			continue
+		}
+		seen[x] = true
+		out = append(out, x)
+		for _, k := range slices.Backward(f.kids[x]) {
+			if !seen[k] {
+				stack = append(stack, k)
+			}
+		}
 	}
 	return out
 }
 
 func (f *sessForest) depth(id string) int {
 	d := 0
+	seen := map[string]bool{id: true}
 	for p := f.nodes[id].parent; p != ""; p = f.nodes[p].parent {
+		if seen[p] {
+			break
+		}
+		seen[p] = true
 		d++
 	}
 	return d

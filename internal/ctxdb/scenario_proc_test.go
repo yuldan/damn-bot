@@ -28,7 +28,9 @@ func spawnGroup(t *testing.T, script string) (*exec.Cmd, int, string) {
 	must(t, cmd.Start())
 	t.Cleanup(func() {
 		t.Log(syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)) // ESRCH when the group is already gone
-		t.Log(cmd.Wait())
+		if cmd.ProcessState == nil {
+			t.Log(cmd.Wait())
+		}
 	})
 	st := startStamp(t, cmd.Process.Pid)
 	return cmd, cmd.Process.Pid, st
@@ -141,8 +143,10 @@ func s085(t *testing.T) {
 	e := newEnv(t)
 	tui := e.open(1, "tui")
 	session(t, tui, "S", "")
-	leader, pg, st := spawnGroup(t, "nohup sleep 300 >/dev/null 2>&1 & echo started")
-	t.Log(leader.Wait()) // leader exited; its child keeps pgrp = pg
+	// Grace after forking the nohup child: spawnGroup reads /proc immediately
+	// after Start, and a shell that exits in microseconds can win that race.
+	leader, pg, st := spawnGroup(t, "nohup sleep 300 >/dev/null 2>&1 & echo started; sleep 1")
+	t.Log(leader.Wait()) // leader exits after the grace; its child keeps pgrp = pg
 	waitMembers(t, pg, 1)
 	must(t, tui.Write(context.Background(), func(tx *Tx) error {
 		if err := tx.StartTurn("S", "T1"); err != nil {
