@@ -91,3 +91,39 @@ Probe `TestZZSec12R2` (`runTurn` nyata + `providertest` + ctxdb nyata) dijalanka
 | SEC12-7 | MINOR (laten) | confirmed | **Pointer induk tidak terikat principal/project.** `Tx.CreateSession` menerima `ParentID` sesi mana pun (hanya dijaga purging) tanpa memeriksa `origin`/`cwd`/identitas gateway induk. `Lineage` lalu mengikutinya. Probe: sesi headless di `/home/u/proj` dengan `ParentID` = sesi gateway lain atau project lain → recall menampilkan isinya. Saat ini tidak ada pemanggil produksi yang mengisi `ParentID` dari input (hanya `ctxdb.Fork`, yang menyalin `origin`/`cwd` induk). Jalur delegate/resume/gateway nanti dapat membuka ini, terutama bila id sesi berasal dari input user/model. | Tegakkan di `Tx.CreateSession`: bila `ParentID` diisi, `origin` dan `cwd` anak harus sama dengan induk (dan identitas gateway bila ada), atau sediakan `ctxdb.Fork` sebagai satu-satunya jalur dengan `ParentID`. Sebagai pertahanan berlapis, `retrieval` dapat menyaring leluhur yang `origin`/`cwd`-nya berbeda dari sesi berjalan. Otorisasi `sessions fork <id>` (siapa boleh mem-fork sesi siapa) perlu ditetapkan saat perintahnya ada. |
 
 **Ringkasan:** #219 **APPROVE**: usage summary masuk budget turn dan input summarizer diredaksi ulang. #220 **APPROVE dengan MINOR**: kebocoran lintas project/gateway di jalur nyata tertutup (probe), hit turn berjalan dibuang, dan pemicu SPEC baris 6 diterapkan. SEC12-6 (konten induk setelah fork ikut ter-recall) sebaiknya diperbaiki sebelum merge. SEC12-7 adalah penguatan API untuk jalur fork/delegate berikutnya.
+
+## Round 3 — 2026-10-21
+
+#220 `814ee9c` (di atas `66932c8`): `Lineage` → `[]Ancestor{ID, ForkSeq, Origin, Cwd, GatewayIdentity}`; `searchLineage`/`hitVisible` membuang hit dengan `Seq > ForkSeq` bila `ForkSeq > 0`; `Tx.CreateSession.checkParent` menolak anak non-`delegate` yang origin/cwd-nya berbeda dari induk atau yang induknya berlabel `gateway_chat`; `lineageBounds` hanya mempertahankan leluhur yang origin/cwd/identitasnya sama dengan target.
+
+**Verdict:** #220 **REQUEST CHANGES (kecil)**: SEC12-6/7 FIXED untuk jalur yang diuji, tetapi SEC12-8 (MEDIUM, fork di seq 0 = tanpa batas) dan SEC12-9 (MINOR/laten, rantai `delegate` lintas principal).
+
+Gate di `814ee9c`: `go test -race -tags goolm -count=1 ./cmd/damnbot ./internal/assemble/... ./internal/compaction/... ./internal/loop/... ./internal/archtest` → ok; `./internal/ctxdb -race` → ok (254 s); `go vet` + `GOOS=windows|darwin` bersih; `make deadcode` 0; `make loc` `ctxdb 3472/3500`, `assemble 1264/1300`.
+
+Probe `TestZZSec12R3` (`runTurn` nyata + `providertest` + ctxdb nyata; prompt "zebra") dijalankan lalu dihapus. Isi DB: `other` (cwd lain), `gwb` (origin `gateway`, label `gateway_chat=telegram:B`), `parent` (cwd `/home/u/proj`, "parent early note"), lalu "parent **AFTER-FORK** secret" ditambahkan ke `parent` setelah fork.
+
+| Skenario | Hasil |
+|---|---|
+| `Fork(parent, 1)` | hanya `parent early` (sah); `AFTER-FORK` **dibuang** ✔ (SEC12-6) |
+| **`Fork(parent, 0)`** | **`parent early` + `AFTER-FORK`** → SEC12-8 |
+| `CreateSession{ParentID: other, Origin: headless, Cwd: /home/u/proj}` | ditolak `parent … origin/cwd/identity mismatch` ✔ (SEC12-7) |
+| `CreateSession{ParentID: gwb, Origin: gateway, Cwd: /}` (non-delegate) | ditolak (induk punya identitas gateway) ✔ |
+| `CreateSession{ParentID: gwb, Origin: delegate, Cwd: /}` | **diterima** (pengecualian delegate). Recall dari anak ini: `gwb` dilewati (origin berbeda) ✔ |
+| `CreateSession{ParentID: other, Origin: delegate, Cwd: /home/u/other}` | diterima. Recall: `other` dilewati (origin berbeda) ✔ |
+| **Delegate penyerang `{ParentID: deleg-gw, Origin: delegate, Cwd: /}`** (induknya = delegate milik sesi gateway B) | diterima; `Lineage` = `[deleg-attacker(delegate,/,"") deleg-gw(delegate,/,"") gwb(gateway,/,telegram:B)]` → **"B subagent private result" masuk recall** → SEC12-9 |
+
+### Status
+
+| ID | Verdict | Bukti |
+|---|---|---|
+| SEC12-6 | **PARSIAL** | Batas `fork_seq` diterapkan untuk `ForkSeq ≥ 1`. `ForkSeq = 0` disamakan dengan "target tanpa batas" → SEC12-8. |
+| SEC12-7 | **FIXED** (non-delegate) | `checkParent` menolak induk lintas origin/cwd/gateway, dan `lineageBounds` memeriksa ulang setiap leluhur (pertahanan untuk baris lama). Pengecualian delegate → SEC12-9. |
+
+### Temuan baru
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC12-8 | **MEDIUM** | confirmed | **Fork di seq 0 me-recall seluruh induk.** `Lineage` memetakan `lim = MaxInt64` (target) ke `ForkSeq = 0`, dan `coalesce(c.fork_seq, 0)` untuk leluhur juga dapat menghasilkan 0. `searchLineage`/`hitVisible` hanya membatasi bila `bound > 0`. `ctxdb.Fork(id, 0)` sah (`atSeq < 0` saja yang ditolak), dan anaknya tidak memiliki event induk sama sekali, tetapi recall-nya mengembalikan **semua** konten induk, termasuk yang ditulis setelah fork (probe). Hal yang sama berlaku untuk edge `delegate` (`fork_seq` NULL → 0). | Pisahkan sentinel target dari batas: mis. `Ancestor.Bounded bool`/`Bound int64` dengan `-1` = target, atau lewati leluhur dengan `ForkSeq == 0`, karena fork di 0 berarti tidak ada event yang diwarisi. Untuk edge delegate (tanpa fork), leluhurnya jangan pernah di-recall. Tambahkan test `Fork(parent, 0)`. |
+| SEC12-9 | MINOR (laten) | confirmed | **Pengecualian `delegate` dapat merangkai lintas principal.** `checkParent` melewati semua pemeriksaan untuk `Origin == "delegate"`, dan sesi delegate tidak mewarisi label `gateway_chat`, sehingga `GatewayIdentity` delegate kosong. `lineageBounds` lalu menganggap delegate milik principal B setara dengan delegate penyerang selama origin (`delegate`) dan cwd sama (sesi gateway umumnya `cwd = "/"`). Probe: delegate penyerang dengan induk = delegate B → hasil subagent B masuk recall. Saat ini tidak ada jalur produksi yang membuat delegate dengan `ParentID` dari input (tool delegate memakai sesi berjalan), sehingga ini laten. | (1) Delegate harus mewarisi identitas principal induk (label `gateway_chat` atau kolom identitas), dan `checkParent` untuk delegate tetap memeriksa **identitas** (dan sebaiknya cwd), hanya origin yang dikecualikan. (2) `lineageBounds` tidak mengikuti edge delegate (SPEC §11.2: delegate adalah anak tanpa fork, jadi tidak mewarisi transcript), atau mewajibkan identitas cocok di setiap edge, bukan hanya dibandingkan dengan target. (3) Test: rantai delegate antar-principal tidak pernah muncul di recall. |
+
+**Ringkasan:** #220 **REQUEST CHANGES (kecil)**. Batas fork untuk `ForkSeq ≥ 1` dan penolakan induk palsu non-delegate sudah benar (probe). `Fork(…, 0)` masih me-recall seluruh induk termasuk konten setelah fork (SEC12-8), dan pengecualian `delegate` dapat merangkai recall lintas principal gateway (SEC12-9, laten). Keduanya perlu satu perbaikan kecil di `Lineage`/`lineageBounds`/`checkParent` sebelum merge.
