@@ -178,6 +178,8 @@ func TestRegisterDoesNotStart(t *testing.T) {
 		started++
 		return stubModule{}, nil
 	}
+	h := &recordingHost{onEmit: func() { emitted++ }}
+	_ = NewRuntime(Deps{Registry: r, Host: h})
 	if err := r.Register(d); err != nil {
 		t.Fatal(err)
 	}
