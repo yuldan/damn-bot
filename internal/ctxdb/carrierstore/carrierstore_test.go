@@ -306,3 +306,31 @@ func TestCarrierRejectionsRestart(t *testing.T) {
 		t.Fatalf("other session rejections = %v, %v", other, oerr)
 	}
 }
+
+// TestCarrierBySHA: a payload digest maps to this session's carrier IDs only.
+func TestCarrierBySHA(t *testing.T) {
+	t.Parallel()
+	_, store, eventID, _ := fixture(t)
+	cs := carriers()
+	if _, err := store.Save(t.Context(), "S", eventID, cs); err != nil {
+		t.Fatal(err)
+	}
+	sha := PayloadSHA(cs[1].Payload)
+	ids, err := store.BySHA(t.Context(), "S", []string{sha})
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("BySHA = %v, %v", ids, err)
+	}
+	got, gerr := store.Load(t.Context(), "S", []int64{eventID})
+	if gerr != nil || len(got) != 3 {
+		t.Fatal(gerr)
+	}
+	if got[1].ID != ids[0] || got[1].SHA != sha {
+		t.Fatalf("ids = %v, row = %+v", ids, got[1])
+	}
+	if other, oerr := store.BySHA(t.Context(), "other", []string{sha}); oerr != nil || len(other) != 0 {
+		t.Fatalf("other session BySHA = %v, %v", other, oerr)
+	}
+	if empty, eerr := store.BySHA(t.Context(), "S", nil); eerr != nil || empty != nil {
+		t.Fatalf("empty = %v, %v", empty, eerr)
+	}
+}

@@ -292,3 +292,32 @@ func boolInt(b bool) int {
 	}
 	return 0
 }
+
+// BySHA returns the carrier IDs of sessionID whose payload sha256 is in
+// shas, for mapping a rejected wire block back to its stored row.
+func (s Store) BySHA(ctx context.Context, sessionID string, shas []string) ([]int64, error) {
+	if sessionID == "" || len(shas) == 0 {
+		return nil, nil
+	}
+	args := make([]any, 0, len(shas)+1)
+	args = append(args, sessionID)
+	marks := make([]string, len(shas))
+	for i, sha := range shas {
+		marks[i] = "?"
+		args = append(args, sha)
+	}
+	var out []int64
+	err := s.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		ids, ierr := tx.Ints(`SELECT c.id FROM reasoning_carriers c JOIN events e ON e.id = c.event_id
+			WHERE e.session_id = ? AND c.payload_sha IN (`+strings.Join(marks, ",")+`) ORDER BY c.id`, args...)
+		if ierr != nil {
+			return fmt.Errorf("carrierstore: find by sha: %w", ierr)
+		}
+		out = ids
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("carrierstore: by sha: %w", err)
+	}
+	return out, nil
+}
