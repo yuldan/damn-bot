@@ -30,6 +30,7 @@ import (
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
+	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/netx/retry"
 	"github.com/damnbot/damnbot/internal/provider"
@@ -181,7 +182,8 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	})
 	// The context tier is rendered once and frozen for the session (P15).
 	ctxIn := &assemble.ContextInput{
-		Facts: "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
+		Facts:     "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
+		Workspace: "cwd: " + model.cwd,
 	}
 	if o.retrieverFor != nil {
 		ctxIn.Query = o.prompt
@@ -220,8 +222,13 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		MaxIdentical:    cfg.Loop.MaxIdentical,
 		ParallelTools:   cfg.Loop.ParallelTools,
 	}, &loop.Deps{
-		Provider:  model.provider,
-		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, compactor: comp, window: window, store: model.store, markTainted: disp.MarkTainted},
+		Provider: model.provider,
+		Assembler: &assemblerAdapter{
+			asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text,
+			model: modelRef, maxTokens: cfg.Provider.MaxOutput, compactor: comp,
+			window: window, store: model.store, markTainted: disp.MarkTainted,
+			db: model.db, catalog: catalogGroups(modules.Default()),
+		},
 		Toolset:   &toolsetAdapter{disp: disp},
 		Store:     model.store,
 		Ledger:    model.ledger,
@@ -544,6 +551,8 @@ type assemblerAdapter struct {
 	// evaluated, so --unsafe-auto-shell and shell_allow never auto-approve a
 	// non-read action on untrusted context.
 	markTainted func()
+	db          *ctxdb.Store
+	catalog     []assemble.CatalogGroup
 }
 
 func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleRequest) (loop.Prompt, error) {
@@ -572,11 +581,17 @@ func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleReque
 	for i := range notices {
 		history = append(history, assemble.Message{Role: notices[i].Role, Content: notices[i].Content})
 	}
+	hits, err := retrieval(ctx, a.db, req.Input.Text)
+	if err != nil {
+		return loop.Prompt{}, err
+	}
 	r, est, err := a.asm.Build(ctx, &assemble.SessionView{
 		Phase:     assemble.PhaseF1,
 		Context:   a.contextTier,
+		Catalog:   a.catalog,
 		Tools:     a.tools,
 		Summaries: compaction.Blocks(view.Summaries),
+		Retrieval: hits,
 		Turn:      a.turn,
 		History:   history,
 	})

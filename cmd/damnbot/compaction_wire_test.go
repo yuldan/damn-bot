@@ -281,8 +281,11 @@ func TestAssembleTaintsTurnFromSummary(t *testing.T) {
 		view := &compaction.View{Summaries: []compaction.Summary{c.summary}}
 		a := &assemblerAdapter{
 			asm: asm, contextTier: "facts", model: "openai/gpt-fake", maxTokens: 200, window: 12_000,
-			compactor:   &stubView{view: view},
+			compactor: &stubView{view: view},
+			// db feeds the per-turn retrieval tier (W7): the adapter now owns
+			// both the view-side session read and the recall store.
 			store:       &ctxStore{db: db},
+			db:          db,
 			markTainted: func() { marks++ },
 		}
 		p, aerr := a.Assemble(t.Context(), &loop.AssembleRequest{SessionID: "s", Input: loop.Input{Text: "hi"}})

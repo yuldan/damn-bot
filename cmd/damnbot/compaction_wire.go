@@ -12,6 +12,7 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb/compactstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/limitstore"
 	"github.com/damnbot/damnbot/internal/loop"
+	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/redact"
@@ -143,8 +144,65 @@ func newRunCompactor(ctx context.Context, model *runModel, modelRef string, asm 
 	return comp, window, nil
 }
 
+// retrieval builds the per-turn FTS5 recall tier: best hits first, each
+// filtered against context_exclude via History's raw/excluded semantics so a
+// failed turn can never re-enter the prompt through retrieval (ADR-134).
+func retrieval(ctx context.Context, db *ctxdb.Store, query string) ([]assemble.Snippet, error) {
+	hits, err := db.Search(ctx, ctxdb.Query{Text: query, Limit: 5})
+	if err != nil {
+		return nil, fmt.Errorf("recall: %w", err)
+	}
+	out := make([]assemble.Snippet, 0, 3)
+	for i := range hits {
+		h := &hits[i]
+		if h.Kind == "summary_ref" || h.Seq <= 0 {
+			continue // summary hits need Hit.Excluded from #211
+		}
+		ok, verr := hitVisible(ctx, db, h)
+		if verr != nil {
+			return nil, verr
+		}
+		if !ok {
+			continue
+		}
+		out = append(out, assemble.Snippet{Source: "recall:" + h.SessionID, Text: h.Snippet})
+		if len(out) == 3 {
+			break
+		}
+	}
+	return out, nil
+}
+
+// hitVisible applies the context_exclude filter to a recall hit. Until #211
+// exposes ctxdb.Hit.Excluded, the composition root runs the same marker query
+// (GAP-REL-01, ADR-134 butir 8); a summary hit needs the range predicate from #211.
+func hitVisible(ctx context.Context, db *ctxdb.Store, h *ctxdb.Hit) (bool, error) {
+	n, err := db.Count(ctx, `SELECT EXISTS (SELECT 1 FROM events x JOIN events t ON t.session_id = x.session_id
+		WHERE x.session_id = ?1 AND x.kind = 'context_exclude'
+		AND json_extract(x.payload, '$.turn_id') = t.turn_id AND t.seq = ?2)`, h.SessionID, h.Seq)
+	if err != nil {
+		return false, fmt.Errorf("recall visibility: %w", err)
+	}
+	return n == 0, nil
+}
+
+// catalogGroups maps enabled module descriptors to the deferred catalog tier
+// (ADR-119/121). No module is registered in F2 yet, so the seam is empty
+// until the module PRs land; the mapper is the only join point.
+func catalogGroups(reg *modules.Registry) []assemble.CatalogGroup {
+	descs := reg.Descriptors()
+	out := make([]assemble.CatalogGroup, 0, len(descs))
+	for _, d := range descs {
+		if d.Group == "" || d.Catalog == "" {
+			continue
+		}
+		out = append(out, assemble.CatalogGroup{Name: d.Group, Summary: d.Catalog})
+	}
+	return out
+}
+
 // compactionView is the seam the assembler adapter reads summaries and the
-// compacted transcript from. A nil seam keeps the raw transcript path.
+// compacted transcript from.
 type compactionView interface {
 	View(ctx context.Context, sessionID string) (compaction.View, error)
 }
