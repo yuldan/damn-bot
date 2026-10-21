@@ -313,14 +313,14 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fail(fmt.Errorf("registry: %w", err))
 	}
-	base, key, err := providerEndpoint(modelRef, o)
+	base, key, family, err := providerEndpoint(modelRef, o)
 	if err != nil {
 		return nil, fail(fmt.Errorf("provider endpoint: %w", err))
 	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
-		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: provider.NormalizeBaseURL(base)}},
+		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family}},
 		Attempts: o.providerAttempts,
 	})
 	if err != nil {
@@ -365,10 +365,10 @@ func loadRunConfig(loader *config.Loader, path string) (config.Config, error) {
 	return cfg, nil
 }
 
-func providerEndpoint(ref string, o *runOptions) (base, key string, err error) {
+func providerEndpoint(ref string, o *runOptions) (base, key, family string, err error) {
 	prov, _, ok := strings.Cut(ref, "/")
 	if !ok {
-		return "", "", fmt.Errorf("model %q is not provider/model", ref)
+		return "", "", "", fmt.Errorf("model %q is not provider/model", ref)
 	}
 	base = o.baseURL
 	if base == "" {
@@ -378,14 +378,18 @@ func providerEndpoint(ref string, o *runOptions) (base, key string, err error) {
 		case "openrouter":
 			base = "https://openrouter.ai/api/v1"
 		default:
-			return "", "", fmt.Errorf("provider %q needs --base-url in F1", prov)
+			return "", "", "", fmt.Errorf("provider %q needs --base-url in F1", prov)
 		}
+	}
+	family, err = provider.NormalizeBaseURL(base)
+	if err != nil {
+		return "", "", "", fmt.Errorf("base_url: %w", err)
 	}
 	key = o.apiKey
 	if key == "" {
 		key = os.Getenv(strings.ToUpper(prov) + "_API_KEY")
 	}
-	return base, key, nil
+	return base, key, family, nil
 }
 
 func approvalMode(o *runOptions) tools.Mode {

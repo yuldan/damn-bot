@@ -508,27 +508,53 @@ func (t *turn) carrierHasSecret(c *event.Carrier) bool {
 		return false
 	}
 	hit := false
-	var walk func(any)
-	walk = func(v any) {
-		switch x := v.(type) {
-		case string:
-			hit = hit || t.redact(x) != x
-		case []any:
-			for _, e := range x {
-				walk(e)
+	t.walkCarrier(v, func(s string) {
+		if t.redact(s) != s {
+			hit = true
+		}
+	})
+	return hit
+}
+
+// walkCarrier visits every string and key name, skipping the exact opaque
+// (block type, field) pairs (SEC8-10).
+func (t *turn) walkCarrier(v any, visit func(string)) {
+	switch x := v.(type) {
+	case string:
+		visit(x)
+	case []any:
+		for _, e := range x {
+			t.walkCarrier(e, visit)
+		}
+	case map[string]any:
+		typ := ""
+		if s, ok := x["type"].(string); ok {
+			typ = s
+		}
+		for k, e := range x {
+			visit(k)
+			if opaqueCarrierField(typ, k) {
+				continue
 			}
-		case map[string]any:
-			for k, e := range x {
-				switch k {
-				case "signature", "thought_signature", "encrypted_content", "reasoning_opaque", "data":
-					continue
-				}
-				walk(e)
-			}
+			t.walkCarrier(e, visit)
 		}
 	}
-	walk(v)
-	return hit
+}
+
+// opaqueCarrierField skips only the exact (block type, field) pairs that are
+// ciphertext, not model-visible text (SEC8-10).
+func opaqueCarrierField(blockType, field string) bool {
+	switch field {
+	case "thought_signature", "reasoning_opaque":
+		return true
+	case "encrypted_content":
+		return blockType == "reasoning"
+	case "data":
+		return blockType == "redacted_thinking"
+	case "signature":
+		return blockType == "thinking" || blockType == "redacted_thinking"
+	}
+	return false
 }
 
 func carrierRefs(cs []event.Carrier) []event.CarrierRef {
