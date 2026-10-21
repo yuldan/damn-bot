@@ -50,12 +50,14 @@ func TestContextTruncationOrder(t *testing.T) {
 		Workspace: fillBody("# Workspace", "branch=main", CapWorkspace),
 		Files:     []ContextFile{{Path: "AGENTS.md"}},
 		Reader:    fixtureReader{"AGENTS.md": strings.Repeat("context file line. ", 5000)},
-		Memory: []Memory{
-			{Text: strings.Repeat("pinned memory. ", 900), Pinned: true},
-			{Text: strings.Repeat("ranked memory. ", 900)},
-			{Text: strings.Repeat("ranked memory. ", 900)},
+		Retriever: &fixtureRetriever{
+			memories: []Memory{
+				{Text: strings.Repeat("pinned memory. ", 900), Pinned: true},
+				{Text: strings.Repeat("ranked memory. ", 900)},
+				{Text: strings.Repeat("ranked memory. ", 900)},
+			},
+			skills: []string{strings.Repeat("skill-a ", 200), strings.Repeat("skill-b ", 200), strings.Repeat("skill-c ", 200)},
 		},
-		Skills: []string{strings.Repeat("skill-a ", 200), strings.Repeat("skill-b ", 200), strings.Repeat("skill-c ", 200)},
 	}
 	got, err := a.Context(context.Background(), in)
 	if err != nil {
@@ -126,8 +128,10 @@ func TestContextScrub(t *testing.T) {
 		Workspace: "branch sk-live-secret",
 		Files:     []ContextFile{{Path: "AGENTS.md"}},
 		Reader:    fixtureReader{"AGENTS.md": "sk-live-secret in file"},
-		Memory:    []Memory{{Text: "sk-live-secret memory"}},
-		Skills:    []string{"sk-live-secret skill"},
+		Retriever: &fixtureRetriever{
+			memories: []Memory{{Text: "sk-live-secret memory"}},
+			skills:   []string{"sk-live-secret skill"},
+		},
 	}
 	got, err := a.Context(context.Background(), in)
 	if err != nil {

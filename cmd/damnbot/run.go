@@ -166,6 +166,13 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		RemainingTokens: int64(cfg.Loop.TurnMaxInputTok),
 		RemainingUSD:    cfg.Budget.TurnUSD,
 	})
+	// The context tier is rendered once and frozen for the session (P15).
+	ctxTier, err := asm.Context(ctx, &assemble.ContextInput{
+		Facts: "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
+	})
+	if err != nil {
+		return 0, fmt.Errorf("assemble context: %w", err)
+	}
 	toolList, err := runTools(model.registry)
 	if err != nil {
 		return 0, err
@@ -192,7 +199,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		ParallelTools:   cfg.Loop.ParallelTools,
 	}, &loop.Deps{
 		Provider:  model.provider,
-		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, cwd: model.cwd, model: modelRef, maxTokens: cfg.Provider.MaxOutput, store: model.store},
+		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, store: model.store},
 		Toolset:   &toolsetAdapter{disp: disp},
 		Store:     model.store,
 		Ledger:    model.ledger,
@@ -447,19 +454,19 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 }
 
 type assemblerAdapter struct {
-	asm       *assemble.Assembler
-	turn      *assemble.Turn
-	tools     []assemble.Tool
-	cwd       string
-	model     string
-	maxTokens int
-	store     *ctxStore
+	asm         *assemble.Assembler
+	turn        *assemble.Turn
+	tools       []assemble.Tool
+	contextTier string // frozen per session (P15)
+	model       string
+	maxTokens   int
+	store       *ctxStore
 }
 
 func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleRequest) (loop.Prompt, error) {
 	view := &assemble.SessionView{
 		Phase:   assemble.PhaseF1,
-		Context: &assemble.ContextInput{Facts: "os=" + runtime.GOOS + "; shell=headless; cwd=" + a.cwd + "; frontend=headless"},
+		Context: a.contextTier,
 		Tools:   a.tools,
 		Turn:    a.turn,
 		History: []assemble.Message{{Role: "user", Content: req.Input.Text}},

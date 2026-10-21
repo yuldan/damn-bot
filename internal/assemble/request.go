@@ -21,8 +21,8 @@ type Request struct {
 }
 
 // Estimate is the per-tier token accounting of one request (SPEC §4.5).
-// Pinned, Summaries and Retrieval stay zero in F1: schema pinning, compaction
-// summaries and memory retrieval arrive in F2.
+// Pinned stays zero: pinned tool_search schemas are tool results inside
+// History, whose LRU is owned by internal/tools (SPEC §5.2, ADR-121).
 type Estimate struct {
 	Stable    int
 	Catalog   int
@@ -36,13 +36,24 @@ type Estimate struct {
 	Total     int
 }
 
-// SessionView is everything one iteration contributes to the request.
+// SessionView is everything one iteration contributes to the request, in
+// SPEC §4.5 tier order.
 type SessionView struct {
 	Phase   Phase
 	Stable  StableOptions
 	Catalog []CatalogGroup
-	Context *ContextInput
+	// Context is the frozen context tier: [ContextResult.Text], rendered
+	// once per session by [Assembler.Context] and reused verbatim (P15).
+	Context string
 	Tools   []Tool
+	// Summaries are the active compaction summary blocks, oldest first,
+	// rendered by internal/compaction (ADR-122; tainted ones already
+	// wrapped). Build keeps the newest blocks within [CapSummaries].
+	Summaries []string
+	// Retrieval is the per-turn retrieval tier, best first; constant
+	// within a turn. Build wraps each hit as untrusted data within
+	// [CapRetrieval].
+	Retrieval []Snippet
 	// Turn is the frozen volatile tier, shared by every iteration of the
 	// turn. Nil is allowed only for callers without a turn (tests, F2
 	// tooling).
@@ -55,35 +66,47 @@ type SessionView struct {
 
 // Build renders one request and its per-tier estimate. It returns
 // [ErrNoUserMessage] when a frozen turn has no user message to carry the
-// volatile tier, and [ErrDeps] when context files need a reader.
-func (a *Assembler) Build(ctx context.Context, v *SessionView) (Request, Estimate, error) {
+// volatile tier and [ErrUntrusted] for a summary whose <untrusted> wrapper
+// does not close. Build does no I/O: every tier is caller data.
+func (a *Assembler) Build(_ context.Context, v *SessionView) (Request, Estimate, error) {
 	tools, err := FilterTools(v.Phase, v.Tools)
 	if err != nil {
 		return Request{}, Estimate{}, err
 	}
 	catalog := a.Catalog(v.Catalog)
-	ctxResult, err := a.Context(ctx, v.Context)
-	if err != nil {
-		return Request{}, Estimate{}, err
-	}
 	// Rule 3 names tool_search/tool_invoke and "the deferred catalog below",
 	// so it is rendered exactly when the catalog is (ADR-067, ADR-121).
 	opts := v.Stable
 	opts.Deferred = catalog != ""
 	stable := Stable(opts)
-	system := joinNonEmpty([]string{stable, catalog, ctxResult.Text})
+	// Context() already caps the tier; the clip only guards a caller that
+	// passes foreign text, and is a no-op for a rendered tier.
+	contextText := clip(v.Context, CapContext, "\n[truncated]", a.tokens)
+	system := joinNonEmpty([]string{stable, catalog, contextText})
+	summaries, err := a.summaryTier(v.Summaries)
+	if err != nil {
+		return Request{}, Estimate{}, err
+	}
+	retrieval := a.retrievalTier(v.Retrieval)
 	history, err := v.messagesWithVolatile()
 	if err != nil {
 		return Request{}, Estimate{}, err
 	}
-	messages := make([]Message, 0, len(history)+1)
+	messages := make([]Message, 0, len(history)+3)
 	messages = append(messages, Message{Role: "system", Content: system})
+	for _, extra := range []string{summaries, retrieval} {
+		if extra != "" {
+			messages = append(messages, Message{Role: "user", Content: extra})
+		}
+	}
 	messages = append(messages, history...)
 	req := Request{Messages: messages, Tools: tools}
-	est, err := a.estimate(v, stable, catalog, ctxResult.Text, tools, messages)
+	est, err := a.estimate(v, tools, messages, history)
 	if err != nil {
 		return Request{}, Estimate{}, err
 	}
+	est.Stable, est.Catalog, est.Context = a.tokens.Count(stable), a.tokens.Count(catalog), a.tokens.Count(contextText)
+	est.Summaries, est.Retrieval = a.tokens.Count(summaries), a.tokens.Count(retrieval)
 	return req, est, nil
 }
 
@@ -108,14 +131,14 @@ func (v *SessionView) messagesWithVolatile() ([]Message, error) {
 	return nil, fmt.Errorf("assemble: turn: %w", ErrNoUserMessage)
 }
 
-func (a *Assembler) estimate(
-	v *SessionView, stable, catalog, contextText string, tools []Tool, messages []Message,
-) (Estimate, error) {
+// estimate counts the JSON-shaped parts of the request; Build fills the
+// text tiers.
+func (a *Assembler) estimate(v *SessionView, tools []Tool, messages, history []Message) (Estimate, error) {
 	toolsJSON, err := MarshalTools(tools)
 	if err != nil {
 		return Estimate{}, err
 	}
-	historyJSON, err := marshalMessages(messages[1:])
+	historyJSON, err := marshalMessages(history)
 	if err != nil {
 		return Estimate{}, err
 	}
@@ -124,9 +147,6 @@ func (a *Assembler) estimate(
 		return Estimate{}, err
 	}
 	return Estimate{
-		Stable:   a.tokens.Count(stable),
-		Catalog:  a.tokens.Count(catalog),
-		Context:  a.tokens.Count(contextText),
 		Volatile: a.tokens.Count(v.Turn.String()),
 		Tools:    a.tokens.Count(string(toolsJSON)),
 		History:  a.tokens.Count(string(historyJSON)),
