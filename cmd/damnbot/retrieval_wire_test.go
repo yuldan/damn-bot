@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -207,5 +208,86 @@ func TestCatalogGroups(t *testing.T) {
 	got := catalogGroups(reg)
 	if len(got) != 1 || got[0].Name != "browser" || !strings.Contains(got[0].Summary, "navigate") {
 		t.Fatalf("catalogGroups = %+v", got)
+	}
+}
+
+// TestRetrievalForkAtZeroInheritsNothing (SEC12-8): fork at seq 0 is a real
+// bound that inherits nothing; the parent's later write is never recalled.
+func TestRetrievalForkAtZeroInheritsNothing(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	db := openCompactionDB(ctx, t)
+	for _, s := range []ctxdb.Session{
+		{ID: "parent", Cwd: "/work/a", Origin: "headless"},
+		{ID: "child", ParentID: "parent", Cwd: "/work/a", Origin: "headless"},
+	} {
+		if _, err := db.CreateSession(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Append(ctx, "parent", nil,
+		ctxdb.Event{Kind: "user_message", Role: "user", TurnID: "t", Content: "zebra protocol after fork at zero"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := retrieval(ctx, db, "child", "turn", "zebra protocol", &compaction.View{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("fork at 0 inherited parent content: %+v", hits)
+	}
+}
+
+// TestDelegateIdentityChain (SEC12-9): a delegate must carry its parent's
+// principal, a chained delegate under another principal is rejected, and a
+// forged delegate link never contributes recall.
+func TestDelegateIdentityChain(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	db := openCompactionDB(ctx, t)
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "B", Cwd: "/work/a", Origin: "headless"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Write(ctx, func(tx *ctxdb.Tx) error {
+		if _, err := tx.Exec(`INSERT INTO session_labels(session_id, key, value, created_at)
+			VALUES ('B', 'gateway_chat', 'principal-b', 1)`, nil); err != nil {
+			return fmt.Errorf("principal label: %w", err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "legit", ParentID: "B", Origin: "delegate", Cwd: "/work/a", GatewayIdentity: "principal-b"}); err != nil {
+		t.Fatalf("legit delegate: %v", err)
+	}
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "evil", ParentID: "legit", Origin: "delegate", Cwd: "/work/a", GatewayIdentity: "principal-a"}); !errors.Is(err, ctxdb.ErrInvalidSeq) {
+		t.Fatalf("chained delegate under principal B = %v, want ErrInvalidSeq", err)
+	}
+	if _, err := db.Append(ctx, "legit", nil,
+		ctxdb.Event{Kind: "user_message", Role: "user", TurnID: "t", Content: "zebra protocol principal B subagent secret"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	// Forge the chain with the same principal to bypass CreateSession.
+	if err := db.Write(ctx, func(tx *ctxdb.Tx) error {
+		if _, err := tx.Exec(`INSERT INTO sessions(id, parent_id, fork_seq, origin, cwd, model, config_sha, context_tier, created_at)
+			VALUES ('chain', 'legit', NULL, 'delegate', '/work/a', '', '', '', 1)`, nil); err != nil {
+			return fmt.Errorf("forged chain: %w", err)
+		}
+		if _, err := tx.Exec(`INSERT INTO session_labels(session_id, key, value, created_at)
+			VALUES ('chain', 'gateway_chat', 'principal-b', 1)`, nil); err != nil {
+			return fmt.Errorf("chain label: %w", err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := retrieval(ctx, db, "chain", "turn", "zebra protocol", &compaction.View{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("delegate link contributed recall: %+v", hits)
 	}
 }

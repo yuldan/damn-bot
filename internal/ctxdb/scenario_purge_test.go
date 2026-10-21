@@ -152,7 +152,7 @@ func s008(t *testing.T) {
 	session(t, s, "X", "")
 	must(t, s.ReleaseLease(context.Background(), "X"))
 	purgePhase0(t, s, "X")
-	_, err = s.CreateSession(context.Background(), Session{ID: "X2", ParentID: "X", Origin: "delegate"})
+	_, err = s.CreateSession(context.Background(), Session{ID: "X2", ParentID: "X", Origin: "delegate", Cwd: "/w"})
 	wantErr(t, err, ErrSessionPurging)
 }
 

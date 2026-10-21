@@ -205,6 +205,9 @@ func lineageBounds(lineage []ctxdb.Ancestor) map[string]int64 {
 	target := lineage[0]
 	bounds := make(map[string]int64, len(lineage))
 	for _, a := range lineage {
+		if !a.Self && (a.ForkSeq <= 0 || a.LinkOrigin == "delegate") {
+			continue // fork at 0 / delegate inherit nothing
+		}
 		if a.Origin != target.Origin || a.Cwd != target.Cwd || a.GatewayIdentity != target.GatewayIdentity {
 			continue
 		}

@@ -347,9 +347,9 @@ func TestLineage(t *testing.T) {
 	got, err := s.Lineage(ctx, grand)
 	must(t, err)
 	want := []Ancestor{
-		{ID: grand, Origin: "tui", Cwd: "/w"},
-		{ID: child, ForkSeq: 0, Origin: "tui", Cwd: "/w"},
-		{ID: "P", ForkSeq: 2, Origin: "tui", Cwd: "/w"},
+		{ID: grand, Self: true, Origin: "tui", Cwd: "/w"},
+		{ID: child, Origin: "tui", Cwd: "/w", LinkOrigin: "tui"},
+		{ID: "P", ForkSeq: 2, Origin: "tui", Cwd: "/w", LinkOrigin: "tui"},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("lineage = %+v, want %+v", got, want)
@@ -377,7 +377,17 @@ func TestCreateSessionRejectsMismatchedParent(t *testing.T) {
 	if _, err := s.CreateSession(ctx, Session{ID: "Y", ParentID: "P", Cwd: "/w"}); !errors.Is(err, ErrInvalidSeq) {
 		t.Fatalf("identity mismatch = %v, want ErrInvalidSeq", err)
 	}
-	if _, err := s.CreateSession(ctx, Session{ID: "D", ParentID: "P", Origin: "delegate", Cwd: "/other"}); err != nil {
+	if _, err := s.CreateSession(ctx, Session{ID: "D", ParentID: "P", Origin: "delegate", Cwd: "/w"}); !errors.Is(err, ErrInvalidSeq) {
+		t.Fatalf("delegate identity mismatch = %v, want ErrInvalidSeq", err)
+	}
+	if _, err := s.CreateSession(ctx, Session{ID: "D", ParentID: "P", Origin: "delegate", Cwd: "/w", GatewayIdentity: "tg:u1"}); err != nil {
 		t.Fatalf("delegate child = %v, want allowed", err)
+	}
+	var inherited string
+	must(t, s.Write(ctx, func(tx *Tx) error {
+		return tx.Get(`SELECT coalesce((SELECT value FROM session_labels WHERE session_id = 'D' AND key = 'gateway_chat'), '')`, nil, &inherited)
+	}))
+	if inherited != "tg:u1" {
+		t.Fatalf("delegate inherited identity %q, want tg:u1", inherited)
 	}
 }
