@@ -162,13 +162,10 @@ func retrieval(ctx context.Context, db *ctxdb.Store, sessionID, turnID, query st
 	if !view.Pruned && len(view.Summaries) == 0 && len(lineage) == 1 {
 		return nil, nil
 	}
-	var hits []ctxdb.Hit
-	for _, sid := range lineage {
-		found, serr := db.Search(ctx, ctxdb.Query{Text: query, SessionID: sid, Limit: 5})
-		if serr != nil {
-			return nil, fmt.Errorf("recall: %w", serr)
-		}
-		hits = append(hits, found...)
+	bounds := lineageBounds(lineage)
+	hits, err := searchLineage(ctx, db, bounds, query)
+	if err != nil {
+		return nil, err
 	}
 	slices.SortFunc(hits, func(a, b ctxdb.Hit) int {
 		if c := cmp.Compare(a.Score, b.Score); c != 0 {
@@ -185,7 +182,7 @@ func retrieval(ctx context.Context, db *ctxdb.Store, sessionID, turnID, query st
 		if h.Kind == "summary_ref" || h.Seq <= 0 {
 			continue // summary hits need Hit.Excluded from #211
 		}
-		ok, verr := hitVisible(ctx, db, h, turnID)
+		ok, verr := hitVisible(ctx, db, h, turnID, bounds[h.SessionID])
 		if verr != nil {
 			return nil, verr
 		}
@@ -200,11 +197,49 @@ func retrieval(ctx context.Context, db *ctxdb.Store, sessionID, turnID, query st
 	return out, nil
 }
 
+// lineageBounds keeps the target and ancestors of the same origin, cwd and
+// gateway identity, mapping each to its fork bound (0 = target).
+// CreateSession rejects a forged parent, but a row written by an older
+// binary or a delegate must not widen recall.
+func lineageBounds(lineage []ctxdb.Ancestor) map[string]int64 {
+	target := lineage[0]
+	bounds := make(map[string]int64, len(lineage))
+	for _, a := range lineage {
+		if a.Origin != target.Origin || a.Cwd != target.Cwd || a.GatewayIdentity != target.GatewayIdentity {
+			continue
+		}
+		bounds[a.ID] = a.ForkSeq
+	}
+	return bounds
+}
+
+// searchLineage searches each allowed session and drops events written after
+// the ancestor's fork point.
+func searchLineage(ctx context.Context, db *ctxdb.Store, bounds map[string]int64, query string) ([]ctxdb.Hit, error) {
+	var hits []ctxdb.Hit
+	for id, bound := range bounds {
+		found, err := db.Search(ctx, ctxdb.Query{Text: query, SessionID: id, Limit: 20})
+		if err != nil {
+			return nil, fmt.Errorf("recall: %w", err)
+		}
+		for i := range found {
+			if bound > 0 && found[i].Seq > bound {
+				continue
+			}
+			hits = append(hits, found[i])
+		}
+	}
+	return hits, nil
+}
+
 // hitVisible drops a hit from a context_exclude turn and from the running
 // turn itself. Until #211 exposes ctxdb.Hit.Excluded, the composition root
 // runs the same marker query (GAP-REL-01, ADR-134 butir 8); a summary hit
 // needs the range predicate from #211.
-func hitVisible(ctx context.Context, db *ctxdb.Store, h *ctxdb.Hit, currentTurn string) (bool, error) {
+func hitVisible(ctx context.Context, db *ctxdb.Store, h *ctxdb.Hit, currentTurn string, bound int64) (bool, error) {
+	if bound > 0 && h.Seq > bound {
+		return false, nil
+	}
 	n, err := db.Count(ctx, `SELECT (EXISTS (SELECT 1 FROM events x JOIN events t ON t.session_id = x.session_id
 			WHERE x.session_id = ?1 AND x.kind = 'context_exclude'
 			AND json_extract(x.payload, '$.turn_id') = t.turn_id AND t.seq = ?2))

@@ -33,12 +33,37 @@ func (t *Tx) CreateSession(ss Session) (int64, error) { //nolint:gocritic // val
 	if ss.Origin == "" {
 		ss.Origin = "tui"
 	}
+	if err := t.checkParent(&ss); err != nil {
+		return 0, err
+	}
 	_, err := t.Exec(`INSERT INTO sessions(id, parent_id, fork_seq, origin, cwd, model, config_sha, context_tier, created_at)
 		VALUES (?,?,?,?,?,?,?,?,?)`, ss.ID, parent, fork, ss.Origin, ss.Cwd, ss.Model, ss.ConfigSHA, ss.ContextTier, t.s.clk.WallMs())
 	if err != nil {
 		return 0, err
 	}
 	return t.AcquireLease(ss.ID, false)
+}
+
+// checkParent rejects a non-delegate child whose parent belongs to another
+// origin, project (cwd), or gateway identity. Delegate sessions are the SPEC
+// §11.2 exception (parent without fork); retrieval still skips them when they
+// differ. Gateway identity is not a Session field, so a child of a gateway
+// session must go through a path that sets it.
+func (t *Tx) checkParent(ss *Session) error {
+	if ss.ParentID == "" || ss.Origin == "delegate" {
+		return nil
+	}
+	var origin, cwd, identity string
+	err := t.Get(`SELECT s.origin, s.cwd, coalesce((SELECT l.value FROM session_labels l
+		WHERE l.session_id = s.id AND l.key = 'gateway_chat' ORDER BY l.id DESC LIMIT 1), '')
+		FROM sessions s WHERE s.id = ?1`, []any{ss.ParentID}, &origin, &cwd, &identity)
+	if err != nil {
+		return fmt.Errorf("ctxdb: parent %s: %w", ss.ParentID, err)
+	}
+	if origin != ss.Origin || cwd != ss.Cwd || identity != "" {
+		return fmt.Errorf("ctxdb: parent %s origin/cwd/identity mismatch: %w", ss.ParentID, ErrInvalidSeq)
+	}
+	return nil
 }
 
 // CreateSession creates a session (+ lease) in its own transaction.

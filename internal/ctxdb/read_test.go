@@ -3,6 +3,7 @@ package ctxdb
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -338,23 +339,45 @@ func TestLineage(t *testing.T) {
 	ctx := context.Background()
 	session(t, s, "P", "")
 	child := "C"
-	_, err := s.CreateSession(ctx, Session{ID: child, ParentID: "P", ForkSeq: 0})
+	_, err := s.CreateSession(ctx, Session{ID: child, ParentID: "P", ForkSeq: 2, Cwd: "/w"})
 	must(t, err)
 	grand := "G"
-	_, err = s.CreateSession(ctx, Session{ID: grand, ParentID: child, ForkSeq: 0})
+	_, err = s.CreateSession(ctx, Session{ID: grand, ParentID: child, ForkSeq: 0, Cwd: "/w"})
 	must(t, err)
 	got, err := s.Lineage(ctx, grand)
 	must(t, err)
-	want := []string{grand, child, "P"}
-	if len(got) != len(want) {
-		t.Fatalf("lineage = %v, want %v", got, want)
+	want := []Ancestor{
+		{ID: grand, Origin: "tui", Cwd: "/w"},
+		{ID: child, ForkSeq: 0, Origin: "tui", Cwd: "/w"},
+		{ID: "P", ForkSeq: 2, Origin: "tui", Cwd: "/w"},
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("lineage = %v, want %v", got, want)
-		}
+	if !slices.Equal(got, want) {
+		t.Fatalf("lineage = %+v, want %+v", got, want)
 	}
 	if _, err := s.Lineage(ctx, "missing"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing lineage = %v, want ErrNotFound", err)
+	}
+}
+
+// TestCreateSessionRejectsMismatchedParent (SEC12-7): a non-delegate child
+// cannot forge a parent from another project or gateway identity; delegate
+// remains the SPEC §11.2 exception.
+func TestCreateSessionRejectsMismatchedParent(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	ctx := context.Background()
+	session(t, s, "P", "")
+	if _, err := s.CreateSession(ctx, Session{ID: "X", ParentID: "P", Cwd: "/other"}); !errors.Is(err, ErrInvalidSeq) {
+		t.Fatalf("cwd mismatch = %v, want ErrInvalidSeq", err)
+	}
+	must(t, s.Write(ctx, func(tx *Tx) error {
+		_, xerr := tx.Exec(`INSERT INTO session_labels(session_id, key, value, created_at) VALUES ('P', 'gateway_chat', 'tg:u1', 1)`, nil)
+		return xerr
+	}))
+	if _, err := s.CreateSession(ctx, Session{ID: "Y", ParentID: "P", Cwd: "/w"}); !errors.Is(err, ErrInvalidSeq) {
+		t.Fatalf("identity mismatch = %v, want ErrInvalidSeq", err)
+	}
+	if _, err := s.CreateSession(ctx, Session{ID: "D", ParentID: "P", Origin: "delegate", Cwd: "/other"}); err != nil {
+		t.Fatalf("delegate child = %v, want allowed", err)
 	}
 }
