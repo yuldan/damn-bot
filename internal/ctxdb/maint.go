@@ -43,6 +43,15 @@ type holderInfo struct {
 
 // openRoot creates the data dir layout and opens it as an os.Root, so every
 // file operation of ctxdb stays inside the data dir.
+// openReadRoot opens an existing dir without creating it or the layout.
+func openReadRoot(dir string) (*os.Root, error) {
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return r, nil
+}
+
 func openRoot(dir string) (*os.Root, error) {
 	if err := os.MkdirAll(filepath.Clean(dir), 0o700); err != nil { //nolint:gosec // G703: dir is the operator-configured data dir, not untrusted input
 		return nil, wrap(err)

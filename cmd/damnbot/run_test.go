@@ -200,9 +200,9 @@ func TestRunHeadlessShellSession(t *testing.T) {
 	}
 }
 
-// TestRunSchemaNewerExits78 (GAP-REL-05): a writer refuses a DB migrated by a
-// newer binary with exit 78 and a clear message.
-func TestRunSchemaNewerExits78(t *testing.T) {
+// TestRunSchemaNewerExits1 (GAP-REL-05): a writer refuses a DB migrated by a
+// newer binary with exit 1 (SPEC §4.3 error table) and a clear message.
+func TestRunSchemaNewerExits1(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	ctx := context.Background()
@@ -223,8 +223,8 @@ func TestRunSchemaNewerExits78(t *testing.T) {
 	}
 	var out, errb bytes.Buffer
 	code := run([]string{"run", "-p", "hi", "--model", "openai/x", "--data-dir", dir}, &out, &errb)
-	if code != 78 {
-		t.Fatalf("exit = %d, want 78; stderr=%q", code, errb.String())
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1; stderr=%q", code, errb.String())
 	}
 	if !strings.Contains(errb.String(), "schema") {
 		t.Fatalf("stderr = %q, want a schema message", errb.String())

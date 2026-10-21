@@ -74,7 +74,7 @@ func runHeadless(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		if errors.Is(err, ctxdb.ErrSchemaNewer) {
-			return 78 // SPEC §11.11.7: a writer refuses a newer schema
+			return 1 // SPEC §4.3 error table: schema_newer maps to exit 1
 		}
 		return 2
 	}

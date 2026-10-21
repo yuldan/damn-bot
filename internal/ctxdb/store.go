@@ -113,23 +113,47 @@ func Open(ctx context.Context, o *Options) (*Store, error) {
 // openReadOnly opens only the read pool in mode=ro. A newer schema is
 // readable by design; no migration, lock, holder row, or recovery runs.
 func (s *Store) openReadOnly(ctx context.Context) error {
-	d, err := s.driver(false)
-	if err != nil {
-		return wrap(err)
+	d, derr := s.driver(false)
+	if derr != nil {
+		return wrap(derr)
 	}
-	s.r = sql.OpenDB(connector{d: d, dsn: s.dsnReadOnly()})
-	s.r.SetMaxOpenConns(4)
-	if err := s.r.PingContext(ctx); err != nil {
-		return wrap(errors.Join(err, s.r.Close()))
+	open := func(immutable bool) error {
+		s.r = sql.OpenDB(connector{d: d, dsn: s.dsnReadOnly(immutable)})
+		s.r.SetMaxOpenConns(4)
+		if err := s.r.PingContext(ctx); err != nil {
+			return errors.Join(err, s.r.Close())
+		}
+		return nil
 	}
-	return nil
+	err := open(false)
+	if err == nil {
+		return nil
+	}
+	// A WAL database with no -wal on disk is complete; on read-only media
+	// SQLite cannot create -shm, so read it as an immutable snapshot.
+	if !s.walOnDisk() {
+		if ierr := open(true); ierr == nil {
+			return nil
+		}
+	}
+	return wrap(err)
 }
 
-func (s *Store) dsnReadOnly() string {
-	return "file:" + DBPath(s.dir) + "?mode=ro&" + strings.Join([]string{
+func (s *Store) walOnDisk() bool {
+	fi, err := os.Stat(DBPath(s.dir) + "-wal")
+	return err == nil && fi.Size() > 0
+}
+
+func (s *Store) dsnReadOnly(immutable bool) string {
+	params := []string{
+		"mode=ro",
 		fmt.Sprintf("_pragma=busy_timeout(%d)", s.opt.BusyTimeout.Milliseconds()),
 		"_pragma=query_only(1)", "_pragma=foreign_keys(1)", "_pragma=trusted_schema(1)",
-	}, "&")
+	}
+	if immutable {
+		params = append(params, "immutable=1")
+	}
+	return "file:" + dsnPath(s.dir) + "?" + strings.Join(params, "&")
 }
 
 func newStore(o *Options) (*Store, error) {
@@ -150,7 +174,12 @@ func newStore(o *Options) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	root, err := openRoot(opt.Dir)
+	var root *os.Root
+	if opt.ReadOnly {
+		root, err = openReadRoot(opt.Dir)
+	} else {
+		root, err = openRoot(opt.Dir)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +242,12 @@ func (s *Store) attach(ctx context.Context) error {
 	return nil
 }
 
+// dsnPath escapes the characters that would otherwise split the SQLite URI
+// into a fragment/query (and silently drop mode=ro/query_only).
+func dsnPath(dir string) string {
+	return strings.NewReplacer("%", "%25", "#", "%23", "?", "%3F").Replace(DBPath(dir))
+}
+
 func (s *Store) dsn(readOnly bool) string {
 	q := []string{
 		fmt.Sprintf("_pragma=busy_timeout(%d)", s.opt.BusyTimeout.Milliseconds()),
@@ -223,7 +258,7 @@ func (s *Store) dsn(readOnly bool) string {
 	if readOnly {
 		q = append(q, "_pragma=query_only(1)", "_pragma=cache_size(-12288)")
 	}
-	return "file:" + DBPath(s.dir) + "?" + strings.Join(q, "&")
+	return "file:" + dsnPath(s.dir) + "?" + strings.Join(q, "&")
 }
 
 func (s *Store) openHandles(ctx context.Context) (w, r *sql.DB, err error) {

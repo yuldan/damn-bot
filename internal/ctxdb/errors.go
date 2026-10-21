@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"modernc.org/sqlite"
 )
@@ -78,6 +79,18 @@ func classify(err error) error {
 }
 
 // wrap classifies and wraps any error crossing the package boundary.
+// readOnlyQuery rejects statements that can write another database file.
+func readOnlyQuery(q string) bool {
+	up := strings.ToUpper(q)
+	for _, bad := range []string{"ATTACH", "VACUUM", "INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER", "PRAGMA"} {
+		if strings.Contains(up, bad) {
+			return false
+		}
+	}
+	trimmed := strings.TrimSpace(up)
+	return strings.HasPrefix(trimmed, "SELECT") || strings.HasPrefix(trimmed, "WITH")
+}
+
 func wrap(err error) error {
 	if err == nil {
 		return nil
