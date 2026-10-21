@@ -19,3 +19,5 @@ Hanya hal yang masih terbuka; **tidak ada yang memblokir freeze**. Nomor `Qn` di
 | # | Pertanyaan | Asumsi kerja | Status |
 |---|---|---|---|
 | Q23-RC | Model frontier & anggaran untuk head-to-head penuh (SWE-bench Verified subset 100 × 3 run × 2 agent + E2–E10) dan scorecard mingguan | Ditetapkan user saat RC pertama F9 / saat scorecard mingguan pertama diaktifkan (ADR-032) | Tidak memblokir freeze |
+
+<!-- probe: docs-only CI path filter (ADR-135), hapus tanpa merge -->
