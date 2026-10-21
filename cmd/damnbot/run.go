@@ -203,7 +203,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	}
 	comp, err := compaction.NewCompactor(&compaction.Deps{
 		Store:      compactstore.New(model.db, nil),
-		Summarizer: &compactionSummarizer{prov: model.provider, provider: provName, model: modelRef},
+		Summarizer: &compactionSummarizer{prov: model.provider, provider: provName, model: modelRef, red: red},
 		Meter:      &runMeter{asm: asm, tools: toolList, context: ctxTier.Text, window: window},
 		Redactor:   red,
 	})

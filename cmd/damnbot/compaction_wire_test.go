@@ -17,6 +17,8 @@ import (
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
+const leakedSecret = "sk-" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 const summaryReply = `{"goal":"port the parser","decisions":["use tables"],"files":["a.go"],"open_items":[],"facts":["tests pass"]}`
 
 // TestRunCompactionSummary (W6): a long session crosses compact_at, the
@@ -46,6 +48,13 @@ func TestRunCompactionSummary(t *testing.T) {
 	}
 	if !strings.Contains(string(reqs[0]), "summarise an earlier part") {
 		t.Errorf("first call is not the summary call: %.200s", reqs[0])
+	}
+	// SEC12-5: the summarizer input is re-redacted before the provider call.
+	if strings.Contains(string(reqs[0]), leakedSecret) {
+		t.Error("summary input leaked the secret to the provider")
+	}
+	if !strings.Contains(string(reqs[0]), "[REDACTED:") {
+		t.Error("summary input was not redacted")
 	}
 	assertSummaryRequest(t, reqs[len(reqs)-1])
 	rows, countErr := db.Count(ctx, `SELECT count(*) FROM usage_ledger WHERE purpose = 'compaction'`)
@@ -101,7 +110,7 @@ func seedLongSession(ctx context.Context, t *testing.T, db *ctxdb.Store, sid str
 	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: "/", Model: "openai/gpt-fake"}); err != nil {
 		t.Fatal(err)
 	}
-	marker := "SUMMARY_MARKER " + strings.Repeat("old context ", 3000)
+	marker := "SUMMARY_MARKER " + leakedSecret + " " + strings.Repeat("old context ", 3000)
 	tainted := `<untrusted source="shell">` + strings.Repeat("network output ", 1200) + `</untrusted>`
 	var evs []ctxdb.Event
 	for i := range 6 {

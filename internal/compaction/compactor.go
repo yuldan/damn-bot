@@ -62,6 +62,7 @@ type View struct {
 // Result reports one Run; Estimate and Window describe the final view.
 type Result struct {
 	Outcome          Outcome
+	Usage            event.Usage // summary call usage, zero without a reply
 	Estimate, Window int64
 	SummaryID        int64
 	Stats            PruneStats
@@ -104,12 +105,19 @@ func NewCompactor(deps *Deps) (*Compactor, error) {
 // summary is not an error: the turn goes on with the stage-1 view and the
 // loop decides context_overflow.
 func (c *Compactor) Compact(ctx context.Context, sessionID string, contextLength bool) error {
+	_, err := c.CompactUsage(ctx, sessionID, contextLength)
+	return err
+}
+
+// CompactUsage is Compact plus the summary call's usage, so the loop can add
+// it to the per-turn budget (SEC12-4).
+func (c *Compactor) CompactUsage(ctx context.Context, sessionID string, contextLength bool) (event.Usage, error) {
 	reason := ReasonEstimate
 	if contextLength {
 		reason = ReasonContextLength
 	}
-	_, err := c.Run(ctx, sessionID, reason)
-	return err
+	res, err := c.Run(ctx, sessionID, reason)
+	return res.Usage, err
 }
 
 // Run applies stage 1 and at most one summary (SPEC §4.7): for
@@ -202,6 +210,7 @@ func (c *Compactor) summarize(ctx context.Context, sid string, snap *Snapshot, c
 // valid, stores the summary with its measured effect.
 func (c *Compactor) accept(ctx context.Context, sid string, snap *Snapshot, cm *Commit, reply *Reply, sum *Summary, input string, res *Result) {
 	cm.Call = &reply.Call
+	res.Usage = reply.Call.Usage
 	inTokens := budget.Count(input).Raw()
 	content, err := validate(reply.Content, inTokens, c.deps.Redactor)
 	if err != nil {

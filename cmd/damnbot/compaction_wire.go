@@ -21,6 +21,7 @@ type compactionSummarizer struct {
 	prov     loop.Provider // the run provider: one client for turn and summary
 	provider string        // provider name of the run (usage ledger)
 	model    string        // model reference of the run
+	red      compaction.Redactor
 }
 
 var _ compaction.Summarizer = (*compactionSummarizer)(nil)
@@ -31,8 +32,8 @@ func (s *compactionSummarizer) Summarize(ctx context.Context, req *compaction.Su
 		Model:     s.model,
 		MaxTokens: req.MaxTokens,
 		Messages: []loop.Message{
-			{Role: "system", Content: req.System},
-			{Role: "user", Content: req.Input},
+			{Role: "system", Content: s.red.String(req.System)},
+			{Role: "user", Content: s.red.String(req.Input)},
 		},
 	})
 	if err != nil {

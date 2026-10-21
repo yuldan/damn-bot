@@ -3,6 +3,13 @@
  "Before": 169390,
  "Result": {
   "Outcome": "summarized",
+  "Usage": {
+   "Input": 1000,
+   "CachedInput": 0,
+   "Output": 40,
+   "CostUSD": null,
+   "Iterations": 0
+  },
   "Estimate": 7542,
   "Window": 200000,
   "SummaryID": 1,
