@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,6 +183,41 @@ func TestEncryptedMemoryCap(t *testing.T) {
 	r, d := row(strings.Repeat("b", 500))
 	if _, err := memstore.Put(ctx, s, r, d, red); !errors.Is(err, memstore.TooLarge{}) {
 		t.Fatalf("ninth row = %v, want TooLarge", err)
+	}
+}
+
+func TestMemoryCapLegacyNullContentLen(t *testing.T) {
+	dir := t.TempDir()
+	s, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: dir, Kind: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+	ctx := context.Background()
+	if werr := s.Write(ctx, func(tx *ctxdb.Tx) error {
+		var id int64
+		if xerr := tx.Get(`INSERT INTO memory(kind, category, scope, name, content, origin, created_at)
+			VALUES ('memory','fact','user',NULL,?,'user',1) RETURNING id`, []any{strings.Repeat("a", 500)}, &id); xerr != nil {
+			return fmt.Errorf("legacy memory: %w", xerr)
+		}
+		if _, xerr := tx.Exec(`INSERT INTO memory_decisions(memory_id, status, actor, created_at) VALUES (?, 'approved', 'user', 1)`, id); xerr != nil {
+			return fmt.Errorf("legacy decision: %w", xerr)
+		}
+		return nil
+	}); werr != nil {
+		t.Fatal(werr)
+	}
+	red := redact.New(redact.Options{})
+	for range 7 {
+		if _, perr := memstore.Put(ctx, s, &memstore.Row{Category: "fact", Scope: "user", Content: strings.Repeat("a", 500), Origin: "user", ScanResult: "{}", CreatedAt: 1},
+			&memstore.Decision{Status: "approved", Actor: "user", CreatedAt: 1}, red); perr != nil {
+			t.Fatal(perr)
+		}
+	}
+	_, err = memstore.Put(ctx, s, &memstore.Row{Category: "fact", Scope: "user", Content: strings.Repeat("b", 500), Origin: "user", ScanResult: "{}", CreatedAt: 1},
+		&memstore.Decision{Status: "approved", Actor: "user", CreatedAt: 1}, red)
+	if !errors.Is(err, memstore.TooLarge{}) {
+		t.Fatalf("legacy NULL content_len cap = %v, want TooLarge", err)
 	}
 }
 
