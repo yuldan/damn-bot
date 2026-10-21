@@ -8,9 +8,15 @@ import (
 	"github.com/damnbot/damnbot/internal/netx/retry"
 )
 
-// ContextWindow extracts a model's context window from an error the retry
-// layer classifies as context_length (GAP-COST-02/PROV-02): the window is
-// learned from a real request error, never from a probe. Only explicit
+// contextWindowPatterns are the only accepted shapes of the structured
+// error.message; free text and echoed prompt content are never parsed.
+var contextWindowPatterns = []*regexp.Regexp{ //nolint:gochecknoglobals // fixed patterns (E-10)
+	regexp.MustCompile(`(?i)maximum context length\s*(?:is|of|:)\s*(\d+)`),
+}
+
+// ContextWindow extracts a model's context window from the structured
+// error.message of a context_length error (GAP-COST-02/PROV-02): the window
+// is learned from a real request error, never from a probe. Only the
 // "maximum context length" phrasing is accepted; an unrecognized message is
 // not guessed (the caller keeps the previous window).
 func ContextWindow(err error) (int64, bool) {
@@ -18,21 +24,11 @@ func ContextWindow(err error) (int64, bool) {
 		return 0, false
 	}
 	e, ok := errors.AsType[*Error](err)
-	if !ok {
+	if !ok || e.Message == "" {
 		return 0, false
 	}
-	msg := string(e.Body)
-	if msg == "" && e.Err != nil {
-		msg = e.Err.Error()
-	}
-	for _, re := range [...]string{
-		`maximum context length is (\d+)`,
-		`maximum context length: (\d+)`,
-		`context length of (\d+)`,
-		`context window (?:is|of) (\d+)`,
-		`\d+\s+tokens?\s*>\s*(\d+)`,
-	} {
-		m := regexp.MustCompile(`(?i)` + re).FindStringSubmatch(msg)
+	for _, re := range contextWindowPatterns {
+		m := re.FindStringSubmatch(e.Message)
 		if m == nil {
 			continue
 		}

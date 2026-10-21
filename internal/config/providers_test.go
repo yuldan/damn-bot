@@ -54,6 +54,21 @@ name = "kantor"
 base_url = "http://y/v1"
 models = [{ id = "n", context_length = 8192 }]
 `, ErrInvalidValue},
+		{"base_url without scheme", `[[providers.custom]]
+name = "kantor"
+base_url = "10.0.0.5/v1"
+models = [{ id = "m", context_length = 8192 }]
+`, ErrInvalidValue},
+		{"base_url with userinfo", `[[providers.custom]]
+name = "kantor"
+base_url = "http://user:pw@x/v1"
+models = [{ id = "m", context_length = 8192 }]
+`, ErrInvalidValue},
+		{"base_url with query", `[[providers.custom]]
+name = "kantor"
+base_url = "http://x/v1?k=v"
+models = [{ id = "m", context_length = 8192 }]
+`, ErrInvalidValue},
 		{"unknown custom field", `[[providers.custom]]
 name = "kantor"
 base_url = "http://x/v1"

@@ -166,6 +166,7 @@ type Error struct {
 	HTTPStatus int
 	Code       string        // error.code, else error.type
 	Param      string        // error.param
+	Message    string        // error.message (structured; see ContextWindow)
 	Delay      time.Duration // Retry-After (method RetryAfter, retry.ServerHint)
 	Body       []byte
 	Err        error

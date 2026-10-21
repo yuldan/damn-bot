@@ -316,7 +316,11 @@ func newRunProviderWithTable(ctx context.Context, cfg *config.Config, db *ctxdb.
 	if err != nil {
 		return nil, err
 	}
-	window, err := limits.Window(ctx, provName, modelName)
+	routeKey, err := registry.NormalizeBaseURL(base)
+	if err != nil {
+		return nil, fmt.Errorf("route base_url: %w", err)
+	}
+	window, err := limits.WindowFor(ctx, provName, routeKey, modelName)
 	if err != nil {
 		return nil, fmt.Errorf("model limits %s: %w", modelRef, err)
 	}
@@ -334,7 +338,7 @@ func newRunProviderWithTable(ctx context.Context, cfg *config.Config, db *ctxdb.
 		return nil, fmt.Errorf("provider: %w", err)
 	}
 	return &providerAdapter{client: openai, model: modelRef, notes: notes,
-		limits: limits, providerName: provName, modelName: modelName}, nil
+		limits: limits, providerName: provName, modelName: modelName, routeKey: routeKey}, nil
 }
 
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runModel, error) {
@@ -537,6 +541,7 @@ type providerAdapter struct {
 	limits       *registry.Limits // COST-02: learned windows are persisted here
 	providerName string
 	modelName    string
+	routeKey     string // normalized base_url: learned/config scope
 }
 
 func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
@@ -557,17 +562,18 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 		}
 	})
 	warnings := p.notes.take()
-	if w, ok := provider.ContextWindow(err); ok && p.limits != nil {
-		// A real context_length error teaches the window (never a probe).
-		if oerr := p.limits.Observe(ctx, p.providerName, p.modelName, w, registry.SourceLearned); oerr != nil {
-			err = errors.Join(err, fmt.Errorf("learned context window: %w", oerr))
-		}
-	}
 	maxTok := int64(req.MaxTokens)
 	if maxTok <= 0 {
 		maxTok = provider.DefaultMaxTokens
 	}
-	billed := billedUsage(&resp, maxTok)
+	if w, ok := provider.ContextWindow(err); ok && p.limits != nil {
+		// A real context_length error teaches the window (never a probe), but
+		// only after the plausibility check in Learn.
+		if _, oerr := p.limits.Learn(ctx, p.routeKey, p.modelName, w, resp.EstInputTokens, maxTok); oerr != nil {
+			err = errors.Join(err, fmt.Errorf("learned context window: %w", oerr))
+		}
+	}
+	billed := billedUsage(&resp, len(req.Messages), maxTok)
 	if err != nil {
 		se := streamError(err)
 		se.Billed = resp.BilledFailed
@@ -717,11 +723,20 @@ func (s *ctxStore) EndTurn(ctx context.Context, sid, tid string, payload json.Ra
 // billedUsage is the conservative per-attempt projection of a priced route
 // for the ledger rows of failed attempts (SEC6-11): the estimated input plus
 // max_tokens at the route prices. Nil for an unpriced route (NULL/unknown).
-func billedUsage(resp *provider.Response, maxTok int64) *event.Usage {
+// billedUsage is the conservative projection of one failed attempt: the raw
+// input estimate inflated by the ADR-101 calibration maximum (1.5×) plus
+// per-message overhead, and max_tokens output. It is an upper bound, never
+// below the contract price.
+func billedUsage(resp *provider.Response, messages int, maxTok int64) *event.Usage {
 	if resp.Price == nil {
 		return nil
 	}
-	return &event.Usage{Input: resp.EstInputTokens, Output: maxTok, Price: eventPrice(resp.Price)}
+	input := resp.EstInputTokens + resp.EstInputTokens/2
+	input += int64(messages) * 8 // per-message framing overhead
+	if maxTok <= 0 {
+		maxTok = provider.DefaultMaxTokens
+	}
+	return &event.Usage{Input: input, Output: maxTok, Price: eventPrice(resp.Price)}
 }
 
 // eventPrice converts the provider response price entry to the loop's wire

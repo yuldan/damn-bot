@@ -158,3 +158,76 @@ func TestModelLimitsFailClosed(t *testing.T) {
 		t.Errorf("nil store: %v", err)
 	}
 }
+
+// TestModelLimitsRouteScope (SEC6-15): config overrides and persisted limits
+// are keyed by base_url + model; the embedded registry by provider + model.
+func TestModelLimitsRouteScope(t *testing.T) {
+	t.Parallel()
+	const routeA, routeB = "https://a.example/v1", "https://b.example/v1"
+	store := &memStore{rows: map[string]row{}}
+	l, err := NewLimits(
+		map[string]int64{routeA + "\x00m": 16_384},
+		map[string]int64{"p/m": 100_000},
+		store, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	for _, c := range []struct {
+		route, model string
+		window       int64
+		source       Source
+	}{
+		{routeA, "m", 16_384, SourceConfig},
+		{routeB, "m", 100_000, SourceRegistry},
+		{routeB, "unknown", FallbackWindow, SourceFallback},
+	} {
+		got, gerr := l.WindowFor(ctx, "p", c.route, c.model)
+		if gerr != nil || got.ContextWindow != c.window || got.Source != c.source {
+			t.Errorf("%s/%s = %+v, %v; want %d %s", c.route, c.model, got, gerr, c.window, c.source)
+		}
+	}
+}
+
+// TestModelLimitsLearn (SEC6-15): only plausible, decreasing values are
+// persisted; discovery is never overwritten.
+func TestModelLimitsLearn(t *testing.T) {
+	t.Parallel()
+	const route = "https://b.example/v1"
+	store := &memStore{rows: map[string]row{}}
+	l, err := NewLimits(nil, nil, store, clock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	cases := []struct {
+		name          string
+		window        int64
+		input, maxTok int64
+		want          bool
+	}{
+		{"below minimum", 4_096, 200_000, 100, false},
+		{"above maximum", 10_000_001, 200_000, 100, false},
+		{"not smaller than the request", 50_000, 10_000, 100, false},
+		{"initial plausible", 50_000, 100_000, 100, true},
+		{"increase", 60_000, 100_000, 100, false},
+		{"decrease", 40_000, 100_000, 100, true},
+	}
+	for _, c := range cases {
+		stored, lerr := l.Learn(ctx, route, "n", c.window, c.input, c.maxTok)
+		if lerr != nil || stored != c.want {
+			t.Errorf("%s: Learn = %v, %v; want %v", c.name, stored, lerr, c.want)
+		}
+	}
+	got, gerr := l.WindowFor(ctx, "p", route, "n")
+	if gerr != nil || got.ContextWindow != 40_000 || got.Source != SourceLearned {
+		t.Fatalf("learned window = %+v, %v", got, gerr)
+	}
+	if other, oerr := l.WindowFor(ctx, "p", "https://c.example/v1", "n"); oerr != nil || other.Source != SourceFallback {
+		t.Fatalf("other route = %+v, %v", other, oerr)
+	}
+	store.rows["learned/n"] = row{window: 9_000, source: "discovery", at: 1}
+	if stored, lerr := l.Learn(ctx, "learned", "n", 8_500, 100_000, 100); lerr != nil || stored {
+		t.Fatalf("discovery overwritten: %v, %v", stored, lerr)
+	}
+}

@@ -202,9 +202,10 @@ func marshal(v any) ([]byte, error) {
 // apiError is the OpenAI error envelope.
 type apiError struct {
 	Error struct {
-		Code  json.RawMessage `json:"code"` // string or number
-		Type  string          `json:"type"`
-		Param string          `json:"param"`
+		Message string          `json:"message"`
+		Code    json.RawMessage `json:"code"` // string or number
+		Type    string          `json:"type"`
+		Param   string          `json:"param"`
 	} `json:"error"`
 }
 
@@ -222,7 +223,7 @@ func toError(err error) *Error {
 		if json.Unmarshal(env.Error.Code, &code) != nil {
 			code = strings.Trim(string(env.Error.Code), `"`)
 		}
-		e.Code, e.Param = code, env.Error.Param
+		e.Code, e.Param, e.Message = code, env.Error.Param, env.Error.Message
 		if e.Code == "" || e.Code == "null" {
 			e.Code = env.Error.Type
 		}

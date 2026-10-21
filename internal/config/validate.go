@@ -3,6 +3,7 @@ package config
 import (
 	"maps"
 	"math"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -73,8 +74,8 @@ func validateCustomProvider(i int, p CustomProvider, names map[string]bool) erro
 		return invalid("providers.custom.name", "entry %d is not a provider id", i)
 	case names[p.Name]:
 		return invalid("providers.custom.name", "duplicate %q", p.Name)
-	case p.BaseURL == "" || strings.ContainsAny(p.BaseURL, " \t\r\n\x00"):
-		return invalid("providers.custom.base_url", "entry %q is empty or contains whitespace", p.Name)
+	case !validBaseURL(p.BaseURL):
+		return invalid("providers.custom.base_url", "entry %q is not a plain http(s) origin+path", p.Name)
 	case len(p.Models) == 0:
 		return invalid("providers.custom.models", "entry %q has no models", p.Name)
 	}
@@ -235,6 +236,20 @@ func invalid(key, format string, args ...any) *Error {
 
 // validModelRef accepts "provider/model" (openrouter-style multi-segment
 // models are allowed) without whitespace or control bytes.
+// validBaseURL matches the pricing normalisation: http(s), a host, no
+// userinfo/query/fragment (the composition root normalises it again).
+func validBaseURL(s string) bool {
+	u, err := url.Parse(s)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		return false
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+		return true
+	}
+	return false
+}
+
 func validModelRef(s string) bool {
 	if s == "" || len(s) > 512 || !strings.Contains(s, "/") {
 		return false

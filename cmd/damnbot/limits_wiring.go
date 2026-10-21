@@ -15,9 +15,13 @@ import (
 func newRunLimits(cfg *config.Config, db *ctxdb.Store, table registry.PriceTable) (*registry.Limits, error) {
 	configWindows := make(map[string]int64)
 	for _, p := range cfg.Providers.Custom {
+		route, err := registry.NormalizeBaseURL(p.BaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("providers.custom %s base_url: %w", p.Name, err)
+		}
 		for _, m := range p.Models {
 			if m.ContextLength > 0 {
-				configWindows[p.Name+"/"+m.ID] = int64(m.ContextLength)
+				configWindows[route+"\x00"+m.ID] = int64(m.ContextLength)
 			}
 		}
 	}
