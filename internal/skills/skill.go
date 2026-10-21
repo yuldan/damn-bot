@@ -93,7 +93,7 @@ func (s *Skill) Payment() bool { return slices.Contains(s.SideEffects, EffectPay
 // pattern without declaring one (SEC10-3). Files are covered by the lint
 // finding of the same name.
 func (s *Skill) Sensitive() bool {
-	return s.Payment() || containsAny(strings.ToLower(s.Description+"\n"+s.Body), paymentPatterns()) != ""
+	return s.Payment() || containsAny(foldText(s.Description+"\n"+s.Body), paymentPatterns()) != ""
 }
 
 // PaymentDirs returns the directories of the sensitive skills in list: the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -97,6 +98,10 @@ func TestLintCorpus(t *testing.T) {
 		{"env-dump", SourceHub, "", []string{"credential_access:high"}},
 		{"tell-secret", SourceHub, "", []string{"credential_access:high"}},
 		{"payment-undeclared", SourceHub, "", []string{"payment_undeclared:medium"}},
+		{"unreferenced-helper", SourceHub, "", []string{"credential_access:high"}},
+		{"homoglyph", SourceImport, "", []string{"credential_access:high"}},
+		{"base64-exec", SourceHub, "", []string{"obfuscated_exec:medium"}},
+		{"tools-helper", SourceHub, "", []string{"payment_undeclared:medium"}},
 	}
 	entries, err = os.ReadDir(filepath.Join("testdata", "lint", "bad"))
 	if err != nil || len(entries) != len(bad)-1 { // mainnet is listed twice
@@ -165,6 +170,28 @@ func TestLintFailsClosed(t *testing.T) {
 	}
 }
 
+// TestLintBounds: the directory walk is bounded and fails closed beyond the
+// cap (SEC10-2), and an unverifiable directory is invalid even without
+// references.
+func TestLintBounds(t *testing.T) {
+	t.Parallel()
+	clean, _ := corpusSkill(t, "good", "plain-review", SourceUser)
+	if _, err := Lint(&clean, LintEnv{}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "cannot be verified") {
+		t.Errorf("nil Files without references: %v", err)
+	}
+	many := fstest.MapFS{}
+	for i := range MaxScanFiles + 1 {
+		many[fmt.Sprintf("f%02d", i)] = &fstest.MapFile{Data: []byte("x")}
+	}
+	if _, err := Lint(&clean, LintEnv{Files: many}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("file cap: %v", err)
+	}
+	huge := fstest.MapFS{"big": {Data: make([]byte, MaxScanBytes+1)}}
+	if _, err := Lint(&clean, LintEnv{Files: huge}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("byte cap: %v", err)
+	}
+}
+
 // TestParseSideEffects: inline lists only, closed set, valid requires.
 func TestParseSideEffects(t *testing.T) {
 	t.Parallel()
@@ -208,8 +235,14 @@ func TestParseSideEffects(t *testing.T) {
 	plain := sk
 	plain.Path = "/s/y/SKILL.md"
 	sk.SideEffects = []SideEffect{EffectPayment}
-	if got := PaymentDirs([]Skill{sk, plain}); !slices.Equal(got, []string{filepath.Dir("/s/x/SKILL.md")}) {
-		t.Errorf("PaymentDirs = %v", got)
+	pending := sk
+	pending.MemoryID = 99 // quarantined, not approved: still gated
+	undeclared := plain
+	undeclared.Path = "/s/z/SKILL.md"
+	undeclared.Body = "run stripe payment_intents create"
+	want := []string{filepath.Dir("/s/x/SKILL.md"), filepath.Dir("/s/z/SKILL.md")}
+	if got := PaymentDirs([]Skill{sk, plain, pending, undeclared}); !slices.Equal(got, want) {
+		t.Errorf("PaymentDirs = %v, want %v", got, want)
 	}
 }
 
