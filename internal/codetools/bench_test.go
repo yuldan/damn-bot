@@ -2,6 +2,7 @@ package codetools
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,20 +14,24 @@ import (
 	"github.com/damnbot/damnbot/internal/testutil/timing"
 )
 
+// codetoolsBudgetMinRuns: make test-timing runs every benchmark once
+// (-benchtime=1x) only so it executes without -race; a p95 budget needs a
+// real sample, which make perf provides (-benchtime=100x, ADR-073
+// AUD-035(1)).
+const codetoolsBudgetMinRuns = 100
+
 // p95 of the per-iteration samples.
 func p95(ds []time.Duration) time.Duration {
 	slices.Sort(ds)
 	return ds[(len(ds)*95+99)/100-1]
 }
 
-// measure runs op b.N times, then checks the p95 budget (ADR-048, ADR-077:
-// enforced only in test-timing/perf builds).
+// measure runs op b.N times and, from codetoolsBudgetMinRuns samples on,
+// reports and checks their p95 (ADR-048, ADR-077: asserted only under
+// DAMNBOT_TIMING=1, ×1,5 in the perf build).
 func measure(b *testing.B, name string, budget time.Duration, op func(i int)) {
 	b.Helper()
-	// Warm once outside the timer: at -benchtime=1x (make test-timing) the
-	// single sample would otherwise measure cold caches, while the perf
-	// job's 100x p95 already reports steady state.
-	op(0)
+	op(0) // warm-up outside the timer: every sample is steady state
 	ds := make([]time.Duration, 0, b.N)
 	b.ResetTimer()
 	for i := 1; b.Loop(); i++ {
@@ -34,7 +39,41 @@ func measure(b *testing.B, name string, budget time.Duration, op func(i int)) {
 		op(i)
 		ds = append(ds, time.Since(t0))
 	}
-	timing.Check(b, name, p95(ds), budget)
+	if b.N < codetoolsBudgetMinRuns {
+		return
+	}
+	p := p95(ds)
+	b.ReportMetric(float64(p)/float64(time.Millisecond), "p95-ms") // the gated statistic, not only the mean ns/op
+	timing.Check(b, name, p, budget)
+}
+
+// TestMeasureBudgetNeedsPerfSamples: the single run per benchmark of make
+// test-timing never asserts a p95 budget, make perf's 100 samples do
+// (ADR-073 AUD-035(1)). The enforced run also fails under -race, where
+// timing refuses enforcement (ADR-048), so the expectation holds in both.
+func TestMeasureBudgetNeedsPerfSamples(t *testing.T) {
+	t.Setenv(timing.Env, "1")
+	bt := flag.Lookup("test.benchtime")
+	old := bt.Value.String()
+	t.Cleanup(func() {
+		if err := bt.Value.Set(old); err != nil {
+			t.Error(err)
+		}
+	})
+	for _, c := range []struct {
+		benchtime string
+		enforced  bool
+	}{{"1x", false}, {fmt.Sprintf("%dx", codetoolsBudgetMinRuns-1), false}, {fmt.Sprintf("%dx", codetoolsBudgetMinRuns), true}} {
+		if err := bt.Value.Set(c.benchtime); err != nil {
+			t.Fatal(err)
+		}
+		// Every p95 exceeds a negative budget; testing.Benchmark returns a
+		// zero result when the benchmark fails.
+		r := testing.Benchmark(func(b *testing.B) { measure(b, "min runs", -1, func(int) {}) })
+		if enforced := r.N == 0; enforced != c.enforced {
+			t.Errorf("-benchtime=%s: budget enforced = %v, want %v", c.benchtime, enforced, c.enforced)
+		}
+	}
 }
 
 // c3Like builds a corpus shaped like C3 (CODE-TOOLS §10.1: 1.000 files,
