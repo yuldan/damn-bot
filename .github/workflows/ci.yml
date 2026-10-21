@@ -1,21 +1,29 @@
-# CI per PR dan push main (ENGINEERING §5, ROADMAP F1 #0, ADR-073). Setiap job memanggil target Makefile
-# yang sama dengan lokal (GAP-INF-05), sehingga `make meta-test` menguji perintah yang sama.
-# Action dipin SHA commit + komentar versi, checkout tanpa kredensial tersimpan (AUD-070).
-# Hemat menit runner (repo privat; macOS ×10, Windows ×2): hanya `test` berjalan di matrix OS, gate
-# lain (lint, size, loc, …) cukup di ubuntu karena hasilnya tidak bergantung OS host.
+# CI per PR dan push main (ENGINEERING §5, ROADMAP F1 #0, ADR-073, ADR-135). Setiap job (kecuali `changes`
+# dan `ci-required`) memanggil target Makefile yang sama dengan lokal (GAP-INF-05), sehingga `make meta-test`
+# menguji perintah yang sama. Action dipin SHA commit + komentar versi, checkout tanpa kredensial tersimpan
+# (AUD-070). Hemat menit runner (repo privat; macOS ×10, Windows ×2): hanya `test` berjalan di matrix OS,
+# gate lain (lint, size, loc, …) cukup di ubuntu karena hasilnya tidak bergantung OS host.
+#
+# ADR-135 (antrean CI): PR docs-only melewati job Go, PR menjalankan matrix `test` yang diperkecil, dan
+# `cancel-in-progress` hanya untuk PR (push main dan nightly tidak pernah dibatalkan). Status wajib branch
+# protection adalah job agregat `ci-required`: ia selalu berjalan dan lulus bila setiap gate sukses atau
+# dilewati sah oleh path/tier, sehingga job yang dilewati tidak membuat PR menggantung "Expected".
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_call: # ADR-135: nightly menjalankan matrix PENUH lewat workflow ini.
 
 permissions:
   contents: read
 
+# ADR-135 butir 1: cancel-in-progress hanya untuk PR. Push `main` (dan nightly via workflow_call) memakai
+# grup yang sama tetapi tidak pernah dibatalkan — run baru menunggu, run lama selalu selesai.
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
@@ -25,7 +33,67 @@ env:
   CGO_ENABLED: "0"
 
 jobs:
+  # ADR-135 butir 2: PR yang hanya menyentuh dokumen tidak menjalankan build/test/perf/coverage/fuzz.
+  # Dokumen yang isinya divalidasi test Go (SPEC.md, §2.4/budget ENGINEERING, DECISIONS, ROADMAP,
+  # FEATURE-PARITY, CODE-TOOLS, ATTRIBUTION) tetap memicu job Go. Bukan PR (push main, workflow_call):
+  # selalu jalankan semua job.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      test_matrix: ${{ steps.filter.outputs.test_matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: PR docs-only?
+        id: filter
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          # ADR-135 butir 3: matrix `test` bertingkat. PR = 3 target (ubuntu race, macOS arm64, Windows
+          # amd64); push main dan workflow_call (nightly) = 6 target berrunner.
+          full='{"include":[{"os":"ubuntu-latest","race":"-race","cgo":"1"},{"os":"ubuntu-24.04-arm","race":"-race","cgo":"1"},{"os":"macos-latest","race":"-race","cgo":"1"},{"os":"macos-15-intel","race":"-race","cgo":"1"},{"os":"windows-latest","race":"-race","cgo":"1"},{"os":"windows-11-arm","race":"","cgo":"0"}]}'
+          reduced='{"include":[{"os":"ubuntu-latest","race":"-race","cgo":"1"},{"os":"macos-latest","race":"-race","cgo":"1"},{"os":"windows-latest","race":"-race","cgo":"1"}]}'
+          if [ "$EVENT" = pull_request ]; then
+            echo "test_matrix=$reduced" >>"$GITHUB_OUTPUT"
+          else
+            echo "test_matrix=$full" >>"$GITHUB_OUTPUT"
+          fi
+          if [ "$EVENT" != pull_request ]; then
+            echo "bukan PR: semua job Go berjalan"
+            echo "code=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "base tidak diketahui: jalankan semua job Go"
+            echo "code=true" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only "$BASE" "$HEAD")
+          # Dokumen yang dibaca test Go (readRepoFile/parity/codetools/attribution) atau mendefinisikan
+          # budget: perubahan di sini wajib menjalankan test yang memvalidasinya.
+          validated='^(SPEC\.md|docs/(ENGINEERING|DECISIONS|ROADMAP|FEATURE-PARITY|CODE-TOOLS|ATTRIBUTION)\.md)$'
+          if printf '%s\n' "$changed" | grep -Ev '^(docs/|.*\.md$)' | grep -q .; then
+            echo "ada path non-dokumen: job Go berjalan"
+            echo "code=true" >>"$GITHUB_OUTPUT"
+          elif printf '%s\n' "$changed" | grep -Eq "$validated"; then
+            echo "dokumen divalidasi test berubah: job Go berjalan"
+            printf '%s\n' "$changed" | grep -E "$validated"
+            echo "code=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "docs-only: job Go dilewati, gate dokumen tetap berjalan"
+            printf '%s\n' "$changed"
+            echo "code=false" >>"$GITHUB_OUTPUT"
+          fi
+
   lint:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -46,17 +114,14 @@ jobs:
   # E-55: 6 target berrunner — linux amd64/arm64, darwin arm64/amd64, windows amd64/arm64 (linux/arm +
   # android/arm64 di QEMU tetap F9, ADR-073). ADR-090: ctxdb Windows termasuk TestFileLockSemantics,
   # S023, S044, TestPlatformNAList. windows/arm64 tanpa -race (Go tidak punya race detector di sana).
+  # ADR-135 butir 3: PR cukup ubuntu-latest + macos-latest (arm64) + windows-latest (amd64); push main
+  # dan nightly menjalankan keenam target.
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest, race: -race, cgo: "1" }
-          - { os: ubuntu-24.04-arm, race: -race, cgo: "1" }
-          - { os: macos-latest, race: -race, cgo: "1" }
-          - { os: macos-15-intel, race: -race, cgo: "1" }
-          - { os: windows-latest, race: -race, cgo: "1" }
-          - { os: windows-11-arm, race: "", cgo: "0" }
+      matrix: ${{ fromJSON(needs.changes.outputs.test_matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
@@ -68,6 +133,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: go.sum # kunci cache = go.sum + versi Go (dalam kunci setup-go)
       - name: GNU make tersedia (image Windows)
         if: runner.os == 'Windows'
         run: command -v make || choco install make -y --no-progress
@@ -76,6 +142,8 @@ jobs:
   # ADR-048 (TS-P08): budget waktu dinding tanpa -race; cek kebenaran skenario yang sama tetap berjalan
   # di job `test` (-race).
   test-timing:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -85,10 +153,14 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: go.sum
       - run: make test-timing
 
-  # ADR-073 (AUD-033): go vet windows/darwin × amd64/arm64.
+  # ADR-073 (AUD-033): go vet windows/darwin × amd64/arm64. Murah dan menangkap sebagian besar
+  # kerusakan platform, jadi tetap berjalan di PR (ADR-135 butir 3).
   vet-cross:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -98,10 +170,13 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: go.sum
       - run: make vet-cross
 
   # E-39/E-65: CGO_ENABLED=0 -tags goolm untuk 8 target kanonik.
   build-matrix:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -111,10 +186,13 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: go.sum
       - run: make build-matrix
 
   # E-57: 60 s per target Fuzz*, 3 shard paralel.
   fuzz:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -128,10 +206,13 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: go.sum
       - run: make fuzz SHARD=${{ matrix.shard }}/3
 
   # E-58 (+ AUD-059): kritis ≥ 80 %, lain ≥ 70 %.
   coverage:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -141,10 +222,13 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: go.sum
       - run: make coverage
 
   # E-53: deadcode -test, GOOS linux/darwin/windows digabung.
   deadcode:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -161,6 +245,8 @@ jobs:
 
   # ADR-073/077, NEW-38: budget waktu absolut benchmark (-tags goolm,perf; ×1,5 runner bersama).
   perf:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -170,12 +256,15 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: go.sum
       - run: make perf
 
   # CODE-TOOLS §10.3 CT-21: parity grep vs rg 15.1.0 di korpus nyata C1+C3 (bench/corpora.lock). Korpus +
   # rg di-cache; tanpa korpus test gagal, bukan skip (DAMNBOT_REQUIRE_CORPORA=1). CT-01/02/03 dan CT-11
   # berjalan di nightly bench-codetools.
   bench-parity:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -195,6 +284,8 @@ jobs:
       - run: make bench-parity CORPORA="C1 C3 rg" CORPORA_DIR="$RUNNER_TEMP/damnbot-corpora"
 
   size:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -204,9 +295,12 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache-dependency-path: go.sum
       - run: make size-check
 
   loc-budget:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -216,13 +310,17 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache-dependency-path: tools/go.sum
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
       - name: LOC per paket + total, direktori tak terpetakan (E-19, AUD-073)
         run: make loc
       - name: Rasio test:source (E-70)
         run: make loc-ratio
 
   supply-chain:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -247,6 +345,8 @@ jobs:
 
   # E-54: per PR di sini, harian terhadap main di nightly.yml (AUD-071).
   vuln:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -264,6 +364,8 @@ jobs:
 
   # Modul bench (NEW2-07): seluruh test modul bench, termasuk harness token P1.
   bench-budget:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -278,6 +380,8 @@ jobs:
 
   # ADR-080 butir 2: acceptance fase bila file PHASE berubah; selain itu lulus dengan pesan.
   phase-acceptance:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -305,3 +409,41 @@ jobs:
           go-version-file: go.mod
       - if: steps.phase.outputs.run == 'true'
         run: make phase-acceptance
+
+  # ADR-135 butir 2: satu-satunya status `ci` yang wajib di branch protection. Selalu berjalan (termasuk
+  # docs-only dan PR matrix yang diperkecil) dan lulus bila setiap gate sukses atau dilewati sah; job
+  # matrix yang sengaja tidak ada di tier PR tidak lagi meninggalkan "Expected — waiting".
+  ci-required:
+    if: always()
+    needs:
+      - changes
+      - lint
+      - test
+      - test-timing
+      - vet-cross
+      - build-matrix
+      - fuzz
+      - coverage
+      - deadcode
+      - perf
+      - bench-parity
+      - size
+      - loc-budget
+      - supply-chain
+      - vuln
+      - bench-budget
+      - phase-acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Rekap gate (E-78)
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          printf '%s\n' "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          failed=$(printf '%s\n' "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key)=\(.value.result)"')
+          if [ -n "$failed" ]; then
+            printf '::error::gate gagal atau dibatalkan: %s\n' "$(printf '%s' "$failed" | tr '\n' ' ')"
+            exit 1
+          fi
+          echo "E-78: semua gate PR hijau atau dilewati sah"
