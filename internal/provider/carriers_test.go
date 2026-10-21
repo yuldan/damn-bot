@@ -3,6 +3,7 @@ package provider
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -97,5 +98,32 @@ func TestCarrierCapture(t *testing.T) {
 	if !bytes.Contains(resp.Reasoning, []byte(`"plain"`)) || bytes.Contains(resp.Reasoning, []byte("sig")) ||
 		bytes.Contains(resp.Reasoning, []byte("cipher")) {
 		t.Errorf("plain reasoning = %s", resp.Reasoning)
+	}
+}
+
+func TestCarrierCaptureSizeCap(t *testing.T) {
+	t.Parallel()
+	big := strings.Repeat("a", MaxCarrierBytes)
+	resp := &Response{
+		ReasoningField: "reasoning",
+		Reasoning:      json.RawMessage(`[{"type":"thinking","signature":"` + big + `"}]`),
+	}
+	captureCarriers(resp, &Route{Provider: "p", Model: "m", Family: "p"})
+	if len(resp.Carriers) != 0 || len(resp.CarrierDrops) != 1 || resp.CarrierDrops[0].Reason != "too_large" {
+		t.Fatalf("carriers/drops = %+v/%+v", resp.Carriers, resp.CarrierDrops)
+	}
+}
+
+func TestCarrierProjectSizeCap(t *testing.T) {
+	t.Parallel()
+	big := strings.Repeat("a", MaxCarrierBytes)
+	rt := &Route{Provider: "p", Model: "m", Family: "p"}
+	c := Carrier{Family: "p", Model: "m", Kind: CarrierThinking, Raw: []byte(`{"signature":"` + big + `"}`), Replayable: true}
+	body, sent, drops, err := encodeCarriers(rt, carrierRequest(rt, &c), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 0 || len(drops) != 1 || drops[0].Reason != "too_large" || bytes.Contains(body, []byte("aaaa")) {
+		t.Fatalf("sent/drops/body = %d/%v/%s", len(sent), drops, body)
 	}
 }

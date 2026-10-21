@@ -320,7 +320,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	provName, modelName, _ := strings.Cut(modelRef, "/")
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
-		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: base}},
+		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: provider.NormalizeBaseURL(base)}},
 		Attempts: o.providerAttempts,
 	})
 	if err != nil {
