@@ -144,6 +144,8 @@ func TestModuleLifecycle(t *testing.T) {
 	t.Run("needs_attention", testLifecycleNeedsAttention)
 	t.Run("transitions_require_active", testLifecycleRequiresActive)
 	t.Run("fail", testLifecycleFail)
+	t.Run("shutdown", testLifecycleShutdown)
+	t.Run("last_error", testLifecycleLastError)
 }
 
 func testLifecycleDormantStart(t *testing.T) {
@@ -399,5 +401,47 @@ func testLifecycleFail(t *testing.T) {
 	f.clock.Add(RetryFailed)
 	if err := f.rt.Ensure(context.Background(), f.id); err != nil {
 		t.Fatalf("retry after window: %v", err)
+	}
+}
+
+func testLifecycleShutdown(t *testing.T) {
+	f := newLifecycleFixture(t, descriptor("browser"))
+	if err := f.rt.Ensure(context.Background(), f.id); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.rt.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	if got := f.rt.State(f.id); got != Dormant {
+		t.Fatalf("state after Shutdown = %s, want dormant", got)
+	}
+	if got := f.mod.stopped.Load(); got != 1 {
+		t.Fatalf("Stop calls = %d, want 1", got)
+	}
+	if err := f.rt.Shutdown(context.Background()); err != nil {
+		t.Fatalf("second Shutdown: %v", err)
+	}
+	if got := f.mod.stopped.Load(); got != 1 {
+		t.Fatalf("second Shutdown stopped the module again (%d stops)", got)
+	}
+}
+
+func testLifecycleLastError(t *testing.T) {
+	f := newLifecycleFixture(t, descriptor("browser"))
+	if err := f.rt.Ensure(context.Background(), f.id); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.rt.LastError(f.id); got != nil {
+		t.Fatalf("LastError before failure = %v, want nil", got)
+	}
+	cause := errors.New("invoke panic")
+	if err := f.rt.Fail(context.Background(), f.id, cause); err != nil {
+		t.Fatalf("Fail: %v", err)
+	}
+	if got := f.rt.LastError(f.id); !errors.Is(got, cause) {
+		t.Fatalf("LastError = %v, want %v", got, cause)
+	}
+	if got := f.rt.LastError("unknown"); got != nil {
+		t.Fatalf("LastError(unknown) = %v, want nil", got)
 	}
 }
