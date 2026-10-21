@@ -39,7 +39,7 @@ func NewUndoer(store Store, sb *sandbox.Sandbox) (*Undoer, error) {
 func (u *Undoer) Undo(ctx context.Context, caller string, id int64, force bool) (Result, error) {
 	a, err := u.store.Get(ctx, id)
 	if err != nil {
-		return Result{ActionID: id, Status: Failed}, err
+		return Result{ActionID: id, Status: Failed}, fmt.Errorf("journal: get action %d: %w", id, err)
 	}
 	res := Result{ActionID: id}
 	switch {
@@ -62,7 +62,7 @@ func (u *Undoer) UndoLast(ctx context.Context, caller string, n int, force bool)
 	}
 	acts, err := u.store.List(ctx, caller, n)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("journal: list actions: %w", err)
 	}
 	out := make([]Result, 0, len(acts))
 	var errs []error
@@ -84,10 +84,9 @@ func (u *Undoer) finish(ctx context.Context, caller string, r Result, status Sta
 }
 
 func (u *Undoer) apply(ctx context.Context, a *Action, force bool) (Result, error) {
-	if a.Kind == FileMove {
-		return u.undoMove(ctx, a, force)
-	}
 	switch a.Kind {
+	case FileMove:
+		return u.undoMove(ctx, a, force)
 	case FileWrite, FileEdit, FileDelete:
 		return u.undoPath(ctx, a, force)
 	}
@@ -113,9 +112,9 @@ func (u *Undoer) undoPath(ctx context.Context, a *Action, force bool) (Result, e
 	}
 	if a.Before == nil {
 		if present {
-			if err := u.remove(resolved); err != nil {
+			if rerr := u.remove(resolved); rerr != nil {
 				res.Status, res.Files = Failed, nil
-				return res, err
+				return res, rerr
 			}
 		}
 		res.Detail = "removed the file created by the action"
@@ -124,11 +123,11 @@ func (u *Undoer) undoPath(ctx context.Context, a *Action, force bool) (Result, e
 	data, err := u.store.Blob(ctx, a.Before.BlobSHA)
 	if err != nil {
 		res.Status, res.Files = Failed, nil
-		return res, err
+		return res, fmt.Errorf("journal: before blob: %w", err)
 	}
-	if err := u.write(ctx, resolved, data, a.Before.Mode, force); err != nil {
+	if werr := u.write(ctx, resolved, data, a.Before.Mode, force); werr != nil {
 		res.Status, res.Files = Failed, nil
-		return res, err
+		return res, werr
 	}
 	res.Detail = "restored the before image"
 	if force && !match(cur, a.After) {
@@ -171,14 +170,14 @@ func (u *Undoer) undoMove(ctx context.Context, a *Action, force bool) (Result, e
 		return res, err
 	}
 	if present {
-		if err := u.remove(srcResolved); err != nil {
+		if rerr := u.remove(srcResolved); rerr != nil {
 			res.Status, res.Files = Failed, nil
-			return res, err
+			return res, rerr
 		}
 	}
-	if err := u.rename(ctx, dstResolved, srcResolved); err != nil {
+	if merr := u.rename(ctx, dstResolved, srcResolved); merr != nil {
 		res.Status, res.Files = Failed, nil
-		return res, err
+		return res, merr
 	}
 	res.Detail = "moved the destination back to the source"
 	return res, nil
@@ -206,7 +205,11 @@ func (u *Undoer) current(ctx context.Context, p string) (sum, resolved string, p
 	if f == nil {
 		return "", resolved, false, fmt.Errorf("journal: open %s: %w", p, ErrUnsafePath)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("journal: close %s: %w", p, cerr)
+		}
+	}()
 	b, err := io.ReadAll(f)
 	if err != nil {
 		return "", resolved, false, fmt.Errorf("journal: read %s: %w", p, err)
@@ -244,9 +247,9 @@ func (u *Undoer) write(ctx context.Context, resolved string, data []byte, mode f
 		if !force {
 			return fmt.Errorf("journal: %s: hard link: %w", resolved, ErrUnsafePath)
 		}
-		f, err := u.sb.OpenApproved(ctx, resolved, os.O_WRONLY|os.O_TRUNC, 0)
-		if err != nil {
-			return fmt.Errorf("journal: open %s: %w", resolved, err)
+		f, oerr := u.sb.OpenApproved(ctx, resolved, os.O_WRONLY|os.O_TRUNC, 0)
+		if oerr != nil {
+			return fmt.Errorf("journal: open %s: %w", resolved, oerr)
 		}
 		werr := writeAll(f, data)
 		if serr := f.Sync(); werr == nil {
@@ -259,10 +262,10 @@ func (u *Undoer) write(ctx context.Context, resolved string, data []byte, mode f
 	if err != nil {
 		return fmt.Errorf("journal: temp %s: %w", tmp, err)
 	}
-	if err := f.Chmod(mode); err != nil {
-		_ = f.Close()
-		_ = os.Remove(tmp)
-		return fmt.Errorf("journal: mode %s: %w", tmp, err)
+	if cerr := f.Chmod(mode); cerr != nil {
+		xerr := f.Close()
+		rerr := os.Remove(tmp)
+		return fmt.Errorf("journal: mode %s: %w", tmp, errors.Join(cerr, xerr, rerr))
 	}
 	werr := writeAll(f, data)
 	if serr := f.Sync(); werr == nil {
@@ -272,12 +275,12 @@ func (u *Undoer) write(ctx context.Context, resolved string, data []byte, mode f
 		werr = cerr
 	}
 	if werr != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("journal: write %s: %w", tmp, werr)
+		rerr := os.Remove(tmp)
+		return fmt.Errorf("journal: write %s: %w", tmp, errors.Join(werr, rerr))
 	}
-	if err := replaceFile(tmp, resolved); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("journal: replace %s: %w", resolved, err)
+	if rerr := replaceFile(tmp, resolved); rerr != nil {
+		xerr := os.Remove(tmp)
+		return fmt.Errorf("journal: replace %s: %w", resolved, errors.Join(rerr, xerr))
 	}
 	return syncDir(filepath.Dir(resolved))
 }
@@ -306,7 +309,7 @@ func writeAll(f *os.File, data []byte) error {
 	for len(data) > 0 {
 		n, err := f.Write(data)
 		if err != nil {
-			return err
+			return fmt.Errorf("journal: write: %w", err)
 		}
 		data = data[n:]
 	}

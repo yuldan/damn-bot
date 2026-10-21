@@ -3,6 +3,7 @@ package journal
 import (
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -20,9 +21,13 @@ func TestMain(m *testing.M) {
 // fakeStore is the in-memory journal.Store used by the executor tests; the
 // real ctxdb/journalstore is exercised by TestUndoSuite.
 type fakeStore struct {
-	acts  map[int64]Action
-	blobs map[string][]byte
-	undos []Undo
+	acts      map[int64]Action
+	blobs     map[string][]byte
+	undos     []Undo
+	getErr    error
+	listErr   error
+	blobErr   error
+	finishErr error
 }
 
 func newFake() *fakeStore {
@@ -35,13 +40,16 @@ func (f *fakeStore) put(data []byte, mode fs.FileMode) *Image {
 	return &Image{BlobSHA: h, Size: int64(len(data)), Mode: mode}
 }
 
-func (f *fakeStore) add(a Action) {
-	f.acts[a.ID] = a
+func (f *fakeStore) add(a *Action) {
+	f.acts[a.ID] = *a
 }
 
-func (f *fakeStore) Record(context.Context, Record) (int64, error) { return 0, nil }
+func (f *fakeStore) Record(context.Context, *Record) (int64, error) { return 0, nil }
 
 func (f *fakeStore) Get(_ context.Context, id int64) (Action, error) {
+	if f.getErr != nil {
+		return Action{}, f.getErr
+	}
 	a, ok := f.acts[id]
 	if !ok {
 		return Action{}, ErrState
@@ -50,6 +58,9 @@ func (f *fakeStore) Get(_ context.Context, id int64) (Action, error) {
 }
 
 func (f *fakeStore) List(_ context.Context, _ string, limit int) ([]Action, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	var out []Action
 	for id := int64(len(f.acts)); id >= 1 && len(out) < limit; id-- {
 		if a, ok := f.acts[id]; ok {
@@ -60,6 +71,9 @@ func (f *fakeStore) List(_ context.Context, _ string, limit int) ([]Action, erro
 }
 
 func (f *fakeStore) Blob(_ context.Context, sha string) ([]byte, error) {
+	if f.blobErr != nil {
+		return nil, f.blobErr
+	}
 	b, ok := f.blobs[sha]
 	if !ok {
 		return nil, ErrBlob
@@ -68,6 +82,9 @@ func (f *fakeStore) Blob(_ context.Context, sha string) ([]byte, error) {
 }
 
 func (f *fakeStore) Finish(_ context.Context, u Undo) error {
+	if f.finishErr != nil {
+		return f.finishErr
+	}
 	f.undos = append(f.undos, u)
 	return nil
 }
@@ -102,15 +119,26 @@ func write(t *testing.T, path string, data []byte, mode fs.FileMode) {
 
 func read(t *testing.T, path string) []byte {
 	t.Helper()
-	b, err := os.ReadFile(path)
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := root.Open(filepath.Base(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := io.ReadAll(f)
+	if cerr := errors.Join(f.Close(), root.Close()); cerr != nil {
+		t.Fatal(cerr)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	return b
 }
 
-func action(id int64, kind Kind, path string, before, after *Image) Action {
-	return Action{ID: id, SessionID: "s1", Kind: kind, Reversibility: Reversible, Path: path, Before: before, After: after}
+func action(id int64, kind Kind, path string, before, after *Image) *Action {
+	return &Action{ID: id, SessionID: "s1", Kind: kind, Reversibility: Reversible, Path: path, Before: before, After: after}
 }
 
 func TestUndoWriteRestoresBytesAndMode(t *testing.T) {
@@ -275,7 +303,7 @@ func TestUndoRefusals(t *testing.T) {
 		{"irreversible", Action{ID: 3, Kind: FileWrite, Path: "/x", Reversibility: "partial"}, ErrIrreversible, Failed},
 	}
 	for _, c := range cases {
-		f.add(c.a)
+		f.add(&c.a)
 		res, err := u.Undo(t.Context(), "s1", c.a.ID, false)
 		if !errors.Is(err, c.want) || res.Status != c.stat {
 			t.Errorf("%s = %+v, %v", c.name, res, err)
