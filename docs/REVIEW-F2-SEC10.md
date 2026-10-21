@@ -161,3 +161,42 @@ Probe (dijalankan lalu dihapus): `TestZZR3Wire` (`paymentSkillDirs` atas `<confi
 | SEC10-12 | **MEDIUM** | confirmed | **File symlink di dalam direktori skill tidak dipindai dan tidak menggerakkan gate.** `scanDir` melewati entri non-reguler, termasuk symlink ke file. `os.Root` juga tidak mengikutinya, sehingga `plain/helper.py → /luar/evil.py` (berisi `import stripe`, `gh auth token`) lolos lint tanpa temuan dan direktori `plain` tidak di-gate. Classifier me-resolve `plain/helper.py` ke `/luar/evil.py`, yang tidak ada di `MonetaryPaths`, sehingga mutating dan auto di `--unsafe-auto-shell`/`shell_allow`. Ini setara SEC10-8 lewat jalur lain. | Tolak skill yang memuat symlink (file atau dir) di dalam direktorinya (`invalid_skill`), atau pindai target lewat `filepath.EvalSymlinks` dengan batas yang sama dan tandai skill sensitif bila targetnya sensitif. Tambahkan kasus korpus `symlink-helper`. |
 
 **Ringkasan:** gate pembayaran kini mengikuti deklarasi, temuan file, dir ber-titik, symlink dir, dan dir tanpa `SKILL.md` (wiring nyata). #212 masih **REQUEST CHANGES** karena SEC10-11 (lint O(n²) membuat `run` macet oleh satu skill) dan SEC10-12 (symlink file di dalam skill menghindari scan dan gate).
+
+## Round 4 — 2026-10-21
+
+Stack di-rebase ke `main` `8117bc1`: #207 `43787db` (basis `98bf3ad`) → #212 `b4c90aa` (`1e9f2c1`, `93624cb`, `b4c90aa`). `git range-diff 68dbec3..756a8bb 8117bc1..93624cb`: `ac65fdd = 98bf3ad`. Pada `462989c → 43787db`, `d131e95 → 1e9f2c1`, dan `756a8bb → 93624cb`, perbedaannya **hanya konteks CHANGELOG** (entri `assemble` dari #166), tanpa perubahan kode. Jadi #207 murni rebase dari head yang sudah disetujui. Commit baru: `b4c90aa` (SEC10-11/12).
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #207 | `43787db` | **APPROVE** (rebase murni) |
+| #212 | `b4c90aa` | **APPROVE dengan MINOR** (SEC10-11/12 FIXED; SEC10-13 MINOR) |
+
+Gate: `go test -race -tags goolm -count=1 ./internal/skills/... ./internal/exec/classify/... ./internal/tools/... ./internal/archtest/... ./cmd/damnbot/` → ok di `43787db` dan `b4c90aa`; `go vet` + `GOOS=windows|darwin` bersih; `make deadcode` 0; `make loc`: `43787db` `memory+skills 1088/1200`; `b4c90aa` `memory+skills 1215/1230`, `exec/classify 1786/1800`. Jumlah `loc.budget` = Total core ENGINEERING: 36.970 (`43787db`, termasuk `assemble 1200` dari #166) dan **37.000** (`b4c90aa`, ADR-133 butir 21) ✔.
+
+Probe (dijalankan lalu dihapus): `TestZZR4Lint` (`skills.Lint`) dan `TestZZR4Wire` (`paymentSkillDirs` atas `<config>/skills` nyata).
+
+| Skenario | Round 3 | `b4c90aa` |
+|---|---|---|
+| File tidak dirujuk 480 KB (120.000 assignment) | 49,9 s | **0,16 s** ✔ |
+| File tidak dirujuk ~1 MiB (260.000 assignment) | (menit) | **0,33 s** ✔ |
+| ~1 MiB referensi `$abcdefghijklmno` + 1 assignment | – | 0,21 s ✔ |
+| `a=gh; $a auth token` | – | `credential_access high` ✔ |
+| 40 assignment umpan, lalu `a=gh; $a auth token` | – | **`findings=[]`** → SEC10-13 |
+| `helper.py` = symlink ke file di luar (stripe + `gh auth token`) | lolos, tidak di-gate | `run` gagal: `invalid_skill: symlink helper.py in skill directory` ✔ |
+| Symlink ke file di dalam skill (`alias.sh → scripts/pay.sh`) | – | `invalid_skill` ✔ |
+| Symlink direktori di dalam skill (`lib → /tmp/…`) | – | `invalid_skill` ✔ |
+| `SKILL.md` = symlink ke luar | – | `openat SKILL.md: path escapes from parent` (gagal-tertutup) ✔ |
+| Direktori skill = symlink (pola `ln -s`) mendeklarasikan payment | link + target di-gate | link + target di-gate ✔ (tetap didukung) |
+
+| ID | Verdict | Bukti |
+|---|---|---|
+| SEC10-11 | **FIXED** | `expandLiterals`: satu `FindAllStringSubmatchIndex` (≤ 32 assignment) + satu `ReplaceAllStringFunc`; dilewati bila teks > 2 MiB. Waktu terukur linear (tabel). |
+| SEC10-12 | **FIXED** | `scanDir` menolak symlink apa pun di dalam skill; `SKILL.md` dibaca lewat `os.Root`; direktori skill yang berupa symlink tetap di-resolve, dan kedua path masuk `MonetaryPaths`. |
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC10-13 | MINOR | confirmed | Batas 32 assignment diambil dari **awal** teks gabungan. Umpan ≥ 32 assignment literal sebelum `a=gh; $a auth token` membuat ekspansi berhenti, sehingga `credential_access` tidak terdeteksi. Ini heuristik (ADR-133 butir 18/19), jadi dampaknya sama dengan obfuscation lain. | Ekspansi per file atau per baris dengan jendela lokal (assignment yang mendahului referensi dalam N baris), atau prioritaskan nama yang memang direferensikan. Alternatif: temuan `obfuscated_exec` bila jumlah assignment melebihi batas. |
+
+**Ringkasan:** #207 **APPROVE** (rebase tanpa perubahan kode). #212 **APPROVE dengan MINOR**: lint kini linear (1 MiB < 0,4 s) dan symlink apa pun di dalam skill ditolak (gagal-tertutup), sementara gate symlink direktori skill tetap benar. SEC10-13 (umpan > 32 assignment) adalah residual heuristik.
