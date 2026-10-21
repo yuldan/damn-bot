@@ -19,7 +19,8 @@ var (
 	ErrUnavailable = errors.New("assemble: context source unavailable")
 	// ErrContextPath reports an empty context file path.
 	ErrContextPath = errors.New("assemble: invalid context path")
-	// ErrUntrusted reports a summary block whose <untrusted> wrapper does
-	// not close; it is refused rather than sent half-wrapped.
-	ErrUntrusted = errors.New("assemble: unbalanced untrusted wrapper")
+	// ErrUntrusted reports a summary block or context tier whose <untrusted>
+	// boundaries are not exact, closed, non-nested wrappers; it is refused
+	// rather than sent half-wrapped.
+	ErrUntrusted = errors.New("assemble: malformed untrusted wrapper")
 )

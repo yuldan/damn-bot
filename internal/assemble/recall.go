@@ -25,13 +25,14 @@ type Snippet struct {
 
 // summaryTier keeps the newest summary blocks whose total stays within
 // [CapSummaries]; older blocks leave the request whole and are never cut, so
-// a wrapped block stays wrapped (ADR-122 butir 12). Every block must close
-// each <untrusted> wrapper it opens, otherwise [ErrUntrusted].
+// a wrapped block stays wrapped (ADR-122 butir 12). A block whose <untrusted>
+// boundaries are not exact, non-nested, closed wrappers ([validWrappers]) is
+// refused with [ErrUntrusted].
 func (a *Assembler) summaryTier(blocks []string) (string, error) {
 	scrubbed := make([]string, len(blocks))
 	for i, b := range blocks {
 		scrubbed[i] = a.scrub(b)
-		if !balancedUntrusted(scrubbed[i]) {
+		if !validWrappers(scrubbed[i]) {
 			return "", fmt.Errorf("assemble: summary %d: %w", i, ErrUntrusted)
 		}
 	}
@@ -58,7 +59,7 @@ func (a *Assembler) summaryTier(blocks []string) (string, error) {
 func (a *Assembler) retrievalTier(hits []Snippet) string {
 	out := retrievalHeader
 	for _, h := range hits {
-		text := escapeUntrustedClose(a.scrub(h.Text))
+		text := escapeUntrusted(a.scrub(h.Text))
 		if text == "" {
 			continue
 		}
@@ -97,9 +98,35 @@ func sourceLabel(s string) string {
 	return label
 }
 
-// balancedUntrusted reports whether s closes as many <untrusted> wrappers as
-// it opens (any ASCII capitalisation).
-func balancedUntrusted(s string) bool {
-	lower := strings.ToLower(s)
-	return strings.Count(lower, "<untrusted") == strings.Count(lower, "</untrusted")
+// validWrappers reports whether every <untrusted boundary in s (any ASCII
+// capitalisation, see [untrustedTagAt]) is a live wrapper tag: the exact
+// opener "<untrusted>" or "<untrusted" + whitespace + attributes + ">" (not
+// self-closing), then the exact closer "</untrusted" + optional whitespace +
+// ">", never nested and never left open. Any other boundary — a partial or
+// self-closing tag, "<untrustedx>", another capitalisation, a closer with
+// attributes — fails rather than being guessed at, because a model may still
+// read it as a boundary (REVIEW-F2-SEC4 ASM4-1). Wrapped data must therefore
+// be escaped with [escapeUntrusted] by its producer.
+func validWrappers(s string) bool {
+	open := false
+	for i := range len(s) {
+		closing, n, ok := untrustedTagAt(s, i)
+		if !ok {
+			continue
+		}
+		end := strings.IndexByte(s[i+n:], '>')
+		if closing != open || end < 0 || s[i+n-len(untrustedName):i+n] != untrustedName {
+			return false
+		}
+		rest := s[i+n : i+n+end] // between the name and '>'
+		trimmed := strings.TrimRight(rest, " \t\r\n")
+		switch {
+		case closing && trimmed != "",
+			!closing && rest != "" && !strings.ContainsRune(" \t\r\n", rune(rest[0])),
+			strings.ContainsRune(rest, '<'), strings.HasSuffix(trimmed, "/"):
+			return false
+		}
+		open = !closing
+	}
+	return !open
 }

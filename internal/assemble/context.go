@@ -112,8 +112,8 @@ func (a *Assembler) Context(ctx context.Context, in *ContextInput) (ContextResul
 	}
 	state := contextState{
 		asm:        a,
-		facts:      slot("# Environment", a.scrub(in.Facts), CapFacts, a.tokens),
-		workspace:  slot("# Workspace", a.scrub(in.Workspace), CapWorkspace, a.tokens),
+		facts:      slot("# Environment", a.data(in.Facts), CapFacts, a.tokens),
+		workspace:  slot("# Workspace", a.data(in.Workspace), CapWorkspace, a.tokens),
 		filesBody:  filesBody,
 		marker:     a.fileMarker(in.Files),
 		untrusted:  in.UntrustedFiles,
@@ -135,7 +135,7 @@ func (a *Assembler) Context(ctx context.Context, in *ContextInput) (ContextResul
 	}
 	text := state.join()
 	if state.over() {
-		text = clip(text, CapContext, "\n[truncated]", a.tokens)
+		text = clipWrappedTier(text, CapContext, "\n[truncated]", a.tokens)
 	}
 	return ContextResult{Text: text, Slots: state.slots()}, nil
 }
@@ -198,8 +198,8 @@ func (s *contextState) renderFiles(limit int) string {
 	if !s.untrusted {
 		return clip("# Context files"+s.filesBody, limit, s.marker, s.asm.tokens)
 	}
-	return clipWrapped("# Context files\n"+untrustedWorkspace, escapeUntrustedClose(s.filesBody),
-		"\n</untrusted>", escapeUntrustedClose(s.marker), limit, s.asm.tokens)
+	return clipWrapped("# Context files\n"+untrustedWorkspace, s.filesBody,
+		"\n</untrusted>", s.marker, limit, s.asm.tokens)
 }
 
 // shrinkFiles reduces the files tier from [CapFiles] towards [CapFilesMin]
@@ -287,7 +287,7 @@ func (a *Assembler) readContextFile(ctx context.Context, r FileReader, path stri
 	if closeErr != nil {
 		return "", fmt.Errorf("assemble: close context file %s: %w", path, closeErr)
 	}
-	return a.scrub(string(data)), nil
+	return a.data(string(data)), nil
 }
 
 // renderMemory renders pinned entries under [CapPinned] first, then ranked
@@ -297,7 +297,7 @@ func (a *Assembler) readContextFile(ctx context.Context, r FileReader, path stri
 func (a *Assembler) renderMemory(mem []Memory, maxRanked int) string {
 	var pinned, ranked []string
 	for _, m := range mem {
-		text := oneLine(a.scrub(m.Text))
+		text := oneLine(a.data(m.Text))
 		if text == "" {
 			continue
 		}
@@ -347,7 +347,7 @@ func (a *Assembler) renderSkills(names []string, maxN int) string {
 	var b strings.Builder
 	b.WriteString("# Skills")
 	for _, name := range names[:limit] {
-		if line := oneLine(a.scrub(name)); line != "" {
+		if line := oneLine(a.data(name)); line != "" {
 			b.WriteString("\n- ")
 			b.WriteString(strings.TrimPrefix(line, "- "))
 		}
@@ -380,7 +380,13 @@ func (a *Assembler) fileMarker(files []ContextFile) string {
 	return "\n[truncated; read_file " + a.promptPath(files[0].Path) + "]"
 }
 
-// promptPath is the form of a context file path shown in the prompt: scrubbed,
-// with line breaks turned into spaces and control/format runes dropped
-// ([lineRune]). The sandbox still opens the path as given.
-func (a *Assembler) promptPath(p string) string { return strings.Map(lineRune, a.scrub(p)) }
+// promptPath is the form of a context file path shown in the prompt: data
+// ([Assembler.data]) with line breaks turned into spaces and control/format
+// runes dropped ([lineRune]). The sandbox still opens the path as given.
+func (a *Assembler) promptPath(p string) string { return strings.Map(lineRune, a.data(p)) }
+
+// data prepares caller text for the context tier: scrubbed, with every
+// <untrusted boundary escaped, so the only live tags in the frozen tier are
+// the wrapper this package writes and [Assembler.Build] can validate it
+// (REVIEW-F2-SEC4 ASM4-2/3).
+func (a *Assembler) data(s string) string { return escapeUntrusted(a.scrub(s)) }

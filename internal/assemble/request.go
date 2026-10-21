@@ -66,8 +66,9 @@ type SessionView struct {
 
 // Build renders one request and its per-tier estimate. It returns
 // [ErrNoUserMessage] when a frozen turn has no user message to carry the
-// volatile tier and [ErrUntrusted] for a summary whose <untrusted> wrapper
-// does not close. Build does no I/O: every tier is caller data.
+// volatile tier and [ErrUntrusted] for a context tier or summary whose
+// <untrusted> boundaries are not exact, closed wrappers. Build does no I/O:
+// every tier is caller data.
 func (a *Assembler) Build(_ context.Context, v *SessionView) (Request, Estimate, error) {
 	tools, err := FilterTools(v.Phase, v.Tools)
 	if err != nil {
@@ -79,9 +80,13 @@ func (a *Assembler) Build(_ context.Context, v *SessionView) (Request, Estimate,
 	opts := v.Stable
 	opts.Deferred = catalog != ""
 	stable := Stable(opts)
-	// Context() already caps the tier; the clip only guards a caller that
-	// passes foreign text, and is a no-op for a rendered tier.
-	contextText := clip(v.Context, CapContext, "\n[truncated]", a.tokens)
+	// Context() renders well-formed wrappers within the cap; foreign text
+	// with a malformed wrapper is refused and an oversized tier is clipped
+	// without leaving a wrapper open (REVIEW-F2-SEC4 ASM4-3).
+	if !validWrappers(v.Context) {
+		return Request{}, Estimate{}, fmt.Errorf("assemble: context tier: %w", ErrUntrusted)
+	}
+	contextText := clipWrappedTier(v.Context, CapContext, "\n[truncated]", a.tokens)
 	system := joinNonEmpty([]string{stable, catalog, contextText})
 	summaries, err := a.summaryTier(v.Summaries)
 	if err != nil {
