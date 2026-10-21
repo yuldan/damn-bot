@@ -44,7 +44,7 @@ func TestErrataV15SkillNameNormalised(t *testing.T) {
 		return err
 	}))
 	hits := func(col, q string) int64 {
-		return count(t, s, "SELECT count(*) FROM skills_fts WHERE skills_fts MATCH '"+col+" : ' || dmb_fts_norm('"+q+"')")
+		return count(t, s, "SELECT count(*) FROM skills_fts WHERE skills_fts MATCH '"+col+" : ' || dmb_fts_norm('"+q+"', 'skills."+col+"', '')")
 	}
 	if inName, inBody := hits("name", "天气预报"), hits("body", "天气预报"); inName != 1 || inBody != 1 {
 		t.Fatalf("name hits %d, body hits %d (want 1, 1)", inName, inBody)

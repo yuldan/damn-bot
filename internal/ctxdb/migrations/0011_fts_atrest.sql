@@ -13,7 +13,7 @@ END;
 DROP TRIGGER memory_ai;
 CREATE TRIGGER memory_ai AFTER INSERT ON memory BEGIN
     INSERT INTO memory_fts(rowid, content)
-    VALUES (NEW.id, dmb_fts_norm(coalesce(NEW.content_enc, NEW.content), 'memory.content', NEW.scope || '|' || coalesce(NEW.name, '')));
+    VALUES (NEW.id, dmb_fts_norm(coalesce(NEW.content_enc, NEW.content), 'memory.content', NEW.scope || '|' || NEW.enc_id));
 END;
 DROP TRIGGER skills_ai;
 CREATE TRIGGER skills_ai AFTER INSERT ON skills BEGIN
