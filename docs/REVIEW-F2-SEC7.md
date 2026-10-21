@@ -483,3 +483,71 @@ Fakta: carrier (#190/#193/#200) akan mendarat di `main` lebih dulu. `carrierstor
 "Follow-up PR sebelum rilis" saja **tidak cukup** kecuali (a) berlaku di antaranya. Baris plaintext yang tertulis di antara merge tidak dapat dihapus karena tabelnya append-only.
 
 **Ringkasan:** #199: SEC7-44/45 (HIGH) **FIXED** dan terverifikasi (konversi plaintext, arsip terenkripsi dengan blob, dan arsip skema lama semuanya terbaca tanpa plaintext di disk). Yang tersisa hanya gate: archtest nolint dan Total core ENGINEERING. #201 **REQUEST CHANGES**: SEC7-46 masih terbuka (diklaim fixed), SEC7-54 baru (History summary `"{}"`), archtest nolint + import graph, dan sinkronisasi ENGINEERING. #198/#199/#201 **belum boleh di-merge** ke `main` yang memuat carrier, kecuali syarat (a) atau (b) di atas dipenuhi.
+
+## Round 8 — 2026-10-21 (#199/#201 diperbarui, #217 baru)
+
+Head: #199 `5c50d6a` (di atas `16410e7`: nolint dihapus via fsync+rename di konversi, Total core diselaraskan), #201 `11e9230` (rebase `97a5279 … 084ddc5` + `d5fccbb` compactstore/History/search + test pindah ke `internal/integration` + `11e9230` test cap), **#217 `76790a7`** (`f2-crypto-carrier`, di atas #201: enkripsi `carrierstore`, opsi (b) SEC7-51). Head lain tidak berubah (#185 … #198 seperti Round 7).
+
+**Verdict per PR:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #185/#189/#187/#191/#192/#197 | tidak berubah | **APPROVE** |
+| #194 | `af6ddff` | **APPROVE dengan MINOR** (SEC7-52 historis) |
+| #198 | `b66556d` | **APPROVE**, dengan syarat merge bersama #199/#201/#217 (lihat bagian syarat merge) |
+| #199 | `5c50d6a` | **APPROVE** (SEC7-44/45/50 FIXED; gate hijau) |
+| #201 | `11e9230` | **REQUEST CHANGES (kecil)**: SEC7-46/47/48/49/50/52/53/54 FIXED; **SEC7-37b masih terbuka** (MEDIUM: flag `tainted`/`called` hilang di DB terenkripsi) |
+| #217 | `76790a7` | **APPROVE dengan MINOR** (SEC7-51 FIXED lewat opsi (b); SEC7-55 MINOR; koordinasi duplikasi `carrierstore` dengan #190) |
+
+Gate:
+- `go vet -tags goolm ./...` + `GOOS=windows|darwin|freebsd go vet ./internal/ctxdb/... ./internal/backup ./cmd/damnbot` → bersih di `5c50d6a`, `11e9230`, `76790a7`.
+- `make deadcode` → 0. **`internal/archtest` → ok di ketiga head** (Round 7: gagal).
+- `go test -race -tags goolm -count=1 ./internal/{secret,backup,integration} ./cmd/damnbot ./internal/ctxdb/{compactstore,memstore,skillstore,carrierstore}` → ok (paket yang ada di head masing-masing); `./internal/ctxdb -race -run 'AtRest|Restore|Snapshot|Migrat|FTS|Search|Scenario'` → ok (226 s).
+- `make loc` + Total core ENGINEERING (baris infra `integration 200` dikecualikan dari Σ core oleh `infraDirs`): `5c50d6a` `ctxdb 4140/4400`, `backup 1462/1550`, `compactstore 248/250`, Σ **40.370** = ENGINEERING ✔; `11e9230` `ctxdb 4279/4400`, `compactstore 289/300`, Σ **40.420** ✔; `76790a7` `+ ctxdb/carrierstore 291/400`, Σ **40.820** ✔. `secret` 1150/1150 (tanpa headroom).
+- **`internal/integration`** sah sebagai pengecualian archtest, bukan gate yang dilonggarkan: paket test-only (hanya `atrest_test.go`), terdaftar di `testOnlyPackages()` (kode produksi termasuk `cmd/damnbot` tidak boleh mengimpornya), punya baris matriks E-01 eksplisit (`ctxdb`, `memstore`, `compactstore`, `carrierstore`, `compaction`, `backup`, `secret`, `redact`, `loop/event`), `TESTONLY` + `infraDirs` (di luar Σ core), dan entri CODEOWNERS. Matriks `internal/ctxdb` sendiri tidak diubah, karena test `ctxdb_test` yang ilegal dipindahkan dan bukan diizinkan.
+
+Probe (codec `secret` nyata; dijalankan lalu dihapus): `TestZZR8` (`internal/backup`: DB terenkripsi berisi event + CJK + summary lewat `SealRow` + carrier lewat `carrierstore.Save` nyata → backup → restore; dan arsip plaintext dengan carrier → restore `encrypt=true`), `TestZZR8Carrier` (`carrierstore`: compactstore, swap `payload_enc`, `payload_sha`), `TestZZR8Taint` (`compactstore.Commit` summary tainted).
+
+| Skenario | Sumber terenkripsi | Restore arsip terenkripsi | Konversi plaintext → terenkripsi |
+|---|---|---|---|
+| History mentah | event utuh ✔ | ✔ | ✔ |
+| `summary_ref` (History) | `{"goal":"SUMMARYCANARY"}` ✔ (Round 7: `"{}"`) | ✔ | ✔ |
+| Search `hello` / `"hello world"` / `你好` / `世界` / `PLAINCANARY` / `SUMMARYCANARY` | 1/1/1/1/2/1 ✔ (frasa + CJK) | sama ✔ | sama ✔ |
+| `carrierstore.Load` | payload carrier utuh ✔ | ✔ | ✔ (identity konversi = identity runtime) |
+| Kanari (`PLAINCANARY`, `CARRIERCANARY`, `SIGCANARY`, `SUMMARYCANARY`) di file mana pun | tidak ada ✔ | tidak ada ✔ | tidak ada ✔ |
+
+| Skenario lain | Hasil |
+|---|---|
+| `compactstore.Load` (DB terenkripsi): `hello` + payload `{"tainted":true}` | content `"hello"`, payload `{"tainted":true}` ✔ (Round 7: `"S|1\x00hello"`) |
+| `payload_enc` carrier baris A disalin ke baris B | `Load` → `row identity mismatch: encrypted_db` ✔ |
+| `compactstore.Commit` summary `Tainted:true` + Attempt summarized → `Load` | plaintext: `tainted=[true]`, `LastCall=summarized`; **terenkripsi: `tainted=[false]`, `LastCall=nil`** → SEC7-37b |
+| Kolom `reasoning_carriers.payload_sha` | = `sha256(plaintext)` (plaintext di kolom) → SEC7-55 |
+
+### Status temuan
+
+| ID | Verdict | Bukti |
+|---|---|---|
+| SEC7-37b | **TERBUKA** (MEDIUM) | `summariesQ` masih `json_extract(e.payload, '$.tainted')` dan `stateQ` masih `json_extract(payload, '$.called')` atas `events.payload` plaintext, padahal di DB terenkripsi isinya placeholder `{}`. Probe: summary tainted dimuat sebagai **untainted** (tidak dirender di `<untrusted>`, ADR-070), dan `LastCall` hilang sehingga cooldown compaction tidak berlaku (summarizer dapat dipanggil ulang setiap turn). Perbaikan: dekripsi payload event `compaction`/`summary_ref` lewat `OpenRow` di Go (bukan `json_extract`), atau simpan flag non-rahasia (`tainted`, `called`) di kolom/tabel metadata plaintext. Tambahkan test real-codec. |
+| SEC7-46 | **FIXED** | `compactstore.events` memakai `OpenRow(…, sid|seq)` untuk content dan payload (probe). |
+| SEC7-47 | **FIXED** | Tokenizer bersama untuk indeks dan query: frasa ber-kutip dan CJK cocok dengan codec nyata. |
+| SEC7-48 | **FIXED** | (Round 7). |
+| SEC7-49 | **FIXED** | `COALESCE(m.content_len, length(m.content))`; test integrasi untuk baris lama `NULL`. |
+| SEC7-50 | **FIXED** | Nolint di konversi diganti fsync + rename (`CreateTemp`/`Sync`/`Chmod`/rename); `TestNolintDensity` dan `TestImportGraph` lulus. |
+| SEC7-51 | **FIXED (opsi b)** lewat #217 | `Save`: `SealRow("reasoning_carriers.payload", event_id|ord, payload, "")`. `Load`: `OpenRow` dengan identity yang sama. Konversi restore: `Seal(scope, "event_id|ord\x00"+payload)`, format yang identik dengan `sealRow`, dibuktikan oleh probe konversi → `Load`. Kanari lewat `Save` nyata tanpa plaintext di disk; swap terdeteksi. |
+| SEC7-52 | **FIXED** | Σ `loc.budget` (core) = Total core ENGINEERING di ketiga head; amandemen ADR-124 PR 3b/PR 4/carrier mencatat 40.370 / 40.420 / 40.820. Nit: komentar `loc.budget` carrierstore "terukur 339", padahal `make loc` 291. |
+| SEC7-53 | **FIXED** | Test integrasi memakai penulis nyata, dan probe ini mengonfirmasinya dengan codec nyata. |
+| SEC7-54 | **FIXED** | `historySummaries` membaca `content_enc` + `OpenRow(…, sid|from:to)` (probe). |
+
+### Temuan baru
+
+| ID | PR | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|---|
+| SEC7-55 | #217 | MINOR | confirmed | `reasoning_carriers.payload_sha` = `sha256(plaintext)` disimpan plaintext (dipakai `BySHA` untuk memetakan penolakan signature). **Tebakan praktis rendah**: payload carrier selalu memuat bidang opaque berentropi tinggi buatan provider (`signature`, `encrypted_content`, `thought_signature`, `data`), sehingga brute-force tidak layak. Hash ini tetap berfungsi sebagai oracle konfirmasi bagi pihak yang sudah memegang salinan carrier (mis. log provider/proxy). Ini juga tidak konsisten dengan SEC7-36, yang sudah memakai hash berkunci untuk hash chain. | Saat codec aktif, simpan `codec.Hash("carrier"‖payload)` (HMAC subkunci DEK) di `payload_sha` dan pakai fungsi yang sama di `BySHA`/`Refs`. Ref di `events.payload` sudah terenkripsi. Opsional sebelum rilis. |
+
+### Syarat merge (pembaruan SEC7-51)
+
+- #217 memenuhi opsi (b). Syaratnya kini: **#198, #199, #201, #217 di-merge dalam satu jendela merge**, dan `storage.encrypt` tidak boleh dapat diaktifkan di build mana pun yang memuat #198 tanpa #217.
+- **`carrierstore` versi #217 harus menggantikan versi #190**, tidak boleh berdampingan. #217 saat ini menambahkan `internal/ctxdb/carrierstore` sendiri (budget 400, komentar "berbasis ADR-131"), sedangkan #190 juga menambahkannya (budget 300). Siapa pun yang di-merge kedua harus me-rebase ke satu paket, satu baris `loc.budget`, dan satu baris matriks E-01. Versi tanpa `SealRow`/`OpenRow` tidak boleh tersisa: `Save` yang menulis plaintext akan mengulang SEC7-51. Setelah rebase, jalankan ulang `TestZZR8` (kanari carrier + konversi → `Load`) dan matriks `projectCarriers` di #193/#200.
+- `gateway_inbound`: konversi menyegel baris, tetapi belum ada penulis/pembaca runtime. Saat writer gateway mendarat, berlaku syarat yang sama dengan carrier.
+
+**Ringkasan:** #199 **APPROVE**; #217 **APPROVE dengan MINOR** (SEC7-55); #201 **REQUEST CHANGES (kecil)**, karena satu temuan MEDIUM yang lama masih terbuka (SEC7-37b: taint summary dan cooldown compaction hilang di DB terenkripsi). Selain itu seluruh SEC7-44..54 tertutup dengan codec nyata, archtest hijau, dan Total core konsisten.
