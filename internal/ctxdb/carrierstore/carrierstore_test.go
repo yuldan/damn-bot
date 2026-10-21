@@ -345,7 +345,7 @@ func TestCarrierSizeCaps(t *testing.T) {
 		t.Errorf("oversized carrier: %v", err)
 	}
 	var many []Carrier
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		c := carriers()[0]
 		c.Ord = i
 		c.Payload = make([]byte, 230<<10)
