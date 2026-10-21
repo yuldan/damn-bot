@@ -1435,6 +1435,8 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Bukti implementasi (2026-10-21).** Smoke final pada `main` `3a2a10d`: 10/10 task ran, 1 pass, 0 harness error; ledger `bench/h2h/results/f1-spend.json` 0,82340667 → 0,92200161 (sisa $1,07799839 dari cap $2,00). Matriks 29 skenario penggunaan: 24 PASS / 4 FAIL / 1 SKIP; detail dan defect terbuka di `docs/F1-LLM-SMOKE.md`. Tidak ada perubahan kode produk.
 
+**Rerun pasca-perbaikan (2026-10-21).** Pada `main` `1b57ae9` (#134+#135), A4/C14/C15/D20/destruktif PASS; C13 create masih FAIL karena model tetap mengirim tag, meski tool path lolos via stub. Biaya rerun ≈$0,000679; total F1 ≈$0,922681 < $2,00. Detail `docs/F1-LLM-SMOKE.md`.
+
 ## ADR-063 — Errata residu backlog ADR-037 (AUD-002)
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan pemilik proyek: opsi paling konservatif, dalam budget SPEC §3.2.4/P1/P13/P21, tanpa dependency baru). Menutup AUD-002 ([`AUDIT-F0.md`](AUDIT-F0.md)): lima MINOR backlog ADR-037 yang tidak punya ADR penutup (m-15, N-15, N-24, N-33, V-05); backlog ADR-047 butir 2.
