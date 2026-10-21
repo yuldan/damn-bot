@@ -4,6 +4,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+### Added
+- `journal`: action journal F2 (`internal/journal` + `internal/ctxdb/journalstore`) — before/after image disimpan sebagai blob content-addressed, baris `actions` + event `tool_dispatch` ditulis dalam satu transaksi sebelum side effect; `Get`/`List` melaporkan aksi kedaluwarsa (`T_cut` 30 hari / 2 GiB) dan turn yang masih terbuka (ADR-117, SPEC §18.1).
+
 ### Fixed
 - `codetools`: `write_file` membuat path yang belum ada tanpa memedulikan `tag` — tag hanya snapshot file eksisting, format `^[0-9a-f]{8}$` tetap divalidasi, dan hasil menandai `tag_ignored`; `stale_read` untuk file eksisting tidak berubah (ADR-116, C13 matriks skenario LLM).
 - `cmd/damnbot`: `run` mencetak error validasi flag (prompt hilang, `--output` tidak dikenal) ke stderr sebelum exit 2; error dari parser `flag` tetap dicetak sekali oleh paket `flag` (defect A4 matriks skenario LLM).
