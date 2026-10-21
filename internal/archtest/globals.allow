@@ -9,3 +9,4 @@ internal/modules/registry.go:defaultRegistry registry modul statis (E-10 allowli
 internal/assemble/golden_helpers_test.go:update test-only golden flag
 internal/tools/golden_test.go:updateGolden test-only golden update flag
 internal/tools/golden_test.go:goldenCases table of golden cases
+internal/compaction/compaction_test.go:update test-only golden flag

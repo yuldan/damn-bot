@@ -18,3 +18,5 @@ internal/assemble/testdata/** -text
 internal/tools/testdata/** -text
 # Golden loop (P15/E-68) dibandingkan byte-persis; checkout Windows tidak boleh CRLF.
 internal/loop/testdata/** -text
+# Golden compaction P8 (E-68) dibandingkan byte-persis; checkout Windows tidak boleh CRLF.
+internal/compaction/testdata/** -text

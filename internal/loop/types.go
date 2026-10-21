@@ -256,10 +256,12 @@ type Assembler interface {
 	Assemble(ctx context.Context, req *AssembleRequest) (Prompt, error)
 }
 
-// Compactor is the F2 compaction stage; the loop only calls it once when the
-// prompt crosses the compaction threshold.
+// Compactor is the F2 compaction stage (SPEC §4.7); the loop calls it at
+// most once per turn: when the prompt crosses CompactAt, or with
+// contextLength when the provider rejected the request as too long (that
+// trigger forces the summary stage).
 type Compactor interface {
-	Compact(ctx context.Context, sessionID string) error
+	Compact(ctx context.Context, sessionID string, contextLength bool) error
 }
 
 // Store appends one transcript event atomically (ADR-074; ctxdb implements
