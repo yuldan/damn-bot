@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"unicode"
 )
 
 type trigger struct{ name, sql string }
@@ -147,7 +146,7 @@ func encryptDB(ctx context.Context, dbPath string, codec Codec, trigs []trigger)
 	if _, serr := db.ExecContext(ctx, "PRAGMA secure_delete=ON"); serr != nil {
 		return wrap(serr)
 	}
-	if ferr := rebuildFTS(ctx, db, codec); ferr != nil {
+	if ferr := clearFTS(ctx, db); ferr != nil {
 		return ferr
 	}
 	tx, terr := db.BeginTx(ctx, nil)
@@ -195,317 +194,183 @@ func convertTables(ctx context.Context, tx *sql.Tx, codec Codec, trigs []trigger
 	return nil
 }
 
-func sealEvents(ctx context.Context, tx *sql.Tx, codec Codec) (err error) {
-	type row struct {
-		id                          int64
-		sid, kind, content, payload string
-		blob                        string
-		seq                         int64
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT id, session_id, seq, kind, content, payload, coalesce(blob_sha,'') FROM events ORDER BY session_id, seq`)
+func sealEvents(ctx context.Context, tx *sql.Tx, codec Codec) error {
+	rs, err := queryRows(ctx, tx, `SELECT id, session_id, seq, kind, content, payload, coalesce(blob_sha,'') FROM events ORDER BY session_id, seq`)
 	if err != nil {
-		return wrap(err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	var rs []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.id, &r.sid, &r.seq, &r.kind, &r.content, &r.payload, &r.blob); err != nil {
-			return wrap(err)
-		}
-		rs = append(rs, r)
-	}
-	if rerr := rows.Err(); rerr != nil {
-		return wrap(rerr)
-	}
-	if err := rows.Close(); err != nil {
-		return wrap(err)
+		return err
 	}
 	prev := map[string]string{}
 	for _, r := range rs {
-		id := r.sid + "|" + strconv.FormatInt(r.seq, 10)
-		ce, err := codec.Seal("events.content", []byte(id+"\x00"+r.content))
+		id := text(r[1]) + "|" + strconv.FormatInt(num(r[2]), 10)
+		ce, err := codec.Seal("events.content", []byte(id+"\x00"+text(r[4])))
 		if err != nil {
 			return wrap(err)
 		}
-		pe, err := codec.Seal("events.payload", []byte(id+"\x00"+r.payload))
+		pe, err := codec.Seal("events.payload", []byte(id+"\x00"+text(r[5])))
 		if err != nil {
 			return wrap(err)
 		}
-		hash := codec.Hash(strings.Join([]string{prev[r.sid], r.sid, strconv.FormatInt(r.seq, 10), r.kind, r.content, r.payload, r.blob}, "|"))
-		prev[r.sid] = hash
-		if _, err := tx.ExecContext(ctx, `UPDATE events SET content='', content_enc=?, payload='{}', payload_enc=?, hash=? WHERE id=?`, ce, pe, hash, r.id); err != nil {
+		hash := codec.Hash(strings.Join([]string{prev[text(r[1])], text(r[1]), strconv.FormatInt(num(r[2]), 10), text(r[3]), text(r[4]), text(r[5]), text(r[6])}, "|"))
+		prev[text(r[1])] = hash
+		if _, err := tx.ExecContext(ctx, `UPDATE events SET content='', content_enc=?, payload='{}', payload_enc=?, hash=? WHERE id=?`, ce, pe, hash, num(r[0])); err != nil {
 			return wrap(err)
 		}
 	}
 	return nil
 }
 
-func sealSummaries(ctx context.Context, tx *sql.Tx, codec Codec) (err error) {
-	type row struct {
-		id       int64
-		sid      string
-		from, to int64
-		content  string
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT id, session_id, from_seq, to_seq, content FROM summaries`)
+func sealSummaries(ctx context.Context, tx *sql.Tx, codec Codec) error {
+	rs, err := queryRows(ctx, tx, `SELECT id, session_id, from_seq, to_seq, content FROM summaries`)
 	if err != nil {
-		return wrap(err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	var rs []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.id, &r.sid, &r.from, &r.to, &r.content); err != nil {
-			return wrap(err)
-		}
-		rs = append(rs, r)
-	}
-	if rerr := rows.Err(); rerr != nil {
-		return wrap(rerr)
-	}
-	if err := rows.Close(); err != nil {
-		return wrap(err)
+		return err
 	}
 	for _, r := range rs {
-		identity := fmt.Sprintf("%s|%d:%d", r.sid, r.from, r.to)
-		enc, err := codec.Seal("summaries.content", []byte(identity+"\x00"+r.content))
-		if err != nil {
-			return wrap(err)
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE summaries SET content='{}', content_enc=? WHERE id=?`, enc, r.id); err != nil {
-			return wrap(err)
+		identity := fmt.Sprintf("%s|%d:%d", text(r[1]), num(r[2]), num(r[3]))
+		if err := sealText(ctx, tx, codec, "summaries.content", identity, text(r[4]), `UPDATE summaries SET content='{}', content_enc=? WHERE id=?`, num(r[0])); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func sealMemory(ctx context.Context, tx *sql.Tx, codec Codec) (err error) {
-	type row struct {
-		id      int64
-		scope   string
-		content string
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT id, scope, content FROM memory`)
+func sealMemory(ctx context.Context, tx *sql.Tx, codec Codec) error {
+	rs, err := queryRows(ctx, tx, `SELECT id, scope, content FROM memory`)
 	if err != nil {
-		return wrap(err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	var rs []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.id, &r.scope, &r.content); err != nil {
-			return wrap(err)
-		}
-		rs = append(rs, r)
-	}
-	if rerr := rows.Err(); rerr != nil {
-		return wrap(rerr)
-	}
-	if err := rows.Close(); err != nil {
-		return wrap(err)
+		return err
 	}
 	for _, r := range rs {
 		encID, err := newEncIDDB()
 		if err != nil {
 			return err
 		}
-		enc, err := codec.Seal("memory.content", []byte(r.scope+"|"+encID+"\x00"+r.content))
+		identity := text(r[1]) + "|" + encID
+		plain := text(r[2])
+		enc, err := codec.Seal("memory.content", []byte(identity+"\x00"+plain))
 		if err != nil {
 			return wrap(err)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE memory SET content='', content_enc=?, content_len=length(?), enc_id=? WHERE id=?`, enc, r.content, encID, r.id); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE memory SET content='', content_enc=?, content_len=length(?), enc_id=? WHERE id=?`, enc, plain, encID, num(r[0])); err != nil {
 			return wrap(err)
 		}
 	}
 	return nil
 }
 
-func sealCarriers(ctx context.Context, tx *sql.Tx, codec Codec) (err error) {
-	type row struct {
-		id           int64
-		eventID, ord int64
-		payload      []byte
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT id, event_id, ord, payload FROM reasoning_carriers`)
+func sealCarriers(ctx context.Context, tx *sql.Tx, codec Codec) error {
+	rs, err := queryRows(ctx, tx, `SELECT id, event_id, ord, payload FROM reasoning_carriers`)
 	if err != nil {
-		return wrap(err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	var rs []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.id, &r.eventID, &r.ord, &r.payload); err != nil {
-			return wrap(err)
-		}
-		rs = append(rs, r)
-	}
-	if rerr := rows.Err(); rerr != nil {
-		return wrap(rerr)
-	}
-	if err := rows.Close(); err != nil {
-		return wrap(err)
+		return err
 	}
 	for _, r := range rs {
-		enc, err := codec.Seal("reasoning_carriers.payload", append([]byte(fmt.Sprintf("%d|%d\x00", r.eventID, r.ord)), r.payload...))
+		identity := fmt.Sprintf("%d|%d", num(r[1]), num(r[2]))
+		enc, err := codec.Seal("reasoning_carriers.payload", append([]byte(identity+"\x00"), binary(r[3])...))
 		if err != nil {
 			return wrap(err)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE reasoning_carriers SET payload=X'', payload_enc=? WHERE id=?`, enc, r.id); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE reasoning_carriers SET payload=X'', payload_enc=? WHERE id=?`, enc, num(r[0])); err != nil {
 			return wrap(err)
 		}
 	}
 	return nil
 }
 
-func sealGateway(ctx context.Context, tx *sql.Tx, codec Codec) (err error) {
-	type row struct {
-		id            int64
-		platform, ext string
-		payload       string
-	}
-	rows, err := tx.QueryContext(ctx, `SELECT rowid, platform, external_id, payload FROM gateway_inbound WHERE payload IS NOT NULL`)
+func sealGateway(ctx context.Context, tx *sql.Tx, codec Codec) error {
+	rs, err := queryRows(ctx, tx, `SELECT rowid, platform, external_id, payload FROM gateway_inbound WHERE payload IS NOT NULL`)
 	if err != nil {
-		return wrap(err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	var rs []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.id, &r.platform, &r.ext, &r.payload); err != nil {
-			return wrap(err)
-		}
-		rs = append(rs, r)
-	}
-	if rerr := rows.Err(); rerr != nil {
-		return wrap(rerr)
-	}
-	if err := rows.Close(); err != nil {
-		return wrap(err)
+		return err
 	}
 	for _, r := range rs {
-		enc, err := codec.Seal("gateway_inbound.payload", []byte(r.platform+"|"+r.ext+"\x00"+r.payload))
-		if err != nil {
-			return wrap(err)
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE gateway_inbound SET payload='{}', payload_enc=? WHERE rowid=?`, enc, r.id); err != nil {
-			return wrap(err)
-		}
-	}
-	return nil
-}
-
-func rebuildFTS(ctx context.Context, db *sql.DB, codec Codec) error {
-	for _, fts := range []string{"events_fts", "summaries_fts", "memory_fts"} {
-		if err := clearFTS(ctx, db, fts); err != nil {
-			return err
-		}
-	}
-	items := []struct{ q, fts string }{
-		{`SELECT id, content FROM events WHERE kind IN ('user_message','assistant_message','tool_result','imported')`, "events_fts"},
-		{`SELECT id, content FROM summaries`, "summaries_fts"},
-		{`SELECT id, content FROM memory`, "memory_fts"},
-	}
-	for _, it := range items {
-		if err := rebuildOne(ctx, db, it.q, it.fts, codec); err != nil {
+		identity := text(r[1]) + "|" + text(r[2])
+		if err := sealText(ctx, tx, codec, "gateway_inbound.payload", identity, text(r[3]), `UPDATE gateway_inbound SET payload='{}', payload_enc=? WHERE rowid=?`, num(r[0])); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func rebuildOne(ctx context.Context, db *sql.DB, q, fts string, codec Codec) error {
-	rows, err := db.QueryContext(ctx, q)
+func sealText(ctx context.Context, tx *sql.Tx, codec Codec, scope, identity, plain, q string, id int64) error {
+	enc, err := codec.Seal(scope, []byte(identity+"\x00"+plain))
 	if err != nil {
 		return wrap(err)
 	}
-	type row struct {
-		id      int64
-		content string
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	var rs []row
-	for rows.Next() {
-		var r row
-		if err := rows.Scan(&r.id, &r.content); err != nil {
-			return wrap(err)
-		}
-		rs = append(rs, r)
-	}
-	if rerr := rows.Err(); rerr != nil {
-		return wrap(rerr)
-	}
-	if err := rows.Close(); err != nil {
-		return wrap(err)
-	}
-	for _, r := range rs {
-		if err := insertFTS(ctx, db, fts, r.id, encFTS(codec, r.content)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func clearFTS(ctx context.Context, db *sql.DB, fts string) error {
-	q := map[string]string{
-		"events_fts":    "INSERT INTO events_fts(events_fts) VALUES('delete-all')",
-		"summaries_fts": "INSERT INTO summaries_fts(summaries_fts) VALUES('delete-all')",
-		"memory_fts":    "INSERT INTO memory_fts(memory_fts) VALUES('delete-all')",
-	}[fts]
-	if q == "" {
-		return ErrInternal
-	}
-	_, err := db.ExecContext(ctx, q)
+	_, err = tx.ExecContext(ctx, q, enc, id)
 	return wrap(err)
 }
 
-func insertFTS(ctx context.Context, db *sql.DB, fts string, id int64, tokens string) error {
-	q := map[string]string{
-		"events_fts":    "INSERT INTO events_fts(rowid, content) VALUES (?,?)",
-		"summaries_fts": "INSERT INTO summaries_fts(rowid, content) VALUES (?,?)",
-		"memory_fts":    "INSERT INTO memory_fts(rowid, content) VALUES (?,?)",
-	}[fts]
-	if q == "" {
-		return ErrInternal
+func queryRows(ctx context.Context, tx *sql.Tx, q string) (out [][]any, err error) {
+	rows, err := tx.QueryContext(ctx, q)
+	if err != nil {
+		return nil, wrap(err)
 	}
-	_, err := db.ExecContext(ctx, q, id, tokens)
-	return wrap(err)
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	cols, err := rows.Columns()
+	if err != nil {
+		return nil, wrap(err)
+	}
+	for rows.Next() {
+		vals := make([]any, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range vals {
+			ptrs[i] = &vals[i]
+		}
+		if serr := rows.Scan(ptrs...); serr != nil {
+			return nil, wrap(serr)
+		}
+		out = append(out, vals)
+	}
+	return out, wrap(rows.Err())
 }
 
-func encFTS(codec Codec, s string) string {
-	fields := strings.FieldsFunc(ftsNorm(s), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
-	out := make([]string, 0, len(fields))
-	for _, f := range fields {
-		out = append(out, codec.FTS(f))
+func text(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case []byte:
+		return string(x)
+	default:
+		return fmt.Sprint(x)
 	}
-	return strings.Join(out, " ")
+}
+
+func num(v any) int64 {
+	switch x := v.(type) {
+	case int64:
+		return x
+	default:
+		return 0
+	}
+}
+
+func binary(v any) []byte {
+	if b, ok := v.([]byte); ok {
+		return b
+	}
+	return []byte(text(v))
+}
+
+func clearFTS(ctx context.Context, db *sql.DB) error {
+	for _, q := range []string{
+		"INSERT INTO events_fts(events_fts) VALUES('delete-all')",
+		"INSERT INTO summaries_fts(summaries_fts) VALUES('delete-all')",
+		"INSERT INTO memory_fts(memory_fts) VALUES('delete-all')",
+	} {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			return wrap(err)
+		}
+	}
+	return nil
 }
 
 func encryptBlobs(dir string, codec Codec) error {
-	ents, err := os.ReadDir(dir)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return wrap(err)
-	}
-	for _, e := range ents {
-		if !e.IsDir() {
-			continue
+	return wrap(filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
 		}
-		files, rerr := os.ReadDir(filepath.Join(dir, e.Name()))
-		if rerr != nil {
-			return wrap(rerr)
+		if err != nil || d.IsDir() {
+			return err
 		}
-		for _, f := range files {
-			if err := encryptBlob(filepath.Join(dir, e.Name(), f.Name()), codec); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+		return encryptBlob(p, codec)
+	}))
 }
 
 func encryptBlob(p string, codec Codec) error {
@@ -530,9 +395,7 @@ func encryptBlob(p string, codec Codec) error {
 }
 
 func newEncIDDB() (string, error) {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", wrap(err)
-	}
-	return hex.EncodeToString(b[:]), nil
+	b := make([]byte, 8)
+	_, err := rand.Read(b)
+	return hex.EncodeToString(b), wrap(err)
 }

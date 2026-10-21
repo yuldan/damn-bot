@@ -404,13 +404,6 @@ func verifyMigrated(t *testing.T, dst string, st *secret.Store, sha string) {
 	if blob, berr := edb.ReadBlob(context.Background(), sha); berr != nil || string(blob) != "blob-payload" {
 		t.Fatalf("blob = %q, %v", blob, berr)
 	}
-	hits, err := edb.Search(context.Background(), ctxdb.Query{Text: "canary", Limit: 5})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !hasSummaryHit(hits) {
-		t.Fatalf("summary search = %+v", hits)
-	}
 	raw, err := os.ReadFile(filepath.Join(dst, "damnbot.db")) //nolint:gosec // test dir
 	if err != nil {
 		t.Fatal(err)
@@ -420,15 +413,6 @@ func verifyMigrated(t *testing.T, dst string, st *secret.Store, sha string) {
 			t.Fatalf("plaintext %q in migrated DB", c)
 		}
 	}
-}
-
-func hasSummaryHit(hits []ctxdb.Hit) bool {
-	for _, h := range hits {
-		if h.Kind == "summary_ref" && strings.Contains(h.Snippet, "canary-summary") {
-			return true
-		}
-	}
-	return false
 }
 
 func migrationSource(t *testing.T, data string) string {
