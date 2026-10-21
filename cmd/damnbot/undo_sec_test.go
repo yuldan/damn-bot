@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/journalstore"
@@ -141,6 +142,21 @@ func TestUndoDryRunReadsThroughSandbox(t *testing.T) {
 		seedAction(t, data, "S-"+name, ws, link, []byte("old"), []byte("TOPSECRET"), []string{ws})
 		if o := wantUndo(t, 0, []string{"--dry-run", "--session", "S-" + name, "--data-dir", data}, "refused"); strings.Contains(o, "TOPSECRET") {
 			t.Fatalf("%s symlink: dry-run leaked content: %q", name, o)
+		}
+	}
+}
+
+// TestCleanLineInvalidUTF8 (REVIEW-F2-SEC5-13): invalid UTF-8 bytes,
+// including the C1 0x9B/0x9D an 8-bit terminal reads as CSI/OSC, never
+// reach the output; cleanBlock stays safe too.
+func TestCleanLineInvalidUTF8(t *testing.T) {
+	for _, in := range []string{"a\x9b2Jb", "x\x9d0;title", "\xff\xfe\x80", "ok\xc3"} {
+		got := cleanLine(in)
+		if !utf8.ValidString(got) || strings.IndexByte(got, 0x9b) >= 0 || strings.IndexByte(got, 0x9d) >= 0 {
+			t.Fatalf("cleanLine(%q) = %q, not terminal-safe", in, got)
+		}
+		if block := cleanBlock(in + "\n"); !utf8.ValidString(block) {
+			t.Fatalf("cleanBlock(%q) = %q, not terminal-safe", in, block)
 		}
 	}
 }

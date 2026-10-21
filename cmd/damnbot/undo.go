@@ -91,6 +91,9 @@ func undoMain(ctx context.Context, o *undoOptions, stdout io.Writer) (code int, 
 	if err != nil {
 		return 1, fmt.Errorf("journalstore: %w", err)
 	}
+	if !o.list && !o.dryRun {
+		return undoApply(ctx, env, store, o, stdout)
+	}
 	acts, sid, err := undoTargets(ctx, env.db, store, o)
 	if err != nil {
 		return 1, err
@@ -98,14 +101,7 @@ func undoMain(ctx context.Context, o *undoOptions, stdout io.Writer) (code int, 
 	if len(acts) == 0 {
 		return 1, fmt.Errorf("session %s has no journaled actions", sid)
 	}
-	if o.list || o.dryRun {
-		return 0, previewActions(ctx, env, store, acts, o.list, stdout)
-	}
-	sb, err := undoSandbox(env, acts)
-	if err != nil {
-		return 1, err
-	}
-	return undoApply(ctx, env.db, store, sb, sid, o, stdout)
+	return 0, previewActions(ctx, env, store, acts, o.list, stdout)
 }
 
 // undoTargets resolves the session — --session, else the newest session of
@@ -185,21 +181,38 @@ func undoSandbox(env *cliEnv, acts []journal.Action) (*sandbox.Sandbox, error) {
 	return sb, nil
 }
 
-// undoApply runs the undo under a short lease of sid (SPEC §18.1: a live
-// lease of another process is session_busy) and reports every result,
-// including files restored before a recording failure.
-func undoApply(ctx context.Context, db *ctxdb.Store, store *journalstore.Store, sb *sandbox.Sandbox, sid string, o *undoOptions, w io.Writer) (code int, err error) {
-	if _, lerr := db.AcquireLease(ctx, sid); lerr != nil {
+// undoApply acquires a short lease of the session first (SPEC §18.1: a
+// live lease of another process is session_busy), then lists and
+// scope-checks the exact action set it executes, so an action appended
+// after the check cannot join the batch (SEC5-14). It reports every
+// result, including files restored before a recording failure.
+func undoApply(ctx context.Context, env *cliEnv, store *journalstore.Store, o *undoOptions, w io.Writer) (code int, err error) {
+	sid, err := undoSession(ctx, env.db, o.session)
+	if err != nil {
+		return 1, err
+	}
+	if _, lerr := env.db.AcquireLease(ctx, sid); lerr != nil {
 		if errors.Is(lerr, ctxdb.ErrSessionBusy) {
 			return 4, fmt.Errorf("%w; run the undo from the process that holds the session", lerr)
 		}
 		return undoExit(lerr), fmt.Errorf("lease: %w", lerr)
 	}
 	defer func() {
-		if rerr := db.ReleaseLease(ctx, sid); rerr != nil {
+		if rerr := env.db.ReleaseLease(ctx, sid); rerr != nil {
 			err = errors.Join(err, fmt.Errorf("release lease: %w", rerr))
 		}
 	}()
+	acts, _, err := undoTargets(ctx, env.db, store, o)
+	if err != nil {
+		return 1, err
+	}
+	if len(acts) == 0 {
+		return 1, fmt.Errorf("session %s has no journaled actions", sid)
+	}
+	sb, err := undoSandbox(env, acts)
+	if err != nil {
+		return 1, err
+	}
 	undoer, err := journal.NewUndoer(store, sb)
 	if err != nil {
 		return 1, fmt.Errorf("undoer: %w", err)
@@ -211,7 +224,7 @@ func undoApply(ctx context.Context, db *ctxdb.Store, store *journalstore.Store, 
 		r, uerr = undoer.Undo(ctx, sid, o.action, o.force)
 		results = []journal.Result{r}
 	} else {
-		results, uerr = undoer.UndoLast(ctx, sid, o.count, o.force)
+		results, uerr = undoer.UndoActions(ctx, sid, acts, o.force)
 	}
 	for i := range results {
 		r := &results[i]
@@ -313,24 +326,29 @@ func dryRun(ctx context.Context, env *cliEnv, store *journalstore.Store, a *jour
 
 // readInSandbox reads p the way the undo executor reaches it (SEC5-3): the
 // action's sandbox must classify it inside a root (deny_paths and outside
-// paths refuse), and the final component is opened through an os.Root of
-// its directory only when it is a regular file, not a symlink, and is the
-// same file that was checked. nil data = absent; a refusal never reads.
+// paths refuse), and it is opened through the canonical sandbox root, so an
+// ancestor directory swapped for a symlink after the check cannot redirect
+// the read (SEC5-12). Only a regular file that is the one checked is read.
+// nil data = absent; a refusal never reads.
 func readInSandbox(ctx context.Context, sb *sandbox.Sandbox, p string) (data []byte, refusal string) {
-	if v, _, err := sb.Check(ctx, p, sandbox.OpWrite); err != nil || (v != sandbox.Inside && v != sandbox.HardLinked) {
+	v, resolved, err := sb.Check(ctx, p, sandbox.OpWrite)
+	if err != nil || (v != sandbox.Inside && v != sandbox.HardLinked) {
 		return nil, "outside the action's sandbox or denied"
 	}
-	dir, base := filepath.Split(filepath.Clean(p))
+	dir, rel, ok := sb.RootOf(resolved)
+	if !ok || filepath.Clean(p) != resolved {
+		return nil, "outside the action's sandbox or denied"
+	}
 	root, err := os.OpenRoot(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ""
 	}
 	if err != nil {
-		return nil, "its directory cannot be opened"
+		return nil, "its sandbox root cannot be opened"
 	}
-	data, refusal = readRegular(root, base)
+	data, refusal = readRegular(root, rel)
 	if cerr := root.Close(); cerr != nil && refusal == "" {
-		return nil, "its directory cannot be closed"
+		return nil, "its sandbox root cannot be closed"
 	}
 	return data, refusal
 }
