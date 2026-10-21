@@ -1437,6 +1437,8 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Rerun pasca-perbaikan (2026-10-21).** Pada `main` `1b57ae9` (#134+#135), A4/C14/C15/D20/destruktif PASS; C13 create masih FAIL karena model tetap mengirim tag, meski tool path lolos via stub. Biaya rerun ≈$0,000679; total F1 ≈$0,922681 < $2,00. Detail `docs/F1-LLM-SMOKE.md`.
 
+**C13 rerun (2026-10-21).** Pada `main` `428c775` (#137), create default dan tag-on-missing-path sama-sama membuat file byte-exact `hello` (tag diabaikan dengan notice); biaya $0,000526. Detail `docs/F1-LLM-SMOKE.md`.
+
 ## ADR-063 — Errata residu backlog ADR-037 (AUD-002)
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan pemilik proyek: opsi paling konservatif, dalam budget SPEC §3.2.4/P1/P13/P21, tanpa dependency baru). Menutup AUD-002 ([`AUDIT-F0.md`](AUDIT-F0.md)): lima MINOR backlog ADR-037 yang tidak punya ADR penutup (m-15, N-15, N-24, N-33, V-05); backlog ADR-047 butir 2.

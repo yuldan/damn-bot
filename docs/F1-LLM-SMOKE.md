@@ -102,6 +102,10 @@ Result: **14 PASS / 1 FAIL**. Remaining defect: **C13 real-model create still fa
 
 Spend: no h2h run; ledger unchanged at **$0.92200161**. Rerun direct estimate: C13 real + explicit ≈$0.000679 (gpt prices; stub calls $0). Total F1 estimate ≈**$0.922681** < $2.00. Evidence: `bench/h2h/results/2026-10-21-llm-rerun/summary.json`.
 
+### C13 rerun (main `428c775`)
+
+On `main` `428c775` (#137), the real `gpt-5.4-mini` default create prompt produced `notes.txt` with exact bytes `hello` (rc 0), and a forced `write_file` call with `tag:"00000000"` on a missing path created `missing.txt` with exact bytes `hello` plus the `[tag ignored: missing.txt did not exist; created a new file]` notice (rc 0). Cost **$0.000526**; ledger unchanged at **$0.92200161**, total F1 ≈ **$0.922527 < $2.00**. C13 is closed.
+
 ## Reproduction
 
 ```
