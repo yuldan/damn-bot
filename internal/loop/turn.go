@@ -242,11 +242,10 @@ func (t *turn) ask(ctx context.Context, p *Prompt) (Reply, []ToolCall, *outcome)
 }
 
 // accept records a successful call and checks cancellation after the stream.
+// Accounting happens first and without the caller's cancellation: the call
+// was already paid for, so a cancel that races the end of the stream must
+// not drop the billed attempts or the reply usage (SEC6-10).
 func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
-	if ctx.Err() != nil {
-		o := t.cancelled()
-		return &o, true
-	}
 	t.addUsage(&reply.Usage)
 	reply.Carriers, reply.CarrierDrops = t.filterCarriers(reply.Carriers, reply.CarrierDrops, reply.ReasoningText)
 	if len(reply.RejectedCarriers) > 0 && t.deps.Carriers != nil {
@@ -263,7 +262,8 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 			Kind: "carrier_dropped", Reason: d.Reason, Count: d.Count,
 		})})
 	}
-	if err := t.recordBilledAttempts(ctx, reply.BilledFailed); err != nil {
+
+	if err := t.recordBilledAttempts(ctx, reply.BilledFailed, reply.BilledUsage); err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
 		return &o, true
 	}
@@ -278,7 +278,7 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 		t.note(ctx, &event.Event{Kind: event.BudgetWarning, Payload: payload(auditPayload{Kind: c})})
 		t.emit(&event.Update{Kind: event.UpdateNotice, Text: "budget warning: " + c + " cap reached warn_at", ToolName: "budget"})
 	}
-	eventID, err := t.append(ctx, &event.Event{Kind: event.LLMCall, Payload: payload(llmPayload{
+	eventID, err := t.append(context.WithoutCancel(ctx), &event.Event{Kind: event.LLMCall, Payload: payload(llmPayload{
 		Model: reply.Model, FinishReason: reply.FinishReason, FallbackFrom: reply.FallbackFrom,
 		CacheBreak: cacheBreak,
 		Attempts:   reply.Attempts, Input: reply.Usage.Input, CachedInput: reply.Usage.CachedInput,
@@ -288,9 +288,20 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 		o := t.fail(ctx, event.DetailInternal, err)
 		return &o, true
 	}
-	if err := t.record(ctx, eventID, &reply.Usage); err != nil {
+	if err := t.record(context.WithoutCancel(ctx), eventID, &reply.Usage); err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
 		return &o, true
+	}
+	if ctx.Err() != nil {
+		o := t.cancelled()
+		return &o, true
+	}
+	if reply.FallbackFrom != "" {
+		t.fallback(ctx, reply.FallbackFrom, reply.Model)
+	}
+	for _, c := range reply.BudgetWarnings {
+		t.note(ctx, &event.Event{Kind: event.BudgetWarning, Payload: payload(auditPayload{Kind: c})})
+		t.emit(&event.Update{Kind: event.UpdateNotice, Text: "budget warning: " + c + " cap reached warn_at", ToolName: "budget"})
 	}
 	t.emit(&event.Update{Kind: event.UpdateUsage, Usage: &reply.Usage})
 	return nil, false
@@ -303,7 +314,7 @@ func (t *turn) streamError(ctx context.Context, p *Prompt, err error, st *askSta
 	if ok && se.Billed > 0 {
 		// The upstream already responded: keep those attempts visible to the
 		// budget guard as unknown cost (SEC6-9), even when the turn fails.
-		if rerr := t.recordBilledAttempts(ctx, se.Billed); rerr != nil {
+		if rerr := t.recordBilledAttempts(ctx, se.Billed, se.Usage); rerr != nil {
 			o := t.fail(ctx, event.DetailInternal, rerr)
 			return false, &o
 		}
@@ -725,14 +736,19 @@ func (t *turn) saveCarriers(ctx context.Context, eventID int64, cs []event.Carri
 	return nil
 }
 
-// recordBilledAttempts writes one unknown-cost ledger row per failed attempt
-// that already received a response from the upstream (SEC6-9). Without a
-// price and with zero usage the row is NULL/unknown, so a monetary cap
-// denies later calls instead of letting paid retries pass unseen. The write
-// ignores cancellation: the spend already happened.
-func (t *turn) recordBilledAttempts(ctx context.Context, n int) error {
+// recordBilledAttempts writes one ledger row per failed attempt that already
+// received a response from the upstream (SEC6-9). A priced route passes its
+// conservative projection (SEC6-11), so a single broken stream does not lock
+// the whole cap period as unknown; an unpriced route writes NULL/unknown,
+// which a monetary cap treats as unprovable spend and fails closed. The
+// write ignores cancellation: the spend already happened.
+func (t *turn) recordBilledAttempts(ctx context.Context, n int, u *event.Usage) error {
 	for range n {
-		if err := t.record(context.WithoutCancel(ctx), 0, &event.Usage{}); err != nil {
+		row := event.Usage{}
+		if u != nil {
+			row = *u
+		}
+		if err := t.record(context.WithoutCancel(ctx), 0, &row); err != nil {
 			return err
 		}
 	}

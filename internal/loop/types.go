@@ -100,8 +100,11 @@ type Reply struct {
 	// this call (SPEC §18.4: budget_warning, once per cap per period).
 	BudgetWarnings []string
 	// BilledFailed counts failed attempts that already received a response
-	// from the upstream (SEC6-9); the loop records them as unknown cost.
+	// from the upstream (SEC6-9); the loop records one ledger row each.
 	BilledFailed int
+	// BilledUsage is the conservative per-attempt charge projection of a
+	// priced route (nil = unpriced: the rows are NULL/unknown, SEC6-11).
+	BilledUsage *event.Usage
 }
 
 // Class is the only provider-error classification the loop acts on. The
@@ -126,8 +129,11 @@ type StreamError struct {
 	// Detail is the SPEC §3.5 budget_* stop of a ClassBudget denial.
 	Detail event.StopDetail
 	// Billed counts failed attempts that already received a response from the
-	// upstream (SEC6-9); the loop records one unknown-cost ledger row each.
+	// upstream (SEC6-9); the loop records one ledger row each using Usage.
 	Billed int
+	// Usage is the conservative per-attempt charge projection of a priced
+	// route (nil = unpriced: NULL/unknown rows, SEC6-11).
+	Usage *event.Usage
 }
 
 func (e *StreamError) Error() string { return "provider: " + e.Err.Error() }
