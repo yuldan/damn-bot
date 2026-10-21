@@ -163,8 +163,18 @@ func (s *Service) Recall(ctx context.Context, r *Recall) ([]Hit, error) {
 }
 
 // Pending lists quarantined entries of exactly the caller's scopes for review
-// (`/memory review`, TUI). Empty scopes deny (JN3-1).
+// (`damnbot review`, TUI). Empty scopes deny (JN3-1).
 func (s *Service) Pending(ctx context.Context, scopes []string, limit int) ([]Hit, error) {
+	return s.review(ctx, scopes, StatusScanned, limit)
+}
+
+// Rejected lists rejected entries of exactly the caller's scopes (`damnbot
+// review --rejected`): the audit view of what quarantine discarded.
+func (s *Service) Rejected(ctx context.Context, scopes []string, limit int) ([]Hit, error) {
+	return s.review(ctx, scopes, StatusRejected, limit)
+}
+
+func (s *Service) review(ctx context.Context, scopes []string, st Status, limit int) ([]Hit, error) {
 	normalized, err := normalizeScopes(scopes)
 	if err != nil {
 		return nil, err
@@ -172,9 +182,9 @@ func (s *Service) Pending(ctx context.Context, scopes []string, limit int) ([]Hi
 	if limit <= 0 || limit > MaxRecall {
 		limit = MaxRecall
 	}
-	hits, err := s.store.Search(ctx, &Query{Scopes: normalized, Statuses: []Status{StatusScanned}, Limit: limit, Now: s.now()})
+	hits, err := s.store.Search(ctx, &Query{Scopes: normalized, Statuses: []Status{st}, Limit: limit, Now: s.now()})
 	if err != nil {
-		return nil, fmt.Errorf("memory: pending: %w", err)
+		return nil, fmt.Errorf("memory: review %s: %w", st, err)
 	}
 	return hits, nil
 }
