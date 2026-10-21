@@ -26,7 +26,7 @@ const (
 "edits":{"type":"array","minItems":1,"maxItems":50,"items":{"type":"object","properties":{"old_string":{"type":"string","minLength":1},
 "new_string":{"type":"string"},"replace_all":{"type":"boolean"},"start_line":{"type":"integer"},"end_line":{"type":"integer"},
 "new_text":{"type":"string"}},"additionalProperties":false}}},"required":["path","tag","edits"],"additionalProperties":false}}`
-	schemaWrite = `{"name":"write_file","description":"Create a file, or overwrite one with the tag from read_file. Keeps encoding, BOM, EOL and mode.",
+	schemaWrite = `{"name":"write_file","description":"Create a file by omitting tag, or overwrite one with the tag from read_file. Keeps encoding, BOM, EOL and mode.",
 "parameters":{"type":"object","properties":{"path":{"type":"string","minLength":1},"content":{"type":"string","maxLength":1000000},
 "tag":{"type":"string","pattern":"^[0-9a-f]{8}$"}},"required":["path","content"],"additionalProperties":false}}`
 )

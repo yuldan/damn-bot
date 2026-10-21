@@ -5,6 +5,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 ## Unreleased
 
 ### Fixed
+- `cmd/damnbot`: `run` mencetak error validasi flag (prompt hilang, `--output` tidak dikenal) ke stderr sebelum exit 2; error dari parser `flag` tetap dicetak sekali oleh paket `flag` (defect A4 matriks skenario LLM).
+- `cmd/damnbot`: composition root headless menyambungkan `exec.Sessions` (dan menutupnya lebih dulu saat shutdown), sehingga `shell` dengan `session` benar-benar berjalan alih-alih `module_unavailable`; varian schema yang mengiklankan `session` kini cocok dengan ketersediaannya (C15). Penolakan auto-mode untuk `echo` tanpa `shell_allow` tetap benar (ADR-079).
+- `cmd/damnbot`: event `tool_result` pada `--output stream-json` menetralkan penutup `<untrusted>` dalam segala kapitalisasi, sama seperti render yang dilihat model (D20).
+- `codetools`: deskripsi `write_file` menyatakan bahwa `tag` harus dihilangkan untuk membuat file baru; `tag` pada path yang belum ada tetap `not_found` dengan hint "omit tag to create a new file" (C13).
+- `codetools`: `grep` menerima `type:"text"` dan `type:"file"` sebagai alias semua file yang dipindai, tidak lagi menolaknya sebagai bahasa tak dikenal (C14).
+- `provider`: error auth tidak lagi mengulang status numerik (`HTTP 401 401`) ketika provider menaruh status yang sama di `error.code` (B8).
 - `ci`: bump Go to 1.26.10 (GO-2026-6809 — crypto/x509 intermediate cert distrust); pin `go` di `go.mod`, `bench/go.mod`, `tools/go.mod` dan baris Status ENGINEERING ikut naik.
 - `ctxdb`: `CreateSession` menyimpan `Session.Model` dan `Session.ConfigSHA` yang sebenarnya, bukan placeholder `'test/model'`/`'cfg'`.
 - `exec`: sweep marker tidak lagi berhenti pada pemindaian bersih pertama setelah leader exit — proses yang sedang di antara dua `execve` melaporkan environ kosong/parsial sehingga lolos dari `markerPids`; sweep mengonfirmasi dengan pemindaian bersih kedua (P24.1, ADR-105).

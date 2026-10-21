@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/damnbot/damnbot/internal/loop/event"
+	"github.com/damnbot/damnbot/internal/tools"
 )
 
 type runResult struct {
@@ -44,6 +45,10 @@ func drainRun(ch <-chan event.Update, output string, stdout io.Writer) runResult
 }
 
 func writeStreamEvent(w io.Writer, up *event.Update) error {
+	text := up.Text
+	if up.Kind == event.UpdateToolResult {
+		text = tools.EscapeUntrustedClose(text)
+	}
 	line := struct {
 		Type   string `json:"type"`
 		Text   string `json:"text,omitempty"`
@@ -53,7 +58,7 @@ func writeStreamEvent(w io.Writer, up *event.Update) error {
 		Detail string `json:"detail,omitempty"`
 		Error  string `json:"err,omitempty"`
 	}{
-		Type: string(up.Kind), Text: up.Text, Tool: up.ToolName, Status: up.Status,
+		Type: string(up.Kind), Text: text, Tool: up.ToolName, Status: up.Status,
 		Stop: string(up.Stop), Detail: string(up.Detail), Error: up.Err,
 	}
 	return encodeLine(w, line)

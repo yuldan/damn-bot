@@ -580,15 +580,16 @@ func validEffect(e Effect) bool {
 }
 
 func wrapUntrusted(content, source string) string {
-	content = escapeUntrustedClose(content)
+	content = EscapeUntrustedClose(content)
 	return `<untrusted source="` + source + `">` + content + "</untrusted>"
 }
 
-// escapeUntrustedClose neutralises every closing boundary tag in any
+// EscapeUntrustedClose neutralises every closing boundary tag in any
 // capitalisation: `</UNTRUSTED>` would otherwise end the wrapper early and
 // let the data issue instructions (SPEC §14.5, ADR-070; REVIEW-F1-SEC7
-// TL7-2).
-func escapeUntrustedClose(s string) string {
+// TL7-2). Stream consumers that show tool results use the same neutral
+// form as the model-facing render.
+func EscapeUntrustedClose(s string) string {
 	const closeTag = "</untrusted"
 	lower := strings.ToLower(s)
 	if !strings.Contains(lower, closeTag) {

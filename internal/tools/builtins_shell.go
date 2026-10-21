@@ -219,7 +219,7 @@ func (t *shellTool) Run(ctx context.Context, env Env, args json.RawMessage) (Res
 // runSession runs one command in a persistent shell (§A.2).
 func (t *shellTool) runSession(ctx context.Context, a shellArgs, timeout time.Duration) (exec.Result, error) {
 	if t.cfg.Sessions == nil {
-		return exec.Result{}, toolErr(CodeModuleUnavailable, "persistent sessions are not configured", "")
+		return exec.Result{}, toolErr(CodeModuleUnavailable, "persistent sessions are not configured", "omit session for a one-shot command")
 	}
 	res, err := t.cfg.Sessions.Exec(ctx, a.Session, a.Command, nil, timeout)
 	if err != nil {

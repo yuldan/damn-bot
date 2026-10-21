@@ -152,12 +152,16 @@ func planGrep(a *GrepArgs) (*grepPlan, error) {
 func fileFilter(glob, typ string) (func(string) bool, bool, error) {
 	var globs []string
 	if typ != "" {
-		g, ok := langTypes()[typ]
-		if !ok {
-			names := slices.Sorted(maps.Keys(langTypes()))
-			return nil, false, toolErr(CodeInvalidArgs, "valid: "+strings.Join(names, ", "), "/type: unknown type %q", typ)
+		// text/file are all-text aliases: they select every file the walker
+		// would scan, exactly like omitting type (CODE-TOOLS §2.1).
+		if typ != "text" && typ != "file" {
+			g, ok := langTypes()[typ]
+			if !ok {
+				names := slices.Sorted(maps.Keys(langTypes()))
+				return nil, false, toolErr(CodeInvalidArgs, "valid: "+strings.Join(names, ", "), "/type: unknown type %q", typ)
+			}
+			globs = g
 		}
-		globs = g
 	}
 	if glob != "" && !doublestar.ValidatePattern(glob) {
 		return nil, false, toolErr(CodeInvalidArgs, "doublestar syntax: **, {a,b}, [...]", "/glob: invalid pattern %q", glob)

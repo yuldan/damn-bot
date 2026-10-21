@@ -51,9 +51,21 @@ type runOptions struct {
 	providerAttempts int
 }
 
+// reportedParseError marks a parse failure the flag package already wrote to
+// stderr (unknown flag, bad value, -h), so runHeadless does not print it twice.
+type reportedParseError struct{ err error }
+
+func (e *reportedParseError) Error() string { return e.err.Error() }
+func (e *reportedParseError) Unwrap() error { return e.err }
+
 func runHeadless(args []string, stdout, stderr io.Writer) int {
 	opts, err := parseRunFlags(args, stderr)
 	if err != nil {
+		if _, reported := errors.AsType[*reportedParseError](err); !reported {
+			if _, werr := fmt.Fprintf(stderr, "run: %v\n", err); werr != nil {
+				return 2
+			}
+		}
 		return 2
 	}
 	code, err := runOne(context.Background(), &opts, stdout)
@@ -83,7 +95,7 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	fs.StringVar(&o.apiKey, "api-key", "", "internal/test: provider API key")
 	fs.IntVar(&o.providerAttempts, "provider-attempts", 0, "internal/test: provider retry attempts (0 = default 3)")
 	if err := fs.Parse(args); err != nil {
-		return runOptions{}, fmt.Errorf("parse flags: %w", err)
+		return runOptions{}, &reportedParseError{err: fmt.Errorf("parse flags: %w", err)}
 	}
 	if o.prompt == "" {
 		o.prompt = strings.Join(fs.Args(), " ")
@@ -205,6 +217,7 @@ type runModel struct {
 	ledger    *ctxLedger
 	engine    *codetools.Engine
 	runner    *exec.Runner
+	sessions  *exec.Sessions
 	sessionID string
 	cwd       string
 	db        *ctxdb.Store
@@ -215,9 +228,14 @@ func (m *runModel) close(ctx context.Context) error {
 		m.engine.Close()
 	}
 	var err error
+	if m.sessions != nil {
+		if cerr := m.sessions.Close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("close sessions: %w", cerr))
+		}
+	}
 	if m.runner != nil {
 		if cerr := m.runner.CloseContext(ctx); cerr != nil {
-			err = fmt.Errorf("close runner: %w", cerr)
+			err = errors.Join(err, fmt.Errorf("close runner: %w", cerr))
 		}
 	}
 	if m.db == nil {
@@ -255,8 +273,15 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		return nil, closeDB(ctx, db, fmt.Errorf("codetools: %w", err))
 	}
 	runner := exec.New(ctx)
+	envPolicy := &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent}
+	// Persistent sessions share the runner but never receive secret refs
+	// (ADR-088): direct is empty and Env only inherits the allowlist.
+	sessions := runner.NewSessions(filepath.Join(dataDir, "exec", "sess"), envPolicy.Env(os.Environ(), true, "", "", ""))
 	fail := func(cause error) error {
 		engine.Close()
+		if cerr := sessions.Close(); cerr != nil {
+			cause = errors.Join(cause, fmt.Errorf("close sessions: %w", cerr))
+		}
 		if cerr := runner.CloseContext(ctx); cerr != nil {
 			cause = errors.Join(cause, fmt.Errorf("close runner: %w", cerr))
 		}
@@ -269,9 +294,9 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	list := tools.FileTools(engine, sb)
 	list = append(list,
 		tools.NewShell(&tools.ShellConfig{
-			Runner: runner, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
+			Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
 			Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
-			EnvPolicy:        &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent},
+			EnvPolicy:        envPolicy,
 			WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
 		}),
 		tools.NewTodo(), tools.NewClarify(nil),
@@ -303,6 +328,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		db:        db,
 		engine:    engine,
 		runner:    runner,
+		sessions:  sessions,
 	}, nil
 }
 

@@ -139,6 +139,11 @@ func TestToError(t *testing.T) {
 	if e := toError(cases[0].err); e.RetryAfter() != 3e9 || !strings.Contains(e.Error(), "HTTP 429 invalid_api_key") {
 		t.Errorf("retry-after/message: %v %v", e.RetryAfter(), e)
 	}
+	// B8: a provider that echoes the HTTP status as error.code must not
+	// produce "HTTP 401 401".
+	if e := toError(statusErr(401, `{"error":{"code":401}}`, nil)); !strings.Contains(e.Error(), "provider auth (HTTP 401)") || strings.Contains(e.Error(), "401 401") {
+		t.Errorf("duplicate numeric code: %q", e.Error())
+	}
 }
 
 // TestEdgeCases (EDGE-CASES-hermes.md, ADR-077/080): EC-PROV entries
