@@ -141,6 +141,32 @@ func TestContextScrub(t *testing.T) {
 	}
 }
 
+// TestContextPathSanitized: a context file path is scrubbed and loses line
+// breaks and control/format runes in its heading and truncation marker, while
+// the sandbox still opens the path as given (REVIEW-F2-SEC4 ASM4-5).
+func TestContextPathSanitized(t *testing.T) {
+	t.Parallel()
+	a := newAssembler(t, func(s string) string { return strings.ReplaceAll(s, "sk-live-secret", "[REDACTED:secret]") })
+	raw := "docs/sk-live-secret\u202e\x1b[0m\nX.md"
+	r := &recordingReader{files: map[string]string{raw: strings.Repeat("context file line. ", 2000)}}
+	got, err := a.Context(context.Background(), &ContextInput{Files: []ContextFile{{Path: raw}}, Reader: r})
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if len(r.seen) != 1 || r.seen[0] != raw {
+		t.Errorf("reader opened %q, want the raw path", r.seen)
+	}
+	const shown = "docs/[REDACTED:secret][0m X.md"
+	for _, want := range []string{"\n# " + shown + "\n", "[truncated; read_file " + shown + "]"} {
+		if !strings.Contains(got.Text, want) {
+			t.Errorf("context lacks %q:\n%s", want, got.Text)
+		}
+	}
+	if strings.ContainsAny(got.Text, "\u202e\x1b") || strings.Contains(got.Text, "sk-live-secret") {
+		t.Errorf("path not sanitized: %q", got.Text)
+	}
+}
+
 type recordingReader struct {
 	files map[string]string
 	errs  map[string]error

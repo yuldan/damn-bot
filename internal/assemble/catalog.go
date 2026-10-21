@@ -4,12 +4,15 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
-// Catalog caps from SPEC §5.2 and §6.
+// Catalog caps from SPEC §5.2 and §6. CatalogLineMax bounds one rendered
+// group line ("- <name>: <summary>", ADR-119 butir 7) in [Deps.Tokens] units.
 const (
 	CapCatalog       = 600
 	CatalogMaxGroups = 24
+	CatalogLineMax   = 15
 )
 
 // catalogHeader opens the deferred catalog that stable rule 3 refers to
@@ -29,20 +32,25 @@ type CatalogGroup struct {
 // Catalog renders the deferred catalog tier. It returns "" for an empty
 // catalog, so the stable tier's rule 3 is dropped with it.
 //
-// Rendering is a pure function of the group set (P15, ADR-056): groups are
-// sorted byte-wise by name, groups sharing a name are merged into one line
-// (summaries sorted, joined with "; "), whitespace is flattened so a summary
-// cannot add prompt structure, and no usage statistic is consulted. More than
-// [CatalogMaxGroups] groups or a render above [CapCatalog] tokens trims the
-// sorted tail and replaces it with the single overflow line of SPEC §5.2.
-func Catalog(groups []CatalogGroup, c Counter) string {
-	lines := catalogLines(groups)
+// Rendering is a pure function of the group set (P15, ADR-056): names and
+// summaries are scrubbed and flattened to one line without control or format
+// runes, groups are sorted byte-wise by name, groups sharing a name are merged
+// into one line (summaries sorted, joined with "; "), and no usage statistic
+// is consulted. A group line above [CatalogLineMax] tokens is never cut (a cut
+// can forge a tool name): the group is left to tool_search and counted in the
+// single overflow line of SPEC §5.2, as is the sorted tail beyond
+// [CatalogMaxGroups] groups or [CapCatalog] tokens.
+func (a *Assembler) Catalog(groups []CatalogGroup) string {
+	lines := a.catalogLines(groups)
 	if len(lines) == 0 {
 		return ""
 	}
-	for limit := min(len(lines), CatalogMaxGroups); limit > 0; limit-- {
-		text := renderCatalog(lines[:limit], len(lines)-limit)
-		if c.Count(text) <= CapCatalog {
+	groupCount := len(lines)
+	lines = slices.DeleteFunc(lines, func(l string) bool { return a.tokens.Count(l) > CatalogLineMax })
+	oversized := groupCount - len(lines)
+	for limit := min(len(lines), CatalogMaxGroups); limit >= 0; limit-- {
+		text := renderCatalog(lines[:limit], len(lines)-limit+oversized)
+		if a.tokens.Count(text) <= CapCatalog {
 			return text
 		}
 	}
@@ -51,14 +59,14 @@ func Catalog(groups []CatalogGroup, c Counter) string {
 
 // catalogLines returns one "- <name>: <summary>" line per distinct group
 // name, sorted by name.
-func catalogLines(groups []CatalogGroup) []string {
+func (a *Assembler) catalogLines(groups []CatalogGroup) []string {
 	byName := make(map[string][]string, len(groups))
 	for _, g := range groups {
-		name := oneLine(g.Name)
+		name := oneLine(a.scrub(g.Name))
 		if name == "" {
 			continue
 		}
-		summary := oneLine(g.Summary)
+		summary := oneLine(a.scrub(g.Summary))
 		summary = strings.TrimSpace(strings.TrimPrefix(summary, "- "+name+":"))
 		byName[name] = append(byName[name], summary)
 	}
@@ -81,12 +89,33 @@ func catalogLines(groups []CatalogGroup) []string {
 }
 
 func renderCatalog(lines []string, omitted int) string {
-	out := catalogHeader + "\n" + strings.Join(lines, "\n")
-	if omitted > 0 {
-		out += "\n- +" + strconv.Itoa(omitted) + " more groups: tool_search"
+	var b strings.Builder
+	b.WriteString(catalogHeader)
+	for _, l := range lines {
+		b.WriteByte('\n')
+		b.WriteString(l)
 	}
-	return out
+	if omitted > 0 {
+		b.WriteString("\n- +" + strconv.Itoa(omitted) + " more groups: tool_search")
+	}
+	return b.String()
 }
 
-// oneLine collapses every whitespace run, including newlines, to one space.
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
+// oneLine flattens s to one prompt line: every whitespace run, newlines
+// included, becomes one space and control or format runes are dropped (see
+// [lineRune]), so caller text can neither add prompt structure nor hide text.
+func oneLine(s string) string { return strings.Join(strings.Fields(strings.Map(lineRune, s)), " ") }
+
+// lineRune maps any Unicode space (line breaks, U+2028) to ' ' and drops C0/C1
+// controls (ESC) and format runes (bidi overrides and isolates such as
+// U+202E, zero-width marks), which can reorder or hide text in a prompt, log
+// or review (REVIEW-F2-SEC4 ASM4-5).
+func lineRune(r rune) rune {
+	switch {
+	case unicode.IsSpace(r):
+		return ' '
+	case unicode.In(r, unicode.Cc, unicode.Cf):
+		return -1
+	}
+	return r
+}

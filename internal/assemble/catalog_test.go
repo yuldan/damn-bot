@@ -17,7 +17,7 @@ func TestCatalogSortedAndOverflow(t *testing.T) {
 	for i, j := 0, len(groups)-1; i < j; i, j = i+1, j-1 {
 		groups[i], groups[j] = groups[j], groups[i]
 	}
-	text := Catalog(groups, asciiCounter())
+	text := newAssembler(t, identity).Catalog(groups)
 	lines := strings.Split(text, "\n")
 	if len(lines) != 1+CatalogMaxGroups+1 {
 		t.Fatalf("lines = %d, want header + %d + overflow", len(lines), CatalogMaxGroups)
@@ -37,10 +37,11 @@ func TestCatalogSortedAndOverflow(t *testing.T) {
 
 func TestCatalogEmpty(t *testing.T) {
 	t.Parallel()
-	if got := Catalog(nil, asciiCounter()); got != "" {
+	a := newAssembler(t, identity)
+	if got := a.Catalog(nil); got != "" {
 		t.Errorf("empty catalog = %q", got)
 	}
-	if got := Catalog([]CatalogGroup{{Name: " \n", Summary: "x"}}, asciiCounter()); got != "" {
+	if got := a.Catalog([]CatalogGroup{{Name: " \n", Summary: "x"}}); got != "" {
 		t.Errorf("nameless group rendered %q", got)
 	}
 }
@@ -51,9 +52,69 @@ func TestCatalogCap(t *testing.T) {
 		{Name: "a", Summary: strings.Repeat("tool ", 200)},
 		{Name: "b", Summary: "short"},
 	}
-	text := Catalog(groups, asciiCounter())
+	text := newAssembler(t, identity).Catalog(groups)
 	if n := asciiCounter().Count(text); n > CapCatalog {
 		t.Errorf("catalog = %d tokens, cap %d", n, CapCatalog)
+	}
+}
+
+// TestCatalogLineLimit: a group line above CatalogLineMax tokens is never cut
+// (a cut can forge a tool name); the group moves to the overflow line and the
+// next group takes its slot (REVIEW-F2-SEC4 ASM4-4, ADR-119 butir 7).
+func TestCatalogLineLimit(t *testing.T) {
+	t.Parallel()
+	a := newAssembler(t, identity)
+	// asciiCounter: 60 bytes = 15 tokens, 61 bytes = 16.
+	atLimit := "- b: " + strings.Repeat("x", 60-len("- b: "))
+	for _, tc := range []struct {
+		name   string
+		groups []CatalogGroup
+		want   string
+	}{
+		{"one oversized", []CatalogGroup{
+			{Name: "a", Summary: strings.Repeat("y", 61-len("- a: "))},
+			{Name: "b", Summary: atLimit},
+			{Name: "c", Summary: "short"},
+		}, catalogHeader + "\n" + atLimit + "\n- c: short\n- +1 more groups: tool_search"},
+		{"merged line oversized", []CatalogGroup{
+			{Name: "a", Summary: "first half of the group tools"},
+			{Name: "a", Summary: "second half of the group tools"},
+			{Name: "c", Summary: "short"},
+		}, catalogHeader + "\n- c: short\n- +1 more groups: tool_search"},
+		{"all oversized", []CatalogGroup{
+			{Name: "a", Summary: strings.Repeat("tool ", 200)},
+		}, catalogHeader + "\n- +1 more groups: tool_search"},
+	} {
+		got := a.Catalog(tc.groups)
+		if got != tc.want {
+			t.Errorf("%s:\n%s\nwant\n%s", tc.name, got, tc.want)
+		}
+		for line := range strings.SplitSeq(got, "\n") {
+			if n := asciiCounter().Count(line); n > CatalogLineMax {
+				t.Errorf("%s: line %q = %d tokens, cap %d", tc.name, line, n, CatalogLineMax)
+			}
+		}
+	}
+}
+
+// TestCatalogSanitized: names and summaries are scrubbed and lose line
+// breaks, C0/C1 controls and format runes (bidi overrides and isolates,
+// zero-width marks) before rendering (REVIEW-F2-SEC4 ASM4-5).
+func TestCatalogSanitized(t *testing.T) {
+	t.Parallel()
+	scrub := func(s string) string { return strings.ReplaceAll(s, "sk-secret", "[redacted]") }
+	a := newAssembler(t, scrub)
+	got := a.Catalog([]CatalogGroup{
+		{Name: "b\u202e", Summary: "left\u202eright\u2066x\u2069"},
+		{Name: "c", Summary: "ctl\x1b[31m red\u200b\x00\u0085end"},
+		{Name: "d", Summary: "line\r\none\u2028two token sk-secret"},
+	})
+	want := catalogHeader + "\n" +
+		"- b: leftrightx\n" +
+		"- c: ctl[31m red end\n" +
+		"- d: line one two token [redacted]"
+	if got != want {
+		t.Errorf("catalog:\n%q\nwant\n%q", got, want)
 	}
 }
 
@@ -77,7 +138,7 @@ func TestCatalogDeterministic(t *testing.T) {
 		"- undo\n" +
 		"- web: search the web and extract pages"
 	for i, groups := range [][]CatalogGroup{a, b} {
-		if got := Catalog(groups, asciiCounter()); got != want {
+		if got := newAssembler(t, identity).Catalog(groups); got != want {
 			t.Errorf("order %d:\n%s\nwant\n%s", i, got, want)
 		}
 	}
@@ -95,7 +156,7 @@ func TestCatalogOverflow(t *testing.T) {
 		}
 	}
 	c := asciiCounter()
-	text := Catalog(groups, c)
+	text := newAssembler(t, identity).Catalog(groups)
 	if n := c.Count(text); n > CapCatalog {
 		t.Fatalf("catalog = %d tokens, cap %d", n, CapCatalog)
 	}

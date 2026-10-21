@@ -21,9 +21,11 @@
 //
 // Context files are never opened here: [SessionView.Context] carries a
 // [FileReader] that the composition root implements over internal/sandbox
-// (SPEC §14.2, ADR-097). Every piece of caller-supplied text is passed through
-// [Deps.Scrub] before it can enter the prompt, so context files, facts,
-// workspace text, memory, skills and volatile notices are redacted.
+// (SPEC §14.2, ADR-097). Every piece of caller-supplied tier text is passed
+// through [Deps.Scrub] before it can enter the prompt, so context files and
+// their paths, facts, workspace text, memory, skills, catalog lines and
+// volatile notices are redacted; one-line fields (catalog lines, file paths)
+// also lose line breaks and control/format runes such as ESC and U+202E.
 //
 // The F1 eager tool schemas are input, not data owned here: assemble filters the
 // caller's list to the phase's schema variant (the F1 shell schema has no

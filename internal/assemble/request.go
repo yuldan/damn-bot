@@ -61,7 +61,7 @@ func (a *Assembler) Build(ctx context.Context, v *SessionView) (Request, Estimat
 	if err != nil {
 		return Request{}, Estimate{}, err
 	}
-	catalog := Catalog(v.Catalog, a.tokens)
+	catalog := a.Catalog(v.Catalog)
 	ctxResult, err := a.Context(ctx, v.Context)
 	if err != nil {
 		return Request{}, Estimate{}, err
