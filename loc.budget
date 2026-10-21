@@ -35,7 +35,8 @@ ctxdb/journalstore 400 internal/ctxdb/journalstore
 ctxdb/limitstore   100 internal/ctxdb/limitstore
 # ADR-122: storage summary compaction, baris baru (terukur 248; Σ core 36.520 -> 36.770 <= 47.000).
 ctxdb/compactstore 250 internal/ctxdb/compactstore
-assemble          1000 internal/assemble
+# ADR-121: assemble 1000 -> 1200 (tier prompt F2 penuh; terukur 1.034 sesudah PR1; Σ core 36.770 -> 36.970 <= 47.000).
+assemble          1200 internal/assemble
 compaction         900 internal/compaction
 memory+skills     1200 internal/memory internal/skills
 # ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).

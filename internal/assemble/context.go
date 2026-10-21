@@ -93,7 +93,7 @@ func (a *Assembler) Context(ctx context.Context, in *ContextInput) (ContextResul
 		memories:   in.Memory,
 		skillNames: in.Skills,
 	}
-	marker := fileMarker(in.Files)
+	marker := a.fileMarker(in.Files)
 	state.files = clip(filesFull, CapFiles, marker, a.tokens)
 	state.memory = a.renderMemory(in.Memory, -1)
 	state.skills = a.renderSkills(in.Skills, -1)
@@ -210,7 +210,7 @@ func (a *Assembler) readContextFiles(ctx context.Context, in *ContextInput) (str
 			return "", err
 		}
 		b.WriteString("\n# ")
-		b.WriteString(f.Path)
+		b.WriteString(a.promptPath(f.Path))
 		b.WriteByte('\n')
 		b.WriteString(body)
 	}
@@ -316,9 +316,14 @@ func slot(heading, body string, capTokens int, c Counter) string {
 	return clip(heading+"\n"+body, capTokens, "\n[truncated]", c)
 }
 
-func fileMarker(files []ContextFile) string {
+func (a *Assembler) fileMarker(files []ContextFile) string {
 	if len(files) == 0 {
 		return "\n[truncated]"
 	}
-	return "\n[truncated; read_file " + files[0].Path + "]"
+	return "\n[truncated; read_file " + a.promptPath(files[0].Path) + "]"
 }
+
+// promptPath is the form of a context file path shown in the prompt: scrubbed,
+// with line breaks turned into spaces and control/format runes dropped
+// ([lineRune]). The sandbox still opens the path as given.
+func (a *Assembler) promptPath(p string) string { return strings.Map(lineRune, a.scrub(p)) }

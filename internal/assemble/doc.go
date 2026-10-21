@@ -4,9 +4,10 @@
 // F1 scope is the three stable parts of the system message and the frozen
 // volatile tier:
 //
-//	stable tier    identity + rules; conditional rule 3 (deferred catalog) and
-//	               the repo_map mention are selected from [StableOptions]
-//	catalog        deferred module groups (empty in F1)
+//	stable tier    identity + rules; rule 3 (deferred catalog) is rendered
+//	               exactly when the catalog is, repo_map with [StableOptions]
+//	catalog        deferred module groups from the module registry, sorted,
+//	               ≤ 24 lines + overflow, ≤ 600 tokens (ADR-121)
 //	context        facts, workspace snapshot, sandboxed context files, memory,
 //	               skills, each with its SPEC §6 sub-cap
 //	volatile       time, remaining budget, todos, new names, notices; rendered
@@ -20,9 +21,11 @@
 //
 // Context files are never opened here: [SessionView.Context] carries a
 // [FileReader] that the composition root implements over internal/sandbox
-// (SPEC §14.2, ADR-097). Every piece of caller-supplied text is passed through
-// [Deps.Scrub] before it can enter the prompt, so context files, facts,
-// workspace text, memory, skills and volatile notices are redacted.
+// (SPEC §14.2, ADR-097). Every piece of caller-supplied tier text is passed
+// through [Deps.Scrub] before it can enter the prompt, so context files and
+// their paths, facts, workspace text, memory, skills, catalog lines and
+// volatile notices are redacted; one-line fields (catalog lines, file paths)
+// also lose line breaks and control/format runes such as ESC and U+202E.
 //
 // The F1 eager tool schemas are input, not data owned here: assemble filters the
 // caller's list to the phase's schema variant (the F1 shell schema has no
