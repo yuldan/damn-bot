@@ -37,7 +37,8 @@ memory+skills     1200 internal/memory internal/skills
 # ADR-117 amendment: journal 545 -> 560 (Windows-safe replace; terukur 557; Σ core 35.560 <= 47.000).
 journal            560 internal/journal
 # ADR-123: budget 400 -> 520 (guard harian/bulanan/provider + formula token gambar; terukur 481).
-budget             520 internal/budget
+# ADR-125: budget 520 -> 560 (jadwal harga bertanggal GAP-COST-01; terukur 530).
+budget             560 internal/budget
 heal              1500 internal/heal
 config            1200 internal/config
 modules            1000 internal/modules
