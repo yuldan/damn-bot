@@ -35,4 +35,10 @@ func TestNormalizeBaseURL(t *testing.T) {
 		strings.Contains(err.Error(), "SECRET") {
 		t.Fatalf("error leaks query: %v", err)
 	}
+	for _, raw := range []string{"user:pw@host/v1", "https:user:pw@host", "sk-bare-key"} {
+		_, err := NormalizeBaseURL(raw)
+		if err == nil || strings.Contains(err.Error(), "pw") || strings.Contains(err.Error(), "sk-bare") {
+			t.Fatalf("scheme-less %q leaks: %v", raw, err)
+		}
+	}
 }

@@ -11,10 +11,11 @@ import (
 // credentials must never reach stderr. An unparsable value is not echoed.
 func redactBaseURL(raw string) string {
 	u, err := url.Parse(raw)
-	if err != nil {
-		return "<invalid>"
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "<invalid>" // scheme-less credentials have no authority to redact
 	}
-	u.User, u.RawQuery, u.Fragment = nil, "", ""
+	u.User = nil
+	u.RawQuery, u.Fragment = "", ""
 	return u.String()
 }
 
