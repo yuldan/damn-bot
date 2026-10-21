@@ -11,7 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"strings"
+	"path/filepath"
 )
 
 // Kind is the actions.kind vocabulary of SPEC §11.8.
@@ -90,10 +90,10 @@ func (r *Record) Validate() error {
 	default:
 		return fmt.Errorf("journal: kind %q: %w", r.Kind, ErrIrreversible)
 	}
-	if r.SessionID == "" || r.Path == "" || !strings.HasPrefix(r.Path, "/") {
+	if r.SessionID == "" || r.Path == "" || !filepath.IsAbs(r.Path) {
 		return fmt.Errorf("journal: record needs session and absolute path: %w", ErrIrreversible)
 	}
-	if r.Kind == FileMove && (r.MoveTo == "" || !strings.HasPrefix(r.MoveTo, "/")) {
+	if r.Kind == FileMove && (r.MoveTo == "" || !filepath.IsAbs(r.MoveTo)) {
 		return fmt.Errorf("journal: move needs absolute destination: %w", ErrIrreversible)
 	}
 	if r.Before == nil && r.After == nil {
