@@ -90,8 +90,11 @@ func unsafeRune(r rune) bool { return unicode.In(r, unicode.Cc, unicode.Cf, unic
 
 // cleanLine renders untrusted text (paths, scopes, stored content, error
 // text) as one terminal-safe line: unsafe runes and whitespace runs become
-// one space.
+// one space. Invalid UTF-8 bytes (Linux names may hold any bytes) are
+// replaced first, so a C1 byte such as 0x9B cannot reach an 8-bit
+// terminal as a CSI (SEC5-13).
 func cleanLine(s string) string {
+	s = strings.ToValidUTF8(s, "\uFFFD")
 	return strings.Join(strings.FieldsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unsafeRune(r) }), " ")
 }
 
