@@ -94,6 +94,10 @@ type Config struct {
 type root struct {
 	path     string
 	readOnly bool
+	// fi is the root's identity at New: callers that pin a root handle
+	// compare it so a root replaced by a symlink later is refused
+	// (REVIEW-F2-SEC5-16).
+	fi os.FileInfo
 }
 
 // Sandbox is immutable after New and safe for concurrent use.
@@ -119,11 +123,11 @@ func New(cfg *Config) (*Sandbox, error) {
 	s := &Sandbox{foldRoot: runtime.GOOS == "windows"}
 	for i, list := range [][]string{cfg.Roots, cfg.ReadOnlyExtra} {
 		for _, r := range list {
-			p, err := canonicalRoot(r)
+			p, fi, err := canonicalRoot(r)
 			if err != nil {
 				return nil, err
 			}
-			s.roots = append(s.roots, root{path: p, readOnly: i == 1})
+			s.roots = append(s.roots, root{path: p, readOnly: i == 1, fi: fi})
 		}
 	}
 	deny, ids, err := compileDeny(cfg.DenyPaths, cfg.Home)
@@ -134,23 +138,23 @@ func New(cfg *Config) (*Sandbox, error) {
 	return s, nil
 }
 
-func canonicalRoot(r string) (string, error) {
+func canonicalRoot(r string) (string, os.FileInfo, error) {
 	abs, err := absPath(r)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	p, err := resolve(abs)
 	if err != nil {
-		return "", fmt.Errorf("sandbox: root: %w", err)
+		return "", nil, fmt.Errorf("sandbox: root: %w", err)
 	}
 	fi, err := os.Stat(p)
 	if err != nil {
-		return "", fmt.Errorf("sandbox: root: %w", err)
+		return "", nil, fmt.Errorf("sandbox: root: %w", err)
 	}
 	if !fi.IsDir() {
-		return "", fmt.Errorf("sandbox: root %q: %w", p, fs.ErrInvalid)
+		return "", nil, fmt.Errorf("sandbox: root %q: %w", p, fs.ErrInvalid)
 	}
-	return p, nil
+	return p, fi, nil
 }
 
 // Check classifies path for op: ErrDeniedPath when the lexical or the
