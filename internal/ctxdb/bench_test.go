@@ -173,8 +173,9 @@ func newBenchCodec(b *testing.B) *benchCodec {
 	return &benchCodec{aead: a}
 }
 
-func (c *benchCodec) ID() string           { return "bench" }
-func (c *benchCodec) Hash(s string) string { return s }
+func (c *benchCodec) ID() string               { return "bench" }
+func (c *benchCodec) Hash(s string) string     { return s }
+func (c *benchCodec) FTS(tokens string) string { return tokens }
 func (c *benchCodec) Seal(scope string, p []byte) ([]byte, error) {
 	nonce := make([]byte, c.aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {

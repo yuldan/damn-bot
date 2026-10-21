@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 
 	"golang.org/x/crypto/chacha20poly1305"
@@ -97,6 +98,21 @@ func (c *Codec) Open(scope string, sealed []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: decrypt", ErrKeyFile)
 	}
 	return pt, nil
+}
+
+// FTS replaces each normalized token with a keyed HMAC-SHA256 hex token.
+func (c *Codec) FTS(tokens string) string {
+	key := make([]byte, KeySize)
+	if _, err := io.ReadFull(hkdf.New(sha256.New, c.dek, nil, []byte("dmbot/at-rest/v1/fts")), key); err != nil {
+		return ""
+	}
+	var out []string
+	for tok := range strings.FieldsSeq(tokens) {
+		m := hmac.New(sha256.New, key)
+		m.Write([]byte(tok))
+		out = append(out, hex.EncodeToString(m.Sum(nil)))
+	}
+	return strings.Join(out, " ")
 }
 
 // Hash is a keyed hash for the event hash chain.
@@ -192,8 +208,22 @@ func storageAAD(src Source, id string) []byte {
 	return []byte("dmbot/storage-key/v1|" + string(src) + "|" + id)
 }
 
+// OpenCodecFile loads a wrapped storage.key from an explicit file (used by
+// restore before the key is published to the data dir).
+func OpenCodecFile(ctx context.Context, path string, st *Store) (*Codec, error) {
+	dek, err := readAndDecodeStorageKey(ctx, path, st)
+	if err != nil {
+		return nil, err
+	}
+	return NewCodec(dek)
+}
+
 func loadStorageKey(ctx context.Context, dataDir string, st *Store) ([]byte, error) {
-	raw, err := readStorageKey(dataDir)
+	return readAndDecodeStorageKey(ctx, StorageKeyPath(dataDir), st)
+}
+
+func readAndDecodeStorageKey(ctx context.Context, path string, st *Store) ([]byte, error) {
+	raw, err := readStorageKeyFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -225,8 +255,7 @@ func loadStorageKey(ctx context.Context, dataDir string, st *Store) ([]byte, err
 	return dek, nil
 }
 
-func readStorageKey(dataDir string) (b []byte, err error) {
-	path := StorageKeyPath(dataDir)
+func readStorageKeyFile(path string) (b []byte, err error) {
 	li, err := os.Lstat(path)
 	if err != nil {
 		return nil, fmt.Errorf("secret: storage key: %w", err)

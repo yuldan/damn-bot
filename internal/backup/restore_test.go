@@ -254,3 +254,100 @@ func TestRestorePreflightConfig(t *testing.T) {
 		t.Fatalf("DB installed before config preflight: %v", err)
 	}
 }
+
+func TestRestoreEncryptedBackupToFreshDir(t *testing.T) { //nolint:gocyclo // integration flow
+	root := t.TempDir()
+	data := filepath.Join(root, "data")
+	keys := filepath.Join(root, "keys")
+	st, err := secret.New(secret.Options{ConfigDir: keys, BackendPresent: func() bool { return false }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec, cerr := secret.OpenCodec(context.Background(), data, st, true)
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	db, derr := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: data, Kind: "cli", Codec: codec})
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	if _, err := db.CreateSession(context.Background(), ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Append(context.Background(), "S", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "encrypted-canary"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(root, "enc.dmbk")
+	key := testKey(t)
+	if _, err := Create(context.Background(), &CreateOptions{DataDir: data, ConfigDir: filepath.Join(root, "cfg"), Out: archive, Key: key, Codec: codec}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Restore(context.Background(), &RestoreOptions{
+		DataDir: data, ConfigDir: filepath.Join(root, "cfg"), Archive: archive, Key: key,
+		KeyStore: st, Encrypt: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	again, oerr := secret.OpenCodec(context.Background(), data, st, false)
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	db, oerr = ctxdb.Open(context.Background(), &ctxdb.Options{Dir: data, Kind: "cli", Codec: again})
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	}()
+	evs, herr := db.History(context.Background(), "S", 0)
+	if herr != nil || len(evs) != 1 || evs[0].Content != "encrypted-canary" {
+		t.Fatalf("history = %+v, %v", evs, herr)
+	}
+}
+
+func TestRestoreRejectsDifferentStorageKey(t *testing.T) {
+	root := t.TempDir()
+	data, keys := filepath.Join(root, "data"), filepath.Join(root, "keys")
+	st, nerr := secret.New(secret.Options{ConfigDir: keys, BackendPresent: func() bool { return false }})
+	if nerr != nil {
+		t.Fatal(nerr)
+	}
+	codec, cerr := secret.OpenCodec(context.Background(), data, st, true)
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	db, derr := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: data, Kind: "cli", Codec: codec})
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	if cerr := db.Close(); cerr != nil {
+		t.Fatal(cerr)
+	}
+	archive := filepath.Join(root, "a.dmbk")
+	key := testKey(t)
+	if _, err := Create(context.Background(), &CreateOptions{DataDir: data, ConfigDir: filepath.Join(root, "cfg"), Out: archive, Key: key, Codec: codec}); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(root, "dst")
+	other, oerr := secret.OpenCodec(context.Background(), dst, st, true)
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	_ = other
+	if _, err := Restore(context.Background(), &RestoreOptions{
+		DataDir: dst, ConfigDir: filepath.Join(root, "cfg"), Archive: archive, Key: key, KeyStore: st, Encrypt: true,
+	}); !errors.Is(err, ErrKeySource) {
+		t.Fatalf("different storage.key = %v, want ErrKeySource", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "damnbot.db")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("DB installed despite key conflict: %v", err)
+	}
+}

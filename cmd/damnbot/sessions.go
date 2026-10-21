@@ -472,6 +472,14 @@ func dataCodec(ctx context.Context, p config.Paths, st *secret.Store) (ctxdb.Cod
 	return codec, nil
 }
 
+func restoreConfig() (config.Config, error) {
+	loader, err := config.New(config.OS())
+	if err != nil {
+		return config.Config{}, fmt.Errorf("config deps: %w", err)
+	}
+	return loadRunConfig(loader, "")
+}
+
 func readMeta(path string) (h backup.Header, err error) {
 	f, err := os.Open(path) //nolint:gosec // explicit CLI archive path
 	if err != nil {
@@ -559,8 +567,13 @@ func sessionsRestore(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, "sessions restore", err)
 	}
 	defer key.Zero()
+	cfg, cerr := restoreConfig()
+	if cerr != nil {
+		return fail(stderr, "sessions restore", cerr)
+	}
 	res, err := backup.Restore(context.Background(), &backup.RestoreOptions{
-		DataDir: p.DataDir, ConfigDir: p.ConfigDir, Archive: path, Key: key, DryRun: *dry,
+		DataDir: p.DataDir, ConfigDir: p.ConfigDir, Archive: path, Key: key,
+		KeyStore: st, Encrypt: cfg.Storage.Encrypt, DryRun: *dry,
 	})
 	if err != nil {
 		return fail(stderr, "sessions restore", err)

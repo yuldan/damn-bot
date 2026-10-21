@@ -21,6 +21,7 @@ import (
 type RestoreSet struct {
 	DB    string
 	Blobs string
+	Codec Codec
 }
 
 // Restore installs a backup DB and its blobs under the maintenance barrier
@@ -37,6 +38,11 @@ func Restore(ctx context.Context, o *Options, set RestoreSet) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, b.Release()) }() // (6) removes the marker
+	if set.Codec != nil {
+		if cerr := encryptStaged(ctx, set.DB, set.Blobs, set.Codec); cerr != nil {
+			return cerr
+		}
+	}
 	s.barrierOwner.Store(true)
 	if ierr := s.installBlobs(set.Blobs); ierr != nil {
 		return ierr
@@ -135,22 +141,34 @@ func (s *Store) installBlobFile(broot *os.Root, rel string) error {
 	if err != nil {
 		return wrap(err)
 	}
+	data, err := io.ReadAll(in)
+	err = errors.Join(err, in.Close())
+	if err != nil {
+		return wrap(err)
+	}
 	sha := path.Base(rel)
-	h := sha256.New()
+	plain := data
+	if s.codec != nil {
+		plain, err = s.codec.Open("blob:"+sha, data)
+		if err != nil {
+			return fmt.Errorf("ctxdb: restore blob %s: %w", sha, err)
+		}
+	}
+	sum := sha256.Sum256(plain)
+	if hex.EncodeToString(sum[:]) != sha {
+		return fmt.Errorf("ctxdb: restore blob %s hash: %w", sha, ErrInternal)
+	}
 	tmp := path.Join("blobs", ".install-"+sha)
 	out, err := s.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err == nil {
-		_, err = io.Copy(io.MultiWriter(out, h), in)
+		_, err = out.Write(data)
 	}
 	if err == nil {
 		err = out.Sync()
 	}
-	err = errors.Join(err, out.Close(), in.Close())
+	err = errors.Join(err, out.Close())
 	if err != nil {
 		return wrap(err)
-	}
-	if hex.EncodeToString(h.Sum(nil)) != sha {
-		return fmt.Errorf("ctxdb: restore blob %s hash: %w", sha, errors.Join(ErrInternal, removeIfExists(s.root, tmp)))
 	}
 	final := path.Join("blobs", rel)
 	if err := s.root.MkdirAll(path.Dir(final), 0o700); err != nil {

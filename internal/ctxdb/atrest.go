@@ -15,6 +15,7 @@ type Codec interface {
 	Seal(scope string, plaintext []byte) ([]byte, error)
 	Open(scope string, sealed []byte) ([]byte, error)
 	Hash(data string) string
+	FTS(tokens string) string
 }
 
 func (s *Store) checkAtRest(ctx context.Context) error {
