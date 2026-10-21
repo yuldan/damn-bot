@@ -500,11 +500,12 @@ func killMarked(match func([]byte) bool, settle bool) (left []int, killed int, e
 			}
 		}
 		now := time.Now()
-		if len(pids) > 0 {
+		switch {
+		case len(pids) > 0:
 			settle, quietSince = true, time.Time{}
-		} else if !settle {
+		case !settle:
 			return nil, killed, err // no tree and nothing found: single scan
-		} else if quietSince.IsZero() {
+		case quietSince.IsZero():
 			quietSince = now
 		}
 		if !quietSince.IsZero() && now.Sub(quietSince) >= sweepQuiet {
