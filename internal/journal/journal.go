@@ -8,6 +8,7 @@ package journal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -82,6 +83,10 @@ type Record struct {
 	MoveTo    string // FileMove only
 	Before    *Snapshot
 	After     *Snapshot
+	// Scope is the caller's sandbox snapshot at record time, stored
+	// verbatim (append-only) so undo never trusts mutable session state;
+	// the journal does not interpret it.
+	Scope json.RawMessage
 }
 
 // Validate checks the closed vocabulary and the fields undo needs.
@@ -123,8 +128,9 @@ type Action struct {
 	After         *Image
 	BytesHeld     int64
 	CreatedAt     int64
-	Expired       bool // older than T_cut (§18.1)
-	Open          bool // turn_journal row of TurnID is still open
+	Expired       bool            // older than T_cut (§18.1)
+	Open          bool            // turn_journal row of TurnID is still open
+	Scope         json.RawMessage // Record.Scope as journaled; nil when absent
 }
 
 // Status is the action_undos.status vocabulary of SPEC §11.8.

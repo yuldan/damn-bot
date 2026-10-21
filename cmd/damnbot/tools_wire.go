@@ -21,39 +21,18 @@ import (
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
-// ctxJournal writes tool_dispatch/tool_result events to the session transcript.
-// The dispatcher is per session, so the journal is bound to one session id.
-type ctxJournal struct {
-	db  *ctxdb.Store
-	sid string
-}
+// loopTranscript is the dispatcher Journal of run: the loop already appends
+// each call's tool_dispatch before Run and its tool_result after (SPEC §4.3
+// steps 8/10), and journalstore anchors the action row on that dispatch
+// event, so the dispatcher writes no second transcript row and one call has
+// exactly one dispatch/result pair (REVIEW-F2-SEC5-9).
+type loopTranscript struct{}
 
-func (j *ctxJournal) ToolDispatch(ctx context.Context, turnID, callID, tool string, effect tools.Effect, hash [32]byte) error {
-	payload := fmt.Sprintf(`{"effect":%q,"args_sha":"%x"}`, effect, hash)
-	_, err := j.db.Append(ctx, j.sid, nil, ctxdb.Event{
-		Kind: "tool_dispatch", TurnID: turnID, ToolCallID: callID, ToolName: tool, Payload: payload,
-	})
-	if err != nil {
-		return fmt.Errorf("journal tool_dispatch: %w", err)
-	}
+func (loopTranscript) ToolDispatch(context.Context, string, string, string, tools.Effect, [32]byte) error {
 	return nil
 }
 
-func (j *ctxJournal) ToolResult(ctx context.Context, turnID, callID, tool string, ok bool, code, content string) error {
-	payload, err := json.Marshal(struct {
-		OK      bool   `json:"ok"`
-		Code    string `json:"code,omitempty"`
-		Content string `json:"content,omitempty"`
-	}{OK: ok, Code: code, Content: content})
-	if err != nil {
-		return fmt.Errorf("journal tool_result payload: %w", err)
-	}
-	_, err = j.db.Append(ctx, j.sid, nil, ctxdb.Event{
-		Kind: "tool_result", TurnID: turnID, ToolCallID: callID, ToolName: tool, Payload: string(payload),
-	})
-	if err != nil {
-		return fmt.Errorf("journal tool_result: %w", err)
-	}
+func (loopTranscript) ToolResult(context.Context, string, string, string, bool, string, string) error {
 	return nil
 }
 
@@ -85,7 +64,19 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 		case "assistant_message":
 			out = appendAssistant(out, assistantAt, r)
 		case "tool_result":
-			out = appendToolResult(out, r)
+			// Keep one message per tool_call_id (transcripts written before
+			// the loop owned tool_result may hold two), preferring the
+			// non-empty result.
+			if r.ToolCallID == "" {
+				continue
+			}
+			if i := findToolMessage(out, r.ToolCallID); i >= 0 {
+				if out[i].Content == "" && r.Content != "" {
+					out[i].Content = r.Content
+				}
+				continue
+			}
+			out = append(out, loop.Message{Role: "tool", Content: r.Content, ToolCallID: r.ToolCallID})
 		case "system_notice":
 			if c := effectsNotice(r.Payload); c != "" {
 				out = append(out, loop.Message{Role: "system", Content: c})

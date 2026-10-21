@@ -23,11 +23,17 @@ type fileTool struct {
 	raw    json.RawMessage
 	engine *codetools.Engine
 	sb     *sandbox.Sandbox
+	rec    FileRecorder
 }
 
+// FileRecorder journals one commit of a write tool before the target is
+// replaced (SPEC §4.3 step 8, §18.1); an error aborts the write untouched.
+type FileRecorder func(ctx context.Context, env Env, tool string, c *codetools.Commit) error
+
 // FileTools returns the five eager file tools in codetools schema order
-// (read_file, write_file, edit_file, glob, grep).
-func FileTools(engine *codetools.Engine, sb *sandbox.Sandbox) []Tool {
+// (read_file, write_file, edit_file, glob, grep). rec, when non-nil,
+// journals every write_file/edit_file commit.
+func FileTools(engine *codetools.Engine, sb *sandbox.Sandbox, rec FileRecorder) []Tool {
 	if engine == nil || sb == nil {
 		return nil
 	}
@@ -52,7 +58,7 @@ func FileTools(engine *codetools.Engine, sb *sandbox.Sandbox) []Tool {
 			}
 			out = append(out, &fileTool{
 				name: spec.name, kind: spec.kind, effect: spec.effect, write: spec.write,
-				raw: raw, engine: engine, sb: sb,
+				raw: raw, engine: engine, sb: sb, rec: rec,
 			})
 			break
 		}
@@ -121,9 +127,14 @@ func (t *fileTool) class() string {
 	return "read"
 }
 
-// Run delegates to the engine; env.Approved carries the outside verdict.
+// Run delegates to the engine; env.Approved carries the outside verdict and
+// env's turn/call ids key the journal record of a write.
 func (t *fileTool) Run(ctx context.Context, env Env, args json.RawMessage) (Result, error) {
-	r, err := t.engine.Run(ctx, t.name, args, codetools.Opts{Approved: env.Approved, PageChars: env.PageChars})
+	o := codetools.Opts{Approved: env.Approved, PageChars: env.PageChars}
+	if t.write && t.rec != nil {
+		o.Journal = func(ctx context.Context, c *codetools.Commit) error { return t.rec(ctx, env, t.name, c) }
+	}
+	r, err := t.engine.Run(ctx, t.name, args, o)
 	if err != nil {
 		return Result{}, fmt.Errorf("tools: %s: %w", t.name, err)
 	}

@@ -9,3 +9,8 @@ bench/h2h/results/.ledger-*
 /.bin/
 # Binari hasil `go build ./cmd/damnbot` di root repo.
 /damnbot
+# Binari build lokal (`go build ./cmd/...` menulis ke cwd; REVIEW-F2-SEC5-8).
+/damnbot
+/damnbot.exe
+/cmd/damnbot/damnbot
+/cmd/damnbot/damnbot.exe

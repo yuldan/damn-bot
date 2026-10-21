@@ -57,7 +57,7 @@ func newWorkspace(t *testing.T, deny ...string) *workspace {
 		t.Fatal(err)
 	}
 	t.Cleanup(eng.Close)
-	return &workspace{t: t, root: root, out: out, sb: sb, engine: eng, tools: FileTools(eng, sb)}
+	return &workspace{t: t, root: root, out: out, sb: sb, engine: eng, tools: FileTools(eng, sb, nil)}
 }
 
 func (w *workspace) write(rel, content string) {
