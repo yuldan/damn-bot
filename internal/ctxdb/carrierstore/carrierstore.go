@@ -12,7 +12,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
@@ -89,18 +88,33 @@ type Stored struct {
 // Store is the carrier storage over one ctxdb database.
 type Store struct{ DB *ctxdb.Store }
 
-// PayloadSHA is the hex sha256 recorded in payload_sha and the event payload.
+// PayloadSHA is the plaintext hex sha256 for unencrypted stores. Encrypted
+// stores must use Store.PayloadSHA, which returns the keyed, domain-separated
+// codec hash.
 func PayloadSHA(payload []byte) string {
 	sum := sha256.Sum256(payload)
 	return hex.EncodeToString(sum[:])
 }
 
-// Refs returns the digest refs of cs without touching the database, so the
+// carrierHashDomain keeps carrier hashes disjoint from the event hash chain
+// and any other codec.Hash user.
+const carrierHashDomain = "carrier\x00"
+
+// PayloadSHA returns the value recorded in payload_sha: codec.Hash over the
+// domain-separated payload when encrypted, plaintext sha256 otherwise.
+func (s Store) PayloadSHA(payload []byte) string {
+	if s.DB.Encrypted() {
+		return s.DB.KeyedHash(carrierHashDomain + string(payload))
+	}
+	return PayloadSHA(payload)
+}
+
+// Refs returns the digest refs of cs using the same hash Save records, so the
 // caller can embed them in the assistant event before appending it.
-func Refs(cs []Carrier) []Ref {
+func (s Store) Refs(cs []Carrier) []Ref {
 	refs := make([]Ref, len(cs))
 	for i, c := range cs {
-		refs[i] = Ref{Ord: c.Ord, SHA: PayloadSHA(c.Payload)}
+		refs[i] = Ref{Ord: c.Ord, SHA: s.PayloadSHA(c.Payload)}
 	}
 	return refs
 }
@@ -134,10 +148,15 @@ func (s Store) Save(ctx context.Context, sessionID string, eventID int64, cs []C
 		}
 		for i := range cs {
 			c := &cs[i]
-			if _, ierr := tx.Exec(`INSERT INTO reasoning_carriers(event_id, ord, provider_family, model, kind, anchor, payload, payload_sha, replayable, created_at)
-				VALUES (?,?,?,?,?,?,?,?,?,?)`,
+			identity := fmt.Sprintf("%d|%d", eventID, c.Ord)
+			enc, stored, serr := tx.SealRow("reasoning_carriers.payload", identity, string(c.Payload), "")
+			if serr != nil {
+				return fmt.Errorf("carrierstore: seal carrier %d: %w", i, serr)
+			}
+			if _, ierr := tx.Exec(`INSERT INTO reasoning_carriers(event_id, ord, provider_family, model, kind, anchor, payload, payload_enc, payload_sha, replayable, created_at)
+				VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 				eventID, c.Ord, c.Family, c.Model, string(c.Kind), c.Anchor,
-				c.Payload, PayloadSHA(c.Payload), boolInt(c.Replayable), c.CreatedAt); ierr != nil {
+				[]byte(stored), nullBytes(enc), s.PayloadSHA(c.Payload), boolInt(c.Replayable), c.CreatedAt); ierr != nil {
 				return fmt.Errorf("carrierstore: insert carrier %d: %w", i, ierr)
 			}
 		}
@@ -146,7 +165,7 @@ func (s Store) Save(ctx context.Context, sessionID string, eventID int64, cs []C
 	if err != nil {
 		return nil, fmt.Errorf("carrierstore: save: %w", err)
 	}
-	return Refs(cs), nil
+	return s.Refs(cs), nil
 }
 
 // validateCarriers checks every column and rejects a duplicate ord in the
@@ -221,16 +240,22 @@ func (s Store) Load(ctx context.Context, sessionID string, eventIDs []int64) ([]
 			var st Stored
 			var kind string
 			var replay bool
+			var payload, payloadEnc []byte
 			if gerr := tx.Get(`SELECT c.id, c.event_id, c.ord, c.provider_family, c.model, c.kind, c.anchor,
-					c.payload, c.payload_sha, c.replayable, c.created_at
+					c.payload, coalesce(c.payload_enc, X''), c.payload_sha, c.replayable, c.created_at
 				FROM reasoning_carriers c WHERE c.id = ?`, []any{id},
 				&st.ID, &st.EventID, &st.Ord, &st.Family, &st.Model, &kind,
-				&st.Anchor, &st.Payload, &st.SHA, &replay, &st.CreatedAt); gerr != nil {
+				&st.Anchor, &payload, &payloadEnc, &st.SHA, &replay, &st.CreatedAt); gerr != nil {
 				return fmt.Errorf("carrierstore: read carrier %d: %w", id, gerr)
 			}
 			st.Kind = Kind(kind)
 			st.Replayable = replay
-			st.Payload = slices.Clone(st.Payload)
+			identity := fmt.Sprintf("%d|%d", st.EventID, st.Ord)
+			plain, derr := tx.OpenRow("reasoning_carriers.payload", identity, payloadEnc, string(payload))
+			if derr != nil {
+				return fmt.Errorf("carrierstore: decrypt carrier %d: %w", id, derr)
+			}
+			st.Payload = []byte(plain)
 			out = append(out, st)
 		}
 		return nil
@@ -300,6 +325,13 @@ func (s Store) Rejected(ctx context.Context, sessionID string) (map[int64]bool, 
 // plain reports a non-empty identifier without whitespace or control bytes.
 func plain(s string) bool {
 	return s != "" && len(s) <= 512 && strings.TrimSpace(s) == s && !strings.ContainsAny(s, "\x00\r\n\t")
+}
+
+func nullBytes(b []byte) any {
+	if len(b) == 0 {
+		return nil
+	}
+	return b
 }
 
 func boolInt(b bool) int {

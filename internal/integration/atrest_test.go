@@ -12,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/backup"
 	"github.com/damnbot/damnbot/internal/compaction"
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/ctxdb/carrierstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/compactstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/memstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/skillstore"
@@ -51,20 +53,29 @@ func TestEncryptedWritersSearchAndCanary(t *testing.T) {
 	if _, err := s.CreateSession(ctx, ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Append(ctx, "S", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "alpha beta 天气预报很准"}); err != nil {
+	ids, err := s.Append(ctx, "S", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "alpha beta 天气预报很准"})
+	if err != nil {
 		t.Fatal(err)
+	}
+	eid := ids[0]
+	cs := carrierstore.Store{DB: s}
+	if _, serr := cs.Save(ctx, "S", eid, []carrierstore.Carrier{{Ord: 0, Family: "openai", Model: "m", Kind: carrierstore.KindThoughtSignature, Anchor: "a", Payload: []byte("canary-carrier"), Replayable: true, CreatedAt: 1}}); serr != nil {
+		t.Fatal(serr)
+	}
+	if got, lerr := cs.Load(ctx, "S", []int64{eid}); lerr != nil || len(got) != 1 || string(got[0].Payload) != "canary-carrier" {
+		t.Fatalf("carrier load = %+v, %v", got, lerr)
 	}
 	red := redact.New(redact.Options{})
-	if _, err := memstore.Put(ctx, s, &memstore.Row{Category: "fact", Scope: "user", Content: "canary-memory", Origin: "user", ScanResult: "{}", CreatedAt: 1},
-		&memstore.Decision{Status: "approved", Actor: "user", CreatedAt: 1}, red); err != nil {
-		t.Fatal(err)
+	if _, perr := memstore.Put(ctx, s, &memstore.Row{Category: "fact", Scope: "user", Content: "canary-memory", Origin: "user", ScanResult: "{}", CreatedAt: 1},
+		&memstore.Decision{Status: "approved", Actor: "user", CreatedAt: 1}, red); perr != nil {
+		t.Fatal(perr)
 	}
 	store := compactstore.New(s, func() time.Time { return time.Unix(1, 0) })
-	if _, err := store.Commit(ctx, "S", &compaction.Commit{
+	if _, cerr := store.Commit(ctx, "S", &compaction.Commit{
 		Attempt: compaction.Attempt{Outcome: compaction.OutcomeSummarized, AtMS: 1000},
 		Summary: &compaction.Summary{FromSeq: 1, ToSeq: 1, Content: `{"goal":"canary-summary"}`, Model: "m"},
-	}); err != nil {
-		t.Fatal(err)
+	}); cerr != nil {
+		t.Fatal(cerr)
 	}
 	assertHit(t, s, "alpha beta", "user_message")
 	assertHit(t, s, `"alpha beta"`, "user_message")
@@ -74,7 +85,7 @@ func TestEncryptedWritersSearchAndCanary(t *testing.T) {
 	if err != nil || len(mh) == 0 {
 		t.Fatalf("memory search = %+v, %v", mh, err)
 	}
-	assertNoPlaintext(t, dir, "canary-memory", "canary-summary", "alpha beta", "天气预报")
+	assertNoPlaintext(t, dir, "canary-memory", "canary-summary", "canary-carrier", "alpha beta", "天气预报")
 }
 
 type fixedMeter struct{}
@@ -251,6 +262,83 @@ func TestMemoryCapLegacyNullContentLen(t *testing.T) {
 	if !errors.Is(err, memstore.TooLarge{}) {
 		t.Fatalf("legacy NULL content_len cap = %v, want TooLarge", err)
 	}
+}
+
+func TestCarrierRestoreConversionLoad(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "src")
+	st, err := secret.New(secret.Options{ConfigDir: filepath.Join(root, "keys"), BackendPresent: func() bool { return false }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bkey, err := st.Backup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	eid, payload := seedCarrierSource(t, src)
+	archive := filepath.Join(root, "a.dmbk")
+	if _, cerr := backup.Create(context.Background(), &backup.CreateOptions{DataDir: src, ConfigDir: filepath.Join(root, "cfg"), Out: archive, Key: bkey}); cerr != nil {
+		t.Fatal(cerr)
+	}
+	dst := filepath.Join(root, "dst")
+	if _, rerr := backup.Restore(context.Background(), &backup.RestoreOptions{DataDir: dst, ConfigDir: filepath.Join(root, "dstcfg"), Archive: archive, Key: bkey, KeyStore: st, Encrypt: true}); rerr != nil {
+		t.Fatal(rerr)
+	}
+	verifyCarrierRestore(t, dst, st, eid, payload)
+}
+
+func seedCarrierSource(t *testing.T, src string) (int64, []byte) {
+	t.Helper()
+	plain, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: src, Kind: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, cerr := plain.CreateSession(context.Background(), ctxdb.Session{ID: "S", Cwd: "/w"}); cerr != nil {
+		t.Fatal(cerr)
+	}
+	ids, aerr := plain.Append(context.Background(), "S", nil, ctxdb.Event{Kind: "assistant_message", Role: "assistant", Content: "reply", Payload: "{}"})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+	eid := ids[0]
+	payload := []byte("canary-carrier-restore")
+	if _, serr := (carrierstore.Store{DB: plain}).Save(context.Background(), "S", eid, []carrierstore.Carrier{{Ord: 0, Family: "openai", Model: "m", Kind: carrierstore.KindThoughtSignature, Anchor: "a", Payload: payload, Replayable: true, CreatedAt: 1}}); serr != nil {
+		t.Fatal(serr)
+	}
+	if cerr := plain.Close(); cerr != nil {
+		t.Fatal(cerr)
+	}
+	return eid, payload
+}
+
+func verifyCarrierRestore(t *testing.T, dst string, st *secret.Store, eid int64, payload []byte) {
+	t.Helper()
+	codec, err := secret.OpenCodec(context.Background(), dst, st, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enc, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: dst, Kind: "cli", Codec: codec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, enc)
+	got, err := (carrierstore.Store{DB: enc}).Load(context.Background(), "S", []int64{eid})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("load = %+v, %v", got, err)
+	}
+	if !bytes.Equal(got[0].Payload, payload) || got[0].SHA != carrierstore.PayloadSHA(payload) {
+		t.Fatalf("carrier = %+v, want payload %q sha %s", got[0], payload, carrierstore.PayloadSHA(payload))
+	}
+	// Projection input: the loaded bytes, family/model/kind and plaintext SHA
+	// are exactly what the provider carrier projection consumes.
+	proj := struct {
+		Family, Model, Kind, SHA string
+		Raw                      []byte
+	}{got[0].Family, got[0].Model, string(got[0].Kind), got[0].SHA, got[0].Payload}
+	if proj.Family != "openai" || proj.Model != "m" || proj.Kind != string(carrierstore.KindThoughtSignature) || !bytes.Equal(proj.Raw, payload) {
+		t.Fatalf("projection input = %+v", proj)
+	}
+	assertNoPlaintext(t, dst, "canary-carrier-restore")
 }
 
 func assertHit(t *testing.T, s *ctxdb.Store, q, kind string) {

@@ -18,6 +18,12 @@ type Codec interface {
 	FTS(tokens string) string
 }
 
+// Encrypted reports whether at-rest encryption is active for this store.
+func (s *Store) Encrypted() bool { return s.codec != nil }
+
+// KeyedHash returns the keyed codec hash; callers must check Encrypted first.
+func (s *Store) KeyedHash(data string) string { return s.codec.Hash(data) }
+
 func (s *Store) checkAtRest(ctx context.Context) error {
 	var id string
 	err := s.r.QueryRowContext(ctx, `SELECT value FROM module_state WHERE module_id = 'storage' AND key = 'encrypt'`).Scan(&id)
