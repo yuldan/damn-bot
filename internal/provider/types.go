@@ -133,8 +133,16 @@ type Response struct {
 	FallbackFrom   string
 	CredentialID   string
 	TTFT           time.Duration
-	// Price is the route price in effect at the call start (nil = unknown).
-	Price            *budget.Price
+	// Price is the route price in effect at the call start (nil = unknown
+	// or expired); budget.Entry.Account records its pricing_version.
+	Price *budget.Price
+	// BilledFailed counts attempts that failed after the upstream accepted
+	// the request (2xx stream opened): they may have been charged, so the
+	// caller records them as unknown cost (SEC6-9).
+	BilledFailed int
+	// responded marks one attempt whose 2xx stream was opened; internal to
+	// call accounting.
+	responded        bool
 	Carriers         []Carrier
 	RejectedCarriers []Carrier
 	CarrierDrops     []CarrierDrop

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -111,6 +112,7 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 	chain := append([]string{r.Model}, o.fallback...)
 	est, at := rawEstimate(r), o.now()
 	var lastErr error
+	var billed int
 	for i, ref := range chain {
 		if i > 0 && ref == r.Model {
 			continue
@@ -118,18 +120,20 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 		rt, ok := o.routes[ref]
 		switch {
 		case !ok && i == 0:
-			return Response{}, &Error{Class: retry.BadRequest, Err: fmt.Errorf("%w %q", ErrNoRoute, ref)}
+			return Response{BilledFailed: billed}, &Error{Class: retry.BadRequest, Err: fmt.Errorf("%w %q", ErrNoRoute, ref)}
 		case !ok, i > 0 && rt.ContextWindow > 0 && est > rt.ContextWindow:
 			continue // EC-PROV-015, EC-PROV-025
 		}
 		price := rt.Prices.At(at)
 		if err := o.checkBudget(ctx, &rt, price, r, est); err != nil {
-			return Response{}, err
+			return Response{BilledFailed: billed}, err
 		}
 		fb := &Fallback{From: r.Model, To: ref, Err: lastErr}
 		o.notify(i, fb)
 		resp, err := o.call(ctx, &rt, r, est, onChunk)
 		resp.Price = price
+		billed += resp.BilledFailed
+		resp.BilledFailed = billed
 		fb.Done, fb.Outcome = true, err
 		o.notify(i, fb)
 		if err == nil {
@@ -143,7 +147,7 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 		}
 		lastErr = err
 	}
-	return Response{}, lastErr
+	return Response{BilledFailed: billed}, lastErr
 }
 
 // notify reports a fallback attempt (i > 0) before and after it (PROV-M5).
@@ -176,6 +180,42 @@ func (o *OpenAI) checkBudget(ctx context.Context, rt *Route, price *budget.Price
 	return nil
 }
 
+// retryDenied re-consults the guard before retrying an attempt that already
+// received a response, with an unknown-cost projection: it denies only when
+// a monetary cap is configured (ADR-123 butir 3), in which case retrying
+// would multiply unaccounted spend (SEC6-9).
+func (o *OpenAI) retryDenied(ctx context.Context, rt *Route, estimateMicros int64) error {
+	if o.guard == nil {
+		return nil
+	}
+	d, err := o.guard.Check(ctx, budget.Request{Provider: rt.Provider, EstimateMicros: estimateMicros})
+	if err != nil {
+		return &Error{Class: retry.BadRequest, Err: fmt.Errorf("budget guard: %w", err)}
+	}
+	if derr := d.Err(); derr != nil {
+		return &Error{Class: retry.BadRequest, Err: derr}
+	}
+	return nil
+}
+
+// retryProjection is the cumulative micro-USD estimate of the next retry:
+// this route's dated price for the attempts already billed in this Do plus
+// the next one. Unpriced is -1 so the guard fails closed.
+func (o *OpenAI) retryProjection(rt *Route, resp *Response, r *Request, est int64, billed int) int64 {
+	price := resp.Price
+	if price == nil {
+		price = rt.Prices.At(o.now())
+	}
+	proj := estimateMicros(price, r, est)
+	if proj < 0 || billed <= 0 {
+		return proj
+	}
+	if int64(billed+1) > math.MaxInt64/proj {
+		return math.MaxInt64
+	}
+	return proj * int64(billed+1)
+}
+
 // estimateMicros projects the cost of one call from the raw token estimate.
 func estimateMicros(price *budget.Price, r *Request, input int64) int64 {
 	maxTok := int64(r.MaxTokens)
@@ -194,8 +234,16 @@ func (o *OpenAI) call(ctx context.Context, rt *Route, r *Request, est int64, onC
 	br := o.breaker(rt)
 	var resp Response
 	attempts := 0
+	limit := o.attempts
+	if limit <= 0 {
+		limit = retry.MaxAttempts
+	}
+	billed := 0
 	err := retry.Do(ctx, retry.Policy{Notify: o.onRetry, Wait: o.wait, Attempts: o.attempts}, func(ctx context.Context, n int) error {
 		if err := br.Allow(); err != nil {
+			// The breaker rejected this attempt before o.send: do not reuse
+			// the previous attempt's response when accounting billed work.
+			resp = Response{}
 			return fmt.Errorf("%s: %w", rt.Ref(), err)
 		}
 		attempts = n
@@ -204,10 +252,25 @@ func (o *OpenAI) call(ctx context.Context, rt *Route, r *Request, est int64, onC
 		br.Record(retry.ClassifyErr(err))
 		if err == nil {
 			captureCarriers(&resp, rt)
+			return nil
+		}
+		if !resp.responded {
+			return err
+		}
+		billed++ // the upstream accepted the request: it may have been billed
+		if n == limit || !retry.ClassifyErr(err).Retryable() {
+			return err
+		}
+		// A retry is another logical call: project this route's price for
+		// every attempt already billed in this Do plus the next one, so a
+		// monetary cap cannot be overshot by sequential retries (PRC-5).
+		if derr := o.retryDenied(ctx, rt, o.retryProjection(rt, &resp, r, est, billed)); derr != nil {
+			return derr
 		}
 		return err
 	})
 	resp.Attempts, resp.EstInputTokens, resp.CredentialID = attempts, est, rt.CredentialID
+	resp.BilledFailed = billed
 	if resp.Model == "" {
 		resp.Model = rt.Model
 	}
@@ -337,33 +400,38 @@ func readStream(st *netx.Stream, start time.Time, onChunk func(Chunk)) (Response
 		dec DeltaDecoder
 		a   assembler
 	)
+	// The upstream returned 2xx: the request was accepted and may be billed
+	// even when decoding fails (SEC6-9).
+	fail := Response{responded: true}
 	for {
 		ev, err := st.Next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return Response{}, toError(err)
+			return fail, toError(err)
 		}
 		if bytes.Equal(ev.Data, []byte("[DONE]")) {
 			break
 		}
 		d, err := dec.Decode(ev.Data)
 		if errors.Is(err, ErrTooManyToolDeltas) {
-			return Response{}, &Error{Class: retry.Unclassified, Err: fmt.Errorf("%w: %w", ErrResponseTooLarge, err)}
+			return fail, &Error{Class: retry.Unclassified, Err: fmt.Errorf("%w: %w", ErrResponseTooLarge, err)}
 		}
 		if err != nil {
-			return Response{}, &Error{Class: retry.StreamBroken, Err: err}
+			return fail, &Error{Class: retry.StreamBroken, Err: err}
 		}
 		if d.Error != nil {
-			return Response{}, &Error{Class: retry.Server, Body: bytes.Clone(d.Error), Err: errors.New("error event in stream")}
+			return fail, &Error{Class: retry.Server, Body: bytes.Clone(d.Error), Err: errors.New("error event in stream")}
 		}
 		observe(&a, d, start, onChunk)
 		if err := a.add(d); err != nil {
-			return Response{}, err
+			return fail, err
 		}
 	}
-	return a.result()
+	resp, err := a.result()
+	resp.responded = true
+	return resp, err
 }
 
 // observe records the time to first token and forwards text to onChunk.

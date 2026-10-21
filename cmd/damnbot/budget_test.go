@@ -194,3 +194,28 @@ func TestRunBudgetGuardPricedRoute(t *testing.T) {
 		}
 	})
 }
+
+// TestRunBrokenStreamStopsUnderCap (PRC-3): after one paid attempt on a
+// priced route, the retry projection exceeds the cap, so the real guard
+// denies the retry with no second provider request.
+func TestRunBrokenStreamStopsUnderCap(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	srv := providertest.New(t, nil, badUsageReply())
+	db := guardDB(t)
+	cfg := config.Default()
+	cfg.Budget.DailyUSD = 0.0001 // between the 1x and 2x projection of this route
+	o := &runOptions{model: "openai/m", baseURL: srv.URL, apiKey: "k"}
+	prov, err := newRunProviderWithTable(&cfg, db, "openai/m", o, pricedTable(t, srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = prov.Stream(ctx, &loop.Request{Model: "openai/m", MaxTokens: 100}, func(loop.Delta) {})
+	var se *loop.StreamError
+	if !errors.As(err, &se) || se.Class != loop.ClassBudget || se.Detail != event.DetailBudgetDaily {
+		t.Fatalf("stream = %v, want budget_daily", err)
+	}
+	if got := len(srv.Requests()); got != 1 {
+		t.Fatalf("requests = %d, want 1", got)
+	}
+}

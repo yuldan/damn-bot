@@ -546,7 +546,9 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 	})
 	warnings := p.notes.take()
 	if err != nil {
-		return loop.Reply{}, streamError(err)
+		se := streamError(err)
+		se.Billed = resp.BilledFailed
+		return loop.Reply{}, se
 	}
 	reply := loop.Reply{
 		Content: resp.Content, FinishReason: resp.FinishReason, Usage: event.Usage{
@@ -558,6 +560,7 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 		Carriers: eventCarriers(resp.Carriers), RejectedCarriers: eventCarriers(resp.RejectedCarriers),
 		CarrierDrops: eventDrops(resp.CarrierDrops), ReasoningText: resp.ReasoningText,
 		BudgetWarnings: warnings,
+		BilledFailed:   resp.BilledFailed,
 	}
 	for _, c := range resp.ToolCalls {
 		reply.ToolCalls = append(reply.ToolCalls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.ArgumentsRaw})

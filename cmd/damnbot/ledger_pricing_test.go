@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"math"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/budget"
@@ -156,4 +159,61 @@ func TestRunLedgerValidatesProviderCost(t *testing.T) {
 func withCost(u event.Usage, c *float64) event.Usage {
 	u.CostUSD = c
 	return u
+}
+
+// badUsageReply is a 2xx stream the parser rejects (negative prompt_tokens).
+func badUsageReply() providertest.Reply {
+	return providertest.Reply{Frames: []string{
+		`{"choices":[{"index":0,"delta":{"content":"x"}}]}`,
+		`{"choices":[],"usage":{"prompt_tokens":-10,"completion_tokens":5}}`,
+		"[DONE]",
+	}}
+}
+
+// ledgerSummary returns every usage_ledger row of db (all sessions).
+func ledgerSummary(t *testing.T, dir string) (cost, calls, unknown int64) {
+	t.Helper()
+	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: dir, Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Errorf("close ctxdb: %v", cerr)
+		}
+	}()
+	if qerr := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT COALESCE(sum(cost_usd_micros), 0), count(*),
+			COALESCE(sum(cost_usd_micros IS NULL), 0) FROM usage_ledger WHERE purpose = 'turn'`, nil, &cost, &calls, &unknown)
+	}); qerr != nil {
+		t.Fatal(qerr)
+	}
+	return cost, calls, unknown
+}
+
+// TestRunBrokenStreamRecordsAttempts (SEC6-9): a rejected stream is
+// retried 3×, and every attempt that got a 2xx response is recorded as an
+// unknown-cost row, so a later monetary cap can deny.
+func TestRunBrokenStreamRecordsAttempts(t *testing.T) {
+	t.Parallel()
+	srv := providertest.New(t, nil, badUsageReply(), badUsageReply(), badUsageReply())
+	dir := t.TempDir()
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfg, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := run([]string{
+		"run", "-p", "hi", "--model", "openai/gpt-fake", "--base-url", srv.URL,
+		"--data-dir", dir, "--config", cfg, "--output", "json",
+	}, &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2; stdout %s; stderr %s", code, out.String(), errb.String())
+	}
+	if got := len(srv.Requests()); got != 3 {
+		t.Fatalf("provider requests = %d, want 3 attempts", got)
+	}
+	if cost, calls, unknown := ledgerSummary(t, dir); cost != 0 || calls != 3 || unknown != 3 {
+		t.Fatalf("ledger = cost %d, %d rows (%d unknown), want 3 NULL/unknown rows", cost, calls, unknown)
+	}
 }
