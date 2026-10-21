@@ -107,6 +107,9 @@ const (
 	DetailToolError       StopDetail = "tool_error"
 	DetailMaxWall         StopDetail = "max_wall"
 	DetailMaxIterations   StopDetail = "max_iterations"
+	DetailBudgetDaily     StopDetail = "budget_daily"
+	DetailBudgetMonthly   StopDetail = "budget_monthly"
+	DetailBudgetProvider  StopDetail = "budget_provider"
 )
 
 // UpdateKind is one stream update for a frontend (never an events.kind).

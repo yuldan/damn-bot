@@ -164,14 +164,20 @@ func (e *priceEntry) parse(table string) (Price, string, error) {
 	}, routeKey(key, e.Model), nil
 }
 
-// columns returns the three price columns; all are required, none may be
-// negative (an omitted column would otherwise become a silent zero price).
+// columns returns the three price columns; all are required, input/output
+// must be positive, and cached_input may be zero (the documented "not
+// discounted" sentinel). An omitted column would otherwise become a silent
+// zero price, and input=output=0 would make a route free under a priced
+// source (PRC-10).
 func (e *priceEntry) columns() (in, cached, out int64, err error) {
 	if e.Input == nil || e.CachedInput == nil || e.Output == nil {
 		return 0, 0, 0, errors.New("input, cached_input, and output are required")
 	}
-	if *e.Input < 0 || *e.CachedInput < 0 || *e.Output < 0 {
-		return 0, 0, 0, errors.New("negative price")
+	if *e.Input <= 0 || *e.Output <= 0 {
+		return 0, 0, 0, errors.New("input and output prices must be positive")
+	}
+	if *e.CachedInput < 0 {
+		return 0, 0, 0, errors.New("negative cached_input price")
 	}
 	return *e.Input, *e.CachedInput, *e.Output, nil
 }

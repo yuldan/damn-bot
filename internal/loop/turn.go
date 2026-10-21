@@ -274,6 +274,9 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 	if reply.FallbackFrom != "" {
 		t.fallback(ctx, reply.FallbackFrom, reply.Model)
 	}
+	for _, c := range reply.BudgetWarnings {
+		t.note(ctx, &event.Event{Kind: event.BudgetWarning, Payload: payload(auditPayload{Kind: c})})
+		t.emit(&event.Update{Kind: event.UpdateNotice, Text: "budget warning: " + c + " cap reached warn_at", ToolName: "budget"})
 	cacheBreak := ""
 	if reply.FallbackFrom != "" {
 		cacheBreak = "fallback" // COST-04 enum: a provider fallback re-bills the prefix
@@ -320,6 +323,11 @@ func (t *turn) streamError(ctx context.Context, p *Prompt, err error, st *askSta
 				return retry, o
 			}
 			return false, &outcome{stop: event.StopMaxTokens, detail: event.DetailContextOverflow}
+		case ClassBudget:
+			if se.Detail != "" {
+				o := t.budgetStop(ctx, se)
+				return false, &o
+			}
 		case ClassProvider:
 		}
 	}
@@ -507,7 +515,8 @@ func excludeReason(o outcome) string {
 		return string(o.detail)
 	case event.DetailCompleted, event.DetailEmptyResponse, event.DetailNoProgress,
 		event.DetailInvalidAnswer, event.DetailOutputTruncated, event.DetailBudgetInput,
-		event.DetailBudgetOutput, event.DetailContentFiltered, event.DetailApprovalDenied,
+		event.DetailBudgetOutput, event.DetailBudgetDaily, event.DetailBudgetMonthly,
+		event.DetailBudgetProvider, event.DetailContentFiltered, event.DetailApprovalDenied,
 		event.DetailToolError, event.DetailMaxIterations:
 		return ""
 	}
@@ -529,6 +538,15 @@ func (t *turn) fail(ctx context.Context, detail event.StopDetail, err error) out
 	t.note(ctx, &event.Event{Kind: event.Error, Payload: payload(auditPayload{Code: string(detail), Message: msg})})
 	t.emit(&event.Update{Kind: event.UpdateNotice, Text: msg, Err: msg})
 	return outcome{stop: stop, detail: detail, err: msg}
+}
+
+// budgetStop ends the turn at a guard denial (SPEC §18.4): the call was
+// never sent; budget_exhausted carries the cap, numbers, and reset.
+func (t *turn) budgetStop(ctx context.Context, se *StreamError) outcome {
+	msg := t.redact(se.Err.Error())
+	t.note(ctx, &event.Event{Kind: event.BudgetExhausted, Payload: payload(auditPayload{Code: string(se.Detail), Message: msg})})
+	t.emit(&event.Update{Kind: event.UpdateNotice, Text: msg, Err: msg})
+	return outcome{stop: event.StopMaxTokens, detail: se.Detail, err: msg}
 }
 
 // fallback records the visible fallback (P7): a notice update and a

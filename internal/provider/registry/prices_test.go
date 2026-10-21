@@ -172,6 +172,8 @@ func TestParsePriceTableRejectsInvalid(t *testing.T) {
 		{"bad until", mutate(func(e *priceEntry) { e.Until = "2026-13-01" })},
 		{"until equals from", mutate(func(e *priceEntry) { e.Until = e.From })},
 		{"negative price", mutate(func(e *priceEntry) { e.Output = num(-1) })},
+		{"zero input price", mutate(func(e *priceEntry) { e.Input = num(0) })},
+		{"zero output price", mutate(func(e *priceEntry) { e.Output = num(0) })},
 		{"missing input column", strings.Replace(valid, "input = 100\n", "", 1)},
 		{"missing cached_input column", strings.Replace(valid, "cached_input = 10\n", "", 1)},
 		{"missing output column", strings.Replace(valid, "output = 200\n", "", 1)},

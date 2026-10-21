@@ -157,6 +157,3 @@ func withCost(u event.Usage, c *float64) event.Usage {
 	u.CostUSD = c
 	return u
 }
-
-// usageReply is an SSE answer with 1.000 prompt and 500 completion tokens and
-// no provider-reported cost, so the charge comes from the route table.
