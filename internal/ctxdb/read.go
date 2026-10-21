@@ -89,6 +89,29 @@ const lineageCTE = `WITH RECURSIVE lin(id, lim, depth, path) AS (
 	 WHERE instr(lin.path, ',' || p.id || ',') = 0 AND NOT EXISTS (SELECT 1 FROM session_labels vl WHERE vl.session_id = p.id AND vl.key = 'purge_state')
 )`
 
+// Lineage returns sessionID and its fork ancestors, nearest first, skipping
+// purged sessions (SPEC §4.6, §11.6). Retrieval uses it to scope automatic
+// recall to the current lineage.
+func (s *Store) Lineage(ctx context.Context, sessionID string) ([]string, error) {
+	if err := s.Visible(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	var ids []string
+	err := s.each(ctx, lineageCTE+`
+		SELECT id FROM lin ORDER BY depth, id`, []any{sessionID}, func(r *sql.Rows) error {
+		var id string
+		if err := r.Scan(&id); err != nil {
+			return wrap(err)
+		}
+		ids = append(ids, id)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ctxdb: lineage %s: %w", sessionID, err)
+	}
+	return ids, nil
+}
+
 // History returns the fork-aware transcript of sessionID (SPEC §4.6):
 // ancestors up to their child's fork_seq, then the target's own events.
 // fromSeq > 0 is the target-only tail. Summaries replace covered events with

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -147,18 +149,43 @@ func newRunCompactor(ctx context.Context, model *runModel, modelRef string, asm 
 // retrieval builds the per-turn FTS5 recall tier: best hits first, each
 // filtered against context_exclude via History's raw/excluded semantics so a
 // failed turn can never re-enter the prompt through retrieval (ADR-134).
-func retrieval(ctx context.Context, db *ctxdb.Store, query string) ([]assemble.Snippet, error) {
-	hits, err := db.Search(ctx, ctxdb.Query{Text: query, Limit: 5})
+// retrieval builds the per-turn FTS5 recall tier under the SPEC §4.5 row-6
+// triggers (after compaction, a continued/forked session, or an active memory
+// provider; F2 has no external provider). The default scope is the current
+// session lineage only: another project's or gateway identity's session is
+// never searched, let alone shown. Hits from the current turn are skipped.
+func retrieval(ctx context.Context, db *ctxdb.Store, sessionID, turnID, query string, view *compaction.View) ([]assemble.Snippet, error) {
+	lineage, err := db.Lineage(ctx, sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("recall: %w", err)
+		return nil, fmt.Errorf("recall lineage: %w", err)
 	}
+	if !view.Pruned && len(view.Summaries) == 0 && len(lineage) == 1 {
+		return nil, nil
+	}
+	var hits []ctxdb.Hit
+	for _, sid := range lineage {
+		found, serr := db.Search(ctx, ctxdb.Query{Text: query, SessionID: sid, Limit: 5})
+		if serr != nil {
+			return nil, fmt.Errorf("recall: %w", serr)
+		}
+		hits = append(hits, found...)
+	}
+	slices.SortFunc(hits, func(a, b ctxdb.Hit) int {
+		if c := cmp.Compare(a.Score, b.Score); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.SessionID, b.SessionID); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Seq, b.Seq)
+	})
 	out := make([]assemble.Snippet, 0, 3)
 	for i := range hits {
 		h := &hits[i]
 		if h.Kind == "summary_ref" || h.Seq <= 0 {
 			continue // summary hits need Hit.Excluded from #211
 		}
-		ok, verr := hitVisible(ctx, db, h)
+		ok, verr := hitVisible(ctx, db, h, turnID)
 		if verr != nil {
 			return nil, verr
 		}
@@ -173,13 +200,16 @@ func retrieval(ctx context.Context, db *ctxdb.Store, query string) ([]assemble.S
 	return out, nil
 }
 
-// hitVisible applies the context_exclude filter to a recall hit. Until #211
-// exposes ctxdb.Hit.Excluded, the composition root runs the same marker query
-// (GAP-REL-01, ADR-134 butir 8); a summary hit needs the range predicate from #211.
-func hitVisible(ctx context.Context, db *ctxdb.Store, h *ctxdb.Hit) (bool, error) {
-	n, err := db.Count(ctx, `SELECT EXISTS (SELECT 1 FROM events x JOIN events t ON t.session_id = x.session_id
-		WHERE x.session_id = ?1 AND x.kind = 'context_exclude'
-		AND json_extract(x.payload, '$.turn_id') = t.turn_id AND t.seq = ?2)`, h.SessionID, h.Seq)
+// hitVisible drops a hit from a context_exclude turn and from the running
+// turn itself. Until #211 exposes ctxdb.Hit.Excluded, the composition root
+// runs the same marker query (GAP-REL-01, ADR-134 butir 8); a summary hit
+// needs the range predicate from #211.
+func hitVisible(ctx context.Context, db *ctxdb.Store, h *ctxdb.Hit, currentTurn string) (bool, error) {
+	n, err := db.Count(ctx, `SELECT (EXISTS (SELECT 1 FROM events x JOIN events t ON t.session_id = x.session_id
+			WHERE x.session_id = ?1 AND x.kind = 'context_exclude'
+			AND json_extract(x.payload, '$.turn_id') = t.turn_id AND t.seq = ?2))
+		+ (EXISTS (SELECT 1 FROM events WHERE session_id = ?1 AND seq = ?2 AND turn_id = ?3))`,
+		h.SessionID, h.Seq, currentTurn)
 	if err != nil {
 		return false, fmt.Errorf("recall visibility: %w", err)
 	}

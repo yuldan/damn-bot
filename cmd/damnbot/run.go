@@ -581,7 +581,7 @@ func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleReque
 	for i := range notices {
 		history = append(history, assemble.Message{Role: notices[i].Role, Content: notices[i].Content})
 	}
-	hits, err := retrieval(ctx, a.db, req.Input.Text)
+	hits, err := retrieval(ctx, a.db, req.SessionID, req.TurnID, req.Input.Text, &view)
 	if err != nil {
 		return loop.Prompt{}, err
 	}

@@ -329,3 +329,32 @@ func TestForkContextTierCopied(t *testing.T) {
 		t.Fatalf("fork metadata = %q/%q", tier, cfg)
 	}
 }
+
+// TestLineage: Lineage returns the fork chain nearest-first and fails closed
+// for a missing session (retrieval scope, SEC12-1).
+func TestLineage(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	ctx := context.Background()
+	session(t, s, "P", "")
+	child := "C"
+	_, err := s.CreateSession(ctx, Session{ID: child, ParentID: "P", ForkSeq: 0})
+	must(t, err)
+	grand := "G"
+	_, err = s.CreateSession(ctx, Session{ID: grand, ParentID: child, ForkSeq: 0})
+	must(t, err)
+	got, err := s.Lineage(ctx, grand)
+	must(t, err)
+	want := []string{grand, child, "P"}
+	if len(got) != len(want) {
+		t.Fatalf("lineage = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("lineage = %v, want %v", got, want)
+		}
+	}
+	if _, err := s.Lineage(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing lineage = %v, want ErrNotFound", err)
+	}
+}
