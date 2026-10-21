@@ -120,7 +120,18 @@ func TestCarrierRedactedNotReplayable(t *testing.T) {
 		}, nil
 	}}
 	f.run(t)
-	if len(f.carriers.saved) != 1 || f.carriers.saved[0].cs[0].Replayable {
-		t.Fatalf("saved = %+v, want replayable=false", f.carriers.saved)
+	if len(f.carriers.saved) != 0 {
+		t.Fatalf("saved = %+v, want no carrier bytes persisted", f.carriers.saved)
+	}
+	ev, ok := f.store.find(event.AssistantMessage)
+	if !ok {
+		t.Fatal("no assistant event")
+	}
+	var p assistantPayload
+	if err := json.Unmarshal(ev.Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Carriers) != 0 {
+		t.Fatalf("event refs = %+v, want none", p.Carriers)
 	}
 }

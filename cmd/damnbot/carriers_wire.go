@@ -20,10 +20,7 @@ func providerCarriers(cs []event.Carrier) []provider.Carrier {
 	}
 	out := make([]provider.Carrier, len(cs))
 	for i, c := range cs {
-		out[i] = provider.Carrier{
-			Family: c.Family, Model: c.Model, Kind: provider.CarrierKind(c.Kind),
-			Anchor: c.Anchor, Raw: c.Raw, Replayable: c.Replayable, SHA: c.SHA,
-		}
+		out[i] = provider.Carrier{Family: c.Family, Model: c.Model, Kind: provider.CarrierKind(c.Kind), Anchor: c.Anchor, Raw: c.Raw, Replayable: c.Replayable, SHA: c.SHA}
 	}
 	return out
 }
@@ -34,10 +31,7 @@ func eventCarriers(cs []provider.Carrier) []event.Carrier {
 	}
 	out := make([]event.Carrier, len(cs))
 	for i, c := range cs {
-		out[i] = event.Carrier{
-			Family: c.Family, Model: c.Model, Kind: string(c.Kind),
-			Anchor: c.Anchor, Raw: c.Raw, Replayable: c.Replayable, SHA: c.SHA,
-		}
+		out[i] = event.Carrier{Family: c.Family, Model: c.Model, Kind: string(c.Kind), Anchor: c.Anchor, Raw: c.Raw, Replayable: c.Replayable, SHA: c.SHA}
 	}
 	return out
 }
@@ -58,10 +52,7 @@ type ctxCarrierStore struct{ db *ctxdb.Store }
 func (s *ctxCarrierStore) SaveCarriers(ctx context.Context, sid string, eventID int64, cs []event.Carrier) error {
 	rows := make([]carrierstore.Carrier, len(cs))
 	for i, c := range cs {
-		rows[i] = carrierstore.Carrier{
-			Ord: i, Family: c.Family, Model: c.Model, Kind: carrierstore.Kind(c.Kind),
-			Anchor: c.Anchor, Payload: c.Raw, Replayable: c.Replayable, CreatedAt: time.Now().UnixMilli(),
-		}
+		rows[i] = carrierstore.Carrier{Ord: i, Family: c.Family, Model: c.Model, Kind: carrierstore.Kind(c.Kind), Anchor: c.Anchor, Payload: c.Raw, Replayable: c.Replayable, CreatedAt: time.Now().UnixMilli()}
 	}
 	if _, err := (carrierstore.Store{DB: s.db}).Save(ctx, sid, eventID, rows); err != nil {
 		return fmt.Errorf("save carriers: %w", err)
@@ -101,17 +92,22 @@ func (s *ctxStore) loadCarriers(ctx context.Context, sid string, at map[int64]in
 	if len(ids) == 0 {
 		return nil
 	}
-	stored, err := (carrierstore.Store{DB: s.db}).Load(ctx, sid, ids)
+	store := carrierstore.Store{DB: s.db}
+	stored, err := store.Load(ctx, sid, ids)
 	if err != nil {
 		return fmt.Errorf("load carriers: %w", err)
+	}
+	rejected, err := store.Rejected(ctx, sid)
+	if err != nil {
+		return fmt.Errorf("load carrier rejections: %w", err)
 	}
 	byEvent := make(map[int64][]event.Carrier, len(stored))
 	for i := range stored {
 		st := &stored[i]
-		byEvent[st.EventID] = append(byEvent[st.EventID], event.Carrier{
-			Family: st.Family, Model: st.Model, Kind: string(st.Kind),
-			Anchor: st.Anchor, Raw: st.Payload, Replayable: st.Replayable, SHA: st.SHA,
-		})
+		if rejected[st.ID] {
+			continue // never replay a signature the provider rejected
+		}
+		byEvent[st.EventID] = append(byEvent[st.EventID], event.Carrier{Family: st.Family, Model: st.Model, Kind: string(st.Kind), Anchor: st.Anchor, Raw: st.Payload, Replayable: st.Replayable, SHA: st.SHA})
 	}
 	for id, i := range at {
 		out[i].Carriers = byEvent[id]

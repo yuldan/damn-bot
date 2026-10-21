@@ -225,11 +225,9 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 		return &o, true
 	}
 	t.addUsage(&reply.Usage)
-	// Redacted reasoning makes its carriers non-replayable.
+	// Redacted reasoning drops its carriers before persistence (SEC8-3).
 	if reply.ReasoningText != "" && t.redact(reply.ReasoningText) != reply.ReasoningText {
-		for i := range reply.Carriers {
-			reply.Carriers[i].Replayable = false
-		}
+		reply.Carriers = nil
 	}
 	if len(reply.RejectedCarriers) > 0 && t.deps.Carriers != nil {
 		if err := t.deps.Carriers.RejectCarriers(context.WithoutCancel(ctx), t.sessionID, reply.RejectedCarriers, "invalid_signature"); err != nil {

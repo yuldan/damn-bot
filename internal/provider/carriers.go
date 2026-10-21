@@ -18,10 +18,13 @@ func captureCarriers(resp *Response, rt *Route) {
 		return
 	}
 	var parts []json.RawMessage
-	if err := json.Unmarshal(resp.Reasoning, &parts); err != nil || len(parts) > 256 { // bound the array
+	if err := json.Unmarshal(resp.Reasoning, &parts); err != nil {
 		return
 	}
-	family := rt.CarrierFamily()
+	parts = flattenParts(parts)
+	if len(parts) > 256 { // bound the array
+		return
+	}
 	plain := make([]json.RawMessage, 0, len(parts))
 	for i, p := range parts {
 		kind, ok := carrierKind(p)
@@ -30,10 +33,7 @@ func captureCarriers(resp *Response, rt *Route) {
 			continue
 		}
 		raw := slices.Clone([]byte(p))
-		resp.Carriers = append(resp.Carriers, Carrier{
-			Family: family, Model: rt.Model, Kind: kind,
-			Anchor: strconv.Itoa(i), Raw: raw, Replayable: true, SHA: payloadSHA(raw),
-		})
+		resp.Carriers = append(resp.Carriers, Carrier{Family: rt.CarrierFamily(), Model: rt.Model, Kind: kind, Anchor: strconv.Itoa(i), Raw: raw, Replayable: true, SHA: payloadSHA(raw)})
 	}
 	if len(resp.Carriers) == 0 {
 		return
@@ -43,11 +43,9 @@ func captureCarriers(resp *Response, rt *Route) {
 		return
 	}
 	encoded, err := json.Marshal(plain)
-	if err != nil {
-		resp.Reasoning = nil
-		return
+	if err == nil {
+		resp.Reasoning = encoded
 	}
-	resp.Reasoning = encoded
 }
 
 func carrierKind(part json.RawMessage) (CarrierKind, bool) {
@@ -142,4 +140,18 @@ func isSignatureInvalid(err error) bool {
 		return true
 	}
 	return false
+}
+
+// flattenParts expands one level of nested arrays.
+func flattenParts(in []json.RawMessage) []json.RawMessage {
+	out := make([]json.RawMessage, 0, len(in))
+	for _, p := range in {
+		var inner []json.RawMessage
+		if len(p) > 0 && p[0] == '[' && json.Unmarshal(p, &inner) == nil && len(out)+len(inner) <= 256 {
+			out = append(out, inner...)
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }

@@ -203,8 +203,6 @@ func (o *OpenAI) call(ctx context.Context, rt *Route, r *Request, est int64, onC
 		resp, err = o.send(ctx, rt, r, est, onChunk)
 		br.Record(retry.ClassifyErr(err))
 		if err == nil {
-			// Capture happens per route: the family/model stamped on each
-			// carrier is the route that produced it, never the caller's.
 			captureCarriers(&resp, rt)
 		}
 		return err
@@ -243,9 +241,6 @@ func (o *OpenAI) send(ctx context.Context, rt *Route, r *Request, est int64, onC
 			o.mu.Unlock()
 			continue
 		}
-		// A signature-invalid 400 is retried exactly once with no opaque
-		// carriers (GAP-PROV-01). All carriers sent are reported as
-		// rejected; the session marks them so they are never replayed.
 		if err != nil && len(sent) > 0 && isSignatureInvalid(err) {
 			body2, _, dropped2, eerr := encodeCarriers(rt, withoutCarriers(r), drop)
 			if eerr != nil {

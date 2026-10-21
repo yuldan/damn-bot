@@ -25,7 +25,6 @@ type Route struct {
 	// Prices is the dated price schedule (GAP-COST-01); the entry in
 	// effect at the call start prices the guard projection and the ledger.
 	Prices budget.Prices
-	// Family is the provider family; carrier replay needs an exact match.
 	Family string
 }
 
