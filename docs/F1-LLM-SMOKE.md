@@ -2,6 +2,8 @@
 
 Date: **2026-10-21**. Tested commit: **`3a2a10d`** (merged main; `go 1.26.10` in root and bench `go.mod`). `origin/main` at report time: `52a938e` (advanced after the run; this report is pinned to the tested SHA).
 
+Acceptance: **ADR-062** (smoke LLM F1).
+
 Binary: `/home/dan/.cache/damnbot/final-damnbot` built with `go build -tags goolm ./cmd/damnbot`. Provider `https://api.teamorouter.com/v1`, model `gpt-5.4-mini`, declared prices $0.15/$0.015/$0.6 per Mtok. Caps for all runs: GOMAXPROCS=1, GOFLAGS=-p=1, `ulimit -v` 3 GiB, `nice 15`. No product code was changed for this report.
 
 ## Final 10-task h2h smoke
