@@ -237,6 +237,9 @@ func (t *Tx) recoverOwnTrash() error {
 // preWrite enforces I8 before every write transaction (and read): a
 // maintenance marker drains this process; a replaced DB file is reopened.
 func (s *Store) preWrite(ctx context.Context) error {
+	if s.opt.ReadOnly {
+		return fmt.Errorf("%w: inspection store cannot be written", ErrReadOnly)
+	}
 	var err error
 	if s.w != nil && !s.barrierOwner.Load() && markerPresent(s.root) {
 		err = s.detach()
@@ -255,6 +258,9 @@ func (s *Store) preWrite(ctx context.Context) error {
 // reader returns the read pool, reattaching a drained Store first (barrier
 // open order) so reads never touch a replaced DB file.
 func (s *Store) reader(ctx context.Context) (*sql.DB, error) {
+	if s.opt.ReadOnly {
+		return s.r, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	err := s.preWrite(ctx)

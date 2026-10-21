@@ -35,6 +35,7 @@ type Options struct {
 	Ident        *Ident        // override (tests simulating processes)
 	SchemaMax    int           // newest migration this binary knows; 0 = all embedded
 	ForceMigrate bool          // --force-migrate
+	ReadOnly     bool          // inspection mode: no migration, no writer (SPEC §11.11.7)
 	BusyTimeout  time.Duration // default 5 s (SPEC §11 PRAGMA)
 	BarrierWait  time.Duration // drain timeout of the maintenance barrier; default 30 s
 	// OnTx observes every write transaction: mode and lock hold time
@@ -84,14 +85,15 @@ func DBPath(dir string) string { return filepath.Join(dir, dbFile) }
 // reason=migrate), shared maint.lock, then startup recovery (SELF-HEALING §3.4).
 func Open(ctx context.Context, o *Options) (*Store, error) {
 	s, err := newStore(o)
-	if err == nil {
-		err = s.migrateIfNeeded(ctx)
-	}
-	if err == nil {
-		err = s.attach(ctx)
-	}
-	if err == nil {
-		err = s.startupRecovery(ctx)
+	if err == nil && o.ReadOnly {
+		err = s.openReadOnly(ctx)
+	} else if err == nil {
+		if err = s.migrateIfNeeded(ctx); err == nil {
+			err = s.attach(ctx)
+		}
+		if err == nil {
+			err = s.startupRecovery(ctx)
+		}
 	}
 	if err != nil {
 		if s != nil {
@@ -99,10 +101,35 @@ func Open(ctx context.Context, o *Options) (*Store, error) {
 		}
 		return nil, err
 	}
+	if o.ReadOnly {
+		return s, nil
+	}
 	wctx, stop := context.WithCancel(context.WithoutCancel(ctx))
 	s.stop, s.done = stop, make(chan struct{})
 	go s.watch(wctx)
 	return s, nil
+}
+
+// openReadOnly opens only the read pool in mode=ro. A newer schema is
+// readable by design; no migration, lock, holder row, or recovery runs.
+func (s *Store) openReadOnly(ctx context.Context) error {
+	d, err := s.driver(false)
+	if err != nil {
+		return wrap(err)
+	}
+	s.r = sql.OpenDB(connector{d: d, dsn: s.dsnReadOnly()})
+	s.r.SetMaxOpenConns(4)
+	if err := s.r.PingContext(ctx); err != nil {
+		return wrap(errors.Join(err, s.r.Close()))
+	}
+	return nil
+}
+
+func (s *Store) dsnReadOnly() string {
+	return "file:" + DBPath(s.dir) + "?mode=ro&" + strings.Join([]string{
+		fmt.Sprintf("_pragma=busy_timeout(%d)", s.opt.BusyTimeout.Milliseconds()),
+		"_pragma=query_only(1)", "_pragma=foreign_keys(1)", "_pragma=trusted_schema(1)",
+	}, "&")
 }
 
 func newStore(o *Options) (*Store, error) {
@@ -314,8 +341,12 @@ func ftsNorm(t string) string {
 func (s *Store) detach() error {
 	var err error
 	if s.w != nil {
-		err = wrap(errors.Join(s.w.Close(), s.r.Close()))
-		s.w, s.r = nil, nil
+		err = wrap(s.w.Close())
+		s.w = nil
+	}
+	if s.r != nil {
+		err = wrap(errors.Join(err, s.r.Close()))
+		s.r = nil
 	}
 	if s.lock != nil {
 		err = errors.Join(err, unlockFile(s.lock))

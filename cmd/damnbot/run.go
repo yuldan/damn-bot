@@ -73,6 +73,9 @@ func runHeadless(args []string, stdout, stderr io.Writer) int {
 		if _, werr := fmt.Fprintf(stderr, "run: %v\n", err); werr != nil {
 			return 2
 		}
+		if errors.Is(err, ctxdb.ErrSchemaNewer) {
+			return 78 // SPEC §11.11.7: a writer refuses a newer schema
+		}
 		return 2
 	}
 	return code

@@ -2,10 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
 
@@ -194,5 +197,36 @@ func TestRunHeadlessShellSession(t *testing.T) {
 	}
 	if strings.Contains(toolContent, "module_unavailable") {
 		t.Errorf("tool result = %q, sessions are not wired", toolContent)
+	}
+}
+
+// TestRunSchemaNewerExits78 (GAP-REL-05): a writer refuses a DB migrated by a
+// newer binary with exit 78 and a clear message.
+func TestRunSchemaNewerExits78(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx := context.Background()
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dir, Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Write(ctx, func(tx *ctxdb.Tx) error {
+		if _, xerr := tx.Exec("PRAGMA user_version = 9999"); xerr != nil {
+			return fmt.Errorf("bump version: %w", xerr)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := run([]string{"run", "-p", "hi", "--model", "openai/x", "--data-dir", dir}, &out, &errb)
+	if code != 78 {
+		t.Fatalf("exit = %d, want 78; stderr=%q", code, errb.String())
+	}
+	if !strings.Contains(errb.String(), "schema") {
+		t.Fatalf("stderr = %q, want a schema message", errb.String())
 	}
 }

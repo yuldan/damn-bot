@@ -20,6 +20,7 @@ var (
 	ErrBlobMissing         = errors.New("blob_missing")
 	ErrApprovalNotPending  = errors.New("approval_not_pending")
 	ErrSchemaNewer         = errors.New("schema_newer")
+	ErrReadOnly            = errors.New("read_only")
 	ErrDBBusy              = errors.New("db_busy")
 	ErrDiskFull            = errors.New("disk_full")
 	ErrNotFound            = errors.New("not_found")

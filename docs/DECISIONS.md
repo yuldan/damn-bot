@@ -3094,6 +3094,24 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 5. **Batas ukuran (SEC8-5).** `carrierstore.Save` menolak satu carrier > 256 KiB dan total per pesan > 1 MiB (`ErrCarrier`, #190); capture/proyeksi (#200) membuang blok berlebih dengan `carrier_dropped{reason:"too_large"}` dan tidak pernah mengirimnya.
 6. **LOC.** `loop` 1.900 → 1.950 (pemindaian carrier rekursif + nama kunci, terukur 1.913), Total core 37.270 → 37.320; `provider` tetap 2.100 (terukur 2.056).
 
+## ADR-132 — GAP-REL-04/REL-05: probe engine SQLite + surface `version --verbose`, dan mode baca-saja untuk skema lebih baru
+
+**Status:** Accepted 2026-10-21 (F2; keputusan didelegasikan, opsi konservatif). Menerapkan GAP-REL-04 dan GAP-REL-05 (SPEC §11.1, §11.11.7, §22.1; SELF-HEALING §1.2).
+
+**Konteks.** `ctxdb.Open` menolak DB dengan `user_version` > skema binary (`ErrSchemaNewer`) dan `run` memetakannya ke exit 2, bukan 78; tidak ada jalur inspeksi read-only. Engine SQLite yang ter-link (modernc v1.60.1 → SQLite 3.53.4) belum diverifikasi terhadap lantai REL-04 (3.51.3, FTS5 `contentless_delete`, trigram, `json_valid`). `damnbot doctor` adalah F3 dan belum ada di main; `sessions ls/show/export` juga belum ada (wiring stack), jadi tidak ada perintah CLI inspeksi untuk disambungkan di PR ini.
+
+**Keputusan.**
+1. **Probe engine (REL-04).** `ctxdb.ProbeEngine(ctx)` membuka `:memory:` dengan driver yang sama dan mengembalikan `EngineInfo{Version, Major/Minor/Patch, FTS5, ContentlessDelete, Trigram, JSON}`; `Supported()` mensyaratkan ≥ `MinSQLiteVersion` 3.51.3 dan keempat probe. `TestSQLiteEngineVersion` gagal bila engine lebih lama/kehilangan fitur; test berjalan di job `test` matrix 6 runner (linux amd64/arm64, darwin amd64/arm64, windows amd64/arm64), sementara `build-matrix` mencakup 8 target kanonik (linux/arm dan android/arm64 hanya compile, sesuai ADR-073). Tidak ada `doctor` F2.
+2. **Surface (REL-04).** `damnbot --version --verbose` mencetak `sqlite <versi> fts5=… contentless_delete=… trigram=… json=… supported=…` lewat probe yang sama; flag `--verbose` tanpa `--version` tetap diabaikan (perilaku usage lama).
+3. **Baca-saja (REL-05).** `ctxdb.Options.ReadOnly` membuka **hanya** read pool dengan `mode=ro&_pragma=query_only(1)`; tidak menjalankan migrasi, barrier, holder, recovery, atau watcher, dan tidak membuat lock/holder. `Write`/`WriteContext` mengembalikan `ErrReadOnly` (pesan jelas: "inspection store cannot be written") sebelum menyentuh handle. DB yang lebih baru (`user_version` > schemaMax) boleh dibaca; DB yang tidak ada gagal. `Close` menutup read pool tanpa menyentuh lock/checkpoint.
+4. **Penulis tetap menolak.** `Open` normal pada DB lebih baru tetap `ErrSchemaNewer`; `runHeadless` memetakannya ke **exit 78** (SPEC §11.11.7) dengan pesan `schema_newer`, bukan exit 2.
+5. **Cakupan CLI.** Karena `sessions ls/show/export` belum ada di main, PR ini menyediakan seam storage `Open(ReadOnly)` + test end-to-end dengan DB nyata; perintah inspeksi akan memakai opsi ini saat wiring stack mendarat. `doctor` tetap F3.
+6. **LOC.** `ctxdb` 3.500 → 3.700 (terukur 3.533; Σ core +200), Total core 37.730 → 37.930 ≤ 47.000.
+
+**Dampak terukur (SPEC §20).** Dependency baru 0. Test: `TestSQLiteEngineVersion` (versi + 4 probe + perbandingan semver), `TestVersionVerbose` (surface), `TestReadOnlyNewerSchema` (writer `ErrSchemaNewer`, read-only membuka/membaca, `Write` `ErrReadOnly`), `TestReadOnlyMissingDB`, `TestRunSchemaNewerExits78` (CLI exit 78 + pesan schema).
+
+**Konsekuensi.** (+) Engine lama/kehilangan FTS5 menggagalkan CI sebelum rilis; inspeksi DB yang dimigrasi binary lebih baru tidak perlu downgrade/restore; penulis gagal dengan exit yang benar. (−) `doctor`/`version --verbose` di GAP REL-04 awalnya menunjuk F2 tetapi `doctor` adalah F3 — surface yang dipakai sekarang adalah `version --verbose`; `sessions` read-only menunggu perintahnya ada. SQLite tetap dapat membuat sidecar `-shm/-wal` saat membaca DB WAL dengan `mode=ro`; itu bukan lock/holder/migrasi.
+
 ## ADR-133 — Skill `side_effects`/`requires` dan lint skill: GAP-SEC-15 (gerbang skill pembayaran) dan GAP-SEC-26 (referensi + `credential_access`)
 
 **Status:** Accepted 2026-10-21 (keputusan didelegasikan; opsi paling konservatif untuk setiap detail yang tidak ditetapkan SPEC). Menerapkan SPEC §22.1 GAP-SEC-15 (pemicu (a) skill) dan GAP-SEC-26; melengkapi SPEC §4.8, §14.1, §14.4, ADR-079, ADR-088, ADR-120. Tanpa DDL, tanpa dependency, tanpa perubahan `loc.budget` (`memory+skills` 1.079/1.200, `exec/classify` 1.755/1.800, `tools` 2.153/2.200).
