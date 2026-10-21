@@ -41,7 +41,7 @@ func New(db *ctxdb.Store, now func() time.Time) *Store {
 
 const summariesQ = `SELECT json_object('session', s.session_id, 'id', s.id, 'from', s.from_seq, 'to', s.to_seq, 'content', s.content, 'content_hex', coalesce(hex(s.content_enc), ''),
 	'model', s.model, 'in', s.input_tokens, 'out', s.output_tokens,
-	'tainted', coalesce(json_extract(e.payload, '$.tainted'), 0))
+	'event_seq', e.seq, 'tainted_payload', e.payload, 'tainted_hex', coalesce(hex(e.payload_enc), ''))
 	FROM summaries s JOIN events e ON e.id = s.event_id WHERE s.session_id = ?1
 	AND NOT EXISTS (SELECT 1 FROM events x JOIN events t ON t.session_id = x.session_id
 		WHERE x.session_id = s.session_id AND x.kind = 'context_exclude'
@@ -83,9 +83,10 @@ const (
 // payload of the newest one that called the summarizer.
 const stateQ = `SELECT json_object('visible', EXISTS (SELECT 1 FROM sessions s WHERE s.id = ?1 AND NOT EXISTS
 		(SELECT 1 FROM session_labels l WHERE l.session_id = s.id AND l.key = 'purge_state')),
-	'compacted', EXISTS (SELECT 1 FROM events WHERE session_id = ?1 AND kind = 'compaction'),
-	'last', (SELECT json(payload) FROM events WHERE session_id = ?1 AND kind = 'compaction'
-		AND json_extract(payload, '$.called') = 1 ORDER BY seq DESC LIMIT 1))`
+	'compacted', EXISTS (SELECT 1 FROM events WHERE session_id = ?1 AND kind = 'compaction'))`
+
+const compactionEventsQ = `SELECT json_object('seq', seq, 'payload', payload, 'payload_hex', coalesce(hex(payload_enc), ''))
+	FROM events WHERE session_id = ?1 AND kind = 'compaction' ORDER BY seq DESC`
 
 type summaryRow struct {
 	ID         int64  `json:"id"`
@@ -97,7 +98,9 @@ type summaryRow struct {
 	Model      string `json:"model"`
 	In         int64  `json:"in"`
 	Out        int64  `json:"out"`
-	Tainted    int64  `json:"tainted"`
+	EventSeq   int64  `json:"event_seq"`
+	Tainted    string `json:"tainted_payload"`
+	TaintedHex string `json:"tainted_hex"`
 }
 
 type eventRow struct {
@@ -161,9 +164,21 @@ func summaries(tx *ctxdb.Tx, sid string) ([]compaction.Summary, error) {
 		if r.Content, herr = tx.OpenRow("summaries.content", fmt.Sprintf("%s|%d:%d", r.SessionID, r.From, r.To), enc, r.Content); herr != nil {
 			return nil, fmt.Errorf("compactstore decrypt: %w", herr)
 		}
+		tenc, terr := hex.DecodeString(r.TaintedHex)
+		if terr != nil {
+			return nil, fmt.Errorf("summary payload_hex: %w", terr)
+		}
+		tainted, herr := tx.OpenRow("events.payload", fmt.Sprintf("%s|%d", r.SessionID, r.EventSeq), tenc, r.Tainted)
+		if herr != nil {
+			return nil, fmt.Errorf("compactstore summary payload: %w", herr)
+		}
+		var ref refPayload
+		if uerr := json.Unmarshal([]byte(tainted), &ref); uerr != nil {
+			return nil, fmt.Errorf("compactstore summary ref: %w", uerr)
+		}
 		out[i] = compaction.Summary{
 			ID: r.ID, FromSeq: r.From, ToSeq: r.To, Content: r.Content, Model: r.Model,
-			InputTokens: r.In, OutputTokens: r.Out, Tainted: r.Tainted != 0,
+			InputTokens: r.In, OutputTokens: r.Out, Tainted: ref.Tainted,
 		}
 	}
 	return out, nil
@@ -174,10 +189,7 @@ func state(tx *ctxdb.Tx, sid string, snap *compaction.Snapshot) error {
 	if err := tx.Get(stateQ, []any{sid}, &raw); err != nil {
 		return fmt.Errorf("session state: %w", err)
 	}
-	var st struct {
-		Visible, Compacted int64
-		Last               *attemptPayload
-	}
+	var st struct{ Visible, Compacted int64 }
 	if err := json.Unmarshal([]byte(raw), &st); err != nil {
 		return fmt.Errorf("compaction state: %w", err)
 	}
@@ -185,8 +197,39 @@ func state(tx *ctxdb.Tx, sid string, snap *compaction.Snapshot) error {
 		return fmt.Errorf("session %s: %w", sid, ctxdb.ErrNotFound)
 	}
 	snap.Compacted = st.Compacted != 0
-	if l := st.Last; l != nil {
-		snap.LastCall = &compaction.Attempt{Outcome: l.Outcome, Reason: l.Reason, AtMS: l.AtMS}
+	return lastCall(tx, sid, snap)
+}
+
+func lastCall(tx *ctxdb.Tx, sid string, snap *compaction.Snapshot) error {
+	rows, err := tx.Strings(compactionEventsQ, sid)
+	if err != nil {
+		return fmt.Errorf("compaction events: %w", err)
+	}
+	for _, raw := range rows {
+		var r struct {
+			Seq        int64  `json:"seq"`
+			Payload    string `json:"payload"`
+			PayloadHex string `json:"payload_hex"`
+		}
+		if jerr := json.Unmarshal([]byte(raw), &r); jerr != nil {
+			return fmt.Errorf("compaction payload: %w", jerr)
+		}
+		enc, herr := hex.DecodeString(r.PayloadHex)
+		if herr != nil {
+			return fmt.Errorf("compaction payload_hex: %w", herr)
+		}
+		pt, herr := tx.OpenRow("events.payload", fmt.Sprintf("%s|%d", sid, r.Seq), enc, r.Payload)
+		if herr != nil {
+			return fmt.Errorf("compaction decrypt: %w", herr)
+		}
+		var a attemptPayload
+		if jerr := json.Unmarshal([]byte(pt), &a); jerr != nil {
+			return fmt.Errorf("compaction attempt: %w", jerr)
+		}
+		if a.Called {
+			snap.LastCall = &compaction.Attempt{Outcome: a.Outcome, Reason: a.Reason, AtMS: a.AtMS}
+			return nil
+		}
 	}
 	return nil
 }

@@ -186,6 +186,37 @@ func TestEncryptedMemoryCap(t *testing.T) {
 	}
 }
 
+func TestEncryptedCompactStoreTaintedAndLastCall(t *testing.T) {
+	dir := t.TempDir()
+	s := openEncrypted(t, dir)
+	defer closeStore(t, s)
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(ctx, "S", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "canary-tainted"}); err != nil {
+		t.Fatal(err)
+	}
+	store := compactstore.New(s, func() time.Time { return time.Unix(1, 0) })
+	if _, err := store.Commit(ctx, "S", &compaction.Commit{
+		Attempt: compaction.Attempt{Outcome: compaction.OutcomeSummarized, Reason: compaction.ReasonContextLength, AtMS: 2000},
+		Summary: &compaction.Summary{FromSeq: 1, ToSeq: 1, Content: `{"goal":"canary-tainted"}`, Model: "m", Tainted: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := store.Load(ctx, "S")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Summaries) != 1 || !snap.Summaries[0].Tainted {
+		t.Fatalf("summaries = %+v, want tainted", snap.Summaries)
+	}
+	if snap.LastCall == nil || snap.LastCall.Outcome != compaction.OutcomeSummarized {
+		t.Fatalf("last call = %+v", snap.LastCall)
+	}
+	assertNoPlaintext(t, dir, "canary-tainted")
+}
+
 func TestMemoryCapLegacyNullContentLen(t *testing.T) {
 	dir := t.TempDir()
 	s, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: dir, Kind: "cli"})
