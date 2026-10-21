@@ -121,3 +121,30 @@ func SessionTotals(ctx context.Context, s *ctxdb.Store, sid string) (Totals, err
 	}
 	return t, nil
 }
+
+// WindowTotals returns the summed known cost in micro-USD and the number of
+// rows with unknown cost in [fromMS, toMS) for provider ("" = all). The
+// predicate uses idx_usage_time(created_at, provider), so the daily/monthly
+// guard query stays an index range scan even on a large ledger. It is the
+// storage side of budget.TotalsSource (E-09, ADR-074); Source below adapts
+// it without importing internal/budget.
+func WindowTotals(ctx context.Context, s *ctxdb.Store, fromMS, toMS int64, provider string) (costMicros, unknown int64, err error) {
+	err = s.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT COALESCE(SUM(cost_usd_micros),0), COUNT(*) - COUNT(cost_usd_micros)
+			FROM usage_ledger WHERE created_at >= ?1 AND created_at < ?2 AND (?3 = '' OR provider = ?3)`,
+			[]any{fromMS, toMS, provider}, &costMicros, &unknown)
+	})
+	if err != nil {
+		return 0, 0, fmt.Errorf("ledgerstore window totals: %w", err)
+	}
+	return costMicros, unknown, nil
+}
+
+// Source is the budget guard's ledger view. Its one-method set matches
+// budget.TotalsSource, which is declared by the consumer (E-09).
+type Source struct{ Store *ctxdb.Store }
+
+// Totals implements the same method set as budget.TotalsSource.
+func (s Source) Totals(ctx context.Context, fromMS, toMS int64, provider string) (int64, int64, error) {
+	return WindowTotals(ctx, s.Store, fromMS, toMS, provider)
+}
