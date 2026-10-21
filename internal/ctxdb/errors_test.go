@@ -71,14 +71,14 @@ func TestTrustedSchemaExplicit(t *testing.T) {
 	}
 }
 
-// TestNonRefShaClosedList (ADR-093, TS-P04): only preview_sha, args_sha and
-// payload_sha may hold a 64-hex value without being a blob ref; any other
-// non-ref key holding one is rejected by the payload validator.
+// TestNonRefShaClosedList (ADR-093, TS-P04, SPEC §4.1): only preview_sha,
+// args_sha, payload_sha, and the carrier ref's sha may hold a 64-hex value
+// without being a blob ref; any other non-ref key is rejected.
 func TestNonRefShaClosedList(t *testing.T) {
 	t.Parallel()
 	const a = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const b = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	doc := `{"preview_sha":"` + a + `","args_sha":"` + a + `","payload_sha":"` + a + `","blob_sha":"` + b + `"}`
+	doc := `{"preview_sha":"` + a + `","args_sha":"` + a + `","payload_sha":"` + a + `","carriers":[{"ord":0,"sha":"` + a + `"}],"blob_sha":"` + b + `"}`
 	refs, err := BlobRefsOf("approval", "1", nil, map[string]string{"payload": doc})
 	must(t, err)
 	if len(refs) != 1 || refs[0].Sha != b {

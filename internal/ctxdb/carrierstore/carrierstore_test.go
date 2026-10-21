@@ -334,3 +334,27 @@ func TestCarrierBySHA(t *testing.T) {
 		t.Fatalf("empty = %v, %v", empty, eerr)
 	}
 }
+
+// TestCarrierSizeCaps (SEC8-5): one carrier and one message are bounded.
+func TestCarrierSizeCaps(t *testing.T) {
+	t.Parallel()
+	_, store, eventID, _ := fixture(t)
+	big := carriers()[0]
+	big.Payload = make([]byte, MaxCarrierBytes+1)
+	if _, err := store.Save(t.Context(), "S", eventID, []Carrier{big}); !errors.Is(err, ErrCarrier) {
+		t.Errorf("oversized carrier: %v", err)
+	}
+	var many []Carrier
+	for i := 0; i < 5; i++ {
+		c := carriers()[0]
+		c.Ord = i
+		c.Payload = make([]byte, 230<<10)
+		many = append(many, c)
+	}
+	if _, err := store.Save(t.Context(), "S", eventID, many); !errors.Is(err, ErrCarrier) {
+		t.Errorf("oversized message: %v", err)
+	}
+	if got, err := store.Load(t.Context(), "S", []int64{eventID}); err != nil || len(got) != 0 {
+		t.Fatalf("size caps wrote rows: %+v, %v", got, err)
+	}
+}

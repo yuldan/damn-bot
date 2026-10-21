@@ -21,6 +21,14 @@ import (
 // ErrCarrier rejects an invalid carrier, rejection, or scope.
 var ErrCarrier = errors.New("carrierstore: invalid carrier")
 
+// Size bounds (SEC8-5): one opaque block and the carriers of one assistant
+// message. Oversized input is refused rather than inflating the DB and every
+// later request.
+const (
+	MaxCarrierBytes = 256 << 10
+	MaxMessageBytes = 1 << 20
+)
+
 // Kind is reasoning_carriers.kind (SPEC §11.9, closed set).
 type Kind string
 
@@ -145,6 +153,7 @@ func (s Store) Save(ctx context.Context, sessionID string, eventID int64, cs []C
 // same assistant message (UNIQUE(event_id, ord) would otherwise fail late).
 func validateCarriers(cs []Carrier) error {
 	ords := make(map[int]bool, len(cs))
+	total := 0
 	for i := range cs {
 		if err := cs[i].validate(); err != nil {
 			return fmt.Errorf("%w: carrier %d: %w", ErrCarrier, i, err)
@@ -153,6 +162,13 @@ func validateCarriers(cs []Carrier) error {
 			return fmt.Errorf("%w: duplicate ord %d", ErrCarrier, cs[i].Ord)
 		}
 		ords[cs[i].Ord] = true
+		if len(cs[i].Payload) > MaxCarrierBytes {
+			return fmt.Errorf("%w: carrier %d is %d bytes > %d", ErrCarrier, i, len(cs[i].Payload), MaxCarrierBytes)
+		}
+		total += len(cs[i].Payload)
+		if total > MaxMessageBytes {
+			return fmt.Errorf("%w: carriers total %d bytes > %d", ErrCarrier, total, MaxMessageBytes)
+		}
 	}
 	return nil
 }

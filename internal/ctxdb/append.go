@@ -145,9 +145,10 @@ var (
 )
 
 // nonRefSha64 is the closed list of 64-hex keys that are not blob refs
-// (ADR-093, TS-P04: approval_request.preview_sha/args_sha, carrier payload_sha).
+// (ADR-093, TS-P04: approval_request.preview_sha/args_sha, carrier payload_sha;
+// SPEC §4.1: assistant payload carriers:[{ord, sha}]).
 func nonRefSha64(key string) bool {
-	return key == "preview_sha" || key == "args_sha" || key == "payload_sha"
+	return key == "preview_sha" || key == "args_sha" || key == "payload_sha" || key == "sha"
 }
 
 // BlobRefsOf derives every blob reference of one owner row (§11.6): cols are
