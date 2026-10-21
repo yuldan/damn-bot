@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"go.uber.org/goleak"
@@ -158,9 +159,11 @@ func TestUndoWriteRestoresBytesAndMode(t *testing.T) {
 	if got := read(t, p); string(got) != "old\n" {
 		t.Fatalf("content = %q", got)
 	}
-	fi, err := os.Stat(p)
-	if err != nil || fi.Mode().Perm() != 0o750 {
-		t.Fatalf("mode = %v, %v", fi.Mode(), err)
+	if runtime.GOOS != "windows" {
+		fi, err := os.Stat(p)
+		if err != nil || fi.Mode().Perm() != 0o750 {
+			t.Fatalf("mode = %v, %v", fi.Mode(), err)
+		}
 	}
 	if len(f.undos) != 1 || f.undos[0].Status != Undone {
 		t.Fatalf("recorded = %+v", f.undos)
@@ -192,9 +195,11 @@ func TestUndoDeleteRecreates(t *testing.T) {
 	if got := read(t, p); string(got) != "old" {
 		t.Fatalf("content = %q", got)
 	}
-	fi, err := os.Stat(p)
-	if err != nil || fi.Mode().Perm() != 0o640 {
-		t.Fatalf("mode = %v, %v", fi.Mode(), err)
+	if runtime.GOOS != "windows" {
+		fi, err := os.Stat(p)
+		if err != nil || fi.Mode().Perm() != 0o640 {
+			t.Fatalf("mode = %v, %v", fi.Mode(), err)
+		}
 	}
 }
 
@@ -330,6 +335,9 @@ func TestUndoMissingBlob(t *testing.T) {
 
 func TestUndoHardlink(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("hard link detection is unavailable on Windows")
+	}
 	root, u, f := workspace(t)
 	p, q := filepath.Join(root, "a"), filepath.Join(root, "b")
 	write(t, p, []byte("new"), 0o644)

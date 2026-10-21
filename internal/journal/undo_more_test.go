@@ -148,6 +148,9 @@ func TestUndoSymlinkInsideRoot(t *testing.T) {
 // needs --force (JN2-12).
 func TestUndoCreateHardlinkRefused(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("hard link detection is unavailable on Windows")
+	}
 	root, u, f := workspace(t)
 	p, q := filepath.Join(root, "a"), filepath.Join(root, "b")
 	write(t, p, []byte("body"), 0o644)
@@ -254,7 +257,9 @@ func TestUndoHelperErrors(t *testing.T) {
 	if err := u.chmod(filepath.Join(root, "missing"), 0o644); err == nil {
 		t.Fatal("chmod missing succeeded")
 	}
-	if err := syncDir(filepath.Join(root, "missing")); err == nil {
-		t.Fatal("syncDir missing succeeded")
+	if runtime.GOOS != "windows" {
+		if err := syncDir(filepath.Join(root, "missing")); err == nil {
+			t.Fatal("syncDir missing succeeded")
+		}
 	}
 }
