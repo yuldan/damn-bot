@@ -58,7 +58,8 @@ type summary struct {
 		GOOS         string    `json:"goos"`
 		GOARCH       string    `json:"goarch"`
 	} `json:"meta"`
-	Totals struct {
+	Categories map[string]int `json:"categories"`
+	Totals     struct {
 		Tasks         int       `json:"tasks"`
 		Ran           int       `json:"ran"`
 		Passed        int       `json:"passed"`
@@ -92,8 +93,9 @@ func run() error {
 	ledgerPath := new(string)
 	*ledgerPath = h2h.F1LedgerPath
 	capUSD := flag.Float64("cap-usd", 0, "batas keras USD; 0 = cap ledger (US$2,00 saat ledger dibuat, ADR-062); hanya bisa menurunkan")
-	timeout := flag.Duration("timeout", 5*time.Minute, "timeout per task")
+	timeout := flag.Duration("timeout", 300*time.Second, "timeout per task (default 300 s)")
 	maxTurns := flag.Int("max-turns", 20, "batas iterasi tool per task (hermes --max-turns)")
+	taskRetries := flag.Int("task-retries", 2, "retry task pada upstream_unavailable")
 	home := flag.String("hermes-home", "/tmp/hm_h2h", "HERMES_HOME (di-reset per task)")
 	work := flag.String("work", "/tmp/h2h_work", "root workdir task")
 	only := flag.String("only", "", "subset ID dipisah koma (debug)")
@@ -160,7 +162,7 @@ func run() error {
 
 	r := &h2h.Runner{
 		Recorder: rec, ProxyURL: "http://" + ln.Addr().String() + "/v1",
-		OutDir: *out, WorkRoot: *work, Timeout: *timeout, FirstGuess: 0.10, Log: os.Stderr,
+		OutDir: *out, WorkRoot: *work, Timeout: *timeout, TaskRetries: *taskRetries, FirstGuess: 0.10, Log: os.Stderr,
 	}
 	if *damnbotBin != "" {
 		r.Damnbot = &h2h.Damnbot{Binary: *damnbotBin, Model: *model}
@@ -191,6 +193,10 @@ func run() error {
 	s.Damnbot = h2h.DamnbotNA
 	if *damnbotBin != "" {
 		s.Damnbot = "damnbot run (F1 integration) via " + *damnbotBin
+	}
+	s.Categories = map[string]int{}
+	for _, res := range results {
+		s.Categories[res.Category]++
 	}
 	s.Results = results
 	s.Totals.Tasks = len(results)
