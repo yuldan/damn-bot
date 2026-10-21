@@ -13,6 +13,7 @@ import (
 func (c *Config) Validate() error {
 	checks := []func() error{
 		c.validateProvider,
+		c.validateProviders,
 		c.validateLoop,
 		c.validateBudget,
 		c.validateApproval,
@@ -46,6 +47,59 @@ func (c *Config) validateProvider() error {
 	if c.Provider.Light != "" && !validModelRef(c.Provider.Light) {
 		return invalid("provider.light", "not a provider/model reference")
 	}
+	return nil
+}
+
+// minContextWindow is registry.MinWindow (ADR-126): a model below it cannot
+// run a turn, so a config override below it is refused at load.
+const (
+	minContextWindow = 8_192
+	maxContextWindow = 10_000_000
+)
+
+func (c *Config) validateProviders() error {
+	names := make(map[string]bool, len(c.Providers.Custom))
+	for i, p := range c.Providers.Custom {
+		if err := validateCustomProvider(i, p, names); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCustomProvider(i int, p CustomProvider, names map[string]bool) error {
+	switch {
+	case p.Name == "" || len(p.Name) > 128 || strings.ContainsAny(p.Name, " \t\r\n\x00/"):
+		return invalid("providers.custom.name", "entry %d is not a provider id", i)
+	case names[p.Name]:
+		return invalid("providers.custom.name", "duplicate %q", p.Name)
+	case p.BaseURL == "" || strings.ContainsAny(p.BaseURL, " \t\r\n\x00"):
+		return invalid("providers.custom.base_url", "entry %q is empty or contains whitespace", p.Name)
+	case len(p.Models) == 0:
+		return invalid("providers.custom.models", "entry %q has no models", p.Name)
+	}
+	names[p.Name] = true
+	ids := make(map[string]bool, len(p.Models))
+	for j, m := range p.Models {
+		if err := validateCustomModel(p.Name, j, m, ids); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCustomModel(provider string, j int, m CustomModel, ids map[string]bool) error {
+	switch {
+	case m.ID == "" || len(m.ID) > 256 || strings.ContainsAny(m.ID, " \t\r\n\x00"):
+		return invalid("providers.custom.models", "%q model %d has an invalid id", provider, j)
+	case ids[m.ID]:
+		return invalid("providers.custom.models", "%q has duplicate model %q", provider, m.ID)
+	case m.ContextLength != 0 && (m.ContextLength < minContextWindow || m.ContextLength > maxContextWindow):
+		return invalid("providers.custom.models", "%q/%s context_length must be in %d..%d", provider, m.ID, minContextWindow, maxContextWindow)
+	case m.MaxTokens < 0:
+		return invalid("providers.custom.models", "%q/%s max_tokens must be >= 0", provider, m.ID)
+	}
+	ids[m.ID] = true
 	return nil
 }
 

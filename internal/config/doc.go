@@ -9,6 +9,10 @@
 // F1 exposes only the SPEC §12 keys that core F1 packages read:
 //
 //	[provider]  model, fallback, light, max_output
+//	[[providers.custom]] name, base_url, models[] (id, context_length,
+//	            max_tokens, capabilities) — only context_length is consumed
+//	            by core F1 (COST-02); other custom-provider fields arrive
+//	            with the provider-registry phase
 //	[loop]      max_iterations, max_wall_s, max_identical,
 //	            turn_max_input_tok, turn_max_output_tok, parallel_tools
 //	[budget]    turn_usd, session_usd, daily_usd, monthly_usd, warn_at, providers

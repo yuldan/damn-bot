@@ -39,10 +39,25 @@ type Price struct {
 	Version            string // <table>/<id>, recorded in usage_ledger
 }
 
-// PriceTable is the validated, immutable pricing registry of providers.toml.
-// The zero value prices nothing: every route is unpriced and a monetary cap
-// fails closed (ADR-123). Safe to share.
-type PriceTable struct{ routes map[string][]Price }
+// Model is the static model metadata of providers.toml (ADR-126/129): the
+// context window and image-token formula of one provider/model. Zero values
+// mean "not declared in the registry".
+type Model struct {
+	Provider      string
+	Model         string
+	ContextWindow int64
+	ImageFormula  string
+	Source        string
+}
+
+// PriceTable is the validated, immutable registry of providers.toml: dated
+// route prices and static model metadata. The zero value prices nothing and
+// declares no window: every route is unpriced and a monetary cap fails
+// closed (ADR-123). Safe to share.
+type PriceTable struct {
+	routes map[string][]Price
+	models []Model
+}
 
 // ErrPrice rejects an invalid price registry or base_url. The composition
 // root must fail at startup: a typo must not silently turn a route into
@@ -60,6 +75,15 @@ func DefaultPriceTable() (PriceTable, error) { return ParsePriceTable(providersT
 type priceFile struct {
 	Version string       `toml:"version"`
 	Price   []priceEntry `toml:"price"`
+	Model   []modelEntry `toml:"model"`
+}
+
+type modelEntry struct {
+	Provider      string `toml:"provider"`
+	Model         string `toml:"model"`
+	ContextWindow *int64 `toml:"context_window"`
+	ImageFormula  string `toml:"image_token_formula"`
+	Source        string `toml:"source"`
 }
 
 type priceEntry struct {
@@ -95,7 +119,7 @@ func ParsePriceTable(data []byte) (PriceTable, error) {
 	if table == "" {
 		return PriceTable{}, fmt.Errorf("%w: missing table version", ErrPrice)
 	}
-	t := PriceTable{routes: make(map[string][]Price, len(f.Price))}
+	t := PriceTable{routes: make(map[string][]Price, len(f.Price)), models: make([]Model, 0, len(f.Model))}
 	seen := make(map[string]bool, len(f.Price))
 	for i := range f.Price {
 		p, key, err := f.Price[i].parse(table)
@@ -117,7 +141,71 @@ func ParsePriceTable(data []byte) (PriceTable, error) {
 		}
 		t.routes[key] = ps
 	}
+	seenModel := make(map[string]bool, len(f.Model))
+	for i := range f.Model {
+		m, err := f.Model[i].parse()
+		if err != nil {
+			return PriceTable{}, fmt.Errorf("%w: model %d (%s/%s): %w", ErrPrice, i+1, f.Model[i].Provider, f.Model[i].Model, err)
+		}
+		ref := m.Provider + "/" + m.Model
+		if seenModel[ref] {
+			return PriceTable{}, fmt.Errorf("%w: duplicate model %q", ErrPrice, ref)
+		}
+		seenModel[ref] = true
+		t.models = append(t.models, m)
+	}
 	return t, nil
+}
+
+// parse validates one model entry: known tokens, a cited source, and at
+// least one declared value. A window below MinWindow is refused here (the
+// model could never run a turn) instead of degrading later.
+func (e *modelEntry) parse() (Model, error) {
+	if !plainToken(e.Provider, false) {
+		return Model{}, fmt.Errorf("provider %q is not [A-Za-z0-9._:-]+", e.Provider)
+	}
+	if !plainToken(e.Model, true) {
+		return Model{}, fmt.Errorf("model %q is not [A-Za-z0-9._:/-]+", e.Model)
+	}
+	src := strings.TrimSpace(e.Source)
+	if src == "" {
+		return Model{}, errors.New("missing source")
+	}
+	m := Model{Provider: e.Provider, Model: e.Model, ImageFormula: e.ImageFormula, Source: src}
+	if e.ContextWindow != nil {
+		if *e.ContextWindow < MinWindow {
+			return Model{}, fmt.Errorf("context_window %d < %d", *e.ContextWindow, MinWindow)
+		}
+		m.ContextWindow = *e.ContextWindow
+	}
+	if m.ContextWindow > 0 || m.ImageFormula != "" {
+		if m.ImageFormula != "" && !plainToken(m.ImageFormula, false) {
+			return Model{}, fmt.Errorf("image_token_formula %q is not [A-Za-z0-9._:-]+", m.ImageFormula)
+		}
+		return m, nil
+	}
+	return Model{}, errors.New("neither context_window nor image_token_formula is declared")
+}
+
+// Models returns the declared model metadata in file order. The result is a
+// copy; callers may keep it.
+func (t PriceTable) Models() []Model { return slices.Clone(t.models) }
+
+// ExpiredAt lists the routes whose last price entry ended at or before now,
+// i.e. a call would be unpriced. CI fails on it (GAP-COST-01): a scheduled
+// price must be followed by a successor before its until passes.
+func (t PriceTable) ExpiredAt(now time.Time) []string {
+	var out []string
+	for key, ps := range t.routes {
+		if len(ps) == 0 {
+			continue
+		}
+		if last := ps[len(ps)-1]; !last.Until.IsZero() && !now.Before(last.Until) {
+			out = append(out, strings.ReplaceAll(key, "\x00", " "))
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // parse validates one entry and returns it with its lookup key.

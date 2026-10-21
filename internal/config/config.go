@@ -11,13 +11,38 @@ import (
 // and slices are never mutated by the package (E-13). Use [Config.Clone] to
 // obtain an independent copy for tests or tooling.
 type Config struct {
-	Provider Provider `toml:"provider"`
-	Loop     Loop     `toml:"loop"`
-	Budget   Budget   `toml:"budget"`
-	Approval Approval `toml:"approval"`
-	Exec     Exec     `toml:"exec"`
-	Agent    Agent    `toml:"agent"`
-	Log      Log      `toml:"log"`
+	Provider  Provider  `toml:"provider"`
+	Providers Providers `toml:"providers"`
+	Loop      Loop      `toml:"loop"`
+	Budget    Budget    `toml:"budget"`
+	Approval  Approval  `toml:"approval"`
+	Exec      Exec      `toml:"exec"`
+	Agent     Agent     `toml:"agent"`
+	Log       Log       `toml:"log"`
+}
+
+// Providers is the SPEC §12 [[providers.custom]] section. Core F1 consumes
+// only the model metadata used by COST-02 (models[].context_length); the
+// auth/transport fields arrive with the provider-registry phase and are
+// rejected until then, like any other unknown key.
+type Providers struct {
+	Custom []CustomProvider `toml:"custom"`
+}
+
+// CustomProvider is one [[providers.custom]] entry.
+type CustomProvider struct {
+	Name    string        `toml:"name"`
+	BaseURL string        `toml:"base_url"`
+	Models  []CustomModel `toml:"models"`
+}
+
+// CustomModel is one models[] entry. MaxTokens and Capabilities are accepted
+// for SPEC compatibility; the core does not consume them yet.
+type CustomModel struct {
+	ID            string   `toml:"id"`
+	ContextLength int      `toml:"context_length"`
+	MaxTokens     int      `toml:"max_tokens"`
+	Capabilities  []string `toml:"capabilities"`
 }
 
 // Provider is SPEC §12 [provider].
@@ -178,12 +203,28 @@ func defaultDenyPaths() []string {
 func (c *Config) Clone() Config {
 	out := *c
 	out.Provider.Fallback = slices.Clone(c.Provider.Fallback)
+	out.Providers.Custom = cloneCustomProviders(c.Providers.Custom)
 	out.Budget.Providers = maps.Clone(c.Budget.Providers)
 	out.Approval.ShellAllow = cloneShellAllow(c.Approval.ShellAllow)
 	out.Approval.DenyPaths = slices.Clone(c.Approval.DenyPaths)
 	out.Approval.AddDirs = slices.Clone(c.Approval.AddDirs)
 	out.Exec.EnvAllow = slices.Clone(c.Exec.EnvAllow)
 	out.Exec.Env = maps.Clone(c.Exec.Env)
+	return out
+}
+
+func cloneCustomProviders(in []CustomProvider) []CustomProvider {
+	if in == nil {
+		return nil
+	}
+	out := make([]CustomProvider, len(in))
+	for i, p := range in {
+		out[i] = p
+		out[i].Models = slices.Clone(p.Models)
+		for j := range out[i].Models {
+			out[i].Models[j].Capabilities = slices.Clone(p.Models[j].Capabilities)
+		}
+	}
 	return out
 }
 

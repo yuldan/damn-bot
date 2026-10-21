@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -199,5 +200,66 @@ func TestParsePriceTableRejectsInvalid(t *testing.T) {
 	first.Until = "2026-06-01"
 	if _, err := ParsePriceTable([]byte(encode(t, priceFile{Version: "t", Price: []priceEntry{two, first}}))); err != nil {
 		t.Errorf("adjacent dated entries rejected: %v", err)
+	}
+}
+
+// TestPricingTableNotExpired (GAP-COST-01 CI gate): every route's latest
+// dated price must still be in effect (open-ended or a future until); an
+// expired schedule without a successor fails the build.
+func TestPricingTableNotExpired(t *testing.T) {
+	t.Parallel()
+	table, err := DefaultPriceTable()
+	if err != nil {
+		t.Fatalf("default price table: %v", err)
+	}
+	if expired := table.ExpiredAt(time.Now()); len(expired) != 0 {
+		t.Fatalf("expired price routes without a successor: %v", expired)
+	}
+	ended := validEntry()
+	ended.Until = "2026-06-01"
+	tbl, err := ParsePriceTable([]byte(encode(t, priceFile{Version: "t", Price: []priceEntry{ended}})))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := tbl.ExpiredAt(time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)); len(got) != 1 {
+		t.Fatalf("ExpiredAt = %v, want the closed route", got)
+	}
+}
+
+// TestPriceModelTable: static model metadata (COST-02/PROV-02) is parsed
+// with a required source, validated window/formula, and no duplicates.
+func TestPriceModelTable(t *testing.T) {
+	t.Parallel()
+	models := []modelEntry{
+		{Provider: "openai", Model: "m", ContextWindow: num(100_000), ImageFormula: "openai_tiles", Source: "test"},
+		{Provider: "openai", Model: "n", ImageFormula: "area_750", Source: "test"},
+	}
+	table, err := ParsePriceTable([]byte(encode(t, priceFile{Version: "t", Model: models})))
+	if err != nil {
+		t.Fatalf("models rejected: %v", err)
+	}
+	got := table.Models()
+	if len(got) != 2 || got[0].ContextWindow != 100_000 || got[0].ImageFormula != "openai_tiles" ||
+		got[1].ContextWindow != 0 || got[1].ImageFormula != "area_750" {
+		t.Fatalf("Models = %+v", got)
+	}
+	bad := []struct {
+		name string
+		m    modelEntry
+	}{
+		{"missing source", modelEntry{Provider: "openai", Model: "m", ContextWindow: num(100_000)}},
+		{"window below minimum", modelEntry{Provider: "openai", Model: "m", ContextWindow: num(4_096), Source: "test"}},
+		{"no values", modelEntry{Provider: "openai", Model: "m", Source: "test"}},
+		{"bad provider", modelEntry{Provider: "open/ai", Model: "m", ContextWindow: num(100_000), Source: "test"}},
+		{"bad formula", modelEntry{Provider: "openai", Model: "m", ImageFormula: "area 750", Source: "test"}},
+	}
+	for _, c := range bad {
+		if _, err := ParsePriceTable([]byte(encode(t, priceFile{Version: "t", Model: []modelEntry{c.m}}))); !errors.Is(err, ErrPrice) {
+			t.Errorf("%s: err = %v, want ErrPrice", c.name, err)
+		}
+	}
+	dup := []modelEntry{models[0], models[0]}
+	if _, err := ParsePriceTable([]byte(encode(t, priceFile{Version: "t", Model: dup}))); !errors.Is(err, ErrPrice) {
+		t.Errorf("duplicate model: %v", err)
 	}
 }
