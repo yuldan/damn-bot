@@ -52,6 +52,9 @@ type Config struct {
 	// Wait is the retry wait (retry.Policy.Wait); nil = real timer. Tests
 	// over real loopback sockets inject an instant wait.
 	Wait func(ctx context.Context, d time.Duration) error
+	// Now is the call clock that selects the price in effect (GAP-COST-01);
+	// nil = time.Now. Tests inject a fixed instant.
+	Now func() time.Time
 }
 
 // OpenAI is the openai-chat Client with retry, circuit breaking, and model
@@ -66,6 +69,7 @@ type OpenAI struct {
 	onBudget func(budget.Decision)
 	wait     func(ctx context.Context, d time.Duration) error
 	attempts int
+	now      func() time.Time
 
 	mu       sync.Mutex
 	breakers map[string]*retry.Breaker // per (provider, credential)
@@ -81,10 +85,14 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 	o := &OpenAI{
 		c: c, routes: map[string]Route{}, fallback: append([]string(nil), cfg.Fallback...),
 		onFB: cfg.OnFallback, onRetry: cfg.OnRetry, wait: cfg.Wait, attempts: cfg.Attempts,
-		guard: cfg.Guard, onBudget: cfg.OnBudget,
+		guard: cfg.Guard, onBudget: cfg.OnBudget, now: cfg.Now,
 		breakers: map[string]*retry.Breaker{}, drop: map[string]map[string]bool{},
 	}
-	for _, r := range cfg.Routes {
+	if o.now == nil {
+		o.now = time.Now
+	}
+	for i := range cfg.Routes {
+		r := cfg.Routes[i] // copied: the client owns its routes
 		if r.Provider == "" || r.Model == "" || r.BaseURL == "" {
 			return nil, fmt.Errorf("%w: route %q needs provider, model, and base_url", ErrConfig, r.Ref())
 		}
@@ -97,9 +105,11 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 // Do runs r on its model, then on the fallback chain (ADR-102 butir 8):
 // every call starts at the primary; fallback only after a retryable class
 // exhausted its attempts; missing or too-small fallback routes are skipped.
+// Prices are selected once, at the call start, for every route of the
+// chain (GAP-COST-01), so the guard and the ledger see the same entry.
 func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chunk)) (Response, error) {
 	chain := append([]string{r.Model}, o.fallback...)
-	est := rawEstimate(r)
+	est, at := rawEstimate(r), o.now()
 	var lastErr error
 	for i, ref := range chain {
 		if i > 0 && ref == r.Model {
@@ -112,12 +122,14 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 		case !ok, i > 0 && rt.ContextWindow > 0 && est > rt.ContextWindow:
 			continue // EC-PROV-015, EC-PROV-025
 		}
-		if err := o.checkBudget(ctx, &rt, r, est); err != nil {
+		price := rt.Prices.At(at)
+		if err := o.checkBudget(ctx, &rt, price, r, est); err != nil {
 			return Response{}, err
 		}
 		fb := &Fallback{From: r.Model, To: ref, Err: lastErr}
 		o.notify(i, fb)
 		resp, err := o.call(ctx, &rt, r, est, onChunk)
+		resp.Price = price
 		fb.Done, fb.Outcome = true, err
 		o.notify(i, fb)
 		if err == nil {
@@ -143,14 +155,15 @@ func (o *OpenAI) notify(i int, fb *Fallback) {
 
 // checkBudget consults the P27 guard before a route attempt. The projection
 // is conservative: the whole estimated input at the input price plus
-// max_tokens at the output price, rounded up by budget.Cost. A missing price
-// yields unknown (-1) so a configured monetary cap fails closed. A denial is
-// non-retryable and never falls through to the next route.
-func (o *OpenAI) checkBudget(ctx context.Context, rt *Route, r *Request, est int64) error {
+// max_tokens at the output price, rounded up by budget.Cost. A missing or
+// expired price yields unknown (-1) so a configured monetary cap fails
+// closed. A denial is non-retryable and never falls through to the next
+// route.
+func (o *OpenAI) checkBudget(ctx context.Context, rt *Route, price *budget.Price, r *Request, est int64) error {
 	if o.guard == nil {
 		return nil
 	}
-	d, err := o.guard.Check(ctx, budget.Request{Provider: rt.Provider, EstimateMicros: estimateMicros(rt, r, est)})
+	d, err := o.guard.Check(ctx, budget.Request{Provider: rt.Provider, EstimateMicros: estimateMicros(price, r, est)})
 	if err != nil {
 		return &Error{Class: retry.BadRequest, Err: fmt.Errorf("budget guard: %w", err)}
 	}
@@ -164,12 +177,12 @@ func (o *OpenAI) checkBudget(ctx context.Context, rt *Route, r *Request, est int
 }
 
 // estimateMicros projects the cost of one call from the raw token estimate.
-func estimateMicros(rt *Route, r *Request, input int64) int64 {
+func estimateMicros(price *budget.Price, r *Request, input int64) int64 {
 	maxTok := int64(r.MaxTokens)
 	if maxTok <= 0 {
 		maxTok = DefaultMaxTokens
 	}
-	m, _, err := budget.Cost(budget.Usage{Input: input, Output: maxTok}, rt.Price)
+	m, _, err := budget.Cost(budget.Usage{Input: input, Output: maxTok}, price)
 	if err != nil || m == nil {
 		return -1 // unknown: the guard denies a configured cap
 	}

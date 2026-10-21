@@ -22,7 +22,9 @@ type Route struct {
 	Headers         map[string]string // extra_headers
 	ContextWindow   int64             // 0 = unknown
 	UsageInclude    bool              // OpenRouter: usage.include for usage.cost
-	Price           *budget.Price
+	// Prices is the dated price schedule (GAP-COST-01); the entry in
+	// effect at the call start prices the guard projection and the ledger.
+	Prices budget.Prices
 }
 
 // Ref is the "provider/model" reference of r.

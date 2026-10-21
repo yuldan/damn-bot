@@ -90,6 +90,9 @@ type Response struct {
 	FallbackFrom   string
 	CredentialID   string
 	TTFT           time.Duration
+	// Price is the route price in effect at the call start (nil = unknown
+	// or expired); budget.Entry.Account records its pricing_version.
+	Price *budget.Price
 }
 
 // Chunk is a streamed fragment for live display; its fields alias decoder
