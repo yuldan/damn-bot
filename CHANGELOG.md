@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `backup`: manifest terautentikasi + `Create`/`Verify` arsip, publikasi 0600 + fsync + rename.
+
 - `backup`: writer/reader streaming `DMBK1` — chunk 64 KiB, AAD per chunk, deteksi truncation/reorder/trailing.
 
 - `backup`: kunci X25519 + header kontainer `DMBK1` terautentikasi (ADR-124 butir 3).
