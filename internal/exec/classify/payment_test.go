@@ -24,6 +24,12 @@ func TestPaymentSkillMonetary(t *testing.T) {
 		{"cd /tmp && node " + testPaySkill + "/scripts/pay.js", Monetary},
 		{"./pay.sh", Monetary}, // symlink inside the workspace resolves into the skill
 		{"sh -c 'python3 " + testPaySkill + "/scripts/x.py'", Monetary},
+		{"cd " + testPaySkill + "/scripts; ./charge.sh --amount 100", Monetary},
+		{"cd " + testPaySkill + " && ./scripts/charge.sh", Monetary},
+		{"cd /tmp && ./charge.sh", Unknown},                                     // relative argv0 after cd: never auto
+		{"curl https://api.stripe.com/v1/charges", Monetary},                    // GET (SEC10-7)
+		{"curl -H 'Host: api.stripe.com' https://1.2.3.4/v1/charges", Monetary}, // Host header
+		{"curl -X POST https://api.stripe.com/v1/charges", Monetary},
 		{"python3 " + testPaySkill + "-v2/scripts/x.py", Mutating}, // sibling prefix, not the skill
 		{"python3 /home/u/.config/damnbot/skills/other/x.py", Mutating},
 		{"python3 tools/charge.py", Mutating},

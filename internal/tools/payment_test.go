@@ -78,6 +78,42 @@ func TestShellPaymentSkillGate(t *testing.T) {
 	}
 }
 
+// TestShellUnsafeAutoShellPayment: `cd <payment skill>; ./script` never runs
+// under run --approval auto --unsafe-auto-shell (SEC10-1); the first case is
+// Monetary, a non-payment cd leaves a relative argv0 Unknown — both deny.
+func TestShellUnsafeAutoShellPayment(t *testing.T) {
+	t.Parallel()
+	f := newPaymentFixture(t)
+	id := classify.BinaryID{Path: "/bin/echo", Dev: 1, Ino: 2, Size: 3, MtimeNs: 4}
+	shop := NewShell(&ShellConfig{
+		Runner: &fakeRunner{}, Spill: newMemSpill(), Redactor: redact.New(redact.Options{}),
+		Roots: []string{f.w.root}, Home: f.w.root, Cwd: f.w.root,
+		ParentEnv: os.Environ(), EnvPolicy: testEnvPolicy(),
+		SessionStart:     map[string]classify.BinaryID{"echo": id},
+		Resolve:          func(string) (classify.BinaryID, bool) { return id, true },
+		WorkspaceTrusted: true, UnsafeAutoShell: true, MonetaryPaths: []string{f.payDir},
+	})
+	d, _, _ := f.w.dispatcher(t, ModeHeadlessAuto, nil, shop)
+	for i, cmd := range []string{
+		"cd " + f.payDir + "/scripts; ./charge.sh --amount 100",
+		"cd " + f.payDir + " && ./scripts/charge.sh",
+	} {
+		if out := d.Dispatch(context.Background(), Call{TurnID: "t1", CallID: "u" + strconv.Itoa(i), Name: "shell", Args: mustArgs(t, cmd)}); codeOfOutcome(out) != CodeDenied {
+			t.Fatalf("%q: %s, want denied", cmd, out.Render())
+		}
+	}
+}
+
+// mustArgs encodes one shell command argument.
+func mustArgs(t *testing.T, command string) json.RawMessage {
+	t.Helper()
+	b, err := json.Marshal(map[string]string{"command": command})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
 // TestShellPaymentSkillHeadless: the same exact shell_allow match runs
 // headless without the declaration, and is denied unexecuted with it, also
 // under --approval auto.
@@ -126,6 +162,8 @@ func TestMonetaryAlwaysPrompts(t *testing.T) {
 		pay + "charge.sh --amount 100",
 		"bash " + pay + "refund.sh",
 		"node " + pay + "transfer.js",
+		"cd " + f.payDir + "/scripts; ./charge.sh --amount 100",
+		"curl -H 'Host: api.stripe.com' https://1.2.3.4/v1/charges",
 	}
 	shell := func(runner *fakeRunner) Tool {
 		return NewShell(&ShellConfig{
@@ -136,33 +174,40 @@ func TestMonetaryAlwaysPrompts(t *testing.T) {
 		})
 	}
 	for _, mode := range []Mode{ModeAuto, ModeHeadlessAuto} {
-		runner := &fakeRunner{}
-		appr := &approverRec{answer: ApprovalAllowSession}
-		d, _, _ := f.w.dispatcher(t, mode, appr, shell(runner))
-		for i, cmd := range corpus {
-			args, err := json.Marshal(map[string]string{"command": cmd})
-			if err != nil {
-				t.Fatal(err)
-			}
-			out := d.Dispatch(context.Background(), Call{TurnID: "t1", CallID: "m" + strconv.Itoa(i), Name: "shell", Args: args})
-			if mode.Headless() != (codeOfOutcome(out) == CodeDenied) {
-				t.Errorf("mode %d %q: %s", mode, cmd, out.Render())
-			}
+		runMonetaryMode(t, f, corpus, mode, shell)
+	}
+}
+
+// runMonetaryMode asserts one mode over the monetary corpus: auto prompts
+// for each command with AllowSession=false; headless denies and runs none.
+func runMonetaryMode(t *testing.T, f *paymentFixture, corpus []string, mode Mode, shell func(*fakeRunner) Tool) {
+	t.Helper()
+	runner := &fakeRunner{}
+	appr := &approverRec{answer: ApprovalAllowSession}
+	d, _, _ := f.w.dispatcher(t, mode, appr, shell(runner))
+	for i, cmd := range corpus {
+		args, err := json.Marshal(map[string]string{"command": cmd})
+		if err != nil {
+			t.Fatal(err)
 		}
-		reqs := appr.requests()
-		if mode.Headless() {
-			if len(reqs) != 0 || runner.calls != 0 {
-				t.Fatalf("headless: prompts %d, runs %d", len(reqs), runner.calls)
-			}
-			continue
+		out := d.Dispatch(context.Background(), Call{TurnID: "t1", CallID: "m" + strconv.Itoa(i), Name: "shell", Args: args})
+		if mode.Headless() != (codeOfOutcome(out) == CodeDenied) {
+			t.Errorf("mode %d %q: %s", mode, cmd, out.Render())
 		}
-		if len(reqs) != len(corpus) || runner.calls != len(corpus) {
-			t.Fatalf("auto: prompts %d, runs %d, want %d", len(reqs), runner.calls, len(corpus))
+	}
+	reqs := appr.requests()
+	if mode.Headless() {
+		if len(reqs) != 0 || runner.calls != 0 {
+			t.Fatalf("headless: prompts %d, runs %d", len(reqs), runner.calls)
 		}
-		for i, r := range reqs {
-			if r.AllowSession || !strings.Contains(r.Class, "monetary") {
-				t.Errorf("%q: request %+v", corpus[i], r)
-			}
+		return
+	}
+	if len(reqs) != len(corpus) || runner.calls != len(corpus) {
+		t.Fatalf("auto: prompts %d, runs %d, want %d", len(reqs), runner.calls, len(corpus))
+	}
+	for i, r := range reqs {
+		if r.AllowSession || !strings.Contains(r.Class, "monetary") {
+			t.Errorf("%q: request %+v", corpus[i], r)
 		}
 	}
 }

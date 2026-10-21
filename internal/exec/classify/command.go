@@ -28,6 +28,10 @@ func (s *state) command(args []arg, in stdin) bool {
 	if pathLike(args[0].s) && !s.remote {
 		if p, ok := s.abs(args[0].s); ok {
 			s.paymentFile(p, s.resolve(p)) // ./scripts/pay.sh run directly (SEC-15)
+		} else {
+			// A relative command after `cd` cannot be resolved statically;
+			// never let it auto-run (SEC10-1).
+			s.raise(Unknown, "relative command after cd: "+args[0].s)
 		}
 	}
 	name := s.cmdName(args[0].s)

@@ -110,6 +110,18 @@ func hasFlag(args []arg, f string) bool {
 	})
 }
 
+// changeDir labels a literal `cd` into a payment skill directory Monetary
+// (SEC10-1) and keeps cwd untracked afterwards, so every relative operand
+// stays unknown (ADR-079 butir 2).
+func (s *state) changeDir(args []arg) {
+	if len(args) == 1 && args[0].lit && !args[0].glob {
+		if p, ok := s.abs(args[0].s); ok {
+			s.paymentFile(p, s.resolve(p))
+		}
+	}
+	s.cwdOK = false
+}
+
 // tool handles commands whose operands need specific parsing.
 func (s *state) tool(name, sub string, args []arg) {
 	switch name {
@@ -117,7 +129,9 @@ func (s *state) tool(name, sub string, args []arg) {
 		s.gitPaths(sub, args[1:])
 	case "find":
 		s.find(args[1:])
-	case "cd", "pushd", "popd", "chdir", "set-location", "sl":
+	case "cd", "pushd", "chdir", "set-location", "sl":
+		s.changeDir(args[1:])
+	case "popd":
 		s.cwdOK = false
 	case "pip", "pip3":
 		s.pip(sub, args)

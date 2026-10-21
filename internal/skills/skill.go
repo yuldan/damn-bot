@@ -88,13 +88,30 @@ type Skill struct {
 // Payment reports whether the skill declares side_effects: [payment].
 func (s *Skill) Payment() bool { return slices.Contains(s.SideEffects, EffectPayment) }
 
-// PaymentDirs returns the directories of the payment skills in list: the
-// shell classifier labels any command touching them Monetary (SEC-15).
+// Sensitive reports whether the skill must be treated as a payment skill by
+// the shell gate: it declares payment, or its text carries a payment
+// pattern without declaring one (SEC10-3). Files are covered by the lint
+// finding of the same name.
+func (s *Skill) Sensitive() bool {
+	return s.Payment() || containsAny(strings.ToLower(s.Description+"\n"+s.Body), paymentPatterns()) != ""
+}
+
+// PaymentDirs returns the directories of the sensitive skills in list: the
+// shell classifier labels any command touching them Monetary (SEC-15). The
+// caller passes every installed skill, including pending/quarantined ones
+// (their files are already on disk), so a skill cannot avoid the gate by
+// not being approved yet.
 func PaymentDirs(list []Skill) []string {
 	var out []string
+	seen := map[string]bool{}
 	for i := range list {
-		if list[i].Payment() {
-			out = append(out, filepath.Dir(list[i].Path))
+		if !list[i].Sensitive() {
+			continue
+		}
+		d := filepath.Dir(list[i].Path)
+		if !seen[d] {
+			seen[d] = true
+			out = append(out, d)
 		}
 	}
 	return out
