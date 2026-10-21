@@ -170,7 +170,7 @@ func TestAtRestHashKeyed(t *testing.T) {
 	}
 }
 
-func TestAtRestNoPlaintextCanary(t *testing.T) { //nolint:gocognit // integration canary sweep
+func TestAtRestNoPlaintextCanary(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(context.Background(), &Options{Dir: dir, Kind: "cli", Codec: testCodec{id: "dek"}})
 	if err != nil {
@@ -184,7 +184,22 @@ func TestAtRestNoPlaintextCanary(t *testing.T) { //nolint:gocognit // integratio
 	session(t, s, "S", "")
 	appendMsg(t, s, "S", "canary-events")
 	canaries := []string{"canary-events", "canary-summary", "canary-memory", "canary-carrier", "canary-gateway"}
-	if err := s.Write(context.Background(), func(tx *Tx) error {
+	if err := seedCanaries(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	raw, rerr := os.ReadFile(DBPath(dir))
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	for _, c := range canaries {
+		if bytes.Contains(raw, []byte(c)) {
+			t.Fatalf("plaintext canary %q found in encrypted DB", c)
+		}
+	}
+}
+
+func seedCanaries(ctx context.Context, s *Store) error {
+	return s.Write(ctx, func(tx *Tx) error {
 		var eventID int64
 		if xerr := tx.Get(`SELECT max(id) FROM events`, nil, &eventID); xerr != nil {
 			return xerr
@@ -220,18 +235,7 @@ func TestAtRestNoPlaintextCanary(t *testing.T) { //nolint:gocognit // integratio
 		_, xerr := tx.Exec(`INSERT INTO gateway_inbound(platform,external_id,chat_id,sender_id,payload,payload_enc,received_at)
 			VALUES ('telegram','1','c','s',?,?,1)`, gstored, nullBytesTest(ge))
 		return xerr
-	}); err != nil {
-		t.Fatal(err)
-	}
-	raw, rerr := os.ReadFile(DBPath(dir))
-	if rerr != nil {
-		t.Fatal(rerr)
-	}
-	for _, c := range canaries {
-		if bytes.Contains(raw, []byte(c)) {
-			t.Fatalf("plaintext canary %q found in encrypted DB", c)
-		}
-	}
+	})
 }
 
 func nullBytesTest(b []byte) any {

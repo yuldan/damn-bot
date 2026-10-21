@@ -376,7 +376,7 @@ func (s *Store) driver(writer bool) (*sqlite.Driver, error) {
 				if identity != "" && strings.HasPrefix(plain, identity+"\x00") {
 					plain = plain[len(identity)+1:]
 				}
-				return s.codec.FTS(ftsNorm(plain)), nil
+				return encFTS(s.codec, plain), nil
 			case string:
 				return s.ftsValue(v), nil
 			default:

@@ -210,11 +210,12 @@ func events(tx *ctxdb.Tx, q, sid string, boundary int64) ([]compaction.Event, er
 		if herr != nil {
 			return nil, fmt.Errorf("event payload_hex: %w", herr)
 		}
-		content, herr := tx.OpenText("events.content", ce, r.Content)
+		identity := fmt.Sprintf("%s|%d", sid, r.Seq)
+		content, herr := tx.OpenRow("events.content", identity, ce, r.Content)
 		if herr != nil {
 			return nil, fmt.Errorf("compactstore decrypt: %w", herr)
 		}
-		payload, herr := tx.OpenText("events.payload", pe, r.Payload)
+		payload, herr := tx.OpenRow("events.payload", identity, pe, r.Payload)
 		if herr != nil {
 			return nil, fmt.Errorf("compactstore decrypt: %w", herr)
 		}

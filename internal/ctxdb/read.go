@@ -196,16 +196,23 @@ func (s *Store) historySummaries(ctx context.Context, sessionID string, fromSeq 
 	}
 	var out []historySummary
 	err := s.each(ctx, lineageCTE+`
-		SELECT lin.id, sm.id, sm.from_seq, sm.to_seq, sm.content, sm.created_at
+		SELECT lin.id, sm.id, sm.from_seq, sm.to_seq, sm.content, coalesce(sm.content_enc, X''), sm.created_at
 		  FROM lin JOIN summaries sm ON sm.session_id = lin.id AND sm.to_seq <= lin.lim
 		 WHERE sm.id = (SELECT max(m.id) FROM summaries m
 		                 WHERE m.session_id = sm.session_id AND m.to_seq <= lin.lim)
 		   AND (?2 = 0 OR (lin.depth = 0 AND sm.to_seq > ?2))
 		 ORDER BY lin.depth DESC, sm.id`, []any{sessionID, fromSeq}, func(r *sql.Rows) error {
 		var h historySummary
-		if err := r.Scan(&h.SessionID, &h.ID, &h.FromSeq, &h.ToSeq, &h.Content, &h.CreatedAt); err != nil {
+		var enc []byte
+		if err := r.Scan(&h.SessionID, &h.ID, &h.FromSeq, &h.ToSeq, &h.Content, &enc, &h.CreatedAt); err != nil {
 			return wrap(err)
 		}
+		identity := fmt.Sprintf("%s|%d:%d", h.SessionID, h.FromSeq, h.ToSeq)
+		dc, derr := s.openRow("summaries.content", identity, enc, h.Content)
+		if derr != nil {
+			return derr
+		}
+		h.Content = dc
 		out = append(out, h)
 		return nil
 	})
@@ -459,7 +466,18 @@ func (s *Store) searchExpr(text string) string {
 			cjk = nil
 		}
 	}
-	for tok := range strings.FieldsSeq(ftsNorm(text)) {
+	var raw []string
+	if s.codec == nil {
+		for tok := range strings.FieldsSeq(ftsNorm(text)) {
+			raw = append(raw, tok)
+		}
+	} else {
+		raw = strings.FieldsFunc(ftsNorm(text), func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		})
+	}
+	for _, orig := range raw {
+		tok := orig
 		if s.codec != nil {
 			tok = s.codec.FTS(tok)
 		}
@@ -468,12 +486,12 @@ func (s *Store) searchExpr(text string) string {
 			continue
 		}
 		quoted := `"` + tok + `"`
-		if !hasCJK(tok) {
+		if !hasCJK(orig) {
 			flush()
 			parts = append(parts, quoted)
 			continue
 		}
-		if utf8.RuneCountInString(tok) == 1 {
+		if utf8.RuneCountInString(orig) == 1 {
 			quoted += "*"
 		}
 		cjk = append(cjk, quoted)

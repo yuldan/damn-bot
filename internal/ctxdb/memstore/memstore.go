@@ -100,27 +100,10 @@ type Hit struct {
 // again at the storage boundary (defense in depth, ADR-120 butir 5); an
 // approved row is checked against the per-scope cap and retires its
 // supersedes target in the same transaction.
-func Insert(tx *ctxdb.Tx, r *Row, d *Decision, red *redact.Redactor) (int64, error) { //nolint:gocyclo // single transactional insert with cap/decision branches
-	if red == nil {
-		return 0, fmt.Errorf("%w: nil redactor", ErrInvalid)
-	}
-	row := *r
-	row.Content = red.String(row.Content)
-	if err := validate(&row, d); err != nil {
+func Insert(tx *ctxdb.Tx, r *Row, d *Decision, red *redact.Redactor) (int64, error) {
+	row, err := prepare(tx, r, d, red)
+	if err != nil {
 		return 0, err
-	}
-	if d.Status == "approved" && row.Origin != "user" {
-		return 0, fmt.Errorf("%w: origin %q", ErrPolicy, row.Origin)
-	}
-	if row.SupersedesID != nil {
-		if err := sameScope(tx, *row.SupersedesID, row.Scope); err != nil {
-			return 0, err
-		}
-	}
-	if d.Status == "approved" {
-		if err := checkCap(tx, row.Scope, row.Content, 0); err != nil {
-			return 0, err
-		}
 	}
 	encID, ierr := newEncID()
 	if ierr != nil {
@@ -131,7 +114,7 @@ func Insert(tx *ctxdb.Tx, r *Row, d *Decision, red *redact.Redactor) (int64, err
 		return 0, fmt.Errorf("memstore seal: %w", serr)
 	}
 	var id int64
-	err := tx.Get(`INSERT INTO memory(kind, category, scope, name, content, content_enc, content_len, enc_id, origin, source_session,
+	err = tx.Get(`INSERT INTO memory(kind, category, scope, name, content, content_enc, content_len, enc_id, origin, source_session,
 		evidence_event_id, supersedes_id, expires_at, scan_result, created_at)
 		VALUES ('memory', ?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) RETURNING id`,
 		[]any{
@@ -151,6 +134,31 @@ func Insert(tx *ctxdb.Tx, r *Row, d *Decision, red *redact.Redactor) (int64, err
 	}
 	r.ID, r.Content = id, row.Content
 	return id, nil
+}
+
+func prepare(tx *ctxdb.Tx, r *Row, d *Decision, red *redact.Redactor) (*Row, error) {
+	if red == nil {
+		return nil, fmt.Errorf("%w: nil redactor", ErrInvalid)
+	}
+	row := *r
+	row.Content = red.String(row.Content)
+	if err := validate(&row, d); err != nil {
+		return nil, err
+	}
+	if d.Status == "approved" && row.Origin != "user" {
+		return nil, fmt.Errorf("%w: origin %q", ErrPolicy, row.Origin)
+	}
+	if row.SupersedesID != nil {
+		if err := sameScope(tx, *row.SupersedesID, row.Scope); err != nil {
+			return nil, err
+		}
+	}
+	if d.Status == "approved" {
+		if err := checkCap(tx, row.Scope, row.Content, 0); err != nil {
+			return nil, err
+		}
+	}
+	return &row, nil
 }
 
 // Put is Insert in its own transaction.
@@ -406,7 +414,7 @@ func insertDecision(tx *ctxdb.Tx, id int64, d *Decision) error {
 // excluding self (the row being approved); over MaxScopeChars is TooLarge.
 func checkCap(tx *ctxdb.Tx, scope, content string, self int64) error {
 	var total int64
-	err := tx.Get(`SELECT COALESCE(SUM(m.content_len), 0) + length(?3)
+	err := tx.Get(`SELECT COALESCE(SUM(COALESCE(m.content_len, length(m.content))), 0) + length(?3)
 		FROM memory m
 		JOIN memory_decisions d ON d.id = (SELECT id FROM memory_decisions WHERE memory_id = m.id ORDER BY id DESC LIMIT 1)
 		WHERE m.kind = 'memory' AND m.scope = ?1 AND d.status = 'approved' AND m.id <> ?2`,

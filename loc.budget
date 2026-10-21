@@ -89,12 +89,14 @@ i18n               300 internal/i18n
 # import archtest (allowed.go), analyzer khusus go/analysis (modul tools, ADR-094).
 testutil/timing     80 internal/testutil/timing
 testutil           200 internal/testutil
+integration        200 internal/integration
 archtest           300 internal/archtest
 analyzers          400 tools/analyzers
 # Paket test-only yang dikecualikan dari rasio test:source E-70 (ADR-098); LOC-nya tetap dihitung
 # budget di atas dan dilaporkan terpisah oleh `make loc-ratio`. Format: TESTONLY <direktori>
 TESTONLY internal/archtest
 TESTONLY internal/testutil
+TESTONLY internal/integration
 # File generated yang dikecualikan dari hitungan (AUD-073): hanya glob path di bawah (saat ini kosong).
 # Format: GENERATED <glob>
 # Total Go non-test seluruh repo (P21, ADR-033).
