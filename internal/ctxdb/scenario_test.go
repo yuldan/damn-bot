@@ -12,16 +12,21 @@ import (
 // TestScenario runs the adversarial scenarios of SPEC §11.11.13 (#1–#78)
 // and REVIEW-1.0 §"Verifikasi ADR-046" (#79–#86), one subtest per row.
 //
-// Subtests run in parallel: each one builds its own env (temp dir, injected
-// clock, own child processes) and none reads process-wide state (no Setenv,
-// no Chdir), so the table was one serial chain over one core while it
-// dominated internal/ctxdb's wall time. The serial chain was the package's
-// risk on slow runners: internal/ctxdb takes 459 s of go test's 10-minute
-// default on macos-15-intel (-race), and a 40 % slower runner pushed it to
-// a panic (600 s) in PR CI. Parallel: 137 s → 83 s locally (GOMAXPROCS=4,
-// -race), same assertions.
+// Pure functional scenarios run in parallel: each builds its own env (temp
+// dir, injected clock, own child processes) and none reads process-wide state
+// (no Setenv, no Chdir). Scenarios marked serial assert durations, lock gaps,
+// transaction budgets, or a specific busy/lock outcome; they run first, one
+// at a time, before any parallel subtest starts (a t.Parallel subtest pauses
+// until the parent returns). Under the fully parallel table the CPU
+// starvation starved those scenarios' own transactions: on windows-latest
+// -race S015 took 145.8 s with "max tx 6.42 s, txns over 200 ms: 15" and
+// failed with SQLITE_BUSY. Assertions are unchanged.
 func TestScenario(t *testing.T) {
 	for _, sc := range scenarioTable() {
+		if sc.serial {
+			t.Run(sc.name, sc.fn)
+			continue
+		}
 		t.Run(sc.name, func(t *testing.T) {
 			t.Parallel()
 			sc.fn(t)
@@ -32,6 +37,9 @@ func TestScenario(t *testing.T) {
 type scenario struct {
 	name string
 	fn   func(*testing.T)
+	// serial: the scenario asserts a duration, lock gap, transaction budget or
+	// a busy/lock outcome, so no other scenario may run while it does.
+	serial bool
 }
 
 // scenarioTable is every scenario except the ones platformNA() declares
@@ -136,18 +144,18 @@ func labelledS(t *testing.T, s *Store) bool {
 
 func leaseScenarios() []scenario {
 	return []scenario{
-		{"S001_SigstopTakeoverThenSigcont", s001},
-		{"S003_SleepAndWallClockStep", s003},
-		{"S004_RebootMidTurn", s004},
-		{"S005_TwoRecoverersSameJournal", s005},
-		{"S023_PIDReuseAndNamespace", s023},
-		{"S027_WallStepThenSecondProcess", s027},
-		{"S033_SigstopAfterToolPendingCommit", s033},
-		{"S039_LeaseFromPreviousBootNoBootID", s039},
-		{"S040_TimeNamespaceMismatchFencingHolds", s040},
-		{"S044_StartStampComparedVerbatim", s044},
-		{"S046_WakeBeforeOwnerHeartbeat", s046},
-		{"S056_SigtstpLongStopFenced", s056},
+		{name: "S001_SigstopTakeoverThenSigcont", fn: s001},
+		{name: "S003_SleepAndWallClockStep", fn: s003, serial: true},
+		{name: "S004_RebootMidTurn", fn: s004},
+		{name: "S005_TwoRecoverersSameJournal", fn: s005},
+		{name: "S023_PIDReuseAndNamespace", fn: s023, serial: true},
+		{name: "S027_WallStepThenSecondProcess", fn: s027},
+		{name: "S033_SigstopAfterToolPendingCommit", fn: s033, serial: true},
+		{name: "S039_LeaseFromPreviousBootNoBootID", fn: s039},
+		{name: "S040_TimeNamespaceMismatchFencingHolds", fn: s040},
+		{name: "S044_StartStampComparedVerbatim", fn: s044},
+		{name: "S046_WakeBeforeOwnerHeartbeat", fn: s046, serial: true},
+		{name: "S056_SigtstpLongStopFenced", fn: s056},
 	}
 }
 

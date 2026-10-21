@@ -14,9 +14,9 @@ import (
 
 func procScenarios() []scenario {
 	return []scenario{
-		{"S062_CtrlZDuringExecToolGroup", s062},
-		{"S074_OrphanStoppedToolGroupKilled", s074},
-		{"S085_LeaderDeadNohupChildKilled", s085},
+		{name: "S062_CtrlZDuringExecToolGroup", fn: s062, serial: true},
+		{name: "S074_OrphanStoppedToolGroupKilled", fn: s074, serial: true},
+		{name: "S085_LeaderDeadNohupChildKilled", fn: s085, serial: true},
 	}
 }
 

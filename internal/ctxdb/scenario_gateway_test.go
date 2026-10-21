@@ -10,20 +10,20 @@ import (
 
 func gatewayScenarios() []scenario {
 	return []scenario{
-		{"S010_InboundToLabelledSession", s010},
-		{"S011_OutboxSkipsLabelledSession", s011},
-		{"S069_QueuedInboundSurvivesRestart", s069},
-		{"S070_SpoolIngestThenWorker", s070},
-		{"S072_SpoolTruncatedLineNotAcked", s072},
-		{"S075_CrashBetweenPollerAndWorker", s075},
-		{"S076_WorkerVsPurgeLabel", s076},
-		{"S077_InboundUpdateGuard", s077},
-		{"S079_InvalidPayloadNotSilent", s079},
-		{"S080_CrashAfterWorkerCommitAnswered", s080},
-		{"S081_PerChatOrderInsertion", s081},
-		{"S082_ChatSessionBusyNotice", s082},
-		{"S083_PurgeInboundAttachment", s083},
-		{"S084_SpoolDuringDrainBarrier", s084},
+		{name: "S010_InboundToLabelledSession", fn: s010},
+		{name: "S011_OutboxSkipsLabelledSession", fn: s011},
+		{name: "S069_QueuedInboundSurvivesRestart", fn: s069},
+		{name: "S070_SpoolIngestThenWorker", fn: s070},
+		{name: "S072_SpoolTruncatedLineNotAcked", fn: s072},
+		{name: "S075_CrashBetweenPollerAndWorker", fn: s075},
+		{name: "S076_WorkerVsPurgeLabel", fn: s076},
+		{name: "S077_InboundUpdateGuard", fn: s077},
+		{name: "S079_InvalidPayloadNotSilent", fn: s079},
+		{name: "S080_CrashAfterWorkerCommitAnswered", fn: s080},
+		{name: "S081_PerChatOrderInsertion", fn: s081},
+		{name: "S082_ChatSessionBusyNotice", fn: s082, serial: true},
+		{name: "S083_PurgeInboundAttachment", fn: s083},
+		{name: "S084_SpoolDuringDrainBarrier", fn: s084},
 	}
 }
 

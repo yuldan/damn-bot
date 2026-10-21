@@ -9,21 +9,21 @@ import (
 
 func approvalScenarios() []scenario {
 	return []scenario{
-		{"S030_InboxShortLeaseImportBatch", s030},
-		{"S041_ResponseAfterTurnEnd", s041},
-		{"S043_StaleAnswerForPreviousRequest", s043},
-		{"S050_MCPServeMessagesSendUnderGuards", s050},
-		{"S052_WrongScopeOrIdentity", s052},
-		{"S053_TwoResponders", s053},
-		{"S054_ConsumerCrashBeforeCommit", s054},
-		{"S055_RemoteEditNeverExecuted", s055},
-		{"S059_EditToDangerousClass", s059},
-		{"S060_InvalidRowDeniedConsumed", s060},
-		{"S064_CancelBeforeDelivery", s064},
-		{"S065_ReplayKeepsRequestID", s065},
-		{"S066_TokenRevokedBeforeConsume", s066},
-		{"S068_RetryWithoutKeyTwoRequests", s068},
-		{"S073_SameKeyDifferentArgs", s073},
+		{name: "S030_InboxShortLeaseImportBatch", fn: s030, serial: true},
+		{name: "S041_ResponseAfterTurnEnd", fn: s041},
+		{name: "S043_StaleAnswerForPreviousRequest", fn: s043},
+		{name: "S050_MCPServeMessagesSendUnderGuards", fn: s050},
+		{name: "S052_WrongScopeOrIdentity", fn: s052},
+		{name: "S053_TwoResponders", fn: s053},
+		{name: "S054_ConsumerCrashBeforeCommit", fn: s054},
+		{name: "S055_RemoteEditNeverExecuted", fn: s055},
+		{name: "S059_EditToDangerousClass", fn: s059},
+		{name: "S060_InvalidRowDeniedConsumed", fn: s060},
+		{name: "S064_CancelBeforeDelivery", fn: s064},
+		{name: "S065_ReplayKeepsRequestID", fn: s065},
+		{name: "S066_TokenRevokedBeforeConsume", fn: s066},
+		{name: "S068_RetryWithoutKeyTwoRequests", fn: s068},
+		{name: "S073_SameKeyDifferentArgs", fn: s073},
 	}
 }
 
