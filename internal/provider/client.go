@@ -202,6 +202,11 @@ func (o *OpenAI) call(ctx context.Context, rt *Route, r *Request, est int64, onC
 		var err error
 		resp, err = o.send(ctx, rt, r, est, onChunk)
 		br.Record(retry.ClassifyErr(err))
+		if err == nil {
+			// Capture happens per route: the family/model stamped on each
+			// carrier is the route that produced it, never the caller's.
+			captureCarriers(&resp, rt)
+		}
 		return err
 	})
 	resp.Attempts, resp.EstInputTokens, resp.CredentialID = attempts, est, rt.CredentialID
@@ -218,23 +223,40 @@ func (o *OpenAI) call(ctx context.Context, rt *Route, r *Request, est int64, onC
 // dropped for the route and the request re-sent once without it
 // (EC-PROV-011/012, ADR-102 butir 7).
 func (o *OpenAI) send(ctx context.Context, rt *Route, r *Request, est int64, onChunk func(Chunk)) (Response, error) {
+	var drops []CarrierDrop
 	for {
 		drop := o.dropped(rt)
-		body, err := encode(rt, r, drop)
+		body, sent, dropped, err := encodeCarriers(rt, r, drop)
+		drops = mergeDrops(drops, dropped)
 		if err != nil {
-			return Response{}, &Error{Class: retry.BadRequest, Err: err}
+			return Response{CarrierDrops: drops}, &Error{Class: retry.BadRequest, Err: err}
 		}
 		resp, err := attempt(ctx, o.c, rt, body, est, onChunk)
+		resp.CarrierDrops = mergeDrops(drops, resp.CarrierDrops)
 		p := rejectedParam(err, r, drop)
-		if p == "" {
-			return resp, err
+		if p != "" {
+			o.mu.Lock()
+			if o.drop[rt.Ref()] == nil {
+				o.drop[rt.Ref()] = map[string]bool{}
+			}
+			o.drop[rt.Ref()][p] = true
+			o.mu.Unlock()
+			continue
 		}
-		o.mu.Lock()
-		if o.drop[rt.Ref()] == nil {
-			o.drop[rt.Ref()] = map[string]bool{}
+		// A signature-invalid 400 is retried exactly once with no opaque
+		// carriers (GAP-PROV-01). All carriers sent are reported as
+		// rejected; the session marks them so they are never replayed.
+		if err != nil && len(sent) > 0 && isSignatureInvalid(err) {
+			body2, _, dropped2, eerr := encodeCarriers(rt, withoutCarriers(r), drop)
+			if eerr != nil {
+				return resp, &Error{Class: retry.BadRequest, Err: eerr}
+			}
+			retried, rerr := attempt(ctx, o.c, rt, body2, est, onChunk)
+			retried.CarrierDrops = mergeDrops(mergeDrops(drops, dropped2), retried.CarrierDrops)
+			retried.RejectedCarriers = sent
+			return retried, rerr
 		}
-		o.drop[rt.Ref()][p] = true
-		o.mu.Unlock()
+		return resp, err
 	}
 }
 

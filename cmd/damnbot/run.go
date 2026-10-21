@@ -203,6 +203,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		Toolset:   &toolsetAdapter{disp: disp},
 		Store:     model.store,
 		Ledger:    model.ledger,
+		Carriers:  &ctxCarrierStore{db: model.db},
 		Redactor:  redactorAdapter{red: red},
 	})
 	if err != nil {
@@ -419,7 +420,7 @@ type providerAdapter struct {
 func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
 	preq := &provider.Request{Model: req.Model, MaxTokens: req.MaxTokens}
 	for _, m := range req.Messages {
-		pm := provider.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
+		pm := provider.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, Carriers: providerCarriers(m.Carriers)}
 		for _, c := range m.ToolCalls {
 			pm.ToolCalls = append(pm.ToolCalls, provider.ToolCall{ID: c.ID, Name: c.Name, ArgumentsRaw: c.Arguments})
 		}
@@ -446,6 +447,8 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 			Output: resp.Usage.Output, CostUSD: resp.Usage.CostUSD,
 		},
 		Model: resp.Model, FallbackFrom: resp.FallbackFrom, Attempts: resp.Attempts,
+		Carriers: eventCarriers(resp.Carriers), RejectedCarriers: eventCarriers(resp.RejectedCarriers),
+		CarrierDrops: eventDrops(resp.CarrierDrops), ReasoningText: resp.ReasoningText,
 	}
 	for _, c := range resp.ToolCalls {
 		reply.ToolCalls = append(reply.ToolCalls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.ArgumentsRaw})

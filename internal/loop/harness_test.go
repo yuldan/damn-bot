@@ -254,6 +254,7 @@ type fixture struct {
 	tools    *fakeToolset
 	store    *fakeStore
 	ledger   *fakeLedger
+	carriers *fakeCarrierStore
 	approver *fakeApprover
 	spiller  *fakeSpiller
 	redactor Redactor
@@ -281,7 +282,7 @@ func (f *fixture) deps() Deps {
 	return Deps{
 		Provider: f.provider, Assembler: f.asm, Toolset: f.tools, Store: f.store,
 		Ledger: f.ledger, Approver: f.approver, Spiller: f.spiller, Redactor: f.redactor,
-		NewRedactStream: f.stream,
+		Carriers: f.carriers, NewRedactStream: f.stream,
 	}
 }
 

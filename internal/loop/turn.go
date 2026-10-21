@@ -2,6 +2,8 @@ package loop
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -223,6 +225,26 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 		return &o, true
 	}
 	t.addUsage(&reply.Usage)
+	// Redacted reasoning makes its carriers non-replayable.
+	if reply.ReasoningText != "" && t.redact(reply.ReasoningText) != reply.ReasoningText {
+		for i := range reply.Carriers {
+			reply.Carriers[i].Replayable = false
+		}
+	}
+	if len(reply.RejectedCarriers) > 0 && t.deps.Carriers != nil {
+		if err := t.deps.Carriers.RejectCarriers(context.WithoutCancel(ctx), t.sessionID, reply.RejectedCarriers, "invalid_signature"); err != nil {
+			o := t.fail(ctx, event.DetailInternal, err)
+			return &o, true
+		}
+	}
+	for _, d := range reply.CarrierDrops {
+		if d.Reason == "" || d.Count <= 0 {
+			continue
+		}
+		t.note(ctx, &event.Event{Kind: event.SystemNotice, Payload: payload(carrierDropPayload{
+			Kind: "carrier_dropped", Reason: d.Reason, Count: d.Count,
+		})})
+	}
 	if reply.FallbackFrom != "" {
 		t.fallback(ctx, reply.FallbackFrom, reply.Model)
 	}
@@ -305,10 +327,12 @@ func (t *turn) classify(ctx context.Context, r *Reply, calls []ToolCall) (outcom
 	case r.FinishReason == FinishContentFilter:
 		return t.contentFiltered(ctx, r, calls)
 	case r.FinishReason == FinishLength && len(calls) == 0:
-		if _, err := t.append(ctx, &event.Event{
+		if id, err := t.append(ctx, &event.Event{
 			Kind: event.AssistantMessage, Role: "assistant", Content: r.Content,
-			Payload: payload(assistantPayload{FinishReason: r.FinishReason}),
+			Payload: payload(assistantPayload{FinishReason: r.FinishReason, Carriers: carrierRefs(r.Carriers)}),
 		}); err != nil {
+			return t.fail(ctx, event.DetailInternal, err), true
+		} else if err := t.saveCarriers(ctx, id, r.Carriers); err != nil {
 			return t.fail(ctx, event.DetailInternal, err), true
 		}
 		return outcome{stop: event.StopMaxTokens, detail: event.DetailOutputTruncated}, true
@@ -323,9 +347,13 @@ func (t *turn) classify(ctx context.Context, r *Reply, calls []ToolCall) (outcom
 func (t *turn) contentFiltered(ctx context.Context, r *Reply, calls []ToolCall) (outcome, bool) {
 	ev := &event.Event{
 		Kind: event.AssistantMessage, Role: "assistant", Content: t.redact(r.Content),
-		Payload: payload(assistantPayload{Filtered: true, FinishReason: r.FinishReason, ToolCalls: callPayloadsRedacted(calls, t.redact)}),
+		Payload: payload(assistantPayload{Filtered: true, FinishReason: r.FinishReason, ToolCalls: callPayloadsRedacted(calls, t.redact), Carriers: carrierRefs(r.Carriers)}),
 	}
-	if _, err := t.append(ctx, ev); err != nil {
+	id, err := t.append(ctx, ev)
+	if err != nil {
+		return t.fail(ctx, event.DetailInternal, err), true
+	}
+	if err := t.saveCarriers(ctx, id, r.Carriers); err != nil {
 		return t.fail(ctx, event.DetailInternal, err), true
 	}
 	t.emit(&event.Update{Kind: event.UpdateNotice, Text: "content filtered", Status: "content_filtered"})
@@ -336,9 +364,13 @@ func (t *turn) contentFiltered(ctx context.Context, r *Reply, calls []ToolCall) 
 func (t *turn) finalAnswer(ctx context.Context, r *Reply) (outcome, bool) {
 	ev := &event.Event{
 		Kind: event.AssistantMessage, Role: "assistant", Content: t.redact(r.Content),
-		Payload: payload(assistantPayload{FinishReason: r.FinishReason}),
+		Payload: payload(assistantPayload{FinishReason: r.FinishReason, Carriers: carrierRefs(r.Carriers)}),
 	}
-	if _, err := t.append(ctx, ev); err != nil {
+	id, err := t.append(ctx, ev)
+	if err != nil {
+		return t.fail(ctx, event.DetailInternal, err), true
+	}
+	if err := t.saveCarriers(ctx, id, r.Carriers); err != nil {
 		return t.fail(ctx, event.DetailInternal, err), true
 	}
 	if strings.TrimSpace(r.Content) == "" {
@@ -351,9 +383,13 @@ func (t *turn) finalAnswer(ctx context.Context, r *Reply) (outcome, bool) {
 func (t *turn) toolTurn(ctx context.Context, r *Reply, calls []ToolCall) (outcome, bool) {
 	ev := &event.Event{
 		Kind: event.AssistantMessage, Role: "assistant", Content: t.redact(r.Content),
-		Payload: payload(assistantPayload{FinishReason: r.FinishReason, ToolCalls: callPayloadsRedacted(calls, t.redact)}),
+		Payload: payload(assistantPayload{FinishReason: r.FinishReason, ToolCalls: callPayloadsRedacted(calls, t.redact), Carriers: carrierRefs(r.Carriers)}),
 	}
-	if _, err := t.append(ctx, ev); err != nil {
+	id, err := t.append(ctx, ev)
+	if err != nil {
+		return t.fail(ctx, event.DetailInternal, err), true
+	}
+	if err := t.saveCarriers(ctx, id, r.Carriers); err != nil {
 		return t.fail(ctx, event.DetailInternal, err), true
 	}
 	t.history = append(t.history, Message{Role: "assistant", Content: t.redact(r.Content), ToolCalls: redactCalls(calls, t.redact)})
@@ -445,6 +481,32 @@ func (t *turn) append(ctx context.Context, ev *event.Event) (int64, error) {
 		return 0, fmt.Errorf("loop: store append: %w", err)
 	}
 	return id, nil
+}
+
+func carrierRefs(cs []event.Carrier) []event.CarrierRef {
+	if len(cs) == 0 {
+		return nil
+	}
+	out := make([]event.CarrierRef, len(cs))
+	for i := range cs {
+		sha := cs[i].SHA
+		if sha == "" {
+			sum := sha256.Sum256(cs[i].Raw)
+			sha = hex.EncodeToString(sum[:])
+		}
+		out[i] = event.CarrierRef{Ord: i, SHA: sha}
+	}
+	return out
+}
+
+func (t *turn) saveCarriers(ctx context.Context, eventID int64, cs []event.Carrier) error {
+	if t.deps.Carriers == nil || len(cs) == 0 {
+		return nil
+	}
+	if err := t.deps.Carriers.SaveCarriers(context.WithoutCancel(ctx), t.sessionID, eventID, cs); err != nil {
+		return fmt.Errorf("loop: save carriers: %w", err)
+	}
+	return nil
 }
 
 // record writes one usage row unless accounting is disabled.

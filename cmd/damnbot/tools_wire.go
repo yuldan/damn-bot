@@ -67,12 +67,14 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 		return nil, fmt.Errorf("history query: %w", err)
 	}
 	out := make([]loop.Message, 0, len(rows))
+	assistantAt := make(map[int64]int, len(rows))
 	for i := range rows {
 		r := &rows[i]
 		switch r.Kind {
 		case "user_message":
 			out = append(out, loop.Message{Role: "user", Content: r.Content})
 		case "assistant_message":
+			assistantAt[r.ID] = len(out)
 			out = append(out, loop.Message{Role: "assistant", Content: r.Content, ToolCalls: assistantToolCalls(r.Payload)})
 		case "tool_result":
 			// The dispatcher journal and the loop both record a tool_result;
@@ -89,6 +91,9 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 			}
 			out = append(out, loop.Message{Role: "tool", Content: r.Content, ToolCallID: r.ToolCallID})
 		}
+	}
+	if err := s.loadCarriers(ctx, sid, assistantAt, out); err != nil {
+		return nil, fmt.Errorf("history carriers: %w", err)
 	}
 	return out, nil
 }

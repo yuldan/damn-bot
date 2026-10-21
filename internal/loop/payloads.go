@@ -1,6 +1,10 @@
 package loop
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/damnbot/damnbot/internal/loop/event"
+)
 
 type turnStartPayload struct {
 	Text     string `json:"text"`
@@ -9,10 +13,17 @@ type turnStartPayload struct {
 }
 
 type assistantPayload struct {
-	Filtered     bool              `json:"filtered"`
-	FinishReason string            `json:"finish_reason,omitempty"`
-	FallbackFrom string            `json:"fallback_from,omitempty"`
-	ToolCalls    []toolCallPayload `json:"tool_calls,omitempty"`
+	Filtered     bool               `json:"filtered"`
+	FinishReason string             `json:"finish_reason,omitempty"`
+	FallbackFrom string             `json:"fallback_from,omitempty"`
+	ToolCalls    []toolCallPayload  `json:"tool_calls,omitempty"`
+	Carriers     []event.CarrierRef `json:"carriers,omitempty"`
+}
+
+type carrierDropPayload struct {
+	Kind   string `json:"kind"` // carrier_dropped
+	Reason string `json:"reason"`
+	Count  int    `json:"count"`
 }
 
 type toolCallPayload struct {

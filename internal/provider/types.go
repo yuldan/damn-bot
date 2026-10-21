@@ -36,17 +36,54 @@ const (
 // DefaultMaxTokens is Request.MaxTokens when zero (SPEC §4.1).
 const DefaultMaxTokens = 8192
 
+// CarrierKind values match reasoning_carriers.kind.
+type CarrierKind string
+
+// Carrier kinds.
+const (
+	CarrierThoughtSignature CarrierKind = "thought_signature"
+	CarrierThinking         CarrierKind = "thinking"
+	CarrierRedactedThinking CarrierKind = "redacted_thinking"
+	CarrierEncrypted        CarrierKind = "encrypted_reasoning"
+	CarrierOpaque           CarrierKind = "reasoning_opaque"
+)
+
+// Valid reports whether k is a known kind.
+func (k CarrierKind) Valid() bool {
+	switch k {
+	case CarrierThoughtSignature, CarrierThinking, CarrierRedactedThinking, CarrierEncrypted, CarrierOpaque:
+		return true
+	}
+	return false
+}
+
+// Carrier is one opaque reasoning block; Raw is the exact wire JSON object.
+type Carrier struct {
+	Family, Model string
+	Kind          CarrierKind
+	Anchor        string // part index / tool_call_id
+	Raw           []byte
+	Replayable    bool
+	SHA           string // hex sha256 of Raw
+}
+
+// CarrierDrop counts the carriers omitted from one request and why.
+type CarrierDrop struct {
+	Reason string
+	Count  int
+}
+
 // Message is one chat message.
 type Message struct {
 	Role       string // system|user|assistant|tool
 	Content    string
 	ToolCalls  []ToolCall // assistant
 	ToolCallID string     // tool
-	// Reasoning is the reasoning value received with an assistant message,
-	// kept byte-identical and sent back under ReasoningField on replay
-	// (EC-PROV-004/005). Empty = none.
+	// Reasoning is replayed byte-identically under ReasoningField.
 	Reasoning      json.RawMessage
 	ReasoningField string // "reasoning_content" | "reasoning"
+	// Carriers are replayed only to the origin (family + model).
+	Carriers []Carrier
 }
 
 // ToolCall is a model tool call; arguments stay raw for the P3 gate.
@@ -90,9 +127,11 @@ type Response struct {
 	FallbackFrom   string
 	CredentialID   string
 	TTFT           time.Duration
-	// Price is the route price in effect at the call start (nil = unknown
-	// or expired); budget.Entry.Account records its pricing_version.
-	Price *budget.Price
+	// Price is the route price in effect at the call start (nil = unknown).
+	Price            *budget.Price
+	Carriers         []Carrier
+	RejectedCarriers []Carrier
+	CarrierDrops     []CarrierDrop
 }
 
 // Chunk is a streamed fragment for live display; its fields alias decoder
