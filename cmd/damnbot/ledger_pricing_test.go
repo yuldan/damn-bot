@@ -1,0 +1,154 @@
+package main
+
+import (
+	"math"
+	"testing"
+
+	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/loop"
+	"github.com/damnbot/damnbot/internal/loop/event"
+	"github.com/damnbot/damnbot/internal/netx"
+	"github.com/damnbot/damnbot/internal/provider"
+	"github.com/damnbot/damnbot/internal/provider/providertest"
+	"github.com/damnbot/damnbot/internal/provider/registry"
+)
+
+const teamRouterVersion = "providers-2026-10-21/teamorouter-gpt-5.4-mini"
+
+// ledgerDB opens a run database with one session and one event to anchor a
+// usage row.
+func ledgerDB(t *testing.T, sid string) *ctxdb.Store {
+	t.Helper()
+	ctx := t.Context()
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: t.TempDir(), Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Errorf("close ctxdb: %v", cerr)
+		}
+	})
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: "/"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Append(ctx, sid, nil, ctxdb.Event{Kind: "llm_call", Role: "system", Payload: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+// readLedger returns the stored charge of sid; cost -1 means NULL (unknown).
+func readLedger(t *testing.T, db *ctxdb.Store, sid string) (cost int64, source, version string) {
+	t.Helper()
+	err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
+		return tx.Get("SELECT COALESCE(cost_usd_micros, -1), cost_source, pricing_version FROM usage_ledger WHERE session_id = ?",
+			[]any{sid}, &cost, &source, &version)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cost, source, version
+}
+
+// TestRunLedgerRecordsRoutePrice (REVIEW-F2-SEC6 SEC6-1): the provider
+// adapter carries the route's price entry through loop.Reply into Record,
+// and the ledger row stores the priced micro-USD and pricing_version.
+func TestRunLedgerRecordsRoutePrice(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	db := ledgerDB(t, "S")
+	srv := providertest.New(t, nil, providertest.Text("ok"))
+	table, err := registry.DefaultPriceTable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prices, err := provider.RoutePrices(table, "https://api.teamorouter.com/v1", "gpt-5.4-mini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	net := netx.New(netx.Config{})
+	t.Cleanup(net.CloseIdleConnections)
+	const ref = "teamorouter/gpt-5.4-mini"
+	client, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
+		Routes: []provider.Route{{Provider: "teamorouter", Model: "gpt-5.4-mini", BaseURL: srv.URL, APIKey: "sk-test", Prices: prices}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := (&providerAdapter{client: client, model: ref}).Stream(ctx, &loop.Request{Model: ref}, func(loop.Delta) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Usage.Price == nil || reply.Usage.Price.Version != teamRouterVersion {
+		t.Fatalf("adapter dropped the route price: %+v", reply.Usage.Price)
+	}
+	// The stub reports no cost here; the charge must come from the table.
+	reply.Usage.Input, reply.Usage.CachedInput, reply.Usage.Output = 1_000, 200, 500
+	reply.Usage.CostUSD = nil
+	l := &ctxLedger{db: db, provider: "teamorouter", model: "gpt-5.4-mini"}
+	if err := l.Record(ctx, "S", "T", 0, &reply.Usage); err != nil {
+		t.Fatal(err)
+	}
+	cost, source, version := readLedger(t, db, "S")
+	if cost != 423 || source != "pricing_table" || version != teamRouterVersion {
+		t.Errorf("ledger row = %d µUSD %s %q, want 423 pricing_table %s", cost, source, version, teamRouterVersion)
+	}
+}
+
+// TestRunLedgerValidatesProviderCost (SEC6-1/2): a provider-reported cost
+// wins only when budget.Cost accepts it; an invalid one can never reduce
+// spend, and implausible usage fails the record instead of under-charging.
+func TestRunLedgerValidatesProviderCost(t *testing.T) {
+	t.Parallel()
+	price := &event.Price{InputPerMTok: 150_000, CachedInputPerMTok: 15_000, OutputPerMTok: 600_000, Version: teamRouterVersion}
+	f := func(v float64) *float64 { return &v }
+	base := event.Usage{Input: 1_000, CachedInput: 200, Output: 500, Price: price}
+	cases := []struct {
+		name     string
+		usage    event.Usage
+		wantCost int64 // -1 = NULL
+		wantSrc  string
+		wantErr  bool
+	}{
+		{"provider cost wins", withCost(base, f(0.0001)), 100, "provider", false},
+		{"negative cost ignored, table applies", withCost(base, f(-0.75)), 423, "pricing_table", false},
+		{"NaN cost ignored, table applies", withCost(base, f(math.NaN())), 423, "pricing_table", false},
+		{"infinite cost is rejected", withCost(base, f(math.Inf(1))), 0, "", true},
+		{"negative cost without a price is unknown", withCost(event.Usage{Input: 10}, f(-0.75)), -1, "unknown", false},
+		{"NaN cost without a price is unknown", withCost(event.Usage{Input: 10}, f(math.NaN())), -1, "unknown", false},
+		{"cached above input is rejected", event.Usage{Input: 10, CachedInput: 50, Price: price}, 0, "", true},
+		{"negative tokens are rejected", event.Usage{Input: -1, Price: price}, 0, "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			db := ledgerDB(t, "S")
+			l := &ctxLedger{db: db, provider: "p", model: "m"}
+			err := l.Record(t.Context(), "S", "T", 0, &c.usage)
+			if c.wantErr {
+				if err == nil {
+					t.Fatal("invalid usage recorded")
+				}
+				var rows int64
+				if qerr := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
+					return tx.Get("SELECT COUNT(*) FROM usage_ledger WHERE session_id = ?", []any{"S"}, &rows)
+				}); qerr != nil || rows != 0 {
+					t.Fatalf("rows after error = %d, %v; want none", rows, qerr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cost, src, _ := readLedger(t, db, "S"); cost != c.wantCost || src != c.wantSrc {
+				t.Errorf("ledger row = %d %s, want %d %s", cost, src, c.wantCost, c.wantSrc)
+			}
+		})
+	}
+}
+
+func withCost(u event.Usage, c *float64) event.Usage {
+	u.CostUSD = c
+	return u
+}

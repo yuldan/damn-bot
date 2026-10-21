@@ -114,12 +114,15 @@ func TestNormalizeBaseURL(t *testing.T) {
 	}
 }
 
+// num is one required price column.
+func num(v int64) *int64 { return new(v) }
+
 // validEntry is a well-formed vendor price used as the mutation base.
 func validEntry() priceEntry {
 	return priceEntry{
 		ID: "vendor-m", BaseURL: "https://api.example.com/v1", Model: "m",
 		Kind: "vendor", Source: "vendor list price, 2026-01-01", From: "2026-01-01",
-		Input: 100, CachedInput: 10, Output: 200,
+		Input: num(100), CachedInput: num(10), Output: num(200),
 	}
 }
 
@@ -168,7 +171,14 @@ func TestParsePriceTableRejectsInvalid(t *testing.T) {
 		{"missing from", mutate(func(e *priceEntry) { e.From = "" })},
 		{"bad until", mutate(func(e *priceEntry) { e.Until = "2026-13-01" })},
 		{"until equals from", mutate(func(e *priceEntry) { e.Until = e.From })},
-		{"negative price", mutate(func(e *priceEntry) { e.Output = -1 })},
+		{"negative price", mutate(func(e *priceEntry) { e.Output = num(-1) })},
+		{"missing input column", strings.Replace(valid, "input = 100\n", "", 1)},
+		{"missing cached_input column", strings.Replace(valid, "cached_input = 10\n", "", 1)},
+		{"missing output column", strings.Replace(valid, "output = 200\n", "", 1)},
+		{"blank id", mutate(func(e *priceEntry) { e.ID = " " })},
+		{"id whitespace", mutate(func(e *priceEntry) { e.ID = "vendor-m " })},
+		{"id control character", mutate(func(e *priceEntry) { e.ID = "vendor\am" })},
+		{"model whitespace", mutate(func(e *priceEntry) { e.Model = " m" })},
 		{"base_url query", mutate(func(e *priceEntry) { e.BaseURL = "https://api.example.com/v1?k=v" })},
 		{"duplicate id", second(func(e *priceEntry) { e.BaseURL = "https://api.other.example/v1" })},
 		{"overlap", second(func(e *priceEntry) { e.ID = "b"; e.From = "2026-02-01" })},
@@ -181,7 +191,7 @@ func TestParsePriceTableRejectsInvalid(t *testing.T) {
 
 	// Adjacent ranges (until == next from) are a valid schedule.
 	two := validEntry()
-	two.ID, two.From, two.Input = "b", "2026-06-01", 300
+	two.ID, two.From, two.Input = "b", "2026-06-01", num(300)
 	first := validEntry()
 	first.Until = "2026-06-01"
 	if _, err := ParsePriceTable([]byte(encode(t, priceFile{Version: "t", Price: []priceEntry{two, first}}))); err != nil {

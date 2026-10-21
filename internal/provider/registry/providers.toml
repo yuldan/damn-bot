@@ -1,7 +1,8 @@
 # Provider registry data (SPEC §4.1, ADR-128). Go LOC ignores this file.
 #
-# Prices are integer micro-USD per million tokens (input / cached_input /
-# output) and are keyed by the ACTUAL route: base_url + model. A reseller
+# Prices are integer micro-USD per million tokens and are keyed by the
+# ACTUAL route: base_url + model. input, cached_input, and output are all
+# required integer columns (a missing one is a load error, never zero). A reseller
 # route never inherits the upstream vendor price; a route+model absent here
 # is unpriced, and any monetary budget cap then fails closed (ADR-123).
 #

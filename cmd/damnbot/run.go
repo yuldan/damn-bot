@@ -518,6 +518,7 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 		Content: resp.Content, FinishReason: resp.FinishReason, Usage: event.Usage{
 			Input: resp.Usage.Input, CachedInput: resp.Usage.CachedInput,
 			Output: resp.Usage.Output, CostUSD: resp.Usage.CostUSD,
+			Price: eventPrice(resp.Price),
 		},
 		Model: resp.Model, FallbackFrom: resp.FallbackFrom, Attempts: resp.Attempts,
 		Carriers: eventCarriers(resp.Carriers), RejectedCarriers: eventCarriers(resp.RejectedCarriers),
@@ -648,17 +649,44 @@ func (s *ctxStore) EndTurn(ctx context.Context, sid, tid string, payload json.Ra
 	return nil
 }
 
+// eventPrice converts the provider response price entry to the loop's wire
+// type (loop/event is a leaf: it does not import budget).
+func eventPrice(p *budget.Price) *event.Price {
+	if p == nil {
+		return nil
+	}
+	return &event.Price{
+		InputPerMTok: p.InputPerMTok, CachedInputPerMTok: p.CachedInputPerMTok,
+		OutputPerMTok: p.OutputPerMTok, Version: p.Version,
+	}
+}
+
 type ctxLedger struct {
 	db              *ctxdb.Store
 	provider, model string
 }
 
+// Record writes one usage_ledger row through budget.Entry.Account, so the
+// charge is the provider-reported cost when it is valid, else the dated
+// route price (ADR-125 precedence), and pricing_version comes from that
+// entry. Account rejects implausible usage (negative tokens, cached > input,
+// out-of-range provider cost), which fails the turn rather than recording a
+// spend that can hide an exhausted cap (REVIEW-F2-SEC6 SEC6-1/2).
 func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, u *event.Usage) error {
-	var micros *int64
-	src := "unknown"
-	if u.CostUSD != nil {
-		m := int64(*u.CostUSD*1e6 + 0.5)
-		micros, src = &m, "provider"
+	var price *budget.Price
+	if u.Price != nil {
+		price = &budget.Price{
+			InputPerMTok: u.Price.InputPerMTok, CachedInputPerMTok: u.Price.CachedInputPerMTok,
+			OutputPerMTok: u.Price.OutputPerMTok, Version: u.Price.Version,
+		}
+	}
+	e := budget.Entry{
+		SessionID: sid, TurnID: tid, EventID: eventID, Purpose: "turn",
+		Provider: l.provider, Model: l.model, Attempts: 1,
+		TTFTMS: 0, CreatedAt: time.Now().UnixMilli(),
+	}
+	if aerr := e.Account(budget.Usage{Input: u.Input, CachedInput: u.CachedInput, Output: u.Output, CostUSD: u.CostUSD}, price, 0); aerr != nil {
+		return fmt.Errorf("account ledger: %w", aerr)
 	}
 	err := l.db.Write(ctx, func(tx *ctxdb.Tx) error {
 		var anchor int64
@@ -668,14 +696,9 @@ func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, 
 			}
 			return fmt.Errorf("find event anchor: %w", gerr)
 		}
-		_, ierr := ledgerstore.Insert(tx, &ledgerstore.Row{
-			EventID:   anchor,
-			SessionID: sid, TurnID: tid, Purpose: "turn", Provider: l.provider, Model: l.model,
-			InputTokens: u.Input, CachedInputTokens: u.CachedInput, OutputTokens: u.Output,
-			CostMicros: micros, CostSource: src, PricingVersion: "none", Attempts: 1,
-			TTFTMS: 0, CreatedAt: time.Now().UnixMilli(),
-		})
-		if ierr != nil {
+		e.EventID = anchor
+		row := ledgerstore.Row(e) // field-identical (ADR-101 butir 5)
+		if _, ierr := ledgerstore.Insert(tx, &row); ierr != nil {
 			return fmt.Errorf("insert ledger row: %w", ierr)
 		}
 		return nil

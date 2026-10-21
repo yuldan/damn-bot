@@ -63,23 +63,25 @@ type priceFile struct {
 }
 
 type priceEntry struct {
-	ID          string `toml:"id"`
-	BaseURL     string `toml:"base_url"`
-	Model       string `toml:"model"`
-	Kind        string `toml:"kind"`
-	Source      string `toml:"source"`
-	From        string `toml:"from"`
-	Until       string `toml:"until"`
-	Input       int64  `toml:"input"`
-	CachedInput int64  `toml:"cached_input"`
-	Output      int64  `toml:"output"`
+	ID      string `toml:"id"`
+	BaseURL string `toml:"base_url"`
+	Model   string `toml:"model"`
+	Kind    string `toml:"kind"`
+	Source  string `toml:"source"`
+	From    string `toml:"from"`
+	Until   string `toml:"until"`
+	// Pointers so an omitted column is missing, not a silent zero price.
+	Input       *int64 `toml:"input"`
+	CachedInput *int64 `toml:"cached_input"`
+	Output      *int64 `toml:"output"`
 }
 
 // ParsePriceTable decodes and validates a providers.toml. It rejects unknown
 // keys, a missing table version or source, an unknown kind, a missing or
-// malformed date, a negative price, a duplicate entry id, and overlapping
-// ranges for one route: two prices at one instant would make the bill
-// ambiguous, so the schedule is refused rather than resolved.
+// malformed date, a missing or negative price column, a duplicate entry id,
+// an id or model outside plainToken, and overlapping ranges for one route:
+// two prices at one instant would make the bill ambiguous, so the schedule
+// is refused rather than resolved.
 func ParsePriceTable(data []byte) (PriceTable, error) {
 	var f priceFile
 	md, err := toml.Decode(string(data), &f)
@@ -120,15 +122,15 @@ func ParsePriceTable(data []byte) (PriceTable, error) {
 
 // parse validates one entry and returns it with its lookup key.
 func (e *priceEntry) parse(table string) (Price, string, error) {
-	if strings.TrimSpace(e.ID) == "" {
-		return Price{}, "", errors.New("missing id")
+	if !plainToken(e.ID) {
+		return Price{}, "", fmt.Errorf("id %q is not [A-Za-z0-9._:/-]+", e.ID)
 	}
 	key, err := NormalizeBaseURL(e.BaseURL)
 	if err != nil {
 		return Price{}, "", err
 	}
-	if e.Model == "" {
-		return Price{}, "", errors.New("missing model")
+	if !plainToken(e.Model) {
+		return Price{}, "", fmt.Errorf("model %q is not [A-Za-z0-9._:/-]+", e.Model)
 	}
 	kind := PriceKind(strings.TrimSpace(e.Kind))
 	if kind != PriceVendor && kind != PriceOperator {
@@ -151,14 +153,46 @@ func (e *priceEntry) parse(table string) (Price, string, error) {
 			return Price{}, "", fmt.Errorf("until %s is not after from %s", e.Until, e.From)
 		}
 	}
-	if e.Input < 0 || e.CachedInput < 0 || e.Output < 0 {
-		return Price{}, "", errors.New("negative price")
+	in, cached, out, err := e.columns()
+	if err != nil {
+		return Price{}, "", err
 	}
 	return Price{
 		BaseURL: key, Model: e.Model, Kind: kind, Source: src,
-		InputPerMTok: e.Input, CachedInputPerMTok: e.CachedInput, OutputPerMTok: e.Output,
+		InputPerMTok: in, CachedInputPerMTok: cached, OutputPerMTok: out,
 		From: from, Until: until, Version: table + "/" + e.ID,
 	}, routeKey(key, e.Model), nil
+}
+
+// columns returns the three price columns; all are required, none may be
+// negative (an omitted column would otherwise become a silent zero price).
+func (e *priceEntry) columns() (in, cached, out int64, err error) {
+	if e.Input == nil || e.CachedInput == nil || e.Output == nil {
+		return 0, 0, 0, errors.New("input, cached_input, and output are required")
+	}
+	if *e.Input < 0 || *e.CachedInput < 0 || *e.Output < 0 {
+		return 0, 0, 0, errors.New("negative price")
+	}
+	return *e.Input, *e.CachedInput, *e.Output, nil
+}
+
+// plainToken reports whether s is a non-empty unquoted registry token:
+// letters, digits, '.', '_', ':', '/', and '-'. No whitespace, no control
+// characters; ids and model names flow into the ledger's pricing_version and
+// the route key.
+func plainToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
+			r == '.', r == '_', r == ':', r == '/', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // Lookup returns the dated entries of the exact route (normalized base_url,
