@@ -66,6 +66,12 @@ const broadMatches = 15000
 // scoring every match. Free text is tokenised (see ftsQuery), so
 // quotes/parentheses/column filters cannot become a MATCH syntax error.
 func (s *Store) Recall(ctx context.Context, text string, k int) ([]RecallHit, error) {
+	return s.recall(ctx, text, k, broadMatches)
+}
+
+// recall is Recall with the broad threshold as a parameter, so tests reach
+// both sides of it without appending broadMatches events.
+func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]RecallHit, error) {
 	if k <= 0 {
 		k = 10
 	}
@@ -74,11 +80,11 @@ func (s *Store) Recall(ctx context.Context, text string, k int) ([]RecallHit, er
 		return nil, nil
 	}
 	probe, err := s.ints(ctx, `SELECT rowid FROM events_fts
-		WHERE events_fts MATCH dmb_fts_norm(?) LIMIT ?`, q, broadMatches+1)
+		WHERE events_fts MATCH dmb_fts_norm(?) LIMIT ?`, q, broadAt+1)
 	if err != nil {
 		return nil, fmt.Errorf("ctxdb: recall probe: %w", err)
 	}
-	broad := len(probe) > broadMatches
+	broad := len(probe) > broadAt
 	purged, err := s.Count(ctx, `SELECT count(*) FROM session_labels WHERE key = 'purge_state'`)
 	if err != nil {
 		return nil, fmt.Errorf("ctxdb: recall purge check: %w", err)

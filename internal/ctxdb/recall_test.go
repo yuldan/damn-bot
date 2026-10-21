@@ -121,7 +121,13 @@ func TestRecallHonorsLargeK(t *testing.T) {
 	}
 }
 
-// TestRecallBroadNewestFirst: the fallback orders newest-first (JN3-13).
+// TestRecallBroadNewestFirst: above the broad threshold the fallback orders
+// newest-first; at the threshold the matches are still ranked by bm25
+// (JN3-13). The threshold is a parameter of recall, so both sides are
+// reached with a few dozen events instead of broadMatches+1 (15.001 appends
+// cost ~100 s under -race and pushed the package past go test's 10 min on
+// macOS/Windows runners). The scale of the broad path itself is covered by
+// TestRecallP95Broad100k in the perf build.
 func TestRecallBroadNewestFirst(t *testing.T) {
 	ctx := t.Context()
 	e := newEnv(t)
@@ -129,23 +135,50 @@ func TestRecallBroadNewestFirst(t *testing.T) {
 	if _, err := s.CreateSession(ctx, Session{ID: "B", Origin: "headless", Cwd: "/"}); err != nil {
 		t.Fatal(err)
 	}
-	evs := make([]Event, broadMatches+1)
+	// The oldest events are dense (high bm25 relevance), the newest sparse,
+	// so bm25 order and newest-first order disagree.
+	const dense, sparse = 10, 11
+	evs := make([]Event, dense+sparse)
 	for i := range evs {
-		evs[i] = Event{Kind: "user_message", Role: "user", Content: "broadword"}
+		c := "broadword broadword broadword"
+		if i >= dense {
+			c = "broadword lorem ipsum dolor sit amet consectetur adipiscing"
+		}
+		evs[i] = Event{Kind: "user_message", Role: "user", Content: c}
 	}
-	if _, err := s.Append(ctx, "B", nil, evs...); err != nil {
-		t.Fatal(err)
-	}
-	got, err := s.Recall(ctx, "broadword", 5)
+	ids, err := s.Append(ctx, "B", nil, evs...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 5 {
-		t.Fatalf("hits = %d", len(got))
+	lastDense := ids[dense-1]
+	hits := func(name string, got []RecallHit, err error) []RecallHit {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(got) != 5 {
+			t.Fatalf("%s: hits = %d", name, len(got))
+		}
+		return got
 	}
-	for i := 1; i < len(got); i++ {
-		if got[i].EventID >= got[i-1].EventID {
-			t.Fatalf("not newest-first: %+v", got)
+	// len(evs) matches > threshold: broad, the 5 newest in descending order.
+	got, err := s.recall(ctx, "broadword", 5, len(evs)-1)
+	for i, h := range hits("broad", got, err) {
+		if h.EventID != ids[len(ids)-1-i] {
+			t.Fatalf("broad: not the newest first: %+v", got)
+		}
+	}
+	// Exactly at the threshold, and through Recall's production threshold:
+	// bm25, so the dense (oldest) events rank first.
+	for name, f := range map[string]func() ([]RecallHit, error){
+		"at threshold": func() ([]RecallHit, error) { return s.recall(ctx, "broadword", 5, len(evs)) },
+		"Recall":       func() ([]RecallHit, error) { return s.Recall(ctx, "broadword", 5) },
+	} {
+		got, err := f()
+		for _, h := range hits(name, got, err) {
+			if h.EventID > lastDense {
+				t.Fatalf("%s: sparse event ranked above dense ones (not bm25): %+v", name, got)
+			}
 		}
 	}
 }
