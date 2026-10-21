@@ -42,6 +42,7 @@ var (
 	ErrPending      = errors.New("journal: action's turn is still open")
 	ErrUnsafePath   = errors.New("journal: path is outside the sandbox")
 	ErrBlob         = errors.New("journal: inverse blob is unavailable")
+	ErrState        = errors.New("journal: file state cannot be restored")
 )
 
 // Snapshot is the content and permission bits of one side of a file action;
