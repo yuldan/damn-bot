@@ -195,7 +195,7 @@ func convertTables(ctx context.Context, tx *sql.Tx, codec Codec, trigs []trigger
 	return nil
 }
 
-func sealEvents(ctx context.Context, tx *sql.Tx, codec Codec) error {
+func sealEvents(ctx context.Context, tx *sql.Tx, codec Codec) (err error) {
 	type row struct {
 		id                          int64
 		sid, kind, content, payload string
@@ -206,7 +206,7 @@ func sealEvents(ctx context.Context, tx *sql.Tx, codec Codec) error {
 	if err != nil {
 		return wrap(err)
 	}
-	defer func() { _ = rows.Close() }() //nolint:errcheck // explicit close follows before updates
+	defer func() { err = errors.Join(err, rows.Close()) }()
 	var rs []row
 	for rows.Next() {
 		var r row
@@ -241,7 +241,7 @@ func sealEvents(ctx context.Context, tx *sql.Tx, codec Codec) error {
 	return nil
 }
 
-func sealSummaries(ctx context.Context, tx *sql.Tx, codec Codec) error {
+func sealSummaries(ctx context.Context, tx *sql.Tx, codec Codec) (err error) {
 	type row struct {
 		id       int64
 		sid      string
@@ -252,7 +252,7 @@ func sealSummaries(ctx context.Context, tx *sql.Tx, codec Codec) error {
 	if err != nil {
 		return wrap(err)
 	}
-	defer func() { _ = rows.Close() }() //nolint:errcheck // explicit close follows before updates
+	defer func() { err = errors.Join(err, rows.Close()) }()
 	var rs []row
 	for rows.Next() {
 		var r row
@@ -280,7 +280,7 @@ func sealSummaries(ctx context.Context, tx *sql.Tx, codec Codec) error {
 	return nil
 }
 
-func sealMemory(ctx context.Context, tx *sql.Tx, codec Codec) error {
+func sealMemory(ctx context.Context, tx *sql.Tx, codec Codec) (err error) {
 	type row struct {
 		id      int64
 		scope   string
@@ -290,7 +290,7 @@ func sealMemory(ctx context.Context, tx *sql.Tx, codec Codec) error {
 	if err != nil {
 		return wrap(err)
 	}
-	defer func() { _ = rows.Close() }() //nolint:errcheck // explicit close follows before updates
+	defer func() { err = errors.Join(err, rows.Close()) }()
 	var rs []row
 	for rows.Next() {
 		var r row
@@ -321,7 +321,7 @@ func sealMemory(ctx context.Context, tx *sql.Tx, codec Codec) error {
 	return nil
 }
 
-func sealCarriers(ctx context.Context, tx *sql.Tx, codec Codec) error {
+func sealCarriers(ctx context.Context, tx *sql.Tx, codec Codec) (err error) {
 	type row struct {
 		id           int64
 		eventID, ord int64
@@ -331,7 +331,7 @@ func sealCarriers(ctx context.Context, tx *sql.Tx, codec Codec) error {
 	if err != nil {
 		return wrap(err)
 	}
-	defer func() { _ = rows.Close() }() //nolint:errcheck // explicit close follows before updates
+	defer func() { err = errors.Join(err, rows.Close()) }()
 	var rs []row
 	for rows.Next() {
 		var r row
@@ -358,7 +358,7 @@ func sealCarriers(ctx context.Context, tx *sql.Tx, codec Codec) error {
 	return nil
 }
 
-func sealGateway(ctx context.Context, tx *sql.Tx, codec Codec) error {
+func sealGateway(ctx context.Context, tx *sql.Tx, codec Codec) (err error) {
 	type row struct {
 		id            int64
 		platform, ext string
@@ -368,7 +368,7 @@ func sealGateway(ctx context.Context, tx *sql.Tx, codec Codec) error {
 	if err != nil {
 		return wrap(err)
 	}
-	defer func() { _ = rows.Close() }() //nolint:errcheck // explicit close follows before updates
+	defer func() { err = errors.Join(err, rows.Close()) }()
 	var rs []row
 	for rows.Next() {
 		var r row
@@ -424,7 +424,7 @@ func rebuildOne(ctx context.Context, db *sql.DB, q, fts string, codec Codec) err
 		id      int64
 		content string
 	}
-	defer func() { _ = rows.Close() }() //nolint:errcheck // explicit close follows before updates
+	defer func() { err = errors.Join(err, rows.Close()) }()
 	var rs []row
 	for rows.Next() {
 		var r row
