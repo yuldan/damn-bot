@@ -5,6 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 ## Unreleased
 
 ### Added
+- `memory`: portable scope normalization — `project:` scopes are cleaned and slash-canonical (`C:\x` → `C:/x`), a leading `/` is absolute on every OS, and empty/relative scopes are rejected; service/store compare normalized forms (ADR-120).
 - `journal`: action journal F2 (`internal/journal` + `internal/ctxdb/journalstore`) — before/after image disimpan sebagai blob content-addressed, baris `actions` + event `tool_dispatch` ditulis dalam satu transaksi sebelum side effect; `Get`/`List` melaporkan aksi kedaluwarsa (`T_cut` 30 hari / 2 GiB) dan turn yang masih terbuka (ADR-117, SPEC §18.1).
 - `journal`: executor undo — create/modify/delete/move, mode/setuid/setgid/sticky dipulihkan, konflik hash ditolak (`--force` menimpa), undo idempotent, `pending`/`expired`/`blob` hilang ditolak, path divalidasi `sandbox` (deny_paths, symlink keluar root, hard link), hasil dicatat sebagai event `undo` + `action_undos` di sesi pemanggil (ADR-117, SPEC §18.1).
 
