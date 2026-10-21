@@ -6,10 +6,8 @@
 # ADR-131 SEC8-10: loop 1900 -> 1950 (pemindaian carrier rekursif + key names; terukur 1913).
 # ADR-134 (REL-01 + SEC11): loop +100 di atas 1950 carrier (ADR-131) -> 2050.
 # ADR-123 amendment (merge #173): loop 2050 -> 2070 (budget stop details di turn/event; terukur 2059;
-# Σ core 38.155 -> 38.175 <= 47.000).
-# Amandemen (rebased ke main c8bf4e7d, 2026-10-22): loop 2070 -> 2100 (detail budget dipasang ulang di
-# atas turn.go main yang kini memuat cacheBreak dari COST-04; terukur 2091; Σ core +30).
-loop              2100 internal/loop
+# Σ core 38.175 -> 38.260 <= 47.000).
+loop              2070 internal/loop
 plan               600 internal/plan
 # ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
 provider          2100 internal/provider
@@ -34,7 +32,11 @@ exec/classify     1830 internal/exec/classify
 # ADR-108: sandbox+redact 1450 -> 1700 (dir-fd walk fast path; Σ core 34.650 -> 34.900 <= 47.000).
 # ADR-108 amendment (SEC14 root canonicalization): sandbox+redact 1700 -> 1760 (alias root, Windows
 # final path + short-form alias; terukur 1759; Σ core 38.090 -> 38.150 <= 47.000).
-sandbox+redact    1760 internal/sandbox internal/redact
+# ADR-117 amendment (REVIEW-F2-SEC5-16b/18): sandbox+redact 1760 -> 1790 (dir handle undo relatif fd,
+# openat/unlinkat/renameat + deny via handle; terukur 1791; Σ core 38.175 -> 38.260 <= 47.000).
+# Amandemen (undo mode Windows, 2026-10-22): sandbox+redact 1795 -> 1835 (sandbox.Dir.Chmod:
+# fchmod pada fd terpin di POSIX, os.Root.Chmod "atribut-saja" di Windows; terukur 1824; Σ core +40).
+sandbox+redact    1835 internal/sandbox internal/redact
 boundary           150 internal/boundary
 # ctxdb: ADR-049 (2.800) → ADR-087 (3.100) → ADR-118 (3.400) → ADR-118 amandemen (3.500: History/Fork/Search + Recall #152 in one package; terukur 3.418).
 # ADR-132 (REL-04/05): engine probe + read-only inspection mode; ctxdb 3500 -> 3700 (terukur 3533; Σ core +200).
@@ -66,6 +68,9 @@ journal            565 internal/journal
 # os.Root.Chmod "atribut-saja" agar undo file 0o440 tidak gagal Access is denied; terukur 573 di #181 dan
 # 583 di #174 sesudah undo CLI; Σ core +30).
 journal            590 internal/journal
+# ADR-117 amendment (REVIEW-F2-SEC5 round 4): journal 560 -> 610 (undo bekerja relatif ke root yang dipin,
+# temp dibuat/chmod lewat handle induk, SEC5-16b/SEC5-18; terukur 613; Σ core 37.870 <= 47.000).
+journal            615 internal/journal
 # ADR-123: budget 400 -> 520 (guard harian/bulanan/provider + formula token gambar; terukur 481).
 # ADR-125: budget 520 -> 560 (jadwal harga bertanggal GAP-COST-01; terukur 530).
 # ADR-128 amandemen SEC6-6: budget 560 -> 580 (max harga tabel vs biaya provider; terukur 571; Σ core +20).
@@ -89,6 +94,9 @@ TESTONLY internal/testutil
 # Format: GENERATED <glob>
 # Total Go non-test seluruh repo (P21, ADR-033).
 TOTAL           190000
+# Amandemen (rebased ke main c8bf4e7d, 2026-10-22): loop 2070 -> 2100 (detail budget #173
+# dipasang ulang di atas turn.go main; terukur 2091; Σ core +30).
+loop              2100 internal/loop
 # Amandemen (retarget ke main 974eb761, 2026-10-22): codetools 5350 -> 5365 (preview undo lewat
 # sandbox.OpenResolved di #177 + retry replace Windows di #170; terukur 5353; Σ core +15).
 codetools         5365 internal/codetools

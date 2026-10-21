@@ -90,7 +90,14 @@ func (s *Sandbox) PinRoot(ctx context.Context, rootPath string) (*Dir, error) {
 	if d == nil {
 		return nil, ErrOutsideWorkspace
 	}
-	want, ok := s.RootIdentity(rootPath)
+	var want os.FileInfo
+	ok := false
+	for _, r := range s.roots {
+		if ok = hasPathPrefix(rootPath, r.path, s.foldRoot); ok {
+			want = r.fi
+			break
+		}
+	}
 	fi, serr := d.File().Stat()
 	if !ok || serr != nil || !os.SameFile(fi, want) {
 		return nil, errors.Join(ErrOutsideWorkspace, d.Close(), serr)

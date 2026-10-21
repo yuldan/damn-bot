@@ -119,6 +119,8 @@ type Sandbox struct {
 	foldRoot bool
 	// noOpenat2 forces the Linux pre-5.6 fallback (test seam only).
 	noOpenat2 bool
+	// handlePath overrides the handle-real-path reader (test seam only).
+	handlePath func(*os.File) (string, bool)
 }
 
 // New validates cfg, canonicalizes every root (symlinks resolved) and
