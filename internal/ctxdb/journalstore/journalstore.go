@@ -96,6 +96,9 @@ type invImage struct {
 // transaction as its tool_dispatch event. The caller must perform the side
 // effect only after Record returns nil (SPEC §4.3 step 8).
 func (s *Store) Record(ctx context.Context, r *journal.Record) (int64, error) {
+	if r == nil {
+		return 0, fmt.Errorf("journalstore: nil record: %w", journal.ErrIrreversible)
+	}
 	if err := r.Validate(); err != nil {
 		return 0, fmt.Errorf("journalstore: record: %w", err)
 	}

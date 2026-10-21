@@ -225,6 +225,9 @@ func TestRetentionByteCap(t *testing.T) {
 func TestValidateRejects(t *testing.T) {
 	t.Parallel()
 	_, js := open(t)
+	if _, err := js.Record(t.Context(), nil); !errors.Is(err, journal.ErrIrreversible) {
+		t.Fatalf("nil record = %v", err)
+	}
 	r := writeRecord()
 	for name, mod := range map[string]func(*journal.Record){
 		"kind":   func(r *journal.Record) { r.Kind = "shell" },
