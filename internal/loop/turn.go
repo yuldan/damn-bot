@@ -263,6 +263,10 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 			Kind: "carrier_dropped", Reason: d.Reason, Count: d.Count,
 		})})
 	}
+	if err := t.recordBilledAttempts(ctx, reply.BilledFailed); err != nil {
+		o := t.fail(ctx, event.DetailInternal, err)
+		return &o, true
+	}
 	if reply.FallbackFrom != "" {
 		t.fallback(ctx, reply.FallbackFrom, reply.Model)
 	}
@@ -295,11 +299,19 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 // streamError classifies a provider failure and performs the loop-owned
 // single re-call (retry=true) where SPEC allows it.
 func (t *turn) streamError(ctx context.Context, p *Prompt, err error, st *askState) (bool, *outcome) {
+	se, ok := errors.AsType[*StreamError](err)
+	if ok && se.Billed > 0 {
+		// The upstream already responded: keep those attempts visible to the
+		// budget guard as unknown cost (SEC6-9), even when the turn fails.
+		if rerr := t.recordBilledAttempts(ctx, se.Billed); rerr != nil {
+			o := t.fail(ctx, event.DetailInternal, rerr)
+			return false, &o
+		}
+	}
 	if ctx.Err() != nil {
 		o := t.cancelled()
 		return false, &o
 	}
-	se, ok := errors.AsType[*StreamError](err)
 	if ok {
 		switch se.Class {
 		case ClassCancelled:
@@ -709,6 +721,20 @@ func (t *turn) saveCarriers(ctx context.Context, eventID int64, cs []event.Carri
 	}
 	if err := t.deps.Carriers.SaveCarriers(context.WithoutCancel(ctx), t.sessionID, eventID, cs); err != nil {
 		return fmt.Errorf("loop: save carriers: %w", err)
+	}
+	return nil
+}
+
+// recordBilledAttempts writes one unknown-cost ledger row per failed attempt
+// that already received a response from the upstream (SEC6-9). Without a
+// price and with zero usage the row is NULL/unknown, so a monetary cap
+// denies later calls instead of letting paid retries pass unseen. The write
+// ignores cancellation: the spend already happened.
+func (t *turn) recordBilledAttempts(ctx context.Context, n int) error {
+	for range n {
+		if err := t.record(context.WithoutCancel(ctx), 0, &event.Usage{}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

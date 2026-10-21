@@ -26,7 +26,7 @@ func (f *fakeGuard) Check(_ context.Context, r budget.Request) (budget.Decision,
 	return f.decision, f.err
 }
 
-func pricedRoute(t *testing.T, model, url string) provider.Route {
+func pricedRoute(t *testing.T, url string) provider.Route {
 	t.Helper()
 	prices, err := budget.NewPrices(budget.PriceEntry{
 		Price: budget.Price{InputPerMTok: 3_000_000, OutputPerMTok: 15_000_000, Version: "test"},
@@ -35,7 +35,7 @@ func pricedRoute(t *testing.T, model, url string) provider.Route {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return provider.Route{Provider: "fake", Model: model, BaseURL: url, APIKey: "sk-test", Prices: prices}
+	return provider.Route{Provider: "fake", Model: "m", BaseURL: url, APIKey: "sk-test", Prices: prices}
 }
 
 // TestBudgetGuardBeforeCall (P27): a denial stops the request before it
@@ -47,7 +47,7 @@ func TestBudgetGuardBeforeCall(t *testing.T) {
 		Allowed: false, Reason: budget.ReasonDaily, Cap: budget.CapDaily,
 		LimitMicros: 100, UsedMicros: 90, EstimateMicros: 20,
 	}}
-	o := client(t, &provider.Config{Routes: []provider.Route{pricedRoute(t, "m", srv.URL)}, Guard: g})
+	o := client(t, &provider.Config{Routes: []provider.Route{pricedRoute(t, srv.URL)}, Guard: g})
 	_, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil)
 	if err == nil {
 		t.Fatal("denied call succeeded")
@@ -72,7 +72,7 @@ func TestBudgetGuardWarningCallback(t *testing.T) {
 	g := &fakeGuard{decision: budget.Decision{Allowed: true, Warnings: []budget.CapKind{budget.CapDaily}}}
 	var seen []budget.CapKind
 	o := client(t, &provider.Config{
-		Routes: []provider.Route{pricedRoute(t, "m", srv.URL)}, Guard: g,
+		Routes: []provider.Route{pricedRoute(t, srv.URL)}, Guard: g,
 		OnBudget: func(d budget.Decision) { seen = d.Warnings },
 	})
 	if _, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil); err != nil {
@@ -93,7 +93,7 @@ func TestBudgetGuardErrorFailsClosed(t *testing.T) {
 	srv := providertest.New(t, nil, providertest.Text("should not run"))
 	boom := errors.New("ledger down")
 	g := &fakeGuard{err: boom}
-	o := client(t, &provider.Config{Routes: []provider.Route{pricedRoute(t, "m", srv.URL)}, Guard: g})
+	o := client(t, &provider.Config{Routes: []provider.Route{pricedRoute(t, srv.URL)}, Guard: g})
 	_, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil)
 	if !errors.Is(err, boom) {
 		t.Errorf("error = %v, want %v", err, boom)

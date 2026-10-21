@@ -90,3 +90,82 @@ func TestStreamErrorBudgetClass(t *testing.T) {
 		t.Fatalf("notes = %v", got)
 	}
 }
+
+// pricedTable prices a loopback route for the guard tests.
+func pricedTable(t *testing.T, baseURL string) registry.PriceTable {
+	t.Helper()
+	table, err := registry.ParsePriceTable([]byte(fmt.Sprintf(`
+version = "guard-test"
+[[price]]
+id = "loopback"
+base_url = %q
+model = "m"
+kind = "operator-contracted"
+source = "test-only"
+from = "2026-01-01"
+input = 150000
+cached_input = 15000
+output = 600000
+`, baseURL)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return table
+}
+func guardDB(t *testing.T) *ctxdb.Store {
+	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: t.TempDir(), Kind: "run"})
+	t.Cleanup(func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Errorf("close: %v", cerr)
+		}
+	})
+	return db
+// TestRunBudgetGuardPricedRoute (PRC-3): a priced route under the cap sends
+// one request; a cap below its projection is denied before the provider; an
+// unpriced route fails closed as budget_unknown_cost. It also asserts the
+// composition root installs a non-nil Guard.
+func TestRunBudgetGuardPricedRoute(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	srv := providertest.New(t, nil, providertest.Text("ok"))
+	db := guardDB(t)
+	o := &runOptions{model: "openai/m", baseURL: srv.URL, apiKey: "k"}
+	req := &loop.Request{Model: "openai/m", MaxTokens: 100}
+	t.Run("under cap", func(t *testing.T) {
+		cfg := config.Default()
+		cfg.Budget.DailyUSD = 1.0
+		prov, err := newRunProviderWithTable(&cfg, db, "openai/m", o, pricedTable(t, srv.URL))
+		if err != nil {
+			t.Fatal(err)
+		if _, err := prov.Stream(ctx, req, func(loop.Delta) {}); err != nil {
+			t.Fatalf("priced call under cap: %v", err)
+		if got := len(srv.Requests()); got != 1 {
+			t.Fatalf("requests = %d, want 1", got)
+	t.Run("cap below projection", func(t *testing.T) {
+		srv := providertest.New(t, nil, providertest.Text("ok"))
+		cfg.Budget.DailyUSD = 0.000001
+		o := &runOptions{model: "openai/m", baseURL: srv.URL, apiKey: "k"}
+		_, err = prov.Stream(ctx, req, func(loop.Delta) {})
+		var se *loop.StreamError
+		if !errors.As(err, &se) || se.Class != loop.ClassBudget || se.Detail != event.DetailBudgetDaily {
+			t.Fatalf("priced denial = %v, want budget_daily", err)
+		if got := len(srv.Requests()); got != 0 {
+			t.Fatalf("requests = %d, want 0", got)
+	t.Run("unpriced fails closed", func(t *testing.T) {
+		prov, err := newRunProvider(&cfg, db, "openai/m", o)
+		if !errors.As(err, &se) || se.Class != loop.ClassBudget || !strings.Contains(err.Error(), "cost unknown") {
+			t.Fatalf("unpriced denial = %v, want budget_unknown_cost", err)
+// TestRunBrokenStreamStopsUnderCap (PRC-3): after one paid attempt on a
+// priced route, the retry projection exceeds the cap, so the real guard
+// denies the retry with no second provider request.
+func TestRunBrokenStreamStopsUnderCap(t *testing.T) {
+	srv := providertest.New(t, nil, badUsageReply())
+	cfg := config.Default()
+	cfg.Budget.DailyUSD = 0.0001 // between the 1x and 2x projection of this route
+	prov, err := newRunProviderWithTable(&cfg, db, "openai/m", o, pricedTable(t, srv.URL))
+	_, err = prov.Stream(ctx, &loop.Request{Model: "openai/m", MaxTokens: 100}, func(loop.Delta) {})
+	var se *loop.StreamError
+	if !errors.As(err, &se) || se.Class != loop.ClassBudget || se.Detail != event.DetailBudgetDaily {
+		t.Fatalf("stream = %v, want budget_daily", err)
+	if got := len(srv.Requests()); got != 1 {
+		t.Fatalf("requests = %d, want 1", got)
