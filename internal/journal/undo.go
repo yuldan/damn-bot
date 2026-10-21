@@ -39,6 +39,15 @@ func NewUndoer(store Store, sb *sandbox.Sandbox) (*Undoer, error) {
 	return &Undoer{store: store, sb: sb, roots: map[string]*sandbox.Dir{}}, nil
 }
 
+// Close releases the root descriptors pinned by this undo batch.
+func (u *Undoer) Close() error {
+	var errs []error
+	for _, d := range u.roots {
+		errs = append(errs, d.Close())
+	}
+	return errors.Join(errs...)
+}
+
 // Undo restores one action and records the outcome in caller's session. The
 // returned Result is populated even when err is non-nil (failed mid-way,
 // conflict, lease fenced) so the caller can report every file already

@@ -217,6 +217,11 @@ func undoApply(ctx context.Context, env *cliEnv, store *journalstore.Store, o *u
 	if err != nil {
 		return 1, fmt.Errorf("undoer: %w", err)
 	}
+	defer func() {
+		if cerr := undoer.Close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("close undoer: %w", cerr))
+		}
+	}()
 	var results []journal.Result
 	var uerr error
 	if o.action != 0 {
@@ -324,52 +329,35 @@ func dryRun(ctx context.Context, env *cliEnv, store *journalstore.Store, a *jour
 		"changed since the action:\n" + lineDiff(after, cur) + "--force would apply:\n" + lineDiff(cur, before), nil
 }
 
-// readInSandbox reads p the way the undo executor reaches it (SEC5-3): the
-// action's sandbox must classify it inside a root (deny_paths and outside
-// paths refuse), and it is opened through the canonical sandbox root, so an
-// ancestor directory swapped for a symlink after the check cannot redirect
-// the read (SEC5-12). Only a regular file that is the one checked is read.
-// nil data = absent; a refusal never reads.
+// readInSandbox reads p the way the undo executor reaches it (SEC5-3,
+// SEC5-15): the action's sandbox must classify it inside a root, it must
+// still resolve to itself, and it is opened with OpenResolved — no symlink
+// on any component, deny_paths re-checked on the handle's path — so an
+// ancestor swapped for a symlink, out of the root or into a denied
+// directory inside it, is neither read nor shown. Only a regular file
+// within the image cap is read. nil data = absent; a refusal never reads.
 func readInSandbox(ctx context.Context, sb *sandbox.Sandbox, p string) (data []byte, refusal string) {
 	v, resolved, err := sb.Check(ctx, p, sandbox.OpWrite)
-	if err != nil || (v != sandbox.Inside && v != sandbox.HardLinked) {
+	if err != nil || (v != sandbox.Inside && v != sandbox.HardLinked) || filepath.Clean(p) != resolved {
 		return nil, "outside the action's sandbox or denied"
 	}
-	dir, rel, ok := sb.RootOf(resolved)
-	if !ok || filepath.Clean(p) != resolved {
-		return nil, "outside the action's sandbox or denied"
-	}
-	root, err := os.OpenRoot(dir)
+	f, _, err := sb.OpenResolved(ctx, resolved, true)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, ""
 	}
 	if err != nil {
-		return nil, "its sandbox root cannot be opened"
+		return nil, "outside the action's sandbox or denied"
 	}
-	data, refusal = readRegular(root, rel)
-	if cerr := root.Close(); cerr != nil && refusal == "" {
-		return nil, "its sandbox root cannot be closed"
-	}
-	return data, refusal
-}
-
-func readRegular(root *os.Root, base string) ([]byte, string) {
-	fi, err := root.Lstat(base)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return nil, ""
-	case err != nil || !fi.Mode().IsRegular():
+	defer f.Close() //nolint:errcheck // read-only handle; the read error is authoritative.
+	fi, serr := f.Stat()
+	if serr != nil || !fi.Mode().IsRegular() {
 		return nil, "not a regular file (symlink or special file)"
-	case fi.Size() > maxJournalImage:
+	}
+	if fi.Size() > maxJournalImage {
 		return nil, "larger than the undo image cap"
 	}
-	f, err := root.Open(base)
-	if err != nil {
-		return nil, "cannot be opened"
-	}
-	st, serr := f.Stat()
-	data, rerr := io.ReadAll(f)
-	if cerr := f.Close(); serr != nil || rerr != nil || cerr != nil || !os.SameFile(fi, st) {
+	data, rerr := io.ReadAll(io.LimitReader(f, maxJournalImage+1))
+	if rerr != nil || len(data) > maxJournalImage {
 		return nil, "changed or unreadable while checking"
 	}
 	if data == nil {
