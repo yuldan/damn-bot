@@ -90,6 +90,8 @@ jobs:
             printf '%s\n' "$changed"
             echo "code=false" >>"$GITHUB_OUTPUT"
           fi
+          # PROBE ADR-135: kegagalan dependen harus membuat ci-required merah.
+          echo "probe: kegagalan sintetis di job changes"; exit 1
 
   lint:
     needs: changes
