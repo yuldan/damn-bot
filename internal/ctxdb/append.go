@@ -142,7 +142,7 @@ type BlobRef struct{ Sha, OwnerKind, OwnerID, RefKey string }
 var (
 	reHex64      = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	reRefKey     = regexp.MustCompile(`(^|_)blob_shas?$`)
-	reCarrierSha = regexp.MustCompile(`(^|\.)carriers\[\d+\]\.sha$`)
+	reCarrierSha = regexp.MustCompile(`^payload\.carriers\[\d+\]\.sha$`)
 )
 
 // nonRefSha64 is the closed list of 64-hex keys that are not blob refs

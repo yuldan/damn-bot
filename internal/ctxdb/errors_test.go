@@ -84,7 +84,7 @@ func TestNonRefShaClosedList(t *testing.T) {
 	if len(refs) != 1 || refs[0].Sha != b {
 		t.Fatalf("refs = %+v, want only blob_sha", refs)
 	}
-	nested := `{"x":{"sha":"` + a + `"},"attachments":[{"sha":"` + a + `"}]}`
+	nested := `{"x":{"sha":"` + a + `"},"attachments":[{"sha":"` + a + `"}],"foo":{"carriers":[{"sha":"` + a + `"}]}}`
 	if _, err := BlobRefsOf("approval", "1", nil, map[string]string{"payload": nested}); !errors.Is(err, ErrInternal) {
 		t.Errorf("nested sha accepted: %v", err)
 	}
