@@ -33,6 +33,8 @@ ctxdb/memstore     600 internal/ctxdb/memstore
 ctxdb/skillstore   400 internal/ctxdb/skillstore
 ctxdb/journalstore 400 internal/ctxdb/journalstore
 ctxdb/limitstore   100 internal/ctxdb/limitstore
+# ADR-131 (PROV-01): carrier reasoning opaque + rejections (ADR-074 consumer store; terukur 237; Σ core +250).
+ctxdb/carrierstore 250 internal/ctxdb/carrierstore
 # ADR-122: storage summary compaction, baris baru (terukur 248; Σ core 36.520 -> 36.770 <= 47.000).
 ctxdb/compactstore 250 internal/ctxdb/compactstore
 # ADR-121: assemble 1000 -> 1200 (tier prompt F2 penuh; terukur 1.034 sesudah PR1; Σ core 36.770 -> 36.970 <= 47.000).
