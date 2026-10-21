@@ -48,10 +48,15 @@ var ErrTooManyToolDeltas = errors.New("too many tool_calls entries in one chunk"
 
 // DeltaDecoder decodes chunks without reflection and, after warmup,
 // without allocation (E-36). Not safe for concurrent use.
+//
+// Duplicate keys behave like encoding/json into a map: the last value of a
+// key wins and replaces (not merges) what an earlier one decoded, and only
+// the last value must have the expected shape (ADR-102 butir 14).
 type DeltaDecoder struct {
-	d   Delta
-	sc  jscan
-	out []byte
+	d     Delta
+	sc    jscan
+	out   []byte
+	tools int // tool_calls entries decoded in this frame, across duplicates (PROV-M2)
 }
 
 // Decode parses one data frame. Only choices[0] is read (n = 1).
@@ -61,21 +66,17 @@ func (dd *DeltaDecoder) Decode(frame []byte) (*Delta, error) {
 	}
 	dd.d = Delta{ToolCalls: dd.d.ToolCalls[:0]}
 	dd.sc = jscan{b: frame, out: dd.out[:0]}
+	dd.tools = 0
 	s := &dd.sc
+	var bad uint8
 	err := s.object(func(key []byte) error {
 		switch string(key) {
 		case "choices":
-			return s.array(func(i int) error {
-				if i > 0 {
-					_, err := s.skip()
-					return err
-				}
-				return dd.choice()
-			})
+			return s.settle(s.mark(), dd.choices(), &bad, 1)
 		case "usage":
-			return dd.usage()
+			return s.settle(s.mark(), dd.usage(), &bad, 2)
 		case "model":
-			return dd.optStr(&dd.d.Model)
+			return s.settle(s.mark(), dd.optStr(&dd.d.Model), &bad, 4)
 		case "error":
 			raw, err := s.skip()
 			dd.d.Error = raw
@@ -84,6 +85,7 @@ func (dd *DeltaDecoder) Decode(frame []byte) (*Delta, error) {
 		_, err := s.skip()
 		return err
 	})
+	err = unresolved(err, bad)
 	if s.ws(); err == nil && s.i != len(s.b) {
 		err = errJSON
 	}
@@ -104,132 +106,235 @@ func (dd *DeltaDecoder) optStr(dst *[]byte) error {
 }
 
 // optInt reads a token count; null is 0.
-func (dd *DeltaDecoder) optInt() (int64, error) {
+func (dd *DeltaDecoder) optInt(dst *int64) error {
 	if dd.sc.null() {
-		return 0, nil
+		*dst = 0
+		return nil
 	}
-	return dd.sc.int()
+	v, err := dd.sc.int()
+	*dst = v
+	return err
 }
 
+// choices reads the choices array; a repeated key replaces choices[0].
+func (dd *DeltaDecoder) choices() error {
+	dd.d.Finish = nil
+	dd.resetBody()
+	s := &dd.sc
+	return s.array(func(i int) error {
+		if i > 0 {
+			_, err := s.skip()
+			return err
+		}
+		return dd.choice()
+	})
+}
+
+// choice reads choices[0]. A "message" key takes precedence over "delta"
+// wherever it appears (refDelta in delta_test.go).
 func (dd *DeltaDecoder) choice() error {
 	s := &dd.sc
-	return s.object(func(key []byte) error {
+	var bad uint8
+	message := false
+	err := s.object(func(key []byte) error {
 		switch string(key) {
-		case "delta", "message":
-			if s.null() {
-				return nil
+		case "delta":
+			if !message {
+				return s.settle(s.mark(), dd.body(), &bad, 1)
 			}
-			return s.object(dd.deltaField)
+		case "message":
+			message, bad = true, bad&^1 // an earlier delta no longer counts
+			return s.settle(s.mark(), dd.body(), &bad, 2)
 		case "finish_reason":
-			return dd.optStr(&dd.d.Finish)
+			return s.settle(s.mark(), dd.optStr(&dd.d.Finish), &bad, 4)
 		}
 		_, err := s.skip()
 		return err
 	})
+	return unresolved(err, bad)
 }
 
-func (dd *DeltaDecoder) deltaField(key []byte) error {
+func (dd *DeltaDecoder) resetBody() {
+	d := &dd.d
+	d.Content, d.Reasoning, d.ReasoningRaw, d.ReasoningField = nil, nil, nil, nil
+	d.ToolCalls = d.ToolCalls[:0]
+}
+
+// reasoningVal is the last value of one reasoning key in a body.
+type reasoningVal struct {
+	key, str, raw []byte // str: a string value; raw: a non-string value
+	isStr         bool
+}
+
+// body reads a delta/message object, replacing an earlier one.
+func (dd *DeltaDecoder) body() error {
+	dd.resetBody()
 	s := &dd.sc
-	switch string(key) {
-	case "content":
-		return dd.optStr(&dd.d.Content)
-	case "reasoning_content", "reasoning":
-		switch s.peek() {
-		case '"':
-			dd.d.ReasoningField = key
-			return dd.optStr(&dd.d.Reasoning)
-		case 'n':
-			return dd.optStr(&dd.d.Reasoning)
+	var rs [2]reasoningVal // reasoning_content, reasoning
+	var bad uint8
+	err := s.object(func(key []byte) error {
+		switch string(key) {
+		case "content":
+			return s.settle(s.mark(), dd.optStr(&dd.d.Content), &bad, 1)
+		case "reasoning_content":
+			return dd.reasoning(&rs[0], key)
+		case "reasoning":
+			return dd.reasoning(&rs[1], key)
+		case "tool_calls":
+			return s.settle(s.mark(), dd.toolCalls(), &bad, 2)
 		}
-		raw, err := s.skip()
-		dd.d.ReasoningRaw, dd.d.ReasoningField = raw, key
+		_, err := s.skip()
 		return err
-	case "tool_calls":
+	})
+	err = unresolved(err, bad)
+	if err != nil {
+		return err
+	}
+	// Both keys present: reasoning_content applies first, then reasoning
+	// overrides it (a string keeps an earlier raw value, like refBody).
+	d := &dd.d
+	for i := range rs {
+		switch r := &rs[i]; {
+		case r.isStr:
+			d.Reasoning, d.ReasoningField = r.str, r.key
+		case r.raw != nil:
+			d.Reasoning, d.ReasoningRaw, d.ReasoningField = nil, r.raw, r.key
+		}
+	}
+	return nil
+}
+
+// reasoning reads a reasoning value of any type; null clears it.
+func (dd *DeltaDecoder) reasoning(r *reasoningVal, key []byte) error {
+	s := &dd.sc
+	*r = reasoningVal{key: key}
+	switch s.peek() {
+	case '"':
+		v, err := s.str()
+		r.str, r.isStr = v, true
+		return err
+	case 'n':
 		if s.null() {
 			return nil
 		}
-		return s.array(func(int) error {
-			// Count decoded entries, not the array index: a repeated
-			// "tool_calls" or "choices" key restarts the index (PROV-M2).
-			if len(dd.d.ToolCalls) == maxChunkToolDeltas {
-				return ErrTooManyToolDeltas
-			}
-			return dd.toolCall()
-		})
 	}
-	_, err := s.skip()
+	raw, err := s.skip()
+	r.raw = raw
 	return err
+}
+
+// toolCalls reads a tool_calls array, replacing an earlier one; the entry
+// count spans duplicates so they cannot reset the bound (PROV-M2).
+func (dd *DeltaDecoder) toolCalls() error {
+	dd.d.ToolCalls = dd.d.ToolCalls[:0]
+	return dd.sc.array(func(int) error {
+		if dd.tools == maxChunkToolDeltas {
+			return ErrTooManyToolDeltas
+		}
+		dd.tools++
+		return dd.toolCall()
+	})
 }
 
 func (dd *DeltaDecoder) toolCall() error {
 	s := &dd.sc
 	var t ToolDelta
+	var bad uint8
 	err := s.object(func(key []byte) error {
 		switch string(key) {
 		case "index":
-			n, err := s.int()
-			t.Index, t.HasIndex = int(n), true
-			return err
+			return s.settle(s.mark(), dd.index(&t), &bad, 1)
 		case "id":
-			return dd.optStr(&t.ID)
+			return s.settle(s.mark(), dd.optStr(&t.ID), &bad, 2)
 		case "function":
-			return s.object(func(k []byte) error {
-				switch string(k) {
-				case "name":
-					return dd.optStr(&t.Name)
-				case "arguments":
-					return dd.optStr(&t.Args)
-				}
-				_, err := s.skip()
-				return err
-			})
+			return s.settle(s.mark(), dd.function(&t), &bad, 4)
 		}
 		_, err := s.skip()
 		return err
 	})
 	dd.d.ToolCalls = append(dd.d.ToolCalls, t)
+	return unresolved(err, bad)
+}
+
+// index reads a tool call index; null is no index (encoding/json).
+func (dd *DeltaDecoder) index(t *ToolDelta) error {
+	t.Index, t.HasIndex = 0, false
+	if dd.sc.null() {
+		return nil
+	}
+	n, err := dd.sc.int()
+	t.Index, t.HasIndex = int(n), true
 	return err
 }
 
+func (dd *DeltaDecoder) function(t *ToolDelta) error {
+	s := &dd.sc
+	t.Name, t.Args = nil, nil
+	var bad uint8
+	err := s.object(func(k []byte) error {
+		switch string(k) {
+		case "name":
+			return s.settle(s.mark(), dd.optStr(&t.Name), &bad, 1)
+		case "arguments":
+			return s.settle(s.mark(), dd.optStr(&t.Args), &bad, 2)
+		}
+		_, err := s.skip()
+		return err
+	})
+	return unresolved(err, bad)
+}
+
+// usage reads the usage object, replacing an earlier one.
 func (dd *DeltaDecoder) usage() error {
 	s := &dd.sc
+	u := &dd.d.Usage
+	*u = DeltaUsage{}
 	if s.null() {
 		return nil
 	}
-	u := &dd.d.Usage
 	u.Present = true
-	return s.object(func(key []byte) error {
-		var err error
+	var bad uint8
+	err := s.object(func(key []byte) error {
 		switch string(key) {
 		case "prompt_tokens":
-			u.Prompt, err = dd.optInt()
+			return s.settle(s.mark(), dd.optInt(&u.Prompt), &bad, 1)
 		case "completion_tokens":
-			u.Output, err = dd.optInt()
+			return s.settle(s.mark(), dd.optInt(&u.Output), &bad, 2)
 		case "cost":
-			if s.null() {
-				return nil
-			}
-			u.Cost, err = s.number()
-			if math.IsInf(u.Cost, 0) {
-				err = errJSON // out of float64 range (encoding/json rejects it too)
-			}
-			u.HasCost = err == nil
+			return s.settle(s.mark(), dd.cost(), &bad, 4)
 		case "prompt_tokens_details":
-			if s.null() {
-				return nil
-			}
-			return s.object(func(k []byte) error {
-				if string(k) == "cached_tokens" {
-					var e error
-					u.Cached, e = dd.optInt()
-					return e
-				}
-				_, e := s.skip()
-				return e
-			})
-		default:
-			_, err = s.skip()
+			return s.settle(s.mark(), dd.details(), &bad, 8)
 		}
+		_, err := s.skip()
 		return err
 	})
+	return unresolved(err, bad)
+}
+
+func (dd *DeltaDecoder) cost() error {
+	s, u := &dd.sc, &dd.d.Usage
+	u.Cost, u.HasCost = 0, false
+	if s.null() {
+		return nil
+	}
+	v, err := s.number()
+	if math.IsInf(v, 0) {
+		err = errJSON // out of float64 range (encoding/json rejects it too)
+	}
+	u.Cost, u.HasCost = v, err == nil
+	return err
+}
+
+func (dd *DeltaDecoder) details() error {
+	s, u := &dd.sc, &dd.d.Usage
+	u.Cached = 0
+	var bad uint8
+	err := s.object(func(k []byte) error {
+		if string(k) == "cached_tokens" {
+			return s.settle(s.mark(), dd.optInt(&u.Cached), &bad, 1)
+		}
+		_, err := s.skip()
+		return err
+	})
+	return unresolved(err, bad)
 }

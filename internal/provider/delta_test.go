@@ -168,6 +168,7 @@ func deltaSamples() []string {
 		`{"choices":[],"usage":{"prompt_tokens":1200,"completion_tokens":34,"prompt_tokens_details":{"cached_tokens":1024},"cost":0.000123}}`,
 		`{"error":{"message":"overloaded","code":"server_error"}}`,
 		`{"choices":[{"index":0,"message":{"content":"full"},"finish_reason":"stop"}]}`,
+		`{"choices":[{"delta":0,"delta":{"content":1,"content":"last","tool_calls":[{"index":0}]}}]}`,
 	}
 }
 
@@ -184,6 +185,61 @@ func TestDeltaDecode(t *testing.T) {
 	for _, bad := range []string{``, `{`, `{"choices":[}`, `{"a":01}`, `{"a":"\x01"}`, `{"a":"\q"}`, `{} x`, `{"usage":{"prompt_tokens":1.5}}`, `{"a":tru}`} {
 		if _, err := dd.Decode([]byte(bad)); err == nil {
 			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+// TestDeltaDuplicateKeys (PROV-m1, ADR-102 butir 14): like encoding/json,
+// the last of duplicate keys wins and replaces the earlier value; only that
+// value must have the expected shape.
+func TestDeltaDuplicateKeys(t *testing.T) {
+	t.Parallel()
+	ch := func(choice string) string { return `{"choices":[{` + choice + `}]}` }
+	body := func(fields string) string { return ch(`"delta":{` + fields + `}`) }
+	const call = `{"index":0,"function":{"name":"x"}}`
+	cases := []struct {
+		name, frame string
+		ok          bool
+		content     string
+		calls       int
+	}{
+		{"delta object-then-object", ch(`"delta":{"content":"a"},"delta":{"content":"b"}`), true, "b", 0},
+		{"delta object-then-empty", ch(`"delta":{"content":"a","tool_calls":[` + call + `]},"delta":{}`), true, "", 0},
+		{"delta scalar-then-object (fuzz)", ch(`"delta":0,"delta":{}`), true, "", 0},
+		{"delta scalar-then-content", ch(`"delta":[1],"delta":{"content":"b"}`), true, "b", 0},
+		{"delta object-then-scalar", ch(`"delta":{"content":"a"},"delta":0`), false, "", 0},
+		{"delta object-then-null", ch(`"delta":{"content":"a"},"delta":null`), true, "", 0},
+		{"delta mistyped inner then object", ch(`"delta":{"content":1},"delta":{"content":"b"}`), true, "b", 0},
+		{"message wins over later delta", ch(`"message":{"content":"m"},"delta":{"content":"d"}`), true, "m", 0},
+		{"message excuses mistyped delta", ch(`"delta":0,"message":{"content":"m"}`), true, "m", 0},
+		{"content string-then-string", body(`"content":"a","content":"b"`), true, "b", 0},
+		{"content scalar-then-string", body(`"content":1,"content":"b"`), true, "b", 0},
+		{"content string-then-scalar", body(`"content":"a","content":true`), false, "", 0},
+		{"content string-then-null", body(`"content":"a","content":null`), true, "", 0},
+		{"content malformed first", body(`"content":"\q","content":"b"`), false, "", 0},
+		{"tool_calls array-then-array", body(`"tool_calls":[` + call + `,` + call + `],"tool_calls":[` + call + `]`), true, "", 1},
+		{"tool_calls array-then-empty", body(`"tool_calls":[` + call + `],"tool_calls":[]`), true, "", 0},
+		{"tool_calls scalar-then-array", body(`"tool_calls":5,"tool_calls":[` + call + `]`), true, "", 1},
+		{"tool_calls array-then-scalar", body(`"tool_calls":[` + call + `],"tool_calls":{}`), false, "", 0},
+		{"tool_calls bad entry then array", body(`"tool_calls":[1],"tool_calls":[` + call + `]`), true, "", 1},
+		{"tool index null", body(`"tool_calls":[{"index":null}]`), true, "", 1},
+		{"choices array-then-empty", `{"choices":[{"delta":{"content":"a"}}],"choices":[]}`, true, "", 0},
+		{"choices scalar-then-array", `{"choices":"x","choices":[{"delta":{"content":"b"}}]}`, true, "b", 0},
+		{"usage object-then-null", `{"usage":{"prompt_tokens":5},"usage":null}`, true, "", 0},
+		{"usage mistyped count then valid", `{"usage":{"prompt_tokens":-1,"prompt_tokens":5}}`, true, "", 0},
+		{"reasoning raw-then-string", body(`"reasoning":[1],"reasoning":"r"`), true, "", 0},
+		{"reasoning string-then-null", body(`"reasoning_content":"a","reasoning":null`), true, "", 0},
+	}
+	var dd DeltaDecoder
+	for _, tc := range cases {
+		got, err := dd.Decode([]byte(tc.frame))
+		want, refOK := refDelta([]byte(tc.frame))
+		if refOK != tc.ok || (err == nil) != tc.ok {
+			t.Errorf("%s: decoder err=%v, encoding/json ok=%v, want ok=%v", tc.name, err, refOK, tc.ok)
+			continue
+		}
+		if tc.ok && (!sameDelta(got, &want) || string(got.Content) != tc.content || len(got.ToolCalls) != tc.calls) {
+			t.Errorf("%s:\n got %+v\nwant %+v", tc.name, got, want)
 		}
 	}
 }
