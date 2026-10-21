@@ -168,17 +168,32 @@ func TestRunTimeout(t *testing.T) {
 
 func TestRunTimeoutIgnoresTERM(t *testing.T) {
 	t.Parallel()
-	s := sh(t, `trap '' TERM; echo armed; while :; do sleep 1; done`)
-	s.Timeout = 300 * time.Millisecond
-	s.KillGrace = time.Second
-	res := run(t.Context(), t, newTestRunner(t), s)
-	if res.Status != StatusTimeout || res.Signal != "SIGKILL" {
-		t.Fatalf("%s %q", res.Status, res.Signal)
+	// The property needs the fixture to have installed its TERM trap before
+	// the timeout fires. The runner's timeout starts at spawn, and on a
+	// loaded runner the shell can still be starting 300 ms later: TERM then
+	// kills it legitimately (no grace, no SIGKILL), which used to fail this
+	// test with "timeout \"SIGTERM\"" on macos-15-intel. Retry the setup
+	// with a longer startup allowance until the fixture reports that it
+	// armed; from there the assertions are exact.
+	for _, timeout := range []time.Duration{300 * time.Millisecond, time.Second, 3 * time.Second} {
+		armed := false
+		s := sh(t, `trap '' TERM; echo armed; while :; do sleep 1; done`)
+		s.OnOutput = func(b []byte) { armed = armed || strings.Contains(string(b), "armed") }
+		s.Timeout, s.KillGrace = timeout, time.Second
+		res := run(t.Context(), t, newTestRunner(t), s)
+		if res.Signal == "SIGTERM" && !armed {
+			continue // the shell had not reached its trap yet: not this property
+		}
+		if res.Status != StatusTimeout || res.Signal != "SIGKILL" {
+			t.Fatalf("%s %q (armed %v, timeout %v)", res.Status, res.Signal, armed, timeout)
+		}
+		if res.Duration < s.Timeout+s.KillGrace || res.Duration > s.Timeout+s.KillGrace+time.Second {
+			t.Fatalf("kill order timing %v", res.Duration)
+		}
+		assertNoMarker(t, res.ExecID)
+		return
 	}
-	if res.Duration < s.Timeout+s.KillGrace || res.Duration > s.Timeout+s.KillGrace+time.Second {
-		t.Fatalf("kill order timing %v", res.Duration)
-	}
-	assertNoMarker(t, res.ExecID)
+	t.Fatalf("the fixture never armed within %v", 3*time.Second)
 }
 
 func TestRunStragglersKilled(t *testing.T) {
