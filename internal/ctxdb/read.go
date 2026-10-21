@@ -375,7 +375,7 @@ func (s *Store) Search(ctx context.Context, q Query) ([]Hit, error) {
 	case limit > maxSearchLimit:
 		limit = maxSearchLimit
 	}
-	expr := searchExpr(text)
+	expr := s.searchExpr(text)
 	if expr == "" {
 		return nil, nil
 	}
@@ -402,7 +402,7 @@ func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int
 		FROM events_fts JOIN events e ON e.id = events_fts.rowid
 		WHERE events_fts MATCH ? AND ` + notPurging("e.session_id")
 	if summaries {
-		q = `SELECT sm.event_id, sm.session_id, sm.to_seq, '', bm25(summaries_fts), sm.content,
+		q = `SELECT sm.event_id, sm.session_id, sm.to_seq, '', bm25(summaries_fts), sm.content, sm.content_enc, sm.from_seq,
 			EXISTS (SELECT 1 FROM events x JOIN events t ON t.session_id = x.session_id
 				WHERE x.session_id = sm.session_id AND x.kind = 'context_exclude'
 				AND json_extract(x.payload, '$.turn_id') = t.turn_id AND t.seq BETWEEN sm.from_seq AND sm.to_seq)
@@ -425,15 +425,21 @@ func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int
 		var h Hit
 		var content string
 		var enc []byte
+		var from int64
 		if summaries {
-			if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &h.Excluded); err != nil {
+			if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &enc, &from, &h.Excluded); err != nil {
 				return wrap(err)
 			}
 		} else if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &enc, &h.Excluded); err != nil {
 			return wrap(err)
 		}
 		identity := h.SessionID + "|" + strconv.FormatInt(h.Seq, 10)
-		dc, derr := s.openRow("events.content", identity, enc, content)
+		scope := "events.content"
+		if summaries {
+			identity = h.SessionID + "|" + strconv.FormatInt(from, 10) + ":" + strconv.FormatInt(h.Seq, 10)
+			scope = "summaries.content"
+		}
+		dc, derr := s.openRow(scope, identity, enc, content)
 		if derr != nil {
 			return derr
 		}
@@ -451,7 +457,7 @@ func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int
 // searchExpr builds Search's syntax-safe FTS5 expression (Recall uses ftsQuery):
 // dmb_fts_norm tokens, each quoted; CJK bigrams OR-ed, a one-rune CJK token is
 // a prefix query, and separate words are AND-ed.
-func searchExpr(text string) string {
+func (s *Store) searchExpr(text string) string {
 	var parts, cjk []string
 	flush := func() {
 		if len(cjk) > 0 {
@@ -460,6 +466,9 @@ func searchExpr(text string) string {
 		}
 	}
 	for tok := range strings.FieldsSeq(ftsNorm(text)) {
+		if s.codec != nil {
+			tok = s.codec.FTS(tok)
+		}
 		tok = strings.ReplaceAll(tok, `"`, `""`)
 		if tok == "" {
 			continue
