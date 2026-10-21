@@ -43,3 +43,15 @@ func TestVersionVerbose(t *testing.T) {
 		t.Fatalf("stdout = %q", out.String())
 	}
 }
+
+func TestSessionsDispatchThroughRun(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := run([]string{"sessions"}, &out, &errb); code != 2 {
+		t.Fatalf("sessions usage exit = %d, want 2", code)
+	}
+	out.Reset()
+	errb.Reset()
+	if code := run([]string{"sessions", "backup", "ls", "--data-dir", t.TempDir()}, &out, &errb); code != 0 {
+		t.Fatalf("sessions backup ls exit = %d (%s), want 0", code, errb.String())
+	}
+}
