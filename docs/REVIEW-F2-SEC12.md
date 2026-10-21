@@ -50,3 +50,44 @@ Probe `TestZZSec12*` (`cmd/damnbot`: `runTurn` nyata + `providertest` + ctxdb ny
 | SEC12-5 | #219 | info | confirmed | Input summarizer adalah transcript mentah tanpa redaksi ulang. Ini aman selama redaksi saat tulis (tool output/user message) berlaku, karena tujuannya provider yang sama. Output summary selalu diredaksi. | Opsional: jalankan `Redactor` atas input summarizer sebagai pertahanan berlapis. |
 
 **Ringkasan:** #219 **APPROVE**. Summary hanya masuk lewat `SessionView.Summaries`, wrapper dan escape tahan injeksi delimiter (probe), panggilan summarizer tercatat di ledger, dan cooldown mencegah loop biaya. #220 **REQUEST CHANGES**: recall otomatis mencari di semua sesi tanpa scope project/principal (SEC12-1), sehingga konten sesi lain masuk prompt. Filter `context_exclude` dan wrapper untrusted sudah benar.
+
+## Round 2 — 2026-10-21
+
+Head: #219 `07f1f0b` (di atas `137e61f`: `CompactUsage` + `UsageCompactor` agar usage summary masuk total turn; input summarizer diredaksi ulang), #220 `66932c8` (di atas `8c4ceda` = `8fa3af1` yang di-rebase tanpa perubahan, `range-diff` "="): recall dibatasi ke `ctxdb.Lineage` (sesi + leluhur fork, tiap sesi dicari terpisah), hit dari turn berjalan ditolak, dan retrieval hanya berjalan bila `view.Pruned`, ada summary, atau lineage > 1.
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #219 | `07f1f0b` | **APPROVE** (SEC12-4/5 FIXED) |
+| #220 | `66932c8` | **APPROVE dengan MINOR**: SEC12-1/2/3 FIXED untuk jalur nyata; SEC12-6 (MEDIUM, sebaiknya diperbaiki sebelum merge), SEC12-7 (MINOR, laten) |
+
+Gate di kedua head: `go test -race -tags goolm -count=1 ./cmd/damnbot ./internal/assemble/... ./internal/compaction/... ./internal/loop/... ./internal/archtest` → ok; `./internal/ctxdb -race -run 'Lineage|History|Search|Fork'` → ok; `go vet` + `GOOS=windows|darwin` bersih; `make deadcode` 0; `make loc` `compaction 796/900`, `loop 1774/1800`, `ctxdb 3421 → 3440/3500`, `assemble 1264/1300`. (Catatan merge: #211 menaikkan `loop` ke 1.900 dan mengubah Total core, jadi PR yang di-merge belakangan harus me-rebase baris budget.)
+
+Probe `TestZZSec12R2` (`runTurn` nyata + `providertest` + ctxdb nyata) dijalankan lalu dihapus. Isi DB: sesi `other` (cwd `/home/u/other`, "zebra private notes from another project"), `gwb` (origin `gateway`, "zebra gateway user B private message"), `parent` (cwd `/home/u/proj`, "zebra parent early note"), `ctxdb.Fork(parent, 1)` → anak, lalu `parent` menambah "zebra parent **AFTER-FORK** secret" setelah fork.
+
+| Sesi yang menjalankan turn (prompt "zebra") | Bocor ke tier retrieval |
+|---|---|
+| `fresh` (cwd sama, tanpa parent: lineage 1, tanpa summary) | **tidak ada**; tier retrieval tidak dibuat ✔ (SEC12-1/3) |
+| Anak fork dari `parent` (lineage 2) | `parent early note` (sah) **dan `parent AFTER-FORK secret`** → SEC12-6. Tidak ada `other`/`gwb` ✔. Prompt turn ini tidak muncul sebagai hit ✔ (SEC12-2) |
+| `CreateSession{ParentID: "gwb", Origin: "headless", Cwd: "/home/u/proj"}` | **`gateway user B private message`**; `Lineage` = `[forged-gw gwb]` → SEC12-7 |
+| `CreateSession{ParentID: "other", Cwd: "/home/u/proj"}` | **`another project`** → SEC12-7 |
+
+### Status
+
+| ID | Verdict | Bukti |
+|---|---|---|
+| SEC12-1 | **FIXED** (jalur nyata) | Recall hanya mencari `Lineage(session)`; sesi project lain dan gateway lain tidak muncul untuk sesi baru maupun anak fork yang dibuat lewat `ctxdb.Fork` (yang menyalin `origin`/`cwd` dari induk). Lihat residual SEC12-6/7. |
+| SEC12-2 | **FIXED** | `hitVisible` menolak hit dengan `turn_id` = turn berjalan, selain hit dari turn `context_exclude`. |
+| SEC12-3 | **FIXED** | Retrieval dilewati bila `!view.Pruned && len(view.Summaries) == 0 && len(lineage) == 1` (probe: sesi `fresh` tanpa tier). F2 belum punya memory provider eksternal. |
+| SEC12-4 | **FIXED** | `Compactor.CompactUsage` mengembalikan `Result.Usage` (diisi dari `reply.Call.Usage` sebelum `validate`, sehingga balasan yang ditolak tetap terhitung), dan `turn.compact` menambahkannya ke `t.usage` sebelum pemeriksaan budget. Golden `TestCompaction` + `turn_core_test` mencakupnya. |
+| SEC12-5 | **FIXED** | `compactionSummarizer` menjalankan `red.String` atas system dan input sebelum `do(PurposeCompaction)`. |
+
+### Temuan baru
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC12-6 | **MEDIUM** | confirmed | **Recall leluhur tidak dibatasi `fork_seq`.** `retrieval` memanggil `Search{SessionID: ancestor}` untuk setiap leluhur tanpa batas seq. Akibatnya event induk **setelah titik fork** (cabang yang tidak pernah dimiliki anak) ikut masuk, padahal `History` membatasinya ke `e.seq <= lin.lim`. Fork dipakai untuk rewind atau menjauhi jalur yang buruk (termasuk turn beracun yang ditinggalkan dengan fork), sehingga konten yang sengaja ditinggalkan dapat kembali ke prompt (terbungkus untrusted). Probe: anak fork menerima "parent AFTER-FORK secret". | Kembalikan `(id, lim)` dari `Lineage` (sama dengan `lineageCTE`), lalu tambahkan batas `seq <= lim` per leluhur di `Search`/`hitVisible` (filter summary `to_seq <= lim` juga). Tambahkan test: konten induk setelah fork tidak muncul. |
+| SEC12-7 | MINOR (laten) | confirmed | **Pointer induk tidak terikat principal/project.** `Tx.CreateSession` menerima `ParentID` sesi mana pun (hanya dijaga purging) tanpa memeriksa `origin`/`cwd`/identitas gateway induk. `Lineage` lalu mengikutinya. Probe: sesi headless di `/home/u/proj` dengan `ParentID` = sesi gateway lain atau project lain → recall menampilkan isinya. Saat ini tidak ada pemanggil produksi yang mengisi `ParentID` dari input (hanya `ctxdb.Fork`, yang menyalin `origin`/`cwd` induk). Jalur delegate/resume/gateway nanti dapat membuka ini, terutama bila id sesi berasal dari input user/model. | Tegakkan di `Tx.CreateSession`: bila `ParentID` diisi, `origin` dan `cwd` anak harus sama dengan induk (dan identitas gateway bila ada), atau sediakan `ctxdb.Fork` sebagai satu-satunya jalur dengan `ParentID`. Sebagai pertahanan berlapis, `retrieval` dapat menyaring leluhur yang `origin`/`cwd`-nya berbeda dari sesi berjalan. Otorisasi `sessions fork <id>` (siapa boleh mem-fork sesi siapa) perlu ditetapkan saat perintahnya ada. |
+
+**Ringkasan:** #219 **APPROVE**: usage summary masuk budget turn dan input summarizer diredaksi ulang. #220 **APPROVE dengan MINOR**: kebocoran lintas project/gateway di jalur nyata tertutup (probe), hit turn berjalan dibuang, dan pemicu SPEC baris 6 diterapkan. SEC12-6 (konten induk setelah fork ikut ter-recall) sebaiknya diperbaiki sebelum merge. SEC12-7 adalah penguatan API untuk jalur fork/delegate berikutnya.
