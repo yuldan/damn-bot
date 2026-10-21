@@ -117,14 +117,14 @@ func openRestoreArchive(ctx context.Context, o *RestoreOptions) (*os.File, *Read
 
 // restoreDBKey selects the DB codec from the archive storage.key or target config.
 //
-//nolint:gocognit,nestif // fail-closed key selection
+//nolint:gocognit,nestif,gosec // fail-closed key selection; both paths are data-dir paths
 func restoreDBKey(ctx context.Context, o *RestoreOptions, stage string) (ctxdb.Codec, string, error) {
 	archiveKey := filepath.Join(stage, "storage.key")
 	targetKey := filepath.Join(o.DataDir, "storage.key")
 	if _, err := os.Stat(archiveKey); err == nil {
-		old, rerr := os.ReadFile(targetKey) //nolint:gosec // data dir
+		old, rerr := os.ReadFile(targetKey)
 		if rerr == nil {
-			want, werr := os.ReadFile(archiveKey) //nolint:gosec // staged archive key
+			want, werr := os.ReadFile(archiveKey)
 			if werr != nil || !bytes.Equal(old, want) {
 				return nil, "", fmt.Errorf("backup: target storage.key differs from archive: %w", ErrKeySource)
 			}

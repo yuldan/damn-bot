@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `ctxdb`: konversi restore plaintext → terenkripsi untuk seluruh tabel FTS (SEC7-71/73).
+
 - `ctxdb`/`cmd/damnbot`: codec kolom at-rest + blind index FTS + key store OS/file (ADR-124 butir 1/8/9).
 
 - `cmd/damnbot`: CLI `sessions backup create|ls|verify` dan `sessions restore <file>` (ADR-124 butir 7).

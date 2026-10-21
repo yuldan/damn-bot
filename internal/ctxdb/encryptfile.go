@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -107,7 +106,7 @@ func trustedTriggers(ctx context.Context) (out []trigger, err error) {
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, s.CloseContext(ctx)) }()
-	rows, err := s.r.QueryContext(ctx, `SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name IN (`+quotedList(encTables())+`)`) //nolint:gosec // fixed table names
+	rows, err := s.r.QueryContext(ctx, `SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('events','summaries','memory','reasoning_carriers','gateway_inbound')`)
 	if err != nil {
 		return nil, wrap(err)
 	}
@@ -120,18 +119,6 @@ func trustedTriggers(ctx context.Context) (out []trigger, err error) {
 		out = append(out, t)
 	}
 	return out, wrap(rows.Err())
-}
-
-func encTables() []string {
-	return []string{"events", "summaries", "memory", "reasoning_carriers", "gateway_inbound"}
-}
-
-func quotedList(xs []string) string {
-	q := make([]string, len(xs))
-	for i, x := range xs {
-		q[i] = "'" + x + "'"
-	}
-	return strings.Join(q, ",")
 }
 
 func encryptDB(ctx context.Context, dbPath string, codec Codec, trigs []trigger) (err error) {
@@ -373,12 +360,12 @@ func encryptBlobs(dir string, codec Codec) error {
 	}))
 }
 
-func encryptBlob(p string, codec Codec) error {
+func encryptBlob(p string, codec Codec) (err error) {
 	plain, err := os.ReadFile(filepath.Clean(p))
 	if err != nil {
 		return wrap(err)
 	}
-	sha := path.Base(p)
+	sha := filepath.Base(p)
 	sum := sha256.Sum256(plain)
 	if hex.EncodeToString(sum[:]) != sha {
 		return ErrInternal
@@ -387,8 +374,26 @@ func encryptBlob(p string, codec Codec) error {
 	if err != nil {
 		return wrap(err)
 	}
-	tmp := p + ".enc"
-	if err := os.WriteFile(tmp, sealed, 0o600); err != nil { //nolint:gosec // staging blob path
+	f, err := os.CreateTemp(filepath.Dir(p), ".blob-enc-")
+	if err != nil {
+		return wrap(err)
+	}
+	tmp := f.Name()
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, os.Remove(tmp))
+		}
+	}()
+	if _, err = f.Write(sealed); err != nil {
+		return wrap(errors.Join(err, f.Close()))
+	}
+	if err = f.Sync(); err != nil {
+		return wrap(errors.Join(err, f.Close()))
+	}
+	if err = f.Close(); err != nil {
+		return wrap(err)
+	}
+	if err = os.Chmod(tmp, 0o600); err != nil {
 		return wrap(err)
 	}
 	return wrap(os.Rename(tmp, p))
