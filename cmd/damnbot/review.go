@@ -10,10 +10,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
-	"unicode"
 
 	"github.com/damnbot/damnbot/internal/memory"
 	"github.com/damnbot/damnbot/internal/redact"
@@ -103,6 +101,9 @@ func reviewMain(ctx context.Context, o *reviewOptions, w io.Writer) (code int, e
 		}
 		scopes = []string{"user", "project:" + cwd}
 	}
+	if o.action != "" {
+		return decideReview(ctx, svc, o, scopes, w)
+	}
 	list := svc.Pending
 	if o.rejected {
 		list = svc.Rejected
@@ -111,38 +112,44 @@ func reviewMain(ctx context.Context, o *reviewOptions, w io.Writer) (code int, e
 	if err != nil {
 		return 1, fmt.Errorf("list: %w", err)
 	}
-	if o.action == "" {
-		return 0, writeReview(w, hits)
-	}
-	return decideReview(ctx, svc, o, hits, w)
+	return 0, writeReview(w, hits, len(hits) == memory.MaxRecall)
 }
 
-// decideReview approves or rejects the targets; an explicit id must be a
-// pending entry of the reviewed scopes (no cross-scope decisions, JN3-1).
-func decideReview(ctx context.Context, svc *memory.Service, o *reviewOptions, pending []memory.Hit, w io.Writer) (int, error) {
-	targets := make([]memory.Record, 0, len(pending))
-	for i := range pending {
-		if o.bulk || slices.Contains(o.ids, pending[i].Record.ID) {
-			targets = append(targets, pending[i].Record)
-		}
-	}
-	var errs []error
-	for _, id := range o.ids {
-		if !slices.ContainsFunc(targets, func(r memory.Record) bool { return r.ID == id }) {
-			errs = append(errs, fmt.Errorf("%d is not pending in the reviewed scopes (see --scope)", id))
-		}
-	}
+// decideReview approves or rejects every pending entry of the scopes
+// (--bulk: page after page until the queue is empty, REVIEW-F2-SEC5-7) or
+// exactly the given ids, each of which must be pending in one of the
+// reviewed scopes (no cross-scope decision, JN3-1).
+func decideReview(ctx context.Context, svc *memory.Service, o *reviewOptions, scopes []string, w io.Writer) (int, error) {
 	decide, verb := svc.Approve, "approved"
 	if o.action == "reject" {
 		decide, verb = svc.Reject, "rejected"
 	}
 	var b strings.Builder
-	for i := range targets {
-		if derr := decide(ctx, targets[i].ID, targets[i].Scope); derr != nil {
-			errs = append(errs, fmt.Errorf("%d: %w", targets[i].ID, derr))
-			continue
+	var errs []error
+	failed := map[int64]bool{}
+	apply := func(recs []memory.Record) (tried int) {
+		for i := range recs {
+			if failed[recs[i].ID] {
+				continue
+			}
+			tried++
+			if derr := decide(ctx, recs[i].ID, recs[i].Scope); derr != nil {
+				failed[recs[i].ID] = true
+				errs = append(errs, fmt.Errorf("%d: %w", recs[i].ID, derr))
+				continue
+			}
+			fmt.Fprintf(&b, "%d %s\n", recs[i].ID, verb)
 		}
-		fmt.Fprintf(&b, "%d %s\n", targets[i].ID, verb)
+		return tried
+	}
+	if o.bulk {
+		if err := drainPending(ctx, svc, scopes, apply); err != nil {
+			errs = append(errs, err)
+		}
+	} else {
+		recs, terr := pendingByID(ctx, svc, o.ids, scopes)
+		errs = append(errs, terr...)
+		apply(recs)
 	}
 	if _, werr := io.WriteString(w, b.String()); werr != nil {
 		errs = append(errs, fmt.Errorf("write output: %w", werr))
@@ -153,21 +160,62 @@ func decideReview(ctx context.Context, svc *memory.Service, o *reviewOptions, pe
 	return 0, nil
 }
 
-// oneLine flattens whitespace and drops control characters, so quarantined
-// text cannot drive the reviewer's terminal (escape sequences).
-func oneLine(s string) string {
-	s = strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) && !unicode.IsSpace(r) {
-			return -1
+// drainPending feeds every pending entry of scopes to apply, page after
+// page, until the queue is empty or a page holds only entries apply skips
+// (already failed), so a failing entry cannot loop forever.
+func drainPending(ctx context.Context, svc *memory.Service, scopes []string, apply func([]memory.Record) int) error {
+	for {
+		hits, err := svc.Pending(ctx, scopes, memory.MaxRecall)
+		if err != nil {
+			return fmt.Errorf("list: %w", err)
 		}
-		return r
-	}, s)
-	return strings.Join(strings.Fields(s), " ")
+		recs := make([]memory.Record, len(hits))
+		for i := range hits {
+			recs[i] = hits[i].Record
+		}
+		if apply(recs) == 0 {
+			return nil
+		}
+	}
+}
+
+// pendingByID resolves explicit ids without the listing cap: each must be
+// scanned and in one of the reviewed scopes (compared in normalized form).
+func pendingByID(ctx context.Context, svc *memory.Service, ids []int64, scopes []string) ([]memory.Record, []error) {
+	norm := make(map[string]bool, len(scopes))
+	for _, sc := range scopes {
+		n, err := memory.NormalizeScope(sc)
+		if err != nil {
+			return nil, []error{fmt.Errorf("scope %q: %w", sc, err)}
+		}
+		norm[n] = true
+	}
+	recs, err := svc.Get(ctx, ids)
+	if err != nil {
+		return nil, []error{fmt.Errorf("get: %w", err)}
+	}
+	byID := make(map[int64]memory.Record, len(recs))
+	for i := range recs {
+		byID[recs[i].ID] = recs[i]
+	}
+	var out []memory.Record
+	var errs []error
+	for _, id := range ids {
+		r, ok := byID[id]
+		if !ok || r.Status != memory.StatusScanned || !norm[r.Scope] {
+			errs = append(errs, fmt.Errorf("%d is not pending in the reviewed scopes (see --scope)", id))
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, errs
 }
 
 // writeReview prints one line per entry: id, status, scope, category,
-// origin, scan severity and the (already redacted) content on one line.
-func writeReview(w io.Writer, hits []memory.Hit) error {
+// origin, scan severity and the (already redacted) content. Every field is
+// terminal-sanitized (REVIEW-F2-SEC5-6); a full page ends with a note that
+// more entries may be queued.
+func writeReview(w io.Writer, hits []memory.Hit, more bool) error {
 	var b strings.Builder
 	for i := range hits {
 		r := &hits[i].Record
@@ -176,7 +224,11 @@ func writeReview(w io.Writer, hits []memory.Hit) error {
 		if json.Unmarshal([]byte(r.ScanResult), &scan) == nil && scan.Severity != "" {
 			sev = string(scan.Severity)
 		}
-		fmt.Fprintf(&b, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, r.Status, r.Scope, r.Category, r.Origin, sev, oneLine(r.Content))
+		fmt.Fprintf(&b, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", r.ID, cleanLine(string(r.Status)), cleanLine(r.Scope),
+			cleanLine(string(r.Category)), cleanLine(string(r.Origin)), cleanLine(sev), cleanLine(r.Content))
+	}
+	if more {
+		fmt.Fprintf(&b, "(first %d shown; decide them or narrow --scope to see the rest; --bulk covers all)\n", len(hits))
 	}
 	if _, err := io.WriteString(w, b.String()); err != nil {
 		return fmt.Errorf("write output: %w", err)

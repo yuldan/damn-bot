@@ -123,8 +123,39 @@ func TestReviewSanitizesContent(t *testing.T) {
 	ids := seedImports(t, data, "user", "paint \x1b[31mred\x1b[0m\nnext line")
 	reviewCLI(t, 0, "reject", idStr(ids[0]), "--scope", "user", "--data-dir", data)
 	out := reviewCLI(t, 0, "--rejected", "--scope", "user", "--data-dir", data)
-	if strings.ContainsRune(out, 0x1b) || strings.Count(out, "\n") != 1 || !strings.Contains(out, "paint [31mred[0m next line") {
+	if strings.ContainsRune(out, 0x1b) || strings.Count(out, "\n") != 1 || !strings.Contains(out, "paint [31mred [0m next line") {
 		t.Fatalf("unsanitized review output %q", out)
+	}
+	// REVIEW-F2-SEC5-6: bidi/format runes and a scope carrying newline/tab
+	// are sanitized in every field: one line, exactly the 6 separators.
+	scope := "project:/x\u202e\nFAKE\tROW"
+	seedImports(t, data, scope, "isolate \u2066hidden\u2069 \u200b text")
+	out = reviewCLI(t, 0, "--rejected", "--scope", scope, "--data-dir", data) // invisible runes scan high: auto-rejected
+	if strings.ContainsAny(out, "\u202e\u2066\u2069\u200b") || strings.Count(out, "\n") != 1 || strings.Count(out, "\t") != 6 {
+		t.Fatalf("bidi/scope not sanitized: %q", out)
+	}
+}
+
+// TestReviewBeyondOnePage (REVIEW-F2-SEC5-7): the listing notes a full
+// page, an explicit id past the first page can be decided, and --bulk
+// drains the whole queue.
+func TestReviewBeyondOnePage(t *testing.T) {
+	t.Parallel()
+	data := t.TempDir()
+	contents := make([]string, memory.MaxRecall+5)
+	for i := range contents {
+		contents[i] = "fact " + strconv.Itoa(i)
+	}
+	ids := seedImports(t, data, "user", contents...)
+	if out := reviewCLI(t, 0, "--scope", "user", "--data-dir", data); strings.Count(out, "\tscanned\t") != memory.MaxRecall || !strings.Contains(out, "--bulk covers all") {
+		t.Fatalf("first page = %q", out)
+	}
+	reviewCLI(t, 0, "approve", idStr(ids[0]), "--scope", "user", "--data-dir", data) // resolved by id, not from the listed page
+	if out := reviewCLI(t, 0, "reject", "--bulk", "--scope", "user", "--data-dir", data); strings.Count(out, " rejected\n") != len(ids)-1 {
+		t.Fatalf("bulk decided %d of %d: %q", strings.Count(out, " rejected\n"), len(ids)-1, out)
+	}
+	if out := reviewCLI(t, 0, "--scope", "user", "--data-dir", data); out != "" {
+		t.Fatalf("queue not drained: %q", out)
 	}
 }
 
