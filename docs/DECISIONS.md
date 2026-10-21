@@ -2789,3 +2789,14 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Keputusan.** Direktif `go 1.26.10` di `go.mod`, `bench/go.mod`, `tools/go.mod` (tanpa baris `toolchain` terpisah: `go mod tidy -diff` bersih di ketiganya). CI `actions/setup-go` membaca `go-version-file` (`go.mod`/`bench/go.mod`) sehingga ikut naik; tidak ada pin versi literal di `.github/` atau `Makefile`. Baris Status `docs/ENGINEERING.md` diperbarui ke 1.26.10. Catatan pengukuran historis yang menyebut `go1.26.8`/`go1.26.9` tidak diubah.
 
 **Konsekuensi.** (+) `vuln` hijau untuk GO-2026-6809; toolchain lokal dan CI konsisten di 1.26.10. (−) Kontributor dengan Go lokal lebih lama bergantung pada `GOTOOLCHAIN=auto` untuk mengunduh 1.26.10.
+
+## ADR-116 — `write_file` membuat path yang belum ada tanpa memedulikan tag
+
+**Status:** Accepted 2026-10-21 (temuan C13 matriks skenario LLM; menggantikan aturan CODE-TOOLS §5.6 "tag pada file baru → `not_found`").
+
+**Konteks.** Untuk prompt "buat file baru", model mengirim `tag:"00000000"` sebagai placeholder karena schema hanya mewajibkan `path`/`content`. Tool menolak dengan `not_found`, model mengulang bentuk panggilan yang sama, dan turn berakhir `no_progress`. Path yang belum ada tidak punya snapshot untuk diverifikasi, sehingga tag tidak memberi jaminan keamanan di jalur create.
+
+**Keputusan.** `write_file` membuat path yang belum ada apa pun nilai `tag`; format `^[0-9a-f]{8}$` tetap divalidasi seperti argumen lain, tag diabaikan, dan hasil menandai `tag_ignored` plus notice singkat. Untuk file eksisting tidak ada perubahan: tanpa tag → `stale_read`, tag basi → `stale_read`, tag benar → timpa. Deskripsi tool dan CODE-TOOLS §5.6 diperbarui.
+
+**Konsekuensi.** (+) Bentuk panggilan natural model berhasil dan stale-read untuk file eksisting tetap fail-closed. (−) Deskripsi schema bertambah ~10 karakter (masih ≤ 160 char); tidak ada I/O atau alokasi baru di jalur create. Test: create dengan tag nol/arbitrer, `stale_read` untuk tag salah, overwrite dengan tag benar.
+

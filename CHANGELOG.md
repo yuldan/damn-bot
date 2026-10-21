@@ -5,6 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 ## Unreleased
 
 ### Fixed
+- `codetools`: `write_file` membuat path yang belum ada tanpa memedulikan `tag` — tag hanya snapshot file eksisting, format `^[0-9a-f]{8}$` tetap divalidasi, dan hasil menandai `tag_ignored`; `stale_read` untuk file eksisting tidak berubah (ADR-116, C13 matriks skenario LLM).
 - `cmd/damnbot`: `run` mencetak error validasi flag (prompt hilang, `--output` tidak dikenal) ke stderr sebelum exit 2; error dari parser `flag` tetap dicetak sekali oleh paket `flag` (defect A4 matriks skenario LLM).
 - `cmd/damnbot`: composition root headless menyambungkan `exec.Sessions` (dan menutupnya lebih dulu saat shutdown), sehingga `shell` dengan `session` benar-benar berjalan alih-alih `module_unavailable`; varian schema yang mengiklankan `session` kini cocok dengan ketersediaannya (C15). Penolakan auto-mode untuk `echo` tanpa `shell_allow` tetap benar (ADR-079).
 - `cmd/damnbot`: event `tool_result` pada `--output stream-json` menetralkan penutup `<untrusted>` dalam segala kapitalisasi, sama seperti render yang dilihat model (D20).
