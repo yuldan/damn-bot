@@ -82,11 +82,6 @@ func TestWriteReadBack(t *testing.T) {
 	}
 	_, err = v.e.Write(ctx, WriteArgs{Path: "deep/er/new.txt", Content: "x"}, Opts{})
 	wantCode(t, err, CodeStaleRead)
-	_, err = v.e.Write(ctx, WriteArgs{Path: "nope.txt", Content: "x", Tag: new("0badc0de")}, Opts{})
-	wantCode(t, err, CodeNotFound)
-	if hint := asToolErr(t, err).Hint; !strings.Contains(hint, "omit tag") {
-		t.Errorf("create hint = %q, want omit tag guidance", hint)
-	}
 	tag := metaStr(&r, "tag")
 	if _, err = v.e.Write(ctx, WriteArgs{Path: "deep/er/new.txt", Content: "c\n", Tag: &tag}, Opts{}); err != nil {
 		t.Fatal(err)
@@ -105,6 +100,47 @@ func TestWriteReadBack(t *testing.T) {
 	tgt := &target{resolved: filepath.Join(v.root, "w.txt"), rel: "w.txt"}
 	ci := commitInfo{sum: [32]byte{1}}
 	wantCode(t, v.e.readBack(ctx, tgt, &ci, 0), CodeWriteVerifyFailed)
+}
+
+// TestWriteCreateIgnoresTag covers ADR-116/C13: a missing path is created
+// whether or not the model sends a tag; existing files keep the stale-read
+// guard.
+func TestWriteCreateIgnoresTag(t *testing.T) {
+	t.Parallel()
+	v := newEnv(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		path, tag string
+	}{
+		{"zero-tag.txt", "00000000"},
+		{"arbitrary-tag.txt", "deadbeef"},
+	} {
+		tag := c.tag
+		r, err := v.e.Write(ctx, WriteArgs{Path: c.path, Content: "exact\nbytes\n", Tag: &tag}, Opts{})
+		if err != nil {
+			t.Fatalf("%s: %v", c.path, err)
+		}
+		if got := v.get(t, c.path); got != "exact\nbytes\n" {
+			t.Errorf("%s bytes = %q", c.path, got)
+		}
+		if r.Meta["created"] != true || r.Meta["tag_ignored"] != true || !strings.Contains(r.Content, "tag ignored") {
+			t.Errorf("%s result = %+v", c.path, r)
+		}
+	}
+	v.put(t, "exists.txt", "old\n")
+	_, err := v.e.Write(ctx, WriteArgs{Path: "exists.txt", Content: "new\n", Tag: new("deadbeef")}, Opts{})
+	wantCode(t, err, CodeStaleRead)
+	r, err := v.e.Read(ctx, ReadArgs{Path: "exists.txt"}, Opts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tag := metaStr(&r, "tag")
+	if _, err := v.e.Write(ctx, WriteArgs{Path: "exists.txt", Content: "new\n", Tag: &tag}, Opts{}); err != nil {
+		t.Fatalf("overwrite with tag: %v", err)
+	}
+	if got := v.get(t, "exists.txt"); got != "new\n" {
+		t.Errorf("overwrite = %q", got)
+	}
 }
 
 // TestStatTagRacy is CT-34/§5.5: a stat-tag whose mtime is within 2 s of

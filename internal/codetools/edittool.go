@@ -344,11 +344,11 @@ func (e *Engine) Write(ctx context.Context, a WriteArgs, o Opts) (res Result, er
 }
 
 // create writes a new file: parents created inside the sandbox, UTF-8
-// without BOM, files.new_eol line endings (CODE-TOOLS §5.6).
+// without BOM, files.new_eol line endings (CODE-TOOLS §5.6). A tag is only a
+// snapshot of an existing file, so a tag supplied for a missing path is
+// ignored: there is no data to clobber and the model's natural call shape
+// sends a placeholder tag (ADR-116).
 func (e *Engine) create(ctx context.Context, a WriteArgs, abs string, o Opts) (Result, error) {
-	if a.Tag != nil {
-		return Result{}, toolErr(CodeNotFound, "omit tag to create a new file", "%s does not exist", a.Path)
-	}
 	v, resolved, err := e.sb.Check(ctx, abs, sandbox.OpWrite)
 	if err != nil {
 		return Result{}, mapOpenErr(a.Path, err)
@@ -370,5 +370,9 @@ func (e *Engine) create(ctx context.Context, a WriteArgs, abs string, o Opts) (R
 	}
 	res := e.changed(&current{t: t}, d, lines, out, &ci, "write", 1)
 	res.Meta["created"] = true
+	if a.Tag != nil {
+		res.Meta["tag_ignored"] = true
+		res.Content += "\n[tag ignored: " + a.Path + " did not exist; created a new file]"
+	}
 	return res, nil
 }

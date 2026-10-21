@@ -333,7 +333,7 @@ flowchart TD
 
 Schema: `{path*, content* (maxLength 1000000), tag (pattern ^[0-9a-f]{8}$)}`.
 
-- **Membuat file baru:** `tag` tidak boleh ada; bila ada → `not_found`. Direktori induk dibuat (di dalam root). Hasilnya UTF-8 tanpa BOM, EOL `files.new_eol` (default `lf`).
+- **Membuat file baru:** `tag` opsional dan diabaikan bila dikirim — tidak ada snapshot eksisting yang bisa diverifikasi, sehingga tag tidak punya makna keamanan di jalur create (ADR-116); format `^[0-9a-f]{8}$` tetap divalidasi seperti argumen lain. Direktori induk dibuat (di dalam root). Hasilnya UTF-8 tanpa BOM, EOL `files.new_eol` (default `lf`), dan hasil memuat notice bahwa tag diabaikan.
 - **Menimpa file eksisting:**
   - tanpa `tag` → `stale_read` hint "read_file first";
   - tag basi → `stale_read` seperti §5.3.
