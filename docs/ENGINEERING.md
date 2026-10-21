@@ -322,9 +322,9 @@ Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2
 | `plan` | 600 | `assemble` | 1.000 |
 | `provider` (core OpenAI-compatible + `providertest`) | 2.000 | `compaction` | 900 |
 | `provider/registry` (Go; data TOML tidak dihitung; storage di `ctxdb/limitstore`, ADR-126) | 300 | `memory` + `skills` (storage di `ctxdb/memstore`/`ctxdb/skillstore`, ADR-074) | 1.200 |
-| `netx` + `netx/jsonrpc` | 1.800 | `journal` (storage di `ctxdb/journalstore`, ADR-074) | 500 |
-| `schema` | 1.200 | `budget` (storage di `ctxdb/ledgerstore`, ADR-074) | 560 |
-| `tools` | 1.800 | `heal` | 1.500 |
+| `netx` + `netx/jsonrpc` | 1.800 | `journal` (storage di `ctxdb/journalstore`, ADR-074, ADR-117) | 560 |
+| `schema` | 1.200 | `budget` (storage di `ctxdb/ledgerstore`, ADR-074, ADR-125) | 560 |
+| `tools` (ADR-119) | 2.200 | `heal` | 1.500 |
 | `codetools` (ADR-111, ADR-108) | 5.350 | `config` | 1.200 |
 | `exec` (unix + windows; ADR-081, ADR-106) | 3.400 | `modules` + `modules/host` | 1.000 |
 | `exec/classify` (label risiko + `shell_allow` argv-persis, ADR-081, ADR-106, ADR-112) | 1.800 | | |

@@ -33,7 +33,7 @@ ctxdb/memstore     600 internal/ctxdb/memstore
 ctxdb/skillstore   400 internal/ctxdb/skillstore
 ctxdb/journalstore 400 internal/ctxdb/journalstore
 ctxdb/limitstore   100 internal/ctxdb/limitstore
-# ADR-122: storage summary compaction, baris baru (Σ core 36.520 -> 36.770 <= 47.000).
+# ADR-122: storage summary compaction, baris baru (terukur 248; Σ core 36.520 -> 36.770 <= 47.000).
 ctxdb/compactstore 250 internal/ctxdb/compactstore
 assemble          1000 internal/assemble
 compaction         900 internal/compaction
