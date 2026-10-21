@@ -3,6 +3,8 @@
 package exec
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"strconv"
@@ -22,12 +24,22 @@ func TestSweepStaleConfirmsKill(t *testing.T) {
 	owner := deadPid(t)
 	for i := range 30 {
 		id := strconv.Itoa(owner) + ".0123456789abcdef"
-		cmd := exec.Command("/bin/sh", "-c", `while :; do /bin/sh -c true; done`)
+		// The context must not be canceled after Wait: os/exec's watchCtx
+		// would block sending its result to a Cmd nobody waits on again.
+		cmd := exec.CommandContext(context.Background(), "/bin/sh", "-c", `while :; do /bin/sh -c true; done`)
 		cmd.Env = append(os.Environ(), MarkerEnv+"="+id)
 		if err := cmd.Start(); err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait() })
+		t.Cleanup(func() {
+			if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				t.Errorf("cleanup kill: %v", err)
+			}
+			var ee *exec.ExitError
+			if _, err := cmd.Process.Wait(); err != nil && !errors.As(err, &ee) {
+				t.Errorf("cleanup wait: %v", err)
+			}
+		})
 		waitMarked(t, id)
 		killed, err := SweepStale()
 		if err != nil {
@@ -50,15 +62,15 @@ func TestSweepStaleConfirmsKill(t *testing.T) {
 // the sweep treats the owner of a marker with that pid as dead.
 func deadPid(t *testing.T) int {
 	t.Helper()
-	cmd := exec.Command("/bin/sh", "-c", "exit 0")
+	cmd := exec.CommandContext(context.Background(), "/bin/sh", "-c", "exit 0")
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
 	return cmd.Process.Pid
 }
 
-// waitMarked waits until a scan sees pid-carrying markers with id, i.e. the
-// child reached its exec loop.
+// waitMarked waits until a scan sees a marker with id, i.e. the child
+// reached its exec loop.
 func waitMarked(t *testing.T, id string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
