@@ -211,6 +211,22 @@ func TestCarrierRunPersistsWithRealStore(t *testing.T) {
 func TestCarrierRedactionDropsBytes(t *testing.T) {
 	t.Parallel()
 	const secret = "sk-abcdefghijklmnopqrstuvwxyz012345"
+	dir := runCarrierSecret(t, secret)
+	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: dir, Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Errorf("close ctxdb: %v", cerr)
+		}
+	}()
+	assertNoCarrierRows(t, db, secret)
+	assertNoSecretBytes(t, dir, secret)
+}
+
+func runCarrierSecret(t *testing.T, secret string) string {
+	t.Helper()
 	srv := providertest.New(t, nil, carrierReply("SIG-2", "the key is "+secret))
 	dir := t.TempDir()
 	cfg := filepath.Join(t.TempDir(), "config.toml")
@@ -225,15 +241,11 @@ func TestCarrierRedactionDropsBytes(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d; stdout %s; stderr %s", code, out.String(), errb.String())
 	}
-	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: dir, Kind: "run"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if cerr := db.Close(); cerr != nil {
-			t.Errorf("close ctxdb: %v", cerr)
-		}
-	}()
+	return dir
+}
+
+func assertNoCarrierRows(t *testing.T, db *ctxdb.Store, secret string) {
+	t.Helper()
 	var rows, leaks int64
 	if qerr := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
 		n, ierr := tx.Ints("SELECT id FROM reasoning_carriers")
@@ -268,17 +280,35 @@ func TestCarrierRedactionDropsBytes(t *testing.T) {
 			t.Fatalf("redacted carrier reloaded: %+v", history[i].Carriers)
 		}
 	}
-	// The raw secret must not remain in the database file or its WAL either.
+}
+
+// assertNoSecretBytes walks the data dir through an os.Root so the path is
+// not a caller-variable file inclusion.
+func assertNoSecretBytes(t *testing.T, dir, secret string) {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := root.Close(); cerr != nil {
+			t.Errorf("close root: %v", cerr)
+		}
+	}()
 	if derr := filepath.Walk(dir, func(path string, info os.FileInfo, werr error) error {
 		if werr != nil || info.IsDir() {
 			return werr
 		}
-		b, rerr := os.ReadFile(path)
+		rel, rerr := filepath.Rel(dir, path)
 		if rerr != nil {
-			return rerr
+			return fmt.Errorf("relative path %s: %w", path, rerr)
+		}
+		b, rerr := root.ReadFile(rel)
+		if rerr != nil {
+			return fmt.Errorf("read %s: %w", rel, rerr)
 		}
 		if bytes.Contains(b, []byte(secret)) {
-			t.Errorf("secret bytes remain in %s", path)
+			t.Errorf("secret bytes remain in %s", rel)
 		}
 		return nil
 	}); derr != nil {
