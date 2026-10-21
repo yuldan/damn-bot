@@ -34,6 +34,7 @@ type turn struct {
 	compacted bool
 	iteration int
 	pending   *outcome
+	finished  bool // terminal state already persisted (GAP-REL-01)
 }
 
 // outcome is one terminal classification; err is already redacted.
@@ -41,6 +42,14 @@ type outcome struct {
 	stop   event.StopReason
 	detail event.StopDetail
 	err    string
+}
+
+// excludePayload is the append-only context_exclude marker (GAP-REL-01).
+// The turn's rows stay in the transcript and remain recallable; the
+// assembler skips them for later requests.
+type excludePayload struct {
+	TurnID string `json:"turn_id"`
+	Reason string `json:"reason"`
 }
 
 // askState is the per-iteration re-call bookkeeping (ADR-078 AUD-045).
@@ -52,7 +61,19 @@ type askState struct {
 // run executes the turn and emits its terminal update. It never returns an
 // error: every failure becomes a stop reason (P2).
 func (t *turn) run(ctx context.Context) {
+	defer t.finishOpen(ctx)
 	t.end(ctx, t.steps(ctx))
+}
+
+// finishOpen persists the terminal state when the state machine unwinds
+// before end (a panic; boundary still receives it, E-26). Only the terminal
+// state is written here, without a stream update, so recovery never depends
+// on a reader draining the channel (GAP-REL-01).
+func (t *turn) finishOpen(ctx context.Context) {
+	if t.finished {
+		return
+	}
+	t.finish(context.WithoutCancel(ctx), outcome{stop: event.StopError, detail: event.DetailInternal, err: "panic"}, "panic")
 }
 
 // steps is the iteration loop of SPEC §3.4.
@@ -412,15 +433,50 @@ func (t *turn) truncated(ctx context.Context, calls []ToolCall) (outcome, bool) 
 	return outcome{}, false
 }
 
-// end persists turn_end and emits the terminal update.
+// end persists the terminal state and emits the terminal update.
 func (t *turn) end(ctx context.Context, o outcome) {
 	errText := t.redact(o.err)
+	t.finish(ctx, o, excludeReason(o))
+	t.emit(&event.Update{Kind: event.UpdateStop, Stop: o.stop, Detail: o.detail, Usage: &t.usage, Err: errText})
+}
+
+// finish appends the context_exclude marker (when reason is not empty) and
+// turn_end. It runs exactly once per turn. The marker is written first: it
+// is the poison-loop guard (GAP-REL-01), so it must not be lost when the
+// audit append fails. Both appends ignore cancellation (note).
+func (t *turn) finish(ctx context.Context, o outcome, reason string) {
+	if t.finished {
+		return
+	}
+	t.finished = true
+	if reason != "" {
+		t.note(ctx, &event.Event{Kind: event.ContextExclude, Payload: payload(excludePayload{TurnID: t.turnID, Reason: reason})})
+	}
 	t.note(ctx, &event.Event{Kind: event.TurnEnd, Payload: payload(endPayload{
 		Stop: string(o.stop), Detail: string(o.detail), Iterations: t.iteration,
 		Input: t.usage.Input, Output: t.usage.Output, CostUSD: t.usage.CostUSD,
-		Tainted: t.tainted, Error: errText,
+		Tainted: t.tainted, Error: t.redact(o.err),
 	})})
-	t.emit(&event.Update{Kind: event.UpdateStop, Stop: o.stop, Detail: o.detail, Usage: &t.usage, Err: errText})
+}
+
+// excludeReason names the terminal outcomes whose turn is skipped by the
+// assembler: request-level failures, internal failures (including a panic),
+// exhausted context, and cancellation. Policy stops that leave a usable
+// history (completed, empty_response, no_progress, invalid_answer,
+// output_truncated, budget_*, max_iterations, content_filtered, tool_error)
+// stay in context.
+func excludeReason(o outcome) string {
+	switch o.detail {
+	case event.DetailProviderError, event.DetailInternal, event.DetailContextOverflow,
+		event.DetailCancelled, event.DetailMaxWall:
+		return string(o.detail)
+	case event.DetailCompleted, event.DetailEmptyResponse, event.DetailNoProgress,
+		event.DetailInvalidAnswer, event.DetailOutputTruncated, event.DetailBudgetInput,
+		event.DetailBudgetOutput, event.DetailContentFiltered, event.DetailApprovalDenied,
+		event.DetailToolError, event.DetailMaxIterations:
+		return ""
+	}
+	return ""
 }
 
 // cancelled is the plain cancellation classification.

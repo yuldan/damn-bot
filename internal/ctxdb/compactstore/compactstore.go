@@ -51,13 +51,19 @@ const eventCols = `json_object('seq', e.seq, 'kind', e.kind, 'turn', coalesce(e.
 	'images', json((SELECT json_group_array(x.blob_sha) FROM (SELECT a.blob_sha FROM event_attachments a
 		JOIN blobs b ON b.sha256 = a.blob_sha WHERE a.event_id = e.id AND b.mime LIKE 'image/%' ORDER BY a.ord) x)))`
 
+// notExcluded drops the events of a turn marked by an append-only
+// context_exclude event (GAP-REL-01); the rows stay in the transcript and
+// remain recallable, but never reach a summary. Spans (from_seq/to_seq) are
+// honoured when present.
+const notExcluded = ` AND NOT EXISTS (SELECT 1 FROM events x WHERE x.session_id = e.session_id AND x.kind = 'context_exclude' AND (json_extract(x.payload, '$.turn_id') = e.turn_id OR (coalesce(json_extract(x.payload, '$.from_seq'), 0) > 0 AND e.seq >= json_extract(x.payload, '$.from_seq') AND (coalesce(json_extract(x.payload, '$.to_seq'), 0) = 0 OR e.seq <= json_extract(x.payload, '$.to_seq')))))`
+
 // eventsQ reads the model-visible kinds after the boundary; taskQ the
 // newest user message at or before it.
 const (
 	eventsQ = `SELECT ` + eventCols + ` FROM events e WHERE e.session_id = ?1 AND e.seq > ?2
-	AND e.kind IN ('user_message', 'assistant_message', 'tool_result') ORDER BY e.seq`
+	AND e.kind IN ('user_message', 'assistant_message', 'tool_result')` + notExcluded + ` ORDER BY e.seq`
 	taskQ = `SELECT ` + eventCols + ` FROM events e WHERE e.session_id = ?1 AND e.seq <= ?2
-	AND e.kind = 'user_message' ORDER BY e.seq DESC LIMIT 1`
+	AND e.kind = 'user_message'` + notExcluded + ` ORDER BY e.seq DESC LIMIT 1`
 )
 
 // stateQ reads whether the session is visible (exists, not purging: SPEC
