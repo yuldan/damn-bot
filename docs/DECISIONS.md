@@ -1433,6 +1433,8 @@ Dua MAJOR terbaru berasal dari mekanisme baru ADR-042:
 
 **Konsekuensi.** (+) Gate F0 tidak menunggu kode F1; bukti harness tetap ada. (−) Smoke Damn-Bot pertama baru terlihat di F1.
 
+**Bukti implementasi (2026-10-21).** Smoke final pada `main` `3a2a10d`: 10/10 task ran, 1 pass, 0 harness error; ledger `bench/h2h/results/f1-spend.json` 0,82340667 → 0,92200161 (sisa $1,07799839 dari cap $2,00). Matriks 29 skenario penggunaan: 24 PASS / 4 FAIL / 1 SKIP; detail dan defect terbuka di `docs/F1-LLM-SMOKE.md`. Tidak ada perubahan kode produk.
+
 ## ADR-063 — Errata residu backlog ADR-037 (AUD-002)
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan pemilik proyek: opsi paling konservatif, dalam budget SPEC §3.2.4/P1/P13/P21, tanpa dependency baru). Menutup AUD-002 ([`AUDIT-F0.md`](AUDIT-F0.md)): lima MINOR backlog ADR-037 yang tidak punya ADR penutup (m-15, N-15, N-24, N-33, V-05); backlog ADR-047 butir 2.
