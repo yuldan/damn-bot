@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/zalando/go-keyring"
 )
@@ -21,14 +22,28 @@ type fakeKeyring struct {
 	m           map[string]string
 	down        bool
 	unsupported bool
+	getErr      error
+	block       chan struct{}
 }
 
 func newFakeKeyring() *fakeKeyring { return &fakeKeyring{m: map[string]string{}} }
 
+func (f *fakeKeyring) wait() {
+	f.mu.Lock()
+	ch := f.block
+	f.mu.Unlock()
+	if ch != nil {
+		<-ch
+	}
+}
+
 func (f *fakeKeyring) Get(service, user string) (string, error) {
+	f.wait()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	switch {
+	case f.getErr != nil:
+		return "", f.getErr
 	case f.unsupported:
 		return "", keyring.ErrUnsupportedPlatform
 	case f.down:
@@ -41,6 +56,7 @@ func (f *fakeKeyring) Get(service, user string) (string, error) {
 }
 
 func (f *fakeKeyring) Set(service, user, value string) error {
+	f.wait()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.down {
@@ -51,6 +67,7 @@ func (f *fakeKeyring) Set(service, user, value string) error {
 }
 
 func (f *fakeKeyring) Delete(service, user string) error {
+	f.wait()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.down {
@@ -60,11 +77,12 @@ func (f *fakeKeyring) Delete(service, user string) error {
 	return nil
 }
 
-func (f *fakeKeyring) setDown() { f.mu.Lock(); f.down = true; f.mu.Unlock() }
+func (f *fakeKeyring) setDown()                 { f.mu.Lock(); f.down = true; f.mu.Unlock() }
+func (f *fakeKeyring) blockOn(ch chan struct{}) { f.mu.Lock(); f.block = ch; f.mu.Unlock() }
 
 func tempStore(t *testing.T, kr Keyring) *Store {
 	t.Helper()
-	s, err := New(Options{ConfigDir: filepath.Join(t.TempDir(), "damnbot"), Keyring: kr})
+	s, err := New(Options{ConfigDir: filepath.Join(t.TempDir(), "damnbot"), Keyring: kr, BackendPresent: func() bool { return true }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,6 +284,101 @@ func TestAtRestUnknownSource(t *testing.T) {
 	}
 	if _, err := s.AtRest(context.Background(), SourceFile, "bad"); !errors.Is(err, ErrKeyFile) {
 		t.Fatalf("bad id = %v", err)
+	}
+}
+
+func TestNoBackendUsesFile(t *testing.T) {
+	kr := newFakeKeyring()
+	s, err := New(Options{ConfigDir: filepath.Join(t.TempDir(), "damnbot"), Keyring: kr, BackendPresent: func() bool { return false }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	k, err := s.EnsureAtRest(context.Background())
+	if err != nil || k.Source != SourceFile {
+		t.Fatalf("no backend = %+v, %v", k, err)
+	}
+	kr.mu.Lock()
+	n := len(kr.m)
+	kr.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("keyring was touched with no backend: %d items", n)
+	}
+}
+
+func TestTransientFailsClosed(t *testing.T) {
+	kr := newFakeKeyring()
+	kr.setDown()
+	s := tempStore(t, kr)
+	if _, err := s.EnsureAtRest(context.Background()); !errors.Is(err, ErrKeyUnavailable) {
+		t.Fatalf("transient = %v", err)
+	}
+	if got := files(t, s.dir); len(got) != 0 {
+		t.Fatalf("file fallback after transient error: %v", got)
+	}
+}
+
+func TestKeyringTimeout(t *testing.T) {
+	kr := newFakeKeyring()
+	ch := make(chan struct{})
+	kr.blockOn(ch)
+	defer close(ch)
+	s := tempStore(t, kr)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := s.EnsureAtRest(ctx); !errors.Is(err, ErrKeyUnavailable) {
+		t.Fatalf("timeout = %v", err)
+	}
+}
+
+func TestRotationCrashSafe(t *testing.T) {
+	kr := newFakeKeyring()
+	kr.unsupported = true
+	s := tempStore(t, kr)
+	ctx := context.Background()
+	old, err := s.EnsureAtRest(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := s.StageAtRest(ctx, old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.EnsureAtRest(ctx); err != nil || got.ID != old.ID {
+		t.Fatalf("after stage Ensure = %+v, %v", got, err)
+	}
+	if _, err := s.AtRest(ctx, next.Source, next.ID); err != nil {
+		t.Fatalf("staged key: %v", err)
+	}
+	if err := s.CommitAtRest(ctx, next); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.EnsureAtRest(ctx); err != nil || got.ID != next.ID {
+		t.Fatalf("after commit Ensure = %+v, %v", got, err)
+	}
+	if _, err := s.AtRest(ctx, old.Source, old.ID); err != nil {
+		t.Fatalf("old key before retire: %v", err)
+	}
+	if err := s.RetireAtRest(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AtRest(ctx, old.Source, old.ID); !errors.Is(err, ErrKeyMissing) {
+		t.Fatalf("retired old = %v", err)
+	}
+	if got, err := s.EnsureAtRest(ctx); err != nil || got.ID != next.ID {
+		t.Fatalf("after retire Ensure = %+v, %v", got, err)
+	}
+}
+
+func TestRetireRefusesCurrent(t *testing.T) {
+	kr := newFakeKeyring()
+	kr.unsupported = true
+	s := tempStore(t, kr)
+	k, err := s.EnsureAtRest(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RetireAtRest(context.Background(), k); !errors.Is(err, ErrKeySource) {
+		t.Fatalf("retire current = %v", err)
 	}
 }
 

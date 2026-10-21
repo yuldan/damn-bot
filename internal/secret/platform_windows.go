@@ -17,13 +17,6 @@ func checkDir(fi fs.FileInfo) error {
 }
 
 func openNoFollow(root *os.Root, name string) (*os.File, error) {
-	li, err := root.Lstat(name)
-	if err != nil {
-		return nil, fmt.Errorf("secret: lstat %s: %w", name, err)
-	}
-	if li.Mode()&fs.ModeSymlink != 0 {
-		return nil, fmt.Errorf("secret: key path is a symlink: %w", ErrKeyFile)
-	}
 	f, err := root.Open(name)
 	if err != nil {
 		return nil, fmt.Errorf("secret: open %s: %w", name, err)
@@ -36,6 +29,17 @@ func openNoFollow(root *os.Root, name string) (*os.File, error) {
 	if err := checkRegular(fi); err != nil {
 		_ = f.Close()
 		return nil, err
+	}
+	li, err := root.Lstat(name)
+	if err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("secret: lstat %s: %w", name, err)
+	}
+	// ACLs are a documented residual; the handle is checked for regular type
+	// and the post-open Lstat detects a replaced reparse point.
+	if li.Mode()&fs.ModeSymlink != 0 || !os.SameFile(li, fi) {
+		_ = f.Close()
+		return nil, fmt.Errorf("secret: key path changed while opening: %w", ErrKeyFile)
 	}
 	return f, nil
 }

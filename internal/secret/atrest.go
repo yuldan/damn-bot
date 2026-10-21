@@ -128,6 +128,55 @@ func (s *Store) provision(ctx context.Context) (KEK, error) {
 	return k, nil
 }
 
+// StageAtRest stores a new KEK without changing the marker; the old key stays
+// active until CommitAtRest.
+func (s *Store) StageAtRest(ctx context.Context, old KEK) (KEK, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	loaded, err := s.atRest(ctx, old.Source, old.ID)
+	if err != nil {
+		return KEK{}, err
+	}
+	loaded.Zero()
+	key, err := s.randomKey()
+	if err != nil {
+		return KEK{}, err
+	}
+	next := KEK{Key: key, Source: old.Source, ID: keyID(key)}
+	if err := s.storeKey(ctx, next); err != nil {
+		next.Zero()
+		return KEK{}, err
+	}
+	return next, nil
+}
+
+// CommitAtRest points the marker at next after the DEK has been rewrapped.
+func (s *Store) CommitAtRest(ctx context.Context, next KEK) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	loaded, err := s.atRest(ctx, next.Source, next.ID)
+	if err != nil {
+		return err
+	}
+	loaded.Zero()
+	return s.writeAtomic(atRestMeta, marker(next))
+}
+
+// RetireAtRest deletes old after commit and rewrap; it refuses while the
+// marker still names old.
+func (s *Store) RetireAtRest(ctx context.Context, old KEK) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, id, err := s.loadMarker()
+	if err != nil {
+		return err
+	}
+	if id == old.ID {
+		return fmt.Errorf("%w: marker still names the old key", ErrKeySource)
+	}
+	return s.deleteKey(ctx, old)
+}
+
 func (s *Store) storeKey(ctx context.Context, k KEK) error {
 	switch k.Source {
 	case SourceKeychain:

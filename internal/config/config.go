@@ -194,6 +194,8 @@ func defaultDenyPaths() []string {
 		"~/.docker/config.json",
 		"~/.kube",
 		"<config_dir>/secrets.enc",
+		"<config_dir>/at-rest.*",
+		"<config_dir>/backup.keys",
 		"/proc/*/environ",
 		"/proc/*/task/*/environ",
 		"/proc/*/mem",

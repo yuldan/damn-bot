@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/zalando/go-keyring"
 )
@@ -29,6 +30,7 @@ const (
 	atRestSuffix  = ".key"
 	atRestMeta    = "at-rest.meta"
 	fileMode      = 0o600
+	keyringWait   = 10 * time.Second
 )
 
 // Source is where a key is stored.
@@ -82,10 +84,11 @@ func (osKeyring) Delete(service, user string) error {
 
 // Options configures a Store. ConfigDir is the profile config directory.
 type Options struct {
-	ConfigDir string
-	Profile   string
-	Keyring   Keyring
-	Rand      io.Reader
+	ConfigDir      string
+	Profile        string
+	Keyring        Keyring
+	Rand           io.Reader
+	BackendPresent func() bool // test override for the D-Bus probe
 }
 
 // Store reads and creates key material. It is safe for concurrent use.
@@ -93,6 +96,7 @@ type Store struct {
 	dir, profile string
 	kr           Keyring
 	rand         io.Reader
+	backend      func() bool
 	mu           sync.Mutex
 }
 
@@ -101,14 +105,17 @@ func New(o Options) (*Store, error) {
 	if o.ConfigDir == "" {
 		return nil, fmt.Errorf("secret: empty config dir: %w", ErrKeyFile)
 	}
-	kr, rnd := o.Keyring, o.Rand
+	kr, rnd, be := o.Keyring, o.Rand, o.BackendPresent
 	if kr == nil {
 		kr = osKeyring{}
 	}
 	if rnd == nil {
 		rnd = rand.Reader
 	}
-	return &Store{dir: o.ConfigDir, profile: o.Profile, kr: kr, rand: rnd}, nil
+	if be == nil {
+		be = backendPresent
+	}
+	return &Store{dir: o.ConfigDir, profile: o.Profile, kr: kr, rand: rnd, backend: be}, nil
 }
 
 func keyID(key []byte) string {
@@ -141,26 +148,46 @@ func (s *Store) account(id string) string {
 	return a
 }
 
-func (s *Store) keyringProbe(ctx context.Context) (bool, error) {
-	if err := ctx.Err(); err != nil {
-		return false, fmt.Errorf("%w: %w", ErrKeyUnavailable, err)
+func (s *Store) keyringCall(ctx context.Context, fn func() (string, error)) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, keyringWait)
+	defer cancel()
+	if err := cctx.Err(); err != nil {
+		return "", fmt.Errorf("%w: %w", ErrKeyUnavailable, err)
 	}
-	_, err := s.kr.Get(service, s.account("probe"))
+	// go-keyring cannot be cancelled; a call that outlives the deadline leaves
+	// one goroutine blocked in the OS library. At most one such goroutine can
+	// exist per timed-out call.
+	ch := make(chan error, 1)
+	var v string
+	go func() { var err error; v, err = fn(); ch <- err }()
+	select {
+	case err := <-ch:
+		return v, err
+	case <-cctx.Done():
+		return "", fmt.Errorf("%w: %w", ErrKeyUnavailable, cctx.Err())
+	}
+}
+
+func (s *Store) keyringProbe(ctx context.Context) (bool, error) {
+	if !s.backend() {
+		return false, nil
+	}
+	_, err := s.keyringCall(ctx, func() (string, error) { return s.kr.Get(service, s.account("probe")) })
 	switch {
 	case err == nil, errors.Is(err, keyring.ErrNotFound):
 		return true, nil
 	case errors.Is(err, keyring.ErrUnsupportedPlatform):
 		return false, nil
 	default:
+		if backendAbsent(err) {
+			return false, nil
+		}
 		return false, fmt.Errorf("%w: %w", ErrKeyUnavailable, err)
 	}
 }
 
 func (s *Store) keyringGet(ctx context.Context, account string) (string, error) {
-	if err := ctx.Err(); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrKeyUnavailable, err)
-	}
-	v, err := s.kr.Get(service, account)
+	v, err := s.keyringCall(ctx, func() (string, error) { return s.kr.Get(service, account) })
 	if err == nil {
 		return v, nil
 	}
@@ -171,20 +198,15 @@ func (s *Store) keyringGet(ctx context.Context, account string) (string, error) 
 }
 
 func (s *Store) keyringSet(ctx context.Context, account, value string) error {
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("%w: %w", ErrKeyUnavailable, err)
-	}
-	if err := s.kr.Set(service, account, value); err != nil {
+	_, err := s.keyringCall(ctx, func() (string, error) { return "", s.kr.Set(service, account, value) })
+	if err != nil {
 		return fmt.Errorf("%w: %w", ErrKeyUnavailable, err)
 	}
 	return nil
 }
 
 func (s *Store) keyringDelete(ctx context.Context, account string) error {
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("%w: %w", ErrKeyUnavailable, err)
-	}
-	err := s.kr.Delete(service, account)
+	_, err := s.keyringCall(ctx, func() (string, error) { return "", s.kr.Delete(service, account) })
 	if err == nil || errors.Is(err, keyring.ErrNotFound) {
 		return nil
 	}
@@ -269,6 +291,22 @@ func (s *Store) writeTemp(root *os.Root, name string, data []byte) (string, erro
 		return "", fmt.Errorf("secret: write %s: %w", tmp, errors.Join(err, removeIfExists(root, tmp)))
 	}
 	return tmp, nil
+}
+
+func (s *Store) writeAtomic(name string, data []byte) (err error) {
+	root, err := s.openRoot()
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	tmp, err := s.writeTemp(root, name, data)
+	if err != nil {
+		return err
+	}
+	if rerr := root.Rename(tmp, name); rerr != nil {
+		return fmt.Errorf("secret: publish %s: %w", name, errors.Join(rerr, removeIfExists(root, tmp)))
+	}
+	return syncRootDir(root)
 }
 
 func (s *Store) createExclusive(name string, data []byte) (err error) {
