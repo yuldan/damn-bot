@@ -16,8 +16,9 @@ import (
 // proxy. The proxy URL is passed as the OpenAI base URL; the agent uses a
 // dummy key, so the real key stays in the proxy only.
 type Damnbot struct {
-	Binary string
-	Model  string
+	Binary           string
+	Model            string
+	ProviderAttempts int
 }
 
 type damnbotTurn struct {
@@ -53,7 +54,8 @@ func (d *Damnbot) Run(ctx context.Context, workdir, prompt, proxyURL string, tim
 	defer cancel()
 	cmd := exec.CommandContext(cctx, d.Binary, "run",
 		"--output", "json", "--approval", "auto", "--data-dir", dataDir,
-		"--model", model, "--base-url", proxyURL, "--api-key", DummyKey, "-p", prompt)
+		"--model", model, "--base-url", proxyURL, "--api-key", DummyKey,
+		"--provider-attempts", fmt.Sprint(d.ProviderAttempts), "-p", prompt)
 	cmd.Dir = workdir
 	cmd.Env = append(CleanEnv(), "HOME="+dataDir, "NO_COLOR=1", "TERM=dumb")
 	cmd.Stdin = nil

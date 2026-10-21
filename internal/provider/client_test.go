@@ -24,7 +24,7 @@ func route(model, url string) provider.Route {
 }
 
 // client builds an OpenAI client over a loopback-only netx network.
-func client(t *testing.T, cfg provider.Config) *provider.OpenAI {
+func client(t *testing.T, cfg *provider.Config) *provider.OpenAI {
 	t.Helper()
 	n := netx.New(netx.Config{})
 	t.Cleanup(n.CloseIdleConnections)
@@ -45,7 +45,7 @@ func ask(model string) *provider.Request {
 func TestDoStream(t *testing.T) {
 	t.Parallel()
 	srv := providertest.New(t, nil, providertest.Text("Hel", "lo"))
-	o := client(t, provider.Config{Routes: []provider.Route{route("m", srv.URL)}})
+	o := client(t, &provider.Config{Routes: []provider.Route{route("m", srv.URL)}})
 	var chunks []string
 	resp, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), func(c provider.Chunk) { chunks = append(chunks, string(c.Content)) })
 	if err != nil || resp.Content != "Hello" || resp.Attempts != 1 || resp.Usage.Input != 100 || resp.EstInputTokens <= 0 ||
@@ -58,7 +58,7 @@ func TestDoStream(t *testing.T) {
 	if _, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/nope"), nil); !errors.Is(err, provider.ErrNoRoute) {
 		t.Errorf("unknown model: %v", err)
 	}
-	if _, err := provider.NewOpenAI(nil, provider.Config{Fallback: []string{"a", "b", "c"}}); !errors.Is(err, provider.ErrConfig) {
+	if _, err := provider.NewOpenAI(nil, &provider.Config{Fallback: []string{"a", "b", "c"}}); !errors.Is(err, provider.ErrConfig) {
 		t.Errorf("3 fallbacks: %v", err)
 	}
 }
@@ -71,7 +71,7 @@ func TestRetryAndClasses(t *testing.T) {
 		providertest.Status(401, "invalid_api_key", ""),
 		providertest.Status(400, "context_length_exceeded", ""))
 	var retries []retry.Attempt
-	o := client(t, provider.Config{Routes: []provider.Route{route("m", srv.URL)}, OnRetry: func(a retry.Attempt) { retries = append(retries, a) }})
+	o := client(t, &provider.Config{Routes: []provider.Route{route("m", srv.URL)}, OnRetry: func(a retry.Attempt) { retries = append(retries, a) }})
 	resp, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil)
 	if err != nil || resp.Attempts != 3 || len(retries) != 2 || retries[0].Class != retry.Overloaded || retries[1].Class != retry.RateLimited {
 		t.Fatalf("%+v %v %+v", resp, err, retries)
@@ -111,13 +111,13 @@ func TestHostileStream(t *testing.T) {
 	}
 	for _, c := range cases {
 		srv := providertest.New(t, nil, c.script...)
-		o := client(t, provider.Config{Routes: []provider.Route{route("m", srv.URL)}})
+		o := client(t, &provider.Config{Routes: []provider.Route{route("m", srv.URL)}})
 		if _, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil); retry.ClassifyErr(err) != c.want {
 			t.Errorf("want %s: %v", c.want, err)
 		}
 	}
 	srv := providertest.New(t, nil, filtered)
-	o := client(t, provider.Config{Routes: []provider.Route{route("m", srv.URL)}})
+	o := client(t, &provider.Config{Routes: []provider.Route{route("m", srv.URL)}})
 	resp, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil)
 	if err != nil || resp.FinishReason != provider.FinishContentFilter || resp.Content != "par" ||
 		len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Name != "../../rm -rf" || resp.ToolCalls[0].ArgumentsRaw != `{"x":1}` {
@@ -134,7 +134,7 @@ func TestCircuitOpen(t *testing.T) {
 		down.Push(providertest.Status(500, "", ""))
 	}
 	up := providertest.New(t, nil, providertest.Text("a"), providertest.Text("b"), providertest.Text("c"))
-	o := client(t, provider.Config{
+	o := client(t, &provider.Config{
 		Routes:   []provider.Route{route("m", down.URL), {Provider: "other", Model: "f", BaseURL: up.URL}},
 		Fallback: []string{"other/f"},
 	})
@@ -157,7 +157,7 @@ func TestFixtureAndLatency(t *testing.T) {
 	fx := providertest.Fixture(t, "testdata/openai-chat-tool.sse")
 	fx.Delay = 10 * time.Second
 	srv := providertest.New(t, clock, fx)
-	o := client(t, provider.Config{Routes: []provider.Route{route("m", srv.URL)}})
+	o := client(t, &provider.Config{Routes: []provider.Route{route("m", srv.URL)}})
 	var (
 		resp provider.Response
 		err  error
@@ -199,7 +199,7 @@ func TestEdgeCases(t *testing.T) {
 // never send temperature again (no repeated 400).
 func ecTemperatureRejected(t *testing.T) {
 	srv := providertest.New(t, nil, providertest.Status(400, "unsupported_parameter", "temperature"), providertest.Text("a"), providertest.Text("b"))
-	o := client(t, provider.Config{Routes: []provider.Route{route("m", srv.URL)}})
+	o := client(t, &provider.Config{Routes: []provider.Route{route("m", srv.URL)}})
 	temp := 0.3
 	r := ask("fake/m")
 	r.Temperature = &temp
@@ -219,7 +219,7 @@ func ecTemperatureRejected(t *testing.T) {
 // error.param gets the request again without it.
 func ecReasoningEffortRejected(t *testing.T) {
 	srv := providertest.New(t, nil, providertest.Status(400, "invalid_request_error", "reasoning_effort"), providertest.Text("ok"))
-	o := client(t, provider.Config{Routes: []provider.Route{route("m", srv.URL)}})
+	o := client(t, &provider.Config{Routes: []provider.Route{route("m", srv.URL)}})
 	r := ask("fake/m")
 	r.ReasoningEffort = "high"
 	if resp, err := o.Do(t.Context(), provider.PurposeTurn, r, nil); err != nil || resp.Content != "ok" {
@@ -242,7 +242,7 @@ func ecFallbackSkipsBroken(t *testing.T) {
 	down := providertest.New(t, nil, providertest.Status(502, "", ""), providertest.Status(502, "", ""), providertest.Status(502, "", ""))
 	up := providertest.New(t, nil, providertest.Text("saved"))
 	var events []provider.Fallback
-	o := client(t, provider.Config{
+	o := client(t, &provider.Config{
 		Routes:     []provider.Route{route("m", down.URL), {Provider: "b", Model: "y", BaseURL: up.URL}},
 		Fallback:   []string{"a/missing", "b/y"},
 		OnFallback: func(f provider.Fallback) { events = append(events, f) },
@@ -264,7 +264,7 @@ func TestFallbackFailedVisible(t *testing.T) {
 	prim := providertest.New(t, nil, five()...)
 	fb := providertest.New(t, nil, five()...)
 	var events []provider.Fallback
-	o := client(t, provider.Config{
+	o := client(t, &provider.Config{
 		Routes:     []provider.Route{route("m", prim.URL), {Provider: "b", Model: "f", BaseURL: fb.URL}},
 		Fallback:   []string{"b/f"},
 		OnFallback: func(f provider.Fallback) { events = append(events, f) },
@@ -285,7 +285,7 @@ func ecBackToPrimary(t *testing.T) {
 	prim := providertest.New(t, nil, providertest.Status(503, "", ""), providertest.Status(503, "", ""), providertest.Status(503, "", ""),
 		providertest.Text("primary"))
 	fb := providertest.New(t, nil, providertest.Text("fallback"))
-	o := client(t, provider.Config{Routes: []provider.Route{route("m", prim.URL), route("f", fb.URL)}, Fallback: []string{"fake/f"}})
+	o := client(t, &provider.Config{Routes: []provider.Route{route("m", prim.URL), route("f", fb.URL)}, Fallback: []string{"fake/f"}})
 	for _, want := range []string{"fallback", "primary"} {
 		if resp, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil); err != nil || resp.Content != want {
 			t.Fatalf("want %s: %+v %v", want, resp, err)
@@ -300,7 +300,7 @@ func ecFallbackWindow(t *testing.T) {
 	big := providertest.New(t, nil, providertest.Text("big"))
 	small := route("small", prim.URL)
 	small.ContextWindow = 1000
-	o := client(t, provider.Config{
+	o := client(t, &provider.Config{
 		Routes:   []provider.Route{route("m", prim.URL), small, route("big", big.URL)},
 		Fallback: []string{"fake/small", "fake/big"},
 	})

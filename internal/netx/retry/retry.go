@@ -42,6 +42,8 @@ type Attempt struct {
 
 // Policy configures [Do]. The zero value is the SPEC policy.
 type Policy struct {
+	// Attempts overrides MaxAttempts for this call; 0 = MaxAttempts.
+	Attempts int
 	// Rand returns a uniform value in [0,1) for jitter; nil = math/rand/v2.
 	Rand func() float64
 	// Notify, if set, observes every scheduled retry before the wait.
@@ -74,6 +76,10 @@ func (e *Error) RetryClass() Class { return e.Class }
 // class, a cancelled ctx, or an open circuit returns at once. op receives the
 // 1-based attempt number. The result is nil or an *Error.
 func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int) error) error {
+	limit := p.Attempts
+	if limit <= 0 {
+		limit = MaxAttempts
+	}
 	for n := 1; ; n++ {
 		err := op(ctx, n)
 		class := ClassifyErr(err)
@@ -87,7 +93,7 @@ func Do(ctx context.Context, p Policy, op func(ctx context.Context, attempt int)
 		if !class.Retryable() || errors.Is(err, ErrCircuitOpen) {
 			return &Error{Class: class, Attempts: n, Err: err}
 		}
-		if n == MaxAttempts {
+		if n == limit {
 			return &Error{Class: class, Attempts: n, Err: fmt.Errorf("%w: %w", ErrExhausted, err)}
 		}
 		delay, ok := p.delay(n, err)
