@@ -35,7 +35,8 @@ type turn struct {
 	iteration int
 	pending   *outcome
 	finished  bool     // terminal state already persisted (GAP-REL-01)
-	effects   []string // successful non-read tools (SEC11-3)
+	effects   []string // non-read tools that ran (SEC11-3)
+	uncertain []string // non-read tools that may have run (SEC11-8)
 	markerErr error    // context_exclude append failure (SEC11-6)
 }
 
@@ -463,9 +464,9 @@ func (t *turn) finish(ctx context.Context, o outcome, reason string) {
 	}
 	t.finished = true
 	if reason != "" {
-		if len(t.effects) > 0 { // SEC11-3: executed side effects stay visible
+		if len(t.effects) > 0 || len(t.uncertain) > 0 { // SEC11-3: executed side effects stay visible
 			t.noteTurnless(ctx, &event.Event{Kind: event.SystemNotice, Payload: payload(effectsPayload{
-				Kind: "failed_turn_effects", TurnID: t.turnID, Effects: t.effects,
+				Kind: "failed_turn_effects", TurnID: t.turnID, Effects: t.effects, Uncertain: t.uncertain,
 			})})
 		}
 		if _, err := t.appendAs(ctx, t.turnID, &event.Event{Kind: event.ContextExclude, Payload: payload(excludePayload{TurnID: t.turnID, Reason: reason})}); err != nil {

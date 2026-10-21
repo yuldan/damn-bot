@@ -69,9 +69,10 @@ type auditPayload struct {
 // effectsPayload is the turnless system_notice listing side effects that
 // already executed in a failed turn (SEC11-3).
 type effectsPayload struct {
-	Kind    string   `json:"kind"`
-	TurnID  string   `json:"turn_id"`
-	Effects []string `json:"effects"`
+	Kind      string   `json:"kind"`
+	TurnID    string   `json:"turn_id"`
+	Effects   []string `json:"effects,omitempty"`
+	Uncertain []string `json:"uncertain,omitempty"`
 }
 
 type endPayload struct {

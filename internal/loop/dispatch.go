@@ -113,9 +113,7 @@ func (t *turn) runParallel(ctx context.Context, prepared []Prepared) (outcome, b
 		if o, ok := t.deliver(ctx, prepared[i].Call, &outs[i].res, outs[i].err); ok && term == nil {
 			term = &o
 		}
-		if outs[i].err == nil && outs[i].res.Err == nil {
-			t.trackEffect(&prepared[i])
-		}
+		t.trackEffect(&prepared[i], &outs[i].res, outs[i].err)
 	}
 	if term != nil {
 		return *term, true
@@ -190,19 +188,55 @@ func (t *turn) runCall(ctx context.Context, p *Prepared) (o outcome, terminal, d
 	}
 	res, err := t.dispatch(ctx, p)
 	o, ok := t.deliver(ctx, p.Call, &res, err)
-	if err == nil && res.Err == nil {
-		t.trackEffect(p)
-	}
+	t.trackEffect(p, &res, err)
 	return o, ok, true
 }
 
-// trackEffect remembers a successful non-read tool for the failed-turn
-// notice (SEC11-3). Read results can be reproduced; side effects cannot.
-func (t *turn) trackEffect(p *Prepared) {
-	if p.Effect == EffectRead && !p.SideEffect || len(t.effects) >= 20 {
+// trackEffect remembers a non-read tool for the failed-turn notice
+// (SEC11-3): an executed side effect, or one that may have run when the call
+// timed out or its outcome is unknown (SEC11-8). Read results can be
+// reproduced; side effects cannot.
+func (t *turn) trackEffect(p *Prepared, res *ToolResult, err error) {
+	if p.Effect == EffectRead && !p.SideEffect || len(t.effects)+len(t.uncertain) >= 20 {
 		return
 	}
-	t.effects = append(t.effects, p.Call.Name+"("+p.Call.ID+")")
+	ref := toolRef(p.Call, len(t.effects)+len(t.uncertain))
+	switch {
+	case err != nil, res.Err != nil, res.Status == statusStillRunning,
+		res.Status == "outcome_unknown", res.Status == "timeout":
+		t.uncertain = append(t.uncertain, ref+" (may not have completed)")
+	default:
+		t.effects = append(t.effects, ref)
+	}
+}
+
+// toolRef renders one tool call for the notice. Provider IDs are untrusted:
+// only a strict charset/length is echoed; anything else is referred to by
+// index (SEC11-7).
+func toolRef(c ToolCall, n int) string {
+	name := c.Name
+	if !safeToken(name, 64) {
+		name = "tool"
+	}
+	if safeToken(c.ID, 64) {
+		return name + "(" + c.ID + ")"
+	}
+	return fmt.Sprintf("%s#%d", name, n+1)
+}
+
+// safeToken accepts [A-Za-z0-9_-]{1,max}.
+func safeToken(s string, max int) bool {
+	if s == "" || len(s) > max {
+		return false
+	}
+	for i := range len(s) {
+		c := s[i]
+		if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // dispatchEvent persists the dispatch marker before a tool runs.

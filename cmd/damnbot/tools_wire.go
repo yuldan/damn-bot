@@ -107,15 +107,25 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 // side effects (SEC11-3), or "" for any other system_notice.
 func effectsNotice(payload string) string {
 	var p struct {
-		Kind    string   `json:"kind"`
-		TurnID  string   `json:"turn_id"`
-		Effects []string `json:"effects"`
+		Kind      string   `json:"kind"`
+		TurnID    string   `json:"turn_id"`
+		Effects   []string `json:"effects"`
+		Uncertain []string `json:"uncertain"`
 	}
-	if json.Unmarshal([]byte(payload), &p) != nil || p.Kind != "failed_turn_effects" || len(p.Effects) == 0 {
+	if json.Unmarshal([]byte(payload), &p) != nil || p.Kind != "failed_turn_effects" ||
+		len(p.Effects) == 0 && len(p.Uncertain) == 0 {
 		return ""
 	}
-	return "A previous failed turn (" + p.TurnID + ") already executed: " + strings.Join(p.Effects, ", ") +
-		". Do not repeat these side effects; use recall to inspect the transcript if needed."
+	var b strings.Builder
+	b.WriteString("A previous failed turn (" + p.TurnID + ") ")
+	if len(p.Effects) > 0 {
+		b.WriteString("already executed: " + strings.Join(p.Effects, ", ") + ". ")
+	}
+	if len(p.Uncertain) > 0 {
+		b.WriteString("may have run with unknown outcome: " + strings.Join(p.Uncertain, ", ") + ". ")
+	}
+	b.WriteString("Do not repeat these side effects; use recall to inspect the transcript if needed.")
+	return b.String()
 }
 
 func findToolMessage(msgs []loop.Message, callID string) int {
