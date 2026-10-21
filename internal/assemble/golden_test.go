@@ -18,41 +18,78 @@ type tiersFile struct {
 	ContextSlots map[string]string `json:"context_slots"`
 }
 
-func buildF1Core(t *testing.T) (requestJSON, tiersJSON []byte, est Estimate, ctxResult ContextResult, tools []Tool) {
+// p1Fixture is one ADR-066 fixture and its per-tier allocations.
+type p1Fixture struct {
+	name    string
+	stable  StableOptions
+	catalog []CatalogGroup
+	context func() *ContextInput
+	tools   func() []Tool
+	// Allocations: f1-core uses ADR-086 NEW-41, all-modules the SPEC P1 row.
+	capStable, capTools, capTotal, eager int
+}
+
+func p1Fixtures() []p1Fixture {
+	return []p1Fixture{
+		{
+			name: "f1-core", context: fixtureContext, tools: fixtureTools,
+			capStable: 1000, capTools: 1800, capTotal: 4000, eager: 8,
+		},
+		{
+			name: "all-modules", stable: StableOptions{Codeintel: true},
+			catalog: allModulesCatalog(), context: allModulesContext, tools: allModulesTools,
+			capStable: 1200, capTools: 2000, capTotal: 5000, eager: 10,
+		},
+	}
+}
+
+type p1Render struct {
+	request, tiers []byte
+	est            Estimate
+	ctx            ContextResult
+	stable         string
+	tools          []Tool
+}
+
+func buildP1(t *testing.T, fx *p1Fixture) p1Render {
 	t.Helper()
 	a := newAssembler(t, identity)
 	turn := a.Freeze(fixtureVolatile())
-	filtered, err := FilterTools(PhaseF1, fixtureTools())
+	filtered, err := FilterTools(PhaseF1, fx.tools())
 	if err != nil {
 		t.Fatalf("FilterTools: %v", err)
 	}
+	ctxResult, err := a.Context(context.Background(), fx.context())
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
 	view := SessionView{
 		Phase:   PhaseF1,
-		Context: renderContext(t, a, fixtureContext()),
-		Tools:   fixtureTools(),
+		Stable:  fx.stable,
+		Catalog: fx.catalog,
+		Context: ctxResult.Text,
+		Tools:   fx.tools(),
 		Turn:    turn,
-		History: []Message{{Role: "user", Content: "Fix the failing test in internal/foo."}},
+		History: []Message{{Role: "user", Content: allModulesQuery}},
 	}
 	req, est, err := a.Build(context.Background(), &view)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	requestJSON, err = MarshalRequest(req)
+	requestJSON, err := MarshalRequest(req)
 	if err != nil {
 		t.Fatalf("MarshalRequest: %v", err)
 	}
-	requestJSON = append(requestJSON, '\n')
 	toolsJSON, err := MarshalTools(filtered)
 	if err != nil {
 		t.Fatalf("MarshalTools: %v", err)
 	}
-	ctxResult, err = a.Context(context.Background(), fixtureContext())
-	if err != nil {
-		t.Fatalf("Context: %v", err)
-	}
+	stableOpts := fx.stable
+	stableOpts.Deferred = len(fx.catalog) > 0
+	r := p1Render{est: est, ctx: ctxResult, stable: Stable(stableOpts), tools: filtered}
 	tiers := tiersFile{
-		Stable:   Stable(StableOptions{}),
-		Catalog:  "",
+		Stable:   r.stable,
+		Catalog:  a.Catalog(fx.catalog),
 		Context:  ctxResult.Text,
 		Volatile: turn.String(),
 		Tools:    string(toolsJSON),
@@ -64,59 +101,60 @@ func buildF1Core(t *testing.T) (requestJSON, tiersJSON []byte, est Estimate, ctx
 			"skills":    ctxResult.Slots.Skills,
 		},
 	}
-	tiersJSON, err = json.MarshalIndent(tiers, "", "  ")
+	tiersJSON, err := json.MarshalIndent(tiers, "", "  ")
 	if err != nil {
 		t.Fatalf("marshal tiers: %v", err)
 	}
+	requestJSON = append(requestJSON, '\n')
 	tiersJSON = append(tiersJSON, '\n')
-	return requestJSON, tiersJSON, est, ctxResult, filtered
+	r.request, r.tiers = requestJSON, tiersJSON
+	return r
 }
 
-// TestFixedOverheadGolden is the ADR-066 cross-module hook: it renders the
-// f1-core fixture in openai-chat wire form plus the per-tier strings. The bench
-// module (TestFixedOverhead/f1-core) measures both with o200k_base and
-// enforces the P1 gate; this test pins the bytes (E-68) and the per-tier
-// allocations of ADR-086 NEW-41.
+// TestFixedOverheadGolden is the ADR-066 cross-module hook: it renders each
+// P1 fixture in openai-chat wire form plus the per-tier strings. The bench
+// module (TestFixedOverhead/<fixture>) measures both with o200k_base and
+// enforces the P1 gates; this test pins the bytes (E-68) and checks the same
+// allocations with the injected estimator.
 func TestFixedOverheadGolden(t *testing.T) {
 	t.Parallel()
-	requestJSON, tiersJSON, est, ctxResult, tools := buildF1Core(t)
-	checkGolden(t, filepath.Join(p1Dir, "f1-core.request.json"), requestJSON)
-	checkGolden(t, filepath.Join(p1Dir, "f1-core.tiers.json"), tiersJSON)
+	for _, fx := range p1Fixtures() {
+		t.Run(fx.name, func(t *testing.T) {
+			t.Parallel()
+			r := buildP1(t, &fx)
+			checkGolden(t, filepath.Join(p1Dir, fx.name+".request.json"), r.request)
+			checkGolden(t, filepath.Join(p1Dir, fx.name+".tiers.json"), r.tiers)
 
-	c := asciiCounter()
-	if got := c.Count(Stable(StableOptions{})); got > 1000 {
-		t.Errorf("stable tier = %d tokens, allocation 1000", got)
+			c := asciiCounter()
+			caps := []struct {
+				name      string
+				got, capN int
+			}{
+				{"stable", c.Count(r.stable), fx.capStable},
+				{"catalog", r.est.Catalog, CapCatalog},
+				{"context", r.est.Context, CapContext},
+				{"facts", c.Count(r.ctx.Slots.Facts), CapFacts},
+				{"workspace", c.Count(r.ctx.Slots.Workspace), CapWorkspace},
+				{"files", c.Count(r.ctx.Slots.Files), CapFiles},
+				{"memory", c.Count(r.ctx.Slots.Memory), CapMemory},
+				{"skills", c.Count(r.ctx.Slots.Skills), CapSkills},
+				{"volatile", r.est.Volatile, CapVolatile},
+				{"tools", r.est.Tools, fx.capTools},
+				{"request", r.est.Total, fx.capTotal},
+			}
+			for _, cp := range caps {
+				if cp.got > cp.capN {
+					t.Errorf("%s = %d tokens, allocation %d", cp.name, cp.got, cp.capN)
+				}
+			}
+			if len(r.tools) != fx.eager {
+				t.Errorf("eager tools = %d, want %d", len(r.tools), fx.eager)
+			}
+			if r.est.Stable != c.Count(r.stable) {
+				t.Errorf("stable tier in request = %d tokens, golden %d", r.est.Stable, c.Count(r.stable))
+			}
+			t.Logf("%s estimate: stable=%d catalog=%d context=%d volatile=%d tools=%d total=%d",
+				fx.name, r.est.Stable, r.est.Catalog, r.est.Context, r.est.Volatile, r.est.Tools, r.est.Total)
+		})
 	}
-	if est.Context > CapContext {
-		t.Errorf("context tier = %d tokens, cap %d", est.Context, CapContext)
-	}
-	if got := c.Count(ctxResult.Slots.Facts); got > CapFacts {
-		t.Errorf("facts = %d tokens, cap %d", got, CapFacts)
-	}
-	if got := c.Count(ctxResult.Slots.Workspace); got > CapWorkspace {
-		t.Errorf("workspace = %d tokens, cap %d", got, CapWorkspace)
-	}
-	if got := c.Count(ctxResult.Slots.Files); got > CapFiles {
-		t.Errorf("files = %d tokens, cap %d", got, CapFiles)
-	}
-	if got := c.Count(ctxResult.Slots.Memory); got > CapMemory {
-		t.Errorf("memory = %d tokens, cap %d", got, CapMemory)
-	}
-	if got := c.Count(ctxResult.Slots.Skills); got > CapSkills {
-		t.Errorf("skills = %d tokens, cap %d", got, CapSkills)
-	}
-	if est.Volatile > CapVolatile {
-		t.Errorf("volatile = %d tokens, cap %d", est.Volatile, CapVolatile)
-	}
-	if est.Tools > 1800 {
-		t.Errorf("tools = %d tokens, allocation 1800", est.Tools)
-	}
-	if est.Total > 4000 {
-		t.Errorf("request = %d tokens, P1 f1-core gate 4000", est.Total)
-	}
-	if len(tools) != 8 {
-		t.Errorf("eager tools = %d, want 8", len(tools))
-	}
-	t.Logf("f1-core estimate: stable=%d catalog=%d context=%d volatile=%d tools=%d total=%d",
-		est.Stable, est.Catalog, est.Context, est.Volatile, est.Tools, est.Total)
 }
