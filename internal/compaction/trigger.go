@@ -1,8 +1,8 @@
-// Package compaction owns the staged P8 compaction contract (SPEC §4.7).
-// This F2 slice implements only the trigger: the deterministic prune and the
-// single summary call are added by the compaction implementation. Keeping
-// the trigger here gives the loop/assembly boundary one typed vocabulary
-// without importing the implementation.
+// Package compaction owns the staged P8 compaction contract (SPEC §4.7,
+// ADR-122, ADR-123): the threshold trigger and the deterministic stage-1
+// prune of the request view. Keeping the trigger here gives the
+// loop/assembly boundary one typed vocabulary without importing the
+// implementation.
 package compaction
 
 import (
