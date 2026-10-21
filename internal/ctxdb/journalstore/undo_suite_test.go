@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,9 @@ func sameMode(t *testing.T, path string, want fs.FileMode) {
 	fi, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		return // Windows synthesises permission bits; ownership is set at create.
 	}
 	if got := fi.Mode().Perm(); got != want.Perm() {
 		t.Fatalf("%s mode = %#o, want %#o", path, got, want.Perm())

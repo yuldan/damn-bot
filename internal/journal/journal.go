@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"strings"
 )
 
 // Kind is the actions.kind vocabulary of SPEC §11.8.
@@ -90,16 +91,22 @@ func (r *Record) Validate() error {
 	default:
 		return fmt.Errorf("journal: kind %q: %w", r.Kind, ErrIrreversible)
 	}
-	if r.SessionID == "" || r.Path == "" || !filepath.IsAbs(r.Path) {
+	if r.SessionID == "" || r.Path == "" || !absolute(r.Path) {
 		return fmt.Errorf("journal: record needs session and absolute path: %w", ErrIrreversible)
 	}
-	if r.Kind == FileMove && (r.MoveTo == "" || !filepath.IsAbs(r.MoveTo)) {
+	if r.Kind == FileMove && (r.MoveTo == "" || !absolute(r.MoveTo)) {
 		return fmt.Errorf("journal: move needs absolute destination: %w", ErrIrreversible)
 	}
 	if r.Before == nil && r.After == nil {
 		return fmt.Errorf("journal: action has no images: %w", ErrIrreversible)
 	}
 	return nil
+}
+
+// absolute accepts native absolute paths (C:\... on Windows) and the
+// POSIX-rooted form used by callers with logical journal paths.
+func absolute(p string) bool {
+	return filepath.IsAbs(p) || strings.HasPrefix(p, "/")
 }
 
 // Action is one stored actions row.
