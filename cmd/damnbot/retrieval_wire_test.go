@@ -291,3 +291,34 @@ func TestDelegateIdentityChain(t *testing.T) {
 		t.Fatalf("delegate link contributed recall: %+v", hits)
 	}
 }
+
+// TestRetrievalStopsAboveZeroFork (SEC12-10): Fork(Fork(G,1),0) breaks at the
+// zero-fork link, so G's note above it is never recalled.
+func TestRetrievalStopsAboveZeroFork(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	db := openCompactionDB(ctx, t)
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "G", Cwd: "/work/a", Origin: "headless"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Append(ctx, "G", nil,
+		ctxdb.Event{Kind: "user_message", Role: "user", TurnID: "t", Content: "zebra protocol grandparent note"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	child, err := db.Fork(ctx, "G", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grand, err := db.Fork(ctx, child, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hits, err := retrieval(ctx, db, grand, "turn", "zebra protocol", &compaction.View{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("recall crossed a zero-fork link: %+v", hits)
+	}
+}
