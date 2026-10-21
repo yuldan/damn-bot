@@ -4,7 +4,8 @@
 # redaksi lintas-delta; terukur 1.757; Σ core 35.200 -> 35.500 <= 47.000).
 # ADR-131 amandemen round 2: loop 1800 -> 1900 (persist/reject carrier; terukur 1851; Σ core +100).
 # ADR-131 SEC8-10: loop 1900 -> 1950 (pemindaian carrier rekursif + key names; terukur 1913).
-loop              1950 internal/loop
+# ADR-134 (REL-01 + SEC11): loop +70 di atas 1950 carrier (ADR-131) -> 2020.
+loop              2020 internal/loop
 plan               600 internal/plan
 # ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
 provider          2100 internal/provider
@@ -39,7 +40,7 @@ ctxdb/limitstore   100 internal/ctxdb/limitstore
 # ADR-131 (PROV-01): carrier reasoning opaque + rejections + size caps (ADR-074; terukur 263; Σ core +300; SEC8-6).
 ctxdb/carrierstore 300 internal/ctxdb/carrierstore
 # ADR-122: storage summary compaction, baris baru (terukur 248; Σ core 36.520 -> 36.770 <= 47.000).
-ctxdb/compactstore 250 internal/ctxdb/compactstore
+ctxdb/compactstore 260 internal/ctxdb/compactstore
 # ADR-121: assemble 1000 -> 1200 (tier prompt F2 penuh; terukur 1.034 sesudah PR1; Σ core 36.770 -> 36.970 <= 47.000).
 # ADR-121 PR2: assemble 1200 -> 1300 (REVIEW-F2-SEC4 ASM4-1..3: wrapper <untrusted> exact, tag pembuka dinetralkan, clip sadar-wrapper; terukur 1.236; Σ core 36.970 -> 37.070 <= 47.000).
 assemble          1300 internal/assemble

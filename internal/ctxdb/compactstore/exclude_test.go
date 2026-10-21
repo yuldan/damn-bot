@@ -42,6 +42,9 @@ func TestLoadSkipsExcluded(t *testing.T) {
 			Seq: 5, Kind: "tool_result", TurnID: "t1", Role: "tool", Content: "data", ToolCallID: "c1", ToolName: "read_file",
 			Payload: "{}", Images: []string{},
 		},
+		// SEC11-4: a span marker with no turn_id excludes nothing.
+		{Seq: 9, Kind: "user_message", Role: "user", Content: "span poison", Payload: "{}", Images: []string{}},
+		{Seq: 10, Kind: "assistant_message", Role: "assistant", Content: "span partial", Payload: "{}", Images: []string{}},
 	}
 	if !reflect.DeepEqual(snap.Events, want) {
 		t.Fatalf("events = %+v", snap.Events)
@@ -52,5 +55,32 @@ func TestLoadSkipsExcluded(t *testing.T) {
 	// The excluded rows still exist (P9): nothing is deleted.
 	if n := count(t, db, "SELECT count(*) FROM events WHERE session_id = ? AND content LIKE '%poison%'"); n != 3 {
 		t.Fatalf("poison rows = %d, want 3", n)
+	}
+}
+
+// TestLoadDropsExcludedSummary: a summary created inside a turn that later
+// failed is not handed to compaction again (SEC11-1).
+func TestLoadDropsExcludedSummary(t *testing.T) {
+	t.Parallel()
+	db, s := open(t)
+	seed(t, db)
+	sum := &compaction.Summary{FromSeq: 1, ToSeq: 4, Content: `{"goal":"g"}`, Model: "m", InputTokens: 9, OutputTokens: 1}
+	_, err := s.Commit(t.Context(), sid, &compaction.Commit{
+		TurnID: "t1", Attempt: compaction.Attempt{Outcome: compaction.OutcomeSummarized}, Summary: sum,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, aerr := db.Append(t.Context(), sid, nil, ctxdb.Event{
+		Kind: "context_exclude", Payload: `{"turn_id":"t1","reason":"provider_error"}`,
+	}); aerr != nil {
+		t.Fatal(aerr)
+	}
+	snap, err := s.Load(t.Context(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Summaries) != 0 || len(snap.Events) != 0 {
+		t.Fatalf("snapshot after exclusion = %+v", snap)
 	}
 }

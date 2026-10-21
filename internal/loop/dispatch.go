@@ -63,6 +63,7 @@ func (t *turn) prepareBatch(ctx context.Context, calls []ToolCall) ([]Prepared, 
 // prepare sanitizes, validates, and asks the Toolset to decode the call.
 func (t *turn) prepare(ctx context.Context, c ToolCall) (Prepared, *ToolError, error) {
 	c.Name = sanitizeName(c.Name)
+	c.TurnID = t.turnID
 	args, te := normalizeArgs(c.Arguments)
 	if te != nil {
 		return Prepared{}, te, nil
@@ -111,6 +112,9 @@ func (t *turn) runParallel(ctx context.Context, prepared []Prepared) (outcome, b
 	for i := range prepared {
 		if o, ok := t.deliver(ctx, prepared[i].Call, &outs[i].res, outs[i].err); ok && term == nil {
 			term = &o
+		}
+		if outs[i].err == nil && outs[i].res.Err == nil {
+			t.trackEffect(&prepared[i])
 		}
 	}
 	if term != nil {
@@ -186,7 +190,19 @@ func (t *turn) runCall(ctx context.Context, p *Prepared) (o outcome, terminal, d
 	}
 	res, err := t.dispatch(ctx, p)
 	o, ok := t.deliver(ctx, p.Call, &res, err)
+	if err == nil && res.Err == nil {
+		t.trackEffect(p)
+	}
 	return o, ok, true
+}
+
+// trackEffect remembers a successful non-read tool for the failed-turn
+// notice (SEC11-3). Read results can be reproduced; side effects cannot.
+func (t *turn) trackEffect(p *Prepared) {
+	if p.Effect == EffectRead && !p.SideEffect || len(t.effects) >= 20 {
+		return
+	}
+	t.effects = append(t.effects, p.Call.Name+"("+p.Call.ID+")")
 }
 
 // dispatchEvent persists the dispatch marker before a tool runs.

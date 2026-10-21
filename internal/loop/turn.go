@@ -34,7 +34,9 @@ type turn struct {
 	compacted bool
 	iteration int
 	pending   *outcome
-	finished  bool // terminal state already persisted (GAP-REL-01)
+	finished  bool     // terminal state already persisted (GAP-REL-01)
+	effects   []string // successful non-read tools (SEC11-3)
+	markerErr error    // context_exclude append failure (SEC11-6)
 }
 
 // outcome is one terminal classification; err is already redacted.
@@ -95,6 +97,13 @@ func (t *turn) begin(ctx context.Context) *outcome {
 	if _, err := t.append(ctx, &event.Event{Kind: event.UserMessage, Role: "user", Content: t.input.Text}); err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
 		return &o
+	}
+	if j, ok := t.deps.Store.(TurnJournal); ok {
+		if err := j.BeginTurn(ctx, t.sessionID, t.turnID); err != nil {
+			o := t.fail(ctx, event.DetailInternal, err)
+			return &o
+		}
+		return nil
 	}
 	if _, err := t.append(ctx, &event.Event{Kind: event.TurnStart, Payload: payload(turnStartPayload{
 		Text: t.input.Text, PlanMode: t.input.PlanMode, TurnID: t.turnID,
@@ -438,6 +447,10 @@ func (t *turn) end(ctx context.Context, o outcome) {
 	errText := t.redact(o.err)
 	t.finish(ctx, o, excludeReason(o))
 	t.emit(&event.Update{Kind: event.UpdateStop, Stop: o.stop, Detail: o.detail, Usage: &t.usage, Err: errText})
+	if t.markerErr != nil { // SEC11-6: never lose the poison-loop guard silently
+		msg := t.redact("context_exclude append failed: " + t.markerErr.Error())
+		t.emit(&event.Update{Kind: event.UpdateNotice, Text: msg, Err: msg})
+	}
 }
 
 // finish appends the context_exclude marker (when reason is not empty) and
@@ -450,13 +463,29 @@ func (t *turn) finish(ctx context.Context, o outcome, reason string) {
 	}
 	t.finished = true
 	if reason != "" {
-		t.note(ctx, &event.Event{Kind: event.ContextExclude, Payload: payload(excludePayload{TurnID: t.turnID, Reason: reason})})
+		if len(t.effects) > 0 { // SEC11-3: executed side effects stay visible
+			t.noteTurnless(ctx, &event.Event{Kind: event.SystemNotice, Payload: payload(effectsPayload{
+				Kind: "failed_turn_effects", TurnID: t.turnID, Effects: t.effects,
+			})})
+		}
+		if _, err := t.appendAs(ctx, t.turnID, &event.Event{Kind: event.ContextExclude, Payload: payload(excludePayload{TurnID: t.turnID, Reason: reason})}); err != nil {
+			t.markerErr = err // SEC11-6: surfaced as a stream notice in end
+		}
 	}
-	t.note(ctx, &event.Event{Kind: event.TurnEnd, Payload: payload(endPayload{
+	end := &event.Event{Kind: event.TurnEnd, Payload: payload(endPayload{
 		Stop: string(o.stop), Detail: string(o.detail), Iterations: t.iteration,
 		Input: t.usage.Input, Output: t.usage.Output, CostUSD: t.usage.CostUSD,
 		Tainted: t.tainted, Error: t.redact(o.err),
-	})})
+	})}
+	if j, ok := t.deps.Store.(TurnJournal); ok {
+		if err := j.EndTurn(context.WithoutCancel(ctx), t.sessionID, t.turnID, end.Payload); err != nil {
+			t.markerErr = errors.Join(t.markerErr, err)
+			t.note(ctx, end) // the journal keeps the turn recoverable
+			return
+		}
+		return
+	}
+	t.note(ctx, end)
 }
 
 // excludeReason names the terminal outcomes whose turn is skipped by the
@@ -519,15 +548,28 @@ func (t *turn) note(ctx context.Context, ev *event.Event) {
 	}
 }
 
+// noteTurnless appends an event outside the turn (no turn_id), so turn-level
+// context_exclude cannot hide it (SEC11-3).
+func (t *turn) noteTurnless(ctx context.Context, ev *event.Event) {
+	if _, err := t.appendAs(context.WithoutCancel(ctx), "", ev); err != nil {
+		t.markerErr = err
+	}
+}
+
 // append writes one critical event unless persistence is disabled.
 func (t *turn) append(ctx context.Context, ev *event.Event) (int64, error) {
+	return t.appendAs(ctx, t.turnID, ev)
+}
+
+// appendAs writes one event with an explicit turn id ("" = turnless).
+func (t *turn) appendAs(ctx context.Context, turnID string, ev *event.Event) (int64, error) {
 	if t.deps.Store == nil {
 		return 0, nil
 	}
 	if ev.Payload == nil {
 		ev.Payload = json.RawMessage(`{}`)
 	}
-	id, err := t.deps.Store.Append(ctx, t.sessionID, t.turnID, ev)
+	id, err := t.deps.Store.Append(ctx, t.sessionID, turnID, ev)
 	if err != nil {
 		return 0, fmt.Errorf("loop: store append: %w", err)
 	}

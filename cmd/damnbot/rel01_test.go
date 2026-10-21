@@ -33,7 +33,7 @@ func TestFailedTurnPersisted(t *testing.T) {
 	cfg := config.Default()
 	red := redact.New(redact.Options{})
 	spill := diskSpill{dir: filepath.Join(dir, "spill")}
-	o := &runOptions{model: "openai/gpt-fake", baseURL: srv.URL, providerAttempts: 1, output: "json"}
+	o := &runOptions{model: "openai/gpt-fake", baseURL: srv.URL, providerAttempts: 1, output: "json", approval: "auto"}
 	model, err := startRunModel(ctx, &cfg, dir, o.model, o, red, spill, dir, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -47,18 +47,7 @@ func TestFailedTurnPersisted(t *testing.T) {
 	if code := turnCode(t, &cfg, "poison turn", o, model, red, spill); code != 2 {
 		t.Fatalf("failed turn: exit %d, want 2", code)
 	}
-	for _, c := range []struct{ name, q string }{
-		{"user rows", `SELECT count(*) FROM events WHERE session_id = ? AND kind = 'user_message' AND content = 'poison turn'`},
-		{"tool rows", `SELECT count(*) FROM events WHERE session_id = ? AND kind = 'tool_result' AND tool_call_id = 'c1'`},
-		{"turn_end{provider_error}", `SELECT count(*) FROM events WHERE session_id = ? AND kind = 'turn_end'
-			AND json_extract(payload, '$.detail') = 'provider_error'`},
-		{"context_exclude", `SELECT count(*) FROM events WHERE session_id = ? AND kind = 'context_exclude'
-			AND json_extract(payload, '$.reason') = 'provider_error'`},
-	} {
-		if n := rowCount(t, model, c.q); n != 1 {
-			t.Fatalf("%s = %d, want 1", c.name, n)
-		}
-	}
+	assertFailedTurnRows(t, model)
 
 	if code := turnCode(t, &cfg, "fresh turn", o, model, red, spill); code != 0 {
 		t.Fatalf("next turn: exit %d, want 0", code)
@@ -74,29 +63,57 @@ func TestFailedTurnPersisted(t *testing.T) {
 	if !strings.Contains(next, "fresh turn") {
 		t.Fatalf("new user message missing: %s", next)
 	}
-	// Nothing was deleted: both user messages and the tool row remain.
+	if !strings.Contains(next, "already executed") || !strings.Contains(next, "todo(c1)") {
+		t.Fatalf("executed side effect not surfaced to the next turn (SEC11-3): %s", next)
+	}
+	assertRemainingRows(t, model)
+}
+
+// assertFailedTurnRows checks the first (failed) turn's persisted rows.
+func assertFailedTurnRows(t *testing.T, model *runModel) {
+	t.Helper()
+	for _, c := range []struct{ name, q string }{
+		{"user rows", `SELECT count(*) FROM events WHERE session_id = ? AND kind = 'user_message' AND content = 'poison turn'`},
+		{"tool rows", `SELECT count(DISTINCT tool_call_id) FROM events WHERE session_id = ? AND kind = 'tool_result' AND tool_call_id = 'c1'`},
+		{"turn_end{provider_error}", `SELECT count(*) FROM events WHERE session_id = ? AND kind = 'turn_end'
+			AND json_extract(payload, '$.detail') = 'provider_error'`},
+		{"context_exclude", `SELECT count(*) FROM events WHERE session_id = ? AND kind = 'context_exclude'
+			AND json_extract(payload, '$.reason') = 'provider_error'`},
+	} {
+		if n := rowCount(t, model, c.q); n != 1 {
+			t.Fatalf("%s = %d, want 1", c.name, n)
+		}
+	}
+}
+
+// assertRemainingRows checks nothing was deleted and recall still finds it.
+func assertRemainingRows(t *testing.T, model *runModel) {
+	t.Helper()
 	for _, c := range []struct {
 		name string
 		want int64
 		q    string
 	}{
 		{"user rows after retry", 2, `SELECT count(*) FROM events WHERE session_id = ? AND kind = 'user_message'`},
-		{"tool rows after retry", 1, `SELECT count(*) FROM events WHERE session_id = ? AND kind = 'tool_result'`},
+		{"tool rows after retry", 1, `SELECT count(DISTINCT tool_call_id) FROM events WHERE session_id = ? AND kind = 'tool_result'`},
 	} {
 		if n := rowCount(t, model, c.q); n != c.want {
 			t.Fatalf("%s = %d, want %d", c.name, n, c.want)
 		}
 	}
-	hits, herr := model.db.Search(ctx, ctxdb.Query{Text: "poison", SessionID: model.sessionID})
-	if herr != nil || len(hits) == 0 {
-		t.Fatalf("recall = %+v, %v", hits, herr)
+	hits, err := model.db.Search(t.Context(), ctxdb.Query{Text: "poison", SessionID: model.sessionID})
+	if err != nil || len(hits) == 0 || !hits[0].Excluded {
+		t.Fatalf("recall = %+v, %v", hits, err)
 	}
 }
 
 // turnCode runs one headless turn on the existing model/session.
 func turnCode(t *testing.T, cfg *config.Config, prompt string, o *runOptions, model *runModel, red *redact.Redactor, spill diskSpill) int {
 	t.Helper()
-	opts := &runOptions{prompt: prompt, model: o.model, baseURL: o.baseURL, providerAttempts: 1, output: "json"}
+	opts := &runOptions{
+		prompt: prompt, model: o.model, baseURL: o.baseURL, providerAttempts: 1, output: "json",
+		approval: o.approval, unsafeShell: o.unsafeShell,
+	}
 	code, err := runTurn(t.Context(), cfg, opts, model, o.model, red, spill, io.Discard)
 	if err != nil {
 		t.Fatalf("turn %q: %v", prompt, err)

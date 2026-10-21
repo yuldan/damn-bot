@@ -57,9 +57,16 @@ func (t *Tx) ToolPending(sid, turn string, c *ToolCall) error {
 	return err
 }
 
-// EndTurn appends turn_end and deletes the journal row.
+// EndTurn appends turn_end with a bare stop_reason and deletes the journal
+// row.
 func (t *Tx) EndTurn(sid, turn, stop string) error {
-	if _, err := t.AppendEvent(sid, &Event{Kind: "turn_end", TurnID: turn, Payload: jsonOf(map[string]string{"stop_reason": stop})}); err != nil {
+	return t.EndTurnWith(sid, turn, jsonOf(map[string]string{"stop_reason": stop}))
+}
+
+// EndTurnWith appends turn_end with the caller's payload and deletes the
+// journal row in the same transaction (SEC11-2/SEC11-6).
+func (t *Tx) EndTurnWith(sid, turn, payload string) error {
+	if _, err := t.AppendEvent(sid, &Event{Kind: "turn_end", TurnID: turn, Payload: payload}); err != nil {
 		return err
 	}
 	_, err := t.Exec("DELETE FROM turn_journal WHERE turn_id = ?", turn)
