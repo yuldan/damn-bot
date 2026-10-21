@@ -58,13 +58,7 @@ func TestEncryptedWritersSearchAndCanary(t *testing.T) {
 		t.Fatal(err)
 	}
 	eid := ids[0]
-	cs := carrierstore.Store{DB: s}
-	if _, serr := cs.Save(ctx, "S", eid, []carrierstore.Carrier{{Ord: 0, Family: "openai", Model: "m", Kind: carrierstore.KindThoughtSignature, Anchor: "a", Payload: []byte("canary-carrier"), Replayable: true, CreatedAt: 1}}); serr != nil {
-		t.Fatal(serr)
-	}
-	if got, lerr := cs.Load(ctx, "S", []int64{eid}); lerr != nil || len(got) != 1 || string(got[0].Payload) != "canary-carrier" {
-		t.Fatalf("carrier load = %+v, %v", got, lerr)
-	}
+	assertEncryptedCarrier(t, s, eid, []byte("canary-carrier"))
 	red := redact.New(redact.Options{})
 	if _, perr := memstore.Put(ctx, s, &memstore.Row{Category: "fact", Scope: "user", Content: "canary-memory", Origin: "user", ScanResult: "{}", CreatedAt: 1},
 		&memstore.Decision{Status: "approved", Actor: "user", CreatedAt: 1}, red); perr != nil {
@@ -326,8 +320,9 @@ func verifyCarrierRestore(t *testing.T, dst string, st *secret.Store, eid int64,
 	if err != nil || len(got) != 1 {
 		t.Fatalf("load = %+v, %v", got, err)
 	}
-	if !bytes.Equal(got[0].Payload, payload) || got[0].SHA != carrierstore.PayloadSHA(payload) {
-		t.Fatalf("carrier = %+v, want payload %q sha %s", got[0], payload, carrierstore.PayloadSHA(payload))
+	keyed := enc.KeyedHash(string(payload))
+	if !bytes.Equal(got[0].Payload, payload) || got[0].SHA != keyed {
+		t.Fatalf("carrier = %+v, want payload %q sha %s", got[0], payload, keyed)
 	}
 	// Projection input: the loaded bytes, family/model/kind and plaintext SHA
 	// are exactly what the provider carrier projection consumes.
@@ -339,6 +334,28 @@ func verifyCarrierRestore(t *testing.T, dst string, st *secret.Store, eid int64,
 		t.Fatalf("projection input = %+v", proj)
 	}
 	assertNoPlaintext(t, dst, "canary-carrier-restore")
+}
+
+func assertEncryptedCarrier(t *testing.T, s *ctxdb.Store, eid int64, payload []byte) {
+	t.Helper()
+	ctx := context.Background()
+	cs := carrierstore.Store{DB: s}
+	refs, err := cs.Save(ctx, "S", eid, []carrierstore.Carrier{{Ord: 0, Family: "openai", Model: "m", Kind: carrierstore.KindThoughtSignature, Anchor: "a", Payload: payload, Replayable: true, CreatedAt: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyed := s.KeyedHash(string(payload))
+	if refs[0].SHA != keyed || cs.PayloadSHA(payload) != keyed {
+		t.Fatalf("refs sha = %s, store sha = %s, want %s", refs[0].SHA, cs.PayloadSHA(payload), keyed)
+	}
+	ids, err := cs.BySHA(ctx, "S", []string{keyed})
+	if err != nil || len(ids) != 1 || ids[0] != eid {
+		t.Fatalf("by sha = %+v, %v", ids, err)
+	}
+	got, err := cs.Load(ctx, "S", []int64{eid})
+	if err != nil || len(got) != 1 || !bytes.Equal(got[0].Payload, payload) || got[0].SHA != keyed {
+		t.Fatalf("carrier load = %+v, %v", got, err)
+	}
 }
 
 func assertHit(t *testing.T, s *ctxdb.Store, q, kind string) {
