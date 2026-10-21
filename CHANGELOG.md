@@ -5,6 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 ## Unreleased
 
 ### Fixed
+- `ci`: bump Go to 1.26.10 (GO-2026-6809 — crypto/x509 intermediate cert distrust); pin `go` di `go.mod`, `bench/go.mod`, `tools/go.mod` dan baris Status ENGINEERING ikut naik.
 - `ctxdb`: `CreateSession` menyimpan `Session.Model` dan `Session.ConfigSHA` yang sebenarnya, bukan placeholder `'test/model'`/`'cfg'`.
 - `exec`: sweep marker tidak lagi berhenti pada pemindaian bersih pertama setelah leader exit — proses yang sedang di antara dua `execve` melaporkan environ kosong/parsial sehingga lolos dari `markerPids`; sweep mengonfirmasi dengan pemindaian bersih kedua (P24.1, ADR-105).
 - `tools`: `shell` tidak lagi menurunkan mode eksekusi — `shell_allow` yang muncul/hilang/berubah argv antara `Inspect` dan `Run` menghasilkan `denied`, bukan `sh -c`; `cwd` di luar root ditolak `outside_workspace`; `Effect` memakai `cwd` panggilan; agregat inline yang habis tidak direset; stdin kosong = `nil`; `EnvPolicy.Secrets` (scope binary) diteruskan (REVIEW-F1-SEC7 TL7-4/5/6/7/8/10, ADR-109).
