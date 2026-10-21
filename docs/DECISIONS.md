@@ -2804,3 +2804,21 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Konsekuensi.** (+) Bentuk panggilan natural model berhasil dan stale-read untuk file eksisting tetap fail-closed. (−) Deskripsi schema bertambah ~10 karakter (masih ≤ 160 char); tidak ada I/O atau alokasi baru di jalur create. Test: create dengan tag nol/arbitrer, `stale_read` untuk tag salah, overwrite dengan tag benar.
 
+## ADR-117 — `internal/journal` F2: interface konsumen, `journalstore`, dan undo terverifikasi
+
+**Status:** Accepted 2026-10-21. Implementasi deliverable F2 `journal` (SPEC §18.1, P26; ROADMAP F2).
+
+**Konteks.** SPEC §18.1 mewajibkan setiap aksi file dicatat sebelum side effect dengan inverse before-image, dan undo harus mengembalikan byte identik atau menolak `conflict` bila file berubah. Tabel `actions`/`action_undos` sudah ada di migrasi 0006 dan append-only (§11.8). Dua hal tidak dinyatakan eksplisit: (a) di mana hash after-image disimpan, karena `actions` tidak dapat di-UPDATE dan `turn_journal` dihapus saat turn selesai; (b) bentuk interface antara paket konsumen dan storage (ADR-074 mewajibkan interface di konsumen, E-09 ≤ 5 method).
+
+**Keputusan.**
+1. `internal/journal` mendeklarasikan tipe (`Record`, `Action`, `Image`, `Status`) dan satu interface `Store` 5 method (`Record`, `Get`, `List`, `Blob`, `Finish`). Paket ini tidak mengimpor `ctxdb`; ia boleh mengimpor `sandbox` untuk executor undo.
+2. `internal/ctxdb/journalstore` mengimplementasikan `journal.Store`. Berbeda dari `ledgerstore` (tipe kembar tanpa saling impor), `journalstore` mengimpor `internal/journal` agar hanya ada satu definisi tipe aksi; arah edge `journalstore → journal` ditambahkan ke matriks E-01 dan tidak membuat siklus (`journal` tidak mengimpor storage).
+3. Before-image **dan** after-image disimpan sebagai blob content-addressed dengan kunci `inverse.before.blob_sha`/`inverse.after.blob_sha` (`BlobRefsOf` menurunkan `blob_refs` owner `action`). After-image memberi hash pembanding penuh untuk deteksi konflik **dan** memungkinkan undo atas undo (redo) tanpa membaca state lain; `bytes_held` menjumlahkan byte unik kedua image.
+4. Crash safety memakai urutan record-sebelum-side-effect, bukan kolom state (tabel append-only). Undo tidak mempercayai journal sendirian: ia menghitung sha256 isi sekarang dan membandingkannya dengan before/after. Isi = before → no-op idempotent (`undone`), isi = after → pulihkan before, selain itu `conflict` (kecuali `--force`). Aksi yang tercatat tetapi crash sebelum side effect otomatis aman. Aksi dengan `turn_journal` masih terbuka ditolak `pending`.
+5. Retensi: `T_cut = max(now − retention_days, created_at aksi tertua yang masih muat saat bytes_held dijumlahkan dari terbaru ≤ max_bytes)`; default 30 hari / 2 GiB. Aksi `created_at < T_cut` → undo `expired`; rujukan blob dilepas gc pada `T_gc` yang sudah ada (§11.6).
+6. Executor undo memvalidasi path lewat `sandbox.Check`/`OpenFile` (deny_paths menang, symlink keluar root ditolak, hard link ditolak kecuali `--force` + tulis in-place), menulis byte sebelum lewat temp + fsync + rename dengan mode before (termasuk setuid/setgid/sticky), dan mencatat hasil lewat `Finish` (event `undo` + `action_undos`) di sesi pemanggil.
+
+**Ambiguitas SPEC §18.1.** Lokasi hash after-image tidak ditentukan. Pilihan konservatif: simpan after-image sebagai blob (bukan hash telanjang di JSON, yang akan ditolak validator `BlobRefsOf` karena bukan kunci `*_blob_sha`) sehingga konflik selalu dibandingkan dengan sha256 penuh. Bila blob after sudah di-gc, undo yang masih dalam retensi tetapi kehilangan blob melaporkan `failed` (tidak pernah sukses diam).
+
+**Konsekuensi.** (+) 100% aksi file punya inverse byte-identik; undo idempotent dan aman terhadap crash; retensi mengikuti angka SPEC. (−) Dua image per aksi menambah penyimpanan (dibatasi retensi); `journalstore` bergantung pada paket konsumen (bukan sebaliknya), satu edge matriks baru. LOC: `journal` ≤ 500, `ctxdb/journalstore` ≤ 400 (baris `loc.budget` sudah ada, tidak dinaikkan). Dependency baru: 0. Test: `TestRecordGetRoundTrip`, `TestRecordBlobRefs`, `TestRetentionExpiry`, `TestAppendOnly`, `TestOpenTurnRefuses`, `TestUndoSuite` (≥ 100 skenario).
+
