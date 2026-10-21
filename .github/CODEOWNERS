@@ -20,6 +20,7 @@
 /internal/ctxdb/ @yuldan
 /internal/journal/ @yuldan
 /internal/loop/ @yuldan
+/internal/modules/ @yuldan
 /internal/exec/ @yuldan
 /internal/exec/classify/ @yuldan
 /internal/netx/ @yuldan
