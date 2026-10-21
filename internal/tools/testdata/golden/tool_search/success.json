@@ -1,0 +1,4 @@
+{
+  "ok": true,
+  "content": "{\"tools\":[{\"name\":\"module_probe\",\"description\":\"probe module state\",\"module\":\"browser\",\"status\":\"dormant\",\"schema\":{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}}]}"
+}

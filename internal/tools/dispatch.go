@@ -53,6 +53,9 @@ type Config struct {
 	Cwd              string
 	// PageChars overrides the paged-tool cap (tests); 0 = PageChars.
 	PageChars int
+	// Deferred enables tool_search/tool_invoke over module-contributed
+	// tools. Without it both meta-tools fail closed.
+	Deferred *Deferred
 }
 
 // Call is one tool invocation. CallID and TurnID key the journal and the
@@ -117,6 +120,7 @@ type Dispatcher struct {
 	trusted  bool
 	cwd      string
 	page     int
+	deferred *Deferred
 
 	tainted  atomic.Bool
 	mu       sync.Mutex
@@ -145,7 +149,7 @@ func NewDispatcher(cfg *Config) (*Dispatcher, error) {
 	return &Dispatcher{
 		reg: cfg.Registry, journal: cfg.Journal, spill: cfg.Spill, mode: cfg.Mode,
 		approver: cfg.Approver, red: cfg.Redactor, timeout: cfg.ToolTimeout,
-		trusted: cfg.WorkspaceTrusted, cwd: cfg.Cwd, page: cfg.PageChars,
+		trusted: cfg.WorkspaceTrusted, cwd: cfg.Cwd, page: cfg.PageChars, deferred: cfg.Deferred,
 		calls: map[string]bool{}, sessions: map[string]bool{},
 	}, nil
 }
@@ -209,7 +213,14 @@ func (d *Dispatcher) prepare(ctx context.Context, call Call) (Prepared, error) {
 	if err := ctx.Err(); err != nil {
 		return Prepared{}, &ToolError{Code: CodeTimeout, Message: "call cancelled", Err: err}
 	}
-	entry, args, effect, fail := d.classifyCall(call)
+	if call.Name == ToolInvokeName {
+		inner, fail := d.unwrapInvoke(call)
+		if fail != nil {
+			return Prepared{}, fail.Err
+		}
+		call = inner
+	}
+	entry, args, effect, fail := d.classifyCall(ctx, call)
 	if fail != nil {
 		return Prepared{}, fail.Err
 	}
@@ -273,11 +284,18 @@ func (d *Dispatcher) dispatchPrepared(ctx context.Context, p *Prepared) Outcome 
 
 // prepare runs steps 1–4: lookup, duplicate guard, schema validation and
 // the effect class.
-func (d *Dispatcher) classifyCall(call Call) (*Entry, json.RawMessage, Effect, *Outcome) {
+func (d *Dispatcher) classifyCall(ctx context.Context, call Call) (*Entry, json.RawMessage, Effect, *Outcome) {
 	entry, ok := d.reg.Lookup(call.Name)
 	if !ok {
-		out := failure(CodeUnknownTool, "unknown tool "+quote(call.Name), "use a name from the tool list")
-		return nil, nil, "", &out
+		if d.deferred == nil || d.deferred.Catalog == nil {
+			out := failure(CodeUnknownTool, "unknown tool "+quote(call.Name), "use a name from the tool list")
+			return nil, nil, "", &out
+		}
+		var fail *Outcome
+		entry, fail = d.deferredEntry(ctx, call.Name)
+		if fail != nil {
+			return nil, nil, "", fail
+		}
 	}
 	args := call.Args
 	if len(bytes.TrimSpace(args)) == 0 {
