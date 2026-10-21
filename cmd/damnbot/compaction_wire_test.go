@@ -1,0 +1,148 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/netx"
+	"github.com/damnbot/damnbot/internal/provider"
+	"github.com/damnbot/damnbot/internal/provider/providertest"
+	"github.com/damnbot/damnbot/internal/redact"
+	"github.com/damnbot/damnbot/internal/tools"
+)
+
+const summaryReply = `{"goal":"port the parser","decisions":["use tables"],"files":["a.go"],"open_items":[],"facts":["tests pass"]}`
+
+// TestRunCompactionSummary (W6): a long session crosses compact_at, the
+// stage-2 summary call runs through the provider, and the next request
+// carries it only as a SessionView summary (tainted input stays wrapped).
+func TestRunCompactionSummary(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	srv := providertest.New(t, nil, providertest.Text(summaryReply), providertest.Text("done"))
+	db := openCompactionDB(ctx, t)
+	const sid = "compact"
+	model := compactionModel(t, srv.URL, db, sid)
+	seedLongSession(ctx, t, db, sid)
+	cfg := config.Default()
+	cfg.Loop.TurnMaxInputTok = 12_000
+	cfg.Loop.MaxIterations = 2
+	cfg.Provider.MaxOutput = 200
+	var out bytes.Buffer
+	code, runErr := runTurn(ctx, &cfg, &runOptions{prompt: "continue", output: "json"}, model, "openai/gpt-fake",
+		redact.New(redact.Options{}), diskSpill{dir: t.TempDir()}, &out)
+	if runErr != nil || code != 0 {
+		t.Fatalf("runTurn = %d, %v\n%s", code, runErr, out.String())
+	}
+	reqs := srv.Requests()
+	if len(reqs) < 2 {
+		t.Fatalf("provider calls = %d, want a summary then the turn", len(reqs))
+	}
+	if !strings.Contains(string(reqs[0]), "summarise an earlier part") {
+		t.Errorf("first call is not the summary call: %.200s", reqs[0])
+	}
+	assertSummaryRequest(t, reqs[len(reqs)-1])
+	rows, countErr := db.Count(ctx, `SELECT count(*) FROM usage_ledger WHERE purpose = 'compaction'`)
+	if countErr != nil {
+		t.Fatal(countErr)
+	}
+	if rows != 1 {
+		t.Errorf("compaction ledger rows = %d, want 1", rows)
+	}
+}
+
+func openCompactionDB(ctx context.Context, t *testing.T) *ctxdb.Store {
+	t.Helper()
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: t.TempDir(), Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cerr := db.CloseContext(ctx); cerr != nil {
+			t.Errorf("close: %v", cerr)
+		}
+	})
+	return db
+}
+
+func compactionModel(t *testing.T, baseURL string, db *ctxdb.Store, sid string) *runModel {
+	t.Helper()
+	client, err := provider.NewOpenAI(netx.New(netx.Config{Offline: true}).Client("inference", netx.Inference), &provider.Config{
+		Routes: []provider.Route{{Provider: "openai", Model: "gpt-fake", BaseURL: baseURL, ContextWindow: 64_000}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := tools.NewRegistry(tools.NewTodo())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &runModel{
+		provider:  &providerAdapter{client: client, model: "openai/gpt-fake", provider: "openai"},
+		registry:  reg,
+		store:     &ctxStore{db: db},
+		ledger:    &ctxLedger{db: db, provider: "openai", model: "gpt-fake"},
+		sessionID: sid,
+		cwd:       t.TempDir(),
+		db:        db,
+	}
+}
+
+// seedLongSession appends six turns with tool calls and tainted results; the
+// first turn's user text is the marker the summary must replace.
+func seedLongSession(ctx context.Context, t *testing.T, db *ctxdb.Store, sid string) {
+	t.Helper()
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: "/", Model: "openai/gpt-fake"}); err != nil {
+		t.Fatal(err)
+	}
+	marker := "SUMMARY_MARKER " + strings.Repeat("old context ", 3000)
+	tainted := `<untrusted source="shell">` + strings.Repeat("network output ", 1200) + `</untrusted>`
+	var evs []ctxdb.Event
+	for i := range 6 {
+		user := "filler " + strings.Repeat("later request ", 30)
+		if i == 0 {
+			user = marker
+		}
+		call := fmt.Sprintf("c%d", i)
+		evs = append(evs,
+			ctxdb.Event{Kind: "user_message", Role: "user", TurnID: "t1", Content: user},
+			ctxdb.Event{Kind: "assistant_message", Role: "assistant", TurnID: "t1", Payload: fmt.Sprintf(`{"tool_calls":[{"id":%q,"name":"shell","arguments":"{}"}]}`, call)},
+			ctxdb.Event{Kind: "tool_result", Role: "tool", TurnID: "t1", ToolCallID: call, ToolName: "shell", Content: tainted, Payload: `{"tainted":true}`},
+		)
+	}
+	if _, err := db.Append(ctx, sid, nil, evs...); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func assertSummaryRequest(t *testing.T, raw []byte) {
+	t.Helper()
+	var wire struct {
+		Messages []struct {
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("final request: %v", err)
+	}
+	var text strings.Builder
+	for _, m := range wire.Messages {
+		text.WriteString(m.Content)
+		text.WriteByte('\n')
+	}
+	final := text.String()
+	for _, want := range []string{"[summary of events", `<untrusted source="summary">`, "port the parser", "[end of summary]"} {
+		if !strings.Contains(final, want) {
+			t.Errorf("final request lacks %q: %.400s", want, final)
+		}
+	}
+	if strings.Contains(final, "SUMMARY_MARKER") {
+		t.Error("summarised raw content leaked into the request")
+	}
+}

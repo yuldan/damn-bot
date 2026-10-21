@@ -10,8 +10,17 @@ import (
 
 // Message is one chat message in the assembled request.
 type Message struct {
-	Role    string
-	Content string
+	Role       string
+	Content    string
+	ToolCalls  []ToolCall
+	ToolCallID string
+}
+
+// ToolCall is one assistant tool call carried by history.
+type ToolCall struct {
+	ID        string
+	Name      string
+	Arguments string
 }
 
 // Request is the openai-chat wire request assembled for one iteration.
@@ -174,18 +183,29 @@ func MarshalRequest(req Request) ([]byte, error) {
 		Messages: make([]wireMessage, len(req.Messages)),
 		Tools:    tools,
 	}
-	for i, m := range req.Messages {
-		wire.Messages[i] = wireMessage(m)
+	for i := range req.Messages {
+		wire.Messages[i] = wireOf(req.Messages[i])
 	}
 	return marshalNoEscape(wire)
 }
 
 func marshalMessages(messages []Message) ([]byte, error) {
 	wire := make([]wireMessage, len(messages))
-	for i, m := range messages {
-		wire[i] = wireMessage(m)
+	for i := range messages {
+		wire[i] = wireOf(messages[i])
 	}
 	return marshalNoEscape(wire)
+}
+
+func wireOf(m Message) wireMessage {
+	w := wireMessage{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
+	for _, c := range m.ToolCalls {
+		w.ToolCalls = append(w.ToolCalls, wireToolCall{
+			ID: c.ID, Type: "function",
+			Function: wireCallFunction{Name: c.Name, Arguments: c.Arguments},
+		})
+	}
+	return w
 }
 
 type wireRequest struct {
@@ -194,6 +214,19 @@ type wireRequest struct {
 }
 
 type wireMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string         `json:"role"`
+	Content    string         `json:"content"`
+	ToolCalls  []wireToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
+}
+
+type wireToolCall struct {
+	ID       string           `json:"id"`
+	Type     string           `json:"type"`
+	Function wireCallFunction `json:"function"`
+}
+
+type wireCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -36,7 +37,7 @@ func TestPrefixStableWithinTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build 2: %v", err)
 	}
-	if first.Messages[0] != second.Messages[0] {
+	if !reflect.DeepEqual(first.Messages[0], second.Messages[0]) {
 		t.Error("system message changed between iterations")
 	}
 	one, err := marshalMessages(first.Messages)
