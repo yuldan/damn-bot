@@ -555,7 +555,7 @@ Meta-test gate ada di workflow terpisah `meta.yml` (ADR-073, ADR-085) yang berja
 | E-70 | Rasio LOC test:source (Go, `scc --no-gen`) | 0,8–1,2; gate hanya bila Go non-test ≥ 5.000 LOC, di bawahnya laporan saja (ADR-050); paket test-only di allowlist eksplisit `TESTONLY <dir>` `loc.budget` (`internal/archtest`, `internal/testutil`) dikeluarkan dari rasio dan ambang, LOC-nya tetap dilaporkan (ADR-098) | `loc-budget` | 1,48 |
 | E-71 | File test | ≤ 1.500 baris | `TestFileLength` | maks 23.074; 69 file > 1.500 |
 | E-72 | Tanpa sleep di test | 0 `time.Sleep` | `forbidigo` (E-30); waktu via `testing/synctest` atau clock injeksi | — |
-| E-73 | Flake | ≤ 0,1% eksekusi test | nightly `flake`: `go test -count=20 -shuffle=on ./...`; flake = test yang gagal di sebagian (bukan semua) run ÷ total eksekusi | — |
+| E-73 | Flake | ≤ 0,1% eksekusi test | nightly `flake`: `go test -count=20 -shuffle=on ./...` (dijalankan sebagai 10 gelombang `-count=2` agar tiap binary paket tetap di bawah `-timeout` bawaan 10 menit; total 20 eksekusi per test tidak berubah) | — |
 | E-74 | Karantina flake | ≤ 5 `t.Skip("flaky: #<issue>")` sekaligus; diperbaiki/dihapus ≤ 5 hari kerja | `TestFlakyQuarantine` (hitung skip berlabel) | — |
 | E-75 | Chaos (SELF-HEALING.md): `kill -9` acak (P19), disk penuh, DB locked, network partition, proses anak hang | 0 korupsi, 0 aksi mutating terulang | nightly `chaos` | — |
 | E-76 | Regresi hermes | 1 subtest `TestEdgeCases/<EC-ID>` per entri EDGE-CASES-hermes.md (atau `n/a` + alasan di laporan `edgecases.json`) | gate F9 (SPEC §16) | — |
