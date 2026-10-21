@@ -80,7 +80,7 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 		return nil, nil
 	}
 	probe, err := s.ints(ctx, `SELECT rowid FROM events_fts
-		WHERE events_fts MATCH dmb_fts_norm(?) LIMIT ?`, q, broadAt+1)
+		WHERE events_fts MATCH dmb_fts_norm(?, 'events.content', '') LIMIT ?`, q, broadAt+1)
 	if err != nil {
 		return nil, fmt.Errorf("ctxdb: recall probe: %w", err)
 	}
@@ -90,7 +90,7 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 		return nil, fmt.Errorf("ctxdb: recall purge check: %w", err)
 	}
 	from := "events_fts f"
-	where := "events_fts MATCH dmb_fts_norm(?)"
+	where := "events_fts MATCH dmb_fts_norm(?, 'events.content', '')"
 	args := []any{q}
 	if purged > 0 {
 		// Materialize the small visible-rowid set once; FTS then probes it,

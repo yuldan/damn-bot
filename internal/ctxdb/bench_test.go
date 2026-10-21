@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,6 +190,19 @@ func (c *benchCodec) Seal(scope string, p []byte) ([]byte, error) {
 	out = append(out, nonce...)
 	return c.aead.Seal(out, nonce, p, []byte(scope)), nil
 }
+
+func (c *benchCodec) FTS(tokens string) string {
+	key := bytes.Repeat([]byte{9}, 32)
+	var out []string
+	for tok := range strings.FieldsSeq(tokens) {
+		m := hmac.New(sha256.New, key)
+		m.Write([]byte(tok))
+		out = append(out, hex.EncodeToString(m.Sum(nil)))
+	}
+	return strings.Join(out, " ")
+}
+
+func (c *benchCodec) Hash(s string) string { return s }
 
 func (c *benchCodec) Open(scope string, b []byte) ([]byte, error) {
 	n := c.aead.NonceSize()
