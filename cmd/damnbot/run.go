@@ -558,7 +558,7 @@ func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleReque
 	if err != nil {
 		return loop.Prompt{}, fmt.Errorf("compaction view: %w", err)
 	}
-	history := compactionHistory(view.Messages)
+	history := viewHistory(&view)
 	if len(history) == 0 {
 		history = []assemble.Message{{Role: "user", Content: req.Input.Text}}
 	}

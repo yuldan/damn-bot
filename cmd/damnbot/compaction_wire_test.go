@@ -142,6 +142,9 @@ func assertSummaryRequest(t *testing.T, raw []byte) {
 			t.Errorf("final request lacks %q: %.400s", want, final)
 		}
 	}
+	if n := strings.Count(final, "[summary of events"); n != 1 {
+		t.Errorf("summary appears %d times, want exactly once", n)
+	}
 	if strings.Contains(final, "SUMMARY_MARKER") {
 		t.Error("summarised raw content leaked into the request")
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/assemble"
@@ -80,12 +81,23 @@ func (m *runMeter) Measure(ctx context.Context, _ string, v *compaction.View) (i
 		Context:   m.context,
 		Tools:     m.tools,
 		Summaries: compaction.Blocks(v.Summaries),
-		History:   compactionHistory(v.Messages),
+		History:   viewHistory(v),
 	})
 	if err != nil {
 		return 0, 0, fmt.Errorf("measure: %w", err)
 	}
 	return int64(est.Total), m.window, nil
+}
+
+// viewHistory is the compacted transcript without the summary message the
+// compaction view prepends: summaries enter only via SessionView.Summaries.
+func viewHistory(v *compaction.View) []assemble.Message {
+	msgs := v.Messages
+	if len(v.Summaries) > 0 && len(msgs) > 0 && msgs[0].Role == "user" &&
+		msgs[0].Content == strings.Join(compaction.Blocks(v.Summaries), "\n") {
+		msgs = msgs[1:]
+	}
+	return compactionHistory(msgs)
 }
 
 // compactionHistory maps the compaction view to assembler history, keeping
