@@ -48,6 +48,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 - `provider`: decoder delta tidak lagi merekursi tanpa batas saat melewati nilai JSON bersarang — `skip` iteratif dan nesting dibatasi 10.000 seperti encoding/json; frame SSE 4 MiB berisi `[` kini `errJSON`, bukan stack overflow fatal (REVIEW-F1-SEC3 PROV-B1, ADR-102).
 - `budget`: biaya ledger tidak lagi bisa negatif atau mendekati 0 — token > 10¹², biaya provider > 10⁶ USD (termasuk +Inf), harga negatif, dan overflow tokens × harga ditolak `ErrInvalidUsage` (aritmetika tercek); test append-only `usage_ledger` kini non-vakum untuk UPDATE dan DELETE (REVIEW-F1-SEC3 LED-1..3, ADR-101).
 - `netx` (DLP): batas kerja `2·len + 2 KiB` yang menolak request sah dengan token double-encoded diganti batas lapisan ≤ (1+3)·len; pola §14.3 dipindai atas run non-whitespace utuh yang memuat byte hasil decode (seluruh lapisan bila ada header `authorization`/PEM) dan secret di sekitar byte yang berubah (jendela dihitung setelah folding CR/LF), sehingga token dengan konteks > 256 B (JWT, userinfo URL) dan secret yang dipisah baris baru tetap diblok; secret pendek memakai anggaran verifikasi terpisah; daftar kandidat escape dibatasi (REVIEW-F1-SEC1 NETX-15/16, REVIEW-F1-SEC3 NETX-26..28, ADR-100).
+- docs: align journal LOC budget across loc.budget, ENGINEERING and ADR-117
 
 ### Changed
 - `ctxdb`: budget LOC 3.100 → 3.500 (amandemen ADR-118; terukur 3.418 setelah read surface F2 + Recall #152 satu paket; Σ core 36.520 ≤ 47.000).

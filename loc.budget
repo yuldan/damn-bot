@@ -38,7 +38,7 @@ ctxdb/compactstore 250 internal/ctxdb/compactstore
 assemble          1000 internal/assemble
 compaction         900 internal/compaction
 memory+skills     1200 internal/memory internal/skills
-# ADR-117 amendment: journal 545 -> 560 (Windows-safe replace; terukur 557; Σ core 35.560 <= 47.000).
+# ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).
 journal            560 internal/journal
 # ADR-123: budget 400 -> 520 (guard harian/bulanan/provider + formula token gambar; terukur 481).
 # ADR-125: budget 520 -> 560 (jadwal harga bertanggal GAP-COST-01; terukur 530).
