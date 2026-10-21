@@ -139,6 +139,10 @@ type Record struct {
 	ReservedUSD float64 `json:"reserved_usd,omitempty"`
 	ChargedUSD  float64 `json:"charged_usd,omitempty"`
 	WorstCase   bool    `json:"worst_case_charged,omitempty"`
+
+	reservation string // id reservasi di Ledger
+	settled     bool   // biaya sudah dicatat (settle idempoten)
+	settleErr   string // Ledger.Settle gagal
 }
 
 // Recorder adalah reverse proxy rekam. Klien (agent) memakai kunci dummy; kunci upstream
@@ -147,8 +151,9 @@ type Recorder struct {
 	Upstream *url.URL // mis. https://api.example.com (path request klien dipertahankan)
 	Key      string
 	Price    Price
-	// CapUSD: batas keras (0 = tanpa batas). Bila Ledger ada, cap efektif = min(CapUSD, Ledger.CapUSD)
-	// dan biaya terpakai = total ledger lintas run. Request di atas cap ditolak 402 tanpa diteruskan.
+	// CapUSD: batas keras (0 = tanpa batas). Bila Ledger ada, cap efektif = min(CapUSD, cap ledger)
+	// dan biaya terpakai + reservasi berjalan dibaca dari ledger lintas proses. Request di atas cap
+	// ditolak 402 tanpa diteruskan.
 	CapUSD float64
 	Ledger *Ledger
 	Client *http.Client
@@ -161,8 +166,9 @@ type Recorder struct {
 	agent    string
 	task     string
 	seq      int
-	spent    float64
-	reserved float64
+	spent    float64 // tanpa Ledger: biaya dalam proses
+	reserved float64 // tanpa Ledger: reservasi berjalan dalam proses
+	halted   error   // Ledger.Settle pernah gagal: request berbayar berikutnya ditolak (ADR-091 NEW2-24)
 	usage    Usage
 	errs     []string
 	bg       Usage
@@ -186,8 +192,8 @@ func (r *Recorder) End() (Usage, []string) {
 	return u, e
 }
 
-// Spent adalah total USD terpakai: total ledger lintas run bila Ledger ada, selain itu sejak
-// proxy dibuat.
+// Spent adalah total USD terpakai (tanpa reservasi berjalan): total ledger lintas run bila Ledger
+// ada, selain itu sejak proxy dibuat.
 func (r *Recorder) Spent() float64 {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -211,15 +217,26 @@ func (r *Recorder) Cap() float64 {
 }
 
 // reserve memesan proyeksi terburuk request sebelum diteruskan; gagal bila terpakai + reservasi
-// berjalan + proyeksi > cap.
+// berjalan + proyeksi > cap. Dengan Ledger, cek + reservasi atomik di bawah flock sehingga request
+// bersamaan, juga dari proses lain, saling melihat reservasinya; tanpa Ledger, di bawah r.mu.
 func (r *Recorder) reserve(rec *Record, body []byte) error {
-	capUSD := r.Cap()
 	proj := r.Price.Worst(body)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if capUSD > 0 && r.spentLocked()+r.reserved+proj > capUSD {
+	if r.halted != nil {
+		return fmt.Errorf("ledger: settle sebelumnya gagal, request berbayar dihentikan: %w", r.halted)
+	}
+	if r.Ledger != nil {
+		id, err := r.Ledger.Reserve(proj, r.CapUSD)
+		if err != nil {
+			return err
+		}
+		rec.reservation, rec.ReservedUSD = id, proj
+		return nil
+	}
+	if r.CapUSD > 0 && r.spent+r.reserved+proj > r.CapUSD {
 		return fmt.Errorf("budget cap %.2f USD: terpakai %.4f + reservasi %.4f + proyeksi %.4f melebihi cap",
-			capUSD, r.spentLocked(), r.reserved, proj)
+			r.CapUSD, r.spent, r.reserved, proj)
 	}
 	r.reserved += proj
 	rec.ReservedUSD = proj
@@ -298,38 +315,49 @@ func (r *Recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	for _, h := range append(hopHeaders, "Content-Length", "Content-Encoding") {
 		w.Header().Del(h)
 	}
-	w.WriteHeader(resp.StatusCode)
 	rec.Status, rec.RespHeader = resp.StatusCode, redactHeader(resp.Header)
-
-	// Teruskan per potongan dan flush agar SSE tetap streaming; salin seluruhnya ke rekaman.
-	var buf bytes.Buffer
-	fl, _ := w.(http.Flusher)
-	chunk := make([]byte, 32<<10)
-	for {
-		n, rerr := resp.Body.Read(chunk)
-		if n > 0 {
-			buf.Write(chunk[:n])
-			if _, werr := w.Write(chunk[:n]); werr != nil && rec.Note == "" {
-				rec.Note = "client write: " + werr.Error()
-			}
-			if fl != nil {
-				fl.Flush()
-			}
+	// Note → ClientAborted bila agent sudah pergi, selain itu error harness.
+	classify := func() {
+		if rec.Note == "" {
+			return
 		}
-		if rerr != nil {
-			if !errors.Is(rerr, io.EOF) {
-				rec.Note = "upstream read: " + rerr.Error()
-			}
-			break
-		}
-	}
-	if rec.Note != "" {
 		if clientGone() {
 			rec.ClientAborted = true
 		} else {
 			rec.Error, rec.Note = rec.Note, ""
 		}
 	}
+
+	// Biaya dicatat sebelum klien bisa menerima respons lengkap, sehingga request berikutnya melihat
+	// biaya nyata, bukan hanya reservasi. Non-stream: respons ditahan sampai settle. Stream (SSE):
+	// diteruskan per potongan dan di-flush; akhir body baru terkirim setelah handler kembali.
+	var buf bytes.Buffer
+	if rec.Stream {
+		w.WriteHeader(resp.StatusCode)
+		fl, _ := w.(http.Flusher)
+		chunk := make([]byte, 32<<10)
+		for {
+			n, rerr := resp.Body.Read(chunk)
+			if n > 0 {
+				buf.Write(chunk[:n])
+				if _, werr := w.Write(chunk[:n]); werr != nil && rec.Note == "" {
+					rec.Note = "client write: " + werr.Error()
+				}
+				if fl != nil {
+					fl.Flush()
+				}
+			}
+			if rerr != nil {
+				if !errors.Is(rerr, io.EOF) {
+					rec.Note = "upstream read: " + rerr.Error()
+				}
+				break
+			}
+		}
+	} else if _, rerr := io.Copy(&buf, resp.Body); rerr != nil {
+		rec.Note = "upstream read: " + rerr.Error()
+	}
+	classify()
 	rec.RespBody = buf.String()
 
 	if billable && resp.StatusCode == http.StatusOK {
@@ -341,20 +369,68 @@ func (r *Recorder) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			rec.UsageMissing = true
 		}
 	}
+	r.settle(&rec)
+	if !rec.Stream {
+		w.WriteHeader(resp.StatusCode)
+		if _, werr := w.Write(buf.Bytes()); werr != nil && rec.Note == "" && rec.Error == "" {
+			rec.Note = "client write: " + werr.Error()
+			classify()
+		}
+	}
 	r.write(&rec)
 }
 
 // fail menjawab klien dengan error JSON bergaya OpenAI dan merekamnya sebagai error harness.
+// Reservasi (bila ada) dibebankan terburuk sebelum klien menerima error.
 func (r *Recorder) fail(w http.ResponseWriter, rec *Record, status int, msg string) {
 	b, _ := json.Marshal(map[string]any{"error": map[string]string{"message": "h2h proxy: " + msg, "type": "h2h_proxy"}})
+	rec.Status, rec.RespBody, rec.Error = status, string(b), msg
+	r.settle(rec)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_, _ = w.Write(b)
-	rec.Status, rec.RespBody, rec.Error = status, string(b), msg
 	r.write(rec)
 }
 
+// settle mengganti reservasi request dengan biaya yang dicatat: usage nyata; bila usage tidak
+// diketahui (usage_missing, abort, error transport) = proyeksi terburuk yang direservasi. Respons
+// non-200 lengkap dari upstream = 0 (tidak ditagih). Idempoten. Bila Ledger.Settle gagal,
+// reservasinya tetap di ledger, tetapi biaya nyata di atas reservasi bisa tidak tercatat: request
+// berbayar berikutnya ditolak (ADR-091 NEW2-24).
+func (r *Recorder) settle(rec *Record) {
+	if rec.settled {
+		return
+	}
+	rec.settled = true
+	switch {
+	case rec.Usage != nil:
+		rec.ChargedUSD = rec.Usage.CostUSD
+	case rec.ReservedUSD > 0 && (rec.UsageMissing || rec.ClientAborted || rec.Error != ""):
+		rec.ChargedUSD, rec.WorstCase = rec.ReservedUSD, true
+	}
+	if rec.reservation != "" {
+		err := r.Ledger.Settle(rec.reservation, rec.ChargedUSD)
+		if err == nil {
+			return
+		}
+		rec.settleErr = err.Error()
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		if r.halted == nil {
+			r.halted = err
+		}
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.reserved -= rec.ReservedUSD
+	r.spent += rec.ChargedUSD
+}
+
+// write mencatat request ke akumulator task (atau background) dan menulis rekamannya; biaya
+// di-settle lebih dulu bila belum.
 func (r *Recorder) write(rec *Record) {
+	r.settle(rec)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.seq++
@@ -371,24 +447,8 @@ func (r *Recorder) write(rec *Record) {
 	if rec.Usage != nil {
 		usage.Add(*rec.Usage)
 	}
-	// Biaya: usage nyata; bila usage tidak diketahui (usage_missing, abort, error transport) =
-	// proyeksi terburuk yang direservasi. Respons non-200 lengkap dari upstream = 0 (tidak ditagih).
-	charge := 0.0
-	switch {
-	case rec.Usage != nil:
-		charge = rec.Usage.CostUSD
-	case rec.ReservedUSD > 0 && (rec.UsageMissing || rec.ClientAborted || rec.Error != ""):
-		charge, rec.WorstCase = rec.ReservedUSD, true
-	}
-	r.reserved -= rec.ReservedUSD
-	if charge > 0 {
-		rec.ChargedUSD = charge
-		r.spent += charge
-		if r.Ledger != nil {
-			if err := r.Ledger.Add(charge); err != nil {
-				*errs = append(*errs, "ledger: "+err.Error())
-			}
-		}
+	if rec.settleErr != "" {
+		*errs = append(*errs, "ledger: "+rec.settleErr)
 	}
 	if rec.Error != "" {
 		*errs = append(*errs, fmt.Sprintf("seq %d %s: %s", rec.Seq, rec.Path, rec.Error))

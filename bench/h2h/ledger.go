@@ -1,12 +1,17 @@
 package h2h
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -19,16 +24,28 @@ const F1LedgerPath = "h2h/results/f1-spend.json"
 const F1CapUSD = 2.00
 
 // Ledger adalah biaya LLM kumulatif lintas run dan lintas proses untuk satu cap (ADR-062 butir 3,
-// ADR-075 AUD-037, ADR-085 NEW-14). Setiap baca dan tambah memakai read-modify-write di bawah
-// flock pada file `<path>.lock`, sehingga proses lain (cmd/h2h, cmd/startup) selalu melihat
-// belanja terbaru. File data ditulis ulang secara atomik (temp + fsync + rename).
+// ADR-075 AUD-037, ADR-085 NEW-14, ADR-091 NEW2-24). Setiap operasi memakai read-modify-write di
+// bawah flock pada file `<path>.lock`, sehingga proses lain (cmd/h2h, cmd/startup) selalu melihat
+// belanja dan reservasi terbaru. File data ditulis ulang secara atomik (temp + fsync + rename).
+//
+// Satu request berbayar: Reserve (cek cap + catat proyeksi terburuk, atomik) sebelum forward, lalu
+// Settle (reservasi diganti biaya yang dicatat) sesudahnya.
 type Ledger struct {
-	CapUSD   float64   `json:"cap_usd"`
-	SpentUSD float64   `json:"spent_usd"`
-	Updated  time.Time `json:"updated"`
+	// CapUSD adalah cap di file saat ledger dibuka; Reserve selalu memakai cap di file terbaru.
+	CapUSD float64
 
 	path string
 	mu   sync.Mutex // serialisasi dalam proses; flock untuk antar-proses
+}
+
+// ledgerFile adalah format persisten. Tanpa reservasi berjalan isinya sama dengan format awal
+// (cap_usd, spent_usd, updated). spent_usd hanya bertambah.
+type ledgerFile struct {
+	CapUSD   float64   `json:"cap_usd"`
+	SpentUSD float64   `json:"spent_usd"`
+	Updated  time.Time `json:"updated"`
+	// ReservedUSD: proyeksi terburuk request yang sedang diteruskan, per id `<pid>-<nonce>`.
+	ReservedUSD map[string]float64 `json:"reserved_usd,omitempty"`
 }
 
 // OpenLedger membaca ledger di path, atau membuatnya dengan capUSD bila belum ada.
@@ -36,16 +53,22 @@ type Ledger struct {
 func OpenLedger(path string, capUSD float64) (*Ledger, error) {
 	l := &Ledger{path: path}
 	err := l.locked(true, func() error {
-		switch rerr := l.load(); {
-		case errors.Is(rerr, os.ErrNotExist):
+		f, err := l.load()
+		if errors.Is(err, os.ErrNotExist) {
 			if capUSD <= 0 {
 				return fmt.Errorf("ledger %s: cap baru harus > 0", path)
 			}
 			l.CapUSD = capUSD
-			return l.save()
-		default:
-			return rerr
+			return l.save(&ledgerFile{CapUSD: capUSD})
 		}
+		if err != nil {
+			return err
+		}
+		l.CapUSD = f.CapUSD
+		if f.reclaim() {
+			return l.save(f)
+		}
+		return nil // tidak berubah: file (dan `updated`) tidak ditulis ulang
 	})
 	if err != nil {
 		return nil, err
@@ -53,13 +76,15 @@ func OpenLedger(path string, capUSD float64) (*Ledger, error) {
 	return l, nil
 }
 
-// Spent mengembalikan total USD yang tercatat di file saat ini. Bila file tidak bisa dibaca,
-// hasilnya +Inf sehingga setiap cap menolak request (fail-closed).
+// Spent mengembalikan total USD yang sudah dibebankan di file saat ini (tanpa reservasi berjalan).
+// Bila file tidak bisa dibaca, hasilnya +Inf (fail-closed).
 func (l *Ledger) Spent() float64 {
 	var v float64
 	if err := l.locked(false, func() error {
-		err := l.load()
-		v = l.SpentUSD
+		f, err := l.load()
+		if err == nil {
+			v = f.SpentUSD
+		}
 		return err
 	}); err != nil {
 		return math.Inf(1)
@@ -67,14 +92,56 @@ func (l *Ledger) Spent() float64 {
 	return v
 }
 
-// Add mencatat biaya (read-modify-write di bawah lock eksklusif) dan menulis ledger sebelum kembali.
-func (l *Ledger) Add(usd float64) error {
+// Reserve memesan usd untuk satu request sebelum diteruskan. Cek cap dan pencatatan reservasi
+// terjadi dalam satu read-modify-write di bawah flock eksklusif, sehingga request bersamaan — juga
+// dari proses lain — saling melihat reservasinya. Ditolak bila terpakai + reservasi berjalan + usd
+// > cap; cap = cap file, atau limit bila 0 < limit < cap file. id dipakai Settle.
+func (l *Ledger) Reserve(usd, limit float64) (string, error) {
+	id := strconv.Itoa(os.Getpid()) + "-" + rand.Text()
+	err := l.update(func(f *ledgerFile) error {
+		capUSD := f.CapUSD
+		if limit > 0 && limit < capUSD {
+			capUSD = limit
+		}
+		if held := f.reserved(); f.SpentUSD+held+usd > capUSD {
+			return fmt.Errorf("budget cap %.2f USD: terpakai %.4f + reservasi %.4f + proyeksi %.4f melebihi cap",
+				capUSD, f.SpentUSD, held, usd)
+		}
+		if f.ReservedUSD == nil {
+			f.ReservedUSD = map[string]float64{}
+		}
+		f.ReservedUSD[id] = usd
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// Settle mengganti reservasi id dengan usd (biaya nyata, atau proyeksi terburuk bila usage tidak
+// diketahui). Bila Settle gagal, reservasi tetap di file dan tetap dihitung terhadap cap.
+func (l *Ledger) Settle(id string, usd float64) error {
+	return l.update(func(f *ledgerFile) error {
+		delete(f.ReservedUSD, id)
+		f.SpentUSD += usd
+		return nil
+	})
+}
+
+// update menjalankan fn atas isi file terbaru di bawah lock eksklusif lalu menyimpannya; fn yang
+// gagal tidak menulis apa pun.
+func (l *Ledger) update(fn func(*ledgerFile) error) error {
 	return l.locked(true, func() error {
-		if err := l.load(); err != nil {
+		f, err := l.load()
+		if err != nil {
 			return err
 		}
-		l.SpentUSD += usd
-		return l.save()
+		f.reclaim()
+		if err := fn(f); err != nil {
+			return err
+		}
+		return l.save(f)
 	})
 }
 
@@ -88,31 +155,56 @@ func (l *Ledger) locked(exclusive bool, fn func() error) error {
 	return errors.Join(fn(), unlock())
 }
 
-// load membaca file ke l dan memvalidasinya; os.ErrNotExist diteruskan apa adanya.
-func (l *Ledger) load() error {
-	b, err := os.ReadFile(l.path)
-	if err != nil {
-		return err //nolint:wrapcheck // os.ErrNotExist dicek pemanggil
+// reserved menjumlahkan reservasi berjalan dalam urutan id tetap (hasil deterministik).
+func (f *ledgerFile) reserved() float64 {
+	sum := 0.0
+	for _, id := range slices.Sorted(maps.Keys(f.ReservedUSD)) {
+		sum += f.ReservedUSD[id]
 	}
-	var f struct {
-		CapUSD   float64   `json:"cap_usd"`
-		SpentUSD float64   `json:"spent_usd"`
-		Updated  time.Time `json:"updated"`
-	}
-	if err := json.Unmarshal(b, &f); err != nil {
-		return fmt.Errorf("ledger %s: %w", l.path, err)
-	}
-	if f.CapUSD <= 0 || f.SpentUSD < 0 {
-		return fmt.Errorf("ledger %s: cap %.4f / spent %.4f tidak valid", l.path, f.CapUSD, f.SpentUSD)
-	}
-	l.CapUSD, l.SpentUSD, l.Updated = f.CapUSD, f.SpentUSD, f.Updated
-	return nil
+	return sum
 }
 
-// save menulis ke file sementara di direktori yang sama, fsync, lalu rename (atomik).
-func (l *Ledger) save() error {
-	l.Updated = time.Now().UTC()
-	b, err := json.MarshalIndent(l, "", " ")
+// reclaim membebankan reservasi milik proses yang sudah tidak hidup (mati di antara forward dan
+// settle) sebagai biaya terburuk, karena upstream mungkin tetap menagih. true bila f berubah.
+func (f *ledgerFile) reclaim() bool {
+	changed := false
+	for _, id := range slices.Sorted(maps.Keys(f.ReservedUSD)) {
+		pid, _, _ := strings.Cut(id, "-")
+		if n, err := strconv.Atoi(pid); err == nil && processAlive(n) {
+			continue
+		}
+		f.SpentUSD += f.ReservedUSD[id]
+		delete(f.ReservedUSD, id)
+		changed = true
+	}
+	return changed
+}
+
+// load membaca file dan memvalidasinya; os.ErrNotExist diteruskan apa adanya.
+func (l *Ledger) load() (*ledgerFile, error) {
+	b, err := os.ReadFile(l.path)
+	if err != nil {
+		return nil, err //nolint:wrapcheck // os.ErrNotExist dicek pemanggil
+	}
+	var f ledgerFile
+	if err := json.Unmarshal(b, &f); err != nil {
+		return nil, fmt.Errorf("ledger %s: %w", l.path, err)
+	}
+	if f.CapUSD <= 0 || f.SpentUSD < 0 {
+		return nil, fmt.Errorf("ledger %s: cap %.4f / spent %.4f tidak valid", l.path, f.CapUSD, f.SpentUSD)
+	}
+	for id, usd := range f.ReservedUSD {
+		if usd < 0 {
+			return nil, fmt.Errorf("ledger %s: reservasi %s %.4f tidak valid", l.path, id, usd)
+		}
+	}
+	return &f, nil
+}
+
+// save menulis f ke file sementara di direktori yang sama, fsync, lalu rename (atomik).
+func (l *Ledger) save(f *ledgerFile) error {
+	f.Updated = time.Now().UTC()
+	b, err := json.MarshalIndent(f, "", " ")
 	if err != nil {
 		return err
 	}

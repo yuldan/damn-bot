@@ -9,3 +9,7 @@ import "errors"
 func lockFile(string, bool) (func() error, error) {
 	return nil, errors.New("ledger butuh flock (OS unix)")
 }
+
+// processAlive: tidak terpakai di sini (ledger tidak bisa dibuka); true = reservasi tidak pernah
+// dianggap milik proses mati.
+func processAlive(int) bool { return true }
