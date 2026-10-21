@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `secret`: key store F2 (ADR-124) — OS keychain (`zalando/go-keyring`) dengan fallback file hanya saat backend benar-benar tidak ada; marker `at-rest.meta` 0600 mengikat source+key-id sehingga file yang ditanam tidak pernah mengalahkan keychain dan keychain yang mati gagal-tertutup (`key_unavailable`). Direktori 0700/owner dicek setiap penggunaan, file dibuka `O_NOFOLLOW`+`fstat` (regular, 0600, owner), keyring dibatasi timeout 10 s/ctx, id = HMAC-SHA256 domain-separated, rotasi tiga fase Stage→Commit→Retire, dan `KEK` meredaksi/`Zero`. Belum di-wire ke CLI; backup key store X25519 dan arsip `DMBK1` menyusul di PR 2.
+
 ### Security
 - `bench/h2h`: satu baris `cmd` di `bench/h2h/results/2026-10-21-llm-scenarios/summary.json` memuat nilai `--api-key` literal (sejak #134) dan kini di-scrub menjadi `<redacted>` (nilainya **wajib dirotasi owner**; riwayat tidak ditulis ulang, 40+ PR terbuka tetap aman). Penjaga `TestRecordingsNoKey` memindai **seluruh** berkas di bawah `results/` (sebelumnya hanya `*.jsonl.gz`, sehingga `summary.json` lolos), dan artifact ditulis lewat util baru `h2h.RedactCommand`/`h2h.RedactArgs` yang menutup `--api-key`/`-k`/`--token`/`Authorization:`/`Bearer` (dipakai `cmd/startup`; kontrol negatif `TestRedactCommandNegativeControl` membuktikan penjaga menangkap bentuk yang tidak diredaksi). Kebijakan dan buktinya: **ADR-180**.
 
