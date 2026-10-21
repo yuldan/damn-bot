@@ -23,3 +23,13 @@ func lockFile(name string, exclusive bool) (func() error, error) {
 	}
 	return f.Close, nil // menutup fd melepas flock
 }
+
+// processAlive: kill(pid, 0) — ESRCH = proses tidak ada; EPERM = ada, milik user lain. pid ≤ 0
+// bukan satu proses.
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
