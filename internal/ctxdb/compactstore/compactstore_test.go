@@ -94,14 +94,15 @@ func TestLoadCommitRoundTrip(t *testing.T) {
 			Payload: "{}", Images: []string{},
 		},
 	}
-	if len(snap.Summaries) != 0 || snap.Task != nil || !reflect.DeepEqual(snap.Events, want) {
+	if len(snap.Summaries) != 0 || snap.Task != nil || snap.Compacted || snap.LastCall != nil || !reflect.DeepEqual(snap.Events, want) {
 		t.Fatalf("snapshot = %+v", snap)
 	}
 	cost := 0.25
 	sum := &compaction.Summary{FromSeq: 1, ToSeq: 4, Content: `{"goal":"g"}`, Model: "m", InputTokens: 90, OutputTokens: 9, Tainted: true}
+	attempt := compaction.Attempt{Outcome: compaction.OutcomeSummarized, Reason: compaction.ReasonContextLength, AtMS: 7}
 	id, err := s.Commit(t.Context(), sid, &compaction.Commit{
-		Call:    compaction.Call{TurnID: "t1", Provider: "p", Model: "m", Usage: event.Usage{Input: 90, Output: 9, CostUSD: &cost}, LatencyMS: 7},
-		Summary: sum,
+		TurnID: "t1", Attempt: attempt, Summary: sum,
+		Call: &compaction.Call{Provider: "p", Model: "m", Usage: event.Usage{Input: 90, Output: 9, CostUSD: &cost}, LatencyMS: 7},
 	})
 	if err != nil || id == 0 {
 		t.Fatalf("commit = %d, %v", id, err)
@@ -112,7 +113,7 @@ func TestLoadCommitRoundTrip(t *testing.T) {
 	}
 	sum.ID = id
 	if !reflect.DeepEqual(snap.Summaries, []compaction.Summary{*sum}) || !reflect.DeepEqual(snap.Events, want[2:]) ||
-		!reflect.DeepEqual(snap.Task, &want[0]) {
+		!reflect.DeepEqual(snap.Task, &want[0]) || !snap.Compacted || !reflect.DeepEqual(snap.LastCall, &attempt) {
 		t.Fatalf("after commit = %+v", snap)
 	}
 	checkCommitRows(t, db)
@@ -142,7 +143,10 @@ func TestCommitRejectedSummary(t *testing.T) {
 	t.Parallel()
 	db, s := open(t)
 	seed(t, db)
-	id, err := s.Commit(t.Context(), sid, &compaction.Commit{Call: compaction.Call{Provider: "p", Model: "m", Usage: event.Usage{Input: 5}}})
+	id, err := s.Commit(t.Context(), sid, &compaction.Commit{
+		Attempt: compaction.Attempt{Outcome: compaction.OutcomeRejected},
+		Call:    &compaction.Call{Provider: "p", Model: "m", Usage: event.Usage{Input: 5}},
+	})
 	if err != nil || id != 0 {
 		t.Fatalf("commit = %d, %v", id, err)
 	}
@@ -162,7 +166,7 @@ func TestCommitAtomic(t *testing.T) {
 	seed(t, db)
 	before := count(t, db, "SELECT count(*) FROM events WHERE session_id = ?")
 	_, err := s.Commit(t.Context(), sid, &compaction.Commit{
-		Call:    compaction.Call{Provider: "p", Model: "m"},
+		Call:    &compaction.Call{Provider: "p", Model: "m"},
 		Summary: &compaction.Summary{FromSeq: 1, ToSeq: 4, Content: "not json", Model: "m"},
 	})
 	if err == nil {
@@ -186,7 +190,7 @@ func TestInvisibleSession(t *testing.T) {
 		t.Errorf("missing session: %v", err)
 	}
 	if _, err := s.Commit(t.Context(), sid, &compaction.Commit{
-		Call:    compaction.Call{Provider: "p", Model: "m"},
+		Call:    &compaction.Call{Provider: "p", Model: "m"},
 		Summary: &compaction.Summary{FromSeq: 1, ToSeq: 4, Content: `{"goal":"g"}`, Model: "m"},
 	}); err != nil {
 		t.Fatal(err)
@@ -203,7 +207,7 @@ func TestInvisibleSession(t *testing.T) {
 	if n := count(t, db, "SELECT count(*) FROM summaries WHERE session_id = ?"); n != 0 {
 		t.Errorf("summaries left after purge = %d", n)
 	}
-	if _, err := s.Commit(t.Context(), sid, &compaction.Commit{Call: compaction.Call{Provider: "p", Model: "m"}}); err == nil {
+	if _, err := s.Commit(t.Context(), sid, &compaction.Commit{Attempt: compaction.Attempt{Outcome: compaction.OutcomePruned}}); err == nil {
 		t.Error("commit into a purged session succeeded")
 	}
 }

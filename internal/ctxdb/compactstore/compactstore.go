@@ -38,9 +38,6 @@ func New(db *ctxdb.Store, now func() time.Time) *Store {
 	return &Store{db: db, now: now}
 }
 
-const visible = `SELECT count(*) FROM sessions s WHERE s.id = ?1 AND NOT EXISTS
-	(SELECT 1 FROM session_labels l WHERE l.session_id = s.id AND l.key = 'purge_state')`
-
 const summariesQ = `SELECT json_object('id', s.id, 'from', s.from_seq, 'to', s.to_seq, 'content', s.content,
 	'model', s.model, 'in', s.input_tokens, 'out', s.output_tokens,
 	'tainted', coalesce(json_extract(e.payload, '$.tainted'), 0))
@@ -62,6 +59,15 @@ const (
 	taskQ = `SELECT ` + eventCols + ` FROM events e WHERE e.session_id = ?1 AND e.seq <= ?2
 	AND e.kind = 'user_message' ORDER BY e.seq DESC LIMIT 1`
 )
+
+// stateQ reads whether the session is visible (exists, not purging: SPEC
+// §11.6) and its Run history: whether any `compaction` event exists and the
+// payload of the newest one that called the summarizer.
+const stateQ = `SELECT json_object('visible', EXISTS (SELECT 1 FROM sessions s WHERE s.id = ?1 AND NOT EXISTS
+		(SELECT 1 FROM session_labels l WHERE l.session_id = s.id AND l.key = 'purge_state')),
+	'compacted', EXISTS (SELECT 1 FROM events WHERE session_id = ?1 AND kind = 'compaction'),
+	'last', (SELECT json(payload) FROM events WHERE session_id = ?1 AND kind = 'compaction'
+		AND json_extract(payload, '$.called') = 1 ORDER BY seq DESC LIMIT 1))`
 
 type summaryRow struct {
 	ID      int64  `json:"id"`
@@ -87,20 +93,16 @@ type eventRow struct {
 	Images  []string `json:"images"`
 }
 
-// Load returns every summary of a visible session, the model-visible events
-// after the newest summary and the request it may have covered, in one
-// transaction.
+// Load returns every summary of a visible session, its Run history, the
+// model-visible events after the newest summary and the request it may have
+// covered, in one transaction.
 func (s *Store) Load(ctx context.Context, sid string) (compaction.Snapshot, error) {
 	var snap compaction.Snapshot
 	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
-		var n int64
-		if err := tx.Get(visible, []any{sid}, &n); err != nil {
-			return fmt.Errorf("visibility: %w", err)
+		err := state(tx, sid, &snap)
+		if err != nil {
+			return err
 		}
-		if n == 0 {
-			return fmt.Errorf("session %s: %w", sid, ctxdb.ErrNotFound)
-		}
-		var err error
 		if snap.Summaries, err = summaries(tx, sid); err != nil {
 			return err
 		}
@@ -136,6 +138,28 @@ func summaries(tx *ctxdb.Tx, sid string) ([]compaction.Summary, error) {
 		}
 	}
 	return out, nil
+}
+
+func state(tx *ctxdb.Tx, sid string, snap *compaction.Snapshot) error {
+	var raw string
+	if err := tx.Get(stateQ, []any{sid}, &raw); err != nil {
+		return fmt.Errorf("session state: %w", err)
+	}
+	var st struct {
+		Visible, Compacted int64
+		Last               *attemptPayload
+	}
+	if err := json.Unmarshal([]byte(raw), &st); err != nil {
+		return fmt.Errorf("compaction state: %w", err)
+	}
+	if st.Visible == 0 {
+		return fmt.Errorf("session %s: %w", sid, ctxdb.ErrNotFound)
+	}
+	snap.Compacted = st.Compacted != 0
+	if l := st.Last; l != nil {
+		snap.LastCall = &compaction.Attempt{Outcome: l.Outcome, Reason: l.Reason, AtMS: l.AtMS}
+	}
+	return nil
 }
 
 func events(tx *ctxdb.Tx, q, sid string, boundary int64) ([]compaction.Event, error) {
@@ -174,8 +198,16 @@ type refPayload struct {
 	Tainted bool  `json:"tainted,omitempty"`
 }
 
-// Commit records the call and, with a summary, the summary in one
-// transaction; a failure leaves no row behind.
+// attemptPayload is the `compaction` event payload of one Run.
+type attemptPayload struct {
+	Outcome compaction.Outcome `json:"outcome"`
+	Reason  compaction.Reason  `json:"reason"`
+	AtMS    int64              `json:"at_ms"`
+	Called  bool               `json:"called"`
+}
+
+// Commit records the call, the summary and the Attempt in one transaction;
+// a failure leaves no row behind.
 func (s *Store) Commit(ctx context.Context, sid string, c *compaction.Commit) (int64, error) {
 	var id int64
 	err := s.db.Write(ctx, func(tx *ctxdb.Tx) (err error) {
@@ -189,36 +221,62 @@ func (s *Store) Commit(ctx context.Context, sid string, c *compaction.Commit) (i
 }
 
 func commit(tx *ctxdb.Tx, sid string, c *compaction.Commit, now int64) (int64, error) {
-	call, u := &c.Call, &c.Call.Usage
+	if c.Call != nil {
+		if err := call(tx, sid, c.TurnID, c.Call, now); err != nil {
+			return 0, err
+		}
+	}
+	var id int64
+	if c.Summary != nil {
+		var err error
+		if id, err = summary(tx, sid, c.TurnID, c.Summary, now); err != nil {
+			return 0, err
+		}
+	}
+	a := &c.Attempt
+	payload, err := json.Marshal(attemptPayload{Outcome: a.Outcome, Reason: a.Reason, AtMS: a.AtMS, Called: a.Outcome.Called()})
+	if err != nil {
+		return 0, fmt.Errorf("compaction payload: %w", err)
+	}
+	if _, err := tx.AppendEvent(sid, &ctxdb.Event{Kind: string(event.Compaction), TurnID: c.TurnID, Payload: string(payload)}); err != nil {
+		return 0, fmt.Errorf("compaction event: %w", err)
+	}
+	return id, nil
+}
+
+// call appends the llm_call event and its purpose=compaction ledger row.
+func call(tx *ctxdb.Tx, sid, turn string, c *compaction.Call, now int64) error {
+	u := &c.Usage
 	payload, err := json.Marshal(llmPayload{
-		Purpose: "compaction", Model: call.Model, Attempts: call.Attempts,
+		Purpose: "compaction", Model: c.Model, Attempts: c.Attempts,
 		Input: u.Input, CachedInput: u.CachedInput, Output: u.Output, CostUSD: u.CostUSD,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("llm_call payload: %w", err)
+		return fmt.Errorf("llm_call payload: %w", err)
 	}
-	callID, err := tx.AppendEvent(sid, &ctxdb.Event{Kind: string(event.LLMCall), TurnID: call.TurnID, Payload: string(payload)})
+	callID, err := tx.AppendEvent(sid, &ctxdb.Event{Kind: string(event.LLMCall), TurnID: turn, Payload: string(payload)})
 	if err != nil {
-		return 0, fmt.Errorf("llm_call: %w", err)
+		return fmt.Errorf("llm_call: %w", err)
 	}
 	micros, source := cost(u.CostUSD)
 	if _, err = ledgerstore.Insert(tx, &ledgerstore.Row{
-		SessionID: sid, TurnID: call.TurnID, EventID: callID, Purpose: "compaction",
-		Provider: call.Provider, Model: call.Model, InputTokens: u.Input, CachedInputTokens: u.CachedInput,
+		SessionID: sid, TurnID: turn, EventID: callID, Purpose: "compaction",
+		Provider: c.Provider, Model: c.Model, InputTokens: u.Input, CachedInputTokens: u.CachedInput,
 		OutputTokens: u.Output, CostMicros: micros, CostSource: source, PricingVersion: "none",
-		Attempts: int64(max(call.Attempts, 1)), LatencyMS: call.LatencyMS, TTFTMS: -1, CreatedAt: now,
+		Attempts: int64(max(c.Attempts, 1)), LatencyMS: c.LatencyMS, TTFTMS: -1, CreatedAt: now,
 	}); err != nil {
-		return 0, fmt.Errorf("ledger: %w", err)
+		return fmt.Errorf("ledger: %w", err)
 	}
-	sum := c.Summary
-	if sum == nil {
-		return 0, nil
-	}
+	return nil
+}
+
+// summary appends the summary_ref event and the summaries row.
+func summary(tx *ctxdb.Tx, sid, turn string, sum *compaction.Summary, now int64) (int64, error) {
 	ref, err := json.Marshal(refPayload{FromSeq: sum.FromSeq, ToSeq: sum.ToSeq, Tainted: sum.Tainted})
 	if err != nil {
 		return 0, fmt.Errorf("summary_ref payload: %w", err)
 	}
-	refID, err := tx.AppendEvent(sid, &ctxdb.Event{Kind: string(event.SummaryRef), TurnID: call.TurnID, Payload: string(ref)})
+	refID, err := tx.AppendEvent(sid, &ctxdb.Event{Kind: string(event.SummaryRef), TurnID: turn, Payload: string(ref)})
 	if err != nil {
 		return 0, fmt.Errorf("summary_ref: %w", err)
 	}
