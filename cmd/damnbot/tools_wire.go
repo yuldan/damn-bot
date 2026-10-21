@@ -49,7 +49,19 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 		case "assistant_message":
 			out = appendAssistant(out, assistantAt, r)
 		case "tool_result":
-			out = appendToolResult(out, r)
+			// Keep one message per tool_call_id (transcripts written before
+			// the loop owned tool_result may hold two), preferring the
+			// non-empty result.
+			if r.ToolCallID == "" {
+				continue
+			}
+			if i := findToolMessage(out, r.ToolCallID); i >= 0 {
+				if out[i].Content == "" && r.Content != "" {
+					out[i].Content = r.Content
+				}
+				continue
+			}
+			out = append(out, loop.Message{Role: "tool", Content: r.Content, ToolCallID: r.ToolCallID})
 		case "system_notice":
 			if c := effectsNotice(r.Payload); c != "" {
 				out = append(out, loop.Message{Role: "system", Content: c})

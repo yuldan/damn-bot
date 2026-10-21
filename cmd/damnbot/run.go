@@ -316,10 +316,9 @@ func (m *runModel) close(ctx context.Context) error {
 	if m.db == nil {
 		return err
 	}
-	if cerr := m.db.CloseContext(ctx); cerr != nil {
-		return errors.Join(err, fmt.Errorf("close ctxdb: %w", cerr))
-	}
-	return err
+	// The turn is over: release the lease so `damnbot undo` can take its
+	// short lease immediately (SPEC §18.1).
+	return closeDB(ctx, m.db, m.sessionID, err)
 }
 
 // newRunProvider builds the run provider or returns the injected one.
@@ -371,11 +370,57 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	provName, modelName, _ := strings.Cut(modelRef, "/")
 	limits, err := registry.NewLimits(nil, nil, limitstore.Store{DB: w.db}, nil)
 	if err != nil {
-		return nil, w.fail(fmt.Errorf("model limits: %w", err))
+		return nil, closeDB(ctx, db, "", err)
 	}
 	win, err := limits.Window(ctx, provName, modelName)
 	if err != nil {
-		return nil, w.fail(fmt.Errorf("model window: %w", err))
+		return nil, closeDB(ctx, db, sid, fmt.Errorf("sandbox: %w", err))
+	}
+	scope, err := journalScope(roots, cfg.DenyPaths(configDir), home)
+	if err != nil {
+		return nil, closeDB(ctx, db, sid, err)
+	}
+	engine, err := codetools.New(&codetools.Config{Sandbox: sb, Roots: roots, Home: home})
+	if err != nil {
+		return nil, closeDB(ctx, db, sid, fmt.Errorf("codetools: %w", err))
+	}
+	runner := exec.New(ctx)
+	envPolicy := &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent}
+	// Persistent sessions share the runner but never receive secret refs
+	// (ADR-088): direct is empty and Env only inherits the allowlist.
+	sessions := runner.NewSessions(filepath.Join(dataDir, "exec", "sess"), envPolicy.Env(os.Environ(), true, "", "", ""))
+	fail := func(cause error) error {
+		engine.Close()
+		if cerr := sessions.Close(); cerr != nil {
+			cause = errors.Join(cause, fmt.Errorf("close sessions: %w", cerr))
+		}
+		if cerr := runner.CloseContext(ctx); cerr != nil {
+			cause = errors.Join(cause, fmt.Errorf("close runner: %w", cerr))
+		}
+		return closeDB(ctx, db, sid, cause)
+	}
+	allow, monetary, err := shellGate(cfg, configDir)
+	if err != nil {
+		return nil, fail(err)
+	}
+	shellTool, err := tools.NewShell(&tools.ShellConfig{
+		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
+		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
+		EnvPolicy:        envPolicy,
+		WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
+		MonetaryPaths: monetary, Canonicalize: monetaryKey,
+	})
+	if err != nil {
+		return nil, fail(fmt.Errorf("shell tool: %w", err))
+	}
+	list, err := journaledFileTools(db, sid, scope, engine, sb)
+	if err != nil {
+		return nil, fail(err)
+	}
+	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil))
+	reg, err := tools.NewRegistry(list...)
+	if err != nil {
+		return nil, fail(fmt.Errorf("registry: %w", err))
 	}
 	prov, err := newRunProvider(cfg, w.db, modelRef, o)
 	if err != nil {
