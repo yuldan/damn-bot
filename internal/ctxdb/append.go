@@ -20,6 +20,7 @@ type Session struct {
 	Origin, Cwd  string
 	Model        string // provider/model; empty = the caller did not resolve one
 	ConfigSHA    string // sessions.config_sha snapshot
+	ContextTier  string // frozen context tier (P15); empty at creation
 }
 
 // CreateSession inserts a session and acquires its lease in the same
@@ -33,7 +34,7 @@ func (t *Tx) CreateSession(ss Session) (int64, error) { //nolint:gocritic // val
 		ss.Origin = "tui"
 	}
 	_, err := t.Exec(`INSERT INTO sessions(id, parent_id, fork_seq, origin, cwd, model, config_sha, context_tier, created_at)
-		VALUES (?,?,?,?,?,?,?,'',?)`, ss.ID, parent, fork, ss.Origin, ss.Cwd, ss.Model, ss.ConfigSHA, t.s.clk.WallMs())
+		VALUES (?,?,?,?,?,?,?,?,?)`, ss.ID, parent, fork, ss.Origin, ss.Cwd, ss.Model, ss.ConfigSHA, ss.ContextTier, t.s.clk.WallMs())
 	if err != nil {
 		return 0, err
 	}
@@ -46,12 +47,17 @@ func (s *Store) CreateSession(ctx context.Context, ss Session) (tok int64, err e
 	return tok, err
 }
 
-// Event is one transcript row (SPEC §11.2 events).
+// Event is one transcript row (SPEC §11.2 events). Append ignores the
+// read-only fields (ID, Seq, SessionID, CreatedAt); History fills them and
+// Seq is the row's per-session events.seq, the same value fork_seq uses.
 type Event struct {
+	ID, Seq                 int64
+	SessionID               string
 	Kind, Role, Content     string
 	TurnID, ToolCallID      string
 	ToolName, Payload, Blob string   // Blob = events.blob_sha
 	Attach                  []string // event_attachments.blob_sha in order
+	CreatedAt               int64
 }
 
 // EventHash = sha256(prev_hash|session_id|seq|kind|content|payload|blob_sha).

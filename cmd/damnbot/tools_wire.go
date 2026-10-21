@@ -59,27 +59,16 @@ func runtimeDialect() classify.Dialect {
 
 // History reconstructs the chat history from the session transcript, including
 // assistant tool calls and tool results, so every loop iteration sees them.
+// The store read is fork-aware and bounded (SPEC §4.6); a resumed fork keeps
+// its ancestor prefix.
 func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, error) {
-	const q = `SELECT coalesce(json_group_array(json_object(
-		'kind',kind,'role',coalesce(role,''),'content',coalesce(content,''),
-		'tool_call_id',coalesce(tool_call_id,''),'payload',coalesce(payload,'{}'))),'[]')
-		FROM (SELECT * FROM events WHERE session_id = ? ORDER BY seq)`
-	var raw string
-	if err := s.db.Write(ctx, func(tx *ctxdb.Tx) error { return tx.Get(q, []any{sid}, &raw) }); err != nil {
+	rows, err := s.db.History(ctx, sid, 0, ctxdb.WithHistoryLimit(ctxdb.DefaultHistoryLimit))
+	if err != nil {
 		return nil, fmt.Errorf("history query: %w", err)
 	}
-	var rows []struct {
-		Kind       string `json:"kind"`
-		Role       string `json:"role"`
-		Content    string `json:"content"`
-		ToolCallID string `json:"tool_call_id"`
-		Payload    string `json:"payload"`
-	}
-	if err := json.Unmarshal([]byte(raw), &rows); err != nil {
-		return nil, fmt.Errorf("history rows: %w", err)
-	}
 	out := make([]loop.Message, 0, len(rows))
-	for _, r := range rows {
+	for i := range rows {
+		r := &rows[i]
 		switch r.Kind {
 		case "user_message":
 			out = append(out, loop.Message{Role: "user", Content: r.Content})

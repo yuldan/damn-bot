@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 //go:embed migrations/*.sql queries.sql
@@ -80,11 +81,21 @@ func (s *Store) migrateIfNeeded(ctx context.Context) (err error) {
 	if herr := s.checkOldHolders(target); herr != nil {
 		return herr
 	}
-	b, err := AcquireBarrier(ctx, s.dir, s.id, reasonMigrate, 30, s.opt.BarrierWait)
+	b, err := s.acquireMigrationBarrier(ctx, migs, target)
 	if err != nil {
 		return err
 	}
+	if b == nil { // another process completed the ladder while we waited
+		return nil
+	}
 	defer func() { err = errors.Join(err, b.Release()) }()
+	// The winner of the barrier race may have migrated while we waited: refresh
+	// the version before applying anything (EC-STATE-003).
+	if v, verr := s.dbVersion(ctx, migs); verr != nil {
+		return verr
+	} else if v >= target {
+		return nil
+	}
 	if herr := s.checkOldHolders(target); herr != nil { // repeated in `draining`
 		return herr
 	}
@@ -101,6 +112,29 @@ func (s *Store) migrateIfNeeded(ctx context.Context) (err error) {
 		err = s.applyMigration(ctx, i+1, migs[i])
 	}
 	return errors.Join(err, removeIfExists(s.root, "run/migrate_blocked.json"))
+}
+
+// acquireMigrationBarrier waits out a concurrent schema initialisation
+// (EC-STATE-003): another process holding the migration barrier is not a
+// user-visible failure. The wait is bounded by BarrierWait and checks the
+// version between attempts, so the loser of the race succeeds once the
+// winner has committed.
+func (s *Store) acquireMigrationBarrier(ctx context.Context, migs []migration, target int) (*Barrier, error) {
+	const retry = 50 * time.Millisecond
+	deadline := time.Now().Add(s.opt.BarrierWait)
+	b, err := AcquireBarrier(ctx, s.dir, s.id, reasonMigrate, 30, s.opt.BarrierWait)
+	// macOS can surface a transient ENOENT while the barrier owner file is
+	// created/released concurrently; retry it like db_busy.
+	for (errors.Is(err, ErrDBBusy) || errors.Is(err, fs.ErrNotExist)) && time.Now().Before(deadline) {
+		if v, verr := s.dbVersion(ctx, migs); verr == nil && v == target {
+			return nil, nil // the winner finished the ladder
+		}
+		if serr := sleepReal(ctx, retry); serr != nil {
+			return nil, serr
+		}
+		b, err = AcquireBarrier(ctx, s.dir, s.id, reasonMigrate, 30, s.opt.BarrierWait)
+	}
+	return b, err
 }
 
 // backupPremigrate = VACUUM INTO backups/premigrate-<from>-<to>.db, keep 2.

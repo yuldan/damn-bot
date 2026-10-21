@@ -27,6 +27,7 @@ var (
 	ErrInboundInvalid      = errors.New("inbound_invalid")
 	ErrMigrationRefused    = errors.New("migration_refused")
 	ErrInternal            = errors.New("internal")
+	ErrInvalidSeq          = errors.New("invalid_args") // fork seq outside [0, head]
 )
 
 // SQLite result codes used for classification (sqlite3.h).
