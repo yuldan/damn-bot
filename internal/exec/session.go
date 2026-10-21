@@ -32,6 +32,9 @@ var (
 	ErrSessionLimit = errors.New("exec: session limit reached")
 	// ErrSessionName rejects a name outside ^[a-z0-9_-]{1,32}$.
 	ErrSessionName = errors.New("exec: invalid session name")
+	// ErrSessionsClosed: the session table was closed; Exec does not start a
+	// shell after Close (it would outlive Runner.Close, whose wait is bounded).
+	ErrSessionsClosed = errors.New("exec: sessions closed")
 )
 
 // Sessions holds the persistent shells of one agent session.
@@ -41,8 +44,9 @@ type Sessions struct {
 	env []string // child environment, built without secret refs (ADR-088 butir 4)
 	now func() time.Time
 
-	mu sync.Mutex
-	m  map[string]*session
+	mu     sync.Mutex
+	m      map[string]*session
+	closed bool // Close ran: no new shell may start
 }
 
 // NewSessions returns the session table of one agent session; command
@@ -104,9 +108,17 @@ func (ss *Sessions) Exec(ctx context.Context, name, command string, stdin []byte
 	return res, err
 }
 
-// Close kills every session shell.
+// Close kills every session shell. No shell starts after it returns: Exec
+// takes ss.mu, so it either registers its shell before Close drops it, or
+// sees closed and starts none (a shell started after Close would keep the
+// Runner's reader and waiter tasks alive and make Runner.Close time out).
 func (ss *Sessions) Close() error {
 	ss.mu.Lock()
+	if ss.closed {
+		ss.mu.Unlock()
+		return nil
+	}
+	ss.closed = true
 	names := make([]string, 0, len(ss.m))
 	for n := range ss.m {
 		names = append(names, n)
@@ -122,6 +134,9 @@ func (ss *Sessions) Close() error {
 func (ss *Sessions) get(ctx context.Context, name string) (*session, error) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
+	if ss.closed {
+		return nil, ErrSessionsClosed
+	}
 	now := ss.now()
 	for n, s := range ss.m { // idle reap (§A.2)
 		if n != name && now.Sub(s.lastUse) >= SessionIdleReap {
