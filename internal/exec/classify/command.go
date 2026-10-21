@@ -25,6 +25,11 @@ func (s *state) command(args []arg, in stdin) bool {
 		s.mut = true
 		return false
 	}
+	if pathLike(args[0].s) && !s.remote {
+		if p, ok := s.abs(args[0].s); ok {
+			s.paymentFile(p, s.resolve(p)) // ./scripts/pay.sh run directly (SEC-15)
+		}
+	}
 	name := s.cmdName(args[0].s)
 	if name == "git" {
 		args = s.gitGlobals(args)

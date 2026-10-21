@@ -632,6 +632,7 @@ Selesai jika < 60% window. Jika belum, tahap 2 — satu summary (`purpose=compac
 - **Routing skill**: index FTS5 atas nama + **deskripsi utuh** + isi; saat sesi dibuat dan saat topik berubah (top-1 BM25 berganti), maks 3 skill ditawarkan `- <name>: <description ≤ 120 char> (<path>)` (sub-cap context tier ≤ 150 tok; tiap entri ≤ 50 tok, deskripsi dipotong di prompt tetapi utuh di index); embedding opsional sebagai skor tambahan. **Tidak ada instruksi "MUST load"** — model membaca SKILL.md lewat `read_file` bila relevan (`TestPromptLint` frasa terlarang).
 - Metrik: akurasi routing E9 ≥ 90% top-3; token skill per turn ≤ 150 di context tier + ≤ 20 di volatile (SCORECARD).
 - Skill manual user `approved` saat `damnbot skills sync`; dari agent/`auto`/hub/import ber-provenance agent → `pending` (P10).
+- Front matter opsional (ADR-133): `side_effects: [write|network|payment]` (himpunan tertutup, hanya list inline) dan `requires: [<skill>]`. File apa pun di direktori skill ber-`payment` membuat perintah shell yang menjalankan/menyebutnya berkelas `monetary` (§14.1, SEC-15); skill bawaan tidak boleh default ke endpoint mainnet. Lint saat instal/muat untuk semua sumber: `requires`/`skill://` dan path script (`scripts/…`, `$SKILL_DIR/…`) harus ada di dalam direktori skill, else `invalid_skill`; temuan `credential_access` (high), `payment_undeclared`/`mainnet_default` (medium) masuk `scan_result` (SEC-26, §14.4).
 
 ```mermaid
 stateDiagram-v2

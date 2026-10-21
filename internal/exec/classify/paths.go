@@ -86,12 +86,8 @@ func (s *state) glob(p string, write bool) []string {
 
 // check labels one absolute path and returns its resolved form.
 func (s *state) check(p string, write bool) string {
-	real := p
-	if r := s.env.Resolver; r != nil {
-		if rp, err := r.EvalSymlinks(p); err == nil {
-			real = s.clean(rp)
-		}
-	}
+	real := s.resolve(p)
+	s.paymentFile(p, real)
 	switch {
 	case s.denied(p) || (real != p && s.denied(real)):
 		s.flag(DeniedPath, "denied path: "+p)
@@ -108,6 +104,28 @@ func (s *state) check(p string, write bool) string {
 		s.flag(OutsideRead, "reads outside workspace: "+p)
 	}
 	return real
+}
+
+// resolve returns p with symlinks resolved through the resolver, else p.
+func (s *state) resolve(p string) string {
+	if r := s.env.Resolver; r != nil {
+		if rp, err := r.EvalSymlinks(p); err == nil {
+			return s.clean(rp)
+		}
+	}
+	return p
+}
+
+// paymentFile raises Monetary when p, lexically or resolved, lies inside a
+// payment skill directory (SEC-15): running or reading its scripts is a
+// monetary action and is never auto-approved.
+func (s *state) paymentFile(p, real string) {
+	for _, d := range s.env.MonetaryPaths {
+		if d = s.clean(d); within(p, d, s.fold) || within(real, d, s.fold) {
+			s.raise(Monetary, "payment skill file: "+p)
+			return
+		}
+	}
 }
 
 func (s *state) inside(p string) bool {
