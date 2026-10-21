@@ -68,6 +68,7 @@ func TestAtRestWritersSearchAndCanary(t *testing.T) {
 		t.Fatal(cerr)
 	}
 	assertHit(t, s, "alpha beta", "user_message")
+	assertHit(t, s, `"alpha beta"`, "user_message")
 	assertHit(t, s, "天气", "user_message")
 	assertHit(t, s, "canary-summary", "summary_ref")
 	mh, err := memstore.Search(ctx, s, &memstore.Query{Text: "canary-memory", Scopes: []string{"user"}, Limit: 5, Now: 2})
