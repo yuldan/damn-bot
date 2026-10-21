@@ -42,6 +42,13 @@ type Config struct {
 	OnRetry    func(retry.Attempt) // WARN + event per retry (SPEC §15)
 	// Attempts bounds the provider retry policy; 0 = retry.MaxAttempts.
 	Attempts int
+	// Guard, when non-nil, is consulted before every route attempt (P27,
+	// F2). A denial is returned as a non-retryable error carrying the typed
+	// budget reason; it is never retried or sent to a fallback route.
+	Guard budget.Checker
+	// OnBudget observes every guard verdict, including warnings that do not
+	// deny the call (budget_warning). It runs before the request is sent.
+	OnBudget func(budget.Decision)
 	// Wait is the retry wait (retry.Policy.Wait); nil = real timer. Tests
 	// over real loopback sockets inject an instant wait.
 	Wait func(ctx context.Context, d time.Duration) error
@@ -55,6 +62,8 @@ type OpenAI struct {
 	fallback []string
 	onFB     func(Fallback)
 	onRetry  func(retry.Attempt)
+	guard    budget.Checker
+	onBudget func(budget.Decision)
 	wait     func(ctx context.Context, d time.Duration) error
 	attempts int
 
@@ -72,6 +81,7 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 	o := &OpenAI{
 		c: c, routes: map[string]Route{}, fallback: append([]string(nil), cfg.Fallback...),
 		onFB: cfg.OnFallback, onRetry: cfg.OnRetry, wait: cfg.Wait, attempts: cfg.Attempts,
+		guard: cfg.Guard, onBudget: cfg.OnBudget,
 		breakers: map[string]*retry.Breaker{}, drop: map[string]map[string]bool{},
 	}
 	for _, r := range cfg.Routes {
@@ -102,6 +112,9 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 		case !ok, i > 0 && rt.ContextWindow > 0 && est > rt.ContextWindow:
 			continue // EC-PROV-015, EC-PROV-025
 		}
+		if err := o.checkBudget(ctx, &rt, r, est); err != nil {
+			return Response{}, err
+		}
 		fb := &Fallback{From: r.Model, To: ref, Err: lastErr}
 		o.notify(i, fb)
 		resp, err := o.call(ctx, &rt, r, est, onChunk)
@@ -126,6 +139,41 @@ func (o *OpenAI) notify(i int, fb *Fallback) {
 	if i > 0 && o.onFB != nil {
 		o.onFB(*fb)
 	}
+}
+
+// checkBudget consults the P27 guard before a route attempt. The projection
+// is conservative: the whole estimated input at the input price plus
+// max_tokens at the output price, rounded up by budget.Cost. A missing price
+// yields unknown (-1) so a configured monetary cap fails closed. A denial is
+// non-retryable and never falls through to the next route.
+func (o *OpenAI) checkBudget(ctx context.Context, rt *Route, r *Request, est int64) error {
+	if o.guard == nil {
+		return nil
+	}
+	d, err := o.guard.Check(ctx, budget.Request{Provider: rt.Provider, EstimateMicros: estimateMicros(rt, r, est)})
+	if err != nil {
+		return &Error{Class: retry.BadRequest, Err: fmt.Errorf("budget guard: %w", err)}
+	}
+	if o.onBudget != nil {
+		o.onBudget(d)
+	}
+	if err := d.Err(); err != nil {
+		return &Error{Class: retry.BadRequest, Err: err}
+	}
+	return nil
+}
+
+// estimateMicros projects the cost of one call from the raw token estimate.
+func estimateMicros(rt *Route, r *Request, input int64) int64 {
+	maxTok := int64(r.MaxTokens)
+	if maxTok <= 0 {
+		maxTok = DefaultMaxTokens
+	}
+	m, _, err := budget.Cost(budget.Usage{Input: input, Output: maxTok}, rt.Price)
+	if err != nil || m == nil {
+		return -1 // unknown: the guard denies a configured cap
+	}
+	return *m
 }
 
 // call runs one route through the retry policy and its breaker.

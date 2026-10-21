@@ -34,7 +34,8 @@ assemble          1000 internal/assemble
 compaction         900 internal/compaction
 memory+skills     1200 internal/memory internal/skills
 journal            520 internal/journal
-budget             400 internal/budget
+# ADR-123: budget 400 -> 520 (guard harian/bulanan/provider + formula token gambar; terukur 481).
+budget             520 internal/budget
 heal              1500 internal/heal
 config            1200 internal/config
 modules            1000 internal/modules

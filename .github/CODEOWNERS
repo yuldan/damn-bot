@@ -14,6 +14,7 @@
 /internal/boundary/ @yuldan
 /internal/budget/ @yuldan
 /internal/codetools/ @yuldan
+/internal/compaction/ @yuldan
 /internal/config/ @yuldan
 /internal/codetools/ @yuldan
 /internal/ctxdb/ @yuldan
