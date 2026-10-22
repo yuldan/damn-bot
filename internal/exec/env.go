@@ -57,7 +57,13 @@ func (p *EnvPolicy) Env(parent []string, pty bool, direct, dir, root string) []s
 		p.injectSecrets(out, direct, dir, root)
 	}
 	set("GIT_TERMINAL_PROMPT", "0") // hard values (§A.6): never overridden
-	delete(out, envKey(MarkerEnv))  // the runner sets the marker and DAMNBOT
+	if runtime.GOOS == "windows" {
+		// cmd.exe otherwise resolves a bare name from the current directory
+		// before PATH, so a workspace git.bat would run on `git status`
+		// (SEC10-26). Hard value; inherited by PowerShell's cmd children.
+		set("NoDefaultCurrentDirectoryInExePath", "1")
+	}
+	delete(out, envKey(MarkerEnv)) // the runner sets the marker and DAMNBOT
 	delete(out, envKey("DAMNBOT"))
 	env := make([]string, 0, len(out))
 	for _, kv := range out {

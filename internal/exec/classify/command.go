@@ -48,7 +48,7 @@ func (s *state) command(args []arg, in stdin) bool {
 	// a cd, only a tracked target plus an allow-listed bare command keeps the
 	// normal policy; anything else is Unknown (SEC10-23). PowerShell does not
 	// search the current directory, so its normal classification stands.
-	if s.afterCdUnknown(args[0].s, keys) {
+	if s.afterCdUnknown(name, args, keys) {
 		s.raise(Unknown, "command after cd: "+args[0].s)
 	}
 	s.mut = s.mut || !hasKey(nonMutatingKeys, keys)
@@ -61,9 +61,12 @@ func (s *state) command(args []arg, in stdin) bool {
 // afterCdUnknown narrows the cmd-only post-cd rule (SEC10-23): an untracked
 // cd target, a relative argv0, or a bare command outside the non-mutating
 // table is Unknown. PowerShell does not search the current directory.
-func (s *state) afterCdUnknown(argv0 string, keys [3]string) bool {
+func (s *state) afterCdUnknown(name string, args []arg, keys [3]string) bool {
+	if name == "popd" || (name == "cd" || name == "pushd") && len(args) == 1 {
+		return false // bare cd/pushd and popd are exempt (SEC10-25)
+	}
 	return s.env.Dialect == Cmd && !s.cwdOK && !s.remote &&
-		(!s.cdTracked || pathLike(argv0) || !hasKey(nonMutatingKeys, keys))
+		(!s.cdTracked || pathLike(args[0].s) || !hasKey(nonMutatingKeys, keys))
 }
 
 // dispatch routes one simple command to its classifier.
