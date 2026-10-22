@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -114,6 +115,10 @@ func TestMemoryToolErrors(t *testing.T) {
 	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"add"}`)); err == nil || asToolError(t, err).Code != CodeInvalidArgs {
 		t.Errorf("add without content = %v", err)
 	}
+	long, _ := json.Marshal(map[string]string{"action": "add", "content": strings.Repeat("x", 501)})
+	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, long); err == nil || asToolError(t, err).Code != CodeTooLarge {
+		t.Errorf("oversized content = %v", err)
+	}
 	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"explode"}`)); err == nil || asToolError(t, err).Code != CodeInvalidArgs {
 		t.Errorf("unknown action = %v", err)
 	}
@@ -124,6 +129,10 @@ func TestMemoryToolErrors(t *testing.T) {
 	be.err = ErrMemoryInvalid
 	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"add","content":"x"}`)); err == nil || asToolError(t, err).Code != CodeInvalidArgs {
 		t.Errorf("invalid mapping = %v", err)
+	}
+	be.err = ErrMemoryDenied
+	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"remove","id":9}`)); err == nil || asToolError(t, err).Code != CodeDenied {
+		t.Errorf("denied mapping = %v", err)
 	}
 	be.err = errors.New("disk")
 	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"add","content":"x"}`)); err == nil || asToolError(t, err).Code != CodeInternal {

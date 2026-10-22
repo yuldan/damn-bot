@@ -17,9 +17,10 @@ type SessionHit struct {
 	Score     float64
 }
 
-// SessionSearchBackend is the consumer seam over ctxdb.Search.
+// SessionSearchBackend is the consumer seam over ctxdb.Search; cwd is the
+// caller's project and an empty one must fail closed (SEC17-1).
 type SessionSearchBackend interface {
-	Search(ctx context.Context, query string, k int) ([]SessionHit, error)
+	Search(ctx context.Context, query string, k int, cwd string) ([]SessionHit, error)
 }
 
 const schemaSessionSearch = `{"name":"session_search","description":"Search past session transcripts (FTS) and return ranked snippets.","parameters":{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":200},"k":{"type":"integer","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}}`
@@ -39,7 +40,7 @@ func (t *sessionSearchTool) Effect(json.RawMessage) Effect {
 
 // Run searches and renders ranked hits. Transcript text is untrusted, so the
 // result taints the turn (SPEC §14.5).
-func (t *sessionSearchTool) Run(ctx context.Context, _ Env, args json.RawMessage) (Result, error) {
+func (t *sessionSearchTool) Run(ctx context.Context, env Env, args json.RawMessage) (Result, error) {
 	var a struct {
 		Query string `json:"query"`
 		K     int    `json:"k"`
@@ -54,6 +55,9 @@ func (t *sessionSearchTool) Run(ctx context.Context, _ Env, args json.RawMessage
 	if t.be == nil {
 		return Result{}, toolErr(CodeInternal, "session search unavailable", "the composition root did not wire ctxdb search")
 	}
+	if env.Cwd == "" { // fail closed: no workspace, no search (SEC17-1)
+		return Result{}, toolErr(CodeInvalidArgs, "session search needs a workspace", "")
+	}
 	k := a.K
 	if k <= 0 {
 		k = 5
@@ -61,7 +65,7 @@ func (t *sessionSearchTool) Run(ctx context.Context, _ Env, args json.RawMessage
 	if k > 10 {
 		k = 10
 	}
-	hits, err := t.be.Search(ctx, query, k)
+	hits, err := t.be.Search(ctx, query, k, env.Cwd)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return Result{}, &ToolError{Code: CodeTimeout, Message: "session search cancelled", Err: err}
@@ -78,5 +82,3 @@ func (t *sessionSearchTool) Run(ctx context.Context, _ Env, args json.RawMessage
 	}
 	return Result{OK: true, Content: b.String(), Meta: map[string]any{"count": len(hits)}, UntrustedSource: "session"}, nil
 }
-
-// search is session-global (no cwd filter in F2).

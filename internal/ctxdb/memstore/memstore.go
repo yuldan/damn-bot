@@ -42,6 +42,9 @@ var (
 	// ErrPolicy is an initial approved decision for an untrusted origin
 	// (JN3-8): only user writes may be stored approved.
 	ErrPolicy = errors.New("memstore: quarantine required")
+	// ErrNotAgent rejects a system-actor retirement of a non-agent row
+	// (SEC17-3): the tool path retires only what the agent wrote.
+	ErrNotAgent = errors.New("memstore: not an agent-origin entry")
 )
 
 // TooLarge reports a P10 per-scope cap violation through TooLarge(), the
@@ -174,10 +177,10 @@ func decide(tx *ctxdb.Tx, id int64, scope string, d *Decision) error {
 	if id <= 0 || !validStatus(d.Status) || !validActor(d.Actor) {
 		return ErrInvalid
 	}
-	var rowScope, content, from string
+	var rowScope, content, from, origin string
 	var sup sql.NullInt64
-	err := tx.Get(`SELECT scope, content, status, supersedes_id FROM v_memory_status WHERE id = ?1`, []any{id},
-		&rowScope, &content, &from, &sup)
+	err := tx.Get(`SELECT scope, content, status, supersedes_id, origin FROM v_memory_status WHERE id = ?1`, []any{id},
+		&rowScope, &content, &from, &sup, &origin)
 	if errors.Is(err, ctxdb.ErrNotFound) {
 		return fmt.Errorf("%w: %d", ErrNotFound, id)
 	}
@@ -186,6 +189,11 @@ func decide(tx *ctxdb.Tx, id int64, scope string, d *Decision) error {
 	}
 	if rowScope != scope {
 		return fmt.Errorf("%w: %d is in %q", ErrScope, id, rowScope)
+	}
+	// SEC17-3: the agent tool path decides as "system" and may retire only an
+	// agent-origin row; the user path decides as "user".
+	if d.Actor == "system" && d.Status == "retired" && origin != "agent" {
+		return fmt.Errorf("%w: %d is origin %q", ErrNotAgent, id, origin)
 	}
 	if !transition(from, d.Status) {
 		return fmt.Errorf("%w: %s -> %s", ErrTransition, from, d.Status)
