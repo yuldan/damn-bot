@@ -346,7 +346,6 @@ func reportPurgeSkips(rep *ctxdb.PurgeReport, stderr io.Writer) {
 	}
 }
 
-
 // sessionsFail prints one mapped store error and returns its exit code.
 func sessionsFail(stderr io.Writer, name string, err error, id string) int {
 	sessionsPrintf(stderr, "sessions %s: %s\n", name, sessionsMessage(err, id))

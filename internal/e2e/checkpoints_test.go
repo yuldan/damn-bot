@@ -69,17 +69,16 @@ func holdTurn(t *testing.T, e *Env, sid string) func() {
 		if err := db.ReleaseLease(ctx, sid); err != nil {
 			t.Errorf("release lease: %v", err)
 		}
-		if err := db.Close(); err != nil {
+		if err := db.CloseContext(ctx); err != nil {
 			t.Errorf("close: %v", err)
 		}
 	}
 }
 
-// TestCheckpointsCLIDryRunScopeBusy drives --dry-run, --session and the busy
-// refusal through the child binary (ACC-62, ACC-63, SEC15-9). Every security
-// assertion carries a negative control: the same command after the guard is
-// lifted must succeed, and the previews must leave the rows in place.
-func TestCheckpointsCLIDryRunScopeBusy(t *testing.T) {
+// TestCheckpointsCLIDryRunScope drives --dry-run and --session through the
+// child binary (ACC-62, ACC-63): every preview must leave the rows in place,
+// and a filter the destructive subcommands do not implement is refused.
+func TestCheckpointsCLIDryRunScope(t *testing.T) {
 	t.Parallel()
 	e := New(t)
 	seedCheckpoint(t, e, "cp", "/w/checkpoint.txt")
@@ -140,6 +139,16 @@ func TestCheckpointsCLIDryRunScopeBusy(t *testing.T) {
 	if !strings.Contains(intact.Stdout, "actions: 2") {
 		t.Fatalf("refused subcommands changed state:\n%s", intact.Stdout)
 	}
+}
+
+// TestCheckpointsCLIBusyGuard drives the busy refusal through the child binary
+// (SEC15-9): an open turn blocks the delete (exit 4) and keeps every row, and
+// the negative control clears both rows once the turn is closed.
+func TestCheckpointsCLIBusyGuard(t *testing.T) {
+	t.Parallel()
+	e := New(t)
+	seedCheckpoint(t, e, "cp", "/w/checkpoint.txt")
+	seedCheckpoint(t, e, "other", "/w/other.txt")
 
 	// SEC15-9: an open turn blocks the delete (exit 4) and keeps every row.
 	endTurn := holdTurn(t, e, "cp")
