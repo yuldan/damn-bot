@@ -3493,6 +3493,22 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** Job per PR-run: 22 → 13 (−41 %); main/nightly: 25 → 16. Gate Makefile yang hilang: 0 (diverifikasi dengan membandingkan himpunan perintah `make …` kedua versi workflow). Machine-minute ≈ sama atau turun karena setup (checkout + `setup-go`) berkurang 22 → 13 per run. Wall-clock PR tetap dibatasi `test` (timeout 25 m); job baru (`static` ≈ 3 m, `portability` ≈ 6 m, `bench` ≈ 3 m, `supply` ≈ 2 m, `extra` ≈ 5 m, `fuzz` ≈ 12 m) berada di bawahnya.
 
 **Konsekuensi.** (+) Antrean PR turun tajam tanpa kehilangan satu gate pun; (−) satu job bundle berarti satu kegagalan menandai langkahnya di dalam job (nama langkah tetap memuat E-id agar triase secepat job terpisah); (−) `fuzz` menjadi berurutan (wall-clock ~3× shard tunggal) sebagai ganti tiga slot paralel; bila wall-clock itu mengganggu, jalan keluarnya adalah menaikkan `FUZZTIME` per shard atau mengembalikan tiga job — bukan menurunkan FUZZTIME.
+## ADR-180 — Redaksi artefak bench dan penjaga `bench/h2h/results/**`
+
+**Status:** Accepted 2026-10-22 (security review; menutup kebocoran dari #134 lewat PR #285).
+
+**Konteks.** `bench/h2h/results/2026-10-21-llm-scenarios/summary.json` menyimpan baris `cmd` setiap skenario; satu di antaranya memuat nilai kredensial nyata (prefix `sk-ant-`, 49 karakter, berasal dari prompt skenario D19) sehingga kredensial itu tersimpan permanen di repo **publik** sejak #134. Penjaga `TestRecordingsNoKey` (ADR-085) tidak menangkapnya karena hanya memindai `*.jsonl.gz`: `summary.json` — justru artefak yang merekam command line — tidak pernah diperiksa. `gitleaks` juga tidak menandainya, sebab *validity checks* dan *non-provider patterns* GitHub dimatikan dan pola generiknya tidak cocok.
+
+**Keputusan.**
+1. **Redaksi di jalur penulisan.** Setiap artefak di `bench/h2h/results/**` ditulis lewat `h2h.RedactCommand`/`h2h.RedactArgs`: nilai `--api-key`, `--api-key=`, `-k`, `--token`, `--password`, `--secret`, `--key`, header `Authorization:`/`x-api-key:`/`api-key:`, dan token `Bearer` diganti `<redacted>` (kutip command line dipertahankan). `bench/h2h/cmd/startup` memakainya untuk `meta.argv`.
+2. **Penjaga yang menggigit.** `TestRecordingsNoKey` memindai **seluruh berkas reguler** di bawah `results/` (plain dan gzip), bukan hanya `*.jsonl.gz`, dan melaporkan `file:baris` + pola (tanpa nilainya). Kontrol negatifnya (`TestRedactCommandNegativeControl`) memastikan pola penjaga menangkap command yang tidak diredaksi dan sunyi setelah redaksi.
+3. **Scrub + rotasi.** Nilai di `summary.json:419` sudah diganti `<redacted>`; branch `review-f2-sec*` yang publik (yang mewarisi artefak itu) di-scrub dengan commit tambahan (fast-forward). **Rotasi kunci adalah tindakan owner** dan tidak dilakukan di repo.
+4. **Riwayat tidak ditulis ulang.** `main` tidak di-`force-push` dan riwayat tidak di-rewrite karena repo punya 40+ PR terbuka; kredensial yang sudah tersebar hanya bisa dijinakkan lewat rotasi, bukan lewat rewrite.
+
+**Bukti.** Dengan penjaga diperluas sementara nilai masih ada, `cd bench && go test ./h2h/` gagal di `results/2026-10-21-llm-scenarios/summary.json:419` (pola `sk-[A-Za-z0-9_-]{20,}`); setelah scrub lulus. `gitleaks` v8.28.0 (pohon `--no-git` dan riwayat 1.668 commit) hanya melaporkan fixture (`bench/evals/v1/E10.jsonl` 97×, `internal/redact/testdata` dan test redaksi) dan **tidak pernah** menandai nilai nyata itu. Diff artefak: `1 +/1 -`.
+
+**Konsekuensi.** (+) Artefak bench tidak dapat lagi membawa kredensial, dan pemeriksaannya berlaku untuk semua berkas hasil, bukan hanya rekaman proxy. (−) Flag rahasia baru harus ditambahkan ke daftar redaksi `bench/h2h/redact.go`; placeholder di fixture (mis. `bench/evals/v1/E10.jsonl`) sebaiknya dibuat jelas sintetis agar sinyal pemindai tidak tenggelam; rotasi kunci tetap satu-satunya penjinak untuk nilai yang sudah publik.
+
 
 ## ADR-181 — Tier `smoke` untuk `push: main`: matriks penuh pindah ke nightly/`workflow_dispatch`
 
