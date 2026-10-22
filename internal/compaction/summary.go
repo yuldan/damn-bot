@@ -115,10 +115,11 @@ func cut(items []item) int {
 	return n
 }
 
-// deliveryDirective matches a MEDIA: delivery directive and its value
-// (EC-CTX-007). The gateway reads that tag as an instruction to attach a
-// file, so a summary that repeats one sends a bogus attachment.
-var deliveryDirective = regexp.MustCompile(`MEDIA:\s*\S+`)
+// deliveryDirective matches a MEDIA: delivery directive, with or without a
+// value (EC-CTX-007). The gateway reads that tag as an instruction to attach a
+// file, so a summary that repeats one sends a bogus attachment; a bare
+// "MEDIA:" at the end of a text is stripped too.
+var deliveryDirective = regexp.MustCompile(`MEDIA:\s*\S*`)
 
 // stripDeliveryDirectives removes delivery directives from text bound for the
 // summarizer; the rest of the text is untouched.

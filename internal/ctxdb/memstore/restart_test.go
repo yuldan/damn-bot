@@ -8,10 +8,11 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb"
 )
 
-// TestRecallDeterministicAcrossRestart (GAP-INF-06): the same query over the
-// same persisted state returns the identical ordered result set on a rerun,
-// including after the store is closed and reopened. A deterministic eval
-// (ADR-137/ADR-138) depends on this: same seed and fixture, same scores.
+// TestRecallDeterministicAcrossRestart: the same query over the same
+// persisted state returns the identical ordered result set on a rerun,
+// including after the store is closed and reopened. This is the recall path
+// the E4 eval scores (ADR-137); the eval runner/nightly score diff of
+// GAP-INF-06 is still open, so this test is a proxy, not INF-06 closure.
 func TestRecallDeterministicAcrossRestart(t *testing.T) {
 	dir := t.TempDir()
 	openRaw := func() *ctxdb.Store {
@@ -31,6 +32,10 @@ func TestRecallDeterministicAcrossRestart(t *testing.T) {
 	} {
 		put(t, first, mkrow(scope, content, "user"), approved())
 	}
+	// Two identical rows produce equal bm25 scores; the id tie-break must keep
+	// the order stable across a reopen.
+	put(t, first, mkrow(scope, "locker number 4417 duplicate", "user"), approved())
+	put(t, first, mkrow(scope, "locker number 4417 duplicate", "user"), approved())
 	q := &Query{Text: "what is my locker number", Scopes: []string{scope}, Now: 200, Limit: 10}
 	before := search(t, first, q)
 	if len(before) < 2 {
