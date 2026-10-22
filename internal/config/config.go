@@ -78,10 +78,10 @@ type Agent struct {
 // Skills is SPEC §12 [skills] (ADR-168). Inline shell defaults off because a
 // skill body is data, not a script.
 type Skills struct {
-	InlineShell      bool     `toml:"inline_shell"`
-	ProjectDiscovery bool     `toml:"project_discovery"`
-	TrustedProjects  []string `toml:"trusted_projects"`
-	ExternalDirs     []string `toml:"external_dirs"`
+	InlineShell      bool     `toml:"inline_shell" json:"inline_shell"`
+	ProjectDiscovery bool     `toml:"project_discovery" json:"project_discovery"`
+	TrustedProjects  []string `toml:"trusted_projects" json:"trusted_projects"`
+	ExternalDirs     []string `toml:"external_dirs" json:"external_dirs"`
 }
 
 // Log is SPEC §12 [log] plus the P29/GAP-SEC-11 content controls.

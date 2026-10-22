@@ -40,6 +40,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "bundles" {
 		return runBundles(args[1:], stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == "skills" {
+		return runSkills(args[1:], stdout, stderr)
+	}
 	fs := flag.NewFlagSet("damnbot", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "tampilkan versi lalu keluar")
