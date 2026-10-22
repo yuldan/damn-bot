@@ -49,4 +49,70 @@ E2E `TestCheckpointsCLI` (binary nyata, harness #239) menjalankan `status` → `
 | SEC15-3 | MEDIUM (aturan owner) | open | E2E tanpa kontrol negatif dan tanpa `clear --yes`. | Di `TestCheckpointsCLI`: `prune`/`clear` tanpa `--yes` → exit 2 dan `status` tetap 1; `prune` default tidak menghapus aksi baru; `clear --yes` → 0. |
 | SEC15-4 | MINOR | static | `prune --dry-run` membuka DB dalam mode tulis. | Gunakan `openSessionsDBReadOnly` untuk dry-run (dan untuk `CheckpointStats` sebelum konfirmasi). |
 
-**Ringkasan:** #264 **REQUEST CHANGES**. Mekanismenya benar: hanya lewat mode purge, trigger append-only utuh, batch dengan jeda, dan ditolak saat purge aktif. `--yes` diwajibkan, dry-run tidak menghapus, dan default `prune` hanya menghapus aksi yang memang sudah tidak dapat di-undo. Namun maintenance tidak menghormati lease atau turn yang sedang berjalan (SEC15-1), dapat dijalankan model sendiri lewat tool `shell` sehingga `deny_paths` data dir terlewati (SEC15-2), dan e2e belum memiliki kontrol negatif (SEC15-3).
+**Ringkasan:** #264 **REQUEST CHANGES**. Mekanisme utama benar: hanya lewat mode purge, trigger append-only utuh, batch dengan jeda, dan ditolak saat purge aktif. `--yes` diwajibkan, dry-run tidak menghapus, dan default `prune` hanya menghapus aksi yang memang sudah tidak dapat di-undo. Namun maintenance tidak menghormati lease atau turn yang sedang berjalan (SEC15-1), dapat dijalankan model sendiri lewat tool `shell` sehingga `deny_paths` data dir terlewati (SEC15-2), dan e2e belum memiliki kontrol negatif (SEC15-3).
+
+## Round 2 — 2026-10-22 (recheck SEC15-2: #265 `9415d72`)
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #265 klasifikasi perawatan destruktif | `9415d72` | **REQUEST CHANGES**: SEC15-2 baru tertutup untuk ejaan yang dikenali. **SEC15-5 (MEDIUM, blocking)** `exec -a NAME` / `env -a NAME` / `env --argv0 NAME` membuat program sebenarnya (`damnbot`) tidak diklasifikasi → `mutating` → auto di `--unsafe-auto-shell` dan via `shell_allow`. SEC15-6/7/8 (MINOR) residual. |
+
+Gate lokal: probe `TestZZSec265Probe` (`internal/exec/classify`, dihapus setelah dijalankan) di `9415d72`; `make loc` → `exec/classify 1894 / 1894`, `TOTAL 33772 / 190000` (ADR-167 benar, tetapi tepat di batas tanpa headroom).
+
+### 1. Yang terverifikasi benar
+
+Semua bentuk berikut menghasilkan `destructive` dan **tidak** `AutoApprove` di kelima mode (`TestDamnbotMaintenanceNeverAuto` juga menutup ini di level unit):
+
+- `damnbot sessions purge s --yes`, `--yes=true`, `-y`, `damnbot --yes sessions purge s`, `damnbot -v sessions purge s --yes`;
+- `damnbot checkpoints clear --yes`, `damnbot sessions backup restore f --yes`, `damnbot doctor gc`, `damnbot setup --uninstall --purge-data`, `damnbot update --rollback --data`;
+- `damnbot --profile prod …` dan `--profile=prod …` (nilai flag dilewati dengan benar);
+- `yes | damnbot sessions purge`, `damnbot sessions purge < file`, `FOO=1 damnbot …` (aturan verb tidak bergantung `--yes`);
+- wrapper: `sudo`, `command`, `timeout`, `nohup`, `bash -c '…'` (nested), `env FOO=1 …`;
+- cmd: `call damnbot …`, `cmd /c damnbot …`, `damnbot.exe …`; PowerShell: `& 'C:\tools\damnbot.exe' …`, `powershell -Command "damnbot …"`;
+- path: `./damnbot`, `/usr/local/bin/damnbot`, nama huruf besar (Linux) — `cmdName`+`isDamnbotName` menormalkan base name/`.exe`/`.cmd`/`.bat`.
+
+Bentuk dinamis menghasilkan **Unknown** (bukan Mutating), sesuai kriteria owner: `$(which damnbot) …`, `` `which damnbot` … ``, `D=damnbot; $D …`, `& $exe …` (Pwsh), `& (Get-Command damnbot) …`, `python3 -c '…'`. `exec -a x /usr/local/bin/damnbot …` menandai `outside_read` sehingga tidak auto. `--yes` di `shell_allow` pun tidak menolong karena `allowAuto` mensyaratkan `Class == Mutating`.
+
+### 2. SEC15-5 (MEDIUM, blocking) — wrapper argv0 melewati klasifikasi
+
+`skipOpts` (`internal/exec/classify/wrap.go:207-220`) melewati opsi apa pun, tetapi hanya menghabiskan **nilai** opsi yang terdaftar di `wrapperValued`. `exec:-a`, `env:-a`, dan `env:--argv0` tidak terdaftar, sehingga nama yang diberikan ke opsi itu dianggap sebagai **program** dan `damnbot` menjadi argumennya:
+
+| Perintah | Class | Auto di unsafe + allow |
+|---|---|---|
+| `exec -a x damnbot sessions purge --yes` | **mutating** | **ya** |
+| `exec -a x damnbot checkpoints clear --yes` | **mutating** | **ya** |
+| `env -a x damnbot sessions purge s --yes` | **mutating** | **ya** |
+| `env -a x damnbot checkpoints clear --yes` | **mutating** | **ya** |
+| `env --argv0 x damnbot sessions purge s --yes` | **mutating** | **ya** |
+| `env --argv0=x damnbot …` | destructive | tidak (bentuk `=` tertangani) |
+| rantai `command` / `nohup` / `timeout 5` / `bash -c '…'` | **mutating** | **ya** |
+
+Kedua wrapper benar-benar menyetel argv0 di host ini (`env -a zzz sh`, `env --argv0 zzz sh`, `exec -a zzz sh` → `$0=zzz`), dan CLI `damnbot` memakai `os.Args[1:]`, jadi argv0 tidak mengubah subcommand: purge/clear tetap berjalan. Ini membuka kembali persis jalur yang ditutup SEC15-2 (data hilang tanpa persetujuan di `--unsafe-auto-shell` / `shell_allow`), tanpa prasyarat apa pun (binary ada di PATH). Di tree #265 subcommand maintenance belum ada di CLI, jadi bypass ini menjadi live begitu CLI maintenance (#264/SPEC §10) mendarat; karena #264 dijadwalkan merge, gate ini harus benar sebelum itu.
+
+**Perbaikan:** tambahkan `exec:-a`, `env:-a`, `env:--argv0` ke `wrapperValued`; bila `launcher` menangani `exec`, konsumsi `-a NAME` di sana juga; tambahkan keenam bentuk di atas ke `TestDamnbotMaintenanceNeverAuto`. Untuk pertahanan berlapis (karena alias/copy tidak dapat diklasifikasi; lihat SEC15-6), pertimbangkan penolakan di sisi CLI: perintah maintenance destruktif menolak berjalan bila penanda "dijalankan oleh shell agent" (env yang disuntikkan `EnvPolicy`, seperti SEC10-26) ada.
+
+### 3. SEC15-6 (MINOR) — pengenalan berbasis nama tidak menangkap alias/copy/8.3
+
+Probe: `db sessions purge s --yes`, `./x sessions purge s --yes`, `DAMNBO~1.EXE sessions purge --yes` (cmd), dan `damnbot. sessions purge --yes` (cmd) → **mutating**, auto di unsafe+allow. Membuat symlink/copy dari binary di luar root memicu `outside_read` (tidak auto), jadi jalur symlink butuh satu persetujuan; tetapi alias/fungsi pada **session shell persisten**, atau copy yang sudah berada di workspace/root, tidak terhalang. Nama pendek 8.3 dan trailing-dot adalah bentuk Windows yang belum diverifikasi di Linux. Pertimbangkan aturan berbasis **verb + `--yes`** (mis. positional words `sessions purge|prune|archive|restore`, `checkpoints clear|prune`, `doctor gc` + `--yes` → `Destructive`/`Unknown` tanpa melihat nama binary), atau penolakan di sisi CLI.
+
+### 4. SEC15-7 (MINOR, laten) — flag global bernilai menggeser grup
+
+`damnbotWords` hanya menghabiskan nilai `--profile`. Probe: `damnbot --config /x sessions purge s --yes`, `damnbot -p prod sessions purge s --yes`, `damnbot --data-dir /x sessions purge s --yes` → **mutating**, auto. Di tree #265 sendiri subcommand `sessions`/`checkpoints` belum ada di CLI (`main.go` hanya `run`/`--version`), sehingga semua bentuk maintenance keluar dengan usage; aturan ini adalah pertahanan untuk CLI saat #264/SPEC §10 mendarat. Pada CLI #264 (`main.go` melakukan dispatch bila `args[0]` adalah grup) bentuk flag global juga keluar dengan usage, tetapi begitu ada flag global bernilai, grup akan bergeser. Jika flag bernilai tak dikenal mendahului grup, naikkan `Unknown` alih-alih menggeser grup secara diam-diam.
+
+### 5. SEC15-8 (MINOR, aturan owner) — e2e tanpa kontrol positif
+
+`TestRunDeniesDamnbotMaintenance` memakai entry point `run()` yang sebenarnya (memenuhi syarat e2e) dan assertion-nya tidak vakum (hasil tool harus memuat "denied"). Namun tidak ada kontrol positif di harness yang sama (mis. `echo ok` di `--unsafe-auto-shell` benar-benar auto dan dieksekusi) yang membuktikan harness mencapai tool `shell`; dan bentuk SEC15-5 belum masuk e2e. Kontrol di level unit sudah baik (`TestDamnbotMaintenanceNegative`, `TestDamnbotMaintenanceNeverAuto`).
+
+### Temuan Round 2
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC15-2 | MEDIUM | **sebagian fixed** | Ejaan yang dikenali sudah `Destructive` dan tidak pernah auto; namun lihat SEC15-5. | — |
+| **SEC15-5** | **MEDIUM (blocking)** | confirmed (probe) | `exec -a NAME`, `env -a NAME`, `env --argv0 NAME` membuat `damnbot` tidak dikenali → `mutating` → auto di unsafe/shell_allow, membuka kembali SEC15-2. | Daftarkan opsi argv0 di `wrapperValued`; test keenam bentuk; pertimbangkan penolakan sisi CLI. |
+| SEC15-6 | MINOR | confirmed (probe) | Alias/fungsi/copy/8.3/trailing-dot tidak dikenali → `mutating` + auto. | Aturan verb+`--yes`, atau penolakan sisi CLI untuk maintenance saat dijalankan shell agent. |
+| SEC15-7 | MINOR | confirmed (probe, laten) | Flag global bernilai selain `--profile` menggeser grup → `mutating` + auto (belum reachable di CLI sekarang). | `Unknown` untuk flag bernilai tak dikenal; whitelist flag global. |
+| SEC15-8 | MINOR (aturan owner) | open | E2E tanpa kontrol positif; bentuk SEC15-5 belum di-e2e. | Tambah `echo ok` → auto dan bentuk argv0 → denied. |
+
+**Ringkasan Round 2:** #265 **REQUEST CHANGES**. Prinsipnya benar (Destructive tidak pernah auto), kontrol negatif unit ada, dan semua ejaan yang diuji penulis lulus. Tetapi `exec -a`/`env -a`/`env --argv0` membalik peran nama dan program sehingga perintah maintenance yang sama menjadi `mutating` dan **auto-approve** di mode unsafe — persis yang hendak ditutup SEC15-2. Perbaikan kecil (tiga entri `wrapperValued` + test) menutup jalur ini; alias/copy tetap residual yang paling baik ditutup di sisi CLI.
