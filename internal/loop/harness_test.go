@@ -272,6 +272,7 @@ type fixture struct {
 	approver *fakeApprover
 	spiller  *fakeSpiller
 	redactor Redactor
+	validate func(string) error
 	stream   func() StreamFilter
 
 	cancel  context.CancelFunc
@@ -296,7 +297,7 @@ func (f *fixture) deps() Deps {
 	return Deps{
 		Provider: f.provider, Assembler: f.asm, Toolset: f.tools, Store: f.store,
 		Ledger: f.ledger, Approver: f.approver, Spiller: f.spiller, Redactor: f.redactor,
-		Carriers: f.carriers, NewRedactStream: f.stream,
+		Carriers: f.carriers, NewRedactStream: f.stream, ValidateAnswer: f.validate,
 	}
 }
 
@@ -346,4 +347,15 @@ func payloadOf(t *testing.T, e *event.Event, v any) {
 	if err := json.Unmarshal(e.Payload, v); err != nil {
 		t.Fatalf("payload %s: %v", e.Payload, err)
 	}
+}
+
+// countKind counts the stored events of one kind.
+func (s *fakeStore) countKind(k event.Kind) int {
+	n := 0
+	for _, got := range s.kinds() {
+		if got == k {
+			n++
+		}
+	}
+	return n
 }

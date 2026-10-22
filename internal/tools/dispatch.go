@@ -53,9 +53,25 @@ type Config struct {
 	Cwd              string
 	// PageChars overrides the paged-tool cap (tests); 0 = PageChars.
 	PageChars int
+	// WindowTokens is the model's context window and CharsPerToken the
+	// session's char/token ratio (COST-09 estimator). Together they scale
+	// TurnInlineChars to min(24.000, 0,30 × window × ratio) (SPEC P5
+	// amendment, GAP-COST-08, EC-FIO-006). Zero disables the scaling.
+	WindowTokens  int
+	CharsPerToken float64
 	// Deferred enables tool_search/tool_invoke over module-contributed
 	// tools. Without it both meta-tools fail closed.
 	Deferred *Deferred
+}
+
+// TurnInlineCap is SPEC P5's aggregate inline cap for one turn:
+// min(24.000, 0,30 × window_tok × chars/token) (GAP-COST-08). An unknown
+// window or ratio keeps the fixed 24.000.
+func TurnInlineCap(windowTokens int, charsPerToken float64) int {
+	if windowTokens <= 0 || charsPerToken <= 0 {
+		return TurnInlineChars
+	}
+	return min(TurnInlineChars, int(0.30*float64(windowTokens)*charsPerToken))
 }
 
 // Call is one tool invocation. CallID and TurnID key the journal and the
@@ -121,6 +137,9 @@ type Dispatcher struct {
 	cwd      string
 	page     int
 	deferred *Deferred
+	// turnInline is the scaled aggregate inline budget of this turn
+	// (TurnInlineCap); BeginTurn keeps it.
+	turnInline int
 
 	tainted  atomic.Bool
 	mu       sync.Mutex
@@ -150,7 +169,8 @@ func NewDispatcher(cfg *Config) (*Dispatcher, error) {
 		reg: cfg.Registry, journal: cfg.Journal, spill: cfg.Spill, mode: cfg.Mode,
 		approver: cfg.Approver, red: cfg.Redactor, timeout: cfg.ToolTimeout,
 		trusted: cfg.WorkspaceTrusted, cwd: cfg.Cwd, page: cfg.PageChars, deferred: cfg.Deferred,
-		calls: map[string]bool{}, sessions: map[string]bool{},
+		turnInline: TurnInlineCap(cfg.WindowTokens, cfg.CharsPerToken),
+		calls:      map[string]bool{}, sessions: map[string]bool{},
 	}, nil
 }
 
@@ -445,19 +465,19 @@ func (d *Dispatcher) pageCap() int {
 		base = PageChars
 	}
 	d.mu.Lock()
-	spent := d.inline >= TurnInlineChars
+	spent := d.inline >= d.turnInline
 	d.mu.Unlock()
 	if spent {
-		return ReducedPage
+		return min(ReducedPage, d.turnInline)
 	}
-	return base
+	return min(base, d.turnInline)
 }
 
 // inlineLeft is what remains of the turn's inline budget.
 func (d *Dispatcher) inlineLeft() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return max(0, TurnInlineChars-d.inline)
+	return max(0, d.turnInline-d.inline)
 }
 
 // finish applies redaction, untrusted wrapping, paging/spill and taint.
@@ -493,7 +513,7 @@ func paged(name string) bool {
 func (d *Dispatcher) spillResult(ctx context.Context, content string, meta map[string]any) (string, *BlobRef, map[string]any) {
 	if utf8.RuneCountInString(content) <= InlineChars {
 		d.mu.Lock()
-		fits := d.inline+utf8.RuneCountInString(content) <= TurnInlineChars
+		fits := d.inline+utf8.RuneCountInString(content) <= d.turnInline
 		d.mu.Unlock()
 		if fits {
 			return content, nil, meta
@@ -509,7 +529,7 @@ func (d *Dispatcher) spillResult(ctx context.Context, content string, meta map[s
 		return clipRunes(content, ShortPreview), nil, meta
 	}
 	d.mu.Lock()
-	left := TurnInlineChars - d.inline
+	left := d.turnInline - d.inline
 	d.mu.Unlock()
 	n := SpillPreview
 	if left < SpillPreview {

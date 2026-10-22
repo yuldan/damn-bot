@@ -3,6 +3,7 @@ package loop
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -28,6 +29,7 @@ func TestEdgeCases(t *testing.T) {
 		{"EC-TCALL-006", ecTcall006},
 		{"EC-TCALL-007", ecTcall007},
 		{"EC-TCALL-008", ecTcall008},
+		{"EC-TCALL-009", ecTcall009},
 		{"EC-TCALL-012", ecTcall012},
 	}
 	for _, c := range cases {
@@ -218,5 +220,44 @@ func ecTcall012(t *testing.T) {
 	}
 	if f.provider.calls != 2 {
 		t.Errorf("provider calls = %d, want 2", f.provider.calls)
+	}
+}
+
+// EC-TCALL-009: a final answer that is only a fragment (here: text where the
+// --answer-schema turn requires a JSON object) stops as invalid_answer. The
+// rule comes from the composition root's validator; the loop only owns the
+// stop (ADR-129 butir 12), so no text heuristic lives here.
+func ecTcall009(t *testing.T) {
+	f := newFixture()
+	f.provider.scripts = []streamFunc{
+		callScript(FinishToolCalls, ToolCall{ID: "a", Name: "read", Arguments: `{"p":1}`}),
+		textScript("Let me", event.Usage{Input: 3, Output: 1}),
+	}
+	f.tools.add("read", &toolStub{})
+	f.validate = func(s string) error {
+		if s != `{"answer":"ok"}` {
+			return errors.New("answer is not the required JSON object")
+		}
+		return nil
+	}
+	got := terminal(t, f.run(t))
+	if got.Stop != event.StopEndTurn || got.Detail != event.DetailInvalidAnswer {
+		t.Fatalf("stop = %s/%s, want end_turn/invalid_answer", got.Stop, got.Detail)
+	}
+	assistant := f.store.countKind(event.AssistantMessage)
+	if assistant != 2 { // the tool-call turn and the rejected fragment stay in history
+		t.Fatalf("assistant events = %d, want 2", assistant)
+	}
+
+	// Negative control: an answer the validator accepts completes the turn.
+	ok := newFixture()
+	ok.provider.scripts = []streamFunc{
+		callScript(FinishToolCalls, ToolCall{ID: "a", Name: "read", Arguments: `{"p":1}`}),
+		textScript(`{"answer":"ok"}`, event.Usage{Input: 3, Output: 1}),
+	}
+	ok.tools.add("read", &toolStub{})
+	ok.validate = f.validate
+	if end := terminal(t, ok.run(t)); end.Stop != event.StopEndTurn || end.Detail != event.DetailCompleted {
+		t.Fatalf("accepted answer stop = %s/%s", end.Stop, end.Detail)
 	}
 }
