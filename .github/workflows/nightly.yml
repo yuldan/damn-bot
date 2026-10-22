@@ -71,6 +71,22 @@ jobs:
       - if: steps.fresh.outputs.run == 'true'
         run: make flake
 
+  # ADR-127: backstop CT-09 di main — 5 set sampel terhadap referensi
+  # tulis-durabel. Gate PR hanya memberi warning bila semua set invalid
+  # (runner berdisk bising); di sini run semacam itu GAGAL, jadi main tetap
+  # ditandai dan regresi yang lolos gate PR karena runner bising tertangkap.
+  ct09:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make ct09-nightly
+
   # CODE-TOOLS §10 dengan korpus nyata C1–C3 + rg 15.1.0 (bench/corpora.lock, di-cache): CT-01/02/03
   # (rasio vs rg di runner yang sama, ADR-077), CT-21 parity, CT-11 token vs golden hermes. Tanpa korpus
   # test gagal, bukan skip (DAMNBOT_REQUIRE_CORPORA=1). RC = gate.

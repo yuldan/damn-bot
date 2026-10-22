@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -41,11 +42,44 @@ func measure(b *testing.B, name string, budget time.Duration, op func(i int)) {
 	timing.Check(b, name, p, budget)
 }
 
-// durableRetryWait is the pause before the CT-09 retry. The measured fsync
+// durableRetryWait is the pause before a CT-09 retry. The measured fsync
 // stalls (185 ms, and bursts up to ~0.3 s in the phase diagnostics) are far
-// shorter, so the second set sees a different disk state (ADR-127 amendment
-// 2026-10-22).
+// shorter, so the next set sees a different disk state (ADR-127).
 const durableRetryWait = time.Second
+
+// refNoiseLimit is the validity threshold for the durable-write reference
+// (ADR-127 amendment 2026-10-22): healthy runners measured ref p95 1.1–7.3 ms
+// over 15 perf executions, a saturated one 138–139 ms. A set whose reference
+// exceeds this limit measures the disk, not edit_file.
+const refNoiseLimit = 30 * time.Millisecond
+
+// CT-09 verdicts for the sets collected so far.
+const (
+	ct09Undecided = iota
+	ct09Pass
+	ct09Fail
+	ct09Inconclusive
+)
+
+// CT-09 run knobs.
+const (
+	// ct09SetsEnv sets the maximum number of sample sets (default 3; the
+	// nightly backstop uses 5).
+	ct09SetsEnv = "DAMNBOT_CT09_SETS"
+	// ct09StrictEnv "1" makes an inconclusive run fail instead of passing the
+	// gate: the nightly backstop must flag a runner that cannot measure.
+	ct09StrictEnv = "DAMNBOT_CT09_STRICT_INCONCLUSIVE"
+)
+
+// ct09Sets returns how many sample sets a shared-runner run may use: three by
+// default, five for the nightly backstop (DAMNBOT_CT09_SETS).
+func ct09Sets() int {
+	n, err := strconv.Atoi(os.Getenv(ct09SetsEnv))
+	if err != nil || n < 1 {
+		return 3
+	}
+	return min(n, 10)
+}
 
 // durableSet is one measured sample set of CT-09 (ADR-127).
 type durableSet struct {
@@ -60,55 +94,94 @@ type durableSet struct {
 // ADR-127). ref, the bare durable write of the same size in a fresh directory,
 // is timed alongside op in every iteration. On shared runners (perf build) the
 // budget, ×1,5, applies to the p95 over iterations of the paired difference
-// op_i − ref_i. A red gate is re-measured once in a fresh directory after
-// durableRetryWait: a one-sided fsync stall is transient, added cost is not,
-// so only two red sets fail the benchmark (ADR-127 amendment 2026-10-22).
-// Elsewhere, i.e. on the reference machine Q14 at acceptance, the absolute
-// p95(op) is checked once, as written.
+// op_i − ref_i, judged by ct09Verdict over up to ct09Sets() sample sets: invalid
+// sets (noisy reference) are retried, a valid pass passes, two valid failures
+// fail, and an all-invalid run is inconclusive (warning; the nightly treats it
+// as a failure). Elsewhere, i.e. on the reference machine Q14 at acceptance,
+// the absolute p95(op) is checked once, as written.
 func measureDurable(b *testing.B, name string, budget time.Duration, setup func() (op func(i int), ref func())) {
 	b.Helper()
-	limit := timing.Limit(budget)
-	sets := durableSets(timing.SharedRunner, limit, func(label string) durableSet {
-		return durableMeasure(b, name, label, setup)
-	}, func(first durableSet) {
-		b.Logf("%s: set 1 is red (%v > %v); re-measuring after %v in a fresh directory (ADR-127)",
-			name, first.gate, limit, durableRetryWait)
-		pause := time.NewTimer(durableRetryWait)
-		<-pause.C
-	})
 	if b.N < codetoolsBudgetMinRuns {
 		return // make test-timing runs one iteration: no statistic to gate
 	}
+	measure := func(label string) durableSet { return durableMeasure(b, name, label, setup) }
+	limit := timing.Limit(budget)
+	if !timing.SharedRunner {
+		s := measure("")
+		reportDurable(b, s)
+		timing.Check(b, name, s.gate, budget)
+		return
+	}
+	sets := ct09Collect(measure, limit, ct09Sets(), func() {
+		pause := time.NewTimer(durableRetryWait)
+		<-pause.C
+	})
 	last := sets[len(sets)-1]
-	b.ReportMetric(float64(last.pairedP50)/float64(time.Millisecond), "paired-p50-ms")
-	b.ReportMetric(float64(last.pairedP95)/float64(time.Millisecond), "paired-p95-ms")
-	b.ReportMetric(float64(last.opP95)/float64(time.Millisecond), "p95-ms")
-	b.ReportMetric(float64(last.refP95)/float64(time.Millisecond), "ref-p95-ms")
-	if timing.SharedRunner {
-		name += " paired over the durable-write reference"
+	reportDurable(b, last)
+	switch ct09Verdict(sets, limit) {
+	case ct09Pass, ct09Fail:
+		timing.Check(b, name+" paired over the durable-write reference", last.gate, budget)
+	default:
+		msg := fmt.Sprintf("CT-09 INCONCLUSIVE (noisy runner: ref p95 %v > %v, %d sets)",
+			last.refP95, refNoiseLimit, len(sets))
+		b.Logf("%s: %s", name, msg)
+		// A passing benchmark's Logf is dropped; the runner annotation must be
+		// on stdout to be visible (and the nightly must fail, not pass).
+		if _, werr := fmt.Fprintf(os.Stdout, "::warning::%s: %s\n", name, msg); werr != nil {
+			b.Logf("%s: warning annotation not written: %v", name, werr)
+		}
+		if os.Getenv(ct09StrictEnv) == "1" {
+			b.Fatalf("%s: %s", name, msg)
+		}
 	}
-	timing.Check(b, name, last.gate, budget)
 }
 
-// durableSets applies the CT-09 retry rule (ADR-127 amendment 2026-10-22): on
-// a shared runner a red gate gets one fresh sample set after wait, and that
-// set decides. measure is called once per set (a fresh directory each), wait
-// once with the red first set. The last returned set is the verdict.
-func durableSets(shared bool, limit time.Duration, measure func(label string) durableSet, wait func(first durableSet)) []durableSet {
-	first := measure("set 1")
-	if !needsRetry(shared, first.gate, limit, first.n) {
-		return []durableSet{first}
-	}
-	if wait != nil {
-		wait(first)
-	}
-	return []durableSet{first, measure("set 2")}
+// reportDurable reports the deciding set's metrics.
+func reportDurable(b *testing.B, s durableSet) {
+	b.ReportMetric(float64(s.pairedP50)/float64(time.Millisecond), "paired-p50-ms")
+	b.ReportMetric(float64(s.pairedP95)/float64(time.Millisecond), "paired-p95-ms")
+	b.ReportMetric(float64(s.opP95)/float64(time.Millisecond), "p95-ms")
+	b.ReportMetric(float64(s.refP95)/float64(time.Millisecond), "ref-p95-ms")
 }
 
-// needsRetry reports whether a red gate must be re-measured: only on a shared
-// runner, and only when the set has enough samples for the statistic.
-func needsRetry(shared bool, gate, limit time.Duration, n int) bool {
-	return shared && n >= codetoolsBudgetMinRuns && gate > limit
+// setValid reports whether a set's reference is good enough to judge edit_file:
+// above refNoiseLimit the disk is stalling and the paired difference measures
+// the stall, not the edit (ADR-127 amendment 2026-10-22).
+func setValid(s durableSet) bool { return s.refP95 <= refNoiseLimit }
+
+// ct09Verdict classifies the sets collected so far: a valid set under the limit
+// passes at once, two valid sets over the limit fail, and otherwise the run is
+// still undecided (invalid sets are retried within the set budget).
+func ct09Verdict(sets []durableSet, limit time.Duration) int {
+	fails := 0
+	for _, s := range sets {
+		if !setValid(s) {
+			continue
+		}
+		if s.gate <= limit {
+			return ct09Pass
+		}
+		if fails++; fails >= 2 {
+			return ct09Fail
+		}
+	}
+	return ct09Undecided
+}
+
+// ct09Collect measures up to max sets, waiting between them, and stops as soon
+// as the verdict is decided. Each set gets a fresh directory through measure.
+func ct09Collect(measure func(label string) durableSet, limit time.Duration, max int, wait func()) []durableSet {
+	var sets []durableSet
+	for len(sets) < max {
+		if len(sets) > 0 && wait != nil {
+			wait()
+		}
+		sets = append(sets, measure(fmt.Sprintf("set %d", len(sets)+1)))
+		if ct09Verdict(sets, limit) != ct09Undecided {
+			break
+		}
+	}
+	return sets
 }
 
 // durableMeasure collects one sample set and logs it (both sets appear in a
@@ -133,8 +206,12 @@ func durableMeasure(b *testing.B, name, label string, setup func() (op func(i in
 // logSet writes one sample set: the gated p50/p95, both sides' p95, and the
 // five iterations with the largest paired difference.
 func logSet(logf func(format string, args ...any), name, label string, s durableSet) {
-	logf("%s %s: n=%d samples, edit p95 %v, ref p95 %v, paired p50 %v, paired p95 %v",
-		name, label, s.n, s.opP95, s.refP95, s.pairedP50, s.pairedP95)
+	validity := ""
+	if !setValid(s) {
+		validity = fmt.Sprintf(" INVALID (ref p95 > %v)", refNoiseLimit)
+	}
+	logf("%s %s: n=%d samples, edit p95 %v, ref p95 %v, paired p50 %v, paired p95 %v%s",
+		name, label, s.n, s.opP95, s.refP95, s.pairedP50, s.pairedP95, validity)
 	for _, o := range s.worst {
 		logf("%s %s: paired outlier iteration %d: edit %v, ref %v, paired %v",
 			name, label, o.i, o.op, o.ref, o.d)
@@ -344,63 +421,101 @@ func TestDurableGate(t *testing.T) {
 	}
 }
 
-// TestDurableRetry pins the CT-09 retry rule (ADR-127 amendment 2026-10-22):
-// a red first set is re-measured once, in a fresh directory, after the wait;
-// the second set decides. A regression that fails both sets still fails.
-func TestDurableRetry(t *testing.T) {
+// TestCT09Collect pins the CT-09 decision rule and sequence (ADR-127
+// amendment 2026-10-22): a set whose reference is noisier than refNoiseLimit
+// is invalid and retried; a valid pass passes; two valid failures fail; an
+// all-invalid run is inconclusive (the PR gate warns, the nightly fails).
+func TestCT09Collect(t *testing.T) {
 	const ms = time.Millisecond
 	limit := 30 * ms
-	set := func(gate time.Duration) durableSet {
-		return durableSet{n: codetoolsBudgetMinRuns, gate: gate, pairedP95: gate}
-	}
-	seq := func(sets ...durableSet) (func(string) durableSet, *[]string) {
-		i := 0
-		labels := &[]string{}
-		return func(label string) durableSet {
-			*labels = append(*labels, label)
-			s := sets[i]
-			i++
-			return s
-		}, labels
+	set := func(gate, ref time.Duration) durableSet {
+		return durableSet{n: codetoolsBudgetMinRuns, gate: gate, refP95: ref}
 	}
 	for _, c := range []struct {
-		name     string
-		shared   bool
-		sets     []durableSet
-		wantSets int
-		wantPass bool
+		name      string
+		sets      []durableSet
+		max       int
+		want      int
+		wantSets  int
+		wantWaits int
 	}{
-		{"first set red, second green: overall pass", true, []durableSet{set(49 * ms), set(6 * ms)}, 2, true},
-		{"both sets red: overall fail", true, []durableSet{set(49 * ms), set(60 * ms)}, 2, false},
-		{"+35 ms regression fails both sets", true, []durableSet{set(35 * ms), set(35 * ms)}, 2, false},
-		{"green first set: no retry", true, []durableSet{set(6 * ms)}, 1, true},
-		{"Q14 (not shared): one set, no retry", false, []durableSet{set(49 * ms)}, 1, false},
+		{
+			"noisy ref → inconclusive",
+			[]durableSet{set(114*ms, 138*ms), set(48*ms, 139*ms), set(35*ms, 40*ms)},
+			5, ct09Inconclusive, 5, 4,
+		},
+		{
+			"valid ref with a +35 ms edit regression → fail",
+			[]durableSet{set(35*ms, 2*ms), set(35*ms, 3*ms)},
+			5, ct09Fail, 2, 1,
+		},
+		{
+			"one invalid set then a valid pass → pass",
+			[]durableSet{set(114*ms, 138*ms), set(6*ms, 2*ms)},
+			5, ct09Pass, 2, 1,
+		},
+		{
+			"valid fail then valid fail → fail",
+			[]durableSet{set(49*ms, 2*ms), set(60*ms, 3*ms)},
+			5, ct09Fail, 2, 1,
+		},
+		{
+			"one valid fail and two invalid sets → inconclusive",
+			[]durableSet{set(49*ms, 2*ms), set(40*ms, 40*ms), set(45*ms, 50*ms)},
+			5, ct09Inconclusive, 5, 4,
+		},
+		{
+			"valid pass first → pass, no retry",
+			[]durableSet{set(6*ms, 2*ms)},
+			5, ct09Pass, 1, 0,
+		},
 	} {
-		measure, labels := seq(c.sets...)
-		waits := 0
-		got := durableSets(c.shared, limit, measure, func(durableSet) { waits++ })
-		if len(got) != c.wantSets || len(*labels) != c.wantSets {
-			t.Fatalf("%s: %d sets %v, want %d", c.name, len(got), *labels, c.wantSets)
+		i, waits := 0, 0
+		var labels []string
+		measure := func(label string) durableSet {
+			labels = append(labels, label)
+			s := c.sets[i]
+			if i < len(c.sets)-1 {
+				i++
+			}
+			return s
 		}
-		verdict := got[len(got)-1]
-		if pass := verdict.gate <= limit; pass != c.wantPass {
-			t.Errorf("%s: verdict gate %v ≤ %v is %v, want %v", c.name, verdict.gate, limit, pass, c.wantPass)
+		got := ct09Collect(measure, limit, c.max, func() { waits++ })
+		verdict := ct09Verdict(got, limit)
+		if verdict == ct09Undecided {
+			verdict = ct09Inconclusive // the set budget is exhausted
 		}
-		if wantWait := c.wantSets - 1; waits != wantWait {
-			t.Errorf("%s: wait called %d times, want %d", c.name, waits, wantWait)
+		if verdict != c.want {
+			t.Errorf("%s: verdict %d, want %d", c.name, verdict, c.want)
 		}
-		if c.wantSets == 2 && (*labels)[1] != "set 2" {
-			t.Errorf("%s: second label %q, want set 2", c.name, (*labels)[1])
+		if len(got) != c.wantSets || len(labels) != c.wantSets || waits != c.wantWaits {
+			t.Errorf("%s: %d sets (%v), %d waits; want %d sets, %d waits", c.name, len(got), labels, waits, c.wantSets, c.wantWaits)
 		}
-	}
-	if needsRetry(true, 49*ms, limit, codetoolsBudgetMinRuns-1) {
-		t.Error("needsRetry with too few samples: want false")
+		for j, label := range labels {
+			if want := fmt.Sprintf("set %d", j+1); label != want {
+				t.Errorf("%s: label %q, want %q", c.name, label, want)
+			}
+		}
 	}
 }
 
-// TestDurableSetsLogged: both sample sets are logged with the gated p50/p95,
-// both sides' p95 and the top-5 paired outliers - the evidence a red perf run
-// must carry (ADR-127).
+// TestCT09Sets: three sets by default, DAMNBOT_CT09_SETS overrides (nightly
+// uses five), garbage and zero fall back to three, and the value is capped.
+func TestCT09Sets(t *testing.T) {
+	for _, c := range []struct {
+		env  string
+		want int
+	}{{"", 3}, {"5", 5}, {"1", 1}, {"0", 3}, {"x", 3}, {"99", 10}} {
+		t.Setenv(ct09SetsEnv, c.env)
+		if got := ct09Sets(); got != c.want {
+			t.Errorf("%s=%q: ct09Sets = %d, want %d", ct09SetsEnv, c.env, got, c.want)
+		}
+	}
+}
+
+// TestDurableSetsLogged: every sample set is logged with the gated p50/p95,
+// both sides' p95, the top-5 paired outliers, and an INVALID marker when the
+// reference is noisy - the evidence a red perf run must carry (ADR-127).
 func TestDurableSetsLogged(t *testing.T) {
 	const ms = time.Millisecond
 	var lines []string
@@ -411,17 +526,23 @@ func TestDurableSetsLogged(t *testing.T) {
 		worst: []outlier{{i: 7, op: 50 * ms, ref: time.Millisecond, d: 49 * ms}},
 	}
 	green := durableSet{n: 100, gate: 6 * ms, opP95: 8 * ms, refP95: 2 * ms, pairedP50: 5 * ms, pairedP95: 6 * ms}
+	noisy := durableSet{n: 100, gate: 114 * ms, opP95: 190 * ms, refP95: 138 * ms, pairedP50: 3 * ms, pairedP95: 114 * ms}
 	logSet(logf, "CT-09", "set 1", red)
 	logSet(logf, "CT-09", "set 2", green)
+	logSet(logf, "CT-09", "set 3", noisy)
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
 		"set 1: n=100", "set 1: paired outlier iteration 7",
-		"set 2: n=100",
+		"set 2: n=100", "set 3: n=100",
 		"edit p95 50ms", "ref p95 1ms", "paired p50 5ms", "paired p95 49ms",
+		"set 3: n=100 samples, edit p95 190ms, ref p95 138ms, paired p50 3ms, paired p95 114ms INVALID (ref p95 > 30ms)",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("log missing %q:\n%s", want, joined)
 		}
+	}
+	if before, _, _ := strings.Cut(joined, "set 3"); strings.Contains(before, "INVALID") {
+		t.Errorf("valid sets marked INVALID:\n%s", joined)
 	}
 }
 
