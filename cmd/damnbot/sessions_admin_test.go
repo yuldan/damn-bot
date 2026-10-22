@@ -139,7 +139,13 @@ func TestSessionsExportFile(t *testing.T) {
 		t.Fatalf("exported file: %v\n%s", err, b)
 	}
 	fi, err := os.Stat(out)
-	if err != nil || fi.Mode().Perm() != 0o600 {
+	if err != nil {
+		t.Fatalf("stat exported file: %v", err)
+	}
+	// Windows has no POSIX permission bits: os.Stat reports 0666 for any
+	// writable file, so a 0600 export is unobservable there (Chmod only toggles
+	// the read-only attribute). The assertion below is the POSIX check.
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("export file mode = %v, want 0600", fi.Mode().Perm())
 	}
 }
