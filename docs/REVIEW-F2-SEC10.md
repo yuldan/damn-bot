@@ -468,3 +468,49 @@ Tidak ada bypass yang terbuka. Pengecualian hanya membebaskan `popd`/`cd`/`pushd
 | SEC10-28 | MINOR (test) | open | `TestNoDefaultCurrentDirectoryInExePath` tidak memiliki kontrol negatif. | Tambahkan subtest dengan `Spec.Env` tanpa variabel → marker **harus** dibuat, sehingga test membuktikan perbedaannya. |
 
 **Ringkasan Round 9:** #236 `4fff33f` **APPROVE dengan MINOR**. `NoDefaultCurrentDirectoryInExePath=1` dipaksa untuk setiap child Windows dan tidak dapat ditimpa lewat `exec.env` atau parent. Test marker berjalan dan lulus di CI Windows (ubuntu/macOS juga hijau). Pengecualian `popd` dan `cd`/`pushd` bare tidak membuka kembali bypass pembayaran (`cd <skill>… && cd && charge.bat`, `pushd <skill> & popd & …`, dan varian tak terlacak tetap `monetary`/`unknown`). Sisa SEC10-25b/27/28 tidak memblokir. Urutan merge: #212 → #234 → #236 berturut-turut.
+
+## Round 10 — 2026-10-22
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #237 (stack di atas #236) | `15fdb4f` | **REQUEST CHANGES**: CI Windows **gagal** di `TestNoDefaultCurrentDirectoryNegativeControl`. Akar masalahnya temuan baru **SEC10-29 (HIGH, pra-ada sejak #127)**: di Windows, perintah diklasifikasikan dengan lexer `Cmd` tetapi dieksekusi oleh **PowerShell**, sehingga gate pembayaran dapat di-bypass dengan sintaks PowerShell |
+
+**CI (run `39732922103`, head `15fdb4f1…`)**: ubuntu pass, macOS pass, **Windows FAIL**: `--- FAIL: TestNoDefaultCurrentDirectoryNegativeControl (0.68s)`, `env_windows_test.go:113: negative control: cwd git.bat did not run`. `ok internal/exec/classify`. `TestSessionResetsNoDefaultCwd` berada di paket `internal/exec` yang gagal. Log non-verbose tidak menampilkan hasil per test, jadi statusnya tidak dapat dipastikan dari log.
+
+Gate lokal di `15fdb4f`: `go test -race -tags goolm -count=1 ./internal/exec/... ./internal/archtest` → ok (Linux); `GOOS=windows go vet ./internal/exec/...` bersih; `GOOS=windows go test -c ./internal/exec` ok; `make loc` `exec/classify 1829/1830`, `exec 2682/3400`.
+
+### Kenapa kontrol negatif gagal: SEC10-29
+
+`exec.shellArgv` (one-shot) dan `sessionShell` (sesi persisten) di Windows memilih **`pwsh`, lalu `powershell`, baru `cmd`** bila keduanya tidak ada. `powershell.exe` 5.1 ada di setiap Windows, dan runner CI juga punya `pwsh` 7. Akibatnya perintah `shell` produksi **selalu** dijalankan PowerShell, dan PowerShell tidak pernah mencari nama bare di cwd. Itulah sebabnya `git.bat` tidak jalan, bahkan tanpa variabel. Test positif SEC10-26 di Round 9 lulus secara **vakum** (persis risiko SEC10-28), dan kontrol negatif baru membuktikannya. Variabel `NoDefaultCurrentDirectoryInExePath` hanya berpengaruh untuk anak `cmd` yang dijalankan dari PowerShell.
+
+Namun `cmd/damnbot` `runtimeDialect()` mengembalikan **`classify.Cmd`** untuk Windows (sejak #127, `c946d68`, sudah ada di `main`). Classifier membaca perintah dengan aturan cmd, sedangkan yang mengeksekusi adalah PowerShell. Probe `TestZZR10b` (dihapus setelah dijalankan) menjalankan payload PowerShell di kedua dialek. Kolom: ask, ask+allow, auto, auto+allow, headless, headless+allow, unsafe, unsafe+allow.
+
+| Perintah (dieksekusi PowerShell di produksi) | Dialek `Cmd` (produksi) | Dialek `Pwsh` (seharusnya) |
+|---|---|---|
+| `& '<skill>\scripts\charge.ps1'` | **mutating `QAQADAAA`** | monetary `PPPPDDDD` |
+| `$p='<skill>'; & "$p\scripts\charge.ps1"` | **mutating `QAQADAAA`** | unknown |
+| `Set-Location '<skill>\scripts'; ./charge.ps1` | **mutating `QAQADAAA`** | monetary |
+| `python '<skill>\scripts\charge.py'` | **mutating `QAQADAAA`** | monetary |
+| `. "<skill>\scripts\charge.ps1"`, `& "<skill>\…\charge.bat"`, `Start-Process …`, `Get-Content … \| Invoke-Expression`, `cmd /c "…"` | monetary | monetary |
+| `iex (gc … -Raw)` | unknown | unknown |
+
+Dengan `--unsafe-auto-shell` (atau `shell_allow` yang cocok), script pembayaran **dijalankan tanpa approval** di Windows lewat kutip tunggal, `&`, atau variabel PowerShell. Ini melanggar invarian SEC-15 ("Monetary tidak pernah auto, termasuk di unsafe"). Seluruh kerja dialek `Cmd` di SEC10-20..27 menargetkan shell yang dalam praktiknya hampir tidak pernah dipakai. Pelabelan lain di Windows (deny path, destructive, outside workspace) juga terpengaruh oleh mismatch yang sama.
+
+### Klaim #237
+
+- **SEC10-27 (reset per perintah sesi):** prefix adalah konstanta (`set "NoDefaultCurrentDirectoryInExePath=1"` / `$env:NoDefaultCurrentDirectoryInExePath='1'`) yang ditulis sebagai baris pertama file perintah. Tidak ada data user di dalam prefix, jadi tidak ada injeksi kutip ✔. Catatan: di PowerShell 7, baris yang **diawali `|`** melanjutkan pipeline baris sebelumnya, sehingga perintah user `| Out-Null…` dapat menempel ke assignment prefix dan mengosongkan variabel untuk panggilan itu (classifier: `mutating`). [INFERENCE] Dampaknya kecil karena hanya berlaku untuk satu panggilan dan cmd jarang dipakai. Akhiri prefix dengan `;`.
+- **SEC10-28:** kontrol negatif ditambahkan dan **gagal di CI**. Kontrol itu benar menurut desain: ia membuktikan test positif vakum. Test harus menjalankan `cmd /d /s /c` secara eksplisit (`OneShot.Direct`) agar menguji perilaku cmd.
+- **SEC10-25b:** `cd` bare kini mempertahankan `cdTracked` (`cd sub && cd && git status` → `mutating` ✔), tetapi tetap menyetel `cwdOK=false`, sehingga `cd && dir` / `cd && git status` (tanpa cd sebelumnya) tetap `Unknown`. Test baru bahkan mengunci perilaku ini. Sebagian.
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| **SEC10-29** | **HIGH** | confirmed (simulasi dialek + CI kontrol negatif) | `runtimeDialect()` = `Cmd` di Windows, sedangkan shell eksekusi = `pwsh`/`powershell` (cmd hanya fallback). Payload PowerShell (`& '<skill>\…ps1'`, `$p=…; & "$p\…"`, `Set-Location '…'; ./x.ps1`, `python '<skill>\…'`) diklasifikasikan `mutating` dan auto di unsafe/allow, sehingga script pembayaran berjalan tanpa approval. Pra-ada sejak #127, tetapi membatalkan gate SEC10 di Windows. | Dialek classifier harus diturunkan dari shell yang **benar-benar dipilih** `exec` (`shellArgv`/`sessionShell` mengekspor pilihannya): `Pwsh` untuk pwsh/powershell, `Cmd` hanya untuk fallback cmd. Tambahkan test E2E Windows dengan payload `& '<skill>\scripts\charge.ps1'` di `--unsafe-auto-shell` → harus ditolak. Perbaikan ini sebaiknya mendarat bersama atau sebelum #212/#234/#236/#237. |
+| SEC10-28 | MINOR (test) | **gagal di CI** | Kontrol negatif membuktikan test positif SEC10-26 vakum (one-shot memakai PowerShell). | Jalankan kedua test lewat `cmd` eksplisit. |
+| SEC10-27 | MINOR | sebagian | Reset per perintah sesi tidak dapat diinjeksi. Leading-pipe PowerShell 7 dapat menempel ke prefix. | Prefix PowerShell diakhiri `;`. |
+| SEC10-25b | MINOR | sebagian | `cd` bare masih menyetel `cwdOK=false`. | `cd` tanpa target → no-op penuh. |
+
+**Ringkasan Round 10:** #237 `15fdb4f` **REQUEST CHANGES**. CI Windows gagal pada kontrol negatif yang baru, dan kegagalan itu mengungkap bahwa di Windows perintah dieksekusi PowerShell sementara classifier memakai dialek cmd (SEC10-29, HIGH): payload `& '<skill>\scripts\charge.ps1'` dan sejenisnya di-auto-approve. Perbaiki pemilihan dialek berdasarkan shell yang dipakai `exec`, ubah test SEC10-26/28 agar menjalankan `cmd` secara eksplisit, lalu jalankan ulang CI Windows. Sampai itu ditutup, gate pembayaran SEC10 di Windows tidak dapat dianggap efektif. Status approve #212/#234/#236 perlu ditinjau ulang terhadap SEC10-29.
