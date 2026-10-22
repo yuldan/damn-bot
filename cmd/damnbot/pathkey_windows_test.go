@@ -3,6 +3,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -15,6 +16,9 @@ func TestMonetaryKeyJunction(t *testing.T) {
 	target := t.TempDir()
 	junction := filepath.Join(t.TempDir(), "junction")
 	if out, err := exec.Command("cmd", "/c", "mklink", "/J", junction, target).CombinedOutput(); err != nil { //nolint:gosec // fixed test command
+		if os.Getenv("CI") != "" {
+			t.Fatalf("mklink /J failed in CI: %v (%s)", err, out)
+		}
 		t.Skipf("mklink /J unavailable: %v (%s)", err, out)
 	}
 	if a, b := monetaryKey(junction), monetaryKey(target); a != b {

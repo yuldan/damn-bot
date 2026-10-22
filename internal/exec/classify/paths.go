@@ -17,8 +17,9 @@ func (s *state) operand(a arg, write bool) []string {
 		s.raise(Unknown, "operand not static: "+a.s)
 		return nil
 	}
-	if strings.HasPrefix(a.s, `\\`) && s.env.MonetaryKey != nil {
-		s.paymentFile(a.s, a.s) // device/UNC spelling (SEC10-15)
+	if strings.HasPrefix(a.s, `\\`) {
+		s.raise(Unknown, "remote/device path operand: "+a.s) // SEC10-19: no network lookup
+		return nil
 	}
 	p, ok := s.abs(a.s)
 	if !ok {

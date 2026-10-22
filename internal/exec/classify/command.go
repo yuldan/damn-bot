@@ -25,6 +25,9 @@ func (s *state) command(args []arg, in stdin) bool {
 		s.mut = true
 		return false
 	}
+	if strings.HasPrefix(args[0].s, `\\`) && !s.remote {
+		s.raise(Unknown, "remote/device command: "+args[0].s) // SEC10-19: never open a share
+	}
 	if pathLike(args[0].s) && !s.remote {
 		if p, ok := s.abs(args[0].s); ok {
 			s.paymentFile(p, s.resolve(p)) // ./scripts/pay.sh run directly (SEC-15)
@@ -35,6 +38,9 @@ func (s *state) command(args []arg, in stdin) bool {
 		}
 	}
 	name := s.cmdName(args[0].s)
+	if !s.cwdOK && s.fold {
+		s.raise(Unknown, "command after cd: "+args[0].s) // SEC10-20 (cmd/PowerShell)
+	}
 	if name == "git" {
 		args = s.gitGlobals(args)
 	}

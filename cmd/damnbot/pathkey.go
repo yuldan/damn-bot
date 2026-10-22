@@ -2,19 +2,44 @@ package main
 
 import (
 	"path/filepath"
+	"strings"
 )
 
+// pathOps is the filesystem seam of the gate key. A remote path must not
+// invoke eval/final at all (SEC10-19).
+type pathOps struct {
+	remote bool
+	eval   func(string) (string, error)
+	final  func(string) string
+	fold   func(string) string
+}
+
+// keyFor builds the canonical comparison key. Remote paths are lexical only:
+// opening an SMB/WebDAV operand before approval would leak NTLM or hang.
+func keyFor(p string, o pathOps) string {
+	p = cleanDevicePrefix(p)
+	if o.remote {
+		return o.fold(slash(filepath.Clean(p)))
+	}
+	base, rest := existingPrefix(p, o.eval)
+	if o.final != nil {
+		if f := o.final(base); f != "" {
+			base = f
+		}
+	}
+	return o.fold(slash(filepath.Join(base, rest)))
+}
+
 // existingPrefix resolves the longest existing prefix of p and returns it
-// with the non-existing remainder (SEC10-18). The prefix is absolute and
-// symlink-resolved; the remainder keeps its spelling for the OS wrapper.
-func existingPrefix(p string) (base, rest string) {
-	abs, err := filepath.Abs(cleanDevicePrefix(p))
+// with the non-existing remainder (SEC10-18).
+func existingPrefix(p string, eval func(string) (string, error)) (base, rest string) {
+	abs, err := filepath.Abs(p)
 	if err != nil {
 		abs = p
 	}
 	abs = filepath.Clean(abs)
 	for {
-		if r, rerr := filepath.EvalSymlinks(abs); rerr == nil {
+		if r, rerr := eval(abs); rerr == nil {
 			return r, rest
 		}
 		parent := filepath.Dir(abs)
@@ -26,8 +51,8 @@ func existingPrefix(p string) (base, rest string) {
 	}
 }
 
-// cleanDevicePrefix strips Win32 device prefixes for canonicalization;
-// SEC10-15 (e.g. \\localhost\C$) remains a documented residual.
+// cleanDevicePrefix strips Win32 device prefixes. Remote/UNC forms are
+// classified Unknown by exec/classify and never reach a filesystem call.
 func cleanDevicePrefix(p string) string {
 	switch {
 	case len(p) >= 8 && p[:8] == `\\?\UNC\`:
@@ -38,9 +63,8 @@ func cleanDevicePrefix(p string) string {
 	return p
 }
 
-// canonicalBase is the OS-neutral key: absolute, longest existing prefix
-// symlink-resolved, remainder appended, slash-separated.
-func canonicalBase(p string) string {
-	base, rest := existingPrefix(p)
-	return filepath.ToSlash(filepath.Join(base, rest))
-}
+func identity(s string) string { return s }
+
+// slash normalises separators on every OS (filepath.ToSlash is a no-op for
+// backslashes on Unix, where UNC forms are simulated in tests).
+func slash(p string) string { return strings.ReplaceAll(filepath.ToSlash(p), `\`, "/") }

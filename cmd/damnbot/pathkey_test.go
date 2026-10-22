@@ -54,3 +54,17 @@ func TestMonetaryKeyFileLink(t *testing.T) {
 		t.Fatalf("link %q != target %q", monetaryKey(link), monetaryKey(target))
 	}
 }
+
+// keyFor is lexical for a remote path and never calls the filesystem seam
+// (SEC10-19): a UNC operand cannot trigger SMB/WebDAV before approval.
+func TestRemotePathNoFilesystem(t *testing.T) {
+	t.Parallel()
+	key := keyFor(`\\server\share\pay\x.sh`, pathOps{
+		remote: true,
+		eval:   func(string) (string, error) { t.Fatal("filesystem access on a remote path"); return "", nil },
+		fold:   strings.ToLower,
+	})
+	if !strings.Contains(key, "server/share/pay/x.sh") {
+		t.Fatalf("remote key = %q", key)
+	}
+}

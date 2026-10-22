@@ -114,8 +114,11 @@ func hasFlag(args []arg, f string) bool {
 // (SEC10-1) and keeps cwd untracked afterwards, so every relative operand
 // stays unknown (ADR-079 butir 2).
 func (s *state) changeDir(args []arg) {
-	if len(args) == 1 && args[0].lit && !args[0].glob {
-		if p, ok := s.abs(args[0].s); ok {
+	for _, a := range args {
+		if !a.lit || a.glob || strings.HasPrefix(a.s, "-") || (s.fold && strings.HasPrefix(a.s, "/")) {
+			continue
+		}
+		if p, ok := s.abs(a.s); ok {
 			s.paymentFile(p, s.resolve(p))
 		}
 	}
@@ -129,7 +132,7 @@ func (s *state) tool(name, sub string, args []arg) {
 		s.gitPaths(sub, args[1:])
 	case "find":
 		s.find(args[1:])
-	case "cd", "pushd", "chdir", "set-location", "sl":
+	case "cd", "pushd", "chdir", "set-location", "sl", "push-location":
 		s.changeDir(args[1:])
 	case "popd":
 		s.cwdOK = false
