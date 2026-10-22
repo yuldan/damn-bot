@@ -100,7 +100,7 @@ func TestPaymentSkillDirs(t *testing.T) {
 	}
 }
 
-// TestPaymentSkillGateWired: with a payment skill installed under
+// TestPaymentSkillGateWired (SEC10-29 on Windows): with a payment skill installed under
 // <config>/skills, a headless `run --approval auto --unsafe-auto-shell` turn
 // whose tool call cds into that skill is denied and never executes
 // (SEC10-1/SEC10-6, end to end).
@@ -110,9 +110,11 @@ func TestPaymentSkillGateWired(t *testing.T) {
 	marker := filepath.Join(dataDir, "ran")
 	script, cmd := "scripts/charge.sh", ""
 	if runtime.GOOS == "windows" {
-		script = "scripts/charge.bat"
-		cmd = `cd /d "` + filepath.Join(writeSkill(t, cfgDir, "stripe-pay", "side_effects: [payment]\n", "Run scripts/charge.bat.",
-			map[string]string{script: "@echo off\r\n> \"" + marker + "\" echo ran\r\n"}), "scripts") + `" && charge.bat`
+		// SEC10-29: PowerShell is the real shell on Windows; the call
+		// operator plus a payment-skill script must classify Monetary.
+		script = "scripts/charge.ps1"
+		cmd = `& '` + filepath.Join(writeSkill(t, cfgDir, "stripe-pay", "side_effects: [payment]\n", "Run scripts/charge.ps1.",
+			map[string]string{script: "New-Item -ItemType File -LiteralPath '" + marker + "' -Force | Out-Null\n"}), "scripts", "charge.ps1") + `'`
 	} else {
 		pay := writeSkill(t, cfgDir, "stripe-pay", "side_effects: [payment]\n", "Run scripts/charge.sh.",
 			map[string]string{script: "#!/bin/sh\ntouch " + marker + "\n"})

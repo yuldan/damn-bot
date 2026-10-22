@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"runtime"
 	"strings"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/tools"
@@ -49,10 +49,19 @@ func (j *ctxJournal) ToolResult(ctx context.Context, turnID, callID, tool string
 	return nil
 }
 
-func runtimeDialect() classify.Dialect {
-	switch runtime.GOOS {
-	case "windows":
+// runtimeDialect follows the shell exec actually chose (SEC10-29); guessing
+// cmd from runtime.GOOS classified PowerShell payloads as cmd and let them
+// auto-run.
+func runtimeDialect() classify.Dialect { return dialectFor(exec.RuntimeShellKind()) }
+
+func dialectFor(kind exec.ShellKind) classify.Dialect {
+	switch kind {
+	case exec.ShellPowerShell:
+		return classify.Pwsh
+	case exec.ShellCmd:
 		return classify.Cmd
+	case exec.ShellPOSIX:
+		return classify.Bash
 	default:
 		return classify.Bash
 	}

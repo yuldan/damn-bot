@@ -19,9 +19,14 @@ import (
 // used: its line editor echoes and redraws input whatever the TTY mode
 // (ADR-105 butir 22).
 func sessionShell(path string) sessionShellSpec {
-	argv := []string{"/bin/sh"}
-	if p, err := lookPath("bash", path, ""); err == nil {
-		argv = []string{p, "--norc", "--noprofile", "--noediting"}
+	c, err := chooseShell(path)
+	bin := "/bin/sh"
+	if err == nil {
+		bin = c.bin
+	}
+	argv := []string{bin}
+	if filepath.Base(bin) == "bash" {
+		argv = append(argv, "--norc", "--noprofile", "--noediting")
 	}
 	if sh := os.Getenv("SHELL"); sh != "" {
 		switch filepath.Base(sh) {

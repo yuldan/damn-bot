@@ -103,27 +103,14 @@ func checkArgv(argv []string) error {
 	return nil
 }
 
-// shellArgv is mode (a): bash, else sh (Unix); pwsh, powershell, else cmd
-// (Windows), with command as a single argument.
+// shellArgv is mode (a): the shared shell choice (SEC10-29), with command as
+// a single argument.
 func shellArgv(command, path string) ([]string, error) {
-	type shell struct {
-		name string
-		args []string
+	c, err := chooseShell(path)
+	if err != nil {
+		return nil, err
 	}
-	shells := []shell{{"bash", []string{"-c"}}, {"sh", []string{"-c"}}}
-	if runtime.GOOS == "windows" {
-		shells = []shell{
-			{"pwsh", []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command"}},
-			{"powershell", []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-Command"}},
-			{"cmd", []string{"/d", "/s", "/c"}},
-		}
-	}
-	for _, sh := range shells {
-		if bin, err := lookPath(sh.name, path, ""); err == nil {
-			return append(append([]string{bin}, sh.args...), command), nil
-		}
-	}
-	return nil, fmt.Errorf("%w: no shell on PATH", ErrNotFound)
+	return c.commandArgv(command), nil
 }
 
 // lookPath resolves name like a shell, but only through absolute PATH
