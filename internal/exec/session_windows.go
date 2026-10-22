@@ -7,16 +7,14 @@ import "strings"
 // switched off, so the console would interleave the typed lines with the
 // output; ADR-105 butir 22).
 func sessionShell(path string) sessionShellSpec {
-	for _, name := range []string{"pwsh", "powershell"} {
-		if p, err := lookPath(name, path, ""); err == nil {
-			return pwshSession(p)
-		}
-	}
-	p, err := lookPath("cmd", path, "")
+	c, err := chooseShell(path)
 	if err != nil {
-		p = "cmd.exe"
+		return cmdSession("cmd.exe")
 	}
-	return cmdSession(p)
+	if c.kind == ShellPowerShell {
+		return pwshSession(c.bin)
+	}
+	return cmdSession(c.bin)
 }
 
 func pwshSession(bin string) sessionShellSpec {
@@ -30,7 +28,7 @@ func pwshSession(bin string) sessionShellSpec {
 	return sessionShellSpec{
 		argv: []string{bin, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"},
 		ext:  ".ps1", setup: "$ProgressPreference = 'SilentlyContinue'",
-		resetEnv: "$env:NoDefaultCurrentDirectoryInExePath='1'",
+		resetEnv: "$env:NoDefaultCurrentDirectoryInExePath='1';",
 		line: func(path, cwd, nonce string) string {
 			return "$global:LASTEXITCODE = 0; . '" + strings.ReplaceAll(path, "'", "''") + "'; " +
 				writeCwd(cwd) + sentinel(nonce, "${LASTEXITCODE}")

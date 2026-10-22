@@ -1,0 +1,50 @@
+package exec
+
+import "os"
+
+// ShellKind is the interpreter family exec uses for a shell call. The
+// classifier must follow this choice, not the OS (SEC10-29): Windows can run
+// PowerShell, where a cmd-flavoured classification auto-runs payloads such as
+// & 'C:\skill\scripts\charge.ps1'.
+type ShellKind uint8
+
+// Shell kinds.
+const (
+	ShellPOSIX ShellKind = iota
+	ShellPowerShell
+	ShellCmd
+)
+
+// shellChoice is one resolved shell: absolute binary and its family.
+type shellChoice struct {
+	bin  string
+	kind ShellKind
+}
+
+// commandArgv appends command as the single argument of the chosen shell.
+func (c shellChoice) commandArgv(command string) []string {
+	switch c.kind {
+	case ShellPowerShell:
+		return []string{c.bin, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command}
+	case ShellCmd:
+		return []string{c.bin, "/d", "/s", "/c", command}
+	case ShellPOSIX:
+		return []string{c.bin, "-c", command}
+	default:
+		return []string{c.bin, "-c", command}
+	}
+}
+
+// ShellKindForEnv reports the shell family exec would choose with the given
+// child environment (including exec.env overrides), so the classifier and the
+// runner cannot disagree (SEC10-31).
+func ShellKindForEnv(env []string) ShellKind {
+	c, err := chooseShell(envPath(env))
+	if err != nil {
+		return defaultShellKind()
+	}
+	return c.kind
+}
+
+// RuntimeShellKind reports the shell family for the process environment.
+func RuntimeShellKind() ShellKind { return ShellKindForEnv(os.Environ()) }

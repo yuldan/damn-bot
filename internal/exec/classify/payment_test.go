@@ -151,7 +151,7 @@ func TestWindowsCdGate(t *testing.T) {
 		{Cmd, `cd sub && pushd`, Mutating},
 		{Cmd, `cd sub && popd`, Mutating},
 		{Cmd, `cd sub && cd && git status`, Mutating},
-		{Cmd, `cd && git status`, Unknown},
+		{Cmd, `cd && git status`, Mutating},
 		{Bash, `cd //tmp && echo hi`, Mutating},
 	} {
 		env := testEnv()
@@ -161,5 +161,90 @@ func TestWindowsCdGate(t *testing.T) {
 		if v := Classify(c.cmd, env); v.Class != c.want {
 			t.Errorf("%v %q: class %s, want %s (%v)", c.dialect, c.cmd, v.Class, c.want, v.Reasons)
 		}
+	}
+}
+
+// TestPowerShellPaymentSkillMonetary (SEC10-29): with the PowerShell dialect,
+// the call operator and Set-Location forms must gate payment-skill scripts.
+func TestPowerShellPaymentSkillMonetary(t *testing.T) {
+	t.Parallel()
+	env := testEnv()
+	env.Dialect = Pwsh
+	pay := `C:\skills\pay`
+	env.MonetaryPaths = []string{pay}
+	cases := []struct {
+		cmd  string
+		want Class
+	}{
+		{"& '" + pay + "\\scripts\\charge.ps1'", Monetary},
+		{"$p='" + pay + "\\scripts'; & \"$p\\charge.ps1\"", Unknown},
+		{"python3 '" + pay + "\\scripts\\charge.py'", Monetary},
+		{"Set-Location '" + pay + "\\scripts'; ./charge.ps1", Monetary},
+		{"Set-Location '" + pay + "\\scripts'; Write-Output ok", Monetary},
+	}
+	for _, c := range cases {
+		if v := Classify(c.cmd, env); v.Class != c.want {
+			t.Errorf("%q: class %s, want %s (%v)", c.cmd, v.Class, c.want, v.Reasons)
+		}
+	}
+}
+
+// TestPowerShellPayloadCmdNegativeControl (SEC10-29): with the old cmd
+// dialect these PowerShell payloads are Mutating (auto-runnable), which is
+// exactly the regression the Pwsh dialect tests detect.
+func TestPowerShellPayloadCmdNegativeControl(t *testing.T) {
+	t.Parallel()
+	env := testEnv()
+	env.Dialect = Cmd
+	env.MonetaryPaths = []string{`C:\skills\pay`}
+	for _, cmd := range []string{
+		`& 'C:\skills\pay\scripts\charge.ps1'`,
+		`Set-Location 'C:\skills\pay\scripts'; ./charge.ps1`,
+	} {
+		if v := Classify(cmd, env); v.Class != Mutating {
+			t.Errorf("%q: class %s, want mutating under cmd (%v)", cmd, v.Class, v.Reasons)
+		}
+	}
+}
+
+// TestBareCdPerDialect (SEC10-30/35): bash's bare cd moves to $HOME, which is
+// tracked and payment-checked. Pwsh's bare cd differs between 5.1 (no move)
+// and 7 ($HOME), so it makes cwd untracked and relative paths Unknown. Cmd's
+// bare cd is a no-op.
+func TestBareCdPerDialect(t *testing.T) {
+	t.Parallel()
+	bash := testEnv()
+	bash.MonetaryPaths = []string{testPaySkill}
+	for _, cmd := range []string{
+		"cd && ./.config/damnbot/skills/stripe-pay/scripts/charge.sh",
+		"cd; python3 .config/damnbot/skills/stripe-pay/scripts/charge.py",
+	} {
+		if v := Classify(cmd, bash); v.Class != Monetary {
+			t.Errorf("bash %q: class %s, want Monetary (%v)", cmd, v.Class, v.Reasons)
+		}
+	}
+	home := `C:\Users\u`
+	pay := home + `\AppData\Roaming\damnbot\skills\stripe-pay`
+	ps := testEnv()
+	ps.Dialect = Pwsh
+	ps.Home = home
+	ps.MonetaryPaths = []string{pay}
+	for _, cmd := range []string{
+		`cd; & .\AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.ps1`,
+		`cd; & ..\Users\u\AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.ps1`,
+		`Set-Location; python AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.py`,
+	} {
+		if v := Classify(cmd, ps); v.Class != Unknown {
+			t.Errorf("pwsh %q: class %s, want Unknown (5.1/7 bare cd cannot be tracked; %v)", cmd, v.Class, v.Reasons)
+		}
+	}
+	// Control: cmd's bare cd does not move, so the same relative path from the
+	// workspace root is not the payment skill.
+	cmdEnv := testEnv()
+	cmdEnv.Dialect = Cmd
+	cmdEnv.Home = home
+	cmdEnv.MonetaryPaths = []string{pay}
+	if v := Classify(`cd && .\AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.ps1`, cmdEnv); v.Class == Monetary {
+		t.Errorf("cmd bare cd moved to HOME: %s (%v)", v.Class, v.Reasons)
 	}
 }

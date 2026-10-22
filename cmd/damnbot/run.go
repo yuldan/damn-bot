@@ -313,6 +313,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	}
 	runner := exec.New(ctx)
 	envPolicy := &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent}
+	shellEnv := envPolicy.Env(os.Environ(), false, "", "", "")
 	// Persistent sessions share the runner but never receive secret refs
 	// (ADR-088): direct is empty and Env only inherits the allowlist.
 	sessions := runner.NewSessions(filepath.Join(dataDir, "exec", "sess"), envPolicy.Env(os.Environ(), true, "", "", ""))
@@ -334,7 +335,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
 		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
 		EnvPolicy:        envPolicy,
-		WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
+		WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: dialectFromEnv(shellEnv),
 		MonetaryPaths: monetary, Canonicalize: monetaryKey,
 	})
 	if err != nil {

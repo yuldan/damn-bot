@@ -59,7 +59,8 @@ func TestNoDefaultCurrentDirectoryInExePath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "git.bat"), []byte("@echo off\r\n> \""+marker+"\" echo ran\r\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	spec, _, err := Prepare(&OneShot{Command: "git status", Dir: dir, Parent: os.Environ(), Policy: &EnvPolicy{}})
+	cmd := testCmd(t)
+	spec, _, err := Prepare(&OneShot{Direct: []string{cmd, "/d", "/s", "/c", "git status"}, Dir: dir, Parent: os.Environ(), Policy: &EnvPolicy{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +90,8 @@ func TestNoDefaultCurrentDirectoryNegativeControl(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "git.bat"), []byte("@echo off\r\n> \""+marker+"\" echo ran\r\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	spec, _, err := Prepare(&OneShot{Command: "git status", Dir: dir, Parent: os.Environ(), Policy: &EnvPolicy{}})
+	cmd := testCmd(t)
+	spec, _, err := Prepare(&OneShot{Direct: []string{cmd, "/d", "/s", "/c", "git status"}, Dir: dir, Parent: os.Environ(), Policy: &EnvPolicy{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,5 +113,27 @@ func TestNoDefaultCurrentDirectoryNegativeControl(t *testing.T) {
 	}
 	if _, serr := os.Stat(marker); serr != nil {
 		t.Fatalf("negative control: cwd git.bat did not run: %v", serr)
+	}
+}
+
+func testCmd(t *testing.T) string {
+	t.Helper()
+	sys32, err := windows.GetSystemDirectory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(sys32, "cmd.exe")
+}
+
+// TestSessionResetPrefixes (SEC10-27): the PowerShell reset must end with
+// `;` so a following line starting with `|` cannot attach to it; the cmd
+// reset is a complete line.
+func TestSessionResetPrefixes(t *testing.T) {
+	t.Parallel()
+	if ps := pwshSession("pwsh"); !strings.HasSuffix(ps.resetEnv, ";") || strings.Contains(ps.resetEnv, "\n") {
+		t.Errorf("PowerShell resetEnv = %q", ps.resetEnv)
+	}
+	if sh := cmdSession("cmd.exe"); !strings.HasSuffix(sh.resetEnv, "\r\n") {
+		t.Errorf("cmd resetEnv = %q", sh.resetEnv)
 	}
 }
