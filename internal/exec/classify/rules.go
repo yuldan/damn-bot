@@ -116,7 +116,7 @@ func hasFlag(args []arg, f string) bool {
 func (s *state) changeDir(args []arg) {
 	tracked, targets := true, 0
 	for _, a := range args {
-		if strings.HasPrefix(a.s, `\\`) || strings.HasPrefix(a.s, "//") {
+		if strings.HasPrefix(a.s, `\\`) || (s.fold && strings.HasPrefix(a.s, "//")) {
 			s.raise(Unknown, "remote cd target: "+a.s) // SEC10-22: never open a share
 			tracked = false
 			continue

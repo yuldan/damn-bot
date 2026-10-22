@@ -3215,6 +3215,7 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Konsekuensi.** (+) Waktu tunggu PR turun karena job yang tidak relevan tidak lagi memesan runner, terutama macOS ×10; PR docs-only selesai dalam hitungan detik; push `main` tidak lagi dibatalkan oleh push berikutnya; job yang dilewati tidak lagi menggantung karena status wajib berupa agregat. (−) Kegagalan khusus platform arm/intel baru terdeteksi di `main`/nightly (tertutup oleh butir 6: merge berikutnya menunggu `main` hijau). (−) `ci-required` menyembunyikan nama gate individual di daftar status wajib; diagnosis tetap mudah karena log agregat mencetak hasil setiap `needs`. (−) Job `changes` menambah satu langkah serial ± 15–20 s sebelum job lain mulai. (−) Dokumen di luar daftar butir 2 (mis. `docs/REVIEW-*.md`) tidak lagi divalidasi test Go di PR docs-only; `pr-meta` (spec-guard) dan run `main`/nightly penuh tetap menjadi jaring pengaman.
 24. **UNC dan cd cmd/PowerShell (SEC10-19/20).** Operand/argv0 berawalan `\\` (UNC, `\\?\UNC\`, device) tidak pernah menyentuh filesystem: `classify` menandainya `Unknown` sebelum `paymentFile`, dan `cmd/damnbot` mengembalikan kunci leksikal untuk path remote (UNC atau volume `DRIVE_REMOTE`, dicek lewat `GetDriveType` pada root volume tanpa membuka share). `cd`/`chdir`/`pushd`/`Set-Location`/`Push-Location` di cmd/PowerShell memeriksa setiap argumen literal non-flag terhadap gate (termasuk `cd /d X`, `-Path`, `-LiteralPath`), dan perintah apa pun setelah `cd` yang cwd-nya tidak terlacak menjadi `Unknown` (tidak pernah auto). `;` mengikuti lexer cmd/PowerShell yang ada. Test: `TestWindowsCdGate`, `TestPaymentDevicePath` (Unknown), `TestRemotePathNoFilesystem` (seam filesystem gagal bila dipanggil). Budget: `exec/classify` 1.800 → 1.815 (terukur 1.810; Total core 38.060 → 38.075) — satu-satunya kenaikan di ronde ini.
 25. **cd remote dan narrowing cmd (SEC10-22/23).** `changeDir` menandai argumen `cd`/`chdir`/`pushd`/`Set-Location`/`Push-Location` yang berawalan `\\` atau `//` (termasuk `\\?\UNC\`) sebagai `Unknown` tanpa menyentuh share. Aturan "perintah setelah cd" dipersempit ke dialek `Cmd` saja: target cd yang tidak terlacak, argv0 relatif, atau bare command yang tidak ada di tabel non-mutating → `Unknown`; bare command allow-listed dengan target lokal terlacak dan PowerShell kembali ke klasifikasi normal, sehingga `cd sub && git status`, `cd sub && echo hi`, dan `Set-Location sub; Get-ChildItem` berperilaku seperti sebelumnya. Test: `TestWindowsCdGate` (positif dan negatif). Budget `exec/classify` 1.815 → 1.830 (terukur 1.823; Total core 38.075 → 38.090).
+26. **cmd cwd lookup dan pengecualian pasca-cd (SEC10-25/26).** Setiap child shell Windows mendapat env keras `NoDefaultCurrentDirectoryInExePath=1` (dibangun di `exec.EnvPolicy.Env`, sehingga PowerShell yang melahirkan cmd juga mewarisinya); `git.bat` di cwd tidak lagi dijalankan untuk `git status` (test Windows `TestNoDefaultCurrentDirectoryInExePath` memakai marker). Aturan pasca-cd cmd mengecualikan `popd` serta `cd`/`pushd` tanpa argumen, dan prefiks `//` hanya dianggap remote pada dialek Windows (Cmd/Pwsh); `cd //tmp` di bash diklasifikasikan normal. Test: `TestWindowsCdGate`. Budget `exec/classify` tetap 1.826–1.829/1.830.
 
 ## ADR-137 — Recall memori: kandidat BM25 lintas term kueri (F2/GAP-INF-06)
 
@@ -3233,6 +3234,109 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Dampak terukur (SPEC §20).** Dependency 0, migrasi 0, token prompt 0, perubahan indeks 0 (hanya ekspresi kueri). LOC `ctxdb/memstore` 485/600 dan `ctxdb` 3.429/3.500 (tanpa perubahan `loc.budget`). Biaya kueri: satu MATCH dengan OR dan `bm25` pada kandidat; LIMIT 10 per retrieval.
 
 **Konsekuensi.** (+) Kueri natural bahasa manusia dapat menemukan fakta yang relevan; operator FTS tetap tidak dapat disuntikkan user. (−) Kandidat bisa lebih banyak pada korpus besar (term umum seperti "my"); `bm25` + LIMIT menahan biaya, tetapi kualitas ranking bergantung pada tokenisasi unicode61 (tanpa stopword removal).
+
+## ADR-163 — Tindak lanjut review F2: EC-CTX-007 (direktif MEDIA), tie-break recall, dan bukti GAP-COST-04
+
+**Status:** Accepted 2026-10-22 (delegasi; menutup ACC-6, ACC-12, dan GAP-COST-04 dari review PR #249/#251/#250). Diterapkan di PR tindak lanjut F2.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-22): `internal/compaction/summary.go` + `edgecases_test.go`, `internal/ctxdb/memstore/memstore.go` + `restart_test.go`, `cmd/damnbot/fallback_prefix_test.go`. Mengutip SPEC §22.1 (GAP-SEC-26/EC-CTX-007, GAP-INF-06, GAP-COST-04) dan ADR-122/ADR-133/ADR-137.
+
+**Konteks.** Review menemukan tiga sisa: (a) EC-CTX-007 hanya membuang `MEDIA:` yang berisi nilai, sehingga `MEDIA:` telanjang lolos ke summarizer; (b) tie-break `memstore` tidak deterministik untuk skor bm25 yang sama, dan judul test INF-06 mengklaim penutupan yang belum ada (runner eval belum ada); (c) GAP-COST-04 diklaim lewat test prefix antar-turn yang tidak pernah menjalankan fallback provider.
+
+**Keputusan.**
+1. **EC-CTX-007.** `deliveryDirective = MEDIA:\s*\S*` membuang direktif dengan nilai maupun `MEDIA:` telanjang dari isi pesan dan argumen tool call sebelum summarizer; test `TestEdgeCases/EC-CTX-007` mencakup empat bentuk (tool result, assistant, trailing bare, argumen). Status EC-CTX-007 = covered; pembaruan kalimat ADR-122 butir 14 dibawa PR #245 (bila kedua PR mendarat, kalimat yang sama cukup sekali). PR ini juga menambahkan stripper yang sama dengan #249: land satu lebih dulu, PR kedua menjadi delta (catatan merge).
+2. **Recall deterministik.** `searchIDs` memakai `ORDER BY m.pinned DESC, bm25(memory_fts), m.id` (dan `created_at DESC, m.id` untuk kueri tanpa teks). Test `TestRecallDeterministicAcrossRestart` menyisipkan dua baris identik (skor bm25 sama) dan memastikan urutan sama pada rerun dan sesudah reopen. Test ini adalah proksi jalur recall yang dinilai E4 (ADR-137), **bukan** penutupan GAP-INF-06: runner eval, baseline nightly, dan cap biaya live tetap terbuka.
+3. **GAP-COST-04 (parsial).** `TestFallbackPrefixStable` mengonfigurasi dua route provider A dan B dengan `Fallback: [fake/B]`, memaksa fallback lewat `provider.Do` (tiga 503 pada A lalu sukses di B), lalu memanggil A lagi dan menghitung sha256 pesan system + array tools dari setiap body yang direkam proxy: identik pada kelima attempt; hanya field `model` yang berubah A,A,A,B,A. Ini membuktikan prefix+cache-key di lapisan provider untuk A→B→A. **Status GAP-COST-04 tetap parsial**: composition root `run` belum meneruskan `cfg.Provider.Fallback` ke `provider.Config`, sehingga fallback sesi-nyata baru bisa diuji setelah irisan F5 itu; ledger F2 tetap mencatat baris itu belum tertutup.
+
+**Dampak terukur (SPEC §20).** LOC: `compaction` +≈10, `ctxdb/memstore` +0 (satu klausa ORDER BY), test +≈150; token/binary/dependency 0. Tidak ada perubahan `loc.budget`.
+
+**Konsekuensi.** (+) Tiga temuan review tertutup dengan bukti yang bisa gagal; EC-CTX-007 tidak lagi bisa membocorkan direktif telanjang. (−) Dua PR berbagi kode EC-CTX-007/INF-06 dengan #249/#251; urutan merge harus dijaga agar tidak ada duplikasi diam-diam.
+## ADR-139 — Klasifikasi 59 baris parity F2: headless F2, permukaan slash F3, dan tiga baris dipindah
+
+**Status:** Accepted 2026-10-22 (keputusan owner: F2 hanya punya `damnbot run` headless; semua permukaan slash menunggu REPL/TUI F3). Memperbaiki per-row phase ADR-064 untuk 22 baris; baris lain tidak berubah. Diterapkan di PR dokumen ini + PR implementasi lanjutan. Tidak mengubah SPEC, skema, dependency, atau `loc.budget`.
+
+**Konteks.** [`F2-ACCEPTANCE.md`](F2-ACCEPTANCE.md) (PR #242) mengaudit 81 baris FEATURE-PARITY berfase F2 terhadap test di `main` dan setiap head PR: 18 `covered`, 4 `in-flight`, 17 `surface` (kapabilitas ada, permukaan CLI/slash belum), dan 42 `missing`. Ledger itu juga mencatat bahwa F2 belum punya REPL: hanya ada `damnbot run` headless, sehingga baris slash tidak dapat diuji sebagai surface di F2. ADR-064 menempatkan CLI/SLASH mengikuti fase fitur yang dikendalikan; untuk baris sesi/memori/skill keputusan itu membuat permukaan slash jatuh ke F2, padahal permukaannya baru ada di F3 (inti TUI/REPL). Tanpa koreksi, acceptance F2 menuntut surface yang tidak mungkin dibangun di fase itu, dan gate per fase kehilangan arti.
+
+**Keputusan.**
+1. **Tiga bucket.** Setiap baris F2 yang `missing` atau `surface` diklasifikasikan: (a) dibangun di F2 sebagai kapabilitas/tool/toolset/subcommand headless; (b) kapabilitas intinya F2 (test-nya ditulis di F2) tetapi permukaan yang dinamai baris (slash/interaktif) pindah ke F3; (c) seluruh baris pindah ke fase lain dengan alasan komponen pemiliknya.
+2. **Fase baris = fase selesainya baris.** Untuk bucket (b) kolom `fase` menjadi F3, karena baris itu mendeskripsikan permukaan `/…`; kapabilitas F2 tetap ditagih lewat baris kapabilitas (kolom `Catatan`/ADR ini), bukan dengan membiarkan baris slash berfase F2 tanpa surface. Jenis ini bukan penurunan acceptance: test kapabilitas F2 tetap wajib hijau sebelum F3.
+3. **Bucket (a) tetap F2** dan dikerjakan sebagai rangkaian PR kecil: sesi (export/prune/titles), tools (`memory`, `session_search`, `skill_view`/`skills_list`/`skill_manage`), toolsets, `@`-ref, context pin, retry, prompt caching, memory nudge/trim, checkpoints, skills (index, discovery, external dirs, preprocessing, bundles, ledger), dan CLI `sessions`/`skills`/`bundles`/`checkpoints`. Tidak ada baris (a) yang boleh dibiarkan `planned` tanpa PR: daftar PR ada di butir 7.
+4. **Bucket (b): 19 baris → F3.** Delapan belas baris `SLASH-*` (002, 006, 007, 008, 010, 011, 013, 015, 016, 017, 044, 045, 066, 068, 069, 070, 071, 083) dan `MEM-019` (`/compress` manual). Semua kapabilitasnya sudah ada di F2 atau menjadi baris (a)/(in-flight) di F2. Tabel pemetaan kapabilitas ada di bawah.
+5. **Bucket (c): 3 baris dipindah.** `MEM-022` native compaction provider → F5: API compaction native (Codex/Anthropic) hanya ada bersama adapter provider registry F5; route F2 adalah `openai-chat` generik yang tidak punya endpoint compaction. `MEM-023` dan `PLUG-014` (context engine plugin) → F8: keduanya membutuhkan host plugin/memory provider yang dijadwalkan F8; F2 hanya memiliki engine `compressor` bawaan, dan slot `TSET-035` (komposisi toolset `context_engine`) tetap F2 sebagai data komposisi.
+6. **Hitungan baru.** F1 46, F2 59, F3 135, F4 56, F5 201, F6 86, F7 101, F8 148, F9 5 (Σ 837). `ROADMAP.md` §"Pemetaan parity → fase" menyebut angka ini dan sel F5 prefix MEM mendapat `native compaction provider (MEM-022)` agar `TestParityPhaseColumn` tetap konsisten; `want` di test diperbarui. 18 covered + 4 in-flight + 37 (a) = 59 baris F2.
+7. **Rencana PR implementasi (a).** (i) `sessions` CLI: export HTML/MD/JSON, prune/archive, titles/rename, list (CLI-057, MEM-013/014/015/016; `sessions show`/resume milik worker lain dan tidak diduplikasi); (ii) tools `memory` + `session_search` (TOOL-070, TOOL-073); (iii) toolsets + config per-platform + custom (TSET-021/023/025/035/038/039/040/041/043, CORE-004/005); (iv) tools `skill_view`/`skills_list`/`skill_manage` (TOOL-074/075/076, SKILL-002); (v) bundles + CLI `bundles` (SKILL-007, CLI-047); (vi) skills index/discovery/external dirs/preprocessing/ledger + CLI `skills` lokal (SKILL-004/009/010/019/023, CLI-046); (vii) `@`-ref, context pin, prompt caching (MEM-024/025/034); (viii) retry, memory nudge, memory trim (MEM-030/003/033); (ix) checkpoints CLI (CLI-039). Setiap PR wajib test; PR yang menambah CLI wajib skenario `internal/e2e` (harness PR #239).
+8. **Scope per baris CLI besar.** Acceptance F2 `CLI-046` adalah subcommand lokal yang dinamai deskripsinya (install/list/inspect/check/update/audit/uninstall/reset/diff/opt-in/opt-out/config/trust/untrust); subcommand jaringan hub (`browse`, `search`, `publish`, `snapshot`, `tap`, `repair-official`) milik baris skills hub F8 dan tidak diklaim F2. Acceptance F2 `CLI-057` adalah `list`, `rename`, `export`, `prune`, `delete`, `archive`, `stats`, `pin`, `unpin`, `pinned`; subcommand perbaikan/optimasi (`optimize*`, `clean-markers`, `repair*`, `recover`, `set-journal-mode`, `retitle-skills`, `browse`, `import`) adalah operasi pemeliharaan F8/F9 dan dicatat sebagai sisa, bukan dijanjikan diam-diam.
+9. **Tidak ada surface palsu.** Baris bucket (b) tidak boleh ditutup dengan membantu REPL-mini di F2; F2 hanya membuktikan kapabilitas lewat API/tool/CLI headless yang disebut tabel di bawah. Baris (c) tidak meninggalkan kode mati: `TSET-035` tetap data komposisi, dan tidak ada slot plugin setengah jadi.
+
+**Tabel bucket (a) — dibangun di F2.**
+
+| ID | Status ledger | Rencana F2 |
+|---|---|---|
+| CLI-039 | missing | `damnbot checkpoints` (status/list/prune/clear/clear-legacy) di atas snapshot journal |
+| CLI-046 | surface | `damnbot skills` subset lokal (butir 8); hub F8 |
+| CLI-047 | missing | `damnbot bundles` (list/show/create/delete/reload) |
+| CLI-057 | surface | `damnbot sessions` subset butir 8; `show`/resume dari worker lain |
+| TOOL-070 | missing | tool `memory` (tambah/ganti/hapus catatan + profil user) memakai `memory.Service` |
+| TOOL-073 | missing | tool `session_search` (FTS + ringkasan) memakai `ctxdb.Search` |
+| TOOL-074 | missing | tool `skill_manage` (buat/edit/hapus SKILL.md + file pendukung, lewat lint/install) |
+| TOOL-075 | missing | tool `skill_view` (isi skill + file terkait) |
+| TOOL-076 | missing | tool `skills_list` (nama + deskripsi) |
+| TSET-021 | missing | toolset `memory` (komposisi + filter ketersediaan) |
+| TSET-023 | missing | toolset `session_search` |
+| TSET-025 | missing | toolset `skills` |
+| TSET-035 | missing | toolset komposit `context_engine` (data komposisi; engine plugin F8) |
+| TSET-038 | missing | toolset komposit `debugging` (anggota disaring dari tool terdaftar) |
+| TSET-039 | missing | toolset komposit `safe` |
+| TSET-040 | missing | toolset komposit `coding` |
+| TSET-041 | missing | toolset komposit `hermes-acp` |
+| TSET-043 | missing | toolset komposit `hermes-cli` |
+| MEM-003 | missing | memory nudge periodik (config interval, dititipkan ke loop) |
+| MEM-013 | surface | resume bernama/terakhir + recap di `run --session/--continue` (flag milik worker w5; recap milik PR ini) |
+| MEM-014 | missing | export sesi HTML/MD/JSON (renderer murni + CLI) |
+| MEM-015 | missing | prune/archive sesi + VACUUM (memakai `ctxdb.Purge`/maintenance) |
+| MEM-016 | surface | judul sesi via `session_labels(key='title')` + rename |
+| MEM-024 | missing | `@file`/`@url`/`@folder` expansion di prompt headless |
+| MEM-025 | missing | context pin: pesan/konteks dikecualikan dari compaction |
+| MEM-030 | missing | retry pesan terakhir (headless `run --retry`/API loop) |
+| MEM-033 | missing | trim RSS periodik (`debug.FreeOSMemory` terjadwal, injectable) |
+| MEM-034 | missing | breakpoint prompt caching pada batas tier stable/context |
+| SKILL-002 | missing | lihat TOOL-074/075/076 |
+| SKILL-004 | missing | preprocessing SKILL.md (template vars; inline shell default off) |
+| SKILL-007 | missing | bundles skill (alias satu nama → beberapa skill) |
+| SKILL-009 | missing | project skill discovery (dir proyek trusted) |
+| SKILL-010 | missing | external skill dirs dari config |
+| SKILL-019 | surface | ledger & provenance skill (sha + asal + riwayat) |
+| SKILL-023 | missing | skills index (build + delta) |
+| CORE-004 | missing | komposisi toolset + aktif/nonaktif per platform (headless dulu) |
+| CORE-005 | missing | custom toolset dari config |
+
+**Tabel bucket (b) — kapabilitas F2, permukaan F3.**
+
+| ID | Kapabilitas F2 (test) |
+|---|---|
+| SLASH-002 | sesi baru: `ctxdb.CreateSession` (`TestCreateSessionMetadata`); surface REPL F3 |
+| SLASH-006 | riwayat: `TestHistoryForkAware` |
+| SLASH-007 | export: MEM-014 (`TestSessionExport*`) |
+| SLASH-008 | retry: MEM-030 (`TestRetryLastMessage`) |
+| SLASH-010 | undo: `internal/journal` `TestUndoSuite` |
+| SLASH-011 | judul: MEM-016 (`TestSessionTitle`) |
+| SLASH-013 | branch: `TestForkAndRewind` + CLI fork |
+| SLASH-015 | compress: `compaction.Compactor` (`TestCompaction`, manual trigger) |
+| SLASH-016 | rollback: `TestUndoSuite`/`TestUndoSuiteRefusals` |
+| SLASH-017 | snapshot: backup/restore OPS-006 (PR #197) |
+| SLASH-044 | resume: MEM-013 (`run --session`) |
+| SLASH-045 | sessions: CLI-057 list |
+| SLASH-066 | autoprune: MEM-015 + config `sessions.auto_prune` |
+| SLASH-068 | toolsets: TSET-021..043 |
+| SLASH-069 | skills: TOOL-074/075/076 + CLI-046 |
+| SLASH-070 | memory: `TestQuarantine*`/approval; surface `/memory` F3 |
+| SLASH-071 | bundles: SKILL-007 |
+| SLASH-083 | reload-skills: SKILL-023 index rebuild |
+| MEM-019 | compress manual: trigger compaction manual (test paket `compaction`) |
+
+**Dampak terukur (SPEC §20).** Kode/dependency/token/migrasi 0. Dokumen: ADR ini, 22 sel `fase` FEATURE-PARITY, angka fase ROADMAP, `want` `TestParityPhaseColumn`, satu baris CHANGELOG. Gate parity F2 kini 59 baris, F3 135, F5 201, F8 148.
+
+**Konsekuensi.** (+) Acceptance F2 hanya menuntut yang dapat dibangun dengan `run` headless, dan setiap baris yang pindah punya test kapabilitas F2 yang eksplisit. (+) Gate per fase kembali bermakna: F2 tidak lagi memuat 19 permukaan slash yang mustahil. (−) F3 menerima 19 baris permukaan; REPL/TUI F3 harus menutupnya, dan baris F8/F5 tetap terbuka lebih lama. (−) Setiap perpindahan fase berikutnya tetap wajib ADR + perubahan angka di ROADMAP dan test (ADR-064).
 
 ## ADR-165 — Ledger acceptance F2 sebagai artefak review; dipelihara sampai penaikan PHASE
 

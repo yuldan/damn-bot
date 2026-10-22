@@ -290,9 +290,9 @@ func searchIDs(tx *ctxdb.Tx, q *Query) ([]int64, error) {
 	where = append(where,
 		"NOT EXISTS (SELECT 1 FROM session_labels vl WHERE vl.session_id = m.source_session AND vl.key = 'purge_state')",
 		"NOT EXISTS (SELECT 1 FROM events ev JOIN session_labels vle ON vle.session_id = ev.session_id AND vle.key = 'purge_state' WHERE ev.id = m.evidence_event_id)")
-	order := "m.pinned DESC, m.created_at DESC"
+	order := "m.pinned DESC, m.created_at DESC, m.id"
 	if text != "" {
-		order = "m.pinned DESC, bm25(memory_fts)"
+		order = "m.pinned DESC, bm25(memory_fts), m.id" // equal scores keep insertion order
 	}
 	limit := q.Limit
 	if limit <= 0 {
