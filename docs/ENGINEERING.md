@@ -318,7 +318,7 @@ Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2
 
 | Paket | LOC maks | Paket | LOC maks |
 |---|---:|---|---:|
-| `loop` + `loop/event` (ADR-131 amandemen round 2/SEC8-10, ADR-134, ADR-123 amendment) | 2.070 | `ctxdb` (tanpa file `.sql`; ADR-049, ADR-087, ADR-118, ADR-132) | 3.800 |
+| `loop` + `loop/event` (ADR-131 amandemen round 2/SEC8-10, ADR-134, ADR-123 amendment) | 2.100 | `ctxdb` (tanpa file `.sql`; ADR-049, ADR-087, ADR-118, ADR-132) | 3.800 |
 | `plan` | 600 | `assemble` (ADR-121) | 1.300 |
 | `provider` (core OpenAI-compatible + `providertest`; ADR-131 amandemen round 2) | 2.100 | `compaction` | 900 |
 | `provider/registry` (Go; data TOML tidak dihitung; storage di `ctxdb/limitstore`, ADR-126) | 300 | `memory` + `skills` (storage di `ctxdb/memstore`/`ctxdb/skillstore`, ADR-074) | 1.230 |

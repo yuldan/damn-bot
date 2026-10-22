@@ -7,7 +7,9 @@
 # ADR-134 (REL-01 + SEC11): loop +100 di atas 1950 carrier (ADR-131) -> 2050.
 # ADR-123 amendment (merge #173): loop 2050 -> 2070 (budget stop details di turn/event; terukur 2059;
 # Σ core 38.155 -> 38.175 <= 47.000).
-loop              2070 internal/loop
+# Amandemen (rebased ke main c8bf4e7d, 2026-10-22): loop 2070 -> 2100 (detail budget dipasang ulang di
+# atas turn.go main yang kini memuat cacheBreak dari COST-04; terukur 2091; Σ core +30).
+loop              2100 internal/loop
 plan               600 internal/plan
 # ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
 provider          2100 internal/provider

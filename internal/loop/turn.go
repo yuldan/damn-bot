@@ -285,6 +285,10 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 	if reply.FallbackFrom != "" {
 		t.fallback(ctx, reply.FallbackFrom, reply.Model)
 	}
+	cacheBreak := ""
+	if reply.FallbackFrom != "" {
+		cacheBreak = "fallback" // COST-04 enum: a provider fallback re-bills the prefix
+	}
 	for _, c := range reply.BudgetWarnings {
 		t.note(ctx, &event.Event{Kind: event.BudgetWarning, Payload: payload(auditPayload{Kind: c})})
 		t.emit(&event.Update{Kind: event.UpdateNotice, Text: "budget warning: " + c + " cap reached warn_at", ToolName: "budget"})

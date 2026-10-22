@@ -317,21 +317,30 @@ func (m *runModel) close(ctx context.Context) error {
 	return err
 }
 
-// newRunProvider builds the single-route openai-chat client of modelRef,
-// guarded by the [budget] daily/monthly/provider caps over the usage ledger
-// of db before every call (P27, ADR-123), or returns the eval-injected
-// provider. The injection seam is unexported and never set by a CLI flag, so
-// `damnbot run` cannot reach it. An injected provider bypasses the run guard
-// on purpose: the guard prices a provider.Route, while a loop.Provider has no
-// route price; the eval command supplies its own spend ledger with a hard cap
-// instead (ADR-138, SEC14-1).
+// newRunProvider builds the run provider or returns the injected one.
 func newRunProvider(cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions) (loop.Provider, error) {
+	table, err := registry.DefaultPriceTable()
+	if err != nil {
+		return nil, fmt.Errorf("pricing table: %w", err)
+	}
+	return newRunProviderWithTable(cfg, db, modelRef, o, table)
+}
+
+// newRunProviderWithTable is newRunProvider with an explicit table, so a test
+// can price a loopback route; the composition root always passes the embedded
+// default table.
+func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
 	if o.prov != nil {
 		return o.prov, nil
 	}
 	base, key, family, err := providerEndpoint(modelRef, o)
 	if err != nil {
 		return nil, fmt.Errorf("provider endpoint: %w", err)
+	}
+	provName, modelName, _ := strings.Cut(modelRef, "/")
+	prices, err := provider.RoutePrices(table, base, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("pricing: %w", err)
 	}
 	guard, err := budget.NewGuard(budget.GuardConfig{
 		DailyUSD: cfg.Budget.DailyUSD, MonthlyUSD: cfg.Budget.MonthlyUSD, Providers: cfg.Budget.Providers, WarnAt: cfg.Budget.WarnAt,
@@ -340,11 +349,6 @@ func newRunProvider(cfg *config.Config, db *ctxdb.Store, modelRef string, o *run
 		return nil, fmt.Errorf("budget guard: %w", err)
 	}
 	notes := &budgetNotes{}
-	provName, modelName, _ := strings.Cut(modelRef, "/")
-	prices, err := provider.RoutePrices(table, base, modelName)
-	if err != nil {
-		return nil, fmt.Errorf("pricing: %w", err)
-	}
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
 		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family, Prices: prices}},
@@ -371,7 +375,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, w.fail(fmt.Errorf("model window: %w", err))
 	}
-	prov, err := newRunProvider(cfg, db, modelRef, o)
+	prov, err := newRunProvider(cfg, w.db, modelRef, o)
 	if err != nil {
 		return nil, w.fail(err)
 	}
@@ -538,7 +542,6 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 			emit(loop.Delta{Text: string(ch.Content)})
 		}
 	})
-	warnings := p.notes.take()
 	if err != nil {
 		return loop.Reply{}, streamError(err)
 	}
@@ -551,7 +554,7 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 		Model: resp.Model, FallbackFrom: resp.FallbackFrom, Attempts: resp.Attempts,
 		Carriers: eventCarriers(resp.Carriers), RejectedCarriers: eventCarriers(resp.RejectedCarriers),
 		CarrierDrops: eventDrops(resp.CarrierDrops), ReasoningText: resp.ReasoningText,
-		BudgetWarnings: warnings,
+		BudgetWarnings: p.notes.take(),
 	}
 	for _, c := range resp.ToolCalls {
 		reply.ToolCalls = append(reply.ToolCalls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.ArgumentsRaw})
