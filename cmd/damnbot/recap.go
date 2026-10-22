@@ -59,7 +59,7 @@ func printRecap(ctx context.Context, db *ctxdb.Store, sid string, red *redact.Re
 	}
 	recapPrintf(w, "resumed %s: %d events, model %s, cwd %s\n",
 		clip(red, label), in.events, clip(red, in.model), clip(red, in.cwd))
-	evs, err := db.History(ctx, sid, 0, ctxdb.WithHistoryRaw(), ctxdb.WithHistoryExcluded(), ctxdb.WithHistoryLimit(200))
+	evs, err := db.HistoryTail(ctx, sid, 200)
 	if err != nil {
 		return fmt.Errorf("recap history: %w", err)
 	}
@@ -92,7 +92,7 @@ func lastSnippets(evs []ctxdb.Event) (user, assistant string) {
 // Repeating such a turn re-runs those effects, so they are named on stderr
 // before the request is sent.
 func retryPrompt(ctx context.Context, db *ctxdb.Store, sid string, red *redact.Redactor, w io.Writer) (string, error) {
-	evs, err := db.History(ctx, sid, 0, ctxdb.WithHistoryRaw(), ctxdb.WithHistoryExcluded(), ctxdb.WithHistoryLimit(100000))
+	evs, err := db.HistoryTail(ctx, sid, 100000)
 	if err != nil {
 		return "", fmt.Errorf("retry history: %w", err)
 	}
@@ -111,11 +111,59 @@ func retryPrompt(ctx context.Context, db *ctxdb.Store, sid string, red *redact.R
 		return last.Content, nil
 	}
 	recapPrintf(w, "retry: turn %s was excluded after a failure\n", clip(red, last.TurnID))
-	if side := mutatingResults(evs, last.TurnID); len(side) > 0 {
+	notice := failedTurnEffects(evs, last.TurnID)
+	executed := dedupe(append(mutatingResults(evs, last.TurnID), notice.effects...))
+	if len(executed) > 0 {
 		recapPrintf(w, "retry: side effects already executed in that turn: %s; resending the message may repeat them\n",
-			clip(red, strings.Join(side, ", ")))
+			clip(red, strings.Join(executed, ", ")))
+	}
+	if len(notice.uncertain) > 0 {
+		recapPrintf(w, "retry: side effects with unknown outcome in that turn: %s; resending the message may run them again\n",
+			clip(red, strings.Join(notice.uncertain, ", ")))
 	}
 	return last.Content, nil
+}
+
+// turnEffects is a failed_turn_effects notice (SEC11-3): effects that ran and
+// calls whose outcome is unknown after a crash.
+type turnEffects struct {
+	effects, uncertain []string
+}
+
+// failedTurnEffects finds the turnless notice carrying that turn's recorded
+// effects. The notice has no turn_id column, so it is matched by payload.
+func failedTurnEffects(evs []ctxdb.Event, turn string) turnEffects {
+	for i := range evs {
+		e := &evs[i]
+		if e.Kind != "system_notice" {
+			continue
+		}
+		var p struct {
+			Kind      string   `json:"kind"`
+			TurnID    string   `json:"turn_id"`
+			Effects   []string `json:"effects"`
+			Uncertain []string `json:"uncertain"`
+		}
+		if json.Unmarshal([]byte(e.Payload), &p) != nil || p.Kind != "failed_turn_effects" || p.TurnID != turn {
+			continue
+		}
+		return turnEffects{effects: p.Effects, uncertain: p.Uncertain}
+	}
+	return turnEffects{}
+}
+
+// dedupe preserves order and drops empty/duplicate labels.
+func dedupe(in []string) []string {
+	seen := map[string]bool{}
+	out := in[:0]
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // contextExclusions collects the turn ids marked by context_exclude (ADR-134).
@@ -194,10 +242,17 @@ func clip(red *redact.Redactor, s string) string {
 	if red != nil {
 		s = red.String(s)
 	}
-	if len(s) > recapSnippet {
-		s = s[:recapSnippet] + "…"
+	return clipRunes(s, recapSnippet)
+}
+
+// clipRunes truncates on a rune boundary so terminals never receive half a
+// UTF-8 sequence.
+func clipRunes(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
 	}
-	return s
+	return string(r[:max]) + "…"
 }
 
 // recapPrintf writes a stderr note; CLI output errors are not actionable.
@@ -215,8 +270,5 @@ func recapArg(s string) string {
 		}
 		return r
 	}, s)
-	if len(s) > 80 {
-		s = s[:80] + "…"
-	}
-	return s
+	return clipRunes(s, 80)
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 )
@@ -118,5 +119,68 @@ func TestPrintRecap(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("recap lacks %q:\n%s", want, got)
 		}
+	}
+}
+
+// TestRetryPromptLargeHistory: retry reads the tail, so the newest user
+// message is found beyond the first 200 events.
+func TestRetryPromptLargeHistory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := recapStore(t)
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 300 {
+		content := "old"
+		if i == 299 {
+			content = "LAST-MESSAGE"
+		}
+		if _, err := db.Append(ctx, "S1", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: content}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prompt, err := retryPrompt(ctx, db, "S1", nil, &bytes.Buffer{})
+	if err != nil || prompt != "LAST-MESSAGE" {
+		t.Fatalf("retryPrompt = %q, %v; want LAST-MESSAGE", prompt, err)
+	}
+}
+
+// TestRetryPromptUncertainEffects: a crashed call recorded only in the
+// failed_turn_effects notice is named as an unknown outcome (#211/SEC11-3).
+func TestRetryPromptUncertainEffects(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := recapStore(t)
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Append(ctx, "S1", nil,
+		ctxdb.Event{Kind: "user_message", Role: "user", TurnID: "T1", Content: "run it"},
+		ctxdb.Event{Kind: "tool_dispatch", TurnID: "T1", ToolCallID: "c9", ToolName: "shell", Payload: `{"effect":"execute"}`},
+		ctxdb.Event{Kind: "system_notice", Payload: `{"kind":"failed_turn_effects","turn_id":"T1","uncertain":["shell(c9)"]}`},
+		ctxdb.Event{Kind: "context_exclude", TurnID: "T1", Payload: `{"reason":"internal"}`},
+	); err != nil {
+		t.Fatal(err)
+	}
+	var errb bytes.Buffer
+	prompt, err := retryPrompt(ctx, db, "S1", nil, &errb)
+	if err != nil || prompt != "run it" {
+		t.Fatalf("retryPrompt = %q, %v", prompt, err)
+	}
+	if !strings.Contains(errb.String(), "unknown outcome") || !strings.Contains(errb.String(), "shell(c9)") {
+		t.Errorf("uncertain effect not surfaced:\n%s", errb.String())
+	}
+}
+
+// TestClipRunes: clipping never splits a rune.
+func TestClipRunes(t *testing.T) {
+	t.Parallel()
+	got := clipRunes("日本語テスト", 3)
+	if got != "日本語…" || !utf8.ValidString(got) {
+		t.Fatalf("clipRunes = %q, want 日本語…", got)
+	}
+	if short := clipRunes("abc", 10); short != "abc" {
+		t.Errorf("clipRunes short = %q", short)
 	}
 }
