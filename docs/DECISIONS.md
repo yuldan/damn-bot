@@ -3510,3 +3510,19 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** Push `main`: 16 → **5 job `ci`** (+1 `meta-test`) sehingga merge tidak lagi menahan antrean PR. PR: tetap **13 job `ci`** (+`meta-test` +`pr-meta`). Nightly: tetap 16 job. Matriks 6 target tetap 1×/hari plus atas permintaan.
 
 **Konsekuensi.** (+) Merge cepat dan murah; verifikasi penuh tetap ada (nightly/`workflow_dispatch`); (+) tidak ada gate PR yang dilepas. (−) Regresi yang hanya muncul di paket berat atau OS non-ubuntu pada `main` terdeteksi paling lambat pada nightly berikutnya, bukan seketika — diterima karena PR yang di-squash sudah menguji pohon yang sama, dan karena itu pula opsi memangkas matrix OS di PR tetap ditolak (ADR-179 butir 8).
+
+## ADR-183 — Integrasi dengan harness eksternal: dua arah, inbound sekarang dan orkestrasi native di fase lanjut
+
+**Status:** Accepted 2026-10-22 (delegasi owner). **Tanpa perubahan perilaku atau kode** — ADR ini hanya mencatat keputusan dan urutan fase; tidak menyentuh `loc.budget`, SPEC, skema, atau dependency.
+
+**Konteks.** Harness eksternal (mis. omp) ingin memakai Damn-Bot sebagai agent backend. Dua bentuk integrasi mudah tercampur: (a) harness memanggil Damn-Bot sebagai agent, dan (b) Damn-Bot sendiri mengorkestrasi banyak agen. Bentuk (b) adalah primitif orkestrasi yang sudah punya fase pemilik di ROADMAP, sedangkan cakupan F2 baru saja diklasifikasikan dan dikunci gate fase (ADR-139, `TestEdgeCaseCatalogSync`, `make phase-acceptance`).
+
+**Keputusan.**
+1. **Dua arah, satu agent backend.** Integrasi dengan harness eksternal dilakukan lewat **inbound**: `run` headless + **stream-JSON** hari ini, dan **ACP** saat F3 (harness menjadi klien, Damn-Bot menjadi agent backend). Sisi **outbound/native** (Damn-Bot memanggil/mengorkestrasi agent lain) tetap milik fase lanjut sesuai ROADMAP: `delegate`/`MoA` (F5), `kanban` dispatcher/swarm + `a2a` (F7), background review/heartbeat (F8) — **bukan** ditambahkan ke F2.
+2. **Tidak menambah orkestrasi di F2.** Cakupan F2 sudah diklasifikasikan dan dikunci gate fase; menambah primitif orkestrasi di F2 akan mengubah cakupan yang sedang disertifikasi dan menunda penaikan PHASE tanpa manfaat acceptance. Permintaan seperti itu = perubahan cakupan fase yang butuh ADR baru + penaikan PHASE, bukan tambahan ad-hoc.
+3. **Prasyarat teknis yang sudah ada di F2** sehingga jalur inbound murah: toolsets (#253) sebagai bundel kapabilitas, deferred catalog (`tool_search`/`tool_invoke`), satu DB state (sesi ↔ memori ↔ skill ↔ jurnal ↔ undo), budget guard, dan harness e2e biner asli untuk menguji round-trip ACP nanti.
+4. **Kewajiban uji saat ACP masuk (F3).** Minimal satu skenario e2e lewat **biner asli** (`internal/e2e`) plus **kontrol negatif**: batas lintas-proses/protokol adalah batas keamanan, jadi round-trip yang gagal/tak sah harus terbukti ditolak — mengikuti aturan uji repo (bukan uji in-process).
+
+**Dampak terukur (SPEC §20).** Token/biaya/kode 0; hanya dokumen; tidak ada perubahan `loc.budget`.
+
+**Konsekuensi.** (+) Urutan fase tegas: harness eksternal dapat memakai Damn-Bot sekarang lewat stream-JSON dan lewat ACP pada F3 tanpa membuka kembali cakupan F2. (+) Jalur inbound bersandar pada seam yang sudah ada (headless `run`, toolset, deferred catalog, state DB, budget guard, harness e2e) sehingga tidak butuh arsitektur baru. (−) Permintaan orkestrasi native harus menunggu fase pemiliknya; mempercepatnya berarti ADR + penaikan PHASE, bukan penambahan diam-diam di F2.
