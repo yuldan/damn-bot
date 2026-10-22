@@ -21,6 +21,7 @@ type Message struct {
 	Content    string
 	ToolCalls  []ToolCall
 	ToolCallID string
+	Carriers   []event.Carrier
 }
 
 // ToolCall is a native model tool call. Arguments stay raw; schema
@@ -83,13 +84,17 @@ type ToolCallDelta struct {
 // Reply is a completed provider response. ToolCalls may be empty when the
 // Provider already assembled the fragments; the loop then uses the deltas.
 type Reply struct {
-	Content      string
-	ToolCalls    []ToolCall
-	FinishReason string
-	Usage        event.Usage
-	Model        string
-	FallbackFrom string // P7: the primary that failed, empty when no fallback
-	Attempts     int
+	Content          string
+	ToolCalls        []ToolCall
+	FinishReason     string
+	Usage            event.Usage
+	Model            string
+	FallbackFrom     string // P7: the primary that failed, empty when no fallback
+	Attempts         int
+	Carriers         []event.Carrier
+	RejectedCarriers []event.Carrier
+	CarrierDrops     []event.CarrierDrop
+	ReasoningText    string
 }
 
 // Class is the only provider-error classification the loop acts on. The
@@ -335,6 +340,14 @@ type Deps struct {
 	// field. Without it (and with a Redactor) the loop holds the field until
 	// the call returns and redacts it whole (LP8-19).
 	NewRedactStream func() StreamFilter
+	// Carriers persists carriers and rejections; nil = disabled.
+	Carriers CarrierStore
+}
+
+// CarrierStore persists the carriers of one assistant event and rejections.
+type CarrierStore interface {
+	SaveCarriers(ctx context.Context, sessionID string, eventID int64, cs []event.Carrier) error
+	RejectCarriers(ctx context.Context, sessionID string, cs []event.Carrier, errorCode string) error
 }
 
 // TurnResult is the terminal state of one turn.
