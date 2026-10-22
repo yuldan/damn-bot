@@ -200,3 +200,57 @@ Probe (dijalankan lalu dihapus): `TestZZR4Lint` (`skills.Lint`) dan `TestZZR4Wir
 | SEC10-13 | MINOR | confirmed | Batas 32 assignment diambil dari **awal** teks gabungan. Umpan ≥ 32 assignment literal sebelum `a=gh; $a auth token` membuat ekspansi berhenti, sehingga `credential_access` tidak terdeteksi. Ini heuristik (ADR-133 butir 18/19), jadi dampaknya sama dengan obfuscation lain. | Ekspansi per file atau per baris dengan jendela lokal (assignment yang mendahului referensi dalam N baris), atau prioritaskan nama yang memang direferensikan. Alternatif: temuan `obfuscated_exec` bila jumlah assignment melebihi batas. |
 
 **Ringkasan:** #207 **APPROVE** (rebase tanpa perubahan kode). #212 **APPROVE dengan MINOR**: lint kini linear (1 MiB < 0,4 s) dan symlink apa pun di dalam skill ditolak (gagal-tertutup), sementara gate symlink direktori skill tetap benar. SEC10-13 (umpan > 32 assignment) adalah residual heuristik.
+
+## Round 5 — 2026-10-22
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #212 payment gate: kunci path lintas platform | `b6172bb` (di atas `f263e6e`, basis `92a4e58`) | **REQUEST CHANGES**: SEC10-14 (MEDIUM, Windows: junction tidak di-resolve). Perbaikan inti untuk macOS (`/var` ↔ `/private/var`, case) dan Windows (8.3, case) benar. Sisa SEC10-15..18 MINOR |
+
+Lingkup: `classify.Env.MonetaryKey` (disuntik `ShellConfig.Canonicalize`), `monetaryKey` per build tag (`canonicalBase` = `Abs` → `EvalSymlinks` → `Clean` → `ToSlash`; Windows menambah `GetLongPathName` + lowercase; darwin lowercase), dan `paymentSkillDirs` yang kini mengembalikan direktori mentah (`resolveDirs` dihapus).
+
+Gate di `b6172bb`: `go test -race -tags goolm -count=1 ./internal/exec/classify ./internal/tools ./internal/skills/... ./internal/archtest` → ok; `./cmd/damnbot -run 'Skill|Payment|Monetary|PathKey|Canon'` → ok; `go vet ./...` + `GOOS=windows|darwin` (cmd/damnbot, classify, tools) bersih; `GOOS=windows go build ./cmd/damnbot` ok; `make deadcode` 0; `make loc` `exec/classify 1798/1800` (hampir penuh; lihat Perbaikan SEC10-15). **Verifikasi sesungguhnya untuk darwin/Windows adalah CI mac/win pada head ini.** Di sini hanya ada probe Linux, simulasi dialek `Cmd`, dan review statis.
+
+Probe `TestZZSec10R5*` (`cmd/damnbot` dengan `monetaryKey` Linux asli; `internal/exec/classify` dengan dialek `Cmd` dan kunci simulasi lowercase) dihapus setelah dijalankan.
+
+| Probe (Linux, `monetaryKey` asli) | Hasil |
+|---|---|
+| gate = dir nyata; perintah via path nyata / via symlink ke dir skill / `./c.py` (symlink di workspace ke script) / `//` dan `./` / `../scripts/` | **monetary** ✔ |
+| gate = symlink; perintah via path nyata / via symlink | **monetary** ✔ |
+| sibling `stripe-pay-v2/x.py` (gate nyata maupun link) | mutating ✔ (prefix `kd + "/"`) |
+| `stripe-pay/scripts/nonexist/../charge.py` | monetary ✔ (`Abs` membersihkan `..` lebih dulu) |
+| `linkdir/scripts/new.py` (file **belum ada**, parent symlink) | mutating: `EvalSymlinks` gagal → fallback `Abs` mentah → SEC10-18 |
+| `MonetaryKey == nil`, gate = symlink, perintah via path nyata | **mutating** → SEC10-17 |
+
+| Probe (dialek `Cmd`, input ke `MonetaryKey` diamati) | Input kunci | Kelas | Keputusan ask/…/unsafe |
+|---|---|---|---|
+| `python C:\…\stripe-pay\scripts\charge.py` / case berbeda / slash maju | `C:/…/charge.py` | monetary ✔ | P…D |
+| `…\charge.py::$DATA` (ADS) | `…/charge.py::$DATA` | **monetary** ✔ (prefix dir utuh) | — |
+| `stripe-pay-v2\x.py` | — | mutating ✔ | — |
+| `python \\?\C:\…\charge.py` | **`/`** (`?` dibaca glob; `path.Clean` meruntuhkan `//`) | mutating | `PPPPPPOOOO` → SEC10-15 |
+| `python \\.\C:\…\charge.py` | `/C:/…` | mutating | `PPPPPPOOOO` → SEC10-15 |
+| `python \\localhost\C$\…\charge.py` | `/localhost/C$/…` | mutating | `PPPPPPOOOO` → SEC10-15 |
+| `python C:\work\j\charge.py` (path di workspace yang tidak di-resolve ke skill; model junction) | `C:/work/j/charge.py` | mutating | **`QAQAQADAAA`** (auto bila `shell_allow` cocok, dan di unsafe headless) → SEC10-14 |
+
+### Jawaban per pertanyaan
+
+- **`Canonicalize` nil di produksi?** Tidak terjangkau. Satu-satunya `tools.NewShell` non-test ada di `cmd/damnbot/run.go`, dan pemanggil itu menyetel `Canonicalize: monetaryKey`. Namun cabang fallback leksikal kini lebih lemah daripada sebelumnya karena `paymentSkillDirs` tidak lagi menambahkan target symlink (probe). Lihat SEC10-17.
+- **`EvalSymlinks` gagal pada path yang tidak ada:** fallback ke `Abs` bersih tanpa resolusi. Tidak ada panic dan tidak ada kunci kosong. Path baru di bawah parent symlink tidak tergate, tetapi file yang belum ada tidak bisa dieksekusi. Penulisan ke dir skill lewat link tetap berstatus `Destructive`/ask karena berada di luar workspace. Risikonya rendah (SEC10-18).
+- **`\\?\`, UNC, titik/spasi di akhir, ADS (Windows):** ADS `::$DATA` tetap monetary. Bentuk `\\?\`, `\\.\`, dan `\\host\share` **dirusak oleh `classify.clean`** sebelum sampai ke kunci, sehingga label Monetary hilang. Namun hasilnya selalu "reads outside workspace" → ask+preview / headless `outside_workspace`, tidak pernah auto-approve. Dampaknya hanya hilangnya label (SEC10-15). Titik tunggal di akhir segmen dibuang oleh `GetFullPathName` (lewat `filepath.Abs`), lalu `EvalSymlinks`/`toNorm` (FindFirstFile) menormalkan nama. Simulasi Linux tidak dapat memodelkan ini [INFERENCE], sehingga perlu test CI Windows (`stripe-pay.\scripts\charge.py`).
+- **Case folding darwin:** lowercase pada volume APFS case-sensitive menyebabkan over-gate (dir `Pay` dan `pay` sama-sama tergate), yang dapat diterima. Masalah sebenarnya ada di normalisasi Unicode (SEC10-16).
+- **Prefix `/` setelah slash-clean di Windows:** benar. `Clean` + `ToSlash` menghasilkan `c:/…`, dan root drive `C:\` menjadi `c:` lalu prefix `c:/`. Root UNC `\\srv\sh\` menjadi `//srv/sh`. Kunci `/` (root) menjadi `""`, sehingga semua path tergate (over-gate, aman).
+- **Sibling prefix:** tetap ditolak (`stripe-pay-v2`, Linux dan `Cmd`).
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC10-14 | **MEDIUM** | static + simulasi | **Windows: junction (mount point) tidak di-resolve.** Sejak Go 1.23 (`winsymlink=1`; `go.mod` 1.26.10), `filepath.EvalSymlinks` **tidak lagi mengevaluasi mount point** (`doc/godebug.md`), dan `GetLongPathName` juga tidak. Junction dapat dibuat tanpa hak admin (`mklink /J`, `New-Item -ItemType Junction`). Junction `C:\work\j` → dir skill pembayaran membuat `python C:\work\j\charge.py` berkunci `c:/work/j/charge.py`, sehingga perintah terbaca sebagai `mutating` di dalam workspace dan menjadi **auto-approve** bila `shell_allow` cocok atau di `--unsafe-auto-shell` (`QAQAQADAAA`, dibanding Monetary `P…D`). Ini padanan Windows dari SEC10-12 (symlink di workspace), yang di Linux/darwin sudah tertutup. `subst X:` adalah varian lain. | `monetaryKey` Windows: `CreateFile(path, 0, share all, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS)` + `GetFinalPathNameByHandle(VOLUME_NAME_DOS)`. Fungsi ini me-resolve junction, symlink, `subst`, 8.3, dan case asli. Buang awalan `\\?\` (`\\?\UNC\` → `//`), lalu lowercase. Untuk path yang belum ada, resolve parent terpanjang yang ada lalu gabungkan sisanya. Tambahkan test CI Windows dengan `mklink /J` (tanpa admin). |
+| SEC10-15 | MINOR | confirmed (simulasi `Cmd`) | Bentuk device/UNC (`\\?\C:\…`, `\\.\C:\…`, `\\localhost\C$\…`) diubah `classify.clean` menjadi `/`, `/C:/…`, `/localhost/C$/…` sebelum `MonetaryKey`. Label Monetary hilang. Keputusan tetap ask+preview (headless `outside_workspace`), jadi tidak ada auto-approve, tetapi preview tidak menandai pembayaran. | Di dialek `Cmd`/`Pwsh`: kenali dan lepaskan awalan `\\?\`/`\\.\`/`\??\`, perlakukan `\\host\share` sebagai volume, **atau** naikkan `Unknown` untuk bentuk-bentuk itu. Catatan: `exec/classify` 1798/1800, sehingga perbaikan mungkin butuh ruang `loc.budget`. |
+| SEC10-16 | MINOR | static | darwin: `strings.ToLower` tanpa normalisasi Unicode. APFS tidak membedakan NFC/NFD, sedangkan `EvalSymlinks` mempertahankan byte input. Path dengan komponen non-ASCII (mis. `/Users/José/…`) yang ditulis dalam bentuk lain menghasilkan kunci berbeda. Untuk dir skill di luar workspace dampaknya hanya hilangnya label (tetap ask). Untuk skill proyek di dalam workspace, perintah bisa auto-approve dengan `shell_allow`. | darwin: kunci dari `fcntl(F_GETPATH)` pada fd yang dibuka (nama tersimpan kanonik), atau normalisasi NFD sebelum lowercase. |
+| SEC10-17 | MINOR | confirmed | Fallback `MonetaryKey == nil` tidak terjangkau di produksi, tetapi kini lebih lemah: `resolveDirs` dihapus, sehingga gate berupa symlink + perintah via path nyata → `mutating` (probe). Shell baru (TUI/ACP/gateway) yang lupa menyetel `Canonicalize` akan fail-open untuk skill yang di-symlink. | `NewShell`: tolak config dengan `MonetaryPaths` non-kosong tanpa `Canonicalize` (fail-closed), atau hapus cabang leksikal. |
+| SEC10-18 | MINOR | confirmed | Bila `EvalSymlinks` gagal (komponen akhir belum ada), kunci memakai path tanpa resolusi, sehingga path baru di bawah parent symlink ke skill tidak tergate. Risikonya rendah (file belum ada; tulis lewat link tetap ask). | Resolve parent terpanjang yang ada (berlaku juga untuk Windows di SEC10-14). |
+
+**Ringkasan Round 5:** #212 `b6172bb` **REQUEST CHANGES**. Perbaikan CI-nya benar dan tidak fail-open di Linux/darwin. Kunci kanonik me-resolve symlink, `/private/var`, case, dan 8.3. Prefix `kd + "/"` menolak sibling. ADS tetap tergate. `Canonicalize` nil tidak terjangkau di produksi. Namun di Windows, junction (dapat dibuat tanpa admin) tidak di-resolve oleh `EvalSymlinks` Go ≥ 1.23, sehingga path workspace yang mengarah ke skill pembayaran dapat di-auto-approve (SEC10-14). Perbaikannya terlokalisasi di `pathkey_windows.go` (`GetFinalPathNameByHandle`). SEC10-15..18 MINOR. Hasil CI mac/win pada head ini tetap verifikasi utama untuk jalur darwin/Windows.
