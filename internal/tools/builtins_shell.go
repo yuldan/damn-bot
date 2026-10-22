@@ -50,6 +50,10 @@ type ShellConfig struct {
 	// commands Monetary (SEC-15).
 	MonetaryHosts []string
 	MonetaryPaths []string
+	// Canonicalize is the payment-gate path key (absolute, symlinks and
+	// long names resolved, case-folded on case-insensitive filesystems).
+	// nil falls back to the lexical comparison.
+	Canonicalize func(string) string
 }
 
 // shellTool implements one `shell` call (SPEC §5.1, EXEC-AND-CODING §A).
@@ -326,6 +330,7 @@ func (t *shellTool) classifyIn(command, cwd string) classify.Verdict {
 		Roots: t.cfg.Roots, Cwd: cwd, Home: t.cfg.Home,
 		DenyPaths: t.cfg.DenyPaths, Dialect: t.cfg.Dialect,
 		MonetaryHosts: t.cfg.MonetaryHosts, MonetaryPaths: t.cfg.MonetaryPaths,
+		MonetaryKey: t.cfg.Canonicalize,
 	}
 	if t.cfg.EnvPolicy != nil {
 		for _, s := range t.cfg.EnvPolicy.Secrets {

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 	"github.com/damnbot/damnbot/internal/redact"
 )
@@ -67,7 +68,7 @@ func TestPaymentSkillDirs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{pay, undeclared, filesOnly, hidden, target, loose, filepath.Join(cfg, "skills", "linked")} {
+	for _, want := range []string{pay, undeclared, filesOnly, hidden, loose, filepath.Join(cfg, "skills", "linked")} {
 		if !slices.Contains(dirs, want) {
 			t.Errorf("missing gate dir %s in %v", want, dirs)
 		}
@@ -151,3 +152,37 @@ func TestPaymentSkillGateWired(t *testing.T) {
 
 // jsonString renders s as a JSON string literal for a scripted provider frame.
 func jsonString(s string) string { return strconv.Quote(s) }
+
+// TestMonetaryKeySymlink: a link and its target produce the same gate key,
+// so /var vs /private/var (darwin) and link vs target cannot bypass it.
+func TestMonetaryKeySymlink(t *testing.T) {
+	t.Parallel()
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	if a, b := monetaryKey(link), monetaryKey(target); a != b {
+		t.Fatalf("link key %q != target key %q", a, b)
+	}
+}
+
+// TestPaymentGateResolvedTarget: a command that names the resolved target of
+// a symlinked payment skill is Monetary although the gate lists the link
+// (canonical key makes both forms equal).
+func TestPaymentGateResolvedTarget(t *testing.T) {
+	t.Parallel()
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "pay-skill")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	env := &classify.Env{
+		Roots: []string{target}, Home: "/home/u",
+		MonetaryPaths: []string{link}, MonetaryKey: monetaryKey,
+	}
+	v := classify.Classify("cat "+filepath.Join(target, "scripts", "charge.sh"), env)
+	if v.Class != classify.Monetary {
+		t.Fatalf("class = %s, want monetary (%v)", v.Class, v.Reasons)
+	}
+}

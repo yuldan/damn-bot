@@ -24,8 +24,20 @@ func paymentSkillDirs(configDir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	dirs := append(skills.PaymentDirs(list), extra...)
-	return resolveDirs(dirs)
+	return dedupeDirs(append(skills.PaymentDirs(list), extra...)), nil
+}
+
+// dedupeDirs removes duplicate gate directories in first-seen order.
+func dedupeDirs(dirs []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		if !seen[d] {
+			seen[d] = true
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // loadSkills parses and lints every directory under root. extra holds
@@ -118,24 +130,4 @@ func checkLoaded(sk *skills.Skill, known map[string]bool) error {
 		}
 	}
 	return nil
-}
-
-// resolveDirs adds each symlink target to the gate and dedupes. A link that
-// cannot be resolved fails closed.
-func resolveDirs(dirs []string) ([]string, error) {
-	seen := map[string]bool{}
-	out := make([]string, 0, len(dirs))
-	for _, d := range dirs {
-		real, err := filepath.EvalSymlinks(d)
-		if err != nil {
-			return nil, fmt.Errorf("skills: %s: %w", d, err)
-		}
-		for _, p := range []string{d, real} {
-			if !seen[p] {
-				seen[p] = true
-				out = append(out, p)
-			}
-		}
-	}
-	return out, nil
 }

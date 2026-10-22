@@ -87,8 +87,12 @@ type Env struct {
 	// [payment] (SEC-15): a command that runs or names a file below one is
 	// Monetary.
 	MonetaryPaths []string
-	Resolver      PathResolver
-	Dialect       Dialect
+	// MonetaryKey canonicalizes a path for the payment-skill comparison:
+	// absolute, symlinks resolved, long form, and case-folded on a
+	// case-insensitive filesystem. nil keeps the lexical comparison.
+	MonetaryKey func(string) string
+	Resolver    PathResolver
+	Dialect     Dialect
 }
 
 // Verdict is the classification result (audit payload exec.class/flags/

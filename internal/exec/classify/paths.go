@@ -120,6 +120,17 @@ func (s *state) resolve(p string) string {
 // payment skill directory (SEC-15): running or reading its scripts is a
 // monetary action and is never auto-approved.
 func (s *state) paymentFile(p, real string) {
+	if s.env.MonetaryKey != nil && len(s.env.MonetaryPaths) > 0 {
+		k := s.env.MonetaryKey(p)
+		for _, d := range s.env.MonetaryPaths {
+			kd := strings.TrimSuffix(s.env.MonetaryKey(d), "/")
+			if k == kd || strings.HasPrefix(k, kd+"/") {
+				s.raise(Monetary, "payment skill file: "+p)
+				return
+			}
+		}
+		return
+	}
 	for _, d := range s.env.MonetaryPaths {
 		if d = s.clean(d); within(p, d, s.fold) || within(real, d, s.fold) {
 			s.raise(Monetary, "payment skill file: "+p)

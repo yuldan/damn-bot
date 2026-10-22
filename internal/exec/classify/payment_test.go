@@ -1,6 +1,10 @@
 package classify
 
-import "testing"
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 const testPaySkill = "/home/u/.config/damnbot/skills/stripe-pay"
 
@@ -59,5 +63,32 @@ func TestPaymentSkillMonetary(t *testing.T) {
 	env.MonetaryPaths = nil
 	if v := Classify(testPaySkill+"/scripts/charge.sh", env); v.Class == Monetary {
 		t.Error("no payment skill configured: Monetary must come only from declarations or rules")
+	}
+}
+
+// TestPaymentKeySimulatedForms: the gate compares canonical keys, so a short
+// name and a differently-cased spelling of the same directory are Monetary
+// (Windows 8.3 / case-insensitive APFS). The keyer is injected here because
+// those forms are only constructible on their own OS.
+func TestPaymentKeySimulatedForms(t *testing.T) {
+	t.Parallel()
+	key := func(p string) string {
+		k := strings.ToLower(filepath.ToSlash(p))
+		return strings.ReplaceAll(k, "runner~1", "runneradmin")
+	}
+	env := testEnv()
+	env.MonetaryPaths = []string{"/tmp/RunnerAdmin/Stripe-Pay/"}
+	env.MonetaryKey = key
+	for _, cmd := range []string{
+		"/tmp/runner~1/stripe-pay/scripts/charge.sh --amount 1",
+		"python3 /tmp/RUNNER~1/STRIPE-PAY/scripts/charge.py",
+	} {
+		v := Classify(cmd, env)
+		if v.Class != Monetary {
+			t.Errorf("%q: class %s, want monetary", cmd, v.Class)
+		}
+	}
+	if v := Classify("/tmp/runner~1/stripe-pay-v2/scripts/x.py", env); v.Class == Monetary {
+		t.Error("sibling directory prefix matched")
 	}
 }

@@ -337,7 +337,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 			Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
 			EnvPolicy:        envPolicy,
 			WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
-			MonetaryPaths: monetary,
+			MonetaryPaths: monetary, Canonicalize: monetaryKey,
 		}),
 		tools.NewTodo(), tools.NewClarify(nil),
 	)
