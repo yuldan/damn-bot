@@ -30,3 +30,16 @@ func TestRun(t *testing.T) {
 		})
 	}
 }
+
+// TestVersionVerbose (GAP-REL-04): version --verbose exposes the SQLite
+// engine probe through the existing command.
+func TestVersionVerbose(t *testing.T) {
+	t.Parallel()
+	var out, errOut bytes.Buffer
+	if got := run([]string{"-version", "-verbose"}, &out, &errOut); got != 0 {
+		t.Fatalf("exit = %d, stderr=%q", got, errOut.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte("sqlite 3.")) || !bytes.Contains(out.Bytes(), []byte("supported=true")) {
+		t.Fatalf("stdout = %q", out.String())
+	}
+}

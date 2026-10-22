@@ -70,7 +70,7 @@ func ecState002(t *testing.T) {
 // 003: DDL init races another process's write lock; busy_timeout + the
 // migration barrier make both opens succeed without a manual retry.
 func ecState003(t *testing.T) {
-	e := newEnv(t)
+	e := newRawEnv(t)
 	errs := make(chan error, 2)
 	var wg sync.WaitGroup
 	for i := range 2 {

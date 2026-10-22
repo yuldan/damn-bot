@@ -505,7 +505,7 @@ edited internal/ctxdb/blob.go #3f9a12c0→#91cc0a7e · 1 edit · +3 -1
 
 **Mesin dan prosedur ukur:**
 
-- Mesin referensi mengikuti SPEC §17 / OPEN-QUESTIONS Q14. Ambang runner CI ×1,5 hanya untuk metrik **waktu absolut** (CT-04..CT-08, CT-12, CT-13); rasio terhadap referensi yang diukur di runner yang sama (`rg`, hermes) dipakai apa adanya (ADR-077). CT-09 di runner CI bersama ditegakkan sebagai p95 selisih berpasangan per iterasi terhadap referensi tulis-durabel yang diukur berselang-seling di iterasi dan direktori yang sama, dengan ambang ×1,5; nilai absolutnya diverifikasi di Q14 (ADR-127).
+- Mesin referensi mengikuti SPEC §17 / OPEN-QUESTIONS Q14. Ambang runner CI ×1,5 hanya untuk metrik **waktu absolut** (CT-04..CT-08, CT-12, CT-13); rasio terhadap referensi yang diukur di runner yang sama (`rg`, hermes) dipakai apa adanya (ADR-077). CT-09 di runner CI bersama ditegakkan sebagai p95 selisih berpasangan per iterasi terhadap referensi tulis-durabel yang diukur berselang-seling di iterasi dan direktori yang sama, dengan ambang ×1,5; set dengan `ref p95 > 30 ms` invalid dan diulang (maks 3 set, nightly 5; jeda ≥ 1 s, direktori baru, 100 sampel per set); set valid yang lulus = lulus, dua set valid yang gagal = gagal, semua invalid = inconclusive (warning di PR, gagal di `make ct09-nightly`). Nilai absolutnya diverifikasi di Q14 (ADR-127, amandemen 2026-10-22).
 - Page cache hangat (1 run warm-up), 20 run per kueri.
 - Oracle `ripgrep 15.1.0` dijalankan dengan `--no-config` dan output ke `/dev/null`.
 - Pembanding grep memakai API engine dengan `Limit=-1` (tanpa early exit, output terformat ke `io.Discard`), sehingga Damn-Bot tidak diuntungkan oleh limit.
@@ -523,7 +523,7 @@ edited internal/ctxdb/blob.go #3f9a12c0→#91cc0a7e · 1 edit · +3 -1
 | CT-06 | tail 100 baris file 100 MB (indeks dingin) | p95 ≤ 10 ms | `BenchmarkReadTail100MB` |
 | CT-07 | outline file Go 1 MB (`go/ast`) | p95 ≤ 50 ms | `BenchmarkOutlineGo1MB` |
 | CT-08 | outline Python 1 MB (tree-sitter WASM, modul terkompilasi ter-cache) | p95 ≤ 150 ms | `BenchmarkOutlineTreeSitter1MB` |
-| CT-09 | edit_file 1 MB termasuk `fsync` file + dir (ext4, NVMe) | p95 ≤ 20 ms di Q14 (acceptance/RC). Runner CI bersama (job `perf`): p95 atas iterasi i dari (edit_i − ref_i) ≤ 20 ms × 1,5, dengan ref_i = tulis-durabel 1 MB (temp + `fsync` + rename + `fsync` dir) di iterasi dan direktori yang sama (ADR-127) | `BenchmarkEdit1MB` (metrik `paired-p95-ms`, `p95-ms`, `ref-p95-ms`) |
+| CT-09 | edit_file 1 MB termasuk `fsync` file + dir (ext4, NVMe) | p95 ≤ 20 ms di Q14 (acceptance/RC). Runner CI bersama (job `perf`): p95 atas iterasi i dari (edit_i − ref_i) ≤ 20 ms × 1,5, dengan ref_i = tulis-durabel 1 MB (temp + `fsync` + rename + `fsync` dir) di iterasi dan direktori yang sama; set dengan `ref p95 > 30 ms` invalid dan diulang (maks 3 set), dua set valid gagal = gagal, semua invalid = inconclusive warning (ADR-127, amandemen 2026-10-22) | `BenchmarkEdit1MB` (metrik `paired-p50-ms`, `paired-p95-ms`, `p95-ms`, `ref-p95-ms`, semua set di log) |
 | CT-10 | vs tool hermes end-to-end di C1 (`search_files`, `read_file`, `patch`; 70 operasi: 50 `search_files`, 10 `read_file`, 10 `patch`) | `search_files` dan `read_file`: Damn-Bot ≥ 10× lebih cepat p50; `patch`/tulis: ≥ 2× lebih cepat p50 terhadap baseline hermes berdurabilitas setara (driver hermes menambahkan `fsync(file)` + `fsync(dir)` pada path yang sama di dalam jendela waktu) dan ≤ 6 ms p95 absolut di mesin referensi Q14; tidak ada kategori yang lebih lambat dari hermes (P28) (ADR-077, ADR-082) | `cd bench && go run ./codetools/cmd/codetools`; referensi hermes = setelan artefak `bench/codetools/results/f0-baseline.json` (`HERMES_HOME` bersih, tanpa ripgrep dari package manager → backend fallback); baseline `patch` durabel diukur ulang di F1 sebelum acceptance codetools (ADR-082); perubahan commit/setelan hermes = ukur ulang (ADR-077) |
 | CT-11 | Token output grep vs hermes (50 kueri golden, tokenizer o200k_base) | Σ token Damn-Bot ≤ 0,6× Σ hermes | `TestGrepOutputTokens` (golden hermes direkam dari C1 via F0; berlaku untuk setelan hermes `f0-baseline.json`, ADR-077) |
 | CT-12 | grep dengan `codeindex` siap di C2 (40 kueri literal) | p95 ≤ 100 ms | `BenchmarkGrepIndexedC2` |
@@ -560,7 +560,7 @@ Komposisi `TestEditAccuracySuite` (330 kasus): CRLF/EOL campuran 30, UTF-8 BOM 1
 | CT-06 | tail 100 baris / 100 MB | p95 ≤ 10 ms | `BenchmarkReadTail100MB` |
 | CT-07 | outline Go 1 MB | p95 ≤ 50 ms | `BenchmarkOutlineGo1MB` |
 | CT-08 | outline tree-sitter 1 MB | p95 ≤ 150 ms | `BenchmarkOutlineTreeSitter1MB` |
-| CT-09 | edit 1 MB + fsync | p95 ≤ 20 ms (Q14); CI bersama: p95(edit_i − ref_i) berpasangan ≤ 30 ms (ADR-127) | `BenchmarkEdit1MB` |
+| CT-09 | edit 1 MB + fsync | p95 ≤ 20 ms (Q14); CI bersama: p95(edit_i − ref_i) berpasangan ≤ 30 ms; set dengan ref p95 > 30 ms invalid dan diulang (maks 3; nightly 5 set), dua set valid gagal = gagal, semua invalid = inconclusive (PR warning, nightly gagal) (ADR-127) | `BenchmarkEdit1MB` |
 | CT-10 | vs hermes C1 | `search_files`/`read_file` ≥ 10× p50; `patch` ≥ 2× p50 vs hermes berdurabilitas setara + ≤ 6 ms p95 (Q14); 70 operasi (ADR-077, ADR-082) | `cd bench && go run ./codetools/cmd/codetools` |
 | CT-11 | token grep vs hermes | ≤ 0,6× | `TestGrepOutputTokens` |
 | CT-12 | grep terindeks C2 | p95 ≤ 100 ms | `BenchmarkGrepIndexedC2` |

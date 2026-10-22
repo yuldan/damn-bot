@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"strings"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/exec/classify"
@@ -67,12 +68,14 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 		return nil, fmt.Errorf("history query: %w", err)
 	}
 	out := make([]loop.Message, 0, len(rows))
+	assistantAt := make(map[int64]int, len(rows))
 	for i := range rows {
 		r := &rows[i]
 		switch r.Kind {
 		case "user_message":
 			out = append(out, loop.Message{Role: "user", Content: r.Content})
 		case "assistant_message":
+			assistantAt[r.ID] = len(out)
 			out = append(out, loop.Message{Role: "assistant", Content: r.Content, ToolCalls: assistantToolCalls(r.Payload)})
 		case "tool_result":
 			// The dispatcher journal and the loop both record a tool_result;
@@ -88,9 +91,41 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 				continue
 			}
 			out = append(out, loop.Message{Role: "tool", Content: r.Content, ToolCallID: r.ToolCallID})
+		case "system_notice":
+			if c := effectsNotice(r.Payload); c != "" {
+				out = append(out, loop.Message{Role: "system", Content: c})
+			}
 		}
 	}
+	if err := s.loadCarriers(ctx, sid, assistantAt, out); err != nil {
+		return nil, fmt.Errorf("history carriers: %w", err)
+	}
 	return out, nil
+}
+
+// effectsNotice renders the turnless notice a failed turn left for executed
+// side effects (SEC11-3), or "" for any other system_notice.
+func effectsNotice(payload string) string {
+	var p struct {
+		Kind      string   `json:"kind"`
+		TurnID    string   `json:"turn_id"`
+		Effects   []string `json:"effects"`
+		Uncertain []string `json:"uncertain"`
+	}
+	if json.Unmarshal([]byte(payload), &p) != nil || p.Kind != "failed_turn_effects" ||
+		len(p.Effects) == 0 && len(p.Uncertain) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("A previous failed turn (" + p.TurnID + ") ")
+	if len(p.Effects) > 0 {
+		b.WriteString("already executed: " + strings.Join(p.Effects, ", ") + ". ")
+	}
+	if len(p.Uncertain) > 0 {
+		b.WriteString("may have run with unknown outcome: " + strings.Join(p.Uncertain, ", ") + ". ")
+	}
+	b.WriteString("Do not repeat these side effects; use recall to inspect the transcript if needed.")
+	return b.String()
 }
 
 func findToolMessage(msgs []loop.Message, callID string) int {
