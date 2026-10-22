@@ -191,3 +191,59 @@ func TestImportedSkillQuarantined(t *testing.T) {
 		t.Errorf("an unapproved imported skill reached the model:\n%s", req)
 	}
 }
+
+// TestSkillsTrustCLI (CLI-046, ADR-175, positive and negative control through
+// the real binary): `skills trust add` makes the project discovered, so its
+// skill is loaded and quarantined (one import row, still invisible), while the
+// same project without the entry is not discovered at all (no import row).
+func TestSkillsTrustCLI(t *testing.T) {
+	t.Parallel()
+	// One reply per child run below (the fake provider scripts its turns).
+	e := New(t, providertest.Text("done"), providertest.Text("done"), providertest.Text("done"))
+	dir := filepath.Join(e.Workdir, ".damnbot", "skills", "proj-skill")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	md := "---\nname: proj-skill\ndescription: from the project\n---\nIMPORTED-BODY"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(md), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	imports := func() int {
+		t.Helper()
+		db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: e.DataDir, Kind: "run"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if cerr := db.Close(); cerr != nil {
+				t.Errorf("close: %v", cerr)
+			}
+		}()
+		n, err := db.Count(t.Context(), "SELECT count(*) FROM skills WHERE source = 'import'")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return int(n)
+	}
+	// Negative control: without a trust entry the project is never discovered.
+	e.Run("no tools").RequireOK(t)
+	if got := imports(); got != 0 {
+		t.Fatalf("untrusted project produced %d import rows, want 0", got)
+	}
+	e.Exec("skills", "trust", "add", e.Workdir).RequireOK(t)
+	e.Run("no tools").RequireOK(t)
+	if got := imports(); got != 1 {
+		t.Fatalf("trusted project produced %d import rows, want 1 (quarantined)", got)
+	}
+	// The quarantined import is still invisible to the skill tools.
+	list := e.Exec("skills", "trust", "list")
+	list.RequireOK(t)
+	if !strings.Contains(list.Stdout, filepath.Base(e.Workdir)) {
+		t.Fatalf("trust list = %q", list.Stdout)
+	}
+	e.Exec("skills", "trust", "remove", e.Workdir).RequireOK(t)
+	e.Run("no tools").RequireOK(t)
+	if got := imports(); got != 1 {
+		t.Fatalf("after remove the import count changed to %d, want the earlier 1", got)
+	}
+}
