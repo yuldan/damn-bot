@@ -3,7 +3,10 @@ package skills
 import (
 	"os"
 	"path/filepath"
+<<<<<<< HEAD
 	"runtime"
+=======
+>>>>>>> 4b34677b (feat(skills): build/diff skills index (ADR-172))
 	"testing"
 )
 
@@ -36,12 +39,16 @@ func TestIndexSaveLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(filepath.Join(dir, IndexFile))
+<<<<<<< HEAD
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Windows cannot express 0600: a writable file reports 0666 there, so the
 	// POSIX mode assertion only makes sense off Windows (repo pattern).
 	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+=======
+	if err != nil || fi.Mode().Perm() != 0o600 {
+>>>>>>> 4b34677b (feat(skills): build/diff skills index (ADR-172))
 		t.Fatalf("index mode = %v, want 0600", fi.Mode().Perm())
 	}
 	got, err := LoadIndex(dir)
