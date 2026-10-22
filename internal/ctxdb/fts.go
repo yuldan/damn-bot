@@ -4,10 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
-// FTS index versions (GAP-INF-02). Bumping either forces an automatic
-// re-index; rowids are keyset-paged in batches so writers are not starved.
 const (
 	ftsNormVersion  = 1
 	ftsPlainLayout  = 1 // detail=full, CJK unigrams
@@ -19,7 +18,6 @@ const (
 func ftsTables() []string {
 	return []string{"events_fts", "summaries_fts", "memory_fts", "skills_fts", "blob_fts"}
 }
-
 func (s *Store) ftsLayout() int {
 	if s.codec != nil {
 		return ftsEncLayout
@@ -27,8 +25,6 @@ func (s *Store) ftsLayout() int {
 	return ftsPlainLayout
 }
 
-// ensureFTS initialises fts_meta and re-indexes when a binary with newer
-// normalization/layout runs against an existing database.
 func (s *Store) ensureFTS(ctx context.Context) error {
 	if s.opt.ReadOnly {
 		return nil
@@ -38,46 +34,55 @@ func (s *Store) ensureFTS(ctx context.Context) error {
 		return err
 	}
 	if n == 0 {
-		if s.codec != nil {
-			if err := s.recreateEncryptedFTS(ctx); err != nil {
+		return s.initFTS(ctx)
+	}
+	return s.upgradeFTS(ctx)
+}
+func (s *Store) initFTS(ctx context.Context) error {
+	if s.codec != nil {
+		if err := s.recreateEncryptedFTS(ctx); err != nil {
+			return err
+		}
+	}
+	return s.Write(ctx, func(tx *Tx) error {
+		for _, name := range ftsTables() {
+			if err := tx.ftsTableMeta(name); err != nil {
 				return err
 			}
 		}
-		return s.Write(ctx, func(tx *Tx) error {
-			for _, name := range ftsTables() {
-				if err := tx.ftsTableMeta(name); err != nil {
-					return err
-				}
-			}
-			return nil
-		})
+		return nil
+	})
+}
+func (s *Store) upgradeFTS(ctx context.Context) error {
+	recreated, err := s.upgradeEncryptedLayout(ctx)
+	if err != nil {
+		return err
 	}
 	var old int
 	if err := s.get(ctx, `SELECT count(*) FROM fts_meta WHERE norm_version <> ? OR layout_version <> ?`,
 		[]any{ftsNormVersion, s.ftsLayout()}, &old); err != nil {
 		return err
 	}
-	if old == 0 {
+	if old == 0 && !recreated {
 		return nil
-	}
-	if s.codec != nil {
-		var low int
-		if err := s.get(ctx, `SELECT count(*) FROM fts_meta WHERE layout_version < ?`, []any{ftsEncLayout}, &low); err != nil {
-			return err
-		}
-		if low > 0 {
-			if err := s.recreateEncryptedFTS(ctx); err != nil {
-				return err
-			}
-		}
 	}
 	return s.ReindexFTS(ctx, ftsBatchSize)
 }
+func (s *Store) upgradeEncryptedLayout(ctx context.Context) (bool, error) {
+	if s.codec == nil {
+		return false, nil
+	}
+	var schema string
+	if err := s.get(ctx, `SELECT sql FROM sqlite_master WHERE name='events_fts'`, nil, &schema); err != nil {
+		return false, err
+	}
+	if strings.Contains(schema, "detail=column") {
+		return false, nil
+	}
+	return true, s.recreateEncryptedFTS(ctx)
+}
 
-// ReindexFTS rebuilds every contentless FTS index in keyset-paged batches
-// and records progress in fts_meta (EC-STATE-009, GAP-INF-02). It is
-// idempotent and safe to resume after a crash: a new call clears and
-// re-indexes from fts_meta.reindexed_to.
+// ReindexFTS rebuilds contentless FTS indexes in keyset batches (EC-STATE-009).
 func (s *Store) ReindexFTS(ctx context.Context, batch int) error {
 	if batch <= 0 {
 		batch = ftsBatchSize
@@ -107,7 +112,6 @@ type ftsEntry struct {
 	cols []string
 }
 
-// ftsTableMeta initialises one index version row.
 func (t *Tx) ftsTableMeta(name string) error {
 	_, err := t.Exec(`INSERT INTO fts_meta(name, norm_version, layout_version, reindexed_to, updated_at)
 		VALUES (?,?,?,0,?) ON CONFLICT(name) DO UPDATE SET norm_version=excluded.norm_version,
@@ -115,13 +119,11 @@ func (t *Tx) ftsTableMeta(name string) error {
 		name, ftsNormVersion, t.s.ftsLayout(), t.s.clk.WallMs())
 	return err
 }
-
 func (t *Tx) ftsMetaProgress(name string, last int64) error {
 	_, err := t.Exec(`UPDATE fts_meta SET norm_version=?, layout_version=?, reindexed_to=?, updated_at=? WHERE name=?`,
 		ftsNormVersion, t.s.ftsLayout(), last, t.s.clk.WallMs(), name)
 	return err
 }
-
 func (s *Store) clearFTS(ctx context.Context, name string) error {
 	q := map[string]string{
 		"events_fts":    "INSERT INTO events_fts(events_fts) VALUES('delete-all')",
@@ -141,7 +143,6 @@ func (s *Store) clearFTS(ctx context.Context, name string) error {
 		return err
 	})
 }
-
 func (s *Store) ftsTokens(scope, identity string, enc []byte, plain string) (string, error) {
 	if len(enc) == 0 {
 		if s.codec == nil {
@@ -155,7 +156,6 @@ func (s *Store) ftsTokens(scope, identity string, enc []byte, plain string) (str
 	}
 	return encFTS(s.codec, pt), nil
 }
-
 func (s *Store) ftsPage(ctx context.Context, q string, last int64, batch int, scan func(*sql.Rows) (ftsEntry, error)) ([]ftsEntry, error) {
 	args := []any{last, batch}
 	var out []ftsEntry
@@ -168,7 +168,6 @@ func (s *Store) ftsPage(ctx context.Context, q string, last int64, batch int, sc
 	})
 	return out, err
 }
-
 func (s *Store) insertFTSBatch(ctx context.Context, table string, entries []ftsEntry) error {
 	return s.Write(ctx, func(tx *Tx) error {
 		for i := range entries {
@@ -179,7 +178,6 @@ func (s *Store) insertFTSBatch(ctx context.Context, table string, entries []ftsE
 		return tx.ftsMetaProgress(table, entries[len(entries)-1].id)
 	})
 }
-
 func insertFTSEntry(tx *Tx, table string, e ftsEntry) error {
 	var q string
 	switch table {
@@ -200,7 +198,6 @@ func insertFTSEntry(tx *Tx, table string, e ftsEntry) error {
 	_, err := tx.c.ExecContext(tx.ctx, q, args...)
 	return wrap(err)
 }
-
 func (s *Store) reindexEvents(ctx context.Context, batch int) error {
 	const q = `SELECT id, session_id, seq, content, content_enc, coalesce(tool_name,'') FROM events
 		WHERE kind IN ('user_message','assistant_message','tool_result','imported') AND id > ? ORDER BY id LIMIT ?`
@@ -227,7 +224,6 @@ func (s *Store) reindexEvents(ctx context.Context, batch int) error {
 		last = rows[len(rows)-1].id
 	}
 }
-
 func (s *Store) reindexSummaries(ctx context.Context, batch int) error {
 	const q = `SELECT id, session_id, from_seq, to_seq, content, content_enc FROM summaries
 		WHERE id > ? ORDER BY id LIMIT ?`
@@ -251,7 +247,6 @@ func (s *Store) reindexSummaries(ctx context.Context, batch int) error {
 		last = rows[len(rows)-1].id
 	}
 }
-
 func (s *Store) reindexMemory(ctx context.Context, batch int) error {
 	const q = `SELECT id, scope, enc_id, content, content_enc FROM memory WHERE id > ? ORDER BY id LIMIT ?`
 	for last := int64(0); ; {
@@ -274,7 +269,6 @@ func (s *Store) reindexMemory(ctx context.Context, batch int) error {
 		last = rows[len(rows)-1].id
 	}
 }
-
 func (s *Store) reindexSkills(ctx context.Context, batch int) error {
 	const q = `SELECT id, name, description, body FROM skills WHERE id > ? ORDER BY id LIMIT ?`
 	for last := int64(0); ; {
@@ -295,7 +289,6 @@ func (s *Store) reindexSkills(ctx context.Context, batch int) error {
 		last = rows[len(rows)-1].id
 	}
 }
-
 func (s *Store) reindexBlobs(ctx context.Context, batch int) error {
 	const q = `SELECT e.id, b.sha256 FROM events e JOIN blobs b ON b.sha256 = e.blob_sha
 		WHERE e.id > ? AND b.size <= 16777216 AND (b.mime LIKE 'text/%' OR b.mime = 'application/json')
@@ -322,10 +315,46 @@ func (s *Store) reindexBlobs(ctx context.Context, batch int) error {
 		if err := s.insertFTSBatch(ctx, "blob_fts", rows); err != nil {
 			return err
 		}
+		s.hasBlobFTS.Store(true)
 		last = rows[len(rows)-1].id
 	}
 }
 
+func (t *Tx) indexBlobFTS(sha string, eventID int64) error {
+	var mime string
+	var size int64
+	if err := t.Get(`SELECT mime, size FROM blobs WHERE sha256=?`, []any{sha}, &mime, &size); err != nil {
+		return err
+	}
+	if size > ftsBlobMaxBytes || (mime != "application/json" && !strings.HasPrefix(mime, "text/")) {
+		return nil
+	}
+	raw, err := t.s.root.ReadFile(blobName(sha))
+	if err != nil {
+		return wrap(err)
+	}
+	plain := raw
+	if t.s.codec != nil {
+		plain, err = t.s.codec.Open("blob:"+sha, raw)
+		if err != nil {
+			return wrap(err)
+		}
+	}
+	_, err = t.Exec(`INSERT INTO blob_fts(rowid, content) VALUES (?,?)`, eventID, t.s.ftsPlain(string(plain)))
+	if err == nil {
+		t.s.hasBlobFTS.Store(true)
+	}
+	return err
+}
+func (s *Store) blobFTSAvailable(ctx context.Context) bool {
+	s.blobOnce.Do(func() {
+		var n int
+		if err := s.get(ctx, `SELECT EXISTS(SELECT 1 FROM blob_fts)`, nil, &n); err == nil {
+			s.hasBlobFTS.Store(n != 0)
+		}
+	})
+	return s.hasBlobFTS.Load()
+}
 func (s *Store) ftsPlain(text string) string {
 	if s.codec == nil {
 		return ftsNorm(text)
@@ -333,16 +362,12 @@ func (s *Store) ftsPlain(text string) string {
 	return encFTS(s.codec, text)
 }
 
-// recreateEncryptedFTS switches encrypted indexes to detail=column (no
-// positions) and recreates the keyed triggers.
 func (s *Store) recreateEncryptedFTS(ctx context.Context) error {
 	ddl := []string{
-		"DROP TRIGGER IF EXISTS events_ai", "DROP TRIGGER IF EXISTS summaries_ai",
-		"DROP TRIGGER IF EXISTS memory_ai", "DROP TRIGGER IF EXISTS skills_ai",
-		"DROP TRIGGER IF EXISTS skills_au", "DROP TRIGGER IF EXISTS skills_ad",
-		"DROP TABLE IF EXISTS events_fts", "DROP TABLE IF EXISTS summaries_fts",
-		"DROP TABLE IF EXISTS memory_fts", "DROP TABLE IF EXISTS skills_fts",
-		"DROP TABLE IF EXISTS blob_fts",
+		"DROP TRIGGER IF EXISTS events_ai", "DROP TRIGGER IF EXISTS summaries_ai", "DROP TRIGGER IF EXISTS memory_ai",
+		"DROP TRIGGER IF EXISTS skills_ai", "DROP TRIGGER IF EXISTS skills_au", "DROP TRIGGER IF EXISTS skills_ad",
+		"DROP TABLE IF EXISTS events_fts", "DROP TABLE IF EXISTS summaries_fts", "DROP TABLE IF EXISTS memory_fts",
+		"DROP TABLE IF EXISTS skills_fts", "DROP TABLE IF EXISTS blob_fts",
 		`CREATE VIRTUAL TABLE events_fts USING fts5(content, tool_name, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2 tokenchars '_-./'")`,
 		`CREATE VIRTUAL TABLE summaries_fts USING fts5(content, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2")`,
 		`CREATE VIRTUAL TABLE memory_fts USING fts5(content, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2")`,
@@ -363,6 +388,9 @@ func (s *Store) recreateEncryptedFTS(ctx context.Context) error {
 		`CREATE TRIGGER skills_ad AFTER DELETE ON skills BEGIN DELETE FROM skills_fts WHERE rowid = OLD.id; END`,
 	}
 	return s.Write(ctx, func(tx *Tx) error {
+		if _, err := tx.Exec("PRAGMA secure_delete=ON"); err != nil {
+			return err
+		}
 		for _, q := range ddl {
 			if _, err := tx.Exec(q); err != nil {
 				return err

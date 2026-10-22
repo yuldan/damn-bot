@@ -3,7 +3,6 @@ package ctxdb
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -87,15 +86,9 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 		k = 10
 	}
 	q := recallExpr(text)
-	if q == "" {
+	if q == "" || (s.codec != nil && encFTSQuery(s.codec, q) == "") {
 		return nil, nil
 	}
-	probe, err := s.ints(ctx, `SELECT rowid FROM events_fts
-		WHERE events_fts MATCH dmb_fts_norm(?, 'events.content', '') LIMIT ?`, q, broadAt+1)
-	if err != nil {
-		return nil, fmt.Errorf("ctxdb: recall probe: %w", err)
-	}
-	broad := len(probe) > broadAt
 	purged, err := s.Count(ctx, `SELECT count(*) FROM session_labels WHERE key = 'purge_state'`)
 	if err != nil {
 		return nil, fmt.Errorf("ctxdb: recall purge check: %w", err)
@@ -110,8 +103,13 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 		where += ` AND f.rowid IN (SELECT e2.id FROM events e2 WHERE e2.session_id NOT IN
 			(SELECT vl.session_id FROM session_labels vl WHERE vl.key = 'purge_state'))`
 	}
+	probeArgs := append(append([]any{}, args...), broadAt+1)
+	probe, err := s.ints(ctx, "SELECT f.rowid FROM "+from+" WHERE "+where+" LIMIT ?", probeArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("ctxdb: recall probe: %w", err)
+	}
 	order := "bm25(events_fts)"
-	if broad {
+	if len(probe) > broadAt {
 		order = "f.rowid DESC"
 	}
 	args = append(args, k)
@@ -119,18 +117,61 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 	if err != nil {
 		return nil, fmt.Errorf("ctxdb: recall query: %w", err)
 	}
+	// Tool output spilled to a text blob lives in blob_fts (GAP-INF-02), not
+	// in events_fts; recall searches it through the same keyed expression.
+	var blobIDs []int64
+	if s.blobFTSAvailable(ctx) {
+		blobIDs, err = s.ints(ctx, `SELECT f.rowid FROM blob_fts f JOIN events e ON e.id = f.rowid
+			WHERE blob_fts MATCH dmb_fts_norm(?, 'blob_fts.content', '')
+			AND e.kind = 'tool_result' AND `+notPurging("e.session_id")+`
+			ORDER BY bm25(blob_fts) LIMIT ?`, q, k)
+		if err != nil {
+			return nil, fmt.Errorf("ctxdb: recall blob query: %w", err)
+		}
+	}
+	seen := make(map[int64]bool, len(ids)+len(blobIDs))
+	merged := ids[:0]
+	for _, id := range append(ids, blobIDs...) {
+		if !seen[id] {
+			seen[id] = true
+			merged = append(merged, id)
+		}
+	}
+	if len(merged) > k {
+		merged = merged[:k]
+	}
+	ids = merged
+	return s.recallHits(ctx, ids)
+}
+
+func (s *Store) recallHits(ctx context.Context, ids []int64) ([]RecallHit, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	marks := make([]string, len(ids))
+	hitArgs := make([]any, len(ids))
+	for i, id := range ids {
+		marks[i] = "?"
+		hitArgs[i] = id
+	}
+	byID := make(map[int64]string, len(ids))
+	if err := s.each(ctx, `SELECT e.id, e.session_id FROM events e WHERE e.id IN (`+strings.Join(marks, ",")+`) AND `+notPurging("e.session_id"),
+		hitArgs, func(r *sql.Rows) error {
+			var id int64
+			var sid string
+			if err := r.Scan(&id, &sid); err != nil {
+				return fmt.Errorf("recall hit scan: %w", err)
+			}
+			byID[id] = sid
+			return nil
+		}); err != nil {
+		return nil, fmt.Errorf("ctxdb: recall hit: %w", err)
+	}
 	out := make([]RecallHit, 0, len(ids))
 	for _, id := range ids {
-		var h RecallHit
-		gerr := s.get(ctx, `SELECT e.id, e.session_id FROM events e WHERE e.id = ? AND `+notPurging("e.session_id"),
-			[]any{id}, &h.EventID, &h.SessionID)
-		if errors.Is(gerr, ErrNotFound) {
-			continue
+		if sid, ok := byID[id]; ok {
+			out = append(out, RecallHit{EventID: id, SessionID: sid})
 		}
-		if gerr != nil {
-			return nil, fmt.Errorf("ctxdb: recall hit: %w", gerr)
-		}
-		out = append(out, h)
 	}
 	return out, nil
 }

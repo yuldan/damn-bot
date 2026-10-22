@@ -71,6 +71,8 @@ type Store struct {
 	// barrierOwner: this Store owns the maintenance barrier (restore), so the
 	// marker must not drain it; also set while a purge releases its lease.
 	barrierOwner atomic.Bool
+	blobOnce     sync.Once
+	hasBlobFTS   atomic.Bool
 	purgeOrder   map[string][]string // txid → labelled sessions, descendants first (mu)
 	chunkCap     int                 // upper bound of chunk (eventBatch; tests lower it)
 	budget       time.Duration       // per-transaction work budget (unitBudget; tests lower it)

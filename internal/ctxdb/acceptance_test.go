@@ -95,3 +95,26 @@ func TestFTSBlobIndex(t *testing.T) {
 		t.Fatalf("blob_fts = %v, %v", got, err)
 	}
 }
+
+// TestRecallToolOutputBlob (GAP-INF-02): output spilled by turn 1 is found
+// later through Recall, not via LIKE.
+func TestRecallToolOutputBlob(t *testing.T) {
+	s, err := Open(context.Background(), &Options{Dir: t.TempDir(), Kind: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { must(t, s.Close()) }()
+	ctx := context.Background()
+	session(t, s, "S", "")
+	pb, err := s.PutBlob([]byte("full tool output canary from turn one"), "text/plain")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, aerr := s.Append(ctx, "S", []*PendingBlob{pb}, Event{Kind: "tool_result", Role: "tool", Blob: pb.Sha}); aerr != nil {
+		t.Fatal(aerr)
+	}
+	hits, err := s.Recall(ctx, "tool output canary", 5)
+	if err != nil || len(hits) == 0 || hits[0].SessionID != "S" {
+		t.Fatalf("tool output recall = %+v, %v", hits, err)
+	}
+}
