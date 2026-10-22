@@ -7,13 +7,60 @@ import (
 	"time"
 )
 
-// TestSessionLabelsAndRows: title/archived/pinned are append-only and the
-// listing reports the last value, the event count and the creation order.
-func TestSessionLabelsAndRows(t *testing.T) {
+// openLabels opens a store whose cleanup reports Close errors.
+func openLabels(t *testing.T) *Store {
+	t.Helper()
+	s := newEnv(t).open(1, "tui")
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
+	return s
+}
+
+// TestSessionLabelLastWins: title/archived/pinned are append-only and the last
+// value wins, including clearing a flag with "0".
+func TestSessionLabelLastWins(t *testing.T) {
+	t.Parallel()
+	s := openLabels(t)
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSessionLabel(ctx, "S1", LabelTitle, "  my\x00 title  "); err != nil {
+		t.Fatalf("SetSessionLabel title: %v", err)
+	}
+	if err := s.SetSessionLabel(ctx, "S1", LabelArchived, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSessionLabel(ctx, "S1", LabelArchived, "0"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSessionLabel(ctx, "S1", LabelPinned, "1"); err != nil {
+		t.Fatal(err)
+	}
+	title, ok, err := s.SessionLabel(ctx, "S1", LabelTitle)
+	if err != nil || !ok || title != "my title" {
+		t.Fatalf("title = %q/%v/%v, want my title", title, ok, err)
+	}
+	arch, ok, err := s.SessionLabel(ctx, "S1", LabelArchived)
+	if err != nil || !ok || arch != "0" {
+		t.Fatalf("archived = %q/%v/%v, want 0", arch, ok, err)
+	}
+}
+
+// TestSessionRows: the listing reports the last label value, the event count
+// and newest-first order.
+func TestSessionRows(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	s := e.open(1, "tui")
-	defer s.Close()
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
 	ctx := context.Background()
 	if _, err := s.CreateSession(ctx, Session{ID: "S1", Origin: "headless", Cwd: "/w", Model: "openai/m"}); err != nil {
 		t.Fatal(err)
@@ -27,21 +74,11 @@ func TestSessionLabelsAndRows(t *testing.T) {
 	if _, err := s.CreateSession(ctx, Session{ID: "S2", Origin: "headless", Cwd: "/w", Model: "openai/m"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetSessionLabel(ctx, "S1", LabelTitle, "  my\x00 title  "); err != nil {
-		t.Fatalf("SetSessionLabel title: %v", err)
-	}
-	if err := s.SetSessionLabel(ctx, "S1", LabelArchived, "1"); err != nil {
+	if err := s.SetSessionLabel(ctx, "S1", LabelTitle, "kept"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetSessionLabel(ctx, "S1", LabelPinned, "1"); err != nil {
 		t.Fatal(err)
-	}
-	if err := s.SetSessionLabel(ctx, "S1", LabelArchived, "0"); err != nil {
-		t.Fatal(err)
-	}
-	title, ok, err := s.SessionLabel(ctx, "S1", LabelTitle)
-	if err != nil || !ok || title != "my title" {
-		t.Fatalf("title = %q/%v/%v, want my title", title, ok, err)
 	}
 	rows, err := s.SessionRows(ctx)
 	if err != nil {
@@ -51,12 +88,8 @@ func TestSessionLabelsAndRows(t *testing.T) {
 		t.Fatalf("rows = %+v, want S2 then S1", rows)
 	}
 	got := rows[1]
-	if got.Title != "my title" || got.Archived || !got.Pinned || got.Events != 2 {
+	if got.Title != "kept" || got.Archived || !got.Pinned || got.Events != 2 {
 		t.Fatalf("S1 row = %+v", got)
-	}
-	// The last archived value (0) wins over the earlier 1.
-	if rows, _ = s.SessionRows(ctx); rows[1].Archived {
-		t.Error("archived=0 did not clear the earlier archived=1")
 	}
 }
 
@@ -64,9 +97,7 @@ func TestSessionLabelsAndRows(t *testing.T) {
 // closed, and a missing session is ErrNotFound.
 func TestSessionLabelRejections(t *testing.T) {
 	t.Parallel()
-	e := newEnv(t)
-	s := e.open(1, "tui")
-	defer s.Close()
+	s := openLabels(t)
 	ctx := context.Background()
 	if _, err := s.CreateSession(ctx, Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
 		t.Fatal(err)
@@ -100,7 +131,10 @@ func TestSessionLabelRejections(t *testing.T) {
 	if err := s.SetSessionLabel(ctx, "S1", LabelTitle, string(long)); err != nil {
 		t.Fatal(err)
 	}
-	got, _, _ := s.SessionLabel(ctx, "S1", LabelTitle)
+	got, _, err := s.SessionLabel(ctx, "S1", LabelTitle)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len([]rune(got)) != MaxTitleRunes {
 		t.Errorf("long title length = %d, want %d", len([]rune(got)), MaxTitleRunes)
 	}

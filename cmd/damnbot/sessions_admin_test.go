@@ -46,9 +46,8 @@ func runAdmin(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	return code, out.String(), errb.String()
 }
 
-// TestSessionsRenameAndExport: rename writes the title label; export renders
-// md/jsonl/html, redacts secrets by default and escapes HTML.
-func TestSessionsRenameAndExport(t *testing.T) {
+// TestSessionsRename: rename writes the title label and prints it back.
+func TestSessionsRename(t *testing.T) {
 	t.Parallel()
 	dir, id := seedSession(t)
 	if code, _, e := runAdmin(t, "rename", id, "My", "Title", "--data-dir", dir); code != 0 {
@@ -57,6 +56,16 @@ func TestSessionsRenameAndExport(t *testing.T) {
 	code, out, e := runAdmin(t, "rename", id, "--data-dir", dir)
 	if code != 0 || !strings.Contains(out, "title: My Title") {
 		t.Fatalf("rename read = %d %q (%s)", code, out, e)
+	}
+}
+
+// TestSessionsExportMarkdown: md export includes the title and transcript,
+// redacts secrets by default and keeps them with --no-redact.
+func TestSessionsExportMarkdown(t *testing.T) {
+	t.Parallel()
+	dir, id := seedSession(t)
+	if code, _, e := runAdmin(t, "rename", id, "My", "Title", "--data-dir", dir); code != 0 {
+		t.Fatalf("rename = %d: %s", code, e)
 	}
 	code, md, e := runAdmin(t, "export", id, "--data-dir", dir)
 	if code != 0 {
@@ -71,13 +80,20 @@ func TestSessionsRenameAndExport(t *testing.T) {
 	if !strings.Contains(md, "[REDACTED:") {
 		t.Errorf("export did not mark the redaction:\n%s", md)
 	}
-	// --no-redact keeps the raw token.
-	if code, md, _ = runAdmin(t, "export", id, "--format", "md", "--no-redact", "--data-dir", dir); code != 0 {
+	if code, raw, _ := runAdmin(t, "export", id, "--format", "md", "--no-redact", "--data-dir", dir); code != 0 {
 		t.Fatal("export --no-redact failed")
+	} else if !strings.Contains(raw, "sk-abcdefghijklmnopqrstuvwxyz0123456789") {
+		t.Errorf("--no-redact still redacted:\n%s", raw)
 	}
-	if !strings.Contains(md, "sk-abcdefghijklmnopqrstuvwxyz0123456789") {
-		t.Errorf("--no-redact still redacted:\n%s", md)
+	if code, _, _ := runAdmin(t, "export", id, "--format", "exe", "--data-dir", dir); code != 2 {
+		t.Errorf("unknown format exit = %d, want 2", code)
 	}
+}
+
+// TestSessionsExportJSONL: one JSON object per event.
+func TestSessionsExportJSONL(t *testing.T) {
+	t.Parallel()
+	dir, id := seedSession(t)
 	code, jsonl, e := runAdmin(t, "export", id, "--format", "jsonl", "--data-dir", dir)
 	if code != 0 {
 		t.Fatalf("export jsonl = %d: %s", code, e)
@@ -93,15 +109,18 @@ func TestSessionsRenameAndExport(t *testing.T) {
 	if row["role"] != "user" || row["seq"] == nil {
 		t.Errorf("jsonl row = %v", row)
 	}
+}
+
+// TestSessionsExportHTML: HTML export escapes transcript content.
+func TestSessionsExportHTML(t *testing.T) {
+	t.Parallel()
+	dir, id := seedSession(t)
 	code, page, e := runAdmin(t, "export", id, "--format", "html", "--data-dir", dir)
 	if code != 0 {
 		t.Fatalf("export html = %d: %s", code, e)
 	}
 	if strings.Contains(page, "<script>alert(1)</script>") || !strings.Contains(page, "&lt;script&gt;") {
 		t.Errorf("html export did not escape content:\n%s", page)
-	}
-	if code, _, _ = runAdmin(t, "export", id, "--format", "exe", "--data-dir", dir); code != 2 {
-		t.Errorf("unknown format exit = %d, want 2", code)
 	}
 }
 

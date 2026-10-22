@@ -21,41 +21,60 @@ type adminArgs struct {
 
 func parseAdminArgs(args []string) (adminArgs, error) {
 	var a adminArgs
-	value := func(i *int, name string) (string, error) {
+	i := 0
+	for i < len(args) {
+		s := args[i]
+		if !strings.HasPrefix(s, "-") || s == "-" {
+			a.pos = append(a.pos, s)
+			i++
+			continue
+		}
+		handled, err := adminFlag(&a, s, args, &i)
+		if err != nil {
+			return a, err
+		}
+		if !handled {
+			return a, fmt.Errorf("unknown flag %q", s)
+		}
+		i++
+	}
+	return a, nil
+}
+
+// adminFlag parses one flag (and its value) at args[*i].
+func adminFlag(a *adminArgs, s string, args []string, i *int) (bool, error) {
+	value := func(name string) (string, error) {
 		if *i+1 >= len(args) {
 			return "", fmt.Errorf("%s needs a value", name)
 		}
 		*i++
 		return args[*i], nil
 	}
-	for i := 0; i < len(args); i++ {
-		s := args[i]
-		var err error
-		switch {
-		case s == "--data-dir" || s == "-data-dir":
-			a.dataDir, err = value(&i, s)
-		case strings.HasPrefix(s, "--data-dir="):
-			a.dataDir = strings.TrimPrefix(s, "--data-dir=")
-		case s == "--format" || s == "-format":
-			a.format, err = value(&i, s)
-		case strings.HasPrefix(s, "--format="):
-			a.format = strings.TrimPrefix(s, "--format=")
-		case s == "--out" || s == "-out":
-			a.out, err = value(&i, s)
-		case strings.HasPrefix(s, "--out="):
-			a.out = strings.TrimPrefix(s, "--out=")
-		case s == "--no-redact":
-			a.noRedact = true
-		case strings.HasPrefix(s, "-") && s != "-":
-			err = fmt.Errorf("unknown flag %q", s)
-		default:
-			a.pos = append(a.pos, s)
-		}
-		if err != nil {
-			return a, err
-		}
+	switch {
+	case s == "--data-dir":
+		v, err := value(s)
+		a.dataDir = v
+		return true, err
+	case strings.HasPrefix(s, "--data-dir="):
+		a.dataDir = strings.TrimPrefix(s, "--data-dir=")
+	case s == "--format":
+		v, err := value(s)
+		a.format = v
+		return true, err
+	case strings.HasPrefix(s, "--format="):
+		a.format = strings.TrimPrefix(s, "--format=")
+	case s == "--out":
+		v, err := value(s)
+		a.out = v
+		return true, err
+	case strings.HasPrefix(s, "--out="):
+		a.out = strings.TrimPrefix(s, "--out=")
+	case s == "--no-redact":
+		a.noRedact = true
+	default:
+		return false, nil
 	}
-	return a, nil
+	return true, nil
 }
 
 // sessionsRename sets or prints the session title (MEM-016).
@@ -113,7 +132,7 @@ func sessionsExport(args []string, stdout, stderr io.Writer) int {
 	if format == "" {
 		format = "md"
 	}
-	if !exportFormats[format] {
+	if !exportFormatOK(format) {
 		sessionsPrintf(stderr, "sessions export: unknown format %q (want md, jsonl, or html)\n", cleanArg(format))
 		return 2
 	}
@@ -132,18 +151,21 @@ func sessionsExport(args []string, stdout, stderr io.Writer) int {
 	if derr != nil {
 		return sessionsFail(stderr, "export", derr, id)
 	}
-	title, _, _ := db.SessionLabel(ctx, id, ctxdb.LabelTitle)
+	title, _, terr := db.SessionLabel(ctx, id, ctxdb.LabelTitle)
+	if terr != nil {
+		return sessionsFail(stderr, "export", terr, id)
+	}
 	var red *redact.Redactor
 	if !a.noRedact {
 		red = redact.New(redact.Options{})
 	}
 	out := stdout
-	if a.out != "" && a.out != "-" {
-		f, ferr := os.OpenFile(a.out, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-		if ferr != nil {
-			sessionsPrintf(stderr, "sessions export: %v\n", ferr)
-			return 1
-		}
+	f, ferr := exportOutFile(a.out)
+	if ferr != nil {
+		sessionsPrintf(stderr, "sessions export: %v\n", ferr)
+		return 1
+	}
+	if f != nil {
 		defer func() {
 			if cerr := f.Close(); cerr != nil {
 				sessionsPrintf(stderr, "sessions export: close: %v\n", cerr)
@@ -152,11 +174,24 @@ func sessionsExport(args []string, stdout, stderr io.Writer) int {
 		out = f
 	}
 	meta := exportMeta{ID: info.ID, Title: title, Model: info.Model, Origin: info.Origin, Cwd: info.Cwd, CreatedAt: info.CreatedAt}
-	if werr := writeExport(out, format, meta, events, red); werr != nil {
+	if werr := writeExport(out, format, &meta, events, red); werr != nil {
 		sessionsPrintf(stderr, "sessions export: %v\n", werr)
 		return 1
 	}
 	return 0
+}
+
+// exportOutFile opens --out (nil for stdout or "-"); 0600 keeps an export
+// readable only by the user that produced it.
+func exportOutFile(path string) (*os.File, error) {
+	if path == "" || path == "-" {
+		return nil, nil
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) //nolint:gosec // --out is the user's chosen export path
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", cleanArg(path), err)
+	}
+	return f, nil
 }
 
 // sessionsFlag sets one boolean label (archive/unarchive/pin/unpin).

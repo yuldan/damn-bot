@@ -12,8 +12,14 @@ import (
 	"github.com/damnbot/damnbot/internal/redact"
 )
 
-// exportFormats of SPEC §10 `sessions export --format`.
-var exportFormats = map[string]bool{"md": true, "jsonl": true, "html": true}
+// exportFormatOK reports the SPEC §10 `sessions export --format` values.
+func exportFormatOK(format string) bool {
+	switch format {
+	case "md", "jsonl", "html":
+		return true
+	}
+	return false
+}
 
 // exportMeta is the header of a rendered transcript.
 type exportMeta struct {
@@ -25,8 +31,8 @@ type exportMeta struct {
 // before rendering unless red is nil; every renderer escapes what its format
 // requires (HTML entity, JSON encoding), so exported bytes never execute or
 // break the document structure.
-func writeExport(w io.Writer, format string, meta exportMeta, events []ctxdb.Event, red *redact.Redactor) error {
-	if !exportFormats[format] {
+func writeExport(w io.Writer, format string, meta *exportMeta, events []ctxdb.Event, red *redact.Redactor) error {
+	if !exportFormatOK(format) {
 		return fmt.Errorf("unknown format %q (want md, jsonl, or html)", format)
 	}
 	clean := func(s string) string {
@@ -60,20 +66,20 @@ func writeJSONL(w io.Writer, events []ctxdb.Event, clean func(string) string) er
 			Payload   string `json:"payload,omitempty"`
 		}{e.SessionID, e.Seq, e.Kind, e.Role, e.ToolName, e.CreatedAt, clean(e.Content), clean(e.Payload)}
 		if err := enc.Encode(row); err != nil {
-			return err
+			return fmt.Errorf("export jsonl: %w", err)
 		}
 	}
 	return nil
 }
 
-func writeMarkdown(w io.Writer, meta exportMeta, events []ctxdb.Event, clean func(string) string) error {
+func writeMarkdown(w io.Writer, meta *exportMeta, events []ctxdb.Event, clean func(string) string) error {
 	title := meta.Title
 	if title == "" {
 		title = meta.ID
 	}
 	if _, err := fmt.Fprintf(w, "# %s\n\n- session: `%s`\n- model: `%s`\n- origin: `%s`\n- created: %s\n\n",
 		title, meta.ID, meta.Model, meta.Origin, formatTime(meta.CreatedAt)); err != nil {
-		return err
+		return fmt.Errorf("export markdown: %w", err)
 	}
 	for i := range events {
 		e := &events[i]
@@ -82,23 +88,23 @@ func writeMarkdown(w io.Writer, meta exportMeta, events []ctxdb.Event, clean fun
 			role = e.Kind
 		}
 		if _, err := fmt.Fprintf(w, "### %s (%d)\n\n", role, e.Seq); err != nil {
-			return err
+			return fmt.Errorf("export markdown: %w", err)
 		}
 		if c := clean(e.Content); c != "" {
 			if _, err := fmt.Fprintf(w, "%s\n\n", c); err != nil {
-				return err
+				return fmt.Errorf("export markdown: %w", err)
 			}
 		}
 		if p := clean(e.Payload); p != "" {
 			if _, err := fmt.Fprintf(w, "```json\n%s\n```\n\n", p); err != nil {
-				return err
+				return fmt.Errorf("export markdown: %w", err)
 			}
 		}
 	}
 	return nil
 }
 
-func writeHTML(w io.Writer, meta exportMeta, events []ctxdb.Event, clean func(string) string) error {
+func writeHTML(w io.Writer, meta *exportMeta, events []ctxdb.Event, clean func(string) string) error {
 	title := meta.Title
 	if title == "" {
 		title = meta.ID
@@ -126,7 +132,10 @@ func writeHTML(w io.Writer, meta exportMeta, events []ctxdb.Event, clean func(st
 	}
 	b.WriteString("</body></html>\n")
 	_, err := io.WriteString(w, b.String())
-	return err
+	if err != nil {
+		return fmt.Errorf("export html: %w", err)
+	}
+	return nil
 }
 
 // formatTime renders a store timestamp; 0 is the zero time of fixture rows.

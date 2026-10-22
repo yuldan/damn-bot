@@ -32,8 +32,8 @@ type SessionRow struct {
 	Archived, Pinned bool
 }
 
-// Sessions returns every visible session, newest first. Archived sessions are
-// included; callers filter on SessionRow.Archived.
+// SessionRows returns every visible session, newest first. Archived sessions
+// are included; callers filter on SessionRow.Archived.
 func (s *Store) SessionRows(ctx context.Context) ([]SessionRow, error) {
 	var out []SessionRow
 	err := s.each(ctx, `
@@ -93,8 +93,8 @@ func (s *Store) SetSessionLabel(ctx context.Context, sid, key, value string) err
 
 // SessionLabel returns the current value of one label; ok is false when unset.
 func (s *Store) SessionLabel(ctx context.Context, sid, key string) (value string, ok bool, err error) {
-	if err := validLabelKey(key); err != nil {
-		return "", false, err
+	if verr := validLabelKey(key); verr != nil {
+		return "", false, verr
 	}
 	err = s.get(ctx, `SELECT value FROM session_labels WHERE session_id = ? AND key = ? ORDER BY id DESC LIMIT 1`,
 		[]any{sid, key}, &value)
