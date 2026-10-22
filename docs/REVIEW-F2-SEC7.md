@@ -623,3 +623,84 @@ Stack di-rebase ke `main` `e429331` (#190/#193/#200 sudah di `main`). Head: #185
 Gate di `1820dfb`: `go test -race -tags goolm -count=1 ./internal/{secret,backup,integration} ./internal/ctxdb/{carrierstore,compactstore,memstore} ./internal/loop/... ./internal/provider/... ./cmd/damnbot ./internal/archtest` → ok; `./internal/ctxdb -race` → ok (281 s); `go vet` + `GOOS=windows|darwin|freebsd` bersih; `make deadcode` 0; `go mod tidy -diff` bersih. `make loc`: `secret 1150/1150`, `backup 1462/1550`, `ctxdb 4289/4400`, `compactstore 330/350`, `carrierstore 298/400`, `loop 1920/1950`, `provider 2065/2100`; Total core **41.420** (archtest `repometa` = Σ `loc.budget`). Di setiap head antara (`a32a359` … `11719d4`): archtest ok, `make loc` lulus, `go vet ./...` bersih, dan Total core naik konsisten (38.340 → 41.320).
 
 **Ringkasan:** seluruh stack kripto **APPROVE**. Rebase tidak mengubah kode yang sudah direview. #217 memenuhi syarat SEC7-51: satu `carrierstore` terenkripsi, hash berkunci `carrier\x00`, penolakan dan ref lewat `Store`, dan replay SEC8-2 tidak terulang dengan codec nyata. Caps dan redaksi carrier tetap berlaku di DB terenkripsi. Syarat merge yang tersisa: #198/#199/#201/#217 di-merge dalam satu jendela.
+
+## Round 11 — 2026-10-22 (rebase ke `fa59d71`; aturan owner: e2e + kontrol negatif)
+
+**Verdict:** stack **REQUEST CHANGES**. Rebase memperkenalkan tiga regresi: **SEC7-56 (HIGH)** exclusion #211 tidak bekerja di SQL saat enkripsi aktif; **SEC7-57 (HIGH, fungsional)** recall memori plaintext kembali ke AND (#228 terbatalkan); **SEC7-58 (MEDIUM)** open read-only + codec pada DB plaintext kosong → panic. Ditambah SEC7-59 (MEDIUM, aturan owner: e2e tanpa kontrol negatif), SEC7-60 (MEDIUM, CI: `loc-budget` #198 merah dan `archtest` #241 merah), dan SEC7-61 (MINOR).
+
+| PR | Head | Head approve sebelumnya | Verdict |
+|---|---|---|---|
+| #185 | `9f9ef94` | `a32a359` | APPROVE (delta hanya dokumen/budget) |
+| #189 | `230f5ba` | `828188b` | APPROVE (sama) |
+| #187 | `bb47855` | `d39df0d` | APPROVE (sama) |
+| #191 | `795fc87` | `fd44cd8` | APPROVE (sama) |
+| #192 | `90290c8` | `a060f9e` | APPROVE (sama) |
+| #194 | `c43dc95` | `6bcb408` | APPROVE (delta: `//nolint` test) |
+| #197 | `ca3fcf7` | `323dd5a` | APPROVE (delta: konteks `main_test.go`) |
+| #198 | `d8c7276` | `efb2f8d` | **REQUEST CHANGES**: SEC7-60 (`ctxdb` 4096 > 4000 di head ini, CI `loc-budget` gagal) |
+| #199 | `937fe08` | `b720fc8` | **REQUEST CHANGES**: SEC7-56/57 (merge tangan `read.go`/`memstore`) |
+| #201 | `7dec0ab` | `11719d4` | **REQUEST CHANGES**: SEC7-56 (`compactstore`), SEC7-57 (`ftsValue`), SEC7-58 |
+| #217 | `5959ae2` | `1820dfb` | APPROVE kode (identik `=`); tertahan stack |
+| #241 (e2e) | `2758130` | — | **REQUEST CHANGES**: SEC7-59 (kontrol negatif), SEC7-60 (`archtest` gagal) |
+
+### 1. Range-diff (`e429331..1820dfb` vs `fa59d71..5959ae2`)
+
+33 pasangan. `=`: `c6cf941`, `e5ae990`, `2d46dfd`, `63f14da`, `cdddeed`, `523df92`, `69efc15`, `eb7d8e0`, `85452c1`, `05b3ad1`, `5959ae2`. `4b3e1c1` (budget carrierstore) dihapus dan budget pindah ke baris lain. Commit baru: `58644b9` (test real-codec) dan `7dec0ab` (operator FTS). Delta kode non-trivial (selain konteks dokumen/`loc.budget`/`CODEOWNERS`):
+
+- **`internal/ctxdb/read.go` (`searchFTS`)** menggabungkan `content_enc` (dekripsi) dengan `EXISTS (… x.kind = 'context_exclude' AND json_extract(x.payload, '$.turn_id') = e.turn_id)` milik #211, untuk event dan summary (`t.seq BETWEEN sm.from_seq AND sm.to_seq`) → lihat SEC7-56.
+- **`internal/ctxdb/store.go`**: `Open` → `openReadOnly` (#203) **atau** migrate+attach+recovery, lalu **`checkAtRest` untuk kedua jalur**. `Options.Codec` ikut di kedua mode. `ftsValue` → `keyedFTSExpr` (`7dec0ab`) → lihat SEC7-57.
+- **`internal/ctxdb/compactstore/compactstore.go`**: `summariesQ` = dekode `tainted_payload`/`tainted_hex` (OpenRow) **+** `NOT EXISTS … json_extract(x.payload, '$.turn_id')` milik #211; `notExcluded` untuk load event juga memakai `json_extract(x.payload, …)` → SEC7-56.
+- **`internal/ctxdb/memstore/memstore.go`**: `MATCH ?` (#228) dikembalikan menjadi `MATCH dmb_fts_norm(?, 'memory.content', '')` → SEC7-57.
+- **`internal/backup/restore*.go`**: hanya `//nolint:gosec` di test. **`cmd/damnbot/main_test.go`**: hanya konteks (`TestVersionVerbose`). **`cmd/damnbot/rel01_test.go`**: `startRunModel(…, nil)` (codec nil).
+
+### 2. Exclusion + dekripsi
+
+- **History:** benar. Eksklusi dihitung di Go atas event yang sudah didekripsi (`contextExclusions`/`excludeTurns`); `TestEncryptedHistoryExcludedTurns` lulus.
+- **Search:** **rusak saat terenkripsi.** Payload event terenkripsi disimpan sebagai `payload='{}'` + `payload_enc`, sehingga `json_extract(x.payload,'$.turn_id')` = NULL dan `EXISTS` tidak pernah cocok. Probe `TestZZSec7R11b` (codec nyata, dihapus setelah dijalankan): plaintext → hit turn yang di-exclude `Excluded=true`; **terenkripsi → `Excluded=false`** (snippet "zebracanary excluded question" terdekripsi dan dikembalikan sebagai hit biasa).
+- **compactstore:** penyebab yang sama (statis). `notExcluded` dan filter `summariesQ` memakai `json_extract(x.payload, …)`, sehingga dengan enkripsi turn yang di-exclude ikut dimuat ke input compaction dan summary yang mencakupnya tidak dibuang. Ini SEC11-1/SEC11-5 terbuka kembali, khusus mode terenkripsi.
+
+### 3. Read-only + codec (#203)
+
+| Probe (codec nyata) | Hasil |
+|---|---|
+| DB terenkripsi, read-only **tanpa codec** | `encrypted_db: storage.encrypt is false` ✔ (tidak fallback plaintext) |
+| DB terenkripsi, read-only **DEK lain** | `encrypted_db: DEK id mismatch` ✔ |
+| DB terenkripsi di **media RO** (fallback immutable), dengan codec | terbuka, History terdekripsi ✔; tanpa codec → `encrypted_db` ✔ |
+| DB plaintext berisi event, read-only + codec | `at_rest_existing_plaintext` ✔ |
+| **DB plaintext kosong (tanpa marker, tanpa event), read-only + codec** | **PANIC nil pointer**: `checkAtRest` mencoba `INSERT` marker lewat `s.w`, padahal `s.w` nil di mode read-only → SEC7-58 |
+
+### 4. Test real-codec
+
+`TestEncryptedHistoryExcludedTurns` dan `TestEncryptedReadOnlyOpen` memakai `secret.OpenCodec` (codec nyata) dan lulus. Keduanya tidak mencakup Search/compactstore (SEC7-56) maupun kontrol negatif read-only tanpa codec atau DEK salah (yang lulus di probe saya, tetapi tidak dikunci test).
+
+### 5. E2E #241 `TestCryptoBackupRestore`
+
+Binary nyata (harness #239: `go build ./cmd/damnbot`): `storage.encrypt=true` → `run` → sweep canary atas **seluruh** file data dir (termasuk `-wal`) → `sessions backup create` → sweep arsip → `sessions restore` ke dir baru → sweep → `run` kedua → History read-only terenkripsi memuat prompt pertama. Lulus lokal. **Kontrol negatif tidak ada.** Probe saya `TestZZCryptoNegativeControl` (dihapus setelah dijalankan): dengan `storage.encrypt=false`, sweep yang sama menemukan canary di `damnbot.db`, jadi sweep memang mampu mendeteksi plaintext. Kontrol ini harus ada di test (SEC7-59). Arsip `DMBK1` selalu terenkripsi, sehingga kontrol untuk arsip cukup lewat data dir.
+
+### 6. Budget
+
+`make loc` dan `go test ./internal/archtest` dijalankan di **setiap** head:
+
+| Head | Total core (ENGINEERING) | `make loc` | archtest |
+|---|---|---|---|
+| #185 `9f9ef94` … #197 `ca3fcf7` | 38.750 … 40.530 | ok | ok |
+| **#198 `d8c7276`** | 40.830 | **GAGAL: `ctxdb 4096 > 4000`** (CI `loc-budget`: fail) | ok |
+| #199 `937fe08` (`ctxdb` 4700) / #201 `7dec0ab` / #217 `5959ae2` | 41.630 / 41.730 / 41.830 | ok | ok |
+| **#241 `2758130`** | — | ok | **FAIL**: `TestGlobalAllowlist` (`internal/e2e/harness_test.go:binPath`), `TestImportGraph` (`internal/e2e` tidak ada di matriks), `TestCodeownersComplete` (`internal/e2e` tanpa CODEOWNERS) |
+
+Klaim worker bahwa "loc + archtest ok di 12 head" tidak benar untuk #198 dan #241. Baris budget akhir (`ctxdb` 4.700, `compactstore` 360, `carrierstore` 400, `secret` 1.150, `backup` 1.550) konsisten dengan Total core per head. Kenaikan `ctxdb` +900 di atas `main` 3.800 tetap sebesar yang di-approve di Round 10 ditambah test real-codec.
+
+Gate lain di `2758130`: `go test -race -tags goolm -count=1 ./internal/integration ./internal/ctxdb/compactstore ./internal/ctxdb/carrierstore ./internal/backup ./internal/secret` → ok; `go test ./internal/e2e -run TestCryptoBackupRestore` → ok; `GOOS=windows go vet` bersih.
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| **SEC7-56** | **HIGH** | confirmed (Search, probe) + static (compactstore) | Dengan enkripsi aktif, payload event disimpan `'{}'` + `payload_enc`, sehingga **semua filter exclusion berbasis SQL** (`read.go` `searchFTS` untuk event dan summary, `compactstore` `notExcluded` dan `summariesQ`) yang memakai `json_extract(x.payload,'$.turn_id')` tidak pernah cocok. Turn yang gagal/beracun muncul lagi di recall (`Excluded=false`) dan masuk ke compaction/summary. #211/SEC11 tidak berlaku di mode terenkripsi. | Pakai kolom plaintext `x.turn_id = e.turn_id` (event `context_exclude` sudah membawa `TurnID`) di keempat lokasi, atau tabel/indeks exclusion plaintext. Tambahkan test real-codec untuk Search (`Excluded=true`) dan compactstore (summary yang mencakup turn ter-exclude dibuang), dengan kontrol plaintext. |
+| **SEC7-57** | **HIGH (fungsional, mode default)** | confirmed (probe) | `memstore` kembali ke `MATCH dmb_fts_norm(?, …)`. Di mode **plaintext** (default), `ftsValue` = `ftsNorm` me-lowercase `"x" OR "y"` menjadi `"x" or "y"`, sehingga `or` dianggap term dan ekspresinya menjadi AND. Probe: "What is my locker number?" → **0 hit** plaintext (1 hit terenkripsi). Fix #228 (E4 29/30) terbatalkan. Selain itu, di mode terenkripsi `keyedFTSExpr` dipakai juga untuk nilai **index**, sehingga kata `OR`/`AND`/`NOT` huruf besar di konten tersimpan sebagai token plaintext. | Sisi query: plaintext → `ftsNorm` per token dengan operator dipertahankan (sama seperti `keyedFTSExpr` tanpa hash). Sisi index: selalu hash atau normalisasi semua token, tanpa pengecualian operator. Tambahkan test recall plaintext + terenkripsi untuk kueri pertanyaan. |
+| **SEC7-58** | MEDIUM | confirmed (probe) | `checkAtRest` di jalur read-only dengan codec pada DB tanpa marker dan tanpa event menulis `INSERT … module_state` lewat `s.w` (nil) → panic. Contoh: `sessions ls`/`doctor` read-only dengan `storage.encrypt=true` pada data dir yang baru diinisialisasi. Mode read-only juga tidak boleh menulis. | Di read-only: jangan menulis marker. Perlakukan DB kosong tanpa marker sebagai terbaca (tidak ada isi), atau tolak dengan error bertipe. Tambahkan test. |
+| SEC7-59 | MEDIUM (aturan owner) | open | `TestCryptoBackupRestore` tanpa kontrol negatif. | Subtest `storage.encrypt=false`: sweep yang sama **harus** menemukan canary di data dir (probe saya: `damnbot.db`). |
+| SEC7-60 | MEDIUM (CI) | confirmed | #198 `d8c7276`: `ctxdb 4096 > 4000` (CI `loc-budget` merah). #241: `archtest` gagal (allowlist global, matriks import `internal/e2e`, `CODEOWNERS`). | Naikkan budget `ctxdb` di commit yang menambah kode (#198), bukan di #199. Untuk #241, ambil perubahan `archtest` dari #239 (allow/matrix/CODEOWNERS) bersama harness. |
+| SEC7-61 | MINOR | open | `TestEncryptedReadOnlyOpen` tidak mengunci kontrol negatif (tanpa codec → `ErrEncrypted`, DEK salah → mismatch), padahal keduanya lulus di probe. `assertNoPlaintext` hanya memeriksa file DB utama. | Tambahkan kedua kasus. Sweep juga `-wal`/`-shm`/blob. |
+
+**Ringkasan Round 11:** rebase mempertahankan dekripsi di History/Search/compactstore dan `checkAtRest` di jalur read-only #203. DB terenkripsi tidak pernah dibuka tanpa codec atau dengan DEK salah, termasuk lewat fallback immutable. Namun merge tangan kehilangan dua hal: exclusion #211 dalam SQL tidak berfungsi pada payload terenkripsi (SEC7-56, HIGH), dan recall memori plaintext kembali ke AND (SEC7-57, HIGH, mode default). Read-only + codec pada DB kosong juga panic (SEC7-58). E2E #241 berjalan di binary nyata dan menyapu data dir serta arsip, tetapi kontrol negatifnya belum ada (SEC7-59). CI `loc-budget` #198 dan `archtest` #241 merah (SEC7-60). `main` sudah di `70ff325`, jadi rebase berikutnya juga harus menutup temuan ini.
