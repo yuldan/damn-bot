@@ -173,41 +173,59 @@ func Decide(ctx context.Context, s *ctxdb.Store, id int64, scope string, d *Deci
 	return wrap(s.Write(ctx, func(tx *ctxdb.Tx) error { return decide(tx, id, scope, d) }))
 }
 
+// rowState is the current shape of a memory row: decide needs the status it
+// transitions from, the origin SEC17-3 gates on and the row it supersedes.
+type rowState struct {
+	scope      string
+	content    string
+	status     string
+	origin     string
+	supersedes sql.NullInt64
+}
+
+// loadRow reads the row decide is about to transition.
+func loadRow(tx *ctxdb.Tx, id int64) (rowState, error) {
+	var r rowState
+	err := tx.Get(`SELECT scope, content, status, supersedes_id, origin FROM v_memory_status WHERE id = ?1`, []any{id},
+		&r.scope, &r.content, &r.status, &r.supersedes, &r.origin)
+	if errors.Is(err, ctxdb.ErrNotFound) {
+		return rowState{}, fmt.Errorf("%w: %d", ErrNotFound, id)
+	}
+	if err != nil {
+		return rowState{}, fmt.Errorf("memstore decide: %w", err)
+	}
+	return r, nil
+}
+
 func decide(tx *ctxdb.Tx, id int64, scope string, d *Decision) error {
 	if id <= 0 || !validStatus(d.Status) || !validActor(d.Actor) {
 		return ErrInvalid
 	}
-	var rowScope, content, from, origin string
-	var sup sql.NullInt64
-	err := tx.Get(`SELECT scope, content, status, supersedes_id, origin FROM v_memory_status WHERE id = ?1`, []any{id},
-		&rowScope, &content, &from, &sup, &origin)
-	if errors.Is(err, ctxdb.ErrNotFound) {
-		return fmt.Errorf("%w: %d", ErrNotFound, id)
-	}
+	row, err := loadRow(tx, id)
 	if err != nil {
-		return fmt.Errorf("memstore decide: %w", err)
+		return err
 	}
-	if rowScope != scope {
-		return fmt.Errorf("%w: %d is in %q", ErrScope, id, rowScope)
+	if row.scope != scope {
+		return fmt.Errorf("%w: %d is in %q", ErrScope, id, row.scope)
 	}
 	// SEC17-3: the agent tool path decides as "system" and may retire only an
 	// agent-origin row; the user path decides as "user".
-	if d.Actor == "system" && d.Status == "retired" && origin != "agent" {
-		return fmt.Errorf("%w: %d is origin %q", ErrNotAgent, id, origin)
+	if d.Actor == "system" && d.Status == "retired" && row.origin != "agent" {
+		return fmt.Errorf("%w: %d is origin %q", ErrNotAgent, id, row.origin)
 	}
-	if !transition(from, d.Status) {
-		return fmt.Errorf("%w: %s -> %s", ErrTransition, from, d.Status)
+	if !transition(row.status, d.Status) {
+		return fmt.Errorf("%w: %s -> %s", ErrTransition, row.status, d.Status)
 	}
 	if d.Status == "approved" {
-		if err := checkCap(tx, scope, content, id); err != nil {
+		if err := checkCap(tx, scope, row.content, id); err != nil {
 			return err
 		}
 	}
 	if err := insertDecision(tx, id, d); err != nil {
 		return err
 	}
-	if d.Status == "approved" && sup.Valid {
-		return retireSuperseded(tx, id, sup.Int64, rowScope, d.CreatedAt)
+	if d.Status == "approved" && row.supersedes.Valid {
+		return retireSuperseded(tx, id, row.supersedes.Int64, row.scope, d.CreatedAt)
 	}
 	return nil
 }

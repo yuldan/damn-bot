@@ -106,37 +106,30 @@ func TestMemoryToolErrors(t *testing.T) {
 	t.Parallel()
 	be := &fakeMemory{err: ErrMemoryNotFound}
 	tool := NewMemory(be)
-	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"remove","id":9}`)); err == nil || asToolError(t, err).Code != CodeNotFound {
-		t.Errorf("not-found mapping = %v", err)
+	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"remove","id":9}`, CodeNotFound)
+	assertToolCode(t, tool, Env{}, `{"action":"add","content":"x"}`, CodeInvalidArgs)
+	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"add"}`, CodeInvalidArgs)
+	long, merr := json.Marshal(map[string]string{"action": "add", "content": strings.Repeat("x", 501)})
+	if merr != nil {
+		t.Fatalf("marshal oversized args: %v", merr)
 	}
-	if _, err := tool.Run(context.Background(), Env{}, []byte(`{"action":"add","content":"x"}`)); err == nil || asToolError(t, err).Code != CodeInvalidArgs {
-		t.Errorf("target memory without cwd = %v", err)
-	}
-	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"add"}`)); err == nil || asToolError(t, err).Code != CodeInvalidArgs {
-		t.Errorf("add without content = %v", err)
-	}
-	long, _ := json.Marshal(map[string]string{"action": "add", "content": strings.Repeat("x", 501)})
-	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, long); err == nil || asToolError(t, err).Code != CodeTooLarge {
-		t.Errorf("oversized content = %v", err)
-	}
-	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"explode"}`)); err == nil || asToolError(t, err).Code != CodeInvalidArgs {
-		t.Errorf("unknown action = %v", err)
-	}
+	assertToolCode(t, tool, Env{Cwd: "/w"}, string(long), CodeTooLarge)
+	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"explode"}`, CodeInvalidArgs)
 	be.err = ErrMemoryFull
-	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"add","content":"x"}`)); err == nil || asToolError(t, err).Code != CodeTooLarge {
-		t.Errorf("full mapping = %v", err)
-	}
+	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"add","content":"x"}`, CodeTooLarge)
 	be.err = ErrMemoryInvalid
-	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"add","content":"x"}`)); err == nil || asToolError(t, err).Code != CodeInvalidArgs {
-		t.Errorf("invalid mapping = %v", err)
-	}
+	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"add","content":"x"}`, CodeInvalidArgs)
 	be.err = ErrMemoryDenied
-	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"remove","id":9}`)); err == nil || asToolError(t, err).Code != CodeDenied {
-		t.Errorf("denied mapping = %v", err)
-	}
+	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"remove","id":9}`, CodeDenied)
 	be.err = errors.New("disk")
-	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"add","content":"x"}`)); err == nil || asToolError(t, err).Code != CodeInternal {
-		t.Errorf("internal mapping = %v", err)
+	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"add","content":"x"}`, CodeInternal)
+}
+
+// assertToolCode runs the tool and asserts the closed code of the failure.
+func assertToolCode(t *testing.T, tool Tool, env Env, args string, want Code) {
+	t.Helper()
+	if _, err := tool.Run(context.Background(), env, []byte(args)); err == nil || asToolError(t, err).Code != want {
+		t.Errorf("run(%s) = %v, want code %s", args, err, want)
 	}
 }
 

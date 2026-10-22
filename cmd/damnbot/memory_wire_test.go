@@ -208,12 +208,12 @@ func TestMemoryToolBackendReplaceKeepsOldOnRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 	be := &memoryToolBackend{svc: svc, db: db}
-	old := agentNote(t, ctx, db, svc, sid, "c1", "old agent note")
+	old := agentNote(ctx, t, db, svc, sid, "c1", "old agent note")
 	// The dispatcher journals one tool_dispatch event per call id before the
 	// tool runs; the evidence lookup needs them.
 	for _, callID := range []string{"c2", "c3"} {
-		if _, err := db.Append(ctx, sid, nil, ctxdb.Event{Kind: "tool_dispatch", ToolCallID: callID, ToolName: "memory", Payload: "{}"}); err != nil {
-			t.Fatal(err)
+		if _, aerr := db.Append(ctx, sid, nil, ctxdb.Event{Kind: "tool_dispatch", ToolCallID: callID, ToolName: "memory", Payload: "{}"}); aerr != nil {
+			t.Fatal(aerr)
 		}
 	}
 
@@ -251,7 +251,7 @@ func TestMemoryToolBackendReplaceKeepsOldOnRejection(t *testing.T) {
 }
 
 // agentNote stores one approved agent-origin note evidenced by callID.
-func agentNote(t *testing.T, ctx context.Context, db *ctxdb.Store, svc *memory.Service, sid, callID, content string) int64 {
+func agentNote(ctx context.Context, t *testing.T, db *ctxdb.Store, svc *memory.Service, sid, callID, content string) int64 {
 	t.Helper()
 	ev, err := db.Append(ctx, sid, nil, ctxdb.Event{Kind: "tool_dispatch", ToolCallID: callID, ToolName: "memory", Payload: "{}"})
 	if err != nil {

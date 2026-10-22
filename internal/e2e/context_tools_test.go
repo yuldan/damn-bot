@@ -104,10 +104,12 @@ func seedForeignSession(t *testing.T, e *Env, cwd, content string) {
 	t.Helper()
 	withStore(t, e, func(tx *ctxdb.Tx) error {
 		if _, err := tx.CreateSession(ctxdb.Session{ID: "OTHER", Origin: "headless", Cwd: cwd}); err != nil {
-			return err
+			return fmt.Errorf("create foreign session: %w", err)
 		}
-		_, err := tx.AppendEvent("OTHER", &ctxdb.Event{Kind: "user_message", Role: "user", Content: content})
-		return err
+		if _, err := tx.AppendEvent("OTHER", &ctxdb.Event{Kind: "user_message", Role: "user", Content: content}); err != nil {
+			return fmt.Errorf("append foreign turn: %w", err)
+		}
+		return nil
 	})
 }
 
@@ -170,11 +172,13 @@ func seedUserMemory(t *testing.T, e *Env, content string) int64 {
 	withStore(t, e, func(tx *ctxdb.Tx) error {
 		if err := tx.Get(`INSERT INTO memory(kind, category, scope, content, origin, scan_result, created_at)
 			VALUES ('memory','fact','user',?1,'user','{}',0) RETURNING id`, []any{content}, &id); err != nil {
-			return err
+			return fmt.Errorf("insert user memory: %w", err)
 		}
-		_, err := tx.Exec(`INSERT INTO memory_decisions(memory_id, status, actor, reason, created_at)
-			VALUES (?1,'approved','user','confirmed',0)`, id)
-		return err
+		if _, err := tx.Exec(`INSERT INTO memory_decisions(memory_id, status, actor, reason, created_at)
+			VALUES (?1,'approved','user','confirmed',0)`, id); err != nil {
+			return fmt.Errorf("insert user decision: %w", err)
+		}
+		return nil
 	})
 	return id
 }
@@ -186,19 +190,21 @@ func seedAgentMemory(t *testing.T, e *Env, content string) int64 {
 	var id int64
 	withStore(t, e, func(tx *ctxdb.Tx) error {
 		if _, err := tx.CreateSession(ctxdb.Session{ID: "SEED", Origin: "headless", Cwd: "/seed"}); err != nil {
-			return err
+			return fmt.Errorf("create seed session: %w", err)
 		}
 		ev, err := tx.AppendEvent("SEED", &ctxdb.Event{Kind: "tool_dispatch", ToolName: "memory", ToolCallID: "seed", Payload: "{}"})
 		if err != nil {
-			return err
+			return fmt.Errorf("append seed dispatch: %w", err)
 		}
 		if err := tx.Get(`INSERT INTO memory(kind, category, scope, content, origin, source_session, evidence_event_id, scan_result, created_at)
 			VALUES ('memory','fact','user',?1,'agent','SEED',?2,'{}',0) RETURNING id`, []any{content, ev}, &id); err != nil {
-			return err
+			return fmt.Errorf("insert agent memory: %w", err)
 		}
-		_, xerr := tx.Exec(`INSERT INTO memory_decisions(memory_id, status, actor, reason, created_at)
-			VALUES (?1,'approved','user','confirmed',0)`, id)
-		return xerr
+		if _, xerr := tx.Exec(`INSERT INTO memory_decisions(memory_id, status, actor, reason, created_at)
+			VALUES (?1,'approved','user','confirmed',0)`, id); xerr != nil {
+			return fmt.Errorf("insert agent decision: %w", xerr)
+		}
+		return nil
 	})
 	return id
 }
