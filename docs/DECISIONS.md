@@ -3592,3 +3592,21 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 5. **Error/exit.** Mapping §11.6 yang ada dipakai: `not_found`/`session_purging` 1, argumen/format invalid 2, `session_busy`/`db_busy` 4; pesan bebas teks SQL dan argumen di-echo setelah `cleanArg`.
 6. **LOC.** `ctxdb` 3.900 → 3.950 (additive +50 di atas ADR-136; terukur 3.886 pada pohon sesudah main+#227), Total core 38.250 → 38.300.
 7. **Test.** `internal/e2e` (binary nyata): `TestSessionsReadOnlyNewerSchema` menyiapkan DB `user_version=9999`, memastikan `sessions show/ls` exit 0 dan membaca baris, lalu `run` exit 1 dengan `schema_newer` tanpa provider call.
+
+## ADR-141 — Sesi admin F2 (1/2): export, titles, pin/archive, stats di atas label append-only
+
+**Status:** Accepted 2026-10-22 (F2; CLI-057, MEM-014, MEM-016). Bertumpuk di atas ADR-140 (read-only `ls|show`); prune/archive massal + auto-prune ada di ADR-142.
+
+**Konteks.** ADR-140 menambahkan `sessions ls|show` read-only, tetapi belum ada export (MEM-014), title (MEM-016), pin/archive, atau stats (CLI-057). `session_labels` sudah mengizinkan `title`, `archived`, dan `pinned` sejak migrasi 0001, namun belum ada API tulis/baca maupun perintah headless.
+
+**Keputusan.**
+1. **Subperintah.** `sessions rename <id> [<title>]` (menulis/membaca label `title`), `sessions export <id> [--format md|jsonl|html] [--out FILE] [--no-redact]`, `sessions archive|unarchive|pin|unpin <id>`, `sessions pinned`, dan `sessions stats`. `ls`/`show` tetap milik ADR-140 dan tidak diubah.
+2. **Label append-only.** `ctxdb.SetSessionLabel` hanya menerima `title`/`archived`/`pinned`; baris terakhir menang dan `"0"` mematikan flag tanpa menghapus riwayat. Judul dipangkas kontrol/UTF-8 invalid, di-trim, dan dibatasi 120 rune. `SessionLabel` membaca nilai terakhir; `SessionRows` mengembalikan metadata sesi + label + jumlah event untuk `pinned`/`stats`.
+3. **Export.** Membaca lewat store read-only ADR-140 dengan `History(..., WithHistoryRaw, WithHistoryExcluded)` sehingga ekspor memuat transkrip penuh termasuk turn yang dikecualikan dan leluhur fork. Rahasia diredaksi default (`redact.New`); `--no-redact` adalah opt-out eksplisit. `md`/`html` meng-escape konten sesuai format, `jsonl` satu objek per event; `--out` menulis file 0600. Format tak dikenal = exit 2.
+4. **Tidak menduplikasi.** `sessions prune`/`purge` massal, VACUUM, dan `[sessions] auto_prune` ada di ADR-142. `sessions fork/rewind` (ADR-136) dan resume `run --session/--continue` (#243, MEM-013) tetap milik PR masing-masing.
+5. **Budget.** `ctxdb` 4.050 → 4.150 (additive +100 di atas ADR-140; terukur 4.000; label/title/rows), Total core 38.340 → 38.440 ≤ 47.000; `cmd/damnbot` tidak masuk tabel budget core.
+6. **Test.** `internal/ctxdb` (`TestSessionLabelsAndRows`, `TestSessionLabelRejections`: append-only last-wins, flag value closed, sanitasi/120 rune, urutan + jumlah event); `cmd/damnbot` (`TestSessionsRenameAndExport`, `TestSessionsExportFile`, `TestSessionsStatsAndFlags`); `internal/e2e` (`TestSessionsAdminEndToEnd`: binary nyata membuat transkrip, lalu rename/export md+jsonl+html/stats/pin/archive/unpin, redaksi dan escape diperiksa).
+
+**Dampak terukur (SPEC §20).** DDL/migrasi 0, dependency 0, token prompt 0 (perintah CLI di luar jalur turn). LOC `ctxdb` +121 (terukur 4.000/4.050); `cmd/damnbot` +409 baris non-test (di luar tabel core).
+
+**Konsekuensi.** (+) `sessions` F2 punya export, judul, pin/archive, dan stats headless tanpa menyentuh jalur turn. (+) Label append-only menjaga invariant P9 (tidak ada UPDATE/DELETE pada metadata). (−) Ekspor penuh memuat seluruh lineage; pada sesi besar pengguna memakai `--out`/format `jsonl`. (−) `archived` hanya label sampai prune/archive massal (ADR-142) dan permukaan F3 memfilternya.
