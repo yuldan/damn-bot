@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -32,10 +32,9 @@ func (p *toolsetProvider) Stream(_ context.Context, req *loop.Request, emit func
 	call := p.calls
 	p.mu.Unlock()
 	if call == 1 {
-		args, _ := json.Marshal(map[string]string{"command": p.command})
 		return loop.Reply{
 			FinishReason: loop.FinishToolCalls, Model: "fake/m",
-			ToolCalls: []loop.ToolCall{{ID: "c1", Name: "shell", Arguments: string(args)}},
+			ToolCalls: []loop.ToolCall{{ID: "c1", Name: "shell", Arguments: fmt.Sprintf(`{"command":%q}`, p.command)}},
 		}, nil
 	}
 	emit(loop.Delta{Text: "done"})
@@ -62,7 +61,7 @@ func toolMessages(req loop.Request) string {
 }
 
 // runToolset drives runOne with the injected provider and a toolsets config.
-func runToolset(t *testing.T, ts toolset.Config, approval, command string) (*toolsetProvider, []byte, string, error) {
+func runToolset(t *testing.T, ts toolset.Config, approval, command string) (*toolsetProvider, string, error) {
 	t.Helper()
 	prov := &toolsetProvider{command: command}
 	cfg := config.Default()
@@ -73,12 +72,12 @@ func runToolset(t *testing.T, ts toolset.Config, approval, command string) (*too
 		approval: approval, prov: prov, cfgOverride: &cfg,
 	}, &out, &errs)
 	if err != nil {
-		return prov, out.Bytes(), errs.String(), err
+		return prov, errs.String(), err
 	}
 	if code != 0 {
 		t.Fatalf("runOne = %d, stderr %s", code, errs.String())
 	}
-	return prov, out.Bytes(), errs.String(), nil
+	return prov, errs.String(), nil
 }
 
 // TestRunToolsetExcludesShell (TSET-038/039, CORE-004): a toolset without
@@ -91,7 +90,7 @@ func TestRunToolsetExcludesShell(t *testing.T) {
 		Active: []string{"review"},
 		Custom: map[string]toolset.Definition{"review": {Tools: []string{"read_file", "grep"}}},
 	}
-	prov, _, stderr, err := runToolset(t, ts, "auto", "echo pwned > "+marker)
+	prov, stderr, err := runToolset(t, ts, "auto", "echo pwned > "+marker)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -128,7 +127,7 @@ func TestRunToolsetKeepsApproval(t *testing.T) {
 	for _, approval := range []string{"", "auto"} {
 		t.Run("approval="+approval, func(t *testing.T) {
 			marker := filepath.Join(t.TempDir(), "pwned")
-			prov, _, _, err := runToolset(t, ts, approval, "echo pwned > "+marker)
+			prov, _, err := runToolset(t, ts, approval, "echo pwned > "+marker)
 			if err != nil {
 				t.Fatalf("run: %v", err)
 			}
@@ -149,12 +148,27 @@ func TestRunToolsetKeepsApproval(t *testing.T) {
 	}
 }
 
+// TestToolsetRefusesDeferredInvoke (ACC-15): a toolset cannot reach a
+// deferred/module tool through tool_invoke; the adapter checks the inner name
+// before the dispatcher unwraps it.
+func TestToolsetRefusesDeferredInvoke(t *testing.T) {
+	t.Parallel()
+	adapter := &toolsetAdapter{allowed: map[string]bool{"read_file": true, "tool_invoke": true}}
+	_, err := adapter.Prepare(context.Background(), loop.ToolCall{
+		ID: "c1", Name: "tool_invoke", Arguments: `{"name":"mcp_issue","arguments":{}}`,
+	})
+	var te *loop.ToolError
+	if !errors.As(err, &te) || te.Code != "unknown_tool" || !strings.Contains(te.Message, "mcp_issue") {
+		t.Fatalf("Prepare = %v, want unknown_tool for mcp_issue", err)
+	}
+}
+
 // TestRunToolsetUnavailableWarned: a built-in toolset naming tools the binary
 // does not implement reports them once instead of dropping them silently.
 func TestRunToolsetUnavailableWarned(t *testing.T) {
 	t.Parallel()
 	ts := toolset.Config{Active: []string{"memory"}}
-	prov, _, stderr, err := runToolset(t, ts, "auto", "true")
+	prov, stderr, err := runToolset(t, ts, "auto", "true")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
@@ -173,15 +187,16 @@ func TestRunToolsetUnavailableWarned(t *testing.T) {
 func TestWithDeferredMeta(t *testing.T) {
 	t.Parallel()
 	sel := toolset.Selection{Allowed: map[string]bool{"read_file": true}, Tools: []string{"read_file"}}
-	got := withDeferredMeta(sel, map[string]bool{"read_file": true, "tool_search": true, "tool_invoke": true})
-	if !got.Allowed["tool_search"] || !got.Allowed["tool_invoke"] {
-		t.Fatalf("meta-tools not kept: %v", got.Allowed)
+	withDeferredMeta(&sel, map[string]bool{"read_file": true, "tool_search": true, "tool_invoke": true})
+	if !sel.Allowed["tool_search"] || !sel.Allowed["tool_invoke"] {
+		t.Fatalf("meta-tools not kept: %v", sel.Allowed)
 	}
-	if names := got.Tools; len(names) != 3 || names[0] != "read_file" || names[1] != "tool_invoke" || names[2] != "tool_search" {
+	if names := sel.Tools; len(names) != 3 || names[0] != "read_file" || names[1] != "tool_invoke" || names[2] != "tool_search" {
 		t.Fatalf("Tools = %v", names)
 	}
 	legacy := toolset.Selection{Tools: []string{"read_file"}}
-	if out := withDeferredMeta(legacy, map[string]bool{"tool_search": true}); out.Allowed != nil {
-		t.Fatalf("legacy selection gained a filter: %+v", out)
+	withDeferredMeta(&legacy, map[string]bool{"tool_search": true})
+	if legacy.Allowed != nil {
+		t.Fatalf("legacy selection gained a filter: %+v", legacy)
 	}
 }

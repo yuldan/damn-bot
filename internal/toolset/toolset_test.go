@@ -122,6 +122,30 @@ func TestResolveDisabledAndCustom(t *testing.T) {
 	}
 }
 
+// TestDisabledOnlyFilters (review ACC-13): configuring only Disabled filters;
+// it is not treated as the legacy "no toolsets" case. Both the top-level and
+// the platform form are covered.
+func TestDisabledOnlyFilters(t *testing.T) {
+	t.Parallel()
+	avail := available("shell", "read_file", "grep")
+	sel, err := Resolve(Config{Disabled: []string{"terminal"}}, "linux", avail)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !slices.Equal(sel.Tools, []string{"grep", "read_file"}) || sel.Allowed == nil || sel.Allowed["shell"] {
+		t.Fatalf("disabled-only selection = %+v", sel)
+	}
+	sel, err = Resolve(Config{Platform: map[string]Override{
+		"linux": {Disabled: []string{"terminal"}},
+	}}, "linux", avail)
+	if err != nil {
+		t.Fatalf("Resolve platform: %v", err)
+	}
+	if !slices.Equal(sel.Tools, []string{"grep", "read_file"}) || sel.Allowed["shell"] {
+		t.Fatalf("platform disabled-only selection = %+v", sel)
+	}
+}
+
 // TestResolvePlatformOverride: the platform section replaces both lists.
 func TestResolvePlatformOverride(t *testing.T) {
 	t.Parallel()
