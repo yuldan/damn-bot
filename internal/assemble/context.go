@@ -11,16 +11,18 @@ import (
 
 // Context caps from SPEC §6 (B-03). All are tokens counted by [Deps.Tokens].
 const (
-	CapFacts      = 60
-	CapWorkspace  = 150
-	CapFiles      = 400
-	CapFilesMin   = 200
-	CapMemory     = 300
-	CapPinned     = 150
-	CapSkills     = 150
-	CapContext    = 1100
-	CapSeparators = 40
-	MaxSkills     = 3
+	CapFacts     = 60
+	CapWorkspace = 150
+	CapFiles     = 400
+	CapFilesMin  = 200
+	CapMemory    = 300
+	CapPinned    = 150
+	CapSkills    = 150
+	CapContext   = 1100
+	// CapContextDegraded is the whole-tier cap in PROV-02 degraded mode.
+	CapContextDegraded = 600
+	CapSeparators      = 40
+	MaxSkills          = 3
 	// MaxContextFileBytes bounds one sandbox read; the 400-token cap keeps
 	// almost all of this out of the prompt, but a whole-file read would let
 	// a 4 GiB file stall startup.

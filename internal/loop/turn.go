@@ -274,9 +274,14 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 	if reply.FallbackFrom != "" {
 		t.fallback(ctx, reply.FallbackFrom, reply.Model)
 	}
+	cacheBreak := ""
+	if reply.FallbackFrom != "" {
+		cacheBreak = "model_switch" // COST-04: the prefix is now billed again on the new model
+	}
 	eventID, err := t.append(ctx, &event.Event{Kind: event.LLMCall, Payload: payload(llmPayload{
 		Model: reply.Model, FinishReason: reply.FinishReason, FallbackFrom: reply.FallbackFrom,
-		Attempts: reply.Attempts, Input: reply.Usage.Input, CachedInput: reply.Usage.CachedInput,
+		CacheBreak: cacheBreak,
+		Attempts:   reply.Attempts, Input: reply.Usage.Input, CachedInput: reply.Usage.CachedInput,
 		Output: reply.Usage.Output, CostUSD: reply.Usage.CostUSD,
 	})})
 	if err != nil {

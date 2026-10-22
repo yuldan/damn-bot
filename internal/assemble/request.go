@@ -8,6 +8,10 @@ import (
 	"strings"
 )
 
+// DegradedWindow is the window below which prompt assembly uses the PROV-02
+// degraded profile (SPEC §22.1).
+const DegradedWindow = 64_000
+
 // Message is one chat message in the assembled request.
 type Message struct {
 	Role    string
@@ -58,6 +62,10 @@ type SessionView struct {
 	// turn. Nil is allowed only for callers without a turn (tests, F2
 	// tooling).
 	Turn *Turn
+	// Degraded renders the PROV-02 degraded profile (window below
+	// [DegradedWindow]): at most eight catalog groups within 200 tokens and a
+	// context tier within 600.
+	Degraded bool
 	// History is the append-only message list. The volatile tier is appended
 	// to the last user message; the message sequence itself is never
 	// rewritten (ADR-067 butir 2).
@@ -74,7 +82,11 @@ func (a *Assembler) Build(_ context.Context, v *SessionView) (Request, Estimate,
 	if err != nil {
 		return Request{}, Estimate{}, err
 	}
-	catalog := a.Catalog(v.Catalog)
+	catalogCap, catalogGroups, contextCap := CapCatalog, CatalogMaxGroups, CapContext
+	if v.Degraded {
+		catalogCap, catalogGroups, contextCap = CapCatalogDegraded, CatalogMaxGroupsDegraded, CapContextDegraded
+	}
+	catalog := a.catalog(v.Catalog, catalogCap, catalogGroups)
 	// Rule 3 names tool_search/tool_invoke and "the deferred catalog below",
 	// so it is rendered exactly when the catalog is (ADR-067, ADR-121).
 	opts := v.Stable
@@ -86,7 +98,7 @@ func (a *Assembler) Build(_ context.Context, v *SessionView) (Request, Estimate,
 	if !validWrappers(v.Context) {
 		return Request{}, Estimate{}, fmt.Errorf("assemble: context tier: %w", ErrUntrusted)
 	}
-	contextText := clipWrappedTier(v.Context, CapContext, "\n[truncated]", a.tokens)
+	contextText := clipWrappedTier(v.Context, contextCap, "\n[truncated]", a.tokens)
 	system := joinNonEmpty([]string{stable, catalog, contextText})
 	summaries, err := a.summaryTier(v.Summaries)
 	if err != nil {

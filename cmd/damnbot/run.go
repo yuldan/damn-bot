@@ -216,7 +216,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		ParallelTools:   cfg.Loop.ParallelTools,
 	}, &loop.Deps{
 		Provider:  model.provider,
-		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, store: model.store},
+		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, window: int64(cfg.Loop.TurnMaxInputTok), store: model.store},
 		Toolset:   &toolsetAdapter{disp: disp},
 		Store:     model.store,
 		Ledger:    model.ledger,
@@ -524,16 +524,18 @@ type assemblerAdapter struct {
 	contextTier string // frozen per session (P15)
 	model       string
 	maxTokens   int
+	window      int64 // effective input window; < assemble.DegradedWindow = degraded
 	store       *ctxStore
 }
 
 func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleRequest) (loop.Prompt, error) {
 	view := &assemble.SessionView{
-		Phase:   assemble.PhaseF1,
-		Context: a.contextTier,
-		Tools:   a.tools,
-		Turn:    a.turn,
-		History: []assemble.Message{{Role: "user", Content: req.Input.Text}},
+		Phase:    assemble.PhaseF1,
+		Context:  a.contextTier,
+		Tools:    a.tools,
+		Turn:     a.turn,
+		Degraded: a.window > 0 && a.window < assemble.DegradedWindow,
+		History:  []assemble.Message{{Role: "user", Content: req.Input.Text}},
 	}
 	r, est, err := a.asm.Build(ctx, view)
 	if err != nil {
