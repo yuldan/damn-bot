@@ -351,3 +351,147 @@ func TestEncryptedReadOnlyOpen(t *testing.T) {
 	}
 	assertNoPlaintext(t, dir, "canary-readonly")
 }
+
+func TestEncryptedSearchAndSummaryExclusions(t *testing.T) {
+	dir := t.TempDir()
+	s := openEncrypted(t, dir)
+	defer closeStore(t, s)
+	seedExcludedTurn(t, s)
+	assertExclusion(t, s)
+}
+
+func TestPlaintextSearchAndSummaryExclusions(t *testing.T) {
+	s, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: t.TempDir(), Kind: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, s)
+	seedExcludedTurn(t, s)
+	assertExclusion(t, s)
+}
+
+func seedExcludedTurn(t *testing.T, s *ctxdb.Store) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	evs := []ctxdb.Event{
+		{Kind: "user_message", TurnID: "T1", Role: "user", Content: "canary-poison", Payload: "{}"},
+		{Kind: "assistant_message", TurnID: "T1", Role: "assistant", Content: "poison answer", Payload: "{}"},
+		{Kind: "context_exclude", TurnID: "T1", Payload: `{"turn_id":"T1","reason":"provider_error"}`},
+		{Kind: "user_message", TurnID: "T2", Role: "user", Content: "canary-good", Payload: "{}"},
+	}
+	for i := range evs {
+		if _, err := s.Append(ctx, "S", nil, evs[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func assertExclusion(t *testing.T, s *ctxdb.Store) {
+	t.Helper()
+	hits, err := s.Search(context.Background(), ctxdb.Query{Text: "poison", Limit: 5})
+	if err != nil || len(hits) == 0 {
+		t.Fatalf("poison hits = %+v, %v", hits, err)
+	}
+	for i := range hits {
+		if !hits[i].Excluded {
+			t.Fatalf("poison hit not marked excluded: %+v", hits[i])
+		}
+	}
+	store := compactstore.New(s, func() time.Time { return time.Unix(1, 0) })
+	if _, cerr := store.Commit(context.Background(), "S", &compaction.Commit{
+		Attempt: compaction.Attempt{Outcome: compaction.OutcomeSummarized, AtMS: 1000},
+		Summary: &compaction.Summary{FromSeq: 1, ToSeq: 3, Content: `{"goal":"canary-poison"}`, Model: "m"},
+	}); cerr != nil {
+		t.Fatal(cerr)
+	}
+	snap, err := store.Load(context.Background(), "S")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Summaries) != 0 {
+		t.Fatalf("summary covering excluded turn survived: %+v", snap.Summaries)
+	}
+}
+
+func TestFTSCodecLockerQuery(t *testing.T) {
+	for _, encrypted := range []bool{false, true} {
+		dir := t.TempDir()
+		var s *ctxdb.Store
+		var err error
+		if encrypted {
+			s = openEncrypted(t, dir)
+		} else {
+			s, err = ctxdb.Open(context.Background(), &ctxdb.Options{Dir: dir, Kind: "cli"})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, perr := memstore.Put(context.Background(), s, &memstore.Row{Category: "fact", Scope: "user", Content: "my locker number is 4417", Origin: "user", ScanResult: "{}", CreatedAt: 1},
+			&memstore.Decision{Status: "approved", Actor: "user", CreatedAt: 1}, redact.New(redact.Options{})); perr != nil {
+			t.Fatal(perr)
+		}
+		hits, err := memstore.Search(context.Background(), s, &memstore.Query{Text: "What is my locker number?", Scopes: []string{"user"}, Limit: 3, Now: 2})
+		if err != nil || len(hits) == 0 || !strings.Contains(hits[0].Row.Content, "4417") {
+			t.Fatalf("encrypted=%v locker hits = %+v, %v", encrypted, hits, err)
+		}
+		closeStore(t, s)
+	}
+}
+
+func TestEncryptedIndexHidesOperatorWords(t *testing.T) {
+	dir := t.TempDir()
+	s := openEncrypted(t, dir)
+	defer closeStore(t, s)
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(ctx, "S", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "OR AND NOT canary-operator", Payload: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Write(ctx, func(tx *ctxdb.Tx) error {
+		for _, word := range []string{"OR", "AND", "NOT"} {
+			ids, err := tx.Ints(`SELECT rowid FROM events_fts WHERE events_fts MATCH ?`, `"`+word+`"`)
+			if err != nil {
+				return fmt.Errorf("fts %s: %w", word, err)
+			}
+			if len(ids) != 0 {
+				t.Fatalf("plaintext operator token %q in encrypted FTS index", word)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReadOnlyCodecErrors(t *testing.T) {
+	ctx := context.Background()
+	empty := t.TempDir()
+	s, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: empty, Kind: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeStore(t, s)
+	codec := realCodec(t, empty)
+	if _, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: empty, Kind: "cli", ReadOnly: true, Codec: codec}); !errors.Is(err, ctxdb.ErrReadOnly) {
+		t.Fatalf("empty read-only encrypted open = %v, want ErrReadOnly", err)
+	}
+
+	enc := t.TempDir()
+	es := openEncrypted(t, enc)
+	if _, err := es.CreateSession(ctx, ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	closeStore(t, es)
+	if _, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: enc, Kind: "cli", ReadOnly: true}); !errors.Is(err, ctxdb.ErrEncrypted) {
+		t.Fatalf("read-only encrypted open without codec = %v, want ErrEncrypted", err)
+	}
+	wrong := realCodec(t, t.TempDir())
+	if _, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: enc, Kind: "cli", ReadOnly: true, Codec: wrong}); !errors.Is(err, ctxdb.ErrEncrypted) {
+		t.Fatalf("read-only encrypted open with wrong DEK = %v, want ErrEncrypted", err)
+	}
+}

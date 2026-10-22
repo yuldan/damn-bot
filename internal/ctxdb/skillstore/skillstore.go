@@ -301,9 +301,9 @@ func searchIDs(tx *ctxdb.Tx, text string, k int) ([]int64, error) {
 		from = `skills_fts f
 			JOIN skills s ON s.id = f.rowid
 			LEFT JOIN v_memory_status m ON m.id = s.memory_id`
-		where += " AND skills_fts MATCH dmb_fts_norm(?2, 'skills.name', '')"
+		where += " AND skills_fts MATCH ?2"
 		order = "bm25(skills_fts), s.name"
-		args = append(args, query)
+		args = append(args, tx.FTSQuery(query))
 	}
 	ids, err := tx.Ints("SELECT s.id FROM "+from+" WHERE "+where+" ORDER BY "+order+" LIMIT ?1", args...)
 	if err != nil {

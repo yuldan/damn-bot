@@ -428,7 +428,7 @@ func (s *Store) ftsValue(t string) string {
 	if s.codec == nil {
 		return ftsNorm(t)
 	}
-	return keyedFTSExpr(s.codec, t)
+	return encFTS(s.codec, t)
 }
 
 // keyedFTSExpr hashes quoted/token terms but preserves FTS operators (OR,

@@ -294,8 +294,8 @@ func searchIDs(tx *ctxdb.Tx, q *Query) ([]int64, error) {
 	text := ftsQuery(q.Text)
 	if text != "" {
 		from = "memory_fts f JOIN v_memory_status m ON m.id = f.rowid"
-		where = append(where, "memory_fts MATCH dmb_fts_norm(?, 'memory.content', '')")
-		args = append(args, text)
+		where = append(where, "memory_fts MATCH ?")
+		args = append(args, tx.FTSQuery(text))
 	}
 	if len(q.Scopes) > 0 {
 		where = append(where, "m.scope IN ("+marks(len(q.Scopes))+")")

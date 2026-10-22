@@ -322,8 +322,9 @@ func excludeTurns(evs []Event, turns map[string]bool) []Event {
 	}
 	out := evs[:0]
 	for i := range evs {
-		if e := evs[i]; e.TurnID == "" || !turns[e.TurnID] {
-			out = append(out, e)
+		e := &evs[i]
+		if e.Kind == "context_exclude" || e.TurnID == "" || !turns[e.TurnID] {
+			out = append(out, *e)
 		}
 	}
 	return out
@@ -405,14 +406,14 @@ func (s *Store) Search(ctx context.Context, q Query) ([]Hit, error) {
 func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int, summaries bool) ([]Hit, error) {
 	q := `SELECT e.id, e.session_id, e.seq, e.kind, bm25(events_fts), e.content, e.content_enc,
 		EXISTS (SELECT 1 FROM events x WHERE x.session_id = e.session_id AND x.kind = 'context_exclude'
-			AND json_extract(x.payload, '$.turn_id') = e.turn_id)
+			AND x.turn_id = e.turn_id)
 		FROM events_fts JOIN events e ON e.id = events_fts.rowid
 		WHERE events_fts MATCH ? AND ` + notPurging("e.session_id")
 	if summaries {
 		q = `SELECT sm.event_id, sm.session_id, sm.to_seq, '', bm25(summaries_fts), sm.content,
 			EXISTS (SELECT 1 FROM events x JOIN events t ON t.session_id = x.session_id
 				WHERE x.session_id = sm.session_id AND x.kind = 'context_exclude'
-				AND json_extract(x.payload, '$.turn_id') = t.turn_id AND t.seq BETWEEN sm.from_seq AND sm.to_seq)
+				AND x.turn_id = t.turn_id AND t.seq BETWEEN sm.from_seq AND sm.to_seq)
 			FROM summaries_fts JOIN summaries sm ON sm.id = summaries_fts.rowid
 			WHERE summaries_fts MATCH ? AND ` + notPurging("sm.session_id")
 	}

@@ -43,6 +43,9 @@ func (s *Store) checkAtRest(ctx context.Context) error {
 	if n != 0 {
 		return fmt.Errorf("%w: DB already contains plaintext events", ErrAtRestPlaintext)
 	}
+	if s.w == nil {
+		return fmt.Errorf("%w: cannot provision at-rest marker in a read-only open", ErrReadOnly)
+	}
 	_, err = s.w.ExecContext(ctx, `INSERT INTO module_state(module_id, key, value, updated_at) VALUES ('storage','encrypt',?,?)`,
 		s.codec.ID(), s.clk.WallMs())
 	return wrap(err)
@@ -105,6 +108,15 @@ func (s *Store) openText(scope string, sealed []byte, plain string) (string, err
 // SealRow encrypts one consumer value with its row identity.
 func (t *Tx) SealRow(scope, identity, plain, placeholder string) ([]byte, string, error) {
 	return t.s.sealRow(scope, identity, plain, placeholder)
+}
+
+// FTSQuery applies the keyed term transform to an FTS expression when the
+// store is encrypted, preserving operators; plaintext stores are untouched.
+func (t *Tx) FTSQuery(expr string) string {
+	if t.s.codec == nil {
+		return expr
+	}
+	return keyedFTSExpr(t.s.codec, expr)
 }
 
 // OpenRow decrypts one consumer value and verifies its row identity.

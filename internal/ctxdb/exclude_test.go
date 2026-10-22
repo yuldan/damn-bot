@@ -47,6 +47,9 @@ func TestCrashExcludesDanglingTurn(t *testing.T) {
 	got, err := b.History(ctx, "S", 0)
 	must(t, err)
 	for _, ev := range got {
+		if ev.Kind == "context_exclude" {
+			continue // audit marker stays (excludeTurns)
+		}
 		if ev.TurnID == "T1" {
 			t.Fatalf("excluded turn still in context: %+v", ev)
 		}
@@ -86,10 +89,13 @@ func TestHistoryDropsExcludedSummary(t *testing.T) {
 			VALUES ('S', 1, 3, '{"goal":"poison"}', 'm', 1, 1, ?, 0)`, id)
 		return err
 	}))
-	must(t, s.Append2(ctx, "S", Event{Kind: "context_exclude", Payload: `{"turn_id":"T1","reason":"provider_error"}`}))
+	must(t, s.Append2(ctx, "S", Event{Kind: "context_exclude", TurnID: "T1", Payload: `{"turn_id":"T1","reason":"provider_error"}`}))
 	got, err := s.History(ctx, "S", 0)
 	must(t, err)
 	for _, ev := range got {
+		if ev.Kind == "context_exclude" {
+			continue
+		}
 		if strings.Contains(ev.Content, "poison") || ev.TurnID == "T1" {
 			t.Fatalf("excluded summary or turn returned: %+v", ev)
 		}

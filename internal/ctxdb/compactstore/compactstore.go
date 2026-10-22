@@ -45,7 +45,7 @@ const summariesQ = `SELECT json_object('session', s.session_id, 'id', s.id, 'fro
 	FROM summaries s JOIN events e ON e.id = s.event_id WHERE s.session_id = ?1
 	AND NOT EXISTS (SELECT 1 FROM events x JOIN events t ON t.session_id = x.session_id
 		WHERE x.session_id = s.session_id AND x.kind = 'context_exclude'
-		AND json_extract(x.payload, '$.turn_id') = t.turn_id AND t.seq BETWEEN s.from_seq AND s.to_seq)
+		AND x.turn_id = t.turn_id AND t.seq BETWEEN s.from_seq AND s.to_seq)
 	ORDER BY s.to_seq, s.id`
 
 // eventCols renders one event row as JSON; image attachments are the
@@ -62,7 +62,7 @@ const eventCols = `json_object('seq', e.seq, 'kind', e.kind, 'turn', coalesce(e.
 // context_exclude event (GAP-REL-01); the rows stay in the transcript and
 // remain recallable, but never reach a summary. Span markers are ignored
 // (SEC11-4): no writer emits them and an open span would hide later turns.
-const notExcluded = ` AND NOT EXISTS (SELECT 1 FROM events x WHERE x.session_id = e.session_id AND x.kind = 'context_exclude' AND json_extract(x.payload, '$.turn_id') = e.turn_id)`
+const notExcluded = ` AND NOT EXISTS (SELECT 1 FROM events x WHERE x.session_id = e.session_id AND x.kind = 'context_exclude' AND x.turn_id = e.turn_id)`
 
 // notPartial drops a length-truncated assistant answer the loop marked
 // partial (EC-PROV-008): it stays in the transcript but never enters a

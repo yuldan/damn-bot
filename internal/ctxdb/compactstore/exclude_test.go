@@ -22,7 +22,7 @@ func TestLoadSkipsExcluded(t *testing.T) {
 		// Span-marked turn without a turn_id on the rows.
 		ctxdb.Event{Kind: "user_message", Role: "user", Content: "span poison"},
 		ctxdb.Event{Kind: "assistant_message", Role: "assistant", Content: "span partial"},
-		ctxdb.Event{Kind: "context_exclude", Payload: `{"turn_id":"t2","reason":"provider_error"}`},
+		ctxdb.Event{Kind: "context_exclude", TurnID: "t2", Payload: `{"turn_id":"t2","reason":"provider_error"}`},
 		ctxdb.Event{Kind: "context_exclude", Payload: `{"from_seq":9,"to_seq":10,"reason":"cancelled"}`},
 	)
 	if err != nil {
@@ -72,7 +72,7 @@ func TestLoadDropsExcludedSummary(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, aerr := db.Append(t.Context(), sid, nil, ctxdb.Event{
-		Kind: "context_exclude", Payload: `{"turn_id":"t1","reason":"provider_error"}`,
+		Kind: "context_exclude", TurnID: "t1", Payload: `{"turn_id":"t1","reason":"provider_error"}`,
 	}); aerr != nil {
 		t.Fatal(aerr)
 	}
