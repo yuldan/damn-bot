@@ -145,8 +145,10 @@ type cumulativeGuard struct{ est []int64 }
 func (g *cumulativeGuard) Check(_ context.Context, r budget.Request) (budget.Decision, error) {
 	g.est = append(g.est, r.EstimateMicros)
 	if len(g.est) >= 3 {
-		return budget.Decision{Allowed: false, Reason: budget.ReasonDaily, Cap: budget.CapDaily,
-			LimitMicros: 1000, UsedMicros: 0, EstimateMicros: r.EstimateMicros}, nil
+		return budget.Decision{
+			Allowed: false, Reason: budget.ReasonDaily, Cap: budget.CapDaily,
+			LimitMicros: 1000, UsedMicros: 0, EstimateMicros: r.EstimateMicros,
+		}, nil
 	}
 	return budget.Decision{Allowed: true}, nil
 }

@@ -146,7 +146,7 @@ func TestRunBudgetGuardPricedRoute(t *testing.T) {
 	t.Run("under cap", func(t *testing.T) {
 		cfg := config.Default()
 		cfg.Budget.DailyUSD = 1.0
-		prov, err := newRunProviderWithTable(t.Context(), &cfg, db, "openai/m", o, pricedTable(t, srv.URL))
+		prov, err := newRunProviderWithTable(ctx, &cfg, db, "openai/m", o, pricedTable(t, srv.URL))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -162,7 +162,7 @@ func TestRunBudgetGuardPricedRoute(t *testing.T) {
 		cfg := config.Default()
 		cfg.Budget.DailyUSD = 0.000001
 		o := &runOptions{model: "openai/m", baseURL: srv.URL, apiKey: "k"}
-		prov, err := newRunProviderWithTable(t.Context(), &cfg, db, "openai/m", o, pricedTable(t, srv.URL))
+		prov, err := newRunProviderWithTable(ctx, &cfg, db, "openai/m", o, pricedTable(t, srv.URL))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -180,7 +180,7 @@ func TestRunBudgetGuardPricedRoute(t *testing.T) {
 		cfg := config.Default()
 		cfg.Budget.DailyUSD = 1.0
 		o := &runOptions{model: "openai/m", baseURL: srv.URL, apiKey: "k"}
-		prov, err := newRunProvider(t.Context(), &cfg, db, "openai/m", o)
+		prov, err := newRunProvider(ctx, &cfg, db, "openai/m", o)
 		if err != nil {
 			t.Fatal(err)
 		}

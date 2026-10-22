@@ -337,8 +337,10 @@ func newRunProviderWithTable(ctx context.Context, cfg *config.Config, db *ctxdb.
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)
 	}
-	return &providerAdapter{client: openai, model: modelRef, notes: notes,
-		limits: limits, providerName: provName, modelName: modelName, routeKey: routeKey}, nil
+	return &providerAdapter{
+		client: openai, model: modelRef, notes: notes,
+		limits: limits, providerName: provName, modelName: modelName, routeKey: routeKey,
+	}, nil
 }
 
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runModel, error) {

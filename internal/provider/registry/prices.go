@@ -200,7 +200,15 @@ func (t PriceTable) ExpiredAt(now time.Time) []string {
 		if len(ps) == 0 {
 			continue
 		}
-		if last := ps[len(ps)-1]; !last.Until.IsZero() && !now.Before(last.Until) {
+		active := false
+		for i := range ps {
+			p := &ps[i]
+			if !now.Before(p.From) && (p.Until.IsZero() || now.Before(p.Until)) {
+				active = true
+				break
+			}
+		}
+		if !active {
 			out = append(out, strings.ReplaceAll(key, "\x00", " "))
 		}
 	}
@@ -252,6 +260,9 @@ func (e *priceEntry) parse(table string) (Price, string, error) {
 	}, routeKey(key, e.Model), nil
 }
 
+// modelEntry's image_token_formula is an opaque preset name: provider/registry
+// is a leaf and cannot import internal/budget's preset table, so validation of
+// the name belongs to the consumer when image accounting is wired (ADR-130).
 // columns returns the three price columns; all are required, input/output
 // must be positive, and cached_input may be zero (the documented "not
 // discounted" sentinel). An omitted column would otherwise become a silent
