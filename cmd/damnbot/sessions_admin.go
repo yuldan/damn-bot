@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -143,21 +144,19 @@ func sessionsExport(args []string, stdout, stderr io.Writer) int {
 		return sessionsFail(stderr, "export", derr, id)
 	}
 	defer closeSessionsDB(db, "sessions export", stderr)
-	info, derr := db.SessionInfo(ctx, id)
+	info, events, title, derr := exportTranscript(ctx, db, id, stderr)
 	if derr != nil {
 		return sessionsFail(stderr, "export", derr, id)
-	}
-	events, derr := db.History(ctx, id, 0, ctxdb.WithHistoryRaw(), ctxdb.WithHistoryExcluded(), ctxdb.WithHistoryLimit(100000))
-	if derr != nil {
-		return sessionsFail(stderr, "export", derr, id)
-	}
-	title, _, terr := db.SessionLabel(ctx, id, ctxdb.LabelTitle)
-	if terr != nil {
-		return sessionsFail(stderr, "export", terr, id)
 	}
 	var red *redact.Redactor
 	if !a.noRedact {
 		red = redact.New(redact.Options{})
+	}
+	field := func(s string) string {
+		if red != nil {
+			return red.String(s)
+		}
+		return s
 	}
 	out := stdout
 	f, ferr := exportOutFile(a.out)
@@ -173,7 +172,7 @@ func sessionsExport(args []string, stdout, stderr io.Writer) int {
 		}()
 		out = f
 	}
-	meta := exportMeta{ID: info.ID, Title: title, Model: info.Model, Origin: info.Origin, Cwd: info.Cwd, CreatedAt: info.CreatedAt}
+	meta := exportMeta{ID: info.ID, Title: field(title), Model: field(info.Model), Origin: info.Origin, Cwd: field(info.Cwd), CreatedAt: info.CreatedAt}
 	if werr := writeExport(out, format, &meta, events, red); werr != nil {
 		sessionsPrintf(stderr, "sessions export: %v\n", werr)
 		return 1
@@ -181,15 +180,49 @@ func sessionsExport(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// exportOutFile opens --out (nil for stdout or "-"); 0600 keeps an export
-// readable only by the user that produced it.
+// exportTranscript reads the session row, its full transcript and its title.
+// Reaching the limit prints a truncation note because the export is partial.
+func exportTranscript(ctx context.Context, db *ctxdb.Store, id string, stderr io.Writer) (ctxdb.SessionInfo, []ctxdb.Event, string, error) {
+	info, err := db.SessionInfo(ctx, id)
+	if err != nil {
+		return ctxdb.SessionInfo{}, nil, "", fmt.Errorf("session info: %w", err)
+	}
+	events, err := db.History(ctx, id, 0, ctxdb.WithHistoryRaw(), ctxdb.WithHistoryExcluded(), ctxdb.WithHistoryLimit(exportHistoryLimit))
+	if err != nil {
+		return ctxdb.SessionInfo{}, nil, "", fmt.Errorf("history: %w", err)
+	}
+	if len(events) >= exportHistoryLimit {
+		sessionsPrintf(stderr, "sessions export: transcript truncated at %d events\n", exportHistoryLimit)
+	}
+	title, _, err := db.SessionLabel(ctx, id, ctxdb.LabelTitle)
+	if err != nil {
+		return ctxdb.SessionInfo{}, nil, "", fmt.Errorf("title: %w", err)
+	}
+	return info, events, title, nil
+}
+
+// exportHistoryLimit bounds one export; reaching it prints a truncation note.
+const exportHistoryLimit = 100000
+
+// exportOutFile opens --out (nil for stdout or "-"). It refuses to overwrite
+// an existing path (including a symlink) and forces 0600 on the new file, so
+// a transcript is never written through a link or into a world-readable file.
 func exportOutFile(path string) (*os.File, error) {
 	if path == "" || path == "-" {
 		return nil, nil
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) //nolint:gosec // --out is the user's chosen export path
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // --out is the user's chosen export path
 	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("%s already exists; refusing to overwrite", cleanArg(path))
+		}
 		return nil, fmt.Errorf("open %s: %w", cleanArg(path), err)
+	}
+	if cerr := f.Chmod(0o600); cerr != nil {
+		if closeErr := f.Close(); closeErr != nil {
+			return nil, fmt.Errorf("close %s after chmod: %w", cleanArg(path), closeErr)
+		}
+		return nil, fmt.Errorf("chmod %s: %w", cleanArg(path), cerr)
 	}
 	return f, nil
 }

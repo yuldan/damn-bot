@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -167,5 +168,51 @@ func TestSessionsStatsAndFlags(t *testing.T) {
 	}
 	if code, _, _ := runAdmin(t, "pin", "--data-dir", dir); code != 2 {
 		t.Errorf("pin without id exit = %d, want 2", code)
+	}
+}
+
+// TestSessionsExportRefusesExisting: --out never truncates an existing file
+// or writes through a symlink.
+func TestSessionsExportRefusesExisting(t *testing.T) {
+	t.Parallel()
+	dir, id := seedSession(t)
+	out := filepath.Join(t.TempDir(), "existing.md")
+	if err := os.WriteFile(out, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, _, e := runAdmin(t, "export", id, "--out", out, "--data-dir", dir)
+	if code != 1 || !strings.Contains(e, "refusing to overwrite") {
+		t.Fatalf("existing --out = %d %q, want exit 1 refusal", code, e)
+	}
+	if b, err := os.ReadFile(out); err != nil || string(b) != "keep" { //nolint:gosec // test temp path
+		t.Fatalf("existing file changed: %q (%v)", b, err)
+	}
+	if runtime.GOOS == "windows" {
+		return
+	}
+	link := filepath.Join(t.TempDir(), "link.md")
+	if err := os.Symlink(out, link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	if code, _, e = runAdmin(t, "export", id, "--out", link, "--data-dir", dir); code != 1 || !strings.Contains(e, "refusing to overwrite") {
+		t.Fatalf("symlink --out = %d %q, want exit 1 refusal", code, e)
+	}
+}
+
+// TestSessionsExportRedactsMetadata: title/model/cwd are redacted like
+// content, so a secret in a title never reaches the export.
+func TestSessionsExportRedactsMetadata(t *testing.T) {
+	t.Parallel()
+	const secret = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
+	dir, id := seedSession(t)
+	if code, _, e := runAdmin(t, "rename", id, secret, "--data-dir", dir); code != 0 {
+		t.Fatalf("rename = %d: %s", code, e)
+	}
+	code, md, e := runAdmin(t, "export", id, "--data-dir", dir)
+	if code != 0 {
+		t.Fatalf("export = %d: %s", code, e)
+	}
+	if strings.Contains(md, secret) || !strings.Contains(md, "[REDACTED:") {
+		t.Errorf("metadata secret not redacted:\n%s", md)
 	}
 }

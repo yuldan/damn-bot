@@ -64,7 +64,7 @@ func writeJSONL(w io.Writer, events []ctxdb.Event, clean func(string) string) er
 			CreatedAt int64  `json:"created_at"`
 			Content   string `json:"content,omitempty"`
 			Payload   string `json:"payload,omitempty"`
-		}{e.SessionID, e.Seq, e.Kind, e.Role, e.ToolName, e.CreatedAt, clean(e.Content), clean(e.Payload)}
+		}{e.SessionID, e.Seq, e.Kind, e.Role, clean(e.ToolName), e.CreatedAt, clean(e.Content), clean(e.Payload)}
 		if err := enc.Encode(row); err != nil {
 			return fmt.Errorf("export jsonl: %w", err)
 		}
