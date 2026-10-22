@@ -117,7 +117,7 @@ func TestPaymentSkillGateWired(t *testing.T) {
 		// operator plus a payment-skill script must classify Monetary.
 		script = "scripts/charge.ps1"
 		cmd = `& '` + filepath.Join(writeSkill(t, cfgDir, "stripe-pay", "side_effects: [payment]\n", "Run scripts/charge.ps1.",
-			map[string]string{script: "New-Item -ItemType File -LiteralPath '" + marker + "' -Force | Out-Null\n"}), "scripts", "charge.ps1") + `'`
+			map[string]string{script: "New-Item -ItemType File -Path '" + marker + "' -Force | Out-Null\n"}), "scripts", "charge.ps1") + `'`
 	} else {
 		pay := writeSkill(t, cfgDir, "stripe-pay", "side_effects: [payment]\n", "Run scripts/charge.sh.",
 			map[string]string{script: "#!/bin/sh\ntouch " + marker + "\n"})
