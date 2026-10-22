@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -19,6 +20,33 @@ import (
 	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/testutil/timing"
 )
+
+// skipOrFail makes a platform fixture limitation visible in CI (SEC9-10,
+// SEC5-25): a would-be skip fails there instead of hiding a missing test.
+func skipOrFail(t *testing.T, reason string) {
+	t.Helper()
+	if os.Getenv("CI") != "" {
+		t.Fatalf("%s (CI=true; the fixture must work on this runner)", reason)
+	}
+	t.Skip(reason)
+}
+
+// dirLink creates a directory link at link -> target: a symlink on Unix, a
+// junction on Windows (no privilege needed).
+func dirLink(target, link string) error {
+	if err := os.Symlink(target, link); err == nil {
+		return nil
+	} else if runtime.GOOS != "windows" {
+		return fmt.Errorf("symlink: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "cmd", "/c", "mklink", "/J", link, target).CombinedOutput() //nolint:gosec // fixed cmd.exe, temp paths
+	if err != nil {
+		return fmt.Errorf("junction: %w: %s", err, out)
+	}
+	return nil
+}
 
 func openDB(t *testing.T) (*ctxdb.Store, *Store, string) {
 	t.Helper()
@@ -48,11 +76,9 @@ func session(ctx context.Context, t *testing.T, db *ctxdb.Store, sid string) {
 
 func undoer(t *testing.T, js *Store, root string) *journal.Undoer {
 	t.Helper()
-	r, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sb, err := sandbox.New(&sandbox.Config{Roots: []string{r}, Home: r})
+	// Pass the root's configured spelling: New canonicalizes it and keeps the
+	// alias, so paths recorded under the spelling map back (SEC14).
+	sb, err := sandbox.New(&sandbox.Config{Roots: []string{root}, Home: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,7 +647,13 @@ func TestUndo50Files(t *testing.T) {
 	if err != nil || len(res) != n {
 		t.Fatalf("undo 50 = %d, %v", len(res), err)
 	}
-	timing.Check(t, "undo 50 files", elapsed, 200*time.Millisecond)
+	// Linux keeps the 200 ms budget. APFS/HFS fsync and Windows file handles
+	// are slower on shared runners; timing.Check still gates (ADR-048).
+	limit := 200 * time.Millisecond
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		limit = 600 * time.Millisecond
+	}
+	timing.Check(t, "undo 50 files", elapsed, limit)
 	for i := range n {
 		p := filepath.Join(root, fmt.Sprintf("f%02d", i))
 		if !bytes.Equal(content(t, p), []byte(fmt.Sprintf("before-%d", i))) {
@@ -633,11 +665,7 @@ func TestUndo50Files(t *testing.T) {
 
 func mustSandbox(t *testing.T, root string) *sandbox.Sandbox {
 	t.Helper()
-	r, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sb, err := sandbox.New(&sandbox.Config{Roots: []string{r}, Home: r})
+	sb, err := sandbox.New(&sandbox.Config{Roots: []string{root}, Home: root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -677,5 +705,59 @@ func TestUndoSuiteMultiFile(t *testing.T) {
 			t.Fatalf("%s = %q, want %q", p, content(t, p), want)
 		}
 		sameMode(t, p, 0o600)
+	}
+}
+
+// TestUndoRootSymlinkForm: the journaled path may use the workspace root's
+// configured spelling (on macOS /var is a symlink to /private/var) while the
+// sandbox canonicalizes the root. Only the root prefix may differ; undo must
+// still restore the file (SEC14 root canonicalization).
+func TestUndoRootSymlinkForm(t *testing.T) {
+	db, js, _ := openDB(t)
+	realRoot := t.TempDir()
+	linkRoot := filepath.Join(t.TempDir(), "var")
+	if err := dirLink(realRoot, linkRoot); err != nil {
+		skipOrFail(t, "directory link: "+err.Error())
+	}
+	u := undoer(t, js, linkRoot) // sandbox root is the canonical /private/... form
+	session(t.Context(), t, db, "r-rootlink")
+	p := filepath.Join(linkRoot, "f")
+	put(t, p, []byte("new"), 0o644)
+	res, err := u.Undo(t.Context(), "r-rootlink", refusalWrite(t.Context(), t, js, "r-rootlink", p, []byte("old"), []byte("new")), false)
+	if err != nil || res.Status != journal.Undone || !bytes.Equal(content(t, p), []byte("old")) {
+		t.Fatalf("root symlink undo = %+v, %v", res, err)
+	}
+}
+
+// TestUndoRootAliasInternalSymlinkRefused: mapping the root's own spelling must
+// not accept a symlink below the root. The link is inside the workspace and is
+// still refused.
+func TestUndoRootAliasInternalSymlinkRefused(t *testing.T) {
+	db, js, _ := openDB(t)
+	realRoot := t.TempDir()
+	linkRoot := filepath.Join(t.TempDir(), "var")
+	if err := dirLink(realRoot, linkRoot); err != nil {
+		skipOrFail(t, "directory link: "+err.Error())
+	}
+	u := undoer(t, js, linkRoot)
+	session(t.Context(), t, db, "r-internal")
+	d := refusalDir(t, realRoot, "d")
+	realDir := filepath.Join(d, "real")
+	if err := os.MkdirAll(realDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(realDir, "note.txt")
+	put(t, target, []byte("new"), 0o644)
+	link := filepath.Join(d, "link")
+	if err := dirLink(realDir, link); err != nil {
+		skipOrFail(t, "directory link: "+err.Error())
+	}
+	p := filepath.Join(linkRoot, "d", "link", "note.txt")
+	res, err := u.Undo(t.Context(), "r-internal", refusalWrite(t.Context(), t, js, "r-internal", p, []byte("old"), []byte("new")), false)
+	if !errors.Is(err, journal.ErrConflict) || res.Status != journal.Conflict {
+		t.Fatalf("internal symlink = %+v, %v, want conflict", res, err)
+	}
+	if !bytes.Equal(content(t, target), []byte("new")) {
+		t.Fatal("internal symlink target changed")
 	}
 }
