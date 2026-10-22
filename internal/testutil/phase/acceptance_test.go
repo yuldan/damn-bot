@@ -143,6 +143,23 @@ func uncatalogedViolations(required map[string]int, catalog map[string]catalogEn
 // entered may be covered, n/a or pending:<PHASE> (its own label) and may be
 // absent, and at PHASE = F9 nothing may be pending at all.
 func coverageViolations(required map[string]int, catalog map[string]catalogEntry, cur int) []violation {
+	out := uncovered(required, catalog, cur)
+	out = append(out, enteredMislabelled(required, catalog, cur)...)
+	if cur == phaseMax {
+		out = append(out, stillPending(catalog)...)
+	}
+	slices.SortFunc(out, func(a, b violation) int {
+		if c := strings.Compare(a.id, b.id); c != 0 {
+			return c
+		}
+		return strings.Compare(a.why, b.why)
+	})
+	return out
+}
+
+// uncovered lists the ids at or below PHASE-1 whose catalog row is neither
+// covered nor n/a.
+func uncovered(required map[string]int, catalog map[string]catalogEntry, cur int) []violation {
 	var out []violation
 	for id, p := range required {
 		if p > requiredPhase(cur) {
@@ -156,29 +173,34 @@ func coverageViolations(required map[string]int, catalog map[string]catalogEntry
 			out = append(out, violation{id, fmt.Sprintf("phase acceptance F%d: catalog status %q (%s)", cur, e.status, e.file)})
 		}
 	}
+	return out
+}
+
+// enteredMislabelled lists the rows of the phase being entered that name a
+// status of another phase: covered, n/a and pending:<PHASE> are the only
+// labels that phase may carry.
+func enteredMislabelled(required map[string]int, catalog map[string]catalogEntry, cur int) []violation {
+	want := "pending:" + phaseName(cur)
+	var out []violation
 	for id, e := range catalog {
-		if required[id] != cur {
+		if required[id] != cur || e.status == "covered" || e.status == "n/a" || e.status == want {
 			continue
 		}
-		if e.status == "covered" || e.status == "n/a" || e.status == "pending:"+phaseName(cur) {
-			continue
-		}
-		out = append(out, violation{id, fmt.Sprintf("phase acceptance F%d: catalog status %q (%s), want covered, n/a or pending:%s",
-			cur, e.status, e.file, phaseName(cur))})
+		out = append(out, violation{id, fmt.Sprintf("phase acceptance F%d: catalog status %q (%s), want covered, n/a or %s",
+			cur, e.status, e.file, want)})
 	}
-	if cur == phaseMax {
-		for id, e := range catalog {
-			if strings.HasPrefix(e.status, "pending:") {
-				out = append(out, violation{id, fmt.Sprintf("phase acceptance F9: item is still pending (%s)", e.file)})
-			}
+	return out
+}
+
+// stillPending lists every catalog row that is still pending: at PHASE = F9
+// there is no next phase, so none may remain.
+func stillPending(catalog map[string]catalogEntry) []violation {
+	var out []violation
+	for id, e := range catalog {
+		if strings.HasPrefix(e.status, "pending:") {
+			out = append(out, violation{id, fmt.Sprintf("phase acceptance F9: item is still pending (%s)", e.file)})
 		}
 	}
-	slices.SortFunc(out, func(a, b violation) int {
-		if c := strings.Compare(a.id, b.id); c != 0 {
-			return c
-		}
-		return strings.Compare(a.why, b.why)
-	})
 	return out
 }
 
