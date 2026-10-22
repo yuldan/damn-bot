@@ -6,18 +6,88 @@ import (
 	"testing"
 )
 
+// wireMessage is the decoded shape of one wire message.
+type wireMessage struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"`
+}
+
+// anthropicRoute is the route the runner builds for an Anthropic origin.
+func anthropicRoute() *Route {
+	return &Route{Provider: "anthropic", Model: "claude", Family: "anthropic"}
+}
+
+// boundaryRequest is a request whose message at position after is the cache
+// breakpoint (after 0 disables the breakpoint).
+func boundaryRequest(after int) *Request {
+	return &Request{
+		Model: "claude", MaxTokens: 16, CacheBreakAfter: after,
+		Messages: []Message{{Role: "system", Content: "stable prefix"}, {Role: "user", Content: "hi"}},
+	}
+}
+
+// encodeAnthropic encodes req for the Anthropic route, failing the test unless
+// the wire body is valid JSON.
+func encodeAnthropic(t *testing.T, req *Request) []byte {
+	t.Helper()
+	body, err := encode(anthropicRoute(), req, nil)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if !json.Valid(body) {
+		t.Fatalf("encode: invalid JSON:\n%s", body)
+	}
+	return body
+}
+
+// decodeMessages decodes the message list of a wire body.
+func decodeMessages(t *testing.T, body []byte) []wireMessage {
+	t.Helper()
+	var decoded struct {
+		Messages []wireMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	return decoded.Messages
+}
+
+// assertNoCacheControl fails the test when the encoded body carries the
+// ephemeral cache marker.
+func assertNoCacheControl(t *testing.T, name string, rt *Route, req *Request) {
+	t.Helper()
+	body, err := encode(rt, req, nil)
+	if err != nil {
+		t.Fatalf("%s: encode: %v", name, err)
+	}
+	if strings.Contains(string(body), "cache_control") {
+		t.Errorf("%s emitted cache_control:\n%s", name, body)
+	}
+}
+
 // TestCacheBreakpointAnthropic: an anthropic-family route marks the boundary
 // message with cache_control; other families keep the wire body unchanged.
 func TestCacheBreakpointAnthropic(t *testing.T) {
 	t.Parallel()
-	req := &Request{
-		Model: "claude", MaxTokens: 16, CacheBreakAfter: 1,
-		Messages: []Message{{Role: "system", Content: "stable prefix"}, {Role: "user", Content: "hi"}},
-	}
-	body, err := encode(&Route{Provider: "anthropic", Model: "claude", Family: "anthropic"}, req, nil)
-	if err != nil || !json.Valid(body) {
-		t.Fatalf("encode: %s %v", body, err)
-	}
+	body := encodeAnthropic(t, boundaryRequest(1))
+	t.Run("marks the boundary block", func(t *testing.T) {
+		t.Parallel()
+		assertBoundaryMarkers(t, body)
+	})
+	t.Run("keeps the rest of the body intact", func(t *testing.T) {
+		t.Parallel()
+		assertBoundaryBlock(t, body)
+	})
+	t.Run("other families and breakpoints stay inert", func(t *testing.T) {
+		t.Parallel()
+		assertInertBreakpoints(t)
+	})
+}
+
+// assertBoundaryMarkers checks the anthropic body carries the marker substring
+// exactly once.
+func assertBoundaryMarkers(t *testing.T, body []byte) {
+	t.Helper()
 	for _, want := range []string{`"cache_control":{"type":"ephemeral"}`, `"type":"text"`, "stable prefix"} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("anthropic body lacks %q:\n%s", want, body)
@@ -26,56 +96,69 @@ func TestCacheBreakpointAnthropic(t *testing.T) {
 	if n := strings.Count(string(body), "cache_control"); n != 1 {
 		t.Errorf("got %d cache_control markers, want exactly 1:\n%s", n, body)
 	}
-	var decoded struct {
-		Messages []struct {
-			Role    string `json:"role"`
-			Content any    `json:"content"`
-		} `json:"messages"`
+}
+
+// assertBoundaryBlock checks the breakpoint rides the boundary message as a
+// single ephemeral text block, leaving the message after it untouched.
+func assertBoundaryBlock(t *testing.T, body []byte) {
+	t.Helper()
+	msgs := decodeMessages(t, body)
+	if len(msgs) != 2 {
+		t.Fatalf("decoded %d messages, want 2", len(msgs))
 	}
-	if err := json.Unmarshal(body, &decoded); err != nil {
-		t.Fatal(err)
+	blocks, isList := msgs[0].Content.([]any)
+	if !isList || len(blocks) != 1 {
+		t.Fatalf("boundary message is not a single content block: %#v", msgs[0].Content)
 	}
-	blocks, ok := decoded.Messages[0].Content.([]any)
-	if !ok || len(blocks) != 1 {
-		t.Fatalf("boundary message is not a single content block: %#v", decoded.Messages[0].Content)
+	block, isObject := blocks[0].(map[string]any)
+	if !isObject {
+		t.Fatalf("boundary block is not an object: %#v", blocks[0])
 	}
-	block, _ := blocks[0].(map[string]any)
 	if block["type"] != "text" || block["text"] != "stable prefix" {
 		t.Errorf("boundary block = %#v", block)
 	}
-	if cc, _ := block["cache_control"].(map[string]any); cc["type"] != "ephemeral" {
+	cc, isObject := block["cache_control"].(map[string]any)
+	if !isObject || cc["type"] != "ephemeral" {
 		t.Errorf("boundary cache_control = %#v", block["cache_control"])
 	}
-	if _, ok := decoded.Messages[1].Content.(string); !ok {
-		t.Errorf("message after the boundary changed: %#v", decoded.Messages[1].Content)
+	if _, isText := msgs[1].Content.(string); !isText {
+		t.Errorf("message after the boundary changed: %#v", msgs[1].Content)
 	}
-	generic, err := encode(&Route{Provider: "p", Model: "m", Family: "openai"}, req, nil)
-	if err != nil {
-		t.Fatal(err)
+}
+
+// uncachedCase is one route/request pair that must not emit a cache marker.
+type uncachedCase struct {
+	name  string
+	route *Route
+	req   *Request
+}
+
+// uncachedCases are the routes and breakpoints that stay inert: a non-anthropic
+// family, breakpoint 0, a boundary message carrying tool calls (it keeps its
+// string content) and a boundary past the end of the message list.
+func uncachedCases() []uncachedCase {
+	return []uncachedCase{
+		{"generic family", &Route{Provider: "p", Model: "m", Family: "openai"}, boundaryRequest(1)},
+		{"zero breakpoint", anthropicRoute(), boundaryRequest(0)},
+		{"tool-call boundary", anthropicRoute(), &Request{
+			MaxTokens: 16, CacheBreakAfter: 1,
+			Messages: []Message{{
+				Role: "assistant", Content: "x",
+				ToolCalls: []ToolCall{{ID: "c1", Name: "t", ArgumentsRaw: "{}"}},
+			}},
+		}},
+		{"boundary past the list", anthropicRoute(), &Request{
+			MaxTokens: 16, CacheBreakAfter: 5,
+			Messages: []Message{{Role: "system", Content: "s"}},
+		}},
 	}
-	if strings.Contains(string(generic), "cache_control") {
-		t.Errorf("generic family emitted cache_control:\n%s", generic)
-	}
-	req.CacheBreakAfter = 0
-	none, err := encode(&Route{Provider: "anthropic", Model: "claude", Family: "anthropic"}, req, nil)
-	if err != nil || strings.Contains(string(none), "cache_control") {
-		t.Errorf("zero breakpoint emitted cache_control: %s %v", none, err)
-	}
-	// A boundary message carrying tool calls keeps its string content, and a
-	// boundary past the end of the message list is a no-op.
-	for _, c := range []struct {
-		name string
-		req  *Request
-	}{
-		{"tool-call boundary", &Request{MaxTokens: 16, CacheBreakAfter: 1, Messages: []Message{
-			{Role: "assistant", Content: "x", ToolCalls: []ToolCall{{ID: "c1", Name: "t", ArgumentsRaw: "{}"}}}}}},
-		{"boundary past the list", &Request{MaxTokens: 16, CacheBreakAfter: 5, Messages: []Message{
-			{Role: "system", Content: "s"}}}},
-	} {
-		got, cerr := encode(&Route{Provider: "anthropic", Model: "claude", Family: "anthropic"}, c.req, nil)
-		if cerr != nil || strings.Contains(string(got), "cache_control") {
-			t.Errorf("%s emitted cache_control: %s %v", c.name, got, cerr)
-		}
+}
+
+// assertInertBreakpoints checks every uncached case encodes without the marker.
+func assertInertBreakpoints(t *testing.T) {
+	t.Helper()
+	for _, c := range uncachedCases() {
+		assertNoCacheControl(t, c.name, c.route, c.req)
 	}
 }
 
@@ -85,10 +168,7 @@ func TestCacheBreakpointAnthropic(t *testing.T) {
 // for another origin stays inert.
 func TestCacheBreakpointProductionFamily(t *testing.T) {
 	t.Parallel()
-	req := &Request{
-		Model: "claude", MaxTokens: 16, CacheBreakAfter: 1,
-		Messages: []Message{{Role: "system", Content: "stable prefix"}, {Role: "user", Content: "hi"}},
-	}
+	req := boundaryRequest(1)
 	rt := &Route{Provider: "anthropic", Model: "claude", Family: baseFamily(t, "https://api.anthropic.com/v1")}
 	body, err := encode(rt, req, nil)
 	if err != nil || strings.Count(string(body), "cache_control") != 1 {
