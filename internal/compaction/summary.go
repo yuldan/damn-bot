@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -114,6 +115,21 @@ func cut(items []item) int {
 	return n
 }
 
+// deliveryDirective matches a MEDIA: delivery directive, with or without a
+// value (EC-CTX-007). The gateway reads that tag as an instruction to attach a
+// file, so a summary that repeats one sends a bogus attachment; a bare
+// "MEDIA:" at the end of a text is stripped too.
+var deliveryDirective = regexp.MustCompile(`MEDIA:\s*\S*`)
+
+// stripDeliveryDirectives removes delivery directives from text bound for the
+// summarizer; the rest of the text is untouched.
+func stripDeliveryDirectives(s string) string {
+	if !strings.Contains(s, "MEDIA:") {
+		return s
+	}
+	return deliveryDirective.ReplaceAllString(s, "")
+}
+
 // renderInput is the raw text of the summarised messages (no stage-1 stubs)
 // and whether any of it is untrusted.
 func renderInput(items []item) (string, bool) {
@@ -126,9 +142,9 @@ func renderInput(items []item) (string, bool) {
 		if it.Role == "tool" {
 			b.WriteString(" " + it.tool + " " + it.ToolCallID)
 		}
-		b.WriteString(": " + it.Content + "\n")
+		b.WriteString(": " + stripDeliveryDirectives(it.Content) + "\n")
 		for _, c := range it.ToolCalls {
-			b.WriteString("  call " + c.ID + " " + c.Name + " " + c.Arguments + "\n")
+			b.WriteString("  call " + c.ID + " " + c.Name + " " + stripDeliveryDirectives(c.Arguments) + "\n")
 		}
 		for _, sha := range it.Images {
 			b.WriteString("  [image " + sha[:min(len(sha), shortSHA)] + "]\n")
