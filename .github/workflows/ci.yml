@@ -16,6 +16,14 @@
 # satu job, sehingga satu PR-run memakai 13 job (dari 20) tanpa menghapus satu pun gate. `lint` dan
 # `test-timing` tetap job tersendiri: keduanya memberi umpan balik cepat dan `test-timing` mengukur budget
 # waktu dinding yang sebaiknya tidak dibagi dengan langkah berat lain.
+#
+# ADR-181 (pemisahan beban `main`): tier ketiga `smoke` untuk `push: main`. Setiap merge memicu run `main`
+# yang tidak bisa dibatalkan (ADR-135 butir 1) dan isinya hampir seluruhnya sudah diverifikasi PR yang
+# di-squash, sehingga ia hanya bersaing dengan PR di plafon runner. Push `main` kini menjalankan `changes`,
+# `lint`, `static`, `smoke` (`make build`, `make vet-cross`, `make test` untuk paket inti cepat) dan
+# `ci-required`; matriks penuh (6 target OS `-race`, `test-timing`, `fuzz`, `coverage`, `perf`, `bench`,
+# `supply`) tetap jalan **di PR** (3 target OS) dan **di nightly/`workflow_dispatch`** (6 target,
+# `nightly.yml` memanggil workflow ini lewat `workflow_call`). Tier PR tidak berubah sedikit pun.
 name: ci
 
 on:
@@ -23,6 +31,7 @@ on:
     branches: [main]
   pull_request:
   workflow_call: # ADR-135: nightly menjalankan matrix PENUH lewat workflow ini.
+  workflow_dispatch: # ADR-181: verifikasi tier penuh atas permintaan (branch mana pun).
 
 permissions:
   contents: read
@@ -54,6 +63,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      tier: ${{ steps.filter.outputs.tier }}
       test_matrix: ${{ steps.filter.outputs.test_matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -71,13 +81,17 @@ jobs:
           # amd64); push main dan workflow_call (nightly) = 6 target berrunner.
           full='{"include":[{"os":"ubuntu-latest","race":"-race","cgo":"1"},{"os":"ubuntu-24.04-arm","race":"-race","cgo":"1"},{"os":"macos-latest","race":"-race","cgo":"1"},{"os":"macos-15-intel","race":"-race","cgo":"1"},{"os":"windows-latest","race":"-race","cgo":"1"},{"os":"windows-11-arm","race":"","cgo":"0"}]}'
           reduced='{"include":[{"os":"ubuntu-latest","race":"-race","cgo":"1"},{"os":"macos-latest","race":"-race","cgo":"1"},{"os":"windows-latest","race":"-race","cgo":"1"}]}'
-          if [ "$EVENT" = pull_request ]; then
-            echo "test_matrix=$reduced" >>"$GITHUB_OUTPUT"
-          else
-            echo "test_matrix=$full" >>"$GITHUB_OUTPUT"
-          fi
-          if [ "$EVENT" != pull_request ]; then
-            echo "bukan PR: semua job Go berjalan"
+          # ADR-181: tier ketiga untuk push `main`. Smoke = gate cepat yang menangkap kerusakan merge
+          # (build, vet lintas-OS, paket inti, lint, loc/size/deadcode); matriks penuh dijalankan PR dan
+          # nightly/workflow_dispatch.
+          case "$EVENT" in
+            pull_request) tier=pr; echo "test_matrix=$reduced" >>"$GITHUB_OUTPUT" ;;
+            push) tier=smoke ;;
+            *) tier=full; echo "test_matrix=$full" >>"$GITHUB_OUTPUT" ;;
+          esac
+          echo "tier=$tier" >>"$GITHUB_OUTPUT"
+          if [ "$tier" != pr ]; then
+            echo "bukan PR (tier=$tier): semua job tier itu berjalan"
             echo "code=true" >>"$GITHUB_OUTPUT"
             exit 0
           fi
@@ -133,7 +147,7 @@ jobs:
   # dan nightly menjalankan keenam target.
   test:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.test_matrix) }}
@@ -159,7 +173,7 @@ jobs:
   # tidak dibagi dengan langkah berat lain di runner yang sama.
   test-timing:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -203,7 +217,7 @@ jobs:
   # (CGO_ENABLED=0 -tags goolm). Dua perintah berbeda, satu job (ADR-179).
   portability:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -223,7 +237,7 @@ jobs:
   # FUZZTIME identik dengan tiga job paralel sebelumnya, hanya jumlah slot runner yang turun.
   fuzz:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -245,7 +259,7 @@ jobs:
   # paling awal agar budget absolut diukur di runner yang belum dipakai langkah berat lain.
   extra:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -285,7 +299,7 @@ jobs:
   # bench-codetools.
   bench:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -311,7 +325,7 @@ jobs:
   # Satu job (ADR-179): semuanya membaca modul/ketergantungan yang sama.
   supply:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -354,10 +368,35 @@ jobs:
       - name: govulncheck, 3 modul (E-54)
         run: make vuln
 
+  # ADR-181: tier `smoke` untuk `push: main`. Yang diperiksa: kompilasi seluruh paket (`make build`,
+  # E-39), `go vet` lintas OS/arch (`make vet-cross`, ADR-073), dan suite paket inti yang cepat
+  # (`make test RACE=-race PKGS=…`, E-55) di luar paket ber-fixture berat (ctxdb, exec, codetools, e2e)
+  # yang sudah diverifikasi PR yang di-squash dan tetap dijalankan nightly. `lint` dan `static`
+  # (loc, loc-ratio, size-check, deadcode) berjalan di semua tier; `meta-test` datang dari meta.yml.
+  smoke:
+    needs: changes
+    if: needs.changes.outputs.tier == 'smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Kompilasi seluruh paket, CGO_ENABLED=0 -tags goolm (E-39)
+        run: make build
+      - name: go vet lintas OS/arch (ADR-073)
+        run: make vet-cross
+      - name: Suite paket inti cepat (E-55)
+        run: make test RACE="-race" PKGS="./cmd/... ./internal/archtest/... ./internal/assemble/... ./internal/boundary/... ./internal/budget/... ./internal/compaction/... ./internal/config/... ./internal/journal/... ./internal/loop/... ./internal/memory/... ./internal/modules/... ./internal/netx/... ./internal/provider/... ./internal/redact/... ./internal/sandbox/... ./internal/schema/... ./internal/skills/... ./internal/testutil/... ./internal/tools/..."
+
   # ADR-135 butir 2: satu-satunya status `ci` yang wajib di branch protection. Selalu berjalan (termasuk
   # docs-only dan PR matrix yang diperkecil) dan lulus bila setiap gate sukses atau dilewati sah; job
   # matrix yang sengaja tidak ada di tier PR tidak lagi meninggalkan "Expected — waiting".
-  # ADR-179: `needs` mengikuti pengemasan job di atas; setiap gate Makefile tetap terwakili.
+  # ADR-179/ADR-181: `needs` mengikuti pengemasan job dan tier; setiap gate Makefile tetap terwakili.
   ci-required:
     if: always()
     needs:
@@ -371,6 +410,7 @@ jobs:
       - extra
       - bench
       - supply
+      - smoke
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

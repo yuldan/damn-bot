@@ -3260,6 +3260,35 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 25. **cd remote dan narrowing cmd (SEC10-22/23).** `changeDir` menandai argumen `cd`/`chdir`/`pushd`/`Set-Location`/`Push-Location` yang berawalan `\\` atau `//` (termasuk `\\?\UNC\`) sebagai `Unknown` tanpa menyentuh share. Aturan "perintah setelah cd" dipersempit ke dialek `Cmd` saja: target cd yang tidak terlacak, argv0 relatif, atau bare command yang tidak ada di tabel non-mutating → `Unknown`; bare command allow-listed dengan target lokal terlacak dan PowerShell kembali ke klasifikasi normal, sehingga `cd sub && git status`, `cd sub && echo hi`, dan `Set-Location sub; Get-ChildItem` berperilaku seperti sebelumnya. Test: `TestWindowsCdGate` (positif dan negatif). Budget `exec/classify` 1.815 → 1.830 (terukur 1.823; Total core 38.075 → 38.090).
 26. **cmd cwd lookup dan pengecualian pasca-cd (SEC10-25/26).** Setiap child shell Windows mendapat env keras `NoDefaultCurrentDirectoryInExePath=1` (dibangun di `exec.EnvPolicy.Env`, sehingga PowerShell yang melahirkan cmd juga mewarisinya); `git.bat` di cwd tidak lagi dijalankan untuk `git status` (test Windows `TestNoDefaultCurrentDirectoryInExePath` memakai marker). Aturan pasca-cd cmd mengecualikan `popd` serta `cd`/`pushd` tanpa argumen, dan prefiks `//` hanya dianggap remote pada dialek Windows (Cmd/Pwsh); `cd //tmp` di bash diklasifikasikan normal. Test: `TestWindowsCdGate`. Budget `exec/classify` tetap 1.826–1.829/1.830.
 
+## ADR-136 — CLI `sessions fork` dan `sessions rewind`: titik potong, identitas, dan interaksi `context_exclude`
+
+**Status:** Accepted 2026-10-21 (keputusan didelegasikan). Menerapkan SPEC §10 (baris `sessions`) dan §4.6 (`Fork`, "Rewind = fork di seq lebih awal; cabang lama tetap"), melengkapi ADR-118 (lineage/fork_seq), ADR-134 (context_exclude), dan PR #220 (ancestor lineage by fork_seq). Tanpa DDL, token, dependency, atau binary baru. `ctxdb` 3.484/3.500; `loc.budget` tidak berubah.
+
+**Konteks.** SPEC menamai subperintah `sessions fork` dan `sessions rewind` tetapi tidak menetapkan flag. `ctxdb.Fork(ctx, id, atSeq)` sudah ada: sesi anak `parent_id/fork_seq`, event induk tidak disalin, lease anak dalam transaksi yang sama, metadata origin/cwd/model/config_sha/context_tier disalin. Yang belum ditetapkan: cara memilih `atSeq`, arti "turn", perilaku bila `atSeq` jatuh di dalam turn yang di-exclude `context_exclude` (ADR-134), dan identitas gateway anak.
+
+**Keputusan.**
+1. **Nama dan bentuk.** Persis dua subperintah SPEC, tanpa alias: `damnbot sessions fork <id> [--at <seq|turn:ID>]` dan `damnbot sessions rewind <id> --at <seq|turn:ID>`. `fork` default `--at` = head; `rewind` wajib `--at` dan target harus `< head` (`rewind at head` = usage error, bukan fork diam-diam).
+2. **Ruang seq.** `--at N` adalah `events.seq` milik sesi itu sendiri (bukan gabungan lineage): `fork_seq` dibandingkan dengan event induk langsung, dan `Head` = `max(seq)` event milik sesi (0 bila kosong). `turn:ID` di-resolve lewat `ctxdb.TurnRange` ke `[first,last]` event turn itu di sesi tersebut; turn leluhur tidak dapat dirujuk dari anak (pakai id leluhur).
+3. **Arti `turn:ID`.** `fork --at turn:ID` memakai `last` (turn ikut diwarisi); `rewind --at turn:ID` memakai `first-1` (turn dibatalkan; `0` bila turn dimulai di seq 1). Ini membuat kedua perintah aman di batas turn dan tidak pernah memotong di tengah turn.
+4. **Append-only.** Rewind bukan penghapusan: ia memanggil `Fork` pada seq lebih awal, cabang lama tetap utuh dan dapat di-fork lagi. Tidak ada UPDATE/DELETE pada events/sessions. `--restore-files` (SPEC §4.6) bukan bagian irisan ini: pemulihan file adalah domain `undo`/action journal §18.1, dan journal tetap disimpan; perintah ini hanya membuat cabang.
+5. **`context_exclude` (ADR-134).** `Fork` menolak `atSeq` yang jatuh **di dalam** turn ter-exclude bila marker-nya berada setelah titik potong (`atSeq < marker.seq` dan ada event turn itu dengan `seq <= atSeq`): anak akan mewarisi sebagian turn gagal tanpa marker, sehingga exclusion hilang. Error = `ErrInvalidSeq` (CLI exit 2) dengan pesan turn id. Titik potong di `0`, sebelum turn, atau pada/ sesudah marker (marker ikut diwarisi) diperbolehkan; `History` anak lalu mengecualikan turn itu.
+6. **Identitas gateway.** Fork **tidak** memindahkan rute chat: baris `gateway_conversations` tidak disalin, sehingga pesan berikutnya untuk chat itu tetap ke sesi induk (pindah rute adalah wewenang `/fork` di dalam chat). Anak hanya mewarisi **label scope** `gateway_chat` terbaru, ditulis sekali (INSERT bersyarat `NOT EXISTS`). Origin/cwd/model/config_sha/context_tier sudah disalin `CreateSession`. Saat PR #220 merge, `Fork` meneruskan `GatewayIdentity: src.identity` (wajib untuk `checkParent` #220) dan `CreateSession` menulis label itu; INSERT bersyarat di sini menjadi no-op sehingga label tetap satu baris.
+7. **Output dan exit.** Output manusia: `forked <parent> at seq <n>: <child>` / `rewound <parent> to seq <n>: <child>`. Tidak ada `--json`: SPEC tidak mendefinisikannya untuk `sessions fork/rewind`. Exit: `not_found`/`session_purging` 1, seq/flag invalid 2, `session_busy`/`db_busy`/`lease_fenced` 4 (tabel §11.6).
+8. **Flag parsing.** `--at`/`--data-dir` diterima sebelum atau sesudah `<id>` (parser `flag` Go berhenti di positional pertama; implementasi memakai parser kecil). `--data-dir` adalah flag internal/test seperti pada `run`; default direktori data dari config.
+
+9. **Turn terbuka (SEC13-2).** `Fork` menolak titik potong di dalam turn yang punya `turn_start` tanpa `turn_end` (event, bukan hanya `turn_journal`): `ErrSessionBusy` (CLI exit 4), karena anak akan mewarisi turn hidup yang hasil tool-nya masih bergerak. Setelah `turn_end`, fork pada titik itu berhasil.
+10. **Pesan error bersih (SEC13-3).** CLI memetakan error store ke pesan tetap (`session <id> not found`, `is being purged`, `has an open turn`, `database is busy`) dan tidak pernah mencetak teks driver SQL; `forkSource`/`TurnRange` juga membungkus `ErrNotFound` tanpa detail SQL.
+11. **Argumen tidak tepercaya (SEC13-4).** Id sesi, nilai `--at`, dan nama subperintah yang di-echo ke stdout/stderr dibersihkan dari karakter kontrol (< U+0020, U+007F) dan dipotong 80 byte (SEC13-4).
+12. **Direktori data tidak dibuat (SEC13-5).** `sessions` memeriksa direktori data dengan `os.Stat` sebelum `ctxdb.Open`; direktori yang tidak ada = error (exit 1) dan tidak pernah dibuat sebagai efek samping, sama seperti perintah baca lain.
+13. **Batas label `gateway_chat` (SEC13-6).** Label `gateway_chat` hanya memberi **scope baca/recall** (memori dan retrieval dapat mencakup scope gateway principal itu). Label itu **bukan** otorisasi tulis gateway: write scope (memori, kanban, outbox, approval, dsb.) hanya berasal dari identitas inbound yang terautentikasi oleh adapter platform pada pesan itu, tidak pernah dari label sesi. Fork/rewind tidak boleh menaikkan izin tulis; anak dengan label yang sama tetap memakai identitas inbound pesan berikutnya.
+14. **Koordinasi #220.** Setelah #220 merge: rebase dan tambahkan `GatewayIdentity: src.identity` pada `Session` di `Fork`; label `gateway_chat` tetap ditulis sekali oleh `CreateSession`, dan `inheritGateway` menjadi no-op karena `NOT EXISTS`.
+
+**Test.** `internal/ctxdb`: `TestForkHeadTurnRange`, `TestForkRejectsExcludedMiddle`, `TestForkInheritsIdentity`; `cmd/damnbot`: `TestSessionsFork`, `TestSessionsForkAtAndTurn`, `TestSessionsRewindAppendOnly`, `TestSessionsForkIdentity`, `TestSessionsExcludedTurn`, `TestSessionsErrors`, `TestSessionsOpenTurn`, `TestSessionsCleanErrors`, `TestSessionsSanitizeArgs`, `TestSessionsMissingDataDir` (memanggil `run()` dengan DB nyata dan argumen CLI kanonik; `TestForkRejectsOpenTurn` untuk lapisan store).
+
+**Amandemen 2026-10-23 (LOC).** `make loc` di head PR #227 mengukur `ctxdb` **3.859** baris (batas 3.800), karena `sessions fork/rewind` dibangun di atas jalur baca read-only #203 (SEC13). `loc.budget` `ctxdb` 3.800 → **3.900** (margin 41) dan Total core ENGINEERING §2.4 38.450 → **38.550** (delta Σ core dijumlahkan di atas ADR-173/`tools` yang sudah di `main`); tidak ada perubahan kode pada amandemen ini.
+
+**Konsekuensi.** (+) Rewind tidak pernah menghapus riwayat dan cabang lama tetap ada; titik potong di turn ter-exclude tidak dapat menghidupkan kembali turn gagal tanpa marker. (+) Anak gateway mempertahankan identitas percakapan. (−) `--at N` mentah dapat memotong di tengah turn biasa (termasuk meninggalkan tool call tanpa hasil); gunakan `turn:ID` untuk batas turn. (−) `--restore-files` belum ada sampai perintah `undo` F2/F3 tersedia.
+
 ## ADR-137 — Recall memori: kandidat BM25 lintas term kueri (F2/GAP-INF-06)
 
 **Status:** Accepted 2026-10-22 (F2; keputusan paling konservatif terhadap SPEC §4.8/B-03). Diterapkan di PR bertumpuk: (a) paket ini (`ctxdb/memstore` + `ctxdb.FTSNorm`), (b) seam injeksi jalur `run`, (c) `damnbot eval recall`. Tidak mengubah skema, migrasi, atau dependency.
@@ -3395,6 +3424,24 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Konsekuensi.** (+) Dua entri F1 punya katalog dan test tanpa heuristik bahasa di loop; aturan validasi tetap di `internal/schema`. (−) `--answer-schema` baru memvalidasi keluaran, belum mengirim `response_format` ke provider; window yang dipakai adalah cap input konfigurasi sampai `registry.Limits` terhubung penuh (GAP-PROV-02).
 
+## ADR-165 — Ledger acceptance F2 sebagai artefak review; dipelihara sampai penaikan PHASE
+
+**Status:** Accepted 2026-10-22 (delegasi). Diterapkan di PR #242.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-22): `docs/F2-ACCEPTANCE.md` sebagai artefak review F2; dirujuk oleh PR #242 dan gate kelengkapan #244. Tidak mengubah SPEC, skema, dependency, atau `loc.budget`.
+
+**Konteks.** Acceptance F2 tersebar di ROADMAP (baris per fase), EDGE-CASES (EC per komponen), FEATURE-PARITY (fase per baris), dan DECISIONS §22.1 (GAP). Sebelumnya tidak ada satu dokumen yang memetakan setiap baris ke test pembuktinya, sehingga baris yang tidak pernah ditulis test-nya bisa lolos acceptance secara diam-diam (temuan AUD-004/NEW-12 dan review F2).
+
+**Keputusan.**
+1. `docs/F2-ACCEPTANCE.md` adalah artefak review tunggal untuk F2: setiap EC yang diwajibkan ROADMAP, setiap baris GAP di DECISIONS §22.1, dan setiap baris FEATURE-PARITY berfase F2 tercantum dengan test/lokasi/status (covered, in-flight, surface, missing) dan owner.
+2. Ledger dipelihara (bukan snapshot sekali pakai) sampai `PHASE` dinaikkan dari F2: PR yang mengubah katalog/acceptance F2 wajib memperbarui baris terkait. Setelah penaikan PHASE, ledger menjadi catatan historis dan tidak lagi menjadi syarat gate.
+3. Gate kelengkapan EC ada di `TestEdgeCaseCatalogSync` (#244): katalog harus cocok dengan tabel fase ROADMAP, dan fase acceptance gagal bila ID yang diwajibkan tidak dikatalogkan atau masih `pending`. Ledger dan gate saling melengkapi: ledger memberi status per baris (termasuk GAP dan parity yang tidak dicakup gate EC), gate mencegah ID hilang.
+4. Ledger tidak menetapkan fase baru; klasifikasi baris mengikuti ADR-064/ADR-139. Bila sebuah baris dinilai salah fase, perbaikannya lewat ADR, bukan lewat ledger.
+
+**Dampak terukur (SPEC §20).** Token/biaya/kode 0; hanya dokumen. Tidak ada perubahan `loc.budget`.
+
+**Konsekuensi.** (+) Satu tempat untuk membaca status acceptance F2 dan alasan setiap baris missing. (−) Ledger harus diperbarui saat katalog/acceptance berubah sampai PHASE dinaikkan; baris yang diselesaikan lewat PR lain perlu disinkronkan.
+
 ## ADR-173 — Tool skill: `skills_list`, `skill_view`, `skill_manage`
 
 **Status:** Accepted 2026-10-23 (F2; TOOL-074/075/076, SKILL-002, EC-CTX-006, SEC16-1..5, ACC-56..61). Budget `tools` 2.200 → 2.500 (+300; terukur 2.315) dan `ctxdb/skillstore` 400 → 460 (+60; terukur 438); dependency 0; DDL 0 (ADR-074). Diterapkan bertahap dalam dua PR berurutan: lapisan baca (`skills_list`, `skill_view`) lalu lapisan tulis (`skill_manage`) beserta penguatan SEC16-5.
@@ -3476,6 +3523,40 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 
 **Konsekuensi.** (+) Antrean PR turun tajam tanpa kehilangan satu gate pun; (−) satu job bundle berarti satu kegagalan menandai langkahnya di dalam job (nama langkah tetap memuat E-id agar triase secepat job terpisah); (−) `fuzz` menjadi berurutan (wall-clock ~3× shard tunggal) sebagai ganti tiga slot paralel; bila wall-clock itu mengganggu, jalan keluarnya adalah menaikkan `FUZZTIME` per shard atau mengembalikan tiga job — bukan menurunkan FUZZTIME.
 
+## ADR-180 — Redaksi artefak bench dan penjaga `bench/h2h/results/**`
+
+**Status:** Accepted 2026-10-22 (security review; menutup kebocoran dari #134 lewat PR #285).
+
+**Konteks.** `bench/h2h/results/2026-10-21-llm-scenarios/summary.json` menyimpan baris `cmd` setiap skenario; satu di antaranya memuat nilai kredensial nyata (prefix `sk-ant-`, 49 karakter, berasal dari prompt skenario D19) sehingga kredensial itu tersimpan permanen di repo **publik** sejak #134. Penjaga `TestRecordingsNoKey` (ADR-085) tidak menangkapnya karena hanya memindai `*.jsonl.gz`: `summary.json` — justru artefak yang merekam command line — tidak pernah diperiksa. `gitleaks` juga tidak menandainya, sebab *validity checks* dan *non-provider patterns* GitHub dimatikan dan pola generiknya tidak cocok.
+
+**Keputusan.**
+1. **Redaksi di jalur penulisan.** Setiap artefak di `bench/h2h/results/**` ditulis lewat `h2h.RedactCommand`/`h2h.RedactArgs`: nilai `--api-key`, `--api-key=`, `-k`, `--token`, `--password`, `--secret`, `--key`, header `Authorization:`/`x-api-key:`/`api-key:`, dan token `Bearer` diganti `<redacted>` (kutip command line dipertahankan). `bench/h2h/cmd/startup` memakainya untuk `meta.argv`.
+2. **Penjaga yang menggigit.** `TestRecordingsNoKey` memindai **seluruh berkas reguler** di bawah `results/` (plain dan gzip), bukan hanya `*.jsonl.gz`, dan melaporkan `file:baris` + pola (tanpa nilainya). Kontrol negatifnya (`TestRedactCommandNegativeControl`) memastikan pola penjaga menangkap command yang tidak diredaksi dan sunyi setelah redaksi.
+3. **Scrub + rotasi.** Nilai di `summary.json:419` sudah diganti `<redacted>`; branch `review-f2-sec*` yang publik (yang mewarisi artefak itu) di-scrub dengan commit tambahan (fast-forward). **Rotasi kunci adalah tindakan owner** dan tidak dilakukan di repo.
+4. **Riwayat tidak ditulis ulang.** `main` tidak di-`force-push` dan riwayat tidak di-rewrite karena repo punya 40+ PR terbuka; kredensial yang sudah tersebar hanya bisa dijinakkan lewat rotasi, bukan lewat rewrite.
+
+**Bukti.** Dengan penjaga diperluas sementara nilai masih ada, `cd bench && go test ./h2h/` gagal di `results/2026-10-21-llm-scenarios/summary.json:419` (pola `sk-[A-Za-z0-9_-]{20,}`); setelah scrub lulus. `gitleaks` v8.28.0 (pohon `--no-git` dan riwayat 1.668 commit) hanya melaporkan fixture (`bench/evals/v1/E10.jsonl` 97×, `internal/redact/testdata` dan test redaksi) dan **tidak pernah** menandai nilai nyata itu. Diff artefak: `1 +/1 -`.
+
+**Konsekuensi.** (+) Artefak bench tidak dapat lagi membawa kredensial, dan pemeriksaannya berlaku untuk semua berkas hasil, bukan hanya rekaman proxy. (−) Flag rahasia baru harus ditambahkan ke daftar redaksi `bench/h2h/redact.go`; placeholder di fixture (mis. `bench/evals/v1/E10.jsonl`) sebaiknya dibuat jelas sintetis agar sinyal pemindai tidak tenggelam; rotasi kunci tetap satu-satunya penjinak untuk nilai yang sudah publik.
+
+
+## ADR-181 — Tier `smoke` untuk `push: main`: matriks penuh pindah ke nightly/`workflow_dispatch`
+
+**Status:** Accepted 2026-10-22 (delegasi owner). Mengamandemen tier ADR-135 butir 3 dan melengkapi pengemasan job ADR-179; **cakupan gate tier PR tidak berubah**.
+
+**Konteks.** Setiap squash-merge ke `main` memicu run `ci` yang tidak bisa dibatalkan (ADR-135 butir 1) dengan 16 job (pasca ADR-179), padahal isinya hampir seluruhnya sudah diverifikasi PR yang di-squash (dengan `strict=false`, merge commit PR = base+PR, yaitu pohon yang sama dengan hasil squash selama `main` tidak bergerak). Di plafon runner repo privat, run `main` itu bersaing langsung dengan PR: terukur job `ci-required`/`test` menunggu >15 menit pada 2026-10-22.
+
+**Keputusan.**
+1. **Tier ketiga `smoke` untuk `push: main`**, dihitung di job `changes` dari `github.event_name`: `changes`, `lint` (`golangci-lint` + `vet-custom`), `static` (`make loc`, `make loc-ratio`, `make size-check`, `make deadcode`), `smoke`, `ci-required` = **5 job `ci`**, ditambah `meta-test` dari `meta.yml` yang memang berjalan di setiap push `main`. Isi `smoke`: `make build` (E-39, kompilasi seluruh paket), `make vet-cross` (ADR-073, `go vet` windows/darwin × amd64/arm64), dan `make test RACE=-race PKGS=<paket inti cepat>` (E-55) di luar paket ber-fixture berat (`internal/ctxdb`, `internal/exec`, `internal/codetools`, `internal/e2e`) yang sudah diuji PR dan tetap dijalankan nightly.
+2. **Matriks penuh tetap jalan** (6 target OS `-race`, `test-timing`, `fuzz`, `coverage`, `perf`, `bench-parity`, `bench-budget`, `portability`, `supply`): **di PR** (3 target OS, seluruh gate) dan **di nightly + `workflow_dispatch`** — `nightly.yml` job `ci-full` memanggil workflow ini lewat `workflow_call`, dan `ci.yml` kini juga menerima `workflow_dispatch` (tier `full`, branch mana pun) untuk verifikasi manual.
+3. **Pagar.** Daftar gate tier PR **tidak berubah sedikit pun**: multiset invokasi `make …` tier PR identik sebelum/sesudah perubahan (diverifikasi otomatis membandingkan kedua versi workflow: 0 perintah hilang, 0 perintah bertambah), matrix `test` PR tetap 3 target, `-race` tetap, dan konteks wajib `ci-required`/`meta-test`/`pr-meta` tetap. `ci-required.needs` ditambah `smoke` agar push `main` juga teragregasi (job yang dilewati tier tetap `skipped` → lulus sah, E-78).
+4. **`pr-meta` tidak ada di push `main`** karena event-nya PR-only (judul/body/label berasal dari PR); gate itu sudah ditegakkan di PR sebelum squash, sehingga tidak ada jaminan yang hilang.
+5. **Alasan jaminan tidak berkurang.** (a) PR tetap menjalankan seluruh gate Makefile dengan `-race` pada 3 target OS (ADR-135 butir 3). (b) Hasil squash-merge adalah pohon yang sama dengan merge commit yang diuji PR, selama `main` tidak bergerak setelah run PR terakhir; jendela itu ditutup oleh nightly (≤ 24 jam) dan dapat ditutup manual dengan `workflow_dispatch`. (c) `smoke` di push `main` menangkap kerusakan khas interaksi commit dengan `main`: kompilasi, lint, budget LOC/ukuran, `vet` lintas-OS, dan suite paket inti.
+
+**Dampak terukur (SPEC §20).** Push `main`: 16 → **5 job `ci`** (+1 `meta-test`) sehingga merge tidak lagi menahan antrean PR. PR: tetap **13 job `ci`** (+`meta-test` +`pr-meta`). Nightly: tetap 16 job. Matriks 6 target tetap 1×/hari plus atas permintaan.
+
+**Konsekuensi.** (+) Merge cepat dan murah; verifikasi penuh tetap ada (nightly/`workflow_dispatch`); (+) tidak ada gate PR yang dilepas. (−) Regresi yang hanya muncul di paket berat atau OS non-ubuntu pada `main` terdeteksi paling lambat pada nightly berikutnya, bukan seketika — diterima karena PR yang di-squash sudah menguji pohon yang sama, dan karena itu pula opsi memangkas matrix OS di PR tetap ditolak (ADR-179 butir 8).
+
 ## ADR-182 — Retry idempoten unduhan modul di job `supply` (kegagalan transient proxy)
 
 **Status:** Accepted 2026-10-22 (delegasi owner). Menutup kelas kegagalan yang terlihat pada #242 (run `39838313521`, job `supply-chain`).
@@ -3491,3 +3572,26 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** Gate yang dilewati atau dilonggarkan: **0**. Multiset invokasi `make …` job `supply` identik sebelum/sesudah (diverifikasi otomatis). Biaya tambahan: ≤ 2 × (unduhan gagal + jeda 5 s) hanya pada jalur error.
 
 **Konsekuensi.** (+) Kegagalan transient proxy tidak lagi memaksa rerun manual untuk PR yang tidak menyentuh modul; (+) `direct` menutup pula kasus proxy yang menolak pseudo-version tertentu. (−) Retry menambah ≤ 10 s pada kasus error; (−) bila sebuah pseudo-version benar-benar tidak lagi resolvable (proxy **dan** sumber menolaknya), job tetap merah dan perbaikannya adalah **pin ulang versi** — retry bukan penutup masalah semacam itu, dan langkah itu sengaja tidak dibuat "hijau paksa".
+
+## ADR-183 — Integrasi dengan harness eksternal: dua arah, inbound sekarang dan orkestrasi native di fase lanjut
+
+**Status:** Accepted 2026-10-22 (delegasi owner). **Tanpa perubahan perilaku atau kode** — ADR ini hanya mencatat keputusan dan urutan fase; tidak menyentuh `loc.budget`, SPEC, skema, atau dependency.
+
+**Konteks.** Harness eksternal (mis. omp) ingin memakai Damn-Bot sebagai agent backend. Dua bentuk integrasi mudah tercampur: (a) harness memanggil Damn-Bot sebagai agent, dan (b) Damn-Bot sendiri mengorkestrasi banyak agen. Bentuk (b) adalah primitif orkestrasi yang sudah punya fase pemilik di ROADMAP, sedangkan cakupan F2 baru saja diklasifikasikan dan dikunci gate fase (ADR-139, `TestEdgeCaseCatalogSync`, `make phase-acceptance`).
+
+**Keputusan.**
+1. **Dua arah, satu agent backend.** Integrasi dengan harness eksternal dilakukan lewat **inbound**: `run` headless + **stream-JSON** hari ini, dan **ACP** saat F3 (harness menjadi klien, Damn-Bot menjadi agent backend). Sisi **outbound/native** (Damn-Bot memanggil/mengorkestrasi agent lain) tetap milik fase lanjut sesuai ROADMAP: `delegate`/`MoA` (F5), `kanban` dispatcher/swarm + `a2a` (F7), background review/heartbeat (F8) — **bukan** ditambahkan ke F2.
+2. **Tidak menambah orkestrasi di F2.** Cakupan F2 sudah diklasifikasikan dan dikunci gate fase; menambah primitif orkestrasi di F2 akan mengubah cakupan yang sedang disertifikasi dan menunda penaikan PHASE tanpa manfaat acceptance. Permintaan seperti itu = perubahan cakupan fase yang butuh ADR baru + penaikan PHASE, bukan tambahan ad-hoc.
+3. **Prasyarat teknis yang sudah ada di F2** sehingga jalur inbound murah: toolsets (#253) sebagai bundel kapabilitas, deferred catalog (`tool_search`/`tool_invoke`), satu DB state (sesi ↔ memori ↔ skill ↔ jurnal ↔ undo), budget guard, dan harness e2e biner asli untuk menguji round-trip ACP nanti.
+4. **Kewajiban uji saat ACP masuk (F3).** Minimal satu skenario e2e lewat **biner asli** (`internal/e2e`) plus **kontrol negatif**: batas lintas-proses/protokol adalah batas keamanan, jadi round-trip yang gagal/tak sah harus terbukti ditolak — mengikuti aturan uji repo (bukan uji in-process).
+5. **Daftar adopsi F3 (inbound yang disetujui).** Lima item; semuanya memperkuat peran "Damn-Bot sebagai agent backend" dan tidak menambah orkestrasi:
+   1. **`/bg` + queue/steer** — perintah latar (jalankan, antre, arahkan) supaya klien dapat mengelola turn tanpa memblokir sesi.
+   2. **TUI/REPL + slash/bang shell + notifikasi** — permukaan interaktif F3 yang memakai `internal/loop` yang sama (slash command, `!`/bang shell, notifikasi).
+   3. **`config`/profiles CLI** dengan semantik **session-only vs saved** yang eksplisit + **approval saat menulis** (pola `cfg://` omp), sehingga perubahan konfigurasi dari klien tidak pernah diam-diam permanen.
+   4. **Inspeksi state**: `sessions show`/`sessions export` (sudah ada sejak ADR-140/ADR-141) plus penjelajahan **spill berhalaman**. Store-nya sudah ada di F2 dan ledger acceptance F2 (skenario 9) sudah menuntut perintah inspeksi read-only, jadi ini menutup kewajiban F2, bukan fitur baru.
+   5. **Seam resolver resource tipis** — satu jalur masuk untuk referensi resource sehingga `@`-ref (sekarang) dan MCP (F5) memakai mekanisme yang sama; "tipis" berarti tanpa dependency baru di F3.
+6. **Tidak di F3 (dengan alasan).** Orkestrasi multi-agen (`delegate`/`MoA` F5; `kanban` dispatcher/swarm + `a2a` F7) — cakupan fase lain; **MCP** (F5) — server/host protokol, bukan jalur inbound harness; connector platform (`pr://`, `issue://`, dsb.) — F7/F8; menyalin format/biner/antarmuka harness lain — tidak relevan (parity diukur per baris FEATURE-PARITY, bukan dengan memfotokopi antarmuka).
+
+**Dampak terukur (SPEC §20).** Token/biaya/kode 0; hanya dokumen; tidak ada perubahan `loc.budget`.
+
+**Konsekuensi.** (+) Urutan fase tegas: harness eksternal dapat memakai Damn-Bot sekarang lewat stream-JSON dan lewat ACP pada F3 tanpa membuka kembali cakupan F2. (+) Jalur inbound bersandar pada seam yang sudah ada (headless `run`, toolset, deferred catalog, state DB, budget guard, harness e2e) sehingga tidak butuh arsitektur baru. (−) Permintaan orkestrasi native harus menunggu fase pemiliknya; mempercepatnya berarti ADR + penaikan PHASE, bukan penambahan diam-diam di F2.
