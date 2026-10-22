@@ -573,12 +573,6 @@ func (t *turn) fail(ctx context.Context, detail event.StopDetail, err error) out
 
 // budgetStop ends the turn at a guard denial (SPEC §18.4): the call was
 // never sent; budget_exhausted carries the cap, numbers, and reset.
-func (t *turn) budgetStop(ctx context.Context, se *StreamError) outcome {
-	msg := t.redact(se.Err.Error())
-	t.note(ctx, &event.Event{Kind: event.BudgetExhausted, Payload: payload(auditPayload{Code: string(se.Detail), Message: msg})})
-	t.emit(&event.Update{Kind: event.UpdateNotice, Text: msg, Err: msg})
-	return outcome{stop: event.StopMaxTokens, detail: se.Detail, err: msg}
-}
 
 // fallback records the visible fallback (P7): a notice update and a
 // provider_fallback event, before the fallback answer is used.
@@ -742,18 +736,6 @@ func (t *turn) saveCarriers(ctx context.Context, eventID int64, cs []event.Carri
 // the whole cap period as unknown; an unpriced route writes NULL/unknown,
 // which a monetary cap treats as unprovable spend and fails closed. The
 // write ignores cancellation: the spend already happened.
-func (t *turn) recordBilledAttempts(ctx context.Context, n int, u *event.Usage) error {
-	for range n {
-		row := event.Usage{}
-		if u != nil {
-			row = *u
-		}
-		if err := t.record(context.WithoutCancel(ctx), 0, &row); err != nil {
-			return err
-		}
-	}
-	return nil
-}
 
 // record writes one usage row unless accounting is disabled.
 func (t *turn) record(ctx context.Context, eventID int64, u *event.Usage) error {
