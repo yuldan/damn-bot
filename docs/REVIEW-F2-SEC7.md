@@ -826,3 +826,77 @@ Gate di `6066258`: `go test -race -tags goolm -count=1 -run 'StateEdge|Migration
 | SEC7-67 | info | — | `keyedFTSExpr` menambahkan `*` pada HMAC; prefiks atas hash 64-hex tidak bermakna tetapi tidak berbahaya. | Opsional: buang `*` di mode terenkripsi. |
 
 **Ringkasan Round 13:** SEC7-62/63 tertutup, dan pilihan batas History (baris mentah, terdokumentasi, teruji) dapat diterima. #201/#217/#241 APPROVE, dengan catatan SEC7-64: unigram CJK di index terenkripsi berposisi memungkinkan pemulihan isi CJK, melebihi ADR-124, sehingga perlu keputusan owner (amandemen ADR atau `detail=none`/tanpa unigram). #261 benar secara semantik untuk EC-STATE-001/007/009, exit 78 sesuai SPEC, dan `blob_fts` terenkripsi memakai HMAC (bukan plaintext, tanpa bypass redaksi). Namun `ctxdb` melampaui budget (5008 > 4700, Total core tidak dinaikkan) dan `blob_fts` tidak pernah ditulis saat append maupun di-query (GAP-INF-02 belum tersambung) → REQUEST CHANGES.
+
+## Round 14 — 2026-10-22
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #201 | `8eb9583` (tidak berubah) | **APPROVE**: SEC7-64 ditutup oleh #261 (lihat di bawah) |
+| #217 | `b9449c1` (restack) | APPROVE |
+| #241 | `cd8628e` (tidak berubah) | APPROVE, dengan catatan stack **SEC7-68** harus ditutup sebelum jendela merge |
+| #261 | `e9578b8` | **REQUEST CHANGES**: **SEC7-66 masih terbuka** (jalur produksi tidak pernah mengisi `events.blob_sha`, jadi `blob_fts` tetap kosong); **SEC7-68 (MEDIUM)** spill tool output tetap plaintext di data dir saat enkripsi aktif; **SEC7-69 (MINOR)** Recall satu-rune CJK di mode terenkripsi error SQL; **SEC7-70 (MINOR)** penanda `layout_version` tidak terautentikasi dan sisa halaman lama tidak di-scrub |
+
+Bukti yang dijalankan ulang di `e9578b8`: `TestEncryptedFTSLayoutNoPositionsOrUnigrams`, `TestEncryptedFTSLayoutUpgradeReindexes`, `TestFTSCodecLockerQuery`, `TestRecallToolOutputBlob`, `TestEncryptedRecallToolOutputBlob` → semua PASS. `make loc` → `ctxdb 5145/5200`, `TOTAL 37742/190000` (tanpa `GAGAL`). Probe `TestZZSec7R14Probe` (`internal/ctxdb`, dihapus setelah dijalankan) memakai codec uji.
+
+### 1. SEC7-64 — terverifikasi fixed
+
+- DDL terenkripsi: probe membaca `sqlite_master` untuk `events_fts` dan `blob_fts` → keduanya `detail=column=true`. `recreateEncryptedFTS` membuat ulang kelima tabel dengan `detail=column` dan trigger keyed yang sama (`internal/ctxdb/fts.go:377-418`).
+- Unigram CJK: `encFTS` melewati field satu-rune CJK (`internal/ctxdb/encryptfile.go`), dan `encFTSQuery`/`keyedFTSExpr`/`searchExpr` melakukan hal yang sama di sisi query. Plaintext tetap `ftsNorm` (bigram + unigram) — sesuai ADR-124 amandemen.
+- Upgrade: `ftsEncLayout=2`; `upgradeFTS` → `upgradeEncryptedLayout` memanggil `recreateEncryptedFTS` bila `layout_version < 2`, lalu `ReindexFTS` (termasuk `reindexBlobs`). `TestEncryptedFTSLayoutUpgradeReindexes` menurunkan `fts_meta` ke 1, membuka ulang, dan memeriksa pencarian + `detail=column` → PASS.
+- Kontrol negatif ada: `TestEncryptedFTSLayoutNoPositionsOrUnigrams` memeriksa bigram **match** dan unigram **tidak match** dengan `realCodec`, plus `NEAR` tidak mengembalikan baris. Catatan kecil: bila `NEAR` *error* (bukan kosong) test menganggapnya lulus (`if perr == nil && len(phrase) != 0`), jadi ia membuktikan "tidak ada data posisi" tetapi tidak membuktikan bentuk kegagalannya.
+
+**Residual → SEC7-70** (tidak memblokir): penanda layout dapat ditulis penyerang dan `DROP TABLE` tidak men-scrub halaman.
+
+### 2. SEC7-65 — fixed
+
+`loc.budget`/`docs/ENGINEERING.md`: `ctxdb` 4.700 → 5.200, Total core 41.830 → 42.330 (+500, konsisten dengan kenaikan `ctxdb`). `make loc` di `e9578b8`: `ctxdb 5145 / 5200`, `TOTAL 37742 / 190000`, tidak ada `LOC GAGAL`. Klaim budget benar. (Headroom `secret 1150/1150`, `loop 2044/2050`, `journal 557/560` tipis tetapi tidak melanggar.)
+
+### 3. SEC7-66 — **masih terbuka**: jalur produksi tidak pernah menulis `blob_fts`
+
+Perbaikan `indexBlobFTS`/merge Recall benar **pada level `ctxdb.Store`, tetapi tidak tersambung ke binary**:
+
+- `AppendEvent` hanya meng-index bila `e.Blob != ""` (`internal/ctxdb/append.go:126-131`).
+- Satu-satunya pengisi `Blob` di produksi adalah `ctxStore.Append`: `Blob: ev.BlobSHA` (`cmd/damnbot/run.go:608`).
+- `ev.BlobSHA` berasal dari `loop.ToolResult.BlobSHA`, tetapi **tidak ada satu pun penugasan** `BlobSHA` di `internal/loop` maupun `cmd/damnbot` (grep `BlobSHA *=` kosong). `toolsetAdapter.Dispatch` (`cmd/damnbot/run.go:587-605`) hanya menyalin `Content`/`Tainted`/`Err`; `out.Spilled` dibuang.
+- Spill tool output di produksi adalah `diskSpill` (`cmd/damnbot/run.go:155,208,677-684`), file biasa di `<dataDir>/run-spill/<sha>` — **bukan** blob `ctxdb` (`PutBlob`/`Publish`).
+
+Akibatnya di `damnbot run` (plaintext maupun terenkripsi) `events.blob_sha` selalu kosong, `blob_fts` tidak pernah terisi saat append, dan jalur merge Recall tidak pernah menghasilkan hit untuk output tool. Test `TestRecallToolOutputBlob`/`TestEncryptedRecallToolOutputBlob` memanggil `PutBlob`+`Append` langsung, jadi tidak menangkap gap ini — dan tidak ada e2e melalui binary (aturan owner untuk batas kripto/at-rest). Ledger `GAP-INF-02 = covered` karena itu masih salah; seharusnya `partial` sampai jalur produksi disambungkan.
+
+Jawaban pertanyaan khusus:
+- **Pre- atau post-redaksi?** Post-redaksi. `Dispatcher.finish` meredaksi sebelum spill (`internal/tools/dispatch.go`), dan `Summarizer` meredaksi `log`/`raw` sebelum memanggil spill (`internal/exec/summarize.go`). `indexBlobFTS` membaca blob yang tersimpan, jadi tidak ada jalur di luar redaksi.
+- **Keyed saat terenkripsi?** Ya, secara kode: `indexBlobFTS` → `ftsPlain` → `encFTS(codec,…)`; query memakai `dmb_fts_norm` yang juga keyed. Namun test blob terenkripsi tidak mengunci ini dengan kontrol negatif "token plaintext tidak ada" (canary test tidak menyertakan blob). Tambahkan asersi itu.
+- **Scope Recall?** Query blob memakai `e.kind='tool_result'` + `notPurging("e.session_id")` (`internal/ctxdb/visible.go:124-128`), sama dengan filter Recall event; `Recall` memang lintas sesi secara desain dan tidak punya parameter sesi. Tidak ada kebocoran lintas-sesi baru relatif terhadap Recall event.
+
+**Perbaikan:** publikasikan spill tool output lewat `ctxdb.PutBlob`+`Publish` dan isi `loop.ToolResult.BlobSHA`/`events.blob_sha` (atau adapter `Spiller` ctxdb), lalu tambahkan e2e binary: tool output > `InlineChars` di turn 1 → `recall` menemukannya di turn berikutnya, plaintext + terenkripsi. Hati-hati: `indexBlobFTS` mengembalikan error bila sha tidak ada di tabel `blobs`, sehingga menyetel `BlobSHA` dari `diskSpill` tanpa publish akan menggagalkan append `tool_result`.
+
+### 4. SEC7-68 (MEDIUM) — spill tool output plaintext saat enkripsi at-rest aktif
+
+`runOne` membuat `spill := diskSpill{dir: <dataDir>/run-spill}` **sebelum** codec dibuka (`cmd/damnbot/run.go:155` vs `:322`), meneruskannya ke dispatcher (`:208`), dan `diskSpill.Put` menulis byte apa adanya dengan `os.WriteFile` (`:677-684`). Tidak ada enkripsi dan **tidak ada pembersihan** (`run-spill` tidak muncul di kode lain; `doctor gc` hanya menangani blob). Jadi dengan `storage.encrypt=true`, setiap hasil tool > `InlineChars` (4.000 char) dan setiap log shell besar tersimpan **plaintext permanen** di data dir yang seharusnya terenkripsi. Isinya sudah diredaksi, tetapi tetap isi percakapan (mis. isi file yang dibaca, output perintah).
+
+Ini bertentangan dengan klaim e2e kripto: `assertNoCanary(t, e.DataDir, …)` akan gagal bila tool output besar membawa canary — test itu tidak pernah memicu spill. Ini juga menyimpang dari model SPEC §11.6 (blob spill = `blobs/<prefix>/<sha>` yang disegel codec, dan `events.blob_sha` yang menunjuk ke sana).
+
+**Perbaikan:** sambungkan spill ke `ctxdb.PutBlob`/`Publish` (menutup SEC7-66 sekaligus), atau enkripsi direktori spill dengan codec yang sama dan hapus saat run selesai; tambahkan e2e dengan tool output > 4 KiB berisi canary dan `assertNoCanary(e.DataDir, canary)` di mode terenkripsi.
+
+### 5. SEC7-69 (MINOR) — Recall satu-rune CJK error di mode terenkripsi
+
+Probe: `Recall(ctx, "天", 3)` pada store terenkripsi (codec uji) → `ctxdb: recall probe: ctxdb: SQL logic error: fts5: syntax error near ""`. Penyebab: `recallExpr("天")` menghasilkan `"天"*`; `dmb_fts_norm` menormalkannya menjadi string kosong (unigram CJK dibuang), lalu `MATCH ''` error. `Search` menangani kasus ini (`searchExpr == ""` → `nil`), `recall` tidak. Perilaku yang didokumentasikan adalah "tidak ada hit", bukan error. Saat ini `ctxdb.Recall` tidak punya pemanggil produksi (hanya test), jadi dampaknya belum terlihat; tetap perbaiki dengan `if s.ftsValue(q) == "" { return nil, nil }` (atau helper serupa) sebelum query probe.
+
+### 6. SEC7-70 (MINOR) — residual mitigasi SEC7-64
+
+- `fts_meta.layout_version` adalah penanda plaintext di dalam DB. Penyerang yang bisa menulis file DB dapat menyetelnya ke 2; `upgradeFTS` lalu melihat `old==0` dan **melewati** recreate+reindex, sehingga index `detail=full` + unigram lama tetap dipakai. Deteksi layout lebih baik dibaca dari `sqlite_master` (apakah DDL memuat `detail=column`) daripada mempercayai kolom meta.
+- `recreateEncryptedFTS` memakai `DROP TABLE` sementara `PRAGMA secure_delete` tidak diaktifkan pada jalur buka normal (hanya di `encryptDB`). Halaman lama berisi token posisi/unigram tetap berada di free page file DB setelah upgrade (WAL di-truncate saat close). Pertimbangkan `secure_delete=ON` di sekitar recreate atau `VACUUM` setelah upgrade layout.
+
+### Temuan Round 14
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC7-66 | MEDIUM | **open (regresi klaim)** | Jalur produksi tidak pernah mengisi `events.blob_sha`; `blob_fts` kosong, merge Recall tidak berfungsi. Test hanya direct-store; tidak ada e2e. | Sambungkan spill ke `PutBlob`+`Publish` dan `loop.ToolResult.BlobSHA`; e2e binary; ledger `partial`. |
+| **SEC7-68** | MEDIUM | confirmed (statis) | Spill tool output (`run-spill`) plaintext dan persisten meski enkripsi aktif; e2e canary tidak memicu spill. | Pakai blob ctxdb (disundul codec) atau enkripsi+bersihkan spill; e2e canary > 4 KiB. |
+| SEC7-69 | MINOR | confirmed (probe) | `Recall` satu-rune CJK di mode terenkripsi error `fts5: syntax error near ""`, bukan no-hit. | Kembalikan `nil` bila ekspresi keyed menjadi kosong. |
+| SEC7-70 | MINOR | confirmed (statis) | `layout_version` dapat dipalsukan untuk melewati reindex; `DROP TABLE` tanpa `secure_delete`/VACUUM meninggalkan token lama di free page. | Baca layout dari `sqlite_master`; `secure_delete`/VACUUM setelah upgrade. |
+| SEC7-64 | MEDIUM | **fixed** `ccabbe4` | — | — |
+| SEC7-65 | MEDIUM | **fixed** `ccabbe4` | — | — |
+
+**Ringkasan Round 14:** SEC7-64 dan SEC7-65 benar dan terverifikasi (probe + test + `make loc`). Namun **SEC7-66 belum tersambung ke binary**: produksi memakai `diskSpill` plaintext dan tidak pernah menyetel `BlobSHA`, sehingga `blob_fts` kosong; test yang diklaim hanya menguji `Store` secara langsung. Ditambah **SEC7-68**: spill itu menulis isi percakapan plaintext permanen saat `storage.encrypt=true`, yang melanggar jaminan at-rest dan tidak tercakup e2e canary. #261 **REQUEST CHANGES**; #201/#217/#241 tetap APPROVE, tetapi jendela merge kripto sebaiknya menunggu SEC7-66/68 ditutup (satu perbaikan yang sama).
