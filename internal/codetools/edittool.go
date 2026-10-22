@@ -360,7 +360,7 @@ func (e *Engine) create(ctx context.Context, a WriteArgs, abs string, o Opts) (R
 	if merr := e.mkdirs(ctx, filepath.Dir(resolved), outside); merr != nil {
 		return Result{}, merr
 	}
-	t := &target{resolved: resolved, rel: e.rel(resolved), outside: outside}
+	t := &target{resolved: resolved, rel: e.rel(resolved), outside: outside, journal: o.Journal}
 	d := &doc{}
 	lines := splitDocLines(a.Content, e.newEOL)
 	out, _ := d.render(lines)

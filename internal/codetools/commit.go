@@ -72,6 +72,11 @@ func (e *Engine) commitStream(ctx context.Context, t *target, before fileKey, mo
 	if werr := tmp.Sync(); werr != nil {
 		return ci, ioErr("fsync", t.rel, werr)
 	}
+	if t.journal != nil {
+		if jerr := t.journal(ctx, &Commit{Path: t.resolved, Before: t.f, After: tmp, Mode: mode}); jerr != nil {
+			return ci, ioErr("journal", t.rel, jerr)
+		}
+	}
 	if ci.inplace {
 		err = e.copyInPlace(ctx, t, before, tmp, &ci)
 		return ci, err

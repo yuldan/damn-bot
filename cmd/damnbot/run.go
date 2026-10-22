@@ -179,10 +179,7 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	}
 	red := redact.New(redact.Options{})
 	spill := diskSpill{dir: filepath.Join(dataDir, "run-spill")}
-	configDir, home := paths.ConfigDir, ""
-	if h, herr := os.UserHomeDir(); herr == nil {
-		home = h
-	}
+	configDir, home := paths.ConfigDir, homeDir()
 	model, err := startRunModel(ctx, &cfg, dataDir, modelRef, o, red, spill, configDir, home)
 	if err != nil {
 		return 0, err
@@ -228,7 +225,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	}
 	disp, err := tools.NewDispatcher(&tools.Config{
 		Registry:         model.registry,
-		Journal:          &ctxJournal{db: model.db, sid: model.sessionID},
+		Journal:          loopTranscript{},
 		Spill:            spill,
 		Redactor:         red,
 		Mode:             approvalMode(o),
@@ -422,7 +419,13 @@ func shellGate(cfg *config.Config, configDir string) ([]classify.AllowEntry, []s
 	return allow, monetary, nil
 }
 
-func closeDB(ctx context.Context, db *ctxdb.Store, cause error) error {
+// closeDB releases sid's lease (a no-op when this process holds none) and
+// closes db, so no start or turn path leaves a lease behind that would make
+// `damnbot undo` report session_busy (REVIEW-F2-SEC5-5).
+func closeDB(ctx context.Context, db *ctxdb.Store, sid string, cause error) error {
+	if rerr := db.ReleaseLease(ctx, sid); rerr != nil {
+		cause = errors.Join(cause, fmt.Errorf("release lease: %w", rerr))
+	}
 	if cerr := db.CloseContext(ctx); cerr != nil {
 		return errors.Join(cause, fmt.Errorf("close ctxdb: %w", cerr))
 	}

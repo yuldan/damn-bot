@@ -92,6 +92,22 @@ type Opts struct {
 	// PageChars caps paged output (ADR-031): 0 = DefaultPageChars; the
 	// pipeline passes ReducedPageChars once the turn aggregate is spent.
 	PageChars int
+	// Journal, when set, is called once per committing write after the new
+	// bytes are durable in the temp file and before the target is replaced
+	// (SPEC §4.3 langkah 8, §18.1); an error aborts the write with the
+	// target untouched.
+	Journal func(ctx context.Context, c *Commit) error
+}
+
+// Commit is one file replacement about to happen. Before is the current
+// file (nil when the write creates it) and After the fsynced temp holding
+// the new bytes; readers use ReadAt (offsets are arbitrary). Mode is the
+// mode both sides keep; 0 on creation, where After's own mode is final.
+// The files are only valid during the Journal call.
+type Commit struct {
+	Path          string // resolved target path
+	Before, After *os.File
+	Mode          fs.FileMode
 }
 
 // Page caps of ADR-031 / CODE-TOOLS §1 butir 6.
@@ -260,6 +276,7 @@ type target struct {
 	resolved string
 	rel      string
 	outside  bool // opened after an approved non-Inside verdict
+	journal  func(ctx context.Context, c *Commit) error
 }
 
 // approval fails a verdict other than Inside (outside_root,
@@ -284,7 +301,7 @@ func (e *Engine) open(ctx context.Context, p string, flag int, perm fs.FileMode,
 	if _, r, cerr := e.sb.Check(ctx, abs, sandbox.OpRead); cerr == nil {
 		resolved = r
 	}
-	return &target{f: f, resolved: resolved, rel: e.rel(resolved), outside: v != sandbox.Inside}, nil
+	return &target{f: f, resolved: resolved, rel: e.rel(resolved), outside: v != sandbox.Inside, journal: o.Journal}, nil
 }
 
 // openPath opens abs (shown as p in errors) through the sandbox; a verdict

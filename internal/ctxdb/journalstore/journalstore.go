@@ -6,6 +6,7 @@
 package journalstore
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -81,6 +82,8 @@ type inverse struct {
 	After  *invImage `json:"after,omitempty"`
 	CallID string    `json:"call_id,omitempty"`
 	Tool   string    `json:"tool,omitempty"`
+	// Scope is journal.Record.Scope, immutable with the row.
+	Scope json.RawMessage `json:"scope,omitempty"`
 }
 
 type invImage struct {
@@ -103,7 +106,7 @@ func (s *Store) Record(ctx context.Context, r *journal.Record) (int64, error) {
 		return 0, fmt.Errorf("journalstore: record: %w", err)
 	}
 	var pend []*ctxdb.PendingBlob
-	inv := inverse{Path: r.Path, MoveTo: r.MoveTo, CallID: r.CallID, Tool: r.ToolName}
+	inv := inverse{Path: r.Path, MoveTo: r.MoveTo, CallID: r.CallID, Tool: r.ToolName, Scope: r.Scope}
 	if r.Before != nil && r.Before.Device == 0 && r.Before.Inode == 0 {
 		r.Before.Device, r.Before.Inode = fileIdentity(r.Path)
 	}
@@ -154,15 +157,13 @@ func (s *Store) recordTx(tx *ctxdb.Tx, r *journal.Record, pend []*ctxdb.PendingB
 			return fmt.Errorf("journalstore: publish: %w", perr)
 		}
 	}
-	ev, aerr := tx.AppendEvent(r.SessionID, &ctxdb.Event{
-		Kind: "tool_dispatch", TurnID: r.TurnID, ToolCallID: r.CallID, ToolName: r.ToolName,
-	})
+	ev, turn, aerr := anchor(tx, r)
 	if aerr != nil {
 		return fmt.Errorf("journalstore: dispatch event: %w", aerr)
 	}
 	if gerr := tx.Get(`INSERT INTO actions(session_id, turn_id, event_id, kind, reversibility, subject, inverse, bytes_held, created_at)
 		VALUES (?1,?2,?3,?4,'reversible',?5,?6,?7,?8) RETURNING id`,
-		[]any{r.SessionID, null(r.TurnID), ev, string(r.Kind), r.Path, string(doc), held, now}, id); gerr != nil {
+		[]any{r.SessionID, null(turn), ev, string(r.Kind), r.Path, string(doc), held, now}, id); gerr != nil {
 		return fmt.Errorf("journalstore: insert action: %w", gerr)
 	}
 	refs, berr := ctxdb.BlobRefsOf("action", strconv.FormatInt(*id, 10), nil, map[string]string{"inverse": string(doc)})
@@ -173,6 +174,28 @@ func (s *Store) recordTx(tx *ctxdb.Tx, r *journal.Record, pend []*ctxdb.PendingB
 		return fmt.Errorf("journalstore: insert refs: %w", rerr)
 	}
 	return nil
+}
+
+// anchor returns the tool_dispatch event the action row hangs on: the
+// call's transcript event when the loop already wrote it (SPEC §4.3 step 8),
+// so one call has exactly one dispatch event (REVIEW-F2-SEC5-9), and its
+// turn id; a standalone record without one appends its own.
+func anchor(tx *ctxdb.Tx, r *journal.Record) (ev int64, turn string, err error) {
+	if r.CallID != "" {
+		err = tx.Get(`SELECT id, coalesce(turn_id, '') FROM events WHERE session_id = ?1 AND tool_call_id = ?2
+			AND kind = 'tool_dispatch' ORDER BY seq DESC LIMIT 1`, []any{r.SessionID, r.CallID}, &ev, &turn)
+		switch {
+		case err == nil:
+			return ev, cmp.Or(r.TurnID, turn), nil
+		case !errors.Is(err, ctxdb.ErrNotFound):
+			return 0, "", fmt.Errorf("find call event: %w", err)
+		}
+	}
+	ev, err = tx.AppendEvent(r.SessionID, &ctxdb.Event{Kind: "tool_dispatch", TurnID: r.TurnID, ToolCallID: r.CallID, ToolName: r.ToolName})
+	if err != nil {
+		return 0, "", fmt.Errorf("append anchor: %w", err)
+	}
+	return ev, r.TurnID, nil
 }
 
 // keepMode is the mode an undo restores: permission bits plus
@@ -411,7 +434,7 @@ func decode(a *journal.Action, doc string) error {
 	if err := json.Unmarshal([]byte(doc), &x); err != nil {
 		return fmt.Errorf("journalstore: inverse of action %d: %w", a.ID, err)
 	}
-	a.Path, a.MoveTo = x.Path, x.MoveTo
+	a.Path, a.MoveTo, a.Scope = x.Path, x.MoveTo, x.Scope
 	a.Before = image(x.Before)
 	a.After = image(x.After)
 	return nil

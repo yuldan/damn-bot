@@ -2,9 +2,11 @@ package codetools
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -728,6 +730,7 @@ func BenchmarkCodetools(b *testing.B) {
 	b.Run("Edit1MB", func(b *testing.B) { // CT-09: p95 ≤ 20 ms incl. fsync file + dir
 		measureDurable(b, "CT-09 edit 1 MB", 20*time.Millisecond, edit1MBSetup(ctx, b))
 	})
+	b.Run("Edit1MBJournal", benchEditJournal) // CT-09 + journal images (REVIEW-F2-SEC5-10)
 }
 
 // edit1MBSetup builds one CT-09 sample set (ADR-127): a fresh 1 MB file, its
@@ -751,6 +754,49 @@ func edit1MBSetup(ctx context.Context, b *testing.B) func() (op func(i int), ref
 			tag = metaStr(&r, "tag")
 		}, ref
 	}
+}
+
+// benchEditJournal is CT-09 with a journal hook doing what the production
+// recorder does before the journalstore write: read both whole images and
+// hash them. measureDurable retries it as a fresh set like Edit1MB (#225).
+func benchEditJournal(b *testing.B) {
+	measureDurable(b, "CT-09 edit 1 MB + journal images", 40*time.Millisecond, editJournalSetup(context.Background(), b))
+}
+
+func editJournalSetup(ctx context.Context, b *testing.B) func() (func(i int), func()) {
+	return func() (func(i int), func()) {
+		v := newEnv(b)
+		content := strings.Repeat(strings.Repeat("e", 99)+"\n", 10<<10) + "marker 0\n"
+		v.put(b, "e.txt", content)
+		tag := v.tag(b, "e.txt")                        //nolint:contextcheck // setup read with a background context
+		ref := durableWrite(b, v.root, []byte(content)) // same durable reference as Edit1MB (ADR-127)
+		return func(i int) {
+			r, err := v.e.Edit(ctx, EditArgs{Path: "e.txt", Tag: tag, Edits: []EditItem{{
+				OldString: new(fmt.Sprintf("marker %d\n", i)), NewString: new(fmt.Sprintf("marker %d\n", i+1)),
+			}}}, Opts{Journal: journalImages})
+			if err != nil {
+				b.Fatal(err)
+			}
+			tag = metaStr(&r, "tag")
+		}, ref
+	}
+}
+
+func journalImages(_ context.Context, c *Commit) error {
+	for _, f := range []*os.File{c.Before, c.After} {
+		fi, err := f.Stat()
+		if err != nil {
+			return fmt.Errorf("stat image: %w", err)
+		}
+		buf := make([]byte, fi.Size())
+		if _, err := f.ReadAt(buf, 0); err != nil && !errors.Is(err, io.EOF) {
+			return fmt.Errorf("read image: %w", err)
+		}
+		if h := sha256.Sum256(buf); h == [32]byte{} {
+			return errors.New("zero digest")
+		}
+	}
+	return nil
 }
 
 // bigFile writes size bytes of 80-char numbered lines without holding them.

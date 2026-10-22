@@ -15,8 +15,9 @@ import (
 // holds it without FILE_SHARE_DELETE. The lock is transient, so a rename or
 // delete is retried briefly before it fails.
 const (
-	shareRetryAttempts = 5
-	shareRetryBackoff  = 20 * time.Millisecond
+	shareRetryAttempts = 10                     // bounded patience, ~1.3 s in total (EC-WIN-014)
+	shareRetryBackoff  = 20 * time.Millisecond  // first wait; doubles per attempt
+	maxShareRetryWait  = 200 * time.Millisecond // cap: a holder that never releases fails, never hangs
 )
 
 // retrySharing reports whether err is a transient sharing violation.
@@ -30,9 +31,11 @@ func retrySharing(err error) bool {
 // or the attempts are spent.
 func withShareRetry(fn func() error) error {
 	var err error
+	wait := shareRetryBackoff
 	for i := range shareRetryAttempts {
 		if i > 0 {
-			time.Sleep(shareRetryBackoff)
+			time.Sleep(wait)
+			wait = min(wait*2, maxShareRetryWait)
 		}
 		if err = fn(); err == nil || !retrySharing(err) {
 			return err
@@ -68,21 +71,43 @@ func removeAt(d *os.File, name string) error {
 }
 
 // renameReplace replaces dst with MoveFileEx(REPLACE_EXISTING|WRITE_THROUGH)
-// (CODE-TOOLS §5.4).
+// (CODE-TOOLS §5.4). NTFS refuses to replace a read-only destination, and a
+// 0o400 file is exactly that on Windows, while POSIX replaces the directory
+// entry whatever the destination mode is; a denied replace therefore clears
+// the attribute once and retries, the way the undo journal does it
+// (ADR-117). The replacement — not the mode of the file it replaces — owns
+// the result afterwards, exactly as on POSIX.
 func renameReplace(src, dst string) error {
-	s, err := windows.UTF16PtrFromString(src)
-	if err == nil {
-		var d *uint16
-		if d, err = windows.UTF16PtrFromString(dst); err == nil {
-			err = withShareRetry(func() error {
-				return windows.MoveFileEx(s, d, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
-			})
-		}
-	}
-	if err != nil {
+	if err := withShareRetry(func() error { return moveReplace(src, dst) }); err != nil {
 		return fmt.Errorf("codetools: MoveFileEx: %w", err)
 	}
 	return nil
+}
+
+// moveReplace is one replace attempt: MoveFileEx, and when NTFS refuses a
+// read-only destination the attribute is cleared once and the call repeated.
+func moveReplace(src, dst string) error {
+	err := moveFileEx(src, dst)
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		if cerr := os.Chmod(dst, 0o600); cerr == nil {
+			err = moveFileEx(src, dst)
+		}
+	}
+	return err
+}
+
+// moveFileEx is one MoveFileEx call with both names converted (the syscall
+// wants NUL-terminated UTF-16).
+func moveFileEx(src, dst string) error {
+	s, err := windows.UTF16PtrFromString(src)
+	if err != nil {
+		return err
+	}
+	d, err := windows.UTF16PtrFromString(dst)
+	if err != nil {
+		return err
+	}
+	return windows.MoveFileEx(s, d, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 }
 
 // dirSyncable: directory handles cannot be flushed on Windows and NTFS
