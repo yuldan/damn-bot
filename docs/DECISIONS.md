@@ -3356,3 +3356,16 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 8. **Test.** Unit tool (list metadata, untrusted view, `not_found`, efek non-idempotent, `Inspector` selalu `RequireAsk` termasuk `auto`/`auto-edit`), manager (karantina → approval user → view; skill terkarantina tidak muncul di list dan view-nya `not_found`; create menolak skill user yang hanya ada di disk tanpa mengubah file/gate pembayaran; update rejected/gagal mempertahankan versi approved lama; rejected create menghapus file; delete hanya baris agent; trusted tidak dapat ditimpa/dihapus; materialisasi hanya setelah approval; lookup eksak di antara > 50 baris; cap payload dan penolakan path, termasuk `skill.md`/`Skill.MD`), e2e binary asli (list/view skill approved dan pembungkusan `<untrusted>`; skill terkarantina tidak terlihat; `skill_manage` ditolak tanpa approver dan tidak menulis file apa pun), `TestEdgeCases/EC-CTX-006`.
 
 **Konsekuensi.** (+) Skill dapat ditemukan dan dimuat secara eksplisit; kontennya tetap data dan approval tetap milik user. (+) Tanpa storage baru (DDL 0) dan tanpa dependency baru. (−) `skill_manage` tidak tersedia pada run headless non-interaktif (fail closed); skill agent baru aktif setelah approval + materialisasi pada run berikutnya; `skill_view` menambah token sesuai file yang diminta (≤ 64 KiB/20 file, body ≤ 8 KiB).
+## ADR-138 — Headless `run` resume: `--session <id>` / `-c|--continue`
+
+**Status:** Accepted 2026-10-23 (F2; melengkapi SPEC §10 `run` dan EC-STATE/resume parity). Tanpa DDL, dependency, atau budget baru.
+
+**Konteks.** `damnbot run` selalu membuat sesi baru, sehingga turn gagal yang sudah ditandai `context_exclude` (#211/ADR-134) tidak dapat dilanjutkan pada sesi yang sama dan paritas resume (MEM-013) belum ada di headless.
+
+**Keputusan.**
+1. **Flag.** `run --session <id>` melanjutkan sesi itu; `-c`/`--continue` memilih sesi visible terbaru dengan `cwd` = direktori kerja proses (`ORDER BY created_at DESC, id`). Keduanya saling eksklusif; tanpa flag perilaku lama (sesi baru).
+2. **Metadata.** Sesi dilanjutkan memakai `cwd` dan `model` tersimpan; `--model`/`provider.model` yang diberikan menang. Sesi tanpa model tersimpan dan tanpa model eksplisit gagal dengan pesan jelas. Sandbox/engine/registry dibangun dari `cwd` sesi, bukan cwd proses.
+3. **Lease.** `ctxdb.AcquireLease` dipanggil untuk sesi yang dilanjutkan (`session_busy`/`lease_fenced`/`session_purging` gagal), dan `runModel.close` melepas lease sebelum menutup DB; sesi `--session`/`--continue` tidak membuat baris sesi baru.
+4. **History.** Resume memakai jalur `ctxdb.History`/assemble yang sama; turn `context_exclude` tidak masuk request berikutnya dan barisnya tetap dapat di-recall. Tidak ada jalur history kedua.
+5. **Exit code.** Tidak berubah: 0 `completed`, 2 kegagalan turn, 1 untuk error schema; output JSON tetap memuat `session_id`.
+6. **Test.** `internal/e2e` (child binary + fake provider): `TestRunResumeExcludesFailedTurn` (turn gagal + side effect `write_file`, resume tidak memuat penanda turn gagal/tool result, side effect tetap ada) dan `TestRunContinueNewestSession` (`--continue` memakai id yang sama dan membawa history).

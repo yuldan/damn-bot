@@ -48,6 +48,8 @@ type runOptions struct {
 	offline          bool
 	baseURL          string
 	apiKey           string
+	session          string
+	cont             bool
 	providerAttempts int
 	// eval-only seams (never set by a flag): a provider override (fake or
 	// budget-gated), a per-run config override, and a memory retriever
@@ -102,6 +104,9 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	fs.BoolVar(&o.offline, "offline", false, "network.offline: loopback only")
 	fs.StringVar(&o.baseURL, "base-url", "", "internal/test: provider base URL")
 	fs.StringVar(&o.apiKey, "api-key", "", "internal/test: provider API key")
+	fs.StringVar(&o.session, "session", "", "resume an existing session id")
+	fs.BoolVar(&o.cont, "continue", false, "continue the newest session in the current directory")
+	fs.BoolVar(&o.cont, "c", false, "alias for --continue")
 	fs.IntVar(&o.providerAttempts, "provider-attempts", 0, "internal/test: provider retry attempts (0 = default 3)")
 	if err := fs.Parse(args); err != nil {
 		return runOptions{}, &reportedParseError{err: fmt.Errorf("parse flags: %w", err)}
@@ -116,6 +121,9 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	}
 	if o.prompt == "" {
 		return runOptions{}, errors.New("prompt required")
+	}
+	if o.session != "" && o.cont {
+		return runOptions{}, errors.New("--session and --continue are mutually exclusive")
 	}
 	return o, nil
 }
@@ -144,7 +152,7 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	if modelRef == "" {
 		modelRef = cfg.Provider.Model
 	}
-	if modelRef == "" {
+	if modelRef == "" && o.session == "" && !o.cont {
 		return 0, errors.New("--model or provider.model is required")
 	}
 	red := redact.New(redact.Options{})
@@ -162,6 +170,9 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 			err = fmt.Errorf("close run model: %w", cerr)
 		}
 	}()
+	if modelRef == "" {
+		modelRef = model.modelRef
+	}
 	return runTurn(ctx, &cfg, o, model, modelRef, red, spill, stdout)
 }
 
@@ -245,6 +256,7 @@ type runModel struct {
 	sessions  *exec.Sessions
 	sessionID string
 	cwd       string
+	modelRef  string
 	db        *ctxdb.Store
 }
 
@@ -265,6 +277,9 @@ func (m *runModel) close(ctx context.Context) error {
 	}
 	if m.db == nil {
 		return err
+	}
+	if rerr := m.db.ReleaseLease(ctx, m.sessionID); rerr != nil {
+		err = errors.Join(err, fmt.Errorf("release lease: %w", rerr))
 	}
 	if cerr := m.db.CloseContext(ctx); cerr != nil {
 		return errors.Join(err, fmt.Errorf("close ctxdb: %w", cerr))
@@ -298,9 +313,15 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fmt.Errorf("open ctxdb: %w", err)
 	}
-	sid, cwd, err := newRunSession(ctx, db, modelRef)
+	sid, cwd, resumedModel, err := runSession(ctx, db, modelRef, o)
 	if err != nil {
 		return nil, closeDB(ctx, db, err)
+	}
+	if modelRef == "" {
+		modelRef = resumedModel
+	}
+	if modelRef == "" {
+		return nil, closeDB(ctx, db, errors.New("--model or provider.model is required to resume a session without one"))
 	}
 	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
 	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
@@ -360,6 +381,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		ledger:    &ctxLedger{db: db, provider: provName, model: modelName},
 		sessionID: sid,
 		cwd:       cwd,
+		modelRef:  modelRef,
 		db:        db,
 		engine:    engine,
 		runner:    runner,
