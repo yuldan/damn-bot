@@ -1,0 +1,67 @@
+{
+ "dimensions": {
+  "konkurensi": {
+   "damnbot": {
+    "agent": "damnbot",
+    "workers": 4,
+    "shared_workers": 2,
+    "turns": 50,
+    "own_appends": 400,
+    "shared_appends": 200,
+    "busy": 0,
+    "errors": 0,
+    "integrity": "ok"
+   },
+   "hermes": {
+    "agent": "hermes",
+    "workers": 4,
+    "shared_workers": 2,
+    "turns": 50,
+    "own_appends": 400,
+    "shared_appends": 200,
+    "busy": 0,
+    "errors": 0,
+    "integrity": "ok",
+    "sqlite_version": "3.45.1",
+    "journal_mode": "delete",
+    "python": "3.12.3"
+   },
+   "metric": "4 proses x 50 turn + 2 proses berebut sesi; error SQLITE_BUSY/korupsi",
+   "target": "0 SQLITE_BUSY, 0 error lain, integritas ok",
+   "verdict": true
+  },
+  "token_skill_per_turn": {
+   "damnbot": {
+    "context_skills": 94,
+    "corpus": "211 skill terpasang (all-modules), retrieval top-3",
+    "note": "Damn-Bot hanya mengirim top-3 (CapSkills 150) + nama skill baru; katalog penuh tidak masuk prompt",
+    "source": "internal/assemble/testdata/p1/all-modules.tiers.json (context_slots.skills, volatile new: line)",
+    "upstream_all_skills": 0,
+    "volatile_skill_names": 9
+   },
+   "hermes": {
+    "available_skills_entries": 61,
+    "available_skills_tokens": 1253,
+    "corpus": "katalog skill bawaan hermes (seluruh entri di system prompt)",
+    "skills_section_tokens": 1462,
+    "source": "h2h proxy recording E1-117 (POST /chat/completions)"
+   },
+   "metric": "token index/isi skill di request (o200k_base)",
+   "ratio_damnbot_vs_hermes": 0.07501995211492418,
+   "target": "\u003c= 150 tok context + \u003c= 20 tok volatile; \u003c= 0,2x hermes",
+   "verdict": true
+  }
+ },
+ "meta": {
+  "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
+  "date": "2026-10-22",
+  "go": "go1.26.10",
+  "harness": "bench/f2/run.sh: internal/ctxdb TestConcurrencyF2 + hermes_concurrency.py + f2measure",
+  "hermes_commit": "868b9f244f5aa3ad238e494048046fe4f29c28ba",
+  "kernel": "Linux 6.8.0-41-generic",
+  "llm": "0 call (tidak perlu LLM untuk kedua dimensi)",
+  "phase": "F2",
+  "scenario": "4 proses x 50 turn (sesi sendiri) + 2 proses x 50 turn (sesi SHARED); 1 turn = 1 user + 1 assistant",
+  "tokenizer": "o200k_base (bench/budget/o200k)"
+ }
+}

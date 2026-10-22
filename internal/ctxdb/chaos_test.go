@@ -107,6 +107,11 @@ func TestChildProcess(t *testing.T) {
 		b, err := json.Marshal(multiWorker(t, s, 150))
 		must(t, err)
 		say(t, "RESULT "+string(b))
+	case "f2-own", "f2-shared":
+		say(t, "READY")
+		b, err := json.Marshal(f2Worker(t, s, role == "f2-shared", 50))
+		must(t, err)
+		say(t, "RESULT "+string(b))
 	}
 }
 
