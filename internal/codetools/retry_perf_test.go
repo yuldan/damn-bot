@@ -19,11 +19,11 @@ func TestMeasureDurableRetryMeasuresSet2(t *testing.T) {
 		if b.N < codetoolsBudgetMinRuns {
 			return // calibration pass; the framework then runs b.N = 100
 		}
-		sets := durableSets(true, 0, func(label string) durableSet {
+		sets := ct09Collect(func(label string) durableSet {
 			return durableMeasure(b, "retry", label, func() (func(int), func()) {
 				return func(int) { spin(10 * time.Microsecond) }, func() { spin(5 * time.Microsecond) }
 			})
-		}, nil)
+		}, 0, 2, nil)
 		if len(sets) != 2 {
 			b.Fatalf("retry measured %d sets, want 2", len(sets))
 		}
