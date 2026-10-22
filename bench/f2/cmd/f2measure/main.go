@@ -53,6 +53,8 @@ func main() {
 		date        = flag.String("date", time.Now().UTC().Format("2006-01-02"), "measurement date")
 		cpu         = flag.String("cpu", "", "CPU model")
 		kernel      = flag.String("kernel", "", "kernel")
+		dbCommit    = flag.String("damnbot-commit", "", "Damn-Bot commit under measurement")
+		dirty       = flag.String("damnbot-dirty", "0", "uncommitted paths in the Damn-Bot tree")
 	)
 	flag.Parse()
 
@@ -72,24 +74,35 @@ func main() {
 
 	art := map[string]any{
 		"meta": map[string]any{
-			"phase":         "F2",
-			"date":          *date,
-			"hermes_commit": "868b9f244f5aa3ad238e494048046fe4f29c28ba",
-			"cpu":           *cpu,
-			"kernel":        *kernel,
-			"go":            runtime.Version(),
-			"tokenizer":     "o200k_base (bench/budget/o200k)",
-			"harness":       "bench/f2/run.sh: internal/ctxdb TestConcurrencyF2 + hermes_concurrency.py + f2measure",
-			"scenario":      "4 proses x 50 turn (sesi sendiri) + 2 proses x 50 turn (sesi SHARED); 1 turn = 1 user + 1 assistant",
-			"llm":           "0 call (tidak perlu LLM untuk kedua dimensi)",
+			"phase":          "F2",
+			"date":           *date,
+			"hermes_commit":  "868b9f244f5aa3ad238e494048046fe4f29c28ba",
+			"cpu":            *cpu,
+			"kernel":         *kernel,
+			"go":             runtime.Version(),
+			"tokenizer":      "o200k_base (bench/budget/o200k)",
+			"harness":        "bench/f2/run.sh: internal/ctxdb TestConcurrencyF2 + hermes_concurrency.py + f2measure",
+			"scenario":       "4 proses x 50 turn (sesi sendiri) + 2 proses x 50 turn (sesi SHARED); 1 turn = 1 user + 1 assistant",
+			"llm":            "0 call (tidak perlu LLM untuk kedua dimensi)",
+			"damnbot_commit": *dbCommit,
+			"damnbot_dirty":  *dirty,
+			"token_source":   "static inputs: internal/assemble/testdata/p1/all-modules.tiers.json + bench/h2h recording E1-117 (only concurrency is live)",
+			"artefact_note":  "Comparative F2 artefact: keeps the ADR-083 hermes-<sha>-<phase> name and contains both agents.",
+			"caveats": map[string]string{
+				"fairness":     "Per-agent baseline target (0 SQLITE_BUSY, integrity ok), NOT a controlled parity claim: Damn-Bot shared writers take the session lease and retry ErrSessionBusy (lease busy is not counted as SQLITE_BUSY); hermes appends directly and counts database-is-locked. Both run 4x50 own + 2x50 shared.",
+				"engine":       "Damn-Bot: modernc embedded >=3.51.3, WAL. Hermes: host SQLite 3.45.1, whose WAL-reset guard selects journal_mode=DELETE.",
+				"host":         "Xeon Gold 6152, Linux 6.8.0-41; not the Q14 reference machine and not the F0 machine.",
+				"skill_tokens": "Architectural cost ratio, not a same-corpus workload: hermes injects its full builtin catalog (61 entries); Damn-Bot retrieves top-3 of its own 211-skill P1 fixture. Corpora and injection policy differ by design.",
+			},
 		},
 		"dimensions": map[string]any{
 			"konkurensi": map[string]any{
-				"metric":  "4 proses x 50 turn + 2 proses berebut sesi; error SQLITE_BUSY/korupsi",
-				"target":  "0 SQLITE_BUSY, 0 error lain, integritas ok",
-				"damnbot": dbConc,
-				"hermes":  hConc,
-				"verdict": verdictConc(dbConc) && verdictConc(hConc),
+				"metric":        "4 proses x 50 turn + 2 proses berebut sesi; error SQLITE_BUSY/korupsi",
+				"target":        "0 SQLITE_BUSY, 0 error lain, integritas ok (per-agent; bukan klaim parity terkontrol)",
+				"verdict_scope": "per-agent baseline target",
+				"damnbot":       dbConc,
+				"hermes":        hConc,
+				"verdict":       verdictConc(dbConc) && verdictConc(hConc),
 			},
 			"token_skill_per_turn": map[string]any{
 				"metric": "token index/isi skill di request (o200k_base)",
@@ -110,6 +123,7 @@ func main() {
 					"source":                   "h2h proxy recording E1-117 (POST /chat/completions)",
 				},
 				"ratio_damnbot_vs_hermes": ratio,
+				"comparison":              "architectural cost ratio (different corpora/injection), not a like-for-like workload",
 				"verdict":                 dbSkills <= 150 && dbVolNames <= 20 && ratio <= 0.2,
 			},
 		},

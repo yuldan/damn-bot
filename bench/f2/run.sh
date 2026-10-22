@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# F2 baseline harness (ADR-083, ADR-163): the "Konkurensi" and "Token skill
+# F2 baseline harness (ADR-083, ADR-164): the "Konkurensi" and "Token skill
 # per turn" dimensions measured with one harness for both agents, without an
 # LLM call.
 #
@@ -24,6 +24,8 @@ PYTHONPATH="$HERMES_PYTHONPATH${HERMES_PYTHONPATH:+:}$HERMES_DIR" PYTHONDONTWRIT
 test -s "$tmp/hermes-concurrency.json" || { cat "$tmp/hermes.log"; exit 1; }
 
 cd "$bench"
+damnbot_commit=$(git -C "$root" rev-parse --short HEAD)
+damnbot_dirty=$(git -C "$root" status --porcelain | wc -l | tr -d ' ')
 cpu=$(sed -n 's/^Model name:[[:space:]]*//p' /proc/cpuinfo 2>/dev/null | head -1)
 if [ -z "$cpu" ] && command -v lscpu >/dev/null 2>&1; then
 	cpu=$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1)
@@ -35,4 +37,5 @@ go run ./f2/cmd/f2measure \
 	-hermes-recording h2h/results/2026-10-18/E1-117.hermes.proxy.jsonl.gz \
 	-damnbot-tiers ../internal/assemble/testdata/p1/all-modules.tiers.json \
 	-out f2/results/hermes-868b9f244f-F2.json \
-	-date "$(date -u +%F)" -cpu "$cpu" -kernel "$kernel"
+	-date "$(date -u +%F)" -cpu "$cpu" -kernel "$kernel" \
+	-damnbot-commit "$damnbot_commit" -damnbot-dirty "$damnbot_dirty"
