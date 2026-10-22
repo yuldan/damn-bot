@@ -119,6 +119,17 @@ func (s *Service) Retire(ctx context.Context, id int64, scope string) error {
 	return s.decide(ctx, id, scope, StatusRetired, "retired")
 }
 
+// RetireByAgent is Retire on the agent tool path: the decision is recorded as
+// the system actor, and memstore refuses a non-agent target (SEC17-3).
+func (s *Service) RetireByAgent(ctx context.Context, id int64, scope string) error {
+	normalized, serr := normalizeScope(scope)
+	if id <= 0 || serr != nil {
+		return fmt.Errorf("%w: id/scope", ErrInvalid)
+	}
+	d := &Decision{Status: StatusRetired, Actor: ActorSystem, Reason: "retired:agent", CreatedAt: s.now()}
+	return s.classify(s.store.Decide(ctx, id, normalized, d))
+}
+
 // Confirm re-approves an expired entry in scope (expired → approved).
 func (s *Service) Confirm(ctx context.Context, id int64, scope string) error {
 	return s.decide(ctx, id, scope, StatusApproved, "confirmed")

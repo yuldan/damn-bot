@@ -159,15 +159,40 @@ func (b *memoryToolBackend) Add(ctx context.Context, req tools.MemoryAdd) (int64
 	return rec.ID, string(rec.Status), nil
 }
 
+// Replace supersedes an agent-written note: the target must be an agent-origin
+// entry (SEC17-3) and the new entry is stored before the old one is retired, so
+// a rejected or failed proposal leaves the old row intact (SEC17-4).
 func (b *memoryToolBackend) Replace(ctx context.Context, req tools.MemoryAdd, id int64) (int64, string, error) {
-	if err := b.svc.Retire(ctx, id, req.Scope); err != nil {
+	recs, err := b.svc.Get(ctx, []int64{id})
+	if err != nil {
 		return 0, "", memToolErr(err)
 	}
-	return b.Add(ctx, req)
+	if len(recs) != 1 {
+		return 0, "", fmt.Errorf("%w: memory %d", tools.ErrMemoryNotFound, id)
+	}
+	if recs[0].Origin != memory.OriginAgent {
+		return 0, "", fmt.Errorf("%w: memory %d is origin %q", tools.ErrMemoryDenied, id, recs[0].Origin)
+	}
+	p, err := b.proposal(ctx, req)
+	if err != nil {
+		return 0, "", err
+	}
+	rec, err := b.svc.Propose(ctx, p)
+	if err != nil {
+		return 0, "", memToolErr(err)
+	}
+	if rec.Status == memory.StatusRejected {
+		return rec.ID, string(rec.Status), nil
+	}
+	if rerr := b.svc.RetireByAgent(ctx, id, req.Scope); rerr != nil {
+		return 0, "", memToolErr(rerr)
+	}
+	return rec.ID, string(rec.Status), nil
 }
 
+// Remove retires an agent-written note; user memory fails closed (SEC17-3).
 func (b *memoryToolBackend) Remove(ctx context.Context, id int64, scope string) error {
-	if err := b.svc.Retire(ctx, id, scope); err != nil {
+	if err := b.svc.RetireByAgent(ctx, id, scope); err != nil {
 		return memToolErr(err)
 	}
 	return nil
@@ -193,6 +218,8 @@ func memToolErr(err error) error {
 		return nil
 	case errors.Is(err, memstore.ErrNotFound), errors.Is(err, ctxdb.ErrNotFound):
 		return fmt.Errorf("%w: %w", tools.ErrMemoryNotFound, err)
+	case errors.Is(err, memstore.ErrNotAgent):
+		return fmt.Errorf("%w: %w", tools.ErrMemoryDenied, err)
 	case errors.Is(err, memory.ErrTooLarge):
 		return fmt.Errorf("%w: %w", tools.ErrMemoryFull, err)
 	case errors.Is(err, memory.ErrInvalid), errors.Is(err, memory.ErrScope),
@@ -203,20 +230,27 @@ func memToolErr(err error) error {
 	return err
 }
 
-// ctxSearch adapts ctxdb.Search to the session_search tool.
+// ctxSearch adapts ctxdb.Search to the session_search tool: project-scoped
+// (SEC17-1) and without context_exclude hits (SEC17-2).
 type ctxSearch struct{ db *ctxdb.Store }
 
-func (s ctxSearch) Search(ctx context.Context, query string, k int) ([]tools.SessionHit, error) {
-	hits, err := s.db.Search(ctx, ctxdb.Query{Text: query, Limit: k})
+func (s ctxSearch) Search(ctx context.Context, query string, k int, cwd string) ([]tools.SessionHit, error) {
+	if cwd == "" { // fail closed: an unknown project is not "all projects"
+		return nil, errors.New("session search: no workspace scope")
+	}
+	hits, err := s.db.Search(ctx, ctxdb.Query{Text: query, Limit: k, Cwd: cwd})
 	if err != nil {
 		return nil, fmt.Errorf("session search: %w", err)
 	}
-	out := make([]tools.SessionHit, len(hits))
+	out := make([]tools.SessionHit, 0, len(hits))
 	for i := range hits {
-		out[i] = tools.SessionHit{
+		if hits[i].Excluded {
+			continue
+		}
+		out = append(out, tools.SessionHit{
 			SessionID: hits[i].SessionID, EventID: hits[i].EventID,
 			Kind: hits[i].Kind, Snippet: hits[i].Snippet, Score: hits[i].Score,
-		}
+		})
 	}
 	return out, nil
 }

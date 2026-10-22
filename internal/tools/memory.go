@@ -13,6 +13,7 @@ var (
 	ErrMemoryNotFound = errors.New("tools: memory not found")
 	ErrMemoryInvalid  = errors.New("tools: memory invalid")
 	ErrMemoryFull     = errors.New("tools: memory full")
+	ErrMemoryDenied   = errors.New("tools: memory denied")
 )
 
 // MemoryAdd is one agent write. CallID identifies the dispatch event used as
@@ -177,6 +178,8 @@ func memoryErr(err error) error {
 		return &ToolError{Code: CodeNotFound, Message: "memory entry not found", Err: err}
 	case errors.Is(err, ErrMemoryFull):
 		return &ToolError{Code: CodeTooLarge, Message: "memory scope is full", Err: err}
+	case errors.Is(err, ErrMemoryDenied):
+		return &ToolError{Code: CodeDenied, Message: "memory action denied", Err: err}
 	case errors.Is(err, ErrMemoryInvalid):
 		return &ToolError{Code: CodeInvalidArgs, Message: "memory request rejected", Err: err}
 	}
