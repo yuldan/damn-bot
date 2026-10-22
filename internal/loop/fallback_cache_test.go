@@ -25,7 +25,7 @@ func TestCacheBreakMetric(t *testing.T) {
 		}
 		var p llmPayload
 		payloadOf(t, &ev, &p)
-		if p.CacheBreak != "model_switch" || p.FallbackFrom != "a/m" || p.Model != "b/m" {
+		if p.CacheBreak != "fallback" || p.FallbackFrom != "a/m" || p.Model != "b/m" {
 			t.Fatalf("payload = %+v", p)
 		}
 	})

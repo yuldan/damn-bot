@@ -7,12 +7,11 @@ import (
 	"time"
 )
 
-// TestPrefixStableAcrossFallback (GAP-COST-04): a fallback to another model in
-// the same session must not rebuild the prompt prefix. Model/provider identity
-// is never rendered by the assembler (ADR-067), and only the frozen volatile
-// tier — the tail of the last user message — carries the time, so A→B→A keeps
-// the system message byte-identical.
-func TestPrefixStableAcrossFallback(t *testing.T) {
+// TestVolatileTailAcrossTurns: the system prefix (stable + catalog + context)
+// does not move between turns while only the frozen volatile tail changes.
+// This is NOT a GAP-COST-04 proof: it does not drive a provider fallback, so
+// the A→B→A acceptance stays open until the run path configures fallbacks.
+func TestVolatileTailAcrossTurns(t *testing.T) {
 	t.Parallel()
 	a := newAssembler(t, identity)
 	base := SessionView{

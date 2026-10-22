@@ -276,7 +276,7 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 	}
 	cacheBreak := ""
 	if reply.FallbackFrom != "" {
-		cacheBreak = "model_switch" // COST-04: the prefix is now billed again on the new model
+		cacheBreak = "fallback" // COST-04 enum: a provider fallback re-bills the prefix
 	}
 	eventID, err := t.append(ctx, &event.Event{Kind: event.LLMCall, Payload: payload(llmPayload{
 		Model: reply.Model, FinishReason: reply.FinishReason, FallbackFrom: reply.FallbackFrom,

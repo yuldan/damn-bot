@@ -19,10 +19,19 @@ const (
 	CapPinned    = 150
 	CapSkills    = 150
 	CapContext   = 1100
-	// CapContextDegraded is the whole-tier cap in PROV-02 degraded mode.
-	CapContextDegraded = 600
-	CapSeparators      = 40
-	MaxSkills          = 3
+	// Degraded context profile (GAP-PROV-02 / SPEC §22.1): facts 60,
+	// workspace 100, files 200, memory 120 (the pinned block lives inside
+	// that 120), skills 80, separators 40 = 600.
+	CapContextDegraded   = 600
+	CapFactsDegraded     = 60
+	CapWorkspaceDegraded = 100
+	CapFilesDegraded     = 200
+	CapFilesMinDegraded  = 100
+	CapMemoryDegraded    = 120
+	CapPinnedDegraded    = 120 // shared with the memory cap: pinned counts inside it
+	CapSkillsDegraded    = 80
+	CapSeparators        = 40
+	MaxSkills            = 3
 	// MaxContextFileBytes bounds one sandbox read; the 400-token cap keeps
 	// almost all of this out of the prompt, but a whole-file read would let
 	// a 4 GiB file stall startup.
@@ -70,6 +79,9 @@ type ContextInput struct {
 	// UntrustedFiles wraps the context files in <untrusted source="workspace">
 	// for an untrusted workspace (SPEC §14, ADR-069): they are data, not rules.
 	UntrustedFiles bool
+	// Degraded renders the PROV-02 profile (window below
+	// [DegradedWindow]): the smaller per-slot caps and the 600-token total.
+	Degraded bool
 	// Query is the text memories and skills are ranked against (the first
 	// user message of the session, SPEC §4.8).
 	Query string
@@ -112,19 +124,24 @@ func (a *Assembler) Context(ctx context.Context, in *ContextInput) (ContextResul
 	if err != nil {
 		return ContextResult{}, err
 	}
+	caps := normalCaps()
+	if in.Degraded {
+		caps = degradedCaps()
+	}
 	state := contextState{
 		asm:        a,
-		facts:      slot("# Environment", a.data(in.Facts), CapFacts, a.tokens),
-		workspace:  slot("# Workspace", a.data(in.Workspace), CapWorkspace, a.tokens),
+		caps:       caps,
+		facts:      slot("# Environment", a.data(in.Facts), caps.facts, a.tokens),
+		workspace:  slot("# Workspace", a.data(in.Workspace), caps.workspace, a.tokens),
 		filesBody:  filesBody,
 		marker:     a.fileMarker(in.Files),
 		untrusted:  in.UntrustedFiles,
 		memories:   memories,
 		skillNames: skills,
 	}
-	state.files = state.renderFiles(CapFiles)
-	state.memory = a.renderMemory(memories, -1)
-	state.skills = a.renderSkills(skills, -1)
+	state.files = state.renderFiles(caps.files)
+	state.memory = a.renderMemory(memories, -1, caps)
+	state.skills = a.renderSkills(skills, -1, caps.skills)
 
 	if state.over() {
 		state.shrinkFiles()
@@ -137,7 +154,7 @@ func (a *Assembler) Context(ctx context.Context, in *ContextInput) (ContextResul
 	}
 	text := state.join()
 	if state.over() {
-		text = clipWrappedTier(text, CapContext, "\n[truncated]", a.tokens)
+		text = clipWrappedTier(text, caps.total, "\n[truncated]", a.tokens)
 	}
 	return ContextResult{Text: text, Slots: state.slots()}, nil
 }
@@ -157,8 +174,29 @@ func retrieve(ctx context.Context, in *ContextInput) ([]Memory, []string, error)
 	return memories, skills, nil
 }
 
+// contextCaps is the per-slot/total budget of one context profile.
+type contextCaps struct {
+	facts, workspace, files, filesMin, memory, pinned, skills, total int
+}
+
+func normalCaps() contextCaps {
+	return contextCaps{
+		facts: CapFacts, workspace: CapWorkspace, files: CapFiles, filesMin: CapFilesMin,
+		memory: CapMemory, pinned: CapPinned, skills: CapSkills, total: CapContext,
+	}
+}
+
+func degradedCaps() contextCaps {
+	return contextCaps{
+		facts: CapFactsDegraded, workspace: CapWorkspaceDegraded, files: CapFilesDegraded,
+		filesMin: CapFilesMinDegraded, memory: CapMemoryDegraded, pinned: CapPinnedDegraded,
+		skills: CapSkillsDegraded, total: CapContextDegraded,
+	}
+}
+
 type contextState struct {
 	asm        *Assembler
+	caps       contextCaps
 	facts      string
 	workspace  string
 	filesBody  string
@@ -189,7 +227,7 @@ func (s *contextState) slots() ContextSlots {
 	}
 }
 
-func (s *contextState) over() bool { return s.asm.tokens.Count(s.join()) > CapContext }
+func (s *contextState) over() bool { return s.asm.tokens.Count(s.join()) > s.caps.total }
 
 // renderFiles renders the files slot within limit tokens. Untrusted files keep
 // their wrapper whole: only the body is cut, so the closing tag always lands.
@@ -207,13 +245,13 @@ func (s *contextState) renderFiles(limit int) string {
 // shrinkFiles reduces the files tier from [CapFiles] towards [CapFilesMin]
 // until the total fits, so AGENTS.md is the first casualty (SPEC §6).
 func (s *contextState) shrinkFiles() {
-	for limit := CapFiles - 10; limit >= CapFilesMin; limit -= 10 {
+	for limit := s.caps.files - 10; limit >= s.caps.filesMin; limit -= 10 {
 		s.files = s.renderFiles(limit)
 		if !s.over() {
 			return
 		}
 	}
-	s.files = s.renderFiles(CapFilesMin)
+	s.files = s.renderFiles(s.caps.filesMin)
 }
 
 // shrinkMemory drops non-pinned memories from the tail (lowest rank).
@@ -226,12 +264,12 @@ func (s *contextState) shrinkMemory() {
 	}
 	for nonPinned > 0 {
 		nonPinned--
-		s.memory = s.asm.renderMemory(s.memories, nonPinned)
+		s.memory = s.asm.renderMemory(s.memories, nonPinned, s.caps)
 		if !s.over() {
 			return
 		}
 	}
-	s.memory = s.asm.renderMemory(s.memories, 0)
+	s.memory = s.asm.renderMemory(s.memories, 0, s.caps)
 }
 
 // shrinkSkills drops the least relevant skill (the tail) last (SPEC §6).
@@ -239,7 +277,7 @@ func (s *contextState) shrinkSkills() {
 	n := min(len(s.skillNames), MaxSkills)
 	for n > 0 {
 		n--
-		s.skills = s.asm.renderSkills(s.skillNames, n)
+		s.skills = s.asm.renderSkills(s.skillNames, n, s.caps.skills)
 		if !s.over() {
 			return
 		}
@@ -296,7 +334,7 @@ func (a *Assembler) readContextFile(ctx context.Context, r FileReader, path stri
 // entries under [CapMemory], cutting only at entry boundaries; the rest is
 // counted in the "[+N memories: recall]" closer (SPEC §4.8). maxRanked < 0
 // means every ranked entry is a candidate.
-func (a *Assembler) renderMemory(mem []Memory, maxRanked int) string {
+func (a *Assembler) renderMemory(mem []Memory, maxRanked int, caps contextCaps) string {
 	var pinned, ranked []string
 	for _, m := range mem {
 		text := oneLine(a.data(m.Text))
@@ -316,10 +354,14 @@ func (a *Assembler) renderMemory(mem []Memory, maxRanked int) string {
 	}
 	var b strings.Builder
 	b.WriteString("# Memory")
-	omitted += a.appendEntries(&b, pinned, CapPinned)
-	omitted += a.appendEntries(&b, ranked, CapMemory)
+	// Both caps are absolute budgets for the builder, not additive allowances:
+	// pinned alone stays within caps.pinned, and pinned+ranked stay within
+	// caps.memory. The degraded profile sets both to 120, so pinned memories
+	// consume the same 120-token budget as ranked ones.
+	omitted += a.appendEntriesUpTo(&b, pinned, caps.pinned)
+	omitted += a.appendEntriesUpTo(&b, ranked, caps.memory)
 	if omitted > 0 {
-		a.appendNote(&b, fmt.Sprintf("[+%d memories: recall]", omitted), CapMemory)
+		a.appendNote(&b, fmt.Sprintf("[+%d memories: recall]", omitted), caps.memory)
 	}
 	if b.Len() == len("# Memory") {
 		return ""
@@ -327,12 +369,13 @@ func (a *Assembler) renderMemory(mem []Memory, maxRanked int) string {
 	return b.String()
 }
 
-// appendEntries appends entries in rank order while the builder stays within
-// capTokens and returns how many did not fit. It never skips ahead to a
-// smaller, lower-ranked entry.
-func (a *Assembler) appendEntries(b *strings.Builder, entries []string, capTokens int) int {
+// appendEntriesUpTo appends entries in rank order while the whole builder
+// stays within totalCap (an absolute budget that includes the heading and
+// everything appended before) and returns how many did not fit. It never
+// skips ahead to a smaller, lower-ranked entry.
+func (a *Assembler) appendEntriesUpTo(b *strings.Builder, entries []string, totalCap int) int {
 	for i, e := range entries {
-		if a.tokens.Count(b.String()+e) > capTokens {
+		if a.tokens.Count(b.String()+e) > totalCap {
 			return len(entries) - i
 		}
 		b.WriteString(e)
@@ -341,7 +384,7 @@ func (a *Assembler) appendEntries(b *strings.Builder, entries []string, capToken
 }
 
 // renderSkills renders at most [MaxSkills] one-line skills under [CapSkills].
-func (a *Assembler) renderSkills(names []string, maxN int) string {
+func (a *Assembler) renderSkills(names []string, maxN, capTokens int) string {
 	limit := min(len(names), MaxSkills)
 	if maxN >= 0 && maxN < limit {
 		limit = maxN
@@ -357,7 +400,7 @@ func (a *Assembler) renderSkills(names []string, maxN int) string {
 	if b.Len() == len("# Skills") {
 		return ""
 	}
-	return clip(b.String(), CapSkills, "\n[truncated]", a.tokens)
+	return clip(b.String(), capTokens, "\n[truncated]", a.tokens)
 }
 
 func (a *Assembler) appendNote(b *strings.Builder, note string, capTokens int) {
