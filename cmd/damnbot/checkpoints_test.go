@@ -11,6 +11,7 @@ import (
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/journalstore"
+	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/journal"
 )
 
@@ -42,6 +43,9 @@ func seedCheckpoints(t *testing.T) string {
 	}
 	record(time.Now().Add(-40*24*time.Hour).UnixMilli(), "/w/old")
 	record(time.Now().UnixMilli(), "/w/new")
+	if err := db.ReleaseLease(ctx, "S1"); err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -126,5 +130,47 @@ func TestCheckpointsClearLegacy(t *testing.T) {
 	}
 	if code, out, _ := runCP(t, "clear-legacy", "--data-dir", dir); code != 0 || !strings.Contains(out, "no legacy checkpoints") {
 		t.Fatalf("clear-legacy no-op = %d %q", code, out)
+	}
+}
+
+// TestMaintenanceGuardFromShellTool: destructive maintenance refuses to run
+// inside a damnbot shell tool (defense in depth, SEC15-2) while dry-runs work.
+func TestMaintenanceGuardFromShellTool(t *testing.T) {
+	t.Setenv(exec.MarkerEnv, "tool-child")
+	dir := seedCheckpoints(t)
+	if code, out, _ := runCP(t, "prune", "--dry-run", "--data-dir", dir); code != 0 || !strings.Contains(out, "would prune") {
+		t.Fatalf("dry-run inside shell tool = %d %q", code, out)
+	}
+	if code, _, e := runCP(t, "prune", "--yes", "--data-dir", dir); code != 2 || !strings.Contains(e, "refusing destructive maintenance") {
+		t.Fatalf("guarded prune = %d %q", code, e)
+	}
+	if code, _, e := runCP(t, "clear", "--yes", "--data-dir", dir); code != 2 || !strings.Contains(e, "refusing destructive maintenance") {
+		t.Fatalf("guarded clear = %d %q", code, e)
+	}
+	legacy := filepath.Join(dir, "checkpoints")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, e := runCP(t, "clear-legacy", "--yes", "--data-dir", dir); code != 2 || !strings.Contains(e, "refusing destructive maintenance") {
+		t.Fatalf("guarded clear-legacy = %d %q", code, e)
+	}
+	if code, out, _ := runCP(t, "status", "--data-dir", dir); code != 0 || !strings.Contains(out, "actions: 2") {
+		t.Fatalf("guarded commands mutated state: %d\n%s", code, out)
+	}
+}
+
+// TestSessionsGuardFromShellTool: sessions prune/archive refuse inside a
+// damnbot shell tool while dry-run stays available (SEC15-2).
+func TestSessionsGuardFromShellTool(t *testing.T) {
+	t.Setenv(exec.MarkerEnv, "tool-child")
+	dir := seedCheckpoints(t)
+	if code, out, _ := runAdmin(t, "prune", "--older-than", "1ns", "--dry-run", "--data-dir", dir); code != 0 || !strings.Contains(out, "would purge") {
+		t.Fatalf("sessions dry-run inside shell tool = %d %q", code, out)
+	}
+	if code, _, e := runAdmin(t, "prune", "--older-than", "1ns", "--yes", "--data-dir", dir); code != 2 || !strings.Contains(e, "refusing destructive maintenance") {
+		t.Fatalf("guarded sessions prune = %d %q", code, e)
+	}
+	if code, _, e := runAdmin(t, "archive"); code != 2 || !strings.Contains(e, "refusing destructive maintenance") {
+		t.Fatalf("guarded sessions archive = %d %q", code, e)
 	}
 }

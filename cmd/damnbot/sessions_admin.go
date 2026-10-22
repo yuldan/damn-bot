@@ -259,7 +259,14 @@ func sessionsPrune(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	ctx := context.Background()
-	db, derr := openSessionsDB(ctx, a.dataDir)
+	if !a.dryRun && maintenanceBlocked(stderr, "sessions prune") {
+		return 2
+	}
+	open := openSessionsDB
+	if a.dryRun {
+		open = openSessionsDBReadOnly
+	}
+	db, derr := open(ctx, a.dataDir)
 	if derr != nil {
 		return sessionsFail(stderr, "prune", derr, "")
 	}
@@ -338,6 +345,7 @@ func reportPurgeSkips(rep *ctxdb.PurgeReport, stderr io.Writer) {
 		sessionsPrintf(stderr, "sessions prune: skipped %s (has forks)\n", cleanArg(id))
 	}
 }
+
 
 // sessionsFail prints one mapped store error and returns its exit code.
 func sessionsFail(stderr io.Writer, name string, err error, id string) int {

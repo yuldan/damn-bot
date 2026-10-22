@@ -18,14 +18,14 @@ func seedAction(t *testing.T, s *Store, created int64) int64 {
 func seedActionFor(t *testing.T, s *Store, sid string, created int64) int64 {
 	t.Helper()
 	ctx := context.Background()
-	ids, err := s.Append(ctx, sid, nil, Event{Kind: "tool_dispatch", ToolName: "write_file", ToolCallID: "c1", Payload: `{"effect":"write"}`})
+	ids, err := s.Append(ctx, "S1", nil, Event{Kind: "tool_dispatch", ToolName: "write_file", ToolCallID: "c1", Payload: `{"effect":"write"}`})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var id int64
 	err = s.tx(ctx, modePurge, func(tx *Tx) error {
 		_, ierr := tx.Exec(`INSERT INTO actions(session_id, event_id, kind, reversibility, subject, inverse, bytes_held, created_at)
-			VALUES (?, ?, 'file_write', 'reversible', '/w/a', '{}', 10, ?)`, sid, ids[0], created)
+			VALUES (?, ?, 'file_write', 'reversible', '/w/a', '{}', 10, ?)`, "S1", ids[0], created)
 		if ierr != nil {
 			return ierr
 		}

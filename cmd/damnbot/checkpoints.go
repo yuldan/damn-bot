@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/journalstore"
 )
 
@@ -154,7 +156,7 @@ func checkpointsStatus(args []string, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	db, derr := openSessionsDBReadOnly(ctx, a.dataDir)
 	if derr != nil {
-		return sessionsFail(stderr, "checkpoints status", derr, "")
+		return checkpointsFail(stderr, "checkpoints status", derr, "")
 	}
 	defer closeSessionsDB(db, "checkpoints status", stderr)
 	retention, cutoff, cerr := checkpointCutoff(&a)
@@ -164,7 +166,7 @@ func checkpointsStatus(args []string, stdout, stderr io.Writer) int {
 	}
 	st, serr := db.CheckpointStats(ctx, cutoff)
 	if serr != nil {
-		return sessionsFail(stderr, "checkpoints status", serr, "")
+		return checkpointsFail(stderr, "checkpoints status", serr, "")
 	}
 	sessionsPrintf(stdout, "actions: %d\nexpired: %d\nundone: %d\nbytes: %d\nretention: %s\n",
 		st.Total, st.Expired, st.Undone, st.BytesHeld, retention)
@@ -183,7 +185,7 @@ func checkpointsList(args []string, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	db, derr := openSessionsDBReadOnly(ctx, a.dataDir)
 	if derr != nil {
-		return sessionsFail(stderr, "checkpoints list", derr, "")
+		return checkpointsFail(stderr, "checkpoints list", derr, "")
 	}
 	defer closeSessionsDB(db, "checkpoints list", stderr)
 	_, cutoff, cerr := checkpointCutoff(&a)
@@ -193,7 +195,7 @@ func checkpointsList(args []string, stdout, stderr io.Writer) int {
 	}
 	list, lerr := db.Checkpoints(ctx, cutoff, a.session, a.limit)
 	if lerr != nil {
-		return sessionsFail(stderr, "checkpoints list", lerr, a.session)
+		return checkpointsFail(stderr, "checkpoints list", lerr, a.session)
 	}
 	for _, c := range list {
 		status := "ok"
@@ -224,26 +226,35 @@ func checkpointsPrune(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	ctx := context.Background()
-	db, derr := openSessionsDB(ctx, a.dataDir)
-	if derr != nil {
-		return sessionsFail(stderr, "checkpoints prune", derr, "")
-	}
-	defer closeSessionsDB(db, "checkpoints prune", stderr)
-	st, serr := db.CheckpointStats(ctx, cutoff)
-	if serr != nil {
-		return sessionsFail(stderr, "checkpoints prune", serr, "")
-	}
 	if a.dryRun {
+		db, derr := openSessionsDBReadOnly(ctx, a.dataDir)
+		if derr != nil {
+			return checkpointsFail(stderr, "checkpoints prune", derr, "")
+		}
+		defer closeSessionsDB(db, "checkpoints prune", stderr)
+		st, serr := db.CheckpointStats(ctx, cutoff)
+		if serr != nil {
+			return checkpointsFail(stderr, "checkpoints prune", serr, "")
+		}
 		sessionsPrintf(stdout, "would prune %d checkpoints older than %s\n", st.Expired, retention)
+		sessionsPrintf(stderr, "checkpoints prune: sessions with an open turn or live lease are refused during prune\n")
 		return 0
+	}
+	if maintenanceBlocked(stderr, "checkpoints prune") {
+		return 2
 	}
 	if !a.yes {
 		sessionsPrintf(stderr, "checkpoints prune: refusing to delete without --yes (use --dry-run to preview)\n")
 		return 2
 	}
+	db, derr := openSessionsDB(ctx, a.dataDir)
+	if derr != nil {
+		return checkpointsFail(stderr, "checkpoints prune", derr, "")
+	}
+	defer closeSessionsDB(db, "checkpoints prune", stderr)
 	n, perr := db.PruneCheckpoints(ctx, cutoff)
 	if perr != nil {
-		return sessionsFail(stderr, "checkpoints prune", perr, "")
+		return checkpointsFail(stderr, "checkpoints prune", perr, "")
 	}
 	sessionsPrintf(stdout, "pruned %d checkpoints older than %s; blob files are reclaimed by `damnbot doctor gc`\n", n, retention)
 	return 0
@@ -262,15 +273,18 @@ func checkpointsClear(args []string, stdout, stderr io.Writer) int {
 		sessionsPrintf(stderr, "checkpoints clear: refusing to delete all checkpoints without --yes\n")
 		return 2
 	}
+	if maintenanceBlocked(stderr, "checkpoints clear") {
+		return 2
+	}
 	ctx := context.Background()
 	db, derr := openSessionsDB(ctx, a.dataDir)
 	if derr != nil {
-		return sessionsFail(stderr, "checkpoints clear", derr, "")
+		return checkpointsFail(stderr, "checkpoints clear", derr, "")
 	}
 	defer closeSessionsDB(db, "checkpoints clear", stderr)
 	n, cerr := db.ClearCheckpoints(ctx)
 	if cerr != nil {
-		return sessionsFail(stderr, "checkpoints clear", cerr, "")
+		return checkpointsFail(stderr, "checkpoints clear", cerr, "")
 	}
 	sessionsPrintf(stdout, "cleared %d checkpoints\n", n)
 	return 0
@@ -299,6 +313,9 @@ func checkpointsClearLegacy(args []string, stdout, stderr io.Writer) int {
 	}
 	if !a.yes {
 		sessionsPrintf(stderr, "checkpoints clear-legacy: refusing to delete %s without --yes\n", strings.Join(dirs, ", "))
+		return 2
+	}
+	if maintenanceBlocked(stderr, "checkpoints clear-legacy") {
 		return 2
 	}
 	for _, dir := range dirs {
@@ -332,4 +349,14 @@ func legacyCheckpointDirs(dataDir string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// checkpointsFail maps maintenance refusals: a busy session (open turn or
+// live lease) is exit 4 so callers can retry after the turn ends.
+func checkpointsFail(stderr io.Writer, name string, err error, id string) int {
+	if errors.Is(err, ctxdb.ErrSessionBusy) {
+		sessionsPrintf(stderr, "%s: a session with checkpoints is busy (open turn or live lease); finish it first\n", name)
+		return 4
+	}
+	return sessionsFail(stderr, name, err, id)
 }
