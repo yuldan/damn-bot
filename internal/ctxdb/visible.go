@@ -117,6 +117,30 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 	if err != nil {
 		return nil, fmt.Errorf("ctxdb: recall query: %w", err)
 	}
+	// Tool output spilled to a text blob lives in blob_fts (GAP-INF-02), not
+	// in events_fts; recall searches it through the same keyed expression.
+	var blobIDs []int64
+	if s.blobFTSAvailable(ctx) {
+		blobIDs, err = s.ints(ctx, `SELECT f.rowid FROM blob_fts f JOIN events e ON e.id = f.rowid
+			WHERE blob_fts MATCH dmb_fts_norm(?, 'blob_fts.content', '')
+			AND e.kind = 'tool_result' AND `+notPurging("e.session_id")+`
+			ORDER BY bm25(blob_fts) LIMIT ?`, q, k)
+		if err != nil {
+			return nil, fmt.Errorf("ctxdb: recall blob query: %w", err)
+		}
+	}
+	seen := make(map[int64]bool, len(ids)+len(blobIDs))
+	merged := ids[:0]
+	for _, id := range append(ids, blobIDs...) {
+		if !seen[id] {
+			seen[id] = true
+			merged = append(merged, id)
+		}
+	}
+	if len(merged) > k {
+		merged = merged[:k]
+	}
+	ids = merged
 	return s.recallHits(ctx, ids)
 }
 

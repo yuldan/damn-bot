@@ -134,7 +134,7 @@ func TestPaymentSkillGateWired(t *testing.T) {
 	cfg := config.Default()
 	red := redact.New(redact.Options{})
 	o := &runOptions{model: "openai/gpt-fake", baseURL: srv.URL, approval: "auto", unsafeShell: true, providerAttempts: 1}
-	model, err := startRunModel(t.Context(), &cfg, dataDir, o.model, o, red, spill, cfgDir, t.TempDir(), nil)
+	model, err := startRunModel(t.Context(), &cfg, dataDir, o.model, o, red, cfgDir, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

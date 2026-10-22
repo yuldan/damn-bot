@@ -774,14 +774,18 @@ type ctxSpill struct{ db *ctxdb.Store }
 func (c ctxSpill) Put(ctx context.Context, data []byte) (tools.BlobRef, error) {
 	pb, err := c.db.PutBlob(data, "text/plain")
 	if err != nil {
-		return tools.BlobRef{}, err
+		return tools.BlobRef{}, fmt.Errorf("spill: put blob: %w", err)
 	}
-	if err := c.db.Write(ctx, func(tx *ctxdb.Tx) error { return tx.Publish(pb) }); err != nil {
-		return tools.BlobRef{}, err
+	if werr := c.db.Write(ctx, func(tx *ctxdb.Tx) error { return tx.Publish(pb) }); werr != nil {
+		return tools.BlobRef{}, fmt.Errorf("spill: publish blob: %w", werr)
 	}
 	return tools.BlobRef{SHA: pb.Sha, Size: pb.Size, Path: "blob:" + pb.Sha}, nil
 }
 
 func (c ctxSpill) Get(ctx context.Context, sha string) ([]byte, error) {
-	return c.db.ReadBlob(ctx, sha)
+	data, rerr := c.db.ReadBlob(ctx, sha)
+	if rerr != nil {
+		return nil, fmt.Errorf("spill: read blob %s: %w", sha, rerr)
+	}
+	return data, nil
 }

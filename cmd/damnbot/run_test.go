@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -234,9 +236,44 @@ func TestRunSchemaNewerExits1(t *testing.T) {
 	}
 }
 
+// sweepDir fails the test when needle appears in any regular file under dir.
+// It reads through an os.Root so a symlink swapped in mid-walk cannot redirect
+// the read (gosec G122).
+func sweepDir(t *testing.T, dir, needle string) error {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", dir, err)
+	}
+	t.Cleanup(func() {
+		if cerr := root.Close(); cerr != nil {
+			t.Errorf("close %s: %v", dir, cerr)
+		}
+	})
+	if werr := fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil || d.IsDir() {
+			return werr
+		}
+		raw, rerr := root.ReadFile(p)
+		if rerr != nil {
+			return fmt.Errorf("read %s: %w", p, rerr)
+		}
+		if bytes.Contains(raw, []byte(needle)) {
+			return fmt.Errorf("plaintext canary %q found in %s", needle, p)
+		}
+		return nil
+	}); werr != nil {
+		return fmt.Errorf("sweep %s: %w", dir, werr)
+	}
+	return nil
+}
+
 // TestRunEncryptedSpillRecall (SEC7-66/68, GAP-INF-02): a >4 KiB tool output
 // goes through ctxdb, is encrypted on disk, and later Recall finds it.
 func TestRunEncryptedSpillRecall(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("keychain key store unavailable in CI; ADR-124 fails closed (key_unavailable)")
+	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", home)
@@ -259,25 +296,15 @@ func TestRunEncryptedSpillRecall(t *testing.T) {
 		providertest.Text("done after spill"),
 	)
 	var out, errb bytes.Buffer
-	code := run([]string{"run", "-p", "read big", "--model", "openai/gpt-fake",
+	code := run([]string{
+		"run", "-p", "read big", "--model", "openai/gpt-fake",
 		"--base-url", srv.URL, "--api-key", "e2e", "--data-dir", data,
-		"--config", cfg, "--output", "json", "--approval", "auto", "--unsafe-auto-shell", "--offline"}, &out, &errb)
+		"--config", cfg, "--output", "json", "--approval", "auto", "--unsafe-auto-shell", "--offline",
+	}, &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr = %s, stdout = %s", code, errb.String(), out.String())
 	}
-	if err := filepath.WalkDir(data, func(p string, d os.DirEntry, werr error) error {
-		if werr != nil || d.IsDir() {
-			return werr
-		}
-		raw, rerr := os.ReadFile(filepath.Clean(p))
-		if rerr != nil {
-			return rerr
-		}
-		if strings.Contains(string(raw), "canary-spill-output") {
-			t.Fatalf("plaintext spill canary in %s", p)
-		}
-		return nil
-	}); err != nil {
+	if err := sweepDir(t, data, "canary-spill-output"); err != nil {
 		t.Fatal(err)
 	}
 	st, err := secret.New(secret.Options{ConfigDir: filepath.Join(home, "damnbot"), BackendPresent: func() bool { return false }})

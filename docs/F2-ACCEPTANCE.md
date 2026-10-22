@@ -142,7 +142,7 @@ with the window) and EC-TCALL-009 (`--answer-schema` produces
 | GAP-PROV-01 | Cache key includes tier/system | `TestFixedOverheadGolden`, `TestAllModulesFixtureShape` compare the rendered prompt; the F2 part (table via migrations) is `TestMigrate*` | covered | assemble/ctxdb |
 | GAP-PROV-02 | Per-tier budget asserted | — (`TestContextTierBudget` nowhere) | missing | assemble |
 | GAP-INF-01 | CJK recall order | `TestRecallCJKOrder`, `BenchmarkRecallCJK` | `internal/ctxdb/acceptance_test.go`, `internal/ctxdb/recall_perf_test.go` | covered | ctxdb |
-| GAP-INF-02 | FTS index auto-upgrade | `TestFTSAutoUpgrade`, `BenchmarkRecallToolOutput`, `TestRecallToolOutputBlob`, `TestEncryptedRecallToolOutputBlob` | `internal/ctxdb/acceptance_test.go`, `internal/ctxdb/recall_perf_test.go` | covered | ctxdb |
+| GAP-INF-02 | FTS index auto-upgrade | `TestFTSAutoUpgrade`, `BenchmarkRecallToolOutput`, `TestRecallToolOutputBlob`, `TestEncryptedRecallToolOutputBlob`, `TestToolOutputSpillThroughBinary` (biner asli: spill terenkripsi + baris `blob_fts`) | `internal/ctxdb/acceptance_test.go`, `internal/ctxdb/recall_perf_test.go`, `internal/e2e/spill_test.go` | covered | ctxdb |
 | GAP-INF-06 | Rerun deterministic after restart | — (no test; separate from EC-CTX-021's pure rerun) | missing | loop |
 | GAP-TOOL-10 | Native arch select + skill filter | `TestToolSelection` exists; no `TestNativeArchSelect`; no `requires: gpu=nvidia` filter test | missing | tools/skills |
 | GAP-SEC-26 | No dangling skill refs in builtin | `TestLintCorpus` lint only; no CI rule over `builtin/` (0 refs) | surface | skills/CI |
