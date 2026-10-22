@@ -3698,7 +3698,7 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** DDL/migrasi/dependency/token 0; LOC `ctxdb` +161 (terukur 4.209/4.250), `cmd/damnbot` +≈330 baris non-test. `prune` mengunci writer per batch (≤ 500 baris), bukan satu transaksi panjang.
 
 **Konsekuensi.** (+) CLI-039 tertutup tanpa melemahkan invariant P9: hanya mode maintenance yang sudah ada yang menghapus metadata jurnal. (+) Transkrip dan file blob tidak ikut hilang; `doctor gc` tetap satu-satunya yang mengklaim file. (−) `prune` tidak langsung membebaskan disk (blob menunggu gc), dan `clear` menghilangkan kemampuan undo sampai aksi berikutnya tercatat. (−) Maintenance checkpoint dan session purge saling menolak; pengguna harus menunggu purge selesai.
-## ADR-138 — Headless `run` resume: `--session <id>` / `-c|--continue`
+## ADR-150 — Headless `run` resume: `--session <id>` / `-c|--continue`
 
 **Status:** Accepted 2026-10-23 (F2; melengkapi SPEC §10 `run` dan EC-STATE/resume parity). Tanpa DDL, dependency, atau budget baru.
 

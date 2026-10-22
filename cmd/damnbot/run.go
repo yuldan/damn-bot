@@ -152,25 +152,35 @@ func compileAnswerSchema(path string) (func(string) error, error) {
 	return func(answer string) error { return sc.Validate([]byte(answer)) }, nil
 }
 
-func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err error) {
+// loadRunEnv resolves the immutable config and the data, config and home
+// directories for one headless run (extracted to keep runOne's complexity low).
+func loadRunEnv(o *runOptions) (cfg config.Config, dataDir, configDir, home string, err error) {
 	loader, err := config.New(config.OS())
 	if err != nil {
-		return 0, fmt.Errorf("config deps: %w", err)
+		return config.Config{}, "", "", "", fmt.Errorf("config deps: %w", err)
 	}
-	cfg, err := loadRunConfig(loader, o.configPath)
+	cfg, err = loadRunConfig(loader, o.configPath)
 	if err != nil {
-		return 0, err
+		return config.Config{}, "", "", "", err
 	}
 	if o.cfgOverride != nil {
 		cfg = *o.cfgOverride
 	}
 	paths, err := loader.Paths("")
 	if err != nil {
-		return 0, fmt.Errorf("config paths: %w", err)
+		return config.Config{}, "", "", "", fmt.Errorf("config paths: %w", err)
 	}
-	dataDir := o.dataDir
+	dataDir = o.dataDir
 	if dataDir == "" {
 		dataDir = paths.DataDir
+	}
+	return cfg, dataDir, paths.ConfigDir, homeDir(), nil
+}
+
+func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err error) {
+	cfg, dataDir, configDir, home, err := loadRunEnv(o)
+	if err != nil {
+		return 0, err
 	}
 	modelRef := o.model
 	if modelRef == "" {
@@ -186,7 +196,6 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	}
 	red := redact.New(redact.Options{})
 	spill := diskSpill{dir: filepath.Join(dataDir, "run-spill")}
-	configDir, home := paths.ConfigDir, homeDir()
 	model, err := startRunModel(ctx, &cfg, dataDir, modelRef, o, red, spill, configDir, home)
 	if err != nil {
 		return 0, err
