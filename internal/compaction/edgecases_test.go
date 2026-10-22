@@ -382,19 +382,20 @@ func ecCtx022(t *testing.T) {
 	assertNoSummary(t, r)
 }
 
-// EC-CTX-007: delivery directives are removed before the summarizer, so a
-// summary can never replay MEDIA: as a real attachment instruction.
+// EC-CTX-007: delivery directives (with a value or bare) are removed before
+// the summarizer, so a summary can never replay MEDIA: as an attachment.
 func ecCtx007(t *testing.T) {
 	items := []item{
 		{Message: Message{Role: "tool", Content: "found MEDIA:/tmp/foo.png and done"}, seq: 1, tool: "session_search"},
 		{Message: Message{Role: "assistant", Content: "here MEDIA:/tmp/bar.png"}, seq: 2},
-		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "shell", Arguments: `{"command":"echo MEDIA:/tmp/baz.png"}`}}}, seq: 3},
+		{Message: Message{Role: "assistant", Content: "trailing MEDIA:"}, seq: 3},
+		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "shell", Arguments: `{"command":"echo MEDIA:/tmp/baz.png"}`}}}, seq: 4},
 	}
 	got, _ := renderInput(items)
 	if strings.Contains(got, "MEDIA:") || strings.Contains(got, "/tmp/") {
 		t.Fatalf("directive reached the summarizer: %q", got)
 	}
-	for _, want := range []string{"found  and done", "here", "echo "} {
+	for _, want := range []string{"found  and done", "here", "trailing ", "echo "} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("input lost %q: %q", want, got)
 		}
