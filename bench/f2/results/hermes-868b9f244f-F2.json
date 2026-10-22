@@ -27,10 +27,12 @@
     "python": "3.12.3"
    },
    "metric": "4 proses x 50 turn + 2 proses berebut sesi; error SQLITE_BUSY/korupsi",
-   "target": "0 SQLITE_BUSY, 0 error lain, integritas ok",
-   "verdict": true
+   "target": "0 SQLITE_BUSY, 0 error lain, integritas ok (per-agent; bukan klaim parity terkontrol)",
+   "verdict": true,
+   "verdict_scope": "per-agent baseline target"
   },
   "token_skill_per_turn": {
+   "comparison": "architectural cost ratio (different corpora/injection), not a like-for-like workload",
    "damnbot": {
     "context_skills": 94,
     "corpus": "211 skill terpasang (all-modules), retrieval top-3",
@@ -53,7 +55,16 @@
   }
  },
  "meta": {
+  "artefact_note": "Comparative F2 artefact: keeps the ADR-083 hermes-\u003csha\u003e-\u003cphase\u003e name and contains both agents.",
+  "caveats": {
+   "engine": "Damn-Bot: modernc embedded \u003e=3.51.3, WAL. Hermes: host SQLite 3.45.1, whose WAL-reset guard selects journal_mode=DELETE.",
+   "fairness": "Per-agent baseline target (0 SQLITE_BUSY, integrity ok), NOT a controlled parity claim: Damn-Bot shared writers take the session lease and retry ErrSessionBusy (lease busy is not counted as SQLITE_BUSY); hermes appends directly and counts database-is-locked. Both run 4x50 own + 2x50 shared.",
+   "host": "Xeon Gold 6152, Linux 6.8.0-41; not the Q14 reference machine and not the F0 machine.",
+   "skill_tokens": "Architectural cost ratio, not a same-corpus workload: hermes injects its full builtin catalog (61 entries); Damn-Bot retrieves top-3 of its own 211-skill P1 fixture. Corpora and injection policy differ by design."
+  },
   "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
+  "damnbot_commit": "7da4e5e",
+  "damnbot_dirty": "0",
   "date": "2026-10-22",
   "go": "go1.26.10",
   "harness": "bench/f2/run.sh: internal/ctxdb TestConcurrencyF2 + hermes_concurrency.py + f2measure",
@@ -62,6 +73,7 @@
   "llm": "0 call (tidak perlu LLM untuk kedua dimensi)",
   "phase": "F2",
   "scenario": "4 proses x 50 turn (sesi sendiri) + 2 proses x 50 turn (sesi SHARED); 1 turn = 1 user + 1 assistant",
+  "token_source": "static inputs: internal/assemble/testdata/p1/all-modules.tiers.json + bench/h2h recording E1-117 (only concurrency is live)",
   "tokenizer": "o200k_base (bench/budget/o200k)"
  }
 }
