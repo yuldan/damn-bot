@@ -64,3 +64,35 @@ func TestResumeReleasesLeaseOnStartFailure(t *testing.T) {
 		t.Fatal(cerr)
 	}
 }
+
+// TestCloseRunDBReleasesLease (ACC-55): closeRunDB always tries to release the
+// lease, including for a newly created session with no resumed flag.
+func TestCloseRunDBReleasesLease(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	dataDir := filepath.Join(t.TempDir(), "data")
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid, _, sErr := newRunSession(ctx, db, "openai/gpt-fake")
+	if sErr != nil {
+		t.Fatal(sErr)
+	}
+	if _, aErr := db.AcquireLease(ctx, sid); aErr != nil {
+		t.Fatal(aErr)
+	}
+	if cErr := closeRunDB(ctx, db, sid, nil); cErr != nil {
+		t.Fatal(cErr)
+	}
+	reopened, oErr := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run"})
+	if oErr != nil {
+		t.Fatal(oErr)
+	}
+	if _, raErr := reopened.AcquireLease(ctx, sid); raErr != nil {
+		t.Fatalf("lease survived closeRunDB: %v", raErr)
+	}
+	if clErr := reopened.Close(); clErr != nil {
+		t.Fatal(clErr)
+	}
+}
