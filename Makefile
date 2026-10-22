@@ -124,6 +124,10 @@ ct09-nightly:
 	DAMNBOT_TIMING=1 DAMNBOT_CT09_SETS=$(CT09_SETS) DAMNBOT_CT09_STRICT_INCONCLUSIVE=1 \
 		go test $(GOTAGS) -run '^$$' -bench '^BenchmarkCodetools/Edit1MB$$' -benchtime=100x ./internal/codetools/
 
+# GAP-REL-03: 50-client chaos untuk window nightly penuh (PR memakai default singkat).
+chaos-nightly:
+	DAMNBOT_CHAOS_DURATION=30m go test $(GOTAGS) -run '^TestChaos50Clients$$' -count=1 ./internal/ctxdb/
+
 # ENGINEERING §7.2 (E-80..E-84) + spec-guard SPEC §20; env BASE/HEAD/PR_* diisi workflow pr-meta.
 pr-meta:
 	scripts/pr-meta.sh
