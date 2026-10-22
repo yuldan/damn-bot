@@ -3,13 +3,21 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
+	"github.com/damnbot/damnbot/internal/codetools"
+	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
+	"github.com/damnbot/damnbot/internal/redact"
+	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
@@ -192,4 +200,92 @@ func assistantToolCalls(payload string) []loop.ToolCall {
 		calls = append(calls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.Arguments})
 	}
 	return calls
+}
+
+// runWiring is every resource startRunModel opens before the model call: the
+// run store, the sandboxed tool stack, and the registered tool set, plus the
+// cleanup closure that releases them when a later step fails.
+type runWiring struct {
+	db       *ctxdb.Store
+	engine   *codetools.Engine
+	runner   *exec.Runner
+	sessions *exec.Sessions
+	registry *tools.Registry
+	sid      string
+	cwd      string
+	fail     func(error) error
+}
+
+// newRunWiring opens the run store, the sandbox and codetools engine, the exec
+// runner and its persistent sessions, then wires the shell, file, and skill
+// tools into a registry. Failures after the sessions exist go through the
+// returned fail closure so nothing leaks.
+func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runWiring, error) {
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run"})
+	if err != nil {
+		return nil, fmt.Errorf("open ctxdb: %w", err)
+	}
+	sid, cwd, err := newRunSession(ctx, db, modelRef)
+	if err != nil {
+		return nil, closeDB(ctx, db, err)
+	}
+	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
+	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
+	if err != nil {
+		return nil, closeDB(ctx, db, fmt.Errorf("sandbox: %w", err))
+	}
+	engine, err := codetools.New(&codetools.Config{Sandbox: sb, Roots: roots, Home: home})
+	if err != nil {
+		return nil, closeDB(ctx, db, fmt.Errorf("codetools: %w", err))
+	}
+	runner := exec.New(ctx)
+	envPolicy := &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent}
+	// Persistent sessions share the runner but never receive secret refs
+	// (ADR-088): direct is empty and Env only inherits the allowlist.
+	sessions := runner.NewSessions(filepath.Join(dataDir, "exec", "sess"), envPolicy.Env(os.Environ(), true, "", "", ""))
+	fail := func(cause error) error {
+		engine.Close()
+		if cerr := sessions.Close(); cerr != nil {
+			cause = errors.Join(cause, fmt.Errorf("close sessions: %w", cerr))
+		}
+		if cerr := runner.CloseContext(ctx); cerr != nil {
+			cause = errors.Join(cause, fmt.Errorf("close runner: %w", cerr))
+		}
+		return closeDB(ctx, db, cause)
+	}
+	allow, monetary, err := shellGate(cfg, configDir)
+	if err != nil {
+		return nil, fail(err)
+	}
+	shellTool, err := tools.NewShell(&tools.ShellConfig{
+		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
+		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
+		EnvPolicy:        envPolicy,
+		WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
+		MonetaryPaths: monetary, Canonicalize: monetaryKey,
+	})
+	if err != nil {
+		return nil, fail(fmt.Errorf("shell tool: %w", err))
+	}
+	skillsMgr, err := newSkillManager(ctx, db, dataDir, configDir, red)
+	if err != nil {
+		return nil, fail(err)
+	}
+	list := tools.FileTools(engine, sb)
+	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
+		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
+	reg, err := tools.NewRegistry(list...)
+	if err != nil {
+		return nil, fail(fmt.Errorf("registry: %w", err))
+	}
+	return &runWiring{
+		db:       db,
+		engine:   engine,
+		runner:   runner,
+		sessions: sessions,
+		registry: reg,
+		sid:      sid,
+		cwd:      cwd,
+		fail:     fail,
+	}, nil
 }
