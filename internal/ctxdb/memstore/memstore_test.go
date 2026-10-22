@@ -167,9 +167,72 @@ func TestSearchFilters(t *testing.T) {
 	if got := search(t, s, &Query{Scopes: all, Now: 200}); len(got) != 2 || got[0].Row.ID != b {
 		t.Fatalf("empty query order: %+v", got)
 	}
-	// FTS operators in user text are separators, not a MATCH syntax error.
-	if got := search(t, s, &Query{Text: `alpha - ("one`, Scopes: all, Now: 200}); len(got) != 1 || got[0].Row.ID != a {
+	// FTS operators in user text are separators, not a MATCH syntax error;
+	// candidates are OR-ed, so both rows share the "alpha" term.
+	if got := search(t, s, &Query{Text: `alpha - ("one`, Scopes: all, Now: 200}); len(got) != 2 {
 		t.Fatalf("punctuation query: %+v", got)
+	}
+}
+
+// TestFTSQueryDedupesAndCaps: duplicate terms are scored once and the
+// expression never exceeds maxFTSTerms (a long message cannot blow up MATCH).
+func TestFTSQueryDedupesAndCaps(t *testing.T) {
+	q := ftsQuery(strings.Repeat("alpha ", 10) + strings.Repeat("beta ", 10))
+	if strings.Count(q, `"alpha"`) != 1 || strings.Count(q, `"beta"`) != 1 {
+		t.Fatalf("duplicate terms not deduped: %q", q)
+	}
+	var b strings.Builder
+	for i := range 100 {
+		fmt.Fprintf(&b, "t%d ", i)
+	}
+	q = ftsQuery(b.String())
+	if n := strings.Count(q, `"`) / 2; n != 64 {
+		t.Fatalf("term count = %d, want 64", n)
+	}
+	if ftsQuery("   ") != "" {
+		t.Fatal("blank query is not empty")
+	}
+}
+
+// TestSearchQuestionRecallsFact: a natural-language question must reach the
+// stored fact even though it shares only some words with it (BM25 candidate
+// selection is OR, SPEC §4.8/B-03); an absent term recalls nothing.
+func TestSearchQuestionRecallsFact(t *testing.T) {
+	s := open(t, t.TempDir())
+	id := put(t, s, mkrow("user", "my locker number is 4417", "user"), approved())
+	for _, q := range []string{"What is my locker number?", "locker number", "4417"} {
+		hits := search(t, s, &Query{Text: q, Scopes: []string{"user"}, Now: 200})
+		if len(hits) != 1 || hits[0].Row.ID != id {
+			t.Fatalf("query %q hits = %+v, want row %d", q, hits, id)
+		}
+	}
+	if hits := search(t, s, &Query{Text: "passport", Scopes: []string{"user"}, Now: 200}); len(hits) != 0 {
+		t.Fatalf("absent term recalled: %+v", hits)
+	}
+}
+
+// TestSearchRanksByRareTerm: terms shared by every row ("my", "is") must not
+// bury the row that matches the question's distinctive words.
+func TestSearchRanksByRareTerm(t *testing.T) {
+	s := open(t, t.TempDir())
+	put(t, s, mkrow("user", "my locker number is 4417", "user"), approved())
+	plate := put(t, s, mkrow("user", "my car plate is B 7731 KQ", "user"), approved())
+	hits := search(t, s, &Query{Text: "What is my car plate?", Scopes: []string{"user"}, Now: 200})
+	if len(hits) == 0 || hits[0].Row.ID != plate {
+		t.Fatalf("question ranking = %+v, want row %d first", hits, plate)
+	}
+}
+
+// TestSearchOperatorWordsAreTerms: a user word that spells an FTS operator is
+// still a term; the expression is built from quoted, normalized tokens.
+func TestSearchOperatorWordsAreTerms(t *testing.T) {
+	s := open(t, t.TempDir())
+	id := put(t, s, mkrow("user", "orange or lemon", "user"), approved())
+	if hits := search(t, s, &Query{Text: "orange or lemon", Scopes: []string{"user"}, Now: 200}); len(hits) != 1 || hits[0].Row.ID != id {
+		t.Fatalf("operator-word query = %+v, want row %d", hits, id)
+	}
+	if hits := search(t, s, &Query{Text: `" (NEAR)`, Scopes: []string{"user"}, Now: 200}); len(hits) != 0 {
+		t.Fatalf("operator-only query = %+v, want no syntax error and no hits", hits)
 	}
 }
 
