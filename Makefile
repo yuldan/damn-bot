@@ -57,8 +57,19 @@ vet-custom:
 
 # RACE kosong hanya untuk target tanpa race detector Go (windows/arm64, matrix E-55; ADR-094).
 RACE ?= -race
+# ADR-115: satu binary paket berbagi satu -timeout; TestScenario (86 skenario
+# serial, ~172 s di runner sehat; 447 s di runner lambat) dan sisa paket
+# saling memakan anggaran 10 menit. Dua invokasi dengan flag dan -timeout
+# identik: sisa paket (tanpa TestScenario) dan skenario saja. Bukan skip —
+# test yang sama berjalan di invokasi kedua; hanya anggaran waktunya yang
+# terpisah.
+TEST_TIMEOUT ?= 10m
+SCENARIO_PKGS ?= ./internal/ctxdb
 test:
-	go test $(GOTAGS) $(RACE) -shuffle=on $(PKGS)
+	go test $(GOTAGS) $(RACE) -shuffle=on -timeout $(TEST_TIMEOUT) -skip '^TestScenario$$' $(PKGS)
+ifeq ($(PKGS),./...)
+	go test $(GOTAGS) $(RACE) -shuffle=on -timeout $(TEST_TIMEOUT) -run '^TestScenario$$' $(SCENARIO_PKGS)
+endif
 
 # ADR-048 (TS-P08): asersi budget waktu dinding (I11 ≤ 200 ms/txn dll.) hanya ditegakkan di build
 # tanpa -race, lewat satu helper internal/testutil/timing (ADR-073, NEW-35). Suite yang sama juga
