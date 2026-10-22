@@ -28,7 +28,7 @@ func TestEdgeCases(t *testing.T) {
 		{"EC-CTX-004", "covered", ecCtx004},
 		{"EC-CTX-005", "covered", ecCtx005},
 		{"EC-CTX-006", "pending:F2", nil}, // skill_view tool not on main
-		{"EC-CTX-007", "pending:F2", nil}, // no delivery directive format yet
+		{"EC-CTX-007", "covered", ecCtx007},
 		{"EC-CTX-008", "covered", ecCtx008},
 		{"EC-CTX-009", "covered", ecCtx009},
 		{"EC-CTX-010", "covered", ecCtx010},
@@ -380,4 +380,23 @@ func ecCtx022(t *testing.T) {
 	}
 	r.store.failCommit = nil
 	assertNoSummary(t, r)
+}
+
+// EC-CTX-007: delivery directives are removed before the summarizer, so a
+// summary can never replay MEDIA: as a real attachment instruction.
+func ecCtx007(t *testing.T) {
+	items := []item{
+		{Message: Message{Role: "tool", Content: "found MEDIA:/tmp/foo.png and done"}, seq: 1, tool: "session_search"},
+		{Message: Message{Role: "assistant", Content: "here MEDIA:/tmp/bar.png"}, seq: 2},
+		{Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "shell", Arguments: `{"command":"echo MEDIA:/tmp/baz.png"}`}}}, seq: 3},
+	}
+	got, _ := renderInput(items)
+	if strings.Contains(got, "MEDIA:") || strings.Contains(got, "/tmp/") {
+		t.Fatalf("directive reached the summarizer: %q", got)
+	}
+	for _, want := range []string{"found  and done", "here", "echo "} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("input lost %q: %q", want, got)
+		}
+	}
 }
