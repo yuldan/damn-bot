@@ -1,0 +1,220 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+
+	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/ctxdb"
+)
+
+// runSessions implements the `sessions` command (SPEC §10): fork and rewind,
+// with SPEC's names and no aliases.
+func runSessions(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		sessionsUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "fork":
+		return sessionsBranch(args[1:], stdout, stderr, false)
+	case "rewind":
+		return sessionsBranch(args[1:], stdout, stderr, true)
+	default:
+		sessionsPrintf(stderr, "sessions: unknown subcommand %q\n", args[0])
+		sessionsUsage(stderr)
+		return 2
+	}
+}
+
+// sessionsPrintf writes and reports success; CLI output errors are not fatal.
+func sessionsPrintf(w io.Writer, format string, args ...any) {
+	if _, err := fmt.Fprintf(w, format, args...); err != nil {
+		return // CLI output errors are not actionable
+	}
+}
+
+func sessionsUsage(w io.Writer) {
+	sessionsPrintf(w, "usage: damnbot sessions fork <id> [--at <seq|turn:ID>]\n")
+	sessionsPrintf(w, "       damnbot sessions rewind <id> --at <seq|turn:ID>\n")
+}
+
+// sessionsBranch creates a child of id with ctxdb.Fork. Fork defaults to the
+// current head; rewind requires an earlier point and never deletes the old
+// branch (SPEC §4.6: rewind = fork at an earlier seq).
+func sessionsBranch(args []string, stdout, stderr io.Writer, rewind bool) int {
+	name := "fork"
+	if rewind {
+		name = "rewind"
+	}
+	id, at, code := branchArgs(args, stderr, rewind)
+	if code != 0 {
+		return code
+	}
+	ctx := context.Background()
+	db, err := openSessionsDB(ctx, at.dataDir)
+	if err != nil {
+		sessionsPrintf(stderr, "sessions %s: %v\n", name, err)
+		return 1
+	}
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			sessionsPrintf(stderr, "sessions %s: close db: %v\n", name, cerr)
+		}
+	}()
+
+	target, usage, err := branchPoint(ctx, db, id, at.at, rewind)
+	if err != nil {
+		sessionsPrintf(stderr, "sessions %s: %v\n", name, err)
+		if usage {
+			return 2
+		}
+		return sessionsErr(err)
+	}
+	child, err := db.Fork(ctx, id, target)
+	if err != nil {
+		sessionsPrintf(stderr, "sessions %s: %v\n", name, err)
+		return sessionsErr(err)
+	}
+	if rewind {
+		sessionsPrintf(stdout, "rewound %s to seq %d: %s\n", id, target, child)
+	} else {
+		sessionsPrintf(stdout, "forked %s at seq %d: %s\n", id, target, child)
+	}
+	return 0
+}
+
+// branchArgs parses and validates the subcommand arguments.
+func branchArgs(args []string, stderr io.Writer, rewind bool) (string, branchOpts, int) {
+	opts, pos, err := parseBranchArgs(args)
+	if err != nil || len(pos) != 1 || pos[0] == "" {
+		if err != nil {
+			sessionsPrintf(stderr, "sessions: %v\n", err)
+		}
+		sessionsUsage(stderr)
+		return "", opts, 2
+	}
+	if rewind && opts.at == "" {
+		sessionsPrintf(stderr, "sessions rewind: --at is required\n")
+		return "", opts, 2
+	}
+	return pos[0], opts, 0
+}
+
+// branchPoint resolves the fork seq. usage reports a bad --at (exit 2)
+// rather than a store error.
+func branchPoint(ctx context.Context, db *ctxdb.Store, id, at string, rewind bool) (target int64, usage bool, err error) {
+	head, err := db.Head(ctx, id)
+	if err != nil {
+		return 0, false, fmt.Errorf("head: %w", err)
+	}
+	if at == "" {
+		return head, false, nil
+	}
+	target, err = parseAt(ctx, db, id, at, rewind)
+	if err != nil {
+		return 0, true, err
+	}
+	if rewind && target >= head {
+		return 0, true, fmt.Errorf("--at %d is not earlier than head %d", target, head)
+	}
+	return target, false, nil
+}
+
+type branchOpts struct{ at, dataDir string }
+
+// parseBranchArgs accepts --at/--data-dir before or after the session id
+// (Go's flag package stops at the first positional).
+func parseBranchArgs(args []string) (branchOpts, []string, error) {
+	var o branchOpts
+	var pos []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--at" || a == "-at":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--at needs a value")
+			}
+			i++
+			o.at = args[i]
+		case strings.HasPrefix(a, "--at="):
+			o.at = strings.TrimPrefix(a, "--at=")
+		case a == "--data-dir":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--data-dir needs a value")
+			}
+			i++
+			o.dataDir = args[i]
+		case strings.HasPrefix(a, "--data-dir="):
+			o.dataDir = strings.TrimPrefix(a, "--data-dir=")
+		case strings.HasPrefix(a, "-"):
+			return o, nil, fmt.Errorf("unknown flag %q", a)
+		default:
+			pos = append(pos, a)
+		}
+	}
+	return o, pos, nil
+}
+
+// parseAt resolves --at. `turn:ID` means the end of that turn for fork (the
+// turn is inherited) and the point just before it for rewind (the turn is
+// undone); a raw integer is an event seq of this session (ADR-136).
+func parseAt(ctx context.Context, db *ctxdb.Store, id, v string, rewind bool) (int64, error) {
+	if turn, ok := strings.CutPrefix(v, "turn:"); ok {
+		return parseTurnAt(ctx, db, id, turn, rewind)
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("--at %q: want a non-negative seq or turn:<id>", v)
+	}
+	return n, nil
+}
+
+func parseTurnAt(ctx context.Context, db *ctxdb.Store, id, turn string, rewind bool) (int64, error) {
+	first, last, err := db.TurnRange(ctx, id, turn)
+	if err != nil {
+		return 0, fmt.Errorf("turn %s: %w", turn, err)
+	}
+	if !rewind {
+		return last, nil
+	}
+	if first <= 1 {
+		return 0, nil
+	}
+	return first - 1, nil
+}
+
+// openSessionsDB opens the session store for a CLI command.
+func openSessionsDB(ctx context.Context, dataDir string) (*ctxdb.Store, error) {
+	if dataDir == "" {
+		loader, err := config.New(config.OS())
+		if err != nil {
+			return nil, fmt.Errorf("config deps: %w", err)
+		}
+		paths, err := loader.Paths("")
+		if err != nil {
+			return nil, fmt.Errorf("config paths: %w", err)
+		}
+		dataDir = paths.DataDir
+	}
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "cli"})
+	if err != nil {
+		return nil, fmt.Errorf("open sessions db: %w", err)
+	}
+	return db, nil
+}
+
+// sessionsErr maps a store error to the SPEC §11.6 CLI exit codes.
+func sessionsErr(err error) int {
+	switch {
+	case errors.Is(err, ctxdb.ErrSessionBusy), errors.Is(err, ctxdb.ErrDBBusy):
+		return 4
+	case errors.Is(err, ctxdb.ErrInvalidSeq):
+		return 2
+	}
+	return 1
+}

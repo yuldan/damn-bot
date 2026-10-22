@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -476,7 +477,10 @@ func snippet(content, query string) string {
 
 // Fork creates a child at atSeq (SPEC §4.6): parent_id/fork_seq, no copied
 // events, child lease in the same transaction. Rewind = an earlier atSeq; the
-// old branch stays. atSeq outside [0, head] is ErrInvalidSeq.
+// old branch stays. atSeq outside [0, head] is ErrInvalidSeq. A seq inside a
+// context_exclude turn is rejected because the child would inherit part of a
+// turn whose marker lies after the fork point (ADR-134/ADR-136). The child
+// inherits origin, cwd and the gateway conversation identity.
 func (s *Store) Fork(ctx context.Context, sessionID string, atSeq int64) (string, error) {
 	if atSeq < 0 {
 		return "", fmt.Errorf("ctxdb: fork %s at seq %d: %w", sessionID, atSeq, ErrInvalidSeq)
@@ -490,16 +494,86 @@ func (s *Store) Fork(ctx context.Context, sessionID string, atSeq int64) (string
 	}
 	id := newID()
 	err = s.Write(ctx, func(t *Tx) error {
-		_, cerr := t.CreateSession(Session{
+		if cerr := t.checkForkExcluded(sessionID, atSeq); cerr != nil {
+			return cerr
+		}
+		if _, cerr := t.CreateSession(Session{
 			ID: id, ParentID: sessionID, ForkSeq: atSeq, Origin: src.origin, Cwd: src.cwd,
 			Model: src.model, ConfigSHA: src.configSHA, ContextTier: src.contextTier,
-		})
-		return cerr
+		}); cerr != nil {
+			return cerr
+		}
+		return t.inheritGateway(sessionID, id)
 	})
 	if err != nil {
 		return "", err
 	}
 	return id, nil
+}
+
+// checkForkExcluded rejects a fork point inside a turn that an
+// append-only context_exclude marker excludes after the point: the child
+// would otherwise inherit a partial failed turn without its marker.
+func (t *Tx) checkForkExcluded(sid string, at int64) error {
+	var turn string
+	err := t.Get(`SELECT json_extract(x.payload, '$.turn_id')
+		FROM events x JOIN events e ON e.session_id = x.session_id
+		WHERE x.session_id = ?1 AND x.kind = 'context_exclude' AND x.seq > ?2
+		  AND json_extract(x.payload, '$.turn_id') = e.turn_id AND e.seq <= ?2
+		LIMIT 1`, []any{sid, at}, &turn)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("ctxdb: fork exclude check: %w", err)
+	}
+	return fmt.Errorf("ctxdb: fork %s at seq %d inside excluded turn %s: %w", sid, at, turn, ErrInvalidSeq)
+}
+
+// inheritGateway copies the parent's gateway conversation rows and the
+// latest gateway_chat label (when present) to the child, in the fork
+// transaction (ADR-136; PR #220 keeps the label side authoritative).
+func (t *Tx) inheritGateway(parent, child string) error {
+	now := t.s.clk.WallMs()
+	if _, err := t.Exec(`INSERT INTO gateway_conversations(platform, chat_id, thread_id, session_id, created_at)
+		SELECT platform, chat_id, thread_id, ?2, ?3 FROM gateway_conversations WHERE session_id = ?1`,
+		parent, child, now); err != nil {
+		return fmt.Errorf("ctxdb: inherit gateway conversations: %w", err)
+	}
+	if _, err := t.Exec(`INSERT INTO session_labels(session_id, key, value, created_at)
+		SELECT ?2, 'gateway_chat', value, ?3 FROM session_labels
+		WHERE session_id = ?1 AND key = 'gateway_chat' ORDER BY id DESC LIMIT 1`, parent, child, now); err != nil {
+		return fmt.Errorf("ctxdb: inherit gateway label: %w", err)
+	}
+	return nil
+}
+
+// Head returns the highest own event seq of sessionID (0 for an empty
+// session). Ancestor events are not counted: fork_seq is in the session's own
+// seq space.
+func (s *Store) Head(ctx context.Context, sessionID string) (int64, error) {
+	src, err := s.forkSource(ctx, sessionID)
+	if err != nil {
+		return 0, err
+	}
+	return src.head, nil
+}
+
+// TurnRange returns the first and last own event seq of turnID in sessionID.
+// A missing turn is ErrNotFound.
+func (s *Store) TurnRange(ctx context.Context, sessionID, turnID string) (first, last int64, err error) {
+	if turnID == "" {
+		return 0, 0, fmt.Errorf("%w: empty turn id", ErrNotFound)
+	}
+	err = s.get(ctx, `SELECT coalesce(min(seq),0), coalesce(max(seq),0) FROM events WHERE session_id = ?1 AND turn_id = ?2`,
+		[]any{sessionID, turnID}, &first, &last)
+	if err != nil {
+		return 0, 0, err
+	}
+	if last == 0 {
+		return 0, 0, fmt.Errorf("%w: turn %s", ErrNotFound, turnID)
+	}
+	return first, last, nil
 }
 
 type forkSource struct {
