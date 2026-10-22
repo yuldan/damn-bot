@@ -215,7 +215,7 @@ func run() error {
 			"prompt_ready":   "output PTY (ANSI dibuang) pertama kali cocok ready_re = " + res.ReadyRE + "; consent telemetry di-seed 'No thanks' sebelum run (setup)",
 			"idle_rss":       "Σ VmRSS pohon proses (termasuk gateway daemon anak) setelah 10 s diam di prompt",
 			"first_response": "query diketik per karakter, Enter, berhenti saat '" + res.Expect + "' muncul di output PTY; durasi request upstream ada di rekaman",
-			"argv":           res.Argv, "query": res.Query, "recording": *recPath,
+			"argv":           h2h.RedactArgs(res.Argv), "query": res.Query, "recording": *recPath,
 		},
 		"summary": map[string]any{
 			"first_output_ms": pct(fo), "prompt_ready_ms": pct(pr), "idle_rss_mb": pct(rss), "first_response_ms": pct(fr),

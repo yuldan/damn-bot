@@ -122,4 +122,4 @@ damnbot run --output json --approval auto --data-dir /tmp/db-case \
   --api-key "$(cat ~/.config/damnbot/llm_key)" -p "Reply with exactly: OK"
 ```
 
-Evidence JSON: `bench/h2h/results/2026-10-21-llm-scenarios/summary.json` (sanitized; commands show `$KEY`, no key material).
+Evidence JSON: `bench/h2h/results/2026-10-21-llm-scenarios/summary.json` (sanitized; commands show `$KEY`, no key material). Koreksi (SEC-review): satu baris `cmd` masih membawa nilai `--api-key` literal dan baru di-scrub ke `<redacted>`; penjaga `bench/h2h` kini memindai **seluruh** `results/` (bukan hanya `*.jsonl.gz`) dan penulis artifact memakai `h2h.RedactArgs`.
