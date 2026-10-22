@@ -79,3 +79,37 @@ func TestNoDefaultCurrentDirectoryInExePath(t *testing.T) {
 		t.Fatalf("cwd git.bat ran: %v", serr)
 	}
 }
+
+// negative control for SEC10-28: without the variable, cmd runs the cwd
+// git.bat; proves the marker test can detect the issue.
+func TestNoDefaultCurrentDirectoryNegativeControl(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran")
+	if err := os.WriteFile(filepath.Join(dir, "git.bat"), []byte("@echo off\r\n> \""+marker+"\" echo ran\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec, _, err := Prepare(&OneShot{Command: "git status", Dir: dir, Parent: os.Environ(), Policy: &EnvPolicy{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var env []string
+	for _, kv := range spec.Env {
+		if !strings.HasPrefix(strings.ToLower(kv), "nodefaultcurrentdirectoryinexepath=") {
+			env = append(env, kv)
+		}
+	}
+	spec.Env = env
+	r := New(t.Context())
+	defer func() {
+		if cerr := r.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	}()
+	if _, rerr := r.Run(t.Context(), &spec); rerr != nil {
+		t.Fatal(rerr)
+	}
+	if _, serr := os.Stat(marker); serr != nil {
+		t.Fatalf("negative control: cwd git.bat did not run: %v", serr)
+	}
+}

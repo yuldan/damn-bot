@@ -30,6 +30,7 @@ func pwshSession(bin string) sessionShellSpec {
 	return sessionShellSpec{
 		argv: []string{bin, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"},
 		ext:  ".ps1", setup: "$ProgressPreference = 'SilentlyContinue'",
+		resetEnv: "$env:NoDefaultCurrentDirectoryInExePath='1'",
 		line: func(path, cwd, nonce string) string {
 			return "$global:LASTEXITCODE = 0; . '" + strings.ReplaceAll(path, "'", "''") + "'; " +
 				writeCwd(cwd) + sentinel(nonce, "${LASTEXITCODE}")
@@ -50,6 +51,7 @@ func cmdSession(bin string) sessionShellSpec {
 	}
 	return sessionShellSpec{
 		argv: []string{bin, "/d", "/q"}, ext: ".cmd", setup: "rem",
+		resetEnv: `set "NoDefaultCurrentDirectoryInExePath=1"` + "\r\n",
 		line: func(path, cwd, nonce string) string {
 			return `call "` + path + `"` + "\r\n" +
 				`set "__dmb=%errorlevel%"` + "\r\n" +

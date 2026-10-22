@@ -52,3 +52,18 @@ func TestCmdSentinelNoCwd(t *testing.T) {
 		}
 	}
 }
+
+// TestSessionResetsNoDefaultCwd (SEC10-27): a user clearing the variable in
+// one persistent command does not disable the protection for later commands.
+func TestSessionResetsNoDefaultCwd(t *testing.T) {
+	t.Parallel()
+	ss := newSessions(t, nil)
+	clear, get := `set "NoDefaultCurrentDirectoryInExePath="`, `echo %NoDefaultCurrentDirectoryInExePath%`
+	if strings.HasSuffix(sessionShell(envPath(ss.env)).ext, ".ps1") {
+		clear, get = `$env:NoDefaultCurrentDirectoryInExePath=""`, `Write-Output $env:NoDefaultCurrentDirectoryInExePath`
+	}
+	sessExec(t, ss, "e", clear, 20*time.Second)
+	if res := sessExec(t, ss, "e", get, 20*time.Second); !strings.Contains(string(res.Output), "1") {
+		t.Fatalf("variable not reset before the next command: %q", res.Output)
+	}
+}
