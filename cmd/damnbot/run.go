@@ -286,6 +286,17 @@ func (m *runModel) close(ctx context.Context) error {
 
 // newRunProvider builds the run provider or returns the injected one.
 func newRunProvider(cfg *config.Config, modelRef string, o *runOptions) (loop.Provider, error) {
+	table, err := registry.DefaultPriceTable()
+	if err != nil {
+		return nil, fmt.Errorf("pricing table: %w", err)
+	}
+	return newRunProviderWithTable(cfg, modelRef, o, table)
+}
+
+// newRunProviderWithTable is newRunProvider with an explicit table, so a test
+// can price a loopback route; the composition root always passes the embedded
+// default table.
+func newRunProviderWithTable(cfg *config.Config, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
 	if o.prov != nil {
 		return o.prov, nil
 	}
@@ -294,9 +305,13 @@ func newRunProvider(cfg *config.Config, modelRef string, o *runOptions) (loop.Pr
 		return nil, fmt.Errorf("provider endpoint: %w", err)
 	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
+	prices, err := provider.RoutePrices(table, base, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("pricing: %w", err)
+	}
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
-		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family}},
+		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family, Prices: prices}},
 		Attempts: o.providerAttempts,
 	})
 	if err != nil {
@@ -531,6 +546,7 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 		Content: resp.Content, FinishReason: resp.FinishReason, Usage: event.Usage{
 			Input: resp.Usage.Input, CachedInput: resp.Usage.CachedInput,
 			Output: resp.Usage.Output, CostUSD: resp.Usage.CostUSD,
+			Price: eventPrice(resp.Price),
 		},
 		Model: resp.Model, FallbackFrom: resp.FallbackFrom, Attempts: resp.Attempts,
 		Carriers: eventCarriers(resp.Carriers), RejectedCarriers: eventCarriers(resp.RejectedCarriers),
@@ -663,17 +679,51 @@ func (s *ctxStore) EndTurn(ctx context.Context, sid, tid string, payload json.Ra
 	return nil
 }
 
+// eventPrice converts the provider response price entry to the loop's wire
+// type (loop/event is a leaf: it does not import budget).
+func eventPrice(p *budget.Price) *event.Price {
+	if p == nil {
+		return nil
+	}
+	return &event.Price{
+		InputPerMTok: p.InputPerMTok, CachedInputPerMTok: p.CachedInputPerMTok,
+		OutputPerMTok: p.OutputPerMTok, Version: p.Version,
+	}
+}
+
 type ctxLedger struct {
 	db              *ctxdb.Store
 	provider, model string
 }
 
+// Record writes one usage_ledger row through budget.Entry.Account, so the
+// charge is max(table, provider) for a priced route and the provider cost
+// for an unpriced one (ADR-125/128), with pricing_version from the value
+// actually charged. Account rejects implausible usage; the row is then
+// still written with NULL/unknown cost so the guard sees the spend and
+// later calls under a monetary cap are denied (REVIEW-F2-SEC6 SEC6-8),
+// while Record returns the error so the turn fails visibly.
 func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, u *event.Usage) error {
-	var micros *int64
-	src := "unknown"
-	if u.CostUSD != nil {
-		m := int64(*u.CostUSD*1e6 + 0.5)
-		micros, src = &m, "provider"
+	var price *budget.Price
+	if u.Price != nil {
+		price = &budget.Price{
+			InputPerMTok: u.Price.InputPerMTok, CachedInputPerMTok: u.Price.CachedInputPerMTok,
+			OutputPerMTok: u.Price.OutputPerMTok, Version: u.Price.Version,
+		}
+	}
+	e := budget.Entry{
+		SessionID: sid, TurnID: tid, EventID: eventID, Purpose: "turn",
+		Provider: l.provider, Model: l.model, Attempts: 1,
+		TTFTMS: 0, CreatedAt: time.Now().UnixMilli(),
+	}
+	acctErr := e.Account(budget.Usage{Input: u.Input, CachedInput: u.CachedInput, Output: u.Output, CostUSD: u.CostUSD}, price, 0)
+	if acctErr != nil {
+		// The call already happened and was paid for: record it as
+		// unknown-cost with clamped token counts instead of losing it.
+		e.InputTokens = max(u.Input, 0)
+		e.CachedInputTokens = min(max(u.CachedInput, 0), e.InputTokens)
+		e.OutputTokens = max(u.Output, 0)
+		e.CostMicros, e.CostSource, e.PricingVersion = nil, string(budget.CostUnknown), budget.PricingNone
 	}
 	err := l.db.Write(ctx, func(tx *ctxdb.Tx) error {
 		var anchor int64
@@ -683,20 +733,18 @@ func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, 
 			}
 			return fmt.Errorf("find event anchor: %w", gerr)
 		}
-		_, ierr := ledgerstore.Insert(tx, &ledgerstore.Row{
-			EventID:   anchor,
-			SessionID: sid, TurnID: tid, Purpose: "turn", Provider: l.provider, Model: l.model,
-			InputTokens: u.Input, CachedInputTokens: u.CachedInput, OutputTokens: u.Output,
-			CostMicros: micros, CostSource: src, PricingVersion: "none", Attempts: 1,
-			TTFTMS: 0, CreatedAt: time.Now().UnixMilli(),
-		})
-		if ierr != nil {
+		e.EventID = anchor
+		row := ledgerstore.Row(e) // field-identical (ADR-101 butir 5)
+		if _, ierr := ledgerstore.Insert(tx, &row); ierr != nil {
 			return fmt.Errorf("insert ledger row: %w", ierr)
 		}
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("record ledger: %w", err)
+	}
+	if acctErr != nil {
+		return fmt.Errorf("account ledger: %w", acctErr)
 	}
 	return nil
 }
