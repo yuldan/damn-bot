@@ -90,6 +90,7 @@ func allowedImports() map[string][]string {
 
 		// Test arsitektur dan helper test (lihat testOnlyPackages).
 		"internal/archtest":              nil,
+		"internal/e2e":                   nil,
 		"internal/testutil/timing":       nil,
 		"internal/testutil/phase":        nil,
 		"internal/provider/providertest": {"internal/provider"},
@@ -99,5 +100,5 @@ func allowedImports() map[string][]string {
 // testOnlyPackages hanya boleh diimpor dari file _test.go (paket internal mana pun) atau dari
 // paket test-only lain; kode produksi, termasuk cmd/damnbot, tidak pernah mengimpornya.
 func testOnlyPackages() []string {
-	return []string{"internal/testutil/timing", "internal/testutil/phase", "internal/provider/providertest"}
+	return []string{"internal/testutil/timing", "internal/testutil/phase", "internal/provider/providertest", "internal/e2e"}
 }
