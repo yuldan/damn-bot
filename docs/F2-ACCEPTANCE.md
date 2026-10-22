@@ -30,14 +30,16 @@ confirm that a test name exists nowhere else.
 
 | group | rows | covered | in-flight | surface | missing |
 | --- | --- | --- | --- | --- | --- |
-| EC — required by ROADMAP F2 | 41 | 33 | 0 | — | 8 |
+| EC — required by ROADMAP F2 | 41 | 30 | 0 | — | 11 |
 | GAP — DECISIONS.md L247-265 | 18 | 5 | 2 | 2 | 9 |
 | Parity — F2 rows | 81 | 18 | 4 | 17 | 42 |
 
-The eight missing EC rows are `EC-CTX-006`, `EC-CTX-007`, `EC-CTX-017`,
-`EC-PROV-008`, `EC-TCALL-010`, `EC-WIN-002`, `EC-WIN-005` and
-`EC-WIN-011`. None appears in any test file, in any open PR head, or in
-`git log --all -S`.
+The eleven missing EC rows are `EC-CTX-006`, `EC-CTX-007`, `EC-CTX-017`
+(declared `pending:F2`), `EC-STATE-001`, `EC-STATE-007`, `EC-STATE-009`
+(absent from `TestStateEdgeCases`), and `EC-PROV-008`, `EC-TCALL-010`,
+`EC-WIN-002`, `EC-WIN-005`, `EC-WIN-011` (no test anywhere). None of the
+eight uncatalogued ids appears in any test file, in any open PR head, or
+in `git log --all -S`.
 
 ---
 
@@ -67,14 +69,14 @@ The eight missing EC rows are `EC-CTX-006`, `EC-CTX-007`, `EC-CTX-017`,
 | EC-CTX-020 | `TestEdgeCases/EC-CTX-020` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-021 | `TestEdgeCases/EC-CTX-021` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-022 | `TestEdgeCases/EC-CTX-022` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-STATE-001 | `TestStateEdgeCases/EC-STATE-001` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
+| EC-STATE-001 | — (not in `TestStateEdgeCases`) | — | missing | ctxdb |
 | EC-STATE-002 | `TestStateEdgeCases/EC-STATE-002` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-003 | `TestStateEdgeCases/EC-STATE-003` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-005 | `TestStateEdgeCases/EC-STATE-005` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-006 | `TestStateEdgeCases/EC-STATE-006` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-007 | `TestStateEdgeCases/EC-STATE-007` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
+| EC-STATE-007 | — (not in `TestStateEdgeCases`) | — | missing | ctxdb |
 | EC-STATE-008 | `TestStateEdgeCases/EC-STATE-008` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-009 | `TestStateEdgeCases/EC-STATE-009` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
+| EC-STATE-009 | — (not in `TestStateEdgeCases`) | — | missing | ctxdb |
 | EC-STATE-010 | `TestStateEdgeCases/EC-STATE-010` + `edgecases_unix_test.go` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-011 | `TestStateEdgeCases/EC-STATE-011` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-013 | `TestStateEdgeCases/EC-STATE-013` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
@@ -92,6 +94,20 @@ compaction gate but their IDs are still accepted by the completeness test
 because the gate names them. The roadmap's "F2 = all EC-CTX ids" therefore
 passes while three are in fact unimplemented. This is exactly the class of
 silent miss the acceptance test must catch (§4, item 1).
+
+### F1 ids with no catalog row
+
+The same cross-check over the whole roadmap (not only F2) finds 16 ids
+whose roadmap phase is F1 but which no test names: `EC-FIO-002`,
+`EC-FIO-005`, `EC-FIO-006`, `EC-FIO-009`, `EC-FIO-012`, `EC-FIO-016`,
+`EC-FIO-017`, `EC-FIO-019`, `EC-TCALL-009`, `EC-TERM-002`,
+`EC-TERM-007`, `EC-WIN-001`, `EC-WIN-009`, `EC-WIN-014`,
+`EC-WIN-016`, `EC-WIN-017`. Some behaviours may be tested under a
+different subtest name (e.g. non-UTF-8 child output); others (WIN-016
+cp1252, WIN-017 PowerShell console) have no matching test. The F1
+acceptance run was vacuous for them because the gate only saw declared
+rows. The cross-check gate listed in §4 now reports them; they must be
+tagged or implemented before the next phase acceptance.
 
 ## 2. GAP rows (DECISIONS.md L247-265)
 
@@ -245,13 +261,15 @@ These are the concrete PRs implied by the table above. Each item names
 the owner prefix (branch names should use it) and the smallest test that
 proves it.
 
-1. **Acceptance completeness (this PR's sibling).** Make
-   `internal/phase/acceptance_test.go` fail when (a) a required EC ID is
-   not referenced by any test — including the `pending:F2` ones, (b) the
-   EC table lists an ID the roadmap does not require, and (c) a GAP row
-   in DECISIONS.md is not referenced by a test. Put the required IDs in
-   one table shared by the test; keep the screen in the same PR as the
-   ledger.
+1. **Acceptance completeness (sibling PR, implemented).**
+   `TestEdgeCaseCatalogSync` in `internal/testutil/phase` parses the
+   ROADMAP EC table and every package catalog and, in acceptance mode,
+   fails when an id at or below PHASE has no catalog row or is not
+   `covered`/`n/a`; it also rejects catalog phases that disagree with the
+   roadmap and ids the roadmap does not require. Normal `go test` keeps
+   the run green and logs the uncataloged ids. The 16 F1 ids above and the
+   three missing STATE ids are what it now reports; the GAP rows still
+   need their own check (no phase column yet).
 2. **tools:** implement `skill_view`/`skills_list`/`skill_manage`
    (TOOL-074/075/076, SKILL-002) — first unblocks EC-CTX-006.
 3. **ctxdb:** migration fail-closed test (GAP-REL-05); FTS auto-upgrade
