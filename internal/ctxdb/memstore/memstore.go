@@ -522,6 +522,10 @@ func transition(from, to string) bool {
 // letters/digits is a term and everything else becomes a separator, so user
 // text can never produce a MATCH syntax error (quotes, '-', parentheses,
 // column filters). Empty result means "no text query".
+// maxFTSTerms bounds a recall query; longer user messages would otherwise
+// build an unbounded MATCH expression.
+const maxFTSTerms = 64
+
 func ftsQuery(text string) string {
 	if strings.TrimSpace(text) == "" {
 		return ""
@@ -535,8 +539,16 @@ func ftsQuery(text string) string {
 		}
 	}
 	fields := strings.Fields(b.String())
-	tokens := make([]string, 0, len(fields))
+	seen := make(map[string]struct{}, min(len(fields), maxFTSTerms))
+	tokens := make([]string, 0, len(seen))
 	for _, tok := range fields {
+		if len(tokens) == maxFTSTerms {
+			break
+		}
+		if _, dup := seen[tok]; dup {
+			continue
+		}
+		seen[tok] = struct{}{}
 		// Quoted, so a user word that happens to spell an operator ("or",
 		// "and") stays a term instead of changing the expression.
 		tokens = append(tokens, `"`+tok+`"`)

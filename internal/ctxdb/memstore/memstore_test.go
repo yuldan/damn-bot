@@ -174,6 +174,26 @@ func TestSearchFilters(t *testing.T) {
 	}
 }
 
+// TestFTSQueryDedupesAndCaps: duplicate terms are scored once and the
+// expression never exceeds maxFTSTerms (a long message cannot blow up MATCH).
+func TestFTSQueryDedupesAndCaps(t *testing.T) {
+	q := ftsQuery(strings.Repeat("alpha ", 10) + strings.Repeat("beta ", 10))
+	if strings.Count(q, `"alpha"`) != 1 || strings.Count(q, `"beta"`) != 1 {
+		t.Fatalf("duplicate terms not deduped: %q", q)
+	}
+	var b strings.Builder
+	for i := range 100 {
+		fmt.Fprintf(&b, "t%d ", i)
+	}
+	q = ftsQuery(b.String())
+	if n := strings.Count(q, `"`) / 2; n != 64 {
+		t.Fatalf("term count = %d, want 64", n)
+	}
+	if ftsQuery("   ") != "" {
+		t.Fatal("blank query is not empty")
+	}
+}
+
 // TestSearchQuestionRecallsFact: a natural-language question must reach the
 // stored fact even though it shares only some words with it (BM25 candidate
 // selection is OR, SPEC §4.8/B-03); an absent term recalls nothing.
