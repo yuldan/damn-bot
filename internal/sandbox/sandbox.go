@@ -92,7 +92,14 @@ type Config struct {
 }
 
 type root struct {
-	path     string
+	path string
+	// alias is the configured absolute spelling of the root before
+	// canonicalization (macOS /var -> /private/var, Windows 8.3 RUNNER~1);
+	// short is the Windows 8.3 spelling of the canonical path ("" elsewhere).
+	// Paths recorded under either spelling map to path without resolving
+	// anything below the root (SEC14 root canonicalization).
+	alias    string
+	short    string
 	readOnly bool
 	// fi is the root's identity at New: callers that pin a root handle
 	// compare it so a root replaced by a symlink later is refused
@@ -123,11 +130,19 @@ func New(cfg *Config) (*Sandbox, error) {
 	s := &Sandbox{foldRoot: runtime.GOOS == "windows"}
 	for i, list := range [][]string{cfg.Roots, cfg.ReadOnlyExtra} {
 		for _, r := range list {
+			alias, err := absPath(r)
+			if err != nil {
+				return nil, err
+			}
 			p, fi, err := canonicalRoot(r)
 			if err != nil {
 				return nil, err
 			}
-			s.roots = append(s.roots, root{path: p, readOnly: i == 1, fi: fi})
+			short, serr := shortFinal(p)
+			if serr != nil {
+				short = "" // 8.3 is an alias only; the canonical path still works
+			}
+			s.roots = append(s.roots, root{path: p, alias: alias, short: short, readOnly: i == 1, fi: fi})
 		}
 	}
 	deny, ids, err := compileDeny(cfg.DenyPaths, cfg.Home)
@@ -146,6 +161,9 @@ func canonicalRoot(r string) (string, os.FileInfo, error) {
 	p, err := resolve(abs)
 	if err != nil {
 		return "", nil, fmt.Errorf("sandbox: root: %w", err)
+	}
+	if p, err = canonicalFinal(p); err != nil {
+		return "", nil, fmt.Errorf("sandbox: root final path: %w", err)
 	}
 	fi, err := os.Stat(p)
 	if err != nil {
@@ -179,6 +197,7 @@ func (s *Sandbox) check(ctx context.Context, p string, op Op) (Verdict, string, 
 	if err != nil {
 		return OutsideRoot, "", -1, err
 	}
+	abs = s.canonicalAlias(abs)
 	if s.denied(abs) {
 		return OutsideRoot, "", -1, ErrDeniedPath
 	}

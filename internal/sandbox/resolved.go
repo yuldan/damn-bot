@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Denied reports whether an absolute resolved path matches deny_paths,
@@ -30,6 +31,39 @@ func (s *Sandbox) RootOf(absResolved string) (root, rel string, ok bool) {
 		}
 	}
 	return "", "", false
+}
+
+// canonicalAlias maps a path spelled under a root's configured alias (the
+// pre-canonical symlink or 8.3 form) to the canonical root plus the same
+// lexical tail. Nothing below the root is resolved.
+func (s *Sandbox) canonicalAlias(abs string) string {
+	for _, r := range s.roots {
+		for _, form := range []string{r.alias, r.short} {
+			if form == "" || form == r.path || !hasPathPrefix(abs, form, s.foldRoot) {
+				continue
+			}
+			tail := strings.TrimLeft(abs[len(form):], string(filepath.Separator))
+			return filepath.Join(r.path, tail)
+		}
+	}
+	return abs
+}
+
+// MapPath maps a path in either the configured alias or canonical root form
+// to the canonical root and its lexical relative path. It never resolves a
+// component, so a symlink below the root stays visible to the caller.
+func (s *Sandbox) MapPath(p string) (root, rel string, ok bool) {
+	abs, err := absPath(p)
+	if err != nil {
+		return "", "", false
+	}
+	return s.RootOf(s.canonicalAlias(abs))
+}
+
+// SamePath compares two canonical absolute paths (case-insensitively on
+// Windows roots).
+func (s *Sandbox) SamePath(a, b string) bool {
+	return a == b || (s.foldRoot && strings.EqualFold(a, b))
 }
 
 // RootIdentity returns the FileInfo recorded for the root containing

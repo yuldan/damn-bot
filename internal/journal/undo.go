@@ -279,10 +279,15 @@ func (u *Undoer) current(ctx context.Context, p string) (sum, resolved string, p
 	if err != nil {
 		return "", "", false, false, err
 	}
-	if filepath.Clean(p) != resolved {
-		// The journaled path is already resolved, so a difference means a
-		// symlink (or a swapped ancestor) appeared after the action: a
-		// conflict, never a link target (JN2-1).
+	root, rel, ok := u.sb.MapPath(p)
+	if !ok {
+		return "", resolved, false, false, fmt.Errorf("%w: %s is outside the sandbox roots", ErrUnsafePath, p)
+	}
+	if expected := filepath.Join(root, rel); !u.sb.SamePath(expected, resolved) {
+		// The journaled path is compared after mapping only the root's own
+		// configured spelling (macOS /var, Windows 8.3) to the canonical
+		// root. Any further difference is a symlink or a swapped ancestor
+		// below the root: a conflict, never a link target (JN2-1, SEC14).
 		return "", resolved, false, false, fmt.Errorf("%w: %s is now a symlink", ErrConflict, p)
 	}
 	f, _, oerr := u.sb.OpenResolved(ctx, resolved, true)
