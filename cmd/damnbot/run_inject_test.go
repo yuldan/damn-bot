@@ -18,10 +18,12 @@ import (
 type injectProvider struct {
 	calls int
 	text  string
+	last  *loop.Request
 }
 
-func (p *injectProvider) Stream(_ context.Context, _ *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
+func (p *injectProvider) Stream(_ context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
 	p.calls++
+	p.last = req
 	emit(loop.Delta{Text: p.text})
 	return loop.Reply{Content: p.text, FinishReason: loop.FinishStop}, nil
 }
@@ -90,6 +92,40 @@ func TestRunAnswerSchema(t *testing.T) {
 	code, out = run(`{"answer":"ok"}`)
 	if code != 0 || !strings.Contains(out, `"completed"`) {
 		t.Fatalf("conforming answer = %d %s", code, out)
+// TestRunRefsExpandsAfterContextQuery (ACC-70, ADR-148 butir 3): a reference
+// expands into the user message sent to the provider, while the context-tier
+// retriever still ranks against the raw prompt.
+func TestRunRefsExpandsAfterContextQuery(t *testing.T) {
+	prov := &injectProvider{text: "pong"}
+	ret := &injectRetriever{}
+	cfg := config.Default()
+	var out bytes.Buffer
+	const prompt = "summarize @refs.go"
+	code, err := runOne(context.Background(), &runOptions{
+		prompt: prompt, model: "openai/fake", dataDir: t.TempDir(), output: "json", approval: "auto",
+		prov: prov, cfgOverride: &cfg,
+		retrieverFor: func(*ctxdb.Store) assemble.Retriever { return ret },
+	}, &out)
+	if err != nil || code != 0 {
+		t.Fatalf("runOne = %d, %v (stdout %s)", code, err, out.String())
+	}
+	if len(ret.queries) != 1 || ret.queries[0] != prompt {
+		t.Fatalf("retriever queries = %v, want the raw prompt %q", ret.queries, prompt)
+	}
+	if prov.last == nil {
+		t.Fatal("provider saw no request")
+	}
+	user := ""
+	for _, m := range prov.last.Messages {
+		if m.Role == "user" {
+			user = m.Content
+		}
+	}
+	if !strings.Contains(user, `<untrusted source="ref:refs.go">`) || !strings.Contains(user, "package main") {
+		t.Errorf("user message lacks the expanded reference:\n%s", user)
+	}
+}
+
 // TestRunTrimsMemory: the RSS trim hook runs once after the turn (MEM-033).
 func TestRunTrimsMemory(t *testing.T) {
 	prov := &injectProvider{text: "pong"}

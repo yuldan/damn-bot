@@ -7,36 +7,43 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
-// Reference expansion limits (MEM-024).
+// Reference expansion limits (MEM-024). maxRefBytes caps one payload in bytes
+// on the read side; maxRefRunes is the same cap expressed in runes for the
+// prompt copy, so truncation never tears a UTF-8 sequence (SEC17-8).
 const (
 	maxRefs     = 8
 	maxRefBytes = 32 << 10
+	maxRefRunes = 32 << 10
 	maxRefTotal = 64 << 10
 )
 
 // expandRefs replaces @path, @folder/ and @url tokens with the referenced
 // content wrapped in an <untrusted> boundary. Files go through the sandbox,
 // URLs only when the run is online; every failure is surfaced, never silently
-// dropped.
-func expandRefs(ctx context.Context, prompt string, sb *sandbox.Sandbox, net *netx.Network, offline bool) (string, error) {
-	fields := strings.Fields(prompt)
+// dropped. expanded reports that at least one reference entered the prompt.
+func expandRefs(ctx context.Context, prompt string, sb *sandbox.Sandbox, net *netx.Network, offline bool) (string, bool, error) {
+	var b strings.Builder
 	refs := 0
 	total := 0
-	for _, f := range fields {
-		if !strings.HasPrefix(f, "@") || len(f) < 2 {
+	for _, tok := range refTokens(prompt) {
+		if !strings.HasPrefix(tok.text, "@") || len(tok.text) < 2 {
+			b.WriteString(tok.text)
+			b.WriteString(tok.sep)
 			continue
 		}
 		refs++
 		if refs > maxRefs {
-			return "", fmt.Errorf("too many @ references (max %d)", maxRefs)
+			return "", false, fmt.Errorf("too many @ references (max %d)", maxRefs)
 		}
-		target := strings.TrimPrefix(f, "@")
+		target := strings.TrimPrefix(tok.text, "@")
 		var content string
 		var err error
 		if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
@@ -45,25 +52,76 @@ func expandRefs(ctx context.Context, prompt string, sb *sandbox.Sandbox, net *ne
 			content, err = readRefPath(ctx, sb, target)
 		}
 		if err != nil {
-			return "", fmt.Errorf("@%s: %w", target, err)
+			return "", false, fmt.Errorf("@%s: %w", target, err)
 		}
-		r := []rune(content)
-		if len(r) > maxRefBytes {
-			r = r[:maxRefBytes]
-			content = string(r) + "\n[ref truncated at 32768 bytes]"
+		// The readers already bound the payload in bytes; this second cap is
+		// in runes so the prompt copy cannot end mid-sequence.
+		if len(content) > maxRefRunes {
+			if r := []rune(content); len(r) > maxRefRunes {
+				content = string(r[:maxRefRunes]) + "\n[ref truncated at 32768 bytes]"
+			}
 		}
 		total += len(content)
 		if total > maxRefTotal {
-			return "", fmt.Errorf("@ references exceed %d bytes in total", maxRefTotal)
+			return "", false, fmt.Errorf("@ references exceed %d bytes in total", maxRefTotal)
 		}
-		expanded := fmt.Sprintf("<untrusted source=\"ref:%s\">\n%s\n</untrusted>",
-			refSource(target), tools.EscapeUntrustedClose(content))
-		prompt = strings.Replace(prompt, f, expanded, 1)
+		b.WriteString(fmt.Sprintf("<untrusted source=\"ref:%s\">\n%s\n</untrusted>",
+			refSource(target), tools.EscapeUntrustedClose(content)))
+		b.WriteString(tok.sep)
 	}
-	return prompt, nil
+	return b.String(), refs > 0, nil
 }
 
-// refSource bounds a reference name used inside the wrapper attribute.
+// expandPromptRefs expands @ references and taints the turn when any reference
+// content was inlined. Reference content is untrusted input (ADR-070): without
+// the taint, --unsafe-auto-shell would auto-approve non-read tools whose prompt
+// carries file or network content (REVIEW-F2-SEC17-5). The taint is set before
+// loop.Prompt, so it applies to every tool this turn evaluates.
+func expandPromptRefs(ctx context.Context, disp *tools.Dispatcher, prompt string, sb *sandbox.Sandbox, net *netx.Network, offline bool) (string, error) {
+	if !strings.Contains(prompt, "@") {
+		return prompt, nil
+	}
+	expanded, refs, err := expandRefs(ctx, prompt, sb, net, offline)
+	if err != nil {
+		return "", err
+	}
+	if refs {
+		disp.MarkTainted()
+	}
+	return expanded, nil
+}
+
+// refToken is one whitespace-delimited prompt chunk plus the whitespace that
+// follows it, so expansion rewrites the prompt in place instead of replacing
+// an equal-looking chunk elsewhere — which would land the next reference
+// inside the block just inserted (SEC17-7).
+type refToken struct{ text, sep string }
+
+// refTokens splits a prompt like strings.Fields and keeps the separators.
+func refTokens(s string) []refToken {
+	var out []refToken
+	for s != "" {
+		i := strings.IndexFunc(s, unicode.IsSpace)
+		if i < 0 {
+			return append(out, refToken{text: s})
+		}
+		j := i
+		for j < len(s) {
+			r, size := utf8.DecodeRuneInString(s[j:])
+			if !unicode.IsSpace(r) {
+				break
+			}
+			j += size
+		}
+		out = append(out, refToken{text: s[:i], sep: s[i:j]})
+		s = s[j:]
+	}
+	return out
+}
+
+// refSource bounds a reference name used inside the wrapper attribute: 120
+// bytes, cut back to a rune boundary so the attribute stays valid UTF-8
+// (SEC17-8).
 func refSource(target string) string {
 	target = strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f || r == '"' || r == '<' || r == '>' {
@@ -72,7 +130,11 @@ func refSource(target string) string {
 		return r
 	}, target)
 	if len(target) > 120 {
-		target = target[:120] + "…"
+		cut := 120
+		for cut > 0 && !utf8.RuneStart(target[cut]) {
+			cut--
+		}
+		target = target[:cut] + "…"
 	}
 	return target
 }
