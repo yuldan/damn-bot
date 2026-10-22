@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -135,8 +137,8 @@ func TestSessionsRewindAppendOnly(t *testing.T) {
 	}
 }
 
-// TestSessionsForkIdentity: a gateway conversation and its gateway_chat label
-// are inherited by the child.
+// TestSessionsForkIdentity: the child inherits the gateway scope label but
+// never takes over a live chat route (SEC13-1).
 func TestSessionsForkIdentity(t *testing.T) {
 	db, dir := sessionsDB(t)
 	sessionsSeed(t, db)
@@ -157,17 +159,21 @@ func TestSessionsForkIdentity(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, errs)
 	}
 	child := childOf(t, out)
-	var chat, label string
+	var label, route string
+	var n int64
 	if err := db.Write(context.Background(), func(tx *ctxdb.Tx) error {
-		if err := tx.Get(`SELECT chat_id FROM gateway_conversations WHERE session_id = ?1`, []any{child}, &chat); err != nil {
-			return fmt.Errorf("chat: %w", err)
-		}
 		if err := tx.Get(`SELECT value FROM session_labels WHERE session_id = ?1 AND key = 'gateway_chat' ORDER BY id DESC LIMIT 1`, []any{child}, &label); err != nil {
 			return fmt.Errorf("label: %w", err)
 		}
+		if err := tx.Get(`SELECT session_id FROM gateway_conversations WHERE chat_id = '42'`, []any{}, &route); err != nil {
+			return fmt.Errorf("route: %w", err)
+		}
+		if err := tx.Get(`SELECT count(*) FROM gateway_conversations WHERE session_id = ?1`, []any{child}, &n); err != nil {
+			return fmt.Errorf("child route: %w", err)
+		}
 		return nil
-	}); err != nil || chat != "42" || label != "telegram:42:7" {
-		t.Fatalf("identity child chat=%q label=%q err=%v", chat, label, err)
+	}); err != nil || label != "telegram:42:7" || route != "P" || n != 0 {
+		t.Fatalf("child label=%q route=%q childRoutes=%d err=%v", label, route, n, err)
 	}
 }
 
@@ -230,5 +236,70 @@ func TestSessionsErrors(t *testing.T) {
 	}
 	if code, _, _ := sessionCmd(t, dir, "bogus"); code != 2 {
 		t.Errorf("unknown subcommand: exit %d", code)
+	}
+}
+
+// TestSessionsOpenTurn: a fork inside a turn that has no turn_end is refused
+// with session_busy (exit 4) until the turn ends (SEC13-2).
+func TestSessionsOpenTurn(t *testing.T) {
+	db, dir := sessionsDB(t)
+	ctx := context.Background()
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "P", Origin: "tui", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Append(ctx, "P", nil,
+		ctxdb.Event{Kind: "turn_start", TurnID: "T1", Payload: `{}`},
+		ctxdb.Event{Kind: "user_message", TurnID: "T1", Role: "user", Content: "running"},
+	); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs := sessionCmd(t, dir, "fork", "P", "--at", "2")
+	if code != 4 || !strings.Contains(errs, "open turn") || !strings.Contains(errs, "--at before that turn") {
+		t.Fatalf("open turn: exit %d %q", code, errs)
+	}
+	if _, err := db.Append(ctx, "P", nil, ctxdb.Event{Kind: "turn_end", TurnID: "T1", Payload: `{"stop_reason":"completed"}`}); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errs := sessionCmd(t, dir, "fork", "P", "--at", "3"); code != 0 {
+		t.Fatalf("after turn_end: exit %d %s", code, errs)
+	}
+}
+
+// TestSessionsCleanErrors: store errors never echo SQL driver text (SEC13-3).
+func TestSessionsCleanErrors(t *testing.T) {
+	_, dir := sessionsDB(t)
+	code, _, errs := sessionCmd(t, dir, "fork", "missing")
+	if code != 1 || !strings.Contains(errs, "session missing not found") ||
+		strings.Contains(errs, "sql:") || strings.Contains(errs, "no rows") {
+		t.Fatalf("missing session: exit %d %q", code, errs)
+	}
+}
+
+// TestSessionsSanitizeArgs: control characters in ids/turns are stripped
+// before they reach stderr (SEC13-4).
+func TestSessionsSanitizeArgs(t *testing.T) {
+	db, dir := sessionsDB(t)
+	sessionsSeed(t, db)
+	code, _, errs := sessionCmd(t, dir, "fork", "bad\n\x1b[31mid")
+	if code != 1 {
+		t.Fatalf("exit %d", code)
+	}
+	if strings.Contains(errs, "\x1b") || strings.Contains(errs, "bad\n") {
+		t.Fatalf("control characters echoed: %q", errs)
+	}
+	if code, _, errs := sessionCmd(t, dir, "fork", "P", "--at", "turn:bad\x01turn"); code != 2 || strings.Contains(errs, "\x01") {
+		t.Fatalf("turn arg: exit %d %q", code, errs)
+	}
+}
+
+// TestSessionsMissingDataDir: the CLI errors instead of creating a DB
+// (SEC13-5).
+func TestSessionsMissingDataDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "absent")
+	if code, _, errs := sessionCmd(t, dir, "fork", "P"); code != 1 || !strings.Contains(errs, "data directory not found") {
+		t.Fatalf("exit %d %q", code, errs)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("data dir was created: %v", err)
 	}
 }

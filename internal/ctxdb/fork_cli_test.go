@@ -73,8 +73,8 @@ func TestForkRejectsExcludedMiddle(t *testing.T) {
 	}
 }
 
-// TestForkInheritsIdentity: gateway conversations and the gateway_chat label
-// move to the child in the fork transaction.
+// TestForkInheritsIdentity: the child inherits the gateway_chat scope label,
+// but not a live chat route (SEC13-1).
 func TestForkInheritsIdentity(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "cli")
@@ -92,14 +92,42 @@ func TestForkInheritsIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var chat, label string
+	var label, route string
+	var n int64
 	must(t, s.Write(ctx, func(tx *Tx) error {
-		if err := tx.Get(`SELECT chat_id FROM gateway_conversations WHERE session_id = ?1`, []any{child}, &chat); err != nil {
+		if err := tx.Get(`SELECT value FROM session_labels WHERE session_id = ?1 AND key = 'gateway_chat' ORDER BY id DESC LIMIT 1`, []any{child}, &label); err != nil {
 			return err
 		}
-		return tx.Get(`SELECT value FROM session_labels WHERE session_id = ?1 AND key = 'gateway_chat' ORDER BY id DESC LIMIT 1`, []any{child}, &label)
+		if err := tx.Get(`SELECT session_id FROM gateway_conversations WHERE chat_id = '42'`, nil, &route); err != nil {
+			return err
+		}
+		return tx.Get(`SELECT count(*) FROM gateway_conversations WHERE session_id = ?1`, []any{child}, &n)
 	}))
-	if chat != "42" || label != "telegram:42:7" {
-		t.Fatalf("identity chat=%q label=%q", chat, label)
+	if label != "telegram:42:7" || route != "P" || n != 0 {
+		t.Fatalf("label=%q route=%q childRoutes=%d", label, route, n)
+	}
+}
+
+// TestForkRejectsOpenTurn: a fork inside a turn_start without turn_end is
+// ErrSessionBusy; after turn_end the same fork succeeds (SEC13-2).
+func TestForkRejectsOpenTurn(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(1, "cli")
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, Session{ID: "P", Origin: "tui", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	_, aerr := s.Append(ctx, "P", nil,
+		Event{Kind: "turn_start", TurnID: "T1", Payload: "{}"},
+		Event{Kind: "user_message", TurnID: "T1", Role: "user", Content: "running"},
+	)
+	must(t, aerr)
+	if _, err := s.Fork(ctx, "P", 2); !errors.Is(err, ErrSessionBusy) {
+		t.Fatalf("open turn fork: %v", err)
+	}
+	_, aerr = s.Append(ctx, "P", nil, Event{Kind: "turn_end", TurnID: "T1", Payload: `{"stop_reason":"completed"}`})
+	must(t, aerr)
+	if _, err := s.Fork(ctx, "P", 3); err != nil {
+		t.Fatalf("fork after turn_end: %v", err)
 	}
 }

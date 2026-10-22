@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 
@@ -25,7 +26,7 @@ func runSessions(args []string, stdout, stderr io.Writer) int {
 	case "rewind":
 		return sessionsBranch(args[1:], stdout, stderr, true)
 	default:
-		sessionsPrintf(stderr, "sessions: unknown subcommand %q\n", args[0])
+		sessionsPrintf(stderr, "sessions: unknown subcommand %q\n", cleanArg(args[0]))
 		sessionsUsage(stderr)
 		return 2
 	}
@@ -58,7 +59,7 @@ func sessionsBranch(args []string, stdout, stderr io.Writer, rewind bool) int {
 	ctx := context.Background()
 	db, err := openSessionsDB(ctx, at.dataDir)
 	if err != nil {
-		sessionsPrintf(stderr, "sessions %s: %v\n", name, err)
+		sessionsPrintf(stderr, "sessions %s: %s\n", name, sessionsMessage(err, id))
 		return 1
 	}
 	defer func() {
@@ -69,21 +70,22 @@ func sessionsBranch(args []string, stdout, stderr io.Writer, rewind bool) int {
 
 	target, usage, err := branchPoint(ctx, db, id, at.at, rewind)
 	if err != nil {
-		sessionsPrintf(stderr, "sessions %s: %v\n", name, err)
 		if usage {
+			sessionsPrintf(stderr, "sessions %s: %s\n", name, err)
 			return 2
 		}
+		sessionsPrintf(stderr, "sessions %s: %s\n", name, sessionsMessage(err, id))
 		return sessionsErr(err)
 	}
 	child, err := db.Fork(ctx, id, target)
 	if err != nil {
-		sessionsPrintf(stderr, "sessions %s: %v\n", name, err)
+		sessionsPrintf(stderr, "sessions %s: %s\n", name, sessionsMessage(err, id))
 		return sessionsErr(err)
 	}
 	if rewind {
-		sessionsPrintf(stdout, "rewound %s to seq %d: %s\n", id, target, child)
+		sessionsPrintf(stdout, "rewound %s to seq %d: %s\n", cleanArg(id), target, child)
 	} else {
-		sessionsPrintf(stdout, "forked %s at seq %d: %s\n", id, target, child)
+		sessionsPrintf(stdout, "forked %s at seq %d: %s\n", cleanArg(id), target, child)
 	}
 	return 0
 }
@@ -165,19 +167,22 @@ func parseBranchArgs(args []string) (branchOpts, []string, error) {
 // undone); a raw integer is an event seq of this session (ADR-136).
 func parseAt(ctx context.Context, db *ctxdb.Store, id, v string, rewind bool) (int64, error) {
 	if turn, ok := strings.CutPrefix(v, "turn:"); ok {
-		return parseTurnAt(ctx, db, id, turn, rewind)
+		return parseTurnAt(ctx, db, id, cleanArg(turn), rewind)
 	}
 	n, err := strconv.ParseInt(v, 10, 64)
 	if err != nil || n < 0 {
-		return 0, fmt.Errorf("--at %q: want a non-negative seq or turn:<id>", v)
+		return 0, fmt.Errorf("--at %q: want a non-negative seq or turn:<id>", cleanArg(v))
 	}
 	return n, nil
 }
 
 func parseTurnAt(ctx context.Context, db *ctxdb.Store, id, turn string, rewind bool) (int64, error) {
 	first, last, err := db.TurnRange(ctx, id, turn)
+	if errors.Is(err, ctxdb.ErrNotFound) {
+		return 0, fmt.Errorf("turn %s not found", turn)
+	}
 	if err != nil {
-		return 0, fmt.Errorf("turn %s: %w", turn, err)
+		return 0, fmt.Errorf("turn %s: lookup failed", turn)
 	}
 	if !rewind {
 		return last, nil
@@ -188,7 +193,44 @@ func parseTurnAt(ctx context.Context, db *ctxdb.Store, id, turn string, rewind b
 	return first - 1, nil
 }
 
-// openSessionsDB opens the session store for a CLI command.
+var errNoDataDir = errors.New("data directory not found")
+
+// cleanArg strips control characters and bounds one echoed user argument.
+func cleanArg(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	if len(s) > 80 {
+		s = s[:80] + "…"
+	}
+	return s
+}
+
+// sessionsMessage maps a store error to a clean CLI message; SQL driver text
+// never reaches the user (SEC13-3).
+func sessionsMessage(err error, id string) string {
+	switch {
+	case errors.Is(err, errNoDataDir):
+		return err.Error()
+	case errors.Is(err, ctxdb.ErrNotFound):
+		return "session " + cleanArg(id) + " not found"
+	case errors.Is(err, ctxdb.ErrSessionPurging):
+		return "session " + cleanArg(id) + " is being purged"
+	case errors.Is(err, ctxdb.ErrSessionBusy):
+		return "session " + cleanArg(id) + " has an open turn; use --at before that turn, or finish/cancel it first"
+	case errors.Is(err, ctxdb.ErrDBBusy):
+		return "database is busy; retry"
+	case errors.Is(err, ctxdb.ErrInvalidSeq):
+		return strings.TrimPrefix(err.Error(), "ctxdb: ")
+	}
+	return "internal error"
+}
+
+// openSessionsDB opens the session store for a CLI command. A missing data
+// directory is an error; the CLI never creates one as a side effect (SEC13-5).
 func openSessionsDB(ctx context.Context, dataDir string) (*ctxdb.Store, error) {
 	if dataDir == "" {
 		loader, err := config.New(config.OS())
@@ -200,6 +242,10 @@ func openSessionsDB(ctx context.Context, dataDir string) (*ctxdb.Store, error) {
 			return nil, fmt.Errorf("config paths: %w", err)
 		}
 		dataDir = paths.DataDir
+	}
+	fi, err := os.Stat(dataDir)
+	if err != nil || !fi.IsDir() {
+		return nil, fmt.Errorf("%w: %s", errNoDataDir, cleanArg(dataDir))
 	}
 	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "cli"})
 	if err != nil {

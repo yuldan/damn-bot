@@ -494,6 +494,9 @@ func (s *Store) Fork(ctx context.Context, sessionID string, atSeq int64) (string
 	}
 	id := newID()
 	err = s.Write(ctx, func(t *Tx) error {
+		if cerr := t.checkForkOpen(sessionID, atSeq); cerr != nil {
+			return cerr
+		}
 		if cerr := t.checkForkExcluded(sessionID, atSeq); cerr != nil {
 			return cerr
 		}
@@ -509,6 +512,25 @@ func (s *Store) Fork(ctx context.Context, sessionID string, atSeq int64) (string
 		return "", err
 	}
 	return id, nil
+}
+
+// checkForkOpen rejects a fork point inside a turn that has not ended:
+// the child would inherit a live turn whose tool results are still moving
+// (SEC13-2). The caller must finish or cancel the turn first.
+func (t *Tx) checkForkOpen(sid string, at int64) error {
+	var turn string
+	err := t.Get(`SELECT s.turn_id FROM events s
+		WHERE s.session_id = ?1 AND s.kind = 'turn_start' AND s.seq <= ?2
+		  AND NOT EXISTS (SELECT 1 FROM events e WHERE e.session_id = s.session_id
+		    AND e.turn_id = s.turn_id AND e.kind = 'turn_end' AND e.seq <= ?2)
+		ORDER BY s.seq DESC LIMIT 1`, []any{sid, at}, &turn)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("ctxdb: fork open-turn check: %w", err)
+	}
+	return fmt.Errorf("session %s: open turn %s: %w", sid, turn, ErrSessionBusy)
 }
 
 // checkForkExcluded rejects a fork point inside a turn that an
@@ -530,20 +552,18 @@ func (t *Tx) checkForkExcluded(sid string, at int64) error {
 	return fmt.Errorf("ctxdb: fork %s at seq %d inside excluded turn %s: %w", sid, at, turn, ErrInvalidSeq)
 }
 
-// inheritGateway copies the parent's gateway conversation rows and the
-// latest gateway_chat label (when present) to the child, in the fork
-// transaction (ADR-136; PR #220 keeps the label side authoritative).
+// inheritGateway copies only the parent's gateway_chat scope label to the
+// child: it stays in the same principal's scope but a live chat route is
+// never moved (SEC13-1; the in-chat /fork owns that). PR #220's CreateSession
+// writes the same label from Session.GatewayIdentity, so the write stays
+// single once that lands.
 func (t *Tx) inheritGateway(parent, child string) error {
-	now := t.s.clk.WallMs()
-	if _, err := t.Exec(`INSERT INTO gateway_conversations(platform, chat_id, thread_id, session_id, created_at)
-		SELECT platform, chat_id, thread_id, ?2, ?3 FROM gateway_conversations WHERE session_id = ?1`,
-		parent, child, now); err != nil {
-		return fmt.Errorf("ctxdb: inherit gateway conversations: %w", err)
-	}
 	if _, err := t.Exec(`INSERT INTO session_labels(session_id, key, value, created_at)
 		SELECT ?2, 'gateway_chat', value, ?3 FROM session_labels
-		WHERE session_id = ?1 AND key = 'gateway_chat' ORDER BY id DESC LIMIT 1`, parent, child, now); err != nil {
-		return fmt.Errorf("ctxdb: inherit gateway label: %w", err)
+		WHERE session_id = ?1 AND key = 'gateway_chat'
+		  AND NOT EXISTS (SELECT 1 FROM session_labels c WHERE c.session_id = ?2 AND c.key = 'gateway_chat')
+		ORDER BY id DESC LIMIT 1`, parent, child, t.s.clk.WallMs()); err != nil {
+		return fmt.Errorf("ctxdb: inherit gateway scope: %w", err)
 	}
 	return nil
 }
@@ -562,16 +582,13 @@ func (s *Store) Head(ctx context.Context, sessionID string) (int64, error) {
 // TurnRange returns the first and last own event seq of turnID in sessionID.
 // A missing turn is ErrNotFound.
 func (s *Store) TurnRange(ctx context.Context, sessionID, turnID string) (first, last int64, err error) {
-	if turnID == "" {
-		return 0, 0, fmt.Errorf("%w: empty turn id", ErrNotFound)
-	}
 	err = s.get(ctx, `SELECT coalesce(min(seq),0), coalesce(max(seq),0) FROM events WHERE session_id = ?1 AND turn_id = ?2`,
 		[]any{sessionID, turnID}, &first, &last)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, fmt.Errorf("ctxdb: turn %s: %w", turnID, err)
 	}
 	if last == 0 {
-		return 0, 0, fmt.Errorf("%w: turn %s", ErrNotFound, turnID)
+		return 0, 0, fmt.Errorf("turn %s: %w", turnID, ErrNotFound)
 	}
 	return first, last, nil
 }
@@ -589,8 +606,11 @@ func (s *Store) forkSource(ctx context.Context, sid string) (forkSource, error) 
 		EXISTS (SELECT 1 FROM session_labels l WHERE l.session_id = s.id AND l.key = 'purge_state')
 		FROM sessions s WHERE s.id = ?1`, []any{sid},
 		&f.origin, &f.cwd, &f.model, &f.configSHA, &f.contextTier, &f.head, &labelled)
+	if errors.Is(err, ErrNotFound) {
+		return f, fmt.Errorf("session %s: %w", sid, ErrNotFound)
+	}
 	if err != nil {
-		return f, err
+		return f, fmt.Errorf("ctxdb: session %s: %w", sid, err)
 	}
 	if labelled {
 		return f, fmt.Errorf("ctxdb: session %s: %w", sid, ErrSessionPurging)
