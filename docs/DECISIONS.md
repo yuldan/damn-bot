@@ -3854,3 +3854,16 @@ memakai nilai yang sama agar `make loc` hijau di setiap basis bertumpuk (`f2-ski
 **Dampak terukur (SPEC §20).** Token/biaya/kode/LOC/dependency 0; hanya dokumen. `loc.budget` tidak disentuh. Gate `arch-*`/`adrgate` tidak berubah syaratnya.
 
 **Konsekuensi.** (+) Dokumen berhenti menjanjikan jaminan yang tidak ada; perilaku drain dan `lease_fenced` menjadi eksplisit sehingga sesi berikutnya tidak perlu menebak; (+) integritas tidak bergantung pada ADR ini karena fencing tetap fail-closed. (-) Dua kekurangan tetap terbuka sampai fase tujuannya: proses sah yang idle lama dapat terlihat mati oleh scanner background, dan tidak ada checkpoint pra-call sehingga token/uang bisa terpakai sebelum tulisan pertama gagal - keduanya tercatat sebagai `GAP-LEASE-01` (dan `GAP-REL-03` untuk kelas `db_busy`).
+## ADR-138 — Headless `run` resume: `--session <id>` / `-c|--continue`
+
+**Status:** Accepted 2026-10-23 (F2; melengkapi SPEC §10 `run` dan EC-STATE/resume parity). Tanpa DDL, dependency, atau budget baru.
+
+**Konteks.** `damnbot run` selalu membuat sesi baru, sehingga turn gagal yang sudah ditandai `context_exclude` (#211/ADR-134) tidak dapat dilanjutkan pada sesi yang sama dan paritas resume (MEM-013) belum ada di headless.
+
+**Keputusan.**
+1. **Flag.** `run --session <id>` melanjutkan sesi itu; `-c`/`--continue` memilih sesi visible terbaru dengan `cwd` = direktori kerja proses (`ORDER BY created_at DESC, id`). Keduanya saling eksklusif; tanpa flag perilaku lama (sesi baru).
+2. **Metadata.** Sesi dilanjutkan memakai `cwd` dan `model` tersimpan; `--model`/`provider.model` yang diberikan menang. Sesi tanpa model tersimpan dan tanpa model eksplisit gagal dengan pesan jelas. Sandbox/engine/registry dibangun dari `cwd` sesi, bukan cwd proses.
+3. **Lease.** `ctxdb.AcquireLease` dipanggil untuk sesi yang dilanjutkan (`session_busy`/`lease_fenced`/`session_purging` gagal), dan `runModel.close` melepas lease sebelum menutup DB; sesi `--session`/`--continue` tidak membuat baris sesi baru.
+4. **History.** Resume memakai jalur `ctxdb.History`/assemble yang sama; turn `context_exclude` tidak masuk request berikutnya dan barisnya tetap dapat di-recall. Tidak ada jalur history kedua.
+5. **Exit code.** Tidak berubah: 0 `completed`, 2 kegagalan turn, 1 untuk error schema; output JSON tetap memuat `session_id`.
+6. **Test.** `internal/e2e` (child binary + fake provider): `TestRunResumeExcludesFailedTurn` (turn gagal + side effect `write_file`, resume tidak memuat penanda turn gagal/tool result, side effect tetap ada) dan `TestRunContinueNewestSession` (`--continue` memakai id yang sama dan membawa history).
