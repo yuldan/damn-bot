@@ -313,7 +313,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fmt.Errorf("open ctxdb: %w", err)
 	}
-	sid, cwd, resumedModel, err := runSession(ctx, db, modelRef, o)
+	sid, cwd, resumedModel, resumed, err := runSession(ctx, db, modelRef, o)
 	if err != nil {
 		return nil, closeDB(ctx, db, err)
 	}
@@ -321,16 +321,16 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		modelRef = resumedModel
 	}
 	if modelRef == "" {
-		return nil, closeDB(ctx, db, errors.New("--model or provider.model is required to resume a session without one"))
+		return nil, closeRunDB(ctx, db, sid, resumed, errors.New("--model or provider.model is required to resume a session without one"))
 	}
 	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
 	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
 	if err != nil {
-		return nil, closeDB(ctx, db, fmt.Errorf("sandbox: %w", err))
+		return nil, closeRunDB(ctx, db, sid, resumed, fmt.Errorf("sandbox: %w", err))
 	}
 	engine, err := codetools.New(&codetools.Config{Sandbox: sb, Roots: roots, Home: home})
 	if err != nil {
-		return nil, closeDB(ctx, db, fmt.Errorf("codetools: %w", err))
+		return nil, closeRunDB(ctx, db, sid, resumed, fmt.Errorf("codetools: %w", err))
 	}
 	runner := exec.New(ctx)
 	envPolicy := &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent}
@@ -345,7 +345,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		if cerr := runner.CloseContext(ctx); cerr != nil {
 			cause = errors.Join(cause, fmt.Errorf("close runner: %w", cerr))
 		}
-		return closeDB(ctx, db, cause)
+		return closeRunDB(ctx, db, sid, resumed, cause)
 	}
 	allow, monetary, err := shellGate(cfg, configDir)
 	if err != nil {
@@ -417,6 +417,17 @@ func shellGate(cfg *config.Config, configDir string) ([]classify.AllowEntry, []s
 		return nil, nil, err
 	}
 	return allow, monetary, nil
+}
+
+// closeRunDB releases a resumed session lease before closing the DB, so a
+// failed start does not leave the next attempt with session_busy.
+func closeRunDB(ctx context.Context, db *ctxdb.Store, sid string, resumed bool, cause error) error {
+	if resumed {
+		if rerr := db.ReleaseLease(ctx, sid); rerr != nil {
+			cause = errors.Join(cause, fmt.Errorf("release lease: %w", rerr))
+		}
+	}
+	return closeDB(ctx, db, cause)
 }
 
 func closeDB(ctx context.Context, db *ctxdb.Store, cause error) error {
