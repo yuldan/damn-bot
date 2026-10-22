@@ -3233,3 +3233,21 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Dampak terukur (SPEC §20).** Dependency 0, migrasi 0, token prompt 0, perubahan indeks 0 (hanya ekspresi kueri). LOC `ctxdb/memstore` 485/600 dan `ctxdb` 3.429/3.500 (tanpa perubahan `loc.budget`). Biaya kueri: satu MATCH dengan OR dan `bm25` pada kandidat; LIMIT 10 per retrieval.
 
 **Konsekuensi.** (+) Kueri natural bahasa manusia dapat menemukan fakta yang relevan; operator FTS tetap tidak dapat disuntikkan user. (−) Kandidat bisa lebih banyak pada korpus besar (term umum seperti "my"); `bm25` + LIMIT menahan biaya, tetapi kualitas ranking bergantung pada tokenisasi unicode61 (tanpa stopword removal).
+
+## ADR-165 — Ledger acceptance F2 sebagai artefak review; dipelihara sampai penaikan PHASE
+
+**Status:** Accepted 2026-10-22 (delegasi). Diterapkan di PR #242.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-22): `docs/F2-ACCEPTANCE.md` sebagai artefak review F2; dirujuk oleh PR #242 dan gate kelengkapan #244. Tidak mengubah SPEC, skema, dependency, atau `loc.budget`.
+
+**Konteks.** Acceptance F2 tersebar di ROADMAP (baris per fase), EDGE-CASES (EC per komponen), FEATURE-PARITY (fase per baris), dan DECISIONS §22.1 (GAP). Sebelumnya tidak ada satu dokumen yang memetakan setiap baris ke test pembuktinya, sehingga baris yang tidak pernah ditulis test-nya bisa lolos acceptance secara diam-diam (temuan AUD-004/NEW-12 dan review F2).
+
+**Keputusan.**
+1. `docs/F2-ACCEPTANCE.md` adalah artefak review tunggal untuk F2: setiap EC yang diwajibkan ROADMAP, setiap baris GAP di DECISIONS §22.1, dan setiap baris FEATURE-PARITY berfase F2 tercantum dengan test/lokasi/status (covered, in-flight, surface, missing) dan owner.
+2. Ledger dipelihara (bukan snapshot sekali pakai) sampai `PHASE` dinaikkan dari F2: PR yang mengubah katalog/acceptance F2 wajib memperbarui baris terkait. Setelah penaikan PHASE, ledger menjadi catatan historis dan tidak lagi menjadi syarat gate.
+3. Gate kelengkapan EC ada di `TestEdgeCaseCatalogSync` (#244): katalog harus cocok dengan tabel fase ROADMAP, dan fase acceptance gagal bila ID yang diwajibkan tidak dikatalogkan atau masih `pending`. Ledger dan gate saling melengkapi: ledger memberi status per baris (termasuk GAP dan parity yang tidak dicakup gate EC), gate mencegah ID hilang.
+4. Ledger tidak menetapkan fase baru; klasifikasi baris mengikuti ADR-064/ADR-139. Bila sebuah baris dinilai salah fase, perbaikannya lewat ADR, bukan lewat ledger.
+
+**Dampak terukur (SPEC §20).** Token/biaya/kode 0; hanya dokumen. Tidak ada perubahan `loc.budget`.
+
+**Konsekuensi.** (+) Satu tempat untuk membaca status acceptance F2 dan alasan setiap baris missing. (−) Ledger harus diperbarui saat katalog/acceptance berubah sampai PHASE dinaikkan; baris yang diselesaikan lewat PR lain perlu disinkronkan.
