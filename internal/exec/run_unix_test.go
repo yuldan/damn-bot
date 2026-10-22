@@ -263,32 +263,66 @@ func TestRunPTYEscapeeDoesNotHang(t *testing.T) {
 		{"leader-exits", escapeeScript(t) + ` & sleep 0.1; echo hi`, 5 * time.Second},
 		{"timeout", escapeeScript(t) + ` & echo hi; sleep 1000`, time.Second},
 	} {
-		r := New(context.Background())
-		s := sh(t, tc.script)
-		s.PTY = true
-		s.Timeout, s.KillGrace = tc.timeout, time.Second
-		t0 := time.Now()
-		res, err := r.Run(t.Context(), s)
-		if err != nil {
-			t.Fatalf("%s: %v", tc.name, err)
-		}
-		if d := time.Since(t0); d > s.Timeout+s.KillGrace+time.Second {
-			t.Fatalf("%s: escaped PTY holder returned after %v", tc.name, d)
-		}
-		if !strings.Contains(string(res.Output), "hi") {
-			t.Fatalf("%s: output %q", tc.name, res.Output)
-		}
-		closed := make(chan error, 1)
-		go func() { closed <- r.Close() }()
-		select {
-		case err := <-closed:
-			if err != nil {
-				t.Fatal(err)
+		// The property needs the leader to have reached its script. A timeout
+		// that fires while the shell is still starting returns before there
+		// is anything to test ("timeout: output \"\"" on a loaded runner);
+		// retry the setup with a longer startup allowance until the fixture
+		// prints "hi", exactly as TestRunTimeoutIgnoresTERM waits for its
+		// trap. Once started, the assertions below are exact.
+		ladder := []time.Duration{tc.timeout}
+		for _, d := range []time.Duration{3 * tc.timeout, 10 * time.Second} {
+			if d > ladder[len(ladder)-1] {
+				ladder = append(ladder, d)
 			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("Runner.Close hung on an escaped PTY holder")
+		}
+		started := false
+		for _, timeout := range ladder {
+			if runEscapeeCase(t, tc.name, tc.script, timeout) {
+				started = true
+				break
+			}
+		}
+		if !started {
+			t.Fatalf("%s: the leader never reached its script within %v", tc.name, ladder[len(ladder)-1])
 		}
 	}
+}
+
+// runEscapeeCase runs one escapee case at timeout and reports whether the
+// fixture started (the script printed "hi"). A run whose timeout fired before
+// the leader reached the script returns false: it proves nothing about the
+// escaped holder, and the caller gives startup more room.
+func runEscapeeCase(t *testing.T, name, script string, timeout time.Duration) bool {
+	t.Helper()
+	r := New(context.Background())
+	started := false
+	s := sh(t, script)
+	s.PTY = true
+	s.OnOutput = func(b []byte) { started = started || strings.Contains(string(b), "hi") }
+	s.Timeout, s.KillGrace = timeout, time.Second
+	t0 := time.Now()
+	res, err := r.Run(t.Context(), s)
+	if err != nil {
+		t.Fatalf("%s: %v", name, err)
+	}
+	d := time.Since(t0)
+	if started && d > s.Timeout+s.KillGrace+time.Second {
+		t.Fatalf("%s: escaped PTY holder returned after %v", name, d)
+	}
+	if started && !strings.Contains(string(res.Output), "hi") {
+		t.Fatalf("%s: output %q", name, res.Output)
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- r.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Runner.Close hung on an escaped PTY holder")
+	}
+	return started
 }
 
 func TestRunCancelConfirmed(t *testing.T) {
