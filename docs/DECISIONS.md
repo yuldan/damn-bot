@@ -3341,7 +3341,7 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 ## ADR-173 — Tool skill: `skills_list`, `skill_view`, `skill_manage`
 
-**Status:** Accepted 2026-10-23 (F2; TOOL-074/075/076, SKILL-002, EC-CTX-006, SEC16-1..5, ACC-56..61). Budget `tools` 2.200 → 2.500 (+300; terukur 2.263 sesudah lapisan baca) dan `ctxdb/skillstore` 400 → 460 (+60; terukur 438); dependency 0; DDL 0 (ADR-074). Diterapkan bertahap dalam dua PR berurutan: lapisan baca (`skills_list`, `skill_view`) lalu lapisan tulis (`skill_manage`) beserta penguatan SEC16-5.
+**Status:** Accepted 2026-10-23 (F2; TOOL-074/075/076, SKILL-002, EC-CTX-006, SEC16-1..5, ACC-56..61). Budget `tools` 2.200 → 2.500 (+300; terukur 2.315) dan `ctxdb/skillstore` 400 → 460 (+60; terukur 438); dependency 0; DDL 0 (ADR-074). Diterapkan bertahap dalam dua PR berurutan: lapisan baca (`skills_list`, `skill_view`) lalu lapisan tulis (`skill_manage`) beserta penguatan SEC16-5.
 
 **Konteks.** Agent hanya dapat menjalankan instruksi skill bila dapat menemukannya dan memuatnya, tetapi hasil `skill_view` adalah data pihak ketiga dan `skill_manage` menulis file yang dieksekusi pada run berikutnya. `ctxdb/skillstore` sudah menyimpan metadata dan status review; lapisan tool dan jalur baca/tulisnya belum ada.
 
