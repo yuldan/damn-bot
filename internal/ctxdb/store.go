@@ -276,6 +276,13 @@ func (c connector) Connect(ctx context.Context) (driver.Conn, error) {
 
 func (c connector) Driver() driver.Driver { return c.d }
 
+// FTSNorm is [ftsNorm] for Go callers: it lowercases text and splits CJK runs
+// into overlapping bigrams (INF-01) so unicode61 tokenises them. Index-side
+// triggers call it as the dmb_fts_norm SQL function; query builders that need
+// to compose operators (OR) must normalize themselves, because the SQL
+// function would lowercase the operator.
+func FTSNorm(t string) string { return ftsNorm(t) }
+
 // ftsNorm lowercases text and splits CJK runs into overlapping bigrams
 // (INF-01) so unicode61 tokenises them.
 func ftsNorm(t string) string {

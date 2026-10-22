@@ -276,7 +276,7 @@ func searchIDs(tx *ctxdb.Tx, q *Query) ([]int64, error) {
 	text := ftsQuery(q.Text)
 	if text != "" {
 		from = "memory_fts f JOIN v_memory_status m ON m.id = f.rowid"
-		where = append(where, "memory_fts MATCH dmb_fts_norm(?)")
+		where = append(where, "memory_fts MATCH ?")
 		args = append(args, text)
 	}
 	if len(q.Scopes) > 0 {
@@ -523,15 +523,29 @@ func transition(from, to string) bool {
 // text can never produce a MATCH syntax error (quotes, '-', parentheses,
 // column filters). Empty result means "no text query".
 func ftsQuery(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
 	var b strings.Builder
-	for _, r := range text {
+	for _, r := range ctxdb.FTSNorm(text) {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			b.WriteRune(r)
 		} else {
 			b.WriteByte(' ')
 		}
 	}
-	return strings.Join(strings.Fields(b.String()), " ")
+	fields := strings.Fields(b.String())
+	tokens := make([]string, 0, len(fields))
+	for _, tok := range fields {
+		// Quoted, so a user word that happens to spell an operator ("or",
+		// "and") stays a term instead of changing the expression.
+		tokens = append(tokens, `"`+tok+`"`)
+	}
+	// BM25 ranking (SPEC §4.8/B-03) scores documents matching any query
+	// term: a natural-language question ("What is my locker number?") does
+	// not contain every word of the stored fact, so an AND match would
+	// recall nothing. Rank order still decides; LIMIT bounds the candidates.
+	return strings.Join(tokens, " OR ")
 }
 
 func marks(n int) string {

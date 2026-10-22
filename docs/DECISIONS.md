@@ -3114,4 +3114,20 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Konsekuensi.** (+) Waktu tunggu PR turun karena job yang tidak relevan tidak lagi memesan runner, terutama macOS ×10; PR docs-only selesai dalam hitungan detik; push `main` tidak lagi dibatalkan oleh push berikutnya; job yang dilewati tidak lagi menggantung karena status wajib berupa agregat. (−) Kegagalan khusus platform arm/intel baru terdeteksi di `main`/nightly (tertutup oleh butir 6: merge berikutnya menunggu `main` hijau). (−) `ci-required` menyembunyikan nama gate individual di daftar status wajib; diagnosis tetap mudah karena log agregat mencetak hasil setiap `needs`. (−) Job `changes` menambah satu langkah serial ± 15–20 s sebelum job lain mulai. (−) Dokumen di luar daftar butir 2 (mis. `docs/REVIEW-*.md`) tidak lagi divalidasi test Go di PR docs-only; `pr-meta` (spec-guard) dan run `main`/nightly penuh tetap menjadi jaring pengaman.
 
+## ADR-137 — Recall memori: kandidat BM25 lintas term kueri (F2/GAP-INF-06)
 
+**Status:** Accepted 2026-10-22 (F2; keputusan paling konservatif terhadap SPEC §4.8/B-03). Diterapkan di PR bertumpuk: (a) paket ini (`ctxdb/memstore` + `ctxdb.FTSNorm`), (b) seam injeksi jalur `run`, (c) `damnbot eval recall`. Tidak mengubah skema, migrasi, atau dependency.
+
+**Konteks.** SPEC §4.8/B-03 meminta memori `approved` diurutkan `pinned` lalu skor BM25 terhadap pesan user pertama. Implementasi `memstore.searchIDs` merangkai setiap term kueri menjadi ekspresi FTS5 AND (`ftsQuery`), sehingga kueri pertanyaan hanya cocok bila fakta memuat **setiap** kata pertanyaan. Pada E4 (pertanyaan seperti "What is my locker number?" terhadap fakta "my locker number is 4417") hasilnya 0/30: kata tanya tidak pernah ada di fakta. `dmb_fts_norm(?)` dipakai pada MATCH, dan normalisasi itu menurunkan huruf, sehingga `OR` yang ditulis pemanggil akan menjadi term biasa.
+
+**Keputusan.**
+1. **Kandidat = OR.** Kueri teks menjadi disjungsi term yang sudah dinormalisasi; `bm25(memory_fts)` tetap yang menentukan urutan (pinned dulu), dan `LIMIT` milik pemanggil membatasi kandidat. Ini semantik BM25 yang lazim: setiap term memberi skor, dokumen yang cocok sebagian tetap kandidat.
+2. **Normalisasi di Go.** `ctxdb.FTSNorm` mengekspor normalisasi index (lowercase + bigram CJK) agar `memstore` dapat menyusun operator sendiri; ekspresi di-bind langsung ke `memory_fts MATCH ?` (bukan `dmb_fts_norm(?)`). Index tetap dinormalisasi oleh trigger.
+3. **Setiap token di-quote.** Kata user yang mengeja operator (`or`, `and`, `near`) tetap term, dan teks operator (`"`, `(`, `NEAR)`) tidak bisa menjadi syntax error (properti lama dipertahankan).
+4. **Filter tidak berubah.** Scope/status/`expires_at`/`purging`/`evidence_event_id` dan urutan pinned tetap; `memory.Service.Recall` dan test karantina tidak berubah perilaku selain kandidat yang lebih luas.
+5. **Test.** `TestSearchQuestionRecallsFact` (kueri pertanyaan mengembalikan fakta; term yang tidak ada tidak mengembalikan apa pun), `TestSearchRanksByRareTerm` (term langka menang atas term umum), `TestSearchOperatorWordsAreTerms` (kata/teks operator aman), dan `TestSearchFilters` disesuaikan (dua baris berbagi term "alpha" kini sama-sama kandidat, urutan tetap pinned dulu).
+6. **Eval.** Runner E4 (ADR-138) memakai `memory.DefaultRecall` (10) sebagai limit kandidat; hasil dry run fake provider 30/30 (180 call, proyeksi US$0,037069) dilaporkan sebelum run berbayar.
+
+**Dampak terukur (SPEC §20).** Dependency 0, migrasi 0, token prompt 0, perubahan indeks 0 (hanya ekspresi kueri). LOC `ctxdb/memstore` 485/600 dan `ctxdb` 3.429/3.500 (tanpa perubahan `loc.budget`). Biaya kueri: satu MATCH dengan OR dan `bm25` pada kandidat; LIMIT 10 per retrieval.
+
+**Konsekuensi.** (+) Kueri natural bahasa manusia dapat menemukan fakta yang relevan; operator FTS tetap tidak dapat disuntikkan user. (−) Kandidat bisa lebih banyak pada korpus besar (term umum seperti "my"); `bm25` + LIMIT menahan biaya, tetapi kualitas ranking bergantung pada tokenisasi unicode61 (tanpa stopword removal).
