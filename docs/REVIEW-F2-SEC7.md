@@ -586,3 +586,40 @@ Catatan (tidak memblokir):
 - `codec.Hash` memakai subkunci yang sama dengan hash chain event (tanpa label domain). Format input kedua domain berbeda (`prev|sid|seq|…` vs JSON carrier), jadi risiko tumbukan lintas domain dapat diabaikan. Opsional: awali input carrier dengan `"carrier\x00"`.
 
 **Ringkasan:** #201 dan #217 **APPROVE**. Seluruh temuan SEC7 pada stack kripto tertutup dan terverifikasi dengan codec nyata. Syarat merge Round 8 tetap berlaku: #198/#199/#201/#217 dalam satu jendela, satu `carrierstore` (versi #217) yang menggantikan versi #190, dan uji replay penolakan signature dengan `storage.encrypt=true` setelah rebase carrier.
+
+## Round 10 — 2026-10-21 (rebase ke `main` `e429331` yang sudah memuat carrier)
+
+Stack di-rebase ke `main` `e429331` (#190/#193/#200 sudah di `main`). Head: #185 `a32a359` → #189 `828188b` (`11f248f` + commit CHANGELOG) → #187 `d39df0d` → #191 `fd44cd8` → #192 `a060f9e` → #194 `6bcb408` → #197 `323dd5a` → #198 `efb2f8d` → #199 `b720fc8` → #201 `11719d4` → #217 `1820dfb` (`75d2082`, `a602d78`, `4b3e1c1`, `1820dfb`).
+
+**Verdict per PR:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #185, #189, #187, #191, #192, #194, #197, #198, #199, #201 | lihat atas | **APPROVE** (rebase/budget saja; kode identik dengan head yang sudah disetujui) |
+| #217 | `1820dfb` | **APPROVE**. SEC7-51 (syarat merge Round 8/9) **terpenuhi**: satu `carrierstore` (paket di `main`) dengan enkripsi, hash berkunci berdomain, dan jalur penolakan/ref lewat store. Replay SEC8-2 aman dengan `storage.encrypt=true`. |
+
+### (a) Range-diff terhadap head yang disetujui
+
+`git range-diff 0128e6e..e9e7ab2 e429331..1820dfb` + `git patch-id --stable` atas setiap commit (tanpa `docs/`, `CHANGELOG.md`, `loc.budget`, `.github/`): **18 dari 18 pasangan identik secara kode** dari `a8af6ca`/`e18a3d1` sampai `bf1ae24` (`e18a3d1→a32a359`, `5f50671→11f248f`, `4a15631→d39df0d`, `cf416fd→fd44cd8`, `256b98a→a060f9e`, `af6ddff→6bcb408`, `1479142→323dd5a`, `b66556d→efb2f8d`, `259fb65→8837c26`, `539d52b→d5594be`, `5c50d6a→b720fc8`, `97a5279→066da90`, `8892e72→2f06eba`, `d5fccbb→f3dd58e`, `11e9230→f1ad5c4`, `bf1ae24→51f66d9`, dan sisanya "="). Perbedaan "!" hanya di komentar `loc.budget`, CHANGELOG, dan teks ADR/ENGINEERING. Commit baru non-kode: `828188b` (CHANGELOG), `11719d4` (ADR compactstore 350), `4b3e1c1` (komentar carrierstore 297). Delta kode hanya ada di commit carrier: `ccc91c2→75d2082`, `e9e7ab2→a602d78`, dan `1820dfb` baru.
+
+### (b) Satu `carrierstore`
+
+`internal/ctxdb/carrierstore` adalah satu-satunya paket carrier (milik `main`, dari #190). `75d2082` memodifikasinya di tempat: `Save` → `tx.SealRow("reasoning_carriers.payload", "event_id|ord", payload, "")` + `payload_enc`; `Load` → `OpenRow` dengan identity yang sama (dan `slices.Clone` lama diganti salinan dari `OpenRow`). Satu baris `loc.budget` (`ctxdb/carrierstore 400`, terukur 298) dan satu entri matriks E-01. `Store.PayloadSHA` = `KeyedHash("carrier\x00" + payload)` saat terenkripsi, selain itu sha256. Konversi restore (`encryptfile.go`) memakai prefix yang sama: `codec.Hash("carrier\x00"+…)`.
+
+### (c) Penolakan dan ref lewat store
+
+`1820dfb`: `ctxCarrierStore.RejectCarriers` menghitung `store.PayloadSHA(cs[i].Raw)`, dan tidak lagi memakai sha256 dari provider/`cs[i].SHA`. Payload event assistant `carriers:[{ord,sha}]` diisi `turn.carrierRefs` → `deps.Carriers.CarrierRefs` → `Store.Refs` (`Ord: i`, sama dengan `SaveCarriers`). Fallback `plainCarrierRefs` hanya dipakai tanpa store.
+
+### (d)(e) Probe end-to-end (`damnbot run` nyata + `providertest`; codec nyata via `[storage] encrypt = true`)
+
+| Skenario | Plaintext | `storage.encrypt=true` |
+|---|---|---|
+| Replay SEC8-2: r1 → tool call + `SIG1`; r2 → 400 `invalid_signature`; retry; `SIG2`, `SIG3` | r2=`[SIG1]`, r3=`[]`, r4=`[SIG2]`, r5=`[SIG2 SIG3]` (SIG1 tidak di-replay) ✔ | **identik** ✔ (penolakan terpetakan lewat hash berkunci) |
+| Byte `SIG*`/teks thinking di file data dir | ada (plaintext, sesuai desain) | **tidak ada** ✔ |
+| Carrier bersih | tersimpan + di-replay ✔ | tersimpan terenkripsi + di-replay ✔ |
+| Secret di `summary[].text` (SEC8-8) | di-drop, tidak di disk, tidak di-replay ✔ | sama ✔ |
+| Carrier > 256 KiB (SEC8-5) | di-drop (`too_large`), tidak di disk, tidak di-replay ✔ | sama ✔ |
+
+Gate di `1820dfb`: `go test -race -tags goolm -count=1 ./internal/{secret,backup,integration} ./internal/ctxdb/{carrierstore,compactstore,memstore} ./internal/loop/... ./internal/provider/... ./cmd/damnbot ./internal/archtest` → ok; `./internal/ctxdb -race` → ok (281 s); `go vet` + `GOOS=windows|darwin|freebsd` bersih; `make deadcode` 0; `go mod tidy -diff` bersih. `make loc`: `secret 1150/1150`, `backup 1462/1550`, `ctxdb 4289/4400`, `compactstore 330/350`, `carrierstore 298/400`, `loop 1920/1950`, `provider 2065/2100`; Total core **41.420** (archtest `repometa` = Σ `loc.budget`). Di setiap head antara (`a32a359` … `11719d4`): archtest ok, `make loc` lulus, `go vet ./...` bersih, dan Total core naik konsisten (38.340 → 41.320).
+
+**Ringkasan:** seluruh stack kripto **APPROVE**. Rebase tidak mengubah kode yang sudah direview. #217 memenuhi syarat SEC7-51: satu `carrierstore` terenkripsi, hash berkunci `carrier\x00`, penolakan dan ref lewat `Store`, dan replay SEC8-2 tidak terulang dengan codec nyata. Caps dan redaksi carrier tetap berlaku di DB terenkripsi. Syarat merge yang tersisa: #198/#199/#201/#217 di-merge dalam satu jendela.
