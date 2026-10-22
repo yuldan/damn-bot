@@ -41,29 +41,142 @@ func measure(b *testing.B, name string, budget time.Duration, op func(i int)) {
 	timing.Check(b, name, p, budget)
 }
 
+// durableRetryWait is the pause before the CT-09 retry. The measured fsync
+// stalls (185 ms, and bursts up to ~0.3 s in the phase diagnostics) are far
+// shorter, so the second set sees a different disk state (ADR-127 amendment
+// 2026-10-22).
+const durableRetryWait = time.Second
+
+// durableSet is one measured sample set of CT-09 (ADR-127).
+type durableSet struct {
+	n                    int
+	gate                 time.Duration // the statistic the gate checks
+	opP95, refP95        time.Duration
+	pairedP50, pairedP95 time.Duration
+	worst                []outlier // largest op_i − ref_i, for the log
+}
+
 // measureDurable is measure for an operation bounded by fsync (CT-09,
-// ADR-127). ref, the bare durable write of the same size in the same
-// directory, is timed alongside op in every iteration. On shared runners
-// (perf build) the budget, ×1,5, applies to the p95 over iterations of the
-// paired difference op_i − ref_i: a disk stall that hits one iteration
-// lands on both of its samples and cancels, the cost edit_file adds on top
-// of a durable write does not. Elsewhere, i.e. on the reference machine
-// Q14 at acceptance, the absolute p95(op) is checked as written.
-func measureDurable(b *testing.B, name string, budget time.Duration, op func(i int), ref func()) {
+// ADR-127). ref, the bare durable write of the same size in a fresh directory,
+// is timed alongside op in every iteration. On shared runners (perf build) the
+// budget, ×1,5, applies to the p95 over iterations of the paired difference
+// op_i − ref_i. A red gate is re-measured once in a fresh directory after
+// durableRetryWait: a one-sided fsync stall is transient, added cost is not,
+// so only two red sets fail the benchmark (ADR-127 amendment 2026-10-22).
+// Elsewhere, i.e. on the reference machine Q14 at acceptance, the absolute
+// p95(op) is checked once, as written.
+func measureDurable(b *testing.B, name string, budget time.Duration, setup func() (op func(i int), ref func())) {
 	b.Helper()
-	ds, rs := sample(b, op, ref)
+	limit := timing.Limit(budget)
+	sets := durableSets(timing.SharedRunner, limit, func(label string) durableSet {
+		return durableMeasure(b, name, label, setup)
+	}, func(first durableSet) {
+		b.Logf("%s: set 1 is red (%v > %v); re-measuring after %v in a fresh directory (ADR-127)",
+			name, first.gate, limit, durableRetryWait)
+		pause := time.NewTimer(durableRetryWait)
+		<-pause.C
+	})
 	if b.N < codetoolsBudgetMinRuns {
-		return
+		return // make test-timing runs one iteration: no statistic to gate
 	}
-	// The gate pairs ds[i] with rs[i]: compute it before p95 sorts either.
-	gate := durableGate(ds, rs, timing.SharedRunner)
-	b.ReportMetric(float64(durableGate(ds, rs, true))/float64(time.Millisecond), "paired-p95-ms")
-	b.ReportMetric(float64(p95(ds))/float64(time.Millisecond), "p95-ms")
-	b.ReportMetric(float64(p95(rs))/float64(time.Millisecond), "ref-p95-ms")
+	last := sets[len(sets)-1]
+	b.ReportMetric(float64(last.pairedP50)/float64(time.Millisecond), "paired-p50-ms")
+	b.ReportMetric(float64(last.pairedP95)/float64(time.Millisecond), "paired-p95-ms")
+	b.ReportMetric(float64(last.opP95)/float64(time.Millisecond), "p95-ms")
+	b.ReportMetric(float64(last.refP95)/float64(time.Millisecond), "ref-p95-ms")
 	if timing.SharedRunner {
 		name += " paired over the durable-write reference"
 	}
-	timing.Check(b, name, gate, budget)
+	timing.Check(b, name, last.gate, budget)
+}
+
+// durableSets applies the CT-09 retry rule (ADR-127 amendment 2026-10-22): on
+// a shared runner a red gate gets one fresh sample set after wait, and that
+// set decides. measure is called once per set (a fresh directory each), wait
+// once with the red first set. The last returned set is the verdict.
+func durableSets(shared bool, limit time.Duration, measure func(label string) durableSet, wait func(first durableSet)) []durableSet {
+	first := measure("set 1")
+	if !needsRetry(shared, first.gate, limit, first.n) {
+		return []durableSet{first}
+	}
+	if wait != nil {
+		wait(first)
+	}
+	return []durableSet{first, measure("set 2")}
+}
+
+// needsRetry reports whether a red gate must be re-measured: only on a shared
+// runner, and only when the set has enough samples for the statistic.
+func needsRetry(shared bool, gate, limit time.Duration, n int) bool {
+	return shared && n >= codetoolsBudgetMinRuns && gate > limit
+}
+
+// durableMeasure collects one sample set and logs it (both sets appear in a
+// failed benchmark's output, which is the evidence ADR-127 asks for).
+func durableMeasure(b *testing.B, name, label string, setup func() (op func(i int), ref func())) durableSet {
+	b.Helper()
+	op, ref := setup()
+	ds, rs := sample(b, op, ref)
+	// Everything that reads both slices happens before p95 sorts them.
+	s := durableSet{
+		n:         b.N,
+		gate:      durableGate(ds, rs, timing.SharedRunner),
+		pairedP50: pairedMedian(ds, rs),
+		pairedP95: durableGate(ds, rs, true),
+		worst:     pairedOutliers(ds, rs, 5),
+	}
+	s.opP95, s.refP95 = p95(ds), p95(rs)
+	logSet(b.Logf, name, label, s)
+	return s
+}
+
+// logSet writes one sample set: the gated p50/p95, both sides' p95, and the
+// five iterations with the largest paired difference.
+func logSet(logf func(format string, args ...any), name, label string, s durableSet) {
+	logf("%s %s: n=%d samples, edit p95 %v, ref p95 %v, paired p50 %v, paired p95 %v",
+		name, label, s.n, s.opP95, s.refP95, s.pairedP50, s.pairedP95)
+	for _, o := range s.worst {
+		logf("%s %s: paired outlier iteration %d: edit %v, ref %v, paired %v",
+			name, label, o.i, o.op, o.ref, o.d)
+	}
+}
+
+// pairedMedian is the median over iterations of op_i − ref_i, never negative:
+// the cost edit_file adds systematically (reported next to the p95 gate).
+func pairedMedian(ops, refs []time.Duration) time.Duration {
+	diff := make([]time.Duration, len(ops))
+	for i, d := range ops {
+		diff[i] = d - refs[i]
+	}
+	slices.Sort(diff)
+	return max(diff[len(diff)/2], 0)
+}
+
+// outlier is one iteration's samples, captured before p95 sorts the slices.
+type outlier struct {
+	i          int
+	op, ref, d time.Duration
+}
+
+// pairedOutliers returns the n iterations with the largest op_i − ref_i,
+// largest first. These are the samples the p95 paired gate is made of: a
+// failing run reports where its tail came from (edit-side stall, reference
+// stall, or both).
+func pairedOutliers(ops, refs []time.Duration, n int) []outlier {
+	out := make([]outlier, len(ops))
+	for i := range ops {
+		out[i] = outlier{i: i, op: ops[i], ref: refs[i], d: ops[i] - refs[i]}
+	}
+	slices.SortFunc(out, func(a, b outlier) int {
+		switch {
+		case a.d > b.d:
+			return -1
+		case a.d < b.d:
+			return 1
+		}
+		return 0
+	})
+	return out[:min(n, len(out))]
 }
 
 // durableGate is the statistic measureDurable checks (ADR-127): on shared
@@ -226,6 +339,87 @@ func TestDurableGate(t *testing.T) {
 	}
 }
 
+// TestDurableRetry pins the CT-09 retry rule (ADR-127 amendment 2026-10-22):
+// a red first set is re-measured once, in a fresh directory, after the wait;
+// the second set decides. A regression that fails both sets still fails.
+func TestDurableRetry(t *testing.T) {
+	const ms = time.Millisecond
+	limit := 30 * ms
+	set := func(gate time.Duration) durableSet {
+		return durableSet{n: codetoolsBudgetMinRuns, gate: gate, pairedP95: gate}
+	}
+	seq := func(sets ...durableSet) (func(string) durableSet, *[]string) {
+		i := 0
+		labels := &[]string{}
+		return func(label string) durableSet {
+			*labels = append(*labels, label)
+			s := sets[i]
+			i++
+			return s
+		}, labels
+	}
+	for _, c := range []struct {
+		name     string
+		shared   bool
+		sets     []durableSet
+		wantSets int
+		wantPass bool
+	}{
+		{"first set red, second green: overall pass", true, []durableSet{set(49 * ms), set(6 * ms)}, 2, true},
+		{"both sets red: overall fail", true, []durableSet{set(49 * ms), set(60 * ms)}, 2, false},
+		{"+35 ms regression fails both sets", true, []durableSet{set(35 * ms), set(35 * ms)}, 2, false},
+		{"green first set: no retry", true, []durableSet{set(6 * ms)}, 1, true},
+		{"Q14 (not shared): one set, no retry", false, []durableSet{set(49 * ms)}, 1, false},
+	} {
+		measure, labels := seq(c.sets...)
+		waits := 0
+		got := durableSets(c.shared, limit, measure, func(durableSet) { waits++ })
+		if len(got) != c.wantSets || len(*labels) != c.wantSets {
+			t.Fatalf("%s: %d sets %v, want %d", c.name, len(got), *labels, c.wantSets)
+		}
+		verdict := got[len(got)-1]
+		if pass := verdict.gate <= limit; pass != c.wantPass {
+			t.Errorf("%s: verdict gate %v ≤ %v is %v, want %v", c.name, verdict.gate, limit, pass, c.wantPass)
+		}
+		if wantWait := c.wantSets - 1; waits != wantWait {
+			t.Errorf("%s: wait called %d times, want %d", c.name, waits, wantWait)
+		}
+		if c.wantSets == 2 && (*labels)[1] != "set 2" {
+			t.Errorf("%s: second label %q, want set 2", c.name, (*labels)[1])
+		}
+	}
+	if needsRetry(true, 49*ms, limit, codetoolsBudgetMinRuns-1) {
+		t.Error("needsRetry with too few samples: want false")
+	}
+}
+
+// TestDurableSetsLogged: both sample sets are logged with the gated p50/p95,
+// both sides' p95 and the top-5 paired outliers - the evidence a red perf run
+// must carry (ADR-127).
+func TestDurableSetsLogged(t *testing.T) {
+	const ms = time.Millisecond
+	var lines []string
+	logf := func(format string, args ...any) { lines = append(lines, fmt.Sprintf(format, args...)) }
+	red := durableSet{
+		n: 100, gate: 49 * ms, opP95: 50 * ms, refP95: time.Millisecond,
+		pairedP50: 5 * ms, pairedP95: 49 * ms,
+		worst: []outlier{{i: 7, op: 50 * ms, ref: time.Millisecond, d: 49 * ms}},
+	}
+	green := durableSet{n: 100, gate: 6 * ms, opP95: 8 * ms, refP95: 2 * ms, pairedP50: 5 * ms, pairedP95: 6 * ms}
+	logSet(logf, "CT-09", "set 1", red)
+	logSet(logf, "CT-09", "set 2", green)
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"set 1: n=100", "set 1: paired outlier iteration 7",
+		"set 2: n=100",
+		"edit p95 50ms", "ref p95 1ms", "paired p50 5ms", "paired p95 49ms",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("log missing %q:\n%s", want, joined)
+		}
+	}
+}
+
 // spin busy-waits d: a sample of known minimum length without time.Sleep
 // (E-30/E-72).
 func spin(d time.Duration) {
@@ -264,10 +458,16 @@ func TestMeasureBudgetNeedsPerfSamples(t *testing.T) {
 		// budget; testing.Benchmark returns a zero result when the
 		// benchmark fails.
 		for name, f := range map[string]func(*testing.B){
-			"measure":        func(b *testing.B) { measure(b, "min runs", -1, func(int) {}) },
-			"measureDurable": func(b *testing.B) { measureDurable(b, "min runs", -1, func(int) {}, func() {}) },
+			"measure": func(b *testing.B) { measure(b, "min runs", -1, func(int) {}) },
+			"measureDurable": func(b *testing.B) {
+				measureDurable(b, "min runs", -1, func() (func(int), func()) {
+					return func(int) {}, func() {}
+				})
+			},
 			"measureDurable slow reference": func(b *testing.B) {
-				measureDurable(b, "min runs", -1, func(int) {}, func() { spin(50 * time.Microsecond) })
+				measureDurable(b, "min runs", -1, func() (func(int), func()) {
+					return func(int) {}, func() { spin(50 * time.Microsecond) }
+				})
 			},
 		} {
 			if enforced := testing.Benchmark(f).N == 0; enforced != c.enforced {
@@ -285,7 +485,9 @@ func TestMeasureDurableMetrics(t *testing.T) {
 	for _, runs := range []int{codetoolsBudgetMinRuns - 1, codetoolsBudgetMinRuns} {
 		setBenchtime(t, fmt.Sprintf("%dx", runs))
 		r := testing.Benchmark(func(b *testing.B) {
-			measureDurable(b, "metrics", time.Hour, func(int) { spin(100 * time.Microsecond) }, func() { spin(50 * time.Microsecond) })
+			measureDurable(b, "metrics", time.Hour, func() (func(int), func()) {
+				return func(int) { spin(100 * time.Microsecond) }, func() { spin(50 * time.Microsecond) }
+			})
 		})
 		paired, okPaired := r.Extra["paired-p95-ms"]
 		op, okOp := r.Extra["p95-ms"]
@@ -379,12 +581,22 @@ func BenchmarkCodetools(b *testing.B) {
 		})
 	})
 	b.Run("Edit1MB", func(b *testing.B) { // CT-09: p95 ≤ 20 ms incl. fsync file + dir
+		measureDurable(b, "CT-09 edit 1 MB", 20*time.Millisecond, edit1MBSetup(ctx, b))
+	})
+}
+
+// edit1MBSetup builds one CT-09 sample set (ADR-127): a fresh 1 MB file, its
+// tag and the durable-write reference, plus the edit closure that keeps the
+// tag current. Each sample set gets a new engine and directory, because the
+// retry must not reuse the dirty pages or journal of the set that failed.
+func edit1MBSetup(ctx context.Context, b *testing.B) func() (op func(i int), ref func()) {
+	return func() (func(i int), func()) {
 		v := newEnv(b)
 		content := strings.Repeat(strings.Repeat("e", 99)+"\n", 10<<10) + "marker 0\n"
 		v.put(b, "e.txt", content)
 		tag := v.tag(b, "e.txt") //nolint:contextcheck // setup read with a background context
 		ref := durableWrite(b, v.root, []byte(content))
-		measureDurable(b, "CT-09 edit 1 MB", 20*time.Millisecond, func(i int) {
+		return func(i int) {
 			r, err := v.e.Edit(ctx, EditArgs{Path: "e.txt", Tag: tag, Edits: []EditItem{{
 				OldString: new(fmt.Sprintf("marker %d\n", i)), NewString: new(fmt.Sprintf("marker %d\n", i+1)),
 			}}}, Opts{})
@@ -392,8 +604,8 @@ func BenchmarkCodetools(b *testing.B) {
 				b.Fatal(err)
 			}
 			tag = metaStr(&r, "tag")
-		}, ref)
-	})
+		}, ref
+	}
 }
 
 // bigFile writes size bytes of 80-char numbered lines without holding them.
