@@ -36,6 +36,9 @@ type Skills struct {
 	ProjectDiscovery bool     `toml:"project_discovery"`
 	TrustedProjects  []string `toml:"trusted_projects"`
 	ExternalDirs     []string `toml:"external_dirs"`
+	// InlineShell enables the opt-in `!`cmd` expansion of SKILL-004 for trusted
+	// skills only (ADR-168). Off by default: a skill body is data, not a script.
+	InlineShell bool `toml:"inline_shell"`
 }
 
 // Provider is SPEC §12 [provider].
@@ -178,6 +181,7 @@ func Default() Config {
 			ProjectDiscovery: true,
 			TrustedProjects:  []string{},
 			ExternalDirs:     []string{},
+			InlineShell:      false,
 		},
 		Sessions: Sessions{
 			AutoPrune:      false,

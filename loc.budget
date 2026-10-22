@@ -76,7 +76,8 @@ backup             1467 internal/backup
 assemble          1300 internal/assemble
 compaction         900 internal/compaction
 # ADR-175: memory+skills 1230 -> 1400 (sumber skill lokal: discovery proyek + skills.external_dirs di internal/skills; terukur 1324; Σ core +170).
-memory+skills     1400 internal/memory internal/skills
+# ADR-168: memory+skills 1400 -> 1500 (SKILL-004 preprocess.go: template + inline shell opt-in; terukur 1427; Sigma core +100).
+memory+skills     1500 internal/memory internal/skills
 # ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).
 # ADR-117 amendment (REVIEW-F2-SEC5-15): journal 560 -> 565 (preview undo lewat OpenResolved;
 # terukur 562; Σ core 38.150 -> 38.155 <= 47.000).

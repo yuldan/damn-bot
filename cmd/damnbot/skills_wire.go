@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
@@ -83,13 +87,66 @@ func addProjectRoots(cfg *config.Config, configDir, cwd, home string, add func(s
 	return nil
 }
 
+// skillLoadOptions builds the SKILL-004 preprocessing options of one run: the
+// inline shell is opt-in through `[skills] inline_shell` and the runner is
+// handed to the loader, which refuses it for untrusted roots (ADR-168).
+func skillLoadOptions(cfg *config.Config, cwd string) (skills.LoadOptions, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return skills.LoadOptions{}, fmt.Errorf("home: %w", err)
+	}
+	return skills.LoadOptions{
+		InlineShell: cfg.Skills.InlineShell,
+		Shell:       skillShell{},
+		Vars:        skills.PreprocessVars{ProjectDir: cwd, Home: home},
+	}, nil
+}
+
+// skillShell runs one inline-shell command with a hard timeout and an output
+// cap (SPEC §12 `skills.inline_shell`, ADR-168).
+type skillShell struct{}
+
+func (skillShell) Run(ctx context.Context, dir, command string) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	name, sargs := "sh", []string{"-c", command}
+	if runtime.GOOS == "windows" {
+		name, sargs = "cmd", []string{"/C", command}
+	}
+	cmd := exec.CommandContext(cctx, name, sargs...) //nolint:gosec // explicit opt-in feature for trusted skills
+	cmd.Dir = dir
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &capWriter{w: &out}, &capWriter{w: &out}
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("inline shell: %w", err)
+	}
+	return out.String(), nil
+}
+
+// capWriter bounds one inline-shell substitution to MaxInlineOutput bytes.
+type capWriter struct{ w *bytes.Buffer }
+
+func (c *capWriter) Write(p []byte) (int, error) {
+	if room := skills.MaxInlineOutput - c.w.Len(); room > 0 {
+		if len(p) > room {
+			p = p[:room]
+		}
+		_, _ = c.w.Write(p)
+	}
+	return len(p), nil
+}
+
 // loadSkillRoots parses every root into one catalog.
-func loadSkillRoots(cfg *config.Config, configDir, cwd string) (skills.Catalog, error) {
+func loadSkillRoots(ctx context.Context, cfg *config.Config, configDir, cwd string) (skills.Catalog, error) {
 	roots, err := skillRoots(cfg, configDir, cwd)
 	if err != nil {
 		return skills.Catalog{}, err
 	}
-	cat, err := skills.Load(roots)
+	opts, err := skillLoadOptions(cfg, cwd)
+	if err != nil {
+		return skills.Catalog{}, err
+	}
+	cat, err := skills.Load(ctx, roots, opts)
 	if err != nil {
 		return skills.Catalog{}, fmt.Errorf("skills: %w", err)
 	}
@@ -101,8 +158,8 @@ func loadSkillRoots(cfg *config.Config, configDir, cwd string) (skills.Catalog, 
 // directory is gated regardless of quarantine state because its files are
 // already on disk; a skill that cannot be read or is invalid fails the run
 // instead of silently leaving its files ungated (fail closed).
-func paymentSkillDirs(cfg *config.Config, configDir, cwd string) ([]string, error) {
-	cat, err := loadSkillRoots(cfg, configDir, cwd)
+func paymentSkillDirs(ctx context.Context, cfg *config.Config, configDir, cwd string) ([]string, error) {
+	cat, err := loadSkillRoots(ctx, cfg, configDir, cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -232,7 +289,7 @@ func expandHome(p, home string) string {
 // here, so its behaviour is unchanged. The returned memory ids exist for the
 // approval flow and for tests.
 func quarantineImportedSkills(ctx context.Context, db *ctxdb.Store, red *redact.Redactor, cfg *config.Config, configDir, cwd string) ([]int64, error) {
-	cat, err := loadSkillRoots(cfg, configDir, cwd)
+	cat, err := loadSkillRoots(ctx, cfg, configDir, cwd)
 	if err != nil {
 		return nil, err
 	}

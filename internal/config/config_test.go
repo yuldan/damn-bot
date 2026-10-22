@@ -92,6 +92,7 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 			ProjectDiscovery: true,
 			TrustedProjects:  []string{},
 			ExternalDirs:     []string{},
+			InlineShell:      false,
 		},
 		Sessions: Sessions{AutoPrune: false, PruneAfterDays: 90},
 		Log:      Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
