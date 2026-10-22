@@ -2,7 +2,9 @@ package skills
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/fs"
 )
 
 // Scanner classifies a skill for the quarantine gate (SPEC §14.4). It
@@ -30,6 +32,11 @@ type Config struct {
 	// skill bodies/descriptions/paths are redacted before any storage or FTS
 	// write (JN3-4).
 	Redact func(string) string
+	// Known and Files feed [Lint] (ADR-133): Known reports an installed skill
+	// name, Files opens the skill directory (os.Root FS). Nil fails closed:
+	// a skill referencing another skill or a script is invalid.
+	Known func(name string) bool
+	Files func(sk *Skill) (fs.FS, error)
 }
 
 // Service is the skill install/retrieval API.
@@ -37,6 +44,8 @@ type Service struct {
 	store  Store
 	scan   Scanner
 	redact func(string) string
+	known  func(string) bool
+	files  func(*Skill) (fs.FS, error)
 }
 
 // New validates the store dependency.
@@ -44,7 +53,7 @@ func New(st Store, cfg Config) (*Service, error) {
 	if st == nil || cfg.Redact == nil {
 		return nil, fmt.Errorf("%w: nil store/redactor", ErrInvalid)
 	}
-	return &Service{store: st, scan: cfg.Scan, redact: cfg.Redact}, nil
+	return &Service{store: st, scan: cfg.Scan, redact: cfg.Redact, known: cfg.Known, files: cfg.Files}, nil
 }
 
 // Install is the outcome of one install.
@@ -54,14 +63,21 @@ type Install struct {
 	Status   Status
 }
 
-// Install indexes a trusted skill (user/builtin) or quarantines every other
-// source. A high severity scan is rejected immediately and never offered;
-// low/medium is stored as scanned until a user approves it (P10).
+// Install lints the skill, then indexes a trusted skill (user/builtin) or
+// quarantines every other source. A broken reference is invalid for every
+// source; a high finding (scan or credential_access lint) rejects an
+// untrusted skill immediately and never offers it, and a high lint finding
+// makes a trusted skill invalid; low/medium is stored as scanned until a
+// user approves it (P10).
 func (s *Service) Install(ctx context.Context, sk *Skill) (Install, error) {
 	if sk == nil {
 		return Install{}, fmt.Errorf("%w: nil skill", ErrInvalid)
 	}
 	if err := sk.Validate(); err != nil {
+		return Install{}, err
+	}
+	findings, err := s.lint(sk)
+	if err != nil {
 		return Install{}, err
 	}
 	// Scan the raw input (JN3-7), then redact before any storage write.
@@ -76,6 +92,14 @@ func (s *Service) Install(ctx context.Context, sk *Skill) (Install, error) {
 	} else if !sk.Source.Trusted() {
 		return Install{}, fmt.Errorf("%w: untrusted source %q", ErrScan, sk.Source)
 	}
+	result, lintHigh, err := mergeScan(result, findings)
+	if err != nil {
+		return Install{}, err
+	}
+	if lintHigh && sk.Source.Trusted() {
+		return Install{}, fmt.Errorf("%w: credential_access", ErrInvalid)
+	}
+	rejected = rejected || lintHigh
 	stored := *sk
 	stored.Description = s.redact(sk.Description)
 	stored.Body = s.redact(sk.Body)
@@ -97,6 +121,50 @@ func (s *Service) Install(ctx context.Context, sk *Skill) (Install, error) {
 		status = StatusRejected
 	}
 	return Install{SkillID: skillID, MemoryID: memoryID, Status: status}, nil
+}
+
+// lint runs [Lint] with the configured resolvers.
+func (s *Service) lint(sk *Skill) ([]Finding, error) {
+	env := LintEnv{Known: s.known}
+	if s.files != nil {
+		files, err := s.files(sk)
+		if err != nil {
+			return nil, fmt.Errorf("%w: skill directory: %w", ErrInvalid, err)
+		}
+		env.Files = files
+	}
+	return Lint(sk, env)
+}
+
+// mergeScan appends lint findings to the scanner's scan_result JSON
+// ({"severity","findings"}, memory.Scan) and reports a high lint finding.
+func mergeScan(result string, findings []Finding) (string, bool, error) {
+	if len(findings) == 0 {
+		return result, false, nil
+	}
+	sc := struct {
+		Severity string    `json:"severity"`
+		Findings []Finding `json:"findings,omitempty"`
+	}{Severity: "low"}
+	if result != "" {
+		if err := json.Unmarshal([]byte(result), &sc); err != nil {
+			return "", false, fmt.Errorf("%w: scan result: %w", ErrScan, err)
+		}
+	}
+	rank := map[string]int{"medium": 1, "high": 2}
+	high := false
+	for _, f := range findings {
+		sc.Findings = append(sc.Findings, f)
+		high = high || f.Severity == "high"
+		if rank[f.Severity] > rank[sc.Severity] {
+			sc.Severity = f.Severity
+		}
+	}
+	b, err := json.Marshal(sc)
+	if err != nil {
+		return "", false, fmt.Errorf("skills: scan result: %w", err)
+	}
+	return string(b), high, nil
 }
 
 // Approve records the user approval of a quarantined skill.

@@ -1,0 +1,1943 @@
+{
+ "FixtureTokens": 160830,
+ "Before": 166990,
+ "Result": {
+  "Outcome": "pruned",
+  "Estimate": 16436,
+  "Window": 200000,
+  "SummaryID": 0,
+  "Stats": {
+   "Dups": 66,
+   "Stale": 7,
+   "Old": 5,
+   "Trimmed": 37,
+   "Images": 0,
+   "Orphans": 0
+  },
+  "Cause": ""
+ },
+ "SummaryInputTokens": 0,
+ "Summaries": null,
+ "Messages": [
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 428,
+   "Head": "turn 0: refactor pkg/f0.go. context context context context "
+  },
+  {
+   "Role": "assistant",
+   "Call": "c1:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c1",
+   "Runes": 17,
+   "Head": "[dup of call c71]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c2:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c2",
+   "Runes": 17,
+   "Head": "[dup of call c72]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e0:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f0.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e0",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f0.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 428,
+   "Head": "turn 1: refactor pkg/f1.go. context context context context "
+  },
+  {
+   "Role": "assistant",
+   "Call": "c3:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c3",
+   "Runes": 17,
+   "Head": "[dup of call c73]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c4:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c4",
+   "Runes": 17,
+   "Head": "[dup of call c74]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e1:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f1.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e1",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f1.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 428,
+   "Head": "turn 2: refactor pkg/f2.go. context context context context "
+  },
+  {
+   "Role": "assistant",
+   "Call": "c5:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c5",
+   "Runes": 17,
+   "Head": "[dup of call c75]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c6:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c6",
+   "Runes": 17,
+   "Head": "[dup of call c76]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e2:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f2.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e2",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f2.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 428,
+   "Head": "turn 3: refactor pkg/f3.go. context context context context "
+  },
+  {
+   "Role": "assistant",
+   "Call": "c7:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c7",
+   "Runes": 17,
+   "Head": "[dup of call c77]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c8:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c8",
+   "Runes": 17,
+   "Head": "[dup of call c78]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e3:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f3.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e3",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f3.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 428,
+   "Head": "turn 4: refactor pkg/f4.go. context context context context "
+  },
+  {
+   "Role": "assistant",
+   "Call": "c9:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c9",
+   "Runes": 17,
+   "Head": "[dup of call c79]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c10:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c10",
+   "Runes": 17,
+   "Head": "[dup of call c80]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e4:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f4.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e4",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f4.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 428,
+   "Head": "turn 5: refactor pkg/f5.go. context context context context "
+  },
+  {
+   "Role": "assistant",
+   "Call": "c11:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c11",
+   "Runes": 17,
+   "Head": "[dup of call c67]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c12:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c12",
+   "Runes": 17,
+   "Head": "[dup of call c68]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e5:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f5.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e5",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f5.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 428,
+   "Head": "turn 6: refactor pkg/f6.go. context context context context "
+  },
+  {
+   "Role": "assistant",
+   "Call": "c13:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c13",
+   "Runes": 17,
+   "Head": "[dup of call c69]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c14:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c14",
+   "Runes": 17,
+   "Head": "[dup of call c70]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e6:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f6.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e6",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f6.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 428,
+   "Head": "turn 7: refactor pkg/f0.go. context context context context "
+  },
+  {
+   "Role": "assistant",
+   "Call": "c15:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c15",
+   "Runes": 17,
+   "Head": "[dup of call c71]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c16:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c16",
+   "Runes": 17,
+   "Head": "[dup of call c72]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e7:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f0.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e7",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f0.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 428,
+   "Head": "turn 8: refactor pkg/f1.go. context context context context "
+  },
+  {
+   "Role": "assistant",
+   "Call": "c17:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c17",
+   "Runes": 17,
+   "Head": "[dup of call c73]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c18:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c18",
+   "Runes": 17,
+   "Head": "[dup of call c74]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e8:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f1.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e8",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f1.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 428,
+   "Head": "turn 9: refactor pkg/f2.go. context context context context "
+  },
+  {
+   "Role": "assistant",
+   "Call": "c19:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c19",
+   "Runes": 17,
+   "Head": "[dup of call c75]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c20:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c20",
+   "Runes": 17,
+   "Head": "[dup of call c76]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e9:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f2.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e9",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f2.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 10: refactor pkg/f3.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c21:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c21",
+   "Runes": 17,
+   "Head": "[dup of call c77]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c22:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c22",
+   "Runes": 17,
+   "Head": "[dup of call c78]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e10:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f3.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e10",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f3.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 11: refactor pkg/f4.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c23:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c23",
+   "Runes": 17,
+   "Head": "[dup of call c79]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c24:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c24",
+   "Runes": 17,
+   "Head": "[dup of call c80]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e11:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f4.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e11",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f4.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 12: refactor pkg/f5.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c25:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c25",
+   "Runes": 17,
+   "Head": "[dup of call c67]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c26:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c26",
+   "Runes": 17,
+   "Head": "[dup of call c68]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e12:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f5.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e12",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f5.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 13: refactor pkg/f6.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c27:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c27",
+   "Runes": 17,
+   "Head": "[dup of call c69]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c28:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c28",
+   "Runes": 17,
+   "Head": "[dup of call c70]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e13:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f6.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e13",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f6.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 14: refactor pkg/f0.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c29:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c29",
+   "Runes": 17,
+   "Head": "[dup of call c71]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c30:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c30",
+   "Runes": 17,
+   "Head": "[dup of call c72]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e14:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f0.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e14",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f0.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 15: refactor pkg/f1.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c31:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c31",
+   "Runes": 17,
+   "Head": "[dup of call c73]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c32:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c32",
+   "Runes": 17,
+   "Head": "[dup of call c74]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e15:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f1.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e15",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f1.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 16: refactor pkg/f2.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c33:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c33",
+   "Runes": 17,
+   "Head": "[dup of call c75]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c34:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c34",
+   "Runes": 17,
+   "Head": "[dup of call c76]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e16:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f2.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e16",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f2.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 17: refactor pkg/f3.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c35:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c35",
+   "Runes": 17,
+   "Head": "[dup of call c77]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c36:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c36",
+   "Runes": 17,
+   "Head": "[dup of call c78]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e17:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f3.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e17",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f3.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 18: refactor pkg/f4.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c37:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c37",
+   "Runes": 17,
+   "Head": "[dup of call c79]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c38:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c38",
+   "Runes": 17,
+   "Head": "[dup of call c80]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e18:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f4.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e18",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f4.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 19: refactor pkg/f5.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c39:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c39",
+   "Runes": 17,
+   "Head": "[dup of call c67]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c40:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c40",
+   "Runes": 17,
+   "Head": "[dup of call c68]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e19:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f5.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e19",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f5.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 20: refactor pkg/f6.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c41:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c41",
+   "Runes": 17,
+   "Head": "[dup of call c69]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c42:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c42",
+   "Runes": 17,
+   "Head": "[dup of call c70]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e20:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f6.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e20",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f6.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 21: refactor pkg/f0.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c43:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c43",
+   "Runes": 17,
+   "Head": "[dup of call c71]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c44:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c44",
+   "Runes": 17,
+   "Head": "[dup of call c72]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e21:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f0.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e21",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f0.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 22: refactor pkg/f1.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c45:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c45",
+   "Runes": 17,
+   "Head": "[dup of call c73]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c46:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c46",
+   "Runes": 17,
+   "Head": "[dup of call c74]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e22:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f1.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e22",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f1.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 23: refactor pkg/f2.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c47:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c47",
+   "Runes": 17,
+   "Head": "[dup of call c75]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c48:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c48",
+   "Runes": 17,
+   "Head": "[dup of call c76]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e23:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f2.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e23",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f2.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 24: refactor pkg/f3.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c49:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c49",
+   "Runes": 17,
+   "Head": "[dup of call c77]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c50:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c50",
+   "Runes": 17,
+   "Head": "[dup of call c78]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e24:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f3.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e24",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f3.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 25: refactor pkg/f4.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c51:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c51",
+   "Runes": 17,
+   "Head": "[dup of call c79]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c52:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c52",
+   "Runes": 17,
+   "Head": "[dup of call c80]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e25:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f4.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e25",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f4.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 26: refactor pkg/f5.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c53:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c53",
+   "Runes": 17,
+   "Head": "[dup of call c67]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c54:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c54",
+   "Runes": 17,
+   "Head": "[dup of call c68]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e26:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f5.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e26",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f5.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 27: refactor pkg/f6.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c55:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c55",
+   "Runes": 17,
+   "Head": "[dup of call c69]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c56:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c56",
+   "Runes": 17,
+   "Head": "[dup of call c70]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e27:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f6.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e27",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f6.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 28: refactor pkg/f0.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c57:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c57",
+   "Runes": 17,
+   "Head": "[dup of call c71]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c58:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c58",
+   "Runes": 17,
+   "Head": "[dup of call c72]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e28:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f0.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e28",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f0.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 29: refactor pkg/f1.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c59:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c59",
+   "Runes": 17,
+   "Head": "[dup of call c73]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c60:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c60",
+   "Runes": 17,
+   "Head": "[dup of call c74]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e29:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f1.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e29",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f1.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 30: refactor pkg/f2.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c61:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c61",
+   "Runes": 17,
+   "Head": "[dup of call c75]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c62:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c62",
+   "Runes": 17,
+   "Head": "[dup of call c76]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e30:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f2.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e30",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f2.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 31: refactor pkg/f3.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c63:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c63",
+   "Runes": 17,
+   "Head": "[dup of call c77]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c64:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c64",
+   "Runes": 17,
+   "Head": "[dup of call c78]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e31:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f3.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e31",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f3.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 32: refactor pkg/f4.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c65:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c65",
+   "Runes": 17,
+   "Head": "[dup of call c79]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c66:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c66",
+   "Runes": 17,
+   "Head": "[dup of call c80]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e32:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f4.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e32",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f4.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 33: refactor pkg/f5.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c67:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c67",
+   "Runes": 33,
+   "Head": "[stale: file modified at seq 440]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c68:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c68",
+   "Runes": 28,
+   "Head": "[pruned: 1380 chars; recall]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e33:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f5.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e33",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f5.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 34: refactor pkg/f6.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c69:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c69",
+   "Runes": 33,
+   "Head": "[stale: file modified at seq 453]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c70:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c70",
+   "Runes": 28,
+   "Head": "[pruned: 1380 chars; recall]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e34:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f6.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e34",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f6.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 35: refactor pkg/f0.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c71:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c71",
+   "Runes": 33,
+   "Head": "[stale: file modified at seq 466]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c72:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c72",
+   "Runes": 28,
+   "Head": "[pruned: 1380 chars; recall]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e35:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f0.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e35",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f0.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 36: refactor pkg/f1.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c73:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c73",
+   "Runes": 33,
+   "Head": "[stale: file modified at seq 479]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c74:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c74",
+   "Runes": 28,
+   "Head": "[pruned: 1380 chars; recall]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e36:edit_file",
+   "Runes": 200,
+   "Head": "Editing pkg/f1.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e36",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f1.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 37: refactor pkg/f2.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c75:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c75",
+   "Runes": 33,
+   "Head": "[stale: file modified at seq 492]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c76:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c76",
+   "Runes": 28,
+   "Head": "[pruned: 1380 chars; recall]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e37:edit_file",
+   "Runes": 423,
+   "Head": "Editing pkg/f2.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e37",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f2.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 38: refactor pkg/f3.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c77:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c77",
+   "Runes": 33,
+   "Head": "[stale: file modified at seq 505]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c78:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c78",
+   "Runes": 1380,
+   "Head": "pkg/f3.go:1: TODO tidy\npkg/f3.go:1: TODO tidy\npkg/f3.go:1: T"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e38:edit_file",
+   "Runes": 423,
+   "Head": "Editing pkg/f3.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e38",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f3.go. summary summary summary summary summary"
+  },
+  {
+   "Role": "user",
+   "Call": "",
+   "Runes": 429,
+   "Head": "turn 39: refactor pkg/f4.go. context context context context"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c79:read_file",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c79",
+   "Runes": 33,
+   "Head": "[stale: file modified at seq 518]"
+  },
+  {
+   "Role": "assistant",
+   "Call": "c80:grep",
+   "Runes": 0,
+   "Head": ""
+  },
+  {
+   "Role": "tool",
+   "Call": "c80",
+   "Runes": 1380,
+   "Head": "pkg/f4.go:1: TODO tidy\npkg/f4.go:1: TODO tidy\npkg/f4.go:1: T"
+  },
+  {
+   "Role": "assistant",
+   "Call": "e39:edit_file",
+   "Runes": 423,
+   "Head": "Editing pkg/f4.go now. reasoning reasoning reasoning reasoni"
+  },
+  {
+   "Role": "tool",
+   "Call": "e39",
+   "Runes": 2,
+   "Head": "ok"
+  },
+  {
+   "Role": "assistant",
+   "Call": "",
+   "Runes": 261,
+   "Head": "Done with pkg/f4.go. summary summary summary summary summary"
+  }
+ ]
+}

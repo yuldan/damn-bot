@@ -25,6 +25,15 @@ type Route struct {
 	// Prices is the dated price schedule (GAP-COST-01); the entry in
 	// effect at the call start prices the guard projection and the ledger.
 	Prices budget.Prices
+	Family string
+}
+
+// CarrierFamily is the family used for carrier replay.
+func (r *Route) CarrierFamily() string {
+	if r.Family != "" {
+		return r.Family
+	}
+	return r.Provider
 }
 
 // Ref is the "provider/model" reference of r.
@@ -40,6 +49,11 @@ const (
 // requests are byte-identical (P15 prefix caching). drop lists parameters
 // the route rejected.
 func encode(rt *Route, r *Request, drop map[string]bool) ([]byte, error) {
+	body, _, _, err := encodeCarriers(rt, r, drop)
+	return body, err
+}
+
+func encodeCarriers(rt *Route, r *Request, drop map[string]bool) ([]byte, []Carrier, []CarrierDrop, error) {
 	var b bytes.Buffer
 	w := func(key string, v any) error {
 		if b.Len() > 1 {
@@ -56,12 +70,16 @@ func encode(rt *Route, r *Request, drop map[string]bool) ([]byte, error) {
 		maxTok = DefaultMaxTokens
 	}
 	msgs := make([]json.RawMessage, len(r.Messages))
+	var sent []Carrier
+	var drops []CarrierDrop
 	for i := range r.Messages {
-		m, err := encodeMessage(&r.Messages[i])
+		m, keep, dropped, err := encodeMessage(rt, &r.Messages[i])
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		msgs[i] = m
+		sent = append(sent, keep...)
+		drops = mergeDrops(drops, dropped)
 	}
 	errs := []error{w("model", rt.Model), w("messages", msgs)}
 	if len(r.Tools) > 0 {
@@ -85,14 +103,16 @@ func encode(rt *Route, r *Request, drop map[string]bool) ([]byte, error) {
 	}
 	b.WriteByte('}')
 	if err := errors.Join(errs...); err != nil {
-		return nil, fmt.Errorf("encode request: %w", err)
+		return nil, nil, nil, fmt.Errorf("encode request: %w", err)
 	}
-	return b.Bytes(), nil
+	return b.Bytes(), sent, drops, nil
 }
 
-// encodeMessage writes one message; reasoning goes back byte-identical
-// under its original field (EC-PROV-004/005).
-func encodeMessage(m *Message) (json.RawMessage, error) {
+func encodeMessage(rt *Route, m *Message) (json.RawMessage, []Carrier, []CarrierDrop, error) {
+	keep, drops, err := projectCarriers(rt, m.Carriers)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	type call struct {
 		ID       string `json:"id"`
 		Type     string `json:"type"`
@@ -114,18 +134,57 @@ func encodeMessage(m *Message) (json.RawMessage, error) {
 		w.ToolCalls = append(w.ToolCalls, c)
 	}
 	out, err := marshal(w)
-	if err != nil || len(m.Reasoning) == 0 || m.ReasoningField == "" {
-		return out, err
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if len(keep) > 0 {
+		parts, perr := reasoningParts(m)
+		if perr != nil {
+			return nil, nil, nil, perr
+		}
+		for i := range keep {
+			parts = append(parts, json.RawMessage(keep[i].Raw))
+		}
+		reasoning, perr := json.Marshal(parts)
+		if perr != nil {
+			return nil, nil, nil, fmt.Errorf("carrier reasoning: %w", perr)
+		}
+		if out, err = appendField(out, "reasoning", reasoning); err != nil {
+			return nil, nil, nil, err
+		}
+		return out, keep, drops, nil
+	}
+	if len(m.Reasoning) == 0 || m.ReasoningField == "" {
+		return out, keep, drops, nil
 	}
 	if !json.Valid(m.Reasoning) {
-		return nil, fmt.Errorf("message reasoning: invalid JSON")
+		return nil, nil, nil, fmt.Errorf("message reasoning: invalid JSON")
 	}
-	field, err := json.Marshal(m.ReasoningField)
+	if out, err = appendField(out, m.ReasoningField, m.Reasoning); err != nil {
+		return nil, nil, nil, err
+	}
+	return out, keep, drops, nil
+}
+
+// reasoningParts returns the plaintext parts (carriers were removed).
+func reasoningParts(m *Message) ([]json.RawMessage, error) {
+	if len(m.Reasoning) == 0 {
+		return nil, nil
+	}
+	var parts []json.RawMessage
+	if err := json.Unmarshal(m.Reasoning, &parts); err != nil {
+		return nil, fmt.Errorf("carrier reasoning is not an array: %w", err)
+	}
+	return parts, nil
+}
+
+func appendField(out json.RawMessage, field string, value []byte) (json.RawMessage, error) {
+	key, err := json.Marshal(field)
 	if err != nil {
 		return nil, fmt.Errorf("reasoning field: %w", err)
 	}
 	out = append(out[:len(out)-1], ',')
-	out = append(append(append(out, field...), ':'), m.Reasoning...)
+	out = append(append(append(out, key...), ':'), value...)
 	return append(out, '}'), nil
 }
 

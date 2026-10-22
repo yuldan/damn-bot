@@ -20,6 +20,7 @@ type Session struct {
 	Origin, Cwd  string
 	Model        string // provider/model; empty = the caller did not resolve one
 	ConfigSHA    string // sessions.config_sha snapshot
+	ContextTier  string // frozen context tier (P15); empty at creation
 }
 
 // CreateSession inserts a session and acquires its lease in the same
@@ -33,7 +34,7 @@ func (t *Tx) CreateSession(ss Session) (int64, error) { //nolint:gocritic // val
 		ss.Origin = "tui"
 	}
 	_, err := t.Exec(`INSERT INTO sessions(id, parent_id, fork_seq, origin, cwd, model, config_sha, context_tier, created_at)
-		VALUES (?,?,?,?,?,?,?,'',?)`, ss.ID, parent, fork, ss.Origin, ss.Cwd, ss.Model, ss.ConfigSHA, t.s.clk.WallMs())
+		VALUES (?,?,?,?,?,?,?,?,?)`, ss.ID, parent, fork, ss.Origin, ss.Cwd, ss.Model, ss.ConfigSHA, ss.ContextTier, t.s.clk.WallMs())
 	if err != nil {
 		return 0, err
 	}
@@ -46,12 +47,17 @@ func (s *Store) CreateSession(ctx context.Context, ss Session) (tok int64, err e
 	return tok, err
 }
 
-// Event is one transcript row (SPEC §11.2 events).
+// Event is one transcript row (SPEC §11.2 events). Append ignores the
+// read-only fields (ID, Seq, SessionID, CreatedAt); History fills them and
+// Seq is the row's per-session events.seq, the same value fork_seq uses.
 type Event struct {
+	ID, Seq                 int64
+	SessionID               string
 	Kind, Role, Content     string
 	TurnID, ToolCallID      string
 	ToolName, Payload, Blob string   // Blob = events.blob_sha
 	Attach                  []string // event_attachments.blob_sha in order
+	CreatedAt               int64
 }
 
 // EventHash = sha256(prev_hash|session_id|seq|kind|content|payload|blob_sha).
@@ -134,14 +140,22 @@ func (s *Store) Append(ctx context.Context, sid string, pend []*PendingBlob, evs
 type BlobRef struct{ Sha, OwnerKind, OwnerID, RefKey string }
 
 var (
-	reHex64  = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	reRefKey = regexp.MustCompile(`(^|_)blob_shas?$`)
+	reHex64      = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	reRefKey     = regexp.MustCompile(`(^|_)blob_shas?$`)
+	reCarrierSha = regexp.MustCompile(`^payload\.carriers\[\d+\]\.sha$`)
 )
 
 // nonRefSha64 is the closed list of 64-hex keys that are not blob refs
 // (ADR-093, TS-P04: approval_request.preview_sha/args_sha, carrier payload_sha).
-func nonRefSha64(key string) bool {
-	return key == "preview_sha" || key == "args_sha" || key == "payload_sha"
+// The carrier ref's short "sha" is exempt only at carriers[N].sha (SPEC §4.1).
+func nonRefSha64(key, path string) bool {
+	switch key {
+	case "preview_sha", "args_sha", "payload_sha":
+		return true
+	case "sha":
+		return reCarrierSha.MatchString(path)
+	}
+	return false
 }
 
 // BlobRefsOf derives every blob reference of one owner row (§11.6): cols are
@@ -187,7 +201,7 @@ func walkRefs(v any, path, key string, owner BlobRef, out *[]BlobRef) error {
 		case reRefKey.MatchString(key) && x != "":
 			owner.Sha, owner.RefKey = x, path
 			*out = append(*out, owner)
-		case reHex64.MatchString(x) && !nonRefSha64(key):
+		case reHex64.MatchString(x) && !nonRefSha64(key, path):
 			err = fmt.Errorf("ctxdb: sha under non-ref key %q: %w", path, ErrInternal)
 		}
 	}

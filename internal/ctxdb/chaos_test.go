@@ -64,6 +64,12 @@ func TestChildProcess(t *testing.T) {
 		t.Log(waitStdin()) // EOF/killed: either way the barrier is released below
 		must(t, b.Release())
 		return
+	case "hold-fd":
+		// EC-STATE-016: keep an inherited descriptor (flock) alive while the
+		// parent drops its own copy.
+		say(t, "READY")
+		t.Log(waitStdin())
+		return
 	}
 	s, err := Open(context.Background(), &Options{Dir: dir, Kind: "tui"})
 	must(t, err)
@@ -78,6 +84,24 @@ func TestChildProcess(t *testing.T) {
 	case "chaos":
 		say(t, "READY")
 		chaosLoop(t, s, 1<<30)
+	case "turn":
+		// A turn interrupted by SIGKILL: the parent asserts the recovery
+		// marker (GAP-REL-01).
+		if _, err := s.CreateSession(context.Background(), Session{ID: "crash", Origin: "tui", Cwd: "/"}); err != nil {
+			must(t, err)
+		}
+		must(t, s.Write(context.Background(), func(tx *Tx) error {
+			if err := tx.StartTurn("crash", "T1"); err != nil {
+				return err
+			}
+			if _, err := tx.AppendEvent("crash", &Event{Kind: "user_message", TurnID: "T1", Role: "user", Content: "poison"}); err != nil {
+				return err
+			}
+			_, err := tx.AppendEvent("crash", &Event{Kind: "assistant_message", TurnID: "T1", Role: "assistant", Content: "partial"})
+			return err
+		}))
+		say(t, "READY")
+		t.Log(waitStdin())
 	case "multi":
 		say(t, "READY")
 		b, err := json.Marshal(multiWorker(t, s, 150))

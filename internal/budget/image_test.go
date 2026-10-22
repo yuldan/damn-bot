@@ -83,6 +83,68 @@ func TestParseImageFormula(t *testing.T) {
 	}
 }
 
+// TestImageFormulaMapping (GAP-COST-09): the declared image_token_formula
+// of a model selects its preset; undeclared models get the conservative
+// area fallback; an unknown declared name is rejected up front.
+func TestImageFormulaMapping(t *testing.T) {
+	t.Parallel()
+	m, err := NewImageFormulas(map[string]string{
+		"openai/gpt-4o":        "openai_tiles",
+		"anthropic/claude-x":   "anthropic_area",
+		"google/gemini-2.5":    "gemini_tiles",
+		"local/llava":          "", // declared empty = not declared
+		"openrouter/qwen-vl-m": "area_750",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for ref, want := range map[string]ImageFormula{
+		"openai/gpt-4o": ImageOpenAI, "anthropic/claude-x": ImageAnthropic, "google/gemini-2.5": ImageGemini,
+		"local/llava": ImageGeneric, "openrouter/qwen-vl-m": ImageGeneric, "openai/gpt-unknown": ImageGeneric,
+	} {
+		if got := m.For(ref); got != want {
+			t.Errorf("For(%s) = %s, want %s", ref, got, want)
+		}
+	}
+	if got := (ImageFormulas{}).For("x/y"); got != ImageGeneric {
+		t.Errorf("zero mapping: %s", got)
+	}
+	if _, err := NewImageFormulas(map[string]string{"openai/gpt-4o": "openai"}); !errors.Is(err, ErrImage) {
+		t.Errorf("unknown formula name: %v, want ErrImage", err)
+	}
+}
+
+// TestEstimatorImages: image tokens of the mapped formula join the raw
+// estimate (est_input_tokens) and the calibrated estimate; a bad image
+// leaves the counts unchanged and fails, never adding 0 tokens silently.
+func TestEstimatorImages(t *testing.T) {
+	t.Parallel()
+	m, err := NewImageFormulas(map[string]string{"openai/gpt-4o": "openai_tiles"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := Count("abcdefgh") // 2 tokens
+	c, err := text.AddImage(m.For("openai/gpt-4o"), 1024, 1024)
+	if err != nil || c.Image != 765 || c.Raw() != 767 {
+		t.Fatalf("openai image: %+v raw %d, %v", c, c.Raw(), err)
+	}
+	g, err := text.AddImage(m.For("local/llava"), 1024, 1024)
+	if err != nil || g.Raw() != 2+1399 {
+		t.Errorf("generic image: raw %d, %v", g.Raw(), err)
+	}
+	if sum := c.Add(g); sum.Image != 765+1399 {
+		t.Errorf("Add drops images: %+v", sum)
+	}
+	e := NewEstimator([]Sample{{Real: 150, Est: 100}}, 1000) // factor 1.5
+	if got := e.Estimate(c); got != 1000+1151 {
+		t.Errorf("calibrated estimate %d, want %d", got, 1000+1151)
+	}
+	bad, err := text.AddImage(ImageOpenAI, 0, 10)
+	if !errors.Is(err, ErrImage) || bad != text {
+		t.Errorf("bad image: %+v, %v", bad, err)
+	}
+}
+
 func BenchmarkImageTokens(b *testing.B) {
 	for _, f := range []ImageFormula{ImageOpenAI, ImageAnthropic, ImageGemini} {
 		b.Run(string(f), func(b *testing.B) {

@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: meta-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }} # ADR-135: run main tidak pernah dibatalkan.
 
 env:
   CGO_ENABLED: "1" # gate race butuh cgo di runner

@@ -18,7 +18,7 @@ func TestPrefixStableWithinTurn(t *testing.T) {
 	turn := a.Freeze(fixtureVolatile())
 	view := SessionView{
 		Phase:   PhaseF1,
-		Context: fixtureContext(),
+		Context: renderContext(t, a, fixtureContext()),
 		Tools:   fixtureTools(),
 		Turn:    turn,
 		History: []Message{{Role: "user", Content: "Fix the failing test."}},

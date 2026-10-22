@@ -275,8 +275,8 @@ func TestContextGuard(t *testing.T) {
 		if err := runWith(t, f, &deps); err != nil {
 			t.Fatal(err)
 		}
-		if c.calls != 1 {
-			t.Errorf("compactor calls = %d, want 1", c.calls)
+		if c.calls != 1 || c.reasons[0] {
+			t.Errorf("compactor calls = %d (context_length %v), want 1 threshold call", c.calls, c.reasons)
 		}
 	})
 	t.Run("overflow", func(t *testing.T) {
@@ -293,9 +293,17 @@ func TestContextGuard(t *testing.T) {
 	})
 }
 
-type fakeCompactor struct{ calls int }
+// fakeCompactor counts calls and records the contextLength trigger of each.
+type fakeCompactor struct {
+	calls   int
+	reasons []bool
+}
 
-func (c *fakeCompactor) Compact(context.Context, string) error { c.calls++; return nil }
+func (c *fakeCompactor) Compact(_ context.Context, _ string, contextLength bool) error {
+	c.calls++
+	c.reasons = append(c.reasons, contextLength)
+	return nil
+}
 
 // TestNoProgress (COST-07): the second identical (tool, args, result) ends the
 // turn with end_turn/no_progress.

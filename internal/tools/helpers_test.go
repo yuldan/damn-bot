@@ -109,3 +109,16 @@ func newContentTool(name, content string) *stubTool {
 }
 
 func repeated(n int) string { return strings.Repeat("x", n) }
+
+// mustShell builds a shell tool, failing the test on a rejected config.
+func mustShell(t *testing.T, cfg *ShellConfig) Tool {
+	t.Helper()
+	sh, err := NewShell(cfg)
+	if err != nil {
+		t.Fatalf("NewShell: %v", err)
+	}
+	return sh
+}
+
+// testPathKey is the lexical payment-gate key for POSIX test paths.
+func testPathKey(p string) string { return filepath.ToSlash(filepath.Clean(p)) }

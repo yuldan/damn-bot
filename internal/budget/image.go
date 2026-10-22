@@ -87,6 +87,39 @@ func ParseImageFormula(s string) (ImageFormula, bool) {
 	}
 }
 
+// ImageFormulas maps "provider/model" refs to their declared
+// image_token_formula (registry entry or config override, GAP-COST-09). A
+// model without an entry gets ImageGeneric: model ids are not guessed by
+// family, because members of one family use different formulas (a wrong
+// guess under-estimates). Immutable after NewImageFormulas.
+type ImageFormulas struct{ byRef map[string]ImageFormula }
+
+// NewImageFormulas validates declared (ref → formula name). An unknown name
+// is rejected, so a typo never silently falls back to another preset; an
+// empty name means "not declared".
+func NewImageFormulas(declared map[string]string) (ImageFormulas, error) {
+	m := make(map[string]ImageFormula, len(declared))
+	for ref, name := range declared {
+		f, ok := ParseImageFormula(name)
+		if !ok {
+			return ImageFormulas{}, fmt.Errorf("%w: %s image_token_formula %q", ErrImage, ref, name)
+		}
+		if f != "" {
+			m[ref] = f
+		}
+	}
+	return ImageFormulas{byRef: m}, nil
+}
+
+// For returns the formula of ref ("provider/model"); ImageGeneric when the
+// model declares none. The result feeds Counts.AddImage.
+func (f ImageFormulas) For(ref string) ImageFormula {
+	if v, ok := f.byRef[ref]; ok {
+		return v
+	}
+	return ImageGeneric
+}
+
 // areaTokens is ceil(w × h / 750); w and h are already bounded by
 // MaxImageDim, so the product fits in int64.
 func areaTokens(w, h int) int64 {
