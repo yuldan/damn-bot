@@ -3356,3 +3356,33 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 8. **Test.** Unit tool (list metadata, untrusted view, `not_found`, efek non-idempotent, `Inspector` selalu `RequireAsk` termasuk `auto`/`auto-edit`), manager (karantina → approval user → view; skill terkarantina tidak muncul di list dan view-nya `not_found`; create menolak skill user yang hanya ada di disk tanpa mengubah file/gate pembayaran; update rejected/gagal mempertahankan versi approved lama; rejected create menghapus file; delete hanya baris agent; trusted tidak dapat ditimpa/dihapus; materialisasi hanya setelah approval; lookup eksak di antara > 50 baris; cap payload dan penolakan path, termasuk `skill.md`/`Skill.MD`), e2e binary asli (list/view skill approved dan pembungkusan `<untrusted>`; skill terkarantina tidak terlihat; `skill_manage` ditolak tanpa approver dan tidak menulis file apa pun), `TestEdgeCases/EC-CTX-006`.
 
 **Konsekuensi.** (+) Skill dapat ditemukan dan dimuat secara eksplisit; kontennya tetap data dan approval tetap milik user. (+) Tanpa storage baru (DDL 0) dan tanpa dependency baru. (−) `skill_manage` tidak tersedia pada run headless non-interaktif (fail closed); skill agent baru aktif setelah approval + materialisasi pada run berikutnya; `skill_view` menambah token sesuai file yang diminta (≤ 64 KiB/20 file, body ≤ 8 KiB).
+
+## ADR-176 — Job acceptance fase menyertifikasi fase yang ditinggalkan: himpunan wajibnya fase ≤ `PHASE`−1 (off-by-one #244)
+
+**Status:** Accepted 2026-10-22 (keputusan owner/director). Mengoreksi implementasi ADR-080 butir 2 di PR #244; norma ADR-080 butir 2, ADR-077, dan tabel fase mana pun **tidak** berubah.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-22): `internal/testutil/phase/acceptance_test.go` (mode acceptance + log diagnostik) dan tes `internal/testutil/phase/acceptance_rules_test.go`; klausa penjelas di `docs/ROADMAP.md` §"Regression suite". Mengutip ADR-080 butir 2, ADR-077 butir 3, ROADMAP §"Regression suite", SPEC §16.
+
+**Konteks.** ROADMAP §"Regression suite" menetapkan norma job acceptance fase: *"Job acceptance fase `make phase-acceptance` (dijalankan saat menaikkan `PHASE` dari Fx ke Fx+1 dan di setiap PR yang mengubah file `PHASE`): semua item fase ≤ Fx wajib `covered`, PR penaikan gagal bila tidak; di `PHASE = F9` tidak boleh ada `pending`."* Job berjalan *ketika* `PHASE` menjadi Fx+1, jadi fase yang disertifikasi adalah Fx = `PHASE`−1. Kalimat yang sama juga memberi semantik gate PR: fase **<** `PHASE` wajib `covered`, fase **=** `PHASE` boleh `pending:<PHASE>` atau `covered`, fase **>** `PHASE` wajib `pending`.
+
+Implementasi #244 (`checkRequiredIDs`/`checkCovered`) memakai `cur` = isi file `PHASE` apa adanya, sehingga pada `PHASE = F3` ia menuntut himpunan fase ≤ 3. Itu off-by-one: fase yang **dimasuki** (`= PHASE`) ikut dituntut `covered`/berbaris katalog, padahal dokumen hanya mewajibkan fase ≤ `PHASE`−1. Dampaknya konkret pada tabel EC ROADMAP (166 id: F1 55, F2 41, F3 10, F4 26, F5 24, F6 1, F7 9): `PHASE = F3` menuntut tambahan 10 id fase F3 (EC-CFG-001..008, EC-FIO-007, EC-FIO-018) yang komponennya justru baru mulai dibangun di F3, sehingga penaikan `PHASE` ke F3 menjadi mustahil tanpa menandai `covered` tanpa tes — persis yang dilarang. Himpunan wajib yang benar sama dengan gate PR: fase < `PHASE` (96 id pada `PHASE = F3`).
+
+**Keputusan.**
+1. **Himpunan wajib acceptance = fase < `PHASE`, yaitu ≤ `PHASE`−1.** Id pada fase itu wajib punya baris katalog dan berstatus `covered`/`n/a`; baris yang absen atau `pending` → `PHASE GAGAL`. Pada `PHASE = F1` himpunan ini kosong (tidak ada F0), sehingga gate tetap hijau di awal tanpa melonggarkan apa pun untuk fase berikutnya.
+2. **Fase yang dimasuki (`= PHASE`) boleh `pending:<PHASE>`, `covered`, `n/a`, atau belum punya baris katalog.** Barisnya tidak boleh menyandang status fase lain (mis. `pending:F2` pada id fase F3): itu tetap GAGAL, sejalan dengan `Gate.Item`, yang menolak label salah di runtime. Ketegasan lama untuk fase < `PHASE` tidak berkurang sedikit pun.
+3. **`PHASE = F9` tidak boleh meninggalkan `pending`** (ADR-080 butir 2): pada F9 tidak ada Fx+1, jadi seluruh baris katalog wajib non-`pending`. Id di atas `PHASE` tetap hanya di-log.
+4. **Log diagnostik.** Id pada fase ≥ `PHASE` yang belum berbaris atau masih `pending` dicetak sebagai daftar "open" (`logOpen`) supaya laporan run menampilkan apa yang akan dituntut oleh penaikan berikutnya. Status itu tidak menggagalkan job.
+
+**Bukti sebelum/sesudah** (perintah: `DAMNBOT_PHASE_ACCEPTANCE=1 go test ./internal/testutil/phase/ -run TestEdgeCaseCatalogSync -count=1`, `PHASE` diubah hanya di worktree). Pohon F2-lengkap (katalog fase ≤ F2 terisi):
+
+| `PHASE` | gate sebelum (#244) | gate sesudah (ADR-176) |
+|---|---|---|
+| F1 | ok | ok |
+| F2 | ok | ok |
+| F3 | **FAIL** — 10 `PHASE GAGAL` (EC-CFG-001..008, EC-FIO-007, EC-FIO-018) | **ok** — 70 id fase ≥ F3 dicatat sebagai open |
+
+Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pemiliknya): `PHASE = F2` berubah dari FAIL (6 lubang F2) menjadi ok; `PHASE = F3` berubah dari 16 `PHASE GAGAL` menjadi 6 (hanya lubang F2 yang memang belum ditutup), sementara 10 id F3 pindah ke daftar open.
+
+**Dampak terukur (SPEC §20).** Token/biaya/binary/dependency/migrasi 0; LOC produksi 0 (hanya berkas tes `internal/testutil/phase`); tidak ada perubahan `loc.budget`.
+
+**Konsekuensi.** (+) Penaikan `PHASE` menyatakan tepat apa yang sudah selesai — fase yang ditinggalkan — sehingga penaikan ke F3 tidak lagi menuntut komponen yang baru dimulai di F3. (+) Gate tidak kehilangan ketegasan: semua id fase < `PHASE` tetap wajib `covered`/`n/a`, termasuk id yang sebelumnya `pending:F1`. (−) Satu id fase yang dimasuki bisa tertinggal `pending` sampai penaikan berikutnya; karena itu daftar "open" dicetak pada setiap run.
