@@ -14,3 +14,6 @@ bench/h2h/results/.ledger-*
 /damnbot.exe
 /cmd/damnbot/damnbot
 /cmd/damnbot/damnbot.exe
+
+# State per task eval F2 (SQLite; artefak yang di-commit hanya summary.json).
+bench/h2h/results/*/data/
