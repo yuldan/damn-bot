@@ -86,3 +86,6 @@ TESTONLY internal/testutil
 # Format: GENERATED <glob>
 # Total Go non-test seluruh repo (P21, ADR-033).
 TOTAL           190000
+# Amandemen (retarget ke main 974eb761, 2026-10-22): codetools 5350 -> 5365 (preview undo lewat
+# sandbox.OpenResolved di #177 + retry replace Windows di #170; terukur 5353; Σ core +15).
+codetools         5365 internal/codetools

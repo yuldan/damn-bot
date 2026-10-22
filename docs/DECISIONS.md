@@ -3583,3 +3583,5 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** Token/biaya/kode 0; hanya dokumen; tidak ada perubahan `loc.budget`.
 
 **Konsekuensi.** (+) Urutan fase tegas: harness eksternal dapat memakai Damn-Bot sekarang lewat stream-JSON dan lewat ACP pada F3 tanpa membuka kembali cakupan F2. (+) Jalur inbound bersandar pada seam yang sudah ada (headless `run`, toolset, deferred catalog, state DB, budget guard, harness e2e) sehingga tidak butuh arsitektur baru. (−) Permintaan orkestrasi native harus menunggu fase pemiliknya; mempercepatnya berarti ADR + penaikan PHASE, bukan penambahan diam-diam di F2.
+
+**Amandemen retarget ke main `974eb761` (2026-10-22).** `codetools` 5.350 → 5.365: preview undo di #177 memakai `sandbox.OpenResolved` dan #170 menambah retry replace Windows (EC-WIN-014) pada `renameReplace`; terukur `make loc` 5.353.
