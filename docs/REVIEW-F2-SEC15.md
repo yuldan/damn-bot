@@ -116,3 +116,39 @@ Probe: `db sessions purge s --yes`, `./x sessions purge s --yes`, `DAMNBO~1.EXE 
 | SEC15-8 | MINOR (aturan owner) | open | E2E tanpa kontrol positif; bentuk SEC15-5 belum di-e2e. | Tambah `echo ok` → auto dan bentuk argv0 → denied. |
 
 **Ringkasan Round 2:** #265 **REQUEST CHANGES**. Prinsipnya benar (Destructive tidak pernah auto), kontrol negatif unit ada, dan semua ejaan yang diuji penulis lulus. Tetapi `exec -a`/`env -a`/`env --argv0` membalik peran nama dan program sehingga perintah maintenance yang sama menjadi `mutating` dan **auto-approve** di mode unsafe — persis yang hendak ditutup SEC15-2. Perbaikan kecil (tiga entri `wrapperValued` + test) menutup jalur ini; alias/copy tetap residual yang paling baik ditutup di sisi CLI.
+
+## Round 3 — 2026-10-22 — **PARTIAL** (recheck #264 `211f626`)
+
+Reviewer dihentikan oleh owner saat round ini berjalan; isi di bawah adalah yang sudah terverifikasi. **Tidak ada bagian yang dijalankan setengah lalu disimpulkan.**
+
+**Verdict:** | #264 | `211f626` | **APPROVE dengan MINOR** (partial: CI tidak tersedia; probe/edge belum lengkap) |
+
+Gate lokal yang dijalankan: `go test -tags goolm -count=1 -run 'Checkpoint|Maintenance|Sessions' ./cmd/damnbot ./internal/ctxdb` → **ok**; `go test -run TestCheckpointsCLI -v ./internal/e2e` → **PASS**.
+
+Terverifikasi:
+- **SEC15-1 (busy/lease):** `deleteCheckpointBatch` memilih ≤500 kandidat lalu memanggil `checkpointBusy` **di dalam** transaksi `modePurge` sebelum `deleteActions`; query menolak bila sesi kandidat punya baris `turn_journal` **atau** `session_leases.expires_at > clk.BootMs()`. Timestamp lease memang boot-relative (`lease.go`), jadi perbandingannya konsisten. Karena cek dan hapus berada di satu transaksi tulis, tidak ada TOCTOU dengan `StartTurn`/`AcquireLease`. `ErrSessionBusy` → `checkpointsFail`/`sessionsErr` → **exit 4**, konsisten dengan `sessions purge` yang sudah ada.
+- **Guard env maintenance:** `maintenanceBlocked` dipanggil sebelum membuka writer untuk `checkpoints prune` (non-dry-run), `clear`, `clear-legacy`, `sessions prune` (non-dry-run), dan `sessions archive`; dry-run tetap diizinkan. Test `TestMaintenanceGuardFromShellTool`/`TestSessionsGuardFromShellTool` memverifikasi perintah destruktif ditolak **dan** `status` tetap `actions: 2` (kontrol bahwa tidak ada mutasi).
+- **SEC15-4 (dry-run read-only):** `checkpoints prune --dry-run` dan `sessions prune --dry-run` memakai `openSessionsDBReadOnly` (`Options.ReadOnly`); jalur hapus tetap writer.
+- **SEC15-3 (kontrol negatif e2e):** `TestCheckpointsCLI` kini menjalankan `prune` tanpa `--yes` → exit 2 dan `status` tetap 1; default window `would prune 0`; `prune --yes` menghapus; `clear --yes` menghapus aksi kedua; `clear-legacy` "no legacy". Test unit busy memiliki kontrol positif (setelah lease dilepas, `ClearCheckpoints` = 1).
+
+Temuan:
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC15-9 | MINOR | open | Penolakan busy dan guard env hanya diuji di level unit; e2e biner menutup prune/clear tetapi tidak busy/guard. | Tambah e2e: tahan lease di parent → `checkpoints clear --yes` exit 4 dan `actions` tidak berubah; jalankan perintah dengan `DAMNBOT_EXEC_ID` diset → exit 2 dan state utuh. |
+| SEC15-10 | MINOR | open (cross-stack) | `openSessionsStore` membuka DB **tanpa codec**, sehingga pada data dir terenkripsi (`storage.encrypt`) semua subcommand `checkpoints`/`sessions` gagal `ErrEncrypted`. Bukan lubang keamanan, tetapi integrasi dengan stack kripto harus diputuskan saat merge. | Teruskan codec (`runCodec`-style) ke `openSessionsStore`, atau dokumentasikan bahwa CLI maintenance hanya untuk data dir plaintext sampai F2 selesai. |
+| — | INFO | — | Penolakan per batch bersifat seluruh-batch: satu sesi kandidat dengan lease hidup memblokir prune hingga sesi itu selesai. Fail-closed dan sesuai ADR-146 butir 8; catat sebagai konsekuensi. | — |
+
+CI: `gh pr checks 264` → "no checks reported on the 'f2-checkpoints' branch"; `gh run list --commit 211f626` kosong. Karena itu klaim platform (Windows/macOS) belum terverifikasi.
+
+## Round 4 — 2026-10-22 — **PARTIAL** (recheck #265 `90bd02b`, SEC15-5..8)
+
+**Verdict (provisional):** | #265 | `90bd02b` | **APPROVE** — semua perbaikan SEC15-5..8 ada secara statis dan diuji penulis; **probe independen belum dijalankan ulang** karena owner menghentikan sesi (lihat catatan). |
+
+Terverifikasi dari diff `9415d72..90bd02b`:
+- **SEC15-5:** `wrapperValued` mendapat `env:-a`, `env:--argv0`, `exec:-a`, sehingga nama untuk opsi argv0 dikonsumsi dan kata program sebenarnya (`damnbot`) yang diklasifikasi. Test menambahkan `exec -a`, `env -a`, `env --argv0`, plus rantai `command`/`nohup`/`timeout`/`bash -c`; `TestDamnbotMaintenanceNeverAuto` mencakup semuanya di kelima mode.
+- **SEC15-6:** `isDamnbotName` menormalkan trailing dot dan mengenali prefiks 8.3 `damnbo~`; `damnbotCommand` me-resolve argv0 path-like (`./db` → symlink ke binary) dan mengenali base hasil resolve. `TestDamnbotSymlinkAndCopies` menutup symlink dan mendokumentasikan copy bernama arbitrer sebagai keterbatasan statis. Residual (alias/fungsi di PATH, copy nama lain) tetap ada dan didokumentasikan.
+- **SEC15-7:** `damnbotWords` menghabiskan nilai `--profile`, `--config`, `--data-dir`, `-p` (termasuk bentuk `=`); test menambahkan ketiga bentuk.
+- **SEC15-8:** e2e `TestRunDamnbotMaintenanceGate` memakai `run()` sebenarnya dengan **kontrol positif** (`echo ok` benar-benar auto dan hasilnya "ok") dan bentuk argv0/purge yang harus "denied".
+- Budget: `exec/classify 1908/1908` (ADR-167 diperbarui), masih tepat di batas.
+
+**Belum dilakukan:** probe `TestZZSec265Probe` ulang pada `90bd02b` (semua bentuk bypass dari Round 2), dan `make loc` pada head ini. Keduanya harus dijalankan sebelum verdict final jika head ini masuk merge queue.
