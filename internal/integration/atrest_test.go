@@ -285,3 +285,69 @@ func closeStore(t *testing.T, s *ctxdb.Store) {
 		t.Error(err)
 	}
 }
+
+func TestEncryptedHistoryExcludedTurns(t *testing.T) {
+	dir := t.TempDir()
+	s := openEncrypted(t, dir)
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	appendEv := func(ev ctxdb.Event) {
+		t.Helper()
+		if _, err := s.Append(ctx, "S", nil, ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appendEv(ctxdb.Event{Kind: "user_message", Role: "user", TurnID: "T1", Content: "canary-excluded-question", Payload: "{}"})
+	appendEv(ctxdb.Event{Kind: "assistant_message", Role: "assistant", TurnID: "T1", Content: "canary-excluded-answer", Payload: "{}"})
+	appendEv(ctxdb.Event{Kind: "context_exclude", TurnID: "T1", Payload: `{"turn_id":"T1","reason":"provider_error"}`})
+	appendEv(ctxdb.Event{Kind: "user_message", Role: "user", TurnID: "T2", Content: "canary-visible", Payload: "{}"})
+	evs, err := s.History(ctx, "S", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seenGood, seenExcluded := false, false
+	for _, e := range evs {
+		if strings.Contains(e.Content, "canary-excluded") {
+			seenExcluded = true
+		}
+		if e.Content == "canary-visible" {
+			seenGood = true
+		}
+		if strings.Contains(e.Content, "S|") || strings.ContainsRune(e.Content, 0) {
+			t.Fatalf("identity prefix leaked: %q", e.Content)
+		}
+	}
+	if !seenGood || seenExcluded {
+		t.Fatalf("history = %+v, want visible and no excluded turn", evs)
+	}
+	closeStore(t, s)
+}
+
+func TestEncryptedReadOnlyOpen(t *testing.T) {
+	dir := t.TempDir()
+	s := openEncrypted(t, dir)
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(ctx, "S", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "canary-readonly", Payload: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	closeStore(t, s)
+	codec := realCodec(t, dir)
+	ro, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dir, Kind: "cli", ReadOnly: true, Codec: codec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeStore(t, ro)
+	evs, err := ro.History(ctx, "S", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Content != "canary-readonly" {
+		t.Fatalf("read-only history = %+v", evs)
+	}
+	assertNoPlaintext(t, dir, "canary-readonly")
+}
