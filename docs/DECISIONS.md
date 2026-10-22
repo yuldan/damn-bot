@@ -2744,6 +2744,8 @@ Duplikasi sudah dibuang lebih dulu (satu jalur open sandbox untuk baca/tulis; `r
 
 **Konsekuensi.** (+) P1 terukur sejak F1 tanpa require baru di root dan tanpa melanggar graf impor; prompt tidak pernah menyebut tool yang tidak ada dan prefix stabil dalam turn. (−) Dua artefak golden harus diregenerasi setiap prompt/schema berubah (diff terlihat di review); `Build` memakai tipe `assemble.Request`, sehingga loop perlu satu pemetaan kecil ke `provider.Request`.
 
+**Amandemen SEC14 (root canonicalization, 2026-10-22).** Root workspace dicatat dalam dua bentuk: `alias` (spelling absolut yang dikonfigurasi, mis. `/var/...` atau `RUNNER~1`) dan `path` kanonik (`EvalSymlinks` + `GetFinalPathNameByHandle` di Windows). `Check` memetakan prefix alias ke root kanonik sebelum resolusi; `MapPath` mengembalikan root kanonik + rel tanpa meresolusi komponen di bawah root; `SamePath` membandingkan case-insensitif hanya untuk root Windows. Dengan begitu symlink/junction **di bawah** root tetap ditolak (rel berubah → konflik), sedangkan bentuk symlink/8.3 dari root itu sendiri diterima. Test: `TestUndoRootSymlinkForm`, `TestUndoRootAliasInternalSymlinkRefused`, `TestUndoRootShortNameForm` (Windows). `sandbox+redact` 1.700 → 1.760 (terukur 1.759), Σ core 38.090 → 38.150.
+
 ## ADR-109 — `internal/tools` F1: pipeline dispatch, approval model, spill, dan journal konsumen
 
 **Status:** Accepted 2026-10-19 (keputusan didelegasikan). Menerapkan SPEC §4.3, §4.5, §5.1, §7, §14.1–§14.2, §14.5; ADR-008, ADR-031, ADR-069, ADR-070, ADR-079, ADR-082, ADR-088, ADR-095, ADR-103, ADR-105, ADR-106; ENGINEERING E-09, E-21, E-37, E-68.
@@ -2848,6 +2850,10 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Amandemen PR3 (gate acceptance + JN2-14/16..20).** `TestUndoSuite` adalah gate P26: 200 skenario (5 operasi × 10 isi × 4 mode; LF/CRLF/BOM/biner/unicode/64 KiB) yang membuktikan byte dan mode kembali identik, undo kedua idempotent, dan baris `action_undos` `undone` tercatat. Refusal tests menutup crash sebelum side effect, konten parsial, konflik/`--force`, luar root, symlink escape/symlink di dalam root, kedaluwarsa retensi, turn terbuka, blob before hilang/korup, aksi irreversible, hard link (create dan write), mode 0000/setuid, tujuan move hilang; `TestUndoSuiteMultiFile` membuktikan `undo N` berjalan mundur. `UndoLast` memakai `BatchFinisher` (satu transaksi `FinishBatch`) dan `List` membaca cutoff + semua baris dalam satu snapshot; `TestUndo50Files` terukur 74–90 ms di ext4 dan 28–36 ms di tmpfs (target SPEC §18.1 ≤ 200 ms, ditegakkan `internal/testutil/timing`, bukan dilonggarkan); LOC `journal` menjadi 539 baris kode, baris `loc.budget` dinaikkan 520 → 545 (Σ core 35.545 ≤ 47.000). Symlink yang ditolak selalu `conflict` (bukan `failed`). `maxBlobSize` = 1 GiB adalah batas keras memori per before-image; blob lebih besar = `ErrBlob` (JN2-19). `ModeSet` opt-in untuk mode 0000: caller wajib mengisi `ModeSet=true`; `journalstore.Record` mengisinya otomatis bila `Mode != 0` (JN2-20). Edge `journalstore → sandbox` hanya dipakai file `_test.go` suite ini; kode produksi `journalstore` tetap hanya `ctxdb` + `journal`.
 
 **Amandemen PR4 (budget `journal`, #143).** Baris `loc.budget` `journal` dinaikkan 545 → 560 saat merge #143 tanpa entri ADR; amandemen ini mencatatnya. Alasan: `makeReplaceable` (`fsys_unix.go`/`fsys_windows.go`; NTFS menolak rename menimpa file read-only) dan penerimaan path absolut native Windows di `absolute`. Terukur `make loc` di main 4766cb9: 557 baris kode (> 545), sehingga 560 dipertahankan (headroom 3). Σ core `loc.budget` 35.665 → 35.680 ≤ 47.000 (angka Σ 35.545 di Amandemen PR3 tidak memperhitungkan ADR-123 `budget` 400 → 520; Σ sebenarnya saat itu 35.665). Sesudah ADR-118, ADR-119, ADR-122, ADR-125, dan ADR-126, Σ core `loc.budget` = 36.770 ≤ 47.000 (sama dengan baris Total core ENGINEERING §2.4).
+
+**Amandemen SEC14 (root alias undo, 2026-10-22).** `Undoer.current` tidak lagi membandingkan `filepath.Clean(path)` mentah dengan path hasil `Check`: ia memetakan path lewat `Sandbox.MapPath` (root kanonik + rel leksikal) lalu membandingkan hasilnya dengan `Check`. Hanya perbedaan bentuk root (`/var` → `/private/var`, 8.3) yang dimaafkan; symlink atau ancestor yang ditukar di bawah root tetap `ErrConflict`, dan `OpenResolved`/`OpenDir` tetap menolak symlink per komponen. `TestUndo50Files` memakai `timing.Check` dengan batas 200 ms di Linux dan 600 ms di macOS/Windows (fsync/handle lebih lambat di runner bersama; tetap digerbang ADR-048).
+
+**Amandemen (undo mode Windows, 2026-10-22).** `chmodFile` dipecah per-OS. POSIX tetap `fchmod` pada handle hasil `OpenResolved` (symlink pengganti tidak pernah menerima mode, JN2-1). Windows memakai `os.Root.Chmod`, yang membuka entri hanya dengan `FILE_WRITE_ATTRIBUTES` dan `FILE_FLAG_OPEN_REPARSE_POINT`: file read-only (mode `0o440`, suite undo journalstore) menolak dibuka untuk akses data, sehingga `SetFileInformationByHandle(FileBasicInfo)` lewat handle `O_RDONLY` selalu gagal `Access is denied` dan undo berhenti di `prepare replace`. Baris `loc.budget` `journal` 560 → 590 (terukur `make loc` 573 di PR ini dan 583 sesudah undo CLI; Σ core 38.150 → 38.180 ≤ 47.000). Test `TestUndoSuite/write|edit|delete/*/0440` dan `TestUndoRestoresEditByteIdentical` menggerbang lintas OS; uji race `undo_race_test.go` yang menukar direktori dilewati di Windows karena Windows menolak rename direktori yang masih berhandle.
 
 ## ADR-118 — `ctxdb` F2 read surface: History fork-aware, Search bertipe, Fork, benchmark, dan EC-STATE
 
@@ -3389,6 +3395,24 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Konsekuensi.** (+) Dua entri F1 punya katalog dan test tanpa heuristik bahasa di loop; aturan validasi tetap di `internal/schema`. (−) `--answer-schema` baru memvalidasi keluaran, belum mengirim `response_format` ke provider; window yang dipakai adalah cap input konfigurasi sampai `registry.Limits` terhubung penuh (GAP-PROV-02).
 
+## ADR-165 — Ledger acceptance F2 sebagai artefak review; dipelihara sampai penaikan PHASE
+
+**Status:** Accepted 2026-10-22 (delegasi). Diterapkan di PR #242.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-22): `docs/F2-ACCEPTANCE.md` sebagai artefak review F2; dirujuk oleh PR #242 dan gate kelengkapan #244. Tidak mengubah SPEC, skema, dependency, atau `loc.budget`.
+
+**Konteks.** Acceptance F2 tersebar di ROADMAP (baris per fase), EDGE-CASES (EC per komponen), FEATURE-PARITY (fase per baris), dan DECISIONS §22.1 (GAP). Sebelumnya tidak ada satu dokumen yang memetakan setiap baris ke test pembuktinya, sehingga baris yang tidak pernah ditulis test-nya bisa lolos acceptance secara diam-diam (temuan AUD-004/NEW-12 dan review F2).
+
+**Keputusan.**
+1. `docs/F2-ACCEPTANCE.md` adalah artefak review tunggal untuk F2: setiap EC yang diwajibkan ROADMAP, setiap baris GAP di DECISIONS §22.1, dan setiap baris FEATURE-PARITY berfase F2 tercantum dengan test/lokasi/status (covered, in-flight, surface, missing) dan owner.
+2. Ledger dipelihara (bukan snapshot sekali pakai) sampai `PHASE` dinaikkan dari F2: PR yang mengubah katalog/acceptance F2 wajib memperbarui baris terkait. Setelah penaikan PHASE, ledger menjadi catatan historis dan tidak lagi menjadi syarat gate.
+3. Gate kelengkapan EC ada di `TestEdgeCaseCatalogSync` (#244): katalog harus cocok dengan tabel fase ROADMAP, dan fase acceptance gagal bila ID yang diwajibkan tidak dikatalogkan atau masih `pending`. Ledger dan gate saling melengkapi: ledger memberi status per baris (termasuk GAP dan parity yang tidak dicakup gate EC), gate mencegah ID hilang.
+4. Ledger tidak menetapkan fase baru; klasifikasi baris mengikuti ADR-064/ADR-139. Bila sebuah baris dinilai salah fase, perbaikannya lewat ADR, bukan lewat ledger.
+
+**Dampak terukur (SPEC §20).** Token/biaya/kode 0; hanya dokumen. Tidak ada perubahan `loc.budget`.
+
+**Konsekuensi.** (+) Satu tempat untuk membaca status acceptance F2 dan alasan setiap baris missing. (−) Ledger harus diperbarui saat katalog/acceptance berubah sampai PHASE dinaikkan; baris yang diselesaikan lewat PR lain perlu disinkronkan.
+
 ## ADR-173 — Tool skill: `skills_list`, `skill_view`, `skill_manage`
 
 **Status:** Accepted 2026-10-23 (F2; TOOL-074/075/076, SKILL-002, EC-CTX-006, SEC16-1..5, ACC-56..61). Budget `tools` 2.200 → 2.500 (+300; terukur 2.315) dan `ctxdb/skillstore` 400 → 460 (+60; terukur 438); dependency 0; DDL 0 (ADR-074). Diterapkan bertahap dalam dua PR berurutan: lapisan baca (`skills_list`, `skill_view`) lalu lapisan tulis (`skill_manage`) beserta penguatan SEC16-5.
@@ -3484,3 +3508,21 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Bukti.** Dengan penjaga diperluas sementara nilai masih ada, `cd bench && go test ./h2h/` gagal di `results/2026-10-21-llm-scenarios/summary.json:419` (pola `sk-[A-Za-z0-9_-]{20,}`); setelah scrub lulus. `gitleaks` v8.28.0 (pohon `--no-git` dan riwayat 1.668 commit) hanya melaporkan fixture (`bench/evals/v1/E10.jsonl` 97×, `internal/redact/testdata` dan test redaksi) dan **tidak pernah** menandai nilai nyata itu. Diff artefak: `1 +/1 -`.
 
 **Konsekuensi.** (+) Artefak bench tidak dapat lagi membawa kredensial, dan pemeriksaannya berlaku untuk semua berkas hasil, bukan hanya rekaman proxy. (−) Flag rahasia baru harus ditambahkan ke daftar redaksi `bench/h2h/redact.go`; placeholder di fixture (mis. `bench/evals/v1/E10.jsonl`) sebaiknya dibuat jelas sintetis agar sinyal pemindai tidak tenggelam; rotasi kunci tetap satu-satunya penjinak untuk nilai yang sudah publik.
+
+
+## ADR-181 — Tier `smoke` untuk `push: main`: matriks penuh pindah ke nightly/`workflow_dispatch`
+
+**Status:** Accepted 2026-10-22 (delegasi owner). Mengamandemen tier ADR-135 butir 3 dan melengkapi pengemasan job ADR-179; **cakupan gate tier PR tidak berubah**.
+
+**Konteks.** Setiap squash-merge ke `main` memicu run `ci` yang tidak bisa dibatalkan (ADR-135 butir 1) dengan 16 job (pasca ADR-179), padahal isinya hampir seluruhnya sudah diverifikasi PR yang di-squash (dengan `strict=false`, merge commit PR = base+PR, yaitu pohon yang sama dengan hasil squash selama `main` tidak bergerak). Di plafon runner repo privat, run `main` itu bersaing langsung dengan PR: terukur job `ci-required`/`test` menunggu >15 menit pada 2026-10-22.
+
+**Keputusan.**
+1. **Tier ketiga `smoke` untuk `push: main`**, dihitung di job `changes` dari `github.event_name`: `changes`, `lint` (`golangci-lint` + `vet-custom`), `static` (`make loc`, `make loc-ratio`, `make size-check`, `make deadcode`), `smoke`, `ci-required` = **5 job `ci`**, ditambah `meta-test` dari `meta.yml` yang memang berjalan di setiap push `main`. Isi `smoke`: `make build` (E-39, kompilasi seluruh paket), `make vet-cross` (ADR-073, `go vet` windows/darwin × amd64/arm64), dan `make test RACE=-race PKGS=<paket inti cepat>` (E-55) di luar paket ber-fixture berat (`internal/ctxdb`, `internal/exec`, `internal/codetools`, `internal/e2e`) yang sudah diuji PR dan tetap dijalankan nightly.
+2. **Matriks penuh tetap jalan** (6 target OS `-race`, `test-timing`, `fuzz`, `coverage`, `perf`, `bench-parity`, `bench-budget`, `portability`, `supply`): **di PR** (3 target OS, seluruh gate) dan **di nightly + `workflow_dispatch`** — `nightly.yml` job `ci-full` memanggil workflow ini lewat `workflow_call`, dan `ci.yml` kini juga menerima `workflow_dispatch` (tier `full`, branch mana pun) untuk verifikasi manual.
+3. **Pagar.** Daftar gate tier PR **tidak berubah sedikit pun**: multiset invokasi `make …` tier PR identik sebelum/sesudah perubahan (diverifikasi otomatis membandingkan kedua versi workflow: 0 perintah hilang, 0 perintah bertambah), matrix `test` PR tetap 3 target, `-race` tetap, dan konteks wajib `ci-required`/`meta-test`/`pr-meta` tetap. `ci-required.needs` ditambah `smoke` agar push `main` juga teragregasi (job yang dilewati tier tetap `skipped` → lulus sah, E-78).
+4. **`pr-meta` tidak ada di push `main`** karena event-nya PR-only (judul/body/label berasal dari PR); gate itu sudah ditegakkan di PR sebelum squash, sehingga tidak ada jaminan yang hilang.
+5. **Alasan jaminan tidak berkurang.** (a) PR tetap menjalankan seluruh gate Makefile dengan `-race` pada 3 target OS (ADR-135 butir 3). (b) Hasil squash-merge adalah pohon yang sama dengan merge commit yang diuji PR, selama `main` tidak bergerak setelah run PR terakhir; jendela itu ditutup oleh nightly (≤ 24 jam) dan dapat ditutup manual dengan `workflow_dispatch`. (c) `smoke` di push `main` menangkap kerusakan khas interaksi commit dengan `main`: kompilasi, lint, budget LOC/ukuran, `vet` lintas-OS, dan suite paket inti.
+
+**Dampak terukur (SPEC §20).** Push `main`: 16 → **5 job `ci`** (+1 `meta-test`) sehingga merge tidak lagi menahan antrean PR. PR: tetap **13 job `ci`** (+`meta-test` +`pr-meta`). Nightly: tetap 16 job. Matriks 6 target tetap 1×/hari plus atas permintaan.
+
+**Konsekuensi.** (+) Merge cepat dan murah; verifikasi penuh tetap ada (nightly/`workflow_dispatch`); (+) tidak ada gate PR yang dilepas. (−) Regresi yang hanya muncul di paket berat atau OS non-ubuntu pada `main` terdeteksi paling lambat pada nightly berikutnya, bukan seketika — diterima karena PR yang di-squash sudah menguji pohon yang sama, dan karena itu pula opsi memangkas matrix OS di PR tetap ditolak (ADR-179 butir 8).

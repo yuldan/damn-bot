@@ -164,6 +164,14 @@ EOF
 			metaheavy "$d/internal/archtest"
 		fi
 		;;
+	arch-*)
+		# `internal/archtest` membaca `git ls-files` (TestNoLargeOrBinaryFiles).
+		# Pohon hasil `fresh()` datang dari `git archive` tanpa `.git`, sehingga
+		# gate arch-* selalu BASELINE_RED karena `git ls-files` gagal (exit 128),
+		# bukan karena pelanggaran. Siapkan repo lokal berisi pohon yang sama:
+		# daftar file yang dilihat identik, tidak ada gate yang dilonggarkan.
+		git -C "$d" init -q && pr_commit "$d" arch-tree
+		;;
 	pr-* | adrgate* | spec-guard)
 		# Repo git sintetis: commit dasar = HEAD, lalu satu perubahan kontrol yang HARUS lolos cek itu
 		# (membuktikan cek tidak memblok perubahan yang sah). Pelanggaran ditambahkan di atasnya.

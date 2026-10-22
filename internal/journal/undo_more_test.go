@@ -251,15 +251,10 @@ func TestUndoHelperErrors(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "child"), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := u.remove(dir); err == nil {
+	if err := u.remove(t.Context(), dir); err == nil {
 		t.Fatal("remove non-empty dir succeeded")
 	}
-	if err := u.chmod(filepath.Join(root, "missing"), 0o644); err == nil {
+	if err := chmodFile(t.Context(), u.sb, filepath.Join(root, "missing"), 0o644); err == nil {
 		t.Fatal("chmod missing succeeded")
-	}
-	if runtime.GOOS != "windows" {
-		if err := syncDir(filepath.Join(root, "missing")); err == nil {
-			t.Fatal("syncDir missing succeeded")
-		}
 	}
 }
