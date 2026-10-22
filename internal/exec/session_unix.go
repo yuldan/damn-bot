@@ -24,11 +24,8 @@ func sessionShell(path string) sessionShellSpec {
 		bin = c.bin
 	}
 	argv := []string{bin}
-	switch filepath.Base(bin) {
-	case "bash":
+	if filepath.Base(bin) == "bash" {
 		argv = append(argv, "--norc", "--noprofile", "--noediting")
-	case "zsh":
-		argv = append(argv, "-f", "+Z")
 	}
 	const sentinel = `printf '\036DB:%s:%d:\036' `
 	return sessionShellSpec{

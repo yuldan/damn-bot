@@ -22,9 +22,9 @@ codetools         5350 internal/codetools
 # ADR-081: exec 3000 -> 3500 + exec/classify 1500 (Σ core 31.450 -> 33.450 <= 47.000).
 # ADR-106 butir 10: exec 3500 -> 3400, exec/classify 1500 -> 1600 (Σ core tetap).
 # ADR-112: exec/classify 1600 -> 1800 untuk aturan keamanan stack classify + shell_allow argv-persis (Σ core 35.000 -> 35.200).
-# ADR-133 SEC10-30: exec/classify 1830 -> 1837 (cd bare per dialek; terukur 1837; Σ core +7).
+# ADR-133 SEC10-30/35: exec/classify 1830 -> 1841 (cd bare per dialek; terukur 1841; Σ core +11).
 exec              3400 internal/exec
-exec/classify     1837 internal/exec/classify
+exec/classify     1841 internal/exec/classify
 # ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).
 # ADR-108: sandbox+redact 1450 -> 1700 (dir-fd walk fast path; Σ core 34.650 -> 34.900 <= 47.000).
 sandbox+redact    1700 internal/sandbox internal/redact
