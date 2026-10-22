@@ -3267,3 +3267,22 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; `internal/skills` +≈114 baris (terukur 1.402/1.500), `cmd/damnbot` +≈330 baris non-test. Tidak ada token prompt tambahan (bundle hanya menyelesaikan nama; skill hasilnya masuk retrieval seperti biasa).
 
 **Konsekuensi.** (+) Satu alias dapat memuat beberapa skill dari config yang diaudit dan aman ditulis. (+) CLI headless melengkapi kapabilitas tanpa menunggu REPL. (−) File bundle tidak di-watch saat run berjalan; perubahan berlaku pada perintah/run berikutnya. (−) Bundle hanya mereferensikan skill yang ada di `<config>/skills` sampai skill project/external (ADR-170) ikut terdaftar.
+
+## ADR-170 — Project skill discovery dan external skill dirs dengan karantina (SKILL-009, SKILL-010)
+
+**Status:** Accepted 2026-10-22 (F2; SKILL-009, SKILL-010). Tanpa DDL/dependency; `internal/skills` tidak bertambah. `cmd/damnbot` +≈250 baris non-test, config +3 key (lihat SPEC §12).
+
+**Konteks.** Hermes menemukan skill di direktori proyek (hanya proyek tepercaya) dan di direktori eksternal yang dikonfigurasi. Keduanya adalah batas keamanan baru: isi direktori itu tidak boleh dianggap sebagai skill user/builtin, tidak boleh lolos dari karantina, dan tidak boleh mengeksekusi inline shell.
+
+**Keputusan.**
+1. **Key config `[skills]`.** `project_discovery` (default `true`), `trusted_projects` (default `[]`), `external_dirs` (default `[]`). Kedua daftar path wajib absolut (validasi config menolak relatif/kosong); `~/…` di-expand terhadap home. `Clone` menyalin kedua slice.
+2. **Root discovery.** `external_dirs` dipindai berurutan. Bila `project_discovery` aktif, untuk setiap `trusted_project` yang merupakan **leluhur `cwd`** (`filepath.Rel` tidak diawali `..`) dipindai `<project>/.damnbot/skills`. Proyek yang tidak terdaftar, atau cwd di luar proyek, tidak pernah dipindai. Root duplikat didedupe.
+3. **Bukan skill tepercaya.** Semua hasil dimuat dengan `SourceImport` (skema skill tidak menambah nilai source baru), sehingga `Trusted()==false`: inline shell tidak pernah berjalan (bahkan bila `inline_shell=true`; `ErrInlineShellDisabled` menggagalkan run), dan skill tidak masuk retrieval sampai user approve.
+4. **Karantina wajib.** Setiap skill yang ditemukan di-lint lewat `os.Root` (jalur yang sama dengan gate pembayaran; temuan high = gagal-tertutup), dipindai `memory.ScanText` (high → `rejected`) dan disimpan lewat `skillstore.Quarantine` sebagai memory `scanned`/`rejected` + baris `skills` `source='import'`. Penulisan idempoten per `(name, sha256)`; tidak ada duplikat saat run berulang.
+5. **Presedensi nama.** Skill config/user (dan skill eksternal yang lebih dulu) menang; duplikat dari root berikutnya dilewati, sehingga proyek tidak dapat menimpa skill user. Direktori tanpa `SKILL.md` di root discovered tetap dimasukkan ke daftar gate pembayaran (fail closed).
+6. **Gate pembayaran.** `PaymentDirs(discovered)` dan direktori tanpa SKILL.md digabung ke `ShellConfig.MonetaryPaths`, sehingga perintah yang menyentuh file skill discovered tetap `Monetary`.
+7. **Test.** `cmd/damnbot`: `TestDiscoverExternalDirs` (import + `scanned`, presedensi config, idempotensi), `TestDiscoverUntrustedInlineShell` (flag on tetap ditolak), `TestDiscoverTrustedProject` (proyek tak terdaftar tidak dipindai; proyek tepercaya + cwd di dalamnya dipindai). `internal/e2e`: `TestSkillDiscoveryQuarantine` (binary nyata: isi skill tidak sampai ke prompt, DB `import`/`scanned`), `TestSkillDiscoveryInactiveShellDefault` (inline shell default mati → exit 2, file tidak dibuat, 0 provider call). Matriks import `internal/archtest/allowed.go` menambah edge e2e → ctxdb untuk fixture DB ini.
+
+**Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; config +3 key (default aman: tanpa proyek tepercaya dan tanpa dir eksternal, tidak ada pemindaian tambahan). Biaya run: satu walk per root yang dikonfigurasi; nol bila daftar kosong.
+
+**Konsekuensi.** (+) Skill proyek/eksternal dapat dipakai tanpa pernah menjadi tepercaya atau mengeksekusi shell. (+) Presedensi mencegah shadowing skill user. (−) Skill discovered harus di-approve sebelum terlihat oleh retrieval/prompt; sampai itu hanya tersimpan `scanned`. (−) `trusted_projects` harus absolut, jadi path relatif dari config portabel ditolak (fail closed).

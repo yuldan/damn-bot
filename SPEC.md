@@ -2474,7 +2474,7 @@ theme    = "tern-dark"
 level = "info"
 ```
 
-Section `[skills]` di luar contoh (ADR-168): `inline_shell` (default `false`) mengizinkan span `` `!command` `` di SKILL.md dieksekusi saat skill dimuat, hanya untuk sumber trusted (user/builtin), timeout 5 s, output ≤ 4 KiB; saat `false` span tersebut gagal-tertutup (`inline_shell_disabled`). Variabel template `${SKILL_DIR}`, `${SKILL_NAME}`, `${PROJECT_DIR}`, `${HOME}`, `${OS}` selalu disubstitusi.
+Section `[skills]` di luar contoh (ADR-168/ADR-170): `inline_shell` (default `false`) mengizinkan span `` `!command` `` di SKILL.md dieksekusi saat skill dimuat, hanya untuk sumber trusted (user/builtin), timeout 5 s, output ≤ 4 KiB; saat `false` span tersebut gagal-tertutup (`inline_shell_disabled`). Variabel template `${SKILL_DIR}`, `${SKILL_NAME}`, `${PROJECT_DIR}`, `${HOME}`, `${OS}` selalu disubstitusi. `project_discovery` (default `true`) hanya memindai `<trusted_project>/.damnbot/skills` bila `cwd` berada di bawah salah satu `trusted_projects` (default `[]`, path absolut); `external_dirs` (default `[]`, path absolut) menambah direktori skill. Setiap skill yang ditemukan dari dua sumber itu berstatus `import`, di-lint, dipindai, dan dikarantina — tidak pernah diperlakukan sebagai skill user/builtin, dan inline shell-nya tidak pernah dijalankan.
 
 Provider custom & modul (setiap section modul ≤ 10 baris; key lengkap via `damnbot config schema <module>`, dibangkitkan dari struct Go):
 

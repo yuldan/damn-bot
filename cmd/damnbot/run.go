@@ -34,6 +34,7 @@ import (
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/sandbox"
+	"github.com/damnbot/damnbot/internal/skills"
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
@@ -330,6 +331,13 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fail(err)
 	}
+	disc, derr := discoverSkills(ctx, db, cfg, configDir, cwd, home, red)
+	if derr != nil {
+		return nil, fail(derr)
+	}
+	monetary = append(monetary, skills.PaymentDirs(disc.list)...)
+	monetary = append(monetary, disc.extra...)
+	monetary = dedupeDirs(monetary)
 	shellTool, err := tools.NewShell(&tools.ShellConfig{
 		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
 		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),

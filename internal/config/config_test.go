@@ -86,7 +86,7 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 			PassSSHAgent:     false,
 		},
 		Agent:  Agent{VerifyOnStop: "run"},
-		Skills: Skills{InlineShell: false},
+		Skills: Skills{InlineShell: false, ProjectDiscovery: true, TrustedProjects: []string{}, ExternalDirs: []string{}},
 		Log:    Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
 	}
 	if diff := cmp.Diff(want, Default()); diff != "" {

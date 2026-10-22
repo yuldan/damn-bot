@@ -78,7 +78,10 @@ type Agent struct {
 // Skills is SPEC §12 [skills] (ADR-168). Inline shell defaults off because a
 // skill body is data, not a script.
 type Skills struct {
-	InlineShell bool `toml:"inline_shell"`
+	InlineShell      bool     `toml:"inline_shell"`
+	ProjectDiscovery bool     `toml:"project_discovery"`
+	TrustedProjects  []string `toml:"trusted_projects"`
+	ExternalDirs     []string `toml:"external_dirs"`
 }
 
 // Log is SPEC §12 [log] plus the P29/GAP-SEC-11 content controls.
@@ -150,7 +153,7 @@ func Default() Config {
 			PassSSHAgent:     false,
 		},
 		Agent:  Agent{VerifyOnStop: "run"},
-		Skills: Skills{InlineShell: false},
+		Skills: Skills{InlineShell: false, ProjectDiscovery: true, TrustedProjects: []string{}, ExternalDirs: []string{}},
 		Log: Log{
 			Level:             "info",
 			MessageContent:    false,
@@ -192,6 +195,8 @@ func (c *Config) Clone() Config {
 	out.Approval.AddDirs = slices.Clone(c.Approval.AddDirs)
 	out.Exec.EnvAllow = slices.Clone(c.Exec.EnvAllow)
 	out.Exec.Env = maps.Clone(c.Exec.Env)
+	out.Skills.TrustedProjects = slices.Clone(c.Skills.TrustedProjects)
+	out.Skills.ExternalDirs = slices.Clone(c.Skills.ExternalDirs)
 	return out
 }
 
