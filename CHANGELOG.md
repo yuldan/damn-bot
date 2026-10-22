@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `ci`/`scripts`: dua gerbang per-PR baru (ADR-187) — `skill-refs` (GAP-SEC-26: `TestBuiltinSkillRefs` menolak referensi `skill://` atau path skrip yang menggantung di skill bawaan; suite boleh kosong sampai skill bawaan pertama ditambahkan) dan `sqlite-engine` (GAP-REL-04: engine SQLite ≥ 3.51.3 + FTS5/trigram/`json_valid` di delapan target rilis kanonik E-39 — enam runner native, `linux/arm` dan `android/arm64` lewat cross-compile sampai QEMU/F9). Keduanya terdaftar di `scripts/ci-meta-test.sh` (dengan injeksi `MinSQLiteVersion = "99.0.0"` sebagai bukti gerbangnya hidup) dan masuk `ci-required.needs`, sehingga status wajib tetap satu.
+
 - `docs`: matriks bukti batas keamanan F2 (§5 `docs/F2-ACCEPTANCE.md`) — tes positif e2e biner nyata + kontrol negatif per permukaan beserta status load-bearing, flip eksperimen yang dipakai, dan kutipan baris MERAH verbatim; permukaan 2 (exec/classifier/payment gate) dan MEM-026 tetap dicatat sebagai GAP.
 
 - `ctxdb`/`cmd/damnbot`: spill output tool lewat blob store terenkripsi dan indeks `blob_fts` (SEC7-66/68).

@@ -19,6 +19,7 @@ export GOTOOLCHAIN=local
 GATES=(
 	lint depguard lint-anchor vet-custom test race timing vet-cross build-matrix fuzz coverage deadcode flake perf
 	size-check loc loc-unmapped loc-ratio loc-ratio-testonly deps-check vuln licenses tidy-check mod-verify bench-budget
+	sqlite-engine skill-refs
 	phase-file phase-acceptance
 	arch-importgraph arch-filelength arch-globals arch-goleak arch-budgetsum arch-codeowners arch-nolint
 	arch-workflows arch-mpl
@@ -79,6 +80,8 @@ marker() {
 	tidy-check) echo 'example.com/meta/tidy' ;;
 	mod-verify) echo 'has been modified' ;;
 	bench-budget) echo 'TestMetaBench' ;;
+	sqlite-engine) echo 'does not satisfy REL-04' ;;
+	skill-refs) echo 'SKILL-REFS GAGAL meta/SKILL\.md' ;;
 	phase-file) echo 'PHASE GAGAL' ;;
 	phase-acceptance) echo 'PHASE GAGAL META-1: phase acceptance' ;;
 	arch-importgraph) echo 'E-01 edge ilegal: internal/loop → internal/ctxdb' ;;
@@ -462,6 +465,22 @@ GOEOF
 		# NEW2-07: job bench-budget = seluruh test modul bench.
 		printf 'package metabench\n\nimport "testing"\n\nfunc TestMetaBench(t *testing.T) { t.Fatal("pelanggaran sintetis") }\n' |
 			gofile "$d/bench/metabench/v_test.go"
+		;;
+	sqlite-engine)
+		# REL-04: an engine older than MinSQLiteVersion must fail the probe.
+		sed -i 's/MinSQLiteVersion = "3\.51\.3"/MinSQLiteVersion = "99.0.0"/' "$d/internal/ctxdb/engine.go"
+		;;
+	skill-refs)
+		# GAP-SEC-26: a builtin skill with a dangling requires must fail the rule.
+		mkdir -p "$d/skills/meta"
+		cat >"$d/skills/meta/SKILL.md" <<'EOF'
+---
+name: meta-skill
+description: meta dangling reference
+requires: [missing-skill]
+---
+Body text for the meta fixture.
+EOF
 		;;
 	phase-file)
 		printf 'F10\n' >"$d/PHASE"
