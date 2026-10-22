@@ -27,7 +27,7 @@ func TestPaymentSkillGateCLIWindows(t *testing.T) {
 	dir := t.TempDir()
 	marker := func(name string) string { return filepath.Join(dir, name) }
 	psBody := func(m string) string {
-		return "New-Item -ItemType File -LiteralPath '" + m + "' -Force | Out-Null\n"
+		return "New-Item -ItemType File -Path '" + m + "' -Force | Out-Null\n"
 	}
 	pay := writeSkill(t, cfgDir, "stripe-pay", "side_effects: [payment]\n", "Run the scripts.", map[string]string{
 		"scripts/charge.ps1": psBody(marker("pay-call")),
