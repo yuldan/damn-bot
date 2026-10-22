@@ -25,6 +25,7 @@ import (
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/ledgerstore"
+	"github.com/damnbot/damnbot/internal/ctxdb/limitstore"
 	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
@@ -32,6 +33,7 @@ import (
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/netx/retry"
 	"github.com/damnbot/damnbot/internal/provider"
+	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/tools"
@@ -179,8 +181,10 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		RemainingUSD:    cfg.Budget.TurnUSD,
 	})
 	// The context tier is rendered once and frozen for the session (P15).
+	degraded := model.window > 0 && model.window < assemble.DegradedWindow
 	ctxIn := &assemble.ContextInput{
-		Facts: "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
+		Facts:    "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
+		Degraded: degraded,
 	}
 	if o.retrieverFor != nil {
 		ctxIn.Query = o.prompt
@@ -207,6 +211,10 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		return 0, fmt.Errorf("tools dispatcher: %w", err)
 	}
 	disp.BeginTurn()
+	compactAt, maxInline := 75, 0
+	if degraded {
+		compactAt, maxInline = 60, 2000 // PROV-02 degraded profile (SPEC §22.1)
+	}
 	lp, err := loop.New(&loop.Config{
 		MaxIterations:   cfg.Loop.MaxIterations,
 		MaxInputTokens:  int64(cfg.Loop.TurnMaxInputTok),
@@ -214,9 +222,11 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		MaxWall:         time.Duration(cfg.Loop.MaxWallS) * time.Second,
 		MaxIdentical:    cfg.Loop.MaxIdentical,
 		ParallelTools:   cfg.Loop.ParallelTools,
+		CompactAt:       compactAt,
+		MaxInline:       maxInline,
 	}, &loop.Deps{
 		Provider:  model.provider,
-		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, store: model.store},
+		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, window: model.window, store: model.store},
 		Toolset:   &toolsetAdapter{disp: disp},
 		Store:     model.store,
 		Ledger:    model.ledger,
@@ -245,6 +255,8 @@ type runModel struct {
 	sessions  *exec.Sessions
 	sessionID string
 	cwd       string
+	window    int64  // effective model window (registry.Limits: config/registry/learned/fallback)
+	winSource string // config|registry|discovery|learned|fallback
 	db        *ctxdb.Store
 }
 
@@ -351,11 +363,19 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fail(fmt.Errorf("registry: %w", err))
 	}
+	provName, modelName, _ := strings.Cut(modelRef, "/")
+	limits, err := registry.NewLimits(nil, nil, limitstore.Store{DB: db}, nil)
+	if err != nil {
+		return nil, fail(fmt.Errorf("model limits: %w", err))
+	}
+	win, err := limits.Window(ctx, provName, modelName)
+	if err != nil {
+		return nil, fail(fmt.Errorf("model window: %w", err))
+	}
 	prov, err := newRunProvider(cfg, modelRef, o)
 	if err != nil {
 		return nil, fail(err)
 	}
-	provName, modelName, _ := strings.Cut(modelRef, "/")
 	return &runModel{
 		provider:  prov,
 		registry:  reg,
@@ -363,6 +383,8 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		ledger:    &ctxLedger{db: db, provider: provName, model: modelName},
 		sessionID: sid,
 		cwd:       cwd,
+		window:    win.ContextWindow,
+		winSource: string(win.Source),
 		db:        db,
 		engine:    engine,
 		runner:    runner,
@@ -527,22 +549,24 @@ type assemblerAdapter struct {
 	contextTier string // frozen per session (P15)
 	model       string
 	maxTokens   int
+	window      int64 // effective input window; < assemble.DegradedWindow = degraded
 	store       *ctxStore
 }
 
 func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleRequest) (loop.Prompt, error) {
 	view := &assemble.SessionView{
-		Phase:   assemble.PhaseF1,
-		Context: a.contextTier,
-		Tools:   a.tools,
-		Turn:    a.turn,
-		History: []assemble.Message{{Role: "user", Content: req.Input.Text}},
+		Phase:    assemble.PhaseF1,
+		Context:  a.contextTier,
+		Tools:    a.tools,
+		Turn:     a.turn,
+		Degraded: a.window > 0 && a.window < assemble.DegradedWindow,
+		History:  []assemble.Message{{Role: "user", Content: req.Input.Text}},
 	}
 	r, est, err := a.asm.Build(ctx, view)
 	if err != nil {
 		return loop.Prompt{}, fmt.Errorf("assemble build: %w", err)
 	}
-	out := loop.Prompt{InputTokens: int64(est.Total)}
+	out := loop.Prompt{InputTokens: int64(est.Total), WindowTokens: a.window}
 	out.Model, out.MaxTokens = a.model, a.maxTokens
 	// The system prompt and tools come from assemble; history comes from the
 	// transcript so assistant tool_calls and tool results survive iterations.
