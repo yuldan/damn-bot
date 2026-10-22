@@ -85,8 +85,9 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 			Env:              map[string]string{},
 			PassSSHAgent:     false,
 		},
-		Agent: Agent{VerifyOnStop: "run"},
-		Log:   Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
+		Agent:  Agent{VerifyOnStop: "run"},
+		Skills: Skills{InlineShell: false},
+		Log:    Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
 	}
 	if diff := cmp.Diff(want, Default()); diff != "" {
 		t.Errorf("Default() differs from SPEC §12 (-want +got):\n%s", diff)

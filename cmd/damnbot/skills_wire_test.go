@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,6 +17,7 @@ import (
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 	"github.com/damnbot/damnbot/internal/redact"
+	"github.com/damnbot/damnbot/internal/skills"
 )
 
 // writeSkill installs one SKILL.md (and optional files) under
@@ -65,7 +68,7 @@ func TestPaymentSkillDirs(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(loose, "scripts"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	dirs, err := paymentSkillDirs(cfg)
+	dirs, err := paymentSkillDirs(context.Background(), cfg, skillLoadOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +90,7 @@ func TestPaymentSkillDirs(t *testing.T) {
 	if err := os.Symlink(filepath.Join(out, "outside.md"), filepath.Join(dir, "SKILL.md")); err != nil {
 		t.Skipf("symlink: %v", err)
 	}
-	if _, err := paymentSkillDirs(cfg2); err == nil {
+	if _, err := paymentSkillDirs(context.Background(), cfg2, skillLoadOptions{}); err == nil {
 		t.Fatal("escaping SKILL.md symlink must fail closed")
 	}
 
@@ -95,7 +98,7 @@ func TestPaymentSkillDirs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bad, "SKILL.md"), []byte("no front matter"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := paymentSkillDirs(cfg); err == nil {
+	if _, err := paymentSkillDirs(context.Background(), cfg, skillLoadOptions{}); err == nil {
 		t.Fatal("a broken skill must fail closed")
 	}
 }
@@ -192,5 +195,27 @@ func TestPaymentGateResolvedTarget(t *testing.T) {
 	v := classify.Classify("cat "+filepath.Join(target, "scripts", "charge.sh"), env)
 	if v.Class != classify.Monetary {
 		t.Fatalf("class = %s, want monetary (%v)", v.Class, v.Reasons)
+	}
+}
+
+// TestPreprocessLoadedTrustedOnly: inline shell runs only for trusted skills
+// with the config flag; untrusted sources fail closed.
+func TestPreprocessLoadedTrustedOnly(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	trusted := skills.Skill{Name: "run", Body: "value: `!echo hi`", Source: skills.SourceUser, Path: filepath.Join(dir, "SKILL.md")}
+	if err := preprocessLoaded(ctx, &trusted, skillLoadOptions{InlineShell: true}); err != nil {
+		t.Fatalf("trusted inline shell: %v", err)
+	}
+	if !strings.Contains(trusted.Body, "value: hi") {
+		t.Fatalf("body = %q", trusted.Body)
+	}
+	untrusted := skills.Skill{Name: "imp", Body: "value: `!echo hi`", Source: skills.SourceImport, Path: filepath.Join(dir, "SKILL.md")}
+	if err := preprocessLoaded(ctx, &untrusted, skillLoadOptions{InlineShell: true}); !errors.Is(err, skills.ErrInlineShellDisabled) {
+		t.Fatalf("untrusted inline shell = %v, want ErrInlineShellDisabled", err)
+	}
+	off := skills.Skill{Name: "off", Body: "value: `!echo hi`", Source: skills.SourceUser, Path: filepath.Join(dir, "SKILL.md")}
+	if err := preprocessLoaded(ctx, &off, skillLoadOptions{}); !errors.Is(err, skills.ErrInlineShellDisabled) {
+		t.Fatalf("disabled inline shell = %v, want ErrInlineShellDisabled", err)
 	}
 }

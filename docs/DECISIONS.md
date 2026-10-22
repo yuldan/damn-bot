@@ -3233,3 +3233,20 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Dampak terukur (SPEC §20).** Dependency 0, migrasi 0, token prompt 0, perubahan indeks 0 (hanya ekspresi kueri). LOC `ctxdb/memstore` 485/600 dan `ctxdb` 3.429/3.500 (tanpa perubahan `loc.budget`). Biaya kueri: satu MATCH dengan OR dan `bm25` pada kandidat; LIMIT 10 per retrieval.
 
 **Konsekuensi.** (+) Kueri natural bahasa manusia dapat menemukan fakta yang relevan; operator FTS tetap tidak dapat disuntikkan user. (−) Kandidat bisa lebih banyak pada korpus besar (term umum seperti "my"); `bm25` + LIMIT menahan biaya, tetapi kualitas ranking bergantung pada tokenisasi unicode61 (tanpa stopword removal).
+
+## ADR-168 — Skill preprocessing: template vars dan inline shell opt-in (SKILL-004)
+
+**Status:** Accepted 2026-10-22 (F2; SKILL-004). `internal/skills` 1.230 → 1.350 (terukur 1.288; Σ core +120, Total core 38.210). Tanpa DDL/dependency.
+
+**Konteks.** SKILL.md hermes mendukung substitusi variabel dan shell inline; `skills.inline_shell` default `false`. Damn-Bot mem-parse body apa adanya, sehingga `${SKILL_DIR}`/`${PROJECT_DIR}` sampai ke model sebagai literal dan tidak ada jalur aman untuk shell. Skill dari lokasi baru (project/external, ADR-170) tidak boleh dapat mengeksekusi shell.
+
+**Keputusan.**
+1. **Template vars.** `${SKILL_DIR}`, `${SKILL_NAME}`, `${PROJECT_DIR}`, `${HOME}`, `${OS}` disubstitusi; `${...}` yang tidak dikenal dibiarkan literal. Blok kode berpagar (```` ``` ````) tidak diproses.
+2. **Inline shell.** Span backtick yang isinya diawali `!` (`!command`) dieksekusi hanya bila (a) config `[skills] inline_shell = true`, dan (b) `Skill.Source.Trusted()` (user/builtin). Runner memakai `sh -c` (`cmd /C` di Windows), timeout 5 s, output dipotong 4 KiB + marker. Selain itu `skills.Preprocess` mengembalikan `ErrInlineShellDisabled` (fail closed) — perintah tidak pernah sampai ke prompt sebagai teks.
+3. **Config.** Section `[skills]` (di luar contoh SPEC §12): `inline_shell` default `false`, divalidasi oleh decoder TOML ketat; tidak ada key lain di ADR ini.
+4. **Urutan dan consumer.** Preprocessing dijalankan setelah parse+lint (lint tetap melihat body mentah) oleh `preprocessLoaded` di composition root, dan menimpa `Skill.Body`. Konsumen body (`skill_view`, #263) membaca body yang sudah diproses; jalur gate pembayaran tidak berubah (memakai path/description/lint).
+5. **Test.** `internal/skills`: `TestPreprocessTemplates`, `TestPreprocessInlineShell` (disabled → error; enabled → runner dipanggil, backtick biasa utuh), `TestPreprocessInlineOutputCap`. `cmd/damnbot`: `TestPreprocessLoadedTrustedOnly` (trusted+flag menjalankan, import/quarantine dan flag off gagal-tertutup).
+
+**Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; `internal/skills` +≈120 baris (terukur 1.288/1.350), `cmd/damnbot` +≈70 baris non-test. Tidak ada token prompt tambahan (body tidak masuk prompt; hanya description).
+
+**Konsekuensi.** (+) Skill memakai path/OS/project yang benar tanpa hardcode. (+) Shell inline tidak pernah jalan diam-diam dan tidak tersedia untuk skill quarantined. (−) Body yang sudah diproses disimpan di `Skill` load-time; perubahan file skill memerlukan load ulang. (−) `${...}` tak dikenal tetap literal sehingga typo tidak terlihat sampai skill dibaca.

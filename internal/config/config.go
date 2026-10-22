@@ -17,6 +17,7 @@ type Config struct {
 	Approval Approval `toml:"approval"`
 	Exec     Exec     `toml:"exec"`
 	Agent    Agent    `toml:"agent"`
+	Skills   Skills   `toml:"skills"`
 	Log      Log      `toml:"log"`
 }
 
@@ -72,6 +73,12 @@ type Exec struct {
 // Agent is SPEC §12 [agent].
 type Agent struct {
 	VerifyOnStop string `toml:"verify_on_stop"`
+}
+
+// Skills is SPEC §12 [skills] (ADR-168). Inline shell defaults off because a
+// skill body is data, not a script.
+type Skills struct {
+	InlineShell bool `toml:"inline_shell"`
 }
 
 // Log is SPEC §12 [log] plus the P29/GAP-SEC-11 content controls.
@@ -142,7 +149,8 @@ func Default() Config {
 			Env:              map[string]string{},
 			PassSSHAgent:     false,
 		},
-		Agent: Agent{VerifyOnStop: "run"},
+		Agent:  Agent{VerifyOnStop: "run"},
+		Skills: Skills{InlineShell: false},
 		Log: Log{
 			Level:             "info",
 			MessageContent:    false,
