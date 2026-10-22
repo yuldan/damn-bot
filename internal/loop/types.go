@@ -46,6 +46,9 @@ type Request struct {
 	Messages  []Message
 	Tools     []ToolSchema
 	MaxTokens int
+	// CacheBreakAfter marks the leading messages whose last entry may carry a
+	// provider prompt-cache breakpoint (0 = none).
+	CacheBreakAfter int
 }
 
 // Prompt is the Assembler's output: the request plus its local token

@@ -34,9 +34,9 @@ func contextFiles() []assemble.ContextFile {
 // when the workspace is untrusted. degraded selects the PROV-02 profile. It
 // lives here, not in run.go, to keep the composition root inside the file
 // length gate (E-14).
-func contextTierInput(model *runModel, o *runOptions, degraded bool) *assemble.ContextInput {
+func contextTierInput(ctx context.Context, model *runModel, o *runOptions, degraded bool) *assemble.ContextInput {
 	in := &assemble.ContextInput{
-		Facts:          "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
+		Facts:          nudgeFacts(ctx, model) + "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
 		Degraded:       degraded,
 		Files:          contextFiles(),
 		Reader:         model.reader,

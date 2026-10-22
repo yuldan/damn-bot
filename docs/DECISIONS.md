@@ -3836,6 +3836,22 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 
 **Konsekuensi.** (+) Toolset punya kontrak, anggaran, dan validasi gagal-tertutup; config tidak bisa membuka tool yang tidak dideklarasikan. (−) Nama tool yang belum lahir di binary tetap dideklarasikan dan tampil sebagai warning bila dipilih; pemangkasannya menunggu TOOL-070/073/074/075/076.
 
+## ADR-149 — Memory nudge dan prompt-cache breakpoint; status context pin (MEM-025)
+
+**Status:** Accepted 2026-10-22 (F2; MEM-003, MEM-034). MEM-025 (context pin) **tidak** ditutup oleh ADR ini: consumer produksinya baru ada bersama wiring compaction (#219); tanpa itu implementasi pin hanya kode mati. Tidak ada DDL, dependency, atau perubahan `loc.budget`.
+
+**Konteks.** `run` belum mengingatkan agent untuk menyimpan fakta durabel, dan request provider tidak pernah menandai batas cache prefix. ADR-148/`assemble` membekukan tier stable+context ke dalam pesan system (P15), sehingga batas cache yang stabil adalah akhir pesan itu. Di sisi lain, context pin (MEM-025) menuntut pesan yang di-pin tetap utuh saat compaction; wiring compaction ke `run` masih di PR #219 (open), jadi pin belum punya jalur produksi.
+
+**Keputusan.**
+1. **Memory nudge (MEM-003).** Sebelum turn, `run` menghitung `user_message` yang sudah tersimpan di sesi. Setiap kelipatan 10 (dan bukan 0), frozen context facts mendapat `memory_nudge=consider storing durable facts with the memory tool`. Nudge hanya memengaruhi prompt (T0), tidak menambah call/LLM/IO; interval tetap 10 (default hermes) dan tidak menambah config key.
+2. **Prompt-cache breakpoint (MEM-034).** `loop.Request.CacheBreakAfter` dan `provider.Request.CacheBreakAfter` menandai jumlah pesan leading; assembler produksi menetapkan `1` karena pesan system memuat prefix stable+context yang dibekukan. Provider mengubah pesan batas menjadi blok `content:[{type:text,text:…,cache_control:{type:ephemeral}}]` **hanya** bila `Route.Family == "anthropic"`; family lain menghasilkan body byte-identik dengan sebelumnya (golden `TestEncode` tetap lulus). Cache breakpoint 0 tidak mengubah apa pun.
+3. **Context pin (MEM-025) tetap terbuka.** Implementasinya membutuhkan (a) penyimpanan pin per pesan/seq dan (b) `compaction.Prune`/`Compactor` yang menghormatinya; keduanya baru terpasang di jalur `run` lewat #219. ADR ini tidak menambahkan skema atau flag yang belum dipakai; baris MEM-025 tetap F2 `planned` dan ditutup bersama wiring compaction.
+4. **Test.** `internal/provider`: `TestCacheBreakpointAnthropic` (anthropic → cache_control, family generik dan breakpoint 0 → tidak ada, body valid). `internal/e2e`: `TestMemoryNudge` (11 turn resume pada sesi yang sama; request ke-11 memuat `memory_nudge`, request ke-2 tidak).
+
+**Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; `loop` +4 baris, `provider` +16 baris, `cmd/damnbot` +≈40 baris non-test (di luar tabel core). Token prompt bertambah hanya teks nudge (~20 token setiap 10 turn); cache_control tidak menambah token.
+
+**Konsekuensi.** (+) Agent diingatkan menyimpan memori secara berkala tanpa biaya LLM tambahan. (+) Provider yang mendukung cache_control menerima breakpoint pada prefix yang memang stabil; provider lain tidak berubah. (−) MEM-025 tetap terbuka sampai #219; sampai itu tidak ada klaim acceptance untuk pin. (−) Nudge bergantung pada hitungan transkrip, jadi fork mewarisi hitungan leluhur (interval tetap konsisten).
+
 ## ADR-168 — Skill preprocessing: template vars dan inline shell opt-in (SKILL-004)
 **Status:** Accepted 2026-10-22 (F2; SKILL-004). `internal/skills` 1.230 → 1.350 (terukur 1.288; Σ core +120, Total core 38.210). Tanpa DDL/dependency.
 **Konteks.** SKILL.md hermes mendukung substitusi variabel dan shell inline; `skills.inline_shell` default `false`. Damn-Bot mem-parse body apa adanya, sehingga `${SKILL_DIR}`/`${PROJECT_DIR}` sampai ke model sebagai literal dan tidak ada jalur aman untuk shell. Skill dari lokasi baru (project/external, ADR-170) tidak boleh dapat mengeksekusi shell.

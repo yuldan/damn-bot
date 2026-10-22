@@ -110,6 +110,9 @@ type Request struct {
 	Messages  []Message
 	Tools     []ToolSchema
 	MaxTokens int
+	// CacheBreakAfter marks the leading message whose last entry carries a
+	// prompt-cache breakpoint for families that support cache_control.
+	CacheBreakAfter int
 	// Optional sampling parameters; dropped per route once the endpoint
 	// rejects them (EC-PROV-011/012).
 	Temperature     *float64

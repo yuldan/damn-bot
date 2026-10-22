@@ -238,7 +238,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	})
 	// The context tier is rendered once and frozen for the session (P15).
 	degraded := model.window > 0 && model.window < assemble.DegradedWindow
-	ctxIn := contextTierInput(model, o, degraded)
+	ctxIn := contextTierInput(ctx, model, o, degraded)
 	ctxTier, err := asm.Context(ctx, ctxIn)
 	if err != nil {
 		return 0, fmt.Errorf("assemble context: %w", err)
@@ -559,7 +559,7 @@ func charsPerToken(s string) float64 {
 }
 
 func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
-	preq := &provider.Request{Model: req.Model, MaxTokens: req.MaxTokens}
+	preq := &provider.Request{Model: req.Model, MaxTokens: req.MaxTokens, CacheBreakAfter: req.CacheBreakAfter}
 	for _, m := range req.Messages {
 		pm := provider.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, Carriers: providerCarriers(m.Carriers)}
 		for _, c := range m.ToolCalls {
@@ -632,6 +632,9 @@ func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleReque
 	}
 	out := loop.Prompt{InputTokens: int64(est.Total), WindowTokens: a.window}
 	out.Model, out.MaxTokens = a.model, a.maxTokens
+	// The system message carries the frozen stable+context prefix (P15), so a
+	// provider cache breakpoint after it is stable within the session.
+	out.CacheBreakAfter = 1
 	// The system prompt and tools come from assemble; history comes from the
 	// transcript so assistant tool_calls and tool results survive iterations.
 	if len(r.Messages) > 0 {
