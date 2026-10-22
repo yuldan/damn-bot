@@ -162,3 +162,56 @@ func TestSessionConcurrentClose(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestSessionExecAfterClose (REVIEW-F1-SEC5 EX5-9): Exec takes ss.mu, so it
+// either registers its shell before Close drops it or starts none. Without
+// the closed check an Exec that lost the lock race started a shell after
+// Close had snapshotted the table; nothing killed that shell, its reader and
+// waiter tasks stayed in Runner's group, and Runner.Close hit closeWait
+// (10 s) — "exec: close timeout" at 11.02 s on CI.
+func TestSessionExecAfterClose(t *testing.T) {
+	t.Parallel()
+	r := New(context.Background())
+	ss := r.NewSessions(t.TempDir(), (&EnvPolicy{}).Env([]string{"PATH=" + os.Getenv("PATH")}, true, "", "", ""))
+	if err := ss.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ss.Exec(t.Context(), "s", "true", nil, time.Second); !errors.Is(err, ErrSessionsClosed) {
+		t.Fatalf("Exec after Close: %v, want %v", err, ErrSessionsClosed)
+	}
+	start := time.Now()
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("Runner.Close after Sessions.Close took %v: a shell outlived the session table", d)
+	}
+}
+
+// TestSessionCloseRacingExec: every interleaving of Close with a first Exec
+// ends with Runner.Close bounded by its normal shutdown, never by closeWait.
+// The Exec either completed before Close killed its shell (nil) or reports
+// ErrSessionsClosed; a raw platform error (darwin EIO on the PTY master,
+// ENOENT on the command file) never escapes.
+func TestSessionCloseRacingExec(t *testing.T) {
+	t.Parallel()
+	for range 50 {
+		r := New(context.Background())
+		ss := r.NewSessions(t.TempDir(), (&EnvPolicy{}).Env([]string{"PATH=" + os.Getenv("PATH")}, true, "", "", ""))
+		done := make(chan error, 1)
+		go func() {
+			_, err := ss.Exec(t.Context(), "s", "sleep 30", nil, time.Second)
+			done <- err
+		}()
+		start := time.Now()
+		if err := errors.Join(ss.Close(), r.Close()); err != nil {
+			t.Fatal(err)
+		}
+		if d := time.Since(start); d > 2*time.Second {
+			t.Fatalf("close took %v: a shell started after Sessions.Close", d)
+		}
+		if err := <-done; err != nil && !errors.Is(err, ErrSessionsClosed) {
+			t.Fatalf("concurrent Exec: %v", err)
+		}
+	}
+}
