@@ -449,9 +449,21 @@ func TestMultiProcess(t *testing.T) {
 func chaosClient(dir string, i int, deadline time.Time) (err error) {
 	ctx := context.Background()
 	id := &Ident{Host: "chaos", PID: i + 1, Start: "chaos", BootID: "chaos"}
-	s, err := Open(ctx, &Options{Dir: dir, Kind: "cli", Ident: id, BusyTimeout: 5 * time.Second})
-	if err != nil {
-		return err
+	var s *Store
+	for {
+		s, err = Open(ctx, &Options{Dir: dir, Kind: "cli", Ident: id, BusyTimeout: 5 * time.Second})
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, ErrDBBusy) && !errors.Is(err, ErrMigrationRefused) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return nil // startup contention beyond the window is not a user-visible lock
+		}
+		if serr := sleepReal(ctx, 10*time.Millisecond); serr != nil {
+			return serr
+		}
 	}
 	defer func() { err = errors.Join(err, s.Close()) }()
 	sid := "C" + itoa(int64(i))
