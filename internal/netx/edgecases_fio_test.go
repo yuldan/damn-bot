@@ -48,7 +48,7 @@ func ecFio016(t *testing.T) {
 	const cjk = "検索テキスト"
 	srv, _ := server(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream; charset=iso-8859-1")
-		_, _ = io.WriteString(w, "data: "+cjk+"\n\n")
+		_, _ = io.WriteString(w, "data: "+cjk+"\n\n") //nolint:errcheck // test handler; the client asserts the body
 	})
 	if got := firstEvent(t, srv.URL); got != cjk {
 		t.Fatalf("event = %q, want %q", got, cjk)
