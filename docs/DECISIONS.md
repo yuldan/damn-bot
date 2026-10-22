@@ -3356,7 +3356,7 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 8. **Test.** Unit tool (list metadata, untrusted view, `not_found`, efek non-idempotent, `Inspector` selalu `RequireAsk` termasuk `auto`/`auto-edit`), manager (karantina → approval user → view; skill terkarantina tidak muncul di list dan view-nya `not_found`; create menolak skill user yang hanya ada di disk tanpa mengubah file/gate pembayaran; update rejected/gagal mempertahankan versi approved lama; rejected create menghapus file; delete hanya baris agent; trusted tidak dapat ditimpa/dihapus; materialisasi hanya setelah approval; lookup eksak di antara > 50 baris; cap payload dan penolakan path, termasuk `skill.md`/`Skill.MD`), e2e binary asli (list/view skill approved dan pembungkusan `<untrusted>`; skill terkarantina tidak terlihat; `skill_manage` ditolak tanpa approver dan tidak menulis file apa pun), `TestEdgeCases/EC-CTX-006`.
 
 **Konsekuensi.** (+) Skill dapat ditemukan dan dimuat secara eksplisit; kontennya tetap data dan approval tetap milik user. (+) Tanpa storage baru (DDL 0) dan tanpa dependency baru. (−) `skill_manage` tidak tersedia pada run headless non-interaktif (fail closed); skill agent baru aktif setelah approval + materialisasi pada run berikutnya; `skill_view` menambah token sesuai file yang diminta (≤ 64 KiB/20 file, body ≤ 8 KiB).
-## ADR-138 — Headless `run` resume: `--session <id>` / `-c|--continue`
+## ADR-150 — Headless `run` resume: `--session <id>` / `-c|--continue`
 
 **Status:** Accepted 2026-10-23 (F2; melengkapi SPEC §10 `run` dan EC-STATE/resume parity). Tanpa DDL, dependency, atau budget baru.
 
