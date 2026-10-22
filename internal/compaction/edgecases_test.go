@@ -27,7 +27,7 @@ func TestEdgeCases(t *testing.T) {
 		{"EC-CTX-003", "covered", ecCtx003},
 		{"EC-CTX-004", "covered", ecCtx004},
 		{"EC-CTX-005", "covered", ecCtx005},
-		{"EC-CTX-006", "pending:F2", nil}, // skill_view tool not on main
+		{"EC-CTX-006", "covered", ecCtx006},
 		{"EC-CTX-007", "covered", ecCtx007},
 		{"EC-CTX-008", "covered", ecCtx008},
 		{"EC-CTX-009", "covered", ecCtx009},

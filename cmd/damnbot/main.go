@@ -16,6 +16,7 @@ import (
 var version = "dev"
 
 func main() {
+	utf8Console()
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
 }
 
