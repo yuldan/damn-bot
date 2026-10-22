@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"unicode"
@@ -80,14 +81,62 @@ func historyOptions(opts []HistoryOption) HistoryOptions {
 }
 
 // lineageCTE walks fork ancestry (SPEC §4.6, §11.6); path breaks cycles.
-const lineageCTE = `WITH RECURSIVE lin(id, lim, depth, path) AS (
-	SELECT s.id, 9223372036854775807, 0, ',' || s.id || ','
+const lineageCTE = `WITH RECURSIVE lin(id, lim, depth, path, origin, cwd, gateway_identity, link_origin) AS (
+	SELECT s.id, 9223372036854775807, 0, ',' || s.id || ',', s.origin, s.cwd,
+	       (SELECT l.value FROM session_labels l WHERE l.session_id = s.id AND l.key = 'gateway_chat' ORDER BY l.id DESC LIMIT 1),
+	       ''
 	  FROM sessions s WHERE s.id = ?1 AND NOT EXISTS (SELECT 1 FROM session_labels vl WHERE vl.session_id = s.id AND vl.key = 'purge_state')
 	UNION ALL
-	SELECT p.id, coalesce(c.fork_seq, 0), lin.depth + 1, lin.path || p.id || ','
+	SELECT p.id, coalesce(c.fork_seq, 0), lin.depth + 1, lin.path || p.id || ',',
+	       p.origin, p.cwd,
+	       (SELECT l.value FROM session_labels l WHERE l.session_id = p.id AND l.key = 'gateway_chat' ORDER BY l.id DESC LIMIT 1),
+	       c.origin
 	  FROM lin JOIN sessions c ON c.id = lin.id JOIN sessions p ON p.id = c.parent_id
 	 WHERE instr(lin.path, ',' || p.id || ',') = 0 AND NOT EXISTS (SELECT 1 FROM session_labels vl WHERE vl.session_id = p.id AND vl.key = 'purge_state')
 )`
+
+// Ancestor is one session of a lineage. ForkSeq bounds the ancestor's events
+// that belong to the child; on an ancestor (Self false) zero means the link
+// inherits nothing (fork at 0 or delegate). LinkOrigin is the origin of the
+// child that created this link.
+type Ancestor struct {
+	ID              string
+	ForkSeq         int64
+	Self            bool
+	Origin, Cwd     string
+	GatewayIdentity string
+	LinkOrigin      string
+}
+
+// Lineage returns sessionID and its fork ancestors, nearest first, each with
+// the fork_seq bound and its origin/cwd/identity, skipping purged sessions
+// (SPEC §4.6, §11.6). Retrieval uses it to scope automatic recall to the
+// current lineage and to reject forged ancestors.
+func (s *Store) Lineage(ctx context.Context, sessionID string) ([]Ancestor, error) {
+	if err := s.Visible(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	var out []Ancestor
+	err := s.each(ctx, lineageCTE+`
+		SELECT id, lim, depth, origin, cwd, coalesce(gateway_identity, ''), link_origin
+		FROM lin ORDER BY depth, id`, []any{sessionID}, func(r *sql.Rows) error {
+		var a Ancestor
+		var depth int64
+		if err := r.Scan(&a.ID, &a.ForkSeq, &depth, &a.Origin, &a.Cwd, &a.GatewayIdentity, &a.LinkOrigin); err != nil {
+			return wrap(err)
+		}
+		a.Self = depth == 0
+		if a.ForkSeq == math.MaxInt64 {
+			a.ForkSeq = 0
+		}
+		out = append(out, a)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ctxdb: lineage %s: %w", sessionID, err)
+	}
+	return out, nil
+}
 
 // History returns the fork-aware transcript of sessionID (SPEC §4.6):
 // ancestors up to their child's fork_seq, then the target's own events.
@@ -493,6 +542,7 @@ func (s *Store) Fork(ctx context.Context, sessionID string, atSeq int64) (string
 		_, cerr := t.CreateSession(Session{
 			ID: id, ParentID: sessionID, ForkSeq: atSeq, Origin: src.origin, Cwd: src.cwd,
 			Model: src.model, ConfigSHA: src.configSHA, ContextTier: src.contextTier,
+			GatewayIdentity: src.identity,
 		})
 		return cerr
 	})
@@ -504,6 +554,7 @@ func (s *Store) Fork(ctx context.Context, sessionID string, atSeq int64) (string
 
 type forkSource struct {
 	origin, cwd, model, configSHA, contextTier string
+	identity                                   string
 	head                                       int64
 }
 
@@ -511,10 +562,11 @@ func (s *Store) forkSource(ctx context.Context, sid string) (forkSource, error) 
 	var f forkSource
 	var labelled bool
 	err := s.get(ctx, `SELECT origin, cwd, model, config_sha, context_tier,
+		coalesce((SELECT l.value FROM session_labels l WHERE l.session_id = s.id AND l.key = 'gateway_chat' ORDER BY l.id DESC LIMIT 1), ''),
 		coalesce((SELECT max(seq) FROM events WHERE session_id = s.id), 0),
 		EXISTS (SELECT 1 FROM session_labels l WHERE l.session_id = s.id AND l.key = 'purge_state')
 		FROM sessions s WHERE s.id = ?1`, []any{sid},
-		&f.origin, &f.cwd, &f.model, &f.configSHA, &f.contextTier, &f.head, &labelled)
+		&f.origin, &f.cwd, &f.model, &f.configSHA, &f.contextTier, &f.identity, &f.head, &labelled)
 	if err != nil {
 		return f, err
 	}

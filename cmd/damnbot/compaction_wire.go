@@ -1,8 +1,10 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb/compactstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/limitstore"
 	"github.com/damnbot/damnbot/internal/loop"
+	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/redact"
@@ -143,8 +146,131 @@ func newRunCompactor(ctx context.Context, model *runModel, modelRef string, asm 
 	return comp, window, nil
 }
 
+// retrieval builds the per-turn FTS5 recall tier: best hits first, each
+// filtered against context_exclude via History's raw/excluded semantics so a
+// failed turn can never re-enter the prompt through retrieval (ADR-134).
+// retrieval builds the per-turn FTS5 recall tier under the SPEC §4.5 row-6
+// triggers (after compaction, a continued/forked session, or an active memory
+// provider; F2 has no external provider). The default scope is the current
+// session lineage only: another project's or gateway identity's session is
+// never searched, let alone shown. Hits from the current turn are skipped.
+func retrieval(ctx context.Context, db *ctxdb.Store, sessionID, turnID, query string, view *compaction.View) ([]assemble.Snippet, error) {
+	lineage, err := db.Lineage(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("recall lineage: %w", err)
+	}
+	if !view.Pruned && len(view.Summaries) == 0 && len(lineage) == 1 {
+		return nil, nil
+	}
+	bounds := lineageBounds(lineage)
+	hits, err := searchLineage(ctx, db, bounds, query)
+	if err != nil {
+		return nil, err
+	}
+	slices.SortFunc(hits, func(a, b ctxdb.Hit) int {
+		if c := cmp.Compare(a.Score, b.Score); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.SessionID, b.SessionID); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Seq, b.Seq)
+	})
+	out := make([]assemble.Snippet, 0, 3)
+	for i := range hits {
+		h := &hits[i]
+		if h.Kind == "summary_ref" || h.Seq <= 0 {
+			continue // summary hits need Hit.Excluded from #211
+		}
+		ok, verr := hitVisible(ctx, db, h, turnID, bounds[h.SessionID])
+		if verr != nil {
+			return nil, verr
+		}
+		if !ok {
+			continue
+		}
+		out = append(out, assemble.Snippet{Source: "recall:" + h.SessionID, Text: h.Snippet})
+		if len(out) == 3 {
+			break
+		}
+	}
+	return out, nil
+}
+
+// lineageBounds keeps the target and ancestors of the same origin, cwd and
+// gateway identity, mapping each to its fork bound (0 = target).
+// CreateSession rejects a forged parent, but a row written by an older
+// binary or a delegate must not widen recall.
+func lineageBounds(lineage []ctxdb.Ancestor) map[string]int64 {
+	target := lineage[0]
+	bounds := make(map[string]int64, len(lineage))
+	for _, a := range lineage {
+		if !a.Self && (a.ForkSeq <= 0 || a.LinkOrigin == "delegate") {
+			break // this link and everything above it inherit nothing
+		}
+		if a.Origin != target.Origin || a.Cwd != target.Cwd || a.GatewayIdentity != target.GatewayIdentity {
+			continue
+		}
+		bounds[a.ID] = a.ForkSeq
+	}
+	return bounds
+}
+
+// searchLineage searches each allowed session and drops events written after
+// the ancestor's fork point.
+func searchLineage(ctx context.Context, db *ctxdb.Store, bounds map[string]int64, query string) ([]ctxdb.Hit, error) {
+	var hits []ctxdb.Hit
+	for id, bound := range bounds {
+		found, err := db.Search(ctx, ctxdb.Query{Text: query, SessionID: id, Limit: 20})
+		if err != nil {
+			return nil, fmt.Errorf("recall: %w", err)
+		}
+		for i := range found {
+			if bound > 0 && found[i].Seq > bound {
+				continue
+			}
+			hits = append(hits, found[i])
+		}
+	}
+	return hits, nil
+}
+
+// hitVisible drops a hit from a context_exclude turn and from the running
+// turn itself. Until #211 exposes ctxdb.Hit.Excluded, the composition root
+// runs the same marker query (GAP-REL-01, ADR-134 butir 8); a summary hit
+// needs the range predicate from #211.
+func hitVisible(ctx context.Context, db *ctxdb.Store, h *ctxdb.Hit, currentTurn string, bound int64) (bool, error) {
+	if bound > 0 && h.Seq > bound {
+		return false, nil
+	}
+	n, err := db.Count(ctx, `SELECT (EXISTS (SELECT 1 FROM events x JOIN events t ON t.session_id = x.session_id
+			WHERE x.session_id = ?1 AND x.kind = 'context_exclude'
+			AND json_extract(x.payload, '$.turn_id') = t.turn_id AND t.seq = ?2))
+		+ (EXISTS (SELECT 1 FROM events WHERE session_id = ?1 AND seq = ?2 AND turn_id = ?3))`,
+		h.SessionID, h.Seq, currentTurn)
+	if err != nil {
+		return false, fmt.Errorf("recall visibility: %w", err)
+	}
+	return n == 0, nil
+}
+
+// catalogGroups maps enabled module descriptors to the deferred catalog tier
+// (ADR-119/121). No module is registered in F2 yet, so the seam is empty
+// until the module PRs land; the mapper is the only join point.
+func catalogGroups(reg *modules.Registry) []assemble.CatalogGroup {
+	descs := reg.Descriptors()
+	out := make([]assemble.CatalogGroup, 0, len(descs))
+	for _, d := range descs {
+		if d.Group == "" || d.Catalog == "" {
+			continue
+		}
+		out = append(out, assemble.CatalogGroup{Name: d.Group, Summary: d.Catalog})
+	}
+	return out
+}
+
 // compactionView is the seam the assembler adapter reads summaries and the
-// compacted transcript from. A nil seam keeps the raw transcript path.
+// compacted transcript from.
 type compactionView interface {
 	View(ctx context.Context, sessionID string) (compaction.View, error)
 }

@@ -21,6 +21,9 @@ type Session struct {
 	Model        string // provider/model; empty = the caller did not resolve one
 	ConfigSHA    string // sessions.config_sha snapshot
 	ContextTier  string // frozen context tier (P15); empty at creation
+	// GatewayIdentity is the gateway principal a child inherits; local
+	// sessions use "". It is validation input, not a sessions column.
+	GatewayIdentity string
 }
 
 // CreateSession inserts a session and acquires its lease in the same
@@ -33,12 +36,43 @@ func (t *Tx) CreateSession(ss Session) (int64, error) { //nolint:gocritic // val
 	if ss.Origin == "" {
 		ss.Origin = "tui"
 	}
-	_, err := t.Exec(`INSERT INTO sessions(id, parent_id, fork_seq, origin, cwd, model, config_sha, context_tier, created_at)
+	identity, err := t.checkParent(&ss)
+	if err != nil {
+		return 0, err
+	}
+	_, err = t.Exec(`INSERT INTO sessions(id, parent_id, fork_seq, origin, cwd, model, config_sha, context_tier, created_at)
 		VALUES (?,?,?,?,?,?,?,?,?)`, ss.ID, parent, fork, ss.Origin, ss.Cwd, ss.Model, ss.ConfigSHA, ss.ContextTier, t.s.clk.WallMs())
 	if err != nil {
 		return 0, err
 	}
+	if identity != "" {
+		if _, err := t.Exec(`INSERT INTO session_labels(session_id, key, value, created_at)
+			VALUES (?, 'gateway_chat', ?, ?)`, ss.ID, identity, t.s.clk.WallMs()); err != nil {
+			return 0, err
+		}
+	}
 	return t.AcquireLease(ss.ID, false)
+}
+
+// checkParent rejects a child whose parent belongs to another project (cwd)
+// or gateway identity, and returns the identity the child inherits. Origin
+// must match too, except for delegate: SPEC §11.2 allows a delegate link
+// without a fork, but its principal and cwd still come from the parent.
+func (t *Tx) checkParent(ss *Session) (string, error) {
+	if ss.ParentID == "" {
+		return "", nil
+	}
+	var origin, cwd, identity string
+	err := t.Get(`SELECT s.origin, s.cwd, coalesce((SELECT l.value FROM session_labels l
+		WHERE l.session_id = s.id AND l.key = 'gateway_chat' ORDER BY l.id DESC LIMIT 1), '')
+		FROM sessions s WHERE s.id = ?1`, []any{ss.ParentID}, &origin, &cwd, &identity)
+	if err != nil {
+		return "", fmt.Errorf("ctxdb: parent %s: %w", ss.ParentID, err)
+	}
+	if cwd != ss.Cwd || identity != ss.GatewayIdentity || (ss.Origin != "delegate" && origin != ss.Origin) {
+		return "", fmt.Errorf("ctxdb: parent %s origin/cwd/identity mismatch: %w", ss.ParentID, ErrInvalidSeq)
+	}
+	return identity, nil
 }
 
 // CreateSession creates a session (+ lease) in its own transaction.
