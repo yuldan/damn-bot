@@ -20,10 +20,16 @@ import (
 // Without it the incremental gate can only see items a catalog chose to
 // declare; an EC id that no package catalog mentions is invisible and a
 // phase acceptance run passes while the item is missing. Phase labels are
-// checked on every run. In acceptance mode the check is phase-relative,
-// matching Gate.Item: ids with a phase above PHASE may be absent, ids at
-// or below PHASE must be cataloged and covered or n/a. Normal test runs
-// stay green and log the uncataloged ids.
+// checked on every run.
+//
+// Acceptance mode is phase-relative and certifies the phase being left
+// (ADR-080 butir 2, ROADMAP §"Regression suite", ADR-176): the job runs while
+// PHASE is raised from Fx to Fx+1, so every id at or below PHASE-1 must be
+// cataloged and covered or n/a, while an id of the phase being entered
+// (phase = PHASE) may still be pending:<PHASE> and may even be absent. At
+// PHASE = F9 there is no next phase, so no catalog row may stay pending. Ids
+// above PHASE are only logged. Normal test runs stay green and log the
+// uncataloged ids.
 func TestEdgeCaseCatalogSync(t *testing.T) {
 	t.Parallel()
 	g := Current(t)
@@ -39,12 +45,27 @@ func TestEdgeCaseCatalogSync(t *testing.T) {
 		logUncataloged(t, required, catalog, g.cur)
 		return
 	}
-	// Acceptance for the phase being entered: every item with a roadmap phase
-	// at or below PHASE must be cataloged and covered. The old gate could only
-	// see declared rows, so an id no catalog mentioned passed silently.
+	// Acceptance certifies the phase being left: the job runs while PHASE is
+	// raised from Fx to Fx+1, so Fx = PHASE-1 is the highest phase it may
+	// require (ADR-080 butir 2, ADR-176). The phase being entered keeps its
+	// right to be pending; everything above it is only logged.
 	t.Run("RequiredIDsCataloged", func(t *testing.T) { checkRequiredIDs(t, required, catalog, g.cur) })
 	t.Run("CoveredAtPhase", func(t *testing.T) { checkCovered(t, required, catalog, g.cur) })
+	logOpen(t, required, catalog, g.cur)
 }
+
+// requiredPhase is the highest phase the acceptance run requires to be
+// cataloged and covered: PHASE-1 (ADR-176).
+func requiredPhase(cur int) int { return cur - 1 }
+
+// phaseMax is the last phase PHASE may hold (F9).
+const phaseMax = 9
+
+func phaseName(p int) string { return fmt.Sprintf("F%d", p) }
+
+// violation is one acceptance violation: the id and the reason, without the
+// "PHASE GAGAL" prefix.
+type violation struct{ id, why string }
 
 func checkPhaseMatches(t *testing.T, required map[string]int, catalog map[string]catalogEntry) {
 	t.Helper()
@@ -67,27 +88,98 @@ func logUncataloged(t *testing.T, required map[string]int, catalog map[string]ca
 	}
 }
 
+// logOpen reports the ids at or above PHASE with no catalog row or a pending
+// one. They are not acceptance failures — the next bump requires them — but
+// the log is where the report shows what is still open.
+func logOpen(t *testing.T, required map[string]int, catalog map[string]catalogEntry, cur int) {
+	t.Helper()
+	var open []string
+	for id, p := range required {
+		if p < cur {
+			continue
+		}
+		e, ok := catalog[id]
+		switch {
+		case !ok:
+			open = append(open, fmt.Sprintf("%s/F%d:no-row", id, p))
+		case strings.HasPrefix(e.status, "pending:"):
+			open = append(open, fmt.Sprintf("%s/F%d:%s", id, p, e.status))
+		}
+	}
+	if len(open) == 0 {
+		return
+	}
+	sort.Strings(open)
+	t.Logf("PHASE acceptance F%d: %d EC ids of a later phase are still open: %s",
+		cur, len(open), strings.Join(open, " "))
+}
+
 func checkRequiredIDs(t *testing.T, required map[string]int, catalog map[string]catalogEntry, cur int) {
 	t.Helper()
-	for _, id := range uncataloged(required, catalog, cur) {
-		t.Errorf("PHASE GAGAL %s: required at F%d but no package catalog declares it", id, required[id])
+	for _, v := range uncatalogedViolations(required, catalog, cur) {
+		t.Errorf("PHASE GAGAL %s: %s", v.id, v.why)
 	}
 }
 
 func checkCovered(t *testing.T, required map[string]int, catalog map[string]catalogEntry, cur int) {
 	t.Helper()
+	for _, v := range coverageViolations(required, catalog, cur) {
+		t.Errorf("PHASE GAGAL %s: %s", v.id, v.why)
+	}
+}
+
+// uncatalogedViolations lists every id at or below PHASE-1 that has no catalog
+// row at all.
+func uncatalogedViolations(required map[string]int, catalog map[string]catalogEntry, cur int) []violation {
+	var out []violation
+	for _, id := range uncataloged(required, catalog, requiredPhase(cur)) {
+		out = append(out, violation{id, fmt.Sprintf("required at F%d but no package catalog declares it", required[id])})
+	}
+	return out
+}
+
+// coverageViolations lists every catalog row that breaks the acceptance rule:
+// an id at or below PHASE-1 must be covered or n/a, a row of the phase being
+// entered may be covered, n/a or pending:<PHASE> (its own label) and may be
+// absent, and at PHASE = F9 nothing may be pending at all.
+func coverageViolations(required map[string]int, catalog map[string]catalogEntry, cur int) []violation {
+	var out []violation
 	for id, p := range required {
-		if p > cur {
+		if p > requiredPhase(cur) {
 			continue
 		}
 		e, ok := catalog[id]
 		if !ok {
-			continue // RequiredIDsCataloged reports it
+			continue // uncatalogedViolations reports it
 		}
 		if e.status != "covered" && e.status != "n/a" {
-			t.Errorf("PHASE GAGAL %s: phase acceptance F%d: catalog status %q (%s)", id, cur, e.status, e.file)
+			out = append(out, violation{id, fmt.Sprintf("phase acceptance F%d: catalog status %q (%s)", cur, e.status, e.file)})
 		}
 	}
+	for id, e := range catalog {
+		if required[id] != cur {
+			continue
+		}
+		if e.status == "covered" || e.status == "n/a" || e.status == "pending:"+phaseName(cur) {
+			continue
+		}
+		out = append(out, violation{id, fmt.Sprintf("phase acceptance F%d: catalog status %q (%s), want covered, n/a or pending:%s",
+			cur, e.status, e.file, phaseName(cur))})
+	}
+	if cur == phaseMax {
+		for id, e := range catalog {
+			if strings.HasPrefix(e.status, "pending:") {
+				out = append(out, violation{id, fmt.Sprintf("phase acceptance F9: item is still pending (%s)", e.file)})
+			}
+		}
+	}
+	slices.SortFunc(out, func(a, b violation) int {
+		if c := strings.Compare(a.id, b.id); c != 0 {
+			return c
+		}
+		return strings.Compare(a.why, b.why)
+	})
+	return out
 }
 
 // uncataloged lists required ids at or below phase cur with no catalog row.
