@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -84,9 +85,16 @@ type Env struct {
 // temporary directories.
 func New(t *testing.T, replies ...providertest.Reply) *Env {
 	t.Helper()
-	srv := providertest.New(t, nil, replies...)
+	return NewFunc(t, func(*Env) []providertest.Reply { return replies })
+}
+
+// NewFunc creates the temporary directories first and lets the caller build
+// the scripted replies from them, so a scenario can name files it only knows
+// after the harness has made its private home and workspace.
+func NewFunc(t *testing.T, replies func(*Env) []providertest.Reply) *Env {
+	t.Helper()
 	dir := t.TempDir()
-	e := &Env{t: t, Server: srv, DataDir: filepath.Join(dir, "data"), Workdir: filepath.Join(dir, "work"), home: filepath.Join(dir, "home")}
+	e := &Env{t: t, DataDir: filepath.Join(dir, "data"), Workdir: filepath.Join(dir, "work"), home: filepath.Join(dir, "home")}
 	for _, d := range []string{e.DataDir, e.Workdir, e.home} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)
@@ -96,7 +104,38 @@ func New(t *testing.T, replies ...providertest.Reply) *Env {
 	if err := os.WriteFile(e.cfg, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	e.Server = providertest.New(t, nil, replies(e)...)
 	return e
+}
+
+// ConfigDir is the child's config directory for the private home (SPEC §4.9):
+// XDG on Linux (the harness points XDG_CONFIG_HOME at home), Application
+// Support on darwin, APPDATA on Windows.
+func (e *Env) ConfigDir() string {
+	switch runtime.GOOS {
+	case "windows":
+		return filepath.Join(e.home, "AppData", "Roaming", "damnbot")
+	case "darwin":
+		return filepath.Join(e.home, "Library", "Application Support", "damnbot")
+	default:
+		return filepath.Join(e.home, "damnbot")
+	}
+}
+
+// childEnv is os.Environ with the harness's private home applied, so the child
+// never reads or writes the runner's real user directories (skills, keys,
+// data). The platform equivalents of HOME are replaced, not appended, because
+// duplicate keys are platform-dependent.
+func childEnv(home string) []string {
+	private := []string{"HOME=", "USERPROFILE=", "APPDATA=", "LOCALAPPDATA=", "XDG_CONFIG_HOME=", "XDG_DATA_HOME="}
+	env := make([]string, 0, len(os.Environ())+2)
+	for _, kv := range os.Environ() {
+		if slices.ContainsFunc(private, func(p string) bool { return strings.HasPrefix(kv, p) }) {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, "HOME="+home, "USERPROFILE="+home, "XDG_CONFIG_HOME="+home)
 }
 
 // Result is one completed child process.
@@ -129,7 +168,7 @@ func (e *Env) Exec(args ...string) Result {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binPath, args...) //nolint:gosec // binary path is this package's temp build
 	cmd.Dir = e.Workdir
-	cmd.Env = append(os.Environ(), "HOME="+e.home, "XDG_CONFIG_HOME="+e.home)
+	cmd.Env = childEnv(e.home)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
