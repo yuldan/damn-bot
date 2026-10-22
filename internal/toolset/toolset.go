@@ -15,6 +15,7 @@ package toolset
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -144,28 +145,55 @@ func DeclaredTools() map[string]bool {
 
 // Validate checks names, custom composition and cycles. It is pure.
 func (c *Config) Validate() error {
+	all, err := c.definitions()
+	if err != nil {
+		return err
+	}
+	if err := validateCustomTools(c.Custom); err != nil {
+		return err
+	}
+	if err := validateLists(all, c.Active, c.Disabled); err != nil {
+		return err
+	}
+	if err := validatePlatforms(all, c.Platform); err != nil {
+		return err
+	}
+	return validateCycles(all)
+}
+
+// definitions merges the built-ins with the custom entries, rejecting empty
+// names, built-in shadows and empty compositions.
+func (c *Config) definitions() (map[string]Definition, error) {
 	all := builtinMap()
 	for name, d := range c.Custom {
 		if strings.TrimSpace(name) == "" {
-			return fmt.Errorf("%w: empty custom name", ErrInvalid)
+			return nil, fmt.Errorf("%w: empty custom name", ErrInvalid)
 		}
 		if _, dup := all[name]; dup {
-			return fmt.Errorf("%w: %q shadows a built-in toolset", ErrDuplicate, name)
+			return nil, fmt.Errorf("%w: %q shadows a built-in toolset", ErrDuplicate, name)
 		}
 		if len(d.Tools) == 0 && len(d.Includes) == 0 {
-			return fmt.Errorf("%w: custom toolset %q is empty", ErrInvalid, name)
+			return nil, fmt.Errorf("%w: custom toolset %q is empty", ErrInvalid, name)
 		}
-		all[name] = d
 	}
+	maps.Copy(all, c.Custom)
+	return all, nil
+}
+
+func validateCustomTools(custom map[string]Definition) error {
 	declared := DeclaredTools()
-	for name, d := range c.Custom {
+	for name, d := range custom {
 		for _, t := range d.Tools {
 			if !declared[t] {
 				return fmt.Errorf("%w: custom toolset %q: %w %q", ErrInvalid, name, ErrUnknownTool, t)
 			}
 		}
 	}
-	for _, list := range [][]string{c.Active, c.Disabled} {
+	return nil
+}
+
+func validateLists(all map[string]Definition, active, disabled []string) error {
+	for _, list := range [][]string{active, disabled} {
 		for _, name := range list {
 			if name == "*" || name == "all" {
 				continue
@@ -175,15 +203,16 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
-	for name := range c.Platform {
+	return nil
+}
+
+func validatePlatforms(all map[string]Definition, platforms map[string]Override) error {
+	for name, ov := range platforms {
 		switch name {
 		case "linux", "darwin", "windows":
 		default:
 			return fmt.Errorf("%w: platform %q (want linux, darwin or windows)", ErrInvalid, name)
 		}
-	}
-	for name := range c.Platform {
-		ov := c.Platform[name]
 		for _, n := range slices.Concat(ov.Active, ov.Disabled) {
 			if n == "*" || n == "all" {
 				continue
@@ -193,7 +222,12 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
-	// Cycles: custom includes may nest; built-ins are acyclic by construction.
+	return nil
+}
+
+// validateCycles rejects recursive includes; built-ins are acyclic by
+// construction, custom ones may nest.
+func validateCycles(all map[string]Definition) error {
 	state := make(map[string]uint8, len(all)) // 1 visiting, 2 done
 	var visit func(string, []string) error
 	visit = func(name string, path []string) error {
@@ -232,29 +266,29 @@ func Resolve(cfg Config, platform string, available map[string]bool) (Selection,
 		return Selection{}, err
 	}
 	all := builtinMap()
-	for name, d := range cfg.Custom {
-		all[name] = d
-	}
+	maps.Copy(all, cfg.Custom)
 	active, disabled := cfg.Active, cfg.Disabled
 	if ov, ok := cfg.Platform[platform]; ok {
 		active, disabled = ov.Active, ov.Disabled
 	}
-	if len(active) == 0 {
-		tools := make([]string, 0, len(available))
-		for name := range available {
-			tools = append(tools, name)
-		}
-		sort.Strings(tools)
-		return Selection{Tools: tools}, nil
-	}
-	active = expandAll(active, all)
-	disabled = expandAll(disabled, all)
 	chosen := make(map[string]bool)
-	for _, name := range active {
-		for _, t := range resolveOne(all, name) {
-			chosen[t] = true
+	switch {
+	case len(active) == 0 && len(disabled) == 0:
+		tools := slices.Sorted(maps.Keys(available))
+		return Selection{Tools: tools}, nil
+	case len(active) == 0:
+		for name := range available { // disabled-only: start from every exposed tool
+			chosen[name] = true
+		}
+	default:
+		active = expandAll(active, all)
+		for _, name := range active {
+			for _, t := range resolveOne(all, name) {
+				chosen[t] = true
+			}
 		}
 	}
+	disabled = expandAll(disabled, all)
 	for _, name := range disabled {
 		for _, t := range resolveOne(all, name) {
 			delete(chosen, t)
@@ -282,12 +316,7 @@ func expandAll(list []string, all map[string]Definition) []string {
 			out = append(out, name)
 			continue
 		}
-		names := make([]string, 0, len(all))
-		for n := range all {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		out = append(out, names...)
+		out = append(out, slices.Sorted(maps.Keys(all))...)
 	}
 	return out
 }
@@ -310,10 +339,5 @@ func resolveOne(all map[string]Definition, name string) []string {
 		}
 	}
 	walk(name)
-	out := make([]string, 0, len(seen))
-	for t := range seen {
-		out = append(out, t)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(seen))
 }

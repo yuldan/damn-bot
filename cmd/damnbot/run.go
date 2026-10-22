@@ -391,7 +391,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fail(fmt.Errorf("toolsets: %w", err))
 	}
-	sel = withDeferredMeta(sel, registryNames(reg))
+	withDeferredMeta(&sel, registryNames(reg))
 	prov, err := newRunProvider(cfg, w.db, modelRef, o)
 	if err != nil {
 		return nil, w.fail(err)
@@ -660,9 +660,9 @@ func registryNames(reg *tools.Registry) map[string]bool {
 // withDeferredMeta keeps tool_search/tool_invoke exposed when they are
 // registered: they are infrastructure for the deferred catalog, not toolset
 // members, and a toolset selection must not disconnect module tools.
-func withDeferredMeta(sel toolset.Selection, available map[string]bool) toolset.Selection {
+func withDeferredMeta(sel *toolset.Selection, available map[string]bool) {
 	if sel.Allowed == nil {
-		return sel
+		return
 	}
 	for _, name := range []string{tools.ToolSearchName, tools.ToolInvokeName} {
 		if !available[name] || sel.Allowed[name] {
@@ -672,7 +672,6 @@ func withDeferredMeta(sel toolset.Selection, available map[string]bool) toolset.
 		sel.Tools = append(sel.Tools, name)
 	}
 	slices.Sort(sel.Tools)
-	return sel
 }
 
 type toolsetAdapter struct {
@@ -685,6 +684,20 @@ func (t *toolsetAdapter) Prepare(_ context.Context, c loop.ToolCall) (loop.Prepa
 		return loop.Prepared{}, &loop.ToolError{
 			Code: "unknown_tool", Message: "tool not in the active toolset: " + c.Name,
 			Hint: "call one of the tools the active toolsets expose",
+		}
+	}
+	if t.allowed != nil && c.Name == tools.ToolInvokeName {
+		var inner struct {
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal([]byte(c.Arguments), &inner); err != nil {
+			return loop.Prepared{}, &loop.ToolError{Code: loop.CodeInvalidArgs, Message: "tool_invoke arguments", Hint: err.Error()}
+		}
+		if inner.Name != "" && !t.allowed[inner.Name] {
+			return loop.Prepared{}, &loop.ToolError{
+				Code: "unknown_tool", Message: "tool not in the active toolset: " + inner.Name,
+				Hint: "call one of the tools the active toolsets expose",
+			}
 		}
 	}
 	effect := t.disp.Effect(c.Name, json.RawMessage(c.Arguments))
