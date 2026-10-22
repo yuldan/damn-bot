@@ -147,6 +147,10 @@ func TestWindowsCdGate(t *testing.T) {
 		{Cmd, `cd \\?\UNC\evil\share && git status`, Unknown},
 		{Pwsh, `Set-Location \\evil\share`, Unknown},
 		{Pwsh, `Set-Location sub; Get-ChildItem`, Mutating},
+		{Cmd, `cd sub && cd`, Mutating},
+		{Cmd, `cd sub && pushd`, Mutating},
+		{Cmd, `cd sub && popd`, Mutating},
+		{Bash, `cd //tmp && echo hi`, Mutating},
 	} {
 		env := testEnv()
 		env.Dialect = c.dialect
