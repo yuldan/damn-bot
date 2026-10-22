@@ -546,7 +546,7 @@ func TestDurableSetsLogged(t *testing.T) {
 	}
 }
 
-// spin busy-waits d: a sample of known minimum length without time.Sleep// spin busy-waits d: a sample of known minimum length without time.Sleep
+// spin busy-waits d: a sample of known minimum length without time.Sleep
 // (E-30/E-72).
 func spin(d time.Duration) {
 	for t0 := time.Now(); time.Since(t0) < d; {
