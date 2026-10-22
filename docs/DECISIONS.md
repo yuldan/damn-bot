@@ -3431,6 +3431,8 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Status:** Accepted 2026-10-22 (delegasi). Diterapkan di PR #242.
 
+*(Amandemen 2026-10-22: baris EC-WIN-002, EC-WIN-005, dan EC-WIN-011 ledger F2 ditutup di runner Windows oleh PR #257 — `internal/ctxdb/win_f2_edgecases_windows_test.go`, `TestWindowsF2EdgeCases`. Tidak ada fase yang berubah; ledger diperbarui sesuai butir 2.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-22): `docs/F2-ACCEPTANCE.md` sebagai artefak review F2; dirujuk oleh PR #242 dan gate kelengkapan #244. Tidak mengubah SPEC, skema, dependency, atau `loc.budget`.
 
 **Konteks.** Acceptance F2 tersebar di ROADMAP (baris per fase), EDGE-CASES (EC per komponen), FEATURE-PARITY (fase per baris), dan DECISIONS §22.1 (GAP). Sebelumnya tidak ada satu dokumen yang memetakan setiap baris ke test pembuktinya, sehingga baris yang tidak pernah ditulis test-nya bisa lolos acceptance secara diam-diam (temuan AUD-004/NEW-12 dan review F2).
@@ -3581,3 +3583,35 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** Token/biaya/kode 0; hanya dokumen; tidak ada perubahan `loc.budget`.
 
 **Konsekuensi.** (+) Urutan fase tegas: harness eksternal dapat memakai Damn-Bot sekarang lewat stream-JSON dan lewat ACP pada F3 tanpa membuka kembali cakupan F2. (+) Jalur inbound bersandar pada seam yang sudah ada (headless `run`, toolset, deferred catalog, state DB, budget guard, harness e2e) sehingga tidak butuh arsitektur baru. (−) Permintaan orkestrasi native harus menunggu fase pemiliknya; mempercepatnya berarti ADR + penaikan PHASE, bukan penambahan diam-diam di F2.
+## ADR-140 — Inspeksi sesi read-only: `sessions ls|show` di atas `ctxdb.Options.ReadOnly`
+
+**Status:** Accepted 2026-10-23 (F2, wiring REL-05/ADR-132). Tanpa DDL, dependency, atau budget baru.
+
+**Konteks.** `ctxdb.Open(ReadOnly)` (ADR-132) sudah dapat membaca DB dengan skema lebih baru tanpa migrasi/layout, tetapi tidak ada perintah CLI yang memakainya; SPEC §10 sudah menamai `sessions ls/show/export`, dan REL-05 hanya mengizinkan proses tulis menolak start.
+
+**Keputusan.**
+1. **Subperintah.** `sessions ls` mencetak `id<TAB>cwd<TAB>model` untuk sesi visible terbaru-dulu; `sessions show <id>` mencetak metadata (`id`, `origin`, `cwd`, `model`) dan jumlah event; `sessions export <id> [--format jsonl|md]` mengekspor transkrip mentah (summary tidak menggantikan event; `context_exclude` tetap disertakan untuk audit).
+2. **Read-only.** Ketiganya membuka `ctxdb.Options{ReadOnly:true, Kind:"cli"}` lewat `openSessionsDBReadOnly`; tidak ada migrasi, layout, holder, atau baris lease. Direktori data yang tidak ada tetap error dan tidak dibuat. Data dir default dari config; `--data-dir` adalah flag internal/test seperti `run`.
+3. **Skema lebih baru.** `ReadOnly` menerima `user_version` di atas skema binary, sehingga `ls/show/export` berhasil (exit 0) pada DB baru; `run` (penulis) pada DB yang sama gagal `ErrSchemaNewer` dan keluar 1 sesuai SPEC §4.3.
+4. **Metadata.** `ctxdb.SessionInfo(ctx, id)` mengembalikan metadata sesi visible tanpa membuka writer; sesi hilang/purged = `ErrNotFound`.
+5. **Error/exit.** Mapping §11.6 yang ada dipakai: `not_found`/`session_purging` 1, argumen/format invalid 2, `session_busy`/`db_busy` 4; pesan bebas teks SQL dan argumen di-echo setelah `cleanArg`.
+6. **LOC.** `ctxdb` 3.900 → 3.950 (additive +50 di atas ADR-136; terukur 3.886 pada pohon sesudah main+#227), Total core 38.250 → 38.300.
+7. **Test.** `internal/e2e` (binary nyata): `TestSessionsReadOnlyNewerSchema` menyiapkan DB `user_version=9999`, memastikan `sessions show/ls` exit 0 dan membaca baris, lalu `run` exit 1 dengan `schema_newer` tanpa provider call.
+
+## ADR-141 — Sesi admin F2 (1/2): export, titles, pin/archive, stats di atas label append-only
+
+**Status:** Accepted 2026-10-22 (F2; CLI-057, MEM-014, MEM-016). Bertumpuk di atas ADR-140 (read-only `ls|show`); prune/archive massal + auto-prune ada di ADR-142.
+
+**Konteks.** ADR-140 menambahkan `sessions ls|show` read-only, tetapi belum ada export (MEM-014), title (MEM-016), pin/archive, atau stats (CLI-057). `session_labels` sudah mengizinkan `title`, `archived`, dan `pinned` sejak migrasi 0001, namun belum ada API tulis/baca maupun perintah headless.
+
+**Keputusan.**
+1. **Subperintah.** `sessions rename <id> [<title>]` (menulis/membaca label `title`), `sessions export <id> [--format md|jsonl|html] [--out FILE] [--no-redact]`, `sessions archive|unarchive|pin|unpin <id>`, `sessions pinned`, dan `sessions stats`. `ls`/`show` tetap milik ADR-140 dan tidak diubah.
+2. **Label append-only.** `ctxdb.SetSessionLabel` hanya menerima `title`/`archived`/`pinned`; baris terakhir menang dan `"0"` mematikan flag tanpa menghapus riwayat. Judul dipangkas kontrol/UTF-8 invalid, di-trim, dan dibatasi 120 rune. `SessionLabel` membaca nilai terakhir; `SessionRows` mengembalikan metadata sesi + label + jumlah event untuk `pinned`/`stats`.
+3. **Export.** Membaca lewat store read-only ADR-140 dengan `History(..., WithHistoryRaw, WithHistoryExcluded)` sehingga ekspor memuat transkrip penuh termasuk turn yang dikecualikan dan leluhur fork. Rahasia diredaksi default (`redact.New`) pada content, payload, **tool name, and metadata (title/model/cwd)**; `--no-redact` adalah opt-out eksplisit. `md`/`html` meng-escape konten sesuai format, `jsonl` satu objek per event. `--out` membuat file baru `O_EXCL` + `fchmod 0600` (menolak menimpa path yang ada dan tidak menulis lewat symlink), dan transkrip yang mencapai batas 100.000 event mencetak peringatan truncation ke stderr. Format tak dikenal = exit 2.
+4. **Tidak menduplikasi.** `sessions prune`/`purge` massal, VACUUM, dan `[sessions] auto_prune` ada di ADR-142. `sessions fork/rewind` (ADR-136) dan resume `run --session/--continue` (#243, MEM-013) tetap milik PR masing-masing.
+5. **Budget.** `ctxdb` 4.050 → 4.150 (additive +100 di atas ADR-140; terukur 4.000; label/title/rows), Total core 38.700 → 38.800 ≤ 47.000 (delta dijumlahkan di atas ADR-136/ADR-140 yang sudah di `main`); `cmd/damnbot` tidak masuk tabel budget core.
+6. **Test.** `internal/ctxdb` (`TestSessionLabelsAndRows`, `TestSessionLabelRejections`: append-only last-wins, flag value closed, sanitasi/120 rune, urutan + jumlah event); `cmd/damnbot` (`TestSessionsRenameAndExport`, `TestSessionsExportFile`, `TestSessionsStatsAndFlags`); `internal/e2e` (`TestSessionsAdminEndToEnd`: binary nyata membuat transkrip, lalu rename/export md+jsonl+html/stats/pin/archive/unpin, redaksi dan escape diperiksa).
+
+**Dampak terukur (SPEC §20).** DDL/migrasi 0, dependency 0, token prompt 0 (perintah CLI di luar jalur turn). LOC `ctxdb` +121 (terukur 4.000/4.050); `cmd/damnbot` +409 baris non-test (di luar tabel core).
+
+**Konsekuensi.** (+) `sessions` F2 punya export, judul, pin/archive, dan stats headless tanpa menyentuh jalur turn. (+) Label append-only menjaga invariant P9 (tidak ada UPDATE/DELETE pada metadata). (−) Ekspor penuh memuat seluruh lineage; pada sesi besar pengguna memakai `--out`/format `jsonl`. (−) `archived` hanya label sampai prune/archive massal (ADR-142) dan permukaan F3 memfilternya.
