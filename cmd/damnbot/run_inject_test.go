@@ -90,5 +90,20 @@ func TestRunAnswerSchema(t *testing.T) {
 	code, out = run(`{"answer":"ok"}`)
 	if code != 0 || !strings.Contains(out, `"completed"`) {
 		t.Fatalf("conforming answer = %d %s", code, out)
+// TestRunTrimsMemory: the RSS trim hook runs once after the turn (MEM-033).
+func TestRunTrimsMemory(t *testing.T) {
+	prov := &injectProvider{text: "pong"}
+	cfg := config.Default()
+	var out bytes.Buffer
+	trimmed := 0
+	code, err := runOne(context.Background(), &runOptions{
+		prompt: "ping", model: "openai/fake", dataDir: t.TempDir(), output: "json", approval: "auto",
+		prov: prov, cfgOverride: &cfg, trimMemory: func() { trimmed++ },
+	}, &out)
+	if err != nil || code != 0 {
+		t.Fatalf("runOne = %d, %v", code, err)
+	}
+	if trimmed != 1 {
+		t.Fatalf("trim calls = %d, want 1", trimmed)
 	}
 }

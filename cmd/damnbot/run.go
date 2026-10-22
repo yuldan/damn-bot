@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -58,6 +59,8 @@ type runOptions struct {
 	retrieverFor func(*ctxdb.Store) assemble.Retriever
 	// validate is --answer-schema compiled (SPEC §7.2); nil = no schema.
 	validate func(string) error
+	// trimMemory is the RSS trim hook (MEM-033); nil uses debug.FreeOSMemory.
+	trimMemory func()
 }
 
 // reportedParseError marks a parse failure the flag package already wrote to
@@ -192,7 +195,13 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 			err = fmt.Errorf("close run model: %w", cerr)
 		}
 	}()
-	return runTurn(ctx, &cfg, o, model, modelRef, red, model.spill, stdout)
+	code, terr := runTurn(ctx, &cfg, o, model, modelRef, red, model.spill, stdout)
+	trim := o.trimMemory
+	if trim == nil {
+		trim = debug.FreeOSMemory
+	}
+	trim()
+	return code, terr
 }
 
 func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef string, red *redact.Redactor, spill tools.Spill, stdout io.Writer) (int, error) {
@@ -270,6 +279,13 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	if err != nil {
 		return 0, fmt.Errorf("loop: %w", err)
 	}
+	if strings.Contains(o.prompt, "@") {
+		expanded, xerr := expandRefs(ctx, o.prompt, model.sb, model.net, o.offline)
+		if xerr != nil {
+			return 0, fmt.Errorf("context refs: %w", xerr)
+		}
+		o.prompt = expanded
+	}
 	stream, err := lp.Prompt(ctx, model.sessionID, loop.Input{Text: o.prompt})
 	if err != nil {
 		return 0, fmt.Errorf("prompt: %w", err)
@@ -298,6 +314,10 @@ type runModel struct {
 	// it into the character cap with the session's char/token ratio.
 	inlineCap int
 	spill     tools.Spill
+	// sb and net are the run's sandbox and egress guard: @reference expansion
+	// reads files through the sandbox and URLs through the netx client (MEM-024).
+	sb  *sandbox.Sandbox
+	net *netx.Network
 }
 
 func (m *runModel) close(ctx context.Context) error {
@@ -394,6 +414,8 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		winSource: string(win.Source),
 		inlineCap: w.inlineCap,
 		spill:     w.spill,
+		sb:        w.sb,
+		net:       netx.New(netx.Config{Offline: o.offline}),
 		db:        w.db,
 		engine:    w.engine,
 		runner:    w.runner,
