@@ -68,6 +68,7 @@ func sessionsUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot sessions rename <id> [<title>]\n")
 	sessionsPrintf(w, "       damnbot sessions export <id> [--format md|jsonl|html] [--out FILE] [--no-redact]\n")
 	sessionsPrintf(w, "       damnbot sessions prune --older-than <90d> [--archive] [--dry-run] [--yes]\n")
+	sessionsPrintf(w, "       (archive uses created_at; purge uses last activity, SPEC §11.6; pinned sessions are never purged)\n")
 	sessionsPrintf(w, "       damnbot sessions archive|unarchive|pin|unpin <id>\n")
 	sessionsPrintf(w, "       damnbot sessions pinned|stats\n")
 }

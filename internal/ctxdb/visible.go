@@ -128,6 +128,7 @@ type sessNode struct {
 	parent   string
 	activity int64 // created_at of the max-seq event, else sessions.created_at
 	labelled bool
+	pinned   bool // latest pinned label is 1: never purged (nor its ancestors)
 }
 
 // sessForest is the session tree used to compute P.
@@ -180,7 +181,7 @@ func (s *Store) purgeSet(ctx context.Context, req PurgeRequest) (PurgeReport, er
 	err := s.each(ctx, s.q["purge.nodes"], nil, func(r *sql.Rows) error {
 		var id string
 		var n sessNode
-		if err := wrap(r.Scan(&id, &n.parent, &n.activity, &n.labelled)); err != nil {
+		if err := wrap(r.Scan(&id, &n.parent, &n.activity, &n.labelled, &n.pinned)); err != nil {
 			return err
 		}
 		f.nodes[id] = n
@@ -209,8 +210,34 @@ func (s *Store) purgeSet(ctx context.Context, req PurgeRequest) (PurgeReport, er
 	}
 	slices.Sort(rep.P)
 	rep.P = slices.Compact(rep.P)
+	rep.P, rep.Pinned = f.dropPinned(rep.P)
 	slices.SortStableFunc(rep.P, func(a, b string) int { return f.depth(b) - f.depth(a) })
 	return rep, nil
+}
+
+// dropPinned removes pinned sessions from P together with their ancestors:
+// deleting an ancestor would take the pinned row with it (and break the
+// parent FK). Pinned roots removed from P are reported so the CLI can explain
+// the skip.
+func (f *sessForest) dropPinned(p []string) (kept, pinned []string) {
+	drop := map[string]bool{}
+	for _, id := range p {
+		if !f.nodes[id].pinned {
+			continue
+		}
+		pinned = append(pinned, id)
+		for cur := id; cur != ""; cur = f.nodes[cur].parent {
+			drop[cur] = true
+		}
+	}
+	kept = p[:0]
+	for _, id := range p {
+		if !drop[id] {
+			kept = append(kept, id)
+		}
+	}
+	slices.Sort(pinned)
+	return kept, pinned
 }
 
 // olderThan: without forks only childless sessions older than cutoff (the

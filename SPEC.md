@@ -2474,7 +2474,7 @@ theme    = "tern-dark"
 level = "info"
 ```
 
-Section `[sessions]` di luar contoh (ADR-141, MEM-015): `auto_prune` (default `false`) menjalankan prune sesi lebih lama dari `prune_after_days` (default `90`, rentang 1..3650) saat `run` mulai; VACUUM dijalankan sesudah purge yang menghapus baris. Prune otomatis tidak pernah menghapus bila nilainya `false`, dan kegagalan purge (DB sibuk/turn terbuka) dilaporkan lalu run tetap berjalan.
+Section `[sessions]` di luar contoh (ADR-142, MEM-015): `auto_prune` (default `false`) menjalankan prune sesi lebih lama dari `prune_after_days` (default `90`, rentang 1..3650) saat `run` mulai; VACUUM dijalankan sesudah purge yang menghapus baris. Prune otomatis tidak pernah menghapus bila nilainya `false`, dan kegagalan purge (DB sibuk/turn terbuka) dilaporkan lalu run tetap berjalan.
 
 Provider custom & modul (setiap section modul ≤ 10 baris; key lengkap via `damnbot config schema <module>`, dibangkitkan dari struct Go):
 

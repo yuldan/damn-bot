@@ -94,7 +94,8 @@ type Log struct {
 	MessageContentTTL Duration `toml:"message_content_ttl"`
 }
 
-// Sessions is SPEC §10 [sessions]: the headless auto-prune knobs (ADR-142).
+// Sessions is SPEC §12 [sessions] (ADR-142, MEM-015). Auto-prune is off by
+// default because it deletes transcript data.
 type Sessions struct {
 	AutoPrune      bool `toml:"auto_prune"`
 	PruneAfterDays int  `toml:"prune_after_days"`

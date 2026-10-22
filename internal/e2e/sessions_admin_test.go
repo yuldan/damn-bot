@@ -59,21 +59,42 @@ func TestSessionsAdminExport(t *testing.T) {
 	}
 }
 
-// TestSessionsAdminPrune: archive, dry-run and purge through the real binary.
+// TestSessionsAdminPrune: archive dry-run, pinned survival and purge through
+// the real binary.
 func TestSessionsAdminPrune(t *testing.T) {
 	t.Parallel()
 	e, id := sessionAdminEnv(t)
+	dryArchive := e.Exec("sessions", "prune", "--older-than", "1ns", "--archive", "--dry-run", "--data-dir", e.DataDir)
+	dryArchive.RequireOK(t)
+	if !strings.Contains(dryArchive.Stdout, "would archive 1") {
+		t.Errorf("archive dry run = %q", dryArchive.Stdout)
+	}
+	before := e.Exec("sessions", "stats", "--data-dir", e.DataDir)
+	before.RequireOK(t)
+	if !strings.Contains(before.Stdout, "archived: 0") {
+		t.Errorf("archive dry-run mutated state:\n%s", before.Stdout)
+	}
 	e.Exec("sessions", "archive", id, "--data-dir", e.DataDir).RequireOK(t)
 	arch := e.Exec("sessions", "stats", "--data-dir", e.DataDir)
 	arch.RequireOK(t)
 	if !strings.Contains(arch.Stdout, "archived: 1") {
 		t.Errorf("stats after archive:\n%s", arch.Stdout)
 	}
-	dry := e.Exec("sessions", "prune", "--older-than", "1ns", "--dry-run", "--data-dir", e.DataDir)
-	dry.RequireOK(t)
-	if !strings.Contains(dry.Stdout, "would purge 1") {
-		t.Errorf("dry run = %q", dry.Stdout)
+	e.Exec("sessions", "pin", id, "--data-dir", e.DataDir).RequireOK(t)
+	pinnedDry := e.Exec("sessions", "prune", "--older-than", "1ns", "--dry-run", "--data-dir", e.DataDir)
+	pinnedDry.RequireOK(t)
+	if !strings.Contains(pinnedDry.Stdout, "would purge 0") || !strings.Contains(pinnedDry.Stderr, "skipped pinned "+id) {
+		t.Errorf("pinned dry run = %q / %q", pinnedDry.Stdout, pinnedDry.Stderr)
 	}
+	pinnedPurge := e.Exec("sessions", "prune", "--older-than", "1ns", "--yes", "--data-dir", e.DataDir)
+	pinnedPurge.RequireOK(t)
+	if !strings.Contains(pinnedPurge.Stdout, "purged 0") || !strings.Contains(pinnedPurge.Stderr, "skipped pinned "+id) {
+		t.Errorf("pinned purge = %q / %q", pinnedPurge.Stdout, pinnedPurge.Stderr)
+	}
+	if ls := e.Exec("sessions", "ls", "--data-dir", e.DataDir); !strings.Contains(ls.Stdout, id) {
+		t.Errorf("pinned session disappeared:\n%s", ls.Stdout)
+	}
+	e.Exec("sessions", "unpin", id, "--data-dir", e.DataDir).RequireOK(t)
 	purge := e.Exec("sessions", "prune", "--older-than", "1ns", "--yes", "--data-dir", e.DataDir)
 	purge.RequireOK(t)
 	if !strings.Contains(purge.Stdout, "purged 1") {

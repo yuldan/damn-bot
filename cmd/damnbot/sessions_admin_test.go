@@ -152,7 +152,6 @@ func TestSessionsExportFile(t *testing.T) {
 	}
 }
 
-
 // TestSessionsExportRefusesExisting: --out never truncates an existing file
 // or writes through a symlink.
 func TestSessionsExportRefusesExisting(t *testing.T) {
@@ -198,37 +197,54 @@ func TestSessionsExportRedactsMetadata(t *testing.T) {
 		t.Errorf("metadata secret not redacted:\n%s", md)
 	}
 }
-// TestSessionsPrune: --archive labels old sessions; deletion needs --yes and
-// vacuums afterwards.
-func TestSessionsPrune(t *testing.T) {
+
+// TestSessionsPruneArchive: --archive --dry-run only previews; --archive
+// labels the old session.
+func TestSessionsPruneArchive(t *testing.T) {
 	t.Parallel()
-	dir, id := seedSession(t)
+	dir, _ := seedSession(t)
+	if code, out, e := runAdmin(t, "prune", "--older-than", "1ns", "--archive", "--dry-run", "--data-dir", dir); code != 0 || !strings.Contains(out, "would archive 1") {
+		t.Fatalf("archive dry-run = %d %q (%s)", code, out, e)
+	}
+	if _, out, _ := runAdmin(t, "stats", "--data-dir", dir); !strings.Contains(out, "archived: 0") {
+		t.Fatalf("dry-run mutated state:\n%s", out)
+	}
 	if code, out, e := runAdmin(t, "prune", "--older-than", "1ns", "--archive", "--data-dir", dir); code != 0 || !strings.Contains(out, "archived 1") {
 		t.Fatalf("prune --archive = %d %q (%s)", code, out, e)
 	}
-	if code, out, _ := runAdmin(t, "stats", "--data-dir", dir); !strings.Contains(out, "archived: 1") {
-		t.Fatalf("stats after archive:\n%s\n(%d)", out, code)
+	if _, out, _ := runAdmin(t, "stats", "--data-dir", dir); !strings.Contains(out, "archived: 1") {
+		t.Fatalf("stats after archive:\n%s", out)
+	}
+}
+
+// TestSessionsPrunePinned: pinned sessions survive both dry-run and real
+// purge, and are reported as skipped.
+func TestSessionsPrunePinned(t *testing.T) {
+	t.Parallel()
+	dir, id := seedSession(t)
+	if code, _, e := runAdmin(t, "pin", id, "--data-dir", dir); code != 0 {
+		t.Fatalf("pin = %d: %s", code, e)
 	}
 	if code, _, e := runAdmin(t, "prune", "--older-than", "1ns", "--data-dir", dir); code != 2 {
 		t.Fatalf("prune without --yes = %d: %s", code, e)
 	}
-	code, out, e := runAdmin(t, "prune", "--older-than", "90d", "--dry-run", "--data-dir", dir)
-	if code != 0 || !strings.Contains(out, "would purge 0") {
-		t.Fatalf("dry-run 90d = %d %q (%s)", code, out, e)
+	code, out, e := runAdmin(t, "prune", "--older-than", "1ns", "--dry-run", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "would purge 0") || !strings.Contains(e, "skipped pinned "+id) {
+		t.Fatalf("pinned dry-run = %d %q / %q", code, out, e)
 	}
-	code, out, e = runAdmin(t, "prune", "--older-than", "1ns", "--dry-run", "--data-dir", dir)
-	if code != 0 || !strings.Contains(out, "would purge 1") || !strings.Contains(out, id) {
-		t.Fatalf("dry-run 1ns = %d %q (%s)", code, out, e)
+	code, out, e = runAdmin(t, "prune", "--older-than", "1ns", "--yes", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "purged 0") || !strings.Contains(e, "skipped pinned "+id) {
+		t.Fatalf("pinned purge = %d %q / %q", code, out, e)
+	}
+	if _, statsOut, _ := runAdmin(t, "stats", "--data-dir", dir); !strings.Contains(statsOut, "sessions: 1") {
+		t.Fatalf("pinned session was purged:\n%s", statsOut)
+	}
+	if unpinCode, _, unpinErr := runAdmin(t, "unpin", id, "--data-dir", dir); unpinCode != 0 {
+		t.Fatalf("unpin = %d: %s", unpinCode, unpinErr)
 	}
 	code, out, e = runAdmin(t, "prune", "--older-than", "1ns", "--yes", "--data-dir", dir)
 	if code != 0 || !strings.Contains(out, "purged 1") {
-		t.Fatalf("prune --yes = %d %q (%s)", code, out, e)
-	}
-	if code, out, _ := runAdmin(t, "stats", "--data-dir", dir); !strings.Contains(out, "sessions: 0") {
-		t.Fatalf("stats after purge = %d:\n%s", code, out)
-	}
-	if code, _, _ := runAdmin(t, "prune", "--older-than", "x", "--data-dir", dir); code != 2 {
-		t.Errorf("bad age exit = %d, want 2", code)
+		t.Fatalf("unpinned purge = %d %q (%s)", code, out, e)
 	}
 }
 
@@ -240,7 +256,7 @@ func TestParseAge(t *testing.T) {
 			t.Errorf("parseAge(%q) = %v, %v; want %s", in, d, err, want)
 		}
 	}
-	for _, bad := range []string{"", "0d", "-1d", "x"} {
+	for _, bad := range []string{"", "0d", "-1d", "x", "200000d", "1e300d", "NaNd", "3651d", "90000h"} {
 		if _, err := parseAge(bad); err == nil {
 			t.Errorf("parseAge(%q) accepted", bad)
 		}
@@ -324,5 +340,21 @@ func TestAutoPruneEnabled(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "auto-pruned 1 sessions") {
 		t.Errorf("auto-prune notice = %q", errb.String())
+	}
+}
+
+// TestAutoPruneKeepsPinned: automatic pruning never deletes a pinned session.
+func TestAutoPruneKeepsPinned(t *testing.T) {
+	t.Parallel()
+	db := openPruneStore(t, seedOldSession(t, 100*24*time.Hour))
+	ctx := context.Background()
+	if err := db.SetSessionLabel(ctx, "OLD", ctxdb.LabelPinned, "1"); err != nil {
+		t.Fatal(err)
+	}
+	var errb bytes.Buffer
+	autoPrune(ctx, db, config.Sessions{AutoPrune: true, PruneAfterDays: 90}, &errb)
+	rows, err := db.SessionRows(ctx)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows = %d, %v; want the pinned session kept", len(rows), err)
 	}
 }

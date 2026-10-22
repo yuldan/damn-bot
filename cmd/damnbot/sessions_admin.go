@@ -265,16 +265,24 @@ func sessionsPrune(args []string, stdout, stderr io.Writer) int {
 	}
 	defer closeSessionsDB(db, "sessions prune", stderr)
 	if a.archive {
-		return pruneArchive(ctx, db, age, stdout, stderr)
+		return pruneArchive(ctx, db, age, a.dryRun, stdout, stderr)
 	}
 	return prunePurge(ctx, db, age, &a, stdout, stderr)
 }
 
-// pruneArchive labels sessions created before the cutoff as archived.
-func pruneArchive(ctx context.Context, db *ctxdb.Store, age time.Duration, stdout, stderr io.Writer) int {
+// pruneArchive labels sessions created before the cutoff as archived; a
+// dry-run only reports the candidates.
+func pruneArchive(ctx context.Context, db *ctxdb.Store, age time.Duration, dryRun bool, stdout, stderr io.Writer) int {
 	ids, err := db.SessionsOlderThan(ctx, time.Now().Add(-age).UnixMilli())
 	if err != nil {
 		return sessionsFail(stderr, "prune", err, "")
+	}
+	if dryRun {
+		sessionsPrintf(stdout, "would archive %d sessions\n", len(ids))
+		for _, id := range ids {
+			sessionsPrintf(stdout, "%s\n", cleanArg(id))
+		}
+		return 0
 	}
 	for _, id := range ids {
 		if serr := db.SetSessionLabel(ctx, id, ctxdb.LabelArchived, "1"); serr != nil {
@@ -297,6 +305,8 @@ func prunePurge(ctx context.Context, db *ctxdb.Store, age time.Duration, a *admi
 		for _, id := range rep.P {
 			sessionsPrintf(stdout, "%s\n", cleanArg(id))
 		}
+		reportPurgeSkips(&rep, stderr)
+		sessionsPrintf(stderr, "sessions prune: active leases and open turns are checked during purge\n")
 		return 0
 	}
 	if !a.yes {
@@ -307,9 +317,7 @@ func prunePurge(ctx context.Context, db *ctxdb.Store, age time.Duration, a *admi
 	if err != nil {
 		return sessionsFail(stderr, "prune", err, "")
 	}
-	for _, id := range rep.Skipped {
-		sessionsPrintf(stderr, "sessions prune: skipped %s (has forks)\n", cleanArg(id))
-	}
+	reportPurgeSkips(&rep, stderr)
 	sessionsPrintf(stdout, "purged %d sessions (txid %s)\n", len(rep.P), cleanArg(rep.TxID))
 	if len(rep.P) == 0 {
 		return 0
@@ -321,90 +329,16 @@ func prunePurge(ctx context.Context, db *ctxdb.Store, age time.Duration, a *admi
 	return 0
 }
 
-// sessionsFlag sets one boolean label (archive/unarchive/pin/unpin).
-func sessionsFlag(name string, args []string, stdout, stderr io.Writer, key, value string) int {
-	a, err := parseAdminArgs(args)
-	if err != nil || len(a.pos) != 1 {
-		if err != nil {
-			sessionsPrintf(stderr, "sessions %s: %v\n", name, err)
-		}
-		sessionsUsage(stderr)
-		return 2
+// reportPurgeSkips explains why candidates stayed in the database.
+func reportPurgeSkips(rep *ctxdb.PurgeReport, stderr io.Writer) {
+	for _, id := range rep.Pinned {
+		sessionsPrintf(stderr, "sessions prune: skipped pinned %s\n", cleanArg(id))
 	}
-	ctx := context.Background()
-	db, derr := openSessionsDB(ctx, a.dataDir)
-	if derr != nil {
-		return sessionsFail(stderr, name, derr, a.pos[0])
+	for _, id := range rep.Skipped {
+		sessionsPrintf(stderr, "sessions prune: skipped %s (has forks)\n", cleanArg(id))
 	}
-	defer closeSessionsDB(db, "sessions "+name, stderr)
-	if derr := db.SetSessionLabel(ctx, a.pos[0], key, value); derr != nil {
-		return sessionsFail(stderr, name, derr, a.pos[0])
-	}
-	sessionsPrintf(stdout, "%s %s\n", name, cleanArg(a.pos[0]))
-	return 0
 }
 
-// sessionsPinned lists pinned sessions (CLI-057).
-func sessionsPinned(args []string, stdout, stderr io.Writer) int {
-	a, err := parseAdminArgs(args)
-	if err != nil || len(a.pos) != 0 {
-		if err != nil {
-			sessionsPrintf(stderr, "sessions pinned: %v\n", err)
-		}
-		sessionsUsage(stderr)
-		return 2
-	}
-	ctx := context.Background()
-	db, derr := openSessionsDBReadOnly(ctx, a.dataDir)
-	if derr != nil {
-		return sessionsFail(stderr, "pinned", derr, "")
-	}
-	defer closeSessionsDB(db, "sessions pinned", stderr)
-	rows, derr := db.SessionRows(ctx)
-	if derr != nil {
-		return sessionsFail(stderr, "pinned", derr, "")
-	}
-	for _, r := range rows {
-		if r.Pinned {
-			sessionsPrintf(stdout, "%s\t%s\n", cleanArg(r.ID), r.Title)
-		}
-	}
-	return 0
-}
-
-// sessionsStats prints the session/event totals of the data dir.
-func sessionsStats(args []string, stdout, stderr io.Writer) int {
-	a, err := parseAdminArgs(args)
-	if err != nil || len(a.pos) != 0 {
-		if err != nil {
-			sessionsPrintf(stderr, "sessions stats: %v\n", err)
-		}
-		sessionsUsage(stderr)
-		return 2
-	}
-	ctx := context.Background()
-	db, derr := openSessionsDBReadOnly(ctx, a.dataDir)
-	if derr != nil {
-		return sessionsFail(stderr, "stats", derr, "")
-	}
-	defer closeSessionsDB(db, "sessions stats", stderr)
-	rows, derr := db.SessionRows(ctx)
-	if derr != nil {
-		return sessionsFail(stderr, "stats", derr, "")
-	}
-	var archived, pinned, events int64
-	for _, r := range rows {
-		if r.Archived {
-			archived++
-		}
-		if r.Pinned {
-			pinned++
-		}
-		events += r.Events
-	}
-	sessionsPrintf(stdout, "sessions: %d\narchived: %d\npinned: %d\nevents: %d\n", len(rows), archived, pinned, events)
-	return 0
-}
 // sessionsFail prints one mapped store error and returns its exit code.
 func sessionsFail(stderr io.Writer, name string, err error, id string) int {
 	sessionsPrintf(stderr, "sessions %s: %s\n", name, sessionsMessage(err, id))
@@ -412,16 +346,25 @@ func sessionsFail(stderr io.Writer, name string, err error, id string) int {
 }
 
 // parseAge accepts Go durations and the day suffix of SPEC §10 ("90d").
+// maxPruneAge bounds --older-than so day values cannot overflow time.Duration.
+const maxPruneAge = 3650 * 24 * time.Hour
+
 func parseAge(v string) (time.Duration, error) {
+	var d time.Duration
 	if days, ok := strings.CutSuffix(v, "d"); ok {
 		n, err := strconv.ParseFloat(days, 64)
-		if err != nil || n <= 0 {
+		if err != nil || !(n > 0 && n <= 3650) {
 			return 0, fmt.Errorf("--older-than %q: want a positive duration such as 90d", cleanArg(v))
 		}
-		return time.Duration(n * float64(24*time.Hour)), nil
+		d = time.Duration(n * float64(24*time.Hour))
+	} else {
+		var err error
+		d, err = time.ParseDuration(v)
+		if err != nil {
+			return 0, fmt.Errorf("--older-than %q: want a positive duration such as 90d", cleanArg(v))
+		}
 	}
-	d, err := time.ParseDuration(v)
-	if err != nil || d <= 0 {
+	if d <= 0 || d > maxPruneAge {
 		return 0, fmt.Errorf("--older-than %q: want a positive duration such as 90d", cleanArg(v))
 	}
 	return d, nil
