@@ -13,11 +13,43 @@ import (
 	"github.com/damnbot/damnbot/internal/sandbox"
 )
 
+// requireSwappableDir stages the swap once and skips the scenario when the
+// platform refuses it: renaming a directory that still has an open handle is
+// a sharing violation on Windows (CreateFile without FILE_SHARE_DELETE), and
+// the undo code under test pins exactly those handles. The refusal stays
+// covered on Windows by TestUndoDryRunReadsThroughSandbox (a symlink target
+// is refused) and TestUndoConflictRefuses (content mismatch). Precedent for
+// a platform skip: TestUndoHardlink.
+func requireSwappableDir(t *testing.T) {
+	t.Helper()
+	base := t.TempDir()
+	dir, parked := filepath.Join(base, "probe"), filepath.Join(base, "probe.parked")
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	h, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close() //nolint:errcheck // the open handle is the point of the probe; its close result does not
+	if err = os.Rename(dir, parked); err == nil {
+		if rerr := os.Rename(parked, dir); rerr != nil {
+			t.Fatalf("probe restore: %v", rerr)
+		}
+		return
+	}
+	if !swapBlocked(err) {
+		t.Fatalf("probe rename %s: %v", dir, err)
+	}
+	t.Skipf("cannot stage the swap: renaming a directory that still has an open handle is refused here: %v", err)
+}
+
 // TestUndoDryRunAncestorSwapNeverReadsOutside (REVIEW-F2-SEC5-3): swapping
 // the action's parent directory for a symlink to an outside directory
 // between the sandbox check and the open must never let --dry-run read
 // outside the journaled root. Bounded by a deadline.
 func TestUndoDryRunAncestorSwapNeverReadsOutside(t *testing.T) {
+	requireSwappableDir(t)
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -124,6 +156,7 @@ func unsymlinkDir(dir, parked string) error {
 // swapped for a symlink to a deny_paths directory inside the root must not
 // let --dry-run read it.
 func TestUndoDryRunRelativeSymlinkToDeniedDir(t *testing.T) {
+	requireSwappableDir(t)
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

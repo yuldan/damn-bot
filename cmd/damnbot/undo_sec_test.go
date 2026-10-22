@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -60,6 +61,13 @@ func writeConfig(t *testing.T, body string) string {
 
 func aid(id int64) string { return "a" + strconv.FormatInt(id, 10) }
 
+// tomlString escapes s for a TOML basic string. Windows roots carry
+// backslashes, which TOML otherwise reads as escapes ("C:\Users" is the
+// invalid escape \U), so an unescaped path made the test config unloadable.
+func tomlString(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
+}
+
 // TestUndoJournaledSandbox (REVIEW-F2-SEC5-1): undo rebuilds only the
 // sandbox journaled with the action. A tampered session cwd ("/") and a
 // widened add_dirs cannot make an outside path undoable; an action without
@@ -73,7 +81,7 @@ func TestUndoJournaledSandbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedAction(t, data, "S-out", "/", out, []byte("old"), []byte("new"), []string{ws})
-	wide := writeConfig(t, "[approval]\nadd_dirs = [\""+other+"\", \"/\"]\n")
+	wide := writeConfig(t, "[approval]\nadd_dirs = [\""+tomlString(other)+"\", \"/\"]\n")
 	wantUndo(t, 1, []string{"--session", "S-out", "--config", wide, "--data-dir", data})
 	if got := readFile(t, out); string(got) != "new" {
 		t.Fatalf("outside file restored through a widened sandbox: %q", got)
@@ -169,7 +177,15 @@ func TestUndoOutputSanitized(t *testing.T) {
 	evil := ws + string(os.PathSeparator) + "a\x1b[31m\u202e\nFAKE b.txt"
 	seedAction(t, data, "S", ws, evil, []byte("old\x1b[2J\u2066x\n"), []byte("new\n"), []string{ws})
 	ls := wantUndo(t, 0, []string{"ls", "--data-dir", data})
-	dry := wantUndo(t, 0, []string{"--dry-run", "--data-dir", data}, "conflict")
+	// Windows filenames cannot hold the control characters the journal
+	// recorded (ESC and the newline are below 0x20), so the sandbox refuses
+	// the path before the images can be compared: a refusal, not a conflict,
+	// and still fail-closed with the same one-line sanitized output.
+	want := "conflict"
+	if runtime.GOOS == "windows" {
+		want = "refused"
+	}
+	dry := wantUndo(t, 0, []string{"--dry-run", "--data-dir", data}, want)
 	for name, o := range map[string]string{"ls": ls, "dry-run": dry} {
 		if strings.ContainsAny(o, "\x1b\u202e\u2066") {
 			t.Fatalf("%s output not sanitized: %q", name, o)
