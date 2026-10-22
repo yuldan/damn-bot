@@ -581,26 +581,31 @@ func BenchmarkCodetools(b *testing.B) {
 		})
 	})
 	b.Run("Edit1MB", func(b *testing.B) { // CT-09: p95 ≤ 20 ms incl. fsync file + dir
-		// Each sample set gets a fresh directory and engine: the retry must
-		// not reuse the dirty pages or journal of the set that failed
-		// (ADR-127 amendment 2026-10-22).
-		measureDurable(b, "CT-09 edit 1 MB", 20*time.Millisecond, func() (func(int), func()) {
-			v := newEnv(b)
-			content := strings.Repeat(strings.Repeat("e", 99)+"\n", 10<<10) + "marker 0\n"
-			v.put(b, "e.txt", content)
-			tag := v.tag(b, "e.txt") //nolint:contextcheck // setup read with a background context
-			ref := durableWrite(b, v.root, []byte(content))
-			return func(i int) {
-				r, err := v.e.Edit(ctx, EditArgs{Path: "e.txt", Tag: tag, Edits: []EditItem{{
-					OldString: new(fmt.Sprintf("marker %d\n", i)), NewString: new(fmt.Sprintf("marker %d\n", i+1)),
-				}}}, Opts{})
-				if err != nil {
-					b.Fatal(err)
-				}
-				tag = metaStr(&r, "tag")
-			}, ref
-		})
+		measureDurable(b, "CT-09 edit 1 MB", 20*time.Millisecond, edit1MBSetup(ctx, b))
 	})
+}
+
+// edit1MBSetup builds one CT-09 sample set (ADR-127): a fresh 1 MB file, its
+// tag and the durable-write reference, plus the edit closure that keeps the
+// tag current. Each sample set gets a new engine and directory, because the
+// retry must not reuse the dirty pages or journal of the set that failed.
+func edit1MBSetup(ctx context.Context, b *testing.B) func() (op func(i int), ref func()) {
+	return func() (func(i int), func()) {
+		v := newEnv(b)
+		content := strings.Repeat(strings.Repeat("e", 99)+"\n", 10<<10) + "marker 0\n"
+		v.put(b, "e.txt", content)
+		tag := v.tag(b, "e.txt") //nolint:contextcheck // setup read with a background context
+		ref := durableWrite(b, v.root, []byte(content))
+		return func(i int) {
+			r, err := v.e.Edit(ctx, EditArgs{Path: "e.txt", Tag: tag, Edits: []EditItem{{
+				OldString: new(fmt.Sprintf("marker %d\n", i)), NewString: new(fmt.Sprintf("marker %d\n", i+1)),
+			}}}, Opts{})
+			if err != nil {
+				b.Fatal(err)
+			}
+			tag = metaStr(&r, "tag")
+		}, ref
+	}
 }
 
 // bigFile writes size bytes of 80-char numbered lines without holding them.
