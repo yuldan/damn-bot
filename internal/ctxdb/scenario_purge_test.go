@@ -402,8 +402,12 @@ func s022(t *testing.T) {
 	e := newEnv(t)
 	tui, srv := e.open(1, "tui"), e.open(2, "serve")
 	session(t, tui, "S", "")
-	for range 3 * 24 * 60 { // three days of heartbeats every minute
-		e.clk.Advance(time.Minute)
+	// Three days of heartbeats, every 10 min: Idle reads only live leases of
+	// running turns and recent inbound rows, so the cadence does not change
+	// the outcome; the last heartbeat still lands right before Idle, with
+	// the lease unexpired. (Every minute = 4.320 write tx, 8–39 s under -race.)
+	for range 3 * 24 * 6 {
+		e.clk.Advance(10 * time.Minute)
 		must(t, tui.Heartbeat(context.Background(), "S"))
 	}
 	idle, err := srv.Idle(context.Background())

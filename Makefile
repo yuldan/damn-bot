@@ -32,7 +32,7 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 
 .PHONY: all build build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio \
 	deps-check tidy-check mod-verify vuln licenses check meta-test bench-budget fuzz coverage deadcode \
-	flake perf pr-meta phase-acceptance corpora bench-parity bench-codetools
+	flake perf ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools
 
 all: check
 
@@ -57,8 +57,19 @@ vet-custom:
 
 # RACE kosong hanya untuk target tanpa race detector Go (windows/arm64, matrix E-55; ADR-094).
 RACE ?= -race
+# ADR-115: satu binary paket berbagi satu -timeout; TestScenario (86 skenario
+# serial, ~172 s di runner sehat; 447 s di runner lambat) dan sisa paket
+# saling memakan anggaran 10 menit. Dua invokasi dengan flag dan -timeout
+# identik: sisa paket (tanpa TestScenario) dan skenario saja. Bukan skip —
+# test yang sama berjalan di invokasi kedua; hanya anggaran waktunya yang
+# terpisah.
+TEST_TIMEOUT ?= 10m
+SCENARIO_PKGS ?= ./internal/ctxdb
 test:
-	go test $(GOTAGS) $(RACE) -shuffle=on $(PKGS)
+	go test $(GOTAGS) $(RACE) -shuffle=on -timeout $(TEST_TIMEOUT) -skip '^TestScenario$$' $(PKGS)
+ifeq ($(PKGS),./...)
+	go test $(GOTAGS) $(RACE) -shuffle=on -timeout $(TEST_TIMEOUT) -run '^TestScenario$$' $(SCENARIO_PKGS)
+endif
 
 # ADR-048 (TS-P08): asersi budget waktu dinding (I11 ≤ 200 ms/txn dll.) hanya ditegakkan di build
 # tanpa -race, lewat satu helper internal/testutil/timing (ADR-073, NEW-35). Suite yang sama juga
@@ -102,7 +113,16 @@ flake:
 # ADR-073/077, NEW-38: budget waktu absolut benchmark, tag perf (helper timing ×1,5 di runner bersama).
 perf: TAGS += perf
 perf:
-	DAMNBOT_TIMING=1 go test $(GOTAGS) -run '^$$' -bench '$(PERF_BENCH)' -benchtime=100x $(PKGS)
+	DAMNBOT_TIMING=1 go test $(GOTAGS) -run '^(TestMeasureDurableRetryMeasuresSet2)$$' -bench '$(PERF_BENCH)' -benchtime=100x $(PKGS)
+
+# ADR-127: backstop CT-09 nightly di main — 5 set sampel, dan run yang seluruh
+# set-nya invalid (runner berdisk bising) GAGAL di sini, bukan lulus dengan
+# warning seperti gate PR.
+CT09_SETS ?= 5
+ct09-nightly: TAGS += perf
+ct09-nightly:
+	DAMNBOT_TIMING=1 DAMNBOT_CT09_SETS=$(CT09_SETS) DAMNBOT_CT09_STRICT_INCONCLUSIVE=1 \
+		go test $(GOTAGS) -run '^$$' -bench '^BenchmarkCodetools/Edit1MB$$' -benchtime=100x ./internal/codetools/
 
 # ENGINEERING §7.2 (E-80..E-84) + spec-guard SPEC §20; env BASE/HEAD/PR_* diisi workflow pr-meta.
 pr-meta:

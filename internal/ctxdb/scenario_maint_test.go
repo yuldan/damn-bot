@@ -371,7 +371,7 @@ func (e *env) openOld(pid int, kind string) *Store {
 
 // #49: with --force-migrate the old binary is fenced by user_version.
 func s049(t *testing.T) {
-	e := newEnv(t)
+	e := newRawEnv(t)
 	old := e.openOld(1, "tui")
 	must(t, old.Write(context.Background(), func(tx *Tx) error { _, err := tx.CreateSession(Session{ID: "S"}); return err }))
 	e.open(2, "tui", func(o *Options) { o.ForceMigrate = true; o.BarrierWait = 5 * time.Second })
@@ -411,7 +411,7 @@ func s051(t *testing.T) {
 // #57: an old binary starting during a migration blocks on the open order
 // and then refuses with schema_newer.
 func s057(t *testing.T) {
-	e := newEnv(t)
+	e := newRawEnv(t)
 	o0 := e.openOld(1, "tui")
 	must(t, o0.Close())
 	b, err := AcquireBarrier(context.Background(), e.dir, *e.ident(9), reasonMigrate, 30, time.Second)
@@ -439,7 +439,7 @@ func s057(t *testing.T) {
 // #58: package upgrade: new TUI migrates while only the old serve runs;
 // old serve gets schema_newer (exits 75); new serve drains the queue.
 func s058(t *testing.T) {
-	e := newEnv(t)
+	e := newRawEnv(t)
 	old := e.openOld(1, "serve")
 	for i := range 5 {
 		ingest(t, old, inbound("u:"+itoa(int64(i)), "c1", "msg "+itoa(int64(i))))
@@ -513,7 +513,7 @@ func s067(t *testing.T) {
 // #71: an old TUI alive → migration refused without a marker; old serve
 // keeps serving the old schema.
 func s071(t *testing.T) {
-	e := newEnv(t)
+	e := newRawEnv(t)
 	oldSrv, oldTui := e.openOld(1, "serve"), e.openOld(2, "tui")
 	_ = oldTui
 	o := e.opts(3, "tui")
@@ -527,7 +527,7 @@ func s071(t *testing.T) {
 
 // #78: serve as migrator blocked by an old TUI forces after 10 min.
 func s078(t *testing.T) {
-	e := newEnv(t)
+	e := newRawEnv(t)
 	e.openOld(1, "tui")
 	o := e.opts(2, "serve")
 	o.BarrierWait = 5 * time.Second
@@ -542,7 +542,7 @@ func s078(t *testing.T) {
 // #86: restarts of the serve migrator accumulate the blocked time across
 // processes (run/migrate_blocked.json, boot clock).
 func s086(t *testing.T) {
-	e := newEnv(t)
+	e := newRawEnv(t)
 	e.openOld(1, "tui")
 	for i := range 4 { // each restart waits < 10 min on its own
 		o := e.opts(10+i, "serve")

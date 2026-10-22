@@ -32,6 +32,9 @@ var (
 	ErrSessionLimit = errors.New("exec: session limit reached")
 	// ErrSessionName rejects a name outside ^[a-z0-9_-]{1,32}$.
 	ErrSessionName = errors.New("exec: invalid session name")
+	// ErrSessionsClosed: the session table was closed; Exec does not start a
+	// shell after Close (it would outlive Runner.Close, whose wait is bounded).
+	ErrSessionsClosed = errors.New("exec: sessions closed")
 )
 
 // Sessions holds the persistent shells of one agent session.
@@ -41,8 +44,9 @@ type Sessions struct {
 	env []string // child environment, built without secret refs (ADR-088 butir 4)
 	now func() time.Time
 
-	mu sync.Mutex
-	m  map[string]*session
+	mu     sync.Mutex
+	m      map[string]*session
+	closed bool // Close ran: no new shell may start
 }
 
 // NewSessions returns the session table of one agent session; command
@@ -63,6 +67,22 @@ type session struct {
 	lastUse   time.Time
 	killOnce  sync.Once
 	prevNonce string // previous command's sentinel nonce (EX5-6)
+	// writeInput writes one line to the shell's stdin; nil uses the PTY or
+	// pipe itself. A test injects the error a dead PTY returns (darwin:
+	// EIO on /dev/ptmx) without depending on macOS CI.
+	writeInput func(*os.File, string) (int, error)
+}
+
+// write sends one line to the shell's stdin.
+func (s *session) write(line string) error {
+	_, err := s.input.WriteString(line)
+	if s.writeInput != nil {
+		_, err = s.writeInput(s.input, line)
+	}
+	if err != nil {
+		return fmt.Errorf("exec: session write: %w", err)
+	}
+	return nil
 }
 
 // sessionShellSpec is the per-OS shell dialect of a session.
@@ -101,12 +121,27 @@ func (ss *Sessions) Exec(ctx context.Context, name, command string, stdin []byte
 		res.SessionReset = true
 		err = errors.Join(err, ss.drop(name))
 	}
+	if err != nil && ss.isClosed() {
+		// Close killed this shell while the command was being sent: the PTY
+		// write fails (EIO on darwin, EPIPE elsewhere) or the command file is
+		// already gone. The cause stays wrapped, but the outcome is the same
+		// on every platform: the session table is closed.
+		err = fmt.Errorf("%w: %w", ErrSessionsClosed, err)
+	}
 	return res, err
 }
 
-// Close kills every session shell.
+// Close kills every session shell. No shell starts after it returns: Exec
+// takes ss.mu, so it either registers its shell before Close drops it, or
+// sees closed and starts none (a shell started after Close would keep the
+// Runner's reader and waiter tasks alive and make Runner.Close time out).
 func (ss *Sessions) Close() error {
 	ss.mu.Lock()
+	if ss.closed {
+		ss.mu.Unlock()
+		return nil
+	}
+	ss.closed = true
 	names := make([]string, 0, len(ss.m))
 	for n := range ss.m {
 		names = append(names, n)
@@ -119,9 +154,20 @@ func (ss *Sessions) Close() error {
 	return err
 }
 
+// isClosed reports whether Close has run; Exec uses it to give a command
+// that raced the close the same outcome on every platform.
+func (ss *Sessions) isClosed() bool {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	return ss.closed
+}
+
 func (ss *Sessions) get(ctx context.Context, name string) (*session, error) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
+	if ss.closed {
+		return nil, ErrSessionsClosed
+	}
 	now := ss.now()
 	for n, s := range ss.m { // idle reap (§A.2)
 		if n != name && now.Sub(s.lastUse) >= SessionIdleReap {
@@ -230,8 +276,8 @@ func (s *session) run(ctx context.Context, command string, timeout time.Duration
 		return res, false, fmt.Errorf("exec: session cwd file is not regular")
 	}
 	from := s.c.out.size()
-	if _, err := s.input.WriteString(s.sh.line(path, cwdPath, nonce)); err != nil {
-		return res, true, fmt.Errorf("exec: session write: %w", err)
+	if err := s.write(s.sh.line(path, cwdPath, nonce)); err != nil {
+		return res, true, err
 	}
 	reset := s.wait(ctx, nonce, cwdPath, from, timeout, &res)
 	// Only our own frames may be removed: a command printing a forged frame
@@ -405,11 +451,16 @@ func (s *session) since(from int64) []byte {
 // sentinel again: an interactive shell abandons the rest of an interrupted
 // line. The sentinel runs once the job has ended.
 func (s *session) interrupt(nonce, cwdPath string) {
+	// Best effort, and never a cleanup error: a failed nudge means the shell
+	// or its terminal is already gone, and wait reports the outcome (exit,
+	// timeout). Recording it in c.errs misattributed a racing
+	// Sessions.Close's kill to that close ("exec: cleanup: exec: session
+	// write: write /dev/ptmx: input/output error" on darwin).
 	if err := interruptForeground(s); err != nil {
-		s.c.note(fmt.Errorf("exec: session interrupt: %w", err))
+		return
 	}
-	if _, err := s.input.WriteString(s.sh.again(nonce, cwdPath)); err != nil {
-		s.c.note(fmt.Errorf("exec: session write: %w", err))
+	if err := s.write(s.sh.again(nonce, cwdPath)); err != nil {
+		return
 	}
 }
 
