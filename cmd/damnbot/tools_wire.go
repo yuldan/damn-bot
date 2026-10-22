@@ -75,25 +75,9 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 		case "user_message":
 			out = append(out, loop.Message{Role: "user", Content: r.Content})
 		case "assistant_message":
-			if partialOutput(r.Payload) {
-				continue // EC-PROV-008: a truncated answer is not context
-			}
-			assistantAt[r.ID] = len(out)
-			out = append(out, loop.Message{Role: "assistant", Content: r.Content, ToolCalls: assistantToolCalls(r.Payload)})
+			out = appendAssistant(out, assistantAt, r)
 		case "tool_result":
-			// The dispatcher journal and the loop both record a tool_result;
-			// keep one message per tool_call_id, preferring the non-empty
-			// loop result.
-			if r.ToolCallID == "" {
-				continue
-			}
-			if i := findToolMessage(out, r.ToolCallID); i >= 0 {
-				if out[i].Content == "" && r.Content != "" {
-					out[i].Content = r.Content
-				}
-				continue
-			}
-			out = append(out, loop.Message{Role: "tool", Content: r.Content, ToolCallID: r.ToolCallID})
+			out = appendToolResult(out, r)
 		case "system_notice":
 			if c := effectsNotice(r.Payload); c != "" {
 				out = append(out, loop.Message{Role: "system", Content: c})
@@ -104,6 +88,40 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 		return nil, fmt.Errorf("history carriers: %w", err)
 	}
 	return out, nil
+}
+
+// appendAssistant appends a replayable assistant message and records its
+// carrier anchor; a partial answer without tool calls is skipped
+// (EC-PROV-008).
+func appendAssistant(out []loop.Message, assistantAt map[int64]int, r *ctxdb.Event) []loop.Message {
+	if skipAssistant(r) {
+		return out
+	}
+	assistantAt[r.ID] = len(out)
+	return append(out, loop.Message{Role: "assistant", Content: r.Content, ToolCalls: assistantToolCalls(r.Payload)})
+}
+
+// appendToolResult keeps one tool message per tool_call_id: the dispatcher
+// journal and the loop both record a result, and the non-empty loop result
+// wins.
+func appendToolResult(out []loop.Message, r *ctxdb.Event) []loop.Message {
+	if r.ToolCallID == "" {
+		return out
+	}
+	if i := findToolMessage(out, r.ToolCallID); i >= 0 {
+		if out[i].Content == "" && r.Content != "" {
+			out[i].Content = r.Content
+		}
+		return out
+	}
+	return append(out, loop.Message{Role: "tool", Content: r.Content, ToolCallID: r.ToolCallID})
+}
+
+// skipAssistant reports an assistant event that must not replay: a partial
+// (finish_reason=length) answer without tool calls. A partial event that
+// carries calls keeps its tool_result pairing.
+func skipAssistant(r *ctxdb.Event) bool {
+	return partialOutput(r.Payload) && len(assistantToolCalls(r.Payload)) == 0
 }
 
 // partialOutput reports an assistant event the loop marked partial

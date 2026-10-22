@@ -565,7 +565,7 @@ type assemblerAdapter struct {
 	contextTier string // frozen per session (P15)
 	model       string
 	maxTokens   int
-	window      int64 // effective input window; < assemble.DegradedWindow = degraded
+	window      int64 // effective model window (registry.Limits); < assemble.DegradedWindow = degraded and the loop guard budget (0 = unknown)
 	store       *ctxStore
 }
 
