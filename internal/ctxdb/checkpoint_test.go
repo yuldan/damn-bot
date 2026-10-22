@@ -60,8 +60,7 @@ func seedTwoActions(t *testing.T) (s *Store, cutoff, oldID int64) {
 	return s, now - 30*24*3600*1000, oldID
 }
 
-// TestCheckpointStatsAndList: the expired action is counted and listed, and
-// --session scopes the counters to one session (ACC-62).
+// TestCheckpointStatsAndList: the expired action is counted and listed.
 func TestCheckpointStatsAndList(t *testing.T) {
 	t.Parallel()
 	s, cutoff, oldID := seedTwoActions(t)
@@ -80,16 +79,23 @@ func TestCheckpointStatsAndList(t *testing.T) {
 	if list[0].Expired || !list[1].Expired || list[1].ID != oldID {
 		t.Fatalf("list order/expiry = %+v", list)
 	}
-	if _, err := s.Checkpoints(ctx, cutoff, "missing", 10); !errors.Is(err, ErrNotFound) {
-		t.Errorf("missing session error = %v, want ErrNotFound", err)
+	if _, lerr := s.Checkpoints(ctx, cutoff, "missing", 10); !errors.Is(lerr, ErrNotFound) {
+		t.Errorf("missing session error = %v, want ErrNotFound", lerr)
 	}
-	// A second session must not leak into the scoped counters.
-	if _, err := s.CreateSession(ctx, Session{ID: "S2", Origin: "headless", Cwd: "/w"}); err != nil {
-		t.Fatal(err)
+}
+
+// TestCheckpointStatsSessionScope: a second session must not leak into the
+// scoped counters (ACC-62).
+func TestCheckpointStatsSessionScope(t *testing.T) {
+	t.Parallel()
+	s, cutoff, _ := seedTwoActions(t)
+	ctx := context.Background()
+	if _, cerr := s.CreateSession(ctx, Session{ID: "S2", Origin: "headless", Cwd: "/w"}); cerr != nil {
+		t.Fatal(cerr)
 	}
 	seedActionFor(t, s, "S2", time.Now().UnixMilli())
-	if err := s.ReleaseLease(ctx, "S2"); err != nil {
-		t.Fatal(err)
+	if relErr := s.ReleaseLease(ctx, "S2"); relErr != nil {
+		t.Fatal(relErr)
 	}
 	scoped, err := s.CheckpointStats(ctx, cutoff, "S1")
 	if err != nil || scoped.Total != 2 {
@@ -99,11 +105,12 @@ func TestCheckpointStatsAndList(t *testing.T) {
 	if err != nil || all.Total != 3 {
 		t.Fatalf("unscoped stats = %+v, %v; want 3", all, err)
 	}
-	if scoped, err = s.CheckpointStats(ctx, cutoff, "S2"); err != nil || scoped.Total != 1 || scoped.Expired != 0 {
+	scoped, err = s.CheckpointStats(ctx, cutoff, "S2")
+	if err != nil || scoped.Total != 1 || scoped.Expired != 0 {
 		t.Fatalf("S2 stats = %+v, %v; want 1 unexpired", scoped, err)
 	}
-	if _, err := s.CheckpointStats(ctx, cutoff, "missing"); !errors.Is(err, ErrNotFound) {
-		t.Errorf("missing session stats error = %v, want ErrNotFound", err)
+	if _, serr := s.CheckpointStats(ctx, cutoff, "missing"); !errors.Is(serr, ErrNotFound) {
+		t.Errorf("missing session stats error = %v, want ErrNotFound", serr)
 	}
 }
 
