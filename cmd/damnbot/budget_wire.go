@@ -1,14 +1,63 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/damnbot/damnbot/internal/budget"
+	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/ctxdb/ledgerstore"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/netx/retry"
+	"github.com/damnbot/damnbot/internal/provider"
+	"github.com/damnbot/damnbot/internal/provider/registry"
 )
+
+// newBudgetGuard builds the run budget guard and the warning sink the adapter
+// drains into budget_warning events (ADR-123 wiring). The guard runs inside
+// provider.Do, so a refusal never reaches the provider.
+func newBudgetGuard(cfg *config.Config, db *ctxdb.Store) (*budget.Guard, *budgetNotes, error) {
+	guard, err := budget.NewGuard(budget.GuardConfig{
+		DailyUSD: cfg.Budget.DailyUSD, MonthlyUSD: cfg.Budget.MonthlyUSD, Providers: cfg.Budget.Providers, WarnAt: cfg.Budget.WarnAt,
+	}, ledgerstoreSource(db), nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("budget guard: %w", err)
+	}
+	return guard, &budgetNotes{}, nil
+}
+
+// runRoutePricing resolves the model limits, the normalized route key, the
+// context window and the route prices of one run (COST-01/COST-02 wiring).
+func runRoutePricing(ctx context.Context, cfg *config.Config, db *ctxdb.Store, table registry.PriceTable, base, provName, modelRef string) (*registry.Limits, string, registry.Limit, budget.Prices, error) {
+	limits, err := newRunLimits(cfg, db, table)
+	if err != nil {
+		return nil, "", registry.Limit{}, budget.Prices{}, err
+	}
+	_, modelName, _ := strings.Cut(modelRef, "/")
+	routeKey, err := registry.NormalizeBaseURL(base)
+	if err != nil {
+		return nil, "", registry.Limit{}, budget.Prices{}, fmt.Errorf("route base_url: %w", err)
+	}
+	window, err := limits.WindowFor(ctx, provName, routeKey, modelName)
+	if err != nil {
+		return nil, "", registry.Limit{}, budget.Prices{}, fmt.Errorf("model limits %s: %w", modelRef, err)
+	}
+	prices, err := provider.RoutePrices(table, base, modelName)
+	if err != nil {
+		return nil, "", registry.Limit{}, budget.Prices{}, fmt.Errorf("pricing: %w", err)
+	}
+	return limits, routeKey, window, prices, nil
+}
+
+// budgetCounter counts tokens with the estimator the loop uses.
+type budgetCounter struct{}
+
+func (budgetCounter) Count(s string) int { return int(budget.Count(s).Raw()) }
 
 // budgetNotes collects the warn_at crossings the guard reports inside
 // provider.Do (OnBudget runs synchronously before the request) so the next
@@ -70,3 +119,6 @@ func streamError(err error) *loop.StreamError {
 	}
 	return &loop.StreamError{Class: class, Err: err}
 }
+
+// ledgerstoreSource is the usage ledger the guard reads as its budget source.
+func ledgerstoreSource(db *ctxdb.Store) ledgerstore.Source { return ledgerstore.Source{Store: db} }

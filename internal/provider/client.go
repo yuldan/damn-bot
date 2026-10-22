@@ -113,6 +113,7 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 	est, at := rawEstimate(r), o.now()
 	var lastErr error
 	var billed int
+	var lastResp Response
 	for i, ref := range chain {
 		if i > 0 && ref == r.Model {
 			continue
@@ -132,6 +133,7 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 		o.notify(i, fb)
 		resp, err := o.call(ctx, &rt, r, est, onChunk)
 		resp.Price = price
+		lastResp = resp
 		billed += resp.BilledFailed
 		resp.BilledFailed = billed
 		fb.Done, fb.Outcome = true, err
@@ -147,7 +149,8 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 		}
 		lastErr = err
 	}
-	return Response{BilledFailed: billed}, lastErr
+	lastResp.BilledFailed = billed
+	return lastResp, lastErr
 }
 
 // notify reports a fallback attempt (i > 0) before and after it (PROV-M5).

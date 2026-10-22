@@ -71,9 +71,9 @@ func TestConfigUnknownQuotedKey(t *testing.T) {
 
 func TestConfigUnknownArrayTable(t *testing.T) {
 	t.Parallel()
-	_, err := parse(t, "[[providers.custom]]\nname = \"x\"\n")
+	_, err := parse(t, "[[context.foo]]\nname = \"x\"\n")
 	ke := keyErrorOf(t, err, ErrUnknownKey)
-	if !strings.HasPrefix(ke.Key, "providers.custom") {
+	if !strings.HasPrefix(ke.Key, "context.foo") {
 		t.Fatalf("key = %q", ke.Key)
 	}
 	if ke.Line == 0 {

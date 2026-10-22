@@ -10,11 +10,13 @@
 loop              2120 internal/loop
 plan               600 internal/plan
 # ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
-# ADR-128 amandemen round 3/4: provider 2100 -> 2150 (billed usage/projection; Σ core +50).
-provider          2150 internal/provider
+# ADR-128 amandemen round 3/4 (SEC6-9..12): provider 2100 -> 2150 (attempt berbayar + proyeksi; terukur 2131; Σ core +50).
+# ADR-130 round 6 (SEC6-15/17/18): provider 2150 -> 2200 (regex + Learn; terukur 2170; Σ core +50).
+provider          2200 internal/provider
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
 # ADR-128: tabel harga providers.toml + lookup base_url+model; tetap 300 (terukur 281, sisa 19; Σ tetap).
-provider/registry  300 internal/provider/registry
+# ADR-130 (COST-01/COST-02): metadata model + gerbang kedaluwarsa di registry; 300 -> 400 (terukur 353; Σ core +100).
+provider/registry  400 internal/provider/registry
 netx              1800 internal/netx
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).

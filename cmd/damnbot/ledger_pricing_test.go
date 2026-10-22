@@ -21,8 +21,9 @@ const teamRouterVersion = "providers-2026-10-21/teamorouter-gpt-5.4-mini"
 
 // ledgerDB opens a run database with one session and one event to anchor a
 // usage row.
-func ledgerDB(t *testing.T, sid string) *ctxdb.Store {
+func ledgerDB(t *testing.T) *ctxdb.Store {
 	t.Helper()
+	const sid = "S"
 	ctx := t.Context()
 	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: t.TempDir(), Kind: "run"})
 	if err != nil {
@@ -62,7 +63,7 @@ func readLedger(t *testing.T, db *ctxdb.Store) (cost int64, source, version stri
 func TestRunLedgerRecordsRoutePrice(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	db := ledgerDB(t, "S")
+	db := ledgerDB(t)
 	srv := providertest.New(t, nil, providertest.Text("ok"))
 	table, err := registry.DefaultPriceTable()
 	if err != nil {
@@ -132,7 +133,7 @@ func TestRunLedgerValidatesProviderCost(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			db := ledgerDB(t, "S")
+			db := ledgerDB(t)
 			l := &ctxLedger{db: db, provider: "p", model: "m"}
 			err := l.Record(t.Context(), "S", "T", 0, &c.usage)
 			if c.wantErr {

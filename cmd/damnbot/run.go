@@ -284,19 +284,19 @@ func (m *runModel) close(ctx context.Context) error {
 }
 
 // newRunProvider builds the run provider or returns the injected one.
-func newRunProvider(cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions) (loop.Provider, error) {
+func newRunProvider(ctx context.Context, cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions) (loop.Provider, error) {
 	table, err := registry.DefaultPriceTable()
 	if err != nil {
 		return nil, fmt.Errorf("pricing table: %w", err)
 	}
-	return newRunProviderWithTable(cfg, db, modelRef, o, table)
+	return newRunProviderWithTable(ctx, cfg, db, modelRef, o, table)
 }
 
 // newRunProviderWithTable is newRunProvider with an explicit table, so a test
 // can price a loopback route; the composition root always passes the embedded
 // default table. The guard is always installed: an injected eval provider
 // (o.prov) bypasses it because a loop.Provider has no route price.
-func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
+func newRunProviderWithTable(ctx context.Context, cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
 	if o.prov != nil {
 		return o.prov, nil
 	}
@@ -304,28 +304,28 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	if err != nil {
 		return nil, fmt.Errorf("provider endpoint: %w", err)
 	}
-	guard, err := budget.NewGuard(budget.GuardConfig{
-		DailyUSD: cfg.Budget.DailyUSD, MonthlyUSD: cfg.Budget.MonthlyUSD, Providers: cfg.Budget.Providers, WarnAt: cfg.Budget.WarnAt,
-	}, ledgerstore.Source{Store: db}, nil)
+	guard, notes, err := newBudgetGuard(cfg, db)
 	if err != nil {
-		return nil, fmt.Errorf("budget guard: %w", err)
+		return nil, err
 	}
-	notes := &budgetNotes{}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
-	prices, err := provider.RoutePrices(table, base, modelName)
+	limits, routeKey, window, prices, err := runRoutePricing(ctx, cfg, db, table, base, provName, modelRef)
 	if err != nil {
-		return nil, fmt.Errorf("pricing: %w", err)
+		return nil, err
 	}
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
-		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family, Prices: prices}},
+		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: window.ContextWindow, Family: family, Prices: prices}},
 		Attempts: o.providerAttempts,
 		Guard:    guard, OnBudget: func(d budget.Decision) { notes.observe(&d) },
 	})
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)
 	}
-	return &providerAdapter{client: openai, model: modelRef, notes: notes}, nil
+	return &providerAdapter{
+		client: openai, model: modelRef, notes: notes,
+		limits: limits, providerName: provName, modelName: modelName, routeKey: routeKey,
+	}, nil
 }
 
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runModel, error) {
@@ -395,7 +395,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fail(fmt.Errorf("model window: %w", err))
 	}
-	prov, err := newRunProvider(cfg, db, modelRef, o)
+	prov, err := newRunProvider(ctx, cfg, db, modelRef, o)
 	if err != nil {
 		return nil, fail(err)
 	}
@@ -517,14 +517,14 @@ func newSessionID() (string, error) {
 }
 
 // budgetCounter adapts COST-09 to assemble.Counter (one formula, one owner).
-type budgetCounter struct{}
-
-func (budgetCounter) Count(s string) int { return int(budget.Count(s).Raw()) }
-
 type providerAdapter struct {
-	client *provider.OpenAI
-	model  string
-	notes  *budgetNotes
+	client       *provider.OpenAI
+	model        string
+	notes        *budgetNotes
+	limits       *registry.Limits // COST-02: learned windows are persisted here
+	providerName string
+	modelName    string
+	routeKey     string // normalized base_url: learned/config scope
 }
 
 func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
@@ -549,7 +549,14 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 	if maxTok <= 0 {
 		maxTok = provider.DefaultMaxTokens
 	}
-	billed := billedUsage(&resp, maxTok)
+	if w, ok := provider.ContextWindow(err); ok && p.limits != nil {
+		// A real context_length error teaches the window (never a probe), but
+		// only after the plausibility check in Learn.
+		if _, oerr := p.limits.Learn(ctx, p.routeKey, p.modelName, w, resp.EstInputTokens, maxTok); oerr != nil {
+			err = errors.Join(err, fmt.Errorf("learned context window: %w", oerr))
+		}
+	}
+	billed := billedUsage(&resp, len(req.Messages), maxTok)
 	if err != nil {
 		se := streamError(err)
 		se.Billed = resp.BilledFailed
@@ -694,28 +701,6 @@ func (s *ctxStore) EndTurn(ctx context.Context, sid, tid string, payload json.Ra
 		return fmt.Errorf("end turn: %w", err)
 	}
 	return nil
-}
-
-// billedUsage is the conservative per-attempt projection of a priced route
-// for the ledger rows of failed attempts (SEC6-11): the estimated input plus
-// max_tokens at the route prices. Nil for an unpriced route (NULL/unknown).
-func billedUsage(resp *provider.Response, maxTok int64) *event.Usage {
-	if resp.Price == nil {
-		return nil
-	}
-	return &event.Usage{Input: resp.EstInputTokens, Output: maxTok, Price: eventPrice(resp.Price)}
-}
-
-// eventPrice converts the provider response price entry to the loop's wire
-// type (loop/event is a leaf: it does not import budget).
-func eventPrice(p *budget.Price) *event.Price {
-	if p == nil {
-		return nil
-	}
-	return &event.Price{
-		InputPerMTok: p.InputPerMTok, CachedInputPerMTok: p.CachedInputPerMTok,
-		OutputPerMTok: p.OutputPerMTok, Version: p.Version,
-	}
 }
 
 type ctxLedger struct {

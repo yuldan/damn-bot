@@ -31,6 +31,7 @@ const (
 const (
 	FallbackWindow = 32_768
 	MinWindow      = 8_192
+	MaxWindow      = 10_000_000
 )
 
 var (
@@ -92,14 +93,26 @@ func NewLimits(config, registry map[string]int64, store Store, now func() time.T
 // (COST-02). A store error is returned, not replaced by the fallback; a
 // persisted window below MinWindow is ErrWindowTooSmall.
 func (l *Limits) Window(ctx context.Context, provider, model string) (Limit, error) {
-	ref := provider + "/" + model
-	if w, ok := l.config[ref]; ok {
+	return l.lookup(ctx, provider+"/"+model, provider+"/"+model, provider, model)
+}
+
+// WindowFor resolves one route: the config override is keyed by the
+// normalized base_url + model, the embedded registry by provider + model,
+// and persisted discovery/learned limits by base_url + model (a reseller
+// cannot poison a vendor window).
+func (l *Limits) WindowFor(ctx context.Context, provider, baseURL, model string) (Limit, error) {
+	return l.lookup(ctx, baseURL+"\x00"+model, provider+"/"+model, baseURL, model)
+}
+
+func (l *Limits) lookup(ctx context.Context, configKey, staticKey, storeProvider, model string) (Limit, error) {
+	if w, ok := l.config[configKey]; ok {
 		return Limit{ContextWindow: w, Source: SourceConfig}, nil
 	}
-	if w, ok := l.registry[ref]; ok {
+	if w, ok := l.registry[staticKey]; ok {
 		return Limit{ContextWindow: w, Source: SourceRegistry}, nil
 	}
-	w, src, at, err := l.store.Load(ctx, provider, model)
+	ref := storeProvider + "/" + model
+	w, src, at, err := l.store.Load(ctx, storeProvider, model)
 	if err != nil {
 		return Limit{}, fmt.Errorf("registry: load limits %s: %w", ref, err)
 	}
@@ -111,6 +124,36 @@ func (l *Limits) Window(ctx context.Context, provider, model string) (Limit, err
 		return lim, fmt.Errorf("%w: %s %s window %d", ErrWindowTooSmall, ref, src, w)
 	}
 	return lim, nil
+}
+
+// Learn persists a window learned from a real context_length error after a
+// plausibility check: the provider-controlled number must be in
+// [MinWindow, MaxWindow], smaller than the failed request's upper bound
+// (input×1.5 + max_tokens), and a decrease of a previously learned value.
+// It reports whether a row was written; an implausible value is discarded,
+// never persisted as a blocking fact.
+func (l *Limits) Learn(ctx context.Context, baseURL, model string, window, requestInput, maxTokens int64) (bool, error) {
+	if baseURL == "" || model == "" || requestInput < 0 || maxTokens < 0 ||
+		window < MinWindow || window > MaxWindow {
+		return false, nil
+	}
+	if window >= requestInput+requestInput/2+maxTokens {
+		return false, nil
+	}
+	current, src, _, err := l.store.Load(ctx, baseURL, model)
+	if err != nil {
+		return false, fmt.Errorf("registry: load limits %s/%s: %w", baseURL, model, err)
+	}
+	if src == string(SourceDiscovery) {
+		return false, nil
+	}
+	if current > 0 && window >= current {
+		return false, nil
+	}
+	if err := l.store.Save(ctx, baseURL, model, window, string(SourceLearned), l.now().UnixMilli()); err != nil {
+		return false, fmt.Errorf("registry: save limits %s/%s: %w", baseURL, model, err)
+	}
+	return true, nil
 }
 
 // Observe persists a window from /models discovery or from a real

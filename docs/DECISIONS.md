@@ -3115,6 +3115,30 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 4. **Test.** `TestBilledAttemptsRecorded` (proyeksi berharga; cancel tepat setelah stream selesai tetap menulis attempt + usage), `TestRunBrokenStreamRecordsAttempts` (route tanpa harga tetap 3 baris `NULL`/`unknown`); `TestRunBrokenStreamStopsUnderCap` menyusul bersama wiring guard #173.
 5. **LOC.** `loop` 2.050 → 2.100 dan `provider` 2.100 → 2.150 (terukur 2.131), Total core 38.080 → 38.180; `budget` tetap 580.
 
+## ADR-130 — Wiring harga/limit F2: gerbang kedaluwarsa COST-01, `registry.Limits` di composition root, override config, dan window learned
+
+**Status:** Accepted 2026-10-21 (F2). Menerapkan sisa GAP-COST-01, GAP-COST-02, dan GAP-PROV-02 setelah ADR-125/126/128.
+
+**Konteks.** ADR-125/128 menyediakan jadwal harga dan ADR-126 resolver window, tetapi composition root `run` masih memasang `loop.turn_max_input_tok` sebagai `Route.ContextWindow`, `providers.toml` belum punya metadata model, override config belum ada, dan belum ada gate CI kedaluwarsa. `damnbot doctor` belum ada di `cmd/damnbot`, sehingga peringatan tabel > 60 hari (COST-01) belum bisa dipasang di PR ini; gate CI dijalankan dan doctor dicatat sebagai konsekuensi.
+
+**Keputusan.**
+1. **Gerbang COST-01.** `registry.PriceTable.ExpiredAt(now)` mengembalikan route yang entri terakhirnya berakhir `≤ now` (tidak ada harga berlaku). `TestPricingTableNotExpired` menjalankannya atas tabel embedded pada waktu build/test dan gagal bila ada route tanpa pengganti; entri lama yang sudah ditutup tetap sah selama ada entri berikutnya (open-ended atau `until` di masa depan). Tidak ada fallback ke harga terakhir yang kedaluwarsa.
+2. **Metadata model di `providers.toml`.** Section `[[model]]` (`provider`, `model`, `context_window`, `image_token_formula`, `source`) dengan validasi token, `source` wajib, `context_window ≥ 8.192`, minimal satu dari window/formula, dan duplikat ditolak. Tidak ada nilai vendor yang ditambahkan: window model TeamRouter tidak terdokumentasi di repo (smoke F1 memakai `turn_max_input_tok`, bukan window model), jadi `gpt-5.4-mini` tetap fallback 32.768 sampai belajar dari error nyata. Tidak ada probe.
+3. **Override config.** `[[providers.custom]]` diekspos sebagai subset SPEC §12: `name`, `base_url`, `models[]` (`id`, `context_length`, `max_tokens`, `capabilities`); hanya `context_length` dikonsumsi F1. Field auth/transport tetap unknown sampai fase registry provider. Validasi: nama unik dan bukan whitespace/kontrol, `base_url` tidak kosong, models tidak kosong, id unik, `context_length` 8.192..10^7 (0 = tidak di-override).
+4. **Composition root.** `newRunLimits` membangun `registry.Limits` dengan sumber config (`providers.custom`), registry (`providers.toml`), storage `model_limits` (`limitstore`), dan fallback. Kunci config/learned adalah `NormalizeBaseURL(base_url) + "\x00" + model`; lookup memakai `Limits.WindowFor(ctx, provider, routeKey, model)` dan memasang `Limit.ContextWindow` pada `Route.ContextWindow` (menggantikan `loop.turn_max_input_tok`). `ErrWindowTooSmall` menggagalkan start dengan pesan `model limits <provider/model>: …`; error storage dikembalikan, bukan diganti fallback. Startup tidak mengirim request apa pun.
+5. **Window learned.** `provider.ContextWindow(err)` hanya membaca `error.message` dengan pola `maximum context length` (regex precompiled, SEC6-18) dan hanya untuk error berkelas `context_length`; bentuk longgar/tak dikenal tidak ditebak. Adapter memanggil `Limits.Learn(ctx, routeKey, model, window, estInput, maxTokens)` di `p.routeKey`; `Learn` menolak nilai di luar `[MinWindow, MaxWindow]`, nilai yang tidak lebih kecil dari batas atas request gagal, dan kenaikan dari baris learned (discovery tidak ditimpa). Kegagalan persist digabung ke error asli. Baris `model_limits` bertahan lintas run dan menang atas fallback, kalah dari config/registry.
+6. **LOC.** `provider/registry` 300 → 400 (terukur 394; Σ core +100), `provider` 2.100 → 2.200 (terukur 2.182, Σ core +100; termasuk billed-attempt dari #184), `loop` 2.070 → 2.120 (terukur 2.097), `budget` tetap 580 (terukur 571), `config` tetap 1.200 (terukur 753), Total core 38.230 → 38.380 ≤ 47.000.
+
+**Dampak terukur (SPEC §20).** Dependency baru 0; 0 request provider saat start (tidak ada probe). Test: `TestPricingTableNotExpired` (gate CI), `TestPriceModelTable` (metadata + validasi), `TestProvidersCustom` (override config + Clone), `TestContextWindow` (bentuk pesan, pembungkusan, kelas salah), `TestRunLimitsPrecedence` (config → registry → learned → fallback di composition root), `TestRunLimitsNoProbeAndTooSmall` (0 request; learned 4.096 ditolak `ErrWindowTooSmall`), `TestRunLimitsLearnedAcrossRuns` (error `context_length` nyata → `model_limits` → restart).
+
+**Konsekuensi.** (+) `run` memakai window per model, bukan batas input turn; override config dan window learned bekerja tanpa probe; harga kedaluwarsa menggagalkan CI. (−) Fetch discovery `/models`, pemakaian `image_token_formula` oleh assembler/estimator, dan peringatan `doctor` > 60 hari belum dikerjakan; menambah window vendor perlu kutipan dokumen repo.
+
+**Amandemen round 6 — 2026-10-21 (REVIEW-F2-SEC6 SEC6-15/17/18 + minor #184).**
+1. **Window learned tidak dipercaya mentah (SEC6-15).** Hanya `error.message` terstruktur (bukan seluruh body/echo prompt) dengan pola `maximum context length` yang diparse; regex di-precompile (SEC6-18). `registry.Limits.Learn` menerima nilai hanya bila berada di `[MinWindow, MaxWindow=10.000.000]`, **lebih kecil dari batas atas request yang gagal** (`est_input × 1,5 + max_tokens`, faktor kalibrasi ADR-101), dan merupakan **penurunan** dari baris learned sebelumnya; `discovery` tidak pernah ditimpa. Nilai di luar batas atau tidak masuk akal dibuang (tidak dipersistenkan), sehingga teks provider tidak bisa memblokir start (`ErrWindowTooSmall`) atau menggelembungkan window. Window learned dan override config dikunci per `base_url` + model, bukan nama provider, sehingga reseller tidak bisa meracuni route vendor.
+2. **Config (SEC6-17).** `[[providers.custom]] base_url` divalidasi sebagai origin http(s) tanpa userinfo/query/fragment (normalisasi yang sama diterapkan lagi di composition root), dan override `context_length` dikunci oleh `base_url` ternormalisasi + model.
+3. **Proyeksi attempt berbayar (minor #184).** Jalur retry-exhausted mengembalikan `Price`/`EstInputTokens` terakhir sehingga baris attempt berbayar memakai proyeksi, bukan NULL (SEC6-11b); proyeksi adalah batas atas: input `est × 1,5 + 8 token/pesan`, output `max_tokens` (default 8192), dibulatkan ke atas oleh `budget.Cost` (SEC6-13). Retry attempt berbayar di bawah cap memakai proyeksi route berharga (bukan unknown), sehingga retry diizinkan bila proyeksi masih muat (SEC6-14b); route tanpa harga tetap gagal-tertutup.
+4. **Test.** `TestModelLimitsRouteScope` (config/store per base_url, tolak di bawah Min/atas Max/tidak lebih kecil dari request/kenaikan, discovery menang), `TestContextWindow` (hanya `error.message`, bentuk longgar ditolak), `TestProvidersCustom` (base_url tanpa scheme/userinfo/query ditolak), `TestRunLearnedWindowImplausible`, `TestDoExhaustionKeepsPrice`, `TestBilledRetryAllowedWhenProjectionFits`, `TestBilledBreakerOpenNoDoubleCount`, `TestBilledRetryProjectionCumulative`, `TestRunBudgetGuardPricedRoute`, `TestRunBrokenStreamStopsUnderCap`.
+
 ## ADR-131 — Carrier reasoning opaque GAP-PROV-01: `ctxdb/carrierstore`, kunci (family, model), proyeksi per route, dan penolakan signature tahan restart
 
 **Status:** Accepted 2026-10-21 (F2 storage; proyeksi provider/assemble menyusul di PR terpisah pada workstream yang sama). Menerapkan GAP-PROV-01 (SPEC §4.1, §11.9, §14.3; CROSS-CUTTING §1.3) di atas tabel `reasoning_carriers`/`reasoning_carrier_rejections` yang sudah ada di migrasi 0007.
@@ -3287,23 +3311,6 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Konsekuensi.** (+) Kueri natural bahasa manusia dapat menemukan fakta yang relevan; operator FTS tetap tidak dapat disuntikkan user. (−) Kandidat bisa lebih banyak pada korpus besar (term umum seperti "my"); `bm25` + LIMIT menahan biaya, tetapi kualitas ranking bergantung pada tokenisasi unicode61 (tanpa stopword removal).
 
-## ADR-163 — Tindak lanjut review F2: EC-CTX-007 (direktif MEDIA), tie-break recall, dan bukti GAP-COST-04
-
-**Status:** Accepted 2026-10-22 (delegasi; menutup ACC-6, ACC-12, dan GAP-COST-04 dari review PR #249/#251/#250). Diterapkan di PR tindak lanjut F2.
-
-**Aturan penerapan.** Teks diterapkan (2026-10-22): `internal/compaction/summary.go` + `edgecases_test.go`, `internal/ctxdb/memstore/memstore.go` + `restart_test.go`, `cmd/damnbot/fallback_prefix_test.go`. Mengutip SPEC §22.1 (GAP-SEC-26/EC-CTX-007, GAP-INF-06, GAP-COST-04) dan ADR-122/ADR-133/ADR-137.
-
-**Konteks.** Review menemukan tiga sisa: (a) EC-CTX-007 hanya membuang `MEDIA:` yang berisi nilai, sehingga `MEDIA:` telanjang lolos ke summarizer; (b) tie-break `memstore` tidak deterministik untuk skor bm25 yang sama, dan judul test INF-06 mengklaim penutupan yang belum ada (runner eval belum ada); (c) GAP-COST-04 diklaim lewat test prefix antar-turn yang tidak pernah menjalankan fallback provider.
-
-**Keputusan.**
-1. **EC-CTX-007.** `deliveryDirective = MEDIA:\s*\S*` membuang direktif dengan nilai maupun `MEDIA:` telanjang dari isi pesan dan argumen tool call sebelum summarizer; test `TestEdgeCases/EC-CTX-007` mencakup empat bentuk (tool result, assistant, trailing bare, argumen). Status EC-CTX-007 = covered; pembaruan kalimat ADR-122 butir 14 dibawa PR #245 (bila kedua PR mendarat, kalimat yang sama cukup sekali). PR ini juga menambahkan stripper yang sama dengan #249: land satu lebih dulu, PR kedua menjadi delta (catatan merge).
-2. **Recall deterministik.** `searchIDs` memakai `ORDER BY m.pinned DESC, bm25(memory_fts), m.id` (dan `created_at DESC, m.id` untuk kueri tanpa teks). Test `TestRecallDeterministicAcrossRestart` menyisipkan dua baris identik (skor bm25 sama) dan memastikan urutan sama pada rerun dan sesudah reopen. Test ini adalah proksi jalur recall yang dinilai E4 (ADR-137), **bukan** penutupan GAP-INF-06: runner eval, baseline nightly, dan cap biaya live tetap terbuka.
-3. **GAP-COST-04 (parsial).** `TestFallbackPrefixStable` mengonfigurasi dua route provider A dan B dengan `Fallback: [fake/B]`, memaksa fallback lewat `provider.Do` (tiga 503 pada A lalu sukses di B), lalu memanggil A lagi dan menghitung sha256 pesan system + array tools dari setiap body yang direkam proxy: identik pada kelima attempt; hanya field `model` yang berubah A,A,A,B,A. Ini membuktikan prefix+cache-key di lapisan provider untuk A→B→A. **Status GAP-COST-04 tetap parsial**: composition root `run` belum meneruskan `cfg.Provider.Fallback` ke `provider.Config`, sehingga fallback sesi-nyata baru bisa diuji setelah irisan F5 itu; ledger F2 tetap mencatat baris itu belum tertutup.
-
-**Dampak terukur (SPEC §20).** LOC: `compaction` +≈10, `ctxdb/memstore` +0 (satu klausa ORDER BY), test +≈150; token/binary/dependency 0. Tidak ada perubahan `loc.budget`.
-
-**Konsekuensi.** (+) Tiga temuan review tertutup dengan bukti yang bisa gagal; EC-CTX-007 tidak lagi bisa membocorkan direktif telanjang. (−) Dua PR berbagi kode EC-CTX-007/INF-06 dengan #249/#251; urutan merge harus dijaga agar tidak ada duplikasi diam-diam.
-
 ## ADR-139 — Klasifikasi 59 baris parity F2: headless F2, permukaan slash F3, dan tiga baris dipindah
 
 **Status:** Accepted 2026-10-22 (keputusan owner: F2 hanya punya `damnbot run` headless; semua permukaan slash menunggu REPL/TUI F3). Memperbaiki per-row phase ADR-064 untuk 22 baris; baris lain tidak berubah. Diterapkan di PR dokumen ini + PR implementasi lanjutan. Tidak mengubah SPEC, skema, dependency, atau `loc.budget`.
@@ -3391,6 +3398,24 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Konsekuensi.** (+) Acceptance F2 hanya menuntut yang dapat dibangun dengan `run` headless, dan setiap baris yang pindah punya test kapabilitas F2 yang eksplisit. (+) Gate per fase kembali bermakna: F2 tidak lagi memuat 19 permukaan slash yang mustahil. (−) F3 menerima 19 baris permukaan; REPL/TUI F3 harus menutupnya, dan baris F8/F5 tetap terbuka lebih lama. (−) Setiap perpindahan fase berikutnya tetap wajib ADR + perubahan angka di ROADMAP dan test (ADR-064).
 
+## ADR-163 — Tindak lanjut review F2: EC-CTX-007 (direktif MEDIA), tie-break recall, dan bukti GAP-COST-04
+
+**Status:** Accepted 2026-10-22 (delegasi; menutup ACC-6, ACC-12, dan GAP-COST-04 dari review PR #249/#251/#250). Diterapkan di PR tindak lanjut F2.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-22): `internal/compaction/summary.go` + `edgecases_test.go`, `internal/ctxdb/memstore/memstore.go` + `restart_test.go`, `cmd/damnbot/fallback_prefix_test.go`. Mengutip SPEC §22.1 (GAP-SEC-26/EC-CTX-007, GAP-INF-06, GAP-COST-04) dan ADR-122/ADR-133/ADR-137.
+
+**Konteks.** Review menemukan tiga sisa: (a) EC-CTX-007 hanya membuang `MEDIA:` yang berisi nilai, sehingga `MEDIA:` telanjang lolos ke summarizer; (b) tie-break `memstore` tidak deterministik untuk skor bm25 yang sama, dan judul test INF-06 mengklaim penutupan yang belum ada (runner eval belum ada); (c) GAP-COST-04 diklaim lewat test prefix antar-turn yang tidak pernah menjalankan fallback provider.
+
+**Keputusan.**
+1. **EC-CTX-007.** `deliveryDirective = MEDIA:\s*\S*` membuang direktif dengan nilai maupun `MEDIA:` telanjang dari isi pesan dan argumen tool call sebelum summarizer; test `TestEdgeCases/EC-CTX-007` mencakup empat bentuk (tool result, assistant, trailing bare, argumen). Status EC-CTX-007 = covered; pembaruan kalimat ADR-122 butir 14 dibawa PR #245 (bila kedua PR mendarat, kalimat yang sama cukup sekali). PR ini juga menambahkan stripper yang sama dengan #249: land satu lebih dulu, PR kedua menjadi delta (catatan merge).
+2. **Recall deterministik.** `searchIDs` memakai `ORDER BY m.pinned DESC, bm25(memory_fts), m.id` (dan `created_at DESC, m.id` untuk kueri tanpa teks). Test `TestRecallDeterministicAcrossRestart` menyisipkan dua baris identik (skor bm25 sama) dan memastikan urutan sama pada rerun dan sesudah reopen. Test ini adalah proksi jalur recall yang dinilai E4 (ADR-137), **bukan** penutupan GAP-INF-06: runner eval, baseline nightly, dan cap biaya live tetap terbuka.
+3. **GAP-COST-04 (parsial).** `TestFallbackPrefixStable` mengonfigurasi dua route provider A dan B dengan `Fallback: [fake/B]`, memaksa fallback lewat `provider.Do` (tiga 503 pada A lalu sukses di B), lalu memanggil A lagi dan menghitung sha256 pesan system + array tools dari setiap body yang direkam proxy: identik pada kelima attempt; hanya field `model` yang berubah A,A,A,B,A. Ini membuktikan prefix+cache-key di lapisan provider untuk A→B→A. **Status GAP-COST-04 tetap parsial**: composition root `run` belum meneruskan `cfg.Provider.Fallback` ke `provider.Config`, sehingga fallback sesi-nyata baru bisa diuji setelah irisan F5 itu; ledger F2 tetap mencatat baris itu belum tertutup.
+
+**Dampak terukur (SPEC §20).** LOC: `compaction` +≈10, `ctxdb/memstore` +0 (satu klausa ORDER BY), test +≈150; token/binary/dependency 0. Tidak ada perubahan `loc.budget`.
+
+**Konsekuensi.** (+) Tiga temuan review tertutup dengan bukti yang bisa gagal; EC-CTX-007 tidak lagi bisa membocorkan direktif telanjang. (−) Dua PR berbagi kode EC-CTX-007/INF-06 dengan #249/#251; urutan merge harus dijaga agar tidak ada duplikasi diam-diam.
+
+
 ## ADR-173 — Tool skill: `skills_list`, `skill_view`, `skill_manage`
 
 **Status:** Accepted 2026-10-23 (F2; TOOL-074/075/076, SKILL-002, EC-CTX-006, SEC16-1..5, ACC-56..61). Budget `tools` 2.200 → 2.500 (+300; terukur 2.315) dan `ctxdb/skillstore` 400 → 460 (+60; terukur 438); dependency 0; DDL 0 (ADR-074). Diterapkan bertahap dalam dua PR berurutan: lapisan baca (`skills_list`, `skill_view`) lalu lapisan tulis (`skill_manage`) beserta penguatan SEC16-5.
@@ -3438,3 +3463,4 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** Token/biaya/binary/dependency/migrasi 0; LOC produksi 0 (hanya berkas tes `internal/testutil/phase`); tidak ada perubahan `loc.budget`.
 
 **Konsekuensi.** (+) Penaikan `PHASE` menyatakan tepat apa yang sudah selesai — fase yang ditinggalkan — sehingga penaikan ke F3 tidak lagi menuntut komponen yang baru dimulai di F3. (+) Gate tidak kehilangan ketegasan: semua id fase < `PHASE` tetap wajib `covered`/`n/a`, termasuk id yang sebelumnya `pending:F1`. (−) Satu id fase yang dimasuki bisa tertinggal `pending` sampai penaikan berikutnya; karena itu daftar "open" dicetak pada setiap run.
+

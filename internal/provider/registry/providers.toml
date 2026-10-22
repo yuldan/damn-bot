@@ -13,6 +13,17 @@
 
 version = "providers-2026-10-21"
 
+# Static model metadata (COST-02/PROV-02). context_window must be >= 8192;
+# image_token_formula is a budget preset name. Both need a cited source, so
+# no entry is declared until the repo documents the value: an absent model
+# resolves the 32.768 fallback and learns from a real context_length error.
+# [[model]]
+# provider = "openai"
+# model = "gpt-5.4-mini"
+# context_window = 128000
+# image_token_formula = "openai_tiles"
+# source = "<document reference>"
+
 [[price]]
 id = "teamorouter-gpt-5.4-mini"
 base_url = "https://api.teamorouter.com/v1"

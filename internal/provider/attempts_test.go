@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/budget"
 	"github.com/damnbot/damnbot/internal/netx/retry"
@@ -52,29 +53,66 @@ func TestBilledFailedAttempts(t *testing.T) {
 	})
 }
 
-// TestBilledRetryStopsUnderCap (SEC6-9): after a paid attempt with unknown
-// cost, a configured monetary cap denies the retry instead of multiplying
-// the unaccounted spend; the error stays a budget denial.
-func TestBilledRetryStopsUnderCap(t *testing.T) {
+// TestBilledRetryAllowedWhenProjectionFits (SEC6-14b): a priced route keeps
+// its known projection for the retry check, so the retry is allowed when the
+// projection still fits under the cap.
+func TestBilledRetryAllowedWhenProjectionFits(t *testing.T) {
 	t.Parallel()
-	srv := providertest.New(t, nil, badUsage())
+	srv := providertest.New(t, nil, badUsage(), providertest.Text("ok"))
 	guard, err := budget.NewGuard(budget.GuardConfig{DailyUSD: 1}, zeroLedger{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	prices, err := budget.NewPrices(budget.PriceEntry{
+		Price: budget.Price{InputPerMTok: 1_000, OutputPerMTok: 2_000, Version: "v"},
+		From:  mustTime(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	rt := route("m", srv.URL)
+	rt.Prices = prices
 	o := client(t, &provider.Config{Routes: []provider.Route{rt}, Guard: guard})
 	resp, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil)
-	var denied *budget.DeniedError
-	if !errors.As(err, &denied) || denied.Reason != budget.ReasonCostUnknown {
-		t.Fatalf("err = %v, want budget_unknown_cost", err)
+	if err != nil || resp.Content != "ok" {
+		t.Fatalf("retry = %q, %v; want success", resp.Content, err)
 	}
-	if got := len(srv.Requests()); got != 0 {
-		t.Fatalf("requests = %d, want 0 (unknown cost fails closed)", got)
+	if got := len(srv.Requests()); got != 2 {
+		t.Fatalf("requests = %d, want 2 (retry allowed by the projection)", got)
 	}
-	if resp.BilledFailed != 0 {
-		t.Fatalf("billed failed = %d, want 0", resp.BilledFailed)
+	if resp.BilledFailed != 1 {
+		t.Fatalf("billed failed = %d, want 1", resp.BilledFailed)
 	}
+}
+
+// TestDoExhaustionKeepsPrice (SEC6-11b): an exhausted retry chain still
+// returns the last route price and input estimate, so the caller can record
+// a priced projection instead of NULL.
+func TestDoExhaustionKeepsPrice(t *testing.T) {
+	t.Parallel()
+	srv := providertest.New(t, nil, badUsage(), badUsage(), badUsage())
+	prices, err := budget.NewPrices(budget.PriceEntry{
+		Price: budget.Price{InputPerMTok: 1_000, OutputPerMTok: 2_000, Version: "v"},
+		From:  mustTime(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt := route("m", srv.URL)
+	rt.Prices = prices
+	o := client(t, &provider.Config{Routes: []provider.Route{rt}})
+	resp, derr := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil)
+	if derr == nil {
+		t.Fatal("exhausted retries succeeded")
+	}
+	if resp.Price == nil || resp.Price.Version != "v" || resp.EstInputTokens <= 0 || resp.BilledFailed != 3 {
+		t.Fatalf("resp = %+v, want price/estimate/billed on the error path", resp)
+	}
+}
+
+func mustTime(t *testing.T) time.Time {
+	t.Helper()
+	return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 }
 
 // TestBilledBreakerOpenNoDoubleCount (PRC-4): when the breaker opens before
@@ -102,9 +140,7 @@ func TestBilledBreakerOpenNoDoubleCount(t *testing.T) {
 }
 
 // cumulativeGuard records estimates and denies the third consultation.
-type cumulativeGuard struct {
-	est []int64
-}
+type cumulativeGuard struct{ est []int64 }
 
 func (g *cumulativeGuard) Check(_ context.Context, r budget.Request) (budget.Decision, error) {
 	g.est = append(g.est, r.EstimateMicros)
@@ -133,15 +169,36 @@ func TestBilledRetryProjectionCumulative(t *testing.T) {
 	if got := len(srv.Requests()); got != 2 {
 		t.Fatalf("requests = %d, want 2", got)
 	}
-	// est[0] = first call, est[1] = retry after one billed attempt (2x),
-	// est[2] = retry after two billed attempts (3x).
 	if len(g.est) != 3 || g.est[1] < 2*g.est[0] || g.est[2] < 3*g.est[0] {
 		t.Fatalf("estimates = %v, want cumulative 1x/2x/3x", g.est)
 	}
 }
 
-// TestBilledRetryStopsPricedUnderCap (PRC-3): a priced route whose retry
-// projection exceeds the cap is denied before the second request.
+// TestBilledRetryStopsUnderCap (PRC-3): an unpriced route fails closed before
+// the first request when a monetary cap is configured.
+func TestBilledRetryStopsUnderCap(t *testing.T) {
+	t.Parallel()
+	srv := providertest.New(t, nil, badUsage())
+	guard, err := budget.NewGuard(budget.GuardConfig{DailyUSD: 1}, zeroLedger{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := client(t, &provider.Config{Routes: []provider.Route{route("m", srv.URL)}, Guard: guard})
+	resp, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil)
+	var denied *budget.DeniedError
+	if !errors.As(err, &denied) || denied.Reason != budget.ReasonCostUnknown {
+		t.Fatalf("err = %v, want budget_unknown_cost", err)
+	}
+	if got := len(srv.Requests()); got != 0 {
+		t.Fatalf("requests = %d, want 0", got)
+	}
+	if resp.BilledFailed != 0 {
+		t.Fatalf("billed failed = %d, want 0", resp.BilledFailed)
+	}
+}
+
+// TestBilledRetryStopsPricedUnderCap: a priced route retries while its
+// cumulative projection fits; the second projection is denied.
 func TestBilledRetryStopsPricedUnderCap(t *testing.T) {
 	t.Parallel()
 	srv := providertest.New(t, nil, badUsage())
