@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -213,5 +215,78 @@ func TestSessionCloseRacingExec(t *testing.T) {
 		if err := <-done; err != nil && !errors.Is(err, ErrSessionsClosed) {
 			t.Fatalf("concurrent Exec: %v", err)
 		}
+	}
+}
+
+// sessionFor returns the live session registered under name.
+func sessionFor(t *testing.T, ss *Sessions, name string) *session {
+	t.Helper()
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	s, ok := ss.m[name]
+	if !ok {
+		t.Fatalf("session %q not found", name)
+	}
+	return s
+}
+
+// TestSessionCloseRacingWriteIsTyped (review of #202): a command already
+// holding a shell when Close kills it fails its write with a platform error
+// (darwin: EIO on /dev/ptmx). The injected write makes that deterministic
+// without macOS, and the contract is the one #202 states: nil or
+// ErrSessionsClosed, never a raw platform error, and Close itself stays clean.
+func TestSessionCloseRacingWriteIsTyped(t *testing.T) {
+	t.Parallel()
+	ss := newSessions(t, nil)
+	sessExec(t, ss, "s", "true", 5*time.Second)
+	s := sessionFor(t, ss, "s")
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	s.writeInput = func(*os.File, string) (int, error) {
+		close(entered)
+		<-release
+		return 0, syscall.EIO
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := ss.Exec(t.Context(), "s", "sleep 30", nil, time.Second)
+		done <- err
+	}()
+	<-entered
+	if err := ss.Close(); err != nil {
+		t.Fatalf("Close after a racing write: %v", err)
+	}
+	close(release)
+	if err := <-done; !errors.Is(err, ErrSessionsClosed) {
+		t.Fatalf("Exec: %v, want ErrSessionsClosed", err)
+	}
+}
+
+// TestSessionInterruptWriteFailureIsNotCleanup: the timeout nudge writes to a
+// shell whose terminal is gone. That is not a cleanup failure; before the fix
+// the note landed in c.errs and a racing Sessions.Close returned it as
+// "exec: cleanup: exec: session write: write /dev/ptmx: input/output error"
+// (macos-15-intel, run 39706391).
+func TestSessionInterruptWriteFailureIsNotCleanup(t *testing.T) {
+	t.Parallel()
+	ss := newSessions(t, nil)
+	sessExec(t, ss, "s", "true", 5*time.Second)
+	s := sessionFor(t, ss, "s")
+	var writes atomic.Int32
+	s.writeInput = func(f *os.File, line string) (int, error) {
+		if writes.Add(1) == 1 {
+			return f.WriteString(line)
+		}
+		return 0, syscall.EIO
+	}
+	res, err := ss.Exec(t.Context(), "s", "sleep 30", nil, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("Exec: %v", err)
+	}
+	if res.Status != StatusTimeout {
+		t.Fatalf("status %q", res.Status)
+	}
+	if cerr := s.c.err(); cerr != nil {
+		t.Fatalf("interrupt write leaked into cleanup: %v", cerr)
 	}
 }
