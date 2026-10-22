@@ -12,11 +12,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// sessionShell is §A.2's session shell: $SHELL when bash or zsh, else
-// bash, else sh, on a PTY with line editing off (`--noediting`, zsh `+Z`)
-// so no bracketed-paste or redraw sequences frame the output. fish is not
-// used: its line editor echoes and redraws input whatever the TTY mode
-// (ADR-105 butir 22).
+// sessionShell is §A.2's session shell: the same chooser as one-shot
+// (bash, else sh; $SHELL is ignored, SEC10-36), on a PTY with line editing
+// off (`--noediting`) so no bracketed-paste or redraw sequences frame the
+// output. fish is not used: its line editor echoes and redraws input whatever
+// the TTY mode (ADR-105 butir 22).
 func sessionShell(path string) sessionShellSpec {
 	c, err := chooseShell(path)
 	bin := "/bin/sh"
@@ -31,7 +31,7 @@ func sessionShell(path string) sessionShellSpec {
 	return sessionShellSpec{
 		argv: argv, pty: true, ext: ".sh",
 		setup: "stty -echo 2>/dev/null; PS1=''; PS2=''; PROMPT_COMMAND=''; " +
-			"shopt -u expand_aliases 2>/dev/null; unsetopt aliases 2>/dev/null; unalias -a 2>/dev/null; true",
+			"shopt -u expand_aliases 2>/dev/null; unalias -a 2>/dev/null; true",
 		line: func(path, cwd, nonce string) string {
 			return ". " + shQuote(path) + "; __dmb_s=$?; pwd -P > " + shQuote(cwd) + "; " +
 				sentinel + nonce + ` "$__dmb_s"` + "\n"
