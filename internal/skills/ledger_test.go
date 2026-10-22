@@ -4,7 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+<<<<<<< HEAD
 	"runtime"
+=======
+>>>>>>> f851b220 (feat(skills): append-only skill ledger and provenance (ADR-171))
 	"strings"
 	"testing"
 )
@@ -24,12 +27,16 @@ func TestLedgerRoundTrip(t *testing.T) {
 		}
 	}
 	fi, err := os.Stat(LedgerPath(dir))
+<<<<<<< HEAD
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Windows cannot express 0600: a writable file reports 0666 there, so the
 	// POSIX mode assertion only makes sense off Windows (repo pattern).
 	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+=======
+	if err != nil || fi.Mode().Perm() != 0o600 {
+>>>>>>> f851b220 (feat(skills): append-only skill ledger and provenance (ADR-171))
 		t.Fatalf("ledger mode = %v, want 0600", fi.Mode().Perm())
 	}
 	entries, err := ReadLedger(dir)
