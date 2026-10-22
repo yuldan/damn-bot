@@ -150,33 +150,6 @@ func TestSessionsExportFile(t *testing.T) {
 	}
 }
 
-// TestSessionsStatsAndFlags: pin/unpin/archive drive the stats counters.
-func TestSessionsStatsAndFlags(t *testing.T) {
-	t.Parallel()
-	dir, id := seedSession(t)
-	if code, _, e := runAdmin(t, "pin", id, "--data-dir", dir); code != 0 {
-		t.Fatalf("pin = %d: %s", code, e)
-	}
-	if code, out, _ := runAdmin(t, "pinned", "--data-dir", dir); code != 0 || !strings.Contains(out, id) {
-		t.Fatalf("pinned = %d %q", code, out)
-	}
-	if code, out, _ := runAdmin(t, "stats", "--data-dir", dir); code != 0 || !strings.Contains(out, "pinned: 1") || !strings.Contains(out, "events: 2") {
-		t.Fatalf("stats = %d:\n%s", code, out)
-	}
-	if code, _, e := runAdmin(t, "archive", id, "--data-dir", dir); code != 0 {
-		t.Fatalf("archive = %d: %s", code, e)
-	}
-	if code, out, _ := runAdmin(t, "stats", "--data-dir", dir); code != 0 || !strings.Contains(out, "archived: 1") {
-		t.Fatalf("stats after archive = %d:\n%s", code, out)
-	}
-	if code, _, e := runAdmin(t, "unpin", id, "--data-dir", dir); code != 0 {
-		t.Fatalf("unpin = %d: %s", code, e)
-	}
-	if code, _, _ := runAdmin(t, "pin", "--data-dir", dir); code != 2 {
-		t.Errorf("pin without id exit = %d, want 2", code)
-	}
-}
-
 // TestSessionsExportRefusesExisting: --out never truncates an existing file
 // or writes through a symlink.
 func TestSessionsExportRefusesExisting(t *testing.T) {

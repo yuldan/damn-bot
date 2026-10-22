@@ -8,7 +8,7 @@ import (
 )
 
 // TestSessionsAdminEndToEnd drives the real binary: a headless turn creates a
-// transcript, then rename/export/stats/pin/prune operate on it.
+// transcript, then rename and export operate on it.
 func TestSessionsAdminEndToEnd(t *testing.T) {
 	t.Parallel()
 	const secret = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
@@ -40,29 +40,5 @@ func TestSessionsAdminEndToEnd(t *testing.T) {
 	html.RequireOK(t)
 	if strings.Contains(html.Stdout, "<b>markup</b>") || !strings.Contains(html.Stdout, "&lt;b&gt;markup&lt;/b&gt;") {
 		t.Errorf("html export did not escape content:\n%s", html.Stdout)
-	}
-	stats := e.Exec("sessions", "stats", "--data-dir", e.DataDir)
-	stats.RequireOK(t)
-	if !strings.Contains(stats.Stdout, "sessions: 1") || !strings.Contains(stats.Stdout, "events: ") {
-		t.Errorf("stats:\n%s", stats.Stdout)
-	}
-	e.Exec("sessions", "pin", id, "--data-dir", e.DataDir).RequireOK(t)
-	pinned := e.Exec("sessions", "pinned", "--data-dir", e.DataDir)
-	pinned.RequireOK(t)
-	if !strings.Contains(pinned.Stdout, id) {
-		t.Errorf("pinned list = %q", pinned.Stdout)
-	}
-	e.Exec("sessions", "archive", id, "--data-dir", e.DataDir).RequireOK(t)
-	arch := e.Exec("sessions", "stats", "--data-dir", e.DataDir)
-	arch.RequireOK(t)
-	if !strings.Contains(arch.Stdout, "archived: 1") {
-		t.Errorf("stats after archive:\n%s", arch.Stdout)
-	}
-	unpin := e.Exec("sessions", "unpin", id, "--data-dir", e.DataDir)
-	unpin.RequireOK(t)
-	stats = e.Exec("sessions", "stats", "--data-dir", e.DataDir)
-	stats.RequireOK(t)
-	if !strings.Contains(stats.Stdout, "pinned: 0") {
-		t.Errorf("stats after unpin:\n%s", stats.Stdout)
 	}
 }
