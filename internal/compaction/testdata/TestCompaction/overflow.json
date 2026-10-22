@@ -3,7 +3,14 @@
  "Before": 350390,
  "Result": {
   "Outcome": "ineffective",
-  "Estimate": 188542,
+  "Usage": {
+   "Input": 1000,
+   "CachedInput": 0,
+   "Output": 40,
+   "CostUSD": null,
+   "Iterations": 0
+  },
+  "Estimate": 188552,
   "Window": 200000,
   "SummaryID": 1,
   "Stats": {
@@ -33,7 +40,7 @@
   {
    "Role": "user",
    "Call": "",
-   "Runes": 196,
+   "Runes": 236,
    "Head": "[summary of events 2-508: earlier context, not a new request"
   },
   {

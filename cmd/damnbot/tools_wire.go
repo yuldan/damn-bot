@@ -103,6 +103,31 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 	return out, nil
 }
 
+// viewSide returns what the compaction view cannot carry, from one read of the
+// same bounded history: the turnless notices a failed turn left for its
+// executed side effects (SEC11-3), and the row id of every assistant event
+// keyed by seq, so the assembler adapter can re-attach the carriers the view's
+// messages refer to (GAP-PROV-01).
+func (s *ctxStore) viewSide(ctx context.Context, sid string) (notices []loop.Message, eventID map[int64]int64, err error) {
+	rows, err := s.db.History(ctx, sid, 0, ctxdb.WithHistoryLimit(ctxdb.DefaultHistoryLimit))
+	if err != nil {
+		return nil, nil, fmt.Errorf("history query: %w", err)
+	}
+	eventID = make(map[int64]int64, len(rows))
+	for i := range rows {
+		r := &rows[i]
+		switch r.Kind {
+		case "assistant_message":
+			eventID[r.Seq] = r.ID
+		case "system_notice":
+			if c := effectsNotice(r.Payload); c != "" {
+				notices = append(notices, loop.Message{Role: "system", Content: c})
+			}
+		}
+	}
+	return notices, eventID, nil
+}
+
 // effectsNotice renders the turnless notice a failed turn left for executed
 // side effects (SEC11-3), or "" for any other system_notice.
 func effectsNotice(payload string) string {

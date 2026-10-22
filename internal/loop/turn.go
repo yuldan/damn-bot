@@ -191,7 +191,7 @@ func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {
 	if pct < int64(t.cfg.CompactAt) || t.compacted || t.deps.Compactor == nil {
 		return t.windowStop(pct)
 	}
-	if err := t.deps.Compactor.Compact(ctx, t.sessionID, false); err != nil {
+	if err := t.compact(ctx, false); err != nil {
 		if ctx.Err() != nil {
 			return t.cancelled(), true
 		}
@@ -209,6 +209,23 @@ func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {
 	}
 	*p = again
 	return t.windowStop(p.InputTokens * 100 / p.WindowTokens)
+}
+
+// compact runs one compaction and, when the implementation reports usage,
+// adds it to this turn's totals (SEC12-4).
+func (t *turn) compact(ctx context.Context, contextLength bool) error {
+	if c, ok := t.deps.Compactor.(UsageCompactor); ok {
+		u, err := c.CompactUsage(ctx, t.sessionID, contextLength)
+		t.addUsage(&u)
+		if err != nil {
+			return fmt.Errorf("compaction: %w", err)
+		}
+		return nil
+	}
+	if err := t.deps.Compactor.Compact(ctx, t.sessionID, contextLength); err != nil {
+		return fmt.Errorf("compaction: %w", err)
+	}
+	return nil
 }
 
 // windowStop is the hard context-window stop.
@@ -329,7 +346,7 @@ func (t *turn) retryContextLength(ctx context.Context, p *Prompt, st *askState) 
 		return false, nil
 	}
 	st.contextRetried = true
-	if err := t.deps.Compactor.Compact(ctx, t.sessionID, true); err != nil {
+	if err := t.compact(ctx, true); err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
 		return false, &o
 	}

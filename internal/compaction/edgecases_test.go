@@ -252,10 +252,11 @@ func ecCtx012(t *testing.T) {
 	}
 }
 
-// EC-CTX-013: every summary block ends with an explicit end marker.
+// EC-CTX-013: every summary block ends with an explicit end marker. The
+// payload is always wrapped (SEC18-2), so the wrapper closes just before it.
 func ecCtx013(t *testing.T) {
 	_, v := summarised(t)
-	if !strings.HasSuffix(v.Messages[0].Content, validSummary+"\n[end of summary]") {
+	if !strings.HasSuffix(v.Messages[0].Content, validSummary+`</untrusted>`+"\n[end of summary]") {
 		t.Fatalf("summary = %q", v.Messages[0].Content)
 	}
 }
