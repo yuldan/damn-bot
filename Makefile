@@ -52,7 +52,7 @@ build-matrix:
 # without one (linux/arm, android/arm64) cross-compile the test binary until
 # QEMU execution lands at F9 (ADR-073).
 sqlite-engine:
-	go test $(GOTAGS) -count=1 -run '^TestSQLiteEngineVersion$$' ./internal/ctxdb
+	CGO_ENABLED=0 go test $(GOTAGS) -count=1 -run '^TestSQLiteEngineVersion$$' ./internal/ctxdb
 
 sqlite-engine-cross:
 	@mkdir -p $(BIN)

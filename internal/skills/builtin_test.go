@@ -2,17 +2,25 @@ package skills
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
+// builtinSkill is one parsed file under the builtin root.
+type builtinSkill struct {
+	dir, rel string
+	sk       Skill
+}
+
 // TestBuiltinSkillRefs is the GAP-SEC-26 CI rule (ADR-133, ADR-144): every
 // builtin skill under <repo>/skills must parse and lint against the builtin
 // names, so a dangling `requires`, `skill://` link or script path fails the
-// build before it is shipped. The repo has no builtin skills yet, so the rule
-// is green but armed; scripts/ci-meta-test.sh proves it fails on a violation.
+// build before it is shipped. The root is committed (skills/.gitkeep) and a
+// missing root fails, so a rename cannot silently disarm the rule; the corpus
+// is empty today, and scripts/ci-meta-test.sh proves an injected skill fails.
 func TestBuiltinSkillRefs(t *testing.T) {
 	t.Parallel()
 	root, err := repoRoot()
@@ -20,49 +28,59 @@ func TestBuiltinSkillRefs(t *testing.T) {
 		t.Fatalf("repo root: %v", err)
 	}
 	base := filepath.Join(root, "skills")
-	type loaded struct {
-		dir, rel string
-		sk       Skill
+	all, err := collectBuiltinSkills(base)
+	if errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("SKILL-REFS GAGAL: builtin skills root %s is missing", base)
 	}
-	var all []loaded
-	err = filepath.WalkDir(base, func(path string, d fs.DirEntry, walkErr error) error {
+	if err != nil {
+		t.Fatalf("builtin skills: %v", err)
+	}
+	lintBuiltin(t, all)
+}
+
+// collectBuiltinSkills parses every SKILL.md under base.
+func collectBuiltinSkills(base string) ([]builtinSkill, error) {
+	var all []builtinSkill
+	err := filepath.WalkDir(base, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if d.IsDir() || d.Name() != "SKILL.md" {
 			return nil
 		}
-		rel, rerr := filepath.Rel(base, path)
-		if rerr != nil {
-			return rerr
+		rel, err := filepath.Rel(base, path)
+		if err != nil {
+			return fmt.Errorf("relative %s: %w", path, err)
 		}
-		raw, rerr := os.ReadFile(path) //nolint:gosec // repo-local builtin tree
-		if rerr != nil {
-			return rerr
+		raw, err := os.ReadFile(path) //nolint:gosec // repo-local builtin tree
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
 		}
 		sk, perr := Parse(raw, rel, SourceBuiltin)
 		if perr != nil {
-			t.Errorf("SKILL-REFS GAGAL %s: %v", rel, perr)
-			return nil
+			return fmt.Errorf("SKILL-REFS GAGAL %s: %w", rel, perr)
 		}
-		all = append(all, loaded{dir: filepath.Dir(path), rel: rel, sk: sk})
+		all = append(all, builtinSkill{dir: filepath.Dir(path), rel: rel, sk: sk})
 		return nil
 	})
-	if errors.Is(err, fs.ErrNotExist) {
-		t.Log("no builtin skills")
-		return
-	}
 	if err != nil {
-		t.Fatalf("walk builtin skills: %v", err)
+		return nil, fmt.Errorf("walk builtin skills: %w", err)
 	}
+	return all, nil
+}
+
+// lintBuiltin lints each skill through os.Root with the builtin name set.
+func lintBuiltin(t *testing.T, all []builtinSkill) {
+	t.Helper()
 	known := make(map[string]bool, len(all))
-	for _, l := range all {
-		known[l.sk.Name] = true
+	for i := range all {
+		known[all[i].sk.Name] = true
 	}
-	for _, l := range all {
-		fsys, oerr := os.OpenRoot(l.dir)
-		if oerr != nil {
-			t.Errorf("SKILL-REFS GAGAL %s: %v", l.rel, oerr)
+	for i := range all {
+		l := &all[i]
+		fsys, err := os.OpenRoot(l.dir)
+		if err != nil {
+			t.Errorf("SKILL-REFS GAGAL %s: %v", l.rel, err)
 			continue
 		}
 		findings, lerr := Lint(&l.sk, LintEnv{Files: fsys.FS(), Known: func(n string) bool { return known[n] }})
@@ -85,7 +103,7 @@ func TestBuiltinSkillRefs(t *testing.T) {
 func repoRoot() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("getwd: %w", err)
 	}
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
