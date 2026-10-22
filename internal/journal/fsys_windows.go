@@ -5,6 +5,7 @@ package journal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -37,4 +38,29 @@ func makeReplaceable(ctx context.Context, sb *sandbox.Sandbox, resolved string) 
 		return nil
 	}
 	return err
+}
+
+// chmodFile applies mode to resolved, a path the sandbox checked. Windows
+// cannot change the mode of a read-only file through an ordinary handle: the
+// file refuses data access ("Access is denied") and
+// SetFileInformationByHandle(FileBasicInfo) needs FILE_WRITE_ATTRIBUTES,
+// which an O_RDONLY handle does not carry. os.Root.Chmod opens the entry
+// with FILE_WRITE_ATTRIBUTES and FILE_FLAG_OPEN_REPARSE_POINT only, so a
+// 0o440 destination still takes the mode and a link swapped in for the final
+// component receives it instead of its target (JN2-1); os.Root also refuses
+// every traversal that would leave root.
+func chmodFile(_ context.Context, sb *sandbox.Sandbox, resolved string, mode fs.FileMode) error {
+	root, rel, ok := sb.RootOf(resolved)
+	if !ok || rel == "" || rel == "." {
+		return fmt.Errorf("journal: mode %s: %w", resolved, sandbox.ErrInvalidPath)
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return fmt.Errorf("journal: mode %s: %w", resolved, err)
+	}
+	defer func() { _ = r.Close() }()
+	if err := r.Chmod(rel, mode); err != nil {
+		return fmt.Errorf("journal: mode %s: %w", resolved, err)
+	}
+	return nil
 }

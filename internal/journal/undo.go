@@ -393,16 +393,6 @@ func (u *Undoer) write(ctx context.Context, resolved string, data []byte, img *I
 	return errors.Join(chmodFile(ctx, u.sb, resolved, mode), syncDirHandle(h))
 }
 
-// chmodFile applies mode to the opened regular file (fchmod), never to a
-// symlink swapped in after the check (JN2-1).
-func chmodFile(ctx context.Context, sb *sandbox.Sandbox, resolved string, mode fs.FileMode) error {
-	f, _, err := sb.OpenResolved(ctx, resolved, true)
-	if err != nil {
-		return fmt.Errorf("journal: mode %s: %w", resolved, err)
-	}
-	return errors.Join(f.Chmod(mode), f.Close())
-}
-
 func writeInPlace(ctx context.Context, sb *sandbox.Sandbox, resolved string, data []byte, mode fs.FileMode) error {
 	f, err := sb.OpenApproved(ctx, resolved, os.O_WRONLY, 0)
 	if err != nil {

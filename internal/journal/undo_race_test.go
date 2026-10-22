@@ -63,12 +63,45 @@ func unsymlinkDir(dir, parked string) error {
 	return os.Rename(parked, dir)
 }
 
+// requireSwappableDir stages the swap once and skips the scenario when the
+// platform refuses it: renaming a directory that still has an open handle is
+// a sharing violation on Windows (CreateFile without FILE_SHARE_DELETE), and
+// the executor's own pinned root/parent handles are exactly what these tests
+// swap — so the race cannot exist there. The refusal itself stays covered on
+// Windows: TestUndoSuite journals a path the sandbox no longer maps and
+// TestUndoSymlinkInsideRoot covers a link inside the root. Precedent for a
+// platform skip: TestUndoHardlink.
+func requireSwappableDir(t *testing.T) {
+	t.Helper()
+	base := t.TempDir()
+	dir, parked := filepath.Join(base, "probe"), filepath.Join(base, "probe.parked")
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	h, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close() //nolint:errcheck // the open handle is the point of the probe; its close result does not
+	if err = os.Rename(dir, parked); err == nil {
+		if rerr := os.Rename(parked, dir); rerr != nil {
+			t.Fatalf("probe restore: %v", rerr)
+		}
+		return
+	}
+	if !swapBlocked(err) {
+		t.Fatalf("probe rename %s: %v", dir, err)
+	}
+	t.Skipf("cannot stage the swap: renaming a directory that still has an open handle is refused here: %v", err)
+}
+
 // TestUndoAncestorSwapStaysInSandbox (REVIEW-F2-SEC5-12): swapping the
 // action's parent directory for a symlink to an outside directory between
 // the sandbox check and the write must never let the undo executor write
 // outside the journaled root. Bounded by a deadline; the outside file is
 // polled after every attempt.
 func TestUndoAncestorSwapStaysInSandbox(t *testing.T) {
+	requireSwappableDir(t)
 	root, u, f := workspace(t)
 	inside := filepath.Join(root, "real")
 	outside := t.TempDir()
@@ -184,6 +217,7 @@ func deniedSandbox(t *testing.T) (string, *Undoer, *fakeStore) {
 // swapped for a symlink to a deny_paths directory *inside* the root must
 // not let undo write there.
 func TestUndoRelativeSymlinkToDeniedDir(t *testing.T) {
+	requireSwappableDir(t)
 	root, u, f := deniedSandbox(t)
 	denied := filepath.Join(root, ".ssh")
 	if err := os.Mkdir(denied, 0o750); err != nil {
@@ -243,6 +277,7 @@ func TestUndoRelativeSymlinkToDeniedDir(t *testing.T) {
 // TestUndoRootReplacedBySymlink (REVIEW-F2-SEC5-16): replacing the sandbox
 // root itself with a symlink after New must not redirect undo.
 func TestUndoRootReplacedBySymlink(t *testing.T) {
+	requireSwappableDir(t)
 	base := t.TempDir()
 	root := filepath.Join(base, "ws")
 	outside := filepath.Join(base, "other")

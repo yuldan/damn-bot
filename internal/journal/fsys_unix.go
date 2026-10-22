@@ -4,6 +4,8 @@ package journal
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io/fs"
 	"syscall"
 
@@ -38,3 +40,17 @@ func hardLinks(fi fs.FileInfo) uint64 {
 // makeReplaceable is a no-op on POSIX: rename replaces the directory entry
 // regardless of the destination mode.
 func makeReplaceable(context.Context, *sandbox.Sandbox, string) error { return nil }
+
+// chmodFile applies mode to resolved, a path the sandbox checked, with
+// fchmod on the verified handle: a symlink swapped in after the check never
+// receives the mode (JN2-1).
+func chmodFile(ctx context.Context, sb *sandbox.Sandbox, resolved string, mode fs.FileMode) error {
+	f, _, err := sb.OpenResolved(ctx, resolved, true)
+	if err != nil {
+		return fmt.Errorf("journal: mode %s: %w", resolved, err)
+	}
+	if f == nil {
+		return fmt.Errorf("journal: mode %s: %w", resolved, sandbox.ErrNotRegular)
+	}
+	return errors.Join(f.Chmod(mode), f.Close())
+}
