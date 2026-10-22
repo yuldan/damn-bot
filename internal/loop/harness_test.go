@@ -262,18 +262,19 @@ func (fakeRedactor) Redact(s string) string { return strings.ReplaceAll(s, "sk-s
 // ---- fixture -------------------------------------------------------------
 
 type fixture struct {
-	cfg      Config
-	provider *fakeProvider
-	asm      *fakeAssembler
-	tools    *fakeToolset
-	store    *fakeStore
-	ledger   *fakeLedger
-	carriers *fakeCarrierStore
-	approver *fakeApprover
-	spiller  *fakeSpiller
-	redactor Redactor
-	validate func(string) error
-	stream   func() StreamFilter
+	cfg       Config
+	provider  *fakeProvider
+	asm       *fakeAssembler
+	tools     *fakeToolset
+	store     *fakeStore
+	ledger    *fakeLedger
+	carriers  *fakeCarrierStore
+	approver  *fakeApprover
+	spiller   *fakeSpiller
+	redactor  Redactor
+	validate  func(string) error
+	compactor Compactor
+	stream    func() StreamFilter
 
 	cancel  context.CancelFunc
 	loopRef *Loop
@@ -297,7 +298,7 @@ func (f *fixture) deps() Deps {
 	return Deps{
 		Provider: f.provider, Assembler: f.asm, Toolset: f.tools, Store: f.store,
 		Ledger: f.ledger, Approver: f.approver, Spiller: f.spiller, Redactor: f.redactor,
-		Carriers: f.carriers, NewRedactStream: f.stream, ValidateAnswer: f.validate,
+		Carriers: f.carriers, NewRedactStream: f.stream, ValidateAnswer: f.validate, Compactor: f.compactor,
 	}
 }
 

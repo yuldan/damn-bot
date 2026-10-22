@@ -5,13 +5,13 @@
 # ADR-131 amandemen round 2: loop 1800 -> 1900 (persist/reject carrier; terukur 1851; Σ core +100).
 # ADR-131 SEC8-10: loop 1900 -> 1950 (pemindaian carrier rekursif + key names; terukur 1913).
 # ADR-134 (REL-01 + SEC11): loop +100 di atas 1950 carrier (ADR-131) -> 2050.
-# ADR-155 (EC-TCALL-009/EC-FIO-006): loop 2050 -> 2100 (terukur 2.048; tools 2200 -> 2250
-# dilampaui ADR-173 -> 2500; Σ core 38.090 -> 38.500 <= 47.000).
+# ADR-178 (EC-PROV-008/EC-CTX-017): loop 2050 -> 2100 (penanda partial + windowRoom + stub kompaksi; terukur 2051; Σ core 38.470 -> 38.520 <= 47.000).
 loop              2100 internal/loop
 plan               600 internal/plan
 # ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
 provider          2100 internal/provider
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
+# ADR-128: tabel harga providers.toml + lookup base_url+model; tetap 300 (terukur 281, sisa 19; Σ tetap).
 provider/registry  300 internal/provider/registry
 netx              1800 internal/netx
 schema            1200 internal/schema
@@ -56,7 +56,8 @@ memory+skills     1230 internal/memory internal/skills
 journal            560 internal/journal
 # ADR-123: budget 400 -> 520 (guard harian/bulanan/provider + formula token gambar; terukur 481).
 # ADR-125: budget 520 -> 560 (jadwal harga bertanggal GAP-COST-01; terukur 530).
-budget             560 internal/budget
+# ADR-128 amandemen SEC6-6: budget 560 -> 580 (max harga tabel vs biaya provider; terukur 571; Σ core +20).
+budget             580 internal/budget
 heal              1500 internal/heal
 config            1200 internal/config
 modules            1000 internal/modules
