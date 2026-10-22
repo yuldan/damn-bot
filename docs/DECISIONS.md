@@ -3815,6 +3815,23 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; `internal/skills` +≈120 baris (terukur 1.288/1.350), `cmd/damnbot` +≈70 baris non-test. Tidak ada token prompt tambahan (body tidak masuk prompt; hanya description).
 **Konsekuensi.** (+) Skill memakai path/OS/project yang benar tanpa hardcode. (+) Shell inline tidak pernah jalan diam-diam dan tidak tersedia untuk skill quarantined. (−) Body yang sudah diproses disimpan di `Skill` load-time; perubahan file skill memerlukan load ulang. (−) `${...}` tak dikenal tetap literal sehingga typo tidak terlihat sampai skill dibaca.
 
+## ADR-169 — Skill bundles dan CLI `bundles` (SKILL-007, CLI-047, kapabilitas SLASH-071)
+
+**Status:** Accepted 2026-10-22 (F2; SKILL-007, CLI-047; SLASH-071 tetap F3). `internal/memory`+`internal/skills` 1.350 → 1.500 (terukur 1.402; Σ core +150, Total core 38.360). Tanpa DDL/dependency.
+
+**Konteks.** Hermes menyimpan bundle skill (satu alias untuk beberapa skill) dan mengeksposnya lewat `hermes bundles` serta `/bundles`. Damn-Bot belum punya model, penyimpanan, atau CLI bundle; `/bundles` sendiri adalah permukaan slash F3 (ADR-139), sehingga yang ditutup di F2 adalah kapabilitas resolusi + CLI headless.
+
+**Keputusan.**
+1. **Model.** `skills.Bundle{Name, Skills}`; nama `[a-z0-9][a-z0-9_-]{0..63}`; 1..16 skill per bundle; ≤64 bundle; anggota unik dan (bila validator diberi `known`) harus skill terpasang. `Resolve` mengembalikan salinan daftar (bukan backing slice).
+2. **Penyimpanan.** `<config-dir>/bundles.json`, bentuk `{"alias":["skill-a","skill-b"]}` dengan decoder ketat (field/tipe asing ditolak). Dibaca lewat `os.Root` (tidak mengikuti symlink keluar); ditulis atomik (temp file di direktori yang sama, `0600`, rename). File hilang = tanpa bundle (bukan error).
+3. **CLI.** `bundles list|show <name>|create <name> <skill>...|delete <name> --yes|reload`. `create` mem-parse+lint skill di `<config>/skills` (jalur yang sama dengan gate pembayaran) dan menolak skill tak dikenal, bundle duplikat, nama tidak sah, atau batas terlampaui; tidak menimpa bundle lama. `delete` wajib `--yes`. `reload` hanya melaporkan jumlah bundle yang terbaca (file dibaca ulang setiap perintah).
+4. **Slash.** Kapabilitas resolusi diuji di F2; permukaan `/bundles` tetap F3 sesuai ADR-139 dan tidak diklaim di sini.
+5. **Test.** `internal/skills`: `TestBundleRoundTrip` (round-trip, mode 0600, file hilang), `TestBundleValidation` (nama, jumlah, duplikat, anggota tak dikenal, Resolve menyalin). `cmd/damnbot`: `TestBundlesCLI` (list/kosong, create, duplikat, unknown skill, show, delete tanpa/dengan `--yes`, reload). `internal/e2e`: `TestBundlesCLI` lewat binary nyata dengan kontrol negatif.
+
+**Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; `internal/skills` +≈114 baris (terukur 1.402/1.500), `cmd/damnbot` +≈330 baris non-test. Tidak ada token prompt tambahan (bundle hanya menyelesaikan nama; skill hasilnya masuk retrieval seperti biasa).
+
+**Konsekuensi.** (+) Satu alias dapat memuat beberapa skill dari config yang diaudit dan aman ditulis. (+) CLI headless melengkapi kapabilitas tanpa menunggu REPL. (−) File bundle tidak di-watch saat run berjalan; perubahan berlaku pada perintah/run berikutnya. (−) Bundle hanya mereferensikan skill yang ada di `<config>/skills` sampai skill project/external (ADR-170) ikut terdaftar.
+
 ## ADR-184: budget `memory`+`skills` 1.400 -> 1.830
 
 **Konteks.** Rantai PR skills (skillstore/karantina, ledger+index, bundle, discovery proyek, sumber skill, CLI
@@ -3829,4 +3846,4 @@ setelah putaran lint (`Vars *PreprocessVars` di `internal/skills`, `os.Root` pad
 memakai nilai yang sama agar `make loc` hijau di setiap basis bertumpuk (`f2-skills` 1430, `f2-bundles` 1556,
 `f2-ledger` 1679, `f2-skills-index`/`-cli`/`-config` 1803).
 
-**Konsekuensi.** PR lain yang menaikkan baris core setelah ini harus **menjumlahkan** angka ini, bukan menimpanya.
+**Konsekuensi.** PR yang menaikkan baris core setelah ini harus menjumlahkan angka ini, bukan menimpanya.
