@@ -27,7 +27,7 @@ func (c *child) signal(t *testing.T, sig osSignal) {
 func naScenarios(names ...string) []scenario {
 	out := make([]scenario, 0, len(names))
 	for _, n := range names {
-		out = append(out, scenario{n, func(t *testing.T) {
+		out = append(out, scenario{name: n, fn: func(t *testing.T) {
 			t.Helper()
 			t.Fatalf("%s is platform-n/a on %s", n, runtime.GOOS)
 		}})
