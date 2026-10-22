@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -55,6 +56,8 @@ type runOptions struct {
 	prov         loop.Provider
 	cfgOverride  *config.Config
 	retrieverFor func(*ctxdb.Store) assemble.Retriever
+	// trimMemory is the RSS trim hook (MEM-033); nil uses debug.FreeOSMemory.
+	trimMemory func()
 }
 
 // reportedParseError marks a parse failure the flag package already wrote to
@@ -162,7 +165,13 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 			err = fmt.Errorf("close run model: %w", cerr)
 		}
 	}()
-	return runTurn(ctx, &cfg, o, model, modelRef, red, spill, stdout)
+	code, terr := runTurn(ctx, &cfg, o, model, modelRef, red, spill, stdout)
+	trim := o.trimMemory
+	if trim == nil {
+		trim = debug.FreeOSMemory
+	}
+	trim()
+	return code, terr
 }
 
 func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef string, red *redact.Redactor, spill tools.Spill, stdout io.Writer) (int, error) {
@@ -226,6 +235,13 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	if err != nil {
 		return 0, fmt.Errorf("loop: %w", err)
 	}
+	if strings.Contains(o.prompt, "@") {
+		expanded, xerr := expandRefs(ctx, o.prompt, model.sb, model.net, o.offline)
+		if xerr != nil {
+			return 0, fmt.Errorf("context refs: %w", xerr)
+		}
+		o.prompt = expanded
+	}
 	stream, err := lp.Prompt(ctx, model.sessionID, loop.Input{Text: o.prompt})
 	if err != nil {
 		return 0, fmt.Errorf("prompt: %w", err)
@@ -246,6 +262,8 @@ type runModel struct {
 	sessionID string
 	cwd       string
 	db        *ctxdb.Store
+	sb        *sandbox.Sandbox
+	net       *netx.Network
 }
 
 func (m *runModel) close(ctx context.Context) error {
@@ -368,6 +386,8 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		engine:    engine,
 		runner:    runner,
 		sessions:  sessions,
+		sb:        sb,
+		net:       netx.New(netx.Config{Offline: o.offline}),
 	}, nil
 }
 
