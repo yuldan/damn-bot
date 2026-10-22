@@ -418,3 +418,53 @@ Probe `TestZZSec10R8` (tabel Round 7 + kasus baru; dihapus setelah dijalankan). 
 | SEC10-26 | info | pra-ada | `cmd.exe` mencari nama perintah bare di cwd **sebelum** `PATH`, juga **tanpa** cd. `git status` di root workspace yang berisi `git.bat` (ditulis model lewat `write_file`, auto di `auto-edit`) menjalankan `git.bat` dengan label `mutating`/allow. Aturan pasca-cd hanya menutup varian setelah cd. | Set `NoDefaultCurrentDirectoryInExePath=1` di environment shell `cmd` yang dijalankan runner, sehingga pencarian cwd untuk nama bare dimatikan. [INFERENCE: perlu diverifikasi di Windows] |
 
 **Ringkasan Round 8:** #234 `0969fd0` **APPROVE dengan MINOR**. Target cd remote (`\\`, `//`) kini `Unknown` di cmd dan PowerShell. Aturan pasca-cd dibatasi ke cmd, sehingga `cd sub && git status`, `cd C:\work\sub && dir`, `Set-Location sub; Get-ChildItem`, dan alur PowerShell sah lainnya kembali berperilaku seperti `a3ace00`, sedangkan bypass pembayaran tetap tertutup. CI Windows dan macOS hijau. #212 `a3ace00` **APPROVE**, dengan syarat di-merge berurutan langsung dengan #234. Sisa SEC10-24/25/26 tidak memblokir.
+
+## Round 9 — 2026-10-22
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #236 (stack di atas #234) | `4fff33f` | **APPROVE dengan MINOR**: SEC10-26 FIXED (CI Windows hijau, test marker berjalan); SEC10-25 sebagian; tidak ada bypass pembayaran yang terbuka kembali. Sisa: SEC10-25b, SEC10-27, SEC10-28 (MINOR) |
+
+**CI (run `39731129597`, head `4fff33fe…`)**: **Windows pass** (7m22s; `ok internal/exec 7.2s`, `ok internal/exec/classify`, `ok cmd/damnbot`), macOS pass, ubuntu pass. `TestNoDefaultCurrentDirectoryInExePath` ada di `env_windows_test.go` (build tag Windows, tanpa `t.Skip`), sehingga `ok internal/exec` di job Windows berarti test itu **berjalan dan lulus**: `git.bat` di cwd tidak dijalankan oleh `git status`.
+
+Gate lokal di `4fff33f`: `go test -race -tags goolm -count=1 ./internal/exec/... ./internal/tools ./internal/archtest` → ok; `GOOS=windows|darwin go vet ./internal/exec/...` bersih; `GOOS=windows go test -c ./internal/exec` ok; `make loc` `exec/classify 1829/1830`, `exec 2676/3400`; `make deadcode` 0.
+
+### SEC10-26: `NoDefaultCurrentDirectoryInExePath`
+
+- `EnvPolicy.Env` menyetel `NoDefaultCurrentDirectoryInExePath=1` di Windows **setelah** `nonInteractive`, `GIT_SSH_COMMAND`, `exec.env` (`p.Set`), dan secret, sebagai nilai keras seperti `GIT_TERMINAL_PROMPT`. Kunci map memakai `envKey` (uppercase di Windows), sehingga `exec.env` dengan ejaan huruf apa pun (`nodefaultcurrentdirectoryinexepath = ""`) **tertimpa**, dan variabel warisan parent juga tertimpa ✔.
+- Semua jalur child shell memakai policy ini: one-shot (`exec.Prepare` → `policy.Env`, dengan default `&EnvPolicy{}` bila nil) dan sesi persisten (`runner.NewSessions(…, envPolicy.Env(…))`; `session.go` hanya menambah marker). `Spec.Env` dibangun dari policy dan tidak digabung ulang dengan input lain ✔.
+- **Batas:** nilai ini hanya environment awal proses. Perintah itu sendiri dapat menghapusnya, mis. `set NoDefaultCurrentDirectoryInExePath= & git status`. Probe: kelas `mutating` (`QAQADAAA`), jadi auto hanya dengan allow-list yang cocok untuk **seluruh** rantai atau di `--unsafe-auto-shell`, yang memang sudah mengizinkan menjalankan `git.bat` langsung. Di **sesi persisten**, `set …=` bertahan untuk panggilan berikutnya, sehingga `git status` yang di-allow-list di panggilan **lain** kembali mencari cwd (SEC10-27). Varian PowerShell `$env:…=$null` sudah `Unknown`.
+- Test CI tidak punya kontrol negatif (tanpa variabel → `git.bat` **jalan**), sehingga test akan tetap lulus bila `cmd` suatu saat berhenti mencari cwd karena alasan lain (SEC10-28).
+
+### SEC10-25: pengecualian dan bypass
+
+Probe `TestZZSec10R9` (dihapus setelah dijalankan). Kolom: ask, ask+allow, auto, auto+allow, headless, headless+allow, unsafe, unsafe+allow.
+
+| Perintah | Kelas | Keputusan |
+|---|---|---|
+| cmd `cd <skill>\scripts && cd && charge.bat` | **monetary** | `PPPPDDDD` ✔ |
+| cmd `cd %SKILL% && cd && charge.bat` / `… && git status` | **unknown** | `PPPPDDDD` ✔ (`cd` bare tidak mengembalikan `cdTracked`) |
+| cmd `pushd <skill> & popd & charge.bat` | **monetary** | ✔ |
+| cmd `pushd %SKILL% & popd & charge.bat` / `… & git status` | **unknown** | ✔ |
+| cmd `pushd %SKILL% & pushd C:\work & popd & charge.bat` / `git status` / `type charge.bat` | **unknown** (`pushd C:\work` sesudah cd tak terlacak ikut `Unknown`) | ✔ |
+| cmd `pushd sub & dir & popd & dir` | mutating | `QAQADAAA` ✔ (dipulihkan) |
+| cmd `cd sub && git status` | mutating | `QAQADAAA` ✔ |
+| **cmd `cd && dir`** | **unknown** | `PPPPDDDD` → SEC10-25b |
+| cmd/pwsh `pushd //evil/share` / `Push-Location //evil/share` | unknown | ✔ |
+| bash `cd //tmp && ls` | mutating | ✔ (cek `//` kini hanya dialek Windows) |
+
+Tidak ada bypass yang terbuka. Pengecualian hanya membebaskan `popd`/`cd`/`pushd` bare **itu sendiri**. `cdTracked` tidak dipulihkan oleh `cd` bare atau `popd`, sehingga perintah sesudahnya tetap mengikuti status cd terakhir (fail-closed). Selain itu, `NoDefaultCurrentDirectoryInExePath` kini mematikan pencarian cwd untuk nama bare, sebagai lapisan kedua.
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC10-26 | info | **fixed** `4fff33f` | Variabel keras di semua child Windows; CI Windows lulus. | — |
+| SEC10-25 | MINOR | **sebagian** | `popd` dan alur `pushd sub & … & popd & dir` dipulihkan; `//` hanya untuk dialek Windows. | — |
+| SEC10-25b | MINOR (over-gate) | open | `cd` tanpa argumen di cmd hanya **mencetak** cwd, tetapi `changeDir` tetap menandai `cwdOK=false`/`cdTracked=false`, sehingga `cd && dir` → `Unknown`. | Di `changeDir`: tanpa argumen (cmd: tanpa target) → no-op (jangan ubah `cwdOK`/`cdTracked`). |
+| SEC10-27 | MINOR | static + probe | Nilai keras dapat dihapus **di dalam** perintah (`set NoDefaultCurrentDirectoryInExePath=`, `setx`). Di sesi persisten, penghapusan itu bertahan ke panggilan berikutnya. | Klasifikasikan `set`/`setx` yang menyentuh `NoDefaultCurrentDirectoryInExePath` (atau `PATH`/`PATHEXT`) sebagai `Unknown` di cmd. Untuk sesi persisten, setel ulang variabel itu sebelum setiap panggilan. |
+| SEC10-28 | MINOR (test) | open | `TestNoDefaultCurrentDirectoryInExePath` tidak memiliki kontrol negatif. | Tambahkan subtest dengan `Spec.Env` tanpa variabel → marker **harus** dibuat, sehingga test membuktikan perbedaannya. |
+
+**Ringkasan Round 9:** #236 `4fff33f` **APPROVE dengan MINOR**. `NoDefaultCurrentDirectoryInExePath=1` dipaksa untuk setiap child Windows dan tidak dapat ditimpa lewat `exec.env` atau parent. Test marker berjalan dan lulus di CI Windows (ubuntu/macOS juga hijau). Pengecualian `popd` dan `cd`/`pushd` bare tidak membuka kembali bypass pembayaran (`cd <skill>… && cd && charge.bat`, `pushd <skill> & popd & …`, dan varian tak terlacak tetap `monetary`/`unknown`). Sisa SEC10-25b/27/28 tidak memblokir. Urutan merge: #212 → #234 → #236 berturut-turut.
