@@ -51,6 +51,7 @@ type skillLoadOptions struct {
 	InlineShell bool
 	ProjectDir  string
 	Home        string
+	Source      skills.Source // empty = user (config skills)
 }
 
 func loadSkills(ctx context.Context, root string, opts skillLoadOptions) (list []skills.Skill, extra []string, err error) {
@@ -71,7 +72,7 @@ func loadSkills(ctx context.Context, root string, opts skillLoadOptions) (list [
 		if !info.IsDir() {
 			continue
 		}
-		sk, ok, lerr := loadSkill(root, e.Name())
+		sk, ok, lerr := loadSkill(root, e.Name(), opts.Source)
 		if lerr != nil {
 			return nil, nil, lerr
 		}
@@ -97,7 +98,7 @@ func loadSkills(ctx context.Context, root string, opts skillLoadOptions) (list [
 }
 
 // loadSkill parses one skill directory; ok is false when it is not a skill.
-func loadSkill(root, name string) (sk skills.Skill, ok bool, err error) {
+func loadSkill(root, name string, source skills.Source) (sk skills.Skill, ok bool, err error) {
 	dir := filepath.Join(root, name)
 	p := filepath.Join(dir, "SKILL.md")
 	r, err := os.OpenRoot(dir) // SEC10-12: SKILL.md cannot symlink outside
@@ -117,7 +118,10 @@ func loadSkill(root, name string) (sk skills.Skill, ok bool, err error) {
 	if rerr != nil {
 		return sk, false, fmt.Errorf("skills: %s: %w", name, rerr)
 	}
-	sk, err = skills.Parse(data, p, skills.SourceUser)
+	if source == "" {
+		source = skills.SourceUser
+	}
+	sk, err = skills.Parse(data, p, source)
 	if err != nil {
 		return sk, false, fmt.Errorf("skills: %s: %w", name, err)
 	}

@@ -3,6 +3,7 @@ package config
 import (
 	"maps"
 	"math"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ func (c *Config) Validate() error {
 		c.validateApproval,
 		c.validateExec,
 		c.validateAgent,
+		c.validateSkills,
 		c.validateLog,
 	}
 	for _, check := range checks {
@@ -160,6 +162,15 @@ func (c *Config) validateAgent() error {
 	default:
 		return invalid("agent.verify_on_stop", "must be off, run or repair")
 	}
+}
+
+func (c *Config) validateSkills() error {
+	for _, p := range append(slices.Clone(c.Skills.TrustedProjects), c.Skills.ExternalDirs...) {
+		if p == "" || (!filepath.IsAbs(p) && !strings.HasPrefix(p, "/")) {
+			return invalid("skills", "directory %q must be an absolute path", p)
+		}
+	}
+	return nil
 }
 
 func (c *Config) validateLog() error {
