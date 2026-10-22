@@ -70,3 +70,27 @@ func seedApproved(t *testing.T, e *Env, name, description, body string) {
 		t.Fatal(err)
 	}
 }
+
+// TestSkillManageAlwaysAsks (SEC16-2/SEC16-4 negative control): even with
+// --approval auto, skill_manage must not write a skill without an approver.
+func TestSkillManageAlwaysAsks(t *testing.T) {
+	t.Parallel()
+	e := New(t,
+		ToolCallReply("c1", "skill_manage", `{"action":"create","name":"agent-note","description":"d","body":"b"}`),
+		providertest.Text("done"),
+	)
+	res := e.Run("create a skill", "--approval", "auto")
+	res.RequireOK(t)
+	final := e.RequestText(t, 1)
+	if !strings.Contains(final, "denied") && !strings.Contains(final, "approval") {
+		t.Fatalf("skill_manage was not denied without an approver:\n%s", final)
+	}
+	for _, p := range []string{
+		filepath.Join(e.DataDir, "skills", "agent", "agent-note"),
+		filepath.Join(e.ConfigDir(), "skills", "agent-note"),
+	} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatalf("denied skill wrote %s: %v", p, err)
+		}
+	}
+}

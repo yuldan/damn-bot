@@ -52,6 +52,11 @@ func TestSkillViewUntrusted(t *testing.T) {
 	if res.UntrustedSource != "skill:a" || !strings.Contains(res.Content, "ref.md") {
 		t.Fatalf("view result = %+v", res)
 	}
+	f.doc.Truncated = true
+	res, err = NewSkillView(f).Run(context.Background(), Env{}, json.RawMessage(`{"name":"a"}`))
+	if err != nil || !strings.Contains(res.Content, "[skill_view truncated") {
+		t.Fatalf("truncated view = %+v, %v", res, err)
+	}
 	_, err = NewSkillView(f).Run(context.Background(), Env{}, json.RawMessage(`{"name":"missing"}`))
 	var te *ToolError
 	if !errors.As(err, &te) || te.Code != CodeNotFound {
@@ -65,6 +70,16 @@ func TestSkillManageNeverApproves(t *testing.T) {
 	tool := NewSkillManage(f)
 	if tool.Effect(nil) != EffectNonIdempotent {
 		t.Fatalf("effect = %s, want non_idempotent", tool.Effect(nil))
+	}
+	insp, ok := tool.(Inspector)
+	if !ok {
+		t.Fatal("skill_manage has no inspector")
+	}
+	for _, mode := range []Mode{ModeAuto, ModeAutoEdit, ModeAsk, ModeHeadlessAuto} {
+		dec, derr := insp.Inspect(context.Background(), Env{}, nil, PolicyContext{Mode: mode})
+		if derr != nil || dec.Requirement != RequireAsk || dec.AllowSession {
+			t.Fatalf("inspect %v = %+v, %v; want always ask", mode, dec, derr)
+		}
 	}
 	args := json.RawMessage(`{"action":"create","name":"new","description":"d","body":"b","side_effects":["payment"]}`)
 	res, err := tool.Run(context.Background(), Env{}, args)

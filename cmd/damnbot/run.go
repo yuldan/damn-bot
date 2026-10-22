@@ -340,8 +340,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fail(fmt.Errorf("shell tool: %w", err))
 	}
-	//nolint:contextcheck // skills.Config.Known has no ctx parameter.
-	skillsMgr, err := newSkillManager(db, configDir, red)
+	skillsMgr, err := newSkillManager(ctx, db, dataDir, configDir, red)
 	if err != nil {
 		return nil, fail(err)
 	}
