@@ -331,7 +331,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fail(err)
 	}
-	disc, derr := discoverSkills(ctx, db, cfg, configDir, cwd, home, red)
+	disc, derr := discoverSkills(ctx, db, cfg, configDir, dataDir, cwd, home, red)
 	if derr != nil {
 		return nil, fail(derr)
 	}

@@ -3286,3 +3286,20 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; config +3 key (default aman: tanpa proyek tepercaya dan tanpa dir eksternal, tidak ada pemindaian tambahan). Biaya run: satu walk per root yang dikonfigurasi; nol bila daftar kosong.
 
 **Konsekuensi.** (+) Skill proyek/eksternal dapat dipakai tanpa pernah menjadi tepercaya atau mengeksekusi shell. (+) Presedensi mencegah shadowing skill user. (−) Skill discovered harus di-approve sebelum terlihat oleh retrieval/prompt; sampai itu hanya tersimpan `scanned`. (−) `trusted_projects` harus absolut, jadi path relatif dari config portabel ditolak (fail closed).
+
+## ADR-171 — Skill ledger & provenance append-only (SKILL-019)
+
+**Status:** Accepted 2026-10-22 (F2; SKILL-019). `internal/memory`+`internal/skills` 1.500 → 1.700 (terukur 1.527; Σ core +200, Total core 38.560). Tanpa DDL/dependency; ledger adalah file, bukan tabel.
+
+**Konteks.** `skillstore` menyimpan sha256 baris saat ini, tetapi tidak ada riwayat perubahan maupun asal (source/path) yang bisa diaudit setelah baris di-upsert atau dihapus. Hermes menyimpan ledger & provenance skill. Skema SQLite tidak boleh ditambah untuk ini (DDL di luar scope F2 dan baris skill bersifat mutable), jadi ledger append-only di data dir adalah jalur minimal.
+
+**Keputusan.**
+1. **Format & lokasi.** `<data-dir>/skills-ledger.jsonl`, satu JSON per baris (`at`, `name`, `sha256`, `path`, `source`, `action`, `memory_id`). File dibuat `0600` dan ditulis `O_APPEND`; pembacaan memakai `os.Root` sehingga ledger tidak bisa diarahkan keluar data dir lewat symlink.
+2. **Append-only + batas.** Tidak ada update/delete API. `MaxLedgerEntries` 50.000; saat penuh penulisan baru gagal-tertutup (`ErrLedger`), bukan membuang provenance lama. Baris rusak juga `ErrLedger` (fail closed) — ledger yang tidak terbaca tidak boleh diabaikan.
+3. **Aksi.** `indexed` (skill config/user terlihat), `quarantined` (skill import tersimpan untuk review), `rejected` (scan severity high). `MemoryID` diisi untuk dua aksi karantina. `HasLedgerEntry` membuat penulisan idempoten per `(name, sha256, action)`; `Provenance` mengembalikan entri terakhir per nama.
+4. **Wiring.** Setiap run: skill config dicatat `indexed` (sekali per sha) dan setiap skill discovered (ADR-170) dicatat `quarantined`/`rejected` setelah `skillstore.Quarantine` berhasil. Kegagalan menulis ledger menggagalkan run (provenance adalah bagian dari gate, bukan telemetri opsional).
+5. **Test.** `internal/skills`: `TestLedgerRoundTrip` (append/read, mode 0600, dedupe helper, provenance terakhir), `TestLedgerMalformedFailsClosed`, `TestLedgerCap`. `cmd/damnbot`: `TestDiscoverExternalDirs` memeriksa riwayat `indexed` + `quarantined`. `internal/e2e`: `TestSkillDiscoveryQuarantine` memeriksa file ledger memuat `action=quarantined`/`source=import`.
+
+**Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; `internal/skills` +≈125 baris (terukur 1.527/1.700), `cmd/damnbot` +≈45 baris non-test. I/O: satu read ledger (≤1 MiB, ≤50k baris) + satu append per perubahan skill; nol bila tidak ada skill baru.
+
+**Konsekuensi.** (+) Setiap perubahan skill punya riwayat yang bisa diaudit (sha, asal, path, waktu) tanpa menyentuh skema. (+) Penulisan idempoten sehingga run berulang tidak membanjiri ledger. (−) Ledger tidak di-rotasi otomatis; setelah 50k perubahan, install baru gagal sampai operator mengarsipkan file (disengaja: fail closed). (−) Ledger bukan pengganti store: retrieval tetap hanya melihat baris `skills` yang di-approve.
