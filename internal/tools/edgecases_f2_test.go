@@ -8,20 +8,27 @@ import (
 	"github.com/damnbot/damnbot/internal/testutil/phase"
 )
 
-// TestEdgeCasesF2 (EDGE-CASES-hermes.md, ADR-077/080): the F2 entries owned
-// by the tools layer.
+// TestEdgeCasesF2 records EC-TCALL-010 as still pending at F2: the deferred
+// path exists at the tools layer, but cmd/damnbot does not wire tool_search,
+// tool_invoke or tools.Deferred yet (the composition root is part of the #174
+// module wiring), so the EC cannot be proven end-to-end (review ACC-5).
 func TestEdgeCasesF2(t *testing.T) {
 	t.Parallel()
 	g := phase.Current(t)
-	if g.Item(t, "EC-TCALL-010", "F2", "covered") {
+	if g.Item(t, "EC-TCALL-010", "F2", "pending:F2") {
 		t.Run("EC-TCALL-010", ecTcall010)
 	}
 }
 
-// EC-TCALL-010: a deferred (MCP) schema must not make the provider reject a
-// call with INVALID_ARGUMENT. The payload carries only declared tools:
-// tool_search defers the schema, tool_invoke runs it, and the registry the
-// payload is rendered from is unchanged by either.
+// TestDeferredSchemaNotInPayload is the tools-layer guard for EC-TCALL-010: a
+// deferred (MCP) schema never joins the declared payload, tool_search defers
+// it, tool_invoke runs it, and the registry the payload is rendered from is
+// unchanged by either. The run-level proof waits for the #174 wiring.
+func TestDeferredSchemaNotInPayload(t *testing.T) {
+	t.Parallel()
+	ecTcall010(t)
+}
+
 func ecTcall010(t *testing.T) {
 	f := newDeferredFixture(t, []DeferredTool{deferredDef("mcp_issue", "mcp", "read")}, ModeAsk, &approverRec{answer: ApprovalAllowOnce})
 	before := f.d.reg.Schemas()
