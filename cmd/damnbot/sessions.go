@@ -33,6 +33,18 @@ func runSessions(args []string, stdout, stderr io.Writer) int {
 		return sessionsRename(args[1:], stdout, stderr)
 	case "export":
 		return sessionsExport(args[1:], stdout, stderr)
+	case "archive":
+		return sessionsFlag("archive", args[1:], stdout, stderr, ctxdb.LabelArchived, "1")
+	case "unarchive":
+		return sessionsFlag("unarchive", args[1:], stdout, stderr, ctxdb.LabelArchived, "0")
+	case "pin":
+		return sessionsFlag("pin", args[1:], stdout, stderr, ctxdb.LabelPinned, "1")
+	case "unpin":
+		return sessionsFlag("unpin", args[1:], stdout, stderr, ctxdb.LabelPinned, "0")
+	case "pinned":
+		return sessionsPinned(args[1:], stdout, stderr)
+	case "stats":
+		return sessionsStats(args[1:], stdout, stderr)
 	default:
 		sessionsPrintf(stderr, "sessions: unknown subcommand %q\n", cleanArg(args[0]))
 		sessionsUsage(stderr)
@@ -53,6 +65,8 @@ func sessionsUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot sessions ls|show <id> [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot sessions rename <id> [<title>]\n")
 	sessionsPrintf(w, "       damnbot sessions export <id> [--format md|jsonl|html] [--out FILE] [--no-redact]\n")
+	sessionsPrintf(w, "       damnbot sessions archive|unarchive|pin|unpin <id>\n")
+	sessionsPrintf(w, "       damnbot sessions pinned|stats\n")
 }
 
 // sessionsBranch creates a child of id with ctxdb.Fork. Fork defaults to the
