@@ -106,7 +106,10 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 // every call starts at the primary; fallback only after a retryable class
 // exhausted its attempts; missing or too-small fallback routes are skipped.
 // Prices are selected once, at the call start, for every route of the
-// chain (GAP-COST-01), so the guard and the ledger see the same entry.
+// chain (GAP-COST-01), so the guard and the ledger see the same entry, and
+// the guard is consulted before *every* attempt, not once per route: a
+// retry that already spent tokens is re-validated against the caps
+// (REVIEW-F2-SEC5-27).
 func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chunk)) (Response, error) {
 	chain := append([]string{r.Model}, o.fallback...)
 	est, at := rawEstimate(r), o.now()
@@ -123,12 +126,9 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 			continue // EC-PROV-015, EC-PROV-025
 		}
 		price := rt.Prices.At(at)
-		if err := o.checkBudget(ctx, &rt, price, r, est); err != nil {
-			return Response{}, err
-		}
 		fb := &Fallback{From: r.Model, To: ref, Err: lastErr}
 		o.notify(i, fb)
-		resp, err := o.call(ctx, &rt, r, est, onChunk)
+		resp, err := o.call(ctx, &rt, price, r, est, onChunk)
 		resp.Price = price
 		fb.Done, fb.Outcome = true, err
 		o.notify(i, fb)
@@ -189,14 +189,20 @@ func estimateMicros(price *budget.Price, r *Request, input int64) int64 {
 	return *m
 }
 
-// call runs one route through the retry policy and its breaker.
-func (o *OpenAI) call(ctx context.Context, rt *Route, r *Request, est int64, onChunk func(Chunk)) (Response, error) {
+// call runs one route through the retry policy and its breaker. The budget
+// guard is consulted inside the policy closure, so every attempt — not just
+// the first one of the route — is authorised before it can spend anything
+// (REVIEW-F2-SEC5-27).
+func (o *OpenAI) call(ctx context.Context, rt *Route, price *budget.Price, r *Request, est int64, onChunk func(Chunk)) (Response, error) {
 	br := o.breaker(rt)
 	var resp Response
 	attempts := 0
 	err := retry.Do(ctx, retry.Policy{Notify: o.onRetry, Wait: o.wait, Attempts: o.attempts}, func(ctx context.Context, n int) error {
 		if err := br.Allow(); err != nil {
 			return fmt.Errorf("%s: %w", rt.Ref(), err)
+		}
+		if err := o.checkBudget(ctx, rt, price, r, est); err != nil {
+			return err
 		}
 		attempts = n
 		var err error
