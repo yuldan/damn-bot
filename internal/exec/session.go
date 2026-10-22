@@ -67,6 +67,18 @@ type session struct {
 	lastUse   time.Time
 	killOnce  sync.Once
 	prevNonce string // previous command's sentinel nonce (EX5-6)
+	// writeInput writes one line to the shell's stdin; nil uses the PTY or
+	// pipe itself. A test injects the error a dead PTY returns (darwin:
+	// EIO on /dev/ptmx) without depending on macOS CI.
+	writeInput func(*os.File, string) (int, error)
+}
+
+// write sends one line to the shell's stdin.
+func (s *session) write(line string) (int, error) {
+	if s.writeInput != nil {
+		return s.writeInput(s.input, line)
+	}
+	return s.input.WriteString(line)
 }
 
 // sessionShellSpec is the per-OS shell dialect of a session.
@@ -260,7 +272,7 @@ func (s *session) run(ctx context.Context, command string, timeout time.Duration
 		return res, false, fmt.Errorf("exec: session cwd file is not regular")
 	}
 	from := s.c.out.size()
-	if _, err := s.input.WriteString(s.sh.line(path, cwdPath, nonce)); err != nil {
+	if _, err := s.write(s.sh.line(path, cwdPath, nonce)); err != nil {
 		return res, true, fmt.Errorf("exec: session write: %w", err)
 	}
 	reset := s.wait(ctx, nonce, cwdPath, from, timeout, &res)
@@ -435,11 +447,16 @@ func (s *session) since(from int64) []byte {
 // sentinel again: an interactive shell abandons the rest of an interrupted
 // line. The sentinel runs once the job has ended.
 func (s *session) interrupt(nonce, cwdPath string) {
+	// Best effort, and never a cleanup error: a failed nudge means the shell
+	// or its terminal is already gone, and wait reports the outcome (exit,
+	// timeout). Recording it in c.errs misattributed a racing
+	// Sessions.Close's kill to that close ("exec: cleanup: exec: session
+	// write: write /dev/ptmx: input/output error" on darwin).
 	if err := interruptForeground(s); err != nil {
-		s.c.note(fmt.Errorf("exec: session interrupt: %w", err))
+		return
 	}
-	if _, err := s.input.WriteString(s.sh.again(nonce, cwdPath)); err != nil {
-		s.c.note(fmt.Errorf("exec: session write: %w", err))
+	if _, err := s.write(s.sh.again(nonce, cwdPath)); err != nil {
+		return
 	}
 }
 
