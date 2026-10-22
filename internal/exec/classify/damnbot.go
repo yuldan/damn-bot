@@ -37,37 +37,84 @@ func damnbotMaintenance(words []string, args []arg, group string) bool {
 	return false
 }
 
-// damnbotWords returns the positional command words after global options.
-func damnbotWords(args []arg) []string {
-	var words []string
+// damnbotValuedFlags are the global options that consume the next word.
+const damnbotValuedFlags = " --profile --config --data-dir -p "
+
+// damnbotBoolFlags are the global options that take no value. Any other
+// option before the subcommand is Unknown (SEC15-12): an unrecognized option
+// may take a value, which would shift the group word out of the parse and
+// leave the real maintenance command looking like a plain mutating one.
+const damnbotBoolFlags = " --help -h --version -v --verbose --force-migrate --json -- "
+
+// damnbotVerbs are the destructive maintenance verbs. Together with --yes
+// they are a second, group-independent signal (SEC15-11), so hiding or
+// mistyping the group word cannot smuggle a real purge/clear/prune through.
+const damnbotVerbs = " purge prune clear clear-legacy archive restore gc "
+
+// damnbotWords returns the positional command words after global options. ok
+// is false when an unrecognized option appears before the subcommand; grouped
+// is true when the first positional word is not a literal plain word, so the
+// shell could expand it into a maintenance group at execution time.
+func damnbotWords(args []arg) (words []string, grouped, ok bool) {
 	for i := 0; i < len(args); i++ {
-		v := strings.ToLower(args[i].s)
+		a := args[i]
+		v := strings.ToLower(a.s)
 		switch {
-		case (v == "--profile" || v == "--config" || v == "--data-dir" || v == "-p") && i+1 < len(args):
+		case inList(damnbotValuedFlags, v) && i+1 < len(args):
 			i++
 		case strings.HasPrefix(v, "--profile="), strings.HasPrefix(v, "--config="),
 			strings.HasPrefix(v, "--data-dir="), strings.HasPrefix(v, "-p="), v == "--force-migrate":
 		case strings.HasPrefix(v, "-"):
+			if len(words) == 0 && !inList(damnbotBoolFlags, v) {
+				return nil, false, false // SEC15-12
+			}
 		default:
+			if len(words) == 0 && (a.glob || !a.lit || strings.ContainsAny(a.s, "*?[]")) {
+				grouped = true // SEC15-11: sess*, [s]essions, ?essions, $G, ...
+			}
 			words = append(words, v)
 		}
 	}
-	return words
+	return words, grouped, true
 }
+
+// hasVerb reports whether any positional word is a destructive verb.
+func hasVerb(words []string) bool {
+	for _, w := range words {
+		if inList(damnbotVerbs, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// damnbotGroups are the subcommand groups that own destructive maintenance
+// verbs (SEC15-2).
+const damnbotGroups = " sessions checkpoints backup restore doctor setup update "
+
+// hasYes reports an explicit confirmation flag.
+func hasYes(args []arg) bool { return hasFlag(args, "--yes") || hasFlag(args, "-y") }
 
 // damnbot classifies maintenance subcommands of our own CLI. They must never
 // auto-run: the damnbot process writes the DB itself, so deny_paths does not
 // protect the data directory (SEC15-2).
 func (s *state) damnbot(args []arg) {
-	words := damnbotWords(args)
-	group := at(words, 0)
-	maintenance := group == "sessions" || group == "checkpoints" || group == "backup" ||
-		group == "restore" || group == "doctor" || group == "setup" || group == "update"
-	if maintenance && (hasFlag(args, "--yes") || hasFlag(args, "-y")) {
-		s.raise(Destructive, "damnbot maintenance --yes: "+group)
+	words, grouped, ok := damnbotWords(args)
+	if !ok {
+		s.raise(Unknown, "damnbot: unrecognized global option before the subcommand")
 		return
 	}
-	if damnbotMaintenance(words, args, group) {
+	if grouped {
+		s.raise(Unknown, "damnbot: unexpanded group token "+at(words, 0))
+		return
+	}
+	group := at(words, 0)
+	switch {
+	case hasYes(args) && hasVerb(words):
+		s.raise(Destructive, "damnbot maintenance verb --yes: "+group)
+	case hasYes(args) && inList(damnbotGroups, group):
+		s.raise(Destructive, "damnbot maintenance --yes: "+group)
+	case damnbotMaintenance(words, args, group):
 		s.raise(Destructive, "damnbot destructive maintenance: "+group+" "+at(words, 1))
 	}
 }
