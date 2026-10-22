@@ -74,11 +74,15 @@ type session struct {
 }
 
 // write sends one line to the shell's stdin.
-func (s *session) write(line string) (int, error) {
+func (s *session) write(line string) error {
+	_, err := s.input.WriteString(line)
 	if s.writeInput != nil {
-		return s.writeInput(s.input, line)
+		_, err = s.writeInput(s.input, line)
 	}
-	return s.input.WriteString(line)
+	if err != nil {
+		return fmt.Errorf("exec: session write: %w", err)
+	}
+	return nil
 }
 
 // sessionShellSpec is the per-OS shell dialect of a session.
@@ -272,8 +276,8 @@ func (s *session) run(ctx context.Context, command string, timeout time.Duration
 		return res, false, fmt.Errorf("exec: session cwd file is not regular")
 	}
 	from := s.c.out.size()
-	if _, err := s.write(s.sh.line(path, cwdPath, nonce)); err != nil {
-		return res, true, fmt.Errorf("exec: session write: %w", err)
+	if err := s.write(s.sh.line(path, cwdPath, nonce)); err != nil {
+		return res, true, err
 	}
 	reset := s.wait(ctx, nonce, cwdPath, from, timeout, &res)
 	// Only our own frames may be removed: a command printing a forged frame
@@ -455,7 +459,7 @@ func (s *session) interrupt(nonce, cwdPath string) {
 	if err := interruptForeground(s); err != nil {
 		return
 	}
-	if _, err := s.write(s.sh.again(nonce, cwdPath)); err != nil {
+	if err := s.write(s.sh.again(nonce, cwdPath)); err != nil {
 		return
 	}
 }
