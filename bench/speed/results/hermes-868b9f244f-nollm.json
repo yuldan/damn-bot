@@ -3,200 +3,47 @@
  "machine": "workstation i7-1255U, linux/amd64, Python 3.14.7 (bukan mesin referensi Q14)",
  "date": "2026-10-18",
  "dimensions": {
-  "fixed_overhead_tokens": {
-   "value": "13.819 (tanpa AGENTS.md) \u2013 16.843 (dengan AGENTS.md) tok o200k; metode BASELINE ceil(char/4): 14.773 \u2013 17.750",
-   "source": "bench/budget/results/hermes-868b9f244f.json"
-  },
-  "schema_bytes": {
-   "value": 37759,
-   "count": 19,
-   "source": "bench/budget"
-  },
-  "startup_first_frame_ms": {
-   "p50": 3369,
-   "p95": 3595,
-   "runs": 10,
-   "method": "PTY, `hermes chat`, unshare -rn + loopback; waktu sampai byte output pertama",
-   "source": "bench/speed/results/hermes-868b9f244f.json startup_chat_pty"
-  },
-  "startup_version_ms": {
-   "p50": 1384,
-   "p95": 1418,
-   "runs": 20,
-   "op": "hermes --version (CLI-074)"
-  },
-  "startup_prompt_ready_ms": {
-   "value": null,
-   "reason": "di netns, chat keluar 'Gateway connection failed; no local fallback' setelah \u2248 4,8 s (daemon gateway lokal tidak terjangkau); 3 percobaan gagal, lihat F0-REPORT"
-  },
-  "idle_rss": {
-   "value": null,
-   "reason": "sama seperti prompt_ready; observasi manual di netns host tanpa unshare: 131 MB proses / 356 MB pohon proses (1 run, bukan artefak gate)"
-  },
-  "cli_max_rss_kb": {
-   "median": 109376,
-   "max": 211428,
-   "ops": 80,
-   "method": "ru_maxrss per proses CLI"
-  },
-  "install_size_bytes": {
-   "source_tree": 224938704,
-   "venv_core_deps": 186730930,
-   "total": 411669634,
-   "packages": 68,
-   "method": "git archive 868b9f244f + venv Python 3.14 + pip install dependencies inti pyproject (45 pin). Tidak termasuk Node/npm, ripgrep, FFmpeg, uv yang dipasang install.sh lewat PM, dan extras",
-   "note": "pip install paket hermes sendiri ditolak oleh build guard ('Building wheels or sdists for hermes-agent is not supported')"
-  },
-  "install_time_s": {
-   "value": 33.45,
-   "method": "pip install -r deps inti, --no-cache-dir, jaringan workstation apa adanya (bukan 10 Mbit/s, bukan VM bersih); waktu install.sh resmi (uv + Node + tool) tidak diukur: butuh VM bersih + menjalankan skrip remote"
-  },
-  "config_lines_min": {
-   "value": 2,
-   "detail": "config.yaml: `model: openrouter/anthropic/claude-sonnet-4.5` (1) + .env: `OPENROUTER_API_KEY=<key>` (1), hasil `hermes config set` \u00d72 di HERMES_HOME kosong"
-  },
-  "setup_steps": {
-   "value": 6,
-   "detail": "quickstart.md: (1) curl install.sh | bash, (2) source ~/.bashrc, (3) set model (`hermes model` interaktif atau `config set`), (4) set API key, (5) `hermes`, (6) jawab prompt consent telemetri (teramati di run PTY pertama)"
-  }
+  "fixed_overhead_tokens": {"value": "13.819 (tanpa AGENTS.md) – 16.843 (dengan AGENTS.md) tok o200k; metode BASELINE ceil(char/4): 14.773 – 17.750", "source": "bench/budget/results/hermes-868b9f244f.json"},
+  "schema_bytes": {"value": 37759, "count": 19, "source": "bench/budget"},
+  "startup_first_frame_ms": {"p50": 3369, "p95": 3595, "runs": 10, "method": "PTY, `hermes chat`, unshare -rn + loopback; waktu sampai byte output pertama", "source": "bench/speed/results/hermes-868b9f244f.json startup_chat_pty"},
+  "startup_version_ms": {"p50": 1384, "p95": 1418, "runs": 20, "op": "hermes --version (CLI-074)"},
+  "startup_prompt_ready_ms": {"value": null, "reason": "di netns, chat keluar 'Gateway connection failed; no local fallback' setelah ≈ 4,8 s (daemon gateway lokal tidak terjangkau); 3 percobaan gagal, lihat F0-REPORT"},
+  "idle_rss": {"value": null, "reason": "sama seperti prompt_ready; observasi manual di netns host tanpa unshare: 131 MB proses / 356 MB pohon proses (1 run, bukan artefak gate)"},
+  "cli_max_rss_kb": {"median": 109376, "max": 211428, "ops": 80, "method": "ru_maxrss per proses CLI"},
+  "install_size_bytes": {"source_tree": 224938704, "venv_core_deps": 186730930, "total": 411669634, "packages": 68, "method": "git archive 868b9f244f + venv Python 3.14 + pip install dependencies inti pyproject (45 pin). Tidak termasuk Node/npm, ripgrep, FFmpeg, uv yang dipasang install.sh lewat PM, dan extras", "note": "pip install paket hermes sendiri ditolak oleh build guard ('Building wheels or sdists for hermes-agent is not supported')"},
+  "install_time_s": {"value": 33.45, "method": "pip install -r deps inti, --no-cache-dir, jaringan workstation apa adanya (bukan 10 Mbit/s, bukan VM bersih); waktu install.sh resmi (uv + Node + tool) tidak diukur: butuh VM bersih + menjalankan skrip remote"},
+  "config_lines_min": {"value": 2, "detail": "config.yaml: `model: openrouter/anthropic/claude-sonnet-4.5` (1) + .env: `OPENROUTER_API_KEY=<key>` (1), hasil `hermes config set` ×2 di HERMES_HOME kosong"},
+  "setup_steps": {"value": 6, "detail": "quickstart.md: (1) curl install.sh | bash, (2) source ~/.bashrc, (3) set model (`hermes model` interaktif atau `config set`), (4) set API key, (5) `hermes`, (6) jawab prompt consent telemetri (teramati di run PTY pertama)"}
  },
  "llm_dimensions": "token/biaya/kualitas per task, recall memori, routing skill, error recovery, wall-clock end-to-end: diukur di RC F9 (SCORECARD intro, ADR-032)",
  "not_measured_rule": "ADR-065 + ADR-083: setiap dimensi SCORECARD tanpa LLM yang tidak diukur di F0 tercantum di bawah dengan fase dan alasan; startup prompt-ready dan idle RSS diukur di hermes-868b9f244f-llm.json (TS-11)",
  "not_measured": [
-  {
-   "dimension": "Overhead agent per iterasi",
-   "phase": "F1",
-   "reason": "butuh endpoint fake provider latensi 0 untuk kedua agent (BenchmarkIterationOverhead, P17)"
-  },
-  {
-   "dimension": "First token di UI (headless)",
-   "phase": "F1",
-   "reason": "fake provider bertanda waktu; TUI di F3"
-  },
-  {
-   "dimension": "First token di UI (TUI)",
-   "phase": "F3",
-   "reason": "TUI baru ada di F3"
-  },
-  {
-   "dimension": "Peak RSS",
-   "phase": "F4",
-   "reason": "butuh soak 1.000 turn (harness soak serve); gate F9"
-  },
-  {
-   "dimension": "CPU idle",
-   "phase": "F4",
-   "reason": "butuh serve + fake Telegram untuk kedua agent"
-  },
-  {
-   "dimension": "Exec spawn overhead",
-   "phase": "F1",
-   "reason": "benchmark A.9 + driver tool terminal hermes di harness yang sama"
-  },
-  {
-   "dimension": "Voice end-to-end",
-   "phase": "F6",
-   "reason": "butuh fake STT/LLM/TTS (modul voice)"
-  },
-  {
-   "dimension": "Image preflight",
-   "phase": "F6",
-   "reason": "butuh suite 50 gambar (modul media)"
-  },
-  {
-   "dimension": "Crash/hang rate",
-   "phase": "F4",
-   "reason": "soak 24 jam serve; gate F9"
-  },
-  {
-   "dimension": "Pemulihan setelah kill -9",
-   "phase": "F4",
-   "reason": "chaos suite SELF-HEALING untuk kedua agent"
-  },
-  {
-   "dimension": "Self-healing",
-   "phase": "F4",
-   "reason": "chaos suite SELF-HEALING untuk kedua agent"
-  },
-  {
-   "dimension": "Konkurensi",
-   "phase": "F2",
-   "reason": "diukur di F2: bench/f2/results/hermes-868b9f244f-F2.json (TestConcurrencyF2 + hermes_concurrency.py)"
-  },
-  {
-   "dimension": "Proses yatim / perintah hang",
-   "phase": "F1",
-   "reason": "suite EXEC lewat tool terminal hermes"
-  },
-  {
-   "dimension": "Edit salah lokasi",
-   "phase": "F1",
-   "reason": "CT-20 dijalankan pada tool edit kedua agent"
-  },
-  {
-   "dimension": "Error tertelan (injeksi)",
-   "phase": "F1",
-   "reason": "50 titik injeksi butuh fake provider; angka statis BASELINE \u00a75 sudah ada"
-  },
-  {
-   "dimension": "Fallback tak terlihat",
-   "phase": "F1",
-   "reason": "injeksi 503 lewat fake provider"
-  },
-  {
-   "dimension": "Waktu install dari nol (VM bersih 10 Mbit/s)",
-   "phase": "F9",
-   "reason": "install_time_s F0 diukur di workstation, bukan VM bersih"
-  },
-  {
-   "dimension": "Error informatif",
-   "phase": "F3",
-   "reason": "suite 60 kesalahan butuh permukaan CLI/config/setup"
-  },
-  {
-   "dimension": "Dukungan OS",
-   "phase": "F1",
-   "reason": "matrix CI Damn-Bot (Deliverable F1 #0) + inventaris workflow CI hermes"
-  },
-  {
-   "dimension": "Secret redaction",
-   "phase": "F1",
-   "reason": "60 secret x 6 kanal butuh fake provider + kanal log/transcript"
-  },
-  {
-   "dimension": "Akses gateway orang asing",
-   "phase": "F4",
-   "reason": "E8 fake Telegram"
-  },
-  {
-   "dimension": "Supply chain",
-   "phase": "F1",
-   "reason": "pip-audit + npm audit hermes di job supply-chain"
-  },
-  {
-   "dimension": "Flake rate",
-   "phase": "F1",
-   "reason": "job nightly -count=20"
-  },
-  {
-   "dimension": "Waktu CI PR",
-   "phase": "F1",
-   "reason": "laporan CI"
-  },
-  {
-   "dimension": "Kode mati",
-   "phase": "F1",
-   "reason": "deadcode 3 GOOS; vulture hermes di job yang sama"
-  },
-  {
-   "dimension": "Waktu build bersih / inkremental",
-   "phase": "F3",
-   "reason": "job buildtime bersama release pipeline"
-  },
-  {
-   "dimension": "Token skill per turn",
-   "phase": "F2",
-   "reason": "diukur di F2: bench/f2/results/hermes-868b9f244f-F2.json (o200k atas <available_skills> rekaman dan tier skill Damn-Bot)"
-  }
+  {"dimension": "Overhead agent per iterasi", "phase": "F1", "reason": "butuh endpoint fake provider latensi 0 untuk kedua agent (BenchmarkIterationOverhead, P17)"},
+  {"dimension": "First token di UI (headless)", "phase": "F1", "reason": "fake provider bertanda waktu; TUI di F3"},
+  {"dimension": "First token di UI (TUI)", "phase": "F3", "reason": "TUI baru ada di F3"},
+  {"dimension": "Peak RSS", "phase": "F4", "reason": "butuh soak 1.000 turn (harness soak serve); gate F9"},
+  {"dimension": "CPU idle", "phase": "F4", "reason": "butuh serve + fake Telegram untuk kedua agent"},
+  {"dimension": "Exec spawn overhead", "phase": "F1", "reason": "benchmark A.9 + driver tool terminal hermes di harness yang sama"},
+  {"dimension": "Voice end-to-end", "phase": "F6", "reason": "butuh fake STT/LLM/TTS (modul voice)"},
+  {"dimension": "Image preflight", "phase": "F6", "reason": "butuh suite 50 gambar (modul media)"},
+  {"dimension": "Crash/hang rate", "phase": "F4", "reason": "soak 24 jam serve; gate F9"},
+  {"dimension": "Pemulihan setelah kill -9", "phase": "F4", "reason": "chaos suite SELF-HEALING untuk kedua agent"},
+  {"dimension": "Self-healing", "phase": "F4", "reason": "chaos suite SELF-HEALING untuk kedua agent"},
+  {"dimension": "Konkurensi", "phase": "F2", "reason": "diukur di F2: bench/f2/results/hermes-868b9f244f-F2.json (TestConcurrencyF2 + hermes_concurrency.py)"},
+  {"dimension": "Proses yatim / perintah hang", "phase": "F1", "reason": "suite EXEC lewat tool terminal hermes"},
+  {"dimension": "Edit salah lokasi", "phase": "F1", "reason": "CT-20 dijalankan pada tool edit kedua agent"},
+  {"dimension": "Error tertelan (injeksi)", "phase": "F1", "reason": "50 titik injeksi butuh fake provider; angka statis BASELINE §5 sudah ada"},
+  {"dimension": "Fallback tak terlihat", "phase": "F1", "reason": "injeksi 503 lewat fake provider"},
+  {"dimension": "Waktu install dari nol (VM bersih 10 Mbit/s)", "phase": "F9", "reason": "install_time_s F0 diukur di workstation, bukan VM bersih"},
+  {"dimension": "Error informatif", "phase": "F3", "reason": "suite 60 kesalahan butuh permukaan CLI/config/setup"},
+  {"dimension": "Dukungan OS", "phase": "F1", "reason": "matrix CI Damn-Bot (Deliverable F1 #0) + inventaris workflow CI hermes"},
+  {"dimension": "Secret redaction", "phase": "F1", "reason": "60 secret x 6 kanal butuh fake provider + kanal log/transcript"},
+  {"dimension": "Akses gateway orang asing", "phase": "F4", "reason": "E8 fake Telegram"},
+  {"dimension": "Supply chain", "phase": "F1", "reason": "pip-audit + npm audit hermes di job supply-chain"},
+  {"dimension": "Flake rate", "phase": "F1", "reason": "job nightly -count=20"},
+  {"dimension": "Waktu CI PR", "phase": "F1", "reason": "laporan CI"},
+  {"dimension": "Kode mati", "phase": "F1", "reason": "deadcode 3 GOOS; vulture hermes di job yang sama"},
+  {"dimension": "Waktu build bersih / inkremental", "phase": "F3", "reason": "job buildtime bersama release pipeline"},
+  {"dimension": "Token skill per turn", "phase": "F2", "reason": "diukur di F2: bench/f2/results/hermes-868b9f244f-F2.json (o200k atas <available_skills> rekaman dan tier skill Damn-Bot)"}
  ]
 }
