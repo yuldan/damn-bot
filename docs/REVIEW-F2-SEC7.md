@@ -767,3 +767,62 @@ Pesan user pertama menjadi kueri retrieval skill (tier konteks). Akibatnya, kata
 | SEC7-63 | MINOR | open | Kontrol negatif e2e membaca `damnbot.db` langsung dengan canary berbeda, bukan memanggil **fungsi sweep yang sama** (`assertNoCanary`) yang diharapkan gagal. Kontrol membuktikan plaintext ada, tetapi tidak membuktikan helper sweep mampu mendeteksinya. | Ubah `scanCanaries` agar mengembalikan temuan; kontrol memanggil sweep yang sama atas data dir plaintext dan mengharapkan ≥ 1 temuan. |
 
 **Ringkasan Round 12:** perbaikan Round 11 benar dan terverifikasi. Exclusion memakai `turn_id` di semua jalur SQL, dengan test real-codec dan kontrol plaintext. Recall memori #228 pulih di kedua mode tanpa injeksi operator. Read-only + codec tanpa writer → `ErrReadOnly`. Kontrol negatif e2e ada. Budget dan archtest hijau (#198 dan #241 di-spot-check). Marker audit tidak sampai ke provider. Sisa satu regresi: `skillstore` plaintext kehilangan normalisasi, sehingga terjadi injeksi operator/syntax error dan pencarian CJK rusak (SEC7-62, HIGH). Perbaikannya terlokalisasi di `skillstore.ftsQuery`. Setelah itu stack dapat di-approve, dengan SEC7-63 sebagai minor.
+
+## Round 13 — 2026-10-22
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #201 | `8eb9583` | **APPROVE dengan MEDIUM terbuka (SEC7-64)**: SEC7-62 FIXED. Unigram CJK di index terenkripsi menambah kebocoran di luar pernyataan ADR-124 dan perlu amandemen ADR atau mitigasi |
+| #217 | `b9449c1` | APPROVE (restack) |
+| #241 | `cd8628e` | **APPROVE**: SEC7-63 FIXED |
+| #261 (baru) | `6066258` | **REQUEST CHANGES**: **SEC7-65 (MEDIUM)** `ctxdb 5008 > 4700` (`make loc` GAGAL; Total core tidak berubah, jadi klaim "dalam budget" salah); **SEC7-66 (MEDIUM)** GAP-INF-02 tidak tersambung (`blob_fts` hanya diisi saat `ReindexFTS` dan tidak pernah di-query di produksi); SEC7-67 (info) |
+
+### 1. SEC7-62/63 dan batas History
+
+- **SEC7-62 (fixed):** `skillstore.ftsQuery` = `ctxdb.FTSNorm` lalu setiap term dikutip (`"…"`, kutip ganda di-escape, `"…"*` untuk term terakhir). `AND`/`OR`/`NOT`/`NEAR` menjadi literal, dan bigram CJK kembali seperti di `main`. `TestSearchOperatorsAndCJK` (plaintext) dan `TestEncryptedSkillSearchOperatorsAndCJK` (codec nyata) ✔. Di mode terenkripsi, `keyedFTSExpr` menghapus kutip, meng-hash term, dan mempertahankan `*` (prefiks atas HMAC 64-hex secara praktis berarti cocok tepat; tidak berbahaya).
+- **SEC7-63 (fixed):** `TestCryptoPlaintextCanaryVisible` memanggil **sweep yang sama** (`assertCanary` → `scanTree`/`scanPath`, `present=true`) atas data dir plaintext ✔.
+- **Batas History:** semantik "limit menghitung baris mentah, termasuk marker audit" didokumentasikan di `HistoryOptions.Limit`/`History` dan dikunci oleh `TestHistoryLimitCountsAuditMarker`. Marker tidak masuk ke request provider (Round 12), jadi dampaknya hanya satu slot jendela per marker. Pilihan ini dapat diterima.
+
+### 2. Kebocoran unigram CJK (SEC7-64)
+
+`encFTS` kini menambahkan HMAC **per karakter** untuk setiap token CJK, di samping token/bigram. Semua tabel FTS adalah `fts5(…, content='', contentless_delete=1)` dengan `detail` default (**`full`**), sehingga index menyimpan **posisi** token per baris. ADR-124 butir 9 menerima bahwa "token HMAC deterministik membocorkan kesamaan dan frekuensi token (**bukan isi**)". Penilaian:
+
+| Bentuk index terenkripsi | Yang dapat direkonstruksi penyerang yang memegang file DB tanpa kunci |
+|---|---|
+| Token kata (Latin) + posisi | urutan simbol per baris = sandi substitusi tingkat kata; frekuensi kata (Zipf) + model bahasa memulihkan sebagian isi. Ini sudah melampaui frasa "bukan isi" di ADR-124, tetapi alfabetnya besar |
+| Bigram CJK (sebelumnya) + posisi | sandi substitusi atas bigram yang tumpang-tindih; alfabet ~10⁵–10⁶ simbol, lebih sulit dipecahkan |
+| **Unigram CJK (baru) + posisi** | **sandi substitusi monoalfabetik per karakter** dengan alfabet ~3.000 hanzi/kana yang distribusi frekuensinya terkenal. Dengan korpus percakapan yang wajar, analisis frekuensi + n-gram dapat memulihkan **isi** teks CJK. Ditambah bigram yang menautkan unigram bertetangga, pemulihannya makin mudah |
+
+Kesimpulan: unigram CJK + `detail=full` mengubah kebocoran untuk pengguna CJK dari "kesamaan/frekuensi" menjadi **pemulihan isi yang praktis**. Ini melampaui model ancaman ADR-124 yang tertulis. Fitur ini opt-in, dan kebocoran posisi untuk token kata sudah ada sebelumnya, sehingga severity-nya MEDIUM, bukan HIGH. Pilihan perbaikan: (a) tabel FTS terenkripsi dengan `detail=none` atau `detail=column` (menghapus posisi; OR-of-terms + bm25 tetap bekerja dengan tf yang lebih kasar), **atau** (b) jangan meng-index unigram (kueri CJK satu karakter tidak didukung di mode terenkripsi), **dan** (c) amandemen ADR-124 yang menyatakan kebocoran posisi/urutan secara jujur. Minimal (c) sebelum merge.
+
+### 3. #261 (`6066258`, di atas #217)
+
+| Item | Penilaian |
+|---|---|
+| EC-STATE-001 | `QueryContext` dicoba ulang ≤ 3× hanya untuk `SQLITE_IOERR` (2/4 ms, menghormati ctx); jalur tulis tidak disentuh ✔ |
+| EC-STATE-007 | `ClassifyIntegrity` → `ErrFTSCorrupt` untuk baris `fts5: corruption found` ✔ |
+| EC-STATE-009 | `ReindexFTS` keyset-batch + `fts_meta` progres; `ensureFTS` hanya pada open tulis (dilewati bila `ReadOnly`) ✔ |
+| **GAP-REL-05** | `ErrMigrationFailed` dibungkus di setiap error migrasi, dan `runHeadless` → **exit 78**. Ini cocok dengan SPEC §11.1/§22.1 GAP-REL-05 ("error migrasi apa pun → … exit 78") dan dengan putusan SEC9-6 (DB lebih baru → penulis exit 1; migrasi gagal → 78) ✔ |
+| GAP-INF-01 | `recallExpr`: kueri CJK satu rune → `"x"*` ✔ |
+| **GAP-INF-02** | `blob_fts` diisi oleh `reindexBlobs` (text/*, JSON, ≤ 16 MiB; `ReadBlob` didekripsi lalu `ftsPlain` → **`encFTS` saat terenkripsi**, tanpa token plaintext) ✔ untuk kerahasiaan. **Namun:** tidak ada trigger/penulis saat `Append`, sehingga blob baru tidak pernah ter-index sampai reindex berikutnya (yang hanya terjadi bila versi norm/layout berubah). Selain itu **tidak ada kode produksi yang men-query `blob_fts`**; hanya `TestFTSBlobIndex` (memanggil `ReindexFTS` secara eksplisit) dan benchmark. Fiturnya tidak tersambung → SEC7-66 |
+| Redaksi | Index berasal dari byte blob yang **tersimpan**, jadi tidak ada jalur di luar redaksi yang sudah berlaku saat blob ditulis. Di plaintext, blob di disk juga plaintext, sehingga eksposurnya sama. Kebocoran posisi/unigram dari SEC7-64 juga berlaku untuk `blob_fts` terenkripsi |
+| GAP-REL-03 | `TestChaos50Clients` (PR 2 s, nightly 30 m), target `chaos-nightly`, job nightly, meta-test `TestNightlyChaosWired` ✔ |
+
+**Budget (SEC7-65):** `make loc` di `6066258`: **`LOC GAGAL ctxdb 5008 > 4700`**. Di #217 `b9449c1` angkanya `ctxdb 4682/4700`; #261 menambah ~326 baris `ctxdb` (total 376 non-test). `loc.budget` (`ctxdb 4700`) dan Total core (**41.830**) tidak diubah, sehingga klaim "Total core tetap karena masih dalam budget" **salah**. Laporan worker hanya mengutip baris `LOC ok TOTAL 37593 / 190000`. Perlu kenaikan `ctxdb` (≥ 5010) plus amandemen ADR dan Total core di ENGINEERING.
+
+Gate di `6066258`: `go test -race -tags goolm -count=1 -run 'StateEdge|Migration|FTS|Chaos|Recall|Acceptance|Reindex|Blob|Encrypted|Skill' ./internal/ctxdb ./internal/integration` → ok; `internal/archtest` ok; `make loc` **GAGAL** (`ctxdb`).
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC7-62 | HIGH | **fixed** `8eb9583` | — | — |
+| SEC7-63 | MINOR | **fixed** `cd8628e` | — | — |
+| **SEC7-64** | MEDIUM | open | Unigram CJK + `detail=full` (posisi) di index FTS terenkripsi = sandi substitusi per karakter, sehingga isi CJK dapat dipulihkan dengan analisis frekuensi. Ini melampaui ADR-124 ("bukan isi"). Hal serupa, lebih lemah, berlaku untuk token kata. | `detail=none`/`column` untuk index terenkripsi, atau tanpa unigram. Minimal amandemen ADR-124 yang menyatakan kebocoran posisi/urutan dan risiko CJK, diputuskan owner. |
+| **SEC7-65** | MEDIUM (CI) | confirmed | #261: `ctxdb 5008 > 4700`; Total core tidak dinaikkan. | Naikkan `ctxdb`, Total core, dan amandemen ADR (ADR-158..161). |
+| **SEC7-66** | MEDIUM | confirmed (statis + test) | GAP-INF-02 tidak tersambung: `blob_fts` tidak di-update saat `Append` dan tidak dibaca oleh `Search`/recall. Ledger F2-ACCEPTANCE menandainya selesai. | Index blob saat append (trigger/penulis di jalur `PutBlob`+`Append`) dan sertakan `blob_fts` di `Search`/recall dengan filter exclusion/purge yang sama. Atau tandai item ini belum selesai di ledger. |
+| SEC7-67 | info | — | `keyedFTSExpr` menambahkan `*` pada HMAC; prefiks atas hash 64-hex tidak bermakna tetapi tidak berbahaya. | Opsional: buang `*` di mode terenkripsi. |
+
+**Ringkasan Round 13:** SEC7-62/63 tertutup, dan pilihan batas History (baris mentah, terdokumentasi, teruji) dapat diterima. #201/#217/#241 APPROVE, dengan catatan SEC7-64: unigram CJK di index terenkripsi berposisi memungkinkan pemulihan isi CJK, melebihi ADR-124, sehingga perlu keputusan owner (amandemen ADR atau `detail=none`/tanpa unigram). #261 benar secara semantik untuk EC-STATE-001/007/009, exit 78 sesuai SPEC, dan `blob_fts` terenkripsi memakai HMAC (bukan plaintext, tanpa bypass redaksi). Namun `ctxdb` melampaui budget (5008 > 4700, Total core tidak dinaikkan) dan `blob_fts` tidak pernah ditulis saat append maupun di-query (GAP-INF-02 belum tersambung) → REQUEST CHANGES.
