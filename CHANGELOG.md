@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/e2e`: skenario at-rest/backup/restore di atas biner nyata + `Env.ConfigDir()`.
+
 - `ctxdb/carrierstore`: carrier reasoning terenkripsi at-rest + penolakan kunci lewat store (ADR-124/ADR-131).
 
 - `ctxdb`: normalisasi dan quote term FTS skill pada blind index (SEC7-62).
