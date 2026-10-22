@@ -704,3 +704,66 @@ Gate lain di `2758130`: `go test -race -tags goolm -count=1 ./internal/integrati
 | SEC7-61 | MINOR | open | `TestEncryptedReadOnlyOpen` tidak mengunci kontrol negatif (tanpa codec → `ErrEncrypted`, DEK salah → mismatch), padahal keduanya lulus di probe. `assertNoPlaintext` hanya memeriksa file DB utama. | Tambahkan kedua kasus. Sweep juga `-wal`/`-shm`/blob. |
 
 **Ringkasan Round 11:** rebase mempertahankan dekripsi di History/Search/compactstore dan `checkAtRest` di jalur read-only #203. DB terenkripsi tidak pernah dibuka tanpa codec atau dengan DEK salah, termasuk lewat fallback immutable. Namun merge tangan kehilangan dua hal: exclusion #211 dalam SQL tidak berfungsi pada payload terenkripsi (SEC7-56, HIGH), dan recall memori plaintext kembali ke AND (SEC7-57, HIGH, mode default). Read-only + codec pada DB kosong juga panic (SEC7-58). E2E #241 berjalan di binary nyata dan menyapu data dir serta arsip, tetapi kontrol negatifnya belum ada (SEC7-59). CI `loc-budget` #198 dan `archtest` #241 merah (SEC7-60). `main` sudah di `70ff325`, jadi rebase berikutnya juga harus menutup temuan ini.
+
+## Round 12 — 2026-10-22
+
+**Verdict:** stack **REQUEST CHANGES (sempit)**. SEC7-56/58/59/60/61 FIXED. SEC7-57 FIXED untuk memori, tetapi perpindahan `skillstore` ke `MATCH ?` + `Tx.FTSQuery` membuka regresi baru **SEC7-62 (HIGH, mode plaintext default)**: injeksi operator FTS (syntax error pada `AND`/`OR`) dan pencarian skill CJK rusak. Head yang berubah: #198 `2347a65`, #199 `8469ceb`, #201 `730bdf9`, #217 `780b939`, #241 `d6d2a07`; head lain sama dengan Round 11 (APPROVE).
+
+| PR | Head | Verdict |
+|---|---|---|
+| #185 / #189 / #187 / #191 / #192 / #194 / #197 | tidak berubah | APPROVE |
+| #198 | `2347a65` | **APPROVE**: `ctxdb` 4200, terukur 4096 (`make loc` ok, archtest ok; spot-check saya) |
+| #199 | `8469ceb` | APPROVE (delta budget/dokumen saja) |
+| #201 | `730bdf9` | **REQUEST CHANGES**: SEC7-62 (`skillstore`) |
+| #217 | `780b939` | APPROVE (rebase) |
+| #241 | `d6d2a07` | APPROVE dengan MINOR (SEC7-63) |
+
+`git range-diff fa59d71..2758130 fa59d71..d6d2a07`: perubahan ada di `2347a65`/`c52446c`/`8469ceb` (baris budget `ctxdb` 4000 → 4200 dipindah ke #198) dan `d6d2a07` (archtest/CODEOWNERS/kontrol e2e). Commit baru: **`730bdf9`** (turn_id exclusion, `FTSQuery`, `ErrReadOnly`, dan test real-codec).
+
+Gate di `d6d2a07`: `go test -race -tags goolm -count=1 ./internal/integration ./internal/ctxdb ./internal/ctxdb/compactstore ./internal/ctxdb/memstore ./internal/ctxdb/skillstore ./internal/e2e ./cmd/damnbot ./internal/archtest` → ok; `make loc` `ctxdb 4677/4700`, `compactstore 335/360`, `carrierstore 298/400`; `make deadcode` 0. Spot-check #198 `2347a65`: `make loc` `ctxdb 4096/4200` ok, archtest ok.
+
+### Verifikasi
+
+- **SEC7-56 (fixed):** `searchFTS` (event dan summary), `compactstore.summariesQ`, dan `notExcluded` kini memakai kolom plaintext `x.turn_id = e.turn_id` / `t.turn_id`. Kedua penulis produksi menyetel kolom itu: loop (`appendAs(ctx, t.turnID, ContextExclude)`) dan crash recovery (`journal.go` `TurnID: turn`). `TestEncryptedSearchAndSummaryExclusions` + `TestPlaintextSearchAndSummaryExclusions` (codec nyata, plus kontrol plaintext) mengunci `Excluded=true` dan pembuangan summary ✔. Test lama yang menulis marker tanpa `TurnID` disesuaikan; penulis produksi tidak terpengaruh.
+- **SEC7-57 (fixed untuk memori):** `memstore` → `MATCH ?` dengan `tx.FTSQuery(ftsQuery(text))`. Di plaintext ekspresinya tidak diubah (#228 utuh); di mode terenkripsi term di-hash dan `OR`/`AND`/`NOT` builder dipertahankan. Index terenkripsi tetap memakai `encFTS` (semua token di-hash); `TestEncryptedIndexHidesOperatorWords` ✔. Probe `TestZZMemOps` (plaintext dan terenkripsi; dua scope `user` dan `gateway:telegram:bob`):
+
+| Kueri | plaintext | terenkripsi |
+|---|---|---|
+| "What is my locker number?" | `[user]` ✔ | `[user]` ✔ |
+| `locker" OR "bob` / `NEAR(locker bob)` | `[user]`, tanpa error, tanpa scope lain ✔ | sama ✔ |
+| `OR` / `AND NOT` / `bob*` / `"or" "near"` | `[]`, tanpa error ✔ | sama ✔ |
+
+  Tidak ada injeksi operator di memori: `ftsQuery` hanya menyisakan huruf/angka dan mengutip setiap token. Kata user yang mengeja operator menjadi `"or"` (huruf kecil, dikutip), sehingga di-hash dan tidak menjadi operator.
+- **SEC7-58 (fixed):** `checkAtRest` → `ErrReadOnly` bila `s.w == nil`; `TestReadOnlyCodecErrors` ✔.
+- **SEC7-59 (fixed):** `TestCryptoPlaintextCanaryVisible` (binary nyata, `storage.encrypt=false`) memastikan canary ada di `damnbot.db` ✔. Catatannya ada di SEC7-63.
+- **SEC7-60 (fixed):** lihat gate dan spot-check. #241 kini menambahkan `internal/e2e` ke matriks `allowed.go`, `globals.allow`, `CODEOWNERS`, dan baris `TESTONLY`.
+- **SEC7-61 (fixed):** `TestReadOnlyCodecErrors` mencakup read-only tanpa codec dan DEK salah → `ErrEncrypted`.
+- **Marker exclusion sebagai audit:** `excludeTurns` kini **mempertahankan** event `context_exclude` di `History`. Satu-satunya konsumen produksi, `ctxStore.History` (`cmd/damnbot/tools_wire.go`), hanya memetakan `user_message`, `assistant_message`, `tool_result`, dan `system_notice` ke pesan provider. `context_exclude` diabaikan, dan payload-nya hanya `{turn_id, reason}`. **Konten turn yang di-exclude tetap tidak sampai ke request provider** ✔. compactstore `eventsQ` hanya membaca kind yang terlihat model. Efek samping kecil: marker ikut menghabiskan satu slot `DefaultHistoryLimit`.
+
+### SEC7-62: `skillstore` plaintext
+
+`skillstore.ftsQuery` membuat term **tanpa kutip** dengan `*` di term terakhir. Sebelumnya kueri itu melewati `dmb_fts_norm(?2, …)` (lowercase + bigram CJK); kini plaintext dikirim **mentah** lewat `MATCH ?2`. Probe `TestZZSkillOps` (dihapus setelah dijalankan; pembanding `main` `fa59d71`):
+
+| Kueri skill (plaintext, default) | `main` | `d6d2a07` |
+|---|---|---|
+| `deploy AND` | `[]` | **error `fts5: syntax error near "*"`** |
+| `OR` | `[]` | **error `fts5: syntax error near "OR"`** |
+| `deploy OR anything` | `[]` | `[deploy-prod]` (operator dari teks user) |
+| `日本語`, `スキル` | `[日本語スキル]` | **`[]`** (bigram CJK hilang) |
+
+Pesan user pertama menjadi kueri retrieval skill (tier konteks). Akibatnya, kata `OR`/`AND` di posisi tertentu menggagalkan pencarian skill, teks user menjadi operator FTS, dan skill bernama CJK tidak pernah ditemukan.
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC7-56 | HIGH | **fixed** `730bdf9` | — | — |
+| SEC7-57 | HIGH | **fixed (memori)** `730bdf9` | — | — |
+| SEC7-58 | MEDIUM | **fixed** | — | — |
+| SEC7-59 | MEDIUM | **fixed** | — | — |
+| SEC7-60 | MEDIUM | **fixed** | — | — |
+| SEC7-61 | MINOR | **fixed** | — | — |
+| **SEC7-62** | **HIGH** (fungsional + injeksi operator, mode default) | confirmed (probe) | `skillstore.searchIDs` kini `MATCH ?2` dengan `tx.FTSQuery(query)`. Di plaintext, kueri tidak dinormalisasi lagi (tanpa `ftsNorm`, tanpa kutip): `AND`/`OR` user menghasilkan syntax error fts5 atau mengubah semantik, dan pencarian CJK rusak. | `skillstore.ftsQuery` meniru memstore: `ctxdb.FTSNorm` di Go, setiap token dikutip (`"tok"*` untuk prefiks), operator hanya dari builder. Tambahkan test plaintext + terenkripsi untuk `AND`/`OR`/CJK. |
+| SEC7-63 | MINOR | open | Kontrol negatif e2e membaca `damnbot.db` langsung dengan canary berbeda, bukan memanggil **fungsi sweep yang sama** (`assertNoCanary`) yang diharapkan gagal. Kontrol membuktikan plaintext ada, tetapi tidak membuktikan helper sweep mampu mendeteksinya. | Ubah `scanCanaries` agar mengembalikan temuan; kontrol memanggil sweep yang sama atas data dir plaintext dan mengharapkan ≥ 1 temuan. |
+
+**Ringkasan Round 12:** perbaikan Round 11 benar dan terverifikasi. Exclusion memakai `turn_id` di semua jalur SQL, dengan test real-codec dan kontrol plaintext. Recall memori #228 pulih di kedua mode tanpa injeksi operator. Read-only + codec tanpa writer → `ErrReadOnly`. Kontrol negatif e2e ada. Budget dan archtest hijau (#198 dan #241 di-spot-check). Marker audit tidak sampai ke provider. Sisa satu regresi: `skillstore` plaintext kehilangan normalisasi, sehingga terjadi injeksi operator/syntax error dan pencarian CJK rusak (SEC7-62, HIGH). Perbaikannya terlokalisasi di `skillstore.ftsQuery`. Setelah itu stack dapat di-approve, dengan SEC7-63 sebagai minor.
