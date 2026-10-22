@@ -15,10 +15,9 @@ const (
 	ftsBlobMaxBytes  = 16 << 20
 )
 
-var ftsTables = []string{"events_fts", "summaries_fts", "memory_fts", "skills_fts", "blob_fts"}
-
-// classifyFTS is the DDL table name guard for fixed statements.
-func ftsMetaName(table string) string { return table }
+func ftsTables() []string {
+	return []string{"events_fts", "summaries_fts", "memory_fts", "skills_fts", "blob_fts"}
+}
 
 // ensureFTS initialises fts_meta and re-indexes when a binary with newer
 // normalization/layout runs against an existing database.
@@ -32,8 +31,8 @@ func (s *Store) ensureFTS(ctx context.Context) error {
 	}
 	if n == 0 {
 		return s.Write(ctx, func(tx *Tx) error {
-			for _, name := range ftsTables {
-				if err := tx.FTSTableMeta(name); err != nil {
+			for _, name := range ftsTables() {
+				if err := tx.ftsTableMeta(name); err != nil {
 					return err
 				}
 			}
@@ -59,7 +58,7 @@ func (s *Store) ReindexFTS(ctx context.Context, batch int) error {
 	if batch <= 0 {
 		batch = ftsBatchSize
 	}
-	for _, name := range ftsTables {
+	for _, name := range ftsTables() {
 		if err := s.clearFTS(ctx, name); err != nil {
 			return err
 		}
@@ -84,7 +83,8 @@ type ftsEntry struct {
 	cols []string
 }
 
-func (t *Tx) FTSTableMeta(name string) error {
+// ftsTableMeta initialises one index version row.
+func (t *Tx) ftsTableMeta(name string) error {
 	_, err := t.Exec(`INSERT INTO fts_meta(name, norm_version, layout_version, reindexed_to, updated_at)
 		VALUES (?,?,?,0,?) ON CONFLICT(name) DO UPDATE SET norm_version=excluded.norm_version,
 		layout_version=excluded.layout_version, updated_at=excluded.updated_at`,
@@ -132,8 +132,8 @@ func (s *Store) ftsTokens(scope, identity string, enc []byte, plain string) (str
 	return encFTS(s.codec, pt), nil
 }
 
-func (s *Store) ftsPage(ctx context.Context, q string, args []any, last int64, batch int, scan func(*sql.Rows) (ftsEntry, error)) ([]ftsEntry, error) {
-	args = append(args, last, batch)
+func (s *Store) ftsPage(ctx context.Context, q string, last int64, batch int, scan func(*sql.Rows) (ftsEntry, error)) ([]ftsEntry, error) {
+	args := []any{last, batch}
 	var out []ftsEntry
 	err := s.each(ctx, q, args, func(r *sql.Rows) error {
 		e, err := scan(r)
@@ -181,16 +181,16 @@ func (s *Store) reindexEvents(ctx context.Context, batch int) error {
 	const q = `SELECT id, session_id, seq, content, content_enc, coalesce(tool_name,'') FROM events
 		WHERE kind IN ('user_message','assistant_message','tool_result','imported') AND id > ? ORDER BY id LIMIT ?`
 	for last := int64(0); ; {
-		rows, err := s.ftsPage(ctx, q, nil, last, batch, func(r *sql.Rows) (ftsEntry, error) {
+		rows, err := s.ftsPage(ctx, q, last, batch, func(r *sql.Rows) (ftsEntry, error) {
 			var id, seq int64
 			var sid, content, tool string
 			var enc []byte
 			if err := r.Scan(&id, &sid, &seq, &content, &enc, &tool); err != nil {
-				return ftsEntry{}, err
+				return ftsEntry{}, wrap(err)
 			}
 			tokens, err := s.ftsTokens("events.content", fmt.Sprintf("%s|%d", sid, seq), enc, content)
 			if err != nil {
-				return ftsEntry{}, err
+				return ftsEntry{}, wrap(err)
 			}
 			return ftsEntry{id: id, cols: []string{tokens, s.ftsPlain(tool)}}, nil
 		})
@@ -208,12 +208,12 @@ func (s *Store) reindexSummaries(ctx context.Context, batch int) error {
 	const q = `SELECT id, session_id, from_seq, to_seq, content, content_enc FROM summaries
 		WHERE id > ? ORDER BY id LIMIT ?`
 	for last := int64(0); ; {
-		rows, err := s.ftsPage(ctx, q, nil, last, batch, func(r *sql.Rows) (ftsEntry, error) {
+		rows, err := s.ftsPage(ctx, q, last, batch, func(r *sql.Rows) (ftsEntry, error) {
 			var id, from, to int64
 			var sid, content string
 			var enc []byte
 			if err := r.Scan(&id, &sid, &from, &to, &content, &enc); err != nil {
-				return ftsEntry{}, err
+				return ftsEntry{}, wrap(err)
 			}
 			tokens, err := s.ftsTokens("summaries.content", fmt.Sprintf("%s|%d:%d", sid, from, to), enc, content)
 			return ftsEntry{id: id, cols: []string{tokens}}, err
@@ -231,12 +231,12 @@ func (s *Store) reindexSummaries(ctx context.Context, batch int) error {
 func (s *Store) reindexMemory(ctx context.Context, batch int) error {
 	const q = `SELECT id, scope, enc_id, content, content_enc FROM memory WHERE id > ? ORDER BY id LIMIT ?`
 	for last := int64(0); ; {
-		rows, err := s.ftsPage(ctx, q, nil, last, batch, func(r *sql.Rows) (ftsEntry, error) {
+		rows, err := s.ftsPage(ctx, q, last, batch, func(r *sql.Rows) (ftsEntry, error) {
 			var id int64
 			var scope, encID, content string
 			var enc []byte
 			if err := r.Scan(&id, &scope, &encID, &content, &enc); err != nil {
-				return ftsEntry{}, err
+				return ftsEntry{}, wrap(err)
 			}
 			tokens, err := s.ftsTokens("memory.content", scope+"|"+encID, enc, content)
 			return ftsEntry{id: id, cols: []string{tokens}}, err
@@ -254,11 +254,11 @@ func (s *Store) reindexMemory(ctx context.Context, batch int) error {
 func (s *Store) reindexSkills(ctx context.Context, batch int) error {
 	const q = `SELECT id, name, description, body FROM skills WHERE id > ? ORDER BY id LIMIT ?`
 	for last := int64(0); ; {
-		rows, err := s.ftsPage(ctx, q, nil, last, batch, func(r *sql.Rows) (ftsEntry, error) {
+		rows, err := s.ftsPage(ctx, q, last, batch, func(r *sql.Rows) (ftsEntry, error) {
 			var id int64
 			var name, desc, body string
 			if err := r.Scan(&id, &name, &desc, &body); err != nil {
-				return ftsEntry{}, err
+				return ftsEntry{}, wrap(err)
 			}
 			return ftsEntry{id: id, cols: []string{s.ftsPlain(name), s.ftsPlain(desc), s.ftsPlain(body)}}, nil
 		})
@@ -277,11 +277,11 @@ func (s *Store) reindexBlobs(ctx context.Context, batch int) error {
 		WHERE e.id > ? AND b.size <= 16777216 AND (b.mime LIKE 'text/%' OR b.mime = 'application/json')
 		ORDER BY e.id LIMIT ?`
 	for last := int64(0); ; {
-		rows, err := s.ftsPage(ctx, q, nil, last, batch, func(r *sql.Rows) (ftsEntry, error) {
+		rows, err := s.ftsPage(ctx, q, last, batch, func(r *sql.Rows) (ftsEntry, error) {
 			var id int64
 			var sha string
 			if err := r.Scan(&id, &sha); err != nil {
-				return ftsEntry{}, err
+				return ftsEntry{}, wrap(err)
 			}
 			return ftsEntry{id: id, cols: []string{sha}}, nil
 		})

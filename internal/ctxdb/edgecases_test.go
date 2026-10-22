@@ -290,7 +290,9 @@ func ecState001(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				_, _ = s.w.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)")
+				if _, cerr := s.w.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)"); cerr != nil {
+					return
+				}
 			}
 		}
 	})

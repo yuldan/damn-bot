@@ -44,14 +44,14 @@ func TestFTSAutoUpgrade(t *testing.T) {
 	}
 	session(t, s, "S", "")
 	appendMsg(t, s, "S", "auto upgrade token")
-	if err := s.Write(context.Background(), func(tx *Tx) error {
+	if werr := s.Write(context.Background(), func(tx *Tx) error {
 		_, xerr := tx.Exec(`UPDATE fts_meta SET norm_version=0, layout_version=0 WHERE name='events_fts'`)
 		return xerr
-	}); err != nil {
-		t.Fatal(err)
+	}); werr != nil {
+		t.Fatal(werr)
 	}
-	if err := s.clearFTS(context.Background(), "events_fts"); err != nil {
-		t.Fatal(err)
+	if cerr := s.clearFTS(context.Background(), "events_fts"); cerr != nil {
+		t.Fatal(cerr)
 	}
 	must(t, s.Close())
 	s, err = Open(context.Background(), &Options{Dir: dir, Kind: "cli"})
@@ -87,8 +87,8 @@ func TestFTSBlobIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ReindexFTS(ctx, 1); err != nil {
-		t.Fatal(err)
+	if rerr := s.ReindexFTS(ctx, 1); rerr != nil {
+		t.Fatal(rerr)
 	}
 	got, err := s.ints(ctx, `SELECT rowid FROM blob_fts WHERE blob_fts MATCH ?`, "canary")
 	if err != nil || len(got) != 1 || got[0] != ids[0] {

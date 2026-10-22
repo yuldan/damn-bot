@@ -446,6 +446,29 @@ func TestMultiProcess(t *testing.T) {
 	}
 }
 
+func chaosClient(dir string, i int, deadline time.Time) (err error) {
+	ctx := context.Background()
+	id := &Ident{Host: "chaos", PID: i + 1, Start: "chaos", BootID: "chaos"}
+	s, err := Open(ctx, &Options{Dir: dir, Kind: "cli", Ident: id, BusyTimeout: 5 * time.Second})
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, s.Close()) }()
+	sid := "C" + itoa(int64(i))
+	if _, err = s.CreateSession(ctx, Session{ID: sid, Cwd: "/"}); err != nil && !errors.Is(err, ErrIdempotencyConflict) {
+		return err
+	}
+	for n := 0; time.Now().Before(deadline); n++ {
+		if _, err = s.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "chaos " + itoa(int64(n))}); err != nil {
+			return err
+		}
+		if _, err = s.Recall(ctx, "chaos", 5); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // TestChaos50Clients (GAP-REL-03): 50 concurrent CLI-shaped processes for a
 // configurable window (short in PRs, 30m in nightly) never surface
 // "database is locked" and leave integrity_check ok.
@@ -466,32 +489,7 @@ func TestChaos50Clients(t *testing.T) {
 	errs := make(chan error, 50)
 	var wg sync.WaitGroup
 	for i := range 50 {
-		wg.Go(func() {
-			ctx := context.Background()
-			id := &Ident{Host: "chaos", PID: i + 1, Start: "chaos", BootID: "chaos"}
-			s, err := Open(ctx, &Options{Dir: dir, Kind: "cli", Ident: id, BusyTimeout: 5 * time.Second})
-			if err != nil {
-				errs <- err
-				return
-			}
-			sid := "C" + itoa(int64(i))
-			if _, err := s.CreateSession(ctx, Session{ID: sid, Cwd: "/"}); err != nil && !errors.Is(err, ErrIdempotencyConflict) {
-				errs <- err
-				_ = s.Close()
-				return
-			}
-			for n := 0; time.Now().Before(deadline); n++ {
-				if _, err := s.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "chaos " + itoa(int64(n))}); err != nil {
-					errs <- err
-					break
-				}
-				if _, err := s.Recall(ctx, "chaos", 5); err != nil {
-					errs <- err
-					break
-				}
-			}
-			_ = s.Close()
-		})
+		wg.Go(func() { errs <- chaosClient(dir, i, deadline) })
 	}
 	wg.Wait()
 	close(errs)
