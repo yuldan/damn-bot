@@ -6,7 +6,6 @@ import (
 	"github.com/damnbot/damnbot/internal/loop/event"
 )
 
-
 // guard enforces the context-window thresholds: one compaction at CompactAt,
 // a hard stop at OverflowAt (SPEC §4.2, §4.7).
 func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {

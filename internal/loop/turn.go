@@ -181,6 +181,24 @@ func (t *turn) preflight(ctx context.Context) (outcome, bool) {
 	return outcome{}, false
 }
 
+// windowRoom is the input budget left after reserving the output tokens
+// (EC-CTX-017): a request that fits WindowTokens but not WindowTokens minus
+// MaxTokens is the 400 the guard exists to prevent.
+func windowRoom(p *Prompt) int64 {
+	room := p.WindowTokens - int64(p.MaxTokens)
+	if room <= 0 {
+		return 1
+	}
+	return room
+}
+
+// windowStop is the hard context-window stop.
+func (t *turn) windowStop(pct int64) (outcome, bool) {
+	if pct >= int64(t.cfg.OverflowAt) {
+		return outcome{stop: event.StopMaxTokens, detail: event.DetailContextOverflow}, true
+	}
+	return outcome{}, false
+}
 
 // ask performs one provider call with the single empty-response and
 // context-length re-calls owned by the loop (ADR-078 AUD-045).
@@ -241,17 +259,10 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 	if reply.FallbackFrom != "" {
 		t.fallback(ctx, reply.FallbackFrom, reply.Model)
 	}
-	for _, c := range reply.BudgetWarnings {
-		t.note(ctx, &event.Event{Kind: event.BudgetWarning, Payload: payload(auditPayload{Kind: c})})
-		t.emit(&event.Update{Kind: event.UpdateNotice, Text: "budget warning: " + c + " cap reached warn_at", ToolName: "budget"})
-	}
+	t.noteBudgetWarnings(ctx, reply.BudgetWarnings)
 	cacheBreak := ""
 	if reply.FallbackFrom != "" {
 		cacheBreak = "fallback" // COST-04 enum: a provider fallback re-bills the prefix
-	}
-	for _, c := range reply.BudgetWarnings {
-		t.note(ctx, &event.Event{Kind: event.BudgetWarning, Payload: payload(auditPayload{Kind: c})})
-		t.emit(&event.Update{Kind: event.UpdateNotice, Text: "budget warning: " + c + " cap reached warn_at", ToolName: "budget"})
 	}
 	eventID, err := t.append(context.WithoutCancel(ctx), &event.Event{Kind: event.LLMCall, Payload: payload(llmPayload{
 		Model: reply.Model, FinishReason: reply.FinishReason, FallbackFrom: reply.FallbackFrom,

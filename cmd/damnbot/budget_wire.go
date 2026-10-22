@@ -2,17 +2,17 @@ package main
 
 import (
 	"errors"
-	"github.com/damnbot/damnbot/internal/ctxdb/ledgerstore"
-	"github.com/damnbot/damnbot/internal/ctxdb"
-	"github.com/damnbot/damnbot/internal/config"
 	"fmt"
 	"sync"
 
 	"github.com/damnbot/damnbot/internal/budget"
+	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/ctxdb/ledgerstore"
 	"github.com/damnbot/damnbot/internal/loop"
-	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/netx/retry"
+	"github.com/damnbot/damnbot/internal/provider"
 )
 
 // budgetNotes collects the warn_at crossings the guard reports inside
