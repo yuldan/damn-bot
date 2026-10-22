@@ -39,6 +39,10 @@ defaults:
 
 env:
   CGO_ENABLED: "0"
+  # ADR-182: `|direct` = fallback ke sumber (VCS) bila proxy mengembalikan error APA PUN (comma hanya
+  # fallback pada 404/410). Ini tidak melewati gate apa pun — unduhan modul tetap wajib sukses; hanya
+  # jalur pengambilan yang tahan gangguan transient proxy.golang.org (mis. `stream error: … INTERNAL_ERROR`).
+  GOPROXY: "https://proxy.golang.org|direct"
 
 jobs:
   # ADR-135 butir 2: PR yang hanya menyentuh dokumen tidak menjalankan build/test/perf/coverage/fuzz.
@@ -321,6 +325,24 @@ jobs:
             go.sum
             tools/go.sum
             bench/go.sum
+      - name: Unduh modul 3 modul dengan retry transient (E-46; ADR-182)
+        run: |
+          # Retry idempoten ≤ 2 (total 3 percobaan) khusus unduhan modul: kegagalan transient proxy
+          # (mis. `stream error: … INTERNAL_ERROR`) tidak boleh menggagalkan gate supply. Gate itu sendiri
+          # tidak dilonggarkan: bila ketiga percobaan gagal, langkah ini gagal dan job tetap merah.
+          for mod in . tools bench; do
+            n=0
+            until (cd "$mod" && go mod download all); do
+              n=$((n + 1))
+              if (( n >= 3 )); then
+                echo "::error::$mod: go mod download gagal setelah 3 percobaan (proxy transient?)"
+                exit 1
+              fi
+              echo "$mod: percobaan $n gagal; jeda 5 s lalu ulang"
+              sleep 5
+            done
+            echo "$mod: modul terunduh"
+          done
       - name: go mod tidy tanpa diff, 3 modul (E-46)
         run: make tidy-check
       - name: go mod verify, 3 modul (E-47)
