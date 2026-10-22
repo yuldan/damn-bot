@@ -18,6 +18,7 @@
 /internal/config/ @yuldan
 /internal/codetools/ @yuldan
 /internal/ctxdb/ @yuldan
+/internal/e2e/ @yuldan
 /internal/journal/ @yuldan
 /internal/loop/ @yuldan
 /internal/modules/ @yuldan
