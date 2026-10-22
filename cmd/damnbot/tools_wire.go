@@ -21,21 +21,6 @@ import (
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
-// loopTranscript is the dispatcher Journal of run: the loop already appends
-// each call's tool_dispatch before Run and its tool_result after (SPEC §4.3
-// steps 8/10), and journalstore anchors the action row on that dispatch
-// event, so the dispatcher writes no second transcript row and one call has
-// exactly one dispatch/result pair (REVIEW-F2-SEC5-9).
-type loopTranscript struct{}
-
-func (loopTranscript) ToolDispatch(context.Context, string, string, string, tools.Effect, [32]byte) error {
-	return nil
-}
-
-func (loopTranscript) ToolResult(context.Context, string, string, string, bool, string, string) error {
-	return nil
-}
-
 func runtimeDialect() classify.Dialect {
 	switch runtime.GOOS {
 	case "windows":
@@ -64,19 +49,7 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 		case "assistant_message":
 			out = appendAssistant(out, assistantAt, r)
 		case "tool_result":
-			// Keep one message per tool_call_id (transcripts written before
-			// the loop owned tool_result may hold two), preferring the
-			// non-empty result.
-			if r.ToolCallID == "" {
-				continue
-			}
-			if i := findToolMessage(out, r.ToolCallID); i >= 0 {
-				if out[i].Content == "" && r.Content != "" {
-					out[i].Content = r.Content
-				}
-				continue
-			}
-			out = append(out, loop.Message{Role: "tool", Content: r.Content, ToolCallID: r.ToolCallID})
+			out = appendToolResult(out, r)
 		case "system_notice":
 			if c := effectsNotice(r.Payload); c != "" {
 				out = append(out, loop.Message{Role: "system", Content: c})
@@ -222,16 +195,20 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	}
 	sid, cwd, err := newRunSession(ctx, db, modelRef)
 	if err != nil {
-		return nil, closeDB(ctx, db, err)
+		return nil, closeDB(ctx, db, "", err)
 	}
 	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
 	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
 	if err != nil {
-		return nil, closeDB(ctx, db, fmt.Errorf("sandbox: %w", err))
+		return nil, closeDB(ctx, db, sid, fmt.Errorf("sandbox: %w", err))
+	}
+	scope, err := journalScope(roots, cfg.DenyPaths(configDir), home)
+	if err != nil {
+		return nil, closeDB(ctx, db, sid, err)
 	}
 	engine, err := codetools.New(&codetools.Config{Sandbox: sb, Roots: roots, Home: home})
 	if err != nil {
-		return nil, closeDB(ctx, db, fmt.Errorf("codetools: %w", err))
+		return nil, closeDB(ctx, db, sid, fmt.Errorf("codetools: %w", err))
 	}
 	runner := exec.New(ctx)
 	envPolicy := &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent}
@@ -246,7 +223,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		if cerr := runner.CloseContext(ctx); cerr != nil {
 			cause = errors.Join(cause, fmt.Errorf("close runner: %w", cerr))
 		}
-		return closeDB(ctx, db, cause)
+		return closeDB(ctx, db, sid, cause)
 	}
 	allow, monetary, err := shellGate(cfg, configDir)
 	if err != nil {
@@ -266,7 +243,10 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if err != nil {
 		return nil, fail(err)
 	}
-	list := tools.FileTools(engine, sb)
+	list, err := journaledFileTools(db, sid, scope, engine, sb)
+	if err != nil {
+		return nil, fail(err)
+	}
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
 	reg, err := tools.NewRegistry(list...)

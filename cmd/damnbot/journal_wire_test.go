@@ -189,13 +189,21 @@ func tempWith(b *testing.B, dir, name string, data []byte) *os.File {
 // hangs on the edit call's dispatch event with its turn id.
 func TestOneDispatchPerCall(t *testing.T) {
 	_, data := undoWorkspace(t, []byte("alpha\nbeta\n"), 0o600)
-	var dispatches, results, anchored int64
+	var dispatches, results, anchored, dupDispatches, dupResults int64
 	err := openData(t, data).Write(context.Background(), func(tx *ctxdb.Tx) error {
 		for q, dst := range map[string]*int64{
 			"SELECT count(*) FROM events WHERE kind = 'tool_dispatch'": &dispatches,
 			"SELECT count(*) FROM events WHERE kind = 'tool_result'":   &results,
 			`SELECT count(*) FROM actions a JOIN events e ON e.id = a.event_id
 				WHERE e.kind = 'tool_dispatch' AND e.tool_call_id = 'c2' AND a.turn_id = e.turn_id AND a.turn_id <> ''`: &anchored,
+			// Negative control: a second writer (a dispatcher journal that records
+			// the pair again, as main's ctxJournal did) makes one of these counts
+			// non-zero, so the one-pair-per-call invariant above is enforced per
+			// call, not only in total.
+			`SELECT count(*) FROM (SELECT tool_call_id FROM events WHERE kind = 'tool_dispatch'
+				GROUP BY tool_call_id HAVING count(*) > 1)`: &dupDispatches,
+			`SELECT count(*) FROM (SELECT tool_call_id FROM events WHERE kind = 'tool_result'
+				GROUP BY tool_call_id HAVING count(*) > 1)`: &dupResults,
 		} {
 			if gerr := tx.Get(q, nil, dst); gerr != nil {
 				return gerr //nolint:wrapcheck // test query
@@ -203,7 +211,8 @@ func TestOneDispatchPerCall(t *testing.T) {
 		}
 		return nil
 	})
-	if err != nil || dispatches != 2 || results != 2 || anchored != 1 {
-		t.Fatalf("tool_dispatch = %d, tool_result = %d, anchored actions = %d, err = %v", dispatches, results, anchored, err)
+	if err != nil || dispatches != 2 || results != 2 || anchored != 1 || dupDispatches != 0 || dupResults != 0 {
+		t.Fatalf("tool_dispatch = %d, tool_result = %d, anchored actions = %d, dup dispatch = %d, dup result = %d, err = %v",
+			dispatches, results, anchored, dupDispatches, dupResults, err)
 	}
 }

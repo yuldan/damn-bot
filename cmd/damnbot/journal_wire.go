@@ -140,3 +140,19 @@ func snapshot(f *os.File, mode fs.FileMode) (*journal.Snapshot, error) {
 	}
 	return &journal.Snapshot{Data: data[:n], Mode: mode, ModeSet: true}, nil
 }
+
+// loopTranscript is the dispatcher Journal of run: internal/loop appends each
+// call's tool_dispatch before Run (turn.dispatchEvent) and its tool_result
+// after (turn.recordResult) directly, and journalstore anchors the action row
+// on that dispatch event. The dispatcher therefore writes no second
+// transcript row: one call has exactly one dispatch/result pair
+// (SPEC §4.3 steps 8/10, REVIEW-F2-SEC5-9).
+type loopTranscript struct{}
+
+func (loopTranscript) ToolDispatch(context.Context, string, string, string, tools.Effect, [32]byte) error {
+	return nil
+}
+
+func (loopTranscript) ToolResult(context.Context, string, string, string, bool, string, string) error {
+	return nil
+}
