@@ -54,6 +54,10 @@ func (j *ctxJournal) ToolResult(ctx context.Context, turnID, callID, tool string
 // auto-run.
 func runtimeDialect() classify.Dialect { return dialectFor(exec.RuntimeShellKind()) }
 
+// dialectFromEnv follows the shell chosen from the same child environment the
+// runner uses (exec.env PATH included), not the process PATH (SEC10-31).
+func dialectFromEnv(env []string) classify.Dialect { return dialectFor(exec.ShellKindForEnv(env)) }
+
 func dialectFor(kind exec.ShellKind) classify.Dialect {
 	switch kind {
 	case exec.ShellPowerShell:

@@ -141,6 +141,11 @@ jobs:
         if: runner.os == 'Windows'
         run: command -v make || choco install make -y --no-progress
       - run: make test RACE="${{ matrix.race }}"
+      # SEC10-29/32: make test is non-verbose, so a Windows failure hides
+      # whether the shell-gate e2e and the killed-turn recovery test pass.
+      - name: Windows shell/dialect and killed-turn diagnostics
+        if: runner.os == 'Windows' && always()
+        run: go test -tags goolm -count=1 -v -run 'TestPaymentSkillGateCLIWindows|TestRunKilledMidTurn|TestNoDefaultCurrentDirectory' ./cmd/damnbot/ ./internal/exec/
 
   # ADR-048 (TS-P08): budget waktu dinding tanpa -race; cek kebenaran skenario yang sama tetap berjalan
   # di job `test` (-race).

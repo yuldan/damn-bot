@@ -35,12 +35,16 @@ func (c shellChoice) commandArgv(command string) []string {
 	}
 }
 
-// RuntimeShellKind reports the shell family exec would use with the process
-// environment, so the classifier dialect and the runner cannot disagree.
-func RuntimeShellKind() ShellKind {
-	c, err := chooseShell(envPath(os.Environ()))
+// ShellKindForEnv reports the shell family exec would choose with the given
+// child environment (including exec.env overrides), so the classifier and the
+// runner cannot disagree (SEC10-31).
+func ShellKindForEnv(env []string) ShellKind {
+	c, err := chooseShell(envPath(env))
 	if err != nil {
 		return defaultShellKind()
 	}
 	return c.kind
 }
+
+// RuntimeShellKind reports the shell family for the process environment.
+func RuntimeShellKind() ShellKind { return ShellKindForEnv(os.Environ()) }

@@ -177,6 +177,7 @@ func TestPowerShellPaymentSkillMonetary(t *testing.T) {
 		want Class
 	}{
 		{"& '" + pay + "\\scripts\\charge.ps1'", Monetary},
+		{"$p='" + pay + "\\scripts'; & \"$p\\charge.ps1\"", Unknown},
 		{"python3 '" + pay + "\\scripts\\charge.py'", Monetary},
 		{"Set-Location '" + pay + "\\scripts'; ./charge.ps1", Monetary},
 		{"Set-Location '" + pay + "\\scripts'; Write-Output ok", Monetary},
@@ -203,5 +204,46 @@ func TestPowerShellPayloadCmdNegativeControl(t *testing.T) {
 		if v := Classify(cmd, env); v.Class != Mutating {
 			t.Errorf("%q: class %s, want mutating under cmd (%v)", cmd, v.Class, v.Reasons)
 		}
+	}
+}
+
+// TestBareCdHomePayment (SEC10-30): a bare cd moves to $HOME in bash/sh and
+// PowerShell 7 (and Windows PowerShell 5.1 for safety); following relative
+// payment-skill paths must resolve there and stay Monetary. Only cmd's bare
+// cd is a no-op.
+func TestBareCdHomePayment(t *testing.T) {
+	t.Parallel()
+	bash := testEnv()
+	bash.MonetaryPaths = []string{testPaySkill}
+	for _, cmd := range []string{
+		"cd && ./.config/damnbot/skills/stripe-pay/scripts/charge.sh",
+		"cd; python3 .config/damnbot/skills/stripe-pay/scripts/charge.py",
+	} {
+		if v := Classify(cmd, bash); v.Class != Monetary {
+			t.Errorf("bash %q: class %s, want Monetary (%v)", cmd, v.Class, v.Reasons)
+		}
+	}
+	home := `C:\Users\u`
+	pay := home + `\AppData\Roaming\damnbot\skills\stripe-pay`
+	ps := testEnv()
+	ps.Dialect = Pwsh
+	ps.Home = home
+	ps.MonetaryPaths = []string{pay}
+	for _, cmd := range []string{
+		`cd; & .\AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.ps1`,
+		`Set-Location; python AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.py`,
+	} {
+		if v := Classify(cmd, ps); v.Class != Monetary {
+			t.Errorf("pwsh %q: class %s, want Monetary (%v)", cmd, v.Class, v.Reasons)
+		}
+	}
+	// Control: cmd's bare cd does not move, so the same relative path from the
+	// workspace root is not the payment skill.
+	cmdEnv := testEnv()
+	cmdEnv.Dialect = Cmd
+	cmdEnv.Home = home
+	cmdEnv.MonetaryPaths = []string{pay}
+	if v := Classify(`cd && .\AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.ps1`, cmdEnv); v.Class == Monetary {
+		t.Errorf("cmd bare cd moved to HOME: %s (%v)", v.Class, v.Reasons)
 	}
 }
