@@ -368,3 +368,143 @@ func ftsQuery(text string) string {
 	terms[len(terms)-1] += "*"
 	return strings.Join(terms, " ")
 }
+
+// SourceOf returns the winning stored source for name. A non-agent row wins
+// so an agent-authored skill can never shadow or overwrite a trusted one.
+func SourceOf(ctx context.Context, s *ctxdb.Store, name string) (string, bool, error) {
+	var source string
+	err := s.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT source FROM skills WHERE name = ?1 ORDER BY CASE WHEN source = 'agent' THEN 1 ELSE 0 END, id LIMIT 1`, []any{name}, &source)
+	})
+	if errors.Is(err, ctxdb.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("skillstore source: %w", err)
+	}
+	return source, true, nil
+}
+
+// Delete removes agent-authored rows by name; trusted/builtin rows are never
+// deleted by the agent tool. Missing means ErrNotFound.
+func Delete(ctx context.Context, s *ctxdb.Store, name string) error {
+	var n int64
+	err := s.Write(ctx, func(tx *ctxdb.Tx) error {
+		var xerr error
+		n, xerr = tx.Exec(`DELETE FROM skills WHERE name = ?1 AND source = 'agent'`, name)
+		return xerr //nolint:wrapcheck // wrapped below
+	})
+	if err != nil {
+		return fmt.Errorf("skillstore delete: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: skill %s", ErrNotFound, name)
+	}
+	return nil
+}
+
+// ByName resolves one approved skill by its exact name. It is an indexed
+// lookup, not an FTS top-k search, so it cannot miss a skill among many
+// similarly named rows. The trusted-row shadow filter is the same as Search.
+func ByName(ctx context.Context, s *ctxdb.Store, name string) (Row, bool, error) {
+	var out Row
+	found := false
+	err := s.Write(ctx, func(tx *ctxdb.Tx) error {
+		ids, ierr := tx.Ints(`SELECT id FROM skills WHERE name = ?1
+			ORDER BY CASE WHEN memory_id IS NULL THEN 0 ELSE 1 END, id`, name)
+		if ierr != nil {
+			return fmt.Errorf("ids: %w", ierr)
+		}
+		for _, id := range ids {
+			r, rerr := row(tx, id)
+			if rerr != nil {
+				return rerr
+			}
+			ok, aerr := approvedRow(tx, &r)
+			if aerr != nil {
+				return aerr
+			}
+			if ok {
+				out, found = r, true
+				return nil
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return Row{}, false, fmt.Errorf("skillstore by name: %w", err)
+	}
+	return out, found, nil
+}
+
+func approvedRow(tx *ctxdb.Tx, r *Row) (bool, error) {
+	if r.MemoryID == 0 {
+		return r.Source == "user" || r.Source == "builtin", nil
+	}
+	var status string
+	err := tx.Get(`SELECT status FROM v_memory_status WHERE id = ?1 AND kind = 'skill'`, []any{r.MemoryID}, &status)
+	if errors.Is(err, ctxdb.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("status: %w", err)
+	}
+	return status == "approved", nil
+}
+
+// Replace points the newly installed agent row at path and removes the older
+// agent rows with the same name. It runs after the directory swap; a failure
+// leaves the previous rows untouched for the caller to roll back.
+func Replace(ctx context.Context, s *ctxdb.Store, name, path string, keepID int64) error {
+	err := s.Write(ctx, func(tx *ctxdb.Tx) error {
+		n, err := tx.Exec(`UPDATE skills SET path = ?2 WHERE id = ?1 AND source = 'agent'`, keepID, path)
+		if err != nil {
+			return fmt.Errorf("replace skill path: %w", err)
+		}
+		if n == 0 {
+			return fmt.Errorf("%w: row %d", ErrNotFound, keepID)
+		}
+		if _, err := tx.Exec(`DELETE FROM skills WHERE name = ?1 AND source = 'agent' AND id <> ?2`, name, keepID); err != nil {
+			return fmt.Errorf("replace skill rows: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("skillstore replace: %w", err)
+	}
+	return nil
+}
+
+// DeleteID removes one agent row (a staging install that could not be
+// swapped). Trusted rows are never touched.
+func DeleteID(ctx context.Context, s *ctxdb.Store, id int64) error {
+	var n int64
+	err := s.Write(ctx, func(tx *ctxdb.Tx) error {
+		var xerr error
+		n, xerr = tx.Exec(`DELETE FROM skills WHERE id = ?1 AND source = 'agent'`, id)
+		return xerr //nolint:wrapcheck // wrapped below
+	})
+	if err != nil {
+		return fmt.Errorf("skillstore delete id: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: row %d", ErrNotFound, id)
+	}
+	return nil
+}
+
+// AgentPath returns the stored path of the newest agent row for name, even
+// while it is still quarantined. Trusted rows are never returned.
+func AgentPath(ctx context.Context, s *ctxdb.Store, name string) (string, bool, error) {
+	var path string
+	err := s.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT path FROM skills WHERE name = ?1 AND source = 'agent' ORDER BY id DESC LIMIT 1`, []any{name}, &path)
+	})
+	if errors.Is(err, ctxdb.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("skillstore agent path: %w", err)
+	}
+	return path, true, nil
+}
