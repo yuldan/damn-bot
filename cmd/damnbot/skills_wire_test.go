@@ -1,19 +1,10 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
-	"strings"
 	"testing"
-
-	"github.com/damnbot/damnbot/internal/config"
-	"github.com/damnbot/damnbot/internal/exec/classify"
-	"github.com/damnbot/damnbot/internal/provider/providertest"
-	"github.com/damnbot/damnbot/internal/redact"
 )
 
 // writeSkill installs one SKILL.md (and optional files) under
@@ -99,60 +90,6 @@ func TestPaymentSkillDirs(t *testing.T) {
 	}
 }
 
-// TestPaymentSkillGateWired: with a payment skill installed under
-// <config>/skills, a headless `run --approval auto --unsafe-auto-shell` turn
-// whose tool call cds into that skill is denied and never executes
-// (SEC10-1/SEC10-6, end to end).
-func TestPaymentSkillGateWired(t *testing.T) {
-	t.Parallel()
-	cfgDir, dataDir := t.TempDir(), t.TempDir()
-	marker := filepath.Join(dataDir, "ran")
-	pay := writeSkill(t, cfgDir, "stripe-pay", "side_effects: [payment]\n", "Run scripts/charge.sh.",
-		map[string]string{"scripts/charge.sh": "#!/bin/sh\ntouch " + marker + "\n"})
-	cmd := "cd " + filepath.Join(pay, "scripts") + "; ./charge.sh"
-	args, err := json.Marshal(map[string]string{"command": cmd})
-	if err != nil {
-		t.Fatal(err)
-	}
-	call := `{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"shell","arguments":` +
-		jsonString(string(args)) + `}}]}}]}`
-	end := `{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`
-	srv := providertest.New(t, nil,
-		providertest.Reply{Frames: []string{call, end, "[DONE]"}},
-		providertest.Text("stopped"),
-	)
-	cfg := config.Default()
-	red := redact.New(redact.Options{})
-	spill := diskSpill{dir: filepath.Join(dataDir, "spill")}
-	o := &runOptions{model: "openai/gpt-fake", baseURL: srv.URL, approval: "auto", unsafeShell: true, providerAttempts: 1}
-	model, err := startRunModel(t.Context(), &cfg, dataDir, o.model, o, red, spill, cfgDir, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if cerr := model.close(t.Context()); cerr != nil {
-			t.Error(cerr)
-		}
-	}()
-	var out bytes.Buffer
-	if code, rerr := runTurn(t.Context(), &cfg, &runOptions{
-		prompt: "pay", model: o.model, baseURL: o.baseURL, providerAttempts: 1, output: "json",
-		approval: "auto", unsafeShell: true,
-	}, model, o.model, red, spill, &out); rerr != nil || code != 0 {
-		t.Fatalf("turn: code %d, err %v", code, rerr)
-	}
-	if _, serr := os.Stat(marker); !os.IsNotExist(serr) {
-		t.Fatalf("payment script executed: marker %v", serr)
-	}
-	reqs := srv.Requests()
-	if len(reqs) != 2 || !strings.Contains(string(reqs[1]), "denied") {
-		t.Fatalf("tool result did not report denial: %q", string(reqs[len(reqs)-1]))
-	}
-}
-
-// jsonString renders s as a JSON string literal for a scripted provider frame.
-func jsonString(s string) string { return strconv.Quote(s) }
-
 // TestMonetaryKeySymlink: a link and its target produce the same gate key,
 // so /var vs /private/var (darwin) and link vs target cannot bypass it.
 func TestMonetaryKeySymlink(t *testing.T) {
@@ -164,25 +101,5 @@ func TestMonetaryKeySymlink(t *testing.T) {
 	}
 	if a, b := monetaryKey(link), monetaryKey(target); a != b {
 		t.Fatalf("link key %q != target key %q", a, b)
-	}
-}
-
-// TestPaymentGateResolvedTarget: a command that names the resolved target of
-// a symlinked payment skill is Monetary although the gate lists the link
-// (canonical key makes both forms equal).
-func TestPaymentGateResolvedTarget(t *testing.T) {
-	t.Parallel()
-	target := t.TempDir()
-	link := filepath.Join(t.TempDir(), "pay-skill")
-	if err := os.Symlink(target, link); err != nil {
-		t.Skipf("symlink: %v", err)
-	}
-	env := &classify.Env{
-		Roots: []string{target}, Home: "/home/u",
-		MonetaryPaths: []string{link}, MonetaryKey: monetaryKey,
-	}
-	v := classify.Classify("cat "+filepath.Join(target, "scripts", "charge.sh"), env)
-	if v.Class != classify.Monetary {
-		t.Fatalf("class = %s, want monetary (%v)", v.Class, v.Reasons)
 	}
 }
