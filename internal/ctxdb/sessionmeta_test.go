@@ -91,6 +91,26 @@ func TestSessionRows(t *testing.T) {
 	if got.Title != "kept" || got.Archived || !got.Pinned || got.Events != 2 {
 		t.Fatalf("S1 row = %+v", got)
 	}
+}
+
+// TestSessionsOlderThan: archive candidates are created before the cutoff.
+func TestSessionsOlderThan(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	e.clk.Advance(100 * 24 * time.Hour)
+	if _, err := s.CreateSession(ctx, Session{ID: "S2", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
 	ids, err := s.SessionsOlderThan(ctx, e.clk.WallMs()-30*24*3600*1000)
 	if err != nil {
 		t.Fatal(err)

@@ -256,70 +256,73 @@ func (c oldClock) MonoMs() int64                              { return c.mono }
 func (c oldClock) WallMs() int64                              { return c.wall }
 func (c oldClock) Sleep(context.Context, time.Duration) error { return nil }
 
-// TestAutoPrune: the [sessions] auto-prune deletes sessions older than the
-// configured days when enabled and does nothing when disabled.
-func TestAutoPrune(t *testing.T) {
-	t.Parallel()
-	seedOld := func(t *testing.T, days int) (dir, id string) {
-		t.Helper()
-		dir = t.TempDir()
-		ctx := context.Background()
-		wall := time.Now().Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()
-		db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dir, Kind: "cli", Clock: oldClock{wall: wall, boot: wall, mono: wall}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		id = "OLD"
-		if _, err := db.CreateSession(ctx, ctxdb.Session{ID: id, Origin: "headless", Cwd: "/w"}); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Append(ctx, id, nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "old"}); err != nil {
-			t.Fatal(err)
-		}
-		if err := db.ReleaseLease(ctx, id); err != nil {
-			t.Fatal(err)
-		}
+// seedOldSession creates a closed data dir with one session created age ago.
+func seedOldSession(t *testing.T, age time.Duration) string {
+	t.Helper()
+	dir := t.TempDir()
+	ctx := context.Background()
+	wall := time.Now().Add(-age).UnixMilli()
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dir, Kind: "cli", Clock: oldClock{wall: wall, boot: wall, mono: wall}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "OLD", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Append(ctx, "OLD", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReleaseLease(ctx, "OLD"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// openPruneStore opens dir for writing and closes it on cleanup.
+func openPruneStore(t *testing.T, dir string) *ctxdb.Store {
+	t.Helper()
+	db, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: dir, Kind: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
 		if err := db.Close(); err != nil {
-			t.Fatal(err)
-		}
-		return dir, id
-	}
-	open := func(t *testing.T, dir string) *ctxdb.Store {
-		t.Helper()
-		db, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: dir, Kind: "cli"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return db
-	}
-	t.Run("disabled", func(t *testing.T) {
-		t.Parallel()
-		dir, _ := seedOld(t, 100)
-		db := open(t, dir)
-		defer db.Close()
-		var errb bytes.Buffer
-		autoPrune(context.Background(), db, config.Sessions{AutoPrune: false, PruneAfterDays: 90}, &errb)
-		rows, err := db.SessionRows(context.Background())
-		if err != nil || len(rows) != 1 {
-			t.Fatalf("rows = %d, %v; want 1", len(rows), err)
-		}
-		if errb.Len() != 0 {
-			t.Errorf("disabled auto-prune wrote %q", errb.String())
+			t.Errorf("close store: %v", err)
 		}
 	})
-	t.Run("enabled", func(t *testing.T) {
-		t.Parallel()
-		dir, _ := seedOld(t, 100)
-		db := open(t, dir)
-		defer db.Close()
-		var errb bytes.Buffer
-		autoPrune(context.Background(), db, config.Sessions{AutoPrune: true, PruneAfterDays: 90}, &errb)
-		rows, err := db.SessionRows(context.Background())
-		if err != nil || len(rows) != 0 {
-			t.Fatalf("rows = %d, %v; want 0 after auto-prune (stderr %s)", len(rows), err, errb.String())
-		}
-		if !strings.Contains(errb.String(), "auto-pruned 1 sessions") {
-			t.Errorf("auto-prune notice = %q", errb.String())
-		}
-	})
+	return db
+}
+
+// TestAutoPruneDisabled: the default leaves old sessions untouched.
+func TestAutoPruneDisabled(t *testing.T) {
+	t.Parallel()
+	db := openPruneStore(t, seedOldSession(t, 100*24*time.Hour))
+	var errb bytes.Buffer
+	autoPrune(context.Background(), db, config.Sessions{AutoPrune: false, PruneAfterDays: 90}, &errb)
+	rows, err := db.SessionRows(context.Background())
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows = %d, %v; want 1", len(rows), err)
+	}
+	if errb.Len() != 0 {
+		t.Errorf("disabled auto-prune wrote %q", errb.String())
+	}
+}
+
+// TestAutoPruneEnabled: enabling it purges sessions older than the configured
+// days and reports the count.
+func TestAutoPruneEnabled(t *testing.T) {
+	t.Parallel()
+	db := openPruneStore(t, seedOldSession(t, 100*24*time.Hour))
+	var errb bytes.Buffer
+	autoPrune(context.Background(), db, config.Sessions{AutoPrune: true, PruneAfterDays: 90}, &errb)
+	rows, err := db.SessionRows(context.Background())
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("rows = %d, %v; want 0 after auto-prune (stderr %s)", len(rows), err, errb.String())
+	}
+	if !strings.Contains(errb.String(), "auto-pruned 1 sessions") {
+		t.Errorf("auto-prune notice = %q", errb.String())
+	}
 }

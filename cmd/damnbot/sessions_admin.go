@@ -265,24 +265,33 @@ func sessionsPrune(args []string, stdout, stderr io.Writer) int {
 	}
 	defer closeSessionsDB(db, "sessions prune", stderr)
 	if a.archive {
-		cutoff := time.Now().Add(-age).UnixMilli()
-		ids, lerr := db.SessionsOlderThan(ctx, cutoff)
-		if lerr != nil {
-			return sessionsFail(stderr, "prune", lerr, "")
-		}
-		for _, id := range ids {
-			if serr := db.SetSessionLabel(ctx, id, ctxdb.LabelArchived, "1"); serr != nil {
-				return sessionsFail(stderr, "prune", serr, id)
-			}
-		}
-		sessionsPrintf(stdout, "archived %d sessions older than %s\n", len(ids), age)
-		return 0
+		return pruneArchive(ctx, db, age, stdout, stderr)
 	}
+	return prunePurge(ctx, db, age, &a, stdout, stderr)
+}
+
+// pruneArchive labels sessions created before the cutoff as archived.
+func pruneArchive(ctx context.Context, db *ctxdb.Store, age time.Duration, stdout, stderr io.Writer) int {
+	ids, err := db.SessionsOlderThan(ctx, time.Now().Add(-age).UnixMilli())
+	if err != nil {
+		return sessionsFail(stderr, "prune", err, "")
+	}
+	for _, id := range ids {
+		if serr := db.SetSessionLabel(ctx, id, ctxdb.LabelArchived, "1"); serr != nil {
+			return sessionsFail(stderr, "prune", serr, id)
+		}
+	}
+	sessionsPrintf(stdout, "archived %d sessions older than %s\n", len(ids), age)
+	return 0
+}
+
+// prunePurge previews or deletes the §11.6 P set and vacuums afterwards.
+func prunePurge(ctx context.Context, db *ctxdb.Store, age time.Duration, a *adminArgs, stdout, stderr io.Writer) int {
 	req := ctxdb.PurgeRequest{OlderThan: age, WithForks: true}
 	if a.dryRun {
-		rep, perr := db.PurgeCandidates(ctx, req)
-		if perr != nil {
-			return sessionsFail(stderr, "prune", perr, "")
+		rep, err := db.PurgeCandidates(ctx, req)
+		if err != nil {
+			return sessionsFail(stderr, "prune", err, "")
 		}
 		sessionsPrintf(stdout, "would purge %d sessions\n", len(rep.P))
 		for _, id := range rep.P {
@@ -294,9 +303,9 @@ func sessionsPrune(args []string, stdout, stderr io.Writer) int {
 		sessionsPrintf(stderr, "sessions prune: refusing to delete without --yes (use --dry-run to preview or --archive)\n")
 		return 2
 	}
-	rep, perr := db.Purge(ctx, req)
-	if perr != nil {
-		return sessionsFail(stderr, "prune", perr, "")
+	rep, err := db.Purge(ctx, req)
+	if err != nil {
+		return sessionsFail(stderr, "prune", err, "")
 	}
 	for _, id := range rep.Skipped {
 		sessionsPrintf(stderr, "sessions prune: skipped %s (has forks)\n", cleanArg(id))
@@ -404,8 +413,8 @@ func sessionsFail(stderr io.Writer, name string, err error, id string) int {
 
 // parseAge accepts Go durations and the day suffix of SPEC §10 ("90d").
 func parseAge(v string) (time.Duration, error) {
-	if strings.HasSuffix(v, "d") {
-		n, err := strconv.ParseFloat(strings.TrimSuffix(v, "d"), 64)
+	if days, ok := strings.CutSuffix(v, "d"); ok {
+		n, err := strconv.ParseFloat(days, 64)
 		if err != nil || n <= 0 {
 			return 0, fmt.Errorf("--older-than %q: want a positive duration such as 90d", cleanArg(v))
 		}
