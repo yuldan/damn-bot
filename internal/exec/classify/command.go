@@ -38,6 +38,9 @@ func (s *state) command(args []arg, in stdin) bool {
 		}
 	}
 	name := s.cmdName(args[0].s)
+	if isDamnbotName(name) || (pathLike(args[0].s) && s.damnbotCommand(args[0].s, name)) {
+		s.damnbot(args[1:])
+	}
 	if name == "git" {
 		args = s.gitGlobals(args)
 	}

@@ -9,7 +9,7 @@ const (
 	// wrapperValued lists wrapper options that consume the next word.
 	wrapperValued = " sudo:-u sudo:-g sudo:-C sudo:-D sudo:-h sudo:-p sudo:-r sudo:-t sudo:-U sudo:-T doas:-u" +
 		" doas:-C pkexec:--user timeout:-s timeout:-k nice:-n stdbuf:-i stdbuf:-o stdbuf:-e time:-f time:-o" +
-		" xargs:-I xargs:-n xargs:-L xargs:-P xargs:-s xargs:-d xargs:-E xargs:-a npx:-p npx:--package env:-u" +
+		" xargs:-I xargs:-n xargs:-L xargs:-P xargs:-s xargs:-d xargs:-E xargs:-a npx:-p npx:--package env:-u env:-a env:--argv0 exec:-a" +
 		" ssh:-p ssh:-i ssh:-o ssh:-l ssh:-F ssh:-J ssh:-L ssh:-R ssh:-D ssh:-b ssh:-c ssh:-E ssh:-e ssh:-m ssh:-S ssh:-w "
 	// inlineFlags start inline program text for non-shell interpreters.
 	inlineFlags  = " -c -e -E -p -r --eval --print --command "
