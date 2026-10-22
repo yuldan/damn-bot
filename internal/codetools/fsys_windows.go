@@ -110,6 +110,20 @@ func moveFileEx(src, dst string) error {
 	return windows.MoveFileEx(s, d, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 }
 
+// moveFileEx is one MoveFileEx call with both names converted (the syscall
+// wants NUL-terminated UTF-16).
+func moveFileEx(src, dst string) error {
+	s, err := windows.UTF16PtrFromString(src)
+	if err != nil {
+		return err
+	}
+	d, err := windows.UTF16PtrFromString(dst)
+	if err != nil {
+		return err
+	}
+	return windows.MoveFileEx(s, d, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
+}
+
 // dirSyncable: directory handles cannot be flushed on Windows and NTFS
 // journals directory metadata, so fsync(dir) is a no-op (ADR-094 butir 15).
 const dirSyncable = false
