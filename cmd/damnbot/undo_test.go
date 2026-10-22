@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -82,7 +84,13 @@ func TestUndoRestoresEditByteIdentical(t *testing.T) {
 	if got := readFile(t, p); !bytes.Equal(got, orig) {
 		t.Fatalf("undo bytes = %q, want %q", got, orig)
 	}
-	if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != 0o400 {
+	// Windows models only the read-only bit, so a 0o400 file reads back as
+	// 0o444 there while POSIX keeps the exact mode.
+	want := fs.FileMode(0o400)
+	if runtime.GOOS == "windows" {
+		want = 0o444
+	}
+	if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != want {
 		t.Fatalf("mode after undo: %v %v", fi, err)
 	}
 	if undone, leases := undoRows(t, data); undone != 1 || leases != 0 {
