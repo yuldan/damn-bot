@@ -3,6 +3,7 @@ package ctxdb
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -327,5 +328,37 @@ func TestForkContextTierCopied(t *testing.T) {
 	must(t, s.get(ctx, "SELECT context_tier, config_sha FROM sessions WHERE id = ?", []any{child}, &tier, &cfg))
 	if tier != "tier-1" || cfg != "c" {
 		t.Fatalf("fork metadata = %q/%q", tier, cfg)
+	}
+}
+
+// TestHistoryTail: the tail read returns the newest events, oldest first,
+// unlike History's LIMIT which keeps the oldest N.
+func TestHistoryTail(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 250; i++ {
+		if _, err := s.Append(ctx, "S1", nil, Event{Kind: "user_message", Role: "user", Content: "m" + strconv.Itoa(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	evs, err := s.HistoryTail(ctx, "S1", 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 200 {
+		t.Fatalf("tail = %d events, want 200", len(evs))
+	}
+	if evs[len(evs)-1].Content != "m250" || evs[0].Content != "m51" {
+		t.Fatalf("tail bounds = %q..%q, want m51..m250", evs[0].Content, evs[len(evs)-1].Content)
 	}
 }

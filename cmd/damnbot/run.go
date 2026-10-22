@@ -33,7 +33,6 @@ import (
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/redact"
-	"github.com/damnbot/damnbot/internal/schema"
 	"github.com/damnbot/damnbot/internal/tools"
 	"github.com/damnbot/damnbot/internal/toolset"
 )
@@ -147,24 +146,6 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	return o, nil
 }
 
-// compileAnswerSchema builds the SPEC §7.2 --answer-schema validator. The
-// file is third-party input, so unsupported keywords are tolerated (ModeMCP)
-// and an unreadable or invalid schema fails before the turn starts.
-func compileAnswerSchema(path string) (func(string) error, error) {
-	if path == "" {
-		return nil, nil
-	}
-	raw, err := os.ReadFile(path) //nolint:gosec // G304: operator-supplied flag
-	if err != nil {
-		return nil, fmt.Errorf("answer schema: %w", err)
-	}
-	sc, err := schema.Compile(raw, schema.ModeMCP)
-	if err != nil {
-		return nil, fmt.Errorf("answer schema: %w", err)
-	}
-	return func(answer string) error { return sc.Validate([]byte(answer)) }, nil
-}
-
 // warnUnavailableToolsets reports declared-but-unregistered toolset members
 // once per run, so a typo in [toolsets] is visible instead of silently
 // dropping tools (ADR-139). It keeps runOne's cyclomatic complexity in budget.
@@ -241,32 +222,6 @@ func applyResumeNotes(ctx context.Context, o *runOptions, model *runModel, red *
 
 // loadRunEnv loads the immutable config for one run and resolves the data,
 // config and home directories.
-func loadRunEnv(o *runOptions) (cfg config.Config, dataDir, configDir, home string, err error) {
-	loader, err := config.New(config.OS())
-	if err != nil {
-		return cfg, "", "", "", fmt.Errorf("config deps: %w", err)
-	}
-	cfg, err = loadRunConfig(loader, o.configPath)
-	if err != nil {
-		return cfg, "", "", "", err
-	}
-	if o.cfgOverride != nil {
-		cfg = *o.cfgOverride
-	}
-	paths, err := loader.Paths("")
-	if err != nil {
-		return cfg, "", "", "", fmt.Errorf("config paths: %w", err)
-	}
-	dataDir = o.dataDir
-	if dataDir == "" {
-		dataDir = paths.DataDir
-	}
-	configDir = paths.ConfigDir
-	if h, herr := os.UserHomeDir(); herr == nil {
-		home = h
-	}
-	return cfg, dataDir, configDir, home, nil
-}
 
 func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef string, red *redact.Redactor, spill tools.Spill, stdout io.Writer) (int, error) {
 	asm, err := assemble.New(assemble.Deps{
