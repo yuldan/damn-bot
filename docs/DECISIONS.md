@@ -3121,23 +3121,23 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Konteks.** Daftar F2 yang berjumlah 17 item berasal dari [`ROADMAP.md`](ROADMAP.md) §"Adopsi GAP-SWEEP (118 gap → scope 1.0)", baris tabel `| F2 | 17 | …`; prioritas tiap item berasal dari kolom P di SPEC §22.1. Komposisinya 3 P0 (SEC-01, REL-01, PROV-01), 10 P1 (SEC-15, SEC-26, REL-03, REL-04, REL-05, COST-01, COST-02, COST-09, PROV-02, INF-01), dan 4 P2 (COST-04, TOOL-10, INF-02, INF-06). Acceptance F2 di ROADMAP tidak menyebut keempat item P2 itu secara langsung, tetapi baris tabel di atas membuatnya tampak sebagai gate F2. Keputusan owner 2026-10-21: **F2 hanya menuntut gap P0/P1**; gap P2 dipindahkan ke fase pemilik komponen masing-masing agar F2 tidak melebar dari context DB, memori, compaction, modul, journal/undo, budget guard, tier `assemble`, dan enkripsi at-rest opsional.
 
-Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsional dan default mati**, kunci dari OS keychain bila tersedia, selain itu file kunci mode 0600 di `~/.config/damnbot` (berbeda dari GAP-SEC-01, yang tetap mewajibkan arsip backup terenkripsi secara default); gate CT-09 interim memakai selisih p95 berpasangan terhadap referensi tulis-durabel di runner bersama (ADR-127); harga route berasal dari tabel registry dengan otoritas `vendor`/`operator-contracted` (ADR-128, PR #178); evaluasi LLM F2 memakai satu ledger `bench/h2h/results/f2-spend.json` dengan cap total **US$2,00**, model `gpt-5.4-mini` lewat TeamRouter, terpisah dari ledger `f1-spend.json` dan tidak menjadi bagian INF-06.
+Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsional dan default mati**, kunci dari OS keychain bila tersedia, selain itu file kunci mode 0600 di `~/.config/damnbot` (berbeda dari GAP-SEC-01, yang tetap mewajibkan arsip backup terenkripsi secara default); gate CT-09 interim memakai selisih p95 berpasangan terhadap referensi tulis-durabel di runner bersama (ADR-127); harga route berasal dari tabel registry dengan otoritas `vendor`/`operator-contracted` (ADR-128, PR #178 belum merge); evaluasi LLM F2 memakai satu ledger `bench/h2h/results/f2-spend.json` dengan cap total **US$2,00**, model `gpt-5.4-mini` lewat TeamRouter, terpisah dari ledger `f1-spend.json` dan tidak menjadi bagian INF-06.
 
-**Status per `origin/main` `2285128` (2026-10-21).** PR terbuka tidak dihitung selesai. "Sebagian" berarti perilaku yang diminta gap belum sepenuhnya dapat diverifikasi.
+**Status per `origin/main` `70ff325` (2026-10-23).** PR terbuka (mis. #178/#188) tidak dihitung selesai. "Sebagian" berarti perilaku yang diminta gap belum sepenuhnya dapat diverifikasi; "Merged" menyebut PR yang sudah ada di main saat snapshot ini.
 
 | ID | P | Status | Bukti / sisa pekerjaan |
 |---|---|---|---|
 | SEC-01 | P0 | Belum mulai | Tidak ada perintah `damnbot backup/restore`; `ctxdb.Restore` hanya restore DB untuk pemeliharaan, bukan arsip terenkripsi. |
-| SEC-15 | P1 | Sebagian | Kelas `Monetary` ada di `internal/exec/classify` dan approval shell tidak boleh `allow_session` (ADR-088); deklarasi `side_effects: [payment]`, gate skill, dan default testnet belum ada. |
-| SEC-26 | P1 | Belum mulai | `internal/skills` baru mem-parse/validasi front matter; belum ada lint referensi skill/path atau larangan membaca `.env`/mencetak secret. |
-| REL-01 | P0 | Sebagian | Baris user dan hasil tool di-persist loop (`#126`, `#127`); status `failed`/`excluded_from_context` untuk turn gagal belum ada. |
+| SEC-15 | P1 | Merged | Gate skill pembayaran + SEC-26 lint merged #212 (ADR-133); kelas `Monetary`, `side_effects`/`requires`, `credential_access`, dan payment-declared lint ada di main. |
+| SEC-26 | P1 | Merged | `skills.Lint` (referensi/path/credential_access/payment) merged #212 (ADR-133). |
+| REL-01 | P0 | Merged | `context_exclude` untuk turn gagal/crash merged #211 (ADR-134); baris tetap tersimpan dan dapat di-recall. |
 | REL-03 | P1 | Sebagian | Lease/fencing, barrier, dan `TestMultiProcess` sudah ada sejak F0 (`1e2c128`); `serve` sebagai single-writer dan IPC lokal baru ada di F4. |
-| REL-04 | P1 | Belum mulai | `modernc.org/sqlite v1.60.1` dipin, tetapi belum ada probe versi engine/`FTS5`/trigram lintas GOOS atau tampilan versi di `damnbot doctor`. |
-| REL-05 | P1 | Sebagian | Migrasi gagal-tertutup, `ErrSchemaNewer`, dan backup pra-migrasi sudah ada sejak F0; mode read-only untuk DB yang lebih baru belum ada (startup menolak). |
+| REL-04 | P1 | Merged | Probe engine + `version --verbose` merged #203 (ADR-132); `doctor` tetap F3. |
+| REL-05 | P1 | Merged | Read-only inspection `ctxdb.Options.ReadOnly` merged #203 (ADR-132); perintah CLI inspeksi menyusul di PR wiring. |
 | COST-01 | P1 | Sebagian | Mekanisme entri bertanggal merged `#157` (ADR-125); tabel `providers.toml`, gate `TestPricingTableNotExpired`, dan peringatan `doctor` > 60 hari belum. |
 | COST-02 | P1 | Merged | `registry.Limits` tanpa probe + persistensi `model_limits` merged `#159` (ADR-126); wiring composition root ke config/`/models`/parser error belum. |
 | COST-09 | P1 | Merged | Estimator gambar, pemicu P8, dan akuntansi merged `#144`; pemetaan formula model merged `#159` (ADR-123/126); estimator teks F1 (ADR-067). |
-| PROV-01 | P0 | Belum mulai | Tabel `reasoning_carriers`/`reasoning_carrier_rejections` ada di migrasi 0007 (F0), tetapi belum ada store Go maupun proyeksi carrier per route. |
+| PROV-01 | P0 | Merged | Store carrier #190 + proyeksi/capture/replay #193/#200 (ADR-131) ada di main. |
 | PROV-02 | P1 | Merged | Fallback konservatif 32K, urutan sumber window, dan `ErrWindowTooSmall` merged `#159` (ADR-126); wiring composition root dan mode degradasi 8K–64K belum. |
 | INF-01 | P1 | Merged | Bigram CJK aktif di `ctxdb` (`#151`), harness recall 1.000.000 event (`#152`). |
 
@@ -3146,7 +3146,7 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 2. **Empat gap P2 dipindahkan.** Requirement SPEC §22.1 tidak berubah; yang berubah hanya fase penagihannya.
 3. **Tidak ada pekerjaan setengah.** Item yang dipindahkan tidak boleh meninggalkan kode mati, flag setengah jadi, atau janji dokumentasi. DDL yang sudah ada di migrasi 0001–0008 tetap dipertahankan karena merupakan skema requirement, bukan implementasi fitur.
 4. **Status "merged" tetap punya sisa wiring.** Baris COST-02/PROV-02/COST-09/INF-01 di atas menutup requirement gap-nya di level paket, tetapi acceptance F2 tetap menuntut wiring composition root dan bukti job yang disebut ROADMAP; ADR ini tidak menurunkan acceptance tersebut.
-5. **Nomor ADR.** 128 dipakai PR #178; ADR ini memakai 129 dan tidak boleh menomori ulang ADR lain yang masih terbuka (121/122).
+5. **Nomor ADR.** 128 dipakai PR #178; ADR ini memakai 129. ADR-121/122 sudah merged di main; penomoran ADR lain yang masih terbuka tidak diubah.
 
 **Gap yang dipindahkan.**
 
