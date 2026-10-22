@@ -59,6 +59,19 @@ type View struct {
 	Pruned    bool
 }
 
+// Tainted reports whether the request carries an active summary built from
+// untrusted input. The composition root must taint the turn before it
+// evaluates any tool: a summary only restates earlier transcript text, so it
+// never authorises an action (SEC18-1; ADR-070, ADR-122).
+func (v *View) Tainted() bool {
+	for i := range v.Summaries {
+		if v.Summaries[i].Tainted {
+			return true
+		}
+	}
+	return false
+}
+
 // Result reports one Run; Estimate and Window describe the final view.
 type Result struct {
 	Outcome          Outcome

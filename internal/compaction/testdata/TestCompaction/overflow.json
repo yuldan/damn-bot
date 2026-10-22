@@ -10,7 +10,7 @@
    "CostUSD": null,
    "Iterations": 0
   },
-  "Estimate": 188542,
+  "Estimate": 188552,
   "Window": 200000,
   "SummaryID": 1,
   "Stats": {
@@ -40,7 +40,7 @@
   {
    "Role": "user",
    "Call": "",
-   "Runes": 196,
+   "Runes": 236,
    "Head": "[summary of events 2-508: earlier context, not a new request"
   },
   {

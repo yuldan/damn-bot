@@ -9,10 +9,12 @@ import (
 	"github.com/damnbot/damnbot/internal/assemble"
 	"github.com/damnbot/damnbot/internal/compaction"
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/ctxdb/compactstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/limitstore"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/registry"
+	"github.com/damnbot/damnbot/internal/redact"
 )
 
 // compactionSummarizer is the stage-2 provider call (purpose=compaction) over
@@ -62,7 +64,11 @@ func purposeStream(ctx context.Context, prov loop.Provider, purpose provider.Pur
 	if d, ok := prov.(purposeDoer); ok {
 		return d.do(ctx, purpose, req, nil)
 	}
-	return prov.Stream(ctx, req, nil)
+	reply, err := prov.Stream(ctx, req, nil)
+	if err != nil {
+		return loop.Reply{}, fmt.Errorf("provider stream: %w", err)
+	}
+	return reply, nil
 }
 
 // runMeter estimates a compaction view with the assembler the loop uses, so
@@ -82,7 +88,7 @@ func (m *runMeter) Measure(ctx context.Context, _ string, v *compaction.View) (i
 		Context:   m.context,
 		Tools:     m.tools,
 		Summaries: compaction.Blocks(v.Summaries),
-		History:   viewHistory(v),
+		History:   compactionHistory(viewHistory(v)),
 	})
 	if err != nil {
 		return 0, 0, fmt.Errorf("measure: %w", err)
@@ -92,13 +98,13 @@ func (m *runMeter) Measure(ctx context.Context, _ string, v *compaction.View) (i
 
 // viewHistory is the compacted transcript without the summary message the
 // compaction view prepends: summaries enter only via SessionView.Summaries.
-func viewHistory(v *compaction.View) []assemble.Message {
+func viewHistory(v *compaction.View) []compaction.Message {
 	msgs := v.Messages
 	if len(v.Summaries) > 0 && len(msgs) > 0 && msgs[0].Role == "user" &&
 		msgs[0].Content == strings.Join(compaction.Blocks(v.Summaries), "\n") {
 		msgs = msgs[1:]
 	}
-	return compactionHistory(msgs)
+	return msgs
 }
 
 // compactionHistory maps the compaction view to assembler history, keeping
@@ -113,6 +119,28 @@ func compactionHistory(msgs []compaction.Message) []assemble.Message {
 		}
 	}
 	return out
+}
+
+// newRunCompactor builds the run's stage-2 compactor: the compact store, the
+// purpose=compaction summarizer over the provider the turn uses, and the meter
+// that measures a view with the assembler the loop uses (one COST-09 total).
+// The window comes from the model-limits path (ADR-126).
+func newRunCompactor(ctx context.Context, model *runModel, modelRef string, asm *assemble.Assembler, toolList []assemble.Tool, contextTier string, red *redact.Redactor) (*compaction.Compactor, int64, error) {
+	provName, modelName, _ := strings.Cut(modelRef, "/")
+	window, err := compactionWindow(ctx, model.db, provName, modelName)
+	if err != nil {
+		return nil, 0, err
+	}
+	comp, err := compaction.NewCompactor(&compaction.Deps{
+		Store:      compactstore.New(model.db, nil),
+		Summarizer: &compactionSummarizer{prov: model.provider, provider: provName, model: modelRef, red: red},
+		Meter:      &runMeter{asm: asm, tools: toolList, context: contextTier, window: window},
+		Redactor:   red,
+	})
+	if err != nil {
+		return nil, 0, fmt.Errorf("compaction: %w", err)
+	}
+	return comp, window, nil
 }
 
 // compactionView is the seam the assembler adapter reads summaries and the

@@ -25,7 +25,6 @@ import (
 	"github.com/damnbot/damnbot/internal/compaction"
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
-	"github.com/damnbot/damnbot/internal/ctxdb/compactstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/ledgerstore"
 	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/exec/classify"
@@ -196,19 +195,9 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	if err != nil {
 		return 0, err
 	}
-	provName, modelName, _ := strings.Cut(modelRef, "/")
-	window, err := compactionWindow(ctx, model.db, provName, modelName)
+	comp, window, err := newRunCompactor(ctx, model, modelRef, asm, toolList, ctxTier.Text, red)
 	if err != nil {
 		return 0, err
-	}
-	comp, err := compaction.NewCompactor(&compaction.Deps{
-		Store:      compactstore.New(model.db, nil),
-		Summarizer: &compactionSummarizer{prov: model.provider, provider: provName, model: modelRef, red: red},
-		Meter:      &runMeter{asm: asm, tools: toolList, context: ctxTier.Text, window: window},
-		Redactor:   red,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("compaction: %w", err)
 	}
 	disp, err := tools.NewDispatcher(&tools.Config{
 		Registry:         model.registry,
@@ -232,7 +221,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		ParallelTools:   cfg.Loop.ParallelTools,
 	}, &loop.Deps{
 		Provider:  model.provider,
-		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, compactor: comp, window: window},
+		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, compactor: comp, window: window, store: model.store, markTainted: disp.MarkTainted},
 		Toolset:   &toolsetAdapter{disp: disp},
 		Store:     model.store,
 		Ledger:    model.ledger,
@@ -546,6 +535,15 @@ type assemblerAdapter struct {
 	maxTokens   int
 	compactor   compactionView
 	window      int64
+	// store is the session read behind the view: the turnless notices of a
+	// failed turn (SEC11-3) and the carrier rows the view does not carry
+	// (GAP-PROV-01).
+	store *ctxStore
+	// markTainted taints the turn when the request carries a summary built
+	// from untrusted input (SEC18-1); it runs before any tool of the turn is
+	// evaluated, so --unsafe-auto-shell and shell_allow never auto-approve a
+	// non-read action on untrusted context.
+	markTainted func()
 }
 
 func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleRequest) (loop.Prompt, error) {
@@ -558,9 +556,21 @@ func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleReque
 	if err != nil {
 		return loop.Prompt{}, fmt.Errorf("compaction view: %w", err)
 	}
-	history := viewHistory(&view)
+	if view.Tainted() {
+		a.markTainted()
+	}
+	notices, events, err := a.store.viewSide(ctx, req.SessionID)
+	if err != nil {
+		return loop.Prompt{}, err
+	}
+	hist := viewHistory(&view)
+	history := compactionHistory(hist)
 	if len(history) == 0 {
+		hist = nil
 		history = []assemble.Message{{Role: "user", Content: req.Input.Text}}
+	}
+	for i := range notices {
+		history = append(history, assemble.Message{Role: notices[i].Role, Content: notices[i].Content})
 	}
 	r, est, err := a.asm.Build(ctx, &assemble.SessionView{
 		Phase:     assemble.PhaseF1,
@@ -582,10 +592,33 @@ func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleReque
 		}
 		out.Messages = append(out.Messages, lm)
 	}
+	// The assembler appends the history verbatim after the system tiers, so
+	// the view's assistant messages land at a fixed offset: their stored
+	// carriers go back on the request, minus the ones the provider rejected.
+	if err := a.attachCarriers(ctx, req.SessionID, hist, len(out.Messages)-len(history), out.Messages, events); err != nil {
+		return loop.Prompt{}, err
+	}
 	for _, t := range r.Tools {
 		out.Tools = append(out.Tools, loop.ToolSchema{Name: t.Name, Description: t.Description, Parameters: t.Parameters})
 	}
 	return out, nil
+}
+
+// attachCarriers puts the stored carriers back on the request: the view keeps
+// each message's seq, the carrier rows are keyed by the assistant event id at
+// `lead` + the message's offset, and a carrier the provider rejected is never
+// replayed (GAP-PROV-01, ADR-131).
+func (a *assemblerAdapter) attachCarriers(ctx context.Context, sid string, hist []compaction.Message, lead int, out []loop.Message, events map[int64]int64) error {
+	at := make(map[int64]int, len(hist))
+	for i := range hist {
+		if hist[i].Role != "assistant" || hist[i].Seq == 0 {
+			continue
+		}
+		if id, ok := events[hist[i].Seq]; ok {
+			at[id] = lead + i
+		}
+	}
+	return a.store.loadCarriers(ctx, sid, at, out)
 }
 
 func runTools(reg *tools.Registry) ([]assemble.Tool, error) {
