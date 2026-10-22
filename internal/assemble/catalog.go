@@ -13,6 +13,11 @@ const (
 	CapCatalog       = 600
 	CatalogMaxGroups = 24
 	CatalogLineMax   = 15
+
+	// Degraded-mode caps (PROV-02, SPEC §22.1): a window below
+	// [DegradedWindow] renders at most eight groups within 200 tokens.
+	CapCatalogDegraded       = 200
+	CatalogMaxGroupsDegraded = 8
 )
 
 // catalogHeader opens the deferred catalog that stable rule 3 refers to
@@ -41,6 +46,11 @@ type CatalogGroup struct {
 // single overflow line of SPEC §5.2, as is the sorted tail beyond
 // [CatalogMaxGroups] groups or [CapCatalog] tokens.
 func (a *Assembler) Catalog(groups []CatalogGroup) string {
+	return a.catalog(groups, CapCatalog, CatalogMaxGroups)
+}
+
+// catalog renders the deferred catalog within capTokens and maxGroups.
+func (a *Assembler) catalog(groups []CatalogGroup, capTokens, maxGroups int) string {
 	lines := a.catalogLines(groups)
 	if len(lines) == 0 {
 		return ""
@@ -48,9 +58,9 @@ func (a *Assembler) Catalog(groups []CatalogGroup) string {
 	groupCount := len(lines)
 	lines = slices.DeleteFunc(lines, func(l string) bool { return a.tokens.Count(l) > CatalogLineMax })
 	oversized := groupCount - len(lines)
-	for limit := min(len(lines), CatalogMaxGroups); limit >= 0; limit-- {
+	for limit := min(len(lines), maxGroups); limit >= 0; limit-- {
 		text := renderCatalog(lines[:limit], len(lines)-limit+oversized)
-		if a.tokens.Count(text) <= CapCatalog {
+		if a.tokens.Count(text) <= capTokens {
 			return text
 		}
 	}

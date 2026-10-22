@@ -187,7 +187,7 @@ func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {
 	if p.WindowTokens <= 0 {
 		return outcome{}, false
 	}
-	pct := p.InputTokens * 100 / p.WindowTokens
+	pct := p.InputTokens * 100 / windowRoom(p)
 	if pct < int64(t.cfg.CompactAt) || t.compacted || t.deps.Compactor == nil {
 		return t.windowStop(pct)
 	}
@@ -208,7 +208,18 @@ func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {
 		again.MaxTokens = p.MaxTokens
 	}
 	*p = again
-	return t.windowStop(p.InputTokens * 100 / p.WindowTokens)
+	return t.windowStop(p.InputTokens * 100 / windowRoom(p))
+}
+
+// windowRoom is the input budget left after reserving the output tokens
+// (EC-CTX-017): a request that fits WindowTokens but not WindowTokens minus
+// MaxTokens is the 400 the guard exists to prevent.
+func windowRoom(p *Prompt) int64 {
+	room := p.WindowTokens - int64(p.MaxTokens)
+	if room <= 0 {
+		return 1
+	}
+	return room
 }
 
 // windowStop is the hard context-window stop.
@@ -274,9 +285,14 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 	if reply.FallbackFrom != "" {
 		t.fallback(ctx, reply.FallbackFrom, reply.Model)
 	}
+	cacheBreak := ""
+	if reply.FallbackFrom != "" {
+		cacheBreak = "fallback" // COST-04 enum: a provider fallback re-bills the prefix
+	}
 	eventID, err := t.append(ctx, &event.Event{Kind: event.LLMCall, Payload: payload(llmPayload{
 		Model: reply.Model, FinishReason: reply.FinishReason, FallbackFrom: reply.FallbackFrom,
-		Attempts: reply.Attempts, Input: reply.Usage.Input, CachedInput: reply.Usage.CachedInput,
+		CacheBreak: cacheBreak,
+		Attempts:   reply.Attempts, Input: reply.Usage.Input, CachedInput: reply.Usage.CachedInput,
 		Output: reply.Usage.Output, CostUSD: reply.Usage.CostUSD,
 	})})
 	if err != nil {
@@ -355,7 +371,7 @@ func (t *turn) classify(ctx context.Context, r *Reply, calls []ToolCall) (outcom
 	case r.FinishReason == FinishLength && len(calls) == 0:
 		if id, err := t.append(ctx, &event.Event{
 			Kind: event.AssistantMessage, Role: "assistant", Content: r.Content,
-			Payload: payload(assistantPayload{FinishReason: r.FinishReason, Carriers: carrierRefs(r.Carriers)}),
+			Payload: payload(assistantPayload{Partial: true, FinishReason: r.FinishReason, Carriers: carrierRefs(r.Carriers)}),
 		}); err != nil {
 			return t.fail(ctx, event.DetailInternal, err), true
 		} else if err := t.saveCarriers(ctx, id, r.Carriers); err != nil {
@@ -399,10 +415,25 @@ func (t *turn) finalAnswer(ctx context.Context, r *Reply) (outcome, bool) {
 	if err := t.saveCarriers(ctx, id, r.Carriers); err != nil {
 		return t.fail(ctx, event.DetailInternal, err), true
 	}
+	if err := t.validateAnswer(r.Content); err != nil {
+		t.emit(&event.Update{Kind: event.UpdateNotice, Text: "invalid answer: " + t.redact(err.Error()), Status: string(event.DetailInvalidAnswer)})
+		return outcome{stop: event.StopEndTurn, detail: event.DetailInvalidAnswer}, true
+	}
 	if strings.TrimSpace(r.Content) == "" {
 		return outcome{stop: event.StopEndTurn, detail: event.DetailEmptyResponse}, true
 	}
 	return outcome{stop: event.StopEndTurn, detail: event.DetailCompleted}, true
+}
+
+// validateAnswer applies the composition root's answer validator (SPEC §3.5,
+// §7.2; EC-TCALL-009): a final answer that is a fragment instead of the
+// required shape stops the turn as invalid_answer. Empty content stays an
+// empty_response, and without a validator no rule is invented here.
+func (t *turn) validateAnswer(content string) error {
+	if t.deps.ValidateAnswer == nil || strings.TrimSpace(content) == "" {
+		return nil
+	}
+	return t.deps.ValidateAnswer(content)
 }
 
 // toolTurn persists the assistant message and dispatches its calls.

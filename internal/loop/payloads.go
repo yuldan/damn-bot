@@ -14,6 +14,7 @@ type turnStartPayload struct {
 
 type assistantPayload struct {
 	Filtered     bool               `json:"filtered"`
+	Partial      bool               `json:"partial,omitempty"`
 	FinishReason string             `json:"finish_reason,omitempty"`
 	FallbackFrom string             `json:"fallback_from,omitempty"`
 	ToolCalls    []toolCallPayload  `json:"tool_calls,omitempty"`
@@ -49,6 +50,7 @@ type llmPayload struct {
 	Model        string   `json:"model"`
 	FinishReason string   `json:"finish_reason"`
 	FallbackFrom string   `json:"fallback_from,omitempty"`
+	CacheBreak   string   `json:"cache_break,omitempty"`
 	Attempts     int      `json:"attempts"`
 	Input        int64    `json:"input_tokens"`
 	CachedInput  int64    `json:"cached_input_tokens"`

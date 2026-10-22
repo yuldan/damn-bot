@@ -159,11 +159,22 @@ type CarrierRef struct {
 	SHA string `json:"sha"`
 }
 
+// Price is the dated registry price in effect at the call start
+// (ADR-125/128); the ledger resolves the charge from it. Nil when the route
+// is unpriced.
+type Price struct {
+	InputPerMTok       int64
+	CachedInputPerMTok int64
+	OutputPerMTok      int64
+	Version            string
+}
+
 // Usage is one llm_call's accounting plus the turn totals.
 type Usage struct {
 	Input       int64
 	CachedInput int64
 	Output      int64
 	CostUSD     *float64 // nil when the provider did not send a cost
+	Price       *Price   // price-table entry of this call; nil when unpriced
 	Iterations  int
 }

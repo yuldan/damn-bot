@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/damnbot/damnbot/internal/assemble"
 	"github.com/damnbot/damnbot/internal/budget"
@@ -25,6 +26,7 @@ import (
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/ledgerstore"
+	"github.com/damnbot/damnbot/internal/ctxdb/limitstore"
 	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
@@ -32,8 +34,9 @@ import (
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/netx/retry"
 	"github.com/damnbot/damnbot/internal/provider"
+	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/redact"
-	"github.com/damnbot/damnbot/internal/sandbox"
+	"github.com/damnbot/damnbot/internal/schema"
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
@@ -49,12 +52,15 @@ type runOptions struct {
 	baseURL          string
 	apiKey           string
 	providerAttempts int
+	answerSchema     string
 	// eval-only seams (never set by a flag): a provider override (fake or
 	// budget-gated), a per-run config override, and a memory retriever
 	// factory fed the run's ctxdb for the context tier (SPEC §4.8/§18.5).
 	prov         loop.Provider
 	cfgOverride  *config.Config
 	retrieverFor func(*ctxdb.Store) assemble.Retriever
+	// validate is --answer-schema compiled (SPEC §7.2); nil = no schema.
+	validate func(string) error
 }
 
 // reportedParseError marks a parse failure the flag package already wrote to
@@ -99,6 +105,7 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	fs.StringVar(&o.configPath, "config", "", "config.toml path (default: profile path)")
 	fs.StringVar(&o.dataDir, "data-dir", "", "data directory (default: SPEC §11)")
 	fs.StringVar(&o.output, "output", "text", "text|json|stream-json")
+	fs.StringVar(&o.answerSchema, "answer-schema", "", "JSON Schema the final answer must match (SPEC §7.2); invalid answers stop as invalid_answer")
 	fs.BoolVar(&o.offline, "offline", false, "network.offline: loopback only")
 	fs.StringVar(&o.baseURL, "base-url", "", "internal/test: provider base URL")
 	fs.StringVar(&o.apiKey, "api-key", "", "internal/test: provider API key")
@@ -118,6 +125,24 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 		return runOptions{}, errors.New("prompt required")
 	}
 	return o, nil
+}
+
+// compileAnswerSchema builds the SPEC §7.2 --answer-schema validator. The
+// file is third-party input, so unsupported keywords are tolerated (ModeMCP)
+// and an unreadable or invalid schema fails before the turn starts.
+func compileAnswerSchema(path string) (func(string) error, error) {
+	if path == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: operator-supplied flag
+	if err != nil {
+		return nil, fmt.Errorf("answer schema: %w", err)
+	}
+	sc, err := schema.Compile(raw, schema.ModeMCP)
+	if err != nil {
+		return nil, fmt.Errorf("answer schema: %w", err)
+	}
+	return func(answer string) error { return sc.Validate([]byte(answer)) }, nil
 }
 
 func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err error) {
@@ -146,6 +171,11 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	}
 	if modelRef == "" {
 		return 0, errors.New("--model or provider.model is required")
+	}
+	if o.answerSchema != "" {
+		if o.validate, err = compileAnswerSchema(o.answerSchema); err != nil {
+			return 0, err
+		}
 	}
 	red := redact.New(redact.Options{})
 	spill := diskSpill{dir: filepath.Join(dataDir, "run-spill")}
@@ -179,8 +209,10 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		RemainingUSD:    cfg.Budget.TurnUSD,
 	})
 	// The context tier is rendered once and frozen for the session (P15).
+	degraded := model.window > 0 && model.window < assemble.DegradedWindow
 	ctxIn := &assemble.ContextInput{
-		Facts: "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
+		Facts:    "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
+		Degraded: degraded,
 	}
 	if o.retrieverFor != nil {
 		ctxIn.Query = o.prompt
@@ -202,11 +234,19 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		Mode:             approvalMode(o),
 		WorkspaceTrusted: true,
 		Cwd:              model.cwd,
+		// P5 amendment / GAP-COST-08: the turn inline aggregate scales with
+		// the route window and the session's char/token ratio.
+		WindowTokens:  model.inlineCap,
+		CharsPerToken: charsPerToken(o.prompt),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("tools dispatcher: %w", err)
 	}
 	disp.BeginTurn()
+	compactAt, maxInline := 75, 0
+	if degraded {
+		compactAt, maxInline = 60, 2000 // PROV-02 degraded profile (SPEC §22.1)
+	}
 	lp, err := loop.New(&loop.Config{
 		MaxIterations:   cfg.Loop.MaxIterations,
 		MaxInputTokens:  int64(cfg.Loop.TurnMaxInputTok),
@@ -214,14 +254,17 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		MaxWall:         time.Duration(cfg.Loop.MaxWallS) * time.Second,
 		MaxIdentical:    cfg.Loop.MaxIdentical,
 		ParallelTools:   cfg.Loop.ParallelTools,
+		CompactAt:       compactAt,
+		MaxInline:       maxInline,
 	}, &loop.Deps{
-		Provider:  model.provider,
-		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, store: model.store},
-		Toolset:   &toolsetAdapter{disp: disp},
-		Store:     model.store,
-		Ledger:    model.ledger,
-		Carriers:  &ctxCarrierStore{db: model.db},
-		Redactor:  redactorAdapter{red: red},
+		Provider:       model.provider,
+		Assembler:      &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, window: model.window, store: model.store},
+		Toolset:        &toolsetAdapter{disp: disp},
+		Store:          model.store,
+		Ledger:         model.ledger,
+		Carriers:       &ctxCarrierStore{db: model.db},
+		Redactor:       redactorAdapter{red: red},
+		ValidateAnswer: o.validate,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("loop: %w", err)
@@ -245,7 +288,13 @@ type runModel struct {
 	sessions  *exec.Sessions
 	sessionID string
 	cwd       string
+	window    int64  // effective model window (registry.Limits: config/registry/learned/fallback)
+	winSource string // config|registry|discovery|learned|fallback
 	db        *ctxdb.Store
+	// inlineCap is the route window budget in tokens the turn inline aggregate
+	// scales with (SPEC P5 amendment, GAP-COST-08); tools.TurnInlineCap turns
+	// it into the character cap with the session's char/token ratio.
+	inlineCap int
 }
 
 func (m *runModel) close(ctx context.Context) error {
@@ -274,6 +323,17 @@ func (m *runModel) close(ctx context.Context) error {
 
 // newRunProvider builds the run provider or returns the injected one.
 func newRunProvider(cfg *config.Config, modelRef string, o *runOptions) (loop.Provider, error) {
+	table, err := registry.DefaultPriceTable()
+	if err != nil {
+		return nil, fmt.Errorf("pricing table: %w", err)
+	}
+	return newRunProviderWithTable(cfg, modelRef, o, table)
+}
+
+// newRunProviderWithTable is newRunProvider with an explicit table, so a test
+// can price a loopback route; the composition root always passes the embedded
+// default table.
+func newRunProviderWithTable(cfg *config.Config, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
 	if o.prov != nil {
 		return o.prov, nil
 	}
@@ -282,9 +342,13 @@ func newRunProvider(cfg *config.Config, modelRef string, o *runOptions) (loop.Pr
 		return nil, fmt.Errorf("provider endpoint: %w", err)
 	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
+	prices, err := provider.RoutePrices(table, base, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("pricing: %w", err)
+	}
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
-		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family}},
+		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family, Prices: prices}},
 		Attempts: o.providerAttempts,
 	})
 	if err != nil {
@@ -294,76 +358,37 @@ func newRunProvider(cfg *config.Config, modelRef string, o *runOptions) (loop.Pr
 }
 
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runModel, error) {
-	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run"})
+	w, err := newRunWiring(ctx, cfg, dataDir, modelRef, o, red, spill, configDir, home)
 	if err != nil {
-		return nil, fmt.Errorf("open ctxdb: %w", err)
+		return nil, err
 	}
-	sid, cwd, err := newRunSession(ctx, db, modelRef)
+	provName, modelName, _ := strings.Cut(modelRef, "/")
+	limits, err := registry.NewLimits(nil, nil, limitstore.Store{DB: w.db}, nil)
 	if err != nil {
-		return nil, closeDB(ctx, db, err)
+		return nil, w.fail(fmt.Errorf("model limits: %w", err))
 	}
-	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
-	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
+	win, err := limits.Window(ctx, provName, modelName)
 	if err != nil {
-		return nil, closeDB(ctx, db, fmt.Errorf("sandbox: %w", err))
-	}
-	engine, err := codetools.New(&codetools.Config{Sandbox: sb, Roots: roots, Home: home})
-	if err != nil {
-		return nil, closeDB(ctx, db, fmt.Errorf("codetools: %w", err))
-	}
-	runner := exec.New(ctx)
-	envPolicy := &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent}
-	// Persistent sessions share the runner but never receive secret refs
-	// (ADR-088): direct is empty and Env only inherits the allowlist.
-	sessions := runner.NewSessions(filepath.Join(dataDir, "exec", "sess"), envPolicy.Env(os.Environ(), true, "", "", ""))
-	fail := func(cause error) error {
-		engine.Close()
-		if cerr := sessions.Close(); cerr != nil {
-			cause = errors.Join(cause, fmt.Errorf("close sessions: %w", cerr))
-		}
-		if cerr := runner.CloseContext(ctx); cerr != nil {
-			cause = errors.Join(cause, fmt.Errorf("close runner: %w", cerr))
-		}
-		return closeDB(ctx, db, cause)
-	}
-	allow, monetary, err := shellGate(cfg, configDir)
-	if err != nil {
-		return nil, fail(err)
-	}
-	shellTool, err := tools.NewShell(&tools.ShellConfig{
-		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
-		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
-		EnvPolicy:        envPolicy,
-		WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
-		MonetaryPaths: monetary, Canonicalize: monetaryKey,
-	})
-	if err != nil {
-		return nil, fail(fmt.Errorf("shell tool: %w", err))
-	}
-	skillsMgr := newSkillManager(db)
-	list := tools.FileTools(engine, sb)
-	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
-		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr))
-	reg, err := tools.NewRegistry(list...)
-	if err != nil {
-		return nil, fail(fmt.Errorf("registry: %w", err))
+		return nil, w.fail(fmt.Errorf("model window: %w", err))
 	}
 	prov, err := newRunProvider(cfg, modelRef, o)
 	if err != nil {
-		return nil, fail(err)
+		return nil, w.fail(err)
 	}
-	provName, modelName, _ := strings.Cut(modelRef, "/")
 	return &runModel{
 		provider:  prov,
-		registry:  reg,
-		store:     &ctxStore{db: db},
-		ledger:    &ctxLedger{db: db, provider: provName, model: modelName},
-		sessionID: sid,
-		cwd:       cwd,
-		db:        db,
-		engine:    engine,
-		runner:    runner,
-		sessions:  sessions,
+		registry:  w.registry,
+		store:     &ctxStore{db: w.db},
+		ledger:    &ctxLedger{db: w.db, provider: provName, model: modelName},
+		sessionID: w.sid,
+		cwd:       w.cwd,
+		window:    win.ContextWindow,
+		winSource: string(win.Source),
+		inlineCap: w.inlineCap,
+		db:        w.db,
+		engine:    w.engine,
+		runner:    w.runner,
+		sessions:  w.sessions,
 	}, nil
 }
 
@@ -473,6 +498,17 @@ type budgetCounter struct{}
 
 func (budgetCounter) Count(s string) int { return int(budget.Count(s).Raw()) }
 
+// charsPerToken is the COST-09 char/token ratio of the run prompt, the
+// session sample available before the ledger has usage rows. Zero means
+// unknown, which keeps the fixed P5 aggregate (GAP-COST-08).
+func charsPerToken(s string) float64 {
+	n, raw := utf8.RuneCountInString(s), budget.Count(s).Raw()
+	if n == 0 || raw == 0 {
+		return 0
+	}
+	return float64(n) / float64(raw)
+}
+
 type providerAdapter struct {
 	client *provider.OpenAI
 	model  string
@@ -506,6 +542,7 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 		Content: resp.Content, FinishReason: resp.FinishReason, Usage: event.Usage{
 			Input: resp.Usage.Input, CachedInput: resp.Usage.CachedInput,
 			Output: resp.Usage.Output, CostUSD: resp.Usage.CostUSD,
+			Price: eventPrice(resp.Price),
 		},
 		Model: resp.Model, FallbackFrom: resp.FallbackFrom, Attempts: resp.Attempts,
 		Carriers: eventCarriers(resp.Carriers), RejectedCarriers: eventCarriers(resp.RejectedCarriers),
@@ -524,22 +561,24 @@ type assemblerAdapter struct {
 	contextTier string // frozen per session (P15)
 	model       string
 	maxTokens   int
+	window      int64 // effective model window (registry.Limits); < assemble.DegradedWindow = degraded and the loop guard budget (0 = unknown)
 	store       *ctxStore
 }
 
 func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleRequest) (loop.Prompt, error) {
 	view := &assemble.SessionView{
-		Phase:   assemble.PhaseF1,
-		Context: a.contextTier,
-		Tools:   a.tools,
-		Turn:    a.turn,
-		History: []assemble.Message{{Role: "user", Content: req.Input.Text}},
+		Phase:    assemble.PhaseF1,
+		Context:  a.contextTier,
+		Tools:    a.tools,
+		Turn:     a.turn,
+		Degraded: a.window > 0 && a.window < assemble.DegradedWindow,
+		History:  []assemble.Message{{Role: "user", Content: req.Input.Text}},
 	}
 	r, est, err := a.asm.Build(ctx, view)
 	if err != nil {
 		return loop.Prompt{}, fmt.Errorf("assemble build: %w", err)
 	}
-	out := loop.Prompt{InputTokens: int64(est.Total)}
+	out := loop.Prompt{InputTokens: int64(est.Total), WindowTokens: a.window}
 	out.Model, out.MaxTokens = a.model, a.maxTokens
 	// The system prompt and tools come from assemble; history comes from the
 	// transcript so assistant tool_calls and tool results survive iterations.
@@ -636,17 +675,51 @@ func (s *ctxStore) EndTurn(ctx context.Context, sid, tid string, payload json.Ra
 	return nil
 }
 
+// eventPrice converts the provider response price entry to the loop's wire
+// type (loop/event is a leaf: it does not import budget).
+func eventPrice(p *budget.Price) *event.Price {
+	if p == nil {
+		return nil
+	}
+	return &event.Price{
+		InputPerMTok: p.InputPerMTok, CachedInputPerMTok: p.CachedInputPerMTok,
+		OutputPerMTok: p.OutputPerMTok, Version: p.Version,
+	}
+}
+
 type ctxLedger struct {
 	db              *ctxdb.Store
 	provider, model string
 }
 
+// Record writes one usage_ledger row through budget.Entry.Account, so the
+// charge is max(table, provider) for a priced route and the provider cost
+// for an unpriced one (ADR-125/128), with pricing_version from the value
+// actually charged. Account rejects implausible usage; the row is then
+// still written with NULL/unknown cost so the guard sees the spend and
+// later calls under a monetary cap are denied (REVIEW-F2-SEC6 SEC6-8),
+// while Record returns the error so the turn fails visibly.
 func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, u *event.Usage) error {
-	var micros *int64
-	src := "unknown"
-	if u.CostUSD != nil {
-		m := int64(*u.CostUSD*1e6 + 0.5)
-		micros, src = &m, "provider"
+	var price *budget.Price
+	if u.Price != nil {
+		price = &budget.Price{
+			InputPerMTok: u.Price.InputPerMTok, CachedInputPerMTok: u.Price.CachedInputPerMTok,
+			OutputPerMTok: u.Price.OutputPerMTok, Version: u.Price.Version,
+		}
+	}
+	e := budget.Entry{
+		SessionID: sid, TurnID: tid, EventID: eventID, Purpose: "turn",
+		Provider: l.provider, Model: l.model, Attempts: 1,
+		TTFTMS: 0, CreatedAt: time.Now().UnixMilli(),
+	}
+	acctErr := e.Account(budget.Usage{Input: u.Input, CachedInput: u.CachedInput, Output: u.Output, CostUSD: u.CostUSD}, price, 0)
+	if acctErr != nil {
+		// The call already happened and was paid for: record it as
+		// unknown-cost with clamped token counts instead of losing it.
+		e.InputTokens = max(u.Input, 0)
+		e.CachedInputTokens = min(max(u.CachedInput, 0), e.InputTokens)
+		e.OutputTokens = max(u.Output, 0)
+		e.CostMicros, e.CostSource, e.PricingVersion = nil, string(budget.CostUnknown), budget.PricingNone
 	}
 	err := l.db.Write(ctx, func(tx *ctxdb.Tx) error {
 		var anchor int64
@@ -656,20 +729,18 @@ func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, 
 			}
 			return fmt.Errorf("find event anchor: %w", gerr)
 		}
-		_, ierr := ledgerstore.Insert(tx, &ledgerstore.Row{
-			EventID:   anchor,
-			SessionID: sid, TurnID: tid, Purpose: "turn", Provider: l.provider, Model: l.model,
-			InputTokens: u.Input, CachedInputTokens: u.CachedInput, OutputTokens: u.Output,
-			CostMicros: micros, CostSource: src, PricingVersion: "none", Attempts: 1,
-			TTFTMS: 0, CreatedAt: time.Now().UnixMilli(),
-		})
-		if ierr != nil {
+		e.EventID = anchor
+		row := ledgerstore.Row(e) // field-identical (ADR-101 butir 5)
+		if _, ierr := ledgerstore.Insert(tx, &row); ierr != nil {
 			return fmt.Errorf("insert ledger row: %w", ierr)
 		}
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("record ledger: %w", err)
+	}
+	if acctErr != nil {
+		return fmt.Errorf("account ledger: %w", acctErr)
 	}
 	return nil
 }

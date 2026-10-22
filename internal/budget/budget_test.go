@@ -155,7 +155,7 @@ func TestCost(t *testing.T) {
 	t.Parallel()
 	p := &Price{InputPerMTok: 3_000_000, CachedInputPerMTok: 300_000, OutputPerMTok: 15_000_000, Version: "2026-10"}
 	usd := 0.0123456
-	neg := -1.0
+	neg, zero, nan := -1.0, 0.0, math.NaN()
 	huge, maxUSD, inf := 1e14, float64(MaxProviderCostUSD), math.Inf(1)
 	cases := []struct {
 		u       Usage
@@ -170,6 +170,13 @@ func TestCost(t *testing.T) {
 		{Usage{Input: 10, CachedInput: 10}, &Price{InputPerMTok: 2_000_000}, 20, CostPricingTable, false},
 		{Usage{Input: 10, CostUSD: &neg}, nil, -1, CostUnknown, false},
 		{Usage{Input: 10}, nil, -1, CostUnknown, false},
+		// SEC6-6: a priced route charges max(table, provider); a reseller
+		// reporting zero/low/negative/NaN cannot undercut the contract.
+		{Usage{Input: 1000, CachedInput: 400, Output: 100, CostUSD: &zero}, p, 3420, CostPricingTable, false},
+		{Usage{Input: 1000, CachedInput: 400, Output: 100, CostUSD: &neg}, p, 3420, CostPricingTable, false},
+		{Usage{Input: 1000, CachedInput: 400, Output: 100, CostUSD: &nan}, p, 3420, CostPricingTable, false},
+		// An unpriced route keeps ADR-125: the provider cost is the charge.
+		{Usage{Input: 10, CostUSD: &zero}, nil, 0, CostProvider, false},
 		{Usage{Input: 1, CachedInput: 2}, p, -1, CostUnknown, true},
 		{Usage{Output: -1}, p, -1, CostUnknown, true},
 		// LED-2: implausible provider costs fail closed, never wrap negative.
@@ -207,6 +214,14 @@ func TestAccount(t *testing.T) {
 	e = Entry{}
 	if err := e.Account(Usage{Input: 5}, nil, 4); err != nil || e.CostMicros != nil || e.CostSource != "unknown" || e.PricingVersion != PricingNone {
 		t.Errorf("unknown cost entry = %+v, %v", e, err)
+	}
+	// A provider-reported charge above the table wins and has no table
+	// version; the table keeps its version only when it is the charge.
+	high := 0.01
+	e = Entry{}
+	if err := e.Account(Usage{Input: 1000, Output: 10, CostUSD: &high}, p, 0); err != nil ||
+		*e.CostMicros != 10_000 || e.CostSource != "provider" || e.PricingVersion != PricingNone {
+		t.Errorf("provider charge entry = %+v, %v", e, err)
 	}
 	if err := e.Account(Usage{Input: -1}, nil, 0); !errors.Is(err, ErrInvalidUsage) {
 		t.Errorf("invalid usage: %v", err)
