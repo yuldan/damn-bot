@@ -3311,24 +3311,6 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Konsekuensi.** (+) Kueri natural bahasa manusia dapat menemukan fakta yang relevan; operator FTS tetap tidak dapat disuntikkan user. (−) Kandidat bisa lebih banyak pada korpus besar (term umum seperti "my"); `bm25` + LIMIT menahan biaya, tetapi kualitas ranking bergantung pada tokenisasi unicode61 (tanpa stopword removal).
 
-## ADR-163 — Tindak lanjut review F2: EC-CTX-007 (direktif MEDIA), tie-break recall, dan bukti GAP-COST-04
-
-**Status:** Accepted 2026-10-22 (delegasi; menutup ACC-6, ACC-12, dan GAP-COST-04 dari review PR #249/#251/#250). Diterapkan di PR tindak lanjut F2.
-
-**Aturan penerapan.** Teks diterapkan (2026-10-22): `internal/compaction/summary.go` + `edgecases_test.go`, `internal/ctxdb/memstore/memstore.go` + `restart_test.go`, `cmd/damnbot/fallback_prefix_test.go`. Mengutip SPEC §22.1 (GAP-SEC-26/EC-CTX-007, GAP-INF-06, GAP-COST-04) dan ADR-122/ADR-133/ADR-137.
-
-**Konteks.** Review menemukan tiga sisa: (a) EC-CTX-007 hanya membuang `MEDIA:` yang berisi nilai, sehingga `MEDIA:` telanjang lolos ke summarizer; (b) tie-break `memstore` tidak deterministik untuk skor bm25 yang sama, dan judul test INF-06 mengklaim penutupan yang belum ada (runner eval belum ada); (c) GAP-COST-04 diklaim lewat test prefix antar-turn yang tidak pernah menjalankan fallback provider.
-
-**Keputusan.**
-1. **EC-CTX-007.** `deliveryDirective = MEDIA:\s*\S*` membuang direktif dengan nilai maupun `MEDIA:` telanjang dari isi pesan dan argumen tool call sebelum summarizer; test `TestEdgeCases/EC-CTX-007` mencakup empat bentuk (tool result, assistant, trailing bare, argumen). Status EC-CTX-007 = covered; pembaruan kalimat ADR-122 butir 14 dibawa PR #245 (bila kedua PR mendarat, kalimat yang sama cukup sekali). PR ini juga menambahkan stripper yang sama dengan #249: land satu lebih dulu, PR kedua menjadi delta (catatan merge).
-2. **Recall deterministik.** `searchIDs` memakai `ORDER BY m.pinned DESC, bm25(memory_fts), m.id` (dan `created_at DESC, m.id` untuk kueri tanpa teks). Test `TestRecallDeterministicAcrossRestart` menyisipkan dua baris identik (skor bm25 sama) dan memastikan urutan sama pada rerun dan sesudah reopen. Test ini adalah proksi jalur recall yang dinilai E4 (ADR-137), **bukan** penutupan GAP-INF-06: runner eval, baseline nightly, dan cap biaya live tetap terbuka.
-3. **GAP-COST-04 (parsial).** `TestFallbackPrefixStable` mengonfigurasi dua route provider A dan B dengan `Fallback: [fake/B]`, memaksa fallback lewat `provider.Do` (tiga 503 pada A lalu sukses di B), lalu memanggil A lagi dan menghitung sha256 pesan system + array tools dari setiap body yang direkam proxy: identik pada kelima attempt; hanya field `model` yang berubah A,A,A,B,A. Ini membuktikan prefix+cache-key di lapisan provider untuk A→B→A. **Status GAP-COST-04 tetap parsial**: composition root `run` belum meneruskan `cfg.Provider.Fallback` ke `provider.Config`, sehingga fallback sesi-nyata baru bisa diuji setelah irisan F5 itu; ledger F2 tetap mencatat baris itu belum tertutup.
-
-**Dampak terukur (SPEC §20).** LOC: `compaction` +≈10, `ctxdb/memstore` +0 (satu klausa ORDER BY), test +≈150; token/binary/dependency 0. Tidak ada perubahan `loc.budget`.
-
-**Konsekuensi.** (+) Tiga temuan review tertutup dengan bukti yang bisa gagal; EC-CTX-007 tidak lagi bisa membocorkan direktif telanjang. (−) Dua PR berbagi kode EC-CTX-007/INF-06 dengan #249/#251; urutan merge harus dijaga agar tidak ada duplikasi diam-diam.
-
-
 ## ADR-139 — Klasifikasi 59 baris parity F2: headless F2, permukaan slash F3, dan tiga baris dipindah
 
 **Status:** Accepted 2026-10-22 (keputusan owner: F2 hanya punya `damnbot run` headless; semua permukaan slash menunggu REPL/TUI F3). Memperbaiki per-row phase ADR-064 untuk 22 baris; baris lain tidak berubah. Diterapkan di PR dokumen ini + PR implementasi lanjutan. Tidak mengubah SPEC, skema, dependency, atau `loc.budget`.
@@ -3416,6 +3398,24 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Konsekuensi.** (+) Acceptance F2 hanya menuntut yang dapat dibangun dengan `run` headless, dan setiap baris yang pindah punya test kapabilitas F2 yang eksplisit. (+) Gate per fase kembali bermakna: F2 tidak lagi memuat 19 permukaan slash yang mustahil. (−) F3 menerima 19 baris permukaan; REPL/TUI F3 harus menutupnya, dan baris F8/F5 tetap terbuka lebih lama. (−) Setiap perpindahan fase berikutnya tetap wajib ADR + perubahan angka di ROADMAP dan test (ADR-064).
 
+## ADR-163 — Tindak lanjut review F2: EC-CTX-007 (direktif MEDIA), tie-break recall, dan bukti GAP-COST-04
+
+**Status:** Accepted 2026-10-22 (delegasi; menutup ACC-6, ACC-12, dan GAP-COST-04 dari review PR #249/#251/#250). Diterapkan di PR tindak lanjut F2.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-22): `internal/compaction/summary.go` + `edgecases_test.go`, `internal/ctxdb/memstore/memstore.go` + `restart_test.go`, `cmd/damnbot/fallback_prefix_test.go`. Mengutip SPEC §22.1 (GAP-SEC-26/EC-CTX-007, GAP-INF-06, GAP-COST-04) dan ADR-122/ADR-133/ADR-137.
+
+**Konteks.** Review menemukan tiga sisa: (a) EC-CTX-007 hanya membuang `MEDIA:` yang berisi nilai, sehingga `MEDIA:` telanjang lolos ke summarizer; (b) tie-break `memstore` tidak deterministik untuk skor bm25 yang sama, dan judul test INF-06 mengklaim penutupan yang belum ada (runner eval belum ada); (c) GAP-COST-04 diklaim lewat test prefix antar-turn yang tidak pernah menjalankan fallback provider.
+
+**Keputusan.**
+1. **EC-CTX-007.** `deliveryDirective = MEDIA:\s*\S*` membuang direktif dengan nilai maupun `MEDIA:` telanjang dari isi pesan dan argumen tool call sebelum summarizer; test `TestEdgeCases/EC-CTX-007` mencakup empat bentuk (tool result, assistant, trailing bare, argumen). Status EC-CTX-007 = covered; pembaruan kalimat ADR-122 butir 14 dibawa PR #245 (bila kedua PR mendarat, kalimat yang sama cukup sekali). PR ini juga menambahkan stripper yang sama dengan #249: land satu lebih dulu, PR kedua menjadi delta (catatan merge).
+2. **Recall deterministik.** `searchIDs` memakai `ORDER BY m.pinned DESC, bm25(memory_fts), m.id` (dan `created_at DESC, m.id` untuk kueri tanpa teks). Test `TestRecallDeterministicAcrossRestart` menyisipkan dua baris identik (skor bm25 sama) dan memastikan urutan sama pada rerun dan sesudah reopen. Test ini adalah proksi jalur recall yang dinilai E4 (ADR-137), **bukan** penutupan GAP-INF-06: runner eval, baseline nightly, dan cap biaya live tetap terbuka.
+3. **GAP-COST-04 (parsial).** `TestFallbackPrefixStable` mengonfigurasi dua route provider A dan B dengan `Fallback: [fake/B]`, memaksa fallback lewat `provider.Do` (tiga 503 pada A lalu sukses di B), lalu memanggil A lagi dan menghitung sha256 pesan system + array tools dari setiap body yang direkam proxy: identik pada kelima attempt; hanya field `model` yang berubah A,A,A,B,A. Ini membuktikan prefix+cache-key di lapisan provider untuk A→B→A. **Status GAP-COST-04 tetap parsial**: composition root `run` belum meneruskan `cfg.Provider.Fallback` ke `provider.Config`, sehingga fallback sesi-nyata baru bisa diuji setelah irisan F5 itu; ledger F2 tetap mencatat baris itu belum tertutup.
+
+**Dampak terukur (SPEC §20).** LOC: `compaction` +≈10, `ctxdb/memstore` +0 (satu klausa ORDER BY), test +≈150; token/binary/dependency 0. Tidak ada perubahan `loc.budget`.
+
+**Konsekuensi.** (+) Tiga temuan review tertutup dengan bukti yang bisa gagal; EC-CTX-007 tidak lagi bisa membocorkan direktif telanjang. (−) Dua PR berbagi kode EC-CTX-007/INF-06 dengan #249/#251; urutan merge harus dijaga agar tidak ada duplikasi diam-diam.
+
+
 ## ADR-173 — Tool skill: `skills_list`, `skill_view`, `skill_manage`
 
 **Status:** Accepted 2026-10-23 (F2; TOOL-074/075/076, SKILL-002, EC-CTX-006, SEC16-1..5, ACC-56..61). Budget `tools` 2.200 → 2.500 (+300; terukur 2.315) dan `ctxdb/skillstore` 400 → 460 (+60; terukur 438); dependency 0; DDL 0 (ADR-074). Diterapkan bertahap dalam dua PR berurutan: lapisan baca (`skills_list`, `skill_view`) lalu lapisan tulis (`skill_manage`) beserta penguatan SEC16-5.
@@ -3464,12 +3464,3 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 
 **Konsekuensi.** (+) Penaikan `PHASE` menyatakan tepat apa yang sudah selesai — fase yang ditinggalkan — sehingga penaikan ke F3 tidak lagi menuntut komponen yang baru dimulai di F3. (+) Gate tidak kehilangan ketegasan: semua id fase < `PHASE` tetap wajib `covered`/`n/a`, termasuk id yang sebelumnya `pending:F1`. (−) Satu id fase yang dimasuki bisa tertinggal `pending` sampai penaikan berikutnya; karena itu daftar "open" dicetak pada setiap run.
 
-## ADR-163 — Tindak lanjut review F2: EC-CTX-007 (direktif MEDIA), tie-break recall, dan bukti GAP-COST-04
-**Status:** Accepted 2026-10-22 (delegasi; menutup ACC-6, ACC-12, dan GAP-COST-04 dari review PR #249/#251/#250). Diterapkan di PR tindak lanjut F2.
-**Aturan penerapan.** Teks diterapkan (2026-10-22): `internal/compaction/summary.go` + `edgecases_test.go`, `internal/ctxdb/memstore/memstore.go` + `restart_test.go`, `cmd/damnbot/fallback_prefix_test.go`. Mengutip SPEC §22.1 (GAP-SEC-26/EC-CTX-007, GAP-INF-06, GAP-COST-04) dan ADR-122/ADR-133/ADR-137.
-**Konteks.** Review menemukan tiga sisa: (a) EC-CTX-007 hanya membuang `MEDIA:` yang berisi nilai, sehingga `MEDIA:` telanjang lolos ke summarizer; (b) tie-break `memstore` tidak deterministik untuk skor bm25 yang sama, dan judul test INF-06 mengklaim penutupan yang belum ada (runner eval belum ada); (c) GAP-COST-04 diklaim lewat test prefix antar-turn yang tidak pernah menjalankan fallback provider.
-1. **EC-CTX-007.** `deliveryDirective = MEDIA:\s*\S*` membuang direktif dengan nilai maupun `MEDIA:` telanjang dari isi pesan dan argumen tool call sebelum summarizer; test `TestEdgeCases/EC-CTX-007` mencakup empat bentuk (tool result, assistant, trailing bare, argumen). Status EC-CTX-007 = covered; pembaruan kalimat ADR-122 butir 14 dibawa PR #245 (bila kedua PR mendarat, kalimat yang sama cukup sekali). PR ini juga menambahkan stripper yang sama dengan #249: land satu lebih dulu, PR kedua menjadi delta (catatan merge).
-2. **Recall deterministik.** `searchIDs` memakai `ORDER BY m.pinned DESC, bm25(memory_fts), m.id` (dan `created_at DESC, m.id` untuk kueri tanpa teks). Test `TestRecallDeterministicAcrossRestart` menyisipkan dua baris identik (skor bm25 sama) dan memastikan urutan sama pada rerun dan sesudah reopen. Test ini adalah proksi jalur recall yang dinilai E4 (ADR-137), **bukan** penutupan GAP-INF-06: runner eval, baseline nightly, dan cap biaya live tetap terbuka.
-3. **GAP-COST-04 (parsial).** `TestFallbackPrefixStable` mengonfigurasi dua route provider A dan B dengan `Fallback: [fake/B]`, memaksa fallback lewat `provider.Do` (tiga 503 pada A lalu sukses di B), lalu memanggil A lagi dan menghitung sha256 pesan system + array tools dari setiap body yang direkam proxy: identik pada kelima attempt; hanya field `model` yang berubah A,A,A,B,A. Ini membuktikan prefix+cache-key di lapisan provider untuk A→B→A. **Status GAP-COST-04 tetap parsial**: composition root `run` belum meneruskan `cfg.Provider.Fallback` ke `provider.Config`, sehingga fallback sesi-nyata baru bisa diuji setelah irisan F5 itu; ledger F2 tetap mencatat baris itu belum tertutup.
-**Dampak terukur (SPEC §20).** LOC: `compaction` +≈10, `ctxdb/memstore` +0 (satu klausa ORDER BY), test +≈150; token/binary/dependency 0. Tidak ada perubahan `loc.budget`.
-**Konsekuensi.** (+) Tiga temuan review tertutup dengan bukti yang bisa gagal; EC-CTX-007 tidak lagi bisa membocorkan direktif telanjang. (−) Dua PR berbagi kode EC-CTX-007/INF-06 dengan #249/#251; urutan merge harus dijaga agar tidak ada duplikasi diam-diam.

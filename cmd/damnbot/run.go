@@ -304,29 +304,14 @@ func newRunProviderWithTable(ctx context.Context, cfg *config.Config, db *ctxdb.
 	if err != nil {
 		return nil, fmt.Errorf("provider endpoint: %w", err)
 	}
-	guard, err := budget.NewGuard(budget.GuardConfig{
-		DailyUSD: cfg.Budget.DailyUSD, MonthlyUSD: cfg.Budget.MonthlyUSD, Providers: cfg.Budget.Providers, WarnAt: cfg.Budget.WarnAt,
-	}, ledgerstore.Source{Store: db}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("budget guard: %w", err)
-	}
-	notes := &budgetNotes{}
-	provName, modelName, _ := strings.Cut(modelRef, "/")
-	limits, err := newRunLimits(cfg, db, table)
+	guard, notes, err := newBudgetGuard(cfg, db)
 	if err != nil {
 		return nil, err
 	}
-	routeKey, err := registry.NormalizeBaseURL(base)
+	provName, modelName, _ := strings.Cut(modelRef, "/")
+	limits, routeKey, window, prices, err := runRoutePricing(ctx, cfg, db, table, base, provName, modelRef)
 	if err != nil {
-		return nil, fmt.Errorf("route base_url: %w", err)
-	}
-	window, err := limits.WindowFor(ctx, provName, routeKey, modelName)
-	if err != nil {
-		return nil, fmt.Errorf("model limits %s: %w", modelRef, err)
-	}
-	prices, err := provider.RoutePrices(table, base, modelName)
-	if err != nil {
-		return nil, fmt.Errorf("pricing: %w", err)
+		return nil, err
 	}
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
@@ -532,10 +517,6 @@ func newSessionID() (string, error) {
 }
 
 // budgetCounter adapts COST-09 to assemble.Counter (one formula, one owner).
-type budgetCounter struct{}
-
-func (budgetCounter) Count(s string) int { return int(budget.Count(s).Raw()) }
-
 type providerAdapter struct {
 	client       *provider.OpenAI
 	model        string
