@@ -205,19 +205,19 @@ func (s *Store) registerHolder() error {
 func (s *Store) liveHolder() bool {
 	ents, err := fs.ReadDir(s.root.FS(), holdersDir)
 	if err != nil {
-		return false
+		return !errors.Is(err, fs.ErrNotExist) // no holders dir: none; else unknown
 	}
 	for _, e := range ents {
 		b, rerr := s.root.ReadFile(path.Join(holdersDir, e.Name()))
 		if rerr != nil {
-			continue
+			return true // an unreadable holder record is uncertainty
 		}
 		var h holderInfo
 		if json.Unmarshal(b, &h) != nil {
-			continue
+			return true
 		}
-		if h.PID == s.id.PID && h.Host == s.id.Host {
-			continue
+		if h.Ident == s.id {
+			continue // this process
 		}
 		if h.Host != s.id.Host || !s.opt.Procs.Gone(h.Ident) {
 			return true

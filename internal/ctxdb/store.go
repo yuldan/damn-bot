@@ -132,7 +132,7 @@ func (s *Store) openReadOnly(ctx context.Context) error {
 	// A WAL database with no -wal on disk is complete. Only read-only media
 	// errors qualify: an immutable snapshot is safe only when the dir cannot
 	// be written, no live holder exists, and no WAL holds unmerged data.
-	if readOnlyMediaError(err) && !s.walOnDisk() && !s.liveHolder() && !dirWritable(s.dir) {
+	if readOnlyMediaError(err) && s.walClear() && !s.liveHolder() && !dirWritable(s.dir) {
 		if ierr := open(true); ierr == nil {
 			return nil
 		}
@@ -163,9 +163,19 @@ func dirWritable(dir string) bool {
 	return os.Remove(name) == nil
 }
 
-func (s *Store) walOnDisk() bool {
+// walClear reports that no -wal holds unmerged data and that this is known.
+// A stat failure other than "absent" is uncertainty and blocks the immutable
+// fallback (an immutable snapshot would silently drop a live WAL).
+func (s *Store) walClear() bool {
 	fi, err := os.Stat(DBPath(s.dir) + "-wal")
-	return err == nil && fi.Size() > 0
+	switch {
+	case err == nil:
+		return fi.Size() == 0
+	case errors.Is(err, os.ErrNotExist):
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Store) dsnReadOnly(immutable bool) string {

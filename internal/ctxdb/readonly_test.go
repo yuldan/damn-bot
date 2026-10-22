@@ -100,17 +100,11 @@ func TestReadOnlyOnReadOnlyMedia(t *testing.T) {
 		}
 	}
 	dbFile := filepath.Join(dir, dbFile)
-	if merr := os.Chmod(dbFile, 0o400); merr != nil {
-		t.Fatal(merr)
+	makeFileReadOnly(t, dbFile)
+	makeDirReadOnly(t, dir)
+	if dirWritable(dir) {
+		t.Skip("runner could not make the data dir unwritable")
 	}
-	if merr := os.Chmod(dir, 0o500); merr != nil { //nolint:gosec // fixture: read-only media
-		t.Fatal(merr)
-	}
-	t.Cleanup(func() {
-		if merr := os.Chmod(dir, 0o700); merr != nil { //nolint:gosec // restore test dir
-			t.Errorf("restore mode: %v", merr)
-		}
-	})
 	for _, name := range []string{"blobs", "backups"} {
 		if _, serr := os.Stat(filepath.Join(dir, name)); serr == nil {
 			t.Fatalf("inspection created %s", name)
@@ -220,14 +214,10 @@ func TestReadOnlyNoFallbackWithLiveHolder(t *testing.T) {
 	if werr := os.WriteFile(filepath.Join(dir, holdersDir, strconv.Itoa(os.Getpid())), hb, 0o600); werr != nil {
 		t.Fatal(werr)
 	}
-	if merr := os.Chmod(dir, 0o500); merr != nil { //nolint:gosec // fixture: read-only media
-		t.Fatal(merr)
+	makeDirReadOnly(t, dir)
+	if dirWritable(dir) {
+		t.Skip("runner could not make the data dir unwritable")
 	}
-	t.Cleanup(func() {
-		if merr := os.Chmod(dir, 0o700); merr != nil { //nolint:gosec // restore test dir
-			t.Errorf("restore mode: %v", merr)
-		}
-	})
 	id := SelfIdent()
 	id.PID, id.Start = os.Getpid()+1, "other"
 	if ro, oerr := Open(t.Context(), &Options{Dir: dir, Kind: "cli", ReadOnly: true, Ident: &id}); oerr == nil {
@@ -272,5 +262,35 @@ func TestReadOnlySQLGate(t *testing.T) {
 		if readOnlyQuery(q) {
 			t.Errorf("readOnlyQuery(%q) = true, want false", q)
 		}
+	}
+}
+
+// TestReadOnlyMalformedHolderFailsClosed (SEC9-8): an unreadable holder
+// record is uncertainty, so the immutable fallback must not run.
+func TestReadOnlyMalformedHolderFailsClosed(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	s, err := Open(t.Context(), &Options{Dir: dir, Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cerr := s.Close(); cerr != nil {
+		t.Fatal(cerr)
+	}
+	if merr := os.MkdirAll(filepath.Join(dir, holdersDir), 0o700); merr != nil {
+		t.Fatal(merr)
+	}
+	if werr := os.WriteFile(filepath.Join(dir, holdersDir, "corrupt"), []byte("{"), 0o600); werr != nil {
+		t.Fatal(werr)
+	}
+	makeDirReadOnly(t, dir)
+	if dirWritable(dir) {
+		t.Skip("runner could not make the data dir unwritable")
+	}
+	if ro, oerr := Open(t.Context(), &Options{Dir: dir, Kind: "cli", ReadOnly: true}); oerr == nil {
+		if cerr := ro.Close(); cerr != nil {
+			t.Errorf("close: %v", cerr)
+		}
+		t.Fatal("immutable fallback ran with an unreadable holder record")
 	}
 }
