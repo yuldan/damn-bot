@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `ctxdb`: normalisasi dan quote term FTS skill pada blind index (SEC7-62).
+
 - `ctxdb`: konversi restore plaintext → terenkripsi untuk seluruh tabel FTS (SEC7-71/73).
 
 - `ctxdb`/`cmd/damnbot`: codec kolom at-rest + blind index FTS + key store OS/file (ADR-124 butir 1/8/9).

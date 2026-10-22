@@ -16,6 +16,7 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/compactstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/memstore"
+	"github.com/damnbot/damnbot/internal/ctxdb/skillstore"
 	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/secret"
 )
@@ -493,5 +494,27 @@ func TestReadOnlyCodecErrors(t *testing.T) {
 	wrong := realCodec(t, t.TempDir())
 	if _, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: enc, Kind: "cli", ReadOnly: true, Codec: wrong}); !errors.Is(err, ctxdb.ErrEncrypted) {
 		t.Fatalf("read-only encrypted open with wrong DEK = %v, want ErrEncrypted", err)
+	}
+}
+
+func TestEncryptedSkillSearchOperatorsAndCJK(t *testing.T) {
+	dir := t.TempDir()
+	s := openEncrypted(t, dir)
+	defer closeStore(t, s)
+	r := &skillstore.Row{Name: "日本語スキル", Path: "/s", SHA256: strings.Repeat("a", 64), Description: "deploy checklist", Body: "deploy checklist with OR NEAR NOT words", Source: "user"}
+	r.Name = "日本語スキル"
+	if _, err := skillstore.Index(context.Background(), s, r, 100); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"deploy AND", "deploy OR", "deploy NOT", "deploy NEAR"} {
+		if _, err := skillstore.Search(context.Background(), s, q, 5); err != nil {
+			t.Fatalf("encrypted skill search %q: %v", q, err)
+		}
+	}
+	for _, q := range []string{"日本語", "スキル"} {
+		got, err := skillstore.Search(context.Background(), s, q, 5)
+		if err != nil || len(got) != 1 || got[0].Name != "日本語スキル" {
+			t.Fatalf("encrypted CJK skill %q = %+v, %v", q, got, err)
+		}
 	}
 }

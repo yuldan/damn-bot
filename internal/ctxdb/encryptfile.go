@@ -413,6 +413,11 @@ func encFTS(codec Codec, s string) string {
 	out := make([]string, 0, len(fields))
 	for _, f := range fields {
 		out = append(out, codec.FTS(f))
+		if hasCJK(f) {
+			for _, r := range f {
+				out = append(out, codec.FTS(string(r)))
+			}
+		}
 	}
 	return strings.Join(out, " ")
 }

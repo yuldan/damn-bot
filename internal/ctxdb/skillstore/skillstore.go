@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
@@ -379,19 +378,18 @@ func validate(r *Row, indexed bool) error {
 // (routing keyword/prefix, SPEC §4.8); operators in free text become
 // separators so a query can never fail with a MATCH syntax error.
 func ftsQuery(text string) string {
-	var b strings.Builder
-	for _, r := range text {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte(' ')
-		}
-	}
-	terms := strings.Fields(b.String())
+	terms := strings.Fields(ctxdb.FTSNorm(text))
 	if len(terms) == 0 {
 		return ""
 	}
-	terms[len(terms)-1] += "*"
+	for i := range terms {
+		term := strings.ReplaceAll(terms[i], `"`, `""`)
+		if i == len(terms)-1 {
+			terms[i] = `"` + term + `"*`
+			continue
+		}
+		terms[i] = `"` + term + `"`
+	}
 	return strings.Join(terms, " ")
 }
 
