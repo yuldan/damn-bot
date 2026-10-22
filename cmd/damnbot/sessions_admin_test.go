@@ -9,7 +9,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 )
 
@@ -150,6 +152,7 @@ func TestSessionsExportFile(t *testing.T) {
 	}
 }
 
+
 // TestSessionsExportRefusesExisting: --out never truncates an existing file
 // or writes through a symlink.
 func TestSessionsExportRefusesExisting(t *testing.T) {
@@ -194,4 +197,129 @@ func TestSessionsExportRedactsMetadata(t *testing.T) {
 	if strings.Contains(md, secret) || !strings.Contains(md, "[REDACTED:") {
 		t.Errorf("metadata secret not redacted:\n%s", md)
 	}
+}
+// TestSessionsPrune: --archive labels old sessions; deletion needs --yes and
+// vacuums afterwards.
+func TestSessionsPrune(t *testing.T) {
+	t.Parallel()
+	dir, id := seedSession(t)
+	if code, out, e := runAdmin(t, "prune", "--older-than", "1ns", "--archive", "--data-dir", dir); code != 0 || !strings.Contains(out, "archived 1") {
+		t.Fatalf("prune --archive = %d %q (%s)", code, out, e)
+	}
+	if code, out, _ := runAdmin(t, "stats", "--data-dir", dir); !strings.Contains(out, "archived: 1") {
+		t.Fatalf("stats after archive:\n%s\n(%d)", out, code)
+	}
+	if code, _, e := runAdmin(t, "prune", "--older-than", "1ns", "--data-dir", dir); code != 2 {
+		t.Fatalf("prune without --yes = %d: %s", code, e)
+	}
+	code, out, e := runAdmin(t, "prune", "--older-than", "90d", "--dry-run", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "would purge 0") {
+		t.Fatalf("dry-run 90d = %d %q (%s)", code, out, e)
+	}
+	code, out, e = runAdmin(t, "prune", "--older-than", "1ns", "--dry-run", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "would purge 1") || !strings.Contains(out, id) {
+		t.Fatalf("dry-run 1ns = %d %q (%s)", code, out, e)
+	}
+	code, out, e = runAdmin(t, "prune", "--older-than", "1ns", "--yes", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "purged 1") {
+		t.Fatalf("prune --yes = %d %q (%s)", code, out, e)
+	}
+	if code, out, _ := runAdmin(t, "stats", "--data-dir", dir); !strings.Contains(out, "sessions: 0") {
+		t.Fatalf("stats after purge = %d:\n%s", code, out)
+	}
+	if code, _, _ := runAdmin(t, "prune", "--older-than", "x", "--data-dir", dir); code != 2 {
+		t.Errorf("bad age exit = %d, want 2", code)
+	}
+}
+
+func TestParseAge(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{"90d": "2160h0m0s", "24h": "24h0m0s"} {
+		d, err := parseAge(in)
+		if err != nil || d.String() != want {
+			t.Errorf("parseAge(%q) = %v, %v; want %s", in, d, err, want)
+		}
+	}
+	for _, bad := range []string{"", "0d", "-1d", "x"} {
+		if _, err := parseAge(bad); err == nil {
+			t.Errorf("parseAge(%q) accepted", bad)
+		}
+	}
+}
+
+// oldClock seeds sessions in the past so the auto-prune age is testable
+// without waiting or mutating the immutable sessions table.
+type oldClock struct{ wall, boot, mono int64 }
+
+func (c oldClock) BootMs() int64                              { return c.boot }
+func (c oldClock) MonoMs() int64                              { return c.mono }
+func (c oldClock) WallMs() int64                              { return c.wall }
+func (c oldClock) Sleep(context.Context, time.Duration) error { return nil }
+
+// TestAutoPrune: the [sessions] auto-prune deletes sessions older than the
+// configured days when enabled and does nothing when disabled.
+func TestAutoPrune(t *testing.T) {
+	t.Parallel()
+	seedOld := func(t *testing.T, days int) (dir, id string) {
+		t.Helper()
+		dir = t.TempDir()
+		ctx := context.Background()
+		wall := time.Now().Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()
+		db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dir, Kind: "cli", Clock: oldClock{wall: wall, boot: wall, mono: wall}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		id = "OLD"
+		if _, err := db.CreateSession(ctx, ctxdb.Session{ID: id, Origin: "headless", Cwd: "/w"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Append(ctx, id, nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "old"}); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.ReleaseLease(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return dir, id
+	}
+	open := func(t *testing.T, dir string) *ctxdb.Store {
+		t.Helper()
+		db, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: dir, Kind: "cli"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return db
+	}
+	t.Run("disabled", func(t *testing.T) {
+		t.Parallel()
+		dir, _ := seedOld(t, 100)
+		db := open(t, dir)
+		defer db.Close()
+		var errb bytes.Buffer
+		autoPrune(context.Background(), db, config.Sessions{AutoPrune: false, PruneAfterDays: 90}, &errb)
+		rows, err := db.SessionRows(context.Background())
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("rows = %d, %v; want 1", len(rows), err)
+		}
+		if errb.Len() != 0 {
+			t.Errorf("disabled auto-prune wrote %q", errb.String())
+		}
+	})
+	t.Run("enabled", func(t *testing.T) {
+		t.Parallel()
+		dir, _ := seedOld(t, 100)
+		db := open(t, dir)
+		defer db.Close()
+		var errb bytes.Buffer
+		autoPrune(context.Background(), db, config.Sessions{AutoPrune: true, PruneAfterDays: 90}, &errb)
+		rows, err := db.SessionRows(context.Background())
+		if err != nil || len(rows) != 0 {
+			t.Fatalf("rows = %d, %v; want 0 after auto-prune (stderr %s)", len(rows), err, errb.String())
+		}
+		if !strings.Contains(errb.String(), "auto-pruned 1 sessions") {
+			t.Errorf("auto-prune notice = %q", errb.String())
+		}
+	})
 }

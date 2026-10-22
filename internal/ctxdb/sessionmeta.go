@@ -143,3 +143,24 @@ func validLabelKey(key string) error {
 	}
 	return fmt.Errorf("ctxdb: label key %q is not writable", key)
 }
+
+// PurgeCandidates exposes the §11.6 P computation without starting a purge
+// (`sessions purge --dry-run`).
+func (s *Store) PurgeCandidates(ctx context.Context, req PurgeRequest) (PurgeReport, error) {
+	return s.purgeSet(ctx, req)
+}
+
+// SessionsOlderThan returns visible sessions created before the cutoff in
+// milliseconds (`sessions prune --archive`); oldest first.
+func (s *Store) SessionsOlderThan(ctx context.Context, before int64) ([]string, error) {
+	return s.strings(ctx, `SELECT s.id FROM sessions s WHERE s.id <> ? AND s.created_at < ? AND `+
+		notPurging("s.id")+` ORDER BY s.created_at, s.id`, SystemSession, before)
+}
+
+// Vacuum repacks the database after a purge (SPEC §10 `sessions purge`).
+func (s *Store) Vacuum(ctx context.Context) error {
+	if _, err := s.w.ExecContext(ctx, "VACUUM"); err != nil {
+		return wrap(err)
+	}
+	return nil
+}

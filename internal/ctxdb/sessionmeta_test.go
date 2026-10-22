@@ -91,6 +91,13 @@ func TestSessionRows(t *testing.T) {
 	if got.Title != "kept" || got.Archived || !got.Pinned || got.Events != 2 {
 		t.Fatalf("S1 row = %+v", got)
 	}
+	ids, err := s.SessionsOlderThan(ctx, e.clk.WallMs()-30*24*3600*1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != "S1" {
+		t.Fatalf("older sessions = %v, want [S1]", ids)
+	}
 }
 
 // TestSessionLabelRejections: only the user keys are writable, flag values are

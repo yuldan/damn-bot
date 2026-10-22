@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/redact"
 )
@@ -15,9 +18,9 @@ import (
 // adminArgs parses the sessions admin subcommands. Flags may appear before or
 // after the positional id (Go's flag package stops at the first positional).
 type adminArgs struct {
-	dataDir, format, out string
-	noRedact             bool
-	pos                  []string
+	dataDir, format, out, olderThan string
+	archive, dryRun, yes, noRedact  bool
+	pos                             []string
 }
 
 func parseAdminArgs(args []string) (adminArgs, error) {
@@ -70,6 +73,18 @@ func adminFlag(a *adminArgs, s string, args []string, i *int) (bool, error) {
 		return true, err
 	case strings.HasPrefix(s, "--out="):
 		a.out = strings.TrimPrefix(s, "--out=")
+	case s == "--older-than":
+		v, err := value(s)
+		a.olderThan = v
+		return true, err
+	case strings.HasPrefix(s, "--older-than="):
+		a.olderThan = strings.TrimPrefix(s, "--older-than=")
+	case s == "--archive":
+		a.archive = true
+	case s == "--dry-run":
+		a.dryRun = true
+	case s == "--yes" || s == "-y":
+		a.yes = true
 	case s == "--no-redact":
 		a.noRedact = true
 	default:
@@ -227,8 +242,202 @@ func exportOutFile(path string) (*os.File, error) {
 	return f, nil
 }
 
+// sessionsPrune archives or purges sessions older than --older-than (MEM-015).
+// Purging requires --yes; nothing is deleted without it, even headless.
+func sessionsPrune(args []string, stdout, stderr io.Writer) int {
+	a, err := parseAdminArgs(args)
+	if err != nil || a.olderThan == "" {
+		if err != nil {
+			sessionsPrintf(stderr, "sessions prune: %v\n", err)
+		}
+		sessionsUsage(stderr)
+		return 2
+	}
+	age, err := parseAge(a.olderThan)
+	if err != nil {
+		sessionsPrintf(stderr, "sessions prune: %v\n", err)
+		return 2
+	}
+	ctx := context.Background()
+	db, derr := openSessionsDB(ctx, a.dataDir)
+	if derr != nil {
+		return sessionsFail(stderr, "prune", derr, "")
+	}
+	defer closeSessionsDB(db, "sessions prune", stderr)
+	if a.archive {
+		cutoff := time.Now().Add(-age).UnixMilli()
+		ids, lerr := db.SessionsOlderThan(ctx, cutoff)
+		if lerr != nil {
+			return sessionsFail(stderr, "prune", lerr, "")
+		}
+		for _, id := range ids {
+			if serr := db.SetSessionLabel(ctx, id, ctxdb.LabelArchived, "1"); serr != nil {
+				return sessionsFail(stderr, "prune", serr, id)
+			}
+		}
+		sessionsPrintf(stdout, "archived %d sessions older than %s\n", len(ids), age)
+		return 0
+	}
+	req := ctxdb.PurgeRequest{OlderThan: age, WithForks: true}
+	if a.dryRun {
+		rep, perr := db.PurgeCandidates(ctx, req)
+		if perr != nil {
+			return sessionsFail(stderr, "prune", perr, "")
+		}
+		sessionsPrintf(stdout, "would purge %d sessions\n", len(rep.P))
+		for _, id := range rep.P {
+			sessionsPrintf(stdout, "%s\n", cleanArg(id))
+		}
+		return 0
+	}
+	if !a.yes {
+		sessionsPrintf(stderr, "sessions prune: refusing to delete without --yes (use --dry-run to preview or --archive)\n")
+		return 2
+	}
+	rep, perr := db.Purge(ctx, req)
+	if perr != nil {
+		return sessionsFail(stderr, "prune", perr, "")
+	}
+	for _, id := range rep.Skipped {
+		sessionsPrintf(stderr, "sessions prune: skipped %s (has forks)\n", cleanArg(id))
+	}
+	sessionsPrintf(stdout, "purged %d sessions (txid %s)\n", len(rep.P), cleanArg(rep.TxID))
+	if len(rep.P) == 0 {
+		return 0
+	}
+	if verr := db.Vacuum(ctx); verr != nil {
+		sessionsPrintf(stderr, "sessions prune: vacuum: %s\n", sessionsMessage(verr, ""))
+		return 1
+	}
+	return 0
+}
+
+// sessionsFlag sets one boolean label (archive/unarchive/pin/unpin).
+func sessionsFlag(name string, args []string, stdout, stderr io.Writer, key, value string) int {
+	a, err := parseAdminArgs(args)
+	if err != nil || len(a.pos) != 1 {
+		if err != nil {
+			sessionsPrintf(stderr, "sessions %s: %v\n", name, err)
+		}
+		sessionsUsage(stderr)
+		return 2
+	}
+	ctx := context.Background()
+	db, derr := openSessionsDB(ctx, a.dataDir)
+	if derr != nil {
+		return sessionsFail(stderr, name, derr, a.pos[0])
+	}
+	defer closeSessionsDB(db, "sessions "+name, stderr)
+	if derr := db.SetSessionLabel(ctx, a.pos[0], key, value); derr != nil {
+		return sessionsFail(stderr, name, derr, a.pos[0])
+	}
+	sessionsPrintf(stdout, "%s %s\n", name, cleanArg(a.pos[0]))
+	return 0
+}
+
+// sessionsPinned lists pinned sessions (CLI-057).
+func sessionsPinned(args []string, stdout, stderr io.Writer) int {
+	a, err := parseAdminArgs(args)
+	if err != nil || len(a.pos) != 0 {
+		if err != nil {
+			sessionsPrintf(stderr, "sessions pinned: %v\n", err)
+		}
+		sessionsUsage(stderr)
+		return 2
+	}
+	ctx := context.Background()
+	db, derr := openSessionsDBReadOnly(ctx, a.dataDir)
+	if derr != nil {
+		return sessionsFail(stderr, "pinned", derr, "")
+	}
+	defer closeSessionsDB(db, "sessions pinned", stderr)
+	rows, derr := db.SessionRows(ctx)
+	if derr != nil {
+		return sessionsFail(stderr, "pinned", derr, "")
+	}
+	for _, r := range rows {
+		if r.Pinned {
+			sessionsPrintf(stdout, "%s\t%s\n", cleanArg(r.ID), r.Title)
+		}
+	}
+	return 0
+}
+
+// sessionsStats prints the session/event totals of the data dir.
+func sessionsStats(args []string, stdout, stderr io.Writer) int {
+	a, err := parseAdminArgs(args)
+	if err != nil || len(a.pos) != 0 {
+		if err != nil {
+			sessionsPrintf(stderr, "sessions stats: %v\n", err)
+		}
+		sessionsUsage(stderr)
+		return 2
+	}
+	ctx := context.Background()
+	db, derr := openSessionsDBReadOnly(ctx, a.dataDir)
+	if derr != nil {
+		return sessionsFail(stderr, "stats", derr, "")
+	}
+	defer closeSessionsDB(db, "sessions stats", stderr)
+	rows, derr := db.SessionRows(ctx)
+	if derr != nil {
+		return sessionsFail(stderr, "stats", derr, "")
+	}
+	var archived, pinned, events int64
+	for _, r := range rows {
+		if r.Archived {
+			archived++
+		}
+		if r.Pinned {
+			pinned++
+		}
+		events += r.Events
+	}
+	sessionsPrintf(stdout, "sessions: %d\narchived: %d\npinned: %d\nevents: %d\n", len(rows), archived, pinned, events)
+	return 0
+}
 // sessionsFail prints one mapped store error and returns its exit code.
 func sessionsFail(stderr io.Writer, name string, err error, id string) int {
 	sessionsPrintf(stderr, "sessions %s: %s\n", name, sessionsMessage(err, id))
 	return sessionsErr(err)
+}
+
+// parseAge accepts Go durations and the day suffix of SPEC §10 ("90d").
+func parseAge(v string) (time.Duration, error) {
+	if strings.HasSuffix(v, "d") {
+		n, err := strconv.ParseFloat(strings.TrimSuffix(v, "d"), 64)
+		if err != nil || n <= 0 {
+			return 0, fmt.Errorf("--older-than %q: want a positive duration such as 90d", cleanArg(v))
+		}
+		return time.Duration(n * float64(24*time.Hour)), nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("--older-than %q: want a positive duration such as 90d", cleanArg(v))
+	}
+	return d, nil
+}
+
+// autoPrune runs at `run` startup when [sessions] auto_prune is enabled. It
+// never fails the turn: a busy database or an aborted purge is reported and
+// the run continues (the row stays for the next start).
+func autoPrune(ctx context.Context, db *ctxdb.Store, cfg config.Sessions, stderr io.Writer) {
+	if !cfg.AutoPrune {
+		return
+	}
+	age := time.Duration(cfg.PruneAfterDays) * 24 * time.Hour
+	rep, err := db.Purge(ctx, ctxdb.PurgeRequest{OlderThan: age, WithForks: true})
+	if err != nil {
+		if !errors.Is(err, ctxdb.ErrHasForks) {
+			sessionsPrintf(stderr, "run: auto-prune: %s\n", sessionsMessage(err, ""))
+		}
+		return
+	}
+	if len(rep.P) == 0 {
+		return
+	}
+	if verr := db.Vacuum(ctx); verr != nil {
+		sessionsPrintf(stderr, "run: auto-prune: vacuum: %s\n", sessionsMessage(verr, ""))
+	}
+	sessionsPrintf(stderr, "run: auto-pruned %d sessions older than %d days\n", len(rep.P), cfg.PruneAfterDays)
 }

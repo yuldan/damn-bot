@@ -3620,13 +3620,18 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 2. **Label append-only.** `ctxdb.SetSessionLabel` hanya menerima `title`/`archived`/`pinned`; baris terakhir menang dan `"0"` mematikan flag tanpa menghapus riwayat. Judul dipangkas kontrol/UTF-8 invalid, di-trim, dan dibatasi 120 rune. `SessionLabel` membaca nilai terakhir; `SessionRows` mengembalikan metadata sesi + label + jumlah event untuk `pinned`/`stats`.
 3. **Export.** Membaca lewat store read-only ADR-140 dengan `History(..., WithHistoryRaw, WithHistoryExcluded)` sehingga ekspor memuat transkrip penuh termasuk turn yang dikecualikan dan leluhur fork. Rahasia diredaksi default (`redact.New`) pada content, payload, **tool name, and metadata (title/model/cwd)**; `--no-redact` adalah opt-out eksplisit. `md`/`html` meng-escape konten sesuai format, `jsonl` satu objek per event. `--out` membuat file baru `O_EXCL` + `fchmod 0600` (menolak menimpa path yang ada dan tidak menulis lewat symlink), dan transkrip yang mencapai batas 100.000 event mencetak peringatan truncation ke stderr. Format tak dikenal = exit 2.
 4. **Tidak menduplikasi.** `sessions prune`/`purge` massal, VACUUM, dan `[sessions] auto_prune` ada di ADR-142. `sessions fork/rewind` (ADR-136) dan resume `run --session/--continue` (#243, MEM-013) tetap milik PR masing-masing.
+<<<<<<< HEAD
 5. **Budget.** `ctxdb` 4.050 → 4.150 (additive +100 di atas ADR-140; terukur 4.000; label/title/rows), Total core 38.700 → 38.800 ≤ 47.000 (delta dijumlahkan di atas ADR-136/ADR-140 yang sudah di `main`); `cmd/damnbot` tidak masuk tabel budget core.
+=======
+5. **Budget.** `ctxdb` 4.050 → 4.150 (additive +100 di atas ADR-140; terukur 4.000; label/title/rows), Total core 38.700 → 38.800 ≤ 47.000; `cmd/damnbot` tidak masuk tabel budget core.
+>>>>>>> 427553e3 (feat(cli): sessions prune/archive and auto-prune with VACUUM (ADR-142))
 6. **Test.** `internal/ctxdb` (`TestSessionLabelsAndRows`, `TestSessionLabelRejections`: append-only last-wins, flag value closed, sanitasi/120 rune, urutan + jumlah event); `cmd/damnbot` (`TestSessionsRenameAndExport`, `TestSessionsExportFile`, `TestSessionsStatsAndFlags`); `internal/e2e` (`TestSessionsAdminEndToEnd`: binary nyata membuat transkrip, lalu rename/export md+jsonl+html/stats/pin/archive/unpin, redaksi dan escape diperiksa).
 
 **Dampak terukur (SPEC §20).** DDL/migrasi 0, dependency 0, token prompt 0 (perintah CLI di luar jalur turn). LOC `ctxdb` +121 (terukur 4.000/4.050); `cmd/damnbot` +409 baris non-test (di luar tabel core).
 
 **Konsekuensi.** (+) `sessions` F2 punya export, judul, pin/archive, dan stats headless tanpa menyentuh jalur turn. (+) Label append-only menjaga invariant P9 (tidak ada UPDATE/DELETE pada metadata). (−) Ekspor penuh memuat seluruh lineage; pada sesi besar pengguna memakai `--out`/format `jsonl`. (−) `archived` hanya label sampai prune/archive massal (ADR-142) dan permukaan F3 memfilternya.
 
+<<<<<<< HEAD
 ## ADR-175 — Sumber skill lokal: discovery proyek, `skills.external_dirs`, dan karantina impor
 **Status:** Accepted 2026-10-23 (F2; SKILL-004/007/009/010/019/023; ADR-074, ADR-133 amandemen). Budget `memory` + `skills` 1.230 → 1.400 (+170; terukur 1.324, Σ core 38.450 → 38.620); dependency 0; DDL 0 (ADR-074).
 **Konteks.** SPEC §4.8 hanya mengenal satu lokasi skill (`<config>/skills/<name>/SKILL.md`) yang di-parse untuk gate pembayaran. Agent tetap butuh skill yang dikirim bersama proyek (`.damnbot/skills`, `.hermes/skills`) dan direktori skill di luar config, tetapi berkas dari pohon yang di-clone atau path arbiter bukan milik user: memperlakukannya seperti `user` akan membuat instruksi pihak ketiga masuk ke konteks tanpa review. `[skills]` di SPEC §12 belum didefinisikan.
@@ -3638,3 +3643,23 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 6. **Test.** Unit `internal/skills`/`cmd/damnbot`: urutan+d provenance root dan dedupe; skill impor tidak terlihat (`skillstore.Search` kosong) sebelum approval dan tepat satu baris `import` sesudah approval; `<config>/skills` tidak pernah tersentuh jalur impor (kontrol negatif lokasi lama). e2e biner asli (`internal/e2e`): dengan `[skills] external_dirs` berisi skill, `skills_list` melaporkan katalog kosong dan nama/isi skill impor tidak pernah muncul di request.
 **Sisa (belum di PR ini).** CLI-046 (`damnbot skills trust list|add|remove` sebagai penulis `<config>/trusted-projects`) belum diimplementasikan, sehingga baris parity yang bergantung CLI itu belum boleh dinyatakan tertutup; teks `[skills]` di SPEC §12 juga belum ditambahkan. Keduanya pekerjaan lanjutan yang dirujuk ADR ini.
 **Konsekuensi.** (+) Skill dari proyek dan direktori eksternal dapat dipakai setelah review user, dengan provenance yang jelas. (+) Tanpa storage/dependency baru. (−) Setiap skill impor menambah satu memory entry `scanned`/`rejected`; discovery proyek hanya berguna setelah user menandai proyek tepercaya (jalur CLI menyusul), dan `skill_view`/retrieval baru melihatnya sesudah approval. (−) `[skills]` belum ada di teks SPEC §12.
+=======
+## ADR-142 — Sesi admin F2 (2/2): prune/archive massal, VACUUM, dan auto-prune `[sessions]`
+
+**Status:** Accepted 2026-10-22 (F2; MEM-015, CLI-057). Bertumpuk di atas ADR-141; menutup separuh prune dari baris yang sama.
+
+**Konteks.** ADR-141 menambahkan label `archived` per sesi dan export, tetapi belum ada prune/archive massal, VACUUM, atau prune otomatis. SPEC §10 sudah menamai `sessions purge <id>|--older-than 90d [--with-forks] [--yes]`, dan `ctxdb.Purge` sudah ada; yang hilang adalah permukaan CLI, pemilihan kandidat arsip, dan pemicu saat `run`.
+
+**Keputusan.**
+1. **`sessions prune`.** `--older-than <90d>` menerima durasi Go atau akhiran `d`. `--archive` menulis label `archived=1` untuk sesi visible dengan `created_at` lebih tua (via `SessionsOlderThan`). Tanpa `--archive`, prune memakai himpunan P §11.6 dengan `WithForks:true` (`PurgeRequest.OlderThan`); `--dry-run` memakai komputasi P yang sama (`PurgeCandidates`) tanpa memulai purge, dan penghapusan **wajib** `--yes` — headless tidak pernah menebak. Sesi yang dilewati (memiliki fork) dicetak ke stderr.
+2. **VACUUM.** Dijalankan setelah purge yang benar-benar menghapus baris; kegagalannya dilaporkan sebagai exit 1 karena prune tidak selesai penuh. Tidak ada VACUUM saat kandidat kosong atau pada `--dry-run`/`--archive`.
+3. **Auto-prune.** Section `[sessions]` di luar contoh SPEC §12 (ADR-141 sudah mencatatnya): `auto_prune` default `false`, `prune_after_days` default `90` (1..3650, divalidasi `config.Validate`). Saat `run` mulai dan flag aktif, `autoPrune` memanggil `Purge{OlderThan, WithForks:true}` lalu VACUUM; kegagalan (DB sibuk, turn terbuka, purge lain) dilaporkan ke stderr dan turn tetap berjalan. Default mati karena prune menghapus transcript.
+4. **Tidak ada UPDATE/DELETE pada sesi.** Arsip memakai `session_labels`; penghapusan hanya lewat mesin purge §11.6 yang sudah menjaga invariant I1/P9.
+5. **Sisa baris.** Subcommand pemeliharaan `optimize*`, `clean-markers`, `repair*`, `recover`, `set-journal-mode`, `retitle-skills`, `browse`, `import` tetap di F8/F9 (ADR-139 butir 8); ADR ini tidak mengklaimnya.
+6. **Budget.** `ctxdb` 4.150 → 4.200 (additive +50 di atas ADR-141; terukur 4.013), Total core 38.800 → 38.850 ≤ 47.000 (delta dijumlahkan di atas rantai ADR-136/140/141 yang sudah di `main`).
+7. **Test.** `cmd/damnbot` (`TestSessionsPrune`: arsip massal, dry-run 0/1, hapus wajib `--yes`, purge + VACUUM, stats kosong; `TestParseAge`; `TestAutoPrune`: clock lama + flag mati/hidup), `internal/ctxdb` (kandidat arsip per `created_at` di `TestSessionLabelsAndRows`), `internal/e2e` (`TestSessionsAdminEndToEnd` menambah dry-run + purge binary nyata sampai `sessions ls` kosong).
+
+**Dampak terukur (SPEC §20).** DDL/migrasi 0, dependency 0, token prompt 0. LOC `ctxdb` +13 (terukur 4.013/4.200); `cmd/damnbot` +145 baris non-test (di luar tabel core). Perilaku turn hanya berubah bila `sessions.auto_prune = true`.
+
+**Konsekuensi.** (+) MEM-015 tertutup: prune/archive manual dan otomatis dengan VACUUM, default tidak menghapus. (+) Purge tetap satu-satunya jalur hapus, sehingga fencing/lease §11.6 tidak diduplikasi. (−) Arsip memakai `created_at` sedangkan purge memakai aktivitas terakhir (§11.6); perbedaan basis waktu didokumentasikan di help dan ADR-141. (−) Auto-prune dapat melewatkan satu start bila DB sibuk; baris tersisa untuk start berikutnya.
+>>>>>>> 427553e3 (feat(cli): sessions prune/archive and auto-prune with VACUUM (ADR-142))

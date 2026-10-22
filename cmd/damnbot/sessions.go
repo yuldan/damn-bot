@@ -33,6 +33,8 @@ func runSessions(args []string, stdout, stderr io.Writer) int {
 		return sessionsRename(args[1:], stdout, stderr)
 	case "export":
 		return sessionsExport(args[1:], stdout, stderr)
+	case "prune":
+		return sessionsPrune(args[1:], stdout, stderr)
 	case "archive":
 		return sessionsFlag("archive", args[1:], stdout, stderr, ctxdb.LabelArchived, "1")
 	case "unarchive":
@@ -65,6 +67,7 @@ func sessionsUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot sessions ls|show <id> [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot sessions rename <id> [<title>]\n")
 	sessionsPrintf(w, "       damnbot sessions export <id> [--format md|jsonl|html] [--out FILE] [--no-redact]\n")
+	sessionsPrintf(w, "       damnbot sessions prune --older-than <90d> [--archive] [--dry-run] [--yes]\n")
 	sessionsPrintf(w, "       damnbot sessions archive|unarchive|pin|unpin <id>\n")
 	sessionsPrintf(w, "       damnbot sessions pinned|stats\n")
 }

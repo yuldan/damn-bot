@@ -85,6 +85,7 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 			Env:              map[string]string{},
 			PassSSHAgent:     false,
 		},
+<<<<<<< HEAD
 		Agent: Agent{VerifyOnStop: "run"},
 		Skills: Skills{
 			ProjectDiscovery: true,
@@ -93,6 +94,11 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 			InlineShell:      false,
 		},
 		Log: Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
+=======
+		Agent:    Agent{VerifyOnStop: "run"},
+		Sessions: Sessions{AutoPrune: false, PruneAfterDays: 90},
+		Log:      Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
+>>>>>>> 427553e3 (feat(cli): sessions prune/archive and auto-prune with VACUUM (ADR-142))
 	}
 	if diff := cmp.Diff(want, Default()); diff != "" {
 		t.Errorf("Default() differs from SPEC §12 (-want +got):\n%s", diff)
