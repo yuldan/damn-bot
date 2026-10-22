@@ -26,13 +26,21 @@ func readTrustStore(t *testing.T, configDir string) string {
 	return string(b)
 }
 
-// trustEnv points the CLI at a temp config dir and returns it.
+// trustEnv points the CLI at a temp config dir and returns it. The directory
+// is resolved through the production loader, not assumed to be <home>/damnbot:
+// darwin uses ~/Library/Application Support and windows AppData, so a hardcoded
+// path only works on linux.
 func trustEnv(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", home)
-	return filepath.Join(home, "damnbot")
+	t.Setenv("XDG_DATA_HOME", home)
+	dir, err := skillsConfigDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 // TestSkillsTrustCLI (CLI-046, ADR-175): add/list/remove manage
