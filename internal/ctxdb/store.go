@@ -132,12 +132,30 @@ func (s *Store) openReadOnly(ctx context.Context) error {
 	// A WAL database with no -wal on disk is complete. Only read-only media
 	// errors qualify: an immutable snapshot is safe only when the dir cannot
 	// be written, no live holder exists, and no WAL holds unmerged data.
-	if readOnlyMediaError(err) && s.walClear() && !s.liveHolder() && !dirWritable(s.dir) {
-		if ierr := open(true); ierr == nil {
-			return nil
-		}
+	if !readOnlyMediaError(err) {
+		return wrap(err)
 	}
-	return wrap(err)
+	if reason := s.fallbackBlock(); reason != "" {
+		return wrap(fmt.Errorf("read-only open refused: %s; copy the data dir to a writable location: %w", reason, err))
+	}
+	if ierr := open(true); ierr != nil {
+		return wrap(fmt.Errorf("read-only open failed: immutable snapshot unavailable; copy the data dir to a writable location: %w", ierr))
+	}
+	return nil
+}
+
+// fallbackBlock returns why immutable=1 must not be used, or "" when the
+// evidence is complete. Every unknown is a refusal (fail closed).
+func (s *Store) fallbackBlock() string {
+	switch {
+	case !s.walClear():
+		return "the -wal is present with unmerged data or its state is unknown"
+	case s.liveHolder():
+		return "a live or unknown-process holder may still write the data dir"
+	case dirWritable(s.dir):
+		return "the data dir is still writable, so the read-only open was not caused by the media"
+	}
+	return ""
 }
 
 // readOnlyMediaError reports SQLITE_READONLY / SQLITE_CANTOPEN, the errors a

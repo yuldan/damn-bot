@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -76,6 +77,39 @@ func TestReadOnlyMissingDirCreatesNothing(t *testing.T) {
 	}
 }
 
+// skipOrFail makes a platform fixture limitation visible in CI: a would-be
+// skip fails there instead of hiding a missing test (SEC9-10).
+func skipOrFail(t *testing.T, reason string) {
+	t.Helper()
+	if os.Getenv("CI") != "" {
+		t.Fatalf("%s (CI=true; the fixture must work on this runner)", reason)
+	}
+	t.Skip(reason)
+}
+
+// readOnlyFixture creates a closed store, runs prepare, then makes the media
+// read-only. It fails in CI if the runner cannot make the dir unwritable.
+func readOnlyFixture(t *testing.T, prepare func(dir string)) string {
+	t.Helper()
+	dir := t.TempDir()
+	s, err := Open(t.Context(), &Options{Dir: dir, Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cerr := s.Close(); cerr != nil {
+		t.Fatal(cerr)
+	}
+	if prepare != nil {
+		prepare(dir)
+	}
+	makeFileReadOnly(t, filepath.Join(dir, dbFile))
+	makeDirReadOnly(t, dir)
+	if dirWritable(dir) {
+		skipOrFail(t, "runner could not make the data dir unwritable")
+	}
+	return dir
+}
+
 // TestReadOnlyOnReadOnlyMedia (SEC9-1): a DB in a 0500 dir with 0400 file is
 // readable without layout creation.
 func TestReadOnlyOnReadOnlyMedia(t *testing.T) {
@@ -103,7 +137,7 @@ func TestReadOnlyOnReadOnlyMedia(t *testing.T) {
 	makeFileReadOnly(t, dbFile)
 	makeDirReadOnly(t, dir)
 	if dirWritable(dir) {
-		t.Skip("runner could not make the data dir unwritable")
+		skipOrFail(t, "runner could not make the data dir unwritable")
 	}
 	for _, name := range []string{"blobs", "backups"} {
 		if _, serr := os.Stat(filepath.Join(dir, name)); serr == nil {
@@ -196,35 +230,37 @@ func TestReadOnlyRefusesAttachVacuum(t *testing.T) {
 // genuinely read-only dir with no process that may still write.
 func TestReadOnlyNoFallbackWithLiveHolder(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	s, err := Open(t.Context(), &Options{Dir: dir, Kind: "run"})
-	if err != nil {
-		t.Fatal(err)
+	// Positive control: the same read-only fixture without a holder opens via
+	// the immutable fallback, so the negative assertion is meaningful.
+	pos := readOnlyFixture(t, nil)
+	if ro, err := Open(t.Context(), &Options{Dir: pos, Kind: "cli", ReadOnly: true}); err != nil {
+		t.Fatalf("positive control: immutable fallback should open: %v", err)
+	} else if cerr := ro.Close(); cerr != nil {
+		t.Errorf("close: %v", cerr)
 	}
-	if cerr := s.Close(); cerr != nil {
-		t.Fatal(cerr)
-	}
-	hb, jerr := json.Marshal(holderInfo{Ident: SelfIdent(), Kind: "run"})
-	if jerr != nil {
-		t.Fatal(jerr)
-	}
-	if merr := os.MkdirAll(filepath.Join(dir, holdersDir), 0o700); merr != nil {
-		t.Fatal(merr)
-	}
-	if werr := os.WriteFile(filepath.Join(dir, holdersDir, strconv.Itoa(os.Getpid())), hb, 0o600); werr != nil {
-		t.Fatal(werr)
-	}
-	makeDirReadOnly(t, dir)
-	if dirWritable(dir) {
-		t.Skip("runner could not make the data dir unwritable")
-	}
+	dir := readOnlyFixture(t, func(dir string) {
+		hb, jerr := json.Marshal(holderInfo{Ident: SelfIdent(), Kind: "run"})
+		if jerr != nil {
+			t.Fatal(jerr)
+		}
+		if merr := os.MkdirAll(filepath.Join(dir, holdersDir), 0o700); merr != nil {
+			t.Fatal(merr)
+		}
+		if werr := os.WriteFile(filepath.Join(dir, holdersDir, strconv.Itoa(os.Getpid())), hb, 0o600); werr != nil {
+			t.Fatal(werr)
+		}
+	})
 	id := SelfIdent()
 	id.PID, id.Start = os.Getpid()+1, "other"
-	if ro, oerr := Open(t.Context(), &Options{Dir: dir, Kind: "cli", ReadOnly: true, Ident: &id}); oerr == nil {
+	ro, err := Open(t.Context(), &Options{Dir: dir, Kind: "cli", ReadOnly: true, Ident: &id})
+	if err == nil {
 		if cerr := ro.Close(); cerr != nil {
 			t.Errorf("close: %v", cerr)
 		}
 		t.Fatal("immutable fallback ran with a live holder")
+	}
+	if !strings.Contains(err.Error(), "copy the data dir") || !strings.Contains(err.Error(), "holder") {
+		t.Fatalf("refusal does not explain the holder: %v", err)
 	}
 }
 
@@ -269,28 +305,27 @@ func TestReadOnlySQLGate(t *testing.T) {
 // record is uncertainty, so the immutable fallback must not run.
 func TestReadOnlyMalformedHolderFailsClosed(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	s, err := Open(t.Context(), &Options{Dir: dir, Kind: "run"})
-	if err != nil {
-		t.Fatal(err)
+	// Positive control (SEC9-9): fallback works on this fixture.
+	pos := readOnlyFixture(t, nil)
+	if ro, err := Open(t.Context(), &Options{Dir: pos, Kind: "cli", ReadOnly: true}); err != nil {
+		t.Fatalf("positive control: immutable fallback should open: %v", err)
+	} else if cerr := ro.Close(); cerr != nil {
+		t.Errorf("close: %v", cerr)
 	}
-	if cerr := s.Close(); cerr != nil {
-		t.Fatal(cerr)
-	}
-	if merr := os.MkdirAll(filepath.Join(dir, holdersDir), 0o700); merr != nil {
-		t.Fatal(merr)
-	}
-	if werr := os.WriteFile(filepath.Join(dir, holdersDir, "corrupt"), []byte("{"), 0o600); werr != nil {
-		t.Fatal(werr)
-	}
-	makeDirReadOnly(t, dir)
-	if dirWritable(dir) {
-		t.Skip("runner could not make the data dir unwritable")
-	}
+	dir := readOnlyFixture(t, func(dir string) {
+		if merr := os.MkdirAll(filepath.Join(dir, holdersDir), 0o700); merr != nil {
+			t.Fatal(merr)
+		}
+		if werr := os.WriteFile(filepath.Join(dir, holdersDir, "corrupt"), []byte("{"), 0o600); werr != nil {
+			t.Fatal(werr)
+		}
+	})
 	if ro, oerr := Open(t.Context(), &Options{Dir: dir, Kind: "cli", ReadOnly: true}); oerr == nil {
 		if cerr := ro.Close(); cerr != nil {
 			t.Errorf("close: %v", cerr)
 		}
 		t.Fatal("immutable fallback ran with an unreadable holder record")
+	} else if !strings.Contains(oerr.Error(), "copy the data dir") {
+		t.Fatalf("refusal lacks the recovery hint: %v", oerr)
 	}
 }

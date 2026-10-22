@@ -24,12 +24,19 @@ func makeDirReadOnly(t *testing.T, dir string) {
 	}
 	user := os.Getenv("USERNAME")
 	if user == "" {
-		t.Skip("USERNAME is unset; cannot build a deny ACE")
+		skipOrFail(t, "USERNAME is unset; cannot build a deny ACE")
 	}
+	// Deny write rights only: FILE_GENERIC_WRITE includes READ_CONTROL and
+	// SYNCHRONIZE, which would also block reads once inherited.
+	const (
+		accessDelete    = 0x00010000 // DELETE
+		fileDeleteChild = 0x00000040 // FILE_DELETE_CHILD
+	)
 	ea := windows.EXPLICIT_ACCESS{
-		AccessPermissions: windows.FILE_GENERIC_WRITE | windows.DELETE,
-		AccessMode:        windows.DENY_ACCESS,
-		Inheritance:       windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+		AccessPermissions: windows.FILE_WRITE_DATA | windows.FILE_APPEND_DATA |
+			windows.FILE_WRITE_EA | windows.FILE_WRITE_ATTRIBUTES | fileDeleteChild | accessDelete,
+		AccessMode:  windows.DENY_ACCESS,
+		Inheritance: windows.SUB_CONTAINERS_AND_OBJECTS_INHERIT,
 		Trustee: windows.TRUSTEE{
 			TrusteeForm:  windows.TRUSTEE_IS_NAME,
 			TrusteeType:  windows.TRUSTEE_IS_USER,
