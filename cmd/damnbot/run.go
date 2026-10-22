@@ -235,13 +235,11 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	if err != nil {
 		return 0, fmt.Errorf("loop: %w", err)
 	}
-	if strings.Contains(o.prompt, "@") {
-		expanded, xerr := expandRefs(ctx, o.prompt, model.sb, model.net, o.offline)
-		if xerr != nil {
-			return 0, fmt.Errorf("context refs: %w", xerr)
-		}
-		o.prompt = expanded
+	expanded, xerr := expandPromptRefs(ctx, disp, o.prompt, model.sb, model.net, o.offline)
+	if xerr != nil {
+		return 0, fmt.Errorf("context refs: %w", xerr)
 	}
+	o.prompt = expanded
 	stream, err := lp.Prompt(ctx, model.sessionID, loop.Input{Text: o.prompt})
 	if err != nil {
 		return 0, fmt.Errorf("prompt: %w", err)
