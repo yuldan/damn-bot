@@ -52,6 +52,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return runBundles(args[1:], stdout, stderr)
 		}
 	}
+	if len(args) > 1 && args[0] == "eval" && args[1] == "recall" {
+		return runEvalRecall(args[2:], stdout, stderr)
+	}
 	fs := flag.NewFlagSet("damnbot", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "tampilkan versi lalu keluar")
