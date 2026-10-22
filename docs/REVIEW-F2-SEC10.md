@@ -514,3 +514,61 @@ Dengan `--unsafe-auto-shell` (atau `shell_allow` yang cocok), script pembayaran 
 | SEC10-25b | MINOR | sebagian | `cd` bare masih menyetel `cwdOK=false`. | `cd` tanpa target → no-op penuh. |
 
 **Ringkasan Round 10:** #237 `15fdb4f` **REQUEST CHANGES**. CI Windows gagal pada kontrol negatif yang baru, dan kegagalan itu mengungkap bahwa di Windows perintah dieksekusi PowerShell sementara classifier memakai dialek cmd (SEC10-29, HIGH): payload `& '<skill>\scripts\charge.ps1'` dan sejenisnya di-auto-approve. Perbaiki pemilihan dialek berdasarkan shell yang dipakai `exec`, ubah test SEC10-26/28 agar menjalankan `cmd` secara eksplisit, lalu jalankan ulang CI Windows. Sampai itu ditutup, gate pembayaran SEC10 di Windows tidak dapat dianggap efektif. Status approve #212/#234/#236 perlu ditinjau ulang terhadap SEC10-29.
+
+## Round 11 — 2026-10-22
+
+**Verdict (pasangan, merge tepat setelah #236'):**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #237 | `15fdb4f` | Tidak dapat di-merge sendirian (CI Windows merah, Round 10). Perbaikan test-nya ada di #238. Ikut verdict #238 |
+| #238 (stack di atas #237) | `e3678f9` | **REQUEST CHANGES**: SEC10-29 secara desain tertutup untuk one-shot dan sesi Windows, tetapi **SEC10-30 (HIGH, regresi baru)**: `cd` bare dijadikan no-op di **semua** dialek, padahal di bash dan PowerShell 7 `cd` bare pindah ke `$HOME`, sehingga bypass pembayaran terbuka di Linux/macOS. Ditambah SEC10-31 (MEDIUM), SEC10-32 (MEDIUM, aturan owner), dan CI Windows merah |
+
+**CI (run `39735671134`, head `e3678f93…`)**: ubuntu pass, macOS pass, **Windows FAIL**: `--- FAIL: TestRunKilledMidTurn (30.28s)` (`kill_test.go:52: child never created a turn_journal row`; test dari `main`, REL-01). `ok internal/exec` (SEC10-26/28 lewat `cmd` eksplisit, termasuk kontrol negatif, **berjalan dan lulus**), `ok internal/exec/classify`, **`FAIL cmd/damnbot`**. Karena paket `cmd/damnbot` gagal dan log tidak verbose, **tidak dapat dipastikan dari CI** bahwa `TestPaymentSkillGateCLIWindows` lulus. Test ini juga gagal di sini sementara lulus di run #237 (`ok cmd/damnbot 18.7s`, run `39732922103`) dan di `main`, sehingga kaitannya dengan #238 belum dapat dikesampingkan. Perlu run ulang dengan `-run 'TestPaymentSkillGateCLIWindows|TestRunKilledMidTurn' -v`.
+
+Gate lokal di `e3678f9`: `go test -race -tags goolm -count=1 ./internal/exec/... ./cmd/damnbot ./internal/archtest` → ok (Linux); `GOOS=windows|darwin go vet` bersih; `GOOS=windows go test -c ./cmd/damnbot` ok; `make loc` `exec/classify 1829/1830`, `exec 2728/3400`; `make deadcode` 0.
+
+### Klaim #238
+
+- **Satu chooser:** `exec.chooseShell` dipakai oleh `shellArgv` (one-shot) dan `sessionShell` (Windows: pwsh → powershell → cmd; Unix: bash → sh), dan `runtimeDialect()` = `dialectFor(exec.RuntimeShellKind())` tanpa `runtime.GOOS` ✔. **Pengecualian Unix:** `sessionShell` tetap mengganti shell sesi dengan `$SHELL` bila `zsh` (default macOS), sedangkan dialeknya `Bash`. Probe: sintaks khusus zsh (`*(e:'…':)`, `*(+fn)`) → `Unknown`, jadi risikonya rendah, tetapi klaim "satu chooser" tidak sepenuhnya benar (SEC10-33).
+- **Payload PowerShell (dialek `Pwsh`):** `& '<skill>\scripts\charge.ps1'`, `Set-Location '<skill>\scripts'; ./charge.ps1`, `python '<skill>\…'` → **monetary**; `$p='<skill>'; & "$p\…"` → **unknown** (dynamic command name) ✔.
+- **Prefix reset PowerShell** diakhiri `;` dan dikunci oleh `TestSessionResetPrefixes` ✔.
+- **SEC10-26/28** memakai `cmd.exe /d /s /c` eksplisit (`OneShot.Direct`), dan kontrol negatifnya kini bermakna ✔ (CI `ok internal/exec`).
+- **Kontrol untuk e2e:** probe classifier `Pwsh` **tanpa** `MonetaryPaths` untuk `& 'C:\Users\u\AppData\…\charge.ps1'` → `mutating`, unsafe **`A`**. Jadi bila gate gagal, script akan berjalan; penolakan di `TestPaymentSkillGateCLIWindows` dapat diatribusikan ke gate, bukan ke aturan outside-workspace. Namun kontrol ini hanya ada di probe saya, tidak ada di test (SEC10-32).
+
+### SEC10-25b: apakah `cd && git status` → `Mutating` benar?
+
+**Hanya untuk cmd.** Semantik `cd` tanpa argumen:
+
+| Shell | `cd` bare |
+|---|---|
+| cmd | mencetak cwd, **tidak pindah** |
+| Windows PowerShell 5.1 | tidak pindah |
+| **PowerShell 6.2+/7** | **pindah ke `$HOME`** (dokumentasi `Set-Location`: "If no path is provided, Set-Location defaults to the current user's home directory"; PowerShell/PowerShell#6791) |
+| **bash/sh/zsh** | **pindah ke `$HOME`** |
+
+`changeDir` di #238 membuat `cd` bare menjadi no-op (`cwdOK` dan `cdTracked` dipertahankan) **tanpa memeriksa dialek**. Probe `TestZZR11` (dihapus setelah dijalankan; kolom: ask, ask+allow, auto, auto+allow, headless, headless+allow, unsafe, unsafe+allow):
+
+| Perintah | Hasil | Dieksekusi sebenarnya |
+|---|---|---|
+| **bash `cd && ./.config/damnbot/skills/stripe-pay/scripts/charge.sh`** | **mutating `QAQADAAA`** | `~/.config/damnbot/skills/stripe-pay/scripts/charge.sh` (script pembayaran) |
+| **bash `cd; python3 .config/damnbot/skills/stripe-pay/scripts/charge.py`** | **mutating `QAQADAAA`** | script pembayaran |
+| bash `cd ~ && ./.config/…/charge.sh` | unknown ✔ | — |
+| **pwsh `cd; & .\AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.ps1`** | **mutating `QAQADAAA`** | script pembayaran (PowerShell 7) |
+| **pwsh `Set-Location; python AppData\…\charge.py`** | **mutating** | script pembayaran (PowerShell 7) |
+| cmd `cd && git status` | mutating | benar (cmd tidak pindah) |
+
+Di `#237` (`cwdOK=false`), seluruh baris bash/pwsh di atas `Unknown`. **#238 membuka bypass baru** di platform utama (Linux/macOS) maupun di PowerShell 7.
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC10-29 | HIGH | **fixed secara desain** `e3678f9` | Dialek diturunkan dari shell pilihan `exec`. Bukti CI e2e Windows belum lengkap (lihat CI). | Run ulang CI Windows dengan `-v` untuk `TestPaymentSkillGateCLIWindows`. |
+| **SEC10-30** | **HIGH** | confirmed (probe) | `cd` bare dijadikan no-op untuk semua dialek; di bash/zsh/sh dan PowerShell 7 artinya `cd $HOME`. Argv0 atau operand relatif sesudahnya di-resolve terhadap cwd lama, sehingga `cd && ./.config/damnbot/skills/<pay>/scripts/charge.sh` auto-run di `--unsafe-auto-shell` atau dengan `shell_allow`. | No-op hanya untuk `Cmd`. Untuk `Bash`/`Pwsh`, perlakukan `cd` bare sebagai `cd ~`: target terlacak ke `Env.Home` + `paymentFile`, sehingga `cd && ./.config/…/charge.sh` → monetary. Kunci dengan test tabel untuk ketiga dialek, termasuk kontrol negatif. |
+| SEC10-31 | MEDIUM | static | `RuntimeShellKind()` memakai `PATH` **proses** (`os.Environ()`), sedangkan eksekusi memakai `PATH` env child dari `EnvPolicy.Env` (`exec.env` dapat menimpa `PATH`; sesi memakai `envPath(ss.env)`). Bila `exec.env PATH` menambah dir pwsh yang tidak ada di `PATH` proses (proses dijalankan dengan env minimal: service/cron), executor memakai PowerShell sementara classifier memakai `Cmd`, dan SEC10-29 terbuka kembali. Arah sebaliknya (cmd dieksekusi, `Pwsh` diklasifikasi) juga mungkin. | Hitung dialek dari env child yang sama: `RuntimeShellKind(envPolicy.Env(os.Environ(), …))` di `startRunModel`. Lebih kuat lagi: `exec` mengembalikan `ShellKind` per eksekusi dan `classifyIn` memakai nilai itu. |
+| SEC10-32 | MEDIUM (aturan owner: security test butuh kontrol negatif) | open | `TestPaymentSkillGateCLIWindows` (e2e CLI) tidak punya kontrol negatif. Kontrol yang ada hanya di level unit (`TestPowerShellPayloadCmdNegativeControl`, dialek `Cmd` → mutating). | Tambahkan kontrol CLI: skill yang sama **tanpa** `side_effects: [payment]` → di `--unsafe-auto-shell` marker **dibuat**. Ini membuktikan `.ps1` benar-benar dieksekusi di runner dan penolakan berasal dari gate. |
+| SEC10-33 | MINOR | static | Sesi Unix memakai `$SHELL=zsh` di luar `chooseShell`; dialek tetap `Bash`. Sintaks khusus zsh yang dicoba → `Unknown`. | Dokumentasikan, atau gunakan `chooseShell` juga untuk sesi (abaikan `$SHELL`). |
+| SEC10-34 | MINOR | open | Varian `$p='<skill>'; & "$p\…"` tidak diuji (unit maupun e2e). `Set-Location`/`python '…'` hanya diuji di unit. Hanya `& '…'` yang diuji e2e. | Tambahkan kasus `$p` (`Unknown`) ke `TestPowerShellPaymentSkillMonetary`. |
+
+**Ringkasan Round 11:** #237 + #238 **REQUEST CHANGES**. Pemilihan dialek dari shell yang benar-benar dipakai `exec` sudah tepat, dan payload PowerShell kini monetary/unknown. Namun #238 menjadikan `cd` bare no-op di semua dialek, padahal di bash dan PowerShell 7 `cd` bare pindah ke `$HOME`, sehingga `cd && ./.config/damnbot/skills/<pay>/scripts/charge.sh` auto-run di Linux/macOS (SEC10-30, HIGH). Dialek juga masih dihitung dari `PATH` proses, bukan env child (SEC10-31). E2e CLI Windows belum punya kontrol negatif (SEC10-32). CI Windows merah di `TestRunKilledMidTurn` (penyebab belum jelas; lulus di #237 dan `main`), sehingga kelulusan `TestPaymentSkillGateCLIWindows` belum terbukti. Syarat: perbaiki SEC10-30/31/32, lalu CI Windows hijau dengan bukti `-v` untuk test e2e.
