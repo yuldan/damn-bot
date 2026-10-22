@@ -1,13 +1,21 @@
-# CI per PR dan push main (ENGINEERING §5, ROADMAP F1 #0, ADR-073, ADR-135). Setiap job (kecuali `changes`
-# dan `ci-required`) memanggil target Makefile yang sama dengan lokal (GAP-INF-05), sehingga `make meta-test`
-# menguji perintah yang sama. Action dipin SHA commit + komentar versi, checkout tanpa kredensial tersimpan
-# (AUD-070). Hemat menit runner (repo privat; macOS ×10, Windows ×2): hanya `test` berjalan di matrix OS,
-# gate lain (lint, size, loc, …) cukup di ubuntu karena hasilnya tidak bergantung OS host.
+# CI per PR dan push main (ENGINEERING §5, ROADMAP F1 #0, ADR-073, ADR-135, ADR-179). Setiap job (kecuali
+# `changes` dan `ci-required`) memanggil target Makefile yang sama dengan lokal (GAP-INF-05), sehingga
+# `make meta-test` menguji perintah yang sama. Action dipin SHA commit + komentar versi, checkout tanpa
+# kredensial tersimpan (AUD-070). Hemat menit runner (repo privat; macOS ×10, Windows ×2): hanya `test`
+# berjalan di matrix OS, gate lain (lint, size, loc, …) cukup di ubuntu karena hasilnya tidak bergantung
+# OS host.
 #
 # ADR-135 (antrean CI): PR docs-only melewati job Go, PR menjalankan matrix `test` yang diperkecil, dan
 # `cancel-in-progress` hanya untuk PR (push main dan nightly tidak pernah dibatalkan). Status wajib branch
 # protection adalah job agregat `ci-required`: ia selalu berjalan dan lulus bila setiap gate sukses atau
 # dilewati sah oleh path/tier, sehingga job yang dilewati tidak membuat PR menggantung "Expected".
+#
+# ADR-179 (slot runner): setiap gate Makefile tetap berjalan tepat sekali dengan perintah dan tag yang
+# sama; yang berubah hanya pengemasan job. Gate pendek yang tidak saling bergantung dijalankan berurutan
+# di dalam satu job (`static`, `portability`, `bench`, `supply`, `extra`) dan tiga shard fuzz berjalan di
+# satu job, sehingga satu PR-run memakai 13 job (dari 20) tanpa menghapus satu pun gate. `lint` dan
+# `test-timing` tetap job tersendiri: keduanya memberi umpan balik cepat dan `test-timing` mengukur budget
+# waktu dinding yang sebaiknya tidak dibagi dengan langkah berat lain.
 name: ci
 
 on:
@@ -128,7 +136,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     env:
-      CGO_ENABLED: ${{ matrix.cgo }} # -race butuh cgo; build rilis tetap CGO_ENABLED=0 (job size, build-matrix)
+      CGO_ENABLED: ${{ matrix.cgo }} # -race butuh cgo; build rilis tetap CGO_ENABLED=0 (job static, portability)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -143,7 +151,8 @@ jobs:
       - run: make test RACE="${{ matrix.race }}"
 
   # ADR-048 (TS-P08): budget waktu dinding tanpa -race; cek kebenaran skenario yang sama tetap berjalan
-  # di job `test` (-race).
+  # di job `test` (-race). Job tersendiri (bukan digabung seperti gate lain, ADR-179): asersi waktu dinding
+  # tidak dibagi dengan langkah berat lain di runner yang sama.
   test-timing:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -159,153 +168,14 @@ jobs:
           cache-dependency-path: go.sum
       - run: make test-timing
 
-  # ADR-073 (AUD-033): go vet windows/darwin × amd64/arm64. Murah dan menangkap sebagian besar
-  # kerusakan platform, jadi tetap berjalan di PR (ADR-135 butir 3).
-  vet-cross:
+  # ADR-179: gate statis pendek dalam satu job — E-19/E-61/E-70 (`make loc`, `make loc-ratio`), E-62
+  # (`make size-check`), E-53 (`make deadcode`). Tidak ada gate yang hilang: perintahnya sama persis
+  # dengan job terpisah sebelumnya, hanya berbagi satu checkout/setup-go.
+  static:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-      - run: make vet-cross
-
-  # E-39/E-65: CGO_ENABLED=0 -tags goolm untuk 8 target kanonik.
-  build-matrix:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-      - run: make build-matrix
-
-  # E-57: 60 s per target Fuzz*, 3 shard paralel.
-  fuzz:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-      - run: make fuzz SHARD=${{ matrix.shard }}/3
-
-  # E-58 (+ AUD-059): kritis ≥ 80 %, lain ≥ 70 %.
-  coverage:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-      - run: make coverage
-
-  # E-53: deadcode -test, GOOS linux/darwin/windows digabung.
-  deadcode:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            tools/go.sum
-      - run: make deadcode
-
-  # ADR-073/077, NEW-38: budget waktu absolut benchmark (-tags goolm,perf; ×1,5 runner bersama).
-  perf:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-      - run: make perf
-
-  # CODE-TOOLS §10.3 CT-21: parity grep vs rg 15.1.0 di korpus nyata C1+C3 (bench/corpora.lock). Korpus +
-  # rg di-cache; tanpa korpus test gagal, bukan skip (DAMNBOT_REQUIRE_CORPORA=1). CT-01/02/03 dan CT-11
-  # berjalan di nightly bench-codetools.
-  bench-parity:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            bench/go.sum
-      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
-        with:
-          path: ${{ runner.temp }}/damnbot-corpora
-          key: corpora-c1c3-${{ hashFiles('bench/corpora.lock', 'scripts/corpora.sh', 'bench/gencorpus/**') }}
-      - run: make bench-parity CORPORA="C1 C3 rg" CORPORA_DIR="$RUNNER_TEMP/damnbot-corpora"
-
-  size:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: go.sum
-      - run: make size-check
-
-  loc-budget:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -320,12 +190,126 @@ jobs:
         run: make loc
       - name: Rasio test:source (E-70)
         run: make loc-ratio
+      - name: Ukuran binary + arsip (E-62)
+        run: make size-check
+      - name: Kode mati, 3 GOOS digabung (E-53)
+        run: make deadcode
 
-  supply-chain:
+  # ADR-073 (AUD-033) + E-39/E-65: `go vet` lintas OS/arch dan build 8 target kanonik
+  # (CGO_ENABLED=0 -tags goolm). Dua perintah berbeda, satu job (ADR-179).
+  portability:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: go vet windows/darwin × amd64/arm64 (ADR-073)
+        run: make vet-cross
+      - name: Build 8 target kanonik (E-39, E-65)
+        run: make build-matrix
+
+  # E-57: 60 s per target Fuzz*, tiga shard. Shard berjalan berurutan di satu job (ADR-179): target dan
+  # FUZZTIME identik dengan tiga job paralel sebelumnya, hanya jumlah slot runner yang turun.
+  fuzz:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Fuzz shard 1/3 (E-57)
+        run: make fuzz SHARD=1/3
+      - name: Fuzz shard 2/3 (E-57)
+        run: make fuzz SHARD=2/3
+      - name: Fuzz shard 3/3 (E-57)
+        run: make fuzz SHARD=3/3
+
+  # ADR-179: gate cakupan + benchmark absolut + acceptance fase dalam satu job. `make perf` dijalankan
+  # paling awal agar budget absolut diukur di runner yang belum dipakai langkah berat lain.
+  extra:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Budget absolut benchmark (-tags goolm,perf; NEW-38, ADR-077)
+        run: make perf
+      - name: PHASE berubah?
+        id: phase
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "base tidak diketahui: jalankan acceptance fase"; echo "run=true" >>"$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --name-only "$BASE" "$HEAD" | grep -qx PHASE; then
+            echo "PHASE berubah: $(cat PHASE)"; echo "run=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "PHASE tidak berubah: acceptance fase tidak perlu dijalankan"; echo "run=false" >>"$GITHUB_OUTPUT"
+          fi
+      - if: steps.phase.outputs.run == 'true'
+        run: make phase-acceptance
+      - name: Coverage per paket critical (E-58, AUD-059)
+        run: make coverage
+
+  # E-58 (+ AUD-059) E-59 perf, ADR-080 acceptance fase.
+  # CODE-TOOLS §10.3 CT-21 + NEW2-07 (modul bench): parity grep vs rg 15.1.0 di korpus nyata C1+C3
+  # (`bench/corpora.lock`; tanpa korpus test gagal, bukan skip: DAMNBOT_REQUIRE_CORPORA=1) dan seluruh test
+  # modul bench. Satu job (ADR-179); korpus + rg tetap di-cache. CT-01/02/03 dan CT-11 berjalan di nightly
+  # bench-codetools.
+  bench:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            bench/go.sum
+      - uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ${{ runner.temp }}/damnbot-corpora
+          key: corpora-c1c3-${{ hashFiles('bench/corpora.lock', 'scripts/corpora.sh', 'bench/gencorpus/**') }}
+      - name: Parity grep vs rg di korpus C1+C3 (CT-21, E-59)
+        run: make bench-parity CORPORA="C1 C3 rg" CORPORA_DIR="$RUNNER_TEMP/damnbot-corpora"
+      - name: Seluruh test modul bench (NEW2-07)
+        run: make bench-budget
+
+  # E-46/E-47/E-50 (tidy, verify, deps.allow, go-licenses + TestMPLIsolation) dan E-54 (govulncheck).
+  # Satu job (ADR-179): semuanya membaca modul/ketergantungan yang sama.
+  supply:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -345,77 +329,13 @@ jobs:
         run: make deps-check
       - name: go-licenses + TestMPLIsolation (E-40)
         run: make licenses
-
-  # E-54: per PR di sini, harian terhadap main di nightly.yml (AUD-071).
-  vuln:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            tools/go.sum
-            bench/go.sum
-      - run: make vuln
-
-  # Modul bench (NEW2-07): seluruh test modul bench, termasuk harness token P1.
-  bench-budget:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: bench/go.mod
-          cache-dependency-path: bench/go.sum
-      - run: make bench-budget
-
-  # ADR-080 butir 2: acceptance fase bila file PHASE berubah; selain itu lulus dengan pesan.
-  phase-acceptance:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - name: PHASE berubah?
-        id: phase
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD: ${{ github.sha }}
-        run: |
-          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            echo "base tidak diketahui: jalankan acceptance fase"; echo "run=true" >>"$GITHUB_OUTPUT"; exit 0
-          fi
-          if git diff --name-only "$BASE" "$HEAD" | grep -qx PHASE; then
-            echo "PHASE berubah: $(cat PHASE)"; echo "run=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "PHASE tidak berubah: acceptance fase tidak perlu dijalankan"; echo "run=false" >>"$GITHUB_OUTPUT"
-          fi
-      - if: steps.phase.outputs.run == 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-      - if: steps.phase.outputs.run == 'true'
-        run: make phase-acceptance
+      - name: govulncheck, 3 modul (E-54)
+        run: make vuln
 
   # ADR-135 butir 2: satu-satunya status `ci` yang wajib di branch protection. Selalu berjalan (termasuk
   # docs-only dan PR matrix yang diperkecil) dan lulus bila setiap gate sukses atau dilewati sah; job
   # matrix yang sengaja tidak ada di tier PR tidak lagi meninggalkan "Expected — waiting".
+  # ADR-179: `needs` mengikuti pengemasan job di atas; setiap gate Makefile tetap terwakili.
   ci-required:
     if: always()
     needs:
@@ -423,19 +343,12 @@ jobs:
       - lint
       - test
       - test-timing
-      - vet-cross
-      - build-matrix
+      - static
+      - portability
       - fuzz
-      - coverage
-      - deadcode
-      - perf
-      - bench-parity
-      - size
-      - loc-budget
-      - supply-chain
-      - vuln
-      - bench-budget
-      - phase-acceptance
+      - extra
+      - bench
+      - supply
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
