@@ -79,6 +79,40 @@ func TestCacheBreakpointAnthropic(t *testing.T) {
 	}
 }
 
+// TestCacheBreakpointProductionFamily: the family the runner actually derives
+// from `--base-url`/config (NormalizeBaseURL, SEC8-9) is recognised for an
+// Anthropic origin, so the production path emits the breakpoint; the same shape
+// for another origin stays inert.
+func TestCacheBreakpointProductionFamily(t *testing.T) {
+	t.Parallel()
+	req := &Request{
+		Model: "claude", MaxTokens: 16, CacheBreakAfter: 1,
+		Messages: []Message{{Role: "system", Content: "stable prefix"}, {Role: "user", Content: "hi"}},
+	}
+	rt := &Route{Provider: "anthropic", Model: "claude", Family: baseFamily(t, "https://api.anthropic.com/v1")}
+	body, err := encode(rt, req, nil)
+	if err != nil || strings.Count(string(body), "cache_control") != 1 {
+		t.Fatalf("production family %q: %s %v", rt.Family, body, err)
+	}
+	if !strings.Contains(string(body), `"cache_control":{"type":"ephemeral"}`) || !strings.Contains(string(body), "stable prefix") {
+		t.Errorf("production family body lacks the boundary block:\n%s", body)
+	}
+	other := &Route{Provider: "openai", Model: "m", Family: baseFamily(t, "http://127.0.0.1:8080/v1")}
+	if got, gerr := encode(other, req, nil); gerr != nil || strings.Contains(string(got), "cache_control") {
+		t.Errorf("non-anthropic origin emitted cache_control: %s %v", got, gerr)
+	}
+}
+
+// baseFamily is the route family the runner derives from one base URL.
+func baseFamily(t *testing.T, base string) string {
+	t.Helper()
+	f, err := NormalizeBaseURL(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
 // TestCacheBreakStableBody: a request the route cannot cache is byte-identical
 // to the pre-MEM-034 encoding (same field order, empty string content kept,
 // tool_calls untouched) for every non-anthropic family and for breakpoint 0.
@@ -99,9 +133,9 @@ func TestCacheBreakStableBody(t *testing.T) {
 		`"max_tokens":16,"stream":true,"stream_options":{"include_usage":true}}`
 	for _, rt := range []*Route{
 		{Provider: "p", Model: "m", Family: "openai"},
-		// The run wiring sets Family to the normalized base URL, never to a
-		// family name, so this is the shape a real anthropic endpoint has.
-		{Provider: "p", Model: "m", Family: "https://api.anthropic.com/v1"},
+		// The run wiring sets Family to the normalized base URL (SEC8-9): a
+		// non-Anthropic origin must keep the pre-MEM-034 bytes.
+		{Provider: "p", Model: "m", Family: baseFamily(t, "http://127.0.0.1:8080/v1")},
 		{Provider: "p", Model: "m"},
 	} {
 		body, err := encode(rt, req, nil)

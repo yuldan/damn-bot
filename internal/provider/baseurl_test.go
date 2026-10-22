@@ -42,3 +42,29 @@ func TestNormalizeBaseURL(t *testing.T) {
 		}
 	}
 }
+
+// TestAnthropicFamily: the cache_control gate reads the vendor from the
+// normalized base URL's host, so the production family of an Anthropic origin
+// matches while every other origin — and anything unparsable — does not.
+func TestAnthropicFamily(t *testing.T) {
+	t.Parallel()
+	for _, in := range []string{
+		"anthropic",
+		"https://api.anthropic.com/v1",
+		"https://API.Anthropic.COM:8443/v1",
+		"https://foo.anthropic.com",
+	} {
+		if !anthropicFamily(in) {
+			t.Errorf("anthropicFamily(%q) = false, want true", in)
+		}
+	}
+	for _, in := range []string{
+		"", "openai", "https://anthropic.com", "https://evilanthropic.com",
+		"https://api.openai.com/v1", "http://127.0.0.1:8080/v1",
+		"https://api.anthropic.com.evil.test/v1", "http://[::1", "anthropic.com/v1",
+	} {
+		if anthropicFamily(in) {
+			t.Errorf("anthropicFamily(%q) = true, want false", in)
+		}
+	}
+}

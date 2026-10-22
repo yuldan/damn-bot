@@ -175,7 +175,7 @@ func encodeMessage(rt *Route, m *Message, cache bool) (json.RawMessage, []Carrie
 // cacheContent rewrites the boundary message as an Anthropic content block
 // carrying the ephemeral cache breakpoint; other families keep the string.
 func cacheContent(rt *Route, m *Message, cache bool) (any, error) {
-	if !cache || rt.Family != "anthropic" || len(m.ToolCalls) > 0 {
+	if !cache || !anthropicFamily(rt.Family) || len(m.ToolCalls) > 0 {
 		return m.Content, nil
 	}
 	block := []map[string]any{{
