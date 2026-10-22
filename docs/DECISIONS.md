@@ -3578,3 +3578,17 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** Token/biaya/kode 0; hanya dokumen; tidak ada perubahan `loc.budget`.
 
 **Konsekuensi.** (+) Urutan fase tegas: harness eksternal dapat memakai Damn-Bot sekarang lewat stream-JSON dan lewat ACP pada F3 tanpa membuka kembali cakupan F2. (+) Jalur inbound bersandar pada seam yang sudah ada (headless `run`, toolset, deferred catalog, state DB, budget guard, harness e2e) sehingga tidak butuh arsitektur baru. (−) Permintaan orkestrasi native harus menunggu fase pemiliknya; mempercepatnya berarti ADR + penaikan PHASE, bukan penambahan diam-diam di F2.
+## ADR-139 — Inspeksi sesi read-only: `sessions ls|show|export` di atas `ctxdb.Options.ReadOnly`
+
+**Status:** Accepted 2026-10-23 (F2, wiring REL-05/ADR-132). Tanpa DDL, dependency, atau budget baru.
+
+**Konteks.** `ctxdb.Open(ReadOnly)` (ADR-132) sudah dapat membaca DB dengan skema lebih baru tanpa migrasi/layout, tetapi tidak ada perintah CLI yang memakainya; SPEC §10 sudah menamai `sessions ls/show/export`, dan REL-05 hanya mengizinkan proses tulis menolak start.
+
+**Keputusan.**
+1. **Subperintah.** `sessions ls` mencetak `id<TAB>cwd<TAB>model` untuk sesi visible terbaru-dulu; `sessions show <id>` mencetak metadata (`id`, `origin`, `cwd`, `model`) dan jumlah event; `sessions export <id> [--format jsonl|md]` mengekspor transkrip mentah (summary tidak menggantikan event; `context_exclude` tetap disertakan untuk audit).
+2. **Read-only.** Ketiganya membuka `ctxdb.Options{ReadOnly:true, Kind:"cli"}` lewat `openSessionsDBReadOnly`; tidak ada migrasi, layout, holder, atau baris lease. Direktori data yang tidak ada tetap error dan tidak dibuat. Data dir default dari config; `--data-dir` adalah flag internal/test seperti `run`.
+3. **Skema lebih baru.** `ReadOnly` menerima `user_version` di atas skema binary, sehingga `ls/show/export` berhasil (exit 0) pada DB baru; `run` (penulis) pada DB yang sama gagal `ErrSchemaNewer` dan keluar 1 sesuai SPEC §4.3.
+4. **Metadata.** `ctxdb.SessionInfo(ctx, id)` mengembalikan metadata sesi visible tanpa membuka writer; sesi hilang/purged = `ErrNotFound`.
+5. **Error/exit.** Mapping §11.6 yang ada dipakai: `not_found`/`session_purging` 1, argumen/format invalid 2, `session_busy`/`db_busy` 4; pesan bebas teks SQL dan argumen di-echo setelah `cleanArg`.
+6. **LOC.** `ctxdb` 3.900 → 4.050 (additive +150 di atas ADR-136; terukur 3.879 pada stack), Total core 38.190 → 38.340.
+7. **Test.** `internal/e2e` (binary nyata): `TestSessionsReadOnlyNewerSchema` menyiapkan DB `user_version=9999`, memastikan `sessions show/ls` exit 0 dan membaca baris, lalu `run` exit 1 dengan `schema_newer` tanpa provider call.
