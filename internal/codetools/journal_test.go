@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"runtime"
 	"testing"
 )
 
@@ -52,7 +53,14 @@ func TestJournalHookSeesBothImages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 1 || before != "one\r\ntwo\r\n" || after != "one\r\nthree\r\n" || mode != 0o400 {
+	// Windows models only the read-only bit, so a 0o400 file reads back as
+	// 0o444 there while POSIX keeps the exact mode; assert the mode the file
+	// system can actually hold for a read-only file.
+	want := fs.FileMode(0o400)
+	if runtime.GOOS == "windows" {
+		want = 0o444
+	}
+	if calls != 1 || before != "one\r\ntwo\r\n" || after != "one\r\nthree\r\n" || mode.Perm() != want {
 		t.Fatalf("calls=%d before=%q after=%q mode=%v", calls, before, after, mode)
 	}
 	var created bool
