@@ -3,6 +3,7 @@ package config
 import (
 	"maps"
 	"math"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ func (c *Config) Validate() error {
 		c.validateApproval,
 		c.validateExec,
 		c.validateAgent,
+		c.validateSkills,
 		c.validateLog,
 	}
 	for _, check := range checks {
@@ -160,6 +162,32 @@ func (c *Config) validateAgent() error {
 	default:
 		return invalid("agent.verify_on_stop", "must be off, run or repair")
 	}
+}
+
+func (c *Config) validateSkills() error {
+	for i, p := range c.Skills.TrustedProjects {
+		if err := validDirPath("skills.trusted_projects", i, p); err != nil {
+			return err
+		}
+	}
+	for i, p := range c.Skills.ExternalDirs {
+		if err := validDirPath("skills.external_dirs", i, p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validDirPath requires an absolute path (or "~" form) so trust and external
+// roots never depend on the process cwd.
+func validDirPath(key string, i int, p string) error {
+	if p == "" || len(p) > 4096 {
+		return invalid(key, "entry %d must be a non-empty path", i)
+	}
+	if strings.ContainsAny(p, "\x00\n\r") || (!filepath.IsAbs(p) && p[0] != '~') {
+		return invalid(key, "entry %d must be absolute", i)
+	}
+	return nil
 }
 
 func (c *Config) validateLog() error {

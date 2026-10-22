@@ -56,7 +56,8 @@ ctxdb/compactstore 260 internal/ctxdb/compactstore
 # ADR-121 PR2: assemble 1200 -> 1300 (REVIEW-F2-SEC4 ASM4-1..3: wrapper <untrusted> exact, tag pembuka dinetralkan, clip sadar-wrapper; terukur 1.236; Σ core 36.970 -> 37.070 <= 47.000).
 assemble          1300 internal/assemble
 compaction         900 internal/compaction
-memory+skills     1230 internal/memory internal/skills
+# ADR-175: memory+skills 1230 -> 1400 (sumber skill lokal: discovery proyek + skills.external_dirs di internal/skills; terukur 1324; Σ core +170).
+memory+skills     1400 internal/memory internal/skills
 # ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).
 # Amandemen (undo mode Windows, 2026-10-22): journal 560 -> 590 (chmodFile per-OS; Windows memakai
 # os.Root.Chmod "atribut-saja" agar undo file 0o440 tidak gagal Access is denied; terukur 573 di #181 dan
