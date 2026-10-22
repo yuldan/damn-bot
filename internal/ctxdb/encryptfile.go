@@ -255,7 +255,7 @@ func sealCarriers(ctx context.Context, tx *sql.Tx, codec Codec) error {
 		if err != nil {
 			return wrap(err)
 		}
-		sha := codec.Hash(string(bytesOf(r[3])))
+		sha := codec.Hash("carrier\x00" + string(bytesOf(r[3])))
 		if _, err := tx.ExecContext(ctx, `UPDATE reasoning_carriers SET payload=X'', payload_enc=?, payload_sha=? WHERE id=?`, enc, sha, num(r[0])); err != nil {
 			return wrap(err)
 		}

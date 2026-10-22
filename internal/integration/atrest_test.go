@@ -320,7 +320,7 @@ func verifyCarrierRestore(t *testing.T, dst string, st *secret.Store, eid int64,
 	if err != nil || len(got) != 1 {
 		t.Fatalf("load = %+v, %v", got, err)
 	}
-	keyed := enc.KeyedHash(string(payload))
+	keyed := enc.KeyedHash("carrier\x00" + string(payload))
 	if !bytes.Equal(got[0].Payload, payload) || got[0].SHA != keyed {
 		t.Fatalf("carrier = %+v, want payload %q sha %s", got[0], payload, keyed)
 	}
@@ -344,7 +344,7 @@ func assertEncryptedCarrier(t *testing.T, s *ctxdb.Store, eid int64, payload []b
 	if err != nil {
 		t.Fatal(err)
 	}
-	keyed := s.KeyedHash(string(payload))
+	keyed := s.KeyedHash("carrier\x00" + string(payload))
 	if refs[0].SHA != keyed || cs.PayloadSHA(payload) != keyed {
 		t.Fatalf("refs sha = %s, store sha = %s, want %s", refs[0].SHA, cs.PayloadSHA(payload), keyed)
 	}

@@ -386,6 +386,9 @@ type Deps struct {
 type CarrierStore interface {
 	SaveCarriers(ctx context.Context, sessionID string, eventID int64, cs []event.Carrier) error
 	RejectCarriers(ctx context.Context, sessionID string, cs []event.Carrier, errorCode string) error
+	// CarrierRefs returns the digests embedded in the assistant event; it
+	// must use the same hash Save persistently records.
+	CarrierRefs(cs []event.Carrier) []event.CarrierRef
 }
 
 // TurnResult is the terminal state of one turn.

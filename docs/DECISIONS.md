@@ -13,6 +13,7 @@ Format: Konteks / Keputusan / Konsekuensi. Status semua ADR: **diterima** kecual
 - Amandemen (rantai at-rest/backup ADR-124, PR ini): feat(ctxdb): optional field-level at-rest encryption core; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
 - Amandemen (rantai at-rest/backup ADR-124, PR ini): fix(ctxdb): drop remaining nolints and align core budget totals; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
 - Amandemen (rantai at-rest/backup ADR-124, PR ini): fix(ctxdb): normalize and quote skill FTS terms; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
+- Amandemen (rantai at-rest/backup ADR-124, PR ini): fix(loop,cmd): key carrier rejection and event refs through the store; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
 ## ADR-001 — Bahasa implementasi: Go
 
 **Konteks.** Target: single static binary, startup ≤ 100 ms, RSS idle ≤ 50 MB, cross-compile Linux/macOS/Windows amd64+arm64. Toolchain terpasang: Go 1.26.8; Rust dan Bun tidak. Hermes (Python + Node) butuh 1,6–2,1 s hanya untuk import (BASELINE §6).
