@@ -68,21 +68,37 @@ func removeAt(d *os.File, name string) error {
 }
 
 // renameReplace replaces dst with MoveFileEx(REPLACE_EXISTING|WRITE_THROUGH)
-// (CODE-TOOLS §5.4).
+// (CODE-TOOLS §5.4). NTFS refuses to replace a read-only destination, and a
+// 0o400 file is exactly that on Windows, while POSIX replaces the directory
+// entry whatever the destination mode is; a denied replace therefore clears
+// the attribute once and retries, the way the undo journal does it
+// (ADR-117). The replacement — not the mode of the file it replaces — owns
+// the result afterwards, exactly as on POSIX.
 func renameReplace(src, dst string) error {
-	s, err := windows.UTF16PtrFromString(src)
-	if err == nil {
-		var d *uint16
-		if d, err = windows.UTF16PtrFromString(dst); err == nil {
-			err = withShareRetry(func() error {
-				return windows.MoveFileEx(s, d, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
-			})
+	err := moveFileEx(src, dst)
+	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		if cerr := os.Chmod(dst, 0o600); cerr == nil {
+			err = moveFileEx(src, dst)
 		}
 	}
 	if err != nil {
 		return fmt.Errorf("codetools: MoveFileEx: %w", err)
 	}
 	return nil
+}
+
+// moveFileEx is one MoveFileEx call with both names converted (the syscall
+// wants NUL-terminated UTF-16).
+func moveFileEx(src, dst string) error {
+	s, err := windows.UTF16PtrFromString(src)
+	if err != nil {
+		return err
+	}
+	d, err := windows.UTF16PtrFromString(dst)
+	if err != nil {
+		return err
+	}
+	return windows.MoveFileEx(s, d, windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH)
 }
 
 // dirSyncable: directory handles cannot be flushed on Windows and NTFS
