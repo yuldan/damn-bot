@@ -3423,3 +3423,16 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** Token/biaya/binary/dependency/migrasi 0; LOC produksi 0 (hanya berkas tes `internal/testutil/phase`); tidak ada perubahan `loc.budget`.
 
 **Konsekuensi.** (+) Penaikan `PHASE` menyatakan tepat apa yang sudah selesai — fase yang ditinggalkan — sehingga penaikan ke F3 tidak lagi menuntut komponen yang baru dimulai di F3. (+) Gate tidak kehilangan ketegasan: semua id fase < `PHASE` tetap wajib `covered`/`n/a`, termasuk id yang sebelumnya `pending:F1`. (−) Satu id fase yang dimasuki bisa tertinggal `pending` sampai penaikan berikutnya; karena itu daftar "open" dicetak pada setiap run.
+
+## ADR-178 — Budget `loop` 2.050 → 2.100 setelah penanda partial EC-PROV-008 dan `windowRoom` EC-CTX-017
+
+**Status:** Accepted 2026-10-22 (F2; EC-PROV-008, EC-CTX-017). Budget `loop` 2.050 → 2.100 (+50; terukur 2.051 sesudah penanda partial, guard `windowRoom`, dan penyaringan snapshot kompaksi). Dependency 0; DDL 0 (ADR-074); total core 38.470 → 38.520 ≤ 47.000.
+
+**Konteks.** PR #245 menambah baris di `internal/loop`: penanda `partial` pada payload event assistant dan jalur replay (`EC-PROV-008`), guard window `windowRoom = window - max_tokens` beserta pemanggilnya (`EC-CTX-017`), dan pengisian `Prompt.WindowTokens` dari window efektif. Baris `loop` di `loc.budget` tadinya 2.050 (ADR-134) dengan `scc` terukur 2.043 di atas head #250; penambahan itu membawa terukur ke 2.051, satu baris di atas maksimum.
+
+**Keputusan.**
+1. **Naikkan barisnya.** `loop` 2.050 → 2.100 di `loc.budget` (+50, terukur 2.051), dengan "Total core" `docs/ENGINEERING.md` disinkronkan ke Σ core `loc.budget` = 38.520 ≤ 47.000. Baris SPEC §3.2.4 tidak berubah, sehingga tidak perlu persetujuan baris SPEC (SPEC §20).
+2. **Tanpa pemecahan paket.** Guard window dan penanda partial tetap di `internal/loop` (loop memiliki guard dan payload event); memecahnya demi 1 baris akan menambah seam baru tanpa manfaat dan memecah invariant `turn`.
+3. **Di luar §3.2.4.** `ctxdb/compactstore` (penyaring snapshot) dan `cmd/damnbot` tidak memakai budget baru; tidak ada dependency atau DDL baru.
+
+**Konsekuensi.** (+) Guard EC-CTX-017 dan penanda EC-PROV-008 hidup di paket yang memang memiliki guard dan payload event; Σ core tetap jauh di bawah 47.000 (sisa 8.480). (−) Sisa headroom `loop` hanya 49 baris (2.100 − 2.051) untuk lanjutan F2; kenaikan lain di `internal/loop` kembali butuh revisi tabel + ADR.

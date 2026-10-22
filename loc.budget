@@ -5,7 +5,8 @@
 # ADR-131 amandemen round 2: loop 1800 -> 1900 (persist/reject carrier; terukur 1851; Σ core +100).
 # ADR-131 SEC8-10: loop 1900 -> 1950 (pemindaian carrier rekursif + key names; terukur 1913).
 # ADR-134 (REL-01 + SEC11): loop +100 di atas 1950 carrier (ADR-131) -> 2050.
-loop              2050 internal/loop
+# ADR-178 (EC-PROV-008/EC-CTX-017): loop 2050 -> 2100 (penanda partial + windowRoom + stub kompaksi; terukur 2051; Σ core 38.470 -> 38.520 <= 47.000).
+loop              2100 internal/loop
 plan               600 internal/plan
 # ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
 provider          2100 internal/provider
