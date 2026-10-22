@@ -513,3 +513,38 @@ Tidak ada kasus yang diblok `main` tetapi lolos di `58d5dc8`.
 | K. fd (300 undo) / happy path | 37 → 37; `undone` |
 
 **Overall:** stack #180–#174 **APPROVE**; #183 (`58d5dc8`) **APPROVE**. Temuan terbuka SEC5: hanya residual H' (deny glob + rename) dan Windows (symlink di dalam root diikuti `os.Root`), keduanya pra-ada dan terdokumentasi.
+
+## Round 8 — 2026-10-22 (recheck pasca-rebase ke `2022f89`)
+
+**Verdict:** seluruh stack **APPROVE**. Hunk hasil merge tangan benar, dan semua commit lain identik kecuali konteks dokumen.
+
+| PR | Head lama (approve) | Head baru | Isi range-diff | Verdict |
+|---|---|---|---|---|
+| #180 (0/6) | `822163e` | `a61b737` | konteks `CHANGELOG` saja | **APPROVE** |
+| #181 (1/6) | `b181eef` | `b8ea86c` | konteks `CHANGELOG` saja | **APPROVE** |
+| #170 (2/6) | `a60b7b8` | `57bde93` | **merge tangan**: `newRunProvider` memakai `providerEndpoint` main (`base, key, family`) + `Route.Family`; `Edit1MBJournal` lewat `measureDurable` (CT-09 retry #225); `History` mempertahankan `assistantAt` milik main | **APPROVE** |
+| #177 (3/6) | `81b6cb4`/`5625362`/`632d763` | `9a57b18`/`ef19ec8`/`eb4a72d` | konteks `CHANGELOG` saja | **APPROVE** |
+| #171 (4/6) | `b35093f`/`7ecb211` | `49d3f96`/`8f17e86` | konteks `CHANGELOG`/`DECISIONS` saja | **APPROVE** |
+| #173 (5/6) | `11221de` | `b5c3d1c` | **merge tangan**: guard dipertahankan; `Reply` = field carrier main ∪ `BudgetWarnings`; `excludeReason` + `budget_daily/monthly/provider` → ""; `budgetNotes` nil-safe; `loop` 2.050 → 2.070 (amandemen ADR-123) | **APPROVE** |
+| #174 (6/6) | `4220f05` | `00262a1` | konteks `CHANGELOG` saja | **APPROVE** |
+| #183 | `58d5dc8` | `b416a61` | `loc.budget`/`ENGINEERING` saja (`journal` 610, Σ core 37.750 → 37.800) | **APPROVE** |
+
+`git range-diff <basis-lama>..58d5dc8 2022f89..b416a61`: 11 pasangan commit. Di luar tiga hunk di atas, perubahannya hanya konteks `CHANGELOG`/`DECISIONS`/`ENGINEERING`/`loc.budget`. Tidak ada perubahan kode Go lain.
+
+Gate di `b416a61`: `go test -race -tags goolm -count=1 ./cmd/damnbot ./internal/loop/... ./internal/provider ./internal/budget ./internal/journal/... ./internal/sandbox ./internal/archtest` → ok (termasuk `TestCarrier*` end-to-end lewat `run` yang ber-guard, `TestRunBudgetGuardDenies`, dan `TestStreamErrorBudgetClass`); `go vet ./...` + `GOOS=windows|darwin` (cmd/damnbot, loop, journal, sandbox, codetools) bersih; `make loc`: `loop 2059/2070`, `journal 609/610`, `budget 559/560`; `make deadcode` 0. CI stack: masih antre (runner jenuh) saat dokumen ini ditulis. Hasil CI tetap menjadi syarat merge.
+
+### Hunk merge tangan
+
+- **Carrier route/family (#170, dipertahankan di #173):** `newRunProvider` memanggil `providerEndpoint` → `(base, key, family)` dan membangun satu `Route{…, Family: family}`, identik dengan `main` `2022f89` (`run.go:323`). `providerAdapter.Stream` di-diff terhadap `main`: field carrier request (`providerCarriers`) dan reply (`Carriers`, `RejectedCarriers`, `CarrierDrops`, `ReasoningText`) **identik**. Selisihnya hanya `p.notes.take()`, `BudgetWarnings`, dan `streamError(err)`. `streamError` memetakan `budget.DeniedError` → `ClassBudget` + detail stop, sedangkan sisanya **sama dengan main** (`ContextLength` → `ClassContextLength`, selain itu `ClassProvider`).
+- **Guard membungkus setiap call provider:** `provider.Config.Guard` dicek di `OpenAI.Do` sebelum **setiap route** dalam rantai fallback (`client.go:126`). Satu-satunya pemanggil `Do` di jalur produksi `cmd/damnbot` adalah `providerAdapter.Stream` (`PurposeTurn`). **Tidak ada jalur summarizer compaction** yang dirangkai di `cmd/damnbot` pada head ini (grep `Compactor`/`compaction.`: kosong). Bila kelak dirangkai, summarizer harus memakai client yang sama (ber-guard), bukan `NewOpenAI` kedua. Catatan pra-ada (bukan hunk merge): guard dicek per route, bukan per retry `Attempts` di dalam `call`.
+- **`Edit1MBJournal` (#170):** kini `measureDurable(…, editJournalSetup)` dengan referensi tulis-durabel yang sama dengan `Edit1MB` (ADR-127). Ini perubahan test/bench saja.
+- **Budget stop vs ADR-134 (#173):** ADR-134 butir 3 secara eksplisit mendaftar `budget_*` sebagai **tidak** di-exclude (stop kebijakan menyisakan history yang valid). `excludeReason` kini mencantumkan `budget_daily/monthly/provider` → `""`, konsisten dengan `budget_input/output` yang sudah ada di main. Probe `run` dengan `daily_usd = 1.0`: `max_tokens/budget_daily`, 0 request provider, **0 `context_exclude`**, `user_message` tetap ada. Denial terjadi sebelum call, sehingga tidak ada keluaran model parsial yang masuk ke context.
+- **`budgetNotes` nil-safe:** `observe`/`take` pada receiver nil → no-op/nil ✔.
+- **Budget `loop`:** terukur **2.059**/2.070. Teks amandemen ADR-123 menulis "terukur 2.058" (selisih 1 baris, dokumen saja).
+
+### Catatan (tidak memblokir)
+
+- SEC5-22 (info): amandemen ADR-123 menulis `loop` terukur 2.058, sedangkan `make loc` = 2.059.
+- Perilaku yang sudah di-approve sebelumnya tetap berlaku: `run` belum punya harga registry, sehingga cap apa pun menolak setiap call ("cost unknown", fail-closed, ADR-123 butir 3).
+
+**Ringkasan Round 8:** stack #180 → #181 → #170 → #177 → #171 → #173 → #174 → #183 **APPROVE**. Merge tangan mempertahankan identitas carrier (`Route.Family`, field carrier di request/reply), guard tetap membungkus setiap call provider (satu jalur `Do`, tanpa summarizer terpisah), dan stop `budget_*` tetap di context sesuai ADR-134. Syarat merge: CI stack hijau.
