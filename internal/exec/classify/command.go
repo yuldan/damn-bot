@@ -38,20 +38,32 @@ func (s *state) command(args []arg, in stdin) bool {
 		}
 	}
 	name := s.cmdName(args[0].s)
-	if !s.cwdOK && s.fold {
-		s.raise(Unknown, "command after cd: "+args[0].s) // SEC10-20 (cmd/PowerShell)
-	}
 	if name == "git" {
 		args = s.gitGlobals(args)
 	}
 	pos := s.positional(args[1:])
 	sub := at(pos, 0)
 	keys := [3]string{name, name + ":" + sub, name + ":" + sub + ":" + at(pos, 1)}
+	// cmd resolves a bare command in the current directory before PATH. After
+	// a cd, only a tracked target plus an allow-listed bare command keeps the
+	// normal policy; anything else is Unknown (SEC10-23). PowerShell does not
+	// search the current directory, so its normal classification stands.
+	if s.afterCdUnknown(args[0].s, keys) {
+		s.raise(Unknown, "command after cd: "+args[0].s)
+	}
 	s.mut = s.mut || !hasKey(nonMutatingKeys, keys)
 	s.tables(name, keys, at(argStrings(args), 1))
 	s.flagRules(name, sub, args[1:])
 	s.dispatch(name, sub, args, in)
 	return inList(fetchers, name)
+}
+
+// afterCdUnknown narrows the cmd-only post-cd rule (SEC10-23): an untracked
+// cd target, a relative argv0, or a bare command outside the non-mutating
+// table is Unknown. PowerShell does not search the current directory.
+func (s *state) afterCdUnknown(argv0 string, keys [3]string) bool {
+	return s.env.Dialect == Cmd && !s.cwdOK && !s.remote &&
+		(!s.cdTracked || pathLike(argv0) || !hasKey(nonMutatingKeys, keys))
 }
 
 // dispatch routes one simple command to its classifier.

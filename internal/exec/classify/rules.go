@@ -114,14 +114,25 @@ func hasFlag(args []arg, f string) bool {
 // (SEC10-1) and keeps cwd untracked afterwards, so every relative operand
 // stays unknown (ADR-079 butir 2).
 func (s *state) changeDir(args []arg) {
+	tracked, targets := true, 0
 	for _, a := range args {
+		if strings.HasPrefix(a.s, `\\`) || strings.HasPrefix(a.s, "//") {
+			s.raise(Unknown, "remote cd target: "+a.s) // SEC10-22: never open a share
+			tracked = false
+			continue
+		}
 		if !a.lit || a.glob || strings.HasPrefix(a.s, "-") || (s.fold && strings.HasPrefix(a.s, "/")) {
 			continue
 		}
-		if p, ok := s.abs(a.s); ok {
-			s.paymentFile(p, s.resolve(p))
+		targets++
+		p, ok := s.abs(a.s)
+		if !ok {
+			tracked = false
+			continue
 		}
+		s.paymentFile(p, s.resolve(p))
 	}
+	s.cdTracked = tracked && targets > 0
 	s.cwdOK = false
 }
 

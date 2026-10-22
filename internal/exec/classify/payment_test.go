@@ -137,7 +137,16 @@ func TestWindowsCdGate(t *testing.T) {
 		{Pwsh, `Set-Location C:\skills\pay\scripts; charge.bat`, Monetary},
 		{Pwsh, `Push-Location C:\skills\pay\scripts; charge.bat`, Monetary},
 		{Cmd, `cd C:\work\scripts && charge.bat`, Unknown},
-		{Pwsh, `cd C:\work\scripts; charge.bat`, Unknown},
+		{Cmd, `cd C:\work\scripts; charge.bat`, Mutating}, // cmd treats ';' as whitespace
+		{Pwsh, `cd C:\work\scripts; charge.bat`, Mutating},
+		{Cmd, `cd sub && charge.bat`, Unknown},
+		{Cmd, `cd sub && git status`, Mutating},
+		{Cmd, `cd sub && echo hi`, Mutating},
+		{Cmd, `cd %EVIL% && git status`, Unknown},
+		{Cmd, `pushd \\evil\share`, Unknown},
+		{Cmd, `cd \\?\UNC\evil\share && git status`, Unknown},
+		{Pwsh, `Set-Location \\evil\share`, Unknown},
+		{Pwsh, `Set-Location sub; Get-ChildItem`, Mutating},
 	} {
 		env := testEnv()
 		env.Dialect = c.dialect
