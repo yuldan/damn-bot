@@ -3530,18 +3530,6 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Konsekuensi.** (+) Satu tempat untuk membaca status acceptance F2 dan alasan setiap baris missing. (−) Ledger harus diperbarui saat katalog/acceptance berubah sampai PHASE dinaikkan; baris yang diselesaikan lewat PR lain perlu disinkronkan.
 
-## ADR-167 — SEC15-2: klasifikasi destruktif perawatan `damnbot`
-
-**Status:** Accepted 2026-10-22 (security review; amandemen anggaran ADR-133).
-
-**Konteks.** Tool `shell` menjalankan perintah `damnbot` sebagai proses biasa. `deny_paths` pada data dir tidak melindungi DB karena proses `damnbot` sendiri yang membukanya. Perintah seperti `damnbot sessions purge S --yes` dan `damnbot checkpoints clear --yes` sebelumnya hanya `mutating`, sehingga berjalan di `--unsafe-auto-shell` atau lewat `shell_allow` dan menghapus journal/sesi.
-
-**Keputusan.** Classifier mengenali binary `damnbot` berdasarkan base name (termasuk path, `./`, `.exe`/`.cmd`/`.bat`) dan menaikkan `Destructive` untuk perawatan yang menghapus/mengganti data: `sessions purge|prune|archive|restore`, `sessions backup restore`, `checkpoints clear|clear-legacy|prune`, `backup restore`, `doctor gc`, `setup --uninstall`/`--purge-data`, `update --rollback --data`, serta semua grup perawatan dengan `--yes`/`-y`. `sessions ls/show`, `checkpoints list`, `sessions backup verify`, `version`, dan `--help` tetap non-destruktif. Deteksi berjalan setelah wrapper (`env`, `command`, `sudo`, `xargs`, `sh -c`) dan pada semua dialek (Bash, Cmd, Pwsh); alias shell yang memperluas nama sebelum classifier tidak dapat dibaca, sehingga nama binary/path dan wrapper yang tercakup.
-
-**Bukti.** `TestDamnbotMaintenanceDestructive` (path relatif/absolut, wrapper, semua dialek, `--profile`), `TestDamnbotMaintenanceNeverAuto` (tidak ada `AutoApprove` di kelima mode termasuk `--unsafe-auto-shell`; headless `Denied`), `TestDamnbotMaintenanceNegative` (`sessions ls` etc. bukan Destructive), dan e2e `run` yang menolak `damnbot sessions purge s --yes` di `--unsafe-auto-shell`.
-
-**Anggaran.** `exec/classify` 1.830 → 1.908 (terukur 1.908; round 2 menambah argv0 `exec -a`/`env -a`/`env --argv0`, 8.3/trailing-dot, dan global value flags), Total core 38.090 → 38.168 di `loc.budget` dan `docs/ENGINEERING.md` §2.4. Tidak ada kenaikan `exec`.
-
 ## ADR-173 — Tool skill: `skills_list`, `skill_view`, `skill_manage`
 
 **Status:** Accepted 2026-10-23 (F2; TOOL-074/075/076, SKILL-002, EC-CTX-006, SEC16-1..5, ACC-56..61). Budget `tools` 2.200 → 2.500 (+300; terukur 2.315) dan `ctxdb/skillstore` 400 → 460 (+60; terukur 438); dependency 0; DDL 0 (ADR-074). Diterapkan bertahap dalam dua PR berurutan: lapisan baca (`skills_list`, `skill_view`) lalu lapisan tulis (`skill_manage`) beserta penguatan SEC16-5.
@@ -4467,3 +4455,33 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Konsekuensi.** (+) Kelas fail-open “dialek eksekusi ≠ dialek klasifikasi” tertutup di Windows dan Unix; satu pemilih menghilangkan drift berikutnya. (+) Plafon baru masih menyisakan 191 baris, jadi PR keamanan berikutnya tidak perlu menaikkan plafon lagi untuk perubahan kecil. (−) Plafon gabungan naik 100 baris; setiap kenaikan berikutnya tetap harus lewat keputusan eksplisit seperti ini, bukan headroom implisit.
 
 **Dampak terukur (SPEC §20).** Token 0. Binary 0. Dependency 0. LOC: `exec/classify` 1.841 (cap 1.841), Σ core 47.009 ≤ 47.200. Tidak ada perintah baru di SPEC §10.
+
+## ADR-212 — SEC15-2: klasifikasi destruktif perawatan `damnbot`
+
+**Status:** Accepted 2026-10-22 (security review; amandemen anggaran ADR-133/ADR-211).
+
+**Konteks.** Tool `shell` menjalankan perintah `damnbot` sebagai proses biasa. `deny_paths` pada data dir tidak melindungi DB karena proses `damnbot` sendiri yang membukanya. Perintah seperti `damnbot sessions purge S --yes` dan `damnbot checkpoints clear --yes` sebelumnya hanya `mutating`, sehingga berjalan di `--unsafe-auto-shell` atau lewat `shell_allow` dan menghapus journal/sesi.
+
+**Keputusan.** Classifier mengenali binary `damnbot` berdasarkan base name (termasuk path, `./`, `.exe`/`.cmd`/`.bat`) dan menaikkan `Destructive` untuk perawatan yang menghapus/mengganti data: `sessions purge|prune|archive|restore`, `sessions backup restore`, `checkpoints clear|clear-legacy|prune`, `backup restore`, `doctor gc`, `setup --uninstall`/`--purge-data`, `update --rollback --data`, serta semua grup perawatan dengan `--yes`/`-y`. `sessions ls/show`, `checkpoints list`, `sessions backup verify`, `version`, dan `--help` tetap non-destruktif. Deteksi berjalan setelah wrapper (`env`, `command`, `sudo`, `xargs`, `sh -c`) dan pada semua dialek (Bash, Cmd, Pwsh); alias shell yang memperluas nama sebelum classifier tidak dapat dibaca, sehingga nama binary/path dan wrapper yang tercakup.
+
+**Bukti.** `TestDamnbotMaintenanceDestructive` (path relatif/absolut, wrapper, semua dialek, `--profile`), `TestDamnbotMaintenanceNeverAuto` (tidak ada `AutoApprove` di kelima mode termasuk `--unsafe-auto-shell`; headless `Denied`), `TestDamnbotMaintenanceNegative` (`sessions ls` etc. bukan Destructive), dan e2e `run` yang menolak `damnbot sessions purge s --yes` di `--unsafe-auto-shell`.
+
+**Anggaran.** `exec/classify` 1.841 → 1.908 (round 2 menambah argv0 `exec -a`/`env -a`/`env --argv0`, 8.3/trailing-dot, dan global value flags); angka gabungan dengan ADR-213 pada pohon hasil rebase di atas #238 = **1.946** (terukur `scc`, `loc.budget` + `docs/ENGINEERING.md` §2.4), Σ core 47.009 → 47.114 ≤ 47.200. Tidak ada kenaikan `exec`; TOTAL 190.000 tetap.
+
+## ADR-213 — SEC15-11/12: token grup non-literal dan opsi global tak dikenal
+
+**Status:** Accepted 2026-10-22 (security review REVIEW-F2-SEC15 round 3/4; amandemen anggaran ADR-212).
+
+**Konteks.** Aturan perawatan destruktif ADR-212 membandingkan **token mentah** kata posisional pertama (`damnbotWords`) dengan nama grup (`sessions`, `checkpoints`, …). Shell mengekspansi token itu sebelum mengeksekusi, sehingga bentuk glob dan dinamis tidak dikenali, dan karena perintahnya tetap `Mutating`, `--unsafe-auto-shell`/`shell_allow` menjalankannya. Terbukti: dengan satu file bernama `sessions` di cwd, `damnbot sess* purge --yes`, `damnbot [s]essions purge --yes`, `damnbot ?essions purge --yes` semua `Mutating` (`QAQADAAA`, unsafe = auto) sementara argv yang diterima program adalah `sessions purge --yes` — jalur yang sama dengan yang ditutup ADR-167. Kelas kedua: `damnbotWords` hanya mengonsumsi nilai `--profile`/`--config`/`--data-dir`/`-p`; opsi global bernilai lain (`--log-level error`, `-o json`) menggeser grup keluar dari parse sehingga perintah yang sama menjadi `Mutating`.
+
+**Keputusan.**
+1. **Grup non-literal → `Unknown`.** Bila token posisional pertama tidak literal (glob, kutip tak terurai, variabel) atau memuat metakarakter `* ? [ ]`, `damnbot` menaikkan `Unknown` dan berhenti: tidak pernah `Mutating`, jadi tidak pernah auto.
+2. **Verb + `--yes` → `Destructive`.** Terlepas dari nama grup, `--yes`/`-y` bersama kata posisional `purge|prune|clear|clear-legacy|archive|restore|gc` menaikkan `Destructive`. Aturan ini tidak bergantung pada grup yang bisa disembunyikan.
+3. **Opsi global tak dikenal sebelum subcommand → `Unknown`.** Hanya opsi yang dikenal (`--profile`, `--config`, `--data-dir`, `-p` bernilai; `--help`/`-h`/`--version`/`-v`/`--verbose`/`--force-migrate`/`--json`/`--` tanpa nilai) yang dilewati; selain itu parse kata posisional tidak dipercaya lagi. Opsi setelah grup tetap bebas (itu milik subcommand).
+4. **Tidak ada pelonggaran gate.** Kelima mode tetap tidak pernah `AutoApprove` untuk `Destructive`/`Unknown`; gate pembayaran SEC10 tidak disentuh.
+
+**Bukti.** Unit: `TestDamnbotMaintenanceHiddenGroupUnknown` (glob/dinamis/opsi tak dikenal → `Unknown`; bentuk literal tetap `Destructive`), `TestDamnbotMaintenanceNeverAuto` (16 bentuk, tidak ada `AutoApprove` di kelima mode), `TestDamnbotGateControls` (kontrol positif `damnbot sessions purge --yes` tetap `Destructive` + tidak auto; kontrol negatif `damnbot sessions ls`, `checkpoints list`, `run --yes`, `echo ok` tetap bukan `Destructive`, dan `echo ok` tetap auto di `--unsafe-auto-shell`), `TestDamnbotMaintenanceDestructive` (+ `-v` membuktikan whitelist boolean). E2E biner asli (harness `internal/e2e`, aturan owner): `TestDamnbotMaintenanceGateCLI` — `sessions purge --yes`, `sess* purge --yes`, `[s]essions purge --yes`, `--log-level error sessions purge --yes` semua `denied` dengan file decoy `sessions` di workspace, dan kontrol positif `echo ok` benar-benar dieksekusi.
+
+**Anggaran.** `exec/classify` 1.908 → **1.946** (terukur `scc` pada pohon hasil rebase dengan #238; bukan 1.937 dari basis #265-saja, bukan pula 1.948 hasil penjumlahan buta), Σ core 47.009 → 47.114 ≤ 47.200 di `loc.budget` dan `docs/ENGINEERING.md` §2.4; TOTAL 190.000 tetap.
+
+**Konsekuensi.** (+) Gate perawatan `damnbot` tidak lagi bergantung pada token yang bisa diekspansi shell; opsi global yang menggeser grup gagal-tertutup. (−) Perintah `damnbot` dengan opsi global boolean yang belum terdaftar (mis. flag baru) menjadi `Unknown` (fail-closed, perlu satu approval); daftar opsi di `damnbotBoolFlags` harus diperbarui saat CLI menambah flag global.

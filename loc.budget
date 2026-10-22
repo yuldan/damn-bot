@@ -35,11 +35,13 @@ toolset            400 internal/toolset
 # ADR-133 SEC10-30/35: exec/classify 1830 -> 1841 (cd bare per dialek; terukur 1841; Σ core +11).
 # ADR-211 (SEC10-36): plafon core 47.000 -> 47.200 (Σ core 46.998 -> 47.009; terukur 1.841;
 # headroom 191; SPEC P21 + ENGINEERING §2.4 + maxCoreLOC).
-# ADR-212 (SEC15-2/5/6/7): exec/classify 1841 -> 1908 (klasifikasi perawatan destruktif damnbot + argv0/8.3; terukur 1908; Σ core 47.009 -> 47.076).
+# ADR-212 (SEC15-2/5/6/7): exec/classify 1841 -> 1908 (klasifikasi perawatan destruktif damnbot + argv0/8.3;
+# terukur 1908 pada basis #265-saja; angka gabungan final ada di ADR-213).
+# ADR-213 (SEC15-11/12): token grup non-literal -> Unknown + verb+--yes; angka gabungan dengan
+# ADR-212 (SEC15-2..7) pada pohon rebase di atas #238: exec/classify 1841 -> 1946 (terukur 1946;
+# bukan 1937 dari basis #265-saja dan bukan 1948 hasil penjumlahan buta); Σ core 47.009 -> 47.114.
 exec              3400 internal/exec
-exec/classify     1908 internal/exec/classify
-exec              3400 internal/exec
-exec/classify     1908 internal/exec/classify
+exec/classify     1946 internal/exec/classify
 # ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).
 # ADR-108: sandbox+redact 1450 -> 1700 (dir-fd walk fast path; Σ core 34.650 -> 34.900 <= 47.000).
 # ADR-108 amendment (SEC14 root canonicalization): sandbox+redact 1700 -> 1760 (alias root, Windows

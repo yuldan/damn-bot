@@ -44,6 +44,7 @@ func TestDamnbotMaintenanceDestructive(t *testing.T) {
 		{"damnbot --config /x sessions purge s --yes", Bash},
 		{"damnbot -p prod sessions purge s --yes", Bash},
 		{"damnbot --data-dir /x sessions purge s --yes", Bash},
+		{"damnbot -v sessions purge s --yes", Bash},
 		{"exec -a x damnbot sessions purge s --yes", Bash},
 		{"env -a x damnbot sessions purge s --yes", Bash},
 		{"env --argv0 x damnbot sessions purge s --yes", Bash},
@@ -60,8 +61,9 @@ func TestDamnbotMaintenanceDestructive(t *testing.T) {
 	}
 }
 
-// TestDamnbotMaintenanceNeverAuto (SEC15-2): Destructive is never
-// auto-approved, including --unsafe-auto-shell; headless denies it.
+// TestDamnbotMaintenanceNeverAuto (SEC15-2/11/12): Destructive and the
+// Unknown shapes that hide the group word are never auto-approved, including
+// --unsafe-auto-shell; headless denies them.
 func TestDamnbotMaintenanceNeverAuto(t *testing.T) {
 	t.Parallel()
 	env := testEnv()
@@ -73,14 +75,80 @@ func TestDamnbotMaintenanceNeverAuto(t *testing.T) {
 		"command exec -a x damnbot sessions purge s --yes",
 		"nohup env -a x damnbot sessions purge s --yes",
 		"timeout 5 env --argv0 x damnbot sessions purge s --yes",
+		// SEC15-11: the shell expands the group word, so the classifier sees
+		// a glob/dynamic token and must not fall back to Mutating.
+		"damnbot sess* purge --yes",
+		"damnbot [s]essions purge --yes",
+		"damnbot ?essions purge --yes",
+		"damnbot sessio?s purge --yes",
+		"damnbot checkp* clear --yes",
+		"damnbot * purge --yes",
+		"damnbot $GROUP purge --yes",
+		"G=sessions; damnbot $G purge --yes",
+		// SEC15-12: an unrecognized global option may consume the group word.
+		"damnbot --log-level error sessions purge --yes",
+		"damnbot -o json checkpoints clear --yes",
 	} {
 		v := Classify(cmd, env)
 		for _, mode := range []Mode{ModeAsk, ModeAutoEdit, ModeAuto, ModeHeadless, ModeUnsafeAutoShell} {
 			d := Decide(&v, &Context{Mode: mode, WorkspaceTrusted: true, CwdInRoot: true})
 			if d == AutoApprove {
-				t.Errorf("%q mode %v auto-approved destructive maintenance: %v", cmd, mode, v.Reasons)
+				t.Errorf("%q mode %v auto-approved damnbot maintenance: %v", cmd, mode, v.Reasons)
 			}
 		}
+	}
+}
+
+// TestDamnbotMaintenanceHiddenGroupUnknown (SEC15-11/12): a glob or dynamic
+// group token, and an unrecognized global option before the subcommand, are
+// Unknown — never Mutating, which --unsafe-auto-shell would run.
+func TestDamnbotMaintenanceHiddenGroupUnknown(t *testing.T) {
+	t.Parallel()
+	env := testEnv()
+	for _, cmd := range []string{
+		"damnbot sess* purge --yes",
+		"damnbot [s]essions purge --yes",
+		"damnbot checkp* clear --yes",
+		"damnbot $GROUP purge --yes",
+		"damnbot --log-level error sessions purge --yes",
+	} {
+		if v := Classify(cmd, env); v.Class != Unknown {
+			t.Errorf("%q: class %s, want Unknown (%v)", cmd, v.Class, v.Reasons)
+		}
+	}
+	// The literal forms keep the stronger Destructive label.
+	for _, cmd := range []string{"damnbot sessions purge --yes", "damnbot \"sessions\" purge --yes"} {
+		if v := Classify(cmd, env); v.Class != Destructive {
+			t.Errorf("%q: class %s, want Destructive (%v)", cmd, v.Class, v.Reasons)
+		}
+	}
+}
+
+// TestDamnbotGateControls (SEC15-2/11, aturan owner): the positive control
+// stays Destructive and is never auto-approved, while the negative controls
+// stay allowed — `echo ok` is still auto-approved and runs.
+func TestDamnbotGateControls(t *testing.T) {
+	t.Parallel()
+	env := testEnv()
+	pos := Classify("damnbot sessions purge --yes", env)
+	if pos.Class != Destructive {
+		t.Fatalf("positive control class = %s, want Destructive (%v)", pos.Class, pos.Reasons)
+	}
+	unsafe := &Context{Mode: ModeUnsafeAutoShell, AllowMatched: true, WorkspaceTrusted: true, CwdInRoot: true}
+	if d := Decide(&pos, unsafe); d == AutoApprove {
+		t.Fatalf("positive control auto-approved: %v", pos.Reasons)
+	}
+	for _, cmd := range []string{"damnbot sessions ls", "damnbot checkpoints list", "damnbot run --yes"} {
+		if v := Classify(cmd, env); v.Class == Destructive {
+			t.Errorf("negative control %q is Destructive (%v)", cmd, v.Reasons)
+		}
+	}
+	ok := Classify("echo ok", env)
+	if ok.Class == Destructive {
+		t.Fatalf("negative control `echo ok` is Destructive (%v)", ok.Reasons)
+	}
+	if d := Decide(&ok, unsafe); d != AutoApprove {
+		t.Fatalf("negative control `echo ok` not auto-approved in unsafe mode: %v", ok.Reasons)
 	}
 }
 
