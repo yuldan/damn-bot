@@ -75,6 +75,9 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 		case "user_message":
 			out = append(out, loop.Message{Role: "user", Content: r.Content})
 		case "assistant_message":
+			if partialOutput(r.Payload) {
+				continue // EC-PROV-008: a truncated answer is not context
+			}
 			assistantAt[r.ID] = len(out)
 			out = append(out, loop.Message{Role: "assistant", Content: r.Content, ToolCalls: assistantToolCalls(r.Payload)})
 		case "tool_result":
@@ -101,6 +104,22 @@ func (s *ctxStore) History(ctx context.Context, sid string) ([]loop.Message, err
 		return nil, fmt.Errorf("history carriers: %w", err)
 	}
 	return out, nil
+}
+
+// partialOutput reports an assistant event the loop marked partial
+// (finish_reason=length, EC-PROV-008). It stays in the transcript for the
+// user but never replays as a final assistant message.
+func partialOutput(payload string) bool {
+	if payload == "" {
+		return false
+	}
+	var p struct {
+		Partial bool `json:"partial"`
+	}
+	if err := json.Unmarshal([]byte(payload), &p); err != nil {
+		return false
+	}
+	return p.Partial
 }
 
 // effectsNotice renders the turnless notice a failed turn left for executed

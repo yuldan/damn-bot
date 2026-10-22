@@ -14,6 +14,7 @@ type turnStartPayload struct {
 
 type assistantPayload struct {
 	Filtered     bool               `json:"filtered"`
+	Partial      bool               `json:"partial,omitempty"`
 	FinishReason string             `json:"finish_reason,omitempty"`
 	FallbackFrom string             `json:"fallback_from,omitempty"`
 	ToolCalls    []toolCallPayload  `json:"tool_calls,omitempty"`
