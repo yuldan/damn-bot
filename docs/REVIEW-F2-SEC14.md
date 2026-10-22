@@ -60,3 +60,47 @@ Kunci API: dibaca dari `--key-file` di `liveProvider` saat runtime, di-`TrimSpac
 | SEC14-6 | MINOR | open | Kebersihan: (a) `res.Err` (teks error provider/turn) masuk `summary.json` tanpa `redact`, padahal redactor tersedia; (b) `--out` di luar `bench/h2h/results/*/` membuat `data/` (SQLite berisi isi percakapan) tidak ter-ignore; (c) izin key file tidak diperiksa (0644 diterima); (d) ADR-138 butir 9 menyebut `summary.json` memuat harga, padahal tidak; (e) komentar `#nosec G304` di `loadEvalTasks` keliru (path tetap relatif cwd, bukan argumen). | Redact `Err`; peringatkan bila `--out` tidak ter-ignore, atau tulis `data/` ke temp dir; tolak key file yang bisa dibaca group/other; selaraskan ADR dan komentar. |
 
 **Ringkasan:** #228 **APPROVE dengan MINOR**: OR tidak memperluas recall lintas scope atau status, tidak ada injeksi operator FTS, dan volume ke prompt tetap dibatasi limit + `CapMemory`. Sisa SEC14-5: dedupe dan cap jumlah term. #229 **APPROVE**: seam tidak dapat diatur lewat flag atau env. #230 **REQUEST CHANGES**: kunci API hanya dipakai saat runtime dan artefak yang di-commit bersih, tetapi cap ledger lolos ketika usage kosong (SEC14-1) dan model dapat menulis file repo tanpa approval (SEC14-2). Path traversal saat penghapusan data dir (SEC14-3) dan lost update ledger (SEC14-4) sebaiknya ikut diperbaiki di putaran yang sama.
+
+## Round 2 — 2026-10-22
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #228 recall OR + dedupe/cap | `1e5a6aa` | **APPROVE**: SEC14-5 fixed |
+| #229 seam | `022a284` | **APPROVE**: rebase saja; `range-diff` `ab19958 = 022a284` |
+| #230 harness | `7ca45bd` | **APPROVE (setelah #231)**: rebase saja; `range-diff` `52069b3 = 168f2fc`, `ef9c249 = a127862`, `e516a2d = 7ca45bd`. SEC14-1..4 diperbaiki di #231, sehingga #230 dan #231 harus merge bersama |
+| #231 hardening | `68a6bee` | **APPROVE dengan MINOR**: SEC14-1/2/3/4/6a/6c/6e fixed; sisa SEC14-6b/6d dan SEC14-7 (MINOR) |
+
+`git range-diff 3387c2f..e516a2d origin/main..7ca45bd`: kelima commit Round 1 identik (`=`). Satu-satunya commit baru di bawah #229/#230 adalah `1e5a6aa` (SEC14-5).
+
+Gate di `68a6bee`: `go test -race -tags goolm -count=1 ./cmd/damnbot ./internal/ctxdb/memstore ./internal/memory ./internal/archtest` → ok; `go vet ./...` bersih; `GOOS=windows|darwin|freebsd go vet ./cmd/damnbot` bersih; `GOOS=windows go build ./cmd/damnbot` ok; `make deadcode` 0; `make loc` `ctxdb 3429/3500`.
+
+Probe `TestZZR2*` (`cmd/damnbot`, `68a6bee`) dihapus setelah dijalankan.
+
+| Probe | Round 1 | Round 2 |
+|---|---|---|
+| Provider tanpa usage, ledger file cap 0,05 | 500 call, `spent` 0 | **17 call** lalu `errEvalBudget`; `spent` 0,049432, tanpa sisa reservasi ✔ SEC14-1 |
+| Model `write_file` path relatif + path absolut ke repo | file tertulis di repo | ditolak; tidak ada file di repo maupun di data task ✔ SEC14-2 |
+| Id `../../victim`, `..`, `.`, `a/../../victim`, `..\victim`, `""`, `E4-001\x00`, `-rf` | direktori di luar `--out` terhapus | semua `eval task id … is invalid`; `victim/precious` utuh ✔ SEC14-3 |
+| **4 proses OS terpisah** (re-exec test binary), masing-masing 20 × reserve/settle 0,1, satu ledger, cap 1,0 | 2 proses: belanja 1,4, file 0,70 | granted 2+3+2+3 = **10**, file `spent` 1,00, `reserved` 0 ✔ SEC14-4 |
+| Kueri 20.000 term berulang | 7,8 s | **8 ms** ✔ SEC14-5 |
+| 20.000 term unik + `number` di akhir | — | 6 ms, 0 hasil: term ke-65 dst. diabaikan (perilaku cap yang dimaksud) |
+
+### Lock Windows
+
+`eval_lock_windows.go`: `LockFileEx(LOCKFILE_EXCLUSIVE_LOCK)` tanpa `LOCKFILE_FAIL_IMMEDIATELY`, sehingga panggilan memblokir sampai lock didapat. Error apa pun dikembalikan (`errors.Join(err, f.Close())`). `update` → `reserve` meneruskan error tersebut, dan `evalProvider.Stream` kembali **sebelum** `inner.Stream`, sehingga tidak ada call ke upstream. **Tidak fail-open.** Kegagalan `settle` setelah call sukses menyisakan reservasi worst-case di file, yang juga fail-closed. Build `!unix && !windows` (`eval_lock_other.go`) selalu mengembalikan error. Cross-build dan vet Windows bersih. Lock dilepas lewat `UnlockFileEx` + `Close`. Penutupan handle oleh proses yang mati juga melepas lock, jadi tidak ada deadlock permanen. Catatan: test runtime Windows tidak dijalankan di sini; verifikasi ini statis + build.
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC14-1 | MEDIUM | **fixed** `68a6bee` | `settle(id, actual, worst)` menagih `max(actual, worst, 0)` (probe). | — |
+| SEC14-2 | MEDIUM | **fixed** `68a6bee` | `approval: "ask"` (headless → tulis ditolak), `cwd` = data task, `AddDirs` dikosongkan (probe). | — |
+| SEC14-3 | MINOR | **fixed** `68a6bee` | `evalTaskIDRE` saat load + `evalDataDir` (`Rel == id`) sebelum `RemoveAll` (probe). | — |
+| SEC14-4 | MINOR | **fixed** `68a6bee` | Read-modify-write ledger di bawah flock/`LockFileEx`, dengan `reserved_usd` per call (probe 4 proses). | — |
+| SEC14-5 | MINOR | **fixed** `1e5a6aa` | Dedupe + cap 64 term (probe). | — |
+| SEC14-6 | MINOR | **partial** | (a) redaksi `Err`, (c) cek 0600, dan (e) komentar `#nosec` sudah fixed. **Sisa:** (b) `--out` di luar `bench/h2h/results/*/` tetap menghasilkan `data/` yang tidak ter-ignore. (d) ADR-138 butir 9 kini merinci harga, tetapi `evalSummary` tetap tidak punya field harga, sehingga dokumen dan artefak masih tidak cocok. | (b) Peringatkan atau tolak `--out` yang tidak ter-ignore, atau tulis `data/` ke temp dir. (d) Tambahkan `price` ke `summary.json`, atau hapus klaim di ADR. |
+| SEC14-7 | MINOR | new | Reservasi milik proses yang mati di tengah call (crash/kill) tetap di `reserved_usd` selamanya dan permanen mengurangi sisa cap. Ini fail-closed (aman biaya), tetapi tidak ada jalur pembersihan yang terdokumentasi. | Dokumentasikan pembersihan manual di ADR-138, atau tandai reservasi dengan pid + waktu dan lepaskan yang kedaluwarsa saat `open`. |
+
+**Ringkasan Round 2:** #228 **APPROVE**, #229 **APPROVE** (identik), #230 **APPROVE** (identik; merge bersama #231), #231 **APPROVE dengan MINOR**. Kelima probe Round 1 kini fail-closed: usage kosong tetap ditagih worst-case, tulis model ke repo ditolak, id traversal ditolak, empat proses paralel tidak melewati cap, dan kueri 20.000 term turun ke 8 ms. Lock Windows tidak fail-open. Sisa yang tidak memblokir: SEC14-6b/6d dan SEC14-7.
