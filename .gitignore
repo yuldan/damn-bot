@@ -9,3 +9,6 @@ bench/h2h/results/.ledger-*
 /.bin/
 # Binari hasil `go build ./cmd/damnbot` di root repo.
 /damnbot
+
+# State per task eval F2 (SQLite; artefak yang di-commit hanya summary.json).
+bench/h2h/results/*/data/
