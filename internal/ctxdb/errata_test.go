@@ -86,25 +86,35 @@ func TestPurgeFTSIntegrity(t *testing.T) {
 // TestIntegrityCheckFreshConnection (TS-P11): after a reader connection has
 // run an FTS5 integrity check and a purge rewrote the contentless_delete
 // index, IntegrityCheck must report ok (it uses a fresh connection).
+//
+// 16 sessions × 16 events reproduce the stale pooled reader deterministically
+// (the boundary is between 8×8 and 10×10); the former 40 × 30 cost 25–45 s
+// under -race. The precondition below keeps the fixture honest: if it ever
+// stops reproducing the stale reader, the test fails instead of passing
+// without exercising TS-P11.
 func TestIntegrityCheckFreshConnection(t *testing.T) {
+	const sessions, perSession = 16, 16
 	e := newEnv(t)
 	s := e.open(1, "tui")
 	ctx := context.Background()
-	for i := range 40 {
+	for i := range sessions {
 		sid := "S" + itoa(int64(i))
 		session(t, s, sid, "")
-		for j := range 30 {
+		for j := range perSession {
 			appendMsg(t, s, sid, "word"+itoa(int64(j))+" common text")
 		}
 		must(t, s.ReleaseLease(ctx, sid))
 	}
 	var pooled string
 	must(t, s.get(ctx, "PRAGMA integrity_check", nil, &pooled)) // warms the pooled reader's FTS5 cache
-	for i := 0; i < 40; i += 2 {
+	for i := 0; i < sessions; i += 2 {
 		_, err := s.Purge(ctx, PurgeRequest{IDs: []string{"S" + itoa(int64(i))}})
 		must(t, err)
 	}
 	must(t, s.get(ctx, "PRAGMA integrity_check", nil, &pooled))
+	if pooled == "ok" {
+		t.Fatal("fixture no longer reproduces TS-P11: the pooled reader reports ok after the purge")
+	}
 	fresh, err := s.IntegrityCheck(ctx)
 	must(t, err)
 	t.Logf("pooled reader: %s", pooled)

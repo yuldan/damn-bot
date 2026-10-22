@@ -24,7 +24,7 @@ func testShell(t *testing.T, w *workspace) (Tool, func()) {
 func testShellTrusted(t *testing.T, w *workspace, trusted bool) (Tool, func()) {
 	t.Helper()
 	runner := exec.New(t.Context())
-	sh := NewShell(&ShellConfig{
+	sh := mustShell(t, &ShellConfig{
 		Runner: runner, Spill: newMemSpill(), Redactor: redact.New(redact.Options{}),
 		Roots: []string{w.root}, Home: w.root, Cwd: w.root,
 		ParentEnv: os.Environ(), EnvPolicy: &exec.EnvPolicy{},
@@ -89,7 +89,7 @@ func TestShellAllowExact(t *testing.T) {
 		}
 	}()
 	start := map[string]classify.BinaryID{"echo": {Path: "/bin/echo", Dev: 1, Ino: 2, Size: 3, MtimeNs: 4}}
-	sh := NewShell(&ShellConfig{
+	sh := mustShell(t, &ShellConfig{
 		Runner: runner, Spill: newMemSpill(), Roots: []string{w.root}, Home: w.root, Cwd: w.root,
 		ParentEnv: os.Environ(), EnvPolicy: testEnvPolicy(),
 		Allow:        []classify.AllowEntry{{"echo", "hi"}},
@@ -195,7 +195,7 @@ func (f *fakeRunner) Run(_ context.Context, spec *exec.Spec) (exec.Result, error
 func fakeShell(t *testing.T, w *workspace, runner *fakeRunner, allow []classify.AllowEntry, resolve func(string) (classify.BinaryID, bool)) Tool {
 	t.Helper()
 	id := classify.BinaryID{Path: "/bin/echo", Dev: 1, Ino: 2, Size: 3, MtimeNs: 4}
-	return NewShell(&ShellConfig{
+	return mustShell(t, &ShellConfig{
 		Runner: runner, Spill: newMemSpill(), Redactor: redact.New(redact.Options{}),
 		Roots: []string{w.root}, Home: w.root, Cwd: w.root,
 		ParentEnv: os.Environ(), EnvPolicy: testEnvPolicy(),
@@ -309,7 +309,7 @@ func TestShellCwdOutsideWorkspaceDenied(t *testing.T) {
 	t.Parallel()
 	w := newWorkspace(t)
 	runner := &fakeRunner{}
-	st := NewShell(&ShellConfig{
+	st := mustShell(t, &ShellConfig{
 		Runner: runner, Spill: newMemSpill(), Redactor: redact.New(redact.Options{}),
 		Roots: []string{w.root}, Home: w.root, Cwd: w.root,
 		ParentEnv: os.Environ(), EnvPolicy: testEnvPolicy(), WorkspaceTrusted: true,
@@ -378,7 +378,7 @@ func TestShellInjectsScopedSecret(t *testing.T) {
 	w := newWorkspace(t)
 	id := classify.BinaryID{Path: "/bin/echo", Dev: 1, Ino: 2, Size: 3, MtimeNs: 4}
 	runner := &fakeRunner{}
-	sh := NewShell(&ShellConfig{
+	sh := mustShell(t, &ShellConfig{
 		Runner: runner, Spill: newMemSpill(), Redactor: redact.New(redact.Options{}),
 		Roots: []string{w.root}, Home: w.root, Cwd: w.root,
 		ParentEnv: os.Environ(),

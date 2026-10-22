@@ -150,8 +150,8 @@ func TestContextLengthReCall(t *testing.T) {
 	if err := runWith(t, f, &deps); err != nil {
 		t.Fatal(err)
 	}
-	if c.calls != 1 || f.provider.calls != 2 {
-		t.Errorf("compactor calls = %d, provider calls = %d", c.calls, f.provider.calls)
+	if c.calls != 1 || !c.reasons[0] || f.provider.calls != 2 {
+		t.Errorf("compactor calls = %d (context_length %v), provider calls = %d", c.calls, c.reasons, f.provider.calls)
 	}
 }
 

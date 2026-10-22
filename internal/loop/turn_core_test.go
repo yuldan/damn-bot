@@ -135,7 +135,7 @@ func TestCoreMaxWall(t *testing.T) {
 	}
 }
 
-func (c *coreCompactor) Compact(context.Context, string) error { c.calls++; return nil }
+func (c *coreCompactor) Compact(context.Context, string, bool) error { c.calls++; return nil }
 
 func runCoreWith(t *testing.T, f *fixture, deps *Deps) error {
 	t.Helper()

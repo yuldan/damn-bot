@@ -163,12 +163,14 @@ func s072(t *testing.T) {
 }
 
 // #75: crash between the poller COMMIT and the worker COMMIT, repeated:
-// 0 lost, 0 duplicated.
+// 0 lost, 0 duplicated. 30 messages = 10 crash/restart cycles, each with
+// queued rows left by the dead poller and taken by the next worker (the
+// scenario is deterministic; 100 messages only repeated the same cycle).
 func s075(t *testing.T) {
 	e := newEnv(t)
 	s := e.open(1, "serve")
 	pid := 1
-	const n = 100
+	const n = 30
 	for i := range n {
 		ingest(t, s, inbound("u:"+itoa(int64(i)), "c1", "m"+itoa(int64(i))))
 		if i%3 == 0 { // crash before the worker ran

@@ -7,3 +7,5 @@ bench/h2h/results/*.lock
 bench/h2h/results/.ledger-*
 # Binari alat lokal (damnbot-vet, target vet-custom).
 /.bin/
+# Binari hasil `go build ./cmd/damnbot` di root repo.
+/damnbot

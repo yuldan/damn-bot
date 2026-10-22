@@ -1,8 +1,9 @@
-// Package compaction owns the staged P8 compaction contract (SPEC §4.7).
-// This F2 slice implements only the trigger: the deterministic prune and the
-// single summary call are added by the compaction implementation. Keeping
-// the trigger here gives the loop/assembly boundary one typed vocabulary
-// without importing the implementation.
+// Package compaction owns the staged P8 compaction contract (SPEC §4.7,
+// ADR-122, ADR-123): the threshold trigger, the deterministic stage-1 prune
+// of the request view, the single stage-2 summary, and the Compactor that
+// the loop calls and the assembler reads. Keeping the trigger here gives
+// the loop/assembly boundary one typed vocabulary without importing the
+// implementation.
 package compaction
 
 import (
@@ -35,6 +36,16 @@ func (k Kind) String() string {
 	}
 	return "none"
 }
+
+// Reason is which SPEC §4.7 trigger started a compaction; it is persisted
+// with the Run's Attempt.
+type Reason string
+
+// Trigger reasons.
+const (
+	ReasonEstimate      Reason = "estimate"       // estimate ≥ compact_at (Decide = Compact)
+	ReasonContextLength Reason = "context_length" // provider rejected the request as too long: stage 2 is forced
+)
 
 // Thresholds are percentages of the context window (SPEC §12 [context] and
 // §4.7): compact_at defaults to 75, overflow_at to 90. A zero field selects

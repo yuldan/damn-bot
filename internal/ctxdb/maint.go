@@ -43,6 +43,15 @@ type holderInfo struct {
 
 // openRoot creates the data dir layout and opens it as an os.Root, so every
 // file operation of ctxdb stays inside the data dir.
+// openReadRoot opens an existing dir without creating it or the layout.
+func openReadRoot(dir string) (*os.Root, error) {
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	return r, nil
+}
+
 func openRoot(dir string) (*os.Root, error) {
 	if err := os.MkdirAll(filepath.Clean(dir), 0o700); err != nil { //nolint:gosec // G703: dir is the operator-configured data dir, not untrusted input
 		return nil, wrap(err)
@@ -189,6 +198,32 @@ func (s *Store) registerHolder() error {
 		return wrap(err)
 	}
 	return writeAtomic(s.root, s.holderName(), b)
+}
+
+// liveHolder reports another process that may still write the data dir. A
+// holder on an unknown host is treated as live (cannot be proven gone).
+func (s *Store) liveHolder() bool {
+	ents, err := fs.ReadDir(s.root.FS(), holdersDir)
+	if err != nil {
+		return !errors.Is(err, fs.ErrNotExist) // no holders dir: none; else unknown
+	}
+	for _, e := range ents {
+		b, rerr := s.root.ReadFile(path.Join(holdersDir, e.Name()))
+		if rerr != nil {
+			return true // an unreadable holder record is uncertainty
+		}
+		var h holderInfo
+		if json.Unmarshal(b, &h) != nil {
+			return true
+		}
+		if h.Ident == s.id {
+			continue // this process
+		}
+		if h.Host != s.id.Host || !s.opt.Procs.Gone(h.Ident) {
+			return true
+		}
+	}
+	return false
 }
 
 // holders returns live registered processes other than this one.

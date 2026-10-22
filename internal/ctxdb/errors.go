@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"modernc.org/sqlite"
 )
@@ -20,6 +21,7 @@ var (
 	ErrBlobMissing         = errors.New("blob_missing")
 	ErrApprovalNotPending  = errors.New("approval_not_pending")
 	ErrSchemaNewer         = errors.New("schema_newer")
+	ErrReadOnly            = errors.New("read_only")
 	ErrDBBusy              = errors.New("db_busy")
 	ErrDiskFull            = errors.New("disk_full")
 	ErrNotFound            = errors.New("not_found")
@@ -27,12 +29,15 @@ var (
 	ErrInboundInvalid      = errors.New("inbound_invalid")
 	ErrMigrationRefused    = errors.New("migration_refused")
 	ErrInternal            = errors.New("internal")
+	ErrInvalidSeq          = errors.New("invalid_args") // fork seq outside [0, head]
 )
 
 // SQLite result codes used for classification (sqlite3.h).
 const (
 	codeBusy              = 5
+	codeReadOnly          = 8
 	codeFull              = 13
+	codeCantOpen          = 14
 	codeConstraintTrigger = 1811
 )
 
@@ -76,6 +81,132 @@ func classify(err error) error {
 }
 
 // wrap classifies and wraps any error crossing the package boundary.
+// readOnlyQuery accepts a single read statement (SELECT/WITH/VALUES) and
+// rejects DML, PRAGMA, ATTACH, VACUUM, and multi-statement SQL. It tokenizes
+// outside strings, quoted identifiers, and comments, so a keyword inside a
+// literal or a name such as created_at/pragma_table_info is not a match.
+func readOnlyQuery(q string) bool {
+	toks, ok := scanSQL(q)
+	if !ok || len(toks) == 0 {
+		return false
+	}
+	for _, t := range toks {
+		switch t {
+		case "ATTACH", "DETACH", "VACUUM", "INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER", "PRAGMA":
+			return false
+		}
+	}
+	switch toks[0] {
+	case "SELECT", "WITH", "VALUES":
+		return true
+	}
+	return false
+}
+
+func scanSQL(q string) ([]string, bool) {
+	var toks []string
+	terminated := false
+	for i := 0; i < len(q); {
+		tok, next, ok := nextSQLToken(q, i)
+		if !ok {
+			return nil, false
+		}
+		i = next
+		switch tok {
+		case ";":
+			terminated = true
+		case "":
+		default:
+			if terminated {
+				return nil, false
+			}
+			toks = append(toks, tok)
+		}
+	}
+	return toks, true
+}
+
+// nextSQLToken skips whitespace, comments, strings, and quoted identifiers;
+// it returns ";" for a separator and "" for skipped input.
+func nextSQLToken(q string, i int) (string, int, bool) {
+	c := q[i]
+	switch {
+	case isSpace(c):
+		return "", i + 1, true
+	case c == '-' && i+1 < len(q) && q[i+1] == '-':
+		return "", lineEnd(q, i), true
+	case c == '/' && i+1 < len(q) && q[i+1] == '*':
+		n, ok := blockEnd(q, i)
+		return "", n, ok
+	case isQuote(c):
+		n, ok := quotedEnd(q, i, c)
+		return "", n, ok
+	case c == '[':
+		n, ok := bracketEnd(q, i)
+		return "", n, ok
+	case c == ';':
+		return ";", i + 1, true
+	case isWordStart(c):
+		j := i + 1
+		for j < len(q) && isWordByte(q[j]) {
+			j++
+		}
+		return strings.ToUpper(q[i:j]), j, true
+	}
+	return "", i + 1, true
+}
+
+func lineEnd(q string, i int) int {
+	for i < len(q) && q[i] != '\n' {
+		i++
+	}
+	return i
+}
+
+func blockEnd(q string, i int) (int, bool) {
+	j := strings.Index(q[i+2:], "*/")
+	if j < 0 {
+		return 0, false
+	}
+	return i + j + 4, true
+}
+
+func quotedEnd(q string, i int, quote byte) (int, bool) {
+	i++
+	for i < len(q) {
+		if q[i] != quote {
+			i++
+			continue
+		}
+		if i+1 < len(q) && q[i+1] == quote {
+			i += 2
+			continue
+		}
+		return i + 1, true
+	}
+	return 0, false
+}
+
+func bracketEnd(q string, i int) (int, bool) {
+	j := strings.IndexByte(q[i+1:], ']')
+	if j < 0 {
+		return 0, false
+	}
+	return i + j + 2, true
+}
+
+func isSpace(c byte) bool { return strings.IndexByte(" \t\n\r\f\v", c) >= 0 }
+
+func isQuote(c byte) bool { return strings.IndexByte("'\"`", c) >= 0 }
+
+func isWordStart(c byte) bool {
+	return c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+func isWordByte(c byte) bool {
+	return isWordStart(c) || c >= '0' && c <= '9'
+}
+
 func wrap(err error) error {
 	if err == nil {
 		return nil

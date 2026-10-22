@@ -8,16 +8,17 @@ import (
 
 // state accumulates the verdict over one Classify call.
 type state struct {
-	env    *Env
-	v      Verdict
-	deny   [][]string
-	roots  []string
-	cwd    string
-	cwdOK  bool // false after cd: relative operands are unresolvable
-	fold   bool // Windows dialect: case-insensitive, backslash separators
-	remote bool // inside ssh '<cmd>': paths are remote, not checked
-	depth  int  // nested bash -c / eval / wrappers
-	mut    bool // some command is not in the non-mutating set
+	env       *Env
+	v         Verdict
+	deny      [][]string
+	roots     []string
+	cwd       string
+	cwdOK     bool // false after cd: relative operands are unresolvable
+	cdTracked bool // the last cd target was statically resolved locally
+	fold      bool // Windows dialect: case-insensitive, backslash separators
+	remote    bool // inside ssh '<cmd>': paths are remote, not checked
+	depth     int  // nested bash -c / eval / wrappers
+	mut       bool // some command is not in the non-mutating set
 }
 
 func newState(env *Env) *state {
