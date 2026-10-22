@@ -3234,3 +3234,22 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Dampak terukur (SPEC §20).** Dependency 0, migrasi 0, token prompt 0, perubahan indeks 0 (hanya ekspresi kueri). LOC `ctxdb/memstore` 485/600 dan `ctxdb` 3.429/3.500 (tanpa perubahan `loc.budget`). Biaya kueri: satu MATCH dengan OR dan `bm25` pada kandidat; LIMIT 10 per retrieval.
 
 **Konsekuensi.** (+) Kueri natural bahasa manusia dapat menemukan fakta yang relevan; operator FTS tetap tidak dapat disuntikkan user. (−) Kandidat bisa lebih banyak pada korpus besar (term umum seperti "my"); `bm25` + LIMIT menahan biaya, tetapi kualitas ranking bergantung pada tokenisasi unicode61 (tanpa stopword removal).
+
+## ADR-164 — Baseline hermes F2: Konkurensi dan Token skill per turn (ADR-065/083)
+
+**Status:** Accepted 2026-10-22 (delegasi; mengukur dua dimensi berstatus F2 di ADR-065/083). Diterapkan di PR baseline F2. Tanpa LLM call, tanpa perubahan `loc.budget`.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-22): `bench/f2/run.sh`, `bench/f2/hermes_concurrency.py`, `bench/f2/cmd/f2measure`, `internal/ctxdb/f2_concurrency_test.go`, artefak `bench/f2/results/hermes-868b9f244f-F2.json`, dan penanda `not_measured` di `bench/speed/results/hermes-868b9f244f-nollm.json`. Mengutip SCORECARD §1.1/§1.3, ADR-065, ADR-083, dan SPEC §22.1 (GAP-REL-04/GAP-PROV-02 terkait window).
+
+**Konteks.** ADR-065/083 menetapkan Konkurensi dan Token skill per turn diukur di F2 dengan harness yang sama untuk kedua agent, artefak `bench/…/results/hermes-868b9f244f-<fase>.json`. Keduanya tidak memerlukan LLM: konkurensi adalah lapisan state/sesi, token skill dihitung dari request yang direkam (hermes) dan tier prompt yang dirender (Damn-Bot).
+
+**Keputusan.**
+1. **Satu harness.** `bench/f2/run.sh` menjalankan `TestConcurrencyF2` (Damn-Bot), `hermes_concurrency.py` (hermes, `SessionDB` dari checkout 868b9f244f), lalu `f2measure` yang menghitung token o200k dan menulis artefak. Skenario, definisi turn, dan tokenizer ditetapkan di sini, bukan per agent: 4 proses × 50 turn pada sesi sendiri + 2 proses × 50 turn berebut satu sesi `SHARED`; satu turn = satu pesan user + satu assistant.
+2. **Konkurensi.** Target: 0 `SQLITE_BUSY`, 0 error lain, `integrity_check` ok. Hasil 2026-10-22: Damn-Bot 400 append own + 200 shared, 0/0, ok; hermes 400/200, 0/0, ok. Lingkungan: Xeon Gold 6152, kernel 6.8.0-41; hermes 868b9f244f, Python 3.12.3 (deps 3.12; `ruamel.yaml` 0.18.16), SQLite sistem 3.45.1 sehingga guard WAL-reset hermes memilih `journal_mode=DELETE`; Damn-Bot memakai modernc embedded (≥3.51.3) dengan WAL. Artefak mencatat versi engine/journal per agent; perbedaan mode adalah perilaku default masing-masing di host ini, bukan parameter yang disamakan.
+3. **Token skill per turn.** Metrik: token o200k dari bagian request yang hanya ada karena skill. Hermes: blok `<available_skills>` di pesan instruksi (role `developer`) = 1.253 tok, 61 entri; seluruh bagian `## Skills` = 1.462 tok. Damn-Bot: slot skills tier context pada fixture all-modules (211 skill terpasang, retrieval top-3) = 94 tok, ditambah nama skill baru di volatile (`new:` line) = 9 tok. Rasio 94/1.253 = 0,075. Target tetap ≤150 context + ≤20 volatile dan ≤0,2× hermes.
+4. **Artefak.** `bench/f2/results/hermes-868b9f244f-F2.json` memuat `meta` (commit, tanggal, CPU, kernel, tokenizer, skenario, "0 LLM call"), `dimensions.konkurensi` dan `dimensions.token_skill_per_turn` dengan angka kedua agent dan verdict. Reproduksi: `HERMES_DIR=<checkout> HERMES_PYTHONPATH=<deps> bench/f2/run.sh`; dua run berturut-turut menghasilkan angka dimensi identik.
+5. **Cakupan.** Tidak ada panggilan LLM (tidak ada biaya); skenario konkurensi hanya menyentuh lapisan state/sesi, sesuai metrik SCORECARD. Host ini bukan mesin referensi Q14 dan bukan mesin F0 (i7-1255U/Python 3.14.7), jadi angka absolut tidak dibandingkan lintas mesin; perbandingan yang berlaku adalah kedua agent pada host dan harness yang sama.
+
+**Dampak terukur (SPEC §20).** Token/biaya 0; LOC produksi 0 (hanya bench + test); dependency 0; artefak JSON ≈2 KB.
+
+**Konsekuensi.** (+) Dua dimensi F2 punya angka yang bisa direproduksi dan penanda `not_measured` menunjuk ke artefak F2. (−) Perbedaan engine SQLite (WAL vs DELETE) dan versi Python harus dibaca bersama angka; host pengukuran bukan mesin referensi.
