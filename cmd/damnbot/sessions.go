@@ -29,8 +29,6 @@ func runSessions(args []string, stdout, stderr io.Writer) int {
 		return sessionsList(args[1:], stdout, stderr)
 	case "show":
 		return sessionsShow(args[1:], stdout, stderr)
-	case "export":
-		return sessionsExport(args[1:], stdout, stderr)
 	default:
 		sessionsPrintf(stderr, "sessions: unknown subcommand %q\n", cleanArg(args[0]))
 		sessionsUsage(stderr)
@@ -48,7 +46,7 @@ func sessionsPrintf(w io.Writer, format string, args ...any) {
 func sessionsUsage(w io.Writer) {
 	sessionsPrintf(w, "usage: damnbot sessions fork <id> [--at <seq|turn:ID>]\n")
 	sessionsPrintf(w, "       damnbot sessions rewind <id> --at <seq|turn:ID>\n")
-	sessionsPrintf(w, "       damnbot sessions ls|show <id>|export <id> [--format jsonl|md] [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot sessions ls|show <id> [--data-dir DIR]\n")
 }
 
 // sessionsBranch creates a child of id with ctxdb.Fork. Fork defaults to the
