@@ -252,7 +252,7 @@ func openSessionsDB(ctx context.Context, dataDir string) (*ctxdb.Store, error) {
 }
 
 // openSessionsDBReadOnly opens the store for inspection (mode=ro): a newer
-// schema is readable and no data dir/layout is created (ADR-132/ADR-139).
+// schema is readable and no data dir/layout is created (ADR-132/ADR-140).
 func openSessionsDBReadOnly(ctx context.Context, dataDir string) (*ctxdb.Store, error) {
 	return openSessionsStore(ctx, dataDir, true)
 }
