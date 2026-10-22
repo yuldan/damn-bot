@@ -126,6 +126,13 @@ func nonInteractive(pty bool) [][2]string {
 		{"GIT_SEQUENCE_EDITOR", "false"},
 		{"GIT_MERGE_AUTOEDIT", "no"},
 		{"PYTHONUNBUFFERED", "1"},
+		// EC-WIN-016: a child must not encode its output with the ANSI/OEM
+		// code page of a Windows parent. PYTHONUTF8 switches CPython to
+		// UTF-8 mode (stdio included) and PYTHONIOENCODING pins the streams
+		// on interpreters that ignore the mode; the parent decodes UTF-8
+		// explicitly (exec.applyCR).
+		{"PYTHONUTF8", "1"},
+		{"PYTHONIOENCODING", "utf-8"},
 		{"TERM", term},
 		// less shows the file name, not a prompt, on its first screen; a
 		// fixed "--More--" prompt makes it a detectable pager (ADR-105 butir 17).
