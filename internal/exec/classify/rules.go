@@ -132,7 +132,7 @@ func (s *state) changeDir(args []arg) {
 		}
 		s.paymentFile(p, s.resolve(p))
 	}
-	s.cdTracked = tracked && targets > 0
+	s.cdTracked = (targets == 0 && s.cdTracked) || (targets > 0 && tracked) // bare cd: no-op (SEC10-25b)
 	s.cwdOK = false
 }
 
