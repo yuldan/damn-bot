@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"bytes"
 	"encoding/json"
 	"maps"
 	"math"
@@ -89,6 +90,7 @@ func (s *Schema) Partial() []string { return slices.Clone(s.partial) }
 // Compile parses and compiles a schema document. The document must be
 // strict JSON (the same rules as Validate, including no duplicate keys).
 func Compile(raw []byte, mode Mode) (*Schema, error) {
+	raw = trimBOM(raw)
 	if e := check(raw); e != nil {
 		return nil, &CompileError{Msg: e.Error()}
 	}
@@ -102,6 +104,15 @@ func Compile(raw []byte, mode Mode) (*Schema, error) {
 		return nil, err
 	}
 	return &Schema{root: root, partial: slices.Sorted(maps.Keys(c.partial))}, nil
+}
+
+// trimBOM drops one leading UTF-8 BOM from a schema file (EC-FIO-007): a
+// schema written by a Windows editor must compile instead of failing at the
+// first byte. Only the prefix is a mark, and stripping it never makes invalid
+// JSON valid. Documents handed to Validate are wire data, not files, so they
+// stay strict.
+func trimBOM(raw []byte) []byte {
+	return bytes.TrimPrefix(raw, []byte{0xEF, 0xBB, 0xBF})
 }
 
 type compiler struct {

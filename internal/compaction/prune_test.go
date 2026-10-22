@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -292,5 +293,38 @@ func TestResultFlags(t *testing.T) {
 		if f != c.failed || tn != c.tainted {
 			t.Errorf("resultFlags(%s, %q) = %v %v", c.payload, c.content, f, tn)
 		}
+	}
+}
+
+// TestPruneSkillViewMarker (EC-CTX-006): an old skill_view result becomes a
+// canonical [SKILL_PRUNED] stub so the model cannot treat the skill as still
+// loaded from raw content.
+func ecCtx006(t *testing.T) {
+	var evs []Event
+	for i := range 8 {
+		id := "c" + strconv.Itoa(i)
+		evs = append(evs,
+			Event{
+				Seq: int64(2*i + 1), Kind: event.AssistantMessage, Role: "assistant",
+				Payload: `{"tool_calls":[{"id":"` + id + `","name":"skill_view","arguments":"{\"name\":\"s` + strconv.Itoa(i) + `\"}"}]}`,
+			},
+			Event{
+				Seq: int64(2*i + 2), Kind: event.ToolResult, Role: "tool", ToolCallID: id, ToolName: "skill_view",
+				Content: strings.Repeat("skill instructions ", 100),
+			},
+		)
+	}
+	msgs, st := Prune(evs)
+	if st.Old == 0 {
+		t.Fatal("no old skill_view result was pruned")
+	}
+	found := false
+	for _, m := range msgs {
+		if m.Role == "tool" && strings.Contains(m.Content, "[SKILL_PRUNED]") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("stub lacks [SKILL_PRUNED]: %+v", msgs)
 	}
 }

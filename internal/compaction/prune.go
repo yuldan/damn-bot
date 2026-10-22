@@ -134,6 +134,9 @@ func old(items []item, pending int) int {
 
 func prunedStub(it *item) string {
 	var b strings.Builder
+	if it.tool == "skill_view" {
+		b.WriteString("[SKILL_PRUNED] ")
+	}
 	b.WriteString("[pruned: " + strconv.Itoa(utf8.RuneCountInString(it.Content)) + " chars")
 	if len(it.blob) >= shortSHA {
 		b.WriteString(", blob " + it.blob[:shortSHA])

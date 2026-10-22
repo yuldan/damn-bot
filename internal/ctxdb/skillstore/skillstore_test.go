@@ -278,3 +278,128 @@ func TestIndexPolicy(t *testing.T) {
 		t.Fatalf("unknown source = %v", err)
 	}
 }
+
+// agentFixture seeds the lookup fixtures: a trusted "shared" row with an
+// agent row of the same name (distinct file), a quarantined "pending" row and
+// a trusted-only "useronly" row.
+func agentFixture(t *testing.T, s *ctxdb.Store) (pendingMem, pendingID int64) {
+	t.Helper()
+	ctx := t.Context()
+	if _, err := Index(ctx, s, mkrow("shared", "user copy", "user"), 1); err != nil {
+		t.Fatal(err)
+	}
+	sharedAgent := mkrow("shared", "agent copy", "agent")
+	sharedAgent.SHA256 = strings.Repeat("c", 64) // distinct from the trusted row's file
+	quarantine(t, s, sharedAgent, false)
+	pendingMem, pendingID = quarantine(t, s, mkrow("pending", "agent only", "agent"), false)
+	if _, err := Index(ctx, s, mkrow("useronly", "trusted only", "user"), 1); err != nil {
+		t.Fatal(err)
+	}
+	return pendingMem, pendingID
+}
+
+// TestSourceOfTrustedWins: a trusted row wins the source lookup so an agent
+// row can never shadow it.
+func TestSourceOfTrustedWins(t *testing.T) {
+	ctx := t.Context()
+	s := open(t)
+	agentFixture(t, s)
+	if src, found, err := SourceOf(ctx, s, "shared"); err != nil || !found || src != "user" {
+		t.Fatalf("SourceOf(shared) = %q, %v, %v; want user", src, found, err)
+	}
+	if src, found, err := SourceOf(ctx, s, "missing"); err != nil || found || src != "" {
+		t.Fatalf("SourceOf(missing) = %q, %v, %v", src, found, err)
+	}
+}
+
+// TestAgentPathQuarantined: AgentPath returns the agent row even while it is
+// still quarantined, and never invents one for a trusted-only name.
+func TestAgentPathQuarantined(t *testing.T) {
+	ctx := t.Context()
+	s := open(t)
+	agentFixture(t, s)
+	if p, found, err := AgentPath(ctx, s, "shared"); err != nil || !found || p != "/skills/shared/SKILL.md" {
+		t.Fatalf("AgentPath(shared) = %q, %v, %v", p, found, err)
+	}
+	if _, found, err := AgentPath(ctx, s, "useronly"); err != nil || found {
+		t.Fatalf("AgentPath(useronly) = %v, %v", found, err)
+	}
+}
+
+// TestByNameApprovalControl: ByName hides a quarantined row and returns it
+// after the user approval.
+func TestByNameApprovalControl(t *testing.T) {
+	ctx := t.Context()
+	s := open(t)
+	pendingMem, pendingID := agentFixture(t, s)
+	if _, found, err := ByName(ctx, s, "pending"); err != nil || found {
+		t.Fatalf("ByName returned a quarantined row: %v, %v", found, err)
+	}
+	if err := Approve(ctx, s, pendingMem, 101); err != nil {
+		t.Fatal(err)
+	}
+	if r, found, err := ByName(ctx, s, "pending"); err != nil || !found || r.ID != pendingID {
+		t.Fatalf("ByName after approval = %+v, %v, %v", r, found, err)
+	}
+}
+
+// TestReplaceAgentRow: Replace re-points one agent row and never touches a
+// trusted row.
+func TestReplaceAgentRow(t *testing.T) {
+	ctx := t.Context()
+	s := open(t)
+	_, rotID := quarantine(t, s, mkrow("rot", "v1", "agent"), false)
+	trusted, err := Index(ctx, s, mkrow("useronly", "trusted only", "user"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rerr := Replace(ctx, s, "rot", "/skills/rot/new/SKILL.md", rotID); rerr != nil {
+		t.Fatal(rerr)
+	}
+	rows, gerr := Get(ctx, s, []int64{rotID})
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if len(rows) != 1 || rows[0].ID != rotID || rows[0].Path != "/skills/rot/new/SKILL.md" {
+		t.Fatalf("Replace left %+v", rows)
+	}
+	if rerr := Replace(ctx, s, "useronly", "/skills/useronly/SKILL.md", trusted); !errors.Is(rerr, ErrNotFound) {
+		t.Fatalf("Replace over a trusted row = %v, want not_found", rerr)
+	}
+}
+
+// TestDeleteAgentRows: Delete and DeleteID remove agent rows only; a trusted
+// row survives both.
+func TestDeleteAgentRows(t *testing.T) {
+	ctx := t.Context()
+	s := open(t)
+	trusted, err := Index(ctx, s, mkrow("trusted", "user copy", "user"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quarantine(t, s, mkrow("pending", "agent only", "agent"), false)
+	_, extra := quarantine(t, s, mkrow("extra", "agent two", "agent"), false)
+
+	if derr := DeleteID(ctx, s, trusted); !errors.Is(derr, ErrNotFound) {
+		t.Fatalf("DeleteID on a trusted row = %v, want not_found", derr)
+	}
+	if derr := Delete(ctx, s, "trusted"); !errors.Is(derr, ErrNotFound) {
+		t.Fatalf("Delete on a trusted row = %v, want not_found", derr)
+	}
+	if derr := Delete(ctx, s, "pending"); derr != nil {
+		t.Fatal(derr)
+	}
+	if _, found, aerr := AgentPath(ctx, s, "pending"); aerr != nil || found {
+		t.Fatalf("AgentPath(pending) after Delete = %v, %v", found, aerr)
+	}
+	if derr := DeleteID(ctx, s, extra); derr != nil {
+		t.Fatal(derr)
+	}
+	rows, gerr := Get(ctx, s, []int64{trusted, extra})
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if len(rows) != 1 || rows[0].ID != trusted {
+		t.Fatalf("agent-only helpers removed a trusted row or kept a deleted one: %+v", rows)
+	}
+}

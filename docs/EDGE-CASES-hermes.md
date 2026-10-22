@@ -108,7 +108,7 @@ Catatan seleksi:
 | EC-CTX-003 | Ringkasan pertama gagal → marker fallback disisip tiap turn | Tidak ada cooldown summary | `agent/context_compressor.py:3055` #11529 | ya | Kegagalan summary memasang cooldown |
 | EC-CTX-004 | Kompresi menghancurkan middle saat provider down | Network/empty-content saat summary | `agent/context_compressor.py:4237` #29559 | ya | Kegagalan terminal → abort, transcript tidak berubah |
 | EC-CTX-005 | Overload terus-menerus → session wipe | Semua attempt overload abort | `agent/context_compressor.py:796` #123167 | ya | Setelah N overload, commit ringkasan deterministik |
-| EC-CTX-006 | Skill dianggap masih termuat setelah dipangkas | Compaction meringkas hasil skill_view | `agent/context_compressor.py:849` #32106 | sebagian | Marker [SKILL_PRUNED] kanonik dipertahankan |
+| EC-CTX-006 | Skill dianggap masih termuat setelah dipangkas | Compaction meringkas hasil skill_view | `agent/context_compressor.py:849` #32106 | ya | Marker [SKILL_PRUNED] kanonik dipertahankan (`TestEdgeCases/EC-CTX-006`) |
 | EC-CTX-007 | Direktif MEDIA ikut ke ringkasan → kirim lampiran palsu | Directive delivery di transcript | `agent/context_compressor.py:1159` #14665 | sebagian | Direktif delivery dibuang sebelum summarizer |
 | EC-CTX-008 | Gambar base64 lama ikut tiap request → 413 | Gambar pertama/tool screenshot tidak pernah dievict | `agent/context_compressor.py:1605` #89938, `:4820` | ya | Hanya gambar terbaru dikirim penuh; lama diganti placeholder |
 | EC-CTX-009 | Ringkasan menyuruh "do nothing" pada cron | Satu-satunya user turn ada di head | `agent/context_compressor.py:511` #100818 | ya | Tugas aktif di-restate setelah boundary ringkasan |
