@@ -113,7 +113,7 @@ func hasFlag(args []arg, f string) bool {
 // changeDir labels a literal `cd` into a payment skill directory Monetary
 // (SEC10-1) and keeps cwd untracked afterwards, so every relative operand
 // stays unknown (ADR-079 butir 2).
-func (s *state) changeDir(args []arg) {
+func (s *state) changeDir(args []arg) { //nolint:gocyclo // bare-cd no-op adds one branch (SEC10-25b)
 	tracked, targets := true, 0
 	for _, a := range args {
 		if strings.HasPrefix(a.s, `\\`) || (s.fold && strings.HasPrefix(a.s, "//")) {
@@ -132,8 +132,9 @@ func (s *state) changeDir(args []arg) {
 		}
 		s.paymentFile(p, s.resolve(p))
 	}
-	s.cdTracked = (targets == 0 && s.cdTracked) || (targets > 0 && tracked) // bare cd: no-op (SEC10-25b)
-	s.cwdOK = false
+	// A bare cd keeps both values (SEC10-25b): no-op for tracked state/cwd.
+	s.cdTracked = s.cdTracked && len(args) == 0 || len(args) > 0 && tracked && targets > 0
+	s.cwdOK = s.cwdOK && len(args) == 0
 }
 
 // tool handles commands whose operands need specific parsing.
