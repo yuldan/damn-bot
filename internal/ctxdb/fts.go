@@ -18,6 +18,7 @@ const (
 func ftsTables() []string {
 	return []string{"events_fts", "summaries_fts", "memory_fts", "skills_fts", "blob_fts"}
 }
+
 func (s *Store) ftsLayout() int {
 	if s.codec != nil {
 		return ftsEncLayout
@@ -38,6 +39,7 @@ func (s *Store) ensureFTS(ctx context.Context) error {
 	}
 	return s.upgradeFTS(ctx)
 }
+
 func (s *Store) initFTS(ctx context.Context) error {
 	if s.codec != nil {
 		if err := s.recreateEncryptedFTS(ctx); err != nil {
@@ -53,6 +55,7 @@ func (s *Store) initFTS(ctx context.Context) error {
 		return nil
 	})
 }
+
 func (s *Store) upgradeFTS(ctx context.Context) error {
 	recreated, err := s.upgradeEncryptedLayout(ctx)
 	if err != nil {
@@ -68,16 +71,31 @@ func (s *Store) upgradeFTS(ctx context.Context) error {
 	}
 	return s.ReindexFTS(ctx, ftsBatchSize)
 }
+
+// upgradeEncryptedLayout recreates the FTS tables when any of them still has
+// the plaintext layout. Every table is inspected (SEC7-73): checking only
+// events_fts let a partially converted database keep the four other indexes
+// at detail=full, which breaks NEAR/position semantics.
 func (s *Store) upgradeEncryptedLayout(ctx context.Context) (bool, error) {
 	if s.codec == nil {
 		return false, nil
 	}
-	var schema string
-	if err := s.get(ctx, `SELECT sql FROM sqlite_master WHERE name='events_fts'`, nil, &schema); err != nil {
+	ddl, err := s.strings(ctx, `SELECT sql FROM sqlite_master WHERE name IN
+		('events_fts','summaries_fts','memory_fts','skills_fts','blob_fts')`)
+	if err != nil {
 		return false, err
 	}
-	if strings.Contains(schema, "detail=column") {
-		return false, nil
+	if len(ddl) == len(ftsTables()) {
+		columnDetail := true
+		for _, q := range ddl {
+			if !strings.Contains(q, "detail=column") {
+				columnDetail = false
+				break
+			}
+		}
+		if columnDetail {
+			return false, nil
+		}
 	}
 	return true, s.recreateEncryptedFTS(ctx)
 }
@@ -119,11 +137,13 @@ func (t *Tx) ftsTableMeta(name string) error {
 		name, ftsNormVersion, t.s.ftsLayout(), t.s.clk.WallMs())
 	return err
 }
+
 func (t *Tx) ftsMetaProgress(name string, last int64) error {
 	_, err := t.Exec(`UPDATE fts_meta SET norm_version=?, layout_version=?, reindexed_to=?, updated_at=? WHERE name=?`,
 		ftsNormVersion, t.s.ftsLayout(), last, t.s.clk.WallMs(), name)
 	return err
 }
+
 func (s *Store) clearFTS(ctx context.Context, name string) error {
 	q := map[string]string{
 		"events_fts":    "INSERT INTO events_fts(events_fts) VALUES('delete-all')",
@@ -143,6 +163,7 @@ func (s *Store) clearFTS(ctx context.Context, name string) error {
 		return err
 	})
 }
+
 func (s *Store) ftsTokens(scope, identity string, enc []byte, plain string) (string, error) {
 	if len(enc) == 0 {
 		if s.codec == nil {
@@ -156,6 +177,7 @@ func (s *Store) ftsTokens(scope, identity string, enc []byte, plain string) (str
 	}
 	return encFTS(s.codec, pt), nil
 }
+
 func (s *Store) ftsPage(ctx context.Context, q string, last int64, batch int, scan func(*sql.Rows) (ftsEntry, error)) ([]ftsEntry, error) {
 	args := []any{last, batch}
 	var out []ftsEntry
@@ -168,6 +190,7 @@ func (s *Store) ftsPage(ctx context.Context, q string, last int64, batch int, sc
 	})
 	return out, err
 }
+
 func (s *Store) insertFTSBatch(ctx context.Context, table string, entries []ftsEntry) error {
 	return s.Write(ctx, func(tx *Tx) error {
 		for i := range entries {
@@ -178,6 +201,7 @@ func (s *Store) insertFTSBatch(ctx context.Context, table string, entries []ftsE
 		return tx.ftsMetaProgress(table, entries[len(entries)-1].id)
 	})
 }
+
 func insertFTSEntry(tx *Tx, table string, e ftsEntry) error {
 	var q string
 	switch table {
@@ -198,6 +222,7 @@ func insertFTSEntry(tx *Tx, table string, e ftsEntry) error {
 	_, err := tx.c.ExecContext(tx.ctx, q, args...)
 	return wrap(err)
 }
+
 func (s *Store) reindexEvents(ctx context.Context, batch int) error {
 	const q = `SELECT id, session_id, seq, content, content_enc, coalesce(tool_name,'') FROM events
 		WHERE kind IN ('user_message','assistant_message','tool_result','imported') AND id > ? ORDER BY id LIMIT ?`
@@ -224,6 +249,7 @@ func (s *Store) reindexEvents(ctx context.Context, batch int) error {
 		last = rows[len(rows)-1].id
 	}
 }
+
 func (s *Store) reindexSummaries(ctx context.Context, batch int) error {
 	const q = `SELECT id, session_id, from_seq, to_seq, content, content_enc FROM summaries
 		WHERE id > ? ORDER BY id LIMIT ?`
@@ -247,6 +273,7 @@ func (s *Store) reindexSummaries(ctx context.Context, batch int) error {
 		last = rows[len(rows)-1].id
 	}
 }
+
 func (s *Store) reindexMemory(ctx context.Context, batch int) error {
 	const q = `SELECT id, scope, enc_id, content, content_enc FROM memory WHERE id > ? ORDER BY id LIMIT ?`
 	for last := int64(0); ; {
@@ -269,6 +296,7 @@ func (s *Store) reindexMemory(ctx context.Context, batch int) error {
 		last = rows[len(rows)-1].id
 	}
 }
+
 func (s *Store) reindexSkills(ctx context.Context, batch int) error {
 	const q = `SELECT id, name, description, body FROM skills WHERE id > ? ORDER BY id LIMIT ?`
 	for last := int64(0); ; {
@@ -289,6 +317,7 @@ func (s *Store) reindexSkills(ctx context.Context, batch int) error {
 		last = rows[len(rows)-1].id
 	}
 }
+
 func (s *Store) reindexBlobs(ctx context.Context, batch int) error {
 	const q = `SELECT e.id, b.sha256 FROM events e JOIN blobs b ON b.sha256 = e.blob_sha
 		WHERE e.id > ? AND b.size <= 16777216 AND (b.mime LIKE 'text/%' OR b.mime = 'application/json')
@@ -346,6 +375,7 @@ func (t *Tx) indexBlobFTS(sha string, eventID int64) error {
 	}
 	return err
 }
+
 func (s *Store) blobFTSAvailable(ctx context.Context) bool {
 	s.blobOnce.Do(func() {
 		var n int
@@ -355,6 +385,7 @@ func (s *Store) blobFTSAvailable(ctx context.Context) bool {
 	})
 	return s.hasBlobFTS.Load()
 }
+
 func (s *Store) ftsPlain(text string) string {
 	if s.codec == nil {
 		return ftsNorm(text)
