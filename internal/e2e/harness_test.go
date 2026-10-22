@@ -179,6 +179,9 @@ func (e *Env) RequestText(t *testing.T, i int) string {
 	return string(raw[i])
 }
 
+// ConfigDir is the directory holding config.toml (skills live under it).
+func (e *Env) ConfigDir() string { return filepath.Join(e.home, "damnbot") }
+
 // Path joins rel under the temp workspace.
 func (e *Env) Path(rel string) string { return filepath.Join(e.Workdir, rel) }
 

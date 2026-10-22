@@ -3251,6 +3251,7 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Dampak terukur (SPEC §20).** LOC: `compaction` +≈10, `ctxdb/memstore` +0 (satu klausa ORDER BY), test +≈150; token/binary/dependency 0. Tidak ada perubahan `loc.budget`.
 
 **Konsekuensi.** (+) Tiga temuan review tertutup dengan bukti yang bisa gagal; EC-CTX-007 tidak lagi bisa membocorkan direktif telanjang. (−) Dua PR berbagi kode EC-CTX-007/INF-06 dengan #249/#251; urutan merge harus dijaga agar tidak ada duplikasi diam-diam.
+
 ## ADR-139 — Klasifikasi 59 baris parity F2: headless F2, permukaan slash F3, dan tiga baris dipindah
 
 **Status:** Accepted 2026-10-22 (keputusan owner: F2 hanya punya `damnbot run` headless; semua permukaan slash menunggu REPL/TUI F3). Memperbaiki per-row phase ADR-064 untuk 22 baris; baris lain tidak berubah. Diterapkan di PR dokumen ini + PR implementasi lanjutan. Tidak mengubah SPEC, skema, dependency, atau `loc.budget`.
@@ -3337,6 +3338,7 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Dampak terukur (SPEC §20).** Kode/dependency/token/migrasi 0. Dokumen: ADR ini, 22 sel `fase` FEATURE-PARITY, angka fase ROADMAP, `want` `TestParityPhaseColumn`, satu baris CHANGELOG. Gate parity F2 kini 59 baris, F3 135, F5 201, F8 148.
 
 **Konsekuensi.** (+) Acceptance F2 hanya menuntut yang dapat dibangun dengan `run` headless, dan setiap baris yang pindah punya test kapabilitas F2 yang eksplisit. (+) Gate per fase kembali bermakna: F2 tidak lagi memuat 19 permukaan slash yang mustahil. (−) F3 menerima 19 baris permukaan; REPL/TUI F3 harus menutupnya, dan baris F8/F5 tetap terbuka lebih lama. (−) Setiap perpindahan fase berikutnya tetap wajib ADR + perubahan angka di ROADMAP dan test (ADR-064).
+
 ## ADR-155 — Penutupan EC-FIO-006 dan EC-TCALL-009: agregat inline berskala window dan validasi jawaban final
 
 **Status:** Accepted 2026-10-22 (F2 acceptance; mengamandemen ADR-129 butir 12 dan menegakkan SPEC P5 amandemen/GAP-COST-08). Tidak mengubah SPEC, skema, migrasi, atau dependency; `loop` 2.050 → 2.100 dan `tools` 2.200 → 2.250 (Total core 38.090 → 38.190, terukur 2.048/2.178).
@@ -3349,3 +3351,21 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 3. **Test.** `TestTurnAggregateScaled` (32K × rasio 1 → 9.830 char; lima hasil 40.000 char tetap ≤ 30 % window; tiga hasil 4.000 char: yang ketiga spill) dan `TestEdgeCases/EC-TCALL-009` + `TestRunAnswerSchema` (fragmen → `invalid_answer`, exit 2; jawaban sesuai → `completed`).
 
 **Konsekuensi.** (+) Dua entri F1 punya katalog dan test tanpa heuristik bahasa di loop; aturan validasi tetap di `internal/schema`. (−) `--answer-schema` baru memvalidasi keluaran, belum mengirim `response_format` ke provider; window yang dipakai adalah cap input konfigurasi sampai `registry.Limits` terhubung penuh (GAP-PROV-02).
+
+## ADR-173 — Tool skill: `skills_list`, `skill_view`, `skill_manage`
+
+**Status:** Accepted 2026-10-23 (F2; TOOL-074/075/076, SKILL-002, EC-CTX-006, SEC16-1..5, ACC-56..61). Budget `tools` 2.200 → 2.500 (+300; terukur 2.263 sesudah lapisan baca) dan `ctxdb/skillstore` 400 → 460 (+60; terukur 438); dependency 0; DDL 0 (ADR-074). Diterapkan bertahap dalam dua PR berurutan: lapisan baca (`skills_list`, `skill_view`) lalu lapisan tulis (`skill_manage`) beserta penguatan SEC16-5.
+
+**Konteks.** Agent hanya dapat menjalankan instruksi skill bila dapat menemukannya dan memuatnya, tetapi hasil `skill_view` adalah data pihak ketiga dan `skill_manage` menulis file yang dieksekusi pada run berikutnya. `ctxdb/skillstore` sudah menyimpan metadata dan status review; lapisan tool dan jalur baca/tulisnya belum ada.
+
+**Keputusan.**
+1. **Dua tool baca.** `skills_list` mengembalikan hanya skill yang lolos review (nama + deskripsi, cap 50); `skill_view` mengembalikan `SKILL.md` + file pendukung (≤ 20 file, ≤ 64 KiB total, penanda `[skill_view truncated]`). Skill terkarantina tidak muncul di daftar dan `skill_view`-nya `not_found`.
+2. **Untrusted.** `skill_view` menandai hasilnya `UntrustedSource = "skill:<name>"`; dispatcher membungkusnya sebagai `<untrusted>` seperti output file/web. Instruksi di dalam skill tidak pernah menjadi system/developer message.
+3. **Lookup eksak.** `skillstore.ByName` menggunakan indeks `name` (bukan FTS top-k) sehingga skill ke-51 dengan nama mirip tetap dapat dimuat; `Search` tetap dipakai untuk daftar.
+4. **Tool tulis terkarantina.** `skill_manage` (`create`/`update`/`delete`, efek `non_idempotent`) hanya menulis ke `<data>/skills/agent/<name>` (tidak pernah ke `<config>/skills`); `create` menolak nama yang sudah ada di DB **atau** di disk (`<config>/skills/<name>`, termasuk skill pembayaran yang belum terdaftar). Versi baru divalidasi dan ditulis ke staging, lalu `skills.Service.Install`; hanya setelah status `scanned` direktori ditukar dan baris agent lama diganti. Update yang ditolak/gagal mengembalikan versi approved lama; `rejected` menghapus direktori staging. Materialisasi ke `<config>/skills/<name>` terjadi pada run berikutnya setelah user meng-approve, dan tidak pernah menimpa direktori yang bukan milik baris itu.
+5. **Approval selalu.** `skill_manage` mengimplementasikan `Inspector` dengan `RequireAsk` dan `AllowSession:false` di semua mode (`auto`, `auto-edit`, headless); tanpa approver tool gagal tertutup, sehingga `side_effects: [payment]` tidak pernah melewati review.
+6. **Filesystem/validasi.** Nama `^[a-z0-9][a-z0-9._-]{0,63}$`; file pendukung relatif menolak path absolut, `..`, kosong, NUL, dan backslash sebelum mutasi apa pun; baca/tulis memakai `os.Root` dan temp+rename; body/front matter divalidasi parser yang sama; `description` satu baris tanpa kontrol dan di-quote. **SEC16-5:** basename `SKILL.md` ditolak secara case-insensitive (mis. `skill.md`, `Skill.MD`) sebagai file pendukung, sehingga tidak dapat menimpa dokumen `SKILL.md` pada filesystem yang tidak case-sensitive; jalur baca melewati `SKILL.md` dengan aturan case-insensitive yang sama.
+7. **EC-CTX-006.** Hasil `skill_view` yang dipangkas compaction menjadi stub kanonik berawalan `[SKILL_PRUNED]`, sehingga model tidak dapat menganggap isi skill masih termuat setelah dipangkas.
+8. **Test.** Unit tool (list metadata, untrusted view, `not_found`, efek non-idempotent, `Inspector` selalu `RequireAsk` termasuk `auto`/`auto-edit`), manager (karantina → approval user → view; skill terkarantina tidak muncul di list dan view-nya `not_found`; create menolak skill user yang hanya ada di disk tanpa mengubah file/gate pembayaran; update rejected/gagal mempertahankan versi approved lama; rejected create menghapus file; delete hanya baris agent; trusted tidak dapat ditimpa/dihapus; materialisasi hanya setelah approval; lookup eksak di antara > 50 baris; cap payload dan penolakan path, termasuk `skill.md`/`Skill.MD`), e2e binary asli (list/view skill approved dan pembungkusan `<untrusted>`; skill terkarantina tidak terlihat; `skill_manage` ditolak tanpa approver dan tidak menulis file apa pun), `TestEdgeCases/EC-CTX-006`.
+
+**Konsekuensi.** (+) Skill dapat ditemukan dan dimuat secara eksplisit; kontennya tetap data dan approval tetap milik user. (+) Tanpa storage baru (DDL 0) dan tanpa dependency baru. (−) `skill_manage` tidak tersedia pada run headless non-interaktif (fail closed); skill agent baru aktif setelah approval + materialisasi pada run berikutnya; `skill_view` menambah token sesuai file yang diminta (≤ 64 KiB/20 file, body ≤ 8 KiB).

@@ -5,8 +5,8 @@
 # ADR-131 amandemen round 2: loop 1800 -> 1900 (persist/reject carrier; terukur 1851; Σ core +100).
 # ADR-131 SEC8-10: loop 1900 -> 1950 (pemindaian carrier rekursif + key names; terukur 1913).
 # ADR-134 (REL-01 + SEC11): loop +100 di atas 1950 carrier (ADR-131) -> 2050.
-# ADR-155 (EC-TCALL-009/EC-FIO-006): loop 2050 -> 2100 dan tools 2200 -> 2250 (terukur 2.048/2.178;
-# Σ core 38.090 -> 38.190 <= 47.000).
+# ADR-155 (EC-TCALL-009/EC-FIO-006): loop 2050 -> 2100 (terukur 2.048; tools 2200 -> 2250
+# dilampaui ADR-173 -> 2500; Σ core 38.090 -> 38.500 <= 47.000).
 loop              2100 internal/loop
 plan               600 internal/plan
 # ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
@@ -16,7 +16,8 @@ provider/registry  300 internal/provider/registry
 netx              1800 internal/netx
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).
-tools             2250 internal/tools
+# ADR-173: tools 2200 -> 2500 (skills_list/skill_view/skill_manage; terukur 2263 setelah lapisan baca; Σ core 38.090 -> 38.390 <= 47.000).
+tools             2500 internal/tools
 # ADR-111: codetools 4500 -> 4800 (perbaikan REVIEW-F1-SEC2; Σ core 33.900 -> 34.200 <= 47.000).
 # ADR-108: codetools 4800 -> 5250 (prefilter CT-01..03; Σ core 34.200 -> 34.650 <= 47.000).
 # ADR-108 amendment: codetools 5250 -> 5350 (open relatif fd direktori + deny pruning; terukur 5.292; Σ core 34.900 -> 35.000 <= 47.000).
@@ -38,7 +39,8 @@ ctxdb             3800 internal/ctxdb
 # ctxdb/gwstore (900) dihitung dari budget gateway SPEC §3.2.4; barisnya ditambah saat baris gateway dibuat (F4).
 ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore
 ctxdb/memstore     600 internal/ctxdb/memstore
-ctxdb/skillstore   400 internal/ctxdb/skillstore
+# ADR-173: skillstore exact lookup + atomic update/quarantine restore; 400 -> 460 (terukur 438; Σ core +60).
+ctxdb/skillstore   460 internal/ctxdb/skillstore
 ctxdb/journalstore 400 internal/ctxdb/journalstore
 ctxdb/limitstore   100 internal/ctxdb/limitstore
 # ADR-131 (PROV-01): carrier reasoning opaque + rejections + size caps (ADR-074; terukur 263; Σ core +300; SEC8-6).
