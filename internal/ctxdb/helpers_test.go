@@ -22,32 +22,32 @@ import (
 const templateEnv = "CTXDB_TEST_TEMPLATE"
 
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "ctxdb-schema-template-*")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ctxdb: schema template: %v\n", err)
-		os.Exit(1)
-	}
-	if err := buildSchemaTemplate(dir); err != nil {
-		_ = os.RemoveAll(dir)
-		fmt.Fprintf(os.Stderr, "ctxdb: schema template: %v\n", err)
-		os.Exit(1)
-	}
-	if err := os.Setenv(templateEnv, dir); err != nil {
-		_ = os.RemoveAll(dir)
-		fmt.Fprintf(os.Stderr, "ctxdb: schema template: %v\n", err)
-		os.Exit(1)
-	}
-	code := m.Run()
-	_ = os.RemoveAll(dir)
-	if code == 0 {
-		// Same check as goleak.VerifyTestMain, which cannot be used here: it
-		// exits the process before the template could be removed.
-		if err := goleak.Find(); err != nil {
-			fmt.Fprintf(os.Stderr, "goleak: Errors on successful test run: %v\n", err)
-			code = 1
+	// A template from an earlier run is removed here, not after m.Run:
+	// goleak.VerifyTestMain (E-29) exits the process. Older than an hour only,
+	// so a concurrent invocation of this package keeps its own template.
+	if stale, err := filepath.Glob(filepath.Join(os.TempDir(), "ctxdb-schema-template-*")); err == nil {
+		for _, dir := range stale {
+			if fi, serr := os.Stat(dir); serr == nil && time.Since(fi.ModTime()) > time.Hour {
+				if rerr := os.RemoveAll(dir); rerr != nil {
+					fmt.Fprintf(os.Stderr, "ctxdb: stale schema template: %v\n", rerr)
+				}
+			}
 		}
 	}
-	os.Exit(code)
+	// A template that cannot be built only makes the suite slower: newEnv
+	// falls back to a raw dir and one test fails, so the degradation is loud
+	// (no panic/os.Exit: E-23 and forbidigo).
+	dir, err := os.MkdirTemp("", "ctxdb-schema-template-*")
+	if err == nil {
+		err = buildSchemaTemplate(dir)
+	}
+	if err == nil {
+		err = os.Setenv(templateEnv, dir)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxdb: schema template not built, scenarios will run migrations: %v\n", err)
+	}
+	goleak.VerifyTestMain(m)
 }
 
 // buildSchemaTemplate applies every migration in dir, then closes the store so

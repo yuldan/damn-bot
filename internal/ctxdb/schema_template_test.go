@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -16,6 +17,9 @@ import (
 // a store opened from the template copy.
 func TestSchemaTemplateCopyMatchesFreshOpen(t *testing.T) {
 	t.Parallel()
+	if os.Getenv(templateEnv) == "" {
+		t.Fatal("schema template was not built (see the TestMain warning); newEnv would run migrations")
+	}
 	fresh := newRawEnv(t).open(1, "serve")
 	copied := newEnv(t).open(2, "serve")
 	ctx := context.Background()
@@ -61,7 +65,7 @@ func TestSchemaTemplateCopyMatchesFreshOpen(t *testing.T) {
 		func(rows *sql.Rows) error {
 			var name string
 			if err := rows.Scan(&name); err != nil {
-				return err
+				return fmt.Errorf("scan table name: %w", err)
 			}
 			tables = append(tables, name)
 			return nil
