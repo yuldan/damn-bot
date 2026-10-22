@@ -3522,6 +3522,13 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 2. **Tidak menambah orkestrasi di F2.** Cakupan F2 sudah diklasifikasikan dan dikunci gate fase; menambah primitif orkestrasi di F2 akan mengubah cakupan yang sedang disertifikasi dan menunda penaikan PHASE tanpa manfaat acceptance. Permintaan seperti itu = perubahan cakupan fase yang butuh ADR baru + penaikan PHASE, bukan tambahan ad-hoc.
 3. **Prasyarat teknis yang sudah ada di F2** sehingga jalur inbound murah: toolsets (#253) sebagai bundel kapabilitas, deferred catalog (`tool_search`/`tool_invoke`), satu DB state (sesi ↔ memori ↔ skill ↔ jurnal ↔ undo), budget guard, dan harness e2e biner asli untuk menguji round-trip ACP nanti.
 4. **Kewajiban uji saat ACP masuk (F3).** Minimal satu skenario e2e lewat **biner asli** (`internal/e2e`) plus **kontrol negatif**: batas lintas-proses/protokol adalah batas keamanan, jadi round-trip yang gagal/tak sah harus terbukti ditolak — mengikuti aturan uji repo (bukan uji in-process).
+5. **Daftar adopsi F3 (inbound yang disetujui).** Lima item; semuanya memperkuat peran "Damn-Bot sebagai agent backend" dan tidak menambah orkestrasi:
+   1. **`/bg` + queue/steer** — perintah latar (jalankan, antre, arahkan) supaya klien dapat mengelola turn tanpa memblokir sesi.
+   2. **TUI/REPL + slash/bang shell + notifikasi** — permukaan interaktif F3 yang memakai `internal/loop` yang sama (slash command, `!`/bang shell, notifikasi).
+   3. **`config`/profiles CLI** dengan semantik **session-only vs saved** yang eksplisit + **approval saat menulis** (pola `cfg://` omp), sehingga perubahan konfigurasi dari klien tidak pernah diam-diam permanen.
+   4. **Inspeksi state**: `sessions show`/`sessions export` (sudah ada sejak ADR-140/ADR-141) plus penjelajahan **spill berhalaman**. Store-nya sudah ada di F2 dan ledger acceptance F2 (skenario 9) sudah menuntut perintah inspeksi read-only, jadi ini menutup kewajiban F2, bukan fitur baru.
+   5. **Seam resolver resource tipis** — satu jalur masuk untuk referensi resource sehingga `@`-ref (sekarang) dan MCP (F5) memakai mekanisme yang sama; "tipis" berarti tanpa dependency baru di F3.
+6. **Tidak di F3 (dengan alasan).** Orkestrasi multi-agen (`delegate`/`MoA` F5; `kanban` dispatcher/swarm + `a2a` F7) — cakupan fase lain; **MCP** (F5) — server/host protokol, bukan jalur inbound harness; connector platform (`pr://`, `issue://`, dsb.) — F7/F8; menyalin format/biner/antarmuka harness lain — tidak relevan (parity diukur per baris FEATURE-PARITY, bukan dengan memfotokopi antarmuka).
 
 **Dampak terukur (SPEC §20).** Token/biaya/kode 0; hanya dokumen; tidak ada perubahan `loc.budget`.
 
