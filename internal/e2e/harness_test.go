@@ -85,17 +85,8 @@ type Env struct {
 func New(t *testing.T, replies ...providertest.Reply) *Env {
 	t.Helper()
 	srv := providertest.New(t, nil, replies...)
-	dir := t.TempDir()
-	e := &Env{t: t, Server: srv, DataDir: filepath.Join(dir, "data"), Workdir: filepath.Join(dir, "work"), home: filepath.Join(dir, "home")}
-	for _, d := range []string{e.DataDir, e.Workdir, e.home} {
-		if err := os.MkdirAll(d, 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	e.cfg = filepath.Join(dir, "config.toml")
-	if err := os.WriteFile(e.cfg, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	e := newEnv(t)
+	e.Server = srv
 	return e
 }
 
@@ -122,6 +113,33 @@ func trustWorkspace(t *testing.T, e *Env) {
 	if err := os.WriteFile(filepath.Join(dir, "trusted-projects"), []byte(e.Workdir+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// NewFunc creates the temporary directories first and lets the caller build
+// the scripted replies from them, so a scenario can name files it only knows
+// after the harness has made its private home and workspace.
+func NewFunc(t *testing.T, replies func(*Env) []providertest.Reply) *Env {
+	t.Helper()
+	e := newEnv(t)
+	e.Server = providertest.New(t, nil, replies(e)...)
+	return e
+}
+
+// newEnv creates the temporary directories and the empty config file.
+func newEnv(t *testing.T) *Env {
+	t.Helper()
+	dir := t.TempDir()
+	e := &Env{t: t, DataDir: filepath.Join(dir, "data"), Workdir: filepath.Join(dir, "work"), home: filepath.Join(dir, "home")}
+	for _, d := range []string{e.DataDir, e.Workdir, e.home} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.cfg = filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(e.cfg, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return e
 }
 
 // Result is one completed child process.
