@@ -482,7 +482,7 @@ func (d *Dispatcher) inlineLeft() int {
 
 // finish applies redaction, untrusted wrapping, paging/spill and taint.
 func (d *Dispatcher) finish(ctx context.Context, name string, res *Result) Outcome {
-	out := Outcome{Meta: res.Meta, Attachments: res.Attachments}
+	out := Outcome{Meta: res.Meta, Attachments: res.Attachments, Spilled: res.Spilled}
 	content := string(d.red.Redact([]byte(res.Content)))
 	if res.UntrustedSource != "" {
 		content = wrapUntrusted(content, res.UntrustedSource)
@@ -490,7 +490,11 @@ func (d *Dispatcher) finish(ctx context.Context, name string, res *Result) Outco
 		d.tainted.Store(true)
 	}
 	if !paged(name) {
-		content, out.Spilled, out.Meta = d.spillResult(ctx, content, out.Meta)
+		newContent, spilled, meta := d.spillResult(ctx, content, out.Meta)
+		content, out.Meta = newContent, meta
+		if out.Spilled == nil {
+			out.Spilled = spilled
+		}
 	}
 	d.mu.Lock()
 	d.inline += utf8.RuneCountInString(content)

@@ -329,6 +329,9 @@ func (t *shellTool) render(ctx context.Context, env Env, res *exec.Result, runEr
 		meta["cleanup_error"] = true
 	}
 	out := Result{OK: true, Content: content, Meta: meta}
+	if sum.Spilled {
+		out.Spilled = &rawRef
+	}
 	out.UntrustedSource = classify.OutputSource(&v, t.cfg.WorkspaceTrusted)
 	return out, nil
 }

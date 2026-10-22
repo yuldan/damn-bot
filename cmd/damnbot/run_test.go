@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/provider/providertest"
+	"github.com/damnbot/damnbot/internal/secret"
 )
 
 // TestRunHeadlessFakeProvider is the F1 `damnbot run` smoke: one loop turn
@@ -228,5 +231,81 @@ func TestRunSchemaNewerExits1(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "schema") {
 		t.Fatalf("stderr = %q, want a schema message", errb.String())
+	}
+}
+
+// TestRunEncryptedSpillRecall (SEC7-66/68, GAP-INF-02): a >4 KiB tool output
+// goes through ctxdb, is encrypted on disk, and later Recall finds it.
+func TestRunEncryptedSpillRecall(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", home)
+	work := t.TempDir()
+	t.Chdir(work)
+	canary := strings.Repeat("canary-spill-output ", 500)
+	if err := os.WriteFile("big.txt", []byte(canary), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfg, []byte("[storage]\nencrypt = true\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data := t.TempDir()
+	call := `{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"shell","arguments":"{\"command\":\"cat big.txt\"}"}}]}}]}`
+	end := `{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`
+	usage := `{"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":10}}`
+	srv := providertest.New(t, nil,
+		providertest.Reply{Frames: []string{call, end, usage, "[DONE]"}},
+		providertest.Text("done after spill"),
+	)
+	var out, errb bytes.Buffer
+	code := run([]string{"run", "-p", "read big", "--model", "openai/gpt-fake",
+		"--base-url", srv.URL, "--api-key", "e2e", "--data-dir", data,
+		"--config", cfg, "--output", "json", "--approval", "auto", "--unsafe-auto-shell", "--offline"}, &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr = %s, stdout = %s", code, errb.String(), out.String())
+	}
+	if err := filepath.WalkDir(data, func(p string, d os.DirEntry, werr error) error {
+		if werr != nil || d.IsDir() {
+			return werr
+		}
+		raw, rerr := os.ReadFile(filepath.Clean(p))
+		if rerr != nil {
+			return rerr
+		}
+		if strings.Contains(string(raw), "canary-spill-output") {
+			t.Fatalf("plaintext spill canary in %s", p)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := secret.New(secret.Options{ConfigDir: filepath.Join(home, "damnbot"), BackendPresent: func() bool { return false }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec, err := secret.OpenCodec(context.Background(), data, st, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: data, Kind: "cli", ReadOnly: true, Codec: codec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { mustClose(t, db) }()
+	n, err := db.Count(context.Background(), `SELECT count(*) FROM blob_fts f JOIN events e ON e.id=f.rowid WHERE e.kind='tool_result'`)
+	if err != nil || n == 0 {
+		t.Fatalf("blob_fts tool rows = %d, %v (spill did not reach ctxdb)", n, err)
+	}
+	hits, err := db.Recall(context.Background(), "canary-spill-output", 5)
+	if err != nil || len(hits) == 0 {
+		t.Fatalf("Recall spilled output = %+v, %v", hits, err)
+	}
+}
+
+func mustClose(t *testing.T, db *ctxdb.Store) {
+	t.Helper()
+	if err := db.Close(); err != nil {
+		t.Error(err)
 	}
 }

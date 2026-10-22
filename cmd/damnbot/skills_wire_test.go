@@ -133,7 +133,6 @@ func TestPaymentSkillGateWired(t *testing.T) {
 	)
 	cfg := config.Default()
 	red := redact.New(redact.Options{})
-	spill := diskSpill{dir: filepath.Join(dataDir, "spill")}
 	o := &runOptions{model: "openai/gpt-fake", baseURL: srv.URL, approval: "auto", unsafeShell: true, providerAttempts: 1}
 	model, err := startRunModel(t.Context(), &cfg, dataDir, o.model, o, red, spill, cfgDir, t.TempDir(), nil)
 	if err != nil {
@@ -148,7 +147,7 @@ func TestPaymentSkillGateWired(t *testing.T) {
 	if code, rerr := runTurn(t.Context(), &cfg, &runOptions{
 		prompt: "pay", model: o.model, baseURL: o.baseURL, providerAttempts: 1, output: "json",
 		approval: "auto", unsafeShell: true,
-	}, model, o.model, red, spill, &out); rerr != nil || code != 0 {
+	}, model, o.model, red, model.spill, &out); rerr != nil || code != 0 {
 		t.Fatalf("turn: code %d, err %v", code, rerr)
 	}
 	if _, serr := os.Stat(marker); !os.IsNotExist(serr) {
