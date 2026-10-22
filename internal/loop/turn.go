@@ -415,10 +415,25 @@ func (t *turn) finalAnswer(ctx context.Context, r *Reply) (outcome, bool) {
 	if err := t.saveCarriers(ctx, id, r.Carriers); err != nil {
 		return t.fail(ctx, event.DetailInternal, err), true
 	}
+	if err := t.validateAnswer(r.Content); err != nil {
+		t.emit(&event.Update{Kind: event.UpdateNotice, Text: "invalid answer: " + t.redact(err.Error()), Status: string(event.DetailInvalidAnswer)})
+		return outcome{stop: event.StopEndTurn, detail: event.DetailInvalidAnswer}, true
+	}
 	if strings.TrimSpace(r.Content) == "" {
 		return outcome{stop: event.StopEndTurn, detail: event.DetailEmptyResponse}, true
 	}
 	return outcome{stop: event.StopEndTurn, detail: event.DetailCompleted}, true
+}
+
+// validateAnswer applies the composition root's answer validator (SPEC §3.5,
+// §7.2; EC-TCALL-009): a final answer that is a fragment instead of the
+// required shape stops the turn as invalid_answer. Empty content stays an
+// empty_response, and without a validator no rule is invented here.
+func (t *turn) validateAnswer(content string) error {
+	if t.deps.ValidateAnswer == nil || strings.TrimSpace(content) == "" {
+		return nil
+	}
+	return t.deps.ValidateAnswer(content)
 }
 
 // toolTurn persists the assistant message and dispatches its calls.

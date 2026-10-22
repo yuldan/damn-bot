@@ -214,6 +214,10 @@ type runWiring struct {
 	sid      string
 	cwd      string
 	fail     func(error) error
+	// inlineCap is the route window budget in tokens the tool inline aggregate
+	// scales with (SPEC P5 amendment, GAP-COST-08). It is a wiring value, not a
+	// model-window observation, so it stays out of runModel.window.
+	inlineCap int
 }
 
 // newRunWiring opens the run store, the sandbox and codetools engine, the exec
@@ -279,13 +283,14 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		return nil, fail(fmt.Errorf("registry: %w", err))
 	}
 	return &runWiring{
-		db:       db,
-		engine:   engine,
-		runner:   runner,
-		sessions: sessions,
-		registry: reg,
-		sid:      sid,
-		cwd:      cwd,
-		fail:     fail,
+		db:        db,
+		engine:    engine,
+		runner:    runner,
+		sessions:  sessions,
+		registry:  reg,
+		sid:       sid,
+		cwd:       cwd,
+		fail:      fail,
+		inlineCap: cfg.Loop.TurnMaxInputTok,
 	}, nil
 }

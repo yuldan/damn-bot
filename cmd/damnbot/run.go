@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/damnbot/damnbot/internal/assemble"
 	"github.com/damnbot/damnbot/internal/budget"
@@ -35,6 +36,7 @@ import (
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/redact"
+	"github.com/damnbot/damnbot/internal/schema"
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
@@ -50,12 +52,15 @@ type runOptions struct {
 	baseURL          string
 	apiKey           string
 	providerAttempts int
+	answerSchema     string
 	// eval-only seams (never set by a flag): a provider override (fake or
 	// budget-gated), a per-run config override, and a memory retriever
 	// factory fed the run's ctxdb for the context tier (SPEC §4.8/§18.5).
 	prov         loop.Provider
 	cfgOverride  *config.Config
 	retrieverFor func(*ctxdb.Store) assemble.Retriever
+	// validate is --answer-schema compiled (SPEC §7.2); nil = no schema.
+	validate func(string) error
 }
 
 // reportedParseError marks a parse failure the flag package already wrote to
@@ -100,6 +105,7 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	fs.StringVar(&o.configPath, "config", "", "config.toml path (default: profile path)")
 	fs.StringVar(&o.dataDir, "data-dir", "", "data directory (default: SPEC §11)")
 	fs.StringVar(&o.output, "output", "text", "text|json|stream-json")
+	fs.StringVar(&o.answerSchema, "answer-schema", "", "JSON Schema the final answer must match (SPEC §7.2); invalid answers stop as invalid_answer")
 	fs.BoolVar(&o.offline, "offline", false, "network.offline: loopback only")
 	fs.StringVar(&o.baseURL, "base-url", "", "internal/test: provider base URL")
 	fs.StringVar(&o.apiKey, "api-key", "", "internal/test: provider API key")
@@ -119,6 +125,24 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 		return runOptions{}, errors.New("prompt required")
 	}
 	return o, nil
+}
+
+// compileAnswerSchema builds the SPEC §7.2 --answer-schema validator. The
+// file is third-party input, so unsupported keywords are tolerated (ModeMCP)
+// and an unreadable or invalid schema fails before the turn starts.
+func compileAnswerSchema(path string) (func(string) error, error) {
+	if path == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(path) //nolint:gosec // G304: operator-supplied flag
+	if err != nil {
+		return nil, fmt.Errorf("answer schema: %w", err)
+	}
+	sc, err := schema.Compile(raw, schema.ModeMCP)
+	if err != nil {
+		return nil, fmt.Errorf("answer schema: %w", err)
+	}
+	return func(answer string) error { return sc.Validate([]byte(answer)) }, nil
 }
 
 func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err error) {
@@ -147,6 +171,11 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	}
 	if modelRef == "" {
 		return 0, errors.New("--model or provider.model is required")
+	}
+	if o.answerSchema != "" {
+		if o.validate, err = compileAnswerSchema(o.answerSchema); err != nil {
+			return 0, err
+		}
 	}
 	red := redact.New(redact.Options{})
 	spill := diskSpill{dir: filepath.Join(dataDir, "run-spill")}
@@ -205,6 +234,10 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		Mode:             approvalMode(o),
 		WorkspaceTrusted: true,
 		Cwd:              model.cwd,
+		// P5 amendment / GAP-COST-08: the turn inline aggregate scales with
+		// the route window and the session's char/token ratio.
+		WindowTokens:  model.inlineCap,
+		CharsPerToken: charsPerToken(o.prompt),
 	})
 	if err != nil {
 		return 0, fmt.Errorf("tools dispatcher: %w", err)
@@ -224,13 +257,14 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		CompactAt:       compactAt,
 		MaxInline:       maxInline,
 	}, &loop.Deps{
-		Provider:  model.provider,
-		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, window: model.window, store: model.store},
-		Toolset:   &toolsetAdapter{disp: disp},
-		Store:     model.store,
-		Ledger:    model.ledger,
-		Carriers:  &ctxCarrierStore{db: model.db},
-		Redactor:  redactorAdapter{red: red},
+		Provider:       model.provider,
+		Assembler:      &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, window: model.window, store: model.store},
+		Toolset:        &toolsetAdapter{disp: disp},
+		Store:          model.store,
+		Ledger:         model.ledger,
+		Carriers:       &ctxCarrierStore{db: model.db},
+		Redactor:       redactorAdapter{red: red},
+		ValidateAnswer: o.validate,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("loop: %w", err)
@@ -257,6 +291,10 @@ type runModel struct {
 	window    int64  // effective model window (registry.Limits: config/registry/learned/fallback)
 	winSource string // config|registry|discovery|learned|fallback
 	db        *ctxdb.Store
+	// inlineCap is the route window budget in tokens the turn inline aggregate
+	// scales with (SPEC P5 amendment, GAP-COST-08); tools.TurnInlineCap turns
+	// it into the character cap with the session's char/token ratio.
+	inlineCap int
 }
 
 func (m *runModel) close(ctx context.Context) error {
@@ -346,6 +384,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		cwd:       w.cwd,
 		window:    win.ContextWindow,
 		winSource: string(win.Source),
+		inlineCap: w.inlineCap,
 		db:        w.db,
 		engine:    w.engine,
 		runner:    w.runner,
@@ -458,6 +497,17 @@ func newSessionID() (string, error) {
 type budgetCounter struct{}
 
 func (budgetCounter) Count(s string) int { return int(budget.Count(s).Raw()) }
+
+// charsPerToken is the COST-09 char/token ratio of the run prompt, the
+// session sample available before the ledger has usage rows. Zero means
+// unknown, which keeps the fixed P5 aggregate (GAP-COST-08).
+func charsPerToken(s string) float64 {
+	n, raw := utf8.RuneCountInString(s), budget.Count(s).Raw()
+	if n == 0 || raw == 0 {
+		return 0
+	}
+	return float64(n) / float64(raw)
+}
 
 type providerAdapter struct {
 	client *provider.OpenAI

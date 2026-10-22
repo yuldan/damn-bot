@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -58,5 +60,35 @@ func TestRunInjectedSeams(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"pong"`) {
 		t.Fatalf("turn result = %s, want the injected answer", out.String())
+	}
+}
+
+// TestRunAnswerSchema (EC-TCALL-009): --answer-schema rejects a final answer
+// that is only a fragment (invalid_answer, exit 2) and accepts a conforming
+// one. The validator comes from internal/schema, not from the loop.
+func TestRunAnswerSchema(t *testing.T) {
+	schemaPath := filepath.Join(t.TempDir(), "answer.json")
+	if err := os.WriteFile(schemaPath, []byte(`{"type":"object","required":["answer"],"properties":{"answer":{"type":"string"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	run := func(text string) (int, string) {
+		cfg := config.Default()
+		var out bytes.Buffer
+		code, err := runOne(context.Background(), &runOptions{
+			prompt: "ping", model: "openai/fake", dataDir: t.TempDir(), output: "json", approval: "auto",
+			answerSchema: schemaPath, prov: &injectProvider{text: text}, cfgOverride: &cfg,
+		}, &out)
+		if err != nil {
+			t.Fatalf("runOne(%q): %v", text, err)
+		}
+		return code, out.String()
+	}
+	code, out := run("Let me")
+	if code != 2 || !strings.Contains(out, "invalid_answer") {
+		t.Fatalf("fragment = %d %s, want exit 2 invalid_answer", code, out)
+	}
+	code, out = run(`{"answer":"ok"}`)
+	if code != 0 || !strings.Contains(out, `"completed"`) {
+		t.Fatalf("conforming answer = %d %s", code, out)
 	}
 }

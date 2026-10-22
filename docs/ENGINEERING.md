@@ -318,12 +318,12 @@ Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2
 
 | Paket | LOC maks | Paket | LOC maks |
 |---|---:|---|---:|
-| `loop` + `loop/event` (ADR-131 amandemen round 2/SEC8-10, ADR-134, ADR-178) | 2.100 | `ctxdb` (tanpa file `.sql`; ADR-049, ADR-087, ADR-118, ADR-132) | 3.800 |
+| `loop` + `loop/event` (ADR-131 amandemen round 2/SEC8-10, ADR-134, ADR-155, ADR-178) | 2.100 | `ctxdb` (tanpa file `.sql`; ADR-049, ADR-087, ADR-118, ADR-132) | 3.800 |
 | `plan` | 600 | `assemble` (ADR-121) | 1.300 |
 | `provider` (core OpenAI-compatible + `providertest`; ADR-131 amandemen round 2) | 2.100 | `compaction` | 900 |
 | `provider/registry` (Go; data TOML tidak dihitung; storage di `ctxdb/limitstore`, ADR-126) | 300 | `memory` + `skills` (storage di `ctxdb/memstore`/`ctxdb/skillstore`, ADR-074) | 1.230 |
 | `netx` + `netx/jsonrpc` | 1.800 | `journal` (storage di `ctxdb/journalstore`, ADR-074, ADR-117) | 560 |
-| `tools` (ADR-119, ADR-173) | 2.500 | `heal` | 1.500 |
+| `tools` (ADR-119, ADR-173, ADR-155) | 2.500 | `heal` | 1.500 |
 | `schema` | 1.200 | `budget` (storage di `ctxdb/ledgerstore`, ADR-074, ADR-125, ADR-128) | 580 |
 | `codetools` (ADR-111, ADR-108) | 5.350 | `config` | 1.200 |
 | `exec` (unix + windows; ADR-081, ADR-106) | 3.400 | `modules` + `modules/host` | 1.000 |

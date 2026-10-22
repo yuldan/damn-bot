@@ -357,6 +357,11 @@ type Deps struct {
 	NewRedactStream func() StreamFilter
 	// Carriers persists carriers and rejections; nil = disabled.
 	Carriers CarrierStore
+	// ValidateAnswer rejects a final answer (nil = no answer schema). The
+	// composition root builds it from --answer-schema and internal/schema;
+	// the loop owns the invalid_answer stop, not the rule (ADR-129 butir 12,
+	// SPEC §3.5/§7.2, EC-TCALL-009).
+	ValidateAnswer func(string) error
 }
 
 // CarrierStore persists the carriers of one assistant event and rejections.
