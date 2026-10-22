@@ -5,7 +5,6 @@ package exec
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -25,16 +24,11 @@ func sessionShell(path string) sessionShellSpec {
 		bin = c.bin
 	}
 	argv := []string{bin}
-	if filepath.Base(bin) == "bash" {
+	switch filepath.Base(bin) {
+	case "bash":
 		argv = append(argv, "--norc", "--noprofile", "--noediting")
-	}
-	if sh := os.Getenv("SHELL"); sh != "" {
-		switch filepath.Base(sh) {
-		case "bash":
-			argv = []string{sh, "--norc", "--noprofile", "--noediting"}
-		case "zsh":
-			argv = []string{sh, "-f", "+Z"}
-		}
+	case "zsh":
+		argv = append(argv, "-f", "+Z")
 	}
 	const sentinel = `printf '\036DB:%s:%d:\036' `
 	return sessionShellSpec{

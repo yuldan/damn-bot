@@ -13,19 +13,64 @@ import (
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
 
-// TestPaymentSkillGateCLIWindows is SEC10-29 end to end through the real
-// `damnbot run` entry point: the runtime shell is PowerShell, so a call-
-// operator script in a payment skill is Monetary; --unsafe-auto-shell must
-// still deny it and the script must never create its marker.
+// TestPaymentSkillGateCLIWindows is SEC10-29/30 end to end through the real
+// `damnbot run` entry point: the runtime shell is PowerShell, so call-operator,
+// Set-Location and python forms naming a payment skill are Monetary and
+// --unsafe-auto-shell still denies them. The no-declaration control proves the
+// harness really executes the script when the gate does not fire.
 func TestPaymentSkillGateCLIWindows(t *testing.T) {
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
 	t.Setenv("LOCALAPPDATA", filepath.Join(appData, "local"))
 	cfgDir := filepath.Join(appData, "damnbot")
-	marker := filepath.Join(t.TempDir(), "ran")
-	skill := writeSkill(t, cfgDir, "stripe-pay", "side_effects: [payment]\n", "Run scripts/charge.ps1.",
-		map[string]string{"scripts/charge.ps1": "New-Item -ItemType File -LiteralPath '" + marker + "' -Force | Out-Null\n"})
-	command := "& '" + filepath.Join(skill, "scripts", "charge.ps1") + "'"
+	dir := t.TempDir()
+	marker := func(name string) string { return filepath.Join(dir, name) }
+	psBody := func(m string) string {
+		return "New-Item -ItemType File -LiteralPath '" + m + "' -Force | Out-Null\n"
+	}
+	pay := writeSkill(t, cfgDir, "stripe-pay", "side_effects: [payment]\n", "Run the scripts.", map[string]string{
+		"scripts/charge.ps1": psBody(marker("pay-call")),
+		"scripts/charge.py":  "open(r\"" + marker("pay-python") + "\", \"w\").write(\"x\")\n",
+	})
+	plain := writeSkill(t, cfgDir, "plain", "", "Run the script.", map[string]string{
+		"scripts/charge.ps1": psBody(marker("plain")),
+	})
+	cases := []struct {
+		name    string
+		command string
+		marker  string
+		creates bool
+	}{
+		{"call-operator", "& '" + filepath.Join(pay, "scripts", "charge.ps1") + "'", marker("pay-call"), false},
+		{"set-location", "Set-Location '" + filepath.Join(pay, "scripts") + "'; .\\charge.ps1", marker("pay-call"), false},
+		{"python", "python '" + filepath.Join(pay, "scripts", "charge.py") + "'", marker("pay-python"), false},
+		{"negative-control", "& '" + filepath.Join(plain, "scripts", "charge.ps1") + "'", marker("plain"), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.creates {
+				// The control must start clean, then run without a gate hit.
+				if err := os.Remove(tc.marker); err != nil && !os.IsNotExist(err) {
+					t.Fatal(err)
+				}
+			}
+			code, reqs := runShellCLI(t, tc.command)
+			if code != 0 {
+				t.Fatalf("exit = %d", code)
+			}
+			if _, err := os.Stat(tc.marker); tc.creates != (err == nil) {
+				t.Fatalf("marker created = %v, want %v (stat %v)", err == nil, tc.creates, err)
+			}
+			denied := strings.Contains(string(reqs[len(reqs)-1]), "denied")
+			if denied == tc.creates {
+				t.Fatalf("tool result denied = %v, want %v: %q", denied, !tc.creates, string(reqs[len(reqs)-1]))
+			}
+		})
+	}
+}
+
+func runShellCLI(t *testing.T, command string) (int, [][]byte) {
+	t.Helper()
 	args, err := json.Marshal(map[string]string{"command": command})
 	if err != nil {
 		t.Fatal(err)
@@ -44,13 +89,11 @@ func TestPaymentSkillGateCLIWindows(t *testing.T) {
 		"--unsafe-auto-shell", "--provider-attempts", "1",
 	}, &out, &errb)
 	if code != 0 {
-		t.Fatalf("exit = %d, stderr = %s, stdout = %s", code, errb.String(), out.String())
-	}
-	if _, serr := os.Stat(marker); !os.IsNotExist(serr) {
-		t.Fatalf("payment script executed: marker %v", serr)
+		t.Fatalf("run: exit %d, stderr %s, stdout %s", code, errb.String(), out.String())
 	}
 	reqs := srv.Requests()
-	if len(reqs) != 2 || !strings.Contains(string(reqs[1]), "denied") {
-		t.Fatalf("tool result did not report denial: %q", string(reqs[len(reqs)-1]))
+	if len(reqs) != 2 {
+		t.Fatalf("provider calls = %d, want 2", len(reqs))
 	}
+	return code, reqs
 }

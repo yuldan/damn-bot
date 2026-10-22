@@ -164,7 +164,7 @@ func candidates(p string) []string {
 // executable: a regular file (Unix: with an execute bit; Windows: .exe or
 // .com).
 func executable(p string) bool {
-	fi, err := os.Stat(p)
+	fi, err := os.Stat(p) //nolint:gosec // stat only; PATH/SHELL executables are the callers' inputs
 	if err != nil || !fi.Mode().IsRegular() {
 		return false
 	}

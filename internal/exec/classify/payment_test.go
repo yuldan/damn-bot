@@ -93,122 +93,6 @@ func TestPaymentKeySimulatedForms(t *testing.T) {
 	}
 }
 
-// TestPowerShellPaymentSkillMonetary (SEC10-29): the shell exec runs on
-// Windows is PowerShell (pwsh before cmd), so the call operator and
-// Set-Location forms must gate payment-skill files. Parsed as cmd, single
-// quotes are literal bytes and the same lines look like plain mutating
-// commands that --unsafe-auto-shell may run.
-func TestPowerShellPaymentSkillMonetary(t *testing.T) {
-	t.Parallel()
-	env := testEnv()
-	env.Dialect = Pwsh
-	pay := `C:\skills\pay`
-	env.MonetaryPaths = []string{pay}
-	cases := []struct {
-		cmd  string
-		want Class
-	}{
-		{"& '" + pay + "\\scripts\\charge.ps1'", Monetary},
-		{"python3 '" + pay + "\\scripts\\charge.py'", Monetary},
-		{"Set-Location '" + pay + "\\scripts'; ./charge.ps1", Monetary},
-		{"Set-Location '" + pay + "\\scripts'; Write-Output ok", Monetary},
-	}
-	for _, c := range cases {
-		if v := Classify(c.cmd, env); v.Class != c.want {
-			t.Errorf("%q: class %s, want %s (%v)", c.cmd, v.Class, c.want, v.Reasons)
-		}
-	}
-}
-
-// TestPowerShellPayloadCmdNegativeControl (SEC10-29): with the old cmd
-// dialect these PowerShell payloads are Mutating (auto-runnable), which is
-// exactly the fail-open the Pwsh dialect above detects.
-func TestPowerShellPayloadCmdNegativeControl(t *testing.T) {
-	t.Parallel()
-	env := testEnv()
-	env.Dialect = Cmd
-	env.MonetaryPaths = []string{`C:\skills\pay`}
-	for _, cmd := range []string{
-		`& 'C:\skills\pay\scripts\charge.ps1'`,
-		`Set-Location 'C:\skills\pay\scripts'; ./charge.ps1`,
-	} {
-		if v := Classify(cmd, env); v.Class != Mutating {
-			t.Errorf("%q: class %s, want mutating under cmd (%v)", cmd, v.Class, v.Reasons)
-		}
-	}
-}
-
-// TestPaymentDevicePath: a \\?\ or \\.\ spelling of a payment-skill file
-// still takes the monetary label (SEC10-15); the canonicalizer in cmd strips
-// the device prefix, simulated here.
-func TestPaymentDevicePath(t *testing.T) {
-	t.Parallel()
-	key := func(p string) string {
-		switch {
-		case strings.HasPrefix(p, `\\?\UNC\`):
-			p = `\\` + p[8:]
-		case strings.HasPrefix(p, `\\?\`), strings.HasPrefix(p, `\\.\`):
-			p = p[4:]
-		}
-		return strings.ToLower(strings.ReplaceAll(p, `\`, "/"))
-	}
-	env := testEnv()
-	env.MonetaryPaths = []string{`C:\Pay`}
-	env.MonetaryKey = key
-	v := Classify(`cat '\\?\C:\Pay\scripts\x.sh'`, env)
-	if v.Class != Unknown {
-		t.Fatalf("device path class = %s (%v), want unknown (never auto)", v.Class, v.Reasons)
-	}
-}
-
-// TestWindowsCdGate: cmd /d and PowerShell Set-Location/Push-Location targets
-// are checked against the payment gate; a bare command after a cd is Unknown
-// (SEC10-20).
-func TestWindowsCdGate(t *testing.T) {
-	t.Parallel()
-	key := func(p string) string {
-		p = strings.ReplaceAll(p, `\\?\`, "")
-		return strings.ToLower(strings.ReplaceAll(p, `\`, "/"))
-	}
-	for _, c := range []struct {
-		dialect Dialect
-		cmd     string
-		want    Class
-	}{
-		{Cmd, `cd /d C:\skills\pay\scripts && charge.bat`, Monetary},
-		{Cmd, `cd C:\skills\pay\scripts; charge.bat`, Monetary},
-		{Cmd, `chdir C:\skills\pay\scripts & charge.bat`, Monetary},
-		{Cmd, `pushd C:\skills\pay\scripts && charge.bat`, Monetary},
-		{Pwsh, `Set-Location C:\skills\pay\scripts; charge.bat`, Monetary},
-		{Pwsh, `Push-Location C:\skills\pay\scripts; charge.bat`, Monetary},
-		{Cmd, `cd C:\work\scripts && charge.bat`, Unknown},
-		{Cmd, `cd C:\work\scripts; charge.bat`, Mutating}, // cmd treats ';' as whitespace
-		{Pwsh, `cd C:\work\scripts; charge.bat`, Mutating},
-		{Cmd, `cd sub && charge.bat`, Unknown},
-		{Cmd, `cd sub && git status`, Mutating},
-		{Cmd, `cd sub && echo hi`, Mutating},
-		{Cmd, `cd %EVIL% && git status`, Unknown},
-		{Cmd, `pushd \\evil\share`, Unknown},
-		{Cmd, `cd \\?\UNC\evil\share && git status`, Unknown},
-		{Pwsh, `Set-Location \\evil\share`, Unknown},
-		{Pwsh, `Set-Location sub; Get-ChildItem`, Mutating},
-		{Cmd, `cd sub && cd`, Mutating},
-		{Cmd, `cd sub && pushd`, Mutating},
-		{Cmd, `cd sub && popd`, Mutating},
-		{Cmd, `cd sub && cd && git status`, Mutating},
-		{Cmd, `cd && git status`, Mutating},
-		{Bash, `cd //tmp && echo hi`, Mutating},
-	} {
-		env := testEnv()
-		env.Dialect = c.dialect
-		env.MonetaryPaths = []string{`C:\skills\pay`}
-		env.MonetaryKey = key
-		if v := Classify(c.cmd, env); v.Class != c.want {
-			t.Errorf("%v %q: class %s, want %s (%v)", c.dialect, c.cmd, v.Class, c.want, v.Reasons)
-		}
-	}
-}
-
 // TestPowerShellPaymentSkillMonetary (SEC10-29): with the PowerShell dialect,
 // the call operator and Set-Location forms must gate payment-skill scripts.
 func TestPowerShellPaymentSkillMonetary(t *testing.T) {
@@ -222,6 +106,7 @@ func TestPowerShellPaymentSkillMonetary(t *testing.T) {
 		want Class
 	}{
 		{"& '" + pay + "\\scripts\\charge.ps1'", Monetary},
+		{"$p='" + pay + "\\scripts'; & \"$p\\charge.ps1\"", Unknown},
 		{"python3 '" + pay + "\\scripts\\charge.py'", Monetary},
 		{"Set-Location '" + pay + "\\scripts'; ./charge.ps1", Monetary},
 		{"Set-Location '" + pay + "\\scripts'; Write-Output ok", Monetary},
@@ -248,5 +133,46 @@ func TestPowerShellPayloadCmdNegativeControl(t *testing.T) {
 		if v := Classify(cmd, env); v.Class != Mutating {
 			t.Errorf("%q: class %s, want mutating under cmd (%v)", cmd, v.Class, v.Reasons)
 		}
+	}
+}
+
+// TestBareCdHomePayment (SEC10-30): a bare cd moves to $HOME in bash/sh and
+// PowerShell 7 (and Windows PowerShell 5.1 for safety); following relative
+// payment-skill paths must resolve there and stay Monetary. Only cmd's bare
+// cd is a no-op.
+func TestBareCdHomePayment(t *testing.T) {
+	t.Parallel()
+	bash := testEnv()
+	bash.MonetaryPaths = []string{testPaySkill}
+	for _, cmd := range []string{
+		"cd && ./.config/damnbot/skills/stripe-pay/scripts/charge.sh",
+		"cd; python3 .config/damnbot/skills/stripe-pay/scripts/charge.py",
+	} {
+		if v := Classify(cmd, bash); v.Class != Monetary {
+			t.Errorf("bash %q: class %s, want Monetary (%v)", cmd, v.Class, v.Reasons)
+		}
+	}
+	home := `C:\Users\u`
+	pay := home + `\AppData\Roaming\damnbot\skills\stripe-pay`
+	ps := testEnv()
+	ps.Dialect = Pwsh
+	ps.Home = home
+	ps.MonetaryPaths = []string{pay}
+	for _, cmd := range []string{
+		`cd; & .\AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.ps1`,
+		`Set-Location; python AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.py`,
+	} {
+		if v := Classify(cmd, ps); v.Class != Monetary {
+			t.Errorf("pwsh %q: class %s, want Monetary (%v)", cmd, v.Class, v.Reasons)
+		}
+	}
+	// Control: cmd's bare cd does not move, so the same relative path from the
+	// workspace root is not the payment skill.
+	cmdEnv := testEnv()
+	cmdEnv.Dialect = Cmd
+	cmdEnv.Home = home
+	cmdEnv.MonetaryPaths = []string{pay}
+	if v := Classify(`cd && .\AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.ps1`, cmdEnv); v.Class == Monetary {
+		t.Errorf("cmd bare cd moved to HOME: %s (%v)", v.Class, v.Reasons)
 	}
 }

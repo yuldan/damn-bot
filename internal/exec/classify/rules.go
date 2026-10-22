@@ -111,9 +111,18 @@ func hasFlag(args []arg, f string) bool {
 }
 
 // changeDir labels a literal `cd` into a payment skill directory Monetary
-// (SEC10-1) and keeps cwd untracked afterwards, so every relative operand
-// stays unknown (ADR-079 butir 2).
-func (s *state) changeDir(args []arg) { //nolint:gocyclo // bare-cd no-op adds one branch (SEC10-25b)
+// (SEC10-1); a non-bare cd keeps cwd untracked, so relative operands stay
+// unknown (ADR-079 butir 2). A bare cd follows the shell: cmd does not move,
+// bash/Pwsh move to $HOME, which is tracked and payment-checked (SEC10-30).
+func (s *state) changeDir(args []arg) {
+	if len(args) == 0 {
+		if s.env.Dialect == Cmd {
+			return // cmd prints the cwd; it does not move
+		}
+		s.cdTracked, s.cwd, s.cwdOK = true, s.clean(s.env.Home), true
+		s.paymentFile(s.cwd, s.resolve(s.cwd))
+		return
+	}
 	tracked, targets := true, 0
 	for _, a := range args {
 		if strings.HasPrefix(a.s, `\\`) || (s.fold && strings.HasPrefix(a.s, "//")) {
@@ -132,9 +141,8 @@ func (s *state) changeDir(args []arg) { //nolint:gocyclo // bare-cd no-op adds o
 		}
 		s.paymentFile(p, s.resolve(p))
 	}
-	// A bare cd keeps both values (SEC10-25b): no-op for tracked state/cwd.
-	s.cdTracked = s.cdTracked && len(args) == 0 || len(args) > 0 && tracked && targets > 0
-	s.cwdOK = s.cwdOK && len(args) == 0
+	s.cdTracked = tracked && targets > 0
+	s.cwdOK = false
 }
 
 // tool handles commands whose operands need specific parsing.
