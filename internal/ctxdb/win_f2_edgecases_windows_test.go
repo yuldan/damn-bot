@@ -21,7 +21,9 @@ import (
 // cannot exercise: native PID liveness, LockFileEx instead of flock, and a
 // stale maintenance marker under Windows file semantics.
 func TestWindowsF2EdgeCases(t *testing.T) {
-	t.Parallel()
+	// Not parallel: EC-WIN-005 calls t.Setenv to put a decoy fcntl on PATH,
+	// and testing panics when a test that sets the environment (or any of its
+	// parents) calls t.Parallel.
 	g := phase.Current(t)
 	cases := []stateCase{
 		{"EC-WIN-002", ecWin002},
