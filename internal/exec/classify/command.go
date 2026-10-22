@@ -25,6 +25,9 @@ func (s *state) command(args []arg, in stdin) bool {
 		s.mut = true
 		return false
 	}
+	if strings.HasPrefix(args[0].s, `\\`) && !s.remote {
+		s.raise(Unknown, "remote/device command: "+args[0].s) // SEC10-19: never open a share
+	}
 	if pathLike(args[0].s) && !s.remote {
 		if p, ok := s.abs(args[0].s); ok {
 			s.paymentFile(p, s.resolve(p)) // ./scripts/pay.sh run directly (SEC-15)
@@ -41,11 +44,26 @@ func (s *state) command(args []arg, in stdin) bool {
 	pos := s.positional(args[1:])
 	sub := at(pos, 0)
 	keys := [3]string{name, name + ":" + sub, name + ":" + sub + ":" + at(pos, 1)}
+	// cmd resolves a bare command in the current directory before PATH. After
+	// a cd, only a tracked target plus an allow-listed bare command keeps the
+	// normal policy; anything else is Unknown (SEC10-23). PowerShell does not
+	// search the current directory, so its normal classification stands.
+	if s.afterCdUnknown(args[0].s, keys) {
+		s.raise(Unknown, "command after cd: "+args[0].s)
+	}
 	s.mut = s.mut || !hasKey(nonMutatingKeys, keys)
 	s.tables(name, keys, at(argStrings(args), 1))
 	s.flagRules(name, sub, args[1:])
 	s.dispatch(name, sub, args, in)
 	return inList(fetchers, name)
+}
+
+// afterCdUnknown narrows the cmd-only post-cd rule (SEC10-23): an untracked
+// cd target, a relative argv0, or a bare command outside the non-mutating
+// table is Unknown. PowerShell does not search the current directory.
+func (s *state) afterCdUnknown(argv0 string, keys [3]string) bool {
+	return s.env.Dialect == Cmd && !s.cwdOK && !s.remote &&
+		(!s.cdTracked || pathLike(argv0) || !hasKey(nonMutatingKeys, keys))
 }
 
 // dispatch routes one simple command to its classifier.

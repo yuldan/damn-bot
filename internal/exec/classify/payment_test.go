@@ -111,7 +111,49 @@ func TestPaymentDevicePath(t *testing.T) {
 	env.MonetaryPaths = []string{`C:\Pay`}
 	env.MonetaryKey = key
 	v := Classify(`cat '\\?\C:\Pay\scripts\x.sh'`, env)
-	if v.Class != Monetary {
-		t.Fatalf("device path class = %s (%v)", v.Class, v.Reasons)
+	if v.Class != Unknown {
+		t.Fatalf("device path class = %s (%v), want unknown (never auto)", v.Class, v.Reasons)
+	}
+}
+
+// TestWindowsCdGate: cmd /d and PowerShell Set-Location/Push-Location targets
+// are checked against the payment gate; a bare command after a cd is Unknown
+// (SEC10-20).
+func TestWindowsCdGate(t *testing.T) {
+	t.Parallel()
+	key := func(p string) string {
+		p = strings.ReplaceAll(p, `\\?\`, "")
+		return strings.ToLower(strings.ReplaceAll(p, `\`, "/"))
+	}
+	for _, c := range []struct {
+		dialect Dialect
+		cmd     string
+		want    Class
+	}{
+		{Cmd, `cd /d C:\skills\pay\scripts && charge.bat`, Monetary},
+		{Cmd, `cd C:\skills\pay\scripts; charge.bat`, Monetary},
+		{Cmd, `chdir C:\skills\pay\scripts & charge.bat`, Monetary},
+		{Cmd, `pushd C:\skills\pay\scripts && charge.bat`, Monetary},
+		{Pwsh, `Set-Location C:\skills\pay\scripts; charge.bat`, Monetary},
+		{Pwsh, `Push-Location C:\skills\pay\scripts; charge.bat`, Monetary},
+		{Cmd, `cd C:\work\scripts && charge.bat`, Unknown},
+		{Cmd, `cd C:\work\scripts; charge.bat`, Mutating}, // cmd treats ';' as whitespace
+		{Pwsh, `cd C:\work\scripts; charge.bat`, Mutating},
+		{Cmd, `cd sub && charge.bat`, Unknown},
+		{Cmd, `cd sub && git status`, Mutating},
+		{Cmd, `cd sub && echo hi`, Mutating},
+		{Cmd, `cd %EVIL% && git status`, Unknown},
+		{Cmd, `pushd \\evil\share`, Unknown},
+		{Cmd, `cd \\?\UNC\evil\share && git status`, Unknown},
+		{Pwsh, `Set-Location \\evil\share`, Unknown},
+		{Pwsh, `Set-Location sub; Get-ChildItem`, Mutating},
+	} {
+		env := testEnv()
+		env.Dialect = c.dialect
+		env.MonetaryPaths = []string{`C:\skills\pay`}
+		env.MonetaryKey = key
+		if v := Classify(c.cmd, env); v.Class != c.want {
+			t.Errorf("%v %q: class %s, want %s (%v)", c.dialect, c.cmd, v.Class, c.want, v.Reasons)
+		}
 	}
 }

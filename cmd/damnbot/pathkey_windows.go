@@ -9,19 +9,28 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// monetaryKey uses the handle's final path, which resolves junctions and
-// subst drives that EvalSymlinks misses (SEC10-14), then folds case. A
-// non-existing tail is appended to its longest existing parent (SEC10-18).
+// monetaryKey resolves junctions/subst via the handle's final path and folds
+// case. Remote paths (UNC or a DRIVE_REMOTE volume) are lexical only.
 func monetaryKey(p string) string {
-	base, rest := existingPrefix(p)
-	if final := finalPath(base); final != "" {
-		base = final
-	}
-	return strings.ToLower(filepath.ToSlash(filepath.Join(base, rest)))
+	return keyFor(p, pathOps{remote: remotePath(p), eval: filepath.EvalSymlinks, final: finalPath, fold: strings.ToLower})
 }
 
-// finalPath returns the canonical path of an existing file or directory via
-// GetFinalPathNameByHandle; "" when it cannot be opened.
+// remotePath checks the volume root lexically for UNC and drive type; it
+// never touches a share (SEC10-19).
+func remotePath(p string) bool {
+	p = cleanDevicePrefix(p)
+	if strings.HasPrefix(p, `\\`) {
+		return true
+	}
+	vol := filepath.VolumeName(p)
+	if len(vol) < 2 {
+		return false
+	}
+	return windows.GetDriveType(windows.StringToUTF16Ptr(vol+`\`)) == windows.DRIVE_REMOTE
+}
+
+// finalPath returns the canonical path of an existing local file or
+// directory via GetFinalPathNameByHandle; "" when it cannot be opened.
 func finalPath(p string) string {
 	ptr, err := windows.UTF16PtrFromString(filepath.FromSlash(p))
 	if err != nil {
