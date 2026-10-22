@@ -3742,6 +3742,24 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 
 **Konsekuensi.** (+) MEM-015 tertutup: prune/archive manual dan otomatis dengan VACUUM, default tidak menghapus. (+) Purge tetap satu-satunya jalur hapus, sehingga fencing/lease §11.6 tidak diduplikasi. (−) Arsip memakai `created_at` sedangkan purge memakai aktivitas terakhir (§11.6); perbedaan basis waktu didokumentasikan di help dan ADR-141. (−) Auto-prune dapat melewatkan satu start bila DB sibuk; baris tersisa untuk start berikutnya.
 
+## ADR-145 — Recap saat resume dan retry pesan terakhir (`run --retry`)
+
+**Status:** Accepted 2026-10-22 (F2; MEM-013, MEM-030). Bertumpuk di atas ADR-150 (`--session`/`--continue`); tanpa DDL, dependency, atau perubahan `loc.budget`.
+
+**Konteks.** ADR-150 menambahkan resume headless, tetapi belum ada recap (MEM-013) maupun cara mengirim ulang pesan terakhir (MEM-030). ADR-134/#211 mengecualikan turn gagal dari konteks berikutnya sementara side effect-nya tetap terjadi; retry yang buta akan mengirim ulang pesan yang sama tanpa memberi tahu bahwa efek sampingnya sudah berjalan sekali.
+
+**Keputusan.**
+1. **Recap saat resume.** `run --session/--continue` mencetak recap ke **stderr** (stdout JSON tetap dapat diparse): id sesi (judul bila ada), jumlah event, model, cwd, dan cuplikan satu baris pesan user/assistant terakhir. Semua field diredaksi dan dibatasi 120 rune (pemotongan di batas rune). `--no-recap` mematikannya. Kegagalan membaca recap dilaporkan sebagai notice dan tidak menggagalkan turn.
+2. **`--retry`.** Mengirim ulang pesan `user_message` terakhir dari transkrip mentah (termasuk turn yang dikecualikan). Tanpa `--session`/`--continue`, retry menyiratkan `--continue` (sesi terbaru di cwd). Prompt eksplisit bersama `--retry` ditolak exit 2; sesi tanpa pesan user = exit 2.
+3. **Surface side effect (#211).** Bila turn milik pesan terakhir ada di `context_exclude`, stderr menyebut `retry: turn <id> was excluded after a failure` dan daftar tool sukses di turn itu yang efek dispatch-nya bukan `read`/`think` (nama(call_id)), plus peringatan bahwa pengiriman ulang dapat mengulanginya; notice `failed_turn_effects` (SEC11-3) yang menyebut tool dengan hasil tidak pasti juga dinamai (`side effects with unknown outcome`). Argumen tidak disimpan jurnal (hanya `args_sha`), jadi yang disurface adalah tool + call id; turn baru tetap melihat hasil/efek sebelumnya lewat transkrip dan notice normal.
+4. **Tidak ada undo otomatis.** Retry tidak membatalkan side effect; membatalkan adalah tugas `undo`/journal. Recap dan peringatan hanya memberi konteks sebelum request dikirim.
+5. **Test.** `cmd/damnbot`: `TestRetryPromptSurfacesSideEffects` (turn `context_exclude` + `write_file` sukses → prompt benar + `write_file(c1)` di stderr), `TestRetryPromptReadOnlyTurn` (tanpa peringatan), `TestRetryPromptNoUserMessage`, `TestPrintRecap` (id, jumlah event, cuplikan), `TestRetryPromptLargeHistory` (tail 300 event), `TestRetryPromptUncertainEffects` (notice `failed_turn_effects`), `TestClipRunes`; `internal/ctxdb`: `TestHistoryTail` (200 event terakhir, bukan yang tertua). `internal/e2e`: `TestRunRecapOnResume` (stderr recap, stdout JSON tetap valid), `TestRunRetryLastMessage` (request kedua memuat pesan lama), `TestRunRetrySurfacesSideEffects` (turn gagal + side effect, retry menyebut `write_file(c1)` lalu mengirim ulang), `TestRunRetryRejectsPrompt`.
+
+6. **Budget.** `ctxdb` 3.800 → 3.900 (terukur 3.825; `HistoryTail`), Total core 38.090 → 38.190 ≤ 47.000; `cmd/damnbot` tidak masuk tabel core. Pada stack sesi (ADR-140/141/142) angka ini dijumlahkan saat rebase.
+
+**Dampak terukur (SPEC §20).** DDL/migrasi/dependency/token prompt 0; `cmd/damnbot` +≈330 baris non-test (di luar tabel core) dan `ctxdb` +100 baris `HistoryTail` (terukur 3.825/3.900). Satu `HistoryTail` (≤ 200 event) saat resume dan satu `HistoryTail` (≤ 100.000 event) saat retry; keduanya membaca ekor transkrip, bukan N event tertua.
+
+**Konsekuensi.** (+) Resume memberi konteks sebelum turn baru, dan retry tidak pernah diam-diam mengulang side effect. (+) stdout tetap mesin-terbaca di semua mode. (−) Retry membaca transkrip penuh sesi (dibatasi `maxHistoryLimit`) sehingga sesi sangat besar membayar satu read linear; recap menyembunyikan detail di luar dua cuplikan terakhir.
 ## ADR-146 — Checkpoints F2: status/list/prune/clear jurnal aksi lewat mode maintenance `purge`
 
 **Status:** Accepted 2026-10-22 (F2; CLI-039). Bertumpuk di atas ADR-142 (sesi admin). Tanpa DDL, dependency, atau migrasi baru; trigger append-only tidak diubah.
@@ -3867,6 +3885,9 @@ memakai nilai yang sama agar `make loc` hijau di setiap basis bertumpuk (`f2-ski
 
 **Dampak terukur (SPEC §20).** Token/biaya/kode/LOC/dependency 0; hanya dokumen. `loc.budget` tidak disentuh. Gate `arch-*`/`adrgate` tidak berubah syaratnya.
 
+<<<<<<< HEAD
 
 *(Amandemen 2026-10-24 - GAP-REL-03, PR retry busy.)* Retry transaksi yang diwajibkan resolusi `GAP-REL-03` (`docs/DECISIONS.md:2901`: "`SQLITE_BUSY` setelah `busy_timeout=5000` -> retry transaksi <= 3x lalu error typed `db_busy`") kini benar-benar ada: `internal/ctxdb/tx.go` mengulang dua fase yang tidak mengandung efek Go - `BEGIN IMMEDIATE` dan `COMMIT` - hanya untuk `errors.Is(err, ErrDBBusy)`, maksimum 3 percobaan, dengan hitungan `Store.BusyRetries()` + hook `Options.OnBusyRetry`. `COMMIT` aman diulang karena ctxdb mengirim BEGIN/COMMIT sebagai SQL mentah di koneksi writer yang dipin, dan SQLite membiarkan transaksi tetap terbuka saat COMMIT mengembalikan SQLITE_BUSY - jadi tidak ada commit ganda dan tidak ada operasi yang dibungkus ulang setelah commit. **Rekonsiliasi SPEC**: `SPEC.md:117` (P19) melarang **`SQLITE_BUSY` ke user**, bukan error typed `db_busy`; `SPEC.md:524` memberi `db_busy` exit 4 "sementara, coba lagi"; `SPEC.md:2362` baris 37 (pemegang lock di-SIGSTOP) tetap sah memunculkan `db_busy` typed - maka perbaikan ini **mempersempit** jalur menuju `db_busy`, tidak mencabut pengecualiannya. Semantik `lease_fenced` tidak berubah (fencing tetap fail-closed, exit 4). Bukti: `internal/ctxdb/busyretry_test.go` (`TestWriterBusyRetry`) MERAH bila retry dinonaktifkan (`busyretry_test.go:82`), dan varian chaos 45 s yang sebelumnya merah 2/2 dengan `db_busy` kini hijau.
+=======
+>>>>>>> 9fbb435a (feat(run): resume recap and last-message retry)
 **Konsekuensi.** (+) Dokumen berhenti menjanjikan jaminan yang tidak ada; perilaku drain dan `lease_fenced` menjadi eksplisit sehingga sesi berikutnya tidak perlu menebak; (+) integritas tidak bergantung pada ADR ini karena fencing tetap fail-closed. (-) Dua kekurangan tetap terbuka sampai fase tujuannya: proses sah yang idle lama dapat terlihat mati oleh scanner background, dan tidak ada checkpoint pra-call sehingga token/uang bisa terpakai sebelum tulisan pertama gagal - keduanya tercatat sebagai `GAP-LEASE-01` (dan `GAP-REL-03` untuk kelas `db_busy`).
