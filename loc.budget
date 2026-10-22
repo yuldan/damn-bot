@@ -37,6 +37,9 @@ toolset            400 internal/toolset
 # headroom 191; SPEC P21 + ENGINEERING §2.4 + maxCoreLOC).
 exec              3400 internal/exec
 exec/classify     1841 internal/exec/classify
+# ADR-212 (SEC15-2): exec/classify 1841 -> 1894 (klasifikasi perawatan destruktif damnbot; terukur 1894; Σ core 47.009 -> 47.062).
+exec              3400 internal/exec
+exec/classify     1894 internal/exec/classify
 # ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).
 # ADR-108: sandbox+redact 1450 -> 1700 (dir-fd walk fast path; Σ core 34.650 -> 34.900 <= 47.000).
 # ADR-108 amendment (SEC14 root canonicalization): sandbox+redact 1700 -> 1760 (alias root, Windows

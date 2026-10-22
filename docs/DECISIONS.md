@@ -3530,6 +3530,18 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Konsekuensi.** (+) Satu tempat untuk membaca status acceptance F2 dan alasan setiap baris missing. (−) Ledger harus diperbarui saat katalog/acceptance berubah sampai PHASE dinaikkan; baris yang diselesaikan lewat PR lain perlu disinkronkan.
 
+## ADR-167 — SEC15-2: klasifikasi destruktif perawatan `damnbot`
+
+**Status:** Accepted 2026-10-22 (security review; amandemen anggaran ADR-133).
+
+**Konteks.** Tool `shell` menjalankan perintah `damnbot` sebagai proses biasa. `deny_paths` pada data dir tidak melindungi DB karena proses `damnbot` sendiri yang membukanya. Perintah seperti `damnbot sessions purge S --yes` dan `damnbot checkpoints clear --yes` sebelumnya hanya `mutating`, sehingga berjalan di `--unsafe-auto-shell` atau lewat `shell_allow` dan menghapus journal/sesi.
+
+**Keputusan.** Classifier mengenali binary `damnbot` berdasarkan base name (termasuk path, `./`, `.exe`/`.cmd`/`.bat`) dan menaikkan `Destructive` untuk perawatan yang menghapus/mengganti data: `sessions purge|prune|archive|restore`, `sessions backup restore`, `checkpoints clear|clear-legacy|prune`, `backup restore`, `doctor gc`, `setup --uninstall`/`--purge-data`, `update --rollback --data`, serta semua grup perawatan dengan `--yes`/`-y`. `sessions ls/show`, `checkpoints list`, `sessions backup verify`, `version`, dan `--help` tetap non-destruktif. Deteksi berjalan setelah wrapper (`env`, `command`, `sudo`, `xargs`, `sh -c`) dan pada semua dialek (Bash, Cmd, Pwsh); alias shell yang memperluas nama sebelum classifier tidak dapat dibaca, sehingga nama binary/path dan wrapper yang tercakup.
+
+**Bukti.** `TestDamnbotMaintenanceDestructive` (path relatif/absolut, wrapper, semua dialek, `--profile`), `TestDamnbotMaintenanceNeverAuto` (tidak ada `AutoApprove` di kelima mode termasuk `--unsafe-auto-shell`; headless `Denied`), `TestDamnbotMaintenanceNegative` (`sessions ls` etc. bukan Destructive), dan e2e `run` yang menolak `damnbot sessions purge s --yes` di `--unsafe-auto-shell`.
+
+**Anggaran.** `exec/classify` 1.830 → 1.894 (terukur 1.894; 64 baris), Total core 38.090 → 38.154 di `loc.budget` dan `docs/ENGINEERING.md` §2.4. Tidak ada kenaikan `exec`.
+
 ## ADR-173 — Tool skill: `skills_list`, `skill_view`, `skill_manage`
 
 **Status:** Accepted 2026-10-23 (F2; TOOL-074/075/076, SKILL-002, EC-CTX-006, SEC16-1..5, ACC-56..61). Budget `tools` 2.200 → 2.500 (+300; terukur 2.315) dan `ctxdb/skillstore` 400 → 460 (+60; terukur 438); dependency 0; DDL 0 (ADR-074). Diterapkan bertahap dalam dua PR berurutan: lapisan baca (`skills_list`, `skill_view`) lalu lapisan tulis (`skill_manage`) beserta penguatan SEC16-5.
