@@ -204,7 +204,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		modelRef = resumedModel
 	}
 	if modelRef == "" {
-		return nil, closeDB(ctx, db, errors.New("--model or provider.model is required to resume a session without one"))
+		return nil, closeDB(ctx, db, sid, errors.New("--model or provider.model is required to resume a session without one"))
 	}
 	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
 	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
