@@ -522,11 +522,15 @@ func runTools(reg *tools.Registry) ([]assemble.Tool, error) {
 type toolsetAdapter struct{ disp *tools.Dispatcher }
 
 func (t *toolsetAdapter) Prepare(_ context.Context, c loop.ToolCall) (loop.Prepared, error) {
-	return loop.Prepared{Call: c, Effect: loop.EffectRead, Approval: loop.ApprovalNone}, nil
+	effect := t.disp.Effect(c.Name, json.RawMessage(c.Arguments))
+	return loop.Prepared{
+		Call: c, Effect: loop.EffectRead, Approval: loop.ApprovalNone,
+		SideEffect: effect != tools.EffectRead,
+	}, nil
 }
 
 func (t *toolsetAdapter) Dispatch(ctx context.Context, p *loop.Prepared) (loop.ToolResult, error) {
-	out := t.disp.Dispatch(ctx, tools.Call{CallID: p.Call.ID, Name: p.Call.Name, Args: json.RawMessage(p.Call.Arguments)})
+	out := t.disp.Dispatch(ctx, tools.Call{TurnID: p.Call.TurnID, CallID: p.Call.ID, Name: p.Call.Name, Args: json.RawMessage(p.Call.Arguments)})
 	res := loop.ToolResult{Content: out.Render(), Tainted: out.Tainted}
 	if out.Denied {
 		res.Err = &loop.ToolError{Code: loop.CodeDenied, Message: "denied"}
@@ -555,6 +559,24 @@ func (s *ctxStore) Append(ctx context.Context, sid, tid string, ev *event.Event)
 		return 0, nil
 	}
 	return ids[0], nil
+}
+
+// BeginTurn persists turn_start with the turn_journal row in one
+// transaction (SEC11-2): a kill -9 turn is then recoverable.
+func (s *ctxStore) BeginTurn(ctx context.Context, sid, tid string) error {
+	if err := s.db.Write(ctx, func(tx *ctxdb.Tx) error { return tx.StartTurn(sid, tid) }); err != nil {
+		return fmt.Errorf("begin turn: %w", err)
+	}
+	return nil
+}
+
+// EndTurn persists turn_end with the loop's payload and clears the journal
+// row in one transaction.
+func (s *ctxStore) EndTurn(ctx context.Context, sid, tid string, payload json.RawMessage) error {
+	if err := s.db.Write(ctx, func(tx *ctxdb.Tx) error { return tx.EndTurnWith(sid, tid, string(payload)) }); err != nil {
+		return fmt.Errorf("end turn: %w", err)
+	}
+	return nil
 }
 
 type ctxLedger struct {

@@ -57,9 +57,16 @@ func (t *Tx) ToolPending(sid, turn string, c *ToolCall) error {
 	return err
 }
 
-// EndTurn appends turn_end and deletes the journal row.
+// EndTurn appends turn_end with a bare stop_reason and deletes the journal
+// row.
 func (t *Tx) EndTurn(sid, turn, stop string) error {
-	if _, err := t.AppendEvent(sid, &Event{Kind: "turn_end", TurnID: turn, Payload: jsonOf(map[string]string{"stop_reason": stop})}); err != nil {
+	return t.EndTurnWith(sid, turn, jsonOf(map[string]string{"stop_reason": stop}))
+}
+
+// EndTurnWith appends turn_end with the caller's payload and deletes the
+// journal row in the same transaction (SEC11-2/SEC11-6).
+func (t *Tx) EndTurnWith(sid, turn, payload string) error {
+	if _, err := t.AppendEvent(sid, &Event{Kind: "turn_end", TurnID: turn, Payload: payload}); err != nil {
 		return err
 	}
 	_, err := t.Exec("DELETE FROM turn_journal WHERE turn_id = ?", turn)
@@ -152,9 +159,18 @@ func (t *Tx) recoverOne(j *openJournal, allowB bool) (Recovered, error) {
 	return r, t.closeCrashed(j.sid, j.turn, j.name, r.Decision)
 }
 
-// closeCrashed writes turn_end{crashed} + crash_recovered and parks the row.
+// closeCrashed writes turn_end{crashed}, the context_exclude marker and
+// crash_recovered, then parks the row. The marker keeps a half-executed
+// turn out of later requests while its rows stay readable and recallable
+// (GAP-REL-01).
 func (t *Tx) closeCrashed(sid, turn, tool, decision string) error {
 	if _, err := t.AppendEvent(sid, &Event{Kind: "turn_end", TurnID: turn, Payload: `{"stop_reason":"crashed"}`}); err != nil {
+		return err
+	}
+	if _, err := t.AppendEvent(sid, &Event{
+		Kind: "context_exclude", TurnID: turn,
+		Payload: jsonOf(map[string]string{"turn_id": turn, "reason": "crashed"}),
+	}); err != nil {
 		return err
 	}
 	if _, err := t.AppendEvent(sid, &Event{

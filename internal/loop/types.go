@@ -30,6 +30,7 @@ type ToolCall struct {
 	ID        string
 	Name      string
 	Arguments string // JSON object as streamed, after assembly
+	TurnID    string // set by the turn loop for journal/audit correlation
 }
 
 // ToolSchema is one entry of the request tools array (Assembler output).
@@ -153,6 +154,10 @@ type Prepared struct {
 	NoSession bool // allow_session never applies (shell, P26, taint)
 	Terminal  bool // a denial ends the turn (approval_denied)
 	Approved  bool // adapter sets after the loop approver allows outside-root
+	// SideEffect marks a non-read tool for the failed-turn notice (SEC11-3).
+	// The composition root fills it from the registry; approval semantics
+	// still use Effect/Approval.
+	SideEffect bool
 }
 
 // ToolError is a model-facing tool failure. Code is one of the closed
@@ -273,6 +278,16 @@ type Compactor interface {
 // the storage side, the loop only sees this one-method seam).
 type Store interface {
 	Append(ctx context.Context, sessionID, turnID string, ev *event.Event) (int64, error)
+}
+
+// TurnJournal is the optional crash-recovery seam (SEC11-2). BeginTurn
+// persists turn_start together with the turn_journal row; EndTurn persists
+// the turn_end event with payload and clears the row in one transaction.
+// Without it the loop still appends turn_start/turn_end, but a kill -9 turn
+// has no journal and recovery cannot close it.
+type TurnJournal interface {
+	BeginTurn(ctx context.Context, sessionID, turnID string) error
+	EndTurn(ctx context.Context, sessionID, turnID string, payload json.RawMessage) error
 }
 
 // Approver answers one approval request (SPEC §4.2).

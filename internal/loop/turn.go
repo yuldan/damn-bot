@@ -34,6 +34,10 @@ type turn struct {
 	compacted bool
 	iteration int
 	pending   *outcome
+	finished  bool     // terminal state already persisted (GAP-REL-01)
+	effects   []string // non-read tools that ran (SEC11-3)
+	uncertain []string // non-read tools that may have run (SEC11-8)
+	markerErr error    // context_exclude append failure (SEC11-6)
 }
 
 // outcome is one terminal classification; err is already redacted.
@@ -41,6 +45,14 @@ type outcome struct {
 	stop   event.StopReason
 	detail event.StopDetail
 	err    string
+}
+
+// excludePayload is the append-only context_exclude marker (GAP-REL-01).
+// The turn's rows stay in the transcript and remain recallable; the
+// assembler skips them for later requests.
+type excludePayload struct {
+	TurnID string `json:"turn_id"`
+	Reason string `json:"reason"`
 }
 
 // askState is the per-iteration re-call bookkeeping (ADR-078 AUD-045).
@@ -52,7 +64,19 @@ type askState struct {
 // run executes the turn and emits its terminal update. It never returns an
 // error: every failure becomes a stop reason (P2).
 func (t *turn) run(ctx context.Context) {
+	defer t.finishOpen(ctx)
 	t.end(ctx, t.steps(ctx))
+}
+
+// finishOpen persists the terminal state when the state machine unwinds
+// before end (a panic; boundary still receives it, E-26). Only the terminal
+// state is written here, without a stream update, so recovery never depends
+// on a reader draining the channel (GAP-REL-01).
+func (t *turn) finishOpen(ctx context.Context) {
+	if t.finished {
+		return
+	}
+	t.finish(context.WithoutCancel(ctx), outcome{stop: event.StopError, detail: event.DetailInternal, err: "panic"}, "panic")
 }
 
 // steps is the iteration loop of SPEC §3.4.
@@ -74,6 +98,13 @@ func (t *turn) begin(ctx context.Context) *outcome {
 	if _, err := t.append(ctx, &event.Event{Kind: event.UserMessage, Role: "user", Content: t.input.Text}); err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
 		return &o
+	}
+	if j, ok := t.deps.Store.(TurnJournal); ok {
+		if err := j.BeginTurn(ctx, t.sessionID, t.turnID); err != nil {
+			o := t.fail(ctx, event.DetailInternal, err)
+			return &o
+		}
+		return nil
 	}
 	if _, err := t.append(ctx, &event.Event{Kind: event.TurnStart, Payload: payload(turnStartPayload{
 		Text: t.input.Text, PlanMode: t.input.PlanMode, TurnID: t.turnID,
@@ -412,15 +443,70 @@ func (t *turn) truncated(ctx context.Context, calls []ToolCall) (outcome, bool) 
 	return outcome{}, false
 }
 
-// end persists turn_end and emits the terminal update.
+// end persists the terminal state and emits the terminal update.
 func (t *turn) end(ctx context.Context, o outcome) {
 	errText := t.redact(o.err)
-	t.note(ctx, &event.Event{Kind: event.TurnEnd, Payload: payload(endPayload{
+	t.finish(ctx, o, excludeReason(o))
+	t.emit(&event.Update{Kind: event.UpdateStop, Stop: o.stop, Detail: o.detail, Usage: &t.usage, Err: errText})
+	if t.markerErr != nil { // SEC11-6: never lose the poison-loop guard silently
+		msg := t.redact("context_exclude append failed: " + t.markerErr.Error())
+		t.emit(&event.Update{Kind: event.UpdateNotice, Text: msg, Err: msg})
+	}
+}
+
+// finish appends the context_exclude marker (when reason is not empty) and
+// turn_end. It runs exactly once per turn. The marker is written first: it
+// is the poison-loop guard (GAP-REL-01), so it must not be lost when the
+// audit append fails. Both appends ignore cancellation (note).
+func (t *turn) finish(ctx context.Context, o outcome, reason string) {
+	if t.finished {
+		return
+	}
+	t.finished = true
+	if reason != "" {
+		if len(t.effects) > 0 || len(t.uncertain) > 0 { // SEC11-3: executed side effects stay visible
+			t.noteTurnless(ctx, &event.Event{Kind: event.SystemNotice, Payload: payload(effectsPayload{
+				Kind: "failed_turn_effects", TurnID: t.turnID, Effects: t.effects, Uncertain: t.uncertain,
+			})})
+		}
+		if _, err := t.appendAs(ctx, t.turnID, &event.Event{Kind: event.ContextExclude, Payload: payload(excludePayload{TurnID: t.turnID, Reason: reason})}); err != nil {
+			t.markerErr = err // SEC11-6: surfaced as a stream notice in end
+		}
+	}
+	end := &event.Event{Kind: event.TurnEnd, Payload: payload(endPayload{
 		Stop: string(o.stop), Detail: string(o.detail), Iterations: t.iteration,
 		Input: t.usage.Input, Output: t.usage.Output, CostUSD: t.usage.CostUSD,
-		Tainted: t.tainted, Error: errText,
-	})})
-	t.emit(&event.Update{Kind: event.UpdateStop, Stop: o.stop, Detail: o.detail, Usage: &t.usage, Err: errText})
+		Tainted: t.tainted, Error: t.redact(o.err),
+	})}
+	if j, ok := t.deps.Store.(TurnJournal); ok {
+		if err := j.EndTurn(context.WithoutCancel(ctx), t.sessionID, t.turnID, end.Payload); err != nil {
+			t.markerErr = errors.Join(t.markerErr, err)
+			t.note(ctx, end) // the journal keeps the turn recoverable
+			return
+		}
+		return
+	}
+	t.note(ctx, end)
+}
+
+// excludeReason names the terminal outcomes whose turn is skipped by the
+// assembler: request-level failures, internal failures (including a panic),
+// exhausted context, and cancellation. Policy stops that leave a usable
+// history (completed, empty_response, no_progress, invalid_answer,
+// output_truncated, budget_*, max_iterations, content_filtered, tool_error)
+// stay in context.
+func excludeReason(o outcome) string {
+	switch o.detail {
+	case event.DetailProviderError, event.DetailInternal, event.DetailContextOverflow,
+		event.DetailCancelled, event.DetailMaxWall:
+		return string(o.detail)
+	case event.DetailCompleted, event.DetailEmptyResponse, event.DetailNoProgress,
+		event.DetailInvalidAnswer, event.DetailOutputTruncated, event.DetailBudgetInput,
+		event.DetailBudgetOutput, event.DetailContentFiltered, event.DetailApprovalDenied,
+		event.DetailToolError, event.DetailMaxIterations:
+		return ""
+	}
+	return ""
 }
 
 // cancelled is the plain cancellation classification.
@@ -463,15 +549,28 @@ func (t *turn) note(ctx context.Context, ev *event.Event) {
 	}
 }
 
+// noteTurnless appends an event outside the turn (no turn_id), so turn-level
+// context_exclude cannot hide it (SEC11-3).
+func (t *turn) noteTurnless(ctx context.Context, ev *event.Event) {
+	if _, err := t.appendAs(context.WithoutCancel(ctx), "", ev); err != nil {
+		t.markerErr = err
+	}
+}
+
 // append writes one critical event unless persistence is disabled.
 func (t *turn) append(ctx context.Context, ev *event.Event) (int64, error) {
+	return t.appendAs(ctx, t.turnID, ev)
+}
+
+// appendAs writes one event with an explicit turn id ("" = turnless).
+func (t *turn) appendAs(ctx context.Context, turnID string, ev *event.Event) (int64, error) {
 	if t.deps.Store == nil {
 		return 0, nil
 	}
 	if ev.Payload == nil {
 		ev.Payload = json.RawMessage(`{}`)
 	}
-	id, err := t.deps.Store.Append(ctx, t.sessionID, t.turnID, ev)
+	id, err := t.deps.Store.Append(ctx, t.sessionID, turnID, ev)
 	if err != nil {
 		return 0, fmt.Errorf("loop: store append: %w", err)
 	}

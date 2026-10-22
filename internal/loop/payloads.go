@@ -66,6 +66,15 @@ type auditPayload struct {
 	Decision string `json:"decision,omitempty"`
 }
 
+// effectsPayload is the turnless system_notice listing side effects that
+// already executed in a failed turn (SEC11-3).
+type effectsPayload struct {
+	Kind      string   `json:"kind"`
+	TurnID    string   `json:"turn_id"`
+	Effects   []string `json:"effects,omitempty"`
+	Uncertain []string `json:"uncertain,omitempty"`
+}
+
 type endPayload struct {
 	Stop       string   `json:"stop_reason"`
 	Detail     string   `json:"detail"`
@@ -83,7 +92,7 @@ func callPayloads(calls []ToolCall) []toolCallPayload {
 	}
 	out := make([]toolCallPayload, 0, len(calls))
 	for _, c := range calls {
-		out = append(out, toolCallPayload(c))
+		out = append(out, toolCallPayload{ID: c.ID, Name: c.Name, Arguments: c.Arguments})
 	}
 	return out
 }
