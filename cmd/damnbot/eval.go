@@ -15,7 +15,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/assemble"
@@ -68,82 +71,162 @@ func parseEvalFlags(args []string, stderr io.Writer) (evalOptions, error) {
 	return o, nil
 }
 
+// evalLedgerFile is the committed ledger format (F1 fields plus per-call
+// reservations, so eval processes can share one cap safely).
+type evalLedgerFile struct {
+	CapUSD   float64            `json:"cap_usd"`
+	SpentUSD float64            `json:"spent_usd"`
+	Reserved map[string]float64 `json:"reserved_usd,omitempty"`
+	Updated  time.Time          `json:"updated"`
+}
+
 type spendLedger struct {
 	path          string
-	capUSD, spent float64
-	reserved      float64
+	nonce         string  // per-instance id prefix (pid + counter is not enough)
+	capUSD, spent float64 // last committed values (summary only)
 	calls         int
+	seq           atomic.Uint64
 }
 
 func openSpendLedger(path string, capUSD float64) (*spendLedger, error) {
-	l := &spendLedger{path: path, capUSD: capUSD}
-	if path == "" {
-		return l, nil // tests only: no durable file
-	}
-	b, err := os.ReadFile(path) // #nosec G304 -- path is an explicit ledger argument
-	if errors.Is(err, os.ErrNotExist) {
-		if capUSD <= 0 {
-			return nil, errors.New("eval ledger: cap must be > 0")
+	l := &spendLedger{path: path, nonce: strconv.FormatInt(time.Now().UnixNano(), 36)}
+	err := l.update(func(f *evalLedgerFile) error {
+		if f.CapUSD <= 0 {
+			if capUSD <= 0 {
+				return errors.New("eval ledger: cap must be > 0")
+			}
+			f.CapUSD = capUSD
 		}
-		if serr := l.save(); serr != nil {
-			return nil, serr
-		}
-		return l, nil
-	}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("eval ledger %s: %w", path, err)
+		return nil, err
 	}
-	var f struct {
-		CapUSD   float64   `json:"cap_usd"`
-		SpentUSD float64   `json:"spent_usd"`
-		Updated  time.Time `json:"updated"`
-	}
-	if err := json.Unmarshal(b, &f); err != nil {
-		return nil, fmt.Errorf("eval ledger %s: %w", path, err)
-	}
-	if f.CapUSD <= 0 {
-		return nil, fmt.Errorf("eval ledger %s: cap_usd must be > 0", path)
-	}
-	l.capUSD, l.spent = f.CapUSD, f.SpentUSD
 	return l, nil
 }
 
-// reserve records the next call's worst case, failing closed before the call.
-func (l *spendLedger) reserve(worst float64) error {
-	if l.spent+l.reserved+max(worst, 0) > l.capUSD {
-		return fmt.Errorf("%w: spent %.6f + reserved %.6f + worst %.6f exceeds cap %.2f",
-			errEvalBudget, l.spent, l.reserved, worst, l.capUSD)
+// update runs fn over the file under the cross-process lock and writes the
+// result atomically; capUSD/spent mirror the committed values.
+func (l *spendLedger) update(fn func(*evalLedgerFile) error) error {
+	unlock, err := lockLedger(l.path + ".lock")
+	if err != nil {
+		return fmt.Errorf("eval ledger lock: %w", err)
 	}
-	l.reserved = worst
-	return nil
+	f, err := readLedger(l.path)
+	if err != nil {
+		return errors.Join(err, unlock())
+	}
+	if err := fn(f); err != nil {
+		return errors.Join(err, unlock())
+	}
+	if err := writeLedger(l.path, f); err != nil {
+		return errors.Join(err, unlock())
+	}
+	l.capUSD, l.spent = f.CapUSD, f.SpentUSD
+	return unlock()
 }
 
-func (l *spendLedger) settle(actual float64) error {
-	l.spent += max(actual, 0)
-	l.reserved = 0
-	l.calls++
-	return l.save()
+func readLedger(path string) (*evalLedgerFile, error) {
+	b, err := os.ReadFile(path) // #nosec G304 -- path is the explicit --ledger argument
+	if errors.Is(err, os.ErrNotExist) {
+		return &evalLedgerFile{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("eval ledger %s: %w", path, err)
+	}
+	var f evalLedgerFile
+	if err := json.Unmarshal(b, &f); err != nil {
+		return nil, fmt.Errorf("eval ledger %s: %w", path, err)
+	}
+	return &f, nil
 }
 
-func (l *spendLedger) save() error {
-	if l.path == "" {
-		return nil
-	}
-	b, err := json.Marshal(struct {
-		CapUSD   float64   `json:"cap_usd"`
-		SpentUSD float64   `json:"spent_usd"`
-		Updated  time.Time `json:"updated"`
-	}{l.capUSD, l.spent, time.Now().UTC()})
+func writeLedger(path string, f *evalLedgerFile) error {
+	f.Updated = time.Now().UTC()
+	b, err := json.Marshal(f)
 	if err != nil {
 		return fmt.Errorf("eval ledger: %w", err)
 	}
-	if err := os.WriteFile(l.path+".tmp", append(b, '\n'), 0o600); err != nil {
+	if err := os.WriteFile(path+".tmp", append(b, '\n'), 0o600); err != nil {
 		return fmt.Errorf("eval ledger write: %w", err)
 	}
-	if err := os.Rename(l.path+".tmp", l.path); err != nil {
+	if err := os.Rename(path+".tmp", path); err != nil {
 		return fmt.Errorf("eval ledger rename: %w", err)
 	}
 	return nil
+}
+
+// reserve records the next call's worst case under the lock, failing closed
+// before the call when the cap would be crossed.
+func (l *spendLedger) reserve(worst float64) (string, error) {
+	worst = max(worst, 0)
+	id := fmt.Sprintf("%s-%d-%d", l.nonce, os.Getpid(), l.seq.Add(1))
+	err := l.update(func(f *evalLedgerFile) error {
+		if f.CapUSD <= 0 {
+			return errors.New("eval ledger: cap_usd must be > 0")
+		}
+		held := 0.0
+		for _, v := range f.Reserved {
+			held += v
+		}
+		if f.SpentUSD+held+worst > f.CapUSD {
+			return fmt.Errorf("%w: spent %.6f + reserved %.6f + worst %.6f exceeds cap %.2f",
+				errEvalBudget, f.SpentUSD, held, worst, f.CapUSD)
+		}
+		if f.Reserved == nil {
+			f.Reserved = map[string]float64{}
+		}
+		f.Reserved[id] = worst
+		return nil
+	})
+	return id, err
+}
+
+// staleReservations reports reservations left in the file by an earlier run.
+// They are never auto-expired: only a human can decide the process is gone.
+func (l *spendLedger) staleReservations() (int, float64, error) {
+	var n int
+	var usd float64
+	err := l.update(func(f *evalLedgerFile) error {
+		for _, v := range f.Reserved {
+			n++
+			usd += v
+		}
+		return nil
+	})
+	return n, usd, err
+}
+
+// ensureOutDir creates the artifact dir and keeps per-task SQLite dirs out of
+// git for any --out location, not just the committed results tree.
+func ensureOutDir(outDir string) error {
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
+		return fmt.Errorf("create %s: %w", outDir, err)
+	}
+	gi := filepath.Join(outDir, ".gitignore")
+	if _, err := os.Stat(gi); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat %s: %w", gi, err)
+	}
+	if err := os.WriteFile(gi, []byte("data/\n"), 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", gi, err)
+	}
+	return nil
+}
+
+// settle charges max(actual, reserved worst): a provider that reports no usage
+// must not undercharge the cap (SEC14-1).
+func (l *spendLedger) settle(id string, actual, worst float64) error {
+	err := l.update(func(f *evalLedgerFile) error {
+		delete(f.Reserved, id)
+		f.SpentUSD += max(actual, worst, 0)
+		return nil
+	})
+	if err == nil {
+		l.calls++
+	}
+	return err
 }
 
 // evalPrice is the declared model price in USD per 1M tokens.
@@ -173,18 +256,19 @@ type evalProvider struct {
 
 func (p *evalProvider) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
 	worst := p.price.Cost(estimateInputTokens(req), 0, int64(max(req.MaxTokens, 4096)))
-	if err := p.ledger.reserve(worst); err != nil {
+	id, err := p.ledger.reserve(worst)
+	if err != nil {
 		return loop.Reply{}, err
 	}
 	p.callN++
 	reply, err := p.inner.Stream(ctx, req, emit)
 	if err != nil {
-		if serr := p.ledger.settle(worst); serr != nil { // unknown usage: charge the bound
+		if serr := p.ledger.settle(id, 0, worst); serr != nil { // unknown usage: charge the bound
 			return loop.Reply{}, serr
 		}
 		return loop.Reply{}, fmt.Errorf("eval provider: %w", err)
 	}
-	if serr := p.ledger.settle(usageCost(reply.Usage, p.price)); serr != nil {
+	if serr := p.ledger.settle(id, usageCost(reply.Usage, p.price), worst); serr != nil {
 		return reply, &loop.StreamError{Class: loop.ClassProvider, Err: serr}
 	}
 	return reply, nil
@@ -249,7 +333,25 @@ type evalSummary struct {
 	SpentUSD  float64          `json:"spent_usd"`
 	CapUSD    float64          `json:"cap_usd"`
 	BudgetEnd bool             `json:"budget_stop"`
+	Price     evalPrice        `json:"price_usd_per_mtok"`
 	Results   []evalTaskResult `json:"results"`
+}
+
+// evalTaskIDRE is the only shape allowed in a task id: the id becomes a path
+// component under <out>/data.
+var evalTaskIDRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+
+// evalDataDir returns the task's data dir and proves it stays under data/.
+func evalDataDir(outDir, id string) (string, error) {
+	if !evalTaskIDRE.MatchString(id) {
+		return "", fmt.Errorf("eval task id %q is invalid", id)
+	}
+	base := filepath.Join(outDir, "data")
+	dir := filepath.Join(base, id)
+	if rel, err := filepath.Rel(base, dir); err != nil || rel != id {
+		return "", fmt.Errorf("eval task id %q escapes %s", id, base)
+	}
+	return dir, nil
 }
 
 var (
@@ -300,15 +402,21 @@ func runEvalWith(o *evalOptions, price evalPrice, ledger *spendLedger, inner loo
 	if outDir == "" {
 		outDir = filepath.Join("bench", "h2h", "results", "f2-e4-"+time.Now().UTC().Format("20060102T150405"))
 	}
-	if err := os.MkdirAll(outDir, 0o750); err != nil {
+	if err := ensureOutDir(outDir); err != nil {
 		printTo(stderr, "eval: %s\n", err)
 		return 2
 	}
 	prov := &evalProvider{inner: inner, ledger: ledger, price: price}
+	if n, usd, err := ledger.staleReservations(); err != nil {
+		printTo(stderr, "eval: %s\n", err)
+		return 2
+	} else if n > 0 {
+		printTo(stderr, "eval: warning: %d in-flight ledger reservation(s) totalling %.6f USD in %s from an earlier run; verify that process is gone and remove them by hand (ADR-138)\n", n, usd, ledger.path)
+	}
 	results := runE4Tasks(context.Background(), tasks, o, prov, outDir)
-	sum := summarizeE4(results, o, ledger, prov.callN)
+	sum := summarizeE4(results, o, ledger, prov.callN, price)
 	sum.Results = results
-	if err := writeEvalArtifacts(outDir, &sum); err != nil {
+	if err := writeEvalArtifacts(outDir, &sum, redact.New(redact.Options{})); err != nil {
 		printTo(stderr, "eval: %s\n", err)
 		return 1
 	}
@@ -339,6 +447,13 @@ func liveProvider(o *evalOptions) (loop.Provider, error) {
 		}
 		keyPath = filepath.Join(home, rest)
 	}
+	info, err := os.Stat(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("api key file %s: %w", keyPath, err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
+		return nil, fmt.Errorf("api key file %s: mode %04o, want 0600 or stricter", keyPath, info.Mode().Perm())
+	}
 	key, err := os.ReadFile(keyPath) // #nosec G304 -- path is an explicit key-file argument
 	if err != nil {
 		return nil, fmt.Errorf("api key file %s: %w", keyPath, err)
@@ -366,7 +481,7 @@ func liveProvider(o *evalOptions) (loop.Provider, error) {
 }
 
 func loadEvalTasks(path string) ([]evalTask, error) {
-	b, err := os.ReadFile(path) // #nosec G304 -- path is the eval-set directory argument
+	b, err := os.ReadFile(path) // #nosec G304 -- path is the eval-set file chosen by the runner
 	if err != nil {
 		return nil, fmt.Errorf("eval tasks: %w", err)
 	}
@@ -376,6 +491,9 @@ func loadEvalTasks(path string) ([]evalTask, error) {
 			var t evalTask
 			if err := json.Unmarshal([]byte(line), &t); err != nil {
 				return nil, fmt.Errorf("eval tasks %s: %w", path, err)
+			}
+			if !evalTaskIDRE.MatchString(t.ID) {
+				return nil, fmt.Errorf("eval tasks %s: invalid task id %q", path, t.ID)
 			}
 			out = append(out, t)
 		}
@@ -403,12 +521,17 @@ func runE4Tasks(ctx context.Context, tasks []evalTask, o *evalOptions, prov loop
 // survive across sessions, never across tasks) and grades the scripted checks.
 func runE4Task(ctx context.Context, t *evalTask, o *evalOptions, prov loop.Provider, outDir string) evalTaskResult {
 	res := evalTaskResult{ID: t.ID, Kind: t.Kind, Pass: true}
-	dataDir := filepath.Join(outDir, "data", t.ID)
+	dataDir, err := evalDataDir(outDir, t.ID)
+	if err != nil {
+		res.Err, res.HarnessError = err.Error(), true
+		return res
+	}
 	if err := os.RemoveAll(dataDir); err != nil {
 		res.HarnessError = true
 		return res
 	}
 	cfg := config.Default()
+	cfg.Approval.AddDirs = nil
 	red := redact.New(redact.Options{})
 	facts := map[string]int64{}
 	for i := range t.Steps {
@@ -428,14 +551,15 @@ func runE4Step(ctx context.Context, res *evalTaskResult, st *evalStep, o *evalOp
 	sctx, cancel := context.WithTimeout(ctx, time.Duration(o.timeoutS)*time.Second)
 	var buf bytes.Buffer
 	_, rerr := runOne(sctx, &runOptions{
-		prompt: st.Input, dataDir: dataDir, model: o.model, output: "json", approval: "auto",
-		cfgOverride: cfg, prov: prov,
+		prompt: st.Input, dataDir: dataDir, model: o.model, output: "json", approval: "ask",
+		cwd: dataDir, cfgOverride: cfg, prov: prov,
 		retrieverFor: func(db *ctxdb.Store) assemble.Retriever { return &evalRetriever{db: db} },
 	}, &buf)
 	cancel()
 	var turn struct {
 		SessionID string `json:"session_id"`
 		Answer    string `json:"answer"`
+		Error     string `json:"error"`
 	}
 	if uerr := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &turn); uerr != nil {
 		res.Err, res.HarnessError = fmt.Sprintf("turn result: %v", uerr), true
@@ -447,6 +571,10 @@ func runE4Step(ctx context.Context, res *evalTaskResult, st *evalStep, o *evalOp
 		if errors.Is(rerr, errEvalBudget) {
 			res.Skipped, res.cause = "budget", rerr
 		}
+		return false
+	}
+	if turn.Error != "" {
+		res.Err, res.HarnessError = turn.Error, true
 		return false
 	}
 	oldValue := plantFacts(ctx, res, st, turn.SessionID, dataDir, red, facts)
@@ -560,10 +688,10 @@ func (r *evalRetriever) Memories(ctx context.Context, query string) ([]assemble.
 
 func (r *evalRetriever) Skills(context.Context, string) ([]string, error) { return nil, nil }
 
-func summarizeE4(results []evalTaskResult, o *evalOptions, ledger *spendLedger, calls int) evalSummary {
+func summarizeE4(results []evalTaskResult, o *evalOptions, ledger *spendLedger, calls int, price evalPrice) evalSummary {
 	sum := evalSummary{
 		Model: o.model, Fake: o.fake, GateMin: o.gateMin,
-		Calls: calls, SpentUSD: ledger.spent, CapUSD: ledger.capUSD,
+		Calls: calls, SpentUSD: ledger.spent, CapUSD: ledger.capUSD, Price: price,
 	}
 	for _, r := range results {
 		if r.Skipped == "budget" {
@@ -585,7 +713,10 @@ func summarizeE4(results []evalTaskResult, o *evalOptions, ledger *spendLedger, 
 	return sum
 }
 
-func writeEvalArtifacts(outDir string, sum *evalSummary) error {
+func writeEvalArtifacts(outDir string, sum *evalSummary, red *redact.Redactor) error {
+	for i := range sum.Results {
+		sum.Results[i].Err = red.String(sum.Results[i].Err)
+	}
 	b, err := json.MarshalIndent(sum, "", " ")
 	if err != nil {
 		return fmt.Errorf("summary.json: %w", err)

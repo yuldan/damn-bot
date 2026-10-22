@@ -55,6 +55,7 @@ type runOptions struct {
 	prov         loop.Provider
 	cfgOverride  *config.Config
 	retrieverFor func(*ctxdb.Store) assemble.Retriever
+	cwd          string // override for the session cwd/sandbox root (tests, eval)
 }
 
 // reportedParseError marks a parse failure the flag package already wrote to
