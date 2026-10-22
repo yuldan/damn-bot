@@ -69,14 +69,14 @@ below with the sibling PRs that close them.
 | EC-CTX-020 | `TestEdgeCases/EC-CTX-020` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-021 | `TestEdgeCases/EC-CTX-021` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-022 | `TestEdgeCases/EC-CTX-022` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-STATE-001 | — (not in `TestStateEdgeCases`) | — | missing | ctxdb |
+| EC-STATE-001 | `TestStateEdgeCases/EC-STATE-001` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-002 | `TestStateEdgeCases/EC-STATE-002` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-003 | `TestStateEdgeCases/EC-STATE-003` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-005 | `TestStateEdgeCases/EC-STATE-005` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-006 | `TestStateEdgeCases/EC-STATE-006` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-007 | — (not in `TestStateEdgeCases`) | — | missing | ctxdb |
+| EC-STATE-007 | `TestStateEdgeCases/EC-STATE-007` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-008 | `TestStateEdgeCases/EC-STATE-008` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-009 | — (not in `TestStateEdgeCases`) | — | missing | ctxdb |
+| EC-STATE-009 | `TestStateEdgeCases/EC-STATE-009` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-010 | `TestStateEdgeCases/EC-STATE-010` + `edgecases_unix_test.go` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-011 | `TestStateEdgeCases/EC-STATE-011` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-013 | `TestStateEdgeCases/EC-STATE-013` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
@@ -135,14 +135,14 @@ with the window) and EC-TCALL-009 (`--answer-schema` produces
 | GAP-REL-01 | Failed turn persisted | `TestFailedTurnPersisted` + `TestFailedTurnEmptyContent` | covered | loop |
 | GAP-REL-03 | Chaos: 50 concurrent clients, 30 min | — | missing | ctxdb |
 | GAP-REL-04 | SQLite engine version | `TestSQLiteEngineVersion` exists; no `sqlite-engine` CI job | covered (no job) | provider/ctxdb |
-| GAP-REL-05 | Migration fail-closed | — (`TestMigrationFailClosed` nowhere) | missing | ctxdb |
+| GAP-REL-05 | Migration fail-closed | `TestMigrationFailClosed` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | GAP-COST-01 | Pricing table not expired at release | `TestPricingTableNotExpired` (`internal/provider/registry/prices_test.go`) | in-flight (PR #188) | provider |
 | GAP-COST-02 | No context probe | — (`TestNoContextProbe` nowhere; the analyzer does not exist) | missing | provider |
 | GAP-COST-04 | Prefix stable across fallback | — (`TestPrefixStableAcrossFallback` nowhere) | missing | assemble/loop |
 | GAP-PROV-01 | Cache key includes tier/system | `TestFixedOverheadGolden`, `TestAllModulesFixtureShape` compare the rendered prompt; the F2 part (table via migrations) is `TestMigrate*` | covered | assemble/ctxdb |
 | GAP-PROV-02 | Per-tier budget asserted | — (`TestContextTierBudget` nowhere) | missing | assemble |
-| GAP-INF-01 | CJK recall order | — (`TestRecallCJKOrder`/`BenchmarkRecallCJK` nowhere) | missing | ctxdb |
-| GAP-INF-02 | FTS index auto-upgrade | — (`BenchmarkRecallToolOutput`, `TestFTSAutoUpgrade` nowhere) | missing | ctxdb |
+| GAP-INF-01 | CJK recall order | `TestRecallCJKOrder`, `BenchmarkRecallCJK` | `internal/ctxdb/acceptance_test.go`, `internal/ctxdb/recall_perf_test.go` | covered | ctxdb |
+| GAP-INF-02 | FTS index auto-upgrade | `TestFTSAutoUpgrade`, `BenchmarkRecallToolOutput` | `internal/ctxdb/acceptance_test.go`, `internal/ctxdb/recall_perf_test.go` | covered | ctxdb |
 | GAP-INF-06 | Rerun deterministic after restart | — (no test; separate from EC-CTX-021's pure rerun) | missing | loop |
 | GAP-TOOL-10 | Native arch select + skill filter | `TestToolSelection` exists; no `TestNativeArchSelect`; no `requires: gpu=nvidia` filter test | missing | tools/skills |
 | GAP-SEC-26 | No dangling skill refs in builtin | `TestLintCorpus` lint only; no CI rule over `builtin/` (0 refs) | surface | skills/CI |
