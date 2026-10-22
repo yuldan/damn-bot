@@ -29,7 +29,7 @@
   {"dimension": "Crash/hang rate", "phase": "F4", "reason": "soak 24 jam serve; gate F9"},
   {"dimension": "Pemulihan setelah kill -9", "phase": "F4", "reason": "chaos suite SELF-HEALING untuk kedua agent"},
   {"dimension": "Self-healing", "phase": "F4", "reason": "chaos suite SELF-HEALING untuk kedua agent"},
-  {"dimension": "Konkurensi", "phase": "F2", "reason": "TestMultiProcess + harness multi-proses hermes_state"},
+  {"dimension": "Konkurensi", "phase": "F2", "reason": "diukur di F2: bench/f2/results/hermes-868b9f244f-F2.json (TestConcurrencyF2 + hermes_concurrency.py)"},
   {"dimension": "Proses yatim / perintah hang", "phase": "F1", "reason": "suite EXEC lewat tool terminal hermes"},
   {"dimension": "Edit salah lokasi", "phase": "F1", "reason": "CT-20 dijalankan pada tool edit kedua agent"},
   {"dimension": "Error tertelan (injeksi)", "phase": "F1", "reason": "50 titik injeksi butuh fake provider; angka statis BASELINE §5 sudah ada"},
@@ -44,6 +44,6 @@
   {"dimension": "Waktu CI PR", "phase": "F1", "reason": "laporan CI"},
   {"dimension": "Kode mati", "phase": "F1", "reason": "deadcode 3 GOOS; vulture hermes di job yang sama"},
   {"dimension": "Waktu build bersih / inkremental", "phase": "F3", "reason": "job buildtime bersama release pipeline"},
-  {"dimension": "Token skill per turn", "phase": "F2", "reason": "butuh index skill Damn-Bot; sisi hermes dari request yang direkam proxy (ADR-083)"}
+  {"dimension": "Token skill per turn", "phase": "F2", "reason": "diukur di F2: bench/f2/results/hermes-868b9f244f-F2.json (o200k atas <available_skills> rekaman dan tier skill Damn-Bot)"}
  ]
 }
