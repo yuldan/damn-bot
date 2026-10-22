@@ -337,6 +337,7 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	if err != nil {
 		return nil, fmt.Errorf("provider endpoint: %w", err)
 	}
+<<<<<<< HEAD
 	provName, modelName, _ := strings.Cut(modelRef, "/")
 	prices, err := provider.RoutePrices(table, base, modelName)
 	if err != nil {
@@ -345,10 +346,21 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	guard, err := budget.NewGuard(budget.GuardConfig{
 		DailyUSD: cfg.Budget.DailyUSD, MonthlyUSD: cfg.Budget.MonthlyUSD, Providers: cfg.Budget.Providers, WarnAt: cfg.Budget.WarnAt,
 	}, ledgerstore.Source{Store: db}, nil)
+=======
+	guard, notes, err := newBudgetGuard(cfg, db)
+>>>>>>> 01a76687 (fix(loop): emit budget warnings once and raise the loop budget row)
 	if err != nil {
-		return nil, fmt.Errorf("budget guard: %w", err)
+		return nil, err
 	}
+<<<<<<< HEAD
 	notes := &budgetNotes{}
+=======
+	provName, modelName, _ := strings.Cut(modelRef, "/")
+	prices, err := provider.RoutePrices(table, base, modelName)
+	if err != nil {
+		return nil, fmt.Errorf("pricing: %w", err)
+	}
+>>>>>>> 01a76687 (fix(loop): emit budget warnings once and raise the loop budget row)
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
 		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family, Prices: prices}},
@@ -503,11 +515,6 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// budgetCounter adapts COST-09 to assemble.Counter (one formula, one owner).
-type budgetCounter struct{}
-
-func (budgetCounter) Count(s string) int { return int(budget.Count(s).Raw()) }
-
 // charsPerToken is the COST-09 char/token ratio of the run prompt, the
 // session sample available before the ledger has usage rows. Zero means
 // unknown, which keeps the fixed P5 aggregate (GAP-COST-08).
@@ -517,12 +524,6 @@ func charsPerToken(s string) float64 {
 		return 0
 	}
 	return float64(n) / float64(raw)
-}
-
-type providerAdapter struct {
-	client *provider.OpenAI
-	model  string
-	notes  *budgetNotes
 }
 
 func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {

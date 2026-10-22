@@ -9,7 +9,8 @@
 # ADR-123 amendment (merge #173): budget stop details di turn/event ikut baris `loop` yang sama (diukur ulang pada pohon hasil merge).
 loop              2100 internal/loop
 
-loop              2120 internal/loop
+
+loop              2160 internal/loop
 plan               600 internal/plan
 # ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
 # ADR-128 amandemen round 3/4: provider 2100 -> 2150 (billed usage/projection; Σ core +50).

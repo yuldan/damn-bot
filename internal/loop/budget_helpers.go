@@ -25,3 +25,11 @@ func (t *turn) recordBilledAttempts(ctx context.Context, n int, u *event.Usage) 
 	}
 	return nil
 }
+
+// noteBudgetWarnings reports the warn_at crossings the guard collected.
+func (t *turn) noteBudgetWarnings(ctx context.Context, caps []string) {
+	for _, c := range caps {
+		t.note(ctx, &event.Event{Kind: event.BudgetWarning, Payload: payload(auditPayload{Kind: c})})
+		t.emit(&event.Update{Kind: event.UpdateNotice, Text: "budget warning: " + c + " cap reached warn_at", ToolName: "budget"})
+	}
+}

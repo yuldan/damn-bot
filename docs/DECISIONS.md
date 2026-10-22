@@ -3518,6 +3518,8 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 
 ## ADR-178 — Budget `loop` 2.050 → 2.100 setelah penanda partial EC-PROV-008 dan `windowRoom` EC-CTX-017
 
+**Amandemen (F2 wiring guard).** Event `budget_warning` dari `OnBudget` dan pencatatan `record` sebelum cancellation menambah 33 baris di `loop`, sehingga baris dinaikkan 2.100 → 2.160 (terukur 2.133; Σ core 38.520 → 38.630; `loc.budget` + `docs/ENGINEERING.md` diset sama).
+
 **Status:** Accepted 2026-10-22 (F2; EC-PROV-008, EC-CTX-017). Budget `loop` 2.050 → 2.100 (+50; terukur 2.051 sesudah penanda partial, guard `windowRoom`, dan penyaringan snapshot kompaksi). Dependency 0; DDL 0 (ADR-074); total core 38.470 → 38.520 ≤ 47.000.
 
 **Konteks.** PR #245 menambah baris di `internal/loop`: penanda `partial` pada payload event assistant dan jalur replay (`EC-PROV-008`), guard window `windowRoom = window - max_tokens` beserta pemanggilnya (`EC-CTX-017`), dan pengisian `Prompt.WindowTokens` dari window efektif. Baris `loop` di `loc.budget` tadinya 2.050 (ADR-134) dengan `scc` terukur 2.043 di atas head #250; penambahan itu membawa terukur ke 2.051, satu baris di atas maksimum.
