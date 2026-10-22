@@ -425,11 +425,31 @@ func FTSNorm(t string) string { return ftsNorm(t) }
 // ftsNorm lowercases text and splits CJK runs into overlapping bigrams
 // (INF-01) so unicode61 tokenises them.
 func (s *Store) ftsValue(t string) string {
-	n := ftsNorm(t)
 	if s.codec == nil {
-		return n
+		return ftsNorm(t)
 	}
-	return s.codec.FTS(n)
+	return keyedFTSExpr(s.codec, t)
+}
+
+// keyedFTSExpr hashes quoted/token terms but preserves FTS operators (OR,
+// AND, NOT) used by consumer query builders.
+func keyedFTSExpr(c Codec, expr string) string {
+	var out []string
+	for part := range strings.FieldsSeq(expr) {
+		switch part {
+		case "OR", "AND", "NOT":
+			out = append(out, part)
+		default:
+			tok := strings.Trim(part, `"`)
+			fields := strings.FieldsFunc(ftsNorm(tok), func(r rune) bool {
+				return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+			})
+			for _, f := range fields {
+				out = append(out, c.FTS(f))
+			}
+		}
+	}
+	return strings.Join(out, " ")
 }
 
 func ftsNorm(t string) string {
