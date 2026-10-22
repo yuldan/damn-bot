@@ -275,6 +275,17 @@ func (m *runModel) close(ctx context.Context) error {
 
 // newRunProvider builds the run provider or returns the injected one.
 func newRunProvider(cfg *config.Config, modelRef string, o *runOptions) (loop.Provider, error) {
+	table, err := registry.DefaultPriceTable()
+	if err != nil {
+		return nil, fmt.Errorf("pricing table: %w", err)
+	}
+	return newRunProviderWithTable(cfg, modelRef, o, table)
+}
+
+// newRunProviderWithTable is newRunProvider with an explicit table, so a test
+// can price a loopback route; the composition root always passes the embedded
+// default table.
+func newRunProviderWithTable(cfg *config.Config, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
 	if o.prov != nil {
 		return o.prov, nil
 	}
@@ -283,10 +294,6 @@ func newRunProvider(cfg *config.Config, modelRef string, o *runOptions) (loop.Pr
 		return nil, fmt.Errorf("provider endpoint: %w", err)
 	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
-	table, err := registry.DefaultPriceTable()
-	if err != nil {
-		return nil, fmt.Errorf("pricing table: %w", err)
-	}
 	prices, err := provider.RoutePrices(table, base, modelName)
 	if err != nil {
 		return nil, fmt.Errorf("pricing: %w", err)

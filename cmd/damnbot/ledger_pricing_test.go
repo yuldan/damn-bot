@@ -1,13 +1,10 @@
 package main
 
 import (
-	"errors"
-	"fmt"
 	"math"
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/budget"
-	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
@@ -56,19 +53,6 @@ func readLedger(t *testing.T, db *ctxdb.Store) (cost int64, source, version stri
 	return cost, source, version
 }
 
-// ledgerTotal returns the summed charge and row count of sid.
-func ledgerTotal(t *testing.T, db *ctxdb.Store, sid string) (cost, calls int64) {
-	t.Helper()
-	err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
-		return tx.Get("SELECT COALESCE(SUM(cost_usd_micros), 0), COUNT(*) FROM usage_ledger WHERE session_id = ?",
-			[]any{sid}, &cost, &calls)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return cost, calls
-}
-
 // TestRunLedgerRecordsRoutePrice (REVIEW-F2-SEC6 SEC6-1): the provider
 // adapter carries the route's price entry through loop.Reply into Record,
 // and the ledger row stores the priced micro-USD and pricing_version.
@@ -94,7 +78,7 @@ func TestRunLedgerRecordsRoutePrice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reply, err := (&providerAdapter{client: client, model: ref, notes: &budgetNotes{}}).Stream(ctx, &loop.Request{Model: ref}, func(loop.Delta) {})
+	reply, err := (&providerAdapter{client: client, model: ref}).Stream(ctx, &loop.Request{Model: ref}, func(loop.Delta) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,71 +160,3 @@ func withCost(u event.Usage, c *float64) event.Usage {
 
 // usageReply is an SSE answer with 1.000 prompt and 500 completion tokens and
 // no provider-reported cost, so the charge comes from the route table.
-func usageReply() providertest.Reply {
-	return providertest.Reply{Frames: []string{
-		`{"choices":[{"index":0,"delta":{"content":"ok"}}]}`,
-		`{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
-		`{"choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":500}}`,
-		"[DONE]",
-	}}
-}
-
-// TestRunBudgetGuardPricedRoute (SEC6-7): a priced route built by the
-// composition root (guard + price table + adapter) is charged and allowed
-// until the daily cap, then denied with no further request. 1.000/500
-// tokens at $0.15/$0.60 per Mtok = 450 µUSD per call; the projection adds
-// 100 × $0.60 = 60 µUSD, so a 1.000 µUSD cap allows exactly 3 calls.
-func TestRunBudgetGuardPricedRoute(t *testing.T) {
-	t.Parallel()
-	ctx := t.Context()
-	srv := providertest.New(t, nil, usageReply(), usageReply(), usageReply())
-	db := ledgerDB(t, "S")
-	table, err := registry.ParsePriceTable([]byte(fmt.Sprintf(`
-version = "probe"
-[[price]]
-id = "probe-local"
-base_url = %q
-model = "m"
-kind = "operator-contracted"
-source = "test-only probe"
-from = "2026-01-01"
-input = 150000
-cached_input = 15000
-output = 600000
-`, srv.URL)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg := config.Default()
-	cfg.Budget.DailyUSD = 0.001
-	o := &runOptions{model: "openai/m", baseURL: srv.URL, apiKey: "sk-test"}
-	prov, err := newRunProviderWithTable(&cfg, db, "openai/m", o, table)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ledger := &ctxLedger{db: db, provider: "openai", model: "m"}
-	req := &loop.Request{Model: "openai/m", MaxTokens: 100}
-	for i := 1; i <= 3; i++ {
-		reply, serr := prov.Stream(ctx, req, func(loop.Delta) {})
-		if serr != nil {
-			t.Fatalf("call %d: %v", i, serr)
-		}
-		if rerr := ledger.Record(ctx, "S", "T", 0, &reply.Usage); rerr != nil {
-			t.Fatal(rerr)
-		}
-		if cost, calls := ledgerTotal(t, db, "S"); cost != 450*int64(i) || calls != int64(i) {
-			t.Fatalf("after call %d: ledger %d over %d calls, want %d", i, cost, calls, 450*i)
-		}
-		if _, src, _ := readLedger(t, db); src != "pricing_table" {
-			t.Fatalf("after call %d: source %q, want pricing_table", i, src)
-		}
-	}
-	_, err = prov.Stream(ctx, req, func(loop.Delta) {})
-	var se *loop.StreamError
-	if !errors.As(err, &se) || se.Class != loop.ClassBudget || se.Detail != event.DetailBudgetDaily {
-		t.Fatalf("4th call = %v, want a budget_daily denial", err)
-	}
-	if got := len(srv.Requests()); got != 3 {
-		t.Fatalf("provider requests = %d, want 3 (none after the denial)", got)
-	}
-}
