@@ -187,7 +187,7 @@ func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {
 	if p.WindowTokens <= 0 {
 		return outcome{}, false
 	}
-	pct := p.InputTokens * 100 / p.WindowTokens
+	pct := p.InputTokens * 100 / windowRoom(p)
 	if pct < int64(t.cfg.CompactAt) || t.compacted || t.deps.Compactor == nil {
 		return t.windowStop(pct)
 	}
@@ -208,7 +208,18 @@ func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {
 		again.MaxTokens = p.MaxTokens
 	}
 	*p = again
-	return t.windowStop(p.InputTokens * 100 / p.WindowTokens)
+	return t.windowStop(p.InputTokens * 100 / windowRoom(p))
+}
+
+// windowRoom is the input budget left after reserving the output tokens
+// (EC-CTX-017): a request that fits WindowTokens but not WindowTokens minus
+// MaxTokens is the 400 the guard exists to prevent.
+func windowRoom(p *Prompt) int64 {
+	room := p.WindowTokens - int64(p.MaxTokens)
+	if room <= 0 {
+		return 1
+	}
+	return room
 }
 
 // windowStop is the hard context-window stop.
@@ -360,7 +371,7 @@ func (t *turn) classify(ctx context.Context, r *Reply, calls []ToolCall) (outcom
 	case r.FinishReason == FinishLength && len(calls) == 0:
 		if id, err := t.append(ctx, &event.Event{
 			Kind: event.AssistantMessage, Role: "assistant", Content: r.Content,
-			Payload: payload(assistantPayload{FinishReason: r.FinishReason, Carriers: carrierRefs(r.Carriers)}),
+			Payload: payload(assistantPayload{Partial: true, FinishReason: r.FinishReason, Carriers: carrierRefs(r.Carriers)}),
 		}); err != nil {
 			return t.fail(ctx, event.DetailInternal, err), true
 		} else if err := t.saveCarriers(ctx, id, r.Carriers); err != nil {

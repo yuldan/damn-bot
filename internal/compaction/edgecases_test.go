@@ -38,7 +38,6 @@ func TestEdgeCases(t *testing.T) {
 		{"EC-CTX-014", "covered", ecCtx014},
 		{"EC-CTX-015", "covered", ecCtx015},
 		{"EC-CTX-016", "covered", ecCtx016},
-		{"EC-CTX-017", "pending:F2", nil}, // loop window guard ignores max_tokens
 		{"EC-CTX-018", "covered", ecCtx018},
 		{"EC-CTX-019", "covered", ecCtx019},
 		{"EC-CTX-020", "covered", ecCtx020},

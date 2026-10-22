@@ -61,11 +61,16 @@ const eventCols = `json_object('seq', e.seq, 'kind', e.kind, 'turn', coalesce(e.
 // (SEC11-4): no writer emits them and an open span would hide later turns.
 const notExcluded = ` AND NOT EXISTS (SELECT 1 FROM events x WHERE x.session_id = e.session_id AND x.kind = 'context_exclude' AND json_extract(x.payload, '$.turn_id') = e.turn_id)`
 
+// notPartial drops a length-truncated assistant answer the loop marked
+// partial (EC-PROV-008): it stays in the transcript but never enters a
+// summary, even before the replay filter runs.
+const notPartial = ` AND NOT (e.kind = 'assistant_message' AND coalesce(json_extract(e.payload, '$.partial'), 0) = 1)`
+
 // eventsQ reads the model-visible kinds after the boundary; taskQ the
 // newest user message at or before it.
 const (
 	eventsQ = `SELECT ` + eventCols + ` FROM events e WHERE e.session_id = ?1 AND e.seq > ?2
-	AND e.kind IN ('user_message', 'assistant_message', 'tool_result')` + notExcluded + ` ORDER BY e.seq`
+	AND e.kind IN ('user_message', 'assistant_message', 'tool_result')` + notExcluded + notPartial + ` ORDER BY e.seq`
 	taskQ = `SELECT ` + eventCols + ` FROM events e WHERE e.session_id = ?1 AND e.seq <= ?2
 	AND e.kind = 'user_message'` + notExcluded + ` ORDER BY e.seq DESC LIMIT 1`
 )
