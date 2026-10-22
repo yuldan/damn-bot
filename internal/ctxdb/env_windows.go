@@ -15,10 +15,6 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-// stillActive is STILL_ACTIVE (259), the exit code GetExitCodeProcess
-// reports for a running process; x/sys does not export it.
-const stillActive = 259
-
 // BootMs returns GetTickCount64 in ms: time since boot including sleep and
 // hibernation (the Linux CLOCK_BOOTTIME role, SPEC §11.11.1).
 func (SystemClock) BootMs() int64 { return windows.DurationSinceBoot().Milliseconds() }
@@ -106,7 +102,7 @@ func procStart(pid int) (string, error) {
 	if pid <= 0 || uint64(pid) > math.MaxUint32 {
 		return "", fmt.Errorf("ctxdb: pid %d: %w", pid, fs.ErrNotExist)
 	}
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))
 	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
 		return "", fmt.Errorf("ctxdb: pid %d: %w", pid, fs.ErrNotExist)
 	}
@@ -120,14 +116,30 @@ func procStart(pid int) (string, error) {
 	return st, nil
 }
 
+// Wait results of WaitForSingleObject (x/sys types WAIT_TIMEOUT as an errno,
+// so the uint32 results get local names).
+const (
+	waitObject0 = 0x00000000
+	waitTimeout = 0x00000102
+)
+
 // handleStart reads exit state and CreationTime through an open handle.
 func handleStart(h windows.Handle, pid int) (string, error) {
-	var code uint32
-	if err := windows.GetExitCodeProcess(h, &code); err != nil {
-		return "", fmt.Errorf("ctxdb: GetExitCodeProcess %d: %w", pid, err)
+	// GetExitCodeProcess reports STILL_ACTIVE (259) both for a running
+	// process and for one that exited with 259, so the code alone cannot
+	// answer "still alive" (EC-WIN-009). The process object is signaled
+	// exactly when the process has exited; a non-zero wait means it is
+	// still running.
+	ev, werr := windows.WaitForSingleObject(h, 0)
+	if werr != nil {
+		return "", fmt.Errorf("ctxdb: WaitForSingleObject %d: %w", pid, werr)
 	}
-	if code != stillActive { // a live process exiting with 259 stays "present"
+	switch ev {
+	case waitTimeout: // still running
+	case waitObject0: // exited, a 259 exit included
 		return "", fmt.Errorf("ctxdb: pid %d exited: %w", pid, fs.ErrNotExist)
+	default:
+		return "", fmt.Errorf("ctxdb: WaitForSingleObject %d: status %#x", pid, ev)
 	}
 	var created, exited, kernel, user windows.Filetime
 	if err := windows.GetProcessTimes(h, &created, &exited, &kernel, &user); err != nil {
