@@ -102,7 +102,7 @@ flake:
 # ADR-073/077, NEW-38: budget waktu absolut benchmark, tag perf (helper timing ×1,5 di runner bersama).
 perf: TAGS += perf
 perf:
-	DAMNBOT_TIMING=1 go test $(GOTAGS) -run '^$$' -bench '$(PERF_BENCH)' -benchtime=100x $(PKGS)
+	DAMNBOT_TIMING=1 go test $(GOTAGS) -run '^(TestMeasureDurableRetryMeasuresSet2)$$' -bench '$(PERF_BENCH)' -benchtime=100x $(PKGS)
 
 # ENGINEERING §7.2 (E-80..E-84) + spec-guard SPEC §20; env BASE/HEAD/PR_* diisi workflow pr-meta.
 pr-meta:

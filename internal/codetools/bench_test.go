@@ -213,8 +213,13 @@ func sample(b *testing.B, op func(i int), ref func()) (ds, rs []time.Duration) {
 		rs = append(rs, time.Since(t0))
 		b.StartTimer()
 	}
+	// b.N, not b.Loop: the CT-09 retry calls sample once per sample set in the
+	// same benchmark, and b.Loop's loop state is not reset by ResetTimer, so a
+	// second call died with "B.Loop called with timer stopped" instead of
+	// measuring set 2 (ADR-127). The loop starts at 1 because the warm-up
+	// already ran op(0), and edit operations are stateful (marker i -> i+1).
 	b.ResetTimer()
-	for i := 1; b.Loop(); i++ {
+	for i := 1; i <= b.N; i++ {
 		if ref != nil && i%2 == 0 {
 			timeRef()
 		}
@@ -439,6 +444,25 @@ func setBenchtime(t *testing.T, v string) {
 	})
 	if err := bt.Value.Set(v); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestSampleTwice: the CT-09 retry samples twice inside one benchmark. b.Loop
+// keeps its loop state on B and ResetTimer does not reset it, so the second
+// sample used to fail with "B.Loop called with timer stopped" instead of
+// measuring set 2 (ADR-127). sample now takes b.N, so both calls are valid.
+func TestSampleTwice(t *testing.T) {
+	setBenchtime(t, "20x")
+	r := testing.Benchmark(func(b *testing.B) {
+		for range 2 {
+			ds, _ := sample(b, func(int) {}, nil)
+			if len(ds) != b.N {
+				b.Fatalf("samples %d, want %d", len(ds), b.N)
+			}
+		}
+	})
+	if r.N == 0 {
+		t.Fatal("benchmark failed: a second sample in one benchmark must be valid")
 	}
 }
 
