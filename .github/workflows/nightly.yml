@@ -1,6 +1,8 @@
 # Job harian terhadap main (ADR-073, AUD-071): govulncheck harian (E-54), deteksi flake -count=20, dan
 # bench-codetools (CODE-TOOLS §10, korpus nyata).
 # Meta-test nightly ada di meta.yml (ADR-085).
+# ADR-135 butir 3: nightly juga menjalankan workflow `ci` dengan matrix PENUH (semua target berrunner,
+# coverage, dst.) terhadap main — tier PR yang diperkecil tidak pernah menjadi satu-satunya cakupan.
 name: nightly
 
 on:
@@ -19,6 +21,11 @@ env:
   CGO_ENABLED: "0"
 
 jobs:
+  # ADR-135 butir 3: seluruh gate `ci` dengan matrix penuh (6 target `test`, coverage, perf, fuzz, …)
+  # dijalankan terhadap main setiap hari, bukan hanya tier PR yang diperkecil.
+  ci-full:
+    uses: ./.github/workflows/ci.yml
+
   # Basis data kerentanan berubah tanpa commit: dijalankan setiap hari tanpa syarat.
   vuln:
     runs-on: ubuntu-latest
@@ -63,6 +70,22 @@ jobs:
           go-version-file: go.mod
       - if: steps.fresh.outputs.run == 'true'
         run: make flake
+
+  # ADR-127: backstop CT-09 di main — 5 set sampel terhadap referensi
+  # tulis-durabel. Gate PR hanya memberi warning bila semua set invalid
+  # (runner berdisk bising); di sini run semacam itu GAGAL, jadi main tetap
+  # ditandai dan regresi yang lolos gate PR karena runner bising tertangkap.
+  ct09:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make ct09-nightly
 
   # CODE-TOOLS §10 dengan korpus nyata C1–C3 + rg 15.1.0 (bench/corpora.lock, di-cache): CT-01/02/03
   # (rasio vs rg di runner yang sama, ADR-077), CT-21 parity, CT-11 token vs golden hermes. Tanpa korpus

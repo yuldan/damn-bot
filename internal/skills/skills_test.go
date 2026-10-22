@@ -3,8 +3,10 @@ package skills
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 const md = `---
@@ -131,7 +133,10 @@ func (f *fakeStore) Status(_ context.Context, _ int64) (Status, error) { return 
 
 func newService(t *testing.T, st Store, scan Scanner) *Service {
 	t.Helper()
-	s, err := New(st, Config{Scan: scan, Redact: func(v string) string { return v }})
+	s, err := New(st, Config{
+		Scan: scan, Redact: func(v string) string { return v },
+		Files: func(*Skill) (fs.FS, error) { return fstest.MapFS{}, nil },
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +282,7 @@ func TestRedactionAndRawScan(t *testing.T) {
 	scanner := func(s *Skill) (string, string, error) { scanned = s.Body; return "medium", "{}", nil }
 	svc, err := New(st, Config{Scan: scanner, Redact: func(v string) string {
 		return strings.ReplaceAll(v, "ghp_SECRET", "[REDACTED:secret]")
-	}})
+	}, Files: func(*Skill) (fs.FS, error) { return fstest.MapFS{}, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

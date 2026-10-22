@@ -110,6 +110,32 @@ func hasFlag(args []arg, f string) bool {
 	})
 }
 
+// changeDir labels a literal `cd` into a payment skill directory Monetary
+// (SEC10-1) and keeps cwd untracked afterwards, so every relative operand
+// stays unknown (ADR-079 butir 2).
+func (s *state) changeDir(args []arg) {
+	tracked, targets := true, 0
+	for _, a := range args {
+		if strings.HasPrefix(a.s, `\\`) || (s.fold && strings.HasPrefix(a.s, "//")) {
+			s.raise(Unknown, "remote cd target: "+a.s) // SEC10-22: never open a share
+			tracked = false
+			continue
+		}
+		if !a.lit || a.glob || strings.HasPrefix(a.s, "-") || (s.fold && strings.HasPrefix(a.s, "/")) {
+			continue
+		}
+		targets++
+		p, ok := s.abs(a.s)
+		if !ok {
+			tracked = false
+			continue
+		}
+		s.paymentFile(p, s.resolve(p))
+	}
+	s.cdTracked = tracked && targets > 0
+	s.cwdOK = false
+}
+
 // tool handles commands whose operands need specific parsing.
 func (s *state) tool(name, sub string, args []arg) {
 	switch name {
@@ -117,7 +143,9 @@ func (s *state) tool(name, sub string, args []arg) {
 		s.gitPaths(sub, args[1:])
 	case "find":
 		s.find(args[1:])
-	case "cd", "pushd", "popd", "chdir", "set-location", "sl":
+	case "cd", "pushd", "chdir", "set-location", "sl", "push-location":
+		s.changeDir(args[1:])
+	case "popd":
 		s.cwdOK = false
 	case "pip", "pip3":
 		s.pip(sub, args)

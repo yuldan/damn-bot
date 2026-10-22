@@ -31,11 +31,7 @@ func (s *Store) ListSessions(ctx context.Context) ([]string, error) {
 	return s.strings(ctx, "SELECT id FROM sessions s WHERE id <> '__system__' AND "+notPurging("s.id")+" ORDER BY created_at DESC, id")
 }
 
-// Search is `recall`/`sessions search`: FTS match filtered per candidate.
-func (s *Store) Search(ctx context.Context, q string) ([]string, error) {
-	return s.strings(ctx, `SELECT e.session_id FROM events_fts f JOIN events e ON e.id = f.rowid
-		WHERE events_fts MATCH dmb_fts_norm(?) AND `+notPurging("e.session_id")+` ORDER BY bm25(events_fts)`, q)
-}
+// Search and History live in read.go.
 
 // RecallHit is one matching event (SPEC §11.6 `recall`).
 type RecallHit struct {
@@ -70,6 +66,12 @@ const broadMatches = 15000
 // scoring every match. Free text is tokenised (see ftsQuery), so
 // quotes/parentheses/column filters cannot become a MATCH syntax error.
 func (s *Store) Recall(ctx context.Context, text string, k int) ([]RecallHit, error) {
+	return s.recall(ctx, text, k, broadMatches)
+}
+
+// recall is Recall with the broad threshold as a parameter, so tests reach
+// both sides of it without appending broadMatches events.
+func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]RecallHit, error) {
 	if k <= 0 {
 		k = 10
 	}
@@ -78,11 +80,11 @@ func (s *Store) Recall(ctx context.Context, text string, k int) ([]RecallHit, er
 		return nil, nil
 	}
 	probe, err := s.ints(ctx, `SELECT rowid FROM events_fts
-		WHERE events_fts MATCH dmb_fts_norm(?) LIMIT ?`, q, broadMatches+1)
+		WHERE events_fts MATCH dmb_fts_norm(?) LIMIT ?`, q, broadAt+1)
 	if err != nil {
 		return nil, fmt.Errorf("ctxdb: recall probe: %w", err)
 	}
-	broad := len(probe) > broadMatches
+	broad := len(probe) > broadAt
 	purged, err := s.Count(ctx, `SELECT count(*) FROM session_labels WHERE key = 'purge_state'`)
 	if err != nil {
 		return nil, fmt.Errorf("ctxdb: recall purge check: %w", err)
@@ -134,18 +136,38 @@ type sessForest struct {
 	kids  map[string][]string
 }
 
-// sub returns id and all its descendants.
+// sub returns id and all its descendants. It walks without a depth limit
+// (EC-STATE-014) but with a visited set, so a corrupt parent_id cycle cannot
+// recurse forever.
 func (f *sessForest) sub(id string) []string {
-	out := []string{id}
-	for _, k := range f.kids[id] {
-		out = append(out, f.sub(k)...)
+	out := make([]string, 0, 1)
+	seen := map[string]bool{}
+	stack := []string{id}
+	for len(stack) > 0 {
+		x := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[x] {
+			continue
+		}
+		seen[x] = true
+		out = append(out, x)
+		for _, k := range slices.Backward(f.kids[x]) {
+			if !seen[k] {
+				stack = append(stack, k)
+			}
+		}
 	}
 	return out
 }
 
 func (f *sessForest) depth(id string) int {
 	d := 0
+	seen := map[string]bool{id: true}
 	for p := f.nodes[id].parent; p != ""; p = f.nodes[p].parent {
+		if seen[p] {
+			break
+		}
+		seen[p] = true
 		d++
 	}
 	return d

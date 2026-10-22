@@ -149,11 +149,12 @@ func (f *fakeToolset) ranCount() int {
 type fakeStore struct {
 	mu     sync.Mutex
 	events []event.Event
+	turns  []string
 	next   int64
 	err    error
 }
 
-func (s *fakeStore) Append(_ context.Context, _, _ string, ev *event.Event) (int64, error) {
+func (s *fakeStore) Append(_ context.Context, _, tid string, ev *event.Event) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.err != nil {
@@ -161,7 +162,20 @@ func (s *fakeStore) Append(_ context.Context, _, _ string, ev *event.Event) (int
 	}
 	s.next++
 	s.events = append(s.events, *ev)
+	s.turns = append(s.turns, tid)
 	return s.next, nil
+}
+
+// turnOf returns the turn id of the first event of kind k.
+func (s *fakeStore) turnOf(k event.Kind) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, e := range s.events {
+		if e.Kind == k {
+			return s.turns[i], true
+		}
+	}
+	return "", false
 }
 
 func (s *fakeStore) kinds() []event.Kind {
@@ -254,6 +268,7 @@ type fixture struct {
 	tools    *fakeToolset
 	store    *fakeStore
 	ledger   *fakeLedger
+	carriers *fakeCarrierStore
 	approver *fakeApprover
 	spiller  *fakeSpiller
 	redactor Redactor
@@ -281,7 +296,7 @@ func (f *fixture) deps() Deps {
 	return Deps{
 		Provider: f.provider, Assembler: f.asm, Toolset: f.tools, Store: f.store,
 		Ledger: f.ledger, Approver: f.approver, Spiller: f.spiller, Redactor: f.redactor,
-		NewRedactStream: f.stream,
+		Carriers: f.carriers, NewRedactStream: f.stream,
 	}
 }
 

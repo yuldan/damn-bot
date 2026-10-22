@@ -14,8 +14,50 @@ import (
 	"go.uber.org/goleak"
 )
 
+// templateEnv carries the migrated schema template that TestMain builds: newEnv
+// copies it instead of every test running the migration ladder. Under -race a
+// first Open costs ~1 s (Linux 0.9 s, macos-15-intel 1.06 s p50) and the ladder
+// is ~57 % of it; the 86 scenario chain pays that per scenario. The template is
+// created once per test binary and removed after m.Run.
+const templateEnv = "CTXDB_TEST_TEMPLATE"
+
 func TestMain(m *testing.M) {
+	// A template from an earlier run is removed here, not after m.Run:
+	// goleak.VerifyTestMain (E-29) exits the process. Older than an hour only,
+	// so a concurrent invocation of this package keeps its own template.
+	if stale, err := filepath.Glob(filepath.Join(os.TempDir(), "ctxdb-schema-template-*")); err == nil {
+		for _, dir := range stale {
+			if fi, serr := os.Stat(dir); serr == nil && time.Since(fi.ModTime()) > time.Hour {
+				if rerr := os.RemoveAll(dir); rerr != nil {
+					fmt.Fprintf(os.Stderr, "ctxdb: stale schema template: %v\n", rerr)
+				}
+			}
+		}
+	}
+	// A template that cannot be built only makes the suite slower: newEnv
+	// falls back to a raw dir and one test fails, so the degradation is loud
+	// (no panic/os.Exit: E-23 and forbidigo).
+	dir, err := os.MkdirTemp("", "ctxdb-schema-template-*")
+	if err == nil {
+		err = buildSchemaTemplate(dir)
+	}
+	if err == nil {
+		err = os.Setenv(templateEnv, dir)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ctxdb: schema template not built, scenarios will run migrations: %v\n", err)
+	}
 	goleak.VerifyTestMain(m)
+}
+
+// buildSchemaTemplate applies every migration in dir, then closes the store so
+// no holder registration or open handle is left in the template.
+func buildSchemaTemplate(dir string) error {
+	s, err := Open(context.Background(), &Options{Dir: dir, Kind: "serve", BusyTimeout: 2 * time.Second})
+	if err != nil {
+		return err
+	}
+	return s.Close()
 }
 
 // fakeClock is an injected clock: boot (runs in suspend), mono (stops in
@@ -97,7 +139,25 @@ type env struct {
 // make RemoveAll fail on Windows (ADR-090 matrix).
 func newEnv(t *testing.T) *env {
 	t.Helper()
+	return newEnvFrom(t, os.Getenv(templateEnv))
+}
+
+// newRawEnv is newEnv without the schema template: for tests that must start
+// from an empty data dir (first open, migration, user_version checks).
+func newRawEnv(t *testing.T) *env {
+	t.Helper()
+	return newEnvFrom(t, "")
+}
+
+// newEnvFrom creates a data dir, seeded with a copy of template when it is set.
+func newEnvFrom(t *testing.T, template string) *env {
+	t.Helper()
 	dir := t.TempDir()
+	if template != "" {
+		if err := os.CopyFS(dir, os.DirFS(template)); err != nil {
+			t.Fatalf("schema template copy: %v", err)
+		}
+	}
 	t.Cleanup(func() {
 		if open := openUnder(dir); len(open) > 0 {
 			t.Errorf("handle leak under data dir after cleanup (Windows cannot delete open files): %v", open)

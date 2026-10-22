@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"strings"
+	"testing"
 )
 
 // fillBody grows seed until heading+"\n"+body reaches cap tokens, then trims
@@ -30,18 +31,31 @@ func fixtureContext() *ContextInput {
 		Facts:     fillBody("# Environment", "os=linux/amd64 shell=bash cwd=/work/damnbot frontend=tui", CapFacts),
 		Workspace: fillBody("# Workspace", "branch=main dirty=false go=1.26.9 verify=go test ./...", CapWorkspace),
 		Files:     []ContextFile{{Path: "AGENTS.md"}},
-		Memory: []Memory{
-			{Text: fillBody("# Memory", "pinned: repository uses Go and TOML", CapPinned), Pinned: true},
-			{Text: strings.Repeat("approved memory: run go test before answering. ", 40)},
-			{Text: strings.Repeat("approved memory: keep edits small and verified. ", 40)},
-		},
-		Skills: []string{
-			"code-review-" + strings.Repeat("x", 400),
-			"diagnose-" + strings.Repeat("y", 400),
-			"tdd-" + strings.Repeat("z", 400),
+		Retriever: &fixtureRetriever{
+			memories: []Memory{
+				{Text: fillBody("# Memory", "pinned: repository uses Go and TOML", CapPinned), Pinned: true},
+				{Text: strings.Repeat("approved memory: run go test before answering. ", 40)},
+				{Text: strings.Repeat("approved memory: keep edits small and verified. ", 40)},
+			},
+			skills: []string{
+				"code-review-" + strings.Repeat("x", 400),
+				"diagnose-" + strings.Repeat("y", 400),
+				"tdd-" + strings.Repeat("z", 400),
+			},
 		},
 		Reader: fixtureReader{"AGENTS.md": strings.Repeat("Use read_file, grep and glob before editing. Run go test. ", 800)},
 	}
+}
+
+// renderContext is the per-session Context call every Build test needs:
+// SessionView carries the frozen text, not the input.
+func renderContext(t *testing.T, a *Assembler, in *ContextInput) string {
+	t.Helper()
+	res, err := a.Context(context.Background(), in)
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	return res.Text
 }
 
 type fixtureReader map[string]string
@@ -52,6 +66,25 @@ func (r fixtureReader) Open(_ context.Context, path string) (io.ReadCloser, erro
 		return nil, fs.ErrNotExist
 	}
 	return io.NopCloser(strings.NewReader(body)), nil
+}
+
+// fixtureRetriever returns fixed, already-ranked results and records the
+// queries it saw.
+type fixtureRetriever struct {
+	memories []Memory
+	skills   []string
+	err      error
+	queries  []string
+}
+
+func (r *fixtureRetriever) Memories(_ context.Context, query string) ([]Memory, error) {
+	r.queries = append(r.queries, query)
+	return r.memories, r.err
+}
+
+func (r *fixtureRetriever) Skills(_ context.Context, query string) ([]string, error) {
+	r.queries = append(r.queries, query)
+	return r.skills, r.err
 }
 
 // fixtureTools is the F1 eager surface: 8 core tools, no tool_search or

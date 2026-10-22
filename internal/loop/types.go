@@ -21,6 +21,7 @@ type Message struct {
 	Content    string
 	ToolCalls  []ToolCall
 	ToolCallID string
+	Carriers   []event.Carrier
 }
 
 // ToolCall is a native model tool call. Arguments stay raw; schema
@@ -29,6 +30,7 @@ type ToolCall struct {
 	ID        string
 	Name      string
 	Arguments string // JSON object as streamed, after assembly
+	TurnID    string // set by the turn loop for journal/audit correlation
 }
 
 // ToolSchema is one entry of the request tools array (Assembler output).
@@ -83,13 +85,17 @@ type ToolCallDelta struct {
 // Reply is a completed provider response. ToolCalls may be empty when the
 // Provider already assembled the fragments; the loop then uses the deltas.
 type Reply struct {
-	Content      string
-	ToolCalls    []ToolCall
-	FinishReason string
-	Usage        event.Usage
-	Model        string
-	FallbackFrom string // P7: the primary that failed, empty when no fallback
-	Attempts     int
+	Content          string
+	ToolCalls        []ToolCall
+	FinishReason     string
+	Usage            event.Usage
+	Model            string
+	FallbackFrom     string // P7: the primary that failed, empty when no fallback
+	Attempts         int
+	Carriers         []event.Carrier
+	RejectedCarriers []event.Carrier
+	CarrierDrops     []event.CarrierDrop
+	ReasoningText    string
 }
 
 // Class is the only provider-error classification the loop acts on. The
@@ -148,6 +154,10 @@ type Prepared struct {
 	NoSession bool // allow_session never applies (shell, P26, taint)
 	Terminal  bool // a denial ends the turn (approval_denied)
 	Approved  bool // adapter sets after the loop approver allows outside-root
+	// SideEffect marks a non-read tool for the failed-turn notice (SEC11-3).
+	// The composition root fills it from the registry; approval semantics
+	// still use Effect/Approval.
+	SideEffect bool
 }
 
 // ToolError is a model-facing tool failure. Code is one of the closed
@@ -256,16 +266,28 @@ type Assembler interface {
 	Assemble(ctx context.Context, req *AssembleRequest) (Prompt, error)
 }
 
-// Compactor is the F2 compaction stage; the loop only calls it once when the
-// prompt crosses the compaction threshold.
+// Compactor is the F2 compaction stage (SPEC §4.7); the loop calls it at
+// most once per turn: when the prompt crosses CompactAt, or with
+// contextLength when the provider rejected the request as too long (that
+// trigger forces the summary stage).
 type Compactor interface {
-	Compact(ctx context.Context, sessionID string) error
+	Compact(ctx context.Context, sessionID string, contextLength bool) error
 }
 
 // Store appends one transcript event atomically (ADR-074; ctxdb implements
 // the storage side, the loop only sees this one-method seam).
 type Store interface {
 	Append(ctx context.Context, sessionID, turnID string, ev *event.Event) (int64, error)
+}
+
+// TurnJournal is the optional crash-recovery seam (SEC11-2). BeginTurn
+// persists turn_start together with the turn_journal row; EndTurn persists
+// the turn_end event with payload and clears the row in one transaction.
+// Without it the loop still appends turn_start/turn_end, but a kill -9 turn
+// has no journal and recovery cannot close it.
+type TurnJournal interface {
+	BeginTurn(ctx context.Context, sessionID, turnID string) error
+	EndTurn(ctx context.Context, sessionID, turnID string, payload json.RawMessage) error
 }
 
 // Approver answers one approval request (SPEC §4.2).
@@ -333,6 +355,14 @@ type Deps struct {
 	// field. Without it (and with a Redactor) the loop holds the field until
 	// the call returns and redacts it whole (LP8-19).
 	NewRedactStream func() StreamFilter
+	// Carriers persists carriers and rejections; nil = disabled.
+	Carriers CarrierStore
+}
+
+// CarrierStore persists the carriers of one assistant event and rejections.
+type CarrierStore interface {
+	SaveCarriers(ctx context.Context, sessionID string, eventID int64, cs []event.Carrier) error
+	RejectCarriers(ctx context.Context, sessionID string, cs []event.Carrier, errorCode string) error
 }
 
 // TurnResult is the terminal state of one turn.

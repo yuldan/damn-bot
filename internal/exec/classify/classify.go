@@ -83,8 +83,16 @@ type Env struct {
 	DenyPaths     []string // deny_paths patterns; "~" expands to Home
 	SecretVars    []string // exec.env names bound to keychain refs
 	MonetaryHosts []string // security.monetary_hosts
-	Resolver      PathResolver
-	Dialect       Dialect
+	// MonetaryPaths are directories of skills declaring side_effects:
+	// [payment] (SEC-15): a command that runs or names a file below one is
+	// Monetary.
+	MonetaryPaths []string
+	// MonetaryKey canonicalizes a path for the payment-skill comparison:
+	// absolute, symlinks resolved, long form, and case-folded on a
+	// case-insensitive filesystem. nil keeps the lexical comparison.
+	MonetaryKey func(string) string
+	Resolver    PathResolver
+	Dialect     Dialect
 }
 
 // Verdict is the classification result (audit payload exec.class/flags/

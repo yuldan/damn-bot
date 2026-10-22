@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,56 @@ import (
 // below a Check'ed directory, where an entry's lexical path is its
 // resolved path because the walk never follows symlinks.
 func (s *Sandbox) Denied(absResolved string) bool { return s.denied(absResolved) }
+
+// RootOf returns the canonical root containing absResolved (a path Check
+// returned) and absResolved relative to it. Callers that mutate files open
+// this root and use the relative name, so an ancestor directory swapped
+// for a symlink after Check cannot redirect the operation outside
+// (REVIEW-F2-SEC5-12).
+func (s *Sandbox) RootOf(absResolved string) (root, rel string, ok bool) {
+	if !filepath.IsAbs(absResolved) {
+		return "", "", false
+	}
+	for _, r := range s.roots {
+		if hasPathPrefix(absResolved, r.path, s.foldRoot) {
+			rel, err := filepath.Rel(r.path, absResolved)
+			return r.path, rel, err == nil
+		}
+	}
+	return "", "", false
+}
+
+// RootIdentity returns the FileInfo recorded for the root containing
+// absResolved at New. A caller that pins the root handle compares it with
+// os.SameFile so a root replaced by a symlink after Check is refused
+// (REVIEW-F2-SEC5-16).
+func (s *Sandbox) RootIdentity(absResolved string) (os.FileInfo, bool) {
+	for _, r := range s.roots {
+		if hasPathPrefix(absResolved, r.path, s.foldRoot) {
+			return r.fi, true
+		}
+	}
+	return nil, false
+}
+
+// PinRoot opens rootPath without following any symlink and verifies the
+// handle is the root recorded at New, so a root replaced by a symlink after
+// Check is refused (REVIEW-F2-SEC5-16).
+func (s *Sandbox) PinRoot(ctx context.Context, rootPath string) (*Dir, error) {
+	d, err := s.OpenDir(ctx, rootPath, false)
+	if err != nil {
+		return nil, err
+	}
+	if d == nil {
+		return nil, ErrOutsideWorkspace
+	}
+	want, ok := s.RootIdentity(rootPath)
+	fi, serr := d.File().Stat()
+	if !ok || serr != nil || !os.SameFile(fi, want) {
+		return nil, errors.Join(ErrOutsideWorkspace, d.Close(), serr)
+	}
+	return d, nil
+}
 
 // OpenResolved opens, read-only, a path a walker found below a Check'ed
 // directory, skipping Check's per-component symlink resolution: the open

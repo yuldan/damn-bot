@@ -19,9 +19,11 @@ const (
 	ratioWide  = 1
 )
 
-// Counts tallies characters per script class.
+// Counts tallies characters per script class plus the image tokens of the
+// request (ImageTokens per image, GAP-COST-09).
 type Counts struct {
 	Latin, Mid, Wide int
+	Image            int64
 }
 
 // Count classifies every rune of s. Invalid UTF-8 bytes count as Wide (one
@@ -57,12 +59,26 @@ func wide(r rune) bool {
 
 // Add returns the sum of c and o.
 func (c Counts) Add(o Counts) Counts {
-	return Counts{Latin: c.Latin + o.Latin, Mid: c.Mid + o.Mid, Wide: c.Wide + o.Wide}
+	return Counts{Latin: c.Latin + o.Latin, Mid: c.Mid + o.Mid, Wide: c.Wide + o.Wide, Image: c.Image + o.Image}
 }
 
-// tokens is the uncalibrated token estimate of c.
+// AddImage returns c plus one width × height image under formula f (the
+// model's image_token_formula, ImageFormulas.For). A bad dimension or
+// formula is ErrImage: the image is never counted as 0 tokens.
+func (c Counts) AddImage(f ImageFormula, width, height int) (Counts, error) {
+	n, err := ImageTokens(f, width, height)
+	if err != nil {
+		return c, err
+	}
+	c.Image += n
+	return c, nil
+}
+
+// tokens is the uncalibrated token estimate of c. Image tokens join the
+// text estimate before calibration, like every other part of the prompt
+// that est_input_tokens covers.
 func (c Counts) tokens() float64 {
-	return float64(c.Latin)/ratioLatin + float64(c.Mid)/ratioMid + float64(c.Wide)/ratioWide
+	return float64(c.Latin)/ratioLatin + float64(c.Mid)/ratioMid + float64(c.Wide)/ratioWide + float64(c.Image)
 }
 
 // Raw is the uncalibrated estimate of c; it is what usage_ledger stores as

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/loop/event"
+	"github.com/damnbot/damnbot/internal/testutil/timing"
 )
 
 // LP8-1: a completed result is persisted before a cancellation stop.
@@ -74,9 +75,20 @@ func TestLP82BatchWaitBounded(t *testing.T) {
 	}()
 	start := time.Now()
 	outs := tr.dispatchBatch(ctx, ps)
-	if d := time.Since(start); d > 80*time.Millisecond {
-		t.Fatalf("dispatchBatch took %v", d)
+	d := time.Since(start)
+	// The tool stays blocked while the batch waits, so only the KillGrace
+	// timer can end the wait: this lower bound is a property of the timer,
+	// not of the scheduler, and holds under -race.
+	if d < cfg.KillGrace {
+		t.Fatalf("dispatchBatch returned after %v, before kill_grace %v", d, cfg.KillGrace)
 	}
+	// Upper bound: wall-clock. After the cancel, the timer and the return are
+	// separate goroutine wakeups, so under -race on a loaded runner this
+	// measures the scheduler (macos-15-intel: 82.4 ms). ADR-048 keeps
+	// wall-clock budgets enforced in make test-timing, where the same call is
+	// ~20.4 ms (local p50 20.35/20.45 ms, p95 22.6/22.2 ms before/after the
+	// carrier PRs; their diff does not touch dispatch.go).
+	timing.Check(t, "LP8-2 dispatchBatch cancel bound", d, 80*time.Millisecond)
 	if outs[0].res.Status != statusStillRunning {
 		t.Fatalf("status = %q", outs[0].res.Status)
 	}

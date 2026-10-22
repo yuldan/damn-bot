@@ -49,6 +49,12 @@ type runOptions struct {
 	baseURL          string
 	apiKey           string
 	providerAttempts int
+	// eval-only seams (never set by a flag): a provider override (fake or
+	// budget-gated), a per-run config override, and a memory retriever
+	// factory fed the run's ctxdb for the context tier (SPEC §4.8/§18.5).
+	prov         loop.Provider
+	cfgOverride  *config.Config
+	retrieverFor func(*ctxdb.Store) assemble.Retriever
 }
 
 // reportedParseError marks a parse failure the flag package already wrote to
@@ -72,6 +78,9 @@ func runHeadless(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		if _, werr := fmt.Fprintf(stderr, "run: %v\n", err); werr != nil {
 			return 2
+		}
+		if errors.Is(err, ctxdb.ErrSchemaNewer) {
+			return 1 // SPEC §4.3 error table: schema_newer maps to exit 1
 		}
 		return 2
 	}
@@ -120,6 +129,9 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	if err != nil {
 		return 0, err
 	}
+	if o.cfgOverride != nil {
+		cfg = *o.cfgOverride
+	}
 	paths, err := loader.Paths("")
 	if err != nil {
 		return 0, fmt.Errorf("config paths: %w", err)
@@ -166,6 +178,18 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		RemainingTokens: int64(cfg.Loop.TurnMaxInputTok),
 		RemainingUSD:    cfg.Budget.TurnUSD,
 	})
+	// The context tier is rendered once and frozen for the session (P15).
+	ctxIn := &assemble.ContextInput{
+		Facts: "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
+	}
+	if o.retrieverFor != nil {
+		ctxIn.Query = o.prompt
+		ctxIn.Retriever = o.retrieverFor(model.db)
+	}
+	ctxTier, err := asm.Context(ctx, ctxIn)
+	if err != nil {
+		return 0, fmt.Errorf("assemble context: %w", err)
+	}
 	toolList, err := runTools(model.registry)
 	if err != nil {
 		return 0, err
@@ -192,10 +216,11 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		ParallelTools:   cfg.Loop.ParallelTools,
 	}, &loop.Deps{
 		Provider:  model.provider,
-		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, cwd: model.cwd, model: modelRef, maxTokens: cfg.Provider.MaxOutput, store: model.store},
+		Assembler: &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, store: model.store},
 		Toolset:   &toolsetAdapter{disp: disp},
 		Store:     model.store,
 		Ledger:    model.ledger,
+		Carriers:  &ctxCarrierStore{db: model.db},
 		Redactor:  redactorAdapter{red: red},
 	})
 	if err != nil {
@@ -211,7 +236,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 }
 
 type runModel struct {
-	provider  *providerAdapter
+	provider  loop.Provider
 	registry  *tools.Registry
 	store     *ctxStore
 	ledger    *ctxLedger
@@ -247,21 +272,35 @@ func (m *runModel) close(ctx context.Context) error {
 	return err
 }
 
+// newRunProvider builds the run provider or returns the injected one.
+func newRunProvider(cfg *config.Config, modelRef string, o *runOptions) (loop.Provider, error) {
+	if o.prov != nil {
+		return o.prov, nil
+	}
+	base, key, family, err := providerEndpoint(modelRef, o)
+	if err != nil {
+		return nil, fmt.Errorf("provider endpoint: %w", err)
+	}
+	provName, modelName, _ := strings.Cut(modelRef, "/")
+	net := netx.New(netx.Config{Offline: o.offline})
+	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
+		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family}},
+		Attempts: o.providerAttempts,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("provider: %w", err)
+	}
+	return &providerAdapter{client: openai, model: modelRef}, nil
+}
+
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runModel, error) {
 	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run"})
 	if err != nil {
 		return nil, fmt.Errorf("open ctxdb: %w", err)
 	}
-	sid, err := newSessionID()
+	sid, cwd, err := newRunSession(ctx, db, modelRef)
 	if err != nil {
 		return nil, closeDB(ctx, db, err)
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, closeDB(ctx, db, fmt.Errorf("getwd: %w", err))
-	}
-	if _, serr := db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: cwd, Model: modelRef, ConfigSHA: "f1"}); serr != nil {
-		return nil, closeDB(ctx, db, fmt.Errorf("create session: %w", serr))
 	}
 	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
 	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
@@ -287,39 +326,33 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		}
 		return closeDB(ctx, db, cause)
 	}
-	allow := make([]classify.AllowEntry, 0, len(cfg.Approval.ShellAllow))
-	for _, argv := range cfg.Approval.ShellAllow {
-		allow = append(allow, classify.AllowEntry(argv))
+	allow, monetary, err := shellGate(cfg, configDir)
+	if err != nil {
+		return nil, fail(err)
+	}
+	shellTool, err := tools.NewShell(&tools.ShellConfig{
+		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
+		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
+		EnvPolicy:        envPolicy,
+		WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
+		MonetaryPaths: monetary, Canonicalize: monetaryKey,
+	})
+	if err != nil {
+		return nil, fail(fmt.Errorf("shell tool: %w", err))
 	}
 	list := tools.FileTools(engine, sb)
-	list = append(list,
-		tools.NewShell(&tools.ShellConfig{
-			Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
-			Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
-			EnvPolicy:        envPolicy,
-			WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
-		}),
-		tools.NewTodo(), tools.NewClarify(nil),
-	)
+	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil))
 	reg, err := tools.NewRegistry(list...)
 	if err != nil {
 		return nil, fail(fmt.Errorf("registry: %w", err))
 	}
-	base, key, err := providerEndpoint(modelRef, o)
+	prov, err := newRunProvider(cfg, modelRef, o)
 	if err != nil {
-		return nil, fail(fmt.Errorf("provider endpoint: %w", err))
+		return nil, fail(err)
 	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
-	net := netx.New(netx.Config{Offline: o.offline})
-	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
-		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok)}},
-		Attempts: o.providerAttempts,
-	})
-	if err != nil {
-		return nil, fail(fmt.Errorf("provider: %w", err))
-	}
 	return &runModel{
-		provider:  &providerAdapter{client: openai, model: modelRef},
+		provider:  prov,
 		registry:  reg,
 		store:     &ctxStore{db: db},
 		ledger:    &ctxLedger{db: db, provider: provName, model: modelName},
@@ -330,6 +363,36 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		runner:    runner,
 		sessions:  sessions,
 	}, nil
+}
+
+// newRunSession creates the headless session row and returns its id and the
+// working directory it was created in.
+func newRunSession(ctx context.Context, db *ctxdb.Store, modelRef string) (sid, cwd string, err error) {
+	if sid, err = newSessionID(); err != nil {
+		return "", "", err
+	}
+	if cwd, err = os.Getwd(); err != nil {
+		return "", "", fmt.Errorf("getwd: %w", err)
+	}
+	_, err = db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: cwd, Model: modelRef, ConfigSHA: "f1"})
+	if err != nil {
+		return "", "", fmt.Errorf("create session: %w", err)
+	}
+	return sid, cwd, nil
+}
+
+// shellGate builds the shell_allow list and the payment-skill gate
+// directories for one run (fail closed on a skill error).
+func shellGate(cfg *config.Config, configDir string) ([]classify.AllowEntry, []string, error) {
+	allow := make([]classify.AllowEntry, 0, len(cfg.Approval.ShellAllow))
+	for _, argv := range cfg.Approval.ShellAllow {
+		allow = append(allow, classify.AllowEntry(argv))
+	}
+	monetary, err := paymentSkillDirs(configDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return allow, monetary, nil
 }
 
 func closeDB(ctx context.Context, db *ctxdb.Store, cause error) error {
@@ -357,10 +420,10 @@ func loadRunConfig(loader *config.Loader, path string) (config.Config, error) {
 	return cfg, nil
 }
 
-func providerEndpoint(ref string, o *runOptions) (base, key string, err error) {
+func providerEndpoint(ref string, o *runOptions) (base, key, family string, err error) {
 	prov, _, ok := strings.Cut(ref, "/")
 	if !ok {
-		return "", "", fmt.Errorf("model %q is not provider/model", ref)
+		return "", "", "", fmt.Errorf("model %q is not provider/model", ref)
 	}
 	base = o.baseURL
 	if base == "" {
@@ -370,14 +433,18 @@ func providerEndpoint(ref string, o *runOptions) (base, key string, err error) {
 		case "openrouter":
 			base = "https://openrouter.ai/api/v1"
 		default:
-			return "", "", fmt.Errorf("provider %q needs --base-url in F1", prov)
+			return "", "", "", fmt.Errorf("provider %q needs --base-url in F1", prov)
 		}
+	}
+	family, err = provider.NormalizeBaseURL(base)
+	if err != nil {
+		return "", "", "", fmt.Errorf("base_url: %w", err)
 	}
 	key = o.apiKey
 	if key == "" {
 		key = os.Getenv(strings.ToUpper(prov) + "_API_KEY")
 	}
-	return base, key, nil
+	return base, key, family, nil
 }
 
 func approvalMode(o *runOptions) tools.Mode {
@@ -412,7 +479,7 @@ type providerAdapter struct {
 func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
 	preq := &provider.Request{Model: req.Model, MaxTokens: req.MaxTokens}
 	for _, m := range req.Messages {
-		pm := provider.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
+		pm := provider.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, Carriers: providerCarriers(m.Carriers)}
 		for _, c := range m.ToolCalls {
 			pm.ToolCalls = append(pm.ToolCalls, provider.ToolCall{ID: c.ID, Name: c.Name, ArgumentsRaw: c.Arguments})
 		}
@@ -439,6 +506,8 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 			Output: resp.Usage.Output, CostUSD: resp.Usage.CostUSD,
 		},
 		Model: resp.Model, FallbackFrom: resp.FallbackFrom, Attempts: resp.Attempts,
+		Carriers: eventCarriers(resp.Carriers), RejectedCarriers: eventCarriers(resp.RejectedCarriers),
+		CarrierDrops: eventDrops(resp.CarrierDrops), ReasoningText: resp.ReasoningText,
 	}
 	for _, c := range resp.ToolCalls {
 		reply.ToolCalls = append(reply.ToolCalls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.ArgumentsRaw})
@@ -447,19 +516,19 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 }
 
 type assemblerAdapter struct {
-	asm       *assemble.Assembler
-	turn      *assemble.Turn
-	tools     []assemble.Tool
-	cwd       string
-	model     string
-	maxTokens int
-	store     *ctxStore
+	asm         *assemble.Assembler
+	turn        *assemble.Turn
+	tools       []assemble.Tool
+	contextTier string // frozen per session (P15)
+	model       string
+	maxTokens   int
+	store       *ctxStore
 }
 
 func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleRequest) (loop.Prompt, error) {
 	view := &assemble.SessionView{
 		Phase:   assemble.PhaseF1,
-		Context: &assemble.ContextInput{Facts: "os=" + runtime.GOOS + "; shell=headless; cwd=" + a.cwd + "; frontend=headless"},
+		Context: a.contextTier,
 		Tools:   a.tools,
 		Turn:    a.turn,
 		History: []assemble.Message{{Role: "user", Content: req.Input.Text}},
@@ -508,11 +577,15 @@ func runTools(reg *tools.Registry) ([]assemble.Tool, error) {
 type toolsetAdapter struct{ disp *tools.Dispatcher }
 
 func (t *toolsetAdapter) Prepare(_ context.Context, c loop.ToolCall) (loop.Prepared, error) {
-	return loop.Prepared{Call: c, Effect: loop.EffectRead, Approval: loop.ApprovalNone}, nil
+	effect := t.disp.Effect(c.Name, json.RawMessage(c.Arguments))
+	return loop.Prepared{
+		Call: c, Effect: loop.EffectRead, Approval: loop.ApprovalNone,
+		SideEffect: effect != tools.EffectRead,
+	}, nil
 }
 
 func (t *toolsetAdapter) Dispatch(ctx context.Context, p *loop.Prepared) (loop.ToolResult, error) {
-	out := t.disp.Dispatch(ctx, tools.Call{CallID: p.Call.ID, Name: p.Call.Name, Args: json.RawMessage(p.Call.Arguments)})
+	out := t.disp.Dispatch(ctx, tools.Call{TurnID: p.Call.TurnID, CallID: p.Call.ID, Name: p.Call.Name, Args: json.RawMessage(p.Call.Arguments)})
 	res := loop.ToolResult{Content: out.Render(), Tainted: out.Tainted}
 	if out.Denied {
 		res.Err = &loop.ToolError{Code: loop.CodeDenied, Message: "denied"}
@@ -541,6 +614,24 @@ func (s *ctxStore) Append(ctx context.Context, sid, tid string, ev *event.Event)
 		return 0, nil
 	}
 	return ids[0], nil
+}
+
+// BeginTurn persists turn_start with the turn_journal row in one
+// transaction (SEC11-2): a kill -9 turn is then recoverable.
+func (s *ctxStore) BeginTurn(ctx context.Context, sid, tid string) error {
+	if err := s.db.Write(ctx, func(tx *ctxdb.Tx) error { return tx.StartTurn(sid, tid) }); err != nil {
+		return fmt.Errorf("begin turn: %w", err)
+	}
+	return nil
+}
+
+// EndTurn persists turn_end with the loop's payload and clears the journal
+// row in one transaction.
+func (s *ctxStore) EndTurn(ctx context.Context, sid, tid string, payload json.RawMessage) error {
+	if err := s.db.Write(ctx, func(tx *ctxdb.Tx) error { return tx.EndTurnWith(sid, tid, string(payload)) }); err != nil {
+		return fmt.Errorf("end turn: %w", err)
+	}
+	return nil
 }
 
 type ctxLedger struct {

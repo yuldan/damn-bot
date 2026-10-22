@@ -276,7 +276,7 @@ func searchIDs(tx *ctxdb.Tx, q *Query) ([]int64, error) {
 	text := ftsQuery(q.Text)
 	if text != "" {
 		from = "memory_fts f JOIN v_memory_status m ON m.id = f.rowid"
-		where = append(where, "memory_fts MATCH dmb_fts_norm(?)")
+		where = append(where, "memory_fts MATCH ?")
 		args = append(args, text)
 	}
 	if len(q.Scopes) > 0 {
@@ -290,9 +290,9 @@ func searchIDs(tx *ctxdb.Tx, q *Query) ([]int64, error) {
 	where = append(where,
 		"NOT EXISTS (SELECT 1 FROM session_labels vl WHERE vl.session_id = m.source_session AND vl.key = 'purge_state')",
 		"NOT EXISTS (SELECT 1 FROM events ev JOIN session_labels vle ON vle.session_id = ev.session_id AND vle.key = 'purge_state' WHERE ev.id = m.evidence_event_id)")
-	order := "m.pinned DESC, m.created_at DESC"
+	order := "m.pinned DESC, m.created_at DESC, m.id"
 	if text != "" {
-		order = "m.pinned DESC, bm25(memory_fts)"
+		order = "m.pinned DESC, bm25(memory_fts), m.id" // equal scores keep insertion order
 	}
 	limit := q.Limit
 	if limit <= 0 {
@@ -522,16 +522,42 @@ func transition(from, to string) bool {
 // letters/digits is a term and everything else becomes a separator, so user
 // text can never produce a MATCH syntax error (quotes, '-', parentheses,
 // column filters). Empty result means "no text query".
+// maxFTSTerms bounds a recall query; longer user messages would otherwise
+// build an unbounded MATCH expression.
+const maxFTSTerms = 64
+
 func ftsQuery(text string) string {
+	if strings.TrimSpace(text) == "" {
+		return ""
+	}
 	var b strings.Builder
-	for _, r := range text {
+	for _, r := range ctxdb.FTSNorm(text) {
 		if unicode.IsLetter(r) || unicode.IsDigit(r) {
 			b.WriteRune(r)
 		} else {
 			b.WriteByte(' ')
 		}
 	}
-	return strings.Join(strings.Fields(b.String()), " ")
+	fields := strings.Fields(b.String())
+	seen := make(map[string]struct{}, min(len(fields), maxFTSTerms))
+	tokens := make([]string, 0, len(seen))
+	for _, tok := range fields {
+		if len(tokens) == maxFTSTerms {
+			break
+		}
+		if _, dup := seen[tok]; dup {
+			continue
+		}
+		seen[tok] = struct{}{}
+		// Quoted, so a user word that happens to spell an operator ("or",
+		// "and") stays a term instead of changing the expression.
+		tokens = append(tokens, `"`+tok+`"`)
+	}
+	// BM25 ranking (SPEC §4.8/B-03) scores documents matching any query
+	// term: a natural-language question ("What is my locker number?") does
+	// not contain every word of the stored fact, so an AND match would
+	// recall nothing. Rank order still decides; LIMIT bounds the candidates.
+	return strings.Join(tokens, " OR ")
 }
 
 func marks(n int) string {

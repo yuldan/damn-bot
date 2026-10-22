@@ -379,6 +379,16 @@ func (d *Dispatcher) execute(ctx context.Context, p *Prepared) Outcome {
 	return out
 }
 
+// Effect reports the tool's effect without running policy or approval
+// (SEC11-3 tracking). Unknown tools count as non-idempotent.
+func (d *Dispatcher) Effect(name string, args json.RawMessage) Effect {
+	entry, ok := d.reg.Lookup(name)
+	if !ok {
+		return EffectNonIdempotent
+	}
+	return entry.Tool.Effect(args)
+}
+
 // policy asks the tool's Inspector, or uses the default code-tool policy.
 func (d *Dispatcher) policy(ctx context.Context, entry *Entry, env Env, args json.RawMessage, pc PolicyContext, effect Effect) (PolicyDecision, error) {
 	if in, ok := entry.Tool.(Inspector); ok {
