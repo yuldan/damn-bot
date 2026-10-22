@@ -92,3 +92,26 @@ func TestPaymentKeySimulatedForms(t *testing.T) {
 		t.Error("sibling directory prefix matched")
 	}
 }
+
+// TestPaymentDevicePath: a \\?\ or \\.\ spelling of a payment-skill file
+// still takes the monetary label (SEC10-15); the canonicalizer in cmd strips
+// the device prefix, simulated here.
+func TestPaymentDevicePath(t *testing.T) {
+	t.Parallel()
+	key := func(p string) string {
+		switch {
+		case strings.HasPrefix(p, `\\?\UNC\`):
+			p = `\\` + p[8:]
+		case strings.HasPrefix(p, `\\?\`), strings.HasPrefix(p, `\\.\`):
+			p = p[4:]
+		}
+		return strings.ToLower(strings.ReplaceAll(p, `\`, "/"))
+	}
+	env := testEnv()
+	env.MonetaryPaths = []string{`C:\Pay`}
+	env.MonetaryKey = key
+	v := Classify(`cat '\\?\C:\Pay\scripts\x.sh'`, env)
+	if v.Class != Monetary {
+		t.Fatalf("device path class = %s (%v)", v.Class, v.Reasons)
+	}
+}

@@ -17,6 +17,9 @@ func (s *state) operand(a arg, write bool) []string {
 		s.raise(Unknown, "operand not static: "+a.s)
 		return nil
 	}
+	if strings.HasPrefix(a.s, `\\`) && s.env.MonetaryKey != nil {
+		s.paymentFile(a.s, a.s) // device/UNC spelling (SEC10-15)
+	}
 	p, ok := s.abs(a.s)
 	if !ok {
 		s.raise(Unknown, "relative operand after cd: "+a.s)
@@ -123,8 +126,7 @@ func (s *state) paymentFile(p, real string) {
 	if s.env.MonetaryKey != nil && len(s.env.MonetaryPaths) > 0 {
 		k := s.env.MonetaryKey(p)
 		for _, d := range s.env.MonetaryPaths {
-			kd := strings.TrimSuffix(s.env.MonetaryKey(d), "/")
-			if k == kd || strings.HasPrefix(k, kd+"/") {
+			if kd := strings.TrimSuffix(s.env.MonetaryKey(d), "/"); k == kd || strings.HasPrefix(k, kd+"/") {
 				s.raise(Monetary, "payment skill file: "+p)
 				return
 			}

@@ -2,7 +2,14 @@
 
 package main
 
-import "strings"
+import (
+	"strings"
 
-// monetaryKey folds case: the default APFS volume is case-insensitive.
-func monetaryKey(p string) string { return strings.ToLower(canonicalBase(p)) }
+	"golang.org/x/text/unicode/norm"
+)
+
+// monetaryKey normalizes to NFC before folding case: the default APFS
+// volume is case-insensitive and stores decomposed names (SEC10-16).
+func monetaryKey(p string) string {
+	return strings.ToLower(norm.NFC.String(canonicalBase(norm.NFC.String(p))))
+}

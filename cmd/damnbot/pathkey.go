@@ -4,17 +4,43 @@ import (
 	"path/filepath"
 )
 
-// canonicalBase is the OS-neutral part of the payment-gate key: absolute,
-// symlinks resolved (no /var vs /private/var or link vs target difference),
-// cleaned and slash-separated. Each OS wrapper adds long-name expansion
-// and/or case folding (SEC13 path canonicalization).
-func canonicalBase(p string) string {
-	abs, err := filepath.Abs(p)
+// existingPrefix resolves the longest existing prefix of p and returns it
+// with the non-existing remainder (SEC10-18). The prefix is absolute and
+// symlink-resolved; the remainder keeps its spelling for the OS wrapper.
+func existingPrefix(p string) (base, rest string) {
+	abs, err := filepath.Abs(cleanDevicePrefix(p))
 	if err != nil {
 		abs = p
 	}
-	if r, rerr := filepath.EvalSymlinks(abs); rerr == nil {
-		abs = r
+	abs = filepath.Clean(abs)
+	for {
+		if r, rerr := filepath.EvalSymlinks(abs); rerr == nil {
+			return r, rest
+		}
+		parent := filepath.Dir(abs)
+		if parent == abs {
+			return abs, rest
+		}
+		rest = filepath.Join(filepath.Base(abs), rest)
+		abs = parent
 	}
-	return filepath.ToSlash(filepath.Clean(abs))
+}
+
+// cleanDevicePrefix strips Win32 device prefixes for canonicalization;
+// SEC10-15 (e.g. \\localhost\C$) remains a documented residual.
+func cleanDevicePrefix(p string) string {
+	switch {
+	case len(p) >= 8 && p[:8] == `\\?\UNC\`:
+		return `\\` + p[8:]
+	case len(p) >= 4 && (p[:4] == `\\?\` || p[:4] == `\\.\`):
+		return p[4:]
+	}
+	return p
+}
+
+// canonicalBase is the OS-neutral key: absolute, longest existing prefix
+// symlink-resolved, remainder appended, slash-separated.
+func canonicalBase(p string) string {
+	base, rest := existingPrefix(p)
+	return filepath.ToSlash(filepath.Join(base, rest))
 }

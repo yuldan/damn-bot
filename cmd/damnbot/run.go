@@ -330,17 +330,18 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fail(err)
 	}
+	shellTool, err := tools.NewShell(&tools.ShellConfig{
+		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
+		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
+		EnvPolicy:        envPolicy,
+		WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
+		MonetaryPaths: monetary, Canonicalize: monetaryKey,
+	})
+	if err != nil {
+		return nil, fail(fmt.Errorf("shell tool: %w", err))
+	}
 	list := tools.FileTools(engine, sb)
-	list = append(list,
-		tools.NewShell(&tools.ShellConfig{
-			Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
-			Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
-			EnvPolicy:        envPolicy,
-			WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
-			MonetaryPaths: monetary, Canonicalize: monetaryKey,
-		}),
-		tools.NewTodo(), tools.NewClarify(nil),
-	)
+	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil))
 	reg, err := tools.NewRegistry(list...)
 	if err != nil {
 		return nil, fail(fmt.Errorf("registry: %w", err))
