@@ -35,22 +35,46 @@ func (s *state) http(args []arg) {
 			continue
 		}
 		name, val := s.optSplit(args, &i)
-		switch {
-		case inList(httpMethodOpts, name):
-			method = strings.ToUpper(val.s)
-		case inList(httpBodyOpts, name):
-			body = true
-			if _, f, ok := strings.Cut(val.s, "@"); ok {
-				s.operand(arg{s: f, lit: val.lit}, false)
-			}
-		case inList(httpFileOpts, name):
-			body = true
-			s.operand(val, false)
-		case inList(httpOutOpts, name):
-			s.operand(val, true)
+		m, b := s.httpOpt(name, val)
+		if m != "" {
+			method = m
 		}
+		body = body || b
 	}
 	s.httpLabel(method, body, hosts)
+}
+
+// httpOpt classifies one HTTP client option and returns its method ("" when
+// none) and whether it carries a body.
+func (s *state) httpOpt(name string, val arg) (string, bool) {
+	switch {
+	case inList(httpMethodOpts, name):
+		return strings.ToUpper(val.s), false
+	case inList(httpBodyOpts, name):
+		if _, f, ok := strings.Cut(val.s, "@"); ok {
+			s.operand(arg{s: f, lit: val.lit}, false)
+		}
+		return "", true
+	case inList(httpFileOpts, name):
+		s.operand(val, false)
+		return "", true
+	case inList(httpOutOpts, name):
+		s.operand(val, true)
+	case inList(" -H --header ", name):
+		if h := headerHost(val.s); h != "" && slices.Contains(s.env.MonetaryHosts, h) {
+			s.raise(Monetary, "HTTP Host header targets monetary host "+h)
+		}
+	}
+	return "", false
+}
+
+// headerHost returns the host of a `Host: name[:port]` header value, else "".
+func headerHost(v string) string {
+	k, rest, ok := strings.Cut(v, ":")
+	if !ok || !strings.EqualFold(strings.TrimSpace(k), "host") {
+		return ""
+	}
+	return hostOf(strings.TrimSpace(rest))
 }
 
 // optSplit splits --opt=value, -Xvalue or "-X value" (consuming it).
@@ -59,7 +83,7 @@ func (s *state) optSplit(args []arg, i *int) (string, arg) {
 	if k, v, ok := strings.Cut(a.s, "="); ok && strings.HasPrefix(k, "--") {
 		return k, arg{s: v, lit: a.lit}
 	}
-	if !s.fold && len(a.s) > 2 && a.s[1] != '-' && strings.IndexByte("XdFTo", a.s[1]) >= 0 {
+	if !s.fold && len(a.s) > 2 && a.s[1] != '-' && strings.IndexByte("XdFToH", a.s[1]) >= 0 {
 		return a.s[:2], arg{s: a.s[2:], lit: a.lit}
 	}
 	name := a.s
@@ -84,13 +108,13 @@ func (s *state) httpLabel(method string, body bool, hosts []string) {
 	if network {
 		s.flag(Network, "network: HTTP request")
 	}
-	if !body && (method == "" || method == "GET" || method == "HEAD") {
-		return
-	}
 	for _, h := range hosts {
 		if slices.Contains(s.env.MonetaryHosts, h) {
-			s.raise(Monetary, "mutating HTTP to monetary host "+h)
+			s.raise(Monetary, "HTTP to monetary host "+h) // any method, incl. GET (SEC10-7)
 		}
+	}
+	if !body && (method == "" || method == "GET" || method == "HEAD") {
+		return
 	}
 	s.raise(Irreversible, "mutating HTTP request "+method)
 }

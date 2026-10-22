@@ -137,6 +137,28 @@ type Update struct {
 	Err        string
 }
 
+// Carrier is one opaque reasoning block.
+type Carrier struct {
+	Family, Model string
+	Kind          string // reasoning_carriers.kind
+	Anchor        string
+	Raw           []byte
+	Replayable    bool
+	SHA           string // hex sha256 of Raw
+}
+
+// CarrierDrop counts omitted carriers.
+type CarrierDrop struct {
+	Reason string // route_mismatch | redacted
+	Count  int
+}
+
+// CarrierRef is a carriers:[{ord,sha}] payload entry.
+type CarrierRef struct {
+	Ord int    `json:"ord"`
+	SHA string `json:"sha"`
+}
+
 // Usage is one llm_call's accounting plus the turn totals.
 type Usage struct {
 	Input       int64

@@ -48,3 +48,34 @@ func TestEnvWindowsBasics(t *testing.T) {
 		t.Errorf("case-insensitive PATH: %v", env)
 	}
 }
+
+// TestNoDefaultCurrentDirectoryInExePath: a git.bat in the working directory
+// must not run on `git status` (SEC10-26); cmd otherwise searches the cwd
+// before PATH.
+func TestNoDefaultCurrentDirectoryInExePath(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran")
+	if err := os.WriteFile(filepath.Join(dir, "git.bat"), []byte("@echo off\r\n> \""+marker+"\" echo ran\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec, _, err := Prepare(&OneShot{Command: "git status", Dir: dir, Parent: os.Environ(), Policy: &EnvPolicy{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(spec.Env, "\n"), "NoDefaultCurrentDirectoryInExePath=1") {
+		t.Fatalf("env missing NoDefaultCurrentDirectoryInExePath: %v", spec.Env)
+	}
+	r := New(t.Context())
+	defer func() {
+		if cerr := r.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	}()
+	if _, rerr := r.Run(t.Context(), &spec); rerr != nil {
+		t.Fatal(rerr)
+	}
+	if _, serr := os.Stat(marker); !os.IsNotExist(serr) {
+		t.Fatalf("cwd git.bat ran: %v", serr)
+	}
+}

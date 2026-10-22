@@ -33,6 +33,7 @@ type Hit struct {
 	Kind      string  // events.kind; "summary_ref" for a summary
 	Score     float64 // bm25; lower is better
 	Snippet   string  // bounded excerpt around the first matched term
+	Excluded  bool    // the hit belongs to a context_exclude turn (SEC11-5)
 }
 
 // HistoryOptions is the resolved History configuration.
@@ -124,9 +125,14 @@ func (s *Store) History(ctx context.Context, sessionID string, fromSeq int64, op
 	if err != nil {
 		return nil, err
 	}
+	turns := map[string]bool{}
+	if !o.IncludeExcluded {
+		turns = contextExclusions(evs)
+		sums = dropExcludedSummaries(sums, evs, turns) // SEC11-1: before summaries
+	}
 	out := applySummaries(evs, sums)
 	if !o.IncludeExcluded {
-		out = excludeTurns(out)
+		out = excludeTurns(out, turns)
 	}
 	if err := s.attachBlobs(ctx, out); err != nil {
 		return nil, err
@@ -212,48 +218,68 @@ func summaryEvent(h historySummary) Event {
 	}
 }
 
-type seqSpan struct{ from, to int64 }
-
-func contextExclusions(evs []Event) (map[string]bool, map[string][]seqSpan) {
+// contextExclusions returns the turn ids marked by context_exclude. Span
+// markers (from_seq/to_seq) are intentionally ignored (SEC11-4): no writer
+// emits them, and a marker with only from_seq would hide every later turn.
+func contextExclusions(evs []Event) map[string]bool {
 	turns := map[string]bool{}
-	spans := map[string][]seqSpan{}
 	for i := range evs {
 		if evs[i].Kind != "context_exclude" {
 			continue
 		}
 		var p struct {
-			TurnID  string `json:"turn_id"`
-			FromSeq int64  `json:"from_seq"`
-			ToSeq   int64  `json:"to_seq"`
+			TurnID string `json:"turn_id"`
 		}
-		if json.Unmarshal([]byte(evs[i].Payload), &p) != nil {
+		if json.Unmarshal([]byte(evs[i].Payload), &p) != nil || p.TurnID == "" {
 			continue
 		}
-		if p.TurnID != "" {
-			turns[p.TurnID] = true
-		}
-		if p.FromSeq > 0 || p.ToSeq > 0 {
-			spans[evs[i].SessionID] = append(spans[evs[i].SessionID], seqSpan{p.FromSeq, p.ToSeq})
-		}
+		turns[p.TurnID] = true
 	}
-	return turns, spans
+	return turns
+}
+
+// dropExcludedSummaries drops a summary whose covered range contains an
+// excluded turn's events (SEC11-1): compaction can run inside a turn that
+// later fails, and the summary would otherwise re-introduce that turn.
+func dropExcludedSummaries(sums []historySummary, evs []Event, turns map[string]bool) []historySummary {
+	if len(turns) == 0 || len(sums) == 0 {
+		return sums
+	}
+	ranges := map[string][2]int64{}
+	for i := range evs {
+		e := &evs[i]
+		if e.TurnID == "" || !turns[e.TurnID] {
+			continue
+		}
+		r, ok := ranges[e.SessionID]
+		if !ok || e.Seq < r[0] {
+			r[0] = e.Seq
+		}
+		if !ok || e.Seq > r[1] {
+			r[1] = e.Seq
+		}
+		ranges[e.SessionID] = r
+	}
+	out := sums[:0]
+	for _, h := range sums {
+		r, bad := ranges[h.SessionID]
+		if bad && h.FromSeq <= r[1] && h.ToSeq >= r[0] {
+			continue
+		}
+		out = append(out, h)
+	}
+	return out
 }
 
 // excludeTurns drops events of turns marked by context_exclude (GAP-REL-01);
 // the marker itself stays for audit.
-func excludeTurns(evs []Event) []Event {
-	turns, spans := contextExclusions(evs)
-	if len(turns) == 0 && len(spans) == 0 {
+func excludeTurns(evs []Event, turns map[string]bool) []Event {
+	if len(turns) == 0 {
 		return evs
 	}
 	out := evs[:0]
 	for i := range evs {
-		e := evs[i]
-		drop := e.TurnID != "" && turns[e.TurnID]
-		for _, sp := range spans[e.SessionID] {
-			drop = drop || e.Seq >= sp.from && (sp.to == 0 || e.Seq <= sp.to)
-		}
-		if !drop {
+		if e := evs[i]; e.TurnID == "" || !turns[e.TurnID] {
 			out = append(out, e)
 		}
 	}
@@ -334,11 +360,16 @@ func (s *Store) Search(ctx context.Context, q Query) ([]Hit, error) {
 }
 
 func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int, summaries bool) ([]Hit, error) {
-	q := `SELECT e.id, e.session_id, e.seq, e.kind, bm25(events_fts), e.content
+	q := `SELECT e.id, e.session_id, e.seq, e.kind, bm25(events_fts), e.content,
+		EXISTS (SELECT 1 FROM events x WHERE x.session_id = e.session_id AND x.kind = 'context_exclude'
+			AND json_extract(x.payload, '$.turn_id') = e.turn_id)
 		FROM events_fts JOIN events e ON e.id = events_fts.rowid
 		WHERE events_fts MATCH ? AND ` + notPurging("e.session_id")
 	if summaries {
-		q = `SELECT sm.event_id, sm.session_id, sm.to_seq, '', bm25(summaries_fts), sm.content
+		q = `SELECT sm.event_id, sm.session_id, sm.to_seq, '', bm25(summaries_fts), sm.content,
+			EXISTS (SELECT 1 FROM events x JOIN events t ON t.session_id = x.session_id
+				WHERE x.session_id = sm.session_id AND x.kind = 'context_exclude'
+				AND json_extract(x.payload, '$.turn_id') = t.turn_id AND t.seq BETWEEN sm.from_seq AND sm.to_seq)
 			FROM summaries_fts JOIN summaries sm ON sm.id = summaries_fts.rowid
 			WHERE summaries_fts MATCH ? AND ` + notPurging("sm.session_id")
 	}
@@ -357,7 +388,7 @@ func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int
 	err := s.each(ctx, q, args, func(r *sql.Rows) error {
 		var h Hit
 		var content string
-		if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content); err != nil {
+		if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &h.Excluded); err != nil {
 			return wrap(err)
 		}
 		if summaries {

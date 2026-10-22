@@ -2,9 +2,13 @@
 # Format: <grup> <LOC maks> <direktori...>. Sebuah file dihitung ke grup dengan prefix direktori terpanjang.
 # ADR-110 (amandemen REVIEW-F1-SEC8 LP8-16..20): loop 1500 -> 1800 (pairing setiap hasil tool +
 # redaksi lintas-delta; terukur 1.757; Σ core 35.200 -> 35.500 <= 47.000).
-loop              1800 internal/loop
+# ADR-131 amandemen round 2: loop 1800 -> 1900 (persist/reject carrier; terukur 1851; Σ core +100).
+# ADR-131 SEC8-10: loop 1900 -> 1950 (pemindaian carrier rekursif + key names; terukur 1913).
+# ADR-134 (REL-01 + SEC11): loop +100 di atas 1950 carrier (ADR-131) -> 2050.
+loop              2050 internal/loop
 plan               600 internal/plan
-provider          2000 internal/provider
+# ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
+provider          2100 internal/provider
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
 provider/registry  300 internal/provider/registry
 netx              1800 internal/netx
@@ -19,13 +23,15 @@ codetools         5350 internal/codetools
 # ADR-106 butir 10: exec 3500 -> 3400, exec/classify 1500 -> 1600 (Σ core tetap).
 # ADR-112: exec/classify 1600 -> 1800 untuk aturan keamanan stack classify + shell_allow argv-persis (Σ core 35.000 -> 35.200).
 exec              3400 internal/exec
-exec/classify     1800 internal/exec/classify
+exec/classify     1830 internal/exec/classify
 # ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).
 # ADR-108: sandbox+redact 1450 -> 1700 (dir-fd walk fast path; Σ core 34.650 -> 34.900 <= 47.000).
 sandbox+redact    1700 internal/sandbox internal/redact
 boundary           150 internal/boundary
 # ctxdb: ADR-049 (2.800) → ADR-087 (3.100) → ADR-118 (3.400) → ADR-118 amandemen (3.500: History/Fork/Search + Recall #152 in one package; terukur 3.418).
-ctxdb             3500 internal/ctxdb
+# ADR-132 (REL-04/05): engine probe + read-only inspection mode; ctxdb 3500 -> 3700 (terukur 3533; Σ core +200).
+# ADR-132 amandemen SEC9-7: tokenizer gate SQL bebas; ctxdb 3700 -> 3800 (terukur 3725; Σ core +100).
+ctxdb             3800 internal/ctxdb
 # ADR-074: storage konsumen di internal/ctxdb/<consumer>store, dipotong dari baris konsumennya (Σ tidak berubah oleh ADR-074).
 # ctxdb/gwstore (900) dihitung dari budget gateway SPEC §3.2.4; barisnya ditambah saat baris gateway dibuat (F4).
 ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore
@@ -33,12 +39,16 @@ ctxdb/memstore     600 internal/ctxdb/memstore
 ctxdb/skillstore   400 internal/ctxdb/skillstore
 ctxdb/journalstore 400 internal/ctxdb/journalstore
 ctxdb/limitstore   100 internal/ctxdb/limitstore
+# ADR-131 (PROV-01): carrier reasoning opaque + rejections + size caps (ADR-074; terukur 263; Σ core +300; SEC8-6).
+ctxdb/carrierstore 300 internal/ctxdb/carrierstore
 # ADR-122: storage summary compaction, baris baru (terukur 248; Σ core 36.520 -> 36.770 <= 47.000).
-ctxdb/compactstore 250 internal/ctxdb/compactstore
-assemble          1000 internal/assemble
+ctxdb/compactstore 260 internal/ctxdb/compactstore
+# ADR-121: assemble 1000 -> 1200 (tier prompt F2 penuh; terukur 1.034 sesudah PR1; Σ core 36.770 -> 36.970 <= 47.000).
+# ADR-121 PR2: assemble 1200 -> 1300 (REVIEW-F2-SEC4 ASM4-1..3: wrapper <untrusted> exact, tag pembuka dinetralkan, clip sadar-wrapper; terukur 1.236; Σ core 36.970 -> 37.070 <= 47.000).
+assemble          1300 internal/assemble
 compaction         900 internal/compaction
-memory+skills     1200 internal/memory internal/skills
-# ADR-117 amendment: journal 545 -> 560 (Windows-safe replace; terukur 557; Σ core 35.560 <= 47.000).
+memory+skills     1230 internal/memory internal/skills
+# ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).
 journal            560 internal/journal
 # ADR-123: budget 400 -> 520 (guard harian/bulanan/provider + formula token gambar; terukur 481).
 # ADR-125: budget 520 -> 560 (jadwal harga bertanggal GAP-COST-01; terukur 530).

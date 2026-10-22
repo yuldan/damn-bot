@@ -237,6 +237,9 @@ func (t *Tx) recoverOwnTrash() error {
 // preWrite enforces I8 before every write transaction (and read): a
 // maintenance marker drains this process; a replaced DB file is reopened.
 func (s *Store) preWrite(ctx context.Context) error {
+	if s.opt.ReadOnly {
+		return fmt.Errorf("%w: inspection store cannot be written", ErrReadOnly)
+	}
 	var err error
 	if s.w != nil && !s.barrierOwner.Load() && markerPresent(s.root) {
 		err = s.detach()
@@ -255,6 +258,9 @@ func (s *Store) preWrite(ctx context.Context) error {
 // reader returns the read pool, reattaching a drained Store first (barrier
 // open order) so reads never touch a replaced DB file.
 func (s *Store) reader(ctx context.Context) (*sql.DB, error) {
+	if s.opt.ReadOnly {
+		return s.r, nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	err := s.preWrite(ctx)
@@ -294,8 +300,13 @@ func (s *Store) ints(ctx context.Context, q string, args ...any) ([]int64, error
 	return column[int64](ctx, db, q, args...)
 }
 
-// Count returns a single integer from a read query (tests, doctor).
+// Count returns a single integer from a read query (tests, doctor). A
+// read-only inspection store accepts SELECT/WITH only: ATTACH and VACUUM
+// INTO create files even under query_only (SEC9-3).
 func (s *Store) Count(ctx context.Context, q string, args ...any) (int64, error) {
+	if s.opt.ReadOnly && !readOnlyQuery(q) {
+		return 0, fmt.Errorf("%w: inspection accepts read queries only", ErrReadOnly)
+	}
 	var n int64
 	err := s.get(ctx, q, args, &n)
 	return n, err

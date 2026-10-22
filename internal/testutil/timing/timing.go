@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+// Limit returns the budget this build actually asserts: limit, or ×1,5 on a
+// shared runner (the perf build, ADR-077/ADR-127). A caller that must decide
+// before the assertion - the CT-09 retry, ADR-127 - uses it directly.
+func Limit(limit time.Duration) time.Duration { return limit * scaleNum / scaleDen }
+
 // Env enables wall-clock budget assertions. It is set only by `make
 // test-timing` and `make perf`, which build without -race: under -race the
 // instrumented code costs several times more, so a budget there measures the
@@ -34,7 +39,7 @@ func Enforced(tb testing.TB) bool {
 // (ADR-077 point 4).
 func Check(tb testing.TB, name string, got, limit time.Duration) {
 	tb.Helper()
-	limit = limit * scaleNum / scaleDen
+	limit = Limit(limit)
 	if !Enforced(tb) {
 		tb.Logf("timing budget %s not enforced (ADR-048): %v / %v", name, got, limit)
 		return

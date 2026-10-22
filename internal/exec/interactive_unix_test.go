@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/testutil/timing"
 )
 
 // TestRunIdleTimeout (§A.4): a silent sleeping tree is killed after the
@@ -89,7 +91,12 @@ func interactiveFixtures(t *testing.T) []interactiveFixture {
 
 // TestInteractiveCorpus (P24.2, §A.6): every fixture returns quickly with
 // status exited or waiting_for_input — pipe (stdin = /dev/null fails
-// fast) and PTY (prompt detected, tree killed).
+// fast) and PTY (prompt detected, tree killed). The status and prompt kind
+// are checked in every build; the response duration is a wall-clock budget
+// and goes through timing.Check (ADR-048), i.e. it is asserted in
+// `make test-timing` and not in the -race and coverage jobs, where the
+// instrumented binary measures the detector (vi/pty 8.4 s, man/pipe
+// 3–5.4 s on macos-15-intel).
 //
 // Not parallel: the wchan fixtures all reach the 5 s silence mark together,
 // and each Runner scans /proc once a second; running the corpus alongside
@@ -101,8 +108,12 @@ func TestInteractiveCorpus(t *testing.T) {
 			t.Run(f.name+map[bool]string{false: "/pipe", true: "/pty"}[pty], func(t *testing.T) {
 				skipFixture(t, f, pty)
 				res := run(t.Context(), t, newTestRunner(t), fixtureSpec(t, f, pty))
-				if msg := checkFixture(f, pty, &res); msg != "" {
+				msg, budget := checkFixture(f, pty, &res)
+				if msg != "" {
 					t.Fatalf("%s (status %s, kind %q, prompt %q, after %v)", msg, res.Status, res.InputKind, res.Prompt, res.Duration)
+				}
+				if budget > 0 {
+					timing.Check(t, "P24.2 "+f.name+map[bool]string{false: "/pipe", true: "/pty"}[pty]+" response", res.Duration, budget)
 				}
 				assertNoMarker(t, res.ExecID)
 			})
@@ -143,19 +154,32 @@ func fixtureSpec(t *testing.T, f interactiveFixture, pty bool) *Spec {
 	}
 }
 
-// checkFixture returns why res breaks P24.2 for f ("" = ok).
-func checkFixture(f interactiveFixture, pty bool, res *Result) string {
+// pipeLimit is P24.2's fail-fast bound for the pipe runner: stdin is
+// /dev/null, so nothing may wait for input. The runner's own work is the
+// shell script; for a real program (man, less, python) this also contains
+// its startup on the image, which is why the bound is asserted through
+// timing (ADR-048), not in the -race and coverage jobs.
+const pipeLimit = 3 * time.Second
+
+// checkFixture returns why res breaks P24.2 for f ("" = ok) and the
+// wall-clock budget of the fixture's response (0: none). The status and
+// prompt checks are correctness and run in every build; the duration is a
+// budget, asserted by timing.Check only where wall-clock gates are enforced
+// (ADR-048): under -race and coverage the instrumented binary and the shared
+// runner measured the detector, not the runner — man/pipe took 3–5.4 s on
+// macos-15-intel and vi/pty 8.4 s in the coverage job (P24.2).
+func checkFixture(f interactiveFixture, pty bool, res *Result) (string, time.Duration) {
 	switch {
 	case res.Status != StatusExited && res.Status != StatusSignaled && res.Status != StatusWaitingForInput:
-		return "status not in {exited, waiting_for_input}"
-	case !pty && res.Duration > 3*time.Second:
-		return "pipe did not fail fast"
-	case pty && f.kind != "" && (res.Status != StatusWaitingForInput || res.InputKind != f.kind):
-		return "pty: want waiting_for_input " + f.kind
-	case pty && res.Status == StatusWaitingForInput && res.Duration > limitFor(f):
-		return "pty: returned too late after the prompt"
+		return "status not in {exited, waiting_for_input}", 0
+	case !pty:
+		return "", pipeLimit
+	case f.kind != "" && (res.Status != StatusWaitingForInput || res.InputKind != f.kind):
+		return "pty: want waiting_for_input " + f.kind, 0
+	case res.Status == StatusWaitingForInput:
+		return "", limitFor(f)
 	}
-	return ""
+	return "", 0
 }
 
 // limitFor is P24.2 for a fixture: ≤ 2 s after the prompt appears (the

@@ -140,14 +140,22 @@ func (s *Store) Append(ctx context.Context, sid string, pend []*PendingBlob, evs
 type BlobRef struct{ Sha, OwnerKind, OwnerID, RefKey string }
 
 var (
-	reHex64  = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	reRefKey = regexp.MustCompile(`(^|_)blob_shas?$`)
+	reHex64      = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	reRefKey     = regexp.MustCompile(`(^|_)blob_shas?$`)
+	reCarrierSha = regexp.MustCompile(`^payload\.carriers\[\d+\]\.sha$`)
 )
 
 // nonRefSha64 is the closed list of 64-hex keys that are not blob refs
 // (ADR-093, TS-P04: approval_request.preview_sha/args_sha, carrier payload_sha).
-func nonRefSha64(key string) bool {
-	return key == "preview_sha" || key == "args_sha" || key == "payload_sha"
+// The carrier ref's short "sha" is exempt only at carriers[N].sha (SPEC §4.1).
+func nonRefSha64(key, path string) bool {
+	switch key {
+	case "preview_sha", "args_sha", "payload_sha":
+		return true
+	case "sha":
+		return reCarrierSha.MatchString(path)
+	}
+	return false
 }
 
 // BlobRefsOf derives every blob reference of one owner row (§11.6): cols are
@@ -193,7 +201,7 @@ func walkRefs(v any, path, key string, owner BlobRef, out *[]BlobRef) error {
 		case reRefKey.MatchString(key) && x != "":
 			owner.Sha, owner.RefKey = x, path
 			*out = append(*out, owner)
-		case reHex64.MatchString(x) && !nonRefSha64(key):
+		case reHex64.MatchString(x) && !nonRefSha64(key, path):
 			err = fmt.Errorf("ctxdb: sha under non-ref key %q: %w", path, ErrInternal)
 		}
 	}
