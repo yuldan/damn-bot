@@ -50,6 +50,10 @@ type ShellConfig struct {
 	// commands Monetary (SEC-15).
 	MonetaryHosts []string
 	MonetaryPaths []string
+	// Canonicalize is the payment-gate path key (absolute, symlinks and
+	// long names resolved, case-folded on case-insensitive filesystems).
+	// nil falls back to the lexical comparison.
+	Canonicalize func(string) string
 }
 
 // shellTool implements one `shell` call (SPEC §5.1, EXEC-AND-CODING §A).
@@ -69,13 +73,21 @@ type shellApproval struct{ direct []string }
 // call); a denied call never consumes its record.
 const shellRecordLimit = 32
 
-// NewShell returns the shell tool.
-func NewShell(cfg *ShellConfig) Tool {
+// NewShell returns the shell tool. MonetaryPaths require a Canonicalize
+// function: the lexical fallback is bypassable on Windows/macOS, so a
+// configuration that cannot canonicalize is refused (SEC10-17).
+func NewShell(cfg *ShellConfig) (Tool, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("tools: nil shell config")
+	}
+	if len(cfg.MonetaryPaths) > 0 && cfg.Canonicalize == nil {
+		return nil, fmt.Errorf("tools: MonetaryPaths require Canonicalize")
+	}
 	red := cfg.Redactor
 	if red == nil {
 		red = redact.New(redact.Options{})
 	}
-	return &shellTool{cfg: *cfg, red: red}
+	return &shellTool{cfg: *cfg, red: red}, nil
 }
 
 func (t *shellTool) Name() string            { return "shell" }
@@ -326,6 +338,7 @@ func (t *shellTool) classifyIn(command, cwd string) classify.Verdict {
 		Roots: t.cfg.Roots, Cwd: cwd, Home: t.cfg.Home,
 		DenyPaths: t.cfg.DenyPaths, Dialect: t.cfg.Dialect,
 		MonetaryHosts: t.cfg.MonetaryHosts, MonetaryPaths: t.cfg.MonetaryPaths,
+		MonetaryKey: t.cfg.Canonicalize,
 	}
 	if t.cfg.EnvPolicy != nil {
 		for _, s := range t.cfg.EnvPolicy.Secrets {

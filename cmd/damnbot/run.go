@@ -298,16 +298,9 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fmt.Errorf("open ctxdb: %w", err)
 	}
-	sid, err := newSessionID()
+	sid, cwd, err := newRunSession(ctx, db, modelRef)
 	if err != nil {
 		return nil, closeDB(ctx, db, err)
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, closeDB(ctx, db, fmt.Errorf("getwd: %w", err))
-	}
-	if _, serr := db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: cwd, Model: modelRef, ConfigSHA: "f1"}); serr != nil {
-		return nil, closeDB(ctx, db, fmt.Errorf("create session: %w", serr))
 	}
 	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
 	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
@@ -333,20 +326,22 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		}
 		return closeDB(ctx, db, cause)
 	}
-	allow := make([]classify.AllowEntry, 0, len(cfg.Approval.ShellAllow))
-	for _, argv := range cfg.Approval.ShellAllow {
-		allow = append(allow, classify.AllowEntry(argv))
+	allow, monetary, err := shellGate(cfg, configDir)
+	if err != nil {
+		return nil, fail(err)
+	}
+	shellTool, err := tools.NewShell(&tools.ShellConfig{
+		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
+		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
+		EnvPolicy:        envPolicy,
+		WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
+		MonetaryPaths: monetary, Canonicalize: monetaryKey,
+	})
+	if err != nil {
+		return nil, fail(fmt.Errorf("shell tool: %w", err))
 	}
 	list := tools.FileTools(engine, sb)
-	list = append(list,
-		tools.NewShell(&tools.ShellConfig{
-			Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
-			Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
-			EnvPolicy:        envPolicy,
-			WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
-		}),
-		tools.NewTodo(), tools.NewClarify(nil),
-	)
+	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil))
 	reg, err := tools.NewRegistry(list...)
 	if err != nil {
 		return nil, fail(fmt.Errorf("registry: %w", err))
@@ -368,6 +363,36 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		runner:    runner,
 		sessions:  sessions,
 	}, nil
+}
+
+// newRunSession creates the headless session row and returns its id and the
+// working directory it was created in.
+func newRunSession(ctx context.Context, db *ctxdb.Store, modelRef string) (sid, cwd string, err error) {
+	if sid, err = newSessionID(); err != nil {
+		return "", "", err
+	}
+	if cwd, err = os.Getwd(); err != nil {
+		return "", "", fmt.Errorf("getwd: %w", err)
+	}
+	_, err = db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: cwd, Model: modelRef, ConfigSHA: "f1"})
+	if err != nil {
+		return "", "", fmt.Errorf("create session: %w", err)
+	}
+	return sid, cwd, nil
+}
+
+// shellGate builds the shell_allow list and the payment-skill gate
+// directories for one run (fail closed on a skill error).
+func shellGate(cfg *config.Config, configDir string) ([]classify.AllowEntry, []string, error) {
+	allow := make([]classify.AllowEntry, 0, len(cfg.Approval.ShellAllow))
+	for _, argv := range cfg.Approval.ShellAllow {
+		allow = append(allow, classify.AllowEntry(argv))
+	}
+	monetary, err := paymentSkillDirs(configDir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return allow, monetary, nil
 }
 
 func closeDB(ctx context.Context, db *ctxdb.Store, cause error) error {

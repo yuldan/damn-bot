@@ -47,7 +47,7 @@ ctxdb/compactstore 260 internal/ctxdb/compactstore
 # ADR-121 PR2: assemble 1200 -> 1300 (REVIEW-F2-SEC4 ASM4-1..3: wrapper <untrusted> exact, tag pembuka dinetralkan, clip sadar-wrapper; terukur 1.236; Σ core 36.970 -> 37.070 <= 47.000).
 assemble          1300 internal/assemble
 compaction         900 internal/compaction
-memory+skills     1200 internal/memory internal/skills
+memory+skills     1230 internal/memory internal/skills
 # ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).
 journal            560 internal/journal
 # ADR-123: budget 400 -> 520 (guard harian/bulanan/provider + formula token gambar; terukur 481).

@@ -17,6 +17,7 @@ import (
 // command naming a script of a payment skill inside the workspace (so the
 // match alone would run headless).
 type paymentFixture struct {
+	t      *testing.T
 	w      *workspace
 	payDir string
 	call   Call
@@ -28,7 +29,7 @@ func newPaymentFixture(t *testing.T) *paymentFixture {
 		t.Skip("POSIX paths")
 	}
 	w := newWorkspace(t)
-	f := &paymentFixture{w: w, payDir: w.root + "/.skills/stripe-pay"}
+	f := &paymentFixture{t: t, w: w, payDir: w.root + "/.skills/stripe-pay"}
 	args, err := json.Marshal(map[string]string{"command": "echo " + f.payDir + "/scripts/charge.sh"})
 	if err != nil {
 		t.Fatal(err)
@@ -39,14 +40,14 @@ func newPaymentFixture(t *testing.T) *paymentFixture {
 
 func (f *paymentFixture) shell(runner *fakeRunner, monetary []string) Tool {
 	id := classify.BinaryID{Path: "/bin/echo", Dev: 1, Ino: 2, Size: 3, MtimeNs: 4}
-	return NewShell(&ShellConfig{
+	return mustShell(f.t, &ShellConfig{
 		Runner: runner, Spill: newMemSpill(), Redactor: redact.New(redact.Options{}),
 		Roots: []string{f.w.root}, Home: f.w.root, Cwd: f.w.root,
 		ParentEnv: os.Environ(), EnvPolicy: testEnvPolicy(),
 		Allow:            []classify.AllowEntry{{"echo", f.payDir + "/scripts/charge.sh"}},
 		SessionStart:     map[string]classify.BinaryID{"echo": id},
 		Resolve:          func(string) (classify.BinaryID, bool) { return id, true },
-		WorkspaceTrusted: true, MonetaryPaths: monetary,
+		WorkspaceTrusted: true, MonetaryPaths: monetary, Canonicalize: testPathKey,
 	})
 }
 
@@ -85,13 +86,13 @@ func TestShellUnsafeAutoShellPayment(t *testing.T) {
 	t.Parallel()
 	f := newPaymentFixture(t)
 	id := classify.BinaryID{Path: "/bin/echo", Dev: 1, Ino: 2, Size: 3, MtimeNs: 4}
-	shop := NewShell(&ShellConfig{
+	shop := mustShell(t, &ShellConfig{
 		Runner: &fakeRunner{}, Spill: newMemSpill(), Redactor: redact.New(redact.Options{}),
 		Roots: []string{f.w.root}, Home: f.w.root, Cwd: f.w.root,
 		ParentEnv: os.Environ(), EnvPolicy: testEnvPolicy(),
 		SessionStart:     map[string]classify.BinaryID{"echo": id},
 		Resolve:          func(string) (classify.BinaryID, bool) { return id, true },
-		WorkspaceTrusted: true, UnsafeAutoShell: true, MonetaryPaths: []string{f.payDir},
+		WorkspaceTrusted: true, UnsafeAutoShell: true, MonetaryPaths: []string{f.payDir}, Canonicalize: testPathKey,
 	})
 	d, _, _ := f.w.dispatcher(t, ModeHeadlessAuto, nil, shop)
 	for i, cmd := range []string{
@@ -166,11 +167,11 @@ func TestMonetaryAlwaysPrompts(t *testing.T) {
 		"curl -H 'Host: api.stripe.com' https://1.2.3.4/v1/charges",
 	}
 	shell := func(runner *fakeRunner) Tool {
-		return NewShell(&ShellConfig{
+		return mustShell(t, &ShellConfig{
 			Runner: runner, Spill: newMemSpill(), Redactor: redact.New(redact.Options{}),
 			Roots: []string{f.w.root}, Home: f.w.root, Cwd: f.w.root,
 			ParentEnv: os.Environ(), EnvPolicy: testEnvPolicy(), WorkspaceTrusted: true,
-			MonetaryHosts: []string{"api.stripe.com"}, MonetaryPaths: []string{f.payDir},
+			MonetaryHosts: []string{"api.stripe.com"}, MonetaryPaths: []string{f.payDir}, Canonicalize: testPathKey,
 		})
 	}
 	for _, mode := range []Mode{ModeAuto, ModeHeadlessAuto} {
@@ -209,5 +210,17 @@ func runMonetaryMode(t *testing.T, f *paymentFixture, corpus []string, mode Mode
 		if r.AllowSession || !strings.Contains(r.Class, "monetary") {
 			t.Errorf("%q: request %+v", corpus[i], r)
 		}
+	}
+}
+
+// TestNewShellNeedsCanonicalize: a monetary gate without a canonicalizer is
+// refused, so the bypassable lexical fallback cannot be used (SEC10-17).
+func TestNewShellNeedsCanonicalize(t *testing.T) {
+	t.Parallel()
+	if _, err := NewShell(&ShellConfig{MonetaryPaths: []string{"/x"}}); err == nil {
+		t.Fatal("MonetaryPaths without Canonicalize accepted")
+	}
+	if _, err := NewShell(nil); err == nil {
+		t.Fatal("nil config accepted")
 	}
 }

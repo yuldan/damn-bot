@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 )
 
 // corpusSkill parses testdata/lint/<kind>/<name>/SKILL.md and opens its
@@ -97,6 +99,16 @@ func TestLintCorpus(t *testing.T) {
 		{"env-dump", SourceHub, "", []string{"credential_access:high"}},
 		{"tell-secret", SourceHub, "", []string{"credential_access:high"}},
 		{"payment-undeclared", SourceHub, "", []string{"payment_undeclared:medium"}},
+		{"unreferenced-helper", SourceHub, "", []string{"credential_access:high"}},
+		{"homoglyph", SourceImport, "", []string{"credential_access:high"}},
+		{"base64-exec", SourceHub, "", []string{"obfuscated_exec:medium"}},
+		{"tools-helper", SourceHub, "", []string{"payment_undeclared:medium"}},
+		{"hidden-cred", SourceHub, "", []string{"credential_access:high"}},
+		{"hidden-pay", SourceHub, "", []string{"payment_undeclared:medium"}},
+		{"obf-concat", SourceHub, "", []string{"credential_access:high"}},
+		{"obf-b64decode", SourceHub, "", []string{"obfuscated_exec:medium"}},
+		{"obf-zcat", SourceHub, "", []string{"obfuscated_exec:medium"}},
+		{"homoglyph-g", SourceHub, "", []string{"payment_undeclared:medium"}},
 	}
 	entries, err = os.ReadDir(filepath.Join("testdata", "lint", "bad"))
 	if err != nil || len(entries) != len(bad)-1 { // mainnet is listed twice
@@ -137,18 +149,44 @@ func TestLintFailsClosed(t *testing.T) {
 	if _, err := Lint(&sk, LintEnv{Files: dirFS}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("directory as script: %v", err)
 	}
+}
+
+// TestLintSymlinks: a symlink anywhere in the skill directory, including one
+// whose target is inside, is rejected rather than followed (SEC10-12).
+func TestLintSymlinks(t *testing.T) {
+	t.Parallel()
+	plain, _ := corpusSkill(t, "good", "plain-review", SourceUser)
+	inside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(inside, "a.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(inside, "a.txt"), filepath.Join(inside, "link.txt")); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	rootIn, err := os.OpenRoot(inside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := rootIn.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	}()
+	if _, lerr := Lint(&plain, LintEnv{Files: rootIn.FS()}); !errors.Is(lerr, ErrInvalid) || !strings.Contains(lerr.Error(), "symlink") {
+		t.Errorf("file symlink not rejected: %v", lerr)
+	}
 
 	base := t.TempDir()
 	outside := filepath.Join(base, "outside.sh")
-	if err := os.WriteFile(outside, []byte("cat .env\n"), 0o600); err != nil {
-		t.Fatal(err)
+	if werr := os.WriteFile(outside, []byte("cat .env\n"), 0o600); werr != nil {
+		t.Fatal(werr)
 	}
 	dir := filepath.Join(base, "skill")
-	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o700); err != nil {
-		t.Fatal(err)
+	if merr := os.MkdirAll(filepath.Join(dir, "scripts"), 0o700); merr != nil {
+		t.Fatal(merr)
 	}
-	if err := os.Symlink(outside, filepath.Join(dir, "scripts", "x.sh")); err != nil {
-		t.Skipf("symlink: %v", err)
+	if serr := os.Symlink(outside, filepath.Join(dir, "scripts", "x.sh")); serr != nil {
+		t.Skipf("symlink: %v", serr)
 	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
@@ -159,9 +197,55 @@ func TestLintFailsClosed(t *testing.T) {
 			t.Error(cerr)
 		}
 	}()
-	got, err := Lint(&sk, LintEnv{Files: root.FS()})
+	got, err := Lint(&plain, LintEnv{Files: root.FS()})
 	if !errors.Is(err, ErrInvalid) || len(got) != 0 {
 		t.Errorf("symlink escape: findings %v err %v, want invalid_skill without reading the target", got, err)
+	}
+}
+
+// TestLintBounds: the directory walk is bounded and fails closed beyond the
+// cap (SEC10-2), and an unverifiable directory is invalid even without
+// references.
+func TestLintBounds(t *testing.T) {
+	t.Parallel()
+	clean, _ := corpusSkill(t, "good", "plain-review", SourceUser)
+	if _, err := Lint(&clean, LintEnv{}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "cannot be verified") {
+		t.Errorf("nil Files without references: %v", err)
+	}
+	many := fstest.MapFS{}
+	for i := range MaxScanFiles + 1 {
+		many[fmt.Sprintf("f%02d", i)] = &fstest.MapFile{Data: []byte("x")}
+	}
+	if _, err := Lint(&clean, LintEnv{Files: many}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("file cap: %v", err)
+	}
+	huge := fstest.MapFS{"big": {Data: make([]byte, MaxScanBytes+1)}}
+	if _, err := Lint(&clean, LintEnv{Files: huge}); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("byte cap: %v", err)
+	}
+}
+
+// TestLintNormalization: obfuscation folding applies to constructed skills
+// too (zero-width characters are normally rejected by Parse, SEC10-4).
+func TestLintNormalization(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name, body string
+		want       []string
+	}{
+		{"zero-width", "Run `gh au\u200bth token`.", []string{"credential_access:high"}},
+		{"concat", "Run `a=gh; $a auth token`.", []string{"credential_access:high"}},
+		{"b64decode", "os.system(base64.b64decode(x))", []string{"obfuscated_exec:medium"}},
+		{"zcat", "zcat tool.gz | sh", []string{"obfuscated_exec:medium"}},
+		{"cyrillic-g", "stгipe payment_intents create", []string{"payment_undeclared:medium"}},
+		{"fullwidth", "ｇｈ ａｕｔｈ ｔｏｋｅｎ", []string{"credential_access:high"}},
+	}
+	for _, c := range cases {
+		sk := Skill{Name: "x", Description: "d", Body: c.body, Path: "/s/x/SKILL.md", SHA256: strings.Repeat("a", 64), Source: SourceHub}
+		got, err := Lint(&sk, LintEnv{Files: fstest.MapFS{}})
+		if err != nil || !slices.Equal(categories(got), c.want) {
+			t.Errorf("%s: findings %v err %v, want %v", c.name, categories(got), err, c.want)
+		}
 	}
 }
 
@@ -208,8 +292,14 @@ func TestParseSideEffects(t *testing.T) {
 	plain := sk
 	plain.Path = "/s/y/SKILL.md"
 	sk.SideEffects = []SideEffect{EffectPayment}
-	if got := PaymentDirs([]Skill{sk, plain}); !slices.Equal(got, []string{filepath.Dir("/s/x/SKILL.md")}) {
-		t.Errorf("PaymentDirs = %v", got)
+	pending := sk
+	pending.MemoryID = 99 // quarantined, not approved: still gated
+	undeclared := plain
+	undeclared.Path = "/s/z/SKILL.md"
+	undeclared.Body = "run stripe payment_intents create"
+	want := []string{filepath.Dir("/s/x/SKILL.md"), filepath.Dir("/s/z/SKILL.md")}
+	if got := PaymentDirs([]Skill{sk, plain, pending, undeclared}); !slices.Equal(got, want) {
+		t.Errorf("PaymentDirs = %v, want %v", got, want)
 	}
 }
 
@@ -272,5 +362,40 @@ func TestInstallLintFindings(t *testing.T) {
 	st, res, err = installCorpus(t, "bad", "payment-undeclared", SourceHub)
 	if err != nil || res.Status != StatusScanned || st.rejected || !strings.Contains(st.scanResult, `"payment_undeclared"`) {
 		t.Fatalf("undeclared payment: %+v %v %s", res, err, st.scanResult)
+	}
+}
+
+// TestLintLargeFile: a 1 MiB file with many assignments lints in under a
+// second (SEC10-11); the old per-assignment whole-text replace was quadratic.
+func TestLintLargeFile(t *testing.T) {
+	t.Parallel()
+	line := "x0=gh; $x0 auth token\n"
+	data := strings.Repeat(line, MaxScanBytes/len(line)+1)[:MaxScanBytes]
+	sk := Skill{
+		Name: "big", Description: "d", Body: "Read the helper.", Path: "/s/big/SKILL.md",
+		SHA256: strings.Repeat("a", 64), Source: SourceUser,
+	}
+	start := time.Now()
+	got, err := Lint(&sk, LintEnv{Files: fstest.MapFS{"big.py": {Data: []byte(data)}}})
+	if err != nil || len(got) == 0 {
+		t.Fatalf("findings %v err %v", categories(got), err)
+	}
+	if d := time.Since(start); !raceEnabled && d > time.Second {
+		t.Fatalf("1 MiB lint took %v, want < 1 s", d)
+	}
+}
+
+func BenchmarkLintLargeFile(b *testing.B) {
+	line := "x0=gh; $x0 auth token\n"
+	data := strings.Repeat(line, MaxScanBytes/len(line)+1)[:MaxScanBytes]
+	sk := Skill{
+		Name: "big", Description: "d", Body: "Read the helper.", Path: "/s/big/SKILL.md",
+		SHA256: strings.Repeat("a", 64), Source: SourceUser,
+	}
+	files := fstest.MapFS{"big.py": {Data: []byte(data)}}
+	for b.Loop() {
+		if _, err := Lint(&sk, LintEnv{Files: files}); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

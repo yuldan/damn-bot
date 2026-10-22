@@ -8,10 +8,17 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
-// MaxScriptBytes caps one script read by [Lint].
-const MaxScriptBytes = 256 << 10
+// Bounds of SEC26 lint scanning (ADR-133 amendment): one referenced script
+// and the whole skill directory.
+const (
+	MaxScriptBytes = 256 << 10
+	MaxScanFiles   = 64
+	MaxScanBytes   = 1 << 20
+)
 
 // Finding is one lint observation. It is JSON-identical to memory.Finding so
 // it merges into the stored scan_result; Detail never holds a secret value.
@@ -52,18 +59,31 @@ func Lint(sk *Skill, env LintEnv) ([]Finding, error) {
 			return nil, fmt.Errorf("%w: skill://%s does not resolve", ErrInvalid, m[1])
 		}
 	}
-	texts := []string{sk.Description, sk.Body}
+	if env.Files == nil {
+		return nil, fmt.Errorf("%w: skill directory cannot be verified", ErrInvalid)
+	}
 	for _, ref := range scriptRefs(sk.Body) {
-		data, err := readScript(env.Files, ref)
-		if err != nil {
+		if err := checkScript(env.Files, ref); err != nil {
 			return nil, err
 		}
-		texts = append(texts, data)
 	}
-	all := strings.ToLower(strings.Join(texts, "\n"))
+	texts, err := scanDir(env.Files)
+	if err != nil {
+		return nil, err
+	}
+	texts = append([]string{sk.Description, sk.Body}, texts...)
+	return lintFindings(sk, rules, foldText(strings.Join(texts, "\n")))
+}
+
+// lintFindings classifies the folded text and returns the findings; a
+// builtin defaulting to mainnet is invalid.
+func lintFindings(sk *Skill, rules *lintRules, all string) ([]Finding, error) {
 	var out []Finding
 	if d := rules.credential(all); d != "" {
 		out = append(out, Finding{Category: "credential_access", Severity: "high", Detail: d})
+	}
+	if d := rules.obfuscated.FindString(all); d != "" {
+		out = append(out, Finding{Category: "obfuscated_exec", Severity: "medium", Detail: d})
 	}
 	switch paid := containsAny(all, paymentPatterns()); {
 	case sk.Payment():
@@ -80,9 +100,52 @@ func Lint(sk *Skill, env LintEnv) ([]Finding, error) {
 	return out, nil
 }
 
+// scanDir reads every regular file of the skill directory (SEC10-2): an
+// unreferenced helper or import can hide credential access. The walk is
+// bounded; exceeding a bound is invalid_skill, never a partial scan.
+func scanDir(files fs.FS) ([]string, error) {
+	var out []string
+	var total int64
+	err := fs.WalkDir(files, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("%w: %s: %w", ErrInvalid, p, err)
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if p == "SKILL.md" {
+			return nil
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("%w: symlink %s in skill directory", ErrInvalid, p) // SEC10-12: no outside reads
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		info, ierr := d.Info()
+		if ierr != nil {
+			return fmt.Errorf("%w: %s: %w", ErrInvalid, p, ierr)
+		}
+		if len(out) >= MaxScanFiles || total+info.Size() > MaxScanBytes {
+			return fmt.Errorf("%w: skill directory exceeds %d files / %d bytes", ErrInvalid, MaxScanFiles, MaxScanBytes)
+		}
+		data, rerr := fs.ReadFile(files, p)
+		if rerr != nil {
+			return fmt.Errorf("%w: %s: %w", ErrInvalid, p, rerr)
+		}
+		total += int64(len(data))
+		out = append(out, string(data))
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("skills: walk: %w", err)
+	}
+	return out, nil
+}
+
 // lintRules are compiled per call: the package keeps no mutable globals.
 type lintRules struct {
-	link, readVerb, printVerb, secretRef, envDump, tellSecret, mainnet *regexp.Regexp
+	link, readVerb, printVerb, secretRef, envDump, tellSecret, mainnet, obfuscated *regexp.Regexp
 }
 
 func newLintRules() *lintRules {
@@ -96,21 +159,95 @@ func newLintRules() *lintRules {
 		tellSecret: regexp.MustCompile(`\b(?:print|echo|show|display|output|reveal|paste)\s+(?:(?:the|your|their|its|my|our|this|that|all|every)\s+)*(?:[\w'-]+\s+)?` +
 			nouns + `\b`),
 		mainnet: regexp.MustCompile(`https?://[^\s'"` + "`" + `)]*mainnet[^\s'"` + "`" + `)]*|--(?:url|rpc-url|network|cluster|chain)[ =]mainnet\S*|(?:^|\s)-um(?:\s|$)`),
+		obfuscated: regexp.MustCompile(`base64\s+(?:-d|--decode|-[dD])\b[^\n|]*\|\s*(?:ba|z|da|k)?sh\b|` +
+			`\b(?:base64\s*\.\s*b64decode|b64decode)\s*\(|` +
+			`\beval\s+["']?\$\(|\bexec\s*\(\s*(?:base64|b64decode)|` +
+			`(?:zcat|gunzip|rev)\b[^\n|]*\|\s*(?:ba|z|da|k)?sh\b`),
 	}
+}
+
+// foldText normalises before every match (SEC10-4): NFKC, lower case,
+// literal-assignment expansion, empty-quote removal, format-character
+// stripping (zero-width, Cf) and a Cyrillic/Greek confusable fold, so
+// `gh аuth token`, `gh au​th token` and `a=gh; $a auth token` hit the
+// same rules.
+func foldText(s string) string {
+	s = expandLiterals(strings.ToLower(norm.NFKC.String(s)))
+	return strings.Map(foldRune, s)
+}
+
+// expandLiterals substitutes simple literal shell assignments (`a=gh;
+// $a auth token`) and drops empty quote pairs (`tok""en`). One scan collects
+// the assignments and one pass replaces references, so the cost is linear in
+// the text (SEC10-11); at most 32 assignments and 1 MiB are considered.
+func expandLiterals(s string) string {
+	s = strings.NewReplacer(`""`, "", `''`, "").Replace(s)
+	if len(s) > 2*MaxScanBytes {
+		return s
+	}
+	assign := regexp.MustCompile(`(?m)(?:^|[;\s` + "`" + `])\s*([a-z_][a-z0-9_]{0,15})=([^\s;&|]{1,64})`)
+	vals := make(map[string]string, 8)
+	for _, m := range assign.FindAllStringSubmatchIndex(s, 33) {
+		if len(vals) >= 32 {
+			break
+		}
+		v := strings.Trim(s[m[4]:m[5]], `"'`)
+		if v != "" && !strings.ContainsAny(v, "$`(<>") {
+			vals[s[m[2]:m[3]]] = v
+		}
+	}
+	if len(vals) == 0 {
+		return s
+	}
+	ref := regexp.MustCompile(`\$\{([a-z_][a-z0-9_]{0,15})\}|\$([a-z_][a-z0-9_]{0,15})\b`)
+	return ref.ReplaceAllStringFunc(s, func(m string) string {
+		name := strings.Trim(m, "${}")
+		if v, ok := vals[name]; ok {
+			return v
+		}
+		return m
+	})
+}
+
+func foldRune(r rune) rune {
+	if unicode.Is(unicode.Cf, r) {
+		return -1
+	}
+	from := [...]rune{
+		'а', 'α', 'е', 'ε', 'о', 'ο', 'օ', 'р', 'ρ', 'с', 'ϲ', 'х', 'χ', 'у', 'γ', 'і', 'ι', 'ı',
+		'ѕ', 'ԁ', 'һ', 'ј', 'ӏ', 'ν', 'ɡ', 'т', 'г',
+	}
+	to := [...]rune{
+		'a', 'a', 'e', 'e', 'o', 'o', 'o', 'p', 'p', 'c', 'c', 'x', 'x', 'y', 'y', 'i', 'i', 'i',
+		's', 'd', 'h', 'j', 'l', 'v', 'g', 't', 'r',
+	}
+	for i := range from {
+		if from[i] == r {
+			return to[i]
+		}
+	}
+	return r
 }
 
 // credential returns the first credential_access match in lower-cased
 // text, line by line, or "".
 func (r *lintRules) credential(lower string) string {
+	cmds, files := credentialCommands(), secretFiles()
+	words := []string{"key", "token", "secret", "password", "passwd", "credential"}
 	for ln := range strings.SplitSeq(lower, "\n") {
 		ln = strings.Trim(ln, " \t`>-*")
-		if p := containsAny(ln, credentialCommands()); p != "" {
+		if p := containsAny(ln, cmds); p != "" {
 			return p
 		}
-		if f := secretFile(ln); f != "" && r.readVerb.MatchString(ln) {
+		if f := secretFile(ln, files); f != "" && r.readVerb.MatchString(ln) {
 			return "reads " + f
 		}
-		if (r.printVerb.MatchString(ln) && r.secretRef.MatchString(ln)) || r.envDump.MatchString(ln) || r.tellSecret.MatchString(ln) {
+		if containsAny(ln, words) != "" &&
+			(r.printVerb.MatchString(ln) && r.secretRef.MatchString(ln) || r.tellSecret.MatchString(ln)) {
+			return "prints a secret"
+		}
+		if (strings.Contains(ln, "env") || strings.Contains(ln, "export -p") || strings.HasPrefix(ln, "set")) &&
+			r.envDump.MatchString(ln) {
 			return "prints a secret"
 		}
 	}
@@ -130,11 +267,15 @@ func credentialCommands() []string {
 
 // secretFile returns a credential file named on the line: `.env` (and
 // `.env.<suffix>`, but not `process.env` or `.envrc`) or a fixed list.
-func secretFile(ln string) string {
-	if f := containsAny(ln, []string{
+func secretFiles() []string {
+	return []string{
 		".git-credentials", ".netrc", ".npmrc", ".pypirc", ".aws/credentials",
 		"gh/hosts.yml", ".docker/config.json", ".ssh/id_", ".kube/config", "secrets.enc",
-	}); f != "" {
+	}
+}
+
+func secretFile(ln string, files []string) string {
+	if f := containsAny(ln, files); f != "" {
 		return f
 	}
 	word := func(b byte) bool {
@@ -172,7 +313,14 @@ func containsAny(s string, pats []string) string {
 }
 
 // scriptRefs lists the distinct script references of a body in order.
+// Quoted placeholders (`"$SKILL_DIR"/scripts/x`) are unwrapped before the
+// whitespace split so the quoted form is not misread as an absolute path
+// (SEC10-5).
 func scriptRefs(body string) []string {
+	body = strings.NewReplacer(
+		`"$SKILL_DIR"/`, `$SKILL_DIR/`, `"${SKILL_DIR}"/`, `${SKILL_DIR}/`,
+		`'$SKILL_DIR'/`, `$SKILL_DIR/`, `'${SKILL_DIR}'/`, `${SKILL_DIR}/`,
+	).Replace(body)
 	var out []string
 	seen := map[string]bool{}
 	split := func(r rune) bool { return unicode.IsSpace(r) || strings.ContainsRune("()[]<>`'\"=,;|&", r) }
@@ -209,25 +357,23 @@ func scriptRef(tok string) (string, bool) {
 	return tok, outside && slices.Contains(exts, path.Ext(tok))
 }
 
-// readScript reads one referenced file below the skill directory.
-func readScript(files fs.FS, ref string) (string, error) {
+// checkScript verifies one referenced script is inside the skill directory,
+// exists, is a regular file and fits [MaxScriptBytes]. Its content is read
+// once by scanDir.
+func checkScript(files fs.FS, ref string) error {
 	clean := path.Clean(ref)
 	if strings.HasPrefix(ref, "~") || strings.ContainsAny(ref, `\:`) || !fs.ValidPath(clean) {
-		return "", fmt.Errorf("%w: %s is outside the skill directory", ErrInvalid, ref)
+		return fmt.Errorf("%w: %s is outside the skill directory", ErrInvalid, ref)
 	}
 	if files == nil {
-		return "", fmt.Errorf("%w: script %s cannot be verified", ErrInvalid, ref)
+		return fmt.Errorf("%w: script %s cannot be verified", ErrInvalid, ref)
 	}
 	info, err := fs.Stat(files, clean)
 	if err != nil || !info.Mode().IsRegular() {
-		return "", fmt.Errorf("%w: script %s does not exist", ErrInvalid, ref)
+		return fmt.Errorf("%w: script %s does not exist", ErrInvalid, ref)
 	}
 	if info.Size() > MaxScriptBytes {
-		return "", fmt.Errorf("%w: script %s > %d bytes", ErrInvalid, ref, MaxScriptBytes)
+		return fmt.Errorf("%w: script %s > %d bytes", ErrInvalid, ref, MaxScriptBytes)
 	}
-	data, err := fs.ReadFile(files, clean)
-	if err != nil {
-		return "", fmt.Errorf("%w: script %s: %w", ErrInvalid, ref, err)
-	}
-	return string(data), nil
+	return nil
 }

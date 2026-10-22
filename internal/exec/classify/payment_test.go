@@ -1,6 +1,10 @@
 package classify
 
-import "testing"
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 const testPaySkill = "/home/u/.config/damnbot/skills/stripe-pay"
 
@@ -13,7 +17,10 @@ func TestPaymentSkillMonetary(t *testing.T) {
 	t.Parallel()
 	env := testEnv()
 	env.MonetaryPaths = []string{testPaySkill + "/"}
-	env.Resolver = fakeFS{links: map[string]string{testRoot + "/pay.sh": testPaySkill + "/scripts/charge.sh"}}
+	env.Resolver = fakeFS{links: map[string]string{
+		testRoot + "/pay.sh":              testPaySkill + "/scripts/charge.sh",
+		testPaySkill + "/scripts/link.py": "/tmp/outside.py",
+	}}
 	cases := []struct {
 		cmd  string
 		want Class
@@ -21,6 +28,7 @@ func TestPaymentSkillMonetary(t *testing.T) {
 		{testPaySkill + "/scripts/charge.sh --amount 100", Monetary},
 		{"python3 " + testPaySkill + "/scripts/charge.py --amount 100", Monetary},
 		{"bash " + testPaySkill + "/run.sh", Monetary},
+		{"cat " + testPaySkill + "/scripts/link.py", Monetary}, // symlink target outside (SEC10-12)
 		{"cd /tmp && node " + testPaySkill + "/scripts/pay.js", Monetary},
 		{"./pay.sh", Monetary}, // symlink inside the workspace resolves into the skill
 		{"sh -c 'python3 " + testPaySkill + "/scripts/x.py'", Monetary},
@@ -55,5 +63,55 @@ func TestPaymentSkillMonetary(t *testing.T) {
 	env.MonetaryPaths = nil
 	if v := Classify(testPaySkill+"/scripts/charge.sh", env); v.Class == Monetary {
 		t.Error("no payment skill configured: Monetary must come only from declarations or rules")
+	}
+}
+
+// TestPaymentKeySimulatedForms: the gate compares canonical keys, so a short
+// name and a differently-cased spelling of the same directory are Monetary
+// (Windows 8.3 / case-insensitive APFS). The keyer is injected here because
+// those forms are only constructible on their own OS.
+func TestPaymentKeySimulatedForms(t *testing.T) {
+	t.Parallel()
+	key := func(p string) string {
+		k := strings.ToLower(filepath.ToSlash(p))
+		return strings.ReplaceAll(k, "runner~1", "runneradmin")
+	}
+	env := testEnv()
+	env.MonetaryPaths = []string{"/tmp/RunnerAdmin/Stripe-Pay/"}
+	env.MonetaryKey = key
+	for _, cmd := range []string{
+		"/tmp/runner~1/stripe-pay/scripts/charge.sh --amount 1",
+		"python3 /tmp/RUNNER~1/STRIPE-PAY/scripts/charge.py",
+	} {
+		v := Classify(cmd, env)
+		if v.Class != Monetary {
+			t.Errorf("%q: class %s, want monetary", cmd, v.Class)
+		}
+	}
+	if v := Classify("/tmp/runner~1/stripe-pay-v2/scripts/x.py", env); v.Class == Monetary {
+		t.Error("sibling directory prefix matched")
+	}
+}
+
+// TestPaymentDevicePath: a \\?\ or \\.\ spelling of a payment-skill file
+// still takes the monetary label (SEC10-15); the canonicalizer in cmd strips
+// the device prefix, simulated here.
+func TestPaymentDevicePath(t *testing.T) {
+	t.Parallel()
+	key := func(p string) string {
+		switch {
+		case strings.HasPrefix(p, `\\?\UNC\`):
+			p = `\\` + p[8:]
+		case strings.HasPrefix(p, `\\?\`), strings.HasPrefix(p, `\\.\`):
+			p = p[4:]
+		}
+		return strings.ToLower(strings.ReplaceAll(p, `\`, "/"))
+	}
+	env := testEnv()
+	env.MonetaryPaths = []string{`C:\Pay`}
+	env.MonetaryKey = key
+	v := Classify(`cat '\\?\C:\Pay\scripts\x.sh'`, env)
+	if v.Class != Monetary {
+		t.Fatalf("device path class = %s (%v)", v.Class, v.Reasons)
 	}
 }
