@@ -49,6 +49,12 @@ type runOptions struct {
 	baseURL          string
 	apiKey           string
 	providerAttempts int
+	// eval-only seams (never set by a flag): a provider override (fake or
+	// budget-gated), a per-run config override, and a memory retriever
+	// factory fed the run's ctxdb for the context tier (SPEC §4.8/§18.5).
+	prov         loop.Provider
+	cfgOverride  *config.Config
+	retrieverFor func(*ctxdb.Store) assemble.Retriever
 }
 
 // reportedParseError marks a parse failure the flag package already wrote to
@@ -120,6 +126,9 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	if err != nil {
 		return 0, err
 	}
+	if o.cfgOverride != nil {
+		cfg = *o.cfgOverride
+	}
 	paths, err := loader.Paths("")
 	if err != nil {
 		return 0, fmt.Errorf("config paths: %w", err)
@@ -167,9 +176,14 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		RemainingUSD:    cfg.Budget.TurnUSD,
 	})
 	// The context tier is rendered once and frozen for the session (P15).
-	ctxTier, err := asm.Context(ctx, &assemble.ContextInput{
+	ctxIn := &assemble.ContextInput{
 		Facts: "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
-	})
+	}
+	if o.retrieverFor != nil {
+		ctxIn.Query = o.prompt
+		ctxIn.Retriever = o.retrieverFor(model.db)
+	}
+	ctxTier, err := asm.Context(ctx, ctxIn)
 	if err != nil {
 		return 0, fmt.Errorf("assemble context: %w", err)
 	}
@@ -219,7 +233,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 }
 
 type runModel struct {
-	provider  *providerAdapter
+	provider  loop.Provider
 	registry  *tools.Registry
 	store     *ctxStore
 	ledger    *ctxLedger
@@ -253,6 +267,27 @@ func (m *runModel) close(ctx context.Context) error {
 		return errors.Join(err, fmt.Errorf("close ctxdb: %w", cerr))
 	}
 	return err
+}
+
+// newRunProvider builds the run provider or returns the injected one.
+func newRunProvider(cfg *config.Config, modelRef string, o *runOptions) (loop.Provider, error) {
+	if o.prov != nil {
+		return o.prov, nil
+	}
+	base, key, family, err := providerEndpoint(modelRef, o)
+	if err != nil {
+		return nil, fmt.Errorf("provider endpoint: %w", err)
+	}
+	provName, modelName, _ := strings.Cut(modelRef, "/")
+	net := netx.New(netx.Config{Offline: o.offline})
+	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
+		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family}},
+		Attempts: o.providerAttempts,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("provider: %w", err)
+	}
+	return &providerAdapter{client: openai, model: modelRef}, nil
 }
 
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runModel, error) {
@@ -313,21 +348,13 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fail(fmt.Errorf("registry: %w", err))
 	}
-	base, key, family, err := providerEndpoint(modelRef, o)
+	prov, err := newRunProvider(cfg, modelRef, o)
 	if err != nil {
-		return nil, fail(fmt.Errorf("provider endpoint: %w", err))
+		return nil, fail(err)
 	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
-	net := netx.New(netx.Config{Offline: o.offline})
-	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
-		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family}},
-		Attempts: o.providerAttempts,
-	})
-	if err != nil {
-		return nil, fail(fmt.Errorf("provider: %w", err))
-	}
 	return &runModel{
-		provider:  &providerAdapter{client: openai, model: modelRef},
+		provider:  prov,
 		registry:  reg,
 		store:     &ctxStore{db: db},
 		ledger:    &ctxLedger{db: db, provider: provName, model: modelName},
