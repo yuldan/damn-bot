@@ -11,21 +11,9 @@ import (
 
 // TestScenario runs the adversarial scenarios of SPEC §11.11.13 (#1–#78)
 // and REVIEW-1.0 §"Verifikasi ADR-046" (#79–#86), one subtest per row.
-//
-// Subtests run in parallel: each one builds its own env (temp dir, injected
-// clock, own child processes) and none reads process-wide state (no Setenv,
-// no Chdir), so the table was one serial chain over one core while it
-// dominated internal/ctxdb's wall time. The serial chain was the package's
-// risk on slow runners: internal/ctxdb takes 459 s of go test's 10-minute
-// default on macos-15-intel (-race), and a 40 % slower runner pushed it to
-// a panic (600 s) in PR CI. Parallel: 137 s → 83 s locally (GOMAXPROCS=4,
-// -race), same assertions.
 func TestScenario(t *testing.T) {
 	for _, sc := range scenarioTable() {
-		t.Run(sc.name, func(t *testing.T) {
-			t.Parallel()
-			sc.fn(t)
-		})
+		t.Run(sc.name, sc.fn)
 	}
 }
 
