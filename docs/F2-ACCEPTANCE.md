@@ -261,7 +261,7 @@ These are the concrete PRs implied by the table above. Each item names
 the owner prefix (branch names should use it) and the smallest test that
 proves it.
 
-1. **Acceptance completeness (sibling PR, implemented).**
+1. **Acceptance completeness (PR #244, implemented).**
    `TestEdgeCaseCatalogSync` in `internal/testutil/phase` parses the
    ROADMAP EC table and every package catalog and, in acceptance mode,
    fails when an id at or below PHASE has no catalog row or is not
