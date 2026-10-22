@@ -73,7 +73,8 @@ func encodeCarriers(rt *Route, r *Request, drop map[string]bool) ([]byte, []Carr
 	var sent []Carrier
 	var drops []CarrierDrop
 	for i := range r.Messages {
-		m, keep, dropped, err := encodeMessage(rt, &r.Messages[i])
+		cache := r.CacheBreakAfter > 0 && i == r.CacheBreakAfter-1
+		m, keep, dropped, err := encodeMessage(rt, &r.Messages[i], cache)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -108,7 +109,7 @@ func encodeCarriers(rt *Route, r *Request, drop map[string]bool) ([]byte, []Carr
 	return b.Bytes(), sent, drops, nil
 }
 
-func encodeMessage(rt *Route, m *Message) (json.RawMessage, []Carrier, []CarrierDrop, error) {
+func encodeMessage(rt *Route, m *Message, cache bool) (json.RawMessage, []Carrier, []CarrierDrop, error) {
 	keep, drops, err := projectCarriers(rt, m.Carriers)
 	if err != nil {
 		return nil, nil, nil, err
@@ -123,7 +124,7 @@ func encodeMessage(rt *Route, m *Message) (json.RawMessage, []Carrier, []Carrier
 	}
 	type wire struct {
 		Role       string `json:"role"`
-		Content    string `json:"content"`
+		Content    any    `json:"content"`
 		ToolCalls  []call `json:"tool_calls,omitempty"`
 		ToolCallID string `json:"tool_call_id,omitempty"`
 	}
@@ -133,6 +134,11 @@ func encodeMessage(rt *Route, m *Message) (json.RawMessage, []Carrier, []Carrier
 		c.Function.Name, c.Function.Arguments = tc.Name, tc.ArgumentsRaw
 		w.ToolCalls = append(w.ToolCalls, c)
 	}
+	content, cerr := cacheContent(rt, m, cache)
+	if cerr != nil {
+		return nil, nil, nil, cerr
+	}
+	w.Content = content
 	out, err := marshal(w)
 	if err != nil {
 		return nil, nil, nil, err
@@ -164,6 +170,23 @@ func encodeMessage(rt *Route, m *Message) (json.RawMessage, []Carrier, []Carrier
 		return nil, nil, nil, err
 	}
 	return out, keep, drops, nil
+}
+
+// cacheContent rewrites the boundary message as an Anthropic content block
+// carrying the ephemeral cache breakpoint; other families keep the string.
+func cacheContent(rt *Route, m *Message, cache bool) (any, error) {
+	if !cache || !anthropicFamily(rt.Family) || len(m.ToolCalls) > 0 {
+		return m.Content, nil
+	}
+	block := []map[string]any{{
+		"type": "text", "text": m.Content,
+		"cache_control": map[string]string{"type": "ephemeral"},
+	}}
+	raw, err := marshal(block)
+	if err != nil {
+		return nil, fmt.Errorf("cache block: %w", err)
+	}
+	return json.RawMessage(raw), nil
 }
 
 // reasoningParts returns the plaintext parts (carriers were removed).
