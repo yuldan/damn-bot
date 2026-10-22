@@ -2047,6 +2047,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Konsekuensi.** (+) Gate inkremental dapat hijau sejak F1 #0 dan tetap tidak lulus kosong saat fase ditutup. (−) Satu job tambahan saat penaikan fase.
 
+**Amandemen 2026-10-22 (EC-TCALL-010 menjadi `n/a` beralasan).** Baris katalog `internal/tools/edgecases_f2_test.go` berpindah dari `pending:F2` ke `n/a` karena properti EC-TCALL-010 (schema tool deferred tidak pernah masuk payload yang dideklarasikan) tidak dapat dibuktikan lewat biner nyata pada F2: `cmd/damnbot/run.go` memanggil `newRunModules(modules.Default(), nil)` dengan registry default yang kosong (descriptors=0, tools=[]), tidak ada `modules.Register` di jalur biner, dan tidak ada flag/config yang menyalakan modul — jadi e2e akan vakum dan `covered` akan menjadi klaim palsu. Invarian dipatok in-process (`TestDeferredSchemaNotInPayload`). e2e lewat biner asli wajib ditambahkan saat modul pertama di-wire (MCP, F5).
+
 ## ADR-081 — Exec, redaksi, dan budget `exec`: secret ref terbatas, redaksi stream terukur, cakupan GAP-SEC-28 (NEW-05, NEW-08, NEW-20, sisa AUD-014, AUD-017)
 
 **Status:** Accepted 2026-10-18 (keputusan didelegasikan). Mengamandemen ADR-071 butir 1 dan 3. Menutup NEW-05, NEW-08, NEW-20, sisa AUD-014 dan AUD-017.

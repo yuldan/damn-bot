@@ -16,6 +16,7 @@ import (
 	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
+	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/tools"
@@ -175,6 +176,7 @@ type runWiring struct {
 	runner   *exec.Runner
 	sessions *exec.Sessions
 	registry *tools.Registry
+	modules  runModules
 	sid      string
 	cwd      string
 	fail     func(error) error
@@ -215,16 +217,10 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	// Persistent sessions share the runner but never receive secret refs
 	// (ADR-088): direct is empty and Env only inherits the allowlist.
 	sessions := runner.NewSessions(filepath.Join(dataDir, "exec", "sess"), envPolicy.Env(os.Environ(), true, "", "", ""))
-	fail := func(cause error) error {
-		engine.Close()
-		if cerr := sessions.Close(); cerr != nil {
-			cause = errors.Join(cause, fmt.Errorf("close sessions: %w", cerr))
-		}
-		if cerr := runner.CloseContext(ctx); cerr != nil {
-			cause = errors.Join(cause, fmt.Errorf("close runner: %w", cerr))
-		}
-		return closeDB(ctx, db, sid, cause)
-	}
+	// A failed start closes what it opened with the same teardown as a
+	// finished run: modules, engine, sessions, runner, lease, DB (SEC5-5/11).
+	started := &runModel{db: db, sessionID: sid, engine: engine, runner: runner, sessions: sessions}
+	fail := func(cause error) error { return errors.Join(cause, started.close(ctx)) }
 	allow, monetary, err := shellGate(cfg, configDir)
 	if err != nil {
 		return nil, fail(err)
@@ -249,7 +245,11 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	}
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
-	reg, err := tools.NewRegistry(list...)
+	started.modules, err = newRunModules(modules.Default(), nil)
+	if err != nil {
+		return nil, fail(err)
+	}
+	reg, err := tools.NewRegistry(append(list, started.modules.meta...)...)
 	if err != nil {
 		return nil, fail(fmt.Errorf("registry: %w", err))
 	}
@@ -259,6 +259,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		runner:    runner,
 		sessions:  sessions,
 		registry:  reg,
+		modules:   started.modules,
 		sid:       sid,
 		cwd:       cwd,
 		fail:      fail,
