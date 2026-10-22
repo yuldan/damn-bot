@@ -1013,6 +1013,7 @@ Permukaan final 1.0 (OPS-08, ADR-033 Q45): **20 perintah top-level** terlihat di
 | `import` | `hermes [--from DIR] [--only …] [--dry-run]`; `claude-code`, `codex`, `openclaw`; `archive <file>` (impor arsip portabel/backup, OPS-05) | Migrasi (§9.15) |
 | `config` | `show`, `edit`, `explain <key>`, `schema <module>`, `modules [restart <id>]`, `hooks ls\|test`, `profiles ls\|export\|import` | Config, modul lazy, hook, profil |
 | `sessions` | `ls`, `show`, `search`, `fork`, `rewind`, `export [--format jsonl\|md\|html]` (ls/show membuka `mode=ro`; skema lebih baru terbaca), `why <turn-id>`, `purge <id>\|--older-than 90d [--with-forks] [--yes]` (§11.6: `has_forks` bila ada turunan), `backup create\|ls\|verify [--include-secrets]`, `restore <file> [--dry-run]` | Sesi, rantai keputusan, purge, backup terenkripsi (SEC-01) |
+| `checkpoints` | `status`, `list [--limit N] [--session ID]`, `prune [--older-than 30d] [--dry-run] [--yes]`, `clear\|clear-legacy --yes` | Jurnal aksi = checkpoint undo; prune/clear hanya lewat mode maintenance `purge` (ADR-146) |
 | `undo` | `[N\|<action-id>]`, `--turn <id>`, `ls`, `--dry-run`, `--force` | Undo universal (§18.1) & rollback checkpoint coding |
 | `review` | `[--bulk] [--rejected]` | Karantina memory/skill |
 | `skills` | `sync`, `search`, `install`, `update`, `list [--unavailable]` | Skill lokal & hub |
