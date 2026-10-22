@@ -177,6 +177,9 @@ type runWiring struct {
 	registry *tools.Registry
 	sid      string
 	cwd      string
+	// modelRef is the effective provider/model after resume resolution: a
+	// resumed session may supply the model when no flag or config did.
+	modelRef string
 	fail     func(error) error
 	// inlineCap is the route window budget in tokens the tool inline aggregate
 	// scales with (SPEC P5 amendment, GAP-COST-08). It is a wiring value, not a
@@ -193,9 +196,15 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if err != nil {
 		return nil, fmt.Errorf("open ctxdb: %w", err)
 	}
-	sid, cwd, err := newRunSession(ctx, db, modelRef)
+	sid, cwd, resumedModel, err := runSession(ctx, db, modelRef, o)
 	if err != nil {
 		return nil, closeDB(ctx, db, "", err)
+	}
+	if modelRef == "" {
+		modelRef = resumedModel
+	}
+	if modelRef == "" {
+		return nil, closeDB(ctx, db, errors.New("--model or provider.model is required to resume a session without one"))
 	}
 	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
 	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
@@ -267,6 +276,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		registry:  reg,
 		sid:       sid,
 		cwd:       cwd,
+		modelRef:  modelRef,
 		fail:      fail,
 		inlineCap: cfg.Loop.TurnMaxInputTok,
 	}, nil
