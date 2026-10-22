@@ -123,7 +123,7 @@ tagged or implemented before the next phase acceptance.
 | GAP-COST-01 | Pricing table not expired at release | `TestPricingTableNotExpired` (`internal/provider/registry/prices_test.go`) | in-flight (PR #188) | provider |
 | GAP-COST-02 | No context probe | — (`TestNoContextProbe` nowhere; the analyzer does not exist) | missing | provider |
 | GAP-COST-04 | Prefix stable across fallback | — (`TestPrefixStableAcrossFallback` nowhere) | missing | assemble/loop |
-| GAP-PROV-01 | Cache key includes tier/system | `TestContextTierGolden`/fixture comparisons cover the rendered prompt; the F2 part (table via migrations) is `TestMigrate*` | covered | assemble/ctxdb |
+| GAP-PROV-01 | Cache key includes tier/system | `TestFixedOverheadGolden`, `TestAllModulesFixtureShape` compare the rendered prompt; the F2 part (table via migrations) is `TestMigrate*` | covered | assemble/ctxdb |
 | GAP-PROV-02 | Per-tier budget asserted | — (`TestContextTierBudget` nowhere) | missing | assemble |
 | GAP-INF-01 | CJK recall order | — (`TestRecallCJKOrder`/`BenchmarkRecallCJK` nowhere) | missing | ctxdb |
 | GAP-INF-02 | FTS index auto-upgrade | — (`BenchmarkRecallToolOutput`, `TestFTSAutoUpgrade` nowhere) | missing | ctxdb |
@@ -204,7 +204,7 @@ by the acceptance test until the surface exists.
 | MEM-001 | built-in memory | covered | `internal/memory` tests; memstore |
 | MEM-002 | user profile | covered | memory scope tests |
 | MEM-003 | memory nudge | missing | no nudge |
-| MEM-004 | memory write approval | covered | `TestQuarantine*`, `TestApprove*` |
+| MEM-004 | memory write approval | covered | `TestQuarantineCannotBeRetrieved`, `TestTransitions`, `TestUserWriteIsApproved` (`internal/memory`) |
 | MEM-011 | session store SQLite | covered | `internal/ctxdb` (`TestStore*`) |
 | MEM-012 | session search FTS | covered | `TestSearch*` in ctxdb |
 | MEM-013 | recap/resume | surface | history/fork tests; no recap |
@@ -219,7 +219,7 @@ by the acceptance test until the surface exists.
 | MEM-023 | context engine plugin | missing | see PLUG-014 |
 | MEM-024 | @-ref | missing | no reference expansion |
 | MEM-025 | context pin | missing | memory pins are storage, not prompt pins |
-| MEM-026 | context files | covered | `TestContextTierGolden`, `AGENTS.md` in `internal/assemble` |
+| MEM-026 | context files | covered | `TestContextTruncationOrder` and `TestContextEmptyAndMultipleFiles` exercise `AGENTS.md` in `internal/assemble` |
 | MEM-028 | rewind | covered | `TestForkAndRewind` |
 | MEM-029 | branch/fork | covered | `TestForkAndRewind`, `TestForkContextTierCopied` |
 | MEM-030 | retry | missing | last-message retry not tested |
@@ -236,7 +236,7 @@ by the acceptance test until the surface exists.
 | SKILL-002 | skills_list / skill_view / skill_manage | missing | tools absent (see TOOL-074/075/076) |
 | SKILL-004 | preprocessing | missing | no template/inline-shell tests |
 | SKILL-007 | bundles | missing | no bundles |
-| SKILL-008 | auto-load | covered | retrieval per turn in assemble tests |
+| SKILL-008 | auto-load | covered | `TestRetrieveLimit`, retrieval tiers in `TestContextTierFrozen` |
 | SKILL-009 | project discovery | missing | no trusted-project scan |
 | SKILL-010 | external skill dirs | missing | no external dirs |
 | SKILL-016 | bundled skills sync | covered | builtin install tests |
