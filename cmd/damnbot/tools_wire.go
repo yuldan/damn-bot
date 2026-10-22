@@ -187,24 +187,35 @@ type runWiring struct {
 	inlineCap int
 }
 
-// newRunWiring opens the run store, the sandbox and codetools engine, the exec
-// runner and its persistent sessions, then wires the shell, file, and skill
-// tools into a registry. Failures after the sessions exist go through the
-// returned fail closure so nothing leaks.
-func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runWiring, error) {
+// openWiredSession opens the run store and resolves the session (new or
+// resumed), returning the effective model. Extracted from newRunWiring so its
+// cyclomatic complexity stays inside the E-51 gate.
+func openWiredSession(ctx context.Context, dataDir, modelRef string, o *runOptions) (*ctxdb.Store, string, string, string, error) {
 	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run"})
 	if err != nil {
-		return nil, fmt.Errorf("open ctxdb: %w", err)
+		return nil, "", "", "", fmt.Errorf("open ctxdb: %w", err)
 	}
 	sid, cwd, resumedModel, err := runSession(ctx, db, modelRef, o)
 	if err != nil {
-		return nil, closeDB(ctx, db, "", err)
+		return nil, "", "", "", closeDB(ctx, db, "", err)
 	}
 	if modelRef == "" {
 		modelRef = resumedModel
 	}
 	if modelRef == "" {
-		return nil, closeDB(ctx, db, errors.New("--model or provider.model is required to resume a session without one"))
+		return nil, "", "", "", closeDB(ctx, db, sid, errors.New("--model or provider.model is required to resume a session without one"))
+	}
+	return db, sid, cwd, modelRef, nil
+}
+
+// newRunWiring opens the run store, the sandbox and codetools engine, the exec
+// runner and its persistent sessions, then wires the shell, file, and skill
+// tools into a registry. Failures after the sessions exist go through the
+// returned fail closure so nothing leaks.
+func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runWiring, error) {
+	db, sid, cwd, modelRef, err := openWiredSession(ctx, dataDir, modelRef, o)
+	if err != nil {
+		return nil, err
 	}
 	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
 	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})

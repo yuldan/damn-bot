@@ -12,19 +12,19 @@ import (
 // --continue. A resumed session keeps its stored cwd and model (the model is
 // used only when the caller did not pass one) and holds its lease until run
 // ends.
-func runSession(ctx context.Context, db *ctxdb.Store, modelRef string, o *runOptions) (sid, cwd, storedModel string, resumed bool, err error) {
+func runSession(ctx context.Context, db *ctxdb.Store, modelRef string, o *runOptions) (sid, cwd, storedModel string, err error) {
 	if o.session == "" && !o.cont {
 		sid, cwd, err = newRunSession(ctx, db, modelRef)
-		return sid, cwd, modelRef, false, err
+		return sid, cwd, modelRef, err
 	}
 	sid, cwd, storedModel, err = resumeTarget(ctx, db, o)
 	if err != nil {
-		return "", "", "", false, err
+		return "", "", "", err
 	}
 	if _, err = db.AcquireLease(ctx, sid); err != nil {
-		return "", "", "", false, fmt.Errorf("resume session %s: %w", sid, err)
+		return "", "", "", fmt.Errorf("resume session %s: %w", sid, err)
 	}
-	return sid, cwd, storedModel, true, nil
+	return sid, cwd, storedModel, nil
 }
 
 // resumeTarget resolves --session or --continue to its id and stored cwd/model.

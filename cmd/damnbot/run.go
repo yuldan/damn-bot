@@ -153,24 +153,9 @@ func compileAnswerSchema(path string) (func(string) error, error) {
 }
 
 func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err error) {
-	loader, err := config.New(config.OS())
-	if err != nil {
-		return 0, fmt.Errorf("config deps: %w", err)
-	}
-	cfg, err := loadRunConfig(loader, o.configPath)
+	cfg, dataDir, configDir, home, err := loadRunEnv(o)
 	if err != nil {
 		return 0, err
-	}
-	if o.cfgOverride != nil {
-		cfg = *o.cfgOverride
-	}
-	paths, err := loader.Paths("")
-	if err != nil {
-		return 0, fmt.Errorf("config paths: %w", err)
-	}
-	dataDir := o.dataDir
-	if dataDir == "" {
-		dataDir = paths.DataDir
 	}
 	modelRef := o.model
 	if modelRef == "" {
@@ -186,7 +171,6 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	}
 	red := redact.New(redact.Options{})
 	spill := diskSpill{dir: filepath.Join(dataDir, "run-spill")}
-	configDir, home := paths.ConfigDir, homeDir()
 	model, err := startRunModel(ctx, &cfg, dataDir, modelRef, o, red, spill, configDir, home)
 	if err != nil {
 		return 0, err
