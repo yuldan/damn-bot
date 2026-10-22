@@ -39,7 +39,15 @@ func TestEdgeCases(t *testing.T) {
 // after the environment was cleaned once at spawn.
 func ecFio002(t *testing.T) {
 	ss := newSessions(t, nil)
-	dir := t.TempDir()
+	// The shell reports its physical cwd (`pwd -P`), which is the directory a
+	// relative path resolves against, so compare the physical fixture path:
+	// t.TempDir returns the logical one, and on macOS TMPDIR lives under /var,
+	// a symlink to /private/var (same convention as internal/codetools and
+	// internal/sandbox fixtures).
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("EvalSymlinks: %v", err)
+	}
 	sh := sessionShell(envPath(ss.env))
 	cd, create := "cd '"+strings.ReplaceAll(dir, "'", `'\''`)+"'", ": > empty.txt"
 	switch {
