@@ -3303,3 +3303,21 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; `internal/skills` +≈125 baris (terukur 1.527/1.700), `cmd/damnbot` +≈45 baris non-test. I/O: satu read ledger (≤1 MiB, ≤50k baris) + satu append per perubahan skill; nol bila tidak ada skill baru.
 
 **Konsekuensi.** (+) Setiap perubahan skill punya riwayat yang bisa diaudit (sha, asal, path, waktu) tanpa menyentuh skema. (+) Penulisan idempoten sehingga run berulang tidak membanjiri ledger. (−) Ledger tidak di-rotasi otomatis; setelah 50k perubahan, install baru gagal sampai operator mengarsipkan file (disengaja: fail closed). (−) Ledger bukan pengganti store: retrieval tetap hanya melihat baris `skills` yang di-approve.
+
+## ADR-172 — Skills index (build + delta) dan CLI `skills` lokal (SKILL-023, CLI-046)
+
+**Status:** Accepted 2026-10-22 (F2; SKILL-023, CLI-046). `internal/memory`+`internal/skills` terukur 1.653/1.700 (tanpa perubahan `loc.budget`). Tanpa DDL/dependency.
+
+**Konteks.** SKILL-023 menuntut indeks skill yang bisa dibangun ulang dan di-diff; CLI-046 menuntut permukaan `skills` lokal. `skillstore` sudah menjadi sumber retrieval, tetapi tidak ada snapshot indeks untuk mendeteksi skill baru/berubah/hilang tanpa query FTS, dan belum ada CLI untuk list/install/check/uninstall.
+
+**Keputusan.**
+1. **Index.** `<config-dir>/skills-index.json` berisi `name → {name, description, sha256, path, source}`; dibangun dari skill yang sudah di-parse (`BuildIndex`), ditulis atomik `0600` (temp+rename), dibaca lewat `os.Root`, decoder ketat (field asing/malformed = `ErrIndex`). `Diff(old,new)` mengembalikan Added/Changed/Removed terurut; `Empty` untuk no-op. Index bukan pengganti `skillstore`: retrieval tetap membaca store, index adalah snapshot delta.
+2. **CLI lokal.** `damnbot skills list|inspect <name>|check|update|index [--check]|diff <name>|audit|ledger|config|install <dir>|uninstall <name> --yes|reset --yes`.
+   - `list` menampilkan name/sha pendek/aksi ledger terakhir/deskripsi; `inspect` menampilkan metadata + body (opsi `--json`); `check` mem-parse+lint semua skill (referensi menggantung = exit 1); `update`/`index` membangun dan menyimpan index, `--check` exit 1 bila delta tidak kosong; `diff` membandingkan sha sekarang dengan entri ledger terakhir; `audit`/`ledger` mencetak ledger (batas `--limit`); `config` mencetak `[skills]` efektif (default bila config belum ada).
+   - `install <dir>` mem-parse `SKILL.md` sumber, menolak direktori tujuan yang ada, menyalin hanya file regular (symlink/special file ditolak), dan membersihkan hasil parsial bila gagal. `uninstall` dan `reset` (hapus file index) wajib `--yes`; `uninstall` hanya menerima nama basename dan menghapus `<config>/skills/<name>`.
+3. **Scope CLI-046.** Subcommand jaringan/hub (`browse`, `search`, `publish`, `snapshot`, `tap`, `repair-official`) serta `trust`/`untrust`/`opt-in`/`opt-out` bergantung pada hub/registry yang dijadwalkan F8 (ADR-139 butir 8); F2 menutup subset lokal yang tercantum di butir 2. Ini memperjelas ADR-139 dan tidak menambah stub.
+4. **Test.** `internal/skills`: `TestIndexRoundTrip` (build/diff, mode 0600, missing), `TestIndexMalformed`. `cmd/damnbot`: `TestSkillsCLIReadPaths` (list/inspect/json/missing/check/config/update/index delta/diff/audit), `TestSkillsInstallUninstall` (install, duplicate, symlink refusal + cleanup, uninstall `--yes`), `TestSkillsReset`. `internal/e2e`: `TestSkillsCLI` (binary nyata: list/check/update/index --check, dangling-ref check exit 1, install/duplicate/uninstall gates).
+
+**Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; `internal/skills` +≈126 baris (terukur 1.653/1.700), `cmd/damnbot` +≈520 baris non-test (di luar tabel core). I/O: satu pass parse+lint saat `update`/`check`; `index --check` membaca satu file JSON.
+
+**Konsekuensi.** (+) Perubahan skill dapat dideteksi deterministik (sha) dan di-audit lewat ledger, dan pengguna punya jalur headless untuk install/uninstall/check. (+) Install tidak pernah menyalin symlink/special file. (−) Index harus di-`update` agar delta terlihat; `run` tidak menulis index otomatis (hanya ledger). (−) `trust`/`opt-in` menunggu hub F8; sampai itu skill hub tidak dapat diaktifkan dari CLI lokal.
