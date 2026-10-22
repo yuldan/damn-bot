@@ -119,6 +119,10 @@ func (s *state) changeDir(args []arg) {
 		if s.env.Dialect == Cmd {
 			return // cmd prints the cwd; it does not move
 		}
+		if s.env.Dialect == Pwsh {
+			s.cdTracked, s.cwdOK = false, false // 5.1 does not move, 7 moves; keep unknown
+			return
+		}
 		s.cdTracked, s.cwd, s.cwdOK = true, s.clean(s.env.Home), true
 		s.paymentFile(s.cwd, s.resolve(s.cwd))
 		return

@@ -136,11 +136,11 @@ func TestPowerShellPayloadCmdNegativeControl(t *testing.T) {
 	}
 }
 
-// TestBareCdHomePayment (SEC10-30): a bare cd moves to $HOME in bash/sh and
-// PowerShell 7 (and Windows PowerShell 5.1 for safety); following relative
-// payment-skill paths must resolve there and stay Monetary. Only cmd's bare
-// cd is a no-op.
-func TestBareCdHomePayment(t *testing.T) {
+// TestBareCdPerDialect (SEC10-30/35): bash's bare cd moves to $HOME, which is
+// tracked and payment-checked. Pwsh's bare cd differs between 5.1 (no move)
+// and 7 ($HOME), so it makes cwd untracked and relative paths Unknown. Cmd's
+// bare cd is a no-op.
+func TestBareCdPerDialect(t *testing.T) {
 	t.Parallel()
 	bash := testEnv()
 	bash.MonetaryPaths = []string{testPaySkill}
@@ -160,10 +160,11 @@ func TestBareCdHomePayment(t *testing.T) {
 	ps.MonetaryPaths = []string{pay}
 	for _, cmd := range []string{
 		`cd; & .\AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.ps1`,
+		`cd; & ..\Users\u\AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.ps1`,
 		`Set-Location; python AppData\Roaming\damnbot\skills\stripe-pay\scripts\charge.py`,
 	} {
-		if v := Classify(cmd, ps); v.Class != Monetary {
-			t.Errorf("pwsh %q: class %s, want Monetary (%v)", cmd, v.Class, v.Reasons)
+		if v := Classify(cmd, ps); v.Class != Unknown {
+			t.Errorf("pwsh %q: class %s, want Unknown (5.1/7 bare cd cannot be tracked; %v)", cmd, v.Class, v.Reasons)
 		}
 	}
 	// Control: cmd's bare cd does not move, so the same relative path from the

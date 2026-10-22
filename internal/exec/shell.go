@@ -25,7 +25,7 @@ type shellChoice struct {
 func (c shellChoice) commandArgv(command string) []string {
 	switch c.kind {
 	case ShellPowerShell:
-		return []string{c.bin, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}
+		return []string{c.bin, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command}
 	case ShellCmd:
 		return []string{c.bin, "/d", "/s", "/c", command}
 	case ShellPOSIX:

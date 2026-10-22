@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
 
@@ -40,36 +41,48 @@ func TestPaymentSkillGateCLIWindows(t *testing.T) {
 		command string
 		marker  string
 		creates bool
+		force51 bool
 	}{
-		{"call-operator", "& '" + filepath.Join(pay, "scripts", "charge.ps1") + "'", marker("pay-call"), false},
-		{"set-location", "Set-Location '" + filepath.Join(pay, "scripts") + "'; .\\charge.ps1", marker("pay-call"), false},
-		{"python", "python '" + filepath.Join(pay, "scripts", "charge.py") + "'", marker("pay-python"), false},
-		{"negative-control", "& '" + filepath.Join(plain, "scripts", "charge.ps1") + "'", marker("plain"), true},
+		{"call-operator", "& '" + filepath.Join(pay, "scripts", "charge.ps1") + "'", marker("pay-call"), false, false},
+		{"set-location", "Set-Location '" + filepath.Join(pay, "scripts") + "'; .\\charge.ps1", marker("pay-call"), false, false},
+		{"python", "python '" + filepath.Join(pay, "scripts", "charge.py") + "'", marker("pay-python"), false, false},
+		{"powershell51", "& '" + filepath.Join(pay, "scripts", "charge.ps1") + "'", marker("pay-call"), false, true},
+		{"negative-control", "& '" + filepath.Join(plain, "scripts", "charge.ps1") + "'", marker("plain"), true, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.force51 {
+				t.Setenv("PATH", powershell51(t))
+				if got := exec.RuntimeShellKind(); got != exec.ShellPowerShell {
+					t.Fatalf("runtime shell = %v, want PowerShell", got)
+				}
+			}
 			if tc.creates {
 				// The control must start clean, then run without a gate hit.
 				if err := os.Remove(tc.marker); err != nil && !os.IsNotExist(err) {
 					t.Fatal(err)
 				}
 			}
-			code, reqs := runShellCLI(t, tc.command)
-			if code != 0 {
-				t.Fatalf("exit = %d", code)
-			}
+			res := runShellCLI(t, tc.command)
 			if _, err := os.Stat(tc.marker); tc.creates != (err == nil) {
-				t.Fatalf("marker created = %v, want %v (stat %v)", err == nil, tc.creates, err)
+				t.Fatalf("marker created = %v, want %v (stat %v); tool=%q stderr=%q", err == nil, tc.creates, err, res.tool(), res.stderr)
 			}
-			denied := strings.Contains(string(reqs[len(reqs)-1]), "denied")
+			denied := strings.Contains(res.tool(), "denied")
 			if denied == tc.creates {
-				t.Fatalf("tool result denied = %v, want %v: %q", denied, !tc.creates, string(reqs[len(reqs)-1]))
+				t.Fatalf("tool result denied = %v, want %v: %q stderr=%q", denied, !tc.creates, res.tool(), res.stderr)
 			}
 		})
 	}
 }
 
-func runShellCLI(t *testing.T, command string) (int, [][]byte) {
+type cliResult struct {
+	reqs   [][]byte
+	stderr string
+}
+
+func (r cliResult) tool() string { return string(r.reqs[len(r.reqs)-1]) }
+
+func runShellCLI(t *testing.T, command string) cliResult {
 	t.Helper()
 	args, err := json.Marshal(map[string]string{"command": command})
 	if err != nil {
@@ -95,5 +108,14 @@ func runShellCLI(t *testing.T, command string) (int, [][]byte) {
 	if len(reqs) != 2 {
 		t.Fatalf("provider calls = %d, want 2", len(reqs))
 	}
-	return code, reqs
+	return cliResult{reqs: reqs, stderr: errb.String()}
+}
+
+func powershell51(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("SystemRoot"), "System32", "WindowsPowerShell", "v1.0")
+	if _, err := os.Stat(filepath.Join(dir, "powershell.exe")); err != nil {
+		t.Fatalf("Windows PowerShell 5.1 not found: %v", err)
+	}
+	return dir
 }

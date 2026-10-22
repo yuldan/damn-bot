@@ -8,24 +8,26 @@ import (
 	"testing"
 )
 
-// TestChooseShellSHELLZsh (SEC10-33): the Unix zsh session choice goes through
-// chooseShell and maps to the POSIX/Bash dialect; zsh-specific syntax remains
-// Unknown rather than auto-approved.
-func TestChooseShellSHELLZsh(t *testing.T) {
+// TestChooseShellIgnoresSHELL (SEC10-36): $SHELL=zsh must not drive the
+// choice; chooseShell stays bash -> sh so execution matches the Bash dialect.
+func TestChooseShellIgnoresSHELL(t *testing.T) {
 	dir := t.TempDir()
+	bash := filepath.Join(dir, "bash")
 	zsh := filepath.Join(dir, "zsh")
-	if err := os.WriteFile(zsh, []byte("#!/bin/sh\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(zsh, 0o700); err != nil { //nolint:gosec // test executable needs the exec bit
-		t.Fatal(err)
+	for _, p := range []string{bash, zsh} {
+		if err := os.WriteFile(p, []byte("#!/bin/sh\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, 0o700); err != nil { //nolint:gosec // test executable needs the exec bit
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("SHELL", zsh)
-	c, err := chooseShell(os.Getenv("PATH"))
+	c, err := chooseShell(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.bin != zsh || c.kind != ShellPOSIX {
-		t.Fatalf("chooseShell = %+v, want %q POSIX", c, zsh)
+	if c.bin != bash || c.kind != ShellPOSIX {
+		t.Fatalf("chooseShell = %+v, want %q POSIX", c, bash)
 	}
 }
