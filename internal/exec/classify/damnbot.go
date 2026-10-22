@@ -1,6 +1,9 @@
 package classify
 
-import "strings"
+import (
+	"path"
+	"strings"
+)
 
 // damnbotMaintenance is true for commands whose destructive maintenance
 // verbs delete journals/session data or replace the database (SEC15-2).
@@ -40,9 +43,10 @@ func damnbotWords(args []arg) []string {
 	for i := 0; i < len(args); i++ {
 		v := strings.ToLower(args[i].s)
 		switch {
-		case v == "--profile" && i+1 < len(args):
+		case (v == "--profile" || v == "--config" || v == "--data-dir" || v == "-p") && i+1 < len(args):
 			i++
-		case strings.HasPrefix(v, "--profile="), v == "--force-migrate":
+		case strings.HasPrefix(v, "--profile="), strings.HasPrefix(v, "--config="),
+			strings.HasPrefix(v, "--data-dir="), strings.HasPrefix(v, "-p="), v == "--force-migrate":
 		case strings.HasPrefix(v, "-"):
 		default:
 			words = append(words, v)
@@ -71,8 +75,23 @@ func (s *state) damnbot(args []arg) {
 // isDamnbotName recognizes the binary by base name, including Windows
 // extensions and paths (./damnbot, /usr/bin/damnbot, C:\tools\damnbot.exe).
 func isDamnbotName(name string) bool {
-	n := strings.TrimSuffix(strings.ToLower(name), ".exe")
+	n := strings.TrimRight(strings.ToLower(name), ".")
+	n = strings.TrimSuffix(n, ".exe")
 	n = strings.TrimSuffix(n, ".cmd")
 	n = strings.TrimSuffix(n, ".bat")
-	return n == "damnbot"
+	return n == "damnbot" || strings.HasPrefix(n, "damnbo~") // Windows 8.3 (DAMNBO~1)
+}
+
+// damnbotCommand recognizes a path/symlink whose resolved base is the
+// damnbot binary. A workspace copy with another name has no static identity
+// (documented residual in ADR-167).
+func (s *state) damnbotCommand(a0, name string) bool {
+	if isDamnbotName(name) {
+		return true
+	}
+	p, ok := s.abs(a0)
+	if !ok {
+		return false
+	}
+	return isDamnbotName(path.Base(s.resolve(p)))
 }

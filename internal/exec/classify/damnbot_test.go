@@ -35,6 +35,18 @@ func TestDamnbotMaintenanceDestructive(t *testing.T) {
 		{"damnbot sessions purge s --yes", Pwsh},
 		{`C:\tools\damnbot.exe sessions purge s --yes`, Cmd},
 		{`& 'C:\tools\damnbot.exe' checkpoints clear`, Pwsh},
+		{`DAMNBO~1.EXE sessions purge s --yes`, Cmd},
+		{`damnbot. sessions purge s --yes`, Cmd},
+		{"damnbot --config /x sessions purge s --yes", Bash},
+		{"damnbot -p prod sessions purge s --yes", Bash},
+		{"damnbot --data-dir /x sessions purge s --yes", Bash},
+		{"exec -a x damnbot sessions purge s --yes", Bash},
+		{"env -a x damnbot sessions purge s --yes", Bash},
+		{"env --argv0 x damnbot sessions purge s --yes", Bash},
+		{"command exec -a x damnbot sessions purge s --yes", Bash},
+		{"nohup env -a x damnbot sessions purge s --yes", Bash},
+		{"timeout 5 env --argv0 x damnbot sessions purge s --yes", Bash},
+		{"bash -c 'exec -a x damnbot sessions purge s --yes'", Bash},
 	}
 	for _, c := range cases {
 		env.Dialect = c.d
@@ -49,11 +61,21 @@ func TestDamnbotMaintenanceDestructive(t *testing.T) {
 func TestDamnbotMaintenanceNeverAuto(t *testing.T) {
 	t.Parallel()
 	env := testEnv()
-	v := Classify("damnbot sessions purge s --yes", env)
-	for _, mode := range []Mode{ModeAsk, ModeAutoEdit, ModeAuto, ModeHeadless, ModeUnsafeAutoShell} {
-		d := Decide(&v, &Context{Mode: mode, WorkspaceTrusted: true, CwdInRoot: true})
-		if d == AutoApprove {
-			t.Errorf("mode %v auto-approved destructive maintenance: %v", mode, v.Reasons)
+	for _, cmd := range []string{
+		"damnbot sessions purge s --yes",
+		"exec -a x damnbot sessions purge s --yes",
+		"env -a x damnbot sessions purge s --yes",
+		"env --argv0 x damnbot sessions purge s --yes",
+		"command exec -a x damnbot sessions purge s --yes",
+		"nohup env -a x damnbot sessions purge s --yes",
+		"timeout 5 env --argv0 x damnbot sessions purge s --yes",
+	} {
+		v := Classify(cmd, env)
+		for _, mode := range []Mode{ModeAsk, ModeAutoEdit, ModeAuto, ModeHeadless, ModeUnsafeAutoShell} {
+			d := Decide(&v, &Context{Mode: mode, WorkspaceTrusted: true, CwdInRoot: true})
+			if d == AutoApprove {
+				t.Errorf("%q mode %v auto-approved destructive maintenance: %v", cmd, mode, v.Reasons)
+			}
 		}
 	}
 }
@@ -75,5 +97,20 @@ func TestDamnbotMaintenanceNegative(t *testing.T) {
 		if v := Classify(cmd, env); v.Class == Destructive {
 			t.Errorf("%q: class Destructive, want non-destructive (%v)", cmd, v.Reasons)
 		}
+	}
+}
+
+// TestDamnbotSymlinkAndCopies (SEC15-6): a path resolving to the binary's
+// name is caught; an arbitrary alias/copy name is a documented static
+// limitation.
+func TestDamnbotSymlinkAndCopies(t *testing.T) {
+	t.Parallel()
+	env := testEnv()
+	env.Resolver = fakeFS{links: map[string]string{testRoot + "/db": "/usr/local/bin/damnbot"}}
+	if v := Classify("./db sessions purge s --yes", env); v.Class != Destructive {
+		t.Errorf("symlinked binary: class %s, want Destructive (%v)", v.Class, v.Reasons)
+	}
+	if v := Classify("./x sessions purge s --yes", env); v.Class == Destructive {
+		t.Errorf("copy with arbitrary name classified Destructive; document as static-unobservable (%v)", v.Reasons)
 	}
 }

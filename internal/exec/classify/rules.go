@@ -138,10 +138,6 @@ func (s *state) changeDir(args []arg) {
 
 // tool handles commands whose operands need specific parsing.
 func (s *state) tool(name, sub string, args []arg) {
-	if isDamnbotName(name) {
-		s.damnbot(args[1:])
-		return
-	}
 	switch name {
 	case "git":
 		s.gitPaths(sub, args[1:])

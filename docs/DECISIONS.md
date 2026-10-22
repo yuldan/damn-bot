@@ -3366,4 +3366,4 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Bukti.** `TestDamnbotMaintenanceDestructive` (path relatif/absolut, wrapper, semua dialek, `--profile`), `TestDamnbotMaintenanceNeverAuto` (tidak ada `AutoApprove` di kelima mode termasuk `--unsafe-auto-shell`; headless `Denied`), `TestDamnbotMaintenanceNegative` (`sessions ls` etc. bukan Destructive), dan e2e `run` yang menolak `damnbot sessions purge s --yes` di `--unsafe-auto-shell`.
 
-**Anggaran.** `exec/classify` 1.830 → 1.894 (terukur 1.894; 64 baris), Total core 38.090 → 38.154 di `loc.budget` dan `docs/ENGINEERING.md` §2.4. Tidak ada kenaikan `exec`.
+**Anggaran.** `exec/classify` 1.830 → 1.908 (terukur 1.908; round 2 menambah argv0 `exec -a`/`env -a`/`env --argv0`, 8.3/trailing-dot, dan global value flags), Total core 38.090 → 38.168 di `loc.budget` dan `docs/ENGINEERING.md` §2.4. Tidak ada kenaikan `exec`.
