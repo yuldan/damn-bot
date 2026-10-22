@@ -137,6 +137,7 @@ Storage ledger `budget` F1 = subpaket `internal/ctxdb/ledgerstore` (ADR-074, bar
 - `recall` ≤ 50 ms p95 @ 1.000.000 event (di luar purge berjalan; selama purge + filter `purging` dan jendela pemeliharaan, SPEC §11.6/§17.1); `Store.Append` ≤ 10 ms p99 (synchronous=FULL; di luar jendela pemeliharaan gc/purge SPEC §11.6, selama batch +≤ 200 ms; `BenchmarkAppend`, `BenchmarkAppendDuringGC`).
 - EC-CTX, EC-STATE-001, 002, 003, 005..011, 013..016 (14; ADR-080), EC-PROV-008, EC-TCALL-010 covered (ADR-077); EC-WIN-002, 005, 011 di runner Windows (ADR-080).
 - Test tertunda berfase F2 (ADR-083): `TestModuleLifecycle/needs_attention`.
+- Scope GAP F2 (ADR-129): acceptance menagih 13 gap P0/P1 yang tercantum di ADR-129; GAP-COST-04, GAP-TOOL-10, GAP-INF-02, dan GAP-INF-06 dijadwalkan ulang ke F5/F3+F5+F8/F9/F8 dan bukan gate F2. Requirement SPEC §22.1 tetap utuh untuk gate F9.
 - Baseline hermes untuk dimensi ADR-065/083 berstatus F2 (termasuk Token skill per turn) diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`) (ADR-083).
 
 ## F3 — Permukaan & plug-and-play
@@ -237,6 +238,8 @@ Semua gap [`GAP-SWEEP.md`](GAP-SWEEP.md) menjadi requirement 1.0 (SPEC §22); ga
 | F7 | 10 | GAP-SEC-10, GAP-REL-14, GAP-GW-01, GAP-GW-03, GAP-GW-04, GAP-GW-05, GAP-GW-08, GAP-GW-09, GAP-GW-10, GAP-GW-11 | termasuk di budget modul SPEC §3.2.4 |
 | F8 | 17 | GAP-SEC-06, GAP-SEC-07, GAP-SEC-08, GAP-SEC-09, GAP-SEC-17, GAP-REL-14, GAP-REL-16, GAP-GW-07, GAP-GW-12, GAP-PROV-05, GAP-UX-07, GAP-UX-08, GAP-UX-09, GAP-UX-10, GAP-INF-06, GAP-INF-08, GAP-INF-09 | termasuk di budget modul SPEC §3.2.4 |
 | F9 | 7 | GAP-SEC-19, GAP-SEC-22, GAP-SEC-28, GAP-OPS-03, GAP-OPS-05, GAP-INF-03, GAP-INF-10 | termasuk di budget modul SPEC §3.2.4 |
+
+Catatan scope (ADR-129, keputusan owner 2026-10-21): baris F2 di atas tetap peta historis 118 gap, tetapi acceptance F2 hanya menagih **13 gap P0/P1**. Empat gap P2 tidak menjadi gate F2: GAP-COST-04 → F5, GAP-TOOL-10 → F3 (updater) / F5 (MCP `requires`) / F8 (skills hub), GAP-INF-02 → F9, GAP-INF-06 → F8. Requirement SPEC §22.1 dan gate F9 118/118 tidak berubah.
 
 Dampak LOC: rencana tunggal 184.900 = Σ budget modul SPEC §3.2.4 (≤ 190.000, P21); JS ≈ 9.900 (≤ 10.000); dependency langsung 26 ≤ 28 (ADR-033, ADR-034, koreksi ENGINEERING E-45).
 
