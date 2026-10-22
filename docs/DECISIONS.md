@@ -3377,3 +3377,20 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 8. **Test.** Unit tool (list metadata, untrusted view, `not_found`, efek non-idempotent, `Inspector` selalu `RequireAsk` termasuk `auto`/`auto-edit`), manager (karantina → approval user → view; skill terkarantina tidak muncul di list dan view-nya `not_found`; create menolak skill user yang hanya ada di disk tanpa mengubah file/gate pembayaran; update rejected/gagal mempertahankan versi approved lama; rejected create menghapus file; delete hanya baris agent; trusted tidak dapat ditimpa/dihapus; materialisasi hanya setelah approval; lookup eksak di antara > 50 baris; cap payload dan penolakan path, termasuk `skill.md`/`Skill.MD`), e2e binary asli (list/view skill approved dan pembungkusan `<untrusted>`; skill terkarantina tidak terlihat; `skill_manage` ditolak tanpa approver dan tidak menulis file apa pun), `TestEdgeCases/EC-CTX-006`.
 
 **Konsekuensi.** (+) Skill dapat ditemukan dan dimuat secara eksplisit; kontennya tetap data dan approval tetap milik user. (+) Tanpa storage baru (DDL 0) dan tanpa dependency baru. (−) `skill_manage` tidak tersedia pada run headless non-interaktif (fail closed); skill agent baru aktif setelah approval + materialisasi pada run berikutnya; `skill_view` menambah token sesuai file yang diminta (≤ 64 KiB/20 file, body ≤ 8 KiB).
+
+## ADR-177 — Penyesuaian `loc.budget` untuk #266: tabrakan baris `tools` (2600) dan `ctxdb` (3850)
+
+**Status:** Accepted 2026-10-22 (delegasi merger; menutup tabrakan satu baris `loc.budget` antara #266 dan #275, plus satu revisi baris `ctxdb`). Diterapkan di PR #266 sesudah rebase.
+
+**Konteks.** `tools` hanya boleh punya satu nilai maksimum di `loc.budget`. #266 (ADR-147: tool `memory` + `session_search`) dan #275 (ADR-173: `skills_list`/`skill_view`/`skill_manage`) masing-masing menulis `tools` 2.200 → 2.500 untuk baris yang sama. Diukur terpisah keduanya di bawah 2.500 (2.397 dan 2.315), tetapi keduanya menambah paket yang sama (`internal/tools`) dan gabungannya terukur ≈ 2.550 > 2.500. Karena PR yang mendarat belakangan harus menjumlahkan delta, batas `tools` dinaikkan sekali. Terpisah dari itu, penguatan SEC17-1 di #266 menambah 5 baris kode di `internal/ctxdb/read.go`, sehingga grup `ctxdb` (berdiri sendiri; tidak bertabrakan dengan `tools` maupun baris rantai pricing `provider`/`provider/registry`/`loop`) naik dari 3.796 (main) menjadi 3.801 > 3.800.
+
+**Keputusan.**
+1. Baris `tools` ditetapkan **2.600** (bukan 2.500), menampung ADR-147 + ADR-173 sekaligus.
+2. Tetap SATU entri `tools` di `loc.budget`; komentar baris mencatat ADR-173, ADR-147, dan ADR-177 — tidak ada entri atau ADR duplikat.
+3. `ctxdb/skillstore` tetap 460 (ADR-173); tidak ada tabrakan di baris itu.
+4. "Total core" di `docs/ENGINEERING.md` disinkronkan dengan Σ core `loc.budget`: 38.450 → 38.600 (+100 dari `tools` 2.500 → 2.600 dan +50 dari `ctxdb` 3.800 → 3.850).
+5. **`ctxdb` 3.800 → 3.850.** Menampung jalur read ter-scope SEC17-1 (`internal/ctxdb/read.go`, +5 baris kode; terukur 3.801) tanpa memangkas kode yang sah. Baris `ctxdb` independen dari `tools` maupun rantai pricing, jadi urutan merge bebas.
+
+**Dampak terukur (SPEC §20).** LOC: baris `tools` 2.500 → 2.600 (+100) dan `ctxdb` 3.800 → 3.850 (+50); Total core 38.450 → 38.600 ≤ 47.000. Token/binary/dependency/DDL 0.
+
+**Konsekuensi.** (+) Satu ADR mencatat keputusan gabungan dan satu baris `loc.budget` tetap bernilai tunggal; `TestBudgetTableSum` tetap konsisten. (−) Angka 2.600 dan 3.850 adalah batas gabungan, bukan angka per-PR: PR berikutnya yang menambah `internal/tools` atau `internal/ctxdb` harus menghitung ulang dari gabungan, bukan dari catatan salah satu ADR.
