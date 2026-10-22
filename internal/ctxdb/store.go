@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"modernc.org/sqlite"
 )
@@ -431,7 +432,7 @@ func (s *Store) ftsValue(t string) string {
 	if s.codec == nil {
 		return ftsNorm(t)
 	}
-	return encFTS(s.codec, t)
+	return encFTSQuery(s.codec, t)
 }
 
 // keyedFTSExpr hashes quoted/token terms but preserves FTS operators (OR,
@@ -450,6 +451,9 @@ func keyedFTSExpr(c Codec, expr string) string {
 				return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 			})
 			for i, f := range fields {
+				if utf8.RuneCountInString(f) == 1 && hasCJK(f) {
+					continue
+				}
 				h := c.FTS(f)
 				if prefix && i == len(fields)-1 {
 					h += "*"

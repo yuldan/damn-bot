@@ -644,3 +644,47 @@ func TestFTSReindexPreservesEncryptedBlindIndex(t *testing.T) {
 	}
 	closeStore(t, s)
 }
+
+func TestEncryptedFTSLayoutNoPositionsOrUnigrams(t *testing.T) {
+	dir := t.TempDir()
+	s := openEncrypted(t, dir)
+	defer closeStore(t, s)
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(ctx, "S", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "日本語", Payload: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	codec := realCodec(t, dir)
+	var schema string
+	if err := s.Write(ctx, func(tx *ctxdb.Tx) error {
+		sqls, err := tx.Strings(`SELECT sql FROM sqlite_master WHERE name='events_fts'`)
+		if err != nil {
+			return err
+		}
+		schema = sqls[0]
+		bigram, err := tx.Ints(`SELECT rowid FROM events_fts WHERE events_fts MATCH ?`, codec.FTS("日本"))
+		if err != nil || len(bigram) != 1 {
+			t.Fatalf("bigram match = %v, %v", bigram, err)
+		}
+		unigram, err := tx.Ints(`SELECT rowid FROM events_fts WHERE events_fts MATCH ?`, codec.FTS("語"))
+		if err != nil || len(unigram) != 0 {
+			t.Fatalf("unigram tokens = %v, %v (want none)", unigram, err)
+		}
+		phrase, perr := tx.Ints(`SELECT rowid FROM events_fts WHERE events_fts MATCH ?`,
+			"NEAR("+codec.FTS("日本")+" "+codec.FTS("本語")+", 1)")
+		if perr == nil && len(phrase) != 0 {
+			t.Fatalf("position data present: NEAR returned %v", phrase)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(schema, "detail=column") {
+		t.Fatalf("encrypted FTS schema lacks detail=column: %s", schema)
+	}
+	if hits, err := s.Search(ctx, ctxdb.Query{Text: "語", Limit: 5}); err != nil || len(hits) != 0 {
+		t.Fatalf("single-rune encrypted query = %+v, %v (want documented no-hit)", hits, err)
+	}
+}

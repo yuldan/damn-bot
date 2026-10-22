@@ -9,14 +9,22 @@ import (
 // FTS index versions (GAP-INF-02). Bumping either forces an automatic
 // re-index; rowids are keyset-paged in batches so writers are not starved.
 const (
-	ftsNormVersion   = 1
-	ftsLayoutVersion = 1
-	ftsBatchSize     = 5000
-	ftsBlobMaxBytes  = 16 << 20
+	ftsNormVersion  = 1
+	ftsPlainLayout  = 1 // detail=full, CJK unigrams
+	ftsEncLayout    = 2 // detail=column, bigrams only (ADR-124 amendment)
+	ftsBatchSize    = 5000
+	ftsBlobMaxBytes = 16 << 20
 )
 
 func ftsTables() []string {
 	return []string{"events_fts", "summaries_fts", "memory_fts", "skills_fts", "blob_fts"}
+}
+
+func (s *Store) ftsLayout() int {
+	if s.codec != nil {
+		return ftsEncLayout
+	}
+	return ftsPlainLayout
 }
 
 // ensureFTS initialises fts_meta and re-indexes when a binary with newer
@@ -30,6 +38,11 @@ func (s *Store) ensureFTS(ctx context.Context) error {
 		return err
 	}
 	if n == 0 {
+		if s.codec != nil {
+			if err := s.recreateEncryptedFTS(ctx); err != nil {
+				return err
+			}
+		}
 		return s.Write(ctx, func(tx *Tx) error {
 			for _, name := range ftsTables() {
 				if err := tx.ftsTableMeta(name); err != nil {
@@ -41,11 +54,22 @@ func (s *Store) ensureFTS(ctx context.Context) error {
 	}
 	var old int
 	if err := s.get(ctx, `SELECT count(*) FROM fts_meta WHERE norm_version <> ? OR layout_version <> ?`,
-		[]any{ftsNormVersion, ftsLayoutVersion}, &old); err != nil {
+		[]any{ftsNormVersion, s.ftsLayout()}, &old); err != nil {
 		return err
 	}
 	if old == 0 {
 		return nil
+	}
+	if s.codec != nil {
+		var low int
+		if err := s.get(ctx, `SELECT count(*) FROM fts_meta WHERE layout_version < ?`, []any{ftsEncLayout}, &low); err != nil {
+			return err
+		}
+		if low > 0 {
+			if err := s.recreateEncryptedFTS(ctx); err != nil {
+				return err
+			}
+		}
 	}
 	return s.ReindexFTS(ctx, ftsBatchSize)
 }
@@ -88,13 +112,13 @@ func (t *Tx) ftsTableMeta(name string) error {
 	_, err := t.Exec(`INSERT INTO fts_meta(name, norm_version, layout_version, reindexed_to, updated_at)
 		VALUES (?,?,?,0,?) ON CONFLICT(name) DO UPDATE SET norm_version=excluded.norm_version,
 		layout_version=excluded.layout_version, updated_at=excluded.updated_at`,
-		name, ftsNormVersion, ftsLayoutVersion, t.s.clk.WallMs())
+		name, ftsNormVersion, t.s.ftsLayout(), t.s.clk.WallMs())
 	return err
 }
 
 func (t *Tx) ftsMetaProgress(name string, last int64) error {
 	_, err := t.Exec(`UPDATE fts_meta SET norm_version=?, layout_version=?, reindexed_to=?, updated_at=? WHERE name=?`,
-		ftsNormVersion, ftsLayoutVersion, last, t.s.clk.WallMs(), name)
+		ftsNormVersion, t.s.ftsLayout(), last, t.s.clk.WallMs(), name)
 	return err
 }
 
@@ -307,4 +331,43 @@ func (s *Store) ftsPlain(text string) string {
 		return ftsNorm(text)
 	}
 	return encFTS(s.codec, text)
+}
+
+// recreateEncryptedFTS switches encrypted indexes to detail=column (no
+// positions) and recreates the keyed triggers.
+func (s *Store) recreateEncryptedFTS(ctx context.Context) error {
+	ddl := []string{
+		"DROP TRIGGER IF EXISTS events_ai", "DROP TRIGGER IF EXISTS summaries_ai",
+		"DROP TRIGGER IF EXISTS memory_ai", "DROP TRIGGER IF EXISTS skills_ai",
+		"DROP TRIGGER IF EXISTS skills_au", "DROP TRIGGER IF EXISTS skills_ad",
+		"DROP TABLE IF EXISTS events_fts", "DROP TABLE IF EXISTS summaries_fts",
+		"DROP TABLE IF EXISTS memory_fts", "DROP TABLE IF EXISTS skills_fts",
+		"DROP TABLE IF EXISTS blob_fts",
+		`CREATE VIRTUAL TABLE events_fts USING fts5(content, tool_name, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2 tokenchars '_-./'")`,
+		`CREATE VIRTUAL TABLE summaries_fts USING fts5(content, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2")`,
+		`CREATE VIRTUAL TABLE memory_fts USING fts5(content, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2")`,
+		`CREATE VIRTUAL TABLE skills_fts USING fts5(name, description, body, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2")`,
+		`CREATE VIRTUAL TABLE blob_fts USING fts5(content, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2 tokenchars '_-./'")`,
+		`CREATE TRIGGER events_ai AFTER INSERT ON events WHEN NEW.kind IN ('user_message','assistant_message','tool_result','imported') BEGIN
+			INSERT INTO events_fts(rowid, content, tool_name) VALUES (NEW.id,
+			dmb_fts_norm(coalesce(NEW.content_enc, NEW.content), 'events.content', NEW.session_id || '|' || NEW.seq), coalesce(NEW.tool_name, '')); END`,
+		`CREATE TRIGGER summaries_ai AFTER INSERT ON summaries BEGIN INSERT INTO summaries_fts(rowid, content)
+			VALUES (NEW.id, dmb_fts_norm(coalesce(NEW.content_enc, NEW.content), 'summaries.content', NEW.session_id || '|' || NEW.from_seq || ':' || NEW.to_seq)); END`,
+		`CREATE TRIGGER memory_ai AFTER INSERT ON memory BEGIN INSERT INTO memory_fts(rowid, content)
+			VALUES (NEW.id, dmb_fts_norm(coalesce(NEW.content_enc, NEW.content), 'memory.content', NEW.scope || '|' || NEW.enc_id)); END`,
+		`CREATE TRIGGER skills_ai AFTER INSERT ON skills BEGIN INSERT INTO skills_fts(rowid, name, description, body)
+			VALUES (NEW.id, dmb_fts_norm(NEW.name, 'skills.name', ''), dmb_fts_norm(NEW.description, 'skills.description', ''), dmb_fts_norm(NEW.body, 'skills.body', '')); END`,
+		`CREATE TRIGGER skills_au AFTER UPDATE ON skills BEGIN DELETE FROM skills_fts WHERE rowid = OLD.id;
+			INSERT INTO skills_fts(rowid, name, description, body) VALUES (NEW.id, dmb_fts_norm(NEW.name, 'skills.name', ''),
+			dmb_fts_norm(NEW.description, 'skills.description', ''), dmb_fts_norm(NEW.body, 'skills.body', '')); END`,
+		`CREATE TRIGGER skills_ad AFTER DELETE ON skills BEGIN DELETE FROM skills_fts WHERE rowid = OLD.id; END`,
+	}
+	return s.Write(ctx, func(tx *Tx) error {
+		for _, q := range ddl {
+			if _, err := tx.Exec(q); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

@@ -486,6 +486,9 @@ func (s *Store) searchExpr(text string) string {
 		})
 	}
 	for _, orig := range raw {
+		if s.codec != nil && utf8.RuneCountInString(orig) == 1 && hasCJK(orig) {
+			continue
+		}
 		tok := orig
 		if s.codec != nil {
 			tok = s.codec.FTS(tok)
