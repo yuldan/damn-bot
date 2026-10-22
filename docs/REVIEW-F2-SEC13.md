@@ -46,3 +46,47 @@ Probe `TestZZSec13` (`internal/ctxdb`) menanam DB nyata lalu menjalankan **binar
 | SEC13-5 | MINOR | static | **Koordinasi dengan #220.** #220 menulis label `gateway_chat` di `Tx.CreateSession` (identitas diwarisi lewat `Session.GatewayIdentity`) dan memvalidasi identitas di `checkParent`. #227 menulis label sendiri di `inheritGateway` dan memanggil `CreateSession` tanpa `GatewayIdentity`. Bila #220 mendarat lebih dulu, fork sesi gateway lewat #227 akan ditolak `identity mismatch`. Bila keduanya digabung tanpa rebase hati-hati, label akan tertulis dua kali. Selain itu, `openSessionsDB` dengan `--data-dir` yang tidak ada akan **membuat** DB baru (efek samping untuk perintah yang hanya mencabangkan sesi). | Setelah rebase: `Fork` meneruskan `GatewayIdentity: src.identity`, dan **satu** penulis label (milik #220). Hapus penyisipan label di `inheritGateway`, dan `gateway_conversations` mengikuti keputusan SEC13-1. Buka DB dengan mode yang tidak membuat data dir baru (atau error bila tidak ada). |
 
 **Ringkasan:** #227 **REQUEST CHANGES**. Mekanisme dasarnya benar: fork/rewind append-only, guard di tengah turn ber-marker, `turn:ID` di batas turn, kode exit, dan parameterisasi. Namun fork dari CLI lokal memindahkan rute percakapan gateway user lain ke cabang baru (SEC13-1), dan fork saat turn masih berjalan mewarisi turn yang kemudian di-exclude tanpa marker (SEC13-2). Dengan batas lineage #220, recall cabang lama setelah titik rewind sudah tertutup.
+
+## Round 2 — 2026-10-21
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #227 fork/rewind CLI | `cc2f5c7` | **APPROVE dengan MINOR**. SEC13-1..5 tertutup. Sisa: SEC13-6 (invarian scope tulis memori, latent) dan SEC13-7 (turn tanpa `turn_end` mengunci fork di head). Konflik rebase hanya di `docs/DECISIONS.md` terhadap `main` `9bf28f8` |
+
+Gate di `cc2f5c7`: `go test -race -tags goolm -count=1 ./cmd/damnbot ./internal/archtest` → ok; `./internal/ctxdb -race -run 'Fork|Head|Turn|History|Gateway|Exclude'` → ok; `go vet` + `GOOS=windows|darwin` bersih; `make deadcode` 0; `make loc` `ctxdb 3498/3500`.
+
+Probe `TestZZSec13R2` memakai fixture yang sama dengan Round 1 dan menjalankan **binary `damnbot` hasil build `cc2f5c7`**. Turn `run1` dibuka `StartTurn` (seq 4) + 1 event (seq 5), head 5. Probe dihapus setelah dijalankan.
+
+| Perintah | Round 1 | Round 2 |
+|---|---|---|
+| `sessions fork gw` | rute terbaru `telegram:123` → anak | exit 0; **rute terbaru tetap `gw`**; anak: 0 baris `gateway_conversations`, 1 label `gateway_chat` ✔ SEC13-1 |
+| `rewind gw --at 0` | rute pindah | exit 0, rute tidak berubah ✔ |
+| `fork L` (head, turn `run1` terbuka) | exit 0, anak mewarisi turn yang kemudian di-exclude | **exit 4** `session L has an open turn; finish or cancel it first` ✔ SEC13-2 |
+| `fork L --at 4` (tepat di `turn_start` run1) | — | exit 4 ✔ |
+| `fork L --at 3` / `rewind L --at turn:run1` (seq 3, sebelum turn terbuka) | — | exit 0 ✔ |
+| `fork L --at 2` (di dalam turn `bad` sebelum marker) | exit 2 | exit 2 `fork L at seq 2 inside excluded turn bad: invalid_args` ✔ |
+| `fork nope` | `sql: no rows in result set` | exit 1 `session nope not found` ✔ SEC13-3 |
+| `fork L --at turn:\x1b[31mred`, `fork \x1b[2J\x1b[Hx`, subperintah `\x1b[31mbad` | ESC mentah | ESC dibuang (`[31mred`, `[2J[Hx`) ✔ SEC13-4 |
+| `fork L --at 999` | exit 2 | exit 2 ✔ |
+| `--data-dir <tidak ada>` | DB dibuat | exit 1 `data directory not found: …`; direktori **tidak** dibuat ✔ SEC13-5 |
+
+### Analisis tambahan
+
+- **`checkForkOpen` dan urutan event.** Loop selalu menulis event `turn_start` (`internal/loop/turn.go`), sehingga pemeriksaan berbasis event juga berlaku untuk turn produksi, tidak hanya untuk turn yang tercatat di `turn_journal`. Recovery crash menulis `turn_end{crashed}` lalu `crash_recovered`. Marker `context_exclude`, sebelum atau sesudah `turn_end`, tetap ditolak `checkForkExcluded` selama ada event turn di `≤ at` dan marker di `> at`. Jadi kombinasi kedua guard menutup jalur "marker ditulis setelah fork" untuk semua turn yang sudah selesai.
+- **Apakah label scope saja memungkinkan anak lokal bertindak sebagai principal remote (tulis memori/recall)?** Pada `cc2f5c7` maupun `main` `9bf28f8`, **tidak ada jalur kode** yang menurunkan scope *tulis* memori dari label `gateway_chat` sesi. `memstore` menerima scope dari pemanggil (`validScope`/`sameScope`), dan belum ada penulis memori gateway yang dirangkai. Label hanya dipakai untuk validasi dan pembatasan recall #220 (`checkParent`, `lineageBounds`). Recall anak juga terbatas pada lineage-nya sendiri ≤ `fork_seq`, yaitu konten yang memang sudah diwarisi. Pelaku pada skenario ini adalah owner lokal, yang sudah memegang otoritas penuh atas DB, sehingga tidak ada batas kepercayaan yang dilanggar hari ini. Risikonya laten (SEC13-6): bila kelak frontend lokal atau tool memori menurunkan scope dari label sesi, anak hasil fork CLI akan menulis ke `gateway:<platform>:<identity>` milik user remote. Akibatnya persisten: memori itu masuk ke prompt sesi-sesi user tersebut (SPEC B-03).
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC13-1 | MEDIUM | **fixed** `cc2f5c7` | Rute chat tidak lagi disalin; hanya label scope yang diwarisi (probe). | — |
+| SEC13-2 | MEDIUM | **fixed** `cc2f5c7` | `checkForkOpen`: titik potong di dalam turn tanpa `turn_end` → `ErrSessionBusy`/exit 4 (probe). | — |
+| SEC13-3 | MINOR | **fixed** `cc2f5c7` | `sessionsMessage` memetakan error ke pesan tetap. Error lain menjadi `internal error`. | — |
+| SEC13-4 | MINOR | **fixed** `cc2f5c7` | `cleanArg` membuang karakter kontrol < U+0020 dan U+007F serta memotong pada 80 byte. Byte ESC hilang, sehingga sisa teks tidak lagi bisa ditafsirkan terminal sebagai escape. | — |
+| SEC13-5 | MINOR | **fixed** `cc2f5c7` | `os.Stat` dijalankan sebelum `ctxdb.Open`; direktori yang tidak ada → exit 1, tidak dibuat. Koordinasi #220 tercatat di ADR-136 butir 13. | Saat rebase setelah #220: teruskan `GatewayIdentity`, dengan satu penulis label. |
+| SEC13-6 | MINOR | open (latent) | Label `gateway_chat` pada anak hasil fork CLI belum punya invarian tertulis bahwa label itu **hanya scope baca**. Penulis memori gateway di masa depan yang menurunkan scope dari label sesi akan membiarkan sesi lokal menulis ke scope memori principal remote. | Tambahkan ke ADR-136/SPEC: scope tulis `gateway:<platform>:<identity>` hanya diturunkan dari identitas inbound terautentikasi (gateway worker, `gateway_identities`), tidak pernah dari label sesi. Sesi `origin≠gateway` atau sesi yang dibuka frontend lokal tidak boleh menulis ke scope gateway. Kunci dengan test ketika penulis memori gateway dirangkai. |
+| SEC13-7 | MINOR | open | `turn_end` ditulis lewat `t.note` (best-effort). Turn yang crash sebelum recovery #211 menulis `turn_end{crashed}`, atau yang `note`-nya gagal, menyisakan `turn_start` tanpa `turn_end`. Akibatnya `fork`/`rewind` di head sesi itu ditolak exit 4 selamanya. Ini fail-closed (tidak bocor) dan masih bisa dilewati dengan `--at` sebelum turn tersebut. | Dokumentasikan jalan keluar di pesan error (`--at` sebelum turn terbuka), atau terima turn yang journal-nya sudah `crashed`/tidak ada sebagai tertutup. |
+
+**Ringkasan Round 2:** #227 `cc2f5c7` **APPROVE dengan MINOR**. Kelima perbaikan terverifikasi dengan binary nyata: rute gateway tetap di induk, fork ke turn terbuka exit 4, pesan error bersih, argumen disanitasi, dan data dir tidak dibuat. Saat ini label scope tidak memberi hak tulis memori atas nama principal remote karena belum ada jalur kode yang memakainya. Invarian "scope tulis hanya dari identitas inbound" perlu dikunci sebelum penulis memori gateway dirangkai (SEC13-6). Sebelum merge, rebase untuk konflik `docs/DECISIONS.md`.
