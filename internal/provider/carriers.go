@@ -26,6 +26,7 @@ func captureCarriers(resp *Response, rt *Route) {
 		return
 	}
 	plain := make([]json.RawMessage, 0, len(parts))
+	total := 0
 	for i, p := range parts {
 		kind, ok := carrierKind(p)
 		if !ok {
@@ -33,6 +34,11 @@ func captureCarriers(resp *Response, rt *Route) {
 			continue
 		}
 		raw := slices.Clone([]byte(p))
+		if len(raw) > MaxCarrierBytes || total+len(raw) > MaxMessageBytes {
+			resp.CarrierDrops = mergeDrop(resp.CarrierDrops, "too_large")
+			continue
+		}
+		total += len(raw)
 		resp.Carriers = append(resp.Carriers, Carrier{Family: rt.CarrierFamily(), Model: rt.Model, Kind: kind, Anchor: strconv.Itoa(i), Raw: raw, Replayable: true, SHA: payloadSHA(raw)})
 	}
 	if len(resp.Carriers) == 0 {
@@ -82,6 +88,7 @@ func payloadSHA(raw []byte) string { sum := sha256.Sum256(raw); return hex.Encod
 // projectCarriers requires an exact (family, model) replayable match.
 func projectCarriers(rt *Route, cs []Carrier) ([]Carrier, []CarrierDrop, error) {
 	keep := make([]Carrier, 0, len(cs))
+	total := 0
 	var drops []CarrierDrop
 	for i := range cs {
 		c := &cs[i]
@@ -92,10 +99,15 @@ func projectCarriers(rt *Route, cs []Carrier) ([]Carrier, []CarrierDrop, error) 
 		if !c.Kind.Valid() || len(c.Raw) == 0 || !json.Valid(c.Raw) {
 			return nil, nil, fmt.Errorf("carrier %d is invalid (%q)", i, c.Kind)
 		}
+		if len(c.Raw) > MaxCarrierBytes || total+len(c.Raw) > MaxMessageBytes {
+			drops = mergeDrop(drops, "too_large")
+			continue
+		}
 		if rt.CarrierFamily() != c.Family || rt.Model != c.Model {
 			drops = mergeDrop(drops, "route_mismatch")
 			continue
 		}
+		total += len(c.Raw)
 		keep = append(keep, *c)
 	}
 	return keep, drops, nil

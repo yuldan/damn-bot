@@ -135,3 +135,76 @@ func TestCarrierRedactedNotReplayable(t *testing.T) {
 		t.Fatalf("event refs = %+v, want none", p.Carriers)
 	}
 }
+
+// TestCarrierNestedSecretDropped (SEC8-8): a secret nested inside the carrier
+// JSON (outside the opaque fields) drops it even when ReasoningText is clean.
+func TestCarrierNestedSecretDropped(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	f.carriers = &fakeCarrierStore{}
+	f.redactor = fakeRedactor{}
+	f.provider.scripts = []streamFunc{func(context.Context, *Request, func(Delta)) (Reply, error) {
+		return Reply{Content: "ok", FinishReason: FinishStop, Carriers: []event.Carrier{{
+			Family: "p", Model: "m", Kind: "encrypted_reasoning", Replayable: true,
+			Raw: []byte(`{"type":"reasoning","encrypted_content":"CIPHER","extra":{"detail":"the key is sk-secret"}}`),
+		}}}, nil
+	}}
+	f.run(t)
+	if len(f.carriers.saved) != 0 {
+		t.Fatalf("nested secret persisted: %+v", f.carriers.saved)
+	}
+	ev, ok := f.store.find(event.AssistantMessage)
+	if !ok {
+		t.Fatal("no assistant event")
+	}
+	var p assistantPayload
+	if err := json.Unmarshal(ev.Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Carriers) != 0 {
+		t.Fatalf("event refs = %+v, want none", p.Carriers)
+	}
+}
+
+func runCarrier(t *testing.T, raw string) *fixture {
+	t.Helper()
+	f := newFixture()
+	f.carriers = &fakeCarrierStore{}
+	f.redactor = fakeRedactor{}
+	f.provider.scripts = []streamFunc{func(context.Context, *Request, func(Delta)) (Reply, error) {
+		return Reply{Content: "ok", FinishReason: FinishStop, Carriers: []event.Carrier{{
+			Family: "p", Model: "m", Kind: "thinking", Replayable: true, Raw: []byte(raw),
+		}}}, nil
+	}}
+	f.run(t)
+	return f
+}
+
+// TestCarrierNonOpaqueDataScanned (SEC8-10): `data` is opaque only for a
+// redacted_thinking block; elsewhere it is plaintext.
+func TestCarrierNonOpaqueDataScanned(t *testing.T) {
+	t.Parallel()
+	f := runCarrier(t, `{"type":"text","data":"the key is sk-secret"}`)
+	if len(f.carriers.saved) != 0 {
+		t.Fatalf("secret under non-opaque data persisted: %+v", f.carriers.saved)
+	}
+}
+
+// TestCarrierSecretInKeyDropped (SEC8-10): object key names are scanned too.
+func TestCarrierSecretInKeyDropped(t *testing.T) {
+	t.Parallel()
+	f := runCarrier(t, `{"type":"reasoning","the key is sk-secret":"v","encrypted_content":"CIPHER"}`)
+	if len(f.carriers.saved) != 0 {
+		t.Fatalf("secret in a key name persisted: %+v", f.carriers.saved)
+	}
+}
+
+// TestCarrierOpaquePairsKept (SEC8-10): the exact opaque pairs are not
+// scanned, so a signature-like value in redacted_thinking.data is kept.
+func TestCarrierOpaquePairsKept(t *testing.T) {
+	t.Parallel()
+	f := runCarrier(t, `{"type":"redacted_thinking","data":"the key is sk-secret"}`)
+	if len(f.carriers.saved) != 1 {
+		t.Fatalf("opaque pair dropped: %+v", f.carriers.saved)
+	}
+}

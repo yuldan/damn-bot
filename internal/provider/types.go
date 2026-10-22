@@ -57,6 +57,12 @@ func (k CarrierKind) Valid() bool {
 	return false
 }
 
+// Carrier size bounds (SEC8-5): one block and all blocks of one message.
+const (
+	MaxCarrierBytes = 256 << 10
+	MaxMessageBytes = 1 << 20
+)
+
 // Carrier is one opaque reasoning block; Raw is the exact wire JSON object.
 type Carrier struct {
 	Family, Model string

@@ -355,3 +355,37 @@ func TestCarrierRejectedNotReplayed(t *testing.T) {
 		t.Fatalf("rejected carrier replayed: %s", body)
 	}
 }
+
+// TestCarrierNestedRedactionDropsBytes (SEC8-8): nested summary/detail text
+// containing a secret drops the carrier before persistence; no bytes reach
+// the DB/WAL and nothing is loaded for replay.
+func TestCarrierNestedRedactionDropsBytes(t *testing.T) {
+	t.Parallel()
+	const secret = "sk-abcdefghijklmnopqrstuvwxyz012345"
+	reasoning := fmt.Sprintf(`{"type":"reasoning","encrypted_content":"CIPHER","summary":[{"type":"summary_text","text":"the key is %s"}],"extra":{"detail":"the key is %s"}}`, secret, secret)
+	srv := providertest.New(t, nil, carrierReplyValue(reasoning))
+	dir := t.TempDir()
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(cfg, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	code := run([]string{
+		"run", "-p", "hi", "--model", "openai/gpt-fake", "--base-url", srv.URL,
+		"--data-dir", dir, "--config", cfg, "--output", "json",
+	}, &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d; stdout %s; stderr %s", code, out.String(), errb.String())
+	}
+	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: dir, Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Errorf("close ctxdb: %v", cerr)
+		}
+	}()
+	assertNoCarrierRows(t, db, secret)
+	assertNoSecretBytes(t, dir, secret)
+}

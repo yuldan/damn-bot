@@ -3,7 +3,8 @@
 # ADR-110 (amandemen REVIEW-F1-SEC8 LP8-16..20): loop 1500 -> 1800 (pairing setiap hasil tool +
 # redaksi lintas-delta; terukur 1.757; Σ core 35.200 -> 35.500 <= 47.000).
 # ADR-131 amandemen round 2: loop 1800 -> 1900 (persist/reject carrier; terukur 1851; Σ core +100).
-loop              1900 internal/loop
+# ADR-131 SEC8-10: loop 1900 -> 1950 (pemindaian carrier rekursif + key names; terukur 1913).
+loop              1950 internal/loop
 plan               600 internal/plan
 # ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
 provider          2100 internal/provider

@@ -225,10 +225,7 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 		return &o, true
 	}
 	t.addUsage(&reply.Usage)
-	// Redacted reasoning drops its carriers before persistence (SEC8-3).
-	if reply.ReasoningText != "" && t.redact(reply.ReasoningText) != reply.ReasoningText {
-		reply.Carriers = nil
-	}
+	reply.Carriers, reply.CarrierDrops = t.filterCarriers(reply.Carriers, reply.CarrierDrops, reply.ReasoningText)
 	if len(reply.RejectedCarriers) > 0 && t.deps.Carriers != nil {
 		if err := t.deps.Carriers.RejectCarriers(context.WithoutCancel(ctx), t.sessionID, reply.RejectedCarriers, "invalid_signature"); err != nil {
 			o := t.fail(ctx, event.DetailInternal, err)
@@ -479,6 +476,85 @@ func (t *turn) append(ctx context.Context, ev *event.Event) (int64, error) {
 		return 0, fmt.Errorf("loop: store append: %w", err)
 	}
 	return id, nil
+}
+
+// filterCarriers drops every carrier whose plaintext strings (recursively,
+// skipping opaque fields) the redactor would change, or all carriers when
+// ReasoningText itself was redacted (SEC8-3/8).
+func (t *turn) filterCarriers(cs []event.Carrier, drops []event.CarrierDrop, reasoning string) ([]event.Carrier, []event.CarrierDrop) {
+	if len(cs) == 0 {
+		return cs, drops
+	}
+	all := reasoning != "" && t.redact(reasoning) != reasoning
+	keep, dropped := cs[:0], 0
+	for i := range cs {
+		if all || t.carrierHasSecret(&cs[i]) {
+			dropped++
+			continue
+		}
+		keep = append(keep, cs[i])
+	}
+	if dropped == 0 {
+		return cs, drops
+	}
+	return keep, append(drops, event.CarrierDrop{Reason: "redacted", Count: dropped})
+}
+
+// carrierHasSecret walks every string of the carrier JSON, skipping opaque
+// fields whose ciphertext is not model-visible text.
+func (t *turn) carrierHasSecret(c *event.Carrier) bool {
+	var v any
+	if json.Unmarshal(c.Raw, &v) != nil {
+		return false
+	}
+	hit := false
+	t.walkCarrier(v, func(s string) {
+		if t.redact(s) != s {
+			hit = true
+		}
+	})
+	return hit
+}
+
+// walkCarrier visits every string and key name, skipping the exact opaque
+// (block type, field) pairs (SEC8-10).
+func (t *turn) walkCarrier(v any, visit func(string)) {
+	switch x := v.(type) {
+	case string:
+		visit(x)
+	case []any:
+		for _, e := range x {
+			t.walkCarrier(e, visit)
+		}
+	case map[string]any:
+		typ := ""
+		if s, ok := x["type"].(string); ok {
+			typ = s
+		}
+		for k, e := range x {
+			visit(k)
+			if opaqueCarrierField(typ, k) {
+				continue
+			}
+			t.walkCarrier(e, visit)
+		}
+	}
+}
+
+// opaqueCarrierField skips only the exact (block type, field) pairs that are
+// ciphertext, not model-visible text (SEC8-10).
+func opaqueCarrierField(blockType, field string) bool {
+	switch field {
+	case "thought_signature", "reasoning_opaque":
+		return true
+	case "encrypted_content":
+		return blockType == "reasoning"
+	case "data":
+		return blockType == "redacted_thinking"
+	case "signature":
+		return blockType == "thinking" || blockType == "redacted_thinking"
+	}
+	return false
 }
 
 func carrierRefs(cs []event.Carrier) []event.CarrierRef {
