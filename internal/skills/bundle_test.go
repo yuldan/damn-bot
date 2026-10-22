@@ -7,7 +7,11 @@ import (
 <<<<<<< HEAD
 	"runtime"
 =======
+<<<<<<< HEAD
 >>>>>>> 266c63bf (feat(skills): skill bundles and bundles CLI (ADR-169))
+=======
+>>>>>>> 384dd4ea (feat(skills): skill bundles and bundles CLI (ADR-169))
+>>>>>>> 10e09df9 (feat(skills): skill bundles and bundles CLI (ADR-169))
 	"testing"
 )
 
@@ -36,7 +40,11 @@ func TestBundleRoundTrip(t *testing.T) {
 	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 =======
 	if err != nil || fi.Mode().Perm() != 0o600 {
+<<<<<<< HEAD
 >>>>>>> 266c63bf (feat(skills): skill bundles and bundles CLI (ADR-169))
+=======
+>>>>>>> 384dd4ea (feat(skills): skill bundles and bundles CLI (ADR-169))
+>>>>>>> 10e09df9 (feat(skills): skill bundles and bundles CLI (ADR-169))
 		t.Fatalf("mode = %v, want 0600", fi.Mode().Perm())
 	}
 	out, err := LoadBundles(path)
