@@ -15,7 +15,9 @@ netx              1800 internal/netx
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).
 # ADR-173: tools 2200 -> 2500 (skills_list/skill_view/skill_manage; terukur 2263 setelah lapisan baca; Σ core 38.090 -> 38.390 <= 47.000).
-tools             2500 internal/tools
+# ADR-147: tools 2200 -> 2500 (tool memory + session_search; terukur 2397; Σ core +300).
+# ADR-177: gabungan ADR-173 + ADR-147 -> tools 2600 (terukur 2315 + 2397 ≈ 2550; batas 2600); Σ core 38.450 -> 38.550 <= 47.000.
+tools             2600 internal/tools
 # ADR-111: codetools 4500 -> 4800 (perbaikan REVIEW-F1-SEC2; Σ core 33.900 -> 34.200 <= 47.000).
 # ADR-108: codetools 4800 -> 5250 (prefilter CT-01..03; Σ core 34.200 -> 34.650 <= 47.000).
 # ADR-108 amendment: codetools 5250 -> 5350 (open relatif fd direktori + deny pruning; terukur 5.292; Σ core 34.900 -> 35.000 <= 47.000).

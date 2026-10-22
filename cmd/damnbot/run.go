@@ -341,9 +341,15 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		return nil, fail(fmt.Errorf("shell tool: %w", err))
 	}
 	skillsMgr := newSkillManager(db)
+	memSvc, merr := newMemoryService(db, red)
+	if merr != nil {
+		return nil, fail(merr)
+	}
 	list := tools.FileTools(engine, sb)
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
-		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr))
+		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr),
+		tools.NewMemory(&memoryToolBackend{svc: memSvc, db: db}),
+		tools.NewSessionSearch(ctxSearch{db: db}))
 	reg, err := tools.NewRegistry(list...)
 	if err != nil {
 		return nil, fail(fmt.Errorf("registry: %w", err))
