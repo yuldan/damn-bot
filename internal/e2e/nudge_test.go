@@ -1,48 +1,47 @@
 package e2e
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
 
-// TestMemoryNudge (MEM-003): after ten user turns the next resumed request
-// carries the memory nudge in the frozen context facts.
+// nudgeText is the exact memory reminder (MEM-003).
+const nudgeText = "memory_nudge=consider storing durable facts with the memory tool"
+
+// TestMemoryNudge (MEM-003): the memory nudge lands in the frozen context facts
+// of the 10th and 20th user turn of a resumed session and of no other turn, and
+// it costs no provider call (exactly one request per turn). Every turn is a
+// fresh process, so the count is read back from the stored transcript.
 func TestMemoryNudge(t *testing.T) {
 	t.Parallel()
-	replies := make([]providertest.Reply, 11)
+	const turns = 21
+	replies := make([]providertest.Reply, turns)
 	for i := range replies {
 		replies[i] = providertest.Text("ok")
 	}
 	e := New(t, replies...)
-	e.Run("turn 1").RequireOK(t)
-	for i := 2; i <= 11; i++ {
-		e.Run("turn "+itoa(i), "--continue").RequireOK(t)
+	for i := 1; i <= turns; i++ {
+		var extra []string
+		if i > 1 {
+			extra = []string{"--continue"}
+		}
+		e.Run(fmt.Sprintf("turn %d", i), extra...).RequireOK(t)
 	}
-	last := len(e.Requests()) - 1
-	if !e.Contains(t, last, "memory_nudge") {
-		t.Errorf("request %d lacks the memory nudge:\n%s", last, e.RequestText(t, last))
+	reqs := e.Requests()
+	if len(reqs) != turns {
+		t.Fatalf("got %d provider requests for %d turns; the nudge must not add calls", len(reqs), turns)
 	}
-	if e.Contains(t, 1, "memory_nudge") {
-		t.Error("nudge appeared before the interval")
+	for i, body := range reqs {
+		turn := i + 1
+		got := strings.Contains(string(body), nudgeText)
+		if want := turn%10 == 0; got != want {
+			t.Errorf("turn %d: nudge=%v, want %v", turn, got, want)
+		}
 	}
-	if !strings.Contains(e.RequestText(t, last), "turn 11") {
-		t.Error("last prompt not present")
+	if !strings.Contains(string(reqs[9]), "turn 10") || !strings.Contains(string(reqs[20]), "turn 21") {
+		t.Error("request bodies do not carry the prompts they answered")
 	}
-}
-
-// itoa formats a small int without importing strconv in the test file.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b [4]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
 }
