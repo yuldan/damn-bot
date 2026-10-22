@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/damnbot/damnbot/internal/budget"
+	"github.com/damnbot/damnbot/internal/compaction"
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/ctxdb/limitstore"
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/providertest"
@@ -32,6 +36,11 @@ func TestRunCompactionSummary(t *testing.T) {
 	const sid = "compact"
 	model := compactionModel(t, srv.URL, db, sid)
 	seedLongSession(ctx, t, db, sid)
+	// The loop window now comes from the model-limits path (ADR-163/#250):
+	// persist a learned 12K window so this fixture still crosses compact_at.
+	if err := (limitstore.Store{DB: db}).Save(ctx, "openai", "gpt-fake", 12_000, "learned", 1); err != nil {
+		t.Fatalf("seed learned window: %v", err)
+	}
 	cfg := config.Default()
 	cfg.Loop.TurnMaxInputTok = 12_000
 	cfg.Loop.MaxIterations = 2
@@ -156,5 +165,48 @@ func assertSummaryRequest(t *testing.T, raw []byte) {
 	}
 	if strings.Contains(final, "SUMMARY_MARKER") {
 		t.Error("summarised raw content leaked into the request")
+	}
+}
+
+// denyChecker denies every call at the daily cap.
+type denyChecker struct{}
+
+func (denyChecker) Check(context.Context, budget.Request) (budget.Decision, error) {
+	return budget.Decision{
+		Allowed: false, Reason: budget.ReasonDaily, Cap: budget.CapDaily,
+		LimitMicros: 1_000_000, UsedMicros: 1_000_000,
+	}, nil
+}
+
+// TestCompactionSummaryBudgetDenied (W6 + budget wiring): the stage-2 summary
+// call goes through the same provider client as the turn, so a guard-denied
+// route fails the compaction call with the typed budget error and sends no
+// request — the summary is never produced off-budget.
+func TestCompactionSummaryBudgetDenied(t *testing.T) {
+	t.Parallel()
+	srv := providertest.New(t, nil, providertest.Text(summaryReply))
+	n := netx.New(netx.Config{})
+	t.Cleanup(n.CloseIdleConnections)
+	client, err := provider.NewOpenAI(n.Client("provider", netx.Inference), &provider.Config{
+		Routes: []provider.Route{{Provider: "fake", Model: "M", BaseURL: srv.URL, APIKey: "sk-test", ContextWindow: 128_000}},
+		Guard:  denyChecker{},
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAI: %v", err)
+	}
+	sum := &compactionSummarizer{
+		prov:     &providerAdapter{client: client, model: "fake/M", provider: "fake"},
+		provider: "fake", model: "fake/M",
+		red: redact.New(redact.Options{}),
+	}
+	_, err = sum.Summarize(t.Context(), &compaction.SummaryRequest{
+		SessionID: "s", System: "summarise", Input: "earlier turns", MaxTokens: 100,
+	})
+	var denied *budget.DeniedError
+	if !errors.As(err, &denied) || denied.Reason != budget.ReasonDaily {
+		t.Fatalf("Summarize = %v, want budget.DeniedError/%s", err, budget.ReasonDaily)
+	}
+	if n := len(srv.Requests()); n != 0 {
+		t.Fatalf("provider requests = %d, want 0 (guard denied before send)", n)
 	}
 }

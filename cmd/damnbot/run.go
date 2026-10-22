@@ -197,7 +197,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		return 0, err
 	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
-	window, err := compactionWindow(ctx, model.db, provName, modelName, int64(cfg.Loop.TurnMaxInputTok))
+	window, err := compactionWindow(ctx, model.db, provName, modelName)
 	if err != nil {
 		return 0, err
 	}

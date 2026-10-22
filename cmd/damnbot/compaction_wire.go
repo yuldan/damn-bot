@@ -124,13 +124,11 @@ type compactionView interface {
 var _ compactionView = (*compaction.Compactor)(nil)
 
 // compactionWindow resolves the loop window through the model-limits path
-// (config → registry → discovery → learned → fallback).
-func compactionWindow(ctx context.Context, db *ctxdb.Store, prov, model string, configured int64) (int64, error) {
-	cfg := map[string]int64{}
-	if configured > 0 {
-		cfg[prov+"/"+model] = configured
-	}
-	lim, err := registry.NewLimits(cfg, nil, limitstore.Store{DB: db}, nil)
+// (config → registry → discovery → learned → 32 768 fallback). The input cap
+// (loop.turn_max_input_tok) is not a window source; it stays the loop's
+// MaxInputTokens and the route's ContextWindow.
+func compactionWindow(ctx context.Context, db *ctxdb.Store, prov, model string) (int64, error) {
+	lim, err := registry.NewLimits(nil, nil, limitstore.Store{DB: db}, nil)
 	if err != nil {
 		return 0, fmt.Errorf("limits: %w", err)
 	}
