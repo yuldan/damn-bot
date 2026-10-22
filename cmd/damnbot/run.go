@@ -340,8 +340,14 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, fail(fmt.Errorf("shell tool: %w", err))
 	}
+	//nolint:contextcheck // skills.Config.Known has no ctx parameter.
+	skillsMgr, err := newSkillManager(db, configDir, red)
+	if err != nil {
+		return nil, fail(err)
+	}
 	list := tools.FileTools(engine, sb)
-	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil))
+	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
+		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
 	reg, err := tools.NewRegistry(list...)
 	if err != nil {
 		return nil, fail(fmt.Errorf("registry: %w", err))

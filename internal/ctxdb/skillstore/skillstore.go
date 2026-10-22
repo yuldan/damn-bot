@@ -368,3 +368,37 @@ func ftsQuery(text string) string {
 	terms[len(terms)-1] += "*"
 	return strings.Join(terms, " ")
 }
+
+// SourceOf returns the winning stored source for name. A non-agent row wins
+// so an agent-authored skill can never shadow or overwrite a trusted one.
+func SourceOf(ctx context.Context, s *ctxdb.Store, name string) (string, bool, error) {
+	var source string
+	err := s.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT source FROM skills WHERE name = ?1 ORDER BY CASE WHEN source = 'agent' THEN 1 ELSE 0 END, id LIMIT 1`, []any{name}, &source)
+	})
+	if errors.Is(err, ctxdb.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("skillstore source: %w", err)
+	}
+	return source, true, nil
+}
+
+// Delete removes agent-authored rows by name; trusted/builtin rows are never
+// deleted by the agent tool. Missing means ErrNotFound.
+func Delete(ctx context.Context, s *ctxdb.Store, name string) error {
+	var n int64
+	err := s.Write(ctx, func(tx *ctxdb.Tx) error {
+		var xerr error
+		n, xerr = tx.Exec(`DELETE FROM skills WHERE name = ?1 AND source = 'agent'`, name)
+		return xerr //nolint:wrapcheck // wrapped below
+	})
+	if err != nil {
+		return fmt.Errorf("skillstore delete: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("%w: skill %s", ErrNotFound, name)
+	}
+	return nil
+}

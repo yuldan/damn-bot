@@ -3233,3 +3233,29 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 **Dampak terukur (SPEC §20).** Dependency 0, migrasi 0, token prompt 0, perubahan indeks 0 (hanya ekspresi kueri). LOC `ctxdb/memstore` 485/600 dan `ctxdb` 3.429/3.500 (tanpa perubahan `loc.budget`). Biaya kueri: satu MATCH dengan OR dan `bm25` pada kandidat; LIMIT 10 per retrieval.
 
 **Konsekuensi.** (+) Kueri natural bahasa manusia dapat menemukan fakta yang relevan; operator FTS tetap tidak dapat disuntikkan user. (−) Kandidat bisa lebih banyak pada korpus besar (term umum seperti "my"); `bm25` + LIMIT menahan biaya, tetapi kualitas ranking bergantung pada tokenisasi unicode61 (tanpa stopword removal).
+
+## ADR-151 — Skill tools: `skills_list`, `skill_view`, `skill_manage`
+
+**Status:** Accepted 2026-10-23 (F2; TOOL-074/075/076, SKILL-002, EC-CTX-006). Budget `tools` 2.200 → 2.500 (+300); dependency 0; DDL 0 (`ctxdb/skillstore` sudah ada, ADR-074).
+
+**Konteks.** Agent hanya dapat menyelesaikan instruksi skill bila dapat menemukan dan memuatnya, tetapi hasil `skill_view` adalah data pihak ketiga dan `skill_manage` menulis file yang dieksekusi kemudian. Skillstore sudah menyimpan metadata + status review; lapisan tools belum ada.
+
+**Keputusan.**
+1. **Tiga tool.** `skills_list` (read-only, metadata ringkas), `skill_view` (read-only; `SKILL.md` + file pendukung), `skill_manage` (`create`/`update`/`delete`, efek `non_idempotent`, selalu melalui approval kecuali mode yolo). `skills_list` mengembalikan hanya skill yang lolos review; skill terkarantina tidak terlihat.
+2. **Untrusted.** `skill_view` menandai hasilnya `UntrustedSource = "skill:<name>"`; dispatcher membungkusnya sebagai `<untrusted>` seperti output file/web. Instruksi di dalam skill tidak pernah menjadi system/developer message.
+3. **Tidak ada auto-approve.** `skill_manage` menulis `SKILL.md` dengan front matter (`name`, `description`, `side_effects`, `requires`), lalu memanggil `skills.Service.Install`; skill agent selalu masuk karantina (`scanned`/`rejected`), termasuk skill dengan `side_effects: [payment]`. Hanya approval user yang mengeluarkannya. `delete` hanya menghapus baris `source='agent'` dan direktori `<config>/skills/<name>`; skill trusted/builtin tidak dapat dihapus.
+4. **Filesystem/validasi.** Nama divalidasi `^[a-z0-9][a-z0-9._-]{0,63}$`; file relatif ditolak bila absolut, `..`, atau path kosong; tulis baca memakai `os.Root` agar tidak keluar dari direktori skill; body/front matter divalidasi oleh parser skills yang sama; batas `skills_list` 400 baris/50 item.
+5. **EC-CTX-006.** Hasil `skill_view` yang dipangkas menjadi stub kanonik berawalan `[SKILL_PRUNED]`; model tidak boleh menganggap isi skill masih termuat setelah dipangkas.
+6. **Test.** Unit tools (list metadata, untrusted view, not_found, efek non-idempotent, tidak ada auto-approve), manager (karantina → approval user → view; skill terkarantina tidak muncul di list dan view-nya `not_found`; delete hanya agent; trusted tidak dapat ditimpa/dihapus), e2e binary (list/view nyata dengan fixture approved dan pembungkusan `<untrusted>`), `TestEdgeCases/EC-CTX-006`.
+
+**Konsekuensi.** (+) Skill dapat ditemukan/dimuat secara eksplisit; konten tetap data dan approval tetap milik user. (+) Tanpa storage baru. (−) `skill_manage` membutuhkan approval sehingga tidak tersedia pada run headless non-interaktif (fail closed); `skill_view` menambah token sesuai file yang diminta (dibatasi 32 KiB/20 file).
+
+## ADR-152 — `[SKILL_PRUNED]`: stub kanonik untuk hasil `skill_view` yang dipangkas
+
+**Status:** Accepted 2026-10-23 (F2; EC-CTX-006). Tanpa budget/dependency/DDL baru; hanya marker pada stub prune yang sudah ada.
+
+**Konteks.** EC-CTX-006: setelah compaction memangkas hasil `skill_view`, model dapat mengira instruksi skill masih ada di konteks dan menjalankannya dari ingatan, atau sebaliknya kehilangan penanda bahwa konten pernah dimuat. Stub generik `[pruned: ...]` tidak membedakan hasil tool biasa dari dokumen skill.
+
+**Keputusan.** Stub hasil `skill_view` yang dipangkas diawali marker kanonik `[SKILL_PRUNED]` diikuti metadata stub yang sudah ada (`chars`, `blob`, `recall`); tidak ada ringkasan isi. View baru atau `skill_view` ulang memuat konten lagi. Marker diuji oleh `TestEdgeCases/EC-CTX-006`; dokumentasi EDGE-CASES menandai entri `ya`.
+
+**Konsekuensi.** (+) Model dapat membedakan skill yang dipangkas dan memuat ulang secara eksplisit. (+) Satu jalur prune, tanpa storage/token tambahan. (−) Tidak ada jaminan model memuat ulang; itu perilaku model, bukan invariant.
