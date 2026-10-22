@@ -2474,6 +2474,8 @@ theme    = "tern-dark"
 level = "info"
 ```
 
+Section `[skills]` di luar contoh (ADR-168): `inline_shell` (default `false`) mengizinkan span `` `!command` `` di SKILL.md dieksekusi saat skill dimuat, hanya untuk sumber trusted (user/builtin), timeout 5 s, output ≤ 4 KiB; saat `false` span tersebut gagal-tertutup (`inline_shell_disabled`). Variabel template `${SKILL_DIR}`, `${SKILL_NAME}`, `${PROJECT_DIR}`, `${HOME}`, `${OS}` selalu disubstitusi.
+
 Provider custom & modul (setiap section modul ≤ 10 baris; key lengkap via `damnbot config schema <module>`, dibangkitkan dari struct Go):
 
 ```toml

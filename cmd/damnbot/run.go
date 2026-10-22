@@ -326,7 +326,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		}
 		return closeDB(ctx, db, cause)
 	}
-	allow, monetary, err := shellGate(cfg, configDir)
+	allow, monetary, err := shellGate(ctx, cfg, configDir, cwd, home)
 	if err != nil {
 		return nil, fail(err)
 	}
@@ -383,12 +383,12 @@ func newRunSession(ctx context.Context, db *ctxdb.Store, modelRef string) (sid, 
 
 // shellGate builds the shell_allow list and the payment-skill gate
 // directories for one run (fail closed on a skill error).
-func shellGate(cfg *config.Config, configDir string) ([]classify.AllowEntry, []string, error) {
+func shellGate(ctx context.Context, cfg *config.Config, configDir, cwd, home string) ([]classify.AllowEntry, []string, error) {
 	allow := make([]classify.AllowEntry, 0, len(cfg.Approval.ShellAllow))
 	for _, argv := range cfg.Approval.ShellAllow {
 		allow = append(allow, classify.AllowEntry(argv))
 	}
-	monetary, err := paymentSkillDirs(configDir)
+	monetary, err := paymentSkillDirs(ctx, configDir, skillLoadOptions{InlineShell: cfg.Skills.InlineShell, ProjectDir: cwd, Home: home})
 	if err != nil {
 		return nil, nil, err
 	}
