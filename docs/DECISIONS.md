@@ -3235,6 +3235,25 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Konsekuensi.** (+) Kueri natural bahasa manusia dapat menemukan fakta yang relevan; operator FTS tetap tidak dapat disuntikkan user. (−) Kandidat bisa lebih banyak pada korpus besar (term umum seperti "my"); `bm25` + LIMIT menahan biaya, tetapi kualitas ranking bergantung pada tokenisasi unicode61 (tanpa stopword removal).
 
+## ADR-144 — Gate CI GAP-SEC-26 (`skill-refs`) dan GAP-REL-04 (`sqlite-engine`, 8 target E-39)
+
+**Status:** Accepted 2026-10-22 (delegasi; melengkapi ADR-132/REL-04 dan ADR-133/SEC-26). Diterapkan di PR CI-job F2.
+
+**Aturan penerapan.** Teks diterapkan (2026-10-22): `internal/skills/builtin_test.go` (`TestBuiltinSkillRefs`), target `Makefile` `skill-refs`/`sqlite-engine`/`sqlite-engine-cross`, job `.github/workflows/ci.yml`, `ci-required.needs`, dan kasus `scripts/ci-meta-test.sh`. Mengutip SPEC §22.1 (GAP-SEC-26, GAP-REL-04) dan ADR-073 butir 2.
+
+**Konteks.** SPEC §22.1 menuntut (a) CI "0 referensi skill/path menggantung di skill bawaan" dan (b) job `sqlite-engine` di 8 target rilis kanonik E-39 dengan `sqlite_version()` ≥ 3.51.3 + probe FTS5/trigram/`json_valid`. Keduanya belum punya job: `TestSQLiteEngineVersion` hanya berjalan di job `test` berrunner (6 target), dan aturan referensi skill hanya ada sebagai `Lint` saat install tanpa korpus bawaan. ADR-073 butir 2 mewajibkan setiap job baru punya ≥ 1 kasus di `scripts/ci-meta-test.sh`.
+
+**Keputusan.**
+1. **`skill-refs` (SEC-26).** `TestBuiltinSkillRefs` memindai `<repo>/skills/**/SKILL.md`, mem-parse sebagai `SourceBuiltin`, membangun `Known` dari seluruh nama skill bawaan, lalu menjalankan `Lint` per skill lewat `os.Root.FS()` (symlink keluar direktori ditolak). Error `invalid_skill` (requires/`skill://`/path script menggantung, skill mainnet bawaan) atau temuan `high` menggagalkan job. Korpus bawaan belum ada, sehingga gate hijau tapi bersenjata; meta-test menyuntikkan `skills/meta/SKILL.md` dengan `requires: [missing-skill]` dan mewajibkan penanda `SKILL-REFS GAGAL`.
+2. **`sqlite-engine` (REL-04).** Job matrix 8 entri = 8 target E-39. Enam target berrunner menjalankan `make sqlite-engine` native (`go test -run '^TestSQLiteEngineVersion$' ./internal/ctxdb`: versi ≥ 3.51.3, FTS5, contentless_delete, trigram, json). `linux/arm` dan `android/arm64` tidak punya runner; leg-nya menjalankan `make sqlite-engine-cross` (cross-compile test binary) sampai eksekusi QEMU menjadi item F9 (ADR-073 menunda 2 target QEMU). Cakupan 8 target karena itu eksplisit di matrix, dengan batas runtime yang jujur dicatat.
+3. **Meta-test (ADR-073 butir 2).** Kedua gate masuk `GATES`/`target`/`marker`/`inject` di `scripts/ci-meta-test.sh`: `sqlite-engine` menyuntikkan `MinSQLiteVersion = "99.0.0"` (penanda `does not satisfy REL-04`), `skill-refs` menyuntikkan skill bawaan menggantung (penanda `SKILL-REFS GAGAL`). Baseline wajib lulus, salinan pelanggaran wajib gagal dengan penanda itu.
+4. **Agregasi.** Kedua job mengikuti path filter `code` yang sama dan masuk `ci-required.needs`, sehingga status wajib tetap satu (ADR-135 butir 2/5).
+5. **Dampak ukuran.** Tidak ada perubahan `loc.budget`: perubahan berupa test, target Makefile, workflow, dan skrip meta-test. Binary/dependency/token 0.
+
+**Dampak terukur (SPEC §20).** LOC `internal/skills` +≈100 (test), Makefile/workflow/skrip tanpa LOC Go. Job baru: `skill-refs` 1 leg (≈ 20 s), `sqlite-engine` 8 leg (6 × test engine cepat + 2 cross-compile); keduanya < 10 menit dan memakai cache Go yang sama.
+
+**Konsekuensi.** (+) Regresi referensi skill bawaan dan engine SQLite di setiap target E-39 tertangkap di PR, bukan setelah rilis; kedua gate tidak bisa dilemahkan tanpa memecahkan meta-test. (−) Dua target hanya dikompilasi sampai F9; versi engine di sana dibuktikan oleh source yang sama, bukan eksekusi.
+
 ## ADR-163 — Tindak lanjut review F2: EC-CTX-007 (direktif MEDIA), tie-break recall, dan bukti GAP-COST-04
 
 **Status:** Accepted 2026-10-22 (delegasi; menutup ACC-6, ACC-12, dan GAP-COST-04 dari review PR #249/#251/#250). Diterapkan di PR tindak lanjut F2.
