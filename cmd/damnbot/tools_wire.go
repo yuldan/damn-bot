@@ -16,6 +16,7 @@ import (
 	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
+	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/tools"
@@ -175,6 +176,7 @@ type runWiring struct {
 	runner   *exec.Runner
 	sessions *exec.Sessions
 	registry *tools.Registry
+	modules  runModules
 	sid      string
 	cwd      string
 	fail     func(error) error
@@ -259,7 +261,11 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	}
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
-	reg, err := tools.NewRegistry(list...)
+	started.modules, err = newRunModules(modules.Default(), nil)
+	if err != nil {
+		return nil, fail(err)
+	}
+	reg, err := tools.NewRegistry(append(list, started.modules.meta...)...)
 	if err != nil {
 		return nil, fail(fmt.Errorf("registry: %w", err))
 	}
@@ -269,6 +275,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		runner:    runner,
 		sessions:  sessions,
 		registry:  reg,
+		modules:   started.modules,
 		sid:       sid,
 		cwd:       cwd,
 		fail:      fail,
