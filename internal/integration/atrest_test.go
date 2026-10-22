@@ -623,3 +623,24 @@ func TestEncryptedSkillSearchOperatorsAndCJK(t *testing.T) {
 		}
 	}
 }
+
+func TestFTSReindexPreservesEncryptedBlindIndex(t *testing.T) {
+	dir := t.TempDir()
+	s := openEncrypted(t, dir)
+	sessionID := "S"
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, ctxdb.Session{ID: sessionID, Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(ctx, sessionID, nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "encrypted reindex canonical", Payload: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReindexFTS(ctx, 2); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := s.Search(ctx, ctxdb.Query{Text: "canonical", Limit: 5})
+	if err != nil || len(hits) == 0 {
+		t.Fatalf("encrypted reindex search = %+v, %v", hits, err)
+	}
+	closeStore(t, s)
+}

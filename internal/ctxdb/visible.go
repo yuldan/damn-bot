@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // notPurging(col) is the purging(s) filter of §11.6, O(log n) per session
@@ -42,6 +43,16 @@ type RecallHit struct {
 // ftsQuery turns free text into a conservative FTS5 expression: runs of
 // letters/digits become terms and everything else is a separator. CJK runs
 // stay contiguous so dmb_fts_norm can expand them to bigrams.
+// recallExpr adds the one-rune CJK prefix operator (GAP-INF-01); longer
+// terms go through the same bigram normalizer as the index.
+func recallExpr(text string) string {
+	q := ftsQuery(text)
+	if utf8.RuneCountInString(q) == 1 && hasCJK(q) {
+		return `"` + q + `"*`
+	}
+	return q
+}
+
 func ftsQuery(text string) string {
 	var b strings.Builder
 	for _, r := range text {
@@ -75,7 +86,7 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 	if k <= 0 {
 		k = 10
 	}
-	q := ftsQuery(text)
+	q := recallExpr(text)
 	if q == "" {
 		return nil, nil
 	}

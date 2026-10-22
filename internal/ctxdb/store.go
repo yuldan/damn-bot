@@ -101,6 +101,9 @@ func Open(ctx context.Context, o *Options) (*Store, error) {
 	if err == nil {
 		err = s.checkAtRest(ctx)
 	}
+	if err == nil {
+		err = s.ensureFTS(ctx)
+	}
 	if err != nil {
 		if s != nil {
 			err = errors.Join(err, s.close(ctx))
@@ -441,11 +444,17 @@ func keyedFTSExpr(c Codec, expr string) string {
 			out = append(out, part)
 		default:
 			tok := strings.Trim(part, `"`)
+			prefix := strings.HasSuffix(tok, "*")
+			tok = strings.TrimSuffix(tok, "*")
 			fields := strings.FieldsFunc(ftsNorm(tok), func(r rune) bool {
 				return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 			})
-			for _, f := range fields {
-				out = append(out, c.FTS(f))
+			for i, f := range fields {
+				h := c.FTS(f)
+				if prefix && i == len(fields)-1 {
+					h += "*"
+				}
+				out = append(out, h)
 			}
 		}
 	}
@@ -556,5 +565,8 @@ func (s *Store) IntegrityCheck(ctx context.Context) (string, error) {
 	db := sql.OpenDB(connector{d: d, dsn: s.dsn(true)})
 	var res string
 	err = getOne(ctx, db, "PRAGMA integrity_check", nil, &res)
+	if err == nil {
+		err = ClassifyIntegrity(res)
+	}
 	return res, errors.Join(err, wrap(db.Close()))
 }

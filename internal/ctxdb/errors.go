@@ -32,6 +32,8 @@ var (
 	ErrInvalidSeq          = errors.New("invalid_args") // fork seq outside [0, head]
 	ErrEncrypted           = errors.New("encrypted_db")
 	ErrAtRestPlaintext     = errors.New("at_rest_existing_plaintext")
+	ErrFTSCorrupt          = errors.New("fts_corrupt")
+	ErrMigrationFailed     = errors.New("migration_failed")
 )
 
 // SQLite result codes used for classification (sqlite3.h).
@@ -40,6 +42,7 @@ const (
 	codeReadOnly          = 8
 	codeFull              = 13
 	codeCantOpen          = 14
+	codeIOERR             = 10
 	codeConstraintTrigger = 1811
 )
 
@@ -63,6 +66,24 @@ func raiseCode(se *sqlite.Error) error {
 		}
 	}
 	return ErrInternal
+}
+
+// transientIO reports SQLITE_IOERR, the transient reader error a concurrent
+// WAL checkpoint can produce (EC-STATE-001).
+func transientIO(err error) bool {
+	var se *sqlite.Error
+	return errors.As(err, &se) && se.Code()&0xff == codeIOERR
+}
+
+// ClassifyIntegrity maps an integrity_check result line to a typed error.
+// FTS-only corruption is distinct from whole-database corruption (EC-STATE-007).
+func ClassifyIntegrity(res string) error {
+	for line := range strings.Lines(res) {
+		if strings.HasPrefix(strings.TrimSpace(line), "fts5: corruption found") {
+			return ErrFTSCorrupt
+		}
+	}
+	return nil
 }
 
 // classify wraps a driver error with its closed code, keeping the cause.

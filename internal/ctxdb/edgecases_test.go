@@ -35,6 +35,9 @@ func TestStateEdgeCases(t *testing.T) {
 		{"EC-STATE-011", ecState011},
 		{"EC-STATE-013", ecState013},
 		{"EC-STATE-014", ecState014},
+		{"EC-STATE-001", ecState001},
+		{"EC-STATE-007", ecState007},
+		{"EC-STATE-009", ecState009},
 		{"EC-STATE-015", ecState015},
 	}, platformStateCases(g)...)
 	for _, c := range cases {
@@ -268,4 +271,105 @@ func writeGarbage(p string) error {
 		return fmt.Errorf("write malformed db: %w", err)
 	}
 	return nil
+}
+
+// 001: a reader racing a TRUNCATE checkpoint retries transient SQLITE_IOERR
+// instead of surfacing it; the read set stays complete.
+func ecState001(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	session(t, s, "S", "")
+	for i := range 50 {
+		appendMsg(t, s, "S", fmt.Sprintf("checkpoint reader %d", i))
+	}
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_, _ = s.w.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)")
+			}
+		}
+	})
+	for range 100 {
+		if _, err := s.Recall(context.Background(), "checkpoint", 10); err != nil {
+			close(stop)
+			wg.Wait()
+			t.Fatalf("reader during checkpoint: %v", err)
+		}
+	}
+	close(stop)
+	wg.Wait()
+}
+
+// 007: FTS-only corruption is classified separately from whole-DB corruption.
+func ecState007(t *testing.T) {
+	if err := ClassifyIntegrity("ok"); err != nil {
+		t.Fatalf("clean integrity = %v", err)
+	}
+	if err := ClassifyIntegrity("*** in database main ***\nfts5: corruption found in virtual table events_fts"); !errors.Is(err, ErrFTSCorrupt) {
+		t.Fatalf("fts integrity = %v, want ErrFTSCorrupt", err)
+	}
+}
+
+// 009: rebuilding FTS is keyset-batched and resumable, not one full write.
+func ecState009(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	session(t, s, "S", "")
+	for i := range 7 {
+		appendMsg(t, s, "S", fmt.Sprintf("incremental token %d", i))
+	}
+	if err := s.clearFTS(context.Background(), "events_fts"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReindexFTS(context.Background(), 2); err != nil {
+		t.Fatal(err)
+	}
+	hits, err := s.Recall(context.Background(), "incremental", 10)
+	if err != nil || len(hits) != 7 {
+		t.Fatalf("recall after reindex = %d, %v", len(hits), err)
+	}
+	if err := s.ReindexFTS(context.Background(), 2); err != nil {
+		t.Fatal(err)
+	}
+	var version, last int
+	must(t, s.get(context.Background(), `SELECT norm_version, reindexed_to FROM fts_meta WHERE name='events_fts'`, nil, &version, &last))
+	if version != ftsNormVersion || last == 0 {
+		t.Fatalf("fts_meta = version %d last %d", version, last)
+	}
+}
+
+// TestMigrationFailClosed (GAP-REL-05): a failing migration rolls back its
+// transaction, leaves user_version and schema_migrations at N-1, and reports
+// the typed migration failure the CLI maps to exit 78.
+func TestMigrationFailClosed(t *testing.T) {
+	e := newRawEnv(t)
+	migs, err := migrations()
+	must(t, err)
+	last := len(migs)
+	old := e.open(1, "cli", func(o *Options) { o.SchemaMax = last - 1 })
+	must(t, old.Close())
+
+	o := e.opts(2, "cli")
+	st, err := newStore(&o)
+	must(t, err)
+	st.w, st.r, err = st.openHandles(context.Background())
+	must(t, err)
+	defer func() { must(t, st.close(context.Background())) }()
+
+	bad := migration{name: "9999_broken", body: "CREATE TABLE broken(", sum: "bad"}
+	err = st.applyMigration(context.Background(), last, bad)
+	if !errors.Is(err, ErrMigrationFailed) {
+		t.Fatalf("migration error = %v, want ErrMigrationFailed", err)
+	}
+	var version, rows int
+	must(t, getOne(context.Background(), st.r, "PRAGMA user_version", nil, &version))
+	must(t, getOne(context.Background(), st.r, "SELECT count(*) FROM schema_migrations", nil, &rows))
+	if version != last-1 || rows != last-1 {
+		t.Fatalf("after failed migration version=%d rows=%d, want %d", version, rows, last-1)
+	}
 }
