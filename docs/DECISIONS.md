@@ -3285,6 +3285,8 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Test.** `internal/ctxdb`: `TestForkHeadTurnRange`, `TestForkRejectsExcludedMiddle`, `TestForkInheritsIdentity`; `cmd/damnbot`: `TestSessionsFork`, `TestSessionsForkAtAndTurn`, `TestSessionsRewindAppendOnly`, `TestSessionsForkIdentity`, `TestSessionsExcludedTurn`, `TestSessionsErrors`, `TestSessionsOpenTurn`, `TestSessionsCleanErrors`, `TestSessionsSanitizeArgs`, `TestSessionsMissingDataDir` (memanggil `run()` dengan DB nyata dan argumen CLI kanonik; `TestForkRejectsOpenTurn` untuk lapisan store).
 
+**Amandemen 2026-10-23 (LOC).** `make loc` di head PR #227 mengukur `ctxdb` **3.859** baris (batas 3.800), karena `sessions fork/rewind` dibangun di atas jalur baca read-only #203 (SEC13). `loc.budget` `ctxdb` 3.800 → **3.900** (margin 41) dan Total core ENGINEERING §2.4 38.450 → **38.550** (delta Σ core dijumlahkan di atas ADR-173/`tools` yang sudah di `main`); tidak ada perubahan kode pada amandemen ini.
+
 **Konsekuensi.** (+) Rewind tidak pernah menghapus riwayat dan cabang lama tetap ada; titik potong di turn ter-exclude tidak dapat menghidupkan kembali turn gagal tanpa marker. (+) Anak gateway mempertahankan identitas percakapan. (−) `--at N` mentah dapat memotong di tengah turn biasa (termasuk meninggalkan tool call tanpa hasil); gunakan `turn:ID` untuk batas turn. (−) `--restore-files` belum ada sampai perintah `undo` F2/F3 tersedia.
 
 ## ADR-137 — Recall memori: kandidat BM25 lintas term kueri (F2/GAP-INF-06)
