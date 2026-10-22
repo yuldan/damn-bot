@@ -3450,6 +3450,25 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 
 **Konsekuensi.** (+) Guard EC-CTX-017 dan penanda EC-PROV-008 hidup di paket yang memang memiliki guard dan payload event; Σ core tetap jauh di bawah 47.000 (sisa 8.480). (−) Sisa headroom `loop` hanya 49 baris (2.100 − 2.051) untuk lanjutan F2; kenaikan lain di `internal/loop` kembali butuh revisi tabel + ADR.
 
+## ADR-179 — Pengemasan ulang job CI: gate pendek dibundel, shard fuzz berurutan (slot runner)
+
+**Status:** Accepted 2026-10-22 (delegasi owner: "kurangi konsumsi slot runner tanpa mengurangi cakupan tes, dilarang melonggarkan gate, men-skip tes, atau menghapus cakupan"). Mengamandemen ADR-135 butir 3 pada **pengemasan job**; isi gate, tier path, dan daftar konteks wajib tidak berubah.
+
+**Konteks.** Satu PR-run `ci` menjadwalkan 22 instance job (18 definisi + matrix `test` ×3 + shard `fuzz` ×3; main/nightly 25). Dengan pool runner repo privat yang terbatas, banyak job pendek per PR membuat run lain menunggu di antrean (terukur: job `ci-required`/`test` sempat menunggu >15 menit pada 2026-10-22). Sebagian besar job itu hanya 20–120 detik dan tidak saling bergantung: `loc` (20 s), `loc-ratio`, `size-check` (37 s), `deadcode` (39 s), `vet-cross` (2 m 18 s), `build-matrix` (3 m 41 s), `bench-parity` (2 m 13 s), `bench-budget` (38 s), `tidy-check`/`mod-verify`/`deps-check`/`licenses` (36 s), `vuln` (26 s), `perf` (1 m), `coverage` (2 m 31 s). Tiap job juga membayar satu checkout + satu `setup-go` (~30–40 s).
+
+**Keputusan.**
+1. **Gate statis → satu job `static`.** `make loc` (E-19, E-61), `make loc-ratio` (E-70), `make size-check` (E-62), `make deadcode` (E-53) berjalan berurutan dengan satu checkout/setup.
+2. **Portabilitas → satu job `portability`.** `make vet-cross` (ADR-073/AUD-033) + `make build-matrix` (E-39/E-65).
+3. **Benchmark modul → satu job `bench`.** `make bench-parity` (CT-21, korpus C1+C3 tetap di-cache) + `make bench-budget` (NEW2-07).
+4. **Supply chain → satu job `supply`.** `make tidy-check`, `mod-verify`, `deps-check`, `licenses` (E-46/E-47/E-50, ADR-074 AUD-074(a)) + `make vuln` (E-54).
+5. **Cakupan/benchmark absolut/acceptance → satu job `extra`.** `make perf` dijalankan **pertama** (budget absolut, ×1,5 runner bersama, ADR-077/NEW-38) agar diukur sebelum langkah berat lain, lalu gate `PHASE` (ADR-080, `fetch-depth: 0`) dan `make coverage` (E-58/AUD-059).
+6. **Fuzz → satu job.** Tiga shard (`make fuzz SHARD=1/3|2/3|3/3`, FUZZTIME 60 s/target) berjalan berurutan; timeout 15 → 30 menit.
+7. **Yang tidak berubah.** Setiap target Makefile tetap dipanggil tepat sekali dengan perintah, tag, dan variabel yang sama (`make test RACE=…`, `make test-timing`, `make fuzz SHARD=i/3`, …). `lint` (golangci-lint + `vet-custom`) dan `test-timing` tetap job tersendiri: lint untuk umpan balik cepat penulis PR, `test-timing` karena mengukur budget waktu dinding (ADR-048) dan tidak dibagi dengan langkah berat lain. Matrix `test` tetap tinggal matrix (3 target di PR, 6 di main/nightly, ADR-135). `ci-required` tetap ada dengan `needs` yang diperbarui agar tetap menjumlahkan seluruh gate; konteks wajib branch protection (`ci-required`, `meta-test`, `pr-meta`) tidak berubah.
+8. **Tidak diambil — ditolak owner (2026-10-22):** memangkas matrix OS di PR (mis. macOS/Windows hanya bila diff menyentuh kode lintas-OS). Bukti menolak: kegagalan **hanya-Windows** nyata pada PR dokumen (#242, `TestKill9Chaos` "child chaos not ready" di `test (windows-latest)` saat ubuntu/macos hijau). Keputusan owner: **matrix OS per-PR dipertahankan penuh** karena cross-OS per-PR tidak redundan dan memangkasnya akan menyembunyikan kegagalan nyata sebelum merge — yaitu melonggarkan gate. Ini keputusan tetap, bukan sekadar opsi yang ditunda.
+
+**Dampak terukur (SPEC §20).** Job per PR-run: 22 → 13 (−41 %); main/nightly: 25 → 16. Gate Makefile yang hilang: 0 (diverifikasi dengan membandingkan himpunan perintah `make …` kedua versi workflow). Machine-minute ≈ sama atau turun karena setup (checkout + `setup-go`) berkurang 22 → 13 per run. Wall-clock PR tetap dibatasi `test` (timeout 25 m); job baru (`static` ≈ 3 m, `portability` ≈ 6 m, `bench` ≈ 3 m, `supply` ≈ 2 m, `extra` ≈ 5 m, `fuzz` ≈ 12 m) berada di bawahnya.
+
+**Konsekuensi.** (+) Antrean PR turun tajam tanpa kehilangan satu gate pun; (−) satu job bundle berarti satu kegagalan menandai langkahnya di dalam job (nama langkah tetap memuat E-id agar triase secepat job terpisah); (−) `fuzz` menjadi berurutan (wall-clock ~3× shard tunggal) sebagai ganti tiga slot paralel; bila wall-clock itu mengganggu, jalan keluarnya adalah menaikkan `FUZZTIME` per shard atau mengembalikan tiga job — bukan menurunkan FUZZTIME.
 ## ADR-180 — Redaksi artefak bench dan penjaga `bench/h2h/results/**`
 
 **Status:** Accepted 2026-10-22 (security review; menutup kebocoran dari #134 lewat PR #285).
