@@ -17,6 +17,8 @@
 //	            kill_grace_s, env_allow, env, pass_ssh_agent
 //	[agent]     verify_on_stop
 //	[log]       level, message_content, message_content_ttl
+//	[toolsets]  active, disabled, platform.<os>.{active,disabled},
+//	            custom.<name>.{description,tools,includes}
 //
 // Sections owned by later phases ([context], [memory], [recovery], [ui],
 // gateway/cron/module sections, custom providers) are deliberately absent:

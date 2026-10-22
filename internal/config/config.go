@@ -5,6 +5,8 @@ import (
 	"maps"
 	"slices"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/toolset"
 )
 
 // Config is the immutable result of [Loader.Load]. All fields are values; maps
@@ -21,6 +23,9 @@ type Config struct {
 	Sessions Sessions `toml:"sessions"`
 	Log      Log      `toml:"log"`
 	Storage  Storage  `toml:"storage"`
+	// Toolsets is the F2 [toolsets] section (ADR-139). Empty Active keeps the
+	// pre-toolset behaviour: every registered tool is exposed.
+	Toolsets toolset.Config `toml:"toolsets"`
 }
 
 // Skills is SPEC §4.8/§12 [skills]: the local skill sources (SKILL-009/010,
@@ -221,6 +226,28 @@ func (c *Config) Clone() Config {
 	out.Approval.AddDirs = slices.Clone(c.Approval.AddDirs)
 	out.Exec.EnvAllow = slices.Clone(c.Exec.EnvAllow)
 	out.Exec.Env = maps.Clone(c.Exec.Env)
+	out.Toolsets = cloneToolsets(c.Toolsets)
+	return out
+}
+
+func cloneToolsets(in toolset.Config) toolset.Config {
+	out := in
+	out.Active = slices.Clone(in.Active)
+	out.Disabled = slices.Clone(in.Disabled)
+	if in.Platform != nil {
+		out.Platform = make(map[string]toolset.Override, len(in.Platform))
+		for os, ov := range in.Platform {
+			ov.Active, ov.Disabled = slices.Clone(ov.Active), slices.Clone(ov.Disabled)
+			out.Platform[os] = ov
+		}
+	}
+	if in.Custom != nil {
+		out.Custom = make(map[string]toolset.Definition, len(in.Custom))
+		for name, d := range in.Custom {
+			d.Tools, d.Includes = slices.Clone(d.Tools), slices.Clone(d.Includes)
+			out.Custom[name] = d
+		}
+	}
 	return out
 }
 
