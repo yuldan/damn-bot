@@ -50,6 +50,8 @@ type runOptions struct {
 	apiKey           string
 	session          string
 	cont             bool
+	retry            bool
+	noRecap          bool
 	providerAttempts int
 	// eval-only seams (never set by a flag): a provider override (fake or
 	// budget-gated), a per-run config override, and a memory retriever
@@ -76,7 +78,7 @@ func runHeadless(args []string, stdout, stderr io.Writer) int {
 		}
 		return 2
 	}
-	code, err := runOne(context.Background(), &opts, stdout)
+	code, err := runOne(context.Background(), &opts, stdout, stderr)
 	if err != nil {
 		if _, werr := fmt.Fprintf(stderr, "run: %v\n", err); werr != nil {
 			return 2
@@ -107,6 +109,8 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	fs.StringVar(&o.session, "session", "", "resume an existing session id")
 	fs.BoolVar(&o.cont, "continue", false, "continue the newest session in the current directory")
 	fs.BoolVar(&o.cont, "c", false, "alias for --continue")
+	fs.BoolVar(&o.retry, "retry", false, "resend the last user message of the resumed session")
+	fs.BoolVar(&o.noRecap, "no-recap", false, "do not print the resume recap to stderr")
 	fs.IntVar(&o.providerAttempts, "provider-attempts", 0, "internal/test: provider retry attempts (0 = default 3)")
 	if err := fs.Parse(args); err != nil {
 		return runOptions{}, &reportedParseError{err: fmt.Errorf("parse flags: %w", err)}
@@ -119,7 +123,14 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	default:
 		return runOptions{}, fmt.Errorf("invalid --output %q", o.output)
 	}
-	if o.prompt == "" {
+	if o.retry {
+		if o.prompt != "" {
+			return runOptions{}, errors.New("--retry resends the last message; do not pass a prompt")
+		}
+		if o.session == "" && !o.cont {
+			o.cont = true // retry the newest session in this directory
+		}
+	} else if o.prompt == "" {
 		return runOptions{}, errors.New("prompt required")
 	}
 	if o.session != "" && o.cont {
@@ -128,25 +139,10 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	return o, nil
 }
 
-func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err error) {
-	loader, err := config.New(config.OS())
-	if err != nil {
-		return 0, fmt.Errorf("config deps: %w", err)
-	}
-	cfg, err := loadRunConfig(loader, o.configPath)
+func runOne(ctx context.Context, o *runOptions, stdout, stderr io.Writer) (code int, err error) {
+	cfg, dataDir, configDir, home, err := loadRunEnv(o)
 	if err != nil {
 		return 0, err
-	}
-	if o.cfgOverride != nil {
-		cfg = *o.cfgOverride
-	}
-	paths, err := loader.Paths("")
-	if err != nil {
-		return 0, fmt.Errorf("config paths: %w", err)
-	}
-	dataDir := o.dataDir
-	if dataDir == "" {
-		dataDir = paths.DataDir
 	}
 	modelRef := o.model
 	if modelRef == "" {
@@ -157,10 +153,6 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	}
 	red := redact.New(redact.Options{})
 	spill := diskSpill{dir: filepath.Join(dataDir, "run-spill")}
-	configDir, home := paths.ConfigDir, ""
-	if h, herr := os.UserHomeDir(); herr == nil {
-		home = h
-	}
 	model, err := startRunModel(ctx, &cfg, dataDir, modelRef, o, red, spill, configDir, home)
 	if err != nil {
 		return 0, err
@@ -170,10 +162,61 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 			err = fmt.Errorf("close run model: %w", cerr)
 		}
 	}()
+	if err := applyResumeNotes(ctx, o, model, red, stderr); err != nil {
+		return 0, err
+	}
 	if modelRef == "" {
 		modelRef = model.modelRef
 	}
 	return runTurn(ctx, &cfg, o, model, modelRef, red, spill, stdout)
+}
+
+// applyResumeNotes prints the resume recap and resolves --retry to the last
+// user message before the new turn starts.
+func applyResumeNotes(ctx context.Context, o *runOptions, model *runModel, red *redact.Redactor, stderr io.Writer) error {
+	if (o.session != "" || o.cont) && !o.noRecap {
+		if err := printRecap(ctx, model.db, model.sessionID, red, stderr); err != nil {
+			recapPrintf(stderr, "run: recap: %v\n", err)
+		}
+	}
+	if !o.retry {
+		return nil
+	}
+	prompt, err := retryPrompt(ctx, model.db, model.sessionID, red, stderr)
+	if err != nil {
+		return fmt.Errorf("retry: %w", err)
+	}
+	o.prompt = prompt
+	return nil
+}
+
+// loadRunEnv loads the immutable config for one run and resolves the data,
+// config and home directories.
+func loadRunEnv(o *runOptions) (cfg config.Config, dataDir, configDir, home string, err error) {
+	loader, err := config.New(config.OS())
+	if err != nil {
+		return cfg, "", "", "", fmt.Errorf("config deps: %w", err)
+	}
+	cfg, err = loadRunConfig(loader, o.configPath)
+	if err != nil {
+		return cfg, "", "", "", err
+	}
+	if o.cfgOverride != nil {
+		cfg = *o.cfgOverride
+	}
+	paths, err := loader.Paths("")
+	if err != nil {
+		return cfg, "", "", "", fmt.Errorf("config paths: %w", err)
+	}
+	dataDir = o.dataDir
+	if dataDir == "" {
+		dataDir = paths.DataDir
+	}
+	configDir = paths.ConfigDir
+	if h, herr := os.UserHomeDir(); herr == nil {
+		home = h
+	}
+	return cfg, dataDir, configDir, home, nil
 }
 
 func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef string, red *redact.Redactor, spill tools.Spill, stdout io.Writer) (int, error) {

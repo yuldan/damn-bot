@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"strings"
 	"testing"
 
@@ -46,7 +47,7 @@ func TestRunInjectedSeams(t *testing.T) {
 		prompt: "ping", model: "openai/fake", dataDir: t.TempDir(), output: "json", approval: "auto",
 		prov: prov, cfgOverride: &cfg,
 		retrieverFor: func(*ctxdb.Store) assemble.Retriever { return ret },
-	}, &out)
+	}, &out, io.Discard)
 	if err != nil || code != 0 {
 		t.Fatalf("runOne = %d, %v (stdout %s)", code, err, out.String())
 	}
