@@ -133,6 +133,72 @@ func TestCheckpointsClearLegacy(t *testing.T) {
 	}
 }
 
+// TestCheckpointsClearDryRun: --dry-run previews clear and clear-legacy with
+// and without --yes and never deletes (ACC-63).
+func TestCheckpointsClearDryRun(t *testing.T) {
+	t.Parallel()
+	dir := seedCheckpoints(t)
+	legacy := filepath.Join(dir, "checkpoints")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, extra := range [][]string{{}, {"--yes"}} {
+		args := append([]string{"clear", "--dry-run"}, extra...)
+		if code, out, e := runCP(t, append(args, "--data-dir", dir)...); code != 0 || !strings.Contains(out, "would clear 2") {
+			t.Fatalf("clear --dry-run %v = %d %q (%s)", extra, code, out, e)
+		}
+		if code, out, _ := runCP(t, "status", "--data-dir", dir); code != 0 || !strings.Contains(out, "actions: 2") {
+			t.Fatalf("clear --dry-run %v deleted actions (%d):\n%s", extra, code, out)
+		}
+	}
+	if code, out, e := runCP(t, "clear-legacy", "--dry-run", "--yes", "--data-dir", dir); code != 0 || !strings.Contains(out, "would clear legacy") {
+		t.Fatalf("clear-legacy --dry-run = %d %q (%s)", code, out, e)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatalf("clear-legacy --dry-run removed the dir: %v", err)
+	}
+	// Positive control: the real path still deletes.
+	if code, out, e := runCP(t, "clear", "--yes", "--data-dir", dir); code != 0 || !strings.Contains(out, "cleared 2") {
+		t.Fatalf("clear --yes = %d %q (%s)", code, out, e)
+	}
+	if code, out, _ := runCP(t, "status", "--data-dir", dir); !strings.Contains(out, "actions: 0") {
+		t.Fatalf("status after clear = %d:\n%s", code, out)
+	}
+}
+
+// TestCheckpointsSessionScope: --session scopes status/list and is refused by
+// the subcommands that do not implement it, instead of being ignored (ACC-62).
+func TestCheckpointsSessionScope(t *testing.T) {
+	t.Parallel()
+	dir := seedCheckpoints(t)
+	if code, out, e := runCP(t, "status", "--session", "S1", "--data-dir", dir); code != 0 || !strings.Contains(out, "actions: 2") {
+		t.Fatalf("status --session S1 = %d %q (%s)", code, out, e)
+	}
+	if code, out, e := runCP(t, "list", "--session", "S1", "--data-dir", dir); code != 0 || !strings.Contains(out, "/w/new") {
+		t.Fatalf("list --session S1 = %d %q (%s)", code, out, e)
+	}
+	if code, _, e := runCP(t, "status", "--session", "missing", "--data-dir", dir); code == 0 || !strings.HasPrefix(e, "checkpoints status:") {
+		t.Errorf("status --session missing = %d %q, want non-zero with a checkpoints prefix", code, e)
+	}
+	refused := [][]string{
+		{"status", "--limit", "1"},
+		{"clear", "--session", "S1", "--yes"},
+		{"clear", "--limit", "1", "--yes"},
+		{"clear", "--older-than", "1ns", "--yes"},
+		{"prune", "--session", "S1", "--yes"},
+		{"prune", "--limit", "1", "--yes"},
+		{"clear-legacy", "--session", "S1", "--yes"},
+	}
+	for _, args := range refused {
+		if code, _, e := runCP(t, append(args, "--data-dir", dir)...); code != 2 || !strings.Contains(e, "not supported") {
+			t.Errorf("%v = %d %q, want 2 not supported", args, code, e)
+		}
+	}
+	if code, out, _ := runCP(t, "status", "--data-dir", dir); !strings.Contains(out, "actions: 2") {
+		t.Fatalf("refused subcommands changed state = %d:\n%s", code, out)
+	}
+}
+
 // TestMaintenanceGuardFromShellTool: destructive maintenance refuses to run
 // inside a damnbot shell tool (defense in depth, SEC15-2) while dry-runs work.
 func TestMaintenanceGuardFromShellTool(t *testing.T) {

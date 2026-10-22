@@ -43,21 +43,25 @@ func runCheckpoints(args []string, stdout, stderr io.Writer) int {
 }
 
 func checkpointUsage(w io.Writer) {
-	sessionsPrintf(w, "usage: damnbot checkpoints status|list [--limit N] [--session ID]\n")
+	sessionsPrintf(w, "usage: damnbot checkpoints status [--session ID]\n")
+	sessionsPrintf(w, "       damnbot checkpoints list [--limit N] [--session ID]\n")
 	sessionsPrintf(w, "       damnbot checkpoints prune [--older-than 30d] [--dry-run] [--yes]\n")
-	sessionsPrintf(w, "       damnbot checkpoints clear|clear-legacy --yes\n")
+	sessionsPrintf(w, "       damnbot checkpoints clear|clear-legacy [--dry-run] --yes\n")
 }
 
-// checkpointArgs parses flags for the checkpoint subcommands.
+// checkpointArgs parses flags for the checkpoint subcommands. seen records the
+// flags the operator actually passed, so a subcommand can refuse a filter it
+// does not implement instead of silently ignoring it (ACC-62).
 type checkpointArgs struct {
 	dataDir, session, olderThan string
 	limit                       int
 	yes, dryRun                 bool
 	pos                         []string
+	seen                        map[string]bool
 }
 
 func parseCheckpointArgs(args []string) (checkpointArgs, error) {
-	var a checkpointArgs
+	a := checkpointArgs{seen: map[string]bool{}}
 	i := 0
 	for i < len(args) {
 		s := args[i]
@@ -93,6 +97,7 @@ func checkpointFlag(a *checkpointArgs, s string, args []string, i *int) (bool, e
 		if s == f.name {
 			v, err := value(f.name)
 			*f.dst = v
+			a.seen[f.name] = true
 			return true, err
 		}
 		if v, ok := strings.CutPrefix(s, f.name+"="); ok {
@@ -100,6 +105,7 @@ func checkpointFlag(a *checkpointArgs, s string, args []string, i *int) (bool, e
 				return true, fmt.Errorf("%s needs a value", f.name)
 			}
 			*f.dst = v
+			a.seen[f.name] = true
 			return true, nil
 		}
 	}
@@ -109,8 +115,10 @@ func checkpointFlag(a *checkpointArgs, s string, args []string, i *int) (bool, e
 		if err != nil {
 			return true, err
 		}
+		a.seen["--limit"] = true
 		return true, checkpointLimit(a, v)
 	case strings.HasPrefix(s, "--limit="):
+		a.seen["--limit"] = true
 		return true, checkpointLimit(a, strings.TrimPrefix(s, "--limit="))
 	case s == "--yes" || s == "-y":
 		a.yes = true
@@ -120,6 +128,20 @@ func checkpointFlag(a *checkpointArgs, s string, args []string, i *int) (bool, e
 		return false, nil
 	}
 	return true, nil
+}
+
+// checkpointsReject refuses flags a subcommand does not implement: a filter the
+// operator asked for must never be ignored silently, least of all on the
+// destructive subcommands.
+func checkpointsReject(a *checkpointArgs, name string, stderr io.Writer, unsupported ...string) bool {
+	for _, f := range unsupported {
+		if a.seen[f] {
+			sessionsPrintf(stderr, "checkpoints %s: %s is not supported by this subcommand\n", name, f)
+			checkpointUsage(stderr)
+			return true
+		}
+	}
+	return false
 }
 
 // checkpointLimit parses a positive --limit value.
@@ -153,6 +175,9 @@ func checkpointsStatus(args []string, stdout, stderr io.Writer) int {
 		checkpointUsage(stderr)
 		return 2
 	}
+	if checkpointsReject(&a, "status", stderr, "--limit") {
+		return 2
+	}
 	ctx := context.Background()
 	db, derr := openSessionsDBReadOnly(ctx, a.dataDir)
 	if derr != nil {
@@ -164,7 +189,7 @@ func checkpointsStatus(args []string, stdout, stderr io.Writer) int {
 		sessionsPrintf(stderr, "checkpoints status: %v\n", cerr)
 		return 2
 	}
-	st, serr := db.CheckpointStats(ctx, cutoff)
+	st, serr := db.CheckpointStats(ctx, cutoff, a.session)
 	if serr != nil {
 		return checkpointsFail(stderr, "checkpoints status", serr, "")
 	}
@@ -220,6 +245,9 @@ func checkpointsPrune(args []string, stdout, stderr io.Writer) int {
 		checkpointUsage(stderr)
 		return 2
 	}
+	if checkpointsReject(&a, "prune", stderr, "--session", "--limit") {
+		return 2
+	}
 	retention, cutoff, cerr := checkpointCutoff(&a)
 	if cerr != nil {
 		sessionsPrintf(stderr, "checkpoints prune: %v\n", cerr)
@@ -232,7 +260,7 @@ func checkpointsPrune(args []string, stdout, stderr io.Writer) int {
 			return checkpointsFail(stderr, "checkpoints prune", derr, "")
 		}
 		defer closeSessionsDB(db, "checkpoints prune", stderr)
-		st, serr := db.CheckpointStats(ctx, cutoff)
+		st, serr := db.CheckpointStats(ctx, cutoff, "")
 		if serr != nil {
 			return checkpointsFail(stderr, "checkpoints prune", serr, "")
 		}
@@ -269,6 +297,24 @@ func checkpointsClear(args []string, stdout, stderr io.Writer) int {
 		checkpointUsage(stderr)
 		return 2
 	}
+	if checkpointsReject(&a, "clear", stderr, "--session", "--limit", "--older-than") {
+		return 2
+	}
+	ctx := context.Background()
+	// ACC-63: --dry-run always previews and never deletes, with or without --yes.
+	if a.dryRun {
+		db, derr := openSessionsDBReadOnly(ctx, a.dataDir)
+		if derr != nil {
+			return checkpointsFail(stderr, "checkpoints clear", derr, "")
+		}
+		defer closeSessionsDB(db, "checkpoints clear", stderr)
+		st, serr := db.CheckpointStats(ctx, time.Now().UnixMilli(), "")
+		if serr != nil {
+			return checkpointsFail(stderr, "checkpoints clear", serr, "")
+		}
+		sessionsPrintf(stdout, "would clear %d checkpoints\n", st.Total)
+		return 0
+	}
 	if !a.yes {
 		sessionsPrintf(stderr, "checkpoints clear: refusing to delete all checkpoints without --yes\n")
 		return 2
@@ -276,7 +322,6 @@ func checkpointsClear(args []string, stdout, stderr io.Writer) int {
 	if maintenanceBlocked(stderr, "checkpoints clear") {
 		return 2
 	}
-	ctx := context.Background()
 	db, derr := openSessionsDB(ctx, a.dataDir)
 	if derr != nil {
 		return checkpointsFail(stderr, "checkpoints clear", derr, "")
@@ -302,6 +347,9 @@ func checkpointsClearLegacy(args []string, stdout, stderr io.Writer) int {
 		checkpointUsage(stderr)
 		return 2
 	}
+	if checkpointsReject(&a, "clear-legacy", stderr, "--session", "--limit", "--older-than") {
+		return 2
+	}
 	dirs, derr := legacyCheckpointDirs(a.dataDir)
 	if derr != nil {
 		sessionsPrintf(stderr, "checkpoints clear-legacy: %v\n", derr)
@@ -309,6 +357,11 @@ func checkpointsClearLegacy(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(dirs) == 0 {
 		sessionsPrintf(stdout, "no legacy checkpoints\n")
+		return 0
+	}
+	// --dry-run never removes a directory, with or without --yes (ACC-63).
+	if a.dryRun {
+		sessionsPrintf(stdout, "would clear legacy checkpoints: %s\n", strings.Join(dirs, ", "))
 		return 0
 	}
 	if !a.yes {
@@ -352,11 +405,13 @@ func legacyCheckpointDirs(dataDir string) ([]string, error) {
 }
 
 // checkpointsFail maps maintenance refusals: a busy session (open turn or
-// live lease) is exit 4 so callers can retry after the turn ends.
+// live lease) is exit 4 so callers can retry after the turn ends. The prefix is
+// the subcommand name (not "sessions …": these errors belong to `checkpoints`).
 func checkpointsFail(stderr io.Writer, name string, err error, id string) int {
 	if errors.Is(err, ctxdb.ErrSessionBusy) {
 		sessionsPrintf(stderr, "%s: a session with checkpoints is busy (open turn or live lease); finish it first\n", name)
 		return 4
 	}
-	return sessionsFail(stderr, name, err, id)
+	sessionsPrintf(stderr, "%s: %s\n", name, sessionsMessage(err, id))
+	return sessionsErr(err)
 }
