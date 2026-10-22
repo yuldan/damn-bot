@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -56,7 +58,20 @@ const (
 	StatusExpired  Status = "expired"
 )
 
-// Skill is one parsed SKILL.md plus the quarantine link.
+// SideEffect is one declared `side_effects` value (closed set, SEC-15).
+type SideEffect string
+
+// Side effects a skill may declare. Payment makes every command that runs
+// or names a file of the skill Monetary (SPEC §14.1).
+const (
+	EffectWrite   SideEffect = "write"
+	EffectNetwork SideEffect = "network"
+	EffectPayment SideEffect = "payment"
+)
+
+// Skill is one parsed SKILL.md plus the quarantine link. SideEffects is nil
+// when the front matter has no `side_effects` key and empty for an explicit
+// `side_effects: []`.
 type Skill struct {
 	ID          int64
 	Name        string
@@ -66,12 +81,48 @@ type Skill struct {
 	SHA256      string
 	Source      Source
 	MemoryID    int64 // 0 = indexed directly (trusted source)
+	SideEffects []SideEffect
+	Requires    []string // skill names this skill depends on
+}
+
+// Payment reports whether the skill declares side_effects: [payment].
+func (s *Skill) Payment() bool { return slices.Contains(s.SideEffects, EffectPayment) }
+
+// Sensitive reports whether the skill must be treated as a payment skill by
+// the shell gate: it declares payment, or its text carries a payment
+// pattern without declaring one (SEC10-3). Files are covered by the lint
+// finding of the same name.
+func (s *Skill) Sensitive() bool {
+	return s.Payment() || containsAny(strings.ToLower(s.Description+"\n"+s.Body), paymentPatterns()) != ""
+}
+
+// PaymentDirs returns the directories of the sensitive skills in list: the
+// shell classifier labels any command touching them Monetary (SEC-15). The
+// caller passes every installed skill, including pending/quarantined ones
+// (their files are already on disk), so a skill cannot avoid the gate by
+// not being approved yet.
+func PaymentDirs(list []Skill) []string {
+	var out []string
+	seen := map[string]bool{}
+	for i := range list {
+		if !list[i].Sensitive() {
+			continue
+		}
+		d := filepath.Dir(list[i].Path)
+		if !seen[d] {
+			seen[d] = true
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // Parse reads a SKILL.md (≤ [MaxBytes]) with a `---` front matter block
-// holding `name:` and `description:`. Unknown keys are ignored; folded or
-// nested YAML is not supported and yields [ErrFrontMatter]. SHA256 is always
-// computed from data, never trusted to the caller.
+// holding `name:`, `description:` and the optional inline lists
+// `side_effects: [payment]` and `requires: [other-skill]`. Unknown keys are
+// ignored; folded or nested YAML is not supported and yields
+// [ErrFrontMatter]. SHA256 is always computed from data, never trusted to
+// the caller.
 func Parse(data []byte, path string, source Source) (Skill, error) {
 	if len(data) > MaxBytes {
 		return Skill{}, fmt.Errorf("%w: skill > %d bytes", ErrTooLarge, MaxBytes)
@@ -108,6 +159,9 @@ func Parse(data []byte, path string, source Source) (Skill, error) {
 		SHA256:      hex.EncodeToString(sum[:]),
 		Source:      source,
 	}
+	if err := sk.parseLists(meta); err != nil {
+		return Skill{}, err
+	}
 	if err := sk.Validate(); err != nil {
 		return Skill{}, err
 	}
@@ -140,7 +194,60 @@ func (s *Skill) Validate() error {
 	if len(s.SHA256) != 64 {
 		return fmt.Errorf("%w: sha256", ErrInvalid)
 	}
+	return s.validateLists()
+}
+
+// parseLists reads the optional side_effects and requires lists.
+func (s *Skill) parseLists(meta map[string]string) error {
+	if v, ok := meta["side_effects"]; ok {
+		list, err := flowList(v)
+		if err != nil {
+			return err
+		}
+		s.SideEffects = make([]SideEffect, len(list))
+		for i, e := range list {
+			s.SideEffects[i] = SideEffect(e)
+		}
+	}
+	if v, ok := meta["requires"]; ok {
+		list, err := flowList(v)
+		if err != nil {
+			return err
+		}
+		s.Requires = list
+	}
 	return nil
+}
+
+// validateLists enforces the closed side_effects set and skill names.
+func (s *Skill) validateLists() error {
+	for _, e := range s.SideEffects {
+		if e != EffectWrite && e != EffectNetwork && e != EffectPayment {
+			return fmt.Errorf("%w: side_effects %q (write|network|payment)", ErrInvalid, e)
+		}
+	}
+	for _, r := range s.Requires {
+		if !validName(r) {
+			return fmt.Errorf("%w: requires %q", ErrInvalid, r)
+		}
+	}
+	return nil
+}
+
+// flowList parses `[a, b]` (or bare `a, b`). An empty value starts a block
+// list, which the line parser cannot read: it fails closed rather than
+// silently dropping a `payment` declaration.
+func flowList(v string) ([]string, error) {
+	if v == "" || strings.HasPrefix(v, "[") != strings.HasSuffix(v, "]") {
+		return nil, fmt.Errorf("%w: list must be inline, e.g. [payment]", ErrFrontMatter)
+	}
+	out := []string{}
+	for f := range strings.SplitSeq(strings.TrimSuffix(strings.TrimPrefix(v, "["), "]"), ",") {
+		if f = unquote(strings.TrimSpace(f)); f != "" {
+			out = append(out, f)
+		}
+	}
+	return out, nil
 }
 
 // validName accepts the lowercase, hyphen/underscore form of bundled skills

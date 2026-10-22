@@ -1,0 +1,233 @@
+package skills
+
+import (
+	"fmt"
+	"io/fs"
+	"path"
+	"regexp"
+	"slices"
+	"strings"
+	"unicode"
+)
+
+// MaxScriptBytes caps one script read by [Lint].
+const MaxScriptBytes = 256 << 10
+
+// Finding is one lint observation. It is JSON-identical to memory.Finding so
+// it merges into the stored scan_result; Detail never holds a secret value.
+type Finding struct {
+	Category string `json:"category"`
+	Severity string `json:"severity"`
+	Detail   string `json:"detail,omitempty"`
+}
+
+// LintEnv is what [Lint] may consult. Files is the skill directory (the
+// SKILL.md parent); production passes an os.Root FS so a symlink cannot
+// escape it. Known reports an installed skill name. A nil field fails
+// closed: every reference it would resolve is invalid.
+type LintEnv struct {
+	Files fs.FS
+	Known func(name string) bool
+}
+
+// Lint validates the references of sk and scans its text and scripts (SPEC
+// §22.1 GAP-SEC-26 and GAP-SEC-15, ADR-133). Errors wrap [ErrInvalid]: a
+// `requires` name or `skill://` link that is neither sk nor Known; a script
+// reference (see scriptRef) outside the skill directory, missing, or larger
+// than [MaxScriptBytes]; a builtin skill that defaults to a mainnet endpoint.
+// Findings: credential_access (high: reads a secret file or credential
+// store, or prints a secret), payment (medium: declared, highlighted for
+// review), payment_undeclared (medium) and mainnet_default (medium, non
+// builtin).
+func Lint(sk *Skill, env LintEnv) ([]Finding, error) {
+	known := func(n string) bool { return n == sk.Name || (env.Known != nil && env.Known(n)) }
+	for _, r := range sk.Requires {
+		if !known(r) {
+			return nil, fmt.Errorf("%w: requires unknown skill %q", ErrInvalid, r)
+		}
+	}
+	rules := newLintRules()
+	for _, m := range rules.link.FindAllStringSubmatch(sk.Body, -1) {
+		if !known(m[1]) {
+			return nil, fmt.Errorf("%w: skill://%s does not resolve", ErrInvalid, m[1])
+		}
+	}
+	texts := []string{sk.Description, sk.Body}
+	for _, ref := range scriptRefs(sk.Body) {
+		data, err := readScript(env.Files, ref)
+		if err != nil {
+			return nil, err
+		}
+		texts = append(texts, data)
+	}
+	all := strings.ToLower(strings.Join(texts, "\n"))
+	var out []Finding
+	if d := rules.credential(all); d != "" {
+		out = append(out, Finding{Category: "credential_access", Severity: "high", Detail: d})
+	}
+	switch paid := containsAny(all, paymentPatterns()); {
+	case sk.Payment():
+		out = append(out, Finding{Category: "payment", Severity: "medium", Detail: "declares side_effects: payment"})
+	case paid != "":
+		out = append(out, Finding{Category: "payment_undeclared", Severity: "medium", Detail: paid})
+	}
+	if m := rules.mainnet.FindString(all); m != "" {
+		if sk.Source == SourceBuiltin {
+			return nil, fmt.Errorf("%w: builtin skill defaults to mainnet (%s); use testnet/devnet", ErrInvalid, m)
+		}
+		out = append(out, Finding{Category: "mainnet_default", Severity: "medium", Detail: m})
+	}
+	return out, nil
+}
+
+// lintRules are compiled per call: the package keeps no mutable globals.
+type lintRules struct {
+	link, readVerb, printVerb, secretRef, envDump, tellSecret, mainnet *regexp.Regexp
+}
+
+func newLintRules() *lintRules {
+	nouns := `(?:api[ _-]?keys?|access[ _-]?tokens?|auth[ _-]?tokens?|bearer[ _-]?tokens?|api[ _-]?tokens?|github[ _-]?tokens?|secret[ _-]?keys?|secrets|passwords?|credentials|private[ _-]?keys?)`
+	return &lintRules{
+		link:      regexp.MustCompile("skill://([^\\s)\\]>\"'`#?/]+)"),
+		readVerb:  regexp.MustCompile(`\b(?:cat|head|tail|source|grep|awk|sed|read\w*|load\w*|open|get-content|cp|base64|xxd|print\w*|echo|curl|parse\w*)\b|(?:^|\s)\.\s`),
+		printVerb: regexp.MustCompile(`\b(?:echo|printf|print|println|puts|console\.log|write-host|write-output|fmt\.print\w*)\b`),
+		secretRef: regexp.MustCompile(`(?:\$\{?|\$env:|environ\[["']?|environ\.get\(["']?|getenv\(["']?|process\.env\.)(?:\w*_)?(?:api_?key|key|token|secret|password|passwd|credentials?)(?:_\w*)?\b`),
+		envDump:   regexp.MustCompile(`^(?:\$\s*)?(?:env|printenv|export -p|set|get-childitem env:|gci env:|ls env:)\s*(?:\|.*)?$|\bprintenv\s+(?:\w*_)?(?:key|token|secret|password)`),
+		tellSecret: regexp.MustCompile(`\b(?:print|echo|show|display|output|reveal|paste)\s+(?:(?:the|your|their|its|my|our|this|that|all|every)\s+)*(?:[\w'-]+\s+)?` +
+			nouns + `\b`),
+		mainnet: regexp.MustCompile(`https?://[^\s'"` + "`" + `)]*mainnet[^\s'"` + "`" + `)]*|--(?:url|rpc-url|network|cluster|chain)[ =]mainnet\S*|(?:^|\s)-um(?:\s|$)`),
+	}
+}
+
+// credential returns the first credential_access match in lower-cased
+// text, line by line, or "".
+func (r *lintRules) credential(lower string) string {
+	for ln := range strings.SplitSeq(lower, "\n") {
+		ln = strings.Trim(ln, " \t`>-*")
+		if p := containsAny(ln, credentialCommands()); p != "" {
+			return p
+		}
+		if f := secretFile(ln); f != "" && r.readVerb.MatchString(ln) {
+			return "reads " + f
+		}
+		if (r.printVerb.MatchString(ln) && r.secretRef.MatchString(ln)) || r.envDump.MatchString(ln) || r.tellSecret.MatchString(ln) {
+			return "prints a secret"
+		}
+	}
+	return ""
+}
+
+// credentialCommands read a credential store or token outright.
+func credentialCommands() []string {
+	return []string{
+		"gh auth token", "--show-token", "git credential fill", "git config --get credential",
+		"security find-generic-password", "security find-internet-password", "security dump-keychain",
+		"secret-tool lookup", "keyring get", "cmdkey /list", "get-storedcredential", "kwallet-query",
+		"gcloud auth print-access-token", "az account get-access-token",
+		"load_dotenv", "dotenv.config", "require('dotenv')", `require("dotenv")`, "dotenv/config", "godotenv.load",
+	}
+}
+
+// secretFile returns a credential file named on the line: `.env` (and
+// `.env.<suffix>`, but not `process.env` or `.envrc`) or a fixed list.
+func secretFile(ln string) string {
+	if f := containsAny(ln, []string{
+		".git-credentials", ".netrc", ".npmrc", ".pypirc", ".aws/credentials",
+		"gh/hosts.yml", ".docker/config.json", ".ssh/id_", ".kube/config", "secrets.enc",
+	}); f != "" {
+		return f
+	}
+	word := func(b byte) bool {
+		return b == '_' || (b < 0x80 && (unicode.IsLetter(rune(b)) || unicode.IsDigit(rune(b))))
+	}
+	for i := strings.Index(ln, ".env"); i >= 0; {
+		end := i + len(".env")
+		if (i == 0 || !word(ln[i-1])) && (end == len(ln) || !word(ln[end])) {
+			return ".env"
+		}
+		next := strings.Index(ln[end:], ".env")
+		if next < 0 {
+			break
+		}
+		i = end + next
+	}
+	return ""
+}
+
+// paymentPatterns mark text that performs payments (SEC-15).
+func paymentPatterns() []string {
+	return []string{
+		"stripe", "payment_intent", "spend-request", "link-cli", "solana transfer", "cast send",
+		"gh sponsor", "payout", "sendtransaction", "send_transaction",
+	}
+}
+
+func containsAny(s string, pats []string) string {
+	for _, p := range pats {
+		if strings.Contains(s, p) {
+			return p
+		}
+	}
+	return ""
+}
+
+// scriptRefs lists the distinct script references of a body in order.
+func scriptRefs(body string) []string {
+	var out []string
+	seen := map[string]bool{}
+	split := func(r rune) bool { return unicode.IsSpace(r) || strings.ContainsRune("()[]<>`'\"=,;|&", r) }
+	for _, tok := range strings.FieldsFunc(body, split) {
+		if ref, ok := scriptRef(strings.TrimRight(tok, ".:")); ok && !seen[ref] {
+			seen[ref] = true
+			out = append(out, ref)
+		}
+	}
+	return out
+}
+
+// scriptRef reports whether tok names a skill file: anything after a skill
+// directory placeholder (`$SKILL_DIR/`, `${SKILL_DIR}/`, `{baseDir}/`), a
+// path starting with `scripts/` (or `./scripts/`), or a script-extension
+// path that is absolute, home- or parent-relative (outside by construction).
+// Other relative paths are workspace files and are not checked.
+func scriptRef(tok string) (string, bool) {
+	if strings.Contains(tok, "://") {
+		return "", false
+	}
+	for _, p := range []string{"${SKILL_DIR}/", "$SKILL_DIR/", "{baseDir}/"} {
+		if rest, ok := strings.CutPrefix(tok, p); ok {
+			return rest, rest != ""
+		}
+	}
+	rel := strings.TrimPrefix(tok, "./")
+	if strings.HasPrefix(rel, "scripts/") && len(rel) > len("scripts/") {
+		return rel, true
+	}
+	outside := strings.HasPrefix(tok, "/") || strings.HasPrefix(tok, "~") || strings.HasPrefix(tok, "..") ||
+		(len(tok) > 2 && tok[1] == ':')
+	exts := []string{".sh", ".bash", ".zsh", ".py", ".js", ".mjs", ".cjs", ".ts", ".rb", ".pl", ".ps1", ".bat", ".cmd"}
+	return tok, outside && slices.Contains(exts, path.Ext(tok))
+}
+
+// readScript reads one referenced file below the skill directory.
+func readScript(files fs.FS, ref string) (string, error) {
+	clean := path.Clean(ref)
+	if strings.HasPrefix(ref, "~") || strings.ContainsAny(ref, `\:`) || !fs.ValidPath(clean) {
+		return "", fmt.Errorf("%w: %s is outside the skill directory", ErrInvalid, ref)
+	}
+	if files == nil {
+		return "", fmt.Errorf("%w: script %s cannot be verified", ErrInvalid, ref)
+	}
+	info, err := fs.Stat(files, clean)
+	if err != nil || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: script %s does not exist", ErrInvalid, ref)
+	}
+	if info.Size() > MaxScriptBytes {
+		return "", fmt.Errorf("%w: script %s > %d bytes", ErrInvalid, ref, MaxScriptBytes)
+	}
+	data, err := fs.ReadFile(files, clean)
+	if err != nil {
+		return "", fmt.Errorf("%w: script %s: %w", ErrInvalid, ref, err)
+	}
+	return string(data), nil
+}

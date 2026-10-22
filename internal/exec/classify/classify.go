@@ -83,6 +83,10 @@ type Env struct {
 	DenyPaths     []string // deny_paths patterns; "~" expands to Home
 	SecretVars    []string // exec.env names bound to keychain refs
 	MonetaryHosts []string // security.monetary_hosts
+	// MonetaryPaths are directories of skills declaring side_effects:
+	// [payment] (SEC-15): a command that runs or names a file below one is
+	// Monetary.
+	MonetaryPaths []string
 	Resolver      PathResolver
 	Dialect       Dialect
 }

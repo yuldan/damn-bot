@@ -45,6 +45,11 @@ type ShellConfig struct {
 	WorkspaceTrusted bool
 	UnsafeAutoShell  bool
 	Dialect          classify.Dialect
+	// MonetaryHosts (security.monetary_hosts) and MonetaryPaths (directories
+	// of skills declaring side_effects: [payment], skills.PaymentDirs) label
+	// commands Monetary (SEC-15).
+	MonetaryHosts []string
+	MonetaryPaths []string
 }
 
 // shellTool implements one `shell` call (SPEC §5.1, EXEC-AND-CODING §A).
@@ -320,6 +325,7 @@ func (t *shellTool) classifyIn(command, cwd string) classify.Verdict {
 	ce := &classify.Env{
 		Roots: t.cfg.Roots, Cwd: cwd, Home: t.cfg.Home,
 		DenyPaths: t.cfg.DenyPaths, Dialect: t.cfg.Dialect,
+		MonetaryHosts: t.cfg.MonetaryHosts, MonetaryPaths: t.cfg.MonetaryPaths,
 	}
 	if t.cfg.EnvPolicy != nil {
 		for _, s := range t.cfg.EnvPolicy.Secrets {
