@@ -39,7 +39,7 @@ source = "test-only probe"
 // config override → registry → learned → fallback 32.768.
 func TestRunLimitsPrecedence(t *testing.T) {
 	t.Parallel()
-	db := ledgerDB(t, "S")
+	db := ledgerDB(t)
 	table := modelTable(t,
 		registry.Model{Provider: "openai", Model: "reg", ContextWindow: 100_000},
 		registry.Model{Provider: "openai", Model: "conf", ContextWindow: 100_000},
@@ -81,7 +81,7 @@ func TestRunLimitsPrecedence(t *testing.T) {
 func TestRunLimitsNoProbeAndTooSmall(t *testing.T) {
 	t.Parallel()
 	srv := providertest.New(t, nil) // any request is a test failure
-	db := ledgerDB(t, "S")
+	db := ledgerDB(t)
 	cfg := config.Default()
 	o := &runOptions{model: "openai/m", baseURL: srv.URL, apiKey: "sk-test"}
 	table := modelTable(t)
@@ -183,7 +183,7 @@ func TestRunLearnedWindowImplausible(t *testing.T) {
 func implausibleWindow(t *testing.T, message string, big bool) registry.Limit {
 	t.Helper()
 	ctx := t.Context()
-	db := ledgerDB(t, "S")
+	db := ledgerDB(t)
 	body := fmt.Sprintf(`{"error":{"message":%q,"code":"context_length_exceeded","type":"invalid_request_error"}}`, message)
 	srv := providertest.New(t, nil, providertest.Reply{Status: 400, Body: body})
 	cfg := config.Default()

@@ -11,3 +11,4 @@ internal/tools/golden_test.go:updateGolden test-only golden update flag
 internal/tools/golden_test.go:goldenCases table of golden cases
 internal/compaction/compaction_test.go:update test-only golden flag
 internal/e2e/harness_test.go:binPath test-only child binary path
+internal/provider/contextlength.go:contextWindowPatterns precompiled error.message patterns
