@@ -79,6 +79,9 @@ func runHeadless(args []string, stdout, stderr io.Writer) int {
 		if _, werr := fmt.Fprintf(stderr, "run: %v\n", err); werr != nil {
 			return 2
 		}
+		if errors.Is(err, ctxdb.ErrSchemaNewer) {
+			return 1 // SPEC §4.3 error table: schema_newer maps to exit 1
+		}
 		return 2
 	}
 	return code

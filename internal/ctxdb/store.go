@@ -35,6 +35,7 @@ type Options struct {
 	Ident        *Ident        // override (tests simulating processes)
 	SchemaMax    int           // newest migration this binary knows; 0 = all embedded
 	ForceMigrate bool          // --force-migrate
+	ReadOnly     bool          // inspection mode: no migration, no writer (SPEC §11.11.7)
 	BusyTimeout  time.Duration // default 5 s (SPEC §11 PRAGMA)
 	BarrierWait  time.Duration // drain timeout of the maintenance barrier; default 30 s
 	// OnTx observes every write transaction: mode and lock hold time
@@ -84,14 +85,15 @@ func DBPath(dir string) string { return filepath.Join(dir, dbFile) }
 // reason=migrate), shared maint.lock, then startup recovery (SELF-HEALING §3.4).
 func Open(ctx context.Context, o *Options) (*Store, error) {
 	s, err := newStore(o)
-	if err == nil {
-		err = s.migrateIfNeeded(ctx)
-	}
-	if err == nil {
-		err = s.attach(ctx)
-	}
-	if err == nil {
-		err = s.startupRecovery(ctx)
+	if err == nil && o.ReadOnly {
+		err = s.openReadOnly(ctx)
+	} else if err == nil {
+		if err = s.migrateIfNeeded(ctx); err == nil {
+			err = s.attach(ctx)
+		}
+		if err == nil {
+			err = s.startupRecovery(ctx)
+		}
 	}
 	if err != nil {
 		if s != nil {
@@ -99,10 +101,111 @@ func Open(ctx context.Context, o *Options) (*Store, error) {
 		}
 		return nil, err
 	}
+	if o.ReadOnly {
+		return s, nil
+	}
 	wctx, stop := context.WithCancel(context.WithoutCancel(ctx))
 	s.stop, s.done = stop, make(chan struct{})
 	go s.watch(wctx)
 	return s, nil
+}
+
+// openReadOnly opens only the read pool in mode=ro. A newer schema is
+// readable by design; no migration, lock, holder row, or recovery runs.
+func (s *Store) openReadOnly(ctx context.Context) error {
+	d, derr := s.driver(false)
+	if derr != nil {
+		return wrap(derr)
+	}
+	open := func(immutable bool) error {
+		s.r = sql.OpenDB(connector{d: d, dsn: s.dsnReadOnly(immutable)})
+		s.r.SetMaxOpenConns(4)
+		if err := s.r.PingContext(ctx); err != nil {
+			return errors.Join(err, s.r.Close())
+		}
+		return nil
+	}
+	err := open(false)
+	if err == nil {
+		return nil
+	}
+	// A WAL database with no -wal on disk is complete. Only read-only media
+	// errors qualify: an immutable snapshot is safe only when the dir cannot
+	// be written, no live holder exists, and no WAL holds unmerged data.
+	if !readOnlyMediaError(err) {
+		return wrap(err)
+	}
+	if reason := s.fallbackBlock(); reason != "" {
+		return wrap(fmt.Errorf("read-only open refused: %s; copy the data dir to a writable location: %w", reason, err))
+	}
+	if ierr := open(true); ierr != nil {
+		return wrap(fmt.Errorf("read-only open failed: immutable snapshot unavailable; copy the data dir to a writable location: %w", ierr))
+	}
+	return nil
+}
+
+// fallbackBlock returns why immutable=1 must not be used, or "" when the
+// evidence is complete. Every unknown is a refusal (fail closed).
+func (s *Store) fallbackBlock() string {
+	switch {
+	case !s.walClear():
+		return "the -wal is present with unmerged data or its state is unknown"
+	case s.liveHolder():
+		return "a live or unknown-process holder may still write the data dir"
+	case dirWritable(s.dir):
+		return "the data dir is still writable, so the read-only open was not caused by the media"
+	}
+	return ""
+}
+
+// readOnlyMediaError reports SQLITE_READONLY / SQLITE_CANTOPEN, the errors a
+// read-only directory produces when SQLite must create -shm.
+func readOnlyMediaError(err error) bool {
+	var se *sqlite.Error
+	if !errors.As(err, &se) {
+		return false
+	}
+	return se.Code()&0xff == codeReadOnly || se.Code()&0xff == codeCantOpen
+}
+
+// dirWritable probes writability without creating the store layout.
+func dirWritable(dir string) bool {
+	f, err := os.CreateTemp(dir, ".ro-probe-")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	if cerr := f.Close(); cerr != nil {
+		return false
+	}
+	return os.Remove(name) == nil
+}
+
+// walClear reports that no -wal holds unmerged data and that this is known.
+// A stat failure other than "absent" is uncertainty and blocks the immutable
+// fallback (an immutable snapshot would silently drop a live WAL).
+func (s *Store) walClear() bool {
+	fi, err := os.Stat(DBPath(s.dir) + "-wal")
+	switch {
+	case err == nil:
+		return fi.Size() == 0
+	case errors.Is(err, os.ErrNotExist):
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Store) dsnReadOnly(immutable bool) string {
+	params := []string{
+		"mode=ro",
+		fmt.Sprintf("_pragma=busy_timeout(%d)", s.opt.BusyTimeout.Milliseconds()),
+		"_pragma=query_only(1)", "_pragma=foreign_keys(1)", "_pragma=trusted_schema(1)",
+	}
+	if immutable {
+		params = append(params, "immutable=1")
+	}
+	return "file:" + dsnPath(s.dir) + "?" + strings.Join(params, "&")
 }
 
 func newStore(o *Options) (*Store, error) {
@@ -123,7 +226,12 @@ func newStore(o *Options) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	root, err := openRoot(opt.Dir)
+	var root *os.Root
+	if opt.ReadOnly {
+		root, err = openReadRoot(opt.Dir)
+	} else {
+		root, err = openRoot(opt.Dir)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -186,6 +294,12 @@ func (s *Store) attach(ctx context.Context) error {
 	return nil
 }
 
+// dsnPath escapes the characters that would otherwise split the SQLite URI
+// into a fragment/query (and silently drop mode=ro/query_only).
+func dsnPath(dir string) string {
+	return strings.NewReplacer("%", "%25", "#", "%23", "?", "%3F").Replace(DBPath(dir))
+}
+
 func (s *Store) dsn(readOnly bool) string {
 	q := []string{
 		fmt.Sprintf("_pragma=busy_timeout(%d)", s.opt.BusyTimeout.Milliseconds()),
@@ -196,7 +310,7 @@ func (s *Store) dsn(readOnly bool) string {
 	if readOnly {
 		q = append(q, "_pragma=query_only(1)", "_pragma=cache_size(-12288)")
 	}
-	return "file:" + DBPath(s.dir) + "?" + strings.Join(q, "&")
+	return "file:" + dsnPath(s.dir) + "?" + strings.Join(q, "&")
 }
 
 func (s *Store) openHandles(ctx context.Context) (w, r *sql.DB, err error) {
@@ -314,8 +428,12 @@ func ftsNorm(t string) string {
 func (s *Store) detach() error {
 	var err error
 	if s.w != nil {
-		err = wrap(errors.Join(s.w.Close(), s.r.Close()))
-		s.w, s.r = nil, nil
+		err = wrap(s.w.Close())
+		s.w = nil
+	}
+	if s.r != nil {
+		err = wrap(errors.Join(err, s.r.Close()))
+		s.r = nil
 	}
 	if s.lock != nil {
 		err = errors.Join(err, unlockFile(s.lock))
