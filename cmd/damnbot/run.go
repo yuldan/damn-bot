@@ -337,30 +337,12 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	if err != nil {
 		return nil, fmt.Errorf("provider endpoint: %w", err)
 	}
-<<<<<<< HEAD
+	guard, notes, err := newBudgetGuard(cfg, db)
 	provName, modelName, _ := strings.Cut(modelRef, "/")
 	prices, err := provider.RoutePrices(table, base, modelName)
-	if err != nil {
-		return nil, fmt.Errorf("pricing: %w", err)
-	}
-	guard, err := budget.NewGuard(budget.GuardConfig{
-		DailyUSD: cfg.Budget.DailyUSD, MonthlyUSD: cfg.Budget.MonthlyUSD, Providers: cfg.Budget.Providers, WarnAt: cfg.Budget.WarnAt,
-	}, ledgerstore.Source{Store: db}, nil)
-=======
-	guard, notes, err := newBudgetGuard(cfg, db)
->>>>>>> 01a76687 (fix(loop): emit budget warnings once and raise the loop budget row)
 	if err != nil {
 		return nil, err
 	}
-<<<<<<< HEAD
-	notes := &budgetNotes{}
-=======
-	provName, modelName, _ := strings.Cut(modelRef, "/")
-	prices, err := provider.RoutePrices(table, base, modelName)
-	if err != nil {
-		return nil, fmt.Errorf("pricing: %w", err)
-	}
->>>>>>> 01a76687 (fix(loop): emit budget warnings once and raise the loop budget row)
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
 		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family, Prices: prices}},
@@ -543,15 +525,12 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 			emit(loop.Delta{Text: string(ch.Content)})
 		}
 	})
-<<<<<<< HEAD
-=======
 	warnings := p.notes.take()
 	maxTok := int64(req.MaxTokens)
 	if maxTok <= 0 {
 		maxTok = provider.DefaultMaxTokens
 	}
 	billed := billedUsage(&resp, maxTok)
->>>>>>> 130846bc (fix(loop): record paid usage before cancellation and project priced attempts (SEC6-10..12))
 	if err != nil {
 		se := streamError(err)
 		se.Billed = resp.BilledFailed
