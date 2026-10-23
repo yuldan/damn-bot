@@ -2463,6 +2463,11 @@ entry_max_chars = 500
 total_max_chars = 4000
 embeddings      = ""                   # "provider/model" untuk embedding opsional
 
+[skills]                               # sumber skill lokal (SKILL-009/010, ADR-175)
+project_discovery = true               # discovery `.damnbot/skills` + `.hermes/skills` proyek terdekat; tanpa `trusted_projects` tidak memuat apa pun
+trusted_projects  = []                 # path absolut proyek tepercaya (dikelola `damnbot skills trust list|add|remove`); hanya proyek di sini yang didiscovery
+external_dirs     = []                 # direktori skill lokal tambahan di luar config (source `import`, wajib lewat karantina)
+
 [recovery]
 continue = "safe_auto"                 # off | ask | safe_auto
 
