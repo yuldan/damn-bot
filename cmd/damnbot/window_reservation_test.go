@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"strings"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestRunWindowReservation(t *testing.T) {
 	code, err := runOne(context.Background(), &runOptions{
 		prompt: "hello", model: "openai/fake", dataDir: dir, output: "json",
 		prov: prov, cfgOverride: &cfg,
-	}, &out)
+	}, &out, io.Discard)
 	if err != nil || code != 2 { // a non-completed turn exits 2
 		t.Fatalf("runOne = %d, %v (stdout %s)", code, err, out.String())
 	}

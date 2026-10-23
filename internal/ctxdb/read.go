@@ -169,6 +169,46 @@ func (s *Store) History(ctx context.Context, sessionID string, fromSeq int64, op
 	return out, nil
 }
 
+// HistoryTail returns the newest n events of sessionID's fork-aware
+// transcript, oldest first, without summary synthesis or exclusion filtering.
+// CLI recap/retry need the tail, while History's LIMIT keeps the oldest N.
+func (s *Store) HistoryTail(ctx context.Context, sessionID string, n int) ([]Event, error) {
+	if n <= 0 {
+		n = 1
+	}
+	if n > maxHistoryLimit {
+		n = maxHistoryLimit
+	}
+	if err := s.Visible(ctx, sessionID); err != nil {
+		return nil, err
+	}
+	var evs []Event
+	err := s.each(ctx, lineageCTE+`
+		SELECT e.id, e.session_id, e.seq, e.kind, coalesce(e.role, ''), e.content,
+		       coalesce(e.turn_id, ''), coalesce(e.tool_call_id, ''), coalesce(e.tool_name, ''),
+		       e.payload, coalesce(e.blob_sha, ''), e.created_at
+		  FROM lin JOIN events e ON e.session_id = lin.id AND e.seq <= lin.lim
+		 ORDER BY lin.depth ASC, e.seq DESC LIMIT ?2`, []any{sessionID, n}, func(r *sql.Rows) error {
+		var e Event
+		if err := r.Scan(&e.ID, &e.SessionID, &e.Seq, &e.Kind, &e.Role, &e.Content,
+			&e.TurnID, &e.ToolCallID, &e.ToolName, &e.Payload, &e.Blob, &e.CreatedAt); err != nil {
+			return wrap(err)
+		}
+		evs = append(evs, e)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(evs)-1; i < j; i, j = i+1, j-1 {
+		evs[i], evs[j] = evs[j], evs[i]
+	}
+	if err := s.attachBlobs(ctx, evs); err != nil {
+		return nil, err
+	}
+	return evs, nil
+}
+
 type historySummary struct {
 	SessionID string
 	ID        int64

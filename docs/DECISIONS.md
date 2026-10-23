@@ -3711,3 +3711,22 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 4. **History.** Resume memakai jalur `ctxdb.History`/assemble yang sama; turn `context_exclude` tidak masuk request berikutnya dan barisnya tetap dapat di-recall. Tidak ada jalur history kedua.
 5. **Exit code.** Tidak berubah: 0 `completed`, 2 kegagalan turn, 1 untuk error schema; output JSON tetap memuat `session_id`.
 6. **Test.** `internal/e2e` (child binary + fake provider): `TestRunResumeExcludesFailedTurn` (turn gagal + side effect `write_file`, resume tidak memuat penanda turn gagal/tool result, side effect tetap ada) dan `TestRunContinueNewestSession` (`--continue` memakai id yang sama dan membawa history).
+
+## ADR-145 — Recap saat resume dan retry pesan terakhir (`run --retry`)
+
+**Status:** Accepted 2026-10-22 (F2; MEM-013, MEM-030). Bertumpuk di atas ADR-150 (`--session`/`--continue`); tanpa DDL, dependency, atau perubahan `loc.budget`.
+
+**Konteks.** ADR-150 menambahkan resume headless, tetapi belum ada recap (MEM-013) maupun cara mengirim ulang pesan terakhir (MEM-030). ADR-134/#211 mengecualikan turn gagal dari konteks berikutnya sementara side effect-nya tetap terjadi; retry yang buta akan mengirim ulang pesan yang sama tanpa memberi tahu bahwa efek sampingnya sudah berjalan sekali.
+
+**Keputusan.**
+1. **Recap saat resume.** `run --session/--continue` mencetak recap ke **stderr** (stdout JSON tetap dapat diparse): id sesi (judul bila ada), jumlah event, model, cwd, dan cuplikan satu baris pesan user/assistant terakhir. Semua field diredaksi dan dibatasi 120 rune (pemotongan di batas rune). `--no-recap` mematikannya. Kegagalan membaca recap dilaporkan sebagai notice dan tidak menggagalkan turn.
+2. **`--retry`.** Mengirim ulang pesan `user_message` terakhir dari transkrip mentah (termasuk turn yang dikecualikan). Tanpa `--session`/`--continue`, retry menyiratkan `--continue` (sesi terbaru di cwd). Prompt eksplisit bersama `--retry` ditolak exit 2; sesi tanpa pesan user = exit 2.
+3. **Surface side effect (#211).** Bila turn milik pesan terakhir ada di `context_exclude`, stderr menyebut `retry: turn <id> was excluded after a failure` dan daftar tool sukses di turn itu yang efek dispatch-nya bukan `read`/`think` (nama(call_id)), plus peringatan bahwa pengiriman ulang dapat mengulanginya; notice `failed_turn_effects` (SEC11-3) yang menyebut tool dengan hasil tidak pasti juga dinamai (`side effects with unknown outcome`). Argumen tidak disimpan jurnal (hanya `args_sha`), jadi yang disurface adalah tool + call id; turn baru tetap melihat hasil/efek sebelumnya lewat transkrip dan notice normal.
+4. **Tidak ada undo otomatis.** Retry tidak membatalkan side effect; membatalkan adalah tugas `undo`/journal. Recap dan peringatan hanya memberi konteks sebelum request dikirim.
+5. **Test.** `cmd/damnbot`: `TestRetryPromptSurfacesSideEffects` (turn `context_exclude` + `write_file` sukses → prompt benar + `write_file(c1)` di stderr), `TestRetryPromptReadOnlyTurn` (tanpa peringatan), `TestRetryPromptNoUserMessage`, `TestPrintRecap` (id, jumlah event, cuplikan), `TestRetryPromptLargeHistory` (tail 300 event), `TestRetryPromptUncertainEffects` (notice `failed_turn_effects`), `TestClipRunes`; `internal/ctxdb`: `TestHistoryTail` (200 event terakhir, bukan yang tertua). `internal/e2e`: `TestRunRecapOnResume` (stderr recap, stdout JSON tetap valid), `TestRunRetryLastMessage` (request kedua memuat pesan lama), `TestRunRetrySurfacesSideEffects` (turn gagal + side effect, retry menyebut `write_file(c1)` lalu mengirim ulang), `TestRunRetryRejectsPrompt`.
+
+6. **Budget.** `ctxdb` 3.800 → 3.900 (terukur 3.825; `HistoryTail`), Total core 38.090 → 38.190 ≤ 47.000; `cmd/damnbot` tidak masuk tabel core. Pada stack sesi (ADR-140/141/142) angka ini dijumlahkan saat rebase.
+
+**Dampak terukur (SPEC §20).** DDL/migrasi/dependency/token prompt 0; `cmd/damnbot` +≈330 baris non-test (di luar tabel core) dan `ctxdb` +100 baris `HistoryTail` (terukur 3.825/3.900). Satu `HistoryTail` (≤ 200 event) saat resume dan satu `HistoryTail` (≤ 100.000 event) saat retry; keduanya membaca ekor transkrip, bukan N event tertua.
+
+**Konsekuensi.** (+) Resume memberi konteks sebelum turn baru, dan retry tidak pernah diam-diam mengulang side effect. (+) stdout tetap mesin-terbaca di semua mode. (−) Retry membaca transkrip penuh sesi (dibatasi `maxHistoryLimit`) sehingga sesi sangat besar membayar satu read linear; recap menyembunyikan detail di luar dua cuplikan terakhir.
