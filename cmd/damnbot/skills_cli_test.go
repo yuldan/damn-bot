@@ -36,7 +36,7 @@ func trustEnv(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", home)
 	t.Setenv("XDG_DATA_HOME", home)
-	dir, err := skillsConfigDir()
+	dir, err := skillsConfigDir(filepath.Join(home, "config.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestSkillsTrustCLI(t *testing.T) {
 	configDir := trustEnv(t) // t.Setenv tidak kompatibel dengan t.Parallel()
 	project := t.TempDir()
 	var out, errb bytes.Buffer
-	if code := skillsCommand([]string{"trust", "add", project}, &out, &errb); code != 0 {
+	if code := skillsCommand([]string{"--config", filepath.Join(configDir, "config.toml"), "--config", filepath.Join(configDir, "config.toml"), "trust", "add", project}, &out, &errb); code != 0 {
 		t.Fatalf("add = %d, stderr %s", code, errb.String())
 	}
 	want, err := filepath.EvalSymlinks(project)
@@ -62,7 +62,7 @@ func TestSkillsTrustCLI(t *testing.T) {
 	}
 	// Idempotent: adding the same project twice keeps one line.
 	out.Reset()
-	if code := skillsCommand([]string{"trust", "add", project}, &out, &errb); code != 0 {
+	if code := skillsCommand([]string{"--config", filepath.Join(configDir, "config.toml"), "trust", "add", project}, &out, &errb); code != 0 {
 		t.Fatalf("second add = %d", code)
 	}
 	if body := readTrustStore(t, configDir); strings.Count(body, "\n") != 1 {
@@ -70,19 +70,19 @@ func TestSkillsTrustCLI(t *testing.T) {
 	}
 	// list is read-only and prints the canonical path.
 	out.Reset()
-	if code := skillsCommand([]string{"trust", "list"}, &out, &errb); code != 0 || out.String() != want+"\n" {
+	if code := skillsCommand([]string{"--config", filepath.Join(configDir, "config.toml"), "trust", "list"}, &out, &errb); code != 0 || out.String() != want+"\n" {
 		t.Fatalf("list = %d %q", code, out.String())
 	}
 	// remove takes it out again; a second remove is a clear error.
 	out.Reset()
 	errb.Reset()
-	if code := skillsCommand([]string{"trust", "remove", project}, &out, &errb); code != 0 {
+	if code := skillsCommand([]string{"--config", filepath.Join(configDir, "config.toml"), "trust", "remove", project}, &out, &errb); code != 0 {
 		t.Fatalf("remove = %d %s", code, errb.String())
 	}
 	if body := readTrustStore(t, configDir); body != "" {
 		t.Fatalf("store not empty: %q", body)
 	}
-	if code := skillsCommand([]string{"trust", "remove", project}, &out, &errb); code != 1 {
+	if code := skillsCommand([]string{"--config", filepath.Join(configDir, "config.toml"), "trust", "remove", project}, &out, &errb); code != 1 {
 		t.Fatalf("second remove = %d, want 1", code)
 	}
 }
@@ -97,16 +97,16 @@ func TestSkillsTrustCLIRejects(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out, errb bytes.Buffer
-	if code := skillsCommand([]string{"trust", "add", file}, &out, &errb); code != 1 {
+	if code := skillsCommand([]string{"--config", filepath.Join(configDir, "config.toml"), "trust", "add", file}, &out, &errb); code != 1 {
 		t.Fatalf("add file = %d, want 1", code)
 	}
 	if !strings.Contains(errb.String(), "bukan direktori") {
 		t.Fatalf("stderr = %q", errb.String())
 	}
-	if code := skillsCommand([]string{"trust", "add", "  "}, &out, &errb); code != 1 {
+	if code := skillsCommand([]string{"--config", filepath.Join(configDir, "config.toml"), "trust", "add", "  "}, &out, &errb); code != 1 {
 		t.Fatalf("add blank = %d, want 1", code)
 	}
-	if code := skillsCommand([]string{"trust", "add", filepath.Join(t.TempDir(), "missing")}, &out, &errb); code != 1 {
+	if code := skillsCommand([]string{"--config", filepath.Join(configDir, "config.toml"), "trust", "add", filepath.Join(t.TempDir(), "missing")}, &out, &errb); code != 1 {
 		t.Fatalf("add missing = %d, want 1", code)
 	}
 	if code := skillsCommand([]string{"trust"}, &out, &errb); code != 2 {

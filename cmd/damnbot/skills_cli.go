@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -29,11 +30,18 @@ func say(w io.Writer, format string, args ...any) int {
 // discovery (ADR-175). Nothing outside that file is read: add/remove only
 // stat the directory they are given.
 func skillsCommand(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("damnbot skills", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "config file; its directory holds trusted-projects")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	args = fs.Args()
 	if len(args) < 2 || args[0] != "trust" {
 		say(stderr, "pemakaian: damnbot skills trust list|add <dir>|remove <dir>\n")
 		return 2
 	}
-	configDir, err := skillsConfigDir()
+	configDir, err := skillsConfigDir(*cfgPath)
 	if err != nil {
 		say(stderr, "damnbot skills: %v\n", err)
 		return 1
@@ -57,8 +65,17 @@ func skillsCommand(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-// skillsConfigDir resolves <config> the same way `damnbot run` does.
-func skillsConfigDir() (string, error) {
+// skillsConfigDir resolves <config>. An explicit --config file wins (its
+// directory is the store location), otherwise the loader decides the way
+// `damnbot run` does.
+func skillsConfigDir(cfgPath string) (string, error) {
+	if cfgPath != "" {
+		abs, err := filepath.Abs(cfgPath)
+		if err != nil {
+			return "", fmt.Errorf("config path: %w", err)
+		}
+		return filepath.Dir(abs), nil
+	}
 	loader, err := config.New(config.OS())
 	if err != nil {
 		return "", fmt.Errorf("config deps: %w", err)
