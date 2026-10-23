@@ -3681,3 +3681,6 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** DDL/migrasi/dependency/token 0; LOC `ctxdb` +161 (terukur 4.209/4.250), `cmd/damnbot` +≈330 baris non-test. `prune` mengunci writer per batch (≤ 500 baris), bukan satu transaksi panjang.
 
 **Konsekuensi.** (+) CLI-039 tertutup tanpa melemahkan invariant P9: hanya mode maintenance yang sudah ada yang menghapus metadata jurnal. (+) Transkrip dan file blob tidak ikut hilang; `doctor gc` tetap satu-satunya yang mengklaim file. (−) `prune` tidak langsung membebaskan disk (blob menunggu gc), dan `clear` menghilangkan kemampuan undo sampai aksi berikutnya tercatat. (−) Maintenance checkpoint dan session purge saling menolak; pengguna harus menunggu purge selesai.
+
+
+**Amandemen CLI (2026-10-22).** Setengah CLI (status/list/prune/clear/clear-legacy, `--session`, `--dry-run`, guard maintenance, exit 4 saat busy) berada di PR `f2-checkpoints` yang ditumpuk di atas PR API ini, bersama tes unit/e2e-nya; butir 1-13 tetap berlaku untuk keduanya dan `SPEC.md` §10 ikut berubah di PR CLI tersebut.
