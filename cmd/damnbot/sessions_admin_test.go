@@ -9,7 +9,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 )
 
@@ -193,5 +195,166 @@ func TestSessionsExportRedactsMetadata(t *testing.T) {
 	}
 	if strings.Contains(md, secret) || !strings.Contains(md, "[REDACTED:") {
 		t.Errorf("metadata secret not redacted:\n%s", md)
+	}
+}
+
+// TestSessionsPruneArchive: --archive --dry-run only previews; --archive
+// labels the old session.
+func TestSessionsPruneArchive(t *testing.T) {
+	t.Parallel()
+	dir, _ := seedSession(t)
+	if code, out, e := runAdmin(t, "prune", "--older-than", "1ns", "--archive", "--dry-run", "--data-dir", dir); code != 0 || !strings.Contains(out, "would archive 1") {
+		t.Fatalf("archive dry-run = %d %q (%s)", code, out, e)
+	}
+	if _, out, _ := runAdmin(t, "stats", "--data-dir", dir); !strings.Contains(out, "archived: 0") {
+		t.Fatalf("dry-run mutated state:\n%s", out)
+	}
+	if code, out, e := runAdmin(t, "prune", "--older-than", "1ns", "--archive", "--data-dir", dir); code != 0 || !strings.Contains(out, "archived 1") {
+		t.Fatalf("prune --archive = %d %q (%s)", code, out, e)
+	}
+	if _, out, _ := runAdmin(t, "stats", "--data-dir", dir); !strings.Contains(out, "archived: 1") {
+		t.Fatalf("stats after archive:\n%s", out)
+	}
+}
+
+// TestSessionsPrunePinned: pinned sessions survive both dry-run and real
+// purge, and are reported as skipped.
+func TestSessionsPrunePinned(t *testing.T) {
+	t.Parallel()
+	dir, id := seedSession(t)
+	if code, _, e := runAdmin(t, "pin", id, "--data-dir", dir); code != 0 {
+		t.Fatalf("pin = %d: %s", code, e)
+	}
+	if code, _, e := runAdmin(t, "prune", "--older-than", "1ns", "--data-dir", dir); code != 2 {
+		t.Fatalf("prune without --yes = %d: %s", code, e)
+	}
+	code, out, e := runAdmin(t, "prune", "--older-than", "1ns", "--dry-run", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "would purge 0") || !strings.Contains(e, "skipped pinned "+id) {
+		t.Fatalf("pinned dry-run = %d %q / %q", code, out, e)
+	}
+	code, out, e = runAdmin(t, "prune", "--older-than", "1ns", "--yes", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "purged 0") || !strings.Contains(e, "skipped pinned "+id) {
+		t.Fatalf("pinned purge = %d %q / %q", code, out, e)
+	}
+	if _, statsOut, _ := runAdmin(t, "stats", "--data-dir", dir); !strings.Contains(statsOut, "sessions: 1") {
+		t.Fatalf("pinned session was purged:\n%s", statsOut)
+	}
+	if unpinCode, _, unpinErr := runAdmin(t, "unpin", id, "--data-dir", dir); unpinCode != 0 {
+		t.Fatalf("unpin = %d: %s", unpinCode, unpinErr)
+	}
+	code, out, e = runAdmin(t, "prune", "--older-than", "1ns", "--yes", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "purged 1") {
+		t.Fatalf("unpinned purge = %d %q (%s)", code, out, e)
+	}
+}
+
+func TestParseAge(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{"90d": "2160h0m0s", "24h": "24h0m0s"} {
+		d, err := parseAge(in)
+		if err != nil || d.String() != want {
+			t.Errorf("parseAge(%q) = %v, %v; want %s", in, d, err, want)
+		}
+	}
+	for _, bad := range []string{"", "0d", "-1d", "x", "200000d", "1e300d", "NaNd", "3651d", "90000h"} {
+		if _, err := parseAge(bad); err == nil {
+			t.Errorf("parseAge(%q) accepted", bad)
+		}
+	}
+}
+
+// oldClock seeds sessions in the past so the auto-prune age is testable
+// without waiting or mutating the immutable sessions table.
+type oldClock struct{ wall, boot, mono int64 }
+
+func (c oldClock) BootMs() int64                              { return c.boot }
+func (c oldClock) MonoMs() int64                              { return c.mono }
+func (c oldClock) WallMs() int64                              { return c.wall }
+func (c oldClock) Sleep(context.Context, time.Duration) error { return nil }
+
+// seedOldSession creates a closed data dir with one session created age ago.
+func seedOldSession(t *testing.T, age time.Duration) string {
+	t.Helper()
+	dir := t.TempDir()
+	ctx := context.Background()
+	wall := time.Now().Add(-age).UnixMilli()
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dir, Kind: "cli", Clock: oldClock{wall: wall, boot: wall, mono: wall}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "OLD", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Append(ctx, "OLD", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.ReleaseLease(ctx, "OLD"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// openPruneStore opens dir for writing and closes it on cleanup.
+func openPruneStore(t *testing.T, dir string) *ctxdb.Store {
+	t.Helper()
+	db, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: dir, Kind: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
+	return db
+}
+
+// TestAutoPruneDisabled: the default leaves old sessions untouched.
+func TestAutoPruneDisabled(t *testing.T) {
+	t.Parallel()
+	db := openPruneStore(t, seedOldSession(t, 100*24*time.Hour))
+	var errb bytes.Buffer
+	autoPrune(context.Background(), db, config.Sessions{AutoPrune: false, PruneAfterDays: 90}, &errb)
+	rows, err := db.SessionRows(context.Background())
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows = %d, %v; want 1", len(rows), err)
+	}
+	if errb.Len() != 0 {
+		t.Errorf("disabled auto-prune wrote %q", errb.String())
+	}
+}
+
+// TestAutoPruneEnabled: enabling it purges sessions older than the configured
+// days and reports the count.
+func TestAutoPruneEnabled(t *testing.T) {
+	t.Parallel()
+	db := openPruneStore(t, seedOldSession(t, 100*24*time.Hour))
+	var errb bytes.Buffer
+	autoPrune(context.Background(), db, config.Sessions{AutoPrune: true, PruneAfterDays: 90}, &errb)
+	rows, err := db.SessionRows(context.Background())
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("rows = %d, %v; want 0 after auto-prune (stderr %s)", len(rows), err, errb.String())
+	}
+	if !strings.Contains(errb.String(), "auto-pruned 1 sessions") {
+		t.Errorf("auto-prune notice = %q", errb.String())
+	}
+}
+
+// TestAutoPruneKeepsPinned: automatic pruning never deletes a pinned session.
+func TestAutoPruneKeepsPinned(t *testing.T) {
+	t.Parallel()
+	db := openPruneStore(t, seedOldSession(t, 100*24*time.Hour))
+	ctx := context.Background()
+	if err := db.SetSessionLabel(ctx, "OLD", ctxdb.LabelPinned, "1"); err != nil {
+		t.Fatal(err)
+	}
+	var errb bytes.Buffer
+	autoPrune(ctx, db, config.Sessions{AutoPrune: true, PruneAfterDays: 90}, &errb)
+	rows, err := db.SessionRows(ctx)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows = %d, %v; want the pinned session kept", len(rows), err)
 	}
 }

@@ -30,6 +30,7 @@ type PurgeReport struct {
 	P        []string
 	Excluded []Excluded
 	Skipped  []string // --older-than without --with-forks: sessions with descendants
+	Pinned   []string // pinned sessions (and ancestors) removed from P
 }
 
 // purgeValue is module_state('purge', txid).value — fields defined only in §11.11.6.

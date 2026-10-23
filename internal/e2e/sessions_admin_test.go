@@ -7,21 +7,26 @@ import (
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
 
-// TestSessionsAdminEndToEnd drives the real binary: a headless turn creates a
-// transcript, then rename and export operate on it.
-func TestSessionsAdminEndToEnd(t *testing.T) {
-	t.Parallel()
-	const secret = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
-	e := New(t, providertest.Text("reply "+secret+" and <b>markup</b>"))
-	e.Run("hello session admin").RequireOK(t)
+const e2eSecret = "sk-abcdefghijklmnopqrstuvwxyz0123456789"
 
+// sessionAdminEnv runs one turn and returns the env plus its session id.
+func sessionAdminEnv(t *testing.T) (*Env, string) {
+	t.Helper()
+	e := New(t, providertest.Text("reply "+e2eSecret+" and <b>markup</b>"))
+	e.Run("hello session admin").RequireOK(t)
 	ls := e.Exec("sessions", "ls", "--data-dir", e.DataDir)
 	ls.RequireOK(t)
 	id, _, _ := strings.Cut(strings.TrimSpace(ls.Stdout), "\t")
 	if id == "" {
 		t.Fatalf("sessions ls printed no id:\n%s", ls.Stdout)
 	}
+	return e, id
+}
 
+// TestSessionsAdminExport: rename/export/stats/pin through the real binary.
+func TestSessionsAdminExport(t *testing.T) {
+	t.Parallel()
+	e, id := sessionAdminEnv(t)
 	e.Exec("sessions", "rename", id, "E2E Title", "--data-dir", e.DataDir).RequireOK(t)
 	ren := e.Exec("sessions", "rename", id, "--data-dir", e.DataDir)
 	ren.RequireOK(t)
@@ -33,12 +38,71 @@ func TestSessionsAdminEndToEnd(t *testing.T) {
 	if !strings.HasPrefix(exp.Stdout, "# E2E Title\n") || !strings.Contains(exp.Stdout, "hello session admin") {
 		t.Errorf("markdown export:\n%s", exp.Stdout)
 	}
-	if strings.Contains(exp.Stdout, secret) || !strings.Contains(exp.Stdout, "[REDACTED:") {
+	if strings.Contains(exp.Stdout, e2eSecret) || !strings.Contains(exp.Stdout, "[REDACTED:") {
 		t.Errorf("export did not redact the secret:\n%s", exp.Stdout)
 	}
 	html := e.Exec("sessions", "export", id, "--format", "html", "--data-dir", e.DataDir)
 	html.RequireOK(t)
 	if strings.Contains(html.Stdout, "<b>markup</b>") || !strings.Contains(html.Stdout, "&lt;b&gt;markup&lt;/b&gt;") {
 		t.Errorf("html export did not escape content:\n%s", html.Stdout)
+	}
+	stats := e.Exec("sessions", "stats", "--data-dir", e.DataDir)
+	stats.RequireOK(t)
+	if !strings.Contains(stats.Stdout, "sessions: 1") || !strings.Contains(stats.Stdout, "events: ") {
+		t.Errorf("stats:\n%s", stats.Stdout)
+	}
+	e.Exec("sessions", "pin", id, "--data-dir", e.DataDir).RequireOK(t)
+	pinned := e.Exec("sessions", "pinned", "--data-dir", e.DataDir)
+	pinned.RequireOK(t)
+	if !strings.Contains(pinned.Stdout, id) {
+		t.Errorf("pinned list = %q", pinned.Stdout)
+	}
+}
+
+// TestSessionsAdminPrune: archive dry-run, pinned survival and purge through
+// the real binary.
+func TestSessionsAdminPrune(t *testing.T) {
+	t.Parallel()
+	e, id := sessionAdminEnv(t)
+	dryArchive := e.Exec("sessions", "prune", "--older-than", "1ns", "--archive", "--dry-run", "--data-dir", e.DataDir)
+	dryArchive.RequireOK(t)
+	if !strings.Contains(dryArchive.Stdout, "would archive 1") {
+		t.Errorf("archive dry run = %q", dryArchive.Stdout)
+	}
+	before := e.Exec("sessions", "stats", "--data-dir", e.DataDir)
+	before.RequireOK(t)
+	if !strings.Contains(before.Stdout, "archived: 0") {
+		t.Errorf("archive dry-run mutated state:\n%s", before.Stdout)
+	}
+	e.Exec("sessions", "archive", id, "--data-dir", e.DataDir).RequireOK(t)
+	arch := e.Exec("sessions", "stats", "--data-dir", e.DataDir)
+	arch.RequireOK(t)
+	if !strings.Contains(arch.Stdout, "archived: 1") {
+		t.Errorf("stats after archive:\n%s", arch.Stdout)
+	}
+	e.Exec("sessions", "pin", id, "--data-dir", e.DataDir).RequireOK(t)
+	pinnedDry := e.Exec("sessions", "prune", "--older-than", "1ns", "--dry-run", "--data-dir", e.DataDir)
+	pinnedDry.RequireOK(t)
+	if !strings.Contains(pinnedDry.Stdout, "would purge 0") || !strings.Contains(pinnedDry.Stderr, "skipped pinned "+id) {
+		t.Errorf("pinned dry run = %q / %q", pinnedDry.Stdout, pinnedDry.Stderr)
+	}
+	pinnedPurge := e.Exec("sessions", "prune", "--older-than", "1ns", "--yes", "--data-dir", e.DataDir)
+	pinnedPurge.RequireOK(t)
+	if !strings.Contains(pinnedPurge.Stdout, "purged 0") || !strings.Contains(pinnedPurge.Stderr, "skipped pinned "+id) {
+		t.Errorf("pinned purge = %q / %q", pinnedPurge.Stdout, pinnedPurge.Stderr)
+	}
+	if ls := e.Exec("sessions", "ls", "--data-dir", e.DataDir); !strings.Contains(ls.Stdout, id) {
+		t.Errorf("pinned session disappeared:\n%s", ls.Stdout)
+	}
+	e.Exec("sessions", "unpin", id, "--data-dir", e.DataDir).RequireOK(t)
+	purge := e.Exec("sessions", "prune", "--older-than", "1ns", "--yes", "--data-dir", e.DataDir)
+	purge.RequireOK(t)
+	if !strings.Contains(purge.Stdout, "purged 1") {
+		t.Errorf("purge = %q", purge.Stdout)
+	}
+	after := e.Exec("sessions", "ls", "--data-dir", e.DataDir)
+	after.RequireOK(t)
+	if strings.TrimSpace(after.Stdout) != "" {
+		t.Errorf("sessions remain after purge:\n%s", after.Stdout)
 	}
 }
