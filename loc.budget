@@ -37,10 +37,10 @@ boundary           150 internal/boundary
 # ctxdb: ADR-049 (2.800) → ADR-087 (3.100) → ADR-118 (3.400) → ADR-118 amandemen (3.500: History/Fork/Search + Recall #152 in one package; terukur 3.418).
 # ADR-132 (REL-04/05): engine probe + read-only inspection mode; ctxdb 3500 -> 3700 (terukur 3533; Σ core +200).
 # ADR-132 amandemen SEC9-7: tokenizer gate SQL bebas; ctxdb 3700 -> 3800 (terukur 3725; Σ core +100).
-# ADR-136 amandemen LOC: fork/rewind di atas jalur read-only #203; ctxdb 3800 -> 3900 (terukur 3866; Σ core 38.150 -> 38.250).
 # ADR-140 restack: additive di atas ADR-136 (terukur 3886 pada pohon sesudah main+#227); ctxdb 3900 -> 3950 (Σ core 38.250 -> 38.300).
 # ADR-141 restack: additive di atas ADR-140 (terukur 4007 pada pohon sesudah main+#227+#248); ctxdb 3950 -> 4100 (Σ core 38.300 -> 38.450).
-ctxdb             4100 internal/ctxdb
+# ADR-142 restack: additive di atas ADR-141 (terukur 4160 pada pohon sesudah main+#227..#277); ctxdb 4100 -> 4250 (Σ core 38.450 -> 38.600).
+ctxdb             4250 internal/ctxdb
 # ADR-074: storage konsumen di internal/ctxdb/<consumer>store, dipotong dari baris konsumennya (Σ tidak berubah oleh ADR-074).
 # ctxdb/gwstore (900) dihitung dari budget gateway SPEC §3.2.4; barisnya ditambah saat baris gateway dibuat (F4).
 ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore

@@ -91,7 +91,8 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 			TrustedProjects:  []string{},
 			ExternalDirs:     []string{},
 		},
-		Log: Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
+		Sessions: Sessions{AutoPrune: false, PruneAfterDays: 90},
+		Log:      Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
 	}
 	if diff := cmp.Diff(want, Default()); diff != "" {
 		t.Errorf("Default() differs from SPEC §12 (-want +got):\n%s", diff)

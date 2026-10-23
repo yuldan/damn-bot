@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/redact"
 )
@@ -15,9 +18,9 @@ import (
 // adminArgs parses the sessions admin subcommands. Flags may appear before or
 // after the positional id (Go's flag package stops at the first positional).
 type adminArgs struct {
-	dataDir, format, out string
-	noRedact             bool
-	pos                  []string
+	dataDir, format, out, olderThan string
+	archive, dryRun, yes, noRedact  bool
+	pos                             []string
 }
 
 func parseAdminArgs(args []string) (adminArgs, error) {
@@ -70,6 +73,18 @@ func adminFlag(a *adminArgs, s string, args []string, i *int) (bool, error) {
 		return true, err
 	case strings.HasPrefix(s, "--out="):
 		a.out = strings.TrimPrefix(s, "--out=")
+	case s == "--older-than":
+		v, err := value(s)
+		a.olderThan = v
+		return true, err
+	case strings.HasPrefix(s, "--older-than="):
+		a.olderThan = strings.TrimPrefix(s, "--older-than=")
+	case s == "--archive":
+		a.archive = true
+	case s == "--dry-run":
+		a.dryRun = true
+	case s == "--yes" || s == "-y":
+		a.yes = true
 	case s == "--no-redact":
 		a.noRedact = true
 	default:
@@ -227,8 +242,154 @@ func exportOutFile(path string) (*os.File, error) {
 	return f, nil
 }
 
+// sessionsPrune archives or purges sessions older than --older-than (MEM-015).
+// Purging requires --yes; nothing is deleted without it, even headless.
+func sessionsPrune(args []string, stdout, stderr io.Writer) int {
+	a, err := parseAdminArgs(args)
+	if err != nil || a.olderThan == "" {
+		if err != nil {
+			sessionsPrintf(stderr, "sessions prune: %v\n", err)
+		}
+		sessionsUsage(stderr)
+		return 2
+	}
+	age, err := parseAge(a.olderThan)
+	if err != nil {
+		sessionsPrintf(stderr, "sessions prune: %v\n", err)
+		return 2
+	}
+	ctx := context.Background()
+	db, derr := openSessionsDB(ctx, a.dataDir)
+	if derr != nil {
+		return sessionsFail(stderr, "prune", derr, "")
+	}
+	defer closeSessionsDB(db, "sessions prune", stderr)
+	if a.archive {
+		return pruneArchive(ctx, db, age, a.dryRun, stdout, stderr)
+	}
+	return prunePurge(ctx, db, age, &a, stdout, stderr)
+}
+
+// pruneArchive labels sessions created before the cutoff as archived; a
+// dry-run only reports the candidates.
+func pruneArchive(ctx context.Context, db *ctxdb.Store, age time.Duration, dryRun bool, stdout, stderr io.Writer) int {
+	ids, err := db.SessionsOlderThan(ctx, time.Now().Add(-age).UnixMilli())
+	if err != nil {
+		return sessionsFail(stderr, "prune", err, "")
+	}
+	if dryRun {
+		sessionsPrintf(stdout, "would archive %d sessions\n", len(ids))
+		for _, id := range ids {
+			sessionsPrintf(stdout, "%s\n", cleanArg(id))
+		}
+		return 0
+	}
+	for _, id := range ids {
+		if serr := db.SetSessionLabel(ctx, id, ctxdb.LabelArchived, "1"); serr != nil {
+			return sessionsFail(stderr, "prune", serr, id)
+		}
+	}
+	sessionsPrintf(stdout, "archived %d sessions older than %s\n", len(ids), age)
+	return 0
+}
+
+// prunePurge previews or deletes the §11.6 P set and vacuums afterwards.
+func prunePurge(ctx context.Context, db *ctxdb.Store, age time.Duration, a *adminArgs, stdout, stderr io.Writer) int {
+	req := ctxdb.PurgeRequest{OlderThan: age, WithForks: true}
+	if a.dryRun {
+		rep, err := db.PurgeCandidates(ctx, req)
+		if err != nil {
+			return sessionsFail(stderr, "prune", err, "")
+		}
+		sessionsPrintf(stdout, "would purge %d sessions\n", len(rep.P))
+		for _, id := range rep.P {
+			sessionsPrintf(stdout, "%s\n", cleanArg(id))
+		}
+		reportPurgeSkips(&rep, stderr)
+		sessionsPrintf(stderr, "sessions prune: active leases and open turns are checked during purge\n")
+		return 0
+	}
+	if !a.yes {
+		sessionsPrintf(stderr, "sessions prune: refusing to delete without --yes (use --dry-run to preview or --archive)\n")
+		return 2
+	}
+	rep, err := db.Purge(ctx, req)
+	if err != nil {
+		return sessionsFail(stderr, "prune", err, "")
+	}
+	reportPurgeSkips(&rep, stderr)
+	sessionsPrintf(stdout, "purged %d sessions (txid %s)\n", len(rep.P), cleanArg(rep.TxID))
+	if len(rep.P) == 0 {
+		return 0
+	}
+	if verr := db.Vacuum(ctx); verr != nil {
+		sessionsPrintf(stderr, "sessions prune: vacuum: %s\n", sessionsMessage(verr, ""))
+		return 1
+	}
+	return 0
+}
+
+// reportPurgeSkips explains why candidates stayed in the database.
+func reportPurgeSkips(rep *ctxdb.PurgeReport, stderr io.Writer) {
+	for _, id := range rep.Pinned {
+		sessionsPrintf(stderr, "sessions prune: skipped pinned %s\n", cleanArg(id))
+	}
+	for _, id := range rep.Skipped {
+		sessionsPrintf(stderr, "sessions prune: skipped %s (has forks)\n", cleanArg(id))
+	}
+}
+
 // sessionsFail prints one mapped store error and returns its exit code.
 func sessionsFail(stderr io.Writer, name string, err error, id string) int {
 	sessionsPrintf(stderr, "sessions %s: %s\n", name, sessionsMessage(err, id))
 	return sessionsErr(err)
+}
+
+// parseAge accepts Go durations and the day suffix of SPEC §10 ("90d").
+// maxPruneAge bounds --older-than so day values cannot overflow time.Duration.
+const maxPruneAge = 3650 * 24 * time.Hour
+
+func parseAge(v string) (time.Duration, error) {
+	var d time.Duration
+	if days, ok := strings.CutSuffix(v, "d"); ok {
+		n, err := strconv.ParseFloat(days, 64)
+		if err != nil || !(n > 0 && n <= 3650) {
+			return 0, fmt.Errorf("--older-than %q: want a positive duration such as 90d", cleanArg(v))
+		}
+		d = time.Duration(n * float64(24*time.Hour))
+	} else {
+		var err error
+		d, err = time.ParseDuration(v)
+		if err != nil {
+			return 0, fmt.Errorf("--older-than %q: want a positive duration such as 90d", cleanArg(v))
+		}
+	}
+	if d <= 0 || d > maxPruneAge {
+		return 0, fmt.Errorf("--older-than %q: want a positive duration such as 90d", cleanArg(v))
+	}
+	return d, nil
+}
+
+// autoPrune runs at `run` startup when [sessions] auto_prune is enabled. It
+// never fails the turn: a busy database or an aborted purge is reported and
+// the run continues (the row stays for the next start).
+func autoPrune(ctx context.Context, db *ctxdb.Store, cfg config.Sessions, stderr io.Writer) {
+	if !cfg.AutoPrune {
+		return
+	}
+	age := time.Duration(cfg.PruneAfterDays) * 24 * time.Hour
+	rep, err := db.Purge(ctx, ctxdb.PurgeRequest{OlderThan: age, WithForks: true})
+	if err != nil {
+		if !errors.Is(err, ctxdb.ErrHasForks) {
+			sessionsPrintf(stderr, "run: auto-prune: %s\n", sessionsMessage(err, ""))
+		}
+		return
+	}
+	if len(rep.P) == 0 {
+		return
+	}
+	if verr := db.Vacuum(ctx); verr != nil {
+		sessionsPrintf(stderr, "run: auto-prune: vacuum: %s\n", sessionsMessage(verr, ""))
+	}
+	sessionsPrintf(stderr, "run: auto-pruned %d sessions older than %d days\n", len(rep.P), cfg.PruneAfterDays)
 }
