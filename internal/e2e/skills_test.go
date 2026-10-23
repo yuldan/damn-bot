@@ -145,3 +145,49 @@ func seedQuarantined(t *testing.T, e *Env, name, description, body string) {
 		t.Fatal(err)
 	}
 }
+
+// tomlLiteral renders s as a TOML literal string, which has no escape
+// processing, so a backslash path is written verbatim.
+func tomlLiteral(t *testing.T, s string) string {
+	t.Helper()
+	if strings.ContainsAny(s, "'") {
+		t.Fatalf("path %q contains a single quote; literal string cannot carry it", s)
+	}
+	return "'" + s + "'"
+}
+
+// TestImportedSkillQuarantined (negative control through the real binary): a
+// skill discovered in a new, untrusted location (skills.external_dirs) is
+// quarantined, so skills_list never offers it to the model before the user
+// approves it.
+func TestImportedSkillQuarantined(t *testing.T) {
+	t.Parallel()
+	e := New(t,
+		ToolCallReply("c1", "skills_list", `{}`),
+		providertest.Text("done"),
+	)
+	ext := filepath.Join(t.TempDir(), "ext")
+	dir := filepath.Join(ext, "proj-skill")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	md := "---\nname: proj-skill\ndescription: from the project\n---\nIMPORTED-BODY"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(md), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The path goes in as a TOML literal string: a Windows path contains
+	// backslashes, and inside a basic string "C:\Users" is an invalid \U
+	// escape that makes the whole config unparseable (the child then exits 2).
+	if err := os.WriteFile(e.cfg, []byte("[skills]\nexternal_dirs = ["+tomlLiteral(t, ext)+"]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res := e.Run("list the available skills")
+	res.RequireOK(t)
+	req := e.RequestText(t, 1)
+	if !strings.Contains(req, "0 skills:") {
+		t.Errorf("skills_list did not report an empty approved catalog:\n%s", req)
+	}
+	if strings.Contains(req, "proj-skill") || strings.Contains(req, "IMPORTED-BODY") {
+		t.Errorf("an unapproved imported skill reached the model:\n%s", req)
+	}
+}

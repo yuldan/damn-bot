@@ -1,30 +1,112 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/ctxdb/skillstore"
+	"github.com/damnbot/damnbot/internal/memory"
+	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/skills"
 )
 
-// paymentSkillDirs computes the shell-gate directories for the skills under
-// <config>/skills (SPEC §4.8, SEC-15/SEC-26, ADR-133 amendment). Every skill
-// directory is parsed and linted before use; a symlinked skill is resolved
-// and both names are gated; a directory without SKILL.md is gated as well. A
-// skill that cannot be read or is invalid fails the run instead of silently
-// leaving its files ungated (fail closed).
-func paymentSkillDirs(configDir string) ([]string, error) {
-	if configDir == "" {
-		return nil, nil
+// trustedProjectsFile is the user-managed trust store beside config.toml:
+// one absolute project path per line (the CLI command is a follow-up).
+// Trust is required for project discovery, so a cloned tree can never load
+// skills by being the cwd alone (ADR-168).
+const trustedProjectsFile = "trusted-projects"
+
+// skillRoots resolves every local skill root: <config>/skills (user, the
+// only trusted location), the discovered project skills of the nearest
+// trusted project, then skills.external_dirs. Roots are deduplicated by
+// canonical path with the earlier source winning.
+func skillRoots(cfg *config.Config, configDir, cwd string) ([]skills.Root, error) {
+	home, herr := os.UserHomeDir()
+	if herr != nil {
+		return nil, fmt.Errorf("home: %w", herr)
 	}
-	list, extra, err := loadSkills(filepath.Join(configDir, "skills"))
+	var out []skills.Root
+	seen := map[string]bool{}
+	add := func(path string, src skills.Source) error {
+		key, err := canonicalPath(path, home)
+		if err != nil {
+			return err
+		}
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, skills.Root{Path: path, Source: src})
+		}
+		return nil
+	}
+	if configDir != "" {
+		if err := add(filepath.Join(configDir, "skills"), skills.SourceUser); err != nil {
+			return nil, err
+		}
+	}
+	if cfg.Skills.ProjectDiscovery {
+		if err := addProjectRoots(cfg, configDir, cwd, home, add); err != nil {
+			return nil, err
+		}
+	}
+	for _, dir := range cfg.Skills.ExternalDirs {
+		if err := add(expandHome(dir, home), skills.SourceImport); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// addProjectRoots adds the skill roots of the nearest trusted project: only a
+// project named in skills.trusted_projects or in <config>/trusted-projects is
+// discovered, so a cloned tree cannot load skills by being the cwd alone.
+func addProjectRoots(cfg *config.Config, configDir, cwd, home string, add func(string, skills.Source) error) error {
+	trusted, err := trustedProjects(cfg.Skills.TrustedProjects, configDir, home)
+	if err != nil {
+		return err
+	}
+	root := nearestTrustedProject(cwd, trusted, home)
+	if root == "" {
+		return nil
+	}
+	for _, name := range []string{".damnbot", ".hermes"} {
+		if aerr := add(filepath.Join(root, name, "skills"), skills.SourceImport); aerr != nil {
+			return aerr
+		}
+	}
+	return nil
+}
+
+// loadSkillRoots parses every root into one catalog.
+func loadSkillRoots(cfg *config.Config, configDir, cwd string) (skills.Catalog, error) {
+	roots, err := skillRoots(cfg, configDir, cwd)
+	if err != nil {
+		return skills.Catalog{}, err
+	}
+	cat, err := skills.Load(roots)
+	if err != nil {
+		return skills.Catalog{}, fmt.Errorf("skills: %w", err)
+	}
+	return cat, nil
+}
+
+// paymentSkillDirs computes the shell-gate directories for every local skill
+// source (SPEC §4.8, SEC-15/SEC-26, ADR-133 amendment, ADR-168). Every
+// directory is gated regardless of quarantine state because its files are
+// already on disk; a skill that cannot be read or is invalid fails the run
+// instead of silently leaving its files ungated (fail closed).
+func paymentSkillDirs(cfg *config.Config, configDir, cwd string) ([]string, error) {
+	cat, err := loadSkillRoots(cfg, configDir, cwd)
 	if err != nil {
 		return nil, err
 	}
-	return dedupeDirs(append(skills.PaymentDirs(list), extra...)), nil
+	return dedupeDirs(append(skills.PaymentDirs(cat.Skills), cat.Dirs...)), nil
 }
 
 // dedupeDirs removes duplicate gate directories in first-seen order.
@@ -40,94 +122,140 @@ func dedupeDirs(dirs []string) []string {
 	return out
 }
 
-// loadSkills parses and lints every directory under root. extra holds
-// directories that are not skills (no SKILL.md) and are gated anyway.
-func loadSkills(root string) (list []skills.Skill, extra []string, err error) {
-	entries, err := os.ReadDir(root)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, nil
+// trustedProjects merges the config list with the trust store file. A
+// relative or unreadable entry fails closed.
+func trustedProjects(configured []string, configDir, home string) (map[string]bool, error) {
+	out := map[string]bool{}
+	for _, p := range configured {
+		key, err := canonicalPath(expandHome(p, home), home)
+		if err != nil {
+			return nil, fmt.Errorf("skills.trusted_projects: %w", err)
+		}
+		out[key] = true
 	}
+	file, err := readTrustedFile(configDir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("skills: %w", err)
+		return nil, err
 	}
-	known := map[string]bool{}
-	for _, e := range entries {
-		p := filepath.Join(root, e.Name())
-		info, serr := os.Stat(p) // follows a symlinked skill directory (SEC10-10)
-		if serr != nil {
-			return nil, nil, fmt.Errorf("skills: %s: %w", e.Name(), serr)
+	for _, p := range file {
+		key, kerr := canonicalPath(p, home)
+		if kerr != nil {
+			return nil, fmt.Errorf("%s: %w", trustedProjectsFile, kerr)
 		}
-		if !info.IsDir() {
-			continue
-		}
-		sk, ok, lerr := loadSkill(root, e.Name())
-		if lerr != nil {
-			return nil, nil, lerr
-		}
-		if !ok {
-			extra = append(extra, p)
-			continue
-		}
-		if known[sk.Name] {
-			return nil, nil, fmt.Errorf("%w: duplicate skill name %q", skills.ErrInvalid, sk.Name)
-		}
-		known[sk.Name] = true
-		list = append(list, sk)
+		out[key] = true
 	}
-	for i := range list {
-		if err := checkLoaded(&list[i], known); err != nil {
-			return nil, nil, err
-		}
-	}
-	return list, extra, nil
+	return out, nil
 }
 
-// loadSkill parses one skill directory; ok is false when it is not a skill.
-func loadSkill(root, name string) (sk skills.Skill, ok bool, err error) {
-	dir := filepath.Join(root, name)
-	p := filepath.Join(dir, "SKILL.md")
-	r, err := os.OpenRoot(dir) // SEC10-12: SKILL.md cannot symlink outside
-	if errors.Is(err, fs.ErrNotExist) {
-		return sk, false, nil
+// readTrustedFile reads <config>/trusted-projects; a missing file is empty.
+func readTrustedFile(configDir string) ([]string, error) {
+	if configDir == "" {
+		return nil, nil
 	}
+	root, err := os.OpenRoot(configDir)
 	if err != nil {
-		return sk, false, fmt.Errorf("skills: %s: %w", name, err)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("skills: config dir: %w", err)
 	}
-	data, rerr := r.ReadFile("SKILL.md")
-	if cerr := r.Close(); cerr != nil {
-		return sk, false, fmt.Errorf("skills: %s: %w", name, cerr)
+	data, rerr := root.ReadFile(trustedProjectsFile)
+	if cerr := root.Close(); cerr != nil {
+		return nil, fmt.Errorf("skills: config dir: %w", cerr)
 	}
 	if errors.Is(rerr, fs.ErrNotExist) {
-		return sk, false, nil
+		return nil, nil
 	}
 	if rerr != nil {
-		return sk, false, fmt.Errorf("skills: %s: %w", name, rerr)
+		return nil, fmt.Errorf("skills: %s: %w", trustedProjectsFile, rerr)
 	}
-	sk, err = skills.Parse(data, p, skills.SourceUser)
-	if err != nil {
-		return sk, false, fmt.Errorf("skills: %s: %w", name, err)
-	}
-	return sk, true, nil
-}
-
-// checkLoaded lints one skill through os.Root, records file-level payment
-// findings on the skill (SEC10-9) and rejects a high finding, matching
-// Service.Install for a trusted source.
-func checkLoaded(sk *skills.Skill, known map[string]bool) error {
-	root, err := os.OpenRoot(filepath.Dir(sk.Path))
-	if err != nil {
-		return fmt.Errorf("skills: %s: %w", sk.Name, err)
-	}
-	defer root.Close() //nolint:errcheck // read-only handle; a close error is not actionable here
-	findings, err := skills.Lint(sk, skills.LintEnv{Files: root.FS(), Known: func(n string) bool { return known[n] }})
-	if err != nil {
-		return fmt.Errorf("skills: %s: %w", sk.Name, err)
-	}
-	sk.AddFindings(findings)
-	for _, f := range findings {
-		if f.Severity == "high" {
-			return fmt.Errorf("%w: %s: %s", skills.ErrInvalid, sk.Name, f.Category)
+	var out []string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "#") {
+			out = append(out, line)
 		}
 	}
-	return nil
+	return out, nil
+}
+
+// writeTrustedFile rewrites the trust store atomically with a fixed order.
+
+// nearestTrustedProject walks up from cwd and returns the first trusted
+// project root; nested repositories stop at their own project.
+func nearestTrustedProject(cwd string, trusted map[string]bool, home string) string {
+	dir := cwd
+	for {
+		if key, err := canonicalPath(dir, home); err == nil && trusted[key] {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// canonicalPath is the trust key: absolute, symlinks resolved when the path
+// exists, cleaned. A relative path is an error.
+func canonicalPath(p, home string) (string, error) {
+	p = expandHome(p, home)
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", fmt.Errorf("path %q: %w", p, err)
+	}
+	if resolved, rerr := filepath.EvalSymlinks(abs); rerr == nil {
+		return resolved, nil
+	}
+	return filepath.Clean(abs), nil
+}
+
+// expandHome expands a leading "~" using home.
+func expandHome(p, home string) string {
+	if home == "" {
+		return p
+	}
+	if p == "~" {
+		return home
+	}
+	if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, `~\`) {
+		return filepath.Join(home, p[2:])
+	}
+	return p
+}
+
+// quarantineImportedSkills indexes every skill from an untrusted local root
+// (project discovery, skills.external_dirs) through the quarantine path: the
+// proposed row is linked to a memory entry and stays invisible to
+// skills_list, skill_view and retrieval until the user approves that entry
+// (ADR-168). <config>/skills is the only trusted location and is not touched
+// here, so its behaviour is unchanged. The returned memory ids exist for the
+// approval flow and for tests.
+func quarantineImportedSkills(ctx context.Context, db *ctxdb.Store, red *redact.Redactor, cfg *config.Config, configDir, cwd string) ([]int64, error) {
+	cat, err := loadSkillRoots(cfg, configDir, cwd)
+	if err != nil {
+		return nil, err
+	}
+	var ids []int64
+	for i := range cat.Skills {
+		sk := &cat.Skills[i]
+		if sk.Source.Trusted() {
+			continue // <config>/skills keeps the existing trusted path
+		}
+		scan := memory.ScanText(red, sk.Description+"\n"+sk.Body)
+		js, jerr := scan.JSON()
+		if jerr != nil {
+			return nil, fmt.Errorf("scan imported skill %s: %w", sk.Name, jerr)
+		}
+		row := &skillstore.Row{
+			Name: sk.Name, Description: sk.Description, Body: sk.Body, Path: sk.Path,
+			SHA256: sk.SHA256, Source: string(sk.Source),
+		}
+		memoryID, _, qerr := skillstore.Quarantine(ctx, db, row, string(js), scan.High(), 0)
+		if qerr != nil {
+			return nil, fmt.Errorf("quarantine imported skill %s: %w", sk.Name, qerr)
+		}
+		ids = append(ids, memoryID)
+	}
+	return ids, nil
 }

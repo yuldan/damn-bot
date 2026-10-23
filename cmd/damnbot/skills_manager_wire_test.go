@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/skillstore"
 	"github.com/damnbot/damnbot/internal/redact"
@@ -94,7 +95,9 @@ func testSkillPaymentGateUntouched(ctx context.Context, t *testing.T, env *skill
 	if err := os.WriteFile(p, []byte(md), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	before, err := paymentSkillDirs(env.configDir)
+	dc := config.Default()
+	dc.Skills.ProjectDiscovery = false // this test scans only <config>/skills
+	before, err := paymentSkillDirs(&dc, env.configDir, env.configDir)
 	if err != nil {
 		t.Fatalf("payment gate: %v", err)
 	}
@@ -106,7 +109,7 @@ func testSkillPaymentGateUntouched(ctx context.Context, t *testing.T, env *skill
 	}); !errors.Is(cerr, tools.ErrSkillExists) {
 		t.Fatalf("create over a disk-only payment skill = %v, want exists", cerr)
 	}
-	after, err := paymentSkillDirs(env.configDir)
+	after, err := paymentSkillDirs(&dc, env.configDir, env.configDir)
 	if err != nil {
 		t.Fatalf("payment gate after create: %v", err)
 	}

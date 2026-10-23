@@ -17,7 +17,19 @@ type Config struct {
 	Approval Approval `toml:"approval"`
 	Exec     Exec     `toml:"exec"`
 	Agent    Agent    `toml:"agent"`
+	Skills   Skills   `toml:"skills"`
 	Log      Log      `toml:"log"`
+}
+
+// Skills is SPEC §4.8/§12 [skills]: the local skill sources (SKILL-009,
+// SKILL-010; ADR-168). Project discovery reads only the roots of projects
+// named in TrustedProjects or in <config>/trusted-projects, and every skill
+// from a project or an external directory is quarantined like an import.
+type Skills struct {
+	ProjectDiscovery bool     `toml:"project_discovery"`
+	TrustedProjects  []string `toml:"trusted_projects"`
+	ExternalDirs     []string `toml:"external_dirs"`
+	InlineShell      bool     `toml:"inline_shell"`
 }
 
 // Provider is SPEC §12 [provider].
@@ -143,6 +155,12 @@ func Default() Config {
 			PassSSHAgent:     false,
 		},
 		Agent: Agent{VerifyOnStop: "run"},
+		Skills: Skills{
+			ProjectDiscovery: true,
+			TrustedProjects:  []string{},
+			ExternalDirs:     []string{},
+			InlineShell:      false,
+		},
 		Log: Log{
 			Level:             "info",
 			MessageContent:    false,
