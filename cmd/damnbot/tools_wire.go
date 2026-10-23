@@ -16,10 +16,51 @@ import (
 	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
+	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/tools"
 )
+
+// wireModules builds the deferred catalog of the frozen module registry and
+// appends its meta tools to list (ADR-119), so newRunWiring stays short.
+func wireModules(list []tools.Tool) (runModules, *tools.Registry, error) {
+	mods, err := newRunModules(modules.Default(), nil)
+	if err != nil {
+		return runModules{}, nil, err
+	}
+	reg, err := tools.NewRegistry(append(list, mods.meta...)...)
+	if err != nil {
+		return runModules{}, nil, fmt.Errorf("registry: %w", err)
+	}
+	return mods, reg, nil
+}
+
+// stopModules shuts the module runtime down and joins the cause, so the fail
+// path of newRunWiring and runModel.close release modules the same way.
+func stopModules(ctx context.Context, mods *runModules, cause error) error {
+	if mods.runtime == nil {
+		return cause
+	}
+	if serr := mods.runtime.Shutdown(ctx); serr != nil {
+		return errors.Join(cause, fmt.Errorf("stop modules: %w", serr))
+	}
+	return cause
+}
+
+// closeWiring releases everything newRunWiring opened and joins every error
+// with the cause, so the fail path and runModel.close report identically.
+func closeWiring(ctx context.Context, cause error, mods *runModules, engine *codetools.Engine, sessions *exec.Sessions, runner *exec.Runner, db *ctxdb.Store, sid string) error {
+	cause = stopModules(ctx, mods, cause)
+	engine.Close()
+	if cerr := sessions.Close(); cerr != nil {
+		cause = errors.Join(cause, fmt.Errorf("close sessions: %w", cerr))
+	}
+	if cerr := runner.CloseContext(ctx); cerr != nil {
+		cause = errors.Join(cause, fmt.Errorf("close runner: %w", cerr))
+	}
+	return closeDB(ctx, db, sid, cause)
+}
 
 func runtimeDialect() classify.Dialect {
 	switch runtime.GOOS {
@@ -175,6 +216,7 @@ type runWiring struct {
 	runner   *exec.Runner
 	sessions *exec.Sessions
 	registry *tools.Registry
+	modules  runModules
 	sid      string
 	cwd      string
 	fail     func(error) error
@@ -216,18 +258,11 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	}
 	runner := exec.New(ctx)
 	envPolicy := &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent}
-	// Persistent sessions share the runner but never receive secret refs
-	// (ADR-088): direct is empty and Env only inherits the allowlist.
+	// Persistent sessions share the runner but never receive secret refs (ADR-088).
 	sessions := runner.NewSessions(filepath.Join(dataDir, "exec", "sess"), envPolicy.Env(os.Environ(), true, "", "", ""))
+	var mods runModules
 	fail := func(cause error) error {
-		engine.Close()
-		if cerr := sessions.Close(); cerr != nil {
-			cause = errors.Join(cause, fmt.Errorf("close sessions: %w", cerr))
-		}
-		if cerr := runner.CloseContext(ctx); cerr != nil {
-			cause = errors.Join(cause, fmt.Errorf("close runner: %w", cerr))
-		}
-		return closeDB(ctx, db, sid, cause)
+		return closeWiring(ctx, cause, &mods, engine, sessions, runner, db, sid)
 	}
 	allow, monetary, err := shellGate(cfg, configDir, cwd)
 	if err != nil {
@@ -259,9 +294,10 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	}
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
-	reg, err := tools.NewRegistry(list...)
+	var reg *tools.Registry
+	mods, reg, err = wireModules(list)
 	if err != nil {
-		return nil, fail(fmt.Errorf("registry: %w", err))
+		return nil, fail(err)
 	}
 	return &runWiring{
 		db:        db,
@@ -269,6 +305,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		runner:    runner,
 		sessions:  sessions,
 		registry:  reg,
+		modules:   mods,
 		sid:       sid,
 		cwd:       cwd,
 		fail:      fail,

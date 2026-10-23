@@ -8,14 +8,23 @@ import (
 	"github.com/damnbot/damnbot/internal/testutil/phase"
 )
 
-// TestEdgeCasesF2 records EC-TCALL-010 as still pending at F2: the deferred
-// path exists at the tools layer, but cmd/damnbot does not wire tool_search,
-// tool_invoke or tools.Deferred yet (the composition root is part of the #174
-// module wiring), so the EC cannot be proven end-to-end (review ACC-5).
+// Status `n/a` beralasan (ADR-080) menggantikan `pending:F2`: pada F2 tidak ada satu pun
+// modul/tool deferred yang dapat di-wire pada `run` — `newRunModules(modules.Default(), nil)`
+// (cmd/damnbot/run.go:364) memakai registry default yang kosong (terukur: descriptors=0, tools=[]),
+// tidak ada `modules.Register` di jalur biner, dan tidak ada flag/config yang menyalakannya — sehingga
+// e2e lewat biner asli akan vakum (ia hanya membuktikan "tidak ada schema deferred karena tidak ada
+// modul", bukan properti EC-TCALL-010). Invariannya dipatok in-process di file ini:
+// `TestDeferredSchemaNotInPayload` (baris 23) — payload yang dideklarasikan ke provider tidak memuat
+// schema deferred. e2e lewat biner asli WAJIB ditambahkan begitu modul pertama benar-benar di-wire
+// (MCP, F5); lihat ADR-077/ADR-080 amandemen 2026-10-22 dan CHANGELOG.
+// TestEdgeCasesF2 records EC-TCALL-010 as `n/a` with the reason above: the
+// composition root does wire tool_search/tool_invoke (#174), but no module is
+// registered in F2, so the run-level property cannot be shown end to end; the
+// invariant is pinned in-process by TestDeferredSchemaNotInPayload.
 func TestEdgeCasesF2(t *testing.T) {
 	t.Parallel()
 	g := phase.Current(t)
-	if g.Item(t, "EC-TCALL-010", "F2", "pending:F2") {
+	if g.Item(t, "EC-TCALL-010", "F2", "n/a") {
 		t.Run("EC-TCALL-010", ecTcall010)
 	}
 }
@@ -23,7 +32,7 @@ func TestEdgeCasesF2(t *testing.T) {
 // TestDeferredSchemaNotInPayload is the tools-layer guard for EC-TCALL-010: a
 // deferred (MCP) schema never joins the declared payload, tool_search defers
 // it, tool_invoke runs it, and the registry the payload is rendered from is
-// unchanged by either. The run-level proof waits for the #174 wiring.
+// unchanged by either. The run-level proof needs a wired module (F5).
 func TestDeferredSchemaNotInPayload(t *testing.T) {
 	t.Parallel()
 	ecTcall010(t)

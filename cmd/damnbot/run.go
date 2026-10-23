@@ -232,6 +232,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		Spill:            spill,
 		Redactor:         red,
 		Mode:             approvalMode(o),
+		Deferred:         model.modules.deferred,
 		WorkspaceTrusted: true,
 		Cwd:              model.cwd,
 		// P5 amendment / GAP-COST-08: the turn inline aggregate scales with
@@ -286,6 +287,7 @@ type runModel struct {
 	engine    *codetools.Engine
 	runner    *exec.Runner
 	sessions  *exec.Sessions
+	modules   runModules
 	sessionID string
 	cwd       string
 	window    int64  // effective model window (registry.Limits: config/registry/learned/fallback)
@@ -303,6 +305,7 @@ func (m *runModel) close(ctx context.Context) error {
 		m.engine.Close()
 	}
 	var err error
+	err = stopModules(ctx, &m.modules, err)
 	if m.sessions != nil {
 		if cerr := m.sessions.Close(); cerr != nil {
 			err = errors.Join(err, fmt.Errorf("close sessions: %w", cerr))
@@ -316,10 +319,9 @@ func (m *runModel) close(ctx context.Context) error {
 	if m.db == nil {
 		return err
 	}
-	if cerr := m.db.CloseContext(ctx); cerr != nil {
-		return errors.Join(err, fmt.Errorf("close ctxdb: %w", cerr))
-	}
-	return err
+	// The turn is over: release the lease so `damnbot undo` can take its
+	// short lease immediately (SPEC §18.1, REVIEW-F2-SEC5-5).
+	return closeDB(ctx, m.db, m.sessionID, err)
 }
 
 // newRunProvider builds the run provider or returns the injected one.

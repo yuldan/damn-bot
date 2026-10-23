@@ -10,14 +10,15 @@ import (
 	"os"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/modules"
 )
 
 // version diisi lewat -ldflags "-X main.version=..." saat rilis.
 var version = "dev"
 
 func main() {
-	utf8Console()
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	utf8Console() // EC-WIN-017: the attached console speaks UTF-8 before anything prints
+	os.Exit(start(modules.Freeze(), os.Args[1:], os.Stdout, os.Stderr))
 }
 
 // printEngine is the REL-04 verbose surface.
