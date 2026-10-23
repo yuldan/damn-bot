@@ -645,18 +645,11 @@ func TestFTSReindexPreservesEncryptedBlindIndex(t *testing.T) {
 	closeStore(t, s)
 }
 
-func TestEncryptedFTSLayoutNoPositionsOrUnigrams(t *testing.T) {
-	dir := t.TempDir()
-	s := openEncrypted(t, dir)
-	defer closeStore(t, s)
-	ctx := context.Background()
-	if _, err := s.CreateSession(ctx, ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.Append(ctx, "S", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "日本語", Payload: "{}"}); err != nil {
-		t.Fatal(err)
-	}
-	codec := realCodec(t, dir)
+// assertFTSLayout checks the encrypted events_fts of s: bigram tokens match,
+// a one-rune CJK term has no index token, and NEAR finds no position data. It
+// returns the table DDL.
+func assertFTSLayout(ctx context.Context, t *testing.T, s *ctxdb.Store, codec *secret.Codec) string {
+	t.Helper()
 	var schema string
 	if err := s.Write(ctx, func(tx *ctxdb.Tx) error {
 		sqls, err := tx.Strings(`SELECT sql FROM sqlite_master WHERE name='events_fts'`)
@@ -681,6 +674,21 @@ func TestEncryptedFTSLayoutNoPositionsOrUnigrams(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	return schema
+}
+
+func TestEncryptedFTSLayoutNoPositionsOrUnigrams(t *testing.T) {
+	dir := t.TempDir()
+	s := openEncrypted(t, dir)
+	defer closeStore(t, s)
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Append(ctx, "S", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "日本語", Payload: "{}"}); err != nil {
+		t.Fatal(err)
+	}
+	schema := assertFTSLayout(ctx, t, s, realCodec(t, dir))
 	if !strings.Contains(schema, "detail=column") {
 		t.Fatalf("encrypted FTS schema lacks detail=column: %s", schema)
 	}
@@ -765,16 +773,18 @@ func TestEncryptedFTSLayoutDerivedFromSchema(t *testing.T) {
 	}
 	if err := s.Write(ctx, func(tx *ctxdb.Tx) error {
 		if _, xerr := tx.Exec(`DROP TRIGGER events_ai`); xerr != nil {
-			return xerr
+			return fmt.Errorf("drop events_ai: %w", xerr)
 		}
 		if _, xerr := tx.Exec(`DROP TABLE events_fts`); xerr != nil {
-			return xerr
+			return fmt.Errorf("drop events_fts: %w", xerr)
 		}
 		if _, xerr := tx.Exec(`CREATE VIRTUAL TABLE events_fts USING fts5(content, tool_name, content='', contentless_delete=1, tokenize = "unicode61 remove_diacritics 2")`); xerr != nil {
-			return xerr
+			return fmt.Errorf("recreate events_fts: %w", xerr)
 		}
-		_, xerr := tx.Exec(`UPDATE fts_meta SET layout_version=2`)
-		return xerr
+		if _, xerr := tx.Exec(`UPDATE fts_meta SET layout_version=2`); xerr != nil {
+			return fmt.Errorf("fake layout_version: %w", xerr)
+		}
+		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -785,7 +795,7 @@ func TestEncryptedFTSLayoutDerivedFromSchema(t *testing.T) {
 	if err := s.Write(ctx, func(tx *ctxdb.Tx) error {
 		sqls, xerr := tx.Strings(`SELECT sql FROM sqlite_master WHERE name='events_fts'`)
 		if xerr != nil {
-			return xerr
+			return fmt.Errorf("read schema: %w", xerr)
 		}
 		schema = sqls[0]
 		return nil
