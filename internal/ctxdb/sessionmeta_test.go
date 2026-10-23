@@ -93,6 +93,33 @@ func TestSessionRows(t *testing.T) {
 	}
 }
 
+// TestSessionsOlderThan: archive candidates are created before the cutoff.
+func TestSessionsOlderThan(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	e.clk.Advance(100 * 24 * time.Hour)
+	if _, err := s.CreateSession(ctx, Session{ID: "S2", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := s.SessionsOlderThan(ctx, e.clk.WallMs()-30*24*3600*1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != "S1" {
+		t.Fatalf("older sessions = %v, want [S1]", ids)
+	}
+}
+
 // TestSessionLabelRejections: only the user keys are writable, flag values are
 // closed, and a missing session is ErrNotFound.
 func TestSessionLabelRejections(t *testing.T) {
@@ -140,5 +167,114 @@ func TestSessionLabelRejections(t *testing.T) {
 	}
 	if _, _, err := s.SessionLabel(ctx, "S1", "purge_state"); err == nil {
 		t.Error("SessionLabel accepted a non-user key")
+	}
+}
+
+// TestPurgePinned: a pinned session is removed from the purge set (and the
+// purge is a no-op) while an unpinned one is purged.
+func TestPurgePinned(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSessionLabel(ctx, "S1", LabelPinned, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReleaseLease(ctx, "S1"); err != nil {
+		t.Fatal(err)
+	}
+	e.clk.Advance(time.Second)
+	req := PurgeRequest{OlderThan: time.Millisecond, WithForks: true}
+	rep, err := s.PurgeCandidates(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.P) != 0 || len(rep.Pinned) != 1 || rep.Pinned[0] != "S1" {
+		t.Fatalf("candidates = P %v Pinned %v, want P empty and Pinned [S1]", rep.P, rep.Pinned)
+	}
+	if rep, err = s.Purge(ctx, req); err != nil {
+		t.Fatalf("Purge with only pinned candidates: %v", err)
+	}
+	if len(rep.P) != 0 {
+		t.Fatalf("purged %v, want none", rep.P)
+	}
+	if err := s.Visible(ctx, "S1"); err != nil {
+		t.Fatalf("pinned session is no longer visible: %v", err)
+	}
+}
+
+// TestPurgePinnedAncestor: purging an ancestor of a pinned fork keeps both,
+// because deleting the parent would drop the pinned row via the FK.
+func TestPurgePinnedAncestor(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("close store: %v", err)
+		}
+	})
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateSession(ctx, Session{ID: "S2", ParentID: "S1", ForkSeq: 1, Origin: "tui", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSessionLabel(ctx, "S2", LabelPinned, "1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReleaseLease(ctx, "S1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReleaseLease(ctx, "S2"); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := s.PurgeCandidates(ctx, PurgeRequest{IDs: []string{"S1"}, WithForks: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.P) != 0 || len(rep.Pinned) != 1 || rep.Pinned[0] != "S2" {
+		t.Fatalf("candidates = P %v Pinned %v, want P empty and Pinned [S2]", rep.P, rep.Pinned)
+	}
+}
+
+// TestVacuumWithReader: a concurrent read-only handle must not corrupt the
+// database; VACUUM either succeeds or reports a typed busy error.
+func TestVacuumWithReader(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	ctx := context.Background()
+	defer func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("close writer: %v", err)
+		}
+	}()
+	if _, err := s.CreateSession(ctx, Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	ro, err := Open(ctx, &Options{Dir: e.dir, Kind: "cli", ReadOnly: true, Clock: e.clk, Procs: e.procs})
+	if err != nil {
+		t.Fatalf("open read-only: %v", err)
+	}
+	defer func() {
+		if err := ro.Close(); err != nil {
+			t.Errorf("close reader: %v", err)
+		}
+	}()
+	if verr := s.Vacuum(ctx); verr != nil && !errors.Is(verr, ErrDBBusy) {
+		t.Fatalf("Vacuum with reader = %v, want nil or db_busy", verr)
+	}
+	if _, err := s.IntegrityCheck(ctx); err != nil {
+		t.Fatalf("integrity after vacuum: %v", err)
 	}
 }

@@ -48,6 +48,10 @@ defaults:
 
 env:
   CGO_ENABLED: "0"
+  # ADR-182: `|direct` = fallback ke sumber (VCS) bila proxy mengembalikan error APA PUN (comma hanya
+  # fallback pada 404/410). Ini tidak melewati gate apa pun — unduhan modul tetap wajib sukses; hanya
+  # jalur pengambilan yang tahan gangguan transient proxy.golang.org (mis. `stream error: … INTERNAL_ERROR`).
+  GOPROXY: "https://proxy.golang.org|direct"
 
 jobs:
   # ADR-135 butir 2: PR yang hanya menyentuh dokumen tidak menjalankan build/test/perf/coverage/fuzz.
@@ -335,16 +339,29 @@ jobs:
             go.sum
             tools/go.sum
             bench/go.sum
-      - name: go mod tidy tanpa diff, 3 modul (E-46)
-        run: make tidy-check
-      - name: go mod verify, 3 modul (E-47)
-        run: make mod-verify
-      - name: deps allowlist (E-45, E-48)
-        run: make deps-check
-      - name: go-licenses + TestMPLIsolation (E-40)
-        run: make licenses
-      - name: govulncheck, 3 modul (E-54)
-        run: make vuln
+      # ADR-182: retry idempoten hanya pada jalur unduhan yang tersentuh gate, bukan pra-unduh.
+      # Pra-unduh `go mod download all` DITOLAK karena ia menulis go.sum (8 baris untuk 4 modul pada
+      # pohon nyata) dan membuat gate `tidy-check` di langkah berikutnya gagal — persis kegagalan yang
+      # terlihat di PR ini. Gate tetap tidak dilonggarkan: bila 3 percobaan gagal, langkah gagal.
+      - name: Gate modul dengan retry transient (E-46/E-47/E-45/E-48/E-40/E-54; ADR-182)
+        run: |
+          retry() {
+            local n=0
+            until "$@"; do
+              n=$((n + 1))
+              if (( n >= 3 )); then
+                echo "::error::$*: gagal setelah 3 percobaan (transient?)"
+                return 1
+              fi
+              echo "$*: percobaan $n gagal; jeda 5 s lalu ulang"
+              sleep 5
+            done
+          }
+          retry make tidy-check
+          retry make mod-verify
+          retry make deps-check
+          retry make licenses
+          retry make vuln
 
   # ADR-181: tier `smoke` untuk `push: main`. Yang diperiksa: kompilasi seluruh paket (`make build`,
   # E-39), `go vet` lintas OS/arch (`make vet-cross`, ADR-073), dan suite paket inti yang cepat
