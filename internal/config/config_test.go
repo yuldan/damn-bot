@@ -71,6 +71,7 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 				"~/.ssh", "~/.gnupg", "~/.aws", "**/.env", "**/*.pem",
 				"~/.netrc", "~/.git-credentials", "~/.config/gh",
 				"~/.docker/config.json", "~/.kube", "<config_dir>/secrets.enc",
+				"<config_dir>/at-rest.*", "<config_dir>/backup.keys",
 				"/proc/*/environ", "/proc/*/task/*/environ", "/proc/*/mem",
 			},
 			AddDirs:         []string{},
@@ -134,7 +135,7 @@ func TestConfigOverridesKeepDefaults(t *testing.T) {
 	if diff := cmp.Diff([][]string{{"go", "test", "./..."}}, cfg.Approval.ShellAllow); diff != "" {
 		t.Errorf("shell_allow replaced, not appended (-want +got):\n%s", diff)
 	}
-	if len(cfg.Approval.DenyPaths) != 14 {
+	if len(cfg.Approval.DenyPaths) != 16 {
 		t.Errorf("deny_paths default lost: %v", cfg.Approval.DenyPaths)
 	}
 }
@@ -359,6 +360,8 @@ func TestConfigDenyPathsExpansion(t *testing.T) {
 	got := cfg.DenyPaths("/cfg/damnbot")
 	want := append([]string{}, cfg.Approval.DenyPaths...)
 	want[10] = "/cfg/damnbot/secrets.enc"
+	want[11] = "/cfg/damnbot/at-rest.*"
+	want[12] = "/cfg/damnbot/backup.keys"
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("DenyPaths (-want +got):\n%s", diff)
 	}

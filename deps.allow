@@ -19,6 +19,7 @@ github.com/fsnotify/fsnotify
 github.com/tetratelabs/wazero
 github.com/coder/websocket
 github.com/zalando/go-keyring
+github.com/godbus/dbus/v5
 go.yaml.in/yaml/v3
 maunium.net/go/mautrix
 go.starlark.net
