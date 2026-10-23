@@ -40,3 +40,7 @@ func validateScope(scope string) error {
 	_, err := normalizeScope(scope)
 	return err
 }
+
+// NormalizeScope returns the portable form of scope the store compares
+// (ErrInvalid for anything else), so callers can match a record's scope.
+func NormalizeScope(scope string) (string, error) { return normalizeScope(scope) }
