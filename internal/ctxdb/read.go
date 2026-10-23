@@ -402,7 +402,7 @@ func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int
 		FROM events_fts JOIN events e ON e.id = events_fts.rowid
 		WHERE events_fts MATCH ? AND ` + notPurging("e.session_id")
 	if summaries {
-		q = `SELECT sm.event_id, sm.session_id, sm.to_seq, '', bm25(summaries_fts), sm.content, sm.content_enc, sm.from_seq,
+		q = `SELECT sm.event_id, sm.session_id, sm.to_seq, '', bm25(summaries_fts), sm.content,
 			EXISTS (SELECT 1 FROM events x JOIN events t ON t.session_id = x.session_id
 				WHERE x.session_id = sm.session_id AND x.kind = 'context_exclude'
 				AND json_extract(x.payload, '$.turn_id') = t.turn_id AND t.seq BETWEEN sm.from_seq AND sm.to_seq)
@@ -425,21 +425,15 @@ func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int
 		var h Hit
 		var content string
 		var enc []byte
-		var from int64
 		if summaries {
-			if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &enc, &from, &h.Excluded); err != nil {
+			if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &h.Excluded); err != nil {
 				return wrap(err)
 			}
 		} else if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &enc, &h.Excluded); err != nil {
 			return wrap(err)
 		}
 		identity := h.SessionID + "|" + strconv.FormatInt(h.Seq, 10)
-		scope := "events.content"
-		if summaries {
-			identity = h.SessionID + "|" + strconv.FormatInt(from, 10) + ":" + strconv.FormatInt(h.Seq, 10)
-			scope = "summaries.content"
-		}
-		dc, derr := s.openRow(scope, identity, enc, content)
+		dc, derr := s.openRow("events.content", identity, enc, content)
 		if derr != nil {
 			return derr
 		}

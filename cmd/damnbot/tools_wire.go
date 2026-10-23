@@ -188,8 +188,8 @@ type runWiring struct {
 // runner and its persistent sessions, then wires the shell, file, and skill
 // tools into a registry. Failures after the sessions exist go through the
 // returned fail closure so nothing leaks.
-func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runWiring, error) {
-	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run"})
+func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string, codec ctxdb.Codec) (*runWiring, error) {
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run", Codec: codec})
 	if err != nil {
 		return nil, fmt.Errorf("open ctxdb: %w", err)
 	}

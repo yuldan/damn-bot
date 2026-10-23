@@ -34,7 +34,7 @@ func TestFailedTurnPersisted(t *testing.T) {
 	red := redact.New(redact.Options{})
 	spill := diskSpill{dir: filepath.Join(dir, "spill")}
 	o := &runOptions{model: "openai/gpt-fake", baseURL: srv.URL, providerAttempts: 1, output: "json", approval: "auto"}
-	model, err := startRunModel(ctx, &cfg, dir, o.model, o, red, spill, dir, t.TempDir())
+	model, err := startRunModel(ctx, &cfg, dir, o.model, o, red, spill, dir, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
