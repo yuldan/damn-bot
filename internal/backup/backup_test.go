@@ -139,3 +139,20 @@ func TestCloseIdempotent(t *testing.T) {
 		t.Fatalf("second Close = %v", err)
 	}
 }
+
+func TestReadMetaRejectsBadRecipientBytes(t *testing.T) {
+	key := testKey(t)
+	var buf bytes.Buffer
+	if _, _, _, err := writeHeader(&buf, key, &WriterOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	raw := append([]byte(nil), buf.Bytes()...)
+	i := bytes.Index(raw, []byte(key.ID))
+	if i < 0 {
+		t.Fatal("recipient id not found in header")
+	}
+	copy(raw[i:i+32], bytes.Repeat([]byte("z"), 32))
+	if _, err := ReadMeta(bytes.NewReader(raw)); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("ReadMeta accepted bad recipient id: %v", err)
+	}
+}

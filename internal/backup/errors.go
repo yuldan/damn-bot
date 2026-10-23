@@ -19,4 +19,6 @@ var (
 	ErrIncompatible = errors.New("backup: unsupported archive")
 	// ErrKey means the supplied key material is malformed.
 	ErrKey = errors.New("backup: invalid key")
+	// ErrPermissions means an archive directory or file is too permissive.
+	ErrPermissions = errors.New("backup: permissions are wider than 0600/0700")
 )

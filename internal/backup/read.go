@@ -187,3 +187,38 @@ func chunkNonce(prefix []byte, counter uint64) []byte {
 	binary.BigEndian.PutUint64(n[prefixSize:], counter)
 	return n
 }
+
+// ReadMeta parses the unauthenticated public header for `ls`.
+func ReadMeta(r io.Reader) (Header, error) {
+	m := make([]byte, len(magic))
+	if _, err := io.ReadFull(r, m); err != nil {
+		return Header{}, fmt.Errorf("%w: magic: %w", ErrTruncated, err)
+	}
+	if string(m) != magic {
+		return Header{}, fmt.Errorf("%w: magic", ErrIncompatible)
+	}
+	var ver [1]byte
+	if _, err := io.ReadFull(r, ver[:]); err != nil || ver[0] != formatVersion {
+		return Header{}, fmt.Errorf("%w: version", ErrIncompatible)
+	}
+	var lb [2]byte
+	if _, err := io.ReadFull(r, lb[:]); err != nil {
+		return Header{}, fmt.Errorf("%w: header length: %w", ErrTruncated, err)
+	}
+	hlen := binary.BigEndian.Uint16(lb[:])
+	raw, _, err := readHeaderBody(r, hlen)
+	if err != nil {
+		return Header{}, err
+	}
+	h, err := decodeHeader(raw)
+	if err != nil {
+		return Header{}, err
+	}
+	if len(h.Recipient) != 32 {
+		return Header{}, fmt.Errorf("%w: recipient id", ErrCorrupt)
+	}
+	if _, err := hex.DecodeString(h.Recipient); err != nil {
+		return Header{}, fmt.Errorf("%w: recipient id", ErrCorrupt)
+	}
+	return publicHeader(&h)
+}
