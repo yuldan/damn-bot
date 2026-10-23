@@ -337,18 +337,15 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	if err != nil {
 		return nil, fmt.Errorf("provider endpoint: %w", err)
 	}
+	guard, notes, err := newBudgetGuard(cfg, db)
+	if err != nil {
+		return nil, err
+	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
 	prices, err := provider.RoutePrices(table, base, modelName)
 	if err != nil {
 		return nil, fmt.Errorf("pricing: %w", err)
 	}
-	guard, err := budget.NewGuard(budget.GuardConfig{
-		DailyUSD: cfg.Budget.DailyUSD, MonthlyUSD: cfg.Budget.MonthlyUSD, Providers: cfg.Budget.Providers, WarnAt: cfg.Budget.WarnAt,
-	}, ledgerstore.Source{Store: db}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("budget guard: %w", err)
-	}
-	notes := &budgetNotes{}
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
 		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family, Prices: prices}},
@@ -503,11 +500,6 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// budgetCounter adapts COST-09 to assemble.Counter (one formula, one owner).
-type budgetCounter struct{}
-
-func (budgetCounter) Count(s string) int { return int(budget.Count(s).Raw()) }
-
 // charsPerToken is the COST-09 char/token ratio of the run prompt, the
 // session sample available before the ledger has usage rows. Zero means
 // unknown, which keeps the fixed P5 aggregate (GAP-COST-08).
@@ -517,12 +509,6 @@ func charsPerToken(s string) float64 {
 		return 0
 	}
 	return float64(n) / float64(raw)
-}
-
-type providerAdapter struct {
-	client *provider.OpenAI
-	model  string
-	notes  *budgetNotes
 }
 
 func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
@@ -542,8 +528,17 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 			emit(loop.Delta{Text: string(ch.Content)})
 		}
 	})
+	warnings := p.notes.take()
+	maxTok := int64(req.MaxTokens)
+	if maxTok <= 0 {
+		maxTok = provider.DefaultMaxTokens
+	}
+	billed := billedUsage(&resp, maxTok)
 	if err != nil {
-		return loop.Reply{}, streamError(err)
+		se := streamError(err)
+		se.Billed = resp.BilledFailed
+		se.Usage = billed
+		return loop.Reply{}, se
 	}
 	reply := loop.Reply{
 		Content: resp.Content, FinishReason: resp.FinishReason, Usage: event.Usage{
@@ -554,7 +549,9 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 		Model: resp.Model, FallbackFrom: resp.FallbackFrom, Attempts: resp.Attempts,
 		Carriers: eventCarriers(resp.Carriers), RejectedCarriers: eventCarriers(resp.RejectedCarriers),
 		CarrierDrops: eventDrops(resp.CarrierDrops), ReasoningText: resp.ReasoningText,
-		BudgetWarnings: p.notes.take(),
+		BudgetWarnings: warnings,
+		BilledFailed:   resp.BilledFailed,
+		BilledUsage:    billed,
 	}
 	for _, c := range resp.ToolCalls {
 		reply.ToolCalls = append(reply.ToolCalls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.ArgumentsRaw})
@@ -681,6 +678,16 @@ func (s *ctxStore) EndTurn(ctx context.Context, sid, tid string, payload json.Ra
 		return fmt.Errorf("end turn: %w", err)
 	}
 	return nil
+}
+
+// billedUsage is the conservative per-attempt projection of a priced route
+// for the ledger rows of failed attempts (SEC6-11): the estimated input plus
+// max_tokens at the route prices. Nil for an unpriced route (NULL/unknown).
+func billedUsage(resp *provider.Response, maxTok int64) *event.Usage {
+	if resp.Price == nil {
+		return nil
+	}
+	return &event.Usage{Input: resp.EstInputTokens, Output: maxTok, Price: eventPrice(resp.Price)}
 }
 
 // eventPrice converts the provider response price entry to the loop's wire

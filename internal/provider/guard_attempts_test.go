@@ -20,7 +20,7 @@ func TestBudgetGuardPerAttempt(t *testing.T) {
 	t.Parallel()
 	srv := providertest.New(t, nil, boomReply(), boomReply(), boomReply())
 	g := &fakeGuard{decision: budget.Decision{Allowed: true}}
-	o := client(t, &provider.Config{Routes: []provider.Route{pricedRoute(t, "m", srv.URL)}, Guard: g, Attempts: 3})
+	o := client(t, &provider.Config{Routes: []provider.Route{pricedRouteFor(t, "m", srv.URL)}, Guard: g, Attempts: 3})
 	if _, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil); err == nil {
 		t.Fatal("three 500s succeeded")
 	}
@@ -39,7 +39,7 @@ func TestBudgetGuardPerAttemptFallback(t *testing.T) {
 	srv := providertest.New(t, nil, boomReply(), boomReply(), boomReply(), providertest.Text("ok"))
 	g := &fakeGuard{decision: budget.Decision{Allowed: true}}
 	o := client(t, &provider.Config{
-		Routes:   []provider.Route{pricedRoute(t, "m", srv.URL), pricedRoute(t, "fb", srv.URL)},
+		Routes:   []provider.Route{pricedRouteFor(t, "m", srv.URL), pricedRouteFor(t, "fb", srv.URL)},
 		Fallback: []string{"fake/fb"}, Guard: g, Attempts: 3,
 	})
 	if _, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil); err != nil {
@@ -59,11 +59,20 @@ func TestBudgetGuardSingleAttempt(t *testing.T) {
 	t.Parallel()
 	srv := providertest.New(t, nil, providertest.Text("hi"))
 	g := &fakeGuard{decision: budget.Decision{Allowed: true}}
-	o := client(t, &provider.Config{Routes: []provider.Route{pricedRoute(t, "m", srv.URL)}, Guard: g, Attempts: 1})
+	o := client(t, &provider.Config{Routes: []provider.Route{pricedRouteFor(t, "m", srv.URL)}, Guard: g, Attempts: 1})
 	if _, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := len(srv.Requests()); got != 1 || g.calls != 1 {
 		t.Fatalf("requests=%d guard_calls=%d, want 1/1", got, g.calls)
 	}
+}
+
+// pricedRouteFor mirrors pricedRoute with an explicit model so the fallback
+// route of the projection test can carry a different ref.
+func pricedRouteFor(t *testing.T, model, url string) provider.Route {
+	t.Helper()
+	rt := pricedRoute(t, url)
+	rt.Model = model
+	return rt
 }

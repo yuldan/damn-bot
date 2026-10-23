@@ -2,12 +2,17 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/damnbot/damnbot/internal/budget"
+	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/ctxdb/ledgerstore"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/netx/retry"
+	"github.com/damnbot/damnbot/internal/provider"
 )
 
 // budgetNotes collects the warn_at crossings the guard reports inside
@@ -69,4 +74,30 @@ func streamError(err error) *loop.StreamError {
 		class = loop.ClassContextLength
 	}
 	return &loop.StreamError{Class: class, Err: err}
+}
+
+// newBudgetGuard builds the run budget guard and the warning sink the adapter
+// drains into budget_warning events (ADR-123 wiring). The guard runs inside
+// provider.Do, so a refusal never reaches the provider.
+func newBudgetGuard(cfg *config.Config, db *ctxdb.Store) (*budget.Guard, *budgetNotes, error) {
+	guard, err := budget.NewGuard(budget.GuardConfig{
+		DailyUSD: cfg.Budget.DailyUSD, MonthlyUSD: cfg.Budget.MonthlyUSD, Providers: cfg.Budget.Providers, WarnAt: cfg.Budget.WarnAt,
+	}, ledgerstore.Source{Store: db}, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("budget guard: %w", err)
+	}
+	return guard, &budgetNotes{}, nil
+}
+
+// budgetCounter adapts COST-09 to assemble.Counter (one formula, one owner).
+type budgetCounter struct{}
+
+func (budgetCounter) Count(s string) int { return int(budget.Count(s).Raw()) }
+
+// providerAdapter drains the budget notes the guard collected inside
+// provider.Do and hands them to the loop as budget_warning events.
+type providerAdapter struct {
+	client *provider.OpenAI
+	model  string
+	notes  *budgetNotes
 }

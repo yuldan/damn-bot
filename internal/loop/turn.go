@@ -181,36 +181,6 @@ func (t *turn) preflight(ctx context.Context) (outcome, bool) {
 	return outcome{}, false
 }
 
-// guard enforces the context-window thresholds: one compaction at CompactAt,
-// a hard stop at OverflowAt (SPEC §4.2, §4.7).
-func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {
-	if p.WindowTokens <= 0 {
-		return outcome{}, false
-	}
-	pct := p.InputTokens * 100 / windowRoom(p)
-	if pct < int64(t.cfg.CompactAt) || t.compacted || t.deps.Compactor == nil {
-		return t.windowStop(pct)
-	}
-	if err := t.deps.Compactor.Compact(ctx, t.sessionID, false); err != nil {
-		if ctx.Err() != nil {
-			return t.cancelled(), true
-		}
-		return t.fail(ctx, event.DetailInternal, err), true
-	}
-	t.compacted = true
-	again, err := t.deps.Assembler.Assemble(ctx, &AssembleRequest{
-		SessionID: t.sessionID, TurnID: t.turnID, Input: t.input, Iteration: it, History: t.history,
-	})
-	if err != nil {
-		return t.fail(ctx, event.DetailInternal, err), true
-	}
-	if again.MaxTokens <= 0 {
-		again.MaxTokens = p.MaxTokens
-	}
-	*p = again
-	return t.windowStop(p.InputTokens * 100 / windowRoom(p))
-}
-
 // ask performs one provider call with the single empty-response and
 // context-length re-calls owned by the loop (ADR-078 AUD-045).
 func (t *turn) ask(ctx context.Context, p *Prompt) (Reply, []ToolCall, *outcome) {
@@ -242,11 +212,10 @@ func (t *turn) ask(ctx context.Context, p *Prompt) (Reply, []ToolCall, *outcome)
 }
 
 // accept records a successful call and checks cancellation after the stream.
+// Accounting happens first and without the caller's cancellation: the call
+// was already paid for, so a cancel that races the end of the stream must
+// not drop the billed attempts or the reply usage (SEC6-10).
 func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
-	if ctx.Err() != nil {
-		o := t.cancelled()
-		return &o, true
-	}
 	t.addUsage(&reply.Usage)
 	reply.Carriers, reply.CarrierDrops = t.filterCarriers(reply.Carriers, reply.CarrierDrops, reply.ReasoningText)
 	if len(reply.RejectedCarriers) > 0 && t.deps.Carriers != nil {
@@ -263,18 +232,20 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 			Kind: "carrier_dropped", Reason: d.Reason, Count: d.Count,
 		})})
 	}
+
+	if err := t.recordBilledAttempts(ctx, reply.BilledFailed, reply.BilledUsage); err != nil {
+		o := t.fail(ctx, event.DetailInternal, err)
+		return &o, true
+	}
 	if reply.FallbackFrom != "" {
 		t.fallback(ctx, reply.FallbackFrom, reply.Model)
 	}
+	t.noteBudgetWarnings(ctx, reply.BudgetWarnings)
 	cacheBreak := ""
 	if reply.FallbackFrom != "" {
 		cacheBreak = "fallback" // COST-04 enum: a provider fallback re-bills the prefix
 	}
-	for _, c := range reply.BudgetWarnings {
-		t.note(ctx, &event.Event{Kind: event.BudgetWarning, Payload: payload(auditPayload{Kind: c})})
-		t.emit(&event.Update{Kind: event.UpdateNotice, Text: "budget warning: " + c + " cap reached warn_at", ToolName: "budget"})
-	}
-	eventID, err := t.append(ctx, &event.Event{Kind: event.LLMCall, Payload: payload(llmPayload{
+	eventID, err := t.append(context.WithoutCancel(ctx), &event.Event{Kind: event.LLMCall, Payload: payload(llmPayload{
 		Model: reply.Model, FinishReason: reply.FinishReason, FallbackFrom: reply.FallbackFrom,
 		CacheBreak: cacheBreak,
 		Attempts:   reply.Attempts, Input: reply.Usage.Input, CachedInput: reply.Usage.CachedInput,
@@ -284,8 +255,12 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 		o := t.fail(ctx, event.DetailInternal, err)
 		return &o, true
 	}
-	if err := t.record(ctx, eventID, &reply.Usage); err != nil {
+	if err := t.record(context.WithoutCancel(ctx), eventID, &reply.Usage); err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
+		return &o, true
+	}
+	if ctx.Err() != nil {
+		o := t.cancelled()
 		return &o, true
 	}
 	t.emit(&event.Update{Kind: event.UpdateUsage, Usage: &reply.Usage})
@@ -295,11 +270,19 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 // streamError classifies a provider failure and performs the loop-owned
 // single re-call (retry=true) where SPEC allows it.
 func (t *turn) streamError(ctx context.Context, p *Prompt, err error, st *askState) (bool, *outcome) {
+	se, ok := errors.AsType[*StreamError](err)
+	if ok && se.Billed > 0 {
+		// The upstream already responded: keep those attempts visible to the
+		// budget guard as unknown cost (SEC6-9), even when the turn fails.
+		if rerr := t.recordBilledAttempts(ctx, se.Billed, se.Usage); rerr != nil {
+			o := t.fail(ctx, event.DetailInternal, rerr)
+			return false, &o
+		}
+	}
 	if ctx.Err() != nil {
 		o := t.cancelled()
 		return false, &o
 	}
-	se, ok := errors.AsType[*StreamError](err)
 	if ok {
 		switch se.Class {
 		case ClassCancelled:
@@ -550,12 +533,6 @@ func (t *turn) fail(ctx context.Context, detail event.StopDetail, err error) out
 
 // budgetStop ends the turn at a guard denial (SPEC §18.4): the call was
 // never sent; budget_exhausted carries the cap, numbers, and reset.
-func (t *turn) budgetStop(ctx context.Context, se *StreamError) outcome {
-	msg := t.redact(se.Err.Error())
-	t.note(ctx, &event.Event{Kind: event.BudgetExhausted, Payload: payload(auditPayload{Code: string(se.Detail), Message: msg})})
-	t.emit(&event.Update{Kind: event.UpdateNotice, Text: msg, Err: msg})
-	return outcome{stop: event.StopMaxTokens, detail: se.Detail, err: msg}
-}
 
 // fallback records the visible fallback (P7): a notice update and a
 // provider_fallback event, before the fallback answer is used.
@@ -712,6 +689,13 @@ func (t *turn) saveCarriers(ctx context.Context, eventID int64, cs []event.Carri
 	}
 	return nil
 }
+
+// recordBilledAttempts writes one ledger row per failed attempt that already
+// received a response from the upstream (SEC6-9). A priced route passes its
+// conservative projection (SEC6-11), so a single broken stream does not lock
+// the whole cap period as unknown; an unpriced route writes NULL/unknown,
+// which a monetary cap treats as unprovable spend and fails closed. The
+// write ignores cancellation: the spend already happened.
 
 // record writes one usage row unless accounting is disabled.
 func (t *turn) record(ctx context.Context, eventID int64, u *event.Usage) error {

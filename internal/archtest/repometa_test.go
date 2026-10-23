@@ -225,3 +225,29 @@ func atoi(t *testing.T, s string) int {
 	}
 	return n
 }
+
+// TestBudgetRowsUnique: setiap grup hanya boleh punya SATU baris di loc.budget.
+// Dua PR yang masing-masing menambah baris untuk grup yang sama pernah
+// menghasilkan baris `codetools` dan `journal` ganda; TestBudgetTableSum tetap
+// hijau karena hanya menjumlah (Σ core menggelembung tapi masih di bawah
+// plafon), jadi kelas kesalahan ini butuh penjaga sendiri.
+func TestBudgetRowsUnique(t *testing.T) {
+	t.Parallel()
+	seen := map[string]int{}
+	for _, line := range allowlist(readRepoFile(t, "loc.budget")) {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		switch fields[0] {
+		case locTotalRow, locGeneratedRow, locTestOnlyRow:
+			continue
+		}
+		seen[fields[0]]++
+	}
+	for group, n := range seen {
+		if n > 1 {
+			t.Errorf("loc.budget: grup %q muncul %d kali; gabungkan menjadi satu baris (Σ core tidak boleh menggelembung)", group, n)
+		}
+	}
+}
