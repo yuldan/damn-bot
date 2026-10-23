@@ -21,7 +21,8 @@ func (c testCodec) Seal(scope string, p []byte) ([]byte, error) {
 	return out, nil
 }
 
-func (c testCodec) Hash(s string) string { return "h:" + s }
+func (c testCodec) Hash(s string) string     { return "h:" + s }
+func (c testCodec) FTS(tokens string) string { return strings.ToUpper(tokens) }
 func (c testCodec) Open(scope string, b []byte) ([]byte, error) {
 	pfx := scope + "|"
 	if !bytes.HasPrefix(b, []byte(pfx)) {

@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,6 +22,9 @@ type RestoreOptions struct {
 	ConfigDir string
 	Archive   string
 	Key       secret.BackupKey
+	Codec     ctxdb.Codec
+	KeyStore  *secret.Store
+	Encrypt   bool
 	DryRun    bool
 }
 
@@ -36,7 +40,7 @@ type RestoreResult struct {
 // Restore verifies the archive into a private staging directory and only then
 // installs the DB/blobs under the maintenance barrier. Existing config.toml
 // and secrets.enc are never overwritten.
-func Restore(ctx context.Context, o *RestoreOptions) (res RestoreResult, err error) {
+func Restore(ctx context.Context, o *RestoreOptions) (res RestoreResult, err error) { //nolint:gocyclo // staged verify -> key -> install flow
 	if o.DataDir == "" || o.Archive == "" || len(o.Key.Private) != keySize {
 		return res, fmt.Errorf("backup: restore options: %w", ErrKey)
 	}
@@ -63,10 +67,19 @@ func Restore(ctx context.Context, o *RestoreOptions) (res RestoreResult, err err
 	if _, serr := installIfAbsent(filepath.Join(o.DataDir, "storage.key"), filepath.Join(stage, "storage.key")); serr != nil {
 		return res, serr
 	}
-	if rerr := ctxdb.Restore(ctx, &ctxdb.Options{Dir: o.DataDir, Kind: "cli"}, ctxdb.RestoreSet{
-		DB: filepath.Join(stage, "damnbot.db"), Blobs: stage,
+	codec, archiveKey, cerr := restoreDBKey(ctx, o, stage)
+	if cerr != nil {
+		return res, cerr
+	}
+	if rerr := ctxdb.Restore(ctx, &ctxdb.Options{Dir: o.DataDir, Kind: "cli", Codec: codec}, ctxdb.RestoreSet{
+		DB: filepath.Join(stage, "damnbot.db"), Blobs: stage, Codec: codec,
 	}); rerr != nil {
 		return res, fmt.Errorf("backup: install: %w", rerr)
+	}
+	if archiveKey != "" {
+		if _, kerr := installIfAbsent(filepath.Join(o.DataDir, "storage.key"), archiveKey); kerr != nil {
+			return res, kerr
+		}
 	}
 	config, skipped, err := restoreUserFiles(o, stage, m.IncludeSecrets)
 	if err != nil {
@@ -100,6 +113,53 @@ func openRestoreArchive(ctx context.Context, o *RestoreOptions) (*os.File, *Read
 		return nil, nil, Manifest{}, 0, errors.Join(err, f.Close())
 	}
 	return f, r, m, fi.Size(), nil
+}
+
+// restoreDBKey selects the DB codec from the archive storage.key or target config.
+//
+//nolint:gocognit,nestif,gosec // fail-closed key selection; both paths are data-dir paths
+func restoreDBKey(ctx context.Context, o *RestoreOptions, stage string) (ctxdb.Codec, string, error) {
+	archiveKey := filepath.Join(stage, "storage.key")
+	targetKey := filepath.Join(o.DataDir, "storage.key")
+	if _, err := os.Stat(archiveKey); err == nil {
+		old, rerr := os.ReadFile(targetKey)
+		if rerr == nil {
+			want, werr := os.ReadFile(archiveKey)
+			if werr != nil || !bytes.Equal(old, want) {
+				return nil, "", fmt.Errorf("backup: target storage.key differs from archive: %w", ErrKeySource)
+			}
+			if o.KeyStore == nil {
+				return nil, "", fmt.Errorf("backup: restore needs a key store: %w", ErrKey)
+			}
+			c, cerr := secret.OpenCodec(ctx, o.DataDir, o.KeyStore, false)
+			if cerr != nil {
+				return nil, "", fmt.Errorf("backup: open storage key: %w", cerr)
+			}
+			return c, "", nil
+		}
+		if o.KeyStore == nil {
+			return nil, "", fmt.Errorf("backup: restore needs a key store: %w", ErrKey)
+		}
+		c, cerr := secret.OpenCodecFile(ctx, archiveKey, o.KeyStore)
+		if cerr != nil {
+			return nil, "", fmt.Errorf("backup: open archive storage key: %w", cerr)
+		}
+		return c, archiveKey, nil
+	}
+	if o.Codec != nil {
+		return o.Codec, "", nil
+	}
+	if !o.Encrypt {
+		return nil, "", nil
+	}
+	if o.KeyStore == nil {
+		return nil, "", fmt.Errorf("backup: restore needs a key store: %w", ErrKey)
+	}
+	c, cerr := secret.OpenCodec(ctx, o.DataDir, o.KeyStore, true)
+	if cerr != nil {
+		return nil, "", fmt.Errorf("backup: provision storage key: %w", cerr)
+	}
+	return c, "", nil
 }
 
 func preflightConfig(dir string) error {

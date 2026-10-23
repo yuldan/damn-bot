@@ -375,7 +375,7 @@ func (s *Store) Search(ctx context.Context, q Query) ([]Hit, error) {
 	case limit > maxSearchLimit:
 		limit = maxSearchLimit
 	}
-	expr := searchExpr(text)
+	expr := s.searchExpr(text)
 	if expr == "" {
 		return nil, nil
 	}
@@ -451,7 +451,7 @@ func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int
 // searchExpr builds Search's syntax-safe FTS5 expression (Recall uses ftsQuery):
 // dmb_fts_norm tokens, each quoted; CJK bigrams OR-ed, a one-rune CJK token is
 // a prefix query, and separate words are AND-ed.
-func searchExpr(text string) string {
+func (s *Store) searchExpr(text string) string {
 	var parts, cjk []string
 	flush := func() {
 		if len(cjk) > 0 {
@@ -460,6 +460,9 @@ func searchExpr(text string) string {
 		}
 	}
 	for tok := range strings.FieldsSeq(ftsNorm(text)) {
+		if s.codec != nil {
+			tok = s.codec.FTS(tok)
+		}
 		tok = strings.ReplaceAll(tok, `"`, `""`)
 		if tok == "" {
 			continue

@@ -1,10 +1,12 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -253,4 +255,204 @@ func TestRestorePreflightConfig(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dst, "damnbot.db")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("DB installed before config preflight: %v", err)
 	}
+}
+
+func TestRestoreEncryptedBackupToFreshDir(t *testing.T) { //nolint:gocyclo // integration flow
+	root := t.TempDir()
+	data := filepath.Join(root, "data")
+	keys := filepath.Join(root, "keys")
+	st, err := secret.New(secret.Options{ConfigDir: keys, BackendPresent: func() bool { return false }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec, cerr := secret.OpenCodec(context.Background(), data, st, true)
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	db, derr := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: data, Kind: "cli", Codec: codec})
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	if _, err := db.CreateSession(context.Background(), ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Append(context.Background(), "S", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "encrypted-canary"}); err != nil {
+		t.Fatal(err)
+	}
+	if srcEvs, serr := db.History(context.Background(), "S", 0); serr == nil {
+		t.Logf("debug source events=%+v", srcEvs)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	archive := filepath.Join(root, "enc.dmbk")
+	key := testKey(t)
+	if _, err := Create(context.Background(), &CreateOptions{DataDir: data, ConfigDir: filepath.Join(root, "cfg"), Out: archive, Key: key, Codec: codec}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(data); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Restore(context.Background(), &RestoreOptions{
+		DataDir: data, ConfigDir: filepath.Join(root, "cfg"), Archive: archive, Key: key,
+		KeyStore: st, Encrypt: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	again, oerr := secret.OpenCodec(context.Background(), data, st, false)
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	db, oerr = ctxdb.Open(context.Background(), &ctxdb.Options{Dir: data, Kind: "cli", Codec: again})
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	}()
+	evs, herr := db.History(context.Background(), "S", 0)
+	if herr != nil || len(evs) != 1 || evs[0].Content != "encrypted-canary" {
+		t.Fatalf("history = %+v, %v", evs, herr)
+	}
+}
+
+func TestRestoreRejectsDifferentStorageKey(t *testing.T) {
+	root := t.TempDir()
+	data, keys := filepath.Join(root, "data"), filepath.Join(root, "keys")
+	st, nerr := secret.New(secret.Options{ConfigDir: keys, BackendPresent: func() bool { return false }})
+	if nerr != nil {
+		t.Fatal(nerr)
+	}
+	codec, cerr := secret.OpenCodec(context.Background(), data, st, true)
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	db, derr := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: data, Kind: "cli", Codec: codec})
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	if cerr := db.Close(); cerr != nil {
+		t.Fatal(cerr)
+	}
+	archive := filepath.Join(root, "a.dmbk")
+	key := testKey(t)
+	if _, err := Create(context.Background(), &CreateOptions{DataDir: data, ConfigDir: filepath.Join(root, "cfg"), Out: archive, Key: key, Codec: codec}); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(root, "dst")
+	other, oerr := secret.OpenCodec(context.Background(), dst, st, true)
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	_ = other
+	if _, err := Restore(context.Background(), &RestoreOptions{
+		DataDir: dst, ConfigDir: filepath.Join(root, "cfg"), Archive: archive, Key: key, KeyStore: st, Encrypt: true,
+	}); !errors.Is(err, ErrKeySource) {
+		t.Fatalf("different storage.key = %v, want ErrKeySource", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "damnbot.db")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("DB installed despite key conflict: %v", err)
+	}
+}
+
+func TestRestoreMigratesAllTables(t *testing.T) {
+	root := t.TempDir()
+	data := filepath.Join(root, "src")
+	st, err := secret.New(secret.Options{ConfigDir: filepath.Join(root, "keys"), BackendPresent: func() bool { return false }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sha := migrationSource(t, data)
+	archive := filepath.Join(root, "a.dmbk")
+	key := testKey(t)
+	if _, cerr := Create(context.Background(), &CreateOptions{DataDir: data, ConfigDir: filepath.Join(root, "cfg"), Out: archive, Key: key}); cerr != nil {
+		t.Fatal(cerr)
+	}
+	dst := filepath.Join(root, "dst")
+	if _, rerr := Restore(context.Background(), &RestoreOptions{
+		DataDir: dst, ConfigDir: filepath.Join(root, "dstcfg"), Archive: archive, Key: key, KeyStore: st, Encrypt: true,
+	}); rerr != nil {
+		t.Fatal(rerr)
+	}
+	verifyMigrated(t, dst, st, sha)
+}
+
+func verifyMigrated(t *testing.T, dst string, st *secret.Store, sha string) {
+	t.Helper()
+	codec, err := secret.OpenCodec(context.Background(), dst, st, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edb, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: dst, Kind: "cli", Codec: codec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := edb.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	}()
+	evs, err := edb.History(context.Background(), "S", 0, ctxdb.WithHistoryRaw())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(evs) != 1 || evs[0].Content != "canary-event alpha beta" {
+		t.Fatalf("history = %+v", evs)
+	}
+	if blob, berr := edb.ReadBlob(context.Background(), sha); berr != nil || string(blob) != "blob-payload" {
+		t.Fatalf("blob = %q, %v", blob, berr)
+	}
+	raw, err := os.ReadFile(filepath.Join(dst, "damnbot.db")) //nolint:gosec // test dir
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []string{"canary-event", "canary-memory", "canary-summary"} {
+		if bytes.Contains(raw, []byte(c)) {
+			t.Fatalf("plaintext %q in migrated DB", c)
+		}
+	}
+}
+
+func migrationSource(t *testing.T, data string) string {
+	t.Helper()
+	db, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: data, Kind: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateSession(context.Background(), ctxdb.Session{ID: "S", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Append(context.Background(), "S", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "canary-event alpha beta"}); err != nil {
+		t.Fatal(err)
+	}
+	blob := []byte("blob-payload")
+	sum := sha256.Sum256(blob)
+	sha := hex.EncodeToString(sum[:])
+	if err := os.MkdirAll(filepath.Join(data, "blobs", sha[:2]), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(data, "blobs", sha[:2], sha), blob, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Write(context.Background(), func(tx *ctxdb.Tx) error {
+		if _, xerr := tx.Exec(`INSERT INTO memory(kind,category,scope,name,content,content_len,origin,created_at) VALUES ('memory','fact','user',NULL,'canary-memory',13,'user',1)`); xerr != nil {
+			return fmt.Errorf("memory: %w", xerr)
+		}
+		var eid int64
+		if gerr := tx.Get(`SELECT max(id) FROM events`, nil, &eid); gerr != nil {
+			return fmt.Errorf("event id: %w", gerr)
+		}
+		if _, xerr := tx.Exec(`INSERT INTO summaries(session_id,from_seq,to_seq,content,model,input_tokens,output_tokens,event_id,created_at) VALUES ('S',1,1,'{"text":"canary-summary"}','m',0,0,?,1)`, eid); xerr != nil {
+			return fmt.Errorf("summary: %w", xerr)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return sha
 }

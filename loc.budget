@@ -44,7 +44,7 @@ boundary           150 internal/boundary
 # ADR-142 restack: additive di atas ADR-141 (terukur 4160 pada pohon sesudah main+#227..#277); ctxdb 4100 -> 4250 (Σ core 38.450 -> 38.600).
 # ADR-146: checkpoints status/list/prune/clear (maintenance mode purge); terukur 4223 pada pohon sesudah main+#227..#277 -> batas ctxdb TETAP 4250 (Σ core tetap 38.600; tidak ada kenaikan).
 # Amandemen jendela crypto (ADR-124): ctxdb -> 4271 (terukur pada pohon langkah ini).
-ctxdb             4530 internal/ctxdb
+ctxdb             4941 internal/ctxdb
 # ADR-074: storage konsumen di internal/ctxdb/<consumer>store, dipotong dari baris konsumennya (Σ tidak berubah oleh ADR-074).
 # ctxdb/gwstore (900) dihitung dari budget gateway SPEC §3.2.4; barisnya ditambah saat baris gateway dibuat (F4).
 ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore
@@ -59,12 +59,12 @@ ctxdb/carrierstore 300 internal/ctxdb/carrierstore
 ctxdb/compactstore 260 internal/ctxdb/compactstore
 # ADR-124 (PR 1/1b/2a): key store at-rest + rotasi/timeout + backup X25519; terukur 806.
 # Amandemen jendela crypto (ADR-124): secret -> 1145 (terukur pada pohon langkah ini).
-secret             1145 internal/secret
+secret             1168 internal/secret
 # ADR-121: assemble 1000 -> 1200 (tier prompt F2 penuh; terukur 1.034 sesudah PR1; Σ core 36.770 -> 36.970 <= 47.000).
 # ADR-121 PR2: assemble 1200 -> 1300 (REVIEW-F2-SEC4 ASM4-1..3: wrapper <untrusted> exact, tag pembuka dinetralkan, clip sadar-wrapper; terukur 1.236; Σ core 36.970 -> 37.070 <= 47.000).
 # ADR-124 (PR 2a-2d): kontainer DMBK1, manifest, create/verify/ls, restore.
 # Amandemen jendela crypto (ADR-124): backup -> 1122 (terukur pada pohon langkah ini).
-backup             1410 internal/backup
+backup             1467 internal/backup
 assemble          1300 internal/assemble
 compaction         900 internal/compaction
 # ADR-175: memory+skills 1230 -> 1400 (sumber skill lokal: discovery proyek + skills.external_dirs di internal/skills; terukur 1324; Σ core +170).

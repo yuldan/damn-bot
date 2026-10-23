@@ -21,4 +21,6 @@ var (
 	ErrKey = errors.New("backup: invalid key")
 	// ErrPermissions means an archive directory or file is too permissive.
 	ErrPermissions = errors.New("backup: permissions are wider than 0600/0700")
+	// ErrKeySource means the target key material conflicts with the archive.
+	ErrKeySource = errors.New("backup: key source conflict")
 )
