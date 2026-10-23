@@ -161,9 +161,6 @@ func withCost(u event.Usage, c *float64) event.Usage {
 	return u
 }
 
-// usageReply is an SSE answer with 1.000 prompt and 500 completion tokens and
-// no provider-reported cost, so the charge comes from the route table.
-
 // badUsageReply is a 2xx stream the parser rejects (negative prompt_tokens).
 func badUsageReply() providertest.Reply {
 	return providertest.Reply{Frames: []string{
@@ -172,6 +169,7 @@ func badUsageReply() providertest.Reply {
 		"[DONE]",
 	}}
 }
+
 // ledgerSummary returns every usage_ledger row of db (all sessions).
 func ledgerSummary(t *testing.T, dir string) (cost, calls, unknown int64) {
 	t.Helper()
@@ -189,7 +187,10 @@ func ledgerSummary(t *testing.T, dir string) (cost, calls, unknown int64) {
 			COALESCE(sum(cost_usd_micros IS NULL), 0) FROM usage_ledger WHERE purpose = 'turn'`, nil, &cost, &calls, &unknown)
 	}); qerr != nil {
 		t.Fatal(qerr)
+	}
 	return cost, calls, unknown
+}
+
 // TestRunBrokenStreamRecordsAttempts (SEC6-9): a rejected stream is
 // retried 3×, and every attempt that got a 2xx response is recorded as an
 // unknown-cost row, so a later monetary cap can deny.
@@ -199,6 +200,8 @@ func TestRunBrokenStreamRecordsAttempts(t *testing.T) {
 	dir := t.TempDir()
 	cfg := filepath.Join(t.TempDir(), "config.toml")
 	if err := os.WriteFile(cfg, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var out, errb bytes.Buffer
 	code := run([]string{
 		"run", "-p", "hi", "--model", "openai/gpt-fake", "--base-url", srv.URL,
@@ -206,7 +209,11 @@ func TestRunBrokenStreamRecordsAttempts(t *testing.T) {
 	}, &out, &errb)
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2; stdout %s; stderr %s", code, out.String(), errb.String())
+	}
 	if got := len(srv.Requests()); got != 3 {
 		t.Fatalf("provider requests = %d, want 3 attempts", got)
+	}
 	if cost, calls, unknown := ledgerSummary(t, dir); cost != 0 || calls != 3 || unknown != 3 {
 		t.Fatalf("ledger = cost %d, %d rows (%d unknown), want 3 NULL/unknown rows", cost, calls, unknown)
+	}
+}

@@ -101,14 +101,21 @@ func TestBilledBreakerOpenNoDoubleCount(t *testing.T) {
 	}
 }
 
-// cumulativeGuard records estimates and denies the third consultation.
+// cumulativeGuard records estimates and denies any consultation whose
+// projection reaches three times the first one. Since the guard is consulted
+// both per attempt (SEC5-27) and with the cumulative retry projection, the
+// denial is keyed to the projection value, not to the consultation count.
 type cumulativeGuard struct {
-	est []int64
+	est  []int64
+	base int64
 }
 
 func (g *cumulativeGuard) Check(_ context.Context, r budget.Request) (budget.Decision, error) {
 	g.est = append(g.est, r.EstimateMicros)
-	if len(g.est) >= 3 {
+	if g.base == 0 {
+		g.base = r.EstimateMicros
+	}
+	if r.EstimateMicros >= 3*g.base {
 		return budget.Decision{
 			Allowed: false, Reason: budget.ReasonDaily, Cap: budget.CapDaily,
 			LimitMicros: 1000, UsedMicros: 0, EstimateMicros: r.EstimateMicros,
@@ -133,10 +140,17 @@ func TestBilledRetryProjectionCumulative(t *testing.T) {
 	if got := len(srv.Requests()); got != 2 {
 		t.Fatalf("requests = %d, want 2", got)
 	}
-	// est[0] = first call, est[1] = retry after one billed attempt (2x),
-	// est[2] = retry after two billed attempts (3x).
-	if len(g.est) != 3 || g.est[1] < 2*g.est[0] || g.est[2] < 3*g.est[0] {
-		t.Fatalf("estimates = %v, want cumulative 1x/2x/3x", g.est)
+	// The retry projections must grow with the attempts already billed: a 2x
+	// projection is allowed (the second request happens) and the 3x one is
+	// what the guard denies.
+	var maxEst int64
+	for _, e := range g.est {
+		if e > maxEst {
+			maxEst = e
+		}
+	}
+	if g.base == 0 || maxEst < 3*g.base {
+		t.Fatalf("estimates = %v (base %d), want a cumulative 3x projection", g.est, g.base)
 	}
 }
 

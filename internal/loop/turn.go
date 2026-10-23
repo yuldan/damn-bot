@@ -181,7 +181,6 @@ func (t *turn) preflight(ctx context.Context) (outcome, bool) {
 	return outcome{}, false
 }
 
-
 // ask performs one provider call with the single empty-response and
 // context-length re-calls owned by the loop (ADR-078 AUD-045).
 func (t *turn) ask(ctx context.Context, p *Prompt) (Reply, []ToolCall, *outcome) {

@@ -128,10 +128,8 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 			continue // EC-PROV-015, EC-PROV-025
 		}
 		price := rt.Prices.At(at)
-
-		if err := o.checkBudget(ctx, &rt, price, r, est); err != nil {
-			return Response{BilledFailed: billed}, err
-		}
+		// The guard is consulted inside call(), per attempt (SEC5-27), so it is
+		// not repeated here.
 		fb := &Fallback{From: r.Model, To: ref, Err: lastErr}
 		o.notify(i, fb)
 		resp, err := o.call(ctx, &rt, price, r, est, onChunk)
