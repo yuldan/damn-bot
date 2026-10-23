@@ -489,7 +489,7 @@ Probe = `main` yang memakai `net/http`, `encoding/json`, `flag`, `fmt` (base: 6.
 
 | ID | Aturan | Verifikasi |
 |---|---|---|
-| E-46 | Semua dependency di-pin di `go.mod`/`go.sum`; `go mod tidy` tidak menghasilkan diff | job `supply` (CROSS-CUTTING §1.4): `make tidy-check` = `go mod tidy -diff` untuk modul utama, `tools`, dan `bench`; `make mod-verify` dan `make vuln` juga mencakup ketiga modul (AUD-074(a), ADR-094) |
+| E-46 | Semua dependency di-pin di `go.mod`/`go.sum`; `go mod tidy` tidak menghasilkan diff | job `supply` (CROSS-CUTTING §1.4): `make tidy-check` = `go mod tidy -diff` untuk modul utama, `tools`, dan `bench`; `make mod-verify` dan `make vuln` juga mencakup ketiga modul (AUD-074(a), ADR-094); unduhan modul di job ini di-retry idempoten ≤ 2 dengan `GOPROXY=…|direct` supaya kegagalan transient proxy tidak menggagalkan gate (ADR-182) |
 | E-47 | Integritas modul | `go mod verify` (job `supply`) |
 | E-48 | Dependency baru = ADR berisi Δ ukuran (probe §4.3), dep transitif, LOC yang dihemat, lisensi, tanggal rilis | `TestDirectDeps`: `require` langsung ⊆ `deps.allow`; `deps.allow` hanya berubah bersama `docs/DECISIONS.md` (`adrgate`, §7) |
 | E-49 | SBOM CycloneDX per rilis | `cyclonedx-gomod app -main ./cmd/damnbot -licenses -json` (v1.12.0) di job `release`; artefak dilampirkan |

@@ -143,10 +143,12 @@ WITH RECURSIVE
 SELECT id FROM d ORDER BY depth DESC, id
 
 -- name: purge.nodes
--- purgeSet input: id, parent, last activity (max-seq event or created_at), labelled.
+-- purgeSet input: id, parent, last activity (max-seq event or created_at), labelled, pinned.
 SELECT s.id, coalesce(s.parent_id, ''),
        coalesce((SELECT created_at FROM events e WHERE e.session_id = s.id ORDER BY seq DESC LIMIT 1), s.created_at),
-       EXISTS (SELECT 1 FROM session_labels l WHERE l.session_id = s.id AND l.key = 'purge_state')
+       EXISTS (SELECT 1 FROM session_labels l WHERE l.session_id = s.id AND l.key = 'purge_state'),
+       coalesce((SELECT l.value FROM session_labels l WHERE l.session_id = s.id AND l.key = 'pinned'
+                  ORDER BY l.id DESC LIMIT 1), '') = '1'
   FROM sessions s WHERE s.id <> '__system__'
 
 -- name: gc.live_ref
