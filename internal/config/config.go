@@ -18,6 +18,7 @@ type Config struct {
 	Exec     Exec     `toml:"exec"`
 	Agent    Agent    `toml:"agent"`
 	Skills   Skills   `toml:"skills"`
+	Sessions Sessions `toml:"sessions"`
 	Log      Log      `toml:"log"`
 }
 
@@ -93,6 +94,13 @@ type Log struct {
 	MessageContentTTL Duration `toml:"message_content_ttl"`
 }
 
+// Sessions is SPEC §12 [sessions] (ADR-142, MEM-015). Auto-prune is off by
+// default because it deletes transcript data.
+type Sessions struct {
+	AutoPrune      bool `toml:"auto_prune"`
+	PruneAfterDays int  `toml:"prune_after_days"`
+}
+
 // Duration is a TOML string duration such as "24h".
 type Duration time.Duration
 
@@ -160,6 +168,10 @@ func Default() Config {
 			TrustedProjects:  []string{},
 			ExternalDirs:     []string{},
 			InlineShell:      false,
+		},
+		Sessions: Sessions{
+			AutoPrune:      false,
+			PruneAfterDays: 90,
 		},
 		Log: Log{
 			Level:             "info",

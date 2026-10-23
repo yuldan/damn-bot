@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -142,4 +143,38 @@ func validLabelKey(key string) error {
 		return nil
 	}
 	return fmt.Errorf("ctxdb: label key %q is not writable", key)
+}
+
+// PurgeCandidates exposes the §11.6 P computation without starting a purge
+// (`sessions purge --dry-run`).
+func (s *Store) PurgeCandidates(ctx context.Context, req PurgeRequest) (PurgeReport, error) {
+	return s.purgeSet(ctx, req)
+}
+
+// SessionsOlderThan returns visible, unpinned sessions created before the
+// cutoff in milliseconds (`sessions prune --archive`); oldest first.
+func (s *Store) SessionsOlderThan(ctx context.Context, before int64) ([]string, error) {
+	return s.strings(ctx, `SELECT s.id FROM sessions s WHERE s.id <> ? AND s.created_at < ? AND `+
+		notPurging("s.id")+` AND coalesce((SELECT l.value FROM session_labels l
+		  WHERE l.session_id = s.id AND l.key = 'pinned' ORDER BY l.id DESC LIMIT 1), '') <> '1'
+		ORDER BY s.created_at, s.id`, SystemSession, before)
+}
+
+// Vacuum repacks the database after a purge (SPEC §10 `sessions purge`). A
+// concurrent reader can hold the lock; VACUUM is retried a bounded number of
+// times, then the busy error is returned and the caller reports it.
+func (s *Store) Vacuum(ctx context.Context) error {
+	for attempt := 0; ; attempt++ {
+		_, err := s.w.ExecContext(ctx, "VACUUM")
+		if err == nil {
+			return nil
+		}
+		err = wrap(err)
+		if attempt >= 4 || !errors.Is(err, ErrDBBusy) {
+			return err
+		}
+		if serr := s.clk.Sleep(ctx, 120*time.Millisecond); serr != nil {
+			return errors.Join(err, wrap(serr))
+		}
+	}
 }
