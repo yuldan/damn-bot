@@ -3451,6 +3451,8 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 **Status:** Accepted 2026-10-22 (delegasi). Diterapkan di PR #242.
 
+*(Amandemen 2026-10-22: baris EC-WIN-002, EC-WIN-005, dan EC-WIN-011 ledger F2 ditutup di runner Windows oleh PR #257 — `internal/ctxdb/win_f2_edgecases_windows_test.go`, `TestWindowsF2EdgeCases`. Tidak ada fase yang berubah; ledger diperbarui sesuai butir 2.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-22): `docs/F2-ACCEPTANCE.md` sebagai artefak review F2; dirujuk oleh PR #242 dan gate kelengkapan #244. Tidak mengubah SPEC, skema, dependency, atau `loc.budget`.
 
 **Konteks.** Acceptance F2 tersebar di ROADMAP (baris per fase), EDGE-CASES (EC per komponen), FEATURE-PARITY (fase per baris), dan DECISIONS §22.1 (GAP). Sebelumnya tidak ada satu dokumen yang memetakan setiap baris ke test pembuktinya, sehingga baris yang tidak pernah ditulis test-nya bisa lolos acceptance secara diam-diam (temuan AUD-004/NEW-12 dan review F2).
@@ -3603,3 +3605,48 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Konsekuensi.** (+) Urutan fase tegas: harness eksternal dapat memakai Damn-Bot sekarang lewat stream-JSON dan lewat ACP pada F3 tanpa membuka kembali cakupan F2. (+) Jalur inbound bersandar pada seam yang sudah ada (headless `run`, toolset, deferred catalog, state DB, budget guard, harness e2e) sehingga tidak butuh arsitektur baru. (−) Permintaan orkestrasi native harus menunggu fase pemiliknya; mempercepatnya berarti ADR + penaikan PHASE, bukan penambahan diam-diam di F2.
 
 **Amandemen retarget ke main `974eb761` (2026-10-22).** `codetools` 5.350 → 5.365: preview undo di #177 memakai `sandbox.OpenResolved` dan #170 menambah retry replace Windows (EC-WIN-014) pada `renameReplace`; terukur `make loc` 5.353.
+
+## ADR-140 — Inspeksi sesi read-only: `sessions ls|show` di atas `ctxdb.Options.ReadOnly`
+
+**Status:** Accepted 2026-10-23 (F2, wiring REL-05/ADR-132). Tanpa DDL, dependency, atau budget baru.
+
+**Konteks.** `ctxdb.Open(ReadOnly)` (ADR-132) sudah dapat membaca DB dengan skema lebih baru tanpa migrasi/layout, tetapi tidak ada perintah CLI yang memakainya; SPEC §10 sudah menamai `sessions ls/show/export`, dan REL-05 hanya mengizinkan proses tulis menolak start.
+
+**Keputusan.**
+1. **Subperintah.** `sessions ls` mencetak `id<TAB>cwd<TAB>model` untuk sesi visible terbaru-dulu; `sessions show <id>` mencetak metadata (`id`, `origin`, `cwd`, `model`) dan jumlah event; `sessions export <id> [--format jsonl|md]` mengekspor transkrip mentah (summary tidak menggantikan event; `context_exclude` tetap disertakan untuk audit).
+2. **Read-only.** Ketiganya membuka `ctxdb.Options{ReadOnly:true, Kind:"cli"}` lewat `openSessionsDBReadOnly`; tidak ada migrasi, layout, holder, atau baris lease. Direktori data yang tidak ada tetap error dan tidak dibuat. Data dir default dari config; `--data-dir` adalah flag internal/test seperti `run`.
+3. **Skema lebih baru.** `ReadOnly` menerima `user_version` di atas skema binary, sehingga `ls/show/export` berhasil (exit 0) pada DB baru; `run` (penulis) pada DB yang sama gagal `ErrSchemaNewer` dan keluar 1 sesuai SPEC §4.3.
+4. **Metadata.** `ctxdb.SessionInfo(ctx, id)` mengembalikan metadata sesi visible tanpa membuka writer; sesi hilang/purged = `ErrNotFound`.
+5. **Error/exit.** Mapping §11.6 yang ada dipakai: `not_found`/`session_purging` 1, argumen/format invalid 2, `session_busy`/`db_busy` 4; pesan bebas teks SQL dan argumen di-echo setelah `cleanArg`.
+6. **LOC.** `ctxdb` 3.900 → 3.950 (additive +50 di atas ADR-136; terukur 3.886 pada pohon sesudah main+#227), Total core 38.250 → 38.300.
+7. **Test.** `internal/e2e` (binary nyata): `TestSessionsReadOnlyNewerSchema` menyiapkan DB `user_version=9999`, memastikan `sessions show/ls` exit 0 dan membaca baris, lalu `run` exit 1 dengan `schema_newer` tanpa provider call.
+
+## ADR-141 — Sesi admin F2 (1/2): export, titles, pin/archive, stats di atas label append-only
+
+**Status:** Accepted 2026-10-22 (F2; CLI-057, MEM-014, MEM-016). Bertumpuk di atas ADR-140 (read-only `ls|show`); prune/archive massal + auto-prune ada di ADR-142.
+
+**Konteks.** ADR-140 menambahkan `sessions ls|show` read-only, tetapi belum ada export (MEM-014), title (MEM-016), pin/archive, atau stats (CLI-057). `session_labels` sudah mengizinkan `title`, `archived`, dan `pinned` sejak migrasi 0001, namun belum ada API tulis/baca maupun perintah headless.
+
+**Keputusan.**
+1. **Subperintah.** `sessions rename <id> [<title>]` (menulis/membaca label `title`), `sessions export <id> [--format md|jsonl|html] [--out FILE] [--no-redact]`, `sessions archive|unarchive|pin|unpin <id>`, `sessions pinned`, dan `sessions stats`. `ls`/`show` tetap milik ADR-140 dan tidak diubah.
+2. **Label append-only.** `ctxdb.SetSessionLabel` hanya menerima `title`/`archived`/`pinned`; baris terakhir menang dan `"0"` mematikan flag tanpa menghapus riwayat. Judul dipangkas kontrol/UTF-8 invalid, di-trim, dan dibatasi 120 rune. `SessionLabel` membaca nilai terakhir; `SessionRows` mengembalikan metadata sesi + label + jumlah event untuk `pinned`/`stats`.
+3. **Export.** Membaca lewat store read-only ADR-140 dengan `History(..., WithHistoryRaw, WithHistoryExcluded)` sehingga ekspor memuat transkrip penuh termasuk turn yang dikecualikan dan leluhur fork. Rahasia diredaksi default (`redact.New`) pada content, payload, **tool name, and metadata (title/model/cwd)**; `--no-redact` adalah opt-out eksplisit. `md`/`html` meng-escape konten sesuai format, `jsonl` satu objek per event. `--out` membuat file baru `O_EXCL` + `fchmod 0600` (menolak menimpa path yang ada dan tidak menulis lewat symlink), dan transkrip yang mencapai batas 100.000 event mencetak peringatan truncation ke stderr. Format tak dikenal = exit 2.
+4. **Tidak menduplikasi.** `sessions prune`/`purge` massal, VACUUM, dan `[sessions] auto_prune` ada di ADR-142. `sessions fork/rewind` (ADR-136) dan resume `run --session/--continue` (#243, MEM-013) tetap milik PR masing-masing.
+5. **Budget.** `ctxdb` 4.050 → 4.150 (additive +100 di atas ADR-140; terukur 4.000; label/title/rows), Total core 38.700 → 38.800 ≤ 47.000 (delta dijumlahkan di atas ADR-136/ADR-140 yang sudah di `main`); `cmd/damnbot` tidak masuk tabel budget core.
+6. **Test.** `internal/ctxdb` (`TestSessionLabelsAndRows`, `TestSessionLabelRejections`: append-only last-wins, flag value closed, sanitasi/120 rune, urutan + jumlah event); `cmd/damnbot` (`TestSessionsRenameAndExport`, `TestSessionsExportFile`, `TestSessionsStatsAndFlags`); `internal/e2e` (`TestSessionsAdminEndToEnd`: binary nyata membuat transkrip, lalu rename/export md+jsonl+html/stats/pin/archive/unpin, redaksi dan escape diperiksa).
+
+**Dampak terukur (SPEC §20).** DDL/migrasi 0, dependency 0, token prompt 0 (perintah CLI di luar jalur turn). LOC `ctxdb` +121 (terukur 4.000/4.050); `cmd/damnbot` +409 baris non-test (di luar tabel core).
+
+**Konsekuensi.** (+) `sessions` F2 punya export, judul, pin/archive, dan stats headless tanpa menyentuh jalur turn. (+) Label append-only menjaga invariant P9 (tidak ada UPDATE/DELETE pada metadata). (−) Ekspor penuh memuat seluruh lineage; pada sesi besar pengguna memakai `--out`/format `jsonl`. (−) `archived` hanya label sampai prune/archive massal (ADR-142) dan permukaan F3 memfilternya.
+
+## ADR-175 — Sumber skill lokal: discovery proyek, `skills.external_dirs`, dan karantina impor
+**Status:** Accepted 2026-10-23 (F2; SKILL-004/007/009/010/019/023; ADR-074, ADR-133 amandemen). Budget `memory` + `skills` 1.230 → 1.400 (+170; terukur 1.324, Σ core 38.450 → 38.620); dependency 0; DDL 0 (ADR-074).
+**Konteks.** SPEC §4.8 hanya mengenal satu lokasi skill (`<config>/skills/<name>/SKILL.md`) yang di-parse untuk gate pembayaran. Agent tetap butuh skill yang dikirim bersama proyek (`.damnbot/skills`, `.hermes/skills`) dan direktori skill di luar config, tetapi berkas dari pohon yang di-clone atau path arbiter bukan milik user: memperlakukannya seperti `user` akan membuat instruksi pihak ketiga masuk ke konteks tanpa review. `[skills]` di SPEC §12 belum didefinisikan.
+1. **Beberapa root, satu katalog.** `internal/skills` mendapat `Root{Path, Source}`, `Catalog{Skills, Dirs}` dan `Load(roots)`: setiap root diparse dan di-lint lewat `os.Root` (SEC10-10/12), temuan `high` atau nama duplikat antar-root menggagalkan seluruh load (fail closed). `Dirs` memuat juga direktori tanpa `SKILL.md` supaya gate pembayaran tetap menutup berkasnya (SEC10-13).
+2. **Urutan dan provenance root.** `<config>/skills` selalu root pertama dengan `source user` (tepercaya). Discovery proyek menambahkan `<proyek>/.damnbot/skills` dan `<proyek>/.hermes/skills` dengan `source import`, dan hanya untuk proyek terdekat yang disebut eksplisit di `[skills] trusted_projects` atau di `<config>/trusted-projects` (proyek tidak pernah tepercaya hanya karena menjadi cwd). `[skills] external_dirs` juga `source import`. Root dideduplikasi berdasarkan path kanonik, sumber pertama menang.
+3. **Karantina wajib untuk root tidak tepercaya.** `quarantineImportedSkills` meng-index setiap skill bersource bukan `user`/`builtin` lewat `skillstore.Quarantine` (source tersimpan `import`, hasil `memory.ScanText`, `rejected` bila severity `high`). Baris tersebut terikat ke memory entry dan tidak pernah muncul di `skills_list`, `skill_view`, maupun retrieval sebelum user meng-approve memory-nya; `<config>/skills` tidak disentuh jalur ini dan perilakunya tidak berubah.
+4. **Default.** `[skills] project_discovery = true`, `trusted_projects = []`, `external_dirs = []`, `inline_shell = false`. Discovery proyek aktif secara default tetapi tanpa proyek tepercaya ia tidak memuat apa pun, sehingga default tidak memperluas permukaan serangan.
+5. **Gate pembayaran.** `paymentSkillDirs(cfg, configDir, cwd)` menghitung direktori gate dari seluruh katalog (skill impor termasuk, walaupun belum di-approve) karena berkasnya sudah ada di disk.
+6. **Test.** Unit `internal/skills`/`cmd/damnbot`: urutan+d provenance root dan dedupe; skill impor tidak terlihat (`skillstore.Search` kosong) sebelum approval dan tepat satu baris `import` sesudah approval; `<config>/skills` tidak pernah tersentuh jalur impor (kontrol negatif lokasi lama). e2e biner asli (`internal/e2e`): dengan `[skills] external_dirs` berisi skill, `skills_list` melaporkan katalog kosong dan nama/isi skill impor tidak pernah muncul di request.
+**Sisa (belum di PR ini).** CLI-046 (`damnbot skills trust list|add|remove` sebagai penulis `<config>/trusted-projects`) belum diimplementasikan, sehingga baris parity yang bergantung CLI itu belum boleh dinyatakan tertutup; teks `[skills]` di SPEC §12 juga belum ditambahkan. Keduanya pekerjaan lanjutan yang dirujuk ADR ini.
+**Konsekuensi.** (+) Skill dari proyek dan direktori eksternal dapat dipakai setelah review user, dengan provenance yang jelas. (+) Tanpa storage/dependency baru. (−) Setiap skill impor menambah satu memory entry `scanned`/`rejected`; discovery proyek hanya berguna setelah user menandai proyek tepercaya (jalur CLI menyusul), dan `skill_view`/retrieval baru melihatnya sesudah approval. (−) `[skills]` belum ada di teks SPEC §12.

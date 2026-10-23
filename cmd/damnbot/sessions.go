@@ -25,6 +25,26 @@ func runSessions(args []string, stdout, stderr io.Writer) int {
 		return sessionsBranch(args[1:], stdout, stderr, false)
 	case "rewind":
 		return sessionsBranch(args[1:], stdout, stderr, true)
+	case "ls":
+		return sessionsList(args[1:], stdout, stderr)
+	case "show":
+		return sessionsShow(args[1:], stdout, stderr)
+	case "rename":
+		return sessionsRename(args[1:], stdout, stderr)
+	case "export":
+		return sessionsExport(args[1:], stdout, stderr)
+	case "archive":
+		return sessionsFlag("archive", args[1:], stdout, stderr, ctxdb.LabelArchived, "1")
+	case "unarchive":
+		return sessionsFlag("unarchive", args[1:], stdout, stderr, ctxdb.LabelArchived, "0")
+	case "pin":
+		return sessionsFlag("pin", args[1:], stdout, stderr, ctxdb.LabelPinned, "1")
+	case "unpin":
+		return sessionsFlag("unpin", args[1:], stdout, stderr, ctxdb.LabelPinned, "0")
+	case "pinned":
+		return sessionsPinned(args[1:], stdout, stderr)
+	case "stats":
+		return sessionsStats(args[1:], stdout, stderr)
 	default:
 		sessionsPrintf(stderr, "sessions: unknown subcommand %q\n", cleanArg(args[0]))
 		sessionsUsage(stderr)
@@ -42,6 +62,11 @@ func sessionsPrintf(w io.Writer, format string, args ...any) {
 func sessionsUsage(w io.Writer) {
 	sessionsPrintf(w, "usage: damnbot sessions fork <id> [--at <seq|turn:ID>]\n")
 	sessionsPrintf(w, "       damnbot sessions rewind <id> --at <seq|turn:ID>\n")
+	sessionsPrintf(w, "       damnbot sessions ls|show <id> [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot sessions rename <id> [<title>]\n")
+	sessionsPrintf(w, "       damnbot sessions export <id> [--format md|jsonl|html] [--out FILE] [--no-redact]\n")
+	sessionsPrintf(w, "       damnbot sessions archive|unarchive|pin|unpin <id>\n")
+	sessionsPrintf(w, "       damnbot sessions pinned|stats\n")
 }
 
 // sessionsBranch creates a child of id with ctxdb.Fork. Fork defaults to the
@@ -243,11 +268,21 @@ func openSessionsDB(ctx context.Context, dataDir string) (*ctxdb.Store, error) {
 		}
 		dataDir = paths.DataDir
 	}
-	fi, err := os.Stat(dataDir)
+	return openSessionsStore(ctx, dataDir, false)
+}
+
+// openSessionsDBReadOnly opens the store for inspection (mode=ro): a newer
+// schema is readable and no data dir/layout is created (ADR-132/ADR-140).
+func openSessionsDBReadOnly(ctx context.Context, dataDir string) (*ctxdb.Store, error) {
+	return openSessionsStore(ctx, dataDir, true)
+}
+
+func openSessionsStore(ctx context.Context, dataDir string, readOnly bool) (*ctxdb.Store, error) {
+	fi, err := os.Stat(dataDir) //nolint:gosec // operator-selected data dir, not request input
 	if err != nil || !fi.IsDir() {
 		return nil, fmt.Errorf("%w: %s", errNoDataDir, cleanArg(dataDir))
 	}
-	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "cli"})
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "cli", ReadOnly: readOnly})
 	if err != nil {
 		return nil, fmt.Errorf("open sessions db: %w", err)
 	}
