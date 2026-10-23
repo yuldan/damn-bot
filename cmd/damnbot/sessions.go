@@ -3,14 +3,20 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/damnbot/damnbot/internal/backup"
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/secret"
 )
 
 // runSessions implements the `sessions` command (SPEC §10): fork and rewind,
@@ -35,18 +41,14 @@ func runSessions(args []string, stdout, stderr io.Writer) int {
 		return sessionsExport(args[1:], stdout, stderr)
 	case "prune":
 		return sessionsPrune(args[1:], stdout, stderr)
-	case "archive":
-		return sessionsFlag("archive", args[1:], stdout, stderr, ctxdb.LabelArchived, "1")
-	case "unarchive":
-		return sessionsFlag("unarchive", args[1:], stdout, stderr, ctxdb.LabelArchived, "0")
-	case "pin":
-		return sessionsFlag("pin", args[1:], stdout, stderr, ctxdb.LabelPinned, "1")
-	case "unpin":
-		return sessionsFlag("unpin", args[1:], stdout, stderr, ctxdb.LabelPinned, "0")
+	case "archive", "unarchive", "pin", "unpin":
+		return sessionsLabel(args[0], args[1:], stdout, stderr)
 	case "pinned":
 		return sessionsPinned(args[1:], stdout, stderr)
 	case "stats":
 		return sessionsStats(args[1:], stdout, stderr)
+	case "backup", "restore":
+		return sessionsBackupRestore(args[0], args[1:], stdout, stderr)
 	default:
 		sessionsPrintf(stderr, "sessions: unknown subcommand %q\n", cleanArg(args[0]))
 		sessionsUsage(stderr)
@@ -71,6 +73,7 @@ func sessionsUsage(w io.Writer) {
 	sessionsPrintf(w, "       (archive uses created_at; purge uses last activity, SPEC §11.6; pinned sessions are never purged)\n")
 	sessionsPrintf(w, "       damnbot sessions archive|unarchive|pin|unpin <id>\n")
 	sessionsPrintf(w, "       damnbot sessions pinned|stats\n")
+	sessionsPrintf(w, "       damnbot sessions backup create|ls|verify | damnbot sessions restore <file> [--dry-run]\n")
 }
 
 // sessionsBranch creates a child of id with ctxdb.Fork. Fork defaults to the
@@ -302,4 +305,270 @@ func sessionsErr(err error) int {
 		return 2
 	}
 	return 1
+}
+
+// sessionsBackupRestore dispatches `sessions backup create|ls|verify` and
+// `sessions restore <file>` (ADR-124 §7).
+func sessionsBackupRestore(cmd string, args []string, stdout, stderr io.Writer) int {
+	if cmd == "restore" {
+		return sessionsRestore(args, stdout, stderr)
+	}
+	return sessionsBackup(args, stdout, stderr)
+}
+
+// sessionsLabel applies the append-only archive/pin label toggles (SPEC §10).
+func sessionsLabel(cmd string, args []string, stdout, stderr io.Writer) int {
+	switch cmd {
+	case "archive":
+		return sessionsFlag(cmd, args, stdout, stderr, ctxdb.LabelArchived, "1")
+	case "unarchive":
+		return sessionsFlag(cmd, args, stdout, stderr, ctxdb.LabelArchived, "0")
+	case "pin":
+		return sessionsFlag(cmd, args, stdout, stderr, ctxdb.LabelPinned, "1")
+	default: // unpin
+		return sessionsFlag(cmd, args, stdout, stderr, ctxdb.LabelPinned, "0")
+	}
+}
+
+// sessionsBackup dispatches `sessions backup create|ls|verify` (ADR-124 §7).
+func sessionsBackup(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		sessionsPrintf(stderr, "sessions backup: usage: create|ls|verify\n")
+		return 2
+	}
+	switch args[0] {
+	case "create":
+		return sessionsBackupCreate(args[1:], stdout, stderr)
+	case "ls":
+		return sessionsBackupLS(args[1:], stdout, stderr)
+	case "verify":
+		return sessionsBackupVerify(args[1:], stdout, stderr)
+	default:
+		sessionsPrintf(stderr, "sessions backup: unknown subcommand %q\n", cleanArg(args[0]))
+		return 2
+	}
+}
+
+func sessionPaths(dataDir string) (config.Paths, error) {
+	loader, err := config.New(config.OS())
+	if err != nil {
+		return config.Paths{}, fmt.Errorf("config deps: %w", err)
+	}
+	p, err := loader.Paths("")
+	if err != nil {
+		return config.Paths{}, fmt.Errorf("config paths: %w", err)
+	}
+	if dataDir != "" {
+		p.DataDir = dataDir
+	}
+	return p, nil
+}
+
+func secretStore(p config.Paths) (*secret.Store, error) {
+	st, err := secret.New(secret.Options{ConfigDir: p.ConfigDir})
+	if err != nil {
+		return nil, fmt.Errorf("secret store: %w", err)
+	}
+	return st, nil
+}
+
+func sessionsBackupCreate(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("sessions backup create", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	out := fs.String("out", "", "archive path (default <data_dir>/backups/)")
+	secrets := fs.Bool("include-secrets", false, "include <config_dir>/secrets.enc")
+	dataDir := fs.String("data-dir", "", "override the data directory")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	p, err := sessionPaths(*dataDir)
+	if err != nil {
+		return fail(stderr, "sessions backup create", err)
+	}
+	st, err := secretStore(p)
+	if err != nil {
+		return fail(stderr, "sessions backup create", err)
+	}
+	ctx := context.Background()
+	key, err := st.Backup(ctx)
+	if err != nil {
+		return fail(stderr, "sessions backup create", err)
+	}
+	defer key.Zero()
+	res, err := backup.Create(ctx, &backup.CreateOptions{
+		DataDir: p.DataDir, ConfigDir: p.ConfigDir, Out: *out, App: version,
+		IncludeSecrets: *secrets, Key: key, Now: time.Now(),
+	})
+	if err != nil {
+		return fail(stderr, "sessions backup create", err)
+	}
+	if _, err := fmt.Fprintf(stdout, "%s\nkey %s\n", safe(res.Path), safe(res.Header.RecipientID)); err != nil {
+		return 1
+	}
+	return 0
+}
+
+func sessionsBackupLS(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("sessions backup ls", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dataDir := fs.String("data-dir", "", "override the data directory")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	p, err := sessionPaths(*dataDir)
+	if err != nil {
+		return fail(stderr, "sessions backup ls", err)
+	}
+	dir := filepath.Join(p.DataDir, "backups")
+	ents, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		return fail(stderr, "sessions backup ls", err)
+	}
+	sort.Slice(ents, func(i, j int) bool { return ents[i].Name() > ents[j].Name() })
+	st, serr := secretStore(p)
+	if serr != nil {
+		return fail(stderr, "sessions backup ls", serr)
+	}
+	for _, e := range ents {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".dmbk" {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		h, rerr := readMeta(path)
+		if rerr != nil {
+			writef(stdout, "%s\terror: %s\n", safe(path), safe(rerr.Error()))
+			continue
+		}
+		ok := "key-missing"
+		if st != nil {
+			if avail, aerr := st.BackupAvailable(context.Background(), h.RecipientID); aerr == nil && avail {
+				ok = "ok"
+			}
+		}
+		writef(stdout, "%s\t%s\tsecrets=%t\tkey=%s\t%s\n", safe(path),
+			time.Unix(h.CreatedAt, 0).UTC().Format(time.RFC3339), h.IncludeSecrets, safe(h.RecipientID), ok)
+	}
+	return 0
+}
+
+func readMeta(path string) (h backup.Header, err error) {
+	f, err := os.Open(path) //nolint:gosec // explicit CLI archive path
+	if err != nil {
+		return h, fmt.Errorf("open archive: %w", err)
+	}
+	defer func() { err = errors.Join(err, f.Close()) }()
+	h, err = backup.ReadMeta(f)
+	if err != nil {
+		return h, fmt.Errorf("read header: %w", err)
+	}
+	return h, nil
+}
+
+func sessionsBackupVerify(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("sessions backup verify", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 {
+		writeln(stderr, "sessions backup verify: one archive path required")
+		return 2
+	}
+	path := fs.Arg(0)
+	h, err := readMeta(path)
+	if err != nil {
+		return fail(stderr, "sessions backup verify", err)
+	}
+	p, err := sessionPaths("")
+	if err != nil {
+		return fail(stderr, "sessions backup verify", err)
+	}
+	st, err := secretStore(p)
+	if err != nil {
+		return fail(stderr, "sessions backup verify", err)
+	}
+	key, err := st.BackupByID(context.Background(), h.RecipientID)
+	if err != nil {
+		return fail(stderr, "sessions backup verify", err)
+	}
+	defer key.Zero()
+	_, m, err := backup.Verify(context.Background(), path, key)
+	if err != nil {
+		return fail(stderr, "sessions backup verify", err)
+	}
+	_, err = fmt.Fprintf(stdout, "ok %s: %d entries, %d missing blobs\n", safe(path), len(m.Entries), len(m.MissingBlobs))
+	if err != nil {
+		return 1
+	}
+	return 0
+}
+
+func fail(stderr io.Writer, cmd string, err error) int {
+	writef(stderr, "%s: %v\n", cmd, err)
+	return 1
+}
+
+func sessionsRestore(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("sessions restore", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dry := fs.Bool("dry-run", false, "verify and print the plan without changing data")
+	dataDir := fs.String("data-dir", "", "override the data directory")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 {
+		writeln(stderr, "sessions restore: one archive path required")
+		return 2
+	}
+	path := fs.Arg(0)
+	h, err := readMeta(path)
+	if err != nil {
+		return fail(stderr, "sessions restore", err)
+	}
+	p, err := sessionPaths(*dataDir)
+	if err != nil {
+		return fail(stderr, "sessions restore", err)
+	}
+	st, err := secretStore(p)
+	if err != nil {
+		return fail(stderr, "sessions restore", err)
+	}
+	key, err := st.BackupByID(context.Background(), h.RecipientID)
+	if err != nil {
+		return fail(stderr, "sessions restore", err)
+	}
+	defer key.Zero()
+	res, err := backup.Restore(context.Background(), &backup.RestoreOptions{
+		DataDir: p.DataDir, ConfigDir: p.ConfigDir, Archive: path, Key: key, DryRun: *dry,
+	})
+	if err != nil {
+		return fail(stderr, "sessions restore", err)
+	}
+	writef(stdout, "entries=%d missing_blobs=%d config=%t secrets=%t dry_run=%t skipped=%v\n",
+		res.Entries, res.MissingBlobs, res.ConfigRestored, res.SecretsRestored, *dry, res.Skipped)
+	return 0
+}
+
+func safe(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return '?'
+		}
+		return r
+	}, s)
+}
+
+func writef(w io.Writer, format string, args ...any) {
+	if _, err := fmt.Fprintf(w, format, args...); err != nil {
+		return
+	}
+}
+
+func writeln(w io.Writer, args ...any) {
+	if _, err := fmt.Fprintln(w, args...); err != nil {
+		return
+	}
 }

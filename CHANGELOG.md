@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `cmd/damnbot`: CLI `sessions backup create|ls|verify` dan `sessions restore <file>` (ADR-124 butir 7).
+
 - `backup`: restore dua fase (staging terverifikasi → `ctxdb.RestoreSet`) + pengerasan layout/DB swap.
 
 - `backup`: manifest terautentikasi + `Create`/`Verify` arsip, publikasi 0600 + fsync + rename.

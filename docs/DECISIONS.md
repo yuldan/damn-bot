@@ -9,6 +9,7 @@ Format: Konteks / Keputusan / Konsekuensi. Status semua ADR: **diterima** kecual
 - Amandemen (rantai at-rest/backup ADR-124, PR ini): feat(backup): stream DMBK1 payload chunks; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
 - Amandemen (rantai at-rest/backup ADR-124, PR ini): feat(backup): manifest, create and verify DMBK1 archives; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
 - Amandemen (rantai at-rest/backup ADR-124, PR ini): fix(backup): harden restore layout, staging and DB swap; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
+- Amandemen (rantai at-rest/backup ADR-124, PR ini): feat(cmd): sessions backup and restore CLI; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
 ## ADR-001 — Bahasa implementasi: Go
 
 **Konteks.** Target: single static binary, startup ≤ 100 ms, RSS idle ≤ 50 MB, cross-compile Linux/macOS/Windows amd64+arm64. Toolchain terpasang: Go 1.26.8; Rust dan Bun tidak. Hermes (Python + Node) butuh 1,6–2,1 s hanya untuk import (BASELINE §6).
