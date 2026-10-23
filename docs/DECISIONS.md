@@ -3535,6 +3535,7 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** Job per PR-run: 22 → 13 (−41 %); main/nightly: 25 → 16. Gate Makefile yang hilang: 0 (diverifikasi dengan membandingkan himpunan perintah `make …` kedua versi workflow). Machine-minute ≈ sama atau turun karena setup (checkout + `setup-go`) berkurang 22 → 13 per run. Wall-clock PR tetap dibatasi `test` (timeout 25 m); job baru (`static` ≈ 3 m, `portability` ≈ 6 m, `bench` ≈ 3 m, `supply` ≈ 2 m, `extra` ≈ 5 m, `fuzz` ≈ 12 m) berada di bawahnya.
 
 **Konsekuensi.** (+) Antrean PR turun tajam tanpa kehilangan satu gate pun; (−) satu job bundle berarti satu kegagalan menandai langkahnya di dalam job (nama langkah tetap memuat E-id agar triase secepat job terpisah); (−) `fuzz` menjadi berurutan (wall-clock ~3× shard tunggal) sebagai ganti tiga slot paralel; bila wall-clock itu mengganggu, jalan keluarnya adalah menaikkan `FUZZTIME` per shard atau mengembalikan tiga job — bukan menurunkan FUZZTIME.
+
 ## ADR-180 — Redaksi artefak bench dan penjaga `bench/h2h/results/**`
 
 **Status:** Accepted 2026-10-22 (security review; menutup kebocoran dari #134 lewat PR #285).
@@ -3568,6 +3569,22 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** Push `main`: 16 → **5 job `ci`** (+1 `meta-test`) sehingga merge tidak lagi menahan antrean PR. PR: tetap **13 job `ci`** (+`meta-test` +`pr-meta`). Nightly: tetap 16 job. Matriks 6 target tetap 1×/hari plus atas permintaan.
 
 **Konsekuensi.** (+) Merge cepat dan murah; verifikasi penuh tetap ada (nightly/`workflow_dispatch`); (+) tidak ada gate PR yang dilepas. (−) Regresi yang hanya muncul di paket berat atau OS non-ubuntu pada `main` terdeteksi paling lambat pada nightly berikutnya, bukan seketika — diterima karena PR yang di-squash sudah menguji pohon yang sama, dan karena itu pula opsi memangkas matrix OS di PR tetap ditolak (ADR-179 butir 8).
+
+## ADR-182 — Retry idempoten unduhan modul di job `supply` (kegagalan transient proxy)
+
+**Status:** Accepted 2026-10-22 (delegasi owner). Menutup kelas kegagalan yang terlihat pada #242 (run `39838313521`, job `supply-chain`).
+
+**Konteks.** Job `supply` (E-46/E-47/E-50/E-54) menjalankan `make tidy-check` (`go mod tidy -diff`) dan langkah modul lain untuk tiga modul (`tools/go.mod` termasuk tool dev `scc`). `go mod tidy` mengunduh dependency dari `proxy.golang.org`; pada 2026-10-22 dua unduhan berbeda (`github.com/agnivade/levenshtein@v1.2.2-0.20250519083737-420867539855`, `github.com/boyter/gocodewalker@v1.5.2-0.20260227212453-19676720409f`) gagal pada detik yang sama dengan `stream error: stream ID 1621; INTERNAL_ERROR; received from peer` → job merah untuk PR dokumen yang isinya tidak menyentuh modul sama sekali. Kegagalan itu transient di sisi proxy/CDN; mengulang perintah yang sama secara idempoten hampir selalu berhasil, sedangkan membiarkannya merah memaksa rerun manual (boros) atau menggoda orang untuk men-skip gate.
+
+**Keputusan.**
+1. **`GOPROXY` workflow-level = `https://proxy.golang.org|direct`.** Pipe (`|`) memilih `direct` bila proxy mengembalikan error **apa pun** (koma hanya mundur pada 404/410). `direct` mengambil dari sumber VCS dan tetap melewati `go.sum` + `GOSUMDB` yang sama, jadi integritas modul tidak dilonggarkan.
+2. **Retry idempoten ≤ 2 (total 3 percobaan, jeda 5 s)** diterapkan pada **perintah gate yang menyentuh unduhan modul**: `retry make tidy-check`, `retry make mod-verify`, `retry make deps-check`, `retry make licenses`, `retry make vuln` (setiap perintah tetap dipanggil tepat sekali pada jalur sukses). Bila tiga percobaan gagal, langkah gagal dan job `supply` tetap merah — tidak ada skip dan tidak ada pelonggaran gate. **Pra-unduh `go mod download all` ditolak**: terukur, perintah itu **menulis `go.sum`** (+8 baris = entri `h1:`+`/go.mod` untuk `github.com/google/renameio/v2`, `golang.org/x/term`, `gopkg.in/check.v1`, `mvdan.cc/editorconfig`) sehingga gate `tidy-check` di langkah berikutnya gagal — kelas kegagalan yang justru muncul di PR ini; selain itu pola `all` lebih luas daripada kebutuhan gate.
+3. **Tidak memakai `GONOSUMDB`/`GONOSUMCHECK`/`GOFLAGS=-mod=mod`.** Opsi-opsi itu mematikan verifikasi checksum/kesesuaian `go.sum`, yaitu justru inti gate supply-chain; selain itu tidak satu pun setelan tersebut ada di repo ini (diverifikasi: 0 kemunculan `GOPROXY|GONOSUMDB|GONOSUMCHECK|GOPRIVATE` di `.github/`, `Makefile`, dan `scripts/`), sehingga tidak ada "setelan yang sudah ada" untuk dipertahankan.
+4. **Cakupan tidak berubah.** Setiap target Makefile di job `supply` (`tidy-check`, `mod-verify`, `deps-check`, `licenses`, `vuln`) tetap dipanggil tepat sekali dengan perintah yang sama; yang ditambahkan hanyalah pembungkus retry idempoten di sekeliling perintah itu (tanpa perintah tambahan, tanpa pra-unduh yang mengubah `go.sum`).
+
+**Dampak terukur (SPEC §20).** Gate yang dilewati atau dilonggarkan: **0**. Multiset invokasi `make …` job `supply` identik sebelum/sesudah (diverifikasi otomatis). Biaya tambahan: ≤ 2 × (unduhan gagal + jeda 5 s) hanya pada jalur error.
+
+**Konsekuensi.** (+) Kegagalan transient proxy tidak lagi memaksa rerun manual untuk PR yang tidak menyentuh modul; (+) `direct` menutup pula kasus proxy yang menolak pseudo-version tertentu. (−) Retry menambah ≤ 10 s pada kasus error; (−) bila sebuah pseudo-version benar-benar tidak lagi resolvable (proxy **dan** sumber menolaknya), job tetap merah dan perbaikannya adalah **pin ulang versi** — retry bukan penutup masalah semacam itu, dan langkah itu sengaja tidak dibuat "hijau paksa".
 
 ## ADR-183 — Integrasi dengan harness eksternal: dua arah, inbound sekarang dan orkestrasi native di fase lanjut
 
