@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"io"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -32,9 +31,8 @@ func TestFailedTurnPersisted(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Default()
 	red := redact.New(redact.Options{})
-	spill := diskSpill{dir: filepath.Join(dir, "spill")}
 	o := &runOptions{model: "openai/gpt-fake", baseURL: srv.URL, providerAttempts: 1, output: "json", approval: "auto"}
-	model, err := startRunModel(ctx, &cfg, dir, o.model, o, red, spill, dir, t.TempDir(), nil)
+	model, err := startRunModel(ctx, &cfg, dir, o.model, o, red, dir, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,12 +42,12 @@ func TestFailedTurnPersisted(t *testing.T) {
 		}
 	}()
 
-	if code := turnCode(t, &cfg, "poison turn", o, model, red, spill); code != 2 {
+	if code := turnCode(t, &cfg, "poison turn", o, model, red); code != 2 {
 		t.Fatalf("failed turn: exit %d, want 2", code)
 	}
 	assertFailedTurnRows(t, model)
 
-	if code := turnCode(t, &cfg, "fresh turn", o, model, red, spill); code != 0 {
+	if code := turnCode(t, &cfg, "fresh turn", o, model, red); code != 0 {
 		t.Fatalf("next turn: exit %d, want 0", code)
 	}
 	reqs := srv.Requests()
@@ -108,13 +106,13 @@ func assertRemainingRows(t *testing.T, model *runModel) {
 }
 
 // turnCode runs one headless turn on the existing model/session.
-func turnCode(t *testing.T, cfg *config.Config, prompt string, o *runOptions, model *runModel, red *redact.Redactor, spill diskSpill) int {
+func turnCode(t *testing.T, cfg *config.Config, prompt string, o *runOptions, model *runModel, red *redact.Redactor) int {
 	t.Helper()
 	opts := &runOptions{
 		prompt: prompt, model: o.model, baseURL: o.baseURL, providerAttempts: 1, output: "json",
 		approval: o.approval, unsafeShell: o.unsafeShell,
 	}
-	code, err := runTurn(t.Context(), cfg, opts, model, o.model, red, spill, io.Discard)
+	code, err := runTurn(t.Context(), cfg, opts, model, o.model, red, model.spill, io.Discard)
 	if err != nil {
 		t.Fatalf("turn %q: %v", prompt, err)
 	}

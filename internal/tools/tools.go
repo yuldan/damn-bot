@@ -75,6 +75,9 @@ type Result struct {
 	Err         *ToolError
 	Meta        map[string]any
 	Attachments []BlobRef
+	// Spilled is the blob holding the full result when the tool spilled it
+	// internally (shell exec summary); dispatcher promotes it to the event.
+	Spilled *BlobRef
 
 	// UntrustedSource, when non-empty, wraps Content in
 	// <untrusted source="…"> and taints the turn (SPEC §14.5, ADR-070).

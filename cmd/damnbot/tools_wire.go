@@ -182,17 +182,21 @@ type runWiring struct {
 	// scales with (SPEC P5 amendment, GAP-COST-08). It is a wiring value, not a
 	// model-window observation, so it stays out of runModel.window.
 	inlineCap int
+	// spill routes tool output above InlineChars into the ctxdb blob store
+	// (SEC7-66/68); the same instance serves the shell tool and the turn.
+	spill tools.Spill
 }
 
 // newRunWiring opens the run store, the sandbox and codetools engine, the exec
 // runner and its persistent sessions, then wires the shell, file, and skill
 // tools into a registry. Failures after the sessions exist go through the
 // returned fail closure so nothing leaks.
-func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string, codec ctxdb.Codec) (*runWiring, error) {
+func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, configDir, home string, codec ctxdb.Codec) (*runWiring, error) {
 	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run", Codec: codec})
 	if err != nil {
 		return nil, fmt.Errorf("open ctxdb: %w", err)
 	}
+	spill := ctxSpill{db: db}
 	sid, cwd, err := newRunSession(ctx, db, modelRef)
 	if err != nil {
 		return nil, closeDB(ctx, db, "", err)
@@ -269,5 +273,6 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		cwd:       cwd,
 		fail:      fail,
 		inlineCap: cfg.Loop.TurnMaxInputTok,
+		spill:     spill,
 	}, nil
 }

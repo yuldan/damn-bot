@@ -4,17 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 const (
-	ftsNormVersion = 1
-	ftsPlainLayout = 1 // detail=full, CJK unigrams
-	ftsEncLayout   = 2 // detail=column, bigrams only (ADR-124 amendment)
-	ftsBatchSize   = 5000
+	ftsNormVersion  = 1
+	ftsPlainLayout  = 1 // detail=full, CJK unigrams
+	ftsEncLayout    = 2 // detail=column, bigrams only (ADR-124 amendment)
+	ftsBatchSize    = 5000
+	ftsBlobMaxBytes = 16 << 20
 )
 
 func ftsTables() []string {
-	return []string{"events_fts", "summaries_fts", "memory_fts", "skills_fts"}
+	return []string{"events_fts", "summaries_fts", "memory_fts", "skills_fts", "blob_fts"}
 }
 
 func (s *Store) ftsLayout() int {
@@ -39,6 +41,11 @@ func (s *Store) ensureFTS(ctx context.Context) error {
 }
 
 func (s *Store) initFTS(ctx context.Context) error {
+	if s.codec != nil {
+		if err := s.recreateEncryptedFTS(ctx); err != nil {
+			return err
+		}
+	}
 	return s.Write(ctx, func(tx *Tx) error {
 		for _, name := range ftsTables() {
 			if err := tx.ftsTableMeta(name); err != nil {
@@ -50,15 +57,47 @@ func (s *Store) initFTS(ctx context.Context) error {
 }
 
 func (s *Store) upgradeFTS(ctx context.Context) error {
+	recreated, err := s.upgradeEncryptedLayout(ctx)
+	if err != nil {
+		return err
+	}
 	var old int
 	if err := s.get(ctx, `SELECT count(*) FROM fts_meta WHERE norm_version <> ? OR layout_version <> ?`,
 		[]any{ftsNormVersion, s.ftsLayout()}, &old); err != nil {
 		return err
 	}
-	if old == 0 {
+	if old == 0 && !recreated {
 		return nil
 	}
 	return s.ReindexFTS(ctx, ftsBatchSize)
+}
+
+// upgradeEncryptedLayout recreates the FTS tables when any of them still has
+// the plaintext layout. Every table is inspected (SEC7-73): checking only
+// events_fts let a partially converted database keep the four other indexes
+// at detail=full, which breaks NEAR/position semantics.
+func (s *Store) upgradeEncryptedLayout(ctx context.Context) (bool, error) {
+	if s.codec == nil {
+		return false, nil
+	}
+	ddl, err := s.strings(ctx, `SELECT sql FROM sqlite_master WHERE name IN
+		('events_fts','summaries_fts','memory_fts','skills_fts','blob_fts')`)
+	if err != nil {
+		return false, err
+	}
+	if len(ddl) == len(ftsTables()) {
+		columnDetail := true
+		for _, q := range ddl {
+			if !strings.Contains(q, "detail=column") {
+				columnDetail = false
+				break
+			}
+		}
+		if columnDetail {
+			return false, nil
+		}
+	}
+	return true, s.recreateEncryptedFTS(ctx)
 }
 
 // ReindexFTS rebuilds contentless FTS indexes in keyset batches (EC-STATE-009).
@@ -83,7 +122,7 @@ func (s *Store) ReindexFTS(ctx context.Context, batch int) error {
 	if err := s.reindexSkills(ctx, batch); err != nil {
 		return err
 	}
-	return nil
+	return s.reindexBlobs(ctx, batch)
 }
 
 type ftsEntry struct {
@@ -279,10 +318,115 @@ func (s *Store) reindexSkills(ctx context.Context, batch int) error {
 	}
 }
 
-// ftsPlain returns the index tokens of text for the current layout.
+func (s *Store) reindexBlobs(ctx context.Context, batch int) error {
+	const q = `SELECT e.id, b.sha256 FROM events e JOIN blobs b ON b.sha256 = e.blob_sha
+		WHERE e.id > ? AND b.size <= 16777216 AND (b.mime LIKE 'text/%' OR b.mime = 'application/json')
+		ORDER BY e.id LIMIT ?`
+	for last := int64(0); ; {
+		rows, err := s.ftsPage(ctx, q, last, batch, func(r *sql.Rows) (ftsEntry, error) {
+			var id int64
+			var sha string
+			if err := r.Scan(&id, &sha); err != nil {
+				return ftsEntry{}, wrap(err)
+			}
+			return ftsEntry{id: id, cols: []string{sha}}, nil
+		})
+		if err != nil || len(rows) == 0 {
+			return err
+		}
+		for i := range rows {
+			raw, rerr := s.ReadBlob(ctx, rows[i].cols[0])
+			if rerr != nil {
+				return rerr
+			}
+			rows[i].cols = []string{s.ftsPlain(string(raw))}
+		}
+		if err := s.insertFTSBatch(ctx, "blob_fts", rows); err != nil {
+			return err
+		}
+		s.hasBlobFTS.Store(true)
+		last = rows[len(rows)-1].id
+	}
+}
+
+func (t *Tx) indexBlobFTS(sha string, eventID int64) error {
+	var mime string
+	var size int64
+	if err := t.Get(`SELECT mime, size FROM blobs WHERE sha256=?`, []any{sha}, &mime, &size); err != nil {
+		return err
+	}
+	if size > ftsBlobMaxBytes || (mime != "application/json" && !strings.HasPrefix(mime, "text/")) {
+		return nil
+	}
+	raw, err := t.s.root.ReadFile(blobName(sha))
+	if err != nil {
+		return wrap(err)
+	}
+	plain := raw
+	if t.s.codec != nil {
+		plain, err = t.s.codec.Open("blob:"+sha, raw)
+		if err != nil {
+			return wrap(err)
+		}
+	}
+	_, err = t.Exec(`INSERT INTO blob_fts(rowid, content) VALUES (?,?)`, eventID, t.s.ftsPlain(string(plain)))
+	if err == nil {
+		t.s.hasBlobFTS.Store(true)
+	}
+	return err
+}
+
+func (s *Store) blobFTSAvailable(ctx context.Context) bool {
+	s.blobOnce.Do(func() {
+		var n int
+		if err := s.get(ctx, `SELECT EXISTS(SELECT 1 FROM blob_fts)`, nil, &n); err == nil {
+			s.hasBlobFTS.Store(n != 0)
+		}
+	})
+	return s.hasBlobFTS.Load()
+}
+
 func (s *Store) ftsPlain(text string) string {
 	if s.codec == nil {
 		return ftsNorm(text)
 	}
 	return encFTS(s.codec, text)
+}
+
+func (s *Store) recreateEncryptedFTS(ctx context.Context) error {
+	ddl := []string{
+		"DROP TRIGGER IF EXISTS events_ai", "DROP TRIGGER IF EXISTS summaries_ai", "DROP TRIGGER IF EXISTS memory_ai",
+		"DROP TRIGGER IF EXISTS skills_ai", "DROP TRIGGER IF EXISTS skills_au", "DROP TRIGGER IF EXISTS skills_ad",
+		"DROP TABLE IF EXISTS events_fts", "DROP TABLE IF EXISTS summaries_fts", "DROP TABLE IF EXISTS memory_fts",
+		"DROP TABLE IF EXISTS skills_fts", "DROP TABLE IF EXISTS blob_fts",
+		`CREATE VIRTUAL TABLE events_fts USING fts5(content, tool_name, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2 tokenchars '_-./'")`,
+		`CREATE VIRTUAL TABLE summaries_fts USING fts5(content, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2")`,
+		`CREATE VIRTUAL TABLE memory_fts USING fts5(content, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2")`,
+		`CREATE VIRTUAL TABLE skills_fts USING fts5(name, description, body, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2")`,
+		`CREATE VIRTUAL TABLE blob_fts USING fts5(content, content='', contentless_delete=1, detail=column, tokenize = "unicode61 remove_diacritics 2 tokenchars '_-./'")`,
+		`CREATE TRIGGER events_ai AFTER INSERT ON events WHEN NEW.kind IN ('user_message','assistant_message','tool_result','imported') BEGIN
+			INSERT INTO events_fts(rowid, content, tool_name) VALUES (NEW.id,
+			dmb_fts_norm(coalesce(NEW.content_enc, NEW.content), 'events.content', NEW.session_id || '|' || NEW.seq), coalesce(NEW.tool_name, '')); END`,
+		`CREATE TRIGGER summaries_ai AFTER INSERT ON summaries BEGIN INSERT INTO summaries_fts(rowid, content)
+			VALUES (NEW.id, dmb_fts_norm(coalesce(NEW.content_enc, NEW.content), 'summaries.content', NEW.session_id || '|' || NEW.from_seq || ':' || NEW.to_seq)); END`,
+		`CREATE TRIGGER memory_ai AFTER INSERT ON memory BEGIN INSERT INTO memory_fts(rowid, content)
+			VALUES (NEW.id, dmb_fts_norm(coalesce(NEW.content_enc, NEW.content), 'memory.content', NEW.scope || '|' || NEW.enc_id)); END`,
+		`CREATE TRIGGER skills_ai AFTER INSERT ON skills BEGIN INSERT INTO skills_fts(rowid, name, description, body)
+			VALUES (NEW.id, dmb_fts_norm(NEW.name, 'skills.name', ''), dmb_fts_norm(NEW.description, 'skills.description', ''), dmb_fts_norm(NEW.body, 'skills.body', '')); END`,
+		`CREATE TRIGGER skills_au AFTER UPDATE ON skills BEGIN DELETE FROM skills_fts WHERE rowid = OLD.id;
+			INSERT INTO skills_fts(rowid, name, description, body) VALUES (NEW.id, dmb_fts_norm(NEW.name, 'skills.name', ''),
+			dmb_fts_norm(NEW.description, 'skills.description', ''), dmb_fts_norm(NEW.body, 'skills.body', '')); END`,
+		`CREATE TRIGGER skills_ad AFTER DELETE ON skills BEGIN DELETE FROM skills_fts WHERE rowid = OLD.id; END`,
+	}
+	return s.Write(ctx, func(tx *Tx) error {
+		if _, err := tx.Exec("PRAGMA secure_delete=ON"); err != nil {
+			return err
+		}
+		for _, q := range ddl {
+			if _, err := tx.Exec(q); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

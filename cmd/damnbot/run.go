@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,7 +13,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -180,13 +178,12 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 		}
 	}
 	red := redact.New(redact.Options{})
-	spill := diskSpill{dir: filepath.Join(dataDir, "run-spill")}
 	configDir, home := paths.ConfigDir, homeDir()
 	codec, err := runCodec(ctx, &cfg, dataDir, configDir)
 	if err != nil {
 		return 0, err
 	}
-	model, err := startRunModel(ctx, &cfg, dataDir, modelRef, o, red, spill, configDir, home, codec)
+	model, err := startRunModel(ctx, &cfg, dataDir, modelRef, o, red, configDir, home, codec)
 	if err != nil {
 		return 0, err
 	}
@@ -195,7 +192,7 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 			err = fmt.Errorf("close run model: %w", cerr)
 		}
 	}()
-	return runTurn(ctx, &cfg, o, model, modelRef, red, spill, stdout)
+	return runTurn(ctx, &cfg, o, model, modelRef, red, model.spill, stdout)
 }
 
 func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef string, red *redact.Redactor, spill tools.Spill, stdout io.Writer) (int, error) {
@@ -298,6 +295,7 @@ type runModel struct {
 	// scales with (SPEC P5 amendment, GAP-COST-08); tools.TurnInlineCap turns
 	// it into the character cap with the session's char/token ratio.
 	inlineCap int
+	spill     tools.Spill
 }
 
 func (m *runModel) close(ctx context.Context) error {
@@ -365,8 +363,8 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	return &providerAdapter{client: openai, model: modelRef, notes: notes}, nil
 }
 
-func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string, codec ctxdb.Codec) (*runModel, error) {
-	w, err := newRunWiring(ctx, cfg, dataDir, modelRef, o, red, spill, configDir, home, codec)
+func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, configDir, home string, codec ctxdb.Codec) (*runModel, error) {
+	w, err := newRunWiring(ctx, cfg, dataDir, modelRef, o, red, configDir, home, codec)
 	if err != nil {
 		return nil, err
 	}
@@ -393,6 +391,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		window:    win.ContextWindow,
 		winSource: string(win.Source),
 		inlineCap: w.inlineCap,
+		spill:     w.spill,
 		db:        w.db,
 		engine:    w.engine,
 		runner:    w.runner,
@@ -640,6 +639,9 @@ func (t *toolsetAdapter) Prepare(_ context.Context, c loop.ToolCall) (loop.Prepa
 func (t *toolsetAdapter) Dispatch(ctx context.Context, p *loop.Prepared) (loop.ToolResult, error) {
 	out := t.disp.Dispatch(ctx, tools.Call{TurnID: p.Call.TurnID, CallID: p.Call.ID, Name: p.Call.Name, Args: json.RawMessage(p.Call.Arguments)})
 	res := loop.ToolResult{Content: out.Render(), Tainted: out.Tainted}
+	if out.Spilled != nil {
+		res.BlobSHA = out.Spilled.SHA
+	}
 	if out.Denied {
 		res.Err = &loop.ToolError{Code: loop.CodeDenied, Message: "denied"}
 	}
@@ -767,34 +769,23 @@ func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, 
 	return nil
 }
 
-type diskSpill struct{ dir string }
+type ctxSpill struct{ db *ctxdb.Store }
 
-func (d diskSpill) Put(_ context.Context, data []byte) (tools.BlobRef, error) {
-	sum := sha256.Sum256(data)
-	sha := hex.EncodeToString(sum[:])
-	if err := os.MkdirAll(d.dir, 0o700); err != nil {
-		return tools.BlobRef{}, fmt.Errorf("create spill dir: %w", err)
+func (c ctxSpill) Put(ctx context.Context, data []byte) (tools.BlobRef, error) {
+	pb, err := c.db.PutBlob(data, "text/plain")
+	if err != nil {
+		return tools.BlobRef{}, fmt.Errorf("spill: put blob: %w", err)
 	}
-	path := filepath.Join(d.dir, sha)
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return tools.BlobRef{}, fmt.Errorf("write spill blob: %w", err)
+	if werr := c.db.Write(ctx, func(tx *ctxdb.Tx) error { return tx.Publish(pb) }); werr != nil {
+		return tools.BlobRef{}, fmt.Errorf("spill: publish blob: %w", werr)
 	}
-	return tools.BlobRef{SHA: sha, Size: int64(len(data)), Path: path}, nil
+	return tools.BlobRef{SHA: pb.Sha, Size: pb.Size, Path: "blob:" + pb.Sha}, nil
 }
 
-func (d diskSpill) Get(_ context.Context, sha string) (data []byte, err error) {
-	root, err := os.OpenRoot(d.dir)
-	if err != nil {
-		return nil, fmt.Errorf("open spill dir: %w", err)
-	}
-	defer func() {
-		if cerr := root.Close(); cerr != nil && err == nil {
-			err = fmt.Errorf("close spill dir: %w", cerr)
-		}
-	}()
-	data, err = root.ReadFile(sha)
-	if err != nil {
-		return nil, fmt.Errorf("read spill blob: %w", err)
+func (c ctxSpill) Get(ctx context.Context, sha string) ([]byte, error) {
+	data, rerr := c.db.ReadBlob(ctx, sha)
+	if rerr != nil {
+		return nil, fmt.Errorf("spill: read blob %s: %w", sha, rerr)
 	}
 	return data, nil
 }

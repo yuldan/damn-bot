@@ -126,6 +126,11 @@ func (t *Tx) AppendEvent(sid string, e *Event) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	if e.Blob != "" {
+		if err := t.indexBlobFTS(e.Blob, id); err != nil {
+			return 0, err
+		}
+	}
 	return id, t.InsertRefs(sid, now, refs)
 }
 
