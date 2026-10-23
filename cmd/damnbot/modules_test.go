@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/modules/host"
 	"github.com/damnbot/damnbot/internal/provider/providertest"
@@ -132,7 +133,7 @@ func TestRunModulesWiring(t *testing.T) {
 		t.Fatal(err)
 	}
 	disp, err := tools.NewDispatcher(&tools.Config{
-		Registry: reg, Journal: nopJournal{}, Spill: diskSpill{dir: t.TempDir()}, Redactor: redact.New(redact.Options{}),
+		Registry: reg, Journal: nopJournal{}, Spill: ctxSpill{db: modulesTestDB(t)}, Redactor: redact.New(redact.Options{}),
 		Mode: tools.ModeHeadlessAuto, WorkspaceTrusted: true, Cwd: t.TempDir(), Deferred: m.deferred,
 	})
 	if err != nil {
@@ -150,4 +151,19 @@ func TestRunModulesWiring(t *testing.T) {
 	if err := m.runtime.Shutdown(ctx); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// modulesTestDB opens a run store for dispatcher tests.
+func modulesTestDB(t *testing.T) *ctxdb.Store {
+	t.Helper()
+	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: t.TempDir(), Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Errorf("close ctxdb: %v", cerr)
+		}
+	})
+	return db
 }

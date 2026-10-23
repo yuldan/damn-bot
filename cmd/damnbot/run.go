@@ -305,11 +305,7 @@ func (m *runModel) close(ctx context.Context) error {
 		m.engine.Close()
 	}
 	var err error
-	if m.modules.runtime != nil {
-		if serr := m.modules.runtime.Shutdown(ctx); serr != nil {
-			err = fmt.Errorf("stop modules: %w", serr)
-		}
-	}
+	err = stopModules(ctx, &m.modules, err)
 	if m.sessions != nil {
 		if cerr := m.sessions.Close(); cerr != nil {
 			err = errors.Join(err, fmt.Errorf("close sessions: %w", cerr))
