@@ -179,11 +179,7 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	red := redact.New(redact.Options{})
 	spill := diskSpill{dir: filepath.Join(dataDir, "run-spill")}
 	configDir, home := paths.ConfigDir, homeDir()
-	codec, err := runCodec(ctx, &cfg, dataDir, configDir)
-	if err != nil {
-		return 0, err
-	}
-	model, err := startRunModel(ctx, &cfg, dataDir, modelRef, o, red, spill, configDir, home, codec)
+	model, err := startRunModel(ctx, &cfg, dataDir, modelRef, o, red, spill, configDir, home)
 	if err != nil {
 		return 0, err
 	}
@@ -362,8 +358,8 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	return &providerAdapter{client: openai, model: modelRef, notes: notes}, nil
 }
 
-func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string, codec ctxdb.Codec) (*runModel, error) {
-	w, err := newRunWiring(ctx, cfg, dataDir, modelRef, o, red, spill, configDir, home, codec)
+func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runModel, error) {
+	w, err := newRunWiring(ctx, cfg, dataDir, modelRef, o, red, spill, configDir, home)
 	if err != nil {
 		return nil, err
 	}

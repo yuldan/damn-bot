@@ -167,8 +167,7 @@ func Default() Config {
 			Env:              map[string]string{},
 			PassSSHAgent:     false,
 		},
-		Agent:   Agent{VerifyOnStop: "run"},
-		Storage: Storage{Encrypt: false},
+		Agent: Agent{VerifyOnStop: "run"},
 		Skills: Skills{
 			ProjectDiscovery: true,
 			TrustedProjects:  []string{},

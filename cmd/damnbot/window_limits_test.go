@@ -25,7 +25,7 @@ func TestRunWindowFromLimits(t *testing.T) {
 		t.Helper()
 		m, err := startRunModel(context.Background(), &cfg, dir, "openai/fake",
 			&runOptions{prov: prov}, redact.New(redact.Options{}),
-			diskSpill{dir: filepath.Join(dir, "run-spill")}, t.TempDir(), t.TempDir(), nil)
+			diskSpill{dir: filepath.Join(dir, "run-spill")}, t.TempDir(), t.TempDir())
 		if err != nil {
 			t.Fatalf("startRunModel: %v", err)
 		}
