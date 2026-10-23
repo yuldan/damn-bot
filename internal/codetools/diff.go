@@ -125,6 +125,17 @@ func diffStat(ops []lineOp) (add, del int) {
 	return add, del
 }
 
+// UnifiedDiff renders the edit_file diff (CODE-TOOLS §9.4) from a to b, so
+// undo previews share one diff format; ok is false past the distance bound.
+func UnifiedDiff(a, b []byte) (string, bool) {
+	x, y := docLines(a), docLines(b)
+	ops, ok := lineDiff(x, y)
+	if !ok {
+		return "", false
+	}
+	return unified(ops, x, y), true
+}
+
 // unified renders hunks with diffContext lines of context, cut at diffMaxLines rows (CODE-TOOLS §9.4).
 func unified(ops []lineOp, a, b []string) string {
 	var out []string

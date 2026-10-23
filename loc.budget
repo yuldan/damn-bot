@@ -59,6 +59,9 @@ compaction         900 internal/compaction
 # ADR-175: memory+skills 1230 -> 1400 (sumber skill lokal: discovery proyek + skills.external_dirs di internal/skills; terukur 1324; Σ core +170).
 memory+skills     1400 internal/memory internal/skills
 # ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).
+# ADR-117 amendment (REVIEW-F2-SEC5-15): journal 560 -> 565 (preview undo lewat OpenResolved;
+# terukur 562; Σ core 38.150 -> 38.155 <= 47.000).
+journal            565 internal/journal
 # Amandemen (undo mode Windows, 2026-10-22): journal 560 -> 590 (chmodFile per-OS; Windows memakai
 # os.Root.Chmod "atribut-saja" agar undo file 0o440 tidak gagal Access is denied; terukur 573 di #181 dan
 # 583 di #174 sesudah undo CLI; Σ core +30).
@@ -86,3 +89,6 @@ TESTONLY internal/testutil
 # Format: GENERATED <glob>
 # Total Go non-test seluruh repo (P21, ADR-033).
 TOTAL           190000
+# Amandemen (retarget ke main 974eb761, 2026-10-22): codetools 5350 -> 5365 (preview undo lewat
+# sandbox.OpenResolved di #177 + retry replace Windows di #170; terukur 5353; Σ core +15).
+codetools         5365 internal/codetools
