@@ -108,9 +108,12 @@ func TestCarrierRefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Refs(cs)
+	want := store.Refs(cs)
 	if len(refs) != len(want) || refs[0].Ord != 0 || refs[2].SHA != want[2].SHA {
 		t.Fatalf("refs = %+v, want %+v", refs, want)
+	}
+	if refs[0].SHA != PayloadSHA(cs[0].Payload) {
+		t.Fatalf("plaintext store sha = %s, want %s", refs[0].SHA, PayloadSHA(cs[0].Payload))
 	}
 	payload, err := json.Marshal(refs)
 	if err != nil || !strings.Contains(string(payload), `"sha":"`) {

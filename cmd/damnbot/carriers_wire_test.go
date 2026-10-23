@@ -14,6 +14,7 @@ import (
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/providertest"
+	"github.com/damnbot/damnbot/internal/secret"
 )
 
 // carrierDB opens a run database with one assistant event per session.
@@ -21,6 +22,41 @@ func carrierDB(t *testing.T, sessions ...string) (*ctxdb.Store, map[string]int64
 	t.Helper()
 	ctx := t.Context()
 	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: t.TempDir(), Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Errorf("close ctxdb: %v", cerr)
+		}
+	})
+	events := make(map[string]int64, len(sessions))
+	for _, sid := range sessions {
+		if _, serr := db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: "/"}); serr != nil {
+			t.Fatal(serr)
+		}
+		ids, aerr := db.Append(ctx, sid, nil, ctxdb.Event{Kind: "assistant_message", Role: "assistant", Payload: "{}"})
+		if aerr != nil {
+			t.Fatal(aerr)
+		}
+		events[sid] = ids[0]
+	}
+	return db, events
+}
+
+func carrierDBEncrypted(t *testing.T, sessions ...string) (*ctxdb.Store, map[string]int64) {
+	t.Helper()
+	ctx := t.Context()
+	dir := t.TempDir()
+	st, err := secret.New(secret.Options{ConfigDir: filepath.Join(dir, "cfg"), BackendPresent: func() bool { return false }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec, err := secret.OpenCodec(ctx, dir, st, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dir, Kind: "run", Codec: codec})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,8 +162,8 @@ func TestCarrierRejectBySHA(t *testing.T) {
 	if err := store.SaveCarriers(ctx, "A", events["A"], []event.Carrier{c}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.RejectCarriers(ctx, "A", []event.Carrier{c}, "invalid_signature"); err != nil {
-		t.Fatal(err)
+	if rerr := store.RejectCarriers(ctx, "A", []event.Carrier{c}, "invalid_signature"); rerr != nil {
+		t.Fatal(rerr)
 	}
 	rejected, err := (carrierstore.Store{DB: db}).Rejected(ctx, "A")
 	if err != nil || len(rejected) != 1 {
@@ -203,6 +239,59 @@ func TestCarrierRunPersistsWithRealStore(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(eventPayload), []byte(`"carriers"`)) || !bytes.Contains([]byte(eventPayload), []byte(sha)) {
 		t.Fatalf("assistant payload = %s, want carriers ref %s", eventPayload, sha)
+	}
+}
+
+// TestCarrierRejectedNotReplayedEncrypted (SEC8-2): the provider names a
+// plaintext sha, but rejection and assistant refs use the keyed store hash,
+// so the rejected carrier is not replayed from an encrypted DB.
+func TestCarrierRejectedNotReplayedEncrypted(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	db, events := carrierDBEncrypted(t, "A")
+	store := &ctxCarrierStore{db: db}
+	c := wireCarrier(`{"signature":"REJECTED-ENC"}`)
+	c.SHA = carrierstore.PayloadSHA(c.Raw) // what the provider reports
+	if _, err := (carrierstore.Store{DB: db}).Save(ctx, "A", events["A"], []carrierstore.Carrier{{
+		Ord: 0, Family: c.Family, Model: c.Model, Kind: carrierstore.Kind(c.Kind), Anchor: c.Anchor,
+		Payload: c.Raw, Replayable: true, CreatedAt: 1,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	refs := store.CarrierRefs([]event.Carrier{c})
+	loaded, err := (carrierstore.Store{DB: db}).Load(ctx, "A", []int64{events["A"]})
+	if err != nil || len(loaded) != 1 || refs[0].SHA != loaded[0].SHA {
+		t.Fatalf("refs = %+v, loaded = %+v, %v", refs, loaded, err)
+	}
+	if rerr := store.RejectCarriers(ctx, "A", []event.Carrier{c}, "invalid_signature"); rerr != nil {
+		t.Fatal(rerr)
+	}
+	rejected, err := (carrierstore.Store{DB: db}).Rejected(ctx, "A")
+	if err != nil || len(rejected) != 1 {
+		t.Fatalf("rejected = %v, %v", rejected, err)
+	}
+	history, err := (&ctxStore{db: db}).History(ctx, "A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 1 || len(history[0].Carriers) != 0 {
+		t.Fatalf("history after rejection = %+v", history)
+	}
+	srv := providertest.New(t, nil, providertest.Text("ok"))
+	net := netx.New(netx.Config{})
+	t.Cleanup(net.CloseIdleConnections)
+	const ref = "anthropic/claude"
+	client, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
+		Routes: []provider.Route{{Provider: "anthropic", Model: "claude", Family: "anthropic", BaseURL: srv.URL, APIKey: "sk-test"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, serr := (&providerAdapter{client: client, model: ref}).Stream(ctx, &loop.Request{Model: ref, Messages: history}, func(loop.Delta) {}); serr != nil {
+		t.Fatal(serr)
+	}
+	if body := srv.Requests()[0]; bytes.Contains(body, []byte("REJECTED-ENC")) {
+		t.Fatalf("rejected carrier replayed: %s", body)
 	}
 }
 

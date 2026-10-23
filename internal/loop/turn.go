@@ -344,7 +344,7 @@ func (t *turn) classify(ctx context.Context, r *Reply, calls []ToolCall) (outcom
 	case r.FinishReason == FinishLength && len(calls) == 0:
 		if id, err := t.append(ctx, &event.Event{
 			Kind: event.AssistantMessage, Role: "assistant", Content: r.Content,
-			Payload: payload(assistantPayload{Partial: true, FinishReason: r.FinishReason, Carriers: carrierRefs(r.Carriers)}),
+			Payload: payload(assistantPayload{Partial: true, FinishReason: r.FinishReason, Carriers: t.carrierRefs(r.Carriers)}),
 		}); err != nil {
 			return t.fail(ctx, event.DetailInternal, err), true
 		} else if err := t.saveCarriers(ctx, id, r.Carriers); err != nil {
@@ -362,7 +362,7 @@ func (t *turn) classify(ctx context.Context, r *Reply, calls []ToolCall) (outcom
 func (t *turn) contentFiltered(ctx context.Context, r *Reply, calls []ToolCall) (outcome, bool) {
 	ev := &event.Event{
 		Kind: event.AssistantMessage, Role: "assistant", Content: t.redact(r.Content),
-		Payload: payload(assistantPayload{Filtered: true, FinishReason: r.FinishReason, ToolCalls: callPayloadsRedacted(calls, t.redact), Carriers: carrierRefs(r.Carriers)}),
+		Payload: payload(assistantPayload{Filtered: true, FinishReason: r.FinishReason, ToolCalls: callPayloadsRedacted(calls, t.redact), Carriers: t.carrierRefs(r.Carriers)}),
 	}
 	id, err := t.append(ctx, ev)
 	if err != nil {
@@ -379,7 +379,7 @@ func (t *turn) contentFiltered(ctx context.Context, r *Reply, calls []ToolCall) 
 func (t *turn) finalAnswer(ctx context.Context, r *Reply) (outcome, bool) {
 	ev := &event.Event{
 		Kind: event.AssistantMessage, Role: "assistant", Content: t.redact(r.Content),
-		Payload: payload(assistantPayload{FinishReason: r.FinishReason, Carriers: carrierRefs(r.Carriers)}),
+		Payload: payload(assistantPayload{FinishReason: r.FinishReason, Carriers: t.carrierRefs(r.Carriers)}),
 	}
 	id, err := t.append(ctx, ev)
 	if err != nil {
@@ -413,7 +413,7 @@ func (t *turn) validateAnswer(content string) error {
 func (t *turn) toolTurn(ctx context.Context, r *Reply, calls []ToolCall) (outcome, bool) {
 	ev := &event.Event{
 		Kind: event.AssistantMessage, Role: "assistant", Content: t.redact(r.Content),
-		Payload: payload(assistantPayload{FinishReason: r.FinishReason, ToolCalls: callPayloadsRedacted(calls, t.redact), Carriers: carrierRefs(r.Carriers)}),
+		Payload: payload(assistantPayload{FinishReason: r.FinishReason, ToolCalls: callPayloadsRedacted(calls, t.redact), Carriers: t.carrierRefs(r.Carriers)}),
 	}
 	id, err := t.append(ctx, ev)
 	if err != nil {
@@ -664,7 +664,14 @@ func opaqueCarrierField(blockType, field string) bool {
 	return false
 }
 
-func carrierRefs(cs []event.Carrier) []event.CarrierRef {
+func (t *turn) carrierRefs(cs []event.Carrier) []event.CarrierRef {
+	if len(cs) > 0 && t.deps.Carriers != nil {
+		return t.deps.Carriers.CarrierRefs(cs)
+	}
+	return plainCarrierRefs(cs)
+}
+
+func plainCarrierRefs(cs []event.Carrier) []event.CarrierRef {
 	if len(cs) == 0 {
 		return nil
 	}

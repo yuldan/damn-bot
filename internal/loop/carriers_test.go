@@ -32,6 +32,10 @@ func (f *fakeCarrierStore) SaveCarriers(_ context.Context, _ string, eventID int
 	return nil
 }
 
+func (f *fakeCarrierStore) CarrierRefs(cs []event.Carrier) []event.CarrierRef {
+	return plainCarrierRefs(cs)
+}
+
 func (f *fakeCarrierStore) RejectCarriers(_ context.Context, _ string, cs []event.Carrier, code string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

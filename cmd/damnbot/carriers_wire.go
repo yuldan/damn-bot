@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -49,6 +47,19 @@ func eventDrops(ds []provider.CarrierDrop) []event.CarrierDrop {
 
 type ctxCarrierStore struct{ db *ctxdb.Store }
 
+func (s *ctxCarrierStore) CarrierRefs(cs []event.Carrier) []event.CarrierRef {
+	rows := make([]carrierstore.Carrier, len(cs))
+	for i, c := range cs {
+		rows[i] = carrierstore.Carrier{Ord: i, Family: c.Family, Model: c.Model, Kind: carrierstore.Kind(c.Kind), Anchor: c.Anchor, Payload: c.Raw, Replayable: c.Replayable}
+	}
+	refs := (carrierstore.Store{DB: s.db}).Refs(rows)
+	out := make([]event.CarrierRef, len(refs))
+	for i, r := range refs {
+		out[i] = event.CarrierRef{Ord: r.Ord, SHA: r.SHA}
+	}
+	return out
+}
+
 func (s *ctxCarrierStore) SaveCarriers(ctx context.Context, sid string, eventID int64, cs []event.Carrier) error {
 	rows := make([]carrierstore.Carrier, len(cs))
 	for i, c := range cs {
@@ -61,16 +72,11 @@ func (s *ctxCarrierStore) SaveCarriers(ctx context.Context, sid string, eventID 
 }
 
 func (s *ctxCarrierStore) RejectCarriers(ctx context.Context, sid string, cs []event.Carrier, code string) error {
+	store := carrierstore.Store{DB: s.db}
 	shas := make([]string, len(cs))
 	for i := range cs {
-		sha := cs[i].SHA
-		if sha == "" {
-			sum := sha256.Sum256(cs[i].Raw)
-			sha = hex.EncodeToString(sum[:])
-		}
-		shas[i] = sha
+		shas[i] = store.PayloadSHA(cs[i].Raw)
 	}
-	store := carrierstore.Store{DB: s.db}
 	ids, err := store.BySHA(ctx, sid, shas)
 	if err != nil {
 		return fmt.Errorf("find rejected carriers: %w", err)

@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `ctxdb/carrierstore`: carrier reasoning terenkripsi at-rest + penolakan kunci lewat store (ADR-124/ADR-131).
+
 - `ctxdb`: normalisasi dan quote term FTS skill pada blind index (SEC7-62).
 
 - `ctxdb`: konversi restore plaintext → terenkripsi untuk seluruh tabel FTS (SEC7-71/73).
