@@ -217,13 +217,33 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	// Persistent sessions share the runner but never receive secret refs
 	// (ADR-088): direct is empty and Env only inherits the allowlist.
 	sessions := runner.NewSessions(filepath.Join(dataDir, "exec", "sess"), envPolicy.Env(os.Environ(), true, "", "", ""))
-	// A failed start closes what it opened with the same teardown as a
-	// finished run: modules, engine, sessions, runner, lease, DB (SEC5-5/11).
-	started := &runModel{db: db, sessionID: sid, engine: engine, runner: runner, sessions: sessions}
-	fail := func(cause error) error { return errors.Join(cause, started.close(ctx)) }
-	allow, monetary, err := shellGate(cfg, configDir)
+	// mods is filled once the module registry is wired; the fail path must
+	// close its runtime too, exactly like a finished run.
+	var mods runModules
+	fail := func(cause error) error {
+		if mods.runtime != nil {
+			if serr := mods.runtime.Shutdown(ctx); serr != nil {
+				cause = errors.Join(cause, fmt.Errorf("stop modules: %w", serr))
+			}
+		}
+		engine.Close()
+		if cerr := sessions.Close(); cerr != nil {
+			cause = errors.Join(cause, fmt.Errorf("close sessions: %w", cerr))
+		}
+		if cerr := runner.CloseContext(ctx); cerr != nil {
+			cause = errors.Join(cause, fmt.Errorf("close runner: %w", cerr))
+		}
+		return closeDB(ctx, db, sid, cause)
+	}
+	allow, monetary, err := shellGate(cfg, configDir, cwd)
 	if err != nil {
-		return nil, fail(err)
+		return nil, err
+	}
+	// Skills discovered in a new location (project discovery,
+	// skills.external_dirs) go through quarantine and stay invisible until the
+	// user approves them (ADR-175).
+	if _, qerr := quarantineImportedSkills(ctx, db, red, cfg, configDir, cwd); qerr != nil {
+		return nil, qerr
 	}
 	shellTool, err := tools.NewShell(&tools.ShellConfig{
 		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
@@ -245,11 +265,11 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	}
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
-	started.modules, err = newRunModules(modules.Default(), nil)
+	mods, err = newRunModules(modules.Default(), nil)
 	if err != nil {
 		return nil, fail(err)
 	}
-	reg, err := tools.NewRegistry(append(list, started.modules.meta...)...)
+	reg, err := tools.NewRegistry(append(list, mods.meta...)...)
 	if err != nil {
 		return nil, fail(fmt.Errorf("registry: %w", err))
 	}
@@ -259,7 +279,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		runner:    runner,
 		sessions:  sessions,
 		registry:  reg,
-		modules:   started.modules,
+		modules:   mods,
 		sid:       sid,
 		cwd:       cwd,
 		fail:      fail,

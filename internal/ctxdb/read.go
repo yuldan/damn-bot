@@ -90,6 +90,31 @@ const lineageCTE = `WITH RECURSIVE lin(id, lim, depth, path) AS (
 	 WHERE instr(lin.path, ',' || p.id || ',') = 0 AND NOT EXISTS (SELECT 1 FROM session_labels vl WHERE vl.session_id = p.id AND vl.key = 'purge_state')
 )`
 
+// SessionInfo is the read-only metadata of one visible session.
+type SessionInfo struct {
+	ID, ParentID           string
+	ForkSeq                int64
+	Origin, Cwd, Model     string
+	ConfigSHA, ContextTier string
+	CreatedAt              int64
+}
+
+// SessionInfo returns one visible session's metadata; missing or purged is
+// ErrNotFound. It never creates a data dir or layout.
+func (s *Store) SessionInfo(ctx context.Context, sessionID string) (SessionInfo, error) {
+	if err := s.Visible(ctx, sessionID); err != nil {
+		return SessionInfo{}, err
+	}
+	var in SessionInfo
+	err := s.get(ctx, `SELECT id, coalesce(parent_id, ''), coalesce(fork_seq, 0), origin, cwd, model,
+		config_sha, context_tier, created_at FROM sessions WHERE id = ?1`, []any{sessionID},
+		&in.ID, &in.ParentID, &in.ForkSeq, &in.Origin, &in.Cwd, &in.Model, &in.ConfigSHA, &in.ContextTier, &in.CreatedAt)
+	if err != nil {
+		return SessionInfo{}, err
+	}
+	return in, nil
+}
+
 // History returns the fork-aware transcript of sessionID (SPEC §4.6):
 // ancestors up to their child's fork_seq, then the target's own events.
 // fromSeq > 0 is the target-only tail. Summaries replace covered events with
