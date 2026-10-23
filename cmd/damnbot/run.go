@@ -338,10 +338,13 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 		return nil, fmt.Errorf("provider endpoint: %w", err)
 	}
 	guard, notes, err := newBudgetGuard(cfg, db)
+	if err != nil {
+		return nil, err
+	}
 	provName, modelName, _ := strings.Cut(modelRef, "/")
 	prices, err := provider.RoutePrices(table, base, modelName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("pricing: %w", err)
 	}
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
