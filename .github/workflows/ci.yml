@@ -368,6 +368,8 @@ jobs:
   # (`make test RACE=-race PKGS=…`, E-55) di luar paket ber-fixture berat (ctxdb, exec, codetools, e2e)
   # yang sudah diverifikasi PR yang di-squash dan tetap dijalankan nightly. `lint` dan `static`
   # (loc, loc-ratio, size-check, deadcode) berjalan di semua tier; `meta-test` datang dari meta.yml.
+  # ADR-181 amandemen (2026-10-23): langkah suite E-55 menimpa `CGO_ENABLED=1` (`-race` butuh cgo);
+  # env workflow tetap `CGO_ENABLED=0` dan `make build` tetap memaku 0 di resepnya (E-39).
   smoke:
     needs: changes
     if: needs.changes.outputs.tier == 'smoke'
@@ -386,6 +388,8 @@ jobs:
       - name: go vet lintas OS/arch (ADR-073)
         run: make vet-cross
       - name: Suite paket inti cepat (E-55)
+        env:
+          CGO_ENABLED: "1" # ADR-181 amandemen: -race butuh cgo (pola sama dengan job `test` tier PR)
         run: make test RACE="-race" PKGS="./cmd/... ./internal/archtest/... ./internal/assemble/... ./internal/boundary/... ./internal/budget/... ./internal/compaction/... ./internal/config/... ./internal/journal/... ./internal/loop/... ./internal/memory/... ./internal/modules/... ./internal/netx/... ./internal/provider/... ./internal/redact/... ./internal/sandbox/... ./internal/schema/... ./internal/skills/... ./internal/testutil/... ./internal/tools/..."
 
   # ADR-135 butir 2: satu-satunya status `ci` yang wajib di branch protection. Selalu berjalan (termasuk
