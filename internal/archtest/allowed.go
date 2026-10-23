@@ -85,6 +85,7 @@ func allowedImports() map[string][]string {
 		"internal/schema":     nil,
 		"internal/sandbox":    nil,
 		"internal/redact":     nil,
+		"internal/secret":     nil,
 		"internal/i18n":       nil,
 		"internal/boundary":   nil,
 

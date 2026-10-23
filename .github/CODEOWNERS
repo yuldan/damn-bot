@@ -30,6 +30,7 @@
 /internal/schema/ @yuldan
 /internal/redact/ @yuldan
 /internal/sandbox/ @yuldan
+/internal/secret/ @yuldan
 /internal/skills/ @yuldan
 /internal/testutil/ @yuldan
 /internal/tools/ @yuldan
