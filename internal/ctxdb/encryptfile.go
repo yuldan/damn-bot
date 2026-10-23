@@ -35,7 +35,7 @@ func encryptStaged(ctx context.Context, dbPath, blobsRoot string, codec Codec) e
 	if err != nil {
 		return err
 	}
-	if err := encryptDB(ctx, dbPath, codec, trigs, blobsRoot); err != nil {
+	if err := encryptDB(ctx, dbPath, codec, trigs); err != nil {
 		return err
 	}
 	if blobsRoot == "" {
@@ -123,7 +123,7 @@ func trustedTriggers(ctx context.Context) (out []trigger, err error) {
 	return out, wrap(rows.Err())
 }
 
-func encryptDB(ctx context.Context, dbPath string, codec Codec, trigs []trigger, blobsRoot string) (err error) {
+func encryptDB(ctx context.Context, dbPath string, codec Codec, trigs []trigger) (err error) {
 	db, err := sql.Open("sqlite", filepath.Clean(dbPath))
 	if err != nil {
 		return wrap(err)
@@ -135,7 +135,7 @@ func encryptDB(ctx context.Context, dbPath string, codec Codec, trigs []trigger,
 	if _, serr := db.ExecContext(ctx, "PRAGMA secure_delete=ON"); serr != nil {
 		return wrap(serr)
 	}
-	if ferr := rebuildFTS(ctx, db, codec, blobsRoot); ferr != nil {
+	if ferr := rebuildFTS(ctx, db, codec); ferr != nil {
 		return ferr
 	}
 	tx, terr := db.BeginTx(ctx, nil)
@@ -343,8 +343,6 @@ func clearFTS(ctx context.Context, db *sql.DB) error {
 		"INSERT INTO events_fts(events_fts) VALUES('delete-all')",
 		"INSERT INTO summaries_fts(summaries_fts) VALUES('delete-all')",
 		"INSERT INTO memory_fts(memory_fts) VALUES('delete-all')",
-		"INSERT INTO skills_fts(skills_fts) VALUES('delete-all')",
-		"INSERT INTO blob_fts(blob_fts) VALUES('delete-all')",
 	} {
 		if _, err := db.ExecContext(ctx, q); err != nil {
 			return wrap(err)
@@ -353,10 +351,7 @@ func clearFTS(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// rebuildFTS rebuilds every FTS index of the converting database (SEC7-71):
-// clearing only events/summaries/memory left the plaintext tokens of
-// skills_fts and blob_fts in the file produced by encryptStaged.
-func rebuildFTS(ctx context.Context, db *sql.DB, codec Codec, blobsRoot string) error {
+func rebuildFTS(ctx context.Context, db *sql.DB, codec Codec) error {
 	if err := clearFTS(ctx, db); err != nil {
 		return err
 	}
@@ -368,92 +363,6 @@ func rebuildFTS(ctx context.Context, db *sql.DB, codec Codec, blobsRoot string) 
 	for _, it := range items {
 		if err := rebuildOne(ctx, db, it.q, it.fts, codec); err != nil {
 			return err
-		}
-	}
-	if err := rebuildSkills(ctx, db, codec); err != nil {
-		return err
-	}
-	return rebuildBlobs(ctx, db, codec, blobsRoot)
-}
-
-// rebuildSkills re-indexes the three skills_fts columns. The skills rows are
-// plaintext by design, so only the index tokens are keyed.
-func rebuildSkills(ctx context.Context, db *sql.DB, codec Codec) (err error) {
-	rows, err := db.QueryContext(ctx, `SELECT id, name, description, body FROM skills`)
-	if err != nil {
-		return wrap(err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	type row struct {
-		id            int64
-		name, desc, b string
-	}
-	var rs []row
-	for rows.Next() {
-		var r row
-		if serr := rows.Scan(&r.id, &r.name, &r.desc, &r.b); serr != nil {
-			return wrap(serr)
-		}
-		rs = append(rs, r)
-	}
-	if rerr := rows.Err(); rerr != nil {
-		return wrap(rerr)
-	}
-	if cerr := rows.Close(); cerr != nil {
-		return wrap(cerr)
-	}
-	for _, r := range rs {
-		if _, xerr := db.ExecContext(ctx, `INSERT INTO skills_fts(rowid, name, description, body) VALUES (?,?,?,?)`,
-			r.id, encFTS(codec, r.name), encFTS(codec, r.desc), encFTS(codec, r.b)); xerr != nil {
-			return wrap(xerr)
-		}
-	}
-	return nil
-}
-
-// rebuildBlobs re-indexes blob_fts from the blob files. encryptStaged runs
-// this before encryptBlobs, so the files are still plaintext here. A missing
-// file is skipped: the blob row cannot be indexed and the archive's own
-// verification is the gate for that.
-func rebuildBlobs(ctx context.Context, db *sql.DB, codec Codec, blobsRoot string) (err error) {
-	if blobsRoot == "" {
-		return nil
-	}
-	rows, err := db.QueryContext(ctx, `SELECT e.id, b.sha256 FROM events e JOIN blobs b ON b.sha256 = e.blob_sha
-		WHERE b.size <= ? AND (b.mime LIKE 'text/%' OR b.mime = 'application/json')`, ftsBlobMaxBytes)
-	if err != nil {
-		return wrap(err)
-	}
-	defer func() { err = errors.Join(err, rows.Close()) }()
-	type row struct {
-		id  int64
-		sha string
-	}
-	var rs []row
-	for rows.Next() {
-		var r row
-		if serr := rows.Scan(&r.id, &r.sha); serr != nil {
-			return wrap(serr)
-		}
-		rs = append(rs, r)
-	}
-	if rerr := rows.Err(); rerr != nil {
-		return wrap(rerr)
-	}
-	if cerr := rows.Close(); cerr != nil {
-		return wrap(cerr)
-	}
-	for _, r := range rs {
-		raw, rerr := os.ReadFile(filepath.Join(blobsRoot, blobName(r.sha))) //nolint:gosec // path from the verified set
-		if errors.Is(rerr, fs.ErrNotExist) {
-			continue
-		}
-		if rerr != nil {
-			return wrap(rerr)
-		}
-		if _, xerr := db.ExecContext(ctx, `INSERT INTO blob_fts(rowid, content) VALUES (?,?)`,
-			r.id, encFTS(codec, string(raw))); xerr != nil {
-			return wrap(xerr)
 		}
 	}
 	return nil
@@ -505,26 +414,12 @@ func encFTS(codec Codec, s string) string {
 	})
 	out := make([]string, 0, len(fields))
 	for _, f := range fields {
-		if utf8.RuneCountInString(f) == 1 && hasCJK(f) {
-			continue
-		}
 		out = append(out, codec.FTS(f))
-	}
-	return strings.Join(out, " ")
-}
-
-// encFTSQuery omits single-rune CJK terms: encrypted indexes store bigrams
-// only, so such a query has no index token (documented limitation).
-func encFTSQuery(codec Codec, s string) string {
-	fields := strings.FieldsFunc(ftsNorm(s), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
-	out := make([]string, 0, len(fields))
-	for _, f := range fields {
-		if utf8.RuneCountInString(f) == 1 && hasCJK(f) {
-			continue
+		if hasCJK(f) {
+			for _, r := range f {
+				out = append(out, codec.FTS(string(r)))
+			}
 		}
-		out = append(out, codec.FTS(f))
 	}
 	return strings.Join(out, " ")
 }
@@ -584,4 +479,20 @@ func newEncIDDB() (string, error) {
 	b := make([]byte, 8)
 	_, err := rand.Read(b)
 	return hex.EncodeToString(b), wrap(err)
+}
+
+// encFTSQuery omits single-rune CJK terms: encrypted indexes store bigrams
+// only, so such a query has no index token (documented limitation).
+func encFTSQuery(codec Codec, s string) string {
+	fields := strings.FieldsFunc(ftsNorm(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if utf8.RuneCountInString(f) == 1 && hasCJK(f) {
+			continue
+		}
+		out = append(out, codec.FTS(f))
+	}
+	return strings.Join(out, " ")
 }
