@@ -46,6 +46,8 @@ func writeSkill(t *testing.T, configDir, name, front, body string, files map[str
 // SKILL.md are all gated; a broken skill fails closed (SEC10-3/8/9/10).
 func TestPaymentSkillDirs(t *testing.T) {
 	t.Parallel()
+	dc := config.Default()
+	dc.Skills.ProjectDiscovery = false // this test scans only <config>/skills
 	cfg := t.TempDir()
 	pay := writeSkill(t, cfg, "stripe-pay", "side_effects: [payment]\n", "Charge with the script.", nil)
 	undeclared := writeSkill(t, cfg, "stripe-doc", "", "Use stripe payment_intents.", nil)
@@ -65,7 +67,7 @@ func TestPaymentSkillDirs(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(loose, "scripts"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	dirs, err := paymentSkillDirs(cfg)
+	dirs, err := paymentSkillDirs(&dc, cfg, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +89,7 @@ func TestPaymentSkillDirs(t *testing.T) {
 	if err := os.Symlink(filepath.Join(out, "outside.md"), filepath.Join(dir, "SKILL.md")); err != nil {
 		t.Skipf("symlink: %v", err)
 	}
-	if _, err := paymentSkillDirs(cfg2); err == nil {
+	if _, err := paymentSkillDirs(&dc, cfg2, cfg2); err == nil {
 		t.Fatal("escaping SKILL.md symlink must fail closed")
 	}
 
@@ -95,7 +97,7 @@ func TestPaymentSkillDirs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bad, "SKILL.md"), []byte("no front matter"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := paymentSkillDirs(cfg); err == nil {
+	if _, err := paymentSkillDirs(&dc, cfg, cfg); err == nil {
 		t.Fatal("a broken skill must fail closed")
 	}
 }
