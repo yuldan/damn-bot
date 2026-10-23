@@ -117,7 +117,7 @@ func budgetCoreSum(t *testing.T, budget string) int {
 
 // infraDirs = direktori infra non-produksi loc.budget (ADR-086 NEW-34), di luar Σ core.
 func infraDirs() []string {
-	return []string{"internal/testutil", "internal/archtest", "internal/integration", "tools/analyzers"}
+	return []string{"internal/testutil", "internal/archtest", "internal/integration", "internal/e2e", "tools/analyzers"}
 }
 
 // isCoreDir: dir bukan infra (sama dengan atau di bawah salah satu infraDirs). Direktori lain

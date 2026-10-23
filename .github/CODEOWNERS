@@ -35,4 +35,5 @@
 /internal/skills/ @yuldan
 /internal/testutil/ @yuldan
 /internal/integration/ @yuldan
+/internal/e2e/ @yuldan
 /internal/tools/ @yuldan
