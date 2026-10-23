@@ -36,7 +36,10 @@ func syncRootDir(root *os.Root) error {
 	serr := d.Sync()
 	cerr := d.Close()
 	if runtime.GOOS == "windows" {
-		return cerr //nolint:wrapcheck // directory close on Windows
+		if cerr != nil {
+			return fmt.Errorf("secret: close config dir: %w", cerr)
+		}
+		return nil
 	}
 	return errors.Join(serr, cerr)
 }

@@ -2,20 +2,31 @@ package ctxdb
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
-// Restore installs a backup DB under the maintenance barrier (SPEC §11.6
-// Backup/restore steps 0–6, §11.11.7). Other processes drain before the
-// swap and reopen afterwards (os.SameFile, I8).
-func Restore(ctx context.Context, o *Options, backup string) (err error) {
+// RestoreSet is the verified staging set of one restore. DB is required;
+// Blobs, when non-empty, is a directory containing blobs/xx/<sha> files.
+type RestoreSet struct {
+	DB    string
+	Blobs string
+}
+
+// Restore installs a backup DB and its blobs under the maintenance barrier
+// (SPEC §11.6 Backup/restore steps 0–6, §11.11.7). Other processes drain
+// before the swap and reopen afterwards (os.SameFile, I8).
+func Restore(ctx context.Context, o *Options, set RestoreSet) (err error) {
 	s, err := newStore(o)
 	if err != nil {
 		return err
@@ -27,7 +38,10 @@ func Restore(ctx context.Context, o *Options, backup string) (err error) {
 	}
 	defer func() { err = errors.Join(err, b.Release()) }() // (6) removes the marker
 	s.barrierOwner.Store(true)
-	if ierr := s.installDB(backup); ierr != nil {
+	if ierr := s.installBlobs(set.Blobs); ierr != nil {
+		return ierr
+	}
+	if ierr := s.installDB(ctx, set.DB); ierr != nil {
 		return ierr
 	}
 	if s.w, s.r, err = s.openHandles(ctx); err == nil {
@@ -62,8 +76,94 @@ func (t *Tx) recoverTrashAll() error { return t.recoverTrash("", "") }
 
 func (s *Store) closeRoot() error { return wrap(s.root.Close()) }
 
+// installBlobs publishes blobs/<2hex>/<64hex> files from root. Names must match
+// their content hash; anything else is rejected before the DB is swapped.
+func (s *Store) installBlobs(root string) (err error) {
+	if root == "" {
+		return nil
+	}
+	blobs := filepath.Join(root, "blobs")
+	broot, err := os.OpenRoot(blobs)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return wrap(err)
+	}
+	defer func() { err = errors.Join(err, broot.Close()) }()
+	err = filepath.WalkDir(blobs, func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil {
+			if errors.Is(werr, fs.ErrNotExist) {
+				return nil
+			}
+			return wrap(werr)
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, rerr := filepath.Rel(blobs, p)
+		if rerr != nil {
+			return wrap(rerr)
+		}
+		rel = filepath.ToSlash(rel)
+		if !validBlobRel(rel) {
+			return fmt.Errorf("ctxdb: restore blob path %q: %w", rel, ErrInternal)
+		}
+		return s.installBlobFile(broot, rel)
+	})
+	return wrap(err)
+}
+
+func validBlobRel(rel string) bool {
+	parts := strings.Split(rel, "/")
+	if len(parts) != 2 || len(parts[0]) != 2 || len(parts[1]) != 64 {
+		return false
+	}
+	if parts[0] != parts[1][:2] {
+		return false
+	}
+	for _, p := range parts {
+		if _, err := hex.DecodeString(p); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Store) installBlobFile(broot *os.Root, rel string) error {
+	in, err := broot.Open(rel)
+	if err != nil {
+		return wrap(err)
+	}
+	sha := path.Base(rel)
+	h := sha256.New()
+	tmp := path.Join("blobs", ".install-"+sha)
+	out, err := s.root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err == nil {
+		_, err = io.Copy(io.MultiWriter(out, h), in)
+	}
+	if err == nil {
+		err = out.Sync()
+	}
+	err = errors.Join(err, out.Close(), in.Close())
+	if err != nil {
+		return wrap(err)
+	}
+	if hex.EncodeToString(h.Sum(nil)) != sha {
+		return fmt.Errorf("ctxdb: restore blob %s hash: %w", sha, errors.Join(ErrInternal, removeIfExists(s.root, tmp)))
+	}
+	final := path.Join("blobs", rel)
+	if err := s.root.MkdirAll(path.Dir(final), 0o700); err != nil {
+		return wrap(err)
+	}
+	if err := s.root.Rename(tmp, final); err != nil {
+		return wrap(err)
+	}
+	return wrap(syncRootDir(s.root, path.Dir(final)))
+}
+
 // installDB replaces the DB file (and its WAL/SHM) by a copy of backup.
-func (s *Store) installDB(backup string) error {
+func (s *Store) installDB(ctx context.Context, backup string) error {
 	in, err := os.Open(filepath.Clean(backup)) // backup = caller-provided path (user CLI argument)
 	if err != nil {
 		return wrap(err)
@@ -80,13 +180,34 @@ func (s *Store) installDB(backup string) error {
 		err = errors.Join(err, out.Close())
 	}
 	err = errors.Join(err, in.Close())
-	for _, suf := range []string{"-wal", "-shm"} {
-		err = errors.Join(err, removeIfExists(s.root, dbFile+suf))
+	if err == nil {
+		err = s.checkpointOld(ctx)
+	}
+	if err == nil {
+		for _, suf := range []string{"-wal", "-shm"} {
+			err = errors.Join(err, removeIfExists(s.root, dbFile+suf))
+		}
 	}
 	if err == nil {
 		err = s.root.Rename(tmp, dbFile)
 	}
 	return wrap(err)
+}
+
+// checkpointOld folds committed WAL frames into the old DB before its WAL is
+// removed, so a crash between removing the WAL and renaming the new DB never
+// drops committed frames. A checkpoint failure aborts before the WAL is
+// touched; the operator can then recover the backup explicitly.
+func (s *Store) checkpointOld(ctx context.Context) error {
+	if _, err := s.root.Stat(dbFile); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	db, err := sql.Open("sqlite", filepath.Join(s.dir, dbFile))
+	if err != nil {
+		return wrap(err)
+	}
+	_, cerr := db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
+	return wrap(errors.Join(cerr, db.Close()))
 }
 
 // restoreMissing: every live blobs row without its file → expired{restore_missing}.

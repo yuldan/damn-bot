@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `backup`: restore dua fase (staging terverifikasi → `ctxdb.RestoreSet`) + pengerasan layout/DB swap.
+
 - `backup`: manifest terautentikasi + `Create`/`Verify` arsip, publikasi 0600 + fsync + rename.
 
 - `backup`: writer/reader streaming `DMBK1` — chunk 64 KiB, AAD per chunk, deteksi truncation/reorder/trailing.
