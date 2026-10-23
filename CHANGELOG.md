@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `backup`: kunci X25519 + header kontainer `DMBK1` terautentikasi (ADR-124 butir 3).
+
 - `secret`: rotasi KEK tiga fase (Stage→Commit→Retire) + batas waktu panggilan keyring 10 s (ADR-124).
 
 - `secret`: key store F2 (ADR-124) — OS keychain (`zalando/go-keyring`) dengan fallback file hanya saat backend benar-benar tidak ada; marker `at-rest.meta` 0600 mengikat source+key-id sehingga file yang ditanam tidak pernah mengalahkan keychain dan keychain yang mati gagal-tertutup (`key_unavailable`). Direktori 0700/owner dicek setiap penggunaan, file dibuka `O_NOFOLLOW`+`fstat` (regular, 0600, owner), keyring dibatasi timeout 10 s/ctx, id = HMAC-SHA256 domain-separated, rotasi tiga fase Stage→Commit→Retire, dan `KEK` meredaksi/`Zero`. Belum di-wire ke CLI; backup key store X25519 dan arsip `DMBK1` menyusul di PR 2.

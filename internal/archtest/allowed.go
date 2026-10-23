@@ -53,6 +53,7 @@ func allowedImports() map[string][]string {
 		"internal/provider":           append([]string{"internal/provider/registry", "internal/schema", "internal/budget"}, groupNetx()...),
 		"internal/provider/registry":  nil,
 		"internal/assemble":           {"internal/loop/event"},
+		"internal/backup":             {"internal/secret"},
 		"internal/compaction":         {"internal/loop/event", "internal/budget"},
 		"internal/memory":             {"internal/redact"},
 		"internal/skills":             {"internal/schema"},
