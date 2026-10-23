@@ -3,11 +3,11 @@ package ctxdb
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // notPurging(col) is the purging(s) filter of §11.6, O(log n) per session
@@ -42,6 +42,16 @@ type RecallHit struct {
 // ftsQuery turns free text into a conservative FTS5 expression: runs of
 // letters/digits become terms and everything else is a separator. CJK runs
 // stay contiguous so dmb_fts_norm can expand them to bigrams.
+// recallExpr adds the one-rune CJK prefix operator (GAP-INF-01); longer
+// terms go through the same bigram normalizer as the index.
+func recallExpr(text string) string {
+	q := ftsQuery(text)
+	if utf8.RuneCountInString(q) == 1 && hasCJK(q) {
+		return `"` + q + `"*`
+	}
+	return q
+}
+
 func ftsQuery(text string) string {
 	var b strings.Builder
 	for _, r := range text {
@@ -75,16 +85,10 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 	if k <= 0 {
 		k = 10
 	}
-	q := ftsQuery(text)
-	if q == "" {
+	q := recallExpr(text)
+	if q == "" || (s.codec != nil && encFTSQuery(s.codec, q) == "") {
 		return nil, nil
 	}
-	probe, err := s.ints(ctx, `SELECT rowid FROM events_fts
-		WHERE events_fts MATCH dmb_fts_norm(?, 'events.content', '') LIMIT ?`, q, broadAt+1)
-	if err != nil {
-		return nil, fmt.Errorf("ctxdb: recall probe: %w", err)
-	}
-	broad := len(probe) > broadAt
 	purged, err := s.Count(ctx, `SELECT count(*) FROM session_labels WHERE key = 'purge_state'`)
 	if err != nil {
 		return nil, fmt.Errorf("ctxdb: recall purge check: %w", err)
@@ -99,8 +103,13 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 		where += ` AND f.rowid IN (SELECT e2.id FROM events e2 WHERE e2.session_id NOT IN
 			(SELECT vl.session_id FROM session_labels vl WHERE vl.key = 'purge_state'))`
 	}
+	probeArgs := append(append([]any{}, args...), broadAt+1)
+	probe, err := s.ints(ctx, "SELECT f.rowid FROM "+from+" WHERE "+where+" LIMIT ?", probeArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("ctxdb: recall probe: %w", err)
+	}
 	order := "bm25(events_fts)"
-	if broad {
+	if len(probe) > broadAt {
 		order = "f.rowid DESC"
 	}
 	args = append(args, k)
@@ -108,18 +117,37 @@ func (s *Store) recall(ctx context.Context, text string, k, broadAt int) ([]Reca
 	if err != nil {
 		return nil, fmt.Errorf("ctxdb: recall query: %w", err)
 	}
+	return s.recallHits(ctx, ids)
+}
+
+func (s *Store) recallHits(ctx context.Context, ids []int64) ([]RecallHit, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	marks := make([]string, len(ids))
+	hitArgs := make([]any, len(ids))
+	for i, id := range ids {
+		marks[i] = "?"
+		hitArgs[i] = id
+	}
+	byID := make(map[int64]string, len(ids))
+	if err := s.each(ctx, `SELECT e.id, e.session_id FROM events e WHERE e.id IN (`+strings.Join(marks, ",")+`) AND `+notPurging("e.session_id"),
+		hitArgs, func(r *sql.Rows) error {
+			var id int64
+			var sid string
+			if err := r.Scan(&id, &sid); err != nil {
+				return fmt.Errorf("recall hit scan: %w", err)
+			}
+			byID[id] = sid
+			return nil
+		}); err != nil {
+		return nil, fmt.Errorf("ctxdb: recall hit: %w", err)
+	}
 	out := make([]RecallHit, 0, len(ids))
 	for _, id := range ids {
-		var h RecallHit
-		gerr := s.get(ctx, `SELECT e.id, e.session_id FROM events e WHERE e.id = ? AND `+notPurging("e.session_id"),
-			[]any{id}, &h.EventID, &h.SessionID)
-		if errors.Is(gerr, ErrNotFound) {
-			continue
+		if sid, ok := byID[id]; ok {
+			out = append(out, RecallHit{EventID: id, SessionID: sid})
 		}
-		if gerr != nil {
-			return nil, fmt.Errorf("ctxdb: recall hit: %w", gerr)
-		}
-		out = append(out, h)
 	}
 	return out, nil
 }

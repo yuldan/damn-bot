@@ -251,3 +251,17 @@ func TestBudgetRowsUnique(t *testing.T) {
 		}
 	}
 }
+
+// TestNightlyChaosWired (GAP-REL-03 meta-case): nightly runs the 30-minute
+// 50-client chaos target and the target names the acceptance test.
+func TestNightlyChaosWired(t *testing.T) {
+	t.Parallel()
+	nightly := readRepoFile(t, ".github/workflows/nightly.yml")
+	if !strings.Contains(nightly, "make chaos-nightly") {
+		t.Fatal("nightly.yml does not run make chaos-nightly")
+	}
+	mk := readRepoFile(t, "Makefile")
+	if !strings.Contains(mk, "DAMNBOT_CHAOS_DURATION=30m") || !strings.Contains(mk, "TestChaos50Clients") {
+		t.Fatal("Makefile chaos-nightly does not set the 30m 50-client test")
+	}
+}

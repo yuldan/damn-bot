@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 type trigger struct{ name, sql string }
@@ -478,4 +479,20 @@ func newEncIDDB() (string, error) {
 	b := make([]byte, 8)
 	_, err := rand.Read(b)
 	return hex.EncodeToString(b), wrap(err)
+}
+
+// encFTSQuery omits single-rune CJK terms: encrypted indexes store bigrams
+// only, so such a query has no index token (documented limitation).
+func encFTSQuery(codec Codec, s string) string {
+	fields := strings.FieldsFunc(ftsNorm(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if utf8.RuneCountInString(f) == 1 && hasCJK(f) {
+			continue
+		}
+		out = append(out, codec.FTS(f))
+	}
+	return strings.Join(out, " ")
 }

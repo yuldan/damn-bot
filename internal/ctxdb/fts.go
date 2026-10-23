@@ -1,0 +1,288 @@
+package ctxdb
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+)
+
+const (
+	ftsNormVersion = 1
+	ftsPlainLayout = 1 // detail=full, CJK unigrams
+	ftsEncLayout   = 2 // detail=column, bigrams only (ADR-124 amendment)
+	ftsBatchSize   = 5000
+)
+
+func ftsTables() []string {
+	return []string{"events_fts", "summaries_fts", "memory_fts", "skills_fts"}
+}
+
+func (s *Store) ftsLayout() int {
+	if s.codec != nil {
+		return ftsEncLayout
+	}
+	return ftsPlainLayout
+}
+
+func (s *Store) ensureFTS(ctx context.Context) error {
+	if s.opt.ReadOnly {
+		return nil
+	}
+	var n int
+	if err := s.get(ctx, `SELECT count(*) FROM fts_meta`, nil, &n); err != nil {
+		return err
+	}
+	if n == 0 {
+		return s.initFTS(ctx)
+	}
+	return s.upgradeFTS(ctx)
+}
+
+func (s *Store) initFTS(ctx context.Context) error {
+	return s.Write(ctx, func(tx *Tx) error {
+		for _, name := range ftsTables() {
+			if err := tx.ftsTableMeta(name); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *Store) upgradeFTS(ctx context.Context) error {
+	var old int
+	if err := s.get(ctx, `SELECT count(*) FROM fts_meta WHERE norm_version <> ? OR layout_version <> ?`,
+		[]any{ftsNormVersion, s.ftsLayout()}, &old); err != nil {
+		return err
+	}
+	if old == 0 {
+		return nil
+	}
+	return s.ReindexFTS(ctx, ftsBatchSize)
+}
+
+// ReindexFTS rebuilds contentless FTS indexes in keyset batches (EC-STATE-009).
+func (s *Store) ReindexFTS(ctx context.Context, batch int) error {
+	if batch <= 0 {
+		batch = ftsBatchSize
+	}
+	for _, name := range ftsTables() {
+		if err := s.clearFTS(ctx, name); err != nil {
+			return err
+		}
+	}
+	if err := s.reindexEvents(ctx, batch); err != nil {
+		return err
+	}
+	if err := s.reindexSummaries(ctx, batch); err != nil {
+		return err
+	}
+	if err := s.reindexMemory(ctx, batch); err != nil {
+		return err
+	}
+	if err := s.reindexSkills(ctx, batch); err != nil {
+		return err
+	}
+	return nil
+}
+
+type ftsEntry struct {
+	id   int64
+	cols []string
+}
+
+func (t *Tx) ftsTableMeta(name string) error {
+	_, err := t.Exec(`INSERT INTO fts_meta(name, norm_version, layout_version, reindexed_to, updated_at)
+		VALUES (?,?,?,0,?) ON CONFLICT(name) DO UPDATE SET norm_version=excluded.norm_version,
+		layout_version=excluded.layout_version, updated_at=excluded.updated_at`,
+		name, ftsNormVersion, t.s.ftsLayout(), t.s.clk.WallMs())
+	return err
+}
+
+func (t *Tx) ftsMetaProgress(name string, last int64) error {
+	_, err := t.Exec(`UPDATE fts_meta SET norm_version=?, layout_version=?, reindexed_to=?, updated_at=? WHERE name=?`,
+		ftsNormVersion, t.s.ftsLayout(), last, t.s.clk.WallMs(), name)
+	return err
+}
+
+func (s *Store) clearFTS(ctx context.Context, name string) error {
+	q := map[string]string{
+		"events_fts":    "INSERT INTO events_fts(events_fts) VALUES('delete-all')",
+		"summaries_fts": "INSERT INTO summaries_fts(summaries_fts) VALUES('delete-all')",
+		"memory_fts":    "INSERT INTO memory_fts(memory_fts) VALUES('delete-all')",
+		"skills_fts":    "INSERT INTO skills_fts(skills_fts) VALUES('delete-all')",
+		"blob_fts":      "INSERT INTO blob_fts(blob_fts) VALUES('delete-all')",
+	}[name]
+	if q == "" {
+		return ErrInternal
+	}
+	return s.Write(ctx, func(tx *Tx) error {
+		if _, err := tx.Exec(q); err != nil {
+			return err
+		}
+		_, err := tx.Exec(`UPDATE fts_meta SET reindexed_to=0 WHERE name=?`, name)
+		return err
+	})
+}
+
+func (s *Store) ftsTokens(scope, identity string, enc []byte, plain string) (string, error) {
+	if len(enc) == 0 {
+		if s.codec == nil {
+			return ftsNorm(plain), nil
+		}
+		return encFTS(s.codec, plain), nil
+	}
+	pt, err := s.openRow(scope, identity, enc, plain)
+	if err != nil {
+		return "", err
+	}
+	return encFTS(s.codec, pt), nil
+}
+
+func (s *Store) ftsPage(ctx context.Context, q string, last int64, batch int, scan func(*sql.Rows) (ftsEntry, error)) ([]ftsEntry, error) {
+	args := []any{last, batch}
+	var out []ftsEntry
+	err := s.each(ctx, q, args, func(r *sql.Rows) error {
+		e, err := scan(r)
+		if err == nil {
+			out = append(out, e)
+		}
+		return err
+	})
+	return out, err
+}
+
+func (s *Store) insertFTSBatch(ctx context.Context, table string, entries []ftsEntry) error {
+	return s.Write(ctx, func(tx *Tx) error {
+		for i := range entries {
+			if err := insertFTSEntry(tx, table, entries[i]); err != nil {
+				return err
+			}
+		}
+		return tx.ftsMetaProgress(table, entries[len(entries)-1].id)
+	})
+}
+
+func insertFTSEntry(tx *Tx, table string, e ftsEntry) error {
+	var q string
+	switch table {
+	case "events_fts":
+		q = `INSERT INTO events_fts(rowid, content, tool_name) VALUES (?,?,?)`
+	case "summaries_fts", "memory_fts", "blob_fts":
+		q = `INSERT INTO ` + table + `(rowid, content) VALUES (?,?)`
+	case "skills_fts":
+		q = `INSERT INTO skills_fts(rowid, name, description, body) VALUES (?,?,?,?)`
+	default:
+		return ErrInternal
+	}
+	args := make([]any, 0, 4)
+	args = append(args, e.id)
+	for _, c := range e.cols {
+		args = append(args, c)
+	}
+	_, err := tx.c.ExecContext(tx.ctx, q, args...)
+	return wrap(err)
+}
+
+func (s *Store) reindexEvents(ctx context.Context, batch int) error {
+	const q = `SELECT id, session_id, seq, content, content_enc, coalesce(tool_name,'') FROM events
+		WHERE kind IN ('user_message','assistant_message','tool_result','imported') AND id > ? ORDER BY id LIMIT ?`
+	for last := int64(0); ; {
+		rows, err := s.ftsPage(ctx, q, last, batch, func(r *sql.Rows) (ftsEntry, error) {
+			var id, seq int64
+			var sid, content, tool string
+			var enc []byte
+			if err := r.Scan(&id, &sid, &seq, &content, &enc, &tool); err != nil {
+				return ftsEntry{}, wrap(err)
+			}
+			tokens, err := s.ftsTokens("events.content", fmt.Sprintf("%s|%d", sid, seq), enc, content)
+			if err != nil {
+				return ftsEntry{}, wrap(err)
+			}
+			return ftsEntry{id: id, cols: []string{tokens, s.ftsPlain(tool)}}, nil
+		})
+		if err != nil || len(rows) == 0 {
+			return err
+		}
+		if err := s.insertFTSBatch(ctx, "events_fts", rows); err != nil {
+			return err
+		}
+		last = rows[len(rows)-1].id
+	}
+}
+
+func (s *Store) reindexSummaries(ctx context.Context, batch int) error {
+	const q = `SELECT id, session_id, from_seq, to_seq, content, content_enc FROM summaries
+		WHERE id > ? ORDER BY id LIMIT ?`
+	for last := int64(0); ; {
+		rows, err := s.ftsPage(ctx, q, last, batch, func(r *sql.Rows) (ftsEntry, error) {
+			var id, from, to int64
+			var sid, content string
+			var enc []byte
+			if err := r.Scan(&id, &sid, &from, &to, &content, &enc); err != nil {
+				return ftsEntry{}, wrap(err)
+			}
+			tokens, err := s.ftsTokens("summaries.content", fmt.Sprintf("%s|%d:%d", sid, from, to), enc, content)
+			return ftsEntry{id: id, cols: []string{tokens}}, err
+		})
+		if err != nil || len(rows) == 0 {
+			return err
+		}
+		if err := s.insertFTSBatch(ctx, "summaries_fts", rows); err != nil {
+			return err
+		}
+		last = rows[len(rows)-1].id
+	}
+}
+
+func (s *Store) reindexMemory(ctx context.Context, batch int) error {
+	const q = `SELECT id, scope, enc_id, content, content_enc FROM memory WHERE id > ? ORDER BY id LIMIT ?`
+	for last := int64(0); ; {
+		rows, err := s.ftsPage(ctx, q, last, batch, func(r *sql.Rows) (ftsEntry, error) {
+			var id int64
+			var scope, encID, content string
+			var enc []byte
+			if err := r.Scan(&id, &scope, &encID, &content, &enc); err != nil {
+				return ftsEntry{}, wrap(err)
+			}
+			tokens, err := s.ftsTokens("memory.content", scope+"|"+encID, enc, content)
+			return ftsEntry{id: id, cols: []string{tokens}}, err
+		})
+		if err != nil || len(rows) == 0 {
+			return err
+		}
+		if err := s.insertFTSBatch(ctx, "memory_fts", rows); err != nil {
+			return err
+		}
+		last = rows[len(rows)-1].id
+	}
+}
+
+func (s *Store) reindexSkills(ctx context.Context, batch int) error {
+	const q = `SELECT id, name, description, body FROM skills WHERE id > ? ORDER BY id LIMIT ?`
+	for last := int64(0); ; {
+		rows, err := s.ftsPage(ctx, q, last, batch, func(r *sql.Rows) (ftsEntry, error) {
+			var id int64
+			var name, desc, body string
+			if err := r.Scan(&id, &name, &desc, &body); err != nil {
+				return ftsEntry{}, wrap(err)
+			}
+			return ftsEntry{id: id, cols: []string{s.ftsPlain(name), s.ftsPlain(desc), s.ftsPlain(body)}}, nil
+		})
+		if err != nil || len(rows) == 0 {
+			return err
+		}
+		if err := s.insertFTSBatch(ctx, "skills_fts", rows); err != nil {
+			return err
+		}
+		last = rows[len(rows)-1].id
+	}
+}
+
+// ftsPlain returns the index tokens of text for the current layout.
+func (s *Store) ftsPlain(text string) string {
+	if s.codec == nil {
+		return ftsNorm(text)
+	}
+	return encFTS(s.codec, text)
+}

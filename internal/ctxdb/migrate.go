@@ -206,7 +206,7 @@ func (s *Store) applyMigration(ctx context.Context, ver int, m migration) (err e
 				_, rerr := c.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
 				err = errors.Join(err, rerr)
 			}
-			return fmt.Errorf("ctxdb: migration %s: %w", m.name, classify(err))
+			return fmt.Errorf("ctxdb: migration %s: %w: %w", m.name, ErrMigrationFailed, classify(err))
 		}
 	}
 	return nil

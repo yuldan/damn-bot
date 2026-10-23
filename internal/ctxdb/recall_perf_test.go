@@ -236,3 +236,86 @@ func TestRecallP95Purged100k(t *testing.T) {
 		}
 	}
 }
+
+// cjkRecallCorpus builds CJK content at the same scale as recallCorpus.
+func cjkRecallCorpus(tb testing.TB, n int) *Store {
+	tb.Helper()
+	s, err := Open(context.Background(), &Options{Dir: tb.TempDir(), Kind: "run"})
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(func() {
+		if cerr := s.Close(); cerr != nil {
+			tb.Error(cerr)
+		}
+	})
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, Session{ID: "S", Origin: "headless", Cwd: "/"}); err != nil {
+		tb.Fatal(err)
+	}
+	const batch = 50_000
+	for start := 1; start <= n; start += batch {
+		end := min(start+batch-1, n)
+		err := s.Write(ctx, func(tx *Tx) error {
+			_, xerr := tx.Exec(`WITH RECURSIVE c(i) AS (SELECT ?1 UNION ALL SELECT i + 1 FROM c WHERE i < ?2)
+				INSERT INTO events(session_id, seq, kind, role, content, payload, prev_hash, hash, created_at)
+				SELECT 'S', i, 'user_message', 'user',
+				       '天气预报 广西壮族 桂林山水 股票行情 ' || i, '{}', 'p', 'h' || i, 1 FROM c`, start, end)
+			return xerr
+		})
+		if err != nil {
+			tb.Fatal(err)
+		}
+	}
+	return s
+}
+
+// BenchmarkRecallCJK (GAP-INF-01): CJK query at the acceptance corpus size.
+func BenchmarkRecallCJK(b *testing.B) {
+	n := recallCorpusSize(b)
+	s := cjkRecallCorpus(b, n)
+	ctx := context.Background()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := s.Recall(ctx, "天气预报", 10); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkRecallToolOutput (GAP-INF-02): tool-result recall on 100k rows.
+func BenchmarkRecallToolOutput(b *testing.B) {
+	const n = 100_000
+	s, err := Open(context.Background(), &Options{Dir: b.TempDir(), Kind: "run"})
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() {
+		if cerr := s.Close(); cerr != nil {
+			b.Error(cerr)
+		}
+	})
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, Session{ID: "S", Origin: "headless", Cwd: "/"}); err != nil {
+		b.Fatal(err)
+	}
+	const batch = 50_000
+	for start := 1; start <= n; start += batch {
+		end := min(start+batch-1, n)
+		err := s.Write(ctx, func(tx *Tx) error {
+			_, xerr := tx.Exec(`WITH RECURSIVE c(i) AS (SELECT ?1 UNION ALL SELECT i + 1 FROM c WHERE i < ?2)
+				INSERT INTO events(session_id, seq, kind, role, content, payload, prev_hash, hash, created_at)
+				SELECT 'S', i, 'tool_result', 'tool', 'tool output line ' || i, '{}', 'p', 'h' || i, 1 FROM c`, start, end)
+			return xerr
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ResetTimer()
+	for range b.N {
+		if _, err := s.Recall(ctx, "tool output", 10); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

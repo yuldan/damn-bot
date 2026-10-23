@@ -87,6 +87,9 @@ func runHeadless(args []string, stdout, stderr io.Writer) int {
 		if errors.Is(err, ctxdb.ErrSchemaNewer) {
 			return 1 // SPEC §4.3 error table: schema_newer maps to exit 1
 		}
+		if errors.Is(err, ctxdb.ErrMigrationFailed) {
+			return 78 // SPEC §11.1: any migration failure exits 78
+		}
 		return 2
 	}
 	return code

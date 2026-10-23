@@ -3,7 +3,10 @@ package ctxdb
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,8 +24,24 @@ func (c testCodec) Seal(scope string, p []byte) ([]byte, error) {
 	return out, nil
 }
 
-func (c testCodec) Hash(s string) string     { return "h:" + s }
-func (c testCodec) FTS(tokens string) string { return strings.ToUpper(tokens) }
+func (c testCodec) Hash(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return "zh:" + hex.EncodeToString(h[:])
+}
+
+// FTS maps every token to an opaque, one-way token (SEC7-72). The previous
+// ToUpper mapping made keyed and plaintext tokens indistinguishable after the
+// unicode61 case folding, so a canary sweep could not see an index that was
+// written without the codec at all.
+func (c testCodec) FTS(tokens string) string {
+	var out []string
+	for tok := range strings.FieldsSeq(tokens) {
+		h := sha256.Sum256([]byte(tok))
+		out = append(out, "zt"+hex.EncodeToString(h[:])[:12])
+	}
+	return strings.Join(out, " ")
+}
+
 func (c testCodec) Open(scope string, b []byte) ([]byte, error) {
 	pfx := scope + "|"
 	if !bytes.HasPrefix(b, []byte(pfx)) {
@@ -170,6 +189,10 @@ func TestAtRestHashKeyed(t *testing.T) {
 	}
 }
 
+// TestAtRestNoPlaintextCanary: every column that carries conversation text is
+// sealed, including a spilled tool-output blob and its FTS index (SEC7-68/71).
+// The sweep covers the whole data dir, not only the DB file, so a blob left
+// in the clear or an index written without the codec is caught.
 func TestAtRestNoPlaintextCanary(t *testing.T) {
 	dir := t.TempDir()
 	s, err := Open(context.Background(), &Options{Dir: dir, Kind: "cli", Codec: testCodec{id: "dek"}})
@@ -183,18 +206,58 @@ func TestAtRestNoPlaintextCanary(t *testing.T) {
 	}()
 	session(t, s, "S", "")
 	appendMsg(t, s, "S", "canary-events")
-	canaries := []string{"canary-events", "canary-summary", "canary-memory", "canary-carrier", "canary-gateway"}
+	canaries := []string{"canary-events", "canary-summary", "canary-memory", "canary-carrier", "canary-gateway", "canary-blob-output"}
 	if err := seedCanaries(context.Background(), s); err != nil {
 		t.Fatal(err)
 	}
-	raw, rerr := os.ReadFile(DBPath(dir))
-	if rerr != nil {
-		t.Fatal(rerr)
+	blob, berr := s.PutBlob([]byte("canary-blob-output"), "text/plain")
+	if berr != nil {
+		t.Fatal(berr)
 	}
-	for _, c := range canaries {
-		if bytes.Contains(raw, []byte(c)) {
-			t.Fatalf("plaintext canary %q found in encrypted DB", c)
+	if werr := s.Write(context.Background(), func(tx *Tx) error { return tx.Publish(blob) }); werr != nil {
+		t.Fatal(werr)
+	}
+	if _, aerr := s.Append(context.Background(), "S", nil, Event{
+		Kind: "tool_result", ToolName: "shell", Content: "canary-blob-output", Payload: "{}", Blob: blob.Sha,
+	}); aerr != nil {
+		t.Fatal(aerr)
+	}
+	sweepDir(t, dir, canaries)
+}
+
+// sweepDir fails if any of the canaries appears verbatim in a regular file
+// under dir, reading through an os.Root so the walk cannot be swapped out.
+func sweepDir(t *testing.T, dir string, canaries []string) {
+	t.Helper()
+	root, oerr := os.OpenRoot(dir)
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	defer func() {
+		if cerr := root.Close(); cerr != nil {
+			t.Error(cerr)
 		}
+	}()
+	if err := filepath.WalkDir(dir, func(p string, d os.DirEntry, werr error) error {
+		if werr != nil || d.IsDir() {
+			return werr
+		}
+		rel, rerr := filepath.Rel(dir, p)
+		if rerr != nil {
+			return fmt.Errorf("relative path of %s: %w", p, rerr)
+		}
+		raw, rerr := root.ReadFile(rel)
+		if rerr != nil {
+			return fmt.Errorf("read %s: %w", rel, rerr)
+		}
+		for _, c := range canaries {
+			if bytes.Contains(raw, []byte(c)) {
+				t.Fatalf("plaintext canary %q found in %s", c, rel)
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

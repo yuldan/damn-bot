@@ -33,7 +33,16 @@ type querier interface {
 // each runs a query and calls scan for every row; rows are always closed
 // and every error is wrapped and classified.
 func each(ctx context.Context, db querier, q string, args []any, scan func(*sql.Rows) error) (err error) {
-	rows, err := db.QueryContext(ctx, q, args...)
+	var rows *sql.Rows
+	for attempt := range 3 {
+		rows, err = db.QueryContext(ctx, q, args...)
+		if err == nil || !transientIO(err) || ctx.Err() != nil {
+			break
+		}
+		if serr := sleepReal(ctx, time.Duration(attempt+1)*2*time.Millisecond); serr != nil {
+			return wrap(errors.Join(err, serr))
+		}
+	}
 	if err != nil {
 		return wrap(err)
 	}

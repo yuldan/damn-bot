@@ -291,6 +291,12 @@ func searchIDs(tx *ctxdb.Tx, text string, k int) ([]int64, error) {
 		k = 3
 	}
 	query := ftsQuery(text)
+	if query != "" {
+		query = tx.FTSQuery(query)
+	}
+	if query == "" && strings.TrimSpace(text) != "" {
+		return nil, nil
+	}
 	from := `skills s LEFT JOIN v_memory_status m ON m.id = s.memory_id`
 	where := `((s.memory_id IS NULL AND s.source IN ('user', 'builtin')) OR (m.status = 'approved' AND m.kind = 'skill'))`
 	where += ` AND NOT EXISTS (SELECT 1 FROM skills t WHERE t.name = s.name AND t.memory_id IS NULL AND t.id <> s.id)`
@@ -302,7 +308,7 @@ func searchIDs(tx *ctxdb.Tx, text string, k int) ([]int64, error) {
 			LEFT JOIN v_memory_status m ON m.id = s.memory_id`
 		where += " AND skills_fts MATCH ?2"
 		order = "bm25(skills_fts), s.name"
-		args = append(args, tx.FTSQuery(query))
+		args = append(args, query)
 	}
 	ids, err := tx.Ints("SELECT s.id FROM "+from+" WHERE "+where+" ORDER BY "+order+" LIMIT ?1", args...)
 	if err != nil {

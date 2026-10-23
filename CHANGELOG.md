@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `ctxdb`: acceptance state F2, FTS, retry IO transien, dan chaos 50-klien (ADR-158..162).
+
 - `internal/e2e`: skenario at-rest/backup/restore di atas biner nyata + `Env.ConfigDir()`.
 
 - `ctxdb/carrierstore`: carrier reasoning terenkripsi at-rest + penolakan kunci lewat store (ADR-124/ADR-131).

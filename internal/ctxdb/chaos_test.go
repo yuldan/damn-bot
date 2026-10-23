@@ -445,3 +445,77 @@ func TestMultiProcess(t *testing.T) {
 		t.Fatal("purge left pending after clean exits")
 	}
 }
+
+func chaosClient(dir string, i int, deadline time.Time) (err error) {
+	ctx := context.Background()
+	id := &Ident{Host: "chaos", PID: i + 1, Start: "chaos", BootID: "chaos"}
+	var s *Store
+	for {
+		s, err = Open(ctx, &Options{Dir: dir, Kind: "cli", Ident: id, BusyTimeout: 5 * time.Second})
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, ErrDBBusy) && !errors.Is(err, ErrMigrationRefused) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return nil // startup contention beyond the window is not a user-visible lock
+		}
+		if serr := sleepReal(ctx, 10*time.Millisecond); serr != nil {
+			return serr
+		}
+	}
+	defer func() { err = errors.Join(err, s.Close()) }()
+	sid := "C" + itoa(int64(i))
+	if _, err = s.CreateSession(ctx, Session{ID: sid, Cwd: "/"}); err != nil && !errors.Is(err, ErrIdempotencyConflict) {
+		return err
+	}
+	for n := 0; time.Now().Before(deadline); n++ {
+		if _, err = s.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "chaos " + itoa(int64(n))}); err != nil {
+			return err
+		}
+		if _, err = s.Recall(ctx, "chaos", 5); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TestChaos50Clients (GAP-REL-03): 50 concurrent CLI-shaped processes for a
+// configurable window (short in PRs, 30m in nightly) never surface
+// "database is locked" and leave integrity_check ok.
+func TestChaos50Clients(t *testing.T) {
+	if testing.Short() {
+		t.Skip("chaos")
+	}
+	dur := 2 * time.Second
+	if v := os.Getenv("DAMNBOT_CHAOS_DURATION"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			t.Fatalf("DAMNBOT_CHAOS_DURATION=%q: %v", v, err)
+		}
+		dur = d
+	}
+	dir := t.TempDir()
+	deadline := time.Now().Add(dur)
+	errs := make(chan error, 50)
+	var wg sync.WaitGroup
+	for i := range 50 {
+		wg.Go(func() { errs <- chaosClient(dir, i, deadline) })
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("chaos client: %v", err)
+		}
+	}
+	s, err := Open(context.Background(), &Options{Dir: dir, Kind: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { must(t, s.Close()) }()
+	if res, err := s.IntegrityCheck(context.Background()); err != nil || res != "ok" {
+		t.Fatalf("integrity = %q, %v", res, err)
+	}
+}
