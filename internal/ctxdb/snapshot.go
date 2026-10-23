@@ -11,14 +11,14 @@ import (
 // SnapshotTo writes a consistent VACUUM INTO snapshot of dir's database to dst
 // and returns the sha256 of every live blob row. It is the read side used by
 // encrypted backup archives (ADR-124); it does not copy blobs.
-func SnapshotTo(ctx context.Context, dir, dst string) (shas []string, err error) {
+func SnapshotTo(ctx context.Context, dir, dst string, codec Codec) (shas []string, err error) {
 	if _, serr := os.Stat(DBPath(dir)); serr != nil {
 		if errors.Is(serr, fs.ErrNotExist) {
 			return nil, fmt.Errorf("ctxdb: snapshot: %w", fs.ErrNotExist)
 		}
 		return nil, fmt.Errorf("ctxdb: snapshot stat: %w", serr)
 	}
-	s, err := Open(ctx, &Options{Dir: dir, Kind: "cli"})
+	s, err := Open(ctx, &Options{Dir: dir, Kind: "cli", Codec: codec})
 	if err != nil {
 		return nil, err
 	}

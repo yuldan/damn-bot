@@ -395,9 +395,14 @@ func sessionsBackupCreate(args []string, stdout, stderr io.Writer) int {
 		return fail(stderr, "sessions backup create", err)
 	}
 	defer key.Zero()
+	codec, cerr := dataCodec(ctx, p, st)
+	if cerr != nil {
+		key.Zero()
+		return fail(stderr, "sessions backup create", cerr)
+	}
 	res, err := backup.Create(ctx, &backup.CreateOptions{
 		DataDir: p.DataDir, ConfigDir: p.ConfigDir, Out: *out, App: version,
-		IncludeSecrets: *secrets, Key: key, Now: time.Now(),
+		IncludeSecrets: *secrets, Key: key, Codec: codec, Now: time.Now(),
 	})
 	if err != nil {
 		return fail(stderr, "sessions backup create", err)
@@ -452,6 +457,19 @@ func sessionsBackupLS(args []string, stdout, stderr io.Writer) int {
 			time.Unix(h.CreatedAt, 0).UTC().Format(time.RFC3339), h.IncludeSecrets, safe(h.RecipientID), ok)
 	}
 	return 0
+}
+
+func dataCodec(ctx context.Context, p config.Paths, st *secret.Store) (ctxdb.Codec, error) {
+	if _, err := os.Stat(secret.StorageKeyPath(p.DataDir)); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("storage key: %w", err)
+	}
+	codec, err := secret.OpenCodec(ctx, p.DataDir, st, false)
+	if err != nil {
+		return nil, fmt.Errorf("at-rest codec: %w", err)
+	}
+	return codec, nil
 }
 
 func readMeta(path string) (h backup.Header, err error) {

@@ -38,6 +38,8 @@ type Options struct {
 	ReadOnly     bool          // inspection mode: no migration, no writer (SPEC §11.11.7)
 	BusyTimeout  time.Duration // default 5 s (SPEC §11 PRAGMA)
 	BarrierWait  time.Duration // drain timeout of the maintenance barrier; default 30 s
+	// Codec enables field-level at-rest encryption (ADR-124). nil = plaintext.
+	Codec Codec
 	// OnTx observes every write transaction: mode and lock hold time
 	// (BEGIN IMMEDIATE → COMMIT/ROLLBACK), for I11 budgets and metrics.
 	OnTx func(mode string, held time.Duration)
@@ -46,17 +48,18 @@ type Options struct {
 // Store is one process's handle on the data dir: one writer connection
 // (single writer per process, SPEC §3.3) plus a read-only pool.
 type Store struct {
-	opt  Options
-	id   Ident
-	dir  string
-	root *os.Root // every file operation stays inside the data dir
-	clk  Clock
-	q    map[string]string // named statements of queries.sql
-	migs []migration       // embedded migration ladder
-	mu   sync.Mutex        // serialises write transactions (the process writer)
-	w, r *sql.DB
-	fi   os.FileInfo // identity of the opened DB file (os.SameFile, I8)
-	lock *os.File    // run/maint.lock held shared while open (§11.11.7)
+	opt   Options
+	id    Ident
+	dir   string
+	codec Codec
+	root  *os.Root // every file operation stays inside the data dir
+	clk   Clock
+	q     map[string]string // named statements of queries.sql
+	migs  []migration       // embedded migration ladder
+	mu    sync.Mutex        // serialises write transactions (the process writer)
+	w, r  *sql.DB
+	fi    os.FileInfo // identity of the opened DB file (os.SameFile, I8)
+	lock  *os.File    // run/maint.lock held shared while open (§11.11.7)
 
 	mode   atomic.Value // dmb_maint() of the writer connection: "", "purge", "restore"
 	tokMu  sync.Mutex
@@ -94,6 +97,9 @@ func Open(ctx context.Context, o *Options) (*Store, error) {
 		if err == nil {
 			err = s.startupRecovery(ctx)
 		}
+	}
+	if err == nil {
+		err = s.checkAtRest(ctx)
 	}
 	if err != nil {
 		if s != nil {
@@ -236,7 +242,7 @@ func newStore(o *Options) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{
-		opt: opt, dir: opt.Dir, root: root, clk: opt.Clock, q: q, migs: migs, chunk: firstChunk, chunkCap: eventBatch, budget: unitBudget,
+		opt: opt, dir: opt.Dir, codec: opt.Codec, root: root, clk: opt.Clock, q: q, migs: migs, chunk: firstChunk, chunkCap: eventBatch, budget: unitBudget,
 		tokens: map[string]int64{}, obs: map[string]observation{},
 	}
 	s.mode.Store(modeNormal)
@@ -354,7 +360,7 @@ func (s *Store) driver(writer bool) (*sqlite.Driver, error) {
 		d.RegisterDeterministicScalarFunction("dmb_fts_norm", 1, func(_ *sqlite.FunctionContext, a []driver.Value) (driver.Value, error) {
 			t, ok := a[0].(string)
 			if !ok {
-				return "", nil // non-text input normalises to ""
+				return "", nil
 			}
 			return ftsNorm(t), nil
 		}))

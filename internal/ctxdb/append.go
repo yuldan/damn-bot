@@ -66,6 +66,20 @@ func EventHash(prev, sid string, seq int64, kind, content, payload, blob string)
 	return hex.EncodeToString(h[:])
 }
 
+func (s *Store) eventHash(prev, sid string, seq int64, kind, content, payload, blob string) string {
+	if s.codec == nil {
+		return EventHash(prev, sid, seq, kind, content, payload, blob)
+	}
+	return s.codec.Hash(strings.Join([]string{prev, sid, strconv.FormatInt(seq, 10), kind, content, payload, blob}, "|"))
+}
+
+func nullableBytes(b []byte) any {
+	if len(b) == 0 {
+		return nil
+	}
+	return b
+}
+
 func nullable(s string) any {
 	if s == "" {
 		return nil
@@ -85,12 +99,21 @@ func (t *Tx) AppendEvent(sid string, e *Event) (int64, error) {
 	}
 	seq++
 	now := t.s.clk.WallMs()
+	identity := sid + "|" + strconv.FormatInt(seq, 10)
+	contentEnc, contentStored, err := t.s.sealRow("events.content", identity, e.Content, "")
+	if err != nil {
+		return 0, err
+	}
+	payloadEnc, payloadStored, err := t.s.sealRow("events.payload", identity, payload, "{}")
+	if err != nil {
+		return 0, err
+	}
 	var id int64
-	err = t.Get(`INSERT INTO events(session_id, seq, turn_id, kind, role, content, tool_call_id, tool_name, payload, blob_sha, prev_hash, hash, created_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
+	err = t.Get(`INSERT INTO events(session_id, seq, turn_id, kind, role, content, content_enc, tool_call_id, tool_name, payload, payload_enc, blob_sha, prev_hash, hash, created_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
 		[]any{
-			sid, seq, nullable(e.TurnID), e.Kind, nullable(e.Role), e.Content, nullable(e.ToolCallID), nullable(e.ToolName),
-			payload, nullable(e.Blob), prev, EventHash(prev, sid, seq, e.Kind, e.Content, payload, e.Blob), now,
+			sid, seq, nullable(e.TurnID), e.Kind, nullable(e.Role), contentStored, nullableBytes(contentEnc), nullable(e.ToolCallID), nullable(e.ToolName),
+			payloadStored, nullableBytes(payloadEnc), nullable(e.Blob), prev, t.s.eventHash(prev, sid, seq, e.Kind, e.Content, payload, e.Blob), now,
 		}, &id)
 	if err != nil {
 		return 0, err

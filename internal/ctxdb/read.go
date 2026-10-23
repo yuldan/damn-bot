@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -130,16 +131,25 @@ func (s *Store) History(ctx context.Context, sessionID string, fromSeq int64, op
 	}
 	var evs []Event
 	err := s.each(ctx, lineageCTE+`
-		SELECT e.id, e.session_id, e.seq, e.kind, coalesce(e.role, ''), e.content,
+		SELECT e.id, e.session_id, e.seq, e.kind, coalesce(e.role, ''), e.content, e.content_enc,
 		       coalesce(e.turn_id, ''), coalesce(e.tool_call_id, ''), coalesce(e.tool_name, ''),
-		       e.payload, coalesce(e.blob_sha, ''), e.created_at
+		       e.payload, e.payload_enc, coalesce(e.blob_sha, ''), e.created_at
 		  FROM lin JOIN events e ON e.session_id = lin.id AND e.seq <= lin.lim
 		 WHERE (?2 = 0 OR lin.depth = 0) AND (?2 = 0 OR e.seq > ?2)
 		 ORDER BY lin.depth DESC, e.seq LIMIT ?3`, []any{sessionID, fromSeq, o.Limit}, func(r *sql.Rows) error {
 		var e Event
-		if err := r.Scan(&e.ID, &e.SessionID, &e.Seq, &e.Kind, &e.Role, &e.Content,
-			&e.TurnID, &e.ToolCallID, &e.ToolName, &e.Payload, &e.Blob, &e.CreatedAt); err != nil {
+		var contentEnc, payloadEnc []byte
+		if err := r.Scan(&e.ID, &e.SessionID, &e.Seq, &e.Kind, &e.Role, &e.Content, &contentEnc,
+			&e.TurnID, &e.ToolCallID, &e.ToolName, &e.Payload, &payloadEnc, &e.Blob, &e.CreatedAt); err != nil {
 			return wrap(err)
+		}
+		var derr error
+		identity := e.SessionID + "|" + strconv.FormatInt(e.Seq, 10)
+		if e.Content, derr = s.openRow("events.content", identity, contentEnc, e.Content); derr != nil {
+			return derr
+		}
+		if e.Payload, derr = s.openRow("events.payload", identity, payloadEnc, e.Payload); derr != nil {
+			return derr
 		}
 		evs = append(evs, e)
 		return nil
@@ -386,7 +396,7 @@ func (s *Store) Search(ctx context.Context, q Query) ([]Hit, error) {
 }
 
 func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int, summaries bool) ([]Hit, error) {
-	q := `SELECT e.id, e.session_id, e.seq, e.kind, bm25(events_fts), e.content,
+	q := `SELECT e.id, e.session_id, e.seq, e.kind, bm25(events_fts), e.content, e.content_enc,
 		EXISTS (SELECT 1 FROM events x WHERE x.session_id = e.session_id AND x.kind = 'context_exclude'
 			AND json_extract(x.payload, '$.turn_id') = e.turn_id)
 		FROM events_fts JOIN events e ON e.id = events_fts.rowid
@@ -414,9 +424,20 @@ func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int
 	err := s.each(ctx, q, args, func(r *sql.Rows) error {
 		var h Hit
 		var content string
-		if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &h.Excluded); err != nil {
+		var enc []byte
+		if summaries {
+			if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &h.Excluded); err != nil {
+				return wrap(err)
+			}
+		} else if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &enc, &h.Excluded); err != nil {
 			return wrap(err)
 		}
+		identity := h.SessionID + "|" + strconv.FormatInt(h.Seq, 10)
+		dc, derr := s.openRow("events.content", identity, enc, content)
+		if derr != nil {
+			return derr
+		}
+		content = dc
 		if summaries {
 			h.Kind = "summary_ref"
 		}

@@ -30,6 +30,8 @@ var (
 	ErrMigrationRefused    = errors.New("migration_refused")
 	ErrInternal            = errors.New("internal")
 	ErrInvalidSeq          = errors.New("invalid_args") // fork seq outside [0, head]
+	ErrEncrypted           = errors.New("encrypted_db")
+	ErrAtRestPlaintext     = errors.New("at_rest_existing_plaintext")
 )
 
 // SQLite result codes used for classification (sqlite3.h).

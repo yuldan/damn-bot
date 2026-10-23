@@ -20,6 +20,7 @@ type Config struct {
 	Skills   Skills   `toml:"skills"`
 	Sessions Sessions `toml:"sessions"`
 	Log      Log      `toml:"log"`
+	Storage  Storage  `toml:"storage"`
 }
 
 // Skills is SPEC §4.8/§12 [skills]: the local skill sources (SKILL-009/010,
@@ -84,6 +85,11 @@ type Exec struct {
 // Agent is SPEC §12 [agent].
 type Agent struct {
 	VerifyOnStop string `toml:"verify_on_stop"`
+}
+
+// Storage is the optional at-rest encryption section (ADR-124).
+type Storage struct {
+	Encrypt bool `toml:"encrypt"`
 }
 
 // Log is SPEC §12 [log] plus the P29/GAP-SEC-11 content controls.

@@ -1,13 +1,18 @@
 package ctxdb
 
 import (
+	"bytes"
 	"context"
+	"crypto/cipher"
+	"crypto/rand"
 	"fmt"
 	"math"
 	"slices"
 	"strconv"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // Benchmarks of the F2 Append targets (ROADMAP F2, SPEC §4.6): Append ≤ 10 ms
@@ -152,5 +157,71 @@ func BenchmarkAppendDuringGC(b *testing.B) {
 	b.StopTimer()
 	stop()
 	<-done
+	reportLatency(b, ds)
+}
+
+type benchCodec struct {
+	aead cipher.AEAD
+}
+
+func newBenchCodec(b *testing.B) *benchCodec {
+	b.Helper()
+	a, err := chacha20poly1305.NewX(bytes.Repeat([]byte{7}, 32))
+	if err != nil {
+		b.Fatal(err)
+	}
+	return &benchCodec{aead: a}
+}
+
+func (c *benchCodec) ID() string           { return "bench" }
+func (c *benchCodec) Hash(s string) string { return s }
+func (c *benchCodec) Seal(scope string, p []byte) ([]byte, error) {
+	nonce := make([]byte, c.aead.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("bench nonce: %w", err)
+	}
+	out := make([]byte, 1, 1+len(nonce)+len(p)+c.aead.Overhead())
+	out[0] = 1
+	out = append(out, nonce...)
+	return c.aead.Seal(out, nonce, p, []byte(scope)), nil
+}
+
+func (c *benchCodec) Open(scope string, b []byte) ([]byte, error) {
+	n := c.aead.NonceSize()
+	out, err := c.aead.Open(nil, b[1:1+n], b[1+n:], []byte(scope))
+	if err != nil {
+		return nil, fmt.Errorf("bench codec: %w", err)
+	}
+	return out, nil
+}
+
+// BenchmarkAppendEncrypted is BenchmarkAppend with a real XChaCha20-Poly1305
+// codec for event content/payload and blobs.
+func BenchmarkAppendEncrypted(b *testing.B) {
+	codec := newBenchCodec(b)
+	s, err := Open(context.Background(), &Options{Dir: b.TempDir(), Kind: "run", Codec: codec})
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() {
+		if cerr := s.Close(); cerr != nil {
+			b.Errorf("close ctxdb: %v", cerr)
+		}
+	})
+	ctx := context.Background()
+	blob, refA, refB := benchSession(b, s, "bench")
+	ev := benchPayload(blob, refA, refB)
+	ds := make([]time.Duration, 0, b.N)
+	b.ResetTimer()
+	for i := range b.N {
+		ev.Content = "append sample " + strconv.Itoa(i)
+		start := time.Now()
+		_, aerr := s.Append(ctx, "bench", nil, ev)
+		ds = append(ds, time.Since(start))
+		if aerr != nil {
+			b.Fatal(aerr)
+		}
+	}
+	b.StopTimer()
 	reportLatency(b, ds)
 }
