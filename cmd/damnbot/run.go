@@ -32,7 +32,6 @@ import (
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/netx"
-	"github.com/damnbot/damnbot/internal/netx/retry"
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/redact"
@@ -319,18 +318,18 @@ func (m *runModel) close(ctx context.Context) error {
 }
 
 // newRunProvider builds the run provider or returns the injected one.
-func newRunProvider(cfg *config.Config, modelRef string, o *runOptions) (loop.Provider, error) {
+func newRunProvider(cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions) (loop.Provider, error) {
 	table, err := registry.DefaultPriceTable()
 	if err != nil {
 		return nil, fmt.Errorf("pricing table: %w", err)
 	}
-	return newRunProviderWithTable(cfg, modelRef, o, table)
+	return newRunProviderWithTable(cfg, db, modelRef, o, table)
 }
 
 // newRunProviderWithTable is newRunProvider with an explicit table, so a test
 // can price a loopback route; the composition root always passes the embedded
 // default table.
-func newRunProviderWithTable(cfg *config.Config, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
+func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
 	if o.prov != nil {
 		return o.prov, nil
 	}
@@ -343,15 +342,23 @@ func newRunProviderWithTable(cfg *config.Config, modelRef string, o *runOptions,
 	if err != nil {
 		return nil, fmt.Errorf("pricing: %w", err)
 	}
+	guard, err := budget.NewGuard(budget.GuardConfig{
+		DailyUSD: cfg.Budget.DailyUSD, MonthlyUSD: cfg.Budget.MonthlyUSD, Providers: cfg.Budget.Providers, WarnAt: cfg.Budget.WarnAt,
+	}, ledgerstore.Source{Store: db}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("budget guard: %w", err)
+	}
+	notes := &budgetNotes{}
 	net := netx.New(netx.Config{Offline: o.offline})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
 		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family, Prices: prices}},
 		Attempts: o.providerAttempts,
+		Guard:    guard, OnBudget: func(d budget.Decision) { notes.observe(&d) },
 	})
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)
 	}
-	return &providerAdapter{client: openai, model: modelRef}, nil
+	return &providerAdapter{client: openai, model: modelRef, notes: notes}, nil
 }
 
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runModel, error) {
@@ -368,7 +375,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, w.fail(fmt.Errorf("model window: %w", err))
 	}
-	prov, err := newRunProvider(cfg, modelRef, o)
+	prov, err := newRunProvider(cfg, w.db, modelRef, o)
 	if err != nil {
 		return nil, w.fail(err)
 	}
@@ -515,6 +522,7 @@ func charsPerToken(s string) float64 {
 type providerAdapter struct {
 	client *provider.OpenAI
 	model  string
+	notes  *budgetNotes
 }
 
 func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
@@ -535,11 +543,7 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 		}
 	})
 	if err != nil {
-		class := loop.ClassProvider
-		if retry.ClassifyErr(err) == retry.ContextLength {
-			class = loop.ClassContextLength
-		}
-		return loop.Reply{}, &loop.StreamError{Class: class, Err: err}
+		return loop.Reply{}, streamError(err)
 	}
 	reply := loop.Reply{
 		Content: resp.Content, FinishReason: resp.FinishReason, Usage: event.Usage{
@@ -550,6 +554,7 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 		Model: resp.Model, FallbackFrom: resp.FallbackFrom, Attempts: resp.Attempts,
 		Carriers: eventCarriers(resp.Carriers), RejectedCarriers: eventCarriers(resp.RejectedCarriers),
 		CarrierDrops: eventDrops(resp.CarrierDrops), ReasoningText: resp.ReasoningText,
+		BudgetWarnings: p.notes.take(),
 	}
 	for _, c := range resp.ToolCalls {
 		reply.ToolCalls = append(reply.ToolCalls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.ArgumentsRaw})
