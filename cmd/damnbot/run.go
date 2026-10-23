@@ -50,6 +50,8 @@ type runOptions struct {
 	offline          bool
 	baseURL          string
 	apiKey           string
+	session          string
+	cont             bool
 	providerAttempts int
 	answerSchema     string
 	// eval-only seams (never set by a flag): a provider override (fake or
@@ -108,6 +110,9 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	fs.BoolVar(&o.offline, "offline", false, "network.offline: loopback only")
 	fs.StringVar(&o.baseURL, "base-url", "", "internal/test: provider base URL")
 	fs.StringVar(&o.apiKey, "api-key", "", "internal/test: provider API key")
+	fs.StringVar(&o.session, "session", "", "resume an existing session id")
+	fs.BoolVar(&o.cont, "continue", false, "continue the newest session in the current directory")
+	fs.BoolVar(&o.cont, "c", false, "alias for --continue")
 	fs.IntVar(&o.providerAttempts, "provider-attempts", 0, "internal/test: provider retry attempts (0 = default 3)")
 	if err := fs.Parse(args); err != nil {
 		return runOptions{}, &reportedParseError{err: fmt.Errorf("parse flags: %w", err)}
@@ -122,6 +127,9 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	}
 	if o.prompt == "" {
 		return runOptions{}, errors.New("prompt required")
+	}
+	if o.session != "" && o.cont {
+		return runOptions{}, errors.New("--session and --continue are mutually exclusive")
 	}
 	return o, nil
 }
@@ -144,31 +152,41 @@ func compileAnswerSchema(path string) (func(string) error, error) {
 	return func(answer string) error { return sc.Validate([]byte(answer)) }, nil
 }
 
-func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err error) {
+// loadRunEnv resolves the immutable config and the data, config and home
+// directories for one headless run (extracted to keep runOne's complexity low).
+func loadRunEnv(o *runOptions) (cfg config.Config, dataDir, configDir, home string, err error) {
 	loader, err := config.New(config.OS())
 	if err != nil {
-		return 0, fmt.Errorf("config deps: %w", err)
+		return config.Config{}, "", "", "", fmt.Errorf("config deps: %w", err)
 	}
-	cfg, err := loadRunConfig(loader, o.configPath)
+	cfg, err = loadRunConfig(loader, o.configPath)
 	if err != nil {
-		return 0, err
+		return config.Config{}, "", "", "", err
 	}
 	if o.cfgOverride != nil {
 		cfg = *o.cfgOverride
 	}
 	paths, err := loader.Paths("")
 	if err != nil {
-		return 0, fmt.Errorf("config paths: %w", err)
+		return config.Config{}, "", "", "", fmt.Errorf("config paths: %w", err)
 	}
-	dataDir := o.dataDir
+	dataDir = o.dataDir
 	if dataDir == "" {
 		dataDir = paths.DataDir
+	}
+	return cfg, dataDir, paths.ConfigDir, homeDir(), nil
+}
+
+func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err error) {
+	cfg, dataDir, configDir, home, err := loadRunEnv(o)
+	if err != nil {
+		return 0, err
 	}
 	modelRef := o.model
 	if modelRef == "" {
 		modelRef = cfg.Provider.Model
 	}
-	if modelRef == "" {
+	if modelRef == "" && o.session == "" && !o.cont {
 		return 0, errors.New("--model or provider.model is required")
 	}
 	if o.answerSchema != "" {
@@ -178,7 +196,6 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	}
 	red := redact.New(redact.Options{})
 	spill := diskSpill{dir: filepath.Join(dataDir, "run-spill")}
-	configDir, home := paths.ConfigDir, homeDir()
 	model, err := startRunModel(ctx, &cfg, dataDir, modelRef, o, red, spill, configDir, home)
 	if err != nil {
 		return 0, err
@@ -188,6 +205,9 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 			err = fmt.Errorf("close run model: %w", cerr)
 		}
 	}()
+	if modelRef == "" {
+		modelRef = model.modelRef
+	}
 	return runTurn(ctx, &cfg, o, model, modelRef, red, spill, stdout)
 }
 
@@ -284,6 +304,9 @@ type runModel struct {
 	sessions  *exec.Sessions
 	sessionID string
 	cwd       string
+	// modelRef is the effective provider/model, including a model inherited
+	// from a resumed session (used when no --model was passed).
+	modelRef  string
 	window    int64  // effective model window (registry.Limits: config/registry/learned/fallback)
 	winSource string // config|registry|discovery|learned|fallback
 	db        *ctxdb.Store
@@ -310,6 +333,9 @@ func (m *runModel) close(ctx context.Context) error {
 	}
 	if m.db == nil {
 		return err
+	}
+	if rerr := m.db.ReleaseLease(ctx, m.sessionID); rerr != nil {
+		err = errors.Join(err, fmt.Errorf("release lease: %w", rerr))
 	}
 	if cerr := m.db.CloseContext(ctx); cerr != nil {
 		return errors.Join(err, fmt.Errorf("close ctxdb: %w", cerr))
@@ -363,7 +389,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, err
 	}
-	provName, modelName, _ := strings.Cut(modelRef, "/")
+	provName, modelName, _ := strings.Cut(w.modelRef, "/")
 	limits, err := registry.NewLimits(nil, nil, limitstore.Store{DB: w.db}, nil)
 	if err != nil {
 		return nil, w.fail(fmt.Errorf("model limits: %w", err))
@@ -372,7 +398,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, w.fail(fmt.Errorf("model window: %w", err))
 	}
-	prov, err := newRunProvider(cfg, w.db, modelRef, o)
+	prov, err := newRunProvider(cfg, w.db, w.modelRef, o)
 	if err != nil {
 		return nil, w.fail(err)
 	}
@@ -383,6 +409,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		ledger:    &ctxLedger{db: w.db, provider: provName, model: modelName},
 		sessionID: w.sid,
 		cwd:       w.cwd,
+		modelRef:  w.modelRef,
 		window:    win.ContextWindow,
 		winSource: string(win.Source),
 		inlineCap: w.inlineCap,

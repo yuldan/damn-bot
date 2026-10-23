@@ -3715,3 +3715,16 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** DDL/migrasi/dependency/token 0; LOC `ctxdb` +161 (terukur 4.209/4.250), `cmd/damnbot` +≈330 baris non-test. `prune` mengunci writer per batch (≤ 500 baris), bukan satu transaksi panjang.
 
 **Konsekuensi.** (+) CLI-039 tertutup tanpa melemahkan invariant P9: hanya mode maintenance yang sudah ada yang menghapus metadata jurnal. (+) Transkrip dan file blob tidak ikut hilang; `doctor gc` tetap satu-satunya yang mengklaim file. (−) `prune` tidak langsung membebaskan disk (blob menunggu gc), dan `clear` menghilangkan kemampuan undo sampai aksi berikutnya tercatat. (−) Maintenance checkpoint dan session purge saling menolak; pengguna harus menunggu purge selesai.
+## ADR-150 — Headless `run` resume: `--session <id>` / `-c|--continue`
+
+**Status:** Accepted 2026-10-23 (F2; melengkapi SPEC §10 `run` dan EC-STATE/resume parity). Tanpa DDL, dependency, atau budget baru.
+
+**Konteks.** `damnbot run` selalu membuat sesi baru, sehingga turn gagal yang sudah ditandai `context_exclude` (#211/ADR-134) tidak dapat dilanjutkan pada sesi yang sama dan paritas resume (MEM-013) belum ada di headless.
+
+**Keputusan.**
+1. **Flag.** `run --session <id>` melanjutkan sesi itu; `-c`/`--continue` memilih sesi visible terbaru dengan `cwd` = direktori kerja proses (`ORDER BY created_at DESC, id`). Keduanya saling eksklusif; tanpa flag perilaku lama (sesi baru).
+2. **Metadata.** Sesi dilanjutkan memakai `cwd` dan `model` tersimpan; `--model`/`provider.model` yang diberikan menang. Sesi tanpa model tersimpan dan tanpa model eksplisit gagal dengan pesan jelas. Sandbox/engine/registry dibangun dari `cwd` sesi, bukan cwd proses.
+3. **Lease.** `ctxdb.AcquireLease` dipanggil untuk sesi yang dilanjutkan (`session_busy`/`lease_fenced`/`session_purging` gagal), dan `runModel.close` melepas lease sebelum menutup DB; bila start gagal sesudah lease diambil (skill/sandbox/provider), jalur error melepas lease sebelum menutup DB sehingga retry tidak melihat `session_busy`; sesi `--session`/`--continue` tidak membuat baris sesi baru.
+4. **History.** Resume memakai jalur `ctxdb.History`/assemble yang sama; turn `context_exclude` tidak masuk request berikutnya dan barisnya tetap dapat di-recall. Tidak ada jalur history kedua.
+5. **Exit code.** Tidak berubah: 0 `completed`, 2 kegagalan turn, 1 untuk error schema; output JSON tetap memuat `session_id`.
+6. **Test.** `internal/e2e` (child binary + fake provider): `TestRunResumeExcludesFailedTurn` (turn gagal + side effect `write_file`, resume tidak memuat penanda turn gagal/tool result, side effect tetap ada) dan `TestRunContinueNewestSession` (`--continue` memakai id yang sama dan membawa history).

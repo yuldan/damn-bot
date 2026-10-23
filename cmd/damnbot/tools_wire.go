@@ -177,6 +177,9 @@ type runWiring struct {
 	registry *tools.Registry
 	sid      string
 	cwd      string
+	// modelRef is the effective provider/model after resume resolution: a
+	// resumed session may supply the model when no flag or config did.
+	modelRef string
 	fail     func(error) error
 	// inlineCap is the route window budget in tokens the tool inline aggregate
 	// scales with (SPEC P5 amendment, GAP-COST-08). It is a wiring value, not a
@@ -184,18 +187,35 @@ type runWiring struct {
 	inlineCap int
 }
 
+// openWiredSession opens the run store and resolves the session (new or
+// resumed), returning the effective model. Extracted from newRunWiring so its
+// cyclomatic complexity stays inside the E-51 gate.
+func openWiredSession(ctx context.Context, dataDir, modelRef string, o *runOptions) (*ctxdb.Store, string, string, string, error) {
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run"})
+	if err != nil {
+		return nil, "", "", "", fmt.Errorf("open ctxdb: %w", err)
+	}
+	sid, cwd, resumedModel, err := runSession(ctx, db, modelRef, o)
+	if err != nil {
+		return nil, "", "", "", closeDB(ctx, db, "", err)
+	}
+	if modelRef == "" {
+		modelRef = resumedModel
+	}
+	if modelRef == "" {
+		return nil, "", "", "", closeDB(ctx, db, sid, errors.New("--model or provider.model is required to resume a session without one"))
+	}
+	return db, sid, cwd, modelRef, nil
+}
+
 // newRunWiring opens the run store, the sandbox and codetools engine, the exec
 // runner and its persistent sessions, then wires the shell, file, and skill
 // tools into a registry. Failures after the sessions exist go through the
 // returned fail closure so nothing leaks.
 func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, spill tools.Spill, configDir, home string) (*runWiring, error) {
-	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run"})
+	db, sid, cwd, modelRef, err := openWiredSession(ctx, dataDir, modelRef, o)
 	if err != nil {
-		return nil, fmt.Errorf("open ctxdb: %w", err)
-	}
-	sid, cwd, err := newRunSession(ctx, db, modelRef)
-	if err != nil {
-		return nil, closeDB(ctx, db, "", err)
+		return nil, err
 	}
 	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
 	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
@@ -267,6 +287,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		registry:  reg,
 		sid:       sid,
 		cwd:       cwd,
+		modelRef:  modelRef,
 		fail:      fail,
 		inlineCap: cfg.Loop.TurnMaxInputTok,
 	}, nil
