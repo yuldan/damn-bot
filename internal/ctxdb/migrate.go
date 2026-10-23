@@ -170,6 +170,9 @@ func (s *Store) dbVersion(ctx context.Context, migs []migration) (v int, err err
 	if err = getOne(ctx, s.r, "PRAGMA user_version", nil, &v); err != nil || v == 0 {
 		return 0, err
 	}
+	if v > s.schemaMax() {
+		return v, nil
+	}
 	sums, err := column[string](ctx, s.r, "SELECT checksum FROM schema_migrations ORDER BY version")
 	for i := 0; err == nil && i < len(sums) && i < len(migs); i++ {
 		if migs[i].sum != sums[i] {

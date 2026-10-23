@@ -92,6 +92,9 @@ func assertCrashed(t *testing.T, dir, turnID string) {
 		t.Fatal(err)
 	}
 	for i := range hist {
+		if hist[i].Kind == "context_exclude" {
+			continue // audit marker stays (excludeTurns)
+		}
 		if hist[i].TurnID == turnID {
 			t.Fatalf("crashed turn still in context: %+v", hist[i])
 		}

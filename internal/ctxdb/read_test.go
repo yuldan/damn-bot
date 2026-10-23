@@ -131,7 +131,7 @@ func TestHistoryContextExclude(t *testing.T) {
 		Event{Kind: "user_message", TurnID: "T1", Content: "poison"},
 		Event{Kind: "assistant_message", TurnID: "T1", Content: "bad answer"},
 		Event{Kind: "user_message", TurnID: "T2", Content: "good"},
-		Event{Kind: "context_exclude", Payload: `{"turn_id":"T1","reason":"provider_error"}`},
+		Event{Kind: "context_exclude", TurnID: "T1", Payload: `{"turn_id":"T1","reason":"provider_error"}`},
 	))
 	got, err := s.History(ctx, "S", 0)
 	must(t, err)

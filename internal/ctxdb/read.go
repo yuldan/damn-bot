@@ -174,6 +174,8 @@ func (s *Store) History(ctx context.Context, sessionID string, fromSeq int64, op
 		return nil, err
 	}
 	if len(out) > o.Limit {
+		// The limit counts raw rows, including context_exclude audit markers;
+		// a marker inside the window is returned, one outside it is not.
 		out = out[:o.Limit]
 	}
 	return out, nil
@@ -196,16 +198,23 @@ func (s *Store) historySummaries(ctx context.Context, sessionID string, fromSeq 
 	}
 	var out []historySummary
 	err := s.each(ctx, lineageCTE+`
-		SELECT lin.id, sm.id, sm.from_seq, sm.to_seq, sm.content, sm.created_at
+		SELECT lin.id, sm.id, sm.from_seq, sm.to_seq, sm.content, coalesce(sm.content_enc, X''), sm.created_at
 		  FROM lin JOIN summaries sm ON sm.session_id = lin.id AND sm.to_seq <= lin.lim
 		 WHERE sm.id = (SELECT max(m.id) FROM summaries m
 		                 WHERE m.session_id = sm.session_id AND m.to_seq <= lin.lim)
 		   AND (?2 = 0 OR (lin.depth = 0 AND sm.to_seq > ?2))
 		 ORDER BY lin.depth DESC, sm.id`, []any{sessionID, fromSeq}, func(r *sql.Rows) error {
 		var h historySummary
-		if err := r.Scan(&h.SessionID, &h.ID, &h.FromSeq, &h.ToSeq, &h.Content, &h.CreatedAt); err != nil {
+		var enc []byte
+		if err := r.Scan(&h.SessionID, &h.ID, &h.FromSeq, &h.ToSeq, &h.Content, &enc, &h.CreatedAt); err != nil {
 			return wrap(err)
 		}
+		identity := fmt.Sprintf("%s|%d:%d", h.SessionID, h.FromSeq, h.ToSeq)
+		dc, derr := s.openRow("summaries.content", identity, enc, h.Content)
+		if derr != nil {
+			return derr
+		}
+		h.Content = dc
 		out = append(out, h)
 		return nil
 	})
@@ -315,8 +324,9 @@ func excludeTurns(evs []Event, turns map[string]bool) []Event {
 	}
 	out := evs[:0]
 	for i := range evs {
-		if e := evs[i]; e.TurnID == "" || !turns[e.TurnID] {
-			out = append(out, e)
+		e := &evs[i]
+		if e.Kind == "context_exclude" || e.TurnID == "" || !turns[e.TurnID] {
+			out = append(out, *e)
 		}
 	}
 	return out
@@ -398,14 +408,14 @@ func (s *Store) Search(ctx context.Context, q Query) ([]Hit, error) {
 func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int, summaries bool) ([]Hit, error) {
 	q := `SELECT e.id, e.session_id, e.seq, e.kind, bm25(events_fts), e.content, e.content_enc,
 		EXISTS (SELECT 1 FROM events x WHERE x.session_id = e.session_id AND x.kind = 'context_exclude'
-			AND json_extract(x.payload, '$.turn_id') = e.turn_id)
+			AND x.turn_id = e.turn_id)
 		FROM events_fts JOIN events e ON e.id = events_fts.rowid
 		WHERE events_fts MATCH ? AND ` + notPurging("e.session_id")
 	if summaries {
-		q = `SELECT sm.event_id, sm.session_id, sm.to_seq, '', bm25(summaries_fts), sm.content,
+		q = `SELECT sm.event_id, sm.session_id, sm.to_seq, '', bm25(summaries_fts), sm.content, sm.content_enc, sm.from_seq,
 			EXISTS (SELECT 1 FROM events x JOIN events t ON t.session_id = x.session_id
 				WHERE x.session_id = sm.session_id AND x.kind = 'context_exclude'
-				AND json_extract(x.payload, '$.turn_id') = t.turn_id AND t.seq BETWEEN sm.from_seq AND sm.to_seq)
+				AND x.turn_id = t.turn_id AND t.seq BETWEEN sm.from_seq AND sm.to_seq)
 			FROM summaries_fts JOIN summaries sm ON sm.id = summaries_fts.rowid
 			WHERE summaries_fts MATCH ? AND ` + notPurging("sm.session_id")
 	}
@@ -425,15 +435,21 @@ func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int
 		var h Hit
 		var content string
 		var enc []byte
+		var from int64
 		if summaries {
-			if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &h.Excluded); err != nil {
+			if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &enc, &from, &h.Excluded); err != nil {
 				return wrap(err)
 			}
 		} else if err := r.Scan(&h.EventID, &h.SessionID, &h.Seq, &h.Kind, &h.Score, &content, &enc, &h.Excluded); err != nil {
 			return wrap(err)
 		}
 		identity := h.SessionID + "|" + strconv.FormatInt(h.Seq, 10)
-		dc, derr := s.openRow("events.content", identity, enc, content)
+		scope := "events.content"
+		if summaries {
+			identity = h.SessionID + "|" + strconv.FormatInt(from, 10) + ":" + strconv.FormatInt(h.Seq, 10)
+			scope = "summaries.content"
+		}
+		dc, derr := s.openRow(scope, identity, enc, content)
 		if derr != nil {
 			return derr
 		}
@@ -459,7 +475,18 @@ func (s *Store) searchExpr(text string) string {
 			cjk = nil
 		}
 	}
-	for tok := range strings.FieldsSeq(ftsNorm(text)) {
+	var raw []string
+	if s.codec == nil {
+		for tok := range strings.FieldsSeq(ftsNorm(text)) {
+			raw = append(raw, tok)
+		}
+	} else {
+		raw = strings.FieldsFunc(ftsNorm(text), func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		})
+	}
+	for _, orig := range raw {
+		tok := orig
 		if s.codec != nil {
 			tok = s.codec.FTS(tok)
 		}
@@ -468,12 +495,12 @@ func (s *Store) searchExpr(text string) string {
 			continue
 		}
 		quoted := `"` + tok + `"`
-		if !hasCJK(tok) {
+		if !hasCJK(orig) {
 			flush()
 			parts = append(parts, quoted)
 			continue
 		}
-		if utf8.RuneCountInString(tok) == 1 {
+		if utf8.RuneCountInString(orig) == 1 {
 			quoted += "*"
 		}
 		cjk = append(cjk, quoted)

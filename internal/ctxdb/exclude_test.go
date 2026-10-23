@@ -47,6 +47,9 @@ func TestCrashExcludesDanglingTurn(t *testing.T) {
 	got, err := b.History(ctx, "S", 0)
 	must(t, err)
 	for _, ev := range got {
+		if ev.Kind == "context_exclude" {
+			continue // audit marker stays (excludeTurns)
+		}
 		if ev.TurnID == "T1" {
 			t.Fatalf("excluded turn still in context: %+v", ev)
 		}
@@ -86,10 +89,13 @@ func TestHistoryDropsExcludedSummary(t *testing.T) {
 			VALUES ('S', 1, 3, '{"goal":"poison"}', 'm', 1, 1, ?, 0)`, id)
 		return err
 	}))
-	must(t, s.Append2(ctx, "S", Event{Kind: "context_exclude", Payload: `{"turn_id":"T1","reason":"provider_error"}`}))
+	must(t, s.Append2(ctx, "S", Event{Kind: "context_exclude", TurnID: "T1", Payload: `{"turn_id":"T1","reason":"provider_error"}`}))
 	got, err := s.History(ctx, "S", 0)
 	must(t, err)
 	for _, ev := range got {
+		if ev.Kind == "context_exclude" {
+			continue
+		}
 		if strings.Contains(ev.Content, "poison") || ev.TurnID == "T1" {
 			t.Fatalf("excluded summary or turn returned: %+v", ev)
 		}
@@ -126,5 +132,25 @@ func TestSpanMarkerIgnored(t *testing.T) {
 	}
 	if !seen["first"] || !seen["later"] {
 		t.Fatalf("span marker hid history: %+v", got)
+	}
+}
+
+// TestHistoryLimitCountsAuditMarker documents the chosen behaviour: the
+// History limit counts raw rows, so a marker inside the window is returned and
+// a model-visible event after it is not.
+func TestHistoryLimitCountsAuditMarker(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	ctx := context.Background()
+	session(t, s, "S", "")
+	must(t, s.Append2(ctx, "S",
+		Event{Kind: "user_message", TurnID: "T2", Content: "visible one"},
+		Event{Kind: "context_exclude", TurnID: "T1", Payload: `{"turn_id":"T1","reason":"provider_error"}`},
+		Event{Kind: "user_message", TurnID: "T2", Content: "visible two"},
+	))
+	got, err := s.History(ctx, "S", 0, WithHistoryLimit(2))
+	must(t, err)
+	if len(got) != 2 || got[0].Content != "visible one" || got[1].Kind != "context_exclude" {
+		t.Fatalf("limited history = %+v, want visible one + marker", got)
 	}
 }

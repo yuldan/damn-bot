@@ -30,6 +30,9 @@ func TestKill9MidTurnExcludes(t *testing.T) {
 	got, err := s.History(context.Background(), "crash", 0)
 	must(t, err)
 	for _, ev := range got {
+		if ev.Kind == "context_exclude" {
+			continue
+		}
 		if ev.TurnID == "T1" {
 			t.Fatalf("crashed turn still in context: %+v", ev)
 		}

@@ -34,4 +34,5 @@
 /internal/secret/ @yuldan
 /internal/skills/ @yuldan
 /internal/testutil/ @yuldan
+/internal/integration/ @yuldan
 /internal/tools/ @yuldan

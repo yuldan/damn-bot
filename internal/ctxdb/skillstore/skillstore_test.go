@@ -403,3 +403,26 @@ func TestDeleteAgentRows(t *testing.T) {
 		t.Fatalf("agent-only helpers removed a trusted row or kept a deleted one: %+v", rows)
 	}
 }
+
+// TestSearchOperatorsAndCJK (SEC7-62): free-text operator words are literal,
+// never FTS operators, and CJK names are found through bigram normalization.
+func TestSearchOperatorsAndCJK(t *testing.T) {
+	s := open(t)
+	r := mkrow("日本語スキル", "deploy checklist", "user")
+	r.Body = "deploy checklist with OR NEAR NOT words"
+	r.Name = "日本語スキル"
+	if _, err := Index(t.Context(), s, r, 100); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{"deploy AND", "deploy OR", "deploy NOT", "deploy NEAR", "AND", "OR", "NOT", "NEAR"} {
+		if _, err := Search(t.Context(), s, q, 5); err != nil {
+			t.Fatalf("search %q: %v", q, err)
+		}
+	}
+	for _, q := range []string{"日本語", "スキル", "日本語スキル"} {
+		got, err := Search(t.Context(), s, q, 5)
+		if err != nil || len(got) != 1 || got[0].Name != "日本語スキル" {
+			t.Fatalf("CJK search %q = %+v, %v", q, got, err)
+		}
+	}
+}

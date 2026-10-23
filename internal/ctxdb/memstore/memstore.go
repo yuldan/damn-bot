@@ -12,7 +12,9 @@ package memstore
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path"
@@ -99,33 +101,24 @@ type Hit struct {
 // approved row is checked against the per-scope cap and retires its
 // supersedes target in the same transaction.
 func Insert(tx *ctxdb.Tx, r *Row, d *Decision, red *redact.Redactor) (int64, error) {
-	if red == nil {
-		return 0, fmt.Errorf("%w: nil redactor", ErrInvalid)
-	}
-	row := *r
-	row.Content = red.String(row.Content)
-	if err := validate(&row, d); err != nil {
+	row, err := prepare(tx, r, d, red)
+	if err != nil {
 		return 0, err
 	}
-	if d.Status == "approved" && row.Origin != "user" {
-		return 0, fmt.Errorf("%w: origin %q", ErrPolicy, row.Origin)
+	encID, ierr := newEncID()
+	if ierr != nil {
+		return 0, ierr
 	}
-	if row.SupersedesID != nil {
-		if err := sameScope(tx, *row.SupersedesID, row.Scope); err != nil {
-			return 0, err
-		}
-	}
-	if d.Status == "approved" {
-		if err := checkCap(tx, row.Scope, row.Content, 0); err != nil {
-			return 0, err
-		}
+	contentEnc, contentStored, serr := tx.SealRow("memory.content", row.Scope+"|"+encID, row.Content, "")
+	if serr != nil {
+		return 0, fmt.Errorf("memstore seal: %w", serr)
 	}
 	var id int64
-	err := tx.Get(`INSERT INTO memory(kind, category, scope, name, content, origin, source_session,
+	err = tx.Get(`INSERT INTO memory(kind, category, scope, name, content, content_enc, content_len, enc_id, origin, source_session,
 		evidence_event_id, supersedes_id, expires_at, scan_result, created_at)
-		VALUES ('memory', ?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING id`,
+		VALUES ('memory', ?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13) RETURNING id`,
 		[]any{
-			row.Category, row.Scope, row.Content, row.Origin, nullable(row.SourceSession),
+			row.Category, row.Scope, contentStored, nullBytes(contentEnc), utf8.RuneCountInString(row.Content), encID, row.Origin, nullable(row.SourceSession),
 			row.EvidenceEventID, row.SupersedesID, row.ExpiresAt, row.ScanResult, row.CreatedAt,
 		}, &id)
 	if err != nil {
@@ -141,6 +134,31 @@ func Insert(tx *ctxdb.Tx, r *Row, d *Decision, red *redact.Redactor) (int64, err
 	}
 	r.ID, r.Content = id, row.Content
 	return id, nil
+}
+
+func prepare(tx *ctxdb.Tx, r *Row, d *Decision, red *redact.Redactor) (*Row, error) {
+	if red == nil {
+		return nil, fmt.Errorf("%w: nil redactor", ErrInvalid)
+	}
+	row := *r
+	row.Content = red.String(row.Content)
+	if err := validate(&row, d); err != nil {
+		return nil, err
+	}
+	if d.Status == "approved" && row.Origin != "user" {
+		return nil, fmt.Errorf("%w: origin %q", ErrPolicy, row.Origin)
+	}
+	if row.SupersedesID != nil {
+		if err := sameScope(tx, *row.SupersedesID, row.Scope); err != nil {
+			return nil, err
+		}
+	}
+	if d.Status == "approved" {
+		if err := checkCap(tx, row.Scope, row.Content, 0); err != nil {
+			return nil, err
+		}
+	}
+	return &row, nil
 }
 
 // Put is Insert in its own transaction.
@@ -277,7 +295,7 @@ func searchIDs(tx *ctxdb.Tx, q *Query) ([]int64, error) {
 	if text != "" {
 		from = "memory_fts f JOIN v_memory_status m ON m.id = f.rowid"
 		where = append(where, "memory_fts MATCH ?")
-		args = append(args, text)
+		args = append(args, tx.FTSQuery(text))
 	}
 	if len(q.Scopes) > 0 {
 		where = append(where, "m.scope IN ("+marks(len(q.Scopes))+")")
@@ -365,13 +383,18 @@ func Expire(ctx context.Context, s *ctxdb.Store, now int64) (int64, error) {
 func row(tx *ctxdb.Tx, id int64) (Row, error) {
 	var r Row
 	var ev, sup, exp, last sql.NullInt64
-	err := tx.Get(`SELECT id, category, scope, content, origin, COALESCE(source_session, ''),
+	var contentEnc []byte
+	var encID string
+	err := tx.Get(`SELECT id, category, scope, content, content_enc, enc_id, origin, COALESCE(source_session, ''),
 		evidence_event_id, supersedes_id, expires_at, scan_result, created_at, status, pinned, last_confirmed_at
 		FROM v_memory_status WHERE id = ?1`, []any{id},
-		&r.ID, &r.Category, &r.Scope, &r.Content, &r.Origin, &r.SourceSession,
+		&r.ID, &r.Category, &r.Scope, &r.Content, &contentEnc, &encID, &r.Origin, &r.SourceSession,
 		&ev, &sup, &exp, &r.ScanResult, &r.CreatedAt, &r.Status, &r.Pinned, &last)
 	if err != nil {
 		return Row{}, err //nolint:wrapcheck // classify at the exported boundary (Get/Search); callers here add context
+	}
+	if r.Content, err = tx.OpenRow("memory.content", r.Scope+"|"+encID, contentEnc, r.Content); err != nil {
+		return Row{}, fmt.Errorf("memstore decrypt: %w", err)
 	}
 	r.EvidenceEventID, r.SupersedesID, r.ExpiresAt = ptr(ev), ptr(sup), ptr(exp)
 	r.LastConfirmedAt = ptr(last)
@@ -391,7 +414,7 @@ func insertDecision(tx *ctxdb.Tx, id int64, d *Decision) error {
 // excluding self (the row being approved); over MaxScopeChars is TooLarge.
 func checkCap(tx *ctxdb.Tx, scope, content string, self int64) error {
 	var total int64
-	err := tx.Get(`SELECT COALESCE(SUM(length(m.content)), 0) + length(?3)
+	err := tx.Get(`SELECT COALESCE(SUM(COALESCE(m.content_len, length(m.content))), 0) + length(?3)
 		FROM memory m
 		JOIN memory_decisions d ON d.id = (SELECT id FROM memory_decisions WHERE memory_id = m.id ORDER BY id DESC LIMIT 1)
 		WHERE m.kind = 'memory' AND m.scope = ?1 AND d.status = 'approved' AND m.id <> ?2`,
@@ -565,6 +588,21 @@ func marks(n int) string {
 		return "NULL"
 	}
 	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
+func newEncID() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("memstore enc id: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+func nullBytes(b []byte) any {
+	if len(b) == 0 {
+		return nil
+	}
+	return b
 }
 
 func nullable(s string) any {

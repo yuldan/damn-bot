@@ -357,12 +357,31 @@ func (s *Store) driver(writer bool) (*sqlite.Driver, error) {
 			}
 			return nil, nil
 		}),
-		d.RegisterDeterministicScalarFunction("dmb_fts_norm", 1, func(_ *sqlite.FunctionContext, a []driver.Value) (driver.Value, error) {
-			t, ok := a[0].(string)
-			if !ok {
+		d.RegisterDeterministicScalarFunction("dmb_fts_norm", 3, func(_ *sqlite.FunctionContext, a []driver.Value) (driver.Value, error) {
+			scope, sok := a[1].(string)
+			identity, iok := a[2].(string)
+			if !sok || !iok {
 				return "", nil
 			}
-			return ftsNorm(t), nil
+			switch v := a[0].(type) {
+			case []byte:
+				if s.codec == nil {
+					return "", nil
+				}
+				pt, err := s.codec.Open(scope, v)
+				if err != nil {
+					return nil, fmt.Errorf("ctxdb: fts decrypt: %w", err)
+				}
+				plain := string(pt)
+				if identity != "" && strings.HasPrefix(plain, identity+"\x00") {
+					plain = plain[len(identity)+1:]
+				}
+				return encFTS(s.codec, plain), nil
+			case string:
+				return s.ftsValue(v), nil
+			default:
+				return "", nil
+			}
 		}))
 }
 
@@ -405,6 +424,34 @@ func FTSNorm(t string) string { return ftsNorm(t) }
 
 // ftsNorm lowercases text and splits CJK runs into overlapping bigrams
 // (INF-01) so unicode61 tokenises them.
+func (s *Store) ftsValue(t string) string {
+	if s.codec == nil {
+		return ftsNorm(t)
+	}
+	return encFTS(s.codec, t)
+}
+
+// keyedFTSExpr hashes quoted/token terms but preserves FTS operators (OR,
+// AND, NOT) used by consumer query builders.
+func keyedFTSExpr(c Codec, expr string) string {
+	var out []string
+	for part := range strings.FieldsSeq(expr) {
+		switch part {
+		case "OR", "AND", "NOT":
+			out = append(out, part)
+		default:
+			tok := strings.Trim(part, `"`)
+			fields := strings.FieldsFunc(ftsNorm(tok), func(r rune) bool {
+				return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+			})
+			for _, f := range fields {
+				out = append(out, c.FTS(f))
+			}
+		}
+	}
+	return strings.Join(out, " ")
+}
+
 func ftsNorm(t string) string {
 	var b strings.Builder
 	var prev rune = -1

@@ -11,10 +11,12 @@ package skillstore
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
-	"unicode"
+	"unicode/utf8"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/redact"
@@ -256,11 +258,19 @@ func quarantineMemory(tx *ctxdb.Tx, r *Row, scan string, rejected bool, at int64
 	if scan == "" {
 		scan = "{}"
 	}
+	encID, ierr := newEncID()
+	if ierr != nil {
+		return 0, ierr
+	}
+	contentEnc, contentStored, serr := tx.SealRow("memory.content", "user|"+encID, r.Body, "")
+	if serr != nil {
+		return 0, fmt.Errorf("skillstore seal: %w", serr)
+	}
 	var id int64
-	err := tx.Get(`INSERT INTO memory(kind, category, scope, name, content, origin, source_session,
+	err := tx.Get(`INSERT INTO memory(kind, category, scope, name, content, content_enc, content_len, enc_id, origin, source_session,
 		evidence_event_id, supersedes_id, expires_at, scan_result, created_at)
-		VALUES ('skill', 'fact', 'user', ?1, ?2, ?3, NULL, NULL, NULL, NULL, ?4, ?5) RETURNING id`,
-		[]any{r.Name, r.Body, r.Source, scan, at}, &id)
+		VALUES ('skill', 'fact', 'user', ?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, NULL, NULL, ?7, ?8) RETURNING id`,
+		[]any{r.Name, contentStored, nullBytes(contentEnc), utf8.RuneCountInString(r.Body), encID, r.Source, scan, at}, &id)
 	if err != nil {
 		return 0, fmt.Errorf("skillstore memory: %w", err)
 	}
@@ -290,9 +300,9 @@ func searchIDs(tx *ctxdb.Tx, text string, k int) ([]int64, error) {
 		from = `skills_fts f
 			JOIN skills s ON s.id = f.rowid
 			LEFT JOIN v_memory_status m ON m.id = s.memory_id`
-		where += " AND skills_fts MATCH dmb_fts_norm(?2)"
+		where += " AND skills_fts MATCH ?2"
 		order = "bm25(skills_fts), s.name"
-		args = append(args, query)
+		args = append(args, tx.FTSQuery(query))
 	}
 	ids, err := tx.Ints("SELECT s.id FROM "+from+" WHERE "+where+" ORDER BY "+order+" LIMIT ?1", args...)
 	if err != nil {
@@ -325,6 +335,21 @@ func redacted(r *Row) *Row {
 	return &out
 }
 
+func newEncID() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("skillstore enc id: %w", err)
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+func nullBytes(b []byte) any {
+	if len(b) == 0 {
+		return nil
+	}
+	return b
+}
+
 func validate(r *Row, indexed bool) error {
 	if r == nil {
 		return fmt.Errorf("%w: nil row", ErrInvalid)
@@ -353,19 +378,18 @@ func validate(r *Row, indexed bool) error {
 // (routing keyword/prefix, SPEC §4.8); operators in free text become
 // separators so a query can never fail with a MATCH syntax error.
 func ftsQuery(text string) string {
-	var b strings.Builder
-	for _, r := range text {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte(' ')
-		}
-	}
-	terms := strings.Fields(b.String())
+	terms := strings.Fields(ctxdb.FTSNorm(text))
 	if len(terms) == 0 {
 		return ""
 	}
-	terms[len(terms)-1] += "*"
+	for i := range terms {
+		term := strings.ReplaceAll(terms[i], `"`, `""`)
+		if i == len(terms)-1 {
+			terms[i] = `"` + term + `"*`
+			continue
+		}
+		terms[i] = `"` + term + `"`
+	}
 	return strings.Join(terms, " ")
 }
 
