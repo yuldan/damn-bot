@@ -22,6 +22,32 @@ import (
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
+// wireModules builds the deferred catalog of the frozen module registry and
+// appends its meta tools to list (ADR-119), so newRunWiring stays short.
+func wireModules(list []tools.Tool) (runModules, *tools.Registry, error) {
+	mods, err := newRunModules(modules.Default(), nil)
+	if err != nil {
+		return runModules{}, nil, err
+	}
+	reg, err := tools.NewRegistry(append(list, mods.meta...)...)
+	if err != nil {
+		return runModules{}, nil, fmt.Errorf("registry: %w", err)
+	}
+	return mods, reg, nil
+}
+
+// stopModules shuts the module runtime down and joins the cause, so the fail
+// path of newRunWiring and runModel.close release modules the same way.
+func stopModules(ctx context.Context, mods *runModules, cause error) error {
+	if mods.runtime == nil {
+		return cause
+	}
+	if serr := mods.runtime.Shutdown(ctx); serr != nil {
+		return errors.Join(cause, fmt.Errorf("stop modules: %w", serr))
+	}
+	return cause
+}
+
 func runtimeDialect() classify.Dialect {
 	switch runtime.GOOS {
 	case "windows":
@@ -221,11 +247,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	// close its runtime too, exactly like a finished run.
 	var mods runModules
 	fail := func(cause error) error {
-		if mods.runtime != nil {
-			if serr := mods.runtime.Shutdown(ctx); serr != nil {
-				cause = errors.Join(cause, fmt.Errorf("stop modules: %w", serr))
-			}
-		}
+		cause = stopModules(ctx, &mods, cause)
 		engine.Close()
 		if cerr := sessions.Close(); cerr != nil {
 			cause = errors.Join(cause, fmt.Errorf("close sessions: %w", cerr))
@@ -265,13 +287,10 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	}
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
-	mods, err = newRunModules(modules.Default(), nil)
+	var reg *tools.Registry
+	mods, reg, err = wireModules(list)
 	if err != nil {
 		return nil, fail(err)
-	}
-	reg, err := tools.NewRegistry(append(list, mods.meta...)...)
-	if err != nil {
-		return nil, fail(fmt.Errorf("registry: %w", err))
 	}
 	return &runWiring{
 		db:        db,

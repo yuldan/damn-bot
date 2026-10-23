@@ -20,6 +20,7 @@ func (c *Config) Validate() error {
 		c.validateExec,
 		c.validateAgent,
 		c.validateSkills,
+		c.validateSessions,
 		c.validateLog,
 	}
 	for _, check := range checks {
@@ -186,6 +187,13 @@ func validDirPath(key string, i int, p string) error {
 	}
 	if strings.ContainsAny(p, "\x00\n\r") || (!filepath.IsAbs(p) && p[0] != '~') {
 		return invalid(key, "entry %d must be absolute", i)
+	}
+	return nil
+}
+
+func (c *Config) validateSessions() error {
+	if c.Sessions.PruneAfterDays < 1 || c.Sessions.PruneAfterDays > 3650 {
+		return invalid("sessions.prune_after_days", "must be in 1..3650")
 	}
 	return nil
 }
