@@ -3471,6 +3471,8 @@ Branch `f1-tools-base` mewarisi penanda konflik yang belum diselesaikan di tabel
 
 *(Amandemen 2026-10-22: baris EC-WIN-002, EC-WIN-005, dan EC-WIN-011 ledger F2 ditutup di runner Windows oleh PR #257 — `internal/ctxdb/win_f2_edgecases_windows_test.go`, `TestWindowsF2EdgeCases`. Tidak ada fase yang berubah; ledger diperbarui sesuai butir 2.)*
 
+*(Amandemen 2026-10-23, butir 2: baris EC ledger F2 disinkronkan dengan main setelah #245/#249/#254/#255/#257/#260/#261/#275/#280 mendarat — 41/41 baris EC F2 kini `covered`/`n/a`, tabel 16 id F1 dan §4 item 7 diperbarui; tidak ada fase atau angka budget yang berubah.)*
+
 **Aturan penerapan.** Teks diterapkan (2026-10-22): `docs/F2-ACCEPTANCE.md` sebagai artefak review F2; dirujuk oleh PR #242 dan gate kelengkapan #244. Tidak mengubah SPEC, skema, dependency, atau `loc.budget`.
 
 **Konteks.** Acceptance F2 tersebar di ROADMAP (baris per fase), EDGE-CASES (EC per komponen), FEATURE-PARITY (fase per baris), dan DECISIONS §22.1 (GAP). Sebelumnya tidak ada satu dokumen yang memetakan setiap baris ke test pembuktinya, sehingga baris yang tidak pernah ditulis test-nya bisa lolos acceptance secara diam-diam (temuan AUD-004/NEW-12 dan review F2).

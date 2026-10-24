@@ -30,16 +30,17 @@ confirm that a test name exists nowhere else.
 
 | group | rows | covered | in-flight | surface | missing |
 | --- | --- | --- | --- | --- | --- |
-| EC — required by ROADMAP F2 | 41 | 30 | 3 | — | 8 |
+| EC — required by ROADMAP F2 | 41 | 41 | — | — | 0 |
 | GAP — DECISIONS.md L247-265 | 18 | 5 | 2 | 2 | 9 |
 | Parity — F2 rows | 81 | 18 | 4 | 17 | 42 |
 
-The eight missing EC rows are `EC-CTX-006`, `EC-CTX-007`, `EC-CTX-017`
-(declared `pending:F2`), `EC-STATE-001`, `EC-STATE-007`, `EC-STATE-009`
-(absent from `TestStateEdgeCases`), and `EC-PROV-008`, `EC-TCALL-010`.
-`EC-WIN-002`, `EC-WIN-005`, `EC-WIN-011` moved from missing to in-flight in
-this PR (windows-latest runner); the sixteen uncataloged F1 ids are tabulated
-below with the sibling PRs that close them.
+All 41 EC rows are covered or `n/a` now. The eight rows that were missing when
+this ledger was written closed as: `EC-CTX-006` (#275), `EC-CTX-007`
+(#249/#260), `EC-CTX-017` and `EC-PROV-008` (#245), `EC-STATE-001/007/009`
+(#261), and `EC-TCALL-010` (`n/a` with a written reason, #174).
+`EC-WIN-002`, `EC-WIN-005`, `EC-WIN-011` moved from missing to in-flight here
+and are covered by #257 (windows-latest runner); the sixteen uncataloged F1
+ids below are covered by #254/#255.
 
 ---
 
@@ -52,8 +53,8 @@ below with the sibling PRs that close them.
 | EC-CTX-003 | `TestEdgeCases/EC-CTX-003` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-004 | `TestEdgeCases/EC-CTX-004` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-005 | `TestEdgeCases/EC-CTX-005` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-006 | `TestEdgeCases/EC-CTX-006` (`pending:F2`) | `internal/compaction/edgecases_test.go` | missing | compaction |
-| EC-CTX-007 | `TestEdgeCases/EC-CTX-007` (`pending:F2`) | `internal/compaction/edgecases_test.go` | missing | compaction |
+| EC-CTX-006 | `TestEdgeCases/EC-CTX-006` + `TestPruneSkillViewMarker` | `internal/compaction/edgecases_test.go`, `internal/compaction/prune_test.go` | covered (#275) | compaction |
+| EC-CTX-007 | `TestEdgeCases/EC-CTX-007` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-008 | `TestEdgeCases/EC-CTX-008` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-009 | `TestEdgeCases/EC-CTX-009` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-010 | `TestEdgeCases/EC-CTX-010` | `internal/compaction/edgecases_test.go` | covered | compaction |
@@ -63,7 +64,7 @@ below with the sibling PRs that close them.
 | EC-CTX-014 | `TestEdgeCases/EC-CTX-014` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-015 | `TestEdgeCases/EC-CTX-015` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-016 | `TestEdgeCases/EC-CTX-016` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-017 | `TestEdgeCases/EC-CTX-017` (`pending:F2`) | `internal/compaction/edgecases_test.go` | missing | compaction |
+| EC-CTX-017 | `TestEdgeCasesF2/EC-CTX-017` + `TestRunWindowReservation` | `internal/loop/edgecases_f2_test.go`, `cmd/damnbot/window_reservation_test.go` | covered (#245; the stale `pending:F2` row was removed from `internal/compaction/edgecases_test.go`) | loop |
 | EC-CTX-018 | `TestEdgeCases/EC-CTX-018` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-019 | `TestEdgeCases/EC-CTX-019` | `internal/compaction/edgecases_test.go` | covered | compaction |
 | EC-CTX-020 | `TestEdgeCases/EC-CTX-020` | `internal/compaction/edgecases_test.go` | covered | compaction |
@@ -83,43 +84,44 @@ below with the sibling PRs that close them.
 | EC-STATE-014 | `TestStateEdgeCases/EC-STATE-014` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-015 | `TestStateEdgeCases/EC-STATE-015` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | EC-STATE-016 | `TestStateEdgeCases/platformStateCases` | `internal/ctxdb/edgecases_unix_test.go` | covered | ctxdb |
-| EC-PROV-008 | — | — | missing | provider |
-| EC-TCALL-010 | — | — | missing | tools/loop |
-| EC-WIN-002 | `TestWindowsF2EdgeCases/EC-WIN-002` | `internal/ctxdb/win_f2_edgecases_windows_test.go` | in-flight (this PR) | ctxdb |
-| EC-WIN-005 | `TestWindowsF2EdgeCases/EC-WIN-005` | `internal/ctxdb/win_f2_edgecases_windows_test.go` | in-flight (this PR) | ctxdb |
-| EC-WIN-011 | `TestWindowsF2EdgeCases/EC-WIN-011` | `internal/ctxdb/win_f2_edgecases_windows_test.go` | in-flight (this PR) | ctxdb |
+| EC-PROV-008 | `TestEdgeCasesF2/EC-PROV-008` | `internal/loop/edgecases_f2_test.go` | covered (#245) | loop |
+| EC-TCALL-010 | `TestEdgeCasesF2/EC-TCALL-010` (`n/a`, reasoned) | `internal/tools/edgecases_f2_test.go` | n/a (#174: the declared-payload invariant is pinned in-process) | tools |
+| EC-WIN-002 | `TestWindowsF2EdgeCases/EC-WIN-002` | `internal/ctxdb/win_f2_edgecases_windows_test.go` | covered (#257) | ctxdb |
+| EC-WIN-005 | `TestWindowsF2EdgeCases/EC-WIN-005` | `internal/ctxdb/win_f2_edgecases_windows_test.go` | covered (#257) | ctxdb |
+| EC-WIN-011 | `TestWindowsF2EdgeCases/EC-WIN-011` | `internal/ctxdb/win_f2_edgecases_windows_test.go` | covered (#257) | ctxdb |
 
-Note: `EC-CTX-006`, `-007` and `-017` are declared `pending:F2` inside the
-compaction gate but their IDs are still accepted by the completeness test
-because the gate names them. The roadmap's "F2 = all EC-CTX ids" therefore
-passes while three are in fact unimplemented. This is exactly the class of
-silent miss the acceptance test must catch (§4, item 1).
+Note: `EC-CTX-006`, `-007` and `-017` were declared `pending:F2` inside the
+compaction gate while this ledger was written; all three are covered now
+(`-006` #275, `-007` #249/#260, `-017` #245, whose stale pending row was
+removed from `internal/compaction/edgecases_test.go`). The class of silent
+miss this section warned about is what §4 item 1 guards: a `pending` id at or
+below `PHASE`−1 fails the phase acceptance (ADR-176).
 
 ### F1 ids with no catalog row
 
 The same cross-check over the whole roadmap (not only F2) found 16 ids whose
-roadmap phase is F1 but which no test named. The F1 acceptance run was
-vacuous for them because the gate only saw declared rows. The cross-check gate
-listed in §4 reports them; two PRs close them:
+roadmap phase is F1 but which no test named when this ledger was written. All
+16 have a catalog row and a test now — EC-WIN-001/009/014/016/017 in #254, the
+rest in #255 — and `DAMNBOT_PHASE_ACCEPTANCE=1` with `PHASE = F3` passes:
 
 | EC | test | location | status |
 | --- | --- | --- | --- |
-| EC-FIO-002 | `TestEdgeCases/EC-FIO-002` | `internal/exec/edgecases_test.go` | in-flight (PR #255) |
-| EC-FIO-005 | `TestSurrogateEdgeCases/EC-FIO-005` | `internal/provider/edgecases_fio_test.go` | in-flight (PR #255) |
-| EC-FIO-006 | `TestTurnAggregateScaled/EC-FIO-006` | `internal/tools/edgecases_fio_test.go` | in-flight (PR #255) |
-| EC-FIO-009 | `TestSurrogateEdgeCases/EC-FIO-009` | `internal/provider/edgecases_fio_test.go` | in-flight (PR #255) |
-| EC-FIO-012 | `TestEdgeCases/EC-FIO-012` | `internal/exec/edgecases_test.go` | in-flight (PR #255) |
-| EC-FIO-016 | `TestSSEEncodingEdgeCases/EC-FIO-016` | `internal/netx/edgecases_fio_test.go` | in-flight (PR #255) |
-| EC-FIO-017 | `TestSSEEncodingEdgeCases/EC-FIO-017` | `internal/netx/edgecases_fio_test.go` | in-flight (PR #255) |
-| EC-FIO-019 | `TestTimeZoneEdgeCases/EC-FIO-019` | `internal/assemble/edgecases_fio_test.go` | in-flight (PR #255) |
-| EC-TCALL-009 | `TestEdgeCases/EC-TCALL-009` + `TestRunAnswerSchema` | `internal/loop/edgecases_test.go`, `cmd/damnbot/run_inject_test.go` | in-flight (PR #255) |
-| EC-TERM-002 | `TestEdgeCases/EC-TERM-002` | `internal/exec/edgecases_test.go` | in-flight (PR #255) |
-| EC-TERM-007 | `TestProbeTimeout/EC-TERM-007` | `internal/ctxdb/edgecases_term_test.go` | in-flight (PR #255) |
-| EC-WIN-001 | `TestWindowsF1EdgeCases/EC-WIN-001` | `internal/exec/win_f1_edgecases_windows_test.go` | in-flight (PR #254) |
-| EC-WIN-009 | `TestWindowsF1EdgeCases/EC-WIN-009` | `internal/ctxdb/win_f1_edgecases_windows_test.go` | in-flight (PR #254) |
-| EC-WIN-014 | `TestWindowsF1EdgeCases/EC-WIN-014` | `internal/codetools/win_f1_edgecases_windows_test.go` | in-flight (PR #254) |
-| EC-WIN-016 | `TestWindowsF1EdgeCases/EC-WIN-016` | `internal/exec/win_f1_edgecases_windows_test.go` | in-flight (PR #254) |
-| EC-WIN-017 | `TestWindowsF1EdgeCases/EC-WIN-017` | `cmd/damnbot/console_windows_test.go` | in-flight (PR #254) |
+| EC-FIO-002 | `TestEdgeCases/EC-FIO-002` | `internal/exec/edgecases_test.go` | covered (#255) |
+| EC-FIO-005 | `TestSurrogateEdgeCases/EC-FIO-005` | `internal/provider/edgecases_fio_test.go` | covered (#255) |
+| EC-FIO-006 | `TestTurnAggregateScaled/EC-FIO-006` | `internal/tools/edgecases_fio_test.go` | covered (#255) |
+| EC-FIO-009 | `TestSurrogateEdgeCases/EC-FIO-009` | `internal/provider/edgecases_fio_test.go` | covered (#255) |
+| EC-FIO-012 | `TestEdgeCases/EC-FIO-012` | `internal/exec/edgecases_test.go` | covered (#255) |
+| EC-FIO-016 | `TestSSEEncodingEdgeCases/EC-FIO-016` | `internal/netx/edgecases_fio_test.go` | covered (#255) |
+| EC-FIO-017 | `TestSSEEncodingEdgeCases/EC-FIO-017` | `internal/netx/edgecases_fio_test.go` | covered (#255) |
+| EC-FIO-019 | `TestVolatileTimeIsUTC/EC-FIO-019` | `cmd/damnbot/edgecases_volatile_test.go` | covered (#255) |
+| EC-TCALL-009 | `TestEdgeCases/EC-TCALL-009` + `TestRunAnswerSchema` | `internal/loop/edgecases_test.go`, `cmd/damnbot/run_inject_test.go` | covered (#255) |
+| EC-TERM-002 | `TestEdgeCases/EC-TERM-002` | `internal/exec/edgecases_test.go` | covered (#255) |
+| EC-TERM-007 | `TestProbeTimeout/EC-TERM-007` | `internal/ctxdb/edgecases_term_test.go` | covered (#255) |
+| EC-WIN-001 | `TestWindowsF1EdgeCases/EC-WIN-001` | `internal/exec/win_f1_edgecases_windows_test.go` | covered (#254) |
+| EC-WIN-009 | `TestWindowsF1EdgeCases/EC-WIN-009` | `internal/ctxdb/win_f1_edgecases_windows_test.go` | covered (#254) |
+| EC-WIN-014 | `TestWindowsF1EdgeCases/EC-WIN-014` | `internal/codetools/win_f1_edgecases_windows_test.go` | covered (#254) |
+| EC-WIN-016 | `TestWindowsF1EdgeCases/EC-WIN-016` | `internal/exec/win_f1_edgecases_windows_test.go` | covered (#254) |
+| EC-WIN-017 | `TestWindowsF1EdgeCases/EC-WIN-017` | `cmd/damnbot/console_windows_test.go` | covered (#254) |
 
 The two behaviours that needed code are EC-FIO-006 (the aggregate now scales
 with the window) and EC-TCALL-009 (`--answer-schema` produces
@@ -296,9 +298,10 @@ proves it.
    GAP-INF-06 rerun determinism; GAP-COST-04 prefix stability across
    fallback; MEM-030 retry.
 6. **assemble:** GAP-PROV-02 tier budget assertion.
-7. **ctxdb/exec/Windows F1 (done, PR #254/#255):** EC-WIN-002/005/011 in
-   this PR; EC-WIN-001/009/014/016/017 in PR #254; the F1 FIO/TCALL/TERM
-   rows in PR #255.
+7. **ctxdb/exec/Windows F1/F2 (done):** EC-WIN-001/009/014/016/017 in #254;
+   EC-WIN-002/005/011 in #257; the F1 FIO/TCALL/TERM rows in #255 (the
+   EC-FIO-019 test moved to `cmd/damnbot/edgecases_volatile_test.go` as
+   `TestVolatileTimeIsUTC`).
 8. **skills/CI:** builtin dangling-ref rule (GAP-SEC-26); native-arch
    skill filter (GAP-TOOL-10).
 9. **backup:** land PR #241's stack; add the plaintext-canary test to
