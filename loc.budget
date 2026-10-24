@@ -34,7 +34,11 @@ exec/classify     1830 internal/exec/classify
 # ADR-108: sandbox+redact 1450 -> 1700 (dir-fd walk fast path; Σ core 34.650 -> 34.900 <= 47.000).
 # ADR-108 amendment (SEC14 root canonicalization): sandbox+redact 1700 -> 1760 (alias root, Windows
 # final path + short-form alias; terukur 1759; Σ core 38.090 -> 38.150 <= 47.000).
-sandbox+redact    1760 internal/sandbox internal/redact
+# ADR-117 amendment (REVIEW-F2-SEC5-16b/18): sandbox+redact 1760 -> 1790 (dir handle undo relatif fd,
+# openat/unlinkat/renameat + deny via handle; terukur 1791; Σ core 38.175 -> 38.260 <= 47.000).
+# Amandemen (undo mode Windows, 2026-10-22): sandbox+redact 1795 -> 1835 (sandbox.Dir.Chmod:
+# fchmod pada fd terpin di POSIX, os.Root.Chmod "atribut-saja" di Windows; terukur 1824; Σ core +40).
+sandbox+redact    1835 internal/sandbox internal/redact
 boundary           150 internal/boundary
 # ctxdb: ADR-049 (2.800) → ADR-087 (3.100) → ADR-118 (3.400) → ADR-118 amandemen (3.500: History/Fork/Search + Recall #152 in one package; terukur 3.418).
 # ADR-132 (REL-04/05): engine probe + read-only inspection mode; ctxdb 3500 -> 3700 (terukur 3533; Σ core +200).
@@ -77,7 +81,9 @@ memory+skills     1400 internal/memory internal/skills
 # Amandemen (undo mode Windows, 2026-10-22): journal 560 -> 590 (chmodFile per-OS; Windows memakai
 # os.Root.Chmod "atribut-saja" agar undo file 0o440 tidak gagal Access is denied; terukur 573 di #181 dan
 # 583 di #174 sesudah undo CLI; Σ core +30).
-journal            590 internal/journal
+# ADR-117 amendment (REVIEW-F2-SEC5 round 4): journal 560 -> 610 (undo bekerja relatif ke root yang dipin,
+# temp dibuat/chmod lewat handle induk, SEC5-16b/SEC5-18; terukur 613; Σ core 37.870 <= 47.000).
+journal            615 internal/journal
 # ADR-123: budget 400 -> 520 (guard harian/bulanan/provider + formula token gambar; terukur 481).
 # ADR-125: budget 520 -> 560 (jadwal harga bertanggal GAP-COST-01; terukur 530).
 # ADR-128 amandemen SEC6-6: budget 560 -> 580 (max harga tabel vs biaya provider; terukur 571; Σ core +20).

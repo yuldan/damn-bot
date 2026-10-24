@@ -254,7 +254,7 @@ func TestUndoHelperErrors(t *testing.T) {
 	if err := u.remove(t.Context(), dir); err == nil {
 		t.Fatal("remove non-empty dir succeeded")
 	}
-	if err := chmodFile(t.Context(), u.sb, filepath.Join(root, "missing"), 0o644); err == nil {
+	if err := u.chmod(t.Context(), filepath.Join(root, "missing"), 0o644); err == nil {
 		t.Fatal("chmod missing succeeded")
 	}
 }

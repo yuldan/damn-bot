@@ -375,3 +375,186 @@ func TestUndoMoveCrossRootKeepsSource(t *testing.T) {
 		t.Fatal("cross-root move removed the source before refusing")
 	}
 }
+
+// swapDirs rotates the real directories a and b through a scratch name
+// until done, so the path a alternates between two real directories
+// (no symlink involved).
+func swapDirs(a, b, scratch string, done <-chan struct{}, errc chan<- error) {
+	for {
+		select {
+		case <-done:
+			return
+		default:
+		}
+		if err := os.Rename(a, scratch); err != nil {
+			errc <- err
+			return
+		}
+		if err := os.Rename(b, a); err != nil {
+			errc <- err
+			return
+		}
+		if err := os.Rename(scratch, b); err != nil {
+			errc <- err
+			return
+		}
+		runtime.Gosched()
+	}
+}
+
+// TestUndoRootReplacedByRealDir (REVIEW-F2-SEC5-16b): replacing the root
+// path with a different *real* directory (rename, no symlink) after Check
+// must not redirect undo; operations run relative to the pinned root fd.
+// The extra entries assertion also covers a temp file created through the
+// wrong directory (SEC5-18).
+func TestUndoRootReplacedByRealDir(t *testing.T) {
+	requireSwappableDir(t)
+	base := t.TempDir()
+	root, outside := filepath.Join(base, "ws"), filepath.Join(base, "other")
+	for _, d := range []string{root, outside} {
+		if err := os.Mkdir(d, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(t, filepath.Join(outside, "f.txt"), []byte("OUTSIDE"), 0o600)
+	sb, err := sandbox.New(&sandbox.Config{Roots: []string{root}, Home: base})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newFake()
+	u, err := NewUndoer(f, sb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inner, err := os.OpenRoot(root) // the original root, survives renames
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inner.Close()                      //nolint:errcheck // test cleanup
+	outsideRoot, err := os.OpenRoot(outside) // the other dir, survives renames
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer outsideRoot.Close() //nolint:errcheck // test cleanup
+	reset := func() {
+		w, werr := inner.OpenFile("f.txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+		if werr != nil {
+			t.Fatal(werr)
+		}
+		if _, werr = w.WriteString("new"); werr != nil {
+			t.Fatal(werr)
+		}
+		if werr = w.Close(); werr != nil {
+			t.Fatal(werr)
+		}
+	}
+	reset()
+	f.add(action(1, FileWrite, filepath.Join(root, "f.txt"), f.put([]byte("old"), 0o600), f.put([]byte("new"), 0o600)))
+
+	done := make(chan struct{})
+	errc := make(chan error, 1)
+	var wg sync.WaitGroup
+	wg.Go(func() { swapDirs(root, outside, filepath.Join(base, "rot"), done, errc) })
+
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		select {
+		case err := <-errc:
+			close(done)
+			wg.Wait()
+			t.Fatal(err)
+		default:
+		}
+		u.Undo(t.Context(), "s1", 1, true) //nolint:errcheck,gosec // refusals are expected; the outside file is the assertion.
+		if got, rerr := outsideRoot.ReadFile("f.txt"); rerr != nil || string(got) != "OUTSIDE" {
+			close(done)
+			wg.Wait()
+			t.Fatalf("root replacement redirected undo: %q, %v", got, rerr)
+		}
+		reset()
+	}
+	close(done)
+	wg.Wait()
+}
+
+// TestUndoHardlinkToDeniedFileRefused (REVIEW-F2-SEC5-19): a hard link in
+// the workspace to a literally denied file must not be undone, even with
+// --force; the denied inode must keep its bytes.
+func TestUndoHardlinkToDeniedFileRefused(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("hard link detection is unavailable on Windows")
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret := filepath.Join(root, "secret.enc")
+	write(t, secret, []byte("SECRET"), 0o600)
+	sb, err := sandbox.New(&sandbox.Config{Roots: []string{root}, DenyPaths: []string{secret}, Home: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newFake()
+	u, err := NewUndoer(f, sb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link.txt")
+	if err := os.Link(secret, link); err != nil {
+		t.Skipf("hard link: %v", err)
+	}
+	f.add(action(1, FileWrite, link, f.put([]byte("old"), 0o600), f.put([]byte("SECRET"), 0o600)))
+	if _, err := u.Undo(t.Context(), "s1", 1, true); err == nil {
+		t.Fatal("undo of a hard link to a denied file succeeded")
+	}
+	for _, p := range []string{secret, link} {
+		if got := read(t, p); string(got) != "SECRET" {
+			t.Fatalf("denied inode changed via %s: %q", p, got)
+		}
+	}
+}
+
+// TestUndoDeniedDirRenamedIntoParentRefused (REVIEW-F2-SEC5-19): a
+// literally denied directory renamed onto the action's parent path must
+// still be refused (the handle is vetted against the deny identity).
+func TestUndoDeniedDirRenamedIntoParentRefused(t *testing.T) {
+	t.Parallel()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied, parent := filepath.Join(root, "denied"), filepath.Join(root, "parent")
+	for _, d := range []string{denied, parent} {
+		if merr := os.Mkdir(d, 0o750); merr != nil {
+			t.Fatal(merr)
+		}
+	}
+	write(t, filepath.Join(denied, "f.txt"), []byte("new"), 0o600)
+	write(t, filepath.Join(parent, "f.txt"), []byte("new"), 0o600)
+	sb, err := sandbox.New(&sandbox.Config{Roots: []string{root}, DenyPaths: []string{denied}, Home: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newFake()
+	u, err := NewUndoer(f, sb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.add(action(1, FileWrite, filepath.Join(parent, "f.txt"), f.put([]byte("old"), 0o600), f.put([]byte("new"), 0o600)))
+	// Move the denied directory onto the action's parent path.
+	if err := os.Remove(filepath.Join(parent, "f.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(parent); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(denied, parent); err != nil {
+		t.Fatal(err)
+	}
+	if _, uerr := u.Undo(t.Context(), "s1", 1, true); uerr == nil {
+		t.Fatal("undo through a renamed denied directory succeeded")
+	}
+	if got := read(t, filepath.Join(parent, "f.txt")); string(got) != "new" {
+		t.Fatalf("denied directory content changed: %q", got)
+	}
+}

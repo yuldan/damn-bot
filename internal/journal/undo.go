@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/damnbot/damnbot/internal/sandbox"
 )
@@ -218,7 +219,7 @@ func (u *Undoer) undoMove(ctx context.Context, a *Action, force bool) (Result, e
 	}
 	if a.Before != nil && (a.Before.ModeSet || a.Before.Mode != 0) {
 		mode := a.Before.Mode & (fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky)
-		if cerr := chmodFile(ctx, u.sb, srcResolved, mode); cerr != nil {
+		if cerr := u.chmod(ctx, srcResolved, mode); cerr != nil {
 			res.Status, res.Files = Failed, nil
 			return res, cerr
 		}
@@ -255,26 +256,41 @@ func (u *Undoer) rootDir(ctx context.Context, root string) (*sandbox.Dir, error)
 	return d, nil
 }
 
-// parentDir pins the resolved parent directory inside its checked root and
-// returns it with the parent path and the final name.
-func (u *Undoer) parentDir(ctx context.Context, resolved string) (*sandbox.Dir, string, string, error) {
-	root, _, ok := u.sb.RootOf(resolved)
-	dir, base := filepath.Split(resolved)
+// parentDir walks the resolved parent directory from the pinned root one
+// component at a time (openat O_NOFOLLOW, no path resolution from /) and
+// returns it with the final name. Every later operation is relative to
+// this descriptor, so a root or parent replaced by a rename after Check is
+// never used (SEC5-15/SEC5-16b).
+func (u *Undoer) parentDir(ctx context.Context, resolved string) (*sandbox.Dir, string, error) {
+	root, rel, ok := u.sb.RootOf(resolved)
+	dir, base := filepath.Split(rel)
 	if !ok || base == "" || base == "." || base == ".." {
-		return nil, "", "", fmt.Errorf("journal: %s: %w", resolved, ErrUnsafePath)
+		return nil, "", fmt.Errorf("journal: %s: %w", resolved, ErrUnsafePath)
 	}
-	dir = filepath.Clean(dir)
-	if _, err := u.rootDir(ctx, root); err != nil {
-		return nil, "", "", err
-	}
-	h, err := u.sb.OpenDir(ctx, dir, false)
+	pinned, err := u.rootDir(ctx, root)
 	if err != nil {
-		return nil, "", "", err //nolint:wrapcheck // sandbox error is already contextual.
+		return nil, "", err
 	}
-	if h == nil {
-		return nil, "", "", fmt.Errorf("journal: %s: %w", dir, ErrUnsafePath)
+	h := pinned
+	for c := range strings.SplitSeq(filepath.ToSlash(dir), "/") {
+		if c == "" || c == "." {
+			continue
+		}
+		next, cerr := h.OpenChild(c)
+		if h != pinned {
+			h.Close() //nolint:errcheck,gosec // lookup-only handle: close cannot lose data.
+		}
+		if cerr != nil {
+			return nil, "", fmt.Errorf("journal: %s: %w", resolved, cerr)
+		}
+		h = next
 	}
-	return h, dir, base, nil
+	if h == pinned {
+		if h, err = pinned.OpenChild("."); err != nil {
+			return nil, "", fmt.Errorf("journal: %s: %w", resolved, err)
+		}
+	}
+	return h, base, nil
 }
 
 // current returns the sha256 of p ("" when absent), its sandbox-resolved
@@ -299,7 +315,15 @@ func (u *Undoer) current(ctx context.Context, p string) (sum, resolved string, p
 		// below the root: a conflict, never a link target (JN2-1, SEC14).
 		return "", resolved, false, false, fmt.Errorf("%w: %s is now a symlink", ErrConflict, p)
 	}
-	f, _, oerr := u.sb.OpenResolved(ctx, resolved, true)
+	h, base, herr := u.parentDir(ctx, resolved)
+	if errors.Is(herr, fs.ErrNotExist) {
+		return "", resolved, false, false, nil
+	}
+	if herr != nil {
+		return "", resolved, false, false, herr
+	}
+	defer func() { err = errors.Join(err, h.Close()) }()
+	f, oerr := h.OpenFile(base, os.O_RDONLY|oNoFollow, 0)
 	if errors.Is(oerr, fs.ErrNotExist) {
 		return "", resolved, false, false, nil
 	}
@@ -373,39 +397,50 @@ func (u *Undoer) write(ctx context.Context, resolved string, data []byte, img *I
 		mode = 0o644
 	}
 	mode &= fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky
-	if hard {
-		if !force {
-			return fmt.Errorf("journal: %s: hard link: %w", resolved, ErrUnsafePath)
-		}
-		return writeInPlace(ctx, u.sb, resolved, data, mode)
-	}
-	h, dir, base, err := u.parentDir(ctx, resolved)
+	h, base, err := u.parentDir(ctx, resolved)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, h.Close()) }()
+	if hard {
+		if !force {
+			return fmt.Errorf("journal: %s: hard link: %w", resolved, ErrUnsafePath)
+		}
+		return writeInPlace(h, base, data, mode)
+	}
 	tmp := base + ".damnbot-undo-" + randHex()
-	f, _, err := u.sb.OpenFile(ctx, filepath.Join(dir, tmp), os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := h.OpenFile(tmp, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("journal: temp %s: %w", tmp, err)
 	}
-	werr := errors.Join(writeAll(f, data), f.Sync(), f.Close())
+	// SEC5-18: the temp is created, written, chmodded and fsynced through
+	// the pinned parent handle, and chmod (fchmod) happens before rename.
+	werr := errors.Join(writeAll(f, data), f.Chmod(mode), f.Sync(), f.Close())
 	if werr != nil {
 		return errors.Join(fmt.Errorf("journal: write %s: %w", tmp, werr), removeChild(h, tmp))
 	}
-	if werr = makeReplaceable(ctx, u.sb, resolved); werr != nil {
+	if werr = makeReplaceable(h, base); werr != nil {
 		return errors.Join(fmt.Errorf("journal: prepare replace %s: %w", resolved, werr), removeChild(h, tmp))
 	}
 	if werr = renameChild(h, tmp, h, base); werr != nil {
 		return errors.Join(fmt.Errorf("journal: replace %s: %w", resolved, werr), removeChild(h, tmp))
 	}
-	return errors.Join(chmodFile(ctx, u.sb, resolved, mode), syncDirHandle(h))
+	return syncDirHandle(h)
 }
 
-func writeInPlace(ctx context.Context, sb *sandbox.Sandbox, resolved string, data []byte, mode fs.FileMode) error {
-	f, err := sb.OpenApproved(ctx, resolved, os.O_WRONLY, 0)
+// chmodChild applies mode to the child opened through the pinned parent,
+// never to a symlink swapped in after the check (JN2-1). The sandbox owns
+// the OS-specific reach: fchmod on the pinned descriptor on POSIX, an
+// attribute-only open on Windows, where a read-only file cannot be opened
+// for data access at all (ADR-117).
+func chmodChild(h *sandbox.Dir, name string, mode fs.FileMode) error {
+	return h.Chmod(name, mode) //nolint:wrapcheck // sandbox error is already contextual.
+}
+
+func writeInPlace(h *sandbox.Dir, base string, data []byte, mode fs.FileMode) error {
+	f, err := h.OpenFile(base, os.O_WRONLY|oNoFollow, 0)
 	if err != nil {
-		return fmt.Errorf("journal: open %s: %w", resolved, err)
+		return fmt.Errorf("journal: open %s: %w", base, err)
 	}
 	werr := f.Truncate(0)
 	if werr == nil {
@@ -414,10 +449,20 @@ func writeInPlace(ctx context.Context, sb *sandbox.Sandbox, resolved string, dat
 	return errors.Join(werr, f.Close())
 }
 
+// chmod applies mode to resolved through its pinned parent.
+func (u *Undoer) chmod(ctx context.Context, resolved string, mode fs.FileMode) (err error) {
+	h, base, err := u.parentDir(ctx, resolved)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, h.Close()) }()
+	return chmodChild(h, base, mode)
+}
+
 // remove unlinks resolved through its pinned parent after current verified
 // the identity; no textual path is passed to os.Remove (JN2-10).
 func (u *Undoer) remove(ctx context.Context, resolved string) (err error) {
-	h, _, base, err := u.parentDir(ctx, resolved)
+	h, base, err := u.parentDir(ctx, resolved)
 	if err != nil {
 		return err
 	}
@@ -431,12 +476,12 @@ func (u *Undoer) remove(ctx context.Context, resolved string) (err error) {
 // rename moves src to dst through their pinned parents; undoMove validated
 // that both belong to the same sandbox root (SEC5-17).
 func (u *Undoer) rename(ctx context.Context, src, dst string) (err error) {
-	srcH, _, srcBase, err := u.parentDir(ctx, src)
+	srcH, srcBase, err := u.parentDir(ctx, src)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, srcH.Close()) }()
-	dstH, _, dstBase, err := u.parentDir(ctx, dst)
+	dstH, dstBase, err := u.parentDir(ctx, dst)
 	if err != nil {
 		return err
 	}

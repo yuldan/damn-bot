@@ -46,7 +46,7 @@ func (d *Dir) File() *os.File { return d.f }
 
 // Close releases the directory descriptor; later calls are no-ops.
 func (d *Dir) Close() error {
-	d.once.Do(func() { d.f.Close() }) //nolint:errcheck,gosec // lookup-only directory handle: close cannot lose data.
+	d.once.Do(func() { closeDir(d.f) })
 	return nil
 }
 
@@ -67,3 +67,29 @@ func dirChild(name string) error {
 
 // child is the full path of name below d, built only for error reporting.
 func (d *Dir) child(name string) string { return d.path + "/" + name }
+
+// vetHandle vets an opened child handle: deny_paths by identity (vet), then
+// by path. With byPath the handle's real path is used when the OS reports
+// one, falling back to the lexical child path when it does not (SEC5-20);
+// without byPath (the codetools walkers) only the lexical path is checked,
+// so no per-file readlink is paid (SEC5-21).
+func (d *Dir) vetHandle(f *os.File, name string, byPath bool) (*os.File, error) {
+	vf, _, err := d.sb.vet(f, nil, Inside, false, false)
+	if err != nil {
+		return nil, err
+	}
+	p := d.child(name)
+	if byPath {
+		hp := handlePath
+		if d.sb.handlePath != nil {
+			hp = d.sb.handlePath
+		}
+		if got, ok := hp(vf); ok {
+			p = got
+		}
+	}
+	if d.sb.denied(p) {
+		return nil, closeFail(vf, ErrDeniedPath)
+	}
+	return vf, nil
+}
