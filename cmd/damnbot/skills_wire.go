@@ -140,7 +140,12 @@ func trustedProjects(configured []string, configDir, home string) (map[string]bo
 	for _, p := range file {
 		key, kerr := canonicalPath(p, home)
 		if kerr != nil {
-			return nil, fmt.Errorf("%s: %w", trustedProjectsFile, kerr)
+			// The store is hand-editable: a line this platform cannot even
+			// make absolute (Windows rejects a NUL byte in filepath.Abs)
+			// can never name a workspace, so it stays inert for that line
+			// alone — failing the load would silently untrust every other
+			// entry the user registered.
+			continue
 		}
 		out[key] = true
 	}
