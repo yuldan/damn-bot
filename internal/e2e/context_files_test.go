@@ -82,9 +82,14 @@ func wrappedContains(blocks []string, needle string) bool {
 // command shape the untrusted-workspace scenario refuses.
 func writeMarkerShellArgs(t *testing.T, path, marker string) string {
 	t.Helper()
+	// The runner already wraps the command in `sh -c` / `cmd /d /s /c`
+	// (internal/exec/oneshot.go), and cmd.exe honours neither backslash
+	// escapes nor nested quotes: the old Windows form
+	// `cmd /c "echo M > \"p\""` redirected into a literal `\"p\"` file, so
+	// the trusted case found no marker. Keep the inner command bare.
 	cmd := "sh -c 'echo " + marker + " > \"" + path + "\"'"
 	if runtime.GOOS == "windows" {
-		cmd = `cmd /c "echo ` + marker + ` > \"` + path + `\""`
+		cmd = "echo " + marker + "> \"" + path + "\""
 	}
 	raw, err := json.Marshal(struct {
 		Command string `json:"command"`
