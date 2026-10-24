@@ -387,11 +387,11 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, w.fail(fmt.Errorf("model window: %w", err))
 	}
-	sel, err := toolset.Resolve(cfg.Toolsets, runtime.GOOS, registryNames(reg))
+	sel, err := toolset.Resolve(cfg.Toolsets, runtime.GOOS, registryNames(w.registry))
 	if err != nil {
-		return nil, fail(fmt.Errorf("toolsets: %w", err))
+		return nil, w.fail(fmt.Errorf("toolsets: %w", err))
 	}
-	withDeferredMeta(&sel, registryNames(reg))
+	withDeferredMeta(&sel, registryNames(w.registry))
 	prov, err := newRunProvider(cfg, w.db, modelRef, o)
 	if err != nil {
 		return nil, w.fail(err)

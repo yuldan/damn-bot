@@ -78,7 +78,7 @@ func TestRunAnswerSchema(t *testing.T) {
 		code, err := runOne(context.Background(), &runOptions{
 			prompt: "ping", model: "openai/fake", dataDir: t.TempDir(), output: "json", approval: "auto",
 			answerSchema: schemaPath, prov: &injectProvider{text: text}, cfgOverride: &cfg,
-		}, &out)
+		}, &out, io.Discard)
 		if err != nil {
 			t.Fatalf("runOne(%q): %v", text, err)
 		}
