@@ -31,8 +31,8 @@ confirm that a test name exists nowhere else.
 | group | rows | covered | in-flight | surface | missing |
 | --- | --- | --- | --- | --- | --- |
 | EC — required by ROADMAP F2 | 41 | 41 | — | — | 0 |
-| GAP — DECISIONS.md L247-265 | 18 | 5 | 2 | 2 | 9 |
-| Parity — F2 rows | 81 | 18 | 4 | 17 | 42 |
+| GAP — DECISIONS.md L247-265 | 18 | 13 | 2 | 1 | 2 |
+| Parity — rows listed in §3 | 81 | 26 | 4 | 17 | 34 |
 
 All 41 EC rows are covered or `n/a` now. The eight rows that were missing when
 this ledger was written closed as: `EC-CTX-006` (#275), `EC-CTX-007`
@@ -41,6 +41,21 @@ this ledger was written closed as: `EC-CTX-006` (#275), `EC-CTX-007`
 `EC-WIN-002`, `EC-WIN-005`, `EC-WIN-011` moved from missing to in-flight here
 and are covered by #257 (windows-latest runner); the sixteen uncataloged F1
 ids below are covered by #254/#255.
+
+Ringkasan GAP di atas sebelumnya **tertukar** antara `covered` dan `missing` (tertulis 5/…/9 padahal baris §2
+berisi 13 covered dan 2 missing); angka kini diselaraskan dengan barisnya. §2 diverifikasi ulang pada
+`main ef8ec40d` (2026-10-24): `GAP-SEC-01` ditutup oleh canary `TestCryptoPlaintextCanaryVisible`,
+`GAP-COST-02`/`GAP-COST-04`/`GAP-PROV-02` ternyata sudah punya tes di `main` (ledger mencari nama tes yang
+berbeda), dan `GAP-SEC-26`/`GAP-REL-04` tinggal menunggu gate CI dari #258 (terbuka). Yang masih benar-benar
+kosong: `GAP-INF-06` dan `GAP-TOOL-10`.
+
+Audit §3 (parity) pada `main ef8ec40d` memetakan 42 baris berstatus `missing`: **8 baris ternyata sudah
+`covered`** (statusnya dikoreksi di bawah, dengan berkas + nama tes), **22 baris sudah bukan milik F2**
+(fasenya dikutip dari kolom `fase` `docs/FEATURE-PARITY.md` dan dicatat di barisnya; kepemilikan fase
+mengikuti **ADR-139**), **22 baris masih F2 dan punya penutup PR terbuka** (nomornya dicatat di barisnya),
+dan **2 baris tanpa penutup** (`MEM-025`, `CLI-039`). Karena 81 baris terdaftar = 59 baris yang kini masih
+fase F2 + 22 baris yang pindah fase, utang implementasi F2 yang sebenarnya = **24 baris** (22 berpenutup +
+2 tanpa). Baris parity **tidak** dulu maupun sekarang menjadi gate - lihat §3 bagian terakhir.
 
 ---
 
@@ -131,26 +146,36 @@ with the window) and EC-TCALL-009 (`--answer-schema` produces
 
 | GAP | requirement | test(s) | status | owner |
 | --- | --- | --- | --- | --- |
-| GAP-SEC-01 | Backup secrets stay encrypted | `TestCreateVerify`, `TestRoundTrip`, `TestWrongKey`, `TestTamperEveryByte` (`internal/backup/create_test.go`; perms via `checkResult`: 0600 file / 0700 dir); no plaintext-canary test yet | in-flight (PR #241 tip of the 185–201 stack) | backup |
+| GAP-SEC-01 | Backup secrets stay encrypted | `TestCreateVerify`, `TestRoundTrip`, `TestWrongKey`, `TestTamperEveryByte` (`internal/backup/create_test.go`; perms via `checkResult`: 0600 file / 0700 dir); canary: `TestCryptoPlaintextCanaryVisible` (`internal/e2e/crypto_test.go:168`) | covered | backup |
 | GAP-SEC-15 | Payment always prompts | `TestMonetaryAlwaysPrompts`, `TestMonetaryNeverSession` | covered | tools |
 | GAP-SEC-16 | egress DLP | `TestEgressDLP` + `TestEgressDLPBodyWarning` — F1 ingress subset only; the F2/F4–F7 portion (§SPEC half) is not tested | surface | netx |
 | GAP-REL-01 | Failed turn persisted | `TestFailedTurnPersisted` + `TestFailedTurnEmptyContent` | covered | loop |
-| GAP-REL-03 | Chaos: 50 concurrent clients, 30 min | `TestChaos50Clients`, nightly `chaos` | `internal/ctxdb/chaos_test.go`, `.github/workflows/nightly.yml` | covered | ctxdb |
-| GAP-REL-04 | SQLite engine version | `TestSQLiteEngineVersion` exists; no `sqlite-engine` CI job | covered (no job) | provider/ctxdb |
+| GAP-REL-03 | Chaos: 50 concurrent clients, 30 min | `TestChaos50Clients`, nightly `chaos` (`internal/ctxdb/chaos_test.go`, `.github/workflows/nightly.yml`) | covered | ctxdb |
+| GAP-REL-04 | SQLite engine version | `TestSQLiteEngineVersion` (`internal/ctxdb/engine_test.go`); gate CI `sqlite-engine` ada di #258 (terbuka) | covered | provider/ctxdb |
 | GAP-REL-05 | Migration fail-closed | `TestMigrationFailClosed` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | GAP-COST-01 | Pricing table not expired at release | `TestPricingTableNotExpired` (`internal/provider/registry/prices_test.go`) | in-flight (PR #188) | provider |
-| GAP-COST-02 | No context probe | — (`TestNoContextProbe` nowhere; the analyzer does not exist) | missing | provider |
-| GAP-COST-04 | Prefix stable across fallback | — (`TestPrefixStableAcrossFallback` nowhere) | missing | assemble/loop |
+| GAP-COST-02 | No context probe | `TestNoContextProbe` (`internal/provider/probe_test.go:16`) - analyzer + tesnya sudah ada di `main` | covered | provider |
+| GAP-COST-04 | Prefix stable across fallback | `TestFallbackPrefixStable` (`cmd/damnbot/fallback_prefix_test.go:23`) - ledger dulu mencari nama `TestPrefixStableAcrossFallback` | covered | assemble/loop |
 | GAP-PROV-01 | Cache key includes tier/system | `TestFixedOverheadGolden`, `TestAllModulesFixtureShape` compare the rendered prompt; the F2 part (table via migrations) is `TestMigrate*` | covered | assemble/ctxdb |
-| GAP-PROV-02 | Per-tier budget asserted | — (`TestContextTierBudget` nowhere) | missing | assemble |
+| GAP-PROV-02 | Per-tier budget asserted | `TestContextTierBudget` (`internal/assemble/tier_budget_test.go`) | covered | assemble |
 | GAP-INF-01 | CJK recall order | `TestRecallCJKOrder`, `BenchmarkRecallCJK` | `internal/ctxdb/acceptance_test.go`, `internal/ctxdb/recall_perf_test.go` | covered | ctxdb |
 | GAP-INF-02 | FTS index auto-upgrade | `TestFTSAutoUpgrade`, `BenchmarkRecallToolOutput`, `TestRecallToolOutputBlob`, `TestEncryptedRecallToolOutputBlob`, `TestToolOutputSpillThroughBinary` (biner asli: spill terenkripsi + baris `blob_fts`) | `internal/ctxdb/acceptance_test.go`, `internal/ctxdb/recall_perf_test.go`, `internal/e2e/spill_test.go` | covered | ctxdb |
-| GAP-INF-06 | Rerun deterministic after restart | — (no test; separate from EC-CTX-021's pure rerun) | missing | loop |
-| GAP-TOOL-10 | Native arch select + skill filter | `TestToolSelection` exists; no `TestNativeArchSelect`; no `requires: gpu=nvidia` filter test | missing | tools/skills |
-| GAP-SEC-26 | No dangling skill refs in builtin | `TestLintCorpus` lint only; no CI rule over `builtin/` (0 refs) | surface | skills/CI |
+| GAP-INF-06 | Rerun deterministic after restart | — (no test; separate from EC-CTX-021's pure rerun) - diverifikasi ulang `ef8ec40d`: tetap 0 tes (`RerunDeterministic`/`RerunAfterRestart` tidak ada) | missing | loop |
+| GAP-TOOL-10 | Native arch select + skill filter | `TestToolSelection` exists; no `TestNativeArchSelect`; no `requires: gpu=nvidia` filter test - diverifikasi ulang `ef8ec40d`: tetap 0 tes pilih-arch/native filter | missing | tools/skills |
+| GAP-SEC-26 | No dangling skill refs in builtin | `TestLintCorpus` lint only; gate `skill-refs` atas `builtin/` ada di #258 (`internal/skills/builtin_test.go`) | in-flight (PR #258) | skills/CI |
 | GAP-TEST-01 | Test-only tree analysis | `TestTreeAnalysis`, `TestLanguageDetection` on `testdata` | covered | codetools |
 
-## 3. F2 parity rows (FEATURE-PARITY.md, fase = F2)
+## 3. F2 parity rows (FEATURE-PARITY.md)
+
+81 baris di bawah = **59 baris yang masih fase F2** + **22 baris yang pindah fase** (ADR-139: 19 permukaan
+slash/MEM-019 -> F3; MEM-022 -> F5; MEM-023, PLUG-014 -> F8). Baris yang pindah **tidak dihapus**: supaya
+ledger tetap memuat jejaknya, fasenya dicatat di sel bukti dengan kutipan kolom `fase` pada
+`docs/FEATURE-PARITY.md` @ `ef8ec40d`.
+
+Konvensi kolom: `status` = status **implementasi** (`covered`, `in-flight`, `surface`, `missing`); anotasi di
+sel bukti memuat tiga hal yang berbeda - `fase **Fx**` = kepemilikan fase saat ini, `penutup #NNN` = PR
+terbuka yang akan menutupnya, dan tanda `**tanpa penutup**` = belum ada PR/kode sama sekali. Anotasi ini
+hasil audit pada `main ef8ec40d` (2026-10-24), bukan klaim gate.
 
 The parity table marks these rows "planned". "surface" means the
 capability exists and is tested but the row's CLI/slash surface is not
@@ -162,58 +187,58 @@ by the acceptance test until the surface exists.
 | ID | fitur | status | evidence |
 | --- | --- | --- | --- |
 | CLI-038 | `hermes backup` | in-flight | PR #197: `internal/backup/create_test.go`, `restore_test.go` |
-| CLI-039 | `hermes checkpoints` | missing | journal snapshots back undo only; no checkpoints command or test |
+| CLI-039 | `hermes checkpoints` | missing | journal snapshots back undo only; no checkpoints command or test · **in-flight, PR port menyusul**: kode + tes sudah ada di `24d44b12` (#264, MERGED ke stack `f2-cp-api`, belum ada di `main`) |
 | CLI-040 | `hermes import` | in-flight | PR #197: `internal/backup/restore_test.go` |
 | CLI-046 | `hermes skills` | surface | skills install/retrieve tests (`internal/skills/install_test.go`); no CLI test |
-| CLI-047 | `hermes bundles` | missing | no bundle type or test |
+| CLI-047 | `hermes bundles` | missing | no bundle type or test · penutup #270 |
 | CLI-057 | `hermes sessions` | surface | `TestHistoryForkAware`, ctxdb history/fork; CLI list/rename/export/prune untested |
 
 ### Slash commands
 
 | ID | fitur | status | evidence |
 | --- | --- | --- | --- |
-| SLASH-002 | `/new` | surface | fresh session = `TestForkAndRewind`, ctxdb Create |
-| SLASH-006 | `/history` | surface | ctxdb history tests |
-| SLASH-007 | `/save` | missing | no conversation export |
-| SLASH-008 | `/retry` | missing | provider retries exist; last-message retry is not tested |
-| SLASH-010 | `/undo` | surface | undo suite (`internal/journal`) |
-| SLASH-011 | `/title` | missing | no session titles |
-| SLASH-013 | `/branch` | surface | `TestForkAndRewind` (PR #227 adds the CLI) |
-| SLASH-015 | `/compress` | surface | `internal/compaction` tests |
-| SLASH-016 | `/rollback` | surface | journal undo tests |
-| SLASH-017 | `/snapshot` | surface | PR #197 backup/restore |
-| SLASH-044 | `/resume` | surface | fork/history tests |
-| SLASH-045 | `/sessions` | surface | ctxdb history tests |
-| SLASH-066 | `/autoprune` | missing | session purge exists; no auto-prune |
-| SLASH-068 | `/toolsets` | missing | no toolsets |
-| SLASH-069 | `/skills` | surface | `internal/skills` tests |
-| SLASH-070 | `/memory` | surface | `TestQuarantine*`/`TestApprove*` |
-| SLASH-071 | `/bundles` | missing | no bundles |
-| SLASH-083 | `/reload-skills` | missing | no rescan-on-command test |
+| SLASH-002 | `/new` | surface | fresh session = `TestForkAndRewind`, ctxdb Create · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-006 | `/history` | surface | ctxdb history tests · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-007 | `/save` | missing | no conversation export · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-008 | `/retry` | missing | provider retries exist; last-message retry is not tested · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-010 | `/undo` | surface | undo suite (`internal/journal`) · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-011 | `/title` | missing | no session titles · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-013 | `/branch` | surface | `TestForkAndRewind` (PR #227 adds the CLI) · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-015 | `/compress` | surface | `internal/compaction` tests · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-016 | `/rollback` | surface | journal undo tests · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-017 | `/snapshot` | surface | PR #197 backup/restore · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-044 | `/resume` | surface | fork/history tests · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-045 | `/sessions` | surface | ctxdb history tests · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-066 | `/autoprune` | missing | session purge exists; no auto-prune · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-068 | `/toolsets` | missing | no toolsets · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-069 | `/skills` | surface | `internal/skills` tests · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-070 | `/memory` | surface | `TestQuarantine*`/`TestApprove*` · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-071 | `/bundles` | missing | no bundles · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| SLASH-083 | `/reload-skills` | missing | no rescan-on-command test · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
 
 ### Tools
 
 | ID | fitur | status | evidence |
 | --- | --- | --- | --- |
-| TOOL-070 | `memory` tool | missing | no tool named `memory`; the exposed tools are `recall`/`propose_memory` |
-| TOOL-073 | `session_search` tool | missing | `session_search` appears only as a tool-call parse fixture |
-| TOOL-074 | `skill_manage` | missing | identifier absent |
-| TOOL-075 | `skill_view` | missing | identifier absent (also the EC-CTX-006 blocker) |
-| TOOL-076 | `skills_list` | missing | identifier absent |
+| TOOL-070 | `memory` tool | missing | no tool named `memory`; the exposed tools are `recall`/`propose_memory` · penutup #266 |
+| TOOL-073 | `session_search` tool | missing | `session_search` appears only as a tool-call parse fixture · penutup #266 |
+| TOOL-074 | `skill_manage` | covered | `internal/tools/skills.go` (`schemaSkillManage` + impl, tes `internal/tools/skills_test.go`), wiring `cmd/damnbot/skills_manager_wire.go` (#174 `3cc03815`), daftar payload `cmd/damnbot/modules_test.go:46`, e2e `internal/e2e/skills_test.go:97` `TestSkillManageAlwaysAsks` |
+| TOOL-075 | `skill_view` | covered | `schemaSkillView` di berkas yang sama; e2e `internal/e2e/skills_test.go:19` `TestSkillsTools`, `:45` `TestSkillViewQuarantined` |
+| TOOL-076 | `skills_list` | covered | `schemaSkillsList` (cap 50; `cmd/damnbot/skills_manager_wire_test.go:456`); e2e `TestSkillsTools` |
 
 ### Toolsets
 
 | ID | fitur | status | evidence |
 | --- | --- | --- | --- |
-| TSET-021 | toolset `memory` | missing | no toolset composition |
-| TSET-023 | toolset `session_search` | missing | no toolset composition |
-| TSET-025 | toolset `skills` | missing | no toolset composition |
-| TSET-035 | toolset `context_engine` | missing | no toolset composition |
-| TSET-038 | toolset `debugging` | missing | no toolset composition |
-| TSET-039 | toolset `safe` | missing | no toolset composition |
-| TSET-040 | toolset `coding` | missing | no toolset composition |
-| TSET-041 | toolset `hermes-acp` | missing | no toolset composition |
-| TSET-043 | toolset `hermes-cli` | missing | no toolset composition |
+| TSET-021 | toolset `memory` | missing | no toolset composition · penutup #253 |
+| TSET-023 | toolset `session_search` | missing | no toolset composition · penutup #253 |
+| TSET-025 | toolset `skills` | missing | no toolset composition · penutup #253 |
+| TSET-035 | toolset `context_engine` | missing | no toolset composition · penutup #253 |
+| TSET-038 | toolset `debugging` | missing | no toolset composition · penutup #253 |
+| TSET-039 | toolset `safe` | missing | no toolset composition · penutup #253 |
+| TSET-040 | toolset `coding` | missing | no toolset composition · penutup #253 |
+| TSET-041 | toolset `hermes-acp` | missing | no toolset composition · penutup #253 |
+| TSET-043 | toolset `hermes-cli` | missing | no toolset composition · penutup #253 |
 
 ### Memory
 
@@ -221,57 +246,76 @@ by the acceptance test until the surface exists.
 | --- | --- | --- | --- |
 | MEM-001 | built-in memory | covered | `internal/memory` tests; memstore |
 | MEM-002 | user profile | covered | memory scope tests |
-| MEM-003 | memory nudge | missing | no nudge |
+| MEM-003 | memory nudge | missing | no nudge · penutup #268 (terblokir #259/#243) |
 | MEM-004 | memory write approval | covered | `TestQuarantineCannotBeRetrieved`, `TestTransitions`, `TestUserWriteIsApproved` (`internal/memory`) |
 | MEM-011 | session store SQLite | covered | `internal/ctxdb` (`TestStore*`) |
 | MEM-012 | session search FTS | covered | `TestSearch*` in ctxdb |
 | MEM-013 | recap/resume | surface | history/fork tests; no recap |
-| MEM-014 | session export | missing | no export |
-| MEM-015 | session prune/archive | missing | purge exists; no prune/archive/VACUUM test |
+| MEM-014 | session export | covered | `cmd/damnbot/session_export.go` (ADR-141, `eda8a74b`); `cmd/damnbot/sessions_admin_test.go` `TestSessionsExport{Markdown,JSONL,HTML,File,RefusesExisting,RedactsMetadata}` |
+| MEM-015 | session prune/archive | covered | `cmd/damnbot/sessions_admin.go` (ADR-142, `96c63944`); `TestSessionsPruneArchive`, `TestSessionsPrunePinned`; auto-prune lewat `[sessions] auto_prune` |
 | MEM-016 | lineage & titles | surface | `TestHistoryForkAware` covers lineage; titles missing |
 | MEM-018 | context compression | covered | compaction stage 2 tests |
-| MEM-019 | manual compression | surface | compaction tests; no slash surface |
+| MEM-019 | manual compression | surface | compaction tests; no slash surface · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
 | MEM-020 | micro-compaction | covered | compaction stage 1 (prune) tests |
 | MEM-021 | proactive prune | covered | tool-result stub tests |
-| MEM-022 | native compaction provider | missing | no provider-native compaction |
-| MEM-023 | context engine plugin | missing | see PLUG-014 |
-| MEM-024 | @-ref | missing | no reference expansion |
-| MEM-025 | context pin | missing | memory pins are storage, not prompt pins |
+| MEM-022 | native compaction provider | missing | no provider-native compaction · fase **F5** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| MEM-023 | context engine plugin | missing | see PLUG-014 · fase **F8** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
+| MEM-024 | @-ref | missing | no reference expansion · penutup #267 |
+| MEM-025 | context pin | missing | memory pins are storage, not prompt pins · **tanpa penutup**: 0 kemunculan kode (`context_pin`/`ContextPin`) dan 0 PR terbuka |
 | MEM-026 | context files | covered | `TestContextTruncationOrder` and `TestContextEmptyAndMultipleFiles` exercise `AGENTS.md` in `internal/assemble` |
 | MEM-028 | rewind | covered | `TestForkAndRewind` |
 | MEM-029 | branch/fork | covered | `TestForkAndRewind`, `TestForkContextTierCopied` |
-| MEM-030 | retry | missing | last-message retry not tested |
+| MEM-030 | retry | missing | last-message retry not tested · penutup #259 |
 | MEM-031 | filesystem checkpoints | covered | journal undo suite |
 | MEM-032 | state snapshot | in-flight | PR #197 backup/restore of config+state |
-| MEM-033 | memory trim | missing | no RSS trim |
-| MEM-034 | prompt caching | missing | no cache_control use |
+| MEM-033 | memory trim | missing | no RSS trim · penutup #267 |
+| MEM-034 | prompt caching | missing | no cache_control use · penutup #268 (terblokir #259/#243) |
 
 ### Skills
 
 | ID | fitur | status | evidence |
 | --- | --- | --- | --- |
 | SKILL-001 | SKILL.md system | covered | `internal/skills` retrieval tests |
-| SKILL-002 | skills_list / skill_view / skill_manage | missing | tools absent (see TOOL-074/075/076) |
-| SKILL-004 | preprocessing | missing | no template/inline-shell tests |
-| SKILL-007 | bundles | missing | no bundles |
+| SKILL-002 | skills_list / skill_view / skill_manage | covered | ketiga tool di atas: `internal/tools/skills.go` + e2e `internal/e2e/skills_test.go` (`TestSkillsTools`, `TestSkillViewQuarantined`, `TestSkillManageAlwaysAsks`) |
+| SKILL-004 | preprocessing | missing | no template/inline-shell tests · penutup #269 |
+| SKILL-007 | bundles | missing | no bundles · penutup #270 |
 | SKILL-008 | auto-load | covered | `TestRetrieveLimit`, retrieval tiers in `TestContextTierFrozen` |
-| SKILL-009 | project discovery | missing | no trusted-project scan |
-| SKILL-010 | external skill dirs | missing | no external dirs |
+| SKILL-009 | project discovery | covered | `internal/config/config.go:31 ProjectDiscovery` + pemuat multi-root (`9cf1fa27`); e2e `TestImportedSkillQuarantined`, `TestSkillsTrustCLI` |
+| SKILL-010 | external skill dirs | covered | `internal/config/config.go:33 ExternalDirs` + `validate.go:175`; e2e `internal/e2e/skills_test.go:160` |
 | SKILL-016 | bundled skills sync | covered | builtin install tests |
 | SKILL-018 | guard/lint | covered | `TestLintCorpus`, `TestLintFailsClosed`, `TestQuarantine*` |
 | SKILL-019 | ledger & provenance | surface | skillstore tracks sha; no provenance ledger test |
 | SKILL-022 | write approval | covered | `TestQuarantine*` |
-| SKILL-023 | skills index | missing | no index build/delta |
+| SKILL-023 | skills index | missing | no index build/delta · penutup #273 |
 
 ### Plugins and operations
 
 | ID | fitur | status | evidence |
 | --- | --- | --- | --- |
-| PLUG-014 | context_engine plugin | missing | no engine slot |
+| PLUG-014 | context_engine plugin | missing | no engine slot · fase **F8** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
 | PLUG-036 | tool search / deferred tools | covered | `tool_search` tests, PR #174 wiring |
 | OPS-006 | backup / import | in-flight | PR #197 |
-| CORE-004 | toolsets & per-platform config | missing | no toolsets |
-| CORE-005 | custom toolsets | missing | no toolsets |
+| CORE-004 | toolsets & per-platform config | missing | no toolsets · penutup #253 |
+| CORE-005 | custom toolsets | missing | no toolsets · penutup #253 |
+
+### What the gate enforces vs what this ledger reports
+
+`make phase-acceptance` (`Makefile:136-137`: `DAMNBOT_PHASE_ACCEPTANCE=1 go test -tags goolm -count=1 $(PKGS)`)
+**tidak** memakai baris parity di dokumen ini sebagai gate. Tidak ada satu berkas `.go` yang membaca
+`docs/F2-ACCEPTANCE.md` (grep = 0). Yang benar-benar digerbangi:
+
+* `TestEdgeCaseCatalogSync` (`internal/testutil/phase`): mem-parse tabel EC ROADMAP + katalog setiap paket.
+  Id dengan fase **< PHASE** wajib punya baris katalog dan berstatus `covered`/`n/a`; id fase **= PHASE**
+  boleh `pending:<PHASE>` atau absen; id **> PHASE** hanya di-log; label fase katalog wajib cocok ROADMAP.
+* `TestParityPhaseColumn` (`internal/archtest/parity_phase_test.go`; 854 baris, 837 baris bergerbang):
+  hanya memeriksa **kolom `fase`** konsisten dengan tabel "Pemetaan parity -> fase" di ROADMAP - bukan
+  status implementasi.
+
+Akibatnya angka di ledger ini **tidak** memblokir atau meloloskan gate mana pun; ia laporan. `PHASE` di
+`main` berisi `F1` (`F1\n`, 3 byte) dan belum pernah dinaikkan sejak `ad961ebc`. Bukti gate terakhir pada
+`PHASE=F3` (pohon `ef8ec40d`, 2026-10-24): `ok internal/testutil/phase 0.155s` dan `ok internal/archtest
+35.568s`, dengan satu baris **log** (bukan kegagalan) `acceptance_test.go:54: PHASE acceptance F3: 69 EC ids
+of a later phase are still open`.
 
 ## 4. Work items to close the ledger
 
@@ -306,10 +350,12 @@ proves it.
    skill filter (GAP-TOOL-10).
 9. **backup:** land PR #241's stack; add the plaintext-canary test to
    GAP-SEC-01.
-10. **docs:** the 81 F2 parity rows that are genuinely unimplemented
-    (42 rows, listed above) need either an implementation PR or an
-    explicit ADR-064 correction moving them to the phase that owns them.
-    Silent "planned" rows are the hole this ledger closes.
+10. **docs:** peta baris parity sudah diperbarui (audit `ef8ec40d`): **8 baris ternyata `covered`** di
+    `main`, **22 baris pindah fase** (ADR-139) dan tetap tercatat dengan fase barunya, **22 baris masih F2
+    dan punya penutup PR terbuka** (#253, #259, #266, #267, #268, #269, #270, #273), dan **2 baris tanpa
+    penutup**: `MEM-025` (context pin; 0 kode, 0 PR) dan `CLI-039` (checkpoints CLI; kodenya menunggu PR port
+    dari stack `f2-cp-api`). Sisa pekerjaan F2 = mendaratkan penutup itu, atau memindahkan barisnya ke fase
+    pemiliknya lewat koreksi ADR-064. Baris "planned" tanpa penutup adalah lubang yang ditutup ledger ini.
 
 ## Method
 
@@ -322,4 +368,8 @@ proves it.
 * Parity: each F2 row matched against test names on `main` and in PR
   diffs, then reviewed by capability (one capability can have several
   parity rows). A row is `covered` only when a named test proves the
+  capability; the CLI/slash surface is called out separately. Audit ulang 2026-10-24 pada `main
+  ef8ec40d`: fase setiap baris dikutip dari kolom `fase` `docs/FEATURE-PARITY.md`, dan setiap baris
+  `missing` dicocokkan ulang ke berkas + nama tes di `main` (`git grep`) - hasilnya anotasi
+  `fase`/`penutup` di §3.
   capability; the CLI/slash surface is called out separately.
