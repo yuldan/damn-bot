@@ -604,14 +604,13 @@ func TestChaos50Clients(t *testing.T) {
 // runs in the nightly job (`make chaos-nightly`) so the takeover path is
 // exercised on purpose instead of by chance; PR runs stay short.
 //
-// Status: **wired but deliberately not executed yet.** The 45 s window reproduces
-// `db_busy: database is locked (5) (SQLITE_BUSY)` on unmodified main (2 of 2 runs on
-// a quiet host), i.e. the "never database is locked" invariant this suite asserts is
-// currently violated once a window passes the lease TTL. `make chaos-nightly`
-// therefore keeps its `DAMNBOT_CHAOS_LONG=1` line commented out until the busy
-// policy is fixed (GAP-REL-03). When it is, re-enable that flag rather than
-// deleting, skipping or loosening this test: it is the deliberate signal for the
-// defect.
+// Status: **executed on purpose** since the busy policy landed (PR #312, GAP-REL-03).
+// The 45 s window used to reproduce `db_busy: database is locked (5) (SQLITE_BUSY)`
+// on unmodified main (2 of 2 runs on a quiet host) - i.e. it was violating the
+// "never database is locked" invariant this suite asserts once a window passed the
+// lease TTL - so `make chaos-nightly` kept its `DAMNBOT_CHAOS_LONG=1` line commented
+// as an explicit hold, not a skip. The flag is now returned; do not delete, skip or
+// loosen this test: it is the deliberate signal for the defect.
 func TestChaos50ClientsAcrossLeaseTTL(t *testing.T) {
 	if testing.Short() {
 		t.Skip("chaos")
