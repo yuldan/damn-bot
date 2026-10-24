@@ -46,7 +46,7 @@ func (d *Dir) File() *os.File { return d.f }
 
 // Close releases the directory descriptor; later calls are no-ops.
 func (d *Dir) Close() error {
-	d.once.Do(func() { d.f.Close() }) //nolint:errcheck,gosec // lookup-only directory handle: close cannot lose data.
+	d.once.Do(func() { closeDir(d.f) })
 	return nil
 }
 

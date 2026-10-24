@@ -30,7 +30,7 @@ func (d *Dir) OpenFile(name string, flag int, perm fs.FileMode) (*os.File, error
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close() //nolint:errcheck,gosec // read-only root for one open
+	defer closeDir(r)
 	f, err := r.OpenFile(name, flag, perm)
 	if err != nil {
 		return nil, err
