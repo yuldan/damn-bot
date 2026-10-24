@@ -100,7 +100,9 @@ func TestShellGateMonetaryThroughBinary(t *testing.T) {
 	// visible, and the tool result reaches the model (two provider calls).
 	t.Run("positive", func(t *testing.T) {
 		t.Parallel()
-		e := New(t)
+		// The workspace must be trusted: --unsafe-auto-shell is dead in an
+		// untrusted one (SPEC §14), which is what the refusal leg asserts.
+		e := NewTrusted(t)
 		// Relative: the shell runs with the workspace as cwd, so the command
 		// and the assertion use the same path on every OS (no /var symlink or
 		// 8.3 short-name mismatch between the absolute temp path and the root).
@@ -160,7 +162,9 @@ func TestShellGateMonetaryThroughBinary(t *testing.T) {
 	// would fail as well; the only difference between the two is the directory.
 	t.Run("control", func(t *testing.T) {
 		t.Parallel()
-		e := New(t)
+		// The workspace must be trusted: --unsafe-auto-shell is dead in an
+		// untrusted one (SPEC §14), which is what the refusal leg asserts.
+		e := NewTrusted(t)
 		writePaymentSkill(t, e.home)
 		target := "side-effect.txt"
 		e.Server.Push(ToolCallReply("c1", "shell", shellGateWriteArgs(t, target, marker)), providertest.Text("done"))
