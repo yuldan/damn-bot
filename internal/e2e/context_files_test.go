@@ -97,12 +97,14 @@ func writeMarkerShellArgs(t *testing.T, e *Env, rel, marker string) string {
 		if strings.ContainsAny(rel, " ") {
 			t.Fatalf("writeMarkerShellArgs: Windows needs a space-free path, got %q", rel)
 		}
-		// The relative target is kept so both cases stay the same command; the
-		// explicit cwd pins the directory it resolves against (the one-shot
-		// runs through `cmd /d /s /c`, internal/exec/oneshot.go) and `%CD%`
-		// records the cwd cmd.exe actually used in the file itself, so the
-		// failure message distinguishes a wrong directory from a refusal.
-		payload.Command = "echo %CD% " + marker + "> " + rel
+		// The relative target keeps both cases the same command; the explicit
+		// cwd pins the directory it resolves against (the one-shot runs through
+		// `cmd /d /s /c`, internal/exec/oneshot.go), and the trailing `cd`
+		// prints the cwd cmd.exe actually used into the tool result, so a
+		// failure says whether the directory or the call itself was wrong.
+		// `%CD%` is deliberately absent: it makes classify label the command
+		// Unknown (denied) instead of Mutating, which the scenarios assert on.
+		payload.Command = "echo " + marker + "> " + rel + " & cd"
 		payload.Cwd = e.Workdir
 	}
 	raw, err := json.Marshal(payload)
@@ -226,7 +228,7 @@ func TestE2EUntrustedWorkspaceShellGate(t *testing.T) {
 		trustWorkspace(t, e)
 		args := writeMarkerShellArgs(t, e, "shell-side-effect.txt", "SHELL-TRUSTED-9a3e")
 		e.Server.Push(ToolCallReply("c1", "shell", args), providertest.Text("done"))
-		res := e.Run("write the file", "--approval", "auto", "--unsafe-auto-shell")
+		res := e.Run("write the file", "--approval", "auto", "--unsafe-auto-shell", "--output", "stream-json")
 		res.RequireOK(t)
 		got, rerr := os.ReadFile(filepath.Join(e.Workdir, "shell-side-effect.txt"))
 		if rerr != nil || !strings.Contains(string(got), "SHELL-TRUSTED-9a3e") {
