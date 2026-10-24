@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -220,9 +221,16 @@ func TestE2EUntrustedWorkspaceShellGate(t *testing.T) {
 		e.Server.Push(ToolCallReply("c1", "shell", args), providertest.Text("done"))
 		res := e.Run("write the file", "--approval", "auto", "--unsafe-auto-shell")
 		res.RequireOK(t)
-		if got := e.ReadFile("shell-side-effect.txt"); !strings.Contains(got, "SHELL-TRUSTED-9a3e") {
-			t.Fatalf("trusted workspace did not run the command: marker %q missing\nstdout:\n%s\nstderr:\n%s",
-				got, res.Stdout, res.Stderr)
+		got, rerr := os.ReadFile(filepath.Join(e.Workdir, "shell-side-effect.txt"))
+		if rerr != nil || !strings.Contains(string(got), "SHELL-TRUSTED-9a3e") {
+			names, _ := os.ReadDir(e.Workdir)
+			var list []string
+			for _, n := range names {
+				list = append(list, n.Name())
+			}
+			real, _ := filepath.EvalSymlinks(e.Workdir)
+			t.Fatalf("trusted workspace did not run the command: err=%v content=%q\nworkdir=%q real=%q entries=%v\nstdout:\n%s\nstderr:\n%s",
+				rerr, got, e.Workdir, real, list, res.Stdout, res.Stderr)
 		}
 	})
 }
