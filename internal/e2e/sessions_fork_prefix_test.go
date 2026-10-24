@@ -235,3 +235,115 @@ func TestE2ERunSessionForkCutsAtTheAskedPoint(t *testing.T) {
 		t.Errorf("parent export changed by the forks:\n%s", afterRaw)
 	}
 }
+
+// sessionList returns the raw `sessions ls` output so a refusal can be judged on
+// the store's visible state (no child row may appear there).
+func sessionList(t *testing.T, e *Env) string {
+	t.Helper()
+	res := sessionsCmd(t, e, "ls")
+	res.RequireOK(t)
+	return res.Stdout
+}
+
+// forkRefusal is one impossible fork point and the CLI's answer to it.
+type forkRefusal struct {
+	label  string
+	args   []string
+	code   int
+	reason string
+}
+
+// forkRefusals lists every fork point the binary must refuse, with the exit code
+// and the reason a user sees. head and midTurn bound the seq space; midTurn is a
+// user_message inside a turn that has already ended.
+func forkRefusals(head, midTurn int64) []forkRefusal {
+	return []forkRefusal{
+		{"unknown session", []string{"fork", "NOPE", "--at", "1"}, 1, "session NOPE not found"},
+		{"negative cut", []string{"fork", "P", "--at", "-1"}, 2, `--at "-1": want a non-negative seq or turn:<id>`},
+		{"unknown turn", []string{"fork", "P", "--at", "turn:NOPE"}, 2, "turn NOPE not found"},
+		{"cut past head", []string{"fork", "P", "--at", strconv.FormatInt(head+500, 10)}, 2, "> head"},
+		{"cut inside a turn", []string{"fork", "P", "--at", strconv.FormatInt(midTurn, 10)}, 4, "has an open turn"},
+	}
+}
+
+// requireForkRefused runs one refusal case: the CLI must exit with its own code,
+// print the readable reason, and never name a child.
+func requireForkRefused(t *testing.T, e *Env, tc forkRefusal) {
+	t.Helper()
+	res := sessionsCmd(t, e, tc.args...)
+	t.Logf("sessions %s -> exit=%d stdout=%q stderr=%q", strings.Join(tc.args, " "), res.Code, res.Stdout, res.Stderr)
+	if res.Code != tc.code {
+		t.Errorf("%s: exit = %d, want %d (stderr %s)", tc.label, res.Code, tc.code, res.Stderr)
+	}
+	if !strings.Contains(res.Stderr, tc.reason) {
+		t.Errorf("%s: stderr %q lacks %q", tc.label, res.Stderr, tc.reason)
+	}
+	if strings.TrimSpace(res.Stdout) != "" {
+		t.Errorf("%s: printed a child on refusal: %q", tc.label, res.Stdout)
+	}
+}
+
+// requireParentUnchanged asserts the parent's transcript bytes and rows are
+// byte-identical to the snapshot taken before the operation.
+func requireParentUnchanged(t *testing.T, e *Env, label, raw string, rows []transcriptRow) {
+	t.Helper()
+	afterRaw, afterRows := exportJSONL(t, e, "P")
+	if afterRaw != raw || !reflect.DeepEqual(afterRows, rows) {
+		t.Errorf("%s: parent transcript changed:\nbefore:\n%s\nafter:\n%s", label, raw, afterRaw)
+	}
+	if len(afterRows) != len(rows) {
+		t.Errorf("%s: parent rows = %d, want %d", label, len(afterRows), len(rows))
+	}
+}
+
+// turnBoundaryCut is the end of the turn carrying marker. A cut is only legal at
+// a turn boundary: the open-turn guard (SEC13-2) refuses a point inside a turn.
+func turnBoundaryCut(t *testing.T, rows []transcriptRow, marker string) int64 {
+	t.Helper()
+	mid := markerSeq(t, rows, marker)
+	for _, row := range rows {
+		if row.Seq > mid && row.Kind == "turn_end" {
+			return row.Seq
+		}
+	}
+	t.Fatalf("no turn_end after %s in %+v", marker, rows)
+	return 0
+}
+
+// TestE2EForkRefusesUnknownSessionAndBadCut (scenario 7 control gap, §4 item 11 of
+// docs/F2-ACCEPTANCE.md): every impossible fork point is refused with the CLI's own
+// exit code and a readable reason, and the store stays byte-identical (parent
+// transcript and session list). The valid fork at the end runs in the same
+// environment and is the load-bearing control: it proves the refusals come from
+// input validation, not from a broken `sessions fork`.
+func TestE2EForkRefusesUnknownSessionAndBadCut(t *testing.T) {
+	t.Parallel()
+	e := New(t)
+	seedTurns(t, e)
+	parentRaw, parentRows := exportJSONL(t, e, "P")
+	listBefore := sessionList(t, e)
+	midTurn := markerSeq(t, parentRows, "ALPHA-MARKER-ONE")
+	cut := turnBoundaryCut(t, parentRows, "ALPHA-MARKER-ONE")
+	head := parentRows[len(parentRows)-1].Seq
+
+	for _, tc := range forkRefusals(head, midTurn) {
+		requireForkRefused(t, e, tc)
+	}
+	requireParentUnchanged(t, e, "refused forks", parentRaw, parentRows)
+	if listAfter := sessionList(t, e); listAfter != listBefore {
+		t.Errorf("session list changed by refused forks:\nbefore:\n%s\nafter:\n%s", listBefore, listAfter)
+	}
+
+	// Load-bearing control: a legal cut at a turn boundary still forks, so the
+	// refusals above come from validation rather than a broken command.
+	child := forkChild(t, e, "fork", "P", "--at", strconv.FormatInt(cut, 10))
+	if child == "" || child == "P" {
+		t.Fatalf("valid fork returned child id %q", child)
+	}
+	_, childRows := exportJSONL(t, e, child)
+	requirePrefix(t, "fork at the turn boundary", childRows, parentRows, cut)
+	if listAfter := sessionList(t, e); listAfter == listBefore || !strings.Contains(listAfter, child) {
+		t.Errorf("valid fork did not add the child to the session list:\n%s", listAfter)
+	}
+	requireParentUnchanged(t, e, "valid fork", parentRaw, parentRows)
+}
