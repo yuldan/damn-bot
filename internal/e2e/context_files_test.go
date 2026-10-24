@@ -223,14 +223,14 @@ func TestE2EUntrustedWorkspaceShellGate(t *testing.T) {
 		res.RequireOK(t)
 		got, rerr := os.ReadFile(filepath.Join(e.Workdir, "shell-side-effect.txt"))
 		if rerr != nil || !strings.Contains(string(got), "SHELL-TRUSTED-9a3e") {
-			names, _ := os.ReadDir(e.Workdir)
+			names, derr := os.ReadDir(e.Workdir)
 			var list []string
 			for _, n := range names {
 				list = append(list, n.Name())
 			}
-			real, _ := filepath.EvalSymlinks(e.Workdir)
-			t.Fatalf("trusted workspace did not run the command: err=%v content=%q\nworkdir=%q real=%q entries=%v\nstdout:\n%s\nstderr:\n%s",
-				rerr, got, e.Workdir, real, list, res.Stdout, res.Stderr)
+			real, realErr := filepath.EvalSymlinks(e.Workdir)
+			t.Fatalf("trusted workspace did not run the command: err=%v content=%q\nworkdir=%q eval=%q evalErr=%v entries=%v readdirErr=%v\nstdout:\n%s\nstderr:\n%s",
+				rerr, got, e.Workdir, real, realErr, list, derr, res.Stdout, res.Stderr)
 		}
 	})
 }
