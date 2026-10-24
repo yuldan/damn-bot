@@ -11,7 +11,6 @@ import (
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/skillstore"
-	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
 
@@ -111,8 +110,8 @@ func TestSkillManageAlwaysAsks(t *testing.T) {
 	if env.OK {
 		t.Fatalf("skill_manage result = %+v, want ok=false", env)
 	}
-	if env.Error.Code != loop.CodeDenied {
-		t.Fatalf("skill_manage denial code = %q, want %q", env.Error.Code, loop.CodeDenied)
+	if env.Error.Code != deniedToolCode {
+		t.Fatalf("skill_manage denial code = %q, want %q", env.Error.Code, deniedToolCode)
 	}
 	for _, p := range []string{
 		filepath.Join(e.DataDir, "skills", "agent", "agent-note"),
@@ -123,6 +122,11 @@ func TestSkillManageAlwaysAsks(t *testing.T) {
 		}
 	}
 }
+
+// deniedToolCode is loop.CodeDenied ("denied"): internal/e2e may only import
+// internal/loop/event (archtest E-01), so the code is spelled here and the
+// envelope shape is what the assertion really checks.
+const deniedToolCode = "denied"
 
 // toolEnvelope is the loop's model-facing tool result (loop.errorEnvelope):
 // {"ok":…,"error":{"code":…,"message":…,"hint":…}}.
@@ -149,7 +153,10 @@ func toolResultEnvelope(t *testing.T, e *Env, n int, callID string) toolEnvelope
 		if !ok || m["role"] != "tool" || m["tool_call_id"] != callID {
 			continue
 		}
-		content, _ := m["content"].(string)
+		content, isText := m["content"].(string)
+		if !isText {
+			t.Fatalf("tool result for %s has no text content: %#v", callID, m["content"])
+		}
 		var env toolEnvelope
 		if err := json.Unmarshal([]byte(content), &env); err != nil {
 			t.Fatalf("tool result for %s is not the loop envelope: %v\ncontent:\n%s", callID, err, content)
