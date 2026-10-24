@@ -152,7 +152,7 @@ func compileAnswerSchema(path string) (func(string) error, error) {
 func warnUnavailableToolsets(stderr io.Writer, names []string) error {
 	for _, name := range names {
 		if _, werr := fmt.Fprintf(stderr, "run: toolset: tool %q is not available\n", name); werr != nil {
-			return werr
+			return fmt.Errorf("toolset warning: %w", werr)
 		}
 	}
 	return nil
