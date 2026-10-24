@@ -9,40 +9,49 @@ import (
 
 // TestRunResumeExcludesFailedTurn (acceptance 3): a failed turn that already
 // executed a side effect is excluded from the next run on the same session,
-// while the side effect itself remains observable.
+// while the side effect itself remains observable and earlier *successful*
+// turns stay in the history - that last assertion is the control that makes
+// the exclusion load-bearing (a filter that dropped every turn would be caught
+// here).
 func TestRunResumeExcludesFailedTurn(t *testing.T) {
 	t.Parallel()
 	e := New(t,
+		providertest.Text("OK-FIRST-TURN"),
 		ToolCallReply("c1", "write_file", `{"path":"side.txt","content":"effect"}`),
 		providertest.Status(400, "invalid_request_error", ""),
 		providertest.Text("resumed"),
 	)
-	first := e.Run("FAILED-TURN-MARKER write the file", "--approval", "auto-edit")
-	if first.Code != 2 {
-		t.Fatalf("first run exit = %d, want 2\nstdout:\n%s\nstderr:\n%s", first.Code, first.Stdout, first.Stderr)
+	var out struct {
+		SessionID string `json:"session_id"`
+	}
+	first := e.Run("first prompt")
+	first.RequireOK(t)
+	if err := json.Unmarshal([]byte(first.Stdout), &out); err != nil || out.SessionID == "" {
+		t.Fatalf("first run result: %v\n%s", err, first.Stdout)
+	}
+	failed := e.Run("FAILED-TURN-MARKER write the file", "--session", out.SessionID, "--approval", "auto-edit")
+	if failed.Code != 2 {
+		t.Fatalf("failed run exit = %d, want 2\nstdout:\n%s\nstderr:\n%s", failed.Code, failed.Stdout, failed.Stderr)
 	}
 	if got := e.ReadFile("side.txt"); got != "effect" {
 		t.Fatalf("side effect missing: %q", got)
 	}
-	var out struct {
-		SessionID string `json:"session_id"`
-	}
-	if err := json.Unmarshal([]byte(first.Stdout), &out); err != nil || out.SessionID == "" {
-		t.Fatalf("first run result: %v\n%s", err, first.Stdout)
-	}
 	second := e.Run("continue after failure", "--session", out.SessionID)
 	second.RequireOK(t)
 	reqs := e.Requests()
-	if len(reqs) != 3 {
-		t.Fatalf("provider calls = %d, want 2 (failed turn) + 1 (resume)", len(reqs))
+	if len(reqs) != 4 {
+		t.Fatalf("provider calls = %d, want 1 (first) + 2 (failed turn) + 1 (resume)", len(reqs))
 	}
-	body := e.RequestText(t, 2)
+	body := e.RequestText(t, 3)
 	for _, leaked := range []string{"FAILED-TURN-MARKER", "side.txt"} {
-		if e.Contains(t, 2, leaked) {
+		if e.Contains(t, 3, leaked) {
 			t.Errorf("resumed request leaked %q:\n%s", leaked, body)
 		}
 	}
-	if !e.Contains(t, 2, "continue after failure") {
+	if !e.Contains(t, 3, "OK-FIRST-TURN") {
+		t.Errorf("resumed request dropped the earlier successful turn (control):\n%s", body)
+	}
+	if !e.Contains(t, 3, "continue after failure") {
 		t.Errorf("resumed request lacks the new prompt:\n%s", body)
 	}
 }

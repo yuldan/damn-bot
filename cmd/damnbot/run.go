@@ -167,24 +167,9 @@ func warnUnavailableToolsets(stderr io.Writer, names []string) error {
 }
 
 func runOne(ctx context.Context, o *runOptions, stdout, stderr io.Writer) (code int, err error) {
-	loader, err := config.New(config.OS())
-	if err != nil {
-		return 0, fmt.Errorf("config deps: %w", err)
-	}
-	cfg, err := loadRunConfig(loader, o.configPath)
+	cfg, dataDir, configDir, home, err := loadRunEnv(o)
 	if err != nil {
 		return 0, err
-	}
-	if o.cfgOverride != nil {
-		cfg = *o.cfgOverride
-	}
-	paths, err := loader.Paths("")
-	if err != nil {
-		return 0, fmt.Errorf("config paths: %w", err)
-	}
-	dataDir := o.dataDir
-	if dataDir == "" {
-		dataDir = paths.DataDir
 	}
 	modelRef := o.model
 	if modelRef == "" {
@@ -199,7 +184,6 @@ func runOne(ctx context.Context, o *runOptions, stdout, stderr io.Writer) (code 
 		}
 	}
 	red := redact.New(redact.Options{})
-	configDir, home := paths.ConfigDir, homeDir()
 	codec, err := runCodec(ctx, &cfg, dataDir, configDir)
 	if err != nil {
 		return 0, err
