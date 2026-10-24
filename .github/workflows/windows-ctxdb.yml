@@ -37,6 +37,17 @@ jobs:
           go-version-file: go.mod
       - name: ctxdb + testutil (-v, bukti PASS per test)
         run: go test -tags goolm $RACE -count=1 -v ./internal/ctxdb/ ./internal/testutil/... 2>&1 | tee test.log; exit "${PIPESTATUS[0]}"
+      # Bukti EC per id di runner Windows: setiap katalog EC (TestEdgeCases*,
+      # TestWindowsF1/F2EdgeCases, TestProbeTimeout, TestTurnAggregateScaled,
+      # TestVolatileTimeIsUTC, TestRunAnswerSchema, Test*ConsoleHelper) lulus
+      # dengan -v, sehingga log memuat satu baris PASS per EC. Pola sengaja
+      # tidak menyebut id satu per satu agar rename subtes tidak membuat bukti
+      # bolong diam-diam; paket di bawah adalah pemilik katalog EC ≤ F2.
+      - name: EC edge cases (-v, bukti PASS per id)
+        run: |
+          go test -tags goolm $RACE -count=1 -v \
+            -run 'EdgeCases|ProbeTimeout|TurnAggregateScaled|VolatileTimeIsUTC|RunAnswerSchema|ConsoleHelper' \
+            ./internal/ctxdb ./internal/exec ./internal/codetools ./cmd/damnbot ./internal/loop ./internal/provider ./internal/netx ./internal/tools 2>&1 | tee ec.log; exit "${PIPESTATUS[0]}"
       - name: Bukti test ADR-090
         if: always()
         run: |
