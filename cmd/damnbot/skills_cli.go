@@ -271,6 +271,8 @@ func runSkills(args []string, stdout, stderr io.Writer) int {
 		return skillsDiff(args[1:], stdout, stderr)
 	case "audit", "ledger":
 		return skillsAudit(args[1:], stdout, stderr)
+	case "config":
+		return skillsConfig(args[1:], stdout, stderr)
 	case "reset":
 		return skillsReset(args[1:], stdout, stderr)
 	case "install":
@@ -285,7 +287,7 @@ func runSkills(args []string, stdout, stderr io.Writer) int {
 }
 
 func skillsUsage(w io.Writer) {
-	say(w, "usage: damnbot skills list|check|update|index [--check]|audit|ledger\n")
+	say(w, "usage: damnbot skills list|check|update|index [--check]|audit|ledger|config\n")
 	say(w, "       damnbot skills inspect <name>|diff <name>\n")
 	say(w, "       damnbot skills install <dir>|uninstall <name> --yes|reset --yes\n")
 }
