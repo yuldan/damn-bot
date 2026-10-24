@@ -81,24 +81,31 @@ func wrappedContains(blocks []string, needle string) bool {
 
 // writeMarkerShellArgs renders a shell call that writes marker into path, the
 // command shape the untrusted-workspace scenario refuses.
-func writeMarkerShellArgs(t *testing.T, path, marker string) string {
+func writeMarkerShellArgs(t *testing.T, e *Env, rel, marker string) string {
 	t.Helper()
-	// Windows gets a quote-free command on purpose. The runner appends the
-	// command to `cmd /d /s /c` (internal/exec/oneshot.go) and Go escapes a
-	// quoted argument as `\"`, but cmd.exe re-parses the raw command line and
-	// keeps backslashes, so any quote in the fixture turns the redirect into a
-	// literal `\"name\"` file. The Unix branch can quote; Windows callers pass
-	// a relative path without spaces.
-	cmd := "sh -c 'echo " + marker + " > \"" + path + "\"'"
-	if runtime.GOOS == "windows" {
-		if strings.ContainsAny(path, " ") {
-			t.Fatalf("writeMarkerShellArgs: Windows needs a space-free path, got %q", path)
-		}
-		cmd = "echo " + marker + "> " + path
-	}
-	raw, err := json.Marshal(struct {
+	// Windows gets a quote-free command and an explicit cwd. The runner starts
+	// cmd.exe with the session cwd (internal/exec/oneshot.go Spec.Dir) and
+	// cmd.exe re-parses the raw command line, so Go's escaping of a quoted
+	// argument (`\"`) survives literally and any quote in the fixture would
+	// redirect into a file literally named `\"name\"`; pinning `cwd` removes
+	// the other unknown, which directory the relative target lands in.
+	payload := struct {
 		Command string `json:"command"`
-	}{Command: cmd})
+		Cwd     string `json:"cwd,omitempty"`
+	}{Command: "sh -c 'echo " + marker + " > \"" + rel + "\"'"}
+	if runtime.GOOS == "windows" {
+		if strings.ContainsAny(rel, " ") {
+			t.Fatalf("writeMarkerShellArgs: Windows needs a space-free path, got %q", rel)
+		}
+		// The relative target is kept so both cases stay the same command; the
+		// explicit cwd pins the directory it resolves against (the one-shot
+		// runs through `cmd /d /s /c`, internal/exec/oneshot.go) and `%CD%`
+		// records the cwd cmd.exe actually used in the file itself, so the
+		// failure message distinguishes a wrong directory from a refusal.
+		payload.Command = "echo %CD% " + marker + "> " + rel
+		payload.Cwd = e.Workdir
+	}
+	raw, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +206,7 @@ func TestE2EUntrustedWorkspaceShellGate(t *testing.T) {
 		// command and the assertion agree on every OS (an absolute temp path
 		// is the logical /var form on macOS while the sandbox root is the
 		// resolved /private/var one).
-		args := writeMarkerShellArgs(t, "shell-side-effect.txt", "SHELL-UNTRUSTED-9a3e")
+		args := writeMarkerShellArgs(t, e, "shell-side-effect.txt", "SHELL-UNTRUSTED-9a3e")
 		e.Server.Push(ToolCallReply("c1", "shell", args), providertest.Text("done"))
 		res := e.Run("write the file", "--approval", "auto", "--unsafe-auto-shell", "--output", "stream-json")
 		if res.Code != 0 {
@@ -217,7 +224,7 @@ func TestE2EUntrustedWorkspaceShellGate(t *testing.T) {
 		t.Parallel()
 		e := New(t)
 		trustWorkspace(t, e)
-		args := writeMarkerShellArgs(t, "shell-side-effect.txt", "SHELL-TRUSTED-9a3e")
+		args := writeMarkerShellArgs(t, e, "shell-side-effect.txt", "SHELL-TRUSTED-9a3e")
 		e.Server.Push(ToolCallReply("c1", "shell", args), providertest.Text("done"))
 		res := e.Run("write the file", "--approval", "auto", "--unsafe-auto-shell")
 		res.RequireOK(t)
