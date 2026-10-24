@@ -127,6 +127,7 @@ ct09-nightly:
 # GAP-REL-03: 50-client chaos untuk window nightly penuh (PR memakai default singkat).
 chaos-nightly:
 	DAMNBOT_CHAOS_DURATION=30m go test $(GOTAGS) -run '^TestChaos50Clients$$' -count=1 ./internal/ctxdb/
+	DAMNBOT_CHAOS_LONG=1 go test $(GOTAGS) -run '^TestChaos50ClientsAcrossLeaseTTL$$' -count=1 ./internal/ctxdb/
 
 # ENGINEERING §7.2 (E-80..E-84) + spec-guard SPEC §20; env BASE/HEAD/PR_* diisi workflow pr-meta.
 pr-meta:
