@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -41,7 +42,7 @@ type sandboxReader struct {
 func (r sandboxReader) Open(ctx context.Context, path string) (io.ReadCloser, error) {
 	f, verdict, err := r.sb.OpenFile(ctx, filepath.Join(r.root, path), os.O_RDONLY, 0)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("workspace context file %s: %w", path, err)
 	}
 	if verdict != sandbox.Inside || f == nil {
 		return nil, assemble.ErrUnavailable

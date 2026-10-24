@@ -13,19 +13,19 @@ import (
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
 
-// decodedRequest decodes the i-th provider request and joins every string in
+// decodedRequest decodes the first provider request and joins every string in
 // it, so assertions read the text the model sees: in the raw body the wrapper
 // marker and every newline are JSON-escaped, which would make a literal
 // search for <untrusted source="workspace"> silently vacuous.
-func decodedRequest(t *testing.T, e *Env, i int) string {
+func decodedRequest(t *testing.T, e *Env) string {
 	t.Helper()
 	reqs := e.Requests()
-	if i >= len(reqs) {
-		t.Fatalf("request %d missing (%d recorded)", i, len(reqs))
+	if len(reqs) == 0 {
+		t.Fatal("no provider request recorded")
 	}
 	var v any
-	if err := json.Unmarshal(reqs[i], &v); err != nil {
-		t.Fatalf("request %d is not JSON: %v", i, err)
+	if err := json.Unmarshal(reqs[0], &v); err != nil {
+		t.Fatalf("request 0 is not JSON: %v", err)
 	}
 	var b strings.Builder
 	var walk func(any)
@@ -115,7 +115,7 @@ func TestE2EContextFileWrappedUntrusted(t *testing.T) {
 		e.WriteFile("AGENTS.md", "# agents\nrule: "+fileMarker+"\n")
 		res := e.Run("say hi")
 		res.RequireOK(t)
-		req := decodedRequest(t, e, 0)
+		req := decodedRequest(t, e)
 		blocks := workspaceWrapped(req)
 		if !wrappedContains(blocks, fileMarker) {
 			t.Fatalf("AGENTS.md marker is not inside <untrusted source=\"workspace\">:\n%s", req)
@@ -133,7 +133,7 @@ func TestE2EContextFileWrappedUntrusted(t *testing.T) {
 		e.WriteFile("AGENTS.md", "# agents\nrule: "+fileMarker+"\n")
 		res := e.Run("remember this: " + userMarker)
 		res.RequireOK(t)
-		req := decodedRequest(t, e, 0)
+		req := decodedRequest(t, e)
 		if !strings.Contains(req, userMarker) {
 			t.Fatalf("user text missing from the request:\n%s", req)
 		}
@@ -152,7 +152,7 @@ func TestE2EContextFileWrappedUntrusted(t *testing.T) {
 		trustWorkspace(t, e)
 		res := e.Run("say hi")
 		res.RequireOK(t)
-		req := decodedRequest(t, e, 0)
+		req := decodedRequest(t, e)
 		if !strings.Contains(req, fileMarker) {
 			t.Fatalf("trusted AGENTS.md missing from the request:\n%s", req)
 		}
@@ -167,15 +167,23 @@ func TestE2EContextFileWrappedUntrusted(t *testing.T) {
 		e := New(t, providertest.Text("done"))
 		res := e.Run("say hi")
 		res.RequireOK(t)
-		if blocks := workspaceWrapped(decodedRequest(t, e, 0)); len(blocks) != 0 {
+		if blocks := workspaceWrapped(decodedRequest(t, e)); len(blocks) != 0 {
 			t.Fatalf("wrapper without a context file: %q", blocks)
 		}
 	})
+}
+
+// TestE2EUntrustedWorkspaceShellGate: the same trust decision gates the shell
+// auto paths (SPEC §14/§10) — in an untrusted workspace --unsafe-auto-shell is
+// dead, and the identical command runs once the workspace is registered. It is
+// a separate test so each function stays readable (gocognit).
+func TestE2EUntrustedWorkspaceShellGate(t *testing.T) {
+	t.Parallel()
 
 	// The trust decision also gates the shell auto paths (SPEC §14/§10): in an
 	// untrusted workspace --unsafe-auto-shell and shell_allow are dead, and the
 	// same command runs once the workspace is registered.
-	t.Run("B5 untrusted workspace disables the shell auto paths", func(t *testing.T) {
+	t.Run("untrusted workspace disables the shell auto paths", func(t *testing.T) {
 		t.Parallel()
 		e := New(t)
 		target := filepath.Join(e.Workdir, "shell-side-effect.txt")
@@ -193,7 +201,7 @@ func TestE2EContextFileWrappedUntrusted(t *testing.T) {
 		}
 	})
 
-	t.Run("B6 trusted workspace runs the same command", func(t *testing.T) {
+	t.Run("trusted workspace runs the same command", func(t *testing.T) {
 		t.Parallel()
 		e := New(t)
 		trustWorkspace(t, e)
