@@ -10,19 +10,32 @@ import (
 // adrHeading matches one decision-record heading, e.g. "## ADR-186 — …".
 var adrHeading = regexp.MustCompile(`^## ADR-(\d{3,})\b`)
 
-// TestADRUnique: every ADR number appears exactly once in docs/DECISIONS.md.
-// Two PRs may legitimately pick the same "next free" number (that is how
-// ADR-174..177 collided); this test turns that silent collision into a failure
-// and names both lines.
-//
-// PRC-2 in the original proposal also asserted that headings are monotonically
-// increasing in file order. That cannot be asserted on the current file: the
-// appends leave four regions out of order (ADR-163 -> 139, 183 -> 140,
-// 175 -> 142, 146 -> 124), so enforcing it here would turn `main` red. Restoring
-// the order is a docs-only change; the monotonic rule can come back with it.
-func TestADRUnique(t *testing.T) {
-	t.Parallel()
-	seen := map[int][]int{} // number -> line numbers
+// adrOrderFloor is the first number the ordering rule applies to: smaller
+// numbers are reserved/backfilled (the same floor the original PRC-2 proposal
+// used), so their historical order is not asserted.
+const adrOrderFloor = 120
+
+// adrOrderAllow lists the legacy order inversions that predate this guard:
+// {previous, current} as they appear in docs/DECISIONS.md. Renumbering them
+// would break the code comments, PR bodies and history that cite those numbers,
+// so the debt stays visible here instead of being hidden; the test fails only
+// for a NEW inversion.
+var adrOrderAllow = [][2]int{
+	{163, 139},
+	{183, 140},
+	{175, 142},
+	{146, 124},
+}
+
+// adrHead is one heading with its number and line.
+type adrHead struct {
+	n, line int
+}
+
+// adrHeads reads every "## ADR-NNN" heading of docs/DECISIONS.md in file order.
+func adrHeads(t *testing.T) []adrHead {
+	t.Helper()
+	var out []adrHead
 	for i, line := range strings.Split(readRepoFile(t, "docs/DECISIONS.md"), "\n") {
 		m := adrHeading.FindStringSubmatch(line)
 		if m == nil {
@@ -32,10 +45,23 @@ func TestADRUnique(t *testing.T) {
 		if err != nil {
 			t.Fatalf("docs/DECISIONS.md:%d: ADR heading %q: %v", i+1, line, err)
 		}
-		seen[n] = append(seen[n], i+1)
+		out = append(out, adrHead{n: n, line: i + 1})
 	}
-	if len(seen) == 0 {
+	if len(out) == 0 {
 		t.Fatal("no ADR headings found in docs/DECISIONS.md")
+	}
+	return out
+}
+
+// TestADRUnique: every ADR number appears exactly once. Two PRs may
+// legitimately pick the same "next free" number (that is how ADR-174..177
+// collided); this test turns that silent collision into a failure and names
+// both lines.
+func TestADRUnique(t *testing.T) {
+	t.Parallel()
+	seen := map[int][]int{}
+	for _, h := range adrHeads(t) {
+		seen[h.n] = append(seen[h.n], h.line)
 	}
 	for n, lines := range seen {
 		if len(lines) > 1 {
@@ -43,4 +69,31 @@ func TestADRUnique(t *testing.T) {
 				n, len(lines), lines)
 		}
 	}
+}
+
+// TestADRMonotonic: a heading numbered >= adrOrderFloor must not follow a
+// higher one, so an appended decision record cannot land between existing
+// records. The four legacy inversions are allowlisted (see adrOrderAllow); a
+// new one fails with both numbers and lines.
+func TestADRMonotonic(t *testing.T) {
+	t.Parallel()
+	heads := adrHeads(t)
+	for i := 1; i < len(heads); i++ {
+		prev, cur := heads[i-1], heads[i]
+		if cur.n < adrOrderFloor || cur.n > prev.n || adrOrderAllowed(prev.n, cur.n) {
+			continue
+		}
+		t.Errorf("docs/DECISIONS.md:%d: ADR-%03d appears after ADR-%03d (line %d); append new ADRs with the next free number above the current maximum and do not renumber existing blocks",
+			cur.line, cur.n, prev.n, prev.line)
+	}
+}
+
+// adrOrderAllowed reports whether {prev, cur} is a known legacy inversion.
+func adrOrderAllowed(prev, cur int) bool {
+	for _, p := range adrOrderAllow {
+		if p[0] == prev && p[1] == cur {
+			return true
+		}
+	}
+	return false
 }
