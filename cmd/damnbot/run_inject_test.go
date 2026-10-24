@@ -92,6 +92,9 @@ func TestRunAnswerSchema(t *testing.T) {
 	code, out = run(`{"answer":"ok"}`)
 	if code != 0 || !strings.Contains(out, `"completed"`) {
 		t.Fatalf("conforming answer = %d %s", code, out)
+	}
+}
+
 // TestRunRefsExpandsAfterContextQuery (ACC-70, ADR-148 butir 3): a reference
 // expands into the user message sent to the provider, while the context-tier
 // retriever still ranks against the raw prompt.

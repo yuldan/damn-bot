@@ -34,6 +34,7 @@ import (
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/redact"
+	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/schema"
 	"github.com/damnbot/damnbot/internal/tools"
 )
