@@ -150,6 +150,8 @@ func TestWindowsCdGate(t *testing.T) {
 		{Cmd, `cd sub && cd`, Mutating},
 		{Cmd, `cd sub && pushd`, Mutating},
 		{Cmd, `cd sub && popd`, Mutating},
+		{Cmd, `cd sub && cd && git status`, Mutating},
+		{Cmd, `cd && git status`, Unknown},
 		{Bash, `cd //tmp && echo hi`, Mutating},
 	} {
 		env := testEnv()

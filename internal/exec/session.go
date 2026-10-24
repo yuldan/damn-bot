@@ -87,12 +87,13 @@ func (s *session) write(line string) error {
 
 // sessionShellSpec is the per-OS shell dialect of a session.
 type sessionShellSpec struct {
-	argv  []string
-	pty   bool
-	ext   string                               // command file extension
-	setup string                               // first command: echo, prompts, aliases off
-	line  func(path, cwd, nonce string) string // runs path, writes cwd, prints the sentinel
-	again func(nonce, cwd string) string       // the sentinel alone, status 130
+	argv     []string
+	pty      bool
+	ext      string                               // command file extension
+	setup    string                               // first command: echo, prompts, aliases off
+	resetEnv string                               // per-command env reset (SEC10-27)
+	line     func(path, cwd, nonce string) string // runs path, writes cwd, prints the sentinel
+	again    func(nonce, cwd string) string       // the sentinel alone, status 130
 }
 
 // Exec runs command in session name, creating the shell on first use.
@@ -254,6 +255,9 @@ func (s *session) run(ctx context.Context, command string, timeout time.Duration
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: path under the 0700 session dir
 	if err != nil {
 		return res, false, fmt.Errorf("exec: session command file: %w", err)
+	}
+	if s.sh.resetEnv != "" {
+		command = s.sh.resetEnv + "\n" + command
 	}
 	_, werr := f.WriteString(command + "\n")
 	if err := errors.Join(werr, f.Close()); err != nil {
