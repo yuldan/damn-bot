@@ -121,7 +121,7 @@ func defaultConfigDir() (string, error) {
 func bundleKnown(ctx context.Context, a bundleArgs) (map[string]bool, error) {
 	cat, err := skills.Load(ctx, []skills.Root{{Path: a.dir, Source: skills.SourceUser}}, skills.LoadOptions{})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load skills: %w", err)
 	}
 	known := make(map[string]bool, len(cat.Skills))
 	for i := range cat.Skills {
