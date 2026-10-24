@@ -166,6 +166,14 @@ with the window) and EC-TCALL-009 (`--answer-schema` produces
 | GAP-SEC-26 | No dangling skill refs in builtin | `TestLintCorpus` lint only; gate `skill-refs` atas `builtin/` ada di #258 (`internal/skills/builtin_test.go`) | in-flight (PR #258) | skills/CI |
 | GAP-TEST-01 | Test-only tree analysis | `TestTreeAnalysis`, `TestLanguageDetection` on `testdata` | covered | codetools |
 
+### GAP tambahan hasil audit 2026-10-24
+
+| GAP | requirement | bukti | status | owner / rencana fase |
+| --- | --- | --- | --- | --- |
+| GAP-LEASE-01 | SPEC §11.11: heartbeat lease 2 s + TTL 10 s dan `CheckLease` sebelum LLM call/tool dispatch | tidak ada pemanggil produksi `Heartbeat(`/`CheckLease(` (grep seluruh repo non-test = 0); token lease dibuang massal saat drain (`internal/ctxdb/store.go:511` di `detach`, dipicu `watch` `store.go:269-283` dan `preWrite` `tx.go:132`) sehingga `lease_fenced` fail-closed bisa muncul di alur nyata tanpa pre-flight; kelas kegagalan itu direproduksi deterministik oleh `internal/ctxdb/chaos_test.go` (`TestChaosClientRecoversFromFencing`) dan muncul di CI PR yang tidak menyentuh paket ini (`#302`, `#306`) | `missing` | core (`ctxdb`, `loop`, `cmd/damnbot`) - **rencana: F3 (inbound/ACP) atau F5 (gateway)**, lihat **ADR-185** |
+
+Baris ini **di luar** 18 baris kanonik `DECISIONS.md L247-265` di atas; ia masuk ledger karena audit 2026-10-24 menemukan klaim §11.11 yang belum diimplementasikan, dan sengaja berstatus `missing` supaya gate `PHASE` tidak mengklaim kepatuhan yang tidak ada.
+
 ## 3. F2 parity rows (FEATURE-PARITY.md)
 
 81 baris di bawah = **59 baris yang masih fase F2** + **22 baris yang pindah fase** (ADR-139: 19 permukaan

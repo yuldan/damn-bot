@@ -3830,3 +3830,27 @@ memakai nilai yang sama agar `make loc` hijau di setiap basis bertumpuk (`f2-ski
 `f2-ledger` 1679, `f2-skills-index`/`-cli`/`-config` 1803).
 
 **Konsekuensi.** PR lain yang menaikkan baris core setelah ini harus **menjumlahkan** angka ini, bukan menimpanya.
+
+## ADR-185 — Cakupan lease sesi F2: single-holder + startup/drain-scoped, `Heartbeat`/`CheckLease` dipindahkan ke F3/F5
+
+**Status:** Accepted 2026-10-24 (delegasi owner). **Tanpa perubahan kode, `loc.budget`, atau default config** - murni dokumen (`SPEC.md`, ledger, CHANGELOG). Mengamandemen cakupan §11.11 untuk F2.
+
+**Konteks.** Audit 2026-10-24 (dipicu flake CI lintas-PR `#302`/`#306`: `chaos_test.go:510: chaos client: ctxdb: lease_fenced: constraint failed: lease_fenced (1811)` pada paket yang tidak disentuh kedua PR) memetakan apa yang berlaku vs apa yang diklaim:
+
+1. `SPEC.md:321` dan §11.11.4 menjanjikan heartbeat lease 2 s + TTL 10 s serta `CheckLease` sebelum setiap LLM call dan dispatch tool.
+2. Kenyataannya `Heartbeat` (`internal/ctxdb/lease.go:131`) dan `CheckLease` (`internal/ctxdb/lease.go:166`) **nol pemanggil produksi** (grep seluruh repo non-test). Yang berjalan: single-holder + guard fencing fail-closed (`internal/ctxdb/migrations/0008_guards.sql:47-76`, `RAISE(ABORT,'lease_fenced')`).
+3. Token lease juga hilang **massal saat drain**: `internal/ctxdb/store.go:511` (`clear(s.tokens)` di `detach`, dipicu `watch` `store.go:269-283` dan `preWrite` `tx.go:132` untuk marker migrate/restore/purge). Karena tidak ada `CheckLease`, `lease_fenced` bisa muncul mentah di tengah turn - setelah LLM call sebelumnya sudah dibayar.
+4. Liveness yang benar-benar berlaku: `takeoverOK` (`lease.go:45-60`) mengambil alih hanya bila `ownerGone` (bukti proses mati) atau, khusus scanner background (`allowB`), bila tidak hidup menurut dua observasi >= 3 s dengan heartbeat tak berubah (`alive`, `lease.go:29-66`, `observeGap = 3000`, `LeaseTTL = 10_000` ms).
+5. Pengukuran pendukung: setelah klien chaos heartbeat (PR #307), jendela >= 3x TTL tetap memunculkan `db_busy: database is locked (5) (SQLITE_BUSY)` di `main` (2/2, host sepi) - dicatat sebagai temuan terpisah (`GAP-REL-03`); resolusi gap itu (`docs/DECISIONS.md:2901`) menuntut "retry transaksi <= 3x sebelum `db_busy` typed", sedangkan jalur tulis (`internal/ctxdb/tx.go:129-160`) hanya sekali coba. **Tidak** diubah oleh ADR ini.
+
+**Keputusan.**
+
+1. **Cakupan F2 dinyatakan jujur**: di F2 lease sesi adalah **single-holder** dan **startup/drain-scoped**. Jaminan yang berlaku: (a) satu pemegang per sesi dengan `fence_token` monoton; (b) setiap tulis ber-guard fail-closed (`lease_fenced`, exit 4 sesuai `DECISIONS.md:793`); (c) kehilangan token (drain/takeover) menghasilkan `lease_fenced`, bukan penulisan tanpa lease.
+2. **`Heartbeat` dan `CheckLease` ditandai belum diimplementasikan** di `SPEC.md` (bullet lease §3.3 dan §11.11.4). Klaim §11.11.4 "loop memanggil `ctxdb.CheckLease` sebelum setiap LLM call dan dispatch tool" **dicabut untuk F2** dan berubah status menjadi janji fase.
+3. **Implementasi §11.11 dipindahkan ke fase**: heartbeat + checkpoint pra-LLM/tool menjadi item **F3 (inbound/ACP) atau F5 (gateway)**; pemilihannya ditetapkan saat fase itu dimulai. Sampai itu, mekanisme liveness yang berlaku adalah butir 4 konteks.
+4. **Ledger**: `GAP-LEASE-01` dicatat `missing` di `docs/F2-ACCEPTANCE.md` §2 (di luar 18 baris kanonik `DECISIONS.md L247-265`) supaya gate `PHASE` tidak mengklaim kepatuhan §11.11 yang tidak ada.
+5. **Exit code tidak berubah**: `lease_fenced` tetap 4 (§3.3/§11.10).
+
+**Dampak terukur (SPEC §20).** Token/biaya/kode/LOC/dependency 0; hanya dokumen. `loc.budget` tidak disentuh. Gate `arch-*`/`adrgate` tidak berubah syaratnya.
+
+**Konsekuensi.** (+) Dokumen berhenti menjanjikan jaminan yang tidak ada; perilaku drain dan `lease_fenced` menjadi eksplisit sehingga sesi berikutnya tidak perlu menebak; (+) integritas tidak bergantung pada ADR ini karena fencing tetap fail-closed. (-) Dua kekurangan tetap terbuka sampai fase tujuannya: proses sah yang idle lama dapat terlihat mati oleh scanner background, dan tidak ada checkpoint pra-call sehingga token/uang bisa terpakai sebelum tulisan pertama gagal - keduanya tercatat sebagai `GAP-LEASE-01` (dan `GAP-REL-03` untuk kelas `db_busy`).
