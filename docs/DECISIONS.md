@@ -3744,6 +3744,9 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** DDL/migrasi/dependency/token 0; LOC `ctxdb` +161 (terukur 4.209/4.250), `cmd/damnbot` +≈330 baris non-test. `prune` mengunci writer per batch (≤ 500 baris), bukan satu transaksi panjang.
 
 **Konsekuensi.** (+) CLI-039 tertutup tanpa melemahkan invariant P9: hanya mode maintenance yang sudah ada yang menghapus metadata jurnal. (+) Transkrip dan file blob tidak ikut hilang; `doctor gc` tetap satu-satunya yang mengklaim file. (−) `prune` tidak langsung membebaskan disk (blob menunggu gc), dan `clear` menghilangkan kemampuan undo sampai aksi berikutnya tercatat. (−) Maintenance checkpoint dan session purge saling menolak; pengguna harus menunggu purge selesai.
+
+**Amandemen CLI (2026-10-23).** Setengah CLI dari ADR ini — `checkpoints status/list/prune/clear/clear-legacy`, `--session`, `--dry-run`, guard maintenance, dan exit 4 saat busy — mendarat di PR `feat(cli): checkpoints CLI (CLI-039)` di atas `main`, bukan di PR API (#278, yang hanya membawa `internal/ctxdb/checkpoint.go` dan katalog tesnya); `SPEC.md` §10 dan entri CHANGELOG fitur ikut di PR CLI tersebut. Butir 1–13 berlaku untuk keduanya.
+
 ## ADR-124 — Enkripsi at-rest opsional + arsip backup terenkripsi GAP-SEC-01: key store OS, kontainer `DMBK1`, dan codec kolom `ctxdb`
 
 **Status:** Accepted 2026-10-21 (F2; desain disetujui owner). Menerapkan keputusan owner 2026-10-21 yang dicatat ADR-129 (enkripsi at-rest **opsional dan default mati**; kunci dari OS keychain bila ada, selain itu file 0600 di `<config_dir>`; arsip backup GAP-SEC-01 tetap **terenkripsi default**), SPEC §22.1 baris GAP-SEC-01, `CROSS-CUTTING §1.2/§1.3/§1.6`, SPEC §11.6 Backup/restore, dan SELF-HEALING §3.5. Melengkapi ADR-033 (dependency), ADR-074 (storage konsumen), ADR-117/118 (ctxdb), dan ADR-129 (scope F2). Nomor 124 memang dicadangkan; tidak ada PR terbuka yang memakainya (dicek 2026-10-21).
