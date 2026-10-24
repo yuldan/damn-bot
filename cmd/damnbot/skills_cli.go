@@ -37,7 +37,16 @@ func skillsCommand(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	args = fs.Args()
-	if len(args) < 2 || args[0] != "trust" {
+	if len(args) == 0 {
+		skillsUsage(stderr)
+		return 2
+	}
+	if args[0] != "trust" {
+		// One entry point: the local skills subcommands (ADR-172) live in
+		// skills_local.go and share this dispatch with `skills trust`.
+		return runSkills(args, stdout, stderr)
+	}
+	if len(args) < 2 {
 		say(stderr, "pemakaian: damnbot skills trust list|add <dir>|remove <dir>\n")
 		return 2
 	}
