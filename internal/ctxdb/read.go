@@ -19,6 +19,7 @@ type Query struct {
 	Text      string // FTS5 query; normalised with dmb_fts_norm (CJK bigrams)
 	Limit     int    // k; 0 = DefaultSearchLimit
 	SessionID string // optional session filter
+	Cwd       string // optional project filter: only sessions created in this cwd (SEC17-1)
 }
 
 // DefaultSearchLimit is recall's k when Query.Limit is zero; maxSearchLimit
@@ -478,11 +479,11 @@ func (s *Store) Search(ctx context.Context, q Query) ([]Hit, error) {
 	if expr == "" {
 		return nil, nil
 	}
-	hits, err := s.searchFTS(ctx, expr, text, q.SessionID, limit, false)
+	hits, err := s.searchFTS(ctx, expr, text, q.SessionID, q.Cwd, limit, false)
 	if err != nil {
 		return nil, err
 	}
-	sums, err := s.searchFTS(ctx, expr, text, q.SessionID, limit, true)
+	sums, err := s.searchFTS(ctx, expr, text, q.SessionID, q.Cwd, limit, true)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +495,7 @@ func (s *Store) Search(ctx context.Context, q Query) ([]Hit, error) {
 	return hits, nil
 }
 
-func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int, summaries bool) ([]Hit, error) {
+func (s *Store) searchFTS(ctx context.Context, expr, text, sid, cwd string, limit int, summaries bool) ([]Hit, error) {
 	q := `SELECT e.id, e.session_id, e.seq, e.kind, bm25(events_fts), e.content, e.content_enc,
 		EXISTS (SELECT 1 FROM events x WHERE x.session_id = e.session_id AND x.kind = 'context_exclude'
 			AND x.turn_id = e.turn_id)
@@ -512,6 +513,10 @@ func (s *Store) searchFTS(ctx context.Context, expr, text, sid string, limit int
 	if sid != "" {
 		q += " AND session_id = ?"
 		args = append(args, sid)
+	}
+	if cwd != "" { // SEC17-1: project scope
+		q += " AND session_id IN (SELECT id FROM sessions WHERE cwd = ?)"
+		args = append(args, cwd)
 	}
 	order := "bm25(events_fts)"
 	if summaries {
