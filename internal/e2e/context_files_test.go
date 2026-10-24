@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -186,14 +185,17 @@ func TestE2EUntrustedWorkspaceShellGate(t *testing.T) {
 	t.Run("untrusted workspace disables the shell auto paths", func(t *testing.T) {
 		t.Parallel()
 		e := New(t)
-		target := filepath.Join(e.Workdir, "shell-side-effect.txt")
-		args := writeMarkerShellArgs(t, target, "SHELL-UNTRUSTED-9a3e")
+		// Relative target: the shell runs with the workspace as cwd, so the
+		// command and the assertion agree on every OS (an absolute temp path
+		// is the logical /var form on macOS while the sandbox root is the
+		// resolved /private/var one).
+		args := writeMarkerShellArgs(t, "shell-side-effect.txt", "SHELL-UNTRUSTED-9a3e")
 		e.Server.Push(ToolCallReply("c1", "shell", args), providertest.Text("done"))
 		res := e.Run("write the file", "--approval", "auto", "--unsafe-auto-shell", "--output", "stream-json")
 		if res.Code != 0 {
 			t.Fatalf("exit = %d\nstdout:\n%s\nstderr:\n%s", res.Code, res.Stdout, res.Stderr)
 		}
-		if _, err := os.Stat(target); !errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(e.Path("shell-side-effect.txt")); !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("untrusted workspace ran the command: %v", err)
 		}
 		if !strings.Contains(res.Stdout, "shell is not allowed in this mode") {
@@ -205,8 +207,7 @@ func TestE2EUntrustedWorkspaceShellGate(t *testing.T) {
 		t.Parallel()
 		e := New(t)
 		trustWorkspace(t, e)
-		target := filepath.Join(e.Workdir, "shell-side-effect.txt")
-		args := writeMarkerShellArgs(t, target, "SHELL-TRUSTED-9a3e")
+		args := writeMarkerShellArgs(t, "shell-side-effect.txt", "SHELL-TRUSTED-9a3e")
 		e.Server.Push(ToolCallReply("c1", "shell", args), providertest.Text("done"))
 		res := e.Run("write the file", "--approval", "auto", "--unsafe-auto-shell")
 		res.RequireOK(t)

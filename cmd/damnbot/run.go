@@ -13,7 +13,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -210,20 +209,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	})
 	// The context tier is rendered once and frozen for the session (P15).
 	degraded := model.window > 0 && model.window < assemble.DegradedWindow
-	ctxIn := &assemble.ContextInput{
-		Facts:    "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
-		Degraded: degraded,
-		// MEM-026 / SPEC §4.8: the workspace instruction files are read through
-		// the sandbox and, in an untrusted workspace, wrapped as data. The list
-		// is fixed, so a missing file simply omits its slot.
-		Files:          contextFiles(),
-		Reader:         model.reader,
-		UntrustedFiles: !model.trusted,
-	}
-	if o.retrieverFor != nil {
-		ctxIn.Query = o.prompt
-		ctxIn.Retriever = o.retrieverFor(model.db)
-	}
+	ctxIn := contextTierInput(model, o, degraded)
 	ctxTier, err := asm.Context(ctx, ctxIn)
 	if err != nil {
 		return 0, fmt.Errorf("assemble context: %w", err)

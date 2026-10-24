@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/damnbot/damnbot/internal/assemble"
 	"github.com/damnbot/damnbot/internal/sandbox"
@@ -26,6 +27,26 @@ func contextFiles() []assemble.ContextFile {
 		out = append(out, assemble.ContextFile{Path: name})
 	}
 	return out
+}
+
+// contextTierInput builds the context tier of one turn (MEM-026, SPEC §4.8):
+// the workspace instruction files read through the sandbox and wrapped as data
+// when the workspace is untrusted. degraded selects the PROV-02 profile. It
+// lives here, not in run.go, to keep the composition root inside the file
+// length gate (E-14).
+func contextTierInput(model *runModel, o *runOptions, degraded bool) *assemble.ContextInput {
+	in := &assemble.ContextInput{
+		Facts:          "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
+		Degraded:       degraded,
+		Files:          contextFiles(),
+		Reader:         model.reader,
+		UntrustedFiles: !model.trusted,
+	}
+	if o.retrieverFor != nil {
+		in.Query = o.prompt
+		in.Retriever = o.retrieverFor(model.db)
+	}
+	return in
 }
 
 // sandboxReader reads context files through the sandbox: a path that leaves
