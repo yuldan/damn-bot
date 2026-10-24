@@ -22,11 +22,19 @@ func (c *Config) Validate() error {
 		c.validateSkills,
 		c.validateSessions,
 		c.validateLog,
+		c.validateToolsets,
 	}
 	for _, check := range checks {
 		if err := check(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (c *Config) validateToolsets() error {
+	if err := c.Toolsets.Validate(); err != nil {
+		return invalid("toolsets", "%v", err)
 	}
 	return nil
 }

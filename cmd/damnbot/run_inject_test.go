@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,7 +49,7 @@ func TestRunInjectedSeams(t *testing.T) {
 		prompt: "ping", model: "openai/fake", dataDir: t.TempDir(), output: "json", approval: "auto",
 		prov: prov, cfgOverride: &cfg,
 		retrieverFor: func(*ctxdb.Store) assemble.Retriever { return ret },
-	}, &out)
+	}, &out, io.Discard)
 	if err != nil || code != 0 {
 		t.Fatalf("runOne = %d, %v (stdout %s)", code, err, out.String())
 	}
@@ -77,7 +78,7 @@ func TestRunAnswerSchema(t *testing.T) {
 		code, err := runOne(context.Background(), &runOptions{
 			prompt: "ping", model: "openai/fake", dataDir: t.TempDir(), output: "json", approval: "auto",
 			answerSchema: schemaPath, prov: &injectProvider{text: text}, cfgOverride: &cfg,
-		}, &out)
+		}, &out, io.Discard)
 		if err != nil {
 			t.Fatalf("runOne(%q): %v", text, err)
 		}

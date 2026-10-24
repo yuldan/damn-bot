@@ -76,7 +76,8 @@ func allowedImports() map[string][]string {
 		"internal/ctxdb/carrierstore": storeImports(),
 		"internal/ctxdb/compactstore": append(storeImports(), "internal/compaction", "internal/ctxdb/ledgerstore"),
 		"internal/ctxdb/gwstore":      storeImports(),
-		"internal/config":             {"internal/schema"},
+		"internal/config":             {"internal/schema", "internal/toolset"},
+		"internal/toolset":            nil, // pure composition data (ADR-139): no internal deps
 		"internal/netx":               {"internal/netx/jsonrpc", "internal/netx/retry", "internal/redact"},
 		"internal/netx/jsonrpc":       {"internal/netx", "internal/netx/retry", "internal/redact"},
 		"internal/netx/retry":         nil,
