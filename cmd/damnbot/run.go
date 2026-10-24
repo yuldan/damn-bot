@@ -147,6 +147,18 @@ func compileAnswerSchema(path string) (func(string) error, error) {
 	return func(answer string) error { return sc.Validate([]byte(answer)) }, nil
 }
 
+// warnUnavailableToolsets reports declared-but-unregistered toolset members
+// once per run, so a typo in [toolsets] is visible instead of silently
+// dropping tools (ADR-139). It keeps runOne's cyclomatic complexity in budget.
+func warnUnavailableToolsets(stderr io.Writer, names []string) error {
+	for _, name := range names {
+		if _, werr := fmt.Fprintf(stderr, "run: toolset: tool %q is not available\n", name); werr != nil {
+			return werr
+		}
+	}
+	return nil
+}
+
 func runOne(ctx context.Context, o *runOptions, stdout, stderr io.Writer) (code int, err error) {
 	loader, err := config.New(config.OS())
 	if err != nil {
@@ -189,10 +201,8 @@ func runOne(ctx context.Context, o *runOptions, stdout, stderr io.Writer) (code 
 	if err != nil {
 		return 0, err
 	}
-	for _, name := range model.toolsets.Unavailable {
-		if _, werr := fmt.Fprintf(stderr, "run: toolset: tool %q is not available\n", name); werr != nil {
-			return 2, nil
-		}
+	if err := warnUnavailableToolsets(stderr, model.toolsets.Unavailable); err != nil {
+		return 2, nil
 	}
 	defer func() {
 		if cerr := model.close(ctx); cerr != nil && err == nil {
