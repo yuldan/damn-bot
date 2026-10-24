@@ -30,6 +30,9 @@ type Snapshot struct {
 	Summaries []Summary
 	Events    []Event
 	Task      *Event
+	// Pins are transcript sequences the user pinned against compaction
+	// (MEM-025): they are never summarised and stay verbatim in the view.
+	Pins      []int64
 	Compacted bool     // a Run committed: the view is pruned
 	LastCall  *Attempt // newest Attempt whose Outcome.Called(), nil without one
 }

@@ -45,6 +45,8 @@ func runSessions(args []string, stdout, stderr io.Writer) int {
 		return sessionsLabel(args[0], args[1:], stdout, stderr)
 	case "pinned":
 		return sessionsPinned(args[1:], stdout, stderr)
+	case "context-pin":
+		return sessionsContextPin(args[1:], stdout, stderr)
 	case "stats":
 		return sessionsStats(args[1:], stdout, stderr)
 	case "backup", "restore":
@@ -72,6 +74,7 @@ func sessionsUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot sessions prune --older-than <90d> [--archive] [--dry-run] [--yes]\n")
 	sessionsPrintf(w, "       (archive uses created_at; purge uses last activity, SPEC §11.6; pinned sessions are never purged)\n")
 	sessionsPrintf(w, "       damnbot sessions archive|unarchive|pin|unpin <id>\n")
+	sessionsPrintf(w, "       damnbot sessions context-pin <id> [--at <seq|turn:ID>] [--off]\n")
 	sessionsPrintf(w, "       damnbot sessions pinned|stats\n")
 	sessionsPrintf(w, "       damnbot sessions backup create|ls|verify | damnbot sessions restore <file> [--dry-run]\n")
 }

@@ -69,10 +69,14 @@ const notExcluded = ` AND NOT EXISTS (SELECT 1 FROM events x WHERE x.session_id 
 // summary, even before the replay filter runs.
 const notPartial = ` AND NOT (e.kind = 'assistant_message' AND coalesce(json_extract(e.payload, '$.partial'), 0) = 1)`
 
-// eventsQ reads the model-visible kinds after the boundary; taskQ the
+// eventsQ reads the model-visible kinds after the boundary plus every pinned
+// position (MEM-025: a pin keeps an older message in the view); taskQ the
 // newest user message at or before it.
 const (
-	eventsQ = `SELECT ` + eventCols + ` FROM events e WHERE e.session_id = ?1 AND e.seq > ?2
+	eventsQ = `SELECT ` + eventCols + ` FROM events e WHERE e.session_id = ?1
+	AND (e.seq > ?2 OR e.turn_id IN (SELECT pe.turn_id FROM events pe WHERE pe.session_id = ?1
+	      AND pe.seq IN (SELECT p.seq FROM session_pins p WHERE p.session_id = ?1 AND p.pinned = 1
+	        AND p.id = (SELECT max(x.id) FROM session_pins x WHERE x.session_id = p.session_id AND x.seq = p.seq))))
 	AND e.kind IN ('user_message', 'assistant_message', 'tool_result')` + notExcluded + notPartial + ` ORDER BY e.seq`
 	taskQ = `SELECT ` + eventCols + ` FROM events e WHERE e.session_id = ?1 AND e.seq <= ?2
 	AND e.kind = 'user_message'` + notExcluded + ` ORDER BY e.seq DESC LIMIT 1`
@@ -129,6 +133,9 @@ func (s *Store) Load(ctx context.Context, sid string) (compaction.Snapshot, erro
 			return err
 		}
 		if snap.Summaries, err = summaries(tx, sid); err != nil {
+			return err
+		}
+		if snap.Pins, err = ctxdb.PinSeqs(tx, sid); err != nil {
 			return err
 		}
 		if snap.Events, err = events(tx, eventsQ, sid, snap.Boundary()); err != nil || snap.Boundary() == 0 {

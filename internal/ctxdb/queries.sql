@@ -116,8 +116,9 @@ DELETE FROM actions WHERE session_id IN (SELECT value FROM json_each(?1));
 UPDATE usage_ledger SET session_id = '__system__', event_id = ?2, turn_id = NULL
  WHERE session_id IN (SELECT value FROM json_each(?1));
 DELETE FROM session_labels WHERE session_id IN (SELECT value FROM json_each(?1));                         -- 29
+DELETE FROM session_pins WHERE session_id IN (SELECT value FROM json_each(?1));                           -- 30 (MEM-025)
 DELETE FROM session_leases WHERE session_id IN (SELECT value FROM json_each(?1));
-DELETE FROM sessions WHERE id IN (SELECT value FROM json_each(?1));                                       -- 30
+DELETE FROM sessions WHERE id IN (SELECT value FROM json_each(?1));                                       -- 31
 
 -- name: purge.freed
 -- Step 25: shas whose refs were deleted in this transaction and now have none.

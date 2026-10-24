@@ -19,7 +19,9 @@ import (
 // after the positional id (Go's flag package stops at the first positional).
 type adminArgs struct {
 	dataDir, format, out, olderThan string
+	pinAt                           string
 	archive, dryRun, yes, noRedact  bool
+	off                             bool
 	pos                             []string
 }
 
@@ -85,6 +87,14 @@ func adminFlag(a *adminArgs, s string, args []string, i *int) (bool, error) {
 		a.dryRun = true
 	case s == "--yes" || s == "-y":
 		a.yes = true
+	case s == "--at":
+		v, err := value(s)
+		a.pinAt = v
+		return true, err
+	case strings.HasPrefix(s, "--at="):
+		a.pinAt = strings.TrimPrefix(s, "--at=")
+	case s == "--off":
+		a.off = true
 	case s == "--no-redact":
 		a.noRedact = true
 	default:
