@@ -119,13 +119,13 @@ func defaultConfigDir() (string, error) {
 
 // bundleKnown returns the installed skill names under the config skills dir.
 func bundleKnown(ctx context.Context, a bundleArgs) (map[string]bool, error) {
-	list, _, err := loadSkills(ctx, a.dir, skillLoadOptions{})
+	cat, err := skills.Load(ctx, []skills.Root{{Path: a.dir, Source: skills.SourceUser}}, skills.LoadOptions{})
 	if err != nil {
 		return nil, err
 	}
-	known := make(map[string]bool, len(list))
-	for i := range list {
-		known[list[i].Name] = true
+	known := make(map[string]bool, len(cat.Skills))
+	for i := range cat.Skills {
+		known[cat.Skills[i].Name] = true
 	}
 	return known, nil
 }
