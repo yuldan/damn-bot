@@ -3814,3 +3814,18 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 5. **Test.** `internal/skills`: `TestPreprocessTemplates`, `TestPreprocessInlineShell` (disabled → error; enabled → runner dipanggil, backtick biasa utuh), `TestPreprocessInlineOutputCap`. `cmd/damnbot`: `TestPreprocessLoadedTrustedOnly` (trusted+flag menjalankan, import/quarantine dan flag off gagal-tertutup).
 **Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; `internal/skills` +≈120 baris (terukur 1.288/1.350), `cmd/damnbot` +≈70 baris non-test. Tidak ada token prompt tambahan (body tidak masuk prompt; hanya description).
 **Konsekuensi.** (+) Skill memakai path/OS/project yang benar tanpa hardcode. (+) Shell inline tidak pernah jalan diam-diam dan tidak tersedia untuk skill quarantined. (−) Body yang sudah diproses disimpan di `Skill` load-time; perubahan file skill memerlukan load ulang. (−) `${...}` tak dikenal tetap literal sehingga typo tidak terlihat sampai skill dibaca.
+
+## ADR-184: budget `memory`+`skills` 1.500 -> 1.800
+
+**Konteks.** Rantai PR skills (skillstore/karantina, ledger+index, bundle, discovery proyek, sumber skill, CLI
+`damnbot skills`) menambah kode non-test di `internal/skills`: `bundle.go`, `index.go`, `ledger.go`, `preprocess.go`,
+`source.go`, dan `service.go` (karantina + approval). Terukur pada kepala rantai: **1800** baris kode non-test
+(`scc --by-file`, `internal/memory` + `internal/skills`), sedangkan baris `loc.budget` saat itu 1.500 (ADR-168)
+dan baris 1700 yatim (tanpa ADR, duplikat hasil penyelesaian konflik rebase yang ikut terbawa).
+
+**Keputusan.** Satu baris `memory+skills 1800 internal/memory internal/skills`; baris duplikat 1700 dihapus.
+"Total core" `docs/ENGINEERING.md` 43.731 -> 44.031 (+300), batas SPEC §3.2.4 47.000 tetap tidak dilampaui.
+Baris ini menampung seluruh rantai; setiap PR di rantai memakai nilai yang sama agar `make loc` hijau
+di semua basis bertumpuk.
+
+**Konsekuensi.** PR lain yang menaikkan baris core setelah ini harus **menjumlahkan** angka ini, bukan menimpanya.
