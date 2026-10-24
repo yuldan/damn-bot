@@ -82,7 +82,7 @@ func TestToolOutputSpillThroughBinary(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			e := New(t,
+			e := NewTrusted(t,
 				ToolCallReply("c1", "shell", `{"command":"cat big.txt"}`),
 				providertest.Text("done"),
 			)

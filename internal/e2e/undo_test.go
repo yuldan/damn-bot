@@ -133,7 +133,7 @@ func TestUndoSymlinkedRoot(t *testing.T) {
 	replies := append(writeScript("write.txt", writeBefore, writeAfter),
 		editScript("edit.txt", editBefore, "two", "TWO")...)
 	replies = append(replies, stopReply())
-	e := New(t, replies...)
+	e := NewTrusted(t, replies...)
 	root := symlinkRoot(t, e)
 	mustWrite(t, filepath.Join(root, "write.txt"), writeBefore)
 	mustWrite(t, filepath.Join(root, "edit.txt"), editBefore)
@@ -167,7 +167,7 @@ func TestUndoSymlinkedRoot(t *testing.T) {
 // refuse. undo (and undo --force) must refuse, leaving target and link intact.
 func TestUndoSymlinkInsideRefused(t *testing.T) {
 	before, after := []byte("before\n"), []byte("after\n")
-	e := New(t, append(writeScript("dir/note.txt", before, after), stopReply())...)
+	e := NewTrusted(t, append(writeScript("dir/note.txt", before, after), stopReply())...)
 	root := symlinkRoot(t, e)
 	dir := filepath.Join(root, "dir")
 	note := filepath.Join(dir, "note.txt")
@@ -212,7 +212,7 @@ func TestUndoSymlinkInsideRefused(t *testing.T) {
 // flow without the directory swap undoes and restores the before image.
 func TestUndoWithoutSymlinkSucceeds(t *testing.T) {
 	before, after := []byte("before\n"), []byte("after\n")
-	e := New(t, append(writeScript("dir/note.txt", before, after), stopReply())...)
+	e := NewTrusted(t, append(writeScript("dir/note.txt", before, after), stopReply())...)
 	note := filepath.Join(e.Workdir, "dir", "note.txt")
 	mustWrite(t, note, before)
 	if res := e.Run("write the note", "--approval", "auto"); res.Code != 0 {
@@ -231,7 +231,7 @@ func TestUndoWithoutSymlinkSucceeds(t *testing.T) {
 // --force restores the before image.
 func TestUndoRefusalContentConflict(t *testing.T) {
 	before, after := []byte("before\n"), []byte("after\n")
-	e := New(t, append(writeScript("note.txt", before, after), stopReply())...)
+	e := NewTrusted(t, append(writeScript("note.txt", before, after), stopReply())...)
 	note := filepath.Join(e.Workdir, "note.txt")
 	mustWrite(t, note, before)
 	if res := e.Run("write the note", "--approval", "auto"); res.Code != 0 {

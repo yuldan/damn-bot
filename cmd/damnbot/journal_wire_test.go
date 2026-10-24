@@ -69,6 +69,7 @@ func undoWorkspace(t *testing.T, orig []byte, mode os.FileMode) (ws, data string
 	code := run([]string{
 		"run", "-p", "edit f.txt", "--model", "openai/gpt-fake", "--base-url", srv.URL,
 		"--data-dir", data, "--output", "json", "--approval", "auto-edit",
+		"--config", cwdTrustedRunConfig(t), // the scenario edits a trusted workspace
 	}, &out, &errb)
 	if code != 0 {
 		t.Fatalf("run exit = %d, stderr = %s, stdout = %s", code, errb.String(), out.String())
