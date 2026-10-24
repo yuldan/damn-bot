@@ -3838,7 +3838,7 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 
 ## ADR-149 — Memory nudge dan prompt-cache breakpoint; status context pin (MEM-025)
 
-**Status:** Accepted 2026-10-22 (F2; MEM-003, MEM-034). MEM-025 (context pin) **tidak** ditutup oleh ADR ini: consumer produksinya baru ada bersama wiring compaction (#219); tanpa itu implementasi pin hanya kode mati. Tidak ada DDL, dependency, atau perubahan `loc.budget`.
+**Status:** Accepted 2026-10-22 (F2; MEM-003, MEM-034). MEM-025 (context pin) **tidak** ditutup oleh ADR ini: consumer produksinya baru ada bersama wiring compaction (#219); tanpa itu implementasi pin hanya kode mati. Tidak ada DDL atau dependency baru; `loc.budget` baris `provider` 2.150 → 2.179 (terukur 2.179 pada pohon hasil rebase `c493725e`; Σ core +29, `Total core` 44.521 → 44.550 di sel + prosa `docs/ENGINEERING.md` dan tabel §2.4).
 
 **Konteks.** `run` belum mengingatkan agent untuk menyimpan fakta durabel, dan request provider tidak pernah menandai batas cache prefix. ADR-148/`assemble` membekukan tier stable+context ke dalam pesan system (P15), sehingga batas cache yang stabil adalah akhir pesan itu. Di sisi lain, context pin (MEM-025) menuntut pesan yang di-pin tetap utuh saat compaction; wiring compaction ke `run` masih di PR #219 (open), jadi pin belum punya jalur produksi.
 
