@@ -280,22 +280,16 @@ func runSkills(args []string, stdout, stderr io.Writer) int {
 	case "uninstall":
 		return skillsUninstall(args[1:], stdout, stderr)
 	default:
-		skillsPrintf(stderr, "skills: unknown subcommand %q\n", skillsArg(args[0]))
+		say(stderr, "skills: unknown subcommand %q\n", skillsArg(args[0]))
 		skillsUsage(stderr)
 		return 2
 	}
 }
 
 func skillsUsage(w io.Writer) {
-	skillsPrintf(w, "usage: damnbot skills list|check|update|index [--check]|audit|ledger|config\n")
-	skillsPrintf(w, "       damnbot skills inspect <name>|diff <name>\n")
-	skillsPrintf(w, "       damnbot skills install <dir>|uninstall <name> --yes|reset --yes\n")
-}
-
-func skillsPrintf(w io.Writer, format string, args ...any) {
-	if _, err := fmt.Fprintf(w, format, args...); err != nil {
-		return
-	}
+	say(w, "usage: damnbot skills list|check|update|index [--check]|audit|ledger|config\n")
+	say(w, "       damnbot skills inspect <name>|diff <name>\n")
+	say(w, "       damnbot skills install <dir>|uninstall <name> --yes|reset --yes\n")
 }
 
 func skillsArg(s string) string {
@@ -420,7 +414,7 @@ func skillsList(args []string, stdout, stderr io.Writer) int {
 	a, err := parseSkillArgs(args)
 	if err != nil || len(a.pos) != 0 {
 		if err != nil {
-			skillsPrintf(stderr, "skills list: %v\n", err)
+			say(stderr, "skills list: %v\n", err)
 		}
 		skillsUsage(stderr)
 		return 2
@@ -428,12 +422,12 @@ func skillsList(args []string, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	list, err := configSkills(ctx, a)
 	if err != nil {
-		skillsPrintf(stderr, "skills list: %v\n", err)
+		say(stderr, "skills list: %v\n", err)
 		return 1
 	}
 	ledger, err := skills.ReadLedger(a.dataDir)
 	if err != nil {
-		skillsPrintf(stderr, "skills list: %v\n", err)
+		say(stderr, "skills list: %v\n", err)
 		return 1
 	}
 	for i := range list {
@@ -442,7 +436,7 @@ func skillsList(args []string, stdout, stderr io.Writer) int {
 		if e, ok := skills.Provenance(ledger, sk.Name); ok {
 			action = e.Action
 		}
-		skillsPrintf(stdout, "%s\t%s\t%s\t%s\n", sk.Name, shortSHA(sk.SHA256), action, oneLine(sk.Description))
+		say(stdout, "%s\t%s\t%s\t%s\n", sk.Name, shortSHA(sk.SHA256), action, strings.Join(strings.Fields(strings.ReplaceAll(strings.ReplaceAll(sk.Description, "\n", " "), "\r", " ")), " "))
 	}
 	return 0
 }
@@ -452,15 +446,6 @@ func shortSHA(sha string) string {
 		return sha[:12]
 	}
 	return sha
-}
-
-func oneLine(s string) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	s = strings.ReplaceAll(s, "\r", " ")
-	if len([]rune(s)) > 120 {
-		return string([]rune(s)[:120]) + "…"
-	}
-	return s
 }
 
 // findSkill returns the config skill with that name.
@@ -477,7 +462,7 @@ func skillsInspect(args []string, stdout, stderr io.Writer) int {
 	a, err := parseSkillArgs(args)
 	if err != nil || len(a.pos) != 1 {
 		if err != nil {
-			skillsPrintf(stderr, "skills inspect: %v\n", err)
+			say(stderr, "skills inspect: %v\n", err)
 		}
 		skillsUsage(stderr)
 		return 2
@@ -485,12 +470,12 @@ func skillsInspect(args []string, stdout, stderr io.Writer) int {
 	ctx := context.Background()
 	list, err := configSkills(ctx, a)
 	if err != nil {
-		skillsPrintf(stderr, "skills inspect: %v\n", err)
+		say(stderr, "skills inspect: %v\n", err)
 		return 1
 	}
 	sk, ok := findSkill(list, a.pos[0])
 	if !ok {
-		skillsPrintf(stderr, "skills inspect: %s not found\n", skillsArg(a.pos[0]))
+		say(stderr, "skills inspect: %s not found\n", skillsArg(a.pos[0]))
 		return 1
 	}
 	if a.json {
@@ -498,13 +483,13 @@ func skillsInspect(args []string, stdout, stderr io.Writer) int {
 			Name, Description, Path, SHA256, Source, Body string
 		}{sk.Name, sk.Description, sk.Path, sk.SHA256, string(sk.Source), sk.Body}, "", "  ")
 		if merr != nil {
-			skillsPrintf(stderr, "skills inspect: %v\n", merr)
+			say(stderr, "skills inspect: %v\n", merr)
 			return 1
 		}
-		skillsPrintf(stdout, "%s\n", b)
+		say(stdout, "%s\n", b)
 		return 0
 	}
-	skillsPrintf(stdout, "name: %s\nsource: %s\npath: %s\nsha256: %s\ndescription: %s\n---\n%s\n",
+	say(stdout, "name: %s\nsource: %s\npath: %s\nsha256: %s\ndescription: %s\n---\n%s\n",
 		sk.Name, sk.Source, sk.Path, sk.SHA256, sk.Description, sk.Body)
 	return 0
 }
@@ -513,17 +498,17 @@ func skillsCheck(args []string, stdout, stderr io.Writer) int {
 	a, err := parseSkillArgs(args)
 	if err != nil || len(a.pos) != 0 {
 		if err != nil {
-			skillsPrintf(stderr, "skills check: %v\n", err)
+			say(stderr, "skills check: %v\n", err)
 		}
 		skillsUsage(stderr)
 		return 2
 	}
 	list, err := configSkills(context.Background(), a)
 	if err != nil {
-		skillsPrintf(stderr, "skills check: %v\n", err)
+		say(stderr, "skills check: %v\n", err)
 		return 1
 	}
-	skillsPrintf(stdout, "ok: %d skills\n", len(list))
+	say(stdout, "ok: %d skills\n", len(list))
 	return 0
 }
 
@@ -531,7 +516,7 @@ func skillsUpdate(args []string, stdout, stderr io.Writer, indexOnly bool) int {
 	a, err := parseSkillArgs(args)
 	if err != nil || len(a.pos) != 0 {
 		if err != nil {
-			skillsPrintf(stderr, "skills update: %v\n", err)
+			say(stderr, "skills update: %v\n", err)
 		}
 		skillsUsage(stderr)
 		return 2
@@ -539,13 +524,13 @@ func skillsUpdate(args []string, stdout, stderr io.Writer, indexOnly bool) int {
 	ctx := context.Background()
 	list, err := configSkills(ctx, a)
 	if err != nil {
-		skillsPrintf(stderr, "skills update: %v\n", err)
+		say(stderr, "skills update: %v\n", err)
 		return 1
 	}
 	next := skills.BuildIndex(list)
 	prev, err := skills.LoadIndex(a.configDir)
 	if err != nil {
-		skillsPrintf(stderr, "skills update: %v\n", err)
+		say(stderr, "skills update: %v\n", err)
 		return 1
 	}
 	delta := skills.Diff(prev, next)
@@ -554,11 +539,11 @@ func skillsUpdate(args []string, stdout, stderr io.Writer, indexOnly bool) int {
 			printDelta(stdout, delta)
 			return 1
 		}
-		skillsPrintf(stdout, "index up to date (%d skills)\n", len(next))
+		say(stdout, "index up to date (%d skills)\n", len(next))
 		return 0
 	}
 	if err := skills.SaveIndex(a.configDir, next); err != nil {
-		skillsPrintf(stderr, "skills update: %v\n", err)
+		say(stderr, "skills update: %v\n", err)
 		return 1
 	}
 	printDelta(stdout, delta)
@@ -568,13 +553,13 @@ func skillsUpdate(args []string, stdout, stderr io.Writer, indexOnly bool) int {
 
 func printDelta(w io.Writer, d skills.IndexDelta) {
 	for _, n := range d.Added {
-		skillsPrintf(w, "added %s\n", n)
+		say(w, "added %s\n", n)
 	}
 	for _, n := range d.Changed {
-		skillsPrintf(w, "changed %s\n", n)
+		say(w, "changed %s\n", n)
 	}
 	for _, n := range d.Removed {
-		skillsPrintf(w, "removed %s\n", n)
+		say(w, "removed %s\n", n)
 	}
 }
 
@@ -582,36 +567,36 @@ func skillsDiff(args []string, stdout, stderr io.Writer) int {
 	a, err := parseSkillArgs(args)
 	if err != nil || len(a.pos) != 1 {
 		if err != nil {
-			skillsPrintf(stderr, "skills diff: %v\n", err)
+			say(stderr, "skills diff: %v\n", err)
 		}
 		skillsUsage(stderr)
 		return 2
 	}
 	list, err := configSkills(context.Background(), a)
 	if err != nil {
-		skillsPrintf(stderr, "skills diff: %v\n", err)
+		say(stderr, "skills diff: %v\n", err)
 		return 1
 	}
 	sk, ok := findSkill(list, a.pos[0])
 	if !ok {
-		skillsPrintf(stderr, "skills diff: %s not found\n", skillsArg(a.pos[0]))
+		say(stderr, "skills diff: %s not found\n", skillsArg(a.pos[0]))
 		return 1
 	}
 	ledger, err := skills.ReadLedger(a.dataDir)
 	if err != nil {
-		skillsPrintf(stderr, "skills diff: %v\n", err)
+		say(stderr, "skills diff: %v\n", err)
 		return 1
 	}
 	last, ok := skills.Provenance(ledger, sk.Name)
 	if !ok {
-		skillsPrintf(stdout, "%s: no previous ledger entry (current %s)\n", sk.Name, shortSHA(sk.SHA256))
+		say(stdout, "%s: no previous ledger entry (current %s)\n", sk.Name, shortSHA(sk.SHA256))
 		return 0
 	}
 	if last.SHA256 == sk.SHA256 {
-		skillsPrintf(stdout, "%s: unchanged (%s)\n", sk.Name, shortSHA(sk.SHA256))
+		say(stdout, "%s: unchanged (%s)\n", sk.Name, shortSHA(sk.SHA256))
 		return 0
 	}
-	skillsPrintf(stdout, "%s: changed %s -> %s (last action %s)\n", sk.Name, shortSHA(last.SHA256), shortSHA(sk.SHA256), last.Action)
+	say(stdout, "%s: changed %s -> %s (last action %s)\n", sk.Name, shortSHA(last.SHA256), shortSHA(sk.SHA256), last.Action)
 	return 0
 }
 
@@ -619,21 +604,21 @@ func skillsAudit(args []string, stdout, stderr io.Writer) int {
 	a, err := parseSkillArgs(args)
 	if err != nil || len(a.pos) != 0 {
 		if err != nil {
-			skillsPrintf(stderr, "skills audit: %v\n", err)
+			say(stderr, "skills audit: %v\n", err)
 		}
 		skillsUsage(stderr)
 		return 2
 	}
 	entries, err := skills.ReadLedger(a.dataDir)
 	if err != nil {
-		skillsPrintf(stderr, "skills audit: %v\n", err)
+		say(stderr, "skills audit: %v\n", err)
 		return 1
 	}
 	if a.limit > 0 && len(entries) > a.limit {
 		entries = entries[len(entries)-a.limit:]
 	}
 	for _, e := range entries {
-		skillsPrintf(stdout, "%s\t%s\t%s\t%s\t%s\n", time.UnixMilli(e.At).UTC().Format(time.RFC3339),
+		say(stdout, "%s\t%s\t%s\t%s\t%s\n", time.UnixMilli(e.At).UTC().Format(time.RFC3339),
 			e.Name, e.Action, e.Source, shortSHA(e.SHA256))
 	}
 	return 0
@@ -643,36 +628,36 @@ func skillsConfig(args []string, stdout, stderr io.Writer) int {
 	a, err := parseSkillArgs(args)
 	if err != nil || len(a.pos) != 0 {
 		if err != nil {
-			skillsPrintf(stderr, "skills config: %v\n", err)
+			say(stderr, "skills config: %v\n", err)
 		}
 		skillsUsage(stderr)
 		return 2
 	}
 	loader, err := config.New(config.OS())
 	if err != nil {
-		skillsPrintf(stderr, "skills config: %v\n", err)
+		say(stderr, "skills config: %v\n", err)
 		return 1
 	}
 	cfg := config.Default()
-	paths, perr := loader.Paths("")
+	cfgDir, _, perr := skillsPaths()
 	if perr != nil {
-		skillsPrintf(stderr, "skills config: %v\n", perr)
+		say(stderr, "skills config: %v\n", perr)
 		return 1
 	}
-	if _, serr := os.Stat(paths.ConfigFile()); serr == nil {
+	if _, serr := os.Stat(filepath.Join(cfgDir, "config.toml")); serr == nil {
 		loaded, lerr := loader.LoadProfile("")
 		if lerr != nil {
-			skillsPrintf(stderr, "skills config: %v\n", lerr)
+			say(stderr, "skills config: %v\n", lerr)
 			return 1
 		}
 		cfg = loaded
 	}
 	b, err := json.MarshalIndent(cfg.Skills, "", "  ")
 	if err != nil {
-		skillsPrintf(stderr, "skills config: %v\n", err)
+		say(stderr, "skills config: %v\n", err)
 		return 1
 	}
-	skillsPrintf(stdout, "%s\n", b)
+	say(stdout, "%s\n", b)
 	return 0
 }
 
@@ -681,21 +666,21 @@ func skillsReset(args []string, stdout, stderr io.Writer) int {
 	a, err := parseSkillArgs(args)
 	if err != nil || len(a.pos) != 0 {
 		if err != nil {
-			skillsPrintf(stderr, "skills reset: %v\n", err)
+			say(stderr, "skills reset: %v\n", err)
 		}
 		skillsUsage(stderr)
 		return 2
 	}
 	if !a.yes {
-		skillsPrintf(stderr, "skills reset: refusing to remove the index without --yes\n")
+		say(stderr, "skills reset: refusing to remove the index without --yes\n")
 		return 2
 	}
 	path := filepath.Join(a.configDir, skills.IndexFile)
 	if rerr := os.Remove(path); rerr != nil && !os.IsNotExist(rerr) {
-		skillsPrintf(stderr, "skills reset: %v\n", rerr)
+		say(stderr, "skills reset: %v\n", rerr)
 		return 1
 	}
-	skillsPrintf(stdout, "reset skills index\n")
+	say(stdout, "reset skills index\n")
 	return 0
 }
 
@@ -705,7 +690,7 @@ func skillsInstall(args []string, stdout, stderr io.Writer) int {
 	a, err := parseSkillArgs(args)
 	if err != nil || len(a.pos) != 1 {
 		if err != nil {
-			skillsPrintf(stderr, "skills install: %v\n", err)
+			say(stderr, "skills install: %v\n", err)
 		}
 		skillsUsage(stderr)
 		return 2
@@ -713,27 +698,27 @@ func skillsInstall(args []string, stdout, stderr io.Writer) int {
 	src := a.pos[0]
 	sk, err := readInstallSource(src)
 	if err != nil {
-		skillsPrintf(stderr, "skills install: %v\n", err)
+		say(stderr, "skills install: %v\n", err)
 		return 1
 	}
 	destRoot := filepath.Join(a.configDir, "skills")
 	if err := os.MkdirAll(destRoot, 0o700); err != nil {
-		skillsPrintf(stderr, "skills install: %v\n", err)
+		say(stderr, "skills install: %v\n", err)
 		return 1
 	}
 	dest := filepath.Join(destRoot, sk.Name)
 	if _, serr := os.Lstat(dest); serr == nil {
-		skillsPrintf(stderr, "skills install: %s already exists\n", sk.Name)
+		say(stderr, "skills install: %s already exists\n", sk.Name)
 		return 2
 	}
 	if cerr := copyTree(src, dest); cerr != nil {
 		if rerr := os.RemoveAll(dest); rerr != nil {
 			return 1
 		}
-		skillsPrintf(stderr, "skills install: %v\n", cerr)
+		say(stderr, "skills install: %v\n", cerr)
 		return 1
 	}
-	skillsPrintf(stdout, "installed %s (%s)\n", sk.Name, shortSHA(sk.SHA256))
+	say(stdout, "installed %s (%s)\n", sk.Name, shortSHA(sk.SHA256))
 	return 0
 }
 
@@ -795,26 +780,26 @@ func skillsUninstall(args []string, stdout, stderr io.Writer) int {
 	a, err := parseSkillArgs(args)
 	if err != nil || len(a.pos) != 1 {
 		if err != nil {
-			skillsPrintf(stderr, "skills uninstall: %v\n", err)
+			say(stderr, "skills uninstall: %v\n", err)
 		}
 		skillsUsage(stderr)
 		return 2
 	}
 	name := a.pos[0]
 	if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
-		skillsPrintf(stderr, "skills uninstall: invalid name %q\n", skillsArg(name))
+		say(stderr, "skills uninstall: invalid name %q\n", skillsArg(name))
 		return 2
 	}
 	if !a.yes {
-		skillsPrintf(stderr, "skills uninstall: refusing to delete %s without --yes\n", skillsArg(name))
+		say(stderr, "skills uninstall: refusing to delete %s without --yes\n", skillsArg(name))
 		return 2
 	}
 	rootDir := filepath.Join(a.configDir, "skills")
 	// name is validated as a single basename above; the parent is the config skills dir.
 	if err := os.RemoveAll(filepath.Join(rootDir, name)); err != nil {
-		skillsPrintf(stderr, "skills uninstall: %v\n", err)
+		say(stderr, "skills uninstall: %v\n", err)
 		return 1
 	}
-	skillsPrintf(stdout, "uninstalled %s\n", name)
+	say(stdout, "uninstalled %s\n", name)
 	return 0
 }
