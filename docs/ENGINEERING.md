@@ -318,7 +318,7 @@ Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2
 
 | Paket | LOC maks | Paket | LOC maks |
 |---|---:|---|---:|
-| `loop` + `loop/event` (ADR-131 amandemen round 2/SEC8-10, ADR-134, ADR-155, ADR-178) | 2.160 | `ctxdb` (tanpa file `.sql`; ADR-049, ADR-087, ADR-118, ADR-132, ADR-136, ADR-140, ADR-141, ADR-142, ADR-146, ADR-124) | 5.740 |
+| `loop` + `loop/event` (ADR-131 amandemen round 2/SEC8-10, ADR-134, ADR-155, ADR-178) | 2.160 | `ctxdb` (tanpa file `.sql`; ADR-049, ADR-087, ADR-118, ADR-132, ADR-136, ADR-140, ADR-141, ADR-142, ADR-146, ADR-124, ADR-186) | 5.800 |
 | `plan` | 600 | `assemble` (ADR-121) | 1.300 |
 | `provider` (core OpenAI-compatible + `providertest`; ADR-131 amandemen round 2, ADR-128 round 3/4) | 2.150 | `compaction` | 900 |
 | `provider/registry` (Go; data TOML tidak dihitung; storage di `ctxdb/limitstore`, ADR-126) | 300 | `memory` + `skills` (storage di `ctxdb/memstore`/`ctxdb/skillstore`, ADR-074) | 1.830 |
@@ -631,3 +631,5 @@ Struktur test: `TestXxx` per perilaku, subtest `t.Run(name)` per kasus tabel, `t
 | Kerentanan reachable | jumlah | 0 | diukur F0 (SCORECARD) | `govulncheck` |
 | Kode mati | fungsi tak terjangkau | 0 | tidak diukur | `deadcode` |
 | Lisensi di luar allowlist | jumlah | 0 | n/a | `go-licenses` |
+
+ADR-186 (MEM-025): `ctxdb` 5.709 → 5.800 (terukur 5.756; pin API + migrasi 0012) dan `ctxdb/compactstore` tetap 360 (terukur 342; `eventsQ` memuat turn ber-pin + `Snapshot.Pins`). Σ core `loc.budget` (metode `budgetCoreSum`) = **43.746**; baris `Total core` disetel ke Σ tersebut (angka `main` tidak konsisten dengan Σ-nya, sama seperti catatan ADR-147).
