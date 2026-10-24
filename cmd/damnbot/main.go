@@ -52,9 +52,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "skills" {
 		return skillsCommand(args[1:], stdout, stderr)
 	}
-	if len(args) > 0 && args[0] == "sessions" {
-		return runSessions(args[1:], stdout, stderr)
-	}
 	if len(args) > 0 && args[0] == "bundles" {
 		return runBundles(args[1:], stdout, stderr)
 	}

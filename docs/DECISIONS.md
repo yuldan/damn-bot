@@ -3842,7 +3842,7 @@ setelah putaran lint (`Vars *PreprocessVars` di `internal/skills`, `os.Root` pad
 
 **Keputusan.** Satu baris `memory+skills 1830 internal/memory internal/skills`, tanpa baris duplikat (headroom
 27 baris ≈ 1,5%). "Total core" `docs/ENGINEERING.md` = **Σ `budgetCoreSum(loc.budget)`** (konvensi gate, PR #182)
-→ **44.061** (+430 terhadap `main` 43.631), batas SPEC §3.2.4 47.000 tetap tidak dilampaui. Seluruh PR di rantai
+→ **44.461** (+430 terhadap `main` 44.031), batas SPEC §3.2.4 47.000 tetap tidak dilampaui. Seluruh PR di rantai
 memakai nilai yang sama agar `make loc` hijau di setiap basis bertumpuk (`f2-skills` 1430, `f2-bundles` 1556,
 `f2-ledger` 1679, `f2-skills-index`/`-cli`/`-config` 1803).
 
