@@ -446,7 +446,60 @@ func TestMultiProcess(t *testing.T) {
 	}
 }
 
-func chaosClient(dir string, i int, deadline time.Time) (err error) {
+// chaosLeaseHeartbeat is the client's heartbeat cadence. SPEC §11.11.2 documents
+// a 2 s heartbeat against a 10 s TTL (LeaseTTL); the client uses half of the
+// documented cadence so a loaded runner cannot make a live client look stalled.
+const chaosLeaseHeartbeat = time.Second
+
+// chaosFenceRetryLimit bounds the fencing retries of a single client. A fenced
+// retry is legitimate (SPEC §3.3: the lease was taken over after this client
+// stalled), so the invariant is a bound, not zero - an unbounded loop would hide
+// a broken takeover path, and zero would make the suite fail on a legal event.
+const chaosFenceRetryLimit = 5
+
+// chaosResult is one client's outcome: the fencing retries it needed and the
+// error that stopped it (nil when it ran the whole window).
+type chaosResult struct {
+	retries int
+	err     error
+}
+
+// chaosAppend appends one event, re-acquiring the session lease when the guard
+// reports that this client was fenced (ErrLeaseFenced, SPEC §11.10). db_busy is
+// never tolerated: that is the failure class this suite hunts.
+func chaosAppend(ctx context.Context, s *Store, sid string, n int) (retries int, err error) {
+	for {
+		_, err = s.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "chaos " + itoa(int64(n))})
+		if !errors.Is(err, ErrLeaseFenced) {
+			return retries, err
+		}
+		if retries++; retries > chaosFenceRetryLimit {
+			return retries, fmt.Errorf("fenced %d times in a row (limit %d): %w", retries, chaosFenceRetryLimit, err)
+		}
+		if _, aerr := s.AcquireLease(ctx, sid); aerr != nil {
+			return retries, aerr
+		}
+	}
+}
+
+// chaosStep heartbeats the lease when due (SPEC §11.11.2) and appends one event,
+// returning the fencing retries that append needed. A fenced heartbeat means the
+// lease is already gone; the append path re-acquires it, so only other errors are
+// fatal here.
+func chaosStep(ctx context.Context, s *Store, sid string, n int, next *time.Time) (retries int, err error) {
+	if !time.Now().Before(*next) {
+		if herr := s.Heartbeat(ctx, sid); herr != nil && !errors.Is(herr, ErrLeaseFenced) {
+			return 0, herr
+		}
+		*next = time.Now().Add(chaosLeaseHeartbeat)
+	}
+	return chaosAppend(ctx, s, sid, n)
+}
+
+// chaosClient is one CLI-shaped process: it owns one session, heartbeats its
+// lease while it works (SPEC §11.11.2) and survives a fencing event by
+// re-acquiring the lease instead of dying on the guard's abort.
+func chaosClient(dir string, i int, deadline time.Time) (retries int, err error) {
 	ctx := context.Background()
 	id := &Ident{Host: "chaos", PID: i + 1, Start: "chaos", BootID: "chaos"}
 	var s *Store
@@ -456,60 +509,73 @@ func chaosClient(dir string, i int, deadline time.Time) (err error) {
 			break
 		}
 		if !errors.Is(err, ErrDBBusy) && !errors.Is(err, ErrMigrationRefused) {
-			return err
+			return retries, err
 		}
 		if time.Now().After(deadline) {
-			return nil // startup contention beyond the window is not a user-visible lock
+			return retries, nil // startup contention beyond the window is not a user-visible lock
 		}
 		if serr := sleepReal(ctx, 10*time.Millisecond); serr != nil {
-			return serr
+			return retries, serr
 		}
 	}
 	defer func() { err = errors.Join(err, s.Close()) }()
 	sid := "C" + itoa(int64(i))
 	if _, err = s.CreateSession(ctx, Session{ID: sid, Cwd: "/"}); err != nil && !errors.Is(err, ErrIdempotencyConflict) {
-		return err
+		return retries, err
 	}
+	var next time.Time // heartbeat on the first pass
 	for n := 0; time.Now().Before(deadline); n++ {
-		if _, err = s.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "chaos " + itoa(int64(n))}); err != nil {
-			return err
+		r, serr := chaosStep(ctx, s, sid, n, &next)
+		retries += r
+		if serr != nil {
+			return retries, serr
 		}
 		if _, err = s.Recall(ctx, "chaos", 5); err != nil {
-			return err
+			return retries, err
 		}
 	}
-	return nil
+	return retries, nil
 }
 
-// TestChaos50Clients (GAP-REL-03): 50 concurrent CLI-shaped processes for a
-// configurable window (short in PRs, 30m in nightly) never surface
-// "database is locked" and leave integrity_check ok.
-func TestChaos50Clients(t *testing.T) {
-	if testing.Short() {
-		t.Skip("chaos")
+// chaosDuration reads the window from DAMNBOT_CHAOS_DURATION or falls back to def.
+func chaosDuration(t *testing.T, def time.Duration) time.Duration {
+	t.Helper()
+	v := os.Getenv("DAMNBOT_CHAOS_DURATION")
+	if v == "" {
+		return def
 	}
-	dur := 2 * time.Second
-	if v := os.Getenv("DAMNBOT_CHAOS_DURATION"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			t.Fatalf("DAMNBOT_CHAOS_DURATION=%q: %v", v, err)
-		}
-		dur = d
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		t.Fatalf("DAMNBOT_CHAOS_DURATION=%q: %v", v, err)
 	}
+	return d
+}
+
+// runChaosClients drives 50 clients for dur and asserts the invariants this
+// suite exists for: never "database is locked", fencing recovered within the
+// bound, integrity ok. The aggregated fencing retries are logged.
+func runChaosClients(t *testing.T, dur time.Duration) {
+	t.Helper()
 	dir := t.TempDir()
 	deadline := time.Now().Add(dur)
-	errs := make(chan error, 50)
+	errs := make(chan chaosResult, 50)
 	var wg sync.WaitGroup
 	for i := range 50 {
-		wg.Go(func() { errs <- chaosClient(dir, i, deadline) })
+		wg.Go(func() {
+			r, err := chaosClient(dir, i, deadline)
+			errs <- chaosResult{retries: r, err: err}
+		})
 	}
 	wg.Wait()
 	close(errs)
-	for err := range errs {
-		if err != nil {
-			t.Fatalf("chaos client: %v", err)
+	total := 0
+	for r := range errs {
+		if r.err != nil {
+			t.Fatalf("chaos client: %v", r.err)
 		}
+		total += r.retries
 	}
+	t.Logf("chaos: 50 clients over %s, %d fencing retries (bound %d per client)", dur, total, chaosFenceRetryLimit)
 	s, err := Open(context.Background(), &Options{Dir: dir, Kind: "cli"})
 	if err != nil {
 		t.Fatal(err)
@@ -517,5 +583,71 @@ func TestChaos50Clients(t *testing.T) {
 	defer func() { must(t, s.Close()) }()
 	if res, err := s.IntegrityCheck(context.Background()); err != nil || res != "ok" {
 		t.Fatalf("integrity = %q, %v", res, err)
+	}
+}
+
+// TestChaos50Clients (GAP-REL-03): 50 concurrent CLI-shaped processes for a
+// configurable window (short in PRs, 30m in nightly) never surface
+// "database is locked" and leave integrity_check ok. A client that is fenced -
+// its lease was taken over while it stalled - re-acquires the lease and retries;
+// that retry is counted and bounded, not fatal.
+func TestChaos50Clients(t *testing.T) {
+	if testing.Short() {
+		t.Skip("chaos")
+	}
+	runChaosClients(t, chaosDuration(t, 2*time.Second))
+}
+
+// TestChaos50ClientsAcrossLeaseTTL is the deliberate long-window variant: the
+// window crosses several lease TTLs (>= 3x LeaseTTL), which is exactly where a
+// client that never heartbeats looks dead and a takeover becomes legitimate. It
+// runs in the nightly job (`make chaos-nightly`) so the takeover path is
+// exercised on purpose instead of by chance; PR runs stay short.
+func TestChaos50ClientsAcrossLeaseTTL(t *testing.T) {
+	if testing.Short() {
+		t.Skip("chaos")
+	}
+	if os.Getenv("DAMNBOT_CHAOS_LONG") == "" {
+		t.Skip("set DAMNBOT_CHAOS_LONG=1 (make chaos-nightly) to cross the lease TTL")
+	}
+	runChaosClients(t, chaosDuration(t, 3*LeaseTTL*time.Millisecond+15*time.Second))
+}
+
+// TestChaosClientRecoversFromFencing pins the failure mode the CI flake showed
+// and proves the retry path is load-bearing: with the in-memory lease token gone
+// a raw append is refused by the guard with ErrLeaseFenced - the exact
+// `lease_fenced: constraint failed` abort seen in CI - while the bounded retry
+// re-acquires the lease and appends.
+func TestChaosClientRecoversFromFencing(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, &Options{
+		Dir: t.TempDir(), Kind: "cli", BusyTimeout: 5 * time.Second,
+		Ident: &Ident{Host: "chaos", PID: 1, Start: "chaos", BootID: "chaos"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { must(t, s.Close()) }()
+	const sid = "F1"
+	if _, cerr := s.CreateSession(ctx, Session{ID: sid, Cwd: "/"}); cerr != nil {
+		t.Fatal(cerr)
+	}
+	if _, aerr := s.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "before"}); aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	s.setToken(sid, 0) // the state the guard aborts on: token gone, lease row intact
+	if _, aerr := s.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "raw"}); !errors.Is(aerr, ErrLeaseFenced) {
+		t.Fatalf("append without a held token = %v, want ErrLeaseFenced", aerr)
+	}
+	retries, rerr := chaosAppend(ctx, s, sid, 1)
+	if rerr != nil {
+		t.Fatalf("bounded retry after fencing: %v", rerr)
+	}
+	if retries != 1 {
+		t.Fatalf("retries = %d, want 1", retries)
+	}
+	if _, aerr := s.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "after"}); aerr != nil {
+		t.Fatalf("append after recovery: %v", aerr)
 	}
 }
