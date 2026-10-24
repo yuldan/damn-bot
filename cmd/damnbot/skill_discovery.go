@@ -25,10 +25,13 @@ type discovery struct {
 // discovered skill is SourceImport: it is linted, scanned and quarantined, and
 // is never treated as a trusted user skill. A duplicate name never overrides a
 // config/user skill or an earlier root.
-func discoverSkills(ctx context.Context, db *ctxdb.Store, cfg *config.Config, configDir, cwd, home string, red *redact.Redactor) (discovery, error) {
+func discoverSkills(ctx context.Context, db *ctxdb.Store, cfg *config.Config, configDir, dataDir, cwd, home string, red *redact.Redactor) (discovery, error) {
 	var out discovery
 	known, err := configSkillNames(ctx, configDir, cwd, home)
 	if err != nil {
+		return out, err
+	}
+	if err := recordConfigLedger(ctx, dataDir, configDir, cwd, home); err != nil {
 		return out, err
 	}
 	for _, root := range discoveryRoots(cfg.Skills, cwd, home) {
@@ -45,7 +48,7 @@ func discoverSkills(ctx context.Context, db *ctxdb.Store, cfg *config.Config, co
 				continue
 			}
 			known[sk.Name] = true
-			if qerr := quarantineSkill(ctx, db, &sk, red); qerr != nil {
+			if qerr := quarantineSkill(ctx, db, &sk, red, dataDir); qerr != nil {
 				return out, fmt.Errorf("skills discovery %s: %w", sk.Name, qerr)
 			}
 			out.list = append(out.list, sk)
@@ -116,7 +119,7 @@ func expandHome(p, home string) string {
 // scan and lint results are recorded in the memory decision; a high scan
 // severity rejects it (never retrievable). Re-indexing the same name+sha is
 // idempotent.
-func quarantineSkill(ctx context.Context, db *ctxdb.Store, sk *skills.Skill, red *redact.Redactor) error {
+func quarantineSkill(ctx context.Context, db *ctxdb.Store, sk *skills.Skill, red *redact.Redactor, dataDir string) error {
 	var existing int64
 	if err := db.Write(ctx, func(tx *ctxdb.Tx) error {
 		return tx.Get("SELECT count(*) FROM skills WHERE name = ?1 AND sha256 = ?2", []any{sk.Name, sk.SHA256}, &existing)
@@ -135,8 +138,57 @@ func quarantineSkill(ctx context.Context, db *ctxdb.Store, sk *skills.Skill, red
 		Name: sk.Name, Description: red.String(sk.Description), Body: red.String(sk.Body),
 		Path: red.String(sk.Path), SHA256: sk.SHA256, Source: string(sk.Source),
 	}
-	if _, _, qerr := skillstore.Quarantine(ctx, db, row, result, scan.Severity == memory.SeverityHigh, time.Now().UnixMilli()); qerr != nil {
+	memoryID, _, qerr := skillstore.Quarantine(ctx, db, row, result, scan.Severity == memory.SeverityHigh, time.Now().UnixMilli())
+	if qerr != nil {
 		return fmt.Errorf("quarantine: %w", qerr)
+	}
+	action := "quarantined"
+	if scan.Severity == memory.SeverityHigh {
+		action = "rejected"
+	}
+	if lerr := appendLedger(dataDir, &skills.LedgerEntry{
+		At: time.Now().UnixMilli(), Name: sk.Name, SHA256: sk.SHA256, Path: sk.Path,
+		Source: string(sk.Source), Action: action, MemoryID: memoryID,
+	}); lerr != nil {
+		return lerr
+	}
+	return nil
+}
+
+// appendLedger writes one provenance entry unless the same change is already
+// recorded.
+func appendLedger(dataDir string, e *skills.LedgerEntry) error {
+	entries, err := skills.ReadLedger(dataDir)
+	if err != nil {
+		return fmt.Errorf("ledger read: %w", err)
+	}
+	if skills.HasLedgerEntry(entries, e) {
+		return nil
+	}
+	if lerr := skills.AppendLedger(dataDir, e); lerr != nil {
+		return fmt.Errorf("ledger append: %w", lerr)
+	}
+	return nil
+}
+
+// recordConfigLedger records config/user skills as indexed on first sight, so
+// every skill carried by the agent has provenance.
+func recordConfigLedger(ctx context.Context, dataDir, configDir, cwd, home string) error {
+	if configDir == "" {
+		return nil
+	}
+	list, _, err := loadSkills(ctx, filepath.Join(configDir, "skills"), skillLoadOptions{ProjectDir: cwd, Home: home})
+	if err != nil {
+		return err
+	}
+	for i := range list {
+		sk := &list[i]
+		if lerr := appendLedger(dataDir, &skills.LedgerEntry{
+			At: time.Now().UnixMilli(), Name: sk.Name, SHA256: sk.SHA256, Path: sk.Path,
+			Source: string(sk.Source), Action: "indexed",
+		}); lerr != nil {
+			return lerr
+		}
 	}
 	return nil
 }

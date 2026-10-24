@@ -49,7 +49,8 @@ assemble          1300 internal/assemble
 compaction         900 internal/compaction
 # ADR-168: memory+skills 1230 -> 1350 (preprocessing SKILL-004; terukur 1288; Σ core +120).
 # ADR-169: memory+skills 1350 -> 1500 (bundles SKILL-007 + CLI-047; terukur 1402; Σ core +150).
-memory+skills     1500 internal/memory internal/skills
+# ADR-171: memory+skills 1500 -> 1700 (skill ledger SKILL-019; terukur 1527; Σ core +200).
+memory+skills     1700 internal/memory internal/skills
 # ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).
 journal            560 internal/journal
 # ADR-123: budget 400 -> 520 (guard harian/bulanan/provider + formula token gambar; terukur 481).

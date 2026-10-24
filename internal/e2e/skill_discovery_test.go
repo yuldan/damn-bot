@@ -63,6 +63,10 @@ func TestSkillDiscoveryQuarantine(t *testing.T) {
 	if source != "import" || status != "scanned" {
 		t.Fatalf("external skill = %q/%q, want import/scanned", source, status)
 	}
+	ledger, lerr := os.ReadFile(filepath.Join(e.DataDir, "skills-ledger.jsonl"))
+	if lerr != nil || !strings.Contains(string(ledger), `"action":"quarantined"`) || !strings.Contains(string(ledger), `"source":"import"`) {
+		t.Fatalf("ledger = %q (%v), want a quarantined import entry", ledger, lerr)
+	}
 }
 
 // TestSkillDiscoveryInactiveShellDefault: a discovered skill with inline shell

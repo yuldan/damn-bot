@@ -41,48 +41,79 @@ func writeDiscoverySkill(t *testing.T, root, name, body string) {
 	}
 }
 
-// TestDiscoverExternalDirs: discovered skills are imports, quarantined and
-// idempotent; duplicates never override config skills.
-func TestDiscoverExternalDirs(t *testing.T) {
+// discoverOnce runs discovery with fresh cwd/home roots.
+func discoverOnce(t *testing.T, db *ctxdb.Store, cfg *config.Config, configDir, dataDir string) discovery {
+	t.Helper()
+	disc, err := discoverSkills(context.Background(), db, cfg, configDir, dataDir, t.TempDir(), t.TempDir(), redact.New(redact.Options{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return disc
+}
+
+// TestDiscoverConfigPrecedence: a config skill name wins over an external
+// skill with the same name.
+func TestDiscoverConfigPrecedence(t *testing.T) {
 	external := t.TempDir()
 	writeDiscoverySkill(t, external, "ext-skill", "body")
 	configDir := t.TempDir()
 	writeDiscoverySkill(t, filepath.Join(configDir, "skills"), "ext-skill", "user body")
-	db := discoveryStore(t)
 	cfg := config.Default()
 	cfg.Skills.ExternalDirs = []string{external}
-	disc, err := discoverSkills(context.Background(), db, &cfg, configDir, t.TempDir(), t.TempDir(), redact.New(redact.Options{}))
+	if disc := discoverOnce(t, discoveryStore(t), &cfg, configDir, t.TempDir()); len(disc.list) != 0 {
+		t.Fatalf("config duplicate was rediscovered: %+v", disc.list)
+	}
+}
+
+// storedSkill reads one skill's source and quarantine status.
+func storedSkill(t *testing.T, db *ctxdb.Store, name string) (source, status string) {
+	t.Helper()
+	err := db.Write(context.Background(), func(tx *ctxdb.Tx) error {
+		if gerr := tx.Get("SELECT source FROM skills WHERE name = ?1", []any{name}, &source); gerr != nil {
+			return fmt.Errorf("source: %w", gerr)
+		}
+		if gerr := tx.Get(`SELECT status FROM v_memory_status WHERE id = (SELECT memory_id FROM skills WHERE name = ?1)`, []any{name}, &status); gerr != nil {
+			return fmt.Errorf("status: %w", gerr)
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(disc.list) != 0 {
-		t.Fatalf("config duplicate was rediscovered: %+v", disc.list)
+	return source, status
+}
+
+// TestDiscoverQuarantineLedger: discovered skills are imports, quarantined,
+// recorded in the ledger and idempotent.
+func TestDiscoverQuarantineLedger(t *testing.T) {
+	external := t.TempDir()
+	writeDiscoverySkill(t, external, "ext-skill", "body")
+	configDir := t.TempDir()
+	db := discoveryStore(t)
+	cfg := config.Default()
+	cfg.Skills.ExternalDirs = []string{external}
+	dataDir := t.TempDir()
+	disc := discoverOnce(t, db, &cfg, configDir, dataDir)
+	if len(disc.list) != 1 || disc.list[0].Source != skills.SourceImport {
+		t.Fatalf("discovery = %+v", disc)
 	}
-	if rmErr := os.RemoveAll(filepath.Join(configDir, "skills", "ext-skill")); rmErr != nil {
-		t.Fatal(rmErr)
-	}
-	disc, err = discoverSkills(context.Background(), db, &cfg, configDir, t.TempDir(), t.TempDir(), redact.New(redact.Options{}))
-	if err != nil || len(disc.list) != 1 || disc.list[0].Source != skills.SourceImport {
-		t.Fatalf("discovery = %+v, %v", disc, err)
-	}
-	var source, status string
-	if err := db.Write(context.Background(), func(tx *ctxdb.Tx) error {
-		if err := tx.Get("SELECT source FROM skills WHERE name = 'ext-skill'", nil, &source); err != nil {
-			return fmt.Errorf("source: %w", err)
-		}
-		if err := tx.Get(`SELECT status FROM v_memory_status WHERE id = (SELECT memory_id FROM skills WHERE name = 'ext-skill')`, nil, &status); err != nil {
-			return fmt.Errorf("status: %w", err)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
+	source, status := storedSkill(t, db, "ext-skill")
 	if source != "import" || status != "scanned" {
 		t.Fatalf("stored source/status = %q/%q, want import/scanned", source, status)
 	}
-	// A second discovery is idempotent.
-	if _, err := discoverSkills(context.Background(), db, &cfg, configDir, t.TempDir(), t.TempDir(), redact.New(redact.Options{})); err != nil {
-		t.Fatal(err)
+	ledger, lerr := skills.ReadLedger(dataDir)
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	var quarantined bool
+	for _, e := range ledger {
+		quarantined = quarantined || (e.Action == "quarantined" && e.Source == "import")
+	}
+	if !quarantined {
+		t.Fatalf("ledger lacks the quarantine entry: %+v", ledger)
+	}
+	if disc = discoverOnce(t, db, &cfg, configDir, dataDir); len(disc.list) != 1 {
+		t.Fatalf("second discovery = %+v", disc)
 	}
 	var rows int64
 	if err := db.Write(context.Background(), func(tx *ctxdb.Tx) error {
@@ -101,7 +132,7 @@ func TestDiscoverUntrustedInlineShell(t *testing.T) {
 	cfg := config.Default()
 	cfg.Skills.ExternalDirs = []string{external}
 	cfg.Skills.InlineShell = true
-	if _, err := discoverSkills(context.Background(), db, &cfg, t.TempDir(), t.TempDir(), t.TempDir(), redact.New(redact.Options{})); err == nil {
+	if _, err := discoverSkills(context.Background(), db, &cfg, t.TempDir(), t.TempDir(), t.TempDir(), t.TempDir(), redact.New(redact.Options{})); err == nil {
 		t.Fatal("untrusted inline shell was accepted")
 	}
 }
@@ -117,11 +148,11 @@ func TestDiscoverTrustedProject(t *testing.T) {
 	}
 	db := discoveryStore(t)
 	cfg := config.Default()
-	if disc, err := discoverSkills(context.Background(), db, &cfg, t.TempDir(), cwd, t.TempDir(), redact.New(redact.Options{})); err != nil || len(disc.list) != 0 {
+	if disc, err := discoverSkills(context.Background(), db, &cfg, t.TempDir(), t.TempDir(), cwd, t.TempDir(), redact.New(redact.Options{})); err != nil || len(disc.list) != 0 {
 		t.Fatalf("untrusted project discovered = %+v, %v", disc, err)
 	}
 	cfg.Skills.TrustedProjects = []string{project}
-	disc, err := discoverSkills(context.Background(), db, &cfg, t.TempDir(), cwd, t.TempDir(), redact.New(redact.Options{}))
+	disc, err := discoverSkills(context.Background(), db, &cfg, t.TempDir(), t.TempDir(), cwd, t.TempDir(), redact.New(redact.Options{}))
 	if err != nil || len(disc.list) != 1 || disc.list[0].Name != "proj-skill" {
 		t.Fatalf("trusted project = %+v, %v", disc, err)
 	}
