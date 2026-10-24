@@ -32,7 +32,7 @@ confirm that a test name exists nowhere else.
 | --- | --- | --- | --- | --- | --- |
 | EC — required by ROADMAP F2 | 41 | 41 | — | — | 0 |
 | GAP — DECISIONS.md L247-265 | 18 | 13 | 2 | 1 | 2 |
-| Parity — rows listed in §3 | 81 | 26 | 4 | 17 | 34 |
+| Parity — rows listed in §3 | 81 | 25 | 4 | 17 | 35 |
 
 All 41 EC rows are covered or `n/a` now. The eight rows that were missing when
 this ledger was written closed as: `EC-CTX-006` (#275), `EC-CTX-007`
@@ -53,9 +53,10 @@ Audit §3 (parity) pada `main ef8ec40d` memetakan 42 baris berstatus `missing`: 
 `covered`** (statusnya dikoreksi di bawah, dengan berkas + nama tes), **22 baris sudah bukan milik F2**
 (fasenya dikutip dari kolom `fase` `docs/FEATURE-PARITY.md` dan dicatat di barisnya; kepemilikan fase
 mengikuti **ADR-139**), **22 baris masih F2 dan punya penutup PR terbuka** (nomornya dicatat di barisnya),
-dan **2 baris tanpa penutup** (`MEM-025`, `CLI-039`). Karena 81 baris terdaftar = 59 baris yang kini masih
-fase F2 + 22 baris yang pindah fase, utang implementasi F2 yang sebenarnya = **24 baris** (22 berpenutup +
-2 tanpa). Baris parity **tidak** dulu maupun sekarang menjadi gate - lihat §3 bagian terakhir.
+dan **3 baris tanpa penutup** (`MEM-025`, `CLI-039`, plus `MEM-026` yang ternyata belum `covered` -
+koreksi 2026-10-24, lihat barisnya dan §4 item 11(d)). Karena 81 baris terdaftar = 59 baris yang kini masih
+fase F2 + 22 baris yang pindah fase, utang implementasi F2 yang sebenarnya = **25 baris** (22 berpenutup +
+3 tanpa). Baris parity **tidak** dulu maupun sekarang menjadi gate - lihat §3 bagian terakhir.
 
 ---
 
@@ -262,7 +263,7 @@ by the acceptance test until the surface exists.
 | MEM-023 | context engine plugin | missing | see PLUG-014 · fase **F8** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
 | MEM-024 | @-ref | missing | no reference expansion · penutup #267 |
 | MEM-025 | context pin | missing | memory pins are storage, not prompt pins · **tanpa penutup**: 0 kemunculan kode (`context_pin`/`ContextPin`) dan 0 PR terbuka |
-| MEM-026 | context files | covered | `TestContextTruncationOrder` and `TestContextEmptyAndMultipleFiles` exercise `AGENTS.md` in `internal/assemble` |
+| MEM-026 | context files | missing | **GAP (koreksi 2026-10-24)**: tier berkas konteks belum tersambung di produksi - `cmd/damnbot/run.go:212-221` hanya mengisi `ContextInput.Facts`/`Degraded`, dan `UntrustedFiles` (`internal/assemble/context.go:81`) nol pemanggil produksi, sehingga tidak ada berkas konteks yang pernah masuk request anak. Dua tes unit yang dulu dirujuk (`TestContextTruncationOrder`, `internal/assemble/tiers_test.go:85`; `TestContextEmptyAndMultipleFiles`, `internal/assemble/context_test.go:51`/`:87`) mengisi `Files:` sendiri, jadi hanya membuktikan renderer, bukan perilaku biner. Tes e2e-nya belum ada (§4 item 11(d)). **in-flight, PR menyusul** (wiring + tes e2e). |
 | MEM-028 | rewind | covered | `TestForkAndRewind` |
 | MEM-029 | branch/fork | covered | `TestForkAndRewind`, `TestForkContextTierCopied` |
 | MEM-030 | retry | missing | last-message retry not tested · penutup #259 |
@@ -387,7 +388,8 @@ proves it.
 10. **docs:** peta baris parity sudah diperbarui (audit `ef8ec40d`): **8 baris ternyata `covered`** di
     `main`, **22 baris pindah fase** (ADR-139) dan tetap tercatat dengan fase barunya, **22 baris masih F2
     dan punya penutup PR terbuka** (#253, #259, #266, #267, #268, #269, #270, #273), dan **2 baris tanpa
-    penutup**: `MEM-025` (context pin; 0 kode, 0 PR) dan `CLI-039` (checkpoints CLI; kodenya menunggu PR port
+    penutup**: `MEM-025` (context pin; 0 kode, 0 PR), `MEM-026` (berkas konteks; belum tersambung di produksi -
+    lihat §4 item 11(d)) dan `CLI-039` (checkpoints CLI; kodenya menunggu PR port
     dari stack `f2-cp-api`). Sisa pekerjaan F2 = mendaratkan penutup itu, atau memindahkan barisnya ke fase
     pemiliknya lewat koreksi ADR-064. Baris "planned" tanpa penutup adalah lubang yang ditutup ledger ini.
 
@@ -402,7 +404,10 @@ proves it.
     ada, sedangkan perintah non-payment dengan `--approval auto` tetap jalan. (d)
     `TestE2EContextFileWrappedUntrusted` (`internal/e2e`): isi `AGENTS.md` ber-marker muncul di request di
     dalam `<untrusted source="workspace">` dengan role user; kontrol: teks instruksi di berkas itu tidak pernah
-    muncul sebagai pesan system/developer, dan tanpa berkas wrapper-nya tidak ada. **Sudah tertutup:**
+    muncul sebagai pesan system/developer, dan tanpa berkas wrapper-nya tidak ada. **Catatan 2026-10-24:**
+    baris `MEM-026` kini berstatus `missing` (dulu salah `covered`) karena tier berkas konteks belum tersambung
+    di produksi (`cmd/damnbot/run.go:212-221` tidak pernah mengisi `Files`, `UntrustedFiles` nol pemanggil) -
+    jadi prasyarat tes ini adalah **wiring-nya lebih dulu**, bukan hanya tesnya. **Sudah tertutup:**
     kontrol penolakan `undo` (symlink ke luar/di dalam root, konflik isi) mendarat lewat #240 -
     `internal/e2e/undo_test.go:130`/`:168`/`:232` dengan kontrol positif `:213`.
 
