@@ -442,12 +442,12 @@ func newRunSession(ctx context.Context, db *ctxdb.Store, modelRef string) (sid, 
 
 // shellGate builds the shell_allow list and the payment-skill gate
 // directories for one run (fail closed on a skill error).
-func shellGate(cfg *config.Config, configDir, cwd string) ([]classify.AllowEntry, []string, error) {
+func shellGate(ctx context.Context, cfg *config.Config, configDir, cwd string) ([]classify.AllowEntry, []string, error) {
 	allow := make([]classify.AllowEntry, 0, len(cfg.Approval.ShellAllow))
 	for _, argv := range cfg.Approval.ShellAllow {
 		allow = append(allow, classify.AllowEntry(argv))
 	}
-	monetary, err := paymentSkillDirs(cfg, configDir, cwd)
+	monetary, err := paymentSkillDirs(ctx, cfg, configDir, cwd)
 	if err != nil {
 		return nil, nil, err
 	}

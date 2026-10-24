@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -67,7 +68,7 @@ func TestPaymentSkillDirs(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(loose, "scripts"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	dirs, err := paymentSkillDirs(&dc, cfg, cfg)
+	dirs, err := paymentSkillDirs(context.Background(), &dc, cfg, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +90,7 @@ func TestPaymentSkillDirs(t *testing.T) {
 	if err := os.Symlink(filepath.Join(out, "outside.md"), filepath.Join(dir, "SKILL.md")); err != nil {
 		t.Skipf("symlink: %v", err)
 	}
-	if _, err := paymentSkillDirs(&dc, cfg2, cfg2); err == nil {
+	if _, err := paymentSkillDirs(context.Background(), &dc, cfg2, cfg2); err == nil {
 		t.Fatal("escaping SKILL.md symlink must fail closed")
 	}
 
@@ -97,7 +98,7 @@ func TestPaymentSkillDirs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bad, "SKILL.md"), []byte("no front matter"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := paymentSkillDirs(&dc, cfg, cfg); err == nil {
+	if _, err := paymentSkillDirs(context.Background(), &dc, cfg, cfg); err == nil {
 		t.Fatal("a broken skill must fail closed")
 	}
 }

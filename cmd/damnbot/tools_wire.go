@@ -264,7 +264,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	fail := func(cause error) error {
 		return closeWiring(ctx, cause, &mods, engine, sessions, runner, db, sid)
 	}
-	allow, monetary, err := shellGate(cfg, configDir, cwd)
+	allow, monetary, err := shellGate(ctx, cfg, configDir, cwd)
 	if err != nil {
 		return nil, fail(err)
 	}

@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -26,12 +27,44 @@ type Catalog struct {
 	Dirs []string
 }
 
+// LoadOptions is the SKILL-004 preprocessing seam (ADR-168). When InlineShell
+// is set, a `!`cmd` span is expanded for trusted sources only; untrusted roots
+// get a nil runner and therefore fail closed (ErrInlineShellDisabled) instead
+// of leaking the literal command. Shell nil means inline shell is unavailable.
+type LoadOptions struct {
+	InlineShell bool
+	Shell       ShellRunner
+	// Vars is a pointer so LoadOptions stays under gocritic's hugeParam
+	// threshold (88 -> 32 bytes); nil means all template variables empty.
+	Vars *PreprocessVars
+}
+
+// preprocessLoaded expands SKILL-004 templates for one loaded skill. The
+// inline shell runs only for a trusted source with the config flag on.
+func preprocessLoaded(ctx context.Context, sk *Skill, opts LoadOptions) error {
+	shell := opts.Shell
+	if !opts.InlineShell || !sk.Source.Trusted() {
+		shell = nil
+	}
+	v := PreprocessVars{}
+	if opts.Vars != nil {
+		v = *opts.Vars
+	}
+	v.SkillDir, v.SkillName = filepath.Dir(sk.Path), sk.Name
+	body, err := Preprocess(ctx, sk.Body, v, shell)
+	if err != nil {
+		return fmt.Errorf("skills: %s: %w", sk.Name, err)
+	}
+	sk.Body = body
+	return nil
+}
+
 // Load parses and lints every skill under roots in order. A missing root is
 // empty (a project need not ship skills). A name must be unique across all
 // roots: an import may never shadow a user skill, so a duplicate fails
 // closed. An unreadable or invalid skill, or a high lint finding, fails the
 // load for every source.
-func Load(roots []Root) (Catalog, error) {
+func Load(ctx context.Context, roots []Root, opts LoadOptions) (Catalog, error) {
 	var cat Catalog
 	known := map[string]bool{}
 	for _, r := range roots {
@@ -41,6 +74,9 @@ func Load(roots []Root) (Catalog, error) {
 	}
 	for i := range cat.Skills {
 		if err := lintLoaded(&cat.Skills[i], known); err != nil {
+			return Catalog{}, err
+		}
+		if err := preprocessLoaded(ctx, &cat.Skills[i], opts); err != nil {
 			return Catalog{}, err
 		}
 	}

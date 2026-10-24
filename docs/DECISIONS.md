@@ -3803,3 +3803,30 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** Token 0 pada default (all-modules 2.808); LOC +400 di atas budget (terukur 259); binary/dependency 0; key config aditif.
 
 **Konsekuensi.** (+) Toolset punya kontrak, anggaran, dan validasi gagal-tertutup; config tidak bisa membuka tool yang tidak dideklarasikan. (−) Nama tool yang belum lahir di binary tetap dideklarasikan dan tampil sebagai warning bila dipilih; pemangkasannya menunggu TOOL-070/073/074/075/076.
+
+## ADR-168 — Skill preprocessing: template vars dan inline shell opt-in (SKILL-004)
+**Status:** Accepted 2026-10-22 (F2; SKILL-004). `internal/skills` 1.230 → 1.350 (terukur 1.288; Σ core +120, Total core 38.210). Tanpa DDL/dependency.
+**Konteks.** SKILL.md hermes mendukung substitusi variabel dan shell inline; `skills.inline_shell` default `false`. Damn-Bot mem-parse body apa adanya, sehingga `${SKILL_DIR}`/`${PROJECT_DIR}` sampai ke model sebagai literal dan tidak ada jalur aman untuk shell. Skill dari lokasi baru (project/external, ADR-170) tidak boleh dapat mengeksekusi shell.
+1. **Template vars.** `${SKILL_DIR}`, `${SKILL_NAME}`, `${PROJECT_DIR}`, `${HOME}`, `${OS}` disubstitusi; `${...}` yang tidak dikenal dibiarkan literal. Blok kode berpagar (```` ``` ````) tidak diproses.
+2. **Inline shell.** Span backtick yang isinya diawali `!` (`!command`) dieksekusi hanya bila (a) config `[skills] inline_shell = true`, dan (b) `Skill.Source.Trusted()` (user/builtin). Runner memakai `sh -c` (`cmd /C` di Windows), timeout 5 s, output dipotong 4 KiB + marker. Selain itu `skills.Preprocess` mengembalikan `ErrInlineShellDisabled` (fail closed) — perintah tidak pernah sampai ke prompt sebagai teks.
+3. **Config.** Section `[skills]` (di luar contoh SPEC §12): `inline_shell` default `false`, divalidasi oleh decoder TOML ketat; tidak ada key lain di ADR ini.
+4. **Urutan dan consumer.** Preprocessing dijalankan setelah parse+lint (lint tetap melihat body mentah) oleh `preprocessLoaded` di composition root, dan menimpa `Skill.Body`. Konsumen body (`skill_view`, #263) membaca body yang sudah diproses; jalur gate pembayaran tidak berubah (memakai path/description/lint).
+5. **Test.** `internal/skills`: `TestPreprocessTemplates`, `TestPreprocessInlineShell` (disabled → error; enabled → runner dipanggil, backtick biasa utuh), `TestPreprocessInlineOutputCap`. `cmd/damnbot`: `TestPreprocessLoadedTrustedOnly` (trusted+flag menjalankan, import/quarantine dan flag off gagal-tertutup).
+**Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; `internal/skills` +≈120 baris (terukur 1.288/1.350), `cmd/damnbot` +≈70 baris non-test. Tidak ada token prompt tambahan (body tidak masuk prompt; hanya description).
+**Konsekuensi.** (+) Skill memakai path/OS/project yang benar tanpa hardcode. (+) Shell inline tidak pernah jalan diam-diam dan tidak tersedia untuk skill quarantined. (−) Body yang sudah diproses disimpan di `Skill` load-time; perubahan file skill memerlukan load ulang. (−) `${...}` tak dikenal tetap literal sehingga typo tidak terlihat sampai skill dibaca.
+
+## ADR-184: budget `memory`+`skills` 1.400 -> 1.830
+
+**Konteks.** Rantai PR skills (skillstore/karantina, ledger+index, bundle, discovery proyek, sumber skill, CLI
+`damnbot skills`) menambah kode non-test di `internal/skills`: `bundle.go`, `index.go`, `ledger.go`, `preprocess.go`,
+`source.go`, dan `service.go` (karantina + approval). Baris `loc.budget` di `main` saat itu 1.400 (ADR-175);
+terukur pada kepala rantai **1803** baris kode non-test (`scc --by-file`, `internal/memory` + `internal/skills`)
+setelah putaran lint (`Vars *PreprocessVars` di `internal/skills`, `os.Root` pada copy install).
+
+**Keputusan.** Satu baris `memory+skills 1830 internal/memory internal/skills`, tanpa baris duplikat (headroom
+27 baris ≈ 1,5%). "Total core" `docs/ENGINEERING.md` = **Σ `budgetCoreSum(loc.budget)`** (konvensi gate, PR #182)
+→ **44.461** (+430 terhadap `main` 44.031), batas SPEC §3.2.4 47.000 tetap tidak dilampaui. Seluruh PR di rantai
+memakai nilai yang sama agar `make loc` hijau di setiap basis bertumpuk (`f2-skills` 1430, `f2-bundles` 1556,
+`f2-ledger` 1679, `f2-skills-index`/`-cli`/`-config` 1803).
+
+**Konsekuensi.** PR lain yang menaikkan baris core setelah ini harus **menjumlahkan** angka ini, bukan menimpanya.
