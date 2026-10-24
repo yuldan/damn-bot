@@ -79,6 +79,20 @@ func skillsCommand(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+// skillsPaths resolves the config and data directories the way `damnbot run`
+// does; the skills CLI is the only caller that needs both at once.
+func skillsPaths() (configDir, dataDir string, err error) {
+	loader, err := config.New(config.OS())
+	if err != nil {
+		return "", "", fmt.Errorf("config deps: %w", err)
+	}
+	paths, err := loader.Paths("")
+	if err != nil {
+		return "", "", fmt.Errorf("config paths: %w", err)
+	}
+	return paths.ConfigDir, paths.DataDir, nil
+}
+
 // skillsConfigDir resolves <config>. An explicit --config file wins (its
 // directory is the store location), otherwise the loader decides the way
 // `damnbot run` does.
@@ -90,15 +104,8 @@ func skillsConfigDir(cfgPath string) (string, error) {
 		}
 		return filepath.Dir(abs), nil
 	}
-	loader, err := config.New(config.OS())
-	if err != nil {
-		return "", fmt.Errorf("config deps: %w", err)
-	}
-	paths, err := loader.Paths("")
-	if err != nil {
-		return "", fmt.Errorf("config paths: %w", err)
-	}
-	return paths.ConfigDir, nil
+	dir, _, err := skillsPaths()
+	return dir, err
 }
 
 func skillsTrustList(configDir string, stdout io.Writer) int {
@@ -330,19 +337,15 @@ func parseSkillArgs(args []string) (skillArgs, error) {
 		}
 		i++
 	}
-	loader, err := config.New(config.OS())
-	if err != nil {
-		return a, fmt.Errorf("config deps: %w", err)
-	}
-	paths, err := loader.Paths("")
-	if err != nil {
-		return a, fmt.Errorf("config paths: %w", err)
+	cfgDir, dataDir, perr := skillsPaths()
+	if perr != nil {
+		return a, perr
 	}
 	if a.configDir == "" {
-		a.configDir = paths.ConfigDir
+		a.configDir = cfgDir
 	}
 	if a.dataDir == "" {
-		a.dataDir = paths.DataDir
+		a.dataDir = dataDir
 	}
 	return a, nil
 }
