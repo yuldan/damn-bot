@@ -317,6 +317,40 @@ Akibatnya angka di ledger ini **tidak** memblokir atau meloloskan gate mana pun;
 35.568s`, dengan satu baris **log** (bukan kegagalan) `acceptance_test.go:54: PHASE acceptance F3: 69 EC ids
 of a later phase are still open`.
 
+### F2 e2e suite: the nine scenarios (biner nyata)
+
+**Sumber kanonik: body PR #239** (<https://github.com/yuldan/damn-bot/pull/239>) - bagian "Passing on main now"
+(4a, 4b) dan "Pending scenarios" (1, 2, 3, 5, 6, 7, 8, 9; nomor 4 dipecah 4a/4b). **Tidak ada berkas repo yang
+mengenumerasi kesembilan skenario ini**: `docs/ROADMAP.md` §F2 (baris 130-140) hanya memuat acceptance
+P1/undo/recall/EC, dan dokumen ini sebelumnya tidak memuatnya - tabel di bawah adalah salinan pertama di repo.
+Di kode, skenario dikenali dari komentar `scenario N of PR #239` (`internal/e2e/undo_review_test.go:23`,
+`budget_guard_ledger_test.go:150`/`:226`, `sessions_fork_prefix_test.go:124`) dan dari komentar
+`acceptance 4b`/`acceptance 9`.
+
+| # | skenario | tes (`berkas:baris`) | kontrol negatif (load-bearing) | status |
+| --- | --- | --- | --- | --- |
+| 1 | compaction -> summary di SessionView + pembungkusan `<untrusted>` | `internal/e2e/summary_taint_test.go:47` `TestTaintedSummaryDeniesUnsafeShell` | `summary_taint_test.go:86` `TestUntaintedTurnControlShellRuns` - shell JALAN saat turn tidak taint, jadi yang memblokir adalah taint-nya, bukan penolakan menyeluruh | in-flight #219/#220 (W6/W7) |
+| 2 | tier memory/recall + isolasi cross-project & cross-principal | `internal/e2e/recall_scope_test.go:159` `TestRecallIgnoresAnotherProject`, `:178` `TestRecallIgnoresAnotherPrincipal` | kedua tes itu sendiri: scope proyek/principal lain tidak boleh terlihat | in-flight #283 |
+| 3 | failed-turn `context_exclude` pada request berikutnya + daftar side effect | `internal/e2e/resume_test.go:13` `TestRunResumeExcludesFailedTurn`, `:52` `TestRunContinueNewestSession` | belum ada yang eksplisit (turn yang BERHASIL tidak boleh dikecualikan) | in-flight #243/#259 |
+| 4a | carrier di-replay byte-identik (PROV-01/SEC8) | `internal/e2e/carriers_test.go:12` `TestCarrierReplayedNextIteration` | - (pasangannya 4b) | ada di main (#239) |
+| 4b | carrier yang ditolak tidak di-replay | `internal/e2e/carriers_test.go:35` `TestCarrierRejectedNotReplayed` | request retry tidak memuat byte carrier + jumlah provider call = 3 | ada di main (#239) |
+| 5 | `undo` byte-identik + listing `review` | `internal/e2e/undo_review_test.go:29` `TestE2EUndoRestoresTheEditedFileAndListsTheAction`; jalur penolakan: `internal/e2e/undo_test.go:130` `TestUndoSymlinkedRoot`, `:168` `TestUndoSymlinkInsideRefused`, `:232` `TestUndoRefusalContentConflict` | berkas "bystander" tetap byte-identik dan tidak muncul di `undo ls`; `review` (karantina memori P10) tidak mengklaim perubahan berkas; penolakan symlink dibuktikan bersama kontrol `undo_test.go:213` `TestUndoWithoutSymlinkSucceeds` (yang menolak adalah aturan tanpa-symlink, bukan kegagalan umum) | ada di main (#289 + jalur penolakan #240) |
+| 6a | budget guard menolak di cap ledger | `internal/e2e/budget_guard_ledger_test.go:154` `TestE2EBudgetGuardDeniesAtLedgerCap` (+ `:198` bawah cap, `:215` periode lain) | provider request = 0 saat ditolak; kontrol bawah-cap dan periode lain | ada di main (#289) |
+| 6b | ledger mencatat usage persis | `internal/e2e/budget_guard_ledger_test.go:230` `TestE2EBudgetLedgerRecordsExactUsage` | call tanpa harga tidak dibebankan (`CostMicros=0`, `UnknownCost=1`) | ada di main (#289) |
+| 7 | prefix anak `sessions fork`/`rewind` | `internal/e2e/sessions_fork_prefix_test.go:127`, `:170`, `:206` | induk tidak berubah (append-only), sesi lain tidak berubah, fork di head = transkrip utuh, cut 0 = kosong. **GAP:** belum ada penolakan id/`--at` salah (lihat §4 item 11) | ada di main (#289) |
+| 8 | canary `storage.encrypt=true` + backup/restore | `internal/e2e/crypto_test.go:33` `TestCryptoBackupRestore` (sweep plaintext di data dir, arsip DMBK1, dan direktori hasil restore, lalu lanjut sesi) + `internal/e2e/spill_test.go:72` `TestToolOutputSpillThroughBinary` | `crypto_test.go:168` `TestCryptoPlaintextCanaryVisible` - tanpa enkripsi canary TERLIHAT, jadi sweep-nya terbukti mampu melihat plaintext; ditambah kasus `negative-control` (unencrypted) di `spill_test.go:80-81` | ada di main (#241, #290) |
+| 9 | buka read-only DB skema lebih baru + kode exit SPEC | `internal/e2e/sessions_readonly_test.go:14` `TestSessionsReadOnlyNewerSchema` | penulis keluar exit 1 dengan `schema_newer` dan 0 provider call (read-only tetap exit 0) | ada di main (#248) |
+| - | payment/exec gate (batas keamanan di luar 9 skenario, dari item 4 §4) | `internal/e2e/payment_gate_test.go:83` `TestPaymentSkillGateCLI` | belum terbukti - tes ini merah di Windows (`tool result denied = false, want true`) | in-flight #237 (GAP, §4 item 11) |
+
+**Penyegaran.** Audit awal pada `b979bc83`; setelah #240 (`a1845da8`) mendarat, jalur penolakan `undo` sudah ada di `main` (`internal/e2e/undo_test.go`) sehingga GAP-nya tertutup - baris skenario 5 di atas sudah mencerminkannya.
+
+**Ringkas.** 6 dari 9 skenario ada di `main` (4a, 4b, 5, 6a, 6b, 7, 8, 9); skenario **1, 2, 3** belum ada di
+`main` tetapi tesnya sudah ditulis di cabang in-flight (#219/#220, #283, #243/#259). Ekstra di luar sembilan
+skenario (mendukung baris acceptance lain, semua punya kontrol): `TestSkillsTools`, `TestSkillViewQuarantined`,
+`TestSkillManageAlwaysAsks`, `TestImportedSkillQuarantined`, `TestSkillsTrustCLI` (`internal/e2e/skills_test.go`,
+#281), `TestSessionsAdminExport`/`Prune` (#255), `TestSessionsLabelsEndToEnd`/`TestSessionsLabelsNegativeControls`
+(#277), `TestRunAdvertisesNoDeferredTools` (#174), `TestHarnessSmoke` (#239).
+
 ## 4. Work items to close the ledger
 
 These are the concrete PRs implied by the table above. Each item names
@@ -356,6 +390,21 @@ proves it.
     penutup**: `MEM-025` (context pin; 0 kode, 0 PR) dan `CLI-039` (checkpoints CLI; kodenya menunggu PR port
     dari stack `f2-cp-api`). Sisa pekerjaan F2 = mendaratkan penutup itu, atau memindahkan barisnya ke fase
     pemiliknya lewat koreksi ADR-064. Baris "planned" tanpa penutup adalah lubang yang ditutup ledger ini.
+
+11. **e2e:** tutup celah suite biner nyata (§3 "F2 e2e suite"). (a) Skenario 1-3 menunggu pendaratan
+    #219/#220, #283, #243/#259; saat mendarat, verifikasi tambahan: skenario 1 juga untuk summary yang dibangun
+    dari BACA BERKAS (bukan hanya `shell`), skenario 2 butuh satu kasus positif dengan marker unik per scope
+    supaya "0 hasil" tidak lolos karena recall-nya memang mati, dan skenario 3 butuh kontrol eksplisit bahwa
+    turn yang **berhasil** tidak dikecualikan. (b) `TestE2EForkRefusesUnknownSessionAndBadCut` (`internal/e2e`): id tak
+    dikenal exit 1 (`ctxdb.ErrNotFound`), `--at` salah exit 2; kontrol: transkrip induk tetap byte-identik dan
+    tidak ada baris anak yang lahir. (c) #237 (`TestPaymentSkillGateCLI`, `internal/e2e/payment_gate_test.go`)
+    harus mendarat bersama pasangan kontrolnya: perintah payment ditolak **dan** berkas efek sampingnya tidak
+    ada, sedangkan perintah non-payment dengan `--approval auto` tetap jalan. (d)
+    `TestE2EContextFileWrappedUntrusted` (`internal/e2e`): isi `AGENTS.md` ber-marker muncul di request di
+    dalam `<untrusted source="workspace">` dengan role user; kontrol: teks instruksi di berkas itu tidak pernah
+    muncul sebagai pesan system/developer, dan tanpa berkas wrapper-nya tidak ada. **Sudah tertutup:**
+    kontrol penolakan `undo` (symlink ke luar/di dalam root, konflik isi) mendarat lewat #240 -
+    `internal/e2e/undo_test.go:130`/`:168`/`:232` dengan kontrol positif `:213`.
 
 ## Method
 
