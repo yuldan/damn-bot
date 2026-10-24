@@ -292,8 +292,14 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if err != nil {
 		return nil, fail(err)
 	}
+	memSvc, err := openMemory(db, red)
+	if err != nil {
+		return nil, fail(err)
+	}
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
-		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
+		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr),
+		tools.NewMemory(&memoryToolBackend{svc: memSvc, db: db}),
+		tools.NewSessionSearch(ctxSearch{db: db}))
 	var reg *tools.Registry
 	mods, reg, err = wireModules(list)
 	if err != nil {

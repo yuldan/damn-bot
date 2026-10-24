@@ -207,6 +207,33 @@ func TestSearchSessionFilter(t *testing.T) {
 	}
 }
 
+// TestSearchCwdFilter: Cwd restricts hits to sessions created in that
+// workspace, so another project's session never matches (SEC17-1); an unset
+// cwd keeps the previous behaviour (control that the filter is opt-in).
+func TestSearchCwdFilter(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	ctx := context.Background()
+	if _, err := s.CreateSession(ctx, Session{ID: "A", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateSession(ctx, Session{ID: "B", Cwd: "/other"}); err != nil {
+		t.Fatal(err)
+	}
+	appendMsg(t, s, "A", "CWD-NEEDLE in this workspace")
+	appendMsg(t, s, "B", "CWD-NEEDLE in another workspace")
+	hits, err := s.Search(ctx, Query{Text: "CWD-NEEDLE", Cwd: "/w"})
+	must(t, err)
+	if len(hits) != 1 || hits[0].SessionID != "A" {
+		t.Fatalf("cwd filter = %+v, want only session A", hits)
+	}
+	all, err := s.Search(ctx, Query{Text: "CWD-NEEDLE"})
+	must(t, err)
+	if len(all) != 2 {
+		t.Fatalf("unscoped search = %d hits, want 2", len(all))
+	}
+}
+
 func TestSearchPurgingHidden(t *testing.T) {
 	s, ctx := searchCorpus(t)
 	must(t, s.tx(ctx, modePurge, func(tx *Tx) error {
