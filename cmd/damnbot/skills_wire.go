@@ -211,7 +211,12 @@ func nearestTrustedProject(cwd string, trusted map[string]bool, home string) str
 }
 
 // canonicalPath is the trust key: absolute, symlinks resolved when the path
-// exists, cleaned. A relative path is an error.
+// exists, cleaned. A relative entry is resolved against the process working
+// directory instead of being rejected, which yields a key that cannot match a
+// real workspace (inert, fail closed): the store is hand-editable, so a
+// misspelling must not grant trust *and* must not break every run. The CLI
+// normalizer (`normalizeTrustedProject`) rejects relative input before it is
+// ever written.
 func canonicalPath(p, home string) (string, error) {
 	p = expandHome(p, home)
 	abs, err := filepath.Abs(p)
