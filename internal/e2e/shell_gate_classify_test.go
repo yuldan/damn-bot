@@ -55,7 +55,7 @@ func writePaymentSkill(t *testing.T, home string) string {
 // (ok=false); "" when the shell call succeeded or no result was emitted.
 func shellDenialCode(t *testing.T, out string) string {
 	t.Helper()
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		var ev struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
@@ -101,7 +101,10 @@ func TestShellGateMonetaryThroughBinary(t *testing.T) {
 	t.Run("positive", func(t *testing.T) {
 		t.Parallel()
 		e := New(t)
-		target := filepath.Join(e.Workdir, "positive.txt")
+		// Relative: the shell runs with the workspace as cwd, so the command
+		// and the assertion use the same path on every OS (no /var symlink or
+		// 8.3 short-name mismatch between the absolute temp path and the root).
+		target := "positive.txt"
 		e.Server.Push(ToolCallReply("c1", "shell", shellGateWriteArgs(t, target, marker)), providertest.Text("done"))
 		res := e.Run("write a marker file", "--approval", "auto", "--unsafe-auto-shell")
 		res.RequireOK(t)
@@ -122,6 +125,9 @@ func TestShellGateMonetaryThroughBinary(t *testing.T) {
 		t.Parallel()
 		e := New(t)
 		skill := writePaymentSkill(t, e.home)
+		if resolved, err := filepath.EvalSymlinks(skill); err == nil {
+			skill = resolved // the classifier compares canonical paths
+		}
 		target := filepath.Join(skill, "side-effect.txt")
 		e.Server.Push(ToolCallReply("c1", "shell", shellGateWriteArgs(t, target, marker)), providertest.Text("done"))
 		// stream-json carries both the tool-result event and the stop event, so
@@ -156,7 +162,7 @@ func TestShellGateMonetaryThroughBinary(t *testing.T) {
 		t.Parallel()
 		e := New(t)
 		writePaymentSkill(t, e.home)
-		target := filepath.Join(e.Workdir, "side-effect.txt")
+		target := "side-effect.txt"
 		e.Server.Push(ToolCallReply("c1", "shell", shellGateWriteArgs(t, target, marker)), providertest.Text("done"))
 		res := e.Run("write the same marker in the workspace", "--approval", "auto", "--unsafe-auto-shell")
 		res.RequireOK(t)
