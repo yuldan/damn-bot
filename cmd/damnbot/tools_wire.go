@@ -291,18 +291,10 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if err != nil {
 		return nil, fail(err)
 	}
-	list, err := journaledFileTools(db, sid, scope, engine, sb)
+	list, err := eagerRunTools(db, red, sid, scope, engine, sb, shellTool, skillsMgr)
 	if err != nil {
 		return nil, fail(err)
 	}
-	memSvc, err := openMemory(db, red)
-	if err != nil {
-		return nil, fail(err)
-	}
-	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
-		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr),
-		tools.NewMemory(&memoryToolBackend{svc: memSvc, db: db}),
-		tools.NewSessionSearch(ctxSearch{db: db}))
 	var reg *tools.Registry
 	mods, reg, err = wireModules(list)
 	if err != nil {
@@ -322,4 +314,22 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		spill:     spill,
 		sb:        sb,
 	}, nil
+}
+
+// eagerRunTools assembles the eager tool list of a run: the journaled file tools,
+// the shell tool, the F1 helpers, the skill tools and the memory/session_search
+// pair (ADR-147).
+func eagerRunTools(db *ctxdb.Store, red *redact.Redactor, sid string, scope json.RawMessage, engine *codetools.Engine, sb *sandbox.Sandbox, shellTool tools.Tool, skillsMgr *skillManager) ([]tools.Tool, error) {
+	list, err := journaledFileTools(db, sid, scope, engine, sb)
+	if err != nil {
+		return nil, err
+	}
+	memSvc, err := openMemory(db, red)
+	if err != nil {
+		return nil, err
+	}
+	return append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
+		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr),
+		tools.NewMemory(&memoryToolBackend{svc: memSvc, db: db}),
+		tools.NewSessionSearch(ctxSearch{db: db})), nil
 }

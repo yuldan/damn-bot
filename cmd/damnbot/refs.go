@@ -65,8 +65,8 @@ func expandRefs(ctx context.Context, prompt string, sb *sandbox.Sandbox, net *ne
 		if total > maxRefTotal {
 			return "", false, fmt.Errorf("@ references exceed %d bytes in total", maxRefTotal)
 		}
-		b.WriteString(fmt.Sprintf("<untrusted source=\"ref:%s\">\n%s\n</untrusted>",
-			refSource(target), tools.EscapeUntrustedClose(content)))
+		fmt.Fprintf(&b, "<untrusted source=\"ref:%s\">\n%s\n</untrusted>",
+			refSource(target), tools.EscapeUntrustedClose(content))
 		b.WriteString(tok.sep)
 	}
 	return b.String(), refs > 0, nil
@@ -227,4 +227,16 @@ func fetchRefURL(ctx context.Context, net *netx.Network, offline bool, url strin
 		return "", fmt.Errorf("URL body exceeds %d bytes", maxRefBytes)
 	}
 	return string(b), nil
+}
+
+// applyPromptRefs expands @ references into o.prompt and taints the turn when
+// any reference content was inlined (MEM-024, ADR-070); it is the production
+// call site of expandPromptRefs.
+func applyPromptRefs(ctx context.Context, disp *tools.Dispatcher, o *runOptions, model *runModel) error {
+	expanded, err := expandPromptRefs(ctx, disp, o.prompt, model.sb, model.net, o.offline)
+	if err != nil {
+		return fmt.Errorf("context refs: %w", err)
+	}
+	o.prompt = expanded
+	return nil
 }

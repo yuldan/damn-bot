@@ -46,9 +46,9 @@ func refUserText(t *testing.T, e *Env, i int) string {
 		if !ok {
 			continue
 		}
-		if role, _ := mm["role"].(string); role == "user" {
-			if s, _ := mm["content"].(string); s != "" {
-				out = s
+		if role, ok := mm["role"].(string); ok && role == "user" {
+			if txt, ok := mm["content"].(string); ok && txt != "" {
+				out = txt
 			}
 		}
 	}
@@ -66,10 +66,10 @@ func lastUserText(t *testing.T, e *Env) string {
 
 // runRefRejected runs a prompt that must fail closed with exit 2 and no
 // provider call at all (the reference never reaches the model).
-func (e *Env) runRefRejected(t *testing.T, prompt string, extra ...string) {
+func (e *Env) runRefRejected(t *testing.T, prompt string) {
 	t.Helper()
 	before := len(e.Requests())
-	res := e.Run(prompt, extra...)
+	res := e.Run(prompt)
 	if res.Code != 2 || !strings.Contains(res.Stderr, "context refs") {
 		t.Fatalf("exit = %d stderr = %q, want 2 with context refs error", res.Code, res.Stderr)
 	}

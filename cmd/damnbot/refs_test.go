@@ -49,13 +49,12 @@ func newRefEnv(t *testing.T, deny ...string) refEnv {
 }
 
 // write adds one file inside the workspace root (0600).
-func (e refEnv) write(t *testing.T, name, content string) string {
+func (e refEnv) write(t *testing.T, name, content string) {
 	t.Helper()
 	p := filepath.Join(e.root, name)
 	if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return p
 }
 
 // refSandbox is the plain sandbox of the earlier reference tests.

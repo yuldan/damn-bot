@@ -280,11 +280,9 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	if err != nil {
 		return 0, fmt.Errorf("loop: %w", err)
 	}
-	expanded, xerr := expandPromptRefs(ctx, disp, o.prompt, model.sb, model.net, o.offline)
-	if xerr != nil {
-		return 0, fmt.Errorf("context refs: %w", xerr)
+	if xerr := applyPromptRefs(ctx, disp, o, model); xerr != nil {
+		return 0, xerr
 	}
-	o.prompt = expanded
 	stream, err := lp.Prompt(ctx, model.sessionID, loop.Input{Text: o.prompt})
 	if err != nil {
 		return 0, fmt.Errorf("prompt: %w", err)
