@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `docs`: matriks bukti batas keamanan F2 (§5 `docs/F2-ACCEPTANCE.md`) — tes positif e2e biner nyata + kontrol negatif per permukaan beserta status load-bearing, flip eksperimen yang dipakai, dan kutipan baris MERAH verbatim; permukaan 2 (exec/classifier/payment gate) dan MEM-026 tetap dicatat sebagai GAP.
+
 - `ctxdb`/`cmd/damnbot`: spill output tool lewat blob store terenkripsi dan indeks `blob_fts` (SEC7-66/68).
 
 - `ctxdb`: acceptance state F2, FTS, retry IO transien, dan chaos 50-klien (ADR-158..162).
