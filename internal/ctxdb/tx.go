@@ -137,8 +137,8 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 		return wrap(err)
 	}
 	t := &Tx{ctx: ctx, c: c, s: s, txid: fmt.Sprintf("%d-%s-%d", s.id.PID, s.id.Start, s.txSeq.Add(1))}
-	if err = s.begin(ctx, c); err != nil {
-		return errors.Join(wrap(err), wrap(c.Close()))
+	if err = s.busyRetry(ctx, "begin", func() error { return s.begin(ctx, c) }); err != nil {
+		return errors.Join(err, wrap(c.Close()))
 	}
 	began, committed := time.Now(), false
 	defer func() { err = errors.Join(err, s.endTx(ctx, t, mode, began, committed)) }()
@@ -153,14 +153,47 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 	if ferr := fn(t); ferr != nil {
 		return ferr
 	}
-	if _, err = c.ExecContext(ctx, "COMMIT"); err != nil {
-		return wrap(err)
+	if cerr := s.busyRetry(ctx, "commit", func() error {
+		_, xerr := c.ExecContext(ctx, "COMMIT")
+		return wrap(xerr)
+	}); cerr != nil {
+		return cerr
 	}
 	committed = true
 	for _, f := range t.onCommit {
 		s.bgErr = errors.Join(s.bgErr, wrap(f()))
 	}
 	return nil
+}
+
+// busyRetryDefault bounds the retries of the two transaction phases that can report
+// SQLITE_BUSY without side effects: BEGIN IMMEDIATE and COMMIT (SPEC §17 P19;
+// GAP-REL-03 di docs/DECISIONS.md:2901 menuntut "retry transaksi <= 3x lalu error
+// typed db_busy"). ctxdb mengirim BEGIN/COMMIT sebagai SQL mentah di koneksi
+// writer yang dipin, jadi mengulang COMMIT setelah SQLITE_BUSY tidak mungkin
+// commit dua kali: SQLite membiarkan transaksi tetap terbuka pada kasus itu.
+// Store.busyRetryMax memakainya; tes menurunkannya untuk membuktikan retry-nya
+// load-bearing.
+const busyRetryDefault = 3
+
+// busyRetry runs one transaction phase, retrying only ErrDBBusy. Error lain -
+// abort guard (lease_fenced/session_purging), schema, atau ctx yang dibatalkan -
+// dikembalikan pada percobaan pertama: mengulanginya berarti mengulang tulis
+// yang sudah difence atau menyembunyikan kegagalan nyata.
+func (s *Store) busyRetry(ctx context.Context, phase string, run func() error) error {
+	var err error
+	for attempt := 1; ; attempt++ {
+		if err = run(); !errors.Is(err, ErrDBBusy) || attempt >= s.busyRetryMax || ctx.Err() != nil {
+			return err
+		}
+		s.busyRetries.Add(1)
+		if s.opt.OnBusyRetry != nil {
+			s.opt.OnBusyRetry(phase, attempt)
+		}
+		if serr := sleepReal(ctx, time.Duration(attempt)*2*time.Millisecond); serr != nil {
+			return errors.Join(err, serr)
+		}
+	}
 }
 
 // Writer fairness (ADR-087). SQLite's busy handler polls with growing sleeps

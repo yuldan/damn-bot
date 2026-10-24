@@ -151,7 +151,7 @@ with the window) and EC-TCALL-009 (`--answer-schema` produces
 | GAP-SEC-15 | Payment always prompts | `TestMonetaryAlwaysPrompts`, `TestMonetaryNeverSession` | covered | tools |
 | GAP-SEC-16 | egress DLP | `TestEgressDLP` + `TestEgressDLPBodyWarning` — F1 ingress subset only; the F2/F4–F7 portion (§SPEC half) is not tested | surface | netx |
 | GAP-REL-01 | Failed turn persisted | `TestFailedTurnPersisted` + `TestFailedTurnEmptyContent` | covered | loop |
-| GAP-REL-03 | Chaos: 50 concurrent clients, 30 min | `TestChaos50Clients`, nightly `chaos` (`internal/ctxdb/chaos_test.go`, `.github/workflows/nightly.yml`) | covered | ctxdb |
+| GAP-REL-03 | Chaos: 50 concurrent clients, 30 min | `TestChaos50Clients`, nightly `chaos` (`internal/ctxdb/chaos_test.go`, `.github/workflows/nightly.yml`) | covered (retry busy: `BEGIN IMMEDIATE`/`COMMIT` <= 3x, PR retry busy; varian chaos 45 s hijau) | ctxdb (GAP-REL-03; pengecualian sah: `db_busy` typed untuk pemegang lock di-SIGSTOP, `SPEC.md:2362` baris 37) |
 | GAP-REL-04 | SQLite engine version | `TestSQLiteEngineVersion` (`internal/ctxdb/engine_test.go`); gate CI `sqlite-engine` ada di #258 (terbuka) | covered | provider/ctxdb |
 | GAP-REL-05 | Migration fail-closed | `TestMigrationFailClosed` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
 | GAP-COST-01 | Pricing table not expired at release | `TestPricingTableNotExpired` (`internal/provider/registry/prices_test.go`) | in-flight (PR #188) | provider |
