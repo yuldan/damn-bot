@@ -3,9 +3,7 @@
 package journal
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"syscall"
 
@@ -14,19 +12,47 @@ import (
 	"github.com/damnbot/damnbot/internal/sandbox"
 )
 
+// oNoFollow refuses a symlink in the final component of an openat; the open
+// itself is sandbox.Dir.OpenFile, which also vets deny_paths (SEC5-19).
+const oNoFollow = syscall.O_NOFOLLOW
+
 // removeChild unlinks name from the pinned parent directory h.
 func removeChild(h *sandbox.Dir, name string) error {
-	return unix.Unlinkat(int(h.File().Fd()), name, 0) //nolint:wrapcheck // syscall cause kept for the journal error.
+	return unlinkatEINTR(int(h.File().Fd()), name)
 }
 
 // renameChild moves name in h to newName in dst, both pinned descriptors.
 func renameChild(h *sandbox.Dir, name string, dst *sandbox.Dir, newName string) error {
-	return unix.Renameat(int(h.File().Fd()), name, int(dst.File().Fd()), newName) //nolint:wrapcheck // syscall cause kept for the journal error.
+	return renameatEINTR(int(h.File().Fd()), name, int(dst.File().Fd()), newName)
 }
 
 // syncDirHandle makes a create/rename/remove in h durable (POSIX).
 func syncDirHandle(h *sandbox.Dir) error {
-	return unix.Fsync(int(h.File().Fd())) //nolint:wrapcheck // syscall cause kept for the journal error.
+	return fsyncEINTR(int(h.File().Fd()))
+}
+
+func unlinkatEINTR(fd int, name string) error {
+	for {
+		if err := unix.Unlinkat(fd, name, 0); !errors.Is(err, unix.EINTR) {
+			return err //nolint:wrapcheck // syscall cause kept for the journal error.
+		}
+	}
+}
+
+func renameatEINTR(oldfd int, oldName string, newfd int, newName string) error {
+	for {
+		if err := unix.Renameat(oldfd, oldName, newfd, newName); !errors.Is(err, unix.EINTR) {
+			return err //nolint:wrapcheck // syscall cause kept for the journal error.
+		}
+	}
+}
+
+func fsyncEINTR(fd int) error {
+	for {
+		if err := unix.Fsync(fd); !errors.Is(err, unix.EINTR) {
+			return err //nolint:wrapcheck // syscall cause kept for the journal error.
+		}
+	}
 }
 
 func hardLinks(fi fs.FileInfo) uint64 {
@@ -39,18 +65,4 @@ func hardLinks(fi fs.FileInfo) uint64 {
 
 // makeReplaceable is a no-op on POSIX: rename replaces the directory entry
 // regardless of the destination mode.
-func makeReplaceable(context.Context, *sandbox.Sandbox, string) error { return nil }
-
-// chmodFile applies mode to resolved, a path the sandbox checked, with
-// fchmod on the verified handle: a symlink swapped in after the check never
-// receives the mode (JN2-1).
-func chmodFile(ctx context.Context, sb *sandbox.Sandbox, resolved string, mode fs.FileMode) error {
-	f, _, err := sb.OpenResolved(ctx, resolved, true)
-	if err != nil {
-		return fmt.Errorf("journal: mode %s: %w", resolved, err)
-	}
-	if f == nil {
-		return fmt.Errorf("journal: mode %s: %w", resolved, sandbox.ErrNotRegular)
-	}
-	return errors.Join(f.Chmod(mode), f.Close())
-}
+func makeReplaceable(*sandbox.Dir, string) error { return nil }
