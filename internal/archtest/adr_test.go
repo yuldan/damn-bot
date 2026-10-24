@@ -15,18 +15,6 @@ var adrHeading = regexp.MustCompile(`^## ADR-(\d{3,})\b`)
 // used), so their historical order is not asserted.
 const adrOrderFloor = 120
 
-// adrOrderAllow lists the legacy order inversions that predate this guard:
-// {previous, current} as they appear in docs/DECISIONS.md. Renumbering them
-// would break the code comments, PR bodies and history that cite those numbers,
-// so the debt stays visible here instead of being hidden; the test fails only
-// for a NEW inversion.
-var adrOrderAllow = [][2]int{
-	{163, 139},
-	{183, 140},
-	{175, 142},
-	{146, 124},
-}
-
 // adrHead is one heading with its number and line.
 type adrHead struct {
 	n, line int
@@ -73,27 +61,35 @@ func TestADRUnique(t *testing.T) {
 
 // TestADRMonotonic: a heading numbered >= adrOrderFloor must not follow a
 // higher one, so an appended decision record cannot land between existing
-// records. The four legacy inversions are allowlisted (see adrOrderAllow); a
-// new one fails with both numbers and lines.
+// records. The four legacy inversions are allowlisted inside the test; a new
+// one fails with both numbers and lines.
 func TestADRMonotonic(t *testing.T) {
 	t.Parallel()
+	// The legacy inversions that predate this guard, {previous, current} in
+	// file order. Renumbering them would break the code comments, PR bodies and
+	// history that cite those numbers, so the debt is listed here instead of
+	// being hidden: only a NEW inversion fails.
+	allow := [][2]int{
+		{163, 139},
+		{183, 140},
+		{175, 142},
+		{146, 124},
+	}
+	allowed := func(prev, cur int) bool {
+		for _, p := range allow {
+			if p[0] == prev && p[1] == cur {
+				return true
+			}
+		}
+		return false
+	}
 	heads := adrHeads(t)
 	for i := 1; i < len(heads); i++ {
 		prev, cur := heads[i-1], heads[i]
-		if cur.n < adrOrderFloor || cur.n > prev.n || adrOrderAllowed(prev.n, cur.n) {
+		if cur.n < adrOrderFloor || cur.n > prev.n || allowed(prev.n, cur.n) {
 			continue
 		}
 		t.Errorf("docs/DECISIONS.md:%d: ADR-%03d appears after ADR-%03d (line %d); append new ADRs with the next free number above the current maximum and do not renumber existing blocks",
 			cur.line, cur.n, prev.n, prev.line)
 	}
-}
-
-// adrOrderAllowed reports whether {prev, cur} is a known legacy inversion.
-func adrOrderAllowed(prev, cur int) bool {
-	for _, p := range adrOrderAllow {
-		if p[0] == prev && p[1] == cur {
-			return true
-		}
-	}
-	return false
 }
