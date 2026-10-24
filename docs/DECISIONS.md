@@ -3815,17 +3815,18 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 **Dampak terukur (SPEC §20).** DDL/migrasi/dependency 0; `internal/skills` +≈120 baris (terukur 1.288/1.350), `cmd/damnbot` +≈70 baris non-test. Tidak ada token prompt tambahan (body tidak masuk prompt; hanya description).
 **Konsekuensi.** (+) Skill memakai path/OS/project yang benar tanpa hardcode. (+) Shell inline tidak pernah jalan diam-diam dan tidak tersedia untuk skill quarantined. (−) Body yang sudah diproses disimpan di `Skill` load-time; perubahan file skill memerlukan load ulang. (−) `${...}` tak dikenal tetap literal sehingga typo tidak terlihat sampai skill dibaca.
 
-## ADR-184: budget `memory`+`skills` 1.500 -> 1.800
+## ADR-184: budget `memory`+`skills` 1.400 -> 1.830
 
 **Konteks.** Rantai PR skills (skillstore/karantina, ledger+index, bundle, discovery proyek, sumber skill, CLI
 `damnbot skills`) menambah kode non-test di `internal/skills`: `bundle.go`, `index.go`, `ledger.go`, `preprocess.go`,
-`source.go`, dan `service.go` (karantina + approval). Terukur pada kepala rantai: **1800** baris kode non-test
-(`scc --by-file`, `internal/memory` + `internal/skills`), sedangkan baris `loc.budget` saat itu 1.500 (ADR-168)
-dan baris 1700 yatim (tanpa ADR, duplikat hasil penyelesaian konflik rebase yang ikut terbawa).
+`source.go`, dan `service.go` (karantina + approval). Baris `loc.budget` di `main` saat itu 1.400 (ADR-175);
+terukur pada kepala rantai **1803** baris kode non-test (`scc --by-file`, `internal/memory` + `internal/skills`)
+setelah putaran lint (`Vars *PreprocessVars` di `internal/skills`, `os.Root` pada copy install).
 
-**Keputusan.** Satu baris `memory+skills 1800 internal/memory internal/skills`; baris duplikat 1700 dihapus.
-"Total core" `docs/ENGINEERING.md` 43.731 -> 44.031 (+300), batas SPEC §3.2.4 47.000 tetap tidak dilampaui.
-Baris ini menampung seluruh rantai; setiap PR di rantai memakai nilai yang sama agar `make loc` hijau
-di semua basis bertumpuk.
+**Keputusan.** Satu baris `memory+skills 1830 internal/memory internal/skills`, tanpa baris duplikat (headroom
+27 baris ≈ 1,5%). "Total core" `docs/ENGINEERING.md` = **Σ `budgetCoreSum(loc.budget)`** (konvensi gate, PR #182)
+→ **44.461** (+430 terhadap `main` 44.031), batas SPEC §3.2.4 47.000 tetap tidak dilampaui. Seluruh PR di rantai
+memakai nilai yang sama agar `make loc` hijau di setiap basis bertumpuk (`f2-skills` 1430, `f2-bundles` 1556,
+`f2-ledger` 1679, `f2-skills-index`/`-cli`/`-config` 1803).
 
 **Konsekuensi.** PR lain yang menaikkan baris core setelah ini harus **menjumlahkan** angka ini, bukan menimpanya.
