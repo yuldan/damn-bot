@@ -44,6 +44,9 @@ type Options struct {
 	// OnTx observes every write transaction: mode and lock hold time
 	// (BEGIN IMMEDIATE → COMMIT/ROLLBACK), for I11 budgets and metrics.
 	OnTx func(mode string, held time.Duration)
+	// OnBusyRetry observes a BEGIN/COMMIT retry after SQLITE_BUSY (nil = off);
+	// the running total is also available as Store.BusyRetries (GAP-REL-03).
+	OnBusyRetry func(phase string, attempt int)
 }
 
 // Store is one process's handle on the data dir: one writer connection
@@ -62,12 +65,17 @@ type Store struct {
 	fi    os.FileInfo // identity of the opened DB file (os.SameFile, I8)
 	lock  *os.File    // run/maint.lock held shared while open (§11.11.7)
 
-	mode   atomic.Value // dmb_maint() of the writer connection: "", "purge", "restore"
-	tokMu  sync.Mutex
-	tokens map[string]int64 // dmb_lease_token(): session → fence token held
-	obsMu  sync.Mutex
-	obs    map[string]observation // takeover_ok() case (b) observations
-	txSeq  atomic.Int64
+	mode         atomic.Value // dmb_maint() of the writer connection: "", "purge", "restore"
+	tokMu        sync.Mutex
+	tokens       map[string]int64 // dmb_lease_token(): session → fence token held
+	obsMu        sync.Mutex
+	obs          map[string]observation // takeover_ok() case (b) observations
+	txSeq        atomic.Int64
+	busyRetryMax int // bound of BEGIN/COMMIT busy retries (tests lower it)
+	// busyRetries counts BEGIN/COMMIT retries after SQLITE_BUSY (GAP-REL-03):
+	// the typed db_busy of SPEC §17 P19 stays the final outcome, this only
+	// narrows how often a saturated writer lock reaches it.
+	busyRetries atomic.Int64
 	// barrierOwner: this Store owns the maintenance barrier (restore), so the
 	// marker must not drain it; also set while a purge releases its lease.
 	barrierOwner atomic.Bool
@@ -250,6 +258,7 @@ func newStore(o *Options) (*Store, error) {
 	s := &Store{
 		opt: opt, dir: opt.Dir, codec: opt.Codec, root: root, clk: opt.Clock, q: q, migs: migs, chunk: firstChunk, chunkCap: eventBatch, budget: unitBudget,
 		tokens: map[string]int64{}, obs: map[string]observation{},
+		busyRetryMax: busyRetryDefault,
 	}
 	s.mode.Store(modeNormal)
 	s.id = SelfIdent()
@@ -553,6 +562,11 @@ func (s *Store) close(ctx context.Context) error {
 
 // Ident returns the identity this Store writes into leases.
 func (s *Store) Ident() Ident { return s.id }
+
+// BusyRetries reports how many BEGIN/COMMIT retries this Store performed after
+// SQLITE_BUSY (GAP-REL-03); a retry is legitimate, the typed db_busy stays the
+// outcome once the bound is reached (SPEC §17 P19).
+func (s *Store) BusyRetries() int64 { return s.busyRetries.Load() }
 
 // Dir returns the data dir.
 func (s *Store) Dir() string { return s.dir }
