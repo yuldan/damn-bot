@@ -145,7 +145,7 @@ func contextPinSet(ctx context.Context, a *adminArgs, stdout, stderr io.Writer) 
 	id := a.pos[0]
 	if id == "newest" { // "newest" names the newest session (useful for scripts)
 		var code int
-		if id, code = newestSession(ctx, a.dataDir, stderr); code != 0 {
+		if id, code = newestSessionAlias(ctx, a.dataDir, stderr); code != 0 {
 			return code
 		}
 	}
@@ -174,8 +174,9 @@ func contextPinSet(ctx context.Context, a *adminArgs, stdout, stderr io.Writer) 
 	return 0
 }
 
-// newestSession resolves the "newest" session alias.
-func newestSession(ctx context.Context, dataDir string, stderr io.Writer) (string, int) {
+// newestSessionAlias resolves the "newest" session alias (renamed on rebase: main
+// added newestSession(ctx, db, cwd) for resume, ADR-138).
+func newestSessionAlias(ctx context.Context, dataDir string, stderr io.Writer) (string, int) {
 	db, derr := openSessionsDBReadOnly(ctx, dataDir)
 	if derr != nil {
 		return "", sessionsFail(stderr, "context-pin", derr, "newest")
