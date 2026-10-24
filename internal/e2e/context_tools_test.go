@@ -102,7 +102,7 @@ func TestSessionSearchScopedToProject(t *testing.T) {
 // scenario's data dir: a session_search by cwd must never see it (SEC17-1).
 func seedForeignSession(t *testing.T, e *Env, cwd, content string) {
 	t.Helper()
-	withStore(t, e, func(tx *ctxdb.Tx) error {
+	withCtxStore(t, e, func(tx *ctxdb.Tx) error {
 		if _, err := tx.CreateSession(ctxdb.Session{ID: "OTHER", Origin: "headless", Cwd: cwd}); err != nil {
 			return fmt.Errorf("create foreign session: %w", err)
 		}
@@ -147,9 +147,9 @@ func TestMemoryAgentRemoveFailsClosed(t *testing.T) {
 	}
 }
 
-// withStore runs fn against the scenario's data dir and closes the store
+// withCtxStore runs fn against the scenario's data dir and closes the store
 // before the child process starts.
-func withStore(t *testing.T, e *Env, fn func(tx *ctxdb.Tx) error) {
+func withCtxStore(t *testing.T, e *Env, fn func(tx *ctxdb.Tx) error) {
 	t.Helper()
 	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: e.DataDir, Kind: "run"})
 	if err != nil {
@@ -169,7 +169,7 @@ func withStore(t *testing.T, e *Env, fn func(tx *ctxdb.Tx) error) {
 func seedUserMemory(t *testing.T, e *Env, content string) int64 {
 	t.Helper()
 	var id int64
-	withStore(t, e, func(tx *ctxdb.Tx) error {
+	withCtxStore(t, e, func(tx *ctxdb.Tx) error {
 		if err := tx.Get(`INSERT INTO memory(kind, category, scope, content, origin, scan_result, created_at)
 			VALUES ('memory','fact','user',?1,'user','{}',0) RETURNING id`, []any{content}, &id); err != nil {
 			return fmt.Errorf("insert user memory: %w", err)
@@ -188,7 +188,7 @@ func seedUserMemory(t *testing.T, e *Env, content string) int64 {
 func seedAgentMemory(t *testing.T, e *Env, content string) int64 {
 	t.Helper()
 	var id int64
-	withStore(t, e, func(tx *ctxdb.Tx) error {
+	withCtxStore(t, e, func(tx *ctxdb.Tx) error {
 		if _, err := tx.CreateSession(ctxdb.Session{ID: "SEED", Origin: "headless", Cwd: "/seed"}); err != nil {
 			return fmt.Errorf("create seed session: %w", err)
 		}
@@ -213,7 +213,7 @@ func seedAgentMemory(t *testing.T, e *Env, content string) int64 {
 func memoryQuery(t *testing.T, e *Env, query string, args ...any) string {
 	t.Helper()
 	var out string
-	withStore(t, e, func(tx *ctxdb.Tx) error {
+	withCtxStore(t, e, func(tx *ctxdb.Tx) error {
 		return tx.Get(query, args, &out)
 	})
 	return out

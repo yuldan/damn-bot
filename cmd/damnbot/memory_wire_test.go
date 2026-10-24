@@ -42,7 +42,7 @@ func TestMemoryToolBackendEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc, err := newMemoryService(db, redact.New(redact.Options{}))
+	svc, err := openMemory(db, redact.New(redact.Options{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestMemoryToolBackendAgentRetire(t *testing.T) {
 	ctx := context.Background()
 	db, sid := wireStore(t)
 	red := redact.New(redact.Options{})
-	svc, err := newMemoryService(db, red)
+	svc, err := openMemory(db, red)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ func TestMemoryToolBackendReplaceKeepsOldOnRejection(t *testing.T) {
 	ctx := context.Background()
 	db, sid := wireStore(t)
 	red := redact.New(redact.Options{})
-	svc, err := newMemoryService(db, red)
+	svc, err := openMemory(db, red)
 	if err != nil {
 		t.Fatal(err)
 	}
