@@ -266,13 +266,13 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	}
 	allow, monetary, err := shellGate(cfg, configDir, cwd)
 	if err != nil {
-		return nil, err
+		return nil, fail(err)
 	}
 	// Skills discovered in a new location (project discovery,
 	// skills.external_dirs) go through quarantine and stay invisible until the
 	// user approves them (ADR-175).
 	if _, qerr := quarantineImportedSkills(ctx, db, red, cfg, configDir, cwd); qerr != nil {
-		return nil, qerr
+		return nil, fail(qerr)
 	}
 	shellTool, err := tools.NewShell(&tools.ShellConfig{
 		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
