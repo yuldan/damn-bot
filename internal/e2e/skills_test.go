@@ -3,6 +3,7 @@ package e2e
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,9 +103,15 @@ func TestSkillManageAlwaysAsks(t *testing.T) {
 	)
 	res := e.Run("create a skill", "--approval", "auto")
 	res.RequireOK(t)
-	final := e.RequestText(t, 1)
-	if !strings.Contains(final, "denied") && !strings.Contains(final, "approval") {
-		t.Fatalf("skill_manage was not denied without an approver:\n%s", final)
+	// The denial is asserted on the structured envelope the loop hands back to
+	// the provider (loop.errorEnvelope), not on free text: code is a typed
+	// constant, so a wording change cannot make this control pass vacuously.
+	env := toolResultEnvelope(t, e, 1, "c1")
+	if env.OK {
+		t.Fatalf("skill_manage result = %+v, want ok=false", env)
+	}
+	if env.Error.Code != deniedToolCode {
+		t.Fatalf("skill_manage denial code = %q, want %q", env.Error.Code, deniedToolCode)
 	}
 	for _, p := range []string{
 		filepath.Join(e.DataDir, "skills", "agent", "agent-note"),
@@ -114,6 +121,50 @@ func TestSkillManageAlwaysAsks(t *testing.T) {
 			t.Fatalf("denied skill wrote %s: %v", p, err)
 		}
 	}
+}
+
+// deniedToolCode is loop.CodeDenied ("denied"): internal/e2e may only import
+// internal/loop/event (archtest E-01), so the code is spelled here and the
+// envelope shape is what the assertion really checks.
+const deniedToolCode = "denied"
+
+// toolEnvelope is the loop's model-facing tool result (loop.errorEnvelope):
+// {"ok":…,"error":{"code":…,"message":…,"hint":…}}.
+type toolEnvelope struct {
+	OK    bool `json:"ok"`
+	Error struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		Hint    string `json:"hint"`
+	} `json:"error"`
+}
+
+// toolResultEnvelope decodes the tool result the model sees for callID in
+// provider request n. It fails when the pairing is missing or is not the loop
+// envelope, so a renamed call id cannot silently pass the assertion.
+func toolResultEnvelope(t *testing.T, e *Env, n int, callID string) toolEnvelope {
+	t.Helper()
+	msgs, ok := e.RequestJSON(t, n)["messages"].([]any)
+	if !ok {
+		t.Fatalf("request %d has no messages array", n)
+	}
+	for _, raw := range msgs {
+		m, ok := raw.(map[string]any)
+		if !ok || m["role"] != "tool" || m["tool_call_id"] != callID {
+			continue
+		}
+		content, isText := m["content"].(string)
+		if !isText {
+			t.Fatalf("tool result for %s has no text content: %#v", callID, m["content"])
+		}
+		var env toolEnvelope
+		if err := json.Unmarshal([]byte(content), &env); err != nil {
+			t.Fatalf("tool result for %s is not the loop envelope: %v\ncontent:\n%s", callID, err, content)
+		}
+		return env
+	}
+	t.Fatalf("no tool message for call %s in request %d", callID, n)
+	return toolEnvelope{}
 }
 
 // seedQuarantined writes and quarantines one agent skill that is never
