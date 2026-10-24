@@ -35,6 +35,7 @@ import (
 	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/schema"
 	"github.com/damnbot/damnbot/internal/tools"
+	"github.com/damnbot/damnbot/internal/toolset"
 )
 
 type runOptions struct {
@@ -77,7 +78,7 @@ func runHeadless(args []string, stdout, stderr io.Writer) int {
 		}
 		return 2
 	}
-	code, err := runOne(context.Background(), &opts, stdout)
+	code, err := runOne(context.Background(), &opts, stdout, stderr)
 	if err != nil {
 		if _, werr := fmt.Fprintf(stderr, "run: %v\n", err); werr != nil {
 			return 2
@@ -145,7 +146,19 @@ func compileAnswerSchema(path string) (func(string) error, error) {
 	return func(answer string) error { return sc.Validate([]byte(answer)) }, nil
 }
 
-func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err error) {
+// warnUnavailableToolsets reports declared-but-unregistered toolset members
+// once per run, so a typo in [toolsets] is visible instead of silently
+// dropping tools (ADR-139). It keeps runOne's cyclomatic complexity in budget.
+func warnUnavailableToolsets(stderr io.Writer, names []string) error {
+	for _, name := range names {
+		if _, werr := fmt.Fprintf(stderr, "run: toolset: tool %q is not available\n", name); werr != nil {
+			return fmt.Errorf("toolset warning: %w", werr)
+		}
+	}
+	return nil
+}
+
+func runOne(ctx context.Context, o *runOptions, stdout, stderr io.Writer) (code int, err error) {
 	loader, err := config.New(config.OS())
 	if err != nil {
 		return 0, fmt.Errorf("config deps: %w", err)
@@ -187,6 +200,9 @@ func runOne(ctx context.Context, o *runOptions, stdout io.Writer) (code int, err
 	if err != nil {
 		return 0, err
 	}
+	if werr := warnUnavailableToolsets(stderr, model.toolsets.Unavailable); werr != nil {
+		return 2, nil
+	}
 	defer func() {
 		if cerr := model.close(ctx); cerr != nil && err == nil {
 			err = fmt.Errorf("close run model: %w", cerr)
@@ -222,7 +238,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	if err != nil {
 		return 0, fmt.Errorf("assemble context: %w", err)
 	}
-	toolList, err := runTools(model.registry)
+	toolList, err := runTools(model.registry, model.toolsets.Allowed)
 	if err != nil {
 		return 0, err
 	}
@@ -260,7 +276,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	}, &loop.Deps{
 		Provider:       model.provider,
 		Assembler:      &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, window: model.window, store: model.store},
-		Toolset:        &toolsetAdapter{disp: disp},
+		Toolset:        &toolsetAdapter{disp: disp, allowed: model.toolsets.Allowed},
 		Store:          model.store,
 		Ledger:         model.ledger,
 		Carriers:       &ctxCarrierStore{db: model.db},
@@ -292,6 +308,7 @@ type runModel struct {
 	cwd       string
 	window    int64  // effective model window (registry.Limits: config/registry/learned/fallback)
 	winSource string // config|registry|discovery|learned|fallback
+	toolsets  toolset.Selection
 	db        *ctxdb.Store
 	// inlineCap is the route window budget in tokens the turn inline aggregate
 	// scales with (SPEC P5 amendment, GAP-COST-08); tools.TurnInlineCap turns
@@ -379,6 +396,11 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, w.fail(fmt.Errorf("model window: %w", err))
 	}
+	sel, err := toolset.Resolve(cfg.Toolsets, runtime.GOOS, registryNames(w.registry))
+	if err != nil {
+		return nil, w.fail(fmt.Errorf("toolsets: %w", err))
+	}
+	withDeferredMeta(&sel, registryNames(w.registry))
 	prov, err := newRunProvider(cfg, w.db, modelRef, o)
 	if err != nil {
 		return nil, w.fail(err)
@@ -394,6 +416,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		winSource: string(win.Source),
 		inlineCap: w.inlineCap,
 		spill:     w.spill,
+		toolsets:  sel,
 		db:        w.db,
 		engine:    w.engine,
 		runner:    w.runner,
@@ -610,47 +633,6 @@ func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleReque
 		out.Tools = append(out.Tools, loop.ToolSchema{Name: t.Name, Description: t.Description, Parameters: t.Parameters})
 	}
 	return out, nil
-}
-
-func runTools(reg *tools.Registry) ([]assemble.Tool, error) {
-	out := make([]assemble.Tool, 0, len(reg.Schemas()))
-	for _, raw := range reg.Schemas() {
-		var doc struct {
-			Name        string          `json:"name"`
-			Description string          `json:"description"`
-			Parameters  json.RawMessage `json:"parameters"`
-		}
-		if err := json.Unmarshal(raw, &doc); err != nil {
-			return nil, fmt.Errorf("tool schema: %w", err)
-		}
-		out = append(out, assemble.Tool{Name: doc.Name, Description: doc.Description, Parameters: doc.Parameters})
-	}
-	return out, nil
-}
-
-type toolsetAdapter struct{ disp *tools.Dispatcher }
-
-func (t *toolsetAdapter) Prepare(_ context.Context, c loop.ToolCall) (loop.Prepared, error) {
-	effect := t.disp.Effect(c.Name, json.RawMessage(c.Arguments))
-	return loop.Prepared{
-		Call: c, Effect: loop.EffectRead, Approval: loop.ApprovalNone,
-		SideEffect: effect != tools.EffectRead,
-	}, nil
-}
-
-func (t *toolsetAdapter) Dispatch(ctx context.Context, p *loop.Prepared) (loop.ToolResult, error) {
-	out := t.disp.Dispatch(ctx, tools.Call{TurnID: p.Call.TurnID, CallID: p.Call.ID, Name: p.Call.Name, Args: json.RawMessage(p.Call.Arguments)})
-	res := loop.ToolResult{Content: out.Render(), Tainted: out.Tainted}
-	if out.Spilled != nil {
-		res.BlobSHA = out.Spilled.SHA
-	}
-	if out.Denied {
-		res.Err = &loop.ToolError{Code: loop.CodeDenied, Message: "denied"}
-	}
-	if out.Err != nil {
-		res.Err = &loop.ToolError{Code: string(out.Err.Code), Message: out.Err.Message, Hint: out.Err.Hint}
-	}
-	return res, nil
 }
 
 type redactorAdapter struct{ red *redact.Redactor }
