@@ -17,15 +17,27 @@ import (
 // The classifier reads the whole command line, so the redirect target is what
 // makes the call Monetary when path lives in a gated directory — the
 // interpreter differs per OS, the decision does not.
-func shellGateWriteArgs(t *testing.T, path, marker string) string {
+func shellGateWriteArgs(t *testing.T, e *Env, path, marker string) string {
 	t.Helper()
-	cmd := "sh -c 'echo " + marker + " > \"" + path + "\"'"
-	if runtime.GOOS == "windows" {
-		cmd = `cmd /c "echo ` + marker + ` > \"` + path + `\""`
-	}
-	raw, err := json.Marshal(struct {
+	// Windows gets a quote-free command and an explicit cwd: the runner starts
+	// cmd.exe with the session cwd (internal/exec/oneshot.go Spec.Dir), cmd.exe
+	// re-parses the raw command line (so Go's `\"` escaping survives
+	// literally), and the positive control has to actually execute — pinning
+	// `cwd` keeps the relative target in the workspace the scenario asserts on.
+	payload := struct {
 		Command string `json:"command"`
-	}{Command: cmd})
+		Cwd     string `json:"cwd,omitempty"`
+	}{Command: "sh -c 'echo " + marker + " > \"" + path + "\"'"}
+	if runtime.GOOS == "windows" {
+		if strings.ContainsAny(path, " ") {
+			t.Fatalf("shellGateWriteArgs: Windows needs a space-free path, got %q", path)
+		}
+		// Spaced for PowerShell, which is the runtime dialect on the Windows
+		// runner (a bare `M>file` and any `&` misbehave there).
+		payload.Command = "echo " + marker + " > " + path
+		payload.Cwd = e.Workdir
+	}
+	raw, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +119,7 @@ func TestShellGateMonetaryThroughBinary(t *testing.T) {
 		// and the assertion use the same path on every OS (no /var symlink or
 		// 8.3 short-name mismatch between the absolute temp path and the root).
 		target := "positive.txt"
-		e.Server.Push(ToolCallReply("c1", "shell", shellGateWriteArgs(t, target, marker)), providertest.Text("done"))
+		e.Server.Push(ToolCallReply("c1", "shell", shellGateWriteArgs(t, e, target, marker)), providertest.Text("done"))
 		res := e.Run("write a marker file", "--approval", "auto", "--unsafe-auto-shell")
 		res.RequireOK(t)
 		if got := e.ReadFile("positive.txt"); !strings.Contains(got, marker) {
@@ -131,7 +143,7 @@ func TestShellGateMonetaryThroughBinary(t *testing.T) {
 			skill = resolved // the classifier compares canonical paths
 		}
 		target := filepath.Join(skill, "side-effect.txt")
-		e.Server.Push(ToolCallReply("c1", "shell", shellGateWriteArgs(t, target, marker)), providertest.Text("done"))
+		e.Server.Push(ToolCallReply("c1", "shell", shellGateWriteArgs(t, e, target, marker)), providertest.Text("done"))
 		// stream-json carries both the tool-result event and the stop event, so
 		// the refusal's reason is asserted from the child's own output. A policy
 		// denial is a tool-level refusal the loop hands back to the model (which
@@ -167,7 +179,7 @@ func TestShellGateMonetaryThroughBinary(t *testing.T) {
 		e := NewTrusted(t)
 		writePaymentSkill(t, e.home)
 		target := "side-effect.txt"
-		e.Server.Push(ToolCallReply("c1", "shell", shellGateWriteArgs(t, target, marker)), providertest.Text("done"))
+		e.Server.Push(ToolCallReply("c1", "shell", shellGateWriteArgs(t, e, target, marker)), providertest.Text("done"))
 		res := e.Run("write the same marker in the workspace", "--approval", "auto", "--unsafe-auto-shell")
 		res.RequireOK(t)
 		if got := e.ReadFile("side-effect.txt"); !strings.Contains(got, marker) {
