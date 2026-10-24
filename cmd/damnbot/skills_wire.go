@@ -204,6 +204,20 @@ func trustedProjects(configured []string, configDir, home string) (map[string]bo
 	return out, nil
 }
 
+// workspaceTrusted reports whether cwd is inside a project the user
+// registered in <config>/trusted-projects (the store behind `damnbot skills
+// trust`), compared by canonical path. It is the trust decision for a
+// headless run: SPEC §14/§10 make `damnbot run` untrusted unless the path is
+// listed, so an empty or unreadable store fails closed, and a workspace
+// reached through a symlink is compared by its resolved path.
+func workspaceTrusted(cfg *config.Config, configDir, cwd, home string) (bool, error) {
+	trusted, err := trustedProjects(cfg.Skills.TrustedProjects, configDir, home)
+	if err != nil {
+		return false, err
+	}
+	return nearestTrustedProject(cwd, trusted, home) != "", nil
+}
+
 // readTrustedFile reads <config>/trusted-projects; a missing file is empty.
 func readTrustedFile(configDir string) ([]string, error) {
 	if configDir == "" {

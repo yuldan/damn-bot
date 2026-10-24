@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/damnbot/damnbot/internal/assemble"
 	"github.com/damnbot/damnbot/internal/codetools"
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
@@ -230,6 +231,14 @@ type runWiring struct {
 	// spill routes tool output above InlineChars into the ctxdb blob store
 	// (SEC7-66/68); the same instance serves the shell tool and the turn.
 	spill tools.Spill
+	// trusted is the workspace trust decision for this run (SPEC §14): the
+	// session cwd is inside a project registered in the trust store. It gates
+	// shell_allow/--unsafe-auto-shell and the <untrusted source="workspace">
+	// wrapper of the context file tier.
+	trusted bool
+	// reader reads the workspace context files (AGENTS.md and friends) through
+	// the sandbox.
+	reader assemble.FileReader
 }
 
 // openWiredSession opens the run store and resolves the session (new or
@@ -268,6 +277,13 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if err != nil {
 		return nil, closeDB(ctx, db, sid, fmt.Errorf("sandbox: %w", err))
 	}
+	// The workspace trust decision (SPEC §14): headless runs are untrusted
+	// unless the canonical cwd is registered in the trust store, so an empty
+	// or unreadable store fails closed.
+	trusted, err := workspaceTrusted(cfg, configDir, cwd, home)
+	if err != nil {
+		return nil, closeDB(ctx, db, sid, fmt.Errorf("workspace trust: %w", err))
+	}
 	scope, err := journalScope(roots, cfg.DenyPaths(configDir), home)
 	if err != nil {
 		return nil, closeDB(ctx, db, sid, err)
@@ -298,7 +314,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
 		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
 		EnvPolicy:        envPolicy,
-		WorkspaceTrusted: true, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
+		WorkspaceTrusted: trusted, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
 		MonetaryPaths: monetary, Canonicalize: monetaryKey,
 	})
 	if err != nil {
@@ -332,5 +348,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		fail:      fail,
 		inlineCap: cfg.Loop.TurnMaxInputTok,
 		spill:     spill,
+		trusted:   trusted,
+		reader:    sandboxReader{sb: sb, root: cwd},
 	}, nil
 }

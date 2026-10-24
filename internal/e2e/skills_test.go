@@ -19,7 +19,7 @@ import (
 // model only wrapped as <untrusted> data.
 func TestSkillsTools(t *testing.T) {
 	t.Parallel()
-	e := New(t,
+	e := NewTrusted(t,
 		ToolCallReply("c1", "skills_list", `{}`),
 		ToolCallReply("c2", "skill_view", `{"name":"reviewed"}`),
 		providertest.Text("done"),

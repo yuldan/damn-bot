@@ -241,6 +241,12 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	ctxIn := &assemble.ContextInput{
 		Facts:    "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
 		Degraded: degraded,
+		// MEM-026 / SPEC §4.8: the workspace instruction files are read through
+		// the sandbox and, in an untrusted workspace, wrapped as data. The list
+		// is fixed, so a missing file simply omits its slot.
+		Files:          contextFiles(),
+		Reader:         model.reader,
+		UntrustedFiles: !model.trusted,
 	}
 	if o.retrieverFor != nil {
 		ctxIn.Query = o.prompt
@@ -261,7 +267,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		Redactor:         red,
 		Mode:             approvalMode(o),
 		Deferred:         model.modules.deferred,
-		WorkspaceTrusted: true,
+		WorkspaceTrusted: model.trusted,
 		Cwd:              model.cwd,
 		// P5 amendment / GAP-COST-08: the turn inline aggregate scales with
 		// the route window and the session's char/token ratio.
@@ -330,6 +336,11 @@ type runModel struct {
 	// it into the character cap with the session's char/token ratio.
 	inlineCap int
 	spill     tools.Spill
+	// trusted is the workspace trust decision (SPEC §14) and reader reads the
+	// workspace context files; both come from the wiring that opened the
+	// sandbox.
+	trusted bool
+	reader  assemble.FileReader
 }
 
 func (m *runModel) close(ctx context.Context) error {
@@ -433,6 +444,8 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		inlineCap: w.inlineCap,
 		spill:     w.spill,
 		toolsets:  sel,
+		trusted:   w.trusted,
+		reader:    w.reader,
 		db:        w.db,
 		engine:    w.engine,
 		runner:    w.runner,
