@@ -693,7 +693,12 @@ func readInstallSource(src string) (skills.Skill, error) {
 	if err != nil || !fi.IsDir() {
 		return skills.Skill{}, fmt.Errorf("%s is not a directory", skillsArg(src))
 	}
-	data, err := os.ReadFile(filepath.Join(abs, "SKILL.md")) //nolint:gosec // user-selected install source
+	root, err := os.OpenRoot(abs)
+	if err != nil {
+		return skills.Skill{}, fmt.Errorf("open source: %w", err)
+	}
+	defer func() { _ = root.Close() }()
+	data, err := root.ReadFile("SKILL.md")
 	if err != nil {
 		return skills.Skill{}, fmt.Errorf("read SKILL.md: %w", err)
 	}
@@ -704,28 +709,40 @@ func readInstallSource(src string) (skills.Skill, error) {
 	return sk, nil
 }
 
-// copyTree copies regular files only (symlinks/special files refused).
+// copyTree copies regular files only (symlinks/special files refused); both sides
+// are opened as os.Root so no path can escape the source or the destination.
 func copyTree(src, dest string) error {
-	walkErr := filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+	srcRoot, err := os.OpenRoot(src)
+	if err != nil {
+		return fmt.Errorf("open source: %w", err)
+	}
+	defer func() { _ = srcRoot.Close() }()
+	if err := os.MkdirAll(dest, 0o700); err != nil {
+		return fmt.Errorf("create destination: %w", err)
+	}
+	dstRoot, err := os.OpenRoot(dest)
+	if err != nil {
+		return fmt.Errorf("open destination: %w", err)
+	}
+	defer func() { _ = dstRoot.Close() }()
+	walkErr := fs.WalkDir(srcRoot.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("walk source: %w", err)
 		}
-		rel, rerr := filepath.Rel(src, path)
-		if rerr != nil {
-			return fmt.Errorf("relative path: %w", rerr)
+		if rel == "." {
+			return nil
 		}
-		target := filepath.Join(dest, rel)
 		if d.IsDir() {
-			return os.MkdirAll(target, 0o700)
+			return dstRoot.MkdirAll(rel, 0o700)
 		}
 		if !d.Type().IsRegular() {
 			return fmt.Errorf("refusing non-regular file %s", skillsArg(rel))
 		}
-		data, rerr := os.ReadFile(path) //nolint:gosec // install source chosen by the user
+		data, rerr := srcRoot.ReadFile(rel)
 		if rerr != nil {
 			return fmt.Errorf("read source file: %w", rerr)
 		}
-		if werr := os.WriteFile(target, data, 0o600); werr != nil { //nolint:gosec // target is below the install destination
+		if werr := dstRoot.WriteFile(rel, data, 0o600); werr != nil {
 			return fmt.Errorf("write skill file: %w", werr)
 		}
 		return nil
