@@ -17,7 +17,7 @@ func TestPreprocessLoadedTrustedOnly(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	spy := &shellSpy{}
-	opts := LoadOptions{InlineShell: true, Shell: spy, Vars: PreprocessVars{ProjectDir: dir, Home: dir}}
+	opts := LoadOptions{InlineShell: true, Shell: spy, Vars: &PreprocessVars{ProjectDir: dir, Home: dir}}
 
 	trusted := Skill{Name: "run", Body: "value: `!echo hi`", Source: SourceUser, Path: filepath.Join(dir, "SKILL.md")}
 	if err := preprocessLoaded(ctx, &trusted, opts); err != nil {

@@ -98,7 +98,7 @@ func skillLoadOptions(cfg *config.Config, cwd string) (skills.LoadOptions, error
 	return skills.LoadOptions{
 		InlineShell: cfg.Skills.InlineShell,
 		Shell:       skillShell{},
-		Vars:        skills.PreprocessVars{ProjectDir: cwd, Home: home},
+		Vars:        &skills.PreprocessVars{ProjectDir: cwd, Home: home},
 	}, nil
 }
 

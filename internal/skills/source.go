@@ -34,7 +34,9 @@ type Catalog struct {
 type LoadOptions struct {
 	InlineShell bool
 	Shell       ShellRunner
-	Vars        PreprocessVars
+	// Vars is a pointer so LoadOptions stays under gocritic's hugeParam
+	// threshold (88 -> 32 bytes); nil means all template variables empty.
+	Vars *PreprocessVars
 }
 
 // preprocessLoaded expands SKILL-004 templates for one loaded skill. The
@@ -44,7 +46,10 @@ func preprocessLoaded(ctx context.Context, sk *Skill, opts LoadOptions) error {
 	if !opts.InlineShell || !sk.Source.Trusted() {
 		shell = nil
 	}
-	v := opts.Vars
+	v := PreprocessVars{}
+	if opts.Vars != nil {
+		v = *opts.Vars
+	}
 	v.SkillDir, v.SkillName = filepath.Dir(sk.Path), sk.Name
 	body, err := Preprocess(ctx, sk.Body, v, shell)
 	if err != nil {

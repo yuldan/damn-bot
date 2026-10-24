@@ -97,7 +97,7 @@ func testSkillPaymentGateUntouched(ctx context.Context, t *testing.T, env *skill
 	}
 	dc := config.Default()
 	dc.Skills.ProjectDiscovery = false // this test scans only <config>/skills
-	before, err := paymentSkillDirs(context.Background(), &dc, env.configDir, env.configDir)
+	before, err := paymentSkillDirs(ctx, &dc, env.configDir, env.configDir)
 	if err != nil {
 		t.Fatalf("payment gate: %v", err)
 	}
@@ -109,7 +109,7 @@ func testSkillPaymentGateUntouched(ctx context.Context, t *testing.T, env *skill
 	}); !errors.Is(cerr, tools.ErrSkillExists) {
 		t.Fatalf("create over a disk-only payment skill = %v, want exists", cerr)
 	}
-	after, err := paymentSkillDirs(context.Background(), &dc, env.configDir, env.configDir)
+	after, err := paymentSkillDirs(ctx, &dc, env.configDir, env.configDir)
 	if err != nil {
 		t.Fatalf("payment gate after create: %v", err)
 	}
