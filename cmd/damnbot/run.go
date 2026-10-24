@@ -200,7 +200,7 @@ func runOne(ctx context.Context, o *runOptions, stdout, stderr io.Writer) (code 
 	if err != nil {
 		return 0, err
 	}
-	if err := warnUnavailableToolsets(stderr, model.toolsets.Unavailable); err != nil {
+	if werr := warnUnavailableToolsets(stderr, model.toolsets.Unavailable); werr != nil {
 		return 2, nil
 	}
 	defer func() {
