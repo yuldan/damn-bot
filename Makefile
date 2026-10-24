@@ -130,12 +130,12 @@ ct09-nightly:
 # window 30 m-nya tidak pernah benar-benar dieksekusi.
 chaos-nightly:
 	DAMNBOT_CHAOS_DURATION=30m go test $(GOTAGS) -timeout 40m -run '^TestChaos50Clients$$' -count=1 ./internal/ctxdb/
-# Varian jendela panjang (>= 3x TTL) SENGAJA belum dijalankan: jendela 45 s
-# mereproduksi `db_busy: database is locked (5) (SQLITE_BUSY)` di main (2/2 di host
-# sepi), yaitu invarian yang justru dilindungi GAP-REL-03. Tesnya tetap ada dan
-# terlihat; komentari di sini adalah penahan eksplisit, bukan skip - kembalikan
-# `DAMNBOT_CHAOS_LONG=1` pada baris di bawah begitu policy busy diperbaiki.
-#	DAMNBOT_CHAOS_LONG=1 go test $(GOTAGS) -timeout 10m -run '^TestChaos50ClientsAcrossLeaseTTL$$' -count=1 ./internal/ctxdb/
+# Varian jendela panjang (>= 3x TTL) IKUT dijalankan: jendela 45 s dulu mereproduksi
+# `db_busy: database is locked (5) (SQLITE_BUSY)` di main (2/2 di host sepi), yaitu
+# invarian yang justru dilindungi GAP-REL-03, sehingga baris di bawah sempat dikomentari
+# sebagai penahan eksplisit. Policy busy kini mendarat (PR #312), jadi flag dikembalikan:
+# tesnya tetap ada, terlihat dan load-bearing - bukan dihapus, bukan di-skip.
+	DAMNBOT_CHAOS_LONG=1 go test $(GOTAGS) -timeout 10m -run '^TestChaos50ClientsAcrossLeaseTTL$$' -count=1 ./internal/ctxdb/
 
 # ENGINEERING §7.2 (E-80..E-84) + spec-guard SPEC §20; env BASE/HEAD/PR_* diisi workflow pr-meta.
 pr-meta:
