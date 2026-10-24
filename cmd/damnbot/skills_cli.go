@@ -403,7 +403,7 @@ func skillLimit(a *skillArgs, v string) error {
 func configSkills(ctx context.Context, a skillArgs) ([]skills.Skill, error) {
 	cat, err := skills.Load(ctx, []skills.Root{{Path: filepath.Join(a.configDir, "skills"), Source: skills.SourceUser}}, skills.LoadOptions{})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("load skills: %w", err)
 	}
 	return cat.Skills, nil
 }
@@ -684,7 +684,7 @@ func skillsInstall(args []string, stdout, stderr io.Writer) int {
 }
 
 // readInstallSource parses the SKILL.md of a directory to install.
-func readInstallSource(src string) (skills.Skill, error) {
+func readInstallSource(src string) (sk skills.Skill, err error) {
 	abs, err := filepath.Abs(src)
 	if err != nil {
 		return skills.Skill{}, fmt.Errorf("source path: %w", err)
@@ -697,12 +697,12 @@ func readInstallSource(src string) (skills.Skill, error) {
 	if err != nil {
 		return skills.Skill{}, fmt.Errorf("open source: %w", err)
 	}
-	defer func() { _ = root.Close() }()
+	defer func() { err = errors.Join(err, root.Close()) }()
 	data, err := root.ReadFile("SKILL.md")
 	if err != nil {
 		return skills.Skill{}, fmt.Errorf("read SKILL.md: %w", err)
 	}
-	sk, err := skills.Parse(data, filepath.Join(abs, "SKILL.md"), skills.SourceUser)
+	sk, err = skills.Parse(data, filepath.Join(abs, "SKILL.md"), skills.SourceUser)
 	if err != nil {
 		return skills.Skill{}, fmt.Errorf("parse SKILL.md: %w", err)
 	}
@@ -711,20 +711,20 @@ func readInstallSource(src string) (skills.Skill, error) {
 
 // copyTree copies regular files only (symlinks/special files refused); both sides
 // are opened as os.Root so no path can escape the source or the destination.
-func copyTree(src, dest string) error {
+func copyTree(src, dest string) (err error) {
 	srcRoot, err := os.OpenRoot(src)
 	if err != nil {
 		return fmt.Errorf("open source: %w", err)
 	}
-	defer func() { _ = srcRoot.Close() }()
-	if err := os.MkdirAll(dest, 0o700); err != nil {
-		return fmt.Errorf("create destination: %w", err)
+	defer func() { err = errors.Join(err, srcRoot.Close()) }()
+	if merr := os.MkdirAll(dest, 0o700); merr != nil {
+		return fmt.Errorf("create destination: %w", merr)
 	}
 	dstRoot, err := os.OpenRoot(dest)
 	if err != nil {
 		return fmt.Errorf("open destination: %w", err)
 	}
-	defer func() { _ = dstRoot.Close() }()
+	defer func() { err = errors.Join(err, dstRoot.Close()) }()
 	walkErr := fs.WalkDir(srcRoot.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("walk source: %w", err)

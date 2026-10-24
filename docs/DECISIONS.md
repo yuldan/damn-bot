@@ -3887,4 +3887,4 @@ setelah putaran lint (`Vars *PreprocessVars` di `internal/skills`, `os.Root` pad
 memakai nilai yang sama agar `make loc` hijau di setiap basis bertumpuk (`f2-skills` 1430, `f2-bundles` 1556,
 `f2-ledger` 1679, `f2-skills-index`/`-cli`/`-config` 1803).
 
-**Konsekuensi.** PR yang menaikkan baris core setelah ini harus menjumlahkan angka ini, bukan menimpanya.
+**Konsekuensi.** PR lain yang menaikkan baris core setelah ini harus **menjumlahkan** angka ini, bukan menimpanya.
