@@ -33,7 +33,6 @@ import (
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/redact"
-	"github.com/damnbot/damnbot/internal/schema"
 	"github.com/damnbot/damnbot/internal/tools"
 	"github.com/damnbot/damnbot/internal/toolset"
 )
@@ -51,6 +50,8 @@ type runOptions struct {
 	apiKey           string
 	session          string
 	cont             bool
+	retry            bool
+	noRecap          bool
 	providerAttempts int
 	answerSchema     string
 	// eval-only seams (never set by a flag): a provider override (fake or
@@ -115,6 +116,8 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	fs.StringVar(&o.session, "session", "", "resume an existing session id")
 	fs.BoolVar(&o.cont, "continue", false, "continue the newest session in the current directory")
 	fs.BoolVar(&o.cont, "c", false, "alias for --continue")
+	fs.BoolVar(&o.retry, "retry", false, "resend the last user message of the resumed session")
+	fs.BoolVar(&o.noRecap, "no-recap", false, "do not print the resume recap to stderr")
 	fs.IntVar(&o.providerAttempts, "provider-attempts", 0, "internal/test: provider retry attempts (0 = default 3)")
 	if err := fs.Parse(args); err != nil {
 		return runOptions{}, &reportedParseError{err: fmt.Errorf("parse flags: %w", err)}
@@ -127,31 +130,20 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	default:
 		return runOptions{}, fmt.Errorf("invalid --output %q", o.output)
 	}
-	if o.prompt == "" {
+	if o.retry {
+		if o.prompt != "" {
+			return runOptions{}, errors.New("--retry resends the last message; do not pass a prompt")
+		}
+		if o.session == "" && !o.cont {
+			o.cont = true // retry the newest session in this directory
+		}
+	} else if o.prompt == "" {
 		return runOptions{}, errors.New("prompt required")
 	}
 	if o.session != "" && o.cont {
 		return runOptions{}, errors.New("--session and --continue are mutually exclusive")
 	}
 	return o, nil
-}
-
-// compileAnswerSchema builds the SPEC §7.2 --answer-schema validator. The
-// file is third-party input, so unsupported keywords are tolerated (ModeMCP)
-// and an unreadable or invalid schema fails before the turn starts.
-func compileAnswerSchema(path string) (func(string) error, error) {
-	if path == "" {
-		return nil, nil
-	}
-	raw, err := os.ReadFile(path) //nolint:gosec // G304: operator-supplied flag
-	if err != nil {
-		return nil, fmt.Errorf("answer schema: %w", err)
-	}
-	sc, err := schema.Compile(raw, schema.ModeMCP)
-	if err != nil {
-		return nil, fmt.Errorf("answer schema: %w", err)
-	}
-	return func(answer string) error { return sc.Validate([]byte(answer)) }, nil
 }
 
 // warnUnavailableToolsets reports declared-but-unregistered toolset members
@@ -200,11 +192,36 @@ func runOne(ctx context.Context, o *runOptions, stdout, stderr io.Writer) (code 
 			err = fmt.Errorf("close run model: %w", cerr)
 		}
 	}()
+	if err := applyResumeNotes(ctx, o, model, red, stderr); err != nil {
+		return 0, err
+	}
 	if modelRef == "" {
 		modelRef = model.modelRef
 	}
 	return runTurn(ctx, &cfg, o, model, modelRef, red, model.spill, stdout)
 }
+
+// applyResumeNotes prints the resume recap and resolves --retry to the last
+// user message before the new turn starts.
+func applyResumeNotes(ctx context.Context, o *runOptions, model *runModel, red *redact.Redactor, stderr io.Writer) error {
+	if (o.session != "" || o.cont) && !o.noRecap {
+		if err := printRecap(ctx, model.db, model.sessionID, red, stderr); err != nil {
+			recapPrintf(stderr, "run: recap: %v\n", err)
+		}
+	}
+	if !o.retry {
+		return nil
+	}
+	prompt, err := retryPrompt(ctx, model.db, model.sessionID, red, stderr)
+	if err != nil {
+		return fmt.Errorf("retry: %w", err)
+	}
+	o.prompt = prompt
+	return nil
+}
+
+// loadRunEnv loads the immutable config for one run and resolves the data,
+// config and home directories.
 
 func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef string, red *redact.Redactor, spill tools.Spill, stdout io.Writer) (int, error) {
 	asm, err := assemble.New(assemble.Deps{

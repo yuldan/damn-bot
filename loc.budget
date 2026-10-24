@@ -49,7 +49,7 @@ boundary           150 internal/boundary
 # ADR-142 restack: additive di atas ADR-141 (terukur 4160 pada pohon sesudah main+#227..#277); ctxdb 4100 -> 4250 (Σ core 38.450 -> 38.600).
 # ADR-146: checkpoints status/list/prune/clear (maintenance mode purge); terukur 4223 pada pohon sesudah main+#227..#277 -> batas ctxdb TETAP 4250 (Σ core tetap 38.600; tidak ada kenaikan).
 # Amandemen jendela crypto (ADR-124): ctxdb -> 4271 (terukur pada pohon langkah ini).
-ctxdb             5740 internal/ctxdb
+ctxdb 5769 internal/ctxdb
 # ADR-074: storage konsumen di internal/ctxdb/<consumer>store, dipotong dari baris konsumennya (Σ tidak berubah oleh ADR-074).
 # ctxdb/gwstore (900) dihitung dari budget gateway SPEC §3.2.4; barisnya ditambah saat baris gateway dibuat (F4).
 ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore
