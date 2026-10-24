@@ -82,14 +82,18 @@ func wrappedContains(blocks []string, needle string) bool {
 // command shape the untrusted-workspace scenario refuses.
 func writeMarkerShellArgs(t *testing.T, path, marker string) string {
 	t.Helper()
-	// The runner already wraps the command in `sh -c` / `cmd /d /s /c`
-	// (internal/exec/oneshot.go), and cmd.exe honours neither backslash
-	// escapes nor nested quotes: the old Windows form
-	// `cmd /c "echo M > \"p\""` redirected into a literal `\"p\"` file, so
-	// the trusted case found no marker. Keep the inner command bare.
+	// Windows gets a quote-free command on purpose. The runner appends the
+	// command to `cmd /d /s /c` (internal/exec/oneshot.go) and Go escapes a
+	// quoted argument as `\"`, but cmd.exe re-parses the raw command line and
+	// keeps backslashes, so any quote in the fixture turns the redirect into a
+	// literal `\"name\"` file. The Unix branch can quote; Windows callers pass
+	// a relative path without spaces.
 	cmd := "sh -c 'echo " + marker + " > \"" + path + "\"'"
 	if runtime.GOOS == "windows" {
-		cmd = "echo " + marker + "> \"" + path + "\""
+		if strings.ContainsAny(path, " ") {
+			t.Fatalf("writeMarkerShellArgs: Windows needs a space-free path, got %q", path)
+		}
+		cmd = "echo " + marker + "> " + path
 	}
 	raw, err := json.Marshal(struct {
 		Command string `json:"command"`
@@ -217,7 +221,8 @@ func TestE2EUntrustedWorkspaceShellGate(t *testing.T) {
 		res := e.Run("write the file", "--approval", "auto", "--unsafe-auto-shell")
 		res.RequireOK(t)
 		if got := e.ReadFile("shell-side-effect.txt"); !strings.Contains(got, "SHELL-TRUSTED-9a3e") {
-			t.Fatalf("trusted workspace did not run the command: %q", got)
+			t.Fatalf("trusted workspace did not run the command: marker %q missing\nstdout:\n%s\nstderr:\n%s",
+				got, res.Stdout, res.Stderr)
 		}
 	})
 }
