@@ -45,7 +45,7 @@ func prune(items []item, pins []int64) PruneStats {
 		Trimmed: trim(items),
 		Images:  images(items),
 	}
-	restorePinned(items, pins, saved)
+	restorePinned(items, saved)
 	return st
 }
 
@@ -65,7 +65,7 @@ func keepPinned(items []item, pins []int64) map[int64]Message {
 	return out
 }
 
-func restorePinned(items []item, pins []int64, saved map[int64]Message) {
+func restorePinned(items []item, saved map[int64]Message) {
 	if len(saved) == 0 {
 		return
 	}

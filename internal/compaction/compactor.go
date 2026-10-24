@@ -195,7 +195,14 @@ func (c *Compactor) summarize(ctx context.Context, sid string, snap *Snapshot, c
 	case err != nil:
 		res.Outcome, res.Cause = OutcomeFailed, c.deps.Redactor.String(err.Error())
 	default:
-		sum := &Summary{FromSeq: sum[0].seq, ToSeq: sum[len(sum)-1].seq, Model: reply.Call.Model, Tainted: tainted}
+		// Without pins the range keeps the historical shape (the seq just
+		// before the kept tail); a pin filters the input, so the range ends on
+		// the last summarised event instead (MEM-025).
+		to := items[n].seq - 1
+		if len(sum) != n {
+			to = sum[len(sum)-1].seq
+		}
+		sum := &Summary{FromSeq: sum[0].seq, ToSeq: to, Model: reply.Call.Model, Tainted: tainted}
 		c.accept(ctx, sid, snap, cm, &reply, sum, input, res)
 	}
 	return nil

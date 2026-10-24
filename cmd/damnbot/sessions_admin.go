@@ -81,26 +81,36 @@ func adminFlag(a *adminArgs, s string, args []string, i *int) (bool, error) {
 		return true, err
 	case strings.HasPrefix(s, "--older-than="):
 		a.olderThan = strings.TrimPrefix(s, "--older-than=")
-	case s == "--archive":
-		a.archive = true
-	case s == "--dry-run":
-		a.dryRun = true
-	case s == "--yes" || s == "-y":
-		a.yes = true
 	case s == "--at":
 		v, err := value(s)
 		a.pinAt = v
 		return true, err
 	case strings.HasPrefix(s, "--at="):
 		a.pinAt = strings.TrimPrefix(s, "--at=")
-	case s == "--off":
-		a.off = true
-	case s == "--no-redact":
-		a.noRedact = true
+	case adminBoolFlag(a, s):
 	default:
 		return false, nil
 	}
 	return true, nil
+}
+
+// adminBoolFlag parses one boolean admin flag; false means "not a boolean flag".
+func adminBoolFlag(a *adminArgs, s string) bool {
+	switch s {
+	case "--archive":
+		a.archive = true
+	case "--dry-run":
+		a.dryRun = true
+	case "--yes", "-y":
+		a.yes = true
+	case "--off":
+		a.off = true
+	case "--no-redact":
+		a.noRedact = true
+	default:
+		return false
+	}
+	return true
 }
 
 // sessionsRename sets or prints the session title (MEM-016).

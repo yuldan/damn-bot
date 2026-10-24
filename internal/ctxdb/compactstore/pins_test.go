@@ -9,9 +9,9 @@ import (
 )
 
 // hasContent reports whether any loaded event or message carries want.
-func hasContent(snap compaction.Snapshot, want string) bool {
-	for _, e := range snap.Events {
-		if e.Content == want {
+func hasContent(snap *compaction.Snapshot, want string) bool {
+	for i := range snap.Events {
+		if snap.Events[i].Content == want {
 			return true
 		}
 	}
@@ -43,7 +43,7 @@ func TestLoadKeepsPinnedTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hasContent(snap, "data") {
+	if hasContent(&snap, "data") {
 		t.Errorf("control: the unpinned turn survived the boundary: %+v", snap.Events)
 	}
 	if len(snap.Pins) != 0 {
@@ -52,11 +52,12 @@ func TestLoadKeepsPinnedTurn(t *testing.T) {
 	if err := db.SetSessionPin(t.Context(), sid, 5, true); err != nil {
 		t.Fatal(err)
 	}
-	snap, err = s.Load(t.Context(), sid)
-	if err != nil {
-		t.Fatal(err)
+	loaded, lerr := s.Load(t.Context(), sid)
+	if lerr != nil {
+		t.Fatal(lerr)
 	}
-	if !hasContent(snap, "data") {
+	snap = loaded
+	if !hasContent(&snap, "data") {
 		t.Errorf("the pinned turn is missing from the view: %+v", snap.Events)
 	}
 	if len(snap.Pins) != 1 || snap.Pins[0] != 5 {

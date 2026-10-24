@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/damnbot/damnbot/internal/ctxdb"
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/damnbot/damnbot/internal/ctxdb"
 )
 
 // sessionsFlag sets one boolean label (archive/unarchive/pin/unpin).
@@ -96,9 +97,8 @@ func sessionsStats(args []string, stdout, stderr io.Writer) int {
 }
 
 // sessionsContextPin pins a transcript position against compaction or lists the
-// pinned ones (MEM-025). Pins are append-only session labels ("pin_seq:<seq>"),
-// so the pin survives a resume and nothing is deleted: `--off` writes "0" and
-// the newest value wins.
+// pinned ones (MEM-025). Pins are append-only rows in session_pins, so the pin
+// survives a resume and nothing is deleted: `--off` appends a released state.
 func sessionsContextPin(args []string, stdout, stderr io.Writer) int {
 	a, err := parseAdminArgs(args)
 	if err != nil || len(a.pos) != 1 {
@@ -108,52 +108,62 @@ func sessionsContextPin(args []string, stdout, stderr io.Writer) int {
 		sessionsUsage(stderr)
 		return 2
 	}
-	id := a.pos[0]
 	ctx := context.Background()
-	if id == "newest" { // "newest" names the newest session (useful for scripts)
-		db, derr := openSessionsDBReadOnly(ctx, a.dataDir)
-		if derr != nil {
-			return sessionsFail(stderr, "context-pin", derr, id)
-		}
-		ids, lerr := db.ListSessions(ctx)
-		closeSessionsDB(db, "sessions context-pin", stderr)
-		if lerr != nil || len(ids) == 0 {
-			sessionsPrintf(stderr, "sessions context-pin: no session to pin\n")
-			return 1
-		}
-		id = ids[0]
+	if a.pinAt == "" {
+		return contextPinList(ctx, a.dataDir, a.pos[0], stdout, stderr)
 	}
-	if a.pinAt == "" { // list: read-only, like the other inspections
-		db, derr := openSessionsDBReadOnly(ctx, a.dataDir)
-		if derr != nil {
-			return sessionsFail(stderr, "context-pin", derr, id)
+	return contextPinSet(ctx, &a, stdout, stderr)
+}
+
+// contextPinList prints the pinned positions of one session (read-only).
+func contextPinList(ctx context.Context, dataDir, id string, stdout, stderr io.Writer) int {
+	db, derr := openSessionsDBReadOnly(ctx, dataDir)
+	if derr != nil {
+		return sessionsFail(stderr, "context-pin", derr, id)
+	}
+	defer func() {
+		if cerr := db.CloseContext(ctx); cerr != nil {
+			sessionsPrintf(stderr, "sessions context-pin: close: %v\n", cerr)
 		}
-		defer closeSessionsDB(db, "sessions context-pin", stderr)
-		pins, perr := db.SessionPinSeqs(ctx, id)
-		if perr != nil {
-			return sessionsFail(stderr, "context-pin", perr, id)
-		}
-		if len(pins) == 0 {
-			sessionsPrintf(stdout, "no pinned context\n")
-			return 0
-		}
-		for _, n := range pins {
-			sessionsPrintf(stdout, "pin %d\n", n)
-		}
+	}()
+	pins, perr := db.SessionPinSeqs(ctx, id)
+	if perr != nil {
+		return sessionsFail(stderr, "context-pin", perr, id)
+	}
+	if len(pins) == 0 {
+		sessionsPrintf(stdout, "no pinned context\n")
 		return 0
+	}
+	for _, n := range pins {
+		sessionsPrintf(stdout, "pin %d\n", n)
+	}
+	return 0
+}
+
+// contextPinSet pins (or releases, with --off) one transcript position.
+func contextPinSet(ctx context.Context, a *adminArgs, stdout, stderr io.Writer) int {
+	id := a.pos[0]
+	if id == "newest" { // "newest" names the newest session (useful for scripts)
+		var code int
+		if id, code = newestSession(ctx, a.dataDir, stderr); code != 0 {
+			return code
+		}
 	}
 	db, derr := openSessionsDB(ctx, a.dataDir)
 	if derr != nil {
 		return sessionsFail(stderr, "context-pin", derr, id)
 	}
-	defer closeSessionsDB(db, "sessions context-pin", stderr)
+	defer func() {
+		if cerr := db.CloseContext(ctx); cerr != nil {
+			sessionsPrintf(stderr, "sessions context-pin: close: %v\n", cerr)
+		}
+	}()
 	seq, serr := pinSeq(ctx, db, id, a.pinAt)
 	if serr != nil {
 		sessionsPrintf(stderr, "sessions context-pin: %v\n", serr)
 		return 2
 	}
-	value := !a.off
-	if werr := db.SetSessionPin(ctx, id, seq, value); werr != nil {
+	if werr := db.SetSessionPin(ctx, id, seq, !a.off); werr != nil {
 		return sessionsFail(stderr, "context-pin", werr, id)
 	}
 	if a.off {
@@ -162,6 +172,23 @@ func sessionsContextPin(args []string, stdout, stderr io.Writer) int {
 		sessionsPrintf(stdout, "pinned %d\n", seq)
 	}
 	return 0
+}
+
+// newestSession resolves the "newest" session alias.
+func newestSession(ctx context.Context, dataDir string, stderr io.Writer) (string, int) {
+	db, derr := openSessionsDBReadOnly(ctx, dataDir)
+	if derr != nil {
+		return "", sessionsFail(stderr, "context-pin", derr, "newest")
+	}
+	ids, lerr := db.ListSessions(ctx)
+	if cerr := db.CloseContext(ctx); cerr != nil {
+		sessionsPrintf(stderr, "sessions context-pin: close: %v\n", cerr)
+	}
+	if lerr != nil || len(ids) == 0 {
+		sessionsPrintf(stderr, "sessions context-pin: no session to pin\n")
+		return "", 1
+	}
+	return ids[0], 0
 }
 
 // pinSeq resolves --at for context-pin: a transcript seq, or turn:<id> meaning

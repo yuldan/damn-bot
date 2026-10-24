@@ -136,7 +136,7 @@ func (s *Store) Load(ctx context.Context, sid string) (compaction.Snapshot, erro
 			return err
 		}
 		if snap.Pins, err = ctxdb.PinSeqs(tx, sid); err != nil {
-			return err
+			return fmt.Errorf("pins: %w", err)
 		}
 		if snap.Events, err = events(tx, eventsQ, sid, snap.Boundary()); err != nil || snap.Boundary() == 0 {
 			return err
