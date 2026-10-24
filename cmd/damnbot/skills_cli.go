@@ -271,8 +271,6 @@ func runSkills(args []string, stdout, stderr io.Writer) int {
 		return skillsDiff(args[1:], stdout, stderr)
 	case "audit", "ledger":
 		return skillsAudit(args[1:], stdout, stderr)
-	case "config":
-		return skillsConfig(args[1:], stdout, stderr)
 	case "reset":
 		return skillsReset(args[1:], stdout, stderr)
 	case "install":
@@ -287,7 +285,7 @@ func runSkills(args []string, stdout, stderr io.Writer) int {
 }
 
 func skillsUsage(w io.Writer) {
-	say(w, "usage: damnbot skills list|check|update|index [--check]|audit|ledger|config\n")
+	say(w, "usage: damnbot skills list|check|update|index [--check]|audit|ledger\n")
 	say(w, "       damnbot skills inspect <name>|diff <name>\n")
 	say(w, "       damnbot skills install <dir>|uninstall <name> --yes|reset --yes\n")
 }
@@ -621,43 +619,6 @@ func skillsAudit(args []string, stdout, stderr io.Writer) int {
 		say(stdout, "%s\t%s\t%s\t%s\t%s\n", time.UnixMilli(e.At).UTC().Format(time.RFC3339),
 			e.Name, e.Action, e.Source, shortSHA(e.SHA256))
 	}
-	return 0
-}
-
-func skillsConfig(args []string, stdout, stderr io.Writer) int {
-	a, err := parseSkillArgs(args)
-	if err != nil || len(a.pos) != 0 {
-		if err != nil {
-			say(stderr, "skills config: %v\n", err)
-		}
-		skillsUsage(stderr)
-		return 2
-	}
-	loader, err := config.New(config.OS())
-	if err != nil {
-		say(stderr, "skills config: %v\n", err)
-		return 1
-	}
-	cfg := config.Default()
-	cfgDir, _, perr := skillsPaths()
-	if perr != nil {
-		say(stderr, "skills config: %v\n", perr)
-		return 1
-	}
-	if _, serr := os.Stat(filepath.Join(cfgDir, "config.toml")); serr == nil {
-		loaded, lerr := loader.LoadProfile("")
-		if lerr != nil {
-			say(stderr, "skills config: %v\n", lerr)
-			return 1
-		}
-		cfg = loaded
-	}
-	b, err := json.MarshalIndent(cfg.Skills, "", "  ")
-	if err != nil {
-		say(stderr, "skills config: %v\n", err)
-		return 1
-	}
-	say(stdout, "%s\n", b)
 	return 0
 }
 

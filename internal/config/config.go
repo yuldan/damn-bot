@@ -33,12 +33,12 @@ type Config struct {
 // TrustedProjects or in <config>/trusted-projects, and every skill from a
 // project or an external directory is quarantined like an import.
 type Skills struct {
-	ProjectDiscovery bool     `toml:"project_discovery" json:"project_discovery"`
-	TrustedProjects  []string `toml:"trusted_projects" json:"trusted_projects"`
-	ExternalDirs     []string `toml:"external_dirs" json:"external_dirs"`
+	ProjectDiscovery bool     `toml:"project_discovery"`
+	TrustedProjects  []string `toml:"trusted_projects"`
+	ExternalDirs     []string `toml:"external_dirs"`
 	// InlineShell enables the opt-in `!`cmd` expansion of SKILL-004 for trusted
 	// skills only (ADR-168). Off by default: a skill body is data, not a script.
-	InlineShell bool `toml:"inline_shell" json:"inline_shell"`
+	InlineShell bool `toml:"inline_shell"`
 }
 
 // Provider is SPEC §12 [provider].
