@@ -97,14 +97,14 @@ func writeMarkerShellArgs(t *testing.T, e *Env, rel, marker string) string {
 		if strings.ContainsAny(rel, " ") {
 			t.Fatalf("writeMarkerShellArgs: Windows needs a space-free path, got %q", rel)
 		}
-		// The relative target keeps both cases the same command; the explicit
-		// cwd pins the directory it resolves against (the one-shot runs through
-		// `cmd /d /s /c`, internal/exec/oneshot.go), and the trailing `cd`
-		// prints the cwd cmd.exe actually used into the tool result, so a
-		// failure says whether the directory or the call itself was wrong.
-		// `%CD%` is deliberately absent: it makes classify label the command
-		// Unknown (denied) instead of Mutating, which the scenarios assert on.
-		payload.Command = "echo " + marker + "> " + rel + " & cd"
+		// The runtime dialect here is PowerShell, not cmd: the Windows CI
+		// runner reports it as a PS background job when the fixture uses `&`,
+		// and `%CD%` makes classify label the command Unknown (denied) under
+		// the cmd dialect (both verified from the failed runs and a local
+		// classify probe). So the command stays a plain, dialect-neutral
+		// redirect with the space PowerShell needs, and the explicit cwd pins
+		// the directory the relative target resolves against.
+		payload.Command = "echo " + marker + " > " + rel
 		payload.Cwd = e.Workdir
 	}
 	raw, err := json.Marshal(payload)
