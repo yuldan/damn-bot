@@ -3840,10 +3840,8 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 terukur pada kepala rantai **1803** baris kode non-test (`scc --by-file`, `internal/memory` + `internal/skills`)
 setelah putaran lint (`Vars *PreprocessVars` di `internal/skills`, `os.Root` pada copy install).
 
-**Keputusan.** Satu baris `memory+skills 1830 internal/memory internal/skills`, tanpa baris duplikat (headroom
-27 baris ≈ 1,5%). "Total core" `docs/ENGINEERING.md` = **Σ `budgetCoreSum(loc.budget)`** (konvensi gate, PR #182)
-→ **44.461** (+430 terhadap `main` 44.031), batas SPEC §3.2.4 47.000 tetap tidak dilampaui. Seluruh PR di rantai
-memakai nilai yang sama agar `make loc` hijau di setiap basis bertumpuk (`f2-skills` 1430, `f2-bundles` 1556,
-`f2-ledger` 1679, `f2-skills-index`/`-cli`/`-config` 1803).
+**Keputusan.** Satu baris `memory+skills 1800`; baris duplikat 1700 dihapus. "Total core" `docs/ENGINEERING.md` = **Σ `budgetCoreSum(loc.budget)`** (konvensi gate, ADR-182/#182)
+→ **44.031** (+400 terhadap `main` 43.631), batas SPEC §3.2.4 47.000 tetap tidak dilampaui. Seluruh PR di rantai memakai nilai yang sama agar `make loc` hijau
+di setiap basis bertumpuk.
 
 **Konsekuensi.** PR yang menaikkan baris core setelah ini harus menjumlahkan angka ini, bukan menimpanya.
