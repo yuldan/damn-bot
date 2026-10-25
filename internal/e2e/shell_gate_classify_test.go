@@ -129,10 +129,16 @@ func TestShellGateMonetaryThroughBinary(t *testing.T) {
 		if _, err := os.Stat(target); !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("refused command still had a side effect: %v", err)
 		}
-		// stream-json escapes the path, so on Windows the raw form
-		// (`C:\\Users\\…`) never appears in the child's output.
-		if quoted, merr := json.Marshal(skill); merr != nil || !strings.Contains(res.Stdout, string(quoted[1:len(quoted)-1])) {
-			t.Fatalf("the child did not run the intended command:\n%s", res.Stdout)
+		// The fixture reached the tool when the child's own output (or the
+		// provider request that carries the tool result) names the command's
+		// target in either spelling: stream-json escapes the path, so on
+		// Windows the raw `C:\Users\…` form never appears literally.
+		quoted, merr := json.Marshal(skill)
+		escaped := string(quoted[1 : len(quoted)-1])
+		probe := res.Stdout + e.RequestText(t, 1)
+		if merr != nil || (!strings.Contains(probe, skill) && !strings.Contains(probe, escaped) && !strings.Contains(probe, marker)) {
+			t.Fatalf("the child did not run the intended command: target=%q marker=%q escaped=%q\nstdout:\n%s",
+				skill, marker, escaped, res.Stdout)
 		}
 		if !strings.Contains(res.Stdout, "shell is not allowed in this mode") {
 			t.Fatalf("the model did not receive a readable denial:\n%s", res.Stdout)
