@@ -9,8 +9,10 @@ import (
 )
 
 // busyStore opens a Store with a short busy_timeout so a contended write fails
-// fast, and records the busy retries it observes.
-func busyStore(t *testing.T, dir string, pid int, seen *[]string) *Store {
+// fast, and records the busy retries it observes. When retried is non-nil it
+// receives one non-blocking signal per observed retry, so a test can wait for
+// the retry itself instead of guessing when the holder should release.
+func busyStore(t *testing.T, dir string, pid int, seen *[]string, retried chan<- struct{}) *Store {
 	t.Helper()
 	var mu sync.Mutex
 	s, err := Open(context.Background(), &Options{
@@ -18,8 +20,14 @@ func busyStore(t *testing.T, dir string, pid int, seen *[]string) *Store {
 		Ident: &Ident{Host: "busy", PID: pid, Start: "busy", BootID: "busy"},
 		OnBusyRetry: func(phase string, attempt int) {
 			mu.Lock()
-			defer mu.Unlock()
 			*seen = append(*seen, phase)
+			mu.Unlock()
+			if retried != nil {
+				select {
+				case retried <- struct{}{}:
+				default:
+				}
+			}
 		},
 	})
 	if err != nil {
@@ -60,8 +68,9 @@ func TestWriterBusyRetry(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	var seen []string
-	holder := busyStore(t, dir, 1, &seen)
-	waiter := busyStore(t, dir, 2, &seen)
+	holder := busyStore(t, dir, 1, &seen, nil)
+	retried := make(chan struct{}, 1)
+	waiter := busyStore(t, dir, 2, &seen, retried)
 	defer func() {
 		must(t, waiter.Close())
 		must(t, holder.Close())
@@ -74,11 +83,29 @@ func TestWriterBusyRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Case 1: the lock is held across two busy windows (2 x 40 ms) and released
-	// while the third attempt waits, so only the retry can carry the write home.
+	// Case 1: the holder owns the write lock, so the waiter's first attempt is
+	// guaranteed to see SQLITE_BUSY. The lock is released only once that retry
+	// has been reported, so the write below can only succeed through the retry
+	// loop - no timer decides the outcome (the previous 100 ms AfterFunc raced
+	// the 3 x 40 ms retry budget and made this test flaky on Windows).
 	release, done := holdWriteLock(ctx, t, holder)
-	time.AfterFunc(100*time.Millisecond, release)
-	if _, err := waiter.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "retried"}); err != nil {
+	// The holder must be freed on every path: a Fatal in the select below would
+	// otherwise leave the holder's write blocked on <-free and Close would hang.
+	defer release()
+	appended := make(chan error, 1)
+	go func() {
+		_, err := waiter.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "retried"})
+		appended <- err
+	}()
+	select {
+	case <-retried:
+	case err := <-appended:
+		t.Fatalf("append returned before any busy retry (err = %v), want SQLITE_BUSY first", err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("no busy retry observed while the holder kept the write lock")
+	}
+	release()
+	if err := <-appended; err != nil {
 		t.Fatalf("append with busy retry enabled: %v", err)
 	}
 	if got := waiter.BusyRetries(); got == 0 {
@@ -93,6 +120,7 @@ func TestWriterBusyRetry(t *testing.T) {
 
 	// Case 2: same contention, retry off -> typed db_busy (the outcome SPEC allows).
 	release2, done2 := holdWriteLock(ctx, t, holder)
+	defer release2() // freed on every path, so a Fatal cannot leave the holder blocked
 	old := waiter.busyRetryMax
 	waiter.busyRetryMax = 1
 	if _, err := waiter.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "no retry"}); !errors.Is(err, ErrDBBusy) {
