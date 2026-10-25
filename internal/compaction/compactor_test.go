@@ -31,12 +31,13 @@ type memStore struct {
 	events     map[string][]Event
 	summaries  map[string][]Summary
 	attempts   map[string][]Attempt
+	pins       map[string][]int64
 	commits    []Commit
 	failCommit error
 }
 
 func newMemStore() *memStore {
-	return &memStore{events: map[string][]Event{}, summaries: map[string][]Summary{}, attempts: map[string][]Attempt{}}
+	return &memStore{events: map[string][]Event{}, summaries: map[string][]Summary{}, attempts: map[string][]Attempt{}, pins: map[string][]int64{}}
 }
 
 func (m *memStore) put(sid string, evs []Event) {
@@ -59,7 +60,15 @@ func (m *memStore) Load(_ context.Context, sid string) (Snapshot, error) {
 	if !ok {
 		return Snapshot{}, errNotFound
 	}
-	snap := Snapshot{Summaries: slices.Clone(m.summaries[sid]), Compacted: len(m.attempts[sid]) > 0}
+	snap := Snapshot{Summaries: slices.Clone(m.summaries[sid]), Compacted: len(m.attempts[sid]) > 0, Pins: slices.Clone(m.pins[sid])}
+	pinnedTurns := map[string]bool{}
+	for i := range evs {
+		for _, n := range m.pins[sid] {
+			if evs[i].Seq == n {
+				pinnedTurns[evs[i].TurnID] = true
+			}
+		}
+	}
 	for _, a := range m.attempts[sid] {
 		if a.Outcome.Called() {
 			snap.LastCall = &a
@@ -70,7 +79,7 @@ func (m *memStore) Load(_ context.Context, sid string) (Snapshot, error) {
 		e := evs[i]
 		visible := e.Kind == event.UserMessage || e.Kind == event.AssistantMessage || e.Kind == event.ToolResult
 		switch {
-		case visible && e.Seq > b:
+		case visible && (e.Seq > b || pinnedTurns[e.TurnID]):
 			snap.Events = append(snap.Events, e)
 		case b > 0 && e.Kind == event.UserMessage:
 			snap.Task = &e

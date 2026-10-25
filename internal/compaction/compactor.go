@@ -176,15 +176,18 @@ func (c *Compactor) cooling(snap *Snapshot, at int64) bool {
 func (c *Compactor) summarize(ctx context.Context, sid string, snap *Snapshot, cm *Commit, res *Result) error {
 	items, _ := history(snap.Events)
 	n := cut(items)
+	// Pinned messages are never part of a summary (MEM-025): the stage-2 call
+	// only sees the unpinned prefix, and prune keeps the pinned ones verbatim.
+	sum := unpinned(items[:n], snap.Pins)
 	switch {
 	case c.cooling(snap, cm.Attempt.AtMS):
 		res.Outcome = OutcomeCooldown
 		return nil
-	case n == 0:
+	case len(sum) == 0:
 		res.Outcome = OutcomeNoInput
 		return nil
 	}
-	input, tainted := renderInput(items[:n])
+	input, tainted := renderInput(sum)
 	reply, err := c.deps.Summarizer.Summarize(ctx, &SummaryRequest{SessionID: sid, System: systemPrompt, Input: input, MaxTokens: summaryMaxTokens})
 	switch {
 	case ctx.Err() != nil:
@@ -192,7 +195,14 @@ func (c *Compactor) summarize(ctx context.Context, sid string, snap *Snapshot, c
 	case err != nil:
 		res.Outcome, res.Cause = OutcomeFailed, c.deps.Redactor.String(err.Error())
 	default:
-		sum := &Summary{FromSeq: items[0].seq, ToSeq: items[n].seq - 1, Model: reply.Call.Model, Tainted: tainted}
+		// Without pins the range keeps the historical shape (the seq just
+		// before the kept tail); a pin filters the input, so the range ends on
+		// the last summarised event instead (MEM-025).
+		to := items[n].seq - 1
+		if len(sum) != n {
+			to = sum[len(sum)-1].seq
+		}
+		sum := &Summary{FromSeq: sum[0].seq, ToSeq: to, Model: reply.Call.Model, Tainted: tainted}
 		c.accept(ctx, sid, snap, cm, &reply, sum, input, res)
 	}
 	return nil
@@ -270,7 +280,7 @@ func build(snap *Snapshot, pruned bool) View {
 	items, orphans := history(snap.Events)
 	var st PruneStats
 	if pruned {
-		st = prune(items)
+		st = prune(items, snap.Pins)
 	}
 	st.Orphans = orphans
 	act := active(snap.Summaries)

@@ -30,20 +30,74 @@ type PruneStats struct {
 // wrapper is never cut open, and a stub is applied only when it is shorter.
 func Prune(events []Event) ([]Message, PruneStats) {
 	items, orphans := history(events)
-	st := prune(items)
+	st := prune(items, nil)
 	st.Orphans = orphans
 	return messages(items), st
 }
 
-func prune(items []item) PruneStats {
+func prune(items []item, pins []int64) PruneStats {
 	pending := pendingFrom(items)
-	return PruneStats{
+	saved := keepPinned(items, pins)
+	st := PruneStats{
 		Dups:    dedupe(items, pending),
 		Stale:   stale(items, pending),
 		Old:     old(items, pending),
 		Trimmed: trim(items),
 		Images:  images(items),
 	}
+	restorePinned(items, saved)
+	return st
+}
+
+// keepPinned snapshots the model-visible form of every pinned message before a
+// stage-1 rule can stub it; restorePinned puts it back (MEM-025).
+func keepPinned(items []item, pins []int64) map[int64]Message {
+	if len(pins) == 0 {
+		return nil
+	}
+	set := pinSet(pins)
+	out := make(map[int64]Message, len(pins))
+	for i := range items {
+		if set[items[i].seq] {
+			out[items[i].seq] = items[i].Message
+		}
+	}
+	return out
+}
+
+func restorePinned(items []item, saved map[int64]Message) {
+	if len(saved) == 0 {
+		return
+	}
+	for i := range items {
+		if m, ok := saved[items[i].seq]; ok {
+			items[i].Message, items[i].stubbed = m, false
+		}
+	}
+}
+
+// unpinned drops the pinned messages from a slice of items (MEM-025).
+func unpinned(items []item, pins []int64) []item {
+	if len(pins) == 0 {
+		return items
+	}
+	set := pinSet(pins)
+	out := make([]item, 0, len(items))
+	for i := range items {
+		if !set[items[i].seq] {
+			out = append(out, items[i])
+		}
+	}
+	return out
+}
+
+// pinSet indexes the pinned sequences.
+func pinSet(pins []int64) map[int64]bool {
+	set := make(map[int64]bool, len(pins))
+	for _, p := range pins {
+		set[p] = true
+	}
+	return set
 }
 
 // pendingFrom is the index of the first result of the latest tool round when
