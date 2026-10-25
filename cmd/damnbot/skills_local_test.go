@@ -17,7 +17,7 @@ func runSkillsCLI(t *testing.T, args ...string) (code int, stdout, stderr string
 	return code, out.String(), errb.String()
 }
 
-// TestSkillsCLIListInspectCheck: list/inspect/check.
+// TestSkillsCLIListInspectCheck: list/inspect/check/config.
 func TestSkillsCLIListInspectCheck(t *testing.T) {
 	dir := bundleConfig(t)
 	data := t.TempDir()
@@ -32,6 +32,9 @@ func TestSkillsCLIListInspectCheck(t *testing.T) {
 	}
 	if code, out, e := runSkillsCLI(t, "check", "--config-dir", dir, "--data-dir", data); code != 0 || !strings.Contains(out, "ok: 2 skills") {
 		t.Fatalf("check = %d %q (%s)", code, out, e)
+	}
+	if code, out, _ := runSkillsCLI(t, "config", "--config-dir", dir, "--data-dir", data); code != 0 || !strings.Contains(out, "inline_shell") {
+		t.Fatalf("config = %d %q", code, out)
 	}
 }
 

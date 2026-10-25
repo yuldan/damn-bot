@@ -3897,6 +3897,8 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 
 **Konteks.** SKILL-023 menuntut indeks skill yang bisa dibangun ulang dan di-diff; CLI-046 menuntut permukaan `skills` lokal. `skillstore` sudah menjadi sumber retrieval, tetapi tidak ada snapshot indeks untuk mendeteksi skill baru/berubah/hilang tanpa query FTS, dan belum ada CLI untuk list/install/check/uninstall.
 
+**Amandemen (CLI `skills config`).** Subcommand `skills config` (mencetak konfigurasi `[skills]` efektif sebagai JSON) mendarat di PR lanjutan yang bertumpuk di atas CLI-046 ini; ia tidak menambah key config baru, hanya tag `json:` pada `internal/config` agar keluaran stabil, dan hidup di berkas terpisah (`cmd/damnbot/skills_config.go`) supaya `skills_cli.go` tetap di bawah batas 800 baris (E-14/E-71).
+
 **Keputusan.**
 1. **Index.** `<config-dir>/skills-index.json` berisi `name → {name, description, sha256, path, source}`; dibangun dari skill yang sudah di-parse (`BuildIndex`), ditulis atomik `0600` (temp+rename), dibaca lewat `os.Root`, decoder ketat (field asing/malformed = `ErrIndex`). `Diff(old,new)` mengembalikan Added/Changed/Removed terurut; `Empty` untuk no-op. Index bukan pengganti `skillstore`: retrieval tetap membaca store, index adalah snapshot delta.
 2. **CLI lokal.** `damnbot skills list|inspect <name>|check|update|index [--check]|diff <name>|audit|ledger|config|install <dir>|uninstall <name> --yes|reset --yes`.
