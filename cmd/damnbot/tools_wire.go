@@ -352,3 +352,23 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		reader:    sandboxReader{sb: sb, root: cwd},
 	}, nil
 }
+
+func (s *ctxStore) viewSide(ctx context.Context, sid string) (notices []loop.Message, eventID map[int64]int64, err error) {
+	rows, err := s.db.History(ctx, sid, 0, ctxdb.WithHistoryLimit(ctxdb.DefaultHistoryLimit))
+	if err != nil {
+		return nil, nil, fmt.Errorf("history query: %w", err)
+	}
+	eventID = make(map[int64]int64, len(rows))
+	for i := range rows {
+		r := &rows[i]
+		switch r.Kind {
+		case "assistant_message":
+			eventID[r.Seq] = r.ID
+		case "system_notice":
+			if c := effectsNotice(r.Payload); c != "" {
+				notices = append(notices, loop.Message{Role: "system", Content: c})
+			}
+		}
+	}
+	return notices, eventID, nil
+}

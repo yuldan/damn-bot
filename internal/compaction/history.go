@@ -38,6 +38,11 @@ type Message struct {
 	ToolCalls  []ToolCall
 	ToolCallID string
 	Images     []string
+	// Seq is the seq of the first event that produced the message (0 for the
+	// synthetic summary and restated-request messages). The composition root
+	// maps it back to the event row when it re-attaches per-event state the
+	// view does not carry, such as the provider carriers (GAP-PROV-01).
+	Seq int64
 }
 
 // item is a Message plus what the prune rules and the summary cut need.
@@ -157,6 +162,7 @@ func messages(items []item) []Message {
 	out := make([]Message, len(items))
 	for i := range items {
 		out[i] = items[i].Message
+		out[i].Seq = items[i].seq
 	}
 	return out
 }

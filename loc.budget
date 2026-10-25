@@ -75,7 +75,7 @@ secret             1168 internal/secret
 # ADR-124 (PR 2a-2d): kontainer DMBK1, manifest, create/verify/ls, restore.
 # Amandemen jendela crypto (ADR-124): backup -> 1122 (terukur pada pohon langkah ini).
 backup             1467 internal/backup
-assemble          1300 internal/assemble
+assemble          1320 internal/assemble
 compaction         900 internal/compaction
 # ADR-175: memory+skills 1230 -> 1400 (sumber skill lokal: discovery proyek + skills.external_dirs di internal/skills; terukur 1324; Σ core +170).
 # ADR-168: memory+skills 1400 -> 1500 (SKILL-004 preprocess.go: template + inline shell opt-in; terukur 1427; Sigma core +100).
@@ -121,3 +121,5 @@ TOTAL           190000
 # Amandemen (retarget ke main 974eb761, 2026-10-22): codetools 5350 -> 5365 (preview undo lewat
 # sandbox.OpenResolved di #177 + retry replace Windows di #170; terukur 5353; Σ core +15).
 codetools         5365 internal/codetools
+# Amandemen (W6 compaction wiring, 2026-10-23): assemble 1300 -> 1320 (view/summary block di
+# assembler adapter; terukur 1306; Σ core +20).
