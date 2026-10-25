@@ -19,6 +19,23 @@ func redactBaseURL(raw string) string {
 	return u.String()
 }
 
+// anthropicFamily reports whether a route family denotes an Anthropic origin
+// (the vendor that understands the cache_control dialect). Family is the
+// normalized base URL (SEC8-9), so the vendor is read from the host; the bare
+// name is accepted for callers that pass a family name. A string this helper
+// cannot parse — including "" — is not Anthropic.
+func anthropicFamily(family string) bool {
+	if family == "anthropic" {
+		return true
+	}
+	u, err := url.Parse(family)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "api.anthropic.com" || strings.HasSuffix(host, ".anthropic.com")
+}
+
 // NormalizeBaseURL is the route identity used as the carrier family. It
 // refuses an unparsable URL instead of returning credentials verbatim.
 func NormalizeBaseURL(raw string) (string, error) {

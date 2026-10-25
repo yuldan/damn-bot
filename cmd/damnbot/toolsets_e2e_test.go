@@ -41,7 +41,7 @@ func (p *toolsetProvider) Stream(_ context.Context, req *loop.Request, emit func
 	return loop.Reply{Content: "done", FinishReason: loop.FinishStop, Model: "fake/m"}, nil
 }
 
-func toolNames(req loop.Request) []string {
+func toolNames(req *loop.Request) []string {
 	out := make([]string, len(req.Tools))
 	for i, t := range req.Tools {
 		out[i] = t.Name
@@ -49,7 +49,7 @@ func toolNames(req loop.Request) []string {
 	return out
 }
 
-func toolMessages(req loop.Request) string {
+func toolMessages(req *loop.Request) string {
 	var b strings.Builder
 	for _, m := range req.Messages {
 		if m.Role == "tool" {
@@ -97,13 +97,13 @@ func TestRunToolsetExcludesShell(t *testing.T) {
 	if len(prov.requests) != 2 {
 		t.Fatalf("requests = %d, want 2", len(prov.requests))
 	}
-	names := toolNames(prov.requests[0])
+	names := toolNames(&prov.requests[0])
 	for _, name := range names {
 		if name != "read_file" && name != "grep" {
 			t.Fatalf("declared tools = %v, want only read_file and grep", names)
 		}
 	}
-	msgs := toolMessages(prov.requests[1])
+	msgs := toolMessages(&prov.requests[1])
 	if !strings.Contains(msgs, "not in the active toolset") {
 		t.Fatalf("tool result = %q, want the toolset refusal", msgs)
 	}
@@ -131,10 +131,10 @@ func TestRunToolsetKeepsApproval(t *testing.T) {
 			if err != nil {
 				t.Fatalf("run: %v", err)
 			}
-			if names := toolNames(prov.requests[0]); len(names) != 1 || names[0] != "shell" {
+			if names := toolNames(&prov.requests[0]); len(names) != 1 || names[0] != "shell" {
 				t.Fatalf("declared tools = %v, want [shell]", names)
 			}
-			msgs := toolMessages(prov.requests[1])
+			msgs := toolMessages(&prov.requests[1])
 			if !strings.Contains(msgs, `"code":"denied"`) {
 				t.Fatalf("tool result = %q, want the dispatcher's denial", msgs)
 			}
@@ -176,7 +176,7 @@ func TestRunToolsetUnavailableWarned(t *testing.T) {
 		t.Fatalf("stderr = %q, want the unavailable warning", stderr)
 	}
 	if len(prov.requests[0].Tools) != 0 {
-		t.Fatalf("declared tools = %v, want none", toolNames(prov.requests[0]))
+		t.Fatalf("declared tools = %v, want none", toolNames(&prov.requests[0]))
 	}
 	_ = fmt.Sprint(prov.requests[0].Tools) // keep the shape explicit
 }
