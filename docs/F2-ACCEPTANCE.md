@@ -53,10 +53,11 @@ Audit §3 (parity) pada `main ef8ec40d` memetakan 42 baris berstatus `missing`: 
 `covered`** (statusnya dikoreksi di bawah, dengan berkas + nama tes), **22 baris sudah bukan milik F2**
 (fasenya dikutip dari kolom `fase` `docs/FEATURE-PARITY.md` dan dicatat di barisnya; kepemilikan fase
 mengikuti **ADR-139**), **22 baris masih F2 dan punya penutup PR terbuka** (nomornya dicatat di barisnya),
-dan **3 baris tanpa penutup** (`MEM-025`, `CLI-039`, plus `MEM-026` yang ternyata belum `covered` -
-koreksi 2026-10-24, lihat barisnya dan §4 item 11(d)). Karena 81 baris terdaftar = 59 baris yang kini masih
-fase F2 + 22 baris yang pindah fase, utang implementasi F2 yang sebenarnya = **25 baris** (22 berpenutup +
-3 tanpa). Baris parity **tidak** dulu maupun sekarang menjadi gate - lihat §3 bagian terakhir.
+dan **2 baris tanpa penutup** (`MEM-025` - covernya `#304` sudah mendarat, verifikasi independen menyusul -
+dan `CLI-039`; `MEM-026` **ditutup #310** pada 2026-10-25, jadi koreksi 2026-10-24 sudah lunas - lihat
+barisnya dan §4 item 11(d)). Karena 81 baris terdaftar = 59 baris yang kini masih
+fase F2 + 22 baris yang pindah fase, utang implementasi F2 yang sebenarnya = **24 baris** (22 berpenutup +
+2 tanpa). Baris parity **tidak** dulu maupun sekarang menjadi gate - lihat §3 bagian terakhir.
 
 ---
 
@@ -271,7 +272,7 @@ by the acceptance test until the surface exists.
 | MEM-023 | context engine plugin | missing | see PLUG-014 · fase **F8** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
 | MEM-024 | @-ref | missing | no reference expansion · penutup #267 |
 | MEM-025 | context pin | missing | memory pins are storage, not prompt pins · **tanpa penutup**: 0 kemunculan kode (`context_pin`/`ContextPin`) dan 0 PR terbuka |
-| MEM-026 | context files | missing | **GAP (koreksi 2026-10-24)**: tier berkas konteks belum tersambung di produksi - `cmd/damnbot/run.go:212-221` hanya mengisi `ContextInput.Facts`/`Degraded`, dan `UntrustedFiles` (`internal/assemble/context.go:81`) nol pemanggil produksi, sehingga tidak ada berkas konteks yang pernah masuk request anak. Dua tes unit yang dulu dirujuk (`TestContextTruncationOrder`, `internal/assemble/tiers_test.go:85`; `TestContextEmptyAndMultipleFiles`, `internal/assemble/context_test.go:51`/`:87`) mengisi `Files:` sendiri, jadi hanya membuktikan renderer, bukan perilaku biner. Tes e2e-nya belum ada (§4 item 11(d)). **in-flight, PR menyusul** (wiring + tes e2e). |
+| MEM-026 | context files | covered | **Ditutup #310** (squash `2f42d75a`, 2026-10-25): tier berkas konteks kini diisi produksi - `cmd/damnbot/context_files.go:41` `Files: contextFiles()` (daftar `:14-17`: AGENTS.md, CLAUDE.md, SOUL.md, .cursorrules, .hermes.md), `:43` `UntrustedFiles: !model.trusted`, dan `:37-39` helper `contextTierInput` mengisi `Facts`/`Degraded` - sehingga wrapper `<untrusted source="workspace">` di `internal/assemble/context.go:109` hidup. Bukti e2e (`TestE2EContextFileWrappedUntrusted`): `internal/e2e/context_files_test.go:130` (B1), `:148` (B2), `:166` (B3 via `trustWorkspace` = `internal/e2e/harness_test.go:116`), `:183` (B4), nol `t.Skip`; hijau di CI `run 40149947287` head `ae2b2caf` (termasuk `test (windows-latest, -race, 1)`) dan berkas tesnya identik di pohon gabungan. Flip load-bearing di `2f42d75a` (mutasi 1-baris di worktree detached, lalu dibuang): C1 `UntrustedFiles: false` ⇒ **B1 merah**; C2a `trusted: false` ⇒ **B3 merah**; C2b `trusted: true` ⇒ **B1 merah**; C3 `Files: nil` ⇒ **B1+B3 merah**. **Caveat jujur**: flip C4 (bungkus teks prompt) **tidak terbukti** - dua mutasi sama-sama no-op (`in.Query` kosong tanpa retriever, teks user tidak lewat `run.go:627`/`:645`), jadi klaim lama "C4 ⇒ B2 merah" dicabut; bukti pengganti struktural (literal `workspace` hanya di `context.go:109`) dan itu pekerjaan lanjutan, bukan syarat penutupan. |
 | MEM-028 | rewind | covered | `TestForkAndRewind` |
 | MEM-029 | branch/fork | covered | `TestForkAndRewind`, `TestForkContextTierCopied` |
 | MEM-030 | retry | missing | last-message retry not tested · penutup #259 |
@@ -415,7 +416,11 @@ proves it.
     muncul sebagai pesan system/developer, dan tanpa berkas wrapper-nya tidak ada. **Catatan 2026-10-24:**
     baris `MEM-026` kini berstatus `missing` (dulu salah `covered`) karena tier berkas konteks belum tersambung
     di produksi (`cmd/damnbot/run.go:212-221` tidak pernah mengisi `Files`, `UntrustedFiles` nol pemanggil) -
-    jadi prasyarat tes ini adalah **wiring-nya lebih dulu**, bukan hanya tesnya. **Sudah tertutup:**
+    jadi prasyarat tes ini adalah **wiring-nya lebih dulu**, bukan hanya tesnya. **Ditutup 2026-10-25 oleh
+    #310** (squash `2f42d75a`): wiring mendarat di produksi (`cmd/damnbot/context_files.go:41` `Files`,
+    `:43` `UntrustedFiles`) dan tes e2e di atas hijau di CI head `ae2b2caf` termasuk
+    `test (windows-latest, -race, 1)`; di pohon gabungan flip C1/C2a/C2b/C3 menjatuhkan hanya subtes yang
+    seharusnya, sementara flip **C4 tidak terbukti** (dicatat jujur di baris §3 dan di bawah). **Sudah tertutup:**
     kontrol penolakan `undo` (symlink ke luar/di dalam root, konflik isi) mendarat lewat #240 -
     `internal/e2e/undo_test.go:130`/`:168`/`:232` dengan kontrol positif `:213`.
 
@@ -441,7 +446,7 @@ Setiap permukaan batas keamanan butuh (a) minimal satu tes e2e lewat biner nyata
 | 6. berkas/tool-output ke prompt | `internal/e2e/carriers_test.go:12`; `skills_test.go:37` (berkas → prompt lewat body skill); `spill_test.go:72` | `carriers_test.go:35`; `spill_test.go:81` | **terbukti** | `internal/provider/client.go:315` (jalur retry tanpa carrier dimatikan) | `carriers_test.go:44: exit = 2` (FAIL `TestCarrierRejectedNotReplayed`) |
 | 6. catatan pemisahan kontrol | `carriers_test.go:12` | `carriers_test.go:35` | sebagian | `internal/loop/turn.go:220` → `reply.Carriers = nil` (replay dimatikan) | `carriers_test.go:28: second request did not replay the carrier "SIG-E2E-REPLAY"` (FAIL `TestCarrierReplayedNextIteration`) **dan** kontrolnya juga MERAH (`carriers_test.go:44: exit = 2`): pemisahan "positif merah, kontrol hijau" tidak bisa dicapai karena keduanya memakai jalur store→replay yang sama; arah yang bisa dipisah adalah sebaliknya (flip jalur retry → hanya kontrol yang merah) |
 | 6b. rute URL/fetch | — | — | — | — | **bukan F2**: tidak ada tool web di biner (`TOOL-087`, `TSET-030`, `EXEC-042` = F6 `planned`, `docs/FEATURE-PARITY.md:351/387/906`); `SPEC.md:2644` sudah menetapkan wrap `<untrusted>` + penolakan IP privat/metadata + anti-DNS-rebinding untuk saat mendarat |
-| 6c. berkas konteks workspace (MEM-026) | — | — | — | — | **GAP wiring**: `ContextInput.UntrustedFiles` tidak pernah diisi produksi (nol penugasan di `*.go` non-test) dan tier berkas konteks tidak dirender (`cmd/damnbot/run.go:213-216` hanya mengisi `Facts`/`Degraded`); dikoreksi di PR #300, perbaikan wiring terpisah |
+| 6c. berkas konteks workspace (MEM-026) | — | — | — | — | **GAP wiring**: `ContextInput.UntrustedFiles` tidak pernah diisi produksi (nol penugasan di `*.go` non-test) dan tier berkas konteks tidak dirender (`cmd/damnbot/run.go:213-216` hanya mengisi `Facts`/`Degraded`); dikoreksi di PR #300, perbaikan wiring terpisah → **ditutup #310** (squash `2f42d75a`): wiring di `cmd/damnbot/context_files.go:41`/`:43`, e2e `internal/e2e/context_files_test.go:130`/`:148`/`:166`/`:183` hijau (incl. Windows), flip C1/C2a/C2b/C3 load-bearing; **flip C4 tidak terbukti** (pekerjaan lanjutan) |
 
 **Kontrol yang tidak boleh diterima.** (D1) kontrol yang hanya membuktikan "tanpa berkas ⇒ tidak ada wrapper"; (D2) tes positif yang marker-nya juga ada di prompt pengguna (asal marker ambigu); (D3) tes yang hanya menyuntik `assemble.ContextInput` di level unit, bukan lewat biner; (D4) tes yang membuat workspace harness selalu trusted demi menjaga `spill_test.go:98` tetap hijau; (D5) perbandingan trust yang menganggap path non-kanonik (cwd lewat symlink) sebagai trusted; (D6) menaikkan status baris ledger tanpa tes + bukti flip; (D7) `t.Skip` lingkungan tanpa `skipOrFail` (pola `undo_test.go:23`).
 
