@@ -295,6 +295,13 @@ type Compactor interface {
 	Compact(ctx context.Context, sessionID string, contextLength bool) error
 }
 
+// UsageCompactor is the optional Compactor extension that reports the
+// compaction call's usage; the loop adds it to the turn so per-turn budget
+// caps include the summary call (SEC12-4).
+type UsageCompactor interface {
+	CompactUsage(ctx context.Context, sessionID string, contextLength bool) (event.Usage, error)
+}
+
 // Store appends one transcript event atomically (ADR-074; ctxdb implements
 // the storage side, the loop only sees this one-method seam).
 type Store interface {

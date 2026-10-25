@@ -223,27 +223,59 @@ func applyResumeNotes(ctx context.Context, o *runOptions, model *runModel, red *
 // loadRunEnv loads the immutable config for one run and resolves the data,
 // config and home directories.
 
-func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef string, red *redact.Redactor, spill tools.Spill, stdout io.Writer) (int, error) {
+// runWindow resolves the route window that feeds the loop guard, the degraded
+// profile and the assembler. The model wiring normally resolves it
+// (registry/learned); the same resolution is redone here when it is unset, so
+// callers that build a run model directly (tests, F2 tooling) still get it.
+func runWindow(ctx context.Context, model *runModel, modelRef string) int64 {
+	if model.window > 0 {
+		return model.window
+	}
+	pn, mn, ok := strings.Cut(modelRef, "/")
+	if !ok {
+		return 0
+	}
+	resolved, err := compactionWindow(ctx, model.db, pn, mn)
+	if err != nil {
+		return 0
+	}
+	return resolved
+}
+
+func newRunAssembler(cfg *config.Config, red *redact.Redactor) (*assemble.Assembler, *assemble.Turn, error) {
 	asm, err := assemble.New(assemble.Deps{
 		Tokens: budgetCounter{},
 		Scrub:  func(s string) string { return red.String(s) },
 	})
 	if err != nil {
-		return 0, fmt.Errorf("assemble: %w", err)
+		return nil, nil, fmt.Errorf("assemble: %w", err)
 	}
 	turn := asm.Freeze(&assemble.VolatileInput{
 		Now:             time.Now(),
 		RemainingTokens: int64(cfg.Loop.TurnMaxInputTok),
 		RemainingUSD:    cfg.Budget.TurnUSD,
 	})
+	return asm, turn, nil
+}
+
+func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef string, red *redact.Redactor, spill tools.Spill, stdout io.Writer) (int, error) {
+	asm, turn, err := newRunAssembler(cfg, red)
+	if err != nil {
+		return 0, err
+	}
+	win := runWindow(ctx, model, modelRef)
 	// The context tier is rendered once and frozen for the session (P15).
-	degraded := model.window > 0 && model.window < assemble.DegradedWindow
+	degraded := win > 0 && win < assemble.DegradedWindow
 	ctxIn := contextTierInput(ctx, model, o, degraded)
 	ctxTier, err := asm.Context(ctx, ctxIn)
 	if err != nil {
 		return 0, fmt.Errorf("assemble context: %w", err)
 	}
 	toolList, err := runTools(model.registry, model.toolsets.Allowed)
+	if err != nil {
+		return 0, err
+	}
+	comp, _, err := newRunCompactor(ctx, model, modelRef, asm, toolList, ctxTier.Text, red)
 	if err != nil {
 		return 0, err
 	}
@@ -280,7 +312,8 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		MaxInline:       maxInline,
 	}, &loop.Deps{
 		Provider:       model.provider,
-		Assembler:      &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, window: model.window, store: model.store},
+		Assembler:      &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, compactor: comp, window: win, store: model.store, markTainted: disp.MarkTainted},
+		Compactor:      comp,
 		Toolset:        &toolsetAdapter{disp: disp, allowed: model.toolsets.Allowed},
 		Store:          model.store,
 		Ledger:         model.ledger,
@@ -392,7 +425,7 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)
 	}
-	return &providerAdapter{client: openai, model: modelRef, notes: notes}, nil
+	return &providerAdapter{client: openai, model: modelRef, notes: notes, provider: provName}, nil
 }
 
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, configDir, home string, codec ctxdb.Codec) (*runModel, error) {
@@ -559,6 +592,10 @@ func charsPerToken(s string) float64 {
 }
 
 func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
+	return p.do(ctx, provider.PurposeTurn, req, emit)
+}
+
+func (p *providerAdapter) do(ctx context.Context, purpose provider.Purpose, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
 	preq := &provider.Request{Model: req.Model, MaxTokens: req.MaxTokens, CacheBreakAfter: req.CacheBreakAfter}
 	for _, m := range req.Messages {
 		pm := provider.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, Carriers: providerCarriers(m.Carriers)}
@@ -570,11 +607,11 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 	for _, t := range req.Tools {
 		preq.Tools = append(preq.Tools, provider.ToolSchema{Name: t.Name, Description: t.Description, Parameters: t.Parameters})
 	}
-	resp, err := p.client.Do(ctx, provider.PurposeTurn, preq, func(ch provider.Chunk) {
-		if len(ch.Content) > 0 {
-			emit(loop.Delta{Text: string(ch.Content)})
-		}
-	})
+	var onChunk func(provider.Chunk)
+	if emit != nil {
+		onChunk = func(ch provider.Chunk) { emit(loop.Delta{Text: string(ch.Content)}) }
+	}
+	resp, err := p.client.Do(ctx, purpose, preq, onChunk)
 	warnings := p.notes.take()
 	maxTok := int64(req.MaxTokens)
 	if maxTok <= 0 {
@@ -604,54 +641,6 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 		reply.ToolCalls = append(reply.ToolCalls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.ArgumentsRaw})
 	}
 	return reply, nil
-}
-
-type assemblerAdapter struct {
-	asm         *assemble.Assembler
-	turn        *assemble.Turn
-	tools       []assemble.Tool
-	contextTier string // frozen per session (P15)
-	model       string
-	maxTokens   int
-	window      int64 // effective model window (registry.Limits); < assemble.DegradedWindow = degraded and the loop guard budget (0 = unknown)
-	store       *ctxStore
-}
-
-func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleRequest) (loop.Prompt, error) {
-	view := &assemble.SessionView{
-		Phase:    assemble.PhaseF1,
-		Context:  a.contextTier,
-		Tools:    a.tools,
-		Turn:     a.turn,
-		Degraded: a.window > 0 && a.window < assemble.DegradedWindow,
-		History:  []assemble.Message{{Role: "user", Content: req.Input.Text}},
-	}
-	r, est, err := a.asm.Build(ctx, view)
-	if err != nil {
-		return loop.Prompt{}, fmt.Errorf("assemble build: %w", err)
-	}
-	out := loop.Prompt{InputTokens: int64(est.Total), WindowTokens: a.window}
-	out.Model, out.MaxTokens = a.model, a.maxTokens
-	// The system message carries the frozen stable+context prefix (P15), so a
-	// provider cache breakpoint after it is stable within the session.
-	out.CacheBreakAfter = 1
-	// The system prompt and tools come from assemble; history comes from the
-	// transcript so assistant tool_calls and tool results survive iterations.
-	if len(r.Messages) > 0 {
-		out.Messages = append(out.Messages, loop.Message{Role: r.Messages[0].Role, Content: r.Messages[0].Content})
-	}
-	history, err := a.store.History(ctx, req.SessionID)
-	if err != nil {
-		return loop.Prompt{}, err
-	}
-	if len(history) == 0 {
-		history = []loop.Message{{Role: "user", Content: req.Input.Text}}
-	}
-	out.Messages = append(out.Messages, history...)
-	for _, t := range r.Tools {
-		out.Tools = append(out.Tools, loop.ToolSchema{Name: t.Name, Description: t.Description, Parameters: t.Parameters})
-	}
-	return out, nil
 }
 
 type redactorAdapter struct{ red *redact.Redactor }

@@ -97,7 +97,8 @@ func (budgetCounter) Count(s string) int { return int(budget.Count(s).Raw()) }
 // providerAdapter drains the budget notes the guard collected inside
 // provider.Do and hands them to the loop as budget_warning events.
 type providerAdapter struct {
-	client *provider.OpenAI
-	model  string
-	notes  *budgetNotes
+	client   *provider.OpenAI
+	model    string
+	notes    *budgetNotes
+	provider string
 }

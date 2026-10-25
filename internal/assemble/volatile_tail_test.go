@@ -2,6 +2,7 @@ package assemble
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -33,7 +34,7 @@ func TestVolatileTailAcrossTurns(t *testing.T) {
 	first := build(t1)                 // model A
 	second := build(t1.Add(time.Hour)) // fallback to B, next turn
 	third := build(t1)                 // back to A
-	if first.Messages[0] != second.Messages[0] || first.Messages[0] != third.Messages[0] {
+	if !reflect.DeepEqual(first.Messages[0], second.Messages[0]) || !reflect.DeepEqual(first.Messages[0], third.Messages[0]) {
 		t.Fatal("system prefix changed across fallback")
 	}
 	if strings.Contains(first.Messages[0].Content, "now:") {

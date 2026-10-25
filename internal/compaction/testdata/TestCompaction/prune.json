@@ -3,6 +3,14 @@
  "Before": 166990,
  "Result": {
   "Outcome": "pruned",
+  "Usage": {
+   "Input": 0,
+   "CachedInput": 0,
+   "Output": 0,
+   "CostUSD": null,
+   "Price": null,
+   "Iterations": 0
+  },
   "Estimate": 16436,
   "Window": 200000,
   "SummaryID": 0,

@@ -16,7 +16,7 @@ func (t *turn) guard(ctx context.Context, p *Prompt, it int) (outcome, bool) {
 	if pct < int64(t.cfg.CompactAt) || t.compacted || t.deps.Compactor == nil {
 		return t.windowStop(pct)
 	}
-	if err := t.deps.Compactor.Compact(ctx, t.sessionID, false); err != nil {
+	if err := t.compact(ctx, false); err != nil {
 		if ctx.Err() != nil {
 			return t.cancelled(), true
 		}

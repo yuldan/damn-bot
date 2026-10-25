@@ -137,6 +137,48 @@ func TestCoreMaxWall(t *testing.T) {
 
 func (c *coreCompactor) Compact(context.Context, string, bool) error { c.calls++; return nil }
 
+// TestCoreCompactionUsage (SEC12-4): the summary call's usage joins the turn
+// totals so the per-turn caps see it.
+func TestCoreCompactionUsage(t *testing.T) {
+	t.Parallel()
+	f := newFixture()
+	f.asm.prompt.InputTokens, f.asm.prompt.WindowTokens = 80, 100
+	deps := f.deps()
+	deps.Compactor = usageCompactor{}
+	got := terminal(t, runCoreCollect(t, f, &deps))
+	if got.Usage == nil || got.Usage.Input < 7 || got.Usage.Output < 3 {
+		t.Fatalf("usage = %+v, want summary usage included", got.Usage)
+	}
+}
+
+type usageCompactor struct{}
+
+func (usageCompactor) Compact(context.Context, string, bool) error { return nil }
+func (usageCompactor) CompactUsage(context.Context, string, bool) (event.Usage, error) {
+	return event.Usage{Input: 7, CachedInput: 1, Output: 3}, nil
+}
+
+func runCoreCollect(t *testing.T, f *fixture, deps *Deps) []event.Update {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.cancel = cancel
+	l, err := New(&f.cfg, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.loopRef = l
+	out, err := l.Prompt(ctx, "S1", Input{Text: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ups []event.Update
+	for u := range out {
+		ups = append(ups, u)
+	}
+	return ups
+}
+
 func runCoreWith(t *testing.T, f *fixture, deps *Deps) error {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())

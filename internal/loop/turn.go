@@ -335,6 +335,21 @@ func (t *turn) retryContextLength(ctx context.Context, p *Prompt, st *askState) 
 	return true, nil
 }
 
+func (t *turn) compact(ctx context.Context, contextLength bool) error {
+	if c, ok := t.deps.Compactor.(UsageCompactor); ok {
+		u, err := c.CompactUsage(ctx, t.sessionID, contextLength)
+		t.addUsage(&u)
+		if err != nil {
+			return fmt.Errorf("compaction: %w", err)
+		}
+		return nil
+	}
+	if err := t.deps.Compactor.Compact(ctx, t.sessionID, contextLength); err != nil {
+		return fmt.Errorf("compaction: %w", err)
+	}
+	return nil
+}
+
 // classify applies SPEC §4.2 to a successful reply. A non-nil outcome ends
 // the turn; nil continues to the next iteration.
 func (t *turn) classify(ctx context.Context, r *Reply, calls []ToolCall) (outcome, bool) {

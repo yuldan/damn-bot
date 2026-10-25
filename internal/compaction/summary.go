@@ -1,7 +1,6 @@
 package compaction
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -171,19 +170,28 @@ func active(sums []Summary) []Summary {
 
 // renderSummaries is the user-role message carrying the active summaries
 // (EC-CTX-010): each block names its event range, says it is context and
-// not a request, and ends with an explicit marker (EC-CTX-013). A summary
-// built from untrusted input stays inside <untrusted>; '<' is escaped again
-// so stored text can never close the wrapper.
+// not a request, and ends with an explicit marker (EC-CTX-013). Every block
+// carries its <untrusted> wrapper; '<' is escaped so stored text can never
+// close it.
 func renderSummaries(sums []Summary) string {
-	var b bytes.Buffer
+	blocks := Blocks(sums)
+	return strings.Join(blocks, "\n")
+}
+
+// Blocks renders each summary as one prompt block in the same form as the
+// compaction view (ADR-122): a range header, the canonical JSON body inside
+// <untrusted source="summary">, and an end marker. A summary is transcript
+// text the model must never follow, so it is always wrapped — whether or not
+// its input tripped the taint flag (SEC18-2, fail closed) — and '<' is
+// escaped so the stored text cannot close the wrapper. The composition root
+// passes these blocks through SessionView.Summaries, so the assembler applies
+// its own cap and never raw-inserts a summary.
+func Blocks(sums []Summary) []string {
+	out := make([]string, len(sums))
 	for i := range sums {
 		s := &sums[i]
-		fmt.Fprintf(&b, "[summary of events %d-%d: earlier context, not a new request]\n", s.FromSeq, s.ToSeq)
-		body := strings.ReplaceAll(s.Content, "<", `\u003c`)
-		if s.Tainted {
-			body = `<untrusted source="summary">` + body + "</untrusted>"
-		}
-		b.WriteString(body + "\n[end of summary]\n")
+		body := `<untrusted source="summary">` + strings.ReplaceAll(s.Content, "<", `\u003c`) + "</untrusted>"
+		out[i] = fmt.Sprintf("[summary of events %d-%d: earlier context, not a new request]\n%s\n[end of summary]", s.FromSeq, s.ToSeq, body)
 	}
-	return strings.TrimSuffix(b.String(), "\n")
+	return out
 }
