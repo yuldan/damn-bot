@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -174,6 +175,7 @@ func TestRunHeadlessShellSession(t *testing.T) {
 		"run", "-p", "use the shell session", "--model", "openai/gpt-fake",
 		"--base-url", srv.URL, "--data-dir", t.TempDir(), "--output", "json",
 		"--approval", "auto", "--unsafe-auto-shell",
+		"--config", cwdTrustedRunConfig(t), // --unsafe-auto-shell needs a trusted workspace
 	}, &out, &errb)
 	if code != 0 {
 		t.Fatalf("exit = %d, stderr = %s, stdout = %s", code, errb.String(), out.String())
@@ -284,7 +286,8 @@ func TestRunEncryptedSpillRecall(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(cfg, []byte("[storage]\nencrypt = true\n"), 0o600); err != nil {
+	body := "[storage]\nencrypt = true\n\n[skills]\ntrusted_projects = [" + strconv.Quote(work) + "]\n"
+	if err := os.WriteFile(cfg, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	data := t.TempDir()

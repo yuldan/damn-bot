@@ -31,7 +31,7 @@ func TestE2EUndoRestoresTheEditedFileAndListsTheAction(t *testing.T) {
 	const orig = "alpha\nbeta\n"
 	sum := sha256.Sum256([]byte(orig))
 	tag := hex.EncodeToString(sum[:4]) // codetools' read tag (sumTag)
-	e := New(t,
+	e := NewTrusted(t,
 		ToolCallReply("c1", "read_file", `{"path":"target.txt"}`),
 		ToolCallReply("c2", "edit_file", fmt.Sprintf(`{"path":"target.txt","tag":%q,"edits":[{"old_string":"beta","new_string":"gamma"}]}`, tag)),
 		providertest.Text("done"),

@@ -99,6 +99,31 @@ func New(t *testing.T, replies ...providertest.Reply) *Env {
 	return e
 }
 
+// NewTrusted is New for a scenario that exercises tool behaviour inside a
+// trusted workspace: the child's trust store (<config>/trusted-projects, the
+// file `damnbot skills trust add` writes) registers the harness workspace, so
+// SPEC §14 applies the trusted variant (shell_allow/--unsafe-auto-shell can
+// auto-run, workspace reads keep their own source label). New stays untrusted,
+// and the scenario that asserts the untrusted refusals uses it.
+func NewTrusted(t *testing.T, replies ...providertest.Reply) *Env {
+	t.Helper()
+	e := New(t, replies...)
+	trustWorkspace(t, e)
+	return e
+}
+
+// trustWorkspace registers the harness workspace in the child's trust store.
+func trustWorkspace(t *testing.T, e *Env) {
+	t.Helper()
+	dir := spillConfigDir(e.home)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "trusted-projects"), []byte(e.Workdir+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Result is one completed child process.
 type Result struct {
 	Stdout, Stderr string
@@ -129,7 +154,17 @@ func (e *Env) Exec(args ...string) Result {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binPath, args...) //nolint:gosec // binary path is this package's temp build
 	cmd.Dir = e.Workdir
-	cmd.Env = append(os.Environ(), "HOME="+e.home, "XDG_CONFIG_HOME="+e.home)
+	// HOME/XDG are what the Unix loaders read; Windows resolves its config and
+	// data roots from these instead (internal/config/paths.go baseDirs), so a
+	// child without them would read the host profile and never see the
+	// harness's trust store, journals or sessions.
+	cmd.Env = append(os.Environ(),
+		"HOME="+e.home,
+		"XDG_CONFIG_HOME="+e.home,
+		"USERPROFILE="+e.home,
+		"APPDATA="+filepath.Join(e.home, "AppData", "Roaming"),
+		"LOCALAPPDATA="+filepath.Join(e.home, "AppData", "Local"),
+	)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
@@ -179,8 +214,11 @@ func (e *Env) RequestText(t *testing.T, i int) string {
 	return string(raw[i])
 }
 
-// ConfigDir is the directory holding config.toml (skills live under it).
-func (e *Env) ConfigDir() string { return filepath.Join(e.home, "damnbot") }
+// ConfigDir is the child's config directory: the root the loaders derive from
+// HOME/XDG on Unix and from APPDATA/USERPROFILE on Windows, so it must follow
+// the same per-OS layout the child uses (skills live under it). The config
+// file itself is passed explicitly with --config.
+func (e *Env) ConfigDir() string { return spillConfigDir(e.home) }
 
 // Path joins rel under the temp workspace.
 func (e *Env) Path(rel string) string { return filepath.Join(e.Workdir, rel) }

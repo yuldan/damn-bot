@@ -238,14 +238,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	})
 	// The context tier is rendered once and frozen for the session (P15).
 	degraded := model.window > 0 && model.window < assemble.DegradedWindow
-	ctxIn := &assemble.ContextInput{
-		Facts:    "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
-		Degraded: degraded,
-	}
-	if o.retrieverFor != nil {
-		ctxIn.Query = o.prompt
-		ctxIn.Retriever = o.retrieverFor(model.db)
-	}
+	ctxIn := contextTierInput(model, o, degraded)
 	ctxTier, err := asm.Context(ctx, ctxIn)
 	if err != nil {
 		return 0, fmt.Errorf("assemble context: %w", err)
@@ -261,7 +254,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		Redactor:         red,
 		Mode:             approvalMode(o),
 		Deferred:         model.modules.deferred,
-		WorkspaceTrusted: true,
+		WorkspaceTrusted: model.trusted,
 		Cwd:              model.cwd,
 		// P5 amendment / GAP-COST-08: the turn inline aggregate scales with
 		// the route window and the session's char/token ratio.
@@ -330,6 +323,11 @@ type runModel struct {
 	// it into the character cap with the session's char/token ratio.
 	inlineCap int
 	spill     tools.Spill
+	// trusted is the workspace trust decision (SPEC §14) and reader reads the
+	// workspace context files; both come from the wiring that opened the
+	// sandbox.
+	trusted bool
+	reader  assemble.FileReader
 }
 
 func (m *runModel) close(ctx context.Context) error {
@@ -433,6 +431,8 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		inlineCap: w.inlineCap,
 		spill:     w.spill,
 		toolsets:  sel,
+		trusted:   w.trusted,
+		reader:    w.reader,
 		db:        w.db,
 		engine:    w.engine,
 		runner:    w.runner,

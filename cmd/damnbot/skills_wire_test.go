@@ -196,3 +196,39 @@ func TestPaymentGateResolvedTarget(t *testing.T) {
 		t.Fatalf("class = %s, want monetary (%v)", v.Class, v.Reasons)
 	}
 }
+
+// TestWorkspaceTrustedInertStoreEntries: the trust store is hand-editable, so
+// a relative or malformed entry must be inert — it resolves to a canonical key
+// that never matches a real workspace (untrusted, no error) instead of
+// granting trust or failing every run. The CLI normalizer rejects relative
+// input before it is written; this pins the reader's behaviour.
+func TestWorkspaceTrustedInertStoreEntries(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	home := t.TempDir()
+	configDir := filepath.Join(home, "damnbot")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workspace := t.TempDir()
+	store := func(lines ...string) {
+		t.Helper()
+		body := strings.Join(lines, "\n") + "\n"
+		if err := os.WriteFile(filepath.Join(configDir, trustedProjectsFile), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	store("relative/dir", "malformed\x00path", "# comment", "   ")
+	if ok, err := workspaceTrusted(&cfg, configDir, workspace, home); err != nil || ok {
+		t.Fatalf("inert store entries: trusted = %v, err = %v; want false, nil", ok, err)
+	}
+
+	// Positive control: the same workspace registered by its absolute path is
+	// trusted, so the assertion above is about the entries and not about a
+	// function that always answers false.
+	store(workspace)
+	if ok, err := workspaceTrusted(&cfg, configDir, workspace, home); err != nil || !ok {
+		t.Fatalf("absolute store entry: trusted = %v, err = %v; want true, nil", ok, err)
+	}
+}
