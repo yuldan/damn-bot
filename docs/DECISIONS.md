@@ -3980,6 +3980,8 @@ memakai nilai yang sama agar `make loc` hijau di setiap basis bertumpuk (`f2-ski
 
 **Test.** `internal/ctxdb`: `TestSessionPinsRoundTrip` (round-trip, last-wins, gagal-tertutup, trigger append-only). `internal/ctxdb/compactstore`: `TestLoadKeepsPinnedTurn` (real DB: boundary melewati turn ber-pin → turn tetap dimuat; kontrol: tanpa pin turn itu hilang). `internal/compaction`: `TestPinnedMessageSurvivesCompaction` (positif + kontrol) dan `TestPruneKeepsPinnedContent`. `cmd/damnbot`: `TestSessionsContextPin` (pin/list/unpin/`newest`/tolak `--at 0`).
 
+**Amandemen 2026-10-26 (penutupan ledger).** Verifikasi independen selesai dan baris `MEM-025` di `docs/F2-ACCEPTANCE.md` ditutup `covered`: tes e2e biner **#318** (squash `9a57a737`, harness `#239`) hijau, dan tiga flip pada pohon `b8d3d393` terbukti memerahkan tes — `pinSeqsQ` `p.pinned 1→2` ⇒ `:50`, klausa `session_pins` di `compactstore.eventsQ` dibuang ⇒ `:56`, `keepTail 8→1000` ⇒ `:53` — lalu hijau lagi sesudah dipulihkan. Tidak ada perubahan keputusan, skema, atau anggaran; prasyarat wiring compaction tetap #219 (squash `bee69b31`).
+
 ## ADR-187 — Gerbang CI referensi skill bawaan (`skill-refs`) dan engine SQLite lintas target (`sqlite-engine`)
 
 **Status:** Accepted 2026-10-26 (F2; melengkapi ADR-133/SEC-26 dan ADR-132/REL-04). Diterapkan bersama perubahan `Makefile`, `.github/workflows/ci.yml`, dan `scripts/ci-meta-test.sh` di PR yang sama; entri ini **tidak** mengubah kebijakan matriks gate per-PR yang sudah ditetapkan di upstream (ADR-179/ADR-181).

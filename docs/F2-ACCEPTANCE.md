@@ -53,11 +53,11 @@ Audit §3 (parity) pada `main ef8ec40d` memetakan 42 baris berstatus `missing`: 
 `covered`** (statusnya dikoreksi di bawah, dengan berkas + nama tes), **22 baris sudah bukan milik F2**
 (fasenya dikutip dari kolom `fase` `docs/FEATURE-PARITY.md` dan dicatat di barisnya; kepemilikan fase
 mengikuti **ADR-139**), **22 baris masih F2 dan punya penutup PR terbuka** (nomornya dicatat di barisnya),
-dan **2 baris tanpa penutup** (`MEM-025` - covernya `#304` sudah mendarat, verifikasi independen menyusul -
-dan `CLI-039`; `MEM-026` **ditutup #310** pada 2026-10-25, jadi koreksi 2026-10-24 sudah lunas - lihat
-barisnya dan §4 item 11(d)). Karena 81 baris terdaftar = 59 baris yang kini masih
-fase F2 + 22 baris yang pindah fase, utang implementasi F2 yang sebenarnya = **24 baris** (22 berpenutup +
-2 tanpa). Baris parity **tidak** dulu maupun sekarang menjadi gate - lihat §3 bagian terakhir.
+dan **1 baris tanpa penutup** (`CLI-039`; `MEM-026` **ditutup #310** pada 2026-10-25 dan `MEM-025`
+**ditutup #318** pada 2026-10-26, jadi koreksi 2026-10-24 sudah lunas untuk keduanya - lihat barisnya dan
+§4 item 11(d)/10). Karena 81 baris terdaftar = 59 baris yang kini masih
+fase F2 + 22 baris yang pindah fase, utang implementasi F2 yang sebenarnya = **23 baris** (22 berpenutup +
+1 tanpa). Baris parity **tidak** dulu maupun sekarang menjadi gate - lihat §3 bagian terakhir.
 
 ---
 
@@ -271,7 +271,7 @@ by the acceptance test until the surface exists.
 | MEM-022 | native compaction provider | missing | no provider-native compaction · fase **F5** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
 | MEM-023 | context engine plugin | missing | see PLUG-014 · fase **F8** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
 | MEM-024 | @-ref | missing | no reference expansion · penutup #267 |
-| MEM-025 | context pin | missing | memory pins are storage, not prompt pins · **tanpa penutup**: 0 kemunculan kode (`context_pin`/`ContextPin`) dan 0 PR terbuka |
+| MEM-025 | context pin | covered | **Ditutup #318** (squash `9a57a737`, 2026-10-26) di atas covernya **#304** (squash `f8ee2626`): pin sisi prompt hidup di tabel append-only `session_pins` (migrasi `internal/ctxdb/migrations/0012_session_pins.sql`, nilai terakhir menang) dan dibaca prompt lewat `internal/ctxdb/sessionpins.go:10` `pinSeqsQ` serta klausa `session_pins` di `internal/ctxdb/compactstore/compactstore.go:76-80` `eventsQ`; permukaan CLI-nya `damnbot sessions context-pin <id\|newest> [--at <seq\|turn:ID>] [--off]` (`cmd/damnbot/sessions.go:48`). Bukti **biner asli** (harness #239, squash `025ea0c4`): `internal/e2e/context_pin_compaction_test.go` (+141/-0, squash `9a57a737`), `TestContextPinSurvivesCompaction` — fakta yang di-pin tetap ada di request terakhir sesudah compaction (`:56`), dan request itu benar-benar dirakit dari view ter-compaction (`:53`). Prasyarat wiring compaction: **#219** (squash `bee69b31`) memasang `Deps.Compactor`. Tiga flip load-bearing (diverifikasi ulang pada pohon `b8d3d393`, log `~/.cache/damnbot/evidence-mem025/flips.log`): (1) `sessionpins.go` `pinSeqsQ` `p.pinned 1→2` ⇒ MERAH `context_pin_compaction_test.go:50` (`context-pin list = 0 "no pinned context"`); (2) klausa `session_pins` di `compactstore.go` `eventsQ` dibuang ⇒ MERAH `:56` (`pinned fact did not survive compaction (MEM-025)`); (3) `keepTail 8→1000` (`internal/compaction/summary.go:17`) ⇒ MERAH `:53` (`the retried turn was not assembled from the compacted view`), masing-masing hijau lagi sesudah dipulihkan. |
 | MEM-026 | context files | covered | **Ditutup #310** (squash `2f42d75a`, 2026-10-25): tier berkas konteks kini diisi produksi - `cmd/damnbot/context_files.go:41` `Files: contextFiles()` (daftar `:14-17`: AGENTS.md, CLAUDE.md, SOUL.md, .cursorrules, .hermes.md), `:43` `UntrustedFiles: !model.trusted`, dan `:37-39` helper `contextTierInput` mengisi `Facts`/`Degraded` - sehingga wrapper `<untrusted source="workspace">` di `internal/assemble/context.go:109` hidup. Bukti e2e (`TestE2EContextFileWrappedUntrusted`): `internal/e2e/context_files_test.go:130` (B1), `:148` (B2), `:166` (B3 via `trustWorkspace` = `internal/e2e/harness_test.go:116`), `:183` (B4), nol `t.Skip`; hijau di CI `run 40149947287` head `ae2b2caf` (termasuk `test (windows-latest, -race, 1)`) dan berkas tesnya identik di pohon gabungan. Flip load-bearing di `2f42d75a` (mutasi 1-baris di worktree detached, lalu dibuang): C1 `UntrustedFiles: false` ⇒ **B1 merah**; C2a `trusted: false` ⇒ **B3 merah**; C2b `trusted: true` ⇒ **B1 merah**; C3 `Files: nil` ⇒ **B1+B3 merah**. **Caveat jujur**: flip C4 (bungkus teks prompt) **tidak terbukti** - dua mutasi sama-sama no-op (`in.Query` kosong tanpa retriever, teks user tidak lewat `run.go:627`/`:645`), jadi klaim lama "C4 ⇒ B2 merah" dicabut; bukti pengganti struktural (literal `workspace` hanya di `context.go:109`) dan itu pekerjaan lanjutan, bukan syarat penutupan. |
 | MEM-028 | rewind | covered | `TestForkAndRewind` |
 | MEM-029 | branch/fork | covered | `TestForkAndRewind`, `TestForkContextTierCopied` |
@@ -396,10 +396,10 @@ proves it.
    GAP-SEC-01.
 10. **docs:** peta baris parity sudah diperbarui (audit `ef8ec40d`): **8 baris ternyata `covered`** di
     `main`, **22 baris pindah fase** (ADR-139) dan tetap tercatat dengan fase barunya, **22 baris masih F2
-    dan punya penutup PR terbuka** (#253, #259, #266, #267, #268, #269, #270, #273), dan **2 baris tanpa
-    penutup**: `MEM-025` (context pin; 0 kode, 0 PR), `MEM-026` (berkas konteks; belum tersambung di produksi -
-    lihat §4 item 11(d)) dan `CLI-039` (checkpoints CLI; kodenya menunggu PR port
-    dari stack `f2-cp-api`). Sisa pekerjaan F2 = mendaratkan penutup itu, atau memindahkan barisnya ke fase
+    dan punya penutup PR terbuka** (#253, #259, #266, #267, #268, #269, #270, #273), dan **1 baris tanpa
+    penutup**: `CLI-039` (checkpoints CLI; kodenya menunggu PR port dari stack `f2-cp-api`). `MEM-025`
+    (context pin) ditutup #318 di atas cover #304, dan `MEM-026` (berkas konteks) ditutup #310 — lihat §4
+    item 11(d) untuk yang terakhir. Sisa pekerjaan F2 = mendaratkan penutup itu, atau memindahkan barisnya ke fase
     pemiliknya lewat koreksi ADR-064. Baris "planned" tanpa penutup adalah lubang yang ditutup ledger ini.
 
 11. **e2e:** tutup celah suite biner nyata (§3 "F2 e2e suite"). (a) Skenario 1-3 menunggu pendaratan
