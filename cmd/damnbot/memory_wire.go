@@ -23,6 +23,17 @@ func openMemory(db *ctxdb.Store, red *redact.Redactor) (*memory.Service, error) 
 	return svc, nil
 }
 
+// withMemoryTools opens the memory service once per run and appends the two
+// registry tools that share it (TOOL-070, TOOL-073; ADR-188).
+func withMemoryTools(list []tools.Tool, db *ctxdb.Store, red *redact.Redactor) ([]tools.Tool, error) {
+	svc, err := openMemory(db, red)
+	if err != nil {
+		return nil, err
+	}
+	return append(list, tools.NewMemory(&memoryToolBackend{svc: svc, db: db}),
+		tools.NewSessionSearch(ctxSearch{db: db})), nil
+}
+
 // memAdapter is the composition-root seam between memory.Service and
 // memstore (ADR-074, ADR-120): the consumer interface uses memory types, the
 // storage uses field-identical memstore types, and the conversion is total.
