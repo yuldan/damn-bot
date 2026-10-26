@@ -4133,3 +4133,15 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 3. **Proyeksi attempt berbayar (minor #184).** Jalur retry-exhausted mengembalikan `Price`/`EstInputTokens` terakhir sehingga baris attempt berbayar memakai proyeksi, bukan NULL (SEC6-11b); proyeksi adalah batas atas: input `est × 1,5 + 8 token/pesan`, output `max_tokens` (default 8192), dibulatkan ke atas oleh `budget.Cost` (SEC6-13). Retry attempt berbayar di bawah cap memakai proyeksi route berharga (bukan unknown), sehingga retry diizinkan bila proyeksi masih muat (SEC6-14b); route tanpa harga tetap gagal-tertutup.
 4. **Test.** `TestModelLimitsRouteScope` (config/store per base_url, tolak di bawah Min/atas Max/tidak lebih kecil dari request/kenaikan, discovery menang), `TestContextWindow` (hanya `error.message`, bentuk longgar ditolak), `TestProvidersCustom` (base_url tanpa scheme/userinfo/query ditolak), `TestRunLearnedWindowImplausible`, `TestDoExhaustionKeepsPrice`, `TestBilledRetryAllowedWhenProjectionFits`, `TestBilledBreakerOpenNoDoubleCount`, `TestBilledRetryProjectionCumulative`, `TestRunBudgetGuardPricedRoute`, `TestRunBrokenStreamStopsUnderCap`.
 
+## ADR-195 — Penaikan `PHASE` `F1` → `F3`: F2 tersertifikasi di `main`
+
+**Status:** Accepted 2026-10-26 (keputusan owner; menjalankan ADR-080 butir 2 dan ADR-176). Tidak mengubah kode, `loc.budget`, SPEC, atau config default.
+
+**Konteks.** Berkas `PHASE` masih `F1` meski seluruh paket F1/F2 sudah mendarat; job `make phase-acceptance` menyertifikasi fase yang **ditinggalkan** (`PHASE`−1, ADR-080 butir 2/ADR-176), sehingga dengan `PHASE = F3` yang disertifikasi adalah **F2** — tepat fase yang pekerjanya sudah selesai. Tanpa penaikan, gate itu tidak pernah benar-benar menguji apa pun di `main`.
+
+**Keputusan.** `PHASE` dinaikkan `F1` → `F3` di `main` `b8d3d393`, dengan bukti yang dijalankan pada pohon itu (bukan disalin dari PR lain):
+1. **Gate hijau.** `make phase-acceptance` dengan `PHASE = F3`: rc=0, **39 paket ok, 0 `FAIL`, 0 `SKIP`**, `internal/e2e` 55/55 (termasuk 9 skenario penerimaan), `internal/integration` ok, `internal/archtest` ok, `internal/testutil/phase` ok.
+2. **Gate tidak vacuous.** Flip `PHASE = F4` (menyertifikasi F3) memerahkan `TestEdgeCaseCatalogSync/RequiredIDsCataloged` dengan `acceptance_test.go:52: PHASE GAGAL EC-CFG-001..EC-CFG-008` dan `EC-FIO-018` (`required at F3 but no package catalog declares it`); dikembalikan ke `F3` ⇒ hijau.
+3. **Item F3 tetap pending.** `EC-CFG-001..008` dan `EC-FIO-018` adalah fase yang baru dimasuki; ADR-080 butir 1 membolehkan `pending:F3` sampai fasenya dikerjakan, dan acceptance baru akan menuntutnya saat `PHASE` dinaikkan ke `F4`.
+
+**Konsekuensi.** (+) `main` menyatakan F2 selesai secara formal dan gate acceptance menjadi hidup untuk setiap PR berikutnya. (+) Tidak ada id EC baru yang ditambahkan, jadi antrean PR dokumen/kode yang sedang berjalan tidak terpengaruh. (−) Setiap penaikan `PHASE` berikutnya (F4) kini menuntut kesembilan id F3 di atas tercatalog dan `covered`.
