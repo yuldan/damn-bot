@@ -35,6 +35,8 @@ func runSessions(args []string, stdout, stderr io.Writer) int {
 		return sessionsList(args[1:], stdout, stderr)
 	case "show":
 		return sessionsShow(args[1:], stdout, stderr)
+	case "search":
+		return sessionsSearch(args[1:], stdout, stderr)
 	case "rename":
 		return sessionsRename(args[1:], stdout, stderr)
 	case "export":
@@ -69,10 +71,12 @@ func sessionsUsage(w io.Writer) {
 	sessionsPrintf(w, "usage: damnbot sessions fork <id> [--at <seq|turn:ID>]\n")
 	sessionsPrintf(w, "       damnbot sessions rewind <id> --at <seq|turn:ID>\n")
 	sessionsPrintf(w, "       damnbot sessions ls|show <id> [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot sessions search <query> [--session ID] [--cwd DIR] [--limit N] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot sessions rename <id> [<title>]\n")
 	sessionsPrintf(w, "       damnbot sessions export <id> [--format md|jsonl|html] [--out FILE] [--no-redact]\n")
-	sessionsPrintf(w, "       damnbot sessions prune --older-than <90d> [--archive] [--dry-run] [--yes]\n")
+	sessionsPrintf(w, "       damnbot sessions prune <id>|--older-than <90d> [--with-forks] [--archive] [--dry-run] [--yes]\n")
 	sessionsPrintf(w, "       (archive uses created_at; purge uses last activity, SPEC §11.6; pinned sessions are never purged)\n")
+	sessionsPrintf(w, "       (--older-than always includes descendants; <id> needs --with-forks when the session has forks)\n")
 	sessionsPrintf(w, "       damnbot sessions archive|unarchive|pin|unpin <id>\n")
 	sessionsPrintf(w, "       damnbot sessions context-pin <id> [--at <seq|turn:ID>] [--off]\n")
 	sessionsPrintf(w, "       damnbot sessions pinned|stats\n")
@@ -254,6 +258,10 @@ func sessionsMessage(err error, id string) string {
 		return "session " + cleanArg(id) + " not found"
 	case errors.Is(err, ctxdb.ErrSessionPurging):
 		return "session " + cleanArg(id) + " is being purged"
+	case errors.Is(err, ctxdb.ErrHasForks):
+		// §11.6: the message carries the descendant ids; the fix is the flag.
+		msg := strings.TrimSuffix(strings.TrimPrefix(err.Error(), "ctxdb: "), ": has_forks")
+		return msg + "; pass --with-forks to purge the whole lineage"
 	case errors.Is(err, ctxdb.ErrSessionBusy):
 		return "session " + cleanArg(id) + " has an open turn; use --at before that turn, or finish/cancel it first"
 	case errors.Is(err, ctxdb.ErrDBBusy):

@@ -21,6 +21,7 @@ type adminArgs struct {
 	dataDir, format, out, olderThan string
 	pinAt                           string
 	archive, dryRun, yes, noRedact  bool
+	withForks                       bool
 	off                             bool
 	pos                             []string
 }
@@ -107,6 +108,8 @@ func adminBoolFlag(a *adminArgs, s string) bool {
 		a.off = true
 	case "--no-redact":
 		a.noRedact = true
+	case "--with-forks":
+		a.withForks = true
 	default:
 		return false
 	}
@@ -130,7 +133,7 @@ func sessionsRename(args []string, stdout, stderr io.Writer) int {
 		if derr != nil {
 			return sessionsFail(stderr, "rename", derr, id)
 		}
-		defer closeSessionsDB(db, "sessions rename", stderr)
+		defer closeSessionsDB(ctx, db, "sessions rename", stderr)
 		title, ok, derr := db.SessionLabel(ctx, id, ctxdb.LabelTitle)
 		if derr != nil {
 			return sessionsFail(stderr, "rename", derr, id)
@@ -146,7 +149,7 @@ func sessionsRename(args []string, stdout, stderr io.Writer) int {
 	if derr != nil {
 		return sessionsFail(stderr, "rename", derr, id)
 	}
-	defer closeSessionsDB(db, "sessions rename", stderr)
+	defer closeSessionsDB(ctx, db, "sessions rename", stderr)
 	if derr := db.SetSessionLabel(ctx, id, ctxdb.LabelTitle, strings.Join(a.pos[1:], " ")); derr != nil {
 		return sessionsFail(stderr, "rename", derr, id)
 	}
@@ -178,7 +181,7 @@ func sessionsExport(args []string, stdout, stderr io.Writer) int {
 	if derr != nil {
 		return sessionsFail(stderr, "export", derr, id)
 	}
-	defer closeSessionsDB(db, "sessions export", stderr)
+	defer closeSessionsDB(ctx, db, "sessions export", stderr)
 	info, events, title, derr := exportTranscript(ctx, db, id, stderr)
 	if derr != nil {
 		return sessionsFail(stderr, "export", derr, id)
@@ -262,16 +265,22 @@ func exportOutFile(path string) (*os.File, error) {
 	return f, nil
 }
 
-// sessionsPrune archives or purges sessions older than --older-than (MEM-015).
-// Purging requires --yes; nothing is deleted without it, even headless.
+// sessionsPrune archives or purges sessions: one id (SPEC §10 `prune <id>`,
+// with --with-forks to take the whole lineage) or every session older than
+// --older-than (MEM-015). Deleting requires --yes; nothing is deleted without
+// it, even headless.
 func sessionsPrune(args []string, stdout, stderr io.Writer) int {
 	a, err := parseAdminArgs(args)
-	if err != nil || a.olderThan == "" {
-		if err != nil {
-			sessionsPrintf(stderr, "sessions prune: %v\n", err)
-		}
+	if err == nil {
+		err = pruneTarget(&a)
+	}
+	if err != nil {
+		sessionsPrintf(stderr, "sessions prune: %s\n", cleanLine(err.Error()))
 		sessionsUsage(stderr)
 		return 2
+	}
+	if len(a.pos) == 1 {
+		return pruneOne(context.Background(), a.pos[0], &a, stdout, stderr)
 	}
 	age, err := parseAge(a.olderThan)
 	if err != nil {
@@ -290,11 +299,76 @@ func sessionsPrune(args []string, stdout, stderr io.Writer) int {
 	if derr != nil {
 		return sessionsFail(stderr, "prune", derr, "")
 	}
-	defer closeSessionsDB(db, "sessions prune", stderr)
+	defer closeSessionsDB(ctx, db, "sessions prune", stderr)
 	if a.archive {
 		return pruneArchive(ctx, db, age, a.dryRun, stdout, stderr)
 	}
 	return prunePurge(ctx, db, age, &a, stdout, stderr)
+}
+
+// pruneTarget validates the mutually exclusive target forms of
+// `sessions prune`: one id xor --older-than, and no --archive with an id.
+func pruneTarget(a *adminArgs) error {
+	switch {
+	case len(a.pos) > 1:
+		return fmt.Errorf("one session id or --older-than expected, got %d ids", len(a.pos))
+	case len(a.pos) == 1 && a.olderThan != "":
+		return errors.New("pass one session id or --older-than, not both")
+	case len(a.pos) == 0 && a.olderThan == "":
+		return errors.New("a session id or --older-than is required")
+	case len(a.pos) == 1 && a.archive:
+		return errors.New("--archive applies to --older-than only")
+	}
+	return nil
+}
+
+// pruneOne purges exactly one session (SPEC §10 `prune <id>`): without
+// --with-forks a session with descendants is refused (`has_forks`, exit 1);
+// with it P = the session and its whole lineage, computed by ctxdb.
+func pruneOne(ctx context.Context, id string, a *adminArgs, stdout, stderr io.Writer) int {
+	if !a.dryRun && maintenanceBlocked(stderr, "sessions prune") {
+		return 2
+	}
+	if !a.dryRun && !a.yes {
+		sessionsPrintf(stderr, "sessions prune: refusing to delete without --yes (use --dry-run to preview)\n")
+		return 2
+	}
+	open := openSessionsDB
+	if a.dryRun {
+		open = openSessionsDBReadOnly
+	}
+	db, derr := open(ctx, a.dataDir)
+	if derr != nil {
+		return sessionsFail(stderr, "prune", derr, id)
+	}
+	defer closeSessionsDB(ctx, db, "sessions prune", stderr)
+	req := ctxdb.PurgeRequest{IDs: []string{id}, WithForks: a.withForks}
+	if a.dryRun {
+		rep, err := db.PurgeCandidates(ctx, req)
+		if err != nil {
+			return sessionsFail(stderr, "prune", err, id)
+		}
+		sessionsPrintf(stdout, "would purge %d sessions\n", len(rep.P))
+		for _, sid := range rep.P {
+			sessionsPrintf(stdout, "%s\n", cleanArg(sid))
+		}
+		reportPurgeSkips(&rep, stderr)
+		return 0
+	}
+	rep, err := db.Purge(ctx, req)
+	if err != nil {
+		return sessionsFail(stderr, "prune", err, id)
+	}
+	reportPurgeSkips(&rep, stderr)
+	sessionsPrintf(stdout, "purged %d sessions (txid %s)\n", len(rep.P), cleanArg(rep.TxID))
+	if len(rep.P) == 0 {
+		return 0
+	}
+	if verr := db.Vacuum(ctx); verr != nil {
+		sessionsPrintf(stderr, "sessions prune: vacuum: %s\n", sessionsMessage(verr, ""))
+		return 1
+	}
+	return 0
 }
 
 // pruneArchive labels sessions created before the cutoff as archived; a
@@ -322,6 +396,8 @@ func pruneArchive(ctx context.Context, db *ctxdb.Store, age time.Duration, dryRu
 
 // prunePurge previews or deletes the §11.6 P set and vacuums afterwards.
 func prunePurge(ctx context.Context, db *ctxdb.Store, age time.Duration, a *adminArgs, stdout, stderr io.Writer) int {
+	// §11.6: --older-than always uses subtree membership, so --with-forks is
+	// already implied for this form.
 	req := ctxdb.PurgeRequest{OlderThan: age, WithForks: true}
 	if a.dryRun {
 		rep, err := db.PurgeCandidates(ctx, req)

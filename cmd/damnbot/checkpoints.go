@@ -180,7 +180,7 @@ func checkpointsStatus(args []string, stdout, stderr io.Writer) int {
 	if derr != nil {
 		return checkpointsFail(stderr, "checkpoints status", derr, "")
 	}
-	defer closeSessionsDB(db, "checkpoints status", stderr)
+	defer closeSessionsDB(ctx, db, "checkpoints status", stderr)
 	retention, cutoff, cerr := checkpointCutoff(&a)
 	if cerr != nil {
 		sessionsPrintf(stderr, "checkpoints status: %v\n", cerr)
@@ -209,7 +209,7 @@ func checkpointsList(args []string, stdout, stderr io.Writer) int {
 	if derr != nil {
 		return checkpointsFail(stderr, "checkpoints list", derr, "")
 	}
-	defer closeSessionsDB(db, "checkpoints list", stderr)
+	defer closeSessionsDB(ctx, db, "checkpoints list", stderr)
 	_, cutoff, cerr := checkpointCutoff(&a)
 	if cerr != nil {
 		sessionsPrintf(stderr, "checkpoints list: %v\n", cerr)
@@ -256,7 +256,7 @@ func checkpointsPrune(args []string, stdout, stderr io.Writer) int {
 		if derr != nil {
 			return checkpointsFail(stderr, "checkpoints prune", derr, "")
 		}
-		defer closeSessionsDB(db, "checkpoints prune", stderr)
+		defer closeSessionsDB(ctx, db, "checkpoints prune", stderr)
 		st, serr := db.CheckpointStats(ctx, cutoff, "")
 		if serr != nil {
 			return checkpointsFail(stderr, "checkpoints prune", serr, "")
@@ -276,7 +276,7 @@ func checkpointsPrune(args []string, stdout, stderr io.Writer) int {
 	if derr != nil {
 		return checkpointsFail(stderr, "checkpoints prune", derr, "")
 	}
-	defer closeSessionsDB(db, "checkpoints prune", stderr)
+	defer closeSessionsDB(ctx, db, "checkpoints prune", stderr)
 	n, perr := db.PruneCheckpoints(ctx, cutoff)
 	if perr != nil {
 		return checkpointsFail(stderr, "checkpoints prune", perr, "")
@@ -304,7 +304,7 @@ func checkpointsClear(args []string, stdout, stderr io.Writer) int {
 		if derr != nil {
 			return checkpointsFail(stderr, "checkpoints clear", derr, "")
 		}
-		defer closeSessionsDB(db, "checkpoints clear", stderr)
+		defer closeSessionsDB(ctx, db, "checkpoints clear", stderr)
 		st, serr := db.CheckpointStats(ctx, time.Now().UnixMilli(), "")
 		if serr != nil {
 			return checkpointsFail(stderr, "checkpoints clear", serr, "")
@@ -323,7 +323,7 @@ func checkpointsClear(args []string, stdout, stderr io.Writer) int {
 	if derr != nil {
 		return checkpointsFail(stderr, "checkpoints clear", derr, "")
 	}
-	defer closeSessionsDB(db, "checkpoints clear", stderr)
+	defer closeSessionsDB(ctx, db, "checkpoints clear", stderr)
 	n, cerr := db.ClearCheckpoints(ctx)
 	if cerr != nil {
 		return checkpointsFail(stderr, "checkpoints clear", cerr, "")

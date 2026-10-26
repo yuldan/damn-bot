@@ -48,7 +48,7 @@ func sessionsList(args []string, stdout, stderr io.Writer) int {
 		sessionsPrintf(stderr, "sessions ls: %s\n", sessionsMessage(err, ""))
 		return 1
 	}
-	defer closeSessionsDB(db, "sessions ls", stderr)
+	defer closeSessionsDB(ctx, db, "sessions ls", stderr)
 	ids, err := db.ListSessions(ctx)
 	if err != nil {
 		sessionsPrintf(stderr, "sessions ls: %s\n", sessionsMessage(err, ""))
@@ -81,7 +81,7 @@ func sessionsShow(args []string, stdout, stderr io.Writer) int {
 		sessionsPrintf(stderr, "sessions show: %s\n", sessionsMessage(err, id))
 		return 1
 	}
-	defer closeSessionsDB(db, "sessions show", stderr)
+	defer closeSessionsDB(ctx, db, "sessions show", stderr)
 	in, err := db.SessionInfo(ctx, id)
 	if err != nil {
 		sessionsPrintf(stderr, "sessions show: %s\n", sessionsMessage(err, id))
@@ -96,8 +96,8 @@ func sessionsShow(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func closeSessionsDB(db *ctxdb.Store, name string, stderr io.Writer) {
-	if err := db.Close(); err != nil {
+func closeSessionsDB(ctx context.Context, db *ctxdb.Store, name string, stderr io.Writer) {
+	if err := db.CloseContext(ctx); err != nil {
 		sessionsPrintf(stderr, "%s: close db: %v\n", name, err)
 	}
 }
