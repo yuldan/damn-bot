@@ -63,6 +63,7 @@ type runOptions struct {
 	retrieverFor func(*ctxdb.Store) assemble.Retriever
 	// validate is --answer-schema compiled (SPEC §7.2); nil = no schema.
 	validate func(string) error
+	cwd      string // override for the session cwd/sandbox root (tests, eval)
 }
 
 // reportedParseError marks a parse failure the flag package already wrote to
