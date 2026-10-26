@@ -231,6 +231,9 @@ type runWiring struct {
 	// spill routes tool output above InlineChars into the ctxdb blob store
 	// (SEC7-66/68); the same instance serves the shell tool and the turn.
 	spill tools.Spill
+	// sb is the run's sandbox: @reference expansion reads files through it
+	// (MEM-024).
+	sb *sandbox.Sandbox
 	// trusted is the workspace trust decision for this run (SPEC §14): the
 	// session cwd is inside a project registered in the trust store. It gates
 	// shell_allow/--unsafe-auto-shell and the <untrusted source="workspace">
@@ -351,6 +354,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		fail:      fail,
 		inlineCap: cfg.Loop.TurnMaxInputTok,
 		spill:     spill,
+		sb:        sb,
 		trusted:   trusted,
 		reader:    sandboxReader{sb: sb, root: cwd},
 	}, nil

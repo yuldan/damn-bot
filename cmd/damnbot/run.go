@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -34,6 +35,7 @@ import (
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/redact"
+	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/tools"
 	"github.com/damnbot/damnbot/internal/toolset"
 )
@@ -64,6 +66,8 @@ type runOptions struct {
 	// validate is --answer-schema compiled (SPEC §7.2); nil = no schema.
 	validate func(string) error
 	cwd      string // override for the session cwd/sandbox root (tests, eval)
+	// trimMemory is the RSS trim hook (MEM-033); nil uses debug.FreeOSMemory.
+	trimMemory func()
 }
 
 // reportedParseError marks a parse failure the flag package already wrote to
@@ -200,26 +204,13 @@ func runOne(ctx context.Context, o *runOptions, stdout, stderr io.Writer) (code 
 	if modelRef == "" {
 		modelRef = model.modelRef
 	}
-	return runTurn(ctx, &cfg, o, model, modelRef, red, model.spill, stdout)
-}
-
-// applyResumeNotes prints the resume recap and resolves --retry to the last
-// user message before the new turn starts.
-func applyResumeNotes(ctx context.Context, o *runOptions, model *runModel, red *redact.Redactor, stderr io.Writer) error {
-	if (o.session != "" || o.cont) && !o.noRecap {
-		if err := printRecap(ctx, model.db, model.sessionID, red, stderr); err != nil {
-			recapPrintf(stderr, "run: recap: %v\n", err)
-		}
+	code, terr := runTurn(ctx, &cfg, o, model, modelRef, red, model.spill, stdout)
+	trim := o.trimMemory
+	if trim == nil {
+		trim = debug.FreeOSMemory
 	}
-	if !o.retry {
-		return nil
-	}
-	prompt, err := retryPrompt(ctx, model.db, model.sessionID, red, stderr)
-	if err != nil {
-		return fmt.Errorf("retry: %w", err)
-	}
-	o.prompt = prompt
-	return nil
+	trim()
+	return code, terr
 }
 
 // loadRunEnv loads the immutable config for one run and resolves the data,
@@ -328,6 +319,9 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 	if err != nil {
 		return 0, fmt.Errorf("loop: %w", err)
 	}
+	if xerr := applyPromptRefs(ctx, disp, o, model); xerr != nil {
+		return 0, xerr
+	}
 	stream, err := lp.Prompt(ctx, model.sessionID, loop.Input{Text: o.prompt})
 	if err != nil {
 		return 0, fmt.Errorf("prompt: %w", err)
@@ -365,6 +359,10 @@ type runModel struct {
 	// sandbox.
 	trusted bool
 	reader  assemble.FileReader
+	// sb and net are the run's sandbox and egress guard: @reference expansion
+	// reads files through the sandbox and URLs through the netx client (MEM-024).
+	sb  *sandbox.Sandbox
+	net *netx.Network
 }
 
 func (m *runModel) close(ctx context.Context) error {
@@ -467,6 +465,8 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		winSource: string(win.Source),
 		inlineCap: w.inlineCap,
 		spill:     w.spill,
+		sb:        w.sb,
+		net:       netx.New(netx.Config{Offline: o.offline}),
 		toolsets:  sel,
 		trusted:   w.trusted,
 		reader:    w.reader,
