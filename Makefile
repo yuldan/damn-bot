@@ -32,7 +32,8 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 
 .PHONY: all build build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio \
 	deps-check tidy-check mod-verify vuln licenses check meta-test bench-budget fuzz coverage deadcode \
-	flake perf ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools
+	flake perf ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
+	sqlite-engine sqlite-engine-cross skill-refs
 
 all: check
 
@@ -45,6 +46,22 @@ build-matrix:
 		echo "go build GOOS=$${p%/*} GOARCH=$${p#*/}"; \
 		CGO_ENABLED=0 GOOS=$${p%/*} GOARCH=$${p#*/} go build $(GOTAGS) ./...; \
 	done
+
+# GAP-REL-04 (ADR-132/ADR-144): the embedded SQLite engine must satisfy REL-04
+# on every E-39 target. Targets with a hosted runner run the probe; the two
+# without one (linux/arm, android/arm64) cross-compile the test binary until
+# QEMU execution lands at F9 (ADR-073).
+sqlite-engine:
+	CGO_ENABLED=0 go test $(GOTAGS) -count=1 -run '^TestSQLiteEngineVersion$$' ./internal/ctxdb
+
+sqlite-engine-cross:
+	@mkdir -p $(BIN)
+	CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) go test $(GOTAGS) -c -o $(BIN)/sqlite-engine-$(GOOS)-$(GOARCH).test ./internal/ctxdb
+
+# GAP-SEC-26 (ADR-133/ADR-144): builtin skills carry no dangling
+# requires/skill:// links or script paths.
+skill-refs:
+	go test $(GOTAGS) -count=1 -run '^TestBuiltinSkillRefs$$' ./internal/skills
 
 lint:
 	$(GOTOOL) golangci-lint run --build-tags "$(TAGSCSV)" ./...

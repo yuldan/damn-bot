@@ -392,6 +392,65 @@ jobs:
           CGO_ENABLED: "1" # ADR-181 amandemen: -race butuh cgo (pola sama dengan job `test` tier PR)
         run: make test RACE="-race" PKGS="./cmd/... ./internal/archtest/... ./internal/assemble/... ./internal/boundary/... ./internal/budget/... ./internal/compaction/... ./internal/config/... ./internal/journal/... ./internal/loop/... ./internal/memory/... ./internal/modules/... ./internal/netx/... ./internal/provider/... ./internal/redact/... ./internal/sandbox/... ./internal/schema/... ./internal/skills/... ./internal/testutil/... ./internal/tools/..."
 
+  # GAP-SEC-26 (ADR-133/ADR-187): builtin skills carry no dangling requires,
+  # skill:// links or script paths. The suite is empty today; the rule fires
+  # the moment a builtin skill is added.
+  skill-refs:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Builtin skill references (GAP-SEC-26)
+        run: make skill-refs
+
+  # GAP-REL-04 (ADR-132/ADR-187): the embedded SQLite engine must satisfy
+  # REL-04 (>= 3.51.3 + FTS5/trigram/json_valid) on all 8 canonical E-39
+  # targets. Six targets have hosted runners; linux/arm and android/arm64 have
+  # none (QEMU is the F9 item, ADR-073), so those legs cross-compile the
+  # engine test as the target-coverage proof until then.
+  sqlite-engine:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, target: linux/amd64, mode: run}
+          - {os: ubuntu-24.04-arm, target: linux/arm64, mode: run}
+          - {os: ubuntu-latest, target: linux/arm, mode: cross}
+          - {os: macos-latest, target: darwin/arm64, mode: run}
+          - {os: macos-15-intel, target: darwin/amd64, mode: run}
+          - {os: windows-latest, target: windows/amd64, mode: run}
+          - {os: windows-11-arm, target: windows/arm64, mode: run}
+          - {os: ubuntu-latest, target: android/arm64, mode: cross}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Engine probe (${{ matrix.target }})
+        if: matrix.mode == 'run'
+        run: make sqlite-engine
+      - name: Cross-compile (${{ matrix.target }}, no runner; QEMU at F9)
+        if: matrix.mode == 'cross'
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: make sqlite-engine-cross GOOS="${TARGET%/*}" GOARCH="${TARGET#*/}"
+
   # ADR-135 butir 2: satu-satunya status `ci` yang wajib di branch protection. Selalu berjalan (termasuk
   # docs-only dan PR matrix yang diperkecil) dan lulus bila setiap gate sukses atau dilewati sah; job
   # matrix yang sengaja tidak ada di tier PR tidak lagi meninggalkan "Expected — waiting".
@@ -410,6 +469,8 @@ jobs:
       - bench
       - supply
       - smoke
+      - skill-refs
+      - sqlite-engine
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -3979,3 +3979,17 @@ memakai nilai yang sama agar `make loc` hijau di setiap basis bertumpuk (`f2-ski
 **Konsekuensi.** (+) Baris MEM-025 tertutup: pin sisi prompt tahan compaction, bertahan antar-turn/antar-resume karena ada di DB, dan ikut terhapus saat sesi dipurge. (+) Tabel/trigger lama tidak disentuh. (−) Pin menambah isi prompt (itu memang tujuannya); (−) `newest` adalah kenyamanan CLI (tanpa id), bukan konsep baru.
 
 **Test.** `internal/ctxdb`: `TestSessionPinsRoundTrip` (round-trip, last-wins, gagal-tertutup, trigger append-only). `internal/ctxdb/compactstore`: `TestLoadKeepsPinnedTurn` (real DB: boundary melewati turn ber-pin → turn tetap dimuat; kontrol: tanpa pin turn itu hilang). `internal/compaction`: `TestPinnedMessageSurvivesCompaction` (positif + kontrol) dan `TestPruneKeepsPinnedContent`. `cmd/damnbot`: `TestSessionsContextPin` (pin/list/unpin/`newest`/tolak `--at 0`).
+
+## ADR-187 — Gerbang CI referensi skill bawaan (`skill-refs`) dan engine SQLite lintas target (`sqlite-engine`)
+
+**Status:** Accepted 2026-10-26 (F2; melengkapi ADR-133/SEC-26 dan ADR-132/REL-04). Diterapkan bersama perubahan `Makefile`, `.github/workflows/ci.yml`, dan `scripts/ci-meta-test.sh` di PR yang sama; entri ini **tidak** mengubah kebijakan matriks gate per-PR yang sudah ditetapkan di upstream (ADR-179/ADR-181).
+
+**Konteks.** SPEC §22.1 menuntut dua hal yang belum punya gerbang per-PR: (a) skill bawaan tidak boleh memuat referensi menggantung (`skill://`, path skrip) yang baru menggigit saat rilis, dan (b) engine SQLite yang di-embed harus memenuhi REL-04 (≥ 3.51.3 + FTS5/trigram/`json_valid`) di delapan target rilis kanonik E-39.
+
+**Keputusan.**
+1. **`skill-refs` (SEC-26).** `TestBuiltinSkillRefs` memindai `<repo>/skills/**/SKILL.md`, mem-parse sebagai `SourceBuiltin`, membangun `Known` dari seluruh nama skill bawaan, lalu menjalankan `Lint`; suite boleh kosong hari ini, tetapi aturannya menggigit begitu skill bawaan ditambahkan. Job 1 leg menjalankan `make skill-refs`.
+2. **`sqlite-engine` (REL-04).** Job matrix delapan entri (delapan target E-39): enam target berrunner menjalankan `make sqlite-engine` native (`go test -run '^TestSQLiteEngineVersion$' ./internal/ctxdb`), sedangkan `linux/arm` dan `android/arm64` — belum berrunner; QEMU adalah item F9 (ADR-073) — memakai `make sqlite-engine-cross` sebagai bukti cakupan target.
+3. **Meta-test (ADR-073 butir 2).** Kedua gate masuk `GATES`/`target`/`marker`/`inject` di `scripts/ci-meta-test.sh`, dengan injeksi `MinSQLiteVersion = "99.0.0"` supaya gerbangnya dibuktikan hidup (bukan hanya hijau), dan keduanya masuk `ci-required.needs` sehingga status wajib tetap satu (ADR-135 butir 2/5).
+4. **Biaya.** Keduanya mengikuti path filter `code` yang sama dengan job per-PR lain: `skill-refs` ≈ 20 s (1 leg), `sqlite-engine` delapan leg (enam cepat + dua cross-compile). Tidak ada perubahan `loc.budget` (test, target Makefile, workflow, dan skrip meta-test saja) dan nol dependency baru.
+
+**Konsekuensi.** (+) Regresi referensi skill bawaan dan engine SQLite tertangkap di PR, bukan setelah rilis; kedua gate tidak bisa dilemahkan tanpa memecahkan meta-test. (−) Dua job tambahan pada setiap PR yang menyentuh kode (dibatasi path filter), dan target E-39 tanpa runner tetap bergantung pada cross-compile sampai QEMU (F9) tersedia.
