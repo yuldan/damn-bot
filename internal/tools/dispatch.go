@@ -285,6 +285,7 @@ func (d *Dispatcher) prepare(ctx context.Context, call Call) (Prepared, error) {
 	}
 	decision = d.taintGate(decision, effect, pc)
 	ensurePreview(call.Name, args, effect, &decision)
+	decision.Preview = clipPreview(decision.Preview)
 	return Prepared{
 		Call: call, Args: args, Effect: effect, Decision: decision,
 		Env:   Env{TurnID: call.TurnID, CallID: call.CallID, Cwd: d.cwd, PageChars: d.pageCap(), InlineLeft: d.inlineLeft()},
@@ -753,5 +754,5 @@ func ensurePreview(name string, args json.RawMessage, effect Effect, dec *Policy
 		dec.Preview = p
 		return
 	}
-	dec.Preview = name + " " + clipRunes(string(args), 400)
+	dec.Preview = clipPreview(name + " " + clipRunes(string(args), 400))
 }
