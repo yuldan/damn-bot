@@ -271,7 +271,7 @@ func (t *turn) approve(ctx context.Context, p *Prepared) (o outcome, terminal, d
 	}
 	res, err := t.deps.Approver.Approve(ctx, &ApprovalRequest{
 		SessionID: t.sessionID, TurnID: t.turnID, Tool: p.Call.Name, Args: json.RawMessage(p.Call.Arguments),
-		Preview: p.Preview, Effect: p.Effect, Tainted: t.tainted, Terminal: p.Terminal,
+		Preview: p.Preview, Origin: t.deps.Origin, Effect: p.Effect, Tainted: t.tainted, Terminal: p.Terminal,
 	})
 	if err != nil {
 		if ctx.Err() != nil {

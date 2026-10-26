@@ -62,6 +62,9 @@ type Config struct {
 	// Deferred enables tool_search/tool_invoke over module-contributed
 	// tools. Without it both meta-tools fail closed.
 	Deferred *Deferred
+	// Origin names the surface that asks for approval (ADR-202). Empty takes
+	// the headless `run` default; an unknown value is rejected.
+	Origin string
 }
 
 // TurnInlineCap is SPEC P5's aggregate inline cap for one turn:
@@ -137,6 +140,7 @@ type Dispatcher struct {
 	cwd      string
 	page     int
 	deferred *Deferred
+	origin   string
 	// turnInline is the scaled aggregate inline budget of this turn
 	// (TurnInlineCap); BeginTurn keeps it.
 	turnInline int
@@ -165,12 +169,19 @@ func NewDispatcher(cfg *Config) (*Dispatcher, error) {
 		// TL7-3).
 		return nil, errors.New("tools: redactor required")
 	}
+	origin := cfg.Origin
+	if origin == "" {
+		origin = OriginRun
+	}
+	if !ValidOrigin(origin) {
+		return nil, fmt.Errorf("tools: unknown approval origin %q", origin)
+	}
 	return &Dispatcher{
 		reg: cfg.Registry, journal: cfg.Journal, spill: cfg.Spill, mode: cfg.Mode,
 		approver: cfg.Approver, red: cfg.Redactor, timeout: cfg.ToolTimeout,
 		trusted: cfg.WorkspaceTrusted, cwd: cfg.Cwd, page: cfg.PageChars, deferred: cfg.Deferred,
-		turnInline: TurnInlineCap(cfg.WindowTokens, cfg.CharsPerToken),
-		calls:      map[string]bool{}, sessions: map[string]bool{},
+		origin: origin, turnInline: TurnInlineCap(cfg.WindowTokens, cfg.CharsPerToken),
+		calls: map[string]bool{}, sessions: map[string]bool{},
 	}, nil
 }
 
@@ -250,6 +261,7 @@ func (d *Dispatcher) prepare(ctx context.Context, call Call) (Prepared, error) {
 		return Prepared{}, closedError(perr)
 	}
 	decision = d.taintGate(decision, effect, pc)
+	ensurePreview(call.Name, args, effect, &decision)
 	return Prepared{
 		Call: call, Args: args, Effect: effect, Decision: decision,
 		Env:   Env{TurnID: call.TurnID, CallID: call.CallID, Cwd: d.cwd, PageChars: d.pageCap(), InlineLeft: d.inlineLeft()},
@@ -701,95 +713,16 @@ func (d *Dispatcher) Dispatch(ctx context.Context, call Call) Outcome {
 	return d.DispatchPrepared(ctx, &p)
 }
 
-// authorize applies one prepared call's approval requirement. It is the only
-// place that consults the approver or session approvals.
-func (d *Dispatcher) authorize(ctx context.Context, p *Prepared) *Outcome {
-	p.Env.Approved = false
-	switch p.Decision.Requirement {
-	case RequireAuto:
-		p.authorized = true
-		return nil
-	case RequireDeniedPath:
-		out := failure(CodeDeniedPath, "path matches deny_paths: "+strings.Join(p.Decision.Paths, ", "), "choose another path")
-		return &out
-	case RequireDeny:
-		out := failure(CodeDenied, p.Call.Name+" is not allowed in this mode", "")
-		out.Denied = true
-		return &out
-	case RequireOutside:
-		if d.mode.Headless() {
-			out := failure(CodeOutsideWorkspace, "path is outside the workspace: "+strings.Join(p.Decision.Paths, ", "), "headless runs never approve outside paths")
-			return &out
-		}
-		return d.ask(ctx, p, true)
-	case RequireAsk:
-		return d.ask(ctx, p, false)
+// ensurePreview fills a bounded, deterministic preview for a dangerous
+// decision whose tool did not describe the action itself (SPEC §18.2,
+// ADR-202). It never reads the workspace: only the call's arguments.
+func ensurePreview(name string, args json.RawMessage, effect Effect, dec *PolicyDecision) {
+	if dec.Requirement == RequireAuto || dec.Preview != "" || !PreviewRequired(effect, dec.Class) {
+		return
 	}
-	out := failure(CodeInternal, "unknown policy requirement", "")
-	return &out
-}
-
-// ask consults a session approval or the approver for one prepared call.
-func (d *Dispatcher) ask(ctx context.Context, p *Prepared, outside bool) *Outcome {
-	dec := p.Decision
-	if dec.AllowSession && d.sessionAllowed(p.Call.Name, dec.Paths) {
-		p.Approved = outside
-		p.authorized = true
-		return nil
+	if p := previewArgs(name, args); p != "" {
+		dec.Preview = p
+		return
 	}
-	req := ApprovalRequest{
-		Tool: p.Call.Name, CallID: p.Call.CallID, Effect: p.Effect, Class: dec.Class,
-		Paths: dec.Paths, Preview: dec.Preview, Tainted: d.tainted.Load(),
-		AllowSession: dec.AllowSession,
-	}
-	if d.approver == nil {
-		out := failure(CodeDenied, "no approver is available", "interactive approval is required")
-		out.Denied = true
-		return &out
-	}
-	answer, err := d.approver.Approve(ctx, req)
-	if err != nil {
-		out := fromError(err)
-		return &out
-	}
-	switch answer {
-	case ApprovalAllowOnce:
-		p.Approved = outside
-		p.authorized = true
-		return nil
-	case ApprovalAllowSession:
-		if req.AllowSession && len(req.Paths) > 0 {
-			d.mu.Lock()
-			for _, path := range req.Paths {
-				d.sessions[toolSubject(req.Tool, path)] = true
-			}
-			d.mu.Unlock()
-		}
-		p.Approved = outside
-		p.authorized = true
-		return nil
-	case ApprovalDeny:
-	}
-	code, msg := CodeDenied, "approval denied for "+p.Call.Name
-	if outside {
-		code, msg = CodeOutsideWorkspace, "outside-workspace access was not approved"
-	}
-	out := failure(code, msg, "")
-	out.Denied = true
-	return &out
-}
-
-// sessionAllowed reports an earlier allow_session for every exact subject.
-func (d *Dispatcher) sessionAllowed(tool string, paths []string) bool {
-	if len(paths) == 0 {
-		return false
-	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	for _, p := range paths {
-		if !d.sessions[toolSubject(tool, p)] {
-			return false
-		}
-	}
-	return true
+	dec.Preview = name + " " + clipRunes(string(args), 400)
 }
