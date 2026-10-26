@@ -38,6 +38,21 @@ func (i *Importer) collect(root string) (*collected, error) {
 	if err := i.collectConfig(c); err != nil {
 		return nil, err
 	}
+	if err := i.collectSkills(root, c); err != nil {
+		return nil, err
+	}
+	if err := i.collectMemory(root, c); err != nil {
+		return nil, err
+	}
+	if err := i.collectMCP(c); err != nil {
+		return nil, err
+	}
+	if err := i.collectCron(root, c); err != nil {
+		return nil, err
+	}
+	if err := i.collectSecrets(root, c); err != nil {
+		return nil, err
+	}
 	c.report.sortSkips()
 	return c, nil
 }
