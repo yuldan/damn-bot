@@ -34,26 +34,37 @@ func printEngine(stdout io.Writer) int {
 	return 0
 }
 
+// dispatchCommand routes the subcommands that own their flag sets; ok is false
+// when args do not name one, so the root command's flags run next.
+func dispatchCommand(args []string, stdout, stderr io.Writer) (code int, ok bool) {
+	switch args[0] {
+	case "run":
+		return runHeadless(args[1:], stdout, stderr), true
+	case "undo":
+		return runUndo(args[1:], stdout, stderr), true
+	case "review":
+		return runReview(args[1:], stdout, stderr), true
+	case "sessions":
+		return runSessions(args[1:], stdout, stderr), true
+	case "checkpoints":
+		return runCheckpoints(args[1:], stdout, stderr), true
+	case "skills":
+		return skillsCommand(args[1:], stdout, stderr), true
+	case "bundles":
+		return runBundles(args[1:], stdout, stderr), true
+	}
+	if len(args) > 1 && args[0] == "eval" && args[1] == "recall" {
+		return runEvalRecall(args[2:], stdout, stderr), true
+	}
+	return 0, false
+}
+
 // run memisahkan logika dari os.Exit agar dapat diuji.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
-		switch args[0] {
-		case "run":
-			return runHeadless(args[1:], stdout, stderr)
-		case "undo":
-			return runUndo(args[1:], stdout, stderr)
-		case "review":
-			return runReview(args[1:], stdout, stderr)
-		case "sessions":
-			return runSessions(args[1:], stdout, stderr)
-		case "skills":
-			return skillsCommand(args[1:], stdout, stderr)
-		case "bundles":
-			return runBundles(args[1:], stdout, stderr)
+		if code, ok := dispatchCommand(args, stdout, stderr); ok {
+			return code
 		}
-	}
-	if len(args) > 1 && args[0] == "eval" && args[1] == "recall" {
-		return runEvalRecall(args[2:], stdout, stderr)
 	}
 	fs := flag.NewFlagSet("damnbot", flag.ContinueOnError)
 	fs.SetOutput(stderr)

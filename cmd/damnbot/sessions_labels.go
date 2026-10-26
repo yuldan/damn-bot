@@ -13,6 +13,9 @@ import (
 
 // sessionsFlag sets one boolean label (archive/unarchive/pin/unpin).
 func sessionsFlag(name string, args []string, stdout, stderr io.Writer, key, value string) int {
+	if name == "archive" && maintenanceBlocked(stderr, "sessions archive") {
+		return 2
+	}
 	a, err := parseAdminArgs(args)
 	if err != nil || len(a.pos) != 1 {
 		if err != nil {
