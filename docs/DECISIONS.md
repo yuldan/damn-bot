@@ -3791,6 +3791,8 @@ Pohon stack F1 (tambahan #242/#254/#255/#257, belum termasuk baris F2 dari PR pe
 
 **Dampak terukur (SPEC §20).** DDL/migrasi/dependency/token 0; LOC `ctxdb` +161 (terukur 4.209/4.250), `cmd/damnbot` +≈330 baris non-test. `prune` mengunci writer per batch (≤ 500 baris), bukan satu transaksi panjang.
 
+**Amandemen 2026-10-26 (port CLI).** Keputusan di atas mendarat di `main` lewat port squash `24d44b12` (PR #264, yang semula bertumpuk di base `f2-cp-api`): `cmd/damnbot/checkpoints.go`, `maintenance.go` (guard runner shell), hunk `sessions prune`/`sessions archive`, tes unit + e2e biner. Tidak ada perubahan pada keputusan, trigger append-only, atau anggaran; `docs/F2-ACCEPTANCE.md` baris `CLI-039` ditutup di PR terpisah.
+
 **Konsekuensi.** (+) CLI-039 tertutup tanpa melemahkan invariant P9: hanya mode maintenance yang sudah ada yang menghapus metadata jurnal. (+) Transkrip dan file blob tidak ikut hilang; `doctor gc` tetap satu-satunya yang mengklaim file. (−) `prune` tidak langsung membebaskan disk (blob menunggu gc), dan `clear` menghilangkan kemampuan undo sampai aksi berikutnya tercatat. (−) Maintenance checkpoint dan session purge saling menolak; pengguna harus menunggu purge selesai.
 ## ADR-124 — Enkripsi at-rest opsional + arsip backup terenkripsi GAP-SEC-01: key store OS, kontainer `DMBK1`, dan codec kolom `ctxdb`
 

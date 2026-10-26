@@ -279,7 +279,14 @@ func sessionsPrune(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	ctx := context.Background()
-	db, derr := openSessionsDB(ctx, a.dataDir)
+	if !a.dryRun && maintenanceBlocked(stderr, "sessions prune") {
+		return 2
+	}
+	open := openSessionsDB
+	if a.dryRun {
+		open = openSessionsDBReadOnly
+	}
+	db, derr := open(ctx, a.dataDir)
 	if derr != nil {
 		return sessionsFail(stderr, "prune", derr, "")
 	}

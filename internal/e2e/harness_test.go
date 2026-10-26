@@ -150,6 +150,13 @@ func (e *Env) Run(prompt string, extra ...string) Result {
 // future commands (`undo`, `review`, `sessions`, `backup`, …) use this.
 func (e *Env) Exec(args ...string) Result {
 	e.t.Helper()
+	return e.ExecEnv(nil, args...)
+}
+
+// ExecEnv runs the built binary with extra environment entries appended (the
+// child still inherits the harness HOME/XDG_CONFIG_HOME).
+func (e *Env) ExecEnv(env []string, args ...string) Result {
+	e.t.Helper()
 	ctx, cancel := context.WithTimeout(e.t.Context(), 120*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binPath, args...) //nolint:gosec // binary path is this package's temp build
@@ -165,6 +172,7 @@ func (e *Env) Exec(args ...string) Result {
 		"APPDATA="+filepath.Join(e.home, "AppData", "Roaming"),
 		"LOCALAPPDATA="+filepath.Join(e.home, "AppData", "Local"),
 	)
+	cmd.Env = append(cmd.Env, env...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()

@@ -1,0 +1,242 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/ctxdb/journalstore"
+	"github.com/damnbot/damnbot/internal/exec"
+	"github.com/damnbot/damnbot/internal/journal"
+)
+
+// seedCheckpoints creates a closed data dir with one expired and one current
+// journal action.
+func seedCheckpoints(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	ctx := context.Background()
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dir, Kind: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	record := func(now int64, path string) {
+		js, jerr := journalstore.New(db, &journalstore.Options{Now: func() int64 { return now }})
+		if jerr != nil {
+			t.Fatal(jerr)
+		}
+		_, rerr := js.Record(ctx, &journal.Record{
+			SessionID: "S1", Kind: journal.FileWrite, Path: path,
+			Before: &journal.Snapshot{Data: []byte("x"), Mode: 0o600, ModeSet: true},
+		})
+		if rerr != nil {
+			t.Fatalf("record %s: %v", path, rerr)
+		}
+	}
+	record(time.Now().Add(-40*24*time.Hour).UnixMilli(), "/w/old")
+	record(time.Now().UnixMilli(), "/w/new")
+	if err := db.ReleaseLease(ctx, "S1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func runCP(t *testing.T, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	code = runCheckpoints(args, &out, &errb)
+	return code, out.String(), errb.String()
+}
+
+// TestCheckpointsStatusList: the expired action is counted and listed.
+func TestCheckpointsStatusList(t *testing.T) {
+	t.Parallel()
+	dir := seedCheckpoints(t)
+	code, out, e := runCP(t, "status", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "actions: 2") || !strings.Contains(out, "expired: 1") {
+		t.Fatalf("status = %d:\n%s\n%s", code, out, e)
+	}
+	code, out, e = runCP(t, "list", "--data-dir", dir)
+	if code != 0 {
+		t.Fatalf("list = %d: %s", code, e)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 2 || !strings.Contains(lines[0]+lines[1], "expired") || !strings.Contains(lines[0]+lines[1], "ok") {
+		t.Fatalf("list lines = %d:\n%s", len(lines), out)
+	}
+}
+
+// TestCheckpointsPruneClear: dry-run previews, deletion needs --yes, and
+// clear removes the rest.
+func TestCheckpointsPruneClear(t *testing.T) {
+	t.Parallel()
+	dir := seedCheckpoints(t)
+	if code, out, _ := runCP(t, "prune", "--dry-run", "--data-dir", dir); code != 0 || !strings.Contains(out, "would prune 1") {
+		t.Fatalf("prune dry-run = %d %q", code, out)
+	}
+	if code, _, _ := runCP(t, "prune", "--data-dir", dir); code != 2 {
+		t.Errorf("prune without --yes exit = %d, want 2", code)
+	}
+	if code, out, e := runCP(t, "prune", "--yes", "--data-dir", dir); code != 0 || !strings.Contains(out, "pruned 1") {
+		t.Fatalf("prune = %d %q (%s)", code, out, e)
+	}
+	if code, out, _ := runCP(t, "status", "--data-dir", dir); code != 0 || !strings.Contains(out, "actions: 1") {
+		t.Fatalf("status after prune = %d:\n%s", code, out)
+	}
+	if code, _, _ := runCP(t, "clear", "--data-dir", dir); code != 2 {
+		t.Errorf("clear without --yes exit = %d, want 2", code)
+	}
+	if code, out, e := runCP(t, "clear", "--yes", "--data-dir", dir); code != 0 || !strings.Contains(out, "cleared 1") {
+		t.Fatalf("clear = %d %q (%s)", code, out, e)
+	}
+	if code, out, _ := runCP(t, "status", "--data-dir", dir); code != 0 || !strings.Contains(out, "actions: 0") {
+		t.Fatalf("status after clear = %d:\n%s", code, out)
+	}
+	if code, _, _ := runCP(t, "prune", "--older-than", "x", "--data-dir", dir); code != 2 {
+		t.Errorf("bad --older-than exit = %d, want 2", code)
+	}
+}
+
+// TestCheckpointsClearLegacy: the legacy directory is only removed with --yes.
+func TestCheckpointsClearLegacy(t *testing.T) {
+	t.Parallel()
+	dir := seedCheckpoints(t)
+	legacy := filepath.Join(dir, "checkpoints")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(legacy, "old"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, e := runCP(t, "clear-legacy", "--data-dir", dir); code != 2 || !strings.Contains(e, "without --yes") {
+		t.Fatalf("clear-legacy without --yes = %d %q", code, e)
+	}
+	if code, out, e := runCP(t, "clear-legacy", "--yes", "--data-dir", dir); code != 0 || !strings.Contains(out, "cleared legacy checkpoints") {
+		t.Fatalf("clear-legacy = %d %q (%s)", code, out, e)
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Errorf("legacy checkpoint dir still exists: %v", err)
+	}
+	if code, out, _ := runCP(t, "clear-legacy", "--data-dir", dir); code != 0 || !strings.Contains(out, "no legacy checkpoints") {
+		t.Fatalf("clear-legacy no-op = %d %q", code, out)
+	}
+}
+
+// TestCheckpointsClearDryRun: --dry-run previews clear and clear-legacy with
+// and without --yes and never deletes (ACC-63).
+func TestCheckpointsClearDryRun(t *testing.T) {
+	t.Parallel()
+	dir := seedCheckpoints(t)
+	legacy := filepath.Join(dir, "checkpoints")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, extra := range [][]string{{}, {"--yes"}} {
+		args := append([]string{"clear", "--dry-run"}, extra...)
+		if code, out, e := runCP(t, append(args, "--data-dir", dir)...); code != 0 || !strings.Contains(out, "would clear 2") {
+			t.Fatalf("clear --dry-run %v = %d %q (%s)", extra, code, out, e)
+		}
+		if code, out, _ := runCP(t, "status", "--data-dir", dir); code != 0 || !strings.Contains(out, "actions: 2") {
+			t.Fatalf("clear --dry-run %v deleted actions (%d):\n%s", extra, code, out)
+		}
+	}
+	if code, out, e := runCP(t, "clear-legacy", "--dry-run", "--yes", "--data-dir", dir); code != 0 || !strings.Contains(out, "would clear legacy") {
+		t.Fatalf("clear-legacy --dry-run = %d %q (%s)", code, out, e)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatalf("clear-legacy --dry-run removed the dir: %v", err)
+	}
+	// Positive control: the real path still deletes.
+	if code, out, e := runCP(t, "clear", "--yes", "--data-dir", dir); code != 0 || !strings.Contains(out, "cleared 2") {
+		t.Fatalf("clear --yes = %d %q (%s)", code, out, e)
+	}
+	if code, out, _ := runCP(t, "status", "--data-dir", dir); !strings.Contains(out, "actions: 0") {
+		t.Fatalf("status after clear = %d:\n%s", code, out)
+	}
+}
+
+// TestCheckpointsSessionScope: --session scopes status/list and is refused by
+// the subcommands that do not implement it, instead of being ignored (ACC-62).
+func TestCheckpointsSessionScope(t *testing.T) {
+	t.Parallel()
+	dir := seedCheckpoints(t)
+	if code, out, e := runCP(t, "status", "--session", "S1", "--data-dir", dir); code != 0 || !strings.Contains(out, "actions: 2") {
+		t.Fatalf("status --session S1 = %d %q (%s)", code, out, e)
+	}
+	if code, out, e := runCP(t, "list", "--session", "S1", "--data-dir", dir); code != 0 || !strings.Contains(out, "/w/new") {
+		t.Fatalf("list --session S1 = %d %q (%s)", code, out, e)
+	}
+	if code, _, e := runCP(t, "status", "--session", "missing", "--data-dir", dir); code == 0 || !strings.HasPrefix(e, "checkpoints status:") {
+		t.Errorf("status --session missing = %d %q, want non-zero with a checkpoints prefix", code, e)
+	}
+	refused := [][]string{
+		{"status", "--limit", "1"},
+		{"clear", "--session", "S1", "--yes"},
+		{"clear", "--limit", "1", "--yes"},
+		{"clear", "--older-than", "1ns", "--yes"},
+		{"prune", "--session", "S1", "--yes"},
+		{"prune", "--limit", "1", "--yes"},
+		{"clear-legacy", "--session", "S1", "--yes"},
+	}
+	for _, args := range refused {
+		if code, _, e := runCP(t, append(args, "--data-dir", dir)...); code != 2 || !strings.Contains(e, "not supported") {
+			t.Errorf("%v = %d %q, want 2 not supported", args, code, e)
+		}
+	}
+	if code, out, _ := runCP(t, "status", "--data-dir", dir); !strings.Contains(out, "actions: 2") {
+		t.Fatalf("refused subcommands changed state = %d:\n%s", code, out)
+	}
+}
+
+// TestMaintenanceGuardFromShellTool: destructive maintenance refuses to run
+// inside a damnbot shell tool (defense in depth, SEC15-2) while dry-runs work.
+func TestMaintenanceGuardFromShellTool(t *testing.T) {
+	t.Setenv(exec.MarkerEnv, "tool-child")
+	dir := seedCheckpoints(t)
+	if code, out, _ := runCP(t, "prune", "--dry-run", "--data-dir", dir); code != 0 || !strings.Contains(out, "would prune") {
+		t.Fatalf("dry-run inside shell tool = %d %q", code, out)
+	}
+	if code, _, e := runCP(t, "prune", "--yes", "--data-dir", dir); code != 2 || !strings.Contains(e, "refusing destructive maintenance") {
+		t.Fatalf("guarded prune = %d %q", code, e)
+	}
+	if code, _, e := runCP(t, "clear", "--yes", "--data-dir", dir); code != 2 || !strings.Contains(e, "refusing destructive maintenance") {
+		t.Fatalf("guarded clear = %d %q", code, e)
+	}
+	legacy := filepath.Join(dir, "checkpoints")
+	if err := os.MkdirAll(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, e := runCP(t, "clear-legacy", "--yes", "--data-dir", dir); code != 2 || !strings.Contains(e, "refusing destructive maintenance") {
+		t.Fatalf("guarded clear-legacy = %d %q", code, e)
+	}
+	if code, out, _ := runCP(t, "status", "--data-dir", dir); code != 0 || !strings.Contains(out, "actions: 2") {
+		t.Fatalf("guarded commands mutated state: %d\n%s", code, out)
+	}
+}
+
+// TestSessionsGuardFromShellTool: sessions prune/archive refuse inside a
+// damnbot shell tool while dry-run stays available (SEC15-2).
+func TestSessionsGuardFromShellTool(t *testing.T) {
+	t.Setenv(exec.MarkerEnv, "tool-child")
+	dir := seedCheckpoints(t)
+	if code, out, _ := runAdmin(t, "prune", "--older-than", "1ns", "--dry-run", "--data-dir", dir); code != 0 || !strings.Contains(out, "would purge") {
+		t.Fatalf("sessions dry-run inside shell tool = %d %q", code, out)
+	}
+	if code, _, e := runAdmin(t, "prune", "--older-than", "1ns", "--yes", "--data-dir", dir); code != 2 || !strings.Contains(e, "refusing destructive maintenance") {
+		t.Fatalf("guarded sessions prune = %d %q", code, e)
+	}
+	if code, _, e := runAdmin(t, "archive"); code != 2 || !strings.Contains(e, "refusing destructive maintenance") {
+		t.Fatalf("guarded sessions archive = %d %q", code, e)
+	}
+}
