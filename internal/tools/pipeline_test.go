@@ -479,6 +479,36 @@ func TestFinishUntrustedAndSpill(t *testing.T) {
 	}
 }
 
+// TestWorkspaceSourceOnlyFillsBlank: an untrusted workspace labels reads
+// "workspace", but only when the tool left the source blank. A tool that
+// already declared its own source keeps it (session_search's "session" is the
+// SPEC §14.5 case; the fallback used to overwrite it).
+func TestWorkspaceSourceOnlyFillsBlank(t *testing.T) {
+	t.Parallel()
+	declared := &stubTool{
+		name: "session_search", schema: echoSchema("session_search"), kind: KindRead, effect: EffectRead,
+		run: func(context.Context, Env, json.RawMessage) (Result, error) {
+			return Result{OK: true, Content: "hit", UntrustedSource: "session"}, nil
+		},
+	}
+	blank := &stubTool{name: "read_file", schema: echoSchema("read_file"), kind: KindRead, effect: EffectRead}
+	d, err := NewDispatcher(&Config{
+		Registry: mustReg(t, declared, blank), Journal: &journalRec{}, Spill: newMemSpill(),
+		Redactor: testRedactor(), Mode: ModeAuto, WorkspaceTrusted: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := dispatchCall(context.Background(), d, callOf("session_search", `{"body":"x"}`))
+	if !out.Tainted || !strings.HasPrefix(out.Content, `<untrusted source="session">`) {
+		t.Fatalf("declared source = %q tainted=%v, want the tool's own label", out.Content, out.Tainted)
+	}
+	ctl := dispatchCall(context.Background(), d, callOf("read_file", `{"body":"x"}`))
+	if !ctl.Tainted || !strings.HasPrefix(ctl.Content, `<untrusted source="workspace">`) {
+		t.Fatalf("blank source = %q tainted=%v, want the workspace fallback", ctl.Content, ctl.Tainted)
+	}
+}
+
 func TestPagedToolNoSpill(t *testing.T) {
 	t.Parallel()
 	tool := &stubTool{

@@ -386,11 +386,14 @@ func (d *Dispatcher) execute(ctx context.Context, p *Prepared) Outcome {
 	}
 	// Reads that leave the workspace (or any read in an untrusted
 	// workspace) are data, never instructions (SPEC §14.5, ADR-069/070).
+	// The workspace fallback only fills a blank source: a tool that already
+	// labelled its own data keeps that label (session_search's "session"
+	// must not degrade to "workspace").
 	if effect == EffectRead && (entry.Tool.Kind() == KindRead || entry.Tool.Kind() == KindSearch) {
 		switch {
 		case decision.Requirement == RequireOutside:
 			res.UntrustedSource = "file:outside_workspace"
-		case !d.trusted:
+		case !d.trusted && res.UntrustedSource == "":
 			res.UntrustedSource = "workspace"
 		}
 	}

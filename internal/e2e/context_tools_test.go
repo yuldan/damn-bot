@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -217,4 +218,67 @@ func memoryQuery(t *testing.T, e *Env, query string, args ...any) string {
 		return tx.Get(query, args, &out)
 	})
 	return out
+}
+
+// TestSessionSearchKeepsItsSource (ADR-188): a session_search hit carries its
+// own source label ("session"), not the untrusted-workspace fallback
+// ("workspace"). The label is what the model reads to decide how much
+// authority the text has (SPEC §14.5, ADR-070), and the workspace here is
+// untrusted so the fallback is live; losing the label would silently demote
+// transcript data to "some file in the workspace".
+func TestSessionSearchKeepsItsSource(t *testing.T) {
+	t.Parallel()
+	e := New(t, // untrusted: the workspace fallback is the competing label
+		providertest.Text("noted: LABELMARK-4410"),
+		ToolCallReply("c1", "session_search", `{"query":"LABELMARK-4410"}`),
+		providertest.Text("done"),
+	)
+	e.Run("remember LABELMARK-4410").RequireOK(t)
+	e.Run("search the transcript for the note").RequireOK(t)
+	body := e.RequestText(t, 2)
+	if !strings.Contains(body, `<untrusted source=\"session\">`) {
+		t.Fatalf("session hit lost its own source label:\n%s", body)
+	}
+	if strings.Contains(body, `<untrusted source=\"workspace\">`) {
+		t.Fatalf("the workspace fallback overwrote the tool's source:\n%s", body)
+	}
+}
+
+// TestSessionSearchTaintsTurnDeniesShell (ADR-188): a session_search hit
+// taints the rest of the turn (ADR-070), so a mutating shell command under
+// --approval auto --unsafe-auto-shell asks instead of running. The tracked
+// workspace is trusted, so workspace trust cannot be the reason the command
+// did not run; the headless run has no approver, hence the denial.
+func TestSessionSearchTaintsTurnDeniesShell(t *testing.T) {
+	t.Parallel()
+	e := NewTrusted(t,
+		providertest.Text("noted: TAINTMARK-7731"),
+		ToolCallReply("c1", "session_search", `{"query":"TAINTMARK-7731"}`),
+		ToolCallReply("c2", "shell", `{"command":"touch pwned-marker"}`),
+		providertest.Text("done"),
+	)
+	e.Run("remember TAINTMARK-7731").RequireOK(t)
+	e.Run("search the transcript, then run the command", "--approval", "auto", "--unsafe-auto-shell").RequireOK(t)
+	if _, err := os.Stat(e.Path("pwned-marker")); err == nil {
+		t.Fatal("a turn tainted by session_search auto-approved a mutating shell command")
+	}
+	if body := e.RequestText(t, 3); !strings.Contains(body, "interactive approval is required") {
+		t.Errorf("shell result is not the approval ask denial:\n%s", body)
+	}
+}
+
+// TestSessionSearchTaintControlShellRuns is the negative control of
+// TestSessionSearchTaintsTurnDeniesShell: the same trusted workspace, mode
+// and command, without the session_search hit, really do run the command.
+func TestSessionSearchTaintControlShellRuns(t *testing.T) {
+	t.Parallel()
+	e := NewTrusted(t,
+		ToolCallReply("c1", "shell", `{"command":"touch control-marker"}`),
+		providertest.Text("done"),
+	)
+	res := e.Run("run the command from the workspace", "--approval", "auto", "--unsafe-auto-shell")
+	res.RequireOK(t)
+	if _, err := os.Stat(e.Path("control-marker")); err != nil {
+		t.Fatalf("control: the untainted turn never ran the shell command: %v\n%s", err, res.Stderr)
+	}
 }
