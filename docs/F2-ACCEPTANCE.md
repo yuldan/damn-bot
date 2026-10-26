@@ -53,11 +53,11 @@ Audit §3 (parity) pada `main ef8ec40d` memetakan 42 baris berstatus `missing`: 
 `covered`** (statusnya dikoreksi di bawah, dengan berkas + nama tes), **22 baris sudah bukan milik F2**
 (fasenya dikutip dari kolom `fase` `docs/FEATURE-PARITY.md` dan dicatat di barisnya; kepemilikan fase
 mengikuti **ADR-139**), **22 baris masih F2 dan punya penutup PR terbuka** (nomornya dicatat di barisnya),
-dan **1 baris tanpa penutup** (`CLI-039`; `MEM-026` **ditutup #310** pada 2026-10-25 dan `MEM-025`
-**ditutup #318** pada 2026-10-26, jadi koreksi 2026-10-24 sudah lunas untuk keduanya - lihat barisnya dan
-§4 item 11(d)/10). Karena 81 baris terdaftar = 59 baris yang kini masih
-fase F2 + 22 baris yang pindah fase, utang implementasi F2 yang sebenarnya = **23 baris** (22 berpenutup +
-1 tanpa). Baris parity **tidak** dulu maupun sekarang menjadi gate - lihat §3 bagian terakhir.
+dan **0 baris tanpa penutup** (`MEM-026` **ditutup #310** pada 2026-10-25, `MEM-025`
+**ditutup #318** pada 2026-10-26, dan `CLI-039` **ditutup #326** pada 2026-10-26, jadi koreksi 2026-10-24
+sudah lunas untuk ketiganya - lihat barisnya dan §4 item 11(d)/10). Karena 81 baris terdaftar = 59 baris
+yang kini masih fase F2 + 22 baris yang pindah fase, utang implementasi F2 yang sebenarnya = **22 baris**
+(22 berpenutup + 0 tanpa). Baris parity **tidak** dulu maupun sekarang menjadi gate - lihat §3 bagian terakhir.
 
 ---
 
@@ -197,7 +197,7 @@ by the acceptance test until the surface exists.
 | ID | fitur | status | evidence |
 | --- | --- | --- | --- |
 | CLI-038 | `hermes backup` | in-flight | PR #197: `internal/backup/create_test.go`, `restore_test.go` |
-| CLI-039 | `hermes checkpoints` | missing | journal snapshots back undo only; no checkpoints command or test · **in-flight, PR port menyusul**: kode + tes sudah ada di `24d44b12` (#264, MERGED ke stack `f2-cp-api`, belum ada di `main`) |
+| CLI-039 | `hermes checkpoints` | covered | **Ditutup #326** (squash `ee0cecec`, 2026-10-26): port ke `main` dari squash `24d44b12` (#264, yang semula bertumpuk di base `f2-cp-api`). Kode: `cmd/damnbot/checkpoints.go` (`status`/`list [--limit N] [--session ID]`/`prune [--older-than 30d] [--dry-run] [--yes]`/`clear\|clear-legacy`) + `cmd/damnbot/maintenance.go` (guard runner shell `DAMNBOT_EXEC_ID`) + hunk `sessions prune`/`sessions archive`; `--session` benar-benar menyaring (`CheckpointStats`), `--dry-run` memakai store read-only dan tidak pernah menghapus (ACC-63), pemeliharaan destruktif ditolak saat sesi kandidat punya turn terbuka/lease hidup. Permukaan: `SPEC.md` §10 + amandemen **ADR-146**. Bukti: unit `cmd/damnbot/checkpoints_test.go` (`TestCheckpointsStatusList`, `TestCheckpointsPruneClear`, `TestCheckpointsClearLegacy`, `TestCheckpointsClearDryRun`, `TestCheckpointsSessionScope`, `TestMaintenanceGuardFromShellTool`) dan **tiga skenario e2e biner** `internal/e2e/checkpoints_test.go` (`TestCheckpointsCLI`, `TestCheckpointsCLIDryRunScope`, `TestCheckpointsCLIBusyGuard`); hijau di CI PR #326 pada head `ee0cecec`. |
 | CLI-040 | `hermes import` | in-flight | PR #197: `internal/backup/restore_test.go` |
 | CLI-046 | `hermes skills` | surface | skills install/retrieve tests (`internal/skills/install_test.go`); no CLI test |
 | CLI-047 | `hermes bundles` | missing | no bundle type or test · penutup #270 |
@@ -396,10 +396,9 @@ proves it.
    GAP-SEC-01.
 10. **docs:** peta baris parity sudah diperbarui (audit `ef8ec40d`): **8 baris ternyata `covered`** di
     `main`, **22 baris pindah fase** (ADR-139) dan tetap tercatat dengan fase barunya, **22 baris masih F2
-    dan punya penutup PR terbuka** (#253, #259, #266, #267, #268, #269, #270, #273), dan **1 baris tanpa
-    penutup**: `CLI-039` (checkpoints CLI; kodenya menunggu PR port dari stack `f2-cp-api`). `MEM-025`
-    (context pin) ditutup #318 di atas cover #304, dan `MEM-026` (berkas konteks) ditutup #310 — lihat §4
-    item 11(d) untuk yang terakhir. Sisa pekerjaan F2 = mendaratkan penutup itu, atau memindahkan barisnya ke fase
+    dan punya penutup PR terbuka** (#253, #259, #266, #267, #268, #269, #270, #273), dan **0 baris tanpa
+    penutup**: `CLI-039` (checkpoints CLI) ditutup #326, `MEM-025` (context pin) ditutup #318 di atas cover
+    #304, dan `MEM-026` (berkas konteks) ditutup #310 — lihat §4 item 11(d) untuk yang terakhir. Sisa pekerjaan F2 = mendaratkan penutup itu, atau memindahkan barisnya ke fase
     pemiliknya lewat koreksi ADR-064. Baris "planned" tanpa penutup adalah lubang yang ditutup ledger ini.
 
 11. **e2e:** tutup celah suite biner nyata (§3 "F2 e2e suite"). (a) Skenario 1-3 menunggu pendaratan
