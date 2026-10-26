@@ -431,7 +431,7 @@ func runE4Step(ctx context.Context, res *evalTaskResult, st *evalStep, o *evalOp
 		prompt: st.Input, dataDir: dataDir, model: o.model, output: "json", approval: "auto",
 		cfgOverride: cfg, prov: prov,
 		retrieverFor: func(db *ctxdb.Store) assemble.Retriever { return &evalRetriever{db: db} },
-	}, &buf)
+	}, &buf, &buf)
 	cancel()
 	var turn struct {
 		SessionID string `json:"session_id"`
