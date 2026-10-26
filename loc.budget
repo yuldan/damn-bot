@@ -92,7 +92,10 @@ compaction         900 internal/compaction
 # ADR-168: memory+skills 1400 -> 1500 (SKILL-004 preprocess.go: template + inline shell opt-in; terukur 1427; Sigma core +100).
 # ADR-168 + ADR-184: memory+skills 1400 -> 1800 (SKILL-004 preprocess + karantina/ledger/index/bundle/discovery di internal/skills; terukur 1800 pada kepala rantai f2-skills; Sigma core +400).
 # Amandemen ADR-184 (lint rantai: `Vars *PreprocessVars` di internal/skills + `os.Root` pada copy install): 1800 -> 1830 (terukur 1803 pada kepala rantai f2-skills-index/cli/config; Σ core 44.031 -> 44.461).
-memory+skills     1830 internal/memory internal/skills
+# ADR-207 (GAP-TOOL-10): schema `requires: {bins,os,arch,gpu}` + evaluator host di
+# internal/skills/requires.go; memory+skills 1830 -> 2119 = angka ukur scc pada pohon
+# ter-commit, tanpa headroom. Tidak ada baris turun: Σ core 46.414 -> 46.703.
+memory+skills     2119 internal/memory internal/skills
 # ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).
 # ADR-117 amendment (REVIEW-F2-SEC5-15): journal 560 -> 565 (preview undo lewat OpenResolved;
 # terukur 562; Σ core 38.150 -> 38.155 <= 47.000).
