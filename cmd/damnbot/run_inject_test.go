@@ -96,7 +96,7 @@ func TestRunAnswerSchema(t *testing.T) {
 	}
 }
 
-// TestRunRefsExpandsAfterContextQuery (ACC-70, ADR-189 butir 3): a reference
+// TestRunRefsExpandsAfterContextQuery (ACC-70, ADR-190 butir 3): a reference
 // expands into the user message sent to the provider, while the context-tier
 // retriever still ranks against the raw prompt.
 func TestRunRefsExpandsAfterContextQuery(t *testing.T) {
