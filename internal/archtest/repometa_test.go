@@ -19,6 +19,7 @@ const (
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
 	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)
+	locModuleRow     = "MODULE"   // cap per-baris modul permukaan, di luar Σ core (ADR-196)
 )
 
 var (
@@ -58,7 +59,8 @@ func budgetRows(t *testing.T, spec string) [][]string {
 // TestBudgetTableSum (P21, ADR-086 AUD-064): Σ kolom binary SPEC §3.2.4 ≤ 52 MB, Σ kolom LOC
 // §3.2.4 ≤ 190.000, dan Σ baris core loc.budget ≤ 47.000. Baris core = tabel core ENGINEERING
 // §2.4 (core + codetools + exec + heal): semua baris `<grup> <LOC> <dir…>` kecuali TOTAL,
-// GENERATED, dan baris infra non-produksi (NEW-34) yang semua direktorinya di infraDirs.
+// GENERATED, TESTONLY, setiap baris `MODULE` (ADR-196), dan baris infra non-produksi (NEW-34) yang
+// semua direktorinya di infraDirs.
 func TestBudgetTableSum(t *testing.T) {
 	t.Parallel()
 	binary, loc := 0, 0
@@ -85,34 +87,74 @@ func TestBudgetTableSum(t *testing.T) {
 }
 
 // budgetCoreSum menjumlah kolom LOC baris core loc.budget dan memvalidasi format setiap baris;
-// baris TESTONLY (ADR-098) hanya boleh menunjuk satu direktori infra non-produksi.
+// baris TESTONLY (ADR-098) hanya boleh menunjuk satu direktori infra non-produksi, dan kelas MODULE
+// (ADR-196) divalidasi formatnya lalu dilewati (tidak pernah masuk Σ core).
 func budgetCoreSum(t *testing.T, budget string) int {
 	t.Helper()
 	core := 0
 	for _, line := range allowlist(budget) {
 		fields := strings.Fields(line)
-		if len(fields) > 0 && (fields[0] == locTotalRow || fields[0] == locGeneratedRow) {
+		if len(fields) == 0 {
 			continue
 		}
-		if len(fields) > 0 && fields[0] == locTestOnlyRow {
-			// ADR-098: hanya direktori infra non-produksi yang boleh keluar dari rasio E-70.
-			if len(fields) != 2 || isCoreDir(fields[1]) {
-				t.Errorf("loc.budget: TESTONLY hanya untuk satu direktori infra (%v): %q", infraDirs(), line)
-			}
+		switch fields[0] {
+		case locTotalRow, locGeneratedRow:
+			continue
+		case locTestOnlyRow:
+			validateTestOnlyRow(t, fields, line)
+			continue
+		case locModuleRow:
+			validateModuleRow(t, fields, line)
 			continue
 		}
-		n, err := 0, error(nil)
-		if len(fields) >= 3 {
-			n, err = strconv.Atoi(fields[1])
-		}
-		switch {
-		case len(fields) < 3 || err != nil:
-			t.Errorf("loc.budget: baris tidak valid %q", line)
-		case slices.ContainsFunc(fields[2:], isCoreDir): // baris infra murni di luar Σ core
+		if n, ok := coreRowLOC(t, fields, line); ok {
 			core += n
 		}
 	}
 	return core
+}
+
+// validateTestOnlyRow (ADR-098): hanya direktori infra non-produksi yang boleh keluar dari rasio E-70.
+func validateTestOnlyRow(t *testing.T, fields []string, line string) {
+	t.Helper()
+	if len(fields) != 2 || isCoreDir(fields[1]) {
+		t.Errorf("loc.budget: TESTONLY hanya untuk satu direktori infra (%v): %q", infraDirs(), line)
+	}
+}
+
+// validateModuleRow (ADR-196): format `MODULE <nama> <cap> <dir...>` divalidasi supaya baris rusak
+// tidak lolos diam-diam; nama/Σ/overlap-nya diperiksa TestLocBudgetModuleRows.
+func validateModuleRow(t *testing.T, fields []string, line string) {
+	t.Helper()
+	if len(fields) < 4 {
+		t.Errorf("loc.budget: MODULE butuh nama+cap+dir: %q", line)
+		return
+	}
+	n, err := strconv.Atoi(fields[2])
+	if err != nil || n <= 0 || fields[2] != strconv.Itoa(n) {
+		t.Errorf("loc.budget: cap MODULE tidak valid: %q", line)
+		return
+	}
+	for _, d := range fields[3:] {
+		if !strings.HasPrefix(d, "internal/") || strings.HasSuffix(d, "/") || strings.ContainsAny(d, "*?[") {
+			t.Errorf("loc.budget: dir MODULE %q tidak valid: %q", d, line)
+		}
+	}
+}
+
+// coreRowLOC mengembalikan LOC baris core dan apakah baris itu masuk Σ core (baris infra murni tidak).
+func coreRowLOC(t *testing.T, fields []string, line string) (int, bool) {
+	t.Helper()
+	if len(fields) < 3 {
+		t.Errorf("loc.budget: baris tidak valid %q", line)
+		return 0, false
+	}
+	n, err := strconv.Atoi(fields[1])
+	if err != nil {
+		t.Errorf("loc.budget: baris tidak valid %q", line)
+		return 0, false
+	}
+	return n, slices.ContainsFunc(fields[2:], isCoreDir)
 }
 
 // infraDirs = direktori infra non-produksi loc.budget (ADR-086 NEW-34), di luar Σ core.
@@ -243,7 +285,15 @@ func TestBudgetRowsUnique(t *testing.T) {
 		case locTotalRow, locGeneratedRow, locTestOnlyRow:
 			continue
 		}
-		seen[fields[0]]++
+		group := fields[0]
+		if fields[0] == locModuleRow { // ADR-196: nama modul ada di kolom kedua
+			if len(fields) < 4 {
+				t.Errorf("loc.budget: baris MODULE tidak valid %q (butuh: MODULE <grup> <LOC> <dir...>)", line)
+				continue
+			}
+			group = fields[0] + " " + fields[1]
+		}
+		seen[group]++
 	}
 	for group, n := range seen {
 		if n > 1 {
