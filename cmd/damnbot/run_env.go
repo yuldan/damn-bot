@@ -22,7 +22,7 @@ func loadRunEnv(o *runOptions) (cfg config.Config, dataDir, configDir, home stri
 	if o.cfgOverride != nil {
 		cfg = *o.cfgOverride
 	}
-	paths, err := loader.Paths("")
+	paths, err := loader.Paths(activeProfile())
 	if err != nil {
 		return config.Config{}, "", "", "", fmt.Errorf("config paths: %w", err)
 	}

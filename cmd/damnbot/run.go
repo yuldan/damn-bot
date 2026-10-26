@@ -102,10 +102,12 @@ func runHeadless(args []string, stdout, stderr io.Writer) int {
 	return code
 }
 
-func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
-	var o runOptions
+// runFlagSet mendefinisikan flag `run` satu kali: parser dan `--help`
+// memakai definisi yang sama, sehingga teks wajib SPEC §10 untuk
+// --unsafe-auto-shell tidak bisa menyimpang.
+func runFlagSet(o *runOptions, out io.Writer) *flag.FlagSet {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	fs.SetOutput(stderr)
+	fs.SetOutput(out)
 	fs.StringVar(&o.prompt, "p", "", "prompt (also accepted as positional text)")
 	fs.StringVar(&o.prompt, "prompt", "", "prompt (also accepted as positional text)")
 	fs.StringVar(&o.model, "model", "", "provider/model reference")
@@ -124,6 +126,19 @@ func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
 	fs.BoolVar(&o.retry, "retry", false, "resend the last user message of the resumed session")
 	fs.BoolVar(&o.noRecap, "no-recap", false, "do not print the resume recap to stderr")
 	fs.IntVar(&o.providerAttempts, "provider-attempts", 0, "internal/test: provider retry attempts (0 = default 3)")
+	return fs
+}
+
+// runUsage is `damnbot help run` / `damnbot run --help`.
+func runUsage(w io.Writer) {
+	var o runOptions
+	sessionsPrintf(w, "usage: damnbot run [flags] <prompt>\n")
+	runFlagSet(&o, w).PrintDefaults()
+}
+
+func parseRunFlags(args []string, stderr io.Writer) (runOptions, error) {
+	var o runOptions
+	fs := runFlagSet(&o, stderr)
 	if err := fs.Parse(args); err != nil {
 		return runOptions{}, &reportedParseError{err: fmt.Errorf("parse flags: %w", err)}
 	}
@@ -517,7 +532,7 @@ func closeDB(ctx context.Context, db *ctxdb.Store, sid string, cause error) erro
 
 func loadRunConfig(loader *config.Loader, path string) (config.Config, error) {
 	if path == "" {
-		p, err := loader.Paths("")
+		p, err := loader.Paths(activeProfile())
 		if err != nil {
 			return config.Config{}, fmt.Errorf("config paths: %w", err)
 		}

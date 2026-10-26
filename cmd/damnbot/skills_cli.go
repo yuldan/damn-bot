@@ -86,7 +86,7 @@ func skillsPaths() (configDir, dataDir string, err error) {
 	if err != nil {
 		return "", "", fmt.Errorf("config deps: %w", err)
 	}
-	paths, err := loader.Paths("")
+	paths, err := loader.Paths(activeProfile())
 	if err != nil {
 		return "", "", fmt.Errorf("config paths: %w", err)
 	}

@@ -40,6 +40,12 @@ func runUndo(args []string, stdout, stderr io.Writer) int {
 	return runSub("undo", args, stdout, stderr, parseUndoFlags, undoMain)
 }
 
+// undoUsage is `damnbot help undo` / `damnbot undo --help`.
+func undoUsage(w io.Writer) {
+	sessionsPrintf(w, "usage: damnbot undo [N|a<id>|ls] [--session ID] [--dry-run] [--force]\n")
+	sessionsPrintf(w, "       N = undo the newest N actions (default 1); a<id> from `damnbot undo ls`\n")
+}
+
 // parseUndoFlags accepts flags before and after the positional argument
 // (`undo 3 --dry-run`): `ls`, N, or an action id `a<id>` as printed by ls.
 func parseUndoFlags(args []string, stderr io.Writer) (undoOptions, error) {

@@ -32,7 +32,7 @@ func openCLI(ctx context.Context, configPath, dataDir string) (*cliEnv, error) {
 	if err != nil {
 		return nil, err
 	}
-	paths, err := loader.Paths("")
+	paths, err := loader.Paths(activeProfile())
 	if err != nil {
 		return nil, fmt.Errorf("config paths: %w", err)
 	}

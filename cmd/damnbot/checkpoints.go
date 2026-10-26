@@ -384,7 +384,7 @@ func legacyCheckpointDirs(dataDir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config deps: %w", err)
 	}
-	paths, err := loader.Paths("")
+	paths, err := loader.Paths(activeProfile())
 	if err != nil {
 		return nil, fmt.Errorf("config paths: %w", err)
 	}
