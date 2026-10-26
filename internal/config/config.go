@@ -21,8 +21,16 @@ type Config struct {
 	Agent    Agent    `toml:"agent"`
 	Skills   Skills   `toml:"skills"`
 	Sessions Sessions `toml:"sessions"`
-	Log      Log      `toml:"log"`
-	Storage  Storage  `toml:"storage"`
+	Context  Context  `toml:"context"`
+	Memory   Memory   `toml:"memory"`
+	Recovery Recovery `toml:"recovery"`
+	UI       UI       `toml:"ui"`
+	// Gateway and Providers are accepted and validated but have no runtime
+	// consumer until F4/F5 (ADR-197): config is data-only for them.
+	Gateway   Gateway   `toml:"gateway"`
+	Providers Providers `toml:"providers"`
+	Log       Log       `toml:"log"`
+	Storage   Storage   `toml:"storage"`
 	// Toolsets is the F2 [toolsets] section (ADR-139). Empty Active keeps the
 	// pre-toolset behaviour: every registered tool is exposed.
 	Toolsets toolset.Config `toml:"toolsets"`
@@ -67,6 +75,10 @@ type Budget struct {
 	MonthlyUSD float64            `toml:"monthly_usd"`
 	WarnAt     float64            `toml:"warn_at"`
 	Providers  map[string]float64 `toml:"providers"`
+	// ToolsSessionUSD and ToolsDailyUSD cap paid non-LLM tools (COST-11).
+	// They are value-only until the F6 metering consumes them.
+	ToolsSessionUSD float64 `toml:"tools_session_usd"`
+	ToolsDailyUSD   float64 `toml:"tools_daily_usd"`
 }
 
 // Approval is SPEC §12 [approval] (ADR-069, ADR-079).
@@ -114,6 +126,83 @@ type Sessions struct {
 	PruneAfterDays int  `toml:"prune_after_days"`
 }
 
+// Context is SPEC §12 [context]: compaction thresholds.
+type Context struct {
+	CompactAt       float64 `toml:"compact_at"`
+	SummaryMaxTok   int     `toml:"summary_max_tok"`
+	SummariesMaxTok int     `toml:"summaries_max_tok"`
+	PinnedSchemaTok int     `toml:"pinned_schema_tok"`
+}
+
+// Memory is SPEC §12 [memory].
+type Memory struct {
+	EntryMaxChars int    `toml:"entry_max_chars"`
+	TotalMaxChars int    `toml:"total_max_chars"`
+	Embeddings    string `toml:"embeddings"`
+}
+
+// Recovery is SPEC §12 [recovery]: what a broken turn does by default.
+type Recovery struct {
+	Continue string `toml:"continue"`
+}
+
+// UI is SPEC §12 [ui]: interface language (§9.12) and theme (§13.1).
+type UI struct {
+	Language string `toml:"language"`
+	Theme    string `toml:"theme"`
+}
+
+// Gateway is SPEC §12 gateway data (P25, GAP-GW-02). It is accepted and
+// validated but has no runtime consumer until F4.
+type Gateway struct {
+	MaxParallelTurns int                    `toml:"max_parallel_turns"`
+	Users            map[string]GatewayUser `toml:"users"`
+}
+
+// GatewayUser is one identity's gateway overrides; Workspace empty means the
+// identity's derived sandbox root.
+type GatewayUser struct {
+	Workspace string `toml:"workspace"`
+}
+
+// Providers holds the SPEC §12 [[providers.custom]] array. It is accepted and
+// validated but has no runtime consumer until F5 (GAP-SEC-24).
+type Providers struct {
+	Custom []CustomProvider `toml:"custom"`
+}
+
+// CustomProvider is one PROVIDERS.md custom provider (12 fields). APIKey may
+// only be a keychain reference; Streaming nil means true.
+type CustomProvider struct {
+	Name                  string            `toml:"name"`
+	BaseURL               string            `toml:"base_url"`
+	API                   string            `toml:"api"`
+	APIKeyEnv             string            `toml:"api_key_env"`
+	APIKey                string            `toml:"api_key"`
+	KeyCmd                []string          `toml:"key_cmd"`
+	Models                []CustomModel     `toml:"models"`
+	ExtraHeaders          map[string]string `toml:"extra_headers"`
+	ExtraBody             map[string]any    `toml:"extra_body"`
+	TLS                   *CustomTLS        `toml:"tls"`
+	SessionAffinityHeader string            `toml:"session_affinity_header"`
+	Streaming             *bool             `toml:"streaming"`
+}
+
+// CustomModel is one model of a custom provider.
+type CustomModel struct {
+	ID            string   `toml:"id"`
+	ContextLength int      `toml:"context_length"`
+	MaxTokens     int      `toml:"max_tokens"`
+	Capabilities  []string `toml:"capabilities"`
+}
+
+// CustomTLS is the optional transport security block of a custom provider.
+// SSLVerify nil means true.
+type CustomTLS struct {
+	SSLVerify *bool  `toml:"ssl_verify"`
+	SSLCACert string `toml:"ssl_ca_cert"`
+}
+
 // Duration is a TOML string duration such as "24h".
 type Duration time.Duration
 
@@ -158,6 +247,9 @@ func Default() Config {
 			MonthlyUSD: 0,
 			WarnAt:     0.80,
 			Providers:  map[string]float64{},
+			// SPEC §12 defers these to GAP-COST-11: 1,00 / 5,00.
+			ToolsSessionUSD: 1.00,
+			ToolsDailyUSD:   5.00,
 		},
 		Approval: Approval{
 			Mode:            "ask",
@@ -187,6 +279,24 @@ func Default() Config {
 			AutoPrune:      false,
 			PruneAfterDays: 90,
 		},
+		Context: Context{
+			CompactAt:       0.75,
+			SummaryMaxTok:   600,
+			SummariesMaxTok: 3000,
+			PinnedSchemaTok: 3000,
+		},
+		Memory: Memory{
+			EntryMaxChars: 500,
+			TotalMaxChars: 4000,
+			Embeddings:    "",
+		},
+		Recovery: Recovery{Continue: "safe_auto"},
+		UI:       UI{Language: "auto", Theme: "tern-dark"},
+		Gateway: Gateway{
+			MaxParallelTurns: 4,
+			Users:            map[string]GatewayUser{},
+		},
+		Providers: Providers{Custom: []CustomProvider{}},
 		Log: Log{
 			Level:             "info",
 			MessageContent:    false,
@@ -230,8 +340,75 @@ func (c *Config) Clone() Config {
 	out.Approval.AddDirs = slices.Clone(c.Approval.AddDirs)
 	out.Exec.EnvAllow = slices.Clone(c.Exec.EnvAllow)
 	out.Exec.Env = maps.Clone(c.Exec.Env)
+	out.Skills.TrustedProjects = slices.Clone(c.Skills.TrustedProjects)
+	out.Skills.ExternalDirs = slices.Clone(c.Skills.ExternalDirs)
+	out.Gateway.Users = maps.Clone(c.Gateway.Users)
+	out.Providers.Custom = cloneCustomProviders(c.Providers.Custom)
 	out.Toolsets = cloneToolsets(c.Toolsets)
 	return out
+}
+
+func cloneCustomProviders(in []CustomProvider) []CustomProvider {
+	if in == nil {
+		return nil
+	}
+	out := make([]CustomProvider, len(in))
+	for i := range in {
+		out[i] = in[i]
+		p := &out[i]
+		p.KeyCmd = slices.Clone(in[i].KeyCmd)
+		p.ExtraHeaders = maps.Clone(in[i].ExtraHeaders)
+		p.ExtraBody = cloneAnyMap(in[i].ExtraBody)
+		p.Models = slices.Clone(in[i].Models)
+		for j := range p.Models {
+			p.Models[j].Capabilities = slices.Clone(in[i].Models[j].Capabilities)
+		}
+		if p.TLS != nil {
+			tls := *p.TLS
+			if tls.SSLVerify != nil {
+				v := *tls.SSLVerify
+				tls.SSLVerify = &v
+			}
+			p.TLS = &tls
+		}
+		if p.Streaming != nil {
+			v := *p.Streaming
+			p.Streaming = &v
+		}
+	}
+	return out
+}
+
+func cloneAnyMap(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = cloneAny(v)
+	}
+	return out
+}
+
+func cloneAny(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		return cloneAnyMap(x)
+	case []any:
+		out := make([]any, len(x))
+		for i := range x {
+			out[i] = cloneAny(x[i])
+		}
+		return out
+	case []map[string]any:
+		out := make([]map[string]any, len(x))
+		for i := range x {
+			out[i] = cloneAnyMap(x[i])
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 func cloneToolsets(in toolset.Config) toolset.Config {
