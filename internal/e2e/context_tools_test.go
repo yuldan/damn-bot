@@ -1,0 +1,288 @@
+package e2e
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"testing"
+
+	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/provider/providertest"
+)
+
+// TestMemoryToolEndToEnd: the memory tool writes through the real service,
+// evidencing the agent write with its dispatch event (TOOL-070).
+func TestMemoryToolEndToEnd(t *testing.T) {
+	t.Parallel()
+	e := New(t,
+		ToolCallReply("c1", "memory", `{"action":"add","target":"user","content":"likes tabs"}`),
+		providertest.Text("done"),
+	)
+	res := e.Run("remember my indentation preference", "--approval", "auto-edit")
+	res.RequireOK(t)
+	if !e.Contains(t, 1, "stored memory") || !e.Contains(t, 1, "quarantined") {
+		t.Errorf("memory tool result not sent to the model:\n%s", e.RequestText(t, 1))
+	}
+	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: e.DataDir, Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Errorf("close store: %v", cerr)
+		}
+	}()
+	var n int64
+	if err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
+		return tx.Get("SELECT count(*) FROM memory WHERE origin = 'agent' AND scope = 'user'", nil, &n)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("agent memory rows = %d, want 1", n)
+	}
+	var status string
+	if err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT status FROM v_memory_status WHERE scope = 'user' AND origin = 'agent'`, nil, &status)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if status != "scanned" {
+		t.Errorf("memory status = %q, want scanned (quarantined)", status)
+	}
+}
+
+// TestSessionSearchEndToEnd: the session_search tool finds an earlier turn
+// through real FTS (TOOL-073).
+func TestSessionSearchEndToEnd(t *testing.T) {
+	t.Parallel()
+	e := New(t,
+		providertest.Text("first answer"),
+		ToolCallReply("c1", "session_search", `{"query":"NEEDLE-ALPHA","k":3}`),
+		providertest.Text("second answer"),
+	)
+	e.Run("we discuss NEEDLE-ALPHA now").RequireOK(t)
+	second := e.Run("find the earlier note")
+	second.RequireOK(t)
+	body := e.RequestText(t, 2)
+	for _, want := range []string{"NEEDLE-ALPHA", "matches:"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("search tool result lacks %q:\n%s", want, body)
+		}
+	}
+}
+
+// TestSessionSearchScopedToProject: session_search is scoped to the caller's
+// project cwd (SEC17-1). A transcript seeded in another workspace of the same
+// data dir is never returned; the caller's own workspace still matches the
+// same query shape (negative control that proves the tool and FTS are live).
+func TestSessionSearchScopedToProject(t *testing.T) {
+	t.Parallel()
+	e := New(t,
+		providertest.Text("noted"),
+		ToolCallReply("c1", "session_search", `{"query":"SCOPEMARK-BRAVO-9911"}`),
+		providertest.Text("no hits"),
+		ToolCallReply("c2", "session_search", `{"query":"SCOPEMARK-ALPHA-2244"}`),
+		providertest.Text("found"),
+	)
+	e.Run("remember SCOPEMARK-ALPHA-2244 for this project").RequireOK(t)
+	seedForeignSession(t, e, e.Workdir+"-other", "SCOPEMARK-BRAVO-9911 from another project")
+	e.Run("recall the other repository notes").RequireOK(t)
+	if body := e.RequestText(t, 2); !strings.Contains(body, "no matching sessions") {
+		t.Errorf("foreign project transcript reached session_search:\n%s", body)
+	}
+	e.Run("recall our own notes").RequireOK(t)
+	if body := e.RequestText(t, 4); !strings.Contains(body, "matches:") {
+		t.Errorf("own project transcript missing (control):\n%s", body)
+	} else if !strings.Contains(body, `untrusted source=\"session\"`) {
+		t.Errorf("transcript hits are not wrapped as untrusted:\n%s", body)
+	}
+}
+
+// seedForeignSession appends one transcript in a different workspace of the
+// scenario's data dir: a session_search by cwd must never see it (SEC17-1).
+func seedForeignSession(t *testing.T, e *Env, cwd, content string) {
+	t.Helper()
+	withCtxStore(t, e, func(tx *ctxdb.Tx) error {
+		if _, err := tx.CreateSession(ctxdb.Session{ID: "OTHER", Origin: "headless", Cwd: cwd}); err != nil {
+			return fmt.Errorf("create foreign session: %w", err)
+		}
+		if _, err := tx.AppendEvent("OTHER", &ctxdb.Event{Kind: "user_message", Role: "user", Content: content}); err != nil {
+			return fmt.Errorf("append foreign turn: %w", err)
+		}
+		return nil
+	})
+}
+
+// TestMemoryAgentRemoveFailsClosed: the memory tool only retires notes the
+// agent wrote; a user-origin note stays approved and the agent's own
+// retirement is audited as the system actor, never the user (SEC17-3). The
+// control retires an approved agent-written note through the same path.
+func TestMemoryAgentRemoveFailsClosed(t *testing.T) {
+	t.Parallel()
+	e := New(t)
+	userNote := seedUserMemory(t, e, "user-owned note")
+	agentNote := seedAgentMemory(t, e, "agent-owned note")
+	e.Server.Push(
+		ToolCallReply("c1", "memory", fmt.Sprintf(`{"action":"remove","target":"user","id":%d}`, agentNote)),
+		providertest.Text("removed"),
+		ToolCallReply("c2", "memory", fmt.Sprintf(`{"action":"remove","target":"user","id":%d}`, userNote)),
+		providertest.Text("done"),
+	)
+	e.Run("drop the note you wrote", "--approval", "auto-edit").RequireOK(t)
+	if got := memoryQuery(t, e, `SELECT status FROM v_memory_status WHERE id = ?1`, agentNote); got != "retired" {
+		t.Errorf("agent-origin note status = %q, want retired (control)", got)
+	}
+	if got := memoryQuery(t, e, `SELECT actor FROM memory_decisions WHERE memory_id = ?1 ORDER BY id DESC LIMIT 1`, agentNote); got != "system" {
+		t.Errorf("retire actor = %q, want system (never user)", got)
+	}
+	e.Run("drop the user note too", "--approval", "auto-edit").RequireOK(t)
+	if got := memoryQuery(t, e, `SELECT status FROM v_memory_status WHERE id = ?1`, userNote); got != "approved" {
+		t.Errorf("user-origin note status = %q, want approved (fail closed)", got)
+	}
+	if got := memoryQuery(t, e, `SELECT count(*) FROM memory_decisions WHERE memory_id = ?1`, userNote); got != "1" {
+		t.Errorf("user-origin decisions = %s, want 1 (no retire recorded)", got)
+	}
+	if body := e.RequestText(t, 3); !strings.Contains(body, "memory action denied") {
+		t.Errorf("agent remove of user memory was not denied to the model:\n%s", body)
+	}
+}
+
+// withCtxStore runs fn against the scenario's data dir and closes the store
+// before the child process starts.
+func withCtxStore(t *testing.T, e *Env, fn func(tx *ctxdb.Tx) error) {
+	t.Helper()
+	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: e.DataDir, Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	derr := db.Write(t.Context(), fn)
+	if cerr := db.Close(); cerr != nil {
+		t.Errorf("close store: %v", cerr)
+	}
+	if derr != nil {
+		t.Fatal(derr)
+	}
+}
+
+// seedUserMemory stores an approved user-origin note: the shape a manual
+// memory write has before an agent tries to retire it.
+func seedUserMemory(t *testing.T, e *Env, content string) int64 {
+	t.Helper()
+	var id int64
+	withCtxStore(t, e, func(tx *ctxdb.Tx) error {
+		if err := tx.Get(`INSERT INTO memory(kind, category, scope, content, origin, scan_result, created_at)
+			VALUES ('memory','fact','user',?1,'user','{}',0) RETURNING id`, []any{content}, &id); err != nil {
+			return fmt.Errorf("insert user memory: %w", err)
+		}
+		if _, err := tx.Exec(`INSERT INTO memory_decisions(memory_id, status, actor, reason, created_at)
+			VALUES (?1,'approved','user','confirmed',0)`, id); err != nil {
+			return fmt.Errorf("insert user decision: %w", err)
+		}
+		return nil
+	})
+	return id
+}
+
+// seedAgentMemory stores an approved agent-origin note, evidenced by its own
+// dispatch event (the P10 provenance an agent write always carries).
+func seedAgentMemory(t *testing.T, e *Env, content string) int64 {
+	t.Helper()
+	var id int64
+	withCtxStore(t, e, func(tx *ctxdb.Tx) error {
+		if _, err := tx.CreateSession(ctxdb.Session{ID: "SEED", Origin: "headless", Cwd: "/seed"}); err != nil {
+			return fmt.Errorf("create seed session: %w", err)
+		}
+		ev, err := tx.AppendEvent("SEED", &ctxdb.Event{Kind: "tool_dispatch", ToolName: "memory", ToolCallID: "seed", Payload: "{}"})
+		if err != nil {
+			return fmt.Errorf("append seed dispatch: %w", err)
+		}
+		if err := tx.Get(`INSERT INTO memory(kind, category, scope, content, origin, source_session, evidence_event_id, scan_result, created_at)
+			VALUES ('memory','fact','user',?1,'agent','SEED',?2,'{}',0) RETURNING id`, []any{content, ev}, &id); err != nil {
+			return fmt.Errorf("insert agent memory: %w", err)
+		}
+		if _, xerr := tx.Exec(`INSERT INTO memory_decisions(memory_id, status, actor, reason, created_at)
+			VALUES (?1,'approved','user','confirmed',0)`, id); xerr != nil {
+			return fmt.Errorf("insert agent decision: %w", xerr)
+		}
+		return nil
+	})
+	return id
+}
+
+// memoryQuery reads one single-value row from the scenario store.
+func memoryQuery(t *testing.T, e *Env, query string, args ...any) string {
+	t.Helper()
+	var out string
+	withCtxStore(t, e, func(tx *ctxdb.Tx) error {
+		return tx.Get(query, args, &out)
+	})
+	return out
+}
+
+// TestSessionSearchKeepsItsSource (ADR-188): a session_search hit carries its
+// own source label ("session"), not the untrusted-workspace fallback
+// ("workspace"). The label is what the model reads to decide how much
+// authority the text has (SPEC §14.5, ADR-070), and the workspace here is
+// untrusted so the fallback is live; losing the label would silently demote
+// transcript data to "some file in the workspace".
+func TestSessionSearchKeepsItsSource(t *testing.T) {
+	t.Parallel()
+	e := New(t, // untrusted: the workspace fallback is the competing label
+		providertest.Text("noted: LABELMARK-4410"),
+		ToolCallReply("c1", "session_search", `{"query":"LABELMARK-4410"}`),
+		providertest.Text("done"),
+	)
+	e.Run("remember LABELMARK-4410").RequireOK(t)
+	e.Run("search the transcript for the note").RequireOK(t)
+	body := e.RequestText(t, 2)
+	if !strings.Contains(body, `<untrusted source=\"session\">`) {
+		t.Fatalf("session hit lost its own source label:\n%s", body)
+	}
+	if strings.Contains(body, `<untrusted source=\"workspace\">`) {
+		t.Fatalf("the workspace fallback overwrote the tool's source:\n%s", body)
+	}
+}
+
+// TestSessionSearchTaintsTurnAsksForApproval (ADR-188): a session_search hit
+// taints the rest of the turn (ADR-070), so a write that an untainted turn
+// auto-approves under --approval auto-edit now asks for approval; a headless
+// run has no approver, so the call is denied with the ask hint and leaves no
+// file. The tracked workspace is trusted, so trust cannot be the reason.
+func TestSessionSearchTaintsTurnAsksForApproval(t *testing.T) {
+	t.Parallel()
+	e := NewTrusted(t,
+		providertest.Text("noted: TAINTMARK-7731"),
+		ToolCallReply("c1", "session_search", `{"query":"TAINTMARK-7731"}`),
+		ToolCallReply("c2", "write_file", `{"path":"pwned-marker","content":"taint"}`),
+		providertest.Text("done"),
+	)
+	e.Run("remember TAINTMARK-7731").RequireOK(t)
+	e.Run("search the transcript, then write the file", "--approval", "auto-edit").RequireOK(t)
+	if _, err := os.Stat(e.Path("pwned-marker")); err == nil {
+		t.Fatal("a turn tainted by session_search auto-approved the write")
+	}
+	body := e.RequestText(t, 3)
+	if !strings.Contains(body, `\"code\":\"denied\"`) || !strings.Contains(body, "interactive approval is required") {
+		t.Errorf("write result is not the approval ask denial:\n%s", body)
+	}
+	if !strings.Contains(body, `untrusted source=\"session\"`) {
+		t.Errorf("the tainting hit is not wrapped as a session read:\n%s", body)
+	}
+}
+
+// TestSessionSearchTaintControlWriteRuns is the negative control of
+// TestSessionSearchTaintsTurnAsksForApproval: the same trusted workspace and
+// --approval auto-edit, without the session_search hit, really do write.
+func TestSessionSearchTaintControlWriteRuns(t *testing.T) {
+	t.Parallel()
+	e := NewTrusted(t,
+		ToolCallReply("c1", "write_file", `{"path":"control-marker","content":"clean"}`),
+		providertest.Text("done"),
+	)
+	res := e.Run("write the file from the workspace", "--approval", "auto-edit")
+	res.RequireOK(t)
+	if _, err := os.Stat(e.Path("control-marker")); err != nil {
+		t.Fatalf("control: the untainted turn never wrote the file: %v\n%s", err, res.Stderr)
+	}
+}

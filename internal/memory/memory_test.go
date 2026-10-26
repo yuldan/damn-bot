@@ -139,6 +139,25 @@ func newService(t *testing.T) (*Service, *fakeStore) {
 
 func evidence() *int64 { v := int64(7); return &v }
 
+// TestRetireByAgentActor: the agent tool path records its retirement as the
+// system actor with the "retired:agent" reason, never as the user (SEC17-3).
+func TestRetireByAgentActor(t *testing.T) {
+	ctx := t.Context()
+	s, st := newService(t)
+	rec, err := s.Propose(ctx, &Proposal{
+		Category: CategoryFact, Scope: "user", Content: "x", Origin: OriginAgent, EvidenceEventID: evidence(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rerr := s.RetireByAgent(ctx, rec.ID, "user"); rerr != nil {
+		t.Fatal(rerr)
+	}
+	if st.lastDecide == nil || st.lastDecide.Status != StatusRetired || st.lastDecide.Actor != ActorSystem || st.lastDecide.Reason != "retired:agent" {
+		t.Fatalf("decision = %+v, want retired/system/retired:agent", st.lastDecide)
+	}
+}
+
 // TestQuarantineCannotBeRetrieved: a scanned entry is invisible to Recall
 // until a user approves it, then appears.
 func TestQuarantineCannotBeRetrieved(t *testing.T) {

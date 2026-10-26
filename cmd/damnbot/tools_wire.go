@@ -330,6 +330,9 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	}
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
+	if list, err = withMemoryTools(list, db, red); err != nil {
+		return nil, fail(err)
+	}
 	var reg *tools.Registry
 	mods, reg, err = wireModules(list)
 	if err != nil {

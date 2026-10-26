@@ -139,6 +139,28 @@ func TestTransitions(t *testing.T) {
 	}
 }
 
+// TestSystemRetireRequiresAgentOrigin: a system-actor retirement (the agent
+// tool path) only applies to an agent-origin row, while the user path may
+// retire any origin (SEC17-3).
+func TestSystemRetireRequiresAgentOrigin(t *testing.T) {
+	ctx := t.Context()
+	s := open(t, t.TempDir())
+	user := put(t, s, mkrow("user", "user note", "user"), approved())
+	retired := &Decision{Status: "retired", Actor: "system", Reason: "retired:agent", CreatedAt: 100}
+	if derr := Decide(ctx, s, user, "user", retired); !errors.Is(derr, ErrNotAgent) {
+		t.Fatalf("system retire of user row = %v, want ErrNotAgent", derr)
+	}
+	if rows, err := Get(ctx, s, []int64{user}); err != nil || len(rows) != 1 || rows[0].Status != "approved" {
+		t.Fatalf("row after refusal: %+v %v", rows, err)
+	}
+	if derr := Decide(ctx, s, user, "user", &Decision{Status: "retired", Actor: "user", Reason: "retired", CreatedAt: 100}); derr != nil {
+		t.Fatalf("user retire = %v", derr)
+	}
+	if rows, err := Get(ctx, s, []int64{user}); err != nil || len(rows) != 1 || rows[0].Status != "retired" {
+		t.Fatalf("row after user retire: %+v %v", rows, err)
+	}
+}
+
 // TestSearchFilters: scope, expiry and pin ordering.
 func TestSearchFilters(t *testing.T) {
 	s := open(t, t.TempDir())
