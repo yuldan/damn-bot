@@ -29,6 +29,7 @@ import (
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
+	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/registry"
@@ -242,6 +243,8 @@ func runWindow(ctx context.Context, model *runModel, modelRef string) int64 {
 	return resolved
 }
 
+// newRunAssembler builds the turn's assembler and freezes the volatile tier
+// (P15): the tier is rendered once per turn and shared by every iteration.
 func newRunAssembler(cfg *config.Config, red *redact.Redactor) (*assemble.Assembler, *assemble.Turn, error) {
 	asm, err := assemble.New(assemble.Deps{
 		Tokens: budgetCounter{},
@@ -312,7 +315,7 @@ func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runM
 		MaxInline:       maxInline,
 	}, &loop.Deps{
 		Provider:       model.provider,
-		Assembler:      &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, compactor: comp, window: win, store: model.store, markTainted: disp.MarkTainted},
+		Assembler:      &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, compactor: comp, window: win, store: model.store, markTainted: disp.MarkTainted, db: model.db, catalog: catalogGroups(modules.Default())},
 		Compactor:      comp,
 		Toolset:        &toolsetAdapter{disp: disp, allowed: model.toolsets.Allowed},
 		Store:          model.store,

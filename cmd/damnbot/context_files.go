@@ -38,6 +38,7 @@ func contextTierInput(ctx context.Context, model *runModel, o *runOptions, degra
 	in := &assemble.ContextInput{
 		Facts:          nudgeFacts(ctx, model) + "os=" + runtime.GOOS + "; shell=headless; cwd=" + model.cwd + "; frontend=headless",
 		Degraded:       degraded,
+		Workspace:      "cwd: " + model.cwd,
 		Files:          contextFiles(),
 		Reader:         model.reader,
 		UntrustedFiles: !model.trusted,

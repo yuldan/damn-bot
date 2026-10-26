@@ -226,7 +226,7 @@ func TestPurgePinnedAncestor(t *testing.T) {
 	if _, err := s.CreateSession(ctx, Session{ID: "S1", Origin: "headless", Cwd: "/w"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateSession(ctx, Session{ID: "S2", ParentID: "S1", ForkSeq: 1, Origin: "tui", Cwd: "/w"}); err != nil {
+	if _, err := s.CreateSession(ctx, Session{ID: "S2", ParentID: "S1", ForkSeq: 1, Origin: "headless", Cwd: "/w"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetSessionLabel(ctx, "S2", LabelPinned, "1"); err != nil {
