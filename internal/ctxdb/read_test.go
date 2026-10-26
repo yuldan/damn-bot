@@ -3,6 +3,7 @@ package ctxdb
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -360,5 +361,66 @@ func TestHistoryTail(t *testing.T) {
 	}
 	if evs[len(evs)-1].Content != "m250" || evs[0].Content != "m51" {
 		t.Fatalf("tail bounds = %q..%q, want m51..m250", evs[0].Content, evs[len(evs)-1].Content)
+	}
+}
+
+// TestLineage: Lineage returns the fork chain nearest-first and fails closed
+// for a missing session (retrieval scope, SEC12-1).
+func TestLineage(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	ctx := context.Background()
+	session(t, s, "P", "")
+	child := "C"
+	_, err := s.CreateSession(ctx, Session{ID: child, ParentID: "P", ForkSeq: 2, Cwd: "/w"})
+	must(t, err)
+	grand := "G"
+	_, err = s.CreateSession(ctx, Session{ID: grand, ParentID: child, ForkSeq: 0, Cwd: "/w"})
+	must(t, err)
+	got, err := s.Lineage(ctx, grand)
+	must(t, err)
+	want := []Ancestor{
+		{ID: grand, Self: true, Origin: "tui", Cwd: "/w"},
+		{ID: child, Origin: "tui", Cwd: "/w", LinkOrigin: "tui"},
+		{ID: "P", ForkSeq: 2, Origin: "tui", Cwd: "/w", LinkOrigin: "tui"},
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("lineage = %+v, want %+v", got, want)
+	}
+	if _, err := s.Lineage(ctx, "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing lineage = %v, want ErrNotFound", err)
+	}
+}
+
+// TestCreateSessionRejectsMismatchedParent (SEC12-7): a non-delegate child
+// cannot forge a parent from another project or gateway identity; delegate
+// remains the SPEC §11.2 exception.
+func TestCreateSessionRejectsMismatchedParent(t *testing.T) {
+	e := newEnv(t)
+	s := e.open(1, "tui")
+	ctx := context.Background()
+	session(t, s, "P", "")
+	if _, err := s.CreateSession(ctx, Session{ID: "X", ParentID: "P", Cwd: "/other"}); !errors.Is(err, ErrInvalidSeq) {
+		t.Fatalf("cwd mismatch = %v, want ErrInvalidSeq", err)
+	}
+	must(t, s.Write(ctx, func(tx *Tx) error {
+		_, xerr := tx.Exec(`INSERT INTO session_labels(session_id, key, value, created_at) VALUES ('P', 'gateway_chat', 'tg:u1', 1)`, nil)
+		return xerr
+	}))
+	if _, err := s.CreateSession(ctx, Session{ID: "Y", ParentID: "P", Cwd: "/w"}); !errors.Is(err, ErrInvalidSeq) {
+		t.Fatalf("identity mismatch = %v, want ErrInvalidSeq", err)
+	}
+	if _, err := s.CreateSession(ctx, Session{ID: "D", ParentID: "P", Origin: "delegate", Cwd: "/w"}); !errors.Is(err, ErrInvalidSeq) {
+		t.Fatalf("delegate identity mismatch = %v, want ErrInvalidSeq", err)
+	}
+	if _, err := s.CreateSession(ctx, Session{ID: "D", ParentID: "P", Origin: "delegate", Cwd: "/w", GatewayIdentity: "tg:u1"}); err != nil {
+		t.Fatalf("delegate child = %v, want allowed", err)
+	}
+	var inherited string
+	must(t, s.Write(ctx, func(tx *Tx) error {
+		return tx.Get(`SELECT coalesce((SELECT value FROM session_labels WHERE session_id = 'D' AND key = 'gateway_chat'), '')`, nil, &inherited)
+	}))
+	if inherited != "tg:u1" {
+		t.Fatalf("delegate inherited identity %q, want tg:u1", inherited)
 	}
 }
