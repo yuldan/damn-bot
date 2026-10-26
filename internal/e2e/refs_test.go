@@ -164,7 +164,7 @@ func TestContextRefDirectoryListing(t *testing.T) {
 // denied instead of auto-approved.
 func TestContextRefTaintsShell(t *testing.T) {
 	t.Parallel()
-	e := New(t,
+	e := NewTrusted(t, // trusted: the taint, not workspace trust, must stop the command
 		ToolCallReply("c1", "shell", `{"command":"touch ref-taint-marker"}`),
 		providertest.Text("done"),
 	)
@@ -185,7 +185,7 @@ func TestContextRefTaintsShell(t *testing.T) {
 // the shell tool.
 func TestContextRefControlShellRuns(t *testing.T) {
 	t.Parallel()
-	e := New(t,
+	e := NewTrusted(t, // trusted: the taint, not workspace trust, must stop the command
 		ToolCallReply("c1", "shell", `{"command":"touch ref-control-marker"}`),
 		providertest.Text("done"),
 	)
