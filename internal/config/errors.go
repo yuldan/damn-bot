@@ -8,8 +8,13 @@ import (
 // Sentinel errors. Every error returned by this package matches exactly one
 // of these with errors.Is (SPEC §4.9).
 var (
-	// ErrUnknownKey reports a key that the F1 config struct does not expose.
+	// ErrUnknownKey reports a key that the config struct does not expose.
 	ErrUnknownKey = errors.New("config: unknown key")
+	// ErrModuleUnavailable reports a config section owned by a module that
+	// this build does not compile in (SPEC §12 module sections). It is
+	// distinct from ErrUnknownKey so users get an actionable error instead of
+	// a typo message.
+	ErrModuleUnavailable = errors.New("config: module section unavailable")
 	// ErrInvalidValue reports a value outside its SPEC §12 range.
 	ErrInvalidValue = errors.New("config: invalid value")
 	// ErrSyntax reports malformed TOML.

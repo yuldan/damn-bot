@@ -86,19 +86,63 @@ func (l *Loader) Parse(data []byte, source string) (Config, error) {
 	if err != nil {
 		return Config{}, syntaxError(source, err)
 	}
-	if und := md.Undecoded(); len(und) > 0 {
-		key := und[0]
+	if key, ok := firstUnknown(&md); ok {
+		kind, msg := ErrUnknownKey, "key is not part of the config"
+		if isModuleKey(key) {
+			kind = ErrModuleUnavailable
+			msg = "module is not compiled in this build (modules arrive in F4/F5)"
+		}
 		return Config{}, &Error{
-			Kind: ErrUnknownKey,
+			Kind: kind,
 			Key:  key.String(),
 			Line: findKeyLine(data, key),
-			Msg:  "key is not part of the F1 config",
+			Msg:  msg,
 		}
 	}
+	cfg.normalize()
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// normalize applies the SPEC §12 defaults that TOML decoding cannot express
+// without a pointer or a second pass. It runs on the local copy only, before
+// [Config.Validate], which stays pure (E-13).
+func (c *Config) normalize() {
+	for i := range c.Providers.Custom {
+		if c.Providers.Custom[i].API == "" {
+			c.Providers.Custom[i].API = "openai-chat"
+		}
+	}
+}
+
+// isModuleKey reports a section owned by a module that this build does not
+// compile in. Those get [ErrModuleUnavailable], not a typo message.
+func isModuleKey(key toml.Key) bool {
+	return len(key) > 0 && (key[0] == "modules" || key[0] == "obs" || key[0] == "cron")
+}
+
+// firstUnknown returns the first undecoded key that is not part of a free-form
+// [[providers.custom]] extra_body table. BurntSushi does not mark nested keys
+// inside map[string]any as decoded, so those are filtered explicitly.
+func firstUnknown(md *toml.MetaData) (toml.Key, bool) {
+	for _, key := range md.Undecoded() {
+		if isExtraBodyKey(key) {
+			continue
+		}
+		return key, true
+	}
+	return nil, false
+}
+
+func isExtraBodyKey(key toml.Key) bool {
+	for i := 0; i+1 < len(key); i++ {
+		if key[i] == "custom" && key[i+1] == "extra_body" {
+			return true
+		}
+	}
+	return false
 }
 
 // LoadProfile loads <config_dir>/profiles/<profile>/config.toml.

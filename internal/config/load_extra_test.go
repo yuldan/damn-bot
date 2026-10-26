@@ -71,9 +71,9 @@ func TestConfigUnknownQuotedKey(t *testing.T) {
 
 func TestConfigUnknownArrayTable(t *testing.T) {
 	t.Parallel()
-	_, err := parse(t, "[[providers.custom]]\nname = \"x\"\n")
+	_, err := parse(t, "[[providers.custm]]\nname = \"x\"\n")
 	ke := keyErrorOf(t, err, ErrUnknownKey)
-	if !strings.HasPrefix(ke.Key, "providers.custom") {
+	if !strings.HasPrefix(ke.Key, "providers.custm") {
 		t.Fatalf("key = %q", ke.Key)
 	}
 	if ke.Line == 0 {
@@ -100,13 +100,21 @@ func TestConfigDurationRejectsGarbage(t *testing.T) {
 
 // TestConfigCloneIsDeep covers every slice/map field, not only the ones the
 // E-13 scenario mutates.
-func TestConfigCloneIsDeep(t *testing.T) {
+func TestConfigCloneIsDeep(t *testing.T) { //nolint:gocyclo // one mutation per clone field
 	t.Parallel()
+	trusted := hostPath(t)
 	cfg, err := parse(t, strings.Join([]string{
 		"[provider]", `fallback = ["a/b"]`,
 		"[budget]", "providers = { p = 1 }",
 		"[approval]", `shell_allow = [["go", "test"]]`, `deny_paths = ["x"]`, `add_dirs = ["/d"]`,
 		"[exec]", `env_allow = ["PATH"]`, `env = { A = "1" }`,
+		"[skills]", `trusted_projects = [` + tomlQuote(trusted) + `]`,
+		"[gateway.users.\"telegram:1\"]", `workspace = "/srv/ws"`,
+		"[[providers.custom]]", `name = "k"`, `base_url = "https://k.example/v1"`,
+		`key_cmd = ["k"]`, `extra_headers = { A = "1" }`, `extra_body = { k = "v", nested = { n = "v" } }`,
+		`models = [{ id = "m", capabilities = ["tools"] }]`,
+		"[[providers.custom]]", `name = "k2"`, `base_url = "https://k2.example/v1"`,
+		`models = [{ id = "m2" }]`,
 	}, "\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -119,9 +127,21 @@ func TestConfigCloneIsDeep(t *testing.T) {
 	c.Approval.AddDirs[0] = "/e"
 	c.Exec.EnvAllow[0] = "HOME"
 	c.Exec.Env["A"] = "2"
+	c.Skills.TrustedProjects[0] = "/q"
+	delete(c.Gateway.Users, "telegram:1")
+	c.Providers.Custom[0].KeyCmd[0] = "x"
+	c.Providers.Custom[0].ExtraHeaders["A"] = "2"
+	c.Providers.Custom[0].ExtraBody["k"] = "w"
+	extraTable(t, c.Providers.Custom[0].ExtraBody["nested"])["n"] = "w"
+	c.Providers.Custom[0].Models[0].Capabilities[0] = "vision"
 	if cfg.Provider.Fallback[0] != "a/b" || cfg.Budget.Providers["p"] != 1 ||
 		cfg.Approval.ShellAllow[0][0] != "go" || cfg.Approval.DenyPaths[0] != "x" ||
-		cfg.Approval.AddDirs[0] != "/d" || cfg.Exec.EnvAllow[0] != "PATH" || cfg.Exec.Env["A"] != "1" {
+		cfg.Approval.AddDirs[0] != "/d" || cfg.Exec.EnvAllow[0] != "PATH" || cfg.Exec.Env["A"] != "1" ||
+		cfg.Skills.TrustedProjects[0] != trusted || cfg.Gateway.Users["telegram:1"].Workspace != "/srv/ws" ||
+		cfg.Providers.Custom[0].KeyCmd[0] != "k" || cfg.Providers.Custom[0].ExtraHeaders["A"] != "1" ||
+		cfg.Providers.Custom[0].ExtraBody["k"] != "v" ||
+		extraTable(t, cfg.Providers.Custom[0].ExtraBody["nested"])["n"] != "v" ||
+		cfg.Providers.Custom[0].Models[0].Capabilities[0] != "tools" {
 		t.Fatal("Clone shares storage with the original")
 	}
 }
@@ -132,4 +152,13 @@ func TestConfigReadCausePreserved(t *testing.T) {
 	if !errors.Is(err, ErrRead) {
 		t.Fatalf("err = %v", err)
 	}
+}
+
+func extraTable(t *testing.T, v any) map[string]any {
+	t.Helper()
+	m, ok := v.(map[string]any)
+	if !ok {
+		t.Fatalf("extra_body value is %T, want a table", v)
+	}
+	return m
 }

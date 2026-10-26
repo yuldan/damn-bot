@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,20 @@ func parse(t *testing.T, toml string) (Config, error) {
 	return testLoader(t, nil).Parse([]byte(toml), "config.toml")
 }
 
+// hostPath is an absolute path for the host GOOS; filepath.IsAbs drives the
+// skills check, so a literal "/p" is rejected on Windows.
+func hostPath(t *testing.T) string {
+	t.Helper()
+	return filepath.ToSlash(t.TempDir())
+}
+
+func tomlQuote(p string) string { return strconv.Quote(p) }
+
+func tomlAbsPath(t *testing.T) string {
+	t.Helper()
+	return tomlQuote(hostPath(t))
+}
+
 // TestConfigDefaultsMatchSpec is the ROADMAP F1 acceptance hook (ADR-083):
 // every default exposed in F1 equals SPEC §12 (and, for log content controls,
 // the P29/GAP-SEC-11 line).
@@ -57,12 +72,14 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 			ParallelTools:    4,
 		},
 		Budget: Budget{
-			TurnUSD:    0.50,
-			SessionUSD: 5.00,
-			DailyUSD:   0,
-			MonthlyUSD: 0,
-			WarnAt:     0.80,
-			Providers:  map[string]float64{},
+			TurnUSD:         0.50,
+			SessionUSD:      5.00,
+			DailyUSD:        0,
+			MonthlyUSD:      0,
+			WarnAt:          0.80,
+			Providers:       map[string]float64{},
+			ToolsSessionUSD: 1.00,
+			ToolsDailyUSD:   5.00,
 		},
 		Approval: Approval{
 			Mode:       "ask",
@@ -95,7 +112,18 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 			InlineShell:      false,
 		},
 		Sessions: Sessions{AutoPrune: false, PruneAfterDays: 90},
-		Log:      Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
+		Context: Context{
+			CompactAt:       0.75,
+			SummaryMaxTok:   600,
+			SummariesMaxTok: 3000,
+			PinnedSchemaTok: 3000,
+		},
+		Memory:    Memory{EntryMaxChars: 500, TotalMaxChars: 4000, Embeddings: ""},
+		Recovery:  Recovery{Continue: "safe_auto"},
+		UI:        UI{Language: "auto", Theme: "tern-dark"},
+		Gateway:   Gateway{MaxParallelTurns: 4, Users: map[string]GatewayUser{}},
+		Providers: Providers{Custom: []CustomProvider{}},
+		Log:       Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
 	}
 	if diff := cmp.Diff(want, Default()); diff != "" {
 		t.Errorf("Default() differs from SPEC §12 (-want +got):\n%s", diff)
@@ -123,6 +151,11 @@ func TestConfigMinimum(t *testing.T) {
 	if cfg.Loop.MaxIterations != 40 || cfg.Approval.Mode != "ask" {
 		t.Errorf("defaults not applied: %+v", cfg)
 	}
+	if cfg.Context.CompactAt != 0.75 || cfg.UI.Theme != "tern-dark" ||
+		cfg.Gateway.MaxParallelTurns != 4 || cfg.Budget.ToolsSessionUSD != 1.00 ||
+		cfg.Budget.ToolsDailyUSD != 5.00 {
+		t.Errorf("new §12 defaults not applied: %+v", cfg)
+	}
 }
 
 func TestConfigOverridesKeepDefaults(t *testing.T) {
@@ -140,29 +173,61 @@ func TestConfigOverridesKeepDefaults(t *testing.T) {
 	if len(cfg.Approval.DenyPaths) != 16 {
 		t.Errorf("deny_paths default lost: %v", cfg.Approval.DenyPaths)
 	}
+	cfg2, err := parse(t, "[ui]\ntheme = \"mono\"\n")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg2.UI.Theme != "mono" {
+		t.Errorf("theme = %q", cfg2.UI.Theme)
+	}
+	if cfg2.Context.CompactAt != 0.75 || cfg2.Gateway.MaxParallelTurns != 4 ||
+		cfg2.Memory.TotalMaxChars != 4000 || cfg2.Recovery.Continue != "safe_auto" {
+		t.Errorf("other defaults lost: %+v", cfg2)
+	}
 }
 
 func TestConfigUnknownKey(t *testing.T) {
 	t.Parallel()
-	_, err := parse(t, "[provider]\nmodel = \"p/m\"\nmodl = \"typo\"\n")
-	ke := keyErrorOf(t, err, ErrUnknownKey)
-	if ke.Key != "provider.modl" {
-		t.Errorf("key = %q, want provider.modl", ke.Key)
-	}
-	if ke.Line != 3 {
-		t.Errorf("line = %d, want 3", ke.Line)
+	for _, tc := range []struct{ name, toml, key string }{
+		{"provider", "[provider]\nmodel = \"p/m\"\nmodl = \"typo\"\n", "provider.modl"},
+		{"memory", "[memory]\nentry_max_char = 500\n", "memory.entry_max_char"},
+		{"context", "[context]\ncompact = 0.75\n", "context.compact"},
+		{"ui", "[ui]\nthemes = \"mono\"\n", "ui.themes"},
+		{"gateway", "[gateway]\nmax_parallel = 4\n", "gateway.max_parallel"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := parse(t, tc.toml)
+			ke := keyErrorOf(t, err, ErrUnknownKey)
+			if ke.Key != tc.key {
+				t.Errorf("key = %q, want %q", ke.Key, tc.key)
+			}
+			if ke.Line != 3 && tc.name == "provider" {
+				t.Errorf("line = %d, want 3", ke.Line)
+			}
+		})
 	}
 }
 
 func TestConfigUnknownSection(t *testing.T) {
 	t.Parallel()
-	_, err := parse(t, "[memory]\nentry_max_chars = 500\n")
-	ke := keyErrorOf(t, err, ErrUnknownKey)
-	if ke.Key != "memory" {
-		t.Errorf("key = %q", ke.Key)
-	}
-	if ke.Line != 1 {
-		t.Errorf("line = %d, want 1", ke.Line)
+	for _, tc := range []struct{ name, section, body string }{
+		{"typo_memo", "memo", "entry_max_chars = 500"},
+		{"typo_providers", "provders", `model = "p/m"`},
+		{"plural_gateway", "gateways", "max_parallel_turns = 4"},
+		{"memory_typo", "memoryx", "entry_max_chars = 500"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := parse(t, "["+tc.section+"]\n"+tc.body+"\n")
+			ke := keyErrorOf(t, err, ErrUnknownKey)
+			if ke.Key != tc.section {
+				t.Errorf("key = %q, want %q", ke.Key, tc.section)
+			}
+			if ke.Line != 1 {
+				t.Errorf("line = %d, want 1", ke.Line)
+			}
+		})
 	}
 }
 
@@ -178,6 +243,7 @@ func TestConfigInvalidValues(t *testing.T) {
 		{"identical", "[loop]\nmax_identical = 6\n", "loop.max_identical"},
 		{"input_tokens", "[loop]\nturn_max_input_tok = 400001\n", "loop.turn_max_input_tok"},
 		{"mode", "[approval]\nmode = \"yolo\"\n", "approval.mode"},
+		{"mode_plan", "[approval]\nmode = \"plan\"\n", "approval.mode"},
 		{"shell_allow_empty", "[approval]\nshell_allow = [[]]\n", "approval.shell_allow"},
 		{"shell_allow_space", "[approval]\nshell_allow = [[\"go test\"]]\n", "approval.shell_allow"},
 		{"deny_path_nul", "[approval]\ndeny_paths = [\"a\\u0000b\"]\n", "approval.deny_paths"},
@@ -254,6 +320,17 @@ func TestConfigImmutable(t *testing.T) {
 		"[exec]",
 		"env_allow = [\"PATH\"]",
 		"env = { A = \"1\" }",
+		"[context]",
+		"compact_at = 0.5",
+		"[gateway.users.\"telegram:1\"]",
+		"workspace = \"/srv/ws\"",
+		"[[providers.custom]]",
+		"name = \"k\"",
+		"base_url = \"https://k.example/v1\"",
+		"key_cmd = [\"k\"]",
+		"extra_headers = { A = \"1\" }",
+		"extra_body = { k = \"v\" }",
+		"models = [{ id = \"m\", capabilities = [\"tools\"] }]",
 	}, "\n"))
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
@@ -271,6 +348,11 @@ func TestConfigImmutable(t *testing.T) {
 		clone.Approval.DenyPaths[0] = "/tmp"
 		clone.Exec.EnvAllow[0] = "HOME"
 		clone.Exec.Env["A"] = "2"
+		delete(clone.Gateway.Users, "telegram:1")
+		clone.Providers.Custom[0].KeyCmd[0] = "x"
+		clone.Providers.Custom[0].ExtraHeaders["A"] = "2"
+		clone.Providers.Custom[0].ExtraBody["k"] = "w"
+		clone.Providers.Custom[0].Models[0].Capabilities[0] = "video"
 	}
 	if diff := cmp.Diff(before, cfg); diff != "" {
 		t.Errorf("config mutated (-before +after):\n%s", diff)
