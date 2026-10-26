@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"runtime/debug"
 
 	"github.com/damnbot/damnbot/internal/redact"
 )
@@ -25,4 +26,15 @@ func applyResumeNotes(ctx context.Context, o *runOptions, model *runModel, red *
 	}
 	o.prompt = prompt
 	return nil
+}
+
+// trimRSS releases the run's freed pages once the turn is over (MEM-033). The
+// hook is a test seam; nil falls back to debug.FreeOSMemory so the normal path
+// never gains a panic site.
+func trimRSS(o *runOptions) {
+	trim := o.trimMemory
+	if trim == nil {
+		trim = debug.FreeOSMemory
+	}
+	trim()
 }

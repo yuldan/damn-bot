@@ -14,7 +14,6 @@ import (
 	"io/fs"
 	"os"
 	"runtime"
-	"runtime/debug"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -205,11 +204,7 @@ func runOne(ctx context.Context, o *runOptions, stdout, stderr io.Writer) (code 
 		modelRef = model.modelRef
 	}
 	code, terr := runTurn(ctx, &cfg, o, model, modelRef, red, model.spill, stdout)
-	trim := o.trimMemory
-	if trim == nil {
-		trim = debug.FreeOSMemory
-	}
-	trim()
+	trimRSS(o)
 	return code, terr
 }
 

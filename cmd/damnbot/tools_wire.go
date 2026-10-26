@@ -274,15 +274,12 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if err != nil {
 		return nil, err
 	}
-	spill := ctxSpill{db: db}
 	roots := append([]string{cwd}, cfg.Approval.AddDirs...)
 	sb, err := sandbox.New(&sandbox.Config{Roots: roots, DenyPaths: cfg.DenyPaths(configDir), Home: home})
 	if err != nil {
 		return nil, closeDB(ctx, db, sid, fmt.Errorf("sandbox: %w", err))
 	}
-	// The workspace trust decision (SPEC §14): headless runs are untrusted
-	// unless the canonical cwd is registered in the trust store, so an empty
-	// or unreadable store fails closed.
+	// Headless runs are untrusted unless the cwd is trusted (SPEC §14).
 	trusted, err := workspaceTrusted(cfg, configDir, cwd, home)
 	if err != nil {
 		return nil, closeDB(ctx, db, sid, fmt.Errorf("workspace trust: %w", err))
@@ -314,7 +311,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		return nil, fail(qerr)
 	}
 	shellTool, err := tools.NewShell(&tools.ShellConfig{
-		Runner: runner, Sessions: sessions, Spill: spill, Redactor: red, Allow: allow, Roots: roots, Home: home,
+		Runner: runner, Sessions: sessions, Spill: ctxSpill{db: db}, Redactor: red, Allow: allow, Roots: roots, Home: home,
 		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
 		EnvPolicy:        envPolicy,
 		WorkspaceTrusted: trusted, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
@@ -353,7 +350,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		modelRef:  modelRef,
 		fail:      fail,
 		inlineCap: cfg.Loop.TurnMaxInputTok,
-		spill:     spill,
+		spill:     ctxSpill{db: db},
 		sb:        sb,
 		trusted:   trusted,
 		reader:    sandboxReader{sb: sb, root: cwd},
