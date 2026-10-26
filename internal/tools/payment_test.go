@@ -206,9 +206,10 @@ func runMonetaryMode(t *testing.T, f *paymentFixture, corpus []string, mode Mode
 	if len(reqs) != len(corpus) || runner.calls != len(corpus) {
 		t.Fatalf("auto: prompts %d, runs %d, want %d", len(reqs), runner.calls, len(corpus))
 	}
-	for i, r := range reqs {
+	for i := range reqs {
+		r := &reqs[i]
 		if r.AllowSession || !strings.Contains(r.Class, "monetary") {
-			t.Errorf("%q: request %+v", corpus[i], r)
+			t.Errorf("%q: request %+v", corpus[i], *r)
 		}
 	}
 }

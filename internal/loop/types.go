@@ -256,6 +256,7 @@ type ApprovalRequest struct {
 	Tool      string
 	Args      json.RawMessage
 	Preview   string
+	Origin    string // run|tui|acp|plan (ADR-197); set from Deps.Origin
 	Effect    Effect
 	Tainted   bool
 	Terminal  bool
@@ -383,6 +384,9 @@ type Deps struct {
 	// field. Without it (and with a Redactor) the loop holds the field until
 	// the call returns and redacts it whole (LP8-19).
 	NewRedactStream func() StreamFilter
+	// Origin names the surface that asks for approval (ADR-197); empty takes
+	// the OriginRun default and an unknown value fails New with ErrOrigin.
+	Origin string
 	// Carriers persists carriers and rejections; nil = disabled.
 	Carriers CarrierStore
 	// ValidateAnswer rejects a final answer (nil = no answer schema). The

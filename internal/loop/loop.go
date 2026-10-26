@@ -21,7 +21,27 @@ var ErrTurnInProgress = errors.New("loop: turn in progress")
 var (
 	ErrNoProvider  = errors.New("loop: provider required")
 	ErrNoAssembler = errors.New("loop: assembler required")
+	// ErrOrigin rejects a Deps.Origin outside the reviewed surfaces.
+	ErrOrigin = errors.New("loop: unknown approval origin")
 )
+
+// Approval origins (SPEC §18.2, ADR-197). The loop only routes the value; the
+// composition root chooses the surface. OriginRun is the headless default.
+const (
+	OriginRun  = "run"
+	OriginTUI  = "tui"
+	OriginACP  = "acp"
+	OriginPlan = "plan"
+)
+
+// ValidOrigin reports whether s is a reviewed approval origin.
+func ValidOrigin(s string) bool {
+	switch s {
+	case OriginRun, OriginTUI, OriginACP, OriginPlan:
+		return true
+	}
+	return false
+}
 
 // Loop runs at most one turn per session (SPEC §4.2). Safe for concurrent use.
 type Loop struct {
@@ -52,7 +72,14 @@ func New(cfg *Config, deps *Deps) (*Loop, error) {
 		c = *cfg
 	}
 	withDefaults(&c)
-	return &Loop{cfg: c, deps: *deps, active: map[string]*activeTurn{}}, nil
+	d := *deps
+	if d.Origin == "" {
+		d.Origin = OriginRun
+	}
+	if !ValidOrigin(d.Origin) {
+		return nil, ErrOrigin
+	}
+	return &Loop{cfg: c, deps: d, active: map[string]*activeTurn{}}, nil
 }
 
 // withDefaults fills every zero bound with its SPEC default.
