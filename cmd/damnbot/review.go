@@ -29,6 +29,12 @@ func runReview(args []string, stdout, stderr io.Writer) int {
 	return runSub("review", args, stdout, stderr, parseReviewFlags, reviewMain)
 }
 
+// reviewUsage is `damnbot help review` / `damnbot review --help`.
+func reviewUsage(w io.Writer) {
+	sessionsPrintf(w, "usage: damnbot review [--rejected] [--scope S]... [--config F] [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot review approve|reject (<id>... | --bulk) [--scope S]...\n")
+}
+
 // parseReviewFlags: `review [--rejected]` lists; `review approve|reject
 // <id>...` or `--bulk` (every pending entry of the scopes) decides.
 func parseReviewFlags(args []string, stderr io.Writer) (reviewOptions, error) {

@@ -272,7 +272,7 @@ func openSessionsDB(ctx context.Context, dataDir string) (*ctxdb.Store, error) {
 		if err != nil {
 			return nil, fmt.Errorf("config deps: %w", err)
 		}
-		paths, err := loader.Paths("")
+		paths, err := loader.Paths(activeProfile())
 		if err != nil {
 			return nil, fmt.Errorf("config paths: %w", err)
 		}
@@ -357,7 +357,7 @@ func sessionPaths(dataDir string) (config.Paths, error) {
 	if err != nil {
 		return config.Paths{}, fmt.Errorf("config deps: %w", err)
 	}
-	p, err := loader.Paths("")
+	p, err := loader.Paths(activeProfile())
 	if err != nil {
 		return config.Paths{}, fmt.Errorf("config paths: %w", err)
 	}

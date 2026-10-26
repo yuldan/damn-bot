@@ -34,24 +34,13 @@ func printEngine(stdout io.Writer) int {
 	return 0
 }
 
-// dispatchCommand routes the subcommands that own their flag sets; ok is false
-// when args do not name one, so the root command's flags run next.
+// dispatchCommand routes the commands that own their flag sets; ok is false
+// when args do not name a callable command, so the root command's flags run
+// next. The surface registry is the single list (ADR-197): an entry without
+// Run is documented but not implemented, and is never dispatched as a stub.
 func dispatchCommand(args []string, stdout, stderr io.Writer) (code int, ok bool) {
-	switch args[0] {
-	case "run":
-		return runHeadless(args[1:], stdout, stderr), true
-	case "undo":
-		return runUndo(args[1:], stdout, stderr), true
-	case "review":
-		return runReview(args[1:], stdout, stderr), true
-	case "sessions":
-		return runSessions(args[1:], stdout, stderr), true
-	case "checkpoints":
-		return runCheckpoints(args[1:], stdout, stderr), true
-	case "skills":
-		return skillsCommand(args[1:], stdout, stderr), true
-	case "bundles":
-		return runBundles(args[1:], stdout, stderr), true
+	if e, found := lookupSurface(args[0]); found && e.Run != nil {
+		return e.Run(args[1:], stdout, stderr), true
 	}
 	if len(args) > 1 && args[0] == "eval" && args[1] == "recall" {
 		return runEvalRecall(args[2:], stdout, stderr), true
@@ -59,13 +48,47 @@ func dispatchCommand(args []string, stdout, stderr io.Writer) (code int, ok bool
 	return 0, false
 }
 
-// run memisahkan logika dari os.Exit agar dapat diuji.
+// run memisahkan logika dari os.Exit agar dapat diuji. Flag global SPEC §10
+// diparse sebelum dispatch, lalu help/`--help`/`<cmd> --help` dilayani dari
+// registry permukaan sebelum perintah melihat argumennya.
 func run(args []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 {
-		if code, ok := dispatchCommand(args, stdout, stderr); ok {
-			return code
+	g, rest, err := parseGlobalArgs(args)
+	if err != nil {
+		if _, werr := fmt.Fprintf(stderr, "damnbot: %s\n", cleanLine(err.Error())); werr != nil {
+			return 2
+		}
+		return 2
+	}
+	setActiveProfile(g.profile)
+	if code, ok := surfaceOrCommand(rest, stdout, stderr); ok {
+		return code
+	}
+	return rootFlags(rest, stdout, stderr)
+}
+
+// surfaceOrCommand melayani bentuk help dari registry lalu dispatch perintah;
+// ok=false berarti flag root (dan TUI nanti) yang memiliki argumen ini.
+func surfaceOrCommand(args []string, stdout, stderr io.Writer) (int, bool) {
+	if len(args) == 0 {
+		return 0, false
+	}
+	switch args[0] {
+	case "help":
+		return surfaceHelp(stdout, stderr, args[1:]), true
+	case "-h", "--help":
+		return surfaceHelp(stdout, stderr, nil), true
+	}
+	if len(args) > 1 && (args[1] == "-h" || args[1] == "--help") {
+		if _, found := lookupSurface(args[0]); found {
+			return surfaceHelp(stdout, stderr, args[:1]), true
 		}
 	}
+	return dispatchCommand(args, stdout, stderr)
+}
+
+// rootFlags parses the root flags (`-version`, `-verbose`) and falls back to
+// the usage screen when no command was named.
+func rootFlags(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("damnbot", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "tampilkan versi lalu keluar")
