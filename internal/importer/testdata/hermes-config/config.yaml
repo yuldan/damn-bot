@@ -1,0 +1,23 @@
+_config_version: 51
+model:
+  default: "openrouter/anthropic/claude-sonnet-4.5"
+  provider: "openrouter"
+  base_url: "https://openrouter.ai/api/v1"
+  api_key: "sk-or-v1-CONFIG-FIXTURE-SECRET"
+agent:
+  max_turns: 500
+  verify_on_stop: true
+terminal:
+  timeout: 900
+  cwd: "."
+memory:
+  memory_char_limit: 2200
+  user_char_limit: 1375
+skills:
+  external_dirs:
+    - "~/.agents/skills"
+    - "/srv/team-skills"
+cron:
+  catch_up_missed: true
+display:
+  theme: "dark"
