@@ -4315,3 +4315,23 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Dampak terukur (SPEC §20).** Go non-test `tools` +22 (2.659 → 2.681 ≤ 3.000); Σ core tetap di cap ADR-196, `make loc` rc=0 tanpa `GAGAL`. Test +320 baris (tidak dihitung E-84). Dependency 0, I/O baru 0, latensi preview = pembentukan string (tanpa syscall).
 
 **Konsekuensi.** (+) Setiap approval berbahaya memiliki preview deterministik dan berbatas; metrik 100% dapat diaudit dari tabel korpus. (+) Batas 3.500 rune konsisten dengan kanal Telegram/ACP yang menyusul. (−) Preview file tetap ringkasan (bukan diff unified yang membaca berkas); diff penuh dengan pembacaan sandbox 256 KiB tetap pekerjaan S2d/kanal dan dicatat sebagai sisa risiko TOCTOU di TRUST-MODEL.
+
+## ADR-205 — ACP permission/preview dan plan mode di atas kontrak approval S2
+
+**Status:** Accepted 2026-10-26. PR kedua S6 (`internal/acp`); tanpa `cmd/damnbot`, tanpa dependency baru.
+
+**Konteks.** S6-1 menetapkan framing/registry tetapi belum ada permintaan izin. SPEC §13.3 menuntut `session/request_permission` membawa preview, `allow_always` dipetakan ke `allow_once` untuk shell/P26, dan mode `plan`; SPEC §18.2 menuntut origin + preview; ADR-197/198 (stack S2) sudah menetapkan `Origin` tertutup dan preview wajib. ACP dilarang mengimpor `tools` (E-03), sehingga kontraknya dipakai lewat `loop` (yang mengizinkan `Origin`/`Preview` dan `Input.PlanMode`) plus tipe netral di ACP.
+
+**Keputusan.**
+1. **Origin satu sumber.** `acp.Origin = loop.OriginACP` (bukan string baru). `PermissionRequest.Validate` menolak origin selain ACP; `Approver` menolak permintaan `loop.ApprovalRequest` yang origin-nya bukan ACP, jadi permintaan TUI/plan/run tidak bisa dijawab di permukaan ini.
+2. **Preview.** `PreviewRequired` mencerminkan label classifier yang sudah ada (shell `destructive`/P26, kelas `write`, dan effect non-read dengan kelas tak dikenal); preview kosong untuk aksi berbahaya = deny tanpa bertanya. `ClipPreview` membatasi 3.500 rune + penanda, sama dengan ADR-199/preview tools. Predikat ini sengaja kecil dan diuji; bila `tools` berubah, PR wiring wajib menambah uji kesetaraan.
+3. **`Approver` = `loop.Approver`.** Deny (bukan error) bila sesi tidak ada, sesi plan mode, origin salah, preview wajib kosong, atau sesi tidak punya `Permitter`. Timeout (`Options` di composition root; default dari `approval.preview_timeout_s`) = reject. `allow_always` hanya ditawarkan bila `AllowSession` dan kelas bukan P26; permintaan dari `loop.ApprovalRequest` tidak pernah menawarkan sesi (tidak ada field itu), sehingga `allow_always` dipetakan ke `allow_once`. Error transport diteruskan; pembatalan parent ctx diteruskan sebagai error.
+4. **Kontrak wire.** `PermissionParams{sessionId, toolCall{toolCallId,title,kind,rawInput}, options[{optionId,name,kind}], preview}` dan `PermissionResult{outcome:"selected"|"cancelled", optionId}`. Ini **kontrak yang kita rekam**, bukan klaim konformansi klien; `DecodePermissionResult` menolak outcome/option tak dikenal sebagai reject + error, tidak pernah allow.
+5. **Plan mode.** `Mode` (`ask|auto-edit|auto|plan`), `ParseMode`, `Session.SetMode` (validasi nilai + sesi tertutup), `PlanMode`, dan `PromptInput(text)` yang membawa `loop.Input.PlanMode`. Dalam plan mode `Approver` **tidak pernah** memanggil klien: deny langsung (defense in depth; gerbang dispatcher ADR-198 tetap penentu).
+6. **Batas paket.** Tidak ada import `tools`/`ctxdb`/`provider`; `loop` satu-satunya import internal baru (diizinkan matriks). `loop/event` tetap tidak diimpor (edge belum diputuskan).
+
+**Dampak terukur (SPEC §20).** Go non-test +380 (`mode.go` 85, `permission.go` 258, `session.go` +37) di dalam `MODULE acp 2.500`; `make loc` rc=0 tanpa `GAGAL`. Test: `TestModeParse`, `TestSessionModeAndPromptInput`, `TestPermissionValidate`, `TestClipPreview`, `TestPermissionOptions`, `TestDecodePermissionResult`, `TestApproverMapsAnswers`, `TestApproverDeniesWithoutAsking` (plan/origin/preview/no-permitter/no-session), `TestApproverTimeoutIsReject`, `TestPermissionParams`. Tidak ada `t.Skip`.
+
+**Bukti flip.** Menonaktifkan `PreviewRequired` di `Validate` memerahkan empat baris: `Validate = <nil>, want acp: a dangerous action needs a preview` (`permission_test.go:91`); dipulihkan ⇒ `ok internal/acp`.
+
+**Konsekuensi.** (+) Permission/preview/plan mode dapat diuji tanpa klien dan tanpa `cmd`; origin/preview memakai kontrak S2, bukan duplikasi string. (+) `allow_always` tidak pernah menjadi sesi untuk P26. (−) Bentuk wire belum diverifikasi terhadap `tern`/klien ACP nyata (Q1/Q3/Q4/Q15); golden/e2e/`tern` smoke tetap PR berikutnya. (−) Composition root harus menyediakan `Permitter` per sesi dan menjembatani `tools.Approver` (kelas/AllowSession) ke tipe netral ini.
