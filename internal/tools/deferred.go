@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -398,6 +399,8 @@ type invokeArgs struct {
 // the owning module first. It runs inside Prepare, before lookup/schema/
 // sandbox/taint/policy, so the forwarded call is authorised exactly like a
 // direct call and no nested dispatch is created.
+//
+//nolint:gocritic // Call is a value carrier with a fixed public shape (ADR-203 added PlanMode)
 func (d *Dispatcher) unwrapInvoke(call Call) (Call, *Outcome) {
 	entry, ok := d.reg.Lookup(ToolInvokeName)
 	if !ok {
@@ -432,6 +435,47 @@ func (d *Dispatcher) unwrapInvoke(call Call) (Call, *Outcome) {
 		inner.Args = env.Arguments
 	}
 	return inner, nil
+}
+
+// planDeferredDeny refuses a plan-mode call to a deferred non-read tool before
+// the runtime is asked to activate the owning module (F-1, ADR-203). It
+// returns handled=false for eager tools, unknown names, and read-effect
+// deferred tools, which continue through classifyCall.
+func (d *Dispatcher) planDeferredDeny(call *Call) (Prepared, bool, error) {
+	if d.deferred == nil || d.deferred.Catalog == nil {
+		return Prepared{}, false, nil
+	}
+	if _, ok := d.reg.Lookup(call.Name); ok {
+		return Prepared{}, false, nil
+	}
+	dt, ok := d.deferred.Catalog.Lookup(call.Name)
+	if !ok {
+		return Prepared{}, false, nil
+	}
+	mt := moduleTool{effect: dt.Effect}
+	effect := mt.Effect(nil)
+	if effect == EffectRead {
+		return Prepared{}, false, nil
+	}
+	args := call.Args
+	if len(bytes.TrimSpace(args)) == 0 {
+		args = json.RawMessage(`{}`)
+	}
+	entry := &Entry{
+		Doc:      SchemaDoc{Name: dt.Name, Description: dt.Description, Parameters: dt.Schema},
+		compiled: dt.compiled,
+	}
+	if err := entry.Validate(args); err != nil {
+		out := failure(codeOf(err), messageOf(err), hintOf(err))
+		return Prepared{}, true, out.Err
+	}
+	decision := PolicyDecision{Requirement: RequireDeny, Class: "plan_mode"}
+	ensurePreview(call.Name, args, effect, &decision)
+	return Prepared{
+		Call: *call, Args: args, Effect: effect, Decision: decision,
+		Env:   Env{TurnID: call.TurnID, CallID: call.CallID, Cwd: d.cwd, PageChars: d.pageCap(), InlineLeft: d.inlineLeft()},
+		entry: entry,
+	}, true, nil
 }
 
 // deferredEntry resolves a name that is not in the eager registry, activating
