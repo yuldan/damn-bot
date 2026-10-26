@@ -50,7 +50,7 @@ func TestEngineeringTotalCoreMatchesLocBudget(t *testing.T) {
 	}
 	rowN, proseN := dotted(t, row[1]), dotted(t, prose[1])
 	if rowN != sum || proseN != sum {
-		t.Errorf("Total core drift (ADR-054, V-20): docs/ENGINEERING.md row = %d, sentence = %d, Σ loc.budget (budgetCoreSum) = %d, cap = 47000; known drift 207 lines (44.238 vs 44.031 at ef8ec40d; 44.131 vs 43.631 at b979bc83)",
-			rowN, proseN, sum)
+		t.Errorf("Total core drift (ADR-054, V-20): docs/ENGINEERING.md row = %d, sentence = %d, Σ loc.budget (budgetCoreSum) = %d, cap = %d.\nRecompute Σ from the rebased tree with an inline probe, then set the loc.budget rows and both ENGINEERING.md figures to that number - never copy figures from a PR body or from another branch (known drift 207 lines: 44.238 vs 44.031 at ef8ec40d).",
+			rowN, proseN, sum, maxCoreLOC)
 	}
 }
