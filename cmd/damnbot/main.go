@@ -44,16 +44,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return runUndo(args[1:], stdout, stderr)
 		case "review":
 			return runReview(args[1:], stdout, stderr)
+		case "sessions":
+			return runSessions(args[1:], stdout, stderr)
+		case "skills":
+			return skillsCommand(args[1:], stdout, stderr)
+		case "bundles":
+			return runBundles(args[1:], stdout, stderr)
 		}
-	}
-	if len(args) > 0 && args[0] == "sessions" {
-		return runSessions(args[1:], stdout, stderr)
-	}
-	if len(args) > 0 && args[0] == "skills" {
-		return skillsCommand(args[1:], stdout, stderr)
-	}
-	if len(args) > 0 && args[0] == "bundles" {
-		return runBundles(args[1:], stdout, stderr)
 	}
 	fs := flag.NewFlagSet("damnbot", flag.ContinueOnError)
 	fs.SetOutput(stderr)

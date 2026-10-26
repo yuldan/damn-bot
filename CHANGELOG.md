@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `cmd/damnbot`: dispatch `sessions`, `skills`, dan `bundles` di dalam `switch` subcommand `run` (bukan tiga `if` berurutan selepasnya) — perilaku identik (urutan cek dan `usage`/exit 2 untuk subcommand tak dikenal tidak berubah), hanya menurunkan kompleksitas siklomatik `run()` dari 15 ke 12 sehingga blok dispatch fitur berikutnya tetap di bawah gerbang `gocyclo` 15 tanpa `nolint`.
+
 - `ci`/`scripts`: dua gerbang per-PR baru (ADR-187) — `skill-refs` (GAP-SEC-26: `TestBuiltinSkillRefs` menolak referensi `skill://` atau path skrip yang menggantung di skill bawaan; suite boleh kosong sampai skill bawaan pertama ditambahkan) dan `sqlite-engine` (GAP-REL-04: engine SQLite ≥ 3.51.3 + FTS5/trigram/`json_valid` di delapan target rilis kanonik E-39 — enam runner native, `linux/arm` dan `android/arm64` lewat cross-compile sampai QEMU/F9). Keduanya terdaftar di `scripts/ci-meta-test.sh` (dengan injeksi `MinSQLiteVersion = "99.0.0"` sebagai bukti gerbangnya hidup) dan masuk `ci-required.needs`, sehingga status wajib tetap satu.
 
 - `docs`: matriks bukti batas keamanan F2 (§5 `docs/F2-ACCEPTANCE.md`) — tes positif e2e biner nyata + kontrol negatif per permukaan beserta status load-bearing, flip eksperimen yang dipakai, dan kutipan baris MERAH verbatim; permukaan 2 (exec/classifier/payment gate) dan MEM-026 tetap dicatat sebagai GAP.
