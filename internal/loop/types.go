@@ -179,6 +179,28 @@ type Prepared struct {
 	// The composition root fills it from the registry; approval semantics
 	// still use Effect/Approval.
 	SideEffect bool
+	// PlanMode is the turn's plan-mode state, carried to Dispatch (ADR-198).
+	PlanMode bool
+	// PlanAllowed is set by a plan-aware toolset when the call is a read or an
+	// exact shell_allow command labelled non_mutating. Without it, plan mode
+	// denies every non-read call.
+	PlanAllowed bool
+	// Denied is a pre-dispatch plan-mode denial. The loop records
+	// tool_rejected + an error tool_result and never calls Dispatch.
+	Denied *ToolError
+}
+
+// PrepareOptions is the per-turn state a plan-aware toolset needs during
+// preparation (ADR-198).
+type PrepareOptions struct {
+	PlanMode bool
+}
+
+// PlanPreparer is the optional Toolset extension that enforces plan mode while
+// preparing a call. A Toolset without it is rejected in plan mode: the loop
+// cannot prove the call is read-only, so no tool call may run.
+type PlanPreparer interface {
+	PreparePlan(ctx context.Context, call ToolCall, opts PrepareOptions) (Prepared, error)
 }
 
 // ToolError is a model-facing tool failure. Code is one of the closed

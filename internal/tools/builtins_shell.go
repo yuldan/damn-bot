@@ -153,8 +153,22 @@ func (t *shellTool) Inspect(_ context.Context, env Env, args json.RawMessage, pc
 		Mode: t.classifyMode(pc.Mode), AllowMatched: matched,
 		WorkspaceTrusted: pc.WorkspaceTrusted, TurnTainted: pc.Tainted,
 		Session: a.Session != "", Stdin: a.Stdin != "", CwdInRoot: true,
+		PlanMode: pc.PlanMode,
 	})
-	return shellDecision(dec, shellClassLabel(v), shellPreview(a.Command, v))
+	pd, sderr := shellDecision(dec, shellClassLabel(v), shellPreview(a.Command, v))
+	if sderr != nil {
+		return pd, sderr
+	}
+	if pc.PlanMode {
+		// AutoApprove here means an exact shell_allow match that the
+		// classifier also labelled non_mutating; everything else is denied
+		// with the plan_mode audit class (ADR-079 butir 11, ADR-198).
+		pd.PlanAllowed = dec == classify.AutoApprove
+		if dec == classify.Denied {
+			pd.Class = "plan_mode"
+		}
+	}
+	return pd, nil
 }
 
 // validateSessionArgs rejects combinations a persistent session cannot honor

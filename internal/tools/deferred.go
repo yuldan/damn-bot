@@ -398,6 +398,8 @@ type invokeArgs struct {
 // the owning module first. It runs inside Prepare, before lookup/schema/
 // sandbox/taint/policy, so the forwarded call is authorised exactly like a
 // direct call and no nested dispatch is created.
+//
+//nolint:gocritic // Call is a value carrier with a fixed public shape (ADR-198 added PlanMode)
 func (d *Dispatcher) unwrapInvoke(call Call) (Call, *Outcome) {
 	entry, ok := d.reg.Lookup(ToolInvokeName)
 	if !ok {

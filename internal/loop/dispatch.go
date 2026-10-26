@@ -72,15 +72,58 @@ func (t *turn) prepare(ctx context.Context, c ToolCall) (Prepared, *ToolError, e
 	if t.deps.Toolset == nil {
 		return Prepared{}, nil, errors.New("loop: toolset required for tool calls")
 	}
-	p, err := t.deps.Toolset.Prepare(ctx, c)
+	p, err := t.prepareToolset(ctx, c)
 	if err != nil {
 		if te, ok := errors.AsType[*ToolError](err); ok {
 			return Prepared{}, te, nil
 		}
-		return Prepared{}, nil, fmt.Errorf("loop: prepare: %w", err)
+		return Prepared{}, nil, err
 	}
 	p.Call = c
+	if t.input.PlanMode && p.Denied == nil && !p.PlanAllowed && p.Effect != EffectRead {
+		p.Denied = planDenied(c.Name)
+	}
 	return p, nil, nil
+}
+
+// prepareToolset runs the plan-aware preparation path when the turn is in plan
+// mode. A toolset that cannot enforce plan mode fails closed: every call is
+// denied before any policy, journal row or execution (ADR-198).
+func (t *turn) prepareToolset(ctx context.Context, c ToolCall) (Prepared, error) {
+	if !t.input.PlanMode {
+		p, err := t.deps.Toolset.Prepare(ctx, c)
+		if err != nil {
+			return Prepared{}, fmt.Errorf("loop: prepare: %w", err)
+		}
+		return p, nil
+	}
+	pp, ok := t.deps.Toolset.(PlanPreparer)
+	if !ok {
+		return Prepared{Call: c, PlanMode: true, Denied: planDeniedUnsupported()}, nil
+	}
+	p, err := pp.PreparePlan(ctx, c, PrepareOptions{PlanMode: true})
+	if err != nil {
+		return Prepared{}, fmt.Errorf("loop: prepare plan: %w", err)
+	}
+	p.PlanMode = true
+	return p, nil
+}
+
+// planDenied is the model-facing rejection of a non-read call in plan mode.
+func planDenied(name string) *ToolError {
+	return &ToolError{
+		Code: CodeDenied, Message: "plan mode: " + name + " is not allowed during planning",
+		Hint: "only reads and exact shell_allow commands labelled non_mutating may run",
+	}
+}
+
+// planDeniedUnsupported rejects every call of a toolset that cannot prove
+// plan-mode compliance.
+func planDeniedUnsupported() *ToolError {
+	return &ToolError{
+		Code: CodeDenied, Message: "plan mode: toolset cannot enforce plan mode",
+		Hint: "wire a plan-aware toolset before enabling plan mode",
+	}
 }
 
 // canParallel is the SPEC §4.2 read fast path: only read-effect calls that
@@ -90,7 +133,7 @@ func (t *turn) canParallel(ps []Prepared) bool {
 		return false
 	}
 	for i := range ps {
-		if ps[i].Approval != ApprovalNone || ps[i].Effect != EffectRead || ps[i].NeedsApproval(t.tainted) {
+		if ps[i].Denied != nil || ps[i].Approval != ApprovalNone || ps[i].Effect != EffectRead || ps[i].NeedsApproval(t.tainted) {
 			return false
 		}
 	}
@@ -170,6 +213,11 @@ func (t *turn) takePending() (outcome, bool) {
 // the call's tool result was recorded (a terminal return without it must be
 // paired explicitly).
 func (t *turn) runCall(ctx context.Context, p *Prepared) (o outcome, terminal, delivered bool) {
+	if p.Denied != nil {
+		t.reject(ctx, p.Call, p.Denied)
+		od, ok := t.deliver(ctx, p.Call, &ToolResult{Err: p.Denied}, nil)
+		return od, ok, true
+	}
 	o, terminal, denied := t.approve(ctx, p)
 	if terminal {
 		if denied {
@@ -340,7 +388,7 @@ func (t *turn) grant(ctx context.Context, p *Prepared, d Decision) {
 // edit re-prepares edited arguments; false means the edit was rejected.
 func (t *turn) edit(ctx context.Context, p *Prepared, res *ApprovalResult) bool {
 	edited, te, fatal := t.prepare(ctx, ToolCall{ID: p.Call.ID, Name: p.Call.Name, Arguments: string(res.Args)})
-	if fatal != nil || te != nil {
+	if fatal != nil || te != nil || edited.Denied != nil {
 		t.recordApproval(ctx, p.Call.Name, DecisionDeny)
 		return false
 	}
