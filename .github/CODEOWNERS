@@ -10,6 +10,7 @@
 /cmd/damnbot/ @yuldan
 
 /internal/archtest/ @yuldan
+/internal/acp/ @yuldan
 /internal/assemble/ @yuldan
 /internal/boundary/ @yuldan
 /internal/backup/ @yuldan
