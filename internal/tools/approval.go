@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // Mode is the session approval mode (SPEC §14.1). ModeHeadless is a
@@ -131,6 +132,19 @@ type ApprovalRequest struct {
 	// AllowSession is false for shell (ADR-088 butir 1), execute_code and
 	// P26 classes (irreversible/monetary/delegated_agent_bypass).
 	AllowSession bool
+}
+
+// MaxPreview caps one approval preview in runes (SPEC §18.2 channels render at
+// most 3.500 characters; the truncation marker is added after the cap).
+const MaxPreview = 3500
+
+// clipPreview bounds a preview at a rune boundary and marks truncation
+// explicitly so an approver knows the summary is incomplete.
+func clipPreview(s string) string {
+	if utf8.RuneCountInString(s) <= MaxPreview {
+		return s
+	}
+	return string([]rune(s)[:MaxPreview]) + "\n… (preview truncated)"
 }
 
 // PreviewRequired reports whether an approval of this effect and audit class

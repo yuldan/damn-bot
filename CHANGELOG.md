@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/tools`: preview sebelum aksi berbahaya (ADR-199) — `clipPreview` membatasi setiap preview approval pada 3.500 rune dengan penanda truncation; korpus uji 69 kasus berbahaya (64 shell destructive/P26 + 5 tulis/edit file) membuktikan 100% sampai ke approver dengan preview non-kosong, `Origin` benar, dan 0 proses sebelum persetujuan, termasuk jalur headless yang menolak keras.
+
 - `internal/tools`/`internal/loop`: plan mode ditegakkan (ADR-198) — `Call.PlanMode` → `PolicyContext.PlanMode` → `classify.Context.PlanMode`, gate terpusat menolak setiap effect non-read kecuali shell yang cocok **persis** `shell_allow` dan berlabel `non_mutating` (`PlanAllowed`); `tool_invoke` di-unwrap sebelum policy; loop memakai `PrepareOptions`/`PlanPreparer` dan menolak semua call (fail-closed) bila toolset tidak plan-aware, dengan `Prepared.Denied` = `tool_rejected` + hasil error tanpa `tool_dispatch`.
 
 - `internal/tools`/`internal/loop`: kontrak approval (ADR-197) — `ApprovalRequest` mendapat `Origin` tertutup (`run|tui|acp|plan`, default `run`, nilai asing ditolak saat konstruksi) dan preview wajib untuk aksi berbahaya yang diturunkan dari label classifier (`destructive`/P26 + kelas `write`); `ensurePreview` menjamin preview non-kosong tanpa membaca workspace, dan dispatcher menolak permintaan berbahaya tanpa preview sebelum approver dipanggil.
