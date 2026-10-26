@@ -9,6 +9,8 @@
 # AUD-073: file Go non-test di internal/* yang tidak terpetakan ke baris loc.budget = gagal; file
 # generated hanya dikecualikan bila path-nya cocok glob baris `GENERATED <glob>` di loc.budget
 # (bukan berdasarkan header "Code generated" — scc dijalankan tanpa --no-gen).
+# ADR-196: baris `MODULE <grup> <LOC> <dir...>` dicek per-baris seperti baris core, tetapi LOC-nya
+# tidak masuk TOTAL maupun Σ core (kelas modul permukaan, preseden baris infra NEW-34).
 set -euo pipefail
 
 mode=${1:-budget}
@@ -41,8 +43,15 @@ budget)
 			n = split(line, f, FS)
 			if (f[1] == "GENERATED" || f[1] == "TESTONLY") continue
 			if (f[1] == "TOTAL") { total_max = f[2]; continue }
-			max[f[1]] = f[2]; used[f[1]] = 0
-			for (i = 3; i <= n; i++) dirgroup[f[i]] = f[1]
+			# ADR-196: baris `MODULE <nama> <cap> <dir...>` menjadi grup sendiri ber-key
+			# "MODULE <nama>" dengan cap per-baris, tetapi LOC-nya tidak masuk TOTAL/Σ core; baris
+			# lain tetap `<nama> <cap> <dir...>`.
+			if (f[1] == "MODULE") { name = "MODULE " f[2]; capn = f[3]; first = 4 }
+			else                  { name = f[1]; capn = f[2]; first = 3 }
+			if (name in max) { printf "LOC GAGAL baris ganda %s\n", name; begin_fail = 1; continue }
+			if (capn !~ /^[0-9]+$/ || capn + 0 <= 0) { printf "LOC GAGAL cap %s tidak valid\n", name; begin_fail = 1; continue }
+			max[name] = capn; used[name] = 0
+			for (i = first; i <= n; i++) dirgroup[f[i]] = name
 		}
 		FS = ","
 	}
@@ -57,7 +66,7 @@ budget)
 		else if (path ~ /^internal\//) { d = path; sub(/\/[^\/]*$/, "", d); unmapped[d] += code }
 	}
 	END {
-		fail = 0
+		fail = begin_fail
 		for (d in unmapped) { printf "LOC GAGAL unmapped %s (%d LOC): tidak ada baris loc.budget (AUD-073)\n", d, unmapped[d]; fail = 1 }
 		for (g in max) {
 			if (used[g] > max[g]) { printf "LOC GAGAL %-18s %6d > %6d\n", g, used[g], max[g]; fail = 1 }

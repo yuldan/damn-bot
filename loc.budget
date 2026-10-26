@@ -8,7 +8,7 @@
 # ADR-178 (EC-PROV-008/EC-CTX-017): loop 2050 -> 2100 (penanda partial + windowRoom + stub kompaksi; terukur 2051; Σ core 38.470 -> 38.520 <= 47.000).
 # ADR-123 amendment (merge #173): budget stop details di turn/event ikut baris `loop` yang sama (diukur ulang pada pohon hasil merge).
 
-loop              2160 internal/loop
+loop              2650 internal/loop
 plan               600 internal/plan
 # ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
 # ADR-128 amandemen round 3/4: provider 2100 -> 2150 (billed usage/projection; Σ core +50).
@@ -23,7 +23,7 @@ schema            1200 internal/schema
 # ADR-173: tools 2200 -> 2500 (skills_list/skill_view/skill_manage; terukur 2315; Σ core 38.090 -> 38.390 <= 47.000).
 # ADR-188: tool `memory` + `session_search` menambah baris tools (terukur 2574 pada pohon ter-commit
 # sesudah rebase ke main 44.710); tools 2500 -> 2574 = angka ukur, tanpa headroom (Σ core 44.710 -> 44.789).
-tools             2574 internal/tools
+tools             3000 internal/tools
 # ADR-143: komposisi toolset deklaratif (TSET/CORE-004/005; Σ core 38.450 -> 38.850 <= 47.000).
 toolset            400 internal/toolset
 # ADR-111: codetools 4500 -> 4800 (perbaikan REVIEW-F1-SEC2; Σ core 33.900 -> 34.200 <= 47.000).
@@ -72,6 +72,9 @@ ctxdb/carrierstore 300 internal/ctxdb/carrierstore
 # Amandemen jendela crypto (ADR-124): ctxdb/compactstore -> 336 (terukur pada pohon langkah ini).
 # ADR-186: eventsQ memuat turn ber-pin + Snapshot.Pins (terukur 342); compactstore 336 -> 360.
 ctxdb/compactstore 360 internal/ctxdb/compactstore
+ctxdb/planstore     220 internal/ctxdb/planstore
+ctxdb/importstore   200 internal/ctxdb/importstore
+ctxdb/usagestore    260 internal/ctxdb/usagestore
 # ADR-124 (PR 1/1b/2a): key store at-rest + rotasi/timeout + backup X25519; terukur 806.
 # Amandemen jendela crypto (ADR-124): secret -> 1145 (terukur pada pohon langkah ini).
 secret             1168 internal/secret
@@ -130,3 +133,26 @@ codetools         5365 internal/codetools
 # assembler adapter; terukur 1306; Σ core +20).
 # Amandemen (W7 recall/lineage, 2026-10-25): ctxdb 5816 -> 5885 (lineage CTE + Ancestor + Lineage,
 # validasi parent se-origin; terukur 5885 pada pohon hasil rebase; Sigma core +69 -> 44.710).
+# ADR-196 (F3, 2026-10-26): loop 2160 -> 2650 (+490: plan mode/preview) dan tools 2574 -> 3000 (+426:
+# registri/toolset permukaan F3), plus sub-baris storage konsumen pola ADR-074 (ctxdb/planstore 220,
+# ctxdb/importstore 200, ctxdb/usagestore 260). Sigma core 44.789 -> 46.385 <= 47.000.
+# Kelas MODULE (ADR-196): modul permukaan F3 dengan cap SPEC §3.2.4, DI LUAR Sigma core seperti baris
+# infra non-produksi (ADR-086 NEW-34), tetapi tetap dijaga per-baris oleh `scripts/loc-check.sh budget`
+# dan `TestLocBudgetModuleRows`. Format: MODULE <grup> <LOC> <direktori...>; grup unik lintas semua
+# baris, direktori internal/..., tidak boleh tumpang tindih dengan baris lain. F3 family
+# importer+setup+doctor+update+profiles 7.300 + backup 1.467 = 8.767 <= 9.000 (SPEC §3.2.4);
+# total F3 10.000 + 2.500 + 7.300 + 1.467 = 21.267 <= 21.500. TOTAL 190.000 tidak berubah.
+# ADR-196: SPEC §3.2.4:283 (tui 10.000).
+MODULE tui        10000 internal/tui
+# ADR-196: SPEC §3.2.4:284 (acp 2.500).
+MODULE acp         2500 internal/acp
+# ADR-196: SPEC §3.2.4:285 family importer+setup/doctor/update/profiles (importer 2.600).
+MODULE importer    2600 internal/importer
+# ADR-196: SPEC §3.2.4:285 family importer+setup/doctor/update/profiles (setup 1.300).
+MODULE setup       1300 internal/setup
+# ADR-196: SPEC §3.2.4:285 family importer+setup/doctor/update/profiles (doctor 1.100).
+MODULE doctor      1100 internal/doctor
+# ADR-196: SPEC §3.2.4:285 family importer+setup/doctor/update/profiles (update 1.500).
+MODULE update      1500 internal/update
+# ADR-196: SPEC §3.2.4:285 family importer+setup/doctor/update/profiles (profiles 800).
+MODULE profiles     800 internal/profiles
