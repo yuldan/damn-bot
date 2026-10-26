@@ -244,41 +244,45 @@ func TestSessionSearchKeepsItsSource(t *testing.T) {
 	}
 }
 
-// TestSessionSearchTaintsTurnDeniesShell (ADR-188): a session_search hit
-// taints the rest of the turn (ADR-070), so a mutating shell command under
-// --approval auto --unsafe-auto-shell asks instead of running. The tracked
-// workspace is trusted, so workspace trust cannot be the reason the command
-// did not run; the headless run has no approver, hence the denial.
-func TestSessionSearchTaintsTurnDeniesShell(t *testing.T) {
+// TestSessionSearchTaintsTurnAsksForApproval (ADR-188): a session_search hit
+// taints the rest of the turn (ADR-070), so a write that an untainted turn
+// auto-approves under --approval auto-edit now asks for approval; a headless
+// run has no approver, so the call is denied with the ask hint and leaves no
+// file. The tracked workspace is trusted, so trust cannot be the reason.
+func TestSessionSearchTaintsTurnAsksForApproval(t *testing.T) {
 	t.Parallel()
 	e := NewTrusted(t,
 		providertest.Text("noted: TAINTMARK-7731"),
 		ToolCallReply("c1", "session_search", `{"query":"TAINTMARK-7731"}`),
-		ToolCallReply("c2", "shell", `{"command":"touch pwned-marker"}`),
+		ToolCallReply("c2", "write_file", `{"path":"pwned-marker","content":"taint"}`),
 		providertest.Text("done"),
 	)
 	e.Run("remember TAINTMARK-7731").RequireOK(t)
-	e.Run("search the transcript, then run the command", "--approval", "auto", "--unsafe-auto-shell").RequireOK(t)
+	e.Run("search the transcript, then write the file", "--approval", "auto-edit").RequireOK(t)
 	if _, err := os.Stat(e.Path("pwned-marker")); err == nil {
-		t.Fatal("a turn tainted by session_search auto-approved a mutating shell command")
+		t.Fatal("a turn tainted by session_search auto-approved the write")
 	}
-	if body := e.RequestText(t, 3); !strings.Contains(body, "interactive approval is required") {
-		t.Errorf("shell result is not the approval ask denial:\n%s", body)
+	body := e.RequestText(t, 3)
+	if !strings.Contains(body, `\"code\":\"denied\"`) || !strings.Contains(body, "interactive approval is required") {
+		t.Errorf("write result is not the approval ask denial:\n%s", body)
+	}
+	if !strings.Contains(body, `untrusted source=\"session\"`) {
+		t.Errorf("the tainting hit is not wrapped as a session read:\n%s", body)
 	}
 }
 
-// TestSessionSearchTaintControlShellRuns is the negative control of
-// TestSessionSearchTaintsTurnDeniesShell: the same trusted workspace, mode
-// and command, without the session_search hit, really do run the command.
-func TestSessionSearchTaintControlShellRuns(t *testing.T) {
+// TestSessionSearchTaintControlWriteRuns is the negative control of
+// TestSessionSearchTaintsTurnAsksForApproval: the same trusted workspace and
+// --approval auto-edit, without the session_search hit, really do write.
+func TestSessionSearchTaintControlWriteRuns(t *testing.T) {
 	t.Parallel()
 	e := NewTrusted(t,
-		ToolCallReply("c1", "shell", `{"command":"touch control-marker"}`),
+		ToolCallReply("c1", "write_file", `{"path":"control-marker","content":"clean"}`),
 		providertest.Text("done"),
 	)
-	res := e.Run("run the command from the workspace", "--approval", "auto", "--unsafe-auto-shell")
+	res := e.Run("write the file from the workspace", "--approval", "auto-edit")
 	res.RequireOK(t)
 	if _, err := os.Stat(e.Path("control-marker")); err != nil {
-		t.Fatalf("control: the untainted turn never ran the shell command: %v\n%s", err, res.Stderr)
+		t.Fatalf("control: the untainted turn never wrote the file: %v\n%s", err, res.Stderr)
 	}
 }

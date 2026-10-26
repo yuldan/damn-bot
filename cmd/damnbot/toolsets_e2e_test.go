@@ -164,15 +164,17 @@ func TestToolsetRefusesDeferredInvoke(t *testing.T) {
 }
 
 // TestRunToolsetUnavailableWarned: a built-in toolset naming tools the binary
-// does not implement reports them once instead of dropping them silently.
+// does not implement reports them once instead of dropping them silently. The
+// fixture is the `web` toolset (web_search/web_fetch): `memory` is implemented
+// by this PR, so pointing here at an available toolset would assert nothing.
 func TestRunToolsetUnavailableWarned(t *testing.T) {
 	t.Parallel()
-	ts := toolset.Config{Active: []string{"memory"}}
+	ts := toolset.Config{Active: []string{"web"}}
 	prov, stderr, err := runToolset(t, ts, "auto", "true")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if !strings.Contains(stderr, `tool "memory" is not available`) {
+	if !strings.Contains(stderr, `tool "web_search" is not available`) {
 		t.Fatalf("stderr = %q, want the unavailable warning", stderr)
 	}
 	if len(prov.requests[0].Tools) != 0 {
