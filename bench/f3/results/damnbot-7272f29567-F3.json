@@ -128,14 +128,14 @@
   ],
   "reason": "pinned Hermes runtime is not provisioned (Python 3.14 + 45 pinned deps and Node workspace deps); no package install was attempted",
   "repro": [
-   "HERMES_DIR=\u003chermes-868b9f244f checkout\u003e HERMES_PYTHONPATH=\u003cdeps\u003e bench/f2/run.sh",
+   "HERMES_DIR=<hermes-868b9f244f checkout> HERMES_PYTHONPATH=<deps> bench/f2/run.sh",
    "python3.14 -m hermes_cli.main chat  # requires the pinned dependency set"
   ],
   "status": "unavailable"
  },
  "meta": {
   "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
-  "damnbot_commit": "cea393d2cb",
+  "damnbot_commit": "7272f29567",
   "damnbot_dirty": 0,
   "date": "2026-10-27T23:03:06Z",
   "go": "go1.26.10",
