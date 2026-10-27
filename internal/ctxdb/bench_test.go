@@ -44,7 +44,7 @@ func reportLatency(b *testing.B, ds []time.Duration) {
 	b.ReportMetric(float64(p99)/ms, "p99-ms")
 }
 
-func benchStore(b *testing.B, kind string) *Store {
+func benchStore(b testing.TB, kind string) *Store {
 	b.Helper()
 	s, err := Open(context.Background(), &Options{Dir: b.TempDir(), Kind: kind})
 	if err != nil {
@@ -58,7 +58,7 @@ func benchStore(b *testing.B, kind string) *Store {
 	return s
 }
 
-func benchMust(b *testing.B, err error) {
+func benchMust(b testing.TB, err error) {
 	b.Helper()
 	if err != nil {
 		b.Fatal(err)
@@ -67,7 +67,7 @@ func benchMust(b *testing.B, err error) {
 
 // benchSession creates one leased session whose events carry 3 blob refs
 // (ADR-039: the blob_refs insert is part of the Append budget).
-func benchSession(b *testing.B, s *Store, sid string) (blob, refA, refB string) {
+func benchSession(b testing.TB, s *Store, sid string) (blob, refA, refB string) {
 	b.Helper()
 	ctx := context.Background()
 	benchMust(b, s.Write(ctx, func(tx *Tx) error {
