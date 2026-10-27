@@ -29,7 +29,7 @@ func sessionsFlag(name string, args []string, stdout, stderr io.Writer, key, val
 	if derr != nil {
 		return sessionsFail(stderr, name, derr, a.pos[0])
 	}
-	defer closeSessionsDB(db, "sessions "+name, stderr)
+	defer closeSessionsDB(ctx, db, "sessions "+name, stderr)
 	if derr := db.SetSessionLabel(ctx, a.pos[0], key, value); derr != nil {
 		return sessionsFail(stderr, name, derr, a.pos[0])
 	}
@@ -52,7 +52,7 @@ func sessionsPinned(args []string, stdout, stderr io.Writer) int {
 	if derr != nil {
 		return sessionsFail(stderr, "pinned", derr, "")
 	}
-	defer closeSessionsDB(db, "sessions pinned", stderr)
+	defer closeSessionsDB(ctx, db, "sessions pinned", stderr)
 	rows, derr := db.SessionRows(ctx)
 	if derr != nil {
 		return sessionsFail(stderr, "pinned", derr, "")
@@ -80,7 +80,7 @@ func sessionsStats(args []string, stdout, stderr io.Writer) int {
 	if derr != nil {
 		return sessionsFail(stderr, "stats", derr, "")
 	}
-	defer closeSessionsDB(db, "sessions stats", stderr)
+	defer closeSessionsDB(ctx, db, "sessions stats", stderr)
 	rows, derr := db.SessionRows(ctx)
 	if derr != nil {
 		return sessionsFail(stderr, "stats", derr, "")

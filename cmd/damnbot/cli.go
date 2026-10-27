@@ -116,3 +116,12 @@ func cleanBlock(s string) string {
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
+
+// usageError prints one parse failure once and returns the usage exit code.
+// The flag package may already have printed its own message.
+func usageError(stderr io.Writer, name string, err error) int {
+	if _, reported := errors.AsType[*reportedParseError](err); !reported {
+		sessionsPrintf(stderr, "%s: %s\n", name, cleanLine(err.Error()))
+	}
+	return 2
+}
