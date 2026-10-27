@@ -34,6 +34,9 @@ func setupCredentials() []setupCredential {
 
 // runSetup implements the ≤3-step wizard (SPEC §10, ROADMAP F3 acceptance).
 func runSetup(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "completion" {
+		return setupCompletion(args[1:], stdout, stderr)
+	}
 	flags := flag.NewFlagSet("setup", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	yes := flags.Bool("yes", false, "non-interactive (choose --model)")
@@ -218,5 +221,5 @@ func promptLine(in io.Reader, out io.Writer, prompt string) (string, error) {
 }
 
 func setupUsage(w io.Writer) {
-	say(w, "usage: damnbot setup [--yes] [--model provider/model]\n")
+	say(w, "usage: damnbot setup [--yes] [--model provider/model]\n       damnbot setup completion bash|zsh|fish|powershell\n")
 }
