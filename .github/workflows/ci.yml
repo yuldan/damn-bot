@@ -368,6 +368,7 @@ jobs:
           retry make mod-verify
           retry make deps-check
           retry make licenses
+          retry make release-test
           retry make vuln
 
   # ADR-181: tier `smoke` untuk `push: main`. Yang diperiksa: kompilasi seluruh paket (`make build`,

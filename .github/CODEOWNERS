@@ -5,6 +5,7 @@
 
 /.github/ @yuldan
 /scripts/ @yuldan
+/tools/release/ @yuldan
 /docs/ @yuldan
 
 /cmd/damnbot/ @yuldan
