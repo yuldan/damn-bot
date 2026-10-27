@@ -93,6 +93,51 @@ func TestPaymentKeySimulatedForms(t *testing.T) {
 	}
 }
 
+// TestPowerShellPaymentSkillMonetary (SEC10-29): the shell exec runs on
+// Windows is PowerShell (pwsh before cmd), so the call operator and
+// Set-Location forms must gate payment-skill files. Parsed as cmd, single
+// quotes are literal bytes and the same lines look like plain mutating
+// commands that --unsafe-auto-shell may run.
+func TestPowerShellPaymentSkillMonetary(t *testing.T) {
+	t.Parallel()
+	env := testEnv()
+	env.Dialect = Pwsh
+	pay := `C:\skills\pay`
+	env.MonetaryPaths = []string{pay}
+	cases := []struct {
+		cmd  string
+		want Class
+	}{
+		{"& '" + pay + "\\scripts\\charge.ps1'", Monetary},
+		{"python3 '" + pay + "\\scripts\\charge.py'", Monetary},
+		{"Set-Location '" + pay + "\\scripts'; ./charge.ps1", Monetary},
+		{"Set-Location '" + pay + "\\scripts'; Write-Output ok", Monetary},
+	}
+	for _, c := range cases {
+		if v := Classify(c.cmd, env); v.Class != c.want {
+			t.Errorf("%q: class %s, want %s (%v)", c.cmd, v.Class, c.want, v.Reasons)
+		}
+	}
+}
+
+// TestPowerShellPayloadCmdNegativeControl (SEC10-29): with the old cmd
+// dialect these PowerShell payloads are Mutating (auto-runnable), which is
+// exactly the fail-open the Pwsh dialect above detects.
+func TestPowerShellPayloadCmdNegativeControl(t *testing.T) {
+	t.Parallel()
+	env := testEnv()
+	env.Dialect = Cmd
+	env.MonetaryPaths = []string{`C:\skills\pay`}
+	for _, cmd := range []string{
+		`& 'C:\skills\pay\scripts\charge.ps1'`,
+		`Set-Location 'C:\skills\pay\scripts'; ./charge.ps1`,
+	} {
+		if v := Classify(cmd, env); v.Class != Mutating {
+			t.Errorf("%q: class %s, want mutating under cmd (%v)", cmd, v.Class, v.Reasons)
+		}
+	}
+}
+
 // TestPaymentDevicePath: a \\?\ or \\.\ spelling of a payment-skill file
 // still takes the monetary label (SEC10-15); the canonicalizer in cmd strips
 // the device prefix, simulated here.
@@ -150,6 +195,8 @@ func TestWindowsCdGate(t *testing.T) {
 		{Cmd, `cd sub && cd`, Mutating},
 		{Cmd, `cd sub && pushd`, Mutating},
 		{Cmd, `cd sub && popd`, Mutating},
+		{Cmd, `cd sub && cd && git status`, Mutating},
+		{Cmd, `cd && git status`, Unknown},
 		{Bash, `cd //tmp && echo hi`, Mutating},
 	} {
 		env := testEnv()

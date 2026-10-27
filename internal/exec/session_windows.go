@@ -7,16 +7,15 @@ import "strings"
 // switched off, so the console would interleave the typed lines with the
 // output; ADR-105 butir 22).
 func sessionShell(path string) sessionShellSpec {
-	for _, name := range []string{"pwsh", "powershell"} {
-		if p, err := lookPath(name, path, ""); err == nil {
-			return pwshSession(p)
-		}
+	c, err := chooseShell(path)
+	switch {
+	case err != nil:
+		return cmdSession("cmd.exe")
+	case c.kind == ShellPowerShell:
+		return pwshSession(c.bin)
+	default:
+		return cmdSession(c.bin)
 	}
-	p, err := lookPath("cmd", path, "")
-	if err != nil {
-		p = "cmd.exe"
-	}
-	return cmdSession(p)
 }
 
 func pwshSession(bin string) sessionShellSpec {
@@ -30,6 +29,7 @@ func pwshSession(bin string) sessionShellSpec {
 	return sessionShellSpec{
 		argv: []string{bin, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-"},
 		ext:  ".ps1", setup: "$ProgressPreference = 'SilentlyContinue'",
+		resetEnv: "$env:NoDefaultCurrentDirectoryInExePath='1'",
 		line: func(path, cwd, nonce string) string {
 			return "$global:LASTEXITCODE = 0; . '" + strings.ReplaceAll(path, "'", "''") + "'; " +
 				writeCwd(cwd) + sentinel(nonce, "${LASTEXITCODE}")
@@ -50,6 +50,7 @@ func cmdSession(bin string) sessionShellSpec {
 	}
 	return sessionShellSpec{
 		argv: []string{bin, "/d", "/q"}, ext: ".cmd", setup: "rem",
+		resetEnv: `set "NoDefaultCurrentDirectoryInExePath=1"` + "\r\n",
 		line: func(path, cwd, nonce string) string {
 			return `call "` + path + `"` + "\r\n" +
 				`set "__dmb=%errorlevel%"` + "\r\n" +
