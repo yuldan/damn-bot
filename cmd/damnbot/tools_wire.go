@@ -67,6 +67,10 @@ func closeWiring(ctx context.Context, cause error, mods *runModules, engine *cod
 // auto-run.
 func runtimeDialect() classify.Dialect { return dialectFor(exec.RuntimeShellKind()) }
 
+// dialectFromEnv follows the shell chosen from the same child environment the
+// runner uses (exec.env PATH included), not the process PATH (SEC10-31).
+func dialectFromEnv(env []string) classify.Dialect { return dialectFor(exec.ShellKindForEnv(env)) }
+
 func dialectFor(kind exec.ShellKind) classify.Dialect {
 	switch kind {
 	case exec.ShellPowerShell:
@@ -322,7 +326,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		Runner: runner, Sessions: sessions, Spill: ctxSpill{db: db}, Redactor: red, Allow: allow, Roots: roots, Home: home,
 		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
 		EnvPolicy:        envPolicy,
-		WorkspaceTrusted: trusted, UnsafeAutoShell: o.unsafeShell, Dialect: runtimeDialect(),
+		WorkspaceTrusted: trusted, UnsafeAutoShell: o.unsafeShell, Dialect: dialectFromEnv(envPolicy.Env(os.Environ(), false, "", "", "")),
 		MonetaryPaths: monetary, Canonicalize: monetaryKey,
 	})
 	if err != nil {

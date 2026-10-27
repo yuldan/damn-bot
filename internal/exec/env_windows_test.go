@@ -166,3 +166,16 @@ func TestShellChoiceDrivesDialect(t *testing.T) {
 		}
 	}
 }
+
+// TestSessionResetPrefixes (SEC10-27): the PowerShell reset must end with
+// `;` so a following line starting with `|` cannot attach to it; the cmd
+// reset is a complete line.
+func TestSessionResetPrefixes(t *testing.T) {
+	t.Parallel()
+	if ps := pwshSession("pwsh"); !strings.HasSuffix(ps.resetEnv, ";") || strings.Contains(ps.resetEnv, "\n") {
+		t.Errorf("PowerShell resetEnv = %q", ps.resetEnv)
+	}
+	if sh := cmdSession("cmd.exe"); !strings.HasSuffix(sh.resetEnv, "\r\n") {
+		t.Errorf("cmd resetEnv = %q", sh.resetEnv)
+	}
+}

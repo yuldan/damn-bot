@@ -25,7 +25,7 @@ type shellChoice struct {
 func (c shellChoice) commandArgv(command string) []string {
 	switch c.kind {
 	case ShellPowerShell:
-		return []string{c.bin, "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command}
+		return []string{c.bin, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command}
 	case ShellCmd:
 		return []string{c.bin, "/d", "/s", "/c", command}
 	case ShellPOSIX:
@@ -33,6 +33,17 @@ func (c shellChoice) commandArgv(command string) []string {
 	default:
 		return []string{c.bin, "-c", command}
 	}
+}
+
+// ShellKindForEnv reports the shell family exec would choose with the given
+// child environment ("K=V", including exec.env overrides), so the classifier
+// dialect and the runner cannot disagree (SEC10-31).
+func ShellKindForEnv(env []string) ShellKind {
+	c, err := chooseShell(envPath(env))
+	if err != nil {
+		return defaultShellKind()
+	}
+	return c.kind
 }
 
 // RuntimeShellKind reports the shell family exec would choose with the process
