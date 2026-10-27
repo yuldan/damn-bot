@@ -29,6 +29,7 @@ func runTUI([]string) int {
 	if err != nil {
 		return tuiFail(err)
 	}
+	benchTUIOverrides(o, &cfg)
 	sid, err := newSessionID()
 	if err != nil {
 		return tuiFail(err)
