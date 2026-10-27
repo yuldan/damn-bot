@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -301,5 +302,67 @@ func TestSessionsMissingDataDir(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("data dir was created: %v", err)
+	}
+}
+
+// TestResolveDataDir: only an absolute, ".."-free path is accepted, and the
+// result is the cleaned form used for every filesystem access.
+func TestResolveDataDir(t *testing.T) {
+	abs := t.TempDir()
+	sep := string(filepath.Separator)
+	good := []struct{ name, in, want string }{
+		{"absolute", abs, abs},
+		{"trailing_sep", abs + sep, abs},
+		{"redundant_sep", abs + sep + sep, abs},
+		{"dot_elements", abs + sep + "." + sep + "sub", filepath.Join(abs, "sub")},
+	}
+	for _, tc := range good {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveDataDir(tc.in)
+			if err != nil {
+				t.Fatalf("resolveDataDir(%q): %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Fatalf("resolveDataDir(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+	bad := []struct{ name, in string }{
+		{"empty", ""},
+		{"relative", "data"},
+		{"dot_relative", "." + sep + "data"},
+		{"parent_relative", ".." + sep + "data"},
+		{"escapes_tmp", abs + sep + ".." + sep + "escape"},
+		{"inner_parent", abs + sep + "a" + sep + ".." + sep + "b"},
+		{"nul", abs + "\x00" + sep + "x"},
+	}
+	for _, tc := range bad {
+		t.Run("reject_"+tc.name, func(t *testing.T) {
+			if got, err := resolveDataDir(tc.in); !errors.Is(err, errBadDataDir) {
+				t.Fatalf("resolveDataDir(%q) = %q, %v; want errBadDataDir", tc.in, got, err)
+			}
+		})
+	}
+}
+
+// TestSessionsRejectsBadDataDir: a relative or ".."-carrying --data-dir fails
+// before the store opens (exit 1, no output), while a valid absolute one still
+// forks (negative control).
+func TestSessionsRejectsBadDataDir(t *testing.T) {
+	db, dir := sessionsDB(t)
+	sessionsSeed(t, db)
+	bad := []string{"relative-data", dir + string(filepath.Separator) + ".." + string(filepath.Separator) + "escape"}
+	for _, arg := range bad {
+		code, out, errs := sessionCmd(t, arg, "fork", "P")
+		if code != 1 || out != "" || !strings.Contains(errs, "invalid data directory") {
+			t.Fatalf("--data-dir %q: exit %d out %q err %q", arg, code, out, errs)
+		}
+		if !strings.Contains(errs, cleanArg(arg)) {
+			t.Fatalf("--data-dir %q not echoed: %q", arg, errs)
+		}
+	}
+	code, out, errs := sessionCmd(t, dir, "fork", "P")
+	if code != 0 || !strings.HasPrefix(out, "forked P at seq 4: ") {
+		t.Fatalf("valid dir: exit %d out %q err %q", code, out, errs)
 	}
 }
