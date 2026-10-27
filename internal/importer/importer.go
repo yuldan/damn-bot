@@ -134,13 +134,15 @@ type ConfigEntry struct {
 	Value   any
 }
 
-// Skill is one imported skill, always quarantined as pending review.
+// Skill is one imported skill. An imported skill is always quarantined as
+// pending review; the sink owns that policy, so the item carries no status.
 type Skill struct {
 	Name        string
 	Description string
 	Body        string
 	Origin      string
-	Status      string
+	// SHA256 is the digest of the SKILL.md bytes this item was read from.
+	SHA256 string
 }
 
 // MemoryEntry is one curated memory entry.
@@ -185,7 +187,7 @@ type CronJob struct {
 // second run can be proven idempotent.
 type Sink interface {
 	PutConfig(ctx context.Context, e ConfigEntry) (bool, error)
-	PutSkill(ctx context.Context, s Skill) (bool, error)
+	PutSkill(ctx context.Context, s *Skill) (bool, error)
 	PutMemory(ctx context.Context, m MemoryEntry) (bool, error)
 	PutMCPServer(ctx context.Context, s MCPServer) (bool, error)
 	PutCron(ctx context.Context, j CronJob) (bool, error)
@@ -210,6 +212,9 @@ type Deps struct {
 type Options struct {
 	// DryRun enumerates and reports without writing anything.
 	DryRun bool
+	// Unsupported names sources the caller cannot persist yet; every item is
+	// enumerated and reported as skipped with the given reason, never written.
+	Unsupported map[Source]string
 }
 
 // Importer imports one Hermes home. It is immutable and safe for concurrent
@@ -233,11 +238,10 @@ func New(deps Deps) (*Importer, error) {
 	return &Importer{deps: deps}, nil
 }
 
-// Import reads the Hermes home rooted at root, imports every mapped item and
-// returns the mechanical report. A parse failure returns [ErrSyntax] before any
-// write, so a broken source can never leave a partial import behind.
+// Import reads the Hermes home rooted at root. A parse failure returns
+// [ErrSyntax] before any write, so a broken source leaves no partial import.
 func (i *Importer) Import(ctx context.Context, root string, opts Options) (Report, error) {
-	plan, err := i.collect(root)
+	plan, err := i.collect(root, opts)
 	if err != nil {
 		return Report{}, err
 	}

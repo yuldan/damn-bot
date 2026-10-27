@@ -2,6 +2,7 @@ package importer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 )
@@ -20,18 +21,19 @@ type collected struct {
 	servers   []MCPServer
 	jobs      []CronJob
 	secrets   []secretPut
+	disabled  map[Source]string
 }
 
-func (i *Importer) collect(root string) (*collected, error) {
-	c := &collected{}
+func (i *Importer) collect(root string, opts Options) (*collected, error) {
+	c := &collected{disabled: opts.Unsupported}
 	raw, err := i.readOptional(filepath.Join(root, "config.yaml"))
 	if err != nil {
 		return nil, err
 	}
 	if raw != nil {
-		doc, err := decodeMapping(raw, filepath.Join(root, "config.yaml"))
-		if err != nil {
-			return nil, err
+		doc, derr := decodeMapping(raw, filepath.Join(root, "config.yaml"))
+		if derr != nil {
+			return nil, derr
 		}
 		c.configDoc = doc
 	}
@@ -57,6 +59,16 @@ func (i *Importer) collect(root string) (*collected, error) {
 	return c, nil
 }
 
+// reject reports one enumerated item of s as skipped when s is unsupported.
+func (c *collected) reject(s Source, key string) bool {
+	reason, ok := c.disabled[s]
+	if !ok {
+		return false
+	}
+	c.report.skip(s, key, reason)
+	return true
+}
+
 func (i *Importer) apply(ctx context.Context, c *collected, opts Options) (Report, error) {
 	r := c.report
 	if opts.DryRun {
@@ -67,58 +79,68 @@ func (i *Importer) apply(ctx context.Context, c *collected, opts Options) (Repor
 	for index := range c.entries {
 		entry := c.entries[index]
 		changed, err := i.deps.Sink.PutConfig(ctx, entry)
-		if err != nil {
-			return r, writeError(SourceConfig, entry.Section+"."+entry.Key, err)
+		if stop, rerr := record(&r, SourceConfig, entry.Section+"."+entry.Key, changed, err); stop {
+			return r, rerr
 		}
-		count(&r.Config, changed)
 	}
 	for index := range c.skills {
 		skill := c.skills[index]
-		changed, err := i.deps.Sink.PutSkill(ctx, skill)
-		if err != nil {
-			return r, writeError(SourceSkills, skill.Name, err)
+		changed, err := i.deps.Sink.PutSkill(ctx, &skill)
+		if stop, rerr := record(&r, SourceSkills, skill.Name, changed, err); stop {
+			return r, rerr
 		}
-		count(&r.Skills, changed)
 	}
 	for index := range c.memories {
 		entry := c.memories[index]
 		changed, err := i.deps.Sink.PutMemory(ctx, entry)
-		if err != nil {
-			return r, writeError(SourceMemory, entry.Store, err)
+		if stop, rerr := record(&r, SourceMemory, entry.Store, changed, err); stop {
+			return r, rerr
 		}
-		count(&r.Memory, changed)
 	}
 	for index := range c.servers {
 		server := c.servers[index]
 		changed, err := i.deps.Sink.PutMCPServer(ctx, server)
-		if err != nil {
-			return r, writeError(SourceMCP, server.Name, err)
+		if stop, rerr := record(&r, SourceMCP, server.Name, changed, err); stop {
+			return r, rerr
 		}
-		count(&r.MCP, changed)
 	}
 	for index := range c.jobs {
 		job := c.jobs[index]
 		changed, err := i.deps.Sink.PutCron(ctx, job)
-		if err != nil {
-			return r, writeError(SourceCron, job.Name, err)
+		if stop, rerr := record(&r, SourceCron, job.Name, changed, err); stop {
+			return r, rerr
 		}
-		count(&r.Cron, changed)
 	}
 	for _, s := range c.secrets {
 		changed, err := i.deps.Secrets.Put(ctx, s.name, s.value)
-		if err != nil {
-			return r, writeError(SourceSecrets, s.name, err)
+		if stop, rerr := record(&r, SourceSecrets, s.name, changed, err); stop {
+			return r, rerr
 		}
-		count(&r.Secrets, changed)
 	}
+	r.sortSkips()
 	return r, nil
 }
 
-func count(r *SourceReport, changed bool) {
-	r.Imported++
-	if changed {
-		r.Changed++
+// record accounts one sink result; a [SkipError] becomes a reported skip.
+func record(r *Report, s Source, key string, changed bool, err error) (stop bool, rerr error) {
+	if err == nil {
+		sr := r.source(s)
+		sr.Imported++
+		if changed {
+			sr.Changed++
+		}
+		return false, nil
 	}
+	reason, skip := "", false
+	if se, ok := errors.AsType[*SkipError](err); ok {
+		reason, skip = se.Reason, true
+	}
+	if !skip {
+		return true, writeError(s, key, err)
+	}
+	sr := r.source(s)
+	sr.Skipped = append(sr.Skipped, Skip{Source: s, Key: key, Reason: reason})
+	return false, nil
 }
 
 func writeError(s Source, key string, err error) error {

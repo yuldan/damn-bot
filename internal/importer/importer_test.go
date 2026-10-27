@@ -38,12 +38,12 @@ func (m *memSink) PutConfig(_ context.Context, e ConfigEntry) (bool, error) {
 	return true, nil
 }
 
-func (m *memSink) PutSkill(_ context.Context, s Skill) (bool, error) { //nolint:gocritic // Sink interface signature
+func (m *memSink) PutSkill(_ context.Context, s *Skill) (bool, error) {
 	m.calls++
-	if old, ok := m.skills[s.Name]; ok && reflect.DeepEqual(old, s) {
+	if old, ok := m.skills[s.Name]; ok && reflect.DeepEqual(old, *s) {
 		return false, nil
 	}
-	m.skills[s.Name] = s
+	m.skills[s.Name] = *s
 	return true, nil
 }
 
