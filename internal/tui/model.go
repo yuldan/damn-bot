@@ -93,6 +93,13 @@ type Model struct {
 	contextInfo  ContextInfo
 	contextErr   error
 	confirm      *pendingWrite
+	tabs         []SessionInfo
+	tabsLoaded   bool
+	pendingTab   int
+	palette      bool
+	paletteQuery string
+	paletteSel   int
+	bangBusy     bool
 	// busy marks a turn between submit and the Runner closing its stream.
 	input  textinput.Model
 	draft  []string // completed lines of the current multi-line prompt
@@ -217,6 +224,22 @@ func (m *Model) handleA7Result(msg tea.Msg) bool {
 		} else {
 			m.appendNotice("wrote " + msg.path)
 		}
+	case bangDoneMsg:
+		m.bangBusy = false
+		if msg.err != nil {
+			m.appendNotice("bang refused: " + msg.err.Error())
+			return true
+		}
+		status := ToolOK
+		if !msg.res.OK {
+			status = ToolFailed
+		}
+		m.appendBlock(&Block{
+			Kind: BlockTool, ToolName: "shell", Text: msg.res.Output,
+			Status: status, ExitCode: parseExit(msg.res.Output),
+			Duration: msg.res.Duration, Size: len([]rune(msg.res.Output)),
+			At: m.host.Clock.Now(),
+		})
 	default:
 		return false
 	}
@@ -270,19 +293,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.abortTurn()
 		return tea.Quit
 	}
-	if m.confirm != nil {
-		return m.handleConfirmKey(msg)
-	}
-	if m.approval != nil {
-		return m.handleApprovalKey(msg)
-	}
-	if m.navMode {
-		return m.handleNavKey(msg)
-	}
-	if m.route == routeSessions && m.handleSessionsKey(msg) {
-		return nil
+	if cmd, handled := m.handleModeKey(msg); handled {
+		return cmd
 	}
 	switch {
+	case key.Matches(msg, m.keys.Palette):
+		m.openPalette()
+		return nil
 	case key.Matches(msg, m.keys.Nav):
 		m.enterNav()
 		return nil
@@ -314,6 +331,30 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	return cmd
 }
 
+// handleModeKey gives modals, tabs, navigation, and the sessions panel first
+// claim on a key before the normal prompt bindings.
+func (m *Model) handleModeKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	switch {
+	case m.confirm != nil:
+		return m.handleConfirmKey(msg), true
+	case m.approval != nil:
+		m.handleApprovalKey(msg)
+		return nil, true
+	case m.palette:
+		return m.handlePaletteKey(msg), true
+	}
+	if n, ok := altDigit(msg); ok {
+		return m.selectTab(n - 1), true
+	}
+	if m.navMode {
+		return m.handleNavKey(msg), true
+	}
+	if m.route == routeSessions && m.handleSessionsKey(msg) {
+		return nil, true
+	}
+	return nil, false
+}
+
 // abortTurn cancels through its context before the loop starts, otherwise
 // through Runner.Cancel (SPEC §4.2).
 func (m *Model) abortTurn() {
@@ -342,6 +383,11 @@ func (m *Model) submit() tea.Cmd {
 	text := strings.TrimSpace(strings.Join(append(m.draft, m.input.Value()), "\n"))
 	if text == "" {
 		return nil
+	}
+	if strings.HasPrefix(text, "!") {
+		m.draft = nil
+		m.input.SetValue("")
+		return m.bangCmd(text[1:])
 	}
 	if cmd, ok := parseSlash(text); ok {
 		m.draft = nil
@@ -380,6 +426,8 @@ func (m *Model) View() tea.View {
 		body = m.confirmBody()
 	case m.approval != nil:
 		body = m.approvalBody()
+	case m.palette:
+		body = m.paletteBody()
 	}
 	parts := []string{m.header(), m.clip(body), m.statusBar(), m.inputArea(), m.footer()}
 	return tea.NewView(strings.Join(parts, "\n"))
@@ -570,8 +618,11 @@ func (m *Model) setRoute(r routeEntry) {
 
 // header renders the screen title and the configured model.
 func (m *Model) header() string {
-	title := m.panel.title()
-	return m.styles.header.Render(fmt.Sprintf("%s · %s · %s", title, m.host.Config.Snapshot().Model, m.sessionID))
+	line := m.styles.header.Render(fmt.Sprintf("%s · %s · %s", m.panel.title(), m.host.Config.Snapshot().Model, m.tabBar()))
+	if m.width > 0 {
+		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
+	}
+	return line
 }
 
 // footer renders the key hints and the turn state. Block navigation replaces
@@ -580,6 +631,8 @@ func (m *Model) header() string {
 func (m *Model) footer() string {
 	var parts []string
 	switch {
+	case m.palette:
+		parts = []string{"type filter", "enter run", "esc close"}
 	case m.confirm != nil:
 		parts = []string{"y write", "n cancel", "esc cancel"}
 	case m.approval != nil:
@@ -608,6 +661,9 @@ func (m *Model) footer() string {
 	if m.busy {
 		parts = append(parts, "running")
 	}
+	if m.bangBusy {
+		parts = append(parts, "shell")
+	}
 	if m.stop != "" {
 		parts = append(parts, string(m.stop))
 		if m.detail != "" {
@@ -619,63 +675,6 @@ func (m *Model) footer() string {
 		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
 	}
 	return line
-}
-
-// statusBar renders the minimal SPEC §13.1 status line: model, iteration,
-// turn/session cost, and the visible-fallback badge (P7). It reports only
-// values the host has actually delivered; a missing provider cost stays "—".
-func (m *Model) statusBar() string {
-	parts := []string{
-		m.host.Config.Snapshot().Model,
-		fmt.Sprintf("iter %d", m.usage.Iterations),
-		m.costSummary(),
-	}
-	if m.fallback {
-		parts = append(parts, "FALLBACK")
-	}
-	if m.plan {
-		parts = append(parts, "PLAN")
-	}
-	line := m.styles.status.Render(strings.Join(parts, " · "))
-	if m.width > 0 {
-		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
-	}
-	return line
-}
-
-// costSummary renders the current turn and the accumulated session cost.
-func (m *Model) costSummary() string {
-	turn, turnOK := m.turnCost()
-	session, sessionOK := m.sessionCost()
-	return fmt.Sprintf("turn %s / session %s", usd(turn, turnOK), usd(session, sessionOK))
-}
-
-// turnCost returns the loop's turn total, if the provider reported one.
-func (m *Model) turnCost() (float64, bool) {
-	if m.usage.CostUSD == nil {
-		return 0, false
-	}
-	return *m.usage.CostUSD, true
-}
-
-// sessionCost adds every settled turn to the live turn total.
-func (m *Model) sessionCost() (float64, bool) {
-	total, ok := m.settledCost, m.settledKnown
-	if !m.turnSettled {
-		if c := m.usage.CostUSD; c != nil {
-			total += *c
-			ok = true
-		}
-	}
-	return total, ok
-}
-
-// usd formats a cost; an unknown cost is an explicit dash, never $0.00.
-func usd(v float64, ok bool) string {
-	if !ok {
-		return "—"
-	}
-	return fmt.Sprintf("$%.2f", v)
 }
 
 // RenderedAt returns the clock stamp of the last frame that carried a stream

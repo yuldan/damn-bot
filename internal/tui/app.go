@@ -55,6 +55,7 @@ type keyMap struct {
 	Session    key.Binding
 	Edit       key.Binding
 	No         key.Binding
+	Palette    key.Binding
 }
 
 // newKeyMap builds the SPEC §13.1 bindings.
@@ -79,6 +80,7 @@ func newKeyMap() keyMap {
 		Session:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "session")),
 		Edit:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
 		No:         key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "deny")),
+		Palette:    key.NewBinding(key.WithKeys("ctrl+p"), key.WithHelp("ctrl+p", "palette")),
 	}
 }
 
@@ -102,6 +104,7 @@ func NewApp(sessionID string, host *Host) (*Model, error) {
 		theme:     theme,
 		styles:    newStyles(theme),
 		sessionID: sessionID,
+		tabs:      []SessionInfo{{ID: sessionID}},
 		input:     newInput(),
 	}
 	m.setRoute(routes()[0])

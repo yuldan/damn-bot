@@ -113,10 +113,19 @@ func (m *Model) loadSessions() tea.Cmd {
 
 func (m *Model) applySessions(msg sessionsLoadedMsg) {
 	m.sessionItems, m.sessionErr, m.sessionSel = msg.items, msg.err, 0
+	if len(msg.items) > 0 {
+		m.tabs, m.tabsLoaded = msg.items, true
+		m.ensureTab(m.sessionID)
+	}
 	for i, s := range msg.items {
 		if s.ID == m.sessionID {
 			m.sessionSel = i
 		}
+	}
+	if m.pendingTab > 0 {
+		idx := m.pendingTab - 1
+		m.pendingTab = 0
+		m.activateTab(idx)
 	}
 }
 

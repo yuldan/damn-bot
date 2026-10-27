@@ -53,7 +53,7 @@ func runTUI([]string) int {
 		cfg: &cfg, configDir: configDir, modelRef: cfg.Provider.Model, active: r.Active,
 	}
 	app, err := tui.NewApp(sid, &tui.Host{
-		Clock: r, Runner: r, Config: r, Runtime: r, Actions: r,
+		Clock: r, Runner: r, Config: r, Runtime: r, Actions: r, Shell: r,
 		Sessions: actions, Files: filesAdapter{}, Clipboard: clipboardAdapter{},
 	})
 	if err == nil {

@@ -346,6 +346,7 @@ func (m *Model) applySessionDone(msg sessionDoneMsg) {
 // switchSession resets the transcript and turn accounting for a new branch.
 func (m *Model) switchSession(id string) {
 	m.sessionID = id
+	m.ensureTab(id)
 	m.blocks = nil
 	m.usage = Usage{}
 	m.stop, m.detail = "", ""
