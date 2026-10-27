@@ -1,467 +1,301 @@
 # F2 acceptance ledger
 
-Acceptance for the F2 phase is defined in [ROADMAP.md](ROADMAP.md)
-(F2 acceptance) and [EDGE-CASES-hermes.md](EDGE-CASES-hermes.md);
-[FEATURE-PARITY.md](FEATURE-PARITY.md) assigns every parity row to a phase.
-This ledger is the review artifact for that acceptance: every required
-edge case (EC), every GAP row and every F2 parity row appears once, with
-the test that proves it, where that test lives, and an owner.
+Acceptance F2 didefinisikan di [ROADMAP.md](ROADMAP.md) §F2,
+[EDGE-CASES-hermes.md](EDGE-CASES-hermes.md), dan scope GAP di
+[ADR-193](DECISIONS.md) + SPEC §22.1. Dokumen ini adalah artefak review:
+setiap baris EC/GAP/parity F2 muncul sekali, dengan bukti yang **ada dan
+dijalankan**, bukan nama tes yang dikarang.
 
-The completeness test in `internal/phase/acceptance_test.go` checks that
-each EC ID in the roadmap table is claimed by some test. It does not check
-that the EC ID is *required* by the roadmap, nor that a parity row is
-tested — missing rows are simply silent. Work items to close those holes
-are listed in §4.
+**Snapshot audit:** `origin/main` `f3c0af68` (2026-10-27). Semua angka di
+bawah adalah hasil eksekusi pada snapshot itu (atau job CI yang tree-nya
+identik, disebut per baris), bukan target. Setelah snapshot, #345/ADR-208
+mendarat (`7a196a28`); baris `GAP-TOOL-10` diperbarui ke keadaan itu tanpa
+audit ulang penuh. Status hanya tiga nilai:
 
-## Status legend
-
-| status | meaning |
+| status | arti |
 | --- | --- |
-| covered | A test on `main` (sha `70ff325`) proves the row. |
-| in-flight | An open PR head (fetched under `refs/remotes/pr/N`) provides the test; the PR number is cited. |
-| missing | No test on `main` or in any open PR head proves the row. |
-| surface | The capability is covered but the parity row is a CLI/slash surface that no test covers. |
+| `LULUS` | Tes ada, dijalankan pada snapshot (atau CI dengan tree identik), dan lulus; berkas/nama tes dikutip. |
+| `TERBUKA` | Belum ada bukti yang lulus; sisa kerja eksplisit dicantumkan. |
+| `DITUNDA` | Di luar F2 dengan ADR + batas fase eksplisit; bukan "nanti". |
 
-Evidence was collected with `git grep` over `origin/main` and every open
-PR head (47 heads at the time of writing), and with `git log -S` to
-confirm that a test name exists nowhere else.
+Aturan bukti: satu baris tidak boleh `LULUS` hanya karena katalog
+mendeklarasikannya. Nama tes yang tidak ada adalah cacat ledger; §7
+mencantumkan perintah audit ulang. Status CI tidak dipakai sebagai bukti:
+push `e727ee1a` merah di `lint` (`cmd/damnbot/sessions.go:312`, direktif
+`//nolint:gosec` tidak terpakai) dan perbaikannya ada di PR #346 yang belum
+merge saat snapshot ini diambil. Ledger ini tidak mengklaim CI hijau.
 
-## Summary
+## Ringkasan
 
-| group | rows | covered | in-flight | surface | missing |
-| --- | --- | --- | --- | --- | --- |
-| EC — required by ROADMAP F2 | 41 | 41 | — | — | 0 |
-| GAP — DECISIONS.md L247-265 | 18 | 13 | 2 | 1 | 2 |
-| Parity — rows listed in §3 | 81 | 25 | 4 | 17 | 35 |
-
-All 41 EC rows are covered or `n/a` now. The eight rows that were missing when
-this ledger was written closed as: `EC-CTX-006` (#275), `EC-CTX-007`
-(#249/#260), `EC-CTX-017` and `EC-PROV-008` (#245), `EC-STATE-001/007/009`
-(#261), and `EC-TCALL-010` (`n/a` with a written reason, #174).
-`EC-WIN-002`, `EC-WIN-005`, `EC-WIN-011` moved from missing to in-flight here
-and are covered by #257 (windows-latest runner); the sixteen uncataloged F1
-ids below are covered by #254/#255.
-
-Ringkasan GAP di atas sebelumnya **tertukar** antara `covered` dan `missing` (tertulis 5/…/9 padahal baris §2
-berisi 13 covered dan 2 missing); angka kini diselaraskan dengan barisnya. §2 diverifikasi ulang pada
-`main ef8ec40d` (2026-10-24): `GAP-SEC-01` ditutup oleh canary `TestCryptoPlaintextCanaryVisible`,
-`GAP-COST-02`/`GAP-COST-04`/`GAP-PROV-02` ternyata sudah punya tes di `main` (ledger mencari nama tes yang
-berbeda), dan `GAP-SEC-26`/`GAP-REL-04` tinggal menunggu gate CI dari #258 (terbuka). Yang masih benar-benar
-kosong: `GAP-INF-06` dan `GAP-TOOL-10`.
-
-Audit §3 (parity) pada `main ef8ec40d` memetakan 42 baris berstatus `missing`: **8 baris ternyata sudah
-`covered`** (statusnya dikoreksi di bawah, dengan berkas + nama tes), **22 baris sudah bukan milik F2**
-(fasenya dikutip dari kolom `fase` `docs/FEATURE-PARITY.md` dan dicatat di barisnya; kepemilikan fase
-mengikuti **ADR-139**), **22 baris masih F2 dan punya penutup PR terbuka** (nomornya dicatat di barisnya),
-dan **0 baris tanpa penutup** (`MEM-026` **ditutup #310** pada 2026-10-25, `MEM-025`
-**ditutup #318** pada 2026-10-26, dan `CLI-039` **ditutup #326** pada 2026-10-26, jadi koreksi 2026-10-24
-sudah lunas untuk ketiganya - lihat barisnya dan §4 item 11(d)/10). Karena 81 baris terdaftar = 59 baris
-yang kini masih fase F2 + 22 baris yang pindah fase, utang implementasi F2 yang sebenarnya = **22 baris**
-(22 berpenutup + 0 tanpa). Baris parity **tidak** dulu maupun sekarang menjadi gate - lihat §3 bagian terakhir.
-
----
-
-## 1. Edge cases required by ROADMAP F2
-
-| EC | test | location (main) | status | owner |
+| grup | baris | LULUS | TERBUKA | DITUNDA |
 | --- | --- | --- | --- | --- |
-| EC-CTX-001 | `TestEdgeCases/EC-CTX-001` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-002 | `TestEdgeCases/EC-CTX-002` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-003 | `TestEdgeCases/EC-CTX-003` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-004 | `TestEdgeCases/EC-CTX-004` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-005 | `TestEdgeCases/EC-CTX-005` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-006 | `TestEdgeCases/EC-CTX-006` + `TestPruneSkillViewMarker` | `internal/compaction/edgecases_test.go`, `internal/compaction/prune_test.go` | covered (#275) | compaction |
-| EC-CTX-007 | `TestEdgeCases/EC-CTX-007` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-008 | `TestEdgeCases/EC-CTX-008` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-009 | `TestEdgeCases/EC-CTX-009` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-010 | `TestEdgeCases/EC-CTX-010` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-011 | `TestEdgeCases/EC-CTX-011` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-012 | `TestEdgeCases/EC-CTX-012` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-013 | `TestEdgeCases/EC-CTX-013` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-014 | `TestEdgeCases/EC-CTX-014` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-015 | `TestEdgeCases/EC-CTX-015` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-016 | `TestEdgeCases/EC-CTX-016` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-017 | `TestEdgeCasesF2/EC-CTX-017` + `TestRunWindowReservation` | `internal/loop/edgecases_f2_test.go`, `cmd/damnbot/window_reservation_test.go` | covered (#245; the stale `pending:F2` row was removed from `internal/compaction/edgecases_test.go`) | loop |
-| EC-CTX-018 | `TestEdgeCases/EC-CTX-018` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-019 | `TestEdgeCases/EC-CTX-019` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-020 | `TestEdgeCases/EC-CTX-020` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-021 | `TestEdgeCases/EC-CTX-021` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-CTX-022 | `TestEdgeCases/EC-CTX-022` | `internal/compaction/edgecases_test.go` | covered | compaction |
-| EC-STATE-001 | `TestStateEdgeCases/EC-STATE-001` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-002 | `TestStateEdgeCases/EC-STATE-002` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-003 | `TestStateEdgeCases/EC-STATE-003` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-005 | `TestStateEdgeCases/EC-STATE-005` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-006 | `TestStateEdgeCases/EC-STATE-006` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-007 | `TestStateEdgeCases/EC-STATE-007` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-008 | `TestStateEdgeCases/EC-STATE-008` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-009 | `TestStateEdgeCases/EC-STATE-009` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-010 | `TestStateEdgeCases/EC-STATE-010` + `edgecases_unix_test.go` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-011 | `TestStateEdgeCases/EC-STATE-011` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-013 | `TestStateEdgeCases/EC-STATE-013` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-014 | `TestStateEdgeCases/EC-STATE-014` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-015 | `TestStateEdgeCases/EC-STATE-015` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| EC-STATE-016 | `TestStateEdgeCases/platformStateCases` | `internal/ctxdb/edgecases_unix_test.go` | covered | ctxdb |
-| EC-PROV-008 | `TestEdgeCasesF2/EC-PROV-008` | `internal/loop/edgecases_f2_test.go` | covered (#245) | loop |
-| EC-TCALL-010 | `TestEdgeCasesF2/EC-TCALL-010` (`n/a`, reasoned) | `internal/tools/edgecases_f2_test.go` | n/a (#174: the declared-payload invariant is pinned in-process) | tools |
-| EC-WIN-002 | `TestWindowsF2EdgeCases/EC-WIN-002` | `internal/ctxdb/win_f2_edgecases_windows_test.go` | covered (#257) | ctxdb |
-| EC-WIN-005 | `TestWindowsF2EdgeCases/EC-WIN-005` | `internal/ctxdb/win_f2_edgecases_windows_test.go` | covered (#257) | ctxdb |
-| EC-WIN-011 | `TestWindowsF2EdgeCases/EC-WIN-011` | `internal/ctxdb/win_f2_edgecases_windows_test.go` | covered (#257) | ctxdb |
+| EC wajib ROADMAP F2 | 41 | 41 | 0 | 0 |
+| GAP gate F2 (ADR-193, 13) | 13 | 12 | 1 (`GAP-COST-01`) | 0 |
+| GAP di luar gate F2 | 7 | 0 | 3 | 4 |
+| Parity F2 setelah re-fase ADR-209 | 56 | 55 | 1 (`SKILL-016`) | 0 |
+| Parity re-fase ADR-209 | 3 | 0 | 2 (F3) | 1 (F9) |
+| Parity pindah fase ADR-139 (bukan F2) | 22 | — | — | — |
 
-Note: `EC-CTX-006`, `-007` and `-017` were declared `pending:F2` inside the
-compaction gate while this ledger was written; all three are covered now
-(`-006` #275, `-007` #249/#260, `-017` #245, whose stale pending row was
-removed from `internal/compaction/edgecases_test.go`). The class of silent
-miss this section warned about is what §4 item 1 guards: a `pending` id at or
-below `PHASE`−1 fails the phase acceptance (ADR-176).
+Jadi parity F2 = **55/56 LULUS**; satu-satunya baris F2 yang `TERBUKA`
+adalah `SKILL-016`. Tiga baris lain (CLI-040/OPS-006/CLI-038) sudah bukan F2
+menurut ADR-209.
 
-### F1 ids with no catalog row
+`EC-TCALL-010` dihitung `LULUS` karena katalognya `n/a` beralasan dan
+ADR-080 butir 3 menghitung `n/a` beralasan sebagai `covered`; bukti
+run-level-nya tetap wajib saat modul pertama ter-wire (F5).
 
-The same cross-check over the whole roadmap (not only F2) found 16 ids whose
-roadmap phase is F1 but which no test named when this ledger was written. All
-16 have a catalog row and a test now — EC-WIN-001/009/014/016/017 in #254, the
-rest in #255 — and `DAMNBOT_PHASE_ACCEPTANCE=1` with `PHASE = F3` passes:
+## 1. Edge cases wajib ROADMAP F2
 
-| EC | test | location | status |
-| --- | --- | --- | --- |
-| EC-FIO-002 | `TestEdgeCases/EC-FIO-002` | `internal/exec/edgecases_test.go` | covered (#255) |
-| EC-FIO-005 | `TestSurrogateEdgeCases/EC-FIO-005` | `internal/provider/edgecases_fio_test.go` | covered (#255) |
-| EC-FIO-006 | `TestTurnAggregateScaled/EC-FIO-006` | `internal/tools/edgecases_fio_test.go` | covered (#255) |
-| EC-FIO-009 | `TestSurrogateEdgeCases/EC-FIO-009` | `internal/provider/edgecases_fio_test.go` | covered (#255) |
-| EC-FIO-012 | `TestEdgeCases/EC-FIO-012` | `internal/exec/edgecases_test.go` | covered (#255) |
-| EC-FIO-016 | `TestSSEEncodingEdgeCases/EC-FIO-016` | `internal/netx/edgecases_fio_test.go` | covered (#255) |
-| EC-FIO-017 | `TestSSEEncodingEdgeCases/EC-FIO-017` | `internal/netx/edgecases_fio_test.go` | covered (#255) |
-| EC-FIO-019 | `TestVolatileTimeIsUTC/EC-FIO-019` | `cmd/damnbot/edgecases_volatile_test.go` | covered (#255) |
-| EC-TCALL-009 | `TestEdgeCases/EC-TCALL-009` + `TestRunAnswerSchema` | `internal/loop/edgecases_test.go`, `cmd/damnbot/run_inject_test.go` | covered (#255) |
-| EC-TERM-002 | `TestEdgeCases/EC-TERM-002` | `internal/exec/edgecases_test.go` | covered (#255) |
-| EC-TERM-007 | `TestProbeTimeout/EC-TERM-007` | `internal/ctxdb/edgecases_term_test.go` | covered (#255) |
-| EC-WIN-001 | `TestWindowsF1EdgeCases/EC-WIN-001` | `internal/exec/win_f1_edgecases_windows_test.go` | covered (#254) |
-| EC-WIN-009 | `TestWindowsF1EdgeCases/EC-WIN-009` | `internal/ctxdb/win_f1_edgecases_windows_test.go` | covered (#254) |
-| EC-WIN-014 | `TestWindowsF1EdgeCases/EC-WIN-014` | `internal/codetools/win_f1_edgecases_windows_test.go` | covered (#254) |
-| EC-WIN-016 | `TestWindowsF1EdgeCases/EC-WIN-016` | `internal/exec/win_f1_edgecases_windows_test.go` | covered (#254) |
-| EC-WIN-017 | `TestWindowsF1EdgeCases/EC-WIN-017` | `cmd/damnbot/console_windows_test.go` | covered (#254) |
-
-The two behaviours that needed code are EC-FIO-006 (the aggregate now scales
-with the window) and EC-TCALL-009 (`--answer-schema` produces
-`invalid_answer`, ADR-155).
-
-## 2. GAP rows (DECISIONS.md L247-265)
-
-| GAP | requirement | test(s) | status | owner |
+| EC | tes | lokasi | status | owner |
 | --- | --- | --- | --- | --- |
-| GAP-SEC-01 | Backup secrets stay encrypted | `TestCreateVerify`, `TestRoundTrip`, `TestWrongKey`, `TestTamperEveryByte` (`internal/backup/create_test.go`; perms via `checkResult`: 0600 file / 0700 dir); canary: `TestCryptoPlaintextCanaryVisible` (`internal/e2e/crypto_test.go:168`) | covered | backup |
-| GAP-SEC-15 | Payment always prompts | `TestMonetaryAlwaysPrompts`, `TestMonetaryNeverSession` | covered | tools |
-| GAP-SEC-16 | egress DLP | `TestEgressDLP` + `TestEgressDLPBodyWarning` — F1 ingress subset only; the F2/F4–F7 portion (§SPEC half) is not tested | surface | netx |
-| GAP-REL-01 | Failed turn persisted | `TestFailedTurnPersisted` + `TestFailedTurnEmptyContent` | covered | loop |
-| GAP-REL-03 | Chaos: 50 concurrent clients, 30 min | `TestChaos50Clients`, nightly `chaos` (`internal/ctxdb/chaos_test.go`, `.github/workflows/nightly.yml`) | covered (retry busy: `BEGIN IMMEDIATE`/`COMMIT` <= 3x, PR retry busy; varian chaos 45 s hijau) | ctxdb (GAP-REL-03; pengecualian sah: `db_busy` typed untuk pemegang lock di-SIGSTOP, `SPEC.md:2362` baris 37) |
-| GAP-REL-04 | SQLite engine version | `TestSQLiteEngineVersion` (`internal/ctxdb/engine_test.go`); gate CI `sqlite-engine` ada di #258 (terbuka) | covered | provider/ctxdb |
-| GAP-REL-05 | Migration fail-closed | `TestMigrationFailClosed` | `internal/ctxdb/edgecases_test.go` | covered | ctxdb |
-| GAP-COST-01 | Pricing table not expired at release | `TestPricingTableNotExpired` (`internal/provider/registry/prices_test.go`) | in-flight (PR #188) | provider |
-| GAP-COST-02 | No context probe | `TestNoContextProbe` (`internal/provider/probe_test.go:16`) - analyzer + tesnya sudah ada di `main` | covered | provider |
-| GAP-COST-04 | Prefix stable across fallback | `TestFallbackPrefixStable` (`cmd/damnbot/fallback_prefix_test.go:23`) - ledger dulu mencari nama `TestPrefixStableAcrossFallback` | covered | assemble/loop |
-| GAP-PROV-01 | Cache key includes tier/system | `TestFixedOverheadGolden`, `TestAllModulesFixtureShape` compare the rendered prompt; the F2 part (table via migrations) is `TestMigrate*` | covered | assemble/ctxdb |
-| GAP-PROV-02 | Per-tier budget asserted | `TestContextTierBudget` (`internal/assemble/tier_budget_test.go`) | covered | assemble |
-| GAP-INF-01 | CJK recall order | `TestRecallCJKOrder`, `BenchmarkRecallCJK` | `internal/ctxdb/acceptance_test.go`, `internal/ctxdb/recall_perf_test.go` | covered | ctxdb |
-| GAP-INF-02 | FTS index auto-upgrade | `TestFTSAutoUpgrade`, `BenchmarkRecallToolOutput`, `TestRecallToolOutputBlob`, `TestEncryptedRecallToolOutputBlob`, `TestToolOutputSpillThroughBinary` (biner asli: spill terenkripsi + baris `blob_fts`) | `internal/ctxdb/acceptance_test.go`, `internal/ctxdb/recall_perf_test.go`, `internal/e2e/spill_test.go` | covered | ctxdb |
-| GAP-INF-06 | Rerun deterministic after restart | — (no test; separate from EC-CTX-021's pure rerun) - diverifikasi ulang `ef8ec40d`: tetap 0 tes (`RerunDeterministic`/`RerunAfterRestart` tidak ada) | missing | loop |
-| GAP-TOOL-10 | Native arch select + skill filter | `TestToolSelection` exists; no `TestNativeArchSelect`; no `requires: gpu=nvidia` filter test - diverifikasi ulang `ef8ec40d`: tetap 0 tes pilih-arch/native filter | missing | tools/skills |
-| GAP-SEC-26 | No dangling skill refs in builtin | `TestLintCorpus` lint only; gate `skill-refs` atas `builtin/` ada di #258 (`internal/skills/builtin_test.go`) | in-flight (PR #258) | skills/CI |
-| GAP-TEST-01 | Test-only tree analysis | `TestTreeAnalysis`, `TestLanguageDetection` on `testdata` | covered | codetools |
+| EC-CTX-001 | `TestEdgeCases/EC-CTX-001` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-002 | `TestEdgeCases/EC-CTX-002` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-003 | `TestEdgeCases/EC-CTX-003` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-004 | `TestEdgeCases/EC-CTX-004` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-005 | `TestEdgeCases/EC-CTX-005` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-006 | `TestEdgeCases/EC-CTX-006` | `internal/compaction/edgecases_test.go:18`; `ecCtx006` `prune_test.go:303` | LULUS | compaction |
+| EC-CTX-007 | `TestEdgeCases/EC-CTX-007` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-008 | `TestEdgeCases/EC-CTX-008` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-009 | `TestEdgeCases/EC-CTX-009` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-010 | `TestEdgeCases/EC-CTX-010` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-011 | `TestEdgeCases/EC-CTX-011` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-012 | `TestEdgeCases/EC-CTX-012` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-013 | `TestEdgeCases/EC-CTX-013` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-014 | `TestEdgeCases/EC-CTX-014` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-015 | `TestEdgeCases/EC-CTX-015` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-016 | `TestEdgeCases/EC-CTX-016` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-017 | `TestEdgeCasesF2/EC-CTX-017` + `TestRunWindowReservation` | `internal/loop/edgecases_f2_test.go:22`, `cmd/damnbot/window_reservation_test.go:16` | LULUS | loop |
+| EC-CTX-018 | `TestEdgeCases/EC-CTX-018` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-019 | `TestEdgeCases/EC-CTX-019` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-020 | `TestEdgeCases/EC-CTX-020` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-021 | `TestEdgeCases/EC-CTX-021` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-CTX-022 | `TestEdgeCases/EC-CTX-022` | `internal/compaction/edgecases_test.go:18` | LULUS | compaction |
+| EC-STATE-001 | `TestStateEdgeCases/EC-STATE-001` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-002 | `TestStateEdgeCases/EC-STATE-002` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-003 | `TestStateEdgeCases/EC-STATE-003` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-005 | `TestStateEdgeCases/EC-STATE-005` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-006 | `TestStateEdgeCases/EC-STATE-006` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-007 | `TestStateEdgeCases/EC-STATE-007` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-008 | `TestStateEdgeCases/EC-STATE-008` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-009 | `TestStateEdgeCases/EC-STATE-009` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-010 | `TestStateEdgeCases/EC-STATE-010` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-011 | `TestStateEdgeCases/EC-STATE-011` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-013 | `TestStateEdgeCases/EC-STATE-013` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-014 | `TestStateEdgeCases/EC-STATE-014` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-015 | `TestStateEdgeCases/EC-STATE-015` | `internal/ctxdb/edgecases_test.go:44` | LULUS | ctxdb |
+| EC-STATE-016 | `TestStateEdgeCases/EC-STATE-016` | `internal/ctxdb/edgecases_unix_test.go:17` | LULUS | ctxdb |
+| EC-PROV-008 | `TestEdgeCasesF2/EC-PROV-008` | `internal/loop/edgecases_f2_test.go:21` | LULUS | loop |
+| EC-TCALL-010 | `TestEdgeCasesF2/EC-TCALL-010` (n/a) + `TestDeferredSchemaNotInPayload` | `internal/tools/edgecases_f2_test.go:27`, `:34`; e2e kontrak `internal/e2e/deferred_test.go:19` | LULUS (n/a; ADR-080 butir 3 + amandemen 2026-10-22; run-level F5) | tools |
+| EC-WIN-002 | `TestWindowsF2EdgeCases/EC-WIN-002` | `internal/ctxdb/win_f2_edgecases_windows_test.go:19`; CI Windows PR #344 (tree `f3c0af68`) | LULUS | ctxdb |
+| EC-WIN-005 | `TestWindowsF2EdgeCases/EC-WIN-005` | `internal/ctxdb/win_f2_edgecases_windows_test.go:19`; CI Windows PR #344 | LULUS | ctxdb |
+| EC-WIN-011 | `TestWindowsF2EdgeCases/EC-WIN-011` | `internal/ctxdb/win_f2_edgecases_windows_test.go:19`; CI Windows PR #344 | LULUS | ctxdb |
 
-### GAP tambahan hasil audit 2026-10-24
+## 2. GAP rows
 
-| GAP | requirement | bukti | status | owner / rencana fase |
+Sumber: ADR-193 (scope gate F2 = 13 GAP) + SPEC §22.1. Baris di luar gate
+dicantumkan supaya statusnya tidak hilang, bukan sebagai tagihan F2.
+
+| GAP | gate F2 | bukti | status | pemilik / basis |
 | --- | --- | --- | --- | --- |
-| GAP-LEASE-01 | SPEC §11.11: heartbeat lease 2 s + TTL 10 s dan `CheckLease` sebelum LLM call/tool dispatch | tidak ada pemanggil produksi `Heartbeat(`/`CheckLease(` (grep seluruh repo non-test = 0); token lease dibuang massal saat drain (`internal/ctxdb/store.go:511` di `detach`, dipicu `watch` `store.go:269-283` dan `preWrite` `tx.go:132`) sehingga `lease_fenced` fail-closed bisa muncul di alur nyata tanpa pre-flight; kelas kegagalan itu direproduksi deterministik oleh `internal/ctxdb/chaos_test.go` (`TestChaosClientRecoversFromFencing`) dan muncul di CI PR yang tidak menyentuh paket ini (`#302`, `#306`) | `missing` | core (`ctxdb`, `loop`, `cmd/damnbot`) - **rencana: F3 (inbound/ACP) atau F5 (gateway)**, lihat **ADR-185** |
+| GAP-SEC-01 | ya | `TestCreateVerify`, `TestRoundTrip`, `TestWrongKey`, `TestTamperEveryByte` (`internal/backup`); canary `TestCryptoPlaintextCanaryVisible` `internal/e2e/crypto_test.go:168` | LULUS | backup |
+| GAP-SEC-15 | ya | `TestMonetaryAlwaysPrompts` `internal/tools/payment_test.go:146`; e2e `TestShellGateMonetaryThroughBinary` `internal/e2e/shell_gate_classify_test.go:79` | LULUS | tools |
+| GAP-SEC-16 | — | `TestEgressDLP` `internal/netx/dlp_test.go:111` (ingress). Tes body/egress tidak ada | TERBUKA | netx; sisa body/egress (bukan gate F2) |
+| GAP-REL-01 | ya | `TestFailedTurnPersisted` `cmd/damnbot/rel01_test.go:20`; e2e `TestRunResumeExcludesFailedTurn` `internal/e2e/resume_test.go:16` | LULUS | loop |
+| GAP-REL-03 | ya | nightly `chaos` 30 m: `DAMNBOT_CHAOS_DURATION=30m ... ok 1807.990s` (run 40290080911); varian 45 s `ok 45.449s` | LULUS | ctxdb |
+| GAP-REL-04 | ya | `TestSQLiteEngineVersion` `internal/ctxdb/engine_test.go:7`; job `sqlite-engine` success | LULUS | provider/ctxdb |
+| GAP-REL-05 | ya | `TestMigrationFailClosed` `internal/ctxdb/edgecases_test.go:351` | LULUS | ctxdb |
+| GAP-COST-01 | ya | `TestDefaultPriceTableTeamRouter` `internal/provider/registry/prices_test.go:29` (tanpa `until`), `TestPricingExpiredFailsClosed` `internal/budget/pricing_test.go:66`. **Tidak ada gate release** yang gagal bila entri lewat `until`; data saat ini 0 `until` | TERBUKA | provider; sisa: gate release |
+| GAP-COST-02 | ya | `TestNoContextProbe` `internal/provider/probe_test.go:16` | LULUS | provider |
+| GAP-COST-04 | — | `TestFallbackPrefixStable` `cmd/damnbot/fallback_prefix_test.go:23`; `run.go:432` belum meneruskan `Provider.Fallback` | DITUNDA → F5 | ADR-193 |
+| GAP-COST-09 | ya | `TestTokenEstimatorCalibration` `internal/budget/budget_test.go:132`; `TestImageTokens` `internal/budget/image_test.go:9`, `TestEstimatorImages` `:120` | LULUS | budget |
+| GAP-PROV-01 | ya | e2e `TestCarrierReplayedNextIteration` `internal/e2e/carriers_test.go:12` + `TestCarrierRejectedNotReplayed` `:35` | LULUS | loop/provider |
+| GAP-PROV-02 | ya | `TestContextTierBudget` `internal/assemble/tier_budget_test.go:15` | LULUS | assemble |
+| GAP-INF-01 | ya | `TestRecallCJKOrder` `internal/ctxdb/acceptance_test.go:11` | LULUS | ctxdb |
+| GAP-INF-02 | — | `TestFTSAutoUpgrade` `internal/ctxdb/acceptance_test.go:39`, `TestRecallToolOutputBlob` `:101`; spill e2e `internal/e2e/spill_test.go:72` | DITUNDA → F9 | ADR-193 |
+| GAP-INF-06 | — | 0 tes `RerunDeterministic`/`RerunAfterRestart` | DITUNDA → F8 | ADR-193 |
+| GAP-TOOL-10 | — | `internal/skills/requires.go` + `requires_test.go`; `cmd/damnbot/skills_host.go` + `skills_unavailable_test.go` (ADR-207); #345/ADR-208 menambah `skills.requires_host` + filter `skillstore.Search`/`skills_list` + e2e `internal/e2e/skills_index_filter_test.go:18`. Residual: retriever prompt masih nil (ADR-208 butir 5), native-arch select/MCP `requires`/hub | TERBUKA | ADR-193 (F3/F5/F8) + ADR-207/ADR-208 |
+| GAP-SEC-26 | ya | `TestBuiltinSkillRefs` `internal/skills/builtin_test.go:24`; job `skill-refs` success | LULUS | skills/CI |
+| GAP-TEST-01 | — | `TestOutline` `internal/codetools/read_test.go:277` (tree analysis); tes language detection tidak ada | TERBUKA | codetools; nama tes ledger lama fiktif |
+| GAP-LEASE-01 | — | 0 pemanggil produksi `Heartbeat`/`CheckLease` | DITUNDA → F3/F5 | ADR-185 |
 
-Baris ini **di luar** 18 baris kanonik `DECISIONS.md L247-265` di atas; ia masuk ledger karena audit 2026-10-24 menemukan klaim §11.11 yang belum diimplementasikan, dan sengaja berstatus `missing` supaya gate `PHASE` tidak mengklaim kepatuhan yang tidak ada.
+## 3. Parity F2 (FEATURE-PARITY, setelah re-fase ADR-209)
 
-## 3. F2 parity rows (FEATURE-PARITY.md)
+### 3.1 56 baris F2
 
-81 baris di bawah = **59 baris yang masih fase F2** + **22 baris yang pindah fase** (ADR-139: 19 permukaan
-slash/MEM-019 -> F3; MEM-022 -> F5; MEM-023, PLUG-014 -> F8). Baris yang pindah **tidak dihapus**: supaya
-ledger tetap memuat jejaknya, fasenya dicatat di sel bukti dengan kutipan kolom `fase` pada
-`docs/FEATURE-PARITY.md` @ `ef8ec40d`.
-
-Konvensi kolom: `status` = status **implementasi** (`covered`, `in-flight`, `surface`, `missing`); anotasi di
-sel bukti memuat tiga hal yang berbeda - `fase **Fx**` = kepemilikan fase saat ini, `penutup #NNN` = PR
-terbuka yang akan menutupnya, dan tanda `**tanpa penutup**` = belum ada PR/kode sama sekali. Anotasi ini
-hasil audit pada `main ef8ec40d` (2026-10-24), bukan klaim gate.
-
-The parity table marks these rows "planned". "surface" means the
-capability exists and is tested but the row's CLI/slash surface is not
-tested (and in most cases not built); it must not be counted as covered
-by the acceptance test until the surface exists.
-
-### CLI
-
-| ID | fitur | status | evidence |
+| ID | fitur | status | bukti |
 | --- | --- | --- | --- |
-| CLI-038 | `hermes backup` | in-flight | PR #197: `internal/backup/create_test.go`, `restore_test.go` |
-| CLI-039 | `hermes checkpoints` | covered | **Ditutup #326** (squash `ee0cecec`, 2026-10-26): port ke `main` dari squash `24d44b12` (#264, yang semula bertumpuk di base `f2-cp-api`). Kode: `cmd/damnbot/checkpoints.go` (`status`/`list [--limit N] [--session ID]`/`prune [--older-than 30d] [--dry-run] [--yes]`/`clear\|clear-legacy`) + `cmd/damnbot/maintenance.go` (guard runner shell `DAMNBOT_EXEC_ID`) + hunk `sessions prune`/`sessions archive`; `--session` benar-benar menyaring (`CheckpointStats`), `--dry-run` memakai store read-only dan tidak pernah menghapus (ACC-63), pemeliharaan destruktif ditolak saat sesi kandidat punya turn terbuka/lease hidup. Permukaan: `SPEC.md` §10 + amandemen **ADR-146**. Bukti: unit `cmd/damnbot/checkpoints_test.go` (`TestCheckpointsStatusList`, `TestCheckpointsPruneClear`, `TestCheckpointsClearLegacy`, `TestCheckpointsClearDryRun`, `TestCheckpointsSessionScope`, `TestMaintenanceGuardFromShellTool`) dan **tiga skenario e2e biner** `internal/e2e/checkpoints_test.go` (`TestCheckpointsCLI`, `TestCheckpointsCLIDryRunScope`, `TestCheckpointsCLIBusyGuard`); hijau di CI PR #326 pada head `ee0cecec`. |
-| CLI-040 | `hermes import` | in-flight | PR #197: `internal/backup/restore_test.go` |
-| CLI-046 | `hermes skills` | surface | skills install/retrieve tests (`internal/skills/install_test.go`); no CLI test |
-| CLI-047 | `hermes bundles` | missing | no bundle type or test · penutup #270 |
-| CLI-057 | `hermes sessions` | surface | `TestHistoryForkAware`, ctxdb history/fork; CLI list/rename/export/prune untested |
+| CLI-039 | `hermes checkpoints` | LULUS | `cmd/damnbot/checkpoints.go`; e2e `TestCheckpointsCLI` `internal/e2e/checkpoints_test.go:191` (+`:81`, `:147`) |
+| CLI-046 | `hermes skills` | LULUS | `cmd/damnbot/skills_cli.go:255`; e2e `TestSkillsCLI` `internal/e2e/skills_cli_test.go:25` |
+| CLI-047 | `hermes bundles` | LULUS | `cmd/damnbot/bundles.go`; e2e `TestBundlesCLI` `internal/e2e/bundles_test.go:12` |
+| CLI-057 | `hermes sessions` | LULUS | `cmd/damnbot/sessions.go`; e2e `sessions_admin_test.go:27,64`, `sessions_prune_search_test.go:25,64,113`, `sessions_labels_test.go:28,59`, `sessions_why_test.go:70,118,138` |
+| TOOL-070 | `memory` tool | LULUS | `internal/tools/memory.go:43`; wiring `cmd/damnbot/tools_wire.go:333`; e2e `TestMemoryToolEndToEnd` `internal/e2e/context_tools_test.go:15` |
+| TOOL-073 | `session_search` tool | LULUS | `internal/tools/session_search.go:26`; e2e `TestSessionSearchEndToEnd` `internal/e2e/context_tools_test.go:57` |
+| TOOL-074 | `skill_manage` | LULUS | `internal/tools/skills.go:62`; e2e `TestSkillManageAlwaysAsks` `internal/e2e/skills_test.go:98` |
+| TOOL-075 | `skill_view` | LULUS | `internal/tools/skills.go:61`; e2e `TestSkillViewQuarantined` `internal/e2e/skills_test.go:46` |
+| TOOL-076 | `skills_list` | LULUS | `internal/tools/skills.go:60`; e2e `TestSkillsTools` `internal/e2e/skills_test.go:20` |
+| TSET-021 | toolset `memory` | LULUS | `internal/toolset/toolset.go:82`; `TestResolveAll` `toolset_test.go:173`; wiring `cmd/damnbot/run.go:457` |
+| TSET-023 | toolset `session_search` | LULUS | idem; `TestResolveAll` |
+| TSET-025 | toolset `skills` | LULUS | idem; `TestResolveAll` |
+| TSET-035 | toolset `context_engine` | LULUS | `TestContextEngineIsDataOnly` `toolset_test.go:188` |
+| TSET-038 | toolset `debugging` | LULUS | `TestResolveAll` `toolset_test.go:173` |
+| TSET-039 | toolset `safe` | LULUS | `TestResolveAll` `toolset_test.go:173` |
+| TSET-040 | toolset `coding` | LULUS | `TestResolveAll` `toolset_test.go:173` |
+| TSET-041 | toolset `hermes-acp` | LULUS | `TestResolveAll` `toolset_test.go:173` |
+| TSET-043 | toolset `hermes-cli` | LULUS | `TestResolveAll` `toolset_test.go:173` |
+| MEM-001 | built-in memory | LULUS | `internal/memory` suite; e2e memory tool `context_tools_test.go:15` |
+| MEM-002 | user profile | LULUS | `TestUserWriteIsApproved` `internal/memory/memory_test.go:231` |
+| MEM-003 | memory nudge | LULUS | `cmd/damnbot/nudge.go`; e2e `TestMemoryNudge` `internal/e2e/nudge_test.go:18` |
+| MEM-004 | memory write approval | LULUS | `TestQuarantineCannotBeRetrieved` `memory_test.go:163`, `TestTransitions` `:332` |
+| MEM-011 | session store SQLite | LULUS | `internal/ctxdb` suite (`TestStore*`) |
+| MEM-012 | session search FTS | LULUS | `TestSearchFilters` `internal/ctxdb/memstore/memstore_test.go:165` |
+| MEM-013 | recap/resume | LULUS | `cmd/damnbot/recap.go`; e2e `TestRunRecapOnResume` `internal/e2e/recap_test.go:25` |
+| MEM-014 | session export | LULUS | `cmd/damnbot/session_export.go`; e2e `TestSessionsAdminExport` `sessions_admin_test.go:27` |
+| MEM-015 | session prune/archive | LULUS | `cmd/damnbot/sessions_admin.go`; e2e `sessions_admin_test.go:64`, `sessions_prune_search_test.go:64,113` |
+| MEM-016 | lineage & titles | LULUS | e2e `TestSessionsLabelsEndToEnd` `sessions_labels_test.go:28`, kontrol `:59`; lineage `TestHistoryForkAware` |
+| MEM-018 | context compression | LULUS | `TestCompaction` `internal/compaction/compaction_test.go:55` |
+| MEM-020 | micro-compaction | LULUS | `TestPruneStaleRead` `prune_test.go:86`, `TestPruneOldResults` `:108` |
+| MEM-021 | proactive prune | LULUS | `TestResultFlags` `prune_test.go:278` |
+| MEM-024 | @-ref | LULUS | `cmd/damnbot/refs.go`; e2e `refs_test.go:16,30,84,115,131,139,151,165,186,202` |
+| MEM-025 | context pin | LULUS | e2e `TestContextPinSurvivesCompaction` `internal/e2e/context_pin_compaction_test.go:35` |
+| MEM-026 | context files | LULUS | `cmd/damnbot/context_files.go:41,43`; e2e `TestE2EContextFileWrappedUntrusted` `context_files_test.go:121` |
+| MEM-028 | rewind | LULUS | `internal/journal` suite; e2e `undo_review_test.go:29`, `undo_test.go:130,168,213,232` |
+| MEM-029 | branch/fork | LULUS | `TestForkAndRewind` `internal/ctxdb/read_test.go:290`; e2e `sessions_fork_prefix_test.go:127,170,206,319` |
+| MEM-030 | retry | LULUS | `run --retry`; e2e `recap_test.go:48,67,90` |
+| MEM-031 | filesystem checkpoints | LULUS | `TestUndoSuite` `internal/ctxdb/journalstore/undo_suite_test.go:188` (≥100 skenario); e2e checkpoints |
+| MEM-032 | state snapshot | LULUS | `internal/backup` suite (config+DB); e2e `TestCryptoBackupRestore` `crypto_test.go:33` |
+| MEM-033 | memory trim | LULUS | `trimRSS` `cmd/damnbot/run_resume.go:32`; `TestRunTrimsMemory` `cmd/damnbot/run_inject_test.go:134` |
+| MEM-034 | prompt caching | LULUS | `internal/provider/openai.go:183`; `TestCacheBreakpointAnthropic` `internal/provider/cache_test.go:70`; e2e `cache_test.go:15` |
+| SKILL-001 | SKILL.md system | LULUS | `internal/skills` suite (`TestParse`, `TestRetrieveLimit`) |
+| SKILL-002 | skills_list / skill_view / skill_manage | LULUS | e2e `skills_test.go:20,46,98` |
+| SKILL-004 | preprocessing | LULUS | `internal/skills/preprocess.go`; `preprocess_test.go:23,44,64` |
+| SKILL-007 | bundles | LULUS | `internal/skills/bundle.go`; `bundle_test.go:13`; e2e `bundles_test.go:12` |
+| SKILL-008 | auto-load | LULUS | `TestRetrieveLimit` `internal/skills/skills_test.go:262` |
+| SKILL-009 | project discovery | LULUS | `cmd/damnbot/skills_wire.go:57`; e2e `TestImportedSkillQuarantined` `skills_test.go:214` |
+| SKILL-010 | external skill dirs | LULUS | `cmd/damnbot/skills_wire.go:62`; e2e `TestSkillsTrustCLI` `skills_test.go:250` |
+| SKILL-016 | bundled skills sync | TERBUKA | 0 kode sync; korpus builtin kosong (`skills/.gitkeep`); `TestBuiltinSkillRefs` `internal/skills/builtin_test.go:24` hanya lint |
+| SKILL-018 | guard/lint | LULUS | `TestLintCorpus` `internal/skills/lint_test.go:56`, `TestLintFailsClosed` `:133` |
+| SKILL-019 | ledger & provenance | LULUS | `internal/skills/ledger.go`; `TestLedgerRoundTrip` `ledger_test.go:13` |
+| SKILL-022 | write approval | LULUS | `TestInstallQuarantine` `skills_test.go:187`; e2e `skills_test.go:98` |
+| SKILL-023 | skills index | LULUS | `internal/skills/index.go`; `TestIndexDiff` `index_test.go:11`; `skills index` `cmd/damnbot/skills_cli.go:268` |
+| PLUG-036 | tool search / deferred | LULUS | `internal/tools/deferred.go`; `deferred_test.go`; kontrak e2e `internal/e2e/deferred_test.go:19` |
+| CORE-004 | toolsets & per-platform config | LULUS | `TestResolvePlatformOverride` `toolset_test.go:150`; `TestConfigToolsets` `internal/config/toolsets_test.go:11` |
+| CORE-005 | custom toolsets | LULUS | `TestResolveDisabledAndCustom` `toolset_test.go:107`; `TestConfigToolsetsFailClosed` |
 
-### Slash commands
+### 3.2 Tiga baris yang di-re-fase ADR-209 (bukan F2)
 
-| ID | fitur | status | evidence |
-| --- | --- | --- | --- |
-| SLASH-002 | `/new` | surface | fresh session = `TestForkAndRewind`, ctxdb Create · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-006 | `/history` | surface | ctxdb history tests · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-007 | `/save` | missing | no conversation export · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-008 | `/retry` | missing | provider retries exist; last-message retry is not tested · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-010 | `/undo` | surface | undo suite (`internal/journal`) · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-011 | `/title` | missing | no session titles · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-013 | `/branch` | surface | `TestForkAndRewind` (PR #227 adds the CLI) · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-015 | `/compress` | surface | `internal/compaction` tests · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-016 | `/rollback` | surface | journal undo tests · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-017 | `/snapshot` | surface | PR #197 backup/restore · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-044 | `/resume` | surface | fork/history tests · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-045 | `/sessions` | surface | ctxdb history tests · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-066 | `/autoprune` | missing | session purge exists; no auto-prune · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-068 | `/toolsets` | missing | no toolsets · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-069 | `/skills` | surface | `internal/skills` tests · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-070 | `/memory` | surface | `TestQuarantine*`/`TestApprove*` · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-071 | `/bundles` | missing | no bundles · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| SLASH-083 | `/reload-skills` | missing | no rescan-on-command test · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-
-### Tools
-
-| ID | fitur | status | evidence |
-| --- | --- | --- | --- |
-| TOOL-070 | `memory` tool | missing | no tool named `memory`; the exposed tools are `recall`/`propose_memory` · penutup #266 |
-| TOOL-073 | `session_search` tool | missing | `session_search` appears only as a tool-call parse fixture · penutup #266 |
-| TOOL-074 | `skill_manage` | covered | `internal/tools/skills.go` (`schemaSkillManage` + impl, tes `internal/tools/skills_test.go`), wiring `cmd/damnbot/skills_manager_wire.go` (#174 `3cc03815`), daftar payload `cmd/damnbot/modules_test.go:46`, e2e `internal/e2e/skills_test.go:97` `TestSkillManageAlwaysAsks` |
-| TOOL-075 | `skill_view` | covered | `schemaSkillView` di berkas yang sama; e2e `internal/e2e/skills_test.go:19` `TestSkillsTools`, `:45` `TestSkillViewQuarantined` |
-| TOOL-076 | `skills_list` | covered | `schemaSkillsList` (cap 50; `cmd/damnbot/skills_manager_wire_test.go:456`); e2e `TestSkillsTools` |
-
-### Toolsets
-
-| ID | fitur | status | evidence |
-| --- | --- | --- | --- |
-| TSET-021 | toolset `memory` | missing | no toolset composition · penutup #253 |
-| TSET-023 | toolset `session_search` | missing | no toolset composition · penutup #253 |
-| TSET-025 | toolset `skills` | missing | no toolset composition · penutup #253 |
-| TSET-035 | toolset `context_engine` | missing | no toolset composition · penutup #253 |
-| TSET-038 | toolset `debugging` | missing | no toolset composition · penutup #253 |
-| TSET-039 | toolset `safe` | missing | no toolset composition · penutup #253 |
-| TSET-040 | toolset `coding` | missing | no toolset composition · penutup #253 |
-| TSET-041 | toolset `hermes-acp` | missing | no toolset composition · penutup #253 |
-| TSET-043 | toolset `hermes-cli` | missing | no toolset composition · penutup #253 |
-
-### Memory
-
-| ID | fitur | status | evidence |
-| --- | --- | --- | --- |
-| MEM-001 | built-in memory | covered | `internal/memory` tests; memstore |
-| MEM-002 | user profile | covered | memory scope tests |
-| MEM-003 | memory nudge | missing | no nudge · penutup #268 (terblokir #259/#243) |
-| MEM-004 | memory write approval | covered | `TestQuarantineCannotBeRetrieved`, `TestTransitions`, `TestUserWriteIsApproved` (`internal/memory`) |
-| MEM-011 | session store SQLite | covered | `internal/ctxdb` (`TestStore*`) |
-| MEM-012 | session search FTS | covered | `TestSearch*` in ctxdb |
-| MEM-013 | recap/resume | surface | history/fork tests; no recap |
-| MEM-014 | session export | covered | `cmd/damnbot/session_export.go` (ADR-141, `eda8a74b`); `cmd/damnbot/sessions_admin_test.go` `TestSessionsExport{Markdown,JSONL,HTML,File,RefusesExisting,RedactsMetadata}` |
-| MEM-015 | session prune/archive | covered | `cmd/damnbot/sessions_admin.go` (ADR-142, `96c63944`); `TestSessionsPruneArchive`, `TestSessionsPrunePinned`; auto-prune lewat `[sessions] auto_prune` |
-| MEM-016 | lineage & titles | surface | `TestHistoryForkAware` covers lineage; titles missing |
-| MEM-018 | context compression | covered | compaction stage 2 tests |
-| MEM-019 | manual compression | surface | compaction tests; no slash surface · fase **F3** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| MEM-020 | micro-compaction | covered | compaction stage 1 (prune) tests |
-| MEM-021 | proactive prune | covered | tool-result stub tests |
-| MEM-022 | native compaction provider | missing | no provider-native compaction · fase **F5** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| MEM-023 | context engine plugin | missing | see PLUG-014 · fase **F8** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| MEM-024 | @-ref | missing | no reference expansion · penutup #267 |
-| MEM-025 | context pin | covered | **Ditutup #318** (squash `9a57a737`, 2026-10-26) di atas covernya **#304** (squash `f8ee2626`): pin sisi prompt hidup di tabel append-only `session_pins` (migrasi `internal/ctxdb/migrations/0012_session_pins.sql`, nilai terakhir menang) dan dibaca prompt lewat `internal/ctxdb/sessionpins.go:10` `pinSeqsQ` serta klausa `session_pins` di `internal/ctxdb/compactstore/compactstore.go:76-80` `eventsQ`; permukaan CLI-nya `damnbot sessions context-pin <id\|newest> [--at <seq\|turn:ID>] [--off]` (`cmd/damnbot/sessions.go:48`). Bukti **biner asli** (harness #239, squash `025ea0c4`): `internal/e2e/context_pin_compaction_test.go` (+141/-0, squash `9a57a737`), `TestContextPinSurvivesCompaction` — fakta yang di-pin tetap ada di request terakhir sesudah compaction (`:56`), dan request itu benar-benar dirakit dari view ter-compaction (`:53`). Prasyarat wiring compaction: **#219** (squash `bee69b31`) memasang `Deps.Compactor`. Tiga flip load-bearing (diverifikasi ulang pada pohon `b8d3d393`, log `~/.cache/damnbot/evidence-mem025/flips.log`): (1) `sessionpins.go` `pinSeqsQ` `p.pinned 1→2` ⇒ MERAH `context_pin_compaction_test.go:50` (`context-pin list = 0 "no pinned context"`); (2) klausa `session_pins` di `compactstore.go` `eventsQ` dibuang ⇒ MERAH `:56` (`pinned fact did not survive compaction (MEM-025)`); (3) `keepTail 8→1000` (`internal/compaction/summary.go:17`) ⇒ MERAH `:53` (`the retried turn was not assembled from the compacted view`), masing-masing hijau lagi sesudah dipulihkan. |
-| MEM-026 | context files | covered | **Ditutup #310** (squash `2f42d75a`, 2026-10-25): tier berkas konteks kini diisi produksi - `cmd/damnbot/context_files.go:41` `Files: contextFiles()` (daftar `:14-17`: AGENTS.md, CLAUDE.md, SOUL.md, .cursorrules, .hermes.md), `:43` `UntrustedFiles: !model.trusted`, dan `:37-39` helper `contextTierInput` mengisi `Facts`/`Degraded` - sehingga wrapper `<untrusted source="workspace">` di `internal/assemble/context.go:109` hidup. Bukti e2e (`TestE2EContextFileWrappedUntrusted`): `internal/e2e/context_files_test.go:130` (B1), `:148` (B2), `:166` (B3 via `trustWorkspace` = `internal/e2e/harness_test.go:116`), `:183` (B4), nol `t.Skip`; hijau di CI `run 40149947287` head `ae2b2caf` (termasuk `test (windows-latest, -race, 1)`) dan berkas tesnya identik di pohon gabungan. Flip load-bearing di `2f42d75a` (mutasi 1-baris di worktree detached, lalu dibuang): C1 `UntrustedFiles: false` ⇒ **B1 merah**; C2a `trusted: false` ⇒ **B3 merah**; C2b `trusted: true` ⇒ **B1 merah**; C3 `Files: nil` ⇒ **B1+B3 merah**. **Caveat jujur**: flip C4 (bungkus teks prompt) **tidak terbukti** - dua mutasi sama-sama no-op (`in.Query` kosong tanpa retriever, teks user tidak lewat `run.go:627`/`:645`), jadi klaim lama "C4 ⇒ B2 merah" dicabut; bukti pengganti struktural (literal `workspace` hanya di `context.go:109`) dan itu pekerjaan lanjutan, bukan syarat penutupan. |
-| MEM-028 | rewind | covered | `TestForkAndRewind` |
-| MEM-029 | branch/fork | covered | `TestForkAndRewind`, `TestForkContextTierCopied` |
-| MEM-030 | retry | missing | last-message retry not tested · penutup #259 |
-| MEM-031 | filesystem checkpoints | covered | journal undo suite |
-| MEM-032 | state snapshot | in-flight | PR #197 backup/restore of config+state |
-| MEM-033 | memory trim | missing | no RSS trim · penutup #267 |
-| MEM-034 | prompt caching | missing | no cache_control use · penutup #268 (terblokir #259/#243) |
-
-### Skills
-
-| ID | fitur | status | evidence |
-| --- | --- | --- | --- |
-| SKILL-001 | SKILL.md system | covered | `internal/skills` retrieval tests |
-| SKILL-002 | skills_list / skill_view / skill_manage | covered | ketiga tool di atas: `internal/tools/skills.go` + e2e `internal/e2e/skills_test.go` (`TestSkillsTools`, `TestSkillViewQuarantined`, `TestSkillManageAlwaysAsks`) |
-| SKILL-004 | preprocessing | missing | no template/inline-shell tests · penutup #269 |
-| SKILL-007 | bundles | missing | no bundles · penutup #270 |
-| SKILL-008 | auto-load | covered | `TestRetrieveLimit`, retrieval tiers in `TestContextTierFrozen` |
-| SKILL-009 | project discovery | covered | `internal/config/config.go:31 ProjectDiscovery` + pemuat multi-root (`9cf1fa27`); e2e `TestImportedSkillQuarantined`, `TestSkillsTrustCLI` |
-| SKILL-010 | external skill dirs | covered | `internal/config/config.go:33 ExternalDirs` + `validate.go:175`; e2e `internal/e2e/skills_test.go:160` |
-| SKILL-016 | bundled skills sync | covered | builtin install tests |
-| SKILL-018 | guard/lint | covered | `TestLintCorpus`, `TestLintFailsClosed`, `TestQuarantine*` |
-| SKILL-019 | ledger & provenance | surface | skillstore tracks sha; no provenance ledger test |
-| SKILL-022 | write approval | covered | `TestQuarantine*` |
-| SKILL-023 | skills index | missing | no index build/delta · penutup #273 |
-
-### Plugins and operations
-
-| ID | fitur | status | evidence |
-| --- | --- | --- | --- |
-| PLUG-014 | context_engine plugin | missing | no engine slot · fase **F8** (ADR-139; kolom `fase` `docs/FEATURE-PARITY.md` @ `ef8ec40d`) |
-| PLUG-036 | tool search / deferred tools | covered | `tool_search` tests, PR #174 wiring |
-| OPS-006 | backup / import | in-flight | PR #197 |
-| CORE-004 | toolsets & per-platform config | missing | no toolsets · penutup #253 |
-| CORE-005 | custom toolsets | missing | no toolsets · penutup #253 |
-
-### What the gate enforces vs what this ledger reports
-
-`make phase-acceptance` (`Makefile:136-137`: `DAMNBOT_PHASE_ACCEPTANCE=1 go test -tags goolm -count=1 $(PKGS)`)
-**tidak** memakai baris parity di dokumen ini sebagai gate. Tidak ada satu berkas `.go` yang membaca
-`docs/F2-ACCEPTANCE.md` (grep = 0). Yang benar-benar digerbangi:
-
-* `TestEdgeCaseCatalogSync` (`internal/testutil/phase`): mem-parse tabel EC ROADMAP + katalog setiap paket.
-  Id dengan fase **< PHASE** wajib punya baris katalog dan berstatus `covered`/`n/a`; id fase **= PHASE**
-  boleh `pending:<PHASE>` atau absen; id **> PHASE** hanya di-log; label fase katalog wajib cocok ROADMAP.
-* `TestParityPhaseColumn` (`internal/archtest/parity_phase_test.go`; 854 baris, 837 baris bergerbang):
-  hanya memeriksa **kolom `fase`** konsisten dengan tabel "Pemetaan parity -> fase" di ROADMAP - bukan
-  status implementasi.
-
-Akibatnya angka di ledger ini **tidak** memblokir atau meloloskan gate mana pun; ia laporan. `PHASE` di
-`main` berisi `F1` (`F1\n`, 3 byte) dan belum pernah dinaikkan sejak `ad961ebc`. Bukti gate terakhir pada
-`PHASE=F3` (pohon `ef8ec40d`, 2026-10-24): `ok internal/testutil/phase 0.155s` dan `ok internal/archtest
-35.568s`, dengan satu baris **log** (bukan kegagalan) `acceptance_test.go:54: PHASE acceptance F3: 69 EC ids
-of a later phase are still open`.
-
-### F2 e2e suite: the nine scenarios (biner nyata)
-
-**Sumber kanonik: body PR #239** (<https://github.com/yuldan/damn-bot/pull/239>) - bagian "Passing on main now"
-(4a, 4b) dan "Pending scenarios" (1, 2, 3, 5, 6, 7, 8, 9; nomor 4 dipecah 4a/4b). **Tidak ada berkas repo yang
-mengenumerasi kesembilan skenario ini**: `docs/ROADMAP.md` §F2 (baris 130-140) hanya memuat acceptance
-P1/undo/recall/EC, dan dokumen ini sebelumnya tidak memuatnya - tabel di bawah adalah salinan pertama di repo.
-Di kode, skenario dikenali dari komentar `scenario N of PR #239` (`internal/e2e/undo_review_test.go:23`,
-`budget_guard_ledger_test.go:150`/`:226`, `sessions_fork_prefix_test.go:124`) dan dari komentar
-`acceptance 4b`/`acceptance 9`.
-
-| # | skenario | tes (`berkas:baris`) | kontrol negatif (load-bearing) | status |
+| ID | fitur | fase baru | status | bukti / prasyarat |
 | --- | --- | --- | --- | --- |
-| 1 | compaction -> summary di SessionView + pembungkusan `<untrusted>` | `internal/e2e/summary_taint_test.go:47` `TestTaintedSummaryDeniesUnsafeShell` | `summary_taint_test.go:86` `TestUntaintedTurnControlShellRuns` - shell JALAN saat turn tidak taint, jadi yang memblokir adalah taint-nya, bukan penolakan menyeluruh | in-flight #219/#220 (W6/W7) |
-| 2 | tier memory/recall + isolasi cross-project & cross-principal | `internal/e2e/recall_scope_test.go:159` `TestRecallIgnoresAnotherProject`, `:178` `TestRecallIgnoresAnotherPrincipal` | kedua tes itu sendiri: scope proyek/principal lain tidak boleh terlihat | in-flight #283 |
-| 3 | failed-turn `context_exclude` pada request berikutnya + daftar side effect | `internal/e2e/resume_test.go:13` `TestRunResumeExcludesFailedTurn`, `:52` `TestRunContinueNewestSession` | belum ada yang eksplisit (turn yang BERHASIL tidak boleh dikecualikan) | in-flight #243/#259 |
-| 4a | carrier di-replay byte-identik (PROV-01/SEC8) | `internal/e2e/carriers_test.go:12` `TestCarrierReplayedNextIteration` | - (pasangannya 4b) | ada di main (#239) |
-| 4b | carrier yang ditolak tidak di-replay | `internal/e2e/carriers_test.go:35` `TestCarrierRejectedNotReplayed` | request retry tidak memuat byte carrier + jumlah provider call = 3 | ada di main (#239) |
-| 5 | `undo` byte-identik + listing `review` | `internal/e2e/undo_review_test.go:29` `TestE2EUndoRestoresTheEditedFileAndListsTheAction`; jalur penolakan: `internal/e2e/undo_test.go:130` `TestUndoSymlinkedRoot`, `:168` `TestUndoSymlinkInsideRefused`, `:232` `TestUndoRefusalContentConflict` | berkas "bystander" tetap byte-identik dan tidak muncul di `undo ls`; `review` (karantina memori P10) tidak mengklaim perubahan berkas; penolakan symlink dibuktikan bersama kontrol `undo_test.go:213` `TestUndoWithoutSymlinkSucceeds` (yang menolak adalah aturan tanpa-symlink, bukan kegagalan umum) | ada di main (#289 + jalur penolakan #240) |
-| 6a | budget guard menolak di cap ledger | `internal/e2e/budget_guard_ledger_test.go:154` `TestE2EBudgetGuardDeniesAtLedgerCap` (+ `:198` bawah cap, `:215` periode lain) | provider request = 0 saat ditolak; kontrol bawah-cap dan periode lain | ada di main (#289) |
-| 6b | ledger mencatat usage persis | `internal/e2e/budget_guard_ledger_test.go:230` `TestE2EBudgetLedgerRecordsExactUsage` | call tanpa harga tidak dibebankan (`CostMicros=0`, `UnknownCost=1`) | ada di main (#289) |
-| 7 | prefix anak `sessions fork`/`rewind` | `internal/e2e/sessions_fork_prefix_test.go:127`, `:170`, `:206` | induk tidak berubah (append-only), sesi lain tidak berubah, fork di head = transkrip utuh, cut 0 = kosong. **GAP:** belum ada penolakan id/`--at` salah (lihat §4 item 11) | ada di main (#289) |
-| 8 | canary `storage.encrypt=true` + backup/restore | `internal/e2e/crypto_test.go:33` `TestCryptoBackupRestore` (sweep plaintext di data dir, arsip DMBK1, dan direktori hasil restore, lalu lanjut sesi) + `internal/e2e/spill_test.go:72` `TestToolOutputSpillThroughBinary` | `crypto_test.go:168` `TestCryptoPlaintextCanaryVisible` - tanpa enkripsi canary TERLIHAT, jadi sweep-nya terbukti mampu melihat plaintext; ditambah kasus `negative-control` (unencrypted) di `spill_test.go:80-81` | ada di main (#241, #290) |
-| 9 | buka read-only DB skema lebih baru + kode exit SPEC | `internal/e2e/sessions_readonly_test.go:14` `TestSessionsReadOnlyNewerSchema` | penulis keluar exit 1 dengan `schema_newer` dan 0 provider call (read-only tetap exit 0) | ada di main (#248) |
-| - | payment/exec gate (batas keamanan di luar 9 skenario, dari item 4 §4) | `internal/e2e/payment_gate_test.go:83` `TestPaymentSkillGateCLI` | belum terbukti - tes ini merah di Windows (`tool result denied = false, want true`) | in-flight #237 (GAP, §4 item 11) |
+| CLI-040 | `hermes import` | F3 | TERBUKA | Bentuk normatif SPEC §9.15 (`SPEC.md:981`) + §10 (`SPEC.md:1013`); `internal/importer` hanya sisi baca (`importer.go:186`,`:210`). Prasyarat: config writer + merge atomik, secret setter terekspor, cron store F4, sessions collector + `Sink.PutSessions`. PR pengimplementasi belum ada di daftar terbuka 2026-10-27 |
+| OPS-006 | backup / import | F3 | TERBUKA | Backup: `sessions backup` (ADR-124/ADR-198). Import: prasyarat yang sama dengan CLI-040; `--only sessions` tidak dapat dipenuhi karena `Source` tidak punya sessions dan `Sink` tidak punya `PutSessions` (gap SPEC §9.15) |
+| CLI-038 | `hermes backup` | F9 | DITUNDA | SPEC §10 tidak punya top-level `backup`; backup = `sessions backup` (ADR-124/ADR-198). Arsip portabel/impor = GAP-OPS-05 `SPEC.md:2978`, pasca-1.0 `SPEC.md:2823` (§19). Menambah top-level `backup` melanggar §10 satu-nama-satu-tujuan |
 
-**Penyegaran.** Audit awal pada `b979bc83`; setelah #240 (`a1845da8`) mendarat, jalur penolakan `undo` sudah ada di `main` (`internal/e2e/undo_test.go`) sehingga GAP-nya tertutup - baris skenario 5 di atas sudah mencerminkannya.
+#345/ADR-208 sudah mendarat: katalog (`skills_list`) + `skillStore.Search`
+menegakkan `requires`, tetapi retriever prompt masih **nil** (ADR-208 butir 5),
+jadi `GAP-TOOL-10` tetap `TERBUKA` dan tetap di luar gate F2 (ADR-193).
 
-**Ringkas.** 6 dari 9 skenario ada di `main` (4a, 4b, 5, 6a, 6b, 7, 8, 9); skenario **1, 2, 3** belum ada di
-`main` tetapi tesnya sudah ditulis di cabang in-flight (#219/#220, #283, #243/#259). Ekstra di luar sembilan
-skenario (mendukung baris acceptance lain, semua punya kontrol): `TestSkillsTools`, `TestSkillViewQuarantined`,
-`TestSkillManageAlwaysAsks`, `TestImportedSkillQuarantined`, `TestSkillsTrustCLI` (`internal/e2e/skills_test.go`,
-#281), `TestSessionsAdminExport`/`Prune` (#255), `TestSessionsLabelsEndToEnd`/`TestSessionsLabelsNegativeControls`
-(#277), `TestRunAdvertisesNoDeferredTools` (#174), `TestHarnessSmoke` (#239).
+### 3.3 22 baris pindah fase ADR-139 (bukan F2)
 
-## 4. Work items to close the ledger
+`SLASH-002/006/007/008/010/011/013/015/016/017/044/045/066/068/069/070/071/083`
+dan `MEM-019` → F3; `MEM-022` → F5; `MEM-023` + `PLUG-014` → F8. Baris-baris
+ini tidak dihitung sebagai utang F2 dan tidak diberi status acceptance F2;
+inventarisnya tetap di `docs/FEATURE-PARITY.md`.
 
-These are the concrete PRs implied by the table above. Each item names
-the owner prefix (branch names should use it) and the smallest test that
-proves it.
+## 4. Suite e2e (biner asli)
 
-1. **Acceptance completeness (PR #244, implemented).**
-   `TestEdgeCaseCatalogSync` in `internal/testutil/phase` parses the
-   ROADMAP EC table and every package catalog and, in acceptance mode,
-   fails when an id at or below PHASE has no catalog row or is not
-   `covered`/`n/a`; it also rejects catalog phases that disagree with the
-   roadmap and ids the roadmap does not require. Normal `go test` keeps
-   the run green and logs the uncataloged ids. The 16 F1 ids above and the
-   three missing STATE ids are what it now reports; the GAP rows still
-   need their own check (no phase column yet).
-2. **tools:** implement `skill_view`/`skills_list`/`skill_manage`
-   (TOOL-074/075/076, SKILL-002) — first unblocks EC-CTX-006.
-3. **ctxdb:** migration fail-closed test (GAP-REL-05); FTS auto-upgrade
-   and CJK order (GAP-INF-01/02); 50-client chaos (GAP-REL-03).
-4. **provider:** no-context-probe analyzer + test (GAP-COST-02);
-   EC-PROV-008 (finish_reason=length partial & not persisted).
-5. **loop/tools:** EC-TCALL-010 (deferred schema INVALID_ARGUMENT);
-   GAP-INF-06 rerun determinism; GAP-COST-04 prefix stability across
-   fallback; MEM-030 retry.
-6. **assemble:** GAP-PROV-02 tier budget assertion.
-7. **ctxdb/exec/Windows F1/F2 (done):** EC-WIN-001/009/014/016/017 in #254;
-   EC-WIN-002/005/011 in #257; the F1 FIO/TCALL/TERM rows in #255 (the
-   EC-FIO-019 test moved to `cmd/damnbot/edgecases_volatile_test.go` as
-   `TestVolatileTimeIsUTC`).
-8. **skills/CI:** builtin dangling-ref rule (GAP-SEC-26); native-arch
-   skill filter (GAP-TOOL-10).
-9. **backup:** land PR #241's stack; add the plaintext-canary test to
-   GAP-SEC-01.
-10. **docs:** peta baris parity sudah diperbarui (audit `ef8ec40d`): **8 baris ternyata `covered`** di
-    `main`, **22 baris pindah fase** (ADR-139) dan tetap tercatat dengan fase barunya, **22 baris masih F2
-    dan punya penutup PR terbuka** (#253, #259, #266, #267, #268, #269, #270, #273), dan **0 baris tanpa
-    penutup**: `CLI-039` (checkpoints CLI) ditutup #326, `MEM-025` (context pin) ditutup #318 di atas cover
-    #304, dan `MEM-026` (berkas konteks) ditutup #310 — lihat §4 item 11(d) untuk yang terakhir. Sisa pekerjaan F2 = mendaratkan penutup itu, atau memindahkan barisnya ke fase
-    pemiliknya lewat koreksi ADR-064. Baris "planned" tanpa penutup adalah lubang yang ditutup ledger ini.
+`go test -tags goolm -count=1 ./internal/e2e` pada `f3c0af68`: **rc=0,
+79 top-level PASS, 0 SKIP, 0 FAIL**.
 
-11. **e2e:** tutup celah suite biner nyata (§3 "F2 e2e suite"). (a) Skenario 1-3 menunggu pendaratan
-    #219/#220, #283, #243/#259; saat mendarat, verifikasi tambahan: skenario 1 juga untuk summary yang dibangun
-    dari BACA BERKAS (bukan hanya `shell`), skenario 2 butuh satu kasus positif dengan marker unik per scope
-    supaya "0 hasil" tidak lolos karena recall-nya memang mati, dan skenario 3 butuh kontrol eksplisit bahwa
-    turn yang **berhasil** tidak dikecualikan. (b) `TestE2EForkRefusesUnknownSessionAndBadCut` (`internal/e2e`): id tak
-    dikenal exit 1 (`ctxdb.ErrNotFound`), `--at` salah exit 2; kontrol: transkrip induk tetap byte-identik dan
-    tidak ada baris anak yang lahir. (c) #237 (`TestPaymentSkillGateCLI`, `internal/e2e/payment_gate_test.go`)
-    harus mendarat bersama pasangan kontrolnya: perintah payment ditolak **dan** berkas efek sampingnya tidak
-    ada, sedangkan perintah non-payment dengan `--approval auto` tetap jalan. (d)
-    `TestE2EContextFileWrappedUntrusted` (`internal/e2e`): isi `AGENTS.md` ber-marker muncul di request di
-    dalam `<untrusted source="workspace">` dengan role user; kontrol: teks instruksi di berkas itu tidak pernah
-    muncul sebagai pesan system/developer, dan tanpa berkas wrapper-nya tidak ada. **Catatan 2026-10-24:**
-    baris `MEM-026` kini berstatus `missing` (dulu salah `covered`) karena tier berkas konteks belum tersambung
-    di produksi (`cmd/damnbot/run.go:212-221` tidak pernah mengisi `Files`, `UntrustedFiles` nol pemanggil) -
-    jadi prasyarat tes ini adalah **wiring-nya lebih dulu**, bukan hanya tesnya. **Ditutup 2026-10-25 oleh
-    #310** (squash `2f42d75a`): wiring mendarat di produksi (`cmd/damnbot/context_files.go:41` `Files`,
-    `:43` `UntrustedFiles`) dan tes e2e di atas hijau di CI head `ae2b2caf` termasuk
-    `test (windows-latest, -race, 1)`; di pohon gabungan flip C1/C2a/C2b/C3 menjatuhkan hanya subtes yang
-    seharusnya, sementara flip **C4 tidak terbukti** (dicatat jujur di baris §3 dan di bawah). **Sudah tertutup:**
-    kontrol penolakan `undo` (symlink ke luar/di dalam root, konflik isi) mendarat lewat #240 -
-    `internal/e2e/undo_test.go:130`/`:168`/`:232` dengan kontrol positif `:213`.
+| # | skenario | tes | status |
+| --- | --- | --- | --- |
+| 1 | compaction→summary + `<untrusted>`, termasuk baca berkas | `internal/e2e/summary_taint_test.go:47`; kontrol `:86` | LULUS |
+| 2 | tier recall + isolasi project/principal/sesi | `internal/e2e/recall_scope_test.go:29,255,270,289`; kontrol vacuity | LULUS |
+| 3 | failed-turn `context_exclude` + side effect | `internal/e2e/resume_test.go:16`; kontrol turn sukses di tes yang sama | LULUS |
+| 4a/4b | carrier replay/reject | `internal/e2e/carriers_test.go:12,35` | LULUS |
+| 5 | undo byte-identik + review + penolakan symlink/konflik | `internal/e2e/undo_review_test.go:29`; `undo_test.go:130,168,213,232` | LULUS |
+| 6a/6b | budget guard cap + ledger usage | `internal/e2e/budget_guard_ledger_test.go:154,198,215,230` | LULUS |
+| 7 | prefix fork/rewind + penolakan id/`--at` | `internal/e2e/sessions_fork_prefix_test.go:127,170,206,319` | LULUS |
+| 8 | crypto at-rest + backup/restore + canary | `internal/e2e/crypto_test.go:33,168`; `spill_test.go:72` | LULUS |
+| 9 | buka DB skema lebih baru read-only | `internal/e2e/sessions_readonly_test.go:14` | LULUS |
 
-## 5. Security-boundary evidence (e2e biner nyata + kontrol negatif)
+Ekstra yang menutup baris: `skills_test.go` (TOOL-074/075/076, SKILL-002/009/010),
+`skills_cli_test.go:25` (CLI-046), `bundles_test.go:12` (CLI-047),
+`checkpoints_test.go:191` (CLI-039), `context_files_test.go:121` (MEM-026),
+`context_pin_compaction_test.go:35` (MEM-025), `context_tools_test.go:15,57`
+(TOOL-070/073), `sessions_*` (CLI-057/MEM-013..016), `recap_test.go` (MEM-030),
+`refs_test.go` (MEM-024), `nudge_test.go:18` (MEM-003), `cache_test.go:15`
+(MEM-034), `shell_gate_classify_test.go:79` (SEC-15), `deferred_test.go:19`
+(PLUG-036/EC-TCALL-010 kontrak).
 
-Setiap permukaan batas keamanan butuh (a) minimal satu tes e2e lewat biner nyata (`internal/e2e`, dibangun di `harness_test.go:29`) dan (b) minimal satu kontrol negatif yang **load-bearing**: kontrol itu harus MERAH kalau perilaku yang dijaganya dimatikan. Kolom "flip" mencatat eksperimen pembuktiannya (satu baris patch di worktree sekali-pakai, lalu dibuang) dan kolom "baris MERAH" mengutip keluaran apa adanya. Semua eksperimen dijalankan 2026-10-24 pada pohon `main a1845da8` (kode tidak berubah setelah itu; `main 6d644a92` = docs-only).
+**Belum ada e2e:** `import` CLI (CLI-040/OPS-006), komposisi toolset
+(TSET/CORE), memory trim (MEM-033 hanya unit), skills index (SKILL-023 hanya
+unit), deferred tools dengan modul benar-benar ter-wire (EC-TCALL-010).
 
-| Permukaan | Tes positif (`berkas:baris`) | Kontrol negatif (`berkas:baris`) | Load-bearing | Flip yang dipakai | Baris MERAH (verbatim) |
-|---|---|---|---|---|---|
-| 1. undo/sandbox/journal | `internal/e2e/undo_review_test.go:29`; `internal/e2e/undo_test.go:130` | `undo_test.go:168` (symlink di dalam root) + pasangan positif `:213` | **terbukti** | `internal/journal/undo.go:311` → `false && !u.sb.SamePath(...)` | `undo_test.go:197: [undo --data-dir …] accepted a linked directory below the root` (FAIL `TestUndoSymlinkInsideRefused`) |
-| 1. undo — gerbang konflik isi | `undo_test.go:232` (jalur `--force` L249) | `undo_test.go:232` sendiri (menolak + berkas tak berubah) | **terbukti** | `internal/journal/undo.go:162` → `case false && !match(cur, a.After) && !force:` | `undo_test.go:243: undo = 0, stderr ""; want a conflict refusal` (FAIL `TestUndoRefusalContentConflict`) |
-| 1. undo — scoping listing | `undo_review_test.go:29` (L59-64) | `undo_review_test.go:65` | **terbukti** | `cmd/damnbot/undo.go:261 previewActions`: saat `list` juga `os.ReadDir(".")` | `undo_review_test.go:66: undo ls lists a file the turn never wrote:` (FAIL `TestE2EUndoRestoresTheEditedFileAndListsTheAction`) |
-| 1. undo — witness isi | `undo_review_test.go:29` (L52-57, L78-86) | `undo_review_test.go:55` / `:84` (bystander byte-identik) | **belum dibuktikan** | tidak ada flip 1-baris yang wajar | mode regresi yang dijaga: undo/turn menulis berkas di luar jalur yang dijurnal (dengan isi berbeda); bukan kegagalan yang bisa dipicu dengan mematikan satu fitur |
-| 2. exec/classifier/payment gate | **tidak ada** | **tidak ada** | — | — | **GAP**: belum ada tes e2e lewat biner sama sekali; PR tesnya sedang dikerjakan. Bukti in-process (`internal/exec/classify/payment_test.go`, `internal/tools/builtins_shell.go:185-194`, `cmd/damnbot/skills_wire_test.go:167`) tidak menggantikan e2e. |
-| 3. crypto/at-rest | `internal/e2e/crypto_test.go:33`; `internal/e2e/spill_test.go:72` (subtes `encrypted`); `internal/e2e/sessions_readonly_test.go:14` | `crypto_test.go:168` (tanpa enkripsi canary harus terlihat); `spill_test.go:81` + sapuan yang sama di `:106` | **terbukti** | `internal/e2e/crypto_test.go` `scanCanaries` → `return false` (sapuan dilumpuhkan) | `crypto_test.go:173: canary [plaintext-canary-reply] absent from /tmp/…/data` (FAIL `TestCryptoPlaintextCanaryVisible`); tes positifnya justru tetap PASS — asersi canary-nya hanya sekuat sapuan |
-| 3. crypto/at-rest — determinasi fitur | `crypto_test.go:33` | — | **terbukti** | `cmd/damnbot/atrest_wire.go:21` → `if true` (codec tidak pernah dipakai) | `crypto_test.go:157: plaintext canary "prompt-canary-crypto" in /tmp/…/data/damnbot.db` (FAIL `TestCryptoBackupRestore`) |
-| 3. spill / blob | `spill_test.go:72` (subtes `encrypted`) | `spill_test.go:81` (`negative-control`) | **terbukti** | `internal/e2e/spill_test.go:61` → `return found, false` | `spill_test.go:107: canary in data dir = false, want true` (FAIL `TestToolOutputSpillThroughBinary/negative-control`) |
-| 4. karantina skill | `internal/e2e/skills_test.go:19`, `:199` | `skills_test.go:45`; `skills_test.go:163` | **terbukti** | `internal/ctxdb/skillstore/skillstore.go:301` (filter `m.status = 'approved'` dilepas) | `skills_test.go:57: skills_list did not exclude the quarantined skill:` (FAIL `TestSkillViewQuarantined`); `:188` + `:191` (FAIL `TestImportedSkillQuarantined`) |
-| 4. persetujuan skill (`skill_manage`) | `skills_test.go:19` (jalur tool) | `skills_test.go:97` (`:106` asersi terstruktur + `:113` efek samping) | **terbukti** | `internal/tools/skills.go:151` `RequireAsk` → `RequireAuto` | `skills_test.go:114: denied skill wrote /tmp/…/data/skills/agent/agent-note: <nil>` (FAIL `TestSkillManageAlwaysAsks`) |
-| 4. catatan mekanisme approval | — | — | negatif (menjelaskan gerbang) | `internal/tools/skills.go:146` `Effect` → `EffectRead` **tidak mengubah apa pun** (tetap PASS) | gerbang approval berasal dari `Inspect` → `PolicyDecision{Requirement: RequireAsk}` (`internal/tools/skills.go:148-152`; enum `internal/tools/approval.go:36-45`), bukan dari `Effect` — penting untuk review PR yang menyentuh jalur ini |
-| 5. budget guard — arah tolak | `budget_guard_ledger_test.go:154`, `:230` | `:198`, `:215` | **terbukti** | `internal/budget/guard.go:88` `Err()` → selalu `&DeniedError{}` | `budget_guard_ledger_test.go:205: call denied below the cap: …` (FAIL `TestE2EBudgetGuardAllowsUnderCap`) dan `:222: yesterday's spend denied today's call` (FAIL `TestE2EBudgetGuardIgnoresSpendOutsideThePeriod`) |
-| 5. budget guard — arah boleh | `:198`, `:215` | `:154` | **terbukti** | `internal/budget/guard.go:88` → `if true { return nil }` | `budget_guard_ledger_test.go:180: stop = error/provider_error, want max_tokens/budget_daily` (FAIL `TestE2EBudgetGuardDeniesAtLedgerCap`) |
-| 6. berkas/tool-output ke prompt | `internal/e2e/carriers_test.go:12`; `skills_test.go:37` (berkas → prompt lewat body skill); `spill_test.go:72` | `carriers_test.go:35`; `spill_test.go:81` | **terbukti** | `internal/provider/client.go:315` (jalur retry tanpa carrier dimatikan) | `carriers_test.go:44: exit = 2` (FAIL `TestCarrierRejectedNotReplayed`) |
-| 6. catatan pemisahan kontrol | `carriers_test.go:12` | `carriers_test.go:35` | sebagian | `internal/loop/turn.go:220` → `reply.Carriers = nil` (replay dimatikan) | `carriers_test.go:28: second request did not replay the carrier "SIG-E2E-REPLAY"` (FAIL `TestCarrierReplayedNextIteration`) **dan** kontrolnya juga MERAH (`carriers_test.go:44: exit = 2`): pemisahan "positif merah, kontrol hijau" tidak bisa dicapai karena keduanya memakai jalur store→replay yang sama; arah yang bisa dipisah adalah sebaliknya (flip jalur retry → hanya kontrol yang merah) |
-| 6b. rute URL/fetch | — | — | — | — | **bukan F2**: tidak ada tool web di biner (`TOOL-087`, `TSET-030`, `EXEC-042` = F6 `planned`, `docs/FEATURE-PARITY.md:351/387/906`); `SPEC.md:2644` sudah menetapkan wrap `<untrusted>` + penolakan IP privat/metadata + anti-DNS-rebinding untuk saat mendarat |
-| 6c. berkas konteks workspace (MEM-026) | — | — | — | — | **GAP wiring**: `ContextInput.UntrustedFiles` tidak pernah diisi produksi (nol penugasan di `*.go` non-test) dan tier berkas konteks tidak dirender (`cmd/damnbot/run.go:213-216` hanya mengisi `Facts`/`Degraded`); dikoreksi di PR #300, perbaikan wiring terpisah → **ditutup #310** (squash `2f42d75a`): wiring di `cmd/damnbot/context_files.go:41`/`:43`, e2e `internal/e2e/context_files_test.go:130`/`:148`/`:166`/`:183` hijau (incl. Windows), flip C1/C2a/C2b/C3 load-bearing; **flip C4 tidak terbukti** (pekerjaan lanjutan) |
+## 5. Sisa kerja (PR-sized)
 
-**Kontrol yang tidak boleh diterima.** (D1) kontrol yang hanya membuktikan "tanpa berkas ⇒ tidak ada wrapper"; (D2) tes positif yang marker-nya juga ada di prompt pengguna (asal marker ambigu); (D3) tes yang hanya menyuntik `assemble.ContextInput` di level unit, bukan lewat biner; (D4) tes yang membuat workspace harness selalu trusted demi menjaga `spill_test.go:98` tetap hijau; (D5) perbandingan trust yang menganggap path non-kanonik (cwd lewat symlink) sebagai trusted; (D6) menaikkan status baris ledger tanpa tes + bukti flip; (D7) `t.Skip` lingkungan tanpa `skipOrFail` (pola `undo_test.go:23`).
+1. **`GAP-COST-01`** — gate release yang gagal bila ada entri `providers.toml`
+   lewat `until`; saat ini 0 tes dan 0 entri `until` (±40 baris).
+2. **`SKILL-016`** — sync korpus skill bawaan (embedded corpus + install saat
+   start/update) + tes, atau ADR yang memindahkannya dari F2 (±200–400 baris).
+3. **`GAP-TOOL-10` residual** — filter requirement host di index/prompt
+   (`ctxdb/skillstore` + `SearchAvailable`), ditutup PR #345 bila mendarat
+   (±80–120 baris, ADR-207).
+4. **`GAP-TEST-01`** — tes language detection yang berdiri sendiri, atau
+   koreksi baris; `TestOutline` sudah menutup tree analysis (±80 baris).
+5. **`GAP-SEC-16`** — tes body/egress DLP di luar ingress (±300–500 baris).
+6. **`import` (CLI-040/OPS-006, F3)** — prasyarat ADR-209: config writer +
+   merge atomik, secret setter, cron store F4, sessions collector; `--only
+   sessions` butuh keputusan owner (implementasi atau amandemen SPEC §9.15).
+7. **Gate performa F2** — `TestRecallP95` (`internal/ctxdb/recall_perf_test.go:86`,
+   1.000.000 event) tidak dipanggil job mana pun; `BenchmarkAppend` hanya
+   melaporkan p99 tanpa asersi. Tambahkan job/asersi sebelum mengklaim
+   "recall ≤ 50 ms p95 @1M" dan "Append ≤ 10 ms p99".
 
-## Method
+## 6. Bukti batas keamanan (ringkas)
 
-* EC: `git grep -n '<ID>' origin/main -- '*_test.go'`, plus the gate
-  statuses in `internal/compaction/edgecases_test.go` and the
-  `platformStateCases` split under `internal/ctxdb`.
-* GAP: each row's test name searched with `git grep` on `origin/main`
-  and `git log --all -S<name> -- '*.go'`; PR provenance from
-  `git diff origin/main..pr/N -- '*_test.go'`.
-* Parity: each F2 row matched against test names on `main` and in PR
-  diffs, then reviewed by capability (one capability can have several
-  parity rows). A row is `covered` only when a named test proves the
-  capability; the CLI/slash surface is called out separately. Audit ulang 2026-10-24 pada `main
-  ef8ec40d`: fase setiap baris dikutip dari kolom `fase` `docs/FEATURE-PARITY.md`, dan setiap baris
-  `missing` dicocokkan ulang ke berkas + nama tes di `main` (`git grep`) - hasilnya anotasi
-  `fase`/`penutup` di §3.
-  capability; the CLI/slash surface is called out separately.
+Detail verbatim flip ada di PR #302 dan commit `5434a915`; audit ini tidak
+mengulang flip, hanya memastikan tesnya ada dan lulus pada snapshot.
+
+| permukaan | positif | kontrol negatif | load-bearing |
+| --- | --- | --- | --- |
+| undo/sandbox/journal | `internal/e2e/undo_review_test.go:29`; `undo_test.go:130` | `undo_test.go:168` + positif `:213`; konflik `:232` | terbukti (flip 2026-10-24) |
+| exec/classifier/payment | `internal/e2e/shell_gate_classify_test.go:79` | refusal leg di tes yang sama (efek samping tidak ada) | terbukti |
+| crypto/at-rest | `internal/e2e/crypto_test.go:33`; `spill_test.go:72` | `crypto_test.go:168`; `spill_test.go:81` | terbukti |
+| karantina skill | `internal/e2e/skills_test.go:19,199` | `skills_test.go:45,163` | terbukti |
+| persetujuan skill | `skills_test.go:19` | `skills_test.go:97` | terbukti |
+| budget guard | `budget_guard_ledger_test.go:154,230` | `:198,215` | terbukti |
+| berkas/tool-output ke prompt | `carriers_test.go:12`; `skills_test.go:37`; `spill_test.go:72` | `carriers_test.go:35`; `spill_test.go:81` | terbukti |
+
+## 7. Audit ulang (perintah yang dijalankan)
+
+Snapshot `f3c0af68`; perintah berat memakai `GOMAXPROCS=2 GOFLAGS=-p=1
+nice -n 19` dan `ulimit -v 4194304`.
+
+```bash
+go test -tags goolm -count=1 ./internal/e2e
+# rc=0; 79 PASS, 0 SKIP, 0 FAIL
+go test -tags goolm -count=1 ./internal/skills ./cmd/damnbot
+# ok (f3c0af68)
+go test -tags goolm -count=1 ./internal/ctxdb ./internal/loop ./internal/tools \
+  ./internal/compaction ./internal/assemble ./internal/provider ./internal/backup ./cmd/damnbot
+# ok (e727ee1a; f3c0af68 hanya menambah skills/cmd/docs)
+go test ./internal/ctxdb/journalstore -run TestUndoSuite -count=1
+# PASS, >=100 skenario
+go test ./internal/archtest -run 'TestBudgetTableSum|TestEngineeringTotalCoreMatchesLocBudget|TestParityPhaseColumn' -count=1
+# PASS; Sigma core f3c0af68=46.703, 7a196a28 setelah #345=46.733 = docs/ENGINEERING.md
+DAMNBOT_PHASE_ACCEPTANCE=1 go test ./internal/testutil/phase -run TestEdgeCaseCatalogSync -count=1
+# PASS (PHASE=F3; 0 id F1/F2 pending)
+make loc
+# f3c0af68: rc=0, 37 LOC ok, 0 GAGAL, TOTAL 51358/190000
+# 7a196a28 setelah #345: rc=0, 37 LOC ok, 0 GAGAL, TOTAL 51433/190000
+cd bench && go test -count=1 -run TestFixedOverhead ./budget
+# PASS (all-modules 5000, f1-core 4000)
+```
+
+**Tidak dijalankan pada snapshot ini:** `make phase-acceptance` penuh
+(run penuh terakhir yang hijau: PR #328, `b46253e2`); `TestRecallP95` @1M;
+race/fuzz/coverage/bench-parity; chaos 30 m lokal (memakai nightly);
+lint lokal (tidak ada binari; status CI tidak dipakai sebagai bukti);
+Windows lokal (memakai job CI PR #344 pada tree `f3c0af68`).
+`BenchmarkAppend` pernah diukur lokal (p99 25,23 ms di bawah
+`GOMAXPROCS=2`/`nice 19`), tetapi benchmark itu **tidak berasersi** dan
+mesin ini bukan runner referensi Q14, jadi angka itu bukan lulus/gagal.
