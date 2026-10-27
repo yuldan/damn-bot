@@ -4567,9 +4567,9 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Anggaran.** Tidak ada perubahan `loc.budget`: `internal/update` memakai baris `MODULE update 1500` yang sudah ada (terukur 437), `internal/config` tetap 1200 (terukur 1200/1200 setelah config CLI #360, tidak menaikkan plafon), TOTAL 190.000 tetap. Tidak ada dependency baru: `deps.allow`/`go.mod` tidak berubah (28/28 tetap) dan semver diimplementasikan di paket (tanpa `x/mod`). Ukuran biner `make size-check` = 18.882.722 B (full/minimal, pohon hasil rebase dengan TUI/config/clipboard).
 
 **Konsekuensi.** (+) Feed/manifest/kanal/trust anchor menjadi satu kontrak yang bisa diverifikasi ulang; tidak ada jalur memasang artefak yang tidak ada di manifest bertanda tangan. (+) `--check` read-only dan exit code-nya dapat dipakai `serve`/CI. (−) `auto_install` disimpan sebagai data tetapi belum punya konsumen sampai `serve`/F4; `update` tanpa `--check` sementara exit 2 sampai D2b; feed override HTTP hanya untuk loopback (mirror internal harus HTTPS).
-## ADR-216 — `doctor` dan `usage` F3: cek read-only ber-ID, kontrak exit GAP-OPS-06, dan laporan ledger
+## ADR-217 — `doctor` dan `usage` F3: cek read-only ber-ID, kontrak exit GAP-OPS-06, dan laporan ledger
 
-**Status:** Accepted 2026-10-27 (F3, slice B2). Menerapkan SPEC §10 `doctor`/`usage`, SELF-HEALING §8, dan GAP-OPS-06; ADR-215 tetap milik jalur rilis.
+**Status:** Accepted 2026-10-27 (F3, slice B2). Menerapkan SPEC §10 `doctor`/`usage`, SELF-HEALING §8, dan GAP-OPS-06.
 
 **Konteks.** SPEC §10 menormatifkan `doctor` (`--fix [--yes]`, `--quick`, `--verify`, `--json`, `--network`, subperintah `health|gc|pprof|bundle|licenses|tools|index|grammars|voice|gateway`) dan `usage` (`--by`, `--format`, `--cache`, `budget`, `insights`). GAP-OPS-06 menormatifkan kontrak exit (0 ok, 1 error, 2 warning, 3 fixed) serta ID cek stabil `DOC-NNN` + skema `damnbot.doctor/v1`. `usage_ledger` sudah ada (§11.2), tetapi `internal/ctxdb` tidak mengekspor pembacaan baris umum dan berada tepat di plafon (5.919/5.919); `internal/secret` tidak mengekspor probe keyring. F3 belum punya verifier hash-chain/blob, `budget set`/`insights`, atau join cache.
 
