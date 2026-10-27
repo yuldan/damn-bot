@@ -9,17 +9,6 @@ import (
 	"testing"
 )
 
-func writeClaude(t *testing.T, root, rel, content string) {
-	t.Helper()
-	path := filepath.Join(root, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func claudeImporter(t *testing.T, sink *memSink) *ClaudeImporter {
 	t.Helper()
 	imp, err := NewClaude(&ClaudeDeps{
@@ -73,13 +62,13 @@ func TestImportClaudeWritesMemoryAndSkills(t *testing.T) {
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	writeClaude(t, root, "settings.json", `{
+	writeAgentFile(t, root, "settings.json", `{
   "permissions": {"allow": ["Bash(npm run test:*)", "Bash"], "deny": ["Bash(rm:*)"]},
   "mcpServers": {"files": {"command": "npx"}}
 }`)
-	writeClaude(t, root, "CLAUDE.md", "# Project\nIntro.\n## Rules\n- Use tabs\n")
-	writeClaude(t, root, "skills/deploy/SKILL.md", "---\nname: deploy\ndescription: Deploy.\n---\nbody\n")
-	writeClaude(t, root, "commands/foo.md", "do things\n")
+	writeAgentFile(t, root, "CLAUDE.md", "# Project\nIntro.\n## Rules\n- Use tabs\n")
+	writeAgentFile(t, root, "skills/deploy/SKILL.md", "---\nname: deploy\ndescription: Deploy.\n---\nbody\n")
+	writeAgentFile(t, root, "commands/foo.md", "do things\n")
 	sink := newMemSink()
 	report, err := claudeImporter(t, sink).Import(context.Background(), root, ClaudeOptions{})
 	if err != nil {
@@ -130,8 +119,8 @@ func assertCategorySkipped(t *testing.T, report *Report, category string, otherI
 func TestImportClaudeBrokenSettingsIsAtomic(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	writeClaude(t, root, "settings.json", "{not json")
-	writeClaude(t, root, "CLAUDE.md", "- would import\n")
+	writeAgentFile(t, root, "settings.json", "{not json")
+	writeAgentFile(t, root, "CLAUDE.md", "- would import\n")
 	sink := newMemSink()
 	if _, err := claudeImporter(t, sink).Import(context.Background(), root, ClaudeOptions{}); !errors.Is(err, ErrSyntax) {
 		t.Fatalf("err = %v, want ErrSyntax", err)
@@ -157,7 +146,7 @@ func assertMemoryCapSkipped(t *testing.T, report *Report) {
 func TestImportClaudeOversizedMemoryIsSkipped(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	writeClaude(t, root, "CLAUDE.md", "- "+strings.Repeat("x", maxMemoryChars+1)+"\n- short\n")
+	writeAgentFile(t, root, "CLAUDE.md", "- "+strings.Repeat("x", maxMemoryChars+1)+"\n- short\n")
 	sink := newMemSink()
 	report, err := claudeImporter(t, sink).Import(context.Background(), root, ClaudeOptions{})
 	if err != nil {

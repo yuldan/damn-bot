@@ -2,8 +2,32 @@ package importer
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func writeAgentFile(t *testing.T, root, rel, content string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func agentRedact(s string) string {
+	fields := strings.Fields(s)
+	for i, field := range fields {
+		if strings.HasPrefix(field, "SECRET") {
+			fields[i] = "***"
+		}
+	}
+	return strings.Join(fields, " ")
+}
 
 // agentUnderTest lets one suite cover the dry-run and --only contract shared by
 // the agent importers without duplicating their typed option literals.
@@ -42,6 +66,21 @@ func (a codexUnderTest) Skip() (Report, error) {
 		CodexOptions{Skip: map[string]string{"skills": "not selected (--only)"}})
 }
 
+type openclawUnderTest struct {
+	t    *testing.T
+	root string
+	sink *memSink
+}
+
+func (a openclawUnderTest) Dry() (Report, error) {
+	return openClawImporter(a.t, a.sink).Import(context.Background(), a.root, OpenClawOptions{DryRun: true})
+}
+
+func (a openclawUnderTest) Skip() (Report, error) {
+	return openClawImporter(a.t, a.sink).Import(context.Background(), a.root,
+		OpenClawOptions{Skip: map[string]string{"skills": "not selected (--only)"}})
+}
+
 func assertDryRunMemorySkills(t *testing.T, sink *memSink, report *Report, err error) {
 	t.Helper()
 	if err != nil {
@@ -64,18 +103,28 @@ func TestAgentDryRunAndSkip(t *testing.T) {
 		{
 			name: "claude-code",
 			setup: func(t *testing.T, root string) {
-				writeClaude(t, root, "CLAUDE.md", "# P\n- one\n- two\n")
-				writeClaude(t, root, "skills/x/SKILL.md", "---\nname: x\ndescription: X.\n---\nbody\n")
+				writeAgentFile(t, root, "CLAUDE.md", "# P\n- one\n- two\n")
+				writeAgentFile(t, root, "skills/x/SKILL.md", "---\nname: x\ndescription: X.\n---\nbody\n")
 			},
 			agent:     func(t *testing.T, root string, sink *memSink) agentUnderTest { return claudeUnderTest{t, root, sink} },
 			skipCat:   "memory",
 			otherImpr: 1,
 		},
 		{
+			name: "openclaw",
+			setup: func(t *testing.T, root string) {
+				writeAgentFile(t, root, "workspace/MEMORY.md", "- one\n- two\n")
+				writeAgentFile(t, root, "workspace/skills/x/SKILL.md", "---\nname: x\ndescription: X.\n---\nbody\n")
+			},
+			agent:     func(t *testing.T, root string, sink *memSink) agentUnderTest { return openclawUnderTest{t, root, sink} },
+			skipCat:   "skills",
+			otherImpr: 2,
+		},
+		{
 			name: "codex",
 			setup: func(t *testing.T, root string) {
-				writeCodex(t, root, "AGENTS.md", "- one\n- two\n")
-				writeCodex(t, root, "skills/x/SKILL.md", "---\nname: x\ndescription: X.\n---\nbody\n")
+				writeAgentFile(t, root, "AGENTS.md", "- one\n- two\n")
+				writeAgentFile(t, root, "skills/x/SKILL.md", "---\nname: x\ndescription: X.\n---\nbody\n")
 			},
 			agent:     func(t *testing.T, root string, sink *memSink) agentUnderTest { return codexUnderTest{t, root, sink} },
 			skipCat:   "skills",

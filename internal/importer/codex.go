@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 )
@@ -115,7 +114,7 @@ func (c *CodexImporter) collectMCP(root string, plan *codexPlan) error {
 
 func (c *CodexImporter) collectMemory(root string, plan *codexPlan) error {
 	seen := map[string]bool{}
-	if err := c.addMemoryFile(plan, filepath.Join(root, "AGENTS.md"), "AGENTS.md", seen); err != nil {
+	if _, err := addRedactedMemoryFile(c.deps.ReadFile, c.deps.Redact, filepath.Join(root, "AGENTS.md"), "AGENTS.md", "codex-", &plan.report, &plan.memories, seen); err != nil {
 		return err
 	}
 	dir := filepath.Join(root, "memories")
@@ -131,7 +130,8 @@ func (c *CodexImporter) collectMemory(root string, plan *codexPlan) error {
 			return nil
 		}
 		found = true
-		return c.addMemoryFile(plan, path, "memories/"+d.Name(), seen)
+		_, aerr := addRedactedMemoryFile(c.deps.ReadFile, c.deps.Redact, path, "memories/"+d.Name(), "codex-", &plan.report, &plan.memories, seen)
+		return aerr
 	})
 	if err != nil {
 		return err
@@ -142,70 +142,9 @@ func (c *CodexImporter) collectMemory(root string, plan *codexPlan) error {
 	return nil
 }
 
-func (c *CodexImporter) addMemoryFile(plan *codexPlan, path, label string, seen map[string]bool) error {
-	raw, err := readOptionalFile(c.deps.ReadFile, path)
-	if err != nil {
-		return err
-	}
-	if raw == nil {
-		plan.report.skip(SourceMemory, label, "file not found")
-		return nil
-	}
-	if !utf8.Valid(raw) {
-		return syntaxError(path, errors.New("file is not valid UTF-8"))
-	}
-	for index, entry := range extractMarkdownEntries(string(raw)) {
-		key := strings.ToLower(strings.Join(strings.Fields(c.deps.Redact(entry)), " "))
-		if seen[key] {
-			plan.report.skip(SourceMemory, fmt.Sprintf("%s[%d]", label, index+1), "duplicate redacted content")
-			continue
-		}
-		if n := utf8.RuneCountInString(entry); n > maxMemoryChars {
-			plan.report.skip(SourceMemory, fmt.Sprintf("%s[%d]", label, index+1),
-				fmt.Sprintf("%d chars exceeds the %d-char memory cap", n, maxMemoryChars))
-			continue
-		}
-		seen[key] = true
-		plan.memories = append(plan.memories, MemoryEntry{Store: "codex-" + label, Text: entry})
-		plan.report.item(SourceMemory)
-	}
-	return nil
-}
-
 func (c *CodexImporter) collectSkills(root string, plan *codexPlan) error {
-	dir := filepath.Join(root, "skills")
-	found := false
-	err := c.deps.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			if errors.Is(walkErr, fs.ErrNotExist) {
-				return nil
-			}
-			return walkErr
-		}
-		if d.Type()&fs.ModeSymlink != 0 && d.Name() != "SKILL.md" {
-			plan.report.skip(SourceSkills, filepath.ToSlash(path), "symlink is not followed")
-			return nil
-		}
-		if d.IsDir() || d.Name() != "SKILL.md" {
-			return nil
-		}
-		found = true
-		skill, reason, err := readSkillAt(c.deps.ReadFile, root, path)
-		if err != nil {
-			return err
-		}
-		if reason != "" {
-			key := skill.Name
-			if key == "" {
-				key = skill.Origin
-			}
-			plan.report.skip(SourceSkills, key, reason)
-			return nil
-		}
-		plan.skills = append(plan.skills, skill)
-		plan.report.item(SourceSkills)
-		return nil
-	})
+	found, err := collectSkillTree(c.deps.ReadFile, c.deps.WalkDir, root, filepath.Join(root, "skills"), "",
+		&plan.report, SourceSkills, &plan.skills)
 	if err != nil {
 		return err
 	}
