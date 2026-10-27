@@ -110,6 +110,7 @@ func TestSurfaceStatus(t *testing.T) {
 		"usage":    surfaceAvailable,
 		"config":   surfaceAvailable,
 		"update":   surfaceAvailable,
+		"setup":    surfaceAvailable,
 	}
 	for name, want := range cases {
 		e, ok := lookupSurface(name)
@@ -129,7 +130,7 @@ func TestSurfaceStatus(t *testing.T) {
 // be a stub; it exits 2 through the root usage.
 func TestPendingCommandsAreNotCallable(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"serve", "service", "setup", "mcp", "gateway", "cron", "kanban", "eval"} {
+	for _, name := range []string{"serve", "service", "mcp", "gateway", "cron", "kanban", "eval"} {
 		if code, _, _ := runArgs(t, name); code != 2 {
 			t.Errorf("%s: exit = %d, want 2 (not callable yet)", name, code)
 		}
