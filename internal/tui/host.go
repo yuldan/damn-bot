@@ -10,6 +10,7 @@ import (
 // loop's clock so that renderedAt and Update.At come from one timeline.
 type Clock interface {
 	Now() time.Time
+	After(d time.Duration) <-chan time.Time // approval preview timeout
 }
 
 // Runner is the loop seam injected by cmd/damnbot/tui_wire.go (T1). The
@@ -41,6 +42,12 @@ type Sessions interface {
 	Fork(ctx context.Context, sessionID string) (SessionChange, error)
 	Rewind(ctx context.Context, sessionID, at string) (SessionChange, error)
 	Undo(ctx context.Context, sessionID, action string) (string, error)
+	List(ctx context.Context) ([]SessionInfo, error)
+}
+
+// SessionInfo is one row of the sessions view (ctxdb metadata, newest first).
+type SessionInfo struct {
+	ID, Cwd, Model string
 }
 
 // Clipboard writes text to the user's clipboard (may be unavailable).

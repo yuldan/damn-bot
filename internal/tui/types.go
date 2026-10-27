@@ -108,6 +108,7 @@ type Input struct {
 // Config is the display-relevant configuration snapshot. It carries no
 // secrets: the host redacts before it reaches the TUI.
 type Config struct {
-	Model string
-	Theme string // [ui] theme (SPEC §12); empty resolves to tern-dark
+	Model           string
+	Theme           string        // [ui] theme (SPEC §12); empty resolves to tern-dark
+	ApprovalTimeout time.Duration // approval.preview_timeout_s (§18.2); 0 = default
 }

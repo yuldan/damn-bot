@@ -104,6 +104,30 @@ func (a *tuiActions) Undo(ctx context.Context, sessionID, target string) (string
 	return detail, nil
 }
 
+// List returns the newest visible sessions with the metadata the view shows.
+func (a *tuiActions) List(ctx context.Context) ([]tui.SessionInfo, error) {
+	db, err := a.db(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ids, err := db.ListSessions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("sessions: %w", err)
+	}
+	if len(ids) > 50 {
+		ids = ids[:50]
+	}
+	out := make([]tui.SessionInfo, 0, len(ids))
+	for _, id := range ids {
+		cwd, model, xerr := sessionMeta(ctx, db, id)
+		if xerr != nil {
+			continue
+		}
+		out = append(out, tui.SessionInfo{ID: id, Cwd: cwd, Model: model})
+	}
+	return out, nil
+}
+
 // clipboardAdapter is the production tui.Clipboard; a missing platform utility
 // is an error the TUI shows verbatim.
 type clipboardAdapter struct{}

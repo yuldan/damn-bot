@@ -22,7 +22,9 @@ import (
 // runTUI is the bare `damnbot` surface: config and the session id are the only
 // work before the first frame.
 func runTUI([]string) int {
-	o := &runOptions{sessionOrigin: "tui", approvalOrigin: loop.OriginTUI}
+	o := &runOptions{sessionOrigin: "tui", approvalOrigin: loop.OriginTUI, approval: "ask"}
+	bridge := &approvalBridge{}
+	o.approver, o.toolApprover = loopApprover{bridge}, toolsApprover{bridge}
 	cfg, dataDir, configDir, home, err := loadRunEnv(o)
 	if err != nil {
 		return tuiFail(err)
@@ -51,7 +53,9 @@ func runTUI([]string) int {
 		Sessions: actions, Clipboard: clipboardAdapter{},
 	})
 	if err == nil {
-		_, err = tea.NewProgram(app).Run()
+		prog := tea.NewProgram(app)
+		bridge.setSender(prog.Send)
+		_, err = prog.Run()
 	}
 	if cerr := r.Close(); cerr != nil {
 		err = errors.Join(err, fmt.Errorf("close: %w", cerr))
@@ -97,8 +101,13 @@ func newTUIRunner(d *tuiDeps) *tuiRunner {
 
 func (r *tuiRunner) Now() time.Time { return r.deps.now() }
 
+func (r *tuiRunner) After(d time.Duration) <-chan time.Time { return time.After(d) }
+
 func (r *tuiRunner) Snapshot() tui.Config {
-	return tui.Config{Model: r.deps.modelRef, Theme: r.deps.cfg.UI.Theme}
+	return tui.Config{
+		Model: r.deps.modelRef, Theme: r.deps.cfg.UI.Theme,
+		ApprovalTimeout: time.Duration(r.deps.cfg.Approval.PreviewTimeoutS) * time.Second,
+	}
 }
 
 func (r *tuiRunner) Prompt(ctx context.Context, sid string, in tui.Input) (<-chan tui.Update, error) {

@@ -27,12 +27,37 @@ func TestMain(m *testing.M) {
 
 // fakeClock is the injected clock of every test: no test reads the wall clock.
 type fakeClock struct {
-	mu  sync.Mutex
-	now time.Time
+	mu     sync.Mutex
+	now    time.Time
+	timers []fakeTimer
+	after  chan struct{}
+}
+
+type fakeTimer struct {
+	at time.Time
+	ch chan time.Time
 }
 
 func newFakeClock() *fakeClock {
-	return &fakeClock{now: time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)}
+	return &fakeClock{now: time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC), after: make(chan struct{}, 16)}
+}
+
+// After registers a timer fired by Advance; after signals registration so a
+// test can advance deterministically instead of sleeping.
+func (c *fakeClock) After(d time.Duration) <-chan time.Time {
+	ch := make(chan time.Time, 1)
+	c.mu.Lock()
+	if d <= 0 {
+		ch <- c.now
+	} else {
+		c.timers = append(c.timers, fakeTimer{at: c.now.Add(d), ch: ch})
+	}
+	c.mu.Unlock()
+	select {
+	case c.after <- struct{}{}:
+	default:
+	}
+	return ch
 }
 
 // Now implements Clock.
@@ -42,11 +67,20 @@ func (c *fakeClock) Now() time.Time {
 	return c.now
 }
 
-// Advance moves the fake clock forward.
+// Advance moves the fake clock forward and fires due timers.
 func (c *fakeClock) Advance(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.now = c.now.Add(d)
+	keep := c.timers[:0]
+	for _, tm := range c.timers {
+		if tm.at.After(c.now) {
+			keep = append(keep, tm)
+			continue
+		}
+		tm.ch <- c.now
+	}
+	c.timers = keep
 }
 
 // fakeRunner counts turn starts; T0 must never start one before the first frame.
@@ -78,11 +112,13 @@ func (c fakeConfig) Snapshot() Config { return c.cfg }
 // whatever the test configured. Real fork/undo behaviour is covered in
 // cmd/damnbot against a tempdir ctxdb/journal store.
 type fakeSessions struct {
-	mu     sync.Mutex
-	calls  []string
-	change SessionChange
-	err    error
-	undo   string
+	mu      sync.Mutex
+	calls   []string
+	change  SessionChange
+	err     error
+	undo    string
+	items   []SessionInfo
+	listErr error
 }
 
 func (s *fakeSessions) record(call string) {
@@ -116,6 +152,12 @@ func (s *fakeSessions) Undo(_ context.Context, sid, target string) (string, erro
 		return "a1 undone", s.err
 	}
 	return s.undo, s.err
+}
+
+// List implements Sessions.
+func (s *fakeSessions) List(context.Context) ([]SessionInfo, error) {
+	s.record("list")
+	return s.items, s.listErr
 }
 
 // lastCall returns the newest recorded call.
@@ -276,22 +318,26 @@ func TestRenderStampFollowsUpdateOrder(t *testing.T) {
 	}
 }
 
-// TestTabCyclesRegistry: the explicit registry drives screen switching, and one
-// screen wraps onto itself instead of clearing the route.
+// TestTabCyclesRegistry: the explicit registry drives screen switching and
+// wraps back to the first screen.
 func TestTabCyclesRegistry(t *testing.T) {
 	t.Parallel()
 	m, _, _ := newTestApp(t)
-	if len(routes()) == 0 {
+	rs := routes()
+	if len(rs) == 0 {
 		t.Fatalf("empty screen registry")
 	}
-	for _, r := range routes() {
+	seen := map[string]bool{}
+	for range rs {
+		seen[m.Route()] = true
+		m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	if len(seen) != len(rs) || m.Route() != rs[0].name {
+		t.Fatalf("tab cycle visited %v and ended at %q", seen, m.Route())
+	}
+	for _, r := range rs {
 		if r.name == "" || r.new() == nil {
 			t.Fatalf("registry row without name or constructor: %+v", r)
 		}
-	}
-	before := m.Route()
-	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
-	if got := m.Route(); got != before {
-		t.Fatalf("route = %q after tab on a one-screen registry, want %q", got, before)
 	}
 }

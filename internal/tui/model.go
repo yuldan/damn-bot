@@ -84,6 +84,12 @@ type Model struct {
 	navMode   bool
 	navIndex  int
 	collapsed map[int]bool
+	// approval is the pending loop decision; sessions is the sessions panel.
+	approvalSeq  int64
+	approval     *pendingApproval
+	sessionItems []SessionInfo
+	sessionSel   int
+	sessionErr   error
 	// busy marks a turn between submit and the Runner closing its stream.
 	input  textinput.Model
 	draft  []string // completed lines of the current multi-line prompt
@@ -113,6 +119,9 @@ func (m *Model) Init() tea.Cmd { return nil }
 
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if model, cmd, ok := m.handleResult(msg); ok {
+		return model, cmd
+	}
 	switch msg := msg.(type) {
 	case StreamMsg:
 		m.apply(&msg.Update)
@@ -133,16 +142,36 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.appendBlock(&Block{Kind: BlockNotice, Text: "error: " + msg.err.Error(), At: m.host.Clock.Now()})
 		m.finishTurn()
 		return m, nil
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
+		return m, nil
+	case tea.KeyPressMsg:
+		cmd := m.handleKey(msg)
+		return m, cmd
+	default:
+		return m, nil
+	}
+}
+
+// handleResult folds the async command results; ok=false passes the message on.
+func (m *Model) handleResult(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	switch msg := msg.(type) {
+	case ApprovalMsg:
+		cmd := m.startApproval(&msg)
+		return m, cmd, true
+	case approvalTimeoutMsg:
+		m.timeoutApproval(msg.id)
+	case approvalDoneMsg:
 	case sessionDoneMsg:
 		m.applySessionDone(msg)
-		return m, nil
 	case copyDoneMsg:
 		if msg.err != nil {
 			m.appendNotice("clipboard unavailable: " + msg.err.Error())
 		} else {
 			m.appendNotice(fmt.Sprintf("copied %d chars to the clipboard", msg.chars))
 		}
-		return m, nil
+	case sessionsLoadedMsg:
+		m.applySessions(msg)
 	case undoDoneMsg:
 		detail := strings.TrimSpace(msg.detail)
 		switch {
@@ -153,16 +182,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			m.appendNotice(detail)
 		}
-		return m, nil
-	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
-		return m, nil
-	case tea.KeyPressMsg:
-		cmd := m.handleKey(msg)
-		return m, cmd
 	default:
-		return m, nil
+		return nil, nil, false
 	}
+	return m, nil, true
 }
 
 func (m *Model) finishTurn() {
@@ -212,8 +235,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.abortTurn()
 		return tea.Quit
 	}
+	if m.approval != nil {
+		return m.handleApprovalKey(msg)
+	}
 	if m.navMode {
 		return m.handleNavKey(msg)
+	}
+	if m.route == routeSessions && m.handleSessionsKey(msg) {
+		return nil
 	}
 	switch {
 	case key.Matches(msg, m.keys.Nav):
@@ -234,8 +263,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		m.input.SetValue("")
 		return nil
 	case key.Matches(msg, m.keys.NextScreen):
-		m.nextRoute()
-		return nil
+		return m.nextRoute()
 	case key.Matches(msg, m.keys.ScrollUp):
 		m.scrollBy(true)
 		return nil
@@ -308,7 +336,11 @@ func (m *Model) submit() tea.Cmd {
 // height invariant for every screen, including panels that render freely.
 func (m *Model) View() tea.View {
 	m.stampFrame()
-	parts := []string{m.header(), m.clip(m.panel.body(m)), m.statusBar(), m.inputArea(), m.footer()}
+	body := m.panel.body(m)
+	if m.approval != nil {
+		body = m.approvalBody()
+	}
+	parts := []string{m.header(), m.clip(body), m.statusBar(), m.inputArea(), m.footer()}
 	return tea.NewView(strings.Join(parts, "\n"))
 }
 
@@ -470,16 +502,20 @@ func (m *Model) settleUsage() {
 	}
 }
 
-// nextRoute advances the explicit registry by one screen.
-func (m *Model) nextRoute() {
+// nextRoute advances the explicit registry by one screen and loads the panel's
+// data when it has an async source.
+func (m *Model) nextRoute() tea.Cmd {
 	rs := routes()
 	for i := range rs {
 		if rs[i].name == m.route {
 			m.setRoute(rs[(i+1)%len(rs)])
-			return
+			break
 		}
 	}
-	m.setRoute(rs[0])
+	if m.route == routeSessions {
+		return m.loadSessions()
+	}
+	return nil
 }
 
 // setRoute installs the panel built by the registry constructor.
@@ -499,7 +535,14 @@ func (m *Model) header() string {
 // not available yet is not advertised.
 func (m *Model) footer() string {
 	var parts []string
-	if m.navMode {
+	switch {
+	case m.approval != nil:
+		parts = []string{m.keys.Once.Help().Key + " once"}
+		if !m.approval.req.NoSession {
+			parts = append(parts, m.keys.Session.Help().Key+" session")
+		}
+		parts = append(parts, m.keys.Edit.Help().Key+" edit", m.keys.No.Help().Key+" deny", m.keys.Cancel.Help().Key+" deny")
+	case m.navMode:
 		parts = []string{
 			m.keys.NavUp.Help().Key + "/" + m.keys.NavDown.Help().Key + " move",
 			m.keys.NavFold.Help().Key + " fold",
@@ -508,7 +551,7 @@ func (m *Model) footer() string {
 			m.keys.NavUndo.Help().Key + " undo",
 			m.keys.Nav.Help().Key + " close",
 		}
-	} else {
+	default:
 		parts = []string{
 			m.keys.Send.Help().Key + " send",
 			m.keys.Newline.Help().Key + " newline",

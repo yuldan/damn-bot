@@ -20,13 +20,12 @@ type previewAuditor struct {
 	reqs   []ApprovalRequest
 }
 
-//nolint:gocritic // the Approver interface fixes the by-value request
-func (a *previewAuditor) Approve(_ context.Context, req ApprovalRequest) (Approval, error) {
+func (a *previewAuditor) Approve(_ context.Context, req *ApprovalRequest) (Approval, error) {
 	if a.before != nil {
-		a.before(req)
+		a.before(*req)
 	}
 	a.mu.Lock()
-	a.reqs = append(a.reqs, req)
+	a.reqs = append(a.reqs, *req)
 	a.mu.Unlock()
 	return ApprovalDeny, nil
 }

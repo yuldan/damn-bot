@@ -7,8 +7,12 @@ import (
 	"charm.land/bubbles/v2/textinput"
 )
 
-// routeChat is the default screen name.
-const routeChat = "chat"
+// Screen names; the registry below is the only route table (E-11).
+const (
+	routeChat     = "chat"
+	routePlan     = "plan"
+	routeSessions = "sessions"
+)
 
 // routeEntry is one row of the explicit screen registry (E-11). A screen is
 // reachable only through a constructor listed here: there is no func init()
@@ -23,6 +27,8 @@ type routeEntry struct {
 func routes() []routeEntry {
 	return []routeEntry{
 		{name: routeChat, new: newChatPanel},
+		{name: routePlan, new: newPlanPanel},
+		{name: routeSessions, new: newSessionsPanel},
 	}
 }
 
@@ -43,6 +49,10 @@ type keyMap struct {
 	NavBlob    key.Binding
 	NavFork    key.Binding
 	NavUndo    key.Binding
+	Once       key.Binding
+	Session    key.Binding
+	Edit       key.Binding
+	No         key.Binding
 }
 
 // newKeyMap builds the SPEC §13.1 bindings.
@@ -63,6 +73,10 @@ func newKeyMap() keyMap {
 		NavBlob:    key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "blob")),
 		NavFork:    key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "fork")),
 		NavUndo:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "undo")),
+		Once:       key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "once")),
+		Session:    key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "session")),
+		Edit:       key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
+		No:         key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "deny")),
 	}
 }
 
