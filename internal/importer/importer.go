@@ -265,8 +265,8 @@ func (i *Importer) Import(ctx context.Context, root string, opts Options) (Repor
 	return i.apply(ctx, plan, opts)
 }
 
-func (i *Importer) readOptional(path string) ([]byte, error) {
-	data, err := i.deps.ReadFile(path)
+func readOptionalFile(read func(string) ([]byte, error), path string) ([]byte, error) {
+	data, err := read(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -274,4 +274,8 @@ func (i *Importer) readOptional(path string) ([]byte, error) {
 		return nil, fmt.Errorf("importer: read %s: %w", path, err)
 	}
 	return data, nil
+}
+
+func (i *Importer) readOptional(path string) ([]byte, error) {
+	return readOptionalFile(i.deps.ReadFile, path)
 }
