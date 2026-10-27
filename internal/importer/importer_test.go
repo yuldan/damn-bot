@@ -15,6 +15,7 @@ type memSink struct {
 	memories map[string]MemoryEntry
 	mcp      map[string]MCPServer
 	cron     map[string]CronJob
+	sessions map[string]Session
 	calls    int
 }
 
@@ -25,6 +26,7 @@ func newMemSink() *memSink {
 		memories: map[string]MemoryEntry{},
 		mcp:      map[string]MCPServer{},
 		cron:     map[string]CronJob{},
+		sessions: map[string]Session{},
 	}
 }
 
@@ -75,6 +77,15 @@ func (m *memSink) PutCron(_ context.Context, j CronJob) (bool, error) { //nolint
 	return true, nil
 }
 
+func (m *memSink) PutSession(_ context.Context, s *Session) (bool, error) {
+	m.calls++
+	if old, ok := m.sessions[s.SourceID]; ok && reflect.DeepEqual(old, *s) {
+		return false, nil
+	}
+	m.sessions[s.SourceID] = *s
+	return true, nil
+}
+
 type memSecrets struct {
 	values map[string]string
 	calls  int
@@ -89,14 +100,26 @@ func (m *memSecrets) Put(_ context.Context, name, value string) (bool, error) {
 	return true, nil
 }
 
+type memSessionSource struct {
+	sessions []Session
+	calls    int
+}
+
+func (m *memSessionSource) ReadSessions(context.Context, string) ([]Session, error) {
+	m.calls++
+	return m.sessions, nil
+}
+
 func testImporter(t *testing.T) (*Importer, *memSink, *memSecrets) {
 	t.Helper()
 	sink, secrets := newMemSink(), &memSecrets{values: map[string]string{}}
-	imp, err := New(Deps{
-		ReadFile: os.ReadFile,
-		WalkDir:  filepath.WalkDir,
-		Sink:     sink,
-		Secrets:  secrets,
+	imp, err := New(&Deps{
+		ReadFile:    os.ReadFile,
+		WalkDir:     filepath.WalkDir,
+		Sink:        sink,
+		SessionSink: sink,
+		Secrets:     secrets,
+		Sessions:    &memSessionSource{},
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -116,8 +139,8 @@ func importFixture(t *testing.T, name string) (Report, *memSink, *memSecrets) {
 
 func TestNewRejectsMissingDeps(t *testing.T) {
 	t.Parallel()
-	if _, err := New(Deps{}); !errors.Is(err, ErrDeps) {
-		t.Fatalf("New(Deps{}) = %v, want ErrDeps", err)
+	if _, err := New(&Deps{}); !errors.Is(err, ErrDeps) {
+		t.Fatalf("New(&Deps{}) = %v, want ErrDeps", err)
 	}
 }
 

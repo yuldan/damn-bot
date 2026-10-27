@@ -4,17 +4,22 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/ctxdb/importstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/memstore"
 	"github.com/damnbot/damnbot/internal/importer"
 	"github.com/damnbot/damnbot/internal/memory"
@@ -56,7 +61,8 @@ func runImport(args []string, stdout, stderr io.Writer) (code int) {
 	sink := &hermesSink{noWrite: noWrite{"import: writer is not available"}, root: root, red: redact.New(redact.Options{})}
 	deps := importer.Deps{
 		ReadFile: root.ReadFile, WalkDir: filepath.WalkDir,
-		Sink: sink, Secrets: noWrite{"import: keychain writer is not available"},
+		Sink: sink, SessionSink: sink,
+		Secrets: noWrite{"import: keychain writer is not available"}, Sessions: hermesSessions{},
 	}
 	opts := importer.Options{Unsupported: unsupported, DryRun: o.dryRun}
 	if !o.dryRun {
@@ -66,7 +72,7 @@ func runImport(args []string, stdout, stderr io.Writer) (code int) {
 		}
 		sink.dataDir = dataDir
 	}
-	imp, err := importer.New(deps)
+	imp, err := importer.New(&deps)
 	if err != nil {
 		return importFail(stderr, err)
 	}
@@ -109,9 +115,9 @@ func parseImportOnly(value string, stderr io.Writer) (map[importer.Source]string
 	for name := range strings.SplitSeq(value, ",") {
 		name = strings.TrimSpace(name)
 		switch name {
-		case "skills", "memory":
+		case "skills", "memory", "sessions":
 			wanted[name] = true
-		case "config", "secrets", "mcp", "cron", "sessions":
+		case "config", "secrets", "mcp", "cron":
 			say(stderr, "import: --only %s is not supported in F3: no writer for that category (SPEC §9.15); nothing was written\n", name)
 			return nil, false
 		default:
@@ -119,7 +125,7 @@ func parseImportOnly(value string, stderr io.Writer) (map[importer.Source]string
 			return nil, false
 		}
 	}
-	for _, name := range []importer.Source{importer.SourceSkills, importer.SourceMemory} {
+	for _, name := range []importer.Source{importer.SourceSkills, importer.SourceMemory, importer.SourceSessions} {
 		if !wanted[string(name)] {
 			out[name] = "not selected (--only); nothing written"
 		}
@@ -127,8 +133,6 @@ func parseImportOnly(value string, stderr io.Writer) (map[importer.Source]string
 	return out, true
 }
 
-// resolveHermesRoot validates --from; a missing or non-directory source is an
-// error, not an empty import.
 func resolveHermesRoot(from string) (hermesRoot, error) {
 	if from == "" {
 		home, err := os.UserHomeDir()
@@ -155,8 +159,6 @@ func resolveHermesRoot(from string) (hermesRoot, error) {
 	return hermesRoot{path: resolved}, nil
 }
 
-// hermesRoot confines every read to the resolved tree: a link out of it is
-// rejected before it is read, and os.Root is the second half of that.
 type hermesRoot struct{ path string }
 
 func (r hermesRoot) ReadFile(path string) (data []byte, err error) {
@@ -175,7 +177,65 @@ func (r hermesRoot) ReadFile(path string) (data []byte, err error) {
 	return data, nil
 }
 
-// hermesSink opens the database on the first item, so rejected input writes nothing.
+type hermesSessions struct{}
+
+func (hermesSessions) ReadSessions(ctx context.Context, path string) (sessions []importer.Session, err error) {
+	if _, statErr := os.Stat(path); errors.Is(statErr, fs.ErrNotExist) {
+		return nil, nil
+	} else if statErr != nil {
+		return nil, fmt.Errorf("state.db: %w", statErr)
+	}
+	dir, err := os.MkdirTemp("", "damnbot-hermes-state-")
+	if err != nil {
+		return nil, fmt.Errorf("state.db temp: %w", err)
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
+	if cerr := copyHermesState(path, dir); cerr != nil {
+		return nil, cerr
+	}
+	if sessions, err = importstore.ReadHermes(ctx, filepath.Join(dir, "state.db")); err != nil {
+		return nil, fmt.Errorf("read sessions: %w", err)
+	}
+	return sessions, nil
+}
+
+func copyHermesState(path, dir string) (err error) {
+	srcDir, srcName := filepath.Split(path)
+	dst, err := os.OpenRoot(dir)
+	if err != nil {
+		return fmt.Errorf("state.db temp: %w", err)
+	}
+	defer func() { err = errors.Join(err, dst.Close()) }()
+	for _, suffix := range []string{"", "-wal"} {
+		if cerr := copyRootFile(srcDir, srcName+suffix, dst, "state.db"+suffix); cerr != nil && !errors.Is(cerr, fs.ErrNotExist) {
+			return cerr
+		}
+	}
+	return nil
+}
+
+func copyRootFile(srcDir, srcName string, dst *os.Root, dstName string) (err error) {
+	src, err := os.OpenRoot(srcDir)
+	if err != nil {
+		return fmt.Errorf("open state.db: %w", err)
+	}
+	defer func() { err = errors.Join(err, src.Close()) }()
+	in, err := src.Open(srcName)
+	if err != nil {
+		return fmt.Errorf("open %s: %w", srcName, err)
+	}
+	defer func() { err = errors.Join(err, in.Close()) }()
+	out, err := dst.OpenFile(dstName, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", dstName, err)
+	}
+	defer func() { err = errors.Join(err, out.Close()) }()
+	if _, err := io.Copy(out, in); err != nil {
+		return fmt.Errorf("copy %s: %w", srcName, err)
+	}
+	return nil
+}
+
 type hermesSink struct {
 	noWrite
 	root    hermesRoot
@@ -184,6 +244,7 @@ type hermesSink struct {
 	db      *ctxdb.Store
 	skill   *skills.Service
 	mem     *memory.Service
+	runID   int64
 }
 
 func (s *hermesSink) ensure(ctx context.Context) error {
@@ -256,7 +317,113 @@ func (s *hermesSink) PutMemory(ctx context.Context, in importer.MemoryEntry) (bo
 	return true, nil
 }
 
-// existingSkill reports whether the name exists and whether its content matches.
+// PutSession writes one source session as an origin=import session plus
+// kind=imported events, keyed by the source id and its content hash in
+// imported_items. A re-import is a no-op; different content is a skip.
+func (s *hermesSink) PutSession(ctx context.Context, in *importer.Session) (bool, error) {
+	if err := s.ensure(ctx); err != nil {
+		return false, err
+	}
+	key := sessionImportKey(in)
+	existing, found, err := s.importedSession(ctx, in.SourceID)
+	if err != nil {
+		return false, err
+	}
+	if found {
+		if existing == key {
+			return false, nil
+		}
+		return false, &importer.SkipError{Reason: "source session already imported with different content; not overwritten"}
+	}
+	seed := sha256.Sum256([]byte("hermes|" + in.SourceID))
+	sid := "imp_" + hex.EncodeToString(seed[:10])
+	runID, err := s.createSession(ctx, in, sid, key, s.runID)
+	if err != nil {
+		return false, err
+	}
+	s.runID = runID
+	return true, nil
+}
+
+func (s *hermesSink) createSession(ctx context.Context, in *importer.Session, sid, key string, runID int64) (int64, error) {
+	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
+		if runID == 0 {
+			if rerr := tx.Get(`INSERT INTO import_runs(source, source_path, stats, created_at)
+				VALUES ('hermes', ?1, '{}', ?2) RETURNING id`,
+				[]any{s.root.path, time.Now().UnixMilli()}, &runID); rerr != nil {
+				return fmt.Errorf("import run: %w", rerr)
+			}
+		}
+		if _, cerr := tx.CreateSession(ctxdb.Session{ID: sid, Origin: "import", Cwd: in.Cwd, Model: in.Model}); cerr != nil {
+			return fmt.Errorf("create session %s: %w", sid, cerr)
+		}
+		now := time.Now().UnixMilli()
+		if in.Title != "" {
+			if _, terr := tx.Exec(`INSERT INTO session_labels(session_id, key, value, created_at)
+				VALUES (?1, 'title', ?2, ?3)`, sid, in.Title, now); terr != nil {
+				return fmt.Errorf("session title: %w", terr)
+			}
+		}
+		for _, m := range in.Messages {
+			payload := fmt.Sprintf(`{"source":"hermes","source_message_id":%d,"timestamp_ms":%d}`, m.SourceID, m.Timestamp)
+			if _, eerr := tx.AppendEvent(sid, &ctxdb.Event{
+				Kind: "imported", Role: m.Role, Content: m.Content, ToolName: m.ToolName, Payload: payload,
+			}); eerr != nil {
+				return fmt.Errorf("imported event: %w", eerr)
+			}
+		}
+		if _, ierr := tx.Exec(`INSERT INTO imported_items(source, source_key, target_kind, target_id, run_id)
+			VALUES ('hermes', ?1, 'session', ?2, ?3)`, key, sid, runID); ierr != nil {
+			return fmt.Errorf("imported item: %w", ierr)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("write session %s: %w", sid, err)
+	}
+	return runID, nil
+}
+
+func (s *hermesSink) importedSession(ctx context.Context, sourceID string) (string, bool, error) {
+	prefix := "session:" + sourceID + "#"
+	var key string
+	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
+		qerr := tx.Get(`SELECT source_key FROM imported_items
+			WHERE source = 'hermes' AND source_key LIKE ?1 ESCAPE '\' ORDER BY source_key LIMIT 1`,
+			[]any{escapeLike(prefix) + "%"}, &key)
+		if qerr != nil {
+			return fmt.Errorf("imported session: %w", qerr)
+		}
+		return nil
+	})
+	if errors.Is(err, ctxdb.ErrNotFound) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("lookup imported session: %w", err)
+	}
+	return key, true, nil
+}
+
+func sessionImportKey(in *importer.Session) string {
+	h := sha256.New()
+	write := func(parts ...string) {
+		for _, part := range parts {
+			h.Write([]byte(part))
+			h.Write([]byte{0})
+		}
+	}
+	write(in.Title, in.Model, in.Cwd)
+	for _, m := range in.Messages {
+		write(strconv.FormatInt(m.SourceID, 10), strconv.FormatInt(m.Timestamp, 10), m.Role, m.ToolName, m.Content)
+	}
+	return "session:" + in.SourceID + "#" + hex.EncodeToString(h.Sum(nil)[:16])
+}
+
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
 func existingSkill(ctx context.Context, db *ctxdb.Store, name, sha string) (exists, same bool, err error) {
 	var total, match int64
 	err = db.Write(ctx, func(tx *ctxdb.Tx) error {
@@ -288,7 +455,6 @@ func (s noWrite) Put(context.Context, string, string) (bool, error) {
 	return false, errors.New(s.reason)
 }
 
-// writeImportReport prints one line per category, skip and clamp, never a secret.
 func writeImportReport(w io.Writer, root string, rep *importer.Report, dryRun bool) int {
 	sessionsPrintf(w, "hermes: %s\n", cleanLine(root))
 	categories := []struct {
@@ -301,6 +467,7 @@ func writeImportReport(w io.Writer, root string, rep *importer.Report, dryRun bo
 		{"memory", &rep.Memory},
 		{"mcp", &rep.MCP},
 		{"cron", &rep.Cron},
+		{"sessions", &rep.Sessions},
 	}
 	for _, cat := range categories {
 		sessionsPrintf(w, "%s: %d items, %d imported, %d changed, %d skipped\n",
@@ -309,7 +476,6 @@ func writeImportReport(w io.Writer, root string, rep *importer.Report, dryRun bo
 			sessionsPrintf(w, "  skipped %s: %s\n", cleanLine(skip.Key), cleanLine(skip.Reason))
 		}
 	}
-	sessionsPrintf(w, "sessions: skipped: no sessions collector in F3 (SPEC §9.15)\n")
 	for _, clamp := range rep.Clamps {
 		sessionsPrintf(w, "clamped %s: %d -> %d\n", cleanLine(clamp.Key), clamp.From, clamp.To)
 	}

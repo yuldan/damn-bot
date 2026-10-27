@@ -19,7 +19,10 @@ func (s skipSkillSink) PutSkill(context.Context, *Skill) (bool, error) {
 func TestImportUnsupportedSourcesAreReported(t *testing.T) {
 	t.Parallel()
 	sink, vault := newMemSink(), &memSecrets{values: map[string]string{}}
-	imp, err := New(Deps{ReadFile: os.ReadFile, WalkDir: filepath.WalkDir, Sink: sink, Secrets: vault})
+	imp, err := New(&Deps{
+		ReadFile: os.ReadFile, WalkDir: filepath.WalkDir, Sink: sink, SessionSink: sink, Secrets: vault,
+		Sessions: &memSessionSource{},
+	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -73,9 +76,10 @@ func TestImportUnselectedSourceIsReported(t *testing.T) {
 func TestImportSkipErrorIsReported(t *testing.T) {
 	t.Parallel()
 	sink := skipSkillSink{newMemSink()}
-	imp, err := New(Deps{
+	imp, err := New(&Deps{
 		ReadFile: os.ReadFile, WalkDir: filepath.WalkDir,
-		Sink: sink, Secrets: &memSecrets{values: map[string]string{}},
+		Sink: sink, SessionSink: sink, Secrets: &memSecrets{values: map[string]string{}},
+		Sessions: &memSessionSource{},
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

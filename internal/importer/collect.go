@@ -21,10 +21,11 @@ type collected struct {
 	servers   []MCPServer
 	jobs      []CronJob
 	secrets   []secretPut
+	sessions  []Session
 	disabled  map[Source]string
 }
 
-func (i *Importer) collect(root string, opts Options) (*collected, error) {
+func (i *Importer) collect(ctx context.Context, root string, opts Options) (*collected, error) {
 	c := &collected{disabled: opts.Unsupported}
 	raw, err := i.readOptional(filepath.Join(root, "config.yaml"))
 	if err != nil {
@@ -55,6 +56,9 @@ func (i *Importer) collect(root string, opts Options) (*collected, error) {
 	if err := i.collectSecrets(root, c); err != nil {
 		return nil, err
 	}
+	if err := i.collectSessions(ctx, root, c); err != nil {
+		return nil, err
+	}
 	c.report.sortSkips()
 	return c, nil
 }
@@ -74,6 +78,7 @@ func (i *Importer) apply(ctx context.Context, c *collected, opts Options) (Repor
 	if opts.DryRun {
 		r.Config.Imported, r.Skills.Imported, r.Memory.Imported = len(c.entries), len(c.skills), len(c.memories)
 		r.MCP.Imported, r.Cron.Imported, r.Secrets.Imported = len(c.servers), len(c.jobs), len(c.secrets)
+		r.Sessions.Imported = len(c.sessions)
 		return r, nil
 	}
 	for index := range c.entries {
@@ -117,8 +122,22 @@ func (i *Importer) apply(ctx context.Context, c *collected, opts Options) (Repor
 			return r, rerr
 		}
 	}
+	if stop, rerr := i.applySessions(ctx, &r, c.sessions); stop {
+		return r, rerr
+	}
 	r.sortSkips()
 	return r, nil
+}
+
+func (i *Importer) applySessions(ctx context.Context, r *Report, sessions []Session) (bool, error) {
+	for index := range sessions {
+		session := sessions[index]
+		changed, err := i.deps.SessionSink.PutSession(ctx, &session)
+		if stop, rerr := record(r, SourceSessions, session.SourceID, changed, err); stop {
+			return true, rerr
+		}
+	}
+	return false, nil
 }
 
 // record accounts one sink result; a [SkipError] becomes a reported skip.
