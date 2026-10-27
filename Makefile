@@ -33,7 +33,7 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 .PHONY: all build build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio \
 	deps-check tidy-check mod-verify vuln licenses check meta-test bench-budget fuzz coverage deadcode \
 	flake perf ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
-	sqlite-engine sqlite-engine-cross skill-refs
+	sqlite-engine sqlite-engine-cross skill-refs prices-gate
 
 all: check
 
@@ -62,6 +62,12 @@ sqlite-engine-cross:
 # requires/skill:// links or script paths.
 skill-refs:
 	go test $(GOTAGS) -count=1 -run '^TestBuiltinSkillRefs$$' ./internal/skills
+
+# GAP-COST-01 (ADR-125 butir 4): the embedded registry must not ship a price
+# whose Until has passed; an unpriced route later fails a monetary cap closed.
+# The failure names every stale entry (version, base_url, model, until).
+prices-gate:
+	go test $(GOTAGS) -count=1 -run '^TestPricingTableNotExpired$$' ./internal/provider/registry
 
 lint:
 	$(GOTOOL) golangci-lint run --build-tags "$(TAGSCSV)" ./...
