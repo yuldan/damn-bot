@@ -102,7 +102,7 @@ func (r *Report) source(s Source) *SourceReport {
 	return &r.Secrets
 }
 
-func (r *Report) skip(s Source, key, reason string) { //nolint:unparam // sources arrive with the next slice
+func (r *Report) skip(s Source, key, reason string) {
 	sr := r.source(s)
 	sr.Total++
 	sr.Skipped = append(sr.Skipped, Skip{Source: s, Key: key, Reason: reason})

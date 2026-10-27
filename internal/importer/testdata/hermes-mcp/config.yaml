@@ -1,0 +1,21 @@
+mcp_servers:
+  time:
+    command: uvx
+    args: ["mcp-server-time"]
+    timeout: 60
+  notion:
+    url: "https://mcp.notion.com/mcp"
+  github:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "ghp_MCP-FIXTURE-SECRET"
+      LOG_LEVEL: "info"
+    headers:
+      Authorization: "Bearer MCP-FIXTURE-BEARER"
+  ref:
+    url: "https://ref.example/mcp"
+    headers:
+      X-Api-Key: "${OPENROUTER_API_KEY}"
+  broken:
+    timeout: 5

@@ -1,0 +1,37 @@
+{
+  "jobs": [
+    {
+      "id": "j-interval",
+      "name": "inbox",
+      "prompt": "Summarize the inbox",
+      "schedule": "every 30m",
+      "deliver": "local",
+      "enabled": true
+    },
+    {
+      "id": "j-cron",
+      "name": "daily",
+      "prompt": "Write the daily report",
+      "schedule": "0 9 * * *",
+      "workdir": "/srv/work"
+    },
+    {
+      "id": "j-once",
+      "name": "launch",
+      "prompt": "Announce the launch",
+      "schedule": "2026-11-01T09:00:00Z"
+    },
+    {
+      "id": "j-script",
+      "name": "script-only",
+      "script": "echo hi",
+      "schedule": "every 1h"
+    },
+    {
+      "id": "j-bad",
+      "name": "bad-schedule",
+      "prompt": "Never runs",
+      "schedule": "whenever"
+    }
+  ]
+}
