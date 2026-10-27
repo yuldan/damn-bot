@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"maps"
 	"math"
 	"net/url"
@@ -14,6 +15,9 @@ import (
 // Validate applies every SPEC §12 range/format check to c. It is pure: it
 // never mutates c and returns a [*Error] naming the offending key.
 func (c *Config) Validate() error {
+	if c.ConfigVersion < 0 || c.ConfigVersion > SchemaVersion {
+		return &Error{Kind: ErrVersion, Key: "config_version", Msg: fmt.Sprintf("config_version %d is outside the supported range 0..%d", c.ConfigVersion, SchemaVersion)}
+	}
 	checks := []func() error{
 		c.validateProvider,
 		c.validateLoop,

@@ -4631,3 +4631,21 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Dampak terukur (SPEC §20).** Go non-test berubah ≤600 baris; dependency baru 0; config/`loc.budget`/SPEC/ENGINEERING tidak berubah; `make size-check` penuh+minimal tetap di bawah plafon. Tes: `TestSetupFreshYes`, `TestSetupInvalidConfigNotOverwritten`, `TestSetupNonTTYWithoutYes`, `TestSetupIdempotent`, `TestSetupRejectsBadModel`; e2e biner nyata `TestSetupFreshYes`, `TestSetupInvalidConfigNotOverwritten`, `TestSetupNonTTYWithoutYes`, `TestSetupIdempotent` (mode 0600, hash invarian, tanpa `t.Skip`).
 
 **Konsekuensi.** (+) Wizard nyata, ≤3 langkah, tidak pernah mencetak secret, dan tidak menimpa config rusak. (−) Rekomendasi model otomatis dari kredensial tidak dapat dilakukan tanpa daftar model normatif; `--model`/prompt tetap wajib. (−) Keyring credential enumeration, `auth`, `secrets`, `ssh`, `completion`, `--sudo-rule`, dan `--uninstall` tetap gap F3/F5.
+
+## ADR-221 — `config_version`: mendeteksi config lebih baru dari biner (EC-CFG-005)
+
+**Status:** Accepted 2026-10-27 (F3, EC-CFG-005; EC-CFG-005 sebelumnya `TERBUKA` tanpa penanda versi).
+
+**Konteks.** EC-CFG-005 menuntut deteksi instalasi campuran/basi: config lama yang tertinggal setelah upgrade membuat biner berjalan dengan default untuk key yang belum ada di file, dan config yang lebih baru daripada biner tidak boleh diparse setengah-setengah. SPEC §12 sudah menolak key tak dikenal, tetapi file yang lebih baru dan hanya memakai key yang dikenal biner lama tetap lolos dengan nilai default — persis fallback diam-diam yang dicari edge case ini. `main` tidak punya penanda skema di `config.toml` maupun di `internal/config`.
+
+**Keputusan.**
+1. **Key root `config_version`** (integer). `Config.Default()` mengisi `SchemaVersion` (=1), jadi file tanpa kunci dan `config_version = 0` diperlakukan legacy dan tetap diterima; nilai negatif atau `> SchemaVersion` ditolak `ErrVersion` dengan pesan `config_version N is outside the supported range 0..M`. Cek dijalankan **sebelum** validator section di `Config.Validate`, sehingga file yang ditolak tidak pernah mengembalikan `Config` setengah jadi.
+2. **Satu sumber versi.** `config.SchemaVersion` adalah versi skema yang ditulis dan dipahami biner; menaikkan skema wajib menaikkan konstanta itu. SPEC §12 (contoh + prosa) dan §4.9 mencantumkan key ini; `config show/get/explain/schema` menampilkannya otomatis dari struct Go — tidak ada flag, API tulis, atau tabel key kedua.
+3. **Fail-closed, bukan migrasi paksa.** File tanpa penanda tetap berjalan (legacy); biner yang lebih tua dari fitur ini menolak file ber-penanda sebagai `ErrUnknownKey` (juga fail-closed). Residual yang didokumentasikan: file legacy yang benar-benar basi tidak bisa dibedakan dari file lama yang sah sampai pemiliknya menulis penanda.
+4. **Anggaran terukur.** `config` 1.200 → **1.208** (scc Code pada pohon ter-commit, +8) — naik karena penanda versi butuh field, default, sentinel, dan cek, dan plafon 1.200 sudah terpakai penuh oleh ADR-216/D2a. Tidak ada baris lain yang turun; Σ core `loc.budget` 47.114 → **47.122**, masih ≤ 47.200; baris `Total core` dan kalimat prosa `docs/ENGINEERING.md` disetel ke angka Σ tersebut; `TOTAL 190000` tetap.
+
+**Dampak terukur (SPEC §20).** Go non-test +8 baris (semua di `internal/config`, 1.208/1.208); dependency baru 0 (`deps.allow` 28/28 tetap); `make size-check` dicatat di PR. Tidak ada perubahan `PHASE`, `TOTAL`, atau baris anggaran lain.
+
+**Tes.** `TestConfigVersionMarker` (`internal/config`, EC-CFG-005): (a) file tanpa penanda dan `config_version = 0` diterima sebagai legacy dengan `SchemaVersion`/nilai file yang benar; (b) `2`, `99`, dan `-1` ditolak `ErrVersion`, pesan menyebut nilai file dan rentang `0..1`, dan tidak ada nilai config yang bocor; (c) `config_version = 1` lolos bersama key lain; kontrol negatif memastikan badan yang sama dengan penanda didukung tetap parse (penolakan berasal dari gerbang versi, bukan TOML rusak).
+
+**Konsekuensi.** (+) Config yang lebih baru daripada biner gagal start dengan pesan yang menyebut kedua versi, bukan berjalan dengan default diam-diam. (+) File lama tidak perlu dimigrasikan. (−) File legacy tanpa penanda tidak terdeteksi basi; penanda harus ditulis oleh tooling/owner saat skema berubah.

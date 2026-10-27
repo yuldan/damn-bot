@@ -58,6 +58,7 @@ func tomlAbsPath(t *testing.T) string {
 func TestConfigDefaultsMatchSpec(t *testing.T) {
 	t.Parallel()
 	want := Config{
+		ConfigVersion: SchemaVersion,
 		Provider: Provider{
 			Model:     "",
 			Fallback:  []string{},
