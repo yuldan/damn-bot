@@ -223,6 +223,10 @@ func (d Duration) Std() time.Duration { return time.Duration(d) }
 // String returns the canonical duration form.
 func (d Duration) String() string { return time.Duration(d).String() }
 
+// MarshalText renders the same string form, so `config show` emits "24h"
+// instead of the underlying nanosecond integer.
+func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
+
 // Default returns the SPEC §12 defaults for every key exposed in F1.
 func Default() Config {
 	return Config{
