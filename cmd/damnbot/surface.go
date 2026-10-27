@@ -59,7 +59,7 @@ func surface() []surfaceEntry {
 		{Name: "service", Summary: "systemd/launchd/Windows service unit", Phase: phaseF4},
 		{Name: "setup", Summary: "Setup wizard, credentials, uninstall", Phase: phaseF3},
 		{Name: "import", Summary: "Migrate from hermes, Claude Code, Codex, OpenClaw", Phase: phaseF3, Run: runImport, Usage: importUsage},
-		{Name: "config", Summary: "Config, lazy modules, hooks, profiles", Phase: phaseF3},
+		{Name: "config", Summary: "Config, lazy modules, hooks, profiles", Phase: phaseF3, Run: runConfig, Usage: configUsage},
 		{Name: "sessions", Summary: "Sessions, decision chain, prune, encrypted backup", Phase: phaseF2, Run: runSessions, Usage: sessionsUsage},
 		{Name: "checkpoints", Summary: "Action journal: status, list, prune, clear", Phase: phaseF2, Run: runCheckpoints, Usage: checkpointUsage},
 		{Name: "undo", Summary: "Universal undo and coding-checkpoint rollback", Phase: phaseF2, Run: runUndo, Usage: undoUsage},
