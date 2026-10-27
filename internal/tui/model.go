@@ -90,6 +90,8 @@ type Model struct {
 	sessionItems []SessionInfo
 	sessionSel   int
 	sessionErr   error
+	contextInfo  ContextInfo
+	contextErr   error
 	// busy marks a turn between submit and the Runner closing its stream.
 	input  textinput.Model
 	draft  []string // completed lines of the current multi-line prompt
@@ -172,6 +174,10 @@ func (m *Model) handleResult(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		}
 	case sessionsLoadedMsg:
 		m.applySessions(msg)
+	case contextLoadedMsg:
+		m.contextInfo, m.contextErr = msg.info, msg.err
+	case modulesLoadedMsg:
+		m.applyModules(msg)
 	case undoDoneMsg:
 		detail := strings.TrimSpace(msg.detail)
 		switch {
@@ -514,6 +520,9 @@ func (m *Model) nextRoute() tea.Cmd {
 	}
 	if m.route == routeSessions {
 		return m.loadSessions()
+	}
+	if m.route == routeContext {
+		return m.loadContext()
 	}
 	return nil
 }

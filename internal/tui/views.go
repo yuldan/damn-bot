@@ -152,3 +152,77 @@ func (m *Model) handleSessionsKey(msg tea.KeyPressMsg) bool {
 	}
 	return true
 }
+
+type contextLoadedMsg struct {
+	info ContextInfo
+	err  error
+}
+
+type modulesLoadedMsg struct {
+	items []ModuleInfo
+	err   error
+}
+
+type contextPanel struct{}
+
+func newContextPanel() panel { return contextPanel{} }
+
+func (contextPanel) title() string { return routeContext }
+
+func (contextPanel) body(m *Model) string {
+	if m.contextErr != nil {
+		return m.styles.hint.Render("context unavailable: " + m.contextErr.Error())
+	}
+	window := "—"
+	if m.contextInfo.Window > 0 {
+		window = fmt.Sprintf("%d tok", m.contextInfo.Window)
+	}
+	cache := "—"
+	if m.usage.Input > 0 {
+		cache = fmt.Sprintf("%.0f%%", 100*float64(m.usage.CachedInput)/float64(m.usage.Input))
+	}
+	var b strings.Builder
+	source := m.contextInfo.Source
+	if source == "" {
+		source = "—"
+	}
+	fmt.Fprintf(&b, "context · %s\n", source)
+	fmt.Fprintf(&b, "window: %s\n", window)
+	fmt.Fprintf(&b, "input: %d · cached: %d · cache: %s\n", m.usage.Input, m.usage.CachedInput, cache)
+	fmt.Fprintf(&b, "iterations: %d\n", m.usage.Iterations)
+	b.WriteString("fixed overhead: — (not measured)")
+	return b.String()
+}
+
+func (m *Model) loadContext() tea.Cmd {
+	runtime := m.host.Runtime
+	return func() tea.Msg {
+		info, err := runtime.Context(context.Background())
+		return contextLoadedMsg{info: info, err: err}
+	}
+}
+
+func (m *Model) loadModules() tea.Cmd {
+	runtime := m.host.Runtime
+	return func() tea.Msg {
+		items, err := runtime.Modules(context.Background())
+		return modulesLoadedMsg{items: items, err: err}
+	}
+}
+
+func (m *Model) applyModules(msg modulesLoadedMsg) {
+	if msg.err != nil {
+		m.appendNotice("modules unavailable: " + msg.err.Error())
+		return
+	}
+	if len(msg.items) == 0 {
+		m.appendNotice("no modules registered")
+		return
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "modules (%d)", len(msg.items))
+	for _, it := range msg.items {
+		fmt.Fprintf(&b, "\n%s · %s · %s", it.ID, it.Group, it.Status)
+	}
+	m.appendNotice(b.String())
+}

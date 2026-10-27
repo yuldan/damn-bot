@@ -13,6 +13,12 @@ const (
 	slashRewind
 	slashUndo
 	slashPlan
+	slashTheme
+	slashModel
+	slashBudget
+	slashModules
+	slashContext
+	slashReload
 )
 
 // slashCommand is one parsed single-line slash invocation.
@@ -43,6 +49,18 @@ func parseSlash(text string) (slashCommand, bool) {
 		cmd.kind = slashUndo
 	case "/plan":
 		cmd.kind = slashPlan
+	case "/theme":
+		cmd.kind = slashTheme
+	case "/model":
+		cmd.kind = slashModel
+	case "/budget":
+		cmd.kind = slashBudget
+	case "/modules":
+		cmd.kind = slashModules
+	case "/context":
+		cmd.kind = slashContext
+	case "/reload":
+		cmd.kind = slashReload
 	default:
 		cmd.kind = slashUnknown
 	}

@@ -1,6 +1,10 @@
 package tui
 
-import "charm.land/lipgloss/v2"
+import (
+	"strings"
+
+	"charm.land/lipgloss/v2"
+)
 
 // Theme is one SPEC §13.1 palette (Q2). The color tokens are unexported: the
 // registry is the only constructor, so a caller can never build a half theme.
@@ -38,6 +42,15 @@ func ThemeByName(name string) (Theme, bool) {
 		}
 	}
 	return Theme{}, false
+}
+
+// themeNames lists the registry for /theme refusals and help.
+func themeNames() string {
+	names := make([]string, 0, len(Themes()))
+	for _, t := range Themes() {
+		names = append(names, t.Name)
+	}
+	return strings.Join(names, ", ")
 }
 
 // newStyles maps a theme to the T0 call-site styles. mono (no tokens) leaves

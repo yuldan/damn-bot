@@ -13,7 +13,7 @@ import (
 func navApp(t *testing.T) (*Model, *fakeSessions, *fakeClipboard) {
 	t.Helper()
 	clk, runner := newFakeClock(), &fakeRunner{}
-	host := testHost(clk, runner, fakeConfig{cfg: Config{Model: "fake/model"}})
+	host := testHost(clk, runner, &fakeConfig{cfg: Config{Model: "fake/model"}})
 	m, err := NewApp("sess-nav", host)
 	if err != nil {
 		t.Fatalf("NewApp: %v", err)

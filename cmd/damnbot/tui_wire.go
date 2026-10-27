@@ -49,7 +49,7 @@ func runTUI([]string) int {
 		cfg: &cfg, configDir: configDir, modelRef: cfg.Provider.Model, active: r.Active,
 	}
 	app, err := tui.NewApp(sid, &tui.Host{
-		Clock: r, Runner: r, Config: r,
+		Clock: r, Runner: r, Config: r, Runtime: r,
 		Sessions: actions, Clipboard: clipboardAdapter{},
 	})
 	if err == nil {
@@ -107,6 +107,11 @@ func (r *tuiRunner) Snapshot() tui.Config {
 	return tui.Config{
 		Model: r.deps.modelRef, Theme: r.deps.cfg.UI.Theme,
 		ApprovalTimeout: time.Duration(r.deps.cfg.Approval.PreviewTimeoutS) * time.Second,
+		Models:          configuredModels(r.deps.cfg),
+		Budget: tui.BudgetInfo{
+			TurnUSD: r.deps.cfg.Budget.TurnUSD, SessionUSD: r.deps.cfg.Budget.SessionUSD,
+			DailyUSD: r.deps.cfg.Budget.DailyUSD,
+		},
 	}
 }
 

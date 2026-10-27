@@ -12,7 +12,7 @@ func approvalApp(t *testing.T, timeout time.Duration) *Model {
 	t.Helper()
 	m, _, _ := newTestApp(t)
 	if timeout > 0 {
-		m.host.Config = fakeConfig{cfg: Config{Model: "fake/model", ApprovalTimeout: timeout}}
+		m.host.Config = &fakeConfig{cfg: Config{Model: "fake/model", ApprovalTimeout: timeout}}
 	}
 	return m
 }

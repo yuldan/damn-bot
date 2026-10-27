@@ -13,6 +13,7 @@ import (
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/journalstore"
+	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/tui"
 )
 
@@ -137,4 +138,54 @@ func (clipboardAdapter) Copy(text string) error {
 		return fmt.Errorf("system clipboard: %w", err)
 	}
 	return nil
+}
+
+// Modules lists the frozen registry with the live lifecycle status.
+func (r *tuiRunner) Modules(ctx context.Context) ([]tui.ModuleInfo, error) {
+	model, err := r.ensure(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []tui.ModuleInfo
+	for _, d := range modules.Default().Descriptors() {
+		status := "stopped"
+		if model.modules.runtime != nil {
+			status = string(model.modules.runtime.Status(d.ID))
+		}
+		out = append(out, tui.ModuleInfo{ID: d.ID, Group: d.Group, Status: status})
+	}
+	return out, nil
+}
+
+// Context reports the model window this run resolved (registry or config).
+func (r *tuiRunner) Context(ctx context.Context) (tui.ContextInfo, error) {
+	model, err := r.ensure(ctx)
+	if err != nil {
+		return tui.ContextInfo{}, err
+	}
+	return tui.ContextInfo{Window: model.window, Source: model.winSource}, nil
+}
+
+// configuredModels lists the refs the config actually names, deduplicated.
+func configuredModels(cfg *config.Config) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(ref string) {
+		if ref != "" && !seen[ref] {
+			seen[ref] = true
+			out = append(out, ref)
+		}
+	}
+	add(cfg.Provider.Model)
+	add(cfg.Provider.Light)
+	for _, ref := range cfg.Provider.Fallback {
+		add(ref)
+	}
+	for i := range cfg.Providers.Custom {
+		p := &cfg.Providers.Custom[i]
+		for _, m := range p.Models {
+			add(p.Name + "/" + m.ID)
+		}
+	}
+	return out
 }
