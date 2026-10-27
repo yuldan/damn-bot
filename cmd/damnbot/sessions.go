@@ -309,7 +309,7 @@ func openSessionsDBReadOnly(ctx context.Context, dataDir string) (*ctxdb.Store, 
 }
 
 func openSessionsStore(ctx context.Context, dataDir string, readOnly bool) (*ctxdb.Store, error) {
-	fi, err := os.Stat(dataDir) //nolint:gosec // operator-selected data dir, not request input
+	fi, err := os.Stat(dataDir)
 	if err != nil || !fi.IsDir() {
 		return nil, fmt.Errorf("%w: %s", errNoDataDir, cleanArg(dataDir))
 	}

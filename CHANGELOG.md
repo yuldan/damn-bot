@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `cmd/damnbot`: hapus directive `//nolint:gosec` yang tidak terpakai pada `os.Stat(dataDir)` di `openSessionsStore` (`sessions.go:312`) karena `gosec` tidak menandai `os.Stat`, sehingga `nolintlint` (`require-specific`) memerahkan job `lint`; tanpa perubahan perilaku (`//nolint:gosec` pada `os.Open` arsip eksplisit tetap).
+
 - `cmd/damnbot` (SPEC §10): `undo --turn <turn-id> [--session ID] [--dry-run] [--force]` meng-undo semua aksi jurnal satu turn (terbaru dulu) lewat jalur `undoApply`/`previewActions` yang ada; turn diresolusi dari `actions.turn_id`, `--turn` eksklusif dengan `N`/`a<id>`/`ls` (exit 2), mismatch `--session` dan turn tak dikenal exit 1. Tanpa ADR baru (bentuk sudah normatif).
 
 - `docs`/`spec` (ADR-198): errata SPEC §10 — tabel §10 menjadi sumber kebenaran gate, hitungan prosa 20 → **22** (21 perintah bernama + `bundles`), `bundles` masuk tabel sebagai permukaan terdokumentasi, `version` ditandai *builtin* dan tetap dihitung sekali, dan `sessions purge` dikoreksi menjadi `sessions prune` (`<id>`, `--with-forks`, `--yes` akan diimplementasikan, bukan didokumentasikan sebagai barang kosong). Angka yang sama diselaraskan di GAP-OPS-08 (§22.1), `docs/SCORECARD.md`, `docs/MITIGATION-MATRIX.md`, dan N-24; tidak ada kode Go, `loc.budget`, atau dependency yang berubah.
