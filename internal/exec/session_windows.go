@@ -7,16 +7,15 @@ import "strings"
 // switched off, so the console would interleave the typed lines with the
 // output; ADR-105 butir 22).
 func sessionShell(path string) sessionShellSpec {
-	for _, name := range []string{"pwsh", "powershell"} {
-		if p, err := lookPath(name, path, ""); err == nil {
-			return pwshSession(p)
-		}
+	c, err := chooseShell(path)
+	switch {
+	case err != nil:
+		return cmdSession("cmd.exe")
+	case c.kind == ShellPowerShell:
+		return pwshSession(c.bin)
+	default:
+		return cmdSession(c.bin)
 	}
-	p, err := lookPath("cmd", path, "")
-	if err != nil {
-		p = "cmd.exe"
-	}
-	return cmdSession(p)
 }
 
 func pwshSession(bin string) sessionShellSpec {

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/damnbot/damnbot/internal/assemble"
@@ -63,10 +62,19 @@ func closeWiring(ctx context.Context, cause error, mods *runModules, engine *cod
 	return closeDB(ctx, db, sid, cause)
 }
 
-func runtimeDialect() classify.Dialect {
-	switch runtime.GOOS {
-	case "windows":
+// runtimeDialect follows the shell exec actually chose (SEC10-29); guessing
+// cmd from runtime.GOOS classified PowerShell payloads as cmd and let them
+// auto-run.
+func runtimeDialect() classify.Dialect { return dialectFor(exec.RuntimeShellKind()) }
+
+func dialectFor(kind exec.ShellKind) classify.Dialect {
+	switch kind {
+	case exec.ShellPowerShell:
+		return classify.Pwsh
+	case exec.ShellCmd:
 		return classify.Cmd
+	case exec.ShellPOSIX:
+		return classify.Bash
 	default:
 		return classify.Bash
 	}
