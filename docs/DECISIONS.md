@@ -4458,6 +4458,8 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 
 **Dampak terukur (SPEC §20).** Token prompt 0 (tidak ada perubahan assembler). Binary +≈1 KB korpus ter-embed. Dependency 0. LOC: `memory+skills` 2.408 (cap 2.408, tanpa headroom), Σ core 46.998 ≤ 47.000. Tidak ada perintah baru di SPEC §10.
 
+*(Amandemen 2026-10-27, penutupan ledger: setelah #353 squash `3944ab50` mendarat, `SKILL-016` berstatus `LULUS` di `docs/F2-ACCEPTANCE.md` — `internal/skills/sync.go`, `internal/skills/bundled.go`, e2e `TestBundledSkillSyncedAtStartup` — dan parity F2 menjadi 56/56. Sejak ADR-211/212/213 dan #238 `fce1d7bd` mendarat, Σ core `loc.budget` = **47.114/47.200** (`exec/classify` 1.946), headroom **86**; angka 46.998/47.000 di atas adalah keadaan sebelum ADR-211. Tidak ada kode, SPEC, atau anggaran yang berubah di amandemen ini.)*
+
 ## ADR-211 — Pemilihan shell tunggal (SEC10-36) dan plafon core 47.000 → 47.200
 
 **Status:** Accepted 2026-10-27 (F2, keputusan direktur). Menaikkan baris `exec/classify` ke angka ukur dan plafon gabungan core; tidak mengubah SPEC §3.2.4, TOTAL 190.000, permukaan CLI, atau dependency.
