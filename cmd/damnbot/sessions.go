@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -265,7 +267,7 @@ func cleanArg(s string) string {
 // never reaches the user (SEC13-3).
 func sessionsMessage(err error, id string) string {
 	switch {
-	case errors.Is(err, errNoDataDir):
+	case errors.Is(err, errNoDataDir), errors.Is(err, errBadDataDir):
 		return err.Error()
 	case errors.Is(err, ctxdb.ErrNotFound):
 		return "session " + cleanArg(id) + " not found"
@@ -308,12 +310,64 @@ func openSessionsDBReadOnly(ctx context.Context, dataDir string) (*ctxdb.Store, 
 	return openSessionsStore(ctx, dataDir, true)
 }
 
+// errBadDataDir marks a --data-dir argument rejected before any filesystem
+// access: it must be absolute and free of ".." elements so the CLI can never
+// be steered outside the directory the operator named.
+var errBadDataDir = errors.New("invalid data directory")
+
+// resolveDataDir validates one operator-selected data directory and returns the
+// cleaned absolute form used for every filesystem access. filepath.Clean alone
+// is not enough: it evaluates ".." instead of rejecting it, so the raw argument
+// is checked for traversal elements first.
+func resolveDataDir(dataDir string) (string, error) {
+	if strings.ContainsAny(dataDir, "\x00\n\r") {
+		return "", fmt.Errorf("%w: control characters are not allowed: %s", errBadDataDir, cleanArg(dataDir))
+	}
+	clean := filepath.Clean(dataDir)
+	if !filepath.IsAbs(clean) {
+		return "", fmt.Errorf("%w: must be an absolute path: %s", errBadDataDir, cleanArg(dataDir))
+	}
+	if slices.Contains(strings.FieldsFunc(dataDir, isPathSep), "..") {
+		return "", fmt.Errorf(`%w: must not contain ".." elements: %s`, errBadDataDir, cleanArg(dataDir))
+	}
+	return clean, nil
+}
+
+func isPathSep(r rune) bool { return r == '/' || r == '\\' }
+
+// checkDataDir proves dir is an existing directory. os.OpenRoot (the confined
+// primitive this package already uses for validated roots) fails on a missing
+// path or a non-directory; a bare os.Stat would hand the operator-supplied path
+// to a path sink, which gosec's taint rule reports because filepath.Clean
+// normalises but does not sanitise (G703).
+func checkDataDir(dir string) error {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("%w: %s", errNoDataDir, cleanArg(dir))
+		}
+		return fmt.Errorf("open data dir %s: %w", cleanArg(dir), err)
+	}
+	if cerr := root.Close(); cerr != nil {
+		return fmt.Errorf("close data dir %s: %w", cleanArg(dir), cerr)
+	}
+	return nil
+}
+
 func openSessionsStore(ctx context.Context, dataDir string, readOnly bool) (*ctxdb.Store, error) {
-	fi, err := os.Stat(dataDir) //nolint:gosec // operator-selected data dir, not request input
-	if err != nil || !fi.IsDir() {
+	// An unset --data-dir means "no store named" (the read-only commands do not
+	// resolve the config default), so it keeps the missing-dir error.
+	if dataDir == "" {
 		return nil, fmt.Errorf("%w: %s", errNoDataDir, cleanArg(dataDir))
 	}
-	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "cli", ReadOnly: readOnly})
+	dir, err := resolveDataDir(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	if derr := checkDataDir(dir); derr != nil {
+		return nil, derr
+	}
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dir, Kind: "cli", ReadOnly: readOnly})
 	if err != nil {
 		return nil, fmt.Errorf("open sessions db: %w", err)
 	}
