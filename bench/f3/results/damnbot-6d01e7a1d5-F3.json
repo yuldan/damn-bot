@@ -124,7 +124,7 @@
  "hermes_detail": "unavailable: pinned Hermes runtime not provisioned; no package install attempted; see bench/f3/README.md",
  "meta": {
   "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
-  "damnbot_commit": "a7672da1d5",
+  "damnbot_commit": "6d01e7a1d5",
   "damnbot_dirty": 0,
   "date": "2026-10-27T23:11:46Z",
   "go": "go1.26.10",
