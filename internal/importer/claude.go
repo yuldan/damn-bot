@@ -170,30 +170,8 @@ func (c *ClaudeImporter) collectMemory(root string, plan *claudePlan) error {
 }
 
 func (c *ClaudeImporter) collectSkills(root string, plan *claudePlan) error {
-	dir := filepath.Join(root, "skills")
-	found := false
-	err := c.deps.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			if errors.Is(walkErr, fs.ErrNotExist) {
-				return nil
-			}
-			return walkErr
-		}
-		if d.Type()&fs.ModeSymlink != 0 && d.Name() != "SKILL.md" {
-			claudeSkip(&plan.report, claudeSkills, filepath.ToSlash(path), "symlink is not followed")
-			return nil
-		}
-		if d.IsDir() || d.Name() != "SKILL.md" {
-			return nil
-		}
-		found = true
-		skill, reason, err := readSkillAt(c.deps.ReadFile, root, path)
-		if err != nil {
-			return err
-		}
-		plan.addSkill(&skill, reason)
-		return nil
-	})
+	found, err := collectSkillTree(c.deps.ReadFile, c.deps.WalkDir, root, filepath.Join(root, "skills"), "",
+		&plan.report, SourceSkills, &plan.skills)
 	if err != nil {
 		return err
 	}
@@ -201,19 +179,6 @@ func (c *ClaudeImporter) collectSkills(root string, plan *claudePlan) error {
 		claudeSkip(&plan.report, claudeSkills, "(all)", "no skills with SKILL.md found")
 	}
 	return nil
-}
-
-func (plan *claudePlan) addSkill(skill *Skill, reason string) {
-	if reason != "" {
-		key := skill.Name
-		if key == "" {
-			key = skill.Origin
-		}
-		claudeSkip(&plan.report, claudeSkills, key, reason)
-		return
-	}
-	plan.skills = append(plan.skills, *skill)
-	claudeItem(&plan.report, claudeSkills)
 }
 
 // extractMarkdownEntries mirrors hermes_cli/agent_import.py markdown rules.

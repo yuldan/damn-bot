@@ -1,8 +1,6 @@
 package e2e
 
 import (
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,17 +77,8 @@ func TestImportCodexDryRun(t *testing.T) {
 	t.Parallel()
 	e := New(t)
 	writeCodexHome(t, e)
-	before := hashTree(t, e.home)
-	res := importExec(e, "import", "codex", "--dry-run")
-	res.RequireOK(t)
-	if !strings.Contains(res.Stdout, "memory: 5 items, 4 imported, 0 changed, 1 skipped") ||
-		!strings.Contains(res.Stdout, "dry run: nothing was written") {
-		t.Errorf("dry run output:\n%s", res.Stdout)
-	}
-	if after := hashTree(t, e.home); after != before {
-		t.Errorf("dry run changed state: %s -> %s", before, after)
-	}
-	requireNoDataDir(t, e)
+	assertAgentDryRun(t, e, []string{"import", "codex", "--dry-run"},
+		"memory: 5 items, 4 imported, 0 changed, 1 skipped")
 }
 
 func TestImportCodexBrokenConfig(t *testing.T) {
@@ -133,15 +122,5 @@ func TestImportCodexUnsupportedOnlyDoesNotWrite(t *testing.T) {
 	t.Parallel()
 	e := New(t)
 	writeCodexHome(t, e)
-	before := hashTree(t, e.home)
-	if res := importExec(e, "import", "codex", "--only", "mcp"); res.Code != 2 {
-		t.Errorf("--only mcp = %d, want 2", res.Code)
-	}
-	if after := hashTree(t, e.home); after != before {
-		t.Errorf("unsupported --only changed state")
-	}
-	requireNoDataDir(t, e)
-	if _, err := os.Stat(importHermesDataDir(e)); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("unsupported --only wrote data dir: %v", err)
-	}
+	assertUnsupportedOnlyNoWrite(t, e, []string{"import", "codex", "--only", "mcp"})
 }

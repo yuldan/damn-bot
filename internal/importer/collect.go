@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
+	"unicode/utf8"
 )
 
 type secretPut struct {
@@ -138,6 +140,38 @@ func (i *Importer) applySessions(ctx context.Context, r *Report, sessions []Sess
 		}
 	}
 	return false, nil
+}
+
+// addRedactedMemoryFile parses one markdown memory file and dedups by redacted key.
+func addRedactedMemoryFile(read func(string) ([]byte, error), redact func(string) string,
+	path, label, storePrefix string, report *Report, out *[]MemoryEntry, seen map[string]bool,
+) (bool, error) {
+	raw, err := readOptionalFile(read, path)
+	if err != nil {
+		return false, err
+	}
+	if raw == nil {
+		return false, nil
+	}
+	if !utf8.Valid(raw) {
+		return false, syntaxError(path, errors.New("file is not valid UTF-8"))
+	}
+	for index, entry := range extractMarkdownEntries(string(raw)) {
+		key := strings.ToLower(strings.Join(strings.Fields(redact(entry)), " "))
+		if seen[key] {
+			report.skip(SourceMemory, fmt.Sprintf("%s[%d]", label, index+1), "duplicate redacted content")
+			continue
+		}
+		if n := utf8.RuneCountInString(entry); n > maxMemoryChars {
+			report.skip(SourceMemory, fmt.Sprintf("%s[%d]", label, index+1),
+				fmt.Sprintf("%d chars exceeds the %d-char memory cap", n, maxMemoryChars))
+			continue
+		}
+		seen[key] = true
+		*out = append(*out, MemoryEntry{Store: storePrefix + label, Text: entry})
+		report.item(SourceMemory)
+	}
+	return true, nil
 }
 
 // finishMemorySkills returns the dry-run accounting or writes both plan slices.

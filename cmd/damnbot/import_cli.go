@@ -53,6 +53,9 @@ func runImport(args []string, stdout, stderr io.Writer) (code int) {
 	if pos[0] == "codex" {
 		return runCodexImport(o, stdout, stderr)
 	}
+	if pos[0] == "openclaw" {
+		return runOpenClawImport(o, stdout, stderr)
+	}
 	if pos[0] != "hermes" {
 		say(stderr, "import: %s is not implemented yet (SPEC §9.15 parity: OPS-034/OPS-035; ADR-218)\n", cleanArg(pos[0]))
 		return 2
@@ -105,6 +108,35 @@ func importFail(stderr io.Writer, command string, err error) int {
 
 func importUsage(w io.Writer) {
 	sessionsPrintf(w, "usage: damnbot import hermes [--from DIR] [--only config,secrets,skills,memory,mcp,cron,sessions] [--dry-run]\n")
+}
+
+func parseAgentOnly(value, command string, supported, unsupported []string, reason string, stderr io.Writer) (map[string]string, bool) {
+	skip := map[string]string{}
+	if value == "" {
+		return skip, true
+	}
+	wanted := map[string]bool{}
+	for name := range strings.SplitSeq(value, ",") {
+		name = strings.TrimSpace(name)
+		switch {
+		case slices.Contains(supported, name):
+			wanted[name] = true
+		case slices.Contains(unsupported, name):
+			say(stderr, "import %s: --only %s is not supported in F3: %s (SPEC §9.15 parity; ADR-218); nothing was written\n",
+				command, name, reason)
+			return nil, false
+		default:
+			all := append(slices.Clone(supported), unsupported...)
+			say(stderr, "import %s: unknown --only category %s (%s)\n", command, cleanArg(name), strings.Join(all, ","))
+			return nil, false
+		}
+	}
+	for _, name := range supported {
+		if !wanted[name] {
+			skip[name] = "not selected (--only); nothing written"
+		}
+	}
+	return skip, true
 }
 
 // parseImportOnly turns --only into the reason each unselected or unwritable

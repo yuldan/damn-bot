@@ -1,6 +1,8 @@
 package e2e
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +25,39 @@ func assertRejectedImport(t *testing.T, e *Env, args []string, stderrContains st
 		t.Errorf("rejected import changed state")
 	}
 	requireNoDataDir(t, e)
+}
+
+// assertAgentDryRun proves a dry run reports the plan, writes nothing and
+// leaves the home byte-identical.
+func assertAgentDryRun(t *testing.T, e *Env, args []string, wantMemory string) {
+	t.Helper()
+	before := hashTree(t, e.home)
+	res := importExec(e, args...)
+	res.RequireOK(t)
+	if !strings.Contains(res.Stdout, wantMemory) || !strings.Contains(res.Stdout, "dry run: nothing was written") {
+		t.Errorf("dry run output:\n%s", res.Stdout)
+	}
+	if after := hashTree(t, e.home); after != before {
+		t.Errorf("dry run changed state: %s -> %s", before, after)
+	}
+	requireNoDataDir(t, e)
+}
+
+// assertUnsupportedOnlyNoWrite proves an unsupported --only exits 2 without
+// creating the data dir or changing the home.
+func assertUnsupportedOnlyNoWrite(t *testing.T, e *Env, args []string) {
+	t.Helper()
+	before := hashTree(t, e.home)
+	if res := importExec(e, args...); res.Code != 2 {
+		t.Errorf("%v = %d, want 2", args, res.Code)
+	}
+	if after := hashTree(t, e.home); after != before {
+		t.Errorf("unsupported --only changed state")
+	}
+	requireNoDataDir(t, e)
+	if _, err := os.Stat(importHermesDataDir(e)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("unsupported --only wrote data dir: %v", err)
+	}
 }
 
 // addEscapingSkill links root/skills/escaped/SKILL.md to a file outside root.

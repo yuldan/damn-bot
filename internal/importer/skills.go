@@ -114,6 +114,45 @@ func unsafeText(s string) bool {
 	})
 }
 
+// collectSkillTree imports <dir>/<name>/SKILL.md children and reports skips.
+func collectSkillTree(read func(string) ([]byte, error), walkDir func(string, fs.WalkDirFunc) error,
+	root, dir, prefix string, report *Report, source Source, out *[]Skill,
+) (bool, error) {
+	found := false
+	err := walkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if errors.Is(walkErr, fs.ErrNotExist) {
+				return nil
+			}
+			return walkErr
+		}
+		if d.Type()&fs.ModeSymlink != 0 && d.Name() != "SKILL.md" {
+			report.skip(source, prefix+filepath.ToSlash(path), "symlink is not followed")
+			return nil
+		}
+		if d.IsDir() || d.Name() != "SKILL.md" || filepath.Dir(filepath.Dir(path)) != dir {
+			return nil
+		}
+		found = true
+		skill, reason, err := readSkillAt(read, root, path)
+		if err != nil {
+			return err
+		}
+		key := skill.Name
+		if key == "" {
+			key = skill.Origin
+		}
+		if reason != "" {
+			report.skip(source, prefix+key, reason)
+			return nil
+		}
+		*out = append(*out, skill)
+		report.item(source)
+		return nil
+	})
+	return found, err
+}
+
 func readSkillAt(read func(string) ([]byte, error), root, path string) (Skill, string, error) {
 	data, err := readOptionalFile(read, path)
 	if err != nil {
