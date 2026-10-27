@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/key"
@@ -11,8 +12,8 @@ import (
 
 // runSlash dispatches a command; a refusal is a notice, never a fake success.
 func (m *Model) runSlash(cmd slashCommand) tea.Cmd {
-	sessions, sid, ctx := m.host.Sessions, m.sessionID, context.Background()
-	if cmd.kind == slashPlan {
+	switch cmd.kind {
+	case slashPlan:
 		if len(cmd.args) != 0 {
 			m.appendNotice("usage: /plan")
 			return nil
@@ -23,12 +24,97 @@ func (m *Model) runSlash(cmd slashCommand) tea.Cmd {
 			state = "on"
 		}
 		m.appendNotice("plan mode " + state + " for the next turn")
+	case slashUnknown:
+		m.appendNotice("unknown command " + cmd.name + "; available: /new /fork /rewind /undo /plan /theme /model /budget /modules /context /reload")
+	case slashTheme:
+		return m.cmdTheme(cmd.args)
+	case slashModel:
+		return m.cmdModel(cmd.args)
+	case slashBudget:
+		return m.cmdBudget(cmd.args)
+	case slashModules:
+		if len(cmd.args) != 0 {
+			m.appendNotice("usage: /modules")
+			return nil
+		}
+		return m.loadModules()
+	case slashContext:
+		if len(cmd.args) != 0 {
+			m.appendNotice("usage: /context")
+			return nil
+		}
+		m.setRoute(routeEntry{name: routeContext, new: newContextPanel})
+		return m.loadContext()
+	case slashReload:
+		if len(cmd.args) != 0 {
+			m.appendNotice("usage: /reload")
+			return nil
+		}
+		m.appendNotice("/reload refused: config/skills have no safe hot-reload path in this TUI; restart damnbot")
+	case slashNew, slashFork, slashRewind, slashUndo:
+		return m.sessionSlash(cmd)
+	}
+	return nil
+}
+
+func (m *Model) cmdTheme(args []string) tea.Cmd {
+	switch {
+	case len(args) > 1:
+		m.appendNotice("usage: /theme [name]")
+	case len(args) == 0:
+		m.appendNotice("theme " + m.theme.Name + "; valid: " + themeNames())
+	default:
+		theme, ok := ThemeByName(args[0])
+		if !ok {
+			m.appendNotice("unknown theme " + args[0] + "; valid: " + themeNames())
+			return nil
+		}
+		m.theme, m.styles = theme, newStyles(theme)
+		m.appendNotice("theme " + theme.Name)
+	}
+	return nil
+}
+
+func (m *Model) cmdModel(args []string) tea.Cmd {
+	cfg := m.host.Config.Snapshot()
+	switch {
+	case len(args) > 1:
+		m.appendNotice("usage: /model [ref]")
+	case len(args) == 0:
+		m.appendNotice("model " + cfg.Model + "\nconfigured: " + strings.Join(cfg.Models, ", "))
+	case args[0] == cfg.Model:
+		m.appendNotice("already on model " + args[0])
+	default:
+		m.appendNotice("model switch refused: provider/model is bound when the run opens; use --model or restart")
+	}
+	return nil
+}
+
+func (m *Model) cmdBudget(args []string) tea.Cmd {
+	if len(args) != 0 {
+		m.appendNotice("usage: /budget")
 		return nil
 	}
-	if cmd.kind == slashUnknown {
-		m.appendNotice("unknown command " + cmd.name + "; available: /new /fork /rewind /undo /plan")
-		return nil
+	b := m.host.Config.Snapshot().Budget
+	turn, turnOK := m.turnCost()
+	session, sessionOK := m.sessionCost()
+	m.appendNotice(fmt.Sprintf("budget turn %s / %s · session %s / %s · day — / %s · iter %d",
+		usd(turn, turnOK), capUSD(b.TurnUSD), usd(session, sessionOK), capUSD(b.SessionUSD),
+		capUSD(b.DailyUSD), m.usage.Iterations))
+	return nil
+}
+
+// capUSD renders a configured cap; an unset cap is "—", never $0.00.
+func capUSD(v float64) string {
+	if v <= 0 {
+		return "—"
 	}
+	return fmt.Sprintf("$%.2f", v)
+}
+
+// sessionSlash keeps the state-changing commands on the real host seam.
+func (m *Model) sessionSlash(cmd slashCommand) tea.Cmd {
+	sessions, sid, ctx := m.host.Sessions, m.sessionID, context.Background()
 	want := 0
 	if cmd.kind == slashRewind {
 		want = 1
@@ -64,7 +150,7 @@ func (m *Model) runSlash(cmd slashCommand) tea.Cmd {
 		}
 	case slashUndo:
 		return m.undoCmd("")
-	case slashPlan, slashUnknown:
+	case slashPlan, slashUnknown, slashTheme, slashModel, slashBudget, slashModules, slashContext, slashReload:
 		return nil
 	}
 	return nil

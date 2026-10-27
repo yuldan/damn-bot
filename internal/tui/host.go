@@ -50,6 +50,24 @@ type SessionInfo struct {
 	ID, Cwd, Model string
 }
 
+// ModuleInfo is one registry module and its current runtime status.
+type ModuleInfo struct {
+	ID, Group, Status string
+}
+
+// ContextInfo is the real model window of the open run.
+type ContextInfo struct {
+	Window int64
+	Source string
+}
+
+// Runtime exposes the module registry and the model window; both are data the
+// composition root already owns, never values the TUI invents.
+type Runtime interface {
+	Modules(ctx context.Context) ([]ModuleInfo, error)
+	Context(ctx context.Context) (ContextInfo, error)
+}
+
 // Clipboard writes text to the user's clipboard (may be unavailable).
 type Clipboard interface {
 	Copy(text string) error
@@ -62,6 +80,7 @@ type Host struct {
 	Runner    Runner
 	Config    ConfigSource
 	Sessions  Sessions
+	Runtime   Runtime
 	Clipboard Clipboard
 }
 
@@ -78,6 +97,8 @@ func (h *Host) validate() error {
 		return fmt.Errorf("tui: host without config source")
 	case h.Sessions == nil:
 		return fmt.Errorf("tui: host without sessions")
+	case h.Runtime == nil:
+		return fmt.Errorf("tui: host without runtime")
 	case h.Clipboard == nil:
 		return fmt.Errorf("tui: host without clipboard")
 	}

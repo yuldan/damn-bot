@@ -58,7 +58,7 @@ func (r *scriptedRunner) Active(string) bool { return r.active.Load() }
 func newScriptedApp(t *testing.T) (*Model, *fakeClock, *scriptedRunner) {
 	t.Helper()
 	clk, runner := newFakeClock(), newScriptedRunner()
-	m, err := NewApp("sess-e2e", testHost(clk, runner, fakeConfig{cfg: Config{Model: "fake/model"}}))
+	m, err := NewApp("sess-e2e", testHost(clk, runner, &fakeConfig{cfg: Config{Model: "fake/model"}}))
 	if err != nil {
 		t.Fatalf("NewApp: %v", err)
 	}

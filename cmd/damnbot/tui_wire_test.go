@@ -8,6 +8,7 @@ import (
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/loop/event"
+	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/tui"
 )
 
@@ -107,5 +108,60 @@ func TestToolActionID(t *testing.T) {
 	}
 	if got := toolActionID(ctx, db, sid, "missing"); got != 0 {
 		t.Fatalf("missing call = %d, want 0", got)
+	}
+}
+
+// TestConfiguredModels lists only refs the config names, deduplicated.
+func TestConfiguredModels(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{
+		Provider: config.Provider{Model: "p/m", Light: "p/l", Fallback: []string{"p/f", "p/m"}},
+		Providers: config.Providers{Custom: []config.CustomProvider{
+			{Name: "c", Models: []config.CustomModel{{ID: "x"}, {ID: "y"}}},
+		}},
+	}
+	got := configuredModels(cfg)
+	want := []string{"p/m", "p/l", "p/f", "c/x", "c/y"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("configuredModels = %q, want %q", got, want)
+	}
+}
+
+// TestTUIRunnerRuntimeInfo exercises the real module registry and model window
+// behind /modules and /context.
+func TestTUIRunnerRuntimeInfo(t *testing.T) {
+	cfg := config.Default()
+	cfg.Provider.Model = "openai/fake"
+	cfg.Budget = config.Budget{TurnUSD: 1, SessionUSD: 2, DailyUSD: 3}
+	o := &runOptions{prov: &injectProvider{}, newSessionID: "S-runtime", sessionOrigin: "tui", approvalOrigin: "tui"}
+	r := newTUIRunner(&tuiDeps{
+		cfg: &cfg, dataDir: t.TempDir(), modelRef: "openai/fake", opts: o,
+		red: redact.New(redact.Options{}), configDir: t.TempDir(), home: t.TempDir(),
+	})
+	t.Cleanup(func() {
+		if err := r.Close(); err != nil {
+			t.Errorf("close: %v", err)
+		}
+	})
+	ctx := t.Context()
+	info, err := r.Context(ctx)
+	if err != nil || info.Window <= 0 || info.Source == "" {
+		t.Fatalf("Context = %+v, %v", info, err)
+	}
+	mods, err := r.Modules(ctx)
+	if err != nil {
+		t.Fatalf("Modules: %v", err)
+	}
+	for _, m := range mods {
+		if m.ID == "" || m.Group == "" || m.Status == "" {
+			t.Fatalf("module row = %+v", m)
+		}
+	}
+	snap := r.Snapshot()
+	if !reflect.DeepEqual(snap.Models, []string{"openai/fake"}) {
+		t.Fatalf("snapshot models = %q", snap.Models)
+	}
+	if snap.Budget != (tui.BudgetInfo{TurnUSD: 1, SessionUSD: 2, DailyUSD: 3}) {
+		t.Fatalf("snapshot budget = %+v", snap.Budget)
 	}
 }

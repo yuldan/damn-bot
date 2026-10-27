@@ -12,6 +12,7 @@ const (
 	routeChat     = "chat"
 	routePlan     = "plan"
 	routeSessions = "sessions"
+	routeContext  = "context"
 )
 
 // routeEntry is one row of the explicit screen registry (E-11). A screen is
@@ -29,6 +30,7 @@ func routes() []routeEntry {
 		{name: routeChat, new: newChatPanel},
 		{name: routePlan, new: newPlanPanel},
 		{name: routeSessions, new: newSessionsPanel},
+		{name: routeContext, new: newContextPanel},
 	}
 }
 

@@ -106,7 +106,7 @@ func (r *fakeRunner) Active(string) bool { return false }
 type fakeConfig struct{ cfg Config }
 
 // Snapshot implements ConfigSource.
-func (c fakeConfig) Snapshot() Config { return c.cfg }
+func (c *fakeConfig) Snapshot() Config { return c.cfg }
 
 // fakeSessions is the in-process session seam: it records calls and returns
 // whatever the test configured. Real fork/undo behaviour is covered in
@@ -194,16 +194,26 @@ func (c *fakeClipboard) copied() string {
 	return c.text
 }
 
+// fakeRuntime is the module/context seam of the tests.
+type fakeRuntime struct {
+	modules []ModuleInfo
+	info    ContextInfo
+	err     error
+}
+
+func (r *fakeRuntime) Modules(context.Context) ([]ModuleInfo, error) { return r.modules, r.err }
+func (r *fakeRuntime) Context(context.Context) (ContextInfo, error)  { return r.info, r.err }
+
 // testHost builds a complete host over the package fakes.
 func testHost(clk Clock, runner Runner, cfg ConfigSource) *Host {
-	return &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: &fakeSessions{}, Clipboard: &fakeClipboard{}}
+	return &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: &fakeSessions{}, Runtime: &fakeRuntime{}, Clipboard: &fakeClipboard{}}
 }
 
 // newTestApp assembles a model over the fakes.
 func newTestApp(t *testing.T) (*Model, *fakeClock, *fakeRunner) {
 	t.Helper()
 	clk, runner := newFakeClock(), &fakeRunner{}
-	m, err := NewApp("sess-1", testHost(clk, runner, fakeConfig{cfg: Config{Model: "fake/model"}}))
+	m, err := NewApp("sess-1", testHost(clk, runner, &fakeConfig{cfg: Config{Model: "fake/model"}}))
 	if err != nil {
 		t.Fatalf("NewApp: %v", err)
 	}
@@ -215,7 +225,7 @@ func newTestApp(t *testing.T) (*Model, *fakeClock, *fakeRunner) {
 func TestNewAppRejectsIncompleteHost(t *testing.T) {
 	t.Parallel()
 	clk, runner := newFakeClock(), &fakeRunner{}
-	cfg := fakeConfig{cfg: Config{Model: "fake/model"}}
+	cfg := &fakeConfig{cfg: Config{Model: "fake/model"}}
 	base := testHost(clk, runner, cfg)
 	cases := []struct {
 		name    string
@@ -223,11 +233,12 @@ func TestNewAppRejectsIncompleteHost(t *testing.T) {
 		host    *Host
 	}{
 		{"empty session", "", base},
-		{"no clock", "sess-1", &Host{Runner: runner, Config: cfg, Sessions: base.Sessions, Clipboard: base.Clipboard}},
-		{"no runner", "sess-1", &Host{Clock: clk, Config: cfg, Sessions: base.Sessions, Clipboard: base.Clipboard}},
-		{"no config", "sess-1", &Host{Clock: clk, Runner: runner, Sessions: base.Sessions, Clipboard: base.Clipboard}},
-		{"no sessions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Clipboard: base.Clipboard}},
-		{"no clipboard", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions}},
+		{"no clock", "sess-1", &Host{Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Clipboard: base.Clipboard}},
+		{"no runner", "sess-1", &Host{Clock: clk, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Clipboard: base.Clipboard}},
+		{"no config", "sess-1", &Host{Clock: clk, Runner: runner, Sessions: base.Sessions, Runtime: base.Runtime, Clipboard: base.Clipboard}},
+		{"no sessions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Runtime: base.Runtime, Clipboard: base.Clipboard}},
+		{"no runtime", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Clipboard: base.Clipboard}},
+		{"no clipboard", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

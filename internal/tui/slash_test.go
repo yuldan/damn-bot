@@ -26,7 +26,7 @@ func TestParseSlash(t *testing.T) {
 		{"/undo", true, slashUndo, "/undo", nil},
 		{"/plan", true, slashPlan, "/plan", nil},
 		{"  /plan  ", true, slashPlan, "/plan", nil},
-		{"/theme", true, slashUnknown, "/theme", nil},
+		{"/voice", true, slashUnknown, "/voice", nil},
 		{"/", true, slashUnknown, "/", nil},
 		{"hello /plan", false, 0, "", nil},
 		{"/plan\nmore", false, 0, "", nil},
@@ -72,7 +72,7 @@ func (r *captureRunner) input() Input {
 func newSlashApp(t *testing.T) (*Model, *fakeSessions, *captureRunner) {
 	t.Helper()
 	clk, runner := newFakeClock(), &captureRunner{}
-	host := testHost(clk, runner, fakeConfig{cfg: Config{Model: "fake/model"}})
+	host := testHost(clk, runner, &fakeConfig{cfg: Config{Model: "fake/model"}})
 	m, err := NewApp("sess-1", host)
 	if err != nil {
 		t.Fatalf("NewApp: %v", err)
@@ -155,7 +155,7 @@ func TestSlashRejections(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"/rewind", "usage: /rewind"},
 		{"/undo 3", "usage: /undo"},
-		{"/theme", "unknown command /theme"},
+		{"/voice", "unknown command /voice"},
 	}
 	for _, tc := range cases {
 		m.input.SetValue(tc.in)
