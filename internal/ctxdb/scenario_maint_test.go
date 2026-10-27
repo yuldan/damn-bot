@@ -408,32 +408,48 @@ func s051(t *testing.T) {
 	appendMsg(t, s, "S", "after SIGCONT") // reattach, lease still ours
 }
 
-// #57: an old binary starting during a migration blocks on the open order
-// and then refuses with schema_newer.
+// #57: an old binary opening during the migration window refuses with
+// schema_newer instead of waiting for, retrying, or undoing the ladder.
+//
+// The scenario is built to be order-independent and deterministic: it never
+// relies on the old binary racing the writer (that window made the outcome
+// depend on scheduler timing and could read a half-recorded
+// schema_migrations). The new binary holds the migration barrier, applies the
+// whole ladder transaction by transaction (1..N, the same versions the
+// production ladder records), and only then does the old binary open while the
+// barrier is still held: user_version is newer than its schema max, so the
+// refusal must be immediate.
 func s057(t *testing.T) {
 	e := newRawEnv(t)
-	o0 := e.openOld(1, "tui")
-	must(t, o0.Close())
-	b, err := AcquireBarrier(context.Background(), e.dir, *e.ident(9), reasonMigrate, 30, time.Second)
+	ctx := context.Background()
+	migs, err := migrations()
 	must(t, err)
-	res := make(chan error, 1)
-	go func() {
-		o := e.opts(2, "tui")
-		o.SchemaMax = 7
-		s, ierr := Open(context.Background(), &o)
-		if ierr == nil {
-			ierr = s.Close()
+	b, err := AcquireBarrier(ctx, e.dir, *e.ident(9), reasonMigrate, len(migs), 5*time.Second)
+	must(t, err)
+	t.Cleanup(func() {
+		if rerr := b.Release(); rerr != nil {
+			t.Errorf("release migration barrier: %v", rerr)
 		}
-		res <- ierr
-	}()
+	})
 	mig, err := newStore(new(e.opts(9, "tui")))
 	must(t, err)
-	mig.w, mig.r, err = mig.openHandles(context.Background())
+	mig.w, mig.r, err = mig.openHandles(ctx)
 	must(t, err)
-	must(t, mig.applyMigration(context.Background(), len(mig.migs), mig.migs[len(mig.migs)-1]))
+	for i := range mig.migs {
+		must(t, mig.applyMigration(ctx, i+1, mig.migs[i]))
+	}
 	must(t, errors.Join(mig.detach(), mig.closeRoot()))
-	must(t, b.Release())
-	wantErr(t, <-res, ErrSchemaNewer)
+	o := e.opts(2, "tui")
+	o.SchemaMax = 7
+	started := time.Now()
+	old, oerr := Open(ctx, &o)
+	if oerr == nil {
+		oerr = old.Close()
+	}
+	wantErr(t, oerr, ErrSchemaNewer)
+	if waited := time.Since(started); waited > 2*time.Second {
+		t.Fatalf("old open took %v while the barrier was held; schema_newer must not wait for the migration", waited)
+	}
 }
 
 // #58: package upgrade: new TUI migrates while only the old serve runs;
