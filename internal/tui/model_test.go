@@ -117,10 +117,10 @@ func TestSmokeUpdateView(t *testing.T) {
 	t.Parallel()
 	m, clk, runner := newTestApp(t)
 	if cmd := m.Init(); cmd != nil {
-		t.Fatalf("Init returned a command; T0 must not start I/O")
+		t.Fatalf("Init returned a command; the first frame does no work")
 	}
 	if n := runner.prompts.Load(); n != 0 {
-		t.Fatalf("Init started %d turns; T0 must not call Runner.Prompt", n)
+		t.Fatalf("Init started %d turns", n)
 	}
 
 	at := clk.Now()

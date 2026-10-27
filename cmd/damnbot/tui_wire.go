@@ -1,0 +1,195 @@
+// TUI composition seam (T1): loop stream, clock, and lazy session opening.
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"sync"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/damnbot/damnbot/internal/boundary"
+	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/loop"
+	"github.com/damnbot/damnbot/internal/loop/event"
+	"github.com/damnbot/damnbot/internal/redact"
+	"github.com/damnbot/damnbot/internal/tui"
+)
+
+// runTUI is the bare `damnbot` surface: config and the session id are the only
+// work before the first frame.
+func runTUI([]string) int {
+	o := &runOptions{sessionOrigin: "tui", approvalOrigin: loop.OriginTUI}
+	cfg, dataDir, configDir, home, err := loadRunEnv(o)
+	if err != nil {
+		return tuiFail(err)
+	}
+	sid, err := newSessionID()
+	if err != nil {
+		return tuiFail(err)
+	}
+	o.newSessionID = sid
+	r := newTUIRunner(&tuiDeps{
+		cfg: &cfg, dataDir: dataDir, configDir: configDir, home: home,
+		modelRef: cfg.Provider.Model, opts: o, red: redact.New(redact.Options{}),
+	})
+	app, err := tui.NewApp(sid, tui.Host{Clock: r, Runner: r, Config: r})
+	if err == nil {
+		_, err = tea.NewProgram(app).Run()
+	}
+	if cerr := r.Close(); cerr != nil {
+		err = errors.Join(err, fmt.Errorf("close: %w", cerr))
+	}
+	if err != nil {
+		return tuiFail(err)
+	}
+	return 0
+}
+
+func tuiFail(err error) int {
+	if _, werr := fmt.Fprintf(os.Stderr, "tui: %s\n", cleanLine(err.Error())); werr != nil {
+		return 2
+	}
+	return 2
+}
+
+type tuiDeps struct {
+	cfg       *config.Config
+	dataDir   string
+	configDir string
+	home      string
+	modelRef  string
+	opts      *runOptions
+	red       *redact.Redactor
+	now       func() time.Time
+}
+
+// tuiRunner is the Runner, Clock, and ConfigSource over the lazy loop.
+type tuiRunner struct {
+	ensureMu sync.Mutex
+	mu       sync.Mutex
+	deps     tuiDeps
+	model    *runModel
+	loop     *loop.Loop
+}
+
+// newTUIRunner injects the same clock into loop.Config.Now (E-72).
+func newTUIRunner(d *tuiDeps) *tuiRunner {
+	d.now = time.Now
+	return &tuiRunner{deps: *d}
+}
+
+func (r *tuiRunner) Now() time.Time { return r.deps.now() }
+
+func (r *tuiRunner) Snapshot() tui.Config { return tui.Config{Model: r.deps.modelRef} }
+
+func (r *tuiRunner) Prompt(ctx context.Context, sid string, in tui.Input) (<-chan tui.Update, error) {
+	model, err := r.ensure(ctx)
+	if err != nil {
+		return nil, err
+	}
+	opts := *r.deps.opts
+	opts.prompt = in.Text
+	opts.now = r.deps.now
+	eng, err := newTurnEngine(ctx, r.deps.cfg, &opts, model, r.deps.modelRef, r.deps.red, model.spill)
+	if err != nil {
+		return nil, err
+	}
+	eng.disp.BeginTurn()
+	if xerr := applyPromptRefs(ctx, eng.disp, &opts, model); xerr != nil {
+		return nil, xerr
+	}
+	r.mu.Lock()
+	r.loop = eng.loop
+	r.mu.Unlock()
+	stream, err := eng.loop.Prompt(ctx, sid, loop.Input{Text: opts.prompt, PlanMode: in.PlanMode})
+	if err != nil {
+		return nil, fmt.Errorf("tui prompt: %w", err)
+	}
+	out := make(chan tui.Update, 16)
+	_ = boundary.Go(ctx, "tui.pump", func(ctx context.Context) error {
+		pumpUpdates(ctx, stream, out, r.deps.now)
+		return nil
+	})
+	return out, nil
+}
+
+func (r *tuiRunner) Cancel(sid string) {
+	r.mu.Lock()
+	lp := r.loop
+	r.mu.Unlock()
+	if lp != nil {
+		lp.Cancel(sid)
+	}
+}
+
+func (r *tuiRunner) Active(sid string) bool {
+	r.mu.Lock()
+	lp := r.loop
+	r.mu.Unlock()
+	return lp != nil && lp.Active(sid)
+}
+
+func (r *tuiRunner) Close() error {
+	r.ensureMu.Lock()
+	defer r.ensureMu.Unlock()
+	r.mu.Lock()
+	model := r.model
+	r.model, r.loop = nil, nil
+	r.mu.Unlock()
+	if model == nil {
+		return nil
+	}
+	return model.close(context.Background())
+}
+
+func (r *tuiRunner) ensure(ctx context.Context) (*runModel, error) {
+	r.ensureMu.Lock()
+	defer r.ensureMu.Unlock()
+	r.mu.Lock()
+	model := r.model
+	r.mu.Unlock()
+	if model != nil {
+		return model, nil
+	}
+	codec, err := runCodec(ctx, r.deps.cfg, r.deps.dataDir, r.deps.configDir)
+	if err != nil {
+		return nil, err
+	}
+	model, err = startRunModel(ctx, r.deps.cfg, r.deps.dataDir, r.deps.modelRef, r.deps.opts, r.deps.red, r.deps.configDir, r.deps.home, codec)
+	if err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	r.model = model
+	r.mu.Unlock()
+	return model, nil
+}
+
+func pumpUpdates(ctx context.Context, in <-chan event.Update, out chan<- tui.Update, now func() time.Time) {
+	defer close(out)
+	for u := range in {
+		select {
+		case out <- translateUpdate(&u, now()):
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func translateUpdate(u *event.Update, at time.Time) tui.Update {
+	out := tui.Update{
+		Kind: tui.Kind(u.Kind), Text: u.Text, ToolCallID: u.ToolCallID,
+		ToolName: u.ToolName, Status: u.Status, Stop: tui.StopReason(u.Stop),
+		Detail: tui.StopDetail(u.Detail), Err: u.Err, At: at,
+	}
+	if u.Usage != nil {
+		out.Usage = &tui.Usage{
+			Input: u.Usage.Input, CachedInput: u.Usage.CachedInput,
+			Output: u.Usage.Output, CostUSD: u.Usage.CostUSD, Iterations: u.Usage.Iterations,
+		}
+	}
+	return out
+}

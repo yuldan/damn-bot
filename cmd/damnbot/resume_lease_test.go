@@ -28,7 +28,7 @@ func TestResumeReleasesLeaseOnStartFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sid, _, err := newRunSession(ctx, db, "openai/gpt-fake")
+	sid, _, err := newRunSession(ctx, db, "openai/gpt-fake", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestCloseRunDBReleasesLease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sid, _, sErr := newRunSession(ctx, db, "openai/gpt-fake")
+	sid, _, sErr := newRunSession(ctx, db, "openai/gpt-fake", "", "")
 	if sErr != nil {
 		t.Fatal(sErr)
 	}

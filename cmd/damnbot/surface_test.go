@@ -215,13 +215,15 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
-// TestGlobalFlagRejectsWhenNoCommand: a global flag alone is a usage error,
-// not a silent success.
-func TestGlobalFlagRejectsWhenNoCommand(t *testing.T) {
+// TestGlobalFlagAloneOpensTUI: a valid global flag alone is the interactive
+// surface in that profile, the same as a bare invocation.
+func TestGlobalFlagAloneOpensTUI(t *testing.T) {
 	t.Parallel()
-	code, out, errOut := runArgs(t, "--profile", "work")
-	if code != 2 || out != "" || errOut == "" {
-		t.Fatalf("--profile alone = (%d, %q, %q), want usage error", code, out, errOut)
+	var out, errOut bytes.Buffer
+	calls := 0
+	open := func([]string) int { calls++; return 0 }
+	if code := runWith([]string{"--profile", "work"}, &out, &errOut, open); code != 0 || calls != 1 {
+		t.Fatalf("--profile alone = (%d, calls=%d, %q), want the TUI", code, calls, errOut.String())
 	}
 	if code, _, _ := runArgs(t, "--profile", "Bad Name", "version"); code != 2 {
 		t.Errorf("invalid profile: exit = %d, want 2", code)

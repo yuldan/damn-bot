@@ -14,7 +14,7 @@ import (
 // ends.
 func runSession(ctx context.Context, db *ctxdb.Store, modelRef string, o *runOptions) (sid, cwd, storedModel string, err error) {
 	if o.session == "" && !o.cont {
-		sid, cwd, err = newRunSession(ctx, db, modelRef)
+		sid, cwd, err = newRunSession(ctx, db, modelRef, o.newSessionID, o.sessionOrigin)
 		return sid, cwd, modelRef, err
 	}
 	sid, cwd, storedModel, err = resumeTarget(ctx, db, o)
