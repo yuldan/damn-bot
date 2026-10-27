@@ -54,8 +54,8 @@ func TestSkillViewQuarantined(t *testing.T) {
 	res := e.Run("list and view a quarantined skill")
 	res.RequireOK(t)
 	req := e.RequestText(t, 1)
-	if !strings.Contains(req, "0 skills:") || strings.Contains(req, "- pending:") {
-		t.Errorf("skills_list did not exclude the quarantined skill:\n%s", req)
+	if !strings.Contains(req, "- code-review:") || strings.Contains(req, "- pending:") {
+		t.Errorf("skills_list did not exclude the quarantined skill or lacks the bundled control:\n%s", req)
 	}
 	if view := e.RequestText(t, 2); strings.Contains(view, "PENDING-BODY") || !strings.Contains(view, "not approved or does not exist") {
 		t.Errorf("skill_view leaked a quarantined skill:\n%s", view)
@@ -235,8 +235,8 @@ func TestImportedSkillQuarantined(t *testing.T) {
 	res := e.Run("list the available skills")
 	res.RequireOK(t)
 	req := e.RequestText(t, 1)
-	if !strings.Contains(req, "0 skills:") {
-		t.Errorf("skills_list did not report an empty approved catalog:\n%s", req)
+	if !strings.Contains(req, "- code-review:") {
+		t.Errorf("skills_list lacks the bundled positive control:\n%s", req)
 	}
 	if strings.Contains(req, "proj-skill") || strings.Contains(req, "IMPORTED-BODY") {
 		t.Errorf("an unapproved imported skill reached the model:\n%s", req)

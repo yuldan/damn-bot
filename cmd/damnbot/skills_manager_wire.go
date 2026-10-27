@@ -77,6 +77,20 @@ func (s skillStore) Status(ctx context.Context, memoryID int64) (skills.Status, 
 	return skills.Status(st), err
 }
 
+// ByName returns one approved skill by exact name for the bundled sync. It
+// deliberately does not apply the host-availability filter: a stored skill
+// that is currently unavailable must still block an overwrite.
+func (s skillStore) ByName(ctx context.Context, name string) (skills.Skill, bool, error) {
+	row, found, err := skillstore.ByName(ctx, s.db, name)
+	if err != nil {
+		return skills.Skill{}, false, fmt.Errorf("skill lookup: %w", err)
+	}
+	if !found {
+		return skills.Skill{}, false, nil
+	}
+	return skillFromRow(&row), true, nil
+}
+
 // skillRow maps one parsed skill to its index row, storing the host
 // requirement so read paths never parse SKILL.md again (ADR-208).
 func skillRow(sk *skills.Skill) (*skillstore.Row, error) {
@@ -150,6 +164,12 @@ func newSkillManager(ctx context.Context, db *ctxdb.Store, dataDir, configDir st
 	})
 	if err != nil {
 		return nil, fmt.Errorf("skills: %w", err)
+	}
+	// SKILL-016: copy the embedded builtin corpus into <config>/skills and
+	// index it through Service.Install. The sync is idempotent and skips a
+	// skill the user (or a previous run) changed instead of overwriting it.
+	if _, serr := svc.SyncBundled(ctx, skills.BundledFS(), userDir); serr != nil {
+		return nil, fmt.Errorf("skills: sync bundled: %w", serr)
 	}
 	m := &skillManager{db: db, svc: svc, dir: dir, userDir: userDir, host: skillHost()}
 	m.materializeApproved(ctx)
