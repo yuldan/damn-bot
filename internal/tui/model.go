@@ -25,7 +25,11 @@ type StreamMsg struct {
 
 type streamReadyMsg struct{ ch <-chan Update }
 
-type streamDoneMsg struct{}
+// streamBatchMsg is one 33 ms window of translated updates (SPEC §13.1).
+type streamBatchMsg struct {
+	updates []Update
+	done    bool
+}
 
 type promptFailedMsg struct{ err error }
 
@@ -80,16 +84,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case StreamMsg:
 		m.apply(&msg.Update)
-		if m.stream == nil {
-			return m, nil
-		}
-		return m, waitUpdate(m.stream)
+		return m, nil
 	case streamReadyMsg:
 		m.stream = msg.ch
-		return m, waitUpdate(msg.ch)
-	case streamDoneMsg:
-		m.finishTurn()
-		return m, nil
+		return m, readBatch(msg.ch, true)
+	case streamBatchMsg:
+		for i := range msg.updates {
+			m.apply(&msg.updates[i])
+		}
+		if msg.done {
+			m.finishTurn()
+			return m, nil
+		}
+		return m, readBatch(m.stream, false)
 	case promptFailedMsg:
 		m.appendBlock(&Block{Kind: BlockNotice, Text: "error: " + msg.err.Error(), At: m.host.Clock.Now()})
 		m.finishTurn()
@@ -112,14 +119,35 @@ func (m *Model) finishTurn() {
 	m.cancel, m.stream, m.busy = nil, nil, false
 }
 
-// waitUpdate delivers one stream update; a closed channel ends the turn.
-func waitUpdate(ch <-chan Update) tea.Cmd {
+// streamWindow is the SPEC §13.1 streaming batch window: deltas are folded
+// once per window, never per token.
+const streamWindow = 33 * time.Millisecond
+
+// readBatch delivers the first update immediately (P17) and then collects
+// every update inside one window. A closed channel ends the turn.
+func readBatch(ch <-chan Update, immediate bool) tea.Cmd {
 	return func() tea.Msg {
-		u, ok := <-ch
+		first, ok := <-ch
 		if !ok {
-			return streamDoneMsg{}
+			return streamBatchMsg{done: true}
 		}
-		return StreamMsg{Update: u}
+		batch := []Update{first}
+		if immediate {
+			return streamBatchMsg{updates: batch}
+		}
+		timer := time.NewTimer(streamWindow)
+		defer timer.Stop()
+		for {
+			select {
+			case u, ok := <-ch:
+				if !ok {
+					return streamBatchMsg{updates: batch, done: true}
+				}
+				batch = append(batch, u)
+			case <-timer.C:
+				return streamBatchMsg{updates: batch}
+			}
+		}
 	}
 }
 
@@ -235,12 +263,14 @@ func (m *Model) apply(u *Update) {
 	switch u.Kind {
 	case KindTextDelta:
 		m.appendText(u)
-	case KindToolCallStart, KindToolCallArgs:
-		m.upsertTool(u)
+	case KindToolCallStart:
+		m.startTool(u)
+	case KindToolCallArgs:
+		m.toolArgs(u)
 	case KindToolCallEnd:
-		m.setTool(u, "called")
+		m.toolEnd(u)
 	case KindToolResult:
-		m.setTool(u, u.Status)
+		m.toolResult(u)
 	case KindUsage:
 		m.applyUsage(u)
 	case KindNotice:
@@ -261,31 +291,59 @@ func (m *Model) appendText(u *Update) {
 	m.appendBlock(&Block{Kind: BlockAssistant, Text: u.Text, At: u.At})
 }
 
-// upsertTool creates or extends the tool block of one call.
-func (m *Model) upsertTool(u *Update) {
+// ensureTool returns the tool block of one call, creating it on first sight.
+func (m *Model) ensureTool(u *Update) int {
 	if i := m.toolIndex(u.ToolCallID); i >= 0 {
 		if u.ToolName != "" {
 			m.blocks[i].ToolName = u.ToolName
 		}
-		m.blocks[i].Text += u.Text
-		return
+		if s := statusHint(u.Status); s != "" {
+			m.blocks[i].Status = s
+		}
+		return i
 	}
 	m.appendBlock(&Block{
-		Kind: BlockTool, Text: u.Text, ToolName: u.ToolName,
-		ToolCallID: u.ToolCallID, At: u.At,
+		Kind: BlockTool, ToolName: u.ToolName, ToolCallID: u.ToolCallID,
+		Status: ToolRunning, At: u.At,
 	})
+	return len(m.blocks) - 1
 }
 
-// setTool records the terminal status and final text of one tool call.
-func (m *Model) setTool(u *Update, status string) {
-	i := m.toolIndex(u.ToolCallID)
-	if i < 0 {
-		m.upsertTool(u)
-		i = m.toolIndex(u.ToolCallID)
-	}
-	m.blocks[i].Status = status
+// startTool opens a call; toolArgs appends its streamed JSON arguments.
+func (m *Model) startTool(u *Update) { m.ensureTool(u) }
+
+func (m *Model) toolArgs(u *Update) {
+	i := m.ensureTool(u)
+	m.blocks[i].Args += u.Text
+}
+
+// toolEnd records the assembled arguments of one call.
+func (m *Model) toolEnd(u *Update) {
+	i := m.ensureTool(u)
 	if u.Text != "" {
-		m.blocks[i].Text = u.Text
+		m.blocks[i].Args = u.Text
+	}
+}
+
+// toolResult folds the R1 attributes of a finished call (SPEC §13.1):
+// status, tag, duration, size, spill, exit code, and undo action.
+func (m *Model) toolResult(u *Update) {
+	i := m.ensureTool(u)
+	b := &m.blocks[i]
+	b.Text = u.Text
+	b.Status = normalizeStatus(u.Status, u.Text)
+	b.Tag = parseTag(u.Text)
+	b.Spill, b.SpillSize = parseSpill(u.Text)
+	b.ExitCode = parseExit(u.Text)
+	b.Size = len([]rune(u.Text))
+	if b.SpillSize > 0 {
+		b.Size = b.SpillSize
+	}
+	if u.ActionID != 0 {
+		b.ActionID = u.ActionID
+	}
+	if u.At.After(b.At) {
+		b.Duration = u.At.Sub(b.At)
 	}
 }
 
@@ -414,10 +472,7 @@ func renderBlock(b *Block) string {
 	case BlockAssistant:
 		return prefix + b.Text
 	case BlockTool:
-		if b.Status != "" {
-			return fmt.Sprintf("%stool %s [%s] %s", prefix, b.ToolName, b.Status, b.Text)
-		}
-		return fmt.Sprintf("%stool %s %s", prefix, b.ToolName, b.Text)
+		return prefix + renderToolBlock(b)
 	case BlockNotice:
 		return prefix + "! " + b.Text
 	default:

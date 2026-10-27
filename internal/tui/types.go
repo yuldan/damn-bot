@@ -38,7 +38,9 @@ type Usage struct {
 
 // Update is one item of the loop stream in TUI terms. The composition root
 // translates loop/event.Update into this type; At carries the loop clock
-// stamp of the update (never a wall-clock read inside the TUI).
+// stamp of the update (never a wall-clock read inside the TUI). ActionID is
+// the journal action anchored on the call when the composition root resolves
+// one (0 = not undoable).
 type Update struct {
 	Kind       Kind
 	Text       string
@@ -49,6 +51,7 @@ type Update struct {
 	Detail     StopDetail
 	Usage      *Usage
 	Err        string
+	ActionID   int64
 	At         time.Time
 }
 
@@ -63,13 +66,36 @@ const (
 	BlockNotice    BlockKind = "notice"
 )
 
-// Block is one transcript entry the chat panel renders.
+// ToolStatus is the normalized display state of a tool block: SPEC §13.1's
+// ✓/✗/…/⏸ vocabulary.
+type ToolStatus string
+
+// Tool statuses.
+const (
+	ToolRunning ToolStatus = "running" // … dispatched, no result yet
+	ToolOK      ToolStatus = "ok"      // ✓
+	ToolFailed  ToolStatus = "failed"  // ✗
+	ToolPending ToolStatus = "pending" // ⏸ awaiting approval
+)
+
+// Block is one transcript entry the chat panel renders. The tool block keeps
+// every R1 attribute (SPEC §13.1) as structured data; the plain renderer is
+// the only place that turns them into text, so the theme/virtualisation
+// tracks replace rendering, not this model.
 type Block struct {
 	Kind       BlockKind
-	Text       string
+	Text       string // assistant text, tool result, or notice
 	ToolName   string
 	ToolCallID string
-	Status     string
+	Args       string // raw JSON arguments as streamed
+	Tag        string // CODE-TOOLS content tag (8 hex chars, no '#')
+	Status     ToolStatus
+	Duration   time.Duration
+	Size       int    // result characters (full size when spilled)
+	Spill      string // blob path from the result marker
+	SpillSize  int    // full result characters when spilled
+	ActionID   int64  // journal action, 0 = not undoable
+	ExitCode   *int   // shell exit code when the result carries one
 	At         time.Time
 }
 

@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/damnbot/damnbot/internal/boundary"
 	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/redact"
@@ -110,7 +111,9 @@ func (r *tuiRunner) Prompt(ctx context.Context, sid string, in tui.Input) (<-cha
 	}
 	out := make(chan tui.Update, 16)
 	_ = boundary.Go(ctx, "tui.pump", func(ctx context.Context) error {
-		pumpUpdates(ctx, stream, out, r.deps.now)
+		pumpUpdates(ctx, stream, out, r.deps.now, func(callID string) int64 {
+			return toolActionID(ctx, model.db, sid, callID)
+		})
 		return nil
 	})
 	return out, nil
@@ -168,15 +171,38 @@ func (r *tuiRunner) ensure(ctx context.Context) (*runModel, error) {
 	return model, nil
 }
 
-func pumpUpdates(ctx context.Context, in <-chan event.Update, out chan<- tui.Update, now func() time.Time) {
+func pumpUpdates(ctx context.Context, in <-chan event.Update, out chan<- tui.Update, now func() time.Time, action func(string) int64) {
 	defer close(out)
 	for u := range in {
+		up := translateUpdate(&u, now())
+		if up.Kind == tui.KindToolResult {
+			up.ActionID = action(up.ToolCallID)
+		}
 		select {
-		case out <- translateUpdate(&u, now()):
+		case out <- up:
 		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+// toolActionID resolves the journal action anchored on a tool call, so the
+// block can render ↶ <action-id> (SPEC §13.1). Absent (not journaled, read
+// tools, or a closed store) is 0, which renders no undo marker.
+func toolActionID(ctx context.Context, db *ctxdb.Store, sid, callID string) int64 {
+	if callID == "" {
+		return 0
+	}
+	var id int64
+	err := db.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT a.id FROM actions a JOIN events e ON e.id = a.event_id
+			WHERE e.session_id = ?1 AND e.tool_call_id = ?2 ORDER BY a.id DESC LIMIT 1`,
+			[]any{sid, callID}, &id)
+	})
+	if err != nil {
+		return 0
+	}
+	return id
 }
 
 func translateUpdate(u *event.Update, at time.Time) tui.Update {
