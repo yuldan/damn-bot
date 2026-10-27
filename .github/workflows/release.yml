@@ -54,16 +54,22 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          RELEASE_PUBKEY: ${{ vars.DAMNBOT_RELEASE_PUBKEY }}
         run: |
           set -euo pipefail
           if [ -n "$(git status --porcelain)" ]; then
             echo "REPRODUCIBLE GAGAL: pohon tidak bersih"; exit 1
           fi
-          version=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/_}
+          if [ -z "$RELEASE_PUBKEY" ]; then
+            echo "REPRODUCIBLE GAGAL: repository variable DAMNBOT_RELEASE_PUBKEY kosong"; exit 1
+          fi
+          version=${GITHUB_REF_NAME#v}
+          file_version=${version//[^A-Za-z0-9._-]/_}
+          ldflags="-s -w -X main.version=$version -X github.com/damnbot/damnbot/internal/update.version=$RELEASE_PUBKEY"
           exe=damnbot
           suffix=
           if [ "$GOOS" = windows ]; then exe=damnbot.exe; suffix=.exe; fi
-          name="damnbot_${version}_${GOOS}_${GOARCH}${suffix}"
+          name="damnbot_${file_version}_${GOOS}_${GOARCH}${suffix}"
           epoch=$(git log -1 --format=%ct)
           # Build di luar pohon repo: direktori keluaran di dalam repo akan tampak sebagai
           # untracked oleh git dan membuat -buildvcs menstempel vcs.modified=true.
@@ -72,7 +78,7 @@ jobs:
           mkdir -p "$build" "$out"
           for pass in a b; do
             GOCACHE="$RUNNER_TEMP/gocache-$pass" SOURCE_DATE_EPOCH="$epoch" \
-              go build -trimpath -buildvcs=true -tags goolm -ldflags="-s -w" \
+              go build -trimpath -buildvcs=true -tags goolm -ldflags="$ldflags" \
                 -o "$build/$exe.$pass" ./cmd/damnbot
           done
           if ! cmp -s "$build/$exe.a" "$build/$exe.b"; then
@@ -100,10 +106,12 @@ jobs:
           retention-days: 7
 
   assemble:
-    name: sums, tanda tangan, verifikasi
+    name: sums, manifest, tanda tangan, Release
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -139,8 +147,69 @@ jobs:
         env:
           DAMNBOT_RELEASE_PUBKEY: ${{ vars.DAMNBOT_RELEASE_PUBKEY }}
         run: scripts/verify-release.sh --dir dist
+      - name: release.json (manifest bertanda tangan)
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#v}
+          channel=stable
+          if [[ "$version" == *-* ]]; then channel=beta; fi
+          awk 'BEGIN { on = 0 } /^## Unreleased/ { on = 1; next } on && /^## / { exit } on { print }' \
+            CHANGELOG.md >"$RUNNER_TEMP/changelog.md"
+          if [ ! -s "$RUNNER_TEMP/changelog.md" ]; then
+            echo "MANIFEST GAGAL: CHANGELOG Unreleased kosong"; exit 1
+          fi
+          assets=$(
+            for f in dist/damnbot_*; do
+              name=${f#dist/}
+              case "$name" in *.sbom.txt) continue ;; esac
+              if [[ "$name" =~ ^damnbot_(.+)_(linux|darwin|windows)_(amd64|arm64)(\.exe)?$ ]]; then
+                file_version=${BASH_REMATCH[1]}
+                os=${BASH_REMATCH[2]}
+                arch=${BASH_REMATCH[3]}
+              else
+                echo "MANIFEST GAGAL: asset tak dikenal $name"; exit 1
+              fi
+              if [ "$file_version" != "${version//[^A-Za-z0-9._-]/_}" ]; then
+                echo "MANIFEST GAGAL: versi asset $file_version tidak cocok tag $version"; exit 1
+              fi
+              sha=$(sha256sum "$f" | cut -d' ' -f1)
+              jq -n --arg os "$os" --arg arch "$arch" --arg name "$name" --arg sha256 "$sha" \
+                '{os:$os,arch:$arch,name:$name,sha256:$sha256}'
+            done | jq -s 'sort_by(.name)'
+          )
+          jq -n --argjson schema 1 --arg channel "$channel" --arg version "$version" \
+            --arg commit "$(git rev-parse HEAD)" --arg published_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --rawfile changelog "$RUNNER_TEMP/changelog.md" --argjson assets "$assets" \
+            '{schema:$schema,channel:$channel,version:$version,commit:$commit,published_at:$published_at,changelog:$changelog,assets:$assets}' \
+            | jq -S . >dist/release.json
+      - name: Tanda tangan release.json (fail-closed)
+        env:
+          DAMNBOT_RELEASE_KEY: ${{ secrets.DAMNBOT_RELEASE_KEY }}
+          DAMNBOT_RELEASE_PASSPHRASE: ${{ secrets.DAMNBOT_RELEASE_PASSPHRASE }}
+          DAMNBOT_RELEASE_FILE: ${{ github.workspace }}/dist/release.json
+        run: (cd tools && go test -run '^TestSignReleaseFile$' -count=1 ./release)
+      - name: Verifikasi release.json + SHA256SUMS (fail-closed)
+        env:
+          DAMNBOT_RELEASE_PUBKEY: ${{ vars.DAMNBOT_RELEASE_PUBKEY }}
+          DAMNBOT_RELEASE_MANIFEST: ${{ github.workspace }}/dist/release.json
+          DAMNBOT_RELEASE_MANIFEST_SIG: ${{ github.workspace }}/dist/release.json.sig
+        run: go test ./internal/update -run '^TestVerifyReleaseManifestFile$' -count=1
       - name: Ringkasan
         run: cat dist/SHA256SUMS >>"$GITHUB_STEP_SUMMARY"
+      - name: Publikasikan GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          prerelease=()
+          if [[ "$tag" == *-* ]]; then prerelease=(--prerelease); fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/* --clobber
+          else
+            gh release create "$tag" --title "$tag" --notes-file "$RUNNER_TEMP/changelog.md" \
+              "${prerelease[@]}" dist/*
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-dist

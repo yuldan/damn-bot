@@ -1,6 +1,6 @@
 # Allowlist require langsung go.mod utama (ENGINEERING §4.4 E-45/E-48, ADR-033/034).
 # Berubah hanya bersama docs/DECISIONS.md (adrgate). Diverifikasi TestDirectDeps.
-# runtime (24)
+# runtime (25)
 modernc.org/sqlite
 github.com/BurntSushi/toml
 github.com/atotto/clipboard

@@ -37,6 +37,7 @@
 /internal/secret/ @yuldan
 /internal/skills/ @yuldan
 /internal/testutil/ @yuldan
+/internal/update/ @yuldan
 /internal/integration/ @yuldan
 /internal/e2e/ @yuldan
 /internal/tools/ @yuldan

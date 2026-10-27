@@ -213,6 +213,7 @@ flowchart TD
         HOST["modules/host"]
         DB["ctxdb"]
         CFG["config"]
+        UPD["update"]
         NET["netx (+ netx/jsonrpc, netx/retry)"]
     end
     subgraph LEAF["Leaf"]
@@ -255,6 +256,8 @@ flowchart TD
     REG --> BND
     HOST --> SCH
     HOST --> EV
+    CFG --> UPD
+    UPD --> NET
     PROV --> NET
     PROV --> PREG
     PROV --> SCH

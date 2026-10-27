@@ -36,6 +36,7 @@ func TestConfigAllSpec12Keys(t *testing.T) { //nolint:gocyclo // one assertion p
 		"[sessions]", "auto_prune = true", "prune_after_days = 30",
 		"[storage]", "encrypt = true",
 		"[toolsets]", `active = ["coding"]`,
+		"[update]", `feed_url = "https://example.test/releases"`, `channel = "beta"`, "auto_install = true",
 		"[gateway]", "max_parallel_turns = 8",
 		"[gateway.users.\"telegram:123\"]", `workspace = "/srv/ws"`,
 		"[[providers.custom]]", `name = "kantor"`, `base_url = "http://10.0.0.5:8000/v1"`,

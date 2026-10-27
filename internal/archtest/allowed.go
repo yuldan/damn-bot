@@ -77,7 +77,8 @@ func allowedImports() map[string][]string {
 		"internal/ctxdb/carrierstore": storeImports(),
 		"internal/ctxdb/compactstore": append(storeImports(), "internal/compaction", "internal/ctxdb/ledgerstore"),
 		"internal/ctxdb/gwstore":      storeImports(),
-		"internal/config":             {"internal/schema", "internal/toolset"},
+		"internal/config":             {"internal/schema", "internal/toolset", "internal/update"},
+		"internal/update":             {"internal/netx"},
 		"internal/toolset":            nil, // pure composition data (ADR-139): no internal deps
 		"internal/netx":               {"internal/netx/jsonrpc", "internal/netx/retry", "internal/redact"},
 		"internal/netx/jsonrpc":       {"internal/netx", "internal/netx/retry", "internal/redact"},
@@ -94,7 +95,7 @@ func allowedImports() map[string][]string {
 
 		// Test arsitektur dan helper test (lihat testOnlyPackages).
 		"internal/archtest":              nil,
-		"internal/e2e":                   {"internal/budget", "internal/ctxdb", "internal/ctxdb/journalstore", "internal/ctxdb/ledgerstore", "internal/ctxdb/skillstore", "internal/journal", "internal/loop/event", "internal/secret"},
+		"internal/e2e":                   {"internal/budget", "internal/ctxdb", "internal/ctxdb/journalstore", "internal/ctxdb/ledgerstore", "internal/ctxdb/skillstore", "internal/journal", "internal/loop/event", "internal/netx", "internal/secret"},
 		"internal/integration":           {"internal/ctxdb", "internal/ctxdb/memstore", "internal/ctxdb/compactstore", "internal/ctxdb/skillstore", "internal/ctxdb/carrierstore", "internal/compaction", "internal/backup", "internal/secret", "internal/redact", "internal/loop/event"},
 		"internal/testutil/timing":       nil,
 		"internal/testutil/phase":        nil,

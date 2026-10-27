@@ -31,6 +31,7 @@ func (c *Config) Validate() error {
 		c.validateProviders,
 		c.validateLog,
 		c.validateToolsets,
+		c.Update.Validate,
 	}
 	for _, check := range checks {
 		if err := check(); err != nil {
