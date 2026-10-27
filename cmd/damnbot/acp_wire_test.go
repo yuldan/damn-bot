@@ -112,7 +112,7 @@ func golden(t *testing.T, name, input string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != string(want) {
+	if got != strings.ReplaceAll(string(want), "\r\n", "\n") {
 		t.Fatalf("golden %s mismatch\ngot:\n%s\nwant:\n%s", name, got, want)
 	}
 }
