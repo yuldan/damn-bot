@@ -31,6 +31,10 @@ type PolicyContext struct {
 	Tainted          bool
 	WorkspaceTrusted bool
 	Cwd              string
+	// PlanMode restricts execution to reads and shell commands that match an
+	// exact shell_allow entry and carry the classifier's non_mutating label
+	// (SPEC §18.3, ADR-079 butir 11, ADR-203).
+	PlanMode bool
 }
 
 // Approval origins (SPEC §18.2, ADR-202). The value names the surface that
@@ -71,6 +75,10 @@ type PolicyDecision struct {
 	Preview      string   // model-facing preview (SPEC §18.2); may be empty
 	Class        string   // audit label ("read", "write", "shell:destructive", …)
 	AllowSession bool     // false for shell and P26 (ADR-088)
+	// PlanAllowed is set only by a shell decision that matched an exact
+	// shell_allow entry and was labelled non_mutating. The central plan gate
+	// accepts a non-read effect only when this is true (ADR-203).
+	PlanAllowed bool
 }
 
 // Inspector is implemented by tools whose policy depends on the arguments.
@@ -84,6 +92,9 @@ type Inspector interface {
 func defaultPolicy(effect Effect, pc PolicyContext) PolicyDecision {
 	if effect == EffectRead {
 		return PolicyDecision{Requirement: RequireAuto, Class: "read"}
+	}
+	if pc.PlanMode {
+		return PolicyDecision{Requirement: RequireDeny, Class: "plan_mode"}
 	}
 	switch pc.Mode {
 	case ModeAutoEdit, ModeAuto, ModeHeadlessAuto:

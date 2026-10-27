@@ -106,6 +106,7 @@ type fakeToolset struct {
 	mu       sync.Mutex
 	stubs    map[string]*toolStub
 	prepared []ToolCall
+	planOpts []PrepareOptions
 	ran      []Prepared
 }
 
@@ -125,6 +126,15 @@ func (f *fakeToolset) Prepare(ctx context.Context, c ToolCall) (Prepared, error)
 		return s.prepare(ctx, c)
 	}
 	return Prepared{Call: c, Effect: EffectRead, Approval: ApprovalNone, Subject: "s"}, nil
+}
+
+// PreparePlan makes the fake plan-aware: it records the options and reuses
+// the same stubs, so a test can vary Effect/PlanAllowed per tool.
+func (f *fakeToolset) PreparePlan(ctx context.Context, c ToolCall, opts PrepareOptions) (Prepared, error) {
+	f.mu.Lock()
+	f.planOpts = append(f.planOpts, opts)
+	f.mu.Unlock()
+	return f.Prepare(ctx, c)
 }
 
 func (f *fakeToolset) Dispatch(ctx context.Context, p *Prepared) (ToolResult, error) {

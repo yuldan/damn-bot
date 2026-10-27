@@ -116,6 +116,8 @@ func (a *approverRec) requests() []ApprovalRequest {
 // dispatchCall drives the split API the way the loop does: Prepare once,
 // then DispatchPrepared. Approval tests use Dispatcher.Dispatch (approval
 // layer) instead.
+//
+//nolint:gocritic // Call is a value carrier with a fixed public shape (ADR-203 added PlanMode)
 func dispatchCall(ctx context.Context, d *Dispatcher, call Call) Outcome {
 	p, err := d.Prepare(ctx, call)
 	if err != nil {

@@ -84,6 +84,9 @@ type Call struct {
 	CallID string
 	Name   string
 	Args   json.RawMessage
+	// PlanMode carries the turn's plan-mode state into preparation and
+	// dispatch so a bare caller cannot run around the plan gate (ADR-203).
+	PlanMode bool
 }
 
 // Outcome is the rendered result of one Dispatch. Render produces the exact
@@ -227,6 +230,8 @@ type Prepared struct {
 // Prepare runs steps 1–6 (lookup, strict JSON/schema, effect, sandbox,
 // taint gate, Inspector policy) and returns the classification. It never
 // consults the approver, writes the journal or runs the tool.
+//
+//nolint:gocritic // Call is a value carrier with a fixed public shape (ADR-203 added PlanMode)
 func (d *Dispatcher) Prepare(ctx context.Context, call Call) (Prepared, error) {
 	var p Prepared
 	err := boundary.Run(ctx, "tools.prepare", func(ctx context.Context) error {
@@ -240,6 +245,7 @@ func (d *Dispatcher) Prepare(ctx context.Context, call Call) (Prepared, error) {
 	return p, nil
 }
 
+//nolint:gocritic // Call is a value carrier with a fixed public shape (ADR-203 added PlanMode)
 func (d *Dispatcher) prepare(ctx context.Context, call Call) (Prepared, error) {
 	if err := ctx.Err(); err != nil {
 		return Prepared{}, &ToolError{Code: CodeTimeout, Message: "call cancelled", Err: err}
@@ -251,14 +257,31 @@ func (d *Dispatcher) prepare(ctx context.Context, call Call) (Prepared, error) {
 		}
 		call = inner
 	}
+	// Plan mode must not activate a module for a call it will deny (F-1):
+	// decide from the catalog's declared effect before classifyCall reaches
+	// deferredEntry -> Runtime.Ensure.
+	if call.PlanMode {
+		if p, handled, err := d.planDeferredDeny(&call); handled {
+			return p, err
+		}
+	}
 	entry, args, effect, fail := d.classifyCall(ctx, call)
 	if fail != nil {
 		return Prepared{}, fail.Err
 	}
-	pc := PolicyContext{Mode: d.mode, Tainted: d.tainted.Load(), WorkspaceTrusted: d.trusted, Cwd: d.cwd}
+	pc := PolicyContext{Mode: d.mode, Tainted: d.tainted.Load(), WorkspaceTrusted: d.trusted, Cwd: d.cwd, PlanMode: call.PlanMode}
 	decision, perr := d.policy(ctx, entry, Env{TurnID: call.TurnID, CallID: call.CallID, Cwd: d.cwd}, args, pc, effect)
 	if perr != nil {
 		return Prepared{}, closedError(perr)
+	}
+	// The central plan gate: an Inspector can never widen plan mode by
+	// returning auto. Only an exact shell_allow + non_mutating decision
+	// carries PlanAllowed (ADR-203).
+	if pc.PlanMode && effect != EffectRead && !decision.PlanAllowed {
+		decision = PolicyDecision{
+			Requirement: RequireDeny, Class: "plan_mode",
+			Paths: decision.Paths, Preview: decision.Preview,
+		}
 	}
 	decision = d.taintGate(decision, effect, pc)
 	ensurePreview(call.Name, args, effect, &decision)
@@ -316,6 +339,8 @@ func (d *Dispatcher) dispatchPrepared(ctx context.Context, p *Prepared) Outcome 
 
 // prepare runs steps 1–4: lookup, duplicate guard, schema validation and
 // the effect class.
+//
+//nolint:gocritic // Call is a value carrier with a fixed public shape (ADR-203 added PlanMode)
 func (d *Dispatcher) classifyCall(ctx context.Context, call Call) (*Entry, json.RawMessage, Effect, *Outcome) {
 	entry, ok := d.reg.Lookup(call.Name)
 	if !ok {
@@ -566,6 +591,8 @@ func (d *Dispatcher) spillResult(ctx context.Context, content string, meta map[s
 
 // record appends the tool_result journal row. A failure here cannot undo a
 // completed side effect; it is surfaced in Meta for the terminal turn.
+//
+//nolint:gocritic // Call is a value carrier with a fixed public shape (ADR-203 added PlanMode)
 func (d *Dispatcher) record(ctx context.Context, call Call, out *Outcome) {
 	ok := out.Err == nil
 	code := Code("")
@@ -702,6 +729,8 @@ func quote(s string) string { return `"` + s + `"` }
 // Dispatch is the standalone convenience for frontends that delegate
 // approval to the dispatcher: Prepare once, approve, then DispatchPrepared.
 // The loop uses Prepare + its own Approver + DispatchPrepared instead.
+//
+//nolint:gocritic // Call is a value carrier with a fixed public shape (ADR-203 added PlanMode)
 func (d *Dispatcher) Dispatch(ctx context.Context, call Call) Outcome {
 	p, err := d.Prepare(ctx, call)
 	if err != nil {
