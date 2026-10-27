@@ -14,8 +14,8 @@ func TestRun(t *testing.T) {
 		wantOut  string
 	}{
 		{name: "version", args: []string{"-version"}, wantCode: 0, wantOut: "damnbot dev\n"},
-		{name: "no_args", args: nil, wantCode: 2, wantOut: ""},
 		{name: "unknown_flag", args: []string{"-nope"}, wantCode: 2, wantOut: ""},
+		{name: "stray_arg", args: []string{"nope"}, wantCode: 2, wantOut: ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -28,6 +28,33 @@ func TestRun(t *testing.T) {
 				t.Fatalf("stdout = %q, want %q", out.String(), tc.wantOut)
 			}
 		})
+	}
+}
+
+// TestBareRunOpensTUI: no argument opens the interactive surface instead of
+// the usage screen, while every flag path stays in the CLI.
+func TestBareRunOpensTUI(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	open := func(args []string) int {
+		calls++
+		if len(args) != 0 {
+			t.Errorf("TUI got args %q", args)
+		}
+		return 0
+	}
+	var out, errOut bytes.Buffer
+	if got := runWith(nil, &out, &errOut, open); got != 0 {
+		t.Fatalf("bare run exit = %d, stderr=%q", got, errOut.String())
+	}
+	if calls != 1 {
+		t.Fatalf("TUI opened %d times, want 1", calls)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("bare run wrote stdout %q", out.String())
+	}
+	if got := runWith([]string{"-version"}, &out, &errOut, open); got != 0 || calls != 1 {
+		t.Fatalf("-version: exit=%d calls=%d", got, calls)
 	}
 }
 

@@ -52,6 +52,12 @@ func dispatchCommand(args []string, stdout, stderr io.Writer) (code int, ok bool
 // diparse sebelum dispatch, lalu help/`--help`/`<cmd> --help` dilayani dari
 // registry permukaan sebelum perintah melihat argumennya.
 func run(args []string, stdout, stderr io.Writer) int {
+	return runWith(args, stdout, stderr, runTUI)
+}
+
+// runWith is run with an injectable interactive surface, so tests exercise the
+// dispatch matrix without starting a terminal program.
+func runWith(args []string, stdout, stderr io.Writer, openTUI func([]string) int) int {
 	g, rest, err := parseGlobalArgs(args)
 	if err != nil {
 		if _, werr := fmt.Fprintf(stderr, "damnbot: %s\n", cleanLine(err.Error())); werr != nil {
@@ -63,7 +69,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if code, ok := surfaceOrCommand(rest, stdout, stderr); ok {
 		return code
 	}
-	return rootFlags(rest, stdout, stderr)
+	return rootFlags(rest, stdout, stderr, openTUI)
 }
 
 // surfaceOrCommand melayani bentuk help dari registry lalu dispatch perintah;
@@ -86,9 +92,10 @@ func surfaceOrCommand(args []string, stdout, stderr io.Writer) (int, bool) {
 	return dispatchCommand(args, stdout, stderr)
 }
 
-// rootFlags parses the root flags (`-version`, `-verbose`) and falls back to
-// the usage screen when no command was named.
-func rootFlags(args []string, stdout, stderr io.Writer) int {
+// rootFlags parses the root flags (`-version`, `-verbose`). Bare `damnbot`
+// opens the interactive TUI; any other unflagged argument keeps the usage
+// screen so typos never start a full-screen program.
+func rootFlags(args []string, stdout, stderr io.Writer, openTUI func([]string) int) int {
 	fs := flag.NewFlagSet("damnbot", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "tampilkan versi lalu keluar")
@@ -104,6 +111,9 @@ func rootFlags(args []string, stdout, stderr io.Writer) int {
 			return printEngine(stdout)
 		}
 		return 0
+	}
+	if len(args) == 0 {
+		return openTUI(args)
 	}
 	fs.Usage()
 	return 2

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 )
 
 // routeChat is the default screen name.
@@ -25,16 +26,22 @@ func routes() []routeEntry {
 	}
 }
 
-// keyMap is the base keymap. Screens extend it with their own bindings.
+// keyMap is the base keymap; screens extend it.
 type keyMap struct {
 	Quit       key.Binding
+	Cancel     key.Binding
+	Send       key.Binding
+	Newline    key.Binding
 	NextScreen key.Binding
 }
 
-// newKeyMap builds the base bindings.
+// newKeyMap builds the SPEC §13.1 bindings.
 func newKeyMap() keyMap {
 	return keyMap{
-		Quit:       key.NewBinding(key.WithKeys("ctrl+c", "esc"), key.WithHelp("ctrl+c", "quit")),
+		Quit:       key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit")),
+		Cancel:     key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+		Send:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
+		Newline:    key.NewBinding(key.WithKeys("ctrl+j"), key.WithHelp("ctrl+j", "newline")),
 		NextScreen: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next")),
 	}
 }
@@ -54,7 +61,19 @@ func NewApp(sessionID string, host Host) (*Model, error) {
 		keys:      newKeyMap(),
 		styles:    newStyles(),
 		sessionID: sessionID,
+		input:     newInput(),
 	}
 	m.setRoute(routes()[0])
 	return m, nil
+}
+
+// newInput builds the prompt line. It performs no I/O (P12).
+func newInput() textinput.Model {
+	in := textinput.New()
+	in.Prompt = "> "
+	in.Placeholder = "ask damnbot"
+	// The virtual cursor's blink timer would outlive the program (goleak).
+	in.SetVirtualCursor(false)
+	in.Focus()
+	return in
 }

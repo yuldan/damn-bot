@@ -29,7 +29,6 @@ import (
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
-	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/registry"
@@ -62,6 +61,13 @@ type runOptions struct {
 	prov         loop.Provider
 	cfgOverride  *config.Config
 	retrieverFor func(*ctxdb.Store) assemble.Retriever
+	// surface seams: the TUI opens its session lazily with a pre-generated id
+	// and records its own origin (SPEC §11.2), and shares one clock with the
+	// loop so update stamps and turn timestamps come from the same timeline.
+	newSessionID   string
+	sessionOrigin  string
+	approvalOrigin string
+	now            func() time.Time
 	// validate is --answer-schema compiled (SPEC §7.2); nil = no schema.
 	validate func(string) error
 	cwd      string // override for the session cwd/sandbox root (tests, eval)
@@ -264,75 +270,15 @@ func newRunAssembler(cfg *config.Config, red *redact.Redactor) (*assemble.Assemb
 }
 
 func runTurn(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef string, red *redact.Redactor, spill tools.Spill, stdout io.Writer) (int, error) {
-	asm, turn, err := newRunAssembler(cfg, red)
+	eng, err := newTurnEngine(ctx, cfg, o, model, modelRef, red, spill)
 	if err != nil {
 		return 0, err
 	}
-	win := runWindow(ctx, model, modelRef)
-	// The context tier is rendered once and frozen for the session (P15).
-	degraded := win > 0 && win < assemble.DegradedWindow
-	ctxIn := contextTierInput(ctx, model, o, degraded)
-	ctxTier, err := asm.Context(ctx, ctxIn)
-	if err != nil {
-		return 0, fmt.Errorf("assemble context: %w", err)
-	}
-	toolList, err := runTools(model.registry, model.toolsets.Allowed)
-	if err != nil {
-		return 0, err
-	}
-	comp, _, err := newRunCompactor(ctx, model, modelRef, asm, toolList, ctxTier.Text, red)
-	if err != nil {
-		return 0, err
-	}
-	disp, err := tools.NewDispatcher(&tools.Config{
-		Registry:         model.registry,
-		Journal:          loopTranscript{},
-		Spill:            spill,
-		Redactor:         red,
-		Mode:             approvalMode(o),
-		Deferred:         model.modules.deferred,
-		WorkspaceTrusted: model.trusted,
-		Cwd:              model.cwd,
-		// P5 amendment / GAP-COST-08: the turn inline aggregate scales with
-		// the route window and the session's char/token ratio.
-		WindowTokens:  model.inlineCap,
-		CharsPerToken: charsPerToken(o.prompt),
-	})
-	if err != nil {
-		return 0, fmt.Errorf("tools dispatcher: %w", err)
-	}
-	disp.BeginTurn()
-	compactAt, maxInline := 75, 0
-	if degraded {
-		compactAt, maxInline = 60, 2000 // PROV-02 degraded profile (SPEC §22.1)
-	}
-	lp, err := loop.New(&loop.Config{
-		MaxIterations:   cfg.Loop.MaxIterations,
-		MaxInputTokens:  int64(cfg.Loop.TurnMaxInputTok),
-		MaxOutputTokens: int64(cfg.Loop.TurnMaxOutputTok),
-		MaxWall:         time.Duration(cfg.Loop.MaxWallS) * time.Second,
-		MaxIdentical:    cfg.Loop.MaxIdentical,
-		ParallelTools:   cfg.Loop.ParallelTools,
-		CompactAt:       compactAt,
-		MaxInline:       maxInline,
-	}, &loop.Deps{
-		Provider:       model.provider,
-		Assembler:      &assemblerAdapter{asm: asm, turn: turn, tools: toolList, contextTier: ctxTier.Text, model: modelRef, maxTokens: cfg.Provider.MaxOutput, compactor: comp, window: win, store: model.store, markTainted: disp.MarkTainted, db: model.db, catalog: catalogGroups(modules.Default())},
-		Compactor:      comp,
-		Toolset:        &toolsetAdapter{disp: disp, allowed: model.toolsets.Allowed},
-		Store:          model.store,
-		Ledger:         model.ledger,
-		Carriers:       &ctxCarrierStore{db: model.db},
-		Redactor:       redactorAdapter{red: red},
-		ValidateAnswer: o.validate,
-	})
-	if err != nil {
-		return 0, fmt.Errorf("loop: %w", err)
-	}
-	if xerr := applyPromptRefs(ctx, disp, o, model); xerr != nil {
+	eng.disp.BeginTurn()
+	if xerr := applyPromptRefs(ctx, eng.disp, o, model); xerr != nil {
 		return 0, xerr
 	}
-	stream, err := lp.Prompt(ctx, model.sessionID, loop.Input{Text: o.prompt})
+	stream, err := eng.loop.Prompt(ctx, model.sessionID, loop.Input{Text: o.prompt})
 	if err != nil {
 		return 0, fmt.Errorf("prompt: %w", err)
 	}
@@ -487,16 +433,26 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	}, nil
 }
 
-// newRunSession creates the headless session row and returns its id and the
-// working directory it was created in.
-func newRunSession(ctx context.Context, db *ctxdb.Store, modelRef string) (sid, cwd string, err error) {
-	if sid, err = newSessionID(); err != nil {
-		return "", "", err
-	}
-	if cwd, err = os.Getwd(); err != nil {
+// newRunSession creates the run session row and returns its id and the working
+// directory it was created in. An empty origin is the headless default; the
+// TUI passes its pre-generated id and "tui" origin.
+func newRunSession(ctx context.Context, db *ctxdb.Store, modelRef, sid, origin string) (string, string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
 		return "", "", fmt.Errorf("getwd: %w", err)
 	}
-	_, err = db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "headless", Cwd: cwd, Model: modelRef, ConfigSHA: "f1"})
+	if sid != "" {
+		// A TUI retry after a failed lazy open must reuse its own row.
+		if _, _, xerr := sessionMeta(ctx, db, sid); xerr == nil {
+			return sid, cwd, nil
+		}
+	} else if sid, err = newSessionID(); err != nil {
+		return "", "", err
+	}
+	if origin == "" {
+		origin = "headless"
+	}
+	_, err = db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: origin, Cwd: cwd, Model: modelRef, ConfigSHA: "f1"})
 	if err != nil {
 		return "", "", fmt.Errorf("create session: %w", err)
 	}

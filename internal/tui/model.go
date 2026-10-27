@@ -7,11 +7,13 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -21,9 +23,13 @@ type StreamMsg struct {
 	Update Update
 }
 
-// Model is the root bubbletea model: router, transcript, and timestamps.
-// Update and View run on the UI goroutine; the model owns no locks because the
-// host seam is the only other party and it never touches Model state.
+type streamReadyMsg struct{ ch <-chan Update }
+
+type streamDoneMsg struct{}
+
+type promptFailedMsg struct{ err error }
+
+// Model is the root bubbletea model; Update and View run on the UI goroutine.
 type Model struct {
 	host      Host
 	keys      keyMap
@@ -37,6 +43,12 @@ type Model struct {
 	detail    StopDetail
 	width     int
 	height    int
+	// busy marks a turn between submit and the Runner closing its stream.
+	input  textinput.Model
+	draft  []string // completed lines of the current multi-line prompt
+	busy   bool
+	stream <-chan Update
+	cancel context.CancelFunc
 	// pendingAt is the newest Update.At folded in since the previous frame;
 	// renderedAt is the clock stamp of the last frame that carried one.
 	pendingAt  time.Time
@@ -60,8 +72,7 @@ func newStyles() styles {
 	}
 }
 
-// Init implements tea.Model. T0 starts no work: the lazy start policy (P12)
-// enters through the host seam in T1.
+// Init starts no work: the prompt was focused at assembly (P12).
 func (m *Model) Init() tea.Cmd { return nil }
 
 // Update implements tea.Model.
@@ -69,6 +80,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case StreamMsg:
 		m.apply(&msg.Update)
+		if m.stream == nil {
+			return m, nil
+		}
+		return m, waitUpdate(m.stream)
+	case streamReadyMsg:
+		m.stream = msg.ch
+		return m, waitUpdate(msg.ch)
+	case streamDoneMsg:
+		m.finishTurn()
+		return m, nil
+	case promptFailedMsg:
+		m.appendBlock(&Block{Kind: BlockNotice, Text: "error: " + msg.err.Error(), At: m.host.Clock.Now()})
+		m.finishTurn()
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -81,33 +105,116 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// handleKey dispatches the T0 keymap.
+func (m *Model) finishTurn() {
+	if m.cancel != nil {
+		m.cancel()
+	}
+	m.cancel, m.stream, m.busy = nil, nil, false
+}
+
+// waitUpdate delivers one stream update; a closed channel ends the turn.
+func waitUpdate(ch <-chan Update) tea.Cmd {
+	return func() tea.Msg {
+		u, ok := <-ch
+		if !ok {
+			return streamDoneMsg{}
+		}
+		return StreamMsg{Update: u}
+	}
+}
+
+// handleKey dispatches ctrl+c quit, esc cancel, enter submit, ctrl+j newline.
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	switch {
 	case key.Matches(msg, m.keys.Quit):
+		m.abortTurn()
 		return tea.Quit
+	case key.Matches(msg, m.keys.Send):
+		return m.submit()
+	case key.Matches(msg, m.keys.Cancel):
+		if m.busy {
+			m.abortTurn()
+		} else {
+			m.draft = nil
+			m.input.SetValue("")
+		}
+		return nil
+	case key.Matches(msg, m.keys.Newline):
+		m.draft = append(m.draft, m.input.Value())
+		m.input.SetValue("")
+		return nil
 	case key.Matches(msg, m.keys.NextScreen):
 		m.nextRoute()
+		return nil
 	}
-	return nil
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return cmd
 }
 
-// View implements tea.Model. It stamps renderedAt for every update folded in
-// since the previous frame: the timestamp contract asserts renderedAt >= At
-// and stream ordering, never a wall-clock delta in the normal suite.
+// abortTurn cancels through its context before the loop starts, otherwise
+// through Runner.Cancel (SPEC §4.2).
+func (m *Model) abortTurn() {
+	if !m.busy {
+		return
+	}
+	if m.host.Runner.Active(m.sessionID) {
+		m.host.Runner.Cancel(m.sessionID)
+		return
+	}
+	if m.cancel != nil {
+		m.cancel()
+	}
+}
+
+func (m *Model) inputArea() string {
+	lines := make([]string, 0, len(m.draft)+1)
+	for _, line := range m.draft {
+		lines = append(lines, "> "+line)
+	}
+	return strings.Join(append(lines, m.input.View()), "\n")
+}
+
+// submit starts one turn; Prompt runs in a command (lazy host wiring).
+func (m *Model) submit() tea.Cmd {
+	if m.busy {
+		return nil
+	}
+	text := strings.TrimSpace(strings.Join(append(m.draft, m.input.Value()), "\n"))
+	if text == "" {
+		return nil
+	}
+	m.draft = nil
+	m.input.SetValue("")
+	m.stop, m.detail = "", ""
+	m.busy = true
+	m.appendBlock(&Block{Kind: BlockUser, Text: text, At: m.host.Clock.Now()})
+	ctx, cancel := context.WithCancel(context.Background())
+	m.cancel = cancel
+	runner, sid := m.host.Runner, m.sessionID
+	return func() tea.Msg {
+		ch, err := runner.Prompt(ctx, sid, Input{Text: text})
+		if err != nil {
+			return promptFailedMsg{err: err}
+		}
+		return streamReadyMsg{ch: ch}
+	}
+}
+
+// View stamps renderedAt for every update folded in since the last frame.
 func (m *Model) View() tea.View {
 	m.stampFrame()
-	parts := []string{m.header(), m.clip(m.panel.body(m)), m.footer()}
+	parts := []string{m.header(), m.clip(m.panel.body(m)), m.inputArea(), m.footer()}
 	return tea.NewView(strings.Join(parts, "\n"))
 }
 
-// clip bounds the transcript to the terminal height so a long turn cannot push
-// the header and footer off screen. Virtualised rendering replaces this in R2.
+// clip bounds the transcript so the header, input, and footer stay visible.
 func (m *Model) clip(body string) string {
-	if m.height <= 2 {
+	reserved := 3 + len(m.draft)
+	if m.height <= reserved {
 		return body
 	}
-	return lipgloss.NewStyle().MaxHeight(m.height - 2).Render(body)
+	return lipgloss.NewStyle().MaxHeight(m.height - reserved).Render(body)
 }
 
 // stampFrame commits the draw time of the pending updates. A second View with
@@ -230,7 +337,15 @@ func (m *Model) header() string {
 
 // footer renders the key hints and the turn state.
 func (m *Model) footer() string {
-	parts := []string{m.keys.Quit.Help().Key + " quit", m.keys.NextScreen.Help().Key + " next"}
+	parts := []string{
+		m.keys.Send.Help().Key + " send",
+		m.keys.Newline.Help().Key + " newline",
+		m.keys.Cancel.Help().Key + " cancel",
+		m.keys.Quit.Help().Key + " quit",
+	}
+	if m.busy {
+		parts = append(parts, "running")
+	}
 	if m.usage.Iterations > 0 {
 		parts = append(parts, fmt.Sprintf("iter %d", m.usage.Iterations))
 	}
@@ -287,21 +402,25 @@ func (chatPanel) body(m *Model) string {
 	return b.String()
 }
 
-// renderBlock formats one transcript block.
+// renderBlock formats one block with its loop clock stamp (T1).
 func renderBlock(b *Block) string {
+	prefix := ""
+	if !b.At.IsZero() {
+		prefix = b.At.Format("15:04:05") + " "
+	}
 	switch b.Kind {
 	case BlockUser:
-		return "you> " + b.Text
+		return prefix + "you> " + b.Text
 	case BlockAssistant:
-		return b.Text
+		return prefix + b.Text
 	case BlockTool:
 		if b.Status != "" {
-			return fmt.Sprintf("tool %s [%s] %s", b.ToolName, b.Status, b.Text)
+			return fmt.Sprintf("%stool %s [%s] %s", prefix, b.ToolName, b.Status, b.Text)
 		}
-		return fmt.Sprintf("tool %s %s", b.ToolName, b.Text)
+		return fmt.Sprintf("%stool %s %s", prefix, b.ToolName, b.Text)
 	case BlockNotice:
-		return "! " + b.Text
+		return prefix + "! " + b.Text
 	default:
-		return b.Text
+		return prefix + b.Text
 	}
 }
