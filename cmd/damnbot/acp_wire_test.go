@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,7 +32,28 @@ func (fakeACPRunner) Prompt(context.Context, string, tui.Input) (<-chan tui.Upda
 func (fakeACPRunner) Cancel(string) {}
 func (fakeACPRunner) Close() error  { return nil }
 
-func fakeServer(t *testing.T, out *bytes.Buffer) *acpServer {
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, err := s.b.Write(p)
+	if err != nil {
+		return n, fmt.Errorf("buffer: %w", err)
+	}
+	return n, nil
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+func fakeServer(t *testing.T, out io.Writer) *acpServer {
 	t.Helper()
 	cfg := config.Default()
 	cfg.Provider.Model = "openai/gpt-test"
@@ -141,8 +165,8 @@ func TestACPMethodsSupported(t *testing.T) {
 }
 
 func TestACPPermissionMapping(t *testing.T) {
-	var out bytes.Buffer
-	srv := fakeServer(t, &out)
+	out := &syncBuffer{}
+	srv := fakeServer(t, out)
 	cfg := srv.cfg
 	cfg.Approval.PreviewTimeoutS = 5
 	srv.cfg = cfg
@@ -152,7 +176,7 @@ func TestACPPermissionMapping(t *testing.T) {
 			Tool: "write_file", Preview: "diff", Origin: "acp", Effect: "write", Args: `{}`, NoSession: true,
 		})
 	}()
-	waitForLine(t, &out)
+	waitForLine(t, out)
 	if !srv.routeResponse([]byte(`{"jsonrpc":"2.0","id":"perm-1","result":{"outcome":{"outcome":"selected","optionId":"allow_once"}}}`)) {
 		t.Fatal("permission response not routed")
 	}
@@ -162,8 +186,8 @@ func TestACPPermissionMapping(t *testing.T) {
 }
 
 func TestACPPermissionTimeoutDenies(t *testing.T) {
-	var out bytes.Buffer
-	srv := fakeServer(t, &out)
+	out := &syncBuffer{}
+	srv := fakeServer(t, out)
 	srv.cfg.Approval.PreviewTimeoutS = 1
 	reply := make(chan tui.ApprovalDecision, 1)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
@@ -195,7 +219,7 @@ func mustDecision(b *approvalBridge) tui.ApprovalDecision {
 	return d
 }
 
-func waitForLine(t *testing.T, out *bytes.Buffer) {
+func waitForLine(t *testing.T, out interface{ String() string }) {
 	t.Helper()
 	for range 100 {
 		if strings.Contains(out.String(), "session/request_permission") {
