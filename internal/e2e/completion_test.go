@@ -25,7 +25,7 @@ func TestCompletionScripts(t *testing.T) {
 		t.Fatal(err)
 	}
 	sourced := exec.CommandContext(t.Context(), "bash", script) // #nosec G204 -- script is this test's own temp file
-	sourced.Env = append(os.Environ(), "PATH="+filepath.Dir(binPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	sourced.Env = append(os.Environ(), "PATH="+filepath.Dir(binPaths.main)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	out, err := sourced.CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "sessions") || !strings.Contains(string(out), "setup") {
 		t.Fatalf("sourced completion = %v %q", err, out)

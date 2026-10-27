@@ -24,8 +24,8 @@ import (
 
 const modelRef = "openai/gpt-fake"
 
-// binPath is built once per test run by TestMain.
-var binPath string //nolint:gochecknoglobals // one binary for the package's child processes
+// binPaths are built once per test run by TestMain.
+var binPaths struct{ main, secret string } //nolint:gochecknoglobals // binaries for the package's child processes
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "damnbot-e2e-bin-")
@@ -37,18 +37,30 @@ func TestMain(m *testing.M) {
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	binPath = filepath.Join(dir, name)
+	binPaths.main = filepath.Join(dir, name)
 	root, err := moduleRoot()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "e2e:", err)
 		os.Exit(1) //nolint:forbidigo // TestMain owns the test process exit
 	}
-	build := exec.CommandContext(context.Background(), "go", "build", "-tags", "goolm", "-o", binPath, "./cmd/damnbot") //nolint:gosec // fixed tool, fixture path
+	build := exec.CommandContext(context.Background(), "go", "build", "-tags", "goolm", "-o", binPaths.main, "./cmd/damnbot") //nolint:gosec // fixed tool, fixture path
 	build.Dir = root
 	if out, berr := build.CombinedOutput(); berr != nil {
 		fmt.Fprintf(os.Stderr, "e2e: build damnbot: %v\n%s\n", berr, out)
 		os.Exit(1) //nolint:forbidigo // TestMain owns the test process exit
 	}
+	secretName := "damnbot-secret"
+	if runtime.GOOS == "windows" {
+		secretName += ".exe"
+	}
+	secretPath := filepath.Join(dir, secretName)
+	secretBuild := exec.CommandContext(context.Background(), "go", "build", "-tags", "goolm,secrettest", "-o", secretPath, "./cmd/damnbot") // #nosec G204 -- fixed go tool, fixture path
+	secretBuild.Dir = root
+	if out, berr := secretBuild.CombinedOutput(); berr != nil {
+		fmt.Fprintf(os.Stderr, "e2e: build damnbot-secret: %v\n%s\n", berr, out)
+		os.Exit(1) //nolint:forbidigo // TestMain owns the test process exit
+	}
+	binPaths.secret = secretPath
 	code := m.Run()
 	if rerr := os.RemoveAll(dir); rerr != nil && code == 0 {
 		fmt.Fprintln(os.Stderr, "e2e: remove temp bin:", rerr)
@@ -189,7 +201,7 @@ func (e *Env) execEnv(stdin io.Reader, env []string, args ...string) Result {
 	e.t.Helper()
 	ctx, cancel := context.WithTimeout(e.t.Context(), 120*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binPath, args...) //nolint:gosec // binary path is this package's temp build
+	cmd := exec.CommandContext(ctx, binPaths.main, args...) //nolint:gosec // binary path is this package's temp build
 	cmd.Dir = e.Workdir
 	cmd.Stdin = stdin
 	// HOME/XDG are what the Unix loaders read; Windows resolves its config and
