@@ -4,22 +4,22 @@
    "clean": {
     "method": "go build -tags goolm ./cmd/damnbot with empty GOCACHE; source from git archive HEAD",
     "samples_s": [
-     28.34602424,
-     28.484658215,
-     27.612930427
+     30.789705886,
+     31.523286788,
+     30.08550199
     ],
-    "p50_s": 28.34602424,
-    "p95_s": 28.484658215
+    "p50_s": 30.789705886,
+    "p95_s": 31.523286788
    },
    "incremental": {
     "method": "same tree, append one comment to internal/loop/loop.go, rebuild with the clean build's GOCACHE",
     "samples_s": [
-     1.7056939230000001,
-     1.638987349,
-     1.6435659089999999
+     1.8912892079999999,
+     1.721933972,
+     1.9148837300000001
     ],
-    "p50_s": 1.6435659089999999,
-    "p95_s": 1.7056939230000001
+    "p50_s": 1.8912892079999999,
+    "p95_s": 1.9148837300000001
    }
   },
   "error_informatif": {
@@ -95,29 +95,29 @@
    "token": "F3TOKEN",
    "runs": 20,
    "samples_ms": [
-    14.437,
-    17.806,
-    10.675,
-    7.27,
-    10.735,
-    7.434,
-    10.548,
-    16.115,
-    11.401,
-    5.987,
-    5.229,
-    7.66,
-    7.137,
-    8.929,
-    11.786,
-    7.261,
-    17.261,
-    13.122,
-    13.523,
-    7.155
+    9.665,
+    14.942,
+    10.169,
+    8.476,
+    15.973,
+    3.827,
+    16.162,
+    7.342,
+    14.093,
+    6.954,
+    8.522,
+    5.903,
+    13.282,
+    11.212,
+    12.443,
+    7.782,
+    8.674,
+    3.859,
+    14.278,
+    12.104
    ],
-   "p50_ms": 10.548,
-   "p95_ms": 17.261
+   "p50_ms": 9.665,
+   "p95_ms": 15.973
   }
  },
  "hermes": "unavailable",
@@ -135,14 +135,14 @@
  },
  "meta": {
   "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
-  "damnbot_commit": "dc5ba37cef",
+  "damnbot_commit": "cea393d2cb",
   "damnbot_dirty": 0,
-  "date": "2026-10-27T20:58:50Z",
+  "date": "2026-10-27T23:03:06Z",
   "go": "go1.26.10",
   "harness": "bench/f3/run.sh: cmd/f3measure (PTY + fake OpenAI SSE + go build timing)",
   "host_note": "workstation measurement, not the Q14 reference machine",
   "kernel": "Linux 6.8.0-147-generic",
-  "loadavg": "4.45 5.57 3.31 4/521 1408825",
+  "loadavg": "2.78 1.89 2.52 5/554 1559240",
   "phase": "F3"
  }
 }
