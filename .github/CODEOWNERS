@@ -24,6 +24,7 @@
 /internal/loop/ @yuldan
 /internal/modules/ @yuldan
 /internal/memory/ @yuldan
+/internal/importer/ @yuldan
 /internal/exec/ @yuldan
 /internal/exec/classify/ @yuldan
 /internal/netx/ @yuldan
