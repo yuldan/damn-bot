@@ -4,7 +4,6 @@ package exec
 
 import (
 	"bytes"
-	"errors"
 	"os"
 	"strconv"
 )
@@ -13,21 +12,15 @@ import (
 // that no longer runs (crash, kill -9): the "sweep on the next start" of
 // §A.4. The composition root calls it once at startup. Markers of live
 // owners — another damnbot instance — are left alone; a recycled owner
-// pid only makes the sweep skip (safe direction).
+// pid only makes the sweep skip (safe direction). It returns only after the
+// quiet observation of killMarked, so the killed processes are gone from the
+// scan when it returns (the startup cost is sweepQuiet).
 func SweepStale() (int, error) {
 	self := os.Getpid()
-	pids, err := markerPids(func(v []byte) bool {
+	_, killed, err := killMarked(func(v []byte) bool {
 		owner, ok := ownerPid(v)
 		return ok && owner != self && !processAlive(owner)
-	})
-	killed := 0
-	for _, pid := range pids {
-		if kerr := killPid(pid); kerr != nil {
-			err = errors.Join(err, kerr)
-			continue
-		}
-		killed++
-	}
+	}, true)
 	return killed, err
 }
 
