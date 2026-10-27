@@ -54,7 +54,7 @@ func (e surfaceEntry) Status() string {
 func surface() []surfaceEntry {
 	return []surfaceEntry{
 		{Name: "run", Summary: "Run one headless turn", Phase: phaseF1, Run: runHeadless, Usage: runUsage},
-		{Name: "acp", Summary: "ACP server on stdio", Phase: phaseF3},
+		{Name: "acp", Summary: "ACP server on stdio", Phase: phaseF3, Run: runACP, Usage: acpUsage},
 		{Name: "serve", Summary: "Daemon: web UI, API, gateway, cron", Phase: phaseF4},
 		{Name: "service", Summary: "systemd/launchd/Windows service unit", Phase: phaseF4},
 		{Name: "setup", Summary: "Setup wizard, credentials, uninstall", Phase: phaseF3},
