@@ -12,14 +12,15 @@ import (
 // Source names one enumerated input.
 type Source string
 
-// The five imported sources plus the secret references they need.
+// Sources enumerated by the importer.
 const (
-	SourceConfig  Source = "config"
-	SourceSkills  Source = "skills"
-	SourceMemory  Source = "memory"
-	SourceMCP     Source = "mcp"
-	SourceCron    Source = "cron"
-	SourceSecrets Source = "secrets"
+	SourceConfig   Source = "config"
+	SourceSkills   Source = "skills"
+	SourceMemory   Source = "memory"
+	SourceMCP      Source = "mcp"
+	SourceCron     Source = "cron"
+	SourceSecrets  Source = "secrets"
+	SourceSessions Source = "sessions"
 )
 
 // Skip is one source item that was not imported, with the reason it was not.
@@ -47,13 +48,14 @@ type SourceReport struct {
 
 // Report is the result of one [Importer.Import] run.
 type Report struct {
-	Config  SourceReport
-	Skills  SourceReport
-	Memory  SourceReport
-	MCP     SourceReport
-	Cron    SourceReport
-	Secrets SourceReport
-	Clamps  []Clamp
+	Config   SourceReport
+	Skills   SourceReport
+	Memory   SourceReport
+	MCP      SourceReport
+	Cron     SourceReport
+	Secrets  SourceReport
+	Sessions SourceReport
+	Clamps   []Clamp
 }
 
 // Total returns the number of enumerated items across every source.
@@ -80,7 +82,7 @@ func (r *Report) Coverage() float64 {
 }
 
 func (r *Report) sum(f func(SourceReport) int) int {
-	return f(r.Config) + f(r.Skills) + f(r.Memory) + f(r.MCP) + f(r.Cron) + f(r.Secrets)
+	return f(r.Config) + f(r.Skills) + f(r.Memory) + f(r.MCP) + f(r.Cron) + f(r.Secrets) + f(r.Sessions)
 }
 
 // source returns the report block for s.
@@ -98,6 +100,8 @@ func (r *Report) source(s Source) *SourceReport {
 		return &r.Cron
 	case SourceSecrets:
 		return &r.Secrets
+	case SourceSessions:
+		return &r.Sessions
 	}
 	return &r.Secrets
 }
@@ -117,6 +121,7 @@ func (r *Report) sortSkips() {
 	slices.SortFunc(r.MCP.Skipped, compareSkip)
 	slices.SortFunc(r.Cron.Skipped, compareSkip)
 	slices.SortFunc(r.Secrets.Skipped, compareSkip)
+	slices.SortFunc(r.Sessions.Skipped, compareSkip)
 	slices.SortFunc(r.Clamps, func(a, b Clamp) int { return strings.Compare(a.Key, b.Key) })
 }
 
@@ -193,19 +198,24 @@ type Sink interface {
 	PutCron(ctx context.Context, j CronJob) (bool, error)
 }
 
-// Secrets is the keychain seam. Values cross it once and are never persisted
-// in config, reports or logs by this package.
+// SessionSink receives imported sessions.
+type SessionSink interface {
+	PutSession(ctx context.Context, s *Session) (bool, error)
+}
+
+// Secrets is the keychain seam; values are never persisted in reports.
 type Secrets interface {
 	Put(ctx context.Context, name, value string) (bool, error)
 }
 
-// Deps is the explicit dependency set of an [Importer] (E-11). A missing
-// required dependency is [ErrDeps]; the package never falls back to OS I/O.
+// Deps is the explicit dependency set of an [Importer] (E-11).
 type Deps struct {
-	ReadFile func(string) ([]byte, error)
-	WalkDir  func(string, fs.WalkDirFunc) error
-	Sink     Sink
-	Secrets  Secrets
+	ReadFile    func(string) ([]byte, error)
+	WalkDir     func(string, fs.WalkDirFunc) error
+	Sink        Sink
+	SessionSink SessionSink
+	Secrets     Secrets
+	Sessions    SessionSource
 }
 
 // Options controls one import run.
@@ -224,7 +234,10 @@ type Importer struct {
 }
 
 // New validates deps and returns an Importer.
-func New(deps Deps) (*Importer, error) {
+func New(deps *Deps) (*Importer, error) {
+	if deps == nil {
+		return nil, fmt.Errorf("%w: Deps is nil", ErrDeps)
+	}
 	switch {
 	case deps.ReadFile == nil:
 		return nil, fmt.Errorf("%w: Deps.ReadFile is nil", ErrDeps)
@@ -232,16 +245,20 @@ func New(deps Deps) (*Importer, error) {
 		return nil, fmt.Errorf("%w: Deps.WalkDir is nil", ErrDeps)
 	case deps.Sink == nil:
 		return nil, fmt.Errorf("%w: Deps.Sink is nil", ErrDeps)
+	case deps.SessionSink == nil:
+		return nil, fmt.Errorf("%w: Deps.SessionSink is nil", ErrDeps)
 	case deps.Secrets == nil:
 		return nil, fmt.Errorf("%w: Deps.Secrets is nil", ErrDeps)
+	case deps.Sessions == nil:
+		return nil, fmt.Errorf("%w: Deps.Sessions is nil", ErrDeps)
 	}
-	return &Importer{deps: deps}, nil
+	return &Importer{deps: *deps}, nil
 }
 
 // Import reads the Hermes home rooted at root. A parse failure returns
 // [ErrSyntax] before any write, so a broken source leaves no partial import.
 func (i *Importer) Import(ctx context.Context, root string, opts Options) (Report, error) {
-	plan, err := i.collect(root, opts)
+	plan, err := i.collect(ctx, root, opts)
 	if err != nil {
 		return Report{}, err
 	}

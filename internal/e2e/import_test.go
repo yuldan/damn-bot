@@ -125,7 +125,7 @@ func TestImportHermesWritesSkillsAndMemory(t *testing.T) {
 		"memory: 3 items, 3 imported, 3 changed, 0 skipped",
 		"config: 1 items, 0 imported, 0 changed, 1 skipped",
 		"skipped model.default: no config writer in F3 (SPEC §9.15)",
-		"sessions: skipped: no sessions collector in F3 (SPEC §9.15)",
+		"sessions: 0 items, 0 imported, 0 changed, 0 skipped",
 		"import: 6 items, 4 imported, 4 changed, 2 skipped, 100.0% accounted",
 	} {
 		if !strings.Contains(res.Stdout, want) {

@@ -15,8 +15,7 @@ var (
 	ErrSource = errors.New("importer: invalid item")
 )
 
-// SkipError asks the importer to record one item as skipped with Reason and
-// keep going; a real write failure must not use it.
+// SkipError records one item as skipped with Reason; a write failure must not use it.
 type SkipError struct {
 	Reason string
 }
