@@ -53,23 +53,47 @@ type Session struct {
 
 	mu     sync.Mutex
 	state  State
+	mode   Mode
+	perm   Permitter
 	outbox chan []byte
 	done   chan struct{}
 }
 
+// Options configures a new session.
+type Options struct {
+	Mode      Mode
+	Permitter Permitter
+	Outbox    int
+}
+
 // NewSession validates id and returns a New session with cap outbox slots.
 func NewSession(id string, cap int) (*Session, error) {
+	return NewSessionWith(id, Options{Outbox: cap})
+}
+
+// NewSessionWith is NewSession with an explicit mode and permission channel.
+func NewSessionWith(id string, opt Options) (*Session, error) {
 	if err := ValidateSessionID(id); err != nil {
 		return nil, err
 	}
-	if cap <= 0 {
-		cap = DefaultOutbox
+	if opt.Outbox <= 0 {
+		opt.Outbox = DefaultOutbox
 	}
 	return &Session{
-		ID: id, state: StateNew,
-		outbox: make(chan []byte, cap),
+		ID: id, state: StateNew, mode: opt.Mode, perm: opt.Permitter,
+		outbox: make(chan []byte, opt.Outbox),
 		done:   make(chan struct{}),
 	}, nil
+}
+
+// Permitter returns the session's client permission channel, if any.
+func (s *Session) Permitter() (Permitter, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.perm == nil {
+		return nil, false
+	}
+	return s.perm, true
 }
 
 // ValidateSessionID keeps ids to a bounded printable ASCII token.
@@ -167,7 +191,15 @@ func NewRegistry(capacity int) *Registry {
 
 // Create adds a New session. Duplicate ids are refused.
 func (r *Registry) Create(id string) (*Session, error) {
-	s, err := NewSession(id, r.capacity)
+	return r.CreateWith(id, Options{})
+}
+
+// CreateWith adds a session with an explicit mode and permission channel.
+func (r *Registry) CreateWith(id string, opt Options) (*Session, error) {
+	if opt.Outbox <= 0 {
+		opt.Outbox = r.capacity
+	}
+	s, err := NewSessionWith(id, opt)
 	if err != nil {
 		return nil, err
 	}
