@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -427,4 +428,54 @@ func TestSBOMRejectsMalformedInput(t *testing.T) {
 			t.Fatalf("%v: exit %d, ingin 2: %s", args, code, out.String())
 		}
 	}
+}
+
+// TestSignReleaseFile signs an external manifest when the release workflow
+// sets DAMNBOT_RELEASE_FILE (key from env). Without it, the same signing path
+// is exercised in memory; no key is ever written to disk.
+func TestSignReleaseFile(t *testing.T) {
+	data := []byte(`{"schema":1}`)
+	var key ed25519.PrivateKey
+	if path := os.Getenv("DAMNBOT_RELEASE_FILE"); path != "" {
+		var err error
+		if key, err = privateKeyFromEnv(); err != nil {
+			t.Fatalf("privateKeyFromEnv: %v", err)
+		}
+		root, err := os.OpenRoot(filepath.Dir(path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = root.Close() }()
+		if data, err = readRootFile(root, filepath.Base(path), maxSumsSize); err != nil {
+			t.Fatal(err)
+		}
+		if err := writeRootFile(root, filepath.Base(path)+".sig", formatSignature(ed25519.Sign(key, data))); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		pub, priv, err := ed25519.GenerateKey(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		key = priv
+		if err := verifySignature(pub, data, ed25519.Sign(key, data)); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	pub, ok := key.Public().(ed25519.PublicKey)
+	if !ok {
+		t.Fatal("public key type")
+	}
+	parsed, err := parseSignature(formatSignature(ed25519.Sign(key, data)))
+	if err != nil || !ed25519.Verify(pub, data, parsed) {
+		t.Fatalf("signature roundtrip: %v", err)
+	}
+}
+
+func verifySignature(pub ed25519.PublicKey, data, sig []byte) error {
+	if !ed25519.Verify(pub, data, sig) {
+		return errors.New("signature is invalid")
+	}
+	return nil
 }

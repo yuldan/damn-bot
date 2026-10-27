@@ -996,6 +996,12 @@ damnbot import hermes [--from ~/.hermes] [--only config,secrets,skills,memory,mc
 
 Importer lain parity: Claude Code/Codex setup (OPS-035), OpenClaw (OPS-034). Laporan akhir per kategori + item dilewati + alasan. `TestImportIdempotent`; fixture 5 `~/.hermes` nyata (diredaksi); target ≥ 99% item, 0 kehilangan diam-diam.
 
+### 9.16 `update` (self-update)
+
+`damnbot update --check [--channel stable|beta]` membaca GitHub Releases repo ini (`api.github.com/repos/yuldan/damn-bot/releases`, atau `[update] feed_url`), memilih rilis terbaru sesuai kanal, dan memverifikasi `release.json.sig` (ed25519 atas byte `release.json`) dengan kunci publik yang ditanam saat build sebelum membaca manifest. Schema 1 berisi `schema`, `channel`, `version` (semver), `commit`, `published_at`, `changelog`, dan `assets[]` `{os,arch,name,sha256}`; asset = `damnbot_<version>_<os>_<arch>[.exe]` untuk `runtime.GOOS` + arsitektur native (Windows `IsWow64Process2`, macOS `sysctl.proc_translated`, Linux `uname -m`). Exit `--check`: 0 sudah terbaru, 10 ada pembaruan, 1 kesalahan jaringan/verifikasi, 2 pemakaian/config; `--check` tidak pernah memasang apa pun.
+
+`damnbot update` mengunduh hanya asset yang tercantum di manifest bertanda tangan, memverifikasi SHA-256, menulis `damnbot.new` di direktori tujuan (fsync, mode 0755), lalu swap atomik (`damnbot` → `damnbot.prev`, `damnbot.new` → `damnbot`; Windows `damnbot.exe` → `damnbot.old.exe`), menulis `<data_dir>/update/pending.json`, menjalankan `damnbot doctor --quick` (timeout 30 s; hanya exit 0 lulus), dan rollback otomatis bila gagal. Target ≤ versi terpasang ditolak (exit 1) kecuali `--rollback`; `--rollback [--data]` memakai `pending.json` (biner + DB berpasangan; catatan hilang/tidak cocok = exit 2). Tidak ada jalur unsigned/`--insecure`; kunci publik hanya dari build atau env pada build tanpa kunci tertanam. Update bersamaan ditolak lewat `flock <data_dir>/update.lock` (exit 2). (ADR-216.)
+
 ---
 
 ## 10. CLI
@@ -2485,6 +2491,8 @@ level = "info"
 ```
 
 Section `[sessions]` di luar contoh (ADR-142, MEM-015): `auto_prune` (default `false`) menjalankan prune sesi lebih lama dari `prune_after_days` (default `90`, rentang 1..3650) saat `run` mulai; VACUUM dijalankan sesudah purge yang menghapus baris. Prune otomatis tidak pernah menghapus bila nilainya `false`, dan kegagalan purge (DB sibuk/turn terbuka) dilaporkan lalu run tetap berjalan.
+
+Section `[update]` di luar contoh (ADR-216): `feed_url` (default `""` = GitHub Releases repo ini; override HTTPS, `http` hanya untuk host loopback), `channel` (`stable` default, atau `beta`), dan `auto_install` (default `false`). Validasi menolak kanal asing, URL relatif/userinfo, dan HTTP non-loopback.
 
 Section `[skills]` di luar contoh (ADR-168): `inline_shell` (default `false`) mengizinkan span `` `!command` `` di SKILL.md dieksekusi saat skill dimuat, hanya untuk sumber trusted (user/builtin), timeout 5 s, output ≤ 4 KiB; saat `false` span tersebut gagal-tertutup (`inline_shell_disabled`). Variabel template `${SKILL_DIR}`, `${SKILL_NAME}`, `${PROJECT_DIR}`, `${HOME}`, `${OS}` selalu disubstitusi.
 

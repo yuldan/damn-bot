@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/toolset"
+	"github.com/damnbot/damnbot/internal/update"
 )
 
 // Config is the immutable result of [Loader.Load]. All fields are values; maps
@@ -34,6 +35,7 @@ type Config struct {
 	// Toolsets is the F2 [toolsets] section (ADR-139). Empty Active keeps the
 	// pre-toolset behaviour: every registered tool is exposed.
 	Toolsets toolset.Config `toml:"toolsets"`
+	Update   update.Config  `toml:"update"`
 }
 
 // Skills is SPEC §4.8/§12 [skills]: the local skill sources (SKILL-009/010,
@@ -301,6 +303,7 @@ func Default() Config {
 			Users:            map[string]GatewayUser{},
 		},
 		Providers: Providers{Custom: []CustomProvider{}},
+		Update:    update.DefaultConfig(),
 		Log: Log{
 			Level:             "info",
 			MessageContent:    false,

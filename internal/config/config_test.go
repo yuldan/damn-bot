@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/update"
 	"github.com/google/go-cmp/cmp"
 )
 
@@ -124,6 +125,7 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 		Gateway:   Gateway{MaxParallelTurns: 4, Users: map[string]GatewayUser{}},
 		Providers: Providers{Custom: []CustomProvider{}},
 		Log:       Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
+		Update:    update.DefaultConfig(),
 	}
 	if diff := cmp.Diff(want, Default()); diff != "" {
 		t.Errorf("Default() differs from SPEC §12 (-want +got):\n%s", diff)
@@ -488,4 +490,24 @@ func keyErrorOf(t *testing.T, err, kind error) *Error {
 	requireKeyError(t, err, kind)
 	ke, _ := errors.AsType[*Error](err)
 	return ke
+}
+
+func TestConfigUpdateValidation(t *testing.T) {
+	t.Parallel()
+	cfg, err := parse(t, "[update]\nfeed_url = \"https://example.test/releases\"\nchannel = \"beta\"\nauto_install = true\n")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if cfg.Update.FeedURL != "https://example.test/releases" || cfg.Update.Channel != "beta" || !cfg.Update.AutoInstall {
+		t.Fatalf("update = %+v", cfg.Update)
+	}
+	for name, toml := range map[string]string{
+		"channel": "[update]\nchannel = \"staging\"\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parse(t, toml); err == nil || !strings.Contains(err.Error(), "update.") {
+				t.Fatalf("Parse(%q) = %v, want an update.* validation error", toml, err)
+			}
+		})
+	}
 }
