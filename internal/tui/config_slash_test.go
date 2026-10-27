@@ -167,14 +167,18 @@ func TestSlashContext(t *testing.T) {
 	}
 }
 
-// TestSlashReloadRefused: no safe hot-reload path exists, so /reload refuses
-// with the real reason instead of pretending to reload.
+// TestSlashReloadRefused: an invalid config keeps the old snapshot and says so.
 func TestSlashReloadRefused(t *testing.T) {
 	t.Parallel()
 	m := slashApp(t, &Config{Model: "fake/model"})
+	rt, ok := m.host.Runtime.(*fakeRuntime)
+	if !ok {
+		t.Fatalf("runtime = %T", m.host.Runtime)
+	}
+	rt.reloadErr = errors.New("ui.theme: must be tern-dark")
 	runSlashText(t, m, "/reload")
 	notice := lastNotice(m)
-	if !strings.Contains(notice, "/reload refused") || !strings.Contains(notice, "restart damnbot") {
+	if !strings.Contains(notice, "reload refused") || !strings.Contains(notice, "old snapshot kept") {
 		t.Fatalf("/reload = %q", notice)
 	}
 }

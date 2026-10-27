@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// runSlash dispatches a command; a refusal is a notice, never a fake success.
 func (m *Model) runSlash(cmd slashCommand) tea.Cmd {
 	switch cmd.kind {
 	case slashPlan:
@@ -25,34 +24,69 @@ func (m *Model) runSlash(cmd slashCommand) tea.Cmd {
 		}
 		m.appendNotice("plan mode " + state + " for the next turn")
 	case slashUnknown:
-		m.appendNotice("unknown command " + cmd.name + "; available: /new /fork /rewind /undo /plan /theme /model /budget /modules /context /reload")
-	case slashTheme:
-		return m.cmdTheme(cmd.args)
-	case slashModel:
-		return m.cmdModel(cmd.args)
-	case slashBudget:
-		return m.cmdBudget(cmd.args)
-	case slashModules:
-		if len(cmd.args) != 0 {
-			m.appendNotice("usage: /modules")
-			return nil
-		}
-		return m.loadModules()
-	case slashContext:
-		if len(cmd.args) != 0 {
-			m.appendNotice("usage: /context")
-			return nil
-		}
-		m.setRoute(routeEntry{name: routeContext, new: newContextPanel})
-		return m.loadContext()
-	case slashReload:
-		if len(cmd.args) != 0 {
-			m.appendNotice("usage: /reload")
-			return nil
-		}
-		m.appendNotice("/reload refused: config/skills have no safe hot-reload path in this TUI; restart damnbot")
+		m.appendNotice("unknown command " + cmd.name + "; available: /new /fork /rewind /undo /plan /theme /model /budget /modules /context /reload /compact /export /diff /btw /init /review")
+	case slashTheme, slashModel, slashBudget, slashModules, slashContext, slashReload:
+		return m.configSlash(cmd)
+	case slashCompact, slashDiff, slashExport, slashInit, slashBtw, slashReview:
+		return m.actionSlash(cmd)
 	case slashNew, slashFork, slashRewind, slashUndo:
 		return m.sessionSlash(cmd)
+	}
+	return nil
+}
+
+func (m *Model) needArgs(cmd slashCommand, n int, usage string) bool {
+	if len(cmd.args) != n {
+		m.appendNotice(usage)
+		return false
+	}
+	return true
+}
+
+func (m *Model) configSlash(cmd slashCommand) tea.Cmd {
+	if cmd.kind == slashTheme {
+		return m.cmdTheme(cmd.args)
+	}
+	if cmd.kind == slashModel {
+		return m.cmdModel(cmd.args)
+	}
+	if cmd.kind == slashBudget {
+		return m.cmdBudget(cmd.args)
+	}
+	if cmd.kind == slashModules && m.needArgs(cmd, 0, "usage: /modules") {
+		return m.loadModules()
+	}
+	if cmd.kind == slashContext && m.needArgs(cmd, 0, "usage: /context") {
+		m.setRoute(routeEntry{name: routeContext, new: newContextPanel})
+		return m.loadContext()
+	}
+	if cmd.kind == slashReload && m.needArgs(cmd, 0, "usage: /reload") {
+		if m.busy {
+			m.appendNotice("/reload refused: a turn is running; cancel it first")
+			return nil
+		}
+		return m.reloadCmd()
+	}
+	return nil
+}
+
+func (m *Model) actionSlash(cmd slashCommand) tea.Cmd {
+	if cmd.kind == slashCompact && m.needArgs(cmd, 0, "usage: /compact") && !m.refuseWriteBusy(cmd.name) {
+		sid := m.sessionID
+		return m.runAction("compact", func(ctx context.Context) (string, error) { return m.host.Actions.Compact(ctx, sid) })
+	}
+	if cmd.kind == slashDiff && m.needArgs(cmd, 0, "usage: /diff") {
+		sid := m.sessionID
+		return m.runAction("diff", func(ctx context.Context) (string, error) { return m.host.Actions.Diff(ctx, sid) })
+	}
+	if cmd.kind == slashExport || cmd.kind == slashInit {
+		return m.fileSlash(cmd)
+	}
+	if cmd.kind == slashBtw {
+		m.appendNotice("/btw refused: no side-question channel exists in this TUI")
+	}
+	if cmd.kind == slashReview && m.needArgs(cmd, 0, "usage: /review") {
+		return m.runAction("review", func(ctx context.Context) (string, error) { return m.host.Actions.Review(ctx) })
 	}
 	return nil
 }
@@ -112,6 +146,137 @@ func capUSD(v float64) string {
 	return fmt.Sprintf("$%.2f", v)
 }
 
+type pendingWrite struct {
+	kind, path string
+	body       []byte
+}
+
+type fileWrittenMsg struct {
+	path string
+	err  error
+}
+
+type reloadDoneMsg struct {
+	result ReloadResult
+	err    error
+}
+
+type actionDoneMsg struct {
+	label, text string
+	err         error
+}
+
+func (m *Model) refuseWriteBusy(name string) bool {
+	if m.busy || m.approval != nil || m.confirm != nil {
+		m.appendNotice(name + " refused: a turn or modal is active")
+		return true
+	}
+	return false
+}
+
+func (m *Model) handleConfirmKey(msg tea.KeyPressMsg) tea.Cmd {
+	p := m.confirm
+	switch {
+	case key.Matches(msg, m.keys.Once):
+		m.confirm = nil
+		files := m.host.Files
+		return func() tea.Msg {
+			path, err := files.Write(context.Background(), p.path, p.body)
+			return fileWrittenMsg{path: path, err: err}
+		}
+	case key.Matches(msg, m.keys.No), key.Matches(msg, m.keys.Cancel):
+		m.confirm = nil
+		m.appendNotice("write cancelled: " + p.path)
+	}
+	return nil
+}
+
+func (m *Model) confirmBody() string {
+	p := m.confirm
+	return fmt.Sprintf("WRITE %s · %s · %d bytes · replaces the file if it exists", p.kind, p.path, len(p.body))
+}
+
+func (m *Model) exportText() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# damnbot session %s\n\n", m.sessionID)
+	for i := range m.blocks {
+		b.WriteString(m.blockCopyText(i))
+		b.WriteString("\n\n")
+	}
+	return b.String()
+}
+
+const agentTemplate = `# AGENTS.md
+
+Project instructions for coding agents.
+
+## Verify
+
+- Run the repository tests for the packages you touched before answering.
+- Read a file before editing it; keep edits minimal.
+`
+
+func (m *Model) reloadCmd() tea.Cmd {
+	runtime := m.host.Runtime
+	return func() tea.Msg {
+		result, err := runtime.Reload(context.Background())
+		return reloadDoneMsg{result: result, err: err}
+	}
+}
+
+func (m *Model) runAction(label string, fn func(context.Context) (string, error)) tea.Cmd {
+	return func() tea.Msg {
+		text, err := fn(context.Background())
+		return actionDoneMsg{label: label, text: text, err: err}
+	}
+}
+
+func (m *Model) applyReload(msg *reloadDoneMsg) {
+	if msg.err != nil {
+		m.appendNotice("reload refused: " + msg.err.Error() + "; old snapshot kept")
+		return
+	}
+	cfg := m.host.Config.Snapshot()
+	if theme, ok := ThemeByName(cfg.Theme); ok {
+		m.theme, m.styles = theme, newStyles(theme)
+	}
+	hash := msg.result.Hash
+	if len(hash) > 12 {
+		hash = hash[:12]
+	}
+	applied := joinOrNone(msg.result.Applied, "none")
+	restart := joinOrNone(msg.result.Restart, "none")
+	m.appendNotice(fmt.Sprintf("reloaded %s; applied: %s; restart: %s", hash, applied, restart))
+}
+
+func joinOrNone(items []string, none string) string {
+	if len(items) == 0 {
+		return none
+	}
+	return strings.Join(items, ", ")
+}
+
+func (m *Model) fileSlash(cmd slashCommand) tea.Cmd {
+	if cmd.kind == slashExport && m.needArgs(cmd, 1, "usage: /export <path>") && !m.refuseWriteBusy(cmd.name) {
+		m.confirm = &pendingWrite{kind: "export", path: cmd.args[0], body: []byte(m.exportText())}
+	}
+	if cmd.kind == slashInit {
+		if len(cmd.args) > 1 {
+			m.appendNotice("usage: /init [path]")
+			return nil
+		}
+		if m.refuseWriteBusy(cmd.name) {
+			return nil
+		}
+		path := "AGENTS.md"
+		if len(cmd.args) == 1 {
+			path = cmd.args[0]
+		}
+		m.confirm = &pendingWrite{kind: "init", path: path, body: []byte(agentTemplate)}
+	}
+	return nil
+}
+
 // sessionSlash keeps the state-changing commands on the real host seam.
 func (m *Model) sessionSlash(cmd slashCommand) tea.Cmd {
 	sessions, sid, ctx := m.host.Sessions, m.sessionID, context.Background()
@@ -150,7 +315,8 @@ func (m *Model) sessionSlash(cmd slashCommand) tea.Cmd {
 		}
 	case slashUndo:
 		return m.undoCmd("")
-	case slashPlan, slashUnknown, slashTheme, slashModel, slashBudget, slashModules, slashContext, slashReload:
+	case slashPlan, slashUnknown, slashTheme, slashModel, slashBudget, slashModules, slashContext,
+		slashReload, slashCompact, slashExport, slashDiff, slashBtw, slashInit, slashReview:
 		return nil
 	}
 	return nil
@@ -164,7 +330,6 @@ func (m *Model) undoCmd(target string) tea.Cmd {
 	}
 }
 
-// applySessionDone installs the new session and reports the real outcome.
 func (m *Model) applySessionDone(msg sessionDoneMsg) {
 	if msg.err != nil {
 		m.appendNotice(msg.op + " refused: " + msg.err.Error())
@@ -189,7 +354,6 @@ func (m *Model) switchSession(id string) {
 	m.scroll, m.navMode, m.navIndex, m.collapsed = 0, false, 0, nil
 }
 
-// appendNotice adds one system notice stamped by the injected clock.
 func (m *Model) appendNotice(text string) {
 	m.appendBlock(&Block{Kind: BlockNotice, Text: text, At: m.host.Clock.Now()})
 }

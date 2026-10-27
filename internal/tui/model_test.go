@@ -194,19 +194,63 @@ func (c *fakeClipboard) copied() string {
 	return c.text
 }
 
-// fakeRuntime is the module/context seam of the tests.
+// fakeRuntime is the module/context/reload/file seam of the tests.
 type fakeRuntime struct {
-	modules []ModuleInfo
-	info    ContextInfo
-	err     error
+	modules     []ModuleInfo
+	info        ContextInfo
+	err         error
+	hash        string
+	reload      ReloadResult
+	reloadErr   error
+	onReload    func()
+	diff        string
+	diffErr     error
+	compact     string
+	compactErr  error
+	review      string
+	reviewErr   error
+	reloadCalls int
 }
 
 func (r *fakeRuntime) Modules(context.Context) ([]ModuleInfo, error) { return r.modules, r.err }
 func (r *fakeRuntime) Context(context.Context) (ContextInfo, error)  { return r.info, r.err }
+func (r *fakeRuntime) ConfigHash() string                            { return r.hash }
+func (r *fakeRuntime) Reload(context.Context) (ReloadResult, error) {
+	r.reloadCalls++
+	if r.onReload != nil {
+		r.onReload()
+	}
+	return r.reload, r.reloadErr
+}
+func (r *fakeRuntime) Diff(context.Context, string) (string, error) { return r.diff, r.diffErr }
+func (r *fakeRuntime) Compact(context.Context, string) (string, error) {
+	return r.compact, r.compactErr
+}
+func (r *fakeRuntime) Review(context.Context) (string, error) { return r.review, r.reviewErr }
+
+type fakeFiles struct {
+	mu       sync.Mutex
+	writeErr error
+	text     string
+	path     string
+	writes   int
+}
+
+func (f *fakeFiles) Write(_ context.Context, path string, data []byte) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.writeErr != nil {
+		return "", f.writeErr
+	}
+	f.path, f.text = path, string(data)
+	f.writes++
+	return "/abs/" + path, nil
+}
 
 // testHost builds a complete host over the package fakes.
 func testHost(clk Clock, runner Runner, cfg ConfigSource) *Host {
-	return &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: &fakeSessions{}, Runtime: &fakeRuntime{}, Clipboard: &fakeClipboard{}}
+	rt := &fakeRuntime{}
+	return &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: &fakeSessions{}, Runtime: rt, Actions: rt, Files: &fakeFiles{}, Clipboard: &fakeClipboard{}}
 }
 
 // newTestApp assembles a model over the fakes.
@@ -233,12 +277,14 @@ func TestNewAppRejectsIncompleteHost(t *testing.T) {
 		host    *Host
 	}{
 		{"empty session", "", base},
-		{"no clock", "sess-1", &Host{Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Clipboard: base.Clipboard}},
-		{"no runner", "sess-1", &Host{Clock: clk, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Clipboard: base.Clipboard}},
-		{"no config", "sess-1", &Host{Clock: clk, Runner: runner, Sessions: base.Sessions, Runtime: base.Runtime, Clipboard: base.Clipboard}},
-		{"no sessions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Runtime: base.Runtime, Clipboard: base.Clipboard}},
+		{"no clock", "sess-1", &Host{Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Clipboard: base.Clipboard}},
+		{"no runner", "sess-1", &Host{Clock: clk, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Clipboard: base.Clipboard}},
+		{"no config", "sess-1", &Host{Clock: clk, Runner: runner, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Clipboard: base.Clipboard}},
+		{"no sessions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Clipboard: base.Clipboard}},
 		{"no runtime", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Clipboard: base.Clipboard}},
-		{"no clipboard", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime}},
+		{"no actions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Files: base.Files, Clipboard: base.Clipboard}},
+		{"no files", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Clipboard: base.Clipboard}},
+		{"no clipboard", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

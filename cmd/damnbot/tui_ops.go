@@ -4,12 +4,22 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
+	"github.com/damnbot/damnbot/internal/compaction"
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/journalstore"
@@ -17,7 +27,6 @@ import (
 	"github.com/damnbot/damnbot/internal/tui"
 )
 
-// tuiActions implements tui.Sessions over the runner's lazy store.
 type tuiActions struct {
 	db        func(context.Context) (*ctxdb.Store, error)
 	cfg       *config.Config
@@ -105,7 +114,6 @@ func (a *tuiActions) Undo(ctx context.Context, sessionID, target string) (string
 	return detail, nil
 }
 
-// List returns the newest visible sessions with the metadata the view shows.
 func (a *tuiActions) List(ctx context.Context) ([]tui.SessionInfo, error) {
 	db, err := a.db(ctx)
 	if err != nil {
@@ -129,8 +137,6 @@ func (a *tuiActions) List(ctx context.Context) ([]tui.SessionInfo, error) {
 	return out, nil
 }
 
-// clipboardAdapter is the production tui.Clipboard; a missing platform utility
-// is an error the TUI shows verbatim.
 type clipboardAdapter struct{}
 
 func (clipboardAdapter) Copy(text string) error {
@@ -140,7 +146,6 @@ func (clipboardAdapter) Copy(text string) error {
 	return nil
 }
 
-// Modules lists the frozen registry with the live lifecycle status.
 func (r *tuiRunner) Modules(ctx context.Context) ([]tui.ModuleInfo, error) {
 	model, err := r.ensure(ctx)
 	if err != nil {
@@ -188,4 +193,205 @@ func configuredModels(cfg *config.Config) []string {
 		}
 	}
 	return out
+}
+
+func snapshotFor(cfg *config.Config, modelRef string) tui.Config {
+	return tui.Config{
+		Model: modelRef, Theme: cfg.UI.Theme,
+		ApprovalTimeout: timeoutOf(cfg), Models: configuredModels(cfg),
+		Budget: tui.BudgetInfo{TurnUSD: cfg.Budget.TurnUSD, SessionUSD: cfg.Budget.SessionUSD, DailyUSD: cfg.Budget.DailyUSD},
+	}
+}
+
+func timeoutOf(cfg *config.Config) time.Duration {
+	return time.Duration(cfg.Approval.PreviewTimeoutS) * time.Second
+}
+
+func hashConfig(cfg *config.Config) string {
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func (r *tuiRunner) ConfigHash() string {
+	r.snapMu.RLock()
+	defer r.snapMu.RUnlock()
+	return r.cfgHash
+}
+
+func (r *tuiRunner) Reload(ctx context.Context) (tui.ReloadResult, error) {
+	path := r.deps.cfgFile
+	if path == "" {
+		return tui.ReloadResult{}, errors.New("no config file path is known")
+	}
+	loader, err := config.New(config.OS())
+	if err != nil {
+		return tui.ReloadResult{}, fmt.Errorf("config deps: %w", err)
+	}
+	fresh, err := loader.Load(path)
+	if err != nil {
+		return tui.ReloadResult{}, fmt.Errorf("%s: %w", path, err)
+	}
+	if !reflect.DeepEqual(fresh.Provider, r.deps.cfg.Provider) || !reflect.DeepEqual(fresh.Providers, r.deps.cfg.Providers) {
+		return tui.ReloadResult{}, errors.New("provider/base_url identity changed; restart damnbot")
+	}
+	res := tui.ReloadResult{Hash: hashConfig(&fresh)}
+	r.snapMu.Lock()
+	old := r.snapshot
+	r.snapshot = snapshotFor(&fresh, r.deps.modelRef)
+	r.cfgHash = res.Hash
+	r.snapMu.Unlock()
+	if old.Theme != fresh.UI.Theme {
+		res.Applied = append(res.Applied, "theme "+fresh.UI.Theme)
+	}
+	if old.Budget.TurnUSD != fresh.Budget.TurnUSD || old.Budget.SessionUSD != fresh.Budget.SessionUSD || old.Budget.DailyUSD != fresh.Budget.DailyUSD {
+		res.Applied = append(res.Applied, "budget caps")
+	}
+	if old.ApprovalTimeout != timeoutOf(&fresh) {
+		res.Applied = append(res.Applied, "approval timeout")
+	}
+	if runtimeConfigChanged(r.deps.cfg, &fresh) {
+		res.Restart = append(res.Restart, "loop/context/tools/skills/storage")
+	}
+	return res, nil
+}
+
+func runtimeConfigChanged(old, fresh *config.Config) bool {
+	a, b := *old, *fresh
+	a.UI, b.UI = config.UI{}, config.UI{}
+	a.Budget, b.Budget = config.Budget{}, config.Budget{}
+	a.Approval.PreviewTimeoutS, b.Approval.PreviewTimeoutS = 0, 0
+	return !reflect.DeepEqual(a, b)
+}
+
+func (r *tuiRunner) Diff(ctx context.Context, sessionID string) (string, error) {
+	model, err := r.ensure(ctx)
+	if err != nil {
+		return "", err
+	}
+	store, err := journalstore.New(model.db, nil)
+	if err != nil {
+		return "", fmt.Errorf("diff: %w", err)
+	}
+	acts, err := store.List(ctx, sessionID, 20)
+	if err != nil {
+		return "", fmt.Errorf("diff: %w", err)
+	}
+	env := &cliEnv{cfg: *r.deps.cfg, configDir: r.deps.configDir, db: model.db}
+	var b strings.Builder
+	for i := range acts {
+		a := &acts[i]
+		verdict, d, derr := dryRun(ctx, env, store, a)
+		fmt.Fprintf(&b, "a%d %s %s: %s\n", a.ID, a.Kind, cleanLine(a.Path), verdict)
+		if derr != nil {
+			fmt.Fprintf(&b, "  %s\n", cleanLine(derr.Error()))
+			continue
+		}
+		if d != "" {
+			b.WriteString(d)
+			b.WriteString("\n")
+		}
+	}
+	return strings.TrimSpace(b.String()), nil
+}
+
+func (r *tuiRunner) Compact(ctx context.Context, sessionID string) (string, error) {
+	if r.Active(sessionID) {
+		return "", errors.New("a turn is running; cancel it first")
+	}
+	model, err := r.ensure(ctx)
+	if err != nil {
+		return "", err
+	}
+	asm, _, err := newRunAssembler(r.deps.cfg, r.deps.red)
+	if err != nil {
+		return "", err
+	}
+	opts := *r.deps.opts
+	ctxTier, err := asm.Context(ctx, contextTierInput(ctx, model, &opts, false))
+	if err != nil {
+		return "", fmt.Errorf("compact context: %w", err)
+	}
+	toolList, err := runTools(model.registry, model.toolsets.Allowed)
+	if err != nil {
+		return "", err
+	}
+	comp, window, err := newRunCompactor(ctx, model, r.deps.modelRef, asm, toolList, ctxTier.Text, r.deps.red)
+	if err != nil {
+		return "", err
+	}
+	res, err := comp.Run(ctx, sessionID, compaction.ReasonEstimate)
+	if err != nil {
+		return "", fmt.Errorf("compaction: %w", err)
+	}
+	return fmt.Sprintf("compaction %s (estimate %d/%d)", res.Outcome, res.Estimate, window), nil
+}
+
+func (r *tuiRunner) Review(ctx context.Context) (string, error) {
+	var b strings.Builder
+	code, err := reviewMain(ctx, &reviewOptions{configPath: r.deps.cfgFile, dataDir: r.deps.dataDir}, &b)
+	if err != nil {
+		return "", fmt.Errorf("review: %w", err)
+	}
+	if code != 0 {
+		return "", fmt.Errorf("review exited %d", code)
+	}
+	return strings.TrimSpace(b.String()), nil
+}
+
+type filesAdapter struct{}
+
+func (filesAdapter) Write(ctx context.Context, path string, data []byte) (abs string, err error) {
+	if cerr := ctx.Err(); cerr != nil {
+		return "", fmt.Errorf("write cancelled: %w", cerr)
+	}
+	abs, err = writePath(path)
+	if err != nil {
+		return "", err
+	}
+	tmp, terr := os.CreateTemp(filepath.Dir(abs), ".damnbot-write-*")
+	if terr != nil {
+		return abs, fmt.Errorf("temp file for %s: %w", abs, terr)
+	}
+	name := tmp.Name()
+	defer func() {
+		if rerr := os.Remove(name); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
+			err = errors.Join(err, fmt.Errorf("cleanup %s: %w", name, rerr))
+		}
+	}()
+	if cerr := os.Chmod(name, 0o600); cerr != nil {
+		return abs, errors.Join(fmt.Errorf("chmod %s: %w", name, cerr), tmp.Close())
+	}
+	if _, werr := tmp.Write(data); werr != nil {
+		return abs, errors.Join(fmt.Errorf("write %s: %w", name, werr), tmp.Close())
+	}
+	if cerr := tmp.Close(); cerr != nil {
+		return abs, fmt.Errorf("close %s: %w", name, cerr)
+	}
+	if rerr := os.Rename(name, abs); rerr != nil {
+		return abs, fmt.Errorf("rename %s: %w", abs, rerr)
+	}
+	return abs, nil
+}
+
+func writePath(path string) (string, error) {
+	if strings.TrimSpace(path) == "" || strings.ContainsRune(path, 0) {
+		return "", errors.New("write path is empty")
+	}
+	for _, r := range path {
+		if r < 0x20 || r == 0x7f {
+			return "", errors.New("write path contains control characters")
+		}
+	}
+	if slices.Contains(strings.Split(filepath.ToSlash(path), "/"), "..") {
+		return "", errors.New("write path must not contain a parent directory component")
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve %s: %w", path, err)
+	}
+	return abs, nil
 }

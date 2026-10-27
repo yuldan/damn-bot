@@ -92,6 +92,7 @@ type Model struct {
 	sessionErr   error
 	contextInfo  ContextInfo
 	contextErr   error
+	confirm      *pendingWrite
 	// busy marks a turn between submit and the Runner closing its stream.
 	input  textinput.Model
 	draft  []string // completed lines of the current multi-line prompt
@@ -157,6 +158,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleResult folds the async command results; ok=false passes the message on.
 func (m *Model) handleResult(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	if m.handleA7Result(msg) {
+		return m, nil, true
+	}
 	switch msg := msg.(type) {
 	case ApprovalMsg:
 		cmd := m.startApproval(&msg)
@@ -192,6 +196,31 @@ func (m *Model) handleResult(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return nil, nil, false
 	}
 	return m, nil, true
+}
+
+func (m *Model) handleA7Result(msg tea.Msg) bool {
+	switch msg := msg.(type) {
+	case reloadDoneMsg:
+		m.applyReload(&msg)
+	case actionDoneMsg:
+		switch {
+		case msg.err != nil:
+			m.appendNotice(msg.label + " failed: " + msg.err.Error())
+		case msg.text == "":
+			m.appendNotice(msg.label + " done")
+		default:
+			m.appendNotice(msg.text)
+		}
+	case fileWrittenMsg:
+		if msg.err != nil {
+			m.appendNotice("write refused: " + msg.err.Error())
+		} else {
+			m.appendNotice("wrote " + msg.path)
+		}
+	default:
+		return false
+	}
+	return true
 }
 
 func (m *Model) finishTurn() {
@@ -240,6 +269,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	if key.Matches(msg, m.keys.Quit) {
 		m.abortTurn()
 		return tea.Quit
+	}
+	if m.confirm != nil {
+		return m.handleConfirmKey(msg)
 	}
 	if m.approval != nil {
 		return m.handleApprovalKey(msg)
@@ -343,7 +375,10 @@ func (m *Model) submit() tea.Cmd {
 func (m *Model) View() tea.View {
 	m.stampFrame()
 	body := m.panel.body(m)
-	if m.approval != nil {
+	switch {
+	case m.confirm != nil:
+		body = m.confirmBody()
+	case m.approval != nil:
 		body = m.approvalBody()
 	}
 	parts := []string{m.header(), m.clip(body), m.statusBar(), m.inputArea(), m.footer()}
@@ -545,6 +580,8 @@ func (m *Model) header() string {
 func (m *Model) footer() string {
 	var parts []string
 	switch {
+	case m.confirm != nil:
+		parts = []string{"y write", "n cancel", "esc cancel"}
 	case m.approval != nil:
 		parts = []string{m.keys.Once.Help().Key + " once"}
 		if !m.approval.req.NoSession {
