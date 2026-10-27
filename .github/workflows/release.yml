@@ -1,0 +1,149 @@
+# Rilis Damn-Bot (ROADMAP F3; CROSS-CUTTING §1.4/§1.5). Artefak baru diterima bila DUA build
+# terpisah byte-identik (-trimpath, -buildvcs=true, SOURCE_DATE_EPOCH dari commit, CGO_ENABLED=0,
+# tags goolm). Setiap artefak mendapat SBOM dari `go version -m` (stdlib), satu SHA256SUMS stabil,
+# dan tanda tangan ed25519. Kunci hanya dari secret GitHub: DAMNBOT_RELEASE_KEY (material base64) +
+# DAMNBOT_RELEASE_PASSPHRASE; kunci publik ada di repository variable DAMNBOT_RELEASE_PUBKEY.
+# Tanpa secret/variable, job gagal keras (scripts/sign-release.sh & verify-release.sh fail-closed).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CGO_ENABLED: "0"
+
+jobs:
+  build:
+    name: build-${{ matrix.goos }}-${{ matrix.goarch }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - name: Dua build byte-identik + SBOM
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "REPRODUCIBLE GAGAL: pohon tidak bersih"; exit 1
+          fi
+          version=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/_}
+          exe=damnbot
+          suffix=
+          if [ "$GOOS" = windows ]; then exe=damnbot.exe; suffix=.exe; fi
+          name="damnbot_${version}_${GOOS}_${GOARCH}${suffix}"
+          epoch=$(git log -1 --format=%ct)
+          # Build di luar pohon repo: direktori keluaran di dalam repo akan tampak sebagai
+          # untracked oleh git dan membuat -buildvcs menstempel vcs.modified=true.
+          build="$RUNNER_TEMP/build/$name"
+          out="dist/$name"
+          mkdir -p "$build" "$out"
+          for pass in a b; do
+            GOCACHE="$RUNNER_TEMP/gocache-$pass" SOURCE_DATE_EPOCH="$epoch" \
+              go build -trimpath -buildvcs=true -tags goolm -ldflags="-s -w" \
+                -o "$build/$exe.$pass" ./cmd/damnbot
+          done
+          if ! cmp -s "$build/$exe.a" "$build/$exe.b"; then
+            echo "REPRODUCIBLE GAGAL: dua build tidak byte-identik untuk $name"
+            sha256sum "$build/$exe.a" "$build/$exe.b"
+            exit 1
+          fi
+          cp "$build/$exe.a" "$out/$name"
+          if ! go version -m "$out/$name" | grep -Eq 'vcs\.revision=[0-9a-f]{40}'; then
+            echo "REPRODUCIBLE GAGAL: build tanpa stempel vcs.revision"; exit 1
+          fi
+          if go version -m "$out/$name" | grep -q 'vcs\.modified=true'; then
+            echo "REPRODUCIBLE GAGAL: build dari pohon termodifikasi"; exit 1
+          fi
+          sha=$(sha256sum "$out/$name" | cut -d' ' -f1)
+          printf 'sha256 `%s`  %s\n' "$sha" "$name" >>"$GITHUB_STEP_SUMMARY"
+          go version -m "$out/$name" >"$RUNNER_TEMP/version-m.txt"
+          (cd tools && go run ./release sbom --artifact "$name" --sha256 "$sha") \
+            <"$RUNNER_TEMP/version-m.txt" >"$out/$name.sbom.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: build-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*_${{ matrix.goos }}_${{ matrix.goarch }}*
+          if-no-files-found: error
+          retention-days: 7
+
+  assemble:
+    name: sums, tanda tangan, verifikasi
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS stabil
+        run: |
+          set -euo pipefail
+          : >dist/SHA256SUMS
+          while IFS= read -r f; do
+            (cd dist && sha256sum -- "$f")
+          done < <(find dist -maxdepth 1 -type f ! -name 'SHA256SUMS' ! -name 'SHA256SUMS.sig' -printf '%f\n' | LC_ALL=C sort) \
+            >>dist/SHA256SUMS
+          lines=$(wc -l <dist/SHA256SUMS)
+          if [ "$lines" -lt 12 ]; then
+            echo "SHA256SUMS tidak lengkap: $lines baris (< 12 = 6 target x biner+SBOM)"; exit 1
+          fi
+      - name: Tanda tangan ed25519 (fail-closed)
+        env:
+          DAMNBOT_RELEASE_KEY: ${{ secrets.DAMNBOT_RELEASE_KEY }}
+          DAMNBOT_RELEASE_PASSPHRASE: ${{ secrets.DAMNBOT_RELEASE_PASSPHRASE }}
+        run: scripts/sign-release.sh dist/SHA256SUMS
+      - name: Verifikasi ulang tanda tangan + checksum (fail-closed)
+        env:
+          DAMNBOT_RELEASE_PUBKEY: ${{ vars.DAMNBOT_RELEASE_PUBKEY }}
+        run: scripts/verify-release.sh --dir dist
+      - name: Ringkasan
+        run: cat dist/SHA256SUMS >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-dist
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30

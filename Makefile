@@ -31,7 +31,7 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 	DAMNBOT_CORPUS_C3=$(CORPORA_DIR)/C3 $(if $(filter C2,$(CORPORA)),DAMNBOT_CORPUS_C2=$(CORPORA_DIR)/C2)
 
 .PHONY: all build build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio \
-	deps-check tidy-check mod-verify vuln licenses check meta-test bench-budget fuzz coverage deadcode \
+	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
 	sqlite-engine sqlite-engine-cross skill-refs prices-gate
 
@@ -218,6 +218,11 @@ vuln:
 licenses:
 	GOFLAGS=-tags=$(TAGSCSV) $(GOTOOL) go-licenses check ./... --allowed_licenses=$(LICENSES_ALLOWED)
 	go test -tags "$(TAGSCSV),licenses" -count=1 -run TestMPLIsolation ./internal/archtest
+
+# CROSS-CUTTING §1.4/§1.5: unit tools/release + sign→verify end-to-end dengan kunci uji in-process.
+# Kontrol negatif (tamper artefak/checksum, kunci/passphrase/pubkey hilang) wajib gagal.
+release-test:
+	scripts/release-test.sh
 
 # E-46: go.mod/go.sum sudah tidy (go mod tidy -diff: exit ≠ 0 + diff bila tidak), ketiga modul.
 tidy-check:
