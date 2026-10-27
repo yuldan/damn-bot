@@ -33,6 +33,8 @@ toolset            400 internal/toolset
 # ADR-106 butir 10: exec 3500 -> 3400, exec/classify 1500 -> 1600 (Σ core tetap).
 # ADR-112: exec/classify 1600 -> 1800 untuk aturan keamanan stack classify + shell_allow argv-persis (Σ core 35.000 -> 35.200).
 # ADR-133 SEC10-30/35: exec/classify 1830 -> 1841 (cd bare per dialek; terukur 1841; Σ core +11).
+# ADR-211 (SEC10-36): plafon core 47.000 -> 47.200 (Σ core 46.998 -> 47.009; terukur 1.841;
+# headroom 191; SPEC P21 + ENGINEERING §2.4 + maxCoreLOC).
 exec              3400 internal/exec
 exec/classify     1841 internal/exec/classify
 # ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).

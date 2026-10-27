@@ -25,6 +25,15 @@ func TestPaymentSkillGateCLIWindows(t *testing.T) {
 	t.Setenv("LOCALAPPDATA", filepath.Join(appData, "local"))
 	cfgDir := filepath.Join(appData, "damnbot")
 	dir := t.TempDir()
+	// --unsafe-auto-shell only auto-runs in a trusted workspace (SPEC §14):
+	// the child's cwd is the temp workspace named in the trust store.
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "trusted-projects"), []byte(dir+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
 	marker := func(name string) string { return filepath.Join(dir, name) }
 	psBody := func(m string) string {
 		return "New-Item -ItemType File -Path '" + m + "' -Force | Out-Null\n"
@@ -33,9 +42,21 @@ func TestPaymentSkillGateCLIWindows(t *testing.T) {
 		"scripts/charge.ps1": psBody(marker("pay-call")),
 		"scripts/charge.py":  "open(r\"" + marker("pay-python") + "\", \"w\").write(\"x\")\n",
 	})
-	plain := writeSkill(t, cfgDir, "plain", "", "Run the script.", map[string]string{
-		"scripts/charge.ps1": psBody(marker("plain")),
-	})
+	// The control is a workspace script, not a skill script: every scanned
+	// <config>/skills directory is gated regardless of quarantine or a
+	// missing `side_effects` (SEC10-13, ADR-168), so an undeclared skill
+	// script is Monetary too and cannot prove execution.
+	work := filepath.Join(dir, "control")
+	if err := os.MkdirAll(work, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plain := work
+	if err := os.MkdirAll(filepath.Join(work, "scripts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "scripts", "charge.ps1"), []byte(psBody(marker("plain"))), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name    string
 		command string

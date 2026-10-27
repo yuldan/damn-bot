@@ -15,7 +15,7 @@ import (
 const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
-	maxCoreLOC       = 47000
+	maxCoreLOC       = 47200
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
 	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)
@@ -57,7 +57,7 @@ func budgetRows(t *testing.T, spec string) [][]string {
 }
 
 // TestBudgetTableSum (P21, ADR-086 AUD-064): Σ kolom binary SPEC §3.2.4 ≤ 52 MB, Σ kolom LOC
-// §3.2.4 ≤ 190.000, dan Σ baris core loc.budget ≤ 47.000. Baris core = tabel core ENGINEERING
+// §3.2.4 ≤ 190.000, dan Σ baris core loc.budget ≤ 47.200. Baris core = tabel core ENGINEERING
 // §2.4 (core + codetools + exec + heal): semua baris `<grup> <LOC> <dir…>` kecuali TOTAL,
 // GENERATED, TESTONLY, setiap baris `MODULE` (ADR-196), dan baris infra non-produksi (NEW-34) yang
 // semua direktorinya di infraDirs.
