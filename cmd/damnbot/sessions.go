@@ -20,7 +20,8 @@ import (
 )
 
 // runSessions implements the `sessions` command (SPEC §10): fork and rewind,
-// with SPEC's names and no aliases.
+// with SPEC's names and no aliases. The admin subcommands live in
+// sessionsAdminSub so each dispatch stays inside the E-16 complexity gate.
 func runSessions(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		sessionsUsage(stderr)
@@ -37,27 +38,38 @@ func runSessions(args []string, stdout, stderr io.Writer) int {
 		return sessionsShow(args[1:], stdout, stderr)
 	case "search":
 		return sessionsSearch(args[1:], stdout, stderr)
-	case "rename":
-		return sessionsRename(args[1:], stdout, stderr)
-	case "export":
-		return sessionsExport(args[1:], stdout, stderr)
-	case "prune":
-		return sessionsPrune(args[1:], stdout, stderr)
-	case "archive", "unarchive", "pin", "unpin":
-		return sessionsLabel(args[0], args[1:], stdout, stderr)
-	case "pinned":
-		return sessionsPinned(args[1:], stdout, stderr)
-	case "context-pin":
-		return sessionsContextPin(args[1:], stdout, stderr)
-	case "stats":
-		return sessionsStats(args[1:], stdout, stderr)
-	case "backup", "restore":
-		return sessionsBackupRestore(args[0], args[1:], stdout, stderr)
-	default:
-		sessionsPrintf(stderr, "sessions: unknown subcommand %q\n", cleanArg(args[0]))
-		sessionsUsage(stderr)
-		return 2
+	case "why":
+		return sessionsWhy(args[1:], stdout, stderr)
 	}
+	if code, ok := sessionsAdminSub(args, stdout, stderr); ok {
+		return code
+	}
+	sessionsPrintf(stderr, "sessions: unknown subcommand %q\n", cleanArg(args[0]))
+	sessionsUsage(stderr)
+	return 2
+}
+
+// sessionsAdminSub routes rename/export/prune/labels/stats/backup.
+func sessionsAdminSub(args []string, stdout, stderr io.Writer) (int, bool) {
+	switch args[0] {
+	case "rename":
+		return sessionsRename(args[1:], stdout, stderr), true
+	case "export":
+		return sessionsExport(args[1:], stdout, stderr), true
+	case "prune":
+		return sessionsPrune(args[1:], stdout, stderr), true
+	case "archive", "unarchive", "pin", "unpin":
+		return sessionsLabel(args[0], args[1:], stdout, stderr), true
+	case "pinned":
+		return sessionsPinned(args[1:], stdout, stderr), true
+	case "context-pin":
+		return sessionsContextPin(args[1:], stdout, stderr), true
+	case "stats":
+		return sessionsStats(args[1:], stdout, stderr), true
+	case "backup", "restore":
+		return sessionsBackupRestore(args[0], args[1:], stdout, stderr), true
+	}
+	return 0, false
 }
 
 // sessionsPrintf writes and reports success; CLI output errors are not fatal.
@@ -72,6 +84,7 @@ func sessionsUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot sessions rewind <id> --at <seq|turn:ID>\n")
 	sessionsPrintf(w, "       damnbot sessions ls|show <id> [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot sessions search <query> [--session ID] [--cwd DIR] [--limit N] [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot sessions why <turn-id> [--session ID] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot sessions rename <id> [<title>]\n")
 	sessionsPrintf(w, "       damnbot sessions export <id> [--format md|jsonl|html] [--out FILE] [--no-redact]\n")
 	sessionsPrintf(w, "       damnbot sessions prune <id>|--older-than <90d> [--with-forks] [--archive] [--dry-run] [--yes]\n")

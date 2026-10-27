@@ -56,7 +56,10 @@ boundary           150 internal/boundary
 # ADR-188: `ctxdb.Query.Cwd` (filter FTS per project, SEC17-1) menambah baris ctxdb (terukur 5890
 # pada pohon ter-commit); ctxdb 5885 -> 5890 = angka ukur, tanpa headroom. Tidak ada baris yang turun:
 # Σ core +79 -> 44.789.
-ctxdb             5890 internal/ctxdb
+# ADR-206: `sessions why <turn-id>` lintas sesi menambah TurnSessions (indeks
+# 0013 tidak dihitung scc); ctxdb 5890 -> 5919 = angka ukur scc pada pohon
+# ter-commit, tanpa headroom. Tidak ada baris yang turun: Σ core 46.385 -> 46.414.
+ctxdb             5919 internal/ctxdb
 # ADR-074: storage konsumen di internal/ctxdb/<consumer>store, dipotong dari baris konsumennya (Σ tidak berubah oleh ADR-074).
 # ctxdb/gwstore (900) dihitung dari budget gateway SPEC §3.2.4; barisnya ditambah saat baris gateway dibuat (F4).
 ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore
