@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -20,16 +21,16 @@ import (
 // `requires: [other-skill]` list (skill dependencies) is still parsed when the
 // value is a list, never an object.
 type HostRequirement struct {
-	Bins []BinRequirement
-	OS   []string // accepted runtime.GOOS values; empty = any
-	Arch []string // accepted runtime.GOARCH values; empty = any
-	GPU  bool     // true = a usable GPU is required
+	Bins []BinRequirement `json:"bins,omitempty"`
+	OS   []string         `json:"os,omitempty"`   // accepted runtime.GOOS values; empty = any
+	Arch []string         `json:"arch,omitempty"` // accepted runtime.GOARCH values; empty = any
+	GPU  bool             `json:"gpu,omitempty"`  // true = a usable GPU is required
 }
 
 // BinRequirement is one required executable and its minimum version.
 type BinRequirement struct {
-	Name       string
-	MinVersion string // "" = any version
+	Name       string `json:"name"`
+	MinVersion string `json:"min_version,omitempty"` // "" = any version
 }
 
 // Host is the injected host facts. A nil detector means "cannot verify", and
@@ -40,6 +41,34 @@ type Host struct {
 	LookPath     func(string) (string, error)
 	Version      func(string) (string, error) // binary name -> version string
 	GPU          func() (bool, error)
+}
+
+// JSON encodes the requirement for storage in skills.requires_host (the index
+// row, so read paths never parse SKILL.md again). A nil requirement stores "".
+func (r *HostRequirement) JSON() (string, error) {
+	if r == nil {
+		return "", nil
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		return "", fmt.Errorf("skills: encode requires: %w", err)
+	}
+	return string(b), nil
+}
+
+// ParseHostRequirementJSON decodes a stored skills.requires_host value; ""
+// means the skill declares no host requirement.
+func ParseHostRequirementJSON(s string) (*HostRequirement, error) {
+	if s == "" {
+		return nil, nil
+	}
+	var h HostRequirement
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&h); err != nil {
+		return nil, fmt.Errorf("requires_host: %w", err)
+	}
+	return &h, nil
 }
 
 // Reason is one unmet host requirement.

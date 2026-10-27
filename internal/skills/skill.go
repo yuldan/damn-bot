@@ -84,7 +84,11 @@ type Skill struct {
 	SideEffects []SideEffect
 	Requires    []string         // skill names this skill depends on
 	Host        *HostRequirement // optional host gate (requires: {…}, GAP-TOOL-10)
-	filePayment bool             // a lint finding found payment use in a file (SEC10-9)
+	// RequirementErr is set by the index adapter when the stored
+	// requires_host value cannot be decoded; the skill is then unavailable
+	// (fail closed) instead of silently passing.
+	RequirementErr error
+	filePayment    bool // a lint finding found payment use in a file (SEC10-9)
 }
 
 // AddFindings records that lint found payment use in the skill's files, so

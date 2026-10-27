@@ -2,6 +2,7 @@ package skills
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -151,6 +152,40 @@ func TestSkillsAvailable(t *testing.T) {
 		sk := parseReq(t, req)
 		if got := sk.Unavailable(h); len(got) != 0 {
 			t.Errorf("%q: reasons = %v, want none", req, got)
+		}
+	}
+}
+
+// TestSkillsRequiresJSON: the stored index representation round-trips and is
+// strict (unknown fields, malformed JSON are errors; "" = no requirement).
+func TestSkillsRequiresJSON(t *testing.T) {
+	t.Parallel()
+	h := &HostRequirement{
+		Bins: []BinRequirement{{Name: "rg", MinVersion: "14.1.0"}, {Name: "jq"}},
+		OS:   []string{"linux", "darwin"}, Arch: []string{"amd64"}, GPU: true,
+	}
+	enc, err := h.JSON()
+	if err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	got, err := ParseHostRequirementJSON(enc)
+	if err != nil {
+		t.Fatalf("ParseHostRequirementJSON(%q): %v", enc, err)
+	}
+	if !slices.Equal(got.OS, h.OS) || !slices.Equal(got.Arch, h.Arch) || got.GPU != h.GPU ||
+		len(got.Bins) != 2 || got.Bins[0].Name != "rg" || got.Bins[0].MinVersion != "14.1.0" {
+		t.Fatalf("round-trip = %+v", got)
+	}
+	none, err := (*HostRequirement)(nil).JSON()
+	if err != nil || none != "" {
+		t.Fatalf("nil JSON = (%q, %v)", none, err)
+	}
+	if got, err := ParseHostRequirementJSON(""); got != nil || err != nil {
+		t.Fatalf("empty parse = (%v, %v)", got, err)
+	}
+	for _, bad := range []string{"{", `{"gpu":"yes"}`, `{"colour":true}`} {
+		if _, err := ParseHostRequirementJSON(bad); err == nil {
+			t.Errorf("ParseHostRequirementJSON(%q) = nil error", bad)
 		}
 	}
 }

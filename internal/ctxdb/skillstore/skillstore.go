@@ -25,6 +25,10 @@ import (
 // MaxBodyBytes is the skill content cap of SPEC §4.8.
 const MaxBodyBytes = 8192
 
+// MaxRequiresBytes bounds the stored host requirement JSON (GAP-TOOL-10):
+// comfortable for bins/os/arch/gpu lists, small enough to keep the row cheap.
+const MaxRequiresBytes = 2048
+
 // Closed storage errors.
 var (
 	ErrInvalid    = errors.New("skillstore: invalid row")
@@ -44,6 +48,9 @@ type Row struct {
 	SHA256      string
 	Source      string
 	MemoryID    int64
+	// RequiresHost is the JSON host requirement stored with the row
+	// (GAP-TOOL-10, ADR-208); "" means the skill declares none.
+	RequiresHost string
 }
 
 // Index upserts a trusted skill. Re-indexing the same name with a different
@@ -238,12 +245,13 @@ func indexTx(tx *ctxdb.Tx, r *Row, at int64, trusted bool) (int64, error) {
 		mem = r.MemoryID
 	}
 	var id int64
-	err := tx.Get(`INSERT INTO skills(name, path, sha256, description, body, source, memory_id, indexed_at)
-		VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+	err := tx.Get(`INSERT INTO skills(name, path, sha256, description, body, source, memory_id, indexed_at, requires_host)
+		VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
 		ON CONFLICT(name, sha256) DO UPDATE SET path = excluded.path, description = excluded.description,
-			body = excluded.body, source = excluded.source, memory_id = excluded.memory_id, indexed_at = excluded.indexed_at
+			body = excluded.body, source = excluded.source, memory_id = excluded.memory_id,
+			indexed_at = excluded.indexed_at, requires_host = excluded.requires_host
 		RETURNING id`,
-		[]any{r.Name, r.Path, r.SHA256, r.Description, r.Body, r.Source, mem, at}, &id)
+		[]any{r.Name, r.Path, r.SHA256, r.Description, r.Body, r.Source, mem, at, r.RequiresHost}, &id)
 	if err != nil {
 		return 0, fmt.Errorf("skillstore upsert: %w", err)
 	}
@@ -320,8 +328,8 @@ func searchIDs(tx *ctxdb.Tx, text string, k int) ([]int64, error) {
 func row(tx *ctxdb.Tx, id int64) (Row, error) {
 	var r Row
 	var mem int64
-	err := tx.Get(`SELECT id, name, description, body, path, sha256, source, COALESCE(memory_id, 0)
-		FROM skills WHERE id = ?1`, []any{id}, &r.ID, &r.Name, &r.Description, &r.Body, &r.Path, &r.SHA256, &r.Source, &mem)
+	err := tx.Get(`SELECT id, name, description, body, path, sha256, source, COALESCE(memory_id, 0), requires_host
+		FROM skills WHERE id = ?1`, []any{id}, &r.ID, &r.Name, &r.Description, &r.Body, &r.Path, &r.SHA256, &r.Source, &mem, &r.RequiresHost)
 	if err != nil {
 		return Row{}, err //nolint:wrapcheck // the exported boundary adds context; Get maps ErrNotFound
 	}
@@ -373,6 +381,9 @@ func validate(r *Row, indexed bool) error {
 	}
 	if len(r.Body) > MaxBodyBytes {
 		return fmt.Errorf("%w: body > %d bytes", ErrInvalid, MaxBodyBytes)
+	}
+	if len(r.RequiresHost) > MaxRequiresBytes {
+		return fmt.Errorf("%w: requires_host > %d bytes", ErrInvalid, MaxRequiresBytes)
 	}
 	if indexed && r.Body == "" {
 		return fmt.Errorf("%w: empty body", ErrInvalid)
