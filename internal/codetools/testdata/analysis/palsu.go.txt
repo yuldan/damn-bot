@@ -1,0 +1,10 @@
+package palsu
+
+const skrip = `
+def palsu():
+    pass
+class Palsu:
+    pass
+`
+
+func Nyata() {}
