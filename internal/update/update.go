@@ -46,34 +46,49 @@ type manifest struct {
 	Assets      []asset `json:"assets"`
 }
 
+type resolved struct {
+	rel   ghRelease
+	man   manifest
+	asset asset
+}
+
 // Check resolves and verifies the newest release without installing anything.
 func Check(ctx context.Context, client *netx.Client, feed, channel, current string, pub ed25519.PublicKey) (target, changelog string, available bool, err error) {
+	r, err := resolve(ctx, client, feed, channel, pub)
+	if err != nil {
+		return "", "", false, err
+	}
+	available, err = newerThan(r.man.Version, current)
+	return r.man.Version, r.man.Changelog, available, err
+}
+
+func resolve(ctx context.Context, client *netx.Client, feed, channel string, pub ed25519.PublicKey) (resolved, error) {
 	if client == nil {
-		return "", "", false, errors.New("update: nil HTTP client")
+		return resolved{}, errors.New("update: nil HTTP client")
 	}
 	if pub == nil {
-		return "", "", false, errNoPublicKey
+		return resolved{}, errNoPublicKey
 	}
 	if feed == "" {
 		feed = defaultFeedURL
 	}
 	arch, err := nativeArch()
 	if err != nil {
-		return "", "", false, fmt.Errorf("update: native architecture: %w", err)
+		return resolved{}, fmt.Errorf("update: native architecture: %w", err)
 	}
 	rel, err := latestRelease(ctx, client, feed, channel)
 	if err != nil {
-		return "", "", false, err
+		return resolved{}, err
 	}
 	man, err := verifiedManifest(ctx, client, rel, channel, pub)
 	if err != nil {
-		return "", "", false, err
+		return resolved{}, err
 	}
-	if _, ok := man.assetFor(runtime.GOOS, arch); !ok {
-		return "", "", false, fmt.Errorf("update: release %s has no asset for %s/%s", man.Version, runtime.GOOS, arch)
+	a, ok := man.assetFor(runtime.GOOS, arch)
+	if !ok {
+		return resolved{}, fmt.Errorf("update: release %s has no asset for %s/%s", man.Version, runtime.GOOS, arch)
 	}
-	available, err = newerThan(man.Version, current)
-	return man.Version, man.Changelog, available, err
+	return resolved{rel: rel, man: man, asset: a}, nil
 }
 
 func verifiedManifest(ctx context.Context, client *netx.Client, rel ghRelease, channel string, pub ed25519.PublicKey) (manifest, error) {
@@ -197,6 +212,15 @@ func latestRelease(ctx context.Context, c *netx.Client, feed, channel string) (g
 	return ghRelease{}, fmt.Errorf("update: no %s release found in the feed", channel)
 }
 
+func assetURL(rel ghRelease, name string) (string, error) {
+	for _, a := range rel.Assets {
+		if a.Name == name && a.BrowserDownloadURL != "" {
+			return a.BrowserDownloadURL, nil
+		}
+	}
+	return "", fmt.Errorf("update: release %s has no %s asset", rel.TagName, name)
+}
+
 func fetchAsset(ctx context.Context, c *netx.Client, rel ghRelease, name string, max int64) ([]byte, error) {
 	for _, a := range rel.Assets {
 		if a.Name == name && a.BrowserDownloadURL != "" {
@@ -210,10 +234,17 @@ func loopbackHTTP(u *url.URL) bool {
 	return u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost")
 }
 
-func fetch(ctx context.Context, c *netx.Client, rawURL string, max int64) (data []byte, err error) {
-	u, err := url.Parse(rawURL)
+func validateDownloadURL(raw string) error {
+	u, err := url.Parse(raw)
 	if err != nil || u.User != nil || u.Host == "" || (u.Scheme != "https" && !loopbackHTTP(u)) {
-		return nil, errors.New("update: release asset URL must be http(s) without userinfo")
+		return errors.New("update: release asset URL must be http(s) without userinfo")
+	}
+	return nil
+}
+
+func fetch(ctx context.Context, c *netx.Client, rawURL string, max int64) (data []byte, err error) {
+	if verr := validateDownloadURL(rawURL); verr != nil {
+		return nil, verr
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, http.NoBody)
 	if err != nil {

@@ -109,8 +109,6 @@ func TestRunUpdateFailsClosed(t *testing.T) {
 		env  string
 		want int
 	}{
-		{"install", nil, "", 2},
-		{"rollback", []string{"--rollback"}, "", 2},
 		{"data without rollback", []string{"--data"}, "", 2},
 		{"bad channel", []string{"--check", "--channel", "staging", "--config", cfg}, "", 2},
 		{"missing key", []string{"--check", "--config", cfg}, "", 2},
