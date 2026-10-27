@@ -3,7 +3,9 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/config"
 )
@@ -17,4 +19,13 @@ func benchTUIOverrides(o *runOptions, cfg *config.Config) {
 	o.baseURL = os.Getenv("DAMNBOT_BENCH_BASE_URL")
 	o.apiKey = os.Getenv("DAMNBOT_BENCH_API_KEY")
 	o.providerAttempts = 1
+}
+
+// benchTrace gives the F3 harness an ordering witness: with the trace env set,
+// the PTY carries F3TRACE lines for config/app/frame and any lazy ensure call.
+func benchTrace(phase string) {
+	if os.Getenv("DAMNBOT_BENCH_TRACE") != "1" {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "F3TRACE %s %d\n", phase, time.Now().UnixNano())
 }

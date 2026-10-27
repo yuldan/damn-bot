@@ -34,6 +34,22 @@ has no such path.
 The seam is deliberately bench-only: production TUI has no fake-provider flag.
 The artifact records `bench/f3/run.sh` and the exact binary tag.
 
+
+### P12 first frame (Damn-Bot side)
+
+The same PTY runner also measures **P12**: `T0` immediately before `cmd.Start()`
+of the real binary (with the `script(1)`/`stty` wrapper) and `T1` when the first
+frame marker `enter send` is visible. Twenty samples are recorded; `p95_ms`
+must be `<= 100` or the driver exits non-zero (it writes the artefact first so
+the failure is inspectable). `GOMAXPROCS=1` is measured in a second 20-sample
+pass and reported as a non-gate number.
+
+The `bench` build tag also emits `F3TRACE` lines (`config-done`, `app-built`,
+`run-start`, and `ensure-start`) when `DAMNBOT_BENCH_TRACE=1`. The lazy-start
+check fails if `ensure-start` (the first ctxdb/provider open) appears before the
+frame marker; `config-done`/`app-built`/`run-start` must appear before it. A
+missing trace also fails, so the proof cannot pass silently.
+
 ### Build time (Damn-Bot side)
 
 For each sample the driver extracts `git archive HEAD` into a private tree and
