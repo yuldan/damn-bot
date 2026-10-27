@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/tui"
 )
@@ -63,5 +64,42 @@ func TestTUIRunnerLazyHost(t *testing.T) {
 	r.Cancel("s") // no loop yet: a no-op, never a panic
 	if err := r.Close(); err != nil {
 		t.Fatalf("Close on an unopened runner: %v", err)
+	}
+}
+
+// TestToolActionID proves the composition root resolves the journal action
+// anchored on a tool call (the ↶ marker of SPEC §13.1).
+func TestToolActionID(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: t.TempDir(), Kind: "run"})
+	if err != nil {
+		t.Fatalf("ctxdb: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := db.Close(); cerr != nil {
+			t.Errorf("close: %v", cerr)
+		}
+	})
+	const sid = "S"
+	if _, serr := db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: "tui", Cwd: "/"}); serr != nil {
+		t.Fatalf("session: %v", serr)
+	}
+	ids, err := db.Append(ctx, sid, nil, ctxdb.Event{Kind: "tool_dispatch", ToolCallID: "c1", ToolName: "write_file", Role: "assistant"})
+	if err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	var want int64
+	if err := db.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`INSERT INTO actions(session_id, event_id, kind, reversibility, subject, inverse, bytes_held, created_at)
+			VALUES (?1,?2,'file_write','reversible','/w','{}',0,1) RETURNING id`, []any{sid, ids[0]}, &want)
+	}); err != nil {
+		t.Fatalf("action: %v", err)
+	}
+	if got := toolActionID(ctx, db, sid, "c1"); got != want {
+		t.Fatalf("toolActionID = %d, want %d", got, want)
+	}
+	if got := toolActionID(ctx, db, sid, "missing"); got != 0 {
+		t.Fatalf("missing call = %d, want 0", got)
 	}
 }
