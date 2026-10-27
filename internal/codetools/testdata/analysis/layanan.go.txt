@@ -1,0 +1,39 @@
+// Layanan pembayaran: komentar bahasa Indonesia, nama simbol ASCII.
+package layanan
+
+import "context"
+
+type Pembayaran struct {
+	ID     string
+	Jumlah int64
+}
+
+type Penyimpan interface {
+	Simpan(ctx context.Context, p Pembayaran) error
+}
+
+const (
+	StatusBaru  = "baru"
+	StatusLunas = "lunas"
+)
+
+var (
+	ErrTidakAda = error(nil)
+	batasMaks   = int64(1_000_000)
+)
+
+func (p *Pembayaran) Total() int64 {
+	return p.Jumlah
+}
+
+func (p *Pembayaran) Ubah(
+	jumlah int64,
+) error {
+	p.Jumlah = jumlah
+	return nil
+}
+
+func Proses[T ~string](ctx context.Context, id T) error {
+	_ = ctx
+	return nil
+}
