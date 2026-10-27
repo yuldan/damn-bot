@@ -12,9 +12,9 @@ import (
 // --continue. A resumed session keeps its stored cwd and model (the model is
 // used only when the caller did not pass one) and holds its lease until run
 // ends.
-func runSession(ctx context.Context, db *ctxdb.Store, modelRef string, o *runOptions) (sid, cwd, storedModel string, err error) {
+func runSession(ctx context.Context, db *ctxdb.Store, modelRef, cfgSHA string, o *runOptions) (sid, cwd, storedModel string, err error) {
 	if o.session == "" && !o.cont {
-		sid, cwd, err = newRunSession(ctx, db, modelRef, o.newSessionID, o.sessionOrigin)
+		sid, cwd, err = newRunSession(ctx, db, modelRef, cfgSHA, o.newSessionID, o.sessionOrigin)
 		return sid, cwd, modelRef, err
 	}
 	sid, cwd, storedModel, err = resumeTarget(ctx, db, o)

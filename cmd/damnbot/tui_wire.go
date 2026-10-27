@@ -53,6 +53,7 @@ func runTUI([]string) int {
 			return mdl.db, nil
 		},
 		cfg: &cfg, configDir: configDir, modelRef: cfg.Provider.Model, active: r.Active,
+		configHash: r.ConfigHash,
 	}
 	app, err := tui.NewApp(sid, &tui.Host{
 		Clock: r, Runner: r, Config: r, Runtime: r, Actions: r, Shell: r,
@@ -202,6 +203,9 @@ func (r *tuiRunner) ensure(ctx context.Context) (*runModel, error) {
 	codec, err := runCodec(ctx, r.deps.cfg, r.deps.dataDir, r.deps.configDir)
 	if err != nil {
 		return nil, err
+	}
+	if r.deps.opts != nil {
+		r.deps.opts.configSHA = r.ConfigHash()
 	}
 	model, err = startRunModel(ctx, r.deps.cfg, r.deps.dataDir, r.deps.modelRef, r.deps.opts, r.deps.red, r.deps.configDir, r.deps.home, codec)
 	if err != nil {

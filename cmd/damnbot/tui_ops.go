@@ -29,11 +29,12 @@ import (
 )
 
 type tuiActions struct {
-	db        func(context.Context) (*ctxdb.Store, error)
-	cfg       *config.Config
-	configDir string
-	modelRef  string
-	active    func(string) bool
+	db         func(context.Context) (*ctxdb.Store, error)
+	cfg        *config.Config
+	configHash func() string
+	configDir  string
+	modelRef   string
+	active     func(string) bool
 }
 
 func (a *tuiActions) New(ctx context.Context) (tui.SessionChange, error) {
@@ -41,7 +42,7 @@ func (a *tuiActions) New(ctx context.Context) (tui.SessionChange, error) {
 	if err != nil {
 		return tui.SessionChange{}, err
 	}
-	sid, _, err := newRunSession(ctx, db, a.modelRef, "", "tui")
+	sid, _, err := newRunSession(ctx, db, a.modelRef, a.configHash(), "", "tui")
 	if err != nil {
 		return tui.SessionChange{}, fmt.Errorf("new session: %w", err)
 	}
