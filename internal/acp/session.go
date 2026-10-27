@@ -121,9 +121,6 @@ func (s *Session) Close() error {
 	return nil
 }
 
-// Done is closed when the session closes.
-func (s *Session) Done() <-chan struct{} { return s.done }
-
 // Outbox is the session's single outbound queue, drained by one writer.
 func (s *Session) Outbox() <-chan []byte { return s.outbox }
 
