@@ -21,6 +21,9 @@ func (i *Importer) collectMCP(c *collected) error {
 		return syntaxError("config.yaml", errors.New("mcp_servers must be a table"))
 	}
 	for _, name := range slices.Sorted(maps.Keys(servers)) {
+		if c.reject(SourceMCP, name) {
+			continue
+		}
 		fields, ok := servers[name].(map[string]any)
 		if !ok {
 			c.report.skip(SourceMCP, name, "server definition is not a table")

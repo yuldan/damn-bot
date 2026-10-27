@@ -141,17 +141,34 @@ var _ tools.SkillManager = (*skillManager)(nil)
 func newSkillManager(ctx context.Context, db *ctxdb.Store, dataDir, configDir string, red *redact.Redactor) (*skillManager, error) {
 	dir := filepath.Join(dataDir, "skills", "agent")
 	userDir := filepath.Join(configDir, "skills")
-	st := skillStore{db: db, host: skillHost()}
-	svc, err := skills.New(st, skills.Config{
+	svc, err := newSkillService(ctx, db, red)
+	if err != nil {
+		return nil, err
+	}
+	// SKILL-016: copy the embedded builtin corpus into <config>/skills and
+	// index it through Service.Install. The sync is idempotent and skips a
+	// skill the user (or a previous run) changed instead of overwriting it.
+	if _, serr := svc.SyncBundled(ctx, skills.BundledFS(), userDir); serr != nil {
+		return nil, fmt.Errorf("skills: sync bundled: %w", serr)
+	}
+	m := &skillManager{db: db, svc: svc, dir: dir, userDir: userDir, host: skillHost()}
+	m.materializeApproved(ctx)
+	return m, nil
+}
+
+// newSkillService builds the install/retrieval service over db. It does not
+// sync the bundled corpus: that is the manager's startup job, and a command
+// that only installs imported skills must not copy or index anything else.
+func newSkillService(ctx context.Context, db *ctxdb.Store, red *redact.Redactor) (*skills.Service, error) {
+	svc, err := skills.New(skillStore{db: db, host: skillHost()}, skills.Config{
 		Redact: func(s string) string { return red.String(s) },
 		Scan: func(sk *skills.Skill) (string, string, error) {
 			scan := memory.ScanText(red, sk.Description+"\n"+sk.Body)
 			b, jerr := scan.JSON()
 			return string(scan.Severity), b, jerr
 		},
-		//nolint:contextcheck // Config.Known has no ctx parameter.
 		Known: func(name string) bool {
-			_, found, kerr := skillstore.ByName(context.Background(), db, name)
+			_, found, kerr := skillstore.ByName(ctx, db, name)
 			return kerr == nil && found
 		},
 		Files: func(sk *skills.Skill) (fs.FS, error) {
@@ -165,15 +182,7 @@ func newSkillManager(ctx context.Context, db *ctxdb.Store, dataDir, configDir st
 	if err != nil {
 		return nil, fmt.Errorf("skills: %w", err)
 	}
-	// SKILL-016: copy the embedded builtin corpus into <config>/skills and
-	// index it through Service.Install. The sync is idempotent and skips a
-	// skill the user (or a previous run) changed instead of overwriting it.
-	if _, serr := svc.SyncBundled(ctx, skills.BundledFS(), userDir); serr != nil {
-		return nil, fmt.Errorf("skills: sync bundled: %w", serr)
-	}
-	m := &skillManager{db: db, svc: svc, dir: dir, userDir: userDir, host: skillHost()}
-	m.materializeApproved(ctx)
-	return m, nil
+	return svc, nil
 }
 
 // materializeApproved copies an approved agent skill into the trusted user

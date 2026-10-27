@@ -31,6 +31,14 @@ func (i *Importer) collectSecrets(root string, c *collected) error {
 			continue
 		}
 		seen[key] = struct{}{}
+		if key == "SUDO_PASSWORD" {
+			// GAP-SEC-14: a privileged password is never migrated.
+			c.report.skip(SourceSecrets, key, "refused: privilege escalation secret (GAP-SEC-14)")
+			continue
+		}
+		if c.reject(SourceSecrets, key) {
+			continue
+		}
 		if _, used := referenced[key]; !used {
 			c.report.skip(SourceSecrets, key, "not referenced by the imported config")
 			continue

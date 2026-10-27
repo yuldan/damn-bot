@@ -15,6 +15,15 @@ var (
 	ErrSource = errors.New("importer: invalid item")
 )
 
+// SkipError asks the importer to record one item as skipped with Reason and
+// keep going; a real write failure must not use it.
+type SkipError struct {
+	Reason string
+}
+
+// Error implements error.
+func (e *SkipError) Error() string { return e.Reason }
+
 func syntaxError(path string, err error) error {
 	return fmt.Errorf("%w: %s: %w", ErrSyntax, path, err)
 }

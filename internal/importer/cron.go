@@ -55,6 +55,9 @@ func (i *Importer) mapCronJob(fields map[string]any, index int, c *collected) {
 	if key == "" {
 		key = fmt.Sprintf("jobs[%d]", index)
 	}
+	if c.reject(SourceCron, key) {
+		return
+	}
 	if childString(fields, "prompt") == "" {
 		c.report.skip(SourceCron, key, "job has no prompt (script-only jobs have no Damn-Bot equivalent)")
 		return

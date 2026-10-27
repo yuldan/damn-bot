@@ -1,32 +1,39 @@
 package importer
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
 )
 
+// maxSkillBytes is the SKILL.md cap of SPEC §4.8.
+const maxSkillBytes = 8192
+
 func (i *Importer) collectSkills(root string, c *collected) error {
 	dir := filepath.Join(root, "skills")
 	err := i.deps.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil && errors.Is(walkErr, fs.ErrNotExist) {
+			return nil
+		}
 		if walkErr != nil {
-			if errors.Is(walkErr, fs.ErrNotExist) {
-				return nil
-			}
 			return walkErr
+		}
+		if d.Type()&fs.ModeSymlink != 0 && d.Name() != "SKILL.md" {
+			c.report.skip(SourceSkills, filepath.ToSlash(path), "symlink is not followed")
+			return nil
 		}
 		if d.IsDir() || d.Name() != "SKILL.md" {
 			return nil
 		}
-		data, err := i.readOptional(path)
-		if err != nil {
-			return err
-		}
-		meta, body, err := splitFrontmatter(data, path)
+		meta, body, data, err := i.readSkillFile(path)
 		if err != nil {
 			return err
 		}
@@ -34,25 +41,77 @@ func (i *Importer) collectSkills(root string, c *collected) error {
 		if relErr != nil {
 			return fmt.Errorf("importer: relative skill path: %w", relErr)
 		}
-		name := childString(meta, "name")
-		if name == "" {
-			c.report.skip(SourceSkills, filepath.ToSlash(origin), "SKILL.md has no frontmatter name")
-			return nil
-		}
-		c.skills = append(c.skills, Skill{
-			Name:        name,
-			Description: childString(meta, "description"),
-			Body:        body,
-			Origin:      filepath.ToSlash(origin),
-			Status:      "pending",
-		})
-		c.report.item(SourceSkills)
+		c.addSkill(meta, body, filepath.ToSlash(origin), data)
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+// readSkillFile reads one SKILL.md, rejecting an oversized or non-UTF-8 file
+// before parsing.
+func (i *Importer) readSkillFile(path string) (map[string]any, string, []byte, error) {
+	data, err := i.readOptional(path)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	if len(data) > maxSkillBytes || !utf8.Valid(data) {
+		return nil, "", nil, syntaxError(path, fmt.Errorf("file is not UTF-8 or exceeds %d bytes", maxSkillBytes))
+	}
+	meta, body, err := splitFrontmatter(data, path)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	return meta, body, data, nil
+}
+
+// addSkill records one parsed SKILL.md; an invalid item is a reported skip.
+func (c *collected) addSkill(meta map[string]any, body, origin string, data []byte) {
+	name := childString(meta, "name")
+	if !validSkillName(name) {
+		c.report.skip(SourceSkills, origin, "SKILL.md has no valid frontmatter name")
+		return
+	}
+	description := childString(meta, "description")
+	if description == "" || unsafeText(name) || unsafeText(description) {
+		c.report.skip(SourceSkills, name, "SKILL.md description is missing or unsafe")
+		return
+	}
+	if c.reject(SourceSkills, name) {
+		return
+	}
+	sum := sha256.Sum256(data)
+	c.skills = append(c.skills, Skill{
+		Name: name, Description: description, Body: body,
+		Origin: origin, SHA256: hex.EncodeToString(sum[:]),
+	})
+	c.report.item(SourceSkills)
+}
+
+// validSkillName mirrors the closed name shape the skill store accepts.
+func validSkillName(name string) bool {
+	if name == "" || len(name) > 64 {
+		return false
+	}
+	for i, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		case (r == '-' || r == '_') && i > 0:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// unsafeText reports control and format runes (bidi, zero-width) the skill
+// store rejects.
+func unsafeText(s string) bool {
+	return strings.ContainsFunc(s, func(r rune) bool {
+		return unicode.IsControl(r) || unicode.In(r, unicode.Cf)
+	})
 }
 
 func splitFrontmatter(data []byte, path string) (map[string]any, string, error) {

@@ -76,6 +76,9 @@ func (i *Importer) collectConfig(c *collected) error {
 }
 
 func (i *Importer) mapConfigItem(path string, value any, mappings map[string]mapping, c *collected) {
+	if c.reject(SourceConfig, path) {
+		return
+	}
 	if isSecretPath(path) {
 		text, ok := value.(string)
 		if !ok || text == "" {
