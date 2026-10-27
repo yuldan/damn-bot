@@ -52,6 +52,8 @@ func newTurnEngine(ctx context.Context, cfg *config.Config, o *runOptions, model
 		// P5/GAP-COST-08: inline aggregate scales with window and ratio.
 		WindowTokens:  model.inlineCap,
 		CharsPerToken: charsPerToken(o.prompt),
+		Origin:        o.approvalOrigin,
+		Approver:      o.toolApprover,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tools dispatcher: %w", err)
@@ -80,6 +82,7 @@ func newTurnEngine(ctx context.Context, cfg *config.Config, o *runOptions, model
 		Carriers:       &ctxCarrierStore{db: model.db},
 		Redactor:       redactorAdapter{red: red},
 		Origin:         o.approvalOrigin,
+		Approver:       o.approver,
 		ValidateAnswer: o.validate,
 	})
 	if err != nil {

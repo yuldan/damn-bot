@@ -282,6 +282,7 @@ type ApprovalRequest struct {
 	Effect    Effect
 	Tainted   bool
 	Terminal  bool
+	NoSession bool // allow_session is unavailable for this class
 }
 
 // ApprovalResult is the Approver's answer. Args replaces the arguments when

@@ -126,6 +126,7 @@ type ApprovalRequest struct {
 	Effect  Effect
 	Class   string
 	Paths   []string
+	Args    json.RawMessage
 	Preview string
 	Origin  string // run|tui|acp|plan (ADR-202); never empty from the dispatcher
 	Tainted bool
@@ -182,7 +183,7 @@ func (r *ApprovalRequest) Validate() error {
 
 // Approver is the interactive approval channel (TUI, ACP, web UI, gateway).
 type Approver interface {
-	Approve(ctx context.Context, req ApprovalRequest) (Approval, error)
+	Approve(ctx context.Context, req *ApprovalRequest) (Approval, error)
 }
 
 func toolSubject(tool, subject string) string { return tool + "\x00" + subject }
@@ -297,8 +298,8 @@ func (d *Dispatcher) ask(ctx context.Context, p *Prepared, outside bool) *Outcom
 	}
 	req := ApprovalRequest{
 		Tool: p.Call.Name, CallID: p.Call.CallID, Effect: p.Effect, Class: dec.Class,
-		Paths: dec.Paths, Preview: dec.Preview, Origin: d.origin, Tainted: d.tainted.Load(),
-		AllowSession: dec.AllowSession,
+		Paths: dec.Paths, Args: p.Args, Preview: dec.Preview, Origin: d.origin,
+		Tainted: d.tainted.Load(), AllowSession: dec.AllowSession,
 	}
 	// Fail closed: a dangerous action without a preview is never shown as
 	// approvable (SPEC §18.2, ADR-202). ensurePreview normally fills it, so
@@ -313,7 +314,7 @@ func (d *Dispatcher) ask(ctx context.Context, p *Prepared, outside bool) *Outcom
 		out.Denied = true
 		return &out
 	}
-	answer, err := d.approver.Approve(ctx, req)
+	answer, err := d.approver.Approve(ctx, &req)
 	if err != nil {
 		out := fromError(err)
 		return &out

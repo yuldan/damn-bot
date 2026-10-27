@@ -96,11 +96,10 @@ type approverRec struct {
 	reqs   []ApprovalRequest
 }
 
-//nolint:gocritic // the Approver interface fixes the by-value request
-func (a *approverRec) Approve(_ context.Context, req ApprovalRequest) (Approval, error) {
+func (a *approverRec) Approve(_ context.Context, req *ApprovalRequest) (Approval, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.reqs = append(a.reqs, req)
+	a.reqs = append(a.reqs, *req)
 	if a.err != nil {
 		return ApprovalDeny, a.err
 	}

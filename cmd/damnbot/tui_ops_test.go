@@ -59,6 +59,30 @@ func TestTUIActionsNew(t *testing.T) {
 	mustNew(t.Context(), t, testActions(t, db), db)
 }
 
+// TestTUIActionsList returns the real ctxdb metadata for the sessions view.
+func TestTUIActionsList(t *testing.T) {
+	t.Chdir(realDir(t))
+	db := openData(t, t.TempDir())
+	a := testActions(t, db)
+	ctx := t.Context()
+	first := mustNew(ctx, t, a, db)
+	second := mustNew(ctx, t, a, db)
+	items, err := a.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, it := range items {
+		seen[it.ID] = true
+		if it.Model != "fake/model" || it.Cwd == "" {
+			t.Fatalf("row metadata = %+v", it)
+		}
+	}
+	if !seen[first.SessionID] || !seen[second.SessionID] {
+		t.Fatalf("List missing sessions: %v", seen)
+	}
+}
+
 // TestTUIActionsForkRewind exercises the real ctxdb branch primitives: fork at
 // head, rewind at an earlier seq, and refusal of a rewind at head or a bad --at.
 func TestTUIActionsForkRewind(t *testing.T) {

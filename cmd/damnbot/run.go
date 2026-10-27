@@ -67,6 +67,8 @@ type runOptions struct {
 	newSessionID   string
 	sessionOrigin  string
 	approvalOrigin string
+	approver       loop.Approver  // TUI modal; nil = deny every ask
+	toolApprover   tools.Approver // TUI modal for the dispatcher's own asks
 	now            func() time.Time
 	// validate is --answer-schema compiled (SPEC §7.2); nil = no schema.
 	validate func(string) error
@@ -533,6 +535,8 @@ func providerEndpoint(ref string, o *runOptions) (base, key, family string, err 
 
 func approvalMode(o *runOptions) tools.Mode {
 	switch o.approval {
+	case "ask":
+		return tools.ModeAsk
 	case "auto":
 		return tools.ModeHeadlessAuto
 	case "auto-edit":
