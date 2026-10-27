@@ -5,7 +5,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 sha=$(git rev-parse --short=10 HEAD)
-dirty=$(git status --porcelain | wc -l | tr -d ' ')
+dirty=$(git status --porcelain --untracked-files=no | wc -l | tr -d ' ')
 out=${OUT:-"$root/bench/f3/results/damnbot-$sha-F3.json"}
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/damnbot-f3.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT

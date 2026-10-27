@@ -1,0 +1,148 @@
+{
+ "dimensions": {
+  "buildtime": {
+   "clean": {
+    "method": "go build -tags goolm ./cmd/damnbot with empty GOCACHE; source from git archive HEAD",
+    "samples_s": [
+     27.655895035,
+     27.731905281,
+     28.382138606
+    ],
+    "p50_s": 27.731905281,
+    "p95_s": 28.382138606
+   },
+   "incremental": {
+    "method": "same tree, append one comment to internal/loop/loop.go, rebuild with the clean build's GOCACHE",
+    "samples_s": [
+     1.690211135,
+     1.673286993,
+     1.7703452560000001
+    ],
+    "p50_s": 1.690211135,
+    "p95_s": 1.7703452560000001
+   }
+  },
+  "error_informatif": {
+   "design": [
+    {
+     "cases": 5,
+     "example": "bad TOML, unknown key, max_turns=500",
+     "group": "config parse/unknown/type/range/invariant"
+    },
+    {
+     "cases": 5,
+     "example": "missing provider key, keychain denied",
+     "group": "credentials missing/invalid"
+    },
+    {
+     "cases": 5,
+     "example": "401, 429, 5xx, timeout, network down",
+     "group": "provider transport"
+    },
+    {
+     "cases": 5,
+     "example": "open/migrate/schema/permission/locked",
+     "group": "database"
+    },
+    {
+     "cases": 5,
+     "example": "permission, symlink escape, disk full",
+     "group": "filesystem/workspace"
+    },
+    {
+     "cases": 5,
+     "example": "shell denied, timeout, spawn failure",
+     "group": "exec/approval"
+    },
+    {
+     "cases": 5,
+     "example": "bad args, unknown tool, invalid JSON",
+     "group": "tool schema/args"
+    },
+    {
+     "cases": 5,
+     "example": "overflow, compaction failure",
+     "group": "context budget"
+    },
+    {
+     "cases": 5,
+     "example": "cap reached, stale price",
+     "group": "budget/pricing"
+    },
+    {
+     "cases": 5,
+     "example": "no TTY, unsupported TERM, resize",
+     "group": "terminal/TUI"
+    },
+    {
+     "cases": 5,
+     "example": "malformed Hermes/file input",
+     "group": "import/input"
+    },
+    {
+     "cases": 5,
+     "example": "bad frame, disconnect, oversized frame",
+     "group": "ACP/stdio"
+    }
+   ],
+   "reason": "requires 60 common-error cases and two human raters; no rubric or score was fabricated",
+   "status": "blocked"
+  },
+  "first_token_tui": {
+   "agent": "damnbot",
+   "surface": "TUI (real damnbot binary under a PTY)",
+   "method": "T0 = fake provider first content frame written; T1 = F3TOKEN visible in PTY output",
+   "token": "F3TOKEN",
+   "runs": 20,
+   "samples_ms": [
+    2.401,
+    9.863,
+    5.103,
+    9.51,
+    5.215,
+    10.011,
+    10.441,
+    11.448,
+    9.945,
+    8.885,
+    6.441,
+    5.71,
+    2.864,
+    19.249,
+    13.66,
+    6.252,
+    14.611,
+    11.723,
+    10.36,
+    12.654
+   ],
+   "p50_ms": 9.863,
+   "p95_ms": 14.611
+  }
+ },
+ "hermes": "unavailable",
+ "hermes_detail": {
+  "f0_reference": [
+   "bench/speed/results/hermes-868b9f244f-nollm.json",
+   "bench/speed/results/hermes-868b9f244f-llm.json"
+  ],
+  "reason": "pinned Hermes runtime is not provisioned (Python 3.14 + 45 pinned deps and Node workspace deps); no package install was attempted",
+  "repro": [
+   "HERMES_DIR=\u003chermes-868b9f244f checkout\u003e HERMES_PYTHONPATH=\u003cdeps\u003e bench/f2/run.sh",
+   "python3.14 -m hermes_cli.main chat  # requires the pinned dependency set"
+  ],
+  "status": "unavailable"
+ },
+ "meta": {
+  "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
+  "damnbot_commit": "26eee150c2",
+  "damnbot_dirty": 0,
+  "date": "2026-10-27T20:56:24Z",
+  "go": "go1.26.10",
+  "harness": "bench/f3/run.sh: cmd/f3measure (PTY + fake OpenAI SSE + go build timing)",
+  "host_note": "workstation measurement, not the Q14 reference machine",
+  "kernel": "Linux 6.8.0-147-generic",
+  "loadavg": "5.69 4.46 2.52 2/515 1398644",
+  "phase": "F3"
+ }
+}
