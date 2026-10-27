@@ -32,6 +32,7 @@ merge saat snapshot ini diambil. Ledger ini tidak mengklaim CI hijau.
 | EC wajib ROADMAP F2 | 41 | 41 | 0 | 0 |
 | GAP gate F2 (ADR-193, 13) | 13 | 12 | 1 (`GAP-COST-01`) | 0 |
 | GAP di luar gate F2 | 7 | 0 | 3 | 4 |
+| Perf F2 (2 metrik, §2b) | 2 | 0 | 2 | 0 |
 | Parity F2 setelah re-fase ADR-209 | 56 | 55 | 1 (`SKILL-016`) | 0 |
 | Parity re-fase ADR-209 | 3 | 0 | 2 (F3) | 1 (F9) |
 | Parity pindah fase ADR-139 (bukan F2) | 22 | — | — | — |
@@ -117,6 +118,21 @@ dicantumkan supaya statusnya tidak hilang, bukan sebagai tagihan F2.
 | GAP-SEC-26 | ya | `TestBuiltinSkillRefs` `internal/skills/builtin_test.go:24`; job `skill-refs` success | LULUS | skills/CI |
 | GAP-TEST-01 | — | `TestOutline` `internal/codetools/read_test.go:277` (tree analysis); tes language detection tidak ada | TERBUKA | codetools; nama tes ledger lama fiktif |
 | GAP-LEASE-01 | — | 0 pemanggil produksi `Heartbeat`/`CheckLease` | DITUNDA → F3/F5 | ADR-185 |
+
+## 2b. Performa F2 (ambang acceptance, bukan target)
+
+Ambang di bawah adalah ambang acceptance apa adanya; tidak ada margin.
+`timing.Check` ×1,5 (ADR-077) adalah kebijakan flake **runner untuk tes**,
+bukan ambang gate, dan tidak dipakai untuk menilai baris ini.
+
+| metrik | ambang (SPEC) | bukti saat ini | status | sisa kerja |
+| --- | --- | --- | --- | --- |
+| `Store.Append` | p99 ≤ **10 ms** Linux/Windows, ≤ **30 ms** macOS; `synchronous=FULL`, kasus 3 blob ref/event (SPEC.md:585, ADR-039) | `BenchmarkAppend` `internal/ctxdb/bench_test.go:99` hanya melaporkan p50/p95/p99, **tanpa asersi**; `TestAppendP99` belum ada; angka CI belum ada | TERBUKA (menunggu angka CI) | PR `ci/perf-acceptance`: job yang menjalankan `TestAppendP99` + angka p50/p95/p99 dan nama runner |
+| `recall` | p95 ≤ **50 ms** @ **1.000.000 event**, di luar purge berjalan (SPEC.md:1613, GAP-INF-01) | `TestRecallP95` `internal/ctxdb/recall_perf_test.go:86` ada, tetapi **tidak dipanggil job CI mana pun**; tidak dijalankan pada snapshot ini | TERBUKA (menunggu angka CI) | job CI yang menjalankan `TestRecallP95` + angka p50/p95 dan nama runner |
+
+Angka performa bergantung pada runner: Q14 NVMe vs mesin bersama. Angka
+lokal (bukan Q14) **bukan** bukti acceptance; hanya angka dari job CI pada
+head final, beserta nama runner, yang dapat menutup baris ini.
 
 ## 3. Parity F2 (FEATURE-PARITY, setelah re-fase ADR-209)
 
@@ -245,10 +261,12 @@ unit), deferred tools dengan modul benar-benar ter-wire (EC-TCALL-010).
 6. **`import` (CLI-040/OPS-006, F3)** — prasyarat ADR-209: config writer +
    merge atomik, secret setter, cron store F4, sessions collector; `--only
    sessions` butuh keputusan owner (implementasi atau amandemen SPEC §9.15).
-7. **Gate performa F2** — `TestRecallP95` (`internal/ctxdb/recall_perf_test.go:86`,
-   1.000.000 event) tidak dipanggil job mana pun; `BenchmarkAppend` hanya
-   melaporkan p99 tanpa asersi. Tambahkan job/asersi sebelum mengklaim
-   "recall ≤ 50 ms p95 @1M" dan "Append ≤ 10 ms p99".
+7. **Gate performa F2** — lihat §2b. `TestAppendP99` belum ada dan
+   `BenchmarkAppend` hanya melaporkan p99 tanpa asersi; `TestRecallP95`
+   (1.000.000 event) tidak dipanggil job CI mana pun. Tambahkan job CI
+   (PR `ci/perf-acceptance`) dan angka p50/p95/p99 + nama runner di head
+   final sebelum menulis `LULUS`. Ambang tidak berubah: Append p99 ≤ 10 ms
+   (Linux/Windows) / ≤ 30 ms (macOS); recall p95 ≤ 50 ms @1M.
 
 ## 6. Bukti batas keamanan (ringkas)
 
@@ -295,7 +313,9 @@ cd bench && go test -count=1 -run TestFixedOverhead ./budget
 (run penuh terakhir yang hijau: PR #328, `b46253e2`); `TestRecallP95` @1M;
 race/fuzz/coverage/bench-parity; chaos 30 m lokal (memakai nightly);
 lint lokal (tidak ada binari; status CI tidak dipakai sebagai bukti);
-Windows lokal (memakai job CI PR #344 pada tree `f3c0af68`).
-`BenchmarkAppend` pernah diukur lokal (p99 25,23 ms di bawah
+Windows lokal (memakai job CI PR #344 pada tree `f3c0af68`). **Tidak ada
+angka performa CI pada snapshot ini**, sehingga kedua baris §2b tetap
+`TERBUKA`. `BenchmarkAppend` pernah diukur lokal (p99 25,23 ms di bawah
 `GOMAXPROCS=2`/`nice 19`), tetapi benchmark itu **tidak berasersi** dan
-mesin ini bukan runner referensi Q14, jadi angka itu bukan lulus/gagal.
+mesin ini bukan runner referensi Q14; angka performa bergantung pada runner
+(Q14 NVMe vs mesin bersama), jadi angka lokal **bukan** bukti acceptance.
