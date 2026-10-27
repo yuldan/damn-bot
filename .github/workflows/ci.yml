@@ -212,6 +212,11 @@ jobs:
         run: make size-check
       - name: Kode mati, 3 GOOS digabung (E-53)
         run: make deadcode
+      # GAP-COST-01 (ADR-125 butir 4): a price past its Until leaves the route
+      # unpriced, so a monetary cap fails closed. Named gate: the failure lists
+      # the stale entries.
+      - name: Harga registry belum kedaluwarsa (GAP-COST-01)
+        run: make prices-gate
 
   # ADR-073 (AUD-033) + E-39/E-65: `go vet` lintas OS/arch dan build 8 target kanonik
   # (CGO_ENABLED=0 -tags goolm). Dua perintah berbeda, satu job (ADR-179).

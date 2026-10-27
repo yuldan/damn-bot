@@ -2,8 +2,11 @@ package registry
 
 import (
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -197,5 +200,89 @@ func TestParsePriceTableRejectsInvalid(t *testing.T) {
 	first.Until = "2026-06-01"
 	if _, err := ParsePriceTable([]byte(encode(t, priceFile{Version: "t", Price: []priceEntry{two, first}}))); err != nil {
 		t.Errorf("adjacent dated entries rejected: %v", err)
+	}
+}
+
+// expiredPriceEntries lists the table's entries whose Until has passed at
+// now, naming each one (version, route, until) so a gate failure points at
+// the row to fix. A bare bool would lose which entry is stale.
+func expiredPriceEntries(tbl PriceTable, now time.Time) []string {
+	var out []string
+	for _, ps := range tbl.routes {
+		for j := range ps {
+			p := &ps[j]
+			if p.Until.IsZero() || p.Until.After(now) {
+				continue
+			}
+			out = append(out, fmt.Sprintf("%s (base_url %s, model %s, until %s)",
+				p.Version, p.BaseURL, p.Model, p.Until.Format(time.RFC3339)))
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// TestPricingTableNotExpired is the GAP-COST-01 release/CI gate: the
+// embedded registry must not ship a price whose effective window closed,
+// because a call after Until is unpriced and a monetary cap then fails
+// closed (ADR-125 butir 4). The fixture cases pin the gate itself: an
+// open-ended entry and a future Until pass, a past Until fails and the
+// failure names the entry.
+func TestPricingTableNotExpired(t *testing.T) {
+	t.Parallel()
+	t.Run("embedded providers.toml", embeddedPricesLive)
+	t.Run("gate cases", priceExpiryGateCases)
+}
+
+func embeddedPricesLive(t *testing.T) {
+	t.Parallel()
+	if bad := expiredPriceEntries(defaultTable(t), time.Now().UTC()); len(bad) > 0 {
+		t.Fatalf("providers.toml ships %d expired price entries: %s", len(bad), strings.Join(bad, "; "))
+	}
+}
+
+func priceExpiryGateCases(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name   string
+		until  string
+		expire bool
+	}{
+		{"no until", "", false},
+		{"until in the future", "2030-01-01", false},
+		{"until in the past", "2026-06-01", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			checkExpiryCase(t, now, c.until, c.expire)
+		})
+	}
+}
+
+// checkExpiryCase asserts the gate verdict for one fixture entry.
+func checkExpiryCase(t *testing.T, now time.Time, until string, expire bool) {
+	t.Helper()
+	e := validEntry()
+	e.Until = until
+	table, err := ParsePriceTable([]byte(encode(t, priceFile{Version: "gate", Price: []priceEntry{e}})))
+	if err != nil {
+		t.Fatalf("fixture rejected: %v", err)
+	}
+	bad := expiredPriceEntries(table, now)
+	if !expire {
+		if len(bad) != 0 {
+			t.Fatalf("gate rejected a live entry: %v", bad)
+		}
+		return
+	}
+	if len(bad) != 1 {
+		t.Fatalf("gate reported %d expired entries, want 1: %v", len(bad), bad)
+	}
+	for _, want := range []string{"gate/vendor-m", "https://api.example.com/v1", "2026-06-01"} {
+		if !strings.Contains(bad[0], want) {
+			t.Errorf("failure does not name %q: %s", want, bad[0])
+		}
 	}
 }
