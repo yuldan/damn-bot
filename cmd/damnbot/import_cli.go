@@ -27,35 +27,40 @@ import (
 	"github.com/damnbot/damnbot/internal/skills"
 )
 
+type importOptions struct {
+	from, only string
+	dryRun     bool
+}
+
 func runImport(args []string, stdout, stderr io.Writer) (code int) {
-	var o struct {
-		from, only string
-		dryRun     bool
-	}
-	fs := flag.NewFlagSet("import hermes", flag.ContinueOnError)
+	var o importOptions
+	fs := flag.NewFlagSet("import", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.StringVar(&o.from, "from", "", "Hermes home to import (default ~/.hermes)")
-	fs.StringVar(&o.only, "only", "", "comma-separated categories (SPEC §9.15)")
+	fs.StringVar(&o.from, "from", "", "source home to import (default: the importer's home)")
+	fs.StringVar(&o.only, "only", "", "comma-separated categories (SPEC §9.15, ADR-218)")
 	fs.BoolVar(&o.dryRun, "dry-run", false, "report what would be imported; write nothing")
 	pos, err := parseInterleaved(fs, args)
 	if err != nil {
-		return 2
-	}
-	if len(pos) == 1 && pos[0] != "hermes" {
-		say(stderr, "import: %s is not available in F3 (SPEC §9.15: hermes only)\n", cleanArg(pos[0]))
 		return 2
 	}
 	if len(pos) != 1 {
 		importUsage(stderr)
 		return 2
 	}
+	if pos[0] == "claude-code" {
+		return runClaudeImport(o, stdout, stderr)
+	}
+	if pos[0] != "hermes" {
+		say(stderr, "import: %s is not implemented yet (SPEC §9.15 parity: OPS-034/OPS-035; ADR-218)\n", cleanArg(pos[0]))
+		return 2
+	}
 	unsupported, ok := parseImportOnly(o.only, stderr)
 	if !ok {
 		return 2
 	}
-	root, err := resolveHermesRoot(o.from)
+	root, err := resolveImportRoot(o.from, ".hermes")
 	if err != nil {
-		return importFail(stderr, err)
+		return importFail(stderr, "hermes", err)
 	}
 	ctx := context.Background()
 	sink := &hermesSink{noWrite: noWrite{"import: writer is not available"}, root: root, red: redact.New(redact.Options{})}
@@ -68,13 +73,13 @@ func runImport(args []string, stdout, stderr io.Writer) (code int) {
 	if !o.dryRun {
 		_, dataDir, perr := skillsPaths()
 		if perr != nil {
-			return importFail(stderr, perr)
+			return importFail(stderr, "hermes", perr)
 		}
 		sink.dataDir = dataDir
 	}
 	imp, err := importer.New(&deps)
 	if err != nil {
-		return importFail(stderr, err)
+		return importFail(stderr, "hermes", err)
 	}
 	report, err := imp.Import(ctx, root.path, opts)
 	var closeErr error
@@ -82,16 +87,16 @@ func runImport(args []string, stdout, stderr io.Writer) (code int) {
 		closeErr = sink.db.CloseContext(ctx)
 	}
 	if err != nil {
-		return importFail(stderr, err)
+		return importFail(stderr, "hermes", err)
 	}
 	if closeErr != nil {
-		return importFail(stderr, closeErr)
+		return importFail(stderr, "hermes", closeErr)
 	}
 	return writeImportReport(stdout, root.path, &report, o.dryRun)
 }
 
-func importFail(stderr io.Writer, err error) int {
-	say(stderr, "import hermes: %s\n", cleanLine(err.Error()))
+func importFail(stderr io.Writer, command string, err error) int {
+	say(stderr, "import %s: %s\n", command, cleanLine(err.Error()))
 	return 1
 }
 
@@ -133,13 +138,13 @@ func parseImportOnly(value string, stderr io.Writer) (map[importer.Source]string
 	return out, true
 }
 
-func resolveHermesRoot(from string) (hermesRoot, error) {
+func resolveImportRoot(from, defaultDir string) (hermesRoot, error) {
 	if from == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return hermesRoot{}, fmt.Errorf("home directory: %w", err)
 		}
-		from = filepath.Join(home, ".hermes")
+		from = filepath.Join(home, defaultDir)
 	}
 	abs, err := filepath.Abs(from)
 	if err != nil {
@@ -455,20 +460,21 @@ func (s noWrite) Put(context.Context, string, string) (bool, error) {
 	return false, errors.New(s.reason)
 }
 
-func writeImportReport(w io.Writer, root string, rep *importer.Report, dryRun bool) int {
-	sessionsPrintf(w, "hermes: %s\n", cleanLine(root))
-	categories := []struct {
-		name string
-		rep  *importer.SourceReport
-	}{
-		{"config", &rep.Config},
-		{"secrets", &rep.Secrets},
-		{"skills", &rep.Skills},
-		{"memory", &rep.Memory},
-		{"mcp", &rep.MCP},
-		{"cron", &rep.Cron},
-		{"sessions", &rep.Sessions},
-	}
+type reportCategory struct {
+	name string
+	rep  *importer.SourceReport
+}
+
+type reportTotals interface {
+	Total() int
+	Imported() int
+	Changed() int
+	SkippedCount() int
+	Coverage() float64
+}
+
+func writeReport(w io.Writer, label, root string, categories []reportCategory, clamps []importer.Clamp, totals reportTotals, dryRun bool) int {
+	sessionsPrintf(w, "%s: %s\n", label, cleanLine(root))
 	for _, cat := range categories {
 		sessionsPrintf(w, "%s: %d items, %d imported, %d changed, %d skipped\n",
 			cat.name, cat.rep.Total, cat.rep.Imported, cat.rep.Changed, len(cat.rep.Skipped))
@@ -476,13 +482,25 @@ func writeImportReport(w io.Writer, root string, rep *importer.Report, dryRun bo
 			sessionsPrintf(w, "  skipped %s: %s\n", cleanLine(skip.Key), cleanLine(skip.Reason))
 		}
 	}
-	for _, clamp := range rep.Clamps {
+	for _, clamp := range clamps {
 		sessionsPrintf(w, "clamped %s: %d -> %d\n", cleanLine(clamp.Key), clamp.From, clamp.To)
 	}
 	sessionsPrintf(w, "import: %d items, %d imported, %d changed, %d skipped, %.1f%% accounted\n",
-		rep.Total(), rep.Imported(), rep.Changed(), rep.SkippedCount(), rep.Coverage()*100)
+		totals.Total(), totals.Imported(), totals.Changed(), totals.SkippedCount(), totals.Coverage()*100)
 	if dryRun {
 		sessionsPrintf(w, "dry run: nothing was written\n")
 	}
 	return 0
+}
+
+func writeImportReport(w io.Writer, root string, rep *importer.Report, dryRun bool) int {
+	return writeReport(w, "hermes", root, []reportCategory{
+		{"config", &rep.Config},
+		{"secrets", &rep.Secrets},
+		{"skills", &rep.Skills},
+		{"memory", &rep.Memory},
+		{"mcp", &rep.MCP},
+		{"cron", &rep.Cron},
+		{"sessions", &rep.Sessions},
+	}, rep.Clamps, rep, dryRun)
 }
