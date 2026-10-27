@@ -4525,3 +4525,21 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Dampak terukur (SPEC §20).** Go non-test berubah 588 baris (≤ 600); `loc.budget` tidak disentuh; `config` 1.195 → **1.196/1.200** (`scc`, terukur `make loc`); Σ core dan TOTAL tidak berubah; dependency baru 0; default/SPEC/ENGINEERING tidak berubah. Tes: unit `TestConfigShowMasksSecrets`, `TestConfigShowStable`, `TestConfigGet`, `TestConfigGetUnknownKey`, `TestConfigExplain`, `TestConfigSchema`, `TestConfigEditWithoutTerminalDoesNotWrite`, `TestConfigEditRejectsInvalidConfig`, `TestConfigProfilesLs`; e2e biner asli (`internal/e2e`, harness `New`) `TestConfigShow`, `TestConfigGetUnknownKey`, `TestConfigEditDoesNotWrite` (hash config dibandingkan sebelum/sesudah).
 
 **Konsekuensi.** (+) `config show/get/explain/schema/edit` dan `profiles ls` dapat dipakai tanpa jalur TOML mentah atau dump secret; `edit` tidak pernah menulis config invalid dan tidak bisa diarahkan lewat symlink. (+) Skema dan default tetap satu sumber (struct Go). (−) `config` berstatus `available` meski `modules`/`hooks` dan `profiles export|import` belum ada; usage mendaftar hanya bentuk yang tersedia, dan gap ini harus ditutup sebelum gate dokumen `TestCLIDocsMatchHelp` dinyalakan. (−) `get`/`explain` menolak kunci tabel dan `explain` belum melaporkan sumber env/flag — batas F3 yang eksplisit, bukan perilaku final 1.0.
+
+## ADR-215 — Clipboard TUI: seam `Host` dan promosi `atotto/clipboard`
+
+**Status:** Accepted 2026-10-27 (A4/R5b; SPEC §13.1 `y` copy).
+
+**Konteks.** `ctrl+k` → `y` harus menyalin blok, sedangkan `internal/tui` tidak boleh melakukan I/O (E-09) dan tidak boleh menambah modul dependency. `github.com/atotto/clipboard` sudah ada di `go.sum` sebagai modul transitif, tetapi belum boleh dipakai langsung tanpa masuk allowlist require langsung (E-45/E-48). Jalur OSC 52 (`tea.SetClipboard`) tidak melaporkan kegagalan: terminal yang tidak mendukung akan mengabaikan escape secara diam-diam, sehingga TUI tidak bisa membedakan sukses dari tidak tersedia.
+
+**Keputusan.**
+1. **Seam.** `tui.Clipboard` = `Copy(text string) error`, wajib di `tui.Host` (divalidasi saat assembly, seperti seam lain). TUI hanya memanggil seam; `y` mengirim teks blok polos (tool memakai render A2 termasuk path spill) dan menampilkan notice hasilnya.
+2. **Adapter nyata.** Composition root (`cmd/damnbot/tui_ops.go`) membungkus `clipboard.WriteAll`; kegagalan utilitas platform (mis. `xclip`/`xsel` tidak ada) dikembalikan apa adanya dan dirender sebagai `clipboard unavailable: …`, bukan sukses palsu.
+3. **Promosi modul.** `github.com/atotto/clipboard v0.1.4` dipindah dari blok `// indirect` ke require langsung; tidak ada modul/versi baru. `deps.allow` bertambah satu baris (19 require langsung ≤ 28, E-45).
+4. **Tanpa fallback senyap.** OSC 52 tidak dipakai sebagai fallback pada kegagalan seam: perilaku terminal yang tidak mendukung tidak dapat diverifikasi, jadi kegagalan tetap terlihat.
+
+**Bukti.** `TestNavCopyBlock` (teks blok + path spill yang benar lewat fake seam), `TestNavCopyUnavailable` (error seam → notice beralasan, 0 klaim sukses), `TestTUIActionsUndoRealStore`/`Fork`/`Rewind` (ctxdb+journal tempdir), dan `TestNewAppRejectsIncompleteHost` (host tanpa clipboard ditolak).
+
+**Anggaran.** Tidak ada perubahan `loc.budget` atau Σ core; `internal/tui` tetap hanya mengimpor `internal/loop` + `internal/i18n`. `go mod tidy -diff` bersih; `make size-check` dicatat di PR.
+
+**Konsekuensi.** (+) Clipboard nyata dan kegagalannya terlihat, tanpa modul baru. (−) Platform tanpa utilitas clipboard (mis. SSH tanpa X11) menerima notice kegagalan alih-alih fallback OSC 52; fallback itu dapat ditambahkan sebagai ADR lanjutan bila dibutuhkan.

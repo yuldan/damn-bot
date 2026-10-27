@@ -58,7 +58,7 @@ func TestFirstTokenBudget(t *testing.T) {
 	for i := range runs {
 		clk := newFakeClock()
 		runner := &ttftRunner{delay: delay, clk: clk}
-		m, err := NewApp("sess-p17", Host{Clock: clk, Runner: runner, Config: fakeConfig{cfg: Config{Model: "fake/model"}}})
+		m, err := NewApp("sess-p17", testHost(clk, runner, fakeConfig{cfg: Config{Model: "fake/model"}}))
 		if err != nil {
 			t.Fatalf("NewApp: %v", err)
 		}

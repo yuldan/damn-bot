@@ -31,7 +31,7 @@ func (m *Model) transcript() string {
 	visible := make([]string, 0, end)
 	used := 0
 	for i := end - 1; i >= 0; i-- {
-		s := m.renderBlock(&m.blocks[i])
+		s := m.renderBlockAt(i)
 		h := lineCount(s)
 		if avail > 0 {
 			if len(visible) > 0 && used+h > avail {
@@ -91,7 +91,7 @@ func (m *Model) visibleBlockCount() int {
 	avail := m.bodyHeight()
 	count, used := 0, 0
 	for i := end - 1; i >= 0; i-- {
-		h := lineCount(m.renderBlock(&m.blocks[i]))
+		h := lineCount(m.renderBlockAt(i))
 		if avail > 0 {
 			if count > 0 && used+h > avail {
 				break
