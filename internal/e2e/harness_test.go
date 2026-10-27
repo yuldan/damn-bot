@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,31 +165,6 @@ func (e *Env) Run(prompt string, extra ...string) Result {
 	return e.Exec(append(args, extra...)...)
 }
 
-// ExecStdin runs the built binary with stdin (ACP/JSON-RPC tests).
-func (e *Env) ExecStdin(input string, args ...string) Result {
-	e.t.Helper()
-	ctx, cancel := context.WithTimeout(e.t.Context(), 120*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, binPath, args...) //nolint:gosec // binary path is this package's temp build
-	cmd.Dir = e.Workdir
-	cmd.Env = append(os.Environ(), "HOME="+e.home, "XDG_CONFIG_HOME="+e.home,
-		"USERPROFILE="+e.home, "APPDATA="+filepath.Join(e.home, "AppData", "Roaming"),
-		"LOCALAPPDATA="+filepath.Join(e.home, "AppData", "Local"))
-	cmd.Stdin = strings.NewReader(input)
-	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	err := cmd.Run()
-	res := Result{Stdout: out.String(), Stderr: errb.String()}
-	if err != nil {
-		var exit *exec.ExitError
-		if !errors.As(err, &exit) {
-			e.t.Fatalf("exec %v: %v", args, err)
-		}
-		res.Code = exit.ExitCode()
-	}
-	return res
-}
-
 // Exec runs the built binary with args in the temp workspace. Callers of
 // future commands (`undo`, `review`, `sessions`, `backup`, …) use this.
 func (e *Env) Exec(args ...string) Result {
@@ -200,10 +176,22 @@ func (e *Env) Exec(args ...string) Result {
 // child still inherits the harness HOME/XDG_CONFIG_HOME).
 func (e *Env) ExecEnv(env []string, args ...string) Result {
 	e.t.Helper()
+	return e.execEnv(nil, env, args...)
+}
+
+// ExecStdin is Exec with an explicit stdin (ACP/JSON-RPC scenarios).
+func (e *Env) ExecStdin(input string, args ...string) Result {
+	e.t.Helper()
+	return e.execEnv(strings.NewReader(input), nil, args...)
+}
+
+func (e *Env) execEnv(stdin io.Reader, env []string, args ...string) Result {
+	e.t.Helper()
 	ctx, cancel := context.WithTimeout(e.t.Context(), 120*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binPath, args...) //nolint:gosec // binary path is this package's temp build
 	cmd.Dir = e.Workdir
+	cmd.Stdin = stdin
 	// HOME/XDG are what the Unix loaders read; Windows resolves its config and
 	// data roots from these instead (internal/config/paths.go baseDirs), so a
 	// child without them would read the host profile and never see the

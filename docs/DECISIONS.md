@@ -4616,4 +4616,3 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Dampak terukur (SPEC §20).** Go non-test berubah **≤600** baris (actual 411 `acp_wire.go` + surface); MODULE `acp` 738/2.500 (`make loc`); binary size-check penuh+minimal tetap di bawah plafon; dependency baru 0. Tes: `TestACPGoldenPrompt`, `TestACPGoldenProtocolErrors`, `TestACPMethodsSupported`, `TestACPPermissionMapping`, `TestACPPermissionTimeoutDenies`, `TestACPNoApproverDenies`, e2e `TestACPStdio`.
 
 **Konsekuensi.** (+) ACP stdio nyata dengan permission fail-closed dan protokol yang dapat dibandingkan byte-per-byte. (−) `session/load`, `fs/read_text_file`/`write_text_file`, `terminal/*`, dan capability image/audio belum ada; semuanya ditolak sebagai method tak dikenal, bukan stub.
->>>>>>> 6b645159 (feat(acp): add the stdio server and golden transcript)
