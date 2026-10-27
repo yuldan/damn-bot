@@ -33,9 +33,13 @@ func runTUI([]string) int {
 	if err != nil {
 		return tuiFail(err)
 	}
+	configPath, err := tuiConfigPath(o)
+	if err != nil {
+		return tuiFail(err)
+	}
 	o.newSessionID = sid
 	r := newTUIRunner(&tuiDeps{
-		cfg: &cfg, dataDir: dataDir, configDir: configDir, home: home,
+		cfg: &cfg, dataDir: dataDir, configDir: configDir, cfgFile: configPath, home: home,
 		modelRef: cfg.Provider.Model, opts: o, red: redact.New(redact.Options{}),
 	})
 	actions := &tuiActions{
@@ -49,8 +53,8 @@ func runTUI([]string) int {
 		cfg: &cfg, configDir: configDir, modelRef: cfg.Provider.Model, active: r.Active,
 	}
 	app, err := tui.NewApp(sid, &tui.Host{
-		Clock: r, Runner: r, Config: r, Runtime: r,
-		Sessions: actions, Clipboard: clipboardAdapter{},
+		Clock: r, Runner: r, Config: r, Runtime: r, Actions: r,
+		Sessions: actions, Files: filesAdapter{}, Clipboard: clipboardAdapter{},
 	})
 	if err == nil {
 		prog := tea.NewProgram(app)
@@ -77,6 +81,7 @@ type tuiDeps struct {
 	cfg       *config.Config
 	dataDir   string
 	configDir string
+	cfgFile   string
 	home      string
 	modelRef  string
 	opts      *runOptions
@@ -88,6 +93,9 @@ type tuiDeps struct {
 type tuiRunner struct {
 	ensureMu sync.Mutex
 	mu       sync.Mutex
+	snapMu   sync.RWMutex
+	snapshot tui.Config
+	cfgHash  string
 	deps     tuiDeps
 	model    *runModel
 	loop     *loop.Loop
@@ -96,7 +104,10 @@ type tuiRunner struct {
 // newTUIRunner injects the same clock into loop.Config.Now (E-72).
 func newTUIRunner(d *tuiDeps) *tuiRunner {
 	d.now = time.Now
-	return &tuiRunner{deps: *d}
+	r := &tuiRunner{deps: *d}
+	r.snapshot = snapshotFor(d.cfg, d.modelRef)
+	r.cfgHash = hashConfig(d.cfg)
+	return r
 }
 
 func (r *tuiRunner) Now() time.Time { return r.deps.now() }
@@ -104,15 +115,9 @@ func (r *tuiRunner) Now() time.Time { return r.deps.now() }
 func (r *tuiRunner) After(d time.Duration) <-chan time.Time { return time.After(d) }
 
 func (r *tuiRunner) Snapshot() tui.Config {
-	return tui.Config{
-		Model: r.deps.modelRef, Theme: r.deps.cfg.UI.Theme,
-		ApprovalTimeout: time.Duration(r.deps.cfg.Approval.PreviewTimeoutS) * time.Second,
-		Models:          configuredModels(r.deps.cfg),
-		Budget: tui.BudgetInfo{
-			TurnUSD: r.deps.cfg.Budget.TurnUSD, SessionUSD: r.deps.cfg.Budget.SessionUSD,
-			DailyUSD: r.deps.cfg.Budget.DailyUSD,
-		},
-	}
+	r.snapMu.RLock()
+	defer r.snapMu.RUnlock()
+	return r.snapshot
 }
 
 func (r *tuiRunner) Prompt(ctx context.Context, sid string, in tui.Input) (<-chan tui.Update, error) {
@@ -250,4 +255,19 @@ func translateUpdate(u *event.Update, at time.Time) tui.Update {
 		}
 	}
 	return out
+}
+
+func tuiConfigPath(o *runOptions) (string, error) {
+	if o.configPath != "" {
+		return o.configPath, nil
+	}
+	loader, err := config.New(config.OS())
+	if err != nil {
+		return "", fmt.Errorf("config deps: %w", err)
+	}
+	paths, err := loader.Paths(activeProfile())
+	if err != nil {
+		return "", fmt.Errorf("config paths: %w", err)
+	}
+	return paths.ConfigFile(), nil
 }

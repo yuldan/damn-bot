@@ -19,6 +19,12 @@ const (
 	slashModules
 	slashContext
 	slashReload
+	slashCompact
+	slashExport
+	slashDiff
+	slashBtw
+	slashInit
+	slashReview
 )
 
 // slashCommand is one parsed single-line slash invocation.
@@ -38,32 +44,14 @@ func parseSlash(text string) (slashCommand, bool) {
 	}
 	fields := strings.Fields(text)
 	cmd := slashCommand{name: fields[0]}
-	switch fields[0] {
-	case "/new":
-		cmd.kind = slashNew
-	case "/fork":
-		cmd.kind = slashFork
-	case "/rewind":
-		cmd.kind = slashRewind
-	case "/undo":
-		cmd.kind = slashUndo
-	case "/plan":
-		cmd.kind = slashPlan
-	case "/theme":
-		cmd.kind = slashTheme
-	case "/model":
-		cmd.kind = slashModel
-	case "/budget":
-		cmd.kind = slashBudget
-	case "/modules":
-		cmd.kind = slashModules
-	case "/context":
-		cmd.kind = slashContext
-	case "/reload":
-		cmd.kind = slashReload
-	default:
-		cmd.kind = slashUnknown
+	kinds := map[string]slashKind{
+		"/new": slashNew, "/fork": slashFork, "/rewind": slashRewind, "/undo": slashUndo,
+		"/plan": slashPlan, "/theme": slashTheme, "/model": slashModel, "/budget": slashBudget,
+		"/modules": slashModules, "/context": slashContext, "/reload": slashReload,
+		"/compact": slashCompact, "/export": slashExport, "/diff": slashDiff, "/btw": slashBtw,
+		"/init": slashInit, "/review": slashReview,
 	}
+	cmd.kind = kinds[fields[0]]
 	cmd.args = fields[1:]
 	return cmd, true
 }

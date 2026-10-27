@@ -61,11 +61,33 @@ type ContextInfo struct {
 	Source string
 }
 
-// Runtime exposes the module registry and the model window; both are data the
-// composition root already owns, never values the TUI invents.
+// ReloadResult is what /reload changed and what still needs a restart.
+type ReloadResult struct {
+	Hash    string
+	Applied []string
+	Restart []string
+}
+
+// Runtime exposes data and operations the composition root already owns: the
+// module registry, the model window, config reload, journal diff, compaction,
+// and the memory review queue. The TUI never invents any of these.
 type Runtime interface {
 	Modules(ctx context.Context) ([]ModuleInfo, error)
 	Context(ctx context.Context) (ContextInfo, error)
+	Reload(ctx context.Context) (ReloadResult, error)
+	ConfigHash() string
+}
+
+// Actions are the journal/compaction/review operations.
+type Actions interface {
+	Diff(ctx context.Context, sessionID string) (string, error)
+	Compact(ctx context.Context, sessionID string) (string, error)
+	Review(ctx context.Context) (string, error)
+}
+
+// Files is the confirmed-write seam (/export, /init).
+type Files interface {
+	Write(ctx context.Context, path string, data []byte) (string, error)
 }
 
 // Clipboard writes text to the user's clipboard (may be unavailable).
@@ -81,6 +103,8 @@ type Host struct {
 	Config    ConfigSource
 	Sessions  Sessions
 	Runtime   Runtime
+	Actions   Actions
+	Files     Files
 	Clipboard Clipboard
 }
 
@@ -99,6 +123,10 @@ func (h *Host) validate() error {
 		return fmt.Errorf("tui: host without sessions")
 	case h.Runtime == nil:
 		return fmt.Errorf("tui: host without runtime")
+	case h.Actions == nil:
+		return fmt.Errorf("tui: host without actions")
+	case h.Files == nil:
+		return fmt.Errorf("tui: host without files")
 	case h.Clipboard == nil:
 		return fmt.Errorf("tui: host without clipboard")
 	}
