@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/damnbot/damnbot/internal/netx"
+	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/tools"
 )
@@ -52,7 +53,7 @@ func expandRefs(ctx context.Context, prompt string, sb *sandbox.Sandbox, net *ne
 			content, err = readRefPath(ctx, sb, target)
 		}
 		if err != nil {
-			return "", false, fmt.Errorf("@%s: %w", target, err)
+			return "", false, newRefError(target, err)
 		}
 		// The readers already bound the payload in bytes; this second cap is
 		// in runes so the prompt copy cannot end mid-sequence.
@@ -70,6 +71,25 @@ func expandRefs(ctx context.Context, prompt string, sb *sandbox.Sandbox, net *ne
 		b.WriteString(tok.sep)
 	}
 	return b.String(), refs > 0, nil
+}
+
+// refError reports a failed reference without echoing a secret its target may
+// carry (GAP-SEC-16, P29): both the reference and the underlying message go
+// through the §14.3 redactor, and the cause stays available to errors.Is.
+type refError struct {
+	ref, msg string
+	err      error
+}
+
+func (e *refError) Error() string { return "@" + e.ref + ": " + e.msg }
+
+func (e *refError) Unwrap() error { return e.err }
+
+// newRefError redacts one failed reference. It runs only on the error path,
+// so building the redactor per failure costs nothing on the success path.
+func newRefError(target string, err error) error {
+	red := redact.New(redact.Options{})
+	return &refError{ref: red.String(target), msg: red.String(err.Error()), err: err}
 }
 
 // expandPromptRefs expands @ references and taints the turn when any reference
