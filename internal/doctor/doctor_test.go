@@ -1,0 +1,147 @@
+package doctor
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/damnbot/damnbot/internal/ctxdb"
+)
+
+func doctorPaths(t *testing.T) (configDir, dataDir, configFile string) {
+	t.Helper()
+	root := t.TempDir()
+	configDir = filepath.Join(root, "config")
+	dataDir = filepath.Join(root, "data")
+	for _, d := range []string{configDir, dataDir} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	configFile = filepath.Join(configDir, "config.toml")
+	if err := os.WriteFile(configFile, []byte("[provider]\nmodel = \"openai/gpt-test\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return configDir, dataDir, configFile
+}
+
+func healthyDB(t *testing.T, dataDir string) {
+	t.Helper()
+	ctx := t.Context()
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "s", Origin: "headless", Cwd: "/w", Model: "openai/gpt-test"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Append(ctx, "s", nil, ctxdb.Event{Kind: "user_message", Role: "user", TurnID: "t", Content: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func run(t *testing.T, o *Options) Report {
+	t.Helper()
+	o.Keyring = func(context.Context) (bool, error) { return false, nil }
+	return Run(t.Context(), o)
+}
+
+func TestRunHealthy(t *testing.T) {
+	cfgDir, dataDir, cfgFile := doctorPaths(t)
+	healthyDB(t, dataDir)
+	rep := run(t, &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"})
+	if rep.Exit != 0 {
+		t.Fatalf("exit = %d, want 0\n%+v", rep.Exit, rep)
+	}
+	if len(rep.Checks) != 9 || rep.Summary.OK != 9 {
+		t.Fatalf("checks = %d, ok = %d\n%+v", len(rep.Checks), rep.Summary.OK, rep)
+	}
+}
+
+func TestRunInvalidConfig(t *testing.T) {
+	cfgDir, dataDir, cfgFile := doctorPaths(t)
+	rep := run(t, &Options{
+		ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true,
+		ConfigErr: errors.New("config: loop.max_iterations: must be in 1..40"),
+	})
+	if rep.Exit != 1 || rep.Summary.Error != 1 {
+		t.Fatalf("exit = %d, errors = %d, want 1/1", rep.Exit, rep.Summary.Error)
+	}
+	if rep.Checks[0].Message == "" || !strings.Contains(rep.Checks[0].Message, cfgFile) {
+		t.Fatalf("config message lacks the file: %q", rep.Checks[0].Message)
+	}
+}
+
+func TestRunFixesPermissions(t *testing.T) {
+	cfgDir, dataDir, cfgFile := doctorPaths(t)
+	if err := os.Chmod(cfgFile, 0o644); err != nil { // #nosec G302 -- deliberately wide to exercise the doctor check
+		t.Fatal(err)
+	}
+	o := &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"}
+	if runtime.GOOS == "windows" {
+		if rep := run(t, o); rep.Exit != 0 {
+			t.Fatalf("Windows ACL check: exit = %d, want 0", rep.Exit)
+		}
+		return
+	}
+	if rep := run(t, o); rep.Exit != 1 || rep.Summary.Error == 0 {
+		t.Fatalf("wide mode: exit = %d, want 1\n%+v", rep.Exit, rep)
+	}
+	o.Fix = true
+	if rep := run(t, o); rep.Exit != 3 || rep.Summary.Fixed == 0 {
+		t.Fatalf("fix: exit = %d, want 3\n%+v", rep.Exit, rep)
+	}
+	fi, err := os.Stat(cfgFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %04o, want 0600", fi.Mode().Perm())
+	}
+	if rep := run(t, o); rep.Exit != 0 {
+		t.Fatalf("after fix: exit = %d, want 0", rep.Exit)
+	}
+}
+
+func TestRunCorruptDB(t *testing.T) {
+	cfgDir, dataDir, cfgFile := doctorPaths(t)
+	if err := os.WriteFile(ctxdb.DBPath(dataDir), []byte("not a database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep := run(t, &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"})
+	if rep.Exit != 1 || rep.Summary.Error == 0 {
+		t.Fatalf("exit = %d, want 1\n%+v", rep.Exit, rep)
+	}
+}
+
+func TestReportJSON(t *testing.T) {
+	cfgDir, dataDir, cfgFile := doctorPaths(t)
+	rep := run(t, &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"})
+	b, err := json.Marshal(rep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["version"] != SchemaVersion {
+		t.Fatalf("version = %v", got["version"])
+	}
+	checks, ok := got["checks"].([]any)
+	if !ok || len(checks) != 9 {
+		t.Fatalf("checks = %T %v", got["checks"], got["checks"])
+	}
+	first, ok := checks[0].(map[string]any)
+	if !ok || first["id"] != "DOC-001" {
+		t.Fatalf("first check = %v", checks[0])
+	}
+}

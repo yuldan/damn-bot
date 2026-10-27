@@ -15,6 +15,7 @@
 /internal/assemble/ @yuldan
 /internal/boundary/ @yuldan
 /internal/backup/ @yuldan
+/internal/doctor/ @yuldan
 /internal/budget/ @yuldan
 /internal/codetools/ @yuldan
 /internal/compaction/ @yuldan
