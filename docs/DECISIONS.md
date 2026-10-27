@@ -4394,3 +4394,24 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Dampak terukur (SPEC §20).** Token prompt 0 (tidak ada retriever baru). Dependency 0. Latensi: kolom tambahan pada baris index; filter per baris = pemeriksaan in-memory terhadap requirement tersimpan + detektor host yang sudah ada (satu `LookPath`/versi per bin yang dideklarasikan, GPU satu glob), bukan I/O file. LOC: `memory+skills` 2.143 (cap 2.143), `ctxdb/skillstore` 472 (cap 472), Σ core 46.733 ≤ 47.000.
 
 **Konsekuensi.** (+) Skill unmet tidak lagi ditawarkan `skills_list` — jalur katalog yang benar-benar dipakai model hari ini — dan seam retrieval (`skills.Store.Search`) menegakkan aturan yang sama sebelum retriever disambungkan. (+) Requirement tersimpan membuat jalur baca deterministik dan tidak membaca file. (−) Dua baris anggaran kembali tanpa headroom. (−) Baris index lama dimigrasi dengan `''` (tidak ada requirement); skill yang sudah terpasang tetapi memakai `requires` host harus di-index ulang (`skills update`) agar filternya berlaku — dicatat di CHANGELOG.
+
+## ADR-209 — Re-fase tiga baris parity F2: `import` (CLI-040/OPS-006) ke F3, backup top-level (CLI-038) ke F9
+
+**Status:** Accepted 2026-10-27 (delegasi; menutup audit `docs/F2-ACCEPTANCE.md` snapshot `f3c0af68`). Mengamendemen ADR-139 untuk tiga baris saja. Tidak mengubah SPEC, kode, dependency, atau `loc.budget`.
+
+**Konteks.** Audit acceptance F2 menemukan tiga baris parity berfase F2 yang tidak punya bentuk normatif di F2:
+
+1. `CLI-040` (`hermes import`) dan `OPS-006` (`Backup / import`) menjanjikan bentuk `hermes import`. Bentuk normatif Damn-Bot adalah SPEC §9.15 (`SPEC.md:981`): `damnbot import hermes [--from DIR] [--only …] [--dry-run]`, dan tabel SPEC §10 (`SPEC.md:1013`) menempatkan `import` di **F3**. Library `internal/importer` sudah lengkap di sisi baca (enam source, `Import(ctx, root, Options{DryRun})`, `Sink` lima metode, `importer.go:186`), tetapi sisi tulis belum ada: (a) `internal/config` hanya decode, tidak ada writer `config.toml`/merge atomik; (b) `internal/secret` tidak mengekspor setter (hanya `keyringSet` unexported, `secret.go:200`); (c) belum ada store cron (F4); (d) tidak ada collector sessions meski §9.15 mencantumkan `--only sessions` — `Source` hanya config/skills/memory/mcp/cron/secrets (`importer.go:17-24`) dan `Sink` tidak punya `PutSessions`, jadi `--only sessions` **tidak dapat dipenuhi** (gap SPEC, bukan sekadar wiring).
+2. `CLI-038` (`hermes backup`, zip HERMES_HOME) tidak punya perintah top-level `backup`: SPEC §10 tidak memuatnya, dan backup yang ada adalah `sessions backup` (ADR-124/ADR-198). Restore arsip portabel terdekat adalah `import archive` = GAP-OPS-05 (`SPEC.md:2978`), yang berfase **F9** dan pasca-1.0 (SPEC §19, `SPEC.md:2823`).
+
+**Keputusan.**
+
+1. **CLI-040 + OPS-006 → F3**, acceptance = SPEC §9.15 + §10 `import`. Status di ledger `TERBUKA` dengan prasyarat eksplisit: config writer + merge atomik, secret setter terekspor, cron store F4, sessions collector + `Sink.PutSessions`. `--only sessions` dicatat sebagai gap SPEC yang butuh keputusan owner (implementasi atau amandemen §9.15); tidak diklaim selesai.
+2. **CLI-038 → F9**, basis GAP-OPS-05 + SPEC §19. Bagian backup sudah dipenuhi `sessions backup`; delta yang tersisa (arsip portabel/impor) bukan F2. Menambah top-level `backup` akan melanggar prinsip SPEC §10 satu-nama-satu-tujuan; karena itu tidak dilakukan.
+3. **Tidak ada gate F2 yang dilonggarkan.** Baris dipindah, bukan dihapus; 56 baris F2 lainnya tidak berubah. ADR-139 diamandemen hanya untuk tiga baris ini.
+4. **Hitungan.** F2 59 → **56** (F3 +2, F9 +1). `docs/FEATURE-PARITY.md` tidak diubah di PR ini; kolom `fase` dan hitungan 837 diperbarui oleh PR pengimplementasi `import` dan PR GAP-OPS-05, agar perubahan angka terjadi di satu tempat.
+5. **GAP-TOOL-10** tetap di luar gate F2 (ADR-193: F3/F5/F8). PR #345/ADR-208 sudah mendarat dan menutup filter katalog (`skills_list`) + `skillStore.Search`; retriever prompt masih **nil** (ADR-208 butir 5), dan native-arch select/MCP `requires`/hub tetap fase masing-masing. Karena itu ledger mencatatnya `TERBUKA`, bukan `LULUS`.
+
+**Konsekuensi.** (+) F2 berhenti menagih permukaan yang secara normatif milik F3/F9. (+) Prasyarat tulis importer tidak hilang lagi di F3. (−) Satu baris parity F2 (`SKILL-016`) tetap terbuka dan tidak terpengaruh ADR ini. (−) Gap `--only sessions` membutuhkan keputusan owner (SPEC §9.15 vs implementasi).
+
+**Dampak terukur (SPEC §20).** Token 0. Binary 0. Dependency 0. LOC 0. Tidak ada perintah baru di SPEC §10.
