@@ -83,23 +83,8 @@ func (c *ClaudeImporter) Import(ctx context.Context, root string, opts ClaudeOpt
 		return Report{}, err
 	}
 	report := plan.report
-	if opts.DryRun {
-		report.Memory.Imported, report.Skills.Imported = len(plan.memories), len(plan.skills)
-		return report, nil
-	}
-	for index := range plan.memories {
-		entry := plan.memories[index]
-		changed, werr := c.deps.Sink.PutMemory(ctx, entry)
-		if stop, rerr := record(&report, SourceMemory, entry.Store, changed, werr); stop {
-			return report, rerr
-		}
-	}
-	for index := range plan.skills {
-		skill := plan.skills[index]
-		changed, werr := c.deps.Sink.PutSkill(ctx, &skill)
-		if stop, rerr := record(&report, SourceSkills, skill.Name, changed, werr); stop {
-			return report, rerr
-		}
+	if err := finishMemorySkills(ctx, &report, plan.memories, plan.skills, c.deps.Sink, opts.DryRun); err != nil {
+		return report, err
 	}
 	return report, nil
 }
@@ -168,7 +153,7 @@ func (c *ClaudeImporter) collectMemory(root string, plan *claudePlan) error {
 	if !utf8.Valid(raw) {
 		return syntaxError(path, errors.New("file is not valid UTF-8"))
 	}
-	entries := extractClaudeEntries(string(raw))
+	entries := extractMarkdownEntries(string(raw))
 	for index, entry := range entries {
 		if n := utf8.RuneCountInString(entry); n > maxMemoryChars {
 			claudeSkip(&plan.report, claudeMemory, fmt.Sprintf("entry %d", index+1),
@@ -202,7 +187,7 @@ func (c *ClaudeImporter) collectSkills(root string, plan *claudePlan) error {
 			return nil
 		}
 		found = true
-		skill, reason, err := c.readSkill(root, path)
+		skill, reason, err := readSkillAt(c.deps.ReadFile, root, path)
 		if err != nil {
 			return err
 		}
@@ -218,35 +203,6 @@ func (c *ClaudeImporter) collectSkills(root string, plan *claudePlan) error {
 	return nil
 }
 
-func (c *ClaudeImporter) readSkill(root, path string) (Skill, string, error) {
-	data, err := readOptionalFile(c.deps.ReadFile, path)
-	if err != nil {
-		return Skill{}, "", err
-	}
-	if len(data) > maxSkillBytes || !utf8.Valid(data) {
-		return Skill{}, "", syntaxError(path, fmt.Errorf("file is not UTF-8 or exceeds %d bytes", maxSkillBytes))
-	}
-	meta, body, err := splitFrontmatter(data, path)
-	if err != nil {
-		return Skill{}, "", err
-	}
-	origin, err := filepath.Rel(root, filepath.Dir(path))
-	if err != nil {
-		return Skill{}, "", fmt.Errorf("importer: relative skill path: %w", err)
-	}
-	skill := Skill{Body: body, Origin: filepath.ToSlash(origin)}
-	name := childString(meta, "name")
-	if !validSkillName(name) {
-		return skill, "SKILL.md has no valid frontmatter name", nil
-	}
-	skill.Name, skill.Description = name, childString(meta, "description")
-	if skill.Description == "" || unsafeText(name) || unsafeText(skill.Description) {
-		return skill, "SKILL.md description is missing or unsafe", nil
-	}
-	skill.SHA256 = sha256Hex(data)
-	return skill, "", nil
-}
-
 func (plan *claudePlan) addSkill(skill *Skill, reason string) {
 	if reason != "" {
 		key := skill.Name
@@ -260,8 +216,8 @@ func (plan *claudePlan) addSkill(skill *Skill, reason string) {
 	claudeItem(&plan.report, claudeSkills)
 }
 
-// extractClaudeEntries mirrors hermes_cli/agent_import.py markdown rules.
-func extractClaudeEntries(text string) []string {
+// extractMarkdownEntries mirrors hermes_cli/agent_import.py markdown rules.
+func extractMarkdownEntries(text string) []string {
 	m := &claudeMarkdown{}
 	for line := range strings.SplitSeq(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		m.read(line)

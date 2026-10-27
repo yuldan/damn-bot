@@ -115,48 +115,15 @@ func TestImportClaudeCodeBrokenSettings(t *testing.T) {
 	root := filepath.Join(e.home, ".claude")
 	writeClaudeFile(t, filepath.Join(root, "settings.json"), "{not json")
 	writeClaudeFile(t, filepath.Join(root, "CLAUDE.md"), "- would import\n")
-	before := hashTree(t, e.home)
-	res := importExec(e, "import", "claude-code")
-	if res.Code == 0 {
-		t.Fatalf("broken settings imported, exit 0:\n%s", res.Stdout)
-	}
-	if !strings.Contains(res.Stderr, "invalid source") {
-		t.Errorf("stderr = %q", res.Stderr)
-	}
-	if after := hashTree(t, e.home); after != before {
-		t.Errorf("broken settings changed state")
-	}
-	requireNoDataDir(t, e)
+	assertRejectedImport(t, e, []string{"import", "claude-code"}, "invalid source")
 }
 
 func TestImportClaudeCodeSymlinkEscape(t *testing.T) {
 	t.Parallel()
 	e := New(t)
 	root := writeClaudeHome(t, e)
-	outside := t.TempDir()
-	if err := os.WriteFile(filepath.Join(outside, "SKILL.md"),
-		[]byte("---\nname: escaped\ndescription: escaped\n---\nbody\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	evil := filepath.Join(root, "skills", "escaped")
-	if err := os.MkdirAll(evil, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(outside, "SKILL.md"), filepath.Join(evil, "SKILL.md")); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
-	before := hashTree(t, e.home)
-	res := importExec(e, "import", "claude-code")
-	if res.Code == 0 {
-		t.Fatalf("escaping symlink imported, exit 0:\n%s", res.Stdout)
-	}
-	if !strings.Contains(res.Stderr, "import claude-code:") {
-		t.Errorf("stderr = %q", res.Stderr)
-	}
-	if after := hashTree(t, e.home); after != before {
-		t.Errorf("rejected import changed state")
-	}
-	requireNoDataDir(t, e)
+	addEscapingSkill(t, root)
+	assertRejectedImport(t, e, []string{"import", "claude-code"}, "import claude-code:")
 }
 
 func TestImportClaudeCodeOnly(t *testing.T) {
