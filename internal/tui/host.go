@@ -48,6 +48,7 @@ type Sessions interface {
 // SessionInfo is one row of the sessions view (ctxdb metadata, newest first).
 type SessionInfo struct {
 	ID, Cwd, Model string
+	ReadOnly       bool // F4 lease placeholder; no lease query yet
 }
 
 // ModuleInfo is one registry module and its current runtime status.
@@ -90,6 +91,20 @@ type Files interface {
 	Write(ctx context.Context, path string, data []byte) (string, error)
 }
 
+// BangResult is one `!cmd` execution rendered as a tool block.
+type BangResult struct {
+	Output   string
+	OK       bool
+	Denied   bool
+	Duration time.Duration
+}
+
+// Shell runs one bang command through the same dispatcher/approval path as
+// the shell tool. A nil approver or a denied approval never executes it.
+type Shell interface {
+	Bang(ctx context.Context, sessionID, command string, planMode bool) (BangResult, error)
+}
+
 // Clipboard writes text to the user's clipboard (may be unavailable).
 type Clipboard interface {
 	Copy(text string) error
@@ -105,6 +120,7 @@ type Host struct {
 	Runtime   Runtime
 	Actions   Actions
 	Files     Files
+	Shell     Shell
 	Clipboard Clipboard
 }
 
@@ -127,6 +143,8 @@ func (h *Host) validate() error {
 		return fmt.Errorf("tui: host without actions")
 	case h.Files == nil:
 		return fmt.Errorf("tui: host without files")
+	case h.Shell == nil:
+		return fmt.Errorf("tui: host without shell")
 	case h.Clipboard == nil:
 		return fmt.Errorf("tui: host without clipboard")
 	}

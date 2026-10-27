@@ -40,23 +40,9 @@ func newTurnEngine(ctx context.Context, cfg *config.Config, o *runOptions, model
 	if err != nil {
 		return nil, err
 	}
-	disp, err := tools.NewDispatcher(&tools.Config{
-		Registry:         model.registry,
-		Journal:          loopTranscript{},
-		Spill:            spill,
-		Redactor:         red,
-		Mode:             approvalMode(o),
-		Deferred:         model.modules.deferred,
-		WorkspaceTrusted: model.trusted,
-		Cwd:              model.cwd,
-		// P5/GAP-COST-08: inline aggregate scales with window and ratio.
-		WindowTokens:  model.inlineCap,
-		CharsPerToken: charsPerToken(o.prompt),
-		Origin:        o.approvalOrigin,
-		Approver:      o.toolApprover,
-	})
+	disp, err := newRunDispatcher(o, model, red, spill)
 	if err != nil {
-		return nil, fmt.Errorf("tools dispatcher: %w", err)
+		return nil, err
 	}
 	compactAt, maxInline := 75, 0
 	if degraded {
@@ -89,4 +75,26 @@ func newTurnEngine(ctx context.Context, cfg *config.Config, o *runOptions, model
 		return nil, fmt.Errorf("loop: %w", err)
 	}
 	return &turnEngine{loop: lp, disp: disp}, nil
+}
+
+// newRunDispatcher builds the single tool pipeline shared by turns and !cmd.
+func newRunDispatcher(o *runOptions, model *runModel, red *redact.Redactor, spill tools.Spill) (*tools.Dispatcher, error) {
+	disp, err := tools.NewDispatcher(&tools.Config{
+		Registry:         model.registry,
+		Journal:          loopTranscript{},
+		Spill:            spill,
+		Redactor:         red,
+		Mode:             approvalMode(o),
+		Deferred:         model.modules.deferred,
+		WorkspaceTrusted: model.trusted,
+		Cwd:              model.cwd,
+		WindowTokens:     model.inlineCap,
+		CharsPerToken:    charsPerToken(o.prompt),
+		Origin:           o.approvalOrigin,
+		Approver:         o.toolApprover,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("tools dispatcher: %w", err)
+	}
+	return disp, nil
 }

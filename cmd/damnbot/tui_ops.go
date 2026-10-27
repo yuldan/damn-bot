@@ -24,6 +24,7 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/journalstore"
 	"github.com/damnbot/damnbot/internal/modules"
+	"github.com/damnbot/damnbot/internal/tools"
 	"github.com/damnbot/damnbot/internal/tui"
 )
 
@@ -394,4 +395,30 @@ func writePath(path string) (string, error) {
 		return "", fmt.Errorf("resolve %s: %w", path, err)
 	}
 	return abs, nil
+}
+
+// Bang executes !cmd through the same dispatcher/approval pipeline as shell.
+func (r *tuiRunner) Bang(ctx context.Context, sessionID, command string, planMode bool) (tui.BangResult, error) {
+	if r.Active(sessionID) {
+		return tui.BangResult{}, errors.New("a turn is running; cancel it first")
+	}
+	model, err := r.ensure(ctx)
+	if err != nil {
+		return tui.BangResult{}, err
+	}
+	disp, err := newRunDispatcher(r.deps.opts, model, r.deps.red, model.spill)
+	if err != nil {
+		return tui.BangResult{}, err
+	}
+	args, err := json.Marshal(map[string]string{"command": command})
+	if err != nil {
+		return tui.BangResult{}, fmt.Errorf("bang args: %w", err)
+	}
+	start := time.Now()
+	id := fmt.Sprintf("bang-%d", start.UnixNano())
+	out := disp.Dispatch(ctx, tools.Call{TurnID: id, CallID: id, Name: "shell", Args: args, PlanMode: planMode})
+	return tui.BangResult{
+		Output: out.Render(), OK: out.Err == nil && !out.Denied && !out.Cancelled,
+		Denied: out.Denied, Duration: time.Since(start),
+	}, nil
 }

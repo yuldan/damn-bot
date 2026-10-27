@@ -34,6 +34,34 @@ type slashCommand struct {
 	args []string // already split; dispatch validates the count
 }
 
+// slashItem is one registry row shared by the parser and the ctrl+p palette.
+type slashItem struct {
+	name, desc string
+	kind       slashKind
+}
+
+func slashCatalog() []slashItem {
+	return []slashItem{
+		{"/new", "new session", slashNew},
+		{"/fork", "fork at head", slashFork},
+		{"/rewind", "rewind at seq|turn:ID", slashRewind},
+		{"/undo", "undo last action", slashUndo},
+		{"/plan", "toggle plan mode", slashPlan},
+		{"/theme", "show or set theme", slashTheme},
+		{"/model", "list models (switch needs restart)", slashModel},
+		{"/budget", "turn/session/day budget", slashBudget},
+		{"/modules", "module registry status", slashModules},
+		{"/context", "context window panel", slashContext},
+		{"/reload", "reload config snapshot", slashReload},
+		{"/compact", "run compaction", slashCompact},
+		{"/export", "write transcript to path", slashExport},
+		{"/diff", "journal working diff", slashDiff},
+		{"/btw", "side question (refused)", slashBtw},
+		{"/init", "write AGENTS.md template", slashInit},
+		{"/review", "pending review queue", slashReview},
+	}
+}
+
 // parseSlash recognizes a single-line command. A multi-line prompt keeps its
 // leading slash (prompts can legitimately start with one); an empty or
 // whitespace-only line is not a command either.
@@ -44,14 +72,11 @@ func parseSlash(text string) (slashCommand, bool) {
 	}
 	fields := strings.Fields(text)
 	cmd := slashCommand{name: fields[0]}
-	kinds := map[string]slashKind{
-		"/new": slashNew, "/fork": slashFork, "/rewind": slashRewind, "/undo": slashUndo,
-		"/plan": slashPlan, "/theme": slashTheme, "/model": slashModel, "/budget": slashBudget,
-		"/modules": slashModules, "/context": slashContext, "/reload": slashReload,
-		"/compact": slashCompact, "/export": slashExport, "/diff": slashDiff, "/btw": slashBtw,
-		"/init": slashInit, "/review": slashReview,
+	for _, it := range slashCatalog() {
+		if it.name == fields[0] {
+			cmd.kind = it.kind
+		}
 	}
-	cmd.kind = kinds[fields[0]]
 	cmd.args = fields[1:]
 	return cmd, true
 }

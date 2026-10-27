@@ -108,7 +108,7 @@ func (m *Model) timeoutApproval(id int64) {
 
 // handleApprovalKey: y is once-only; s only when the class allows a session
 // grant; e denies and hands the command to the prompt for resubmission.
-func (m *Model) handleApprovalKey(msg tea.KeyPressMsg) tea.Cmd {
+func (m *Model) handleApprovalKey(msg tea.KeyPressMsg) {
 	req := m.approval.req
 	switch {
 	case key.Matches(msg, m.keys.Once):
@@ -116,7 +116,7 @@ func (m *Model) handleApprovalKey(msg tea.KeyPressMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.Session):
 		if req.NoSession {
 			m.appendNotice("approval: session grant is not available for this tool; use y once or n")
-			return nil
+			return
 		}
 		m.resolveApproval(ApprovalAllowSession, "approval: allowed for this session")
 	case key.Matches(msg, m.keys.Edit):
@@ -127,7 +127,6 @@ func (m *Model) handleApprovalKey(msg tea.KeyPressMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.No), key.Matches(msg, m.keys.Cancel):
 		m.resolveApproval(ApprovalDeny, "approval: denied")
 	}
-	return nil
 }
 
 // approvalBody renders the preview; there is deliberately no auto-approve path.

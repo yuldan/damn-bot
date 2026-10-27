@@ -236,6 +236,20 @@ type fakeFiles struct {
 	writes   int
 }
 
+type fakeShell struct {
+	res   BangResult
+	err   error
+	calls int
+	cmd   string
+	plan  bool
+}
+
+func (s *fakeShell) Bang(_ context.Context, _ string, command string, plan bool) (BangResult, error) {
+	s.calls++
+	s.cmd, s.plan = command, plan
+	return s.res, s.err
+}
+
 func (f *fakeFiles) Write(_ context.Context, path string, data []byte) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -250,7 +264,7 @@ func (f *fakeFiles) Write(_ context.Context, path string, data []byte) (string, 
 // testHost builds a complete host over the package fakes.
 func testHost(clk Clock, runner Runner, cfg ConfigSource) *Host {
 	rt := &fakeRuntime{}
-	return &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: &fakeSessions{}, Runtime: rt, Actions: rt, Files: &fakeFiles{}, Clipboard: &fakeClipboard{}}
+	return &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: &fakeSessions{}, Runtime: rt, Actions: rt, Files: &fakeFiles{}, Shell: &fakeShell{}, Clipboard: &fakeClipboard{}}
 }
 
 // newTestApp assembles a model over the fakes.
@@ -277,14 +291,15 @@ func TestNewAppRejectsIncompleteHost(t *testing.T) {
 		host    *Host
 	}{
 		{"empty session", "", base},
-		{"no clock", "sess-1", &Host{Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Clipboard: base.Clipboard}},
-		{"no runner", "sess-1", &Host{Clock: clk, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Clipboard: base.Clipboard}},
-		{"no config", "sess-1", &Host{Clock: clk, Runner: runner, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Clipboard: base.Clipboard}},
-		{"no sessions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Clipboard: base.Clipboard}},
+		{"no clock", "sess-1", &Host{Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard}},
+		{"no runner", "sess-1", &Host{Clock: clk, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard}},
+		{"no config", "sess-1", &Host{Clock: clk, Runner: runner, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard}},
+		{"no sessions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard}},
 		{"no runtime", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Clipboard: base.Clipboard}},
 		{"no actions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Files: base.Files, Clipboard: base.Clipboard}},
-		{"no files", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Clipboard: base.Clipboard}},
-		{"no clipboard", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files}},
+		{"no files", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Shell: base.Shell, Clipboard: base.Clipboard}},
+		{"no shell", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Clipboard: base.Clipboard}},
+		{"no clipboard", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

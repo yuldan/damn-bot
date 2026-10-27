@@ -1,0 +1,8 @@
+chat · fake/model · [1 sess-1*]
+APPROVAL shell · non_idempotent
++ rm -rf /tmp/x
+  exit 1
+args: {"command":"rm -rf /tmp/x"}
+fake/model · iter 0 · turn — / session —
+>
+y once · e edit · n deny · esc deny
