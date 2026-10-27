@@ -4415,3 +4415,22 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Konsekuensi.** (+) F2 berhenti menagih permukaan yang secara normatif milik F3/F9. (+) Prasyarat tulis importer tidak hilang lagi di F3. (−) Satu baris parity F2 (`SKILL-016`) tetap terbuka dan tidak terpengaruh ADR ini. (−) Gap `--only sessions` membutuhkan keputusan owner (SPEC §9.15 vs implementasi).
 
 **Dampak terukur (SPEC §20).** Token 0. Binary 0. Dependency 0. LOC 0. Tidak ada perintah baru di SPEC §10.
+
+## ADR-210 — Bundled skill sync: korpus embedded, install startup idempoten, konflik skip
+
+**Status:** Accepted 2026-10-27 (F2; SKILL-016). Menambah korpus skill bawaan yang di-embed, `Service.SyncBundled`, dan bukti unit/e2e; menaikkan baris `memory+skills`. Tidak mengubah SPEC, permukaan CLI, atau dependency.
+
+**Konteks.** Baris parity SKILL-016 (F2) menagih "sinkron skill bawaan ke HERMES_HOME saat start/update". Sebelum PR ini tidak ada korpus bawaan (`skills/.gitkeep`, 0 byte), tidak ada `go:embed` untuk skill, dan tidak ada pemanggil sync; `TestBuiltinSkillRefs` hanya melinting direktori `skills/` yang kosong. Mesin yang sudah ada: `Service.Install` (`internal/skills/service.go:72`) memvalidasi, melinting, memindai, lalu mengindeks `SourceBuiltin` yang tepercaya (`internal/skills/skill.go:29,46`); `newSkillManager` sudah menyusun store dan root (`cmd/damnbot/skills_manager_wire.go:135`). `skills list` membaca `<config>/skills`, jadi korpus harus disalin ke sana, bukan hanya diindeks ke store.
+
+**Keputusan.**
+1. **Korpus embedded.** `internal/skills/bundled/code-review/SKILL.md` (satu skill nyata, front matter lengkap, tanpa `requires` host) di-embed oleh `internal/skills/bundled.go` (`//go:embed bundled/*/SKILL.md`). `TestBuiltinSkillRefs` melinting korpus embedded dan gagal bila kosong, sehingga gate `skill-refs` (GAP-SEC-26) mencakup skill yang benar-benar dikirim.
+2. **Sync lewat `Service.Install`.** `Service.SyncBundled(ctx, fsys, targetDir)` menyalin `bundled/<name>/SKILL.md` ke `<config>/skills/<name>/SKILL.md` (ekuivalen HERMES_HOME) lalu memanggil `Service.Install` dengan `SourceBuiltin`. Tidak ada penulisan langsung ke store. Skill dari lokasi baru tetap melewati jalur trust/karantina yang sudah berlaku.
+3. **Idempoten.** File dibandingkan byte-per-byte; hash baris store dibandingkan dengan `SHA256` hasil `Parse`. Bila keduanya sama, sync tidak menulis file dan tidak memanggil `Install`, sehingga jalan kedua tidak mengubah `mtime`/hash dan tidak menduplikasi baris.
+4. **Konflik tidak menimpa.** Nama yang sudah ada dengan hash/byte berbeda (skill user/agent yang diubah, atau versi builtin lain) menghasilkan `SyncResult.Conflicts` + `slog.WarnContext` dan **tidak** ditulis/diindeks ulang. Update korpus di masa depan membutuhkan jalur provenance/migrasi terpisah; ADR ini tidak mengklaim update otomatis.
+5. **Fail-closed.** Parse/lint/install yang gagal tidak meninggalkan file atau baris katalog; sync mengembalikan error dan startup gagal. Direktori target yang symlink/non-direktori, atau direktori non-kosong tanpa `SKILL.md`, diperlakukan konflik dan tidak diikuti/ditulis.
+6. **Bukti.** Unit: `TestSyncBundledIdempotent` (jalan kedua tanpa `Index`, mtime/hash tetap), `TestSyncBundledDoesNotOverwriteUserEdit` (kontrol negatif), `TestSyncBundledSkipsStoredConflict`, `TestSyncBundledInvalidCorpusFailsClosed`, `TestSyncBundledEmptyCorpusFails`, `TestSyncBundledNameMismatchFails`. E2E biner: `TestBundledSkillSyncedAtStartup` (`skills list` satu entri setelah dua run, `mtime` tidak berubah). Semua tanpa `t.Skip`.
+7. **Anggaran.** `memory+skills` 2.143 → **2.408** (ukur `scc --no-gen` pada pohon ter-commit, tanpa headroom); Σ core 46.733 → **46.998** ≤ 47.000; sel `Total core` dan prosa `docs/ENGINEERING.md` disetel ke angka itu. Tidak ada baris yang turun; `TOTAL 190.000` tetap.
+
+**Konsekuensi.** (+) SKILL-016 punya implementasi dan bukti biner, bukan klaim katalog. (+) Korpus masa depan cukup ditambah sebagai `SKILL.md`; sync tetap idempoten dan tidak menimpa editan user. (−) Perubahan isi skill bawaan dengan hash berbeda tidak diterapkan otomatis (skip + lapor) sampai ada mekanisme versi/provenance. (−) Sync berjalan pada setiap pembentukan `skillManager`; biayanya satu glob + perbandingan hash per skill, tanpa I/O jaringan.
+
+**Dampak terukur (SPEC §20).** Token prompt 0 (tidak ada perubahan assembler). Binary +≈1 KB korpus ter-embed. Dependency 0. LOC: `memory+skills` 2.408 (cap 2.408, tanpa headroom), Σ core 46.998 ≤ 47.000. Tidak ada perintah baru di SPEC §10.

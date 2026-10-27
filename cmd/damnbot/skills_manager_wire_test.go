@@ -55,8 +55,8 @@ func TestSkillReadPath(t *testing.T) {
 	t.Parallel()
 	env := newSkillTestEnv(t)
 	ctx := t.Context()
-	if list, err := env.mgr.ListSkills(ctx, 10); err != nil || len(list) != 0 {
-		t.Fatalf("initial list = %+v, %v", list, err)
+	if list, err := env.mgr.ListSkills(ctx, 10); err != nil || len(list) != 1 || list[0].Name != "code-review" {
+		t.Fatalf("initial list = %+v, %v; want only the bundled code-review", list, err)
 	}
 	testSkillQuarantineHidden(ctx, t, env)
 	testSkillExactLookup(ctx, t, env)
@@ -67,8 +67,8 @@ func TestSkillManageQuarantineAndDelete(t *testing.T) {
 	t.Parallel()
 	env := newSkillTestEnv(t)
 	ctx := t.Context()
-	if list, err := env.mgr.ListSkills(ctx, 10); err != nil || len(list) != 0 {
-		t.Fatalf("initial list = %+v, %v", list, err)
+	if list, err := env.mgr.ListSkills(ctx, 10); err != nil || len(list) != 1 || list[0].Name != "code-review" {
+		t.Fatalf("initial list = %+v, %v; want only the bundled code-review", list, err)
 	}
 	testSkillQuarantine(ctx, t, env)
 	testSkillTrustedGuards(ctx, t, env)
@@ -209,9 +209,11 @@ func testSkillQuarantineHidden(ctx context.Context, t *testing.T, env *skillTest
 	if memoryID == 0 {
 		t.Fatal("quarantine seed returned no memory row")
 	}
-	if list, lerr := env.mgr.ListSkills(ctx, 10); lerr != nil || len(list) != 0 {
-		t.Fatalf("quarantined skill visible in list: %+v, %v", list, lerr)
+	list, lerr := env.mgr.ListSkills(ctx, 10)
+	if lerr != nil {
+		t.Fatal(lerr)
 	}
+	assertApprovedCatalog(t, list, "pending")
 	if _, verr := env.mgr.ViewSkill(ctx, "pending"); !errors.Is(verr, tools.ErrSkillNotFound) {
 		t.Fatalf("quarantined view = %v, want not_found", verr)
 	}
@@ -232,9 +234,11 @@ func testSkillQuarantine(ctx context.Context, t *testing.T, env *skillTestEnv) {
 	if res.Status != "scanned" || res.MemoryID == 0 {
 		t.Fatalf("side-effect skill = %+v, want quarantined scanned (never approved)", res)
 	}
-	if list, lerr := env.mgr.ListSkills(ctx, 10); lerr != nil || len(list) != 0 {
-		t.Fatalf("quarantined skill visible in list: %+v, %v", list, lerr)
+	list, lerr := env.mgr.ListSkills(ctx, 10)
+	if lerr != nil {
+		t.Fatal(lerr)
 	}
+	assertApprovedCatalog(t, list, "pay")
 	if _, verr := env.mgr.ViewSkill(ctx, "pay"); verr == nil {
 		t.Fatal("quarantined skill view succeeded")
 	}
@@ -325,6 +329,18 @@ func testSkillUpdate(ctx context.Context, t *testing.T, env *skillTestEnv) {
 	doc, err := env.mgr.ViewSkill(ctx, "ver")
 	if err != nil || doc.Body != "two" {
 		t.Fatalf("v2 view = %+v, %v", doc, err)
+	}
+}
+
+// assertApprovedCatalog fails when a quarantined skill leaks into the catalog
+// or when the bundled positive control is missing.
+func assertApprovedCatalog(t *testing.T, list []tools.SkillInfo, absent string) {
+	t.Helper()
+	if hasSkill(list, absent) {
+		t.Fatalf("%s visible in list: %+v", absent, list)
+	}
+	if !hasSkill(list, "code-review") {
+		t.Fatalf("bundled code-review missing from list: %+v", list)
 	}
 }
 
