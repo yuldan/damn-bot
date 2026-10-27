@@ -82,8 +82,9 @@ type Skill struct {
 	Source      Source
 	MemoryID    int64 // 0 = indexed directly (trusted source)
 	SideEffects []SideEffect
-	Requires    []string // skill names this skill depends on
-	filePayment bool     // a lint finding found payment use in a file (SEC10-9)
+	Requires    []string         // skill names this skill depends on
+	Host        *HostRequirement // optional host gate (requires: {…}, GAP-TOOL-10)
+	filePayment bool             // a lint finding found payment use in a file (SEC10-9)
 }
 
 // AddFindings records that lint found payment use in the skill's files, so
@@ -221,12 +222,27 @@ func (s *Skill) parseLists(meta map[string]string) error {
 		}
 	}
 	if v, ok := meta["requires"]; ok {
-		list, err := flowList(v)
+		return s.parseRequires(v)
+	}
+	return nil
+}
+
+// parseRequires reads either the host object (GAP-TOOL-10) or the legacy list
+// of skill names.
+func (s *Skill) parseRequires(v string) error {
+	if strings.HasPrefix(strings.TrimSpace(v), "{") {
+		host, err := parseHostRequirement(v)
 		if err != nil {
 			return err
 		}
-		s.Requires = list
+		s.Host = &host
+		return nil
 	}
+	list, err := flowList(v)
+	if err != nil {
+		return err
+	}
+	s.Requires = list
 	return nil
 }
 

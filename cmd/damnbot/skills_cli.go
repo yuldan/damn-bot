@@ -287,7 +287,7 @@ func runSkills(args []string, stdout, stderr io.Writer) int {
 }
 
 func skillsUsage(w io.Writer) {
-	say(w, "usage: damnbot skills list|check|update|index [--check]|audit|ledger|config\n")
+	say(w, "usage: damnbot skills list [--unavailable]|check|update|index [--check]|audit|ledger|config\n")
 	say(w, "       damnbot skills inspect <name>|diff <name>\n")
 	say(w, "       damnbot skills install <dir>|uninstall <name> --yes|reset --yes\n")
 }
@@ -308,6 +308,7 @@ func skillsArg(s string) string {
 type skillArgs struct {
 	configDir, dataDir string
 	yes, check, json   bool
+	unavailable        bool
 	limit              int
 	pos                []string
 }
@@ -385,6 +386,8 @@ func skillFlag(a *skillArgs, s string, args []string, i *int) (bool, error) {
 		a.check = true
 	case s == "--json":
 		a.json = true
+	case s == "--unavailable":
+		a.unavailable = true
 	default:
 		return false, nil
 	}
@@ -430,8 +433,20 @@ func skillsList(args []string, stdout, stderr io.Writer) int {
 		say(stderr, "skills list: %v\n", err)
 		return 1
 	}
+	host := skillHost()
 	for i := range list {
 		sk := &list[i]
+		reasons := sk.Unavailable(host)
+		if a.unavailable {
+			if len(reasons) == 0 {
+				continue
+			}
+			say(stdout, "%s\t%s\t%s\n", sk.Name, shortSHA(sk.SHA256), whyReasons(reasons))
+			continue
+		}
+		if len(reasons) > 0 {
+			continue // GAP-TOOL-10: unavailable skills leave the catalog
+		}
 		action := "-"
 		if e, ok := skills.Provenance(ledger, sk.Name); ok {
 			action = e.Action
