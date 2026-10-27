@@ -2,8 +2,11 @@ package e2e
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -196,5 +199,33 @@ func TestUsageEmptyAndData(t *testing.T) {
 	}
 	if row.Key != "gpt-test" || row.Calls != 1 || row.Input != 100 {
 		t.Errorf("usage row = %+v", row)
+	}
+}
+
+func TestUsageReadOnlyDB(t *testing.T) {
+	t.Parallel()
+	e := New(t)
+	paths := harnessPaths(e)
+	seedDoctorDB(t, paths)
+	db := ctxdb.DBPath(paths.DataDir)
+	if err := os.Chmod(db, 0o444); err != nil { // #nosec G302 -- read-only fixture
+		t.Fatal(err)
+	}
+	hash := func() string {
+		b, err := fs.ReadFile(os.DirFS(filepath.Dir(db)), filepath.Base(db))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(b)
+		return hex.EncodeToString(sum[:])
+	}
+	before := hash()
+	res := e.Exec("usage", "--by", "model", "--format", "jsonl")
+	res.RequireOK(t)
+	if !strings.Contains(res.Stdout, "gpt-test") {
+		t.Fatalf("usage on 0444 DB lacks data: %s", res.Stdout)
+	}
+	if after := hash(); after != before {
+		t.Fatal("usage wrote to the ledger DB")
 	}
 }

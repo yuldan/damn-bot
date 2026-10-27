@@ -73,6 +73,7 @@ func allowedImports() map[string][]string {
 		"internal/ctxdb/memstore":     storeImports(),
 		"internal/ctxdb/skillstore":   storeImports(),
 		"internal/ctxdb/journalstore": append(storeImports(), "internal/journal", "internal/sandbox"),
+		"internal/ctxdb/usagestore":   {"internal/ctxdb", "internal/ctxdb/ledgerstore"},
 		"internal/ctxdb/limitstore":   storeImports(),
 		"internal/ctxdb/importstore":  nil,
 		"internal/ctxdb/carrierstore": storeImports(),
