@@ -138,7 +138,7 @@ perf:
 PERF_RECALL_EVENTS ?= 1000000
 perf-acceptance: TAGS += perf
 perf-acceptance:
-	DAMNBOT_TIMING=1 DAMNBOT_RECALL_EVENTS=$(PERF_RECALL_EVENTS) go test $(GOTAGS) -count=1 -timeout 0 -run '^(TestRecallP95|TestAppendP99)$$' ./internal/ctxdb
+	DAMNBOT_TIMING=1 DAMNBOT_RECALL_EVENTS=$(PERF_RECALL_EVENTS) go test $(GOTAGS) -count=1 -v -timeout 0 -run '^(TestRecallP95|TestAppendP99)$$' ./internal/ctxdb
 
 # ADR-127: backstop CT-09 nightly di main — 5 set sampel, dan run yang seluruh
 # set-nya invalid (runner berdisk bising) GAGAL di sini, bukan lulus dengan
