@@ -106,7 +106,8 @@ func TestSurfaceStatus(t *testing.T) {
 		"mcp":      "pending:F5",
 		"kanban":   "pending:F7",
 		"eval":     "pending:F8",
-		"doctor":   "pending:F3",
+		"doctor":   surfaceAvailable,
+		"usage":    surfaceAvailable,
 		"config":   surfaceAvailable,
 		"update":   surfaceAvailable,
 	}
@@ -128,7 +129,7 @@ func TestSurfaceStatus(t *testing.T) {
 // be a stub; it exits 2 through the root usage.
 func TestPendingCommandsAreNotCallable(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"acp", "serve", "service", "setup", "mcp", "gateway", "cron", "kanban", "usage", "eval", "doctor"} {
+	for _, name := range []string{"acp", "serve", "service", "setup", "mcp", "gateway", "cron", "kanban", "eval"} {
 		if code, _, _ := runArgs(t, name); code != 2 {
 			t.Errorf("%s: exit = %d, want 2 (not callable yet)", name, code)
 		}
@@ -146,7 +147,7 @@ func TestHelpRoot(t *testing.T) {
 		if !strings.Contains(out, "Commands:") || !strings.Contains(out, "sessions") || !strings.Contains(out, "version") {
 			t.Errorf("%q: help output incomplete:\n%s", args, out)
 		}
-		if strings.Contains(out, "serve") || strings.Contains(out, "doctor") {
+		if strings.Contains(out, "serve") {
 			t.Errorf("%q: help lists a command that is not callable:\n%s", args, out)
 		}
 		if !strings.Contains(out, "--profile <name>") {
