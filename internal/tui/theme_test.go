@@ -58,10 +58,10 @@ func TestThemeFromConfig(t *testing.T) {
 		{"solarized", "tern-dark"},
 	}
 	for _, tc := range cases {
-		m, err := NewApp("sess-theme", Host{
-			Clock: newFakeClock(), Runner: &fakeRunner{},
-			Config: fakeConfig{cfg: Config{Model: "fake/model", Theme: tc.theme}},
-		})
+		m, err := NewApp("sess-theme", testHost(
+			newFakeClock(), &fakeRunner{},
+			fakeConfig{cfg: Config{Model: "fake/model", Theme: tc.theme}},
+		))
 		if err != nil {
 			t.Fatalf("NewApp(%q): %v", tc.theme, err)
 		}

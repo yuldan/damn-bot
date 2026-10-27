@@ -36,7 +36,20 @@ func runTUI([]string) int {
 		cfg: &cfg, dataDir: dataDir, configDir: configDir, home: home,
 		modelRef: cfg.Provider.Model, opts: o, red: redact.New(redact.Options{}),
 	})
-	app, err := tui.NewApp(sid, tui.Host{Clock: r, Runner: r, Config: r})
+	actions := &tuiActions{
+		db: func(ctx context.Context) (*ctxdb.Store, error) {
+			mdl, xerr := r.ensure(ctx)
+			if xerr != nil {
+				return nil, xerr
+			}
+			return mdl.db, nil
+		},
+		cfg: &cfg, configDir: configDir, modelRef: cfg.Provider.Model, active: r.Active,
+	}
+	app, err := tui.NewApp(sid, &tui.Host{
+		Clock: r, Runner: r, Config: r,
+		Sessions: actions, Clipboard: clipboardAdapter{},
+	})
 	if err == nil {
 		_, err = tea.NewProgram(app).Run()
 	}
@@ -93,6 +106,9 @@ func (r *tuiRunner) Prompt(ctx context.Context, sid string, in tui.Input) (<-cha
 	if err != nil {
 		return nil, err
 	}
+	// /new and /fork switch the active session; the lazy model follows so the
+	// nudge counter and close path use the session actually in use.
+	model.sessionID = sid
 	opts := *r.deps.opts
 	opts.prompt = in.Text
 	opts.now = r.deps.now

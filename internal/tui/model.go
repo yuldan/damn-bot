@@ -33,6 +33,25 @@ type streamBatchMsg struct {
 
 type promptFailedMsg struct{ err error }
 
+// sessionDoneMsg is the async outcome of /new, /fork, or /rewind.
+type sessionDoneMsg struct {
+	op     string
+	change SessionChange
+	err    error
+}
+
+// copyDoneMsg reports the clipboard write (or why it was unavailable).
+type copyDoneMsg struct {
+	chars int
+	err   error
+}
+
+// undoDoneMsg reports the journal undo outcome.
+type undoDoneMsg struct {
+	detail string
+	err    error
+}
+
 // Model is the root bubbletea model; Update and View run on the UI goroutine.
 type Model struct {
 	host      Host
@@ -60,6 +79,11 @@ type Model struct {
 	// fallback marks that the visible provider fallback (P7) fired this
 	// session; the status bar keeps the badge after the notice block.
 	fallback bool
+	// plan is the /plan toggle; navMode is ctrl+k block navigation.
+	plan      bool
+	navMode   bool
+	navIndex  int
+	collapsed map[int]bool
 	// busy marks a turn between submit and the Runner closing its stream.
 	input  textinput.Model
 	draft  []string // completed lines of the current multi-line prompt
@@ -108,6 +132,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case promptFailedMsg:
 		m.appendBlock(&Block{Kind: BlockNotice, Text: "error: " + msg.err.Error(), At: m.host.Clock.Now()})
 		m.finishTurn()
+		return m, nil
+	case sessionDoneMsg:
+		m.applySessionDone(msg)
+		return m, nil
+	case copyDoneMsg:
+		if msg.err != nil {
+			m.appendNotice("clipboard unavailable: " + msg.err.Error())
+		} else {
+			m.appendNotice(fmt.Sprintf("copied %d chars to the clipboard", msg.chars))
+		}
+		return m, nil
+	case undoDoneMsg:
+		detail := strings.TrimSpace(msg.detail)
+		switch {
+		case msg.err != nil:
+			m.appendNotice("undo refused: " + msg.err.Error())
+		case detail == "":
+			m.appendNotice("undo done")
+		default:
+			m.appendNotice(detail)
+		}
 		return m, nil
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -160,12 +205,20 @@ func readBatch(ch <-chan Update, immediate bool) tea.Cmd {
 	}
 }
 
-// handleKey dispatches ctrl+c quit, esc cancel, enter submit, ctrl+j newline.
+// handleKey dispatches ctrl+c quit, esc cancel, enter submit, ctrl+j newline,
+// and the ctrl+k block navigator.
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
-	switch {
-	case key.Matches(msg, m.keys.Quit):
+	if key.Matches(msg, m.keys.Quit) {
 		m.abortTurn()
 		return tea.Quit
+	}
+	if m.navMode {
+		return m.handleNavKey(msg)
+	}
+	switch {
+	case key.Matches(msg, m.keys.Nav):
+		m.enterNav()
+		return nil
 	case key.Matches(msg, m.keys.Send):
 		return m.submit()
 	case key.Matches(msg, m.keys.Cancel):
@@ -218,13 +271,18 @@ func (m *Model) inputArea() string {
 	return strings.Join(append(lines, m.input.View()), "\n")
 }
 
-// submit starts one turn; Prompt runs in a command (lazy host wiring).
+// submit starts one turn; a single-line slash is dispatched locally.
 func (m *Model) submit() tea.Cmd {
-	if m.busy {
-		return nil
-	}
 	text := strings.TrimSpace(strings.Join(append(m.draft, m.input.Value()), "\n"))
 	if text == "" {
+		return nil
+	}
+	if cmd, ok := parseSlash(text); ok {
+		m.draft = nil
+		m.input.SetValue("")
+		return m.runSlash(cmd)
+	}
+	if m.busy {
 		return nil
 	}
 	m.draft = nil
@@ -235,9 +293,9 @@ func (m *Model) submit() tea.Cmd {
 	m.appendBlock(&Block{Kind: BlockUser, Text: text, At: m.host.Clock.Now()})
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
-	runner, sid := m.host.Runner, m.sessionID
+	runner, sid, plan := m.host.Runner, m.sessionID, m.plan
 	return func() tea.Msg {
-		ch, err := runner.Prompt(ctx, sid, Input{Text: text})
+		ch, err := runner.Prompt(ctx, sid, Input{Text: text, PlanMode: plan})
 		if err != nil {
 			return promptFailedMsg{err: err}
 		}
@@ -436,13 +494,27 @@ func (m *Model) header() string {
 	return m.styles.header.Render(fmt.Sprintf("%s · %s · %s", title, m.host.Config.Snapshot().Model, m.sessionID))
 }
 
-// footer renders the key hints and the turn state.
+// footer renders the key hints and the turn state. Block navigation replaces
+// the input hints: every key shown there works, and the per-block fork that is
+// not available yet is not advertised.
 func (m *Model) footer() string {
-	parts := []string{
-		m.keys.Send.Help().Key + " send",
-		m.keys.Newline.Help().Key + " newline",
-		m.keys.Cancel.Help().Key + " cancel",
-		m.keys.Quit.Help().Key + " quit",
+	var parts []string
+	if m.navMode {
+		parts = []string{
+			m.keys.NavUp.Help().Key + "/" + m.keys.NavDown.Help().Key + " move",
+			m.keys.NavFold.Help().Key + " fold",
+			m.keys.NavCopy.Help().Key + " copy",
+			m.keys.NavBlob.Help().Key + " blob",
+			m.keys.NavUndo.Help().Key + " undo",
+			m.keys.Nav.Help().Key + " close",
+		}
+	} else {
+		parts = []string{
+			m.keys.Send.Help().Key + " send",
+			m.keys.Newline.Help().Key + " newline",
+			m.keys.Cancel.Help().Key + " cancel",
+			m.keys.Quit.Help().Key + " quit",
+		}
 	}
 	if m.busy {
 		parts = append(parts, "running")
@@ -471,6 +543,9 @@ func (m *Model) statusBar() string {
 	}
 	if m.fallback {
 		parts = append(parts, "FALLBACK")
+	}
+	if m.plan {
+		parts = append(parts, "PLAN")
 	}
 	line := m.styles.status.Render(strings.Join(parts, " · "))
 	if m.width > 0 {
@@ -547,23 +622,44 @@ func (chatPanel) body(m *Model) string {
 	return m.transcript()
 }
 
-// renderBlock formats one block with its loop clock stamp (T1). Text stays
-// unstyled; headings and notices take the active theme.
-func (m *Model) renderBlock(b *Block) string {
+// renderBlockAt cuts (collapse), themes, then marks the selected block.
+func (m *Model) renderBlockAt(i int) string {
+	b := &m.blocks[i]
+	body, style := m.blockBody(b)
+	if m.collapsed[i] {
+		body = collapseLine(body)
+	}
 	prefix := ""
 	if !b.At.IsZero() {
 		prefix = b.At.Format("15:04:05") + " "
 	}
+	line := prefix + style.Render(body)
+	if m.navMode && i == m.navIndex {
+		return "▸ " + line
+	}
+	return line
+}
+
+// blockBody returns the unstyled body and the theme style of one block.
+func (m *Model) blockBody(b *Block) (string, lipgloss.Style) {
 	switch b.Kind {
 	case BlockUser:
-		return prefix + m.styles.user.Render("you> "+b.Text)
-	case BlockAssistant:
-		return prefix + b.Text
+		return "you> " + b.Text, m.styles.user
 	case BlockTool:
-		return prefix + m.styles.tool.Render(renderToolBlock(b))
+		return renderToolBlock(b), m.styles.tool
 	case BlockNotice:
-		return prefix + m.styles.notice.Render("! "+b.Text)
+		return "! " + b.Text, m.styles.notice
+	case BlockAssistant:
+		return b.Text, lipgloss.NewStyle()
 	default:
-		return prefix + b.Text
+		return b.Text, lipgloss.NewStyle()
 	}
+}
+
+// collapseLine keeps the first line of a block body.
+func collapseLine(s string) string {
+	if first, _, ok := strings.Cut(s, "\n"); ok {
+		return first + " …"
+	}
+	return s
 }

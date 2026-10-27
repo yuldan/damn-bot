@@ -35,6 +35,14 @@ type keyMap struct {
 	NextScreen key.Binding
 	ScrollUp   key.Binding
 	ScrollDown key.Binding
+	Nav        key.Binding
+	NavUp      key.Binding
+	NavDown    key.Binding
+	NavFold    key.Binding
+	NavCopy    key.Binding
+	NavBlob    key.Binding
+	NavFork    key.Binding
+	NavUndo    key.Binding
 }
 
 // newKeyMap builds the SPEC §13.1 bindings.
@@ -47,13 +55,21 @@ func newKeyMap() keyMap {
 		NextScreen: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next")),
 		ScrollUp:   key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "scroll up")),
 		ScrollDown: key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdown", "scroll down")),
+		Nav:        key.NewBinding(key.WithKeys("ctrl+k"), key.WithHelp("ctrl+k", "blocks")),
+		NavUp:      key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "prev block")),
+		NavDown:    key.NewBinding(key.WithKeys("j"), key.WithHelp("j", "next block")),
+		NavFold:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "fold")),
+		NavCopy:    key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy")),
+		NavBlob:    key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "blob")),
+		NavFork:    key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "fork")),
+		NavUndo:    key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "undo")),
 	}
 }
 
 // NewApp assembles the root model from the host seam injected by
 // cmd/damnbot/tui_wire.go. It performs no I/O (P12): the first frame is built
 // from the config snapshot alone.
-func NewApp(sessionID string, host Host) (*Model, error) {
+func NewApp(sessionID string, host *Host) (*Model, error) {
 	if sessionID == "" {
 		return nil, fmt.Errorf("tui: empty session id")
 	}
@@ -65,7 +81,7 @@ func NewApp(sessionID string, host Host) (*Model, error) {
 		theme, _ = ThemeByName(defaultThemeName)
 	}
 	m := &Model{
-		host:      host,
+		host:      *host,
 		keys:      newKeyMap(),
 		theme:     theme,
 		styles:    newStyles(theme),

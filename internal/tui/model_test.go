@@ -74,11 +74,94 @@ type fakeConfig struct{ cfg Config }
 // Snapshot implements ConfigSource.
 func (c fakeConfig) Snapshot() Config { return c.cfg }
 
+// fakeSessions is the in-process session seam: it records calls and returns
+// whatever the test configured. Real fork/undo behaviour is covered in
+// cmd/damnbot against a tempdir ctxdb/journal store.
+type fakeSessions struct {
+	mu     sync.Mutex
+	calls  []string
+	change SessionChange
+	err    error
+	undo   string
+}
+
+func (s *fakeSessions) record(call string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls = append(s.calls, call)
+}
+
+// New implements Sessions.
+func (s *fakeSessions) New(context.Context) (SessionChange, error) {
+	s.record("new")
+	return s.change, s.err
+}
+
+// Fork implements Sessions.
+func (s *fakeSessions) Fork(_ context.Context, sid string) (SessionChange, error) {
+	s.record("fork:" + sid)
+	return s.change, s.err
+}
+
+// Rewind implements Sessions.
+func (s *fakeSessions) Rewind(_ context.Context, sid, at string) (SessionChange, error) {
+	s.record("rewind:" + sid + ":" + at)
+	return s.change, s.err
+}
+
+// Undo implements Sessions.
+func (s *fakeSessions) Undo(_ context.Context, sid, target string) (string, error) {
+	s.record("undo:" + sid + ":" + target)
+	if s.undo == "" {
+		return "a1 undone", s.err
+	}
+	return s.undo, s.err
+}
+
+// lastCall returns the newest recorded call.
+func (s *fakeSessions) lastCall() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.calls) == 0 {
+		return ""
+	}
+	return s.calls[len(s.calls)-1]
+}
+
+// fakeClipboard records the copied text (or simulates an unavailable utility).
+type fakeClipboard struct {
+	mu   sync.Mutex
+	text string
+	err  error
+}
+
+// Copy implements Clipboard.
+func (c *fakeClipboard) Copy(text string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.err != nil {
+		return c.err
+	}
+	c.text = text
+	return nil
+}
+
+func (c *fakeClipboard) copied() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.text
+}
+
+// testHost builds a complete host over the package fakes.
+func testHost(clk Clock, runner Runner, cfg ConfigSource) *Host {
+	return &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: &fakeSessions{}, Clipboard: &fakeClipboard{}}
+}
+
 // newTestApp assembles a model over the fakes.
 func newTestApp(t *testing.T) (*Model, *fakeClock, *fakeRunner) {
 	t.Helper()
 	clk, runner := newFakeClock(), &fakeRunner{}
-	m, err := NewApp("sess-1", Host{Clock: clk, Runner: runner, Config: fakeConfig{cfg: Config{Model: "fake/model"}}})
+	m, err := NewApp("sess-1", testHost(clk, runner, fakeConfig{cfg: Config{Model: "fake/model"}}))
 	if err != nil {
 		t.Fatalf("NewApp: %v", err)
 	}
@@ -91,15 +174,18 @@ func TestNewAppRejectsIncompleteHost(t *testing.T) {
 	t.Parallel()
 	clk, runner := newFakeClock(), &fakeRunner{}
 	cfg := fakeConfig{cfg: Config{Model: "fake/model"}}
+	base := testHost(clk, runner, cfg)
 	cases := []struct {
 		name    string
 		session string
-		host    Host
+		host    *Host
 	}{
-		{"empty session", "", Host{Clock: clk, Runner: runner, Config: cfg}},
-		{"no clock", "sess-1", Host{Runner: runner, Config: cfg}},
-		{"no runner", "sess-1", Host{Clock: clk, Config: cfg}},
-		{"no config", "sess-1", Host{Clock: clk, Runner: runner}},
+		{"empty session", "", base},
+		{"no clock", "sess-1", &Host{Runner: runner, Config: cfg, Sessions: base.Sessions, Clipboard: base.Clipboard}},
+		{"no runner", "sess-1", &Host{Clock: clk, Config: cfg, Sessions: base.Sessions, Clipboard: base.Clipboard}},
+		{"no config", "sess-1", &Host{Clock: clk, Runner: runner, Sessions: base.Sessions, Clipboard: base.Clipboard}},
+		{"no sessions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Clipboard: base.Clipboard}},
+		{"no clipboard", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

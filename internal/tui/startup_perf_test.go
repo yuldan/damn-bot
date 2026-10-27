@@ -20,7 +20,7 @@ func TestStartupBudget(t *testing.T) {
 		t.Fatalf("perf build without DAMNBOT_TIMING=1: run it through make perf/test-timing")
 	}
 	const runs = 20
-	host := Host{Clock: newFakeClock(), Runner: &fakeRunner{}, Config: fakeConfig{cfg: Config{Model: "fake/model"}}}
+	host := testHost(newFakeClock(), &fakeRunner{}, fakeConfig{cfg: Config{Model: "fake/model"}})
 	lat := make([]time.Duration, runs)
 	for i := range runs {
 		start := time.Now()
