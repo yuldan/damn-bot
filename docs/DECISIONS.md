@@ -4721,3 +4721,17 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Tes/gate.** `TestBudgetTableSum` (Σ ≤ `maxCoreLOC`), `TestEngineeringTotalCoreMatchesLocBudget` (baris `Total core` = prosa = Σ `loc.budget`), `make loc` (0 `GAGAL`), `scripts/ci-meta-test.sh` (pola `arch-budgetsum`).
 
 **Konsekuensi.** (+) Penutupan F3 punya 201 baris ruang tanpa menaikkan `TOTAL`; angka cap tetap satu sumber di lima lokasi. (−) Plafon gabungan SPEC §3.2.4 naik 200 baris; kenaikan berikutnya butuh ADR terukur lagi.
+
+## ADR-226 — Re-fase `EC-CFG-008` ke F5 (credential pool)
+
+**Status:** Accepted 2026-10-27 (F3; keputusan direktur atas usulan EC-CFG-008). Dokumen saja; tidak ada kode, katalog `LULUS`, atau anggaran yang berubah.
+
+**Konteks.** `EC-CFG-008` ("Pool kredensial tidak dimuat ulang saat switch provider / Mismatch pool.provider", `EDGE-CASES-hermes.md:251`) membutuhkan credential pool. Pool itu bukan komponen F3: `SPEC.md:288` menempatkan registry/transport/OAuth/JWT/credential pool di F5, `SPEC.md:856` menjadikan credential pool deliverable F5, dan `FEATURE-PARITY.md:97` (CLI-021) serta `:521` (PROV-062) mencatatnya `F5`/`planned`. Di `main` tidak ada kode pool (`grep -rn "credential pool|credential_pool|CredentialPool" internal cmd` = 0), sehingga tes F3 hanya bisa mengarang perilaku. `ROADMAP.md:66`/`:153` dan `SPEC.md:2704` masih menempatkan seluruh `EC-CFG` di F3, bertentangan dengan ADR-077 (fase = fase pemilik komponen yang dibutuhkan).
+
+**Keputusan.**
+1. **EC-CFG-008: F3 → F5.** Enam entri `EC-CFG` lain tetap F3 dan tidak berubah status `LULUS`-nya (001/003/005/006 sudah merge; 007/004 di PR masing-masing).
+2. **Dokumen diselaraskan:** `SPEC.md` §16 (`EC-CFG 8 (F3: 001..007; F5: 008)`), `ROADMAP.md:66` (tabel fase) dan `:153` (acceptance F3); tidak ada perubahan `FEATURE-PARITY.md` (PROV-062/CLI-021 sudah F5).
+3. **Tidak ada baris katalog `covered` baru dan tidak ada baris `LULUS` yang dicabut.** EC-CFG-008 akan dicatat katalog saat F5 (pemilik pool) mengerjakannya; acceptance F4 tidak lagi menuntutnya.
+4. **Tidak ada implementasi pool di PR ini**; fase implementasi tetap F5 sesuai SPEC/parity.
+
+**Konsekuensi.** (+) Gate F3/F4 tidak lagi menuntut tes untuk komponen yang belum ada; fase mengikuti ADR-077. (+) Tidak ada klaim `covered` palsu dan tidak ada anggaran berubah. (−) EC-CFG-008 tetap terbuka sampai F5; provider switch/credential pool belum punya perilaku yang bisa diuji di main.

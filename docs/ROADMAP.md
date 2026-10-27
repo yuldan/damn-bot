@@ -63,7 +63,7 @@ NP-01..NP-21 diputuskan per ADR-022 (Accepted) dan ADR-033 (NP-21): sebagian `dr
 | `EC-TERM` terminal/proses (10) | F1: 002, 006, 007 (3); F4: 008..010; F5: 001 (butuh proses background, ADR-072), 003; F7: 004, 005 (ADR-077, ADR-080) |
 | `EC-WIN` Windows (17) | F1: 001, 009, 010, 012, 013, 014, 016, 017 (8); F2: 002, 005, 011; F4: 003, 004, 006; F5: 007, 008, 015. Dijalankan di runner Windows matrix CI (F1 #0) dan masuk acceptance fasenya; F9 hanya untuk sisa yang belum `covered` karena bug, bukan fase default (ADR-080) |
 | `EC-PLAT` platform chat (19 entri Telegram: EC-PLAT-001, 002, 003, 007, 009..023; ADR-061) | F4 (Telegram), F7 (lainnya: EC-PLAT-004, 005, 006, 008, 024; ADR-061) |
-| `EC-CFG` config/startup | F3 |
+| `EC-CFG` config/startup | F3: 001..007; F5: 008 (ADR-226) |
 | `EC-SEC` keamanan (8) | F1: 001, 005, 007, 008 (4); F5: 002..004; F7: 006 (ADR-077) |
 
 ---
@@ -150,7 +150,7 @@ Storage ledger `budget` F1 = subpaket `internal/ctxdb/ledgerstore` (ADR-074, bar
 - Wizard ≤ 3 langkah, ≤ 60 s; config minimum 2 baris.
 - Import 5 fixture `~/.hermes`: ≥ 99% item, 0 kehilangan diam-diam, idempoten.
 - Plan mode: `TestPlanModeShell` — shell hanya bila cocok persis `shell_allow` dan berlabel `non_mutating`, selain itu ditolak (ADR-079 butir 11).
-- EC-CFG, EC-FIO-007, EC-FIO-018 covered (ADR-077).
+- EC-CFG-001..007, EC-FIO-007, EC-FIO-018 covered (ADR-077); EC-CFG-008 (credential pool) F5 (ADR-226).
 - Baseline hermes untuk dimensi ADR-065/083 berstatus F3 diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`) (ADR-083).
 
 ## F4 — Telegram first + ketahanan
