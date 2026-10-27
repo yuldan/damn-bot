@@ -132,6 +132,14 @@ perf: TAGS += perf
 perf:
 	DAMNBOT_TIMING=1 go test $(GOTAGS) -run '^(TestMeasureDurableRetryMeasuresSet2)$$' -bench '$(PERF_BENCH)' -benchtime=100x $(PKGS)
 
+# Acceptance performa F2 (SPEC §11 append p99, §11.6 recall p95 @1 juta event).
+# Skala penuh, tanpa pengecilan dataset; ambang absolut memakai margin ×1,5
+# runner bersama lewat timing.Check (ADR-077) dan DAMNBOT_TIMING=1.
+PERF_RECALL_EVENTS ?= 1000000
+perf-acceptance: TAGS += perf
+perf-acceptance:
+	DAMNBOT_TIMING=1 DAMNBOT_RECALL_EVENTS=$(PERF_RECALL_EVENTS) go test $(GOTAGS) -count=1 -timeout 0 -run '^(TestRecallP95|TestAppendP99)$$' ./internal/ctxdb
+
 # ADR-127: backstop CT-09 nightly di main — 5 set sampel, dan run yang seluruh
 # set-nya invalid (runner berdisk bising) GAGAL di sini, bukan lulus dengan
 # warning seperti gate PR.

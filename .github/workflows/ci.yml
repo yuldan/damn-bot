@@ -273,6 +273,8 @@ jobs:
           cache-dependency-path: go.sum
       - name: Budget absolut benchmark (-tags goolm,perf; NEW-38, ADR-077)
         run: make perf
+      - name: Acceptance performa F2 (recall p95 @1M, append p99; SPEC §11.6/§11)
+        run: make perf-acceptance
       - name: PHASE berubah?
         id: phase
         env:
