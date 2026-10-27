@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"runtime"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" driver for the read-only DSN
 
@@ -43,7 +44,11 @@ func Aggregate(ctx context.Context, dir, by string) (out []Row, err error) {
 	if err != nil {
 		return nil, err
 	}
-	u := &url.URL{Scheme: "file", Path: filepath.ToSlash(ctxdb.DBPath(dir))}
+	path := filepath.ToSlash(ctxdb.DBPath(dir))
+	if runtime.GOOS == "windows" {
+		path = "/" + path
+	}
+	u := &url.URL{Scheme: "file", Path: path}
 	u.RawQuery = "mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(5000)"
 	db, err := sql.Open("sqlite", u.String())
 	if err != nil {
