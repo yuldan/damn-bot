@@ -50,7 +50,7 @@ ignored code
 Another paragraph.
 - Another paragraph.
 `
-	got := extractClaudeEntries(text)
+	got := extractMarkdownEntries(text)
 	want := []string{
 		"Project: Intro paragraph.",
 		"Project > Rules: Use tabs",
@@ -61,7 +61,7 @@ Another paragraph.
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("entries:\n%q\nwant:\n%q", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
-	if got := extractClaudeEntries("# CLAUDE.md\nbody\n"); got[0] != "body" {
+	if got := extractMarkdownEntries("# CLAUDE.md\nbody\n"); got[0] != "body" {
 		t.Errorf("excluded heading = %q", got[0])
 	}
 }
@@ -113,29 +113,17 @@ func assertClaudeReport(t *testing.T, report *Report, sink *memSink) {
 	}
 }
 
-func TestImportClaudeDryRunAndSkip(t *testing.T) {
-	t.Parallel()
-	root := t.TempDir()
-	writeClaude(t, root, "CLAUDE.md", "# P\n- one\n- two\n")
-	writeClaude(t, root, "skills/x/SKILL.md", "---\nname: x\ndescription: X.\n---\nbody\n")
-	sink := newMemSink()
-	imp := claudeImporter(t, sink)
-	report, err := imp.Import(context.Background(), root, ClaudeOptions{DryRun: true})
-	if err != nil {
-		t.Fatalf("Import: %v", err)
+func assertCategorySkipped(t *testing.T, report *Report, category string, otherImported int) {
+	t.Helper()
+	skipped, other := report.Memory, report.Skills
+	if category == "skills" {
+		skipped, other = report.Skills, report.Memory
 	}
-	if sink.calls != 0 || report.Memory.Imported != 2 || report.Skills.Imported != 1 || report.Changed() != 0 {
-		t.Errorf("dry run = %+v, calls=%d", report, sink.calls)
+	if skipped.Total != 1 || skipped.Skipped[0].Reason != "not selected (--only)" {
+		t.Errorf("%s skip = %+v", category, skipped)
 	}
-	report, err = imp.Import(context.Background(), root, ClaudeOptions{Skip: map[string]string{"memory": "not selected (--only)"}})
-	if err != nil {
-		t.Fatalf("Import skip: %v", err)
-	}
-	if report.Memory.Total != 1 || report.Memory.Skipped[0].Reason != "not selected (--only)" {
-		t.Errorf("memory skip = %+v", report.Memory)
-	}
-	if report.Skills.Imported != 1 {
-		t.Errorf("skills after skip = %+v", report.Skills)
+	if other.Imported != otherImported {
+		t.Errorf("other category = %+v, want %d imported", other, otherImported)
 	}
 }
 
@@ -150,6 +138,19 @@ func TestImportClaudeBrokenSettingsIsAtomic(t *testing.T) {
 	}
 	if sink.calls != 0 {
 		t.Errorf("broken settings wrote %d items", sink.calls)
+	}
+}
+
+func assertMemoryCapSkipped(t *testing.T, report *Report) {
+	t.Helper()
+	capped := false
+	for _, skip := range report.Memory.Skipped {
+		if strings.Contains(skip.Reason, "memory cap") {
+			capped = true
+		}
+	}
+	if report.Memory.Imported != 1 || !capped {
+		t.Errorf("memory = %+v", report.Memory)
 	}
 }
 

@@ -114,6 +114,35 @@ func unsafeText(s string) bool {
 	})
 }
 
+func readSkillAt(read func(string) ([]byte, error), root, path string) (Skill, string, error) {
+	data, err := readOptionalFile(read, path)
+	if err != nil {
+		return Skill{}, "", err
+	}
+	if len(data) > maxSkillBytes || !utf8.Valid(data) {
+		return Skill{}, "", syntaxError(path, fmt.Errorf("file is not UTF-8 or exceeds %d bytes", maxSkillBytes))
+	}
+	meta, body, err := splitFrontmatter(data, path)
+	if err != nil {
+		return Skill{}, "", err
+	}
+	origin, err := filepath.Rel(root, filepath.Dir(path))
+	if err != nil {
+		return Skill{}, "", fmt.Errorf("importer: relative skill path: %w", err)
+	}
+	skill := Skill{Body: body, Origin: filepath.ToSlash(origin)}
+	name := childString(meta, "name")
+	if !validSkillName(name) {
+		return skill, "SKILL.md has no valid frontmatter name", nil
+	}
+	skill.Name, skill.Description = name, childString(meta, "description")
+	if skill.Description == "" || unsafeText(name) || unsafeText(skill.Description) {
+		return skill, "SKILL.md description is missing or unsafe", nil
+	}
+	skill.SHA256 = sha256Hex(data)
+	return skill, "", nil
+}
+
 func splitFrontmatter(data []byte, path string) (map[string]any, string, error) {
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	rest, ok := strings.CutPrefix(text, "---\n")

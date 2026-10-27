@@ -140,6 +140,34 @@ func (i *Importer) applySessions(ctx context.Context, r *Report, sessions []Sess
 	return false, nil
 }
 
+// finishMemorySkills returns the dry-run accounting or writes both plan slices.
+func finishMemorySkills(ctx context.Context, report *Report, memories []MemoryEntry, skills []Skill, sink Sink, dryRun bool) error {
+	if dryRun {
+		report.Memory.Imported, report.Skills.Imported = len(memories), len(skills)
+		return nil
+	}
+	return writeMemorySkills(ctx, report, memories, skills, sink)
+}
+
+// writeMemorySkills applies the two plan slices shared by the agent importers.
+func writeMemorySkills(ctx context.Context, report *Report, memories []MemoryEntry, skills []Skill, sink Sink) error {
+	for index := range memories {
+		entry := memories[index]
+		changed, err := sink.PutMemory(ctx, entry)
+		if stop, rerr := record(report, SourceMemory, entry.Store, changed, err); stop {
+			return rerr
+		}
+	}
+	for index := range skills {
+		skill := skills[index]
+		changed, err := sink.PutSkill(ctx, &skill)
+		if stop, rerr := record(report, SourceSkills, skill.Name, changed, err); stop {
+			return rerr
+		}
+	}
+	return nil
+}
+
 // record accounts one sink result; a [SkipError] becomes a reported skip.
 func record(r *Report, s Source, key string, changed bool, err error) (stop bool, rerr error) {
 	if err == nil {

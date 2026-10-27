@@ -50,6 +50,9 @@ func runImport(args []string, stdout, stderr io.Writer) (code int) {
 	if pos[0] == "claude-code" {
 		return runClaudeImport(o, stdout, stderr)
 	}
+	if pos[0] == "codex" {
+		return runCodexImport(o, stdout, stderr)
+	}
 	if pos[0] != "hermes" {
 		say(stderr, "import: %s is not implemented yet (SPEC §9.15 parity: OPS-034/OPS-035; ADR-218)\n", cleanArg(pos[0]))
 		return 2
