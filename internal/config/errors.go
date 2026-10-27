@@ -15,6 +15,10 @@ var (
 	// distinct from ErrUnknownKey so users get an actionable error instead of
 	// a typo message.
 	ErrModuleUnavailable = errors.New("config: module section unavailable")
+	// ErrVersion reports a config_version outside the range this binary
+	// understands (SPEC §12, ADR-221): a newer file on a stale binary is
+	// refused instead of being parsed with silent defaults.
+	ErrVersion = errors.New("config: unsupported config version")
 	// ErrInvalidValue reports a value outside its SPEC §12 range.
 	ErrInvalidValue = errors.New("config: invalid value")
 	// ErrSyntax reports malformed TOML.

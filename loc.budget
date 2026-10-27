@@ -125,7 +125,7 @@ journal            615 internal/journal
 # ADR-128 amandemen SEC6-6: budget 560 -> 580 (max harga tabel vs biaya provider; terukur 571; Σ core +20).
 budget             580 internal/budget
 heal              1500 internal/heal
-config            1200 internal/config
+config            1208 internal/config
 modules            1000 internal/modules
 hooks              700 internal/hooks
 i18n               300 internal/i18n

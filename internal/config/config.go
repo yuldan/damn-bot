@@ -10,22 +10,32 @@ import (
 	"github.com/damnbot/damnbot/internal/update"
 )
 
+// SchemaVersion is the config schema this binary writes and understands
+// (SPEC §12, ADR-221). A file may declare a lower or equal config_version; a
+// higher one is refused by [Config.Validate] so a stale binary never runs a
+// newer file with silent defaults.
+const SchemaVersion = 1
+
 // Config is the immutable result of [Loader.Load]. All fields are values; maps
 // and slices are never mutated by the package (E-13). Use [Config.Clone] to
 // obtain an independent copy for tests or tooling.
 type Config struct {
-	Provider Provider `toml:"provider"`
-	Loop     Loop     `toml:"loop"`
-	Budget   Budget   `toml:"budget"`
-	Approval Approval `toml:"approval"`
-	Exec     Exec     `toml:"exec"`
-	Agent    Agent    `toml:"agent"`
-	Skills   Skills   `toml:"skills"`
-	Sessions Sessions `toml:"sessions"`
-	Context  Context  `toml:"context"`
-	Memory   Memory   `toml:"memory"`
-	Recovery Recovery `toml:"recovery"`
-	UI       UI       `toml:"ui"`
+	// ConfigVersion is the schema version the file expects (SPEC §12). It
+	// defaults to [SchemaVersion]; a file without the key is legacy and keeps
+	// the default.
+	ConfigVersion int      `toml:"config_version" json:"config_version"`
+	Provider      Provider `toml:"provider"`
+	Loop          Loop     `toml:"loop"`
+	Budget        Budget   `toml:"budget"`
+	Approval      Approval `toml:"approval"`
+	Exec          Exec     `toml:"exec"`
+	Agent         Agent    `toml:"agent"`
+	Skills        Skills   `toml:"skills"`
+	Sessions      Sessions `toml:"sessions"`
+	Context       Context  `toml:"context"`
+	Memory        Memory   `toml:"memory"`
+	Recovery      Recovery `toml:"recovery"`
+	UI            UI       `toml:"ui"`
 	// Gateway and Providers are accepted and validated but have no runtime
 	// consumer until F4/F5 (ADR-197): config is data-only for them.
 	Gateway   Gateway   `toml:"gateway"`
@@ -232,6 +242,7 @@ func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil
 // Default returns the SPEC §12 defaults for every key exposed in F1.
 func Default() Config {
 	return Config{
+		ConfigVersion: SchemaVersion,
 		Provider: Provider{
 			Model:     "",
 			Fallback:  []string{},
