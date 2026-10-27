@@ -33,6 +33,25 @@ type PolicyContext struct {
 	Cwd              string
 }
 
+// Approval origins (SPEC §18.2, ADR-202). The value names the surface that
+// asked; an approval never crosses surfaces. OriginRun is the headless `run`
+// transport of SPEC §18.2 and the default when a caller sets none.
+const (
+	OriginRun  = "run"
+	OriginTUI  = "tui"
+	OriginACP  = "acp"
+	OriginPlan = "plan"
+)
+
+// ValidOrigin reports whether s is one of the reviewed origins.
+func ValidOrigin(s string) bool {
+	switch s {
+	case OriginRun, OriginTUI, OriginACP, OriginPlan:
+		return true
+	}
+	return false
+}
+
 // Requirement is the policy outcome before the approver is consulted.
 type Requirement uint8
 
@@ -96,10 +115,44 @@ type ApprovalRequest struct {
 	Class   string
 	Paths   []string
 	Preview string
+	Origin  string // run|tui|acp|plan (ADR-202); never empty from the dispatcher
 	Tainted bool
 	// AllowSession is false for shell (ADR-088 butir 1), execute_code and
 	// P26 classes (irreversible/monetary/delegated_agent_bypass).
 	AllowSession bool
+}
+
+// PreviewRequired reports whether an approval of this effect and audit class
+// must carry a preview before the action runs (SPEC §18.2). The dangerous set
+// comes from the classifier's closed labels (destructive and the P26
+// classes); workspace writes need one too. Reads, and classes below
+// destructive, are not dangerous.
+func PreviewRequired(effect Effect, class string) bool {
+	if effect == EffectRead {
+		return false
+	}
+	if strings.HasPrefix(class, "shell:") {
+		for _, label := range []string{"destructive", "irreversible", "monetary", "delegated_agent_bypass"} {
+			if strings.Contains(class, label) {
+				return true
+			}
+		}
+		return false
+	}
+	return class == "write"
+}
+
+// Validate checks the request contract before an approver sees it: the origin
+// is always one of the reviewed surfaces and a dangerous action always has a
+// preview (SPEC §18.2, ADR-202).
+func (r *ApprovalRequest) Validate() error {
+	if !ValidOrigin(r.Origin) {
+		return fmt.Errorf("tools: approval origin %q is not one of run|tui|acp|plan", r.Origin)
+	}
+	if PreviewRequired(r.Effect, r.Class) && strings.TrimSpace(r.Preview) == "" {
+		return fmt.Errorf("tools: %s needs a preview before approval", r.Tool)
+	}
+	return nil
 }
 
 // Approver is the interactive approval channel (TUI, ACP, web UI, gateway).
@@ -179,4 +232,105 @@ func clipLine(s string, n int) string {
 		cut--
 	}
 	return s[:cut] + "…"
+}
+
+// authorize applies one prepared call's approval requirement. It is the only
+// place that consults the approver or session approvals.
+func (d *Dispatcher) authorize(ctx context.Context, p *Prepared) *Outcome {
+	p.Env.Approved = false
+	switch p.Decision.Requirement {
+	case RequireAuto:
+		p.authorized = true
+		return nil
+	case RequireDeniedPath:
+		out := failure(CodeDeniedPath, "path matches deny_paths: "+strings.Join(p.Decision.Paths, ", "), "choose another path")
+		return &out
+	case RequireDeny:
+		out := failure(CodeDenied, p.Call.Name+" is not allowed in this mode", "")
+		out.Denied = true
+		return &out
+	case RequireOutside:
+		if d.mode.Headless() {
+			out := failure(CodeOutsideWorkspace, "path is outside the workspace: "+strings.Join(p.Decision.Paths, ", "), "headless runs never approve outside paths")
+			return &out
+		}
+		return d.ask(ctx, p, true)
+	case RequireAsk:
+		return d.ask(ctx, p, false)
+	}
+	out := failure(CodeInternal, "unknown policy requirement", "")
+	return &out
+}
+
+// ask consults a session approval or the approver for one prepared call.
+func (d *Dispatcher) ask(ctx context.Context, p *Prepared, outside bool) *Outcome {
+	dec := p.Decision
+	if dec.AllowSession && d.sessionAllowed(p.Call.Name, dec.Paths) {
+		p.Approved = outside
+		p.authorized = true
+		return nil
+	}
+	req := ApprovalRequest{
+		Tool: p.Call.Name, CallID: p.Call.CallID, Effect: p.Effect, Class: dec.Class,
+		Paths: dec.Paths, Preview: dec.Preview, Origin: d.origin, Tainted: d.tainted.Load(),
+		AllowSession: dec.AllowSession,
+	}
+	// Fail closed: a dangerous action without a preview is never shown as
+	// approvable (SPEC §18.2, ADR-202). ensurePreview normally fills it, so
+	// this only fires when an Inspector returned an unusable decision.
+	if err := req.Validate(); err != nil {
+		out := failure(CodeDenied, err.Error(), "the call was not shown to the approver")
+		out.Denied = true
+		return &out
+	}
+	if d.approver == nil {
+		out := failure(CodeDenied, "no approver is available", "interactive approval is required")
+		out.Denied = true
+		return &out
+	}
+	answer, err := d.approver.Approve(ctx, req)
+	if err != nil {
+		out := fromError(err)
+		return &out
+	}
+	switch answer {
+	case ApprovalAllowOnce:
+		p.Approved = outside
+		p.authorized = true
+		return nil
+	case ApprovalAllowSession:
+		if req.AllowSession && len(req.Paths) > 0 {
+			d.mu.Lock()
+			for _, path := range req.Paths {
+				d.sessions[toolSubject(req.Tool, path)] = true
+			}
+			d.mu.Unlock()
+		}
+		p.Approved = outside
+		p.authorized = true
+		return nil
+	case ApprovalDeny:
+	}
+	code, msg := CodeDenied, "approval denied for "+p.Call.Name
+	if outside {
+		code, msg = CodeOutsideWorkspace, "outside-workspace access was not approved"
+	}
+	out := failure(code, msg, "")
+	out.Denied = true
+	return &out
+}
+
+// sessionAllowed reports an earlier allow_session for every exact subject.
+func (d *Dispatcher) sessionAllowed(tool string, paths []string) bool {
+	if len(paths) == 0 {
+		return false
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, p := range paths {
+		if !d.sessions[toolSubject(tool, p)] {
+			return false
+		}
+	}
+	return true
 }
