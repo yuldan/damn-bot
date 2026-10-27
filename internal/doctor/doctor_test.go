@@ -145,3 +145,101 @@ func TestReportJSON(t *testing.T) {
 		t.Fatalf("first check = %v", checks[0])
 	}
 }
+
+func TestRunDefaultsAndWarnings(t *testing.T) {
+	root := t.TempDir()
+	rep := run(t, &Options{
+		ConfigDir: filepath.Join(root, "config"), DataDir: filepath.Join(root, "data"),
+		ConfigFile: filepath.Join(root, "config", "config.toml"),
+	})
+	if rep.Exit != 2 || rep.Summary.Warn != 1 {
+		t.Fatalf("exit = %d, warn = %d, want 2/1\n%+v", rep.Exit, rep.Summary.Warn, rep)
+	}
+	if rep.Checks[0].Status != StatusOK || !strings.Contains(rep.Checks[0].Message, "not created") {
+		t.Fatalf("config check = %+v", rep.Checks[0])
+	}
+}
+
+func TestRunFixesMissingDirs(t *testing.T) {
+	root := t.TempDir()
+	cfgDir, dataDir := filepath.Join(root, "config"), filepath.Join(root, "data")
+	rep := run(t, &Options{
+		ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: filepath.Join(cfgDir, "config.toml"),
+		ProviderModel: "openai/gpt-test", Fix: true,
+	})
+	if rep.Exit != 3 || rep.Summary.Fixed < 2 {
+		t.Fatalf("exit = %d, fixed = %d, want 3/2\n%+v", rep.Exit, rep.Summary.Fixed, rep)
+	}
+	for _, d := range []string{cfgDir, dataDir} {
+		fi, err := os.Stat(d)
+		if err != nil || fi.Mode().Perm() != 0o700 {
+			t.Fatalf("%s mode = %v, %v", d, fi.Mode().Perm(), err)
+		}
+	}
+}
+
+func TestRunSecretBackend(t *testing.T) {
+	cfgDir, dataDir, cfgFile := doctorPaths(t)
+	for _, tc := range []struct {
+		name string
+		ok   bool
+		err  error
+		want string
+	}{
+		{"keychain", true, nil, "OS keychain available"},
+		{"fallback", false, nil, "file fallback (0600)"},
+		{"error", false, errors.New("no dbus"), "file fallback (keychain:"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"}
+			o.Keyring = func(context.Context) (bool, error) { return tc.ok, tc.err }
+			rep := Run(t.Context(), o)
+			if got := rep.Checks[7]; got.ID != "DOC-008" || got.Status != StatusOK || !strings.Contains(got.Message, tc.want) {
+				t.Fatalf("secret check = %+v", got)
+			}
+		})
+	}
+}
+
+func TestRunSecretsPermission(t *testing.T) {
+	cfgDir, dataDir, cfgFile := doctorPaths(t)
+	secret := filepath.Join(cfgDir, "secrets.enc")
+	if err := os.WriteFile(secret, []byte("x"), 0o644); err != nil { // #nosec G306 -- deliberately wide fixture
+		t.Fatal(err)
+	}
+	o := &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"}
+	if rep := run(t, o); rep.Exit != 1 {
+		t.Fatalf("wide secret exit = %d, want 1", rep.Exit)
+	}
+	o.Fix = true
+	if rep := run(t, o); rep.Exit != 3 {
+		t.Fatalf("fix secret exit = %d, want 3", rep.Exit)
+	}
+	fi, err := os.Stat(secret)
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("secret mode = %v, %v", fi.Mode().Perm(), err)
+	}
+}
+
+func TestRunFixesDirPermissions(t *testing.T) {
+	cfgDir, dataDir, cfgFile := doctorPaths(t)
+	for _, d := range []string{cfgDir, dataDir} {
+		if err := os.Chmod(d, 0o755); err != nil { // #nosec G302 -- deliberately wide fixture
+			t.Fatal(err)
+		}
+	}
+	o := &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"}
+	if rep := run(t, o); rep.Exit != 1 {
+		t.Fatalf("wide dirs exit = %d, want 1", rep.Exit)
+	}
+	o.Fix = true
+	if rep := run(t, o); rep.Exit != 3 {
+		t.Fatalf("fix dirs exit = %d, want 3", rep.Exit)
+	}
+	for _, d := range []string{cfgDir, dataDir} {
+		fi, err := os.Stat(d)
+		if err != nil || fi.Mode().Perm() != 0o700 {
+			t.Fatalf("%s mode = %v, %v", d, fi.Mode().Perm(), err)
+		}
+	}
+}
