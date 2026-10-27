@@ -39,6 +39,9 @@ func printEngine(stdout io.Writer) int {
 // next. The surface registry is the single list (ADR-197): an entry without
 // Run is documented but not implemented, and is never dispatched as a stub.
 func dispatchCommand(args []string, stdout, stderr io.Writer) (code int, ok bool) {
+	if args[0] == "__complete" {
+		return runComplete(args[1:], stdout), true
+	}
 	if e, found := lookupSurface(args[0]); found && e.Run != nil {
 		return e.Run(args[1:], stdout, stderr), true
 	}

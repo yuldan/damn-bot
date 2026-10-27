@@ -4649,3 +4649,17 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Tes.** `TestConfigVersionMarker` (`internal/config`, EC-CFG-005): (a) file tanpa penanda dan `config_version = 0` diterima sebagai legacy dengan `SchemaVersion`/nilai file yang benar; (b) `2`, `99`, dan `-1` ditolak `ErrVersion`, pesan menyebut nilai file dan rentang `0..1`, dan tidak ada nilai config yang bocor; (c) `config_version = 1` lolos bersama key lain; kontrol negatif memastikan badan yang sama dengan penanda didukung tetap parse (penolakan berasal dari gerbang versi, bukan TOML rusak).
 
 **Konsekuensi.** (+) Config yang lebih baru daripada biner gagal start dengan pesan yang menyebut kedua versi, bukan berjalan dengan default diam-diam. (+) File lama tidak perlu dimigrasikan. (−) File legacy tanpa penanda tidak terdeteksi basi; penanda harus ditulis oleh tooling/owner saat skema berubah.
+## ADR-222 — `damnbot setup completion` F3: hidden `__complete` + static scripts for four shells
+
+**Status:** Accepted 2026-10-27 (F3, slice B5). Menerapkan GAP-OPS-07 (SPEC §22), CLI-067 (FEATURE-PARITY), dan SPEC §10.
+
+**Konteks.** GAP-OPS-07 menuntut completion dinamis dari binary (`damnbot __complete <args>`, hidden) untuk bash/zsh/fish/PowerShell, ditambah script statis yang dipasang sekali oleh installer/`setup completion <shell>` (bukan `eval`), dengan kandidat subcommand/flag/nilai enum. SPEC tidak merinci format byte script; CLI-067 hanya menyebut bash/zsh/fish.
+
+**Keputusan.**
+1. **`__complete` hidden.** `damnbot __complete [words...]` mencetak kandidat satu per baris, deterministik (sort + dedup), exit 0 walau tidak ada kandidat. Kandidat: perintah callable dari registry permukaan, subperintah SPEC §10 (termasuk `config profiles`, `setup auth`, `setup secrets`), dan flag global `--help/--profile/--version`; kata terakhir adalah prefix. Tidak membaca config/data/network dan tidak menulis apa pun. Hidden: tidak masuk `surface()`, tidak muncul di `help`, tidak dihitung sebagai perintah top-level.
+2. **Script statis empat shell.** `setup completion bash|zsh|fish|powershell` mencetak script ke stdout (tidak menulis berkas sistem; pemasangan manual). Script hanya membungkus pemanggilan `damnbot __complete` (bukan salinan kandidat), sehingga tetap dinamis setelah update. Shell lain/argumen hilang → exit 2.
+3. **Tanpa subperintah karangan.** Tabel subcommand adalah kutipan SPEC §10 untuk perintah yang sudah ada; tidak ada alias atau perintah baru di luar tabel.
+
+**Dampak terukur (SPEC §20).** Go non-test ≤600 baris; dependency baru 0; `loc.budget`/config/SPEC/ENGINEERING tidak berubah; completion ada di build minimal (`make size-check` penuh+minimal). Tes: `TestCompletionScripts`, `TestCompleteCandidates`, `TestSetupCompletion`; e2e `TestCompletionScripts` (bash -n + source + `COMPREPLY`, zsh -n bila tersedia lewat `skipOrFail` pada non-Windows, fish/powershell content) dan `TestCompleteCLI` (empty/prefix/no-candidate/config).
+
+**Konsekuensi.** (+) Completion dinamis tanpa drift daftar perintah, empat shell, tanpa efek samping. (−) Nilai enum/model/session/modul belum dikompletkan (GAP-OPS-07 penuh); kandidat saat ini perintah/subperintah/flag global. `zsh` hanya diuji bila tersedia di runner non-Windows.
