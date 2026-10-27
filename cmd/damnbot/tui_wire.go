@@ -84,7 +84,9 @@ func newTUIRunner(d *tuiDeps) *tuiRunner {
 
 func (r *tuiRunner) Now() time.Time { return r.deps.now() }
 
-func (r *tuiRunner) Snapshot() tui.Config { return tui.Config{Model: r.deps.modelRef} }
+func (r *tuiRunner) Snapshot() tui.Config {
+	return tui.Config{Model: r.deps.modelRef, Theme: r.deps.cfg.UI.Theme}
+}
 
 func (r *tuiRunner) Prompt(ctx context.Context, sid string, in tui.Input) (<-chan tui.Update, error) {
 	model, err := r.ensure(ctx)

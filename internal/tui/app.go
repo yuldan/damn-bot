@@ -33,6 +33,8 @@ type keyMap struct {
 	Send       key.Binding
 	Newline    key.Binding
 	NextScreen key.Binding
+	ScrollUp   key.Binding
+	ScrollDown key.Binding
 }
 
 // newKeyMap builds the SPEC §13.1 bindings.
@@ -43,6 +45,8 @@ func newKeyMap() keyMap {
 		Send:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "send")),
 		Newline:    key.NewBinding(key.WithKeys("ctrl+j"), key.WithHelp("ctrl+j", "newline")),
 		NextScreen: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next")),
+		ScrollUp:   key.NewBinding(key.WithKeys("pgup"), key.WithHelp("pgup", "scroll up")),
+		ScrollDown: key.NewBinding(key.WithKeys("pgdown"), key.WithHelp("pgdown", "scroll down")),
 	}
 }
 
@@ -56,10 +60,15 @@ func NewApp(sessionID string, host Host) (*Model, error) {
 	if err := host.validate(); err != nil {
 		return nil, err
 	}
+	theme, ok := ThemeByName(host.Config.Snapshot().Theme)
+	if !ok {
+		theme, _ = ThemeByName(defaultThemeName)
+	}
 	m := &Model{
 		host:      host,
 		keys:      newKeyMap(),
-		styles:    newStyles(),
+		theme:     theme,
+		styles:    newStyles(theme),
 		sessionID: sessionID,
 		input:     newInput(),
 	}

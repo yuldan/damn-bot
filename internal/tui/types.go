@@ -109,4 +109,5 @@ type Input struct {
 // secrets: the host redacts before it reaches the TUI.
 type Config struct {
 	Model string
+	Theme string // [ui] theme (SPEC §12); empty resolves to tern-dark
 }

@@ -46,11 +46,14 @@ func TestTranslateUpdateNoUsage(t *testing.T) {
 func TestTUIRunnerLazyHost(t *testing.T) {
 	t.Parallel()
 	r := newTUIRunner(&tuiDeps{
-		cfg: &config.Config{}, modelRef: "openai/fake",
+		cfg: &config.Config{UI: config.UI{Theme: "mono"}}, modelRef: "openai/fake",
 		opts: &runOptions{}, red: nil,
 	})
 	if got := r.Snapshot().Model; got != "openai/fake" {
 		t.Fatalf("Snapshot model = %q", got)
+	}
+	if got := r.Snapshot().Theme; got != "mono" {
+		t.Fatalf("Snapshot theme = %q, want mono", got)
 	}
 	if got := r.Now(); got.IsZero() {
 		t.Fatalf("Now is zero")

@@ -37,6 +37,7 @@ type promptFailedMsg struct{ err error }
 type Model struct {
 	host      Host
 	keys      keyMap
+	theme     Theme
 	styles    styles
 	sessionID string
 	route     string
@@ -47,6 +48,18 @@ type Model struct {
 	detail    StopDetail
 	width     int
 	height    int
+	// scroll counts transcript blocks hidden below the viewport: 0 pins the
+	// newest block, n-1 pins the first. Virtualisation renders only the window
+	// (SPEC §13.1: ≤ 16 ms/frame at 1.000 blocks).
+	scroll int
+	// usage cost is per turn, updated in place by the loop; the session total
+	// accumulates each settled turn.
+	settledCost  float64
+	settledKnown bool
+	turnSettled  bool
+	// fallback marks that the visible provider fallback (P7) fired this
+	// session; the status bar keeps the badge after the notice block.
+	fallback bool
 	// busy marks a turn between submit and the Runner closing its stream.
 	input  textinput.Model
 	draft  []string // completed lines of the current multi-line prompt
@@ -59,21 +72,16 @@ type Model struct {
 	renderedAt time.Time
 }
 
-// styles are the T0 base styles; the theme track replaces the values, not the
-// call sites.
+// styles are the T0 render styles; the theme track replaces the values, not
+// the call sites (theme.go).
 type styles struct {
 	header lipgloss.Style
 	footer lipgloss.Style
 	hint   lipgloss.Style
-}
-
-// newStyles builds the base styles. It takes no I/O and reads no environment.
-func newStyles() styles {
-	return styles{
-		header: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")),
-		footer: lipgloss.NewStyle().Faint(true),
-		hint:   lipgloss.NewStyle().Faint(true),
-	}
+	status lipgloss.Style
+	user   lipgloss.Style
+	tool   lipgloss.Style
+	notice lipgloss.Style
 }
 
 // Init starts no work: the prompt was focused at assembly (P12).
@@ -116,6 +124,7 @@ func (m *Model) finishTurn() {
 	if m.cancel != nil {
 		m.cancel()
 	}
+	m.settleUsage()
 	m.cancel, m.stream, m.busy = nil, nil, false
 }
 
@@ -174,6 +183,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	case key.Matches(msg, m.keys.NextScreen):
 		m.nextRoute()
 		return nil
+	case key.Matches(msg, m.keys.ScrollUp):
+		m.scrollBy(true)
+		return nil
+	case key.Matches(msg, m.keys.ScrollDown):
+		m.scrollBy(false)
+		return nil
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
@@ -215,6 +230,7 @@ func (m *Model) submit() tea.Cmd {
 	m.draft = nil
 	m.input.SetValue("")
 	m.stop, m.detail = "", ""
+	m.usage, m.turnSettled = Usage{}, false
 	m.busy = true
 	m.appendBlock(&Block{Kind: BlockUser, Text: text, At: m.host.Clock.Now()})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -230,15 +246,18 @@ func (m *Model) submit() tea.Cmd {
 }
 
 // View stamps renderedAt for every update folded in since the last frame.
+// The transcript body is already virtualised by transcript(); clip() is the
+// height invariant for every screen, including panels that render freely.
 func (m *Model) View() tea.View {
 	m.stampFrame()
-	parts := []string{m.header(), m.clip(m.panel.body(m)), m.inputArea(), m.footer()}
+	parts := []string{m.header(), m.clip(m.panel.body(m)), m.statusBar(), m.inputArea(), m.footer()}
 	return tea.NewView(strings.Join(parts, "\n"))
 }
 
-// clip bounds the transcript so the header, input, and footer stay visible.
+// clip bounds the transcript so the header, status bar, input, and footer stay
+// visible.
 func (m *Model) clip(body string) string {
-	reserved := 3 + len(m.draft)
+	reserved := 4 + len(m.draft)
 	if m.height <= reserved {
 		return body
 	}
@@ -274,10 +293,14 @@ func (m *Model) apply(u *Update) {
 	case KindUsage:
 		m.applyUsage(u)
 	case KindNotice:
+		if u.ToolName == "fallback" {
+			m.fallback = true
+		}
 		m.appendBlock(&Block{Kind: BlockNotice, Text: u.Text, At: u.At})
 	case KindStop:
 		m.stop, m.detail = u.Stop, u.Detail
 		m.applyUsage(u)
+		m.settleUsage()
 	default:
 	}
 }
@@ -357,15 +380,35 @@ func (m *Model) toolIndex(id string) int {
 	return -1
 }
 
-// appendBlock appends one block to the transcript.
+// appendBlock appends one block to the transcript. A reader scrolled up keeps
+// the same content in view: the offset grows with the transcript.
 func (m *Model) appendBlock(b *Block) {
+	if m.scroll > 0 {
+		m.scroll++
+	}
 	m.blocks = append(m.blocks, *b)
 }
 
-// applyUsage replaces the turn totals from a usage update.
+// applyUsage replaces the turn totals from a usage update and reopens the
+// current-turn cost window.
 func (m *Model) applyUsage(u *Update) {
 	if u.Usage != nil {
 		m.usage = *u.Usage
+		m.turnSettled = false
+	}
+}
+
+// settleUsage folds the current turn's cost into the session total. It is
+// idempotent per turn: KindStop settles, and finishTurn covers a cancelled or
+// failed stream that never delivered one.
+func (m *Model) settleUsage() {
+	if m.turnSettled {
+		return
+	}
+	m.turnSettled = true
+	if c := m.usage.CostUSD; c != nil {
+		m.settledCost += *c
+		m.settledKnown = true
 	}
 }
 
@@ -404,9 +447,6 @@ func (m *Model) footer() string {
 	if m.busy {
 		parts = append(parts, "running")
 	}
-	if m.usage.Iterations > 0 {
-		parts = append(parts, fmt.Sprintf("iter %d", m.usage.Iterations))
-	}
 	if m.stop != "" {
 		parts = append(parts, string(m.stop))
 		if m.detail != "" {
@@ -418,6 +458,60 @@ func (m *Model) footer() string {
 		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
 	}
 	return line
+}
+
+// statusBar renders the minimal SPEC §13.1 status line: model, iteration,
+// turn/session cost, and the visible-fallback badge (P7). It reports only
+// values the host has actually delivered; a missing provider cost stays "—".
+func (m *Model) statusBar() string {
+	parts := []string{
+		m.host.Config.Snapshot().Model,
+		fmt.Sprintf("iter %d", m.usage.Iterations),
+		m.costSummary(),
+	}
+	if m.fallback {
+		parts = append(parts, "FALLBACK")
+	}
+	line := m.styles.status.Render(strings.Join(parts, " · "))
+	if m.width > 0 {
+		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
+	}
+	return line
+}
+
+// costSummary renders the current turn and the accumulated session cost.
+func (m *Model) costSummary() string {
+	turn, turnOK := m.turnCost()
+	session, sessionOK := m.sessionCost()
+	return fmt.Sprintf("turn %s / session %s", usd(turn, turnOK), usd(session, sessionOK))
+}
+
+// turnCost returns the loop's turn total, if the provider reported one.
+func (m *Model) turnCost() (float64, bool) {
+	if m.usage.CostUSD == nil {
+		return 0, false
+	}
+	return *m.usage.CostUSD, true
+}
+
+// sessionCost adds every settled turn to the live turn total.
+func (m *Model) sessionCost() (float64, bool) {
+	total, ok := m.settledCost, m.settledKnown
+	if !m.turnSettled {
+		if c := m.usage.CostUSD; c != nil {
+			total += *c
+			ok = true
+		}
+	}
+	return total, ok
+}
+
+// usd formats a cost; an unknown cost is an explicit dash, never $0.00.
+func usd(v float64, ok bool) string {
+	if !ok {
+		return "—"
+	}
+	return fmt.Sprintf("$%.2f", v)
 }
 
 // RenderedAt returns the clock stamp of the last frame that carried a stream
@@ -450,31 +544,25 @@ func (chatPanel) body(m *Model) string {
 	if len(m.blocks) == 0 {
 		return m.styles.hint.Render("no messages yet")
 	}
-	var b strings.Builder
-	for i := range m.blocks {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		b.WriteString(renderBlock(&m.blocks[i]))
-	}
-	return b.String()
+	return m.transcript()
 }
 
-// renderBlock formats one block with its loop clock stamp (T1).
-func renderBlock(b *Block) string {
+// renderBlock formats one block with its loop clock stamp (T1). Text stays
+// unstyled; headings and notices take the active theme.
+func (m *Model) renderBlock(b *Block) string {
 	prefix := ""
 	if !b.At.IsZero() {
 		prefix = b.At.Format("15:04:05") + " "
 	}
 	switch b.Kind {
 	case BlockUser:
-		return prefix + "you> " + b.Text
+		return prefix + m.styles.user.Render("you> "+b.Text)
 	case BlockAssistant:
 		return prefix + b.Text
 	case BlockTool:
-		return prefix + renderToolBlock(b)
+		return prefix + m.styles.tool.Render(renderToolBlock(b))
 	case BlockNotice:
-		return prefix + "! " + b.Text
+		return prefix + m.styles.notice.Render("! "+b.Text)
 	default:
 		return prefix + b.Text
 	}
