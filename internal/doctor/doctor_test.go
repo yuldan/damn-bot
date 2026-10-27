@@ -170,6 +170,9 @@ func TestRunFixesMissingDirs(t *testing.T) {
 	if rep.Exit != 3 || rep.Summary.Fixed < 2 {
 		t.Fatalf("exit = %d, fixed = %d, want 3/2\n%+v", rep.Exit, rep.Summary.Fixed, rep)
 	}
+	if runtime.GOOS == "windows" {
+		return // POSIX mode bits are not meaningful here
+	}
 	for _, d := range []string{cfgDir, dataDir} {
 		fi, err := os.Stat(d)
 		if err != nil || fi.Mode().Perm() != 0o700 {
@@ -208,6 +211,12 @@ func TestRunSecretsPermission(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"}
+	if runtime.GOOS == "windows" {
+		if rep := run(t, o); rep.Exit != 0 {
+			t.Fatalf("Windows secret check exit = %d, want 0", rep.Exit)
+		}
+		return
+	}
 	if rep := run(t, o); rep.Exit != 1 {
 		t.Fatalf("wide secret exit = %d, want 1", rep.Exit)
 	}
@@ -223,12 +232,18 @@ func TestRunSecretsPermission(t *testing.T) {
 
 func TestRunFixesDirPermissions(t *testing.T) {
 	cfgDir, dataDir, cfgFile := doctorPaths(t)
+	o := &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"}
+	if runtime.GOOS == "windows" {
+		if rep := run(t, o); rep.Exit != 0 {
+			t.Fatalf("Windows dir check exit = %d, want 0", rep.Exit)
+		}
+		return
+	}
 	for _, d := range []string{cfgDir, dataDir} {
 		if err := os.Chmod(d, 0o755); err != nil { // #nosec G302 -- deliberately wide fixture
 			t.Fatal(err)
 		}
 	}
-	o := &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"}
 	if rep := run(t, o); rep.Exit != 1 {
 		t.Fatalf("wide dirs exit = %d, want 1", rep.Exit)
 	}
