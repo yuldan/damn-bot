@@ -21,16 +21,35 @@ import (
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
-type skillStore struct{ db *ctxdb.Store }
+type skillStore struct {
+	db   *ctxdb.Store
+	host skills.Host // GAP-TOOL-10: unmet requirements never reach retrieval
+}
 
 var _ skills.Store = skillStore{}
 
 func (s skillStore) Index(ctx context.Context, sk *skills.Skill) (int64, error) {
-	return skillstore.Index(ctx, s.db, skillRow(sk), 0) //nolint:wrapcheck // manager.Install adds context
+	row, err := skillRow(sk)
+	if err != nil {
+		return 0, err
+	}
+	id, err := skillstore.Index(ctx, s.db, row, 0)
+	if err != nil {
+		return 0, fmt.Errorf("skillstore index: %w", err)
+	}
+	return id, nil
 }
 
 func (s skillStore) Quarantine(ctx context.Context, sk *skills.Skill, scan string, rejected bool) (int64, int64, error) {
-	return skillstore.Quarantine(ctx, s.db, skillRow(sk), scan, rejected, 0) //nolint:wrapcheck // manager.Install adds context
+	row, err := skillRow(sk)
+	if err != nil {
+		return 0, 0, err
+	}
+	memoryID, skillID, err := skillstore.Quarantine(ctx, s.db, row, scan, rejected, 0)
+	if err != nil {
+		return 0, 0, fmt.Errorf("skillstore quarantine: %w", err)
+	}
+	return memoryID, skillID, nil
 }
 
 func (s skillStore) Approve(ctx context.Context, memoryID int64) error {
@@ -42,9 +61,13 @@ func (s skillStore) Search(ctx context.Context, text string, k int) ([]skills.Sk
 	if err != nil {
 		return nil, fmt.Errorf("skill search: %w", err)
 	}
-	out := make([]skills.Skill, len(rows))
+	out := make([]skills.Skill, 0, len(rows))
 	for i := range rows {
-		out[i] = skillFromRow(&rows[i])
+		sk := skillFromRow(&rows[i])
+		if len(skillReasons(&sk, s.host)) > 0 {
+			continue // GAP-TOOL-10: unmet requirements leave the index/catalog
+		}
+		out = append(out, sk)
 	}
 	return out, nil
 }
@@ -54,18 +77,41 @@ func (s skillStore) Status(ctx context.Context, memoryID int64) (skills.Status, 
 	return skills.Status(st), err
 }
 
-func skillRow(sk *skills.Skill) *skillstore.Row {
+// skillRow maps one parsed skill to its index row, storing the host
+// requirement so read paths never parse SKILL.md again (ADR-208).
+func skillRow(sk *skills.Skill) (*skillstore.Row, error) {
+	requires, err := sk.Host.JSON()
+	if err != nil {
+		return nil, fmt.Errorf("skill row: %w", err)
+	}
 	return &skillstore.Row{
 		ID: sk.ID, Name: sk.Name, Description: sk.Description, Body: sk.Body, Path: sk.Path,
 		SHA256: sk.SHA256, Source: string(sk.Source), MemoryID: sk.MemoryID,
-	}
+		RequiresHost: requires,
+	}, nil
 }
 
 func skillFromRow(r *skillstore.Row) skills.Skill {
-	return skills.Skill{
+	sk := skills.Skill{
 		ID: r.ID, Name: r.Name, Description: r.Description, Body: r.Body, Path: r.Path,
 		SHA256: r.SHA256, Source: skills.Source(r.Source), MemoryID: r.MemoryID,
 	}
+	if host, err := skills.ParseHostRequirementJSON(r.RequiresHost); err != nil {
+		sk.RequirementErr = err
+	} else {
+		sk.Host = host
+	}
+	return sk
+}
+
+// skillReasons is the one evaluation used by every catalog/retrieval surface:
+// a corrupt stored requirement is unmet (fail closed), otherwise the host
+// evaluator decides.
+func skillReasons(sk *skills.Skill, host skills.Host) []skills.Reason {
+	if sk.RequirementErr != nil {
+		return []skills.Reason{{Field: "requires", Detail: "invalid stored requirement"}}
+	}
+	return sk.Unavailable(host)
 }
 
 type skillManager struct {
@@ -73,6 +119,7 @@ type skillManager struct {
 	svc     *skills.Service
 	dir     string
 	userDir string
+	host    skills.Host // GAP-TOOL-10: catalog filtering
 }
 
 var _ tools.SkillManager = (*skillManager)(nil)
@@ -80,7 +127,7 @@ var _ tools.SkillManager = (*skillManager)(nil)
 func newSkillManager(ctx context.Context, db *ctxdb.Store, dataDir, configDir string, red *redact.Redactor) (*skillManager, error) {
 	dir := filepath.Join(dataDir, "skills", "agent")
 	userDir := filepath.Join(configDir, "skills")
-	st := skillStore{db: db}
+	st := skillStore{db: db, host: skillHost()}
 	svc, err := skills.New(st, skills.Config{
 		Redact: func(s string) string { return red.String(s) },
 		Scan: func(sk *skills.Skill) (string, string, error) {
@@ -104,7 +151,7 @@ func newSkillManager(ctx context.Context, db *ctxdb.Store, dataDir, configDir st
 	if err != nil {
 		return nil, fmt.Errorf("skills: %w", err)
 	}
-	m := &skillManager{db: db, svc: svc, dir: dir, userDir: userDir}
+	m := &skillManager{db: db, svc: svc, dir: dir, userDir: userDir, host: skillHost()}
 	m.materializeApproved(ctx)
 	return m, nil
 }
@@ -193,9 +240,13 @@ func (m *skillManager) ListSkills(ctx context.Context, limit int) ([]tools.Skill
 	if err != nil {
 		return nil, fmt.Errorf("skills list: %w", err)
 	}
-	out := make([]tools.SkillInfo, len(rows))
+	out := make([]tools.SkillInfo, 0, len(rows))
 	for i := range rows {
-		out[i] = tools.SkillInfo{Name: rows[i].Name, Description: rows[i].Description}
+		sk := skillFromRow(&rows[i])
+		if len(skillReasons(&sk, m.host)) > 0 {
+			continue // GAP-TOOL-10: unmet requirements never enter the catalog
+		}
+		out = append(out, tools.SkillInfo{Name: sk.Name, Description: sk.Description})
 	}
 	return out, nil
 }

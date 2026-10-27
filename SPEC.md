@@ -1269,6 +1269,7 @@ CREATE TABLE skills (
     source      TEXT    NOT NULL CHECK (source IN ('user','builtin','hub','agent','import')),
     memory_id   INTEGER REFERENCES memory(id),
     indexed_at  INTEGER NOT NULL,
+    requires_host TEXT  NOT NULL DEFAULT '',   -- JSON `requires {bins,os,arch,gpu}` (GAP-TOOL-10, ADR-208); '' = tidak ada requirement
     UNIQUE (name, sha256)
 ) STRICT;
 CREATE INDEX idx_skills_memory ON skills(memory_id) WHERE memory_id IS NOT NULL;  -- indeks anak FK (ADR-040, `TestFKChildIndexes`)

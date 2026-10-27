@@ -66,7 +66,7 @@ ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore
 ctxdb/memstore     600 internal/ctxdb/memstore
 # ADR-173: skillstore exact lookup + atomic update/quarantine restore; 400 -> 460 (terukur 438; Σ core +60).
 # Amandemen jendela crypto (ADR-124): ctxdb/skillstore -> 466 (terukur pada pohon langkah ini).
-ctxdb/skillstore   466 internal/ctxdb/skillstore
+ctxdb/skillstore   472 internal/ctxdb/skillstore
 ctxdb/journalstore 400 internal/ctxdb/journalstore
 ctxdb/limitstore   100 internal/ctxdb/limitstore
 # ADR-131 (PROV-01): carrier reasoning opaque + rejections + size caps (ADR-074; terukur 263; Σ core +300; SEC8-6).
@@ -95,7 +95,11 @@ compaction         900 internal/compaction
 # ADR-207 (GAP-TOOL-10): schema `requires: {bins,os,arch,gpu}` + evaluator host di
 # internal/skills/requires.go; memory+skills 1830 -> 2119 = angka ukur scc pada pohon
 # ter-commit, tanpa headroom. Tidak ada baris turun: Σ core 46.414 -> 46.703.
-memory+skills     2119 internal/memory internal/skills
+# ADR-208 (GAP-TOOL-10): evaluasi requirement host di jalur baca + JSON helper
+# di internal/skills; memory+skills 2119 -> 2143 dan ctxdb/skillstore 466 -> 472
+# (keduanya = angka ukur scc pada pohon ter-commit, tanpa headroom).
+# Tidak ada baris turun: Σ core 46.703 -> 46.733.
+memory+skills     2143 internal/memory internal/skills
 # ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).
 # ADR-117 amendment (REVIEW-F2-SEC5-15): journal 560 -> 565 (preview undo lewat OpenResolved;
 # terukur 562; Σ core 38.150 -> 38.155 <= 47.000).
