@@ -31,6 +31,7 @@ import (
 
 type undoOptions struct {
 	configPath, dataDir, session string
+	turn                         string // --turn: every action of one turn
 	dryRun, force, list          bool
 	count                        int   // undo N: newest N actions (default 1)
 	action                       int64 // undo a<id>: one action; 0 = newest count
@@ -55,6 +56,7 @@ func parseUndoFlags(args []string, stderr io.Writer) (undoOptions, error) {
 	fs.BoolVar(&o.dryRun, "dry-run", false, "show what would be restored, with diffs; change nothing")
 	fs.BoolVar(&o.force, "force", false, "overwrite files changed since the action")
 	fs.StringVar(&o.session, "session", "", "session id (default: newest session with actions in this directory)")
+	fs.StringVar(&o.turn, "turn", "", "undo every action of one turn (turn id)")
 	fs.StringVar(&o.configPath, "config", "", "config.toml path (default: profile path)")
 	fs.StringVar(&o.dataDir, "data-dir", "", "data directory (default: SPEC §11)")
 	pos, err := parseInterleaved(fs, args)
@@ -64,6 +66,8 @@ func parseUndoFlags(args []string, stderr io.Writer) (undoOptions, error) {
 	switch {
 	case len(pos) > 1:
 		return undoOptions{}, fmt.Errorf("one target expected, got %q", pos)
+	case o.turn != "" && len(pos) > 0:
+		return undoOptions{}, fmt.Errorf("--turn takes no positional target (got %q)", pos[0])
 	case len(pos) == 0:
 	case pos[0] == "ls":
 		o.list = true
@@ -115,9 +119,12 @@ func undoMain(ctx context.Context, o *undoOptions, stdout io.Writer) (code int, 
 // explicit a<id> must belong to that session: a global id never authorizes
 // an undo in another session or directory (REVIEW-F2-SEC5-2).
 func undoTargets(ctx context.Context, db *ctxdb.Store, store *journalstore.Store, o *undoOptions) ([]journal.Action, string, error) {
-	sid, err := undoSession(ctx, db, o.session)
+	sid, err := undoSession(ctx, db, store, o.session, o.turn)
 	if err != nil {
 		return nil, "", err
+	}
+	if o.turn != "" {
+		return undoActionsOfTurn(ctx, store, sid, o.turn)
 	}
 	if o.action != 0 {
 		a, gerr := store.Get(ctx, o.action)
@@ -140,9 +147,51 @@ func undoTargets(ctx context.Context, db *ctxdb.Store, store *journalstore.Store
 	return acts, sid, nil
 }
 
-func undoSession(ctx context.Context, db *ctxdb.Store, session string) (string, error) {
+// undoActionsOfTurn keeps the actions of one turn, newest first. A turn with
+// no journaled action is an error, never a silent success (`rollback --turn`
+// in the pre-OPS-08 text; SPEC §10 keeps the form).
+func undoActionsOfTurn(ctx context.Context, store *journalstore.Store, sid, turn string) ([]journal.Action, string, error) {
+	acts, err := store.List(ctx, sid, 0)
+	if errors.Is(err, ctxdb.ErrNotFound) {
+		return nil, sid, fmt.Errorf("session %s not found (turn %s); pass --session with the owning session", cleanArg(sid), cleanArg(turn))
+	}
+	if err != nil {
+		return nil, sid, fmt.Errorf("list actions: %w", err)
+	}
+	var out []journal.Action
+	for i := range acts {
+		if acts[i].TurnID == turn {
+			out = append(out, acts[i])
+		}
+	}
+	if len(out) == 0 {
+		return nil, sid, fmt.Errorf("turn %s has no journaled actions in session %s", cleanArg(turn), cleanArg(sid))
+	}
+	return out, sid, nil
+}
+
+func undoSession(ctx context.Context, db *ctxdb.Store, store *journalstore.Store, session, turn string) (string, error) {
 	if session != "" {
+		if turn != "" {
+			// An explicit session must own the turn: resolve before the
+			// lease so a mismatch never touches another session's lease.
+			if _, _, terr := undoActionsOfTurn(ctx, store, session, turn); terr != nil {
+				return "", terr
+			}
+		}
 		return session, nil
+	}
+	if turn != "" {
+		const q = `SELECT session_id FROM actions WHERE turn_id = ? ORDER BY id DESC LIMIT 1`
+		var sid string
+		err := db.Write(ctx, func(tx *ctxdb.Tx) error { return tx.Get(q, []any{turn}, &sid) })
+		if errors.Is(err, ctxdb.ErrNotFound) {
+			return "", fmt.Errorf("no journaled actions for turn %s; pass --session", cleanArg(turn))
+		}
+		if err != nil {
+			return "", fmt.Errorf("find turn: %w", err)
+		}
+		return sid, nil
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -193,7 +242,7 @@ func undoSandbox(env *cliEnv, acts []journal.Action) (*sandbox.Sandbox, error) {
 // after the check cannot join the batch (SEC5-14). It reports every
 // result, including files restored before a recording failure.
 func undoApply(ctx context.Context, env *cliEnv, store *journalstore.Store, o *undoOptions, w io.Writer) (code int, err error) {
-	sid, err := undoSession(ctx, env.db, o.session)
+	sid, err := undoSession(ctx, env.db, store, o.session, o.turn)
 	if err != nil {
 		return 1, err
 	}
