@@ -24,8 +24,8 @@ func (m *Model) runSlash(cmd slashCommand) tea.Cmd {
 		}
 		m.appendNotice("plan mode " + state + " for the next turn")
 	case slashUnknown:
-		m.appendNotice("unknown command " + cmd.name + "; available: /new /fork /rewind /undo /plan /theme /model /budget /modules /context /reload /compact /export /diff /btw /init /review")
-	case slashTheme, slashModel, slashBudget, slashModules, slashContext, slashReload:
+		m.appendNotice("unknown command " + cmd.name + "; available: /new /fork /rewind /undo /plan /theme /model /budget /modules /context /reload /compact /export /diff /btw /init /review /queue /steer /busy")
+	case slashTheme, slashModel, slashBudget, slashModules, slashContext, slashReload, slashQueue, slashSteer, slashBusy:
 		return m.configSlash(cmd)
 	case slashCompact, slashDiff, slashExport, slashInit, slashBtw, slashReview:
 		return m.actionSlash(cmd)
@@ -66,6 +66,15 @@ func (m *Model) configSlash(cmd slashCommand) tea.Cmd {
 			return nil
 		}
 		return m.reloadCmd()
+	}
+	if cmd.kind == slashQueue {
+		return m.cmdQueue(cmd.args)
+	}
+	if cmd.kind == slashSteer {
+		return m.cmdSteer(cmd.args)
+	}
+	if cmd.kind == slashBusy {
+		return m.cmdBusy(cmd.args)
 	}
 	return nil
 }
@@ -318,7 +327,8 @@ func (m *Model) sessionSlash(cmd slashCommand) tea.Cmd {
 	case slashUndo:
 		return m.undoCmd("")
 	case slashPlan, slashUnknown, slashTheme, slashModel, slashBudget, slashModules, slashContext,
-		slashReload, slashCompact, slashExport, slashDiff, slashBtw, slashInit, slashReview:
+		slashReload, slashCompact, slashExport, slashDiff, slashBtw, slashInit, slashReview,
+		slashQueue, slashSteer, slashBusy:
 		return nil
 	}
 	return nil

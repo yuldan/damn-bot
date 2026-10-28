@@ -108,6 +108,7 @@ func NewApp(sessionID string, host *Host) (*Model, error) {
 		styles:         newStyles(&theme, snapshot.NoColor),
 		sessionID:      sessionID,
 		tabs:           []SessionInfo{{ID: sessionID}},
+		busyPolicy:     "queue",
 		resizeDebounce: 16 * time.Millisecond,
 		input:          newInput(),
 	}

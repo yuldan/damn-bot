@@ -41,6 +41,13 @@ func goldenModel(t *testing.T, state string) *Model {
 			Spill: "/data/blobs/3f/aa", SpillSize: 18200, ActionID: 12, Text: "ok", At: at,
 		})
 	}
+	if state == "queue" {
+		at := clk.Now()
+		m.appendBlock(&Block{Kind: BlockUser, Text: "start the turn", At: at})
+		m.appendBlock(&Block{Kind: BlockAssistant, Text: "working on it", At: at})
+		m.busy = true
+		m.queue = []string{"follow up", "run tests"}
+	}
 	if state == "approval_modal" {
 		m.Update(ApprovalMsg{
 			Request: ApprovalRequest{
@@ -53,11 +60,11 @@ func goldenModel(t *testing.T, state string) *Model {
 	return m
 }
 
-// TestR7GoldenViews compares three canonical snapshots byte-for-byte. Golden
+// TestR7GoldenViews compares the canonical snapshots byte-for-byte. Golden
 // files are only written with UPDATE_GOLDEN=1; a failing test never rewrites.
 func TestR7GoldenViews(t *testing.T) {
 	t.Parallel()
-	for _, state := range []string{"empty_chat", "tool_spill", "approval_modal"} {
+	for _, state := range []string{"empty_chat", "tool_spill", "approval_modal", "queue"} {
 		t.Run(state, func(t *testing.T) {
 			t.Parallel()
 			got := canonicalView(goldenModel(t, state).View().Content)

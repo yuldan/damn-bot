@@ -25,6 +25,9 @@ const (
 	slashBtw
 	slashInit
 	slashReview
+	slashQueue
+	slashSteer
+	slashBusy
 )
 
 // slashCommand is one parsed single-line slash invocation.
@@ -59,6 +62,9 @@ func slashCatalog() []slashItem {
 		{"/btw", "side question (refused)", slashBtw},
 		{"/init", "write AGENTS.md template", slashInit},
 		{"/review", "pending review queue", slashReview},
+		{"/queue", "queue prompt/list/edit/rm/move/clear", slashQueue},
+		{"/steer", "inject mid-turn (refused: no seam)", slashSteer},
+		{"/busy", "busy input mode (queue)", slashBusy},
 	}
 }
 
