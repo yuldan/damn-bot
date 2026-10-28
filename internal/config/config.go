@@ -47,6 +47,15 @@ type Config struct {
 	// pre-toolset behaviour: every registered tool is exposed.
 	Toolsets toolset.Config `toml:"toolsets"`
 	Update   update.Config  `toml:"update"`
+	ACP      ACP            `toml:"acp"`
+}
+
+// ACP is SPEC §12 [acp]: client-side capability use (GAP-UX-01).
+type ACP struct {
+	// UseClientFS lets file tools read the ACP client's editor buffer and
+	// write through it (default true). False keeps every file tool local
+	// and records no acp_fs_fallback event.
+	UseClientFS bool `toml:"use_client_fs"`
 }
 
 // Skills is SPEC §4.8/§12 [skills]: the local skill sources (SKILL-009/010,
@@ -325,7 +334,7 @@ func Default() Config {
 			Users:            map[string]GatewayUser{},
 		},
 		Providers: Providers{Custom: []CustomProvider{}},
-		Update:    update.DefaultConfig(),
+		Update:    update.DefaultConfig(), ACP: ACP{UseClientFS: true},
 		Log: Log{
 			Level:             "info",
 			MessageContent:    false,

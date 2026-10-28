@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/damnbot/damnbot/internal/assemble"
 	"github.com/damnbot/damnbot/internal/codetools"
@@ -16,6 +17,7 @@ import (
 	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
+	loopevent "github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/sandbox"
@@ -286,6 +288,30 @@ func openWiredSession(ctx context.Context, dataDir, modelRef, cfgSHA string, o *
 	return db, sid, cwd, modelRef, nil
 }
 
+// fallbackRecorder records one acp_fs_fallback event per capability per
+// session (GAP-UX-01); a failed append is returned so the fallback is never
+// silent.
+func fallbackRecorder(db *ctxdb.Store, sid string) func(context.Context, bool) error {
+	var mu sync.Mutex
+	done := map[bool]bool{}
+	return func(ctx context.Context, write bool) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if done[write] {
+			return nil
+		}
+		capability := "read"
+		if write {
+			capability = "write"
+		}
+		if _, err := db.Append(ctx, sid, nil, ctxdb.Event{Kind: string(loopevent.ACPFallback), Content: `{"capability":"` + capability + `"}`}); err != nil {
+			return fmt.Errorf("acp_fs_fallback: %w", err)
+		}
+		done[write] = true
+		return nil
+	}
+}
+
 // newRunWiring opens the run store, the sandbox and codetools engine, the exec
 // runner and its persistent sessions, then wires the shell, file, and skill
 // tools into a registry. Failures after the sessions exist go through the
@@ -309,7 +335,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if err != nil {
 		return nil, closeDB(ctx, db, sid, err)
 	}
-	engine, err := codetools.New(&codetools.Config{Sandbox: sb, Roots: roots, Home: home})
+	engine, err := codetools.New(&codetools.Config{Sandbox: sb, Roots: roots, Home: home, ClientFS: o.clientFS, OnClientFallback: fallbackRecorder(db, sid)})
 	if err != nil {
 		return nil, closeDB(ctx, db, sid, fmt.Errorf("codetools: %w", err))
 	}

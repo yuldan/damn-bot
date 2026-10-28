@@ -62,6 +62,7 @@ type runOptions struct {
 	// budget-gated), a per-run config override, and a memory retriever
 	// factory fed the run's ctxdb for the context tier (SPEC §4.8/§18.5).
 	prov         loop.Provider
+	clientFS     codetools.ClientFS // ACP client buffer seam (GAP-UX-01)
 	cfgOverride  *config.Config
 	retrieverFor func(*ctxdb.Store) assemble.Retriever
 	// surface seams: the TUI opens its session lazily with a pre-generated id
@@ -535,6 +536,9 @@ func providerEndpoint(ref string, o *runOptions) (base, key, family string, err 
 		return "", "", "", fmt.Errorf("model %q is not provider/model", ref)
 	}
 	base = o.baseURL
+	if base == "" {
+		base = e2eProviderBase()
+	}
 	if base == "" {
 		switch prov {
 		case "openai":

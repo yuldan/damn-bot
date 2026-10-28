@@ -97,6 +97,9 @@ type Opts struct {
 	// (SPEC §4.3 langkah 8, §18.1); an error aborts the write with the
 	// target untouched.
 	Journal func(ctx context.Context, c *Commit) error
+	// local forces one call to the disk when the client lacks the
+	// capability for this direction (GAP-UX-01).
+	local bool
 }
 
 // Commit is one file replacement about to happen. Before is the current
@@ -137,6 +140,12 @@ type Config struct {
 	// aborts the write with the file untouched. The dispatch pipeline
 	// stores it in file_snapshots (SPEC §4.3 langkah 9).
 	Snapshot func(ctx context.Context, resolved string, old *os.File) error
+	// ClientFS serves file bytes from the ACP client buffer (GAP-UX-01);
+	// nil keeps every file tool local.
+	ClientFS ClientFS
+	// OnClientFallback reports a local fallback per capability; the caller
+	// records acp_fs_fallback and dedupes per session.
+	OnClientFallback func(ctx context.Context, write bool) error
 }
 
 // Engine runs the file tools of one session. Close releases its caches and
@@ -149,6 +158,8 @@ type Engine struct {
 	home     string
 	xdg      string
 	snapshot func(ctx context.Context, resolved string, old *os.File) error
+	client   ClientFS
+	fallback func(ctx context.Context, write bool) error
 	// hook is a test seam called at named commit points; an error aborts
 	// the write there (failure injection, CT-25 kill points).
 	hook func(point string) error
@@ -166,7 +177,7 @@ func New(cfg *Config) (*Engine, error) {
 	if cfg == nil || cfg.Sandbox == nil || len(cfg.Roots) == 0 {
 		return nil, errors.New("codetools: sandbox and roots required")
 	}
-	e := &Engine{sb: cfg.Sandbox, newEOL: "\n", fold: runtime.GOOS == "windows", snapshot: cfg.Snapshot, building: map[fileKey]bool{}, locks: map[string]*pathMu{}}
+	e := &Engine{sb: cfg.Sandbox, newEOL: "\n", fold: runtime.GOOS == "windows", snapshot: cfg.Snapshot, client: cfg.ClientFS, fallback: cfg.OnClientFallback, building: map[fileKey]bool{}, locks: map[string]*pathMu{}}
 	if cfg.NewEOL == "crlf" {
 		e.newEOL = "\r\n"
 	}
@@ -273,9 +284,12 @@ func hasPrefixPath(p, root string, fold bool) bool {
 // target is an opened tool path.
 type target struct {
 	f        *os.File
+	tmp      string // client-buffer temp to remove on close
 	resolved string
 	rel      string
 	outside  bool // opened after an approved non-Inside verdict
+	client   ClientFS
+	bufSum   [32]byte // client buffer digest when opened
 	journal  func(ctx context.Context, c *Commit) error
 }
 
@@ -293,6 +307,9 @@ func approval(v sandbox.Verdict, p string, approved bool) error {
 // is denied_path.
 func (e *Engine) open(ctx context.Context, p string, flag int, perm fs.FileMode, o Opts) (*target, error) {
 	abs := e.abs(p)
+	if e.client != nil && !o.local {
+		return e.openClient(ctx, p, abs, flag, o)
+	}
 	f, v, err := e.openPath(ctx, abs, p, flag, perm, o.Approved)
 	if err != nil {
 		return nil, err
@@ -360,6 +377,12 @@ func (t *target) close(err *error) {
 	if t.f != nil {
 		closeInto(err, t.f)
 		t.f = nil
+	}
+	if t.tmp != "" {
+		if rerr := os.Remove(t.tmp); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) && err != nil {
+			*err = errors.Join(*err, fmt.Errorf("codetools: remove client temp: %w", rerr))
+		}
+		t.tmp = ""
 	}
 }
 

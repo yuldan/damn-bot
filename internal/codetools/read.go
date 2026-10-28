@@ -50,11 +50,15 @@ func (e *Engine) Read(ctx context.Context, a ReadArgs, o Opts) (res Result, err 
 	case limit == 0:
 		limit = readDefaultLimit
 	}
+	o.local, err = e.sourceLocal(ctx, false)
+	if err != nil {
+		return res, err
+	}
 	t, err := e.open(ctx, a.Path, os.O_RDONLY, 0, o)
 	if err != nil {
 		return res, err
 	}
-	defer closeInto(&err, t.f)
+	defer t.close(&err)
 	fi, err := t.f.Stat()
 	if err != nil {
 		return res, &ToolError{Code: CodeInternal, Message: "stat " + a.Path, Err: err}

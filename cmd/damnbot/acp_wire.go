@@ -63,11 +63,20 @@ type acpServer struct {
 	mu       sync.Mutex
 	wg       sync.WaitGroup
 	sessions map[string]*acpSession
-	pending  map[string]chan json.RawMessage
+	pending  map[string]chan acpReply
 	permSeq  int
+	reqSeq   int
 	nextID   func() (string, error)
 	factory  func(string, *tuiDeps) acpRunner
 	history  acpHistory
+	// fsRead/fsWrite are clientCapabilities.fs from initialize (GAP-UX-01).
+	fsRead, fsWrite bool
+}
+
+// acpReply is one client response frame: exactly one of Result and Error.
+type acpReply struct {
+	Result json.RawMessage `json:"result"`
+	Error  json.RawMessage `json:"error"`
 }
 
 const acpProtocolVersion = 1
@@ -94,7 +103,7 @@ func (s *streamWriter) WriteFrame(_ context.Context, frame []byte) error {
 func newACPServer(cfg *config.Config, deps *tuiDeps, writer frameWriter, nextID func() (string, error), factory func(string, *tuiDeps) acpRunner) *acpServer {
 	return &acpServer{
 		cfg: cfg, deps: *deps, writer: writer,
-		sessions: map[string]*acpSession{}, pending: map[string]chan json.RawMessage{}, nextID: nextID, factory: factory,
+		sessions: map[string]*acpSession{}, pending: map[string]chan acpReply{}, nextID: nextID, factory: factory,
 	}
 }
 
@@ -110,13 +119,21 @@ func runACP(args []string, _ io.Writer, stderr io.Writer) int {
 		return 1
 	}
 	deps := tuiDeps{cfg: &cfg, dataDir: dataDir, configDir: configDir, home: home, opts: o, red: redact.New(redact.Options{}), modelRef: cfg.Provider.Model}
-	srv := newACPServer(&cfg, &deps, &streamWriter{w: os.Stdout}, newSessionID, func(sid string, d *tuiDeps) acpRunner {
+	srv := newACPServer(&cfg, &deps, &streamWriter{w: os.Stdout}, newSessionID, nil)
+	srv.factory = func(sid string, d *tuiDeps) acpRunner {
 		opts := *d.opts
 		opts.newSessionID = sid
+		if d.cfg.ACP.UseClientFS {
+			read, write := srv.clientFS()
+			opts.clientFS = &acp.ClientFS{SessionID: sid, Read: read, Write: write, Requester: srv}
+		}
+		if d.bridge != nil {
+			opts.approver, opts.toolApprover = loopApprover{d.bridge}, toolsApprover{d.bridge}
+		}
 		dd := *d
 		dd.opts = &opts
 		return newTUIRunner(&dd)
-	})
+	}
 	srv.history = &ctxHistoryStore{cfg: &cfg, dataDir: dataDir, configDir: configDir}
 	if f, ok := any(os.Stdout).(*os.File); ok {
 		srv.writer = acp.FileWriter{F: f}
@@ -193,7 +210,13 @@ func (s *acpServer) dispatch(ctx context.Context, req *acp.Request) {
 	switch req.Method {
 	case "initialize":
 		var p struct {
-			ProtocolVersion int `json:"protocolVersion"`
+			ProtocolVersion    int `json:"protocolVersion"`
+			ClientCapabilities struct {
+				Fs struct {
+					ReadTextFile  bool `json:"readTextFile"`
+					WriteTextFile bool `json:"writeTextFile"`
+				} `json:"fs"`
+			} `json:"clientCapabilities"`
 		}
 		if len(req.Params) > 0 {
 			if err := json.Unmarshal(req.Params, &p); err != nil {
@@ -205,6 +228,9 @@ func (s *acpServer) dispatch(ctx context.Context, req *acp.Request) {
 		if p.ProtocolVersion == proto {
 			proto = p.ProtocolVersion
 		}
+		s.mu.Lock()
+		s.fsRead, s.fsWrite = p.ClientCapabilities.Fs.ReadTextFile, p.ClientCapabilities.Fs.WriteTextFile
+		s.mu.Unlock()
 		s.respond(ctx, req.ID, map[string]any{
 			"protocolVersion":   proto,
 			"agentInfo":         map[string]any{"name": "damnbot", "version": version},
@@ -312,9 +338,11 @@ func (s *acpServer) newSession(ctx context.Context, req *acp.Request) {
 		s.writeError(ctx, req.ID, acp.ErrInternal)
 		return
 	}
-	runner := s.factory(id, &s.deps)
 	bridge := &approvalBridge{}
 	s.wireBridge(ctx, bridge, id)
+	deps := s.deps
+	deps.bridge = bridge
+	runner := s.factory(id, &deps)
 	s.mu.Lock()
 	s.sessions[id] = &acpSession{proto: proto, runner: runner, model: s.deps.modelRef}
 	s.mu.Unlock()
@@ -595,7 +623,7 @@ func (s *acpServer) askPermission(ctx context.Context, sid string, r *tui.Approv
 		return tui.ApprovalDeny
 	}
 	id := fmt.Sprintf("perm-%d", s.bumpPerm())
-	ch := make(chan json.RawMessage, 1)
+	ch := make(chan acpReply, 1)
 	s.mu.Lock()
 	s.pending[id] = ch
 	s.mu.Unlock()
@@ -614,8 +642,11 @@ func (s *acpServer) askPermission(ctx context.Context, sid string, r *tui.Approv
 	tctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 	select {
-	case raw := <-ch:
-		ans, err := acp.DecodePermissionResult(raw)
+	case reply := <-ch:
+		if len(reply.Error) > 0 {
+			return tui.ApprovalDeny
+		}
+		ans, err := acp.DecodePermissionResult(reply.Result)
 		if err != nil {
 			return tui.ApprovalDeny
 		}
@@ -634,6 +665,60 @@ func (s *acpServer) askPermission(ctx context.Context, sid string, r *tui.Approv
 	}
 }
 
+// clientFS reports the client filesystem capabilities from initialize.
+func (s *acpServer) clientFS() (read, write bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fsRead, s.fsWrite
+}
+
+// Request sends one agent→client JSON-RPC request and decodes the result
+// (GAP-UX-01). Client errors come back as *acp.RemoteError.
+func (s *acpServer) Request(ctx context.Context, method string, params, result any) error {
+	id := fmt.Sprintf("req-%d", s.bumpReq())
+	ch := make(chan acpReply, 1)
+	s.mu.Lock()
+	s.pending[id] = ch
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.pending, id)
+		s.mu.Unlock()
+	}()
+	if err := s.write(ctx, map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
+		return err
+	}
+	select {
+	case reply := <-ch:
+		if len(reply.Error) > 0 {
+			var re acp.RemoteError
+			if err := json.Unmarshal(reply.Error, &re); err != nil {
+				return acp.ErrInternal
+			}
+			return &re
+		}
+		if result == nil {
+			return nil
+		}
+		if len(reply.Result) == 0 {
+			return acp.ErrInternal
+		}
+		if err := json.Unmarshal(reply.Result, result); err != nil {
+			return fmt.Errorf("acp: client result: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("acp: client request: %w", ctx.Err())
+	}
+}
+
+func (s *acpServer) bumpReq() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reqSeq++
+	return s.reqSeq
+}
+
 func (s *acpServer) bumpPerm() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -643,8 +728,8 @@ func (s *acpServer) bumpPerm() int {
 
 func (s *acpServer) routeResponse(frame []byte) bool {
 	var r struct {
-		ID     json.RawMessage `json:"id"`
-		Result json.RawMessage `json:"result"`
+		ID json.RawMessage `json:"id"`
+		acpReply
 	}
 	if json.Unmarshal(frame, &r) != nil || len(r.ID) == 0 {
 		return false
@@ -659,7 +744,7 @@ func (s *acpServer) routeResponse(frame []byte) bool {
 	if ch == nil {
 		return false
 	}
-	ch <- r.Result
+	ch <- r.acpReply
 	return true
 }
 
