@@ -35,6 +35,8 @@ toolset            400 internal/toolset
 # ADR-133 SEC10-30/35: exec/classify 1830 -> 1841 (cd bare per dialek; terukur 1841; Σ core +11).
 # ADR-211 (SEC10-36): plafon core 47.000 -> 47.200 (Σ core 46.998 -> 47.009; terukur 1.841;
 # headroom 191; SPEC P21 + ENGINEERING §2.4 + maxCoreLOC).
+# ADR-225: plafon core 47.200 -> 47.400 untuk penutupan F3 (Σ core 47.199 setelah ADR-223;
+# headroom 201). Tidak ada baris paket yang berubah; TOTAL 190.000 tetap.
 # ADR-212 (SEC15-2/5/6/7): exec/classify 1841 -> 1908 (klasifikasi perawatan destruktif damnbot + argv0/8.3;
 # terukur 1908 pada basis #265-saja; angka gabungan final ada di ADR-213).
 # ADR-213 (SEC15-11/12): token grup non-literal -> Unknown + verb+--yes; angka gabungan dengan

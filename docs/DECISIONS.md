@@ -4703,3 +4703,21 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Dampak terukur (SPEC §20).** 0 baris Go, 0 dependency, 0 byte binary, 0 token prompt; hanya dokumen. `internal/archtest`, `make loc` (0 `GAGAL`), dan `pr-meta` (size 0 baris Go) tidak berubah karena ledger. Tidak ada perubahan `PHASE`, `loc.budget`, SPEC, ENGINEERING, atau FEATURE-PARITY.
 
 **Konsekuensi.** (+) Gate F3 punya satu sumber status yang memisahkan tes yang dijalankan dari klaim dokumen, dan keputusan F4 tidak dapat dibuat dari daftar PR. (+) Baris `TERBUKA` mencantumkan sisa kerja/fase, bukan "nanti". (−) F3 tetap belum certifiable; ledger harus disegarkan saat PR F3 yang tersisa mendarat. (−) Dua temuan dokumen (ADR-194, SCORECARD) tetap terbuka sampai pemiliknya memperbaiki.
+
+## ADR-225 — Plafon core 47.200 → 47.400 untuk penutupan F3
+
+**Status:** Accepted 2026-10-27 (keputusan direktur; penutupan F3). Dokumen + gerbang anggaran saja; tidak ada kode fitur.
+
+**Konteks.** ADR-223 (B6, `setup secrets` keyring-only) menaikkan baris `secret` 1.168 → **1.245** (terukur `scc`), sehingga Σ core `loc.budget` menjadi **47.199/47.200** — sisa **1 baris**. ADR-221 (EC-CFG-005) sudah mendarat lebih dulu dengan `config` 1.200 → **1.208** (terukur, +8) dan Σ 47.122; EC-CFG-004 (seam netx) terukur 1.537/1.800 dan tidak meminta baris baru, sedangkan EC-CFG-002/007 hanya menyentuh `cmd/damnbot` (tanpa baris core). Pekerjaan penutupan F3 tetap butuh ruang untuk baris core yang tersisa dan test-nya; plafon 47.200 tidak memberi ruang itu.
+
+**Keputusan.**
+1. **Plafon core 47.200 → 47.400.** Σ core saat ini tetap **47.199** (tidak ada baris paket yang dinaikkan/diturunkan oleh ADR ini); headroom menjadi **201**.
+2. **Semua lokasi cap diselaraskan**: `SPEC.md` P21, `docs/ENGINEERING.md` §2.4 (paragraf gabungan + sel `Total core` + prosa), komentar `loc.budget`, `internal/archtest/repometa_test.go` (`maxCoreLOC`), regex/komentar `internal/archtest/budget_doc_test.go`, dan ekspektasi `scripts/ci-meta-test.sh` (`> 47200` → `> 47400`). `TOTAL 190000` tidak berubah.
+3. **Tidak ada baris yang turun.** `config` tetap 1.208, `secret` 1.245, dan baris lain tidak disentuh; kenaikan plafon bukan alasan menambah baris tanpa ADR terukur.
+4. **Ukuran tetap pagar.** Setiap kenaikan baris berikutnya wajib angka `scc` pada pohon ter-commit dan tetap ≤ 47.400; `TestBudgetTableSum` + `TestEngineeringTotalCoreMatchesLocBudget` + `make loc` menegakkannya.
+
+**Dampak terukur (SPEC §20).** `config` 1.208 (scc), `secret` 1.245 (scc), Σ core **47.199** (`budgetCoreSum`), cap **47.400**, headroom **201**; `TOTAL 190000` tetap; dependency 0 baru; tidak ada perubahan `PHASE`/kode fitur.
+
+**Tes/gate.** `TestBudgetTableSum` (Σ ≤ `maxCoreLOC`), `TestEngineeringTotalCoreMatchesLocBudget` (baris `Total core` = prosa = Σ `loc.budget`), `make loc` (0 `GAGAL`), `scripts/ci-meta-test.sh` (pola `arch-budgetsum`).
+
+**Konsekuensi.** (+) Penutupan F3 punya 201 baris ruang tanpa menaikkan `TOTAL`; angka cap tetap satu sumber di lima lokasi. (−) Plafon gabungan SPEC §3.2.4 naik 200 baris; kenaikan berikutnya butuh ADR terukur lagi.
