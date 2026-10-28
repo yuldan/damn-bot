@@ -4749,3 +4749,27 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 4. **Konsekuensi gate.** F4 tetap tidak boleh dinaikkan sampai 16 baris F3 di atas ditutup atau di-re-fase lewat ADR, baseline hermes F3/error informatif diratifikasi, dan smoke `tern` terdokumentasi. EC-CFG-001..007 yang sudah `covered` dan EC-CFG-008 yang di-re-fase ke F5 (ADR-226) hanya menutup gate katalog EC, bukan seluruh acceptance F3.
 
 **Konsekuensi.** (+) Ledger tidak memindahkan baris F3 yang masih punya pekerjaan hanya agar terlihat hijau. (+) Fase otoritatif tiap baris tercatat di ledger. (−) F4 tetap tertahan oleh 16 GAP F3, baseline dua sisi, smoke `tern`, dan profiles export/import.
+
+## ADR-228 — Permukaan jujur `config modules`/`config hooks`; `profiles export|import` ditunda ke F9
+
+**Status:** Accepted 2026-10-28 (F3). Implementasi permukaan `cmd/damnbot` + ADR; tidak ada baris katalog `LULUS` yang naik/turun, `loc.budget`, `PHASE`, atau dependency yang berubah.
+
+**Konteks.** ADR-227 butir 1 mencatat tiga sisa F3 GAP-OPS-01: `config modules`, `config hooks`, dan `profiles export|import`. Tidak satu pun punya engine di `main`.
+
+- **`config modules`** — registry produksi kosong: tidak ada `modules.Register` di kode non-test, dan `cmd/damnbot/modules_wire.go` hanya membaca `modules.Default()`. Section `modules.*`/`obs.*`/`cron.*` memang ditolak `ErrModuleUnavailable` (`internal/config/load.go:121-124`; ADR-197 butir 4, `docs/DECISIONS.md:4196`).
+- **`config hooks`** — paket `internal/hooks` belum ada; SPEC hanya menormatifkan kontrak wire `damnbot.hook/v1` (`SPEC.md:666-680`).
+- **`profiles export|import`** — SPEC §10 hanya mencantumkan namanya (`SPEC.md:1021`); tidak ada format arsip, flag, atau isi normatif. Satu-satunya kontainer arsip yang normatif adalah DMBK1 (`SPEC.md:2887`), dan perintahnya `import archive` = GAP-OPS-05 fase **F9** (`SPEC.md:2990`). ADR-214 butir 6 menunda keputusan format (`docs/DECISIONS.md:4522`); `FEATURE-PARITY.md:174-175` (SLASH-018/019) berstatus `planned`.
+
+**Keputusan.**
+1. **`profiles export|import` → F9, disatukan dengan `import archive`.** Tidak ada format arsip kedua, tidak ada flag/isi yang dikarang, dan tidak ada stub: `config profiles export|import` tetap ditolak usage. `profiles ls` tidak berubah.
+2. **`config modules` = listing read-only dari registry apa adanya, termasuk saat kosong.** Perintah mencetak `modules: <n> compiled in`, satu baris deterministik per `modules.Default().Descriptors()` (`id=`, `group=`, `config=`, `tools=`), lalu catatan bahwa engine modul belum ada (F4/F5) dan `[modules.<id>]` ditolak sebagai `module section unavailable`. Registry kosong di F3 berarti nol baris modul — bukan daftar fiktif. Listing tidak membaca config, tidak men-`Freeze`, dan tidak men-start modul.
+3. **`config modules restart <id>` = exit 2.** Restart butuh engine/serve yang baru ada di F4/F5, jadi perintah menyebut id yang tidak di-restart dan keluar 2, bukan pura-pura sukses.
+4. **`config hooks ls` dan `config hooks test <event>` = exit 2.** Engine hook (`damnbot.hook/v1`, SPEC §4.10) belum ada dan dijadwalkan F4; tidak ada listing/pengujian palsu. Arity salah tetap usage exit 2.
+5. **Satu jalur output.** Semua keluaran memakai `say` dan argumen pengguna lewat `cleanArg`; tidak ada secret, panic, atau stack trace. Subperintah tak dikenal tetap usage exit 2.
+6. **Tidak ada baris `LULUS` yang diturunkan atau dinaikkan.** ADR ini hanya memberi permukaan jujur untuk sisa F3; GAP-OPS-01 tetap `TERBUKA` karena engine modul/hook belum ada dan `profiles export|import` baru F9.
+
+**Dampak terukur (SPEC §20).** Go non-test bertambah di `cmd/damnbot` (di luar Σ core); `config` tetap **1.208/1.208**, Σ core tetap **47.199/47.400**, `TOTAL 190000` tetap, 0 dependency baru, dan `PHASE` tetap F3.
+
+**Tes/gate.** Unit `TestConfigModulesListsCompiledRegistry`, `TestWriteModuleListDescriptorShape`, `TestConfigModulesRestartUnavailable`, `TestConfigModulesUnknownSubcommand`, `TestConfigHooksUnavailable`; e2e biner asli `TestConfigModulesSurface`, `TestConfigModulesRestartRefused`, `TestConfigHooksRefused` (kontrol negatif: 0 `panic:`/stack trace/baris modul fiktif).
+
+**Konsekuensi.** (+) `damnbot config modules`/`hooks` tidak lagi "subperintah tak dikenal": bentuknya jujur, exit code dan alasannya stabil, dan usage mencantumkan semua bentuk SPEC §10. (+) `profiles export|import` tidak melahirkan format arsip tandingan DMBK1. (−) GAP-OPS-01 tetap `TERBUKA`: `config modules restart`, engine modul/hook, dan `profiles export|import` baru tertutup di F4/F5/F9.
