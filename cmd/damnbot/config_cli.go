@@ -45,6 +45,8 @@ func runConfig(args []string, stdout, stderr io.Writer) int {
 		return configLookup("explain", args[1:], stdout, stderr, true)
 	case "schema":
 		return configSchemaCmd(args[1:], stdout, stderr)
+	case "modules":
+		return configModules(args[1:], stdout, stderr)
 	case "edit":
 		return configEdit(args[1:], stdout, stderr)
 	case "profiles":
@@ -56,7 +58,7 @@ func runConfig(args []string, stdout, stderr io.Writer) int {
 }
 
 func configUsage(w io.Writer) {
-	say(w, "usage: damnbot config show\n       damnbot config get <key>\n       damnbot config explain <key>\n       damnbot config schema <section>\n       damnbot config edit [--dry-run]\n       damnbot config profiles ls\n")
+	say(w, "usage: damnbot config show\n       damnbot config get <key>\n       damnbot config explain <key>\n       damnbot config schema <section>\n       damnbot config modules\n       damnbot config edit [--dry-run]\n       damnbot config profiles ls\n       damnbot config profiles export <name> [-o FILE]\n       damnbot config profiles import <file> [--name NAME] [--yes] [--dry-run]\n")
 }
 
 func configFail(stderr io.Writer, cmd string, err error) int {
@@ -312,10 +314,27 @@ func configTerminal(stdout io.Writer) bool {
 }
 
 func configProfiles(args []string, stdout, stderr io.Writer) int {
-	if len(args) != 1 || args[0] != "ls" {
+	if len(args) == 0 {
 		configUsage(stderr)
 		return 2
 	}
+	switch args[0] {
+	case "ls":
+		if len(args) != 1 {
+			configUsage(stderr)
+			return 2
+		}
+		return configProfilesLs(stdout, stderr)
+	case "export":
+		return configProfilesExport(args[1:], stdout, stderr)
+	case "import":
+		return configProfilesImport(args[1:], stdout, stderr)
+	}
+	configUsage(stderr)
+	return 2
+}
+
+func configProfilesLs(stdout, stderr io.Writer) int {
 	loader, err := config.New(config.OS())
 	if err != nil {
 		return configFail(stderr, "config profiles", err)
