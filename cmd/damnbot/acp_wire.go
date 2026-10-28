@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,12 +27,34 @@ import (
 type acpRunner interface {
 	Prompt(ctx context.Context, sessionID string, in tui.Input) (<-chan tui.Update, error)
 	Cancel(sessionID string)
+	Active(sessionID string) bool
+	// SetApproval installs the session's approval policy (ask|auto-edit|auto)
+	// for the next turn; plan is a gate carried by the prompt, not a policy.
+	SetApproval(mode string) error
 	Close() error
 }
 
 type acpSession struct {
+	mu     sync.Mutex
 	proto  *acp.Session
 	runner acpRunner
+	model  string
+}
+
+// currentRunner returns the runner and model under the session lock.
+func (a *acpSession) currentRunner() (acpRunner, string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.runner, a.model
+}
+
+// swapRunner installs a new runner/model and returns the previous runner.
+func (a *acpSession) swapRunner(r acpRunner, model string) acpRunner {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	old := a.runner
+	a.runner, a.model = r, model
+	return old
 }
 
 type acpServer struct {
@@ -196,6 +220,8 @@ func (s *acpServer) dispatch(ctx context.Context, req *acp.Request) {
 		s.cancel(req)
 	case "session/set_mode":
 		s.setMode(ctx, req)
+	case "session/set_model":
+		s.setModel(ctx, req)
 	default:
 		s.writeError(ctx, req.ID, acp.ErrMethod)
 	}
@@ -233,13 +259,14 @@ func (s *acpServer) loadSession(ctx context.Context, req *acp.Request) {
 	old := s.sessions[p.SessionID]
 	s.mu.Unlock()
 	if old != nil {
-		if cerr := errors.Join(old.runner.Close(), old.proto.Close()); cerr != nil {
+		oldRunner, _ := old.currentRunner()
+		if cerr := errors.Join(oldRunner.Close(), old.proto.Close()); cerr != nil {
 			s.writeError(ctx, req.ID, acp.ErrInternal)
 			return
 		}
 	}
 	s.mu.Lock()
-	s.sessions[p.SessionID] = &acpSession{proto: proto, runner: runner}
+	s.sessions[p.SessionID] = &acpSession{proto: proto, runner: runner, model: s.deps.modelRef}
 	s.mu.Unlock()
 	for _, it := range items {
 		s.notify(ctx, map[string]any{"sessionId": p.SessionID, "update": replayUpdate(it)})
@@ -290,7 +317,7 @@ func (s *acpServer) newSession(ctx context.Context, req *acp.Request) {
 	bridge := &approvalBridge{}
 	s.wireBridge(ctx, bridge, id)
 	s.mu.Lock()
-	s.sessions[id] = &acpSession{proto: proto, runner: runner}
+	s.sessions[id] = &acpSession{proto: proto, runner: runner, model: s.deps.modelRef}
 	s.mu.Unlock()
 	result := map[string]any{
 		"sessionId": id,
@@ -304,11 +331,12 @@ func (s *acpServer) newSession(ctx context.Context, req *acp.Request) {
 			},
 		},
 	}
-	if s.deps.modelRef != "" {
-		result["models"] = map[string]any{
-			"currentModelId":  s.deps.modelRef,
-			"availableModels": []any{map[string]any{"modelId": s.deps.modelRef, "name": s.deps.modelRef}},
+	if models := s.availableModels(); len(models) > 0 {
+		available := make([]any, 0, len(models))
+		for _, m := range models {
+			available = append(available, map[string]any{"modelId": m, "name": m})
 		}
+		result["models"] = map[string]any{"currentModelId": s.deps.modelRef, "availableModels": available}
 	}
 	s.respond(ctx, req.ID, result)
 }
@@ -341,7 +369,8 @@ func (s *acpServer) prompt(ctx context.Context, req *acp.Request) {
 		s.writeError(ctx, req.ID, acp.ErrInternal)
 		return
 	}
-	stream, err := sess.runner.Prompt(ctx, p.SessionID, tui.Input{Text: text, PlanMode: sess.proto.PlanMode()})
+	runner, _ := sess.currentRunner()
+	stream, err := runner.Prompt(ctx, p.SessionID, tui.Input{Text: text, PlanMode: sess.proto.PlanMode()})
 	if err != nil {
 		s.writeError(ctx, req.ID, acp.ErrInternal)
 		return
@@ -409,7 +438,8 @@ func (s *acpServer) cancel(req *acp.Request) {
 		return
 	}
 	if sess := s.get(p.SessionID); sess != nil {
-		sess.runner.Cancel(p.SessionID)
+		runner, _ := sess.currentRunner()
+		runner.Cancel(p.SessionID)
 	}
 }
 
@@ -418,20 +448,98 @@ func (s *acpServer) setMode(ctx context.Context, req *acp.Request) {
 		SessionID string `json:"sessionId"`
 		Mode      string `json:"modeId"`
 	}
-	if json.Unmarshal(req.Params, &p) != nil {
+	if json.Unmarshal(req.Params, &p) != nil || p.SessionID == "" {
 		s.writeError(ctx, req.ID, acp.ErrParams)
 		return
 	}
 	mode, err := acp.ParseMode(p.Mode)
-	if err != nil || s.get(p.SessionID) == nil {
+	sess := s.get(p.SessionID)
+	if err != nil || sess == nil {
 		s.writeError(ctx, req.ID, acp.ErrParams)
 		return
 	}
-	if err := s.get(p.SessionID).proto.SetMode(mode); err != nil {
+	runner, _ := sess.currentRunner()
+	// Every advertised mode is selectable: the approval policy follows the
+	// mode (ask|auto-edit|auto), and plan rides the prompt's PlanMode gate.
+	if err := runner.SetApproval(approvalFor(mode)); err != nil {
+		s.writeError(ctx, req.ID, acp.ErrInternal)
+		return
+	}
+	if err := sess.proto.SetMode(mode); err != nil {
 		s.writeError(ctx, req.ID, acp.ErrParams)
 		return
+	}
+	s.notify(ctx, map[string]any{"sessionId": p.SessionID, "update": map[string]any{
+		"sessionUpdate": "current_mode_update", "currentModeId": mode.String(),
+	}})
+	s.respond(ctx, req.ID, nil)
+}
+
+// approvalFor maps an ACP mode to the tools approval policy (SPEC §14.1).
+// Plan is not a policy: it is enforced by loop.Input.PlanMode.
+func approvalFor(m acp.Mode) string {
+	switch m {
+	case acp.ModeAutoEdit:
+		return "auto-edit"
+	case acp.ModeAuto:
+		return "auto"
+	case acp.ModeAsk, acp.ModePlan:
+		return "ask"
+	}
+	return "ask"
+}
+
+// setModel switches a session to a model from availableModels. Unknown ids
+// are -32602 (SPEC §13.3); a turn in flight keeps its model (session_busy).
+func (s *acpServer) setModel(ctx context.Context, req *acp.Request) {
+	var p struct {
+		SessionID string `json:"sessionId"`
+		ModelID   string `json:"modelId"`
+	}
+	if json.Unmarshal(req.Params, &p) != nil || p.SessionID == "" || p.ModelID == "" {
+		s.writeError(ctx, req.ID, acp.ErrParams)
+		return
+	}
+	sess := s.get(p.SessionID)
+	if sess == nil {
+		s.writeError(ctx, req.ID, acp.ErrParams)
+		return
+	}
+	models := s.availableModels()
+	if !slices.Contains(models, p.ModelID) {
+		s.writeError(ctx, req.ID, acp.ErrParams)
+		return
+	}
+	runner, current := sess.currentRunner()
+	if runner.Active(p.SessionID) {
+		s.writeError(ctx, req.ID, acp.ErrorWithData(acp.ErrInternal, map[string]any{"error_code": "session_busy", "event_id": int64(0)}))
+		return
+	}
+	if current == p.ModelID {
+		s.respond(ctx, req.ID, nil)
+		return
+	}
+	deps := s.deps
+	deps.modelRef = p.ModelID
+	next := s.factory(p.SessionID, &deps)
+	old := sess.swapRunner(next, p.ModelID)
+	if old != nil {
+		if err := old.Close(); err != nil {
+			s.writeError(ctx, req.ID, acp.ErrInternal)
+			return
+		}
 	}
 	s.respond(ctx, req.ID, nil)
+}
+
+// availableModels is the advertised set: the effective primary plus every
+// configured ref (light, fallback, custom provider models).
+func (s *acpServer) availableModels() []string {
+	models := configuredModels(s.deps.cfg)
+	if s.deps.modelRef != "" && !slices.Contains(models, s.deps.modelRef) {
+		models = append([]string{s.deps.modelRef}, models...)
+	}
+	return models
 }
 
 func acpStop(detail, stop string) string {
@@ -456,7 +564,8 @@ func (s *acpServer) closeAll() {
 	s.sessions = map[string]*acpSession{}
 	s.mu.Unlock()
 	for _, sess := range sessions {
-		if err := sess.runner.Close(); err != nil {
+		runner, _ := sess.currentRunner()
+		if err := runner.Close(); err != nil {
 			continue
 		}
 		if err := sess.proto.Close(); err != nil {

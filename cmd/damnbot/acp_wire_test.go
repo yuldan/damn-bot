@@ -29,8 +29,10 @@ func (fakeACPRunner) Prompt(context.Context, string, tui.Input) (<-chan tui.Upda
 	close(ch)
 	return ch, nil
 }
-func (fakeACPRunner) Cancel(string) {}
-func (fakeACPRunner) Close() error  { return nil }
+func (fakeACPRunner) Cancel(string)            {}
+func (fakeACPRunner) Active(string) bool       { return false }
+func (fakeACPRunner) SetApproval(string) error { return nil }
+func (fakeACPRunner) Close() error             { return nil }
 
 type syncBuffer struct {
 	mu sync.Mutex
