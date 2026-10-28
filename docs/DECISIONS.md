@@ -4735,3 +4735,17 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 4. **Tidak ada implementasi pool di PR ini**; fase implementasi tetap F5 sesuai SPEC/parity.
 
 **Konsekuensi.** (+) Gate F3/F4 tidak lagi menuntut tes untuk komponen yang belum ada; fase mengikuti ADR-077. (+) Tidak ada klaim `covered` palsu dan tidak ada anggaran berubah. (−) EC-CFG-008 tetap terbuka sampai F5; provider switch/credential pool belum punya perilaku yang bisa diuji di main.
+
+## ADR-227 — Audit 16 GAP F3: tidak ada baris yang memenuhi syarat pindah fase
+
+**Status:** Accepted 2026-10-28 (F3, audit ledger). Dokumen saja; tidak ada kode, `PHASE`, `loc.budget`, SPEC, ENGINEERING, atau FEATURE-PARITY yang berubah.
+
+**Konteks.** Refresh `docs/F3-ACCEPTANCE.md` mengaudit 16 baris GAP F3 yang masih `TERBUKA` terhadap fase otoritatif di `SPEC.md` §22.1 dan `ROADMAP.md:234-239`. Tujuannya bukan menghijaukan ledger: baris hanya boleh menjadi `DITUNDA` bila **tidak ada lagi kewajiban F3** yang tersisa. Kolom fase SPEC mencampur fase untuk beberapa baris (F3 untuk subset, fase lain untuk sisa), sehingga audit harus membaca requirement, bukan hanya sel fase.
+
+**Keputusan.**
+1. **Tidak ada baris yang pindah.** GAP-OPS-01 tetap `TERBUKA`: sebagian F3-nya (`config show/get/explain/schema/edit`, `profiles ls`) sudah ada (ADR-214), tetapi `config modules`, `config hooks`, dan `profiles export|import` masih kewajiban F3 (SPEC §10; ADR-214 butir 7). Sisa penuh (generated docs/drift gate, override `DAMNBOT_<SECTION>_<KEY>`, allowlist `os.Getenv`, sumber env/flag di `config explain`) memang F4 (`SPEC.md:2986`), tetapi F3-nya belum lengkap sehingga seluruh baris belum boleh `DITUNDA`.
+2. **Lima belas baris lain juga tetap `TERBUKA`.** Setiap baris masih punya kewajiban F3 yang belum ada: GAP-REL-13 (fd/stdin ACP), GAP-GW-07 (`tos_risk` importer/pola scan), GAP-PROV-04 (YAML 1.1), GAP-PROV-05 (pemetaan memory provider), GAP-TOOL-01 (penanda `requires` importer), GAP-UX-01..06, GAP-OPS-02 (mode privasi background), GAP-OPS-04 (`rotate --all-profiles`), GAP-OPS-09 (kebijakan notice), GAP-INF-04 (bagian `Breaking`/`Migrations`/`Security` + gate). Sisa F6/F8 (GAP-TOOL-01 `doc_*` F6; GAP-GW-07 hub F8; GAP-PROV-05 memory-providers F8) tidak menghapus kewajiban F3 itu.
+3. **Tidak ada re-fase.** SPEC/ROADMAP/FEATURE-PARITY tidak diubah; ADR ini hanya mencatat hasil audit. `GAP-TOOL-10` tetap `DITUNDA` ke F5/F8 lewat ADR-193 karena bagian F3-nya (updater native arch) sudah ada.
+4. **Konsekuensi gate.** F4 tetap tidak boleh dinaikkan sampai 16 baris F3 di atas ditutup atau di-re-fase lewat ADR, baseline hermes F3/error informatif diratifikasi, dan smoke `tern` terdokumentasi. EC-CFG-001..007 yang sudah `covered` dan EC-CFG-008 yang di-re-fase ke F5 (ADR-226) hanya menutup gate katalog EC, bukan seluruh acceptance F3.
+
+**Konsekuensi.** (+) Ledger tidak memindahkan baris F3 yang masih punya pekerjaan hanya agar terlihat hijau. (+) Fase otoritatif tiap baris tercatat di ledger. (−) F4 tetap tertahan oleh 16 GAP F3, baseline dua sisi, smoke `tern`, dan profiles export/import.
