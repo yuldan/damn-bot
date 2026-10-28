@@ -17,9 +17,7 @@ const (
 	SeverityHigh   Severity = "high"
 )
 
-// Finding is one threat-scan observation. Detail never contains a secret:
-// matched token values are omitted so the ledger cannot leak what was
-// redacted.
+// Finding is one threat-scan observation; Detail never contains a secret.
 type Finding struct {
 	Category string   `json:"category"`
 	Severity Severity `json:"severity"`
@@ -41,10 +39,8 @@ func (s Scan) JSON() (string, error) {
 // High reports whether the scan must auto-reject (SPEC §14.4).
 func (s Scan) High() bool { return s.Severity == SeverityHigh }
 
-// ScanText classifies text for the quarantine gate (SPEC §14.4). The
-// redactor is the same one used on write; when it changes the text the entry
-// contains a secret and is high severity. nil is treated as "no redactor":
-// callers that accept untrusted content must pass one.
+// ScanText classifies text for the quarantine gate (SPEC §14.4); a redactor
+// change means a secret (high), and nil is "no redactor".
 func ScanText(red *redact.Redactor, text string) Scan {
 	s := Scan{Severity: SeverityLow}
 	lower := strings.ToLower(text)
@@ -59,6 +55,9 @@ func ScanText(red *redact.Redactor, text string) Scan {
 	}
 	if p := firstDestructive(lower); p != "" {
 		s.add("destructive", SeverityMedium, p)
+	}
+	if p := firstMatch(lower, "load_dotenv", "dotenv.config", "dotenv/config", "require('dotenv')", `require("dotenv")`, "cat .env", "source .env", "grep .env", "read .env", "parse .env", "cp .env"); p != "" {
+		s.add("env_file", SeverityMedium, p)
 	}
 	if strings.Contains(lower, "http://") || strings.Contains(lower, "https://") {
 		s.add("url", SeverityMedium, "non-allowlisted URL")
@@ -85,20 +84,15 @@ func rank(s Severity) int {
 	return 0
 }
 
-// firstInjection matches the prompt-injection patterns of SPEC §14.4 on the
-// already lower-cased text. A local slice keeps the package free of mutable
-// globals (E-10).
+// firstInjection matches the prompt-injection patterns of SPEC §14.4.
 func firstInjection(lower string) string {
-	for _, p := range [...]string{
-		"ignore all instructions",
-		"ignore previous instructions",
-		"ignore the previous instructions",
-		"you are now",
-		"system prompt",
-		"<system>",
-		"</system>",
-	} {
-		if strings.Contains(lower, p) {
+	return firstMatch(lower, "ignore all instructions", "ignore previous instructions",
+		"ignore the previous instructions", "you are now", "system prompt", "<system>", "</system>")
+}
+
+func firstMatch(s string, patterns ...string) string {
+	for _, p := range patterns {
+		if strings.Contains(s, p) {
 			return p
 		}
 	}
@@ -106,18 +100,11 @@ func firstInjection(lower string) string {
 }
 
 // firstDestructive is an advisory subset; the authoritative classifier is
-// internal/exec/classify (F2 cannot import it). Medium, so it never
-// auto-rejects a legitimate skill that merely documents a command.
+// internal/exec/classify. Medium, so it never auto-rejects a document.
 func firstDestructive(lower string) string {
-	for _, p := range [...]string{"rm -rf /", "mkfs.", ":(){", "> /dev/sd"} {
-		if strings.Contains(lower, p) {
-			return p
-		}
-	}
-	return ""
+	return firstMatch(lower, "rm -rf /", "mkfs.", ":(){", "> /dev/sd")
 }
 
-// hasInvisible reports the invisible/bidi ranges of SPEC §14.4.
 func hasInvisible(s string) bool {
 	for _, r := range s {
 		switch {

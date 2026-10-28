@@ -54,5 +54,5 @@ func writeCodexReport(w io.Writer, root string, rep *importer.Report, dryRun boo
 		{"mcp", &rep.MCP},
 		{"memory", &rep.Memory},
 		{"skills", &rep.Skills},
-	}, nil, rep, dryRun)
+	}, rep.ToS, nil, rep, dryRun)
 }

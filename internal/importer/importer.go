@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"slices"
 	"strings"
+
+	"github.com/damnbot/damnbot/internal/skills"
 )
 
 // Source names one enumerated input.
@@ -56,6 +58,9 @@ type Report struct {
 	Secrets  SourceReport
 	Sessions SourceReport
 	Clamps   []Clamp
+	// ToS lists the imported entries whose text matched a GAP-GW-07 pattern.
+	// They are still imported as pending and never bundled.
+	ToS []ToSFlag
 }
 
 // Total returns the number of enumerated items across every source.
@@ -123,6 +128,12 @@ func (r *Report) sortSkips() {
 	slices.SortFunc(r.Secrets.Skipped, compareSkip)
 	slices.SortFunc(r.Sessions.Skipped, compareSkip)
 	slices.SortFunc(r.Clamps, func(a, b Clamp) int { return strings.Compare(a.Key, b.Key) })
+	slices.SortFunc(r.ToS, func(a, b ToSFlag) int {
+		if a.Source != b.Source {
+			return strings.Compare(string(a.Source), string(b.Source))
+		}
+		return strings.Compare(a.Key, b.Key)
+	})
 }
 
 func compareSkip(a, b Skip) int {
@@ -130,6 +141,28 @@ func compareSkip(a, b Skip) int {
 		return strings.Compare(string(a.Source), string(b.Source))
 	}
 	return strings.Compare(a.Key, b.Key)
+}
+
+// ToSFlag is one imported skill whose text matched a GAP-GW-07 pattern. The
+// import report prints it so a dry run shows the risk before anything is
+// written.
+type ToSFlag struct {
+	Source Source
+	Key    string
+	Risk   skills.ToSRisk
+	Note   string
+}
+
+// ToSFlags returns the ToS flags in deterministic order.
+func (r *Report) ToSFlags() []ToSFlag { return r.ToS }
+
+// tos records one high-risk item. Lower levels are not printed: they carry no
+// acknowledgement requirement and would only add noise to the report.
+func (r *Report) tos(s Source, key string, meta skills.ToSMeta) {
+	if meta.Risk != skills.ToSHigh {
+		return
+	}
+	r.ToS = append(r.ToS, ToSFlag{Source: s, Key: key, Risk: meta.Risk, Note: meta.Note})
 }
 
 // ConfigEntry is one mapped config key.
@@ -148,6 +181,10 @@ type Skill struct {
 	Origin      string
 	// SHA256 is the digest of the SKILL.md bytes this item was read from.
 	SHA256 string
+	// ToSRisk and ToSNote are the GAP-GW-07 metadata of this entry. A high
+	// risk is reported and the skill stays pending; it is never bundled.
+	ToSRisk skills.ToSRisk
+	ToSNote string
 }
 
 // MemoryEntry is one curated memory entry.

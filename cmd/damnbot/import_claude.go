@@ -87,5 +87,5 @@ func writeClaudeReport(w io.Writer, root string, rep *importer.Report, dryRun bo
 		{"memory", &rep.Memory},
 		{"skills", &rep.Skills},
 		{"commands", &rep.Cron},
-	}, nil, rep, dryRun)
+	}, rep.ToS, nil, rep, dryRun)
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/damnbot/damnbot/internal/skills"
 )
 
 // maxSkillBytes is the SKILL.md cap of SPEC §4.8.
@@ -81,11 +83,20 @@ func (c *collected) addSkill(meta map[string]any, body, origin string, data []by
 		return
 	}
 	sum := sha256.Sum256(data)
-	c.skills = append(c.skills, Skill{
+	item := Skill{
 		Name: name, Description: description, Body: body,
 		Origin: origin, SHA256: hex.EncodeToString(sum[:]),
-	})
+	}
+	item.setToS()
+	c.skills = append(c.skills, item)
+	c.report.tos(SourceSkills, name, skills.ToSMeta{Risk: item.ToSRisk, Note: item.ToSNote})
 	c.report.item(SourceSkills)
+}
+
+// setToS derives the GAP-GW-07 metadata from the entry text.
+func (s *Skill) setToS() {
+	meta := skills.ClassifyToS(s.Name + "\n" + s.Description + "\n" + s.Body)
+	s.ToSRisk, s.ToSNote = meta.Risk, meta.Note
 }
 
 // validSkillName mirrors the closed name shape the skill store accepts.
@@ -144,6 +155,7 @@ func collectSkillTree(read func(string) ([]byte, error), walkDir func(string, fs
 			report.skip(source, prefix+key, reason)
 			return nil
 		}
+		report.tos(source, prefix+key, skills.ToSMeta{Risk: skill.ToSRisk, Note: skill.ToSNote})
 		*out = append(*out, skill)
 		report.item(source)
 		return nil
@@ -177,6 +189,7 @@ func readSkillAt(read func(string) ([]byte, error), root, path string) (Skill, s
 		return skill, "SKILL.md description is missing or unsafe", nil
 	}
 	skill.SHA256 = sha256Hex(data)
+	skill.setToS()
 	return skill, "", nil
 }
 
