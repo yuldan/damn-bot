@@ -10,8 +10,6 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"go.yaml.in/yaml/v3"
 )
 
 // maxSkillBytes is the SKILL.md cap of SPEC §4.8.
@@ -192,9 +190,22 @@ func splitFrontmatter(data []byte, path string) (map[string]any, string, error) 
 	if !found {
 		return nil, "", syntaxError(path, errors.New("unterminated frontmatter"))
 	}
-	meta := map[string]any{}
-	if err := yaml.Unmarshal([]byte(head), &meta); err != nil {
-		return nil, "", syntaxError(path, err)
+	if strings.TrimSpace(head) == "" {
+		return map[string]any{}, strings.TrimPrefix(tail, "\n"), nil
+	}
+	meta, ambiguous, err := decodeYAML11([]byte(head), path)
+	if err != nil {
+		return nil, "", err
+	}
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	for _, key := range []string{"name", "description"} {
+		if _, ok := meta[key].(string); !ok {
+			if raw, ok := ambiguous[key]; ok {
+				meta[key] = raw
+			}
+		}
 	}
 	return meta, strings.TrimPrefix(tail, "\n"), nil
 }

@@ -15,16 +15,17 @@ type secretPut struct {
 }
 
 type collected struct {
-	report    Report
-	configDoc map[string]any
-	entries   []ConfigEntry
-	skills    []Skill
-	memories  []MemoryEntry
-	servers   []MCPServer
-	jobs      []CronJob
-	secrets   []secretPut
-	sessions  []Session
-	disabled  map[Source]string
+	report          Report
+	configDoc       map[string]any
+	configAmbiguous map[string]string
+	entries         []ConfigEntry
+	skills          []Skill
+	memories        []MemoryEntry
+	servers         []MCPServer
+	jobs            []CronJob
+	secrets         []secretPut
+	sessions        []Session
+	disabled        map[Source]string
 }
 
 func (i *Importer) collect(ctx context.Context, root string, opts Options) (*collected, error) {
@@ -34,11 +35,11 @@ func (i *Importer) collect(ctx context.Context, root string, opts Options) (*col
 		return nil, err
 	}
 	if raw != nil {
-		doc, derr := decodeMapping(raw, filepath.Join(root, "config.yaml"))
+		doc, ambiguous, derr := decodeMapping(raw, filepath.Join(root, "config.yaml"))
 		if derr != nil {
 			return nil, derr
 		}
-		c.configDoc = doc
+		c.configDoc, c.configAmbiguous = doc, ambiguous
 	}
 	if err := i.collectConfig(c); err != nil {
 		return nil, err
