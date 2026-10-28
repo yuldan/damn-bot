@@ -47,7 +47,7 @@ func TestTranslateUpdateNoUsage(t *testing.T) {
 func TestTUIRunnerLazyHost(t *testing.T) {
 	t.Parallel()
 	r := newTUIRunner(&tuiDeps{
-		cfg: &config.Config{UI: config.UI{Theme: "mono"}, Approval: config.Approval{PreviewTimeoutS: 90}}, modelRef: "openai/fake",
+		cfg: &config.Config{UI: config.UI{Theme: "mono"}, Approval: config.Approval{PreviewTimeoutS: 90}}, modelRef: "openai/fake", noColor: true,
 		opts: &runOptions{}, red: nil,
 	})
 	if got := r.Snapshot().Model; got != "openai/fake" {
@@ -58,6 +58,9 @@ func TestTUIRunnerLazyHost(t *testing.T) {
 	}
 	if got := r.Snapshot().ApprovalTimeout; got != 90*time.Second {
 		t.Fatalf("Snapshot approval timeout = %v, want 90s", got)
+	}
+	if !r.Snapshot().NoColor {
+		t.Fatalf("Snapshot lost NoColor")
 	}
 	if got := r.Now(); got.IsZero() {
 		t.Fatalf("Now is zero")

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -21,7 +22,9 @@ import (
 
 // runTUI is the bare `damnbot` surface: config and the session id are the only
 // work before the first frame.
-func runTUI([]string) int {
+func runTUI(args []string) int {
+	plain := slices.Contains(args, "--plain")
+
 	o := &runOptions{sessionOrigin: "tui", approvalOrigin: loop.OriginTUI, approval: "ask"}
 	bridge := &approvalBridge{}
 	o.approver, o.toolApprover = loopApprover{bridge}, toolsApprover{bridge}
@@ -42,6 +45,7 @@ func runTUI([]string) int {
 	o.newSessionID = sid
 	r := newTUIRunner(&tuiDeps{
 		cfg: &cfg, dataDir: dataDir, configDir: configDir, cfgFile: configPath, home: home,
+		noColor:  noColorMode(plain, os.Getenv("NO_COLOR"), os.Getenv("TERM"), stdoutIsTTY()),
 		modelRef: cfg.Provider.Model, opts: o, red: redact.New(redact.Options{}),
 	})
 	actions := &tuiActions{
@@ -87,6 +91,7 @@ type tuiDeps struct {
 	dataDir   string
 	configDir string
 	cfgFile   string
+	noColor   bool
 	home      string
 	modelRef  string
 	opts      *runOptions
@@ -122,7 +127,9 @@ func (r *tuiRunner) After(d time.Duration) <-chan time.Time { return time.After(
 func (r *tuiRunner) Snapshot() tui.Config {
 	r.snapMu.RLock()
 	defer r.snapMu.RUnlock()
-	return r.snapshot
+	snap := r.snapshot
+	snap.NoColor = r.deps.noColor
+	return snap
 }
 
 func (r *tuiRunner) Prompt(ctx context.Context, sid string, in tui.Input) (<-chan tui.Update, error) {

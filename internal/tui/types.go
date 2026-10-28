@@ -111,6 +111,7 @@ type Config struct {
 	Model           string
 	Theme           string        // [ui] theme (SPEC §12); empty resolves to tern-dark
 	ApprovalTimeout time.Duration // approval.preview_timeout_s (§18.2); 0 = default
+	NoColor         bool          // NO_COLOR/TERM=dumb/--plain/non-TTY (UX-06)
 	Models          []string      // configured refs: primary, fallback, light, custom
 	Budget          BudgetInfo
 }
