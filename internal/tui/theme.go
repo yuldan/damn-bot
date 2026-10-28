@@ -1,10 +1,6 @@
 package tui
 
-import (
-	"strings"
-
-	"charm.land/lipgloss/v2"
-)
+import "strings"
 
 // Theme is one SPEC §13.1 palette (Q2). The color tokens are unexported: the
 // registry is the only constructor, so a caller can never build a half theme.
@@ -51,27 +47,4 @@ func themeNames() string {
 		names = append(names, t.Name)
 	}
 	return strings.Join(names, ", ")
-}
-
-// newStyles maps a theme to the T0 call-site styles. mono (no tokens) leaves
-// every style colorless while keeping the structural bold on headers and the
-// user prompt.
-func newStyles(t Theme) styles {
-	header := lipgloss.NewStyle().Bold(true)
-	user := lipgloss.NewStyle().Bold(true)
-	footer := lipgloss.NewStyle()
-	hint := lipgloss.NewStyle()
-	status := lipgloss.NewStyle()
-	tool := lipgloss.NewStyle()
-	notice := lipgloss.NewStyle()
-	if t.primary != "" {
-		header = header.Foreground(lipgloss.Color(t.primary))
-		user = user.Foreground(lipgloss.Color(t.primary))
-		footer = footer.Faint(true)
-		hint = hint.Faint(true)
-		status = status.Faint(true).Foreground(lipgloss.Color(t.muted))
-		tool = tool.Faint(true).Foreground(lipgloss.Color(t.muted))
-		notice = notice.Foreground(lipgloss.Color(t.alert))
-	}
-	return styles{header: header, footer: footer, hint: hint, status: status, user: user, tool: tool, notice: notice}
 }

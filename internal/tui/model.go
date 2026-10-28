@@ -54,19 +54,25 @@ type undoDoneMsg struct {
 
 // Model is the root bubbletea model; Update and View run on the UI goroutine.
 type Model struct {
-	host      Host
-	keys      keyMap
-	theme     Theme
-	styles    styles
-	sessionID string
-	route     string
-	panel     panel
-	blocks    []Block
-	usage     Usage
-	stop      StopReason
-	detail    StopDetail
-	width     int
-	height    int
+	host           Host
+	keys           keyMap
+	theme          Theme
+	styles         styles
+	sessionID      string
+	route          string
+	panel          panel
+	blocks         []Block
+	usage          Usage
+	stop           StopReason
+	detail         StopDetail
+	width          int
+	height         int
+	noColor        bool
+	resizeSeq      uint64
+	pendingW       int
+	pendingH       int
+	resizeApplied  uint64
+	resizeDebounce time.Duration
 	// scroll counts transcript blocks hidden below the viewport: 0 pins the
 	// newest block, n-1 pins the first. Virtualisation renders only the window
 	// (SPEC §13.1: ≤ 16 ms/frame at 1.000 blocks).
@@ -153,8 +159,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.finishTurn()
 		return m, nil
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
-		return m, nil
+		cmd := m.resize(msg)
+		return m, cmd
 	case tea.KeyPressMsg:
 		cmd := m.handleKey(msg)
 		return m, cmd
@@ -207,6 +213,10 @@ func (m *Model) handleResult(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 
 func (m *Model) handleA7Result(msg tea.Msg) bool {
 	switch msg := msg.(type) {
+	case resizeSettledMsg:
+		if msg.seq == m.resizeSeq {
+			m.commitResize()
+		}
 	case reloadDoneMsg:
 		m.applyReload(&msg)
 	case actionDoneMsg:
@@ -375,6 +385,9 @@ func (m *Model) inputArea() string {
 	for _, line := range m.draft {
 		lines = append(lines, "> "+line)
 	}
+	if m.noColor {
+		return strings.Join(append(lines, "> "+m.input.Value()), "\n")
+	}
 	return strings.Join(append(lines, m.input.View()), "\n")
 }
 
@@ -440,7 +453,7 @@ func (m *Model) clip(body string) string {
 	if m.height <= reserved {
 		return body
 	}
-	return lipgloss.NewStyle().MaxHeight(m.height - reserved).Render(body)
+	return m.limitHeight(body)
 }
 
 // stampFrame commits the draw time of the pending updates. A second View with
@@ -619,10 +632,7 @@ func (m *Model) setRoute(r routeEntry) {
 // header renders the screen title and the configured model.
 func (m *Model) header() string {
 	line := m.styles.header.Render(fmt.Sprintf("%s · %s · %s", m.panel.title(), m.host.Config.Snapshot().Model, m.tabBar()))
-	if m.width > 0 {
-		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
-	}
-	return line
+	return m.limitWidth(line)
 }
 
 // footer renders the key hints and the turn state. Block navigation replaces
@@ -671,10 +681,7 @@ func (m *Model) footer() string {
 		}
 	}
 	line := m.styles.footer.Render(strings.Join(parts, " · "))
-	if m.width > 0 {
-		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
-	}
-	return line
+	return m.limitWidth(line)
 }
 
 // RenderedAt returns the clock stamp of the last frame that carried a stream

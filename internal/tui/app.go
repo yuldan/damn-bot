@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
@@ -94,18 +95,21 @@ func NewApp(sessionID string, host *Host) (*Model, error) {
 	if err := host.validate(); err != nil {
 		return nil, err
 	}
-	theme, ok := ThemeByName(host.Config.Snapshot().Theme)
+	snapshot := host.Config.Snapshot()
+	theme, ok := ThemeByName(snapshot.Theme)
 	if !ok {
 		theme, _ = ThemeByName(defaultThemeName)
 	}
 	m := &Model{
-		host:      *host,
-		keys:      newKeyMap(),
-		theme:     theme,
-		styles:    newStyles(theme),
-		sessionID: sessionID,
-		tabs:      []SessionInfo{{ID: sessionID}},
-		input:     newInput(),
+		host:           *host,
+		keys:           newKeyMap(),
+		theme:          theme,
+		noColor:        snapshot.NoColor,
+		styles:         newStyles(theme, snapshot.NoColor),
+		sessionID:      sessionID,
+		tabs:           []SessionInfo{{ID: sessionID}},
+		resizeDebounce: 16 * time.Millisecond,
+		input:          newInput(),
 	}
 	m.setRoute(routes()[0])
 	return m, nil

@@ -103,7 +103,7 @@ func (m *Model) cmdTheme(args []string) tea.Cmd {
 			m.appendNotice("unknown theme " + args[0] + "; valid: " + themeNames())
 			return nil
 		}
-		m.theme, m.styles = theme, newStyles(theme)
+		m.theme, m.styles = theme, newStyles(theme, m.noColor)
 		m.appendNotice("theme " + theme.Name)
 	}
 	return nil
@@ -238,7 +238,7 @@ func (m *Model) applyReload(msg *reloadDoneMsg) {
 	}
 	cfg := m.host.Config.Snapshot()
 	if theme, ok := ThemeByName(cfg.Theme); ok {
-		m.theme, m.styles = theme, newStyles(theme)
+		m.theme, m.styles = theme, newStyles(theme, m.noColor)
 	}
 	hash := msg.result.Hash
 	if len(hash) > 12 {

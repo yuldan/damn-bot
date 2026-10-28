@@ -103,6 +103,7 @@ func rootFlags(args []string, stdout, stderr io.Writer, openTUI func([]string) i
 	fs.SetOutput(stderr)
 	showVersion := fs.Bool("version", false, "tampilkan versi lalu keluar")
 	verbose := fs.Bool("verbose", false, "dengan -version: probe engine SQLite (REL-04)")
+	fs.Bool("plain", false, "TUI tanpa ANSI (aksesibilitas/terminal monokrom)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -115,7 +116,7 @@ func rootFlags(args []string, stdout, stderr io.Writer, openTUI func([]string) i
 		}
 		return 0
 	}
-	if len(args) == 0 {
+	if fs.NArg() == 0 {
 		return openTUI(args)
 	}
 	fs.Usage()

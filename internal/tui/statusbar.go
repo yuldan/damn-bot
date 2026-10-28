@@ -3,8 +3,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-
-	"charm.land/lipgloss/v2"
 )
 
 // statusBar renders the minimal SPEC §13.1 status line: model, iteration,
@@ -23,10 +21,7 @@ func (m *Model) statusBar() string {
 		parts = append(parts, "PLAN")
 	}
 	line := m.styles.status.Render(strings.Join(parts, " · "))
-	if m.width > 0 {
-		return lipgloss.NewStyle().MaxWidth(m.width).Render(line)
-	}
-	return line
+	return m.limitWidth(line)
 }
 
 // costSummary renders the current turn and the accumulated session cost.
