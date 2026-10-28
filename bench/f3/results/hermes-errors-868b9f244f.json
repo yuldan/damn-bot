@@ -1,0 +1,170 @@
+{
+ "meta": {
+  "phase": "F3",
+  "date": "2026-10-28T15:35:05Z",
+  "hermes_commit": "868b9f244f",
+  "note": "supplementary common-failure capture; NOT the 60-case Damn-Bot suite and NOT a ratification",
+  "sanitized": "HERMES_HOME/HOME/source-prefix replaced with placeholders; session ids redacted; no credentials used",
+  "timeouts": "timed_out=true means no user-facing error before the deadline; gateway_log_tail is the raw evidence"
+ },
+ "cases": [
+  {
+   "id": "config-missing",
+   "group": "config",
+   "what": "no config.yaml in a fresh HERMES_HOME",
+   "argv": [
+    "hermes",
+    "chat",
+    "-q",
+    "hello",
+    "-Q",
+    "--ignore-rules",
+    "--max-turns",
+    "1"
+   ],
+   "exit_code": 1,
+   "timed_out": false,
+   "duration_s": 1.002,
+   "output": "\nIt looks like Hermes isn't configured yet -- no API keys or providers found.\n\n  Run:  hermes setup\n\n\n\u2624 Hermes Setup \u2014 Non-interactive mode\n\n  No interactive TTY detected for the first-run setup prompt.\n  The interactive wizard cannot be used here.\n\n  Configure Hermes using environment variables or config commands:\n    hermes config set model.provider custom\n    hermes config set model.base_url http://localhost:8080/v1\n    hermes config set model.default your-model-name\n\n  Or set OPENROUTER_API_KEY (OpenRouter) / OPENAI_API_KEY (OpenAI) in your environment.\n  Run 'hermes setup' in an interactive terminal to use the full wizard.\n\n",
+   "gateway_log_tail": ""
+  },
+  {
+   "id": "config-malformed",
+   "group": "config",
+   "what": "config.yaml is not valid YAML",
+   "argv": [
+    "hermes",
+    "chat",
+    "-q",
+    "hello",
+    "-Q",
+    "--ignore-rules",
+    "--max-turns",
+    "1"
+   ],
+   "exit_code": 2,
+   "timed_out": false,
+   "duration_s": 0.664,
+   "output": "Your settings file ($HERMES_HOME/config.yaml) has a formatting error at line 2. Hermes is running on default settings until it is fixed, so none of your saved settings are applied. Open it with `hermes config edit`, fix line 2, then run `hermes config check`. A copy of the broken file was saved to $HERMES_HOME/backups/config/config.yaml.corrupt.20261028-152948. Details: expected ',' or ']', but got '<stream end>'\n\u26a0\ufe0f  hermes config: Your settings file ($HERMES_HOME/config.yaml) has a formatting error at line 2. Hermes is running on default settings until it is fixed, so none of your saved settings are applied. Open it with `hermes config edit`, fix line 2, then run `hermes config check`. A copy of the broken file was saved to $HERMES_HOME/backups/config/config.yaml.corrupt.20261028-152948.\n    Details: expected ',' or ']', but got '<stream end>'\nError: Hermes stopped because your settings file ($HERMES_HOME/config.yaml) has a formatting error at line 2. Fix it with `hermes config edit` and check with `hermes config check`, or add --ignore-user-config to run once with default settings. Details: expected ',' or ']', but got '<stream end>'\n",
+   "gateway_log_tail": ""
+  },
+  {
+   "id": "credentials-missing",
+   "group": "credentials",
+   "what": "openrouter selected with no API key anywhere",
+   "argv": [
+    "hermes",
+    "chat",
+    "-q",
+    "hello",
+    "-Q",
+    "--ignore-rules",
+    "--max-turns",
+    "1"
+   ],
+   "exit_code": 1,
+   "timed_out": false,
+   "duration_s": 3.265,
+   "output": "\n\u26a0\ufe0f  No API key found for provider 'openrouter'.\n   Run 'hermes model' to choose a provider, or 'hermes setup' for first-time setup.\n",
+   "gateway_log_tail": ""
+  },
+  {
+   "id": "provider-unknown",
+   "group": "model",
+   "what": "--provider names a provider that does not exist",
+   "argv": [
+    "hermes",
+    "chat",
+    "-q",
+    "hello",
+    "-Q",
+    "--ignore-rules",
+    "--provider",
+    "not-a-provider",
+    "--max-turns",
+    "1"
+   ],
+   "exit_code": 1,
+   "timed_out": false,
+   "duration_s": 2.347,
+   "output": "Unknown provider 'not-a-provider'. Check 'hermes model' for available providers, or run 'hermes doctor' to diagnose config issues.\n",
+   "gateway_log_tail": ""
+  },
+  {
+   "id": "model-unknown",
+   "group": "model",
+   "what": "custom provider answers 404 model_not_found",
+   "argv": [
+    "hermes",
+    "chat",
+    "-q",
+    "hello",
+    "-Q",
+    "--ignore-rules",
+    "--max-turns",
+    "1"
+   ],
+   "exit_code": 1,
+   "timed_out": false,
+   "duration_s": 8.64,
+   "output": "Model 'definitely-not-a-model' isn't available on custom. Pick a different model with /model (or `hermes model` in a terminal).\n\nProvider said: HTTP 404: The model 'definitely-not-a-model' does not exist\n\nsession_id: local-886f7d9c2013dedbe8af4bb03d6c230d1cde6044b217fe61b7e293fe0b12edf3\n",
+   "gateway_log_tail": ""
+  },
+  {
+   "id": "net-refused",
+   "group": "network",
+   "what": "custom provider points at a closed loopback port",
+   "argv": [
+    "hermes",
+    "chat",
+    "-q",
+    "hello",
+    "-Q",
+    "--ignore-rules",
+    "--max-turns",
+    "1"
+   ],
+   "exit_code": -1,
+   "timed_out": true,
+   "duration_s": 150.102,
+   "output": "",
+   "gateway_log_tail": "\n--- errors.log (tail) ---\nt/f2-inputs/hermes-src/agent/chat_completion_helpers.py\", line 2501, in _with_stream_emitters\n    response = run()\n  File \"$HERMES_SRC/agent/chat_completion_helpers.py\", line 3757, in <lambda>\n    self.agent, lambda: self._call_wire(stream_attempt_id))\n                        ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"$HERMES_SRC/agent/chat_completion_helpers.py\", line 3733, in _call_wire\n    return self._call_chat_completions(stream_attempt_id)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"$HERMES_SRC/agent/chat_completion_helpers.py\", line 3075, in _call_chat_completions\n    stream = self._set_managed_stream(relay_llm.stream(self.api_kwargs, _open_stream,\n                                      ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        **_relay_stream_identity(self.agent, \"provider\"), finalizer=relay_response.finalize,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<2 lines>...\n        completed_response_predicate=lambda value: hasattr(value, \"choices\"),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        metadata=_relay_stream_metadata(self.agent, \"chat_completions\"), defer_logical_completion=True))\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"$HERMES_SRC/agent/relay_llm.py\", line 331, in __init__\n    self._start_unmanaged(request)\n    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"$HERMES_SRC/agent/relay_llm.py\", line 337, in _start_unmanaged\n    raw_stream = self._stream_factory(request)\n  File \"$HERMES_SRC/agent/chat_completion_helpers.py\", line 3066, in _open_stream\n    return self._open_chat_stream({**next_api_kwargs, \"stream\": True, \"timeout\": timeout})\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"$HERMES_SRC/agent/chat_completion_helpers.py\", line 2959, in _open_chat_stream\n    return request_client.chat.completions.create(**stream_kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"$HOME/.cache/damnbot/hermes-venv/lib/python3.14/site-packages/openai/_utils/_utils.py\", line 286, in wrapper\n    return func(*args, **kwargs)\n  File \"$HOME/.cache/damnbot/hermes-venv/lib/python3.14/site-packages/openai/resources/chat/completions/completions.py\", line 1204, in create\n    return self._post(\n           ~~~~~~~~~~^\n        \"/chat/completions\",\n        ^^^^^^^^^^^^^^^^^^^^\n    ...<47 lines>...\n        stream_cls=Stream[ChatCompletionChunk],\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"$HOME/.cache/damnbot/hermes-venv/lib/python3.14/site-packages/openai/_base_client.py\", line 1297, in post\n    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))\n                           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"$HOME/.cache/damnbot/hermes-venv/lib/python3.14/site-packages/openai/_base_client.py\", line 1037, in request\n    raise APIConnectionError(request=request) from err\nopenai.APIConnectionError: Connection error.\n2026-10-28 15:31:38,929 WARNING [local-b0abb85556002e1576a977ccb50565244ed3dd2e2d2bee209f6c701760067a42] agent.conversation_loop: API call failed (attempt 3/3) error_type=APIConnectionError thread=hermes-gateway_3:138245056751296 provider=custom base_url=http://127.0.0.1:9/v1 model=gpt-fake summary=Connection error.\n2026-10-28 15:31:38,930 WARNING [local-b0abb85556002e1576a977ccb50565244ed3dd2e2d2bee209f6c701760067a42] agent.conversation_loop: Provider unavailable (timeout) \u2014 auto-recovery cycle 3/5, retrying in 61s thread=hermes-gateway_3:138245056751296 provider=custom base_url=http://127.0.0.1:9/v1 model=gpt-fake\n\n--- gateway.log (tail) ---\n2026-10-28 15:30:08,386 INFO gateway.control_socket: Gateway control socket listening at $HERMES_HOME/gateway.sock\n2026-10-28 15:30:08,559 INFO gateway.run: Starting Hermes Gateway...\n2026-10-28 15:30:08,561 INFO gateway.run: Session storage: $HERMES_HOME/sessions\n2026-10-28 15:30:08,592 INFO gateway.run: Agent budget: max_iterations=1 (agent.max_turns from config.yaml, else the HERMES_MAX_ITERATIONS bridge)\n2026-10-28 15:30:08,592 INFO gateway.run: Secret redaction: ENABLED (tool output, logs, and chat responses are scrubbed before delivery)\n2026-10-28 15:30:08,644 WARNING gateway.run: No messaging platforms enabled.\n2026-10-28 15:30:08,644 INFO gateway.run: Gateway will continue running for cron job execution.\n2026-10-28 15:30:09,035 INFO gateway.run: Channel directory built: 0 target(s)\n2026-10-28 15:30:09,715 INFO gateway.run: Model context warmed: gpt-fake -> 256000 tokens (default)\n2026-10-28 15:30:09,718 INFO gateway.run: Turn machinery warmed in 1.0s (21 tool schema(s) materialized)\n2026-10-28 15:30:09,743 INFO gateway.run: Press Ctrl+C to stop\n2026-10-28 15:30:09,746 INFO gateway.run: kanban dispatcher: holding singleton dispatcher lock ($HERMES_HOME/kanban/.dispatcher.lock)\n2026-10-28 15:30:09,747 INFO gateway.run: kanban dispatcher: kanban.max_in_progress unset; using memory-derived default max_in_progress=8 (set kanban.max_in_progress in config.yaml to override)\n2026-10-28 15:30:09,758 INFO gateway.run: Cron scheduler will tick 1 profile(s): ['default']\n2026-10-28 15:30:09,763 INFO gateway.run: Auto-started gateway idle exit not armed: supervised by systemd\n2026-10-28 15:30:09,776 INFO gateway.run: Gateway housekeeping started (interval=60s)\n2026-10-28 15:30:11,280 INFO gateway.run: inbound message: platform=local user=uid:1001 chat=local-b0abb85556002e1576a977ccb50565244ed3dd2e2d2bee209f6c701760067a42 msg='hello' reply_to_id=None reply_to_text=''\n2026-10-28 15:30:14,748 INFO gateway.run: kanban dispatcher: embedded in gateway (interval=60.0s)\n"
+  },
+  {
+   "id": "net-dns",
+   "group": "network",
+   "what": "custom provider host does not resolve",
+   "argv": [
+    "hermes",
+    "chat",
+    "-q",
+    "hello",
+    "-Q",
+    "--ignore-rules",
+    "--max-turns",
+    "1"
+   ],
+   "exit_code": -1,
+   "timed_out": true,
+   "duration_s": 150.112,
+   "output": "",
+   "gateway_log_tail": "\n--- errors.log (tail) ---\nn()\n  File \"$HERMES_SRC/agent/chat_completion_helpers.py\", line 3757, in <lambda>\n    self.agent, lambda: self._call_wire(stream_attempt_id))\n                        ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"$HERMES_SRC/agent/chat_completion_helpers.py\", line 3733, in _call_wire\n    return self._call_chat_completions(stream_attempt_id)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^\n  File \"$HERMES_SRC/agent/chat_completion_helpers.py\", line 3075, in _call_chat_completions\n    stream = self._set_managed_stream(relay_llm.stream(self.api_kwargs, _open_stream,\n                                      ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        **_relay_stream_identity(self.agent, \"provider\"), finalizer=relay_response.finalize,\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    ...<2 lines>...\n        completed_response_predicate=lambda value: hasattr(value, \"choices\"),\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n        metadata=_relay_stream_metadata(self.agent, \"chat_completions\"), defer_logical_completion=True))\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"$HERMES_SRC/agent/relay_llm.py\", line 331, in __init__\n    self._start_unmanaged(request)\n    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^\n  File \"$HERMES_SRC/agent/relay_llm.py\", line 337, in _start_unmanaged\n    raw_stream = self._stream_factory(request)\n  File \"$HERMES_SRC/agent/chat_completion_helpers.py\", line 3066, in _open_stream\n    return self._open_chat_stream({**next_api_kwargs, \"stream\": True, \"timeout\": timeout})\n           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"$HERMES_SRC/agent/chat_completion_helpers.py\", line 2959, in _open_chat_stream\n    return request_client.chat.completions.create(**stream_kwargs)\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"$HOME/.cache/damnbot/hermes-venv/lib/python3.14/site-packages/openai/_utils/_utils.py\", line 286, in wrapper\n    return func(*args, **kwargs)\n  File \"$HOME/.cache/damnbot/hermes-venv/lib/python3.14/site-packages/openai/resources/chat/completions/completions.py\", line 1204, in create\n    return self._post(\n           ~~~~~~~~~~^\n        \"/chat/completions\",\n        ^^^^^^^^^^^^^^^^^^^^\n    ...<47 lines>...\n        stream_cls=Stream[ChatCompletionChunk],\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n    )\n    ^\n  File \"$HOME/.cache/damnbot/hermes-venv/lib/python3.14/site-packages/openai/_base_client.py\", line 1297, in post\n    return cast(ResponseT, self.request(cast_to, opts, stream=stream, stream_cls=stream_cls))\n                           ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"$HOME/.cache/damnbot/hermes-venv/lib/python3.14/site-packages/openai/_base_client.py\", line 1037, in request\n    raise APIConnectionError(request=request) from err\nopenai.APIConnectionError: Connection error.\n2026-10-28 15:34:11,214 WARNING [local-0a2e4ff83f7ed03bd965ee3b9ce99b01fc20c6b037268f5689baf5984697778a] agent.conversation_loop: API call failed (attempt 3/3) error_type=APIConnectionError thread=hermes-gateway_3:136302083155648 provider=custom base_url=http://f3-no-such-host.invalid/v1 model=gpt-fake summary=Hermes can't reach the model provider. You may be offline. Check your internet connection and try again.\n2026-10-28 15:34:11,216 WARNING [local-0a2e4ff83f7ed03bd965ee3b9ce99b01fc20c6b037268f5689baf5984697778a] agent.conversation_loop: Provider unavailable (timeout) \u2014 auto-recovery cycle 3/5, retrying in 62s thread=hermes-gateway_3:136302083155648 provider=custom base_url=http://f3-no-such-host.invalid/v1 model=gpt-fake\n\n--- gateway.log (tail) ---\n2026-10-28 15:32:38,469 INFO gateway.control_socket: Gateway control socket listening at $HERMES_HOME/gateway.sock\n2026-10-28 15:32:38,629 INFO gateway.run: Starting Hermes Gateway...\n2026-10-28 15:32:38,632 INFO gateway.run: Session storage: $HERMES_HOME/sessions\n2026-10-28 15:32:38,662 INFO gateway.run: Agent budget: max_iterations=1 (agent.max_turns from config.yaml, else the HERMES_MAX_ITERATIONS bridge)\n2026-10-28 15:32:38,663 INFO gateway.run: Secret redaction: ENABLED (tool output, logs, and chat responses are scrubbed before delivery)\n2026-10-28 15:32:38,707 WARNING gateway.run: No messaging platforms enabled.\n2026-10-28 15:32:38,707 INFO gateway.run: Gateway will continue running for cron job execution.\n2026-10-28 15:32:39,138 INFO gateway.run: Channel directory built: 0 target(s)\n2026-10-28 15:32:39,699 INFO gateway.run: Model context warmed: gpt-fake -> 256000 tokens (default)\n2026-10-28 15:32:39,701 INFO gateway.run: Turn machinery warmed in 1.0s (21 tool schema(s) materialized)\n2026-10-28 15:32:39,726 INFO gateway.run: Press Ctrl+C to stop\n2026-10-28 15:32:39,729 INFO gateway.run: kanban dispatcher: holding singleton dispatcher lock ($HERMES_HOME/kanban/.dispatcher.lock)\n2026-10-28 15:32:39,730 INFO gateway.run: kanban dispatcher: kanban.max_in_progress unset; using memory-derived default max_in_progress=8 (set kanban.max_in_progress in config.yaml to override)\n2026-10-28 15:32:39,740 INFO gateway.run: Cron scheduler will tick 1 profile(s): ['default']\n2026-10-28 15:32:39,752 INFO gateway.run: Auto-started gateway idle exit not armed: supervised by systemd\n2026-10-28 15:32:39,760 INFO gateway.run: Gateway housekeeping started (interval=60s)\n2026-10-28 15:32:41,093 INFO gateway.run: inbound message: platform=local user=uid:1001 chat=local-0a2e4ff83f7ed03bd965ee3b9ce99b01fc20c6b037268f5689baf5984697778a msg='hello' reply_to_id=None reply_to_text=''\n2026-10-28 15:32:44,731 INFO gateway.run: kanban dispatcher: embedded in gateway (interval=60.0s)\n"
+  },
+  {
+   "id": "cli-unknown-flag",
+   "group": "cli",
+   "what": "chat subcommand rejects an unknown flag",
+   "argv": [
+    "hermes",
+    "chat",
+    "--definitely-not-a-hermes-flag"
+   ],
+   "exit_code": 2,
+   "timed_out": false,
+   "duration_s": 0.8,
+   "output": "usage: hermes [-h] [--version] [-z PROMPT] [--usage-file PATH] [-m MODEL]\n              [--provider PROVIDER] [--reasoning LEVEL] [-t TOOLSETS]\n              [--resume SESSION] [--no-restore-cwd] [--in DIR]\n              [--continue [SESSION_NAME]] [--worktree] [--accept-hooks]\n              [--skills SKILLS] [--yolo] [--pass-session-id] [--checkpoints]\n              [--ignore-user-config] [--ignore-rules] [--safe-mode] [--tui]\n              [--native] [--cli] [--dev]\n              <command> ...\nhermes: error: unrecognized arguments: --definitely-not-a-hermes-flag\n",
+   "gateway_log_tail": ""
+  }
+ ],
+ "ratification": "pending human raters; these outputs are evidence, not a score"
+}

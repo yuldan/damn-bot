@@ -1,0 +1,308 @@
+{
+ "meta": {
+  "phase": "F3",
+  "date": "2026-10-28T17:54:43Z",
+  "hermes_commit": "868b9f244f",
+  "hermes_version": "Hermes Agent vunknown (2026.9.24)",
+  "python": "Python 3.14.10 (main, Oct 26 2026, 14:09:22) [Clang 23.1.3 ]",
+  "python_install": "python-build-standalone cpython-3.14.10+20261026 x86_64-unknown-linux-gnu-install_only_stripped.tar.gz (sha256 4d3c16c59ed0802a3d1d34d8bce504b15ceeaff39d62dadecc6a9fa803412aed) extracted to $DAMNBOT_CACHE/py314",
+  "hermes_install": "pip install -e . in $DAMNBOT_CACHE/hermes-venv (editable path; non-editable wheel/sdist refused by setup.py guard); 37 s with an empty pip cache",
+  "node": "v22.23.3",
+  "source": "$DAMNBOT_CACHE/f2-inputs/hermes-src (vendored, no .git; identity from the F0 baseline)",
+  "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
+  "kernel": "Linux/x86_64",
+  "loadavg_start": "1.94 1.60 1.21 1/559 1954854",
+  "loadavg": "2.02 1.67 1.27 1/549 1956782",
+  "harness": "bench/f3/hermes_measure.py (PTY + timestamped loopback OpenAI SSE + turnkey/build timing)",
+  "host_note": "workstation measurement, not the Q14 reference machine",
+  "command": "bench/f3/hermes.sh"
+ },
+ "hermes": "measured",
+ "hermes_detail": "classic prompt_toolkit REPL (`hermes chat --cli`) and the real Ink TUI (`hermes --tui`) under a PTY",
+ "dimensions": {
+  "cli_repl": {
+   "first_token": {
+    "agent": "hermes",
+    "surface": "classic prompt_toolkit REPL (`hermes chat --cli`) under a PTY",
+    "method": "T0 = fake provider writes the first streaming content frame carrying F3TOKEN; T1 = F3TOKEN visible in PTY output",
+    "token": "F3TOKEN",
+    "runs": 20,
+    "samples_ms": [
+     192.938,
+     158.28,
+     152.551,
+     181.034,
+     172.692,
+     151.099,
+     104.898,
+     170.775,
+     168.852,
+     236.503,
+     124.499,
+     142.989,
+     148.517,
+     148.198,
+     131.97,
+     140.017,
+     146.017,
+     146.628,
+     148.671,
+     152.747
+    ],
+    "p50_ms": 148.671,
+    "p95_ms": 192.938,
+    "cold_start_sample_ms": 210.071,
+    "warm_gateway": true,
+    "difference_from_damnbot": "Hermes runs the turn in a detached local gateway, so T0\u2192T1 includes a gateway hop and rich-console rendering; the Damn-Bot harness measures the in-process TUI path."
+   },
+   "startup": {
+    "method": "T0 = before pty fork/exec of `hermes chat --cli`; first_output = first PTY byte; prompt_ready = 'Welcome to Hermes Agent! Type your message' seen",
+    "runs": 20,
+    "first_output": {
+     "samples_ms": [
+      2575.522,
+      2617.157,
+      2653.405,
+      2657.739,
+      2680.682,
+      2602.864,
+      2626.023,
+      2591.573,
+      2552.85,
+      2644.566,
+      2709.277,
+      2459.317,
+      2626.113,
+      2479.87,
+      2476.825,
+      2725.945,
+      2712.093,
+      2561.215,
+      2483.449,
+      2736.066
+     ],
+     "p50_ms": 2617.157,
+     "p95_ms": 2725.945
+    },
+    "prompt_ready": {
+     "samples_ms": [
+      6614.879,
+      6601.067,
+      7081.037,
+      6855.128,
+      6848.465,
+      6733.589,
+      7011.777,
+      6750.462,
+      6809.488,
+      6772.656,
+      7011.941,
+      6600.45,
+      6852.753,
+      6652.125,
+      6675.853,
+      7110.994,
+      6710.355,
+      6511.322,
+      6767.787,
+      6975.469
+     ],
+     "p50_ms": 6767.787,
+     "p95_ms": 7081.037
+    },
+    "cold": {
+     "first_output_ms": 2134.835,
+     "prompt_ready_ms": 15759.006,
+     "note": "includes starting the detached gateway; excluded from the 20 warm samples"
+    }
+   },
+   "reused_from": "hermes-868b9f244f-F3.json",
+   "note": "classic-REPL numbers were measured in the earlier CLI pass over the same checkout; this pass added the Ink TUI."
+  },
+  "tui": {
+   "built": true,
+   "surface": "ink",
+   "command": "hermes --tui --yolo",
+   "transport": "Node/Ink bundle spawns `python -m tui_gateway.entry`; newline-delimited JSON-RPC over stdio",
+   "runtime_env": {
+    "HERMES_NODE": "/usr/bin/node",
+    "HERMES_PYTHON": "$HERMES_VENV/bin/python",
+    "note": "The launcher's PM path tried to provision its own Node under HERMES_HOME and failed (libatomic.so.1 missing; sudo unavailable), so the system Node 22 from PATH is pinned explicitly. This is a setup limitation, not a TUI requirement."
+   },
+   "first_token_p50_ms": 39.407,
+   "first_token_p95_ms": 46.948,
+   "first_frame_p50_ms": 1368.273,
+   "first_frame_p95_ms": 1518.447,
+   "first_token": {
+    "method": "T0 = fake provider writes the first streaming content frame carrying F3TOKEN; T1 = F3TOKEN visible in the TUI's PTY output",
+    "token": "F3TOKEN",
+    "runs": 20,
+    "samples_ms": [
+     36.921,
+     34.517,
+     45.78,
+     46.948,
+     39.407,
+     36.227,
+     36.955,
+     37.093,
+     43.319,
+     42.879,
+     35.07,
+     36.589,
+     51.159,
+     45.199,
+     37.008,
+     35.278,
+     40.685,
+     45.212,
+     46.792,
+     40.392
+    ],
+    "p50_ms": 39.407,
+    "p95_ms": 46.948,
+    "cold_start_sample_ms": 55.95,
+    "note": "each sample starts a fresh Node app and Python gateway; only the OS caches are warm"
+   },
+   "first_frame": {
+    "method": "T0 = before pty fork/exec of `hermes --tui`; first_frame = the first painted chrome frame ('summoning hermes'); first_byte = first PTY byte (Ink's initial mouse-mode reset); prompt_ready = the intro/tool list ('Available Tools') that carries the composer",
+    "runs": 20,
+    "samples_ms": [
+     1518.447,
+     1368.517,
+     1304.813,
+     1350.765,
+     1429.296,
+     1294.463,
+     1333.016,
+     1311.424,
+     1299.018,
+     1368.273,
+     1512.002,
+     1366.618,
+     1419.557,
+     1419.478,
+     1622.173,
+     1333.791,
+     1372.13,
+     1383.275,
+     1402.448,
+     1335.439
+    ],
+    "p50_ms": 1368.273,
+    "p95_ms": 1518.447,
+    "first_byte": {
+     "samples_ms": [
+      100.222,
+      96.79,
+      88.434,
+      93.557,
+      86.574,
+      97.383,
+      90.185,
+      85.235,
+      90.884,
+      98.874,
+      89.387,
+      95.164,
+      95.07,
+      92.5,
+      109.207,
+      94.896,
+      98.663,
+      109.171,
+      109.235,
+      90.051
+     ],
+     "p50_ms": 94.896,
+     "p95_ms": 109.207
+    },
+    "prompt_ready": {
+     "samples_ms": [
+      1967.313,
+      1826.609,
+      1787.66,
+      1789.874,
+      1891.658,
+      1772.742,
+      1808.154,
+      1725.955,
+      1799.102,
+      1834.405,
+      1968.761,
+      1830.173,
+      1930.591,
+      1903.488,
+      2098.215,
+      1812.859,
+      1884.63,
+      1837.032,
+      1953.45,
+      1834.726
+     ],
+     "p50_ms": 1834.405,
+     "p95_ms": 1968.761
+    },
+    "cold": {
+     "first_byte_ms": 95.739,
+     "first_frame_ms": 1379.019,
+     "prompt_ready_ms": 7373.09,
+     "note": "fresh HERMES_HOME: first session and gateway; excluded from the warm samples"
+    }
+   },
+   "build": {
+    "node": "v22.23.3",
+    "npm": "10.9.9",
+    "install": {
+     "command": "npm ci --workspace ui-tui --no-audit --no-fund",
+     "cwd": "$HERMES_SRC",
+     "samples_s": [
+      5.899,
+      6.1,
+      6.426
+     ],
+     "p50_s": 6.1,
+     "p95_s": 6.426
+    },
+    "bundle": {
+     "command": "npm run build  # -> scripts/build/tui.mjs -> ui-tui/dist/entry.js",
+     "cwd": "$HERMES_SRC/ui-tui",
+     "samples_s": [
+      0.693,
+      0.687,
+      0.717
+     ],
+     "p50_s": 0.693,
+     "p95_s": 0.717
+    },
+    "publish": "cp -a ui-tui/dist hermes_cli/tui_dist && printf '{\"type\":\"module\"}\\n' > hermes_cli/tui_dist/package.json",
+    "note": "npm's cache lives under the build work directory: the first sample filled it, the next two reused it. A root `npm ci` fails on this host because node-pty (apps/desktop, tests-js) has no linux-x64 prebuild and no g++ is installed; the TUI workspace does not use it."
+   },
+   "difference_from_damnbot": "Hermes renders through Ink over a separate Python gateway process, so T0\u2192T1 includes an extra IPC hop; Damn-Bot renders in-process."
+  },
+  "buildtime": {
+   "clean": {
+    "method": "fresh `python -m venv` + `pip install --no-cache-dir -e <hermes-src>` (deps downloaded from PyPI; venv creation included)",
+    "samples_s": [
+     66.27642277197447,
+     245.94958198501263,
+     41.14768730098149
+    ],
+    "p50_s": 66.27642277197447,
+    "p95_s": 245.94958198501263
+   },
+   "incremental": {
+    "method": "same venv, comment appended to hermes_cli/version_info.py, `pip install --no-cache-dir --no-deps -e <hermes-src>`",
+    "samples_s": [
+     4.841185788973235,
+     4.535268692008685,
+     4.755940194008872
+    ],
+    "p50_s": 4.755940194008872,
+    "p95_s": 4.841185788973235
+   },
+   "note": "Python packaging has no compile step; clean install is dominated by dependency download/wheel extraction. Measured on the workstation network, not a clean 10 Mbit/s VM."
+  },
+  "error_informatif": "supplementary: 8 common Hermes failure scenarios captured in results/hermes-errors-868b9f244f.json; not a substitute for human raters"
+ }
+}
