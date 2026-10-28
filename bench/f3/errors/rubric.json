@@ -1,0 +1,88 @@
+{
+  "schema": "damnbot.f3.errors.rubric/v1",
+  "purpose": "Bahan penilaian manusia untuk dimensi SCORECARD §1.4 'Error informatif' (docs/SCORECARD.md:68). Rubric ini tidak menghasilkan skor sendiri; ia memberi definisi operasional agar dua rater independen dapat menilai 60 capture yang sama.",
+  "scale": {
+    "min": 1,
+    "max": 5,
+    "integers_only": true
+  },
+  "unit_of_rating": "Satu file captured/<id>.json. Nilai stdout dan stderr setelah sanitasi; jangan menilai isi argv kasus sebagai pesan.",
+  "dimensions": [
+    {
+      "id": "what_failed",
+      "label": "Menyebut apa yang gagal",
+      "question": "Apakah pesan menunjuk objek dan operasi yang gagal?",
+      "anchors": {
+        "1": "Output kosong, atau hanya kode exit tanpa teks apa pun.",
+        "2": "Hanya menyebut kelas umum ('error', 'failed', 'invalid') tanpa objek atau operasi.",
+        "3": "Menyebut komponen atau operasi (mis. 'open ctxdb', 'load config'), tetapi tidak menyebut objek konkret (path, key, model, endpoint).",
+        "4": "Menyebut operasi dan objek konkret (mis. 'config: loop.max_iterations', 'model openai/x', 'damnbot.db').",
+        "5": "Menyebut operasi, objek konkret, dan keadaan akhir yang spesifik (mis. 'db version 9 > binary 8', 'migration 0001_core checksum mismatch', 'HTTP 401 missing_api_key')."
+      }
+    },
+    {
+      "id": "why",
+      "label": "Menyebut mengapa (penyebab/konteks)",
+      "question": "Apakah pesan memberi penyebab atau konteks yang membedakan kegagalan ini dari kegagalan lain?",
+      "anchors": {
+        "1": "Tidak ada penyebab atau konteks.",
+        "2": "Hanya mengulang status ('failed') tanpa sebab.",
+        "3": "Menyebut kategori penyebab yang dapat dikenali (izin, format, jaringan, auth, timeout, schema).",
+        "4": "Menyebut kategori dan bukti pendukung (path/permission denied, line number, HTTP status + code, byte offset, hostname).",
+        "5": "Menyebut kategori, bukti, dan batas/konteks yang menjelaskan mengapa percobaan tidak bisa dilanjutkan (mis. 'after 1 attempt(s)', 'non-loopback dial refused', 'old processes running (tui pid 999999)')."
+      }
+    },
+    {
+      "id": "what_to_do",
+      "label": "Menyebut apa yang harus dilakukan",
+      "question": "Apakah pesan memberi langkah perbaikan yang konkret dan dapat dieksekusi?",
+      "anchors": {
+        "1": "Tidak ada langkah perbaikan.",
+        "2": "Hanya saran samar ('cek config', 'coba lagi') tanpa objek atau nilai.",
+        "3": "Menyebut satu tindakan konkret atau objek yang harus diubah (mis. nama key, path, provider), tetapi tanpa nilai/format/contoh.",
+        "4": "Menyebut tindakan konkret beserta nilai, format, atau contoh yang bisa langsung dipakai (mis. 'must be in 1..40', 'must be ask, auto-edit or auto', 'set OPENAI_API_KEY').",
+        "5": "Memberi urutan pemulihan yang lengkap dan aman (tindakan utama + cara memverifikasi/rollback, mis. perbaiki config lalu jalankan ulang; backup DB sebelum migrasi)."
+      }
+    },
+    {
+      "id": "no_secret_leak",
+      "label": "Tidak membocorkan rahasia/data sensitif",
+      "question": "Apakah output bebas dari kredensial, token, isi prompt, dan data user?",
+      "anchors": {
+        "1": "Menampilkan secret lengkap (API key, bearer token, password) atau isi data user.",
+        "2": "Menampilkan potongan secret yang cukup untuk disalahgunakan (≥ 8 karakter) atau path lengkap ke file secret.",
+        "3": "Tidak menampilkan secret, tetapi menampilkan data sensitif lain (isi prompt, isi file user) atau path rumah/nama user mentah.",
+        "4": "Tidak ada secret atau data user; path dan identitas sudah disamarkan atau hanya path konfigurasi yang relevan.",
+        "5": "Tidak ada secret, data user, path rumah, maupun nama host; nilai sensitif diganti placeholder yang jelas."
+      }
+    },
+    {
+      "id": "no_stack_for_usage",
+      "label": "Tidak menampilkan stack trace/panic untuk kesalahan penggunaan",
+      "question": "Apakah pesan tetap menjadi pesan penggunaan, bukan jejak internal?",
+      "anchors": {
+        "1": "Ada 'panic:' atau 'goroutine …' di output.",
+        "2": "Ada stack trace multi-frame atau daftar file:line internal.",
+        "3": "Tidak ada stack trace, tetapi pesan menampilkan rantai wrapper internal yang panjang (≥ 4 lapisan 'a: b: c: d').",
+        "4": "Tidak ada stack/panic; paling banyak satu atau dua pembungkus internal yang masih membantu (mis. 'open ctxdb: …').",
+        "5": "Pesan bersih berorientasi pengguna tanpa frame internal, atau detail internal hanya muncul sebagai kode/status terstruktur (mis. HTTP 401, schema_newer)."
+      }
+    }
+  ],
+  "case_flags": {
+    "informative": "Kasus dihitung 'informatif' (selaras rubrik biner SCORECARD) bila what_failed ≥ 3, why ≥ 3, what_to_do ≥ 3, no_secret_leak ≥ 4, dan no_stack_for_usage ≥ 4.",
+    "unsafe": "Kasus ditandai 'unsafe' bila no_secret_leak ≤ 2 atau no_stack_for_usage ≤ 2; laporkan terpisah, jangan dirata-ratakan."
+  },
+  "aggregation": {
+    "per_case_mean": "mean(what_failed, why, what_to_do, no_secret_leak, no_stack_for_usage), satu desimal.",
+    "group_mean": "mean dari per_case_mean untuk 5 kasus dalam grup yang sama.",
+    "informative_pct": "100 × jumlah kasus dengan flag informative / 60. Ini angka yang dibandingkan dengan target SCORECARD ≥ 95%.",
+    "two_raters": "Hitung informative_pct untuk masing-masing rater, lalu laporkan rata-rata dan selisih absolut. Kasus dengan selisih skor > 1 pada dimensi mana pun dibahas dan diputuskan rater ketiga; jangan merata-ratakan sebelum adjudikasi.",
+    "reporting": "Laporkan per grup: n, mean, informative count, dan daftar kasus unsafe. Jangan melaporkan satu angka tunggal tanpa kedua angka rater."
+  },
+  "rater_protocol": {
+    "independence": "Kedua rater menilai capture yang sama tanpa melihat skor rater lain dan tanpa melihat commit yang memperbaiki pesan.",
+    "evidence": "Setiap skor < 3 harus mengutip potongan output yang menjadi bukti.",
+    "scope": "Nilai kualitas pesan yang benar-benar dihasilkan binary; jangan menilai kualitas kasus atau fixture."
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "id": "migrate-old-holder",
+  "group": "db-migration",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/migrate-old-holder/data"
+  ],
+  "exit_code": 2,
+  "duration_ms": 33,
+  "stdout": "",
+  "stderr": "run: open ctxdb: ctxdb: old processes running (tui pid 999999): migration_refused\n"
+}

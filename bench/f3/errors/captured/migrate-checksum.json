@@ -1,0 +1,17 @@
+{
+  "id": "migrate-checksum",
+  "group": "db-migration",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/migrate-checksum/data"
+  ],
+  "exit_code": 2,
+  "duration_ms": 25,
+  "stdout": "",
+  "stderr": "run: open ctxdb: ctxdb: migration 0008_guards checksum mismatch: internal\n"
+}

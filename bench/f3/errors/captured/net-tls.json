@@ -1,0 +1,25 @@
+{
+  "id": "net-tls",
+  "group": "network",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/net-tls/data",
+    "--base-url",
+    "https://127.0.0.1:{PORT}/ok/v1",
+    "--api-key",
+    "{REDACTED}",
+    "--provider-attempts",
+    "1",
+    "--output",
+    "json"
+  ],
+  "exit_code": 2,
+  "duration_ms": 161,
+  "stdout": "{\"schema\":\"damnbot.turn_result/v1\",\"session_id\":\"{SESSION_ID}\",\"stop_reason\":\"error\",\"stop_detail\":\"provider_error\",\"answer\":\"\",\"error\":\"provider: openai/fake: unclassified after 1 attempt(s): provider unclassified: inference POST 127.0.0.1:{PORT}: http: server gave HTTP response to HTTPS client\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"output_tokens\":0,\"iterations\":1}}\n",
+  "stderr": ""
+}

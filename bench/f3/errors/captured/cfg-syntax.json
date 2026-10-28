@@ -1,0 +1,17 @@
+{
+  "id": "cfg-syntax",
+  "group": "config-invalid",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--config",
+    "{TMP}/cases/cfg-syntax/config.toml",
+    "--data-dir",
+    "{TMP}/cases/cfg-syntax/data"
+  ],
+  "exit_code": 2,
+  "duration_ms": 10,
+  "stdout": "",
+  "stderr": "run: load config: config: provider.model (line 1): expected value but found '\\n' instead\n"
+}

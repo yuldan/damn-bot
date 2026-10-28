@@ -1,0 +1,17 @@
+{
+  "id": "data-dir-parent-file",
+  "group": "data-dir",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/data-dir-parent-file/parent/data"
+  ],
+  "exit_code": 2,
+  "duration_ms": 9,
+  "stdout": "",
+  "stderr": "run: open ctxdb: ctxdb: mkdir {TMP}/cases/data-dir-parent-file/parent: not a directory\n"
+}

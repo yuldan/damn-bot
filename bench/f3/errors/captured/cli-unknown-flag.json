@@ -1,0 +1,14 @@
+{
+  "id": "cli-unknown-flag",
+  "group": "cli-usage",
+  "argv": [
+    "run",
+    "--bogus",
+    "-p",
+    "hi"
+  ],
+  "exit_code": 2,
+  "duration_ms": 4,
+  "stdout": "",
+  "stderr": "flag provided but not defined: -bogus\nUsage of run:\n  -api-key string\n    \tinternal/test: provider API key\n  -approval string\n    \task|auto-edit|auto (default \"ask\")\n  -base-url string\n    \tinternal/test: provider base URL\n  -config string\n    \tconfig.toml path (default: profile path)\n  -data-dir string\n    \tdata directory (default: SPEC §11)\n  -model string\n    \tprovider/model reference\n  -offline\n    \tnetwork.offline: loopback only\n  -output string\n    \ttext|json|stream-json (default \"text\")\n  -p string\n    \tprompt (also accepted as positional text)\n  -prompt string\n    \tprompt (also accepted as positional text)\n  -provider-attempts int\n    \tinternal/test: provider retry attempts (0 = default 3)\n  -unsafe-auto-shell\n    \truns arbitrary shell commands chosen by the model without confirmation; use only in a disposable container\n"
+}

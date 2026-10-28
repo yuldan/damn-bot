@@ -1,0 +1,17 @@
+{
+  "id": "migrate-schema-newer",
+  "group": "db-migration",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/migrate-schema-newer/data"
+  ],
+  "exit_code": 2,
+  "duration_ms": 19,
+  "stdout": "",
+  "stderr": "run: open ctxdb: ctxdb: db version 9 \u003e binary 8: schema_newer\n"
+}

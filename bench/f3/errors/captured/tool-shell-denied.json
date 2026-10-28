@@ -1,0 +1,27 @@
+{
+  "id": "tool-shell-denied",
+  "group": "tool-args",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/tool-shell-denied/data",
+    "--config",
+    "{TMP}/cases/tool-shell-denied/loop.toml",
+    "--base-url",
+    "{SERVER}/tool-shell/v1",
+    "--api-key",
+    "{REDACTED}",
+    "--provider-attempts",
+    "1",
+    "--output",
+    "stream-json"
+  ],
+  "exit_code": 2,
+  "duration_ms": 133,
+  "stdout": "{\"type\":\"usage\"}\n{\"type\":\"tool_call_end\",\"text\":\"{\\\"command\\\":\\\"echo hi\\\"}\",\"tool\":\"shell\"}\n{\"type\":\"tool_result\",\"text\":\"{\\\"ok\\\":false,\\\"error\\\":{\\\"code\\\":\\\"denied\\\",\\\"message\\\":\\\"shell is not allowed in this mode\\\"}}\",\"tool\":\"shell\"}\n{\"type\":\"stop\",\"stop\":\"max_iterations\",\"detail\":\"max_iterations\"}\n{\"schema\":\"damnbot.turn_result/v1\",\"session_id\":\"{SESSION_ID}\",\"stop_reason\":\"max_iterations\",\"stop_detail\":\"max_iterations\",\"answer\":\"\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"output_tokens\":0,\"iterations\":0},\"type\":\"result\"}\n",
+  "stderr": ""
+}

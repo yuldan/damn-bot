@@ -1,0 +1,2385 @@
+{
+  "schema": "damnbot.f3.errors.scores-proxy/v1",
+  "rubric_version": "v1",
+  "rubric_sha256": "ff1938264c452fdb0bf7492f0dd705961c586610b48b7302e88555bad8c0576b",
+  "provenance": {
+    "rater_a_file": "errors-scores-a.json",
+    "rater_a_sha256": "069ed8dd71bc4b5b1b320883f13676b6e8aa515c248fe8c3bbdf53b2bcc85c6d",
+    "rater_b_file": "errors-scores-b.json",
+    "rater_b_sha256": "9e138abf246ca8ea665c54c5b35211bed1626590041324c5fa506f080829045f",
+    "source_score_summaries": {
+      "a": {
+        "mean_a": 4.37,
+        "mean_b": 3.9,
+        "mean_c": 2.32,
+        "mean_d": 5.0,
+        "mean_e": 3.72,
+        "cases": 60,
+        "lowest": [
+          {
+            "id": "cli-no-args",
+            "dim": "b",
+            "score": 1
+          },
+          {
+            "id": "cli-unknown-command",
+            "dim": "b",
+            "score": 1
+          },
+          {
+            "id": "cred-forbidden",
+            "dim": "c",
+            "score": 1
+          },
+          {
+            "id": "migrate-checksum",
+            "dim": "c",
+            "score": 1
+          },
+          {
+            "id": "migrate-rerun-old-version",
+            "dim": "c",
+            "score": 1
+          }
+        ]
+      },
+      "b": {
+        "mean_a": 4.32,
+        "mean_b": 3.88,
+        "mean_c": 2.18,
+        "mean_d": 4.98,
+        "mean_e": 3.7,
+        "cases": 60,
+        "lowest": [
+          {
+            "id": "db-is-directory",
+            "dim": "c",
+            "score": 1
+          },
+          {
+            "id": "cli-no-args",
+            "dim": "b",
+            "score": 1
+          },
+          {
+            "id": "cli-unknown-command",
+            "dim": "b",
+            "score": 1
+          },
+          {
+            "id": "db-bad-magic",
+            "dim": "c",
+            "score": 1
+          },
+          {
+            "id": "db-bad-pagesize",
+            "dim": "c",
+            "score": 1
+          }
+        ]
+      }
+    }
+  },
+  "method": {
+    "scale": "integer 1..5",
+    "dimensions": {
+      "a": "what_failed",
+      "b": "why",
+      "c": "what_to_do",
+      "d": "no_secret_leak",
+      "e": "no_stack_for_usage"
+    },
+    "exact_match": "A==B; dimension-level rate and all-five-case rate",
+    "agreement": "mean absolute difference A-B per dimension",
+    "top5": "sum of absolute differences across five dimensions; ties broken by case id ascending",
+    "invalid_case_handling": "net-tls excluded from valid_cases basis because its capture was replaced after the fixture fix; its A/B scores are retained only as historical rows"
+  },
+  "cases": [
+    {
+      "id": "cfg-syntax",
+      "group": "config-invalid",
+      "rater_a": {
+        "a": 4,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 4.0,
+        "c": 3.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cfg-unknown-key",
+      "group": "config-invalid",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.5,
+        "b": 4.0,
+        "c": 3.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cfg-range",
+      "group": "config-invalid",
+      "rater_a": {
+        "a": 5,
+        "b": 3,
+        "c": 4,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 4,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.5,
+        "b": 3.5,
+        "c": 4.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 1,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 2,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cfg-duration",
+      "group": "config-invalid",
+      "rater_a": {
+        "a": 4,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 4.0,
+        "c": 3.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cfg-duplicate-key",
+      "group": "config-invalid",
+      "rater_a": {
+        "a": 4,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.5,
+        "b": 4.0,
+        "c": 3.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cfg-path-directory",
+      "group": "config-unreadable",
+      "rater_a": {
+        "a": 4,
+        "b": 2,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 2,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 2.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cfg-no-read",
+      "group": "config-unreadable",
+      "rater_a": {
+        "a": 4,
+        "b": 2,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 2,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 2.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cfg-symlink-loop",
+      "group": "config-unreadable",
+      "rater_a": {
+        "a": 4,
+        "b": 2,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 2,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 2.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cfg-too-large",
+      "group": "config-unreadable",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.5,
+        "b": 4.0,
+        "c": 3.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cfg-parent-no-exec",
+      "group": "config-unreadable",
+      "rater_a": {
+        "a": 4,
+        "b": 2,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 2,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 2.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "data-dir-is-file",
+      "group": "data-dir",
+      "rater_a": {
+        "a": 4,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.5,
+        "b": 4.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "data-dir-parent-file",
+      "group": "data-dir",
+      "rater_a": {
+        "a": 4,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 4.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "data-dir-readonly",
+      "group": "data-dir",
+      "rater_a": {
+        "a": 3,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 3.5,
+        "b": 4.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "data-dir-parent-readonly",
+      "group": "data-dir",
+      "rater_a": {
+        "a": 4,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.5,
+        "b": 4.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "data-dir-run-is-file",
+      "group": "data-dir",
+      "rater_a": {
+        "a": 3,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 3.5,
+        "b": 4.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "db-random-bytes",
+      "group": "db-corrupt",
+      "rater_a": {
+        "a": 3,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 3,
+        "b": 3,
+        "c": 1,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 3.0,
+        "b": 3.5,
+        "c": 1.5,
+        "d": 5.0,
+        "e": 3.5
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 1,
+        "d": 0,
+        "e": 1
+      },
+      "sum_abs_diff": 3,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "db-is-directory",
+      "group": "db-corrupt",
+      "rater_a": {
+        "a": 3,
+        "b": 3,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 3,
+        "b": 2,
+        "c": 1,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 3.0,
+        "b": 2.5,
+        "c": 1.5,
+        "d": 5.0,
+        "e": 3.5
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 1,
+        "d": 0,
+        "e": 1
+      },
+      "sum_abs_diff": 3,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "db-truncated",
+      "group": "db-corrupt",
+      "rater_a": {
+        "a": 3,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 3,
+        "b": 3,
+        "c": 1,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 3.0,
+        "b": 3.5,
+        "c": 1.5,
+        "d": 5.0,
+        "e": 3.5
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 1,
+        "d": 0,
+        "e": 1
+      },
+      "sum_abs_diff": 3,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "db-bad-magic",
+      "group": "db-corrupt",
+      "rater_a": {
+        "a": 3,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 3,
+        "b": 3,
+        "c": 1,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 3.0,
+        "b": 3.5,
+        "c": 1.5,
+        "d": 5.0,
+        "e": 3.5
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 1,
+        "d": 0,
+        "e": 1
+      },
+      "sum_abs_diff": 3,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "db-bad-pagesize",
+      "group": "db-corrupt",
+      "rater_a": {
+        "a": 3,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 3,
+        "b": 3,
+        "c": 1,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 3.0,
+        "b": 3.5,
+        "c": 1.5,
+        "d": 5.0,
+        "e": 3.5
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 1,
+        "d": 0,
+        "e": 1
+      },
+      "sum_abs_diff": 3,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "migrate-schema-newer",
+      "group": "db-migration",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 1,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 4.5,
+        "c": 1.5,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 1,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 2,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "migrate-checksum",
+      "group": "db-migration",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 1,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 4.0,
+        "c": 1.5,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 1,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "migrate-rerun-old-version",
+      "group": "db-migration",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 1,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 4.5,
+        "c": 1.5,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 1,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 2,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "migrate-old-holder",
+      "group": "db-migration",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 3.0,
+        "d": 5.0,
+        "e": 4.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "migrate-backup-fails",
+      "group": "db-migration",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 4.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.5
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 1
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "model-no-slash",
+      "group": "provider-model",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 4,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 4,
+        "c": 4,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 4.0,
+        "c": 4.0,
+        "d": 5.0,
+        "e": 3.5
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 1
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "model-unknown-provider",
+      "group": "provider-model",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 4,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 4,
+        "c": 4,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 4.0,
+        "c": 4.0,
+        "d": 5.0,
+        "e": 3.5
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 1
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "model-empty-provider",
+      "group": "provider-model",
+      "rater_a": {
+        "a": 4,
+        "b": 4,
+        "c": 4,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 3,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 3.5,
+        "c": 3.5,
+        "d": 5.0,
+        "e": 3.5
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 1,
+        "d": 0,
+        "e": 1
+      },
+      "sum_abs_diff": 3,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "model-not-found",
+      "group": "provider-model",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 1,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 1.5,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 1,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "model-invalid",
+      "group": "provider-model",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 1,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 1.5,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 1,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cred-missing",
+      "group": "credentials",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cred-invalid",
+      "group": "credentials",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cred-forbidden",
+      "group": "credentials",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 1,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 1,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 1.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cred-env-invalid",
+      "group": "credentials",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cred-header-newline",
+      "group": "credentials",
+      "rater_a": {
+        "a": 4,
+        "b": 5,
+        "c": 3,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 4.5,
+        "c": 2.5,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 1,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 2,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "net-refused",
+      "group": "network",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "net-dns",
+      "group": "network",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 4,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 2.0,
+        "d": 4.5,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 1,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "net-offline",
+      "group": "network",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "net-bad-url",
+      "group": "network",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 4.5,
+        "c": 2.5,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 1,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 2,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "net-tls",
+      "group": "network",
+      "rater_a": {
+        "a": 4,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 1,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 4.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 2,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 2,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": false,
+      "invalid_reason": "capture lama memakai placeholder {port} yang tidak tersubstitusi; skor A/B merujuk parse error, bukan TLS"
+    },
+    {
+      "id": "timeout-ttfb",
+      "group": "timeout-retry",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "timeout-dial",
+      "group": "timeout-retry",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "retry-rate-limit",
+      "group": "timeout-retry",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "retry-server-error",
+      "group": "timeout-retry",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 1,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 1.5,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 1,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "retry-unavailable",
+      "group": "timeout-retry",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 1,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 1.5,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 1,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "tool-unknown",
+      "group": "tool-args",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 5
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 3,
+        "c": 3,
+        "d": 5,
+        "e": 5
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 3.5,
+        "c": 3.0,
+        "d": 5.0,
+        "e": 5.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "tool-bad-json",
+      "group": "tool-args",
+      "rater_a": {
+        "a": 4,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 5
+      },
+      "rater_b": {
+        "a": 3,
+        "b": 3,
+        "c": 4,
+        "d": 5,
+        "e": 5
+      },
+      "mean": {
+        "a": 3.5,
+        "b": 3.5,
+        "c": 3.5,
+        "d": 5.0,
+        "e": 5.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 1,
+        "c": 1,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 3,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "tool-path-traversal",
+      "group": "tool-args",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 5
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 3,
+        "d": 5,
+        "e": 5
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 4.5,
+        "c": 3.0,
+        "d": 5.0,
+        "e": 5.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "tool-missing-required",
+      "group": "tool-args",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 4,
+        "d": 5,
+        "e": 5
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 4,
+        "c": 4,
+        "d": 5,
+        "e": 5
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 4.0,
+        "c": 4.0,
+        "d": 5.0,
+        "e": 5.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "tool-shell-denied",
+      "group": "tool-args",
+      "rater_a": {
+        "a": 5,
+        "b": 3,
+        "c": 2,
+        "d": 5,
+        "e": 5
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 3,
+        "c": 2,
+        "d": 5,
+        "e": 5
+      },
+      "mean": {
+        "a": 4.5,
+        "b": 3.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 5.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "stream-malformed-json",
+      "group": "provider-stream",
+      "rater_a": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 5,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 5.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "stream-html-body",
+      "group": "provider-stream",
+      "rater_a": {
+        "a": 4,
+        "b": 3,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 3,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 3.5,
+        "b": 3.5,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 1,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 2,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "stream-empty",
+      "group": "provider-stream",
+      "rater_a": {
+        "a": 5,
+        "b": 3,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 4.5,
+        "b": 3.5,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 1,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 2,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "stream-redirect",
+      "group": "provider-stream",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 4.5,
+        "b": 4.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 1,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "stream-no-choices",
+      "group": "provider-stream",
+      "rater_a": {
+        "a": 4,
+        "b": 3,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 4,
+        "c": 2,
+        "d": 5,
+        "e": 3
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 3.5,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 3.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 1,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cli-no-args",
+      "group": "cli-usage",
+      "rater_a": {
+        "a": 2,
+        "b": 1,
+        "c": 2,
+        "d": 5,
+        "e": 5
+      },
+      "rater_b": {
+        "a": 2,
+        "b": 1,
+        "c": 2,
+        "d": 5,
+        "e": 5
+      },
+      "mean": {
+        "a": 2.0,
+        "b": 1.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 5.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cli-unknown-flag",
+      "group": "cli-usage",
+      "rater_a": {
+        "a": 5,
+        "b": 4,
+        "c": 4,
+        "d": 5,
+        "e": 5
+      },
+      "rater_b": {
+        "a": 5,
+        "b": 4,
+        "c": 3,
+        "d": 5,
+        "e": 5
+      },
+      "mean": {
+        "a": 5.0,
+        "b": 4.0,
+        "c": 3.5,
+        "d": 5.0,
+        "e": 5.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 1,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cli-bad-output",
+      "group": "cli-usage",
+      "rater_a": {
+        "a": 4,
+        "b": 3,
+        "c": 3,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 3,
+        "c": 2,
+        "d": 5,
+        "e": 5
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 3.0,
+        "c": 2.5,
+        "d": 5.0,
+        "e": 4.5
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 1,
+        "d": 0,
+        "e": 1
+      },
+      "sum_abs_diff": 2,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cli-missing-prompt",
+      "group": "cli-usage",
+      "rater_a": {
+        "a": 4,
+        "b": 2,
+        "c": 2,
+        "d": 5,
+        "e": 4
+      },
+      "rater_b": {
+        "a": 4,
+        "b": 2,
+        "c": 2,
+        "d": 5,
+        "e": 5
+      },
+      "mean": {
+        "a": 4.0,
+        "b": 2.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 4.5
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 1
+      },
+      "sum_abs_diff": 1,
+      "exact_match_all_five": false,
+      "valid_for_aggregate": true
+    },
+    {
+      "id": "cli-unknown-command",
+      "group": "cli-usage",
+      "rater_a": {
+        "a": 2,
+        "b": 1,
+        "c": 2,
+        "d": 5,
+        "e": 5
+      },
+      "rater_b": {
+        "a": 2,
+        "b": 1,
+        "c": 2,
+        "d": 5,
+        "e": 5
+      },
+      "mean": {
+        "a": 2.0,
+        "b": 1.0,
+        "c": 2.0,
+        "d": 5.0,
+        "e": 5.0
+      },
+      "abs_diff": {
+        "a": 0,
+        "b": 0,
+        "c": 0,
+        "d": 0,
+        "e": 0
+      },
+      "sum_abs_diff": 0,
+      "exact_match_all_five": true,
+      "valid_for_aggregate": true
+    }
+  ],
+  "summary": {
+    "all_cases": {
+      "n": 60,
+      "dimensions": {
+        "a": {
+          "rater_a_mean": 4.3667,
+          "rater_b_mean": 4.3167,
+          "combined_mean": 4.3417,
+          "exact_match_rate": 0.7833,
+          "mean_absolute_difference": 0.2167
+        },
+        "b": {
+          "rater_a_mean": 3.9,
+          "rater_b_mean": 3.8833,
+          "combined_mean": 3.8917,
+          "exact_match_rate": 0.7167,
+          "mean_absolute_difference": 0.2833
+        },
+        "c": {
+          "rater_a_mean": 2.3167,
+          "rater_b_mean": 2.1833,
+          "combined_mean": 2.25,
+          "exact_match_rate": 0.6833,
+          "mean_absolute_difference": 0.3333
+        },
+        "d": {
+          "rater_a_mean": 5.0,
+          "rater_b_mean": 4.9833,
+          "combined_mean": 4.9917,
+          "exact_match_rate": 0.9833,
+          "mean_absolute_difference": 0.0167
+        },
+        "e": {
+          "rater_a_mean": 3.7167,
+          "rater_b_mean": 3.7,
+          "combined_mean": 3.7083,
+          "exact_match_rate": 0.8167,
+          "mean_absolute_difference": 0.1833
+        }
+      },
+      "exact_match_all_five_rate": 0.35,
+      "overall_mean": {
+        "rater_a": 3.86,
+        "rater_b": 3.8133,
+        "combined": 3.8367
+      }
+    },
+    "valid_cases": {
+      "n": 59,
+      "dimensions": {
+        "a": {
+          "rater_a_mean": 4.3729,
+          "rater_b_mean": 4.322,
+          "combined_mean": 4.3475,
+          "exact_match_rate": 0.7797,
+          "mean_absolute_difference": 0.2203
+        },
+        "b": {
+          "rater_a_mean": 3.8983,
+          "rater_b_mean": 3.8814,
+          "combined_mean": 3.8898,
+          "exact_match_rate": 0.7119,
+          "mean_absolute_difference": 0.2881
+        },
+        "c": {
+          "rater_a_mean": 2.3051,
+          "rater_b_mean": 2.2034,
+          "combined_mean": 2.2542,
+          "exact_match_rate": 0.6949,
+          "mean_absolute_difference": 0.3051
+        },
+        "d": {
+          "rater_a_mean": 5.0,
+          "rater_b_mean": 4.9831,
+          "combined_mean": 4.9915,
+          "exact_match_rate": 0.9831,
+          "mean_absolute_difference": 0.0169
+        },
+        "e": {
+          "rater_a_mean": 3.7288,
+          "rater_b_mean": 3.7119,
+          "combined_mean": 3.7203,
+          "exact_match_rate": 0.8136,
+          "mean_absolute_difference": 0.1864
+        }
+      },
+      "exact_match_all_five_rate": 0.3559,
+      "overall_mean": {
+        "rater_a": 3.861,
+        "rater_b": 3.8203,
+        "combined": 3.8407
+      }
+    },
+    "invalid_cases": [
+      {
+        "id": "net-tls",
+        "reason": "old capture tested invalid port parsing, not TLS; recaptured after runner fix; re-rating required"
+      }
+    ],
+    "top5_by_sum_abs_diff": [
+      {
+        "id": "db-bad-magic",
+        "group": "db-corrupt",
+        "sum_abs_diff": 3,
+        "abs_diff": {
+          "a": 0,
+          "b": 1,
+          "c": 1,
+          "d": 0,
+          "e": 1
+        },
+        "valid_for_aggregate": true
+      },
+      {
+        "id": "db-bad-pagesize",
+        "group": "db-corrupt",
+        "sum_abs_diff": 3,
+        "abs_diff": {
+          "a": 0,
+          "b": 1,
+          "c": 1,
+          "d": 0,
+          "e": 1
+        },
+        "valid_for_aggregate": true
+      },
+      {
+        "id": "db-is-directory",
+        "group": "db-corrupt",
+        "sum_abs_diff": 3,
+        "abs_diff": {
+          "a": 0,
+          "b": 1,
+          "c": 1,
+          "d": 0,
+          "e": 1
+        },
+        "valid_for_aggregate": true
+      },
+      {
+        "id": "db-random-bytes",
+        "group": "db-corrupt",
+        "sum_abs_diff": 3,
+        "abs_diff": {
+          "a": 0,
+          "b": 1,
+          "c": 1,
+          "d": 0,
+          "e": 1
+        },
+        "valid_for_aggregate": true
+      },
+      {
+        "id": "db-truncated",
+        "group": "db-corrupt",
+        "sum_abs_diff": 3,
+        "abs_diff": {
+          "a": 0,
+          "b": 1,
+          "c": 1,
+          "d": 0,
+          "e": 1
+        },
+        "valid_for_aggregate": true
+      }
+    ],
+    "top5_tie": {
+      "sum_abs_diff": 3,
+      "cases_at_cutoff": 7,
+      "ids": [
+        "db-bad-magic",
+        "db-bad-pagesize",
+        "db-is-directory",
+        "db-random-bytes",
+        "db-truncated",
+        "model-empty-provider",
+        "tool-bad-json"
+      ],
+      "note": "seven cases tie at sum=3; five shown by id tie-break"
+    }
+  },
+  "capture_snapshot": {
+    "commit": "42ad2b10",
+    "note": "Sanitized captures and A/B scores were produced on this pre-rebase binary. Later F3 commits change some messages; re-run run-errors.sh on the target commit and re-rate rather than mixing snapshots."
+  }
+}

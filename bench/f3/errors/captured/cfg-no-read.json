@@ -1,0 +1,17 @@
+{
+  "id": "cfg-no-read",
+  "group": "config-unreadable",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--config",
+    "{TMP}/cases/cfg-no-read/config.toml",
+    "--data-dir",
+    "{TMP}/cases/cfg-no-read/data"
+  ],
+  "exit_code": 2,
+  "duration_ms": 8,
+  "stdout": "",
+  "stderr": "run: load config: config: {TMP}/cases/cfg-no-read/config.toml: cannot read file\n"
+}

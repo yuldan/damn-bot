@@ -12,6 +12,9 @@ bench/f3/run.sh
 # optional: RUNS=20 BUILD_RUNS=3 OUT=bench/f3/results/damnbot-<sha>-F3.json
 ```
 
+Suite bahan penilaian **Error informatif** dijalankan terpisah:
+`bench/f3/run-errors.sh` (lihat [`errors/README.md`](errors/README.md)).
+
 `run.sh` builds the real `damnbot` binary with `goolm,bench`, starts the Go
 driver, and writes `bench/f3/results/damnbot-<measured-sha>-F3.json`. The
 `bench` build tag only compiles `cmd/damnbot/bench_tui.go`, an environment
@@ -62,30 +65,18 @@ are recorded so the numbers are not presented as reference-hardware gates.
 
 ### Error informativeness
 
-**Blocked: human raters.** The required 60 common-error cases and two human
-raters are not available. No rubric, percentage, or score is fabricated. The
-artifact carries `status: blocked`, its reason, and the planned 12 groups ×
-5 cases:
+Bahan penilaian ada di [`errors/README.md`](errors/README.md): **60 kasus
+nyata / 12 grup × 5**, capture tersanitasi, rubrik v1, dan gate mekanis
+**60/60 exit ≠ 0, 0 kebocoran secret, 0 panic, 60/60 pesan tidak kosong**.
+Gate itu tidak menilai kualitas pesan.
 
-| Group | Example |
-|---|---|
-| config parse/unknown/type/range/invariant | bad TOML, unknown key, `max_turns=500` |
-| credentials missing/invalid | missing provider key, keychain denied |
-| provider transport | 401, 429, 5xx, timeout, network down |
-| database | open/migrate/schema/permission/locked |
-| filesystem/workspace | permission, symlink escape, disk full |
-| exec/approval | shell denied, timeout, spawn failure |
-| tool schema/args | bad args, unknown tool, invalid JSON |
-| context budget | overflow, compaction failure |
-| budget/pricing | cap reached, stale price |
-| terminal/TUI | no TTY, unsupported TERM, resize |
-| import/input | malformed Hermes/file input |
-| ACP/stdio | bad frame, disconnect, oversized frame |
-
-Each case must be agent-agnostic; a surface absent from Hermes/OpenClaw is
-recorded as `n/a` in the denominator rather than scored zero. Two independent
-raters score the binary rubric (cause + remedy), and disagreements are recorded,
-not averaged away.
+Dua rater LLM independen sudah memberi **skor proxy** (`errors/scores-proxy.json`);
+angka itu **bukan ratifikasi manusia, bukan gate**, dan tidak masuk
+`errors/summary.json`. `LULUS` final untuk dimensi ini tetap menunggu penilai
+manusia. Karena itu field `error_informatif` pada artefak F3 baseline tetap
+`blocked` sampai ratifikasi manusia tersedia; jangan menggantinya dengan skor
+proxy. Ambiguitas rubrik dicatat di `errors/rubric-notes.md` (usulan v1.1);
+`rubric.json` v1 tidak diubah agar skor A/B tetap sebanding.
 
 ## Hermes side: unavailable
 
