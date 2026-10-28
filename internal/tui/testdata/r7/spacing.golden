@@ -1,0 +1,13 @@
+chat · fake/model · [1 sess-1*]
+────────────────────────────────────────────────────────────────────────────────────────────────────
+12:00:00 you> first turn                                               │ CONTEXT
+12:00:00 a very long assistant line that will need truncation because …│ fixed                  —
+12:00:00 tool read_file ✓                                              │ window                 —
+  internal/provider/http.go                                            │ cache                  —
+  ok                                                                   │ TURN
+                                                                       │ iter                0 / 40
+12:00:00 you> second turn                                              │ cost             — / —
+12:00:00 done                                                          │ FALLBACK               —
+fake/model · iter 0 · turn — / session —
+> a
+enter send · ctrl+j newline · esc cancel · ctrl+c quit

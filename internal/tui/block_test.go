@@ -40,7 +40,7 @@ func TestToolBlockAttributes(t *testing.T) {
 		t.Fatalf("duration = %v, want 120ms", b.Duration)
 	}
 	view := m.View().Content
-	for _, want := range []string{"tool read_file internal/provider/http.go", "#3f9a12c0", "✓", "120ms", "18.2k", "↶ 812", "spill: /home/u/.cache/damnbot/blobs/3f/3f9a"} {
+	for _, want := range []string{"tool read_file", "internal/provider/http.go", "#3f9a12c0", "✓", "120ms", "18.2k", "↶ 812", "spill: /home/u/.cache/damnbot/blobs/3f/3f9a"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
 		}

@@ -29,8 +29,8 @@ func TestTranscriptRendersOnlyViewport(t *testing.T) {
 		m.appendBlock(&Block{Kind: BlockAssistant, Text: fmt.Sprintf("line-%02d", i), At: at})
 	}
 	view := m.View().Content
-	if got := strings.Count(view, "line-"); got != 8 {
-		t.Fatalf("rendered %d transcript lines, want the 8-line viewport:\n%s", got, view)
+	if got, want := strings.Count(view, "line-"), m.bodyHeight(); got != want {
+		t.Fatalf("rendered %d transcript lines, want the %d-line viewport:\n%s", got, want, view)
 	}
 	if strings.Contains(view, "line-00") || strings.Contains(view, "line-31") {
 		t.Fatalf("view rendered blocks below the window:\n%s", view)
@@ -91,8 +91,8 @@ func TestSpillOutsideViewportNotRendered(t *testing.T) {
 		m.Update(tea.KeyPressMsg{Code: tea.KeyPgUp})
 	}
 	top := m.View().Content
-	if got := strings.Count(top, "spill-secret"); got != 8 {
-		t.Fatalf("spill block in view rendered %d lines, want the 8-line window:\n%s", got, top)
+	if got, want := strings.Count(top, "spill-secret"), m.bodyHeight(); got != want {
+		t.Fatalf("spill block in view rendered %d lines, want the %d-line window:\n%s", got, want, top)
 	}
 	if strings.Contains(top, "line-39") {
 		t.Fatalf("scrolling to the first block kept the tail:\n%s", top)

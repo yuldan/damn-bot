@@ -105,12 +105,13 @@ func NewApp(sessionID string, host *Host) (*Model, error) {
 		keys:           newKeyMap(),
 		theme:          theme,
 		noColor:        snapshot.NoColor,
-		styles:         newStyles(theme, snapshot.NoColor),
+		styles:         newStyles(&theme, snapshot.NoColor),
 		sessionID:      sessionID,
 		tabs:           []SessionInfo{{ID: sessionID}},
 		resizeDebounce: 16 * time.Millisecond,
 		input:          newInput(),
 	}
+	m.styleInput()
 	m.setRoute(routes()[0])
 	return m, nil
 }

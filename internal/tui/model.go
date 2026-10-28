@@ -121,13 +121,11 @@ type Model struct {
 // styles are the T0 render styles; the theme track replaces the values, not
 // the call sites (theme.go).
 type styles struct {
-	header lipgloss.Style
-	footer lipgloss.Style
-	hint   lipgloss.Style
-	status lipgloss.Style
-	user   lipgloss.Style
-	tool   lipgloss.Style
-	notice lipgloss.Style
+	header, tabActive, tabIdle      lipgloss.Style
+	fg, muted, dim, border          lipgloss.Style
+	footer, hint, status, separator lipgloss.Style
+	user, tool, notice              lipgloss.Style
+	success, warn, error, modal     lipgloss.Style
 }
 
 // Init starts no work: the prompt was focused at assembly (P12).
@@ -438,18 +436,18 @@ func (m *Model) View() tea.View {
 	case m.confirm != nil:
 		body = m.confirmBody()
 	case m.approval != nil:
-		body = m.approvalBody()
+		body = m.modalBody(m.approvalBody())
 	case m.palette:
 		body = m.paletteBody()
 	}
-	parts := []string{m.header(), m.clip(body), m.statusBar(), m.inputArea(), m.footer()}
+	parts := []string{m.header(), m.separator(), m.clip(body), m.statusBar(), m.inputArea(), m.footer()}
 	return tea.NewView(strings.Join(parts, "\n"))
 }
 
 // clip bounds the transcript so the header, status bar, input, and footer stay
 // visible.
 func (m *Model) clip(body string) string {
-	reserved := 4 + len(m.draft)
+	reserved := 5 + len(m.draft)
 	if m.height <= reserved {
 		return body
 	}
@@ -631,7 +629,9 @@ func (m *Model) setRoute(r routeEntry) {
 
 // header renders the screen title and the configured model.
 func (m *Model) header() string {
-	line := m.styles.header.Render(fmt.Sprintf("%s · %s · %s", m.panel.title(), m.host.Config.Snapshot().Model, m.tabBar()))
+	dash := m.styles.dim.Render("·")
+	line := m.styles.header.Render(m.panel.title()) + " " + dash + " " +
+		m.styles.muted.Render(m.host.Config.Snapshot().Model) + " " + dash + " " + m.tabBar()
 	return m.limitWidth(line)
 }
 
@@ -711,44 +711,49 @@ func (chatPanel) title() string { return routeChat }
 
 // body implements panel.
 func (chatPanel) body(m *Model) string {
+	left := m.transcript()
 	if len(m.blocks) == 0 {
-		return m.styles.hint.Render("no messages yet")
+		left = m.styles.hint.Render("no messages yet")
 	}
-	return m.transcript()
+	return m.chatLayout(left)
 }
 
-// renderBlockAt cuts (collapse), themes, then marks the selected block.
+// renderBlockAt applies turn spacing, hierarchy, and the navigation marker.
 func (m *Model) renderBlockAt(i int) string {
 	b := &m.blocks[i]
-	body, style := m.blockBody(b)
-	if m.collapsed[i] {
-		body = collapseLine(body)
-	}
-	prefix := ""
+	ts := ""
 	if !b.At.IsZero() {
-		prefix = b.At.Format("15:04:05") + " "
+		ts = m.styles.dim.Render(b.At.Format("15:04:05") + " ")
 	}
-	line := prefix + style.Render(body)
+	text := b.Text
+	if m.collapsed[i] {
+		text = collapseLine(text)
+	}
+	var body string
+	switch b.Kind {
+	case BlockUser:
+		body = m.styles.user.Render("you> " + text)
+	case BlockAssistant:
+		body = m.styles.fg.Render(text)
+	case BlockTool:
+		if m.collapsed[i] {
+			body = m.toolHeader(b)
+		} else {
+			body = m.toolBlock(b)
+		}
+	case BlockNotice:
+		body = m.styles.notice.Render("! " + text)
+	default:
+		body = m.styles.fg.Render(text)
+	}
+	line := ts + body
+	if b.Kind == BlockUser && i > 0 {
+		line = "\n" + line
+	}
 	if m.navMode && i == m.navIndex {
 		return "▸ " + line
 	}
 	return line
-}
-
-// blockBody returns the unstyled body and the theme style of one block.
-func (m *Model) blockBody(b *Block) (string, lipgloss.Style) {
-	switch b.Kind {
-	case BlockUser:
-		return "you> " + b.Text, m.styles.user
-	case BlockTool:
-		return renderToolBlock(b), m.styles.tool
-	case BlockNotice:
-		return "! " + b.Text, m.styles.notice
-	case BlockAssistant:
-		return b.Text, lipgloss.NewStyle()
-	default:
-		return b.Text, lipgloss.NewStyle()
-	}
 }
 
 // collapseLine keeps the first line of a block body.

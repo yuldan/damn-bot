@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 )
 
@@ -13,27 +14,36 @@ type RenderMode struct {
 	NoColor bool
 }
 
-func newStyles(t Theme, noColor bool) styles {
+// newStyles is the single palette entry point: neutral fg/muted/border, one
+// accent, and three semantic colors used only for status glyphs. Dim is
+// metadata-only; bold is title/active-tab only.
+func newStyles(t *Theme, noColor bool) styles {
 	if noColor {
 		return styles{}
 	}
-	header := lipgloss.NewStyle().Bold(true)
-	user := lipgloss.NewStyle().Bold(true)
-	footer := lipgloss.NewStyle()
-	hint := lipgloss.NewStyle()
-	status := lipgloss.NewStyle()
-	tool := lipgloss.NewStyle()
-	notice := lipgloss.NewStyle()
-	if t.primary != "" {
-		header = header.Foreground(lipgloss.Color(t.primary))
-		user = user.Foreground(lipgloss.Color(t.primary))
-		footer = footer.Faint(true)
-		hint = hint.Faint(true)
-		status = status.Faint(true).Foreground(lipgloss.Color(t.muted))
-		tool = tool.Faint(true).Foreground(lipgloss.Color(t.muted))
-		notice = notice.Foreground(lipgloss.Color(t.alert))
+	dim := func(s lipgloss.Style) lipgloss.Style {
+		if t.dim {
+			return s.Faint(true)
+		}
+		return s
 	}
-	return styles{header: header, footer: footer, hint: hint, status: status, user: user, tool: tool, notice: notice}
+	header := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(t.accent))
+	tabActive := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(t.fg))
+	tabIdle := lipgloss.NewStyle().Foreground(lipgloss.Color(t.muted))
+	fg := lipgloss.NewStyle().Foreground(lipgloss.Color(t.fg))
+	muted := lipgloss.NewStyle().Foreground(lipgloss.Color(t.muted))
+	border := dim(lipgloss.NewStyle().Foreground(lipgloss.Color(t.border)))
+	return styles{
+		header: header, tabActive: tabActive, tabIdle: tabIdle,
+		fg: fg, muted: muted, dim: dim(muted), border: border, separator: border,
+		footer: muted, hint: dim(muted), status: muted,
+		user: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(t.fg)),
+		tool: fg, notice: lipgloss.NewStyle().Foreground(lipgloss.Color(t.warn)),
+		success: lipgloss.NewStyle().Foreground(lipgloss.Color(t.success)),
+		warn:    lipgloss.NewStyle().Foreground(lipgloss.Color(t.warn)),
+		error:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.error)),
+		modal:   lipgloss.NewStyle().Foreground(lipgloss.Color(t.fg)).Background(lipgloss.Color(t.modalBg)).Padding(1, 2),
+	}
 }
 
 func (m *Model) limitWidth(s string) string {
@@ -43,11 +53,14 @@ func (m *Model) limitWidth(s string) string {
 	if m.noColor {
 		return truncatePlain(s, m.width)
 	}
-	return lipgloss.NewStyle().MaxWidth(m.width).Render(s)
+	if lipgloss.Width(s) <= m.width {
+		return s
+	}
+	return lipgloss.NewStyle().MaxWidth(m.width-1).Render(s) + "…"
 }
 
 func (m *Model) limitHeight(s string) string {
-	reserved := 4 + len(m.draft)
+	reserved := 5 + len(m.draft)
 	if m.height <= reserved {
 		return s
 	}
@@ -63,7 +76,10 @@ func truncatePlain(s string, width int) string {
 	if len(r) <= width {
 		return s
 	}
-	return string(r[:width])
+	if width <= 1 {
+		return string(r[:max(0, width)])
+	}
+	return string(r[:width-1]) + "…"
 }
 
 // tailPlain keeps the last n lines without styling.
@@ -73,4 +89,14 @@ func tailPlain(s string, n int) string {
 		return s
 	}
 	return strings.Join(lines[len(lines)-n:], "\n")
+}
+
+// styleInput keeps the prompt inside the same palette (no library default 240).
+func (m *Model) styleInput() {
+	if m.noColor {
+		m.input.SetStyles(textinput.Styles{})
+		return
+	}
+	state := textinput.StyleState{Text: m.styles.fg, Placeholder: m.styles.dim, Prompt: m.styles.muted}
+	m.input.SetStyles(textinput.Styles{Focused: state, Blurred: state})
 }

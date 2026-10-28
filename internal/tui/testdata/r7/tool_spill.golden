@@ -1,9 +1,13 @@
 chat · fake/model · [1 sess-1*]
-12:00:00 you> find the bug
-12:00:00 checking the provider
-12:00:00 tool read_file internal/provider/http.go #3f9a12c0 ✓ 120ms 18.2k ↶ 12
-  spill: /data/blobs/3f/aa (18.2k chars)
-  ok
+────────────────────────────────────────────────────────────────────────────────
+12:00:00 you> find the bug                         │ CONTEXT
+12:00:00 checking the provider                     │ fixed                  —
+12:00:00 tool read_file #3f9a12c0 ✓ 120ms 18.2k ↶ …│ window                 —
+  internal/provider/http.go                        │ cache                  —
+  spill: /data/blobs/3f/aa (18.2k chars)           │ TURN
+  ok                                               │ iter                0 / 40
+                                                   │ cost             — / —
+                                                   │ FALLBACK               —
 fake/model · iter 0 · turn — / session —
 >
 enter send · ctrl+j newline · esc cancel · ctrl+c quit

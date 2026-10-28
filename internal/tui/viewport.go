@@ -15,7 +15,7 @@ import (
 // yet: the whole transcript is rendered so the first frame and pure-model tests
 // never clip silently.
 func (m *Model) bodyHeight() int {
-	reserved := 4 + len(m.draft)
+	reserved := 5 + len(m.draft)
 	if m.height <= reserved {
 		return 0
 	}
