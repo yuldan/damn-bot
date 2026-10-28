@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/damnbot/damnbot/internal/secret"
+	"github.com/zalando/go-keyring"
 )
 
 type memKeyring struct {
@@ -21,10 +22,11 @@ func (k *memKeyring) Get(service, user string) (string, error) {
 	}
 	k.mu.Lock()
 	defer k.mu.Unlock()
-	if v, ok := k.m[service+"/"+user]; ok {
-		return v, nil
+	v, ok := k.m[service+"/"+user]
+	if !ok {
+		return "", keyring.ErrNotFound
 	}
-	return "", errors.New("not found")
+	return v, nil
 }
 
 func (k *memKeyring) Set(service, user, value string) error {
