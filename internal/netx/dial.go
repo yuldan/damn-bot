@@ -92,16 +92,30 @@ func publicIP(ip netip.Addr) bool {
 // resolution, so a rebinding name cannot slip past it. Every dial failure
 // is a *ConnectError (nothing was sent).
 func dialer(rule dialRule) func(ctx context.Context, network, addr string) (net.Conn, error) {
-	d := &net.Dialer{
-		Timeout:   dialTimeout,
-		KeepAlive: dialKeepAlive,
-		ControlContext: func(_ context.Context, _, address string, _ syscall.RawConn) error {
-			ap, err := netip.ParseAddrPort(address)
-			if err != nil {
-				return fmt.Errorf("dial address %q: %w", address, err)
-			}
-			return rule.check(ap.Addr())
-		},
+	return dialerWith(rule, nil)
+}
+
+// dialerWith is dialer with an optional dialer supplied by a test (resolver,
+// fallback delay, control). Production passes nil and keeps the documented
+// net.Dialer. An override still goes through rule.check first, so the policy
+// cannot be bypassed through the seam.
+func dialerWith(rule dialRule, override *net.Dialer) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	d := &net.Dialer{Timeout: dialTimeout, KeepAlive: dialKeepAlive}
+	inner := (func(context.Context, string, string, syscall.RawConn) error)(nil)
+	if override != nil {
+		cp := *override
+		d = &cp
+		inner = override.ControlContext
+	}
+	policy := dialPolicy(rule)
+	d.ControlContext = func(ctx context.Context, network, address string, raw syscall.RawConn) error {
+		if err := policy(ctx, network, address, raw); err != nil {
+			return err
+		}
+		if inner == nil {
+			return nil
+		}
+		return inner(ctx, network, address, raw)
 	}
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		c, err := d.DialContext(ctx, network, addr)
@@ -109,6 +123,18 @@ func dialer(rule dialRule) func(ctx context.Context, network, addr string) (net.
 			return nil, &ConnectError{Addr: addr, Err: err}
 		}
 		return c, nil
+	}
+}
+
+// dialPolicy is the address policy hook shared by the production dialer and a
+// test override.
+func dialPolicy(rule dialRule) func(context.Context, string, string, syscall.RawConn) error {
+	return func(_ context.Context, _, address string, _ syscall.RawConn) error {
+		ap, err := netip.ParseAddrPort(address)
+		if err != nil {
+			return fmt.Errorf("dial address %q: %w", address, err)
+		}
+		return rule.check(ap.Addr())
 	}
 }
 
