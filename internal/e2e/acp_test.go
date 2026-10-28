@@ -494,14 +494,15 @@ func modeOf(n map[string]any, prev string) string {
 func TestACPStdioModesAndModels(t *testing.T) {
 	t.Parallel()
 	e := New(t)
-	// ACP reads the profile config (there is no --config flag), so write the
-	// harness config at $XDG_CONFIG_HOME/damnbot/config.toml.
-	cfgDir := filepath.Join(e.home, "damnbot")
-	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(cfgDir, "config.toml"), []byte("[provider]\nmodel = \"openai/gpt-fake\"\n"), 0o600); err != nil {
-		t.Fatal(err)
+	// ACP reads the profile config (there is no --config flag). Let the
+	// binary resolve the platform path (macOS Application Support, Windows
+	// APPDATA, XDG on Linux) instead of hardcoding the Linux one: an empty
+	// config makes availableModels empty and rejects a valid model.
+	e.Exec("setup", "--yes", "--model", "openai/gpt-fake").RequireOK(t)
+	// The binary must see that model on this platform; otherwise the
+	// advertised list is empty and the failure below would be misleading.
+	if got := e.Exec("config", "get", "provider.model"); got.Code != 0 || !strings.Contains(got.Stdout, "openai/gpt-fake") {
+		t.Fatalf("config not visible to the binary (exit %d):\n%s\n%s", got.Code, got.Stdout, got.Stderr)
 	}
 	c := e.acpStart(t)
 	c.send(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)
