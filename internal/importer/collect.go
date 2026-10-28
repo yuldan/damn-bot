@@ -62,6 +62,7 @@ func (i *Importer) collect(ctx context.Context, root string, opts Options) (*col
 	if err := i.collectSessions(ctx, root, c); err != nil {
 		return nil, err
 	}
+	c.warnMissingRuntimes(i.deps.LookPath)
 	c.report.sortSkips()
 	return c, nil
 }

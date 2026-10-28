@@ -12,6 +12,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -71,7 +72,7 @@ func runImport(args []string, stdout, stderr io.Writer) (code int) {
 	ctx := context.Background()
 	sink := &hermesSink{noWrite: noWrite{"import: writer is not available"}, root: root, red: redact.New(redact.Options{})}
 	deps := importer.Deps{
-		ReadFile: root.ReadFile, WalkDir: filepath.WalkDir,
+		ReadFile: root.ReadFile, WalkDir: filepath.WalkDir, LookPath: exec.LookPath,
 		Sink: sink, SessionSink: sink,
 		Secrets: noWrite{"import: keychain writer is not available"}, Sessions: hermesSessions{},
 	}
@@ -324,6 +325,13 @@ func (s *hermesSink) PutSkill(ctx context.Context, in *importer.Skill) (bool, er
 	if err != nil {
 		return false, &importer.SkipError{Reason: err.Error()}
 	}
+	if parsed.Host == nil && len(in.Runtime) > 0 {
+		bins := make([]skills.BinRequirement, 0, len(in.Runtime))
+		for _, name := range in.Runtime {
+			bins = append(bins, skills.BinRequirement{Name: name})
+		}
+		parsed.Host = &skills.HostRequirement{Bins: bins}
+	}
 	if _, err := s.skill.Install(ctx, &parsed); err != nil {
 		if errors.Is(err, skills.ErrInvalid) || errors.Is(err, skills.ErrScan) ||
 			errors.Is(err, skills.ErrFrontMatter) || errors.Is(err, skills.ErrTooLarge) {
@@ -515,6 +523,11 @@ func writeReport(w io.Writer, label, root string, categories []reportCategory, t
 			cat.name, cat.rep.Total, cat.rep.Imported, cat.rep.Changed, len(cat.rep.Skipped))
 		for _, skip := range cat.rep.Skipped {
 			sessionsPrintf(w, "  skipped %s: %s\n", cleanLine(skip.Key), cleanLine(skip.Reason))
+		}
+	}
+	if ww, ok := totals.(interface{ WarningsList() []string }); ok {
+		for _, warning := range ww.WarningsList() {
+			sessionsPrintf(w, "warning: %s\n", cleanLine(warning))
 		}
 	}
 	for _, clamp := range clamps {

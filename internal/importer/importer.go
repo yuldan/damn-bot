@@ -60,7 +60,8 @@ type Report struct {
 	Clamps   []Clamp
 	// ToS lists the imported entries whose text matched a GAP-GW-07 pattern.
 	// They are still imported as pending and never bundled.
-	ToS []ToSFlag
+	ToS      []ToSFlag
+	Warnings []string
 }
 
 // Total returns the number of enumerated items across every source.
@@ -254,6 +255,7 @@ type Secrets interface {
 type Deps struct {
 	ReadFile    func(string) ([]byte, error)
 	WalkDir     func(string, fs.WalkDirFunc) error
+	LookPath    func(string) (string, error)
 	Sink        Sink
 	SessionSink SessionSink
 	Secrets     Secrets
@@ -321,3 +323,6 @@ func readOptionalFile(read func(string) ([]byte, error), path string) ([]byte, e
 func (i *Importer) readOptional(path string) ([]byte, error) {
 	return readOptionalFile(i.deps.ReadFile, path)
 }
+
+// WarningsList returns non-fatal import warnings.
+func (r *Report) WarningsList() []string { return r.Warnings }
