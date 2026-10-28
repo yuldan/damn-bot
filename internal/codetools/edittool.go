@@ -121,7 +121,7 @@ func (e *Engine) openCurrent(ctx context.Context, p, tag string, o Opts) (*curre
 	if err != nil {
 		return c, err
 	}
-	if known && ent.sum == sum && e.provenUnchanged(c, &ent) {
+	if known && ent.sum == sum && (c.t.client != nil || e.provenUnchanged(c, &ent)) {
 		return c, nil
 	}
 	fresh := &tagEntry{sum: sum, stat: c.key, at: time.Now()}
@@ -133,6 +133,9 @@ func (e *Engine) openCurrent(ctx context.Context, p, tag string, o Opts) (*curre
 	e.remember(t.resolved, c.tag, fresh, c.raw)
 	if !known {
 		return c, toolErr(CodeStaleRead, "read the file first (read_file or grep give a tag)", "%s: tag %s is not current for this session (now #%s)", t.rel, tag, c.tag)
+	}
+	if c.t.client != nil {
+		return c, toolErr(CodeStaleRead, "read_file returns the current tag", "%s: stale_tag; the client buffer changed (now #%s)", t.rel, c.tag)
 	}
 	return c, staleErr(c, tag, snap, hasSnap)
 }
@@ -214,6 +217,10 @@ func (e *Engine) Edit(ctx context.Context, a EditArgs, o Opts) (res Result, err 
 	}
 	unlock := e.pathLock(ctx, a.Path)
 	defer unlock()
+	o.local, err = e.sourceLocal(ctx, true)
+	if err != nil {
+		return res, err
+	}
 	c, err := e.openCurrent(ctx, a.Path, a.Tag, o)
 	if c != nil {
 		defer c.t.close(&err)
@@ -296,22 +303,39 @@ func eolName(s string) string {
 	return "lf"
 }
 
-// Write runs write_file (CODE-TOOLS §5.6).
-func (e *Engine) Write(ctx context.Context, a WriteArgs, o Opts) (res Result, err error) {
+// validateWrite checks write_file arguments before any I/O.
+func validateWrite(a WriteArgs) *ToolError {
 	switch {
 	case a.Path == "":
-		return res, toolErr(CodeInvalidArgs, "", "/path: required")
+		return toolErr(CodeInvalidArgs, "", "/path: required")
 	case utf8.RuneCountInString(a.Content) > maxWriteChars:
-		return res, toolErr(CodeInvalidArgs, "split the file or use edit_file", "/content: more than %d chars", maxWriteChars)
+		return toolErr(CodeInvalidArgs, "split the file or use edit_file", "/content: more than %d chars", maxWriteChars)
 	case strings.Contains(a.Content, sentinel):
-		return res, toolErr(CodeInvalidArgs, "secret redacted; edit around it", "/content: contains a redaction sentinel")
+		return toolErr(CodeInvalidArgs, "secret redacted; edit around it", "/content: contains a redaction sentinel")
 	case a.Tag != nil && !reTag.MatchString(*a.Tag):
-		return res, toolErr(CodeInvalidArgs, "", "/tag: must match ^[0-9a-f]{8}$")
+		return toolErr(CodeInvalidArgs, "", "/tag: must match ^[0-9a-f]{8}$")
+	}
+	return nil
+}
+
+// Write runs write_file (CODE-TOOLS §5.6).
+func (e *Engine) Write(ctx context.Context, a WriteArgs, o Opts) (res Result, err error) {
+	if terr := validateWrite(a); terr != nil {
+		return res, terr
 	}
 	abs := e.abs(a.Path)
 	unlock := e.pathLock(ctx, a.Path)
 	defer unlock()
-	if _, lerr := os.Lstat(abs); errors.Is(lerr, fs.ErrNotExist) {
+	var lerr error
+	o.local, lerr = e.sourceLocal(ctx, true)
+	if lerr != nil {
+		return res, lerr
+	}
+	existing, xerr := e.writeTargetExists(ctx, abs, o)
+	if xerr != nil {
+		return res, xerr
+	}
+	if !existing {
 		return e.create(ctx, a, abs, o)
 	}
 	if a.Tag == nil {
@@ -343,6 +367,23 @@ func (e *Engine) Write(ctx context.Context, a WriteArgs, o Opts) (res Result, er
 	return e.changed(c, d, lines, out, &ci, "write", 1), nil
 }
 
+// writeTargetExists reports whether the write target exists; with a client
+// source the buffer decides, otherwise the disk does.
+func (e *Engine) writeTargetExists(ctx context.Context, abs string, o Opts) (bool, error) {
+	if e.client != nil && !o.local {
+		_, notFound, rerr := e.client.ReadTextFile(ctx, abs)
+		if rerr != nil {
+			return false, ioErr("client read", e.rel(abs), rerr)
+		}
+		return !notFound, nil
+	}
+	_, err := os.Lstat(abs)
+	if err == nil || !errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	return false, nil
+}
+
 // create writes a new file: parents created inside the sandbox, UTF-8
 // without BOM, files.new_eol line endings (CODE-TOOLS §5.6). A tag is only a
 // snapshot of an existing file, so a tag supplied for a missing path is
@@ -357,10 +398,15 @@ func (e *Engine) create(ctx context.Context, a WriteArgs, abs string, o Opts) (R
 	if aerr := approval(v, a.Path, o.Approved); aerr != nil {
 		return Result{}, aerr
 	}
-	if merr := e.mkdirs(ctx, filepath.Dir(resolved), outside); merr != nil {
-		return Result{}, merr
+	if e.client == nil {
+		if merr := e.mkdirs(ctx, filepath.Dir(resolved), outside); merr != nil {
+			return Result{}, merr
+		}
 	}
 	t := &target{resolved: resolved, rel: e.rel(resolved), outside: outside, journal: o.Journal}
+	if e.client != nil && !o.local {
+		t.client = e.client
+	}
 	d := &doc{}
 	lines := splitDocLines(a.Content, e.newEOL)
 	out, _ := d.render(lines)

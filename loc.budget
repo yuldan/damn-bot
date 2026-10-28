@@ -35,6 +35,8 @@ toolset            400 internal/toolset
 # ADR-133 SEC10-30/35: exec/classify 1830 -> 1841 (cd bare per dialek; terukur 1841; Σ core +11).
 # ADR-211 (SEC10-36): plafon core 47.000 -> 47.200 (Σ core 46.998 -> 47.009; terukur 1.841;
 # headroom 191; SPEC P21 + ENGINEERING §2.4 + maxCoreLOC).
+# ADR-236: plafon core 47.400 -> 47.600; GW-07 memory+skills 2408 -> 2520 (+112),
+# client fs config 1252/codetools 5520; Σ core 47.234 -> 47.510 <= 47.600.
 # ADR-225: plafon core 47.200 -> 47.400 untuk penutupan F3 (Σ core 47.199 setelah ADR-223;
 # headroom 201). Tidak ada baris paket yang berubah; TOTAL 190.000 tetap.
 # ADR-212 (SEC15-2/5/6/7): exec/classify 1841 -> 1908 (klasifikasi perawatan destruktif damnbot + argv0/8.3;
@@ -115,6 +117,8 @@ compaction         900 internal/compaction
 # ADR-234 (GAP-GW-07): metadata tos_risk/tos_note + pola + ack di internal/skills,
 # pola dotenv di internal/memory; memory+skills 2408 -> 2520 (terukur 2504; headroom 16);
 # Σ core 47.234 -> 47.346 <= 47.400. TOTAL 190.000 tidak berubah.
+# ADR-236 (plafon 47.400 -> 47.600): client fs config 1252/codetools 5520;
+# Σ core 47.346 -> 47.510 <= 47.600. TOTAL 190.000 tidak berubah.
 memory+skills     2520 internal/memory internal/skills
 # ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).
 # ADR-117 amendment (REVIEW-F2-SEC5-15): journal 560 -> 565 (preview undo lewat OpenResolved;
@@ -133,7 +137,7 @@ heal              1500 internal/heal
 # ADR-230 (GAP-OPS-02): `[network]` offline/background ke struct config + registry
 # egress netx; config 1208 -> 1243 = angka ukur scc pada pohon ter-commit, tanpa
 # headroom. Σ core 47.199 -> 47.234 <= 47.400; tidak ada baris yang turun.
-config            1243 internal/config
+config            1252 internal/config
 modules            1000 internal/modules
 hooks              700 internal/hooks
 i18n               300 internal/i18n
@@ -157,7 +161,7 @@ TESTONLY internal/e2e
 TOTAL           190000
 # Amandemen (retarget ke main 974eb761, 2026-10-22): codetools 5350 -> 5365 (preview undo lewat
 # sandbox.OpenResolved di #177 + retry replace Windows di #170; terukur 5353; Σ core +15).
-codetools         5365 internal/codetools
+codetools         5520 internal/codetools
 # Amandemen (W6 compaction wiring, 2026-10-23): assemble 1300 -> 1320 (view/summary block di
 # assembler adapter; terukur 1306; Σ core +20).
 # Amandemen (W7 recall/lineage, 2026-10-25): ctxdb 5816 -> 5885 (lineage CTE + Ancestor + Lineage,

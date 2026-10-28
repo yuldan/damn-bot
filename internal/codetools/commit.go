@@ -43,6 +43,9 @@ type commitInfo struct {
 // link). mode 0 creates a new file with the umask-derived mode. On any
 // failure the target keeps its old bytes.
 func (e *Engine) commit(ctx context.Context, t *target, before fileKey, mode fs.FileMode, data []byte) (commitInfo, error) {
+	if t.client != nil {
+		return e.commitClient(ctx, t, mode, data)
+	}
 	return e.commitStream(ctx, t, before, mode, func(w io.Writer) error {
 		_, err := w.Write(data)
 		if err != nil {

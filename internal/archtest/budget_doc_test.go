@@ -9,8 +9,8 @@ import (
 // totalCoreRow reads the "| **Total core** | **N** |" table row.
 var totalCoreRow = regexp.MustCompile(`\*\*Total core\*\* \| \*\*([0-9.]+)\*\*`)
 
-// totalCoreProse reads the "Total core per paket = N ≤ 47.400" sentence.
-var totalCoreProse = regexp.MustCompile(`Total core per paket = ([0-9.]+) ≤ 47\.400`)
+// totalCoreProse reads the "Total core per paket = N ≤ 47.600" sentence.
+var totalCoreProse = regexp.MustCompile(`Total core per paket = ([0-9.]+) ≤ 47\.600`)
 
 // dotted parses the thousand-separated form the docs use (43.746).
 func dotted(t *testing.T, s string) int {
@@ -34,7 +34,7 @@ func replaceDots(s string) string {
 
 // TestEngineeringTotalCoreMatchesLocBudget: the "Total core" figure in
 // docs/ENGINEERING.md (§2.4) is the sum of the core rows of loc.budget, because
-// that sum is what `TestBudgetTableSum` caps at 47.400 (ADR-054, V-20; ADR-211; ADR-225). The two
+// that sum is what `TestBudgetTableSum` caps at 47.600 (ADR-054, V-20; ADR-211; ADR-225). The two
 // numbers are written by hand in different files, so they drift: 44.238 vs
 // 44.031 at ef8ec40d and 44.131 vs 43.631 at b979bc83 — a 207-line gap that no
 // gate noticed.

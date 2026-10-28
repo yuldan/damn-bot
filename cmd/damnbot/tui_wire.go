@@ -97,6 +97,9 @@ type tuiDeps struct {
 	opts      *runOptions
 	red       *redact.Redactor
 	now       func() time.Time
+	// bridge is the ACP session's approval transport (GAP-UX-01); nil on
+	// the TUI path, which builds its own.
+	bridge *approvalBridge
 }
 
 // tuiRunner is the Runner, Clock, and ConfigSource over the lazy loop.
