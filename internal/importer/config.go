@@ -1,10 +1,9 @@
 package importer
 
 import (
+	"fmt"
 	"strings"
 	"unicode"
-
-	"go.yaml.in/yaml/v3"
 )
 
 type mapKind int
@@ -36,12 +35,8 @@ func configMappings() map[string]mapping {
 	}
 }
 
-func decodeMapping(raw []byte, path string) (map[string]any, error) {
-	var doc map[string]any
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil, syntaxError(path, err)
-	}
-	return doc, nil
+func decodeMapping(raw []byte, path string) (map[string]any, map[string]string, error) {
+	return decodeYAML11(raw, path)
 }
 
 func (i *Importer) collectConfig(c *collected) error {
@@ -94,7 +89,7 @@ func (i *Importer) mapConfigItem(path string, value any, mappings map[string]map
 		c.report.skip(SourceConfig, path, "no Damn-Bot equivalent")
 		return
 	}
-	converted, clamped, reason := convertValue(m, value)
+	converted, clamped, reason := convertValue(m, value, c.configAmbiguous[path])
 	if reason != "" {
 		c.report.skip(SourceConfig, path, reason)
 		return
@@ -106,14 +101,17 @@ func (i *Importer) mapConfigItem(path string, value any, mappings map[string]map
 	c.report.item(SourceConfig)
 }
 
-func convertValue(m mapping, value any) (any, *Clamp, string) {
+func convertValue(m mapping, value any, raw string) (any, *Clamp, string) {
 	switch m.kind {
 	case kindString:
 		text, ok := value.(string)
-		if !ok {
-			return nil, nil, "expected a string"
+		if ok {
+			return text, nil, ""
 		}
-		return text, nil, ""
+		if raw != "" {
+			return nil, nil, fmt.Sprintf("ambiguous YAML 1.1 scalar on a string key; original text %q", raw)
+		}
+		return nil, nil, "expected a string"
 	case kindStrings:
 		items, ok := value.([]any)
 		if !ok {

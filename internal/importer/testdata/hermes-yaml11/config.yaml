@@ -1,0 +1,12 @@
+model:
+  default: yes
+agent:
+  max_turns: 1:30
+terminal:
+  timeout: 010
+memory:
+  memory_char_limit: 2026-01-02
+skills:
+  external_dirs:
+    - "yes"
+    - "010"
