@@ -71,6 +71,15 @@ func (i *Importer) collectConfig(c *collected) error {
 }
 
 func (i *Importer) mapConfigItem(path string, value any, mappings map[string]mapping, c *collected) {
+	if path == "memory.provider" {
+		if text, ok := value.(string); ok {
+			switch strings.ToLower(text) {
+			case "byterover", "retaindb":
+				c.report.Warnings = append(c.report.Warnings,
+					fmt.Sprintf("memory provider %q is not ported; memory continues natively", text))
+			}
+		}
+	}
 	if c.reject(SourceConfig, path) {
 		return
 	}

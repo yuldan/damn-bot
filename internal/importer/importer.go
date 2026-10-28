@@ -324,5 +324,6 @@ func (i *Importer) readOptional(path string) ([]byte, error) {
 	return readOptionalFile(i.deps.ReadFile, path)
 }
 
-// WarningsList returns non-fatal import warnings.
+// WarningsList returns non-fatal migration warnings (for example an external
+// memory provider that is not ported). They are reported once per condition.
 func (r *Report) WarningsList() []string { return r.Warnings }
