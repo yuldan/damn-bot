@@ -63,6 +63,8 @@ type Event struct {
 	ToolName   string
 	Payload    json.RawMessage // JSON object; nil is stored as {}
 	BlobSHA    string
+	// Attach lists published event_attachments blobs in order.
+	Attach []string
 }
 
 // StopReason is the loop's coarse terminal state (ADR-109). Detail carries

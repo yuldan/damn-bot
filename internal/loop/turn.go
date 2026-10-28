@@ -93,28 +93,6 @@ func (t *turn) steps(ctx context.Context) outcome {
 	return outcome{stop: event.StopMaxIterations, detail: event.DetailMaxIterations}
 }
 
-// begin appends the user message and turn_start.
-func (t *turn) begin(ctx context.Context) *outcome {
-	if _, err := t.append(ctx, &event.Event{Kind: event.UserMessage, Role: "user", Content: t.input.Text}); err != nil {
-		o := t.fail(ctx, event.DetailInternal, err)
-		return &o
-	}
-	if j, ok := t.deps.Store.(TurnJournal); ok {
-		if err := j.BeginTurn(ctx, t.sessionID, t.turnID); err != nil {
-			o := t.fail(ctx, event.DetailInternal, err)
-			return &o
-		}
-		return nil
-	}
-	if _, err := t.append(ctx, &event.Event{Kind: event.TurnStart, Payload: payload(turnStartPayload{
-		Text: t.input.Text, PlanMode: t.input.PlanMode, TurnID: t.turnID,
-	})}); err != nil {
-		o := t.fail(ctx, event.DetailInternal, err)
-		return &o
-	}
-	return nil
-}
-
 // iterate is one build → call → classify step.
 func (t *turn) iterate(ctx context.Context, it int) (*outcome, bool) {
 	if o, ok := t.preflight(ctx); ok {

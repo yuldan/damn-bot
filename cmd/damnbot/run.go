@@ -654,6 +654,7 @@ func (s *ctxStore) Append(ctx context.Context, sid, tid string, ev *event.Event)
 	ids, err := s.db.Append(ctx, sid, nil, ctxdb.Event{
 		Kind: string(ev.Kind), Role: ev.Role, Content: ev.Content, TurnID: tid,
 		ToolCallID: ev.ToolCallID, ToolName: ev.ToolName, Payload: string(ev.Payload), Blob: ev.BlobSHA,
+		Attach: ev.Attach,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("append event: %w", err)

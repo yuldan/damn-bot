@@ -1,6 +1,9 @@
 package tui
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Kind is one stream update kind. It mirrors loop/event.UpdateKind one-for-one
 // so the composition root can translate the loop stream without the TUI
@@ -99,10 +102,24 @@ type Block struct {
 	At         time.Time
 }
 
+// Attachment is one input resource persisted with the user message. BlobSHA
+// points at a published ctxdb blob (never inline secret material).
+type Attachment struct {
+	Name    string
+	MIME    string
+	BlobSHA string
+	Size    int64
+}
+
 // Input is the user's submission handed to the host Runner.
 type Input struct {
-	Text     string
-	PlanMode bool
+	Text        string
+	PlanMode    bool
+	Attachments []Attachment
+	// Meta is the raw `_meta` of valid inbound resources, preserved for the
+	// session transcript (GAP-UX-04). It is stored as a JSON string and never
+	// reaches the model prompt.
+	Meta json.RawMessage
 }
 
 // Config is the display-relevant configuration snapshot. It carries no

@@ -246,6 +246,9 @@ type Input struct {
 	Text        string
 	Attachments []Attachment
 	PlanMode    bool
+	// Meta is the raw inbound metadata retained with the user_message event;
+	// it is not sent to the model.
+	Meta json.RawMessage
 }
 
 // AssembleRequest is what the loop asks the Assembler to build.

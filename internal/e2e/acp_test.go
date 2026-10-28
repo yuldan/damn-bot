@@ -246,7 +246,8 @@ func TestACPResourcePrompt(t *testing.T) {
 		code  string
 	}{
 		{4, map[string]any{"type": "resource", "resource": map[string]any{"text": "no uri"}}, "invalid_resource"},
-		{5, map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///x", "text": strings.Repeat("a", 4001)}}, "too_large"},
+		{5, map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///x", "text": strings.Repeat("a", 4001)}}, "unsupported_resource"},
+		{6, map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///x", "blob": "!!!"}}, "unsupported_resource"},
 	}
 	for _, tc := range broken {
 		p.send(map[string]any{"jsonrpc": "2.0", "id": tc.id, "method": "session/prompt", "params": map[string]any{"sessionId": p.sid, "prompt": []any{tc.block}}})

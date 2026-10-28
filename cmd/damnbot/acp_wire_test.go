@@ -3,7 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -20,6 +24,11 @@ import (
 	"github.com/damnbot/damnbot/internal/tui"
 )
 
+func testSpill(name, mime string, data []byte) (tui.Attachment, error) {
+	sum := sha256.Sum256(data)
+	return tui.Attachment{Name: name, MIME: mime, BlobSHA: hex.EncodeToString(sum[:]), Size: int64(len(data))}, nil
+}
+
 type fakeACPRunner struct{}
 
 func (fakeACPRunner) Prompt(context.Context, string, tui.Input) (<-chan tui.Update, error) {
@@ -28,6 +37,10 @@ func (fakeACPRunner) Prompt(context.Context, string, tui.Input) (<-chan tui.Upda
 	ch <- tui.Update{Kind: tui.KindStop, Detail: "end_turn"}
 	close(ch)
 	return ch, nil
+}
+
+func (fakeACPRunner) SpillResource(_ context.Context, name, mime string, data []byte) (tui.Attachment, error) {
+	return testSpill(name, mime, data)
 }
 func (fakeACPRunner) Cancel(string)            {}
 func (fakeACPRunner) Active(string) bool       { return false }
@@ -387,8 +400,10 @@ func frameError(t *testing.T, f map[string]any) (code int, errorCode string) {
 
 // captureACPRunner records the prompt text the server hands the turn.
 type captureACPRunner struct {
-	mu   sync.Mutex
-	seen []tui.Input
+	mu      sync.Mutex
+	seen    []tui.Input
+	spill   error
+	spilled [][]byte
 }
 
 func (c *captureACPRunner) Prompt(_ context.Context, _ string, in tui.Input) (<-chan tui.Update, error) {
@@ -400,6 +415,22 @@ func (c *captureACPRunner) Prompt(_ context.Context, _ string, in tui.Input) (<-
 	ch <- tui.Update{Kind: tui.KindStop, Detail: "end_turn"}
 	close(ch)
 	return ch, nil
+}
+
+func (c *captureACPRunner) SpillResource(_ context.Context, name, mime string, data []byte) (tui.Attachment, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.spill != nil {
+		return tui.Attachment{}, c.spill
+	}
+	c.spilled = append(c.spilled, append([]byte(nil), data...))
+	return testSpill(name, mime, data)
+}
+
+func (c *captureACPRunner) setSpillErr(err error) {
+	c.mu.Lock()
+	c.spill = err
+	c.mu.Unlock()
 }
 func (c *captureACPRunner) Cancel(string)            {}
 func (c *captureACPRunner) Active(string) bool       { return false }
@@ -421,13 +452,17 @@ func TestACPResourceBlocks(t *testing.T) {
 	p.startPrompt()
 
 	secret := "sk-abcdefghijklmnopqrstuvwxyz012345"
+	large := strings.Repeat("L", maxResourceChars+1)
+	blob := base64.StdEncoding.EncodeToString([]byte("binary body"))
 	p.send(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "session/prompt", "params": map[string]any{
 		"sessionId": "s1",
 		"prompt": []any{
 			map[string]any{"type": "text", "text": "look at this", "x-unknown": map[string]any{"a": 1}},
-			map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///note.txt", "mimeType": "text/plain", "text": "resource body " + secret}},
+			map[string]any{"type": "resource", "_meta": map[string]any{"trace": "t-1", "nested": map[string]any{"x": 1}}, "resource": map[string]any{"uri": "file:///note.txt", "mimeType": "text/plain", "text": "resource body " + secret}},
 			map[string]any{"type": "resource_link", "uri": "file:///other.txt", "name": "other\"><script>"},
 			map[string]any{"type": "future_block", "whatever": true},
+			map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///large.txt", "text": large}},
+			map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///blob.bin", "mimeType": "application/octet-stream", "blob": blob}},
 		},
 	}})
 	for {
@@ -440,6 +475,13 @@ func TestACPResourceBlocks(t *testing.T) {
 		}
 	}
 	in := runner.last(t)
+	checkResourcePrompt(t, in, runner, large)
+	checkBrokenResources(t, p, runner, large)
+}
+
+func checkResourcePrompt(t *testing.T, in tui.Input, runner *captureACPRunner, large string) {
+	t.Helper()
+	const secret = "sk-abcdefghijklmnopqrstuvwxyz012345"
 	for _, want := range []string{"look at this", `uri="file:///note.txt"`, "resource body", "resource_link", "file:///other.txt"} {
 		if !strings.Contains(in.Text, want) {
 			t.Fatalf("prompt text misses %q:\n%s", want, in.Text)
@@ -451,7 +493,32 @@ func TestACPResourceBlocks(t *testing.T) {
 	if strings.Contains(in.Text, "<script>") {
 		t.Fatalf("resource link name was not escaped:\n%s", in.Text)
 	}
+	if strings.Contains(in.Text, large) {
+		t.Fatal("large resource was inlined")
+	}
+	checkResourceBlobs(t, in, runner, large)
+}
 
+func checkResourceBlobs(t *testing.T, in tui.Input, runner *captureACPRunner, large string) {
+	t.Helper()
+	if len(in.Attachments) != 2 || len(runner.spilled) != 2 {
+		t.Fatalf("attachments = %d spilled = %d, want 2/2", len(in.Attachments), len(runner.spilled))
+	}
+	sum := sha256.Sum256([]byte(large))
+	if in.Attachments[0].BlobSHA != hex.EncodeToString(sum[:]) || string(runner.spilled[0]) != large {
+		t.Fatalf("large resource blob = %+v", in.Attachments[0])
+	}
+	if string(runner.spilled[1]) != "binary body" || in.Attachments[1].MIME != "application/octet-stream" {
+		t.Fatalf("blob resource = %+v / %q", in.Attachments[1], runner.spilled[1])
+	}
+	var metas []map[string]any
+	if err := json.Unmarshal(in.Meta, &metas); err != nil || len(metas) != 1 || metas[0]["trace"] != "t-1" {
+		t.Fatalf("meta = %s, err %v", in.Meta, err)
+	}
+}
+
+func checkBrokenResources(t *testing.T, p *acpPipe, runner *captureACPRunner, large string) {
+	t.Helper()
 	broken := []struct {
 		id    int
 		block map[string]any
@@ -460,8 +527,7 @@ func TestACPResourceBlocks(t *testing.T) {
 		{4, map[string]any{"type": "resource", "resource": map[string]any{"text": "x"}}, "invalid_resource"},
 		{5, map[string]any{"type": "resource", "resource": map[string]any{"uri": "relative", "text": "x"}}, "invalid_resource"},
 		{6, map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///x", "text": "x", "blob": "eA=="}}, "invalid_resource"},
-		{7, map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///x", "blob": "eA=="}}, "unsupported_resource"},
-		{8, map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///x", "text": strings.Repeat("a", maxResourceChars+1)}}, "too_large"},
+		{7, map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///x", "blob": "!!!"}}, "unsupported_resource"},
 	}
 	for _, tc := range broken {
 		p.send(map[string]any{"jsonrpc": "2.0", "id": tc.id, "method": "session/prompt", "params": map[string]any{"sessionId": "s1", "prompt": []any{tc.block}}})
@@ -469,6 +535,44 @@ func TestACPResourceBlocks(t *testing.T) {
 		if code != -32602 || errorCode != tc.code {
 			t.Fatalf("%s: %d/%q, want -32602/%q", tc.block["type"], code, errorCode, tc.code)
 		}
+	}
+	runner.setSpillErr(errors.New("store down"))
+	p.send(map[string]any{"jsonrpc": "2.0", "id": 8, "method": "session/prompt", "params": map[string]any{
+		"sessionId": "s1", "prompt": []any{map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///x", "text": large}}},
+	}})
+	if code, errorCode := frameError(t, p.frame()); code != -32602 || errorCode != "unsupported_resource" {
+		t.Fatalf("spill failure = %d/%q", code, errorCode)
+	}
+}
+
+func TestACPResourceBlobLimit(t *testing.T) {
+	encoded := strings.Repeat("A", base64.StdEncoding.EncodedLen(maxResourceBlobBytes)+1)
+	if _, f := decodeResourceBlob(encoded); f == nil || f.code != "too_large" {
+		t.Fatalf("oversized blob = %v", f)
+	}
+}
+
+func TestACPResourceAggregateSpills(t *testing.T) {
+	runner := &captureACPRunner{}
+	p := startACPPipe(t, runner)
+	p.startPrompt()
+	const each = maxResourceChars
+	blocks := make([]any, 0, 7)
+	for i := range 7 {
+		blocks = append(blocks, map[string]any{"type": "resource", "resource": map[string]any{"uri": fmt.Sprintf("file:///r%d.txt", i), "text": strings.Repeat("a", each)}})
+	}
+	p.send(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "session/prompt", "params": map[string]any{"sessionId": "s1", "prompt": blocks}})
+	for {
+		f := p.frame()
+		if f["id"] == float64(3) {
+			if f["error"] != nil {
+				t.Fatalf("aggregate prompt rejected: %v", f)
+			}
+			break
+		}
+	}
+	if in := runner.last(t); len(in.Attachments) != 1 || len(runner.spilled) != 1 {
+		t.Fatalf("aggregate spill = %d attachments / %d spills", len(in.Attachments), len(runner.spilled))
 	}
 }
 

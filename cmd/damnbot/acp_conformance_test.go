@@ -67,6 +67,9 @@ func (r *scriptRunner) Prompt(_ context.Context, sid string, in tui.Input) (<-ch
 	return ch, nil
 }
 
+func (r *scriptRunner) SpillResource(_ context.Context, name, mime string, data []byte) (tui.Attachment, error) {
+	return testSpill(name, mime, data)
+}
 func (r *scriptRunner) Cancel(string)      {}
 func (r *scriptRunner) Active(string) bool { return r.active }
 func (r *scriptRunner) Close() error       { r.closed = true; return nil }
