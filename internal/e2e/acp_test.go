@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -339,5 +341,192 @@ func TestACPStdioLoad(t *testing.T) {
 	}
 	if _, ok := unknown["sessionId"]; ok {
 		t.Fatalf("unknown load created a session: %v", unknown)
+	}
+}
+
+// acpClient drives one real `damnbot acp` process over its stdio pipes, so
+// a scenario can use the session id the server generates.
+type acpClient struct {
+	t     *testing.T
+	cmd   *exec.Cmd
+	in    io.WriteCloser
+	out   *bufio.Reader
+	errb  bytes.Buffer
+	once  sync.Once
+	waErr error
+}
+
+// wait reaps the process exactly once.
+func (c *acpClient) wait() error {
+	c.once.Do(func() { c.waErr = c.cmd.Wait() })
+	return c.waErr
+}
+
+func (e *Env) acpStart(t *testing.T) *acpClient {
+	t.Helper()
+	bin := e.bin
+	if bin == "" {
+		bin = binPaths.main
+	}
+	cmd := exec.CommandContext(t.Context(), bin, "acp") //nolint:gosec // test-built binary
+	cmd.Dir = e.Workdir
+	cmd.Env = append(os.Environ(),
+		"HOME="+e.home,
+		"XDG_CONFIG_HOME="+e.home,
+		"USERPROFILE="+e.home,
+		"APPDATA="+filepath.Join(e.home, "AppData", "Roaming"),
+		"LOCALAPPDATA="+filepath.Join(e.home, "AppData", "Local"),
+	)
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &acpClient{t: t, cmd: cmd, in: in, out: bufio.NewReader(out)}
+	cmd.Stderr = &c.errb
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := in.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			t.Logf("acp stdin close: %v", err)
+		}
+		if err := c.wait(); err != nil {
+			t.Logf("acp exit: %v", err)
+		}
+	})
+	return c
+}
+
+func (c *acpClient) send(frame string) {
+	c.t.Helper()
+	if _, err := io.WriteString(c.in, frame+"\n"); err != nil {
+		c.t.Fatalf("acp write: %v\nstderr:\n%s", err, c.errb.String())
+	}
+}
+
+// next reads one frame.
+func (c *acpClient) next() map[string]any {
+	c.t.Helper()
+	line, err := c.out.ReadString('\n')
+	if err != nil {
+		c.t.Fatalf("acp read: %v\nstderr:\n%s", err, c.errb.String())
+	}
+	var f map[string]any
+	if err := json.Unmarshal([]byte(line), &f); err != nil {
+		c.t.Fatalf("acp frame: %v: %s", err, line)
+	}
+	return f
+}
+
+// until reads frames until the response for id, returning it and every
+// notification seen on the way.
+func (c *acpClient) until(id float64) (map[string]any, []map[string]any) {
+	c.t.Helper()
+	var notes []map[string]any
+	for {
+		f := c.next()
+		if f["id"] == id {
+			return f, notes
+		}
+		notes = append(notes, f)
+	}
+}
+
+// TestACPStdioModesAndModels (GAP-UX-02): the real binary selects every
+// advertised mode, emits current_mode_update, switches models from
+// availableModels, and rejects unknown values with -32602.
+// acpNewSession returns the server-generated session id.
+func acpNewSession(t *testing.T, c *acpClient) string {
+	t.Helper()
+	c.send(`{"jsonrpc":"2.0","id":2,"method":"session/new","params":{}}`)
+	resp, _ := c.until(2)
+	result, ok := resp["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("session/new result = %v", resp)
+	}
+	sid, ok := result["sessionId"].(string)
+	if !ok || sid == "" {
+		t.Fatalf("session/new sessionId = %v", resp)
+	}
+	return sid
+}
+
+// checkMode selects mode and asserts its update and success response.
+func checkMode(t *testing.T, c *acpClient, sid, mode string, id float64) {
+	t.Helper()
+	c.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":"session/set_mode","params":{"sessionId":%q,"modeId":%q}}`, int(id), sid, mode))
+	resp, notes := c.until(id)
+	if resp["error"] != nil {
+		t.Fatalf("mode %s rejected: %v", mode, resp)
+	}
+	var got string
+	for _, n := range notes {
+		got = modeOf(n, got)
+	}
+	if got != mode {
+		t.Fatalf("mode %s update = %q", mode, got)
+	}
+}
+
+// modeOf reads currentModeId from one notification, keeping prev otherwise.
+func modeOf(n map[string]any, prev string) string {
+	params, ok := n["params"].(map[string]any)
+	if !ok {
+		return prev
+	}
+	up, ok := params["update"].(map[string]any)
+	if !ok || up["sessionUpdate"] != "current_mode_update" {
+		return prev
+	}
+	if v, ok := up["currentModeId"].(string); ok {
+		return v
+	}
+	return prev
+}
+
+// TestACPStdioModesAndModels (GAP-UX-02): the real binary selects every
+// advertised mode, emits current_mode_update, switches models from
+// availableModels, and rejects unknown values with -32602.
+func TestACPStdioModesAndModels(t *testing.T) {
+	t.Parallel()
+	e := New(t)
+	// ACP reads the profile config (there is no --config flag). Let the
+	// binary resolve the platform path (macOS Application Support, Windows
+	// APPDATA, XDG on Linux) instead of hardcoding the Linux one: an empty
+	// config makes availableModels empty and rejects a valid model.
+	e.Exec("setup", "--yes", "--model", "openai/gpt-fake").RequireOK(t)
+	// The binary must see that model on this platform; otherwise the
+	// advertised list is empty and the failure below would be misleading.
+	if got := e.Exec("config", "get", "provider.model"); got.Code != 0 || !strings.Contains(got.Stdout, "openai/gpt-fake") {
+		t.Fatalf("config not visible to the binary (exit %d):\n%s\n%s", got.Code, got.Stdout, got.Stderr)
+	}
+	c := e.acpStart(t)
+	c.send(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`)
+	c.until(1)
+	sid := acpNewSession(t, c)
+	for i, mode := range []string{"ask", "auto-edit", "auto", "plan"} {
+		checkMode(t, c, sid, mode, float64(10+i))
+	}
+	c.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":20,"method":"session/set_mode","params":{"sessionId":%q,"modeId":"yolo"}}`, sid))
+	if resp, _ := c.until(20); resp["error"] == nil {
+		t.Fatalf("unknown mode accepted: %v", resp)
+	}
+	c.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":21,"method":"session/set_model","params":{"sessionId":%q,"modelId":"openai/gpt-fake"}}`, sid))
+	if resp, _ := c.until(21); resp["error"] != nil {
+		t.Fatalf("known model rejected: %v", resp)
+	}
+	c.send(fmt.Sprintf(`{"jsonrpc":"2.0","id":22,"method":"session/set_model","params":{"sessionId":%q,"modelId":"openai/unknown"}}`, sid))
+	if resp, _ := c.until(22); resp["error"] == nil {
+		t.Fatalf("unknown model accepted: %v", resp)
+	}
+	if err := c.in.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.wait(); err != nil {
+		t.Fatalf("acp exit: %v\nstderr:\n%s", err, c.errb.String())
 	}
 }

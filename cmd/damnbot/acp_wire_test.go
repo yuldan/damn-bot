@@ -29,8 +29,10 @@ func (fakeACPRunner) Prompt(context.Context, string, tui.Input) (<-chan tui.Upda
 	close(ch)
 	return ch, nil
 }
-func (fakeACPRunner) Cancel(string) {}
-func (fakeACPRunner) Close() error  { return nil }
+func (fakeACPRunner) Cancel(string)            {}
+func (fakeACPRunner) Active(string) bool       { return false }
+func (fakeACPRunner) SetApproval(string) error { return nil }
+func (fakeACPRunner) Close() error             { return nil }
 
 type syncBuffer struct {
 	mu sync.Mutex
@@ -399,8 +401,10 @@ func (c *captureACPRunner) Prompt(_ context.Context, _ string, in tui.Input) (<-
 	close(ch)
 	return ch, nil
 }
-func (c *captureACPRunner) Cancel(string) {}
-func (c *captureACPRunner) Close() error  { return nil }
+func (c *captureACPRunner) Cancel(string)            {}
+func (c *captureACPRunner) Active(string) bool       { return false }
+func (c *captureACPRunner) SetApproval(string) error { return nil }
+func (c *captureACPRunner) Close() error             { return nil }
 func (c *captureACPRunner) last(t *testing.T) tui.Input {
 	t.Helper()
 	c.mu.Lock()

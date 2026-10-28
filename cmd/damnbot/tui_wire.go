@@ -140,7 +140,9 @@ func (r *tuiRunner) Prompt(ctx context.Context, sid string, in tui.Input) (<-cha
 	// /new and /fork switch the active session; the lazy model follows so the
 	// nudge counter and close path use the session actually in use.
 	model.sessionID = sid
+	r.mu.Lock()
 	opts := *r.deps.opts
+	r.mu.Unlock()
 	opts.prompt = in.Text
 	opts.now = r.deps.now
 	eng, err := newTurnEngine(ctx, r.deps.cfg, &opts, model, r.deps.modelRef, r.deps.red, model.spill)
@@ -175,6 +177,23 @@ func (r *tuiRunner) Cancel(sid string) {
 	if lp != nil {
 		lp.Cancel(sid)
 	}
+}
+
+// SetApproval installs the approval policy for the session's next turn
+// (SPEC §14.1); the ACP mode picker maps onto it.
+func (r *tuiRunner) SetApproval(mode string) error {
+	switch mode {
+	case "ask", "auto-edit", "auto":
+	default:
+		return fmt.Errorf("acp: unknown approval mode %q", mode)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.deps.opts == nil {
+		return errors.New("acp: runner has no options")
+	}
+	r.deps.opts.approval = mode
+	return nil
 }
 
 func (r *tuiRunner) Active(sid string) bool {

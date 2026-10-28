@@ -36,12 +36,14 @@ func (h *fakeHistory) TurnEndEventID(context.Context, string) (int64, error) { r
 // scriptRunner replays a fixed update list; panic/err simulate a tool panic
 // and a prompt failure.
 type scriptRunner struct {
-	updates []tui.Update
-	err     error
-	crash   bool
-	input   tui.Input
-	sid     string
-	closed  bool
+	updates   []tui.Update
+	err       error
+	crash     bool
+	input     tui.Input
+	sid       string
+	closed    bool
+	active    bool
+	approvals []string
 }
 
 func (r *scriptRunner) Prompt(_ context.Context, sid string, in tui.Input) (<-chan tui.Update, error) {
@@ -63,8 +65,14 @@ func (r *scriptRunner) Prompt(_ context.Context, sid string, in tui.Input) (<-ch
 	return ch, nil
 }
 
-func (r *scriptRunner) Cancel(string) {}
-func (r *scriptRunner) Close() error  { r.closed = true; return nil }
+func (r *scriptRunner) Cancel(string)      {}
+func (r *scriptRunner) Active(string) bool { return r.active }
+func (r *scriptRunner) Close() error       { r.closed = true; return nil }
+
+func (r *scriptRunner) SetApproval(mode string) error {
+	r.approvals = append(r.approvals, mode)
+	return nil
+}
 
 // serveACP runs one server instance over input with the given seam doubles.
 func serveACP(t *testing.T, input string, runner acpRunner, hist acpHistory) string {
@@ -308,5 +316,117 @@ func TestACPLoadDoesNotCreateSession(t *testing.T) {
 	}
 	if strings.Contains(out, `"sessionId"`) {
 		t.Fatalf("failed load answered a session id:\n%s", out)
+	}
+}
+
+// modeUpdates returns the currentModeId of every current_mode_update frame.
+func modeUpdates(t *testing.T, out string) []string {
+	t.Helper()
+	var modes []string
+	for _, f := range frames(t, out) {
+		if f["method"] != "session/update" {
+			continue
+		}
+		params, ok := f["params"].(map[string]any)
+		if !ok {
+			continue
+		}
+		up, ok := params["update"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if up["sessionUpdate"] == "current_mode_update" {
+			if id, ok := up["currentModeId"].(string); ok {
+				modes = append(modes, id)
+			}
+		}
+	}
+	return modes
+}
+
+// TestACPModeMatrix (GAP-UX-02): every advertised mode is selectable, sends
+// current_mode_update, maps to its approval policy, and plan travels with the
+// prompt (SPEC §13.3, §14.1, §18.3).
+func TestACPModeMatrix(t *testing.T) {
+	runner := &scriptRunner{}
+	input := `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{}}` + "\n" +
+		`{"jsonrpc":"2.0","id":2,"method":"session/set_mode","params":{"sessionId":"s1","modeId":"ask"}}` + "\n" +
+		`{"jsonrpc":"2.0","id":3,"method":"session/set_mode","params":{"sessionId":"s1","modeId":"auto-edit"}}` + "\n" +
+		`{"jsonrpc":"2.0","id":4,"method":"session/set_mode","params":{"sessionId":"s1","modeId":"auto"}}` + "\n" +
+		`{"jsonrpc":"2.0","id":5,"method":"session/set_mode","params":{"sessionId":"s1","modeId":"plan"}}` + "\n" +
+		`{"jsonrpc":"2.0","id":6,"method":"session/prompt","params":{"sessionId":"s1","prompt":[{"type":"text","text":"plan it"}]}}` + "\n"
+	out := serveACP(t, input, runner, &fakeHistory{})
+	for _, id := range []float64{2, 3, 4, 5} {
+		if f := reply(t, out, id); f["error"] != nil {
+			t.Fatalf("mode %v rejected: %v", id, f)
+		}
+	}
+	modes := modeUpdates(t, out)
+	want := []string{"ask", "auto-edit", "auto", "plan"}
+	if len(modes) != len(want) {
+		t.Fatalf("mode updates = %v, want %v", modes, want)
+	}
+	for i := range want {
+		if modes[i] != want[i] {
+			t.Fatalf("mode updates = %v, want %v", modes, want)
+		}
+	}
+	wantApproval := []string{"ask", "auto-edit", "auto", "ask"}
+	if len(runner.approvals) != len(wantApproval) {
+		t.Fatalf("approvals = %v, want %v", runner.approvals, wantApproval)
+	}
+	for i := range wantApproval {
+		if runner.approvals[i] != wantApproval[i] {
+			t.Fatalf("approvals = %v, want %v", runner.approvals, wantApproval)
+		}
+	}
+	if !runner.input.PlanMode {
+		t.Fatal("plan mode did not reach the prompt")
+	}
+}
+
+// TestACPSetModel (GAP-UX-02): a known model switches the session runner and
+// answers null; an unknown id is -32602 and builds nothing.
+func TestACPSetModel(t *testing.T) {
+	out := &syncBuffer{}
+	srv := fakeServer(t, out)
+	srv.cfg.Provider.Fallback = []string{"openai/gpt-fallback"}
+	runner := &scriptRunner{}
+	var built []string
+	srv.factory = func(_ string, d *tuiDeps) acpRunner {
+		built = append(built, d.modelRef)
+		return runner
+	}
+	srv.history = &fakeHistory{}
+	input := `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{}}` + "\n" +
+		`{"jsonrpc":"2.0","id":2,"method":"session/set_model","params":{"sessionId":"s1","modelId":"openai/gpt-fallback"}}` + "\n" +
+		`{"jsonrpc":"2.0","id":3,"method":"session/set_model","params":{"sessionId":"s1","modelId":"openai/unknown"}}` + "\n"
+	if err := srv.serve(t.Context(), strings.NewReader(input)); err != nil {
+		t.Fatal(err)
+	}
+	if f := reply(t, out.String(), 2); f["error"] != nil || f["result"] != nil {
+		t.Fatalf("known model response = %v", f)
+	}
+	unknown := reply(t, out.String(), 3)
+	if got := errCode(t, unknown); got != -32602 {
+		t.Fatalf("unknown model code = %v, want -32602", got)
+	}
+	if len(built) != 2 || built[0] != "openai/gpt-test" || built[1] != "openai/gpt-fallback" {
+		t.Fatalf("runners built = %v, want [primary fallback]", built)
+	}
+}
+
+// TestACPSetModelBusy: a turn in flight keeps its model.
+func TestACPSetModelBusy(t *testing.T) {
+	runner := &scriptRunner{active: true}
+	input := `{"jsonrpc":"2.0","id":1,"method":"session/new","params":{}}` + "\n" +
+		`{"jsonrpc":"2.0","id":2,"method":"session/set_model","params":{"sessionId":"s1","modelId":"openai/gpt-test"}}` + "\n"
+	out := serveACP(t, input, runner, &fakeHistory{})
+	f := reply(t, out, 2)
+	if got := errCode(t, f); got != -32603 {
+		t.Fatalf("busy set_model code = %v, want -32603", got)
+	}
+	if d := dataOf(t, f); d["error_code"] != "session_busy" {
+		t.Fatalf("data = %v, want session_busy", d)
 	}
 }
