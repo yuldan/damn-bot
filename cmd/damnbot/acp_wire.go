@@ -15,6 +15,7 @@ import (
 	"github.com/damnbot/damnbot/internal/acp"
 	"github.com/damnbot/damnbot/internal/boundary"
 	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/tui"
@@ -43,6 +44,7 @@ type acpServer struct {
 	permSeq  int
 	nextID   func() (string, error)
 	factory  func(string, *tuiDeps) acpRunner
+	history  acpHistory
 }
 
 const acpProtocolVersion = 1
@@ -92,6 +94,7 @@ func runACP(args []string, _ io.Writer, stderr io.Writer) int {
 		dd.opts = &opts
 		return newTUIRunner(&dd)
 	})
+	srv.history = &ctxHistoryStore{cfg: &cfg, dataDir: dataDir, configDir: configDir}
 	if f, ok := any(os.Stdout).(*os.File); ok {
 		srv.writer = acp.FileWriter{F: f}
 	}
@@ -133,6 +136,37 @@ func (s *acpServer) handle(ctx context.Context, frame []byte) {
 		s.writeError(ctx, nil, perr)
 		return
 	}
+	if req.Method == "session/prompt" {
+		s.startPrompt(ctx, &req)
+		return
+	}
+	if err := boundary.Run(ctx, "acp.handle", func(ctx context.Context) error {
+		s.dispatch(ctx, &req)
+		return nil
+	}); err != nil {
+		s.writeError(ctx, req.ID, acp.ErrInternal)
+	}
+}
+
+// startPrompt runs one prompt in its own boundary task: a panic becomes a
+// -32603 response instead of a silent success or a dead connection.
+func (s *acpServer) startPrompt(ctx context.Context, req *acp.Request) {
+	task := boundary.Go(ctx, "acp.prompt", func(ctx context.Context) error {
+		s.prompt(ctx, req)
+		return nil
+	})
+	s.wg.Add(1)
+	_ = boundary.Go(ctx, "acp.prompt.wait", func(ctx context.Context) error {
+		defer s.wg.Done()
+		if err := task.Wait(); err != nil {
+			s.writeError(context.WithoutCancel(ctx), req.ID, acp.ErrInternal)
+		}
+		return nil
+	})
+}
+
+// dispatch routes one non-prompt method.
+func (s *acpServer) dispatch(ctx context.Context, req *acp.Request) {
 	switch req.Method {
 	case "initialize":
 		var p struct {
@@ -151,24 +185,93 @@ func (s *acpServer) handle(ctx context.Context, frame []byte) {
 		s.respond(ctx, req.ID, map[string]any{
 			"protocolVersion":   proto,
 			"agentInfo":         map[string]any{"name": "damnbot", "version": version},
-			"agentCapabilities": map[string]any{"loadSession": false, "promptCapabilities": map[string]any{"image": false, "audio": false, "embeddedContext": true}, "mcpCapabilities": map[string]any{"http": false, "sse": false}},
+			"agentCapabilities": map[string]any{"loadSession": true, "promptCapabilities": map[string]any{"image": false, "audio": false, "embeddedContext": true}, "mcpCapabilities": map[string]any{"http": false, "sse": false}},
 			"authMethods":       []any{},
 		})
 	case "session/new":
-		s.newSession(ctx, &req)
-	case "session/prompt":
-		s.wg.Add(1)
-		_ = boundary.Go(ctx, "acp.prompt", func(ctx context.Context) error {
-			defer s.wg.Done()
-			s.prompt(ctx, &req)
-			return nil
-		})
+		s.newSession(ctx, req)
+	case "session/load":
+		s.loadSession(ctx, req)
 	case "session/cancel":
-		s.cancel(&req)
+		s.cancel(req)
 	case "session/set_mode":
-		s.setMode(ctx, &req)
+		s.setMode(ctx, req)
 	default:
 		s.writeError(ctx, req.ID, acp.ErrMethod)
+	}
+}
+
+// loadSession replays a stored transcript (SPEC §13.3). An unknown session
+// is -32002 and never becomes a new session; a store failure is -32603 with
+// its closed error_code and event_id, never an empty history.
+func (s *acpServer) loadSession(ctx context.Context, req *acp.Request) {
+	var p struct {
+		SessionID string `json:"sessionId"`
+	}
+	if json.Unmarshal(req.Params, &p) != nil || p.SessionID == "" || acp.ValidateSessionID(p.SessionID) != nil {
+		s.writeError(ctx, req.ID, acp.ErrParams)
+		return
+	}
+	if s.history == nil {
+		s.writeError(ctx, req.ID, acp.ErrorWithData(acp.ErrInternal, map[string]any{"error_code": "internal", "event_id": int64(0)}))
+		return
+	}
+	items, err := s.history.Load(ctx, p.SessionID)
+	if err != nil {
+		s.loadFailed(ctx, req.ID, err)
+		return
+	}
+	proto, err := acp.NewSessionWith(p.SessionID, acp.Options{})
+	if err != nil {
+		s.writeError(ctx, req.ID, acp.ErrParams)
+		return
+	}
+	runner := s.factory(p.SessionID, &s.deps)
+	bridge := &approvalBridge{}
+	s.wireBridge(ctx, bridge, p.SessionID)
+	s.mu.Lock()
+	old := s.sessions[p.SessionID]
+	s.mu.Unlock()
+	if old != nil {
+		if cerr := errors.Join(old.runner.Close(), old.proto.Close()); cerr != nil {
+			s.writeError(ctx, req.ID, acp.ErrInternal)
+			return
+		}
+	}
+	s.mu.Lock()
+	s.sessions[p.SessionID] = &acpSession{proto: proto, runner: runner}
+	s.mu.Unlock()
+	for _, it := range items {
+		s.notify(ctx, map[string]any{"sessionId": p.SessionID, "update": replayUpdate(it)})
+	}
+	s.respond(ctx, req.ID, nil)
+}
+
+// loadFailed maps a load error to the closed JSON-RPC failure set.
+func (s *acpServer) loadFailed(ctx context.Context, id json.RawMessage, err error) {
+	switch {
+	case errors.Is(err, ctxdb.ErrNotFound):
+		s.writeError(ctx, id, acp.ErrResourceNotFound)
+	case errors.Is(err, ctxdb.ErrSessionBusy):
+		s.writeError(ctx, id, acp.ErrorWithData(acp.ErrInternal, map[string]any{"error_code": "session_busy", "event_id": int64(0)}))
+	default:
+		code := "internal"
+		if he, ok := errors.AsType[*acpHistoryError](err); ok {
+			code = he.code
+		}
+		s.writeError(ctx, id, acp.ErrorWithData(acp.ErrInternal, map[string]any{"error_code": code, "event_id": int64(0)}))
+	}
+}
+
+// replayUpdate renders one stored item as an ACP session/update.
+func replayUpdate(it acpReplayItem) map[string]any {
+	switch it.Update {
+	case "user_message_chunk":
+		return map[string]any{"sessionUpdate": "user_message_chunk", "content": map[string]any{"type": "text", "text": it.Text}}
+	case "tool_call_update":
+		return map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": it.ToolCallID, "status": it.Status, "content": map[string]any{"type": "text", "text": it.Text}}
+	default:
+		return map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": it.Text}}
 	}
 }
 
@@ -244,21 +347,58 @@ func (s *acpServer) prompt(ctx context.Context, req *acp.Request) {
 		return
 	}
 	stop := "end_turn"
+	var detail string
 	for up := range stream {
-		switch up.Kind {
-		case tui.KindTextDelta:
-			s.notify(ctx, "session/update", map[string]any{"sessionId": p.SessionID, "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": up.Text}}})
-		case tui.KindToolCallStart, tui.KindToolCallEnd, tui.KindToolResult:
-			s.notify(ctx, "session/update", map[string]any{"sessionId": p.SessionID, "update": map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": up.ToolCallID, "status": up.Status, "content": up.Text}})
-		case tui.KindNotice:
-			s.notify(ctx, "session/update", map[string]any{"sessionId": p.SessionID, "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": up.Text}}})
-		case tui.KindToolCallArgs, tui.KindUsage:
-			continue
-		case tui.KindStop:
-			stop = acpStop(string(up.Detail), string(up.Stop))
+		if sr, d, ok := s.forwardUpdate(ctx, p.SessionID, &up); ok {
+			stop, detail = sr, d
 		}
 	}
+	if failed := s.promptFailed(ctx, p.SessionID, detail); failed != nil {
+		s.writeError(ctx, req.ID, failed)
+		return
+	}
 	s.respond(ctx, req.ID, map[string]any{"stopReason": stop})
+}
+
+// forwardUpdate translates one loop update into its session/update
+// notification. It reports the terminal stop reason and detail for a stop.
+func (s *acpServer) forwardUpdate(ctx context.Context, sid string, up *tui.Update) (stopReason, detail string, stop bool) {
+	chunk := func(text string) {
+		s.notify(ctx, map[string]any{"sessionId": sid, "update": map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": text}}})
+	}
+	switch up.Kind {
+	case tui.KindTextDelta:
+		chunk(up.Text)
+	case tui.KindToolCallStart, tui.KindToolCallEnd, tui.KindToolResult:
+		s.notify(ctx, map[string]any{"sessionId": sid, "update": map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": up.ToolCallID, "status": up.Status, "content": up.Text}})
+	case tui.KindNotice:
+		chunk(up.Text)
+	case tui.KindStop:
+		detail = string(up.Detail)
+		return acpStop(detail, string(up.Stop)), detail, true
+	case tui.KindToolCallArgs, tui.KindUsage:
+	}
+	return "", "", false
+}
+
+// promptFailed maps a system failure to the SPEC §3.5 ACP column: a
+// provider_error (retries and fallback exhausted, or non-retryable) and a
+// recovered internal failure are JSON-RPC -32603, never end_turn. The data
+// carries the turn_end event id so the client can point at the transcript.
+func (s *acpServer) promptFailed(ctx context.Context, sid, detail string) *acp.Error {
+	if detail != "provider_error" && detail != "internal" {
+		return nil
+	}
+	var eventID int64
+	if s.history != nil {
+		if id, err := s.history.TurnEndEventID(ctx, sid); err == nil {
+			eventID = id
+		}
+	}
+	if detail == "provider_error" {
+		return acp.ErrorWithData(acp.ErrInternal, map[string]any{"stop_reason": "provider_error", "event_id": eventID})
+	}
+	return acp.ErrorWithData(acp.ErrInternal, map[string]any{"error_code": "internal", "event_id": eventID})
 }
 
 func (s *acpServer) cancel(req *acp.Request) {
@@ -421,8 +561,8 @@ func (s *acpServer) respond(ctx context.Context, id json.RawMessage, result any)
 	}
 }
 
-func (s *acpServer) notify(ctx context.Context, method string, params any) {
-	if err := s.write(ctx, map[string]any{"jsonrpc": "2.0", "method": method, "params": params}); err != nil {
+func (s *acpServer) notify(ctx context.Context, params any) {
+	if err := s.write(ctx, map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": params}); err != nil {
 		return
 	}
 }
