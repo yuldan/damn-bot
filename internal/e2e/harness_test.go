@@ -27,6 +27,23 @@ const modelRef = "openai/gpt-fake"
 // binPaths are built once per test run by TestMain.
 var binPaths struct{ main, secret string } //nolint:gochecknoglobals // binaries for the package's child processes
 
+// buildDamnbot builds ./cmd/damnbot from root into out; ldflags may pin the
+// test version. The child e2e install tests also use it for asset v2.
+func buildDamnbot(root, out, ldflags string) ([]byte, error) {
+	args := []string{"build", "-tags", "goolm", "-trimpath"}
+	if ldflags != "" {
+		args = append(args, "-ldflags", ldflags)
+	}
+	args = append(args, "-o", out, "./cmd/damnbot")
+	build := exec.CommandContext(context.Background(), "go", args...)
+	build.Dir = root
+	output, err := build.CombinedOutput()
+	if err != nil {
+		return output, fmt.Errorf("go build: %w", err)
+	}
+	return output, nil
+}
+
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "damnbot-e2e-bin-")
 	if err != nil {
@@ -43,9 +60,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "e2e:", err)
 		os.Exit(1) //nolint:forbidigo // TestMain owns the test process exit
 	}
-	build := exec.CommandContext(context.Background(), "go", "build", "-tags", "goolm", "-o", binPaths.main, "./cmd/damnbot") //nolint:gosec // fixed tool, fixture path
-	build.Dir = root
-	if out, berr := build.CombinedOutput(); berr != nil {
+	if out, berr := buildDamnbot(root, binPaths.main, ""); berr != nil {
 		fmt.Fprintf(os.Stderr, "e2e: build damnbot: %v\n%s\n", berr, out)
 		os.Exit(1) //nolint:forbidigo // TestMain owns the test process exit
 	}
@@ -91,6 +106,7 @@ type Env struct {
 	Workdir string
 	cfg     string
 	home    string
+	bin     string
 }
 
 // New starts the fake provider with the scripted replies and creates the
@@ -142,7 +158,7 @@ func NewFunc(t *testing.T, replies func(*Env) []providertest.Reply) *Env {
 func newEnv(t *testing.T) *Env {
 	t.Helper()
 	dir := t.TempDir()
-	e := &Env{t: t, DataDir: filepath.Join(dir, "data"), Workdir: filepath.Join(dir, "work"), home: filepath.Join(dir, "home")}
+	e := &Env{t: t, DataDir: filepath.Join(dir, "data"), Workdir: filepath.Join(dir, "work"), home: filepath.Join(dir, "home"), bin: binPaths.main}
 	for _, d := range []string{e.DataDir, e.Workdir, e.home} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			t.Fatal(err)
@@ -201,7 +217,11 @@ func (e *Env) execEnv(stdin io.Reader, env []string, args ...string) Result {
 	e.t.Helper()
 	ctx, cancel := context.WithTimeout(e.t.Context(), 120*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, binPaths.main, args...) //nolint:gosec // binary path is this package's temp build
+	bin := e.bin
+	if bin == "" {
+		bin = binPaths.main
+	}
+	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // binary path is this package's temp build or the copied asset
 	cmd.Dir = e.Workdir
 	cmd.Stdin = stdin
 	// HOME/XDG are what the Unix loaders read; Windows resolves its config and
