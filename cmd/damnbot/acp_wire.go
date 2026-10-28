@@ -46,6 +46,8 @@ type acpServer struct {
 	factory  func(string, *tuiDeps) acpRunner
 }
 
+const acpProtocolVersion = 1
+
 type frameWriter interface {
 	WriteFrame(context.Context, []byte) error
 }
@@ -134,7 +136,22 @@ func (s *acpServer) handle(ctx context.Context, frame []byte) {
 	}
 	switch req.Method {
 	case "initialize":
+		var p struct {
+			ProtocolVersion int `json:"protocolVersion"`
+		}
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &p); err != nil {
+				s.writeError(ctx, req.ID, acp.ErrParams)
+				return
+			}
+		}
+		proto := acpProtocolVersion
+		if p.ProtocolVersion == proto {
+			proto = p.ProtocolVersion
+		}
 		s.respond(ctx, req.ID, map[string]any{
+			"protocolVersion":   proto,
+			"agentInfo":         map[string]any{"name": "damnbot", "version": version},
 			"agentCapabilities": map[string]any{"loadSession": false, "promptCapabilities": map[string]any{"image": false, "audio": false, "embeddedContext": true}, "mcpCapabilities": map[string]any{"http": false, "sse": false}},
 			"authMethods":       []any{},
 		})
@@ -173,11 +190,25 @@ func (s *acpServer) newSession(ctx context.Context, req *acp.Request) {
 	s.mu.Lock()
 	s.sessions[id] = &acpSession{proto: proto, runner: runner}
 	s.mu.Unlock()
-	s.respond(ctx, req.ID, map[string]any{
+	result := map[string]any{
 		"sessionId": id,
-		"modes":     []string{acp.ModeAsk.String(), acp.ModeAutoEdit.String(), acp.ModeAuto.String(), acp.ModePlan.String()},
-		"models":    map[string]any{"currentModelId": s.deps.modelRef, "availableModels": []string{s.deps.modelRef}},
-	})
+		"modes": map[string]any{
+			"currentModeId": acp.ModeAsk.String(),
+			"availableModes": []any{
+				map[string]any{"id": acp.ModeAsk.String(), "name": "Ask"},
+				map[string]any{"id": acp.ModeAutoEdit.String(), "name": "Auto Edit"},
+				map[string]any{"id": acp.ModeAuto.String(), "name": "Auto"},
+				map[string]any{"id": acp.ModePlan.String(), "name": "Plan"},
+			},
+		},
+	}
+	if s.deps.modelRef != "" {
+		result["models"] = map[string]any{
+			"currentModelId":  s.deps.modelRef,
+			"availableModels": []any{map[string]any{"modelId": s.deps.modelRef, "name": s.deps.modelRef}},
+		}
+	}
+	s.respond(ctx, req.ID, result)
 }
 
 func (s *acpServer) prompt(ctx context.Context, req *acp.Request) {

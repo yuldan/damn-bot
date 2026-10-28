@@ -24,20 +24,38 @@ func TestACPStdio(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("frames = %d, want 3\n%s", len(lines), res.Stdout)
 	}
-	var initResp map[string]any
+	var initResp struct {
+		ID     int `json:"id"`
+		Result struct {
+			ProtocolVersion int `json:"protocolVersion"`
+			AgentInfo       struct {
+				Name    string `json:"name"`
+				Version string `json:"version"`
+			} `json:"agentInfo"`
+		} `json:"result"`
+	}
 	if err := json.Unmarshal([]byte(lines[0]), &initResp); err != nil {
 		t.Fatalf("initialize response = %s", lines[0])
 	}
-	if id, ok := initResp["id"].(float64); !ok || id != 1 {
-		t.Fatalf("initialize id = %v", initResp["id"])
+	if initResp.ID != 1 || initResp.Result.ProtocolVersion != 1 || initResp.Result.AgentInfo.Name != "damnbot" || initResp.Result.AgentInfo.Version == "" {
+		t.Fatalf("initialize response = %s", lines[0])
 	}
 	var newResp struct {
 		Result struct {
 			SessionID string `json:"sessionId"`
+			Modes     struct {
+				CurrentModeID  string `json:"currentModeId"`
+				AvailableModes []struct {
+					ID string `json:"id"`
+				} `json:"availableModes"`
+			} `json:"modes"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(lines[1]), &newResp); err != nil || newResp.Result.SessionID == "" {
 		t.Fatalf("session/new response = %s", lines[1])
+	}
+	if newResp.Result.Modes.CurrentModeID != "ask" || len(newResp.Result.Modes.AvailableModes) != 4 {
+		t.Fatalf("session/new modes = %s", lines[1])
 	}
 	var errResp struct {
 		Error struct {

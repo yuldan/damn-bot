@@ -133,6 +133,40 @@ func TestACPGoldenProtocolErrors(t *testing.T) {
 	}, "\n")+"\n")
 }
 
+func TestACPInitializeProtocol(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		request string
+	}{
+		{"supported", `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}`},
+		{"unsupported", `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":99}}`},
+		{"absent", `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := serveFrames(t, tc.request+"\n")
+			var resp struct {
+				Result struct {
+					ProtocolVersion int            `json:"protocolVersion"`
+					AgentInfo       map[string]any `json:"agentInfo"`
+					AuthMethods     []any          `json:"authMethods"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &resp); err != nil {
+				t.Fatal(err)
+			}
+			if resp.Result.ProtocolVersion != acpProtocolVersion {
+				t.Fatalf("protocolVersion = %d, want %d", resp.Result.ProtocolVersion, acpProtocolVersion)
+			}
+			if resp.Result.AgentInfo["name"] != "damnbot" || resp.Result.AgentInfo["version"] == "" {
+				t.Fatalf("agentInfo = %+v", resp.Result.AgentInfo)
+			}
+			if resp.Result.AuthMethods == nil {
+				t.Fatal("authMethods missing")
+			}
+		})
+	}
+}
+
 func TestACPMethodsSupported(t *testing.T) {
 	out := serveFrames(t, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`+"\n")
 	if !strings.Contains(out, `"agentCapabilities"`) || !strings.Contains(out, `"authMethods"`) {
@@ -141,15 +175,31 @@ func TestACPMethodsSupported(t *testing.T) {
 	out = serveFrames(t, `{"jsonrpc":"2.0","id":2,"method":"session/new","params":{}}`+"\n")
 	var resp struct {
 		Result struct {
-			SessionID string   `json:"sessionId"`
-			Modes     []string `json:"modes"`
+			SessionID string `json:"sessionId"`
+			Modes     struct {
+				CurrentModeID  string `json:"currentModeId"`
+				AvailableModes []struct {
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				} `json:"availableModes"`
+			} `json:"modes"`
+			Models struct {
+				CurrentModelID  string `json:"currentModelId"`
+				AvailableModels []struct {
+					ModelID string `json:"modelId"`
+					Name    string `json:"name"`
+				} `json:"availableModels"`
+			} `json:"models"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.Result.SessionID != "s1" || len(resp.Result.Modes) != 4 {
+	if resp.Result.SessionID != "s1" || len(resp.Result.Modes.AvailableModes) != 4 || resp.Result.Modes.CurrentModeID != "ask" {
 		t.Fatalf("session/new = %+v", resp.Result)
+	}
+	if resp.Result.Models.CurrentModelID != "openai/gpt-test" || len(resp.Result.Models.AvailableModels) != 1 || resp.Result.Models.AvailableModels[0].ModelID != "openai/gpt-test" {
+		t.Fatalf("models = %+v", resp.Result.Models)
 	}
 	out = serveFrames(t, `{"jsonrpc":"2.0","id":3,"method":"session/set_mode","params":{"sessionId":"missing","modeId":"plan"}}`+"\n")
 	if !strings.Contains(out, `"code":-32602`) {
