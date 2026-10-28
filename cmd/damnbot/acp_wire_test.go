@@ -279,3 +279,203 @@ func waitForLine(t *testing.T, out interface{ String() string }) {
 	}
 	t.Fatalf("no permission frame written: %q", out.String())
 }
+
+// chanWriter hands each written frame to a test channel.
+type chanWriter struct{ ch chan []byte }
+
+func (w *chanWriter) WriteFrame(_ context.Context, frame []byte) error {
+	w.ch <- append([]byte(nil), frame...)
+	return nil
+}
+
+// acpPipe drives one server over an io.Pipe, so a test can answer a
+// permission request while the turn is running.
+type acpPipe struct {
+	t      *testing.T
+	in     *io.PipeWriter
+	frames chan []byte
+}
+
+func startACPPipe(t *testing.T, runner acpRunner) *acpPipe {
+	t.Helper()
+	cfg := config.Default()
+	cfg.Provider.Model = "openai/gpt-test"
+	cfg.Approval.PreviewTimeoutS = 1
+	deps := tuiDeps{cfg: &cfg, modelRef: cfg.Provider.Model, opts: &runOptions{approvalOrigin: "acp"}, red: redact.New(redact.Options{}), home: t.TempDir()}
+	if runner == nil {
+		runner = fakeACPRunner{}
+	}
+	frames := make(chan []byte, 64)
+	srv := newACPServer(&cfg, &deps, &chanWriter{ch: frames}, func() (string, error) { return "s1", nil },
+		func(string, *tuiDeps) acpRunner { return runner })
+	inR, inW := io.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if err := srv.serve(t.Context(), inR); err != nil {
+			t.Errorf("serve: %v", err)
+		}
+	}()
+	t.Cleanup(func() {
+		if err := inW.Close(); err != nil {
+			t.Errorf("close stdin: %v", err)
+		}
+		<-done
+	})
+	return &acpPipe{t: t, in: inW, frames: frames}
+}
+
+func (p *acpPipe) send(v any) {
+	p.t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	if _, err := p.in.Write(append(b, '\n')); err != nil {
+		p.t.Fatal(err)
+	}
+}
+
+func (p *acpPipe) frame() map[string]any {
+	p.t.Helper()
+	select {
+	case b := <-p.frames:
+		var v map[string]any
+		if err := json.Unmarshal(b, &v); err != nil {
+			p.t.Fatalf("frame %s: %v", b, err)
+		}
+		return v
+	case <-time.After(5 * time.Second):
+		p.t.Fatal("no frame within 5s")
+		return nil
+	}
+}
+
+// startPrompt initializes and opens session s1 for a prompt scenario.
+func (p *acpPipe) startPrompt() {
+	p.t.Helper()
+	p.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": 1}})
+	if f := p.frame(); f["id"] != float64(1) || f["result"] == nil {
+		p.t.Fatalf("initialize = %v", f)
+	}
+	p.send(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "session/new", "params": map[string]any{}})
+	if f := p.frame(); f["id"] != float64(2) || f["result"] == nil {
+		p.t.Fatalf("session/new = %v", f)
+	}
+}
+
+func frameError(t *testing.T, f map[string]any) (code int, errorCode string) {
+	t.Helper()
+	e, ok := f["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("frame is not an error: %v", f)
+	}
+	c, ok := e["code"].(float64)
+	if !ok {
+		t.Fatalf("error code is not a number: %v", e)
+	}
+	code = int(c)
+	if data, ok := e["data"].(map[string]any); ok {
+		if v, ok := data["error_code"].(string); ok {
+			errorCode = v
+		}
+	}
+	return code, errorCode
+}
+
+// captureACPRunner records the prompt text the server hands the turn.
+type captureACPRunner struct {
+	mu   sync.Mutex
+	seen []tui.Input
+}
+
+func (c *captureACPRunner) Prompt(_ context.Context, _ string, in tui.Input) (<-chan tui.Update, error) {
+	c.mu.Lock()
+	c.seen = append(c.seen, in)
+	c.mu.Unlock()
+	ch := make(chan tui.Update, 2)
+	ch <- tui.Update{Kind: tui.KindTextDelta, Text: "hello"}
+	ch <- tui.Update{Kind: tui.KindStop, Detail: "end_turn"}
+	close(ch)
+	return ch, nil
+}
+func (c *captureACPRunner) Cancel(string) {}
+func (c *captureACPRunner) Close() error  { return nil }
+func (c *captureACPRunner) last(t *testing.T) tui.Input {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.seen) == 0 {
+		t.Fatal("prompt was not run")
+	}
+	return c.seen[len(c.seen)-1]
+}
+
+func TestACPResourceBlocks(t *testing.T) {
+	runner := &captureACPRunner{}
+	p := startACPPipe(t, runner)
+	p.startPrompt()
+
+	secret := "sk-abcdefghijklmnopqrstuvwxyz012345"
+	p.send(map[string]any{"jsonrpc": "2.0", "id": 3, "method": "session/prompt", "params": map[string]any{
+		"sessionId": "s1",
+		"prompt": []any{
+			map[string]any{"type": "text", "text": "look at this", "x-unknown": map[string]any{"a": 1}},
+			map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///note.txt", "mimeType": "text/plain", "text": "resource body " + secret}},
+			map[string]any{"type": "resource_link", "uri": "file:///other.txt", "name": "other\"><script>"},
+			map[string]any{"type": "future_block", "whatever": true},
+		},
+	}})
+	for {
+		f := p.frame()
+		if f["id"] == float64(3) {
+			if f["error"] != nil {
+				t.Fatalf("valid resource rejected: %v", f)
+			}
+			break
+		}
+	}
+	in := runner.last(t)
+	for _, want := range []string{"look at this", `uri="file:///note.txt"`, "resource body", "resource_link", "file:///other.txt"} {
+		if !strings.Contains(in.Text, want) {
+			t.Fatalf("prompt text misses %q:\n%s", want, in.Text)
+		}
+	}
+	if strings.Contains(in.Text, secret) || !strings.Contains(in.Text, redact.SentinelPrefix) {
+		t.Fatalf("resource text was not redacted:\n%s", in.Text)
+	}
+	if strings.Contains(in.Text, "<script>") {
+		t.Fatalf("resource link name was not escaped:\n%s", in.Text)
+	}
+
+	broken := []struct {
+		id    int
+		block map[string]any
+		code  string
+	}{
+		{4, map[string]any{"type": "resource", "resource": map[string]any{"text": "x"}}, "invalid_resource"},
+		{5, map[string]any{"type": "resource", "resource": map[string]any{"uri": "relative", "text": "x"}}, "invalid_resource"},
+		{6, map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///x", "text": "x", "blob": "eA=="}}, "invalid_resource"},
+		{7, map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///x", "blob": "eA=="}}, "unsupported_resource"},
+		{8, map[string]any{"type": "resource", "resource": map[string]any{"uri": "file:///x", "text": strings.Repeat("a", maxResourceChars+1)}}, "too_large"},
+	}
+	for _, tc := range broken {
+		p.send(map[string]any{"jsonrpc": "2.0", "id": tc.id, "method": "session/prompt", "params": map[string]any{"sessionId": "s1", "prompt": []any{tc.block}}})
+		code, errorCode := frameError(t, p.frame())
+		if code != -32602 || errorCode != tc.code {
+			t.Fatalf("%s: %d/%q, want -32602/%q", tc.block["type"], code, errorCode, tc.code)
+		}
+	}
+}
+
+func TestACPUnknownFieldsTolerated(t *testing.T) {
+	var extra strings.Builder
+	for i := range 20 {
+		fmt.Fprintf(&extra, `,"unknown_%d":{"nested":[%d,"x"]}`, i, i)
+	}
+	init := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{"fs":{"readTextFile":true},"unknown":true}` + extra.String() + `}}`
+	out := serveFrames(t, init+"\n")
+	if !strings.Contains(out, `"protocolVersion":1`) || strings.Contains(out, `"error"`) {
+		t.Fatalf("initialize with unknown fields = %s", out)
+	}
+}
