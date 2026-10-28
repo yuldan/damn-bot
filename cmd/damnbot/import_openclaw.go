@@ -82,5 +82,5 @@ func writeOpenClawReport(w io.Writer, root string, rep *importer.Report, dryRun 
 		{"skills", &rep.Skills},
 		{"cron", &rep.Cron},
 		{"other", &rep.Config},
-	}, nil, rep, dryRun)
+	}, rep.ToS, nil, rep, dryRun)
 }

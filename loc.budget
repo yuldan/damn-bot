@@ -112,7 +112,10 @@ compaction         900 internal/compaction
 # ADR-210 (SKILL-016): korpus builtin embedded + SyncBundled idempoten (internal/skills);
 # memory+skills 2143 -> 2408 (terukur scc --no-gen pada pohon ter-commit, tanpa headroom);
 # Σ core 46.733 -> 46.998 <= 47.000. TOTAL 190.000 tidak berubah.
-memory+skills     2408 internal/memory internal/skills
+# ADR-234 (GAP-GW-07): metadata tos_risk/tos_note + pola + ack di internal/skills,
+# pola dotenv di internal/memory; memory+skills 2408 -> 2520 (terukur 2504; headroom 16);
+# Σ core 47.234 -> 47.346 <= 47.400. TOTAL 190.000 tidak berubah.
+memory+skills     2520 internal/memory internal/skills
 # ADR-117 amandemen PR4: journal 545 -> 560 (makeReplaceable Windows-safe replace + path absolut native; terukur 557; saat #143 Σ core 35.665 -> 35.680; Σ core kini 36.770 <= 47.000).
 # ADR-117 amendment (REVIEW-F2-SEC5-15): journal 560 -> 565 (preview undo lewat OpenResolved;
 # terukur 562; Σ core 38.150 -> 38.155 <= 47.000).

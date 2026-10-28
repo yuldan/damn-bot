@@ -6,7 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/damnbot/damnbot/internal/skills"
 )
 
 type memSink struct {
@@ -233,6 +236,37 @@ func TestImportDryRun(t *testing.T) {
 	}
 	if report.Imported() == 0 || report.Changed() != 0 {
 		t.Errorf("dry run report = %+v", report)
+	}
+}
+
+// TestImportFlagsGodmodeToS: the GAP-GW-07 pattern marks the entry high even
+// on a dry run, and the skill still goes through the ordinary pending path.
+func TestImportFlagsGodmodeToS(t *testing.T) {
+	t.Parallel()
+	imp, sink, _ := testImporter(t)
+	report, err := imp.Import(context.Background(), "testdata/hermes-godmode", Options{DryRun: true})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	flags := report.ToSFlags()
+	if len(flags) != 1 || flags[0].Key != "godmode" || flags[0].Risk != skills.ToSHigh ||
+		!strings.Contains(flags[0].Note, "jailbreak") {
+		t.Fatalf("ToS flags = %+v, want godmode high", flags)
+	}
+	if sink.calls != 0 {
+		t.Errorf("dry run wrote %d items", sink.calls)
+	}
+	// The same run without --dry-run imports the skill as pending.
+	report, err = imp.Import(context.Background(), "testdata/hermes-godmode", Options{})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if len(report.ToSFlags()) != 1 || report.Skills.Imported != 1 {
+		t.Errorf("real import report = %+v", report)
+	}
+	got := sink.skills["godmode"]
+	if got.ToSRisk != skills.ToSHigh || got.ToSNote == "" {
+		t.Errorf("stored skill ToS = %q %q", got.ToSRisk, got.ToSNote)
 	}
 }
 

@@ -12,4 +12,7 @@ var (
 	ErrFrontMatter = errors.New("invalid_front_matter")
 	// ErrScan means an untrusted install had no threat scanner (fail closed).
 	ErrScan = errors.New("scan_required")
+	// ErrToSAck means a high ToS-risk hub entry was used without the typed
+	// acknowledgement (GAP-GW-07).
+	ErrToSAck = errors.New("tos_ack_required")
 )

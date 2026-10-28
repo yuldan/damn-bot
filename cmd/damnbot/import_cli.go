@@ -508,7 +508,7 @@ type reportTotals interface {
 	Coverage() float64
 }
 
-func writeReport(w io.Writer, label, root string, categories []reportCategory, clamps []importer.Clamp, totals reportTotals, dryRun bool) int {
+func writeReport(w io.Writer, label, root string, categories []reportCategory, tos []importer.ToSFlag, clamps []importer.Clamp, totals reportTotals, dryRun bool) int {
 	sessionsPrintf(w, "%s: %s\n", label, cleanLine(root))
 	for _, cat := range categories {
 		sessionsPrintf(w, "%s: %d items, %d imported, %d changed, %d skipped\n",
@@ -519,6 +519,9 @@ func writeReport(w io.Writer, label, root string, categories []reportCategory, c
 	}
 	for _, clamp := range clamps {
 		sessionsPrintf(w, "clamped %s: %d -> %d\n", cleanLine(clamp.Key), clamp.From, clamp.To)
+	}
+	for _, flag := range tos {
+		sessionsPrintf(w, "tos_risk %s: %s (%s)\n", cleanLine(flag.Key), flag.Risk, cleanLine(flag.Note))
 	}
 	sessionsPrintf(w, "import: %d items, %d imported, %d changed, %d skipped, %.1f%% accounted\n",
 		totals.Total(), totals.Imported(), totals.Changed(), totals.SkippedCount(), totals.Coverage()*100)
@@ -537,5 +540,5 @@ func writeImportReport(w io.Writer, root string, rep *importer.Report, dryRun bo
 		{"mcp", &rep.MCP},
 		{"cron", &rep.Cron},
 		{"sessions", &rep.Sessions},
-	}, rep.Clamps, rep, dryRun)
+	}, rep.ToS, rep.Clamps, rep, dryRun)
 }
