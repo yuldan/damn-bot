@@ -79,6 +79,7 @@ Requirement & verifikasi: SPEC §22.1 baris SEC-28.
 - Server lokal (Ollama, llama.cpp, vLLM, LM Studio, LiteLLM; [`PROVIDERS.md`](PROVIDERS.md) "Provider lokal") lewat adapter `openai-chat`; `/v1` ditambahkan otomatis bila tidak ada (pelajaran hermes #106010, PROVIDERS.md).
 - Deteksi otomatis hanya saat `damnbot setup`/`doctor`: probe `127.0.0.1` port 11434, 8080, 8000, 1234, 4000 (timeout 150 ms, paralel, total ≤ 300 ms) + `GET /v1/models`.
 - Mode offline `--offline` / `[network] offline = true`: semua dial non-loopback ditolak di `internal/netx` (error `offline_mode`), modul yang butuh jaringan berstatus `unavailable` dan tidak muncul di katalog deferred.
+- Mode privasi `[network] background = false` (env `DAMNBOT_NETWORK_BACKGROUND=0`, GAP-OPS-02): seluruh egress non-inference ditolak sebelum request (`egress_disabled`) — cek update, refresh `/models`, katalog/hub, unduh grammar — sementara provider LLM terkonfigurasi dan tool yang dipanggil user (`web_fetch`, `@url`) tetap jalan. Titik egress terdaftar statis di `internal/netx` (`Egress{purpose, host, trigger}`) dan `damnbot doctor --network` menampilkan endpoint + alasan + status.
 - Target: sesi penuh (coding E2 subset) berjalan dengan model lokal tanpa jaringan; 0 koneksi non-loopback. Verifikasi: `TestOfflineNoEgress` (PR, network namespace), smoke nightly dengan Ollama.
 
 ## 5. Observability & biaya

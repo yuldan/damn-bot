@@ -380,7 +380,7 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	if err != nil {
 		return nil, fmt.Errorf("pricing: %w", err)
 	}
-	net := netx.New(netx.Config{Offline: o.offline})
+	net := netx.New(netx.Config{Offline: o.offline || cfg.Network.Offline, NoBackground: !cfg.Network.Background})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
 		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family, Prices: prices}},
 		Attempts: o.providerAttempts,
@@ -393,6 +393,9 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 }
 
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, configDir, home string, codec ctxdb.Codec) (*runModel, error) {
+	// [network] offline is the config form of --offline for every frontend
+	// (run, TUI, ACP): merge it once so @url expansion uses the same policy.
+	o.offline = o.offline || cfg.Network.Offline
 	w, err := newRunWiring(ctx, cfg, dataDir, modelRef, o, red, configDir, home, codec)
 	if err != nil {
 		return nil, err
@@ -439,7 +442,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		inlineCap: w.inlineCap,
 		spill:     w.spill,
 		sb:        w.sb,
-		net:       netx.New(netx.Config{Offline: o.offline}),
+		net:       netx.New(netx.Config{Offline: o.offline || cfg.Network.Offline, NoBackground: !cfg.Network.Background}),
 		toolsets:  sel,
 		trusted:   w.trusted,
 		reader:    w.reader,
@@ -513,10 +516,15 @@ func loadRunConfig(loader *config.Loader, path string) (config.Config, error) {
 	}
 	cfg, err := loader.Load(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return config.Default(), nil
+		cfg, err = config.Default(), nil
 	}
 	if err != nil {
 		return config.Config{}, fmt.Errorf("load config: %w", err)
+	}
+	// The F3 environment override (GAP-OPS-02) is applied here, not by Load,
+	// so a stale variable never beats the file (EC-CFG-001).
+	if err := loader.Effective(&cfg); err != nil {
+		return config.Config{}, fmt.Errorf("apply network environment: %w", err)
 	}
 	return cfg, nil
 }

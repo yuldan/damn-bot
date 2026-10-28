@@ -25,6 +25,7 @@
 //	[log]       level, message_content, message_content_ttl
 //	[sessions]  auto_prune, prune_after_days
 //	[storage]   encrypt
+//	[network]   offline, background (DAMNBOT_NETWORK_BACKGROUND override)
 //	[toolsets]  active, disabled, platform.<os>.{active,disabled},
 //	            custom.<name>.{description,tools,includes}
 //
