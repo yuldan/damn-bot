@@ -4769,3 +4769,31 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Dampak terukur (SPEC §20).** Go non-test berubah **600 baris** (≤600): `cmd/damnbot/config_profiles_archive.go`, `cmd/damnbot/config_modules_cli.go`, dan dispatch/usage di `cmd/damnbot/config_cli.go`. `internal/config` tidak berubah (`config` tetap **1.208/1.208**); Σ core tetap **47.199/47.400**; `TOTAL` 190.000; dependency baru **0** (`deps.allow` 28/28); tidak ada `nolint` baru. Tes: unit `TestProfileArchiveRoundTrip`, `TestProfileArchiveExportRejectsSecrets`, `TestSecretConfigKeys`, `TestProfileArchiveImportRejectsBroken` (garbage/skema/entri ekstra/traversal/symlink/duplikat), `TestProfileArchiveImportOverwriteAndDryRun`, `TestConfigModulesEmpty`, `TestModuleEnabledMap`; e2e biner asli (`internal/e2e`, harness `New`) `TestConfigProfilesExportImportRoundTrip`, `TestConfigProfilesExportRejectsSecrets`, `TestConfigProfilesImportRejectsBroken`, `TestConfigProfilesImportOverwriteNeedsYes`, `TestConfigProfilesImportDryRun`, `TestConfigModulesEmpty`.
 
 **Konsekuensi.** (+) Format, flag, isi, dan keamanan arsip menjadi normatif dan dapat diuji; ekspor tidak pernah membawa secret; impor fail-closed dan tidak menimpa tanpa `--yes`. (+) `config modules` jujur tentang registry kosong dan `restart` tidak berpura-pura. (−) `config hooks` dan `restart` tetap terbuka sampai F4; `damnbot profile` (15 sub parity CLI-066) tetap di luar F3.
+
+## ADR-229 — Batas waktu runner tes 20m sebagai hygiene runner
+
+**Status:** Accepted 2026-10-28 (flake CI; hanya `Makefile` dan dokumen ini). Tidak ada kode Go, tes, asersi, `-race`, `-shuffle`, cakupan, dependency, atau `nolint` yang berubah.
+
+**Konteks.** `go test -timeout` berlaku per binary paket dan default-nya 10 menit. `make test` sudah memisahkan `TestScenario` ke invokasi kedua, tetapi kedua invokasi tetap memakai `TEST_TIMEOUT=10m`. Pada 2026-10-28 matrix `test` masih gagal karena paket terberat menyentuh batas itu di runner lambat, termasuk di `main` nightly (run `40660710995`, SHA `8a448be`): `windows-latest` `cmd/damnbot` FAIL 600,432 s dan `internal/ctxdb` FAIL 602,972 s; `macos-15-intel` `cmd/damnbot` FAIL 600,273 s dan `internal/ctxdb` FAIL 607,197 s. Kegagalan bukan khusus Windows dan bukan khusus PR.
+
+Angka margin (durasi `ok`/`FAIL` yang dicetak `go test`, terhadap 600 s):
+
+- Run nightly yang sama, hijau: `ubuntu-latest` cmd 476,975 s (79,5 %), ctxdb 425,017 s (70,8 %); `windows-11-arm` ctxdb 372,921 s (62,2 %); `macos-latest` cmd 344,674 s (57,4 %).
+- Run `40720725571` (SHA `be85d8ec`): `windows-latest` cmd FAIL 600,562 s sementara ctxdb `ok` 596,466 s (99,4 %); `ubuntu-latest` cmd 486,854 s (81,1 %), ctxdb 452,933 s (75,5 %).
+- Run `40613631028` (SHA `08b89ed`, tiga attempt): `windows-latest` cmd 600,629 s FAIL dan 600,458 s FAIL vs 356,620 s `ok` — variasi 1,68× pada SHA yang sama; ctxdb 603,444/603,096 s FAIL vs 423,989 s `ok`.
+- Run `40627573260` attempt 4: `windows-latest` ctxdb tercetak `ok` 603,191 s — hijau hanya karena binary melewati batas setelah anggaran paket habis, margin efektif nol.
+
+Jadi run hijau pun menyisakan margin 0–43 %, dan satu runner bisa 1,7× lebih lambat pada commit yang sama; ini tail latency runner, bukan sinyal tes.
+
+**Keputusan.**
+
+1. `TEST_TIMEOUT` default **10m → 20m**, dipakai oleh kedua invokasi `make test`, `test-timing`, dan `phase-acceptance` (semua target CI yang menjalankan suite penuh). Perintah, tes, flag (`-race`, `-shuffle`, `-count`, `-benchtime`), dan asersi tidak berubah; hanya plafon waktu dinding per binary paket yang berlipat.
+2. **Tidak ada gate atau ambang acceptance yang dilonggarkan.** Tidak ada tes yang dihapus atau di-skip, tidak ada asersi waktu yang dimatikan, dan cakupan tidak turun; `make test` tetap `-race` dan `-shuffle=on` di semua runner, dan `test-timing` tetap menegakkan budget ADR-048/ADR-073.
+3. **Tidak dinaikkan lagi.** 20m = 2× plafon lama dan ≈2× paket hijau terberat (603 s). Bila sebuah paket masih melewati 20m, itu regresi performa (alokasi, I/O, migrasi, atau runner) yang harus diselidiki dan diperbaiki — bukan alasan menaikkan plafon lagi.
+4. **Target dengan anggaran khusus tidak diubah.** `flake` tetap 10m per gelombang (desain ADR-073: hang harus dilaporkan dengan stack dalam ≤10 menit); `coverage` tetap memakai defaultnya di `ubuntu-latest` (margin terukur ≥19 %, dan job `coverage` dibatasi 15 menit).
+
+**Konsekuensi.** (+) Panic `test timed out after 10m0s` akibat variasi runner hilang untuk paket yang memang butuh 6–10 menit; matrix Windows dan macOS Intel tidak lagi merah pada commit yang sehat. (+) Stack panic tetap tersedia untuk hang sungguhan, sekarang pada 20m. (−) Paket yang benar-benar hang dapat memakai runner sampai ~20m per invokasi; batas luar job `test` tetap `timeout-minutes: 25` (tidak diubah), jadi dua hang berurutan tetap dihentikan job, bukan ditunggu tanpa batas. (−) Durasi job hijau tidak berubah karena normalnya jauh di bawah plafon; hanya jalur gagal yang bisa lebih lama.
+
+**Alternatif ditolak.** Memecah lagi menjadi lebih banyak invokasi (menambah proses/migrasi, tetap satu anggaran per paket berat), menurunkan paralelisme (`-p 1` memperlambat total), 15m (hanya 1,5× sementara variasi same-SHA terukur 1,68×), dan >20m (menutupi regresi).
+
+**Bukti.** `make -n test` mencetak `-timeout 20m` pada kedua invokasi; `make -n test-timing` dan `make -n phase-acceptance` juga; `grep -n timeout Makefile .github/workflows/ci.yml` hanya menunjukkan `TEST_TIMEOUT`/tiga target itu di Makefile dan baris `timeout-minutes` job yang tidak berubah.
