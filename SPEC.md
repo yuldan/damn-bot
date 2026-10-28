@@ -2497,6 +2497,8 @@ Section `[sessions]` di luar contoh (ADR-142, MEM-015): `auto_prune` (default `f
 
 Section `[update]` di luar contoh (ADR-216): `feed_url` (default `""` = GitHub Releases repo ini; override HTTPS, `http` hanya untuk host loopback), `channel` (`stable` default, atau `beta`), dan `auto_install` (default `false`). Validasi menolak kanal asing, URL relatif/userinfo, dan HTTP non-loopback.
 
+Section `[network]` di luar contoh (CROSS-CUTTING §4, GAP-OPS-02, ADR-230): `offline` (default `false`) menolak setiap dial non-loopback di `internal/netx` (`offline_mode`); `background` (default `true`) menolak seluruh egress non-inference (`egress_disabled`) — cek update, refresh `/models`, skills hub, katalog MCP, unduh grammar — sementara provider LLM terkonfigurasi dan tool yang dipanggil user tetap jalan. Env `DAMNBOT_NETWORK_BACKGROUND=0` setara `background = false`; hanya override inilah yang ada di F3 (override generik `DAMNBOT_<SECTION>_<KEY>` tetap GAP-OPS-01 F4). Setiap titik egress terdaftar statis di `internal/netx` (`Registry`: purpose, host, trigger), dan `damnbot doctor --network` mencantumkan setiap endpoint keluar beserta alasan dan statusnya.
+
 Section `[skills]` di luar contoh (ADR-168): `inline_shell` (default `false`) mengizinkan span `` `!command` `` di SKILL.md dieksekusi saat skill dimuat, hanya untuk sumber trusted (user/builtin), timeout 5 s, output ≤ 4 KiB; saat `false` span tersebut gagal-tertutup (`inline_shell_disabled`). Variabel template `${SKILL_DIR}`, `${SKILL_NAME}`, `${PROJECT_DIR}`, `${HOME}`, `${OS}` selalu disubstitusi.
 
 Provider custom & modul (setiap section modul ≤ 10 baris; key lengkap via `damnbot config schema <module>`, dibangkitkan dari struct Go):

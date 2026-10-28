@@ -42,6 +42,7 @@ type Config struct {
 	Providers Providers `toml:"providers"`
 	Log       Log       `toml:"log"`
 	Storage   Storage   `toml:"storage"`
+	Network   Network   `toml:"network"`
 	// Toolsets is the F2 [toolsets] section (ADR-139). Empty Active keeps the
 	// pre-toolset behaviour: every registered tool is exposed.
 	Toolsets toolset.Config `toml:"toolsets"`
@@ -122,6 +123,13 @@ type Agent struct {
 // Storage is the optional at-rest encryption section (ADR-124).
 type Storage struct {
 	Encrypt bool `toml:"encrypt"`
+}
+
+// Network is CROSS-CUTTING §4 [network]: offline refuses every non-loopback
+// dial, while background=false refuses non-inference egress (GAP-OPS-02).
+type Network struct {
+	Offline    bool `toml:"offline" json:"offline"`
+	Background bool `toml:"background" json:"background"`
 }
 
 // Log is SPEC §12 [log] plus the P29/GAP-SEC-11 content controls.
@@ -286,6 +294,9 @@ func Default() Config {
 		},
 		Agent:   Agent{VerifyOnStop: "run"},
 		Storage: Storage{Encrypt: false},
+		// The privacy-safe default: background egress is allowed (the daily
+		// update check in serve), offline mode is off.
+		Network: Network{Background: true},
 		Skills: Skills{
 			ProjectDiscovery: true,
 			TrustedProjects:  []string{},

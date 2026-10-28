@@ -107,6 +107,7 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 		},
 		Agent:   Agent{VerifyOnStop: "run"},
 		Storage: Storage{Encrypt: false},
+		Network: Network{Offline: false, Background: true},
 		Skills: Skills{
 			ProjectDiscovery: true,
 			TrustedProjects:  []string{},

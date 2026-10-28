@@ -35,6 +35,7 @@ func TestConfigAllSpec12Keys(t *testing.T) { //nolint:gocyclo // one assertion p
 		"[log]", `level = "debug"`, "message_content = true", `message_content_ttl = "48h"`,
 		"[sessions]", "auto_prune = true", "prune_after_days = 30",
 		"[storage]", "encrypt = true",
+		"[network]", "offline = true", "background = false",
 		"[toolsets]", `active = ["coding"]`,
 		"[update]", `feed_url = "https://example.test/releases"`, `channel = "beta"`, "auto_install = true",
 		"[gateway]", "max_parallel_turns = 8",

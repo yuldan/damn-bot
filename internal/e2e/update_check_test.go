@@ -18,6 +18,7 @@ type updateEnv struct {
 	cfg    string
 	values []string
 	tamper atomic.Bool
+	hits   atomic.Int64
 }
 
 func newUpdateEnv(t *testing.T) *updateEnv {
@@ -52,6 +53,7 @@ func newUpdateEnv(t *testing.T) *updateEnv {
 	u.srv = httptest.NewServer(mux)
 	t.Cleanup(u.srv.Close)
 	mux.HandleFunc("/releases", func(w http.ResponseWriter, _ *http.Request) {
+		u.hits.Add(1)
 		if err := json.NewEncoder(w).Encode([]map[string]any{{
 			"tag_name": "v2.0.0",
 			"assets": []map[string]string{

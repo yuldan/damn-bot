@@ -3,8 +3,10 @@ package config
 import (
 	"errors"
 	"os"
+	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -67,6 +69,8 @@ func New(deps Deps) (*Loader, error) {
 
 // Load reads and parses one TOML file. Read failures wrap [ErrRead]; parse,
 // unknown-key, too-large and validation failures keep their own sentinels.
+// The environment override is applied separately by [Loader.Effective], so a
+// stale variable never silently beats the file (EC-CFG-001).
 func (l *Loader) Load(path string) (Config, error) {
 	data, err := l.deps.ReadFile(path)
 	if err != nil {
@@ -74,6 +78,28 @@ func (l *Loader) Load(path string) (Config, error) {
 	}
 	return l.Parse(data, path)
 }
+
+// Effective applies the process environment overrides F3 normatively defines
+// to cfg: DAMNBOT_NETWORK_BACKGROUND (GAP-OPS-02; empty = unset). It is
+// separate from [Loader.Parse] so `config edit` validates the file, not the
+// environment.
+func (l *Loader) Effective(cfg *Config) error {
+	if v := l.deps.Getenv("DAMNBOT_NETWORK_BACKGROUND"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return &Error{
+				Kind: ErrInvalidValue, Key: "network.background",
+				Msg: "DAMNBOT_NETWORK_BACKGROUND must be 0/1/true/false",
+			}
+		}
+		cfg.Network.Background = b
+	}
+	return nil
+}
+
+// Env exposes one overridden variable for `config explain` provenance
+// without letting callers read the environment directly (GAP-OPS-01).
+func (l *Loader) Env(key string) string { return l.deps.Getenv(key) }
 
 // Parse decodes data over the SPEC §12 defaults, rejects unknown keys and
 // values outside their range, and returns the frozen config.
@@ -162,7 +188,25 @@ func syntaxError(source string, err error) *Error {
 		}
 		return &Error{Kind: ErrSyntax, Cause: err, Key: key, Line: pe.Position.Line, Msg: pe.Message}
 	}
+	// BurntSushi reports decode/type mismatches as plain errors whose text
+	// still carries the key and line ("toml: line 2 (last key \"x\"): …").
+	if key, line, msg, ok := decodeLocation(err.Error()); ok {
+		return &Error{Kind: ErrInvalidValue, Cause: err, Key: key, Line: line, Msg: msg}
+	}
 	return &Error{Kind: ErrSyntax, Cause: err, Key: source, Msg: "invalid TOML"}
+}
+
+// decodeLocation extracts the key, line and message from a BurntSushi decode
+// error. It never invents a key: an unrecognised shape returns ok=false.
+func decodeLocation(text string) (key string, line int, msg string, ok bool) {
+	m := regexp.MustCompile(`^toml: (?:line (\d+) )?\(last key "([^"]+)"\): (.+)$`).FindStringSubmatch(text)
+	if m == nil {
+		return "", 0, "", false
+	}
+	if n, err := strconv.Atoi(m[1]); err == nil {
+		line = n
+	}
+	return m[2], line, m[3], true
 }
 
 // findKeyLine returns the 1-based line of the first occurrence of key, or 0

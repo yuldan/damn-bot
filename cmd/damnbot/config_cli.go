@@ -85,6 +85,9 @@ func openConfig() (*configCLI, error) {
 	if c.cfg, err = loader.Parse(c.data, c.file); err != nil {
 		return nil, fmt.Errorf("load %s: %w", c.file, err)
 	}
+	if err = loader.Effective(&c.cfg); err != nil {
+		return nil, fmt.Errorf("load %s: %w", c.file, err)
+	}
 	return c, nil
 }
 
@@ -136,8 +139,12 @@ func configLookup(cmd string, args []string, stdout, stderr io.Writer, explain b
 	return 0
 }
 
-// configOrigin reports GAP-OPS-01 provenance: F3 has no env/flag overrides.
+// configOrigin reports GAP-OPS-01 provenance. F3 defines one environment
+// override, DAMNBOT_NETWORK_BACKGROUND (GAP-OPS-02); flag overrides are F4.
 func configOrigin(c *configCLI, key string) (string, int) {
+	if key == "network.background" && c.loader.Env("DAMNBOT_NETWORK_BACKGROUND") != "" {
+		return "env DAMNBOT_NETWORK_BACKGROUND", 0
+	}
 	var raw map[string]any
 	md, err := toml.Decode(string(c.data), &raw)
 	set := err == nil && slices.ContainsFunc(md.Keys(), func(k toml.Key) bool {

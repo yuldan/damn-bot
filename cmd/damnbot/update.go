@@ -77,7 +77,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		say(stderr, "damnbot update: %v\n", kerr)
 		return 2
 	}
-	client := netx.New(netx.Config{}).Client("update", netx.Background)
+	client := netx.New(netx.Config{Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background}).Client("update", netx.Background)
 	if *check {
 		return runCheck(client, uc, pub, stdout, stderr)
 	}
