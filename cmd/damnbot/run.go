@@ -39,11 +39,14 @@ import (
 )
 
 type runOptions struct {
-	prompt           string
-	model            string
-	approval         string
-	unsafeShell      bool
-	configPath       string
+	prompt      string
+	model       string
+	approval    string
+	unsafeShell bool
+	configPath  string
+	// configSHA is the effective-config hash a new session row records (the
+	// TUI passes Runtime.ConfigHash after a reload); empty means hashConfig.
+	configSHA        string
 	dataDir          string
 	output           string
 	offline          bool
@@ -450,7 +453,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 // newRunSession creates the run session row and returns its id and the working
 // directory it was created in. An empty origin is the headless default; the
 // TUI passes its pre-generated id and "tui" origin.
-func newRunSession(ctx context.Context, db *ctxdb.Store, modelRef, sid, origin string) (string, string, error) {
+func newRunSession(ctx context.Context, db *ctxdb.Store, modelRef, cfgSHA, sid, origin string) (string, string, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", "", fmt.Errorf("getwd: %w", err)
@@ -466,7 +469,7 @@ func newRunSession(ctx context.Context, db *ctxdb.Store, modelRef, sid, origin s
 	if origin == "" {
 		origin = "headless"
 	}
-	_, err = db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: origin, Cwd: cwd, Model: modelRef, ConfigSHA: "f1"})
+	_, err = db.CreateSession(ctx, ctxdb.Session{ID: sid, Origin: origin, Cwd: cwd, Model: modelRef, ConfigSHA: cfgSHA})
 	if err != nil {
 		return "", "", fmt.Errorf("create session: %w", err)
 	}

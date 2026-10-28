@@ -19,6 +19,7 @@ func testActions(t *testing.T, db *ctxdb.Store) *tuiActions {
 	return &tuiActions{
 		db:  func(context.Context) (*ctxdb.Store, error) { return db, nil },
 		cfg: &cfg, configDir: t.TempDir(), modelRef: "fake/model",
+		configHash: func() string { return hashConfig(&cfg) },
 	}
 }
 

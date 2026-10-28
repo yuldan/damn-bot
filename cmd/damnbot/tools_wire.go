@@ -256,15 +256,24 @@ type runWiring struct {
 	reader assemble.FileReader
 }
 
+// configSHAFor is the hash a new session row records: the live TUI hash after
+// a reload when the caller provides one, else the effective config hash.
+func configSHAFor(cfg *config.Config, o *runOptions) string {
+	if o.configSHA != "" {
+		return o.configSHA
+	}
+	return hashConfig(cfg)
+}
+
 // openWiredSession opens the run store and resolves the session (new or
 // resumed), returning the effective model. Extracted from newRunWiring so its
 // cyclomatic complexity stays inside the E-51 gate.
-func openWiredSession(ctx context.Context, dataDir, modelRef string, o *runOptions, codec ctxdb.Codec) (*ctxdb.Store, string, string, string, error) {
+func openWiredSession(ctx context.Context, dataDir, modelRef, cfgSHA string, o *runOptions, codec ctxdb.Codec) (*ctxdb.Store, string, string, string, error) {
 	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "run", Codec: codec})
 	if err != nil {
 		return nil, "", "", "", fmt.Errorf("open ctxdb: %w", err)
 	}
-	sid, cwd, resumedModel, err := runSession(ctx, db, modelRef, o)
+	sid, cwd, resumedModel, err := runSession(ctx, db, modelRef, cfgSHA, o)
 	if err != nil {
 		return nil, "", "", "", closeDB(ctx, db, "", err)
 	}
@@ -282,7 +291,7 @@ func openWiredSession(ctx context.Context, dataDir, modelRef string, o *runOptio
 // tools into a registry. Failures after the sessions exist go through the
 // returned fail closure so nothing leaks.
 func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, configDir, home string, codec ctxdb.Codec) (*runWiring, error) {
-	db, sid, cwd, modelRef, err := openWiredSession(ctx, dataDir, modelRef, o, codec)
+	db, sid, cwd, modelRef, err := openWiredSession(ctx, dataDir, modelRef, configSHAFor(cfg, o), o, codec)
 	if err != nil {
 		return nil, err
 	}
