@@ -11,11 +11,12 @@ const ProtocolVersion = 1
 
 // JSON-RPC 2.0 error codes (SPEC §13.3).
 const (
-	CodeParseError     = -32700
-	CodeInvalidRequest = -32600
-	CodeMethodNotFound = -32601
-	CodeInvalidParams  = -32602
-	CodeInternal       = -32603
+	CodeParseError       = -32700
+	CodeInvalidRequest   = -32600
+	CodeMethodNotFound   = -32601
+	CodeInvalidParams    = -32602
+	CodeInternal         = -32603
+	CodeResourceNotFound = -32002
 )
 
 // Request is one JSON-RPC 2.0 request or notification. ID is nil when the
@@ -52,12 +53,26 @@ type Response struct {
 
 // Protocol errors. Messages are constants; callers pass no user text.
 var (
-	ErrParse    = &Error{Code: CodeParseError, Message: "parse error"}
-	ErrRequest  = &Error{Code: CodeInvalidRequest, Message: "invalid request"}
-	ErrMethod   = &Error{Code: CodeMethodNotFound, Message: "method not found"}
-	ErrParams   = &Error{Code: CodeInvalidParams, Message: "invalid params"}
-	ErrInternal = &Error{Code: CodeInternal, Message: "internal error"}
+	ErrParse            = &Error{Code: CodeParseError, Message: "parse error"}
+	ErrRequest          = &Error{Code: CodeInvalidRequest, Message: "invalid request"}
+	ErrMethod           = &Error{Code: CodeMethodNotFound, Message: "method not found"}
+	ErrParams           = &Error{Code: CodeInvalidParams, Message: "invalid params"}
+	ErrInternal         = &Error{Code: CodeInternal, Message: "internal error"}
+	ErrResourceNotFound = &Error{Code: CodeResourceNotFound, Message: "resource not found"}
 )
+
+// ErrorWithData returns a copy of e carrying a JSON data object. The data is
+// built by the caller from closed error codes only; it never echoes client
+// text (SPEC §13.3).
+func ErrorWithData(e *Error, data map[string]any) *Error {
+	out := *e
+	b, err := json.Marshal(data)
+	if err != nil {
+		return &out
+	}
+	out.Data = b
+	return &out
+}
 
 // ParseRequest decodes one frame into a Request. It returns a protocol error
 // (never a transport error) for malformed frames; the caller may answer it

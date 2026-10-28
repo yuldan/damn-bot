@@ -1,4 +1,4 @@
-{"id":1,"jsonrpc":"2.0","result":{"agentCapabilities":{"loadSession":false,"mcpCapabilities":{"http":false,"sse":false},"promptCapabilities":{"audio":false,"embeddedContext":true,"image":false}},"agentInfo":{"name":"damnbot","version":"dev"},"authMethods":[],"protocolVersion":1}}
+{"id":1,"jsonrpc":"2.0","result":{"agentCapabilities":{"loadSession":true,"mcpCapabilities":{"http":false,"sse":false},"promptCapabilities":{"audio":false,"embeddedContext":true,"image":false}},"agentInfo":{"name":"damnbot","version":"dev"},"authMethods":[],"protocolVersion":1}}
 {"id":2,"jsonrpc":"2.0","result":{"models":{"availableModels":[{"modelId":"openai/gpt-test","name":"openai/gpt-test"}],"currentModelId":"openai/gpt-test"},"modes":{"availableModes":[{"id":"ask","name":"Ask"},{"id":"auto-edit","name":"Auto Edit"},{"id":"auto","name":"Auto"},{"id":"plan","name":"Plan"}],"currentModeId":"ask"},"sessionId":"s1"}}
 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"content":{"text":"hello","type":"text"},"sessionUpdate":"agent_message_chunk"}}}
 {"id":3,"jsonrpc":"2.0","result":{"stopReason":"end_turn"}}

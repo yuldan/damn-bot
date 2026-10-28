@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
 
 // TestACPStdio starts the real binary as an ACP stdio server and checks the
@@ -250,5 +252,92 @@ func TestACPResourcePrompt(t *testing.T) {
 		if code != -32602 || errorCode != tc.code {
 			t.Fatalf("resource %d = %d/%q, want -32602/%q", tc.id, code, errorCode, tc.code)
 		}
+	}
+}
+
+// acpReply finds the response frame for id in the ACP server's NDJSON output.
+func acpReply(t *testing.T, out string, id float64) map[string]any {
+	t.Helper()
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		var f map[string]any
+		if err := json.Unmarshal([]byte(line), &f); err != nil {
+			t.Fatalf("frame: %v: %s", err, line)
+		}
+		if f["id"] == id {
+			return f
+		}
+	}
+	t.Fatalf("no response for id %v:\n%s", id, out)
+	return nil
+}
+
+// replayTexts reports whether the load replay of sid contains the stored
+// user and assistant messages.
+func replayTexts(t *testing.T, out, sid string) (user, agent bool) {
+	t.Helper()
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		var f struct {
+			Params struct {
+				SessionID string `json:"sessionId"`
+				Update    struct {
+					SessionUpdate string `json:"sessionUpdate"`
+					Content       struct {
+						Text string `json:"text"`
+					} `json:"content"`
+				} `json:"update"`
+			} `json:"params"`
+		}
+		if err := json.Unmarshal([]byte(line), &f); err != nil || f.Params.SessionID != sid {
+			continue
+		}
+		switch f.Params.Update.SessionUpdate {
+		case "user_message_chunk":
+			user = user || f.Params.Update.Content.Text == "hello e2e"
+		case "agent_message_chunk":
+			agent = agent || f.Params.Update.Content.Text == "load me"
+		}
+	}
+	return user, agent
+}
+
+// TestACPStdioLoad (GAP-UX-03): the real binary replays a stored session via
+// session/update and answers null; an unknown id is -32002 and never becomes
+// a new session.
+func TestACPStdioLoad(t *testing.T) {
+	t.Parallel()
+	e := New(t, providertest.Text("load me"))
+	first := e.Exec("run", "-p", "hello e2e", "--model", modelRef, "--base-url", e.Server.URL,
+		"--api-key", "e2e", "--config", e.cfg, "--offline", "--output", "json")
+	first.RequireOK(t)
+	sid := sessionID(t, first.Stdout)
+	input := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"session/load","params":{"sessionId":"` + sid + `"}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"session/load","params":{"sessionId":"does-not-exist"}}`,
+	}, "\n") + "\n"
+	res := e.ExecStdin(input, "acp")
+	if res.Code != 0 {
+		t.Fatalf("acp exit = %d\nstdout:\n%s\nstderr:\n%s", res.Code, res.Stdout, res.Stderr)
+	}
+	load := acpReply(t, res.Stdout, 2)
+	if errObj, ok := load["error"]; ok {
+		t.Fatalf("known load failed: %v\n%s", errObj, res.Stdout)
+	}
+	if v, ok := load["result"]; !ok || v != nil {
+		t.Fatalf("load result = %v, want null", load["result"])
+	}
+	if user, agent := replayTexts(t, res.Stdout, sid); !user || !agent {
+		t.Fatalf("replay missing stored messages (user=%v agent=%v):\n%s", user, agent, res.Stdout)
+	}
+	unknown := acpReply(t, res.Stdout, 3)
+	errObj, ok := unknown["error"].(map[string]any)
+	if !ok || errObj["code"] != float64(-32002) {
+		t.Fatalf("unknown load = %v, want -32002", unknown)
+	}
+	if _, ok := unknown["sessionId"]; ok {
+		t.Fatalf("unknown load created a session: %v", unknown)
 	}
 }
