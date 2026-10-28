@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -213,11 +212,8 @@ func (s *acpServer) newSession(ctx context.Context, req *acp.Request) {
 
 func (s *acpServer) prompt(ctx context.Context, req *acp.Request) {
 	var p struct {
-		SessionID string `json:"sessionId"`
-		Prompt    []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"prompt"`
+		SessionID string            `json:"sessionId"`
+		Prompt    []json.RawMessage `json:"prompt"`
 	}
 	if err := json.Unmarshal(req.Params, &p); err != nil || p.SessionID == "" {
 		s.writeError(ctx, req.ID, acp.ErrParams)
@@ -228,17 +224,21 @@ func (s *acpServer) prompt(ctx context.Context, req *acp.Request) {
 		s.writeError(ctx, req.ID, acp.ErrParams)
 		return
 	}
+	blocks, ferr := decodePromptBlocks(p.Prompt)
+	if ferr != nil {
+		s.writeError(ctx, req.ID, ferr.protocolError())
+		return
+	}
+	text, ferr := s.promptText(blocks)
+	if ferr != nil {
+		s.writeError(ctx, req.ID, ferr.protocolError())
+		return
+	}
 	if err := sess.proto.Activate(); err != nil {
 		s.writeError(ctx, req.ID, acp.ErrInternal)
 		return
 	}
-	var text strings.Builder
-	for _, c := range p.Prompt {
-		if c.Type == "text" {
-			text.WriteString(c.Text)
-		}
-	}
-	stream, err := sess.runner.Prompt(ctx, p.SessionID, tui.Input{Text: text.String(), PlanMode: sess.proto.PlanMode()})
+	stream, err := sess.runner.Prompt(ctx, p.SessionID, tui.Input{Text: text, PlanMode: sess.proto.PlanMode()})
 	if err != nil {
 		s.writeError(ctx, req.ID, acp.ErrInternal)
 		return
