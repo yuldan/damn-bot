@@ -185,6 +185,11 @@ type Skill struct {
 	// risk is reported and the skill stays pending; it is never bundled.
 	ToSRisk skills.ToSRisk
 	ToSNote string
+	// Data is the raw SKILL.md, so the skills service can parse the
+	// optional side_effects/requires frontmatter instead of losing it.
+	Data []byte
+	// Runtime names external runtimes referenced by the skill body.
+	Runtime []string
 }
 
 // MemoryEntry is one curated memory entry.

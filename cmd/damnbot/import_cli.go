@@ -319,12 +319,12 @@ func (s *hermesSink) PutSkill(ctx context.Context, in *importer.Skill) (bool, er
 		}
 		return false, &importer.SkipError{Reason: "a skill with this name already exists; not overwritten"}
 	}
-	sk := &skills.Skill{
-		Name: in.Name, Description: in.Description, Body: in.Body,
-		Path:   filepath.Join(s.root.path, filepath.FromSlash(in.Origin), "SKILL.md"),
-		SHA256: in.SHA256, Source: skills.SourceImport,
+	path := filepath.Join(s.root.path, filepath.FromSlash(in.Origin), "SKILL.md")
+	parsed, err := skills.Parse(in.Data, path, skills.SourceImport)
+	if err != nil {
+		return false, &importer.SkipError{Reason: err.Error()}
 	}
-	if _, err := s.skill.Install(ctx, sk); err != nil {
+	if _, err := s.skill.Install(ctx, &parsed); err != nil {
 		if errors.Is(err, skills.ErrInvalid) || errors.Is(err, skills.ErrScan) ||
 			errors.Is(err, skills.ErrFrontMatter) || errors.Is(err, skills.ErrTooLarge) {
 			return false, &importer.SkipError{Reason: err.Error()}

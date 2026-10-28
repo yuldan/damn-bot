@@ -86,6 +86,7 @@ func (c *collected) addSkill(meta map[string]any, body, origin string, data []by
 	item := Skill{
 		Name: name, Description: description, Body: body,
 		Origin: origin, SHA256: hex.EncodeToString(sum[:]),
+		Data: append([]byte(nil), data...),
 	}
 	item.setToS()
 	c.skills = append(c.skills, item)
@@ -179,7 +180,7 @@ func readSkillAt(read func(string) ([]byte, error), root, path string) (Skill, s
 	if err != nil {
 		return Skill{}, "", fmt.Errorf("importer: relative skill path: %w", err)
 	}
-	skill := Skill{Body: body, Origin: filepath.ToSlash(origin)}
+	skill := Skill{Body: body, Origin: filepath.ToSlash(origin), Data: append([]byte(nil), data...)}
 	name := childString(meta, "name")
 	if !validSkillName(name) {
 		return skill, "SKILL.md has no valid frontmatter name", nil
