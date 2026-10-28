@@ -106,6 +106,8 @@ type Model struct {
 	paletteQuery string
 	paletteSel   int
 	bangBusy     bool
+	queue        []string
+	busyPolicy   string
 	// busy marks a turn between submit and the Runner closing its stream.
 	input  textinput.Model
 	draft  []string // completed lines of the current multi-line prompt
@@ -148,14 +150,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.apply(&msg.updates[i])
 		}
 		if msg.done {
-			m.finishTurn()
-			return m, nil
+			cmd := m.finishTurn()
+			return m, cmd
 		}
 		return m, readBatch(m.stream, false)
 	case promptFailedMsg:
 		m.appendBlock(&Block{Kind: BlockNotice, Text: "error: " + msg.err.Error(), At: m.host.Clock.Now()})
-		m.finishTurn()
-		return m, nil
+		cmd := m.finishTurn()
+		return m, cmd
 	case tea.WindowSizeMsg:
 		cmd := m.resize(msg)
 		return m, cmd
@@ -254,12 +256,18 @@ func (m *Model) handleA7Result(msg tea.Msg) bool {
 	return true
 }
 
-func (m *Model) finishTurn() {
+func (m *Model) finishTurn() tea.Cmd {
 	if m.cancel != nil {
 		m.cancel()
 	}
 	m.settleUsage()
 	m.cancel, m.stream, m.busy = nil, nil, false
+	if len(m.queue) > 0 {
+		next := m.queue[0]
+		m.queue = m.queue[1:]
+		return m.startTurn(next)
+	}
+	return nil
 }
 
 // streamWindow is the SPEC §13.1 streaming batch window: deltas are folded
@@ -319,6 +327,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 		} else {
 			m.draft = nil
 			m.input.SetValue("")
+			m.queue = nil
 		}
 		return nil
 	case key.Matches(msg, m.keys.Newline):
@@ -366,6 +375,7 @@ func (m *Model) handleModeKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
 // abortTurn cancels through its context before the loop starts, otherwise
 // through Runner.Cancel (SPEC §4.2).
 func (m *Model) abortTurn() {
+	m.queue = nil
 	if !m.busy {
 		return
 	}
@@ -406,8 +416,16 @@ func (m *Model) submit() tea.Cmd {
 		return m.runSlash(cmd)
 	}
 	if m.busy {
+		m.draft = nil
+		m.input.SetValue("")
+		m.enqueue(text)
 		return nil
 	}
+	return m.startTurn(text)
+}
+
+// startTurn begins one turn for text (already trimmed) and appends its block.
+func (m *Model) startTurn(text string) tea.Cmd {
 	m.draft = nil
 	m.input.SetValue("")
 	m.stop, m.detail = "", ""
@@ -673,6 +691,9 @@ func (m *Model) footer() string {
 	}
 	if m.bangBusy {
 		parts = append(parts, "shell")
+	}
+	if len(m.queue) > 0 {
+		parts = append(parts, fmt.Sprintf("queue %d", len(m.queue)))
 	}
 	if m.stop != "" {
 		parts = append(parts, string(m.stop))

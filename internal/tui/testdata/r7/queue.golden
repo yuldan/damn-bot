@@ -1,0 +1,13 @@
+chat · fake/model · [1 sess-1*]
+────────────────────────────────────────────────────────────────────────────────
+12:00:00 you> start the turn                       │ CONTEXT
+12:00:00 working on it                             │ fixed                  …
+                                                   │ window                 —
+                                                   │ cache                  —
+                                                   │ TURN
+                                                   │ iter                0 / 40
+                                                   │ cost             — / —
+                                                   │ FALLBACK               —
+fake/model · iter 0 · turn — / session —
+>
+enter send · ctrl+j newline · esc cancel · ctrl+c quit · running · queue 2
