@@ -30,6 +30,7 @@ func runTUI([]string) int {
 		return tuiFail(err)
 	}
 	benchTUIOverrides(o, &cfg)
+	benchTrace("config-done")
 	sid, err := newSessionID()
 	if err != nil {
 		return tuiFail(err)
@@ -58,8 +59,10 @@ func runTUI([]string) int {
 		Sessions: actions, Files: filesAdapter{}, Clipboard: clipboardAdapter{},
 	})
 	if err == nil {
+		benchTrace("app-built")
 		prog := tea.NewProgram(app)
 		bridge.setSender(prog.Send)
+		benchTrace("run-start")
 		_, err = prog.Run()
 	}
 	if cerr := r.Close(); cerr != nil {
@@ -187,6 +190,7 @@ func (r *tuiRunner) Close() error {
 }
 
 func (r *tuiRunner) ensure(ctx context.Context) (*runModel, error) {
+	benchTrace("ensure-start")
 	r.ensureMu.Lock()
 	defer r.ensureMu.Unlock()
 	r.mu.Lock()
@@ -206,6 +210,7 @@ func (r *tuiRunner) ensure(ctx context.Context) (*runModel, error) {
 	r.mu.Lock()
 	r.model = model
 	r.mu.Unlock()
+	benchTrace("ensure-done")
 	return model, nil
 }
 

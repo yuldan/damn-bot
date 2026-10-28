@@ -1,0 +1,137 @@
+{
+ "dimensions": {
+  "buildtime": {
+   "clean": {
+    "method": "go build -tags goolm ./cmd/damnbot with empty GOCACHE; source from git archive HEAD",
+    "samples_s": [
+     29.275676583,
+     28.696160591,
+     29.140395105
+    ],
+    "p50_s": 29.140395105,
+    "p95_s": 29.275676583
+   },
+   "incremental": {
+    "method": "same tree, append one comment to internal/loop/loop.go, rebuild with the clean build's GOCACHE",
+    "samples_s": [
+     1.6976944029999999,
+     1.831198235,
+     1.564429981
+    ],
+    "p50_s": 1.6976944029999999,
+    "p95_s": 1.831198235
+   }
+  },
+  "error_informatif": "blocked: human raters; 12 groups x 5 cases in README; no rubric or score fabricated",
+  "first_token_tui": {
+   "agent": "damnbot",
+   "method": "T0 = fake provider first content frame written; T1 = F3TOKEN visible in PTY output",
+   "p50_ms": 10.032,
+   "p95_ms": 18.371,
+   "runs": 20,
+   "samples_ms": [
+    3.692,
+    18.371,
+    7.411,
+    8.069,
+    7.659,
+    15.899,
+    12.303,
+    14.948,
+    5.125,
+    18.575,
+    12.319,
+    6.201,
+    10.032,
+    5.683,
+    15.094,
+    13.659,
+    12.785,
+    12.582,
+    8.462,
+    8.64
+   ],
+   "surface": "TUI (real damnbot binary under a PTY)",
+   "token": "F3TOKEN"
+  },
+  "startup_p12": {
+   "runs": 20,
+   "samples_ms": [
+    43.148,
+    45.381,
+    69.91,
+    44.298,
+    40.588,
+    37.479,
+    47.961,
+    37.034,
+    32.684,
+    38.326,
+    36.163,
+    42.927,
+    50.752,
+    42.507,
+    47.273,
+    39.479,
+    40.746,
+    36.377,
+    45.487,
+    47.362
+   ],
+   "p50_ms": 42.507,
+   "p95_ms": 50.752,
+   "threshold_ms": 100,
+   "gate": "pass",
+   "lazy_start": {
+    "app-built_before_frame": true,
+    "config-done_before_frame": true,
+    "db_or_provider_before_frame": false,
+    "ensure_started_before_frame": false,
+    "method": "F3TRACE lines on stderr; frame marker 'enter send'; absence of ensure-start before frame",
+    "run-start_before_frame": true,
+    "trace_seen": true
+   },
+   "gomaxprocs1": {
+    "runs": 20,
+    "samples_ms": [
+     41.052,
+     44.811,
+     48.05,
+     42.208,
+     39.676,
+     33.762,
+     37.177,
+     39.92,
+     41.913,
+     39.956,
+     56.133,
+     43.114,
+     49.865,
+     71.798,
+     34.942,
+     42.784,
+     38.289,
+     40.068,
+     43.178,
+     39.222
+    ],
+    "p50_ms": 41.052,
+    "p95_ms": 56.133
+   }
+  }
+ },
+ "hermes": "unavailable",
+ "hermes_detail": "unavailable: pinned Hermes runtime not provisioned; no package install attempted; see bench/f3/README.md",
+ "meta": {
+  "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
+  "damnbot_commit": "6d01e7a1d5",
+  "damnbot_dirty": 0,
+  "date": "2026-10-27T23:11:46Z",
+  "go": "go1.26.10",
+  "harness": "bench/f3/run.sh: cmd/f3measure (PTY + fake OpenAI SSE + go build timing)",
+  "host_note": "workstation measurement, not the Q14 reference machine",
+  "kernel": "linux/amd64",
+  "loadavg": "4.00 3.72 3.36 1/519 1588731",
+  "phase": "F3"
+ }
+}
