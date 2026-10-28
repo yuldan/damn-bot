@@ -15,7 +15,7 @@ func TestNoColorZeroEscape(t *testing.T) {
 	m.host.Config = &fakeConfig{cfg: Config{Model: "fake/model", Theme: "high-contrast", NoColor: true}}
 	m.noColor = true
 	m.theme, _ = ThemeByName("high-contrast")
-	m.styles = newStyles(m.theme, true)
+	m.styles = newStyles(&m.theme, true)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
 	m.appendBlock(&Block{Kind: BlockUser, Text: "halo"})
 	m.appendBlock(&Block{Kind: BlockTool, ToolName: "read_file", Status: ToolOK, Spill: "/data/blobs/x", SpillSize: 200})
@@ -46,7 +46,7 @@ func TestNoColorWinsOverTheme(t *testing.T) {
 		t.Fatalf("default theme rendered no ANSI token")
 	}
 	m.noColor = true
-	m.styles = newStyles(m.theme, true)
+	m.styles = newStyles(&m.theme, true)
 	m.input.SetValue("/theme high-contrast")
 	m.submit()
 	if m.theme.Name != "high-contrast" {

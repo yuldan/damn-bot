@@ -2,39 +2,35 @@ package tui
 
 import "strings"
 
-// Theme is one SPEC §13.1 palette (Q2). The color tokens are unexported: the
-// registry is the only constructor, so a caller can never build a half theme.
-// ThemeByName and Themes are the picker seam for the `theme` setting; the
-// renderer consumes the resolved Theme through styles.
+// Theme is one SPEC §13.1 palette (Q2): neutral text/border, one accent, and
+// semantic status colors used only on glyphs. Background exists solely for the
+// approval modal.
 type Theme struct {
-	Name    string
-	primary string // titles, user prompt, cursor accents
-	muted   string // tool output, status bar, hints
-	alert   string // notices, fallback badge
+	Name                          string
+	fg, muted, border, accent     string
+	success, warn, error, modalBg string
+	dim                           bool
 }
 
-// defaultThemeName is the SPEC §12 [ui] default and the fallback for a config
-// snapshot that carries no theme (the config validator closes the set
-// upstream, so an unknown name can only come from a custom seam).
 const defaultThemeName = "tern-dark"
 
-// Themes returns the four SPEC §13.1 themes in registry order. The slice is
-// fresh on every call; callers may not mutate shared state.
+// Themes returns the four SPEC §13.1 themes in registry order.
 func Themes() []Theme {
 	return []Theme{
-		{Name: "tern-dark", primary: "12", muted: "8", alert: "9"},
-		{Name: "tern-light", primary: "4", muted: "8", alert: "1"},
+		{Name: "tern-dark", fg: "252", muted: "244", border: "238", accent: "39", success: "108", warn: "179", error: "167", modalBg: "236", dim: true},
+		{Name: "tern-light", fg: "236", muted: "243", border: "250", accent: "33", success: "28", warn: "130", error: "124", modalBg: "254", dim: true},
 		{Name: "mono"},
-		{Name: "high-contrast", primary: "15", muted: "15", alert: "9"},
+		{Name: "high-contrast", fg: "15", muted: "15", border: "15", accent: "15", success: "10", warn: "11", error: "9"},
 	}
 }
 
 // ThemeByName resolves one theme. ok is false for an unknown name; the caller
 // decides whether to fall back (NewApp uses defaultThemeName).
 func ThemeByName(name string) (Theme, bool) {
-	for _, t := range Themes() {
-		if t.Name == name {
-			return t, true
+	themes := Themes()
+	for i := range themes {
+		if themes[i].Name == name {
+			return themes[i], true
 		}
 	}
 	return Theme{}, false
@@ -42,9 +38,10 @@ func ThemeByName(name string) (Theme, bool) {
 
 // themeNames lists the registry for /theme refusals and help.
 func themeNames() string {
-	names := make([]string, 0, len(Themes()))
-	for _, t := range Themes() {
-		names = append(names, t.Name)
+	themes := Themes()
+	names := make([]string, 0, len(themes))
+	for i := range themes {
+		names = append(names, themes[i].Name)
 	}
 	return strings.Join(names, ", ")
 }

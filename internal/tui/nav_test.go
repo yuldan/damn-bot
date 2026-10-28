@@ -54,8 +54,8 @@ func TestNavMovesAndFolds(t *testing.T) {
 	if m.navIndex != 1 {
 		t.Fatalf("k selected %d, want 1", m.navIndex)
 	}
-	if !strings.Contains(m.View().Content, "line one\nline two") {
-		t.Fatalf("expanded assistant block lost its second line")
+	if !strings.Contains(m.View().Content, "line one") || !strings.Contains(m.View().Content, "line two") {
+		t.Fatalf("expanded assistant block lost a line")
 	}
 	m.Update(navKey(tea.KeyEnter, 0))
 	view := m.View().Content

@@ -32,7 +32,13 @@ func (m *Model) tabBar() string {
 		if s.ReadOnly {
 			ro = " ro"
 		}
-		parts = append(parts, fmt.Sprintf("[%d %s%s%s]", i+1, shortID(s.ID), ro, mark))
+		label := fmt.Sprintf("[%d %s%s%s]", i+1, shortID(s.ID), ro, mark)
+		if s.ID == m.sessionID {
+			label = m.styles.tabActive.Render(label)
+		} else {
+			label = m.styles.tabIdle.Render(label)
+		}
+		parts = append(parts, label)
 	}
 	return strings.Join(parts, " ")
 }

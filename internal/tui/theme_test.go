@@ -1,6 +1,9 @@
 package tui
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 // TestThemeRegistry pins the four SPEC §13.1 themes (Q2) and the picker seam.
 func TestThemeRegistry(t *testing.T) {
@@ -27,22 +30,36 @@ func TestThemeRegistry(t *testing.T) {
 	}
 }
 
-// TestThemeMonoIsColorless keeps the accessibility theme free of color tokens;
-// high-contrast and tern-dark must actually differ.
-func TestThemeMonoIsColorless(t *testing.T) {
+// TestThemePaletteValues pins the measured design palette.
+func TestThemePaletteValues(t *testing.T) {
 	t.Parallel()
-	mono, _ := ThemeByName("mono")
-	if mono.primary != "" || mono.muted != "" || mono.alert != "" {
-		t.Fatalf("mono carries color tokens: %+v", mono)
+	cases := []struct {
+		name                                                string
+		theme                                               Theme
+		fg, muted, border, accent, success, warn, error, bg string
+		dim                                                 bool
+	}{
+		{"tern-dark", mustTheme(t, "tern-dark"), "252", "244", "238", "39", "108", "179", "167", "236", true},
+		{"tern-light", mustTheme(t, "tern-light"), "236", "243", "250", "33", "28", "130", "124", "254", true},
+		{"mono", mustTheme(t, "mono"), "", "", "", "", "", "", "", "", false},
+		{"high-contrast", mustTheme(t, "high-contrast"), "15", "15", "15", "15", "10", "11", "9", "", false},
 	}
-	dark, _ := ThemeByName("tern-dark")
-	if dark.primary == "" || dark.alert == "" {
-		t.Fatalf("tern-dark has no color tokens: %+v", dark)
+	for _, tc := range cases {
+		got := []string{tc.theme.fg, tc.theme.muted, tc.theme.border, tc.theme.accent, tc.theme.success, tc.theme.warn, tc.theme.error, tc.theme.modalBg}
+		want := []string{tc.fg, tc.muted, tc.border, tc.accent, tc.success, tc.warn, tc.error, tc.bg}
+		if !slices.Equal(got, want) || tc.theme.dim != tc.dim {
+			t.Fatalf("%s = %+v, want %v dim=%v", tc.name, tc.theme, want, tc.dim)
+		}
 	}
-	hc, _ := ThemeByName("high-contrast")
-	if hc.primary == dark.primary && hc.muted == dark.muted && hc.alert == dark.alert {
-		t.Fatalf("high-contrast is identical to tern-dark")
+}
+
+func mustTheme(t *testing.T, name string) Theme {
+	t.Helper()
+	th, ok := ThemeByName(name)
+	if !ok {
+		t.Fatalf("ThemeByName(%q) failed", name)
 	}
+	return th
 }
 
 // TestThemeFromConfig: the [ui] theme snapshot selects the palette; an empty
