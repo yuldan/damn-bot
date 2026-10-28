@@ -82,11 +82,15 @@ vet-custom:
 RACE ?= -race
 # ADR-115: satu binary paket berbagi satu -timeout; TestScenario (86 skenario
 # serial, ~172 s di runner sehat; 447 s di runner lambat) dan sisa paket
-# saling memakan anggaran 10 menit. Dua invokasi dengan flag dan -timeout
+# saling memakan anggaran. Dua invokasi dengan flag dan -timeout
 # identik: sisa paket (tanpa TestScenario) dan skenario saja. Bukan skip —
 # test yang sama berjalan di invokasi kedua; hanya anggaran waktunya yang
 # terpisah.
-TEST_TIMEOUT ?= 10m
+# ADR-229: anggaran 10m → 20m sebagai hygiene runner, bukan pelonggaran gate.
+# Paket terberat (cmd/damnbot, internal/ctxdb) terukur 57–99,4% dari 600 s di
+# run hijau dan sudah panic 600 s di windows-latest/macos-15-intel; variasi
+# 1,7× pada SHA yang sama. Tidak ada tes, asersi, -race, atau cakupan berubah.
+TEST_TIMEOUT ?= 20m
 SCENARIO_PKGS ?= ./internal/ctxdb
 test:
 	go test $(GOTAGS) $(RACE) -shuffle=on -timeout $(TEST_TIMEOUT) -skip '^TestScenario$$' $(PKGS)
@@ -100,7 +104,7 @@ endif
 # dilewati. ADR-073: benchmark ikut dijalankan sekali (-benchtime=1x) agar benchmark yang memakai
 # helper budget tidak lulus kosong; budget absolut benchmark ditegakkan di job `perf`.
 test-timing:
-	DAMNBOT_TIMING=1 go test $(GOTAGS) -count=1 -shuffle=on -bench=. -benchtime=1x $(PKGS)
+	DAMNBOT_TIMING=1 go test $(GOTAGS) -count=1 -shuffle=on -timeout $(TEST_TIMEOUT) -bench=. -benchtime=1x $(PKGS)
 
 # Gate arsitektur (ADR-073 AUD-032, NEW-36): dijalankan juga di `make test`; target ini untuk meta-test.
 archtest:
@@ -193,7 +197,7 @@ pr-meta:
 
 # ADR-080 butir 2: semua item fase ≤ PHASE wajib covered (dijalankan saat file PHASE berubah).
 phase-acceptance:
-	DAMNBOT_PHASE_ACCEPTANCE=1 go test $(GOTAGS) -count=1 $(PKGS)
+	DAMNBOT_PHASE_ACCEPTANCE=1 go test $(GOTAGS) -count=1 -timeout $(TEST_TIMEOUT) $(PKGS)
 
 size-check:
 	TAGS="$(TAGSCSV)" scripts/size-check.sh
