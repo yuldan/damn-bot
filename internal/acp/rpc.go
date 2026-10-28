@@ -59,6 +59,9 @@ var (
 	ErrParams           = &Error{Code: CodeInvalidParams, Message: "invalid params"}
 	ErrInternal         = &Error{Code: CodeInternal, Message: "internal error"}
 	ErrResourceNotFound = &Error{Code: CodeResourceNotFound, Message: "resource not found"}
+	// ErrFrameLimit is the typed answer to a frame above MaxFrameBytes; the
+	// reader has already drained the rest of that line (SPEC §13.3).
+	ErrFrameLimit = &Error{Code: CodeInvalidRequest, Message: "frame exceeds 16 MiB"}
 )
 
 // ErrorWithData returns a copy of e carrying a JSON data object. The data is

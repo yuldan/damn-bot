@@ -6,10 +6,12 @@ import (
 	"golang.org/x/tools/go/analysis/unitchecker"
 
 	"github.com/damnbot/damnbot/tools/analyzers/nohttpclient"
+	"github.com/damnbot/damnbot/tools/analyzers/nostdininherit"
 )
 
 func main() {
 	unitchecker.Main(
 		nohttpclient.Analyzer,
+		nostdininherit.Analyzer,
 	)
 }
