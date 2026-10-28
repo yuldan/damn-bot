@@ -4664,6 +4664,23 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 
 **Konsekuensi.** (+) Completion dinamis tanpa drift daftar perintah, empat shell, tanpa efek samping. (−) Nilai enum/model/session/modul belum dikompletkan (GAP-OPS-07 penuh); kandidat saat ini perintah/subperintah/flag global. `zsh` hanya diuji bila tersedia di runner non-Windows.
 
+## ADR-223 — `setup secrets set|rotate|ls` F3: keyring-only named secrets + 0600 fingerprint index
+
+**Status:** Accepted 2026-10-27 (F3, slice B6; opsi A disetujui direktur). Menerapkan GAP-OPS-04 (SPEC §22) dan SPEC §4.9/§10.
+
+**Konteks.** `internal/secret` menyimpan KEK at-rest/backup key (keyring atau berkas 0600), tetapi **tidak** punya store secret bernama dan **tidak** menulis `secrets.enc`; premis "fallback berkas terenkripsi yang sudah ada" tidak benar. Membuat format baru dilarang. `secret` 1.168/1.168 dan Σ core 47.114/47.200, jadi implementasi harus ≤86 baris.
+
+**Keputusan.**
+1. **Keyring-only.** `Store.Set/Get/List/Rotate` menyimpan nilai di OS keychain (service `damnbot`, account `at-rest[:profile]:named:<name>`). Tidak ada fallback plaintext dan tidak ada `secrets.enc`/format baru. Keychain tidak tersedia → `ErrKeyUnavailable`; CLI exit 1 dengan pesan "OS keychain unavailable; nothing written". Platform tanpa keychain tidak dapat menyimpan secret bernama (keterbatasan eksplisit).
+2. **Indeks 0600.** `<config_dir>/secrets.index` berisi satu baris `name<TAB>sha256(value)`; hanya nama + sidik jari, tidak pernah nilai. Ditulis lewat `writeAtomic` (0600, temp+rename) dan dibaca `readSmall`. `ls` menampilkan `name<TAB>fingerprint`; `ls --refs` hanya nama.
+3. **Urutan aman.** `set` menolak nama yang sudah ada (`ErrSecretExists`), menulis keychain lalu indeks; bila indeks gagal, entri keychain dihapus (rollback) dan error dilaporkan. `rotate` menulis keychain lalu mengganti sidik jari secara atomik di indeks; kegagalan indeks dilaporkan (nilai keychain sudah baru, indeks lama) — tidak ada plaintext. Nama divalidasi `[a-z0-9][a-z0-9._-]{0,63}` di CLI.
+4. **Input tanpa echo.** `set`/`rotate` membaca nilai dari stdin, bukan argumen; pada TTY echo dimatikan (`stty -echo` di Unix, `ENABLE_ECHO_INPUT` di Windows) dan dipulihkan. Nilai tidak pernah dicetak/di-log. `rotate --all-profiles` menerima flag itu tetapi keluar 2 dengan alasan eksplisit: namespace saat ini per profil, sedangkan rotasi lintas profil dan matriks rujukan belum diimplementasikan (SPEC §22 GAP-OPS-04 tetap menyebutkannya). Tidak ada subperintah hapus (SPEC hanya set|rotate|ls).
+5. **Test seam.** Build tag `secrettest` menyuntikkan keyring in-memory pada biner e2e; produksi tetap keychain OS. `DAMNBOT_TEST_KEYRING=fail` mensimulasikan keychain tidak tersedia.
+
+**Dampak terukur (SPEC §20).** `secret` 1.168 → **1.245** (terukur `scc`; +83), Σ core 47.122 → **47.199 ≤ 47.200**; tidak ada baris turun; `TOTAL 190.000` tetap; dependency baru 0; `secrets.enc` tidak dibuat. Tes: `TestNamedSetGetList`, `TestNamedRotate`, `TestNamedKeyringFailureWritesNothing`; e2e `TestSecretsSetListRotate`, `TestSecretsKeyringUnavailable`, `TestSecretsCLIUsage` (nilai tidak muncul di stdout/stderr, indeks 0600, fingerprint berubah saat rotate, duplikat exit ≠ 0).
+
+**Konsekuensi.** (+) GAP-OPS-04 terpenuhi untuk platform ber-keychain tanpa plaintext dan tanpa format baru. (−) Tanpa keychain tidak ada penyimpanan; `rotate` tidak dapat rollback nilai keychain bila penulisan indeks gagal (dilaporkan, bukan disembunyikan); `secrets rm`, rotasi lintas profil, dan fallback terenkripsi menunggu store F5.
+
 ## ADR-224 — Ledger acceptance F3 dan status gate F3
 
 **Status:** Accepted 2026-10-27 (F3). Artefak status: tidak mengubah perilaku, `PHASE`, `loc.budget`, SPEC, ENGINEERING, atau FEATURE-PARITY.

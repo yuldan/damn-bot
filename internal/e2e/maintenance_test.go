@@ -18,13 +18,13 @@ import (
 // menjalankan perintah yang diizinkan.
 func TestDamnbotMaintenanceGateCLI(t *testing.T) {
 	t.Parallel()
-	bin := "'" + binPath + "'"
+	bin := "'" + binPaths.main + "'"
 	if runtime.GOOS == "windows" {
 		// Double quotes: PowerShell runs a quoted string as a command, and the
 		// cmd lexer (used before SEC10-29 lands) strips them too, so the gate
 		// sees the damnbot name in both dialects. `& '...'` is only valid for
 		// the PowerShell dialect and stays Mutating under the cmd lexer.
-		bin = `"` + binPath + `"`
+		bin = `"` + binPaths.main + `"`
 	}
 	cases := []struct {
 		name    string
