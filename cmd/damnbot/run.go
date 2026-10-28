@@ -246,7 +246,7 @@ func runWindow(ctx context.Context, model *runModel, modelRef string) int64 {
 	if !ok {
 		return 0
 	}
-	resolved, err := compactionWindow(ctx, model.db, pn, mn)
+	resolved, err := model.windowOf(ctx, pn, mn)
 	if err != nil {
 		return 0
 	}
@@ -305,6 +305,7 @@ type runModel struct {
 	modelRef  string
 	window    int64  // effective model window (registry.Limits: config/registry/learned/fallback)
 	winSource string // config|registry|discovery|learned|fallback
+	limits    *registry.Limits
 	toolsets  toolset.Selection
 	db        *ctxdb.Store
 	// inlineCap is the route window budget in tokens the turn inline aggregate
@@ -394,7 +395,17 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		return nil, err
 	}
 	provName, modelName, _ := strings.Cut(w.modelRef, "/")
-	limits, err := registry.NewLimits(nil, nil, limitstore.Store{DB: w.db}, nil)
+	// The config override is keyed by the route's normalized base_url + model
+	// (ADR-194 butir 3/4). A route that cannot name its endpoint (a pure
+	// injected provider with a non-standard ref) simply has no override.
+	var configWindows map[string]int64
+	if base, _, _, berr := providerEndpoint(w.modelRef, o); berr == nil {
+		configWindows, err = routeLimits(cfg, provName, base, modelName)
+		if err != nil {
+			return nil, w.fail(fmt.Errorf("model limits: %w", err))
+		}
+	}
+	limits, err := registry.NewLimits(configWindows, nil, limitstore.Store{DB: w.db}, nil)
 	if err != nil {
 		return nil, w.fail(fmt.Errorf("model limits: %w", err))
 	}
@@ -421,6 +432,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		modelRef:  w.modelRef,
 		window:    win.ContextWindow,
 		winSource: string(win.Source),
+		limits:    limits,
 		inlineCap: w.inlineCap,
 		spill:     w.spill,
 		sb:        w.sb,

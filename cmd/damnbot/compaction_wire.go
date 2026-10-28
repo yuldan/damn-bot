@@ -131,7 +131,7 @@ func compactionHistory(msgs []compaction.Message) []assemble.Message {
 // The window comes from the model-limits path (ADR-126).
 func newRunCompactor(ctx context.Context, model *runModel, modelRef string, asm *assemble.Assembler, toolList []assemble.Tool, contextTier string, red *redact.Redactor) (*compaction.Compactor, int64, error) {
 	provName, modelName, _ := strings.Cut(modelRef, "/")
-	window, err := compactionWindow(ctx, model.db, provName, modelName)
+	window, err := model.windowOf(ctx, provName, modelName)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -278,14 +278,21 @@ type compactionView interface {
 
 var _ compactionView = (*compaction.Compactor)(nil)
 
-// compactionWindow resolves the loop window through the model-limits path
-// (config → registry → discovery → learned → 32 768 fallback). The input cap
+// windowOf resolves one route through the run's model-limits resolver
+// (config → registry → discovery → learned → 32 768 fallback), the same
+// instance startup used, so the compactor and the loop agree on an override
+// from [[providers.custom]]. A run model built without a resolver (tests, F2
+// tooling) falls back to the store-only resolution. The input cap
 // (loop.turn_max_input_tok) is not a window source; it stays the loop's
 // MaxInputTokens and the route's ContextWindow.
-func compactionWindow(ctx context.Context, db *ctxdb.Store, prov, model string) (int64, error) {
-	lim, err := registry.NewLimits(nil, nil, limitstore.Store{DB: db}, nil)
-	if err != nil {
-		return 0, fmt.Errorf("limits: %w", err)
+func (m *runModel) windowOf(ctx context.Context, prov, model string) (int64, error) {
+	lim := m.limits
+	if lim == nil {
+		var err error
+		lim, err = registry.NewLimits(nil, nil, limitstore.Store{DB: m.db}, nil)
+		if err != nil {
+			return 0, fmt.Errorf("limits: %w", err)
+		}
 	}
 	l, err := lim.Window(ctx, prov, model)
 	if err != nil {
