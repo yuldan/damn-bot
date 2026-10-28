@@ -1018,7 +1018,7 @@ Permukaan final 1.0 (OPS-08, ADR-033 Q45): **22 perintah top-level** terlihat di
 | `service` | `install [--system --user <name>] [--no-linger-check] [--dry-run]` (default user unit; `--system` butuh root, `--user` = akun yang menjalankan daemon), `uninstall`, `status`, `resume` | Unit systemd/launchd/Windows Service; `resume` keluar dari SAFE MODE |
 | `setup` | (wizard); `auth login [--provider P]`, `auth logout [--provider P\|--all]` (logout memanggil revoke OAuth, SEC-18); `secrets set\|rotate <name> [--all-profiles]`, `secrets ls [--refs]` (OPS-04); `ssh add <host>`; `completion <shell>`; `--sudo-rule` (SEC-14); `--uninstall [--dry-run] [--purge-data]` (OPS-03; satu-satunya jalur uninstall) | Wizard ≤ 3 langkah, ≤ 60 s, kredensial, uninstall |
 | `import` | `hermes [--from DIR] [--only …] [--dry-run]`; `claude-code`, `codex`, `openclaw`; `archive <file>` (impor arsip portabel/backup, OPS-05) | Migrasi (§9.15) |
-| `config` | `show`, `edit`, `explain <key>`, `schema <module>`, `modules [restart <id>]`, `hooks ls\|test`, `profiles ls\|export\|import` | Config, modul lazy, hook, profil |
+| `config` | `show`, `edit`, `explain <key>`, `schema <module>`, `modules [restart <id>]`, `hooks ls\|test`, `profiles ls\|export <name> [-o FILE]\|import <file> [--name NAME] [--yes] [--dry-run]` | Config, modul lazy, hook, profil (ADR-228) |
 | `sessions` | `ls`, `show`, `search`, `fork`, `rewind`, `export [--format jsonl\|md\|html]` (ls/show membuka `mode=ro`; skema lebih baru terbaca), `why <turn-id>`, `prune <id>\|--older-than 90d [--with-forks] [--yes]` (§11.6: `has_forks` bila ada turunan; `--with-forks` ikut menghapus turunan, `--yes` wajib untuk hapus; dokumen lama menyebut istilah `purge` — perilaku DB `purge`/`session_purging` tidak berubah), `backup create\|ls\|verify [--include-secrets]`, `restore <file> [--dry-run]` | Sesi, rantai keputusan, prune, backup terenkripsi (SEC-01) |
 | `checkpoints` | `status`, `list [--limit N] [--session ID]`, `prune [--older-than 30d] [--dry-run] [--yes]`, `clear\|clear-legacy --yes` | Jurnal aksi = checkpoint undo; prune/clear hanya lewat mode maintenance `purge` (ADR-146) |
 | `undo` | `[N\|<action-id>]`, `--turn <id>`, `ls`, `--dry-run`, `--force` | Undo universal (§18.1) & rollback checkpoint coding |
@@ -2524,7 +2524,7 @@ enabled      = true
 daily_tokens = 50000
 ```
 
-Validasi menolak key tak dikenal dan nilai di luar rentang (mis. `max_iterations > 40`).
+Validasi menolak key tak dikenal dan nilai di luar rentang (mis. `max_iterations > 40`). Arsip `config profiles export <name> [-o FILE]` / `import <file> [--name NAME] [--yes] [--dry-run]` (F3, ADR-228) = tar.gz berisi `manifest.json` (`{"schema":1,"name":…,"created_at":RFC3339,"damnbot":"<version>"}`) + `config.toml` profil, **tanpa** skills, memori, DB, atau nilai secret (referensi `keychain:` tetap). Impor menolak entri lain, path absolut/traversal/symlink, arsip > 8 MiB, `config.toml` > 1 MiB, atau skema ≠ 1; config divalidasi sebelum menulis; profil tujuan yang sudah ada membutuhkan `--yes`; `--dry-run` menulis 0 byte.
 
 ---
 
