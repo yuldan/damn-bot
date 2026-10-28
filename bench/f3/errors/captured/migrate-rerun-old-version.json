@@ -1,0 +1,17 @@
+{
+  "id": "migrate-rerun-old-version",
+  "group": "db-migration",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/migrate-rerun-old-version/data"
+  ],
+  "exit_code": 2,
+  "duration_ms": 82,
+  "stdout": "",
+  "stderr": "run: open ctxdb: ctxdb: migration 0002_runtime: SQL logic error: table session_leases already exists (1)\n"
+}

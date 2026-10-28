@@ -1,0 +1,25 @@
+{
+  "id": "timeout-ttfb",
+  "group": "timeout-retry",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/timeout-ttfb/data",
+    "--base-url",
+    "{SERVER}/slow-header/v1",
+    "--api-key",
+    "{REDACTED}",
+    "--provider-attempts",
+    "1",
+    "--output",
+    "json"
+  ],
+  "exit_code": 2,
+  "duration_ms": 30172,
+  "stdout": "{\"schema\":\"damnbot.turn_result/v1\",\"session_id\":\"{SESSION_ID}\",\"stop_reason\":\"error\",\"stop_detail\":\"provider_error\",\"answer\":\"\",\"error\":\"provider: openai/fake: timeout after 1 attempt(s): retry attempts exhausted: provider timeout: stream: no event before the time-to-first-byte deadline: inference POST 127.0.0.1:{PORT}: stream: no event before the time-to-first-byte deadline\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"output_tokens\":0,\"iterations\":1}}\n",
+  "stderr": ""
+}

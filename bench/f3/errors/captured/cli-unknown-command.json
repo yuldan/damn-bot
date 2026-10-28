@@ -1,0 +1,11 @@
+{
+  "id": "cli-unknown-command",
+  "group": "cli-usage",
+  "argv": [
+    "frobnicate"
+  ],
+  "exit_code": 2,
+  "duration_ms": 6,
+  "stdout": "",
+  "stderr": "Usage of damnbot:\n  -version\n    \ttampilkan versi lalu keluar\n"
+}

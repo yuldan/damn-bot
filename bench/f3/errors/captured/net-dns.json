@@ -1,0 +1,25 @@
+{
+  "id": "net-dns",
+  "group": "network",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/net-dns/data",
+    "--base-url",
+    "http://f3-no-such-host.invalid/v1",
+    "--api-key",
+    "{REDACTED}",
+    "--provider-attempts",
+    "1",
+    "--output",
+    "json"
+  ],
+  "exit_code": 2,
+  "duration_ms": 156,
+  "stdout": "{\"schema\":\"damnbot.turn_result/v1\",\"session_id\":\"{SESSION_ID}\",\"stop_reason\":\"error\",\"stop_detail\":\"provider_error\",\"answer\":\"\",\"error\":\"provider: openai/fake: network after 1 attempt(s): retry attempts exhausted: provider network: inference POST f3-no-such-host.invalid: connect f3-no-such-host.invalid:80: dial tcp: lookup f3-no-such-host.invalid on 127.0.0.53:53: no such host\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"output_tokens\":0,\"iterations\":1}}\n",
+  "stderr": ""
+}

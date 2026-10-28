@@ -1,0 +1,25 @@
+{
+  "id": "retry-unavailable",
+  "group": "timeout-retry",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/retry-unavailable/data",
+    "--base-url",
+    "{SERVER}/unavailable/v1",
+    "--api-key",
+    "{REDACTED}",
+    "--provider-attempts",
+    "3",
+    "--output",
+    "json"
+  ],
+  "exit_code": 2,
+  "duration_ms": 5746,
+  "stdout": "{\"schema\":\"damnbot.turn_result/v1\",\"session_id\":\"{SESSION_ID}\",\"stop_reason\":\"error\",\"stop_detail\":\"provider_error\",\"answer\":\"\",\"error\":\"provider: openai/fake: overloaded after 3 attempt(s): retry attempts exhausted: provider overloaded (HTTP 503 server_error): inference: http status 503\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"output_tokens\":0,\"iterations\":1}}\n",
+  "stderr": ""
+}

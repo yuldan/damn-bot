@@ -1,0 +1,10 @@
+{
+  "schema": "damnbot.f3.errors.summary/v1",
+  "cases": 60,
+  "groups": 12,
+  "exit_nonzero": 60,
+  "secret_leaks": 0,
+  "panic_or_goroutine": 0,
+  "non_empty": 60,
+  "failed": []
+}

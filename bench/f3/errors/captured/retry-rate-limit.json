@@ -1,0 +1,25 @@
+{
+  "id": "retry-rate-limit",
+  "group": "timeout-retry",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/retry-rate-limit/data",
+    "--base-url",
+    "{SERVER}/rate-limit/v1",
+    "--api-key",
+    "{REDACTED}",
+    "--provider-attempts",
+    "3",
+    "--output",
+    "json"
+  ],
+  "exit_code": 2,
+  "duration_ms": 2168,
+  "stdout": "{\"schema\":\"damnbot.turn_result/v1\",\"session_id\":\"{SESSION_ID}\",\"stop_reason\":\"error\",\"stop_detail\":\"provider_error\",\"answer\":\"\",\"error\":\"provider: openai/fake: rate_limited after 3 attempt(s): retry attempts exhausted: provider rate_limited (HTTP 429 rate_limit_error): inference: http status 429\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"output_tokens\":0,\"iterations\":1}}\n",
+  "stderr": ""
+}

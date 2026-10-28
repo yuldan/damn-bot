@@ -1,0 +1,17 @@
+{
+  "id": "migrate-backup-fails",
+  "group": "db-migration",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/migrate-backup-fails/data"
+  ],
+  "exit_code": 2,
+  "duration_ms": 42,
+  "stdout": "",
+  "stderr": "run: open ctxdb: ctxdb: unable to open database file: unable to open database: {TMP}/cases/migrate-backup-fails/data/backups/premigrate-7-8.db (14)\n"
+}

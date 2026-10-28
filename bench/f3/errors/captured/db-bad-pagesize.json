@@ -1,0 +1,17 @@
+{
+  "id": "db-bad-pagesize",
+  "group": "db-corrupt",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/db-bad-pagesize/data"
+  ],
+  "exit_code": 2,
+  "duration_ms": 11,
+  "stdout": "",
+  "stderr": "run: open ctxdb: ctxdb: ctxdb: file is not a database (26)\n"
+}

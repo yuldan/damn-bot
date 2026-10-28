@@ -1,0 +1,17 @@
+{
+  "id": "cfg-parent-no-exec",
+  "group": "config-unreadable",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--config",
+    "{TMP}/cases/cfg-parent-no-exec/secret/config.toml",
+    "--data-dir",
+    "{TMP}/cases/cfg-parent-no-exec/data"
+  ],
+  "exit_code": 2,
+  "duration_ms": 10,
+  "stdout": "",
+  "stderr": "run: load config: config: {TMP}/cases/cfg-parent-no-exec/secret/config.toml: cannot read file\n"
+}

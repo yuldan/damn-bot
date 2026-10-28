@@ -1,0 +1,531 @@
+{
+  "schema": "damnbot.f3.errors.cases/v1",
+  "note": "Every case triggers a real error in the built damnbot binary. Placeholders: {tmp} = per-case temp dir, {server} = loopback fake-provider base URL.",
+  "cases": [
+    {
+      "id": "cfg-syntax",
+      "group": "config-invalid",
+      "argv": ["run", "-p", "hi", "--config", "{tmp}/config.toml", "--data-dir", "{tmp}/data"],
+      "setup": [{"op": "write", "path": "{tmp}/config.toml", "content": "provider = { model =\n"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Config TOML yang tidak bisa diparse harus ditolak dengan lokasi baris yang bisa diperbaiki."
+    },
+    {
+      "id": "cfg-unknown-key",
+      "group": "config-invalid",
+      "argv": ["run", "-p", "hi", "--config", "{tmp}/config.toml", "--data-dir", "{tmp}/data"],
+      "setup": [{"op": "write", "path": "{tmp}/config.toml", "content": "[provider]\nmodel = \"openai/fake\"\nbogus = 1\n"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Key config yang tidak dikenal harus disebut namanya, bukan diabaikan diam-diam."
+    },
+    {
+      "id": "cfg-range",
+      "group": "config-invalid",
+      "argv": ["run", "-p", "hi", "--config", "{tmp}/config.toml", "--data-dir", "{tmp}/data"],
+      "setup": [{"op": "write", "path": "{tmp}/config.toml", "content": "[provider]\nmodel = \"openai/fake\"\n[loop]\nmax_iterations = 99\n"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Nilai di luar rentang harus menyebut key dan rentang yang sah."
+    },
+    {
+      "id": "cfg-duration",
+      "group": "config-invalid",
+      "argv": ["run", "-p", "hi", "--config", "{tmp}/config.toml", "--data-dir", "{tmp}/data"],
+      "setup": [{"op": "write", "path": "{tmp}/config.toml", "content": "[provider]\nmodel = \"openai/fake\"\n[log]\nmessage_content_ttl = \"nope\"\n"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Durasi yang salah format harus ditolak dengan nilai yang diharapkan (mis. 24h)."
+    },
+    {
+      "id": "cfg-duplicate-key",
+      "group": "config-invalid",
+      "argv": ["run", "-p", "hi", "--config", "{tmp}/config.toml", "--data-dir", "{tmp}/data"],
+      "setup": [{"op": "write", "path": "{tmp}/config.toml", "content": "[provider]\nmodel = \"openai/fake\"\n[provider]\nmax_output = 0\n"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Tabel config ganda harus dilaporkan sebagai kesalahan TOML dengan posisinya."
+    },
+    {
+      "id": "cfg-path-directory",
+      "group": "config-unreadable",
+      "argv": ["run", "-p", "hi", "--config", "{tmp}/config.toml", "--data-dir", "{tmp}/data"],
+      "setup": [{"op": "mkdir", "path": "{tmp}/config.toml"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Path config yang berupa direktori harus ditolak sebagai file yang tidak bisa dibaca."
+    },
+    {
+      "id": "cfg-no-read",
+      "group": "config-unreadable",
+      "argv": ["run", "-p", "hi", "--config", "{tmp}/config.toml", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "write", "path": "{tmp}/config.toml", "content": "[provider]\nmodel = \"openai/fake\"\n"},
+        {"op": "chmod", "path": "{tmp}/config.toml", "mode": "000"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Config tanpa izin baca harus menyebut path dan masalah izin, bukan jatuh ke default."
+    },
+    {
+      "id": "cfg-symlink-loop",
+      "group": "config-unreadable",
+      "argv": ["run", "-p", "hi", "--config", "{tmp}/loop.toml", "--data-dir", "{tmp}/data"],
+      "setup": [{"op": "symlink", "path": "{tmp}/loop.toml", "target": "loop.toml"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Symlink melingkar pada path config harus dilaporkan sebagai kegagalan baca."
+    },
+    {
+      "id": "cfg-too-large",
+      "group": "config-unreadable",
+      "argv": ["run", "-p", "hi", "--config", "{tmp}/config.toml", "--data-dir", "{tmp}/data"],
+      "setup": [{"op": "fill", "path": "{tmp}/config.toml", "content": "[provider]\nmodel = \"openai/fake\"\n#", "size": 1048607, "pad": "#"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "File config di atas batas harus ditolak dengan batas ukuran yang jelas."
+    },
+    {
+      "id": "cfg-parent-no-exec",
+      "group": "config-unreadable",
+      "argv": ["run", "-p", "hi", "--config", "{tmp}/secret/config.toml", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "write", "path": "{tmp}/secret/config.toml", "content": "[provider]\nmodel = \"openai/fake\"\n"},
+        {"op": "chmod", "path": "{tmp}/secret", "mode": "000"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Direktori induk tanpa izin harus terlihat sebagai kegagalan akses path config."
+    },
+    {
+      "id": "data-dir-is-file",
+      "group": "data-dir",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [{"op": "write", "path": "{tmp}/data", "content": "not a directory\n"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Data dir yang menunjuk file biasa harus ditolak dengan path yang salah."
+    },
+    {
+      "id": "data-dir-parent-file",
+      "group": "data-dir",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/parent/data"],
+      "setup": [{"op": "write", "path": "{tmp}/parent", "content": "not a directory\n"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Induk data dir yang berupa file harus disebut sebagai penghalang pembuatan direktori."
+    },
+    {
+      "id": "data-dir-readonly",
+      "group": "data-dir",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "mkdir", "path": "{tmp}/data"},
+        {"op": "chmod", "path": "{tmp}/data", "mode": "500"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Data dir tanpa izin tulis harus menyebut direktori dan operasi yang gagal."
+    },
+    {
+      "id": "data-dir-parent-readonly",
+      "group": "data-dir",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/parent/data"],
+      "setup": [
+        {"op": "mkdir", "path": "{tmp}/parent"},
+        {"op": "chmod", "path": "{tmp}/parent", "mode": "500"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Induk data dir tanpa izin tulis harus menghasilkan pesan izin yang menunjuk path."
+    },
+    {
+      "id": "data-dir-run-is-file",
+      "group": "data-dir",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "mkdir", "path": "{tmp}/data"},
+        {"op": "write", "path": "{tmp}/data/run", "content": "not a directory\n"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Subdirektori runtime yang bentrok dengan file harus dilaporkan sebagai not a directory."
+    },
+    {
+      "id": "db-random-bytes",
+      "group": "db-corrupt",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "mkdir", "path": "{tmp}/data"},
+        {"op": "fill", "path": "{tmp}/data/damnbot.db", "content": "this is not a sqlite database\n", "size": 4096, "pad": "0"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "File DB yang bukan SQLite harus ditolak sebagai file is not a database."
+    },
+    {
+      "id": "db-is-directory",
+      "group": "db-corrupt",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [{"op": "mkdir", "path": "{tmp}/data/damnbot.db"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "damnbot.db yang berupa direktori harus disebut sebagai database yang tidak bisa dibuka."
+    },
+    {
+      "id": "db-truncated",
+      "group": "db-corrupt",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "copy_db", "path": "{tmp}/data"},
+        {"op": "truncate", "path": "{tmp}/data/damnbot.db", "size": 100}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "DB terpotong harus dilaporkan sebagai disk image malformed, bukan panic."
+    },
+    {
+      "id": "db-bad-magic",
+      "group": "db-corrupt",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "copy_db", "path": "{tmp}/data"},
+        {"op": "patch", "path": "{tmp}/data/damnbot.db", "offset": 0, "hex": "4e4f5453514c495445"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Header SQLite yang rusak harus menghasilkan pesan file is not a database."
+    },
+    {
+      "id": "db-bad-pagesize",
+      "group": "db-corrupt",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "copy_db", "path": "{tmp}/data"},
+        {"op": "patch", "path": "{tmp}/data/damnbot.db", "offset": 16, "hex": "ffff"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Page size SQLite yang tidak valid harus ditolak sebelum data disentuh."
+    },
+    {
+      "id": "migrate-schema-newer",
+      "group": "db-migration",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "copy_db", "path": "{tmp}/data"},
+        {"op": "patch", "path": "{tmp}/data/damnbot.db", "offset": 60, "hex": "00000009"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "DB dari versi binary yang lebih baru harus ditolak dengan perbandingan versi DB dan binary."
+    },
+    {
+      "id": "migrate-checksum",
+      "group": "db-migration",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "copy_db", "path": "{tmp}/data"},
+        {"op": "corrupt_checksum", "path": "{tmp}/data"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Checksum migrasi yang tidak cocok harus menyebut nama migrasi yang gagal."
+    },
+    {
+      "id": "migrate-rerun-old-version",
+      "group": "db-migration",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "copy_db", "path": "{tmp}/data"},
+        {"op": "patch", "path": "{tmp}/data/damnbot.db", "offset": 60, "hex": "00000001"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Migrasi yang gagal di tengah harus menyebut migrasi dan objek schema yang bentrok."
+    },
+    {
+      "id": "migrate-old-holder",
+      "group": "db-migration",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "copy_db", "path": "{tmp}/data"},
+        {"op": "patch", "path": "{tmp}/data/damnbot.db", "offset": 60, "hex": "00000007"},
+        {"op": "write_holder", "path": "{tmp}/data"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Proses lama yang masih memakai schema lama harus disebut sebagai alasan migrasi ditolak."
+    },
+    {
+      "id": "migrate-backup-fails",
+      "group": "db-migration",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data"],
+      "setup": [
+        {"op": "copy_db", "path": "{tmp}/data"},
+        {"op": "patch", "path": "{tmp}/data/damnbot.db", "offset": 60, "hex": "00000007"},
+        {"op": "chmod", "path": "{tmp}/data/backups", "mode": "500"}
+      ],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Backup premigrate yang gagal harus menghentikan migrasi dengan path backup yang jelas."
+    },
+    {
+      "id": "model-no-slash",
+      "group": "provider-model",
+      "argv": ["run", "-p", "hi", "--model", "gpt4", "--data-dir", "{tmp}/data"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Referensi model harus berbentuk provider/model."
+    },
+    {
+      "id": "model-unknown-provider",
+      "group": "provider-model",
+      "argv": ["run", "-p", "hi", "--model", "anthropic/fake", "--data-dir", "{tmp}/data"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Provider yang belum punya endpoint harus menyebut provider dan kebutuhan --base-url."
+    },
+    {
+      "id": "model-empty-provider",
+      "group": "provider-model",
+      "argv": ["run", "-p", "hi", "--model", "/fake", "--data-dir", "{tmp}/data"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Provider kosong pada referensi model harus ditolak, bukan diam-diam memakai default."
+    },
+    {
+      "id": "model-not-found",
+      "group": "provider-model",
+      "argv": ["run", "-p", "hi", "--model", "openai/gpt-unknown", "--data-dir", "{tmp}/data", "--base-url", "{server}/model-missing/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Model yang tidak ada di provider harus menghasilkan kelas bad_request dan kode model_not_found."
+    },
+    {
+      "id": "model-invalid",
+      "group": "provider-model",
+      "argv": ["run", "-p", "hi", "--model", "openai/not a model", "--data-dir", "{tmp}/data", "--base-url", "{server}/model-invalid/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Nama model yang ditolak provider harus mempertahankan kode error provider."
+    },
+    {
+      "id": "cred-missing",
+      "group": "credentials",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/auth-missing/v1", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Kredensial yang tidak ada harus menghasilkan auth error dan kode missing_api_key."
+    },
+    {
+      "id": "cred-invalid",
+      "group": "credentials",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/auth-invalid/v1", "--api-key", "f3-dummy-wrong", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "API key yang salah harus dibedakan dari gangguan jaringan dan tidak membocorkan key."
+    },
+    {
+      "id": "cred-forbidden",
+      "group": "credentials",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/forbidden/v1", "--api-key", "f3-dummy-revoked", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Akun yang dilarang harus dilaporkan sebagai auth/permission, bukan retry tanpa akhir."
+    },
+    {
+      "id": "cred-env-invalid",
+      "group": "credentials",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/auth-invalid/v1", "--provider-attempts", "1", "--output", "json"],
+      "env": {"OPENAI_API_KEY": "f3-dummy-env-wrong"},
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Key dari environment yang salah harus menghasilkan auth error yang sama jelasnya."
+    },
+    {
+      "id": "cred-header-newline",
+      "group": "credentials",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/auth-invalid/v1", "--api-key", "f3-dummy\nbroken", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Nilai kredensial dengan karakter ilegal harus gagal sebelum request dan tidak dicetak."
+    },
+    {
+      "id": "net-refused",
+      "group": "network",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "http://127.0.0.1:1/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Koneksi ditolak harus menyebut endpoint dan kelas network."
+    },
+    {
+      "id": "net-dns",
+      "group": "network",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "http://f3-no-such-host.invalid/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "DNS yang gagal harus menyebut host yang tidak ditemukan."
+    },
+    {
+      "id": "net-offline",
+      "group": "network",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "http://203.0.113.1/v1", "--api-key", "f3-dummy-key", "--offline", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Mode offline harus menolak dial non-loopback dengan alasan kebijakan."
+    },
+    {
+      "id": "net-bad-url",
+      "group": "network",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "://bad", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Base URL yang tidak valid harus ditolak saat membangun request dengan skema yang diharapkan."
+    },
+    {
+      "id": "net-tls",
+      "group": "network",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "https://127.0.0.1:{port}/ok/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "TLS ke server non-TLS harus dilaporkan sebagai kegagalan TLS/HTTP-to-HTTPS, bukan diganti diam-diam ke HTTP."
+    },
+    {
+      "id": "timeout-ttfb",
+      "group": "timeout-retry",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/slow-header/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Provider yang diam harus berakhir sebagai timeout TTFB dengan deadline yang disebut."
+    },
+    {
+      "id": "timeout-dial",
+      "group": "timeout-retry",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "http://10.255.255.1/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Dial yang menggantung harus berhenti dengan timeout, bukan menggantung tanpa batas."
+    },
+    {
+      "id": "retry-rate-limit",
+      "group": "timeout-retry",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/rate-limit/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "3", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Rate limit harus menyebut jumlah percobaan dan status 429 setelah retry habis."
+    },
+    {
+      "id": "retry-server-error",
+      "group": "timeout-retry",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/server-error/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "3", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Error 500 harus di-retry lalu berhenti dengan jumlah percobaan yang terlihat."
+    },
+    {
+      "id": "retry-unavailable",
+      "group": "timeout-retry",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/unavailable/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "3", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Service unavailable harus dibedakan dari bad request dan berhenti setelah retry."
+    },
+    {
+      "id": "tool-unknown",
+      "group": "tool-args",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--config", "{tmp}/loop.toml", "--base-url", "{server}/tool-unknown/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "stream-json"],
+      "setup": [{"op": "write", "path": "{tmp}/loop.toml", "content": "[loop]\nmax_iterations = 1\n"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Nama tool yang tidak dikenal harus menyebut tool dan memberi hint daftar tool."
+    },
+    {
+      "id": "tool-bad-json",
+      "group": "tool-args",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--config", "{tmp}/loop.toml", "--base-url", "{server}/tool-badargs/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "stream-json"],
+      "setup": [{"op": "write", "path": "{tmp}/loop.toml", "content": "[loop]\nmax_iterations = 1\n"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Argumen tool yang bukan JSON harus ditolak sebagai invalid_args dengan hint format."
+    },
+    {
+      "id": "tool-path-traversal",
+      "group": "tool-args",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--config", "{tmp}/loop.toml", "--base-url", "{server}/tool-traversal/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "stream-json"],
+      "setup": [{"op": "write", "path": "{tmp}/loop.toml", "content": "[loop]\nmax_iterations = 1\n"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Path di luar workspace harus ditolak dengan path yang diselesaikan dan alasan sandbox."
+    },
+    {
+      "id": "tool-missing-required",
+      "group": "tool-args",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--config", "{tmp}/loop.toml", "--base-url", "{server}/tool-required/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "stream-json"],
+      "setup": [{"op": "write", "path": "{tmp}/loop.toml", "content": "[loop]\nmax_iterations = 1\n"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Properti wajib yang hilang harus disebut namanya lewat JSON Pointer."
+    },
+    {
+      "id": "tool-shell-denied",
+      "group": "tool-args",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--config", "{tmp}/loop.toml", "--base-url", "{server}/tool-shell/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "stream-json"],
+      "setup": [{"op": "write", "path": "{tmp}/loop.toml", "content": "[loop]\nmax_iterations = 1\n"}],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Shell tanpa approval harus ditolak dengan kode denied dan alasan mode headless."
+    },
+    {
+      "id": "stream-malformed-json",
+      "group": "provider-stream",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/malformed-sse/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Chunk SSE yang bukan JSON harus menyebut stream dan posisi byte kegagalan."
+    },
+    {
+      "id": "stream-html-body",
+      "group": "provider-stream",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/html-body/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Body HTML dari endpoint inference harus dianggap stream rusak, bukan jawaban."
+    },
+    {
+      "id": "stream-empty",
+      "group": "provider-stream",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/empty-sse/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Stream yang selesai tanpa finish_reason harus dilaporkan sebagai stream_broken."
+    },
+    {
+      "id": "stream-redirect",
+      "group": "provider-stream",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/redirect/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Redirect HTTP tidak boleh diikuti diam-diam; harus muncul status 302 sebagai bad_request."
+    },
+    {
+      "id": "stream-no-choices",
+      "group": "provider-stream",
+      "argv": ["run", "-p", "hi", "--model", "openai/fake", "--data-dir", "{tmp}/data", "--base-url", "{server}/no-choices/v1", "--api-key", "f3-dummy-key", "--provider-attempts", "1", "--output", "json"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Chunk tanpa choices harus berakhir jelas, bukan jawaban kosong dengan exit 0."
+    },
+    {
+      "id": "cli-no-args",
+      "group": "cli-usage",
+      "argv": [],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Tanpa subcommand, CLI harus menampilkan usage yang bisa ditindaklanjuti."
+    },
+    {
+      "id": "cli-unknown-flag",
+      "group": "cli-usage",
+      "argv": ["run", "--bogus", "-p", "hi"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Flag yang tidak dikenal harus disebut namanya bersama usage subcommand."
+    },
+    {
+      "id": "cli-bad-output",
+      "group": "cli-usage",
+      "argv": ["run", "-p", "hi", "--output", "yaml"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Nilai enum output yang salah harus menyebut nilai yang diterima."
+    },
+    {
+      "id": "cli-missing-prompt",
+      "group": "cli-usage",
+      "argv": ["run", "--model", "openai/fake"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Prompt yang hilang harus ditolak sebelum menyentuh DB atau jaringan."
+    },
+    {
+      "id": "cli-unknown-command",
+      "group": "cli-usage",
+      "argv": ["frobnicate"],
+      "setup": [],
+      "expect_exit_nonzero": true,
+      "what_user_should_learn": "Subcommand yang tidak dikenal harus menampilkan usage dan exit nonzero."
+    }
+  ]
+}

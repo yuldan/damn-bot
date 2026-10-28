@@ -1,0 +1,25 @@
+{
+  "id": "net-bad-url",
+  "group": "network",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/net-bad-url/data",
+    "--base-url",
+    "://bad",
+    "--api-key",
+    "{REDACTED}",
+    "--provider-attempts",
+    "1",
+    "--output",
+    "json"
+  ],
+  "exit_code": 2,
+  "duration_ms": 160,
+  "stdout": "{\"schema\":\"damnbot.turn_result/v1\",\"session_id\":\"{SESSION_ID}\",\"stop_reason\":\"error\",\"stop_detail\":\"provider_error\",\"answer\":\"\",\"error\":\"provider: openai/fake: bad_request after 1 attempt(s): provider bad_request: build request: parse \\\"://bad/chat/completions\\\": missing protocol scheme\",\"usage\":{\"input_tokens\":0,\"cached_input_tokens\":0,\"output_tokens\":0,\"iterations\":1}}\n",
+  "stderr": ""
+}

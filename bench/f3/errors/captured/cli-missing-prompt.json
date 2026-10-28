@@ -1,0 +1,13 @@
+{
+  "id": "cli-missing-prompt",
+  "group": "cli-usage",
+  "argv": [
+    "run",
+    "--model",
+    "openai/fake"
+  ],
+  "exit_code": 2,
+  "duration_ms": 4,
+  "stdout": "",
+  "stderr": "run: prompt required\n"
+}

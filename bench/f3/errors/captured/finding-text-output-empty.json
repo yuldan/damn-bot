@@ -1,0 +1,25 @@
+{
+  "id": "finding-text-output-empty",
+  "group": "finding",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "openai/fake",
+    "--data-dir",
+    "{TMP}/cases/finding-text-output-empty/data",
+    "--base-url",
+    "http://127.0.0.1:1/v1",
+    "--api-key",
+    "{REDACTED}",
+    "--provider-attempts",
+    "1",
+    "--output",
+    "text"
+  ],
+  "exit_code": 2,
+  "duration_ms": 122,
+  "stdout": "\n",
+  "stderr": ""
+}

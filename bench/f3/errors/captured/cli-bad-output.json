@@ -1,0 +1,15 @@
+{
+  "id": "cli-bad-output",
+  "group": "cli-usage",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--output",
+    "yaml"
+  ],
+  "exit_code": 2,
+  "duration_ms": 4,
+  "stdout": "",
+  "stderr": "run: invalid --output \"yaml\"\n"
+}

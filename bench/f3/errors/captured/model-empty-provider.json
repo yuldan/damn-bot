@@ -1,0 +1,17 @@
+{
+  "id": "model-empty-provider",
+  "group": "provider-model",
+  "argv": [
+    "run",
+    "-p",
+    "hi",
+    "--model",
+    "/fake",
+    "--data-dir",
+    "{TMP}/cases/model-empty-provider/data"
+  ],
+  "exit_code": 2,
+  "duration_ms": 159,
+  "stdout": "",
+  "stderr": "run: provider endpoint: provider \"\" needs --base-url in F1\n"
+}
