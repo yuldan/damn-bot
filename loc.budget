@@ -137,7 +137,10 @@ heal              1500 internal/heal
 # ADR-230 (GAP-OPS-02): `[network]` offline/background ke struct config + registry
 # egress netx; config 1208 -> 1243 = angka ukur scc pada pohon ter-commit, tanpa
 # headroom. Σ core 47.199 -> 47.234 <= 47.400; tidak ada baris yang turun.
-config            1252 internal/config
+# ADR-238 (GAP-OPS-09): `[ui] notices` (default true) di struct config;
+# plafon config 1252 -> 1253 (kode terukur 1.247 -> 1.248, +1), Σ core
+# 47.510 -> 47.511 <= 47.600; tidak ada baris yang turun.
+config            1253 internal/config
 modules            1000 internal/modules
 hooks              700 internal/hooks
 i18n               300 internal/i18n

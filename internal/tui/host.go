@@ -29,6 +29,14 @@ type ConfigSource interface {
 	Snapshot() Config
 }
 
+// NoticeGate decides whether one non-critical notice may be shown. The
+// composition root persists the decision so a tip appears at most once and
+// honours [ui] notices = false (GAP-OPS-09). Critical notices (security, SAFE
+// MODE, budget, stop reason, fallback) never pass through this gate.
+type NoticeGate interface {
+	Allow(key string) (bool, error)
+}
+
 // SessionChange is the outcome of a state change: the session to switch to
 // (empty = keep) and the already-rendered notice.
 type SessionChange struct {
@@ -122,6 +130,10 @@ type Host struct {
 	Files     Files
 	Shell     Shell
 	Clipboard Clipboard
+	// Notices is the non-critical notice gate; nil disables such notices
+	// ([ui] notices = false or a frontend without one). Critical notices do
+	// not depend on it (GAP-OPS-09).
+	Notices NoticeGate
 }
 
 // validate rejects an incomplete host at assembly time, not at the first frame.

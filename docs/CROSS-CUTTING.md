@@ -124,6 +124,7 @@ Target perangkat lemah (Raspberry Pi 4, 4 GB): startup ≤ 300 ms, RSS idle TUI 
 ## 9. UX & onboarding
 
 - First-run: `damnbot` tanpa config → wizard otomatis (≤ 3 langkah, ≤ 60 s): deteksi kredensial dari env, keychain, `~/.hermes`, `~/.omp/agent` (baca saja, dengan izin) → tampilkan provider yang siap pakai + rekomendasi ([`PROVIDERS.md`](PROVIDERS.md): auto-pilih dari kredensial, referensi `provider/model`, tanpa model hardcoded) → test call → simpan.
+- Notice: 0 upsell/nag/promosi; non-kritis (tip, update tersedia) maksimal 1× per key/versi dan mati permanen dengan `[ui] notices = false`; notice kritis (keamanan, SAFE MODE, budget 80/100%, stop/fallback) selalu tampil. Tidak ada notice yang memblokir input.
 - Pesan error: katalog ber-ID (`DB-E012`), selalu memuat penyebab, perbaikan, dan perintah (`run: damnbot doctor --fix`); tidak ada stack trace di UI (ada di log).
 - `damnbot doctor [--fix]` (SPEC §10, SELF-HEALING.md §8).
 - Target: wizard ≤ 60 s (median 10 pengguna uji, skrip terstandar); error informatif ≥ 95% (suite 60). Verifikasi: SCORECARD §1.4, `TestErrorCatalogComplete` (setiap error yang mencapai UI punya ID katalog).

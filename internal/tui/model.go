@@ -130,15 +130,15 @@ type styles struct {
 	success, warn, error, modal     lipgloss.Style
 }
 
-// Init starts no work: the prompt was focused at assembly (P12).
-func (m *Model) Init() tea.Cmd { return nil }
-
 // Update implements tea.Model.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if model, cmd, ok := m.handleResult(msg); ok {
 		return model, cmd
 	}
 	switch msg := msg.(type) {
+	case startupNoticeMsg:
+		m.appendBlock(&Block{Kind: BlockNotice, Text: msg.text, At: m.host.Clock.Now()})
+		return m, nil
 	case StreamMsg:
 		m.apply(&msg.Update)
 		return m, nil

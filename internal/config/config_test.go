@@ -123,7 +123,7 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 		},
 		Memory:    Memory{EntryMaxChars: 500, TotalMaxChars: 4000, Embeddings: ""},
 		Recovery:  Recovery{Continue: "safe_auto"},
-		UI:        UI{Language: "auto", Theme: "tern-dark"},
+		UI:        UI{Language: "auto", Theme: "tern-dark", Notices: true},
 		Gateway:   Gateway{MaxParallelTurns: 4, Users: map[string]GatewayUser{}},
 		Providers: Providers{Custom: []CustomProvider{}},
 		Log:       Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
