@@ -1,9 +1,12 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 )
 
 // CommandOptions configures a [Commands] dispatcher.
@@ -15,6 +18,10 @@ type CommandOptions struct {
 	// Approvals is the registry that "/approve" and "/deny" resolve. Nil
 	// leaves both commands registered but unsupported.
 	Approvals *Approvals
+	// Pairing redeems "/pair <code>"; nil leaves it registered but unsupported.
+	Pairing PairingStore
+	// Now is the pairing attempt clock and redemption timestamp; nil is time.Now.
+	Now func() time.Time
 }
 
 // CommandResult is the answer to one message the admission layer extracted
@@ -32,22 +39,29 @@ type CommandResult struct {
 // Commands dispatches the chat commands of SPEC §9.7 and the F4 gateway rows
 // of docs/FEATURE-PARITY.md. Every registered command is either implemented or
 // answers a clear "not supported" — there is no handler that pretends to work.
-// Dispatch is read-only apart from the approval decisions it is asked to make;
-// it never runs a tool or a shell command, and the parser it uses cannot.
+// Dispatch runs no tool and no shell command, and the parser it uses cannot;
+// its only side effects are the approval decision and the pairing redemption
+// the caller asked for.
 type Commands struct {
 	bot       string
 	approvals *Approvals
+	pairing   PairingStore
+	now       func() time.Time
 	specs     map[string]commandSpec
+
+	mu           sync.Mutex
+	pairAttempts map[string][]time.Time
 }
 
-// NewCommands returns a dispatcher over the command set. It has no I/O and
-// needs no validation: the options are data, and a missing approval registry
-// only narrows what "/approve" and "/deny" can do.
+// NewCommands returns a dispatcher over the command set.
 func NewCommands(opts CommandOptions) *Commands {
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
 	return &Commands{
-		bot:       strings.TrimPrefix(opts.BotUsername, "@"),
-		approvals: opts.Approvals,
-		specs:     commandRegistry(),
+		bot: strings.TrimPrefix(opts.BotUsername, "@"), approvals: opts.Approvals, pairing: opts.Pairing,
+		now: now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
 	}
 }
 
@@ -57,12 +71,12 @@ func NewCommands(opts CommandOptions) *Commands {
 // slice has not implemented.
 type commandSpec struct {
 	owner bool
-	run   func(c *Commands, t *Ticket, cmd Command) CommandResult
+	run   func(c *Commands, ctx context.Context, t *Ticket, cmd Command) CommandResult
 }
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason]"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code>"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -77,11 +91,12 @@ const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reas
 // /restart, /sethome, /topic, /footer, /platform, /platforms, /lock, /resend.
 // /status, /logs, /doctor and /resume are the owner commands SELF-HEALING
 // names for SAFE MODE. Session commands a user may need (/new, /stop, /fork,
-// /usage, /plan, /undo) and /pair stay non-owner; they are unsupported until
-// their own slices implement them.
+// /usage, /plan, /undo) stay non-owner; they are unsupported until their own
+// slices implement them. /pair is non-owner and is also the one command the
+// admission layer answers before an identity is allowlisted.
 func commandRegistry() map[string]commandSpec {
 	return map[string]commandSpec{
-		"start":  {run: func(*Commands, *Ticket, Command) CommandResult { return CommandResult{Handled: true} }},
+		"start":  {run: func(*Commands, context.Context, *Ticket, Command) CommandResult { return CommandResult{Handled: true} }},
 		"whoami": {run: (*Commands).whoami},
 		"approve": {
 			owner: true,
@@ -91,6 +106,7 @@ func commandRegistry() map[string]commandSpec {
 			owner: true,
 			run:   (*Commands).deny,
 		},
+		"pair": {run: (*Commands).pair},
 
 		// Owner-only, not implemented by this slice.
 		"status": {owner: true}, "logs": {owner: true}, "doctor": {owner: true}, "resume": {owner: true},
@@ -100,7 +116,6 @@ func commandRegistry() map[string]commandSpec {
 
 		// Non-owner, not implemented by this slice.
 		"new": {}, "stop": {}, "fork": {}, "usage": {}, "plan": {}, "undo": {},
-		"pair": {},
 	}
 }
 
@@ -109,12 +124,9 @@ func commandRegistry() map[string]commandSpec {
 // not contain '/') is left alone with Handled=false and the caller treats it as
 // text. An unknown but well-formed command is answered here, so it never
 // reaches a turn.
-func (c *Commands) Dispatch(t *Ticket, text string) CommandResult {
-	cmd, ok := Parse(text)
+func (c *Commands) Dispatch(ctx context.Context, t *Ticket, text string) CommandResult {
+	cmd, ok := c.addresses(text)
 	if !ok {
-		return CommandResult{}
-	}
-	if cmd.Mention != "" && c.bot != "" && !strings.EqualFold(cmd.Mention, c.bot) {
 		return CommandResult{}
 	}
 	spec, known := c.specs[cmd.Name]
@@ -127,11 +139,39 @@ func (c *Commands) Dispatch(t *Ticket, text string) CommandResult {
 	if spec.run == nil {
 		return CommandResult{Handled: true, Reply: fmt.Sprintf("command /%s is not supported in this build", cmd.Name)}
 	}
-	return spec.run(c, t, cmd)
+	return spec.run(c, ctx, t, cmd)
+}
+
+// addresses parses text and reports whether it is a command for this bot. A
+// mention of another bot is deliberately left as text.
+func (c *Commands) addresses(text string) (Command, bool) {
+	cmd, ok := Parse(text)
+	if !ok {
+		return Command{}, false
+	}
+	if cmd.Mention != "" && c.bot != "" && !strings.EqualFold(cmd.Mention, c.bot) {
+		return Command{}, false
+	}
+	return cmd, true
+}
+
+// pairCommand is the pre-authorization view of Dispatch: only "/pair" is
+// recognized, because pairing is the one command a not-yet-allowlisted
+// identity may send (SPEC §9.7). Every other message still goes through
+// default-deny authorization.
+func (c *Commands) pairCommand(text string) (Command, bool) {
+	if c.pairing == nil { // no seam: leave the message to default deny
+		return Command{}, false
+	}
+	cmd, ok := c.addresses(text)
+	if !ok || cmd.Name != "pair" {
+		return Command{}, false
+	}
+	return cmd, true
 }
 
 // whoami implements SLASH-041: the caller's slash access (admin / user).
-func (c *Commands) whoami(t *Ticket, _ Command) CommandResult {
+func (c *Commands) whoami(_ context.Context, t *Ticket, _ Command) CommandResult {
 	if t.Identity.Role == RoleOwner {
 		return CommandResult{Handled: true, Reply: "access: admin (owner)"}
 	}
@@ -142,7 +182,7 @@ func (c *Commands) whoami(t *Ticket, _ Command) CommandResult {
 // open approval of this chat; several open approvals are ambiguous and change
 // nothing. Only an open approval of this chat can be resolved, and the decision
 // is applied at most once (the second try reports the existing answer).
-func (c *Commands) approve(t *Ticket, cmd Command) CommandResult {
+func (c *Commands) approve(_ context.Context, t *Ticket, cmd Command) CommandResult {
 	if c.approvals == nil {
 		return unsupported("approve")
 	}
@@ -160,7 +200,7 @@ func (c *Commands) approve(t *Ticket, cmd Command) CommandResult {
 // deny implements SPEC §9.7 "/deny <id> [reason]" and the parity form
 // "/deny all [reason]". The reason is accepted for compatibility but not stored:
 // the approval seam carries no reason field.
-func (c *Commands) deny(t *Ticket, cmd Command) CommandResult {
+func (c *Commands) deny(_ context.Context, t *Ticket, cmd Command) CommandResult {
 	if c.approvals == nil {
 		return unsupported("deny")
 	}
