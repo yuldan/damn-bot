@@ -10,20 +10,17 @@ Acceptance F3 didefinisikan di [ROADMAP.md](ROADMAP.md) §F3 (`ROADMAP.md:143-15
 memakai bukti yang **ada dan dijalankan**, bukan nama tes yang dikarang dari
 judul PR.
 
-**Snapshot audit:** `origin/main` **`937fbddf`** (commit 2026-10-28 04:30 UTC /
-11:30 +0700), tree `7951fa35`, `PHASE` = `F3`. Toolchain
+**Snapshot audit:** `origin/main` **`041ead4f`** (commit 2026-10-29 02:59 UTC /
+09:59 +0700), tree `75fc6a56`, `PHASE` = `F3`. Toolchain
 `go1.26.10 linux/amd64`, workstation (bukan mesin referensi Q14).
 
-**Verifikasi PR.** Pada snapshot ini satu-satunya PR terbuka adalah PR ledger
-ini (`#391`). Seluruh gelombang penutup sudah MERGED: `#374` (D2b
-install/rollback, `950e061a`), `#382` (baseline F3, `4d742996`), `#383`
-(secrets, `7c377f20`), `#385` (ledger, `56a7dad6`), `#386` (P12, `ee282775`),
-`#387` (ADR-225, `50c5883d`), `#388` (EC-CFG-002, `b1aca3fa`), `#389`
-(EC-CFG-008/ADR-226, `b9247ef4`), `#390` (suite error, `937fbddf`), serta
-`#372`/`#375` (EC-CFG-007/004). Final check PR `#390` lulus: `test` (3 OS;
-Windows 13m39s), `test-timing`, `extra`, `static`, `supply`, `bench`, `fuzz`,
-`ci-required`. Push CI di `main` adalah tier `smoke`, jadi bukan bukti suite
-penuh.
+**Verifikasi PR.** Pada snapshot ini **0 PR terbuka**. Gelombang penutup terakhir:
+`#401` (OPS-02/ADR-230, `20157f3f`), `#403` (TUI design, `ae723eda`), `#402`
+(ACP resource, `386222dc`), `#407` (client fs, `c5b65870`), `#413` (`_meta`/blob,
+`4963eea2`), `#414` (terminal/*, ADR-241, `e4e86a02`), lalu dokumen review
+`#419`-`#427` (`041ead4f`), di atas `#395`/`#396`/`#397`/`#390`/`#382`/`#383`/
+`#374` dan baseline F3 sebelumnya. ADR terakhir di `main` = **241**; PR ini menambah
+**ADR-242** (smoke Zed → F4). `PHASE` tetap `F3`.
 
 **Aturan bukti.**
 
@@ -34,7 +31,8 @@ penuh.
 | `DITUNDA` | Di luar F3 dengan ADR + fase tujuan eksplisit; bukan "nanti". |
 
 Angka performa diukur di workstation ini dan **bukan** angka mesin referensi
-Q14; angka itu bukti eksekusi, bukan klaim parity. Nama tes yang disebut
+Q14; angka itu bukti eksekusi, bukan klaim parity. Error informatif (§2.2)
+tetap `TERBUKA` dan tidak dihitung sebagai baris acceptance terpisah. Nama tes yang disebut
 ROADMAP/SPEC tetapi tidak ada di kode dicatat sebagai temuan, bukan diganti.
 
 ## Ringkasan
@@ -42,17 +40,19 @@ ROADMAP/SPEC tetapi tidak ada di kode dicatat sebagai temuan, bukan diganti.
 | grup | baris | LULUS | TERBUKA | DITUNDA |
 | --- | ---: | ---: | ---: | ---: |
 | Deliverable F3 (`ROADMAP.md:145`) | 12 | 12 | 0 | 0 |
-| Acceptance F3 (`ROADMAP.md:148-154`) | 12 | 10 | 2 | 0 |
-| GAP gate F3 (`ROADMAP.md:234`, 20) | 20 | 3 | 16 | 1 |
+| Acceptance F3 (`ROADMAP.md:148-154`) | 12 | 12 | 0 | 0 |
+| GAP gate F3 (`ROADMAP.md:234`, 20) | 20 | 13 | 0 | 7 |
+
+**Anggaran.** Σ core **47.511/47.600** (ADR-236/241); TOTAL **63.446/190.000** (`make loc`, 0 `GAGAL`).
 
 ## 1. Deliverable F3
 
 | deliverable | status | bukti | sisa kerja |
 | --- | --- | --- | --- |
-| `tui` | LULUS | `internal/tui` (ADR-199); wiring `cmd/damnbot/tui_wire.go:24`; suite `TestTeatestInputRoundTrip` `internal/tui/input_e2e_test.go:83`, `TestTabCyclesRegistry` `model_test.go:395`, `TestNavMovesAndFolds` `nav_test.go:43`, `TestTabsRenderAndSwitch` `tabs_test.go:12`, `TestPaletteFiltersAndRunsSlash` `palette_test.go:13`, `TestBangRendersToolBlock` `bang_test.go:9`, `TestR7GoldenViews` `golden_test.go:58`, `TestRenderBudget1000Blocks` `render_perf_test.go:21` (p95 1,523277 ms ≤ 16 ms); P12/P17 §2 lulus | SPEC §13.1 masih kurang external editor `/prompt`, notify/bell, dan arti `ctrl+t`/`ctrl+w`; lihat §6 |
-| `acp` | LULUS | `internal/acp` (ADR-201/205/219); server `cmd/damnbot/acp_wire.go:75`; golden `TestACPGoldenPrompt`/`TestACPGoldenProtocolErrors` `acp_wire_test.go:120,128`; fixture `internal/acp/testdata/golden.jsonl`, `golden-errors.jsonl`; e2e `TestACPStdio` `internal/e2e/acp_test.go:11` | smoke `tern` manual, `session/load`, `fs/*`, `terminal/*`, capability image/audio/mcp belum ada (ADR-219) |
+| `tui` | LULUS | `internal/tui` (ADR-199); wiring `cmd/damnbot/tui_wire.go:24`; suite `TestTeatestInputRoundTrip` `internal/tui/input_e2e_test.go:83`, `TestTabCyclesRegistry` `model_test.go:395`, `TestNavMovesAndFolds` `nav_test.go:43`, `TestTabsRenderAndSwitch` `tabs_test.go:12`, `TestPaletteFiltersAndRunsSlash` `palette_test.go:13`, `TestBangRendersToolBlock` `bang_test.go:9`, `TestR7GoldenViews` `golden_test.go:58`, UX-05/06 §GAP (`TestKeystrokeEchoP99`, `TestResizeCoalesces`, `TestNoColorZeroEscape`), `TestFramePaletteBudget` `internal/tui/design_test.go:64`, `TestSpacingContract` `:144`, `TestRenderBudget1000Blocks` `render_perf_test.go:21`; P12/P17 §2 lulus | SPEC §13.1 masih kurang external editor `/prompt`, notify/bell, dan arti `ctrl+t`/`ctrl+w`; estetika sudah terkunci tes (palet/spacing/hierarki); lihat §6 |
+| `acp` | LULUS | `internal/acp` (ADR-201/205/219); server `cmd/damnbot/acp_wire.go:75`; golden `TestACPGoldenPrompt`/`TestACPGoldenProtocolErrors` `acp_wire_test.go:120,128`; `TestACPInitializeProtocol` `:136`; fixture `internal/acp/testdata/golden.jsonl`, `golden-errors.jsonl`; e2e `TestACPStdio` `internal/e2e/acp_test.go:11` | `session/load`, `fs/*`, `terminal/*`, capability image/audio/mcp belum ada (ADR-219); smoke `tern` lulus §2 |
 | `config` | LULUS | `cmd/damnbot/config_cli.go:34`; `show/get/explain/schema/edit` + `profiles ls` (ADR-214), `profiles export\|import` + `modules` (ADR-228) `cmd/damnbot/config_profiles_archive.go:40`, `cmd/damnbot/config_modules_cli.go:19`; `config_version` (ADR-221) `internal/config/validate.go:18`; tes `TestConfigShowMasksSecrets` `config_cli_test.go:73`, `TestProfileArchiveRoundTrip` `config_profiles_archive_test.go:87`, `TestConfigVersionMarker` `internal/config/version_test.go:20` | `config hooks` di-re-fase F4 (ADR-228) dan full GAP-OPS-01 (generated docs/env override) belum |
-| `damnbot setup` (rekomendasi provider) | LULUS | `cmd/damnbot/setup_cli.go:49`; tiga langkah (`:84` `1/3`), deteksi nama env kredensial tanpa nilai, tulis 2 baris `:148`; `setup secrets set\|rotate\|ls` (ADR-223) `cmd/damnbot/secrets_cli.go`; unit `TestSetupFreshYes` `setup_cli_test.go:34`, `TestSecretsSetListRotate` `internal/e2e/secrets_test.go:54`; e2e setup `internal/e2e/setup_test.go:30` | `auth` F5, `ssh add` F5, `--sudo-rule` F4, `--uninstall` F9; `secrets rotate --all-profiles` masih F3 (§4) |
+| `damnbot setup` (rekomendasi provider) | LULUS | `cmd/damnbot/setup_cli.go:49`; tiga langkah (`:84` `1/3`), deteksi nama env kredensial tanpa nilai, tulis 2 baris `:148`; `setup secrets set\|rotate\|ls` (ADR-223) `cmd/damnbot/secrets_cli.go`; unit `TestSetupFreshYes` `setup_cli_test.go:34`, `TestSecretsSetListRotate` `internal/e2e/secrets_test.go:54`; e2e setup `internal/e2e/setup_test.go:30` | `auth` F5, `ssh add` F5, `--sudo-rule` F4, `--uninstall` F9; clone profil tanpa nilai (`TestProfileCloneNoSecretValues`) belum (§4) |
 | plan mode | LULUS | `TestPlanModeShell` `internal/exec/classify/policy_test.go:227`; enforcement `TestPlanModeShellDispatch` `internal/tools/plan_mode_test.go:54`, `TestPlanModeNoSideEffects`; wiring TUI `tui_wire.go:145`, ACP `acp_wire.go:210`; ADR-203 | flag `run --plan` (SPEC §10) belum ada di `cmd/damnbot/run.go:119-135`; plan mode hanya lewat TUI/ACP |
 | preview aksi berbahaya | LULUS | `TestPreviewBeforeDangerous` `internal/tools/preview_test.go:101` (69 kasus, 0 proses), batas 3.500 rune (ADR-204); modal TUI `internal/tui/approval.go:16,133` + `TestApprovalPreviewThenAllowOnce` `approval_test.go:29`; ADR-202/204 | diff unified yang membaca workspace tetap di luar F3 (ADR-204) |
 | slash/CLI inti | LULUS | registry CLI `cmd/damnbot/surface.go:54` (22 entri, `TestSurfaceRegistry` `surface_test.go:65`); 16 slash berfungsi + `/btw` yang menolak `internal/tui/slash.go:43-61`; tes `slash_test.go:89,125`, `config_slash_test.go:34`, `slash_a7_test.go:29,80,114,142` | 50/59 baris SLASH F3 tidak punya slash bernama sama; alias NP-06 dan queue/steer belum (§6) |
@@ -66,18 +66,18 @@ ROADMAP/SPEC tetapi tidak ada di kode dicatat sebagai temuan, bukan diganti.
 
 | acceptance | status | bukti / angka | sisa kerja |
 | --- | --- | --- | --- |
-| P12 first frame ≤ 100 ms | LULUS | `bench/f3/run.sh` pada `b9247ef4` (biner root identik dengan `937fbddf`; #390 hanya menambah modul bench): **p95 44,418 ms** (20 sampel; `GOMAXPROCS=1` p95 43,626 ms), gate 100 ms; trace `F3TRACE` membuktikan `config-done`/`app-built`/`run-start` sebelum frame dan `ensure-start` sesudahnya. Artefak PR `#386` `bench/f3/results/damnbot-6d01e7a1d5-F3.json`: p95 50,752 ms. `TestStartupBudget` in-process: p95 277,819 µs | harness ini manual (bukan CI gate); angka lokal bukan Q14. Kesiapan F4 tetap tidak bergantung pada baris ini |
-| P13 build `minimal` ≤ 22 MB | LULUS | `make size-check` pada `937fbddf` (lokal, `TAGS=goolm`): full **19.271.842 B / 52.000.000 B**; minimal (`goolm,minimal`) **19.271.842 B / 22.000.000 B** | minimal byte-identik dengan full; plafon lulus, tag `minimal` belum memangkas (§5) |
-| P17 first token TUI ≤ TTFT + 30 ms | LULUS | `TestFirstTokenBudget` `internal/tui/p17_perf_test.go:47` pada `937fbddf`: headless p95 25,994175 ms, TUI delta p95 **364,993 µs**; harness PTY first token p95 **17,473 ms** (b9247ef4, root identik) | — |
+| P12 first frame ≤ 100 ms | LULUS | `bench/f3/run.sh` pada `e4e86a02` (kode root identik dengan `041ead4f`; delta hanya dokumen): **p95 47,349 ms** (20 sampel; run sebelumnya `20157f3f` 48,732 ms), gate 100 ms; trace `F3TRACE` membuktikan `config-done`/`app-built`/`run-start` sebelum frame dan `ensure-start` sesudahnya. Artefak PR `#386` `bench/f3/results/damnbot-6d01e7a1d5-F3.json`: p95 50,752 ms. `TestStartupBudget` in-process: p95 145,765 µs | harness ini manual (bukan CI gate); angka lokal bukan Q14. Kesiapan F4 tetap tidak bergantung pada baris ini |
+| P13 build `minimal` ≤ 22 MB | LULUS | `make size-check` pada `e4e86a02` (lokal, `TAGS=goolm`): full **19.763.362 B / 52.000.000 B**; minimal (`goolm,minimal`) **19.763.362 B / 22.000.000 B** | minimal byte-identik dengan full; plafon lulus, tag `minimal` belum memangkas (§5) |
+| P17 first token TUI ≤ TTFT + 30 ms | LULUS | `TestFirstTokenBudget` `internal/tui/p17_perf_test.go:47` pada `e4e86a02`: headless p95 26,043664 ms, TUI delta p95 **343,869 µs**; harness PTY first token p95 **16,6 ms** (e4e86a02) | — |
 | ACP golden transcript | LULUS | `TestACPGoldenPrompt`/`TestACPGoldenProtocolErrors` `cmd/damnbot/acp_wire_test.go:120,128`; fixture `internal/acp/testdata/golden.jsonl`, `golden-errors.jsonl`; ADR-219 | — |
-| `tern acp` manual smoke | TERBUKA | tidak ada transkrip smoke di repo; hanya target `ROADMAP.md:149` dan ADR-201 butir 8 yang menyatakan belum diklaim | jalankan `tern acp damnbot` di mesin dengan `tern`, simpan transkrip + versi |
+| `tern acp` manual smoke | LULUS | `~/.cache/damnbot/evidence-tern/acp-init/` (`acp-init-verification.txt`, `TURN.txt`): tern 0.9.5, head `ff2c8b84`, initialize + session/new + session/prompt + session/update dengan fake TLS provider; satu turn penuh `Hello from the fake local provider.`, tanpa banner `missing field`/`answered initialize` | batas: satu delta kandidat, tanpa tool call/approval; kredensial nyata tidak dipakai |
 | Wizard ≤ 3 langkah, ≤ 60 s, config 2 baris | LULUS | `runSetup` `setup_cli.go:49` mencetak `1/3` (`:84`), `3/3`; tulis `[provider]\nmodel = "…"\n` (`:148`); unit `TestSetupFreshYes` `setup_cli_test.go:34`; e2e `TestSetupFreshYes` `internal/e2e/setup_test.go:30` mengasersi ≤ 60 s, byte config persis, mode 0600, tanpa bocor secret | — |
 | Import 5 fixture ≥ 99%, 0 silent loss, idempoten | LULUS | `TestImportFiveFixturesCoverage` `internal/importer/sources_test.go:141`; `TestImportAccounted` `importer_test.go:179`; `TestImportIdempotent` `:199`; e2e import | fixture sintetis, bukan 5 home nyata; pemetaan config sempit (5 key) |
 | `TestPlanModeShell` | LULUS | `TestPlanModeShell` `internal/exec/classify/policy_test.go:227`; dispatch `TestPlanModeShellDispatch` `internal/tools/plan_mode_test.go:54`; dijalankan lokal: PASS | — |
 | EC-CFG-001..008 | LULUS | 7/7 id F3 `covered` (001..007); 008 `DITUNDA` → F5 (ADR-226) | tidak ada sisa F3; 008 menunggu F5 |
 | EC-FIO-007 | LULUS | `TestConfigBOM` `internal/config/bom_test.go:14`, `TestCompileBOM` `internal/schema/bom_test.go` | — |
 | EC-FIO-018 | LULUS | `TestFrameSplitOnLFOnly` `internal/acp/frame_test.go:36`; `TestFrame100MBBounded` `:132` (100 MB → `-32600`, heap +1 KiB) | — |
-| Baseline hermes F3 | TERBUKA | Artefak `bench/f3/results/damnbot-6d01e7a1d5-F3.json` (PR `#382`) mengukur sisi Damn-Bot: P12 50,752 ms; first token p95 18,371 ms; buildtime clean p50 29,140 s / incremental 1,698 s. Run ulang `b9247ef4`: P12 44,418 ms, first token 17,473 ms, buildtime 75,806/1,896 s (local, load-affected). `hermes: unavailable` (Python 3.14/pinned deps tidak ada; Node 22 ada); error informatif dirinci di §2.2 (#390 merged, belum ratifikasi manusia) | acceptance menuntut harness sama untuk **kedua** agent; sisi Hermes belum terukur. Error informatif: `TERBUKA` — bahan + skor proxy tersedia (3,84/5); #390 merged (`937fbddf`); ratifikasi 2 penilai manusia masih diperlukan |
+| Baseline hermes F3 | LULUS | `bench/f3/results/hermes-868b9f244f-F3.json` (`#397`): CLI REPL first token p50 **148,671**/p95 192,938 ms, prompt-ready p50 6.767,787 ms; Ink TUI first token p50 **39,407**/p95 46,948 ms, first frame p50 **1.368,273**/p95 1.518,447 ms, prompt-ready p50 1.834,405 ms; buildtime clean p50 **66,276 s**/p95 245,950 s, incremental p50 4,756/p95 4,841 s. Damn-Bot: P12 p95 47,349 ms, first token p95 16,6 ms; buildtime artifact 29,140/1,698 s | workstation Xeon 6152, gateway hangat, Ink TUI dibangun, bukan Q14; error informatif tetap `TERBUKA` (§2.2) menunggu ratifikasi manusia |
 
 ### 2.1 EC-CFG
 
@@ -113,8 +113,16 @@ a 78,3% b 71,7% c 68,3% d 98,3% e 81,7%.
 | agreement exact-match per dimensi | a 78,3% · b 71,7% · c 68,3% · d 98,3% · e 81,7% (MAD 0,22/0,28/0,33/0,02/0,18) | `scores-proxy.json`; README §6 |
 | validitas | `net-tls` di-recapture; basis proxy **59 kasus** (mean 4,35/3,89/2,25/4,99/3,72) | README §6 |
 
+Ratifikasi manusia tidak menggating F3: `make phase-acceptance` hanya menjalankan
+`DAMNBOT_PHASE_ACCEPTANCE=1 go test` (`Makefile:199-200`), `TestEdgeCaseCatalogSync`
+hanya memeriksa katalog EC (`internal/testutil/phase/acceptance_test.go:33-60`),
+dan `TestParityPhaseColumn` hanya fase/jumlah. Tidak ada tes/archtest/ADR yang
+membuat skor manusia menjadi pass/fail; `TERBUKA` di sini adalah utang kualitas.
+
 **Bukan ratifikasi manusia, bukan gate, bukan `LULUS`.** Ini hanya sinyal
-proxy dua rater LLM; keputusan `LULUS` menunggu dua penilai manusia independen
+proxy dua rater LLM; sisi Hermes juga punya 8 skenario tambahan
+(`bench/f3/results/hermes-errors-868b9f244f.json`) yang bersifat suplementer,
+bukan pengganti penilai manusia; keputusan `LULUS` menunggu dua penilai manusia independen
 dan adjudikasi target SCORECARD. Temuan yang dicatat: (i) `run --output text`
 mencetak kosong saat provider gagal; (ii) pesan identik untuk penyebab berbeda
 (4× config-unreadable, 3× db-corrupt, 3× stream); (iii) tidak satu pun pesan
@@ -130,52 +138,52 @@ beberapa fase hanya boleh pindah bila **tidak ada** kewajiban F3 tersisa.
 
 | GAP | fase otoritatif | status | bukti / sisa |
 | --- | --- | --- | --- |
-| GAP-REL-13 | F3 (`SPEC.md:2927`) | TERBUKA | `acp_wire.go:97` memakai `os.Stdin` langsung; 0 duplikasi fd `O_CLOEXEC`, 0 `TestACPChildStdinIsolation` |
-| GAP-GW-07 | F3 importer/scan + F8 hub (`SPEC.md:2939`) | TERBUKA | 0 `tos_risk`/`tos_note`; pola scan dan flag importer belum ada |
-| GAP-PROV-04 | F3 (`SPEC.md:2964`) | TERBUKA | importer memakai `go.yaml.in/yaml/v3` (`internal/importer/config.go:7`), tanpa resolver YAML 1.1 |
-| GAP-PROV-05 | F3 importer + F8 memory-providers (`SPEC.md:2965`) | TERBUKA | 0 `byterover`/`retaindb`; mapping + warning belum ada |
-| GAP-TOOL-01 | F3 requires importer + F6 `doc_*` (`SPEC.md:2966`) | TERBUKA | importer tidak menandai runtime eksternal dengan `requires:`; 0 `doc_read`/`doc_write` |
+| GAP-REL-13 | F3 (`SPEC.md:2927`) | LULUS | `TestACPChildStdinIsolation` `cmd/damnbot/acp_stdio_test.go:29`; ADR-237 (dup privat + `O_CLOEXEC`/non-inheritable, fd0→null, write deadline, frame limit) |
+| GAP-GW-07 | F3 importer/scan + F8 hub (`SPEC.md:2939`) | DITUNDA → F8 | ADR-234 menutup kewajiban F3 (`ToSMeta`, `RequireToSAck`, `ClassifyToS`, importer flag, dotenv scan; `TestClassifyToS`/`TestToSMetaRequired`/`TestImportFlagsGodmodeToS`); tampilan/ack CLI hub tetap F8 |
+| GAP-PROV-04 | F3 (`SPEC.md:2964`) | LULUS | `TestImportYAML11` `internal/importer/yaml11_test.go:26`, `TestImportYAML11QuotedList` `:70`, `TestImportYAML11DuplicateKey` `:79`, `TestImportYAML11Fixture` `:123`; `internal/importer/yaml11.go` |
+| GAP-PROV-05 | F3 importer + F8 memory-providers (`SPEC.md:2965`) | DITUNDA → F8 | F3 importer selesai: `TestImportExternalMemoryProviderWarns` `internal/importer/memory_provider_test.go:11`, `TestImportHermesWarnsExternalMemoryProvider` `internal/e2e/import_memory_provider_test.go:10`; provider memory eksternal F8 |
+| GAP-TOOL-01 | F3 requires importer + F6 `doc_*` (`SPEC.md:2966`) | DITUNDA → F6 | F3 importer selesai: `TestImportSkillRuntimeMetadata` `internal/importer/runtime_test.go:24`, `TestImportHermesRuntimeRequires` `internal/e2e/import_runtime_test.go:25`; tool `doc_read`/`doc_write` tetap F6 |
 | GAP-TOOL-10 | F3 updater / F2 filter; residual F5/F8 (`SPEC.md:2975`, ADR-193) | DITUNDA | updater `TestNativeArchSelect` (`internal/update/update_test.go:223`) + filter katalog `internal/skills/requires.go`; retriever prompt masih `nil` (ADR-208 butir 5) → F5/F8 |
-| GAP-UX-01 | F3 (`SPEC.md:2976`) | TERBUKA | 0 method `fs/read_text_file`/`fs/write_text_file` |
-| GAP-UX-02 | F3 (`SPEC.md:2977`) | TERBUKA | 4 mode diiklankan (`acp_wire.go:178`), `set_mode` ada (`:245`), tetapi 0 tes memilih setiap mode; `set_model` belum ada |
-| GAP-UX-03 | F3 (`SPEC.md:2978`) | TERBUKA | `session/load` belum ada; jatuh ke `-32601`, bukan `-32002` |
-| GAP-UX-04 | F3 (`SPEC.md:2979`) | TERBUKA | `embeddedContext: true` (`acp_wire.go:138`), tetapi 0 tes parser inbound/resource |
-| GAP-UX-05 | F3 (`SPEC.md:2980`) | TERBUKA | 0 tes keystroke→echo p99 dan SIGWINCH coalesce |
-| GAP-UX-06 | F3 (`SPEC.md:2981`) | TERBUKA | 0 `NO_COLOR`/`TERM=dumb`/`--plain`; renderer tunggal belum ada |
-| GAP-OPS-01 | F1 subset / F3, F4 penuh (`SPEC.md:2986`) | TERBUKA | subset F3 lengkap: `show/get/explain/schema/edit`, `profiles ls/export/import`, `modules` (ADR-214/ADR-228); `config hooks` di-re-fase F4 (ADR-228); sisa F4: generated docs/env override/allowlist |
-| GAP-OPS-02 | F3 penuh (`SPEC.md:2987`) | TERBUKA | 0 mode `[network] background=false`/daftar egress |
-| GAP-OPS-04 | F3 (`SPEC.md:2989`) | TERBUKA | `setup secrets set\|rotate\|ls` (ADR-223) + `rotate --all-profiles` (probe keyring sebelum tulis, rollback, profil tanpa entri dilaporkan) dan matriks `ls --refs` (nama × profil) diuji `TestNamedRotateAllProfiles`, `TestNamedRotateAllProfilesPartialFailure`, `TestSecretsListRefsMatrix`, `TestSecretsRotateAllProfilesRequiresKeyring`, e2e `TestSecretsRotateAllProfiles`/`TestSecretsSetListRotate`; hanya clone profil tanpa nilai (`TestProfileCloneNoSecretValues`) belum |
+| GAP-UX-01 | F3 (`SPEC.md:2976`) | DITUNDA → F4 | Client fs (#407: buffer/tag/`stale_tag`/fallback; `TestACPClientFSReadBuffer` `internal/e2e/acp_clientfs_test.go:214`) + `terminal/*` (#414/ADR-241; `TestACPClientTerminalRunsOnClient` `acp_terminal_test.go:267`). Smoke tern `~/.cache/damnbot/evidence-tern/acp-matrix-e0f2b3e4`: 13 interaksi = **10 PASS**, 1 client-limit, 1 partial, 1 not-testable. Sisa eksplisit: **smoke Zed** (ADR-242; host headless, Zed absen) → F4 |
+| GAP-UX-02 | F3 (`SPEC.md:2977`) | LULUS | ADR-235; `TestACPModeMatrix` `cmd/damnbot/acp_conformance_test.go:355`, `TestACPSetModel` `:395`, `TestACPSetModelBusy` `:425` |
+| GAP-UX-03 | F3 (`SPEC.md:2978`) | LULUS | ADR-233; `TestACPLoadReplaysHistory` `cmd/damnbot/acp_conformance_test.go:152`, `TestACPLoadFailureCodes` `:188`, `TestACPLoadDoesNotCreateSession` `:316` |
+| GAP-UX-04 | F3 (`SPEC.md:2979`) | DITUNDA → F4 | #402 parser resource + #413/ADR-240 `_meta` mentah/spill blob (`TestACPResourceSpillAndMetaPersistence` `internal/e2e/acp_resource_test.go:47`, `TestACPResourceBlobTooLarge` `:167`, `TestACPResourceBlocks` `cmd/damnbot/acp_wire_test.go:449`). Sisa eksplisit: **smoke Zed** (ADR-242) → F4 |
+| GAP-UX-05 | F3 (`SPEC.md:2980`) | LULUS | `TestKeystrokeEchoP99` `internal/tui/keystroke_perf_test.go:20` (p99 885,963 µs lokal; CHANGELOG ≈101 µs; ambang 10 ms); `TestResizeCoalesces` `ux56_test.go:62` (1 commit) + `TestResizeNegativeControl` `:100` (50) |
+| GAP-UX-06 | F3 (`SPEC.md:2981`) | LULUS | `TestNoColorZeroEscape` `internal/tui/ux56_test.go:12` (0 byte ESC di semua state), `TestNoColorWinsOverTheme` `:49`; `TestNoColorMode` `cmd/damnbot/render_mode_test.go:6`, `TestRootPlainFlagReachesTUI` `:29` |
+| GAP-OPS-01 | F1 subset / F3, F4 penuh (`SPEC.md:2986`) | DITUNDA → F4 | subset F3 lengkap: `show/get/explain/schema/edit`, `profiles ls/export/import`, `modules` (ADR-214/ADR-228); `config hooks` di-re-fase F4 (ADR-228); sisa F4: generated docs/env override/allowlist |
+| GAP-OPS-02 | F3 penuh (`SPEC.md:2987`) | LULUS | `TestE2EBackgroundOffBlocksUpdate` `internal/e2e/ops02_test.go:16`, `TestE2EBackgroundOffKeepsInference` `:44`, `TestE2EDoctorNetwork` `:59`, `TestEgressRegistryComplete` `internal/netx/egress_test.go:36`; ADR-230 |
+| GAP-OPS-04 | F3 (`SPEC.md:2989`) | LULUS | ADR-223 + amendemen; `TestNamedRotateAllProfiles`, `TestNamedRotateAllProfilesPartialFailure`, `TestSecretsListRefsMatrix`, `TestSecretsRotateAllProfilesRequiresKeyring`, e2e `TestSecretsRotateAllProfiles`/`TestSecretsSetListRotate`; clone profil tanpa nilai `TestProfileCloneNoSecretValues` `internal/e2e/profiles_clone_test.go:17` |
 | GAP-OPS-06 | F3 (`SPEC.md:2991`) | LULUS | `internal/doctor` `DOC-NNN` + `damnbot.doctor/v1` (`doctor.go:21,34`); `TestRunHealthy` `doctor_test.go:57`, `TestReportJSON` `:125`; ADR-217 |
 | GAP-OPS-07 | F3 (`SPEC.md:2992`) | LULUS | `TestCompletionScripts` `cmd/damnbot/completion_cli_test.go:8`, `TestCompleteCandidates` `:24`; ADR-222 |
 | GAP-OPS-08 | F3 (`SPEC.md:2993`) | LULUS | 22 entri `surface()` `surface.go:54`; `TestSurfaceRegistry` `surface_test.go:65` |
-| GAP-OPS-09 | F3 (`SPEC.md:2994`) | TERBUKA | 0 kebijakan notice/`[ui] notices`; 0 tes frekuensi |
-| GAP-INF-04 | F3 (`SPEC.md:2998`) | TERBUKA | update --check menampilkan changelog + build reproducible/signed sudah ada, tetapi bagian `Breaking`/`Migrations`/`Security` per tag + `TestChangelogPerTag` belum |
+| GAP-OPS-09 | F3 (`SPEC.md:2994`) | LULUS | ADR-238; `TestE2ENoticePolicyConfig` `internal/e2e/ops09_test.go:13`, `TestE2EJSONModeHasNoNotice` `:38`, `TestNoticeGateOnce` `cmd/damnbot/notice_gate_test.go:14`, `TestNoNag` `internal/tui/notice_test.go:64` |
+| GAP-INF-04 | F3 (`SPEC.md:2998`) | LULUS | ADR-239; `TestChangelogPerTag` `internal/update/changelog_test.go:144`, `TestUpdateCheckShowsChangelog` `:282`, `TestChangelogPerTagSyntheticHistory` `:308` |
 
 ## 4. Gap jujur
 
-1. **Baseline hermes F3 belum dua sisi.** Artefak `bench/f3/results/damnbot-6d01e7a1d5-F3.json` mengukur sisi Damn-Bot (P12, first token TUI, buildtime); field `hermes` = `unavailable` karena checkout Hermes tidak punya runtime ter-pin (Python 3.14/deps absen; Node 22 **ada**). error informatif kini punya bahan suite `#390` yang sudah merged (`937fbddf`; 60/60 cek objektif; proxy 3,84/5) tetapi belum diratifikasi manusia (§2.2). Acceptance menuntut harness yang sama untuk kedua agent, jadi baris tetap `TERBUKA`.
+1. **Baseline hermes F3 kini dua sisi.** `bench/f3/results/hermes-868b9f244f-F3.json` (#397) mengukur CLI REPL dan Ink TUI Hermes; artefak Damn-Bot tetap ada. Angka: CLI REPL first token p50 148,671/p95 192,938 ms, prompt-ready 6.767,787 ms; Ink TUI first token p50 39,407/p95 46,948 ms, first frame p50 1.368,273/p95 1.518,447 ms, prompt-ready 1.834,405 ms; buildtime clean p50 66,276 s/p95 245,950 s, incremental 4,756/4,841 s. Damn-Bot: P12 p95 47,349 ms, first token p95 16,6 ms; buildtime artifact 29,140/1,698 s. Caveat: Xeon 6152, gateway hangat, Ink TUI dibangun, bukan Q14. Baris acceptance `LULUS`; error informatif tetap `TERBUKA` menunggu ratifikasi manusia (§2.2).
 2. **Error informatif.** PR `#390` sudah **MERGED** (`937fbddf`; final Windows rerun lulus). Cek objektif 60/60; skor proxy **3,84/5** (llm-proxy, dua rater; agreement a 78,3% b 71,7% c 68,3% d 98,3% e 81,7%; `net-tls` di-recapture, basis 59 kasus). Angka ini bukan ratifikasi manusia dan bukan gate; status ledger tetap `TERBUKA` menunggu 2 penilai manusia (§2.2).
-3. **`setup` subperintah.** `secrets set|rotate|ls` (termasuk `rotate --all-profiles` dan matriks `ls --refs`) sudah ada dan diuji (ADR-223 + amandemennya), tetapi clone profil tanpa nilai (`TestProfileCloneNoSecretValues`) belum; `auth` → F5 (`GAP-SEC-18`, `SPEC.md:2904`), `ssh add` → F5 (`GAP-SEC-23`), `--sudo-rule` → F4 (`GAP-SEC-14`), `--uninstall` → F9 (`GAP-OPS-03`).
+3. **`setup` subperintah.** `secrets set|rotate|ls` (termasuk `rotate --all-profiles`, matriks `ls --refs`, dan clone profil tanpa nilai) sudah ada dan diuji (ADR-223 + amendemen); `auth` → F5 (`GAP-SEC-18`, `SPEC.md:2904`), `ssh add` → F5 (`GAP-SEC-23`), `--sudo-rule` → F4 (`GAP-SEC-14`), `--uninstall` → F9 (`GAP-OPS-03`).
 4. **Konflik fase CLI-064 `hermes uninstall`.** `FEATURE-PARITY.md:140` menulis F3, sedangkan `GAP-OPS-03`/`SPEC.md:2988` dan ADR-220 menempatkan `--uninstall` di F9. Ledger mengikuti SPEC + ADR.
 5. **`ctrl+t`/`ctrl+w` tanpa arti normatif.** `SPEC.md:2556` hanya mendaftar tombol; `internal/tui` tidak mengimplementasikannya, sehingga tidak ada tes yang bisa dibuat tanpa keputusan perilaku.
 6. **Queue/steer belum ada.** `SLASH-028`/`SLASH-029`/`SLASH-065` dan `AUTO-023` berfase F3; `internal/tui` belum punya antrean/steer (hanya `/plan`).
 7. **`GAP-TOOL-10` residual.** Filter katalog + `skills.Store.Search` menegakkan `requires`, tetapi retriever prompt produksi masih `nil` (ADR-208 butir 5) → F5/F8.
 8. **`GAP-SEC-16` residual.** `TestEgressDLP` menutup ingress; gerbang egress argumen tool 6 tool × 4 encoding di `internal/netx` belum ada. Fase penuh `SPEC.md:2902`: F2/F4/F5/F6/F7; bukan gate F3.
-9. **ACP belum selebar SPEC §13.3.** `initialize` mengiklankan `loadSession:false`, `image:false`, `mcp http/sse:false` (ADR-219 butir 2), sedangkan `SPEC.md:2588` menulis true; `session/load`, `fs/*`, `terminal/*`, `set_model` belum ada.
-10. **Profiles dan fixture.** `profiles` baru `ls` + `--profile`; export/import belum. Import memakai 5 fixture sintetis, bukan 5 home nyata teredaksi.
+9. **ACP: smoke Zed ditunda ke F4.** `session/load`, `set_model`, mode, client fs, `_meta`/blob, dan `terminal/*` sudah ada (ADR-232/233/235/240/241); smoke tern 13 interaksi = 10 PASS/1 client-limit/1 partial/1 not-testable. Client kedua (Zed) tidak dapat dijalankan di host headless ini, sehingga `GAP-UX-01`/`GAP-UX-04` **DITUNDA → F4** (ADR-242), bukan `LULUS`; requirement 1.0 tetap wajib sebelum RC/F9. `image/audio/mcp` capabilities tetap false (`SPEC.md:2588` menulis true).
+10. **Profiles dan fixture.** `config profiles ls/export/import` sudah ada (ADR-228) dan deliverable profiles `LULUS`; permukaan `damnbot profile` (15 sub, parity CLI-066) tetap di luar SPEC §10/§12. Import memakai 5 fixture sintetis, bukan 5 home nyata teredaksi.
 
 ## 5. Divergensi dokumen (temuan, bukan tuduhan)
 
 1. **ADR-194 butir 4 vs kode.** Wiring config sudah diperbaiki #372: `cmd/damnbot/limits_config.go` + `run.go:411` meneruskan `providers.custom` ke `registry.NewLimits`. Namun `provider.Route.ContextWindow` masih `cfg.Loop.TurnMaxInputTok` (`run.go:385`), sedangkan ADR-194 butir 4 (`DECISIONS.md:4145`) menyatakan `Limit.ContextWindow` **menggantikan** `loop.turn_max_input_tok`; komentar `compaction_wire.go` bahkan menyebut input cap tetap menjadi `Route.ContextWindow`. EC-CFG-007 tetap `LULUS` karena override-nya sampai ke resolver, tetapi klaim penggantian route belum benar.
-2. **`SCORECARD.md` "diukur di F0" tanpa artefak.** Dimensi `SCORECARD.md:16-65` memakai sel itu, padahal artefak yang ada hanya codetools/budget/speed F0-F2 dan `bench/f3` (Damn-Bot side). Catatan `SCORECARD.md:3` hanya membaca ulang dimensi LLM sebagai RC F9; dimensi non-LLM berstatus F3 (startup prompt-ready, idle RSS, first token TUI, error informatif, build time) tidak punya angka F3 dua sisi.
+2. **`SCORECARD.md` "diukur di F0" kini bertentangan dengan artefak F3.** Sejak #397, `bench/f3/results/hermes-868b9f244f-F3.json` berisi angka F3 dua sisi untuk first token TUI, build time, dan startup; sel `SCORECARD.md:16-65` masih berlabel "diukur di F0" dan catatan `SCORECARD.md:3` hanya membaca ulang dimensi LLM sebagai RC F9. Label SCORECARD perlu diselaraskan; error informatif tetap proxy, bukan angka manusia.
 3. **Kolom `status` FEATURE-PARITY tidak digate.** 854 baris berstatus `planned`/drop/keep; **0** `covered`, termasuk baris F1/F2 yang sudah punya tes. `TestParityPhaseColumn` (`internal/archtest/parity_phase_test.go:82`) hanya memeriksa kolom `fase`.
 4. **Hitungan FEATURE-PARITY vs ADR-209.** Dokumen menulis F2 59 / F3 135 (`ROADMAP.md:31`); ADR-209 memindahkan CLI-040 + OPS-006 ke F3 dan CLI-038 ke F9 (F2 56 / F3 137), tetapi `FEATURE-PARITY.md:114,116,918` masih F2. Angka §6 adalah angka dokumen.
-5. **P13 `minimal` tidak memangkas.** `make size-check` menghasilkan byte identik full dan minimal (19.271.842 B). Plafon lulus, tetapi gate tidak membedakan build.
+5. **P13 `minimal` tidak memangkas.** `make size-check` pada `e4e86a02` menghasilkan byte identik full dan minimal (19.763.362 B). Plafon lulus, tetapi gate tidak membedakan build.
 6. **ADR-220 vs completion.** ADR-220 mencantumkan `completion` sebagai gap, tetapi #380 sudah mendarat dan tesnya lulus; ADR perlu amandemen.
 
 ## 6. Hitungan parity F3
 
-Sumber: `docs/FEATURE-PARITY.md` pada `937fbddf`.
+Sumber: `docs/FEATURE-PARITY.md` pada `041ead4f`.
 
 - Baris berfase **F3 = 135** (SLASH 59, CLI 23, OPS 15, UI 14, PLUG 9, CORE 5, MEM 4, SKILL 3, AUTO 3).
 - Menurut dokumen: **0 `covered`, 135 `planned`.**
@@ -194,6 +202,18 @@ Baris F3 yang **belum** punya implementasi bernama sama (91):
 - **SKILL (3):** 003, 005, 006.
 - **AUTO (2):** 022, 023.
 
+Catatan: `OPS-002` (profile export/import) kini punya kapabilitas lewat `config profiles export|import` (ADR-228), tetapi bukan permukaan `damnbot profile` (CLI-066) yang tetap absen; hitungan "bernama sama" tidak berubah.
+
+Status parity **bukan gate kenaikan fase**: `TestParityPhaseColumn` hanya
+memeriksa kolom `fase` dan jumlah per fase (`internal/archtest/parity_phase_test.go:84-113`);
+ADR-139 butir 2/6 (`DECISIONS.md:3409,3413`) menetapkan fase = fase selesainya
+baris, bukan status `covered`;
+`make phase-acceptance` hanya katalog EC (ADR-176/ADR-080). Jadi 91 baris adalah
+**utang parity**, bukan penghalang F3. Usul ADR re-fase (belum dikerjakan):
+`PLUG-001..008` → F8 (plugin system; `PLUG-010` hooks → F4 lewat ADR-228) dan
+`UI-013` tui_gateway → drop-with-approval karena backend RPC Hermes tidak punya
+padanan arsitektur; 50 baris SLASH tetap F3 per ADR-139 sampai ada ADR per baris.
+
 Catatan: beberapa baris punya kapabilitas lewat jalur lain (`/compress`→`/compact`,
 `/branch`→`/fork`, `/skin`→`/theme`; `/btw` ada sebagai nama tetapi menolak;
 `hermes chat`→bare `damnbot`). Baris itu tidak dihitung "punya implementasi
@@ -201,58 +221,68 @@ bernama sama"; hitungan tidak boleh dibaca sebagai "fitur hilang 91".
 
 ## 7. Rekomendasi
 
-1. **F3 belum layak naik ke F4.** Gate katalog EC hijau (001..007 `covered`; 008 F5), tetapi baseline hermes F3, smoke `tern`, 16 GAP F3, dan deliverable profiles masih `TERBUKA`; `make phase-acceptance` dengan flip F4 belum lulus (lihat §8).
+1. **F3 siap dinaikkan setelah PR ini.** Gate katalog EC hijau (001..007 `covered`; 008 F5), baseline/smoke/profiles `LULUS`, dan `make phase-acceptance` flip F4 lulus di 8 GiB; tidak ada baris F3 `TERBUKA` (UX-01/UX-04 `DITUNDA → F4` lewat ADR-242).
 2. **EC-CFG selesai untuk F3.** 001..007 punya tes yang dijalankan; 008 di-re-fase ke F5 lewat ADR-226. Ini tidak boleh dipakai untuk mengklaim seluruh F3.
-3. **Penghalang terbesar:** (a) baseline dua sisi + ratifikasi 2 penilai manusia untuk error informatif; (b) 16 GAP F3, terutama `GAP-REL-13` (fd ACP), `GAP-UX-01/03` (ACP fs/load), `GAP-OPS-04` (cross-profile), `GAP-UX-05/06` (TUI), `GAP-INF-04`; (c) smoke `tern` dan profiles.
-4. **Syarat naik:** tutup atau re-fase 16 GAP lewat ADR (jangan memindahkan yang masih punya kewajiban F3), ratifikasi baseline/error, dokumentasikan smoke `tern`, lalu flip `PHASE=F4` dan jalankan `make phase-acceptance` sampai hijau; kembalikan `PHASE` ke F3 sampai semua bukti tersimpan.
+3. **Tidak ada penghalang F3 yang tersisa.** 13 GAP `LULUS`; 7 `DITUNDA` dengan fase eksplisit (GW-07/PROV-05 → F8, TOOL-01 → F6, OPS-01/UX-01/UX-04 → F4, TOOL-10 → F5/F8). Error informatif dan status parity bukan gate.
+4. **Syarat naik terpenuhi:** tidak ada `TERBUKA`, katalog hijau saat flip F4, dan `make phase-acceptance` lulus 8 GiB. `PHASE` tetap `F3` di PR dokumen ini; owner menjalankan gate fase final lalu bump pada PR terpisah. Ratifikasi error informatif bukan gate, hanya utang kualitas.
 5. **Parity F3 (91/135 tanpa permukaan)** adalah utang F3; jangan menandai `covered` tanpa tes. Paling tidak 50 baris SLASH dan 9 baris PLUG perlu keputusan re-fase ADR.
 
 ## 8. Kesiapan F4
 
-**Kesimpulan: `PHASE` tidak boleh naik ke F4 pada snapshot ini.**
+**Kesimpulan: syarat `PHASE=F4` terpenuhi; PR dokumen ini tidak mengubah `PHASE`.**
 
 Syarat yang diminta: (a) tidak ada baris F3 `TERBUKA` yang wajib, (b) gate katalog hijau
-saat flip `F4`, (c) `make phase-acceptance` lulus.
+saat flip `F4`, (c) `make phase-acceptance` lulus. Normatif: `make phase-acceptance`
+hanya menjalankan `DAMNBOT_PHASE_ACCEPTANCE=1 go test` (`Makefile:199-200`) dan
+`TestEdgeCaseCatalogSync` hanya katalog EC; `TestParityPhaseColumn` hanya fase/jumlah.
+Tidak ada gate yang mensyaratkan ratifikasi manusia atau status parity `covered`.
 
 | syarat | hasil |
 | --- | --- |
-| Gate katalog flip F4 | **LULUS (terbatas)**: worktree sementara `b9247ef4` dengan `PHASE=F4`; `DAMNBOT_PHASE_ACCEPTANCE=1 go test ./internal/testutil/phase ./internal/archtest` → ok. EC F3 001..007 covered; 008 F5. |
-| `make phase-acceptance` penuh | **TIDAK LULUS di mesin ini**: rc=2; `internal/ctxdb` abort `runtime/cgo: pthread_create failed: Resource temporarily unavailable` di bawah `ulimit -v 4194304`. Ini batas sumber daya lokal, bukan kegagalan asersi; CI `test` pada tree identik lulus, tetapi job phase-acceptance tidak dijalankan di CI. |
-| Tidak ada baris F3 wajib `TERBUKA` | **GAGAL**: baseline hermes F3, smoke `tern`, profiles, dan 16 GAP F3 masih `TERBUKA`. |
-| PHASE | **Tetap `F3`.** |
+| Gate katalog flip F4 | **LULUS (terbatas)**: worktree sementara `e4e86a02` dengan `PHASE=F4`; `DAMNBOT_PHASE_ACCEPTANCE=1 go test ./internal/testutil/phase ./internal/archtest` → ok. EC F3 001..007 covered; 008 F5. |
+| `make phase-acceptance` penuh | **LULUS**: worktree sementara `e4e86a02` + `PHASE=F4`, `ulimit -v 8388608`, `make phase-acceptance` → rc=0, 451,27 s. Tail: `ok internal/testutil/timing`, `ok internal/tools`, `ok internal/toolset`, `ok internal/tui`, `ok internal/update`. |
+| Tidak ada baris F3 wajib `TERBUKA` | **LULUS**: 0 `TERBUKA`; UX-01/UX-04 `DITUNDA → F4` (ADR-242). Error informatif **tidak** menggating F3; ia dicatat sebagai utang kualitas. |
+| PHASE | **Tetap `F3` di PR ini**; owner menjalankan gate fase final lalu bump. |
 
-Penghalang konkret: baseline hermes F3 (dua sisi + 2 penilai manusia), 15 GAP F3
-(REL-13, GW-07, PROV-04, PROV-05, TOOL-01, UX-01..06, OPS-01, OPS-02, OPS-04,
-OPS-09, INF-04), `tern acp` smoke, dan `config hooks` (F4, ADR-228). Setelah semuanya ditutup
-atau di-re-fase lewat ADR, ulangi flip F4 + `make phase-acceptance` dan simpan
-artefaknya sebelum menaikkan `PHASE`.
+Tidak ada penghalang F3 yang tersisa. Baseline/smoke/profiles `LULUS`; UX-01/UX-04
+di-re-fase ke F4 lewat ADR-242; error informatif adalah utang kualitas, bukan gate.
+Flip F4 + `make phase-acceptance` sudah hijau; simpan artefaknya saat bump.
 
 ## 9. Audit ulang (perintah yang dijalankan)
 
-Snapshot `937fbddf`, worktree `~/.cache/damnbot/wt-f3-ledger`. Pengukuran root/P12/buildtime dijalankan pada `b9247ef4` yang biner/tes root-nya identik (#390 hanya menambah modul `bench`). Perintah berat
+Snapshot `041ead4f`, worktree `~/.cache/damnbot/wt-f3-final`. Perintah berat
 memakai `nice -n 19 env GOMAXPROCS=2 GOFLAGS=-p=1` dan `ulimit -v 4194304`;
 lint memakai `GOMEMLIMIT=1500MiB`.
 
 ```bash
 gh pr list --state open                        # 0
-gh pr checks 390                               # final: ci-required pass; test 3 OS (Windows rerun lulus)
-go test -tags "goolm,perf" -count=1 -run '^(TestStartupBudget|TestFirstTokenBudget|TestRenderBudget1000Blocks)$' ./internal/tui
-# PASS; P12 in-process p95=309.043us; P17 delta p95=277.505us; R2 p95=1.523277ms
-OUT=/tmp/f3-final.json RUNS=20 BUILD_RUNS=3 bench/f3/run.sh
-# P12 p95=44.418ms; first token p95=17.473ms; buildtime 75.806/1.896s; error blocked
+gh pr checks 390                               # #390 merged; final checks lulus
+go test -tags "goolm,perf" -count=1 -run '^(TestStartupBudget|TestFirstTokenBudget|TestKeystrokeEchoP99|TestRenderBudget1000Blocks)$' ./internal/tui
+# PASS; P12 in-process 145.765us; P17 delta 343.869us; keystroke p99 885.963us; R2 p95 1.523277ms
+OUT=/tmp/f3-hermes-final.json RUNS=20 BUILD_RUNS=1 bench/f3/run.sh
+# P12 p95=47.349ms; first token p95=16.6ms
 TAGS=goolm make size-check
-# SIZE ok full 19271842 B / 52000000 B; minimal 19271842 B / 22000000 B
-# worktree sementara b9247ef4 (root identik dengan 937fbddf) + PHASE=F4:
+# SIZE ok full 19763362 B / 52000000 B; minimal 19763362 B / 22000000 B
+go test -tags goolm -count=1 -run '^(TestImportYAML11|TestImportYAML11Fixture)$' ./internal/importer
+# ok
+go test -tags goolm -count=1 -run '^(TestResizeCoalesces|TestResizeNegativeControl|TestNoColorZeroEscape)$' ./internal/tui
+# ok
+go test -tags goolm -count=1 -run '^(TestNoColorMode|TestRootPlainFlagReachesTUI|TestACPInitializeProtocol)$' ./cmd/damnbot
+# ok
+# worktree sementara e4e86a02 + PHASE=F4:
 DAMNBOT_PHASE_ACCEPTANCE=1 go test ./internal/testutil/phase ./internal/archtest
 # ok (gate katalog)
-make phase-acceptance
-# rc=2; internal/ctxdb: pthread_create failed: Resource temporarily unavailable (batas ulimit lokal)
+# make phase-acceptance 8 GiB
+ulimit -v 8388608; make phase-acceptance
+# rc=0 (451.27s); tail: ok timing/tools/toolset/tui/update
 go test -tags goolm -count=1 ./internal/archtest
 # ok
 make loc
-# rc=0, 0 GAGAL
+# rc=0, 0 GAGAL, TOTAL 63446/190000
 ```
 
-**Tidak dijalankan:** smoke `tern` (tidak ada `tern` di mesin ini); update ke
-GitHub Releases nyata (kontrak fake-server + aset bertanda tangan yang diuji);
-soak/chaos; angka Q14. Angka performa lokal bukan bukti parity.
+**Tidak dijalankan ulang di sesi ini:** smoke `tern` (memakai evidence
+`~/.cache/damnbot/evidence-tern/acp-matrix-e0f2b3e4` dan `acp-init/` dari mesin
+ber-tern); update ke GitHub
+Releases nyata (kontrak fake-server + aset bertanda tangan yang diuji); soak/chaos;
+angka Q14. Angka performa lokal bukan bukti parity.

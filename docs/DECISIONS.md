@@ -4738,7 +4738,7 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 
 **Konsekuensi.** (+) Gate F3/F4 tidak lagi menuntut tes untuk komponen yang belum ada; fase mengikuti ADR-077. (+) Tidak ada klaim `covered` palsu dan tidak ada anggaran berubah. (−) EC-CFG-008 tetap terbuka sampai F5; provider switch/credential pool belum punya perilaku yang bisa diuji di main.
 
-## ADR-227 — Audit 16 GAP F3: tidak ada baris yang memenuhi syarat pindah fase
+## ADR-227 — Audit 16 GAP F3: fase otoritatif dan amendemen status
 
 **Status:** Accepted 2026-10-28 (F3, audit ledger). Dokumen saja; tidak ada kode, `PHASE`, `loc.budget`, SPEC, ENGINEERING, atau FEATURE-PARITY yang berubah.
 
@@ -4751,6 +4751,10 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 4. **Konsekuensi gate.** F4 tetap tidak boleh dinaikkan sampai 16 baris F3 di atas ditutup atau di-re-fase lewat ADR, baseline hermes F3/error informatif diratifikasi, dan smoke `tern` terdokumentasi. EC-CFG-001..007 yang sudah `covered` dan EC-CFG-008 yang di-re-fase ke F5 (ADR-226) hanya menutup gate katalog EC, bukan seluruh acceptance F3.
 
 **Konsekuensi.** (+) Ledger tidak memindahkan baris F3 yang masih punya pekerjaan hanya agar terlihat hijau. (+) Fase otoritatif tiap baris tercatat di ledger. (−) F4 tetap tertahan oleh 16 GAP F3, baseline dua sisi, smoke `tern`, dan profiles export/import.
+
+**Amandemen 2026-10-29 (refresh #397/#395/#396/#401/#403).** Baseline Hermes F3 menjadi `LULUS` dengan artefak `bench/f3/results/hermes-868b9f244f-F3.json` (#397; dua sisi, caveat workstation/Q14 bukan referensi); smoke `tern` menjadi `LULUS` dengan evidence `~/.cache/damnbot/evidence-tern/acp-init/` (handshake + satu turn fake provider); `GAP-PROV-04`, `GAP-UX-05`, `GAP-UX-06`, dan `GAP-OPS-02` menjadi `LULUS` dengan tes yang dijalankan (OPS-02: ADR-230). Estetika TUI terkunci tes (#403: `TestFramePaletteBudget`, `TestSpacingContract`). `GAP-OPS-01` menjadi `DITUNDA → F4` (subset F3 selesai, `config hooks` F4, ADR-228). Sisa 11 GAP F3 tetap `TERBUKA`; error informatif tetap `TERBUKA` menunggu ratifikasi manusia dan **tidak** menggating F3. Tidak ada baris `LULUS` yang dicabut; `PHASE` tetap `F3`.
+
+**Amandemen final 2026-10-29 (`e4e86a02`).** `GAP-REL-13` (ADR-237), `GAP-UX-02` (ADR-235), `GAP-UX-03` (ADR-233), `GAP-OPS-04` (ADR-223 amendemen + #404), `GAP-OPS-09` (ADR-238), dan `GAP-INF-04` (ADR-239) menjadi `LULUS`. `GAP-GW-07` → **F8** (ADR-234; kewajiban F3 selesai), `GAP-PROV-05` → **F8**, dan `GAP-TOOL-01` → **F6** (kewajiban F3 importer selesai). `GAP-UX-01` dan `GAP-UX-04` menjadi `DITUNDA → F4` lewat **ADR-242** karena smoke Zed tidak dapat dijalankan di host headless (implementasi + tes + smoke tern 10 PASS tetap bukti F3). Hasil final 13 `LULUS` / 0 `TERBUKA` / 7 `DITUNDA` (GW-07/PROV-05 → F8, TOOL-01 → F6, OPS-01/UX-01/UX-04 → F4, TOOL-10 → F5/F8). Error informatif tetap `TERBUKA` dan tidak menggating F3.
 
 ## ADR-228 — Sisa GAP-OPS-01 F3: arsip `config profiles export|import` dan `config modules`; `hooks` ke F4
 
@@ -5027,3 +5031,16 @@ Batas penting: risiko ToS **bukan** temuan threat scan. Q43/ADR-033 menetapkan `
 **Dampak terukur (SPEC §20).** Go non-test: `MODULE acp` 837 → **926/2.500** (di luar Σ core), `tools` 2.711 → **2.738/3.000**, `config` 1.247 → **1.248/1.253**; Σ cap core **tetap 47.511/47.600** (`loc.budget` tidak berubah, tidak ada kenaikan plafon); TOTAL 63.446/190.000; dependency baru 0; `make size-check` minimal 19.763.362 B; ACP tetap di build `minimal`.
 
 **Konsekuensi.** (+) Sisa GAP-UX-01 butir (b) tertutup dengan jalur opt-in yang menjaga P24 default; output dibatasi, di-redaksi, dan env secret tidak pernah menyeberang ke client. (−) `terminal/*` bergantung pada client yang benar-benar mengimplementasikan kill/release; mode `session` tetap lokal; P24 hanya dijamin untuk runner lokal.
+
+## ADR-242 — Smoke manual Zed untuk GAP-UX-01/UX-04 di-re-fase ke F4 (host headless)
+
+**Status:** Accepted 2026-10-29 (F3). Dokumen saja; tidak mengubah kode, `PHASE`, `loc.budget`, SPEC, atau ENGINEERING.
+
+**Konteks.** Verification `GAP-UX-01` (`SPEC.md:2976`) mensyaratkan `TestACPClientFSUnsaved` (buffer ≠ disk, 10/10), **smoke manual Zed + tern 10/10**, `TestACPStaleTagNoOverwrite`, dan `TestACPClientTerminalTimeout`. Implementasi client fs dan `terminal/*` sudah ada (#407, #402, #413, #414; ADR-232/240/241) dan smoke tern nyata mencatat 10 PASS dari 13 interaksi (`~/.cache/damnbot/evidence-tern/acp-matrix-e0f2b3e4`: 1 client-limit unknown-model, 1 partial load-unknown, 1 not-testable cancel). Probe host 2026-10-29: `zed`/`zeditor`/`code`/`cursor`/`opencode`/`cline`/`crush`/`aider` tidak ada di PATH, `/usr/bin`, `/opt`, snap, flatpak, maupun dpkg; `~/.config/zed` tidak ada; `DISPLAY`/`WAYLAND_DISPLAY` kosong, seat logind tidak ada, `/tmp/.X11-unix` kosong. `tern 0.9.5` tersedia dan ACP-nya nyata; `Xvfb` ada, tetapi memasang Zed membutuhkan jaringan + sudo. `GAP-UX-04` (`SPEC.md:2979`) juga menyisakan kompatibilitas dua client.
+
+**Keputusan.**
+1. **Smoke manual Zed → F4.** Verifikasi client kedua (Zed) tidak dapat dijalankan di host headless ini; `GAP-UX-01` dan `GAP-UX-04` dicatat `DITUNDA → F4`, bukan `LULUS`. Requirement 1.0 tidak dihapus: smoke Zed wajib dijalankan di mesin ber-GUI sebelum RC/F9.
+2. **Bukti F3 tetap.** Implementasi + tes otomatis (client fs, `stale_tag`, fallback, parser resource, `_meta`/blob, `terminal/*`) dan smoke tern 10 PASS tetap bukti F3; yang ditunda hanya client kedua.
+3. **Tanpa perubahan lain.** Tidak ada kode, `PHASE`, `loc.budget`, SPEC, ENGINEERING, atau dependency yang berubah. `docs/F3-ACCEPTANCE.md` mencatat sisa eksplisit "smoke Zed (ADR-242; host headless, Zed absen)".
+
+**Konsekuensi.** (+) F3 tidak mengklaim verifikasi client yang tidak dijalankan; bukti yang ada tetap tersimpan. (+) F4 menerima satu kewajiban smoke yang eksplisit. (−) Klaim kompatibilitas dua client belum lengkap sampai smoke Zed dijalankan.
