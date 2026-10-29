@@ -287,11 +287,21 @@ func (s *Stream) pushExtra(ctx context.Context, i int, msg render.Message) error
 	}
 }
 
-// replace edits one streamed message, pacing edits per message.
+// replace edits one streamed message, pacing edits per message. A 429 is
+// waited out once (the penalty already blocks the chat's other sends), so the
+// final text lands in the same message instead of a duplicate (EC-PLAT-014).
 func (s *Stream) replace(ctx context.Context, messageID int64, msg render.Message) error {
 	key := "edit:" + s.out.ChatID + ":" + strconv.FormatInt(messageID, 10)
 	if err := s.a.edit.wait(ctx, key); err != nil {
 		return err
+	}
+	err := s.a.editText(ctx, s.out.ChatID, s.out.ThreadID, messageID, msg)
+	wait, throttled := s.a.penalize(s.out.ChatID, err)
+	if !throttled {
+		return err
+	}
+	if werr := s.a.clock.Wait(ctx, wait); werr != nil {
+		return fmt.Errorf("telegram: retry_after wait: %w", werr)
 	}
 	return s.a.editText(ctx, s.out.ChatID, s.out.ThreadID, messageID, msg)
 }

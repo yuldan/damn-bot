@@ -36,6 +36,7 @@ type serveGateway struct {
 	gate                *gateway.Gate
 	quota               *gateway.Quota
 	limiter             *gateway.Limiter
+	chats               *gateway.ChatQueue
 	daemon              *serveDaemon
 	metrics             *obs.Metrics
 	watchdog            *heal.Watchdog
@@ -89,6 +90,10 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		return nil, fmt.Errorf("gateway watchdog: %w", err)
 	}
 	net := netx.New(netx.Config{Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background})
+	limiter, err := gateway.NewLimiter(gateway.Rate{PerSecond: 1, Burst: 1}, gateway.Rate{PerSecond: 30, Burst: 30})
+	if err != nil {
+		return nil, fmt.Errorf("gateway limiter: %w", err)
+	}
 	adapter, err := telegram.New(&telegram.Config{
 		Token: token, BaseURL: strings.TrimSpace(os.Getenv("DAMNBOT_TELEGRAM_BASE_URL")),
 		Doer: beatDoer{do: telegram.EgressClient(net), wd: wd}, Store: telegramStore{Store: store},
@@ -98,6 +103,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 			metrics.IncError()
 			return beatDoer{do: telegram.EgressClient(net), wd: wd}
 		},
+		Throttle: limiter,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gateway telegram: %w", err)
@@ -117,13 +123,10 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	if err != nil {
 		return nil, fmt.Errorf("gateway quota: %w", err)
 	}
-	limiter, err := gateway.NewLimiter(gateway.Rate{PerSecond: 1, Burst: 1}, gateway.Rate{PerSecond: 30, Burst: 30})
-	if err != nil {
-		return nil, fmt.Errorf("gateway limiter: %w", err)
-	}
 	return &serveGateway{
 		cfg: *cfg, dataDir: o.dataDir, configPath: o.configPath, modelRef: modelRef,
-		store: store, adapter: adapter, gate: gate, quota: quota, limiter: limiter, daemon: daemon,
+		store: store, adapter: adapter, gate: gate, quota: quota, limiter: limiter,
+		chats: gateway.NewChatQueue(cfg.Gateway.MaxParallelTurns), daemon: daemon,
 		metrics: metrics, watchdog: wd, supervisor: sup, stderr: stderr,
 		inbound: make(chan telegram.Inbound, 32), now: time.Now,
 	}, nil
@@ -177,7 +180,12 @@ func (g *serveGateway) Start(ctx context.Context) error {
 			case in := <-g.inbound:
 				g.watchdog.Beat()
 				g.metrics.SetQueue(len(g.inbound))
-				g.handle(runCtx, &in)
+				update := in
+				chatKey := update.Platform + "\x00" + update.ChatID
+				if err := g.chats.Submit(runCtx, chatKey, func(ctx context.Context) { g.handle(ctx, &update) }); err != nil && runCtx.Err() == nil {
+					sessionsPrintf(g.stderr, "gateway: dispatch %s: %s\n", cleanArg(update.UpdateID), cleanLine(err.Error()))
+					g.metrics.IncError()
+				}
 			}
 		}
 	}()
@@ -189,6 +197,7 @@ func (g *serveGateway) Start(ctx context.Context) error {
 func (g *serveGateway) Stop() {
 	if g != nil && g.cancel != nil {
 		g.cancel()
+		g.chats.Close()
 		g.wg.Wait()
 	}
 }
@@ -667,7 +676,12 @@ func (g *serveGateway) deliveries(ctx context.Context) {
 			}
 			ref, serr := g.adapter.Send(ctx, out)
 			if serr != nil {
-				g.retryDelivery(ctx, d, cleanLine(serr.Error()), 0, now)
+				wait := time.Duration(0)
+				if retryAfter, ok := telegram.RetryAfter(serr); ok {
+					g.limiter.Penalize(d.ChatID, now.Add(retryAfter))
+					wait = retryAfter
+				}
+				g.retryDelivery(ctx, d, cleanLine(serr.Error()), wait, now)
 				continue
 			}
 			if err := g.store.SentDelivery(ctx, d.ID, strconv.FormatInt(ref, 10), now.UnixMilli()); err != nil {

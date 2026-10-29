@@ -32,6 +32,7 @@ type fakeTG struct {
 	confirmed  int64
 	notify     chan struct{}
 	faults     map[string][]fakeFault
+	nth        map[string]map[int]fakeFault
 	seenMethod map[string]int
 	// pollWait caps the server-side long poll in tests that need a stall
 	// threshold below the production 50 s window.
@@ -70,6 +71,7 @@ func newFakeTG(t *testing.T) *fakeTG {
 		token:      "424242:fake-telegram-token",
 		notify:     make(chan struct{}),
 		faults:     map[string][]fakeFault{},
+		nth:        map[string]map[int]fakeFault{},
 		seenMethod: map[string]int{},
 	}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.handle))
@@ -196,6 +198,12 @@ func (f *fakeTG) record(method string, form url.Values, files map[string][]byte,
 	maps.Copy(cloneNames, names)
 	f.calls = append(f.calls, fakeCall{Seq: len(f.calls) + 1, Method: method, Form: clone, Files: cloneFiles, Names: cloneNames})
 	f.seenMethod[method]++
+	if byCall, ok := f.nth[method]; ok {
+		if fault, hit := byCall[f.seenMethod[method]]; hit {
+			delete(byCall, f.seenMethod[method])
+			return fault, true
+		}
+	}
 	queue := f.faults[method]
 	if len(queue) == 0 {
 		return fakeFault{}, false
@@ -210,6 +218,17 @@ func (f *fakeTG) record(method string, form url.Values, files map[string][]byte,
 		}
 	}
 	return fault, true
+}
+
+// faultAt arms fault for the n-th call of method (1-based), leaving other
+// calls untouched; the queued faults keep their own order.
+func (f *fakeTG) faultAt(method string, n int, fault fakeFault) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.nth[method] == nil {
+		f.nth[method] = map[int]fakeFault{}
+	}
+	f.nth[method][n] = fault
 }
 
 func (f *fakeTG) applyFault(w http.ResponseWriter, r *http.Request, fault fakeFault) bool {
@@ -436,6 +455,30 @@ func (s *memStore) ClaimCallback(_ context.Context, id string) (bool, error) {
 	}
 	s.claimed[id] = true
 	return true, nil
+}
+
+// fakeThrottle records the 429 deadlines the adapter forwards to the shared
+// limiter (EC-PLAT-014).
+type fakeThrottle struct {
+	mu    sync.Mutex
+	until map[string]time.Time
+}
+
+func newFakeThrottle() *fakeThrottle {
+	return &fakeThrottle{until: map[string]time.Time{}}
+}
+
+func (t *fakeThrottle) Penalize(chat string, until time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.until[chat] = until
+}
+
+func (t *fakeThrottle) deadline(chat string) (time.Time, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	until, ok := t.until[chat]
+	return until, ok
 }
 
 // fakeClock records every wait and advances instantly.
