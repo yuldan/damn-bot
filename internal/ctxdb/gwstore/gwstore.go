@@ -3,8 +3,9 @@
 // gateway_inbound row per platform update with the primary-key dedupe of
 // SPEC §9.7, and resolves the routed session of a gateway conversation.
 //
-// No DDL is added: the tables, guards and indexes already exist in migration
-// 0003 (and the payload_enc column in 0009). The consumer side is a small
+// The queue tables, guards and indexes are declared in migration 0003 (plus
+// payload_enc from 0009); migration 0015 adds gateway_inbound.thread_id,
+// gateway_message_ids and gateway_callbacks (ADR-249). The consumer side is a small
 // interface in internal/gateway (E-09); this package declares its own value
 // types so it does not import that package (the pattern of
 // ctxdb/limitstore, ADR-074), and cmd/damnbot converts between the two.
@@ -35,11 +36,14 @@ type Identity struct {
 }
 
 // Inbound is one normalised platform update. UpdateID is the platform's
-// stable update/message id; (Platform, UpdateID) is the dedupe key. Payload is
-// the JSON content kept with the queue row (ADR-046).
+// stable update/message id; (Platform, UpdateID) is the dedupe key. ThreadID is
+// the platform topic ("" without one) so a restarted worker routes the queued
+// row to the same session; Payload is the JSON content kept with the queue row
+// (ADR-046).
 type Inbound struct {
 	Platform string
 	ChatID   string
+	ThreadID string
 	SenderID string
 	UpdateID string
 	Payload  string
@@ -97,11 +101,11 @@ func (s Store) Record(ctx context.Context, in *Inbound) (bool, error) {
 		if err != nil {
 			return fmt.Errorf("seal payload: %w", err)
 		}
-		ids, err := tx.Strings(`INSERT INTO gateway_inbound(platform, external_id, chat_id, sender_id, payload, payload_enc, received_at)
-			VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+		ids, err := tx.Strings(`INSERT INTO gateway_inbound(platform, external_id, chat_id, thread_id, sender_id, payload, payload_enc, received_at)
+			VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
 			ON CONFLICT(platform, external_id) DO NOTHING
 			RETURNING external_id`,
-			in.Platform, in.UpdateID, in.ChatID, in.SenderID, stored, nullable(sealed), now)
+			in.Platform, in.UpdateID, in.ChatID, in.ThreadID, in.SenderID, stored, nullable(sealed), now)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrInvalidInbound, err)
 		}
