@@ -23,6 +23,7 @@
 /internal/codetools/ @yuldan
 /internal/ctxdb/ @yuldan
 /internal/e2e/ @yuldan
+/internal/heal/ @yuldan
 /internal/journal/ @yuldan
 /internal/loop/ @yuldan
 /internal/modules/ @yuldan
