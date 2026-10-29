@@ -95,3 +95,93 @@ Probe `TestZZSec9R2`, `TestZZImmutable`, dan `TestZZImmutable2` (`internal/ctxdb
 | SEC9-8 | MINOR | **Fallback `immutable=1` dipicu oleh error apa pun** pada open `mode=ro`, asalkan tidak ada `-wal` non-kosong. Syarat ini tidak membuktikan "media read-only tanpa writer": writer lain bisa hidup dengan `-wal` 0 B (setelah checkpoint TRUNCATE atau sebelum tulis pertama). Probe menunjukkan koneksi `immutable` tidak pernah melihat commit/checkpoint berikutnya. Koneksi itu juga tanpa lock, sehingga checkpoint writer yang menulis ulang halaman DB selama pembaca membaca dapat menghasilkan hasil sobek/`malformed`. Pool (≤ 4 koneksi) bertahan sepanjang umur store. Dalam probe, jalur normal tetap berhasil (fallback tidak terpicu), jadi ini bukan eksploit yang terkonfirmasi. | Batasi fallback ke error `SQLITE_CANTOPEN`/`SQLITE_READONLY` **dan** dir tidak bisa ditulis (`access(W_OK)` gagal) **dan** tidak ada holder hidup (`run/maint.holders` kosong / `maint.lock` tidak terkunci). Dokumentasikan semantik snapshot di ADR-132. |
 
 **Ringkasan:** #203 **APPROVE dengan MINOR**. Jaminan baca-saja kini terpenuhi tanpa jejak layout. Escape DSN dan exit code benar, dan `Count` memblokir pembuatan file. Sisa: SEC9-6 (dua baris dokumen exit 78), SEC9-7 (false positive filter `Count`), dan SEC9-8 (syarat fallback `immutable` terlalu longgar).
+
+## Round 3 — 2026-10-22
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #203 engine probe + read-only | `36776d8` (rebase ke `2022f89`; `0c89b83` = SEC9-6/7/8, `36776d8` = fail-closed) | **REQUEST CHANGES (test-only)**. Kode produksi APPROVE: diagnosis penulis benar, dan `walClear`/`liveHolder` fail-closed sesuai. Fixture ACE Windows (SEC9-9) menolak **baca** juga, sehingga test positif diperkirakan merah dan test negatif lulus secara vakum di Windows |
+
+Rebase: `git range-diff 68dbec3..69a88cd 2022f89..b1a792f` hanya mengubah dokumen (`CHANGELOG`, `DECISIONS`, `ENGINEERING`: Total core 37.730 → 37.930). Kode `0c6cff3`/`69a88cd` identik.
+
+**CI:** run Windows untuk `0c89b83` (`39722773740`) gagal di `TestReadOnlyNoFallbackWithLiveHolder` (`readonly_test.go:237`, "immutable fallback ran with a live holder"). Untuk `36776d8`, GitHub belum membuat check apa pun saat review ini ditulis (dikonfirmasi `merger-f2c`). Log CI tanpa `-v` tidak menunjukkan test yang di-skip (lihat SEC9-10).
+
+Gate lokal di `36776d8`: `go test -race -count=1 -run 'ReadOnly|Holder|Engine|SQLite|Version|SchemaNewer|DSN|Maint' ./internal/ctxdb` → ok; `internal/archtest` ok (`repometa`); `GOOS=windows|darwin go vet ./internal/ctxdb` bersih; `GOOS=windows go test -c ./internal/ctxdb` ok; `make loc` `ctxdb 3773/3800`; `make deadcode` 0.
+
+### SEC9-6/7/8 (`0c89b83`)
+
+- SEC9-6: SPEC §22.1 dan `MITIGATION-MATRIX` GAP-REL-05 kini menulis "DB lebih baru → penulis exit 1 (SPEC §4.3)". Exit 78 tetap hanya untuk migrasi gagal ✔.
+- SEC9-7: `readOnlyQuery` men-tokenize. `created_at`, `pragma_table_info(...)`, literal/komentar, dan `"update"` lolos; DML, `PRAGMA`, `ATTACH`, `VACUUM`, dan multi-statement ditolak (`TestReadOnlySQLGate`) ✔.
+- SEC9-8: fallback `immutable=1` kini memerlukan **semua** syarat: `SQLITE_READONLY`/`CANTOPEN`, `walClear`, `!liveHolder`, dan `!dirWritable` ✔.
+
+### Diagnosis kegagalan Windows
+
+Benar. Di Windows, `os.Chmod(dir, 0o500)` hanya menyetel atribut read-only, yang diabaikan untuk direktori, sehingga direktori tetap dapat ditulis. Open `mode=ro` biasa berhasil (SQLite dapat membuat `-shm`), dan fallback **tidak pernah dicapai**. Pesan test "immutable fallback ran" adalah asumsi test: test menganggap setiap open yang berhasil sebagai fallback. Fallback dengan holder hidup juga tidak mungkin terjadi di kondisi itu karena dua syaratnya gagal: `dirWritable(dir) == true` dan `liveHolder() == true` (holder = proses test sendiri, hidup). Open `mode=ro` biasa saat writer hidup adalah jalur REL-05 yang sah (WAL-aware lewat `-shm`).
+
+Probe Linux `TestZZSec9R3` (dihapus setelah dijalankan) mereplikasi kondisi tersebut dan menguji setiap syarat:
+
+| Skenario | Terbuka | `-shm` dibuat | Catatan |
+|---|---|---|---|
+| Dir **writable** + holder hidup (kasus CI Windows) | ya | **ya** | jalur normal `mode=ro`, bukan fallback ✔ |
+| Dir RO + holder hidup | tidak | — | ✔ |
+| Dir RO, tanpa holder (kontrol) | **ya** | tidak | fallback immutable ✔ |
+| Dir RO + holder mati di host yang sama | ya | tidak | ✔ |
+| Dir RO + holder dari host lain | tidak | — | fail-closed ✔ (lihat SEC9-11) |
+| Dir RO + holder rusak (`{`) | tidak | — | ✔ |
+| Dir RO + direktori holders tidak terbaca (0000) | tidak | — | `ReadDir` error ≠ NotExist → blocking ✔ |
+| Dir RO + `-wal` non-kosong | tidak | — | ✔ |
+
+`liveHolder` kini membandingkan `Ident` penuh (PID + start + boot), tidak lagi hanya PID + host. Holder lain dengan PID yang sama tetapi start time berbeda tidak lagi dianggap "proses ini" ✔.
+
+### Fixture ACE Windows
+
+- **Restore saat test gagal:** ya. Restore didaftarkan dengan `t.Cleanup` **setelah** `SetNamedSecurityInfo` berhasil, sehingga berjalan pada `t.Fatal`/`FailNow`/panic. Urutan LIFO menjamin restore DACL berjalan sebelum `RemoveAll` milik `t.TempDir`. `old` menunjuk ke SD salinan memori Go yang tetap hidup lewat closure. Restore hanya butuh `WRITE_DAC`, yang tidak termasuk dalam deny dan diberikan secara implisit kepada owner. Proses yang di-kill (timeout) meninggalkan temp dir ber-ACE, tetapi runner CI ephemeral.
+- **Vakum?** Skip `dirWritable` tidak memicu di Windows, karena deny ACE membuat `CreateTemp` gagal. Masalahnya ada di isi ACE (SEC9-9).
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC9-6/7/8 | MINOR | **fixed** `0c89b83`/`36776d8` | Lihat di atas. | — |
+| SEC9-9 | MINOR (test, memblokir CI yang bermakna) | static (x/sys v0.49 `types_windows.go:94-95`) | Deny ACE memakai `FILE_GENERIC_WRITE \| DELETE`. `FILE_GENERIC_WRITE` = `STANDARD_RIGHTS_WRITE` (= **`READ_CONTROL`**) \| … \| **`SYNCHRONIZE`**, dan `FILE_GENERIC_READ` juga memuat `READ_CONTROL` + `SYNCHRONIZE`. Dengan pewarisan `SUB_CONTAINERS_AND_OBJECTS_INHERIT`, open **baca** pada file DB (SQLite `GENERIC_READ`) dan listing direktori ikut ditolak. Prediksi: `TestReadOnlyOnReadOnlyMedia` **gagal** di Windows ("read-only media open: …"), sedangkan `TestReadOnlyNoFallbackWithLiveHolder` dan `TestReadOnlyMalformedHolderFailsClosed` lulus **secara vakum**: setiap error open memenuhi assertion, sehingga logika fallback tidak teruji. [INFERENCE: belum ada run CI pada head ini] | Deny hanya hak tulis: `FILE_WRITE_DATA \| FILE_APPEND_DATA \| FILE_WRITE_EA \| FILE_WRITE_ATTRIBUTES \| FILE_DELETE_CHILD \| DELETE` (`FILE_ADD_FILE`/`FILE_ADD_SUBDIRECTORY` untuk direktori), **tanpa** `SYNCHRONIZE`/`READ_CONTROL`. Tambahkan kontrol positif di setiap test negatif: fixture yang sama tanpa holder harus **terbuka**, sehingga penolakan dapat diatribusikan ke holder. |
+| SEC9-10 | MINOR | open | `t.Skip("runner could not make the data dir unwritable")` tidak terlihat di log CI non-verbose. Runner yang menjalankan test sebagai root/admin dengan bypass akan meloloskan tiga test RO tanpa jejak. | Di CI, ubah skip menjadi fatal (mis. env `DAMNBOT_REQUIRE_RO_FIXTURE=1` di workflow), atau jalankan `-run 'ReadOnly' -v` sebagai langkah terpisah. |
+| SEC9-11 | MINOR (UX) | confirmed | Penolakan fail-closed muncul sebagai `ctxdb: attempt to write a readonly database (1544)`, tanpa menyebut holder hidup/tak dikenal, holder rusak, atau WAL. DB di media RO yang dibawa dari host lain (holder dengan host berbeda) **selamanya** tidak terbaca, dan user tidak diberi tahu sebabnya. | Bungkus error dengan sebab yang spesifik (`holder on host X`, `unreadable holder record`, `WAL present`) dan jalan keluarnya (salin data dir ke lokasi yang dapat ditulis lalu buka `mode=ro`). |
+
+**Ringkasan Round 3:** #203 `36776d8` **REQUEST CHANGES (test-only)**. Diagnosis penulis benar: di Windows, `chmod 0500` tidak membuat direktori read-only, open `mode=ro` biasa berhasil secara sah, dan fallback immutable tidak mungkin berjalan dengan holder hidup karena `dirWritable` dan `liveHolder` keduanya memblokir. Perubahan produksi (`walClear`, `liveHolder` fail-closed, `Ident` penuh) benar dan terverifikasi di Linux. Fixture ACE Windows di-restore dengan benar saat test gagal, tetapi menolak hak baca (`SYNCHRONIZE`/`READ_CONTROL`), sehingga test positif akan gagal dan test negatif vakum (SEC9-9). Perbaiki mask deny, tambahkan kontrol positif, lalu pastikan job Windows hijau dengan test RO yang benar-benar berjalan.
+
+## Round 4 — 2026-10-22
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #203 engine probe + read-only | `634665e` (rebase oleh `merger-f2c` dari `5ebb90a`; hanya `DECISIONS`) | **APPROVE**: SEC9-9/10/11 FIXED; CI Windows hijau dengan test RO yang benar-benar berjalan |
+
+Rebase: `5ebb90a` tidak punya run CI karena PR konflik dengan `main` (`docs/DECISIONS.md` setelah ADR-137 masuk lewat #228). `merger-f2c` me-rebase menjadi `634665e`. `diff` hunk `*.go` + `loc.budget` antara `2022f89..5ebb90a` dan `merge-base..634665e` **identik**.
+
+**CI (run `39726764369`, head `634665eb…`):** **Windows pass** (8m27s; `ok internal/ctxdb 428.4s`), macOS pass, ubuntu masih antre saat dokumen ditulis. GitHub Actions menyetel `CI=true`, sehingga `skipOrFail` mengubah setiap skip fixture menjadi `t.Fatalf`. Satu-satunya `t.Skip` lain di `readonly_test.go` adalah `runtime.GOOS != "windows"` untuk path DSN `?`, yang tidak terkait media RO. Jadi `ok internal/ctxdb` di Windows membuktikan bahwa `TestReadOnlyOnReadOnlyMedia`, `TestReadOnlyNoFallbackWithLiveHolder`, dan `TestReadOnlyMalformedHolderFailsClosed` **berjalan, tidak di-skip, dan lulus**, termasuk kontrol positifnya. Kontrol positif yang lulus di Windows sekaligus membuktikan bahwa ACE baru tidak menolak baca dan fallback immutable benar-benar terbuka di fixture tersebut. Penolakan di test negatif pun dapat diatribusikan ke holder, bukan ke fixture.
+
+### Pemeriksaan
+
+- **SEC9-9:** mask deny = `FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_WRITE_ATTRIBUTES | FILE_DELETE_CHILD | DELETE`. `SYNCHRONIZE` dan `READ_CONTROL` tidak ada lagi, sehingga `FILE_GENERIC_READ` tetap diizinkan. Restore DACL tetap lewat `t.Cleanup` (Round 3). Kedua test negatif menjalankan kontrol positif (`readOnlyFixture` tanpa holder → harus terbuka) **sebelum** asersi negatif ✔.
+- **SEC9-10:** `skipOrFail` → `t.Fatalf` bila `CI` tidak kosong; dipakai untuk `USERNAME` kosong dan "dir masih writable" ✔.
+- **SEC9-11:** `fallbackBlock` mengembalikan sebab spesifik, dan error berisi `read-only open refused: <sebab>; copy the data dir to a writable location: <error SQLite>`. Probe Linux (dihapus setelah dijalankan):
+
+| Skenario (dir RO) | Hasil |
+|---|---|
+| tanpa holder (kontrol) | terbuka |
+| holder hidup | `…refused: a live or unknown-process holder may still write the data dir; copy the data dir to a writable location: attempt to write a readonly database (1544)` |
+| holder rusak | sebab yang sama (holder) |
+| holder dari host lain | sebab yang sama (holder) |
+| `-wal` non-kosong | `…the -wal is present with unmerged data or its state is unknown; copy the data dir…: unable to open database file (14)` |
+
+Tidak ada teks statement SQL. Pesan driver SQLite (`attempt to write a readonly database (1544)`) tetap ditempel di akhir lewat `%w`. Pesan itu tidak bocor apa pun dan berguna untuk diagnosis.
+
+### Catatan (tidak memblokir)
+
+- SEC9-12 (info): holder rusak dan holder dari host lain memakai teks "live or unknown-process holder" yang sama. Pesan yang membedakan "holder record unreadable" akan sedikit membantu, tetapi tidak wajib.
+- SEC9-13 (info, CI): `internal/ctxdb` di Windows butuh 428 s, mendekati batas default `go test` 10 menit. Pantau, atau pecah paketnya bila durasi terus naik.
+
+**Ringkasan Round 4:** #203 `634665e` **APPROVE**. Mask ACE kini hanya menolak hak tulis. Kontrol positif membuat test negatif bermakna. Skip menjadi gagal di CI. Penolakan fallback menyebut sebab dan jalan keluarnya. Job Windows pada head ini lulus dengan ketiga test media RO yang benar-benar berjalan. Sisa syarat: job ubuntu selesai hijau.
