@@ -26,16 +26,13 @@ const winTaskPrefix = "Damn-Bot"
 var (
 	// errTaskOutput marks output that is neither UTF-16LE+BOM nor UTF-8.
 	errTaskOutput = errors.New("task output encoding")
-	// errWinToolMissing means schtasks cannot run at all, unlike a task that
-	// is merely absent (a normal non-zero exit).
+	// errWinToolMissing means schtasks cannot run at all (unlike an absent task).
 	errWinToolMissing = errors.New("schtasks is not available")
 )
 
-// winLegacyTaskNames are the profile-less names older installs used; two
-// profiles shared one task and the duplicate gateway ran twice (EC-WIN-004).
+// winLegacyTaskNames are the profile-less names older installs shared (EC-WIN-004).
 func winLegacyTaskNames() []string { return []string{"Damn-Bot", "DamnBot", "damnbot"} }
 
-// winTaskName always suffixes the profile: never a shared task name.
 func winTaskName(profile string) string {
 	if profile == "" {
 		return winTaskPrefix + "-default"
@@ -263,8 +260,7 @@ func winInstallCmd(ctx context.Context, d *winServiceDeps, args []string, stdout
 	return 0
 }
 
-// winTaskExists asks the scheduler, not the locale: /Query exits non-zero for
-// an absent task, while a missing schtasks binary is reported separately.
+// winTaskExists asks the scheduler (exit code), not localized status text.
 func winTaskExists(ctx context.Context, d *winServiceDeps, name string) (bool, error) {
 	if _, err := winSchtasks(ctx, d, "/Query", "/TN", name); err != nil {
 		if errors.Is(err, errWinToolMissing) {
@@ -275,13 +271,19 @@ func winTaskExists(ctx context.Context, d *winServiceDeps, name string) (bool, e
 	return true, nil
 }
 
-// winDelete stops and removes one task; uninstall stays idempotent per exit code.
+// winStop best-effort stops a task.
+func winStop(ctx context.Context, d *winServiceDeps, name string) {
+	if _, err := winSchtasks(ctx, d, "/End", "/TN", name); err != nil {
+		return
+	}
+}
+
 func winDelete(ctx context.Context, d *winServiceDeps, name string) (bool, error) {
 	exists, qerr := winTaskExists(ctx, d, name)
 	if qerr != nil || !exists {
 		return false, qerr
 	}
-	_, _ = winSchtasks(ctx, d, "/End", "/TN", name) //nolint:errcheck // a ready task refuses /End; delete still proceeds
+	winStop(ctx, d, name)
 	if _, err := winSchtasks(ctx, d, "/Delete", "/TN", name, "/F"); err != nil {
 		return true, err
 	}

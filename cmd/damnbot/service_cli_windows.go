@@ -25,7 +25,6 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// runWindowsService is the Windows entry point of `damnbot service`.
 func runWindowsService(args []string, stdout, stderr io.Writer) int {
 	d, err := windowsServiceDeps(activeProfile())
 	if err != nil {
@@ -70,7 +69,6 @@ func windowsSchtasks(ctx context.Context, args ...string) ([]byte, error) {
 	return out, nil
 }
 
-// stageTaskXML writes the task definition where schtasks can read it.
 func stageTaskXML(content []byte) (string, func() error, error) {
 	f, err := os.CreateTemp("", "damnbot-task-*.xml")
 	if err != nil {
@@ -93,21 +91,21 @@ func stageTaskXML(content []byte) (string, func() error, error) {
 
 // windowsProcessAlive uses the wait state, not the exit code: a real exit code
 // 259 would otherwise read as STILL_ACTIVE (EC-WIN-009).
-func windowsProcessAlive(pid int) (bool, error) {
+func windowsProcessAlive(pid int) (alive bool, err error) {
 	if pid <= 0 || int64(pid) > math.MaxUint32 {
 		return false, nil
 	}
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))
-	if err != nil {
-		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) || errors.Is(err, windows.ERROR_NOT_FOUND) {
+	h, oerr := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))
+	if oerr != nil {
+		if errors.Is(oerr, windows.ERROR_INVALID_PARAMETER) || errors.Is(oerr, windows.ERROR_NOT_FOUND) {
 			return false, nil
 		}
-		return false, fmt.Errorf("open process %d: %w", pid, err)
+		return false, fmt.Errorf("open process %d: %w", pid, oerr)
 	}
-	defer windows.CloseHandle(h) //nolint:errcheck // read-only handle
-	event, err := windows.WaitForSingleObject(h, 0)
-	if err != nil {
-		return false, fmt.Errorf("wait process %d: %w", pid, err)
+	defer func() { err = errors.Join(err, windows.CloseHandle(h)) }()
+	event, werr := windows.WaitForSingleObject(h, 0)
+	if werr != nil {
+		return false, fmt.Errorf("wait process %d: %w", pid, werr)
 	}
 	return event == uint32(windows.WAIT_TIMEOUT), nil
 }
@@ -137,16 +135,16 @@ func windowsTaskHosted(pid int) (bool, error) {
 	return false, nil
 }
 
-func windowsProcessTable() (map[uint32]windows.ProcessEntry32, error) {
-	snap, err := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
-	if err != nil {
-		return nil, fmt.Errorf("process snapshot: %w", err)
+func windowsProcessTable() (table map[uint32]windows.ProcessEntry32, err error) {
+	snap, serr := windows.CreateToolhelp32Snapshot(windows.TH32CS_SNAPPROCESS, 0)
+	if serr != nil {
+		return nil, fmt.Errorf("process snapshot: %w", serr)
 	}
-	defer windows.CloseHandle(snap) //nolint:errcheck // read-only snapshot
-	table := make(map[uint32]windows.ProcessEntry32, 256)
+	defer func() { err = errors.Join(err, windows.CloseHandle(snap)) }()
+	table = make(map[uint32]windows.ProcessEntry32, 256)
 	var e windows.ProcessEntry32
 	e.Size = uint32(unsafe.Sizeof(e))
-	serr := windows.Process32First(snap, &e)
+	serr = windows.Process32First(snap, &e)
 	for serr == nil {
 		table[e.ProcessID] = e
 		serr = windows.Process32Next(snap, &e)

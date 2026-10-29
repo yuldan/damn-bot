@@ -63,9 +63,11 @@ func TestWindowsTaskSchedulerRoundTrip(t *testing.T) {
 	if derr != nil {
 		t.Fatalf("decode scheduler XML: %v", derr)
 	}
+	// schtasks re-serializes element text and keeps quotes literal, while our
+	// staged document escapes them; compare the operator-visible action.
 	for _, want := range []string{
 		"<Command>" + d.base.exe + "</Command>",
-		"<Arguments>serve --bind " + bind + " --data-dir &quot;" + dataDir + "&quot;</Arguments>",
+		"<Arguments>serve --bind " + bind + " --data-dir \"" + dataDir + "\"</Arguments>",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("registered task missing %q:\n%s", want, text)
