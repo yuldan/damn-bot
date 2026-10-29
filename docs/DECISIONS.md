@@ -5044,3 +5044,19 @@ Batas penting: risiko ToS **bukan** temuan threat scan. Q43/ADR-033 menetapkan `
 3. **Tanpa perubahan lain.** Tidak ada kode, `PHASE`, `loc.budget`, SPEC, ENGINEERING, atau dependency yang berubah. `docs/F3-ACCEPTANCE.md` mencatat sisa eksplisit "smoke Zed (ADR-242; host headless, Zed absen)".
 
 **Konsekuensi.** (+) F3 tidak mengklaim verifikasi client yang tidak dijalankan; bukti yang ada tetap tersimpan. (+) F4 menerima satu kewajiban smoke yang eksplisit. (−) Klaim kompatibilitas dua client belum lengkap sampai smoke Zed dijalankan.
+
+## ADR-243 — Penaikan `PHASE` `F3` → `F4`: F3 tersertifikasi di `e3f88a03`
+
+**Status:** Accepted 2026-10-29 (F3). Menjalankan ADR-080 butir 2 dan ADR-176. Hanya `PHASE` dan dokumen; tidak mengubah kode, `loc.budget`, SPEC, ENGINEERING, `docs/F3-ACCEPTANCE.md`, atau FEATURE-PARITY.
+
+**Konteks.** `main` `e3f88a03` masih memakai `PHASE = F3`. Ledger F3 pada pohon itu mencatat **13 LULUS / 0 TERBUKA / 7 DITUNDA**; tujuh baris DITUNDA adalah kewajiban yang sudah dipindahkan dengan ADR, termasuk smoke manual Zed di host ber-GUI (ADR-242) yang wajib sebelum RC/F9. Anggaran terukur Σ core **47.511/47.600** dan TOTAL **63.446/190.000** (`make loc`, 0 `GAGAL`). Karena `make phase-acceptance` menyertifikasi fase yang ditinggalkan (ADR-176: himpunan wajib = fase < `PHASE`), penaikan ke F4 harus membuktikan F3 selesai, bukan F4.
+
+**Keputusan.** `PHASE` dinaikkan `F3` → `F4` di atas `e3f88a03`. Dengan `PHASE = F4`, acceptance mensertifikasi F3 (ADR-176); item F4 dan fase di atasnya boleh tetap `pending`/belum berbaris dan hanya dilaporkan sebagai open. Tidak ada item F3 yang ditandai `covered` tanpa bukti, tidak ada id baru, dan tidak ada perubahan kode.
+
+**Bukti.** Dijalankan pada worktree sementara di `e3f88a03` dengan `PHASE = F4` (belum di-commit), `ulimit -v 8388608` (8 GiB), `nice -n 19`, `GOMAXPROCS=2`, `GOFLAGS=-p=1`, `GOMEMLIMIT=1500MiB`:
+1. `make phase-acceptance`: rc=0, durasi 448,78 s; 0 `FAIL`, 0 `SKIP`, 0 `PHASE GAGAL`. Daftar open F4+ tidak dianggap kegagalan.
+2. `make loc`: rc=0, 0 baris `GAGAL`; TOTAL **63.446/190.000**; Σ core **47.511/47.600**.
+3. `make size-check`: rc=0; **19.763.362 B** untuk build full dan minimal (cap 52 MB/22 MB).
+4. `make archtest`: rc=0 (`ok internal/archtest`).
+
+**Konsekuensi.** (+) `main` menyatakan F3 selesai secara formal dan gate acceptance menjadi hidup untuk F4. (+) Kewajiban F4 (termasuk smoke Zed ber-GUI, ADR-242) tetap eksplisit dan akan dituntut saat `PHASE` dinaikkan ke F5. (−) Penaikan berikutnya menuntut seluruh item F4 yang berfase ≤ F4 `covered`/`n/a`; item F4 yang masih open pada run ini memang diharapkan.
