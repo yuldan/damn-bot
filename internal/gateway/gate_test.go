@@ -289,6 +289,8 @@ func TestDedupeSingleAction(t *testing.T) {
 			duplicate++
 		case gateway.Rejected:
 			t.Fatalf("unexpected rejection: %+v", out)
+		case gateway.CommandHandled:
+			t.Fatalf("plain text was answered as a command: %+v", out)
 		}
 	}
 	if accepted != 1 || duplicate != 9 || run.calls != 1 {

@@ -61,6 +61,10 @@ type Inbound struct {
 	// Platform and ChatID it is the session route (SPEC §9.7).
 	ThreadID string
 	SenderID string
+	// Text is the message text the adapter authenticated and extracted, used
+	// only to recognize a slash command before any turn is built. Routing and
+	// authorization never read it (SPEC §9.7).
+	Text string
 	// UpdateID is the platform's stable update/message id (Telegram uses
 	// "u:"+update_id, SPEC §9.7). Update ids are unique per platform, so the
 	// logical key (Platform, ChatID, UpdateID) is stored as the
