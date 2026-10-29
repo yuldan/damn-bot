@@ -654,7 +654,12 @@ func (g *serveGateway) deliveries(ctx context.Context) {
 				g.retryDelivery(ctx, d, "rate limited", wait, now)
 				continue
 			}
-			ref, serr := g.adapter.Send(ctx, &telegram.Outbound{ChatID: d.ChatID, ThreadID: d.ThreadID, Text: d.Body, Key: d.IdemKey})
+			out, merr := g.deliveryMessage(ctx, d)
+			if merr != nil {
+				g.retryDelivery(ctx, d, cleanLine(merr.Error()), 0, now)
+				continue
+			}
+			ref, serr := g.adapter.Send(ctx, out)
 			if serr != nil {
 				g.retryDelivery(ctx, d, cleanLine(serr.Error()), 0, now)
 				continue
@@ -664,6 +669,39 @@ func (g *serveGateway) deliveries(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// deliveryMessage builds the outbound message of one claimed delivery,
+// resolving media_blob_sha when the row carries an attachment.
+func (g *serveGateway) deliveryMessage(ctx context.Context, d *gwstore.Delivery) (*telegram.Outbound, error) {
+	out := &telegram.Outbound{ChatID: d.ChatID, ThreadID: d.ThreadID, Text: d.Body, Key: d.IdemKey}
+	if d.MediaSHA == "" {
+		return out, nil
+	}
+	media, err := g.loadMedia(ctx, d.MediaSHA)
+	if err != nil {
+		return nil, err
+	}
+	out.Media = media
+	return out, nil
+}
+
+// loadMedia resolves gateway_deliveries.media_blob_sha to the bytes and MIME
+// the adapter uploads. The blob is owned by the delivery row; a missing or
+// expired blob is retried through the normal delivery backoff, never sent as
+// an empty file.
+func (g *serveGateway) loadMedia(ctx context.Context, sha string) (*telegram.Media, error) {
+	var mimeType string
+	if err := g.store.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT mime FROM blobs WHERE sha256 = ?1`, []any{sha}, &mimeType)
+	}); err != nil {
+		return nil, fmt.Errorf("media blob %s: %w", sha, err)
+	}
+	data, err := g.store.DB.ReadBlob(ctx, sha)
+	if err != nil {
+		return nil, fmt.Errorf("media blob %s: %w", sha, err)
+	}
+	return &telegram.Media{MIME: mimeType, Data: data}, nil
 }
 
 func (g *serveGateway) retryDelivery(ctx context.Context, d *gwstore.Delivery, cause string, wait time.Duration, now time.Time) {

@@ -14,17 +14,22 @@ import (
 // Outbound is one message. Key is the outbox idempotency key: a retry with the
 // same key resolves to the message already sent instead of sending a duplicate.
 // Anchor is an optional reply target; an invalid anchor is dropped so the send
-// still succeeds without reply_to_message_id (EC-PLAT-018).
+// still succeeds without reply_to_message_id (EC-PLAT-018). Media, when set,
+// is uploaded as a photo or document and Text becomes its caption.
 type Outbound struct {
 	ChatID, ThreadID, Text, Key, Anchor string
+	Media                               *Media
 }
 
 // Send renders markdown to plain text plus entities and delivers it, splitting
 // replies over MaxLen UTF-16 units into consecutive messages. It returns the
 // first message id; a retry with Key resumes the chunks already sent.
 func (a *Adapter) Send(ctx context.Context, out *Outbound) (int64, error) {
-	if out == nil || out.ChatID == "" || out.Text == "" {
-		return 0, errors.New("telegram: send requires chat and text")
+	if out == nil || out.ChatID == "" || (out.Text == "" && out.Media == nil) {
+		return 0, errors.New("telegram: send requires chat and text or media")
+	}
+	if out.Media != nil {
+		return a.deliverMedia(ctx, out)
 	}
 	msgs := renderMessages(out.Text)
 	return a.deliverChunks(ctx, out, msgs)
