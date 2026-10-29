@@ -382,22 +382,21 @@ func winSupervision(pid int, registered bool, alive, hosted func(int) (bool, err
 	}
 }
 
-// leaseOwnerPID reads the PID serve wrote into run/serve.lock; byte 0 is the
-// mandatory lock byte on Windows.
-func leaseOwnerPID(raw []byte) int {
-	_, rest, ok := strings.Cut(strings.TrimLeft(string(raw), "\x00"), "pid ")
-	if !ok {
-		return 0
+// leaseOwnerPID parses the owner line serve writes into run/serve.lock;
+// lockOwner reads it at byte 1, past the mandatory Windows lock byte.
+func leaseOwnerPID(owner string) int {
+	fields := strings.Fields(owner)
+	for i, field := range fields {
+		if field != "pid" || i+1 >= len(fields) {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[i+1])
+		if err != nil || pid <= 0 {
+			return 0
+		}
+		return pid
 	}
-	field := strings.Fields(rest)
-	if len(field) == 0 {
-		return 0
-	}
-	pid, err := strconv.Atoi(field[0])
-	if err != nil || pid <= 0 {
-		return 0
-	}
-	return pid
+	return 0
 }
 
 func winLogsCmd(ctx context.Context, d *winServiceDeps, args []string, stdout, stderr io.Writer) int {

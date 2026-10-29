@@ -511,15 +511,16 @@ func TestWinLogsDecodesUTF16Query(t *testing.T) {
 func TestLeaseOwnerPID(t *testing.T) {
 	t.Parallel()
 	cases := map[string]int{
-		"\x00pid 4242 started 2026-10-29T00:00:00Z\n": 4242,
-		"pid 7 started x\n":                           7,
-		"\x00":                                        0,
-		"\x00pid notanumber\n":                        0,
-		"\x00pid -3\n":                                0,
+		"pid 4242 started 2026-10-29T00:00:00Z": 4242,
+		"pid 7 started x":                       7,
+		"owner unknown":                         0,
+		"pid notanumber":                        0,
+		"pid -3":                                0,
+		"pid 9":                                 9,
 	}
-	for raw, want := range cases {
-		if got := leaseOwnerPID([]byte(raw)); got != want {
-			t.Errorf("leaseOwnerPID(%q) = %d, want %d", raw, got, want)
+	for owner, want := range cases {
+		if got := leaseOwnerPID(owner); got != want {
+			t.Errorf("leaseOwnerPID(%q) = %d, want %d", owner, got, want)
 		}
 	}
 }

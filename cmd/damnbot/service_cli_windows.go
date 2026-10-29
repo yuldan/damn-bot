@@ -47,11 +47,7 @@ func windowsServiceDeps(profile string) (*winServiceDeps, error) {
 		base: base, profile: profile, user: usr.Username,
 		run: windowsSchtasks, stage: stageTaskXML,
 		leasePID: func(dataDir string) int {
-			raw, rerr := os.ReadFile(filepath.Join(dataDir, "run", "serve.lock")) //nolint:gosec // operator data dir
-			if rerr != nil {
-				return 0
-			}
-			return leaseOwnerPID(raw)
+			return leaseOwnerPID(lockOwner(filepath.Join(dataDir, "run", "serve.lock")))
 		},
 		alive:  windowsProcessAlive,
 		hosted: windowsTaskHosted,
