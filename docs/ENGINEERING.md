@@ -318,9 +318,9 @@ Allowlist global (E-10), lengkap:
 | E-16 | Kompleksitas siklomatik | ≤ 15 | `gocyclo` (`min-complexity: 15`) | maks 102; 2.475 fungsi > 15 |
 | E-17 | Kompleksitas kognitif | ≤ 20 | `gocognit` (`min-complexity: 20`) | tidak diukur |
 | E-18 | Nesting | ≤ 4 | `nestif` (`min-complexity: 4`) | tidak diukur |
-| E-19 | LOC Go non-test per paket | tabel di bawah; total ≤ 190.000 (P21, ADR-033) | `scc --no-gen --by-file` per direktori, job `static` (`make loc`); `TestBudgetTableSum` (jumlah tabel **core** di bawah = baris `Total core`, V-20/ADR-054) + `TestLocBudgetModuleRows` (baris `MODULE` di luar Σ core; Σ modul F3 ≤ 21.500 dan F4 ≤ 17.600) | `agent/` 141.805 |
+| E-19 | LOC Go non-test per paket | tabel di bawah; total ≤ 190.000 (P21, ADR-033) | `scc --no-gen --by-file` per direktori, job `static` (`make loc`); `TestBudgetTableSum` (jumlah tabel **core** di bawah = baris `Total core`, V-20/ADR-054) + `TestLocBudgetModuleRows` (baris `MODULE` di luar Σ core; Σ modul F3 ≤ 21.500 dan F4 ≤ 18.500) | `agent/` 141.805 |
 
-Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2.4 — gabungan budget SPEC untuk keempat baris itu = 47.600 (ADR-033; ADR-211; ADR-225); baris modul fitur memakai angka §3.2.4 apa adanya). Baris kelas `MODULE` (`tui`, `acp`, `importer`, `setup`, `doctor`, `update`, `profiles`; ADR-196; `gateway`, `cron`, `obs`, `scorecard`; ADR-244) memakai plafon masing-masing dari §3.2.4 dan **tidak** masuk Σ core: family `importer`…`profiles` + `backup` = 8.767 ≤ 9.000, Σ F3 = 21.267 ≤ 21.500, dan Σ F4 = 17.600 (ADR-244: SPEC `heal`+`obs` 5.500 = `heal` core 1.500 + `obs` 4.000; `gateway` 10.500 = `gateway` 9.600 + `ctxdb/gwstore` 900; `cron` 3.500; `scorecard` 500 dari 3.000).
+Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2.4 — gabungan budget SPEC untuk keempat baris itu = 47.600 (ADR-033; ADR-211; ADR-225); baris modul fitur memakai angka §3.2.4 apa adanya). Baris kelas `MODULE` (`tui`, `acp`, `importer`, `setup`, `doctor`, `update`, `profiles`; ADR-196; `gateway`, `gwstore`, `cron`, `obs`, `scorecard`; ADR-244, ADR-245) memakai plafon masing-masing dari §3.2.4 dan **tidak** masuk Σ core: family `importer`…`profiles` + `backup` = 8.767 ≤ 9.000, Σ F3 = 21.267 ≤ 21.500, dan Σ F4 = 18.500 (ADR-244: SPEC `heal`+`obs` 5.500 = `heal` core 1.500 + `obs` 4.000; `gateway` 10.500 = `gateway` 9.600 + `ctxdb/gwstore` 900, baris `gwstore` dibukukan ADR-245; `cron` 3.500; `scorecard` 500 dari 3.000).
 
 | Paket | LOC maks | Paket | LOC maks |
 |---|---:|---|---:|
@@ -358,8 +358,9 @@ dijaga `TestLocBudgetModuleRows` + `make loc`):
 | `profiles` (F3, ADR-196) | **800** | | |
 | `gateway` (F4, ADR-244) | **9.600** | `cron` (F4, ADR-244) | **3.500** |
 | `obs` (F4, ADR-244) | **4.000** | `scorecard` (F4, ADR-244) | **500** |
+| `gwstore` (F4, ADR-245) | **900** | | |
 
-Σ `MODULE` F3 = 21.267 ≤ 21.500 (ROADMAP F3); family `importer` + `setup` + `doctor` + `update` + `profiles` = 7.300 + `backup` 1.467 = 8.767 ≤ 9.000 (SPEC §3.2.4). Σ `MODULE` F4 = 17.600 ≤ 17.600 (ROADMAP F4 20.000 = `heal` core 1.500 + `obs` 4.000 + `gateway` 9.600 + `cron` 3.500 + `scorecard` 500 + `ctxdb/gwstore` 900 yang menunggu ADR bump-nya sendiri; ADR-244).
+Σ `MODULE` F3 = 21.267 ≤ 21.500 (ROADMAP F3); family `importer` + `setup` + `doctor` + `update` + `profiles` = 7.300 + `backup` 1.467 = 8.767 ≤ 9.000 (SPEC §3.2.4). Σ `MODULE` F4 = 18.500 ≤ 18.500 (ROADMAP F4 20.000 = `heal` core 1.500 + `obs` 4.000 + `gateway` 9.600 + `gwstore` 900 + `cron` 3.500 + `scorecard` 500; ADR-244, ADR-245).
 
 Baris bertanda **(infra)** **tidak dihitung** sebagai core: baris yang seluruh direktorinya `internal/testutil*`, `internal/archtest`, `internal/integration`, `internal/e2e`, atau `tools/analyzers` dikeluarkan dari Σ core (predikat `budgetCoreSum`, `internal/archtest/repometa_test.go:87-110`), begitu pula baris `TOTAL`/`GENERATED`/`TESTONLY` dan **seluruh baris kelas `MODULE`** (ADR-196, ADR-244, tabel modul di atas); baris dengan direktori campuran tetap dihitung core. `Total core` di dokumen ini **harus sama** dengan Σ core `loc.budget` (V-20/ADR-054) **dan** dengan angka pada kalimat di bawahnya; gerbang `TestEngineeringTotalCoreMatchesLocBudget` (`internal/archtest/budget_doc_test.go`, PR #320) menegakkannya, jadi jangan menyalin angka dari tabel atau dari body PR — hitung ulang dari `loc.budget` pada pohon yang di-commit. Kasus historis drift: dokumen 44.238 vs Σ 44.031 (207 baris) pada main `ef8ec40d`, dan 44.131 vs 43.631 pada `b979bc83`.
 

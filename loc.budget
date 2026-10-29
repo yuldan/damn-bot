@@ -73,7 +73,7 @@ boundary           150 internal/boundary
 # ter-commit, tanpa headroom. Tidak ada baris yang turun: Σ core 46.385 -> 46.414.
 ctxdb             5919 internal/ctxdb
 # ADR-074: storage konsumen di internal/ctxdb/<consumer>store, dipotong dari baris konsumennya (Σ tidak berubah oleh ADR-074).
-# ctxdb/gwstore (900) dihitung dari budget gateway SPEC §3.2.4; barisnya ditambah saat baris gateway dibuat (F4).
+# ctxdb/gwstore (900) dihitung dari budget gateway SPEC §3.2.4; barisnya dibukukan sebagai MODULE (ADR-245).
 ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore
 ctxdb/memstore     600 internal/ctxdb/memstore
 # ADR-173: skillstore exact lookup + atomic update/quarantine restore; 400 -> 460 (terukur 438; Σ core +60).
@@ -194,14 +194,17 @@ MODULE update      1500 internal/update
 MODULE profiles     800 internal/profiles
 # ADR-244 (F4): kelas MODULE di luar Σ core, cap persis SPEC §3.2.4. SPEC `heal + obs` 5.500
 # dipecah: baris core `heal` 1.500 (di atas) + MODULE obs 4.000 = 5.500. SPEC gateway 10.500 =
-# MODULE gateway 9.600 + `ctxdb/gwstore` 900 (ADR-074; dibukukan saat store-nya dibangun, ADR
-# sendiri). `cron` 3.500. `scorecard` 500 dari baris SPEC `batch/evals/trajectory + scorecard job`
-# 3.000; sisa 2.500 tetap rencana F8. Σ MODULE F4 = 17.600; Σ kelas MODULE = 37.400
-# (+backup core 1.467 = 38.867) <= 39.100.
+# MODULE gateway 9.600 + MODULE gwstore 900 (ADR-074; dibukukan ADR-245). `cron` 3.500.
+# `scorecard` 500 dari baris SPEC `batch/evals/trajectory + scorecard job` 3.000; sisa 2.500
+# tetap rencana F8. Σ MODULE F4 = 18.500; Σ kelas MODULE = 38.300 (+backup core 1.467 = 39.767)
+# <= 40.000.
 # ADR-244: SPEC §3.2.4:282 (`heal`+`obs` 5.500 -> obs 4.000).
 MODULE obs         4000 internal/obs
 # ADR-244: SPEC §3.2.4:286 (gateway core + gateway/telegram 10.500 -> gateway 9.600).
 MODULE gateway     9600 internal/gateway
+# ADR-245: sisa 900 baris SPEC gateway 10.500 = storage konsumen `ctxdb/gwstore` (ADR-074),
+# dibukukan sebagai MODULE agar Σ core 47.511/47.600 tidak ditembus.
+MODULE gwstore      900 internal/ctxdb/gwstore
 # ADR-244: SPEC §3.2.4:287 (cron 3.500).
 MODULE cron        3500 internal/cron
 # ADR-244: SPEC §3.2.4:307 (scorecard job 500 dari 3.000; sisa 2.500 F8).
