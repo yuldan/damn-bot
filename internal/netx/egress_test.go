@@ -13,11 +13,13 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/damnbot/damnbot/internal/netx/retry"
 )
 
 // clientCall matches a production egress call site with a literal name and
 // purpose, e.g. net.Client("refs", netx.Tool).
-var clientCall = regexp.MustCompile(`\.Client\("([^"]+)",\s*(?:netx\.)?(Inference|Tool|Background)\)`)
+var clientCall = regexp.MustCompile(`\.Client\("([^"]+)",\s*(?:netx\.)?(Inference|Tool|Background|Gateway)\)`)
 
 func purposeOf(name string) Purpose {
 	switch name {
@@ -25,6 +27,8 @@ func purposeOf(name string) Purpose {
 		return Inference
 	case "Tool":
 		return Tool
+	case "Gateway":
+		return Gateway
 	default:
 		return Background
 	}
@@ -116,7 +120,7 @@ func TestBackgroundOffDoesNotOverBlock(t *testing.T) {
 		hits.Add(1)
 	})
 	n := newNet(t, Config{NoBackground: true})
-	for _, p := range []Purpose{Inference, Tool} {
+	for _, p := range []Purpose{Inference, Tool, Gateway} {
 		resp, err := n.Client("allowed", p).DoOK(get(t, srv.URL))
 		if err != nil {
 			t.Fatalf("purpose %s refused under background=false: %v", p, err)
@@ -125,15 +129,46 @@ func TestBackgroundOffDoesNotOverBlock(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if hits.Load() != 2 {
-		t.Errorf("server hits = %d, want 2", hits.Load())
+	if hits.Load() != 3 {
+		t.Errorf("server hits = %d, want 3", hits.Load())
 	}
 	resp, err := n.Client("update", Background).Do(get(t, srv.URL))
 	closeBody(t, resp)
 	if !errors.Is(err, ErrEgressDisabled) {
 		t.Fatalf("background error = %v, want ErrEgressDisabled", err)
 	}
-	if hits.Load() != 2 {
-		t.Errorf("server hits after a refused background call = %d, want 2", hits.Load())
+	if hits.Load() != 3 {
+		t.Errorf("server hits after a refused background call = %d, want 3", hits.Load())
+	}
+}
+
+// TestGatewayPurpose (ADR-247): gateway egress ignores network.background, is
+// not DLP-scanned (the Bot API token lives in the URL path), and offline
+// refuses it outright even for a loopback target.
+func TestGatewayPurpose(t *testing.T) {
+	t.Parallel()
+	var hits atomic.Int32
+	srv, _ := server(t, func(w http.ResponseWriter, _ *http.Request) { hits.Add(1) })
+	// Assembled at run time so the repository secret scan never sees a token.
+	token := "1234567" + "8:" + strings.Repeat("Q", 35)
+	n := newNet(t, Config{NoBackground: true, Secrets: []string{token}})
+	resp, err := n.Client("telegram", Gateway).DoOK(get(t, srv.URL+"/bot"+token+"/getMe"))
+	if err != nil {
+		t.Fatalf("gateway egress was scanned or refused: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("gateway hits = %d, want 1", hits.Load())
+	}
+	off := newNet(t, Config{Offline: true})
+	offResp, offErr := off.Client("telegram", Gateway).Do(get(t, srv.URL))
+	closeBody(t, offResp)
+	if !errors.Is(offErr, ErrOffline) || retry.ClassifyErr(offErr) != retry.OfflineMode {
+		t.Fatalf("offline gateway: %v", offErr)
+	}
+	if hits.Load() != 1 {
+		t.Errorf("offline gateway reached the server: %d hits", hits.Load())
 	}
 }

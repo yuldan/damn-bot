@@ -30,6 +30,11 @@ func Registry() map[string]Egress {
 			Host:    "[update].feed_url (default https://api.github.com/repos/yuldan/damn-bot/releases)",
 			Trigger: "damnbot update; the daily check in serve (F4)",
 		},
+		"telegram": {
+			Purpose: Gateway,
+			Host:    "api.telegram.org",
+			Trigger: "gateway long polling and message delivery for a user turn",
+		},
 	}
 }
 
@@ -42,6 +47,8 @@ func (p Purpose) String() string {
 		return "tool"
 	case Background:
 		return "background"
+	case Gateway:
+		return "gateway"
 	default:
 		return "unknown"
 	}

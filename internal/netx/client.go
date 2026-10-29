@@ -28,6 +28,12 @@ const (
 	// Background: non-inference traffic the user did not ask for (update
 	// check, /models refresh, catalogs); off when network.background = false.
 	Background
+	// Gateway: user-initiated platform egress of a messaging adapter (Telegram
+	// Bot API). Offline refuses it, network.background does not apply, the
+	// proxy is honoured, and the request skips the DLP gate: the Bot API puts
+	// the token in the URL path, which is itself a §14.3 secret pattern
+	// (ADR-247).
+	Gateway
 )
 
 // Config is the network policy, copied by [New] (EC-PROV-028: later
@@ -122,7 +128,11 @@ func (n *Network) Client(name string, p Purpose) *Client {
 		c.hc.Transport, c.scan = n.tool, true
 	case p == Background && n.cfg.NoBackground:
 		c.refuse = refuse(ErrEgressDisabled)
-	case p != Inference && p != Background:
+	case p == Gateway && n.cfg.Offline:
+		// Gateway egress is a remote platform with no local analogue: offline
+		// blocks it outright, even for a loopback base URL (ADR-247).
+		c.refuse = refuse(ErrOffline)
+	case p != Inference && p != Background && p != Gateway:
 		c.refuse = &classedError{err: fmt.Errorf("%w %d", ErrPurpose, p), class: retry.BadRequest}
 	}
 	return c
