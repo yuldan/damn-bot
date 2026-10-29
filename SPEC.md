@@ -1453,7 +1453,7 @@ CREATE TABLE imported_items (
 CREATE INDEX idx_imported_items_run ON imported_items(run_id);  -- indeks anak FK (ADR-040, `TestFKChildIndexes`)
 ```
 
-### 11.4 `0003_gateway.sql`
+### 11.4 `0003_gateway.sql` + `0015_gateway_wiring.sql`
 
 ```sql
 -- 0003_gateway.sql — identitas & peran, percakapan, dedupe inbound, outbox
@@ -1488,6 +1488,7 @@ CREATE TABLE gateway_inbound (
     platform     TEXT    NOT NULL,
     external_id  TEXT    NOT NULL,             -- update_id / message id platform
     chat_id      TEXT    NOT NULL,
+    thread_id    TEXT    NOT NULL DEFAULT '',  -- topik platform; routing pasca-restart ke sesi yang sama (0015, ADR-249)
     sender_id    TEXT    NOT NULL,
     event_id     INTEGER REFERENCES events(id), -- NULL = antre; diisi tepat sekali oleh worker (SELF-HEALING §5.1)
     payload      TEXT    CHECK (payload IS NULL OR json_valid(payload)),  -- isi pesan durable selama antre (ADR-046): {text, caption?, reply_to?, attachments[].blob_sha, kind};
@@ -1500,10 +1501,12 @@ CREATE INDEX idx_gw_inbound_event ON gateway_inbound(event_id) WHERE event_id IS
 CREATE INDEX idx_gw_inbound_queue ON gateway_inbound(platform, chat_id, received_at, external_id) WHERE event_id IS NULL;  -- antrean kerja per chat (ADR-046); urutan kerja = `rowid` (urutan INSERT, juga ingest spool), `received_at` hanya tampilan/retensi (ADR-052 AF-03)
 -- Mutable terbatas: satu-satunya UPDATE yang sah = (event_id NULL → nilai, payload → NULL) dalam satu UPDATE; kolom lain dan DELETE ditolak
 -- (kecuali `sessions purge`: trigger ber-`WHEN dmb_maint() IS NOT 'purge'` seperti tabel append-only, ADR-042).
+-- 0015 (ADR-249) membuat ulang trigger ini hanya untuk menambah `thread_id` ke daftar kolom immutable.
 CREATE TRIGGER gwin_update_guard BEFORE UPDATE ON gateway_inbound
 WHEN OLD.event_id IS NOT NULL OR NEW.event_id IS NULL OR NEW.payload IS NOT NULL
   OR NEW.platform IS NOT OLD.platform OR NEW.external_id IS NOT OLD.external_id
   OR NEW.chat_id IS NOT OLD.chat_id OR NEW.sender_id IS NOT OLD.sender_id OR NEW.received_at IS NOT OLD.received_at
+  OR NEW.thread_id IS NOT OLD.thread_id
 BEGIN SELECT RAISE(ABORT, 'gateway_inbound: only (event_id NULL->value, payload->NULL)'); END;
 CREATE TRIGGER gwin_no_delete BEFORE DELETE ON gateway_inbound WHEN dmb_maint() IS NOT 'purge' BEGIN SELECT RAISE(ABORT, 'gateway_inbound is insert-only'); END;
 
@@ -1526,6 +1529,18 @@ CREATE TABLE gateway_deliveries (              -- outbox; status mutable
 CREATE INDEX idx_gw_deliveries_due ON gateway_deliveries(status, next_at);
 CREATE INDEX idx_gw_deliveries_media ON gateway_deliveries(media_blob_sha) WHERE media_blob_sha IS NOT NULL;  -- indeks anak FK `blobs`
 CREATE INDEX idx_gw_deliveries_event ON gateway_deliveries(event_id) WHERE event_id IS NOT NULL;  -- indeks anak FK (ADR-040, `TestFKChildIndexes`)
+
+-- 0015_gateway_wiring.sql (ADR-249): message id outbound per idem key (edit-stream
+-- mengedit pesan yang sama setelah restart) dan klaim callback query sekali.
+CREATE TABLE gateway_message_ids (
+    key        TEXT    PRIMARY KEY,     -- `gateway_deliveries.idem_key`
+    message_id INTEGER NOT NULL,        -- 0 = uncertain: kirim timeout, id platform tidak diketahui
+    updated_at INTEGER NOT NULL
+) STRICT;
+CREATE TABLE gateway_callbacks (
+    callback_id TEXT    PRIMARY KEY,
+    claimed_at  INTEGER NOT NULL
+) STRICT;
 ```
 
 ### 11.5 `0004_scheduler.sql`
