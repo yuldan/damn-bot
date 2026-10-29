@@ -52,7 +52,7 @@ func TestClaimOncePerSlot(t *testing.T) {
 	addJob(t, db, "job-1", true)
 	s := Store{DB: db}
 	for i, want := range []bool{true, false} {
-		got, err := s.Claim(t.Context(), "job-1", slot(15), "pid@host")
+		got, err := s.Claim(t.Context(), "job-1", slot(15), slot(15), "pid@host")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -61,10 +61,10 @@ func TestClaimOncePerSlot(t *testing.T) {
 		}
 	}
 	again := Store{DB: db} // restart: the row is still the owner
-	if got, err := again.Claim(t.Context(), "job-1", slot(15), "other@host"); err != nil || got {
+	if got, err := again.Claim(t.Context(), "job-1", slot(15), slot(15), "other@host"); err != nil || got {
 		t.Fatalf("restart claim = %v, %v; want false, nil", got, err)
 	}
-	if ok, err := s.Claim(t.Context(), "job-1", slot(20), "pid@host"); err != nil || !ok {
+	if ok, err := s.Claim(t.Context(), "job-1", slot(20), slot(20), "pid@host"); err != nil || !ok {
 		t.Fatalf("claim of another slot = %v, %v; want true, nil", ok, err)
 	}
 	if n := runCount(t, db); n != 2 {
@@ -88,13 +88,13 @@ func TestMissedBlocksLaterClaim(t *testing.T) {
 	db := open(t)
 	addJob(t, db, "job-1", true)
 	s := Store{DB: db}
-	if err := s.Missed(t.Context(), "job-1", slot(15)); err != nil {
+	if err := s.Record(t.Context(), "job-1", slot(15), &Run{Outcome: "missed"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Missed(t.Context(), "job-1", slot(15)); err != nil {
+	if err := s.Record(t.Context(), "job-1", slot(15), &Run{Outcome: "missed"}); err != nil {
 		t.Fatalf("second missed = %v, want idempotent nil", err)
 	}
-	if got, err := s.Claim(t.Context(), "job-1", slot(15), "pid@host"); err != nil || got {
+	if got, err := s.Claim(t.Context(), "job-1", slot(15), slot(15), "pid@host"); err != nil || got {
 		t.Fatalf("claim after missed = %v, %v; want false, nil", got, err)
 	}
 	st, err := s.State(t.Context(), "job-1")
@@ -110,10 +110,10 @@ func TestFinishStoresOutcome(t *testing.T) {
 	db := open(t)
 	addJob(t, db, "job-1", true)
 	s := Store{DB: db}
-	if ok, err := s.Claim(t.Context(), "job-1", slot(15), "pid@host"); err != nil || !ok {
+	if ok, err := s.Claim(t.Context(), "job-1", slot(15), slot(15), "pid@host"); err != nil || !ok {
 		t.Fatalf("claim = %v, %v", ok, err)
 	}
-	if err := s.Finish(t.Context(), "job-1", slot(15), Run{Outcome: "failed", Err: "boom"}); err != nil {
+	if err := s.Finish(t.Context(), "job-1", slot(15), &Run{Outcome: "failed", Err: "boom"}); err != nil {
 		t.Fatal(err)
 	}
 	var outcome, msg string
@@ -147,5 +147,96 @@ func TestJobsAndDisabledState(t *testing.T) {
 	if jobs[0].CatchUp != "run_once" || jobs[0].MaxCatchUp != 3 ||
 		jobs[0].ApprovalMode != "ask" || !jobs[0].CreatedAt.Equal(time.UnixMilli(1000)) {
 		t.Fatalf("defaults not read: %+v", jobs[0])
+	}
+}
+
+// TestActiveQueuedAndTake: a queued claim is visible as queued and TakeQueued
+// promotes exactly that slot to running.
+func TestActiveQueuedAndTake(t *testing.T) {
+	db := open(t)
+	addJob(t, db, "job-1", true)
+	s := Store{DB: db}
+	if ok, err := s.Claim(t.Context(), "job-1", slot(15), slot(15), "pid@host"); err != nil || !ok {
+		t.Fatalf("running claim = %v, %v", ok, err)
+	}
+	if ok, err := s.Claim(t.Context(), "job-1", slot(16), time.Time{}, "pid@host"); err != nil || !ok {
+		t.Fatalf("queued claim = %v, %v", ok, err)
+	}
+	a, err := s.Active(t.Context(), "job-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Running != 1 || a.Queued != 1 {
+		t.Fatalf("active = %+v, want 1 running 1 queued", a)
+	}
+	takeQueued(t, s)
+}
+
+func takeQueued(t *testing.T, s Store) {
+	t.Helper()
+	got, ok, err := s.TakeQueued(t.Context(), "job-1", slot(17))
+	if err != nil || !ok || !got.Equal(slot(16)) {
+		t.Fatalf("TakeQueued = %s, %v, %v; want 10:16", got, ok, err)
+	}
+	a, err := s.Active(t.Context(), "job-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Running != 2 || a.Queued != 0 {
+		t.Fatalf("active after take = %+v, want 2 running", a)
+	}
+	if _, ok, err = s.TakeQueued(t.Context(), "job-1", slot(18)); err != nil || ok {
+		t.Fatalf("empty queue = %v, %v; want false, nil", ok, err)
+	}
+}
+
+// TestFinishMonitorFields: exit/attempt go to stop_reason and the timestamps
+// expose the duration (no new columns).
+func TestFinishMonitorFields(t *testing.T) {
+	db := open(t)
+	addJob(t, db, "job-1", true)
+	s := Store{DB: db}
+	if ok, err := s.Claim(t.Context(), "job-1", slot(15), slot(15), "pid@host"); err != nil || !ok {
+		t.Fatalf("claim = %v, %v", ok, err)
+	}
+	started := slot(15)
+	if err := s.Finish(t.Context(), "job-1", slot(15), &Run{
+		Outcome: "failed", Err: "boom", Exit: 3, Attempt: 1,
+		StartedAt: started, FinishedAt: started.Add(1500 * time.Millisecond),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var (
+		reason   string
+		finished int64
+	)
+	err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT stop_reason, finished_at FROM cron_runs
+			WHERE job_id = ?1 AND scheduled_at = ?2`,
+			[]any{"job-1", slot(15).UnixMilli()}, &reason, &finished)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "exit=3 attempt=1 duration_ms=1500"
+	if reason != want {
+		t.Fatalf("stop_reason = %q, want %q", reason, want)
+	}
+	if finished != slot(15).Add(1500*time.Millisecond).UnixMilli() {
+		t.Fatalf("finished_at = %d, want %d", finished, slot(15).Add(1500*time.Millisecond).UnixMilli())
+	}
+}
+
+// TestRecordSkippedOverlapBlocksClaim: the overlap row is terminal and owns
+// the slot, so a later claim loses.
+func TestRecordSkippedOverlapBlocksClaim(t *testing.T) {
+	db := open(t)
+	addJob(t, db, "job-1", true)
+	s := Store{DB: db}
+	if err := s.Record(t.Context(), "job-1", slot(15), &Run{Outcome: "skipped_overlap", Err: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.Claim(t.Context(), "job-1", slot(15), slot(15), "pid@host"); err != nil || ok {
+		t.Fatalf("claim after skipped_overlap = %v, %v; want false, nil", ok, err)
 	}
 }
