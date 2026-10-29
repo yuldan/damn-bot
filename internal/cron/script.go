@@ -21,6 +21,18 @@ var (
 	ErrApproval = errors.New("cron: script denied")
 )
 
+// ExitError carries a process exit code to the monitor (cron_runs.stop_reason).
+type ExitError struct {
+	Code int
+	Err  error
+}
+
+func (e *ExitError) Error() string { return e.Err.Error() }
+func (e *ExitError) Unwrap() error { return e.Err }
+
+// ExitCode reports the process exit code.
+func (e *ExitError) ExitCode() int { return e.Code }
+
 // ScriptExecutor runs Job.Script through internal/exec (process-group kill,
 // timeout, SEC-02 env), never a second executor. AUTO-007 allows 3600 s but
 // exec caps one call at 600 s.
@@ -62,7 +74,7 @@ func (e *ScriptExecutor) Run(ctx context.Context, j *Job) (string, error) {
 	switch res.Status {
 	case exec.StatusExited:
 		if res.ExitCode != nil && *res.ExitCode != 0 {
-			return out, fmt.Errorf("cron: script exit %d", *res.ExitCode)
+			return out, &ExitError{Code: *res.ExitCode, Err: fmt.Errorf("cron: script exit %d", *res.ExitCode)}
 		}
 		return out, nil
 	case exec.StatusTimeout:
