@@ -11,9 +11,9 @@ import (
 // masuk Σ core. Preseden: baris infra non-produksi NEW-34 juga di luar Σ core; kelas MODULE selalu
 // dilewati `budgetCoreSum` dan tetap ditegakkan per-baris oleh `scripts/loc-check.sh budget`.
 const (
-	maxModuleLOC   = 39100 // Σ kelas MODULE: F3 21.500 (ADR-196) + F4 17.600 (ADR-244)
+	maxModuleLOC   = 40000 // Σ kelas MODULE: F3 21.500 (ADR-196) + F4 18.500 (ADR-244, ADR-245)
 	maxF3ModuleLOC = 21500 // ROADMAP F3 = 21.500 (tui + acp + importer/ops); F3 tanpa backup
-	maxF4ModuleLOC = 17600 // ROADMAP F4 = 20.000: heal core 1.500 + MODULE 17.600 (ADR-244)
+	maxF4ModuleLOC = 18500 // ROADMAP F4 = 20.000: heal core 1.500 + MODULE 18.500 (ADR-244, ADR-245)
 	maxF3OpsLOC    = 9000  // SPEC §3.2.4: importer + setup/doctor/update/profiles/backup
 )
 
@@ -121,7 +121,7 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 	wantCaps := map[string]int{
 		"tui": 10000, "acp": 2500, "importer": 2600, "setup": 1300,
 		"doctor": 1100, "update": 1500, "profiles": 800,
-		"obs": 4000, "gateway": 9600, "cron": 3500, "scorecard": 500,
+		"obs": 4000, "gateway": 9600, "gwstore": 900, "cron": 3500, "scorecard": 500,
 	}
 	backupCap, hasBackup := 0, false
 	opsSum, f3Sum, f4Sum := 0, 0, 0
@@ -187,10 +187,10 @@ func f3ModuleFamily(name string) bool {
 	return name == "tui" || name == "acp" || f3OpsFamily(name)
 }
 
-// f4ModuleFamily: baris MODULE F4 (ADR-244); ROADMAP F4 = 20.000 termasuk `heal` core 1.500.
+// f4ModuleFamily: baris MODULE F4 (ADR-244, ADR-245); ROADMAP F4 = 20.000 termasuk `heal` core 1.500.
 func f4ModuleFamily(name string) bool {
 	switch name {
-	case "obs", "gateway", "cron", "scorecard":
+	case "obs", "gateway", "gwstore", "cron", "scorecard":
 		return true
 	}
 	return false
@@ -213,9 +213,11 @@ func checkModuleNamesVsCore(t *testing.T, rows []locBudgetRow) {
 	}
 }
 
-// checkModuleOverlaps: setiap direktori MODULE harus eksklusif terhadap SEMUA baris lain (termasuk
-// core dan infra, dua arah prefix); tanpa ini longest-prefix `loc-check` bisa membuat cap modul
-// tidak pernah terpakai.
+// checkModuleOverlaps: setiap direktori MODULE harus menjadi longest-prefix untuk file-nya, jadi
+// direktori itu tidak boleh sama dengan atau MEMUAT direktori baris lain (termasuk core dan infra):
+// `loc-check` lalu akan menagih file itu ke baris lain dan cap modul tidak pernah terpakai.
+// Sebaliknya, MODULE yang BERADA DI DALAM direktori baris lain sah (ADR-245: `gwstore` di bawah
+// `ctxdb`): path-nya lebih panjang, jadi atribusi justru memilih baris MODULE.
 func checkModuleOverlaps(t *testing.T, rows []locBudgetRow) {
 	t.Helper()
 	for i, row := range rows {
@@ -224,26 +226,27 @@ func checkModuleOverlaps(t *testing.T, rows []locBudgetRow) {
 		}
 		for j, other := range rows {
 			if i != j {
-				reportDirOverlaps(t, row, other)
+				reportShadowedModule(t, row, other)
 			}
 		}
 	}
 }
 
-func reportDirOverlaps(t *testing.T, row, other locBudgetRow) {
+func reportShadowedModule(t *testing.T, row, other locBudgetRow) {
 	t.Helper()
 	for _, dir := range row.dirs {
 		for _, otherDir := range other.dirs {
-			if dirOverlaps(dir, otherDir) {
-				t.Errorf("loc.budget: direktori MODULE %q (%s) tumpang tindih dengan %q (%s); satu file akan jatuh ke dua baris",
+			if shadowsModule(dir, otherDir) {
+				t.Errorf("loc.budget: direktori MODULE %q (%s) sama dengan atau memuat %q (%s); file di bawah baris lain akan menang longest-prefix dan cap modul tidak terpakai",
 					dir, row.line, otherDir, other.line)
 			}
 		}
 	}
 }
 
-func dirOverlaps(a, b string) bool {
-	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
+// shadowsModule: a modul shadowed by b (sama, atau b lebih dalam sehingga b menang atribusi).
+func shadowsModule(a, b string) bool {
+	return a == b || strings.HasPrefix(b, a+"/")
 }
 
 // checkCoreSumIgnoresModules membuktikan kelas MODULE tidak menambah Σ core.
@@ -261,5 +264,26 @@ func checkCoreSumIgnoresModules(t *testing.T, budget string) {
 	if withModules != withoutModules {
 		t.Errorf("budgetCoreSum berubah oleh baris MODULE: %d dengan, %d tanpa; kelas MODULE harus di luar Σ core (ADR-196)",
 			withModules, withoutModules)
+	}
+}
+
+// TestShadowsModuleDirection pins the one-directional overlap rule of ADR-245:
+// equal and module-contains-core are rejected, core-contains-module is accepted.
+func TestShadowsModuleDirection(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		module, other string
+		shadowed      bool
+	}{
+		{"internal/ctxdb/gwstore", "internal/ctxdb", false},
+		{"internal/gateway", "internal/gateway/telegram", true},
+		{"internal/gateway", "internal/gateway", true},
+		{"internal/ctxdb/gwstore", "internal/ctxdb/gwstore", true},
+		{"internal/obs", "internal/obs2", false},
+	}
+	for _, c := range cases {
+		if got := shadowsModule(c.module, c.other); got != c.shadowed {
+			t.Errorf("shadowsModule(%q, %q) = %v, want %v", c.module, c.other, got, c.shadowed)
+		}
 	}
 }
