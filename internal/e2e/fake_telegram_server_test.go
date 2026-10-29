@@ -75,11 +75,48 @@ type FakeTGChat struct {
 
 // FakeTGMessage is a Telegram message object.
 type FakeTGMessage struct {
-	MessageID int64       `json:"message_id"`
-	From      *FakeTGUser `json:"from,omitempty"`
-	Date      int64       `json:"date"`
-	Chat      FakeTGChat  `json:"chat"`
-	Text      string      `json:"text,omitempty"`
+	MessageID       int64                 `json:"message_id"`
+	MessageThreadID int                   `json:"message_thread_id,omitempty"`
+	From            *FakeTGUser           `json:"from,omitempty"`
+	Date            int64                 `json:"date"`
+	EditDate        int64                 `json:"edit_date,omitempty"`
+	Chat            FakeTGChat            `json:"chat"`
+	Text            string                `json:"text,omitempty"`
+	Caption         string                `json:"caption,omitempty"`
+	Entities        []FakeTGMessageEntity `json:"entities,omitempty"`
+	Photo           []FakeTGPhotoSize     `json:"photo,omitempty"`
+	Document        *FakeTGDocument       `json:"document,omitempty"`
+}
+
+// FakeTGMessageEntity is one message entity (only bot_command is produced).
+type FakeTGMessageEntity struct {
+	Type   string `json:"type"`
+	Offset int    `json:"offset"`
+	Length int    `json:"length"`
+}
+
+// FakeTGPhotoSize is one inbound photo size.
+type FakeTGPhotoSize struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+}
+
+// FakeTGDocument is one inbound document.
+type FakeTGDocument struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	FileName     string `json:"file_name,omitempty"`
+	MimeType     string `json:"mime_type,omitempty"`
+	FileSize     int64  `json:"file_size,omitempty"`
+}
+
+// FakeTGMedia describes an inbound media message for PushMedia.
+type FakeTGMedia struct {
+	Kind    string // "photo" or any document mime type / label
+	FileID  string
+	Caption string
 }
 
 // FakeTGCallbackQuery is a Telegram callback query update payload.
@@ -94,6 +131,7 @@ type FakeTGCallbackQuery struct {
 type FakeTGUpdate struct {
 	UpdateID      int64                `json:"update_id"`
 	Message       *FakeTGMessage       `json:"message,omitempty"`
+	EditedMessage *FakeTGMessage       `json:"edited_message,omitempty"`
 	CallbackQuery *FakeTGCallbackQuery `json:"callback_query,omitempty"`
 }
 
@@ -102,7 +140,9 @@ type FakeTGRequest struct {
 	Seq             int
 	Method          string
 	ChatID          int64
-	MessageID       int64
+	MessageID       int64 // message_id parameter (edit/delete)
+	ResultMessageID int64 // message_id returned by sendMessage/editMessageText
+	Status          int   // HTTP status actually sent; 0 = dropped connection
 	Text            string
 	CallbackQueryID string
 	CallbackData    string
@@ -117,6 +157,14 @@ type FakeTGAPIError struct {
 	Code        int
 	Description string
 	RetryAfter  int
+}
+
+// Error implements error so conversation drivers can branch on Telegram errors.
+func (e FakeTGAPIError) Error() string {
+	if e.RetryAfter > 0 {
+		return fmt.Sprintf("telegram %d: %s (retry_after %d)", e.Code, e.Description, e.RetryAfter)
+	}
+	return fmt.Sprintf("telegram %d: %s", e.Code, e.Description)
 }
 
 // FakeTGFileInfo is the getFile result.
@@ -239,22 +287,112 @@ func (s *FakeTG) Requests() []FakeTGRequest {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]FakeTGRequest, len(s.reqs))
-	for i, req := range s.reqs {
-		out[i] = req
-		out[i].Params = maps.Clone(req.Params)
+	for i := range s.reqs {
+		out[i] = s.reqs[i]
+		out[i].Params = maps.Clone(s.reqs[i].Params)
 	}
 	return out
 }
 
 // RequestsFor filters the recorded calls by method.
 func (s *FakeTG) RequestsFor(method string) []FakeTGRequest {
+	requests := s.Requests()
 	out := make([]FakeTGRequest, 0)
-	for _, req := range s.Requests() {
-		if req.Method == method {
-			out = append(out, req)
+	for i := range requests {
+		if requests[i].Method == method {
+			out = append(out, requests[i])
 		}
 	}
 	return out
+}
+
+// Sends returns successful sendMessage calls in order. Faulted attempts stay
+// visible through RequestsFor("sendMessage").
+func (s *FakeTG) Sends() []FakeTGRequest { return s.successful("sendMessage") }
+
+// Edits returns successful editMessageText calls in order; a streaming turn
+// may legitimately contain many edits for one message.
+func (s *FakeTG) Edits() []FakeTGRequest { return s.successful("editMessageText") }
+
+// EditsFor returns successful edits for one message id.
+func (s *FakeTG) EditsFor(messageID int64) []FakeTGRequest {
+	edits := s.Edits()
+	out := make([]FakeTGRequest, 0)
+	for i := range edits {
+		if edits[i].MessageID == messageID {
+			out = append(out, edits[i])
+		}
+	}
+	return out
+}
+
+// CallbackAnswers returns successful answerCallbackQuery calls in order.
+func (s *FakeTG) CallbackAnswers() []FakeTGRequest { return s.successful("answerCallbackQuery") }
+
+func (s *FakeTG) successful(method string) []FakeTGRequest {
+	requests := s.RequestsFor(method)
+	out := make([]FakeTGRequest, 0)
+	for i := range requests {
+		if requests[i].Status == http.StatusOK {
+			out = append(out, requests[i])
+		}
+	}
+	return out
+}
+
+// WaitSend blocks until a successful send to chatID matches pred (nil = any).
+func (s *FakeTG) WaitSend(chatID int64, pred func(FakeTGRequest) bool, timeout time.Duration) (FakeTGRequest, error) {
+	return s.waitOutbound("send", chatID, pred, timeout, s.Sends)
+}
+
+// WaitEdit blocks until a successful edit to chatID matches pred (nil = any).
+func (s *FakeTG) WaitEdit(chatID int64, pred func(FakeTGRequest) bool, timeout time.Duration) (FakeTGRequest, error) {
+	return s.waitOutbound("edit", chatID, pred, timeout, s.Edits)
+}
+
+func (s *FakeTG) waitOutbound(kind string, chatID int64, pred func(FakeTGRequest) bool, timeout time.Duration, list func() []FakeTGRequest) (FakeTGRequest, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		requests := list()
+		for i := range requests {
+			req := &requests[i]
+			if req.ChatID == chatID && (pred == nil || pred(*req)) {
+				return *req, nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return FakeTGRequest{}, fmt.Errorf("fake telegram: no matching %s to chat %d within %s", kind, chatID, timeout)
+		}
+		timer := time.NewTimer(5 * time.Millisecond)
+		<-timer.C
+	}
+}
+
+// Drain waits (default 2s) until no handler is in flight and the request count
+// is stable, so assertions see every response status and result id.
+func (s *FakeTG) Drain(timeouts ...time.Duration) error {
+	timeout := 2 * time.Second
+	if len(timeouts) > 0 && timeouts[0] > 0 {
+		timeout = timeouts[0]
+	}
+	deadline := time.Now().Add(timeout)
+	last := -1
+	stableSince := time.Now()
+	for {
+		total := len(s.Requests())
+		active := s.Active()
+		if total != last || active != 0 {
+			last = total
+			stableSince = time.Now()
+		} else if time.Since(stableSince) >= 10*time.Millisecond {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("fake telegram: outbound not stable after %s (%d requests, %d active)", timeout, total, active)
+		}
+		timer := time.NewTimer(2 * time.Millisecond)
+		<-timer.C
+	}
 }
 
 // PushUpdate appends an update and wakes every blocked getUpdates call. A zero
@@ -274,39 +412,111 @@ func (s *FakeTG) PushUpdate(up FakeTGUpdate) int64 {
 	return up.UpdateID
 }
 
-// PushText queues a plain text message update.
+// PushText queues a plain text message update (PushMessage with default sender).
 func (s *FakeTG) PushText(chatID int64, text string) int64 {
-	s.mu.Lock()
-	s.nextMessageID++
-	id := s.nextMessageID
-	s.mu.Unlock()
-	return s.PushUpdate(FakeTGUpdate{Message: &FakeTGMessage{
-		MessageID: id,
-		From:      &FakeTGUser{ID: chatID, FirstName: "user"},
-		Date:      time.Now().Unix(),
-		Chat:      FakeTGChat{ID: chatID, Type: "private"},
-		Text:      text,
-	}})
+	return s.PushMessage(chatID, 0, text, FakeTGUser{})
 }
 
-// PushCallback queues a callback-query update.
+// PushMessage queues an inbound text message and returns its monotonically
+// increasing update_id.
+func (s *FakeTG) PushMessage(chatID int64, thread int, text string, from FakeTGUser) int64 {
+	return s.PushUpdate(FakeTGUpdate{Message: s.inboundMessage(chatID, thread, text, from)})
+}
+
+// PushCommand queues an inbound bot command with a bot_command entity.
+func (s *FakeTG) PushCommand(chatID int64, thread int, command string, from FakeTGUser) int64 {
+	msg := s.inboundMessage(chatID, thread, command, from)
+	length := len(command)
+	if i := strings.IndexAny(command, " \t"); i >= 0 {
+		length = i
+	}
+	msg.Entities = []FakeTGMessageEntity{{Type: "bot_command", Offset: 0, Length: length}}
+	return s.PushUpdate(FakeTGUpdate{Message: msg})
+}
+
+// PushEdit queues an edited_message update for an existing message id.
+func (s *FakeTG) PushEdit(chatID int64, thread int, messageID int64, text string, from FakeTGUser) int64 {
+	if from.ID == 0 {
+		from = FakeTGUser{ID: chatID, FirstName: "user"}
+	}
+	now := time.Now().Unix()
+	msg := &FakeTGMessage{
+		MessageID:       messageID,
+		MessageThreadID: thread,
+		From:            &from,
+		Date:            now,
+		EditDate:        now,
+		Chat:            FakeTGChat{ID: chatID, Type: "private"},
+		Text:            text,
+	}
+	return s.PushUpdate(FakeTGUpdate{EditedMessage: msg})
+}
+
+// PushMedia queues an inbound photo/document message carrying file_id.
+func (s *FakeTG) PushMedia(chatID int64, thread int, media FakeTGMedia, from FakeTGUser) int64 {
+	msg := s.inboundMessage(chatID, thread, "", from)
+	msg.Caption = media.Caption
+	if media.Kind == "photo" {
+		msg.Photo = []FakeTGPhotoSize{{
+			FileID:       media.FileID,
+			FileUniqueID: "unique-" + media.FileID,
+			Width:        1,
+			Height:       1,
+		}}
+	} else {
+		mimeType := media.Kind
+		if !strings.Contains(mimeType, "/") {
+			mimeType = "application/octet-stream"
+		}
+		msg.Document = &FakeTGDocument{
+			FileID:       media.FileID,
+			FileUniqueID: "unique-" + media.FileID,
+			FileName:     media.FileID,
+			MimeType:     mimeType,
+		}
+	}
+	return s.PushUpdate(FakeTGUpdate{Message: msg})
+}
+
+// PushCallback queues a callback-query update with a default sender.
 func (s *FakeTG) PushCallback(chatID int64, data string) int64 {
+	return s.PushCallbackFrom(chatID, 0, data, FakeTGUser{})
+}
+
+// PushCallbackFrom queues a callback-query update from an explicit user/thread.
+func (s *FakeTG) PushCallbackFrom(chatID int64, thread int, data string, from FakeTGUser) int64 {
+	if from.ID == 0 {
+		from = FakeTGUser{ID: chatID, FirstName: "user"}
+	}
+	msg := s.inboundMessage(chatID, thread, "", FakeTGUser{})
 	s.mu.Lock()
-	s.nextMessageID++
-	id := s.nextMessageID
-	cbID := fmt.Sprintf("cb-%d", id)
+	cbID := fmt.Sprintf("cb-%d", msg.MessageID)
 	s.callbackData[cbID] = data
 	s.mu.Unlock()
 	return s.PushUpdate(FakeTGUpdate{CallbackQuery: &FakeTGCallbackQuery{
-		ID:   cbID,
-		From: FakeTGUser{ID: chatID, FirstName: "user"},
-		Data: data,
-		Message: &FakeTGMessage{
-			MessageID: id,
-			Date:      time.Now().Unix(),
-			Chat:      FakeTGChat{ID: chatID, Type: "private"},
-		},
+		ID:      cbID,
+		From:    from,
+		Data:    data,
+		Message: msg,
 	}})
+}
+
+func (s *FakeTG) inboundMessage(chatID int64, thread int, text string, from FakeTGUser) *FakeTGMessage {
+	if from.ID == 0 {
+		from = FakeTGUser{ID: chatID, FirstName: "user"}
+	}
+	s.mu.Lock()
+	s.nextMessageID++
+	id := s.nextMessageID
+	s.mu.Unlock()
+	return &FakeTGMessage{
+		MessageID:       id,
+		MessageThreadID: thread,
+		From:            &from,
+		Date:            time.Now().Unix(),
+		Chat:            FakeTGChat{ID: chatID, Type: "private"},
+		Text:            text,
+	}
 }
 
 // Active reports how many handlers are currently in flight.
@@ -368,36 +578,85 @@ func (s *FakeTG) begin() func() {
 	}
 }
 
+type tgStatusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (w *tgStatusWriter) WriteHeader(code int) {
+	if w.status == 0 {
+		w.status = code
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *tgStatusWriter) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	n, err := w.ResponseWriter.Write(body)
+	if err != nil {
+		return n, fmt.Errorf("fake telegram: write response: %w", err)
+	}
+	return n, nil
+}
+
+func (w *tgStatusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (s *FakeTG) handle(w http.ResponseWriter, r *http.Request) {
 	done := s.begin()
 	defer done()
+	sw := &tgStatusWriter{ResponseWriter: w}
+	seq := 0
+	defer func() {
+		if seq > 0 {
+			s.finishRequest(seq, sw.status)
+		}
+	}()
 	if strings.HasPrefix(r.URL.Path, "/file/") {
-		s.serveFile(w, r)
+		s.serveFile(sw, r)
 		return
 	}
 	token, method, ok := splitBotPath(r.URL.Path)
 	if !ok {
-		writeTGError(w, http.StatusNotFound, "Not Found", 0)
+		writeTGError(sw, http.StatusNotFound, "Not Found", 0)
 		return
 	}
 	if token != s.token {
-		writeTGError(w, http.StatusUnauthorized, "Unauthorized", 0)
+		writeTGError(sw, http.StatusUnauthorized, "Unauthorized", 0)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		writeTGError(w, http.StatusBadRequest, "Bad Request: cannot parse form", 0)
+		writeTGError(sw, http.StatusBadRequest, "Bad Request: cannot parse form", 0)
 		return
 	}
 	req := s.record(r, method)
+	seq = req.Seq
 	if !s.waitDelay(r.Context(), s.delays[method]) {
 		return
 	}
 	if fault, hit := s.takeFault(method); hit {
-		if s.applyFault(w, r, fault) {
+		if s.applyFault(sw, r, fault) {
 			return
 		}
 	}
-	s.dispatch(w, r, method, req)
+	s.dispatch(sw, r, method, req)
+}
+
+func (s *FakeTG) finishRequest(seq, status int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if seq > 0 && seq <= len(s.reqs) {
+		s.reqs[seq-1].Status = status
+	}
+}
+
+func (s *FakeTG) setResultMessageID(seq int, messageID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if seq > 0 && seq <= len(s.reqs) {
+		s.reqs[seq-1].ResultMessageID = messageID
+	}
 }
 
 func splitBotPath(path string) (token, method string, ok bool) {
@@ -500,11 +759,7 @@ func faultDescription(fault FakeTGFault) string {
 }
 
 func abortConnection(w http.ResponseWriter) bool {
-	hijacker, ok := w.(http.Hijacker)
-	if !ok {
-		return false
-	}
-	conn, _, err := hijacker.Hijack()
+	conn, _, err := http.NewResponseController(w).Hijack()
 	if err != nil {
 		return false
 	}
@@ -594,7 +849,9 @@ func (s *FakeTG) sendMessage(w http.ResponseWriter, req *FakeTGRequest) {
 		writeTGError(w, http.StatusBadRequest, "Bad Request: text is empty", 0)
 		return
 	}
-	writeTGResult(w, s.newMessage(req.ChatID, req.Text))
+	msg := s.newMessage(req.ChatID, req.Text)
+	s.setResultMessageID(req.Seq, msg.MessageID)
+	writeTGResult(w, msg)
 }
 
 func (s *FakeTG) newMessage(chatID int64, text string) FakeTGMessage {
@@ -616,6 +873,7 @@ func (s *FakeTG) editMessageText(w http.ResponseWriter, req *FakeTGRequest) {
 		writeTGError(w, http.StatusBadRequest, "Bad Request: message_id is required", 0)
 		return
 	}
+	s.setResultMessageID(req.Seq, req.MessageID)
 	writeTGResult(w, FakeTGMessage{
 		MessageID: req.MessageID,
 		From:      &s.bot,
