@@ -168,7 +168,7 @@ func (c *Conn) Next(ctx context.Context) (Request, *Error, error) {
 		frame, err := c.r.ReadFrame()
 		switch {
 		case errors.Is(err, ErrFrameTooLarge):
-			return Request{}, &Error{Code: CodeInvalidRequest, Message: "frame exceeds 16 MiB"}, nil
+			return Request{}, ErrFrameLimit, nil
 		case err != nil:
 			return Request{}, nil, fmt.Errorf("acp: next: %w", err)
 		}

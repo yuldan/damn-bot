@@ -113,10 +113,23 @@ func (c *fsClient) prompt(text string) {
 		case "session/update":
 		default:
 			if id, ok := f["id"].(float64); ok && id == 3 {
+				if e, ok := f["error"]; ok {
+					c.t.Fatalf("session/prompt failed: %v\nstderr:\n%s\nacp log:\n%s", e, c.p.errb.String(), acpLog(c.p))
+				}
 				return
 			}
 		}
 	}
+}
+
+// acpLog returns the child's ACP log (stdout is redirected there by the
+// REL-13 isolation) for failure diagnostics.
+func acpLog(p *fsProc) string {
+	b, err := os.ReadFile(filepath.Join(fsDataDirHome(p.home), "logs", "acp.log"))
+	if err != nil {
+		return "(no log)"
+	}
+	return string(b)
 }
 
 const acpFSConfig = `[provider]
@@ -134,14 +147,16 @@ func acpFSEnv(t *testing.T, srv *providertest.Server) []string {
 }
 
 // fsDataDir is the child's data dir (damnbot.db) for the harness HOME.
-func fsDataDir(e *Env) string {
+func fsDataDir(e *Env) string { return fsDataDirHome(e.home) }
+
+func fsDataDirHome(home string) string {
 	switch runtime.GOOS {
 	case "windows":
-		return filepath.Join(e.home, "AppData", "Local", "damnbot")
+		return filepath.Join(home, "AppData", "Local", "damnbot")
 	case "darwin":
-		return filepath.Join(e.home, "Library", "Application Support", "damnbot")
+		return filepath.Join(home, "Library", "Application Support", "damnbot")
 	}
-	return filepath.Join(e.home, ".local", "share", "damnbot")
+	return filepath.Join(home, ".local", "share", "damnbot")
 }
 
 // fallbackEvents counts acp_fs_fallback rows for one capability.

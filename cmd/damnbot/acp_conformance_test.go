@@ -8,7 +8,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/damnbot/damnbot/internal/acp"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/tui"
 )
@@ -428,5 +430,60 @@ func TestACPSetModelBusy(t *testing.T) {
 	}
 	if d := dataOf(t, f); d["error_code"] != "session_busy" {
 		t.Fatalf("data = %v, want session_busy", d)
+	}
+}
+
+// TestACPFrameLimit: an oversized frame answers -32600 and is dropped
+// without killing the connection (SPEC §13.3).
+func TestACPFrameLimit(t *testing.T) {
+	big := strings.Repeat("x", acp.MaxFrameBytes+64)
+	input := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"x":"` + big + `"}}` + "\n" +
+		`{"jsonrpc":"2.0","id":2,"method":"initialize","params":{}}` + "\n"
+	out := serveACP(t, input, nil, nil)
+	list := frames(t, out)
+	if len(list) != 2 {
+		t.Fatalf("frames = %d, want error + response", len(list))
+	}
+	errObj, ok := list[0]["error"].(map[string]any)
+	if !ok || errObj["code"] != float64(-32600) {
+		t.Fatalf("oversized frame = %v, want -32600", list[0])
+	}
+	if list[0]["id"] != nil {
+		t.Fatalf("oversized frame id = %v, want null", list[0]["id"])
+	}
+	second := reply(t, out, 2)
+	if second["error"] != nil || second["result"] == nil {
+		t.Fatalf("connection did not survive the oversized frame: %v", second)
+	}
+}
+
+// blockingWriter stalls every frame until its context deadline.
+type blockingWriter struct{}
+
+func (blockingWriter) WriteFrame(ctx context.Context, _ []byte) error {
+	<-ctx.Done()
+	return fmt.Errorf("blocked writer: %w", ctx.Err())
+}
+
+// TestACPWriteDeadline: a stuck stdout is a fatal transport error
+// (ErrWriteTimeout → exit 70 in runACP), not an endless wait.
+func TestACPWriteDeadline(t *testing.T) {
+	out := &syncBuffer{}
+	srv := fakeServer(t, out)
+	srv.writer = blockingWriter{}
+	srv.writeTimeout = 20 * time.Millisecond
+	start := time.Now()
+	err := srv.serve(t.Context(), strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`+"\n"))
+	if !errors.Is(err, acp.ErrWriteTimeout) {
+		t.Fatalf("serve = %v, want write timeout", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("write deadline took %v", elapsed)
+	}
+	srv.mu.Lock()
+	open := len(srv.sessions)
+	srv.mu.Unlock()
+	if open != 0 {
+		t.Fatalf("sessions left open: %d", open)
 	}
 }

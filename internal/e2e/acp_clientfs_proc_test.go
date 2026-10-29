@@ -6,12 +6,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -23,8 +25,31 @@ type fsProc struct {
 	cmd  *exec.Cmd
 	in   io.WriteCloser
 	out  *bufio.Reader
-	errb *bytes.Buffer
+	errb *lockedBuffer
 	sid  string
+	home string
+}
+
+// lockedBuffer is a process stderr buffer written by os/exec's copy
+// goroutine and read by the test under -race.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, err := b.buf.Write(p); err != nil {
+		return 0, fmt.Errorf("stderr buffer: %w", err)
+	}
+	return len(p), nil
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 func (p *fsProc) send(v any) {
@@ -132,12 +157,12 @@ func startFSACP(t *testing.T, e *Env, extraConfig string, extraEnv ...string) *f
 	if err != nil {
 		t.Fatal(err)
 	}
-	errb := &bytes.Buffer{}
+	errb := &lockedBuffer{}
 	cmd.Stderr = errb
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	p := &fsProc{t: t, cmd: cmd, in: in, out: bufio.NewReader(out), errb: errb}
+	p := &fsProc{t: t, cmd: cmd, in: in, out: bufio.NewReader(out), errb: errb, home: e.home}
 	t.Cleanup(func() {
 		cancel()
 		if cerr := in.Close(); cerr != nil {

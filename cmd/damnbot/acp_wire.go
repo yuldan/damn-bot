@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"slices"
 	"sync"
 	"time"
@@ -71,6 +70,10 @@ type acpServer struct {
 	history  acpHistory
 	// fsRead/fsWrite are clientCapabilities.fs from initialize (GAP-UX-01).
 	fsRead, fsWrite bool
+	// writeTimeout bounds one stdout frame (SPEC §13.3); zero = default.
+	writeTimeout time.Duration
+	errMu        sync.Mutex
+	fatal        error
 }
 
 // acpReply is one client response frame: exactly one of Result and Error.
@@ -119,7 +122,12 @@ func runACP(args []string, _ io.Writer, stderr io.Writer) int {
 		return 1
 	}
 	deps := tuiDeps{cfg: &cfg, dataDir: dataDir, configDir: configDir, home: home, opts: o, red: redact.New(redact.Options{}), modelRef: cfg.Provider.Model}
-	srv := newACPServer(&cfg, &deps, &streamWriter{w: os.Stdout}, newSessionID, nil)
+	in, out, logf, ierr := isolateACPStdio(dataDir)
+	if ierr != nil {
+		say(stderr, "acp: %s\n", cleanLine(ierr.Error()))
+		return 1
+	}
+	srv := newACPServer(&cfg, &deps, &streamWriter{w: out}, newSessionID, nil)
 	srv.factory = func(sid string, d *tuiDeps) acpRunner {
 		opts := *d.opts
 		opts.newSessionID = sid
@@ -135,10 +143,14 @@ func runACP(args []string, _ io.Writer, stderr io.Writer) int {
 		return newTUIRunner(&dd)
 	}
 	srv.history = &ctxHistoryStore{cfg: &cfg, dataDir: dataDir, configDir: configDir}
-	if f, ok := any(os.Stdout).(*os.File); ok {
-		srv.writer = acp.FileWriter{F: f}
-	}
-	if err := srv.serve(context.Background(), os.Stdin); err != nil {
+	srv.writer = acp.FileWriter{F: out}
+	if err := srv.serve(context.Background(), in); err != nil {
+		if errors.Is(err, acp.ErrWriteTimeout) {
+			if logf != nil {
+				say(logf, "ERROR acp: stdout write deadline exceeded; closing session\n")
+			}
+			return 70
+		}
 		say(stderr, "acp: %s\n", cleanLine(err.Error()))
 		return 1
 	}
@@ -147,15 +159,24 @@ func runACP(args []string, _ io.Writer, stderr io.Writer) int {
 
 func (s *acpServer) serve(ctx context.Context, in io.Reader) error {
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	defer func() {
+		cancel()
+		s.wg.Wait()
+		s.closeAll()
+	}()
 	rd := acp.NewReader(in)
 	for {
 		frame, err := rd.ReadFrame()
 		if errors.Is(err, io.EOF) {
-			cancel()
-			s.wg.Wait()
-			s.closeAll()
 			return nil
+		}
+		if errors.Is(err, acp.ErrFrameTooLarge) {
+			// The line was drained; answer -32600 and keep serving.
+			s.writeError(ctx, nil, acp.ErrFrameLimit)
+			if ferr := s.fatalErr(); ferr != nil {
+				return ferr
+			}
+			continue
 		}
 		if err != nil {
 			return fmt.Errorf("acp read: %w", err)
@@ -164,6 +185,9 @@ func (s *acpServer) serve(ctx context.Context, in io.Reader) error {
 			continue
 		}
 		s.handle(ctx, frame)
+		if ferr := s.fatalErr(); ferr != nil {
+			return ferr
+		}
 	}
 }
 
@@ -665,116 +689,42 @@ func (s *acpServer) askPermission(ctx context.Context, sid string, r *tui.Approv
 	}
 }
 
-// clientFS reports the client filesystem capabilities from initialize.
-func (s *acpServer) clientFS() (read, write bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.fsRead, s.fsWrite
-}
-
-// Request sends one agent→client JSON-RPC request and decodes the result
-// (GAP-UX-01). Client errors come back as *acp.RemoteError.
-func (s *acpServer) Request(ctx context.Context, method string, params, result any) error {
-	id := fmt.Sprintf("req-%d", s.bumpReq())
-	ch := make(chan acpReply, 1)
-	s.mu.Lock()
-	s.pending[id] = ch
-	s.mu.Unlock()
-	defer func() {
-		s.mu.Lock()
-		delete(s.pending, id)
-		s.mu.Unlock()
-	}()
-	if err := s.write(ctx, map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}); err != nil {
-		return err
-	}
-	select {
-	case reply := <-ch:
-		if len(reply.Error) > 0 {
-			var re acp.RemoteError
-			if err := json.Unmarshal(reply.Error, &re); err != nil {
-				return acp.ErrInternal
-			}
-			return &re
-		}
-		if result == nil {
-			return nil
-		}
-		if len(reply.Result) == 0 {
-			return acp.ErrInternal
-		}
-		if err := json.Unmarshal(reply.Result, result); err != nil {
-			return fmt.Errorf("acp: client result: %w", err)
-		}
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("acp: client request: %w", ctx.Err())
-	}
-}
-
-func (s *acpServer) bumpReq() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.reqSeq++
-	return s.reqSeq
-}
-
-func (s *acpServer) bumpPerm() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.permSeq++
-	return s.permSeq
-}
-
-func (s *acpServer) routeResponse(frame []byte) bool {
-	var r struct {
-		ID json.RawMessage `json:"id"`
-		acpReply
-	}
-	if json.Unmarshal(frame, &r) != nil || len(r.ID) == 0 {
-		return false
-	}
-	var id string
-	if json.Unmarshal(r.ID, &id) != nil {
-		return false
-	}
-	s.mu.Lock()
-	ch := s.pending[id]
-	s.mu.Unlock()
-	if ch == nil {
-		return false
-	}
-	ch <- r.acpReply
-	return true
-}
-
-func (s *acpServer) respond(ctx context.Context, id json.RawMessage, result any) {
-	if err := s.write(ctx, map[string]any{"jsonrpc": "2.0", "id": id, "result": result}); err != nil {
-		return
-	}
-}
-
-func (s *acpServer) notify(ctx context.Context, params any) {
-	if err := s.write(ctx, map[string]any{"jsonrpc": "2.0", "method": "session/update", "params": params}); err != nil {
-		return
-	}
-}
-
-func (s *acpServer) writeError(ctx context.Context, id json.RawMessage, e *acp.Error) {
-	if err := s.write(ctx, map[string]any{"jsonrpc": "2.0", "id": id, "error": e}); err != nil {
-		return
-	}
-}
-
 func (s *acpServer) write(ctx context.Context, v any) error {
 	frame, err := json.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("acp encode: %w", err)
 	}
-	if err := s.writer.WriteFrame(ctx, append(frame, '\n')); err != nil {
+	timeout := s.writeTimeout
+	if timeout <= 0 {
+		timeout = acp.DefaultWriteTimeout
+	}
+	wctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if err := s.writer.WriteFrame(wctx, append(frame, '\n')); err != nil {
+		if errors.Is(err, acp.ErrWriteTimeout) || errors.Is(err, context.DeadlineExceeded) {
+			s.fail(acp.ErrWriteTimeout)
+			return acp.ErrWriteTimeout
+		}
+		s.fail(err)
 		return fmt.Errorf("acp frame: %w", err)
 	}
 	return nil
+}
+
+// fail records the first fatal transport error; serve stops after the frame
+// in flight.
+func (s *acpServer) fail(err error) {
+	s.errMu.Lock()
+	defer s.errMu.Unlock()
+	if s.fatal == nil {
+		s.fatal = err
+	}
+}
+
+func (s *acpServer) fatalErr() error {
+	s.errMu.Lock()
+	defer s.errMu.Unlock()
+	return s.fatal
 }
 
 func acpUsage(w io.Writer) {
