@@ -41,8 +41,9 @@ func allowedImports() map[string][]string {
 		"internal/web":     {"internal/loop", "internal/i18n"},
 		"internal/gateway": {"internal/loop", "internal/modules/host", "internal/i18n"},
 
-		// Modul daemon/observabilitas F4 (ADR-244): kerangka paket ada (doc.go) tetapi belum
-		// punya API, jadi matriksnya kosong sampai implementasinya menentukan edge-nya.
+		// Modul daemon/observabilitas F4 (ADR-244): `obs` sudah diimplementasikan
+		// (stdlib saja, tanpa impor internal) dan tetap tanpa edge; `cron`/`scorecard`
+		// masih kerangka dan mendapat barisnya saat paket itu menentukan edge-nya.
 		"internal/cron":      nil,
 		"internal/obs":       nil,
 		"internal/scorecard": nil,
