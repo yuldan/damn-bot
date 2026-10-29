@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +42,11 @@ func acquireServeLock(dir string) (*serveLock, error) {
 	if terr := f.Truncate(0); terr != nil {
 		return nil, errors.Join(fmt.Errorf("serve lock: truncate: %w", terr), unlockFlock(f))
 	}
+	// Byte 0 is the locked range; Windows byte-range locks are mandatory, so
+	// the owner line starts at byte 1 to stay readable by the next process.
+	if _, serr := f.Seek(1, io.SeekStart); serr != nil {
+		return nil, errors.Join(fmt.Errorf("serve lock: seek: %w", serr), unlockFlock(f))
+	}
 	if _, werr := fmt.Fprintf(f, "pid %d started %s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339)); werr != nil {
 		return nil, errors.Join(fmt.Errorf("serve lock: write owner: %w", werr), unlockFlock(f))
 	}
@@ -62,11 +68,19 @@ func (l *serveLock) Held() bool { return l != nil && l.held.Load() }
 
 // lockOwner reads the holder line without disturbing its lock.
 func lockOwner(path string) string {
-	b, err := os.ReadFile(path) //nolint:gosec // G304: operator-configured data dir
+	f, err := os.Open(path) //nolint:gosec // G304: operator-configured data dir
 	if err != nil {
 		return "owner unknown"
 	}
-	if line := strings.Join(strings.Fields(string(b)), " "); line != "" {
+	buf := make([]byte, 128)
+	n, rerr := f.ReadAt(buf, 1) // byte 0 is locked on Windows
+	if cerr := f.Close(); cerr != nil && rerr == nil {
+		rerr = cerr
+	}
+	if n == 0 || rerr != nil && !errors.Is(rerr, io.EOF) {
+		return "owner unknown"
+	}
+	if line := strings.Join(strings.Fields(string(buf[:n])), " "); line != "" {
 		return line
 	}
 	return "owner unknown"
