@@ -62,7 +62,7 @@ func TestE2EDoctorNetwork(t *testing.T) {
 	writeProfileConfig(t, e, "[network]\nbackground = false\n")
 	res := e.Exec("doctor", "--network")
 	res.RequireOK(t)
-	for _, want := range []string{"inference", "refs", "update", "disabled (egress_disabled)", "trigger:"} {
+	for _, want := range []string{"inference", "refs", "telegram", "update", "gateway", "api.telegram.org", "disabled (egress_disabled)", "trigger:"} {
 		if !strings.Contains(res.Stdout, want) {
 			t.Errorf("doctor --network lacks %q:\n%s", want, res.Stdout)
 		}
@@ -81,6 +81,17 @@ func TestE2EDoctorNetwork(t *testing.T) {
 
 	js := e.Exec("doctor", "--network", "--json")
 	js.RequireOK(t)
+	checkDoctorNetworkJSON(t, js.Stdout, true)
+	writeProfileConfig(t, e, "[network]\nbackground = false\n")
+	js = e.Exec("doctor", "--network", "--json")
+	js.RequireOK(t)
+	checkDoctorNetworkJSON(t, js.Stdout, false)
+}
+
+// checkDoctorNetworkJSON asserts the four registered egress rows and the
+// status background=true|false gives each one.
+func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
+	t.Helper()
 	var doc struct {
 		Background bool `json:"background"`
 		Egress     []struct {
@@ -89,11 +100,26 @@ func TestE2EDoctorNetwork(t *testing.T) {
 			Status  string `json:"status"`
 		} `json:"egress"`
 	}
-	if err := json.Unmarshal([]byte(js.Stdout), &doc); err != nil {
-		t.Fatalf("json: %v\n%s", err, js.Stdout)
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, out)
 	}
-	if !doc.Background || len(doc.Egress) != 3 {
-		t.Fatalf("json doc = %+v", doc)
+	if doc.Background != background || len(doc.Egress) != 4 {
+		t.Fatalf("json doc = %+v, want background=%t and 4 entries", doc, background)
+	}
+	want := map[string]struct{ purpose, status string }{
+		"inference": {"inference", "enabled"},
+		"refs":      {"tool", "enabled"},
+		"telegram":  {"gateway", "enabled"},
+		"update":    {"background", "enabled"},
+	}
+	if !background {
+		want["update"] = struct{ purpose, status string }{"background", "disabled (egress_disabled)"}
+	}
+	for _, row := range doc.Egress {
+		exp, ok := want[row.Name]
+		if !ok || row.Purpose != exp.purpose || row.Status != exp.status {
+			t.Errorf("egress %q = {%s %s}, want %+v", row.Name, row.Purpose, row.Status, exp)
+		}
 	}
 }
 
