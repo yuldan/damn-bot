@@ -155,3 +155,47 @@ func TestGatewayCLIRejectsBadID(t *testing.T) {
 		t.Fatal("invalid identity accepted")
 	}
 }
+
+// TestGatewayCLIEnvBootstrapJSON is EC-PLAT-021: DAMNBOT_GATEWAY_ALLOW may be
+// a JSON list, its commas are not separators, and bootstrap normalises the
+// set. A malformed entry fails the whole command before any write.
+func TestGatewayCLIEnvBootstrapJSON(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DAMNBOT_GATEWAY_OWNER", "")
+	t.Setenv("DAMNBOT_GATEWAY_ALLOW", `["telegram:42", "telegram:7", "telegram:42"]`)
+	code, out, errs := runGatewayCLI(t, "list", "--data-dir", dir)
+	if code != 0 {
+		t.Fatalf("list: %d %s", code, errs)
+	}
+	for _, want := range []string{"telegram:42 role=user", "telegram:7 role=user"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("list output %q misses %q", out, want)
+		}
+	}
+	if strings.Count(out, "telegram:42 ") != 1 {
+		t.Errorf("duplicate identity written: %q", out)
+	}
+
+	bad := t.TempDir()
+	t.Setenv("DAMNBOT_GATEWAY_ALLOW", "telegram:42, --bad")
+	if code, _, errs := runGatewayCLI(t, "list", "--data-dir", bad); code != 1 || !strings.Contains(errs, "entry") {
+		t.Fatalf("invalid allowlist: code=%d err=%q, want exit 1 naming the entry", code, errs)
+	}
+	db := gatewayTestDB(t, bad)
+	defer closeTestDB(t, db)
+	if n := countIdentities(t, db); n != 0 {
+		t.Fatalf("bootstrap wrote %d identities despite an invalid entry, want 0", n)
+	}
+}
+
+func countIdentities(t *testing.T, db *ctxdb.Store) int64 {
+	t.Helper()
+	var n int64
+	err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
+		return tx.Get("SELECT count(*) FROM gateway_identities", nil, &n)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return n
+}

@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
+	"github.com/damnbot/damnbot/internal/gateway"
 )
 
 // gatewayPairTTL and gatewayPairPerHour are SPEC §9.7 / SEC-27: a six-digit
@@ -50,7 +50,7 @@ func gatewayUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot gateway allow|revoke <platform> <id> [--role owner|user] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway list [--platform P] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway status [--data-dir DIR]\n")
-	sessionsPrintf(w, "bootstrap: DAMNBOT_GATEWAY_OWNER=platform:id and DAMNBOT_GATEWAY_ALLOW=platform:id,... insert\n")
+	sessionsPrintf(w, "bootstrap: DAMNBOT_GATEWAY_OWNER=platform:id and DAMNBOT_GATEWAY_ALLOW=platform:id,... (or a JSON list)\n")
 	sessionsPrintf(w, "missing identities only; the database stays the source of truth.\n")
 }
 
@@ -82,17 +82,13 @@ func gatewayBootstrap(ctx context.Context, store gwstore.Store) error {
 		{"DAMNBOT_GATEWAY_OWNER", os.Getenv("DAMNBOT_GATEWAY_OWNER"), "owner"},
 		{"DAMNBOT_GATEWAY_ALLOW", os.Getenv("DAMNBOT_GATEWAY_ALLOW"), "user"},
 	} {
-		for item := range strings.SplitSeq(spec.env, ",") {
-			item = strings.TrimSpace(item)
-			if item == "" {
-				continue
-			}
-			platform, id, ok := strings.Cut(item, ":")
-			if !ok {
-				return fmt.Errorf("%s: %q is not platform:id", spec.name, cleanArg(item))
-			}
-			if _, err := store.EnsureIdentity(ctx, platform, id, spec.role, "platform_authenticated", now); err != nil {
-				return fmt.Errorf("%s: %w", spec.name, err)
+		entries, err := gateway.ParseAllowlist(spec.env)
+		if err != nil {
+			return fmt.Errorf("%s: %w", spec.name, err)
+		}
+		for _, e := range entries {
+			if _, err := store.EnsureIdentity(ctx, e.Platform, e.ExternalID, spec.role, "platform_authenticated", now); err != nil {
+				return fmt.Errorf("%s: %s:%s: %w", spec.name, e.Platform, e.ExternalID, err)
 			}
 		}
 	}
