@@ -310,7 +310,7 @@ func TestApproveExpiredIsRejected(t *testing.T) {
 func gateWithCommands(t *testing.T, ids map[string]gateway.Identity, cmds *gateway.Commands) (*gateway.Gate, *fakeInbox) {
 	t.Helper()
 	inbox := &fakeInbox{seen: map[string]bool{}}
-	g, err := gateway.New(gateway.Options{
+	g, err := gateway.New(&gateway.Options{
 		DataDir: t.TempDir(), Identities: &fakeIdentities{rows: ids},
 		Inbox: inbox, Commands: cmds,
 	})

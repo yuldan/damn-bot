@@ -46,7 +46,12 @@ type Gate struct {
 // New validates the wiring. Configuration is data, so an empty DataDir and an
 // empty Users map are accepted: a role user identity without any explicit
 // workspace is then denied at admission instead of silently sharing a root.
-func New(opts Options) (*Gate, error) { //nolint:gocritic // hugeParam: Options is construction data; call sites stay readable
+// Options is passed by pointer: it is construction data, not a per-admission
+// value, and the struct is large enough that copying it in every caller is waste.
+func New(opts *Options) (*Gate, error) {
+	if opts == nil {
+		opts = &Options{}
+	}
 	if opts.Identities == nil {
 		return nil, ErrNoIdentityStore
 	}

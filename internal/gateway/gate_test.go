@@ -97,7 +97,7 @@ func inbound(chat, sender, update string) *gateway.Inbound {
 func newGate(t *testing.T, ids map[string]gateway.Identity, users map[string]string, dataDir string) (*gateway.Gate, *fakeInbox) {
 	t.Helper()
 	inbox := &fakeInbox{seen: map[string]bool{}}
-	g, err := gateway.New(gateway.Options{
+	g, err := gateway.New(&gateway.Options{
 		DataDir: dataDir, Users: users,
 		Identities: &fakeIdentities{rows: ids}, Inbox: inbox,
 	})
@@ -168,10 +168,13 @@ func TestAdmitDeniesNonAllowlistedStatuses(t *testing.T) {
 // TestAdmitEmptyConfigDenies: an empty [gateway] section (no users, no data
 // dir) neither panics nor admits a role user without a resolvable root.
 func TestAdmitEmptyConfigDenies(t *testing.T) {
-	if _, err := gateway.New(gateway.Options{}); !errors.Is(err, gateway.ErrNoIdentityStore) {
+	if _, err := gateway.New(nil); !errors.Is(err, gateway.ErrNoIdentityStore) {
+		t.Fatalf("New(nil) = %v, want ErrNoIdentityStore", err)
+	}
+	if _, err := gateway.New(&gateway.Options{}); !errors.Is(err, gateway.ErrNoIdentityStore) {
 		t.Fatalf("New(empty) = %v, want ErrNoIdentityStore", err)
 	}
-	if _, err := gateway.New(gateway.Options{Identities: &fakeIdentities{}}); !errors.Is(err, gateway.ErrNoInboxStore) {
+	if _, err := gateway.New(&gateway.Options{Identities: &fakeIdentities{}}); !errors.Is(err, gateway.ErrNoInboxStore) {
 		t.Fatalf("New(no inbox) = %v, want ErrNoInboxStore", err)
 	}
 
@@ -340,7 +343,7 @@ func TestStoreErrorsFailClosed(t *testing.T) {
 	boom := errors.New("boom")
 	ids := &fakeIdentities{err: boom}
 	inbox := &fakeInbox{seen: map[string]bool{}}
-	g, err := gateway.New(gateway.Options{DataDir: t.TempDir(), Identities: ids, Inbox: inbox})
+	g, err := gateway.New(&gateway.Options{DataDir: t.TempDir(), Identities: ids, Inbox: inbox})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +358,7 @@ func TestStoreErrorsFailClosed(t *testing.T) {
 
 	ids = &fakeIdentities{rows: map[string]gateway.Identity{"telegram:42": user("42")}}
 	inbox = &fakeInbox{seen: map[string]bool{}, err: boom}
-	g, err = gateway.New(gateway.Options{DataDir: t.TempDir(), Identities: ids, Inbox: inbox})
+	g, err = gateway.New(&gateway.Options{DataDir: t.TempDir(), Identities: ids, Inbox: inbox})
 	if err != nil {
 		t.Fatal(err)
 	}
