@@ -69,6 +69,10 @@ type Inbound struct {
 	// Payload is the JSON content of the update, stored with the queue row
 	// until the worker claims it (ADR-046).
 	Payload string
+	// Group is true when ChatID is a group/supergroup chat, whose shared
+	// 30 messages/minute bucket applies (SPEC §9.7, GAP-GW-02). Adapters set
+	// it from the platform payload, never from message text.
+	Group bool
 }
 
 // Closed admission errors. Compared with errors.Is.
