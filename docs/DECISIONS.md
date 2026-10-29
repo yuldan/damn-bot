@@ -4839,7 +4839,6 @@ Kesimpulan: `fs/*` adalah **client method** (agent → client). Baris ledger "0 
 
 **Konsekuensi.** (+) Tidak ada permukaan server fiktif; arah protokol sesuai SPEC; parser resource dan toleransi field maju tetap terkunci tes. (−) `GAP-UX-01` tetap terbuka dan membutuhkan slice client-side + ADR anggaran; `GAP-UX-04` juga belum `LULUS` sampai `_meta`/blob dan keputusan pemilik.
 
-
 ## ADR-232 — ACP client filesystem agent→client: adapter protokol di `internal/acp`, seam sempit di `codetools`, event fallback lewat callback
 
 **Status:** Accepted 2026-10-28 (F3, slice lanjutan ADR-231). Menerapkan SPEC §13.3 baris `fs/*` (`SPEC.md:2596`), GAP-UX-01 butir (a) (`SPEC.md:2976`), dan `[acp] use_client_fs` (SPEC §12). Di atas pohon PR #401 (config 1.243, Σ core 47.234).
@@ -4858,6 +4857,7 @@ Kesimpulan: `fs/*` adalah **client method** (agent → client). Baris ledger "0 
 **Dampak terukur (SPEC §20).** Go non-test: `internal/config` 1.243 → **1.252** (+9; terukur 1.247), `internal/codetools` 5.365 → **5.520** (+155; terukur 5.515). Angka plafon/Σ ada di ADR-236; `MODULE acp` 825/2.500, TOTAL 62.439/190.000; dependency baru 0; `make size-check` full/minimal 19.685.538 B; deadcode 0. Tidak ada directive penekan linter untuk logika produksi.
 
 **Konsekuensi.** (+) File tool ACP memakai buffer editor tanpa menduplikasi primitif CODE-TOOLS; tag/stale/fallback/sandbox/approval/journal tetap satu implementasi; fallback terlihat sebagai event. (+) Approval tool tulis ACP benar-benar sampai ke client. (−) `GAP-UX-01` **tetap TERBUKA**: `terminal/*` (butir b) dan smoke manual Zed/tern 10/10 belum ada; `use_client_fs=false` sengaja tanpa event; buffer >8 MiB dan file binary tetap dialihkan ke perilaku client/penolakan yang ada, bukan blob spill.
+
 
 ## ADR-233 — `session/load` ACP: replay dari ctxdb, `-32002`/`-32603` fail-closed, `provider_error` sebagai JSON-RPC error
 
@@ -4971,3 +4971,22 @@ Batas penting: risiko ToS **bukan** temuan threat scan. Q43/ADR-033 menetapkan `
 7. **Dokumen & anggaran.** SPEC §12 `[ui]` + §13.1, CROSS-CUTTING §9, `CHANGELOG.md`. `config` 1.252 → **1.253** (plafon; scc Code 1.247 → **1.248**, +1) — plafon 1.252 sudah dipakai ADR-232; Σ core 47.510 → **47.511** ≤ 47.600 (headroom 89); `tui` 2.812/10.000; dependency, `nolint`, dan `TOTAL` tidak berubah.
 
 **Konsekuensi.** (+) `[ui] notices=false` punya efek nyata dan persisten; tip tidak pernah menjadi nag berulang; notice kritis tidak bisa dimatikan tanpa sengaja. (+) Kebijakan dapat dipakai gateway/web tanpa mengubah kontrak. (−) Satu tip baru ditambahkan ke transkrip startup pertama; pengguna yang tidak ingin melihatnya mematikan `[ui] notices`. (−) Uji 30 hari gateway/web tetap menunggu fase pemilik kanal (F4/F8); F3 membuktikan TUI + gerbang bersama.
+
+## ADR-239 — GAP-INF-04 F3: entri CHANGELOG per tag, potongan changelog di manifest, dan `make release`
+
+**Status:** Accepted 2026-10-28 (F3, slice rilis). Menerapkan `SPEC.md:3000` (GAP-INF-04), SPEC §12 `[update]`, dan CROSS-CUTTING §1.4/§1.5/§6.
+
+**Konteks.** CHANGELOG hanya punya `## Unreleased` tanpa format versi, manifest rilis hanya mengangkut blok Unreleased, `damnbot update --check` mencetak seluruh teks manifest, dan tidak ada satu target `make release`: resep build/SBOM tersebar di YAML rilis. Belum ada tag, sehingga tidak ada entri versi yang bisa divalidasi.
+
+**Keputusan.**
+
+1. **Format entri versi.** `CHANGELOG.md` memakai `## [x.y.z] - YYYY-MM-DD` (Keep a Changelog) dan setiap entri versi wajib memuat `### Breaking`, `### Migrations` (nomor migrasi DB §11.1 atau `none`), dan `### Security` (atau `none`). `## Unreleased` tetap memakai kategori bebas.
+2. **Parser + potongan di `internal/update`.** `sliceChangelog(text, installed, target)` mengembalikan entri dengan `installed < versi ≤ target`; changelog legacy tanpa heading versi atau versi terpasang non-semver mengembalikan teks utuh (kompatibel). `Check` memakai fungsi ini, sehingga `update --check` menampilkan potongan, bukan seluruh riwayat. Manifest bertanda tangan tetap membawa seluruh entri versi (klien mana pun dapat memotongnya).
+3. **Validasi per tag.** `TestChangelogPerTag` memeriksa struktur setiap entri versi yang ada; bila repo punya tag (atau `DAMNBOT_CHANGELOG_TAG` di job rilis), setiap tag wajib punya entri dan setiap migrasi baru dibanding tag sebelumnya (dan dibanding tag terakhir untuk `Unreleased`) wajib disebut di `### Migrations`. Rilis pertama tidak membandingkan migrasi karena belum ada basis rilis; ADR mencatat hal ini.
+4. **Satu konfigurasi rilis.** `make release` memanggil `scripts/release-local.sh`: 6 artefak rilis (linux/darwin/windows × amd64/arm64), `scripts/release-build.sh` melakukan dua build byte-identik + cek `vcs.revision`/`modified` + SBOM, lalu `SHA256SUMS` (12 baris: biner + SBOM) dan `scripts/release-manifest.sh` menulis `release.json` dari seluruh entri `##`. Matrix CI memakai `release-build.sh` yang sama per target; job assemble memakai `release-manifest.sh`. Tanda tangan/verifikasi tetap fail-closed bila kunci tersedia.
+5. **Gate rilis.** Job assemble memakai checkout `fetch-depth: 0` dan menjalankan `TestChangelogPerTag` dengan `DAMNBOT_CHANGELOG_TAG` sebelum manifest; entri tag yang hilang/struktur rusak menggagalkan rilis. Job build tetap dua-pass byte-identik (reproducible-build) dengan satu resep.
+6. **Tidak ada permukaan CLI baru.** Tidak ada subcommand `changelog`; parsing runtime berada di jalur `update --check` yang sudah ada.
+
+**Dampak terukur (SPEC §20).** `internal/update` 876 → **989/1.500** (scc Code pada pohon ter-commit, +113); Σ core tidak berubah; `TOTAL` 190.000; ukuran binary tidak berubah material (parser stdlib); dependency 0; `nolint` 0. Tes: `TestSliceChangelog`, `TestChangelogEntrySections`, `TestChangelogPerTag`, `TestUpdateCheckShowsChangelog`; `make release`/`release-test` tidak dijalankan di PR (butuh kunci/tag), melainkan diverifikasi perintah dan job rilis.
+
+**Konsekuensi.** (+) Rilis tidak bisa terbit tanpa entri versi lengkap atau tanpa menyebut migrasi baru; `update --check` hanya menampilkan perubahan yang relevan. (+) Satu resep build dipakai lokal dan CI. (−) Rilis pertama belum punya basis tag untuk diff migrasi (disengaja); (−) `make release` menuntut pohon bersih + `DAMNBOT_RELEASE_PUBKEY`, jadi bukan perintah build sehari-hari.

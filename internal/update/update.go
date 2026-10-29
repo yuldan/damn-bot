@@ -59,7 +59,16 @@ func Check(ctx context.Context, client *netx.Client, feed, channel, current stri
 		return "", "", false, err
 	}
 	available, err = newerThan(r.man.Version, current)
-	return r.man.Version, r.man.Changelog, available, err
+	if err != nil {
+		return "", "", false, err
+	}
+	changelog = r.man.Changelog
+	if available {
+		// The signed manifest carries the version entries; show only the
+		// slice between the installed and target versions (GAP-INF-04).
+		changelog = sliceChangelog(changelog, current, r.man.Version)
+	}
+	return r.man.Version, changelog, available, nil
 }
 
 func resolve(ctx context.Context, client *netx.Client, feed, channel string, pub ed25519.PublicKey) (resolved, error) {

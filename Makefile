@@ -33,7 +33,7 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 .PHONY: all build build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
-	sqlite-engine sqlite-engine-cross skill-refs prices-gate
+	sqlite-engine sqlite-engine-cross skill-refs prices-gate release
 
 all: check
 
@@ -227,6 +227,12 @@ licenses:
 # Kontrol negatif (tamper artefak/checksum, kunci/passphrase/pubkey hilang) wajib gagal.
 release-test:
 	scripts/release-test.sh
+
+# GAP-INF-04: satu konfigurasi untuk semua artefak rilis (6 target, dua build
+# byte-identik + SBOM, SHA256SUMS, release.json). CI memakai scripts yang sama
+# per target; VERSION wajib atau HEAD tepat di tag vX.Y.Z.
+release:
+	scripts/release-local.sh
 
 # E-46: go.mod/go.sum sudah tidy (go mod tidy -diff: exit ≠ 0 + diff bila tidak), ketiga modul.
 tidy-check:

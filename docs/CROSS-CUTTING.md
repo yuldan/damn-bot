@@ -97,6 +97,8 @@ Requirement & verifikasi: SPEC §22.1 baris SEC-28.
 - Self-update atomik: unduh → verifikasi ed25519 + SHA-256 → tulis `damnbot.new` → rename atomik (Windows: rename `damnbot.exe` → `damnbot.old.exe` lalu pasang) → simpan `damnbot.prev` → health check (start + `doctor --quick` ≤ 30 s) → gagal = rollback otomatis ([`SELF-HEALING.md`](SELF-HEALING.md)).
 - Kompatibilitas data: migrasi maju bernomor (SPEC §11.1) dengan backup `VACUUM INTO` sebelum migrasi; binary lama menolak DB lebih baru dengan pesan "jalankan `damnbot update --rollback --data` untuk memulihkan backup pra-migrasi". `damnbot update --rollback [--data]` = binary `prev` + backup DB pasangannya.
 - Versi semver; perubahan format config/DB/protokol hook = minor dengan migrasi otomatis; penghapusan = major.
+- Setiap entri versi `CHANGELOG.md` (`## [x.y.z]`) wajib memuat `### Breaking`, `### Migrations` (nomor migrasi DB §11.1 atau `none`), dan `### Security` (atau `none`). Manifest rilis bertanda tangan membawa seluruh entri; `damnbot update --check` hanya menampilkan potongan versi terpasang → target (`TestChangelogPerTag`, `TestUpdateCheckShowsChangelog`).
+- Satu konfigurasi rilis `make release` (6 artefak, dua build byte-identik + SBOM, `SHA256SUMS`, `release.json`); matrix CI memakai `scripts/release-build.sh` yang sama dan assemble memakai `scripts/release-manifest.sh`.
 - Target: 0 rilis gagal tanpa rollback otomatis pada suite update (20 skenario kegagalan). Verifikasi: `TestUpdateRollback*` (PR/nightly).
 
 ## 7. Lintas platform
