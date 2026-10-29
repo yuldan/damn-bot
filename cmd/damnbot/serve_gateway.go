@@ -45,6 +45,7 @@ type serveGateway struct {
 	cancel              context.CancelFunc
 	pollCancel          context.CancelFunc
 	wg                  sync.WaitGroup
+	now                 func() time.Time
 }
 
 func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, db *ctxdb.Store, daemon *serveDaemon, metrics *obs.Metrics, stderr io.Writer) (*serveGateway, error) {
@@ -118,7 +119,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		cfg: *cfg, dataDir: o.dataDir, configPath: o.configPath, modelRef: modelRef,
 		store: store, adapter: adapter, gate: gate, quota: quota, limiter: limiter, daemon: daemon,
 		metrics: metrics, watchdog: wd, supervisor: sup, stderr: stderr,
-		inbound: make(chan telegram.Inbound, 32),
+		inbound: make(chan telegram.Inbound, 32), now: time.Now,
 	}, nil
 }
 
@@ -337,19 +338,72 @@ func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid st
 	return g.streamReply(ctx, in, ch)
 }
 
-func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch <-chan event.Update) error {
-	key := gateway.DeliveryKey("telegram", in.ChatID, "reply:"+in.UpdateID)
-	reply := g.adapter.Stream(telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Key: key})
+// Reply cadence: the first delta opens the Telegram message immediately, later
+// deltas coalesce into one update. An update needs replyEditGap since the
+// previous one (the adapter's own limiter stays the final authority for I/O),
+// and then either replyFlushEvery of text or replyFlushChars of new text,
+// whichever comes first. The final update is always the full answer.
+const (
+	replyEditGap    = 1100 * time.Millisecond
+	replyFlushEvery = 1200 * time.Millisecond
+	replyFlushChars = 80
+)
+
+// replyPacer decides when accumulated reply text becomes one Telegram update.
+type replyPacer struct {
+	started bool
+	last    time.Time
+	flushed int
+}
+
+// observe records total reply bytes at now and reports whether they should be
+// flushed.
+func (p *replyPacer) observe(now time.Time, total int) bool {
+	switch {
+	case total == 0 || total == p.flushed:
+		return false
+	case !p.started:
+		p.started, p.last, p.flushed = true, now, total
+		return true
+	}
+	gap := now.Sub(p.last)
+	if gap < replyEditGap {
+		return false
+	}
+	if gap < replyFlushEvery && total-p.flushed < replyFlushChars {
+		return false
+	}
+	p.last, p.flushed = now, total
+	return true
+}
+
+// replyOutcome is the final state of one streamed reply.
+type replyOutcome struct {
+	Text   string
+	Failed bool
+	Detail event.StopDetail
+	Err    error
+}
+
+// streamReplyUpdates drains the turn events, flushing the growing answer at the
+// reply cadence, and always flushes the final text exactly once: the full
+// accumulated answer, or the provider-error message when the turn failed. wait
+// paces the final flush so no two updates reach the adapter closer than
+// replyEditGap; it is injected so tests advance a fake clock instead of sleeping.
+func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() time.Time, wait func(context.Context, time.Duration) error, flush func(context.Context, string) error) replyOutcome {
 	var answer []byte
+	var pacer replyPacer
 	var stop event.StopReason
 	var detail event.StopDetail
+	var sent string
 	var sendErr error
 	for up := range ch {
 		switch up.Kind {
 		case event.UpdateTextDelta:
 			answer = append(answer, up.Text...)
-			if sendErr == nil {
-				sendErr = reply.Update(ctx, string(answer))
+			if sendErr == nil && pacer.observe(now(), len(answer)) {
+				sent = string(answer)
+				sendErr = flush(ctx, sent)
 			}
 		case event.UpdateStop:
 			stop, detail = up.Stop, up.Detail
@@ -361,23 +415,52 @@ func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch
 	if failed {
 		text = "damnbot: provider error (" + string(detail) + ")"
 	}
-	if text != "" {
-		if uerr := reply.Update(ctx, text); uerr != nil {
-			sendErr = uerr
+	out := replyOutcome{Text: text, Failed: failed, Detail: detail}
+	if text == "" {
+		return out
+	}
+	if pacer.started && text != sent {
+		if gap := replyEditGap - now().Sub(pacer.last); gap > 0 {
+			if werr := wait(ctx, gap); werr != nil {
+				out.Err = werr
+				return out
+			}
 		}
 	}
-	if sendErr != nil {
-		if text != "" {
-			if _, _, qerr := g.store.EnqueueDelivery(ctx, &gwstore.Delivery{IdemKey: key, Platform: "telegram", ChatID: in.ChatID, ThreadID: in.ThreadID, Body: text, Status: gateway.StatusQueued}); qerr != nil {
-				return errors.Join(sendErr, fmt.Errorf("gateway: enqueue reply: %w", qerr))
+	if ferr := flush(ctx, text); ferr != nil {
+		out.Err = ferr
+	}
+	return out
+}
+
+func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch <-chan event.Update) error {
+	key := gateway.DeliveryKey("telegram", in.ChatID, "reply:"+in.UpdateID)
+	reply := g.adapter.Stream(telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Key: key})
+	out := streamReplyUpdates(ctx, ch, g.now, waitReply, reply.Update)
+	if out.Err != nil {
+		if out.Text != "" {
+			if _, _, qerr := g.store.EnqueueDelivery(ctx, &gwstore.Delivery{IdemKey: key, Platform: "telegram", ChatID: in.ChatID, ThreadID: in.ThreadID, Body: out.Text, Status: gateway.StatusQueued}); qerr != nil {
+				return errors.Join(out.Err, fmt.Errorf("gateway: enqueue reply: %w", qerr))
 			}
 		}
 		g.metrics.IncError()
 	}
-	if failed {
-		return fmt.Errorf("gateway: turn failed: %s", detail)
+	if out.Failed {
+		return fmt.Errorf("gateway: turn failed: %s", out.Detail)
 	}
 	return nil
+}
+
+// waitReply paces the final reply update without sleeping past ctx.
+func waitReply(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("gateway: final reply wait: %w", ctx.Err())
+	case <-t.C:
+		return nil
+	}
 }
 
 type gatewayToolApprover struct {

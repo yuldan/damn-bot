@@ -120,6 +120,9 @@ func TestServeTelegramOwnerStreamsAndResume(t *testing.T) {
 	if edit.MessageID != send.ResultMessageID {
 		t.Fatalf("edit message %d, send message %d", edit.MessageID, send.ResultMessageID)
 	}
+	if n := len(tg.EditsFor(edit.MessageID)); n > 2 {
+		t.Fatalf("two-delta answer produced %d edits, want the coalesced stream (<= 2)", n)
+	}
 	gatewayStop(t, p)
 	db := gatewayDB(t, e)
 	if n := gatewayCount(t, db, `SELECT count(*) FROM events WHERE kind = 'user_message'`); n != 1 {
