@@ -39,6 +39,10 @@ type fakeTG struct {
 	pollWait time.Duration
 	// cancelled counts hanging requests the client abandoned by cancelling.
 	cancelled atomic.Int64
+	// hold parks the next getUpdates until its request context is cancelled;
+	// holdStart closes once the handler is waiting.
+	hold      bool
+	holdStart chan struct{}
 }
 
 type fakeCall struct {
@@ -268,18 +272,57 @@ func (f *fakeTG) applyFault(w http.ResponseWriter, r *http.Request, fault fakeFa
 	return false
 }
 
+// stallNextUpdate parks the next getUpdates until its request context is
+// cancelled, like a wedged connection: no wall-clock duration is involved. The
+// returned channel closes when the handler is actually parked, so tests
+// synchronize on state, never a sleep.
+func (f *fakeTG) stallNextUpdate() <-chan struct{} {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.hold, f.holdStart = true, make(chan struct{})
+	return f.holdStart
+}
+
+// parkUpdate consumes a pending stallNextUpdate and waits until the client
+// cancels the request. It reports whether the request was parked.
+func (f *fakeTG) parkUpdate(r *http.Request) bool {
+	f.mu.Lock()
+	hold, start := f.hold, f.holdStart
+	f.hold = false
+	f.mu.Unlock()
+	if !hold {
+		return false
+	}
+	close(start)
+	<-r.Context().Done()
+	f.cancelled.Add(1)
+	return true
+}
+
+// pollWindow caps the server-side long poll in tests that need a stall
+// threshold below the production window.
+func (f *fakeTG) pollWindow(timeout int64) time.Duration {
+	f.mu.Lock()
+	pollWait := f.pollWait
+	f.mu.Unlock()
+	wait := time.Duration(timeout) * time.Second
+	if pollWait > 0 && timeout > 0 && wait > pollWait {
+		wait = pollWait
+	}
+	return wait
+}
+
 func (f *fakeTG) getUpdates(w http.ResponseWriter, r *http.Request) {
+	if f.parkUpdate(r) {
+		return
+	}
 	offset := formInt(r.Form, "offset")
 	timeout := formInt(r.Form, "timeout")
 	limit := formInt(r.Form, "limit")
 	if limit <= 0 {
 		limit = 100
 	}
-	wait := time.Duration(timeout) * time.Second
-	if f.pollWait > 0 && timeout > 0 && wait > f.pollWait {
-		wait = f.pollWait
-	}
-	deadline := time.NewTimer(wait)
+	deadline := time.NewTimer(f.pollWindow(timeout))
 	defer deadline.Stop()
 	for {
 		f.mu.Lock()
