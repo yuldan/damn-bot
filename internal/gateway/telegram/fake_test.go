@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -32,6 +33,11 @@ type fakeTG struct {
 	notify     chan struct{}
 	faults     map[string][]fakeFault
 	seenMethod map[string]int
+	// pollWait caps the server-side long poll in tests that need a stall
+	// threshold below the production 50 s window.
+	pollWait time.Duration
+	// cancelled counts hanging requests the client abandoned by cancelling.
+	cancelled atomic.Int64
 }
 
 type fakeCall struct {
@@ -52,7 +58,10 @@ type fakeFault struct {
 	Status     int
 	RetryAfter int
 	Drop       bool
-	Times      int
+	// Hang delays the response; if the client gives up first the handler
+	// returns without a body, exactly like a wedged connection.
+	Hang  time.Duration
+	Times int
 }
 
 func newFakeTG(t *testing.T) *fakeTG {
@@ -84,7 +93,7 @@ func (f *fakeTG) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if fault, hit := f.record(method, form, files, names); hit {
-		if f.applyFault(w, fault) {
+		if f.applyFault(w, r, fault) {
 			return
 		}
 	}
@@ -203,7 +212,18 @@ func (f *fakeTG) record(method string, form url.Values, files map[string][]byte,
 	return fault, true
 }
 
-func (f *fakeTG) applyFault(w http.ResponseWriter, fault fakeFault) bool {
+func (f *fakeTG) applyFault(w http.ResponseWriter, r *http.Request, fault fakeFault) bool {
+	if fault.Hang > 0 {
+		timer := time.NewTimer(fault.Hang)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			return false // the delayed normal response follows
+		case <-r.Context().Done():
+			f.cancelled.Add(1)
+			return true // the client gave up: never answer
+		}
+	}
 	if fault.Drop {
 		conn, _, err := http.NewResponseController(w).Hijack()
 		if err != nil {
@@ -227,7 +247,11 @@ func (f *fakeTG) getUpdates(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 {
 		limit = 100
 	}
-	deadline := time.NewTimer(time.Duration(timeout) * time.Second)
+	wait := time.Duration(timeout) * time.Second
+	if f.pollWait > 0 && timeout > 0 && wait > f.pollWait {
+		wait = f.pollWait
+	}
+	deadline := time.NewTimer(wait)
 	defer deadline.Stop()
 	for {
 		f.mu.Lock()

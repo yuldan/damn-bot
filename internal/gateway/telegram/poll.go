@@ -15,6 +15,18 @@ import (
 	"github.com/damnbot/damnbot/internal/netx/retry"
 )
 
+// pollTimeout is the getUpdates long-poll window (Bot API `timeout` field).
+const pollTimeout = 50 * time.Second
+
+// pollStallMargin is the grace on top of two long-poll windows before a stall
+// is confirmed: one late response is normal, two full windows are not.
+const pollStallMargin = 10 * time.Second
+
+// ErrPollStalled reports a getUpdates that outlived the stall threshold; Run
+// cancels the request, rebuilds the client and restarts from the persisted
+// offset (EC-PLAT-016).
+var ErrPollStalled = errors.New("telegram: poll stalled")
+
 // Run long-polls getUpdates and delivers updates to in.
 func (a *Adapter) Run(ctx context.Context, in chan<- Inbound) error { //nolint:gocognit // poll loop: error classes and offset persistence are one state machine
 	offset, err := a.store.Offset(ctx, "telegram")
@@ -27,10 +39,12 @@ func (a *Adapter) Run(ctx context.Context, in chan<- Inbound) error { //nolint:g
 			return nil
 		}
 		var updates []update
-		err = a.call(ctx, "getUpdates", url.Values{
-			"offset": {strconv.FormatInt(offset, 10)}, "timeout": {"50"},
-			"limit": {"100"},
-		}, &updates)
+		updates, err = a.pollOnce(ctx, offset)
+		if errors.Is(err, ErrPollStalled) {
+			attempt = 0
+			a.rebuildClient()
+			continue
+		}
 		if err != nil { //nolint:nestif // failure classification vs offset persistence
 			if stopped(ctx) {
 				return nil
@@ -61,6 +75,29 @@ func (a *Adapter) Run(ctx context.Context, in chan<- Inbound) error { //nolint:g
 			}
 		}
 	}
+}
+
+func (a *Adapter) pollOnce(ctx context.Context, offset int64) ([]update, error) {
+	form := url.Values{
+		"offset":  {strconv.FormatInt(offset, 10)},
+		"timeout": {strconv.Itoa(int(pollTimeout / time.Second))},
+		"limit":   {"100"},
+	}
+	var updates []update
+	if a.stallAfter <= 0 {
+		err := a.call(ctx, "getUpdates", form, &updates)
+		return updates, err
+	}
+	pollCtx, cancel := context.WithTimeout(ctx, a.stallAfter)
+	defer cancel()
+	err := a.call(pollCtx, "getUpdates", form, &updates)
+	// A deadline is only a stall when the caller did not cancel: shutdown
+	// cancels the same context and must stay a clean stop.
+	if err != nil && ctx.Err() == nil && errors.Is(pollCtx.Err(), context.DeadlineExceeded) &&
+		errors.Is(err, context.DeadlineExceeded) {
+		return nil, fmt.Errorf("%w: getUpdates > %s", ErrPollStalled, a.stallAfter)
+	}
+	return updates, err
 }
 
 func (a *Adapter) deliver(ctx context.Context, u *update, in chan<- Inbound) error {
