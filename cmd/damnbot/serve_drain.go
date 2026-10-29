@@ -53,6 +53,10 @@ func (d *serveDaemon) Drain(limit time.Duration) bool {
 	return false
 }
 
+// Active reports how many turns are still registered. After Drain returns
+// false a non-zero count means those turns ignored cancellation.
+func (d *serveDaemon) Active() int64 { return d.active.Load() }
+
 // waitActive polls the in-flight counter; a 10 ms tick on the shutdown path
 // avoids an extra goroutine.
 func (d *serveDaemon) waitActive(limit time.Duration) bool {

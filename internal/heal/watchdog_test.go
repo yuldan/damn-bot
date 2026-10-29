@@ -176,3 +176,42 @@ func TestNewWatchdogRequiresAction(t *testing.T) {
 		t.Fatalf("watchdog without action = %v, want ErrNoAction", err)
 	}
 }
+
+// TestECTERM010WatchdogDisarmVersusFire is the "EC-TERM-010" race
+// (EDGE-CASES-hermes.md): the startup transition armed→firing and the
+// start-stop transition armed→disarmed share one edge. One hundred cycles
+// release Check and Disarm together through a channel (never a sleep) and
+// require exactly one winner per cycle, with at most that winner's single
+// action.
+func TestECTERM010WatchdogDisarmVersusFire(t *testing.T) {
+	ctx := t.Context()
+	for cycle := range 100 {
+		clk := newTestClock()
+		var actions atomic.Int32
+		w := newWatchdog(t, clk, WatchdogOptions{Action: func(context.Context) error {
+			actions.Add(1)
+			return nil
+		}})
+		clk.Advance(4 * time.Second) // one stale episode
+		gate := make(chan struct{})
+		fired := make(chan bool, 1)
+		disarmed := make(chan bool, 1)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); <-gate; fired <- w.Check(ctx) }()
+		go func() { defer wg.Done(); <-gate; disarmed <- w.Disarm() }()
+		close(gate)
+		wg.Wait()
+		checkWon, disarmWon := <-fired, <-disarmed
+		if checkWon == disarmWon {
+			t.Fatalf("cycle %d: Check=%v Disarm=%v, want exactly one winner", cycle, checkWon, disarmWon)
+		}
+		var want int32
+		if checkWon {
+			want = 1
+		}
+		if got := actions.Load(); got != want {
+			t.Fatalf("cycle %d: actions = %d with Check=%v, want %d", cycle, got, checkWon, want)
+		}
+	}
+}

@@ -315,6 +315,36 @@ func TestServeDrainNegativeControl(t *testing.T) {
 	}
 }
 
+// TestECTERM008ShutdownBackstop pins "EC-TERM-008" (EDGE-CASES-hermes.md): a
+// turn that ignores its context must not hold the process past the cancel
+// grace. The servetest hook runs for 30 s whatever happens to its context;
+// after the 5 s grace serve must log the stuck turn and force-exit cleanly
+// within grace+1 s, leaving no turn goroutine behind in the child.
+func TestECTERM008ShutdownBackstop(t *testing.T) {
+	e := newEnv(t)
+	state := filepath.Join(t.TempDir(), "servetest-state")
+	p := startServe(t, e, binPaths.serve, []string{"DAMNBOT_SERVE_TEST_TURN=30s", "DAMNBOT_SERVE_TEST_STATE=" + state}, "--drain-timeout=100ms")
+	awaitState(t, p, state, "turn-started", 10*time.Second)
+
+	start := time.Now()
+	p.terminate()
+	code := p.waitExit(6 * time.Second) // drainCancelGrace (5 s) + 1 s
+	if elapsed := time.Since(start); elapsed > 6*time.Second {
+		t.Fatalf("stuck turn held shutdown for %s, want ≤ 6 s", elapsed)
+	}
+	if code != 0 {
+		t.Fatalf("forced exit = %d, want 0\nstderr:\n%s", code, p.stderr.String())
+	}
+	for _, want := range []string{"shutdown backstop", "ignored cancellation", "forcing exit"} {
+		if !strings.Contains(p.stderr.String(), want) {
+			t.Errorf("stderr lacks %q:\n%s", want, p.stderr.String())
+		}
+	}
+	if stateExists(state, "turn-completed") {
+		t.Errorf("the 30 s turn completed instead of being cut off:\n%s", p.stderr.String())
+	}
+}
+
 // TestServeReadyzWriteBlocked holds the SQLite writer lock from another
 // process (this test's store) and expects /readyz to turn 503 with the `db`
 // reason while /healthz stays 200.
