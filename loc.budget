@@ -71,7 +71,9 @@ boundary           150 internal/boundary
 # ADR-206: `sessions why <turn-id>` lintas sesi menambah TurnSessions (indeks
 # 0013 tidak dihitung scc); ctxdb 5890 -> 5919 = angka ukur scc pada pohon
 # ter-commit, tanpa headroom. Tidak ada baris yang turun: Σ core 46.385 -> 46.414.
-ctxdb             5919 internal/ctxdb
+# ADR-246 (GAP-REL-17 /readyz): Store.ProbeWrite (probe writer berbatas 250 ms) menambah baris
+# ctxdb 5919 -> 6000 = angka ukur scc 5961 + headroom 39; Σ core 47.511 -> 47.592 <= 47.600.
+ctxdb             6000 internal/ctxdb
 # ADR-074: storage konsumen di internal/ctxdb/<consumer>store, dipotong dari baris konsumennya (Σ tidak berubah oleh ADR-074).
 # ctxdb/gwstore (900) dihitung dari budget gateway SPEC §3.2.4; barisnya dibukukan sebagai MODULE (ADR-245).
 ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore

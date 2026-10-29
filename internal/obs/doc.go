@@ -1,5 +1,6 @@
-// Package obs serves the F4 observability endpoints `/healthz`, `/readyz`, and `/metrics` (SPEC
-// §3.2.4, `heal` + `obs`). It is split from internal/heal so the supervisor keeps its core budget.
-// This package is the F4 scaffold only; no API is implemented yet, so the architecture matrix
-// (internal/archtest/allowed.go) leaves its edges empty until the first real implementation.
+// Package obs serves the loopback observability endpoints of `damnbot serve`
+// (SPEC §15 GAP-REL-17): `/healthz` liveness, `/readyz` readiness with named
+// checks, and `/metrics` in Prometheus text 0.0.4 written without a client
+// library (P21). It opens no connection: this is pull diagnostics, not
+// telemetry.
 package obs
