@@ -49,6 +49,9 @@ type Config struct {
 	Doer                              Doer
 	Store                             Store
 	Clock                             Clock
+	// NoCompression disables EC-PLAT-023 image compression: an image above
+	// the photo limit is sent unchanged as a document instead.
+	NoCompression bool
 }
 
 // Adapter is one configured Telegram bot.
@@ -62,6 +65,7 @@ type Adapter struct {
 	clock       Clock
 	send        *limiter
 	edit        *limiter
+	noCompress  bool
 	after       time.Duration
 	pending     map[string]*approval
 	mu          sync.Mutex
@@ -93,6 +97,7 @@ func New(cfg *Config) (*Adapter, error) {
 		base: base, token: cfg.Token, doer: cfg.Doer, store: cfg.Store,
 		clock: clock, after: 300 * time.Second, pending: map[string]*approval{},
 		account: account, username: strings.TrimPrefix(cfg.Username, "@"),
+		noCompress: cfg.NoCompression,
 	}
 	if id, err := strconv.ParseInt(account, 10, 64); err == nil {
 		a.botID = id
@@ -113,11 +118,18 @@ func (e *apiError) Error() string {
 }
 
 func (a *Adapter) call(ctx context.Context, method string, form url.Values, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.base+"/bot"+a.token+"/"+method, strings.NewReader(form.Encode()))
+	return a.post(ctx, method, strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", out)
+}
+
+// post sends one Bot API request and decodes the envelope. It is shared by the
+// form and multipart paths so the token redaction and response limit apply to
+// every call.
+func (a *Adapter) post(ctx context.Context, method string, body io.Reader, contentType string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.base+"/bot"+a.token+"/"+method, body)
 	if err != nil {
 		return fmt.Errorf("telegram: %s: request", method)
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Content-Type", contentType)
 	resp, err := a.doer.Do(req)
 	if err != nil {
 		if s := a.redact(err.Error()); s != err.Error() {

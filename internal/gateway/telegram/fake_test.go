@@ -3,7 +3,10 @@ package telegram
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -35,6 +38,8 @@ type fakeCall struct {
 	Seq    int
 	Method string
 	Form   url.Values
+	Files  map[string][]byte
+	Names  map[string]string
 }
 
 type fakeUpdate struct {
@@ -73,11 +78,12 @@ func (f *fakeTG) handle(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, envelope{ErrorCode: 401, Description: "Unauthorized"})
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	form, files, names, err := parseFakeBody(w, r)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, envelope{ErrorCode: 400, Description: "Bad Request"})
 		return
 	}
-	if fault, hit := f.record(method, r.Form); hit {
+	if fault, hit := f.record(method, form, files, names); hit {
 		if f.applyFault(w, fault) {
 			return
 		}
@@ -87,6 +93,22 @@ func (f *fakeTG) handle(w http.ResponseWriter, r *http.Request) {
 		f.getUpdates(w, r)
 	case "sendMessage":
 		f.sendMessage(w, r.Form)
+	case "sendPhoto", "sendDocument":
+		field := "photo"
+		if method == "sendDocument" {
+			field = "document"
+		}
+		if len(files[field]) == 0 || form.Get("chat_id") == "" {
+			writeJSON(w, http.StatusBadRequest, envelope{ErrorCode: 400, Description: "Bad Request: chat_id and file are required"})
+			return
+		}
+		f.mu.Lock()
+		f.nextMsg++
+		id := f.nextMsg
+		f.mu.Unlock()
+		writeJSON(w, http.StatusOK, envelope{OK: true, Result: mustJSON(tgMessage{
+			MessageID: id, Chat: tgID{ID: formInt(form, "chat_id")},
+		})})
 	case "editMessageText":
 		chat := formInt(r.Form, "chat_id")
 		writeJSON(w, http.StatusOK, envelope{OK: true, Result: mustJSON(tgMessage{
@@ -110,15 +132,60 @@ func splitPath(path string) (token, method string, ok bool) {
 	return token, method, found && token != "" && method != ""
 }
 
+// parseFakeBody decodes both the urlencoded text calls and the multipart
+// uploads, keeping the file bytes for assertions.
+func parseFakeBody(w http.ResponseWriter, r *http.Request) (url.Values, map[string][]byte, map[string]string, error) {
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		if err := r.ParseForm(); err != nil {
+			return nil, nil, nil, fmt.Errorf("fake: parse form: %w", err)
+		}
+		return r.Form, nil, nil, nil
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("fake: multipart reader: %w", err)
+	}
+	form, files, names := url.Values{}, map[string][]byte{}, map[string]string{}
+	for {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			return nil, nil, nil, fmt.Errorf("fake: next part: %w", nextErr)
+		}
+		data, readErr := io.ReadAll(part)
+		closeErr := part.Close()
+		if readErr != nil {
+			return nil, nil, nil, fmt.Errorf("fake: read part: %w", readErr)
+		}
+		if closeErr != nil {
+			return nil, nil, nil, fmt.Errorf("fake: close part: %w", closeErr)
+		}
+		if filename := part.FileName(); filename != "" {
+			files[part.FormName()], names[part.FormName()] = data, filename
+			continue
+		}
+		form.Add(part.FormName(), string(data))
+	}
+	return form, files, names, nil
+}
+
 // record appends the call and reports the next injected fault.
-func (f *fakeTG) record(method string, form url.Values) (fakeFault, bool) {
+func (f *fakeTG) record(method string, form url.Values, files map[string][]byte, names map[string]string) (fakeFault, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	clone := url.Values{}
 	for k, v := range form {
 		clone[k] = append([]string(nil), v...)
 	}
-	f.calls = append(f.calls, fakeCall{Seq: len(f.calls) + 1, Method: method, Form: clone})
+	cloneFiles, cloneNames := map[string][]byte{}, map[string]string{}
+	for k, v := range files {
+		cloneFiles[k] = append([]byte(nil), v...)
+	}
+	maps.Copy(cloneNames, names)
+	f.calls = append(f.calls, fakeCall{Seq: len(f.calls) + 1, Method: method, Form: clone, Files: cloneFiles, Names: cloneNames})
 	f.seenMethod[method]++
 	queue := f.faults[method]
 	if len(queue) == 0 {
