@@ -21,10 +21,15 @@ import (
 // F5, so it is not a property here and is rejected by additionalProperties).
 const schemaShell = `{"name":"shell","description":"Run one command in a process group with timeout. Asks for approval unless the exact argv matches shell_allow; no background in F1.","parameters":{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":65536},"timeout_s":{"type":"integer","minimum":1,"maximum":600},"cwd":{"type":"string"},"session":{"type":"string","pattern":"^[a-z0-9_-]{1,32}$"},"stdin":{"type":"string","maxLength":65536}},"required":["command"],"additionalProperties":false}}`
 
-// ShellRunner runs one process tree (implemented by *exec.Runner).
+// ShellRunner runs one process tree (implemented by *exec.Runner and by the
+// ACP client terminal adapter).
 type ShellRunner interface {
 	Run(ctx context.Context, spec *exec.Spec) (exec.Result, error)
 }
+
+// ErrTerminalUnsupported reports that the ACP client did not advertise
+// terminal/*; shell falls back to the local runner and reports it once.
+var ErrTerminalUnsupported = errors.New("tools: client terminal unavailable")
 
 // ShellConfig wires the shell tool. Resolve is supplied by the composition
 // root (exec-backed binary identity); without it shell_allow never matches.
@@ -50,6 +55,11 @@ type ShellConfig struct {
 	// commands Monetary (SEC-15).
 	MonetaryHosts []string
 	MonetaryPaths []string
+	// Terminal, when set, runs one-shot commands on the ACP client
+	// (terminal/*, GAP-UX-01 butir b); ErrTerminalUnsupported falls back to
+	// Runner and calls OnTerminalFallback once per session.
+	Terminal           ShellRunner
+	OnTerminalFallback func(ctx context.Context) error
 	// Canonicalize is the payment-gate path key (absolute, symlinks and
 	// long names resolved, case-folded on case-insensitive filesystems).
 	// nil falls back to the lexical comparison.
@@ -281,6 +291,9 @@ func (t *shellTool) runOneShot(ctx context.Context, env Env, a shellArgs, cwd st
 	if perr != nil {
 		return exec.Result{}, shellErr(perr)
 	}
+	if res, handled, terr := t.runTerminal(ctx, &spec); handled {
+		return res, terr
+	}
 	res, err := t.cfg.Runner.Run(ctx, &spec)
 	if err != nil {
 		return res, fmt.Errorf("tools: shell run: %w", err)
@@ -289,6 +302,30 @@ func (t *shellTool) runOneShot(ctx context.Context, env Env, a shellArgs, cwd st
 		res.Output = append(res.Output, []byte("\n[notice: "+notice+"]")...)
 	}
 	return res, nil
+}
+
+// runTerminal runs spec on the client terminal when configured. handled is
+// false only for ErrTerminalUnsupported, where the caller falls back locally.
+func (t *shellTool) runTerminal(ctx context.Context, spec *exec.Spec) (res exec.Result, handled bool, err error) {
+	if t.cfg.Terminal == nil {
+		return exec.Result{}, false, nil
+	}
+	res, terr := t.cfg.Terminal.Run(ctx, spec)
+	if terr == nil {
+		return res, true, nil
+	}
+	if !errors.Is(terr, ErrTerminalUnsupported) {
+		if res.Status == exec.StatusSpawnFailed {
+			return res, true, shellErr(terr)
+		}
+		return res, true, toolErr(CodeInternal, "retry; if it persists, set acp.use_client_terminal = false", "client terminal: %s", terr.Error())
+	}
+	if t.cfg.OnTerminalFallback != nil {
+		if ferr := t.cfg.OnTerminalFallback(ctx); ferr != nil {
+			return exec.Result{}, true, ferr
+		}
+	}
+	return exec.Result{}, false, nil
 }
 
 // render summarizes output, spills oversized text and fills Meta.

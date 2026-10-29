@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/damnbot/damnbot/internal/acp"
 	"github.com/damnbot/damnbot/internal/assemble"
 	"github.com/damnbot/damnbot/internal/budget"
 	"github.com/damnbot/damnbot/internal/codetools"
@@ -63,6 +64,7 @@ type runOptions struct {
 	// factory fed the run's ctxdb for the context tier (SPEC §4.8/§18.5).
 	prov         loop.Provider
 	clientFS     codetools.ClientFS // ACP client buffer seam (GAP-UX-01)
+	terminal     *acp.Terminal      // ACP client terminal seam (GAP-UX-01 butir b)
 	cfgOverride  *config.Config
 	retrieverFor func(*ctxdb.Store) assemble.Retriever
 	// surface seams: the TUI opens its session lazily with a pre-generated id
