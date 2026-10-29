@@ -2488,6 +2488,7 @@ continue = "safe_auto"                 # off | ask | safe_auto
 [ui]
 language = "auto"                      # auto | 18 kode bahasa §9.12
 theme    = "tern-dark"
+notices  = true                        # notice non-kritis (tip/update); false = mati permanen (GAP-OPS-09)
 
 [log]
 level = "info"
@@ -2553,6 +2554,7 @@ Validasi menolak key tak dikenal dan nilai di luar rentang (mis. `max_iterations
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+- **Notice policy (GAP-OPS-09, ADR-022 NP-19):** 0 upsell/nag/promosi. Notice non-kritis (tip, update tersedia) tampil maksimal 1× per key/versi, dapat dimatikan permanen dengan `[ui] notices = false`, dan tidak pernah memblokir input (blok transkrip asinkron, bukan modal). Notice kritis — keamanan, SAFE MODE, budget 80/100%, stop reason/fallback/compaction/healing — tidak melewati gerbang ini dan selalu tampil.
 - **Tabs** = sesi (termasuk sesi gateway/cron read-only bila di-lease `serve`). **Blocks** = user prompt, plan, assistant message, tool call (nama, argumen ringkas, tag, status ✓/✗/…/⏸, durasi, ukuran, spill, `↶ <action-id>` bila bisa di-undo), system notice (stop reason, fallback, compaction, healing).
 - **Panel konteks/budget** (`ctrl+b`): fixed overhead per tier, window, cache hit, iterasi, biaya turn/sesi/hari/bulan, modul aktif, badge FALLBACK (P7), SAFE MODE.
 - **Approval + preview modal** (§18.2): diff/dry-run, `y` once, `s` session, `e` edit, `n` deny; timeout = reject.

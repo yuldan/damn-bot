@@ -179,6 +179,9 @@ type Recovery struct {
 type UI struct {
 	Language string `toml:"language"`
 	Theme    string `toml:"theme"`
+	// Notices enables non-critical notices (tips); critical notices are not
+	// affected (GAP-OPS-09).
+	Notices bool `toml:"notices" json:"notices"`
 }
 
 // Gateway is SPEC §12 gateway data (P25, GAP-GW-02). It is accepted and
@@ -328,7 +331,7 @@ func Default() Config {
 			Embeddings:    "",
 		},
 		Recovery: Recovery{Continue: "safe_auto"},
-		UI:       UI{Language: "auto", Theme: "tern-dark"},
+		UI:       UI{Language: "auto", Theme: "tern-dark", Notices: true},
 		Gateway: Gateway{
 			MaxParallelTurns: 4,
 			Users:            map[string]GatewayUser{},

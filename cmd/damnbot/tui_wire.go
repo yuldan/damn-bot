@@ -62,6 +62,7 @@ func runTUI(args []string) int {
 	app, err := tui.NewApp(sid, &tui.Host{
 		Clock: r, Runner: r, Config: r, Runtime: r, Actions: r, Shell: r,
 		Sessions: actions, Files: filesAdapter{}, Clipboard: clipboardAdapter{},
+		Notices: noticeGateFor(&cfg, dataDir),
 	})
 	if err == nil {
 		benchTrace("app-built")

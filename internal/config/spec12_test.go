@@ -31,7 +31,7 @@ func TestConfigAllSpec12Keys(t *testing.T) { //nolint:gocyclo // one assertion p
 		"[skills]", "project_discovery = false", "trusted_projects = [" + tomlAbsPath(t) + "]",
 		"external_dirs = [" + tomlAbsPath(t) + "]", "inline_shell = true",
 		"[recovery]", `continue = "ask"`,
-		"[ui]", `language = "id"`, `theme = "mono"`,
+		"[ui]", `language = "id"`, `theme = "mono"`, "notices = false",
 		"[log]", `level = "debug"`, "message_content = true", `message_content_ttl = "48h"`,
 		"[sessions]", "auto_prune = true", "prune_after_days = 30",
 		"[storage]", "encrypt = true",
@@ -64,7 +64,7 @@ func TestConfigAllSpec12Keys(t *testing.T) { //nolint:gocyclo // one assertion p
 	if cfg.Skills.InlineShell != true || cfg.Skills.ProjectDiscovery != false {
 		t.Errorf("skills = %+v", cfg.Skills)
 	}
-	if cfg.Recovery.Continue != "ask" || cfg.UI.Language != "id" || cfg.UI.Theme != "mono" {
+	if cfg.Recovery.Continue != "ask" || cfg.UI.Language != "id" || cfg.UI.Theme != "mono" || cfg.UI.Notices {
 		t.Errorf("recovery/ui = %+v/%+v", cfg.Recovery, cfg.UI)
 	}
 	if !cfg.Sessions.AutoPrune || cfg.Sessions.PruneAfterDays != 30 || !cfg.Storage.Encrypt {
@@ -101,7 +101,7 @@ func TestConfigSpec12Example(t *testing.T) {
 		"[memory]", "entry_max_chars = 500", "total_max_chars = 4000", `embeddings = ""`,
 		"[skills]", "project_discovery = true", "trusted_projects = []", "external_dirs = []",
 		"[recovery]", `continue = "safe_auto"`,
-		"[ui]", `language = "auto"`, `theme = "tern-dark"`,
+		"[ui]", `language = "auto"`, `theme = "tern-dark"`, "notices = true",
 		"[log]", `level = "info"`,
 	}, "\n"))
 	if err != nil {

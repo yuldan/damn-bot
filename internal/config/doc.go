@@ -21,7 +21,7 @@
 //	[memory]    entry_max_chars, total_max_chars, embeddings
 //	[skills]    project_discovery, trusted_projects, external_dirs, inline_shell
 //	[recovery]  continue
-//	[ui]        language, theme
+//	[ui]        language, theme, notices
 //	[log]       level, message_content, message_content_ttl
 //	[sessions]  auto_prune, prune_after_days
 //	[storage]   encrypt
