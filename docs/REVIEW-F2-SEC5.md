@@ -513,3 +513,114 @@ Tidak ada kasus yang diblok `main` tetapi lolos di `58d5dc8`.
 | K. fd (300 undo) / happy path | 37 → 37; `undone` |
 
 **Overall:** stack #180–#174 **APPROVE**; #183 (`58d5dc8`) **APPROVE**. Temuan terbuka SEC5: hanya residual H' (deny glob + rename) dan Windows (symlink di dalam root diikuti `os.Root`), keduanya pra-ada dan terdokumentasi.
+
+## Round 8 — 2026-10-22 (recheck pasca-rebase ke `2022f89`)
+
+**Verdict:** seluruh stack **APPROVE**. Hunk hasil merge tangan benar, dan semua commit lain identik kecuali konteks dokumen.
+
+| PR | Head lama (approve) | Head baru | Isi range-diff | Verdict |
+|---|---|---|---|---|
+| #180 (0/6) | `822163e` | `a61b737` | konteks `CHANGELOG` saja | **APPROVE** |
+| #181 (1/6) | `b181eef` | `b8ea86c` | konteks `CHANGELOG` saja | **APPROVE** |
+| #170 (2/6) | `a60b7b8` | `57bde93` | **merge tangan**: `newRunProvider` memakai `providerEndpoint` main (`base, key, family`) + `Route.Family`; `Edit1MBJournal` lewat `measureDurable` (CT-09 retry #225); `History` mempertahankan `assistantAt` milik main | **APPROVE** |
+| #177 (3/6) | `81b6cb4`/`5625362`/`632d763` | `9a57b18`/`ef19ec8`/`eb4a72d` | konteks `CHANGELOG` saja | **APPROVE** |
+| #171 (4/6) | `b35093f`/`7ecb211` | `49d3f96`/`8f17e86` | konteks `CHANGELOG`/`DECISIONS` saja | **APPROVE** |
+| #173 (5/6) | `11221de` | `b5c3d1c` | **merge tangan**: guard dipertahankan; `Reply` = field carrier main ∪ `BudgetWarnings`; `excludeReason` + `budget_daily/monthly/provider` → ""; `budgetNotes` nil-safe; `loop` 2.050 → 2.070 (amandemen ADR-123) | **APPROVE** |
+| #174 (6/6) | `4220f05` | `00262a1` | konteks `CHANGELOG` saja | **APPROVE** |
+| #183 | `58d5dc8` | `b416a61` | `loc.budget`/`ENGINEERING` saja (`journal` 610, Σ core 37.750 → 37.800) | **APPROVE** |
+
+`git range-diff <basis-lama>..58d5dc8 2022f89..b416a61`: 11 pasangan commit. Di luar tiga hunk di atas, perubahannya hanya konteks `CHANGELOG`/`DECISIONS`/`ENGINEERING`/`loc.budget`. Tidak ada perubahan kode Go lain.
+
+Gate di `b416a61`: `go test -race -tags goolm -count=1 ./cmd/damnbot ./internal/loop/... ./internal/provider ./internal/budget ./internal/journal/... ./internal/sandbox ./internal/archtest` → ok (termasuk `TestCarrier*` end-to-end lewat `run` yang ber-guard, `TestRunBudgetGuardDenies`, dan `TestStreamErrorBudgetClass`); `go vet ./...` + `GOOS=windows|darwin` (cmd/damnbot, loop, journal, sandbox, codetools) bersih; `make loc`: `loop 2059/2070`, `journal 609/610`, `budget 559/560`; `make deadcode` 0. CI stack: masih antre (runner jenuh) saat dokumen ini ditulis. Hasil CI tetap menjadi syarat merge.
+
+### Hunk merge tangan
+
+- **Carrier route/family (#170, dipertahankan di #173):** `newRunProvider` memanggil `providerEndpoint` → `(base, key, family)` dan membangun satu `Route{…, Family: family}`, identik dengan `main` `2022f89` (`run.go:323`). `providerAdapter.Stream` di-diff terhadap `main`: field carrier request (`providerCarriers`) dan reply (`Carriers`, `RejectedCarriers`, `CarrierDrops`, `ReasoningText`) **identik**. Selisihnya hanya `p.notes.take()`, `BudgetWarnings`, dan `streamError(err)`. `streamError` memetakan `budget.DeniedError` → `ClassBudget` + detail stop, sedangkan sisanya **sama dengan main** (`ContextLength` → `ClassContextLength`, selain itu `ClassProvider`).
+- **Guard membungkus setiap call provider:** `provider.Config.Guard` dicek di `OpenAI.Do` sebelum **setiap route** dalam rantai fallback (`client.go:126`). Satu-satunya pemanggil `Do` di jalur produksi `cmd/damnbot` adalah `providerAdapter.Stream` (`PurposeTurn`). **Tidak ada jalur summarizer compaction** yang dirangkai di `cmd/damnbot` pada head ini (grep `Compactor`/`compaction.`: kosong). Bila kelak dirangkai, summarizer harus memakai client yang sama (ber-guard), bukan `NewOpenAI` kedua. Catatan pra-ada (bukan hunk merge): guard dicek per route, bukan per retry `Attempts` di dalam `call`.
+- **`Edit1MBJournal` (#170):** kini `measureDurable(…, editJournalSetup)` dengan referensi tulis-durabel yang sama dengan `Edit1MB` (ADR-127). Ini perubahan test/bench saja.
+- **Budget stop vs ADR-134 (#173):** ADR-134 butir 3 secara eksplisit mendaftar `budget_*` sebagai **tidak** di-exclude (stop kebijakan menyisakan history yang valid). `excludeReason` kini mencantumkan `budget_daily/monthly/provider` → `""`, konsisten dengan `budget_input/output` yang sudah ada di main. Probe `run` dengan `daily_usd = 1.0`: `max_tokens/budget_daily`, 0 request provider, **0 `context_exclude`**, `user_message` tetap ada. Denial terjadi sebelum call, sehingga tidak ada keluaran model parsial yang masuk ke context.
+- **`budgetNotes` nil-safe:** `observe`/`take` pada receiver nil → no-op/nil ✔.
+- **Budget `loop`:** terukur **2.059**/2.070. Teks amandemen ADR-123 menulis "terukur 2.058" (selisih 1 baris, dokumen saja).
+
+### Catatan (tidak memblokir)
+
+- SEC5-22 (info): amandemen ADR-123 menulis `loop` terukur 2.058, sedangkan `make loc` = 2.059.
+- Perilaku yang sudah di-approve sebelumnya tetap berlaku: `run` belum punya harga registry, sehingga cap apa pun menolak setiap call ("cost unknown", fail-closed, ADR-123 butir 3).
+
+**Ringkasan Round 8:** stack #180 → #181 → #170 → #177 → #171 → #173 → #174 → #183 **APPROVE**. Merge tangan mempertahankan identitas carrier (`Route.Family`, field carrier di request/reply), guard tetap membungkus setiap call provider (satu jalur `Do`, tanpa summarizer terpisah), dan stop `budget_*` tetap di context sesuai ADR-134. Syarat merge: CI stack hijau.
+
+## Round 9 — 2026-10-22 (wiring + undo sandbox, restack di atas `56a06a5`, aturan owner: e2e + kontrol negatif)
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #181 (journal pin + root kanonik) | `ad900a3` (di atas `56a06a5` = `b8ea86c` identik) | **APPROVE (kode)**. Kanonikalisasi root benar dan tidak dapat saya tembus. Syarat: rebase ke `main` (`CONFLICTING`, belum ada CI) + CI hijau di tiga OS. Aturan owner: tanpa e2e per-PR (CLI `undo` baru ada di #177) → **SEC5-23 (MEDIUM)**, kecuali #181..#240 di-merge dalam satu jendela |
+| #170 | `54932ab` | **APPROVE**: memakai `newRunProvider` dari main (#229) |
+| #177 | `bbdb0c0` (+ commit e2e baru `bbdb0c0`) | **APPROVE** |
+| #171 / #174 | `86aa154` / `72f4d59` | **APPROVE**: identik (`=`) |
+| #173 | `9a0bd8e` | **APPROVE**: hunk merge tangan identik dengan Round 8 |
+| #183 | `9dd7ddf` | **APPROVE**: `MapPath` dipertahankan; budget `sandbox+redact` 1765, `journal` 615 |
+| #240 (e2e undo) | `0b0a661` | **REQUEST CHANGES (test-only)**: **SEC5-24 (MEDIUM, aturan owner)**. Test symlink-inside tidak mengisolasi variabel symlink; kontrol negatif yang ada menguji hal lain. Juga SEC5-25 (MINOR, skip di CI) |
+
+`git range-diff ee3e7be..` (basis `#180` di main) vs Round 8: `56a06a5 = b8ea86c`, `1169b38/f864543/1fca15c/86aa154/72f4d59 =`. Commit `!` hanya berisi konteks dokumen/`loc.budget`, adaptasi ke `newRunProvider` main (#170), atau penyimpanan blok `MapPath` (#183). Commit baru: `ad900a3` (root kanonik), `bbdb0c0` (e2e `cmd/damnbot`), `b9639a0` (cherry-pick harness #239; dibuang saat #239 mendarat), dan `0b0a661` (e2e undo).
+
+Gate lokal di `0b0a661` (Linux): `go test -race -tags goolm -count=1 ./internal/sandbox ./internal/journal/... ./internal/ctxdb/journalstore ./cmd/damnbot ./internal/e2e ./internal/loop ./internal/archtest` → ok; `GOOS=windows|darwin go vet` bersih; `GOOS=windows go test -c ./internal/ctxdb/journalstore` ok; `make loc` `sandbox+redact 1760/1765`, `journal 613/615`; `make deadcode` 0. **CI:** #170..#183 masih antre. #181 `CONFLICTING`, sehingga tidak ada run sama sekali. #240 belum punya check. Bukti macOS (`/var` → `/private/var` nyata) dan Windows (8.3 `RUNNER~1`) **hanya bisa datang dari CI**; lihat "CI yang wajib" di bawah.
+
+### 1. Kanonikalisasi root
+
+`root{alias, path}`: `alias` = ejaan absolut yang dikonfigurasi, `path` = `EvalSymlinks` + (Windows) `GetFinalPathNameByHandle`. `Sandbox.check` memetakan prefiks alias ke root kanonik **secara leksikal**, lalu `denied(abs)`, `resolve`, `denied(resolved)`, dan prefiks root pada path ter-resolve. `MapPath` = alias→kanonik + `RootOf` tanpa me-resolve apa pun di bawah root. `SamePath` case-insensitive hanya untuk root Windows. `Undoer.current` membandingkan `Join(MapPath(p))` dengan hasil `Check`, sehingga hanya ejaan root yang boleh berbeda.
+
+Probe `TestZZSec5R9` (`internal/sandbox`, Linux, dihapus setelah dijalankan; root dikonfigurasi lewat symlink `ws` → `real/ws`):
+
+| Path | Hasil |
+|---|---|
+| `ws/a.txt`, `real/ws/a.txt` | inside, `MapPath` → `real/ws` ✔ |
+| **`wsx/f.txt`** (prefiks alias tanpa separator) | **outside_root**, `MapPath` tidak cocok ✔ (`hasPathPrefix` mensyaratkan separator) |
+| `ws/esc/x.txt` (symlink di bawah root → luar) | **outside_root** ✔ (`MapPath` memberi `esc/x.txt` secara leksikal, dan `SamePath` menolak di undo) |
+| `ws/secret.txt`, `real/ws/secret.txt` (deny dalam bentuk alias) | **denied_path** keduanya ✔ (`compileDeny` menambah varian kanonik) |
+| `ws/later.txt` (file deny dibuat **setelah** `New`) | **denied_path** ✔ |
+| alias di-retarget ke luar setelah `New` | `ws/x.txt` → tetap dipetakan ke root kanonik **asli** (inside `real/ws`), tidak mengikuti link baru ✔ (fail-safe) |
+
+Probe e2e `TestZZSymlinkOnlyRefusal` (binary nyata, harness #239; dihapus setelah dijalankan): `note.txt` diganti symlink ke `target.txt` yang **isinya sama dengan after-image**, sehingga tidak ada konflik isi. `undo` → exit 1 `action conflicts with the current file: …/note.txt is now a symlink`. `undo --force` → exit 1 dengan pesan yang sama, target utuh, link utuh ✔. Penolakan memang berasal dari pemeriksaan symlink.
+
+- **TOCTOU `MapPath`→`OpenResolved`:** `MapPath` leksikal. Swap sesudahnya ditolak oleh `OpenResolved`/`Dir.OpenFile` (tanpa symlink per komponen, fd root dipin #183, vetting deny via handle). Tidak ada jendela baru.
+- **Case:** `SamePath`/`hasPathPrefix` hanya case-insensitive di Windows. Di macOS, ejaan dengan case berbeda tidak dipetakan, lalu `RootOf` gagal → `ErrUnsafePath` (fail-closed, tanpa bypass).
+- **Windows:** `canonicalFinal` membuka root (`os.Open` direktori) → `finalPath` → `normalizeWindows`. Sub-path berbentuk 8.3 di **bawah** root tidak dipetakan dan akan ditolak sebagai konflik (konservatif). Penilaian statis; bukti dari CI Windows.
+
+### 2. `newRunProvider` dan seam `o.prov`
+
+`newRunProvider` mengembalikan `o.prov` lebih dulu bila tidak nil; selain itu `budget.Guard` + `Route.Family` + adapter yang sama dengan Round 8. Pada `0b0a661` **dan** `main` `91aa604`, satu-satunya penulis `o.prov` adalah `cmd/damnbot/run_inject_test.go` (test). `parseRunFlags` tidak punya flag untuk itu, dan field tidak di-load dari config. `damnbot run` tidak dapat menjangkaunya ✔. Jalur eval (`damnbot eval recall`, #230/#231) belum ada di `main` maupun stack ini. Saat mendarat, injeksinya adalah `evalProvider` dengan ledger sendiri: settle `max(actual, worst)`, lock lintas proses, reserve sebelum call. Semua ini terverifikasi di REVIEW-F2-SEC14 Round 2 (500 call tanpa usage berhenti di cap). Bypass guard `run` oleh provider injeksi terdokumentasi dan dapat diterima.
+
+### 3. Hunk merge tangan lain
+
+`providerAdapter.Stream`, `budget_wire.go` (termasuk `budgetNotes` nil-safe), `loop.excludeReason`, dan `loop.Reply` **identik byte** dengan `b416a61` yang di-approve di Round 8 (diff kosong). ADR-117 berisi lima amandemen berurutan (SEC5 → round 4 → round 5 → SEC5-15 → SEC14 root alias). SEC5-15 diletakkan setelah round 5 (nit urutan kronologis). `codetools` `Edit1MBJournal` lewat `measureDurable` sama dengan Round 8.
+
+### 4. E2E #240 dan aturan owner
+
+| Test | Lewat binary nyata | Penilaian |
+|---|---|---|
+| `TestUndoSymlinkedRoot` (`internal/e2e`) | ya (`go build ./cmd/damnbot` di `TestMain`) | jalur positif root alias: `run` (write+edit) → `undo 2` byte-identik → `review` exit 0 ✔ |
+| `TestUndoSymlinkInsideRefused` | ya | **tidak terisolasi**: target symlink berisi `target\n` ≠ after-image, sehingga undo juga akan ditolak oleh konflik isi bahkan tanpa pemeriksaan symlink. Probe saya (target = after-image, + `--force`) membuktikan kodenya benar, tetapi test tidak mengunci properti itu → SEC5-24 |
+| `TestUndoRefusalNegativeControl` | ya | menguji konflik isi + `--force` memulihkan. Ini bukan kontrol negatif untuk penolakan symlink |
+| `TestE2ERunUndoWithSymlinkedRoot` (`cmd/damnbot`, #177) | `run([]string)` (entry CLI) | positif; `t.Skip` di Windows ("unix symlink root") |
+| `TestUndoRootShortNameForm` (journalstore, Windows) | unit | skip bila `GetShortPathName` gagal atau 8.3 dimatikan → SEC5-25 |
+
+**Skip 8.3:** skip lingkungan dapat diterima secara prinsip (volume dengan 8.3 dimatikan memang tidak punya bentuk pendek, jadi tidak ada bug untuk diuji). Namun runner CI Windows **pasti** punya 8.3 (`RUNNER~1` adalah asal bug ini), sehingga skip di CI akan menyembunyikan regresi. Pakai pola `skipOrFail` (SEC9-10): gagal bila `CI` diset. Skip symlink di `symlinkRoot` juga harus fail di CI.
+
+### Temuan
+
+| ID | Severity | Status | Temuan | Perbaikan |
+|---|---|---|---|---|
+| SEC5-23 | MEDIUM (aturan owner) | open / kondisional | #181 (batas keamanan undo/sandbox) tidak punya e2e per-PR. CLI `undo` baru ada di #177, dan e2e ada di #177/#240. | Merge #181 → #240 dalam satu jendela (e2e #240 menjadi bukti stack), **atau** pindahkan e2e minimal ke PR yang menyentuh perilaku itu. |
+| SEC5-24 | MEDIUM (aturan owner: kontrol negatif) | open (test-only) | `TestUndoSymlinkInsideRefused` dapat lulus karena konflik isi; tidak ada kontrol yang mengisolasi symlink. | Isi target = after-image; assert penolakan "is now a symlink"; tambahkan `undo --force` → tetap ditolak, target dan link utuh (persis probe `TestZZSymlinkOnlyRefusal`). Kontrol: skenario yang sama **tanpa** symlink → `undo` sukses. |
+| SEC5-25 | MINOR | open | Skip lingkungan (8.3 tidak tersedia, `os.Symlink` gagal, Windows "unix symlink root") tidak terlihat di CI. | `skipOrFail` saat `CI` diset untuk 8.3 dan symlink. Di Windows, e2e root-alias cukup memakai bentuk 8.3 (`RUNNER~1`) yang sudah ada di `TEMP`. |
+| SEC5-26 | info | — | ADR-117: amandemen SEC5-15 (round 3) diletakkan setelah round 5. | Opsional. |
+
+### CI yang wajib (bukti lintas OS)
+
+Scratch ref tidak akan memicu workflow `ci` (pemicunya `pull_request`/push `main`), jadi bukti harus dari PR:
+1. Rebase #181 ke `main` terkini lalu push. Run PR #181..#183 (macOS + Windows) harus hijau: `TestUndoRootSymlinkForm` (macOS `/var` nyata), `TestUndoRootShortNameForm` (Windows; harus **tidak** skip), `TestUndo50Files`.
+2. PR #240: `go test -tags goolm -v -run 'TestUndo' ./internal/e2e/` di macOS dan Windows (harness membangun binary). Pastikan nama test tercetak `PASS`, bukan `SKIP`.
+
+**Ringkasan Round 9:** kode stack **APPROVE**. Kanonikalisasi root hanya memetakan ejaan root itu sendiri; prefiks alias, symlink di bawah root, deny dalam bentuk alias, file deny yang dibuat belakangan, retarget alias, dan swap symlink + `--force` lewat binary nyata semuanya ditolak. Seam `o.prov` tidak terjangkau dari CLI/config. Hunk merge tangan identik dengan Round 8. Sisa yang harus ditutup sesuai aturan owner: test `#240` yang mengisolasi symlink (SEC5-24), e2e untuk #181 lewat merge satu jendela (SEC5-23), skip yang gagal di CI (SEC5-25), serta rebase #181 dan CI macOS/Windows hijau.
