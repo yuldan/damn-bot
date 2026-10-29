@@ -647,50 +647,6 @@ func (g *serveGateway) feedback(ctx context.Context, chat, thread, tool, preview
 	return d == telegram.DecisionAllow, nil
 }
 
-func (g *serveGateway) deliveries(ctx context.Context) {
-	tick := time.NewTicker(200 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-		now := time.Now()
-		due, err := g.store.ClaimDeliveries(ctx, now.UnixMilli(), 8)
-		if err != nil {
-			sessionsPrintf(g.stderr, "gateway: claim deliveries: %s\n", cleanLine(err.Error()))
-			g.metrics.IncError()
-			continue
-		}
-		for i := range due {
-			d := &due[i]
-			if ok, wait := g.limiter.Take(d.ChatID, now); !ok {
-				g.retryDelivery(ctx, d, "rate limited", wait, now)
-				continue
-			}
-			out, merr := g.deliveryMessage(ctx, d)
-			if merr != nil {
-				g.retryDelivery(ctx, d, cleanLine(merr.Error()), 0, now)
-				continue
-			}
-			ref, serr := g.adapter.Send(ctx, out)
-			if serr != nil {
-				wait := time.Duration(0)
-				if retryAfter, ok := telegram.RetryAfter(serr); ok {
-					g.limiter.Penalize(d.ChatID, now.Add(retryAfter))
-					wait = retryAfter
-				}
-				g.retryDelivery(ctx, d, cleanLine(serr.Error()), wait, now)
-				continue
-			}
-			if err := g.store.SentDelivery(ctx, d.ID, strconv.FormatInt(ref, 10), now.UnixMilli()); err != nil {
-				g.metrics.IncError()
-			}
-		}
-	}
-}
-
 // deliveryMessage builds the outbound message of one claimed delivery,
 // resolving media_blob_sha when the row carries an attachment.
 func (g *serveGateway) deliveryMessage(ctx context.Context, d *gwstore.Delivery) (*telegram.Outbound, error) {
@@ -722,19 +678,6 @@ func (g *serveGateway) loadMedia(ctx context.Context, sha string) (*telegram.Med
 		return nil, fmt.Errorf("media blob %s: %w", sha, err)
 	}
 	return &telegram.Media{MIME: mimeType, Data: data}, nil
-}
-
-func (g *serveGateway) retryDelivery(ctx context.Context, d *gwstore.Delivery, cause string, wait time.Duration, now time.Time) {
-	g.metrics.IncError()
-	if d.Attempts >= 5 {
-		if err := g.store.FailDelivery(ctx, d.ID, cause, now.UnixMilli()); err != nil {
-			sessionsPrintf(g.stderr, "gateway: fail delivery: %s\n", cleanLine(err.Error()))
-		}
-		return
-	}
-	if err := g.store.RetryDelivery(ctx, d.ID, cause, gateway.Backoff(now, d.Attempts, wait).UnixMilli()); err != nil {
-		sessionsPrintf(g.stderr, "gateway: retry delivery: %s\n", cleanLine(err.Error()))
-	}
 }
 
 type beatDoer struct {
