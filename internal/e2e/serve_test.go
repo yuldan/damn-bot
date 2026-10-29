@@ -107,6 +107,35 @@ func (p *serveProc) awaitLog(buf *lockedBuffer, want string, limit time.Duration
 
 func (p *serveProc) url(path string) string { return "http://" + p.addr + path }
 
+// awaitState waits for a servetest sentinel. The file is the synchronization
+// point (written before the turn releases its slot); the deadline only bounds
+// a broken child, it is never the source of truth.
+func awaitState(t *testing.T, p *serveProc, state, name string, limit time.Duration) {
+	t.Helper()
+	path := filepath.Join(state, name)
+	deadline := time.NewTimer(limit)
+	defer deadline.Stop()
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		select {
+		case <-p.exited:
+			t.Fatalf("serve exited before writing %s\nstderr:\n%s", name, p.stderr.String())
+		case <-deadline.C:
+			t.Fatalf("servetest state %s not written in %s\nstderr:\n%s", name, limit, p.stderr.String())
+		case <-tick.C:
+		}
+	}
+}
+
+func stateExists(state, name string) bool {
+	_, err := os.Stat(filepath.Join(state, name))
+	return err == nil
+}
+
 func (p *serveProc) terminate() {
 	p.t.Helper()
 	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
@@ -221,6 +250,19 @@ func TestServeObservabilityAndCleanStop(t *testing.T) {
 	}
 }
 
+// TestServeTerminatesCleanlyRightAfterListening is the regression for the
+// signal-handler race: SIGTERM sent as soon as the child announced its
+// listener used to arrive before the handler was installed, so the default
+// disposition killed the child and waitExit saw a signal status (-1).
+func TestServeTerminatesCleanlyRightAfterListening(t *testing.T) {
+	e := newEnv(t)
+	p := startServe(t, e, binPaths.main, nil)
+	p.terminate()
+	if code := p.waitExit(10 * time.Second); code != 0 {
+		t.Fatalf("SIGTERM right after listening = %d, want 0\nstderr:\n%s", code, p.stderr.String())
+	}
+}
+
 func TestServeSecondInstanceRefused(t *testing.T) {
 	e := newEnv(t)
 	p := startServe(t, e, binPaths.main, nil)
@@ -239,24 +281,19 @@ func TestServeSecondInstanceRefused(t *testing.T) {
 
 func TestServeDrainCompletesActiveTurn(t *testing.T) {
 	e := newEnv(t)
-	p := startServe(t, e, binPaths.serve, []string{"DAMNBOT_SERVE_TEST_TURN=2s"})
-	p.awaitLog(p.stderr, "servetest: turn started", 5*time.Second)
+	state := filepath.Join(t.TempDir(), "servetest-state")
+	p := startServe(t, e, binPaths.serve, []string{"DAMNBOT_SERVE_TEST_TURN=2s", "DAMNBOT_SERVE_TEST_STATE=" + state})
+	awaitState(t, p, state, "turn-started", 10*time.Second)
 
 	p.terminate()
-	select {
-	case <-p.exited:
-		t.Fatalf("serve exited before the active turn finished\nstderr:\n%s", p.stderr.String())
-	case <-time.After(250 * time.Millisecond):
-	}
 	if code := p.waitExit(10 * time.Second); code != 0 {
 		t.Fatalf("drained exit = %d, want 0\nstderr:\n%s", code, p.stderr.String())
 	}
-	log := p.stderr.String()
-	if !strings.Contains(log, "servetest: turn completed") {
-		t.Errorf("active turn did not complete before exit:\n%s", log)
-	}
-	if strings.Contains(log, "servetest: turn cancelled") {
-		t.Errorf("active turn was cancelled inside the drain window:\n%s", log)
+	// The hook writes the marker before the turn releases its slot, and the
+	// drain waits for that slot, so the completed marker must already exist.
+	awaitState(t, p, state, "turn-completed", time.Second)
+	if stateExists(state, "turn-cancelled") {
+		t.Errorf("active turn was cancelled inside the drain window:\n%s", p.stderr.String())
 	}
 }
 
@@ -265,18 +302,16 @@ func TestServeDrainCompletesActiveTurn(t *testing.T) {
 // assertion above could never hold, so this control is load-bearing.
 func TestServeDrainNegativeControl(t *testing.T) {
 	e := newEnv(t)
-	p := startServe(t, e, binPaths.serve, []string{"DAMNBOT_SERVE_TEST_TURN=2s"}, "--drain-timeout=1ms")
-	p.awaitLog(p.stderr, "servetest: turn started", 5*time.Second)
+	state := filepath.Join(t.TempDir(), "servetest-state")
+	p := startServe(t, e, binPaths.serve, []string{"DAMNBOT_SERVE_TEST_TURN=2s", "DAMNBOT_SERVE_TEST_STATE=" + state}, "--drain-timeout=1ms")
+	awaitState(t, p, state, "turn-started", 10*time.Second)
 	p.terminate()
 	if code := p.waitExit(10 * time.Second); code != 0 {
 		t.Fatalf("exit = %d, want 0\nstderr:\n%s", code, p.stderr.String())
 	}
-	log := p.stderr.String()
-	if !strings.Contains(log, "servetest: turn cancelled") {
-		t.Errorf("control turn was not cancelled:\n%s", log)
-	}
-	if strings.Contains(log, "servetest: turn completed") {
-		t.Errorf("control turn completed without a drain window:\n%s", log)
+	awaitState(t, p, state, "turn-cancelled", time.Second)
+	if stateExists(state, "turn-completed") {
+		t.Errorf("control turn completed without a drain window:\n%s", p.stderr.String())
 	}
 }
 
