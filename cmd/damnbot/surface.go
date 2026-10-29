@@ -67,7 +67,7 @@ func surface() []surfaceEntry {
 		{Name: "skills", Summary: "Local skills: list, install, update, trust", Phase: phaseF2, Run: skillsCommand, Usage: skillsUsage},
 		{Name: "bundles", Summary: "Skill bundles: list, show, create, delete, reload", Phase: phaseF2, Run: runBundles, Usage: bundlesUsage},
 		{Name: "mcp", Summary: "MCP client and server", Phase: phaseF5},
-		{Name: "gateway", Summary: "Messaging gateway", Phase: phaseF4},
+		{Name: "gateway", Summary: "Messaging gateway", Phase: phaseF4, Run: runGateway, Usage: gatewayUsage},
 		{Name: "cron", Summary: "Scheduler", Phase: phaseF4},
 		{Name: "kanban", Summary: "Collaboration board", Phase: phaseF7},
 		{Name: "usage", Summary: "Ledger, budget guard, insights", Phase: phaseF3, Run: runUsageCommand, Usage: usageUsage},

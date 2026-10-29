@@ -1,0 +1,157 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
+	"github.com/damnbot/damnbot/internal/gateway"
+)
+
+// cliIDs adapts gwstore.Lookup to the consumer-side gateway.IdentityStore
+// (the production wiring lands with cmd/damnbot in the wiring slice).
+type cliIDs struct{ store gwstore.Store }
+
+func (a cliIDs) Identity(ctx context.Context, platform, externalID string) (gateway.Identity, bool, error) {
+	id, found, err := a.store.Lookup(ctx, platform, externalID)
+	if err != nil {
+		return gateway.Identity{}, false, fmt.Errorf("lookup: %w", err)
+	}
+	if !found {
+		return gateway.Identity{}, false, nil
+	}
+	return gateway.Identity{
+		Platform: platform, ExternalID: externalID, DisplayName: id.DisplayName,
+		Role: gateway.Role(id.Role), Status: gateway.Status(id.Status),
+		Strength: gateway.Strength(id.Strength), Workspace: id.Workspace,
+	}, true, nil
+}
+
+type cliInbox struct{ calls int }
+
+func (c *cliInbox) Record(context.Context, *gateway.Inbound) (bool, error) {
+	c.calls++
+	return true, nil
+}
+
+func runGatewayCLI(t *testing.T, args ...string) (int, string, string) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	code := runGateway(args, &out, &errb)
+	return code, out.String(), errb.String()
+}
+
+func gatewayTestDB(t *testing.T, dir string) *ctxdb.Store {
+	t.Helper()
+	db, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: dir, Kind: "cli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return db
+}
+
+func closeTestDB(t *testing.T, db *ctxdb.Store) {
+	t.Helper()
+	if err := db.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+}
+
+func admit(store gwstore.Store, dataDir string, inbox *cliInbox) (gateway.Outcome, error) {
+	g, err := gateway.New(gateway.Options{DataDir: dataDir, Identities: cliIDs{store}, Inbox: inbox})
+	if err != nil {
+		return gateway.Outcome{}, fmt.Errorf("gateway: %w", err)
+	}
+	out, err := g.Admit(context.Background(), &gateway.Inbound{
+		Platform: "telegram", ChatID: "c1", SenderID: "42", UpdateID: "u:1", Payload: `{"text":"hi"}`,
+	}, func(context.Context, gateway.Ticket) error { return nil })
+	if err != nil {
+		return out, fmt.Errorf("admit: %w", err)
+	}
+	return out, nil
+}
+
+// TestGatewayCLIRevokeBlocksAdmission proves the CLI and gateway.Admit share
+// one database: allow admits, revoke denies, with the runner untouched.
+func TestGatewayCLIRevokeBlocksAdmission(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DAMNBOT_GATEWAY_OWNER", "telegram:1")
+	t.Setenv("DAMNBOT_GATEWAY_ALLOW", "")
+	if code, _, errs := runGatewayCLI(t, "allow", "telegram", "42", "--data-dir", dir); code != 0 {
+		t.Fatalf("allow: %d %s", code, errs)
+	}
+	db := gatewayTestDB(t, dir)
+	inbox := &cliInbox{}
+	out, err := admit(gwstore.Store{DB: db}, t.TempDir(), inbox)
+	if err != nil || out.Kind != gateway.Accepted {
+		t.Fatalf("admit after allow: %+v err=%v", out, err)
+	}
+	closeTestDB(t, db)
+	if code, _, errs := runGatewayCLI(t, "revoke", "telegram", "42", "--data-dir", dir); code != 0 {
+		t.Fatalf("revoke: %d %s", code, errs)
+	}
+	db = gatewayTestDB(t, dir)
+	defer closeTestDB(t, db)
+	out, err = admit(gwstore.Store{DB: db}, t.TempDir(), inbox)
+	if err != nil || out.Kind != gateway.Rejected || out.Reason != gateway.ReasonNotAllowlisted {
+		t.Fatalf("admit after revoke: %+v err=%v", out, err)
+	}
+	if inbox.calls != 1 {
+		t.Fatalf("runner called %d times, want 1 (only the allowed update)", inbox.calls)
+	}
+}
+
+func TestGatewayCLIPairBootstrapAndQuota(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DAMNBOT_GATEWAY_OWNER", "")
+	t.Setenv("DAMNBOT_GATEWAY_ALLOW", "")
+	for i := range 5 {
+		code, out, errs := runGatewayCLI(t, "pair", "telegram", "--data-dir", dir)
+		if code != 0 || !strings.Contains(out, "pairing code ") {
+			t.Fatalf("pair %d: %d out=%q err=%q", i, code, out, errs)
+		}
+	}
+	if code, _, errs := runGatewayCLI(t, "pair", "telegram", "--data-dir", dir); code == 0 || !strings.Contains(errs, "rate limit") {
+		t.Fatalf("sixth pair: code=%d err=%q, want rate limit", code, errs)
+	}
+}
+
+func TestGatewayCLINonOwnerCannotPair(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DAMNBOT_GATEWAY_OWNER", "")
+	t.Setenv("DAMNBOT_GATEWAY_ALLOW", "")
+	if code, _, errs := runGatewayCLI(t, "allow", "telegram", "42", "--data-dir", dir); code != 0 {
+		t.Fatalf("allow user: %d %s", code, errs)
+	}
+	if code, _, errs := runGatewayCLI(t, "pair", "telegram", "--data-dir", dir); code == 0 || !strings.Contains(errs, "owner") {
+		t.Fatalf("non-owner pair: code=%d err=%q", code, errs)
+	}
+}
+
+func TestGatewayCLIListStatusAndEnvBootstrap(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DAMNBOT_GATEWAY_OWNER", "telegram:1")
+	t.Setenv("DAMNBOT_GATEWAY_ALLOW", "telegram:42")
+	code, out, errs := runGatewayCLI(t, "list", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "telegram:1 role=owner status=allowlisted") ||
+		!strings.Contains(out, "telegram:42 role=user status=allowlisted") {
+		t.Fatalf("list: %d out=%q err=%q", code, out, errs)
+	}
+	code, out, errs = runGatewayCLI(t, "status", "--data-dir", dir)
+	if code != 0 || !strings.Contains(out, "identities 2") || !strings.Contains(out, "owners 1") {
+		t.Fatalf("status: %d out=%q err=%q", code, out, errs)
+	}
+}
+
+func TestGatewayCLIRejectsBadID(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DAMNBOT_GATEWAY_OWNER", "")
+	t.Setenv("DAMNBOT_GATEWAY_ALLOW", "")
+	if code, _, _ := runGatewayCLI(t, "allow", "telegram", "-bad", "--data-dir", dir); code == 0 {
+		t.Fatal("invalid identity accepted")
+	}
+}
