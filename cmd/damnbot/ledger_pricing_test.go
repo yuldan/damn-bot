@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/budget"
 	"github.com/damnbot/damnbot/internal/ctxdb"
@@ -88,6 +89,12 @@ func TestRunLedgerRecordsRoutePrice(t *testing.T) {
 	if reply.Usage.Price == nil || reply.Usage.Price.Version != teamRouterVersion {
 		t.Fatalf("adapter dropped the route price: %+v", reply.Usage.Price)
 	}
+	// The first stub frame carries content, so the adapter must surface the
+	// provider's measured TTFT instead of dropping it on the way to the ledger.
+	if reply.Usage.TTFT <= 0 {
+		t.Fatalf("adapter dropped TTFT: %+v", reply.Usage)
+	}
+	wantTTFT := max(1, reply.Usage.TTFT.Milliseconds())
 	// The stub reports no cost here; the charge must come from the table.
 	reply.Usage.Input, reply.Usage.CachedInput, reply.Usage.Output = 1_000, 200, 500
 	reply.Usage.CostUSD = nil
@@ -99,6 +106,42 @@ func TestRunLedgerRecordsRoutePrice(t *testing.T) {
 	if cost != 423 || source != "pricing_table" || version != teamRouterVersion {
 		t.Errorf("ledger row = %d µUSD %s %q, want 423 pricing_table %s", cost, source, version, teamRouterVersion)
 	}
+	if got := readTTFT(t, db); got != wantTTFT {
+		t.Errorf("ttft_ms = %d, want the measured %d", got, wantTTFT)
+	}
+}
+
+// TestTTFTMillis: no token is NULL (-1), and a sub-millisecond first token is
+// still evidence of a response, so it records 1 ms instead of a fake zero.
+func TestTTFTMillis(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   time.Duration
+		want int64
+	}{
+		{0, -1},
+		{-time.Millisecond, -1},
+		{500 * time.Microsecond, 1},
+		{1234 * time.Millisecond, 1234},
+	}
+	for _, c := range cases {
+		if got := ttftMillis(c.in); got != c.want {
+			t.Errorf("ttftMillis(%s) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}
+
+// readTTFT returns ttft_ms of the single test session; -1 means NULL.
+func readTTFT(t *testing.T, db *ctxdb.Store) int64 {
+	t.Helper()
+	var ms int64
+	err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
+		return tx.Get("SELECT COALESCE(ttft_ms, -1) FROM usage_ledger WHERE session_id = ?", []any{"S"}, &ms)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ms
 }
 
 // TestRunLedgerValidatesProviderCost (SEC6-1/2/6): a priced route charges

@@ -631,7 +631,7 @@ func (p *providerAdapter) do(ctx context.Context, purpose provider.Purpose, req 
 		Content: resp.Content, FinishReason: resp.FinishReason, Usage: event.Usage{
 			Input: resp.Usage.Input, CachedInput: resp.Usage.CachedInput,
 			Output: resp.Usage.Output, CostUSD: resp.Usage.CostUSD,
-			Price: eventPrice(resp.Price),
+			Price: eventPrice(resp.Price), TTFT: resp.TTFT,
 		},
 		Model: resp.Model, FallbackFrom: resp.FallbackFrom, Attempts: resp.Attempts,
 		Carriers: eventCarriers(resp.Carriers), RejectedCarriers: eventCarriers(resp.RejectedCarriers),
@@ -712,6 +712,17 @@ type ctxLedger struct {
 	provider, model string
 }
 
+// ttftMillis converts a measured time-to-first-token to the ledger's integer
+// milliseconds. No token means "not measured" (NULL, -1); a sub-millisecond
+// first token still proves the model responded, so it records 1 ms instead of
+// the misleading 0 this column used to get unconditionally.
+func ttftMillis(d time.Duration) int64 {
+	if d <= 0 {
+		return -1
+	}
+	return max(1, d.Milliseconds())
+}
+
 // Record writes one usage_ledger row through budget.Entry.Account, so the
 // charge is max(table, provider) for a priced route and the provider cost
 // for an unpriced one (ADR-125/128), with pricing_version from the value
@@ -730,7 +741,7 @@ func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, 
 	e := budget.Entry{
 		SessionID: sid, TurnID: tid, EventID: eventID, Purpose: "turn",
 		Provider: l.provider, Model: l.model, Attempts: 1,
-		TTFTMS: 0, CreatedAt: time.Now().UnixMilli(),
+		TTFTMS: ttftMillis(u.TTFT), CreatedAt: time.Now().UnixMilli(),
 	}
 	acctErr := e.Account(budget.Usage{Input: u.Input, CachedInput: u.CachedInput, Output: u.Output, CostUSD: u.CostUSD}, price, 0)
 	if acctErr != nil {
