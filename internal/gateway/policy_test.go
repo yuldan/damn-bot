@@ -111,7 +111,7 @@ func TestMentionPolicyMalformedOverrideDenies(t *testing.T) {
 func newPolicyGate(t *testing.T, chats gateway.ChatPolicyStore) (*gateway.Gate, *fakeInbox) {
 	t.Helper()
 	inbox := &fakeInbox{seen: map[string]bool{}}
-	g, err := gateway.New(gateway.Options{
+	g, err := gateway.New(&gateway.Options{
 		DataDir:    t.TempDir(),
 		Identities: &fakeIdentities{rows: map[string]gateway.Identity{"telegram:42": owner("42"), "telegram:9": owner("9")}},
 		Inbox:      inbox,

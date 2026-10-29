@@ -62,7 +62,7 @@ func closeTestDB(t *testing.T, db *ctxdb.Store) {
 }
 
 func admit(store gwstore.Store, dataDir string, inbox *cliInbox) (gateway.Outcome, error) {
-	g, err := gateway.New(gateway.Options{DataDir: dataDir, Identities: cliIDs{store}, Inbox: inbox})
+	g, err := gateway.New(&gateway.Options{DataDir: dataDir, Identities: cliIDs{store}, Inbox: inbox})
 	if err != nil {
 		return gateway.Outcome{}, fmt.Errorf("gateway: %w", err)
 	}

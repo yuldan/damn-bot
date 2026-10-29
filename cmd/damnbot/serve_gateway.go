@@ -100,7 +100,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	for id, u := range cfg.Gateway.Users {
 		users[id] = u.Workspace
 	}
-	gate, err := gateway.New(gateway.Options{
+	gate, err := gateway.New(&gateway.Options{
 		DataDir: o.dataDir, Users: users,
 		Identities: telegramStore{Store: store}, Inbox: telegramStore{Store: store},
 	})
