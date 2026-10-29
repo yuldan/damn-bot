@@ -56,7 +56,11 @@ type Identity struct {
 // text.
 type Inbound struct {
 	Platform string
-	ChatID   string
+	// Account is the bot/account that authenticated the update; with Platform
+	// it locks routing to one profile (EC-PLAT-007). Empty is accepted by
+	// admission for single-account adapters but no Router worker receives it.
+	Account string
+	ChatID  string
 	// ThreadID is the platform topic/thread, "" without one; together with
 	// Platform and ChatID it is the session route (SPEC §9.7).
 	ThreadID string
@@ -77,6 +81,9 @@ type Inbound struct {
 	// 30 messages/minute bucket applies (SPEC §9.7, GAP-GW-02). Adapters set
 	// it from the platform payload, never from message text.
 	Group bool
+	// Policy facts of the mention gate (GAP-GW-05, EC-PLAT-022), filled by the
+	// adapter from the platform payload.
+	Mentioned, ReplyToBot, Command, SenderIsBot bool
 }
 
 // Closed admission errors. Compared with errors.Is.
@@ -125,6 +132,9 @@ func (in *Inbound) validate() error {
 	}
 	if len(in.ThreadID) > 512 || strings.ContainsAny(in.ThreadID, "\x00\r\n") {
 		return fmt.Errorf("%w: thread id is malformed", ErrInvalidInbound)
+	}
+	if in.Account != "" && (len(in.Account) > 512 || strings.ContainsAny(in.Account, "\x00\r\n")) {
+		return fmt.Errorf("%w: account id is malformed", ErrInvalidInbound)
 	}
 	if in.Payload == "" {
 		return fmt.Errorf("%w: payload is required", ErrInvalidInbound)

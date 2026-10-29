@@ -40,17 +40,22 @@ type Store interface {
 	ClaimCallback(ctx context.Context, id string) (bool, error)
 }
 
-// Config builds an [Adapter]; Token comes from env/config, BaseURL is a
+// Config builds an [Adapter]. Account is the bot id (default: numeric token
+// prefix); Username (without "@") is required to attribute "@bot" mentions in
+// groups, otherwise they are ignored (fail-closed, EC-PLAT-022).
 type Config struct {
-	Token, BaseURL string
-	Doer           Doer
-	Store          Store
-	Clock          Clock
+	Token, BaseURL, Account, Username string
+	Doer                              Doer
+	Store                             Store
+	Clock                             Clock
 }
 
 // Adapter is one configured Telegram bot.
 type Adapter struct {
 	base, token string
+	account     string
+	username    string
+	botID       int64
 	doer        Doer
 	store       Store
 	clock       Clock
@@ -77,9 +82,19 @@ func New(cfg *Config) (*Adapter, error) {
 	if clock == nil {
 		clock = realClock{}
 	}
+	account := cfg.Account
+	if account == "" {
+		if id, _, ok := strings.Cut(cfg.Token, ":"); ok {
+			account = id
+		}
+	}
 	a := &Adapter{
 		base: base, token: cfg.Token, doer: cfg.Doer, store: cfg.Store,
 		clock: clock, after: 300 * time.Second, pending: map[string]*approval{},
+		account: account, username: strings.TrimPrefix(cfg.Username, "@"),
+	}
+	if id, err := strconv.ParseInt(account, 10, 64); err == nil {
+		a.botID = id
 	}
 	a.send = &limiter{clock: clock, per: time.Second, next: map[string]time.Time{}}
 	a.edit = &limiter{clock: clock, per: 1500 * time.Millisecond, next: map[string]time.Time{}}
@@ -151,14 +166,25 @@ type update struct {
 	CallbackQuery *callbackQuery `json:"callback_query"`
 }
 type tgMessage struct {
-	MessageID       int64  `json:"message_id"`
-	From            *tgID  `json:"from"`
-	Chat            tgID   `json:"chat"`
-	Text            string `json:"text"`
-	MessageThreadID int64  `json:"message_thread_id"`
+	MessageID       int64      `json:"message_id"`
+	From            *tgID      `json:"from"`
+	Chat            tgID       `json:"chat"`
+	Text            string     `json:"text"`
+	MessageThreadID int64      `json:"message_thread_id"`
+	Entities        []tgEntity `json:"entities"`
+	ReplyTo         *tgMessage `json:"reply_to_message"`
 }
 type tgID struct {
-	ID int64 `json:"id"`
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
+	IsBot    bool   `json:"is_bot"`
+	Type     string `json:"type"`
+}
+type tgEntity struct {
+	Type   string `json:"type"`
+	Offset int    `json:"offset"`
+	Length int    `json:"length"`
+	User   *tgID  `json:"user"`
 }
 type callbackQuery struct {
 	ID      string     `json:"id"`
@@ -166,9 +192,11 @@ type callbackQuery struct {
 	Message *tgMessage `json:"message"`
 }
 
-// Inbound is one authenticated update handed to the turn layer. Text is
+// Inbound is one authenticated update handed to the turn layer; the boolean
+// fields are the mention-policy facts (GAP-GW-05, EC-PLAT-022).
 type Inbound struct {
-	Platform, ChatID, ThreadID, SenderID, UpdateID, Text string
+	Platform, Account, ChatID, ThreadID, SenderID, UpdateID, Text string
+	Group, Mentioned, ReplyToBot, Command, SenderIsBot            bool
 }
 type realClock struct{}
 

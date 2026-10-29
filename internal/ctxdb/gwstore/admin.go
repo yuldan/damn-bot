@@ -255,3 +255,32 @@ func storeCounts(tx *ctxdb.Tx) (IdentityCounts, error) {
 	}
 	return c, nil
 }
+
+// ChatOverride reads the raw require_mention override of GAP-GW-05 for one
+// chat (temporary module_state row); found is false when no override is set.
+func (s Store) ChatOverride(ctx context.Context, platform, chatID string) (value string, found bool, err error) {
+	err = s.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT value FROM module_state WHERE module_id = 'gateway' AND key = ?1`, []any{"chats." + platform + ":" + chatID + ".require_mention"}, &value)
+	})
+	if err != nil && !errors.Is(err, ctxdb.ErrNotFound) {
+		return "", false, fmt.Errorf("gwstore chat override: %w", err)
+	}
+	return value, value != "", nil
+}
+
+// SetChatOverride writes the raw override; an empty value clears it (the
+// reader then reports it absent). The value is not interpreted here.
+func (s Store) SetChatOverride(ctx context.Context, platform, chatID, value string, now int64) error {
+	if err := s.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		_, xerr := tx.Exec(`INSERT INTO module_state(module_id, key, value, updated_at) VALUES ('gateway', ?1, ?2, ?3)
+			ON CONFLICT(module_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+			"chats."+platform+":"+chatID+".require_mention", value, now)
+		if xerr != nil {
+			return fmt.Errorf("write chat override: %w", xerr)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("gwstore set chat override: %w", err)
+	}
+	return nil
+}

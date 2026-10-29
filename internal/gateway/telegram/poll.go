@@ -7,7 +7,9 @@ import (
 	"math/rand/v2"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/netx/retry"
@@ -68,7 +70,7 @@ func (a *Adapter) deliver(ctx context.Context, u *update, in chan<- Inbound) err
 	if u.Message == nil {
 		return nil
 	}
-	ib, ok := inboundOf(u)
+	ib, ok := a.inboundOf(u)
 	if !ok {
 		return nil
 	}
@@ -80,20 +82,60 @@ func (a *Adapter) deliver(ctx context.Context, u *update, in chan<- Inbound) err
 	}
 }
 
-func inboundOf(u *update) (Inbound, bool) {
+func (a *Adapter) inboundOf(u *update) (Inbound, bool) {
 	m := u.Message
 	if m.Chat.ID == 0 || m.From == nil {
 		return Inbound{}, false
 	}
+	mentioned, command, reply := a.facts(m)
 	ib := Inbound{
-		Platform: "telegram", ChatID: strconv.FormatInt(m.Chat.ID, 10),
+		Platform: "telegram", Account: a.account,
+		ChatID:   strconv.FormatInt(m.Chat.ID, 10),
 		SenderID: strconv.FormatInt(m.From.ID, 10), Text: m.Text,
-		UpdateID: "u:" + strconv.FormatInt(u.UpdateID, 10),
+		UpdateID:    "u:" + strconv.FormatInt(u.UpdateID, 10),
+		Group:       m.Chat.Type != "" && m.Chat.Type != "private",
+		Mentioned:   mentioned,
+		ReplyToBot:  reply,
+		Command:     command,
+		SenderIsBot: m.From.IsBot,
 	}
 	if m.MessageThreadID != 0 {
 		ib.ThreadID = strconv.FormatInt(m.MessageThreadID, 10)
 	}
 	return ib, true
+}
+
+// facts extracts the mention-policy facts of m: an explicit mention of this
+// bot, a command addressed to it, and a reply to its own message (EC-PLAT-022).
+func (a *Adapter) facts(m *tgMessage) (mentioned, command, reply bool) { //nolint:gocyclo // one pass over the entity list
+	if from := m.ReplyTo; from != nil && from.From != nil {
+		reply = (a.botID != 0 && from.From.ID == a.botID) ||
+			(a.botID == 0 && a.username != "" && strings.EqualFold(from.From.Username, a.username))
+	}
+	for _, e := range m.Entities {
+		switch e.Type {
+		case "text_mention":
+			mentioned = mentioned || (e.User != nil && a.botID != 0 && e.User.ID == a.botID)
+		case "mention":
+			mentioned = mentioned || (a.username != "" && strings.EqualFold(entityText(m.Text, e), "@"+a.username))
+		case "bot_command":
+			if e.Offset == 0 {
+				_, target, ok := strings.Cut(entityText(m.Text, e), "@")
+				command = !ok || (a.username != "" && strings.EqualFold(target, a.username))
+			}
+		}
+	}
+	return mentioned, command, reply
+}
+
+// entityText is the text covered by e; offsets are UTF-16 units (EC-PLAT-011).
+func entityText(s string, e tgEntity) string {
+	units := utf16.Encode([]rune(s))
+	end := e.Offset + e.Length
+	if e.Offset < 0 || e.Length <= 0 || end > len(units) {
+		return ""
+	}
+	return string(utf16.Decode(units[e.Offset:end]))
 }
 
 func (a *Adapter) retryDelay(err error, attempt *int) (time.Duration, bool) {

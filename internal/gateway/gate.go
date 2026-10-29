@@ -27,6 +27,9 @@ type Options struct {
 	// Commands answers slash commands before work runs. Nil disables command
 	// handling and every admitted update becomes a turn.
 	Commands *Commands
+	// Chats reads per-chat mention policy overrides. nil keeps the defaults:
+	// groups require a mention, DMs always run (GAP-GW-05).
+	Chats ChatPolicyStore
 }
 
 // Gate admits or rejects one inbound update before any turn or LLM call. It is
@@ -37,12 +40,13 @@ type Gate struct {
 	identities IdentityStore
 	inbox      InboxStore
 	commands   *Commands
+	chats      ChatPolicyStore
 }
 
 // New validates the wiring. Configuration is data, so an empty DataDir and an
 // empty Users map are accepted: a role user identity without any explicit
 // workspace is then denied at admission instead of silently sharing a root.
-func New(opts Options) (*Gate, error) {
+func New(opts Options) (*Gate, error) { //nolint:gocritic // hugeParam: Options is construction data; call sites stay readable
 	if opts.Identities == nil {
 		return nil, ErrNoIdentityStore
 	}
@@ -55,6 +59,7 @@ func New(opts Options) (*Gate, error) {
 		identities: opts.Identities,
 		inbox:      opts.Inbox,
 		commands:   opts.Commands,
+		chats:      opts.Chats,
 	}, nil
 }
 
@@ -82,6 +87,7 @@ const (
 	ReasonWeakIdentity    Reason = "weak_identity"    // strength weak (SEC-10)
 	ReasonUnknownRole     Reason = "unknown_role"     // role is neither owner nor user
 	ReasonNoWorkspace     Reason = "no_workspace"     // role user without any root
+	ReasonMentionRequired Reason = "mention_required" // group/bot message without the required mention (GAP-GW-05)
 )
 
 // Ticket is the admitted work of one update. Scope is the only source of
@@ -126,6 +132,13 @@ func (g *Gate) Admit(ctx context.Context, in *Inbound, work RunFunc) (Outcome, e
 		return deny(ReasonUnknownIdentity), nil
 	}
 	if reason := admitReason(&id); reason != ReasonNone {
+		return deny(reason), nil
+	}
+	reason, err := g.mentionReason(ctx, in)
+	if err != nil {
+		return Outcome{}, err
+	}
+	if reason != ReasonNone {
 		return deny(reason), nil
 	}
 	scope, ok, err := g.scope(&id, in)

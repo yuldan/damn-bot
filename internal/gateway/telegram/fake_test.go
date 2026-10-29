@@ -237,6 +237,13 @@ func (f *fakeTG) pushText(t *testing.T, chat, thread int64, text string) {
 	if thread != 0 {
 		msg["message_thread_id"] = thread
 	}
+	f.pushMessage(t, msg)
+}
+
+// pushMessage queues one raw message object, for tests that need chat type,
+// entities, or a reply target.
+func (f *fakeTG) pushMessage(t *testing.T, msg map[string]any) {
+	t.Helper()
 	f.pushUpdate(t, map[string]any{"message": msg})
 }
 
