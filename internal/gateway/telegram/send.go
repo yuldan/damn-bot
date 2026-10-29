@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"sync"
 )
@@ -55,6 +56,24 @@ func uncertain(err error) bool {
 		return ae.Code >= 500 || ae.Code == 409
 	}
 	return true // transport failure: the request may have been processed
+}
+
+// Typing sends the `typing` chat action. It is best effort by design: the
+// caller repeats it while the turn runs and ignores every error, so a rejected
+// or rate-limited action never fails a turn. State is not persisted.
+func (a *Adapter) Typing(ctx context.Context, chatID, threadID string) error {
+	if chatID == "" {
+		return errors.New("telegram: typing requires a chat")
+	}
+	form := url.Values{"chat_id": {chatID}, "action": {"typing"}}
+	if threadID != "" {
+		form.Set("message_thread_id", threadID)
+	}
+	var ok bool
+	if err := a.call(ctx, "sendChatAction", form, &ok); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Stream edits one message; updates during an edit coalesce.

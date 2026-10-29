@@ -248,10 +248,12 @@ func (g *serveGateway) turn(ctx context.Context, in *telegram.Inbound, t *gatewa
 		return errors.New("gateway: daemon is draining")
 	}
 	defer end()
+	typing := g.startTyping(ctx, in.ChatID, in.ThreadID)
+	defer typing.end()
 	start := time.Now()
 	sid, err := g.session(ctx, t)
 	if err == nil {
-		err = g.runChat(ctx, in, sid)
+		err = g.runChat(ctx, in, sid, typing)
 	}
 	g.metrics.Turn(time.Since(start), err == nil)
 	return err
@@ -297,7 +299,7 @@ func (g *serveGateway) session(ctx context.Context, t *gateway.Ticket) (string, 
 	return sid, nil
 }
 
-func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid string) error {
+func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid string, typing *gatewayTyping) error {
 	o := runOptions{
 		prompt: in.Text, model: g.modelRef, approval: "ask", configPath: g.configPath, dataDir: g.dataDir,
 		baseURL: strings.TrimSpace(os.Getenv("DAMNBOT_SERVE_BASE_URL")), apiKey: strings.TrimSpace(os.Getenv("DAMNBOT_SERVE_API_KEY")),
@@ -335,7 +337,7 @@ func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid st
 	if err != nil {
 		return fmt.Errorf("gateway: prompt: %w", err)
 	}
-	return g.streamReply(ctx, in, ch)
+	return g.streamReply(ctx, in, ch, typing)
 }
 
 // Reply cadence: the first delta opens the Telegram message immediately, later
@@ -433,10 +435,23 @@ func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() 
 	return out
 }
 
-func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch <-chan event.Update) error {
+// flushTyped updates the streamed message and stops the typing indicator once
+// the first visible reply is delivered.
+func flushTyped(ctx context.Context, reply *telegram.Stream, typing *gatewayTyping, text string) error {
+	if err := reply.Update(ctx, text); err != nil {
+		return fmt.Errorf("gateway: reply update: %w", err)
+	}
+	if typing != nil {
+		typing.halt()
+	}
+	return nil
+}
+
+func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch <-chan event.Update, typing *gatewayTyping) error {
 	key := gateway.DeliveryKey("telegram", in.ChatID, "reply:"+in.UpdateID)
 	reply := g.adapter.Stream(telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Key: key})
-	out := streamReplyUpdates(ctx, ch, g.now, waitReply, reply.Update)
+	flush := func(ctx context.Context, text string) error { return flushTyped(ctx, reply, typing, text) }
+	out := streamReplyUpdates(ctx, ch, g.now, waitReply, flush)
 	if out.Err != nil {
 		if out.Text != "" {
 			if _, _, qerr := g.store.EnqueueDelivery(ctx, &gwstore.Delivery{IdemKey: key, Platform: "telegram", ChatID: in.ChatID, ThreadID: in.ThreadID, Body: out.Text, Status: gateway.StatusQueued}); qerr != nil {
@@ -462,6 +477,44 @@ func waitReply(ctx context.Context, d time.Duration) error {
 		return nil
 	}
 }
+
+// typingEvery repeats the chat action while a turn waits for its first visible
+// reply; Telegram expires the indicator after ~5 s of silence.
+const typingEvery = 4 * time.Second
+
+// gatewayTyping owns the best-effort chat action loop of one turn.
+type gatewayTyping struct {
+	stop chan struct{}
+	once sync.Once
+	wg   sync.WaitGroup
+}
+
+// startTyping sends the first typing action immediately, before the model is
+// called, and repeats it until halt, the turn context ends, or the first reply
+// update is delivered. Errors are ignored: a rejected action never fails a turn.
+func (g *serveGateway) startTyping(ctx context.Context, chat, thread string) *gatewayTyping {
+	t := &gatewayTyping{stop: make(chan struct{})}
+	t.wg.Go(func() {
+		for {
+			g.adapter.Typing(ctx, chat, thread) //nolint:errcheck,gosec // best effort: never fails the turn
+			timer := time.NewTimer(typingEvery)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-t.stop:
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+	})
+	return t
+}
+
+// halt stops the loop without waiting; end also waits for it to exit.
+func (t *gatewayTyping) halt() { t.once.Do(func() { close(t.stop) }) }
+func (t *gatewayTyping) end()  { t.halt(); t.wg.Wait() }
 
 type gatewayToolApprover struct {
 	g            *serveGateway

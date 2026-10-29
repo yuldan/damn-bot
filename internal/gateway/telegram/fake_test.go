@@ -94,6 +94,8 @@ func (f *fakeTG) handle(w http.ResponseWriter, r *http.Request) {
 		})})
 	case "answerCallbackQuery":
 		writeJSON(w, http.StatusOK, envelope{OK: true, Result: mustJSON(true)})
+	case "sendChatAction":
+		writeJSON(w, http.StatusOK, envelope{OK: true, Result: mustJSON(true)})
 	default:
 		writeJSON(w, http.StatusNotFound, envelope{ErrorCode: 404, Description: "Not Found"})
 	}
