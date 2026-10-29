@@ -312,6 +312,66 @@ func fallbackRecorder(db *ctxdb.Store, sid string) func(context.Context, bool) e
 	}
 }
 
+// shellWiring is the composition input of the shell tool (keeps
+// newRunWiring under the length gate).
+type shellWiring struct {
+	cfg                  *config.Config
+	o                    *runOptions
+	db                   *ctxdb.Store
+	sid                  string
+	red                  *redact.Redactor
+	runner               *exec.Runner
+	sessions             *exec.Sessions
+	allow                []classify.AllowEntry
+	roots                []string
+	home, cwd, configDir string
+	envPolicy            *exec.EnvPolicy
+	trusted              bool
+	monetary             []string
+}
+
+func newShellTool(w *shellWiring) (tools.Tool, error) {
+	cfg := &tools.ShellConfig{
+		Runner: w.runner, Sessions: w.sessions, Spill: ctxSpill{db: w.db}, Redactor: w.red, Allow: w.allow, Roots: w.roots, Home: w.home,
+		Cwd: w.cwd, DenyPaths: w.cfg.DenyPaths(w.configDir), ParentEnv: os.Environ(),
+		EnvPolicy:        w.envPolicy,
+		WorkspaceTrusted: w.trusted, UnsafeAutoShell: w.o.unsafeShell, Dialect: dialectFromEnv(w.envPolicy.Env(os.Environ(), false, "", "", "")),
+		MonetaryPaths: w.monetary, Canonicalize: monetaryKey,
+	}
+	if w.o.terminal != nil {
+		cfg.Terminal = &acpTerminalRunner{term: w.o.terminal, red: w.red}
+		cfg.OnTerminalFallback = terminalFallbackRecorder(w.db, w.sid)
+	}
+	tool, err := tools.NewShell(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("shell tool: %w", err)
+	}
+	return tool, nil
+}
+
+// terminalFallbackRecorder records one acp_terminal_fallback notice per
+// session when the client lacks terminal/* (GAP-UX-01 butir b).
+func terminalFallbackRecorder(db *ctxdb.Store, sid string) func(context.Context) error {
+	var mu sync.Mutex
+	done := false
+	return func(ctx context.Context) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if done {
+			return nil
+		}
+		_, err := db.Append(ctx, sid, nil, ctxdb.Event{
+			Kind: "system_notice", Content: "client terminal capability absent; using the local shell",
+			Payload: `{"kind":"acp_terminal_fallback"}`,
+		})
+		if err != nil {
+			return fmt.Errorf("acp_terminal_fallback: %w", err)
+		}
+		done = true
+		return nil
+	}
+}
+
 // newRunWiring opens the run store, the sandbox and codetools engine, the exec
 // runner and its persistent sessions, then wires the shell, file, and skill
 // tools into a registry. Failures after the sessions exist go through the
@@ -357,12 +417,9 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if _, qerr := quarantineImportedSkills(ctx, db, red, cfg, configDir, cwd); qerr != nil {
 		return nil, fail(qerr)
 	}
-	shellTool, err := tools.NewShell(&tools.ShellConfig{
-		Runner: runner, Sessions: sessions, Spill: ctxSpill{db: db}, Redactor: red, Allow: allow, Roots: roots, Home: home,
-		Cwd: cwd, DenyPaths: cfg.DenyPaths(configDir), ParentEnv: os.Environ(),
-		EnvPolicy:        envPolicy,
-		WorkspaceTrusted: trusted, UnsafeAutoShell: o.unsafeShell, Dialect: dialectFromEnv(envPolicy.Env(os.Environ(), false, "", "", "")),
-		MonetaryPaths: monetary, Canonicalize: monetaryKey,
+	shellTool, err := newShellTool(&shellWiring{
+		cfg: cfg, o: o, db: db, sid: sid, red: red, runner: runner, sessions: sessions, allow: allow,
+		roots: roots, home: home, cwd: cwd, configDir: configDir, envPolicy: envPolicy, trusted: trusted, monetary: monetary,
 	})
 	if err != nil {
 		return nil, fail(fmt.Errorf("shell tool: %w", err))

@@ -18,14 +18,15 @@ import (
 // fs/read_text_file and fs/write_text_file requests from a buffer map and
 // answers permission requests with allow_once.
 type fsClient struct {
-	t      *testing.T
-	p      *fsProc
-	reads  int
-	writes int
-	perms  int
-	buffer map[string]string
-	onRead func(n int, path string) (string, bool)
-	seen   map[string]string
+	t        *testing.T
+	p        *fsProc
+	reads    int
+	writes   int
+	perms    int
+	buffer   map[string]string
+	onRead   func(n int, path string) (string, bool)
+	seen     map[string]string
+	terminal *fakeTerminals
 }
 
 // startClientFS launches `damnbot acp` against the TLS provider and opens one
@@ -105,6 +106,8 @@ func (c *fsClient) prompt(text string) {
 			c.writes++
 			c.seen[path] = content
 			c.p.send(map[string]any{"jsonrpc": "2.0", "id": f["id"], "result": map[string]any{}})
+		case "terminal/create", "terminal/output", "terminal/wait_for_exit", "terminal/kill", "terminal/release":
+			c.serveTerminal(f, method)
 		case "session/request_permission":
 			c.perms++
 			c.p.send(map[string]any{"jsonrpc": "2.0", "id": f["id"], "result": map[string]any{
@@ -120,6 +123,20 @@ func (c *fsClient) prompt(text string) {
 			}
 		}
 	}
+}
+
+// serveTerminal answers one terminal/* agent request from the scripted
+// client; a missing fake is a test failure, not a silent success.
+func (c *fsClient) serveTerminal(f map[string]any, method string) {
+	if c.terminal == nil {
+		c.t.Fatalf("terminal call without a fake client: %s", method)
+	}
+	res, rerr := c.terminal.handle(method, frameParams(f))
+	if rerr != nil {
+		c.p.send(map[string]any{"jsonrpc": "2.0", "id": f["id"], "error": rerr})
+		return
+	}
+	c.p.send(map[string]any{"jsonrpc": "2.0", "id": f["id"], "result": res})
 }
 
 // acpLog returns the child's ACP log (stdout is redirected there by the

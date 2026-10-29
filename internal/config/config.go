@@ -56,6 +56,9 @@ type ACP struct {
 	// write through it (default true). False keeps every file tool local
 	// and records no acp_fs_fallback event.
 	UseClientFS bool `toml:"use_client_fs"`
+	// UseClientTerminal runs one-shot shell commands on the ACP client
+	// (terminal/*, GAP-UX-01 butir b); default false keeps the local runner.
+	UseClientTerminal bool `toml:"use_client_terminal"`
 }
 
 // Skills is SPEC §4.8/§12 [skills]: the local skill sources (SKILL-009/010,

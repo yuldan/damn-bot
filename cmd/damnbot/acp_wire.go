@@ -73,8 +73,10 @@ type acpServer struct {
 	nextID   func() (string, error)
 	factory  func(string, *tuiDeps) acpRunner
 	history  acpHistory
-	// fsRead/fsWrite are clientCapabilities.fs from initialize (GAP-UX-01).
+	// fsRead/fsWrite and terminal are client capabilities from initialize
+	// (GAP-UX-01).
 	fsRead, fsWrite bool
+	terminal        bool
 	// writeTimeout bounds one stdout frame (SPEC §13.3); zero = default.
 	writeTimeout time.Duration
 	errMu        sync.Mutex
@@ -139,6 +141,10 @@ func runACP(args []string, _ io.Writer, stderr io.Writer) int {
 		if d.cfg.ACP.UseClientFS {
 			read, write := srv.clientFS()
 			opts.clientFS = &acp.ClientFS{SessionID: sid, Read: read, Write: write, Requester: srv}
+		}
+		if d.cfg.ACP.UseClientTerminal {
+			_, _, term := srv.clientCaps()
+			opts.terminal = &acp.Terminal{SessionID: sid, Enabled: term, Requester: srv}
 		}
 		if d.bridge != nil {
 			opts.approver, opts.toolApprover = loopApprover{d.bridge}, toolsApprover{d.bridge}
@@ -241,7 +247,8 @@ func (s *acpServer) dispatch(ctx context.Context, req *acp.Request) {
 		var p struct {
 			ProtocolVersion    int `json:"protocolVersion"`
 			ClientCapabilities struct {
-				Fs struct {
+				Terminal bool `json:"terminal"`
+				Fs       struct {
 					ReadTextFile  bool `json:"readTextFile"`
 					WriteTextFile bool `json:"writeTextFile"`
 				} `json:"fs"`
@@ -259,6 +266,7 @@ func (s *acpServer) dispatch(ctx context.Context, req *acp.Request) {
 		}
 		s.mu.Lock()
 		s.fsRead, s.fsWrite = p.ClientCapabilities.Fs.ReadTextFile, p.ClientCapabilities.Fs.WriteTextFile
+		s.terminal = p.ClientCapabilities.Terminal
 		s.mu.Unlock()
 		s.respond(ctx, req.ID, map[string]any{
 			"protocolVersion":   proto,
@@ -699,6 +707,13 @@ func (s *acpServer) askPermission(ctx context.Context, sid string, r *tui.Approv
 	case <-tctx.Done():
 		return tui.ApprovalDeny
 	}
+}
+
+// clientCaps reports all client capabilities from initialize.
+func (s *acpServer) clientCaps() (read, write, terminal bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fsRead, s.fsWrite, s.terminal
 }
 
 func (s *acpServer) write(ctx context.Context, v any) error {
