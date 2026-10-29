@@ -32,6 +32,11 @@ type acpRunner interface {
 	Close() error
 }
 
+// resourceBlobWriter is the optional blob-store seam of a runner.
+type resourceBlobWriter interface {
+	SpillResource(ctx context.Context, name, mime string, data []byte) (tui.Attachment, error)
+}
+
 type acpSession struct {
 	mu     sync.Mutex
 	proto  *acp.Session
@@ -411,7 +416,15 @@ func (s *acpServer) prompt(ctx context.Context, req *acp.Request) {
 		s.writeError(ctx, req.ID, ferr.protocolError())
 		return
 	}
-	text, ferr := s.promptText(blocks)
+	runner, _ := sess.currentRunner()
+	spill := func(ctx context.Context, name, mime string, data []byte) (tui.Attachment, error) {
+		w, ok := runner.(resourceBlobWriter)
+		if !ok {
+			return tui.Attachment{}, errors.New("acp: runner cannot spill resources")
+		}
+		return w.SpillResource(ctx, name, mime, data)
+	}
+	text, atts, meta, ferr := s.promptText(ctx, blocks, spill)
 	if ferr != nil {
 		s.writeError(ctx, req.ID, ferr.protocolError())
 		return
@@ -420,8 +433,7 @@ func (s *acpServer) prompt(ctx context.Context, req *acp.Request) {
 		s.writeError(ctx, req.ID, acp.ErrInternal)
 		return
 	}
-	runner, _ := sess.currentRunner()
-	stream, err := runner.Prompt(ctx, p.SessionID, tui.Input{Text: text, PlanMode: sess.proto.PlanMode()})
+	stream, err := runner.Prompt(ctx, p.SessionID, tui.Input{Text: text, PlanMode: sess.proto.PlanMode(), Attachments: atts, Meta: meta})
 	if err != nil {
 		s.writeError(ctx, req.ID, acp.ErrInternal)
 		return

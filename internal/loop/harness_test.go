@@ -180,8 +180,8 @@ func (s *fakeStore) Append(_ context.Context, _, tid string, ev *event.Event) (i
 func (s *fakeStore) turnOf(k event.Kind) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i, e := range s.events {
-		if e.Kind == k {
+	for i := range s.events {
+		if s.events[i].Kind == k {
 			return s.turns[i], true
 		}
 	}
@@ -192,8 +192,8 @@ func (s *fakeStore) kinds() []event.Kind {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]event.Kind, 0, len(s.events))
-	for _, e := range s.events {
-		out = append(out, e.Kind)
+	for i := range s.events {
+		out = append(out, s.events[i].Kind)
 	}
 	return out
 }
@@ -201,9 +201,9 @@ func (s *fakeStore) kinds() []event.Kind {
 func (s *fakeStore) find(k event.Kind) (event.Event, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, e := range s.events {
-		if e.Kind == k {
-			return e, true
+	for i := range s.events {
+		if s.events[i].Kind == k {
+			return s.events[i], true
 		}
 	}
 	return event.Event{}, false

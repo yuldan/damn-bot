@@ -160,7 +160,11 @@ func (r *tuiRunner) Prompt(ctx context.Context, sid string, in tui.Input) (<-cha
 	r.mu.Lock()
 	r.loop = eng.loop
 	r.mu.Unlock()
-	stream, err := eng.loop.Prompt(ctx, sid, loop.Input{Text: opts.prompt, PlanMode: in.PlanMode})
+	atts := make([]loop.Attachment, len(in.Attachments))
+	for i, a := range in.Attachments {
+		atts[i] = loop.Attachment{Name: a.Name, MIME: a.MIME, BlobSHA: a.BlobSHA, Size: a.Size}
+	}
+	stream, err := eng.loop.Prompt(ctx, sid, loop.Input{Text: opts.prompt, PlanMode: in.PlanMode, Attachments: atts, Meta: in.Meta})
 	if err != nil {
 		return nil, fmt.Errorf("tui prompt: %w", err)
 	}
@@ -172,6 +176,23 @@ func (r *tuiRunner) Prompt(ctx context.Context, sid string, in tui.Input) (<-cha
 		return nil
 	})
 	return out, nil
+}
+
+// SpillResource persists one inbound resource as an at-rest ctxdb blob
+// (encrypted when storage.encrypt is on) and returns its attachment reference.
+func (r *tuiRunner) SpillResource(ctx context.Context, name, mime string, data []byte) (tui.Attachment, error) {
+	model, err := r.ensure(ctx)
+	if err != nil {
+		return tui.Attachment{}, fmt.Errorf("spill resource: %w", err)
+	}
+	pb, err := model.db.PutBlob(data, mime)
+	if err != nil {
+		return tui.Attachment{}, fmt.Errorf("spill resource: %w", err)
+	}
+	if err := model.db.Write(ctx, func(tx *ctxdb.Tx) error { return tx.Publish(pb) }); err != nil {
+		return tui.Attachment{}, fmt.Errorf("spill resource: %w", err)
+	}
+	return tui.Attachment{Name: name, MIME: mime, BlobSHA: pb.Sha, Size: pb.Size}, nil
 }
 
 func (r *tuiRunner) Cancel(sid string) {
