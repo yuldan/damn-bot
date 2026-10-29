@@ -104,7 +104,7 @@ func allowedImports() map[string][]string {
 
 		// Test arsitektur dan helper test (lihat testOnlyPackages).
 		"internal/archtest":              nil,
-		"internal/e2e":                   {"internal/budget", "internal/ctxdb", "internal/ctxdb/journalstore", "internal/ctxdb/ledgerstore", "internal/ctxdb/skillstore", "internal/journal", "internal/loop/event", "internal/netx", "internal/secret"},
+		"internal/e2e":                   {"internal/budget", "internal/ctxdb", "internal/ctxdb/journalstore", "internal/ctxdb/ledgerstore", "internal/ctxdb/skillstore", "internal/gateway/telegram", "internal/journal", "internal/loop/event", "internal/netx", "internal/secret"},
 		"internal/integration":           {"internal/ctxdb", "internal/ctxdb/memstore", "internal/ctxdb/compactstore", "internal/ctxdb/skillstore", "internal/ctxdb/carrierstore", "internal/compaction", "internal/backup", "internal/secret", "internal/redact", "internal/loop/event"},
 		"internal/testutil/timing":       nil,
 		"internal/testutil/phase":        nil,
