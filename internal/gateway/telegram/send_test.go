@@ -11,7 +11,7 @@ func TestSendIsIdempotent(t *testing.T) {
 	f := newFakeTG(t)
 	store := newMemStore()
 	a, _ := newTestAdapter(t, f, store)
-	out := Outbound{ChatID: "7", ThreadID: "42", Text: "halo", Key: "reply-1"}
+	out := &Outbound{ChatID: "7", ThreadID: "42", Text: "halo", Key: "reply-1"}
 	first, err := a.Send(t.Context(), out)
 	if err != nil {
 		t.Fatalf("first send: %v", err)
@@ -40,7 +40,7 @@ func TestSendAfterDropNeverDuplicates(t *testing.T) {
 	f.faults["sendMessage"] = []fakeFault{{Drop: true, Times: 1}}
 	store := newMemStore()
 	a, _ := newTestAdapter(t, f, store)
-	out := Outbound{ChatID: "7", Text: "sekali", Key: "reply-drop"}
+	out := &Outbound{ChatID: "7", Text: "sekali", Key: "reply-drop"}
 	if _, err := a.Send(t.Context(), out); err == nil {
 		t.Fatal("dropped send reported success")
 	}
@@ -54,7 +54,7 @@ func TestSendAfterDropNeverDuplicates(t *testing.T) {
 
 func TestSendRejectsEmpty(t *testing.T) {
 	a, _ := newTestAdapter(t, newFakeTG(t), newMemStore())
-	for _, out := range []Outbound{{ChatID: "7"}, {Text: "x"}} {
+	for _, out := range []*Outbound{nil, {ChatID: "7"}, {Text: "x"}} {
 		if _, err := a.Send(t.Context(), out); err == nil {
 			t.Errorf("Send(%+v) succeeded, want error", out)
 		}
@@ -64,7 +64,7 @@ func TestSendRejectsEmpty(t *testing.T) {
 func TestStreamSendsOnceThenEdits(t *testing.T) {
 	f := newFakeTG(t)
 	a, _ := newTestAdapter(t, f, newMemStore())
-	s := a.Stream(Outbound{ChatID: "7", ThreadID: "42", Key: "stream-1"})
+	s := a.Stream(&Outbound{ChatID: "7", ThreadID: "42", Key: "stream-1"})
 	for _, text := range []string{"a", "ab", "abc"} {
 		if err := s.Update(t.Context(), text); err != nil {
 			t.Fatalf("update %q: %v", text, err)
@@ -99,8 +99,8 @@ func TestStreamSendsOnceThenEdits(t *testing.T) {
 func TestStreamsDoNotCrossEdit(t *testing.T) {
 	f := newFakeTG(t)
 	a, _ := newTestAdapter(t, f, newMemStore())
-	one := a.Stream(Outbound{ChatID: "7", Key: "s7"})
-	two := a.Stream(Outbound{ChatID: "8", Key: "s8"})
+	one := a.Stream(&Outbound{ChatID: "7", Key: "s7"})
+	two := a.Stream(&Outbound{ChatID: "8", Key: "s8"})
 	if err := one.Update(t.Context(), "one"); err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestStreamsDoNotCrossEdit(t *testing.T) {
 func TestPacingPerChatAndGlobal(t *testing.T) {
 	f := newFakeTG(t)
 	a, clock := newTestAdapter(t, f, newMemStore())
-	for _, out := range []Outbound{{ChatID: "7", Text: "one"}, {ChatID: "7", Text: "two"}} {
+	for _, out := range []*Outbound{{ChatID: "7", Text: "one"}, {ChatID: "7", Text: "two"}} {
 		if _, err := a.Send(t.Context(), out); err != nil {
 			t.Fatalf("send %+v: %v", out, err)
 		}
@@ -140,7 +140,7 @@ func TestPacingPerChatAndGlobal(t *testing.T) {
 
 	f2 := newFakeTG(t)
 	b, clock2 := newTestAdapter(t, f2, newMemStore())
-	for _, out := range []Outbound{{ChatID: "7", Text: "one"}, {ChatID: "8", Text: "two"}} {
+	for _, out := range []*Outbound{{ChatID: "7", Text: "one"}, {ChatID: "8", Text: "two"}} {
 		if _, err := b.Send(t.Context(), out); err != nil {
 			t.Fatalf("send %+v: %v", out, err)
 		}
@@ -156,7 +156,7 @@ func TestSendErrorRedactsToken(t *testing.T) {
 	a, _ := newTestAdapter(t, f, newMemStore(), func(c *Config) {
 		c.Doer = &errorDoer{inner: f, err: errWithURL(f.token), remaining: 1}
 	})
-	_, err := a.Send(t.Context(), Outbound{ChatID: "7", Text: "x"})
+	_, err := a.Send(t.Context(), &Outbound{ChatID: "7", Text: "x"})
 	if err == nil {
 		t.Fatal("send succeeded, want a transport error")
 	}

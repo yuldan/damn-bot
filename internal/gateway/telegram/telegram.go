@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/gateway/render"
 	"github.com/damnbot/damnbot/internal/netx"
 )
 
@@ -237,25 +238,52 @@ func (l *limiter) wait(ctx context.Context, key string) error {
 	return nil
 }
 
-func (a *Adapter) sendMessage(ctx context.Context, chatID, threadID, text, keyboard string) (int64, error) {
-	form := url.Values{"chat_id": {chatID}, "text": {text}}
+// sendMessage sends one rendered message. No parse_mode is ever set: markup
+// travels as Bot API entities over the escaped plain text (GAP-GW-04). anchor
+// is an already validated reply_to_message_id, empty to omit it.
+func (a *Adapter) sendMessage(ctx context.Context, chatID, threadID, anchor string, msg render.Message, keyboard string) (int64, error) {
+	form := url.Values{"chat_id": {chatID}, "text": {msg.Text}}
 	if threadID != "" {
 		form.Set("message_thread_id", threadID)
+	}
+	if anchor != "" {
+		form.Set("reply_to_message_id", anchor)
+	}
+	if err := setEntities(form, msg); err != nil {
+		return 0, err
 	}
 	if keyboard != "" {
 		form.Set("reply_markup", keyboard)
 	}
-	var msg tgMessage
-	if err := a.call(ctx, "sendMessage", form, &msg); err != nil {
+	var sent tgMessage
+	if err := a.call(ctx, "sendMessage", form, &sent); err != nil {
 		return 0, err
 	}
-	return msg.MessageID, nil
+	return sent.MessageID, nil
 }
 
-func (a *Adapter) editText(ctx context.Context, chatID, threadID string, messageID int64, text string) error {
-	form := url.Values{"chat_id": {chatID}, "text": {text}, "message_id": {strconv.FormatInt(messageID, 10)}}
+// editText edits one rendered message in place, again without parse_mode.
+func (a *Adapter) editText(ctx context.Context, chatID, threadID string, messageID int64, msg render.Message) error {
+	form := url.Values{"chat_id": {chatID}, "text": {msg.Text}, "message_id": {strconv.FormatInt(messageID, 10)}}
 	if threadID != "" {
 		form.Set("message_thread_id", threadID)
 	}
+	if err := setEntities(form, msg); err != nil {
+		return err
+	}
 	return a.call(ctx, "editMessageText", form, nil)
+}
+
+// setEntities adds the Bot API entities array; offsets are UTF-16 units as the
+// renderer produced them.
+func setEntities(form url.Values, msg render.Message) error {
+	if len(msg.Entities) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(msg.Entities)
+	if err != nil {
+		return fmt.Errorf("telegram: encode entities: %w", err)
+	}
+	form.Set("entities", string(raw))
+	return nil
 }

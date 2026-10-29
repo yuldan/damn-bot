@@ -40,6 +40,8 @@ func allowedImports() map[string][]string {
 		"internal/acp":     append([]string{"internal/loop", "internal/i18n"}, groupNetx()...),
 		"internal/web":     {"internal/loop", "internal/i18n"},
 		"internal/gateway": {"internal/loop", "internal/modules/host", "internal/i18n"},
+		// Adapter Telegram memakai renderer Telegram bersama (GAP-GW-04).
+		"internal/gateway/telegram": append(moduleImports(), "internal/gateway/render"),
 
 		// Modul daemon/observabilitas F4 (ADR-244): `obs` sudah diimplementasikan
 		// (stdlib saja, tanpa impor internal) dan tetap tanpa edge; `cron` sudah punya

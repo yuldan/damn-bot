@@ -7,12 +7,12 @@ import "testing"
 func TestStreamFromEditsPlaceholder(t *testing.T) {
 	f := newFakeTG(t)
 	a, _ := newTestAdapter(t, f, newMemStore())
-	out := Outbound{ChatID: "7", ThreadID: "42", Text: "…", Key: "reply-1"}
+	out := &Outbound{ChatID: "7", ThreadID: "42", Text: "…", Key: "reply-1"}
 	id, err := a.Send(t.Context(), out)
 	if err != nil {
 		t.Fatalf("placeholder send: %v", err)
 	}
-	stream := a.StreamFrom(Outbound{ChatID: "7", ThreadID: "42", Key: "reply-1"}, id, "…")
+	stream := a.StreamFrom(&Outbound{ChatID: "7", ThreadID: "42", Key: "reply-1"}, id, "…")
 	if uerr := stream.Update(t.Context(), "hello world"); uerr != nil {
 		t.Fatalf("stream update: %v", uerr)
 	}
