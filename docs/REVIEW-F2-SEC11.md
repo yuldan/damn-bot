@@ -79,3 +79,22 @@ Probe `TestZZSec11R2` (`internal/ctxdb`, DB nyata) dijalankan lalu dihapus:
 | SEC11-8 | MINOR | static | Efek hanya dicatat bila tool **sukses** (`err == nil && res.Err == nil`). Tool mutating yang gagal **setelah** menjalankan sebagian efek (timeout `exec`, `outcome_unknown`, error setelah menulis) tidak tercantum, sehingga model tetap tidak tahu efek parsial itu. | Catat juga tool non-read yang gagal dengan status (`failed`/`outcome_unknown`), dan beri label di notice. |
 
 **Ringkasan:** #211 **APPROVE dengan MINOR**. Keenam temuan Round 1 tertutup dan terverifikasi: summary beracun dibuang, jalur `kill -9` aktif di `run` nyata, efek tool tetap terlihat, span diabaikan, recall diberi flag, dan kegagalan marker dimunculkan. SEC11-7 (sanitasi call-id di pesan system) dan SEC11-8 (efek parsial) dapat menjadi follow-up.
+
+## Round 3 — 2026-10-21 (konfirmasi SEC11-7/8)
+
+#211 `f1040b2` di-rebase ke `main` `8117bc1` (`646d36a`, `e56cda9`, `f1040b2`). `git range-diff 68dbec3..54750d4 8117bc1..e56cda9`: kedua commit lama hanya berbeda di konteks CHANGELOG (entri `assemble` #166) dan baris budget hasil rebase (`assemble 1200` → Total 36.970 → 37.050). **Tidak ada perubahan kode** di luar commit baru `f1040b2`.
+
+**Verdict:** #211 **APPROVE** (SEC11-7/8 FIXED; nit di bawah).
+
+Gate di `f1040b2`: `go test -race -tags goolm -count=1 ./internal/loop/... ./internal/ctxdb/compactstore/... ./internal/tools ./cmd/damnbot ./internal/archtest` → ok; `./internal/ctxdb -race -run 'Exclude|Crash|Kill9|Recover|History|Search'` → ok; `TestFailedTurnEffectsNotice`, `TestUncertainEffectNoted`, `TestSanitizeName`, `TestEffectNoticeSanitizesID` → PASS; `go vet` + `GOOS=windows|darwin` bersih; `make deadcode` 0; `make loc` `loop 1881/1900`, `compactstore 253/260`. Jumlah `loc.budget` = Total core ENGINEERING = **37.080** ✔ (`loop 1.800 → 1.900`, `compactstore 250 → 260`, didukung "Dampak terukur" ADR-134).
+
+| ID | Verdict | Bukti |
+|---|---|---|
+| SEC11-7 | **FIXED** | `toolRef`: nama tool dan call id hanya di-echo bila cocok `[A-Za-z0-9_-]{1,64}`. Id lain menjadi `tool#N`, dan nama yang tidak lolos menjadi `tool`, sehingga newline/teks instruksi dari provider tidak masuk pesan `system`. `turn_id` berasal dari internal. |
+| SEC11-8 | **FIXED** | Tool non-read yang gagal (`err`/`res.Err`), `still_running`, `outcome_unknown`, atau `timeout` masuk daftar `uncertain` dan dirender "may have run with unknown outcome"; yang sukses tetap di `effects`; total ≤ 20. |
+
+Nit (tidak memblokir): tool non-read yang **ditolak sebelum dieksekusi** (approval `deny`, `denied`/`outside_workspace`) juga masuk `uncertain` ("may not have completed"), padahal pasti tidak berjalan. Ini konservatif tetapi dapat membuat model ragu tanpa alasan. Pertimbangkan untuk mengecualikan kode error yang menjamin tidak ada eksekusi.
+
+Catatan budget: #212 (`b4c90aa`) menghitung Total 37.000 (`memory+skills 1.230`), sedangkan #211 menghitung 37.080. PR yang di-merge kedua harus me-rebase baris Total core (gabungan **37.110**).
+
+**Ringkasan:** #211 **APPROVE**. Seluruh SEC11-1..8 tertutup, dan rebase tidak mengubah kode yang sudah direview.
