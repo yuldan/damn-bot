@@ -8,7 +8,10 @@
 // never persisted as events.
 package event
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Kind is one events.kind value. The set is closed (SPEC §11.2).
 type Kind string
@@ -182,4 +185,10 @@ type Usage struct {
 	CostUSD     *float64 // nil when the provider did not send a cost
 	Price       *Price   // price-table entry of this call; nil when unpriced
 	Iterations  int
+	// TTFT is the time from sending the provider request to the first token
+	// (content, tool call, or reasoning). Zero means no token arrived; the
+	// usage ledger stores that as NULL (not a measured zero). It is provider
+	// telemetry for the ledger, not part of the serialized event contract, so
+	// stream/compaction JSON keeps its existing shape.
+	TTFT time.Duration `json:"-"`
 }
