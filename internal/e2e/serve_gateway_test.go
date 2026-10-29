@@ -110,10 +110,17 @@ func TestServeTelegramOwnerStreamsAndResume(t *testing.T) {
 		"sendChatAction": {Status: 429, RetryAfter: 1},
 	}})
 	p := startGatewayServe(t, e, tg)
+	pushed := time.Now()
 	tg.PushText(gatewayOwner, "hi")
-	send, err := tg.WaitSend(gatewayOwner, func(FakeTGRequest) bool { return true }, 15*time.Second)
+	send, err := tg.WaitSend(gatewayOwner, func(r FakeTGRequest) bool { return r.Text == "…" }, 15*time.Second)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if elapsed := time.Since(pushed); elapsed > 200*time.Millisecond {
+		t.Errorf("placeholder took %s after the inbound, want < 200 ms", elapsed)
+	}
+	if n := len(tg.Sends()); n != 1 {
+		t.Errorf("sends = %d, want the single placeholder", n)
 	}
 	edit, err := tg.WaitEdit(gatewayOwner, func(r FakeTGRequest) bool { return r.Text == "hello world" }, 15*time.Second)
 	if err != nil {
@@ -125,8 +132,8 @@ func TestServeTelegramOwnerStreamsAndResume(t *testing.T) {
 	if edit.MessageID != send.ResultMessageID {
 		t.Fatalf("edit message %d, send message %d", edit.MessageID, send.ResultMessageID)
 	}
-	if n := len(tg.EditsFor(edit.MessageID)); n > 2 {
-		t.Fatalf("two-delta answer produced %d edits, want the coalesced stream (<= 2)", n)
+	if n := len(tg.EditsFor(edit.MessageID)); n != 1 {
+		t.Fatalf("short answer produced %d edits, want the single final edit", n)
 	}
 	gatewayStop(t, p)
 	db := gatewayDB(t, e)
@@ -138,9 +145,7 @@ func TestServeTelegramOwnerStreamsAndResume(t *testing.T) {
 	p2 := startGatewayServe(t, e, tg)
 	waitFor(t, time.Second, "no replay", func() bool { return len(tg.Sends()) == before })
 	tg.PushText(gatewayOwner, "again")
-	if _, err := tg.WaitSend(gatewayOwner, func(r FakeTGRequest) bool { return strings.Contains(r.Text, "second") }, 15*time.Second); err != nil {
-		t.Fatalf("%v\nstderr:\n%s", err, p2.stderr.String())
-	}
+	waitFor(t, 15*time.Second, "second placeholder", func() bool { return len(tg.Sends()) == before+1 })
 	if _, err := tg.WaitEdit(gatewayOwner, func(r FakeTGRequest) bool { return r.Text == "second answer" }, 15*time.Second); err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +156,30 @@ func TestServeTelegramOwnerStreamsAndResume(t *testing.T) {
 	if got := len(e.Server.Requests()); got != 2 {
 		t.Fatalf("provider requests = %d, want 2", got)
 	}
+}
+
+// TestServeTelegramProviderErrorReplacesPlaceholder: a failed turn edits the
+// instant placeholder into one error message; it must not send a second one.
+func TestServeTelegramProviderErrorReplacesPlaceholder(t *testing.T) {
+	e := New(t, providertest.Status(400, "invalid_request_error", ""))
+	tg := NewFakeTG(t, FakeTGOptions{})
+	p := startGatewayServe(t, e, tg)
+	tg.PushText(gatewayOwner, "hi")
+	send, err := tg.WaitSend(gatewayOwner, func(r FakeTGRequest) bool { return r.Text == "…" }, 15*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit, err := tg.WaitEdit(gatewayOwner, func(r FakeTGRequest) bool { return strings.Contains(r.Text, "provider error") }, 20*time.Second)
+	if err != nil {
+		t.Fatalf("%v\nstderr:\n%s", err, p.stderr.String())
+	}
+	if edit.MessageID != send.ResultMessageID {
+		t.Fatalf("error edit message %d, placeholder %d", edit.MessageID, send.ResultMessageID)
+	}
+	if n := len(tg.Sends()); n != 1 {
+		t.Fatalf("sends = %d, want only the placeholder", n)
+	}
+	gatewayStop(t, p)
 }
 
 // approvalData finds the callback_data of one button in the approval message.

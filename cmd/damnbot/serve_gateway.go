@@ -250,10 +250,14 @@ func (g *serveGateway) turn(ctx context.Context, in *telegram.Inbound, t *gatewa
 	defer end()
 	typing := g.startTyping(ctx, in.ChatID, in.ThreadID)
 	defer typing.end()
+	ack := g.placeholder(ctx, in)
 	start := time.Now()
 	sid, err := g.session(ctx, t)
 	if err == nil {
-		err = g.runChat(ctx, in, sid, typing)
+		err = g.runChat(ctx, in, sid, typing, ack)
+	}
+	if err != nil {
+		g.failPlaceholder(ctx, in, ack)
 	}
 	g.metrics.Turn(time.Since(start), err == nil)
 	return err
@@ -299,7 +303,7 @@ func (g *serveGateway) session(ctx context.Context, t *gateway.Ticket) (string, 
 	return sid, nil
 }
 
-func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid string, typing *gatewayTyping) error {
+func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid string, typing *gatewayTyping, ack *gatewayAck) error {
 	o := runOptions{
 		prompt: in.Text, model: g.modelRef, approval: "ask", configPath: g.configPath, dataDir: g.dataDir,
 		baseURL: strings.TrimSpace(os.Getenv("DAMNBOT_SERVE_BASE_URL")), apiKey: strings.TrimSpace(os.Getenv("DAMNBOT_SERVE_API_KEY")),
@@ -337,7 +341,7 @@ func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid st
 	if err != nil {
 		return fmt.Errorf("gateway: prompt: %w", err)
 	}
-	return g.streamReply(ctx, in, ch, typing)
+	return g.streamReply(ctx, in, ch, typing, ack)
 }
 
 // Reply cadence: the first delta opens the Telegram message immediately, later
@@ -349,6 +353,14 @@ const (
 	replyEditGap    = 1100 * time.Millisecond
 	replyFlushEvery = 1200 * time.Millisecond
 	replyFlushChars = 80
+	// replyShortChars caps mid-stream edits: a reply at or below this size gets
+	// exactly one final edit, however long the model takes to produce it.
+	replyShortChars = 120
+	// gatewayAckText is the instant placeholder shown right after admission;
+	// it is edited into the answer and never left behind.
+	gatewayAckText    = "…"
+	gatewayNoOutput   = "damnbot: no output"
+	gatewayTurnFailed = "damnbot: turn failed"
 )
 
 // replyPacer decides when accumulated reply text becomes one Telegram update.
@@ -356,17 +368,21 @@ type replyPacer struct {
 	started bool
 	last    time.Time
 	flushed int
+	edits   int
 }
 
 // observe records total reply bytes at now and reports whether they should be
-// flushed.
+// flushed. Short replies never flush mid-stream (their single final edit is
+// enough); longer ones keep the ≥1.1 s / 1.2 s-or-80-chars cadence.
 func (p *replyPacer) observe(now time.Time, total int) bool {
 	switch {
 	case total == 0 || total == p.flushed:
 		return false
+	case total <= replyShortChars:
+		return false
 	case !p.started:
 		p.started, p.last, p.flushed = true, now, total
-		return true
+		return false
 	}
 	gap := now.Sub(p.last)
 	if gap < replyEditGap {
@@ -376,6 +392,7 @@ func (p *replyPacer) observe(now time.Time, total int) bool {
 		return false
 	}
 	p.last, p.flushed = now, total
+	p.edits++
 	return true
 }
 
@@ -392,9 +409,9 @@ type replyOutcome struct {
 // accumulated answer, or the provider-error message when the turn failed. wait
 // paces the final flush so no two updates reach the adapter closer than
 // replyEditGap; it is injected so tests advance a fake clock instead of sleeping.
-func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() time.Time, wait func(context.Context, time.Duration) error, flush func(context.Context, string) error) replyOutcome {
+func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() time.Time, wait func(context.Context, time.Duration) error, flush func(context.Context, string) error, start time.Time, shown int) replyOutcome {
 	var answer []byte
-	var pacer replyPacer
+	pacer := replyPacer{started: shown > 0, last: start, flushed: shown}
 	var stop event.StopReason
 	var detail event.StopDetail
 	var sent string
@@ -421,7 +438,7 @@ func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() 
 	if text == "" {
 		return out
 	}
-	if pacer.started && text != sent {
+	if pacer.edits > 0 && text != sent {
 		if gap := replyEditGap - now().Sub(pacer.last); gap > 0 {
 			if werr := wait(ctx, gap); werr != nil {
 				out.Err = werr
@@ -447,21 +464,82 @@ func flushTyped(ctx context.Context, reply *telegram.Stream, typing *gatewayTypi
 	return nil
 }
 
-func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch <-chan event.Update, typing *gatewayTyping) error {
+// gatewayAck is the instant placeholder message shown after admission. The
+// same message is later edited into the answer, so a turn never leaves a
+// second message behind.
+type gatewayAck struct {
+	id       int64
+	replaced bool
+}
+
+// placeholder sends the immediate "…" acknowledgement. Failure is not fatal:
+// the turn falls back to opening the reply message on its final text.
+func (g *serveGateway) placeholder(ctx context.Context, in *telegram.Inbound) *gatewayAck {
 	key := gateway.DeliveryKey("telegram", in.ChatID, "reply:"+in.UpdateID)
-	reply := g.adapter.Stream(telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Key: key})
-	flush := func(ctx context.Context, text string) error { return flushTyped(ctx, reply, typing, text) }
-	out := streamReplyUpdates(ctx, ch, g.now, waitReply, flush)
-	if out.Err != nil {
-		if out.Text != "" {
-			if _, _, qerr := g.store.EnqueueDelivery(ctx, &gwstore.Delivery{IdemKey: key, Platform: "telegram", ChatID: in.ChatID, ThreadID: in.ThreadID, Body: out.Text, Status: gateway.StatusQueued}); qerr != nil {
-				return errors.Join(out.Err, fmt.Errorf("gateway: enqueue reply: %w", qerr))
+	id, err := g.adapter.Send(ctx, telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Text: gatewayAckText, Key: key})
+	if err != nil {
+		g.metrics.IncError()
+		return nil
+	}
+	return &gatewayAck{id: id}
+}
+
+// failPlaceholder turns the placeholder into an error message when the turn
+// failed before any reply update replaced it.
+func (g *serveGateway) failPlaceholder(ctx context.Context, in *telegram.Inbound, ack *gatewayAck) {
+	if ack == nil || ack.replaced {
+		return
+	}
+	key := gateway.DeliveryKey("telegram", in.ChatID, "reply:"+in.UpdateID)
+	reply := g.adapter.StreamFrom(telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Key: key}, ack.id, gatewayAckText)
+	if err := reply.Update(ctx, gatewayTurnFailed); err != nil {
+		g.metrics.IncError()
+	}
+}
+
+func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch <-chan event.Update, typing *gatewayTyping, ack *gatewayAck) error {
+	key := gateway.DeliveryKey("telegram", in.ChatID, "reply:"+in.UpdateID)
+	out := telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Key: key}
+	reply := g.adapter.Stream(out)
+	shown := 0
+	if ack != nil {
+		reply = g.adapter.StreamFrom(out, ack.id, gatewayAckText)
+		shown = len(gatewayAckText)
+	}
+	flush := func(ctx context.Context, text string) error {
+		if err := flushTyped(ctx, reply, typing, text); err != nil {
+			return err
+		}
+		if ack != nil {
+			ack.replaced = true
+		}
+		return nil
+	}
+	now := g.now
+	if now == nil {
+		now = time.Now
+	}
+	res := streamReplyUpdates(ctx, ch, now, waitReply, flush, now(), shown)
+	if res.Text == "" && ack != nil && !ack.replaced {
+		res.Text = gatewayNoOutput
+		if ferr := flush(ctx, res.Text); ferr != nil {
+			res.Err = ferr
+		}
+	}
+	if res.Err != nil {
+		if res.Text != "" {
+			// The reply key already stores the placeholder message id, so a
+			// retry under it would look "sent"; the outbox gets its own key and
+			// delivers the final text as a fresh message when editing failed.
+			finalKey := gateway.DeliveryKey("telegram", in.ChatID, "final:"+in.UpdateID)
+			if _, _, qerr := g.store.EnqueueDelivery(ctx, &gwstore.Delivery{IdemKey: finalKey, Platform: "telegram", ChatID: in.ChatID, ThreadID: in.ThreadID, Body: res.Text, Status: gateway.StatusQueued}); qerr != nil {
+				return errors.Join(res.Err, fmt.Errorf("gateway: enqueue reply: %w", qerr))
 			}
 		}
 		g.metrics.IncError()
 	}
-	if out.Failed {
-		return fmt.Errorf("gateway: turn failed: %s", out.Detail)
+	if res.Failed {
+		return fmt.Errorf("gateway: turn failed: %s", res.Detail)
 	}
 	return nil
 }
