@@ -118,10 +118,16 @@ type RunFunc func(ctx context.Context, t Ticket) error
 
 // Admit decides whether in may run and records its dedupe key.
 //
-// Order is deliberate: the identity lookup and every denial happen before the
-// inbox write, so an unknown or non-allowlisted sender leaves no row and never
-// reaches work. A store failure also fails closed: no row is written and work
-// does not run.
+// Order is deliberate: except for "/pair" — the one command a not-yet-
+// allowlisted identity may send (SPEC §9.7) — the identity lookup and every
+// denial happen before the inbox write, so an unknown or non-allowlisted sender
+// leaves no row and never reaches work. A store failure also fails closed: no
+// row is written and work does not run.
+//
+// The steps are named helpers, in this order: admitPairCommand (pair before
+// authorization, claiming its own dedupe row), authorize (identity, status,
+// role), admitTurn (mention policy, scope, dedupe claim), dispatchCommand
+// (slash command before any turn), then the work itself.
 func (g *Gate) Admit(ctx context.Context, in *Inbound, work RunFunc) (Outcome, error) {
 	if work == nil {
 		return Outcome{}, ErrNoWork
@@ -129,30 +135,99 @@ func (g *Gate) Admit(ctx context.Context, in *Inbound, work RunFunc) (Outcome, e
 	if err := in.validate(); err != nil {
 		return Outcome{}, err
 	}
-	id, found, err := g.identities.Identity(ctx, in.Platform, in.SenderID)
-	if err != nil {
-		return Outcome{}, fmt.Errorf("gateway: identity %s: %w", in.Platform, err)
+	if out, handled, err := g.admitPairCommand(ctx, in); handled {
+		return out, err
 	}
-	if !found {
-		return deny(ReasonUnknownIdentity), nil
-	}
-	if reason := admitReason(&id); reason != ReasonNone {
-		return deny(reason), nil
-	}
-	reason, err := g.mentionReason(ctx, in)
+	id, reason, err := g.authorize(ctx, in)
 	if err != nil {
 		return Outcome{}, err
 	}
 	if reason != ReasonNone {
 		return deny(reason), nil
 	}
-	scope, ok, err := g.scope(&id, in)
+	t, kind, reason, err := g.admitTurn(ctx, &id, in)
 	if err != nil {
 		return Outcome{}, err
 	}
-	if !ok {
-		return deny(ReasonNoWorkspace), nil
+	if kind != Accepted {
+		return Outcome{Kind: kind, Reason: reason}, nil
 	}
+	if res, handled := g.dispatchCommand(ctx, &t, in.Text); handled {
+		return Outcome{Kind: CommandHandled, Ticket: t, Reply: res.Reply}, nil
+	}
+	if err := work(ctx, t); err != nil {
+		return Outcome{Kind: Accepted, Ticket: t}, err
+	}
+	return Outcome{Kind: Accepted, Ticket: t}, nil
+}
+
+// admitPairCommand answers "/pair <code>" before authorization when a pairing
+// seam is wired; handled=false means the update takes the normal path.
+func (g *Gate) admitPairCommand(ctx context.Context, in *Inbound) (Outcome, bool, error) {
+	if g.commands == nil {
+		return Outcome{}, false, nil
+	}
+	cmd, ok := g.commands.pairCommand(in.Text)
+	if !ok {
+		return Outcome{}, false, nil
+	}
+	out, err := g.admitPair(ctx, in, cmd)
+	return out, true, err
+}
+
+// authorize returns the stored identity and its denial reason (ReasonNone when
+// the identity may proceed). It never writes.
+func (g *Gate) authorize(ctx context.Context, in *Inbound) (Identity, Reason, error) {
+	id, found, err := g.identities.Identity(ctx, in.Platform, in.SenderID)
+	if err != nil {
+		return Identity{}, ReasonNone, fmt.Errorf("gateway: identity %s: %w", in.Platform, err)
+	}
+	if !found {
+		return Identity{}, ReasonUnknownIdentity, nil
+	}
+	reason := admitReason(&id)
+	return id, reason, nil
+}
+
+// admitTurn applies the mention policy, derives the scope, and claims the
+// dedupe row. kind is Accepted with a ticket, Duplicate without one, or
+// Rejected with the reason. Nothing is written before every policy passes.
+func (g *Gate) admitTurn(ctx context.Context, id *Identity, in *Inbound) (Ticket, Kind, Reason, error) {
+	if reason, err := g.mentionReason(ctx, in); err != nil || reason != ReasonNone {
+		return Ticket{}, Rejected, reason, err
+	}
+	scope, ok, err := g.scope(id, in)
+	if err != nil {
+		return Ticket{}, Rejected, ReasonNone, err
+	}
+	if !ok {
+		return Ticket{}, Rejected, ReasonNoWorkspace, nil
+	}
+	recorded, err := g.inbox.Record(ctx, in)
+	if err != nil {
+		return Ticket{}, Rejected, ReasonNone, fmt.Errorf("gateway: record inbound %s/%s: %w", in.Platform, in.UpdateID, err)
+	}
+	if !recorded {
+		return Ticket{}, Duplicate, ReasonNone, nil
+	}
+	return Ticket{Identity: *id, Scope: scope}, Accepted, ReasonNone, nil
+}
+
+// dispatchCommand answers a slash command; handled=false leaves the update as
+// a turn. It runs after the dedupe claim so a replay cannot answer twice.
+func (g *Gate) dispatchCommand(ctx context.Context, t *Ticket, text string) (CommandResult, bool) {
+	if g.commands == nil {
+		return CommandResult{}, false
+	}
+	res := g.commands.Dispatch(ctx, t, text)
+	return res, res.Handled
+}
+
+// admitPair answers "/pair <code>" before authorization, because pairing is how
+// a sender becomes allowlisted. Every other message still reaches the
+// default-deny lookup. The inbox row is claimed before redemption, so a replayed
+// update meets Duplicate instead of consuming a second code.
+func (g *Gate) admitPair(ctx context.Context, in *Inbound, cmd Command) (Outcome, error) {
 	recorded, err := g.inbox.Record(ctx, in)
 	if err != nil {
 		return Outcome{}, fmt.Errorf("gateway: record inbound %s/%s: %w", in.Platform, in.UpdateID, err)
@@ -160,16 +235,11 @@ func (g *Gate) Admit(ctx context.Context, in *Inbound, work RunFunc) (Outcome, e
 	if !recorded {
 		return Outcome{Kind: Duplicate}, nil
 	}
-	t := Ticket{Identity: id, Scope: scope}
-	if g.commands != nil {
-		if res := g.commands.Dispatch(&t, in.Text); res.Handled {
-			return Outcome{Kind: CommandHandled, Ticket: t, Reply: res.Reply}, nil
-		}
-	}
-	if err := work(ctx, t); err != nil {
-		return Outcome{Kind: Accepted, Ticket: t}, err
-	}
-	return Outcome{Kind: Accepted, Ticket: t}, nil
+	t := Ticket{Scope: Scope{
+		Platform: in.Platform, ChatID: in.ChatID, ThreadID: in.ThreadID, UserID: in.SenderID,
+	}}
+	res := g.commands.pair(ctx, &t, cmd)
+	return Outcome{Kind: CommandHandled, Ticket: t, Reply: res.Reply}, nil
 }
 
 // admitReason returns ReasonNone only for an allowlisted, non-weak identity
