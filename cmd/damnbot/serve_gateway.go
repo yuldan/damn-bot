@@ -92,6 +92,12 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	adapter, err := telegram.New(&telegram.Config{
 		Token: token, BaseURL: strings.TrimSpace(os.Getenv("DAMNBOT_TELEGRAM_BASE_URL")),
 		Doer: beatDoer{do: telegram.EgressClient(net), wd: wd}, Store: telegramStore{Store: store},
+		// EC-PLAT-016: swap the egress client on a confirmed poll stall.
+		Rebuild: func() telegram.Doer {
+			sessionsPrintf(stderr, "gateway: poll stalled; adapter rebuilt\n")
+			metrics.IncError()
+			return beatDoer{do: telegram.EgressClient(net), wd: wd}
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gateway telegram: %w", err)

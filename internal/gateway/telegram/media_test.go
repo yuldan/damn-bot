@@ -44,7 +44,7 @@ func smallPNG(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
-func TestLargeImageCompressedToPhoto(t *testing.T) {
+func TestECPLAT023LargeImageCompressedToPhoto(t *testing.T) {
 	data := noisePNG(t, 1800, 1800)
 	f := newFakeTG(t)
 	a, _ := newTestAdapter(t, f, newMemStore())

@@ -146,8 +146,10 @@ func (a *Adapter) sendMedia(ctx context.Context, out *Outbound, at *attachment) 
 		fields.Set("caption", caption)
 	}
 	var sent tgMessage
+	ctx, cancel := withDeadline(ctx, a.mediaTimeout)
+	defer cancel()
 	if err := a.upload(ctx, at.method, fields, at, &sent); err != nil {
-		return 0, err
+		return 0, classifySend(at.method, a.mediaTimeout, err)
 	}
 	return sent.MessageID, nil
 }
