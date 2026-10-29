@@ -31,7 +31,7 @@ func TestTypingSendsChatAction(t *testing.T) {
 // ignores it; nothing about the adapter state changes.
 func TestTypingIsBestEffort(t *testing.T) {
 	f := newFakeTG(t)
-	f.faults["sendChatAction"] = []fakeFault{{Status: 429, RetryAfter: 1, Times: 1}}
+	f.setFault("sendChatAction", fakeFault{Status: 429, RetryAfter: 1, Times: 1})
 	a, _ := newTestAdapter(t, f, newMemStore())
 	if err := a.Typing(t.Context(), "7", ""); err == nil {
 		t.Fatal("Typing returned nil for a 429")

@@ -220,6 +220,15 @@ func (f *fakeTG) record(method string, form url.Values, files map[string][]byte,
 	return fault, true
 }
 
+// setFault replaces the injected queue of one method under the client lock.
+// A running adapter reads this map from the HTTP handler goroutine, so a test
+// must never assign it directly.
+func (f *fakeTG) setFault(method string, faults ...fakeFault) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.faults[method] = faults
+}
+
 // faultAt arms fault for the n-th call of method (1-based), leaving other
 // calls untouched; the queued faults keep their own order.
 func (f *fakeTG) faultAt(method string, n int, fault fakeFault) {

@@ -76,7 +76,7 @@ func TestRunDeliversPersistsOffsetAndResumes(t *testing.T) {
 
 func TestRunHonoursRetryAfter(t *testing.T) {
 	f := newFakeTG(t)
-	f.faults["getUpdates"] = []fakeFault{{Status: 429, RetryAfter: 2, Times: 1}}
+	f.setFault("getUpdates", fakeFault{Status: 429, RetryAfter: 2, Times: 1})
 	a, clock := newTestAdapter(t, f, newMemStore(), func(*Config) {})
 	in := make(chan Inbound, 8)
 	done, stop := runAdapter(t, a, in)
@@ -98,7 +98,7 @@ func TestRunHonoursRetryAfter(t *testing.T) {
 
 func TestRunBacksOffOnServerErrors(t *testing.T) {
 	f := newFakeTG(t)
-	f.faults["getUpdates"] = []fakeFault{{Status: 500, Times: 2}}
+	f.setFault("getUpdates", fakeFault{Status: 500, Times: 2})
 	a, clock := newTestAdapter(t, f, newMemStore(), func(*Config) {})
 	in := make(chan Inbound, 8)
 	done, stop := runAdapter(t, a, in)
@@ -122,7 +122,7 @@ func TestRunBacksOffOnServerErrors(t *testing.T) {
 
 func TestRunRecoversFromDroppedConnection(t *testing.T) {
 	f := newFakeTG(t)
-	f.faults["getUpdates"] = []fakeFault{{Drop: true, Times: 1}}
+	f.setFault("getUpdates", fakeFault{Drop: true, Times: 1})
 	a, clock := newTestAdapter(t, f, newMemStore(), func(*Config) {})
 	in := make(chan Inbound, 8)
 	done, stop := runAdapter(t, a, in)
@@ -142,7 +142,7 @@ func TestRunRecoversFromDroppedConnection(t *testing.T) {
 
 func TestRunStopsOnTokenRejection(t *testing.T) {
 	f := newFakeTG(t)
-	f.faults["getUpdates"] = []fakeFault{{Status: 401, Times: 1}}
+	f.setFault("getUpdates", fakeFault{Status: 401, Times: 1})
 	a, _ := newTestAdapter(t, f, newMemStore())
 	in := make(chan Inbound, 1)
 	err := a.Run(t.Context(), in)
