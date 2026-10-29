@@ -16,6 +16,7 @@ import (
 
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/heal"
 	"github.com/damnbot/damnbot/internal/obs"
 )
 
@@ -91,7 +92,8 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	if err != nil {
 		return serveExitFatal, fmt.Errorf("config deps: %w", err)
 	}
-	if _, lerr := loadRunConfig(loader, o.configPath); lerr != nil {
+	cfg, lerr := loadRunConfig(loader, o.configPath)
+	if lerr != nil {
 		return serveExitFatal, lerr
 	}
 	paths, err := loader.Paths(activeProfile())
@@ -125,18 +127,25 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	metrics := obs.NewMetrics()
 	metrics.SetLeaseHeld(true)
 	metrics.SetQueue(0)
-	eps := obs.New(obs.Config{
-		Metrics: metrics,
-		Checks: []obs.Check{
-			{Name: "db", Fn: db.ProbeWrite},
-			{Name: "serve_lock", Fn: func(context.Context) error {
-				if !lock.Held() {
-					return errors.New("data-dir lease is not held")
-				}
-				return nil
-			}},
-		},
-	})
+	daemon := newServeDaemon()
+	defer daemon.Close()
+	gw, gwErr := newServeGateway(ctx, &cfg, o, db, daemon, metrics, stderr)
+	checks := []obs.Check{
+		{Name: "db", Fn: db.ProbeWrite},
+		{Name: "serve_lock", Fn: func(context.Context) error {
+			if !lock.Held() {
+				return errors.New("data-dir lease is not held")
+			}
+			return nil
+		}},
+	}
+	checks = append(checks, obs.Check{Name: "gateway", Fn: func(context.Context) error {
+		if gw != nil && gw.supervisor.Snapshot().State == heal.SafeMode {
+			return errors.New("gateway: safe mode")
+		}
+		return nil
+	}})
+	eps := obs.New(obs.Config{Metrics: metrics, Checks: checks})
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", o.bind)
 	if err != nil {
@@ -146,20 +155,26 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	errs := obs.Serve(hs, ln)
 	sessionsPrintf(stderr, "serve: data dir %s\n", dataDir)
 	sessionsPrintf(stdout, "serve: observability listening on %s\n", ln.Addr())
-	return serveLoop(ctx, o, eps, hs, errs, db, lock, stderr)
+	return serveLoop(ctx, o, eps, hs, errs, db, lock, daemon, gw, gwErr, stderr)
 }
 
 // serveLoop waits for a stop signal (or a fatal endpoint error), drains the
 // active turns, shuts the listener down and closes the store.
-func serveLoop(ctx context.Context, o *serveOptions, eps *obs.Endpoints, hs *http.Server, errs <-chan error, db *ctxdb.Store, lock *serveLock, stderr io.Writer) (int, error) {
-	daemon := newServeDaemon()
-	defer daemon.Close()
+func serveLoop(ctx context.Context, o *serveOptions, eps *obs.Endpoints, hs *http.Server, errs <-chan error, db *ctxdb.Store, lock *serveLock, daemon *serveDaemon, gw *serveGateway, gwErr error, stderr io.Writer) (int, error) {
+	if gwErr != nil {
+		return serveExitFatal, gwErr
+	}
 	stopBeat := eps.StartBeatLoop(ctx, serveBeatPeriod, lock.Held)
 	defer stopBeat()
 	registerServeTestTurn(daemon, stderr)
-
 	sigCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
+	if err := gw.Start(ctx); err != nil {
+		return serveExitFatal, err
+	}
+	if gw != nil {
+		sessionsPrintf(stderr, "serve: gateway polling\n")
+	}
 	var serveErr error
 	select {
 	case <-sigCtx.Done():
@@ -167,10 +182,13 @@ func serveLoop(ctx context.Context, o *serveOptions, eps *obs.Endpoints, hs *htt
 	case serveErr = <-errs:
 	}
 
+	if gw != nil {
+		gw.pollCancel()
+	}
 	if !daemon.Drain(o.drainTimeout) {
 		sessionsPrintf(stderr, "serve: drain window %s elapsed; active turns cancelled\n", o.drainTimeout)
 	}
-	daemon.Close()
+	gw.Stop()
 	shutCtx, cancelShut := context.WithTimeout(context.WithoutCancel(ctx), serveShutdownMax)
 	shutErr := hs.Shutdown(shutCtx)
 	cancelShut()
