@@ -43,6 +43,15 @@ type Doer interface {
 // Clock paces retries and throttled sends; tests inject a fake.
 type Clock interface {
 	Wait(ctx context.Context, d time.Duration) error
+	Now() time.Time
+}
+
+// Throttle records a platform retry_after per chat so the gateway limiter
+// blocks only that chat (EC-PLAT-014). gateway.Limiter implements it; the
+// adapter keeps the interface local because a platform package never imports
+// the gateway core (ENGINEERING §2.2.1).
+type Throttle interface {
+	Penalize(chat string, until time.Time)
 }
 
 // Store is the adapter's durable state (ctxdb/gwstore); MessageID returns 0
@@ -70,6 +79,9 @@ type Config struct {
 	// call concurrently with sends; nil keeps the current client and still
 	// restarts the loop, which is enough to abandon a stuck request.
 	Rebuild func() Doer
+	// Throttle receives every Telegram 429 deadline. Nil disables the shared
+	// limiter (unit tests), the adapter still waits out retry_after itself.
+	Throttle Throttle
 }
 
 // Adapter is one configured Telegram bot.
@@ -83,6 +95,7 @@ type Adapter struct {
 	rebuild      func() Doer
 	store        Store
 	clock        Clock
+	throttle     Throttle
 	send         *limiter
 	edit         *limiter
 	noCompress   bool
@@ -118,7 +131,7 @@ func New(cfg *Config) (*Adapter, error) {
 	}
 	a := &Adapter{
 		base: base, token: cfg.Token, doer: cfg.Doer, store: cfg.Store,
-		clock: clock, after: 300 * time.Second, pending: map[string]*approval{},
+		clock: clock, throttle: cfg.Throttle, after: 300 * time.Second, pending: map[string]*approval{},
 		account: account, username: strings.TrimPrefix(cfg.Username, "@"),
 		noCompress: cfg.NoCompression, rebuild: cfg.Rebuild,
 		sendTimeout: sendDeadline, mediaTimeout: mediaDeadline,
@@ -140,6 +153,29 @@ type apiError struct {
 
 func (e *apiError) Error() string {
 	return fmt.Sprintf("telegram: %s: %d %s", e.Method, e.Code, e.Description)
+}
+
+// RetryAfter reports the deadline a Telegram 429 carries. A 429 without the
+// parameter means one second, the Bot API default.
+func RetryAfter(err error) (time.Duration, bool) {
+	ae, ok := errors.AsType[*apiError](err)
+	if !ok || ae.Code != 429 {
+		return 0, false
+	}
+	return cmp.Or(ae.RetryAfter, time.Second), true
+}
+
+// penalize forwards a 429 deadline to the shared limiter so pacing honours it
+// per chat (EC-PLAT-014). It returns the wait for callers that retry in place.
+func (a *Adapter) penalize(chat string, err error) (time.Duration, bool) {
+	wait, ok := RetryAfter(err)
+	if !ok {
+		return 0, false
+	}
+	if a.throttle != nil {
+		a.throttle.Penalize(chat, a.clock.Now().Add(wait))
+	}
+	return wait, true
 }
 
 func (a *Adapter) call(ctx context.Context, method string, form url.Values, out any) error {
@@ -353,6 +389,7 @@ func (a *Adapter) sendMessage(ctx context.Context, chatID, threadID, anchor stri
 	defer cancel()
 	var sent tgMessage
 	if err := a.call(ctx, "sendMessage", form, &sent); err != nil {
+		a.penalize(chatID, err)
 		return 0, classifySend("sendMessage", a.sendTimeout, err)
 	}
 	return sent.MessageID, nil
@@ -369,7 +406,11 @@ func (a *Adapter) editText(ctx context.Context, chatID, threadID string, message
 	}
 	ctx, cancel := withDeadline(ctx, a.sendTimeout)
 	defer cancel()
-	return classifySend("editMessageText", a.sendTimeout, a.call(ctx, "editMessageText", form, nil))
+	if err := a.call(ctx, "editMessageText", form, nil); err != nil {
+		a.penalize(chatID, err)
+		return classifySend("editMessageText", a.sendTimeout, err)
+	}
+	return nil
 }
 
 // setEntities adds the Bot API entities array; offsets are UTF-16 units as the
