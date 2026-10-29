@@ -42,9 +42,10 @@ func allowedImports() map[string][]string {
 		"internal/gateway": {"internal/loop", "internal/modules/host", "internal/i18n"},
 
 		// Modul daemon/observabilitas F4 (ADR-244): `obs` sudah diimplementasikan
-		// (stdlib saja, tanpa impor internal) dan tetap tanpa edge; `cron`/`scorecard`
+		// (stdlib saja, tanpa impor internal) dan tetap tanpa edge; `cron` sudah punya
+		// API (scheduler library, ADR-248) sehingga edge-nya ditentukan; `scorecard`
 		// masih kerangka dan mendapat barisnya saat paket itu menentukan edge-nya.
-		"internal/cron":      nil,
+		"internal/cron":      append([]string{"internal/redact"}, groupExec()...),
 		"internal/obs":       nil,
 		"internal/scorecard": nil,
 
@@ -86,6 +87,7 @@ func allowedImports() map[string][]string {
 		"internal/ctxdb/carrierstore": storeImports(),
 		"internal/ctxdb/compactstore": append(storeImports(), "internal/compaction", "internal/ctxdb/ledgerstore"),
 		"internal/ctxdb/gwstore":      storeImports(),
+		"internal/ctxdb/cronstore":    storeImports(),
 		"internal/config":             {"internal/schema", "internal/toolset", "internal/update"},
 		"internal/update":             {"internal/netx"},
 		"internal/toolset":            nil, // pure composition data (ADR-139): no internal deps

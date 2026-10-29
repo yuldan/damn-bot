@@ -1,4 +1,5 @@
-// Package cron is the F4 scheduled-job daemon started only by `damnbot serve` (SPEC §3.2.4
-// `cron`). This package is the F4 scaffold only; no API is implemented yet, so the architecture
-// matrix (internal/archtest/allowed.go) leaves its edges empty until the first real implementation.
+// Package cron is the F4 scheduled-job library started only by `serve`
+// (SPEC §9.8): 5-field schedules with an injected clock, SELF-HEALING §6
+// catch-up, one claim per slot, script jobs through internal/exec, and a
+// Deliverer seam. `serve` supplies the store, outbox, timer and Executor.
 package cron

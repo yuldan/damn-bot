@@ -198,8 +198,8 @@ MODULE profiles     800 internal/profiles
 # dipecah: baris core `heal` 1.500 (di atas) + MODULE obs 4.000 = 5.500. SPEC gateway 10.500 =
 # MODULE gateway 9.600 + MODULE gwstore 900 (ADR-074; dibukukan ADR-245). `cron` 3.500.
 # `scorecard` 500 dari baris SPEC `batch/evals/trajectory + scorecard job` 3.000; sisa 2.500
-# tetap rencana F8. Σ MODULE F4 = 18.500; Σ kelas MODULE = 38.300 (+backup core 1.467 = 39.767)
-# <= 40.000.
+# tetap rencana F8. Σ MODULE F4 = 18.700; Σ kelas MODULE = 38.500 (+backup core 1.467 = 39.967)
+# <= 40.000 (headroom 33; modul berikutnya butuh keputusan eksplisit, ADR-248).
 # ADR-244: SPEC §3.2.4:282 (`heal`+`obs` 5.500 -> obs 4.000).
 MODULE obs         4000 internal/obs
 # ADR-244: SPEC §3.2.4:286 (gateway core + gateway/telegram 10.500 -> gateway 9.600).
@@ -209,5 +209,8 @@ MODULE gateway     9600 internal/gateway
 MODULE gwstore      900 internal/ctxdb/gwstore
 # ADR-244: SPEC §3.2.4:287 (cron 3.500).
 MODULE cron        3500 internal/cron
+# ADR-248: storage konsumen cron_jobs/cron_runs (ADR-074) dipotong dari baris SPEC cron 3.500
+# tanpa DDL baru; 200 LOC.
+MODULE cronstore     200 internal/ctxdb/cronstore
 # ADR-244: SPEC §3.2.4:307 (scorecard job 500 dari 3.000; sisa 2.500 F8).
 MODULE scorecard    500 internal/scorecard
