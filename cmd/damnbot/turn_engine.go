@@ -70,6 +70,8 @@ func newTurnEngine(ctx context.Context, cfg *config.Config, o *runOptions, model
 		Origin:         o.approvalOrigin,
 		Approver:       o.approver,
 		ValidateAnswer: o.validate,
+
+		NewRedactStream: func() loop.StreamFilter { return red.NewStream() },
 	})
 	if err != nil {
 		return nil, fmt.Errorf("loop: %w", err)
