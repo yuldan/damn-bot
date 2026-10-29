@@ -3,6 +3,8 @@ package gateway
 import (
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 )
@@ -100,11 +102,33 @@ func (a *Approvals) Callback(id string, d Decision) (bool, error) {
 	if !ok {
 		return false, fmt.Errorf("%w: %s", ErrApprovalNotFound, id)
 	}
+	return a.callback(p, d)
+}
+
+// Decide resolves id with d on behalf of one chat. A request of another chat
+// (or an unknown id) reports ErrApprovalNotFound and keeps its decision, so a
+// chat can never resolve another chat's request. The applied/idempotency rules
+// are those of Callback.
+func (a *Approvals) Decide(platform, chatID, id string, d Decision) (bool, error) {
+	if d != Deny && d != AllowOnce {
+		return false, fmt.Errorf("%w: %d", ErrInvalidDecision, d)
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	p, ok := a.pending[id]
+	if !ok || p.req.Platform != platform || p.req.ChatID != chatID {
+		return false, fmt.Errorf("%w: %s", ErrApprovalNotFound, id)
+	}
+	return a.callback(p, d)
+}
+
+// callback resolves one loaded approval; a.mu must be held.
+func (a *Approvals) callback(p *approval, d Decision) (bool, error) {
 	if p.decided {
 		if p.timedOut || p.decision == d {
 			return false, nil
 		}
-		return false, fmt.Errorf("%w: %s", ErrApprovalConflict, id)
+		return false, fmt.Errorf("%w: %s", ErrApprovalConflict, p.req.ID)
 	}
 	if !a.now().Before(p.req.ExpiresAt) {
 		p.decided, p.timedOut, p.decision = true, true, Deny
@@ -112,6 +136,35 @@ func (a *Approvals) Callback(id string, d Decision) (bool, error) {
 	}
 	p.decided, p.decision = true, d
 	return true, nil
+}
+
+// Pending returns the open approvals of one chat, ordered by expiry and then
+// id. An expired request resolves (and stays) Deny and is not returned, so a
+// command can never approve a request the clock already rejected.
+func (a *Approvals) Pending(platform, chatID string) []ApprovalRequest {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := a.now()
+	out := make([]ApprovalRequest, 0, len(a.pending))
+	for _, p := range a.pending {
+		if p.decided {
+			continue
+		}
+		if !now.Before(p.req.ExpiresAt) {
+			p.decided, p.timedOut, p.decision = true, true, Deny
+			continue
+		}
+		if p.req.Platform == platform && p.req.ChatID == chatID {
+			out = append(out, p.req)
+		}
+	}
+	slices.SortFunc(out, func(x, y ApprovalRequest) int {
+		if c := x.ExpiresAt.Compare(y.ExpiresAt); c != 0 {
+			return c
+		}
+		return strings.Compare(x.ID, y.ID)
+	})
+	return out
 }
 
 // Decision returns the effective decision of id. ok is false while the request

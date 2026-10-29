@@ -24,6 +24,9 @@ type Options struct {
 	Identities IdentityStore
 	// Inbox persists the inbound dedupe row.
 	Inbox InboxStore
+	// Commands answers slash commands before work runs. Nil disables command
+	// handling and every admitted update becomes a turn.
+	Commands *Commands
 }
 
 // Gate admits or rejects one inbound update before any turn or LLM call. It is
@@ -33,6 +36,7 @@ type Gate struct {
 	users      map[string]string
 	identities IdentityStore
 	inbox      InboxStore
+	commands   *Commands
 }
 
 // New validates the wiring. Configuration is data, so an empty DataDir and an
@@ -50,6 +54,7 @@ func New(opts Options) (*Gate, error) {
 		users:      maps.Clone(opts.Users),
 		identities: opts.Identities,
 		inbox:      opts.Inbox,
+		commands:   opts.Commands,
 	}, nil
 }
 
@@ -59,9 +64,10 @@ type Kind uint8
 
 // Admission outcomes.
 const (
-	Rejected  Kind = iota // denied; Reason says why, nothing was written, work did not run
-	Accepted              // admitted and recorded; work ran (or returned an error)
-	Duplicate             // already recorded before; work did not run
+	Rejected       Kind = iota // denied; Reason says why, nothing was written, work did not run
+	Accepted                   // admitted and recorded; work ran (or returned an error)
+	Duplicate                  // already recorded before; work did not run
+	CommandHandled             // a slash command was answered; work did not run, Reply is the whole answer
 )
 
 // Reason is why an update was rejected. It is empty for Accepted and
@@ -90,6 +96,9 @@ type Outcome struct {
 	Kind   Kind
 	Reason Reason
 	Ticket Ticket
+	// Reply is the one reply of a CommandHandled outcome; it is empty for
+	// every other Kind and for a command that answers nothing ("/start").
+	Reply string
 }
 
 // RunFunc is the work an admitted update may perform (a chat turn). Admit calls
@@ -134,6 +143,11 @@ func (g *Gate) Admit(ctx context.Context, in *Inbound, work RunFunc) (Outcome, e
 		return Outcome{Kind: Duplicate}, nil
 	}
 	t := Ticket{Identity: id, Scope: scope}
+	if g.commands != nil {
+		if res := g.commands.Dispatch(&t, in.Text); res.Handled {
+			return Outcome{Kind: CommandHandled, Ticket: t, Reply: res.Reply}, nil
+		}
+	}
 	if err := work(ctx, t); err != nil {
 		return Outcome{Kind: Accepted, Ticket: t}, err
 	}
