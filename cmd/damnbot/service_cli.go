@@ -77,6 +77,9 @@ func runService(args []string, stdout, stderr io.Writer) int {
 		serviceUsage(stderr)
 		return 2
 	}
+	if runtime.GOOS == "windows" {
+		return runWindowsService(args, stdout, stderr)
+	}
 	d, err := serviceDepsFrom()
 	if err != nil {
 		sessionsPrintf(stderr, "service: %s\n", cleanLine(err.Error()))
@@ -102,7 +105,8 @@ func runService(args []string, stdout, stderr io.Writer) int {
 func serviceUsage(w io.Writer) {
 	sessionsPrintf(w, "usage: damnbot service install [--bind ADDR] [--data-dir DIR] [--unit-dir DIR] [--enable] [--dry-run]\n")
 	sessionsPrintf(w, "       damnbot service uninstall|status|resume|logs\n")
-	sessionsPrintf(w, "Linux systemd user unit only; launchd and Windows install are deferred (F4).\n")
+	sessionsPrintf(w, "Linux: systemd user unit. Windows: Task Scheduler task per profile (schtasks).\n")
+	sessionsPrintf(w, "macOS launchd is not implemented yet (F4).\n")
 }
 
 type unitSpec struct {
