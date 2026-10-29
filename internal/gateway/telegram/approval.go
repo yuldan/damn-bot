@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/damnbot/damnbot/internal/gateway/render"
 )
 
 // Decision is an inline-keyboard approval outcome; anything but an explicit
@@ -39,7 +41,7 @@ func (a *Adapter) Approve(ctx context.Context, chatID, threadID, text string) (D
 	if err := a.send.wait(ctx, chatID); err != nil {
 		return DecisionDeny, err
 	}
-	if _, err := a.sendMessage(ctx, chatID, threadID, text, keyboard); err != nil {
+	if _, err := a.sendMessage(ctx, chatID, threadID, "", approvalCard(text), keyboard); err != nil {
 		return DecisionDeny, err
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, a.after)
@@ -94,4 +96,17 @@ func parseCallback(data string) (string, Decision, bool) {
 		return "", DecisionDeny, false
 	}
 	return nonce, Decision(action), true
+}
+
+// approvalCard renders the preview with the same renderer as replies and keeps
+// it to one message because the keyboard lives on that message. MeasureCard
+// reports the escaped UTF-16 length; when it exceeds MaxLen the card is cut
+// with the [truncated] marker (EC-PLAT-012).
+func approvalCard(text string) render.Message {
+	limit := min(render.MeasureCard(text), render.MaxLen)
+	msgs := render.RenderTelegram(text, render.Limits{MaxLen: limit, MaxChunks: 1})
+	if len(msgs) == 0 {
+		return render.Message{Text: render.Escape(text)}
+	}
+	return msgs[0]
 }

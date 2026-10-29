@@ -100,7 +100,7 @@ func TestTelegramAdapterPollsAndRepliesInTopic(t *testing.T) {
 		t.Fatalf("inbound = %+v", ib)
 	}
 
-	id, err := a.Send(ctx, telegram.Outbound{ChatID: ib.ChatID, ThreadID: "7", Text: "balas", Key: "k1"})
+	id, err := a.Send(ctx, &telegram.Outbound{ChatID: ib.ChatID, ThreadID: "7", Text: "balas", Key: "k1"})
 	if err != nil {
 		t.Fatalf("send: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestTelegramAdapterPollsAndRepliesInTopic(t *testing.T) {
 func TestTelegramAdapterOfflineSendsNothing(t *testing.T) {
 	s := NewFakeTG(t, FakeTGOptions{})
 	a := newTelegramAdapter(t, s, netx.Config{Offline: true})
-	_, err := a.Send(t.Context(), telegram.Outbound{ChatID: "1001", Text: "x"})
+	_, err := a.Send(t.Context(), &telegram.Outbound{ChatID: "1001", Text: "x"})
 	if !errors.Is(err, netx.ErrOffline) {
 		t.Fatalf("offline send error = %v, want ErrOffline", err)
 	}
@@ -135,7 +135,7 @@ func TestTelegramAdapterOfflineSendsNothing(t *testing.T) {
 func TestTelegramAdapterBackgroundOffStillSends(t *testing.T) {
 	s := NewFakeTG(t, FakeTGOptions{})
 	a := newTelegramAdapter(t, s, netx.Config{NoBackground: true})
-	id, err := a.Send(t.Context(), telegram.Outbound{ChatID: "1001", Text: "x"})
+	id, err := a.Send(t.Context(), &telegram.Outbound{ChatID: "1001", Text: "x"})
 	if err != nil {
 		t.Fatalf("background=false blocked a user-initiated send: %v", err)
 	}

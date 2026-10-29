@@ -219,7 +219,7 @@ func (g *serveGateway) pair(ctx context.Context, in *telegram.Inbound, code stri
 			text = "pairing complete"
 		}
 	}
-	if _, err := g.adapter.Send(ctx, telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Text: text}); err != nil {
+	if _, err := g.adapter.Send(ctx, &telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Text: text}); err != nil {
 		g.metrics.IncError()
 	}
 }
@@ -236,7 +236,7 @@ func (g *serveGateway) turn(ctx context.Context, in *telegram.Inbound, t *gatewa
 	if res.Limit != gateway.LimitNone {
 		g.metrics.IncError()
 		if g.quota.Notice(req) {
-			_, serr := g.adapter.Send(ctx, telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Text: res.Message()})
+			_, serr := g.adapter.Send(ctx, &telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Text: res.Message()})
 			if serr != nil {
 				return fmt.Errorf("gateway: quota notice: %w", serr)
 			}
@@ -476,7 +476,7 @@ type gatewayAck struct {
 // the turn falls back to opening the reply message on its final text.
 func (g *serveGateway) placeholder(ctx context.Context, in *telegram.Inbound) *gatewayAck {
 	key := gateway.DeliveryKey("telegram", in.ChatID, "reply:"+in.UpdateID)
-	id, err := g.adapter.Send(ctx, telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Text: gatewayAckText, Key: key})
+	id, err := g.adapter.Send(ctx, &telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Text: gatewayAckText, Key: key})
 	if err != nil {
 		g.metrics.IncError()
 		return nil
@@ -491,7 +491,7 @@ func (g *serveGateway) failPlaceholder(ctx context.Context, in *telegram.Inbound
 		return
 	}
 	key := gateway.DeliveryKey("telegram", in.ChatID, "reply:"+in.UpdateID)
-	reply := g.adapter.StreamFrom(telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Key: key}, ack.id, gatewayAckText)
+	reply := g.adapter.StreamFrom(&telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Key: key}, ack.id, gatewayAckText)
 	if err := reply.Update(ctx, gatewayTurnFailed); err != nil {
 		g.metrics.IncError()
 	}
@@ -499,7 +499,7 @@ func (g *serveGateway) failPlaceholder(ctx context.Context, in *telegram.Inbound
 
 func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch <-chan event.Update, typing *gatewayTyping, ack *gatewayAck) error {
 	key := gateway.DeliveryKey("telegram", in.ChatID, "reply:"+in.UpdateID)
-	out := telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Key: key}
+	out := &telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Key: key}
 	reply := g.adapter.Stream(out)
 	shown := 0
 	if ack != nil {
@@ -654,7 +654,7 @@ func (g *serveGateway) deliveries(ctx context.Context) {
 				g.retryDelivery(ctx, d, "rate limited", wait, now)
 				continue
 			}
-			ref, serr := g.adapter.Send(ctx, telegram.Outbound{ChatID: d.ChatID, ThreadID: d.ThreadID, Text: d.Body, Key: d.IdemKey})
+			ref, serr := g.adapter.Send(ctx, &telegram.Outbound{ChatID: d.ChatID, ThreadID: d.ThreadID, Text: d.Body, Key: d.IdemKey})
 			if serr != nil {
 				g.retryDelivery(ctx, d, cleanLine(serr.Error()), 0, now)
 				continue

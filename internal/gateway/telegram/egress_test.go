@@ -16,7 +16,7 @@ func TestEgressOfflineBlocksGateway(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Send(t.Context(), Outbound{ChatID: "7", Text: "x"}); !errors.Is(err, netx.ErrOffline) {
+	if _, err := a.Send(t.Context(), &Outbound{ChatID: "7", Text: "x"}); !errors.Is(err, netx.ErrOffline) {
 		t.Fatalf("offline send error = %v, want ErrOffline", err)
 	}
 	if n := f.requests(); n != 0 {
@@ -40,7 +40,7 @@ func TestEgressBackgroundOffStillDelivers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Send(t.Context(), Outbound{ChatID: "7", Text: "x"}); err != nil {
+	if _, err := a.Send(t.Context(), &Outbound{ChatID: "7", Text: "x"}); err != nil {
 		t.Fatalf("background=false blocked a user-initiated send: %v", err)
 	}
 	if n := len(f.callsFor("sendMessage")); n != 1 {
