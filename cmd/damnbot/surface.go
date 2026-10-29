@@ -6,7 +6,7 @@ import (
 	"io"
 )
 
-// Fase pemilik setiap bentuk permukaan (ADR-064, ADR-080). PHASE repo = F3.
+// Fase pemilik setiap bentuk permukaan (ADR-064, ADR-080). PHASE repo = F4.
 const (
 	phaseF1 = 1
 	phaseF2 = 2
@@ -55,7 +55,7 @@ func surface() []surfaceEntry {
 	return []surfaceEntry{
 		{Name: "run", Summary: "Run one headless turn", Phase: phaseF1, Run: runHeadless, Usage: runUsage},
 		{Name: "acp", Summary: "ACP server on stdio", Phase: phaseF3, Run: runACP, Usage: acpUsage},
-		{Name: "serve", Summary: "Daemon: web UI, API, gateway, cron", Phase: phaseF4},
+		{Name: "serve", Summary: "Daemon: web UI, API, gateway, cron", Phase: phaseF4, Run: runServe, Usage: serveUsage},
 		{Name: "service", Summary: "systemd/launchd/Windows service unit", Phase: phaseF4},
 		{Name: "setup", Summary: "Setup wizard, credentials, uninstall", Phase: phaseF3, Run: runSetup, Usage: setupUsage},
 		{Name: "import", Summary: "Migrate from hermes, Claude Code, Codex, OpenClaw", Phase: phaseF3, Run: runImport, Usage: importUsage},

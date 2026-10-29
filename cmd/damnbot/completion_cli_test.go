@@ -30,7 +30,7 @@ func TestCompleteCandidates(t *testing.T) {
 		t.Fatal("hidden command leaked into completion")
 	}
 	code, out, _ = runArgs(t, "__complete", "se")
-	if code != 0 || out != "sessions\nsetup\n" {
+	if code != 0 || out != "serve\nsessions\nsetup\n" {
 		t.Fatalf("prefix se = (%d, %q)", code, out)
 	}
 	code, out, _ = runArgs(t, "__complete", "zzz")

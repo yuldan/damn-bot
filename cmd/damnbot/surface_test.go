@@ -61,7 +61,7 @@ func TestParseGlobalArgs(t *testing.T) {
 }
 
 // TestSurfaceRegistry: one entry per SPEC §10 row, unique names, phases from
-// the owning phase, and every callable entry has a phase ≤ F3 today.
+// the owning phase, and every callable entry has a phase ≤ F4 today.
 func TestSurfaceRegistry(t *testing.T) {
 	t.Parallel()
 	entries := surface()
@@ -102,7 +102,7 @@ func TestSurfaceStatus(t *testing.T) {
 		"import":   surfaceAvailable,
 		"version":  surfaceBuiltin,
 		"acp":      surfaceAvailable,
-		"serve":    "pending:F4",
+		"serve":    surfaceAvailable,
 		"mcp":      "pending:F5",
 		"kanban":   "pending:F7",
 		"eval":     "pending:F8",
@@ -126,11 +126,11 @@ func TestSurfaceStatus(t *testing.T) {
 	}
 }
 
-// TestPendingCommandsAreNotCallable: a documented phase > F3 command must not
+// TestPendingCommandsAreNotCallable: a documented phase > F4 command must not
 // be a stub; it exits 2 through the root usage.
 func TestPendingCommandsAreNotCallable(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"serve", "service", "mcp", "gateway", "cron", "kanban", "eval"} {
+	for _, name := range []string{"service", "mcp", "gateway", "cron", "kanban", "eval"} {
 		if code, _, _ := runArgs(t, name); code != 2 {
 			t.Errorf("%s: exit = %d, want 2 (not callable yet)", name, code)
 		}
@@ -145,10 +145,10 @@ func TestHelpRoot(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("%q: exit = %d, stderr=%q", args, code, errOut)
 		}
-		if !strings.Contains(out, "Commands:") || !strings.Contains(out, "sessions") || !strings.Contains(out, "version") {
+		if !strings.Contains(out, "Commands:") || !strings.Contains(out, "sessions") || !strings.Contains(out, "version") || !strings.Contains(out, "\n  serve ") {
 			t.Errorf("%q: help output incomplete:\n%s", args, out)
 		}
-		if strings.Contains(out, "\n  serve ") {
+		if strings.Contains(out, "\n  mcp ") {
 			t.Errorf("%q: help lists a command that is not callable:\n%s", args, out)
 		}
 		if !strings.Contains(out, "--profile <name>") {
@@ -171,8 +171,8 @@ func TestHelpTopic(t *testing.T) {
 		}
 	}
 	code, out, _ = runArgs(t, "help", "serve")
-	if code != 0 || !strings.Contains(out, "pending:F4") {
-		t.Fatalf("help serve = (%d, %q), want pending F4 notice", code, out)
+	if code != 0 || !strings.Contains(out, "phase: F4 (available)") || !strings.Contains(out, "usage: damnbot serve") {
+		t.Fatalf("help serve = (%d, %q), want the serve usage at F4", code, out)
 	}
 	if code, _, _ := runArgs(t, "help", "nope"); code != 2 {
 		t.Errorf("help nope: exit = %d, want 2", code)

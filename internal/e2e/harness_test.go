@@ -25,7 +25,7 @@ import (
 const modelRef = "openai/gpt-fake"
 
 // binPaths are built once per test run by TestMain.
-var binPaths struct{ main, secret string } //nolint:gochecknoglobals // binaries for the package's child processes
+var binPaths struct{ main, secret, serve string } //nolint:gochecknoglobals // binaries for the package's child processes
 
 // buildDamnbot builds ./cmd/damnbot from root into out; ldflags may pin the
 // test version. The child e2e install tests also use it for asset v2.
@@ -76,6 +76,18 @@ func TestMain(m *testing.M) {
 		os.Exit(1) //nolint:forbidigo // TestMain owns the test process exit
 	}
 	binPaths.secret = secretPath
+	serveName := "damnbot-servetest"
+	if runtime.GOOS == "windows" {
+		serveName += ".exe"
+	}
+	servePath := filepath.Join(dir, serveName)
+	serveBuild := exec.CommandContext(context.Background(), "go", "build", "-tags", "goolm,servetest", "-o", servePath, "./cmd/damnbot") // #nosec G204 -- fixed go tool, fixture path
+	serveBuild.Dir = root
+	if out, berr := serveBuild.CombinedOutput(); berr != nil {
+		fmt.Fprintf(os.Stderr, "e2e: build damnbot-servetest: %v\n%s\n", berr, out)
+		os.Exit(1) //nolint:forbidigo // TestMain owns the test process exit
+	}
+	binPaths.serve = servePath
 	code := m.Run()
 	if rerr := os.RemoveAll(dir); rerr != nil && code == 0 {
 		fmt.Fprintln(os.Stderr, "e2e: remove temp bin:", rerr)
@@ -224,17 +236,7 @@ func (e *Env) execEnv(stdin io.Reader, env []string, args ...string) Result {
 	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // binary path is this package's temp build or the copied asset
 	cmd.Dir = e.Workdir
 	cmd.Stdin = stdin
-	// HOME/XDG are what the Unix loaders read; Windows resolves its config and
-	// data roots from these instead (internal/config/paths.go baseDirs), so a
-	// child without them would read the host profile and never see the
-	// harness's trust store, journals or sessions.
-	cmd.Env = append(os.Environ(),
-		"HOME="+e.home,
-		"XDG_CONFIG_HOME="+e.home,
-		"USERPROFILE="+e.home,
-		"APPDATA="+filepath.Join(e.home, "AppData", "Roaming"),
-		"LOCALAPPDATA="+filepath.Join(e.home, "AppData", "Local"),
-	)
+	cmd.Env = e.childEnv()
 	cmd.Env = append(cmd.Env, env...)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -248,6 +250,18 @@ func (e *Env) execEnv(stdin io.Reader, env []string, args ...string) Result {
 		res.Code = exit.ExitCode()
 	}
 	return res
+}
+
+// childEnv is the environment of every child process: private HOME/XDG so the
+// host profile is never touched (Windows resolves its roots from these too).
+func (e *Env) childEnv() []string {
+	return append(os.Environ(),
+		"HOME="+e.home,
+		"XDG_CONFIG_HOME="+e.home,
+		"USERPROFILE="+e.home,
+		"APPDATA="+filepath.Join(e.home, "AppData", "Roaming"),
+		"LOCALAPPDATA="+filepath.Join(e.home, "AppData", "Local"),
+	)
 }
 
 // RequireOK fails unless the child exited 0.
