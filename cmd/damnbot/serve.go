@@ -88,6 +88,12 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	if o.drainTimeout <= 0 {
 		return serveExitFatal, errors.New("--drain-timeout must be positive")
 	}
+	// Install the SIGTERM/SIGINT handler before anything observable happens
+	// (config, lease, listener, gateway, test hooks): a signal that arrives
+	// after the child announces progress must start a clean drain, never the
+	// default kill that exits the process with a signal status.
+	sigCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
 	loader, err := config.New(config.OS())
 	if err != nil {
 		return serveExitFatal, fmt.Errorf("config deps: %w", err)
@@ -155,20 +161,19 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	errs := obs.Serve(hs, ln)
 	sessionsPrintf(stderr, "serve: data dir %s\n", dataDir)
 	sessionsPrintf(stdout, "serve: observability listening on %s\n", ln.Addr())
-	return serveLoop(ctx, o, eps, hs, errs, db, lock, daemon, gw, gwErr, stderr)
+	return serveLoop(ctx, sigCtx, o, eps, hs, errs, db, lock, daemon, gw, gwErr, stderr)
 }
 
 // serveLoop waits for a stop signal (or a fatal endpoint error), drains the
-// active turns, shuts the listener down and closes the store.
-func serveLoop(ctx context.Context, o *serveOptions, eps *obs.Endpoints, hs *http.Server, errs <-chan error, db *ctxdb.Store, lock *serveLock, daemon *serveDaemon, gw *serveGateway, gwErr error, stderr io.Writer) (int, error) {
+// active turns, shuts the listener down and closes the store. sigCtx is the
+// signal-aware context installed by serveRun before any progress was logged.
+func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps *obs.Endpoints, hs *http.Server, errs <-chan error, db *ctxdb.Store, lock *serveLock, daemon *serveDaemon, gw *serveGateway, gwErr error, stderr io.Writer) (int, error) {
 	if gwErr != nil {
 		return serveExitFatal, gwErr
 	}
 	stopBeat := eps.StartBeatLoop(ctx, serveBeatPeriod, lock.Held)
 	defer stopBeat()
 	registerServeTestTurn(daemon, stderr)
-	sigCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stopSignals()
 	if err := gw.Start(ctx); err != nil {
 		return serveExitFatal, err
 	}
