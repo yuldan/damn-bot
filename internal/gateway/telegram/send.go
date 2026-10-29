@@ -91,6 +91,13 @@ type Stream struct {
 // Stream opens a streaming reply; no I/O happens until the first Update.
 func (a *Adapter) Stream(out Outbound) *Stream { return &Stream{a: a, out: out} }
 
+// StreamFrom opens a streaming reply on an existing message (the instant
+// placeholder), so every update edits it instead of sending a second message.
+// shown is the text currently on screen; the first Update edits away from it.
+func (a *Adapter) StreamFrom(out Outbound, messageID int64, shown string) *Stream {
+	return &Stream{a: a, out: out, msgID: messageID, started: true, sent: shown}
+}
+
 // Update records text and flushes it: the first call sends, later calls edit.
 func (s *Stream) Update(ctx context.Context, text string) error {
 	s.mu.Lock()

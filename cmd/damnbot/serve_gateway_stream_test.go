@@ -9,6 +9,9 @@ import (
 	"github.com/damnbot/damnbot/internal/loop/event"
 )
 
+// streamStart is the fake epoch every cadence test measures from.
+func streamStart() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }
+
 type streamFlush struct {
 	at   time.Time
 	text string
@@ -16,10 +19,10 @@ type streamFlush struct {
 
 // driveStream feeds n text deltas at step intervals of a fake clock, then tail,
 // and records every flush together with the fake time it reached the adapter.
+// The pacer starts from a placeholder of len(gatewayAckText) at streamStart.
 func driveStream(t *testing.T, n int, step time.Duration, tail ...event.Update) ([]streamFlush, replyOutcome) {
 	t.Helper()
-	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	now := start
+	now := streamStart()
 	clock := func() time.Time { now = now.Add(step); return now }
 	wait := func(_ context.Context, d time.Duration) error { now = now.Add(d); return nil }
 	var calls []streamFlush
@@ -35,7 +38,7 @@ func driveStream(t *testing.T, n int, step time.Duration, tail ...event.Update) 
 		ch <- tail[i]
 	}
 	close(ch)
-	out := streamReplyUpdates(t.Context(), ch, clock, wait, flush)
+	out := streamReplyUpdates(t.Context(), ch, clock, wait, flush, streamStart(), len(gatewayAckText))
 	return calls, out
 }
 
@@ -50,31 +53,43 @@ func checkGaps(t *testing.T, calls []streamFlush) {
 	}
 }
 
+// TestStreamReplyShortAnswerSingleFinalEdit: a 39-character answer streamed
+// over ~6 s is edited exactly once, immediately when the channel closes.
+func TestStreamReplyShortAnswerSingleFinalEdit(t *testing.T) {
+	t.Parallel()
+	const n, step = 39, 150 * time.Millisecond
+	calls, out := driveStream(t, n, step)
+	t.Logf("39 chars over %s: %d updates", time.Duration(n)*step, len(calls))
+	if len(calls) != 1 {
+		t.Fatalf("short answer produced %d updates (%v), want one final edit", len(calls), calls)
+	}
+	if out.Text != strings.Repeat("a", n) || calls[0].text != out.Text {
+		t.Fatalf("final text = %q / %q, want all %d deltas", calls[0].text, out.Text, n)
+	}
+	if want := streamStart().Add(time.Duration(n) * step); !calls[0].at.Equal(want) {
+		t.Fatalf("final edit at %s, want immediately at channel close %s", calls[0].at, want)
+	}
+}
+
+// TestStreamReplyBurstCoalesces: 200 deltas inside 200 ms are one final edit.
 func TestStreamReplyBurstCoalesces(t *testing.T) {
 	t.Parallel()
 	calls, out := driveStream(t, 200, time.Millisecond)
-	t.Logf("200 deltas/200ms: %d updates total", len(calls))
-	if len(calls) > 3 {
-		t.Fatalf("200 deltas in 200ms produced %d updates (%v), want <= 3", len(calls), calls)
-	}
-	if calls[0].text != "a" {
-		t.Fatalf("first update = %q, want the first delta immediately", calls[0].text)
+	t.Logf("200 deltas/200ms: %d updates", len(calls))
+	if len(calls) != 1 || calls[0].text != strings.Repeat("a", 200) {
+		t.Fatalf("updates = %v, want a single full final edit", calls)
 	}
 	if out.Text != strings.Repeat("a", 200) {
 		t.Fatalf("final text = %q, want all 200 deltas", out.Text)
 	}
-	if calls[len(calls)-1].text != out.Text {
-		t.Fatalf("final update = %q, want %q", calls[len(calls)-1].text, out.Text)
-	}
-	checkGaps(t, calls)
 }
 
-// TestStreamReplyShortAnswerEdits: a ~300 character answer never needs more
-// than four updates in total.
-func TestStreamReplyShortAnswerEdits(t *testing.T) {
+// TestStreamReply300CharsAtMostFourUpdates: the measured target for a ~300
+// character answer.
+func TestStreamReply300CharsAtMostFourUpdates(t *testing.T) {
 	t.Parallel()
 	calls, out := driveStream(t, 300, time.Millisecond)
-	t.Logf("300 character answer: %d updates total", len(calls))
+	t.Logf("300 character answer: %d updates", len(calls))
 	if len(calls) > 4 {
 		t.Fatalf("300 character answer produced %d updates, want <= 4", len(calls))
 	}
@@ -84,18 +99,17 @@ func TestStreamReplyShortAnswerEdits(t *testing.T) {
 	checkGaps(t, calls)
 }
 
-// TestStreamReplyCadenceOverLongStream: a 10 s stream edits roughly once per
-// replyFlushEvery, never faster than replyEditGap.
-func TestStreamReplyCadenceOverLongStream(t *testing.T) {
+// TestStreamReplyLongAnswerCadence: past replyShortChars the stream returns to
+// the ≥1.2 s / ≥80-char cadence, never closer than replyEditGap.
+func TestStreamReplyLongAnswerCadence(t *testing.T) {
 	t.Parallel()
-	calls, out := driveStream(t, 100, 100*time.Millisecond)
-	edits := len(calls) - 2 // first send and final flush are not cadence edits
-	t.Logf("10s stream: %d updates, %d mid-stream edits", len(calls), edits)
-	if want := 8; edits < want-1 || edits > want+1 {
-		t.Fatalf("mid-stream edits = %d (%v), want %d ± 1", edits, calls, want)
+	calls, out := driveStream(t, 150, 100*time.Millisecond)
+	t.Logf("150 chars over 15s: %d updates", len(calls))
+	if len(calls) < 2 {
+		t.Fatalf("long stream produced %d updates, want mid-stream edits plus final", len(calls))
 	}
-	if out.Text != strings.Repeat("a", 100) {
-		t.Fatalf("final text = %q, want every delta", out.Text)
+	if out.Text != strings.Repeat("a", 150) || calls[len(calls)-1].text != out.Text {
+		t.Fatalf("final text = %q, want all 150 deltas", out.Text)
 	}
 	checkGaps(t, calls)
 }
@@ -112,13 +126,9 @@ func TestStreamReplyProviderErrorIsSingleFinal(t *testing.T) {
 	if want := "damnbot: provider error (provider_error)"; out.Text != want {
 		t.Fatalf("final text = %q, want %q", out.Text, want)
 	}
-	if last := calls[len(calls)-1].text; last != out.Text {
-		t.Fatalf("last update = %q, want the error message %q", last, out.Text)
+	if len(calls) != 1 || calls[0].text != out.Text {
+		t.Fatalf("updates = %v, want exactly the error message", calls)
 	}
-	if len(calls) > 2 {
-		t.Fatalf("error reply produced %d updates (%v), want the opening send plus one error", len(calls), calls)
-	}
-	checkGaps(t, calls)
 }
 
 // TestStreamReplyProviderErrorWithoutDeltas: nothing streamed, so the only
