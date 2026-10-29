@@ -19,7 +19,7 @@ func TestConfigAllSpec12Keys(t *testing.T) { //nolint:gocyclo // one assertion p
 		"turn_max_input_tok = 100000", "turn_max_output_tok = 8000", "parallel_tools = 2",
 		"[budget]", "turn_usd = 1.25", "session_usd = 10", "daily_usd = 2", "monthly_usd = 20",
 		"warn_at = 0.5", "providers = { openrouter = 5.0 }",
-		"tools_session_usd = 2.5", "tools_daily_usd = 3.5",
+		"tools_session_usd = 2.5", "tools_daily_usd = 3.5", "gateway_user_daily_usd = 2.0",
 		"[approval]", `mode = "auto-edit"`, `shell_allow = [["go", "test"]]`,
 		`deny_paths = ["~/.ssh"]`, `add_dirs = ["/extra"]`, "preview_timeout_s = 30",
 		"[exec]", "default_timeout_s = 30", "idle_timeout_s = 10", "allow_destructive = true",
@@ -48,7 +48,8 @@ func TestConfigAllSpec12Keys(t *testing.T) { //nolint:gocyclo // one assertion p
 		t.Fatalf("Parse: %v", err)
 	}
 	if cfg.Provider.MaxOutput != 4096 || cfg.Loop.ParallelTools != 2 ||
-		cfg.Budget.ToolsSessionUSD != 2.5 || cfg.Budget.ToolsDailyUSD != 3.5 {
+		cfg.Budget.ToolsSessionUSD != 2.5 || cfg.Budget.ToolsDailyUSD != 3.5 ||
+		cfg.Budget.GatewayUserDailyUSD != 2.0 {
 		t.Errorf("provider/loop/budget = %+v", cfg)
 	}
 	if cfg.Approval.Mode != "auto-edit" || cfg.Exec.PassSSHAgent != true {
@@ -89,7 +90,7 @@ func TestConfigSpec12Example(t *testing.T) {
 		"[loop]", "max_iterations = 40", "max_wall_s = 900", "max_identical = 3",
 		"turn_max_input_tok = 400000", "turn_max_output_tok = 32000", "parallel_tools = 4",
 		"[budget]", "turn_usd = 0.50", "session_usd = 5.00", "daily_usd = 0", "monthly_usd = 0",
-		"warn_at = 0.80", "providers = {}",
+		"warn_at = 0.80", "providers = {}", "gateway_user_daily_usd = 1.00",
 		"[approval]", `mode = "ask"`, "shell_allow = []",
 		`deny_paths = ["~/.ssh", "~/.gnupg", "~/.aws", "**/.env", "**/*.pem", "~/.netrc", "~/.git-credentials", "~/.config/gh", "~/.docker/config.json", "~/.kube", "<config_dir>/secrets.enc", "<config_dir>/at-rest.*", "<config_dir>/backup.keys", "/proc/*/environ", "/proc/*/task/*/environ", "/proc/*/mem"]`,
 		"add_dirs = []", "preview_timeout_s = 600",
@@ -398,6 +399,28 @@ func TestConfigBudgetToolCaps(t *testing.T) {
 	for _, value := range []string{"-1", "nan", "inf"} {
 		if _, err := parse(t, "[budget]\ntools_session_usd = "+value+"\n"); !errors.Is(err, ErrInvalidValue) {
 			t.Errorf("tools_session_usd %s = %v", value, err)
+		}
+	}
+}
+
+// TestConfigBudgetGatewayUserCap binds the role user gateway cap to SPEC §18.4:
+// default 1,00 and the configured range (0, 100].
+func TestConfigBudgetGatewayUserCap(t *testing.T) {
+	t.Parallel()
+	cfg, err := parse(t, "")
+	if err != nil || cfg.Budget.GatewayUserDailyUSD != 1.00 {
+		t.Fatalf("default = %v (%v)", cfg.Budget.GatewayUserDailyUSD, err)
+	}
+	for _, value := range []string{"0.000001", "1", "100"} {
+		if _, err := parse(t, "[budget]\ngateway_user_daily_usd = "+value+"\n"); err != nil {
+			t.Errorf("gateway_user_daily_usd %s = %v", value, err)
+		}
+	}
+	for _, value := range []string{"0", "-1", "100.0001", "nan", "inf"} {
+		_, err := parse(t, "[budget]\ngateway_user_daily_usd = "+value+"\n")
+		ke := keyErrorOf(t, err, ErrInvalidValue)
+		if ke.Key != "budget.gateway_user_daily_usd" {
+			t.Errorf("gateway_user_daily_usd %s: key = %q, err = %v", value, ke.Key, err)
 		}
 	}
 }

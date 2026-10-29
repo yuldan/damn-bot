@@ -107,6 +107,25 @@ func TestConfigGet(t *testing.T) {
 	}
 }
 
+// TestConfigGatewayUserCapSurfaces binds the new SPEC §12 key to the CLI:
+// show, get, explain and schema all know budget.gateway_user_daily_usd.
+func TestConfigGatewayUserCapSurfaces(t *testing.T) {
+	configTestHome(t, configTestSpec)
+	if code, out, errOut := runArgs(t, "config", "get", "budget.gateway_user_daily_usd"); code != 0 || out != "1\n" {
+		t.Fatalf("get gateway cap = (%d, %q, %s)", code, out, errOut)
+	}
+	if code, out, errOut := runArgs(t, "config", "explain", "budget.gateway_user_daily_usd"); code != 0 ||
+		!strings.Contains(out, "source = default") {
+		t.Fatalf("explain gateway cap = (%d, %q, %s)", code, out, errOut)
+	}
+	if code, out, _ := runArgs(t, "config", "schema", "budget"); code != 0 || !strings.Contains(out, "gateway_user_daily_usd") {
+		t.Fatalf("schema budget lacks the key = (%d, %q)", code, out)
+	}
+	if code, out, _ := runArgs(t, "config", "show"); code != 0 || !strings.Contains(out, "gateway_user_daily_usd") {
+		t.Fatalf("show lacks the key = (%d, %q)", code, out)
+	}
+}
+
 func TestConfigGetUnknownKey(t *testing.T) {
 	configTestHome(t, configTestSpec)
 	code, out, errOut := runArgs(t, "config", "get", "provider.nope")

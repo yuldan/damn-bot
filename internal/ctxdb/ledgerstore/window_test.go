@@ -48,6 +48,41 @@ func TestWindowTotals(t *testing.T) {
 	}
 }
 
+// TestGatewaySpend: the role user daily cap sums only rows of one gateway
+// identity ("platform:identity") in the half-open UTC window and counts
+// unknown-cost rows separately.
+func TestGatewaySpend(t *testing.T) {
+	t.Parallel()
+	const sid = "g"
+	s, ids := open(t, sid, 1)
+	rows := []Row{
+		{SessionID: sid, EventID: ids[0], Purpose: "turn", Provider: "a", GatewayIdentity: "telegram:u1", CostMicros: new(int64(100)), CostSource: "pricing_table", PricingVersion: "v", CreatedAt: 1000},
+		{SessionID: sid, EventID: ids[0], Purpose: "turn", Provider: "a", GatewayIdentity: "telegram:u1", CostSource: "unknown", PricingVersion: "none", CreatedAt: 1500},
+		{SessionID: sid, EventID: ids[0], Purpose: "turn", Provider: "a", GatewayIdentity: "telegram:u2", CostMicros: new(int64(200)), CostSource: "provider", PricingVersion: "v", CreatedAt: 2000},
+		{SessionID: sid, EventID: ids[0], Purpose: "turn", Provider: "a", GatewayIdentity: "telegram:u1", CostMicros: new(int64(400)), CostSource: "pricing_table", PricingVersion: "v", CreatedAt: 3000},
+		{SessionID: sid, EventID: ids[0], Purpose: "turn", Provider: "a", CostMicros: new(int64(800)), CostSource: "pricing_table", PricingVersion: "v", CreatedAt: 3500},
+	}
+	insert(t, s, rows...)
+	for _, c := range []struct {
+		name, identity string
+		from, to       int64
+		wantCost       int64
+		wantUnknown    int64
+	}{
+		{"whole day", "telegram:u1", 0, 4000, 500, 1},
+		{"second identity", "telegram:u2", 0, 4000, 200, 0},
+		{"half-open window", "telegram:u1", 1000, 3000, 100, 1},
+		{"to is exclusive", "telegram:u1", 3000, 3000, 0, 0},
+		{"no identity", "", 0, 4000, 800, 0},
+	} {
+		cost, unknown, err := GatewaySpend(t.Context(), s, c.identity, c.from, c.to)
+		if err != nil || cost != c.wantCost || unknown != c.wantUnknown {
+			t.Errorf("%s: GatewaySpend(%q,%d,%d) = %d,%d,%v; want %d,%d",
+				c.name, c.identity, c.from, c.to, cost, unknown, err, c.wantCost, c.wantUnknown)
+		}
+	}
+}
+
 // seedMillion fills the ledger with one million rows spread over 30 days.
 // It runs only under -bench (the benchmark below), never in the test suite.
 func seedMillion(tb testing.TB, s *ctxdb.Store) {

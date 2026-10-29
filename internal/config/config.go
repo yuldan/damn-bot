@@ -104,6 +104,9 @@ type Budget struct {
 	// They are value-only until the F6 metering consumes them.
 	ToolsSessionUSD float64 `toml:"tools_session_usd"`
 	ToolsDailyUSD   float64 `toml:"tools_daily_usd"`
+	// GatewayUserDailyUSD caps the daily spend of one role user gateway
+	// identity in (0,100]; the owner is never capped (SPEC §18.4, GAP-GW-02).
+	GatewayUserDailyUSD float64 `toml:"gateway_user_daily_usd"`
 }
 
 // Approval is SPEC §12 [approval] (ADR-069, ADR-079).
@@ -262,6 +265,10 @@ func (d Duration) String() string { return time.Duration(d).String() }
 // instead of the underlying nanosecond integer.
 func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil }
 
+// DefaultGatewayUserDailyUSD is the SPEC §18.4 cap for one role user gateway
+// identity: USD per UTC day.
+const DefaultGatewayUserDailyUSD = 1.00
+
 // Default returns the SPEC §12 defaults for every key exposed in F1.
 func Default() Config {
 	return Config{
@@ -288,8 +295,8 @@ func Default() Config {
 			WarnAt:     0.80,
 			Providers:  map[string]float64{},
 			// SPEC §12 defers these to GAP-COST-11: 1,00 / 5,00.
-			ToolsSessionUSD: 1.00,
-			ToolsDailyUSD:   5.00,
+			ToolsSessionUSD: 1.00, ToolsDailyUSD: 5.00,
+			GatewayUserDailyUSD: DefaultGatewayUserDailyUSD,
 		},
 		Approval: Approval{
 			Mode:            "ask",

@@ -74,14 +74,15 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 			ParallelTools:    4,
 		},
 		Budget: Budget{
-			TurnUSD:         0.50,
-			SessionUSD:      5.00,
-			DailyUSD:        0,
-			MonthlyUSD:      0,
-			WarnAt:          0.80,
-			Providers:       map[string]float64{},
-			ToolsSessionUSD: 1.00,
-			ToolsDailyUSD:   5.00,
+			TurnUSD:             0.50,
+			SessionUSD:          5.00,
+			DailyUSD:            0,
+			MonthlyUSD:          0,
+			WarnAt:              0.80,
+			Providers:           map[string]float64{},
+			ToolsSessionUSD:     1.00,
+			ToolsDailyUSD:       5.00,
+			GatewayUserDailyUSD: 1.00,
 		},
 		Approval: Approval{
 			Mode:       "ask",
@@ -158,7 +159,7 @@ func TestConfigMinimum(t *testing.T) {
 	}
 	if cfg.Context.CompactAt != 0.75 || cfg.UI.Theme != "tern-dark" ||
 		cfg.Gateway.MaxParallelTurns != 4 || cfg.Budget.ToolsSessionUSD != 1.00 ||
-		cfg.Budget.ToolsDailyUSD != 5.00 {
+		cfg.Budget.ToolsDailyUSD != 5.00 || cfg.Budget.GatewayUserDailyUSD != 1.00 {
 		t.Errorf("new §12 defaults not applied: %+v", cfg)
 	}
 }
