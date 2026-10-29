@@ -1,6 +1,9 @@
 package e2e
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -29,7 +32,12 @@ func TestEgressDLPBodyRedacted(t *testing.T) {
 
 	t.Run("workspace context file", func(t *testing.T) {
 		t.Parallel()
-		e := New(t, providertest.Text("ok"))
+		// Two replies: a provider-level retry of the same call is legitimate
+		// (SPEC §4.1.1 retries network/stream_broken), so the script must cover
+		// one instead of answering it with 418. Every body that actually left
+		// the process is still checked below; the provider reports a third
+		// request as a script exhaustion failure.
+		e := New(t, providertest.Text("ok"), providertest.Text("ok"))
 		proxy, auth := recordingProxy(t, strings.TrimSuffix(e.Server.URL, "/v1"))
 		e.WriteFile("AGENTS.md", "# agents\napi_token: "+dlpCanary+"\ncatatan: rahasia uji\n")
 		res := e.Exec(
@@ -43,8 +51,16 @@ func TestEgressDLPBodyRedacted(t *testing.T) {
 			"--output", "json",
 		)
 		requireRedactedRun(t, res)
-		body := e.RequestText(t, 0)
-		assertBodyNoCanary(t, body, "provider request body")
+		reqs := e.Requests()
+		if len(reqs) == 0 {
+			t.Fatal("the fake provider received no request")
+		}
+		// A retry re-sends the same prompt: no request may carry the canary,
+		// not just the first one.
+		for i, raw := range reqs {
+			assertBodyNoCanary(t, string(raw), fmt.Sprintf("provider request body %d", i))
+		}
+		body := string(reqs[0])
 		if !strings.Contains(body, "[REDACTED:github]") {
 			t.Error("provider request body has no [REDACTED:github] marker; the secret was dropped or never read")
 		}
@@ -166,6 +182,17 @@ func requireRedactedRun(t *testing.T, res Result) {
 // the first request, so a test can assert what the runtime itself attached
 // (the credential is an allowed secret that must not be redacted). It lives
 // here rather than in providertest to keep internal/provider's LOC budget.
+//
+// The request body is buffered before the reverse proxy sees it. net/http's
+// Transport drains whatever follows the declared Content-Length after writing
+// a request (transfer.go writeBody), while the server closes the inbound body
+// once its handler returns (server.go finishRequest). Against a fast loopback
+// provider both happen close together, and the drain can read the closed body
+// ("http: invalid Read on closed Body"); writeLoop then closes the upstream
+// connection while the proxy copies the SSE response, so the client sees
+// "unexpected EOF", classifies it as a network failure, and retries a call the
+// script did not account for. A bytes.Reader belongs to the proxy alone and
+// answers the drain with EOF, so the response copy is never cut short.
 func recordingProxy(t *testing.T, target string) (*httptest.Server, func() string) {
 	t.Helper()
 	u, err := url.Parse(target)
@@ -182,6 +209,13 @@ func recordingProxy(t *testing.T, target string) (*httptest.Server, func() strin
 			auth = r.Header.Get("Authorization")
 		}
 		mu.Unlock()
+		body, rerr := io.ReadAll(r.Body)
+		if rerr != nil {
+			http.Error(w, "request body", http.StatusBadGateway)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		r.ContentLength = int64(len(body))
 		rp.ServeHTTP(w, r)
 	}))
 	t.Cleanup(srv.Close)
