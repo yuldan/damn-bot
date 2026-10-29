@@ -11,9 +11,9 @@ import (
 // masuk Σ core. Preseden: baris infra non-produksi NEW-34 juga di luar Σ core; kelas MODULE selalu
 // dilewati `budgetCoreSum` dan tetap ditegakkan per-baris oleh `scripts/loc-check.sh budget`.
 const (
-	maxModuleLOC   = 40000 // Σ kelas MODULE: F3 21.500 (ADR-196) + F4 18.500 (ADR-244, ADR-245)
+	maxModuleLOC   = 40000 // Σ kelas MODULE: F3 21.500 (ADR-196) + F4 18.700 (ADR-244, ADR-245, ADR-248)
 	maxF3ModuleLOC = 21500 // ROADMAP F3 = 21.500 (tui + acp + importer/ops); F3 tanpa backup
-	maxF4ModuleLOC = 18500 // ROADMAP F4 = 20.000: heal core 1.500 + MODULE 18.500 (ADR-244, ADR-245)
+	maxF4ModuleLOC = 18700 // ROADMAP F4 = 20.000: heal core 1.500 + MODULE 18.700 (ADR-244, ADR-245, ADR-248)
 	maxF3OpsLOC    = 9000  // SPEC §3.2.4: importer + setup/doctor/update/profiles/backup
 )
 
@@ -121,7 +121,8 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 	wantCaps := map[string]int{
 		"tui": 10000, "acp": 2500, "importer": 2600, "setup": 1300,
 		"doctor": 1100, "update": 1500, "profiles": 800,
-		"obs": 4000, "gateway": 9600, "gwstore": 900, "cron": 3500, "scorecard": 500,
+		"obs": 4000, "gateway": 9600, "gwstore": 900, "cron": 3500, "cronstore": 200,
+		"scorecard": 500,
 	}
 	backupCap, hasBackup := 0, false
 	opsSum, f3Sum, f4Sum := 0, 0, 0
@@ -187,10 +188,10 @@ func f3ModuleFamily(name string) bool {
 	return name == "tui" || name == "acp" || f3OpsFamily(name)
 }
 
-// f4ModuleFamily: baris MODULE F4 (ADR-244, ADR-245); ROADMAP F4 = 20.000 termasuk `heal` core 1.500.
+// f4ModuleFamily: baris MODULE F4 (ADR-244, ADR-245, ADR-248); ROADMAP F4 = 20.000 termasuk `heal` core 1.500.
 func f4ModuleFamily(name string) bool {
 	switch name {
-	case "obs", "gateway", "gwstore", "cron", "scorecard":
+	case "obs", "gateway", "gwstore", "cron", "cronstore", "scorecard":
 		return true
 	}
 	return false
