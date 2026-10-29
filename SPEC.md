@@ -307,6 +307,8 @@ Library terpilih per kebutuhan: [`ENGINEERING.md`](docs/ENGINEERING.md) §4. Ang
 | batch/evals/trajectory + scorecard job | 0,5 MB | 3.000 | F4 (500, scorecard job) + F8 (2.500) |
 | **Total** | **Σ baris = 48,4 MB ≤ 52 MB** (P13) | **Σ baris = 184.900 = rencana** (≤ 190.000, P21; headroom 5.100 untuk revisi per baris lewat ADR) | |
 
+Pembagian `loc.budget` untuk baris F4 (ADR-244), tanpa mengubah angka tabel di atas: `heal` + `obs` 5.500 = baris core `heal` 1.500 + kelas `MODULE obs` 4.000 (`/healthz`, `/readyz`, `/metrics`); `gateway core + gateway/telegram` 10.500 = kelas `MODULE gateway` 9.600 + baris storage konsumen `ctxdb/gwstore` 900 (pola ADR-074, dibukukan saat store itu dibangun); `cron` 3.500 = kelas `MODULE cron` 3.500; `batch/evals/trajectory + scorecard job` 3.000 = kelas `MODULE scorecard` 500 (F4) + sisa 2.500 (F8). Kelas `MODULE` berada di luar Σ core `loc.budget` (ADR-196) dan tetap ditegakkan per baris oleh `make loc`; TOTAL 190.000 tidak berubah.
+
 ### 3.3 Proses & konkurensi
 
 | Proses | Perintah | Isi |

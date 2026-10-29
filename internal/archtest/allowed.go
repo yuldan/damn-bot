@@ -41,6 +41,12 @@ func allowedImports() map[string][]string {
 		"internal/web":     {"internal/loop", "internal/i18n"},
 		"internal/gateway": {"internal/loop", "internal/modules/host", "internal/i18n"},
 
+		// Modul daemon/observabilitas F4 (ADR-244): kerangka paket ada (doc.go) tetapi belum
+		// punya API, jadi matriksnya kosong sampai implementasinya menentukan edge-nya.
+		"internal/cron":      nil,
+		"internal/obs":       nil,
+		"internal/scorecard": nil,
+
 		// Modul lazy (E-06).
 		"internal/mcp":                      moduleImports(),
 		"internal/codeintel":                moduleImports(),

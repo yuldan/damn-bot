@@ -192,3 +192,17 @@ MODULE doctor      1100 internal/doctor
 MODULE update      1500 internal/update
 # ADR-196: SPEC §3.2.4:285 family importer+setup/doctor/update/profiles (profiles 800).
 MODULE profiles     800 internal/profiles
+# ADR-244 (F4): kelas MODULE di luar Σ core, cap persis SPEC §3.2.4. SPEC `heal + obs` 5.500
+# dipecah: baris core `heal` 1.500 (di atas) + MODULE obs 4.000 = 5.500. SPEC gateway 10.500 =
+# MODULE gateway 9.600 + `ctxdb/gwstore` 900 (ADR-074; dibukukan saat store-nya dibangun, ADR
+# sendiri). `cron` 3.500. `scorecard` 500 dari baris SPEC `batch/evals/trajectory + scorecard job`
+# 3.000; sisa 2.500 tetap rencana F8. Σ MODULE F4 = 17.600; Σ kelas MODULE = 37.400
+# (+backup core 1.467 = 38.867) <= 39.100.
+# ADR-244: SPEC §3.2.4:282 (`heal`+`obs` 5.500 -> obs 4.000).
+MODULE obs         4000 internal/obs
+# ADR-244: SPEC §3.2.4:286 (gateway core + gateway/telegram 10.500 -> gateway 9.600).
+MODULE gateway     9600 internal/gateway
+# ADR-244: SPEC §3.2.4:287 (cron 3.500).
+MODULE cron        3500 internal/cron
+# ADR-244: SPEC §3.2.4:307 (scorecard job 500 dari 3.000; sisa 2.500 F8).
+MODULE scorecard    500 internal/scorecard

@@ -11,8 +11,10 @@ import (
 // masuk Σ core. Preseden: baris infra non-produksi NEW-34 juga di luar Σ core; kelas MODULE selalu
 // dilewati `budgetCoreSum` dan tetap ditegakkan per-baris oleh `scripts/loc-check.sh budget`.
 const (
-	maxModuleLOC = 21500 // ROADMAP F3 = 21.500 (tui + acp + importer/ops + backup)
-	maxF3OpsLOC  = 9000  // SPEC §3.2.4: importer + setup/doctor/update/profiles/backup
+	maxModuleLOC   = 39100 // Σ kelas MODULE: F3 21.500 (ADR-196) + F4 17.600 (ADR-244)
+	maxF3ModuleLOC = 21500 // ROADMAP F3 = 21.500 (tui + acp + importer/ops); F3 tanpa backup
+	maxF4ModuleLOC = 17600 // ROADMAP F4 = 20.000: heal core 1.500 + MODULE 17.600 (ADR-244)
+	maxF3OpsLOC    = 9000  // SPEC §3.2.4: importer + setup/doctor/update/profiles/backup
 )
 
 var moduleGroupRe = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
@@ -119,9 +121,10 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 	wantCaps := map[string]int{
 		"tui": 10000, "acp": 2500, "importer": 2600, "setup": 1300,
 		"doctor": 1100, "update": 1500, "profiles": 800,
+		"obs": 4000, "gateway": 9600, "cron": 3500, "scorecard": 500,
 	}
 	backupCap, hasBackup := 0, false
-	opsSum := 0
+	opsSum, f3Sum, f4Sum := 0, 0, 0
 	for _, row := range rows {
 		if !row.module {
 			if row.group == "backup" {
@@ -132,18 +135,30 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 		want, ok := wantCaps[row.group]
 		switch {
 		case !ok:
-			t.Errorf("loc.budget: modul %q belum punya cap SPEC §3.2.4; nama baru butuh ADR baru (ADR-196): %q", row.group, row.line)
+			t.Errorf("loc.budget: modul %q belum punya cap SPEC §3.2.4; nama baru butuh ADR baru (ADR-196, ADR-244): %q", row.group, row.line)
 		case row.capLOC != want:
-			t.Errorf("loc.budget: cap MODULE %s = %d, harus %d; mengubah cap butuh ADR baru (ADR-196): %q",
+			t.Errorf("loc.budget: cap MODULE %s = %d, harus %d; mengubah cap butuh ADR baru (ADR-196, ADR-244): %q",
 				row.group, row.capLOC, want, row.line)
 		}
 		if f3OpsFamily(row.group) {
 			opsSum += row.capLOC
 		}
+		if f3ModuleFamily(row.group) {
+			f3Sum += row.capLOC
+		}
+		if f4ModuleFamily(row.group) {
+			f4Sum += row.capLOC
+		}
 	}
 
 	if moduleSum > maxModuleLOC {
-		t.Errorf("ROADMAP F3: Σ baris MODULE = %d > %d (ADR-196)", moduleSum, maxModuleLOC)
+		t.Errorf("ROADMAP F3+F4: Σ baris MODULE = %d > %d (ADR-196, ADR-244)", moduleSum, maxModuleLOC)
+	}
+	if f3Sum > maxF3ModuleLOC {
+		t.Errorf("ROADMAP F3: Σ MODULE F3 = %d > %d (ADR-196)", f3Sum, maxF3ModuleLOC)
+	}
+	if f4Sum > maxF4ModuleLOC {
+		t.Errorf("ROADMAP F4: Σ MODULE F4 = %d > %d (ADR-244)", f4Sum, maxF4ModuleLOC)
 	}
 	if !hasBackup {
 		t.Error("loc.budget: baris core `backup` tidak ditemukan; cap family F3 ops (SPEC §3.2.4 9.000) tidak bisa diperiksa")
@@ -162,6 +177,20 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 func f3OpsFamily(name string) bool {
 	switch name {
 	case "importer", "setup", "doctor", "update", "profiles":
+		return true
+	}
+	return false
+}
+
+// f3ModuleFamily: baris MODULE F3 (ADR-196); ROADMAP F3 = 21.500 termasuk `backup` core.
+func f3ModuleFamily(name string) bool {
+	return name == "tui" || name == "acp" || f3OpsFamily(name)
+}
+
+// f4ModuleFamily: baris MODULE F4 (ADR-244); ROADMAP F4 = 20.000 termasuk `heal` core 1.500.
+func f4ModuleFamily(name string) bool {
+	switch name {
+	case "obs", "gateway", "cron", "scorecard":
 		return true
 	}
 	return false
