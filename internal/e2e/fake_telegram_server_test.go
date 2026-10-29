@@ -782,6 +782,8 @@ func (s *FakeTG) dispatch(w http.ResponseWriter, r *http.Request, method string,
 		s.answerCallbackQuery(w, req)
 	case "setMyCommands":
 		writeTGResult(w, true)
+	case "sendChatAction":
+		writeTGResult(w, true)
 	case "getMe":
 		writeTGResult(w, s.bot)
 	case "getFile":

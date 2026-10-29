@@ -106,7 +106,9 @@ func TestServeTelegramUnknownSenderSilent(t *testing.T) {
 
 func TestServeTelegramOwnerStreamsAndResume(t *testing.T) {
 	e := New(t, providertest.Text("hello ", "world"), providertest.Text("second answer"))
-	tg := NewFakeTG(t, FakeTGOptions{})
+	tg := NewFakeTG(t, FakeTGOptions{Faults: map[string]FakeTGFault{
+		"sendChatAction": {Status: 429, RetryAfter: 1},
+	}})
 	p := startGatewayServe(t, e, tg)
 	tg.PushText(gatewayOwner, "hi")
 	send, err := tg.WaitSend(gatewayOwner, func(FakeTGRequest) bool { return true }, 15*time.Second)
@@ -116,6 +118,9 @@ func TestServeTelegramOwnerStreamsAndResume(t *testing.T) {
 	edit, err := tg.WaitEdit(gatewayOwner, func(r FakeTGRequest) bool { return r.Text == "hello world" }, 15*time.Second)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if n := len(tg.RequestsFor("sendChatAction")); n == 0 {
+		t.Error("no typing action before the reply")
 	}
 	if edit.MessageID != send.ResultMessageID {
 		t.Fatalf("edit message %d, send message %d", edit.MessageID, send.ResultMessageID)
