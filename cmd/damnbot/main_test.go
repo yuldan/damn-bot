@@ -2,8 +2,30 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"testing"
+
+	"go.uber.org/goleak"
 )
+
+// TestMain (E-29/E-56, ADR-086 NEW-32): the package launches goroutines now
+// that serve wires the Telegram gateway (poller, inbound dispatcher, delivery
+// retrier, watchdog), so the whole package runs under goleak.
+//
+// The session bus is pointed at a dead socket before any test runs: the OS
+// keychain client (zalando/go-keyring -> godbus) keeps one process-lifetime
+// connection open, and tests must neither hold that connection (it outlives
+// every test, E-29) nor write at-rest keys into the developer's real keychain.
+// With an unreachable bus the secret store sees "backend absent" and falls
+// back to its file backend, exactly like a headless CI host.
+func TestMain(m *testing.M) {
+	if err := os.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/damnbot-test-bus"); err != nil {
+		fmt.Fprintf(os.Stderr, "test: isolate session bus: %v\n", err)
+		os.Exit(1)
+	}
+	goleak.VerifyTestMain(m)
+}
 
 func TestRun(t *testing.T) {
 	t.Parallel()
