@@ -44,13 +44,6 @@ func identity(t *testing.T, db *ctxdb.Store, platform, externalID, role, workspa
 	}
 }
 
-func nullableText(s string) any {
-	if s == "" {
-		return nil
-	}
-	return s
-}
-
 // routed creates a gateway session labelled with principal and routes the
 // given conversation to it at created_at.
 func routed(t *testing.T, db *ctxdb.Store, id string, route Route, principal string, createdAt int64) {
