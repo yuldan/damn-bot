@@ -297,49 +297,50 @@ func (s *Store) preWrite(ctx context.Context) error {
 	return err
 }
 
-// reader returns the read pool, reattaching a drained Store first (barrier
-// open order) so reads never touch a replaced DB file.
-func (s *Store) reader(ctx context.Context) (*sql.DB, error) {
-	if s.opt.ReadOnly {
-		return s.r, nil
-	}
+// withConn runs fn on a read connection reserved under mu: a drain
+// (watch/preWrite detach, which also takes mu) cannot close the pool between
+// reservation and the first query, and database/sql keeps a reserved
+// connection valid when the pool is closed (S017, §11.11.7 drain).
+func (s *Store) withConn(ctx context.Context, fn func(*sql.Conn) error) (err error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	err := s.preWrite(ctx)
-	return s.r, err
+	if !s.opt.ReadOnly {
+		if err = s.preWrite(ctx); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	} else if s.r == nil {
+		s.mu.Unlock()
+		return wrap(sql.ErrConnDone)
+	}
+	c, cerr := s.r.Conn(ctx)
+	s.mu.Unlock()
+	if cerr != nil {
+		return wrap(cerr)
+	}
+	defer func() { err = errors.Join(err, wrap(c.Close())) }()
+	return fn(c)
 }
 
 func (s *Store) get(ctx context.Context, q string, args []any, dest ...any) error {
-	db, err := s.reader(ctx)
-	if err != nil {
-		return err
-	}
-	return getOne(ctx, db, q, args, dest...)
+	return s.withConn(ctx, func(c *sql.Conn) error { return getOne(ctx, c, q, args, dest...) })
 }
 
 func (s *Store) each(ctx context.Context, q string, args []any, scan func(*sql.Rows) error) error {
-	db, err := s.reader(ctx)
-	if err != nil {
-		return err
-	}
-	return each(ctx, db, q, args, scan)
+	return s.withConn(ctx, func(c *sql.Conn) error { return each(ctx, c, q, args, scan) })
+}
+
+func getColumn[T any](ctx context.Context, s *Store, q string, args ...any) (out []T, err error) {
+	err = s.withConn(ctx, func(c *sql.Conn) error { out, err = column[T](ctx, c, q, args...); return err })
+	return out, err
 }
 
 func (s *Store) strings(ctx context.Context, q string, args ...any) ([]string, error) {
-	db, err := s.reader(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return column[string](ctx, db, q, args...)
+	return getColumn[string](ctx, s, q, args...)
 }
 
 // ints is strings for an integer column (recall candidates).
 func (s *Store) ints(ctx context.Context, q string, args ...any) ([]int64, error) {
-	db, err := s.reader(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return column[int64](ctx, db, q, args...)
+	return getColumn[int64](ctx, s, q, args...)
 }
 
 // Count returns a single integer from a read query (tests, doctor). A

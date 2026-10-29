@@ -271,14 +271,42 @@ func (t *Tx) execAll(args []any, qs ...string) error {
 	return nil
 }
 
-// testRows runs a read query on the read pool (test helper).
-func (s *Store) testRows(ctx context.Context, q string, args ...any) (*sql.Rows, error) {
-	db, err := s.reader(ctx)
-	if err != nil {
-		return nil, err
+// testRows runs a read query on a reserved read connection (test helper); the
+// connection is released when the returned rows are closed.
+func (s *Store) testRows(ctx context.Context, q string, args ...any) (*pinnedRows, error) {
+	s.mu.Lock()
+	if !s.opt.ReadOnly {
+		if err := s.preWrite(ctx); err != nil {
+			s.mu.Unlock()
+			return nil, err
+		}
 	}
-	rows, err := db.QueryContext(ctx, q, args...)
-	return rows, wrap(err)
+	if s.r == nil {
+		s.mu.Unlock()
+		return nil, wrap(sql.ErrConnDone)
+	}
+	c, err := s.r.Conn(ctx)
+	s.mu.Unlock()
+	if err != nil {
+		return nil, wrap(err)
+	}
+	rows, err := c.QueryContext(ctx, q, args...) //nolint:rowserrcheck // rows are returned; verifyChains checks rows.Err()
+	if err != nil {
+		return nil, errors.Join(wrap(err), wrap(c.Close()))
+	}
+	return &pinnedRows{Rows: rows, conn: c}, nil
+}
+
+type pinnedRows struct {
+	*sql.Rows
+	once sync.Once
+	conn *sql.Conn
+}
+
+func (r *pinnedRows) Close() (err error) {
+	err = r.Rows.Close()
+	r.once.Do(func() { err = errors.Join(err, wrap(r.conn.Close())) })
+	return err
 }
 
 // testBlobPath is the on-disk path of a blob (test helper).
