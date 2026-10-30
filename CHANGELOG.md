@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `cmd/damnbot`/`internal/assemble`/`internal/gateway` (SPEC P13, PROV-03): build `minimal` tidak lagi menyematkan `time/tzdata` (~400 KB), sehingga plafon 22 MB tetap dengan headroom untuk fitur F4; build penuh tetap menyematkan database IANA di semua GOOS, sedangkan `minimal` memakai zoneinfo host (di Windows, zona IANA bernama hanya tersedia lewat host/OS dan `/tz` menolak zona yang tak dikenal).
+
 - `cmd/damnbot` (F4, SPEC §10, FEATURE-PARITY CLI-018): `send` is now a first-class surface entry instead of a hidden dispatch. It appears in `damnbot help` and `damnbot help send` with its usage, preserves the same scriptable semantics (durable spool, idempotent key, no LLM), and `TestSurfaceRegistry` counts the documented surface accordingly.
 - `internal/gateway`/`cmd/damnbot` (F4, SPEC §9.7, FEATURE-PARITY GW-007/GW-020/SLASH-076): `/timestamps on|off|status` and `/delay on|off|status` write the existing per-chat settings (`timestamps`, `human_delay`), and `/cron add <schedule> <prompt>` + `/cron edit <id> name|schedule|prompt <value>` extend the owner-only cron surface over the shared `cron.Admin`. Timestamp prefixes now cover command replies and outbox deliveries (cron/failed-reply paths), not only streamed turn replies; `withTimestamp` keeps a single prefix. Chat settings stay owner-only and never start a turn. Tests: gateway toggle/command units, fake-Telegram e2e for timestamped command + outbox and cron add/edit, plus negative cases (user role refused, bad args).
 

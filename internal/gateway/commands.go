@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	_ "time/tzdata"
 )
 
 // CommandOptions configures a [Commands] dispatcher.

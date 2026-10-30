@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	_ "time/tzdata" // PROV-03: one embedded IANA database on every GOOS
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/modules"
