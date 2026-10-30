@@ -104,6 +104,41 @@ func TestServeTelegramUnknownSenderSilent(t *testing.T) {
 	}
 }
 
+// TestServeTelegramSendAfterIdleBackoff: after the outbox poll has backed
+// off to its 1 s ceiling, an enqueued delivery is still sent within 1 s
+// (next_at = enqueue time, At = fake Bot API arrival).
+func TestServeTelegramSendAfterIdleBackoff(t *testing.T) {
+	e := New(t, providertest.Text("pong"))
+	// Editing the placeholder must fail so the final text takes the outbox
+	// path (serve_gateway.go enqueues on a failed final edit).
+	tg := NewFakeTG(t, FakeTGOptions{Faults: map[string]FakeTGFault{
+		"editMessageText": {Status: 400, Times: 100},
+	}})
+	p := startGatewayServe(t, e, tg)
+	waitFor(t, 10*time.Second, "a poll", func() bool { return len(tg.RequestsFor("getUpdates")) > 0 })
+	<-time.After(3 * time.Second) // idle backoff reaches the 1 s interval
+	tg.PushText(gatewayOwner, "hello")
+	waitFor(t, 10*time.Second, "reply", func() bool { return len(tg.Sends()) > 0 })
+	sends := tg.Sends()
+	gatewayStop(t, p)
+	db := gatewayDB(t, e)
+	var nextAt int64
+	if err := db.Write(context.Background(), func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT next_at FROM gateway_deliveries ORDER BY id DESC LIMIT 1`, nil, &nextAt)
+	}); err != nil {
+		t.Fatalf("read delivery next_at: %v", err)
+	}
+	// This scenario has no placeholder, so the single sendMessage is the
+	// queued final text; next_at is its enqueue time.
+	delay := sends[len(sends)-1].At.Sub(time.UnixMilli(nextAt))
+	if delay > time.Second {
+		t.Fatalf("queued delivery sent %s after enqueue, want <= 1 s", delay)
+	}
+	if delay < -time.Second {
+		t.Fatalf("queued delivery sent %s before enqueue", delay)
+	}
+}
+
 func TestServeTelegramOwnerStreamsAndResume(t *testing.T) {
 	e := New(t, providertest.Text("hello ", "world"), providertest.Text("second answer"))
 	tg := NewFakeTG(t, FakeTGOptions{Faults: map[string]FakeTGFault{
