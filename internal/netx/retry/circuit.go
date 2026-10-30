@@ -32,6 +32,35 @@ type Gate interface {
 // Local adapts the in-process Breaker to Gate.
 func Local(b *Breaker) Gate { return localGate{b} }
 
+// Breakers caches one Gate per (provider, credential) route.
+type Breakers struct {
+	mu      sync.Mutex
+	m       map[string]Gate
+	circuit func(provider, credential string) Gate
+}
+
+// NewBreakers returns a route cache that prefers the shared circuit factory
+// when one is injected (GAP-COST-06).
+func NewBreakers(circuit func(provider, credential string) Gate) *Breakers {
+	return &Breakers{m: map[string]Gate{}, circuit: circuit}
+}
+
+// Get returns the cached gate of one route, creating it on first use.
+func (b *Breakers) Get(provider, credential string) Gate {
+	key := provider + "\x00" + credential
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	g := b.m[key]
+	if g == nil {
+		g = Local(new(Breaker))
+		if b.circuit != nil {
+			g = b.circuit(provider, credential)
+		}
+		b.m[key] = g
+	}
+	return g
+}
+
 type localGate struct{ b *Breaker }
 
 func (g localGate) Allow(context.Context) error { return g.b.Allow() }

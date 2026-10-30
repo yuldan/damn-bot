@@ -74,10 +74,9 @@ type OpenAI struct {
 	wait     func(ctx context.Context, d time.Duration) error
 	attempts int
 	now      func() time.Time
-	circuit  func(provider, credential string) retry.Gate
 
 	mu       sync.Mutex
-	breakers map[string]retry.Gate // per (provider, credential)
+	breakers *retry.Breakers // per (provider, credential)
 	drop     map[string]map[string]bool
 }
 
@@ -90,8 +89,8 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 	o := &OpenAI{
 		c: c, routes: map[string]Route{}, fallback: append([]string(nil), cfg.Fallback...),
 		onFB: cfg.OnFallback, onRetry: cfg.OnRetry, wait: cfg.Wait, attempts: cfg.Attempts,
-		guard: cfg.Guard, onBudget: cfg.OnBudget, now: cfg.Now, circuit: cfg.Circuit,
-		breakers: map[string]retry.Gate{}, drop: map[string]map[string]bool{},
+		guard: cfg.Guard, onBudget: cfg.OnBudget, now: cfg.Now,
+		breakers: retry.NewBreakers(cfg.Circuit), drop: map[string]map[string]bool{},
 	}
 	if o.now == nil {
 		o.now = time.Now
@@ -353,19 +352,7 @@ func rejectedParam(err error, r *Request, drop map[string]bool) string {
 }
 
 func (o *OpenAI) breaker(rt *Route) retry.Gate {
-	key := rt.Provider + "\x00" + rt.CredentialID
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	b := o.breakers[key]
-	if b == nil {
-		if o.circuit != nil {
-			b = o.circuit(rt.Provider, rt.CredentialID)
-		} else {
-			b = retry.Local(new(retry.Breaker))
-		}
-		o.breakers[key] = b
-	}
-	return b
+	return o.breakers.Get(rt.Provider, rt.CredentialID)
 }
 
 // rawEstimate is the uncalibrated budget estimate of r (ADR-101): the
