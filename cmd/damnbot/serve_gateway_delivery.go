@@ -104,8 +104,7 @@ func (g *serveGateway) notifyOwner(ctx context.Context, key, body string) {
 	g.notifyChat(ctx, platform, chat, "sys:"+key, body)
 }
 
-// isNotFound maps the ctxdb miss sentinel without importing its exact type in
-// callers (the gateway queue and pairing caps share it).
+// isNotFound maps the ctxdb miss sentinel for the queue and pairing caps.
 func isNotFound(err error) bool { return errors.Is(err, ctxdb.ErrNotFound) }
 
 // notifyChat enqueues one `__system__` delivery (no event, no lease) to any

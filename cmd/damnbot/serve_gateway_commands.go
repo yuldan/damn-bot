@@ -39,9 +39,30 @@ func (g *serveGateway) dispatch(ctx context.Context, in *telegram.Inbound) {
 	key := update.Platform + "\x00" + update.ChatID
 	if _, ok := gateway.Parse(update.Text); ok {
 		key += "\x00cmd"
+		g.submit(ctx, key, func(laneCtx context.Context) { g.handle(laneCtx, &update, false) })
+		return
 	}
-	if err := g.chats.Submit(ctx, key, func(laneCtx context.Context) { g.handle(laneCtx, &update) }); err != nil && ctx.Err() == nil {
-		sessionsPrintf(g.stderr, "gateway: dispatch %s: %s\n", cleanArg(update.UpdateID), cleanLine(err.Error()))
+	queued, drop, recorded, err := g.enqueueInbound(ctx, &update)
+	switch {
+	case err != nil:
+		// A queue failure never drops the message: run the old in-memory path.
+		sessionsPrintf(g.stderr, "gateway: queue %s: %s\n", cleanArg(update.UpdateID), cleanLine(err.Error()))
+		g.metrics.IncError()
+		g.submit(ctx, key, func(laneCtx context.Context) { g.handle(laneCtx, &update, recorded) })
+	case drop:
+		return
+	case queued:
+		g.submit(ctx, key, func(laneCtx context.Context) { g.drainChat(laneCtx, update.Platform, update.ChatID) })
+	default:
+		// Not allowlisted (or a weak identity): admission denies it without a
+		// row, exactly as before REL-11.
+		g.submit(ctx, key, func(laneCtx context.Context) { g.handle(laneCtx, &update, false) })
+	}
+}
+
+func (g *serveGateway) submit(ctx context.Context, key string, work func(context.Context)) {
+	if err := g.chats.Submit(ctx, key, work); err != nil && ctx.Err() == nil {
+		sessionsPrintf(g.stderr, "gateway: dispatch: %s\n", cleanLine(err.Error()))
 		g.metrics.IncError()
 	}
 }
