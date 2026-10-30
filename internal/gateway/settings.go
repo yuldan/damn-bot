@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// ChatSettings is the per-chat configuration seam (GW-005, GW-007, GW-020, GW-021).
 type ChatSettings interface {
 	ChatSetting(ctx context.Context, platform, chatID, key string) (value string, found bool, err error)
 	SetChatSetting(ctx context.Context, platform, chatID, key, value string, now int64) error
