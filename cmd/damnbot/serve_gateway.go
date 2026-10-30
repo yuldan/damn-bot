@@ -258,6 +258,7 @@ func (g *serveGateway) Start(ctx context.Context) error {
 	go func() { defer g.wg.Done(); g.platformControlLoop(runCtx) }()
 	go func() { defer g.wg.Done(); g.watchdog.Run(runCtx) }()
 	go func() { defer g.wg.Done(); g.emergency(runCtx) }()
+	g.resumeInbound(runCtx)
 	return nil
 }
 
@@ -280,7 +281,7 @@ func (g *serveGateway) Stop(ctx context.Context) {
 	g.wg.Wait()
 }
 
-func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound) {
+func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound, recorded bool) {
 	if fields := strings.Fields(in.Text); len(fields) > 0 {
 		if command, _, _ := strings.Cut(fields[0], "@"); command == "/pair" {
 			code := ""
@@ -296,11 +297,16 @@ func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound) {
 		UpdateID: in.UpdateID, Group: strings.HasPrefix(in.ChatID, "-"), Text: in.Text,
 		Payload: `{"kind":"text","text":` + strconv.Quote(in.Text) + `}`,
 	}
-	out, err := g.gate.Admit(ctx, inbound, func(wctx context.Context, t gateway.Ticket) error {
+	work := func(wctx context.Context, t gateway.Ticket) error {
 		turnCtx, done := g.beginTurn(wctx, &t.Scope)
 		defer done()
 		return g.run(turnCtx, in, &t)
-	})
+	}
+	admit := g.gate.Admit
+	if recorded {
+		admit = g.gate.AdmitRecorded
+	}
+	out, err := admit(ctx, inbound, work)
 	switch {
 	case err != nil:
 		sessionsPrintf(g.stderr, "gateway: update %s: %s\n", cleanArg(in.UpdateID), cleanLine(err.Error()))

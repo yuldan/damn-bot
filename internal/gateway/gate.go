@@ -165,7 +165,7 @@ func (g *Gate) Admit(ctx context.Context, in *Inbound, work RunFunc) (Outcome, e
 	if out := g.inboundHook(ctx, in); out.Reason != ReasonNone {
 		return out, nil
 	}
-	t, kind, reason, err := g.admitTurn(ctx, &id, in, allowStopped)
+	t, kind, reason, err := g.admitTurn(ctx, &id, in, allowStopped, false)
 	if err != nil {
 		return Outcome{Kind: kind, Reason: reason}, err
 	}
@@ -191,6 +191,37 @@ func (g *Gate) halted(ctx context.Context) (Reason, bool, error) {
 		return ReasonPaused, true, err
 	}
 	return ReasonNone, false, nil
+}
+
+// AdmitRecorded runs one update whose inbox row was already written by the
+// durable queue (REL-11). It performs the same authorization, stop, budget,
+// mention and scope checks as Admit but never writes or dedupes the inbox row
+// again, so the queued message is not lost and not counted twice.
+func (g *Gate) AdmitRecorded(ctx context.Context, in *Inbound, work RunFunc) (Outcome, error) {
+	if work == nil {
+		return Outcome{}, ErrNoWork
+	}
+	if err := in.validate(); err != nil {
+		return Outcome{}, err
+	}
+	id, reason, err := g.authorize(ctx, in)
+	if err != nil {
+		return Outcome{}, err
+	}
+	if reason != ReasonNone {
+		return deny(reason), nil
+	}
+	if out := g.inboundHook(ctx, in); out.Reason != ReasonNone {
+		return out, nil
+	}
+	t, kind, reason, err := g.admitTurn(ctx, &id, in, false, true)
+	if err != nil || kind != Accepted {
+		return Outcome{Kind: kind, Reason: reason}, err
+	}
+	if err := work(ctx, t); err != nil {
+		return Outcome{Kind: Accepted, Ticket: t}, err
+	}
+	return Outcome{Kind: Accepted, Ticket: t}, nil
 }
 
 // AdmitPending dispatches one parked row: no inbox write, no command dispatch,
@@ -273,7 +304,7 @@ func (g *Gate) authorize(ctx context.Context, in *Inbound) (Identity, Reason, er
 
 // admitTurn applies the stop, mention policy, scope and dedupe claim. A stop
 // rejection still records the row (parked); its budget is checked at replay.
-func (g *Gate) admitTurn(ctx context.Context, id *Identity, in *Inbound, emergencyCmd bool) (Ticket, Kind, Reason, error) {
+func (g *Gate) admitTurn(ctx context.Context, id *Identity, in *Inbound, emergencyCmd, recorded bool) (Ticket, Kind, Reason, error) {
 	stopReason, stopped, stopErr := ReasonNone, false, error(nil)
 	if !emergencyCmd {
 		stopReason, stopped, stopErr = g.halted(ctx)
@@ -293,12 +324,14 @@ func (g *Gate) admitTurn(ctx context.Context, id *Identity, in *Inbound, emergen
 	if !ok {
 		return Ticket{}, Rejected, ReasonNoWorkspace, nil
 	}
-	recorded, err := g.inbox.Record(ctx, in)
-	if err != nil {
-		return Ticket{}, Rejected, ReasonNone, fmt.Errorf("gateway: record inbound %s/%s: %w", in.Platform, in.UpdateID, err)
-	}
 	if !recorded {
-		return Ticket{}, Duplicate, ReasonNone, nil
+		inserted, err := g.inbox.Record(ctx, in)
+		if err != nil {
+			return Ticket{}, Rejected, ReasonNone, fmt.Errorf("gateway: record inbound %s/%s: %w", in.Platform, in.UpdateID, err)
+		}
+		if !inserted {
+			return Ticket{}, Duplicate, ReasonNone, nil
+		}
 	}
 	if stopped {
 		return Ticket{}, Rejected, stopReason, stopErr

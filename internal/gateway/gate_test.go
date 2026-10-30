@@ -397,3 +397,29 @@ func TestInvalidInboundAndMissingWork(t *testing.T) {
 		t.Fatalf("nil work wrote %d rows", inbox.calls)
 	}
 }
+
+// TestAdmitRecordedSkipsInboxWrite is the REL-11 seam: the durable queue has
+// already written the row, so admission must run the turn without a second
+// Record and without turning the message into a Duplicate.
+func TestAdmitRecordedSkipsInboxWrite(t *testing.T) {
+	ids := &fakeIdentities{rows: map[string]gateway.Identity{"telegram:1": owner("1")}}
+	inbox := &fakeInbox{seen: map[string]bool{"telegram\x00u:1": true}}
+	g, err := gateway.New(&gateway.Options{Identities: ids, Inbox: inbox})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := &runner{}
+	out, err := g.AdmitRecorded(t.Context(), inbound("c1", "1", "u:1"), run.run)
+	if err != nil || out.Kind != gateway.Accepted || run.calls != 1 {
+		t.Fatalf("AdmitRecorded = %+v, %v, calls=%d; want one accepted turn", out, err, run.calls)
+	}
+	if inbox.calls != 0 {
+		t.Fatalf("inbox Record calls = %d, want 0 (row already queued)", inbox.calls)
+	}
+	// Negative control: the ordinary Admit on the same row is a Duplicate and
+	// runs no work.
+	out, err = g.Admit(t.Context(), inbound("c1", "1", "u:1"), run.run)
+	if err != nil || out.Kind != gateway.Duplicate || run.calls != 1 {
+		t.Fatalf("Admit replay = %+v, %v, calls=%d; want Duplicate without work", out, err, run.calls)
+	}
+}
