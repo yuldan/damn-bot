@@ -69,6 +69,10 @@ type Run struct {
 	Outcome, Err          string
 	Exit, Attempt         int
 	StartedAt, FinishedAt time.Time
+	// Delivery and Incident are appended to cron_runs.stop_reason by the
+	// store: "queued"/"skipped: …"/"failed: …" and "failed"/"preflight"/
+	// "delivery" (AUTO-006/AUTO-008, no DDL).
+	Delivery, Incident string
 }
 
 // JobStore lists job definitions and their catch-up watermark.
@@ -103,10 +107,15 @@ type Delivery struct {
 	Outcome, Output, IdemKey string
 }
 
-// Deliverer is the gateway outbox seam.
+// Deliverer is the gateway outbox seam (AUTO-006). Returning ErrOffline means
+// the platform is unreachable by policy: the slot is recorded as skipped and
+// nothing is queued, so the message is not delivered late after reconnect.
 type Deliverer interface {
 	Deliver(ctx context.Context, d *Delivery) error
 }
+
+// ErrOffline reports a delivery skipped because the gateway is offline.
+var ErrOffline = errors.New("cron: delivery offline")
 
 // Executor runs one job; ScriptExecutor is the script path.
 type Executor interface {
@@ -122,6 +131,8 @@ type Scheduler struct {
 	Executor  Executor
 	Deliver   Deliverer
 	Preflight Preflight
+	Incidents IncidentStore
+	Alert     Alerter
 	Clock     Clock
 	Owner     string
 	Grace     time.Duration
@@ -346,7 +357,8 @@ func (s *Scheduler) execute(ctx context.Context, j *Job, at, started time.Time) 
 		if perr := s.Preflight.Check(ctx, j); perr != nil {
 			run.Outcome, run.Err = OutcomeGated, "preflight: "+perr.Error()
 			run.FinishedAt = s.clock().Now()
-			return s.finish(ctx, j, at, &run)
+			run.Incident = incidentKind(&run, nil)
+			return errors.Join(s.finish(ctx, j, at, &run), s.report(ctx, j, &run, nil))
 		}
 	}
 	if s.Executor == nil {
@@ -355,20 +367,46 @@ func (s *Scheduler) execute(ctx context.Context, j *Job, at, started time.Time) 
 		run.Outcome, run.Exit, run.Err = OutcomeFailed, exitCode(err), err.Error()
 	}
 	run.FinishedAt = s.clock().Now()
-	if ferr := s.finish(ctx, j, at, &run); ferr != nil {
-		return ferr
+	var derr error
+	if s.Deliver != nil && run.Outcome == OutcomeOK {
+		derr = s.Deliver.Deliver(ctx, &Delivery{
+			JobID: j.ID, ScheduledAt: at, Outcome: run.Outcome, Output: out,
+			IdemKey: fmt.Sprintf("cron:%s:%d:1", j.ID, at.UnixMilli()),
+		})
+		run.Delivery, derr = deliveryStatus(derr)
 	}
-	if s.Deliver == nil || run.Outcome != OutcomeOK {
+	run.Incident = incidentKind(&run, derr)
+	return errors.Join(s.finish(ctx, j, at, &run), s.report(ctx, j, &run, derr))
+}
+
+// deliveryStatus turns the deliverer result into the stop_reason marker. An
+// offline gateway is an intentional skip, not a failing job: the slot is
+// recorded as skipped with its reason and no incident is raised.
+func deliveryStatus(err error) (status string, incident error) {
+	switch {
+	case err == nil:
+		return "queued", nil
+	case errors.Is(err, ErrOffline):
+		return "skipped: " + err.Error(), nil
+	default:
+		return "failed: " + err.Error(), err
+	}
+}
+
+// report persists the AUTO-008 incident streak and raises the hourly alarm.
+func (s *Scheduler) report(ctx context.Context, j *Job, run *Run, derr error) error {
+	if s.Incidents == nil {
 		return nil
 	}
-	err = s.Deliver.Deliver(ctx, &Delivery{
-		JobID: j.ID, ScheduledAt: at, Outcome: run.Outcome, Output: out,
-		IdemKey: fmt.Sprintf("cron:%s:%d:1", j.ID, at.UnixMilli()),
-	})
-	if err != nil {
-		return fmt.Errorf("deliver: %w", err)
+	r := &Recorder{Store: s.Incidents, Alarm: s.Alert, Clock: s.Clock}
+	msg := run.Err
+	if derr != nil {
+		msg = derr.Error()
 	}
-	return nil
+	if run.Incident == "" {
+		return r.Success(ctx, j.ID)
+	}
+	return r.Failure(ctx, j.ID, j.Name, run.Incident, msg)
 }
 
 func (s *Scheduler) finish(ctx context.Context, j *Job, at time.Time, run *Run) error {

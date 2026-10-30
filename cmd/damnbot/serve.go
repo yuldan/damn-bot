@@ -139,6 +139,7 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	daemon := newServeDaemon()
 	defer daemon.Close()
 	gw, gwErr := newServeGateway(ctx, &cfg, o, db, daemon, metrics, stderr)
+	cr := serveCronFor(gw, db, dataDir, o.configPath, cfg.Network.Offline, stderr)
 	checks := []obs.Check{
 		{Name: "db", Fn: db.ProbeWrite},
 		{Name: "serve_lock", Fn: func(context.Context) error {
@@ -164,7 +165,7 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	errs := obs.Serve(hs, ln)
 	sessionsPrintf(stderr, "serve: data dir %s\n", dataDir)
 	sessionsPrintf(stdout, "serve: observability listening on %s\n", ln.Addr())
-	return serveLoop(ctx, sigCtx, o, eps, hs, errs, db, lock, daemon, gw, gwErr, stderr)
+	return serveLoop(ctx, sigCtx, o, eps, hs, errs, db, lock, daemon, gw, cr, gwErr, stderr)
 }
 
 func awaitServeStop(sigCtx context.Context, errs <-chan error, restartCh <-chan struct{}, stderr io.Writer) (bool, error) {
@@ -188,7 +189,7 @@ func serveForceExit(code int) { os.Exit(code) }
 // serveLoop waits for a stop signal (or a fatal endpoint error), drains the
 // active turns, shuts the listener down and closes the store. sigCtx is the
 // signal-aware context installed by serveRun before any progress was logged.
-func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps *obs.Endpoints, hs *http.Server, errs <-chan error, db *ctxdb.Store, lock *serveLock, daemon *serveDaemon, gw *serveGateway, gwErr error, stderr io.Writer) (int, error) {
+func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps *obs.Endpoints, hs *http.Server, errs <-chan error, db *ctxdb.Store, lock *serveLock, daemon *serveDaemon, gw *serveGateway, cr *serveCron, gwErr error, stderr io.Writer) (int, error) {
 	if gwErr != nil {
 		return serveExitFatal, gwErr
 	}
@@ -198,6 +199,7 @@ func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps
 	if err := gw.Start(ctx); err != nil {
 		return serveExitFatal, err
 	}
+	cr.Start(ctx)
 	if gw != nil {
 		sessionsPrintf(stderr, "serve: gateway polling\n")
 	}
@@ -221,6 +223,7 @@ func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps
 			serveForceExit(serveExitClean)
 		}
 	}
+	cr.Stop()
 	gw.Stop(ctx)
 	shutCtx, cancelShut := context.WithTimeout(context.WithoutCancel(ctx), serveShutdownMax)
 	shutErr := hs.Shutdown(shutCtx)

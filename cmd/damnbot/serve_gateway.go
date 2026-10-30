@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/cron"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
 	"github.com/damnbot/damnbot/internal/gateway"
@@ -44,6 +45,7 @@ type serveGateway struct {
 	metrics             *obs.Metrics
 	watchdog            *heal.Watchdog
 	supervisor          *heal.Supervisor
+	cron                *cron.Recorder
 	stderr              io.Writer
 	inbound             chan telegram.Inbound
 	cancel              context.CancelFunc
