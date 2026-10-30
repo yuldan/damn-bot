@@ -62,13 +62,14 @@ class FakeBotAPI:
                 size = int(self.headers.get("content-length") or 0)
                 body = self.rfile.read(size)
                 method = self.path.rsplit("/", 1)[-1]
-                del body
                 with fake.lock:
                     fake.calls.append(method)
                 if method == "getUpdates":
                     with fake.lock:
                         fake.updates += 1
-                    fake.wake.wait(timeout=_timeout(self.path))
+                    timeout = _timeout(self.path, body)
+                    if timeout > 0:
+                        fake.wake.wait(timeout=timeout)
                     fake.wake.clear()
                     payload: object = []
                 elif method == "getMe":
@@ -108,11 +109,21 @@ class FakeBotAPI:
         self.server.shutdown()
 
 
-def _timeout(path: str) -> float:
-    # python-telegram-bot sends the long-poll timeout as a query parameter.
+def _timeout(path: str, body: bytes) -> float:
+    """Long-poll timeout in seconds from the query string or JSON/form body."""
+    raw = None
     try:
         query = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)
-        return min(max(float(query.get("timeout", ["30"])[0]), 1.0), 30.0)
+        if "timeout" in query:
+            raw = query["timeout"][0]
+        elif body:
+            payload = json.loads(body)
+            if isinstance(payload, dict):
+                raw = payload.get("timeout")
+    except (ValueError, TypeError):
+        raw = None
+    try:
+        return min(max(float(raw), 0.0), 30.0) if raw is not None else 30.0
     except (ValueError, TypeError):
         return 30.0
 
@@ -261,16 +272,17 @@ def main() -> int:
             )
         started = time.monotonic()
         deadline = started + 180
+        connected = False
         while time.monotonic() < deadline:
             if child.poll() is not None:
                 break
-            with bot.lock:
-                polls = bot.updates
-            if polls > 0:
+            if "Connected to Telegram" in log.read_text(errors="replace"):
+                connected = True
                 break
             time.sleep(0.1)
         artifact["meta"]["startup_s"] = round(time.monotonic() - started, 3)
-        if child.poll() is not None or bot.updates == 0:
+        artifact["meta"]["telegram_connected"] = connected
+        if not connected:
             tail = log.read_text(errors="replace").splitlines()[-30:]
             artifact["evidence"] = {
                 "prerequisite": "hermes gateway did not reach Telegram polling",
@@ -303,6 +315,7 @@ def main() -> int:
         artifact["evidence"] = {
             "pid": child.pid,
             "bot_api_calls": sorted(set(bot.calls)),
+            "telegram_connected": connected,
             "gateway_log_tail": log.read_text(errors="replace").splitlines()[-10:],
         }
         artifact["meta"]["loadavg_end"] = loadavg()

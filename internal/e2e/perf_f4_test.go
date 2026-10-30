@@ -149,12 +149,12 @@ func measureF4(t *testing.T, sc f4Scenario) f4Result {
 	start := loadavg()
 	p := startServe(t, e, binPaths.serve, env)
 	pid := p.cmd.Process.Pid
-	time.Sleep(sc.warmup)
+	<-time.After(sc.warmup)
 	first, err := sampleProc(pid)
 	if err != nil {
 		t.Fatalf("sample %s: %v", sc.name, err)
 	}
-	time.Sleep(sc.window)
+	<-time.After(sc.window)
 	second, err := sampleProc(pid)
 	if err != nil {
 		t.Fatalf("sample %s: %v", sc.name, err)
@@ -214,14 +214,14 @@ type procSample struct {
 func sampleProc(pid int) (procSample, error) {
 	status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", pid))
 	if err != nil {
-		return procSample{}, err
+		return procSample{}, fmt.Errorf("read status: %w", err)
 	}
 	stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
 	if err != nil {
-		return procSample{}, err
+		return procSample{}, fmt.Errorf("read stat: %w", err)
 	}
 	s := procSample{at: time.Now()}
-	for _, line := range strings.Split(string(status), "\n") {
+	for line := range strings.SplitSeq(string(status), "\n") {
 		switch {
 		case strings.HasPrefix(line, "VmRSS:"):
 			s.rssKB = firstInt(line)
@@ -279,7 +279,12 @@ func cpuSeconds(first, second procSample) float64 {
 // scrapeGoroutines reads the damnbot_goroutines gauge from /metrics.
 func scrapeGoroutines(t *testing.T, addr string) int {
 	t.Helper()
-	resp, err := http.Get("http://" + addr + "/metrics") //nolint:gosec // loopback child address from its own stdout
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/metrics", nil)
+	if err != nil {
+		t.Fatalf("metrics request: %v", err)
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("metrics: %v", err)
 	}
@@ -292,7 +297,7 @@ func scrapeGoroutines(t *testing.T, addr string) int {
 	if err != nil {
 		t.Fatalf("metrics read: %v", err)
 	}
-	for _, line := range strings.Split(string(body), "\n") {
+	for line := range strings.SplitSeq(string(body), "\n") {
 		rest, ok := strings.CutPrefix(line, "damnbot_goroutines ")
 		if !ok {
 			continue
@@ -308,7 +313,7 @@ func scrapeGoroutines(t *testing.T, addr string) int {
 }
 
 func firstInt(line string) int {
-	for _, f := range strings.Fields(line) {
+	for f := range strings.FieldsSeq(line) {
 		if n, err := strconv.Atoi(f); err == nil {
 			return n
 		}
@@ -331,7 +336,7 @@ func cpuModel() string {
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		if v, ok := strings.CutPrefix(line, "model name"); ok {
 			return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(v), ":"))
 		}
@@ -377,8 +382,8 @@ func writeF4Artifact(t *testing.T, name string, res *f4Result) {
 		sha = "unknown"
 	}
 	dir := filepath.Join(root, "bench", "f4", "results")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("artifact dir: %v", err)
+	if xerr := os.MkdirAll(dir, 0o750); xerr != nil {
+		t.Fatalf("artifact dir: %v", xerr)
 	}
 	b, err := json.MarshalIndent(res, "", " ")
 	if err != nil {
@@ -386,7 +391,7 @@ func writeF4Artifact(t *testing.T, name string, res *f4Result) {
 	}
 	b = append(b, '\n')
 	out := filepath.Join(dir, fmt.Sprintf("%s-%s-F4.json", name, sha))
-	if err := os.WriteFile(out, b, 0o644); err != nil {
+	if err := os.WriteFile(out, b, 0o600); err != nil {
 		t.Fatalf("artifact write: %v", err)
 	}
 	t.Logf("artifact: %s", out)
