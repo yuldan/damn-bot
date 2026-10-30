@@ -42,6 +42,9 @@ func dispatchCommand(args []string, stdout, stderr io.Writer) (code int, ok bool
 	if args[0] == "__complete" {
 		return runComplete(args[1:], stdout), true
 	}
+	if args[0] == "send" {
+		return runSend(args[1:], stdout, stderr), true
+	}
 	if e, found := lookupSurface(args[0]); found && e.Run != nil {
 		return e.Run(args[1:], stdout, stderr), true
 	}

@@ -164,7 +164,7 @@ func (g *serveGateway) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	pollCtx, pollCancel := context.WithCancel(runCtx)
 	g.cancel, g.pollCancel = cancel, pollCancel
-	g.wg.Add(4)
+	g.wg.Add(5)
 	go func() {
 		defer g.wg.Done()
 		if err := g.adapter.Run(pollCtx, g.inbound); err != nil && pollCtx.Err() == nil {
@@ -187,6 +187,7 @@ func (g *serveGateway) Start(ctx context.Context) error {
 		}
 	}()
 	go func() { defer g.wg.Done(); g.deliveries(runCtx) }()
+	go func() { defer g.wg.Done(); g.sendControlLoop(runCtx) }()
 	go func() { defer g.wg.Done(); g.watchdog.Run(runCtx) }()
 	return nil
 }
