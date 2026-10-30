@@ -18,6 +18,7 @@ import (
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/heal"
+	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/obs"
 )
 
@@ -141,7 +142,8 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	daemon := newServeDaemon()
 	defer daemon.Close()
 	gw, gwErr := newServeGateway(ctx, &cfg, o, db, daemon, metrics, stderr)
-	cr := serveCronFor(ctx, gw, db, dataDir, o.configPath, cfg.Network.Offline, stderr)
+	netw := netx.New(netx.Config{Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background})
+	cr := serveCronFor(ctx, gw, db, dataDir, o.configPath, cfg.Network.Offline, monitorFetch(netw), stderr)
 	checks := serveChecks(&cfg, db, lock, gw, cr)
 	eps := obs.New(obs.Config{Metrics: metrics, Checks: checks})
 	var lc net.ListenConfig

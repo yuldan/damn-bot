@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -78,6 +79,46 @@ func (g *serveGateway) replyCommand(ctx context.Context, in *telegram.Inbound, t
 	if _, err := g.adapter.Send(ctx, &telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Text: text, Key: key}); err != nil {
 		g.metrics.IncError()
 	}
+}
+
+// Timezone reads gateway_identities.tz; empty means the host zone (PROV-03).
+func (g *serveGateway) Timezone(ctx context.Context, platform, externalID string) (string, error) {
+	var tz string
+	err := g.store.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		gerr := tx.Get(`SELECT coalesce(tz, '') FROM gateway_identities WHERE platform = ?1 AND external_id = ?2`,
+			[]any{platform, externalID}, &tz)
+		if errors.Is(gerr, ctxdb.ErrNotFound) {
+			return nil
+		}
+		if gerr != nil {
+			return fmt.Errorf("read tz: %w", gerr)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("gateway: read tz: %w", err)
+	}
+	return tz, nil
+}
+
+// SetTimezone writes gateway_identities.tz; "" restores the host zone.
+func (g *serveGateway) SetTimezone(ctx context.Context, platform, externalID, tz string) error {
+	err := g.store.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		n, xerr := tx.Exec(`UPDATE gateway_identities SET tz = ?3, updated_at = ?4
+			WHERE platform = ?1 AND external_id = ?2`,
+			platform, externalID, nullText(tz), time.Now().UnixMilli())
+		if xerr != nil {
+			return fmt.Errorf("update tz: %w", xerr)
+		}
+		if n != 1 {
+			return fmt.Errorf("unknown identity %s:%s", platform, externalID)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("gateway: set tz: %w", err)
+	}
+	return nil
 }
 
 // gatewayUsers mirrors [gateway.users.<id>].workspace, keyed "<platform>:<identity>"

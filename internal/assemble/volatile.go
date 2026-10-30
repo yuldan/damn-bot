@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	_ "time/tzdata" // PROV-03: IANA zones are embedded, never a host tzdata lookup
 )
 
 // Volatile caps from SPEC §6 and ADR-067. The sub-caps sum to [CapVolatile].
@@ -27,7 +28,9 @@ type Todo struct {
 // VolatileInput is the turn-start data of the volatile tier. It is rendered
 // once by [Assembler.Freeze] and never changes during the turn (ADR-067).
 type VolatileInput struct {
-	Now             time.Time
+	Now time.Time
+	// Loc is the identity's IANA zone; nil renders UTC (PROV-03).
+	Loc             *time.Location
 	RemainingTokens int64
 	RemainingUSD    float64
 	Todos           []Todo
@@ -70,7 +73,7 @@ func (a *Assembler) Freeze(in *VolatileInput) *Turn {
 		return &Turn{}
 	}
 	v := Volatile{
-		Time:    renderTime(in.Now, a.tokens),
+		Time:    renderTime(in.Now, in.Loc, a.tokens),
 		Budget:  renderBudget(in, a.tokens),
 		Todo:    a.renderTodos(in.Todos),
 		Names:   a.renderNames(in.NewNames),
@@ -94,11 +97,14 @@ func (t *Turn) String() string {
 	return t.text
 }
 
-func renderTime(now time.Time, c Counter) string {
+func renderTime(now time.Time, loc *time.Location, c Counter) string {
 	if now.IsZero() {
 		return ""
 	}
-	return clip("now: "+now.UTC().Format("2006-01-02 15:04 MST"), CapVolTime, "", c)
+	if loc == nil {
+		loc = time.UTC
+	}
+	return clip("now: "+now.In(loc).Format("2006-01-02 15:04 MST Mon"), CapVolTime, "", c)
 }
 
 func renderBudget(in *VolatileInput, c Counter) string {

@@ -13,6 +13,7 @@ import (
 	"github.com/damnbot/damnbot/internal/cron"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/exec"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 type cronOptions struct {
@@ -220,7 +221,8 @@ func cronAct(sub string, rest []string, o *cronOptions, stdout, stderr io.Writer
 		configPath: o.configPath, dataDir: o.dataDir, model: o.model, baseURL: o.baseURL, apiKey: o.apiKey, stderr: stderr,
 	}, wallClock{})
 	admin.Limits.MinInterval = time.Minute
-	admin.Gates = &cron.Gates{Runner: runner}
+	netw := netx.New(netx.Config{Offline: env.cfg.Network.Offline, NoBackground: !env.cfg.Network.Background})
+	admin.Gates = &cron.Gates{Runner: runner, Store: newCronStore(env.db), Fetch: monitorFetch(netw)}
 	if err := admin.Run(ctx, id); err != nil {
 		sessionsPrintf(stderr, "cron run: %s\n", cleanLine(err.Error()))
 		return 1

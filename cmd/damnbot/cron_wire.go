@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -18,6 +19,7 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
 	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/gateway"
+	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/scorecard"
 )
 
@@ -308,7 +310,7 @@ type serveCron struct {
 }
 
 // newServeCron assembles store → executor → deliverer → incidents.
-func newServeCron(ctx context.Context, db *ctxdb.Store, dataDir, configPath string, deliver bool, stderr io.Writer) *serveCron {
+func newServeCron(ctx context.Context, db *ctxdb.Store, dataDir, configPath string, deliver bool, fetch func(context.Context, string) (string, error), stderr io.Writer) *serveCron {
 	out := &cronOutbox{
 		store:   gwstore.Store{DB: db},
 		offline: func() bool { return !deliver },
@@ -321,7 +323,7 @@ func newServeCron(ctx context.Context, db *ctxdb.Store, dataDir, configPath stri
 			Store: newCronAdapter(db), Executor: &cronPromptExecutor{configPath: configPath, dataDir: dataDir, stderr: stderr},
 			Deliver: out, Preflight: &cron.Checks{DataDir: dataDir},
 			Incidents: incidents, Alert: out, Clock: clock, Owner: "serve",
-			Gates: &cron.Gates{Runner: runner},
+			Gates: &cron.Gates{Runner: runner, Store: newCronStore(db), Fetch: fetch},
 		},
 		db: db, clock: clock, interval: serveCronInterval, stderr: stderr, done: make(chan struct{}),
 		score:  newScorecardJob(db, deliver, clock),
@@ -330,8 +332,8 @@ func newServeCron(ctx context.Context, db *ctxdb.Store, dataDir, configPath stri
 }
 
 // serveCronFor builds the ticker and shares its recorder with the gateway outbox.
-func serveCronFor(ctx context.Context, gw *serveGateway, db *ctxdb.Store, dataDir, configPath string, offline bool, stderr io.Writer) *serveCron {
-	cr := newServeCron(ctx, db, dataDir, configPath, gw != nil && !offline, stderr)
+func serveCronFor(ctx context.Context, gw *serveGateway, db *ctxdb.Store, dataDir, configPath string, offline bool, fetch func(context.Context, string) (string, error), stderr io.Writer) *serveCron {
+	cr := newServeCron(ctx, db, dataDir, configPath, gw != nil && !offline, fetch, stderr)
 	if gw != nil {
 		gw.cron = cr.recorder()
 	}
@@ -366,6 +368,27 @@ func (c *serveCron) LastTick() time.Time {
 		return time.Time{}
 	}
 	return time.UnixMilli(ms)
+}
+
+// monitorFetch is the cron monitor egress point (Tool client, 1 MiB cap).
+func monitorFetch(net *netx.Network) func(context.Context, string) (string, error) {
+	client := net.Client("cron-monitor", netx.Tool)
+	return func(ctx context.Context, url string) (string, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return "", fmt.Errorf("cron monitor request: %w", err)
+		}
+		resp, err := client.DoOK(req)
+		if err != nil {
+			return "", fmt.Errorf("cron monitor: %w", err)
+		}
+		body, rerr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		cerr := resp.Body.Close()
+		if err := errors.Join(rerr, cerr); err != nil {
+			return "", fmt.Errorf("cron monitor body: %w", err)
+		}
+		return string(body), nil
+	}
 }
 
 func (c *serveCron) loop(ctx context.Context) {
