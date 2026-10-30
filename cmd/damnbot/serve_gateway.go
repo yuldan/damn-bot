@@ -146,9 +146,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	g.delayWait = waitReply
 	g.started = g.now()
 	g.run = g.turn
-	g.cronAdmin = newCronAdmin(db, "serve", &cronPromptExecutor{
-		configPath: o.configPath, dataDir: o.dataDir, model: modelRef, stderr: stderr,
-	}, nil)
+	g.wireCronAdmin(db, stderr)
 	commands := gateway.NewCommands(&gateway.CommandOptions{Runtime: g, Settings: store, Control: g, Estop: &g.estop})
 	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands, &g.estop)
 	if err != nil {
@@ -234,6 +232,7 @@ func (g *serveGateway) Stop(ctx context.Context) {
 	}
 	g.wg.Wait()
 }
+
 func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound) {
 	if fields := strings.Fields(in.Text); len(fields) > 0 {
 		if command, _, _ := strings.Cut(fields[0], "@"); command == "/pair" {

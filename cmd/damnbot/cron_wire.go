@@ -326,6 +326,7 @@ func serveCronFor(gw *serveGateway, db *ctxdb.Store, dataDir, configPath string,
 func (c *serveCron) recorder() *cron.Recorder {
 	return &cron.Recorder{Store: c.sched.Incidents, Alarm: c.sched.Alert, Clock: c.clock}
 }
+
 func (c *serveCron) Start(ctx context.Context) {
 	runCtx, cancel := context.WithCancel(ctx)
 	c.cancel = cancel

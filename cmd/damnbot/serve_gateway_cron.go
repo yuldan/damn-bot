@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/damnbot/damnbot/internal/cron"
+	"github.com/damnbot/damnbot/internal/ctxdb"
 )
 
 // CronList, CronSetEnabled, CronRemove and CronRun implement gateway.Runtime
@@ -36,4 +38,11 @@ func (g *serveGateway) CronRun(ctx context.Context, id string) error {
 		return fmt.Errorf("gateway cron run: %w", err)
 	}
 	return nil
+}
+
+// wireCronAdmin builds the /cron surface from the gateway composition root.
+func (g *serveGateway) wireCronAdmin(db *ctxdb.Store, stderr io.Writer) {
+	g.cronAdmin = newCronAdmin(db, "serve", &cronPromptExecutor{
+		configPath: g.configPath, dataDir: g.dataDir, model: g.modelRef, stderr: stderr,
+	}, nil)
 }
