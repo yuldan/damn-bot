@@ -1,0 +1,89 @@
+{
+ "meta": {
+  "phase": "F4",
+  "date": "2026-10-30T00:28:18Z",
+  "hermes_commit": "868b9f244f",
+  "hermes_src": "/home/dan/.cache/damnbot/f2-inputs/hermes-src",
+  "python": "Python 3.14.10",
+  "harness": "bench/f4/hermes_f4.py (same /proc method as make perf-f4)",
+  "warmup_s": 10.0,
+  "window_s": 60.0,
+  "clock_ticks": 100.0,
+  "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
+  "kernel": "6.8.0-147-generic",
+  "loadavg_start": "2.18 4.67 3.90 4/602 3820161",
+  "loadavg_end": "3.51 4.25 3.92 22/663 3831441",
+  "host_note": "workstation measurement, not the Q14 reference machine",
+  "llm_calls": 0,
+  "startup_s": 34.759,
+  "telegram_connected": true,
+  "cold_start_retry": false
+ },
+ "status": "measured",
+ "dimensions": {
+  "cpu_idle": {
+   "status": "measured",
+   "agent": "hermes",
+   "percent": 1.4,
+   "samples_percent": [
+    1.683,
+    1.35,
+    1.4
+   ],
+   "windows": 3,
+   "window_s": 60.003,
+   "method": "process-wide utime+stime delta from /proc/<pid>/stat"
+  },
+  "rss_idle": {
+   "status": "measured",
+   "agent": "hermes",
+   "rss_mb": 210.4,
+   "peak_mb": 211.5,
+   "method": "VmRSS/VmHWM from /proc/<pid>/status"
+  },
+  "peak_rss_soak_1000_turns": {
+   "status": "n/a",
+   "hermes": null,
+   "reason": "requires the 1 000-turn soak harness; not run by the idle budget harness"
+  },
+  "crash_hang_recovery_self_healing": {
+   "status": "n/a",
+   "hermes": null,
+   "reason": "requires the chaos/SELF-HEALING suite; not run by the idle budget harness"
+  },
+  "foreign_gateway_access": {
+   "status": "n/a",
+   "hermes": null,
+   "reason": "requires the E8 Telegram scenario suite; not run by the idle budget harness"
+  }
+ },
+ "evidence": {
+  "pid": 3820168,
+  "bot_api_calls": [
+   "deleteWebhook",
+   "getMe",
+   "getUpdates",
+   "getWebhookInfo",
+   "setMyCommands"
+  ],
+  "telegram_connected": true,
+  "gateway_log_tail": [
+   "2026-10-30 00:28:21,623 WARNING gateway.run: No env user allowlists configured. Messaging platforms default to pairing/allowlist policies and will deny unknown senders unless you configure platform allowlists (e.g., TELEGRAM_ALLOWED_USERS=your_id) or explicitly opt in with GATEWAY_ALLOW_ALL_USERS=true plus dm_policy/group_policy: open on the platform.",
+   "2026-10-30 00:28:21,969 WARNING hermes_plugins.platforms__telegram.adapter: [Telegram] Discovering Telegram API fallback IPs via DNS-over-HTTPS\u2026",
+   "2026-10-30 00:28:22,625 WARNING hermes_plugins.platforms__telegram.adapter: [Telegram] Connecting to Telegram (attempt 1/8)\u2026",
+   "2026-10-30 00:28:22,975 WARNING agent.auxiliary_unavailable: Auxiliary Nous client unavailable: Nous Portal runtime credentials unavailable: Hermes is not logged into Nous Portal. Run `hermes model` to re-authenticate. (code: nous_auth_missing)",
+   "2026-10-30 00:28:22,975 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).",
+   "2026-10-30 00:28:22,976 WARNING agent.auxiliary_client: resolve_provider_client: nous requested but Nous Portal not configured (run: hermes auth)",
+   "2026-10-30 00:28:22,980 WARNING agent.auxiliary_client: Auxiliary Nous client unavailable: no Nous authentication found (run: hermes auth).",
+   "2026-10-30 00:28:22,980 WARNING agent.auxiliary_client: resolve_provider_client: nous requested but Nous Portal not configured (run: hermes auth)",
+   "2026-10-30 00:28:52,765 WARNING hermes_plugins.platforms__telegram.adapter: [Telegram] Connected to Telegram (polling mode)"
+  ]
+ },
+ "caveats": [
+  "hermes runs in a private Python 3.14.10 venv (bench/f3/README.md recipe), not in the repo tree",
+  "the fake Bot API implements getMe, deleteWebhook, getUpdates, setMyCommands and message CRUD only",
+  "no LLM call is made; provider warnings in the log are expected and do not affect idle CPU",
+  "the gateway's own cron/health loops are included in the process figure; they are not isolated",
+  "peak RSS is VmHWM during this idle window, not the 1 000-turn soak target"
+ ]
+}
