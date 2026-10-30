@@ -83,6 +83,8 @@ func (f *fakeRuntime) PausePlatform(_ context.Context, name string) (gateway.Ada
 func (f *fakeRuntime) ResumePlatform(_ context.Context, name string) (gateway.AdapterStatus, error) {
 	f.platformCalls = append(f.platformCalls, "resume:"+name)
 	return f.platformOut, f.platformErr
+}
+
 func (f *fakeRuntime) CronList(context.Context) ([]cron.Job, error) {
 	return append([]cron.Job(nil), f.cronJobs...), f.cronErr
 }
