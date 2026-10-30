@@ -199,3 +199,41 @@ func countIdentities(t *testing.T, db *ctxdb.Store) int64 {
 	}
 	return n
 }
+
+// TestGatewayPairingApproveClear: approve consumes the code once, replay is
+// rejected, clear removes only pending codes and never allowlisted identities.
+func pairCode(t *testing.T, out string) string {
+	t.Helper()
+	for f := range strings.FieldsSeq(out) {
+		if len(f) == 6 {
+			return f
+		}
+	}
+	t.Fatalf("no pairing code in %q", out)
+	return ""
+}
+
+func TestGatewayPairingApproveClear(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DAMNBOT_GATEWAY_OWNER", "telegram:1")
+	t.Setenv("DAMNBOT_GATEWAY_ALLOW", "")
+	_, out, _ := runGatewayCLI(t, "pair", "telegram", "--data-dir", dir)
+	code := pairCode(t, out)
+	if c, o, e := runGatewayCLI(t, "pairing", "approve", code, "telegram:42", "--data-dir", dir); c != 0 || !strings.Contains(o, "approved telegram:42") {
+		t.Fatalf("approve: %d %q %q", c, o, e)
+	}
+	if c, _, e := runGatewayCLI(t, "pairing", "approve", code, "telegram:43", "--data-dir", dir); c == 0 || !strings.Contains(e, "already used") {
+		t.Fatalf("replay: %d %q", c, e)
+	}
+	_, out, _ = runGatewayCLI(t, "pair", "telegram", "--data-dir", dir)
+	code = pairCode(t, out)
+	if c, o, e := runGatewayCLI(t, "pairing", "clear-pending", "telegram", "--data-dir", dir); c != 0 || !strings.Contains(o, "cleared 1") {
+		t.Fatalf("clear: %d %q %q", c, o, e)
+	}
+	if c, _, e := runGatewayCLI(t, "pairing", "approve", code, "telegram:44", "--data-dir", dir); c == 0 {
+		t.Fatalf("cleared code still approved: %q", e)
+	}
+	if c, o, _ := runGatewayCLI(t, "list", "--data-dir", dir); c != 0 || !strings.Contains(o, "telegram:42") {
+		t.Fatalf("identity lost by clear: %d %q", c, o)
+	}
+}
