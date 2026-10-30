@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -33,15 +32,21 @@ func (s *Store) ProbeWrite(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
+	// The budget must be a deadline as well as SQLite's busy_timeout: the
+	// handler measures sleeping time and let BEGIN IMMEDIATE overshoot it on a
+	// loaded runner, while opening the full store DSN under a held writer lock
+	// added up to 800 ms on Windows.
+	probeCtx, cancel := context.WithTimeout(ctx, probeBusyTimeout)
+	defer cancel()
 	db := sql.OpenDB(connector{d: d, dsn: s.probeDSN()})
 	defer func() { err = errors.Join(err, wrap(db.Close())) }()
-	c, err := db.Conn(ctx)
+	c, err := db.Conn(probeCtx)
 	if err != nil {
-		return wrap(err)
+		return wrap(probeDeadline(ctx, probeCtx, err))
 	}
 	defer func() { err = errors.Join(err, wrap(c.Close())) }()
-	if _, err = c.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return wrap(err)
+	if _, err = c.ExecContext(probeCtx, "BEGIN IMMEDIATE"); err != nil {
+		return wrap(probeDeadline(ctx, probeCtx, err))
 	}
 	// ROLLBACK never inherits cancellation: the connection must not return
 	// to the pool with an open transaction when the deadline expired.
@@ -49,7 +54,20 @@ func (s *Store) ProbeWrite(ctx context.Context) (err error) {
 	return wrap(err)
 }
 
+// probeDeadline maps the probe's own budget expiring to ErrDBBusy: the store
+// is write-locked, not broken. A caller cancellation stays a context error.
+func probeDeadline(parent, probe context.Context, err error) error {
+	if parent.Err() == nil && probe.Err() != nil {
+		return fmt.Errorf("%w: probe budget %s", ErrDBBusy, probeBusyTimeout)
+	}
+	return err
+}
+
+// probeDSN is deliberately minimal: the store DSN applies journal_mode,
+// synchronous and checkpoint pragmas that take locks, so under a held writer
+// lock they burned hundreds of milliseconds before BEGIN ran. The probe only
+// needs a read-write connection and the 250 ms busy budget.
 func (s *Store) probeDSN() string {
-	configured := fmt.Sprintf("_pragma=busy_timeout(%d)", s.opt.BusyTimeout.Milliseconds())
-	return strings.Replace(s.dsn(false), configured, fmt.Sprintf("_pragma=busy_timeout(%d)", probeBusyTimeout.Milliseconds()), 1)
+	return "file:" + dsnPath(s.dir) + "?" +
+		fmt.Sprintf("mode=rw&_pragma=busy_timeout(%d)", probeBusyTimeout.Milliseconds())
 }

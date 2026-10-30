@@ -3,9 +3,30 @@ package ctxdb
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
+
+// TestProbeDSNIsMinimal pins the latency fix: the probe must not inherit the
+// store DSN's journal_mode/synchronous/checkpoint pragmas. Under a held writer
+// lock those pragmas burned up to 800 ms before BEGIN IMMEDIATE on Windows.
+func TestProbeDSNIsMinimal(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	s := e.open(1, "serve")
+	dsn := s.probeDSN()
+	for _, banned := range []string{"journal_mode", "synchronous", "wal_autocheckpoint", "journal_size_limit"} {
+		if strings.Contains(dsn, banned) {
+			t.Fatalf("probe DSN applies store pragma %q: %s", banned, dsn)
+		}
+	}
+	for _, want := range []string{"mode=rw", "busy_timeout(250)"} {
+		if !strings.Contains(dsn, want) {
+			t.Fatalf("probe DSN = %s, want %s", dsn, want)
+		}
+	}
+}
 
 func TestProbeWriteHealthy(t *testing.T) {
 	t.Parallel()

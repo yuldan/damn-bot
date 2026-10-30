@@ -397,7 +397,10 @@ type limiter struct {
 
 func (l *limiter) wait(ctx context.Context, key string) error {
 	l.mu.Lock()
-	now := time.Now()
+	// Both endpoints of the wait must be read from the injected clock: mixing
+	// time.Now with clock.Wait made the fake clock's deadline age with real
+	// time spent in the fake transport (Windows CI saw 893 ms and 0 s).
+	now := l.clock.Now()
 	at := now
 	if t := l.next[key]; t.After(at) {
 		at = t

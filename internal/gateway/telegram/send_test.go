@@ -153,6 +153,35 @@ func TestPacingPerChatAndGlobal(t *testing.T) {
 	}
 }
 
+// TestPacingDeadlineUsesInjectedClock pins both limiter endpoints to the
+// injected clock. With time.Now() as the origin, real time spent in the fake
+// transport had already passed the fake deadline: Windows CI recorded 893 ms
+// for the same-chat slot and 0 s for the global one.
+func TestPacingDeadlineUsesInjectedClock(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		next time.Time
+		at   time.Time
+		want time.Duration
+		key  string
+	}{
+		{"per chat", time.Unix(1_700_000_000, 0).Add(time.Second), time.Unix(1_700_000_000, 0).Add(time.Second / 30), time.Second, "7"},
+		{"global", time.Unix(1_700_000_000, 0), time.Unix(1_700_000_000, 0).Add(time.Second / 30), time.Second / 30, "8"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clock := newFakeClock()
+			l := &limiter{clock: clock, per: time.Second, next: map[string]time.Time{tc.key: tc.next}, nextAt: tc.at}
+			if err := l.wait(t.Context(), tc.key); err != nil {
+				t.Fatal(err)
+			}
+			waits := clock.durations()
+			if len(waits) != 1 || waits[0] != tc.want {
+				t.Fatalf("waits = %v, want exactly %s measured on the injected clock", waits, tc.want)
+			}
+		})
+	}
+}
+
 func TestSendErrorRedactsToken(t *testing.T) {
 	f := newFakeTG(t)
 	a, _ := newTestAdapter(t, f, newMemStore(), func(c *Config) {
