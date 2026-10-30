@@ -130,6 +130,9 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 		}
 	}()
 
+	stopPerf := registerServePerf(ctx, dataDir, stderr)
+	defer stopPerf()
+
 	metrics := obs.NewMetrics()
 	metrics.SetLeaseHeld(true)
 	metrics.SetQueue(0)

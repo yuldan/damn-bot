@@ -1,0 +1,46 @@
+{
+ "meta": {
+  "phase": "F4",
+  "date": "2026-10-30T01:00:56Z",
+  "damnbot_commit": "46a9d2a4",
+  "damnbot_dirty": "3",
+  "binary": "cmd/damnbot (tags goolm,servetest)",
+  "go_version": "go1.26.10",
+  "gomaxprocs": "2",
+  "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
+  "kernel": "6.8.0-147-generic",
+  "loadavg_start": "2.68 2.61 2.63 3/618 3905080",
+  "loadavg_end": "2.94 2.67 2.65 5/608 3905163",
+  "warmup_s": 3,
+  "window_s": 5,
+  "clock_ticks": 100,
+  "host_note": "workstation measurement, not the Q14 reference machine"
+ },
+ "measurement": {
+  "rss_kb": 156832,
+  "peak_kb": 156832,
+  "rss_mb": 153.15625,
+  "peak_mb": 153.15625,
+  "idle_cpu_percent": 200.81371034207214,
+  "cpu_seconds": 10.05,
+  "cpu_ticks_delta": 1005,
+  "goroutines": 22,
+  "telegram_polls": 1,
+  "pid": 3905081
+ },
+ "cron": {
+  "mode": "servetest-hook",
+  "runs": 1,
+  "reason": "serve does not wire internal/cron on this revision; the servetest hook runs the real scheduler with a one-minute script job"
+ },
+ "gate": {
+  "rss_limit_mb": 90,
+  "cpu_limit_percent": 0.5,
+  "pass": false,
+  "failed_reasons": [
+   "rss 153.2 MB \u003e 90 MB",
+   "cpu 200.814% \u003e 0.5%"
+  ]
+ },
+ "negative_control": true
+}

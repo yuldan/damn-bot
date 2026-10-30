@@ -32,7 +32,7 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 
 .PHONY: all build build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
-	flake perf ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
+	flake perf perf-f4 ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
 	sqlite-engine sqlite-engine-cross skill-refs prices-gate release
 
 all: check
@@ -190,6 +190,17 @@ chaos-nightly:
 # sebagai penahan eksplisit. Policy busy kini mendarat (PR #312), jadi flag dikembalikan:
 # tesnya tetap ada, terlihat dan load-bearing - bukan dihapus, bukan di-skip.
 	DAMNBOT_CHAOS_LONG=1 go test $(GOTAGS) -timeout 10m -run '^TestChaos50ClientsAcrossLeaseTTL$$' -count=1 ./internal/ctxdb/
+
+# ROADMAP F4 + SCORECARD §1.2: RSS `serve` + Telegram + cron ≤ 90 MB dan CPU idle ≤ 0,5 %.
+# Biner asli dibangun dengan tag servetest (hook cron + beban kontrol negatif, tanpa jejak rilis),
+# fake Telegram + fake provider, warmup 10 s lalu jendela 60 s (VmRSS/VmHWM, Δ utime+stime, gauge
+# /metrics). Build dinicekan, pengukuran tidak. Artefak: bench/f4/results/.
+perf-f4:
+	nice -n 19 go build -tags "$(TAGSCSV),servetest" -o /dev/null ./cmd/damnbot
+	@ulimit -v 8388608; DAMNBOT_PERF_F4=1 GOMAXPROCS=2 \
+		DAMNBOT_F4_COMMIT=$$(git rev-parse --short HEAD) \
+		DAMNBOT_F4_DIRTY=$$(git status --porcelain | wc -l) \
+		go test -tags "$(TAGSCSV),servetest" -count=1 -timeout 0 -run '^TestPerfF4' -v ./internal/e2e
 
 # ENGINEERING §7.2 (E-80..E-84) + spec-guard SPEC §20; env BASE/HEAD/PR_* diisi workflow pr-meta.
 pr-meta:
