@@ -46,6 +46,7 @@ type serveGateway struct {
 	watchdog            *heal.Watchdog
 	supervisor          *heal.Supervisor
 	cron                *cron.Recorder
+	cronAdmin           *cron.Admin
 	stderr              io.Writer
 	inbound             chan telegram.Inbound
 	cancel              context.CancelFunc
@@ -145,6 +146,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	g.delayWait = waitReply
 	g.started = g.now()
 	g.run = g.turn
+	g.wireCronAdmin(db, stderr)
 	commands := gateway.NewCommands(&gateway.CommandOptions{Runtime: g, Settings: store, Control: g, Estop: &g.estop})
 	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands, &g.estop)
 	if err != nil {

@@ -19,6 +19,9 @@ import (
 )
 
 func newCronAdmin(db *ctxdb.Store, owner string, exec cron.Executor, clock cron.Clock) *cron.Admin {
+	if clock == nil {
+		clock = wallClock{}
+	}
 	return &cron.Admin{Store: newCronStore(db), Exec: exec, Clock: clock, Owner: owner}
 }
 
