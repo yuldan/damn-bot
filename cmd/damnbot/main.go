@@ -45,6 +45,11 @@ func dispatchCommand(args []string, stdout, stderr io.Writer) (code int, ok bool
 	if args[0] == "send" {
 		return runSend(args[1:], stdout, stderr), true
 	}
+	// SPEC §10 maps this name to F8 `eval scorecard`; F4 ships the run/status
+	// pair here so the weekly job can be exercised before that surface lands.
+	if args[0] == "scorecard" {
+		return runScorecard(args[1:], stdout, stderr), true
+	}
 	if e, found := lookupSurface(args[0]); found && e.Run != nil {
 		return e.Run(args[1:], stdout, stderr), true
 	}
