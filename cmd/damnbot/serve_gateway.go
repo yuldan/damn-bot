@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/cron"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
 	"github.com/damnbot/damnbot/internal/gateway"
@@ -42,6 +43,7 @@ type serveGateway struct {
 	watchdog            *heal.Watchdog
 	supervisor          *heal.Supervisor
 	stderr              io.Writer
+	cron                *cron.Admin
 	inbound             chan telegram.Inbound
 	cancel              context.CancelFunc
 	pollCancel          context.CancelFunc
@@ -123,6 +125,9 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	}
 	g.started = g.now()
 	g.run = g.turn
+	g.cron = newCronAdmin(db, "serve", &cronPromptExecutor{
+		configPath: o.configPath, dataDir: o.dataDir, model: modelRef, stderr: stderr,
+	}, nil)
 	commands := gateway.NewCommands(gateway.CommandOptions{Runtime: g})
 	gate, err := gateway.New(&gateway.Options{
 		DataDir: o.dataDir, Users: users,
@@ -775,4 +780,35 @@ func (s telegramStore) Record(ctx context.Context, in *gateway.Inbound) (bool, e
 		return false, fmt.Errorf("gateway: record inbound: %w", err)
 	}
 	return ok, nil
+}
+
+// CronList, CronSetEnabled, CronRemove and CronRun implement gateway.Runtime
+// for the owner-only /cron command over the shared cron.Admin.
+func (g *serveGateway) CronList(ctx context.Context) ([]cron.Job, error) {
+	jobs, err := g.cron.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("gateway cron list: %w", err)
+	}
+	return jobs, nil
+}
+
+func (g *serveGateway) CronSetEnabled(ctx context.Context, id string, enabled bool, reason string) error {
+	if err := g.cron.SetEnabled(ctx, id, enabled, reason); err != nil {
+		return fmt.Errorf("gateway cron set enabled: %w", err)
+	}
+	return nil
+}
+
+func (g *serveGateway) CronRemove(ctx context.Context, id string) error {
+	if err := g.cron.Remove(ctx, id); err != nil {
+		return fmt.Errorf("gateway cron remove: %w", err)
+	}
+	return nil
+}
+
+func (g *serveGateway) CronRun(ctx context.Context, id string) error {
+	if err := g.cron.Run(ctx, id); err != nil {
+		return fmt.Errorf("gateway cron run: %w", err)
+	}
+	return nil
 }

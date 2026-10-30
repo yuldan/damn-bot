@@ -19,6 +19,7 @@ type Store struct{ DB *ctxdb.Store }
 // Job is one cron_jobs row (script jobs are caller-supplied).
 type Job struct {
 	ID, Name, Schedule, TZ, Cwd  string
+	Prompt                       string
 	Owner, CatchUp, ApprovalMode string
 	Overlap                      string
 	MaxCatchUp                   int
@@ -53,10 +54,10 @@ func (s Store) Jobs(ctx context.Context) ([]Job, error) {
 				enabled int64
 				created int64
 			)
-			err := tx.Get(`SELECT id, name, schedule, coalesce(tz, ''), cwd, approval_mode,
+			err := tx.Get(`SELECT id, name, schedule, coalesce(tz, ''), cwd, prompt, approval_mode,
 					catch_up, max_catch_up, overlap, owner_identity, enabled, created_at
 				FROM cron_jobs WHERE id = ?1`, []any{id},
-				&j.ID, &j.Name, &j.Schedule, &j.TZ, &j.Cwd, &j.ApprovalMode,
+				&j.ID, &j.Name, &j.Schedule, &j.TZ, &j.Cwd, &j.Prompt, &j.ApprovalMode,
 				&j.CatchUp, &j.MaxCatchUp, &j.Overlap, &j.Owner, &enabled, &created)
 			if err != nil {
 				return fmt.Errorf("read job %s: %w", id, err)

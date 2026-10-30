@@ -1,0 +1,203 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"time"
+
+	"github.com/damnbot/damnbot/internal/cron"
+	"github.com/damnbot/damnbot/internal/ctxdb"
+)
+
+type cronOptions struct {
+	configPath, dataDir, name, schedule, prompt string
+	model, baseURL, apiKey                      string
+}
+
+// runCron is the SPEC §10 `cron` surface (CLI-025 subset). Script jobs are not
+// offered: cron_jobs has no script column yet (reported, no DDL here).
+func runCron(args []string, stdout, stderr io.Writer) int {
+	var o cronOptions
+	fs := flag.NewFlagSet("cron", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&o.configPath, "config", "", "config.toml path")
+	fs.StringVar(&o.dataDir, "data-dir", "", "data directory")
+	fs.StringVar(&o.name, "name", "", "job name")
+	fs.StringVar(&o.schedule, "schedule", "", "5-field cron expression")
+	fs.StringVar(&o.prompt, "prompt", "", "self-contained prompt")
+	fs.StringVar(&o.model, "model", "", "run: provider/model reference")
+	fs.StringVar(&o.baseURL, "base-url", "", "run: internal/test provider base URL")
+	fs.StringVar(&o.apiKey, "api-key", "", "run: internal/test provider API key")
+	pos, err := parseInterleaved(fs, args)
+	if err != nil || len(pos) == 0 {
+		cronUsage(stderr)
+		return 2
+	}
+	sub, rest := pos[0], pos[1:]
+	switch sub {
+	case "ls", "list", "status":
+		if len(rest) != 0 {
+			sessionsPrintf(stderr, "cron %s: unexpected argument %q\n", sub, cleanArg(rest[0]))
+			return 2
+		}
+		return cronList(sub, &o, stdout, stderr)
+	case "add":
+		return cronAdd(rest, &o, stdout, stderr)
+	case "pause", "resume", "rm", "run":
+		return cronAct(sub, rest, &o, stdout, stderr)
+	case "-h", "--help":
+		cronUsage(stdout)
+		return 0
+	}
+	sessionsPrintf(stderr, "cron: unknown subcommand %q\n", cleanArg(sub))
+	cronUsage(stderr)
+	return 2
+}
+
+func cronUsage(w io.Writer) {
+	sessionsPrintf(w, "usage: damnbot cron <list|add|pause|resume|rm|run|status> [flags] [id]\n")
+	sessionsPrintf(w, "  add --schedule S --prompt P   schedule a prompt job (--name)\n")
+	sessionsPrintf(w, "  pause|resume|rm|run <id>      manage one job\n")
+}
+
+func cronList(sub string, o *cronOptions, stdout, stderr io.Writer) int {
+	env, code := cronOpen(o, stderr)
+	if env == nil {
+		return code
+	}
+	defer func() {
+		if err := env.close(); err != nil {
+			sessionsPrintf(stderr, "cron: close: %s\n", cleanLine(err.Error()))
+		}
+	}()
+	jobs, err := newCronStore(env.db).Jobs(context.Background())
+	if err != nil {
+		sessionsPrintf(stderr, "cron %s: %s\n", sub, cleanLine(err.Error()))
+		return 1
+	}
+	if sub == "status" {
+		active := 0
+		for i := range jobs {
+			if jobs[i].Enabled {
+				active++
+			}
+		}
+		return say(stdout, "cron: %d job(s), %d active, %d paused\n", len(jobs), active, len(jobs)-active)
+	}
+	for i := range jobs {
+		j := &jobs[i]
+		state, next := "paused", "-"
+		if j.Enabled {
+			state = "active"
+			if sched, err := cron.ParseSchedule(j.Schedule, time.Local); err == nil {
+				next = sched.Next(time.Now()).Format(time.RFC3339)
+			}
+		}
+		if code := say(stdout, "%s\t%s\t%s\t%s\t%s\n", j.ID, cleanLine(j.Name), j.Schedule, state, next); code != 0 {
+			return code
+		}
+	}
+	return 0
+}
+
+func cronAdd(rest []string, o *cronOptions, stdout, stderr io.Writer) int {
+	if len(rest) != 0 || o.schedule == "" || o.prompt == "" {
+		sessionsPrintf(stderr, "cron add: --schedule and --prompt are required\n")
+		return 2
+	}
+	if _, err := cron.ParseSchedule(o.schedule, time.Local); err != nil {
+		sessionsPrintf(stderr, "cron add: %s\n", cleanLine(err.Error()))
+		return 2
+	}
+	cwd, cwdErr := os.Getwd()
+	if cwdErr != nil {
+		sessionsPrintf(stderr, "cron add: getwd: %s\n", cleanLine(cwdErr.Error()))
+		return 1
+	}
+	if o.name == "" {
+		o.name = fmt.Sprintf("job-%d", time.Now().UnixNano())
+	}
+	env, code := cronOpen(o, stderr)
+	if env == nil {
+		return code
+	}
+	defer func() {
+		if err := env.close(); err != nil {
+			sessionsPrintf(stderr, "cron: close: %s\n", cleanLine(err.Error()))
+		}
+	}()
+	job, created, err := newCronStore(env.db).Create(context.Background(), &cron.Job{
+		Name: o.name, Schedule: o.schedule, Prompt: o.prompt, Cwd: cwd, Enabled: true,
+	})
+	if err != nil {
+		sessionsPrintf(stderr, "cron add: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	verb := "created"
+	if !created {
+		verb = "already exists"
+	}
+	return say(stdout, "%s %s\t%s\n", verb, job.ID, cleanLine(job.Name))
+}
+
+func cronAct(sub string, rest []string, o *cronOptions, stdout, stderr io.Writer) int {
+	if len(rest) != 1 {
+		sessionsPrintf(stderr, "cron %s: exactly one job id is required\n", sub)
+		return 2
+	}
+	id := rest[0]
+	env, code := cronOpen(o, stderr)
+	if env == nil {
+		return code
+	}
+	defer func() {
+		if err := env.close(); err != nil {
+			sessionsPrintf(stderr, "cron: close: %s\n", cleanLine(err.Error()))
+		}
+	}()
+	store := newCronStore(env.db)
+	ctx := context.Background()
+	switch sub {
+	case "pause", "resume":
+		if err := store.SetEnabled(ctx, id, sub == "resume", "cli "+sub); err != nil {
+			sessionsPrintf(stderr, "cron %s: %s\n", sub, cleanLine(err.Error()))
+			return 1
+		}
+		return say(stdout, "%sd %s\n", sub, id)
+	case "rm":
+		if err := store.Remove(ctx, id); err != nil {
+			sessionsPrintf(stderr, "cron rm: %s\n", cleanLine(err.Error()))
+			return 1
+		}
+		return say(stdout, "removed %s\n", id)
+	}
+	admin := newCronAdmin(env.db, "cli", &cronPromptExecutor{
+		configPath: o.configPath, dataDir: o.dataDir, model: o.model, baseURL: o.baseURL, apiKey: o.apiKey, stderr: stderr,
+	}, nil)
+	if err := admin.Run(ctx, id); err != nil {
+		sessionsPrintf(stderr, "cron run: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	return say(stdout, "ran %s\n", id)
+}
+
+type cronCLI struct{ db *ctxdb.Store }
+
+func (c *cronCLI) close() error {
+	if err := c.db.CloseContext(context.Background()); err != nil {
+		return fmt.Errorf("close cron store: %w", err)
+	}
+	return nil
+}
+
+func cronOpen(o *cronOptions, stderr io.Writer) (*cronCLI, int) {
+	env, err := openCLI(context.Background(), o.configPath, o.dataDir)
+	if err != nil {
+		sessionsPrintf(stderr, "cron: %s\n", cleanLine(err.Error()))
+		return nil, 1
+	}
+	return &cronCLI{db: env.db}, 0
+}

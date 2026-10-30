@@ -107,6 +107,7 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 		return serveExitFatal, fmt.Errorf("config paths: %w", err)
 	}
 	dataDir := cmp.Or(o.dataDir, paths.DataDir)
+	o.dataDir = dataDir
 	lock, err := acquireServeLock(dataDir)
 	if err != nil {
 		return serveExitFatal, err // GAP-REL-03: second instance exits 78 with the PID
@@ -182,6 +183,7 @@ func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps
 	if err := gw.Start(ctx); err != nil {
 		return serveExitFatal, err
 	}
+	cronLoop := startServeCron(ctx, db, o.dataDir, o.configPath, stderr)
 	if gw != nil {
 		sessionsPrintf(stderr, "serve: gateway polling\n")
 	}
@@ -191,6 +193,7 @@ func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps
 		sessionsPrintf(stderr, "serve: stop requested; draining\n")
 	case serveErr = <-errs:
 	}
+	cronLoop.Stop()
 
 	if gw != nil {
 		gw.pollCancel()

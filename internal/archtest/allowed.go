@@ -39,7 +39,7 @@ func allowedImports() map[string][]string {
 		"internal/tui":     {"internal/loop", "internal/i18n"},
 		"internal/acp":     append([]string{"internal/loop", "internal/i18n"}, groupNetx()...),
 		"internal/web":     {"internal/loop", "internal/i18n"},
-		"internal/gateway": {"internal/loop", "internal/modules/host", "internal/i18n"},
+		"internal/gateway": {"internal/loop", "internal/modules/host", "internal/i18n", "internal/cron"},
 		// Adapter Telegram memakai renderer Telegram bersama (GAP-GW-04).
 		"internal/gateway/telegram": append(moduleImports(), "internal/gateway/render"),
 
@@ -59,7 +59,7 @@ func allowedImports() map[string][]string {
 		// Core.
 		"internal/loop":               {"internal/loop/event", "internal/boundary"}, // E-02
 		"internal/plan":               {"internal/loop/event"},
-		"internal/tools":              append([]string{"internal/schema", "internal/sandbox", "internal/codetools", "internal/redact", "internal/journal", "internal/budget", "internal/hooks", "internal/modules", "internal/modules/host", "internal/boundary"}, groupExec()...),
+		"internal/tools":              append([]string{"internal/schema", "internal/sandbox", "internal/codetools", "internal/redact", "internal/journal", "internal/budget", "internal/hooks", "internal/modules", "internal/modules/host", "internal/boundary", "internal/cron"}, groupExec()...),
 		"internal/provider":           append([]string{"internal/provider/registry", "internal/schema", "internal/budget"}, groupNetx()...),
 		"internal/provider/registry":  nil,
 		"internal/assemble":           {"internal/loop/event"},

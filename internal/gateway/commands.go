@@ -132,7 +132,8 @@ func commandRegistry() map[string]commandSpec {
 		"logs": {owner: true}, "doctor": {owner: true}, "resume": {owner: true},
 		"lock": {owner: true}, "restart": {owner: true}, "pause": {owner: true}, "resend": {owner: true},
 		"model": {owner: true}, "sethome": {owner: true}, "topic": {owner: true}, "footer": {owner: true},
-		"platform": {owner: true}, "platforms": {owner: true}, "cron": {owner: true},
+		"platform": {owner: true}, "platforms": {owner: true},
+		"cron": {owner: true, run: (*Commands).cronCommand},
 
 		// Non-owner, not implemented by this slice.
 		"fork": {}, "plan": {}, "undo": {},
