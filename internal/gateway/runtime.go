@@ -28,6 +28,14 @@ type Runtime interface {
 	// current day. ok is false when the ledger has no row for that session, so
 	// /usage can say "no usage yet" instead of printing a zero.
 	Usage(ctx context.Context, scope *Scope) (UsageReport, bool, error)
+	// Restart stops admission and restarts once active turns finish.
+	Restart(ctx context.Context, scope *Scope) (RestartReport, error)
+	// Platforms lists adapters and their state.
+	Platforms(ctx context.Context) ([]AdapterStatus, error)
+	// PausePlatform stops one adapter; it is idempotent.
+	PausePlatform(ctx context.Context, name string) (AdapterStatus, error)
+	// ResumePlatform restarts a paused or failed adapter; idempotent.
+	ResumePlatform(ctx context.Context, name string) (AdapterStatus, error)
 }
 
 // RuntimeStatus is the read-only daemon state /status answers with.
@@ -49,4 +57,9 @@ type UsageReport struct {
 	SessionCostKnown  bool
 	DayCostMicros     int64
 	DayCostKnown      bool
+}
+
+// RestartReport is the drain state at the moment /restart was accepted.
+type RestartReport struct {
+	Active int
 }

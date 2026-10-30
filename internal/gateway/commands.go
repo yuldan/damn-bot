@@ -83,7 +83,7 @@ type commandSpec struct {
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /restart /platforms /platform list|pause|resume [name]"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -127,12 +127,16 @@ func commandRegistry() map[string]commandSpec {
 			owner: true,
 			run:   (*Commands).usage,
 		},
+		"restart":   {owner: true, run: (*Commands).restart},
+		"platforms": {owner: true, run: (*Commands).platformList},
+		"gateway":   {owner: true, run: (*Commands).platformList},
+		"platform":  {owner: true, run: (*Commands).platform},
 
 		// Owner-only, not implemented by this slice.
 		"logs": {owner: true}, "doctor": {owner: true}, "resume": {owner: true},
-		"lock": {owner: true}, "restart": {owner: true}, "pause": {owner: true}, "resend": {owner: true},
+		"lock": {owner: true}, "pause": {owner: true}, "resend": {owner: true},
 		"model": {owner: true}, "sethome": {owner: true}, "topic": {owner: true}, "footer": {owner: true},
-		"platform": {owner: true}, "platforms": {owner: true}, "cron": {owner: true},
+		"cron": {owner: true},
 
 		// Non-owner, not implemented by this slice.
 		"fork": {}, "plan": {}, "undo": {},
@@ -270,6 +274,73 @@ func (c *Commands) usage(ctx context.Context, t *Ticket, _ Command) CommandResul
 
 const noUsage = "no usage yet"
 
+// restart is SLASH-089: stop admission, reply, then leave once active turns end.
+func (c *Commands) restart(ctx context.Context, t *Ticket, _ Command) CommandResult {
+	if c.runtime == nil {
+		return unsupported("restart")
+	}
+	rep, err := c.runtime.Restart(ctx, &t.Scope)
+	switch {
+	case err != nil:
+		return CommandResult{Handled: true, Reply: "restart unavailable"}
+	case rep.Active > 0:
+		return CommandResult{Handled: true, Reply: fmt.Sprintf("restart scheduled after %d active turn(s) finish", rep.Active)}
+	default:
+		return CommandResult{Handled: true, Reply: "restarting"}
+	}
+}
+
+// platform is SLASH-096: pause, resume or list one adapter; both are idempotent.
+func (c *Commands) platform(ctx context.Context, _ *Ticket, cmd Command) CommandResult {
+	if c.runtime == nil {
+		return unsupported("platform")
+	}
+	if len(cmd.Args) == 0 || cmd.Args[0] == "list" {
+		return c.platformList(ctx, nil, Command{})
+	}
+	verb := cmd.Args[0]
+	if (verb != "pause" && verb != "resume") || len(cmd.Args) != 2 {
+		return usage("/platform pause|resume|list [name]")
+	}
+	var (
+		st  AdapterStatus
+		err error
+	)
+	if verb == "pause" {
+		st, err = c.runtime.PausePlatform(ctx, cmd.Args[1])
+	} else {
+		st, err = c.runtime.ResumePlatform(ctx, cmd.Args[1])
+	}
+	if err != nil {
+		if errors.Is(err, ErrAdapterNotFound) {
+			return CommandResult{Handled: true, Reply: fmt.Sprintf("platform %q not found", cmd.Args[1])}
+		}
+		return CommandResult{Handled: true, Reply: "could not " + verb + " platform " + cmd.Args[1]}
+	}
+	return CommandResult{Handled: true, Reply: fmt.Sprintf("platform %s %s", st.Key, st.State)}
+}
+
+func (c *Commands) platformList(ctx context.Context, _ *Ticket, _ Command) CommandResult {
+	if c.runtime == nil {
+		return unsupported("platforms")
+	}
+	st, err := c.runtime.Platforms(ctx)
+	if err != nil {
+		return CommandResult{Handled: true, Reply: "platform status unavailable"}
+	}
+	if len(st) == 0 {
+		return CommandResult{Handled: true, Reply: "no gateway platforms"}
+	}
+	rows := make([]string, len(st))
+	for i, p := range st {
+		rows[i] = p.Key.String() + " " + string(p.State)
+		if p.Err != "" {
+			rows[i] += " (" + p.Err + ")"
+		}
+	}
+	return CommandResult{Handled: true, Reply: "platforms: " + strings.Join(rows, ", ")}
+}
+
 // modeName is the /status name of the daemon mode (SELF-HEALING §1.4).
 func modeName(safe bool) string {
 	if safe {
@@ -393,5 +464,5 @@ func unsupported(name string) CommandResult {
 }
 
 func usage(u string) CommandResult {
-	return CommandResult{Handled: true, Reply: "usage: /" + u}
+	return CommandResult{Handled: true, Reply: "usage: /" + strings.TrimPrefix(u, "/")}
 }

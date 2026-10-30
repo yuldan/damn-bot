@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/config"
@@ -37,6 +38,7 @@ type serveGateway struct {
 	quota               *gateway.Quota
 	limiter             *gateway.Limiter
 	chats               *gateway.ChatQueue
+	registry            *gateway.Registry
 	daemon              *serveDaemon
 	metrics             *obs.Metrics
 	watchdog            *heal.Watchdog
@@ -48,6 +50,13 @@ type serveGateway struct {
 	wg                  sync.WaitGroup
 	now                 func() time.Time
 	started             time.Time
+
+	// restartCh receives one value when /restart has replied and every active
+	// turn finished. serveLoop turns it into the planned-restart exit code.
+	restartCh      chan struct{}
+	restartOnce    sync.Once
+	restartPending atomic.Bool
+	runCtx         context.Context
 
 	// run is the one chat turn. It is a field so tests can substitute a fake
 	// runner: no command in this file needs a provider or a token.
@@ -119,7 +128,10 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		chats: gateway.NewChatQueue(cfg.Gateway.MaxParallelTurns), daemon: daemon,
 		metrics: metrics, watchdog: wd, supervisor: sup, stderr: stderr,
 		inbound: make(chan telegram.Inbound, 32), now: time.Now,
-		turns: make(map[turnKey]*chatTurn),
+		turns: make(map[turnKey]*chatTurn), restartCh: make(chan struct{}, 1),
+	}
+	if err := g.registerPlatform(); err != nil {
+		return nil, err
 	}
 	g.started = g.now()
 	g.run = g.turn
@@ -166,15 +178,12 @@ func (g *serveGateway) Start(ctx context.Context) error {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	pollCtx, pollCancel := context.WithCancel(runCtx)
-	g.cancel, g.pollCancel = cancel, pollCancel
+	g.cancel, g.pollCancel, g.runCtx = cancel, pollCancel, runCtx
+	if err := g.registry.Start(pollCtx); err != nil {
+		return fmt.Errorf("gateway: registry start: %w", err)
+	}
+	g.writePlatforms()
 	g.wg.Add(4)
-	go func() {
-		defer g.wg.Done()
-		if err := g.adapter.Run(pollCtx, g.inbound); err != nil && pollCtx.Err() == nil {
-			sessionsPrintf(g.stderr, "gateway: poller stopped: %s\n", cleanLine(err.Error()))
-			g.metrics.IncError()
-		}
-	}()
 	go func() {
 		defer g.wg.Done()
 		for {
@@ -190,6 +199,7 @@ func (g *serveGateway) Start(ctx context.Context) error {
 		}
 	}()
 	go func() { defer g.wg.Done(); g.deliveries(runCtx) }()
+	go func() { defer g.wg.Done(); g.controlLoop(runCtx) }()
 	go func() { defer g.wg.Done(); g.watchdog.Run(runCtx) }()
 	return nil
 }
@@ -205,6 +215,13 @@ func (g *serveGateway) Stop() {
 		g.cancel()
 	}
 	g.chats.Close()
+	if g.registry != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), serveShutdownMax)
+		if err := g.registry.Stop(ctx); err != nil {
+			sessionsPrintf(g.stderr, "gateway: stop adapters: %s\n", cleanLine(err.Error()))
+		}
+		cancel()
+	}
 	g.wg.Wait()
 }
 

@@ -25,6 +25,14 @@ type fakeRuntime struct {
 	usageOK       bool
 	usageErr      error
 	usageScopes   []gateway.Scope
+	restart       gateway.RestartReport
+	restartErr    error
+	restartCalls  int
+	platforms     []gateway.AdapterStatus
+	platformsErr  error
+	platformOut   gateway.AdapterStatus
+	platformErr   error
+	platformCalls []string
 }
 
 func (f *fakeRuntime) StopTurn(_ context.Context, scope *gateway.Scope) (bool, error) {
@@ -44,6 +52,25 @@ func (f *fakeRuntime) Status(context.Context) (gateway.RuntimeStatus, error) {
 func (f *fakeRuntime) Usage(_ context.Context, scope *gateway.Scope) (gateway.UsageReport, bool, error) {
 	f.usageScopes = append(f.usageScopes, *scope)
 	return f.report, f.usageOK, f.usageErr
+}
+
+func (f *fakeRuntime) Restart(context.Context, *gateway.Scope) (gateway.RestartReport, error) {
+	f.restartCalls++
+	return f.restart, f.restartErr
+}
+
+func (f *fakeRuntime) Platforms(context.Context) ([]gateway.AdapterStatus, error) {
+	return f.platforms, f.platformsErr
+}
+
+func (f *fakeRuntime) PausePlatform(_ context.Context, name string) (gateway.AdapterStatus, error) {
+	f.platformCalls = append(f.platformCalls, "pause:"+name)
+	return f.platformOut, f.platformErr
+}
+
+func (f *fakeRuntime) ResumePlatform(_ context.Context, name string) (gateway.AdapterStatus, error) {
+	f.platformCalls = append(f.platformCalls, "resume:"+name)
+	return f.platformOut, f.platformErr
 }
 
 func ticketIn(role gateway.Role, chat string) *gateway.Ticket {
@@ -239,5 +266,76 @@ func TestChatQueueStats(t *testing.T) {
 	q.Close()
 	if queued, active := q.Stats(); queued != 0 || active != 0 {
 		t.Fatalf("stats after Close = (%d queued, %d active), want (0, 0)", queued, active)
+	}
+}
+
+// TestRestartCommandDrainsWithoutCancelling: /restart is owner-only and answers
+// with the number of turns the daemon will wait for; the command itself never
+// cancels one.
+func TestRestartCommandDrainsWithoutCancelling(t *testing.T) {
+	rt := &fakeRuntime{restart: gateway.RestartReport{Active: 2}}
+	c := gateway.NewCommands(gateway.CommandOptions{Runtime: rt})
+	res := c.Dispatch(context.Background(), ticketIn(gateway.RoleOwner, "c1"), "/restart")
+	if !res.Handled || !strings.Contains(res.Reply, "2 active turn") {
+		t.Fatalf("/restart = %+v, want the active-turn count", res)
+	}
+	if rt.restartCalls != 1 {
+		t.Fatalf("restart calls = %d, want 1", rt.restartCalls)
+	}
+	res = c.Dispatch(context.Background(), ticketIn(gateway.RoleUser, "c1"), "/restart")
+	if !res.Handled || !strings.Contains(res.Reply, "owner-only") || rt.restartCalls != 1 {
+		t.Fatalf("user /restart = %+v, calls = %d; want owner-only without a runtime call", res, rt.restartCalls)
+	}
+}
+
+// TestPlatformsAndPlatformCommands: list is read-only, pause/resume reach the
+// runtime by name, the /gateway alias lists too, and every failure is spoken.
+func TestPlatformsAndPlatformCommands(t *testing.T) {
+	rt := &fakeRuntime{
+		platforms:   []gateway.AdapterStatus{{Key: gateway.Key{Platform: "telegram", Account: "1"}, State: gateway.StateRunning}},
+		platformOut: gateway.AdapterStatus{Key: gateway.Key{Platform: "telegram", Account: "1"}, State: gateway.StatePaused},
+	}
+	c := gateway.NewCommands(gateway.CommandOptions{Runtime: rt})
+	owner := ticketIn(gateway.RoleOwner, "c1")
+
+	if res := c.Dispatch(context.Background(), owner, "/platforms"); !strings.Contains(res.Reply, "telegram:1 running") {
+		t.Fatalf("/platforms = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), owner, "/gateway"); !strings.Contains(res.Reply, "telegram:1 running") {
+		t.Fatalf("/gateway alias = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), owner, "/platform pause telegram"); !strings.Contains(res.Reply, "telegram:1 paused") {
+		t.Fatalf("/platform pause = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), owner, "/platform resume telegram:1"); !strings.Contains(res.Reply, "telegram:1 paused") {
+		t.Fatalf("/platform resume = %+v", res)
+	}
+	if got := strings.Join(rt.platformCalls, ","); got != "pause:telegram,resume:telegram:1" {
+		t.Fatalf("platform calls = %q", got)
+	}
+	if res := c.Dispatch(context.Background(), owner, "/platform"); !strings.Contains(res.Reply, "telegram:1 running") {
+		t.Fatalf("/platform list default = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), owner, "/platform pause"); !strings.Contains(res.Reply, "usage: /platform pause|resume|list [name]") {
+		t.Fatalf("/platform pause without name = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), owner, "/platform explode x"); !strings.Contains(res.Reply, "usage:") {
+		t.Fatalf("/platform bad verb = %+v", res)
+	}
+	rt.platformErr = gateway.ErrAdapterNotFound
+	if res := c.Dispatch(context.Background(), owner, "/platform pause nope"); !strings.Contains(res.Reply, `platform "nope" not found`) {
+		t.Fatalf("unknown platform = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), ticketIn(gateway.RoleUser, "c1"), "/platforms"); !strings.Contains(res.Reply, "owner-only") {
+		t.Fatalf("user /platforms = %+v, want owner-only", res)
+	}
+}
+
+// TestPlatformListEmptyIsExplicit: an empty registry says so instead of an
+// empty reply.
+func TestPlatformListEmptyIsExplicit(t *testing.T) {
+	c := gateway.NewCommands(gateway.CommandOptions{Runtime: &fakeRuntime{}})
+	if res := c.Dispatch(context.Background(), ticketIn(gateway.RoleOwner, "c1"), "/platforms"); res.Reply != "no gateway platforms" {
+		t.Fatalf("/platforms empty = %q", res.Reply)
 	}
 }

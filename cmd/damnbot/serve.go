@@ -185,11 +185,19 @@ func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps
 	if gw != nil {
 		sessionsPrintf(stderr, "serve: gateway polling\n")
 	}
+	var restartCh <-chan struct{}
+	if gw != nil {
+		restartCh = gw.restartCh
+	}
 	var serveErr error
+	restart := false
 	select {
 	case <-sigCtx.Done():
 		sessionsPrintf(stderr, "serve: stop requested; draining\n")
 	case serveErr = <-errs:
+	case <-restartCh:
+		restart = true
+		sessionsPrintf(stderr, "serve: restart requested; draining\n")
 	}
 
 	if gw != nil {
@@ -212,6 +220,8 @@ func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps
 	cancelShut()
 	closeErr := db.CloseContext(context.WithoutCancel(ctx))
 	switch {
+	case restart && serveErr == nil && shutErr == nil && closeErr == nil:
+		return serveExitPlanned, nil
 	case serveErr != nil:
 		return serveExitSoftware, fmt.Errorf("observability server: %w", serveErr)
 	case shutErr != nil:

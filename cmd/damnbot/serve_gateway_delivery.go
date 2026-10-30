@@ -26,6 +26,9 @@ func (g *serveGateway) deliveries(ctx context.Context) {
 
 // claimDeliveries hands the due rows to deliverOne, one at a time.
 func (g *serveGateway) claimDeliveries(ctx context.Context, now time.Time) {
+	if g.cfg.Network.Offline {
+		return // offline: keep rows queued, perform no egress of any kind
+	}
 	due, err := g.store.ClaimDeliveries(ctx, now.UnixMilli(), 8)
 	if err != nil {
 		sessionsPrintf(g.stderr, "gateway: claim deliveries: %s\n", cleanLine(err.Error()))

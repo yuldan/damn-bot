@@ -39,6 +39,8 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 		return gatewayList(args[1:], stdout, stderr)
 	case "status":
 		return gatewayStatus(args[1:], stdout, stderr)
+	case "platform":
+		return gatewayPlatform(args[1:], stdout, stderr)
 	}
 	sessionsPrintf(stderr, "gateway: unknown subcommand %q\n", cleanArg(args[0]))
 	gatewayUsage(stderr)
@@ -50,6 +52,7 @@ func gatewayUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot gateway allow|revoke <platform> <id> [--role owner|user] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway list [--platform P] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway status [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot gateway platform list|pause|resume <name> [--data-dir DIR]\n")
 	sessionsPrintf(w, "bootstrap: DAMNBOT_GATEWAY_OWNER=platform:id and DAMNBOT_GATEWAY_ALLOW=platform:id,... (or a JSON list)\n")
 	sessionsPrintf(w, "missing identities only; the database stays the source of truth.\n")
 }
@@ -228,5 +231,55 @@ func gatewayStatus(args []string, stdout, stderr io.Writer) int {
 	sessionsPrintf(stdout, "deliveries queued=%d sending=%d sent=%d failed=%d\n",
 		st.Deliveries["queued"], st.Deliveries["sending"], st.Deliveries["sent"], st.Deliveries["failed"])
 	sessionsPrintf(stdout, "leases %d\n", st.Leases)
+	return 0
+}
+
+// gatewayPlatform is GW-018/SLASH-095-096 from the operator side. A running
+// serve owns the adapters; without one there is nothing to pause or resume.
+func gatewayPlatform(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("gateway platform", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dataDir := fs.String("data-dir", "", "data directory")
+	pos, err := parseInterleaved(fs, args)
+	if err != nil || len(pos) == 0 || pos[0] != "list" && pos[0] != "pause" && pos[0] != "resume" ||
+		(pos[0] == "list" && len(pos) != 1) || (pos[0] != "list" && len(pos) != 2) {
+		gatewayUsage(stderr)
+		return 2
+	}
+	dir, err := dataDirFor(*dataDir)
+	if err != nil {
+		sessionsPrintf(stderr, "gateway platform: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	verb := pos[0]
+	if !serveLockHeld(dir) {
+		if verb == "list" {
+			sessionsPrintf(stdout, "serve is not running\n")
+			return 0
+		}
+		sessionsPrintf(stderr, "gateway platform %s: serve is not running\n", verb)
+		return 1
+	}
+	if verb != "list" {
+		req := spoolRequest{Op: "platform_" + verb, Name: pos[1]}
+		if qerr := queueRequest(dir, req); qerr != nil {
+			sessionsPrintf(stderr, "gateway platform %s: %s\n", verb, cleanLine(qerr.Error()))
+			return 1
+		}
+		sessionsPrintf(stdout, "requested %s %s; check `damnbot gateway platform list`\n", verb, cleanArg(pos[1]))
+		return 0
+	}
+	list := readPlatforms(dir)
+	if len(list) == 0 {
+		sessionsPrintf(stdout, "no gateway platforms\n")
+		return 0
+	}
+	for _, p := range list {
+		if p.Err != "" {
+			sessionsPrintf(stdout, "%s %s (%s)\n", p.Key.String(), p.State, p.Err)
+			continue
+		}
+		sessionsPrintf(stdout, "%s %s\n", p.Key.String(), p.State)
+	}
 	return 0
 }

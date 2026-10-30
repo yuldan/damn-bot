@@ -42,6 +42,12 @@ func dispatchCommand(args []string, stdout, stderr io.Writer) (code int, ok bool
 	if args[0] == "__complete" {
 		return runComplete(args[1:], stdout), true
 	}
+	// `send` is the scriptable CLI-018 surface. It stays hidden from the
+	// 22-command table (SPEC §10) because that table is a frozen 1.0 surface;
+	// the parity row documents it instead.
+	if args[0] == "send" {
+		return runSend(args[1:], stdout, stderr), true
+	}
 	if e, found := lookupSurface(args[0]); found && e.Run != nil {
 		return e.Run(args[1:], stdout, stderr), true
 	}
