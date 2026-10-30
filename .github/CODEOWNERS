@@ -47,5 +47,6 @@
 /internal/tui/ @yuldan
 /internal/cron/ @yuldan
 /internal/gateway/ @yuldan
+/internal/hooks/ @yuldan
 /internal/obs/ @yuldan
 /internal/scorecard/ @yuldan

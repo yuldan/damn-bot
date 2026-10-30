@@ -75,7 +75,7 @@ func allowedImports() map[string][]string {
 		"internal/codetools":          {"internal/sandbox", "internal/boundary"},
 		"internal/exec":               {"internal/exec/classify", "internal/sandbox", "internal/redact", "internal/boundary"},
 		"internal/exec/classify":      nil,
-		"internal/hooks":              groupExec(),
+		"internal/hooks":              append(groupExec(), "internal/redact"),
 		"internal/modules":            {"internal/modules/host", "internal/boundary"},
 		"internal/modules/host":       {"internal/schema", "internal/loop/event"},
 		"internal/ctxdb":              {"internal/loop/event", "internal/redact"},

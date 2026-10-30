@@ -277,6 +277,7 @@ flowchart TD
     EXE --> SBX
     EXE --> RED
     HOOK --> EXE
+    HOOK --> RED
     HEAL --> DB
     HEAL --> CFG
     IMP --> DB

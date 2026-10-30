@@ -36,6 +36,9 @@ type Options struct {
 	Budget *BudgetGuard
 	// Estop is the process-wide emergency stop (OPS-037); nil keeps the gate running.
 	Estop *Estop
+	// Hooks runs the gateway_inbound filter. Nil keeps every authorized
+	// message admitted, as before the hooks engine existed.
+	Hooks InboundHook
 }
 
 // Gate admits or rejects one inbound update before any turn or LLM call. It is
@@ -49,6 +52,7 @@ type Gate struct {
 	chats      ChatPolicyStore
 	budget     *BudgetGuard
 	estop      *Estop
+	hooks      InboundHook
 }
 
 // New validates the wiring. Configuration is data, so an empty DataDir and an
@@ -75,6 +79,7 @@ func New(opts *Options) (*Gate, error) {
 		chats:      opts.Chats,
 		budget:     opts.Budget,
 		estop:      opts.Estop,
+		hooks:      opts.Hooks,
 	}, nil
 }
 
@@ -107,6 +112,11 @@ const (
 	// exceeds budget.gateway_user_daily_usd (SPEC §18.4); the turn never runs.
 	ReasonBudgetGatewayUser Reason = "budget_gateway_user"
 	ReasonPaused            Reason = "paused" // emergency stop; the inbox row is parked
+	// ReasonHookDenied is the gateway_inbound hook's explicit deny (SPEC §4.10).
+	ReasonHookDenied Reason = "hook_denied"
+	// ReasonHookError fails closed when a hook exits non-zero, times out, or
+	// returns an invalid response (SPEC §4.10 on_error default deny).
+	ReasonHookError Reason = "hook_error"
 )
 
 // Ticket is the admitted work of one update. Scope is the only source of
@@ -124,6 +134,10 @@ type Outcome struct {
 	// Reply is the one reply of a CommandHandled outcome; it is empty for
 	// every other Kind and for a command that answers nothing ("/start").
 	Reply string
+	// Hook names the gateway_inbound hook that rejected the update, and
+	// HookDetail carries its reason or failure for the audit event.
+	Hook       string
+	HookDetail string
 }
 
 // RunFunc is the work an admitted update may perform (a chat turn). Admit calls
@@ -140,8 +154,9 @@ type RunFunc func(ctx context.Context, t Ticket) error
 //
 // The steps are named helpers, in this order: admitPairCommand (pair before
 // authorization, claiming its own dedupe row), authorize (identity, status,
-// role), admitTurn (budget, mention policy, scope, dedupe claim), dispatchCommand
-// (slash command before any turn), then the work itself.
+// role), inboundHook (gateway_inbound filter), admitTurn (budget, mention
+// policy, scope, dedupe claim), dispatchCommand (slash command before any
+// turn), then the work itself.
 func (g *Gate) Admit(ctx context.Context, in *Inbound, work RunFunc) (Outcome, error) {
 	if work == nil {
 		return Outcome{}, ErrNoWork
@@ -160,7 +175,13 @@ func (g *Gate) Admit(ctx context.Context, in *Inbound, work RunFunc) (Outcome, e
 		return deny(reason), nil
 	}
 	allowStopped := g.commands != nil && g.commands.emergency(in.Text)
+	if out := g.inboundHook(ctx, in); out.Reason != ReasonNone {
+		return out, nil
+	}
 	t, kind, reason, err := g.admitTurn(ctx, &id, in, allowStopped)
+	if err != nil {
+		return Outcome{}, err
+	}
 	if kind != Accepted {
 		return Outcome{Kind: kind, Reason: reason}, err
 	}
@@ -233,6 +254,22 @@ func (g *Gate) admitPairCommand(ctx context.Context, in *Inbound) (Outcome, bool
 	}
 	out, err := g.admitPair(ctx, in, cmd)
 	return out, true, err
+}
+
+// inboundHook runs the gateway_inbound filter after authorization and before
+// the inbox claim, commands, or any turn. A hook error denies (SPEC §4.10).
+func (g *Gate) inboundHook(ctx context.Context, in *Inbound) Outcome {
+	if g.hooks == nil {
+		return Outcome{}
+	}
+	d, err := g.hooks.Inbound(ctx, in)
+	if err != nil {
+		return Outcome{Kind: Rejected, Reason: ReasonHookError, Hook: d.Hook, HookDetail: err.Error()}
+	}
+	if !d.Allow {
+		return Outcome{Kind: Rejected, Reason: ReasonHookDenied, Hook: d.Hook, HookDetail: d.Reason}
+	}
+	return Outcome{}
 }
 
 // authorize returns the stored identity and its denial reason (ReasonNone when
