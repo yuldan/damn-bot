@@ -9,8 +9,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"time"
+
+	configos "github.com/damnbot/damnbot/internal/config"
 
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
 	"github.com/damnbot/damnbot/internal/gateway"
@@ -90,8 +91,8 @@ func gatewayOpen(ctx context.Context, dataDir string, stderr io.Writer) (gwstore
 func gatewayBootstrap(ctx context.Context, store gwstore.Store) error {
 	now := time.Now().UnixMilli()
 	for _, spec := range []struct{ name, env, role string }{
-		{"DAMNBOT_GATEWAY_OWNER", os.Getenv("DAMNBOT_GATEWAY_OWNER"), "owner"},
-		{"DAMNBOT_GATEWAY_ALLOW", os.Getenv("DAMNBOT_GATEWAY_ALLOW"), "user"},
+		{"DAMNBOT_GATEWAY_OWNER", configos.OS().Getenv("DAMNBOT_GATEWAY_OWNER"), "owner"},
+		{"DAMNBOT_GATEWAY_ALLOW", configos.OS().Getenv("DAMNBOT_GATEWAY_ALLOW"), "user"},
 	} {
 		entries, err := gateway.ParseAllowlist(spec.env)
 		if err != nil {

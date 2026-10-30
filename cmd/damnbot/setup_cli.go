@@ -187,7 +187,7 @@ func setupFail(stderr io.Writer, err error) int {
 func printSetupCredentials(w io.Writer) {
 	found := 0
 	for _, c := range setupCredentials() {
-		if os.Getenv(c.env) == "" {
+		if config.OS().Getenv(c.env) == "" {
 			continue
 		}
 		found++

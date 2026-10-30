@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	configos "github.com/damnbot/damnbot/internal/config"
 )
 
 // GW-024: `damnbot gateway chat` is a local REPL over the live gateway. A line
@@ -94,8 +96,8 @@ func serveLease(dataDir string) (bool, error) {
 // configured owner or first allowlisted identity of the platform, so admission
 // still authorizes the message exactly as it would a platform update.
 func configuredGatewayIdentity(platform string) (string, error) {
-	specs := append([]string{os.Getenv("DAMNBOT_GATEWAY_OWNER")},
-		strings.Split(os.Getenv("DAMNBOT_GATEWAY_ALLOW"), ",")...)
+	specs := append([]string{configos.OS().Getenv("DAMNBOT_GATEWAY_OWNER")},
+		strings.Split(configos.OS().Getenv("DAMNBOT_GATEWAY_ALLOW"), ",")...)
 	for _, spec := range specs {
 		p, id, ok := strings.Cut(strings.TrimSpace(spec), ":")
 		if ok && p == platform && id != "" {

@@ -5,12 +5,13 @@ package main
 import (
 	"context"
 	"io"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
 	"time"
+
+	configos "github.com/damnbot/damnbot/internal/config"
 
 	"github.com/damnbot/damnbot/internal/cron"
 	"github.com/damnbot/damnbot/internal/exec"
@@ -45,7 +46,7 @@ func registerServePerf(ctx context.Context, dataDir string, w io.Writer) func() 
 // deliberately starts no goroutine and no ticker: the only repeating cron
 // scheduler in the process is the production serveCron.
 func runPerfCronTick(ctx context.Context, dataDir string, w io.Writer) func() {
-	if os.Getenv("DAMNBOT_SERVE_TEST_CRON") != "1" {
+	if configos.OS().Getenv("DAMNBOT_SERVE_TEST_CRON") != "1" {
 		return func() {}
 	}
 	runner := exec.New(ctx)
@@ -132,7 +133,7 @@ func startPerfLoad(ctx context.Context, w io.Writer) func() {
 
 // envCount parses a non-negative integer knob; 0 when unset or invalid.
 func envCount(name string) int {
-	n, err := strconv.Atoi(os.Getenv(name))
+	n, err := strconv.Atoi(configos.OS().Getenv(name))
 	if err != nil || n < 0 {
 		return 0
 	}

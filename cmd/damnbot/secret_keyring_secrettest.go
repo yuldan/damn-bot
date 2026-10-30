@@ -4,7 +4,7 @@ package main
 
 import (
 	"errors"
-	"os"
+	configos "github.com/damnbot/damnbot/internal/config"
 	"sync"
 
 	"github.com/damnbot/damnbot/internal/secret"
@@ -17,7 +17,7 @@ type memKeyring struct {
 }
 
 func (k *memKeyring) Get(service, user string) (string, error) {
-	if os.Getenv("DAMNBOT_TEST_KEYRING") == "fail" {
+	if configos.OS().Getenv("DAMNBOT_TEST_KEYRING") == "fail" {
 		return "", errors.New("test keyring unavailable")
 	}
 	k.mu.Lock()
@@ -30,7 +30,7 @@ func (k *memKeyring) Get(service, user string) (string, error) {
 }
 
 func (k *memKeyring) Set(service, user, value string) error {
-	if os.Getenv("DAMNBOT_TEST_KEYRING") == "fail" {
+	if configos.OS().Getenv("DAMNBOT_TEST_KEYRING") == "fail" {
 		return errors.New("test keyring unavailable")
 	}
 	k.mu.Lock()
@@ -40,7 +40,7 @@ func (k *memKeyring) Set(service, user, value string) error {
 }
 
 func (k *memKeyring) Delete(service, user string) error {
-	if os.Getenv("DAMNBOT_TEST_KEYRING") == "fail" {
+	if configos.OS().Getenv("DAMNBOT_TEST_KEYRING") == "fail" {
 		return errors.New("test keyring unavailable")
 	}
 	k.mu.Lock()

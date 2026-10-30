@@ -79,23 +79,10 @@ func (l *Loader) Load(path string) (Config, error) {
 	return l.Parse(data, path)
 }
 
-// Effective applies the process environment overrides F3 normatively defines
-// to cfg: DAMNBOT_NETWORK_BACKGROUND (GAP-OPS-02; empty = unset). It is
-// separate from [Loader.Parse] so `config edit` validates the file, not the
-// environment.
-func (l *Loader) Effective(cfg *Config) error {
-	if v := l.deps.Getenv("DAMNBOT_NETWORK_BACKGROUND"); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			return &Error{
-				Kind: ErrInvalidValue, Key: "network.background",
-				Msg: "DAMNBOT_NETWORK_BACKGROUND must be 0/1/true/false",
-			}
-		}
-		cfg.Network.Background = b
-	}
-	return nil
-}
+// Effective applies the generated DAMNBOT_<SECTION>_<KEY> overrides to cfg
+// (GAP-OPS-01). It is separate from [Loader.Parse] so `config edit` validates
+// the file, not the environment.
+func (l *Loader) Effective(cfg *Config) error { return l.applyEnv(cfg) }
 
 // Env exposes one overridden variable for `config explain` provenance
 // without letting callers read the environment directly (GAP-OPS-01).

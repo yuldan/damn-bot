@@ -557,7 +557,7 @@ func providerEndpoint(ref string, o *runOptions) (base, key, family string, err 
 	}
 	key = o.apiKey
 	if key == "" {
-		key = os.Getenv(strings.ToUpper(prov) + "_API_KEY")
+		key = config.OS().Getenv(strings.ToUpper(prov) + "_API_KEY")
 	}
 	return base, key, family, nil
 }

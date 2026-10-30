@@ -8,10 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	configos "github.com/damnbot/damnbot/internal/config"
 
 	"github.com/damnbot/damnbot/internal/cron"
 	"github.com/damnbot/damnbot/internal/ctxdb"
@@ -196,7 +197,7 @@ func (d *cronOutbox) enqueue(ctx context.Context, key, body string) error {
 
 // cronHomeChannel is the home chat until gwstore.HomeChannel (#481) lands.
 func cronHomeChannel() (string, string, error) {
-	owner := strings.TrimSpace(os.Getenv("DAMNBOT_GATEWAY_OWNER"))
+	owner := strings.TrimSpace(configos.OS().Getenv("DAMNBOT_GATEWAY_OWNER"))
 	platform, chat, ok := strings.Cut(owner, ":")
 	if !ok || !gwstore.ValidIdentity(platform) || !gwstore.ValidIdentity(chat) {
 		return "", "", fmt.Errorf("%w: DAMNBOT_GATEWAY_OWNER=platform:id is required", cron.ErrOffline)

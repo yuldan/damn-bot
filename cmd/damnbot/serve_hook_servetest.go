@@ -3,6 +3,7 @@
 package main
 
 import (
+	configos "github.com/damnbot/damnbot/internal/config"
 	"io"
 	"os"
 	"path/filepath"
@@ -20,11 +21,11 @@ import (
 // replaces log polling and elapsed-time guesses.
 // Compiled only with the `servetest` tag, never into a release binary.
 func registerServeTestTurn(d *serveDaemon, w io.Writer) {
-	raw := os.Getenv("DAMNBOT_SERVE_TEST_TURN")
+	raw := configos.OS().Getenv("DAMNBOT_SERVE_TEST_TURN")
 	if raw == "" {
 		return
 	}
-	state := os.Getenv("DAMNBOT_SERVE_TEST_STATE")
+	state := configos.OS().Getenv("DAMNBOT_SERVE_TEST_STATE")
 	dur, err := time.ParseDuration(raw)
 	if err != nil || dur <= 0 {
 		sessionsPrintf(w, "servetest: bad DAMNBOT_SERVE_TEST_TURN=%q\n", raw)

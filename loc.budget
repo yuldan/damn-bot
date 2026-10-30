@@ -13,7 +13,9 @@ plan               600 internal/plan
 # ADR-131 amandemen round 2 (PROV-01 proyeksi): provider 2000 -> 2100 (terukur 2010; Σ core +100).
 # ADR-128 amandemen round 3/4: provider 2100 -> 2150 (billed usage/projection; Σ core +50).
 # ADR-149: provider 2150 -> 2179 (memory nudge + cache breakpoint + cache family dari host base URL; terukur 2179; Σ core +29).
-provider          2179 internal/provider
+# ADR-257 (F4 GAP-COST-06): injeksi retry.Gate lintas proses di provider; kode terukur
+# 2179 -> 2174 (cache pindah ke netx/retry), plafon 2179 -> 2194 (headroom 20).
+provider          2194 internal/provider
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
 # ADR-128: tabel harga providers.toml + lookup base_url+model; tetap 300 (terukur 281, sisa 19; Σ tetap).
 provider/registry  300 internal/provider/registry
@@ -145,7 +147,9 @@ heal              1500 internal/heal
 # ADR-252 (F4 GAP-GW-02): `budget.gateway_user_daily_usd` (default 1,00, range
 # (0,100]) + konstanta default di struct config + validasi; kode terukur
 # 1.249 -> 1.254, plafon config 1253 -> 1254, Σ core 47.592 -> 47.593 <= 47.600.
-config            1254 internal/config
+# ADR-257 (F4 GAP-OPS-01): env override generik + refgen docs; kode terukur 1254 -> 1331,
+# plafon 1254 -> 1434 (headroom 103), Sigma core 47.593 -> 47.788 <= 47.800.
+config            1434 internal/config
 modules            1000 internal/modules
 hooks              700 internal/hooks
 i18n               300 internal/i18n

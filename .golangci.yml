@@ -112,6 +112,8 @@ linters:
           msg: "E-30/E-72: pakai testing/synctest atau clock injeksi"
         - pattern: ^os\.Exit$
           msg: "E-31: os.Exit hanya di cmd/"
+        - pattern: ^os\.(Getenv|LookupEnv)$
+          msg: "GAP-OPS-01: env hanya lewat internal/config (DAMNBOT_<SECTION>_<KEY>) atau allowlist standar"
     depguard:
       rules:
         global:
@@ -165,6 +167,21 @@ linters:
   # (mis. internal/tools/cmd/); gochecknoinits hanya untuk modules/... dan gateway/<platform>/ (E-11).
   exclusions:
     rules:
+      - path: _test.go
+        linters: [forbidigo]
+        text: "os\\.(Getenv|LookupEnv)"
+      - path: internal/config/
+        linters: [forbidigo]
+        text: "os\\.(Getenv|LookupEnv)"
+      - path: internal/codetools/
+        linters: [forbidigo]
+        text: "os\\.(Getenv|LookupEnv)"
+      - path: internal/testutil/
+        linters: [forbidigo]
+        text: "os\\.(Getenv|LookupEnv)"
+      - path: internal/secret/backend_linux.go
+        linters: [forbidigo]
+        text: "os\\.(Getenv|LookupEnv)"
       - path: ^internal/boundary/
         linters: [forbidigo]
         text: "recover"
