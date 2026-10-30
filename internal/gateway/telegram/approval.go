@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -26,24 +27,44 @@ type approval struct {
 }
 
 // Approve sends the preview with allow-once/deny buttons and waits for the
+// callback.
 func (a *Adapter) Approve(ctx context.Context, chatID, threadID, text string) (Decision, error) {
+	id, err := a.OpenApproval(ctx, chatID, threadID, text)
+	if err != nil {
+		return DecisionDeny, err
+	}
+	return a.AwaitApproval(ctx, chatID, id)
+}
+
+// OpenApproval sends the approval card and returns its id. The card carries the
+// id, so an owner can answer it with /approve or /deny as well as the buttons.
+func (a *Adapter) OpenApproval(ctx context.Context, chatID, threadID, text string) (string, error) {
 	nonce := rand.Text()[:16]
-	p := &approval{chatID: chatID, decision: make(chan Decision, 1)}
 	a.mu.Lock()
-	a.pending[nonce] = p
+	a.pending[nonce] = &approval{chatID: chatID, decision: make(chan Decision, 1)}
 	a.mu.Unlock()
-	defer func() {
-		a.mu.Lock()
-		delete(a.pending, nonce)
-		a.mu.Unlock()
-	}()
 	keyboard := `{"inline_keyboard":[[{"text":"Allow once","callback_data":"` + callbackPrefix + nonce + `:allow"},{"text":"Deny","callback_data":"` + callbackPrefix + nonce + `:deny"}]]}`
 	if err := a.send.wait(ctx, chatID); err != nil {
-		return DecisionDeny, err
+		a.dropApproval(nonce)
+		return "", err
 	}
-	if _, err := a.sendMessage(ctx, chatID, threadID, "", approvalCard(text), keyboard); err != nil {
-		return DecisionDeny, err
+	card := approvalCard(text + "\n\napproval: " + nonce)
+	if _, err := a.sendMessage(ctx, chatID, threadID, "", card, keyboard); err != nil {
+		a.dropApproval(nonce)
+		return "", err
 	}
+	return nonce, nil
+}
+
+// AwaitApproval waits for either the callback or an explicit Decision.
+func (a *Adapter) AwaitApproval(ctx context.Context, chatID, id string) (Decision, error) {
+	a.mu.Lock()
+	p := a.pending[id]
+	a.mu.Unlock()
+	if p == nil || p.chatID != chatID {
+		return DecisionDeny, ErrApprovalGone
+	}
+	defer a.dropApproval(id)
 	waitCtx, cancel := context.WithTimeout(ctx, a.after)
 	defer cancel()
 	select {
@@ -55,6 +76,36 @@ func (a *Adapter) Approve(ctx context.Context, chatID, threadID, text string) (D
 		}
 		return DecisionDeny, nil
 	}
+}
+
+// DecideApproval answers a pending approval by text command. It returns false
+// when the id is unknown, another chat's, or already answered.
+func (a *Adapter) DecideApproval(chatID, id string, allow bool) bool {
+	a.mu.Lock()
+	p := a.pending[id]
+	a.mu.Unlock()
+	if p == nil || p.chatID != chatID {
+		return false
+	}
+	d := DecisionDeny
+	if allow {
+		d = DecisionAllow
+	}
+	select {
+	case p.decision <- d:
+		return true
+	default:
+		return false
+	}
+}
+
+// ErrApprovalGone means the card expired or another path already answered it.
+var ErrApprovalGone = errors.New("telegram: approval is no longer pending")
+
+func (a *Adapter) dropApproval(id string) {
+	a.mu.Lock()
+	delete(a.pending, id)
+	a.mu.Unlock()
 }
 
 // handleCallback answers one callback query exactly once and applies its
