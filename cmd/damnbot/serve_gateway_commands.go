@@ -279,6 +279,51 @@ func (g *serveGateway) TopicSession(ctx context.Context, scope *gateway.Scope) (
 	return g.sessionFor(ctx, scope)
 }
 
+// TopicOff detaches the thread route and makes the whole chat use its chat
+// session (topic_off), so later thread messages are routed without ThreadID.
+func (g *serveGateway) TopicOff(ctx context.Context, scope *gateway.Scope) error {
+	if err := g.store.SetChatSetting(ctx, scope.Platform, scope.ChatID, "topic_off", "true", g.now().UnixMilli()); err != nil {
+		return fmt.Errorf("gateway: topic off: %w", err)
+	}
+	if err := g.store.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		_, xerr := tx.Exec(`DELETE FROM gateway_conversations WHERE platform = ?1 AND chat_id = ?2 AND thread_id = ?3`,
+			scope.Platform, scope.ChatID, scope.ThreadID)
+		if xerr != nil {
+			return fmt.Errorf("unbind topic: %w", xerr)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("gateway: topic off: %w", err)
+	}
+	return nil
+}
+
+// BindTopicSession binds an existing session to the forum thread.
+func (g *serveGateway) BindTopicSession(ctx context.Context, scope *gateway.Scope, sessionID string) error {
+	if _, err := g.store.DB.SessionInfo(ctx, sessionID); err != nil {
+		return fmt.Errorf("gateway: topic bind: %w", err)
+	}
+	if err := g.store.SetChatSetting(ctx, scope.Platform, scope.ChatID, "topic_off", "false", g.now().UnixMilli()); err != nil {
+		return fmt.Errorf("gateway: topic bind: %w", err)
+	}
+	if err := g.store.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		if _, xerr := tx.Exec(`DELETE FROM gateway_conversations WHERE platform = ?1 AND chat_id = ?2 AND thread_id = ?3`,
+			scope.Platform, scope.ChatID, scope.ThreadID); xerr != nil {
+			return fmt.Errorf("unbind topic: %w", xerr)
+		}
+		_, xerr := tx.Exec(`INSERT INTO gateway_conversations(platform, chat_id, thread_id, session_id, created_at)
+			VALUES (?1, ?2, ?3, ?4, ?5)`,
+			scope.Platform, scope.ChatID, scope.ThreadID, sessionID, g.now().UnixMilli())
+		if xerr != nil {
+			return fmt.Errorf("bind topic: %w", xerr)
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("gateway: topic bind: %w", err)
+	}
+	return nil
+}
+
 // Usage implements gateway.Runtime over the existing usage ledger: the session
 // bound to the caller's route and the current day, both read-only. ok is false
 // when the session has no ledger row, never a fabricated zero.

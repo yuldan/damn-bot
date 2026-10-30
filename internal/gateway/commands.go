@@ -91,7 +91,7 @@ type commandSpec struct {
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /timestamps [on|off|status] /delay [on|off|status] /topic [help] /tz [zone|off] /restart /platforms /platform list|pause|resume [name]"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /timestamps [on|off|status] /delay [on|off|status] /topic [off|help|session-id] /tz [zone|off] /restart /platforms /platform list|pause|resume [name]"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -309,21 +309,48 @@ func (c *Commands) footer(ctx context.Context, t *Ticket, cmd Command) CommandRe
 	return CommandResult{Handled: true, Reply: "footer off"}
 }
 
+type topicControl interface {
+	TopicSession(ctx context.Context, scope *Scope) (string, error)
+	TopicOff(ctx context.Context, scope *Scope) error
+	BindTopicSession(ctx context.Context, scope *Scope, sessionID string) error
+}
+
 func (c *Commands) topic(ctx context.Context, t *Ticket, cmd Command) CommandResult {
-	if len(cmd.Args) > 0 {
-		return usage("topic [help]")
-	}
 	if t.Scope.ThreadID == "" {
 		return CommandResult{Handled: true, Reply: "no topic thread in this chat; /topic needs a forum topic"}
 	}
-	if c.runtime == nil {
+	tc, ok := c.control.(topicControl)
+	if !ok {
+		tc, ok = c.runtime.(topicControl)
+	}
+	if !ok {
 		return unsupported("topic")
 	}
-	sid, err := c.runtime.TopicSession(ctx, &t.Scope)
-	if err != nil {
-		return CommandResult{Handled: true, Reply: "topic session unavailable"}
+	arg := "help"
+	if len(cmd.Args) > 0 {
+		arg = cmd.Args[0]
 	}
-	return CommandResult{Handled: true, Reply: fmt.Sprintf("topic %s: session %s", t.Scope.ThreadID, sid)}
+	switch arg {
+	case "help":
+		sid, err := tc.TopicSession(ctx, &t.Scope)
+		if err != nil {
+			return CommandResult{Handled: true, Reply: "topic session unavailable"}
+		}
+		return CommandResult{Handled: true, Reply: fmt.Sprintf("topic %s: session %s", t.Scope.ThreadID, sid)}
+	case "off":
+		if err := tc.TopicOff(ctx, &t.Scope); err != nil {
+			return CommandResult{Handled: true, Reply: "could not turn topic sessions off"}
+		}
+		return CommandResult{Handled: true, Reply: "topic session off; this chat now uses the chat session"}
+	default:
+		if len(cmd.Args) != 1 {
+			return usage("topic [off|help|session-id]")
+		}
+		if err := tc.BindTopicSession(ctx, &t.Scope, arg); err != nil {
+			return CommandResult{Handled: true, Reply: fmt.Sprintf("session %q not found", arg)}
+		}
+		return CommandResult{Handled: true, Reply: fmt.Sprintf("topic %s bound to session %s", t.Scope.ThreadID, arg)}
+	}
 }
 
 // status implements the owner-only "/status" of SELF-HEALING: uptime, queue

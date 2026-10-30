@@ -306,8 +306,12 @@ func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound, recorde
 			return
 		}
 	}
+	threadID := in.ThreadID
+	if threadID != "" && g.chatFlag(ctx, in.ChatID, "topic_off") {
+		threadID = ""
+	}
 	inbound := &gateway.Inbound{
-		Platform: in.Platform, ChatID: in.ChatID, ThreadID: in.ThreadID, SenderID: in.SenderID,
+		Platform: in.Platform, ChatID: in.ChatID, ThreadID: threadID, SenderID: in.SenderID,
 		UpdateID: in.UpdateID, Group: strings.HasPrefix(in.ChatID, "-"), Text: in.Text,
 		Payload: `{"kind":"text","text":` + strconv.Quote(in.Text) + `}`,
 		// Webhook waits for this before 200 (SPEC §9.7); polling leaves it nil.

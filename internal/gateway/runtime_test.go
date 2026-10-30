@@ -29,6 +29,8 @@ type fakeRuntime struct {
 	topicID       string
 	topicErr      error
 	topicScopes   []gateway.Scope
+	topicOff      int
+	topicBind     []string
 	restart       gateway.RestartReport
 	restartErr    error
 	restartCalls  int
@@ -61,6 +63,16 @@ func (f *fakeRuntime) Status(context.Context) (gateway.RuntimeStatus, error) {
 func (f *fakeRuntime) Usage(_ context.Context, scope *gateway.Scope) (gateway.UsageReport, bool, error) {
 	f.usageScopes = append(f.usageScopes, *scope)
 	return f.report, f.usageOK, f.usageErr
+}
+
+func (f *fakeRuntime) TopicOff(context.Context, *gateway.Scope) error {
+	f.topicOff++
+	return nil
+}
+
+func (f *fakeRuntime) BindTopicSession(_ context.Context, _ *gateway.Scope, id string) error {
+	f.topicBind = append(f.topicBind, id)
+	return f.topicErr
 }
 
 func (f *fakeRuntime) TopicSession(_ context.Context, scope *gateway.Scope) (string, error) {

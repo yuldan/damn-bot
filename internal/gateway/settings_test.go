@@ -2,6 +2,7 @@ package gateway_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -150,5 +151,27 @@ func TestTimestampsAndDelayToggles(t *testing.T) {
 		if res := c.Dispatch(context.Background(), testTicket(gateway.RoleUser), tc.cmd+" on"); !strings.Contains(res.Reply, "owner-only") {
 			t.Fatalf("%s as user = %+v", tc.cmd, res)
 		}
+	}
+}
+
+// TestTopicOffAndBind: /topic off detaches the thread; /topic <id> binds an
+// existing session; an unknown id is reported cleanly.
+func TestTopicOffAndBind(t *testing.T) {
+	rt := &fakeRuntime{}
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
+	ticket := testTicket(gateway.RoleOwner)
+	ticket.Scope.ThreadID = "77"
+	if res := c.Dispatch(context.Background(), ticket, "/topic off"); !strings.Contains(res.Reply, "topic session off") || rt.topicOff != 1 {
+		t.Fatalf("/topic off = %+v off=%d", res, rt.topicOff)
+	}
+	if res := c.Dispatch(context.Background(), ticket, "/topic s-1"); !strings.Contains(res.Reply, "bound to session s-1") || len(rt.topicBind) != 1 {
+		t.Fatalf("/topic s-1 = %+v bind=%v", res, rt.topicBind)
+	}
+	rt.topicErr = errors.New("not found")
+	if res := c.Dispatch(context.Background(), ticket, "/topic nope"); !strings.Contains(res.Reply, `"nope" not found`) {
+		t.Fatalf("/topic nope = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/topic off"); !strings.Contains(res.Reply, "no topic thread") {
+		t.Fatalf("/topic off without thread = %+v", res)
 	}
 }
