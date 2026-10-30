@@ -17,14 +17,19 @@ import (
 // Maintenance barrier (SPEC §11.11.7). Paths are relative to the data dir root.
 const (
 	// BarrierWait is the drain timeout of the maintenance barrier (§11.11.7).
-	BarrierWait   = 30 * time.Second
-	barrierPoll   = 200 * time.Millisecond // ≤ 1 s cadence required by §11.11.7
-	reasonMigrate = "migrate"
-	reasonRestore = "restore"
-	ownerFile     = "run/maint.owner"
-	markerFile    = "run/maint.request"
-	lockFile      = "run/maint.lock"
-	holdersDir    = "run/maint.holders"
+	BarrierWait = 30 * time.Second
+	barrierPoll = 200 * time.Millisecond // drain wait step while acquiring a barrier (§11.11.7)
+	// barrierWatchPoll is the maintenance-marker cadence of an open Store.
+	// §11.11.7 caps observation at 1 s; the cap (instead of 200 ms) keeps an
+	// idle process at one stat per second (SCORECARD §1.2 idle CPU) while the
+	// 30 s BarrierWait still leaves every peer time to detach.
+	barrierWatchPoll = time.Second
+	reasonMigrate    = "migrate"
+	reasonRestore    = "restore"
+	ownerFile        = "run/maint.owner"
+	markerFile       = "run/maint.request"
+	lockFile         = "run/maint.lock"
+	holdersDir       = "run/maint.holders"
 )
 
 type markerInfo struct {

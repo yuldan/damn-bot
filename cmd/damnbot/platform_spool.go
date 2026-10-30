@@ -9,14 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/gateway"
 )
 
-// The lease holder applies CLI requests from run/spool (0700/0600).
-const platformSpoolPoll = 200 * time.Millisecond
+// The lease holder applies CLI requests from run/spool (0700/0600) on the
+// shared idle-backed-off poll loop (runPollLoop).
 
 type platformRequest struct {
 	Op       string `json:"op"`
@@ -60,25 +59,23 @@ func platformDataDir(raw string) (string, error) {
 }
 
 func (g *serveGateway) platformControlLoop(ctx context.Context) {
-	tick := time.NewTicker(platformSpoolPoll)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-		if g.drainPlatformSpool(ctx) {
+	runPollLoop(ctx, func() int {
+		worked, changed := g.drainPlatformSpool(ctx)
+		if changed {
 			g.writePlatforms()
 		}
-	}
+		return worked
+	})
 }
 
-func (g *serveGateway) drainPlatformSpool(ctx context.Context) bool {
+// drainPlatformSpool applies every pending request and reports how many files
+// it handled (the poll-loop pacing) and whether a platform changed (the status
+// file rewrite).
+func (g *serveGateway) drainPlatformSpool(ctx context.Context) (worked int, changed bool) {
 	dir := spoolDir(g.dataDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return false
+		return 0, false
 	}
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -86,8 +83,8 @@ func (g *serveGateway) drainPlatformSpool(ctx context.Context) bool {
 			names = append(names, e.Name())
 		}
 	}
-	platform := false
 	for _, name := range names {
+		worked++
 		path := filepath.Join(dir, name)
 		b, aerr := fs.ReadFile(os.DirFS(dir), name)
 		var req platformRequest
@@ -104,7 +101,7 @@ func (g *serveGateway) drainPlatformSpool(ctx context.Context) bool {
 				aerr = errors.New("unknown request " + cleanArg(req.Op))
 			}
 		}
-		platform = platform || seen
+		changed = changed || seen
 		if aerr != nil {
 			sessionsPrintf(g.stderr, "gateway: spool: %s\n", cleanLine(aerr.Error()))
 		}
@@ -112,7 +109,7 @@ func (g *serveGateway) drainPlatformSpool(ctx context.Context) bool {
 			sessionsPrintf(g.stderr, "gateway: spool: %s\n", cleanLine(rerr.Error()))
 		}
 	}
-	return platform
+	return worked, changed
 }
 
 func (g *serveGateway) writePlatforms() {

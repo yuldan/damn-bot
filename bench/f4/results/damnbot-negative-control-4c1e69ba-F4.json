@@ -1,0 +1,46 @@
+{
+ "meta": {
+  "phase": "F4",
+  "date": "2026-10-30T11:17:21Z",
+  "damnbot_commit": "4c1e69ba",
+  "damnbot_dirty": "0",
+  "binary": "cmd/damnbot (tags goolm,servetest)",
+  "go_version": "go1.26.10",
+  "gomaxprocs": "2",
+  "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
+  "kernel": "6.8.0-147-generic",
+  "loadavg_start": "0.73 4.11 8.46 3/602 687685",
+  "loadavg_end": "1.08 4.07 8.40 3/632 687919",
+  "warmup_s": 3,
+  "window_s": 5,
+  "clock_ticks": 100,
+  "host_note": "workstation measurement, not the Q14 reference machine"
+ },
+ "measurement": {
+  "rss_kb": 156924,
+  "peak_kb": 156924,
+  "rss_mb": 153.24609375,
+  "peak_mb": 153.24609375,
+  "idle_cpu_percent": 200.62140117115393,
+  "cpu_seconds": 10.04,
+  "cpu_ticks_delta": 1004,
+  "goroutines": 25,
+  "telegram_polls": 1,
+  "pid": 687686
+ },
+ "cron": {
+  "mode": "serve-scheduler",
+  "runs": 1,
+  "reason": "serve wires the production scheduler (30 s tick); the servetest hook ran one explicit catch-up tick of a one-minute script job"
+ },
+ "gate": {
+  "rss_limit_mb": 90,
+  "cpu_limit_percent": 0.5,
+  "pass": false,
+  "failed_reasons": [
+   "rss 153.2 MB \u003e 90 MB",
+   "cpu 200.621% \u003e 0.5%"
+  ]
+ },
+ "negative_control": true
+}

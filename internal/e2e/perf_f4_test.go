@@ -4,10 +4,11 @@ package e2e
 
 // The F4 budget harness (ROADMAP F4, SCORECARD §1.2): it runs the real
 // `damnbot serve` binary with the fake Telegram Bot API, the fake provider and
-// (through the `servetest` hook, because production serve does not wire cron
-// yet) the real cron scheduler with a one-minute script job. After a warmup it
-// samples VmRSS, VmHWM, idle CPU from /proc/<pid>/stat and the goroutine gauge
-// from /metrics, then enforces RSS ≤ 90 MB and idle CPU ≤ 0.5 %.
+// the production cron scheduler (serveCronFor, 30 s tick). The `servetest`
+// hook runs one explicit catch-up tick of a one-minute script job, so the cron
+// execution path is exercised without a second scheduler loop. After a warmup
+// it samples VmRSS, VmHWM, idle CPU from /proc/<pid>/stat and the goroutine
+// gauge from /metrics, then enforces RSS ≤ 90 MB and idle CPU ≤ 0.5 %.
 //
 // `make perf-f4` runs both TestPerfF4 and TestPerfF4NegativeControl; the
 // negative control proves the gate notices an injected 128 MB + spinning
@@ -193,13 +194,14 @@ func measureF4(t *testing.T, sc f4Scenario) f4Result {
 	}
 }
 
-// cronReason states plainly that production serve does not start the
-// scheduler yet, so the measured cron load comes from the servetest seam.
+// cronReason states where the measured cron work comes from: the production
+// serve scheduler ticks every 30 s, and the servetest seam executes one
+// one-minute script job at startup (no second scheduler loop).
 func cronReason(on bool) string {
 	if !on {
 		return "not started"
 	}
-	return "serve does not wire internal/cron on this revision; the servetest hook runs the real scheduler with a one-minute script job"
+	return "serve wires the production scheduler (30 s tick); the servetest hook ran one explicit catch-up tick of a one-minute script job"
 }
 
 // perfCronJobIDConst mirrors cmd/damnbot's perfCronJobID (a test cannot
@@ -360,7 +362,7 @@ func cronMode(on bool) string {
 	if !on {
 		return "off"
 	}
-	return "servetest-hook"
+	return "serve-scheduler"
 }
 
 func kernelRelease() string {

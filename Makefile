@@ -205,7 +205,8 @@ chaos-nightly:
 	DAMNBOT_CHAOS_LONG=1 go test $(GOTAGS) -timeout 10m -run '^TestChaos50ClientsAcrossLeaseTTL$$' -count=1 ./internal/ctxdb/
 
 # ROADMAP F4 + SCORECARD §1.2: RSS `serve` + Telegram + cron ≤ 90 MB dan CPU idle ≤ 0,5 %.
-# Biner asli dibangun dengan tag servetest (hook cron + beban kontrol negatif, tanpa jejak rilis),
+# Biner asli dibangun dengan tag servetest (satu Tick cron eksplisit + beban kontrol negatif, tanpa
+# jejak rilis; serve sendiri hanya menjalankan satu scheduler produksi 30 s),
 # fake Telegram + fake provider, warmup 10 s lalu jendela 60 s (VmRSS/VmHWM, Δ utime+stime, gauge
 # /metrics). Build dinicekan, pengukuran tidak. Artefak: bench/f4/results/.
 perf-f4:

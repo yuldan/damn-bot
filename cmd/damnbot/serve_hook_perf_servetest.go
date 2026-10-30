@@ -19,15 +19,18 @@ import (
 
 // The F4 budget harness (bench/f4, `make perf-f4`) needs the real serve
 // process to carry the cron scheduler and, for the negative control, an
-// artificial memory/CPU load. Production serve does not wire cron yet
-// (internal/cron/doc.go says it will), so both seams live behind the
-// `servetest` tag and never reach a release binary.
+// artificial memory/CPU load. Production serve wires exactly one cron
+// scheduler of its own (serveCronFor, 30 s tick), so the harness must not add
+// a second ticker: it only runs one explicit catch-up Tick of an in-process
+// script job when DAMNBOT_SERVE_TEST_CRON=1, which proves the cron path
+// executes in the measured binary. Both seams live behind the `servetest` tag
+// and never reach a release binary.
 const perfCronJobID = "perf-f4-cron"
 
 // registerServePerf installs the F4 harness seams and returns the stop func.
 func registerServePerf(ctx context.Context, dataDir string, w io.Writer) func() {
 	runCtx, cancel := context.WithCancel(ctx)
-	stopCron := startPerfCron(runCtx, dataDir, w)
+	stopCron := runPerfCronTick(runCtx, dataDir, w)
 	stopLoad := startPerfLoad(runCtx, w)
 	return func() {
 		cancel()
@@ -36,10 +39,12 @@ func registerServePerf(ctx context.Context, dataDir string, w io.Writer) func() 
 	}
 }
 
-// startPerfCron runs the real scheduler with a one-minute script job when
-// DAMNBOT_SERVE_TEST_CRON=1. The job touches a file in the data dir; every
-// successful execution logs one line the harness counts.
-func startPerfCron(ctx context.Context, dataDir string, w io.Writer) func() {
+// runPerfCronTick runs the real scheduler once over an in-process store with a
+// one-minute script job (DAMNBOT_SERVE_TEST_CRON=1). The job touches a file in
+// the data dir; a successful execution logs one line the harness counts. It
+// deliberately starts no goroutine and no ticker: the only repeating cron
+// scheduler in the process is the production serveCron.
+func runPerfCronTick(ctx context.Context, dataDir string, w io.Writer) func() {
 	if os.Getenv("DAMNBOT_SERVE_TEST_CRON") != "1" {
 		return func() {}
 	}
@@ -49,28 +54,11 @@ func startPerfCron(ctx context.Context, dataDir string, w io.Writer) func() {
 		Executor: perfExecutor{inner: &cron.ScriptExecutor{Runner: runner, Redactor: redact.New(redact.Options{}), Timeout: 10 * time.Second}, w: w},
 		Owner:    "perf-f4",
 	}
-	sessionsPrintf(w, "servetest: cron scheduler started (job=%s schedule=* * * * *)\n", perfCronJobID)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		tick := time.NewTicker(time.Second)
-		defer tick.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-tick.C:
-				if err := sched.Tick(ctx); err != nil {
-					sessionsPrintf(w, "servetest: cron tick: %s\n", cleanLine(err.Error()))
-				}
-			}
-		}
-	}()
+	sessionsPrintf(w, "servetest: cron tick once (job=%s schedule=* * * * *)\n", perfCronJobID)
+	if err := sched.Tick(ctx); err != nil {
+		sessionsPrintf(w, "servetest: cron tick: %s\n", cleanLine(err.Error()))
+	}
 	return func() {
-		select {
-		case <-done:
-		case <-time.After(2 * time.Second):
-		}
 		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
 		defer cancel()
 		if err := runner.CloseContext(closeCtx); err != nil {

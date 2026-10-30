@@ -36,7 +36,7 @@ func TestControlPlatformPauseResume(t *testing.T) {
 		if err := queuePlatform(dir, &platformRequest{Op: "platform_" + action, Name: "telegram"}); err != nil {
 			t.Fatal(err)
 		}
-		if !g.drainPlatformSpool(ctx) {
+		if worked, changed := g.drainPlatformSpool(ctx); worked == 0 || !changed {
 			t.Fatal("platform request was not applied")
 		}
 		g.writePlatforms()
