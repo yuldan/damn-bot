@@ -269,3 +269,32 @@ func TestSendScansTextBeforeEgress(t *testing.T) {
 		t.Fatalf("sendMessage calls = %d, want 1", n)
 	}
 }
+
+// TestSendScansCaptionBeforeEgress (SEC-16): a media caption is egress too.
+// A secret in the caption is refused before the upload; a clean caption still
+// uploads exactly once.
+func TestSendScansCaptionBeforeEgress(t *testing.T) {
+	f := newFakeTG(t)
+	a, _ := newTestAdapter(t, f, newMemStore(), func(c *Config) {
+		c.Scan = func(text string) error {
+			if strings.Contains(text, "hunter2-vault-secret") {
+				return netx.ErrSecretEgress
+			}
+			return nil
+		}
+	})
+	media := &Media{Name: "note.txt", MIME: "text/plain", Data: []byte("ok")}
+	_, err := a.Send(t.Context(), &Outbound{ChatID: "7", Text: "bocor hunter2-vault-secret", Media: media})
+	if !errors.Is(err, netx.ErrSecretEgress) {
+		t.Fatalf("error = %v, want ErrSecretEgress", err)
+	}
+	if n := len(f.callsFor("sendDocument")) + len(f.callsFor("sendPhoto")); n != 0 {
+		t.Fatalf("blocked caption uploaded %d files", n)
+	}
+	if _, err := a.Send(t.Context(), &Outbound{ChatID: "7", Text: "halo", Media: media}); err != nil {
+		t.Fatalf("clean media send: %v", err)
+	}
+	if n := len(f.callsFor("sendDocument")) + len(f.callsFor("sendPhoto")); n != 1 {
+		t.Fatalf("media uploads = %d, want 1", n)
+	}
+}
