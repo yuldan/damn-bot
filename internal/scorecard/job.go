@@ -94,8 +94,7 @@ type Owner struct {
 	ChatID   string
 }
 
-// HomeStore resolves the gateway home channel (GW-005 /sethome). A configured
-// Owner wins; Home is the default destination when Owner is unset.
+// HomeStore resolves the gateway home channel used when Owner is unset.
 type HomeStore interface {
 	HomeChannel(ctx context.Context) (Owner, bool, error)
 }
@@ -231,7 +230,6 @@ func (j *Job) alarm(ctx context.Context, res *Result) error {
 	return nil
 }
 
-// home resolves the stored home channel; a nil store has none.
 func (j *Job) home(ctx context.Context) (Owner, bool, error) {
 	if j.Home == nil {
 		return Owner{}, false, nil

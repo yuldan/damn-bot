@@ -132,8 +132,6 @@ func runInstall(client *netx.Client, uc update.Config, pub ed25519.PublicKey, da
 	return 0
 }
 
-// runRepair recovers an interrupted install: the signed manifest is re-resolved
-// and the installed binary checked against the hash recorded in pending.json.
 func runRepair(client *netx.Client, uc update.Config, pub ed25519.PublicKey, dataDir string, stdout, stderr io.Writer) int {
 	bin, err := os.Executable()
 	if err != nil {
