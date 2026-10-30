@@ -133,6 +133,11 @@ func (r *Registry) Lookup(name string) (Hook, error) {
 		return Hook{Name: name}, fmt.Errorf("%w: %q", ErrInvalidName, name)
 	}
 	path := filepath.Join(r.dir, name)
+	if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(name), ".exe") {
+		if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+			path, name = path+".exe", name+".exe"
+		}
+	}
 	e, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Hook{Name: name}, fmt.Errorf("%w: %q", ErrNotFound, name)
@@ -308,14 +313,9 @@ func executable(name string, mode fs.FileMode) bool {
 	if runtime.GOOS != "windows" {
 		return mode.Perm()&0o111 != 0
 	}
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".exe", ".com", ".bat", ".cmd":
-		return true
-	}
-	return false
+	return strings.EqualFold(filepath.Ext(name), ".exe")
 }
 
-// validName: 1..64 chars, alphanumeric first, then [A-Za-z0-9._-]; no dot first.
 func validName(name string) bool {
 	if len(name) == 0 || len(name) > 64 {
 		return false
