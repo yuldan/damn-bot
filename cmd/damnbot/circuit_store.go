@@ -15,15 +15,17 @@ import (
 // circuitStore adapts retry.CircuitStore over provider_circuits.
 type circuitStore struct{ db *ctxdb.Store }
 
-// wireCircuit installs the shared circuit factory on the provider client.
-func wireCircuit(cfg *provider.Config, db *ctxdb.Store) {
+// wireCircuit installs the shared circuit factory on the provider client and
+// returns the same config so the composition root keeps one call site.
+func wireCircuit(cfg *provider.Config, db *ctxdb.Store) *provider.Config {
 	if db == nil {
-		return
+		return cfg
 	}
 	store := circuitStore{db: db}
 	cfg.Circuit = func(providerName, credential string) retry.Gate {
 		return &retry.Shared{Provider: providerName, Credential: credential, Store: store}
 	}
+	return cfg
 }
 
 func (s circuitStore) key(provider, credential string) string {
