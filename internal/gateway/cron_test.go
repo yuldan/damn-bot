@@ -44,7 +44,15 @@ func TestCronCommandMutations(t *testing.T) {
 			t.Fatalf("/cron %s = %+v", sub, res)
 		}
 	}
-	want := []string{"pause j7", "resume j7", "run j7", "rm j7"}
+	for _, call := range []struct{ text, want string }{
+		{"/cron add 0 9 * * * daily prompt", "cron add: ok (new-id)"},
+		{"/cron edit j7 prompt new prompt", "cron edit: ok (j7)"},
+	} {
+		if res := c.Dispatch(context.Background(), owner, call.text); !strings.Contains(res.Reply, call.want) {
+			t.Fatalf("%s = %+v", call.text, res)
+		}
+	}
+	want := []string{"pause j7", "resume j7", "run j7", "rm j7", "add 0 9 * * * daily prompt", "edit j7 prompt new prompt"}
 	if strings.Join(fc.cronOps, ",") != strings.Join(want, ",") {
 		t.Fatalf("ops = %v, want %v", fc.cronOps, want)
 	}

@@ -92,7 +92,7 @@ type commandSpec struct {
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /topic [help] /tz [zone|off] /restart /platforms /platform list|pause|resume [name]"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /timestamps [on|off|status] /delay [on|off|status] /topic [help] /tz [zone|off] /restart /platforms /platform list|pause|resume [name]"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -144,9 +144,11 @@ func commandRegistry() map[string]commandSpec {
 		"pause":     {owner: true, run: (*Commands).pause},
 		"cron":      {owner: true, run: (*Commands).cronCommand},
 
-		"sethome": {owner: true, run: (*Commands).sethome},
-		"topic":   {owner: true, run: (*Commands).topic},
-		"footer":  {owner: true, run: (*Commands).footer},
+		"sethome":    {owner: true, run: (*Commands).sethome},
+		"topic":      {owner: true, run: (*Commands).topic},
+		"footer":     {owner: true, run: (*Commands).footer},
+		"timestamps": {owner: true, run: (*Commands).toggle},
+		"delay":      {owner: true, run: (*Commands).toggle},
 
 		// Owner-only, not implemented by this slice.
 		"logs": {owner: true}, "doctor": {owner: true}, "resume": {owner: true},

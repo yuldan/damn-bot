@@ -142,7 +142,11 @@ func (g *serveGateway) sendDelivery(ctx context.Context, d *gwstore.Delivery, no
 }
 
 func (g *serveGateway) deliveryMessage(ctx context.Context, d *gwstore.Delivery) (*telegram.Outbound, error) {
-	out := &telegram.Outbound{ChatID: d.ChatID, ThreadID: d.ThreadID, Text: d.Body, Key: d.IdemKey}
+	body := d.Body
+	if g.chatFlag(ctx, d.ChatID, chatTimestamps) {
+		body = withTimestamp(body, timestampPrefix(g.now()))
+	}
+	out := &telegram.Outbound{ChatID: d.ChatID, ThreadID: d.ThreadID, Text: body, Key: d.IdemKey}
 	if d.MediaSHA == "" {
 		return out, nil
 	}
