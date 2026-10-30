@@ -385,11 +385,13 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 		return nil, fmt.Errorf("pricing: %w", err)
 	}
 	net := netx.New(netx.Config{Offline: o.offline || cfg.Network.Offline, NoBackground: !cfg.Network.Background})
-	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), &provider.Config{
+	pcfg := &provider.Config{
 		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family, Prices: prices}},
 		Attempts: o.providerAttempts,
 		Guard:    guard, OnBudget: func(d budget.Decision) { notes.observe(&d) },
-	})
+	}
+	wireCircuit(pcfg, db)
+	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), pcfg)
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)
 	}

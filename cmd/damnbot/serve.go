@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -141,21 +142,7 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	defer daemon.Close()
 	gw, gwErr := newServeGateway(ctx, &cfg, o, db, daemon, metrics, stderr)
 	cr := serveCronFor(ctx, gw, db, dataDir, o.configPath, cfg.Network.Offline, stderr)
-	checks := []obs.Check{
-		{Name: "db", Fn: db.ProbeWrite},
-		{Name: "serve_lock", Fn: func(context.Context) error {
-			if !lock.Held() {
-				return errors.New("data-dir lease is not held")
-			}
-			return nil
-		}},
-	}
-	checks = append(checks, obs.Check{Name: "gateway", Fn: func(context.Context) error {
-		if gw != nil && gw.supervisor.Snapshot().State == heal.SafeMode {
-			return errors.New("gateway: safe mode")
-		}
-		return nil
-	}})
+	checks := serveChecks(&cfg, db, lock, gw, cr)
 	eps := obs.New(obs.Config{Metrics: metrics, Checks: checks})
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", o.bind)
@@ -167,6 +154,106 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	sessionsPrintf(stderr, "serve: data dir %s\n", dataDir)
 	sessionsPrintf(stdout, "serve: observability listening on %s\n", ln.Addr())
 	return serveLoop(ctx, sigCtx, o, eps, hs, errs, db, lock, daemon, gw, cr, gwErr, stderr)
+}
+
+// serveChecks builds the /readyz probes of the running daemon.
+func serveChecks(cfg *config.Config, db *ctxdb.Store, lock *serveLock, gw *serveGateway, cr *serveCron) []obs.Check {
+	checks := []obs.Check{
+		{Name: "db", Fn: db.ProbeWrite},
+		{Name: "serve_lock", Fn: func(context.Context) error {
+			if !lock.Held() {
+				return errors.New("data-dir lease is not held")
+			}
+			return nil
+		}},
+	}
+	checks = append(checks, serveGatewayChecks(db, gw)...)
+	return append(checks, serveBackendChecks(cfg, db, cr)...)
+}
+
+// serveGatewayChecks are the optional gateway/outbox probes.
+func serveGatewayChecks(db *ctxdb.Store, gw *serveGateway) []obs.Check {
+	return []obs.Check{
+		{Name: "gateway", Fn: func(context.Context) error {
+			if gw == nil {
+				return nil
+			}
+			snap := gw.supervisor.Snapshot()
+			if snap.State != heal.Healthy {
+				return fmt.Errorf("gateway: %s %s", snap.State, snap.Reason)
+			}
+			return nil
+		}},
+		{Name: "outbox", Fn: func(ctx context.Context) error {
+			if gw == nil {
+				return nil
+			}
+			at, ok, oerr := oldestQueued(ctx, db)
+			if oerr != nil {
+				return oerr
+			}
+			if ok && time.Since(at) > 5*time.Minute {
+				return fmt.Errorf("outbox: oldest queued for %s", time.Since(at).Round(time.Second))
+			}
+			return nil
+		}},
+	}
+}
+
+// serveBackendChecks are the optional provider/cron probes.
+func serveBackendChecks(cfg *config.Config, db *ctxdb.Store, cr *serveCron) []obs.Check {
+	return []obs.Check{
+		{Name: "provider_circuit", Fn: func(ctx context.Context) error {
+			prov, _, _ := strings.Cut(cfg.Provider.Model, "/")
+			if prov == "" {
+				return nil
+			}
+			open, oerr := circuitOpen(ctx, db, prov)
+			if oerr != nil {
+				return oerr
+			}
+			if open {
+				return fmt.Errorf("provider: %s circuit open", prov)
+			}
+			return nil
+		}},
+		{Name: "cron", Fn: func(context.Context) error {
+			if cr == nil {
+				return nil
+			}
+			if last := cr.LastTick(); !last.IsZero() && time.Since(last) > 5*time.Minute {
+				return fmt.Errorf("cron: no tick for %s", time.Since(last).Round(time.Second))
+			}
+			return nil
+		}},
+	}
+}
+
+// oldestQueued returns the updated_at of the oldest queued delivery.
+func oldestQueued(ctx context.Context, db *ctxdb.Store) (time.Time, bool, error) {
+	var ms int64
+	err := db.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT coalesce(min(updated_at), 0) FROM gateway_deliveries WHERE status = 'queued'`,
+			nil, &ms)
+	})
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("outbox probe: %w", err)
+	}
+	if ms == 0 {
+		return time.Time{}, false, nil
+	}
+	return time.UnixMilli(ms), true, nil
+}
+
+// circuitOpen reports an open provider_circuits row of one provider.
+func circuitOpen(ctx context.Context, db *ctxdb.Store, provider string) (bool, error) {
+	n, err := db.Count(ctx, `SELECT COUNT(*) FROM provider_circuits
+		WHERE provider = ?1 AND state = 'open' AND (open_until IS NULL OR open_until > ?2)`,
+		provider, time.Now().UnixMilli())
+	if err != nil {
+		return false, fmt.Errorf("circuit probe: %w", err)
+	}
+	return n > 0, nil
 }
 
 func awaitServeStop(sigCtx context.Context, errs <-chan error, restartCh <-chan struct{}, stderr io.Writer) (bool, error) {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/cron"
@@ -303,6 +304,7 @@ type serveCron struct {
 	// and the in-memory week gate keeps the idle path free of extra queries.
 	score     *scorecard.Job
 	scoreWeek string
+	last      atomic.Int64
 }
 
 // newServeCron assembles store → executor → deliverer → incidents.
@@ -357,6 +359,15 @@ func (c *serveCron) Stop(ctx context.Context) {
 	}
 }
 
+// LastTick is the newest scheduler tick; zero before the first tick.
+func (c *serveCron) LastTick() time.Time {
+	ms := c.last.Load()
+	if ms == 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(ms)
+}
+
 func (c *serveCron) loop(ctx context.Context) {
 	defer close(c.done)
 	delay := time.Duration(0)
@@ -378,6 +389,7 @@ func (c *serveCron) loop(ctx context.Context) {
 // tick skips the scheduler write transaction while no job is enabled.
 func (c *serveCron) tick(ctx context.Context) error {
 	c.tickScorecard(ctx)
+	c.last.Store(time.Now().UnixMilli())
 	n, err := c.db.Count(ctx, `SELECT EXISTS(SELECT 1 FROM cron_jobs WHERE enabled = 1)`)
 	if err != nil {
 		return fmt.Errorf("cron jobs probe: %w", err)
