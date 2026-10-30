@@ -99,6 +99,10 @@ type Config struct {
 	// OnConflict receives the conflict duration once per conflict period. It
 	// is best effort: the poller keeps retrying and never drops an update.
 	OnConflict func(time.Duration)
+	// Scan is the DLP gate for message text that leaves through the adapter
+	// (SEC-16). Nil disables the scan in unit tests; serve wires
+	// netx.Network.ScanText.
+	Scan func(string) error
 }
 
 // Adapter is one configured Telegram bot.
@@ -123,6 +127,7 @@ type Adapter struct {
 	conflictWait time.Duration
 	conflictNote time.Duration
 	onConflict   func(time.Duration)
+	scan         func(string) error
 	conflictAt   time.Time
 	notified     bool
 	after        time.Duration
@@ -168,6 +173,7 @@ func New(cfg *Config) (*Adapter, error) {
 		conflictWait: cmp.Or(cfg.ConflictWait, pollTimeout+5*time.Second),
 		conflictNote: cmp.Or(cfg.ConflictNotifyAfter, 5*time.Minute),
 		onConflict:   cfg.OnConflict,
+		scan:         cfg.Scan,
 		stallAfter:   2*pollTimeout + pollStallMargin,
 	}
 	if id, err := strconv.ParseInt(account, 10, 64); err == nil {
@@ -182,6 +188,19 @@ type apiError struct {
 	Method, Description string
 	Code                int
 	RetryAfter          time.Duration
+}
+
+// checkText is the SEC-16 gate: message text is tool-derived egress, so it
+// passes the one DLP scan before any Bot API call. The runtime-installed token
+// is not part of the scanned text.
+func (a *Adapter) checkText(text string) error {
+	if a.scan == nil || text == "" {
+		return nil
+	}
+	if err := a.scan(text); err != nil {
+		return fmt.Errorf("telegram: egress blocked: %w", err)
+	}
+	return nil
 }
 
 // isThreadNotFound classifies the Bot API rejection of a send to a deleted
@@ -415,6 +434,9 @@ func classifySend(method string, d time.Duration, err error) error {
 // travels as Bot API entities over the escaped plain text (GAP-GW-04). anchor
 // is an already validated reply_to_message_id, empty to omit it.
 func (a *Adapter) sendMessage(ctx context.Context, chatID, threadID, anchor string, msg render.Message, keyboard string) (int64, error) {
+	if err := a.checkText(msg.Text); err != nil {
+		return 0, err
+	}
 	form := url.Values{"chat_id": {chatID}, "text": {msg.Text}}
 	if threadID != "" {
 		form.Set("message_thread_id", threadID)
@@ -440,6 +462,9 @@ func (a *Adapter) sendMessage(ctx context.Context, chatID, threadID, anchor stri
 
 // editText edits one rendered message in place, again without parse_mode.
 func (a *Adapter) editText(ctx context.Context, chatID, threadID string, messageID int64, msg render.Message) error {
+	if err := a.checkText(msg.Text); err != nil {
+		return err
+	}
 	form := url.Values{"chat_id": {chatID}, "text": {msg.Text}, "message_id": {strconv.FormatInt(messageID, 10)}}
 	if threadID != "" {
 		form.Set("message_thread_id", threadID)

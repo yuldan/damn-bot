@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/telegram"
@@ -100,11 +101,24 @@ func (g *serveGateway) notifyOwner(ctx context.Context, key, body string) {
 	if !ok {
 		return
 	}
+	g.notifyChat(ctx, platform, chat, "sys:"+key, body)
+}
+
+// isNotFound maps the ctxdb miss sentinel without importing its exact type in
+// callers (the gateway queue and pairing caps share it).
+func isNotFound(err error) bool { return errors.Is(err, ctxdb.ErrNotFound) }
+
+// notifyChat enqueues one `__system__` delivery (no event, no lease) to any
+// chat, keyed for at-most-once delivery across restarts.
+func (g *serveGateway) notifyChat(ctx context.Context, platform, chat, key, body string) {
+	if g == nil || platform == "" || chat == "" || key == "" {
+		return
+	}
 	if _, _, err := g.store.EnqueueDelivery(ctx, &gwstore.Delivery{
-		IdemKey:  gateway.DeliveryKey(platform, chat, "sys:"+key),
+		IdemKey:  gateway.DeliveryKey(platform, chat, key),
 		Platform: platform, ChatID: chat, Body: body, Status: gateway.StatusQueued,
 	}); err != nil {
-		sessionsPrintf(g.stderr, "gateway: owner notice %s: %s\n", cleanArg(key), cleanLine(err.Error()))
+		sessionsPrintf(g.stderr, "gateway: notice %s: %s\n", cleanArg(key), cleanLine(err.Error()))
 		g.metrics.IncError()
 	}
 }

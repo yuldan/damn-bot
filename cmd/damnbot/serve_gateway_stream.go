@@ -82,7 +82,7 @@ type replyOutcome struct {
 // accumulated answer, or the provider-error message when the turn failed. wait
 // paces the final flush so no two updates reach the adapter closer than
 // replyEditGap; it is injected so tests advance a fake clock instead of sleeping.
-func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() time.Time, wait func(context.Context, time.Duration) error, flush func(context.Context, string) error, decorate func(string, replyOutcome) string, start time.Time, shown int) replyOutcome {
+func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() time.Time, wait func(context.Context, time.Duration) error, flush func(context.Context, string) error, decorate func(string, replyOutcome) string, start time.Time, shown int, observe func(event.Update)) replyOutcome {
 	var answer []byte
 	pacer := newReplyPacer(start, shown)
 	var stop event.StopReason
@@ -91,6 +91,9 @@ func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() 
 	var sendErr error
 	var meta replyMeta
 	for up := range ch {
+		if observe != nil {
+			observe(up)
+		}
 		meta.observe(up.Usage)
 		switch up.Kind {
 		case event.UpdateTextDelta:

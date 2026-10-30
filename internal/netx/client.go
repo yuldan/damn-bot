@@ -92,6 +92,17 @@ func New(cfg Config) *Network {
 // OAuth refresh); requests already past the gate are not rescanned.
 func (n *Network) SetSecrets(secrets []string) { n.dlp.Store(newDLP(slices.Clone(secrets))) }
 
+// ScanText applies the one DLP gate to text a Gateway adapter is about to
+// send (message bodies, captions, edits). Gateway keeps its runtime-installed
+// token out of the scanned path; the message itself is tool-derived egress and
+// must pass the same §14.3/known-secret scan as Tool requests (SEC-16).
+func (n *Network) ScanText(text string) error {
+	if text == "" {
+		return nil
+	}
+	return n.dlp.Load().scan([]byte(text))
+}
+
 func transport(rule dialRule, proxy func(*http.Request) (*url.URL, error)) *http.Transport {
 	return &http.Transport{
 		Proxy:               proxy,

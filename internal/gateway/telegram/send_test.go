@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 func TestSendIsIdempotent(t *testing.T) {
@@ -237,5 +239,62 @@ func TestThreadNotFoundIsTyped(t *testing.T) {
 	}
 	if got := f.callsFor("sendMessage")[0].Form.Get("message_thread_id"); got != "9" {
 		t.Fatalf("first call thread = %q, want 9", got)
+	}
+}
+
+// TestSendScansTextBeforeEgress (SEC-16): a secret in the message text is
+// refused before any Bot API request; clean text still sends. The scan lives
+// in netx and is injected as Config.Scan, so the adapter never bypasses it.
+func TestSendScansTextBeforeEgress(t *testing.T) {
+	f := newFakeTG(t)
+	a, _ := newTestAdapter(t, f, newMemStore(), func(c *Config) {
+		c.Scan = func(text string) error {
+			if strings.Contains(text, "hunter2-vault-secret") {
+				return netx.ErrSecretEgress
+			}
+			return nil
+		}
+	})
+	_, err := a.Send(t.Context(), &Outbound{ChatID: "7", Text: "bocor hunter2-vault-secret"})
+	if !errors.Is(err, netx.ErrSecretEgress) {
+		t.Fatalf("error = %v, want ErrSecretEgress", err)
+	}
+	if n := len(f.callsFor("sendMessage")); n != 0 {
+		t.Fatalf("blocked text reached the Bot API %d times", n)
+	}
+	if _, err := a.Send(t.Context(), &Outbound{ChatID: "7", Text: "halo"}); err != nil {
+		t.Fatalf("clean send: %v", err)
+	}
+	if n := len(f.callsFor("sendMessage")); n != 1 {
+		t.Fatalf("sendMessage calls = %d, want 1", n)
+	}
+}
+
+// TestSendScansCaptionBeforeEgress (SEC-16): a media caption is egress too.
+// A secret in the caption is refused before the upload; a clean caption still
+// uploads exactly once.
+func TestSendScansCaptionBeforeEgress(t *testing.T) {
+	f := newFakeTG(t)
+	a, _ := newTestAdapter(t, f, newMemStore(), func(c *Config) {
+		c.Scan = func(text string) error {
+			if strings.Contains(text, "hunter2-vault-secret") {
+				return netx.ErrSecretEgress
+			}
+			return nil
+		}
+	})
+	media := &Media{Name: "note.txt", MIME: "text/plain", Data: []byte("ok")}
+	_, err := a.Send(t.Context(), &Outbound{ChatID: "7", Text: "bocor hunter2-vault-secret", Media: media})
+	if !errors.Is(err, netx.ErrSecretEgress) {
+		t.Fatalf("error = %v, want ErrSecretEgress", err)
+	}
+	if n := len(f.callsFor("sendDocument")) + len(f.callsFor("sendPhoto")); n != 0 {
+		t.Fatalf("blocked caption uploaded %d files", n)
+	}
+	if _, err := a.Send(t.Context(), &Outbound{ChatID: "7", Text: "halo", Media: media}); err != nil {
+		t.Fatalf("clean media send: %v", err)
+	}
+	if n := len(f.callsFor("sendDocument")) + len(f.callsFor("sendPhoto")); n != 1 {
+		t.Fatalf("media uploads = %d, want 1", n)
 	}
 }

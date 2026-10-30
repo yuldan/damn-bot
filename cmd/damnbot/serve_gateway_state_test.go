@@ -43,7 +43,7 @@ func TestECSTATE012FlushCursorResetsPerTurn(t *testing.T) {
 			return nil
 		}
 		before := len(waited)
-		streamReplyUpdates(t.Context(), ch, now, wait, flush, nil, start, 0)
+		streamReplyUpdates(t.Context(), ch, now, wait, flush, nil, start, 0, nil)
 		return flushed, len(waited) - before
 	}
 

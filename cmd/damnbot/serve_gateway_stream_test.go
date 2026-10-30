@@ -38,7 +38,7 @@ func driveStream(t *testing.T, n int, step time.Duration, tail ...event.Update) 
 		ch <- tail[i]
 	}
 	close(ch)
-	out := streamReplyUpdates(t.Context(), ch, clock, wait, flush, nil, streamStart(), len(gatewayAckText))
+	out := streamReplyUpdates(t.Context(), ch, clock, wait, flush, nil, streamStart(), len(gatewayAckText), nil)
 	return calls, out
 }
 

@@ -143,6 +143,9 @@ func (a *Adapter) sendMedia(ctx context.Context, out *Outbound, at *attachment) 
 		fields.Set("reply_to_message_id", anchor)
 	}
 	if caption := mediaCaption(out.Text); caption != "" {
+		if err := a.checkText(caption); err != nil {
+			return 0, err
+		}
 		fields.Set("caption", caption)
 	}
 	var sent tgMessage

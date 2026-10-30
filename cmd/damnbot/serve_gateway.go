@@ -72,6 +72,11 @@ type serveGateway struct {
 	// owner is the platform:id of the owner identity: the destination of
 	// `__system__` notices (thread lost, poll conflict, crash pause).
 	owner string
+
+	// waitMu guards waits, the start time of every turn still waiting for its
+	// first provider update (REL-07 "menunggu provider N s").
+	waitMu sync.Mutex
+	waits  map[string]time.Time
 }
 
 func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, db *ctxdb.Store, daemon *serveDaemon, metrics *obs.Metrics, stderr io.Writer) (*serveGateway, error) {
@@ -112,17 +117,12 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	}
 	net := netx.New(netx.Config{Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background})
 
-	limiter, err := gateway.NewLimiterCaps(gateway.TelegramCaps())
-	if err != nil {
-		return nil, fmt.Errorf("gateway limiter: %w", err)
-	}
 	var self *serveGateway
-	adapter, err := newServeTelegram(ctx, token, store, net, limiter, wd, metrics, stderr,
-		func(ctx context.Context, key, body string) {
-			if self != nil {
-				self.notifyOwner(ctx, key, body)
-			}
-		})
+	adapter, limiter, err := newGatewayAdapter(ctx, token, net, store, wd, metrics, stderr, func(ctx context.Context, key, body string) {
+		if self != nil {
+			self.notifyOwner(ctx, key, body)
+		}
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -137,9 +137,13 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		chats: gateway.NewChatQueue(cfg.Gateway.MaxParallelTurns), daemon: daemon,
 		metrics: metrics, watchdog: wd, supervisor: sup, stderr: stderr,
 		inbound: make(chan telegram.Inbound, 32), now: time.Now, owner: owner,
-		turns: make(map[turnKey]*chatTurn), restartCh: make(chan struct{}, 1),
+		turns: make(map[turnKey]*chatTurn), waits: make(map[string]time.Time),
+		restartCh: make(chan struct{}, 1),
 	}
 	self = g
+	if rerr := g.startupRecovery(ctx, db, stderr); rerr != nil {
+		return nil, rerr
+	}
 	if rerr := g.registerPlatform(); rerr != nil {
 		return nil, rerr
 	}
@@ -157,9 +161,13 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	return g, nil
 }
 
-// newServeTelegram builds the Telegram adapter with the outq caps and the
-// one-shot 409 owner notice (REL-02).
-func newServeTelegram(ctx context.Context, token string, store gwstore.Store, net *netx.Network, limiter *gateway.Limiter, wd *heal.Watchdog, metrics *obs.Metrics, stderr io.Writer, notify func(context.Context, string, string)) (*telegram.Adapter, error) {
+// newGatewayAdapter owns the one Telegram adapter and its outbound limiter.
+// notify receives the 409 conflict notice (REL-02).
+func newGatewayAdapter(ctx context.Context, token string, net *netx.Network, store gwstore.Store, wd *heal.Watchdog, metrics *obs.Metrics, stderr io.Writer, notify func(context.Context, string, string)) (*telegram.Adapter, *gateway.Limiter, error) {
+	limiter, err := gateway.NewLimiterCaps(gateway.TelegramCaps())
+	if err != nil {
+		return nil, nil, fmt.Errorf("gateway limiter: %w", err)
+	}
 	adapter, err := telegram.New(&telegram.Config{
 		Token: token, BaseURL: strings.TrimSpace(os.Getenv("DAMNBOT_TELEGRAM_BASE_URL")),
 		Doer: beatDoer{do: telegram.EgressClient(net), wd: wd}, Store: telegramStore{Store: store},
@@ -171,15 +179,28 @@ func newServeTelegram(ctx context.Context, token string, store gwstore.Store, ne
 		},
 		Throttle:          limiter,
 		MaxChunksPerReply: gateway.TelegramCaps().MaxChunksPerReply,
+		Scan:              net.ScanText,
 		OnConflict: func(d time.Duration) {
 			notify(ctx, "poll-conflict",
 				fmt.Sprintf("getUpdates 409 selama %s: proses lain masih memegang bot; antrean tidak dibuang", d.Round(time.Second)))
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("gateway telegram: %w", err)
+		return nil, nil, fmt.Errorf("gateway telegram: %w", err)
 	}
-	return adapter, nil
+	return adapter, limiter, nil
+}
+
+// startupRecovery closes cron slots orphaned by a previous process (REL-09).
+func (g *serveGateway) startupRecovery(ctx context.Context, db *ctxdb.Store, stderr io.Writer) error {
+	n, err := recoverCrashedRuns(ctx, db, g.notifyOwner)
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		sessionsPrintf(stderr, "gateway: closed %d crashed cron slots\n", n)
+	}
+	return nil
 }
 
 func gatewayEnv() (string, []string, error) {
@@ -334,9 +355,11 @@ func (g *serveGateway) turn(ctx context.Context, in *telegram.Inbound, t *gatewa
 	start := time.Now()
 	sid, err := g.sessionFor(ctx, &t.Scope)
 	if err == nil {
+		g.beginProviderWait(in.UpdateID)
 		err = g.runChat(ctx, in, sid, func(ctx context.Context, ch <-chan event.Update) error {
 			return g.streamReply(ctx, in, ch, typing, ack)
 		}, false)
+		g.endProviderWait(in.UpdateID)
 	}
 	if err != nil {
 		g.failPlaceholder(ctx, in, ack)
@@ -502,7 +525,8 @@ func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch
 		}
 		return nil
 	}
-	res := streamReplyUpdates(ctx, ch, now, waitReply, flush, decorate, now(), shown)
+	res := streamReplyUpdates(ctx, ch, now, waitReply, flush, decorate, now(), shown,
+		func(event.Update) { g.endProviderWait(in.UpdateID) })
 	if res.Text == "" && ack != nil && !ack.replaced {
 		res.Text = gatewayNoOutput
 		if ferr := flush(ctx, res.Text); ferr != nil {
