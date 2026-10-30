@@ -56,7 +56,9 @@ func TestHumanDelayWindow(t *testing.T) {
 	waited = 0
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, _ = gw.feedback(ctx, "1", "", "shell", "rm")
+	if _, ferr := gw.feedback(ctx, "1", "", "shell", "rm"); ferr != nil && ctx.Err() == nil {
+		t.Fatalf("feedback: %v", ferr)
+	}
 	if waited != 0 {
 		t.Fatalf("approval path waited %d human delays, want 0", waited)
 	}
@@ -74,8 +76,10 @@ func TestFooterToggleChangesRenderedReply(t *testing.T) {
 	stream := func(update string) {
 		ch := make(chan event.Update, 2)
 		ch <- event.Update{Kind: event.UpdateTextDelta, Text: "hello"}
-		ch <- event.Update{Kind: event.UpdateStop, Stop: event.StopEndTurn, Detail: event.DetailCompleted,
-			Usage: &event.Usage{Iterations: 2, CostUSD: &cost}}
+		ch <- event.Update{
+			Kind: event.UpdateStop, Stop: event.StopEndTurn, Detail: event.DetailCompleted,
+			Usage: &event.Usage{Iterations: 2, CostUSD: &cost},
+		}
 		close(ch)
 		in := &telegram.Inbound{Platform: "telegram", ChatID: "600", SenderID: "7788", UpdateID: update, Text: "hi"}
 		if err := gw.streamReply(t.Context(), in, ch, nil, nil); err != nil {
@@ -90,7 +94,7 @@ func TestFooterToggleChangesRenderedReply(t *testing.T) {
 	if err := gw.store.SetChatSetting(t.Context(), "telegram", "600", "footer", "true", at.UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
-	if !gw.chatFlag(t.Context(), "telegram", "600", chatFooter) {
+	if !gw.chatFlag(t.Context(), "600", chatFooter) {
 		t.Fatal("footer flag did not read back")
 	}
 	stream("r2")

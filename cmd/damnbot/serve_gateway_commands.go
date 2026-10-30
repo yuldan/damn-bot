@@ -165,8 +165,7 @@ func (g *serveGateway) NewSession(ctx context.Context, scope *gateway.Scope) (st
 	return g.createSession(ctx, scope)
 }
 
-// Status implements gateway.Runtime. It reads the chat queue, the supervisor,
-// the version and the home channel only; it never starts work.
+// Status implements gateway.Runtime; it reads state only.
 func (g *serveGateway) Status(ctx context.Context) (gateway.RuntimeStatus, error) {
 	queued, active := g.chats.Stats()
 	st := gateway.RuntimeStatus{
@@ -184,8 +183,7 @@ func (g *serveGateway) Status(ctx context.Context) (gateway.RuntimeStatus, error
 	return st, nil
 }
 
-// TopicSession implements gateway.Runtime: the forum thread's session, created
-// on first use. The command layer has already rejected an empty thread.
+// TopicSession returns the forum thread's session, creating it when absent.
 func (g *serveGateway) TopicSession(ctx context.Context, scope *gateway.Scope) (string, error) {
 	return g.sessionFor(ctx, scope)
 }

@@ -54,9 +54,7 @@ type pending struct {
 	TargetVersion string `json:"target_version"`
 	PremigrateDB  string `json:"premigrate_db"`
 	CreatedAt     string `json:"created_at"`
-	// TargetSHA256 lets --repair match the installed binary to the signed
-	// manifest it re-resolves; older records lack it and are rolled back.
-	TargetSHA256 string `json:"target_sha256,omitempty"`
+	TargetSHA256  string `json:"target_sha256,omitempty"`
 }
 
 // Install downloads the signed asset, verifies checksum, health-checks it, and
@@ -212,7 +210,6 @@ func Rollback(dataDir string, withData bool) (err error) {
 	return rollback(dataDir, withData)
 }
 
-// rollback is Rollback without the lock, for callers that already hold it.
 func rollback(dataDir string, withData bool) error {
 	p, err := readPending(dataDir)
 	if err != nil {
@@ -244,7 +241,10 @@ func rollback(dataDir string, withData bool) error {
 
 func restoreBinary(active, prev string) error {
 	if _, err := os.Stat(active); errors.Is(err, os.ErrNotExist) {
-		return os.Rename(prev, active)
+		if rerr := os.Rename(prev, active); rerr != nil {
+			return fmt.Errorf("update: restore previous binary: %w", rerr)
+		}
+		return nil
 	}
 	tmp := active + ".rollback"
 	if err := os.Rename(active, tmp); err != nil {

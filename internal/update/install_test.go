@@ -324,7 +324,7 @@ func TestRepairRollsBackCorruptInstall(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(f.dataDir, "damnbot.db"), []byte("db-intact"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(f.binary, []byte("corrupt-asset"), 0o755); err != nil {
+	if err := os.WriteFile(f.binary, []byte("corrupt-asset"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	status, err := Repair(t.Context(), opts)
@@ -355,8 +355,8 @@ func TestRepairRejectsTamperedPending(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.TargetSHA256 = strings.Repeat("f", 64)
-	if err := writePending(f.dataDir, &p); err != nil {
-		t.Fatal(err)
+	if werr := writePending(f.dataDir, &p); werr != nil {
+		t.Fatal(werr)
 	}
 	status, err := Repair(t.Context(), opts)
 	if err != nil || !strings.Contains(status, "rolled back") {

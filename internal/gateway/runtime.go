@@ -41,8 +41,7 @@ type RuntimeStatus struct {
 	ActiveTurns int
 	SafeMode    bool
 	Version     string
-	// Home is the /sethome channel (GW-005), empty when none is stored.
-	Home string
+	Home        string
 }
 
 // UsageReport is the ledger totals /usage answers with: tokens and micro-USD

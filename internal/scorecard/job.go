@@ -201,7 +201,12 @@ func (j *Job) alarm(ctx context.Context, res *Result) error {
 	}
 	owner := j.Owner
 	if owner.Platform == "" || owner.ChatID == "" {
-		home, ok, err := j.home(ctx)
+		var home Owner
+		var ok bool
+		var err error
+		if j.Home != nil {
+			home, ok, err = j.Home.HomeChannel(ctx)
+		}
 		if err != nil {
 			res.Alarm = Alarm{Status: StatusFailed, Reason: err.Error()}
 			return fmt.Errorf("scorecard: home channel: %w", err)
@@ -228,13 +233,6 @@ func (j *Job) alarm(ctx context.Context, res *Result) error {
 	}
 	res.Alarm = Alarm{Status: StatusOK, Reason: "enqueued"}
 	return nil
-}
-
-func (j *Job) home(ctx context.Context) (Owner, bool, error) {
-	if j.Home == nil {
-		return Owner{}, false, nil
-	}
-	return j.Home.HomeChannel(ctx)
 }
 
 // regressions lists the overall score and dimensions that dropped more than

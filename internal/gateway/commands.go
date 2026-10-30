@@ -20,12 +20,8 @@ type CommandOptions struct {
 	// leaves both commands registered but unsupported.
 	Approvals *Approvals
 	// Pairing redeems "/pair <code>"; nil leaves it registered but unsupported.
-	Pairing PairingStore
-	// Runtime backs "/stop", "/new", "/status", "/usage" and "/topic"; nil
-	// leaves them registered but unsupported.
-	Runtime Runtime
-	// Settings backs "/sethome" and "/footer" plus the per-chat reply toggles
-	// (GW-005, GW-020, GW-021); nil leaves the commands unsupported.
+	Pairing  PairingStore
+	Runtime  Runtime
 	Settings ChatSettings
 	// Now is the pairing attempt clock and redemption timestamp; nil is time.Now.
 	Now func() time.Time
@@ -64,7 +60,7 @@ type Commands struct {
 }
 
 // NewCommands returns a dispatcher over the command set.
-func NewCommands(opts CommandOptions) *Commands {
+func NewCommands(opts *CommandOptions) *Commands {
 	now := opts.Now
 	if now == nil {
 		now = time.Now

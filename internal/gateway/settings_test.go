@@ -44,7 +44,7 @@ func (f *fakeSettings) SetHomeChannel(_ context.Context, platform, chatID, threa
 // TestSethomeIsIdempotentAndOwnerOnly pins GW-005/SLASH-043.
 func TestSethomeIsIdempotentAndOwnerOnly(t *testing.T) {
 	fs := &fakeSettings{}
-	c := gateway.NewCommands(gateway.CommandOptions{Settings: fs})
+	c := gateway.NewCommands(&gateway.CommandOptions{Settings: fs})
 	owner := testTicket(gateway.RoleOwner)
 	owner.Scope.ThreadID = "42"
 
@@ -68,7 +68,7 @@ func TestSethomeIsIdempotentAndOwnerOnly(t *testing.T) {
 // TestFooterToggle renders off by default, then on/off/status per chat.
 func TestFooterToggle(t *testing.T) {
 	fs := &fakeSettings{}
-	c := gateway.NewCommands(gateway.CommandOptions{Settings: fs, Now: func() time.Time { return time.Unix(100, 0) }})
+	c := gateway.NewCommands(&gateway.CommandOptions{Settings: fs, Now: func() time.Time { return time.Unix(100, 0) }})
 	ticket := testTicket(gateway.RoleOwner)
 	if res := c.Dispatch(context.Background(), ticket, "/footer"); !strings.Contains(res.Reply, "off (default)") {
 		t.Fatalf("/footer default = %+v", res)
@@ -93,7 +93,7 @@ func TestFooterToggle(t *testing.T) {
 // TestTopicFailsClosedWithoutThread pins SLASH-003: no silent parent fallback.
 func TestTopicFailsClosedWithoutThread(t *testing.T) {
 	rt := &fakeRuntime{topicID: "s-topic"}
-	c := gateway.NewCommands(gateway.CommandOptions{Runtime: rt})
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
 	res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/topic")
 	if !res.Handled || !strings.Contains(res.Reply, "no topic thread") {
 		t.Fatalf("/topic without thread = %+v", res)
@@ -112,7 +112,7 @@ func TestTopicFailsClosedWithoutThread(t *testing.T) {
 // TestStatusShowsHomeChannel pins the GW-005 /status surface.
 func TestStatusShowsHomeChannel(t *testing.T) {
 	rt := &fakeRuntime{status: gateway.RuntimeStatus{Version: "1.0", Home: "telegram:c1/9"}}
-	c := gateway.NewCommands(gateway.CommandOptions{Runtime: rt})
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
 	res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/status")
 	if !strings.Contains(res.Reply, "home telegram:c1/9") {
 		t.Fatalf("/status = %+v, want home", res)

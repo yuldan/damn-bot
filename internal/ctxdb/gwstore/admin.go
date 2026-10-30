@@ -256,14 +256,7 @@ func storeCounts(tx *ctxdb.Tx) (IdentityCounts, error) {
 	return c, nil
 }
 
-func (s Store) ChatOverride(ctx context.Context, platform, chatID string) (string, bool, error) {
-	return s.ChatSetting(ctx, platform, chatID, "require_mention")
-}
-
-func (s Store) SetChatOverride(ctx context.Context, platform, chatID, value string, now int64) error {
-	return s.SetChatSetting(ctx, platform, chatID, "require_mention", value, now)
-}
-
+// ChatSetting reads one per-chat override.
 func (s Store) ChatSetting(ctx context.Context, platform, chatID, name string) (value string, found bool, err error) {
 	err = s.DB.Write(ctx, func(tx *ctxdb.Tx) error {
 		return tx.Get(`SELECT value FROM module_state WHERE module_id = 'gateway' AND key = ?1`,
@@ -275,12 +268,16 @@ func (s Store) ChatSetting(ctx context.Context, platform, chatID, name string) (
 	return value, value != "", nil
 }
 
+// SetChatSetting writes one per-chat override.
 func (s Store) SetChatSetting(ctx context.Context, platform, chatID, name, value string, now int64) error {
 	if err := s.DB.Write(ctx, func(tx *ctxdb.Tx) error {
 		_, xerr := tx.Exec(`INSERT INTO module_state(module_id, key, value, updated_at) VALUES ('gateway', ?1, ?2, ?3)
 			ON CONFLICT(module_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
 			"chats."+platform+":"+chatID+"."+name, value, now)
-		return xerr
+		if xerr != nil {
+			return fmt.Errorf("write chat setting: %w", xerr)
+		}
+		return nil
 	}); err != nil {
 		return fmt.Errorf("gwstore set chat setting: %w", err)
 	}
@@ -306,6 +303,7 @@ func (s Store) HomeChannel(ctx context.Context) (platform, chatID, threadID stri
 	return parts[0], parts[1], parts[2], true, nil
 }
 
+// SetHomeChannel stores the idempotent GW-005 home channel.
 func (s Store) SetHomeChannel(ctx context.Context, platform, chatID, threadID string, now int64) error {
 	if !validChannel(platform, chatID, threadID) {
 		return fmt.Errorf("gwstore home channel: invalid channel")
@@ -315,7 +313,10 @@ func (s Store) SetHomeChannel(ctx context.Context, platform, chatID, threadID st
 		_, xerr := tx.Exec(`INSERT INTO module_state(module_id, key, value, updated_at) VALUES ('gateway', 'home_channel', ?1, ?2)
 			ON CONFLICT(module_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
 			value, now)
-		return xerr
+		if xerr != nil {
+			return fmt.Errorf("write home channel: %w", xerr)
+		}
+		return nil
 	}); err != nil {
 		return fmt.Errorf("gwstore set home channel: %w", err)
 	}
@@ -323,10 +324,6 @@ func (s Store) SetHomeChannel(ctx context.Context, platform, chatID, threadID st
 }
 
 func validChannel(platform, chatID, threadID string) bool {
-	for _, f := range [...]string{platform, chatID, threadID} {
-		if len(f) > 512 || strings.ContainsAny(f, "\x00\r\n\x1f") {
-			return false
-		}
-	}
-	return platform != "" && chatID != ""
+	joined := platform + chatID + threadID
+	return platform != "" && chatID != "" && len(joined) <= 1536 && !strings.ContainsAny(joined, "\x00\r\n\x1f")
 }

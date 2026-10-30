@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// ChatSettings is the per-chat configuration seam.
 type ChatSettings interface {
 	ChatSetting(ctx context.Context, platform, chatID, key string) (value string, found bool, err error)
 	SetChatSetting(ctx context.Context, platform, chatID, key, value string, now int64) error
@@ -14,6 +15,7 @@ type ChatSettings interface {
 	SetHomeChannel(ctx context.Context, platform, chatID, threadID string, now int64) error
 }
 
+// HomeName renders platform:chat/thread.
 func HomeName(platform, chatID, threadID string) string {
 	if threadID != "" {
 		return platform + ":" + chatID + "/" + threadID

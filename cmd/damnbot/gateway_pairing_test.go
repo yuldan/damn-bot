@@ -61,7 +61,7 @@ func newPairEnv(t *testing.T) *pairEnv {
 	if err := env.store.SetIdentity(context.Background(), "telegram", "900", "owner", "allowlisted", env.now.UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
-	env.cmds = gateway.NewCommands(gateway.CommandOptions{
+	env.cmds = gateway.NewCommands(&gateway.CommandOptions{
 		Pairing: gwPairing{env.store},
 		Now:     func() time.Time { return env.now },
 	})

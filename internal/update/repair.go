@@ -12,6 +12,7 @@ import (
 	"strings"
 )
 
+// Repair recovers an interrupted install (OPS-028).
 func Repair(ctx context.Context, o *InstallOptions) (status string, err error) {
 	if o.DataDir == "" || o.BinaryPath == "" {
 		return "", errors.New("update: repair needs data dir and binary path")
@@ -51,8 +52,7 @@ func Repair(ctx context.Context, o *InstallOptions) (status string, err error) {
 	if err := removePending(o.DataDir); err != nil {
 		return "", err
 	}
-	cleanupStaged(o.BinaryPath)
-	return "verified " + p.TargetVersion, nil
+	return "verified " + p.TargetVersion, cleanupStaged(o.BinaryPath)
 }
 
 func (p *pending) verify(ctx context.Context, o *InstallOptions) error {
@@ -74,12 +74,11 @@ func rollbackPrevious(dataDir string, p *pending) error {
 	if err := rollback(dataDir, false); err != nil {
 		return err
 	}
-	cleanupStaged(active)
-	return nil
+	return cleanupStaged(active)
 }
 
-func cleanupStaged(active string) {
-	_ = removeIfExists(filepath.Join(filepath.Dir(active), "damnbot.new"+filepath.Ext(active)))
+func cleanupStaged(active string) error {
+	return removeIfExists(filepath.Join(filepath.Dir(active), "damnbot.new"+filepath.Ext(active)))
 }
 
 func fileSHA256(path string) (sha string, err error) {

@@ -48,12 +48,8 @@ type serveGateway struct {
 	wg                  sync.WaitGroup
 	now                 func() time.Time
 	started             time.Time
-
-	// delayRandom/delayWait implement GW-007; tests inject a deterministic
-	// draw and a fake wait.
-	delayRandom func() time.Duration
-	delayWait   func(context.Context, time.Duration) error
-
+	delayRandom         func() time.Duration
+	delayWait           func(context.Context, time.Duration) error
 	// run is the one chat turn. It is a field so tests can substitute a fake
 	// runner: no command in this file needs a provider or a token.
 	run func(context.Context, *telegram.Inbound, *gateway.Ticket) error
@@ -127,9 +123,11 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		inbound: make(chan telegram.Inbound, 32), now: time.Now,
 		turns: make(map[turnKey]*chatTurn),
 	}
+	g.delayRandom = func() time.Duration { return time.Duration(time.Now().UnixNano()) % (humanDelayMax - humanDelayMin) }
+	g.delayWait = waitReply
 	g.started = g.now()
 	g.run = g.turn
-	commands := gateway.NewCommands(gateway.CommandOptions{Runtime: g, Settings: store})
+	commands := gateway.NewCommands(&gateway.CommandOptions{Runtime: g, Settings: store})
 	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands)
 	if err != nil {
 		return nil, err
@@ -287,7 +285,7 @@ func (g *serveGateway) turn(ctx context.Context, in *telegram.Inbound, t *gatewa
 	defer typing.end()
 	ack := g.placeholder(ctx, in)
 	start := time.Now()
-	sid, err := g.session(ctx, t)
+	sid, err := g.sessionFor(ctx, &t.Scope)
 	if err == nil {
 		err = g.runChat(ctx, in, sid, typing, ack)
 	}
@@ -296,10 +294,6 @@ func (g *serveGateway) turn(ctx context.Context, in *telegram.Inbound, t *gatewa
 	}
 	g.metrics.Turn(time.Since(start), err == nil)
 	return err
-}
-
-func (g *serveGateway) session(ctx context.Context, t *gateway.Ticket) (string, error) {
-	return g.sessionFor(ctx, &t.Scope)
 }
 
 func (g *serveGateway) sessionFor(ctx context.Context, scope *gateway.Scope) (string, error) {
@@ -457,7 +451,6 @@ type replyOutcome struct {
 // accumulated answer, or the provider-error message when the turn failed. wait
 // paces the final flush so no two updates reach the adapter closer than
 // replyEditGap; it is injected so tests advance a fake clock instead of sleeping.
-// decorate may append the GW-021 footer to the final text only.
 func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() time.Time, wait func(context.Context, time.Duration) error, flush func(context.Context, string) error, decorate func(string, replyOutcome) string, start time.Time, shown int) replyOutcome {
 	var answer []byte
 	pacer := newReplyPacer(start, shown)
@@ -467,6 +460,7 @@ func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() 
 	var sendErr error
 	var meta replyMeta
 	for up := range ch {
+		meta.observe(up.Usage)
 		switch up.Kind {
 		case event.UpdateTextDelta:
 			answer = append(answer, up.Text...)
@@ -476,10 +470,7 @@ func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() 
 			}
 		case event.UpdateStop:
 			stop, detail = up.Stop, up.Detail
-			meta.observe(up.Usage)
-		case event.UpdateUsage:
-			meta.observe(up.Usage)
-		case event.UpdateToolCallStart, event.UpdateToolCallArgs, event.UpdateToolCallEnd, event.UpdateToolResult, event.UpdateNotice:
+		case event.UpdateToolCallStart, event.UpdateToolCallArgs, event.UpdateToolCallEnd, event.UpdateToolResult, event.UpdateUsage, event.UpdateNotice:
 		}
 	}
 	failed := stop == event.StopError || detail == event.DetailProviderError
@@ -495,18 +486,23 @@ func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() 
 		text = decorate(text, out)
 		out.Text = text
 	}
-	if pacer.edits > 0 && text != sent {
-		if gap := replyEditGap - now().Sub(pacer.last); gap > 0 {
-			if werr := wait(ctx, gap); werr != nil {
-				out.Err = werr
-				return out
-			}
-		}
+	if werr := waitFinal(ctx, wait, now, pacer, text, sent); werr != nil {
+		out.Err = werr
+		return out
 	}
 	if ferr := flush(ctx, text); ferr != nil {
 		out.Err = ferr
 	}
 	return out
+}
+
+func waitFinal(ctx context.Context, wait func(context.Context, time.Duration) error, now func() time.Time, p replyPacer, text, sent string) error {
+	if p.edits > 0 && text != sent {
+		if gap := replyEditGap - now().Sub(p.last); gap > 0 {
+			return wait(ctx, gap)
+		}
+	}
+	return nil
 }
 
 // flushTyped updates the streamed message and stops the typing indicator once
@@ -554,6 +550,22 @@ func (g *serveGateway) failPlaceholder(ctx context.Context, in *telegram.Inbound
 	}
 }
 
+func (g *serveGateway) replyHooks(ctx context.Context, chat string, now func() time.Time, start time.Time) (prefix string, human bool, decorate func(string, replyOutcome) string) {
+	footer := g.chatFlag(ctx, chat, chatFooter)
+	timestamps := g.chatFlag(ctx, chat, chatTimestamps)
+	human = g.chatFlag(ctx, chat, chatHumanDelay)
+	if timestamps {
+		prefix = timestampPrefix(now())
+	}
+	decorate = func(text string, res replyOutcome) string {
+		if !footer {
+			return text
+		}
+		return text + footerText(g.modelRef, res.Meta, now().Sub(start))
+	}
+	return prefix, human, decorate
+}
+
 func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch <-chan event.Update, typing *gatewayTyping, ack *gatewayAck) error {
 	key := gateway.DeliveryKey("telegram", in.ChatID, "reply:"+in.UpdateID)
 	out := &telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Key: key}
@@ -567,13 +579,10 @@ func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch
 	if now == nil {
 		now = time.Now
 	}
-	flags := g.replyFlags(ctx, "telegram", in.ChatID)
-	prefix := ""
-	if flags.timestamps {
-		prefix = timestampPrefix(now())
-	}
+	start := now()
+	prefix, human, decorate := g.replyHooks(ctx, in.ChatID, now, start)
 	flush := func(ctx context.Context, text string) error {
-		if err := g.humanPace(ctx, flags.humanDelay); err != nil {
+		if err := g.humanPace(ctx, human); err != nil {
 			return err
 		}
 		if err := flushTyped(ctx, reply, typing, withTimestamp(text, prefix)); err != nil {
@@ -583,13 +592,6 @@ func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch
 			ack.replaced = true
 		}
 		return nil
-	}
-	start := now()
-	decorate := func(text string, res replyOutcome) string {
-		if !flags.footer {
-			return text
-		}
-		return text + footerText(g.modelRef, res.Meta, now().Sub(start))
 	}
 	res := streamReplyUpdates(ctx, ch, now, waitReply, flush, decorate, start, shown)
 	if res.Text == "" && ack != nil && !ack.replaced {

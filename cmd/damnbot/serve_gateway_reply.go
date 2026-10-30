@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/rand/v2"
 	"strconv"
 	"strings"
 	"time"
@@ -29,37 +28,16 @@ func (m *replyMeta) observe(u *event.Usage) {
 	if u == nil {
 		return
 	}
-	if u.Iterations > m.Iterations {
-		m.Iterations = u.Iterations
-	}
+	m.Iterations = max(m.Iterations, u.Iterations)
 	if u.CostUSD != nil {
 		m.CostUSD, m.CostKnown = *u.CostUSD, true
 	}
 }
 
-type chatFlags struct {
-	footer, timestamps, humanDelay bool
-}
-
-func (g *serveGateway) replyFlags(ctx context.Context, platform, chatID string) chatFlags {
-	return chatFlags{
-		footer:     g.chatFlag(ctx, platform, chatID, chatFooter),
-		timestamps: g.chatFlag(ctx, platform, chatID, chatTimestamps),
-		humanDelay: g.chatFlag(ctx, platform, chatID, chatHumanDelay),
-	}
-}
-
-func (g *serveGateway) chatFlag(ctx context.Context, platform, chatID, key string) bool {
-	raw, found, err := g.store.ChatSetting(ctx, platform, chatID, key)
-	if err != nil || !found {
-		return false
-	}
+func (g *serveGateway) chatFlag(ctx context.Context, chatID, key string) bool {
+	raw, found, err := g.store.ChatSetting(ctx, "telegram", chatID, key)
 	on, perr := strconv.ParseBool(strings.TrimSpace(raw))
-	if perr != nil {
-		sessionsPrintf(g.stderr, "gateway: chat setting %s/%s.%s is not a bool\n", cleanArg(platform), cleanArg(chatID), cleanArg(key))
-		return false
-	}
-	return on
+	return err == nil && found && perr == nil && on
 }
 
 func timestampPrefix(now time.Time) string {
@@ -89,13 +67,5 @@ func (g *serveGateway) humanPace(ctx context.Context, enabled bool) error {
 	if !enabled {
 		return nil
 	}
-	draw := g.delayRandom
-	if draw == nil {
-		draw = func() time.Duration { return rand.N(humanDelayMax - humanDelayMin) }
-	}
-	wait := g.delayWait
-	if wait == nil {
-		wait = waitReply
-	}
-	return wait(ctx, humanDelayAmount(draw))
+	return g.delayWait(ctx, humanDelayAmount(g.delayRandom))
 }

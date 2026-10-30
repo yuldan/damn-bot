@@ -36,16 +36,8 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	switch {
-	case fs.NArg() != 0:
-		say(stderr, "damnbot update: unexpected argument %q\n", cleanArg(fs.Arg(0)))
-		return 2
-	case *withData && !*rollback:
-		say(stderr, "damnbot update: --data requires --rollback\n")
-		return 2
-	case *repair && (*rollback || *check):
-		say(stderr, "damnbot update: --repair cannot be combined with --rollback or --check\n")
-		return 2
+	if code := updateArgsOK(fs, *rollback, *repair, *check, *withData, stderr); code != 0 {
+		return code
 	}
 	loader, lerr := config.New(config.OS())
 	if lerr != nil {
@@ -90,6 +82,20 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return runCheck(client, uc, pub, stdout, stderr)
 	}
 	return runInstall(client, uc, pub, paths.DataDir, stdout, stderr)
+}
+
+func updateArgsOK(fs *flag.FlagSet, rollback, repair, check, withData bool, stderr io.Writer) int {
+	switch {
+	case fs.NArg() != 0:
+		say(stderr, "damnbot update: unexpected argument %q\n", cleanArg(fs.Arg(0)))
+	case withData && !rollback:
+		say(stderr, "damnbot update: --data requires --rollback\n")
+	case repair && (rollback || check):
+		say(stderr, "damnbot update: --repair cannot be combined with --rollback or --check\n")
+	default:
+		return 0
+	}
+	return 2
 }
 
 func runCheck(client *netx.Client, uc update.Config, pub ed25519.PublicKey, stdout, stderr io.Writer) int {
@@ -140,10 +146,7 @@ func runRepair(client *netx.Client, uc update.Config, pub ed25519.PublicKey, dat
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	status, rerr := update.Repair(ctx, &update.InstallOptions{
-		Client: client, FeedURL: uc.FeedURL, Channel: uc.Channel,
-		PublicKey: pub, DataDir: dataDir, BinaryPath: bin,
-	})
+	status, rerr := update.Repair(ctx, &update.InstallOptions{Client: client, FeedURL: uc.FeedURL, Channel: uc.Channel, PublicKey: pub, DataDir: dataDir, BinaryPath: bin})
 	if rerr != nil {
 		say(stderr, "damnbot update: %v\n", rerr)
 		return updateErrorCode(rerr)
