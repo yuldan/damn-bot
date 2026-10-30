@@ -15,9 +15,10 @@
 //   - A run is at most once per slot: the state is saved before Run starts.
 //   - Pause/Resume and the crash window are persisted, so a restart neither
 //     duplicates a consumed slot nor starts a task that was running.
-//   - Budget bounds one run (context deadline); Preflight may skip a run;
-//     Delivery happens at most once per successful slot via a stable idempotency
-//     key. A failure is reported, never retried by this package.
+//   - Budget bounds one run (context deadline); Preflight may skip a run.
+//     Delivery happens at most once per terminal slot (ok, failed, budget;
+//     skipped is not delivered) via a stable idempotency key. A failure is never
+//     retried by this package.
 package periodic
 
 import (
@@ -224,7 +225,7 @@ func (s *Scheduler) start(ctx context.Context, t *Task, at time.Time, st *State)
 		s.mu.Lock()
 		delete(s.running, t.Name)
 		s.mu.Unlock()
-		if t.Deliver && s.Deliver != nil && rep.Outcome == OutcomeOK {
+		if t.Deliver && s.Deliver != nil && rep.Outcome != OutcomeSkipped {
 			n := &Notice{
 				Task: t.Name, ScheduledAt: at, Outcome: rep.Outcome, Text: out,
 				IdemKey: fmt.Sprintf("periodic:%s:%d:1", t.Name, at.UnixMilli()),

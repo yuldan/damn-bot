@@ -2,6 +2,7 @@ package periodic
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"sync"
@@ -375,6 +376,38 @@ func TestDeliveryOncePerSlot(t *testing.T) {
 	}
 	if want := "periodic:notify:" + strconv.FormatInt(base().UnixMilli(), 10) + ":1"; got[0].IdemKey != want {
 		t.Fatalf("idem key = %s, want %s", got[0].IdemKey, want)
+	}
+}
+
+// TestDeliveryFailureOncePerSlot: a failed slot is delivered once (not only
+// successful ones), and a preflight skip is not delivered at all.
+func TestDeliveryFailureOncePerSlot(t *testing.T) {
+	deliver := &recordingDeliverer{}
+	clock := &fakeClock{now: base()}
+	s, r := newScheduler(t, newStore(), clock, Task{
+		Name: "fail", Interval: time.Minute, Deliver: true,
+		Run: func(context.Context) (string, error) { return "", errors.New("boom") },
+	})
+	s.Deliver = deliver
+	tick(t, s)
+	r.wait(t)
+	wait(t, s)
+	got := deliver.notices()
+	if len(got) != 1 || got[0].Outcome != OutcomeFailed {
+		t.Fatalf("notices = %+v, want one failed notice", got)
+	}
+
+	skipDeliver := &recordingDeliverer{}
+	skipped, _ := newScheduler(t, newStore(), clock, Task{
+		Name: "skip", Interval: time.Minute, Deliver: true,
+		Preflight: func(context.Context) (bool, error) { return false, nil },
+		Run:       func(context.Context) (string, error) { return "", nil },
+	})
+	skipped.Deliver = skipDeliver
+	tick(t, skipped)
+	wait(t, skipped)
+	if n := len(skipDeliver.notices()); n != 0 {
+		t.Fatalf("skipped slot delivered %d notices, want 0", n)
 	}
 }
 

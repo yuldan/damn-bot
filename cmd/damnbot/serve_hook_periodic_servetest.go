@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	configos "github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/cron/periodic"
 )
 
@@ -19,7 +20,7 @@ import (
 // means the first serve tick runs it; the persisted slot keeps a restart from
 // running it again. Compiled only with the `servetest` tag.
 func registerServePeriodic(cr *serveCron, w io.Writer) {
-	raw := os.Getenv("DAMNBOT_SERVE_TEST_PERIODIC")
+	raw := configos.OS().Getenv("DAMNBOT_SERVE_TEST_PERIODIC")
 	if raw == "" || cr == nil || cr.periodic == nil {
 		return
 	}
@@ -28,7 +29,7 @@ func registerServePeriodic(cr *serveCron, w io.Writer) {
 		sessionsPrintf(w, "servetest: bad DAMNBOT_SERVE_TEST_PERIODIC=%q\n", raw)
 		return
 	}
-	state := os.Getenv("DAMNBOT_SERVE_TEST_STATE")
+	state := configos.OS().Getenv("DAMNBOT_SERVE_TEST_STATE")
 	if state == "" {
 		sessionsPrintf(w, "servetest: DAMNBOT_SERVE_TEST_PERIODIC needs DAMNBOT_SERVE_TEST_STATE\n")
 		return
