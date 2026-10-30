@@ -1,3 +1,5 @@
+//go:build !minimal
+
 package main
 
 import (
@@ -7,13 +9,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/gateway/telegram"
+	"github.com/damnbot/damnbot/internal/obs"
 )
 
 const (
@@ -24,9 +26,6 @@ const (
 	webhookDeleteTimeout = 10 * time.Second
 )
 
-// telegramWebhook is the resolved webhook configuration of `serve`. Enabled
-// is false for polling; mode is never both, which is what keeps polling and
-// webhook mutually exclusive (fail-closed below).
 type telegramWebhook struct {
 	Enabled bool
 	URL     string
@@ -34,9 +33,7 @@ type telegramWebhook struct {
 	Secret  string
 }
 
-// resolveWebhook validates the mode switch and the webhook settings. Webhook
-// mode requires a secret and a public URL; polling mode rejects every
-// webhook key, so a half-configured server never silently stays in polling.
+// resolveWebhook needs a secret+URL for webhook; polling rejects any webhook key.
 func resolveWebhook(mode, listen, hookURL, secret string) (telegramWebhook, error) {
 	switch strings.ToLower(strings.TrimSpace(cmp.Or(mode, telegramModePolling))) {
 	case telegramModePolling:
@@ -52,8 +49,8 @@ func resolveWebhook(mode, listen, hookURL, secret string) (telegramWebhook, erro
 			return telegramWebhook{}, fmt.Errorf("gateway: webhook mode: %w", telegram.ErrWebhookURL)
 		}
 		addr := cmp.Or(strings.TrimSpace(listen), defaultWebhookListen)
-		if err := validateWebhookListen(addr); err != nil {
-			return telegramWebhook{}, err
+		if err := obs.ValidateListen(addr); err != nil {
+			return telegramWebhook{}, fmt.Errorf("gateway: webhook listen %q must be loopback: %w", addr, err)
 		}
 		return telegramWebhook{Enabled: true, URL: hookURL, Listen: addr, Secret: secret}, nil
 	default:
@@ -61,28 +58,10 @@ func resolveWebhook(mode, listen, hookURL, secret string) (telegramWebhook, erro
 	}
 }
 
-// validateWebhookListen keeps the listener on loopback: a public reverse
-// proxy is the only supported exposure, as with the observability endpoints.
-func validateWebhookListen(addr string) error {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return fmt.Errorf("gateway: webhook listen %q: %w", addr, err)
-	}
-	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
-		return fmt.Errorf("gateway: webhook listen %q is not loopback; use 127.0.0.1:<port> or [::1]:<port>", addr)
-	}
-	if n, perr := strconv.Atoi(port); perr != nil || n < 0 || n > 65535 {
-		return fmt.Errorf("gateway: webhook listen %q has an invalid port", addr)
-	}
-	return nil
-}
-
-// setupWebhook binds the loopback listener and registers the public URL. The
-// listener is bound before setWebhook so no update can arrive at a closed
-// port; a registration failure aborts startup instead of polling silently.
+// setupWebhook binds before setWebhook; registration failure aborts startup.
 func (g *serveGateway) setupWebhook(ctx context.Context, o *serveOptions) error {
 	cfg, err := resolveWebhook(o.telegramMode, o.telegramWebhookListen, o.telegramWebhookURL,
-		strings.TrimSpace(os.Getenv("DAMNBOT_TELEGRAM_WEBHOOK_SECRET")))
+		strings.TrimSpace(config.OS().Getenv("DAMNBOT_TELEGRAM_WEBHOOK_SECRET")))
 	if err != nil {
 		return err
 	}
@@ -109,15 +88,12 @@ func (g *serveGateway) setupWebhook(ctx context.Context, o *serveOptions) error 
 	return nil
 }
 
-// closeWebhook releases a bound listener that never reached a runner.
 func (g *serveGateway) closeWebhook() {
 	if g.webhook != nil {
 		g.webhook.close()
 	}
 }
 
-// gatewayWebhook is the registry adapter of webhook mode: it registers the
-// URL, serves the authenticated endpoint and unregisters on a planned stop.
 type gatewayWebhook struct {
 	g       *serveGateway
 	mu      sync.Mutex
@@ -128,8 +104,7 @@ type gatewayWebhook struct {
 	secret  string
 }
 
-// listener hands the pre-bound startup listener to the first Run and rebinds
-// the same address after a pause closed it; http.Server.Serve closes l.
+// listener hands the startup listener to the first Run and rebinds after pause.
 func (w *gatewayWebhook) listener(ctx context.Context) (net.Listener, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -146,7 +121,6 @@ func (w *gatewayWebhook) listener(ctx context.Context) (net.Listener, error) {
 	return ln, nil
 }
 
-// close releases a listener that never reached a runner.
 func (w *gatewayWebhook) close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()

@@ -62,9 +62,11 @@ func webhookUpdate(t *testing.T, updateID int64, text string) []byte {
 	return body
 }
 
-func postWebhook(t *testing.T, target, secret string, body []byte) int {
+func postWebhook(t *testing.T, client *http.Client, target, secret string, body []byte) int {
 	t.Helper()
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, target, bytes.NewReader(body))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("build webhook request: %v", err)
 	}
@@ -72,7 +74,7 @@ func postWebhook(t *testing.T, target, secret string, body []byte) int {
 	if secret != "" {
 		req.Header.Set("X-Telegram-Bot-Api-Secret-Token", secret)
 	}
-	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("post webhook: %v", err)
 	}
@@ -98,7 +100,7 @@ func TestServeTelegramWebhookEndToEnd(t *testing.T) {
 		t.Fatalf("getUpdates calls in webhook mode = %d, want 0", n)
 	}
 
-	if code := postWebhook(t, target, webhookTestSecret, webhookUpdate(t, 101, "halo")); code != http.StatusOK {
+	if code := postWebhook(t, tg.Client(), target, webhookTestSecret, webhookUpdate(t, 101, "halo")); code != http.StatusOK {
 		t.Fatalf("first webhook status = %d, want 200", code)
 	}
 	waitFor(t, 15*time.Second, "turn reply", func() bool {
@@ -115,7 +117,7 @@ func TestServeTelegramWebhookEndToEnd(t *testing.T) {
 
 	// Negative control: a wrong secret is refused and mutates nothing.
 	before := len(e.Requests())
-	if code := postWebhook(t, target, "wrong-secret", webhookUpdate(t, 102, "steal")); code != http.StatusForbidden {
+	if code := postWebhook(t, tg.Client(), target, "wrong-secret", webhookUpdate(t, 102, "steal")); code != http.StatusForbidden {
 		t.Fatalf("wrong secret status = %d, want 403", code)
 	}
 	<-time.After(300 * time.Millisecond)
@@ -124,11 +126,11 @@ func TestServeTelegramWebhookEndToEnd(t *testing.T) {
 	}
 
 	// A duplicate update is acked but runs no second turn.
-	if code := postWebhook(t, target, webhookTestSecret, webhookUpdate(t, 103, "sekali")); code != http.StatusOK {
+	if code := postWebhook(t, tg.Client(), target, webhookTestSecret, webhookUpdate(t, 103, "sekali")); code != http.StatusOK {
 		t.Fatalf("duplicate first status = %d, want 200", code)
 	}
 	waitFor(t, 15*time.Second, "duplicate turn", func() bool { return len(e.Requests()) == before+1 })
-	if code := postWebhook(t, target, webhookTestSecret, webhookUpdate(t, 103, "sekali")); code != http.StatusOK {
+	if code := postWebhook(t, tg.Client(), target, webhookTestSecret, webhookUpdate(t, 103, "sekali")); code != http.StatusOK {
 		t.Fatalf("duplicate second status = %d, want 200", code)
 	}
 	<-time.After(700 * time.Millisecond)
@@ -149,5 +151,53 @@ func TestServeTelegramWebhookEndToEnd(t *testing.T) {
 		if n := gatewayCount(t, db, query); n != tc.want {
 			t.Errorf("%s rows = %d, want %d", tc.update, n, tc.want)
 		}
+	}
+}
+
+// TestServeTelegramWebhookCommitBeforeAck kills the daemon right after the
+// webhook 200 (which now means gateway_inbound is durable) and retries the
+// same update on a fresh process: the durable row wins, so one row exists and
+// no second turn runs.
+func TestServeTelegramWebhookCommitBeforeAck(t *testing.T) {
+	delay := providertest.Text("slow")
+	delay.Delay = 5 * time.Second
+	e := New(t, delay, providertest.Text("slow"))
+	tg := NewFakeTG(t, FakeTGOptions{})
+	p, target := startWebhookServe(t, e, tg)
+	waitFor(t, 10*time.Second, "setWebhook", func() bool { return len(tg.RequestsFor("setWebhook")) > 0 })
+
+	if code := postWebhook(t, tg.Client(), target, webhookTestSecret, webhookUpdate(t, 201, "commit-then-die")); code != http.StatusOK {
+		t.Fatalf("webhook status = %d, want 200 after commit", code)
+	}
+	if err := p.cmd.Process.Kill(); err != nil {
+		t.Fatalf("kill serve: %v", err)
+	}
+	select {
+	case <-p.exited:
+	case <-time.After(10 * time.Second):
+		t.Fatal("serve did not exit after SIGKILL")
+	}
+
+	p2, target2 := startWebhookServe(t, e, tg)
+	waitFor(t, 10*time.Second, "setWebhook after restart", func() bool { return len(tg.RequestsFor("setWebhook")) >= 2 })
+	// The durable queue may replay the not-yet-started row (one turn) or drop
+	// it if the crash happened after the turn was marked started. Either way
+	// the retried update must not add a second turn.
+	<-time.After(1500 * time.Millisecond)
+	before := len(e.Requests())
+	if before > 1 {
+		t.Fatalf("provider requests after restart = %d, want at most 1", before)
+	}
+	if code := postWebhook(t, tg.Client(), target2, webhookTestSecret, webhookUpdate(t, 201, "commit-then-die")); code != http.StatusOK {
+		t.Fatalf("retry status = %d, want 200", code)
+	}
+	<-time.After(time.Second)
+	if got := len(e.Requests()); got != before {
+		t.Fatalf("provider requests after retry = %d, want %d (no second turn)", got, before)
+	}
+	gatewayStop(t, p2)
+	db := gatewayDB(t, e)
+	if n := gatewayCount(t, db, `SELECT count(*) FROM gateway_inbound WHERE external_id = 'u:201'`); n != 1 {
+		t.Fatalf("u:201 rows = %d, want 1", n)
 	}
 }

@@ -15,8 +15,7 @@ import (
 	"time"
 )
 
-// WebhookSecretHeader is the header Telegram sends on every webhook request;
-// its value is the secret_token supplied to setWebhook (Bot API).
+// WebhookSecretHeader carries the secret_token configured by setWebhook.
 const WebhookSecretHeader = "X-Telegram-Bot-Api-Secret-Token" // #nosec G101 -- header name, not a credential
 
 const (
@@ -27,8 +26,7 @@ const (
 	webhookSecretNote = "1-256 characters of A-Z, a-z, 0-9, '_' or '-'"
 )
 
-// ErrWebhookSecret rejects a secret the Bot API would refuse and a handler
-// without one: webhook mode never runs unauthenticated.
+// ErrWebhookSecret rejects a secret the Bot API would refuse.
 var ErrWebhookSecret = fmt.Errorf("telegram: webhook secret must be %s", webhookSecretNote)
 
 // ErrWebhookURL reports a missing setWebhook target.
@@ -39,9 +37,8 @@ var (
 	errWebhookTooBig  = errors.New("telegram: webhook payload too large")
 )
 
-// WebhookOptions configures the inbound HTTP handler. In is the same channel
-// Run delivers to, so a webhook update takes the poller's path through the
-// gateway (admission, dedupe, turns) without a second pipeline.
+// WebhookOptions configures the inbound handler. In is the same channel Run
+// delivers to, so webhook and polling share one admission pipeline.
 type WebhookOptions struct {
 	Secret  string
 	In      chan<- Inbound
@@ -50,8 +47,7 @@ type WebhookOptions struct {
 	Seen    int
 }
 
-// ValidWebhookSecret reports whether s is accepted by setWebhook's
-// secret_token field.
+// ValidWebhookSecret reports whether s is accepted by setWebhook.
 func ValidWebhookSecret(s string) bool {
 	if len(s) == 0 || len(s) > webhookSecretMax {
 		return false
@@ -66,9 +62,8 @@ func ValidWebhookSecret(s string) bool {
 	return true
 }
 
-// SetWebhook registers url and its secret_token with the Bot API. It never
-// touches drop_pending_updates: pending updates stay on Telegram's side and a
-// later getUpdates (mode switch) or webhook delivery still receives them.
+// SetWebhook registers url and its secret_token. It never touches
+// drop_pending_updates: pending updates stay on Telegram's side.
 func (a *Adapter) SetWebhook(ctx context.Context, hookURL, secret string) error {
 	if !ValidWebhookSecret(secret) {
 		return ErrWebhookSecret
@@ -83,9 +78,8 @@ func (a *Adapter) SetWebhook(ctx context.Context, hookURL, secret string) error 
 	return nil
 }
 
-// DeleteWebhook removes the webhook registration before a planned stop so
-// Telegram queues updates instead of retrying a closed listener. Like
-// SetWebhook it never drops pending updates.
+// DeleteWebhook removes the registration before a planned stop so Telegram
+// queues updates instead of retrying a closed listener; it never drops them.
 func (a *Adapter) DeleteWebhook(ctx context.Context) error {
 	if err := a.call(ctx, "deleteWebhook", url.Values{}, nil); err != nil {
 		return fmt.Errorf("telegram: deleteWebhook: %w", err)
@@ -93,10 +87,7 @@ func (a *Adapter) DeleteWebhook(ctx context.Context) error {
 	return nil
 }
 
-// WebhookHandler authenticates and admits one update per HTTP request. It
-// answers 200 only after the update is handed to the inbound path, 403
-// without the configured secret, 413 above MaxBody, and 503 when the inbound
-// channel is not accepting (Telegram then retries).
+// WebhookHandler authenticates one update per request (403, 413, 200 after commit, 503).
 func (a *Adapter) WebhookHandler(opts WebhookOptions) (http.Handler, error) {
 	if !ValidWebhookSecret(opts.Secret) {
 		return nil, ErrWebhookSecret
@@ -152,16 +143,49 @@ func (h *webhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), h.timeout)
 	defer cancel()
-	if err := h.adapter.deliver(ctx, &u, h.in); err != nil {
-		h.seen.release(u.UpdateID) // let Telegram's retry through
+	if u.CallbackQuery != nil {
+		if derr := h.adapter.handleCallback(ctx, u.CallbackQuery); derr != nil {
+			h.seen.release(u.UpdateID)
+			http.Error(w, "inbound unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if u.Message == nil {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	ib, ok := h.adapter.inboundOf(&u)
+	if !ok {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	// 200 is sent only after Gate.Admit reports the gateway_inbound row
+	// durable (or already present), never on the in-memory handoff alone
+	// (SPEC §9.7). A failed commit stays non-2xx so Telegram retries.
+	committed := make(chan error, 1)
+	var once sync.Once
+	ib.Commit = func(err error) { once.Do(func() { committed <- err }) }
+	if derr := h.adapter.deliverInbound(ctx, &ib, h.in); derr != nil {
+		h.seen.release(u.UpdateID)
 		http.Error(w, "inbound unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	w.WriteHeader(http.StatusOK)
+	select {
+	case cerr := <-committed:
+		if cerr != nil {
+			h.seen.release(u.UpdateID)
+			http.Error(w, "inbound commit failed", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	case <-ctx.Done():
+		h.seen.release(u.UpdateID)
+		http.Error(w, "inbound unavailable", http.StatusServiceUnavailable)
+	}
 }
 
-// authorized compares fixed-size digests, so the comparison neither leaks the
-// secret length nor short-circuits on the first differing byte.
 func (h *webhookHandler) authorized(got string) bool {
 	sum := sha256.Sum256([]byte(got))
 	return subtle.ConstantTimeCompare(sum[:], h.want[:]) == 1
@@ -192,19 +216,15 @@ func (h *webhookHandler) decode(w http.ResponseWriter, r *http.Request) (update,
 	return u, http.StatusOK, nil
 }
 
-// seenUpdates bounds duplicate detection to the last limit update ids. A
-// duplicate is acknowledged but not delivered again, so a Telegram retry of
-// an already-admitted update never runs a second turn.
+// seenUpdates spares a second handoff for a retried update; the DB row is the authority.
 type seenUpdates struct {
 	mu    sync.Mutex
 	limit int
-	ring  []int64
-	ids   map[int64]int
-	next  int
+	ids   map[int64]struct{}
 }
 
 func newSeenUpdates(limit int) *seenUpdates {
-	return &seenUpdates{limit: limit, ids: make(map[int64]int, limit), ring: make([]int64, 0, limit)}
+	return &seenUpdates{limit: limit, ids: make(map[int64]struct{}, limit)}
 }
 
 func (s *seenUpdates) claim(id int64) bool {
@@ -213,36 +233,18 @@ func (s *seenUpdates) claim(id int64) bool {
 	if _, ok := s.ids[id]; ok {
 		return false
 	}
-	if len(s.ring) < s.limit {
-		s.ids[id] = len(s.ring)
-		s.ring = append(s.ring, id)
-		return true
+	if len(s.ids) >= s.limit {
+		for old := range s.ids {
+			delete(s.ids, old)
+			break
+		}
 	}
-	old := s.ring[s.next]
-	delete(s.ids, old)
-	s.ring[s.next] = id
-	s.ids[id] = s.next
-	s.next = (s.next + 1) % s.limit
+	s.ids[id] = struct{}{}
 	return true
 }
 
-// release forgets id after a failed handoff so the retried request is served.
 func (s *seenUpdates) release(id int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.ids[id]; !ok {
-		return
-	}
 	delete(s.ids, id)
-	kept := s.ring[:0]
-	for _, v := range s.ring {
-		if v != id {
-			kept = append(kept, v)
-		}
-	}
-	s.ring = kept
-	for i, v := range s.ring {
-		s.ids[v] = i
-	}
-	s.next = len(s.ring) % s.limit
 }

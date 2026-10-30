@@ -1,6 +1,13 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/damnbot/damnbot/internal/gateway"
+	"github.com/damnbot/damnbot/internal/gateway/telegram"
+)
 
 func TestResolveWebhook(t *testing.T) {
 	cases := []struct {
@@ -41,5 +48,22 @@ func TestResolveWebhook(t *testing.T) {
 				t.Errorf("config = %+v", got)
 			}
 		})
+	}
+}
+
+func TestServeWebhookInboundSignalsCommit(t *testing.T) {
+	gw, _ := newCommandGateway(t)
+	gw.run = func(context.Context, *telegram.Inbound, *gateway.Ticket) error { return nil }
+	in := cmdInbound("1", "7788", "u:501", "hello")
+	done := make(chan error, 1)
+	in.Commit = func(err error) { done <- err }
+	go gw.handle(t.Context(), in, false)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("commit error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("gateway never signalled the commit")
 	}
 }

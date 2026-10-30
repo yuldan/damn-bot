@@ -163,8 +163,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	return g, nil
 }
 
-// startPlatform binds and registers the one transport of this profile. A
-// registration failure closes the listener bound by setupWebhook.
+// startPlatform binds and registers the one transport; failure closes it.
 func (g *serveGateway) startPlatform(ctx context.Context, o *serveOptions) error {
 	if err := g.setupWebhook(ctx, o); err != nil {
 		return err
@@ -311,6 +310,8 @@ func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound, recorde
 		Platform: in.Platform, ChatID: in.ChatID, ThreadID: in.ThreadID, SenderID: in.SenderID,
 		UpdateID: in.UpdateID, Group: strings.HasPrefix(in.ChatID, "-"), Text: in.Text,
 		Payload: `{"kind":"text","text":` + strconv.Quote(in.Text) + `}`,
+		// Webhook waits for this before 200 (SPEC §9.7); polling leaves it nil.
+		Committed: in.Commit,
 	}
 	work := func(wctx context.Context, t gateway.Ticket) error {
 		turnCtx, done := g.beginTurn(wctx, &t.Scope)
@@ -335,15 +336,33 @@ func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound, recorde
 
 func (g *serveGateway) pair(ctx context.Context, in *telegram.Inbound, code string) {
 	text := "pairing failed: invalid code"
+	var commitErr error
 	if code != "" {
 		text = "pairing failed"
-		if _, err := g.store.RedeemPairing(ctx, "telegram", code, in.SenderID, "platform_authenticated", time.Now().UnixMilli()); err == nil {
+		_, err := g.store.RedeemPairing(ctx, "telegram", code, in.SenderID, "platform_authenticated", time.Now().UnixMilli())
+		switch {
+		case err == nil:
 			text = "pairing complete"
+		case pairingOutcome(err):
+			// A rejected code is a durable answer, not a retryable failure.
+		default:
+			commitErr = err
 		}
+	}
+	// Webhook 200 waits for the redemption; a store error stays retryable.
+	if in.Commit != nil {
+		in.Commit(commitErr)
 	}
 	if _, err := g.adapter.Send(ctx, &telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Text: text}); err != nil {
 		g.metrics.IncError()
 	}
+}
+
+// pairingOutcome reports deterministic rejections; other errors are retried.
+func pairingOutcome(err error) bool {
+	return errors.Is(err, gwstore.ErrInvalidPairing) || errors.Is(err, gwstore.ErrPairingUsed) ||
+		errors.Is(err, gwstore.ErrPairingExpired) || errors.Is(err, gwstore.ErrPairingQuota) ||
+		errors.Is(err, gwstore.ErrIdentityBlocked) || errors.Is(err, gwstore.ErrInvalidIdentity)
 }
 
 func (g *serveGateway) turn(ctx context.Context, in *telegram.Inbound, t *gateway.Ticket) error {
