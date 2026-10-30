@@ -15,6 +15,7 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/gateway"
 )
 
 // SchemaVersion is the machine-readable doctor document (GAP-OPS-06).
@@ -86,6 +87,7 @@ func Run(ctx context.Context, o *Options) Report {
 		checkEngine(ctx),
 		checkSecret(ctx, o),
 		checkProvider(o),
+		checkEmergencyStop(ctx, o),
 	}
 	return r.finish()
 }
@@ -112,6 +114,22 @@ func (r *Report) finish() Report {
 		r.Exit = 3
 	}
 	return *r
+}
+
+// checkEmergencyStop reports the process-wide stop (OPS-037).
+func checkEmergencyStop(ctx context.Context, o *Options) Check {
+	st, err := gateway.Estop{Dir: o.DataDir}.Status(ctx)
+	if err != nil || st.Paused {
+		reason := st.Reason
+		if reason == "" {
+			reason = "state unreadable"
+		}
+		return Check{
+			"DOC-010", "emergency stop", StatusWarn,
+			fmt.Sprintf("paused (%s); run `damnbot resume`", reason),
+		}
+	}
+	return Check{"DOC-010", "emergency stop", StatusOK, "off"}
 }
 
 func checkConfig(o *Options) Check {

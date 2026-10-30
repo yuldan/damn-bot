@@ -65,8 +65,8 @@ func TestParseGlobalArgs(t *testing.T) {
 func TestSurfaceRegistry(t *testing.T) {
 	t.Parallel()
 	entries := surface()
-	if len(entries) != 22 {
-		t.Fatalf("registry has %d entries, want 22 (ADR-197)", len(entries))
+	if len(entries) != 24 {
+		t.Fatalf("registry has %d entries, want 24 (ADR-197, ADR-254)", len(entries))
 	}
 	seen := map[string]bool{}
 	for _, e := range entries {
@@ -86,7 +86,7 @@ func TestSurfaceRegistry(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"run", "sessions", "checkpoints", "undo", "review", "skills", "bundles", "version", "acp", "serve", "mcp", "kanban"} {
+	for _, want := range []string{"run", "sessions", "checkpoints", "undo", "review", "skills", "bundles", "version", "acp", "serve", "pause", "resume", "mcp", "kanban"} {
 		if !seen[want] {
 			t.Errorf("registry is missing SPEC §10 command %q", want)
 		}

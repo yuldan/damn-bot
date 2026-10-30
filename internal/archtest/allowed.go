@@ -64,7 +64,7 @@ func allowedImports() map[string][]string {
 		"internal/provider/registry":  nil,
 		"internal/assemble":           {"internal/loop/event"},
 		"internal/backup":             {"internal/ctxdb", "internal/secret"},
-		"internal/doctor":             {"internal/ctxdb"},
+		"internal/doctor":             {"internal/ctxdb", "internal/gateway"},
 		"internal/compaction":         {"internal/loop/event", "internal/budget"},
 		"internal/memory":             {"internal/redact"},
 		"internal/skills":             {"internal/schema"},

@@ -61,7 +61,7 @@ func TestRunHealthy(t *testing.T) {
 	if rep.Exit != 0 {
 		t.Fatalf("exit = %d, want 0\n%+v", rep.Exit, rep)
 	}
-	if len(rep.Checks) != 9 || rep.Summary.OK != 9 {
+	if len(rep.Checks) != 10 || rep.Summary.OK != 10 {
 		t.Fatalf("checks = %d, ok = %d\n%+v", len(rep.Checks), rep.Summary.OK, rep)
 	}
 }
@@ -137,7 +137,7 @@ func TestReportJSON(t *testing.T) {
 		t.Fatalf("version = %v", got["version"])
 	}
 	checks, ok := got["checks"].([]any)
-	if !ok || len(checks) != 9 {
+	if !ok || len(checks) != 10 {
 		t.Fatalf("checks = %T %v", got["checks"], got["checks"])
 	}
 	first, ok := checks[0].(map[string]any)
@@ -256,5 +256,27 @@ func TestRunFixesDirPermissions(t *testing.T) {
 		if err != nil || fi.Mode().Perm() != 0o700 {
 			t.Fatalf("%s mode = %v, %v", d, fi.Mode().Perm(), err)
 		}
+	}
+}
+
+// TestRunEmergencyStop: a paused daemon is a warning (exit 2) named by
+// DOC-010, and a normal dir reports the stop off.
+func TestRunEmergencyStop(t *testing.T) {
+	cfgDir, dataDir, cfgFile := doctorPaths(t)
+	healthyDB(t, dataDir)
+	o := &Options{ConfigDir: cfgDir, DataDir: dataDir, ConfigFile: cfgFile, ConfigFound: true, ProviderModel: "openai/gpt-test"}
+	rep := run(t, o)
+	if got := rep.Checks[len(rep.Checks)-1]; got.ID != "DOC-010" || got.Status != StatusOK {
+		t.Fatalf("normal stop check = %+v", got)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "estop.json"), []byte(`{"paused":true,"reason":"maintenance","since":"2026-10-30T00:00:00Z"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep = run(t, o)
+	if rep.Exit != 2 {
+		t.Fatalf("exit = %d, want 2\n%+v", rep.Exit, rep)
+	}
+	if got := rep.Checks[len(rep.Checks)-1]; got.ID != "DOC-010" || got.Status != StatusWarn || !strings.Contains(got.Message, "maintenance") {
+		t.Fatalf("paused stop check = %+v", got)
 	}
 }

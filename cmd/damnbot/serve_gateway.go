@@ -33,6 +33,7 @@ type serveGateway struct {
 	dataDir, configPath string
 	modelRef            string
 	store               gwstore.Store
+	estop               gateway.Estop
 	adapter             *telegram.Adapter
 	gate                *gateway.Gate
 	quota               *gateway.Quota
@@ -129,7 +130,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	}
 	g := &serveGateway{
 		cfg: *cfg, dataDir: o.dataDir, configPath: o.configPath, modelRef: modelRef,
-		store: store, adapter: adapter, quota: quota, limiter: limiter,
+		store: store, estop: gateway.Estop{Dir: o.dataDir}, adapter: adapter, quota: quota, limiter: limiter,
 		chats: gateway.NewChatQueue(cfg.Gateway.MaxParallelTurns), daemon: daemon,
 		metrics: metrics, watchdog: wd, supervisor: sup, stderr: stderr,
 		inbound: make(chan telegram.Inbound, 32), now: time.Now,
@@ -142,8 +143,8 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	g.delayWait = waitReply
 	g.started = g.now()
 	g.run = g.turn
-	commands := gateway.NewCommands(&gateway.CommandOptions{Runtime: g, Settings: store, Control: g})
-	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands)
+	commands := gateway.NewCommands(&gateway.CommandOptions{Runtime: g, Settings: store, Control: g, Estop: &g.estop})
+	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands, &g.estop)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +187,7 @@ func (g *serveGateway) Start(ctx context.Context) error {
 		return fmt.Errorf("gateway: registry start: %w", err)
 	}
 	g.writePlatforms()
-	g.wg.Add(5)
+	g.wg.Add(6)
 	go func() {
 		defer g.wg.Done()
 		for {
@@ -205,6 +206,7 @@ func (g *serveGateway) Start(ctx context.Context) error {
 	go func() { defer g.wg.Done(); g.sendControlLoop(runCtx) }()
 	go func() { defer g.wg.Done(); g.platformControlLoop(runCtx) }()
 	go func() { defer g.wg.Done(); g.watchdog.Run(runCtx) }()
+	go func() { defer g.wg.Done(); g.emergency(runCtx) }()
 	return nil
 }
 
@@ -255,10 +257,7 @@ func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound) {
 	case out.Kind == gateway.CommandHandled:
 		g.replyCommand(ctx, in, out.Reply)
 	case out.Kind == gateway.Rejected:
-		g.metrics.IncError()
-		if out.Reason == gateway.ReasonBudgetGatewayUser {
-			g.budgetNotice(ctx, in)
-		}
+		g.handleRejected(ctx, in, out.Reason)
 	}
 }
 
