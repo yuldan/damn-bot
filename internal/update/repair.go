@@ -12,7 +12,6 @@ import (
 	"strings"
 )
 
-// Repair recovers an interrupted install (OPS-028); the database is untouched.
 func Repair(ctx context.Context, o *InstallOptions) (status string, err error) {
 	if o.DataDir == "" || o.BinaryPath == "" {
 		return "", errors.New("update: repair needs data dir and binary path")

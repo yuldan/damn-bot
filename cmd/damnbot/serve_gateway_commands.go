@@ -52,13 +52,6 @@ func (g *serveGateway) replyCommand(ctx context.Context, in *telegram.Inbound, t
 	if text == "" {
 		return
 	}
-	if g.chatFlag(ctx, "telegram", in.ChatID, chatTimestamps) {
-		now := g.now
-		if now == nil {
-			now = time.Now
-		}
-		text = withTimestamp(text, timestampPrefix(now()))
-	}
 	key := gateway.DeliveryKey("telegram", in.ChatID, "cmd:"+in.UpdateID)
 	if _, err := g.adapter.Send(ctx, &telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Text: text, Key: key}); err != nil {
 		g.metrics.IncError()
