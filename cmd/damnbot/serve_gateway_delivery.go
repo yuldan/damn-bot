@@ -137,6 +137,7 @@ func (g *serveGateway) retryDelivery(ctx context.Context, d *gwstore.Delivery, c
 		if err := g.store.FailDelivery(ctx, d.ID, cause, now.UnixMilli()); err != nil {
 			sessionsPrintf(g.stderr, "gateway: fail delivery: %s\n", cleanLine(err.Error()))
 		}
+		g.deadCronDelivery(ctx, d.IdemKey, cause)
 		return
 	}
 	if err := g.store.RetryDelivery(ctx, d.ID, cause, gateway.Backoff(now, d.Attempts, wait).UnixMilli()); err != nil {

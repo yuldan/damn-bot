@@ -38,6 +38,7 @@ type Run struct {
 	Outcome, Err          string
 	Exit, Attempt         int
 	StartedAt, FinishedAt time.Time
+	Delivery, Incident    string
 }
 
 // Jobs lists every job definition; the scheduler filters by Enabled.
@@ -192,6 +193,12 @@ func (s Store) Finish(ctx context.Context, jobID string, at time.Time, run *Run)
 	attempt := max(run.Attempt, 1)
 	reason := fmt.Sprintf("exit=%d attempt=%d duration_ms=%d",
 		run.Exit, attempt, finished.Sub(run.StartedAt).Milliseconds())
+	if run.Delivery != "" {
+		reason += " delivery=" + run.Delivery
+	}
+	if run.Incident != "" {
+		reason += " incident=" + run.Incident
+	}
 	err := s.DB.Write(ctx, func(tx *ctxdb.Tx) error {
 		n, err := tx.Exec(`UPDATE cron_runs SET finished_at = ?3, stop_reason = ?4,
 				outcome = ?5, error = ?6
