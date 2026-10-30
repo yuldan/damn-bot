@@ -15,8 +15,12 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb/cronstore"
 )
 
+// The cron_jobs CRUD lives here because `MODULE cronstore` is capped at 200
+// LOC: cronstore keeps the scheduler reads and slot claims, while the
+// composition root owns the job-definition writes (SPEC §9.8, ADR-252).
 var errCronJobNotFound = errors.New("cron job not found")
 
+// cronStore is the one cron.AdminStore of the CLI, cronjob_manage and /cron.
 type cronStore struct {
 	cronstore.Store
 	db *ctxdb.Store
@@ -46,6 +50,8 @@ func fromStore(r *cronstore.Job) cron.Job {
 	}
 }
 
+// Create inserts j; an identical normalized prompt+schedule returns the
+// existing row with created=false (COST-14 dedup).
 func (s *cronStore) Create(ctx context.Context, j *cron.Job) (cron.Job, bool, error) {
 	now := time.Now().UnixMilli()
 	if j.ID == "" {
@@ -97,6 +103,7 @@ func (s *cronStore) Create(ctx context.Context, j *cron.Job) (cron.Job, bool, er
 	return *j, true, nil
 }
 
+// Update rewrites the mutable definition of one job.
 func (s *cronStore) Update(ctx context.Context, j *cron.Job) error {
 	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
 		n, err := tx.Exec(`UPDATE cron_jobs SET name = ?2, schedule = ?3, tz = ?4,
@@ -116,6 +123,7 @@ func (s *cronStore) Update(ctx context.Context, j *cron.Job) error {
 	return nil
 }
 
+// SetEnabled pauses (recording paused_at/reason) or resumes one job.
 func (s *cronStore) SetEnabled(ctx context.Context, id string, enabled bool, reason string) error {
 	now := time.Now().UnixMilli()
 	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
@@ -144,6 +152,7 @@ func (s *cronStore) SetEnabled(ctx context.Context, id string, enabled bool, rea
 	return nil
 }
 
+// Remove deletes a job and its run history (cron_runs has no cascade).
 func (s *cronStore) Remove(ctx context.Context, id string) error {
 	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
 		if _, err := tx.Exec(`DELETE FROM cron_runs WHERE job_id = ?1`, id); err != nil {
