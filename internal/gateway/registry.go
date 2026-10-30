@@ -35,6 +35,7 @@ type AdapterState string
 const (
 	StateRegistered AdapterState = "registered"
 	StateRunning    AdapterState = "running"
+	StatePaused     AdapterState = "paused"
 	StateStopped    AdapterState = "stopped"
 	StateFailed     AdapterState = "failed"
 )
@@ -51,6 +52,8 @@ var (
 	ErrInvalidKey       = errors.New("gateway: invalid adapter key")
 	ErrDuplicateAdapter = errors.New("gateway: duplicate adapter")
 	ErrRegistryStarted  = errors.New("gateway: registry already started")
+	ErrAdapterNotFound  = errors.New("gateway: adapter not found")
+	ErrRegistryStopped  = errors.New("gateway: registry is stopped")
 )
 
 type registryEntry struct {
@@ -61,8 +64,9 @@ type registryEntry struct {
 	err     error
 }
 
-// Registry starts one adapter per Key concurrently; Start returns before any
-// Run call and each adapter owns a child context (EC-PLAT-001).
+// Registry starts one adapter per Key concurrently (EC-PLAT-001). Pause stops
+// one adapter; Resume starts a fresh Run under the same parent, so a polling
+// adapter reloads its persisted offset.
 type Registry struct {
 	mu      sync.Mutex
 	entries map[Key]*registryEntry
@@ -101,19 +105,19 @@ func (r *Registry) Start(ctx context.Context) error {
 	}
 	r.started = true
 	for _, key := range r.keysLocked() {
-		e := r.entries[key]
-		child, cancel := context.WithCancel(ctx)
-		e.cancel = cancel
-		go r.run(child, e)
+		r.startLocked(ctx, r.entries[key])
 	}
 	return nil
 }
 
+func (r *Registry) startLocked(ctx context.Context, e *registryEntry) {
+	child, cancel := context.WithCancel(ctx)
+	e.cancel, e.done, e.state, e.err = cancel, make(chan struct{}), StateRunning, nil
+	go r.run(child, e)
+}
+
 func (r *Registry) run(ctx context.Context, e *registryEntry) {
 	defer close(e.done)
-	r.mu.Lock()
-	e.state = StateRunning
-	r.mu.Unlock()
 	err := e.adapter.Run(ctx)
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -125,6 +129,51 @@ func (r *Registry) run(ctx context.Context, e *registryEntry) {
 	default:
 		e.state = StateStopped
 	}
+}
+
+// Pause stops one adapter; Resume reloads its persisted offset.
+func (r *Registry) Pause(ctx context.Context, key Key) error {
+	r.mu.Lock()
+	e, ok := r.entries[key]
+	if !r.started || !ok {
+		r.mu.Unlock()
+		return fmt.Errorf("%w: %s", ErrRegistryStopped, key)
+	}
+	if e.state == StatePaused {
+		r.mu.Unlock()
+		return nil
+	}
+	cancel, done := e.cancel, e.done
+	r.mu.Unlock()
+	if cancel != nil {
+		cancel()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return fmt.Errorf("gateway: pause %s: %w", key, ctx.Err())
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if e.state != StateRunning {
+		e.state, e.err = StatePaused, nil
+	}
+	return nil
+}
+
+// Resume restarts a paused or failed adapter; a running one is left alone.
+func (r *Registry) Resume(ctx context.Context, key Key) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.entries[key]
+	if !r.started || !ok {
+		return fmt.Errorf("%w: %s", ErrRegistryStopped, key)
+	}
+	if e.state == StateRunning || ctx.Err() != nil {
+		return nil
+	}
+	r.startLocked(ctx, e)
+	return nil
 }
 
 // Stop cancels every adapter and waits for them; a terminal failure keeps its

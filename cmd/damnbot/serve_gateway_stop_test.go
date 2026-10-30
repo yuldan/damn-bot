@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -60,7 +61,7 @@ func TestServeGatewayStopEndsGoroutines(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for polls.Load() == 0 {
 		if time.Now().After(deadline) {
-			gw.Stop()
+			gw.Stop(context.Background())
 			t.Fatal("poller never reached the fake bot API")
 		}
 		select {
@@ -71,7 +72,7 @@ func TestServeGatewayStopEndsGoroutines(t *testing.T) {
 	}
 
 	start := time.Now()
-	gw.Stop()
+	gw.Stop(context.Background())
 	if elapsed := time.Since(start); elapsed > 3*time.Second {
 		t.Fatalf("Stop waited %s for the gateway goroutines", elapsed)
 	}

@@ -5,15 +5,19 @@ import (
 	"time"
 )
 
-// Runtime is the live serve state behind the implemented session and owner
-// commands (/stop, /new, /status, /usage). A nil Runtime keeps all four
-// registered but unsupported. No method starts a turn, calls a model, or runs
-// a tool: StopTurn only cancels, NewSession only binds, and Status/Usage only
-// read.
-//
-// The interface lives here, on the consumer side (E-09); the composition root
-// implements it over the scheduler, the supervisor, and the stores it already
-// owns.
+// Control is the owner control seam (/restart, /platforms, /platform).
+type Control interface {
+	// Restart stops admission and restarts once active turns finish.
+	Restart(ctx context.Context, scope *Scope) (RestartReport, error)
+	// Platforms lists adapters and their state.
+	Platforms(ctx context.Context) ([]AdapterStatus, error)
+	// PausePlatform stops one adapter; it is idempotent.
+	PausePlatform(ctx context.Context, name string) (AdapterStatus, error)
+	// ResumePlatform restarts a paused or failed adapter; idempotent.
+	ResumePlatform(ctx context.Context, name string) (AdapterStatus, error)
+}
+
+// Runtime is the live serve state behind /stop, /new, /status and /usage.
 type Runtime interface {
 	// StopTurn cancels the active turn of scope's chat route and principal, if
 	// any. cancelled is false when no turn was active, so a second /stop is a
@@ -54,4 +58,9 @@ type UsageReport struct {
 	SessionCostKnown  bool
 	DayCostMicros     int64
 	DayCostKnown      bool
+}
+
+// RestartReport is the drain state at the moment /restart was accepted.
+type RestartReport struct {
+	Active int
 }

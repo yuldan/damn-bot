@@ -3,6 +3,7 @@ package gateway_test
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -32,6 +33,18 @@ func (f *fakeAdapter) Run(ctx context.Context) error {
 	}
 	<-ctx.Done()
 	return nil
+}
+
+func waitStarts(t *testing.T, a *countingAdapter, want int32) {
+	t.Helper()
+	deadline := time.After(3 * time.Second)
+	for a.starts.Load() < want {
+		select {
+		case <-deadline:
+			t.Fatalf("Run attempts = %d, want %d", a.starts.Load(), want)
+		case <-time.After(time.Millisecond):
+		}
+	}
 }
 
 func waitState(t *testing.T, reg *gateway.Registry, key gateway.Key, want gateway.AdapterState) gateway.AdapterStatus {
@@ -113,5 +126,97 @@ func TestRegistryRegisterValidation(t *testing.T) {
 	}
 	if err := reg.Register(key, &fakeAdapter{}); !errors.Is(err, gateway.ErrDuplicateAdapter) {
 		t.Errorf("duplicate = %v, want ErrDuplicateAdapter", err)
+	}
+}
+
+// countingAdapter records Run attempts and can fail the first one.
+type countingAdapter struct {
+	starts  atomic.Int32
+	failRun int32 // fail while starts <= failRun
+}
+
+func (c *countingAdapter) Run(ctx context.Context) error {
+	if n := c.starts.Add(1); n <= c.failRun {
+		return errors.New("connect refused")
+	}
+	<-ctx.Done()
+	return nil
+}
+
+// TestRegistryPauseResume: pausing stops one adapter (0 work), resuming starts
+// a fresh Run, and both operations are idempotent. The adapter reloads its own
+// offset on Run, so the registry only owns the lifecycle.
+func TestRegistryPauseResume(t *testing.T) {
+	reg := gateway.NewRegistry()
+	key := gateway.Key{Platform: "telegram", Account: "bot"}
+	a := &countingAdapter{}
+	if err := reg.Register(key, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, reg, key, gateway.StateRunning)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	if err := reg.Pause(ctx, key); err != nil {
+		t.Fatalf("Pause: %v", err)
+	}
+	waitState(t, reg, key, gateway.StatePaused)
+	if err := reg.Pause(ctx, key); err != nil {
+		t.Fatalf("second Pause: %v", err)
+	}
+	if got := a.starts.Load(); got != 1 {
+		t.Fatalf("Run attempts after pause = %d, want 1", got)
+	}
+	if err := reg.Resume(t.Context(), key); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	waitState(t, reg, key, gateway.StateRunning)
+	waitStarts(t, a, 2)
+	if err := reg.Resume(t.Context(), key); err != nil {
+		t.Fatalf("second Resume: %v", err)
+	}
+	if got := a.starts.Load(); got != 2 {
+		t.Fatalf("Run attempts after resume = %d, want 2", got)
+	}
+	stopCtx, stopCancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer stopCancel()
+	if err := reg.Stop(stopCtx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRegistryResumeFailedAdapter: a platform that failed to connect is paused
+// (needs_attention) and resumed from a fresh Run.
+func TestRegistryResumeFailedAdapter(t *testing.T) {
+	reg := gateway.NewRegistry()
+	key := gateway.Key{Platform: "telegram", Account: "broken"}
+	a := &countingAdapter{failRun: 1}
+	if err := reg.Register(key, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	st := waitState(t, reg, key, gateway.StateFailed)
+	if st.Err == "" {
+		t.Fatal("failed adapter has no error")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	if err := reg.Pause(ctx, key); err != nil {
+		t.Fatalf("Pause failed adapter: %v", err)
+	}
+	waitState(t, reg, key, gateway.StatePaused)
+	if err := reg.Resume(t.Context(), key); err != nil {
+		t.Fatalf("Resume failed adapter: %v", err)
+	}
+	waitState(t, reg, key, gateway.StateRunning)
+	waitStarts(t, a, 2)
+	stopCtx, stopCancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer stopCancel()
+	if err := reg.Stop(stopCtx); err != nil {
+		t.Fatal(err)
 	}
 }

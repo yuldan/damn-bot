@@ -167,6 +167,19 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	return serveLoop(ctx, sigCtx, o, eps, hs, errs, db, lock, daemon, gw, gwErr, stderr)
 }
 
+func awaitServeStop(sigCtx context.Context, errs <-chan error, restartCh <-chan struct{}, stderr io.Writer) (bool, error) {
+	select {
+	case <-sigCtx.Done():
+		sessionsPrintf(stderr, "serve: stop requested; draining\n")
+		return false, nil
+	case err := <-errs:
+		return false, err
+	case <-restartCh:
+		sessionsPrintf(stderr, "serve: restart requested; draining\n")
+		return true, nil
+	}
+}
+
 // serveForceExit is the last resort of the shutdown backstop: a goroutine that
 // ignores its context must not keep the supervisor waiting, so the process
 // leaves immediately with the planned-stop code.
@@ -188,12 +201,11 @@ func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps
 	if gw != nil {
 		sessionsPrintf(stderr, "serve: gateway polling\n")
 	}
-	var serveErr error
-	select {
-	case <-sigCtx.Done():
-		sessionsPrintf(stderr, "serve: stop requested; draining\n")
-	case serveErr = <-errs:
+	var restartCh <-chan struct{}
+	if gw != nil {
+		restartCh = gw.restartCh
 	}
+	restart, serveErr := awaitServeStop(sigCtx, errs, restartCh, stderr)
 
 	if gw != nil {
 		gw.pollCancel()
@@ -209,12 +221,14 @@ func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps
 			serveForceExit(serveExitClean)
 		}
 	}
-	gw.Stop()
+	gw.Stop(ctx)
 	shutCtx, cancelShut := context.WithTimeout(context.WithoutCancel(ctx), serveShutdownMax)
 	shutErr := hs.Shutdown(shutCtx)
 	cancelShut()
 	closeErr := db.CloseContext(context.WithoutCancel(ctx))
 	switch {
+	case restart && serveErr == nil && shutErr == nil && closeErr == nil:
+		return serveExitPlanned, nil
 	case serveErr != nil:
 		return serveExitSoftware, fmt.Errorf("observability server: %w", serveErr)
 	case shutErr != nil:

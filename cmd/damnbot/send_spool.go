@@ -29,20 +29,24 @@ type sendSpoolRequest struct {
 	Key      string `json:"key"`
 }
 
-func sendSpoolDir(dataDir string) string { return filepath.Join(dataDir, "run", "spool") }
+func spoolDir(dataDir string) string { return filepath.Join(dataDir, "run", "spool") }
 
 func queueSend(dataDir string, req *sendSpoolRequest) error {
-	dir := sendSpoolDir(dataDir)
+	return queueSpool(spoolDir(dataDir), "send spool", "send", req)
+}
+
+// queueSpool writes one 0600 <kind>-<pid>-<nano>.json request under dir (0700).
+func queueSpool(dir, label, kind string, req any) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("send spool: %w", err)
+		return fmt.Errorf("%s: %w", label, err)
 	}
 	b, err := json.Marshal(req)
 	if err != nil {
-		return fmt.Errorf("send spool: %w", err)
+		return fmt.Errorf("%s: %w", label, err)
 	}
-	name := fmt.Sprintf("%d-%d.json", os.Getpid(), time.Now().UnixNano())
+	name := fmt.Sprintf("%s-%d-%d.json", kind, os.Getpid(), time.Now().UnixNano())
 	if err := os.WriteFile(filepath.Join(dir, name), b, 0o600); err != nil {
-		return fmt.Errorf("send spool: %w", err)
+		return fmt.Errorf("%s: %w", label, err)
 	}
 	return nil
 }
@@ -61,13 +65,13 @@ func (g *serveGateway) sendControlLoop(ctx context.Context) {
 }
 
 func (g *serveGateway) drainSendSpool(ctx context.Context) {
-	dir := sendSpoolDir(g.dataDir)
+	dir := spoolDir(g.dataDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), "send-") || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())

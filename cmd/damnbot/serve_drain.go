@@ -39,6 +39,15 @@ func (d *serveDaemon) BeginTurn() (ctx context.Context, end func(), ok bool) {
 	return d.ctx, func() { once.Do(func() { d.active.Add(-1) }) }, true
 }
 
+// StopAccepting refuses new turns without waiting for the active ones. /restart
+// uses it before replying, so the drain starts while the reply is delivered and
+// no running turn is ever cancelled.
+func (d *serveDaemon) StopAccepting() {
+	d.mu.Lock()
+	d.draining = true
+	d.mu.Unlock()
+}
+
 // Drain stops acceptance and waits up to limit; false means the window
 // expired and the active turns were cancelled.
 func (d *serveDaemon) Drain(limit time.Duration) bool {

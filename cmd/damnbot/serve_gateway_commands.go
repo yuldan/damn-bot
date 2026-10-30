@@ -49,6 +49,8 @@ func (g *serveGateway) dispatch(ctx context.Context, in *telegram.Inbound) {
 // replyCommand sends the one answer of a handled command. A command never
 // reaches a turn, so this message is its whole output.
 func (g *serveGateway) replyCommand(ctx context.Context, in *telegram.Inbound, text string) {
+	defer g.restartAfterReply()
+	defer g.restartAfterReply()
 	if text == "" {
 		return
 	}

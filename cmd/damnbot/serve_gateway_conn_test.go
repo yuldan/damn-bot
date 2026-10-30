@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -79,7 +80,7 @@ func TestServeGatewayReusesConnections(t *testing.T) {
 	if serr := gw.Start(t.Context()); serr != nil {
 		t.Fatalf("Start: %v", serr)
 	}
-	defer gw.Stop()
+	defer gw.Stop(context.Background())
 
 	deadline := time.Now().Add(5 * time.Second)
 	for requests.Load() < 30 {

@@ -110,6 +110,11 @@ type Adapter struct {
 // EgressClient returns the only netx client the gateway creates (ADR-247).
 func EgressClient(net *netx.Network) *netx.Client { return net.Client("telegram", netx.Gateway) }
 
+// Account returns the bot id this adapter authenticates as (the numeric token
+// prefix unless Config.Account overrides it). It is the account half of the
+// gateway routing key.
+func (a *Adapter) Account() string { return a.account }
+
 // New validates cfg and builds the adapter.
 func New(cfg *Config) (*Adapter, error) {
 	if cfg == nil || strings.TrimSpace(cfg.Token) == "" {
