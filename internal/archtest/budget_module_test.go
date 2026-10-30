@@ -121,7 +121,7 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 	wantCaps := map[string]int{
 		"tui": 10000, "acp": 2500, "importer": 2600, "setup": 1300,
 		"doctor": 1100, "update": 1500, "profiles": 800,
-		"obs": 4000, "gateway": 9540, "gwstore": 960, "cron": 3500, "cronstore": 200,
+		"obs": 4000, "gateway": 9500, "gwstore": 1000, "cron": 3500, "cronstore": 200,
 		"scorecard": 500,
 	}
 	backupCap, hasBackup := 0, false

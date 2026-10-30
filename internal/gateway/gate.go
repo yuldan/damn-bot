@@ -34,6 +34,8 @@ type Options struct {
 	// GAP-GW-02) and is consulted before the turn. Nil means no per-identity
 	// cap; the owner is never capped by it.
 	Budget *BudgetGuard
+	// Estop is the process-wide emergency stop (OPS-037); nil keeps the gate running.
+	Estop *Estop
 }
 
 // Gate admits or rejects one inbound update before any turn or LLM call. It is
@@ -46,6 +48,7 @@ type Gate struct {
 	commands   *Commands
 	chats      ChatPolicyStore
 	budget     *BudgetGuard
+	estop      *Estop
 }
 
 // New validates the wiring. Configuration is data, so an empty DataDir and an
@@ -71,6 +74,7 @@ func New(opts *Options) (*Gate, error) {
 		commands:   opts.Commands,
 		chats:      opts.Chats,
 		budget:     opts.Budget,
+		estop:      opts.Estop,
 	}, nil
 }
 
@@ -102,6 +106,7 @@ const (
 	// ReasonBudgetGatewayUser denies a role user whose UTC-day spend already
 	// exceeds budget.gateway_user_daily_usd (SPEC §18.4); the turn never runs.
 	ReasonBudgetGatewayUser Reason = "budget_gateway_user"
+	ReasonPaused            Reason = "paused" // emergency stop; the inbox row is parked
 )
 
 // Ticket is the admitted work of one update. Scope is the only source of
@@ -154,16 +159,62 @@ func (g *Gate) Admit(ctx context.Context, in *Inbound, work RunFunc) (Outcome, e
 	if reason != ReasonNone {
 		return deny(reason), nil
 	}
-	t, kind, reason, err := g.admitTurn(ctx, &id, in)
-	if err != nil {
-		return Outcome{}, err
-	}
+	allowStopped := g.commands != nil && g.commands.emergency(in.Text)
+	t, kind, reason, err := g.admitTurn(ctx, &id, in, allowStopped)
 	if kind != Accepted {
-		return Outcome{Kind: kind, Reason: reason}, nil
+		return Outcome{Kind: kind, Reason: reason}, err
 	}
 	if res, handled := g.dispatchCommand(ctx, &t, in.Text); handled {
 		return Outcome{Kind: CommandHandled, Ticket: t, Reply: res.Reply}, nil
 	}
+	if err := work(ctx, t); err != nil {
+		return Outcome{Kind: Accepted, Ticket: t}, err
+	}
+	return Outcome{Kind: Accepted, Ticket: t}, nil
+}
+
+// halted reports the emergency-stop decision; a read error fails closed.
+func (g *Gate) halted(ctx context.Context) (Reason, bool, error) {
+	if g.estop == nil {
+		return ReasonNone, false, nil
+	}
+	st, err := g.estop.Status(ctx)
+	if err != nil || st.Paused {
+		return ReasonPaused, true, err
+	}
+	return ReasonNone, false, nil
+}
+
+// AdmitPending dispatches one parked row: no inbox write, no command dispatch,
+// but authorization, stop and budget are re-checked at replay time.
+func (g *Gate) AdmitPending(ctx context.Context, in *Inbound, work RunFunc) (Outcome, error) {
+	if work == nil {
+		return Outcome{}, ErrNoWork
+	}
+	if err := in.validate(); err != nil {
+		return Outcome{}, err
+	}
+	id, reason, err := g.authorize(ctx, in)
+	if err != nil {
+		return Outcome{}, err
+	}
+	if reason != ReasonNone {
+		return deny(reason), nil
+	}
+	if reason, stopped, serr := g.halted(ctx); stopped {
+		return deny(reason), serr
+	}
+	if reason, berr := g.budgetReason(ctx, &id); berr != nil || reason != ReasonNone {
+		return Outcome{Kind: Rejected, Reason: reason}, berr
+	}
+	scope, ok, err := g.scope(&id, in)
+	if err != nil {
+		return Outcome{}, err
+	}
+	if !ok {
+		return Outcome{Kind: Rejected, Reason: ReasonNoWorkspace}, nil
+	}
+	t := Ticket{Identity: id, Scope: scope}
 	if err := work(ctx, t); err != nil {
 		return Outcome{Kind: Accepted, Ticket: t}, err
 	}
@@ -198,12 +249,17 @@ func (g *Gate) authorize(ctx context.Context, in *Inbound) (Identity, Reason, er
 	return id, reason, nil
 }
 
-// admitTurn applies the mention policy, derives the scope, and claims the
-// dedupe row. kind is Accepted with a ticket, Duplicate without one, or
-// Rejected with the reason. Nothing is written before every policy passes.
-func (g *Gate) admitTurn(ctx context.Context, id *Identity, in *Inbound) (Ticket, Kind, Reason, error) {
-	if reason, err := g.budgetReason(ctx, id); err != nil || reason != ReasonNone {
-		return Ticket{}, Rejected, reason, err
+// admitTurn applies the stop, mention policy, scope and dedupe claim. A stop
+// rejection still records the row (parked); its budget is checked at replay.
+func (g *Gate) admitTurn(ctx context.Context, id *Identity, in *Inbound, emergencyCmd bool) (Ticket, Kind, Reason, error) {
+	stopReason, stopped, stopErr := ReasonNone, false, error(nil)
+	if !emergencyCmd {
+		stopReason, stopped, stopErr = g.halted(ctx)
+	}
+	if !stopped {
+		if reason, err := g.budgetReason(ctx, id); err != nil || reason != ReasonNone {
+			return Ticket{}, Rejected, reason, err
+		}
 	}
 	if reason, err := g.mentionReason(ctx, in); err != nil || reason != ReasonNone {
 		return Ticket{}, Rejected, reason, err
@@ -221,6 +277,9 @@ func (g *Gate) admitTurn(ctx context.Context, id *Identity, in *Inbound) (Ticket
 	}
 	if !recorded {
 		return Ticket{}, Duplicate, ReasonNone, nil
+	}
+	if stopped {
+		return Ticket{}, Rejected, stopReason, stopErr
 	}
 	return Ticket{Identity: *id, Scope: scope}, Accepted, ReasonNone, nil
 }

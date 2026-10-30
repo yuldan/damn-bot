@@ -44,6 +44,8 @@ type RuntimeStatus struct {
 	QueueDepth  int
 	ActiveTurns int
 	SafeMode    bool
+	Paused      bool
+	PauseReason string
 	Version     string
 	Home        string
 }

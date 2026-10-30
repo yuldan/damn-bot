@@ -125,12 +125,18 @@ type Scheduler struct {
 	Clock     Clock
 	Owner     string
 	Grace     time.Duration
+	// Stopped is the emergency-stop gate (OPS-037). True claims nothing, leaving
+	// due slots to catch-up on resume; an error fails closed.
+	Stopped func(context.Context) (bool, error)
 }
 
 // Tick evaluates every enabled job once at the clock's now.
 func (s *Scheduler) Tick(ctx context.Context) error {
 	if s.Store == nil {
 		return errors.New("cron: nil store")
+	}
+	if stopped, err := s.stopped(ctx); err != nil || stopped {
+		return err
 	}
 	jobs, err := s.Store.Jobs(ctx)
 	if err != nil {
@@ -141,6 +147,9 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	for i := range jobs {
 		if !jobs[i].Enabled {
 			continue
+		}
+		if stopped, serr := s.stopped(ctx); serr != nil || stopped {
+			return serr
 		}
 		if err := s.tickJob(ctx, &jobs[i], now); err != nil {
 			errs = append(errs, fmt.Errorf("cron: job %s: %w", jobs[i].ID, err))
@@ -382,6 +391,17 @@ func (s *Scheduler) grace() time.Duration {
 		return 60 * time.Second
 	}
 	return s.Grace
+}
+
+func (s *Scheduler) stopped(ctx context.Context) (bool, error) {
+	if s.Stopped == nil {
+		return false, nil
+	}
+	stopped, err := s.Stopped(ctx)
+	if err != nil {
+		return true, fmt.Errorf("cron: emergency stop: %w", err)
+	}
+	return stopped, nil
 }
 
 func (s *Scheduler) clock() Clock {

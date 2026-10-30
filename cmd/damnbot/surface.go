@@ -57,6 +57,8 @@ func surface() []surfaceEntry {
 		{Name: "acp", Summary: "ACP server on stdio", Phase: phaseF3, Run: runACP, Usage: acpUsage},
 		{Name: "serve", Summary: "Daemon: web UI, API, gateway, cron", Phase: phaseF4, Run: runServe, Usage: serveUsage},
 		{Name: "service", Summary: "systemd/launchd/Windows service unit", Phase: phaseF4, Run: runService, Usage: serviceUsage},
+		{Name: "pause", Summary: "Emergency stop: halt new turns and cron dispatch", Phase: phaseF4, Run: runPause, Usage: pauseUsage},
+		{Name: "resume", Summary: "Lift the emergency stop set by pause", Phase: phaseF4, Run: runResume, Usage: resumeUsage},
 		{Name: "setup", Summary: "Setup wizard, credentials, uninstall", Phase: phaseF3, Run: runSetup, Usage: setupUsage},
 		{Name: "import", Summary: "Migrate from hermes, Claude Code, Codex, OpenClaw", Phase: phaseF3, Run: runImport, Usage: importUsage},
 		{Name: "config", Summary: "Config, lazy modules, hooks, profiles", Phase: phaseF3, Run: runConfig, Usage: configUsage},

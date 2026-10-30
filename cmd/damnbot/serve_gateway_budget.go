@@ -15,7 +15,7 @@ import (
 
 // newServeGate builds admission over the shared gateway stores plus the role
 // user daily USD cap (SPEC §18.4, GAP-GW-02).
-func newServeGate(o *serveOptions, store gwstore.Store, users map[string]string, dailyUSD float64, db *ctxdb.Store, commands *gateway.Commands) (*gateway.Gate, error) {
+func newServeGate(o *serveOptions, store gwstore.Store, users map[string]string, dailyUSD float64, db *ctxdb.Store, commands *gateway.Commands, estop *gateway.Estop) (*gateway.Gate, error) {
 	budget, err := gateway.NewBudgetGuard(&gateway.BudgetOptions{
 		DailyUSD: dailyUSD,
 		Spend:    gatewaySpend{db: db},
@@ -28,6 +28,7 @@ func newServeGate(o *serveOptions, store gwstore.Store, users map[string]string,
 		Identities: telegramStore{Store: store}, Inbox: telegramStore{Store: store},
 		Commands: commands,
 		Budget:   budget,
+		Estop:    estop,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gateway admission: %w", err)

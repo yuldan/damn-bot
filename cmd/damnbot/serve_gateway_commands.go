@@ -167,18 +167,26 @@ func (g *serveGateway) NewSession(ctx context.Context, scope *gateway.Scope) (st
 	return g.createSession(ctx, scope)
 }
 
-// Status implements gateway.Runtime; it reads state only.
+// Status implements gateway.Runtime. It reads the chat queue, the supervisor,
+// the version, the home channel and the emergency stop only.
 func (g *serveGateway) Status(ctx context.Context) (gateway.RuntimeStatus, error) {
 	queued, active := g.chats.Stats()
+	est, err := g.estop.Status(ctx)
+	paused, reason := est.Paused, est.Reason
+	if err != nil {
+		paused, reason = true, "state unreadable"
+	}
 	st := gateway.RuntimeStatus{
 		Uptime:      g.now().Sub(g.started),
 		QueueDepth:  queued + len(g.inbound),
 		ActiveTurns: active,
 		SafeMode:    g.supervisor.Snapshot().State == heal.SafeMode,
+		Paused:      paused,
+		PauseReason: reason,
 		Version:     version,
 	}
-	if p, c, t, found, err := g.store.HomeChannel(ctx); err != nil {
-		return gateway.RuntimeStatus{}, fmt.Errorf("gateway: status home: %w", err)
+	if p, c, t, found, herr := g.store.HomeChannel(ctx); herr != nil {
+		return gateway.RuntimeStatus{}, fmt.Errorf("gateway: status home: %w", herr)
 	} else if found {
 		st.Home = gateway.HomeName(p, c, t)
 	}

@@ -28,6 +28,7 @@ type CommandOptions struct {
 	// registered but unsupported.
 	Control  Control
 	Settings ChatSettings
+	Estop    *Estop
 	// Now is the pairing attempt clock and redemption timestamp; nil is time.Now.
 	Now func() time.Time
 }
@@ -58,6 +59,7 @@ type Commands struct {
 	runtime   Runtime
 	settings  ChatSettings
 	control   Control
+	estop     *Estop
 	now       func() time.Time
 	specs     map[string]commandSpec
 
@@ -73,7 +75,7 @@ func NewCommands(opts *CommandOptions) *Commands {
 	}
 	return &Commands{
 		bot: strings.TrimPrefix(opts.BotUsername, "@"), approvals: opts.Approvals, pairing: opts.Pairing,
-		runtime: opts.Runtime, settings: opts.Settings, control: opts.Control,
+		runtime: opts.Runtime, settings: opts.Settings, control: opts.Control, estop: opts.Estop,
 		now: now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
 	}
 }
@@ -89,7 +91,7 @@ type commandSpec struct {
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /sethome /footer [on|off|status] /topic [help] /restart /platforms /platform list|pause|resume [name]"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /topic [help] /restart /platforms /platform list|pause|resume [name]"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -137,6 +139,7 @@ func commandRegistry() map[string]commandSpec {
 		"platforms": {owner: true, run: (*Commands).platformList},
 		"gateway":   {owner: true, run: (*Commands).platformList},
 		"platform":  {owner: true, run: (*Commands).platform},
+		"pause":     {owner: true, run: (*Commands).pause},
 
 		"sethome": {owner: true, run: (*Commands).sethome},
 		"topic":   {owner: true, run: (*Commands).topic},
@@ -144,7 +147,7 @@ func commandRegistry() map[string]commandSpec {
 
 		// Owner-only, not implemented by this slice.
 		"logs": {owner: true}, "doctor": {owner: true}, "resume": {owner: true},
-		"lock": {owner: true}, "pause": {owner: true}, "resend": {owner: true},
+		"lock": {owner: true}, "resend": {owner: true},
 		"model": {owner: true}, "cron": {owner: true},
 
 		// Non-owner, not implemented by this slice.
@@ -186,6 +189,17 @@ func (c *Commands) addresses(text string) (Command, bool) {
 		return Command{}, false
 	}
 	return cmd, true
+}
+
+func (c *Commands) emergency(text string) bool {
+	if c == nil {
+		return false
+	}
+	cmd, ok := c.addresses(text)
+	if !ok {
+		return false
+	}
+	return cmd.Name == "pause" || cmd.Name == "status"
 }
 
 // pairCommand is the pre-authorization view of Dispatch: only "/pair" is
@@ -322,13 +336,57 @@ func (c *Commands) status(ctx context.Context, _ *Ticket, _ Command) CommandResu
 	if version == "" {
 		version = "unknown"
 	}
-	home := ""
+	home, stop := "", "off"
 	if st.Home != "" {
 		home = ", home " + st.Home
 	}
+	if st.Paused {
+		stop = "on (" + st.PauseReason + ")"
+	}
 	return CommandResult{Handled: true, Reply: fmt.Sprintf(
-		"status: up %s, queue %d, active turns %d, mode %s, version %s%s",
-		st.Uptime.Truncate(time.Second), st.QueueDepth, st.ActiveTurns, modeName(st.SafeMode), version, home)}
+		"status: up %s, queue %d, active turns %d, emergency stop %s, mode %s, version %s%s",
+		st.Uptime.Truncate(time.Second), st.QueueDepth, st.ActiveTurns, stop, modeName(st.SafeMode), version, home)}
+}
+
+// pause implements SLASH-021: "/pause [reason]" and "/pause off".
+func (c *Commands) pause(ctx context.Context, _ *Ticket, cmd Command) CommandResult {
+	if c.estop == nil {
+		return unsupported("pause")
+	}
+	if len(cmd.Args) > 0 && strings.EqualFold(cmd.Args[0], "off") {
+		before, berr := c.estop.Status(ctx)
+		if berr != nil {
+			before = EstopState{Paused: true}
+		}
+		if _, err := c.estop.Resume(ctx); err != nil {
+			return CommandResult{Handled: true, Reply: "could not lift the emergency stop"}
+		}
+		if before.Paused {
+			return CommandResult{Handled: true, Reply: "emergency stop off; parked messages and due cron slots resume"}
+		}
+		return CommandResult{Handled: true, Reply: "emergency stop is not on"}
+	}
+	reason := strings.TrimSpace(cmd.Rest)
+	if reason == "" {
+		reason = "owner /pause"
+	}
+	if r := []rune(reason); len(r) > 120 {
+		reason = string(r[:120])
+	}
+	before, berr := c.estop.Status(ctx)
+	if berr != nil {
+		before = EstopState{Paused: true}
+	}
+	if _, err := c.estop.Pause(ctx, reason); err != nil {
+		return CommandResult{Handled: true, Reply: "could not turn the emergency stop on"}
+	}
+	if before.Paused && !before.Since.IsZero() {
+		return CommandResult{Handled: true, Reply: fmt.Sprintf(
+			"emergency stop already on since %s (%s); /pause off resumes",
+			before.Since.UTC().Format(time.RFC3339), before.Reason)}
+	}
+	return CommandResult{Handled: true, Reply: fmt.Sprintf(
+		"emergency stop on: new turns and cron dispatch are paused (%s); /pause off resumes", reason)}
 }
 
 // usage implements the owner-only SPEC §9.7 "/usage": the token and cost totals
