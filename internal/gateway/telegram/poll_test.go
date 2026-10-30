@@ -3,6 +3,7 @@ package telegram
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -171,4 +172,79 @@ func TestBackoffBounds(t *testing.T) {
 			t.Errorf("backoff(%d) = %s, want within [%s,%s]", c.attempt, got, c.min, c.max)
 		}
 	}
+}
+
+// TestRunRetries409WithoutDropping: a getUpdates conflict waits out the
+// opponent's long poll (ConflictWait), retries, and then delivers the queued
+// update from the unchanged offset (REL-02). The negative control is the
+// pre-REL-02 classification that returned 409 as a terminal error.
+func TestRunRetries409WithoutDropping(t *testing.T) {
+	f := newFakeTG(t)
+	f.setFault("getUpdates", fakeFault{Status: 409, Times: 1})
+	a, clock := newTestAdapter(t, f, newMemStore(), func(c *Config) {
+		c.ConflictWait = 12 * time.Second
+	})
+	in := make(chan Inbound, 8)
+	done, stop := runAdapter(t, a, in)
+	f.pushText(t, 7, 0, "setelah konflik")
+	ib := recvInbound(t, in)
+	if ib.Text != "setelah konflik" {
+		t.Fatalf("inbound = %+v, want the queued update", ib)
+	}
+	stop()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned on 409: %v", err)
+	}
+	waits := clock.durations()
+	if len(waits) == 0 || waits[0] < 12*time.Second {
+		t.Fatalf("waits = %v, want the %s conflict wait first", waits, 12*time.Second)
+	}
+	polls := f.callsFor("getUpdates")
+	if len(polls) < 2 || polls[0].Form.Get("offset") != "0" || polls[1].Form.Get("offset") != "0" {
+		t.Errorf("poll offsets = %+v, want the same offset retried", pollOffsets(polls))
+	}
+}
+
+// TestRunNotifiesOwnerAfter409Window: a conflict lasting longer than
+// ConflictNotifyAfter calls OnConflict exactly once, not once per retry.
+func TestRunNotifiesOwnerAfter409Window(t *testing.T) {
+	f := newFakeTG(t)
+	f.setFault("getUpdates", fakeFault{Status: 409, Times: 4})
+	var (
+		mu    sync.Mutex
+		notes []time.Duration
+	)
+	a, _ := newTestAdapter(t, f, newMemStore(), func(c *Config) {
+		c.ConflictWait = 12 * time.Second
+		c.ConflictNotifyAfter = 30 * time.Second
+		c.OnConflict = func(d time.Duration) {
+			mu.Lock()
+			notes = append(notes, d)
+			mu.Unlock()
+		}
+	})
+	in := make(chan Inbound, 8)
+	done, stop := runAdapter(t, a, in)
+	f.pushText(t, 7, 0, "pulih")
+	_ = recvInbound(t, in)
+	stop()
+	if err := <-done; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(notes) != 1 {
+		t.Fatalf("conflict notices = %d (%v), want exactly 1", len(notes), notes)
+	}
+	if notes[0] < 30*time.Second {
+		t.Errorf("notice after %s, want after the 30 s window", notes[0])
+	}
+}
+
+func pollOffsets(calls []fakeCall) []string {
+	out := make([]string, len(calls))
+	for i, c := range calls {
+		out[i] = c.Form.Get("offset")
+	}
+	return out
 }

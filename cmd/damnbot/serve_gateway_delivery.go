@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
@@ -53,18 +55,56 @@ func (g *serveGateway) claimDeliveries(ctx context.Context, now time.Time) int {
 }
 
 // deliverOne paces, sends and records one claimed delivery: Sent on success,
-// Retry (or Fail after the last attempt) with the platform retry_after.
+// Retry (or Fail after the last attempt) with the platform retry_after. A
+// deleted forum topic is terminal: the row fails, the owner gets one notice,
+// and the message is never resent to the parent chat (GAP-GW-06 default
+// thread_fallback="fail"; the config key does not exist yet).
 func (g *serveGateway) deliverOne(ctx context.Context, d *gwstore.Delivery, now time.Time) {
-	if ok, wait := g.limiter.Take(d.ChatID, now); !ok {
+	if ok, wait := g.limiter.TakeChat(d.Platform, d.ChatID, gateway.GroupChat(d.Platform, d.ChatID), now); !ok {
 		g.retryDelivery(ctx, d, "rate limited", wait, now)
 		return
 	}
 	ref, wait, err := g.sendDelivery(ctx, d, now)
 	if err != nil {
+		if errors.Is(err, telegram.ErrThreadNotFound) {
+			g.failThreadDelivery(ctx, d, err, now)
+			return
+		}
 		g.retryDelivery(ctx, d, cleanLine(err.Error()), wait, now)
 		return
 	}
 	if err := g.store.SentDelivery(ctx, d.ID, strconv.FormatInt(ref, 10), now.UnixMilli()); err != nil {
+		g.metrics.IncError()
+	}
+}
+
+// failThreadDelivery closes a delivery whose topic no longer exists. It is
+// never retried and never redirected: the notice tells the owner what to do.
+func (g *serveGateway) failThreadDelivery(ctx context.Context, d *gwstore.Delivery, cause error, now time.Time) {
+	g.metrics.IncError()
+	if err := g.store.FailDelivery(ctx, d.ID, cleanLine(cause.Error()), now.UnixMilli()); err != nil {
+		sessionsPrintf(g.stderr, "gateway: fail thread delivery: %s\n", cleanLine(err.Error()))
+	}
+	g.notifyOwner(ctx, "thread-not-found:"+strconv.FormatInt(d.ID, 10),
+		fmt.Sprintf("pengiriman ke chat %s thread %s gagal: thread tidak ditemukan; pesan tidak dialihkan ke chat induk",
+			cleanArg(d.ChatID), cleanArg(d.ThreadID)))
+}
+
+// notifyOwner enqueues one `__system__` delivery to the owner chat. The
+// idempotency key makes every notice at-most-once across restarts.
+func (g *serveGateway) notifyOwner(ctx context.Context, key, body string) {
+	if g == nil || g.owner == "" {
+		return
+	}
+	platform, chat, ok := strings.Cut(g.owner, ":")
+	if !ok {
+		return
+	}
+	if _, _, err := g.store.EnqueueDelivery(ctx, &gwstore.Delivery{
+		IdemKey:  gateway.DeliveryKey(platform, chat, "sys:"+key),
+		Platform: platform, ChatID: chat, Body: body, Status: gateway.StatusQueued,
+	}); err != nil {
+		sessionsPrintf(g.stderr, "gateway: owner notice %s: %s\n", cleanArg(key), cleanLine(err.Error()))
 		g.metrics.IncError()
 	}
 }

@@ -68,6 +68,10 @@ type serveGateway struct {
 	// /stop cancels exactly that chat's turn and never a sibling's.
 	turnMu sync.Mutex
 	turns  map[turnKey]*chatTurn
+
+	// owner is the platform:id of the owner identity: the destination of
+	// `__system__` notices (thread lost, poll conflict, crash pause).
+	owner string
 }
 
 func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, db *ctxdb.Store, daemon *serveDaemon, metrics *obs.Metrics, stderr io.Writer) (*serveGateway, error) {
@@ -108,10 +112,11 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	}
 	net := netx.New(netx.Config{Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background})
 
-	limiter, err := gateway.NewLimiter(gateway.Rate{PerSecond: 1, Burst: 1}, gateway.Rate{PerSecond: 30, Burst: 30})
+	limiter, err := gateway.NewLimiterCaps(gateway.TelegramCaps())
 	if err != nil {
 		return nil, fmt.Errorf("gateway limiter: %w", err)
 	}
+	var self *serveGateway
 	adapter, err := telegram.New(&telegram.Config{
 		Token: token, BaseURL: strings.TrimSpace(os.Getenv("DAMNBOT_TELEGRAM_BASE_URL")),
 		Doer: beatDoer{do: telegram.EgressClient(net), wd: wd}, Store: telegramStore{Store: store},
@@ -121,7 +126,14 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 			metrics.IncError()
 			return beatDoer{do: telegram.EgressClient(net), wd: wd}
 		},
-		Throttle: limiter,
+		Throttle:          limiter,
+		MaxChunksPerReply: gateway.TelegramCaps().MaxChunksPerReply,
+		OnConflict: func(d time.Duration) {
+			if self != nil {
+				self.notifyOwner(context.Background(), "poll-conflict",
+					fmt.Sprintf("getUpdates 409 selama %s: proses lain masih memegang bot; antrean tidak dibuang", d.Round(time.Second)))
+			}
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("gateway telegram: %w", err)
@@ -136,9 +148,10 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		store: store, estop: gateway.Estop{Dir: o.dataDir}, adapter: adapter, quota: quota, limiter: limiter,
 		chats: gateway.NewChatQueue(cfg.Gateway.MaxParallelTurns), daemon: daemon,
 		metrics: metrics, watchdog: wd, supervisor: sup, stderr: stderr,
-		inbound: make(chan telegram.Inbound, 32), now: time.Now,
+		inbound: make(chan telegram.Inbound, 32), now: time.Now, owner: owner,
 		turns: make(map[turnKey]*chatTurn), restartCh: make(chan struct{}, 1),
 	}
+	self = g
 	if rerr := g.registerPlatform(); rerr != nil {
 		return nil, rerr
 	}
