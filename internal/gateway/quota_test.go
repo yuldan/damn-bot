@@ -111,8 +111,8 @@ func quotaReq(identity, chat string, group bool) gateway.QuotaRequest {
 	return gateway.QuotaRequest{Platform: "telegram", Identity: identity, ChatID: chat, Group: group}
 }
 
-func ticket(identity, chat string) gateway.Ticket {
-	return gateway.Ticket{
+func ticket(identity, chat string) *gateway.Ticket {
+	return &gateway.Ticket{
 		Identity: gateway.Identity{Platform: "telegram", ExternalID: identity, Role: gateway.RoleUser},
 		Scope:    gateway.Scope{Platform: "telegram", ChatID: chat, UserID: identity},
 	}
@@ -135,7 +135,7 @@ func testQuotaMinute(t *testing.T) { //nolint:gocyclo // the minute boundary mat
 	s := quotaScheduler(t, clk, 2, gateway.QuotaOptions{})
 	rec := newRecorder()
 	for range gateway.DefaultMessagesPerMinute {
-		v, err := s.Submit(quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run)
+		v, err := s.Submit(context.Background(), quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run)
 		if err != nil || v.Kind != gateway.Enqueued {
 			t.Fatalf("within limit: verdict=%+v err=%v", v, err)
 		}
@@ -145,7 +145,7 @@ func testQuotaMinute(t *testing.T) { //nolint:gocyclo // the minute boundary mat
 		t.Fatalf("runs at the exact boundary = %d", got)
 	}
 
-	v, err := s.Submit(quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run)
+	v, err := s.Submit(context.Background(), quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,13 +164,13 @@ func testQuotaMinute(t *testing.T) { //nolint:gocyclo // the minute boundary mat
 
 	// The static reply is throttled to one per minute per identity, but the
 	// refusal itself still reports the typed limit and zero turns.
-	v, err = s.Submit(quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run)
+	v, err = s.Submit(context.Background(), quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run)
 	if err != nil || v.Kind != gateway.Refused || v.Message != "" {
 		t.Fatalf("throttled notice: %+v err=%v", v, err)
 	}
 
 	clk.Advance(time.Minute + time.Second)
-	v, err = s.Submit(quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run)
+	v, err = s.Submit(context.Background(), quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run)
 	if err != nil || v.Kind != gateway.Enqueued {
 		t.Fatalf("after the window: %+v err=%v", v, err)
 	}
@@ -185,13 +185,13 @@ func testQuotaTurns(t *testing.T) {
 	s := quotaScheduler(t, clk, 4, gateway.QuotaOptions{MessagesPerMinute: 1_000_000})
 	rec := newRecorder()
 	for range gateway.DefaultTurnsPerDay {
-		v, err := s.Submit(quotaReq("u2", "dm", false), ticket("u2", "dm"), rec.run)
+		v, err := s.Submit(context.Background(), quotaReq("u2", "dm", false), ticket("u2", "dm"), rec.run)
 		if err != nil || v.Kind != gateway.Enqueued {
 			t.Fatalf("turn within day: %+v err=%v", v, err)
 		}
 		rec.wait(t, 1)
 	}
-	v, err := s.Submit(quotaReq("u2", "dm", false), ticket("u2", "dm"), rec.run)
+	v, err := s.Submit(context.Background(), quotaReq("u2", "dm", false), ticket("u2", "dm"), rec.run)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func testQuotaTurns(t *testing.T) {
 		t.Fatalf("turn 201 ran: %d", got)
 	}
 	clk.Advance(12*time.Hour + time.Second)
-	v, err = s.Submit(quotaReq("u2", "dm", false), ticket("u2", "dm"), rec.run)
+	v, err = s.Submit(context.Background(), quotaReq("u2", "dm", false), ticket("u2", "dm"), rec.run)
 	if err != nil || v.Kind != gateway.Enqueued {
 		t.Fatalf("next day: %+v err=%v", v, err)
 	}
@@ -218,13 +218,13 @@ func testQuotaGroup(t *testing.T) {
 	rec := newRecorder()
 	for i := range gateway.DefaultGroupMessagesPerMinute {
 		id := fmt.Sprintf("g%d", i)
-		v, err := s.Submit(quotaReq(id, "group-1", true), ticket(id, "group-1"), rec.run)
+		v, err := s.Submit(context.Background(), quotaReq(id, "group-1", true), ticket(id, "group-1"), rec.run)
 		if err != nil || v.Kind != gateway.Enqueued {
 			t.Fatalf("group message %d: %+v err=%v", i, v, err)
 		}
 		rec.wait(t, 1)
 	}
-	v, err := s.Submit(quotaReq("g30", "group-1", true), ticket("g30", "group-1"), rec.run)
+	v, err := s.Submit(context.Background(), quotaReq("g30", "group-1", true), ticket("g30", "group-1"), rec.run)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func testQuotaFIFO(t *testing.T) {
 		started: make(chan struct{}, 8),
 		release: make(chan struct{}),
 	}
-	v, err := s.Submit(quotaReq("u3", "dm", false), ticket("u3", "dm"), rec.run)
+	v, err := s.Submit(context.Background(), quotaReq("u3", "dm", false), ticket("u3", "dm"), rec.run)
 	if err != nil || v.Kind != gateway.Enqueued || v.Position != 1 {
 		t.Fatalf("first: %+v err=%v", v, err)
 	}
@@ -254,12 +254,12 @@ func testQuotaFIFO(t *testing.T) {
 		t.Fatal("first turn did not start")
 	}
 	for i := 2; i <= 6; i++ {
-		v, err = s.Submit(quotaReq("u3", "dm", false), ticket("u3", "dm"), rec.run)
+		v, err = s.Submit(context.Background(), quotaReq("u3", "dm", false), ticket("u3", "dm"), rec.run)
 		if err != nil || v.Kind != gateway.Enqueued || v.Position != i {
 			t.Fatalf("queued message %d: %+v err=%v", i, v, err)
 		}
 	}
-	v, err = s.Submit(quotaReq("u3", "dm", false), ticket("u3", "dm"), rec.run)
+	v, err = s.Submit(context.Background(), quotaReq("u3", "dm", false), ticket("u3", "dm"), rec.run)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func testQuotaParallel(t *testing.T) {
 	}
 	for i := range 8 {
 		id := fmt.Sprintf("p%d", i)
-		if v, err := s.Submit(quotaReq(id, "c-"+id, false), ticket(id, "c-"+id), rec.run); err != nil || v.Kind != gateway.Enqueued {
+		if v, err := s.Submit(context.Background(), quotaReq(id, "c-"+id, false), ticket(id, "c-"+id), rec.run); err != nil || v.Kind != gateway.Enqueued {
 			t.Fatalf("submit %d: %+v err=%v", i, v, err)
 		}
 	}
@@ -329,7 +329,7 @@ func TestGatewayAdmissionThenQuota(t *testing.T) { //nolint:gocyclo // one end-t
 		var v gateway.Verdict
 		out, aerr := g.Admit(t.Context(), in, func(_ context.Context, tk gateway.Ticket) error {
 			//nolint:contextcheck // queued turns outlive the adapter request
-			vv, serr := s.Submit(quotaReq(tk.Scope.UserID, tk.Scope.ChatID, in.Group), tk, rec.run)
+			vv, serr := s.Submit(context.Background(), quotaReq(tk.Scope.UserID, tk.Scope.ChatID, in.Group), &tk, rec.run)
 			v = vv
 			if serr != nil {
 				return fmt.Errorf("submit: %w", serr)
@@ -382,10 +382,10 @@ func TestQuotaValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if _, err := s.Submit(gateway.QuotaRequest{}, gateway.Ticket{}, (&recorder{}).run); err == nil {
+	if _, err := s.Submit(context.Background(), gateway.QuotaRequest{}, &gateway.Ticket{}, (&recorder{}).run); err == nil {
 		t.Fatal("empty quota request accepted")
 	}
-	if _, err := s.Submit(quotaReq("u", "c", false), gateway.Ticket{}, nil); err == nil {
+	if _, err := s.Submit(context.Background(), quotaReq("u", "c", false), &gateway.Ticket{}, nil); err == nil {
 		t.Fatal("nil work accepted")
 	}
 	if !strings.Contains((&gateway.QuotaResult{Limit: gateway.LimitTurns}).Message(), "reset") {

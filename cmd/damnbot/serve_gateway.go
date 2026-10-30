@@ -47,6 +47,16 @@ type serveGateway struct {
 	pollCancel          context.CancelFunc
 	wg                  sync.WaitGroup
 	now                 func() time.Time
+	started             time.Time
+
+	// run is the one chat turn. It is a field so tests can substitute a fake
+	// runner: no command in this file needs a provider or a token.
+	run func(context.Context, *telegram.Inbound, *gateway.Ticket) error
+
+	// turns maps the live turn of each (route, principal) to its cancel, so
+	// /stop cancels exactly that chat's turn and never a sibling's.
+	turnMu sync.Mutex
+	turns  map[turnKey]*chatTurn
 }
 
 func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, db *ctxdb.Store, daemon *serveDaemon, metrics *obs.Metrics, stderr io.Writer) (*serveGateway, error) {
@@ -63,18 +73,8 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		return nil, errors.New("gateway: provider.model or DAMNBOT_SERVE_MODEL is required")
 	}
 	store := gwstore.Store{DB: db}
-	for i, spec := range append([]string{owner}, allow...) {
-		role := "user"
-		if i == 0 {
-			role = "owner"
-		}
-		platform, id, _ := strings.Cut(spec, ":")
-		if _, serr := store.EnsureIdentity(ctx, platform, id, role, "platform_authenticated", time.Now().UnixMilli()); serr != nil {
-			return nil, fmt.Errorf("gateway: seed %s: %w", role, serr)
-		}
-		if serr := store.SetStatus(ctx, platform, id, "allowlisted", time.Now().UnixMilli()); serr != nil {
-			return nil, fmt.Errorf("gateway: seed %s status: %w", role, serr)
-		}
+	if serr := seedGatewayIdentities(ctx, store, owner, allow); serr != nil {
+		return nil, serr
 	}
 	sup := heal.NewSupervisor(nil)
 	wd, err := heal.NewWatchdog(heal.WatchdogOptions{
@@ -108,28 +108,32 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	if err != nil {
 		return nil, fmt.Errorf("gateway telegram: %w", err)
 	}
-	users := make(map[string]string, len(cfg.Gateway.Users))
-	for id, u := range cfg.Gateway.Users {
-		users[id] = u.Workspace
-	}
-	gate, err := gateway.New(&gateway.Options{
-		DataDir: o.dataDir, Users: users,
-		Identities: telegramStore{Store: store}, Inbox: telegramStore{Store: store},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("gateway admission: %w", err)
-	}
+	users := gatewayUsers(cfg)
 	quota, err := gateway.NewQuota(gateway.QuotaOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("gateway quota: %w", err)
 	}
-	return &serveGateway{
+	g := &serveGateway{
 		cfg: *cfg, dataDir: o.dataDir, configPath: o.configPath, modelRef: modelRef,
-		store: store, adapter: adapter, gate: gate, quota: quota, limiter: limiter,
+		store: store, adapter: adapter, quota: quota, limiter: limiter,
 		chats: gateway.NewChatQueue(cfg.Gateway.MaxParallelTurns), daemon: daemon,
 		metrics: metrics, watchdog: wd, supervisor: sup, stderr: stderr,
 		inbound: make(chan telegram.Inbound, 32), now: time.Now,
-	}, nil
+		turns: make(map[turnKey]*chatTurn),
+	}
+	g.started = g.now()
+	g.run = g.turn
+	commands := gateway.NewCommands(gateway.CommandOptions{Runtime: g})
+	gate, err := gateway.New(&gateway.Options{
+		DataDir: o.dataDir, Users: users,
+		Identities: telegramStore{Store: store}, Inbox: telegramStore{Store: store},
+		Commands: commands,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("gateway admission: %w", err)
+	}
+	g.gate = gate
+	return g, nil
 }
 
 func gatewayEnv() (string, []string, error) {
@@ -181,11 +185,7 @@ func (g *serveGateway) Start(ctx context.Context) error {
 				g.watchdog.Beat()
 				g.metrics.SetQueue(len(g.inbound))
 				update := in
-				chatKey := update.Platform + "\x00" + update.ChatID
-				if err := g.chats.Submit(runCtx, chatKey, func(ctx context.Context) { g.handle(ctx, &update) }); err != nil && runCtx.Err() == nil {
-					sessionsPrintf(g.stderr, "gateway: dispatch %s: %s\n", cleanArg(update.UpdateID), cleanLine(err.Error()))
-					g.metrics.IncError()
-				}
+				g.dispatch(runCtx, &update)
 			}
 		}
 	}()
@@ -195,14 +195,17 @@ func (g *serveGateway) Start(ctx context.Context) error {
 }
 
 func (g *serveGateway) Stop() {
-	if g != nil && g.cancel != nil {
-		if g.watchdog != nil {
-			g.watchdog.Disarm()
-		}
-		g.cancel()
-		g.chats.Close()
-		g.wg.Wait()
+	if g == nil {
+		return
 	}
+	if g.watchdog != nil {
+		g.watchdog.Disarm()
+	}
+	if g.cancel != nil {
+		g.cancel()
+	}
+	g.chats.Close()
+	g.wg.Wait()
 }
 
 func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound) {
@@ -218,13 +221,21 @@ func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound) {
 	}
 	inbound := &gateway.Inbound{
 		Platform: in.Platform, ChatID: in.ChatID, ThreadID: in.ThreadID, SenderID: in.SenderID,
-		UpdateID: in.UpdateID, Group: strings.HasPrefix(in.ChatID, "-"), Payload: `{"kind":"text","text":` + strconv.Quote(in.Text) + `}`,
+		UpdateID: in.UpdateID, Group: strings.HasPrefix(in.ChatID, "-"), Text: in.Text,
+		Payload: `{"kind":"text","text":` + strconv.Quote(in.Text) + `}`,
 	}
-	out, err := g.gate.Admit(ctx, inbound, func(wctx context.Context, t gateway.Ticket) error { return g.turn(wctx, in, &t) })
-	if err != nil {
+	out, err := g.gate.Admit(ctx, inbound, func(wctx context.Context, t gateway.Ticket) error {
+		turnCtx, done := g.beginTurn(wctx, &t.Scope)
+		defer done()
+		return g.run(turnCtx, in, &t)
+	})
+	switch {
+	case err != nil:
 		sessionsPrintf(g.stderr, "gateway: update %s: %s\n", cleanArg(in.UpdateID), cleanLine(err.Error()))
 		g.metrics.IncError()
-	} else if out.Kind == gateway.Rejected {
+	case out.Kind == gateway.CommandHandled:
+		g.replyCommand(ctx, in, out.Reply)
+	case out.Kind == gateway.Rejected:
 		g.metrics.IncError()
 	}
 }

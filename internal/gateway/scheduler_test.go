@@ -1,6 +1,7 @@
 package gateway_test
 
 import (
+	"context"
 	"errors"
 	"runtime"
 	"testing"
@@ -20,7 +21,7 @@ func TestGoroutineBounds(t *testing.T) {
 	})
 	rec := &recorder{done: make(chan struct{}, 1)}
 	for i := range 1000 {
-		v, err := s.Submit(quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run)
+		v, err := s.Submit(context.Background(), quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run)
 		if err != nil || v.Kind != gateway.Enqueued {
 			t.Fatalf("message %d: %+v err=%v", i, v, err)
 		}
@@ -53,10 +54,10 @@ func TestSchedulerSerializesIdentity(t *testing.T) {
 		started: make(chan struct{}, 2),
 		release: make(chan struct{}),
 	}
-	if v, err := s.Submit(quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run); err != nil || v.Kind != gateway.Enqueued {
+	if v, err := s.Submit(context.Background(), quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run); err != nil || v.Kind != gateway.Enqueued {
 		t.Fatalf("first: %+v err=%v", v, err)
 	}
-	if v, err := s.Submit(quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run); err != nil || v.Kind != gateway.Enqueued || v.Position != 2 {
+	if v, err := s.Submit(context.Background(), quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run); err != nil || v.Kind != gateway.Enqueued || v.Position != 2 {
 		t.Fatalf("second: %+v err=%v", v, err)
 	}
 	<-rec.started
@@ -83,7 +84,42 @@ func TestSchedulerNewDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Close()
-	if _, err := s.Submit(quotaReq("u1", "dm", false), ticket("u1", "dm"), (&recorder{}).run); !errors.Is(err, gateway.ErrSchedulerClosed) {
+	if _, err := s.Submit(context.Background(), quotaReq("u1", "dm", false), ticket("u1", "dm"), (&recorder{}).run); !errors.Is(err, gateway.ErrSchedulerClosed) {
 		t.Fatalf("Submit after Close = %v", err)
+	}
+}
+
+// TestSchedulerStats proves /status reads a real queue: one running turn plus
+// one waiting turn is exactly (queued=1, active=1). The zero check runs after
+// Close, which waits for the workers and therefore for finish(); checking right
+// after the work returns would race the worker's bookkeeping.
+func TestSchedulerStats(t *testing.T) {
+	s := quotaScheduler(t, newFakeClock(), 2, gateway.QuotaOptions{MessagesPerMinute: 1000})
+	rec := &recorder{
+		done: make(chan struct{}, 2), started: make(chan struct{}, 2), release: make(chan struct{}),
+	}
+	if v, err := s.Submit(context.Background(), quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run); err != nil || v.Kind != gateway.Enqueued {
+		t.Fatalf("first: %+v err=%v", v, err)
+	}
+	<-rec.started
+	if queued, active := s.Stats(); queued != 0 || active != 1 {
+		t.Fatalf("stats = (%d queued, %d active), want (0, 1)", queued, active)
+	}
+	if v, err := s.Submit(context.Background(), quotaReq("u1", "dm", false), ticket("u1", "dm"), rec.run); err != nil || v.Kind != gateway.Enqueued {
+		t.Fatalf("second: %+v err=%v", v, err)
+	}
+	if queued, active := s.Stats(); queued != 1 || active != 1 {
+		t.Fatalf("stats = (%d queued, %d active), want (1, 1)", queued, active)
+	}
+	close(rec.release)
+	rec.wait(t, 2)
+	if got := rec.count(); got != 2 {
+		t.Fatalf("runs = %d, want 2", got)
+	}
+	// Close waits for the workers, so every finish() has run by the time it
+	// returns; Stats can only be read as (0, 0) after that barrier.
+	s.Close()
+	if queued, active := s.Stats(); queued != 0 || active != 0 {
+		t.Fatalf("stats after Close = (%d queued, %d active), want (0, 0)", queued, active)
 	}
 }

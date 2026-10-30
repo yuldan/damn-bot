@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,9 @@ type CommandOptions struct {
 	Approvals *Approvals
 	// Pairing redeems "/pair <code>"; nil leaves it registered but unsupported.
 	Pairing PairingStore
+	// Runtime backs "/stop", "/new", "/status" and "/usage"; nil leaves the
+	// four registered but unsupported.
+	Runtime Runtime
 	// Now is the pairing attempt clock and redemption timestamp; nil is time.Now.
 	Now func() time.Time
 }
@@ -40,12 +44,14 @@ type CommandResult struct {
 // of docs/FEATURE-PARITY.md. Every registered command is either implemented or
 // answers a clear "not supported" — there is no handler that pretends to work.
 // Dispatch runs no tool and no shell command, and the parser it uses cannot;
-// its only side effects are the approval decision and the pairing redemption
-// the caller asked for.
+// its side effects are exactly the approval decision, the pairing redemption,
+// the /new session binding, and the /stop cancellation the caller asked for.
+// A command never starts a turn.
 type Commands struct {
 	bot       string
 	approvals *Approvals
 	pairing   PairingStore
+	runtime   Runtime
 	now       func() time.Time
 	specs     map[string]commandSpec
 
@@ -61,7 +67,8 @@ func NewCommands(opts CommandOptions) *Commands {
 	}
 	return &Commands{
 		bot: strings.TrimPrefix(opts.BotUsername, "@"), approvals: opts.Approvals, pairing: opts.Pairing,
-		now: now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
+		runtime: opts.Runtime,
+		now:     now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
 	}
 }
 
@@ -76,7 +83,7 @@ type commandSpec struct {
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code>"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -90,10 +97,12 @@ const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reas
 // owner-only (SPEC §9.7), so their commands are too: /model, /cron, /pause,
 // /restart, /sethome, /topic, /footer, /platform, /platforms, /lock, /resend.
 // /status, /logs, /doctor and /resume are the owner commands SELF-HEALING
-// names for SAFE MODE. Session commands a user may need (/new, /stop, /fork,
-// /usage, /plan, /undo) stay non-owner; they are unsupported until their own
-// slices implement them. /pair is non-owner and is also the one command the
-// admission layer answers before an identity is allowlisted.
+// names for SAFE MODE, and /usage reads the machine-wide ledger, so it is
+// owner-only too. Session commands a user may need (/new, /stop) stay
+// non-owner and act on the caller's own session only; /fork, /plan and /undo
+// remain unsupported until their own slices implement them. /pair is
+// non-owner and is also the one command the admission layer answers before an
+// identity is allowlisted.
 func commandRegistry() map[string]commandSpec {
 	return map[string]commandSpec{
 		"start":  {run: func(*Commands, context.Context, *Ticket, Command) CommandResult { return CommandResult{Handled: true} }},
@@ -108,14 +117,25 @@ func commandRegistry() map[string]commandSpec {
 		},
 		"pair": {run: (*Commands).pair},
 
+		"new":  {run: (*Commands).newSession},
+		"stop": {run: (*Commands).stop},
+		"status": {
+			owner: true,
+			run:   (*Commands).status,
+		},
+		"usage": {
+			owner: true,
+			run:   (*Commands).usage,
+		},
+
 		// Owner-only, not implemented by this slice.
-		"status": {owner: true}, "logs": {owner: true}, "doctor": {owner: true}, "resume": {owner: true},
+		"logs": {owner: true}, "doctor": {owner: true}, "resume": {owner: true},
 		"lock": {owner: true}, "restart": {owner: true}, "pause": {owner: true}, "resend": {owner: true},
 		"model": {owner: true}, "sethome": {owner: true}, "topic": {owner: true}, "footer": {owner: true},
 		"platform": {owner: true}, "platforms": {owner: true}, "cron": {owner: true},
 
 		// Non-owner, not implemented by this slice.
-		"new": {}, "stop": {}, "fork": {}, "usage": {}, "plan": {}, "undo": {},
+		"fork": {}, "plan": {}, "undo": {},
 	}
 }
 
@@ -176,6 +196,95 @@ func (c *Commands) whoami(_ context.Context, t *Ticket, _ Command) CommandResult
 		return CommandResult{Handled: true, Reply: "access: admin (owner)"}
 	}
 	return CommandResult{Handled: true, Reply: "access: user"}
+}
+
+// stop implements SPEC §9.7 "/stop": cancel the caller's active turn in this
+// chat through the runner's existing context seam. The cancel is scoped to the
+// caller's session, so another chat (or another principal's session in a group)
+// keeps running. A cancelled turn keeps its slot until its runner returns, so a
+// second /stop reports that nothing is active instead of cancelling again.
+func (c *Commands) stop(ctx context.Context, t *Ticket, _ Command) CommandResult {
+	if c.runtime == nil {
+		return unsupported("stop")
+	}
+	cancelled, err := c.runtime.StopTurn(ctx, &t.Scope)
+	switch {
+	case err != nil:
+		return CommandResult{Handled: true, Reply: "could not stop the turn"}
+	case cancelled:
+		return CommandResult{Handled: true, Reply: "turn cancelled"}
+	default:
+		return CommandResult{Handled: true, Reply: "no active turn in this chat"}
+	}
+}
+
+// newSession implements SPEC §9.7 "/new": bind a fresh session to the caller's
+// route. The previous session stays stored and readable; nothing is deleted.
+func (c *Commands) newSession(ctx context.Context, t *Ticket, _ Command) CommandResult {
+	if c.runtime == nil {
+		return unsupported("new")
+	}
+	if _, err := c.runtime.NewSession(ctx, &t.Scope); err != nil {
+		return CommandResult{Handled: true, Reply: "could not start a new session"}
+	}
+	return CommandResult{Handled: true, Reply: "started a new session; the previous one is kept"}
+}
+
+// status implements the owner-only "/status" of SELF-HEALING: uptime, queue
+// depth, active turns, mode and version. It reads runtime state only.
+func (c *Commands) status(ctx context.Context, _ *Ticket, _ Command) CommandResult {
+	if c.runtime == nil {
+		return unsupported("status")
+	}
+	st, err := c.runtime.Status(ctx)
+	if err != nil {
+		return CommandResult{Handled: true, Reply: "status unavailable"}
+	}
+	version := st.Version
+	if version == "" {
+		version = "unknown"
+	}
+	return CommandResult{Handled: true, Reply: fmt.Sprintf(
+		"status: up %s, queue %d, active turns %d, mode %s, version %s",
+		st.Uptime.Truncate(time.Second), st.QueueDepth, st.ActiveTurns, modeName(st.SafeMode), version)}
+}
+
+// usage implements the owner-only SPEC §9.7 "/usage": the token and cost totals
+// of the caller's session and of today, read from the usage ledger. Without a
+// ledger row it says so; an unknown price is never printed as zero.
+func (c *Commands) usage(ctx context.Context, t *Ticket, _ Command) CommandResult {
+	if c.runtime == nil {
+		return unsupported("usage")
+	}
+	rep, ok, err := c.runtime.Usage(ctx, &t.Scope)
+	switch {
+	case err != nil:
+		return CommandResult{Handled: true, Reply: "usage unavailable"}
+	case !ok:
+		return CommandResult{Handled: true, Reply: noUsage}
+	}
+	return CommandResult{Handled: true, Reply: fmt.Sprintf(
+		"usage: in %d, out %d tokens; session cost %s; today cost %s",
+		rep.SessionIn, rep.SessionOut, usd(rep.SessionCostKnown, rep.SessionCostMicros), usd(rep.DayCostKnown, rep.DayCostMicros))}
+}
+
+const noUsage = "no usage yet"
+
+// modeName is the /status name of the daemon mode (SELF-HEALING §1.4).
+func modeName(safe bool) string {
+	if safe {
+		return "safe"
+	}
+	return "normal"
+}
+
+// usd renders micro-USD, or "unknown" when the ledger counted a call without a
+// price: an unknown cost is never presented as a zero.
+func usd(known bool, micros int64) string {
+	if !known {
+		return "unknown"
+	}
+	return "$" + strconv.FormatFloat(float64(micros)/1e6, 'f', 6, 64)
 }
 
 // approve implements SPEC §9.7 "/approve <id>". Bare "/approve" targets the one

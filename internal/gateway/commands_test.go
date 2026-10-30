@@ -136,7 +136,7 @@ func TestDispatchStartAndWhoami(t *testing.T) {
 func TestDispatchRoleMatrix(t *testing.T) {
 	c := gateway.NewCommands(gateway.CommandOptions{})
 	ownerOnly := []string{
-		"status", "logs", "doctor", "resume", "lock", "restart", "pause", "resend",
+		"status", "usage", "logs", "doctor", "resume", "lock", "restart", "pause", "resend",
 		"model", "sethome", "topic", "footer", "platform", "platforms", "cron",
 	}
 	for _, name := range ownerOnly {
@@ -149,7 +149,7 @@ func TestDispatchRoleMatrix(t *testing.T) {
 			t.Errorf("/%s as owner = %+v, want unsupported", name, res)
 		}
 	}
-	users := []string{"new", "stop", "fork", "usage", "plan", "undo"}
+	users := []string{"new", "stop", "fork", "plan", "undo"}
 	for _, name := range users {
 		res := c.Dispatch(context.Background(), testTicket(gateway.RoleUser), "/"+name)
 		if !res.Handled || !strings.Contains(res.Reply, "not supported") {

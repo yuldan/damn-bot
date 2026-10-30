@@ -32,17 +32,20 @@ func TestEdgeCasesPlatTransport(t *testing.T) {
 // from the stored offset: the acknowledged update is not delivered twice.
 func TestECPLAT016PollStallRebuildsAdapter(t *testing.T) {
 	f := newFakeTG(t)
-	f.pollWait = 15 * time.Millisecond
+	f.pollWait = 5 * time.Millisecond
 	store := newMemStore()
 	var rebuilds atomic.Int64
 	a, _ := newTestAdapter(t, f, store, func(c *Config) {
 		c.Rebuild = func() Doer { rebuilds.Add(1); return f }
 	})
-	a.stallAfter = 100 * time.Millisecond
-	f.faults["getUpdates"] = []fakeFault{{Hang: 5 * time.Second, Times: 1}}
+	a.stallAfter = 50 * time.Millisecond
 
+	// The fake parks getUpdates until the watchdog cancels it: recovery does
+	// not depend on how fast a response would have arrived.
+	f.stallNextUpdate()
 	in := make(chan Inbound, 8)
 	done, stop := runAdapter(t, a, in)
+	waitFor(t, "first stall rebuild", func() bool { return rebuilds.Load() >= 1 })
 
 	f.pushText(t, 7, 0, "satu")
 	first := recvInbound(t, in)
@@ -54,9 +57,12 @@ func TestECPLAT016PollStallRebuildsAdapter(t *testing.T) {
 		return err == nil && n == 2
 	})
 
-	// Second stall after an acknowledged update: recovery must resume at the
-	// stored offset, never replay u:1.
-	f.faults["getUpdates"] = []fakeFault{{Hang: 5 * time.Second, Times: 1}}
+	// Second stall after an acknowledged update: wait for the rebuild before
+	// queueing the next update, so delivery cannot precede recovery. The loop
+	// must resume at the stored offset and never replay u:1.
+	f.stallNextUpdate()
+	waitFor(t, "second stall rebuild", func() bool { return rebuilds.Load() >= 2 })
+
 	f.pushText(t, 7, 0, "dua")
 	second := recvInbound(t, in)
 	if second.UpdateID != "u:2" || second.Text != "dua" {
@@ -67,20 +73,18 @@ func TestECPLAT016PollStallRebuildsAdapter(t *testing.T) {
 		return err == nil && n == 3
 	})
 
-	select {
-	case extra := <-in:
-		t.Fatalf("update delivered twice after rebuild: %+v", extra)
-	case <-time.After(100 * time.Millisecond):
+	stop()
+	if err := <-done; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := len(in); got != 0 {
+		t.Fatalf("update delivered twice after rebuild: %d queued (%+v)", got, <-in)
 	}
 	if got := rebuilds.Load(); got < 2 {
 		t.Fatalf("client rebuilds = %d, want at least 2", got)
 	}
 	if got := f.cancelled.Load(); got < 2 {
 		t.Fatalf("cancelled stalled requests = %d, want at least 2", got)
-	}
-	stop()
-	if err := <-done; err != nil {
-		t.Fatalf("Run: %v", err)
 	}
 }
 
@@ -89,18 +93,24 @@ func TestECPLAT016PollStallRebuildsAdapter(t *testing.T) {
 // no rebuild happens until the caller cancels.
 func TestECPLAT016StallWatchdogNegativeControl(t *testing.T) {
 	f := newFakeTG(t)
-	f.faults["getUpdates"] = []fakeFault{{Hang: 5 * time.Second, Times: 1}}
 	var rebuilds atomic.Int64
 	a, _ := newTestAdapter(t, f, newMemStore(), func(c *Config) {
 		c.Rebuild = func() Doer { rebuilds.Add(1); return f }
 	})
 	a.stallAfter = 0
+	held := f.stallNextUpdate()
 	in := make(chan Inbound, 2)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- a.Run(ctx, in) }()
 
-	<-time.After(250 * time.Millisecond) // long enough for a watchdog to fire twice
+	select {
+	case <-held:
+	case <-time.After(5 * time.Second):
+		t.Fatal("poll never reached the fake server")
+	}
+	// The request is parked and no watchdog exists, so Run cannot have
+	// returned and no rebuild can be pending.
 	select {
 	case err := <-done:
 		t.Fatalf("Run returned without a watchdog: %v", err)
@@ -128,7 +138,7 @@ func TestECPLAT016StallWatchdogNegativeControl(t *testing.T) {
 // outbox key: the uncertain marker stops a duplicate send.
 func TestECPLAT017SendDeadlineRetriedViaOutbox(t *testing.T) {
 	f := newFakeTG(t)
-	f.faults["sendMessage"] = []fakeFault{{Hang: 5 * time.Second, Times: 1}}
+	f.setFault("sendMessage", fakeFault{Hang: 5 * time.Second, Times: 1})
 	store := newMemStore()
 	a, _ := newTestAdapter(t, f, store)
 	a.sendTimeout = 50 * time.Millisecond
@@ -163,7 +173,7 @@ func TestECPLAT017SendDeadlineRetriedViaOutbox(t *testing.T) {
 // TestECPLAT017EditDeadline covers the same bound on editMessageText.
 func TestECPLAT017EditDeadline(t *testing.T) {
 	f := newFakeTG(t)
-	f.faults["editMessageText"] = []fakeFault{{Hang: 5 * time.Second, Times: 1}}
+	f.setFault("editMessageText", fakeFault{Hang: 5 * time.Second, Times: 1})
 	a, _ := newTestAdapter(t, f, newMemStore())
 	a.sendTimeout = 40 * time.Millisecond
 	err := a.editText(t.Context(), "7", "", 42, render.Message{Text: "halo"})
@@ -176,7 +186,7 @@ func TestECPLAT017EditDeadline(t *testing.T) {
 // the short text budget: an upload slower than sendTimeout still succeeds.
 func TestECPLAT017MediaUsesLongerDeadline(t *testing.T) {
 	f := newFakeTG(t)
-	f.faults["sendPhoto"] = []fakeFault{{Hang: 80 * time.Millisecond, Times: 1}}
+	f.setFault("sendPhoto", fakeFault{Hang: 80 * time.Millisecond, Times: 1})
 	a, _ := newTestAdapter(t, f, newMemStore())
 	a.sendTimeout = 20 * time.Millisecond
 	a.mediaTimeout = 3 * time.Second
@@ -193,7 +203,7 @@ func TestECPLAT017MediaUsesLongerDeadline(t *testing.T) {
 // misclassified as a send deadline.
 func TestECPLAT017DeadlineNegativeControl(t *testing.T) {
 	f := newFakeTG(t)
-	f.faults["sendMessage"] = []fakeFault{{Hang: 5 * time.Second, Times: 1}}
+	f.setFault("sendMessage", fakeFault{Hang: 5 * time.Second, Times: 1})
 	a, _ := newTestAdapter(t, f, newMemStore())
 	a.sendTimeout = 0
 	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Millisecond)

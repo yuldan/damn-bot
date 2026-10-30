@@ -37,7 +37,7 @@ func TestSendIsIdempotent(t *testing.T) {
 
 func TestSendAfterDropNeverDuplicates(t *testing.T) {
 	f := newFakeTG(t)
-	f.faults["sendMessage"] = []fakeFault{{Drop: true, Times: 1}}
+	f.setFault("sendMessage", fakeFault{Drop: true, Times: 1})
 	store := newMemStore()
 	a, _ := newTestAdapter(t, f, store)
 	out := &Outbound{ChatID: "7", Text: "sekali", Key: "reply-drop"}

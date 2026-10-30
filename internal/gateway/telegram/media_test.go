@@ -144,7 +144,7 @@ func TestNonImageSentAsDocument(t *testing.T) {
 
 func TestMediaRetryAfterDropUploadsOnce(t *testing.T) {
 	f := newFakeTG(t)
-	f.faults["sendPhoto"] = []fakeFault{{Drop: true, Times: 1}}
+	f.setFault("sendPhoto", fakeFault{Drop: true, Times: 1})
 	a, _ := newTestAdapter(t, f, newMemStore())
 	out := &Outbound{ChatID: "7", Key: "media-drop", Media: &Media{Name: "x.png", Data: smallPNG(t)}}
 	if _, err := a.Send(t.Context(), out); err == nil {

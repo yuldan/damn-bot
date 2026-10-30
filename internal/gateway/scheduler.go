@@ -7,9 +7,11 @@ import (
 	"sync"
 )
 
-// ErrNoQuota and ErrSchedulerClosed reject bad wiring and closed submission.
+// ErrNoQuota, ErrNoTicket and ErrSchedulerClosed reject bad wiring and closed
+// submission.
 var (
 	ErrNoQuota         = errors.New("gateway: quota is required")
+	ErrNoTicket        = errors.New("gateway: ticket is required")
 	ErrSchedulerClosed = errors.New("gateway: scheduler is closed")
 )
 
@@ -104,7 +106,14 @@ func NewScheduler(opts SchedulerOptions) (*Scheduler, error) {
 
 // Submit applies the quota and enqueues work for one admitted update. It never
 // blocks and never runs work on the caller's goroutine.
-func (s *Scheduler) Submit(req QuotaRequest, t Ticket, work RunFunc) (Verdict, error) { //nolint:gocritic // hugeParam: Ticket is the admitted identity of one turn
+//
+// The context of the first Submit starts the pool and becomes the lifetime of
+// every turn (serve passes the daemon's run context, never one adapter
+// request); later values are not consulted, and Close is the shutdown edge.
+func (s *Scheduler) Submit(ctx context.Context, req QuotaRequest, t *Ticket, work RunFunc) (Verdict, error) {
+	if t == nil {
+		return Verdict{}, ErrNoTicket
+	}
 	if work == nil {
 		return Verdict{}, ErrNoWork
 	}
@@ -144,8 +153,8 @@ func (s *Scheduler) Submit(req QuotaRequest, t Ticket, work RunFunc) (Verdict, e
 	if q.active {
 		ahead++
 	}
-	q.jobs = append(q.jobs, turnJob{ticket: t, work: work})
-	s.startLocked()
+	q.jobs = append(q.jobs, turnJob{ticket: *t, work: work})
+	s.startLocked(ctx)
 	s.cond.Signal()
 	return Verdict{Kind: Enqueued, Position: ahead + 1, Quota: res}, nil
 }
@@ -158,14 +167,29 @@ func (s *Scheduler) refuseQueue(req QuotaRequest) Verdict {
 	return v
 }
 
-func (s *Scheduler) startLocked() {
+// Stats reports how many turns are waiting in the identity queues and how many
+// are running. It is read-only and takes the same lock as Submit, so /status
+// never observes a queue mid-update.
+func (s *Scheduler) Stats() (queued, active int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, q := range s.queues {
+		queued += len(q.jobs)
+		if q.active {
+			active++
+		}
+	}
+	return queued, active
+}
+
+func (s *Scheduler) startLocked(ctx context.Context) {
 	if s.started {
 		return
 	}
 	s.started = true
 	s.wg.Add(s.workers)
 	for range s.workers {
-		go s.worker()
+		go s.worker(ctx)
 	}
 }
 
@@ -183,14 +207,14 @@ func (s *Scheduler) Close() {
 	s.wg.Wait()
 }
 
-func (s *Scheduler) worker() {
+func (s *Scheduler) worker(ctx context.Context) {
 	defer s.wg.Done()
 	for {
 		job, key, ok := s.acquire()
 		if !ok {
 			return
 		}
-		if err := job.work(context.Background(), job.ticket); err != nil && s.onError != nil {
+		if err := job.work(ctx, job.ticket); err != nil && s.onError != nil {
 			s.onError(job.ticket, err)
 		}
 		s.finish(key)

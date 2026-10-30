@@ -71,6 +71,17 @@ func (q *ChatQueue) Submit(ctx context.Context, key string, work func(context.Co
 	return nil
 }
 
+// Stats reports the jobs waiting in chat lanes and the jobs holding a
+// concurrency slot. It is read-only and never blocks a lane.
+func (q *ChatQueue) Stats() (queued, active int) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for _, l := range q.lanes {
+		queued += len(l.jobs)
+	}
+	return queued, len(q.sem)
+}
+
 // Close refuses new work and waits for running jobs. Callers cancel the
 // context passed to Submit first: a lane blocked on the global semaphore
 // returns on cancellation instead of holding Close forever.
@@ -81,16 +92,18 @@ func (q *ChatQueue) Close() {
 	q.wg.Wait()
 }
 
-// drain runs one chat's FIFO to completion.
+// drain runs one chat's FIFO to completion. It takes a concurrency slot before
+// popping, so a job waiting for a slot stays visible as queued in Stats.
 func (q *ChatQueue) drain(ctx context.Context, key string) {
 	defer q.wg.Done()
 	for {
-		work, ok := q.next(key)
-		if !ok {
-			return
-		}
 		if !q.acquire(ctx) {
 			q.drop(key)
+			return
+		}
+		work, ok := q.next(key)
+		if !ok {
+			<-q.sem
 			return
 		}
 		work(ctx)
