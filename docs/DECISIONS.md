@@ -5236,6 +5236,6 @@ Batas penting: risiko ToS **bukan** temuan threat scan. Q43/ADR-033 menetapkan `
 
 **Konteks.** `/sethome` (GW-005) dan toggle per chat `footer`/`timestamps`/`human_delay` (GW-021/GW-020/GW-007) harus disimpan. SPEC §12 belum mendeklarasikan config key untuk toggle itu, jadi implementasinya memakai baris `module_state` yang sudah ada (pola GAP-GW-05 `require_mention`, ADR-074). `MODULE gwstore` berada tepat di plafon 900 sehingga penambahan home channel + pembacaan setting generik tidak muat, sedangkan `MODULE gateway` hanya terpakai 4.062 dari 9.540.
 
-**Keputusan.** Pindahkan 60 baris alokasi dari `MODULE gateway` ke `MODULE gwstore`: gateway **9.600 → 9.540**, gwstore **900 → 960**. Jumlah SPEC §3.2.4 gateway **10.500 tidak berubah**. Nilai terukur pada pohon ini: gateway 4.062, gwstore 944 (sisa 16). Tidak ada baris `TOTAL`/Σ core yang berubah.
+**Keputusan.** Pindahkan 60 baris alokasi dari `MODULE gateway` ke `MODULE gwstore`: gateway **9.600 → 9.540**, gwstore **900 → 960**. Jumlah SPEC §3.2.4 gateway **10.500 tidak berubah**. Nilai terukur pada pohon ini: gateway 4.062, gwstore 944 (sisa 16). `TOTAL` dan Σ core **47.593/47.600** tidak berubah; Σ MODULE kelas tidak melewati 40.000.
 
 **Konsekuensi.** (+) Store tetap menjadi satu-satunya pemilik akses `module_state` gateway, sesuai ADR-074. (+) Tidak ada DDL atau config key baru. (−) Headroom gateway berkurang 60 baris, tetapi masih >5.400; gwstore hanya menyisakan 16 baris untuk slice berikutnya, yang harus memakai pola pemindahan alokasi yang sama atau ADR baru.
