@@ -84,6 +84,10 @@ type Inbound struct {
 	// Policy facts of the mention gate (GAP-GW-05, EC-PLAT-022), filled by the
 	// adapter from the platform payload.
 	Mentioned, ReplyToBot, Command, SenderIsBot bool
+	// Committed, when non-nil, is called once by Admit: nil after the row is
+	// durable (or already existed) and before the turn, or the write error.
+	// Webhook answers 200 only after it (SPEC §9.7); polling leaves it nil.
+	Committed func(error)
 }
 
 // InboundDecision is the gateway_inbound verdict; the zero value denies.

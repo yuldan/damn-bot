@@ -133,7 +133,9 @@ func (f *fakeTG) handle(w http.ResponseWriter, r *http.Request) {
 		})})
 	case "answerCallbackQuery":
 		writeJSON(w, http.StatusOK, envelope{OK: true, Result: mustJSON(true)})
-	case "sendChatAction":
+	// setWebhook/deleteWebhook share this success path; keeping them in the
+	// existing clause avoids inflating the fake handler's cyclomatic count.
+	case "sendChatAction", "setWebhook", "deleteWebhook":
 		writeJSON(w, http.StatusOK, envelope{OK: true, Result: mustJSON(true)})
 	default:
 		writeJSON(w, http.StatusNotFound, envelope{ErrorCode: 404, Description: "Not Found"})

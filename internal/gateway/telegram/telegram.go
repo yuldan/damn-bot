@@ -369,6 +369,10 @@ type callbackQuery struct {
 type Inbound struct {
 	Platform, Account, ChatID, ThreadID, SenderID, UpdateID, Text string
 	Group, Mentioned, ReplyToBot, Command, SenderIsBot            bool
+	// Commit receives the durable-commit result of this update; the webhook
+	// handler waits for it before answering 200 (SPEC §9.7). Poll updates
+	// leave it nil.
+	Commit func(error)
 }
 type realClock struct{}
 

@@ -145,13 +145,40 @@ type RunFunc func(ctx context.Context, t Ticket) error
 // leaves no row and never reaches work. A store failure also fails closed: no
 // row is written and work does not run.
 func (g *Gate) Admit(ctx context.Context, in *Inbound, work RunFunc) (Outcome, error) {
+	cg := newCommitGate(in.Committed)
+	out, err := g.admit(ctx, in, work, cg)
+	cg.report(err)
+	return out, err
+}
+
+type commitGate struct {
+	fn   func(error)
+	done bool
+}
+
+func newCommitGate(fn func(error)) *commitGate {
+	if fn == nil {
+		return nil
+	}
+	return &commitGate{fn: fn}
+}
+
+func (c *commitGate) report(err error) {
+	if c == nil || c.done {
+		return
+	}
+	c.done = true
+	c.fn(err)
+}
+
+func (g *Gate) admit(ctx context.Context, in *Inbound, work RunFunc, cg *commitGate) (Outcome, error) {
 	if work == nil {
 		return Outcome{}, ErrNoWork
 	}
 	if err := in.validate(); err != nil {
 		return Outcome{}, err
 	}
-	if out, handled, err := g.admitPairCommand(ctx, in); handled {
+	if out, handled, err := g.admitPairCommand(ctx, in, cg); handled {
 		return out, err
 	}
 	id, reason, err := g.authorize(ctx, in)
@@ -165,7 +192,7 @@ func (g *Gate) Admit(ctx context.Context, in *Inbound, work RunFunc) (Outcome, e
 	if out := g.inboundHook(ctx, in); out.Reason != ReasonNone {
 		return out, nil
 	}
-	t, kind, reason, err := g.admitTurn(ctx, &id, in, allowStopped, false)
+	t, kind, reason, err := g.admitTurn(ctx, &id, in, allowStopped, false, cg)
 	if err != nil {
 		return Outcome{Kind: kind, Reason: reason}, err
 	}
@@ -214,7 +241,7 @@ func (g *Gate) AdmitRecorded(ctx context.Context, in *Inbound, work RunFunc) (Ou
 	if out := g.inboundHook(ctx, in); out.Reason != ReasonNone {
 		return out, nil
 	}
-	t, kind, reason, err := g.admitTurn(ctx, &id, in, false, true)
+	t, kind, reason, err := g.admitTurn(ctx, &id, in, false, true, nil)
 	if err != nil || kind != Accepted {
 		return Outcome{Kind: kind, Reason: reason}, err
 	}
@@ -262,7 +289,7 @@ func (g *Gate) AdmitPending(ctx context.Context, in *Inbound, work RunFunc) (Out
 
 // admitPairCommand answers "/pair <code>" before authorization when a pairing
 // seam is wired; handled=false means the update takes the normal path.
-func (g *Gate) admitPairCommand(ctx context.Context, in *Inbound) (Outcome, bool, error) {
+func (g *Gate) admitPairCommand(ctx context.Context, in *Inbound, cg *commitGate) (Outcome, bool, error) {
 	if g.commands == nil {
 		return Outcome{}, false, nil
 	}
@@ -270,7 +297,7 @@ func (g *Gate) admitPairCommand(ctx context.Context, in *Inbound) (Outcome, bool
 	if !ok {
 		return Outcome{}, false, nil
 	}
-	out, err := g.admitPair(ctx, in, cmd)
+	out, err := g.admitPair(ctx, in, cmd, cg)
 	return out, true, err
 }
 
@@ -304,7 +331,7 @@ func (g *Gate) authorize(ctx context.Context, in *Inbound) (Identity, Reason, er
 
 // admitTurn applies the stop, mention policy, scope and dedupe claim. A stop
 // rejection still records the row (parked); its budget is checked at replay.
-func (g *Gate) admitTurn(ctx context.Context, id *Identity, in *Inbound, emergencyCmd, recorded bool) (Ticket, Kind, Reason, error) {
+func (g *Gate) admitTurn(ctx context.Context, id *Identity, in *Inbound, emergencyCmd, recorded bool, cg *commitGate) (Ticket, Kind, Reason, error) {
 	stopReason, stopped, stopErr := ReasonNone, false, error(nil)
 	if !emergencyCmd {
 		stopReason, stopped, stopErr = g.halted(ctx)
@@ -329,6 +356,7 @@ func (g *Gate) admitTurn(ctx context.Context, id *Identity, in *Inbound, emergen
 		if err != nil {
 			return Ticket{}, Rejected, ReasonNone, fmt.Errorf("gateway: record inbound %s/%s: %w", in.Platform, in.UpdateID, err)
 		}
+		cg.report(nil) // durable now; a webhook may answer 200 while the turn runs
 		if !inserted {
 			return Ticket{}, Duplicate, ReasonNone, nil
 		}
@@ -370,11 +398,12 @@ func (g *Gate) dispatchCommand(ctx context.Context, t *Ticket, text string) (Com
 // a sender becomes allowlisted. Every other message still reaches the
 // default-deny lookup. The inbox row is claimed before redemption, so a replayed
 // update meets Duplicate instead of consuming a second code.
-func (g *Gate) admitPair(ctx context.Context, in *Inbound, cmd Command) (Outcome, error) {
+func (g *Gate) admitPair(ctx context.Context, in *Inbound, cmd Command, cg *commitGate) (Outcome, error) {
 	recorded, err := g.inbox.Record(ctx, in)
 	if err != nil {
 		return Outcome{}, fmt.Errorf("gateway: record inbound %s/%s: %w", in.Platform, in.UpdateID, err)
 	}
+	cg.report(nil)
 	if !recorded {
 		return Outcome{Kind: Duplicate}, nil
 	}

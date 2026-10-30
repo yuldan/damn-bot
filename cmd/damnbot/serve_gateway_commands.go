@@ -49,15 +49,31 @@ func (g *serveGateway) dispatch(ctx context.Context, in *telegram.Inbound) {
 		// A queue failure never drops the message: run the old in-memory path.
 		sessionsPrintf(g.stderr, "gateway: queue %s: %s\n", cleanArg(update.UpdateID), cleanLine(err.Error()))
 		g.metrics.IncError()
+		if recorded {
+			// The row is durable even though a pointer step failed; the
+			// webhook may ack it and let the in-memory path run the turn.
+			commitInbound(in, nil)
+		}
 		g.submit(ctx, key, func(laneCtx context.Context) { g.handle(laneCtx, &update, recorded) })
 	case drop:
+		commitInbound(in, nil) // replay or explicit overflow: the row owns the work
 		return
 	case queued:
+		commitInbound(in, nil)
 		g.submit(ctx, key, func(laneCtx context.Context) { g.drainChat(laneCtx, update.Platform, update.ChatID) })
 	default:
 		// Not allowlisted (or a weak identity): admission denies it without a
 		// row, exactly as before REL-11.
 		g.submit(ctx, key, func(laneCtx context.Context) { g.handle(laneCtx, &update, false) })
+	}
+}
+
+// commitInbound reports the durable-queue outcome to a webhook transport. A
+// nil callback is the poll path; the handler wraps it in a once so a second
+// report from admission is harmless.
+func commitInbound(in *telegram.Inbound, err error) {
+	if in.Commit != nil {
+		in.Commit(err)
 	}
 }
 

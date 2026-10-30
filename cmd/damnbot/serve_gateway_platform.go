@@ -14,10 +14,20 @@ func (g *serveGateway) registerPlatform() error {
 	if key.Account == "" {
 		key.Account = "default"
 	}
-	if err := g.registry.Register(key, gatewayPoll{g: g}); err != nil {
+	if err := g.registry.Register(key, g.platformAdapter()); err != nil {
 		return fmt.Errorf("register platform: %w", err)
 	}
 	return nil
+}
+
+// platformAdapter registers exactly one transport: the webhook server when
+// webhook mode bound a listener, the long poller otherwise. They are mutually
+// exclusive by construction, so an update never enters both paths.
+func (g *serveGateway) platformAdapter() gateway.Adapter {
+	if g.webhook != nil {
+		return g.webhook
+	}
+	return gatewayPoll{g: g}
 }
 
 type gatewayPoll struct{ g *serveGateway }

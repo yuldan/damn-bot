@@ -113,8 +113,14 @@ func (a *Adapter) deliver(ctx context.Context, u *update, in chan<- Inbound) err
 	if !ok {
 		return nil
 	}
+	return a.deliverInbound(ctx, &ib, in)
+}
+
+// deliverInbound is the one handoff to the turn layer shared by polling and
+// webhook mode.
+func (a *Adapter) deliverInbound(ctx context.Context, ib *Inbound, in chan<- Inbound) error {
 	select {
-	case in <- ib:
+	case in <- *ib:
 		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("telegram: deliver: %w", ctx.Err())
