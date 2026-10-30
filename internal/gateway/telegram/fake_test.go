@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -60,9 +61,10 @@ type fakeUpdate struct {
 
 // fakeFault is one injected failure; Times=0 means every matching call.
 type fakeFault struct {
-	Status     int
-	RetryAfter int
-	Drop       bool
+	Status      int
+	RetryAfter  int
+	Description string
+	Drop        bool
 	// Hang delays the response; if the client gives up first the handler
 	// returns without a body, exactly like a wedged connection.
 	Hang  time.Duration
@@ -266,7 +268,8 @@ func (f *fakeTG) applyFault(w http.ResponseWriter, r *http.Request, fault fakeFa
 		return true
 	}
 	if fault.Status >= 400 {
-		writeJSON(w, fault.Status, envelope{ErrorCode: fault.Status, Description: http.StatusText(fault.Status), Parameters: map[string]int{"retry_after": fault.RetryAfter}})
+		desc := cmp.Or(fault.Description, http.StatusText(fault.Status))
+		writeJSON(w, fault.Status, envelope{ErrorCode: fault.Status, Description: desc, Parameters: map[string]int{"retry_after": fault.RetryAfter}})
 		return true
 	}
 	return false

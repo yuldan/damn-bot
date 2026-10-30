@@ -191,3 +191,51 @@ func TestNewValidatesConfig(t *testing.T) {
 }
 
 var _ Store = (*memStore)(nil)
+
+// TestSendCapsChunksPerReply is the GW-03 contract: a reply longer than
+// MaxChunksPerReply sends exactly five text chunks and one markdown attachment.
+// The negative control below disables the cap (0 -> 5 is the same default) and
+// proves the raw reply would have produced more than five chunks.
+func TestSendCapsChunksPerReply(t *testing.T) {
+	f := newFakeTG(t)
+	a, _ := newTestAdapter(t, f, newMemStore())
+	text := strings.Repeat("kata panjang untuk chunk. ", 900) // > 5 × 4096 units
+	if n := len(renderMessages(text)); n <= 5 {
+		t.Fatalf("fixture renders %d chunks, want > 5", n)
+	}
+	if _, err := a.Send(t.Context(), &Outbound{ChatID: "7", Text: text, Key: "long"}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if n := len(f.callsFor("sendMessage")); n != 5 {
+		t.Errorf("sendMessage calls = %d, want 5 (MaxChunksPerReply)", n)
+	}
+	docs := f.callsFor("sendDocument")
+	if len(docs) != 1 {
+		t.Fatalf("sendDocument calls = %d, want the one remainder attachment", len(docs))
+	}
+	if name := docs[0].Names["document"]; !strings.HasSuffix(name, ".md") {
+		t.Errorf("remainder filename = %q, want *.md", name)
+	}
+	if docs[0].Form.Get("caption") == "" {
+		t.Error("remainder attachment has no label")
+	}
+}
+
+// TestThreadNotFoundIsTyped: a deleted forum topic is a typed, terminal error,
+// never a silent resend to the parent chat (GAP-GW-06).
+func TestThreadNotFoundIsTyped(t *testing.T) {
+	f := newFakeTG(t)
+	f.setFault("sendMessage", fakeFault{Status: 400, Description: "Bad Request: message thread not found", Times: 1})
+	a, _ := newTestAdapter(t, f, newMemStore())
+	_, err := a.Send(t.Context(), &Outbound{ChatID: "-100", ThreadID: "9", Text: "rahasia", Key: "t1"})
+	if !errors.Is(err, ErrThreadNotFound) {
+		t.Fatalf("error = %v, want ErrThreadNotFound", err)
+	}
+	// Negative control: no retry without message_thread_id reached the fake.
+	if n := len(f.callsFor("sendMessage")); n != 1 {
+		t.Fatalf("sendMessage calls = %d, want 1 (no parent fallback)", n)
+	}
+	if got := f.callsFor("sendMessage")[0].Form.Get("message_thread_id"); got != "9" {
+		t.Fatalf("first call thread = %q, want 9", got)
+	}
+}

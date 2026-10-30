@@ -53,6 +53,7 @@ func (a *Adapter) Run(ctx context.Context, in chan<- Inbound) error { //nolint:g
 			if !retryable {
 				return err
 			}
+			a.notifyConflict()
 			if werr := a.clock.Wait(ctx, delay); werr != nil {
 				if stopped(ctx) {
 					return nil
@@ -62,6 +63,7 @@ func (a *Adapter) Run(ctx context.Context, in chan<- Inbound) error { //nolint:g
 			continue
 		}
 		attempt = 0
+		a.clearConflict()
 		for i := range updates {
 			if err := a.deliver(ctx, &updates[i], in); err != nil {
 				if stopped(ctx) {
@@ -183,6 +185,14 @@ func (a *Adapter) retryDelay(err error, attempt *int) (time.Duration, bool) {
 	}
 	if ae, ok := errors.AsType[*apiError](err); ok {
 		switch {
+		case ae.Code == 409:
+			// Another poller owns the bot (REL-02): wait out its long poll,
+			// then retry with reconnect backoff. Never drop the queue.
+			*attempt++
+			if a.conflictAt.IsZero() {
+				a.conflictAt, a.notified = a.clock.Now(), false
+			}
+			return a.conflictWait + a.backoff(*attempt), true
 		case ae.Code == 429:
 			if ae.RetryAfter > 0 {
 				return ae.RetryAfter, true
@@ -203,5 +213,26 @@ func (a *Adapter) backoff(attempt int) time.Duration {
 	d := time.Second << min(max(attempt-1, 0), 6)
 	d = min(d, time.Minute)
 	return time.Duration(float64(d) * (1 - retry.Jitter + 2*retry.Jitter*rand.Float64())) //nolint:gosec // jitter, not a secret
+}
+
+// notifyConflict fires OnConflict once when a 409 has persisted past
+// ConflictNotifyAfter. The poller keeps retrying; the callback only tells the
+// owner that another process still owns the bot.
+func (a *Adapter) notifyConflict() {
+	if a.conflictAt.IsZero() || a.notified || a.onConflict == nil {
+		return
+	}
+	elapsed := a.clock.Now().Sub(a.conflictAt)
+	if elapsed < a.conflictNote {
+		return
+	}
+	a.notified = true
+	a.onConflict(elapsed)
+}
+
+// clearConflict ends a 409 period after a successful poll.
+func (a *Adapter) clearConflict() {
+	a.conflictAt = time.Time{}
+	a.notified = false
 }
 func stopped(ctx context.Context) bool { return ctx.Err() != nil }

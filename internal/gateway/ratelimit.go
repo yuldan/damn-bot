@@ -43,33 +43,50 @@ func (b *bucket) wait(r Rate) time.Duration {
 	return time.Duration((1-b.tokens)/r.PerSecond*float64(time.Second)) + time.Nanosecond
 }
 
-// Limiter is a per-chat plus global token bucket. Take never blocks and never
-// sleeps: it reports how long the caller must wait, and the outbox stores that
-// in next_at, so pacing never stalls a turn.
+// Limiter is a per-chat, per-group plus global token bucket (GAP-GW-03). Take
+// never blocks and never sleeps: it reports how long the caller must wait, and
+// the outbox stores that in next_at, so pacing never stalls a turn.
 type Limiter struct {
-	mu      sync.Mutex
-	perChat Rate
-	global  Rate
-	chats   map[string]*bucket
-	all     bucket
-	started bool
-	until   map[string]time.Time // chat -> retry_after deadline
+	mu       sync.Mutex
+	perChat  Rate
+	perGroup Rate
+	global   Rate
+	chats    map[string]*bucket
+	groups   map[string]*bucket
+	all      bucket
+	started  bool
+	until    map[string]time.Time // chat -> retry_after deadline
 }
 
-// NewLimiter builds a limiter. Rates are fixed for the process lifetime;
-// adapters with different limits get one limiter per platform.
+// NewLimiter builds a per-chat plus global limiter; the per-group bucket is the
+// per-chat rate. Adapters that declare the §9.7 caps use NewLimiterCaps.
 func NewLimiter(perChat, global Rate) (*Limiter, error) {
-	if !perChat.valid() {
-		return nil, fmt.Errorf("%w: per-chat bucket", ErrInvalidRate)
-	}
-	if !global.valid() {
-		return nil, fmt.Errorf("%w: global bucket", ErrInvalidRate)
+	return NewLimiterCaps(Caps{Rate: RateCaps{PerChat: perChat, PerGroup: perChat, Global: global}})
+}
+
+// NewLimiterCaps builds a limiter from the adapter's declared Caps. Rates are
+// fixed for the process lifetime; adapters with different limits get one
+// limiter per platform.
+func NewLimiterCaps(caps Caps) (*Limiter, error) {
+	for _, f := range [...]struct {
+		rate  Rate
+		label string
+	}{
+		{caps.Rate.PerChat, "per-chat bucket"},
+		{caps.Rate.PerGroup, "per-group bucket"},
+		{caps.Rate.Global, "global bucket"},
+	} {
+		if !f.rate.valid() {
+			return nil, fmt.Errorf("%w: %s", ErrInvalidRate, f.label)
+		}
 	}
 	return &Limiter{
-		perChat: perChat,
-		global:  global,
-		chats:   make(map[string]*bucket),
-		until:   make(map[string]time.Time),
+		perChat:  caps.Rate.PerChat,
+		perGroup: caps.Rate.PerGroup,
+		global:   caps.Rate.Global,
+		chats:    make(map[string]*bucket),
+		groups:   make(map[string]*bucket),
+		until:    make(map[string]time.Time),
 	}, nil
 }
 
@@ -83,10 +100,18 @@ func (l *Limiter) Penalize(chat string, until time.Time) {
 	}
 }
 
-// Take consumes one token from the chat bucket and the global bucket. ok=false
-// means nothing was consumed and wait is the minimum time until the next
-// possible send (a retry_after deadline or the slower bucket).
+// Take consumes one token from the chat bucket and the global bucket. It is
+// the platform-less form used by unit tests; production callers pass the chat
+// and its group flag through TakeChat.
 func (l *Limiter) Take(chat string, at time.Time) (bool, time.Duration) {
+	return l.TakeChat("", chat, false, at)
+}
+
+// TakeChat consumes one token from the (platform, chat) bucket, the
+// (platform, group) bucket when group is true, and the platform-global bucket.
+// ok=false means nothing was consumed and wait is the minimum time until the
+// next possible send (a retry_after deadline or the slowest bucket).
+func (l *Limiter) TakeChat(platform, chat string, group bool, at time.Time) (bool, time.Duration) {
 	if chat == "" {
 		return false, 0
 	}
@@ -103,16 +128,35 @@ func (l *Limiter) Take(chat string, at time.Time) (bool, time.Duration) {
 	}
 	b.refill(l.perChat, at)
 	l.all.refill(l.global, at)
-	if b.tokens >= 1 && l.all.tokens >= 1 {
-		b.tokens--
-		l.all.tokens--
-		return true, 0
+	var g *bucket
+	if group {
+		key := platform + "\x00" + chat
+		g = l.groups[key]
+		if g == nil {
+			g = &bucket{tokens: l.perGroup.Burst, last: at}
+			l.groups[key] = g
+		}
+		g.refill(l.perGroup, at)
 	}
-	wait := b.wait(l.perChat)
-	if g := l.all.wait(l.global); g > wait {
-		wait = g
+	if b.tokens < 1 || l.all.tokens < 1 || (g != nil && g.tokens < 1) {
+		return false, l.slowestLocked(b, g)
 	}
-	return false, wait
+	b.tokens--
+	l.all.tokens--
+	if g != nil {
+		g.tokens--
+	}
+	return true, 0
+}
+
+// slowestLocked returns the longest wait of the three buckets.
+func (l *Limiter) slowestLocked(chat, group *bucket) time.Duration {
+	wait := chat.wait(l.perChat)
+	wait = max(wait, l.all.wait(l.global))
+	if group != nil {
+		wait = max(wait, group.wait(l.perGroup))
+	}
+	return wait
 }
 
 func (l *Limiter) init(at time.Time) {

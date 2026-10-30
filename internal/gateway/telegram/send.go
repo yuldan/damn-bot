@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/damnbot/damnbot/internal/gateway/render"
@@ -47,9 +48,12 @@ func renderMessages(src string) []render.Message {
 
 // deliverChunks sends rendered chunks in order, pacing every chunk per chat and
 // globally. Chunk 0 keeps the outbox key and the reply anchor; later chunks
-// derive "<key>#<n>" so a retry skips what already reached Telegram.
+// derive "<key>#<n>" so a retry skips what already reached Telegram. Above
+// MaxChunksPerReply the remaining chunks travel as one markdown attachment
+// (GAP-GW-03); the attachment uses its own key so a retry never uploads twice.
 func (a *Adapter) deliverChunks(ctx context.Context, out *Outbound, msgs []render.Message) (int64, error) {
 	anchor := anchorField(out.Anchor)
+	msgs, rest := capChunks(msgs, a.maxChunks)
 	var first int64
 	for i, msg := range msgs {
 		key := ""
@@ -67,7 +71,39 @@ func (a *Adapter) deliverChunks(ctx context.Context, out *Outbound, msgs []rende
 			first = id
 		}
 	}
+	if rest != "" {
+		if _, err := a.deliverRemainder(ctx, out, rest); err != nil {
+			return 0, err
+		}
+	}
 	return first, nil
+}
+
+// capChunks splits msgs at max text chunks and joins the remainder into the
+// markdown attachment body. A non-positive max keeps every chunk.
+func capChunks(msgs []render.Message, maxChunks int) ([]render.Message, string) {
+	if maxChunks <= 0 || len(msgs) <= maxChunks {
+		return msgs, ""
+	}
+	rest := make([]string, 0, len(msgs)-maxChunks)
+	for _, m := range msgs[maxChunks:] {
+		rest = append(rest, m.Text)
+	}
+	return msgs[:maxChunks], strings.Join(rest, "\n\n")
+}
+
+// deliverRemainder uploads the overflow of a long reply as reply.md, labelled
+// with a short caption so the reader knows why the message continues.
+func (a *Adapter) deliverRemainder(ctx context.Context, out *Outbound, rest string) (int64, error) {
+	key := ""
+	if out.Key != "" {
+		key = chunkKey(out.Key, a.maxChunks)
+	}
+	media := &Media{Name: "reply.md", MIME: "text/markdown", Data: []byte(rest)}
+	return a.deliverMedia(ctx, &Outbound{
+		ChatID: out.ChatID, ThreadID: out.ThreadID, Key: key,
+		Text: "sisa balasan (markdown)", Media: media,
+	})
 }
 
 // deliverOne sends one rendered message under key unless the store already has
@@ -212,7 +248,8 @@ func (s *Stream) push(ctx context.Context, text string) error {
 	s.mu.Lock()
 	started := s.started
 	s.mu.Unlock()
-	for i, msg := range renderMessages(text) {
+	msgs, rest := capChunks(renderMessages(text), s.a.maxChunks)
+	for i, msg := range msgs {
 		var err error
 		if i == 0 {
 			err = s.pushFirst(ctx, msg, started)
@@ -220,6 +257,11 @@ func (s *Stream) push(ctx context.Context, text string) error {
 			err = s.pushExtra(ctx, i, msg)
 		}
 		if err != nil {
+			return err
+		}
+	}
+	if rest != "" {
+		if _, err := s.a.deliverRemainder(ctx, &s.out, rest); err != nil {
 			return err
 		}
 	}

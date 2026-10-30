@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
+	"github.com/damnbot/damnbot/internal/gateway"
+	"github.com/damnbot/damnbot/internal/gateway/telegram"
 	"github.com/damnbot/damnbot/internal/obs"
 )
 
@@ -148,4 +151,67 @@ func watchedGatewayStore(t *testing.T) (*ctxdb.Store, *atomic.Int64) {
 		}
 	})
 	return db, &writes
+}
+
+// TestThreadNotFoundFailsAndNotifiesOwner proves GAP-GW-06: a lost forum topic
+// fails the delivery (no retry, no parent-chat fallback) and enqueues exactly
+// one owner notice. The negative control is the second call: the same notice
+// key must not add a row.
+func TestThreadNotFoundFailsAndNotifiesOwner(t *testing.T) {
+	db, _ := watchedGatewayStore(t)
+	store := gwstore.Store{DB: db}
+	g := &serveGateway{store: store, owner: "telegram:777", metrics: obs.NewMetrics(), stderr: io.Discard}
+	ctx := t.Context()
+	id, _, err := store.EnqueueDelivery(ctx, &gwstore.Delivery{
+		IdemKey: gateway.DeliveryKey("telegram", "-100", "k1"), Platform: "telegram",
+		ChatID: "-100", ThreadID: "9", Body: "rahasia",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := store.ClaimDeliveries(ctx, time.Now().UnixMilli(), 8)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("claim = %d rows, %v", len(rows), err)
+	}
+	g.failThreadDelivery(ctx, &rows[0], telegram.ErrThreadNotFound, time.Now())
+	g.failThreadDelivery(ctx, &rows[0], telegram.ErrThreadNotFound, time.Now())
+
+	var status, lastErr string
+	if err := db.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT status, last_error FROM gateway_deliveries WHERE id = ?1`, []any{id}, &status, &lastErr)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if status != gateway.StatusFailed || !strings.Contains(lastErr, "thread not found") {
+		t.Fatalf("delivery status=%q last_error=%q, want failed thread_not_found", status, lastErr)
+	}
+	var notices int
+	if err := db.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT count(*) FROM gateway_deliveries WHERE chat_id = '777' AND idem_key LIKE ?1`,
+			[]any{"%sys:thread-not-found:" + fmt.Sprint(id)}, &notices)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if notices != 1 {
+		t.Fatalf("owner notices = %d, want exactly 1", notices)
+	}
+	var text string
+	if err := db.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT body FROM gateway_deliveries WHERE chat_id = '777'`, nil, &text)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "tidak dialihkan") || !strings.Contains(text, "-100") {
+		t.Fatalf("owner notice = %q, want thread id and no-fallback wording", text)
+	}
+	// Negative control: nothing was routed to the parent chat.
+	var parent int
+	if err := db.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT count(*) FROM gateway_deliveries WHERE chat_id = '-100' AND thread_id = ''`, nil, &parent)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if parent != 0 {
+		t.Fatalf("parent-chat deliveries = %d, want 0", parent)
+	}
 }

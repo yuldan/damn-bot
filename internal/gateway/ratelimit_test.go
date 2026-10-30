@@ -111,3 +111,63 @@ func TestLimiterValidation(t *testing.T) {
 		}
 	}
 }
+
+// TestLimiterCapsGroupBucket is the GW-03 negative control: the same group is
+// paced by the slow per-group bucket even when its per-chat bucket has a token.
+// With only NewLimiter (per-group = per-chat) the second send would wait 1 s;
+// NewLimiterCaps(TelegramCaps) must wait 3 s.
+func TestLimiterCapsGroupBucket(t *testing.T) {
+	t0 := time.Unix(1_700_000_000, 0)
+	l, err := gateway.NewLimiterCaps(gateway.TelegramCaps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, _ := l.TakeChat("telegram", "-100", true, t0); !ok {
+		t.Fatal("burst token refused")
+	}
+	ok, wait := l.TakeChat("telegram", "-100", true, t0)
+	if ok {
+		t.Fatal("second group send admitted without waiting")
+	}
+	if wait < 3*time.Second-time.Nanosecond || wait > 3*time.Second+time.Nanosecond {
+		t.Fatalf("wait = %s, want the 20/min group bucket (3 s)", wait)
+	}
+	if ok, _ := l.TakeChat("telegram", "-100", true, t0.Add(3*time.Second)); !ok {
+		t.Fatal("group send after the bucket refill was refused")
+	}
+	// A DM is not charged to the group bucket: one chat token is enough.
+	if ok, _ := l.TakeChat("telegram", "7", false, t0); !ok {
+		t.Fatal("DM send charged the group bucket")
+	}
+}
+
+// TestLimiterReplay200GroupReplies drives 200 replies into one group through
+// the declared caps with a fake clock: every send is admitted after a wait and
+// no two sends are closer than the 20/min bucket. That is the replay the fake
+// Telegram limit would otherwise answer with 429.
+func TestLimiterReplay200GroupReplies(t *testing.T) {
+	l, err := gateway.NewLimiterCaps(gateway.TelegramCaps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Unix(1_700_000_000, 0)
+	var sent []time.Time
+	for range 200 {
+		for {
+			ok, wait := l.TakeChat("telegram", "-100", true, at)
+			if ok {
+				sent = append(sent, at)
+				break
+			}
+			at = at.Add(wait)
+		}
+	}
+	if len(sent) != 200 {
+		t.Fatalf("sent = %d, want 200", len(sent))
+	}
+	for i := 1; i < len(sent); i++ {
+		if gap := sent[i].Sub(sent[i-1]); gap < 3*time.Second {
+			t.Fatalf("send %d after %s: faster than the 20/min group bucket", i, gap)
+		}
+	}
+}

@@ -68,6 +68,10 @@ type serveGateway struct {
 	// /stop cancels exactly that chat's turn and never a sibling's.
 	turnMu sync.Mutex
 	turns  map[turnKey]*chatTurn
+
+	// owner is the platform:id of the owner identity: the destination of
+	// `__system__` notices (thread lost, poll conflict, crash pause).
+	owner string
 }
 
 func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, db *ctxdb.Store, daemon *serveDaemon, metrics *obs.Metrics, stderr io.Writer) (*serveGateway, error) {
@@ -108,23 +112,19 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	}
 	net := netx.New(netx.Config{Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background})
 
-	limiter, err := gateway.NewLimiter(gateway.Rate{PerSecond: 1, Burst: 1}, gateway.Rate{PerSecond: 30, Burst: 30})
+	limiter, err := gateway.NewLimiterCaps(gateway.TelegramCaps())
 	if err != nil {
 		return nil, fmt.Errorf("gateway limiter: %w", err)
 	}
-	adapter, err := telegram.New(&telegram.Config{
-		Token: token, BaseURL: strings.TrimSpace(os.Getenv("DAMNBOT_TELEGRAM_BASE_URL")),
-		Doer: beatDoer{do: telegram.EgressClient(net), wd: wd}, Store: telegramStore{Store: store},
-		// EC-PLAT-016: swap the egress client on a confirmed poll stall.
-		Rebuild: func() telegram.Doer {
-			sessionsPrintf(stderr, "gateway: poll stalled; adapter rebuilt\n")
-			metrics.IncError()
-			return beatDoer{do: telegram.EgressClient(net), wd: wd}
-		},
-		Throttle: limiter,
-	})
+	var self *serveGateway
+	adapter, err := newServeTelegram(ctx, token, store, net, limiter, wd, metrics, stderr,
+		func(ctx context.Context, key, body string) {
+			if self != nil {
+				self.notifyOwner(ctx, key, body)
+			}
+		})
 	if err != nil {
-		return nil, fmt.Errorf("gateway telegram: %w", err)
+		return nil, err
 	}
 	users := gatewayUsers(cfg)
 	quota, err := gateway.NewQuota(gateway.QuotaOptions{})
@@ -136,9 +136,10 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		store: store, estop: gateway.Estop{Dir: o.dataDir}, adapter: adapter, quota: quota, limiter: limiter,
 		chats: gateway.NewChatQueue(cfg.Gateway.MaxParallelTurns), daemon: daemon,
 		metrics: metrics, watchdog: wd, supervisor: sup, stderr: stderr,
-		inbound: make(chan telegram.Inbound, 32), now: time.Now,
+		inbound: make(chan telegram.Inbound, 32), now: time.Now, owner: owner,
 		turns: make(map[turnKey]*chatTurn), restartCh: make(chan struct{}, 1),
 	}
+	self = g
 	if rerr := g.registerPlatform(); rerr != nil {
 		return nil, rerr
 	}
@@ -154,6 +155,31 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	}
 	g.gate = gate
 	return g, nil
+}
+
+// newServeTelegram builds the Telegram adapter with the outq caps and the
+// one-shot 409 owner notice (REL-02).
+func newServeTelegram(ctx context.Context, token string, store gwstore.Store, net *netx.Network, limiter *gateway.Limiter, wd *heal.Watchdog, metrics *obs.Metrics, stderr io.Writer, notify func(context.Context, string, string)) (*telegram.Adapter, error) {
+	adapter, err := telegram.New(&telegram.Config{
+		Token: token, BaseURL: strings.TrimSpace(os.Getenv("DAMNBOT_TELEGRAM_BASE_URL")),
+		Doer: beatDoer{do: telegram.EgressClient(net), wd: wd}, Store: telegramStore{Store: store},
+		// EC-PLAT-016: swap the egress client on a confirmed poll stall.
+		Rebuild: func() telegram.Doer {
+			sessionsPrintf(stderr, "gateway: poll stalled; adapter rebuilt\n")
+			metrics.IncError()
+			return beatDoer{do: telegram.EgressClient(net), wd: wd}
+		},
+		Throttle:          limiter,
+		MaxChunksPerReply: gateway.TelegramCaps().MaxChunksPerReply,
+		OnConflict: func(d time.Duration) {
+			notify(ctx, "poll-conflict",
+				fmt.Sprintf("getUpdates 409 selama %s: proses lain masih memegang bot; antrean tidak dibuang", d.Round(time.Second)))
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("gateway telegram: %w", err)
+	}
+	return adapter, nil
 }
 
 func gatewayEnv() (string, []string, error) {

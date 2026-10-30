@@ -22,6 +22,11 @@ import (
 // ErrUncertain marks an attempt whose delivery outcome is unknown.
 var ErrUncertain = errors.New("telegram: delivery outcome unknown")
 
+// ErrThreadNotFound marks a send to a deleted forum topic. It is terminal for
+// that delivery: the message is never silently redirected to the parent chat
+// (GAP-GW-06, fail-closed default).
+var ErrThreadNotFound = errors.New("telegram: message thread not found")
+
 // ErrSendDeadline marks a send or edit that outlived its own deadline instead
 // of waiting for the transport forever (EC-PLAT-017). The request was
 // cancelled, so the outcome is uncertain and travels back through the outbox.
@@ -82,6 +87,18 @@ type Config struct {
 	// Throttle receives every Telegram 429 deadline. Nil disables the shared
 	// limiter (unit tests), the adapter still waits out retry_after itself.
 	Throttle Throttle
+	// MaxChunksPerReply caps text chunks per reply; the remainder travels as
+	// one markdown attachment (GAP-GW-03, default 5).
+	MaxChunksPerReply int
+	// ConflictWait is the pause after a getUpdates 409 before the next poll:
+	// the opponent's long poll plus 5 s (REL-02). Zero uses pollTimeout + 5 s.
+	ConflictWait time.Duration
+	// ConflictNotifyAfter is how long a 409 conflict may persist before
+	// OnConflict fires once; zero uses 5 minutes.
+	ConflictNotifyAfter time.Duration
+	// OnConflict receives the conflict duration once per conflict period. It
+	// is best effort: the poller keeps retrying and never drops an update.
+	OnConflict func(time.Duration)
 }
 
 // Adapter is one configured Telegram bot.
@@ -99,9 +116,15 @@ type Adapter struct {
 	send         *limiter
 	edit         *limiter
 	noCompress   bool
+	maxChunks    int
 	sendTimeout  time.Duration
 	mediaTimeout time.Duration
 	stallAfter   time.Duration
+	conflictWait time.Duration
+	conflictNote time.Duration
+	onConflict   func(time.Duration)
+	conflictAt   time.Time
+	notified     bool
 	after        time.Duration
 	pending      map[string]*approval
 	mu           sync.Mutex
@@ -139,8 +162,13 @@ func New(cfg *Config) (*Adapter, error) {
 		clock: clock, throttle: cfg.Throttle, after: 300 * time.Second, pending: map[string]*approval{},
 		account: account, username: strings.TrimPrefix(cfg.Username, "@"),
 		noCompress: cfg.NoCompression, rebuild: cfg.Rebuild,
-		sendTimeout: sendDeadline, mediaTimeout: mediaDeadline,
-		stallAfter: 2*pollTimeout + pollStallMargin,
+		maxChunks:    cmp.Or(cfg.MaxChunksPerReply, 5),
+		sendTimeout:  sendDeadline,
+		mediaTimeout: mediaDeadline,
+		conflictWait: cmp.Or(cfg.ConflictWait, pollTimeout+5*time.Second),
+		conflictNote: cmp.Or(cfg.ConflictNotifyAfter, 5*time.Minute),
+		onConflict:   cfg.OnConflict,
+		stallAfter:   2*pollTimeout + pollStallMargin,
 	}
 	if id, err := strconv.ParseInt(account, 10, 64); err == nil {
 		a.botID = id
@@ -154,6 +182,13 @@ type apiError struct {
 	Method, Description string
 	Code                int
 	RetryAfter          time.Duration
+}
+
+// isThreadNotFound classifies the Bot API rejection of a send to a deleted
+// forum topic. The description is matched case-insensitively because Telegram
+// has changed its capitalization across Bot API versions.
+func isThreadNotFound(desc string) bool {
+	return strings.Contains(strings.ToLower(desc), "message thread not found")
 }
 
 func (e *apiError) Error() string {
@@ -214,6 +249,9 @@ func (a *Adapter) post(ctx context.Context, method string, body io.Reader, conte
 			e.Code = resp.StatusCode
 		}
 		e.RetryAfter = time.Duration(env.Parameters["retry_after"]) * time.Second
+		if isThreadNotFound(env.Description) {
+			return fmt.Errorf("%w: %w", ErrThreadNotFound, e)
+		}
 		return e
 	}
 	if out == nil || len(env.Result) == 0 {
