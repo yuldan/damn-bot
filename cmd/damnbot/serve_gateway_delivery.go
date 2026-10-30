@@ -11,30 +11,72 @@ import (
 	"github.com/damnbot/damnbot/internal/gateway/telegram"
 )
 
+// Delivery poll intervals: fast while rows are due, backing off while the
+// outbox stays empty. The 1 s ceiling keeps queue latency ≤ 1 s
+// (SCORECARD §1.2 idle CPU).
+const (
+	deliveryPollFast = 200 * time.Millisecond
+	deliveryPollMid  = 500 * time.Millisecond
+	deliveryPollIdle = time.Second
+)
+
 func (g *serveGateway) deliveries(ctx context.Context) {
-	tick := time.NewTicker(200 * time.Millisecond)
-	defer tick.Stop()
+	runDeliveryLoop(ctx, g.claimDeliveries)
+}
+
+// runDeliveryLoop polls claim until ctx ends, resetting to the fast interval
+// whenever a poll claims work and backing off 200 → 500 → 1000 ms otherwise.
+func runDeliveryLoop(ctx context.Context, claim func(context.Context, time.Time) int) {
+	interval := deliveryPollFast
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-tick.C:
+		case <-timer.C:
 		}
-		g.claimDeliveries(ctx, time.Now())
+		interval = nextDeliveryInterval(interval, claim(ctx, time.Now()))
+		timer.Reset(interval)
 	}
 }
 
-// claimDeliveries hands the due rows to deliverOne, one at a time.
-func (g *serveGateway) claimDeliveries(ctx context.Context, now time.Time) {
-	due, err := g.store.ClaimDeliveries(ctx, now.UnixMilli(), 8)
+// nextDeliveryInterval implements the idle backoff table.
+func nextDeliveryInterval(cur time.Duration, claimed int) time.Duration {
+	if claimed > 0 {
+		return deliveryPollFast
+	}
+	if cur < deliveryPollMid {
+		return deliveryPollMid
+	}
+	return deliveryPollIdle
+}
+
+// claimDeliveries hands the due rows to deliverOne, one at a time, and
+// reports how many it claimed (the loop uses that for the idle backoff).
+// The read-only EXISTS probe keeps an empty outbox from opening a BEGIN
+// IMMEDIATE transaction on every poll (SCORECARD §1.2 CPU idle).
+func (g *serveGateway) claimDeliveries(ctx context.Context, now time.Time) int {
+	due, err := g.store.DB.Count(ctx, `SELECT EXISTS(SELECT 1 FROM gateway_deliveries
+		WHERE status = 'queued' AND next_at <= ?1)`, now.UnixMilli())
+	if err != nil {
+		sessionsPrintf(g.stderr, "gateway: due deliveries: %s\n", cleanLine(err.Error()))
+		g.metrics.IncError()
+		return 0
+	}
+	if due == 0 {
+		return 0
+	}
+	rows, err := g.store.ClaimDeliveries(ctx, now.UnixMilli(), 8)
 	if err != nil {
 		sessionsPrintf(g.stderr, "gateway: claim deliveries: %s\n", cleanLine(err.Error()))
 		g.metrics.IncError()
-		return
+		return 0
 	}
-	for i := range due {
-		g.deliverOne(ctx, &due[i], now)
+	for i := range rows {
+		g.deliverOne(ctx, &rows[i], now)
 	}
+	return len(rows)
 }
 
 // deliverOne paces, sends and records one claimed delivery: Sent on success,

@@ -137,6 +137,7 @@ type FakeTGUpdate struct {
 
 // FakeTGRequest is one recorded Bot API call, in arrival order.
 type FakeTGRequest struct {
+	At              time.Time // arrival time, for queue-latency assertions
 	Seq             int
 	Method          string
 	ChatID          int64
@@ -679,6 +680,7 @@ func (s *FakeTG) record(r *http.Request, method string) *FakeTGRequest {
 		}
 	}
 	req := FakeTGRequest{
+		At:              time.Now(),
 		Method:          method,
 		ChatID:          formInt(r.Form, "chat_id"),
 		MessageID:       formInt(r.Form, "message_id"),
