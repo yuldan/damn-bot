@@ -118,6 +118,28 @@ func (g *serveGateway) sendDelivery(ctx context.Context, d *gwstore.Delivery, no
 	return ref, 0, nil
 }
 
+// deliveryMessage builds the outbound message of one claimed delivery,
+// resolving media_blob_sha when the row carries an attachment.
+func (g *serveGateway) deliveryMessage(ctx context.Context, d *gwstore.Delivery) (*telegram.Outbound, error) {
+	if g.chatFlag(ctx, d.Platform, d.ChatID, chatTimestamps) {
+		now := g.now
+		if now == nil {
+			now = time.Now
+		}
+		d.Body = withTimestamp(d.Body, timestampPrefix(now()))
+	}
+	out := &telegram.Outbound{ChatID: d.ChatID, ThreadID: d.ThreadID, Text: d.Body, Key: d.IdemKey}
+	if d.MediaSHA == "" {
+		return out, nil
+	}
+	media, err := g.loadMedia(ctx, d.MediaSHA)
+	if err != nil {
+		return nil, err
+	}
+	out.Media = media
+	return out, nil
+}
+
 func (g *serveGateway) retryDelivery(ctx context.Context, d *gwstore.Delivery, cause string, wait time.Duration, now time.Time) {
 	g.metrics.IncError()
 	if d.Attempts >= 5 {

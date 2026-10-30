@@ -704,28 +704,6 @@ func (g *serveGateway) feedback(ctx context.Context, chat, thread, tool, preview
 	return d == telegram.DecisionAllow, nil
 }
 
-// deliveryMessage builds the outbound message of one claimed delivery,
-// resolving media_blob_sha when the row carries an attachment.
-func (g *serveGateway) deliveryMessage(ctx context.Context, d *gwstore.Delivery) (*telegram.Outbound, error) {
-	if g.chatFlag(ctx, d.Platform, d.ChatID, chatTimestamps) {
-		now := g.now
-		if now == nil {
-			now = time.Now
-		}
-		d.Body = withTimestamp(d.Body, timestampPrefix(now()))
-	}
-	out := &telegram.Outbound{ChatID: d.ChatID, ThreadID: d.ThreadID, Text: d.Body, Key: d.IdemKey}
-	if d.MediaSHA == "" {
-		return out, nil
-	}
-	media, err := g.loadMedia(ctx, d.MediaSHA)
-	if err != nil {
-		return nil, err
-	}
-	out.Media = media
-	return out, nil
-}
-
 // loadMedia resolves gateway_deliveries.media_blob_sha to the bytes and MIME
 // the adapter uploads. The blob is owned by the delivery row; a missing or
 // expired blob is retried through the normal delivery backoff, never sent as
