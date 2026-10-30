@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
@@ -22,6 +25,7 @@ import (
 	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/tools"
+	"github.com/damnbot/damnbot/internal/toolset"
 )
 
 // wireModules builds the deferred catalog of the frozen module registry and
@@ -434,6 +438,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	}
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
+	list = withCronTool(list, cfg, db, o, dataDir)
 	if list, err = withMemoryTools(list, db, red); err != nil {
 		return nil, fail(err)
 	}
@@ -459,6 +464,31 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		trusted:   trusted,
 		reader:    sandboxReader{sb: sb, root: cwd},
 	}, nil
+}
+
+// withCronTool adds cronjob_manage only when the config selects it, so the F1
+// eager payload stays unchanged for an empty [toolsets].
+func withCronTool(list []tools.Tool, cfg *config.Config, db *ctxdb.Store, o *runOptions, dataDir string) []tools.Tool {
+	if !cronToolsetActive(cfg) {
+		return list
+	}
+	exec := &cronPromptExecutor{
+		configPath: o.configPath, dataDir: dataDir, model: o.model,
+		baseURL: o.baseURL, apiKey: o.apiKey, stderr: io.Discard,
+	}
+	return append(list, tools.NewCronJob(newCronAdmin(db, "local", exec, nil)))
+}
+
+// cronToolsetActive reports whether the config opts into cronjob_manage. An
+// empty [toolsets] keeps the F1 eager payload; any explicit selection is
+// resolved with the tool marked available so bundles (hermes-cli, hermes-cron,
+// hermes-telegram, hermes-gateway) count. TOOL-025 is opt-in by design.
+func cronToolsetActive(cfg *config.Config) bool {
+	if len(cfg.Toolsets.Active) == 0 && len(cfg.Toolsets.Disabled) == 0 {
+		return false
+	}
+	sel, err := toolset.Resolve(cfg.Toolsets, runtime.GOOS, map[string]bool{"cronjob_manage": true})
+	return err == nil && slices.Contains(sel.Tools, "cronjob_manage")
 }
 
 func (s *ctxStore) viewSide(ctx context.Context, sid string) (notices []loop.Message, eventID map[int64]int64, err error) {

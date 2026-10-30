@@ -85,11 +85,11 @@ func Builtin() []Definition {
 	skills := []string{"skills_list", "skill_view", "skill_manage"}
 	core := slices.Concat(
 		web, []string{"shell"}, file, skills,
-		[]string{"todo", "clarify", "memory", "session_search", "vision_analyze", "image_generate"},
+		[]string{"todo", "clarify", "memory", "session_search", "vision_analyze", "image_generate", "cronjob_manage"},
 	)
 	coding := slices.DeleteFunc(slices.Clone(core), func(t string) bool {
 		switch t {
-		case "vision_analyze", "image_generate", "text_to_speech":
+		case "vision_analyze", "image_generate", "text_to_speech", "cronjob_manage":
 			return true
 		}
 		return false
@@ -109,6 +109,7 @@ func Builtin() []Definition {
 		{Name: "safe", Description: "Safe toolkit without terminal access", Tools: []string{"vision_analyze", "image_generate"}, Includes: []string{"web"}},
 		{Name: "coding", Description: "Coding toolkit: files, shell, web, skills, todo, memory, session_search, clarify", Tools: coding},
 		{Name: "hermes-acp", Description: "Coding toolkit for editor integration", Tools: acp},
+		{Name: "cronjob", Description: "Scheduled job management", Tools: []string{"cronjob_manage"}},
 		{Name: "hermes-cli", Description: "Full headless toolkit", Tools: core},
 		{Name: "cli", Description: "Alias of the full headless toolkit", Includes: []string{"hermes-cli"}},
 	}
