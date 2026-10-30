@@ -22,7 +22,13 @@ const gatewayOwner = int64(7788)
 // provider and the env bootstrap of SPEC §9.7.
 func startGatewayServe(t *testing.T, e *Env, tg *FakeTG) *serveProc {
 	t.Helper()
-	env := []string{
+	return startServe(t, e, binPaths.main, gatewayServeEnv(e, tg))
+}
+
+// gatewayServeEnv is the fake Telegram + fake provider environment shared by
+// the gateway scenarios and the F4 budget harness.
+func gatewayServeEnv(e *Env, tg *FakeTG) []string {
+	return []string{
 		"DAMNBOT_TELEGRAM_TOKEN=" + FakeTGToken,
 		fmt.Sprintf("DAMNBOT_GATEWAY_OWNER=telegram:%d", gatewayOwner),
 		"DAMNBOT_TELEGRAM_BASE_URL=" + tg.URL,
@@ -30,7 +36,6 @@ func startGatewayServe(t *testing.T, e *Env, tg *FakeTG) *serveProc {
 		"DAMNBOT_SERVE_BASE_URL=" + e.Server.URL,
 		"DAMNBOT_SERVE_API_KEY=e2e",
 	}
-	return startServe(t, e, binPaths.main, env)
 }
 
 // waitFor polls until ok, failing the test at the deadline.
