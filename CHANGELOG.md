@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `cmd/damnbot` (F4, FEATURE-PARITY CLI-011/CLI-045 aliases): `damnbot gateway pairing list|approve|revoke|clear-pending` uses the existing pairing/allowlist store (approve via RedeemPairing, revoke via blocked status, clear only unconsumed codes), and `damnbot gateway migrate-legacy` is the idempotent schema-apply alias. Tests: list/approve-once/replay/revoke/clear + migrate-legacy.
+
 - `internal/ctxdb`/`internal/gateway/telegram` (F4, SPEC §15/§9.7, ADR-246; flake Windows): probe `/readyz` kini memakai koneksi privat minimal (`mode=rw`, `busy_timeout=250`) dengan deadline 250 ms yang memetakan timeout ke `ErrDBBusy`, bukan DSN store penuh (`journal_mode`, `synchronous`, checkpoint) yang di bawah writer lock menambah ratusan ms — CI Windows `TestProbeWriteBlocked` sempat 1,073 s melewati ambang 1 s; Linux p50 377→268 ms, p95 404→368 ms. Limiter Telegram membaca `clock.Now()` di kedua ujung pacing, bukan `time.Now()`, sehingga wait per chat/global deterministik 1 s/33,3 ms dengan fake clock (CI Windows mencatat 893 ms dan 0 s). Regresi: `TestPacingDeadlineUsesInjectedClock` dan `TestProbeDSNIsMinimal`; tidak ada ambang yang dinaikkan.
 
 - `cmd/damnbot`/`internal/assemble`/`internal/gateway` (SPEC P13, PROV-03): build `minimal` tidak lagi menyematkan `time/tzdata` (~400 KB), sehingga plafon 22 MB tetap dengan headroom untuk fitur F4; build penuh tetap menyematkan database IANA di semua GOOS, sedangkan `minimal` memakai zoneinfo host (di Windows, zona IANA bernama hanya tersedia lewat host/OS dan `/tz` menolak zona yang tak dikenal).
