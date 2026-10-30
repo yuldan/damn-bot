@@ -49,6 +49,7 @@ type serveGateway struct {
 	cronAdmin           *cron.Admin
 	stderr              io.Writer
 	inbound             chan telegram.Inbound
+	webhook             *gatewayWebhook
 	cancel              context.CancelFunc
 	pollCancel          context.CancelFunc
 	wg                  sync.WaitGroup
@@ -144,8 +145,8 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	if rerr := g.startupRecovery(ctx, db, stderr); rerr != nil {
 		return nil, rerr
 	}
-	if rerr := g.registerPlatform(); rerr != nil {
-		return nil, rerr
+	if serr := g.startPlatform(ctx, o); serr != nil {
+		return nil, serr
 	}
 	g.delayRandom = func() time.Duration { return time.Duration(time.Now().UnixNano()) % (humanDelayMax - humanDelayMin) }
 	g.delayWait = waitReply
@@ -155,10 +156,24 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	commands := gateway.NewCommands(&gateway.CommandOptions{Runtime: g, Settings: store, Control: g, Estop: &g.estop})
 	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands, &g.estop)
 	if err != nil {
+		g.closeWebhook()
 		return nil, err
 	}
 	g.gate = gate
 	return g, nil
+}
+
+// startPlatform binds and registers the one transport of this profile. A
+// registration failure closes the listener bound by setupWebhook.
+func (g *serveGateway) startPlatform(ctx context.Context, o *serveOptions) error {
+	if err := g.setupWebhook(ctx, o); err != nil {
+		return err
+	}
+	if err := g.registerPlatform(); err != nil {
+		g.closeWebhook()
+		return err
+	}
+	return nil
 }
 
 // newGatewayAdapter owns the one Telegram adapter and its outbound limiter.

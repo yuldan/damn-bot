@@ -43,6 +43,11 @@ type serveOptions struct {
 	configPath   string
 	dataDir      string
 	drainTimeout time.Duration
+	// Telegram transport: polling (default) or webhook. The secret travels
+	// only through DAMNBOT_TELEGRAM_WEBHOOK_SECRET, never a flag or argv.
+	telegramMode          string
+	telegramWebhookListen string
+	telegramWebhookURL    string
 }
 
 // serveFlagSet defines the flags once for `serve`, its help and tests.
@@ -53,6 +58,9 @@ func serveFlagSet(o *serveOptions, out io.Writer) *flag.FlagSet {
 	fs.StringVar(&o.configPath, "config", "", "config.toml path (default: profile path)")
 	fs.StringVar(&o.dataDir, "data-dir", "", "data directory (default: SPEC §11)")
 	fs.DurationVar(&o.drainTimeout, "drain-timeout", serveDrainDefault, "graceful stop window for active turns before they are cancelled")
+	fs.StringVar(&o.telegramMode, "telegram-mode", os.Getenv("DAMNBOT_TELEGRAM_MODE"), "Telegram transport: polling (default) or webhook")
+	fs.StringVar(&o.telegramWebhookListen, "telegram-webhook-listen", os.Getenv("DAMNBOT_TELEGRAM_WEBHOOK_LISTEN"), "loopback listener for the Telegram webhook (default 127.0.0.1:7878)")
+	fs.StringVar(&o.telegramWebhookURL, "telegram-webhook-url", os.Getenv("DAMNBOT_TELEGRAM_WEBHOOK_URL"), "public HTTPS URL registered with setWebhook (webhook mode)")
 	return fs
 }
 
