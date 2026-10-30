@@ -15,6 +15,7 @@ import (
 	configos "github.com/damnbot/damnbot/internal/config"
 
 	"github.com/damnbot/damnbot/internal/cron"
+	"github.com/damnbot/damnbot/internal/cron/periodic"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/cronstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
@@ -299,6 +300,7 @@ const (
 
 type serveCron struct {
 	sched    *cron.Scheduler
+	periodic *periodic.Scheduler
 	runner   *exec.Runner
 	db       *ctxdb.Store
 	clock    cron.Clock
@@ -330,7 +332,8 @@ func newServeCron(ctx context.Context, db *ctxdb.Store, dataDir, configPath stri
 			Incidents: incidents, Alert: out, Clock: clock, Owner: "serve",
 			Gates: &cron.Gates{Runner: runner, Store: newCronStore(db), Fetch: fetch},
 		},
-		db: db, clock: clock, interval: serveCronInterval, stderr: stderr, done: make(chan struct{}),
+		periodic: newPeriodicScheduler(db, stderr),
+		db:       db, clock: clock, interval: serveCronInterval, stderr: stderr, done: make(chan struct{}),
 		score: newScorecardJob(db, deliver, clock), outbox: out,
 		runner: runner,
 	}
@@ -361,6 +364,9 @@ func (c *serveCron) Stop(ctx context.Context) {
 		c.cancel()
 	}
 	<-c.done
+	if err := c.periodic.Wait(ctx); err != nil {
+		sessionsPrintf(c.stderr, "periodic: wait: %s\n", cleanLine(err.Error()))
+	}
 	if err := c.runner.CloseContext(ctx); err != nil {
 		sessionsPrintf(c.stderr, "cron: close gate runner: %s\n", cleanLine(err.Error()))
 	}
@@ -431,6 +437,9 @@ func (c *serveCron) tick(ctx context.Context) error {
 		return fmt.Errorf("cron tick: %w", cerr)
 	}
 	c.tickScorecard(ctx)
+	if err := c.periodic.Tick(ctx); err != nil {
+		sessionsPrintf(c.stderr, "periodic: tick: %s\n", cleanLine(err.Error()))
+	}
 	c.last.Store(time.Now().UnixMilli())
 	n, err := c.db.Count(ctx, `SELECT EXISTS(SELECT 1 FROM cron_jobs WHERE enabled = 1)`)
 	if err != nil {

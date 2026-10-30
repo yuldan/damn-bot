@@ -47,9 +47,10 @@ func allowedImports() map[string][]string {
 		// (stdlib saja, tanpa impor internal) dan tetap tanpa edge; `cron` sudah punya
 		// API (scheduler library, ADR-248) sehingga edge-nya ditentukan; `scorecard`
 		// masih kerangka dan mendapat barisnya saat paket itu menentukan edge-nya.
-		"internal/cron":      append([]string{"internal/redact"}, groupExec()...),
-		"internal/obs":       nil,
-		"internal/scorecard": nil,
+		"internal/cron":          append([]string{"internal/redact"}, groupExec()...),
+		"internal/cron/periodic": nil, // AUTO-029: stdlib only, driven by the serve ticker
+		"internal/obs":           nil,
+		"internal/scorecard":     nil,
 
 		// Modul lazy (E-06).
 		"internal/mcp":                      moduleImports(),

@@ -152,6 +152,7 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	gw, gwErr := newServeGateway(ctx, &cfg, o, db, daemon, metrics, stderr)
 	netw := netx.New(netx.Config{Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background})
 	cr := serveCronFor(ctx, gw, db, dataDir, o.configPath, cfg.Network.Offline, monitorFetch(netw), stderr)
+	registerServePeriodic(cr, stderr)
 	checks := serveChecks(&cfg, db, lock, gw, cr)
 	eps := obs.New(obs.Config{Metrics: metrics, Checks: checks})
 	var lc net.ListenConfig
