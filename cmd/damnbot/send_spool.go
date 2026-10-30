@@ -58,10 +58,6 @@ func queueSpool(dir, label, kind string, req any) error {
 	return nil
 }
 
-func (g *serveGateway) sendControlLoop(ctx context.Context) {
-	runPollLoop(ctx, func() int { return g.drainSendSpool(ctx) })
-}
-
 // drainSendSpool applies every pending request and reports how many files it
 // handled, which the poll loop uses to stay on the fast interval.
 func (g *serveGateway) drainSendSpool(ctx context.Context) int {

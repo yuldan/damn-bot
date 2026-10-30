@@ -13,9 +13,12 @@ import (
 // Defaults come from SELF-HEALING §2 (adaptive sampler) and GAP-REL-17:
 // `/healthz` is 200 only while the sampler beat is at most 3 s old.
 const (
-	DefaultInterval   = time.Second
-	DefaultStaleAfter = 3 * time.Second
-	DefaultWindow     = 10 * time.Minute
+	DefaultInterval = time.Second
+	// DefaultIdleInterval is the GAP-COST-16 adaptive tick when no operation
+	// is in flight: one wake per 10 s instead of 60 per minute.
+	DefaultIdleInterval = 10 * time.Second
+	DefaultStaleAfter   = 3 * time.Second
+	DefaultWindow       = 10 * time.Minute
 	// DefaultMaxActions is the §1.4 breaker: the 5th crash in 10 minutes
 	// enters SAFE MODE instead of restarting again.
 	DefaultMaxActions = 5
@@ -26,8 +29,11 @@ var ErrNoAction = errors.New("heal: watchdog requires a recovery action")
 
 // WatchdogOptions configures a Watchdog. Zero durations select the defaults.
 type WatchdogOptions struct {
-	// Interval is the sampler tick; Beat() comes from the serve/loop loop.
-	Interval time.Duration
+	// Interval is the sampler tick while an operation is in flight (a Beat
+	// landed within the previous interval); IdleInterval is the tick while
+	// idle (GAP-COST-16, SELF-HEALING §2).
+	Interval     time.Duration
+	IdleInterval time.Duration
 	// StaleAfter is the liveness threshold shared with /healthz.
 	StaleAfter time.Duration
 	// Window and MaxActions form the crash-loop breaker (§1.4).
@@ -46,15 +52,15 @@ type WatchdogOptions struct {
 // the crash-loop breaker; a fresh Beat() re-arms it and a failed action trips
 // SAFE MODE. Run owns the only ticker.
 type Watchdog struct {
-	interval, staleAfter, window time.Duration
-	maxActions                   int
-	now                          func() time.Time
-	action                       func(context.Context) error
-	safe                         func(string)
-	last                         atomic.Int64 // unix nanoseconds
-	mu                           sync.Mutex
-	armed, tripped               bool
-	actions                      []time.Time
+	interval, idleInterval, staleAfter, window time.Duration
+	maxActions                                 int
+	now                                        func() time.Time
+	action                                     func(context.Context) error
+	safe                                       func(string)
+	last                                       atomic.Int64 // unix nanoseconds
+	mu                                         sync.Mutex
+	armed, tripped                             bool
+	actions                                    []time.Time
 }
 
 // NewWatchdog validates the options and starts the beat clock now, so a
@@ -64,14 +70,15 @@ func NewWatchdog(o WatchdogOptions) (*Watchdog, error) {
 		return nil, ErrNoAction
 	}
 	w := &Watchdog{
-		interval:   or(o.Interval, DefaultInterval),
-		staleAfter: or(o.StaleAfter, DefaultStaleAfter),
-		window:     or(o.Window, DefaultWindow),
-		maxActions: o.MaxActions,
-		now:        o.Now,
-		action:     o.Action,
-		safe:       o.OnSafeMode,
-		armed:      true,
+		interval:     or(o.Interval, DefaultInterval),
+		idleInterval: or(o.IdleInterval, DefaultIdleInterval),
+		staleAfter:   or(o.StaleAfter, DefaultStaleAfter),
+		window:       or(o.Window, DefaultWindow),
+		maxActions:   o.MaxActions,
+		now:          o.Now,
+		action:       o.Action,
+		safe:         o.OnSafeMode,
+		armed:        true,
 	}
 	if w.maxActions <= 0 {
 		w.maxActions = DefaultMaxActions
@@ -160,17 +167,28 @@ func (w *Watchdog) Check(ctx context.Context) bool {
 }
 
 // Run samples until ctx is done and leaves no goroutine; callers start it with
-// `go wd.Run(ctx)` and cancel ctx on shutdown.
+// `go wd.Run(ctx)` and cancel ctx on shutdown. The tick adapts: 1 s while an
+// operation is in flight (a Beat within the last interval) and 10 s when idle
+// (GAP-COST-16, SELF-HEALING §2 P22-5). A hang can only happen while an
+// operation is active, so the slower idle tick does not delay detection.
 func (w *Watchdog) Run(ctx context.Context) {
-	t := time.NewTicker(w.interval)
+	interval := w.interval
+	t := time.NewTimer(interval)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			w.Check(ctx)
 		}
+		beat := time.Unix(0, w.last.Load())
+		w.Check(ctx)
+		if w.now().Sub(beat) < w.interval {
+			interval = w.interval
+		} else {
+			interval = w.idleInterval
+		}
+		t.Reset(interval)
 	}
 }
 

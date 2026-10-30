@@ -32,8 +32,9 @@ import (
 )
 
 const (
-	f4RSSLimitMB  = 90.0
-	f4CPULimitPct = 0.5
+	f4RSSLimitMB        = 90.0
+	f4CPULimitPct       = 0.5
+	f4WakeupLimitPerMin = 60.0
 	// f4ClockTicks is Linux USER_HZ; getconf CLK_TCK is 100 on every x86
 	// kernel this gate targets (the harness records it in the artefact).
 	f4ClockTicks = 100.0
@@ -67,16 +68,22 @@ type f4Meta struct {
 }
 
 type f4Measurement struct {
-	RSSKB         int     `json:"rss_kb"`
-	PeakKB        int     `json:"peak_kb"`
-	RSSMB         float64 `json:"rss_mb"`
-	PeakMB        float64 `json:"peak_mb"`
-	IdleCPUPct    float64 `json:"idle_cpu_percent"`
-	CPUSeconds    float64 `json:"cpu_seconds"`
-	CPUTicksDelta uint64  `json:"cpu_ticks_delta"`
-	Goroutines    int     `json:"goroutines"`
-	TelegramPolls int     `json:"telegram_polls"`
-	PID           int     `json:"pid"`
+	RSSKB             int     `json:"rss_kb"`
+	PeakKB            int     `json:"peak_kb"`
+	RSSMB             float64 `json:"rss_mb"`
+	PeakMB            float64 `json:"peak_mb"`
+	IdleCPUPct        float64 `json:"idle_cpu_percent"`
+	CPUSeconds        float64 `json:"cpu_seconds"`
+	CPUTicksDelta     uint64  `json:"cpu_ticks_delta"`
+	Wakeups           uint64  `json:"wakeups"`
+	WakeupsPerMin     float64 `json:"wakeups_per_min"`
+	ProcWakeups       uint64  `json:"proc_wakeups"`
+	ProcWakeupsPerMin float64 `json:"proc_wakeups_per_min"`
+	CtxSwitches       uint64  `json:"ctx_switches"`
+	CtxSwitchesPerMin float64 `json:"ctx_switches_per_min"`
+	Goroutines        int     `json:"goroutines"`
+	TelegramPolls     int     `json:"telegram_polls"`
+	PID               int     `json:"pid"`
 }
 
 type f4Cron struct {
@@ -86,10 +93,11 @@ type f4Cron struct {
 }
 
 type f4Gate struct {
-	RSSLimitMB   float64  `json:"rss_limit_mb"`
-	CPULimitPct  float64  `json:"cpu_limit_percent"`
-	Pass         bool     `json:"pass"`
-	FailedReason []string `json:"failed_reasons,omitempty"`
+	RSSLimitMB        float64  `json:"rss_limit_mb"`
+	CPULimitPct       float64  `json:"cpu_limit_percent"`
+	WakeupLimitPerMin float64  `json:"wakeup_limit_per_min"`
+	Pass              bool     `json:"pass"`
+	FailedReason      []string `json:"failed_reasons,omitempty"`
 }
 
 // TestPerfF4 measures the idle footprint of the F4 daemon and enforces the
@@ -157,11 +165,13 @@ func measureF4(t *testing.T, sc f4Scenario) f4Result {
 	if err != nil {
 		t.Fatalf("sample %s: %v", sc.name, err)
 	}
+	firstIdle := scrapeIdleWakeups(t, p.addr)
 	<-time.After(sc.window)
 	second, err := sampleProc(pid)
 	if err != nil {
 		t.Fatalf("sample %s: %v", sc.name, err)
 	}
+	secondIdle := scrapeIdleWakeups(t, p.addr)
 	goroutines := scrapeGoroutines(t, p.addr)
 	polls := len(tg.RequestsFor("getUpdates"))
 	cronRuns := strings.Count(p.stderr.String(), "cron run ok job="+perfCronJobIDConst)
@@ -170,6 +180,12 @@ func measureF4(t *testing.T, sc f4Scenario) f4Result {
 	}
 	gatewayStop(t, p)
 	elapsed := second.at.Sub(first.at).Seconds()
+	wakeupsPerMin, procPerMin, ctxPerMin := 0.0, 0.0, 0.0
+	if elapsed > 0 {
+		wakeupsPerMin = float64(secondIdle-firstIdle) / elapsed * 60
+		procPerMin = float64(second.procWakeups-first.procWakeups) / elapsed * 60
+		ctxPerMin = float64(second.ctxSwitches-first.ctxSwitches) / elapsed * 60
+	}
 	return f4Result{
 		Meta: f4Meta{
 			Phase: "F4", Date: time.Now().UTC().Format(time.RFC3339),
@@ -185,11 +201,14 @@ func measureF4(t *testing.T, sc f4Scenario) f4Result {
 			RSSMB: mb(second.rssKB), PeakMB: mb(second.peakKB),
 			IdleCPUPct: idleCPU(first, second, elapsed), CPUSeconds: cpuSeconds(first, second),
 			CPUTicksDelta: second.ticks - first.ticks,
-			Goroutines:    goroutines, TelegramPolls: polls, PID: pid,
+			Wakeups:       secondIdle - firstIdle, WakeupsPerMin: wakeupsPerMin,
+			ProcWakeups: second.procWakeups - first.procWakeups, ProcWakeupsPerMin: procPerMin,
+			CtxSwitches: second.ctxSwitches - first.ctxSwitches, CtxSwitchesPerMin: ctxPerMin,
+			Goroutines: goroutines, TelegramPolls: polls, PID: pid,
 		},
 		Cron: f4Cron{Mode: cronMode(cronOn), Runs: cronRuns, Reason: cronReason(cronOn)},
 		Gate: f4Gate{
-			RSSLimitMB: f4RSSLimitMB, CPULimitPct: f4CPULimitPct, Pass: true,
+			RSSLimitMB: f4RSSLimitMB, CPULimitPct: f4CPULimitPct, WakeupLimitPerMin: f4WakeupLimitPerMin, Pass: true,
 		},
 	}
 }
@@ -212,6 +231,8 @@ const perfCronJobIDConst = "perf-f4-cron"
 type procSample struct {
 	rssKB, peakKB int
 	ticks         uint64 // process-wide utime+stime in USER_HZ
+	procWakeups   uint64 // sum of /proc/<pid>/task/*/schedstat timeslices
+	ctxSwitches   uint64 // sum of voluntary+nonvoluntary switches, all threads
 	at            time.Time
 }
 
@@ -238,10 +259,78 @@ func sampleProc(pid int) (procSample, error) {
 		return procSample{}, err
 	}
 	s.ticks = ticks
+	if s.procWakeups, err = procWakeupsAll(pid); err != nil {
+		return procSample{}, err
+	}
+	if s.ctxSwitches, err = procCtxSwitches(pid); err != nil {
+		return procSample{}, err
+	}
 	if s.rssKB == 0 {
 		return procSample{}, errors.New("VmRSS missing")
 	}
 	return s, nil
+}
+
+// procWakeupsAll sums the schedstat timeslice counter over every thread. The
+// Go runtime's sysmon thread alone wakes tens of times per second, so this
+// process-wide number is recorded for transparency but the budget gate uses
+// the application timer counter (damnbot_idle_wakeups_total).
+func procWakeupsAll(pid int) (uint64, error) {
+	return sumTaskField(pid, "schedstat", 2)
+}
+
+// procCtxSwitches sums voluntary and nonvoluntary context switches over every
+// thread (the other process-wide wake-up source named by GAP-COST-16).
+func procCtxSwitches(pid int) (uint64, error) {
+	var total uint64
+	entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/task", pid))
+	if err != nil {
+		return 0, fmt.Errorf("read tasks: %w", err)
+	}
+	for _, entry := range entries {
+		b, rerr := os.ReadFile(fmt.Sprintf("/proc/%d/task/%s/status", pid, entry.Name()))
+		if rerr != nil {
+			continue
+		}
+		for line := range strings.SplitSeq(string(b), "\n") {
+			if v, ok := strings.CutPrefix(line, "voluntary_ctxt_switches:"); ok {
+				if n, perr := strconv.ParseUint(strings.TrimSpace(v), 10, 64); perr == nil {
+					total += n
+				}
+			}
+			if v, ok := strings.CutPrefix(line, "nonvoluntary_ctxt_switches:"); ok {
+				if n, perr := strconv.ParseUint(strings.TrimSpace(v), 10, 64); perr == nil {
+					total += n
+				}
+			}
+		}
+	}
+	return total, nil
+}
+
+// sumTaskField sums field idx of one file per thread.
+func sumTaskField(pid int, name string, idx int) (uint64, error) {
+	entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/task", pid))
+	if err != nil {
+		return 0, fmt.Errorf("read tasks: %w", err)
+	}
+	var total uint64
+	for _, entry := range entries {
+		b, rerr := os.ReadFile(fmt.Sprintf("/proc/%d/task/%s/%s", pid, entry.Name(), name))
+		if rerr != nil {
+			continue
+		}
+		f := strings.Fields(string(b))
+		if len(f) <= idx {
+			continue
+		}
+		n, perr := strconv.ParseUint(f[idx], 10, 64)
+		if perr != nil {
+			continue
+		}
+		total += n
+	}
+	return total, nil
 }
 
 // procTicks returns utime+stime from /proc/<pid>/stat, splitting after the
@@ -280,8 +369,8 @@ func cpuSeconds(first, second procSample) float64 {
 	return float64(second.ticks-first.ticks) / f4ClockTicks
 }
 
-// scrapeGoroutines reads the damnbot_goroutines gauge from /metrics.
-func scrapeGoroutines(t *testing.T, addr string) int {
+// scrapeMetrics fetches the Prometheus text of the serve process.
+func scrapeMetrics(t *testing.T, addr string) string {
 	t.Helper()
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/metrics", nil)
 	if err != nil {
@@ -301,7 +390,13 @@ func scrapeGoroutines(t *testing.T, addr string) int {
 	if err != nil {
 		t.Fatalf("metrics read: %v", err)
 	}
-	for line := range strings.SplitSeq(string(body), "\n") {
+	return string(body)
+}
+
+// scrapeGoroutines reads the damnbot_goroutines gauge.
+func scrapeGoroutines(t *testing.T, addr string) int {
+	t.Helper()
+	for line := range strings.SplitSeq(scrapeMetrics(t, addr), "\n") {
 		rest, ok := strings.CutPrefix(line, "damnbot_goroutines ")
 		if !ok {
 			continue
@@ -313,6 +408,25 @@ func scrapeGoroutines(t *testing.T, addr string) int {
 		return n
 	}
 	t.Fatal("damnbot_goroutines missing from /metrics")
+	return 0
+}
+
+// scrapeIdleWakeups reads the application idle-timer counter from /metrics.
+func scrapeIdleWakeups(t *testing.T, addr string) uint64 {
+	t.Helper()
+	body := scrapeMetrics(t, addr)
+	for line := range strings.SplitSeq(body, "\n") {
+		rest, ok := strings.CutPrefix(line, "damnbot_idle_wakeups_total ")
+		if !ok {
+			continue
+		}
+		n, err := strconv.ParseUint(strings.TrimSpace(rest), 10, 64)
+		if err != nil {
+			t.Fatalf("idle wakeups %q: %v", line, err)
+		}
+		return n
+	}
+	t.Fatal("damnbot_idle_wakeups_total missing from /metrics")
 	return 0
 }
 
@@ -376,7 +490,7 @@ func kernelRelease() string {
 // writeF4Artifact writes bench/f4/results/<name>-<sha>-F4.json.
 func writeF4Artifact(t *testing.T, name string, res *f4Result) {
 	t.Helper()
-	res.Gate = evaluateF4Gate(res.Measurement.RSSMB, res.Measurement.IdleCPUPct)
+	res.Gate = evaluateF4Gate(res.Measurement.RSSMB, res.Measurement.IdleCPUPct, res.Measurement.WakeupsPerMin)
 	root, err := moduleRoot()
 	if err != nil {
 		t.Fatalf("artifact root: %v", err)
@@ -401,8 +515,8 @@ func writeF4Artifact(t *testing.T, name string, res *f4Result) {
 	t.Logf("artifact: %s", out)
 }
 
-func evaluateF4Gate(rssMB, cpuPct float64) f4Gate {
-	g := f4Gate{RSSLimitMB: f4RSSLimitMB, CPULimitPct: f4CPULimitPct, Pass: true}
+func evaluateF4Gate(rssMB, cpuPct, wakeupsPerMin float64) f4Gate {
+	g := f4Gate{RSSLimitMB: f4RSSLimitMB, CPULimitPct: f4CPULimitPct, WakeupLimitPerMin: f4WakeupLimitPerMin, Pass: true}
 	if rssMB > f4RSSLimitMB {
 		g.Pass = false
 		g.FailedReason = append(g.FailedReason, fmt.Sprintf("rss %.1f MB > %.0f MB", rssMB, f4RSSLimitMB))
@@ -411,12 +525,17 @@ func evaluateF4Gate(rssMB, cpuPct float64) f4Gate {
 		g.Pass = false
 		g.FailedReason = append(g.FailedReason, fmt.Sprintf("cpu %.3f%% > %.1f%%", cpuPct, f4CPULimitPct))
 	}
+	if wakeupsPerMin > f4WakeupLimitPerMin {
+		g.Pass = false
+		g.FailedReason = append(g.FailedReason, fmt.Sprintf("wakeups %.1f/min > %.0f/min", wakeupsPerMin, f4WakeupLimitPerMin))
+	}
 	return g
 }
 
 func logF4(t *testing.T, name string, res *f4Result) {
 	t.Helper()
-	t.Logf("F4 %s: pid=%d rss=%.1f MB peak=%.1f MB cpu_idle=%.3f%% goroutines=%d polls=%d cron_runs=%d gate=%v %v",
+	t.Logf("F4 %s: pid=%d rss=%.1f MB peak=%.1f MB cpu_idle=%.3f%% wakeups=%.1f/min goroutines=%d polls=%d cron_runs=%d gate=%v %v",
 		name, res.Measurement.PID, res.Measurement.RSSMB, res.Measurement.PeakMB, res.Measurement.IdleCPUPct,
-		res.Measurement.Goroutines, res.Measurement.TelegramPolls, res.Cron.Runs, res.Gate.Pass, res.Gate.FailedReason)
+		res.Measurement.WakeupsPerMin, res.Measurement.Goroutines, res.Measurement.TelegramPolls, res.Cron.Runs,
+		res.Gate.Pass, res.Gate.FailedReason)
 }

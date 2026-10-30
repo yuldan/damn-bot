@@ -71,6 +71,10 @@ type serveGateway struct {
 	turnMu sync.Mutex
 	turns  map[turnKey]*chatTurn
 
+	// beat refreshes the observability liveness timestamp from the one idle
+	// loop (nil in tests that never start serve); see serveLoop.
+	beat func()
+
 	// owner is the platform:id of the owner identity: the destination of
 	// `__system__` notices (thread lost, poll conflict, crash pause).
 	owner string
@@ -106,7 +110,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	}
 	sup := heal.NewSupervisor(nil)
 	wd, err := heal.NewWatchdog(heal.WatchdogOptions{
-		Interval: 5 * time.Second, StaleAfter: 90 * time.Second,
+		Interval: time.Second, IdleInterval: 10 * time.Second, StaleAfter: 90 * time.Second,
 		Action: func(context.Context) error { return sup.Degrade("gateway: no successful poll") },
 		OnSafeMode: func(reason string) {
 			if serr := sup.EnterSafeMode(reason); serr != nil {
@@ -256,7 +260,7 @@ func (g *serveGateway) Start(ctx context.Context) error {
 		return fmt.Errorf("gateway: registry start: %w", err)
 	}
 	g.writePlatforms()
-	g.wg.Add(6)
+	g.wg.Add(2)
 	go func() {
 		defer g.wg.Done()
 		for {
@@ -271,11 +275,7 @@ func (g *serveGateway) Start(ctx context.Context) error {
 			}
 		}
 	}()
-	go func() { defer g.wg.Done(); g.deliveries(runCtx) }()
-	go func() { defer g.wg.Done(); g.sendControlLoop(runCtx) }()
-	go func() { defer g.wg.Done(); g.platformControlLoop(runCtx) }()
-	go func() { defer g.wg.Done(); g.watchdog.Run(runCtx) }()
-	go func() { defer g.wg.Done(); g.emergency(runCtx) }()
+	go g.idleLoop(runCtx)
 	g.resumeInbound(runCtx)
 	return nil
 }
