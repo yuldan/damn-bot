@@ -83,7 +83,7 @@ func newTurnEngine(ctx context.Context, cfg *config.Config, o *runOptions, model
 func newRunDispatcher(o *runOptions, model *runModel, red *redact.Redactor, spill tools.Spill) (*tools.Dispatcher, error) {
 	disp, err := tools.NewDispatcher(&tools.Config{
 		Registry:         model.registry,
-		Journal:          loopTranscript{},
+		Journal:          loopTranscript{db: model.db, sid: model.sessionID},
 		Spill:            spill,
 		Redactor:         red,
 		Mode:             approvalMode(o),
