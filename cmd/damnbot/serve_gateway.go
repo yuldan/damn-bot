@@ -34,6 +34,7 @@ type serveGateway struct {
 	dataDir, configPath string
 	modelRef            string
 	store               gwstore.Store
+	approvals           *durableApprovals
 	estop               gateway.Estop
 	adapter             *telegram.Adapter
 	gate                *gateway.Gate
@@ -47,7 +48,6 @@ type serveGateway struct {
 	supervisor          *heal.Supervisor
 	cron                *cron.Recorder
 	cronAdmin           *cron.Admin
-	approvals           *gateway.Approvals
 	stderr              io.Writer
 	inbound             chan telegram.Inbound
 	webhook             *gatewayWebhook
@@ -99,6 +99,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		return nil, errors.New("gateway: provider.model or DAMNBOT_SERVE_MODEL is required")
 	}
 	store := gwstore.Store{DB: db}
+	approvals := newDurableApprovals(storeLedger{db: db})
 	// A crash between claim and SentDelivery leaves a row in 'sending'. This
 	// process owns the data dir (serve flock), so every such row is orphaned:
 	// requeue it before the delivery worker starts (SELF-HEALING §3.4).
@@ -142,9 +143,9 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		store: store, estop: gateway.Estop{Dir: o.dataDir}, adapter: adapter, quota: quota, limiter: limiter,
 		chats: gateway.NewChatQueue(cfg.Gateway.MaxParallelTurns), daemon: daemon,
 		metrics: metrics, watchdog: wd, supervisor: sup, stderr: stderr,
-		inbound: make(chan telegram.Inbound, 32), now: time.Now, owner: owner,
+		inbound: make(chan telegram.Inbound, 32), approvals: approvals, now: time.Now, owner: owner,
 		turns: make(map[turnKey]*chatTurn), waits: make(map[string]time.Time),
-		restartCh: make(chan struct{}, 1), approvals: gateway.NewApprovals(time.Now),
+		restartCh: make(chan struct{}, 1),
 	}
 	self = g
 	if rerr := g.startupRecovery(ctx, db, stderr); rerr != nil {
@@ -159,7 +160,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	g.run = g.turn
 	g.wireCronAdmin(db, stderr)
 	commands := gateway.NewCommands(&gateway.CommandOptions{
-		Runtime: g, Settings: store, Control: g, Estop: &g.estop, Approvals: g.approvals, Resolver: g,
+		Runtime: g, Settings: store, Control: g, Estop: &g.estop, Approvals: g.approvals.Approvals, Resolver: g,
 	})
 	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands, &g.estop)
 	if err != nil {
@@ -472,8 +473,8 @@ func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid st
 		}
 	}
 	if !local {
-		o.approver = gatewayLoopApprover{g: g, chat: in.ChatID, thread: in.ThreadID}
-		o.toolApprover = gatewayToolApprover{g: g, chat: in.ChatID, thread: in.ThreadID}
+		o.approver = gatewayLoopApprover{g: g, sid: sid, turnKey: in.Text, chat: in.ChatID, thread: in.ThreadID}
+		o.toolApprover = gatewayToolApprover{g: g, sid: sid, turnKey: in.Text, chat: in.ChatID, thread: in.ThreadID}
 	}
 	cfg, dataDir, configDir, home, err := loadRunEnv(&o)
 	if err != nil {
@@ -658,11 +659,12 @@ func (t *gatewayTyping) end()  { t.halt(); t.wg.Wait() }
 
 type gatewayToolApprover struct {
 	g            *serveGateway
+	sid, turnKey string
 	chat, thread string
 }
 
 func (a gatewayToolApprover) Approve(ctx context.Context, req *tools.ApprovalRequest) (tools.Approval, error) {
-	allow, err := a.g.feedback(ctx, a.chat, a.thread, req.Tool, req.Preview)
+	allow, err := a.g.decideApproval(ctx, a.sid, a.turnKey, a.chat, a.thread, req.Tool, req.Preview)
 	if err != nil || !allow {
 		return tools.ApprovalDeny, err
 	}
@@ -671,11 +673,12 @@ func (a gatewayToolApprover) Approve(ctx context.Context, req *tools.ApprovalReq
 
 type gatewayLoopApprover struct {
 	g            *serveGateway
+	sid, turnKey string
 	chat, thread string
 }
 
 func (a gatewayLoopApprover) Approve(ctx context.Context, req *loop.ApprovalRequest) (loop.ApprovalResult, error) {
-	allow, err := a.g.feedback(ctx, a.chat, a.thread, req.Tool, req.Preview)
+	allow, err := a.g.decideApproval(ctx, a.sid, a.turnKey, a.chat, a.thread, req.Tool, req.Preview)
 	if err != nil {
 		return loop.ApprovalResult{Decision: loop.DecisionDeny}, err
 	}
