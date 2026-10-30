@@ -78,7 +78,7 @@ func openScoreDB(t *testing.T) *ctxdb.Store {
 
 func scoreWireCron(t *testing.T, db *ctxdb.Store, clock *scoreWireClock) *serveCron {
 	t.Helper()
-	cr := newServeCron(db, t.TempDir(), "", true, io.Discard)
+	cr := newServeCron(t.Context(), db, t.TempDir(), "", true, io.Discard)
 	cr.clock = clock
 	cr.sched.Clock = clock
 	cr.score.Clock = clock

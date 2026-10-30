@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -44,9 +45,9 @@ func (s *cronStore) Jobs(ctx context.Context) ([]cron.Job, error) {
 
 func fromStore(r *cronstore.Job) cron.Job {
 	return cron.Job{
-		ID: r.ID, Name: r.Name, Schedule: r.Schedule, TZ: r.TZ, Prompt: r.Prompt,
+		ID: r.ID, Name: r.Name, Schedule: r.Schedule, TZ: r.TZ, Prompt: r.Prompt, Owner: r.Owner,
 		Enabled: r.Enabled, CatchUp: r.CatchUp, ApprovalMode: r.ApprovalMode, MaxCatchUp: r.MaxCatchUp,
-		Overlap: r.Overlap, Cwd: r.Cwd, CreatedAt: r.CreatedAt,
+		Overlap: r.Overlap, Cwd: r.Cwd, Gate: r.Gate, CreatedAt: r.CreatedAt,
 	}
 }
 
@@ -69,19 +70,20 @@ func (s *cronStore) Create(ctx context.Context, j *cron.Job) (cron.Job, bool, er
 	)
 	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
 		err := tx.Get(`SELECT id, name, schedule, coalesce(tz, ''), cwd, prompt, approval_mode,
-				catch_up, max_catch_up, overlap, owner_identity, enabled, created_at
+				catch_up, max_catch_up, overlap, owner_identity, coalesce(gate, ''), enabled, created_at
 			FROM cron_jobs WHERE prompt_sha = ?1 AND schedule = ?2 AND deliver_to = '{}'`,
 			[]any{sha, j.Schedule}, &old.ID, &old.Name, &old.Schedule, &old.TZ, &old.Cwd, &old.Prompt,
-			&old.ApprovalMode, &old.CatchUp, &old.MaxCatchUp, &old.Overlap, &old.Owner, &rowEnabled, &rowNew)
+			&old.ApprovalMode, &old.CatchUp, &old.MaxCatchUp, &old.Overlap, &old.Owner, &old.Gate, &rowEnabled, &rowNew)
 		if err == nil {
 			old.Enabled, old.CreatedAt = rowEnabled != 0, time.UnixMilli(rowNew)
 			return nil
 		}
 		found = false
 		n, err = tx.Exec(`INSERT INTO cron_jobs(id, name, owner_identity, schedule, tz, prompt,
-				prompt_sha, cwd, enabled, created_at, updated_at)
-			VALUES (?1, ?2, 'local', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)`,
-			j.ID, j.Name, j.Schedule, nullText(j.TZ), j.Prompt, sha, j.Cwd, enabled, now)
+				prompt_sha, cwd, gate, enabled, created_at, updated_at)
+			VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)`,
+			j.ID, j.Name, cmp.Or(j.Owner, "local"), j.Schedule, nullText(j.TZ), j.Prompt, sha, j.Cwd,
+			nullText(j.Gate), enabled, now)
 		if err != nil {
 			if strings.Contains(err.Error(), "UNIQUE") {
 				return fmt.Errorf("cron job %q already exists", j.Name)
@@ -107,8 +109,9 @@ func (s *cronStore) Create(ctx context.Context, j *cron.Job) (cron.Job, bool, er
 func (s *cronStore) Update(ctx context.Context, j *cron.Job) error {
 	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
 		n, err := tx.Exec(`UPDATE cron_jobs SET name = ?2, schedule = ?3, tz = ?4,
-				prompt = ?5, prompt_sha = ?6, cwd = ?7, updated_at = ?8 WHERE id = ?1`,
-			j.ID, j.Name, j.Schedule, nullText(j.TZ), j.Prompt, promptSHA(j.Prompt), j.Cwd, time.Now().UnixMilli())
+				prompt = ?5, prompt_sha = ?6, cwd = ?7, gate = ?8, updated_at = ?9 WHERE id = ?1`,
+			j.ID, j.Name, j.Schedule, nullText(j.TZ), j.Prompt, promptSHA(j.Prompt), j.Cwd,
+			nullText(j.Gate), time.Now().UnixMilli())
 		if err != nil {
 			return fmt.Errorf("update job: %w", err)
 		}
@@ -209,6 +212,25 @@ func (s *cronStore) Finish(ctx context.Context, id string, at time.Time, run *cr
 		return fmt.Errorf("cron finish: %w", err)
 	}
 	return nil
+}
+
+// ActiveJobs counts enabled jobs of one owner (COST-14 quota).
+func (s *cronStore) ActiveJobs(ctx context.Context, owner string) (int, error) {
+	owner = cmp.Or(owner, "local")
+	n, err := s.db.Count(ctx, `SELECT COUNT(*) FROM cron_jobs WHERE enabled = 1 AND owner_identity = ?1`, owner)
+	if err != nil {
+		return 0, fmt.Errorf("cron active count: %w", err)
+	}
+	return int(n), nil
+}
+
+// GatedRuns counts slots a gate prevented from reaching the executor.
+func (s *cronStore) GatedRuns(ctx context.Context) (int64, error) {
+	n, err := s.db.Count(ctx, `SELECT COUNT(*) FROM cron_runs WHERE outcome = 'gated'`)
+	if err != nil {
+		return 0, fmt.Errorf("cron gated count: %w", err)
+	}
+	return n, nil
 }
 
 func promptSHA(prompt string) string {

@@ -21,7 +21,7 @@ type Job struct {
 	ID, Name, Schedule, TZ, Cwd  string
 	Prompt                       string
 	Owner, CatchUp, ApprovalMode string
-	Overlap                      string
+	Overlap, Gate                string
 	MaxCatchUp                   int
 	Enabled                      bool
 	CreatedAt                    time.Time
@@ -56,10 +56,10 @@ func (s Store) Jobs(ctx context.Context) ([]Job, error) {
 				created int64
 			)
 			err := tx.Get(`SELECT id, name, schedule, coalesce(tz, ''), cwd, prompt, approval_mode,
-					catch_up, max_catch_up, overlap, owner_identity, enabled, created_at
+					catch_up, max_catch_up, overlap, owner_identity, coalesce(gate, ''), enabled, created_at
 				FROM cron_jobs WHERE id = ?1`, []any{id},
 				&j.ID, &j.Name, &j.Schedule, &j.TZ, &j.Cwd, &j.Prompt, &j.ApprovalMode,
-				&j.CatchUp, &j.MaxCatchUp, &j.Overlap, &j.Owner, &enabled, &created)
+				&j.CatchUp, &j.MaxCatchUp, &j.Overlap, &j.Owner, &j.Gate, &enabled, &created)
 			if err != nil {
 				return fmt.Errorf("read job %s: %w", id, err)
 			}

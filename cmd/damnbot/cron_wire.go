@@ -15,6 +15,7 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/cronstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
+	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/scorecard"
 )
@@ -23,7 +24,10 @@ func newCronAdmin(db *ctxdb.Store, owner string, exec cron.Executor, clock cron.
 	if clock == nil {
 		clock = wallClock{}
 	}
-	return &cron.Admin{Store: newCronStore(db), Exec: exec, Clock: clock, Owner: owner}
+	return &cron.Admin{
+		Store: newCronStore(db), Exec: exec, Clock: clock, Owner: owner,
+		Limits: cron.Limits{MinInterval: 15 * time.Minute, MaxJobs: 20},
+	}
 }
 
 // Production cron wiring (composition root): cron stays storage-free and
@@ -288,6 +292,7 @@ const (
 
 type serveCron struct {
 	sched    *cron.Scheduler
+	runner   *exec.Runner
 	db       *ctxdb.Store
 	clock    cron.Clock
 	interval time.Duration
@@ -301,27 +306,30 @@ type serveCron struct {
 }
 
 // newServeCron assembles store → executor → deliverer → incidents.
-func newServeCron(db *ctxdb.Store, dataDir, configPath string, deliver bool, stderr io.Writer) *serveCron {
+func newServeCron(ctx context.Context, db *ctxdb.Store, dataDir, configPath string, deliver bool, stderr io.Writer) *serveCron {
 	out := &cronOutbox{
 		store:   gwstore.Store{DB: db},
 		offline: func() bool { return !deliver },
 	}
 	incidents := &cronIncidents{db: db}
 	clock := wallClock{}
+	runner := exec.New(ctx)
 	return &serveCron{
 		sched: &cron.Scheduler{
 			Store: newCronAdapter(db), Executor: &cronPromptExecutor{configPath: configPath, dataDir: dataDir, stderr: stderr},
 			Deliver: out, Preflight: &cron.Checks{DataDir: dataDir},
 			Incidents: incidents, Alert: out, Clock: clock, Owner: "serve",
+			Gates: &cron.Gates{Runner: runner},
 		},
 		db: db, clock: clock, interval: serveCronInterval, stderr: stderr, done: make(chan struct{}),
-		score: newScorecardJob(db, deliver, clock),
+		score:  newScorecardJob(db, deliver, clock),
+		runner: runner,
 	}
 }
 
 // serveCronFor builds the ticker and shares its recorder with the gateway outbox.
-func serveCronFor(gw *serveGateway, db *ctxdb.Store, dataDir, configPath string, offline bool, stderr io.Writer) *serveCron {
-	cr := newServeCron(db, dataDir, configPath, gw != nil && !offline, stderr)
+func serveCronFor(ctx context.Context, gw *serveGateway, db *ctxdb.Store, dataDir, configPath string, offline bool, stderr io.Writer) *serveCron {
+	cr := newServeCron(ctx, db, dataDir, configPath, gw != nil && !offline, stderr)
 	if gw != nil {
 		gw.cron = cr.recorder()
 	}
@@ -339,11 +347,14 @@ func (c *serveCron) Start(ctx context.Context) {
 	go c.loop(runCtx)
 }
 
-func (c *serveCron) Stop() {
+func (c *serveCron) Stop(ctx context.Context) {
 	if c.cancel != nil {
 		c.cancel()
 	}
 	<-c.done
+	if err := c.runner.CloseContext(ctx); err != nil {
+		sessionsPrintf(c.stderr, "cron: close gate runner: %s\n", cleanLine(err.Error()))
+	}
 }
 
 func (c *serveCron) loop(ctx context.Context) {

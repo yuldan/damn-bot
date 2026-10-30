@@ -140,7 +140,7 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	daemon := newServeDaemon()
 	defer daemon.Close()
 	gw, gwErr := newServeGateway(ctx, &cfg, o, db, daemon, metrics, stderr)
-	cr := serveCronFor(gw, db, dataDir, o.configPath, cfg.Network.Offline, stderr)
+	cr := serveCronFor(ctx, gw, db, dataDir, o.configPath, cfg.Network.Offline, stderr)
 	checks := []obs.Check{
 		{Name: "db", Fn: db.ProbeWrite},
 		{Name: "serve_lock", Fn: func(context.Context) error {
@@ -224,7 +224,7 @@ func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps
 			serveForceExit(serveExitClean)
 		}
 	}
-	cr.Stop()
+	cr.Stop(ctx)
 	gw.Stop(ctx)
 	shutCtx, cancelShut := context.WithTimeout(context.WithoutCancel(ctx), serveShutdownMax)
 	shutErr := hs.Shutdown(shutCtx)
