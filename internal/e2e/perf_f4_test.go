@@ -26,6 +26,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 const (
@@ -283,7 +285,7 @@ func scrapeGoroutines(t *testing.T, addr string) int {
 	if err != nil {
 		t.Fatalf("metrics request: %v", err)
 	}
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := netx.New(netx.Config{}).Client("perf-f4", netx.Tool)
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("metrics: %v", err)
