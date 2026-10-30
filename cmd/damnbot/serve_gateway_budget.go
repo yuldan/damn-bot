@@ -11,24 +11,29 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb/ledgerstore"
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/telegram"
+	"github.com/damnbot/damnbot/internal/hooks"
 )
 
 // newServeGate builds admission over the shared gateway stores plus the role
 // user daily USD cap (SPEC §18.4, GAP-GW-02).
-func newServeGate(o *serveOptions, store gwstore.Store, users map[string]string, dailyUSD float64, db *ctxdb.Store, commands *gateway.Commands, inbound gateway.InboundHook, estop *gateway.Estop) (*gateway.Gate, error) {
-	budget, err := gateway.NewBudgetGuard(&gateway.BudgetOptions{
+func newServeGate(o *serveOptions, store gwstore.Store, users map[string]string, dailyUSD float64, db *ctxdb.Store, commands *gateway.Commands, estop *gateway.Estop) (*gateway.Gate, error) {
+	hookDir, err := hooksDir(o.configPath)
+	if err != nil {
+		return nil, err
+	}
+	budget, berr := gateway.NewBudgetGuard(&gateway.BudgetOptions{
 		DailyUSD: dailyUSD,
 		Spend:    gatewaySpend{db: db},
 	})
-	if err != nil {
-		return nil, fmt.Errorf("gateway budget: %w", err)
+	if berr != nil {
+		return nil, fmt.Errorf("gateway budget: %w", berr)
 	}
 	gate, err := gateway.New(&gateway.Options{
 		DataDir: o.dataDir, Users: users,
 		Identities: telegramStore{Store: store}, Inbox: telegramStore{Store: store},
 		Commands: commands,
 		Budget:   budget,
-		Hooks:    inbound,
+		Hooks:    gatewayInboundHooks{reg: hooks.New(hookDir)},
 		Estop:    estop,
 	})
 	if err != nil {

@@ -30,7 +30,6 @@ type configCLI struct {
 	exists bool
 }
 
-// runConfig is `damnbot config` (SPEC §10).
 func runConfig(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		configUsage(stderr)

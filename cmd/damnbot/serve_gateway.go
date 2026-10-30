@@ -20,7 +20,6 @@ import (
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/telegram"
 	"github.com/damnbot/damnbot/internal/heal"
-	"github.com/damnbot/damnbot/internal/hooks"
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/netx"
@@ -145,12 +144,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	g.started = g.now()
 	g.run = g.turn
 	commands := gateway.NewCommands(&gateway.CommandOptions{Runtime: g, Settings: store, Control: g, Estop: &g.estop})
-	hookDir, err := hooksDir(o.configPath)
-	if err != nil {
-		return nil, err
-	}
-	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands,
-		gatewayInboundHooks{reg: hooks.New(hookDir)}, &g.estop)
+	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands, &g.estop)
 	if err != nil {
 		return nil, err
 	}
@@ -263,17 +257,7 @@ func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound) {
 	case out.Kind == gateway.CommandHandled:
 		g.replyCommand(ctx, in, out.Reply)
 	case out.Kind == gateway.Rejected:
-		switch out.Reason {
-		case gateway.ReasonHookDenied:
-			g.metrics.IncError()
-			sessionsPrintf(g.stderr, "gateway: hook %s denied update %s: %s\n",
-				cleanArg(out.Hook), cleanArg(in.UpdateID), cleanLine(out.HookDetail))
-		case gateway.ReasonHookError:
-			g.metrics.IncError()
-			g.recordHookError(ctx, &out)
-		default:
-			g.handleRejected(ctx, in, out.Reason)
-		}
+		g.reject(ctx, in, &out)
 	}
 }
 
@@ -435,8 +419,6 @@ func (g *serveGateway) placeholder(ctx context.Context, in *telegram.Inbound) *g
 	return &gatewayAck{id: id}
 }
 
-// failPlaceholder turns the placeholder into an error message when the turn
-// failed before any reply update replaced it.
 func (g *serveGateway) failPlaceholder(ctx context.Context, in *telegram.Inbound, ack *gatewayAck) {
 	if ack == nil || ack.replaced {
 		return
@@ -515,7 +497,6 @@ func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch
 	return nil
 }
 
-// waitReply paces the final reply update without sleeping past ctx.
 func waitReply(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)
 	defer t.Stop()

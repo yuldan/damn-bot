@@ -86,17 +86,14 @@ type Inbound struct {
 	Mentioned, ReplyToBot, Command, SenderIsBot bool
 }
 
-// InboundDecision is the verdict of the gateway_inbound hook (SPEC §4.10).
-// The zero value denies: only an explicit Allow admits the message.
+// InboundDecision is the gateway_inbound verdict; the zero value denies.
 type InboundDecision struct {
 	Allow  bool
 	Hook   string
 	Reason string
 }
 
-// InboundHook is the gateway_inbound filter. It runs before any command or
-// turn, so a denial means zero LLM calls (SPEC §4.10). An error is fail-closed
-// by the caller's on_error default.
+// InboundHook is the gateway_inbound filter (SPEC §4.10); errors fail closed.
 type InboundHook interface {
 	Inbound(ctx context.Context, in *Inbound) (InboundDecision, error)
 }

@@ -7,13 +7,11 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"time"
 
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/hooks"
 )
 
-// hooksDir is <config_dir>/hooks (SPEC §4.10), or the --config sibling.
 func hooksDir(configPath string) (string, error) {
 	if configPath != "" {
 		return filepath.Join(filepath.Dir(configPath), "hooks"), nil
@@ -101,8 +99,8 @@ func configHooksTest(args []string, stdout, stderr io.Writer) int {
 	if res.Stderr != "" {
 		extra += "stderr:\n" + res.Stderr + "\n"
 	}
-	code := say(stdout, "hook\t%s\nevent\t%s\ndecision\t%s\nexit\t%d\nduration\t%s\n%s",
-		res.Name, res.Event, res.Decision, res.ExitCode, res.Duration.Round(time.Millisecond), extra)
+	code := say(stdout, "hook\t%s\nevent\t%s\ndecision\t%s\nexit\t%d\n%s",
+		res.Name, hooks.EventGatewayInbound, res.Decision, res.ExitCode, extra)
 	switch {
 	case code != 0:
 		return code

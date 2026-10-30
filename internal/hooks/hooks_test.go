@@ -303,8 +303,10 @@ func hookFile(t *testing.T, dir, mode string) {
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	if lerr := os.Link(src, filepath.Join(dir, name)); lerr == nil {
-		return
+	if runtime.GOOS != "windows" {
+		if lerr := os.Link(src, filepath.Join(dir, name)); lerr == nil {
+			return
+		}
 	}
 	data, err := os.ReadFile(src) // #nosec G304 -- our own test binary
 	if err != nil {

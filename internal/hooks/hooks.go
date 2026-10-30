@@ -57,20 +57,20 @@ const (
 
 // Closed errors (errors.Is).
 var (
-	ErrInvalidName    = errors.New("hooks: invalid hook name")
-	ErrNotFound       = errors.New("hooks: hook not found")
-	ErrNotExecutable  = errors.New("hooks: hook is not an executable regular file")
-	ErrTimeout        = errors.New("hooks: hook timed out")
-	ErrExit           = errors.New("hooks: hook exited non-zero")
-	ErrResponse       = errors.New("hooks: invalid hook response")
-	ErrInvalidEvent   = errors.New("hooks: invalid hook event")
-	ErrNotHookProgram = errors.New("hooks: cannot execute hook")
+	ErrInvalidName   = errors.New("hooks: invalid hook name")
+	ErrNotFound      = errors.New("hooks: hook not found")
+	ErrNotExecutable = errors.New("hooks: hook is not an executable regular file")
+	ErrTimeout       = errors.New("hooks: hook timed out")
+	ErrExit          = errors.New("hooks: hook exited non-zero")
+	ErrResponse      = errors.New("hooks: invalid hook response")
+	ErrInvalidEvent  = errors.New("hooks: invalid hook event")
 )
 
 // Hook is a discovered file; Problem explains why it cannot run ("" = ok).
 type Hook struct {
 	Name    string
 	Problem string
+	path    string
 }
 
 // Result is one hook run. Output is already capped and redacted.
@@ -135,20 +135,21 @@ func (r *Registry) Lookup(name string) (Hook, error) {
 	path := filepath.Join(r.dir, name)
 	if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(name), ".exe") {
 		if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
-			path, name = path+".exe", name+".exe"
+			path += ".exe"
 		}
 	}
+	hook := Hook{Name: logical(name), path: path}
 	e, err := os.Lstat(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return Hook{Name: name}, fmt.Errorf("%w: %q", ErrNotFound, name)
+		return hook, fmt.Errorf("%w: %q", ErrNotFound, hook.Name)
 	}
 	if err != nil {
-		return Hook{Name: name}, fmt.Errorf("hooks: stat %s: %w", path, err)
+		return hook, fmt.Errorf("hooks: stat %s: %w", path, err)
 	}
-	if problem := r.problem(name, fs.FileInfoToDirEntry(e)); problem != "" {
-		return Hook{Name: name, Problem: problem}, fmt.Errorf("%w: %s: %s", ErrNotExecutable, name, problem)
+	if problem := r.problem(filepath.Base(path), fs.FileInfoToDirEntry(e)); problem != "" {
+		return Hook{Name: hook.Name, Problem: problem, path: path}, fmt.Errorf("%w: %s: %s", ErrNotExecutable, hook.Name, problem)
 	}
-	return Hook{Name: name}, nil
+	return hook, nil
 }
 
 // Fire runs every runnable hook in name order; a deny or error ends it.
@@ -165,7 +166,7 @@ func (r *Registry) Fire(ctx context.Context, ev Event, fields map[string]any) (V
 		if h.Problem != "" {
 			continue
 		}
-		v.Hook = h.Name
+		v.Hook = logical(h.Name)
 		res, err := r.Run(ctx, h.Name, ev, fields)
 		v.Results = append(v.Results, res)
 		if err != nil {
@@ -184,26 +185,25 @@ func (r *Registry) Fire(ctx context.Context, ev Event, fields map[string]any) (V
 // Run executes one named hook; Result is returned even on failure.
 func (r *Registry) Run(ctx context.Context, name string, ev Event, fields map[string]any) (Result, error) {
 	if !ev.valid() {
-		return Result{Name: name, Event: ev}, fmt.Errorf("%w: %q", ErrInvalidEvent, ev)
+		return Result{Name: name}, fmt.Errorf("%w: %q", ErrInvalidEvent, ev)
 	}
 	hook, err := r.Lookup(name)
 	if err != nil {
-		return Result{Name: name, Event: ev}, err
+		return Result{Name: name}, err
 	}
 	timeout := cmp.Or(r.timeout, DefaultTimeout)
 	childCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	max := cmp.Or(r.maxOutput, DefaultMaxOutput)
 	stdout, stderr := &capWriter{max: max}, &capWriter{max: max}
-	cmd := osexec.CommandContext(childCtx, filepath.Join(r.dir, hook.Name), string(ev)) // #nosec G204 -- validated name under r.dir
+	cmd := osexec.CommandContext(childCtx, hook.path, string(ev)) // #nosec G204 -- validated name under r.dir
 	cmd.Stdin = bytes.NewReader(payload(ev, fields))
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	cmd.Env = r.childEnv()
 	cmd.WaitDelay = time.Second // grandchildren holding a pipe cannot hang Run
-	start := time.Now()
 	runErr := cmd.Run()
 	res := Result{
-		Name: hook.Name, Event: ev, ExitCode: -1, Duration: time.Since(start),
+		Name: hook.Name, ExitCode: -1,
 		Stdout: r.red.String(stdout.String()), Stderr: r.red.String(stderr.String()),
 		Truncated: stdout.truncated || stderr.truncated,
 	}
@@ -218,7 +218,7 @@ func (r *Registry) Run(ctx context.Context, name string, ev Event, fields map[st
 			res.ExitCode = exit.ExitCode()
 			return res, fmt.Errorf("%w: %s exit %d", ErrExit, name, res.ExitCode)
 		}
-		return res, fmt.Errorf("%w: %s: %w", ErrNotHookProgram, name, runErr)
+		return res, fmt.Errorf("hooks: %s: %w", name, runErr)
 	}
 	decision, reason, err := parseResponse(stdout.buf.Bytes())
 	res.Decision, res.Reason = decision, r.red.String(reason)
@@ -240,7 +240,6 @@ func (ev Event) valid() bool {
 	return false
 }
 
-// payload builds stdin; fields cannot override the reserved keys.
 func payload(ev Event, fields map[string]any) []byte {
 	m := maps.Clone(fields)
 	if m == nil {
@@ -276,7 +275,6 @@ func parseResponse(out []byte) (Decision, string, error) {
 	}
 }
 
-// childEnv is the GAP-SEC-02 allowlist (no exec.env/_allow).
 func (r *Registry) childEnv() []string {
 	parent := r.env
 	if parent == nil {
@@ -308,12 +306,18 @@ func (r *Registry) problem(name string, e fs.DirEntry) string {
 	return ""
 }
 
-// executable: POSIX execute bit; on Windows only an executable extension.
 func executable(name string, mode fs.FileMode) bool {
 	if runtime.GOOS != "windows" {
 		return mode.Perm()&0o111 != 0
 	}
 	return strings.EqualFold(filepath.Ext(name), ".exe")
+}
+
+func logical(name string) string {
+	if runtime.GOOS == "windows" && strings.EqualFold(filepath.Ext(name), ".exe") {
+		return name[:len(name)-4]
+	}
+	return name
 }
 
 func validName(name string) bool {
@@ -332,7 +336,6 @@ func validName(name string) bool {
 	return true
 }
 
-// capWriter keeps the first max bytes but drains the rest.
 type capWriter struct {
 	buf       bytes.Buffer
 	max       int
@@ -340,18 +343,14 @@ type capWriter struct {
 }
 
 func (w *capWriter) Write(p []byte) (int, error) {
-	n := len(p)
-	if room := w.max - w.buf.Len(); room > 0 {
-		part := p
-		if len(part) > room {
-			part = part[:room]
-			w.truncated = true
-		}
-		w.buf.Write(part)
-	} else if n > 0 {
+	room := w.max - w.buf.Len()
+	if len(p) > 0 && len(p) > room {
 		w.truncated = true
 	}
-	return n, nil
+	if room > 0 {
+		_, _ = w.buf.Write(p[:min(room, len(p))])
+	}
+	return len(p), nil
 }
 
 func (w *capWriter) String() string { return w.buf.String() }

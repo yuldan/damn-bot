@@ -7,14 +7,31 @@ import (
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/gateway"
+	"github.com/damnbot/damnbot/internal/gateway/telegram"
 	"github.com/damnbot/damnbot/internal/hooks"
 	"github.com/damnbot/damnbot/internal/loop/event"
 )
 
-// gatewayInboundHooks adapts hooks to gateway (hooks cannot import gateway).
 type gatewayInboundHooks struct{ reg *hooks.Registry }
 
-// Inbound fires gateway_inbound; only an explicit allow admits (nil = none).
+func (g *serveGateway) reject(ctx context.Context, in *telegram.Inbound, out *gateway.Outcome) {
+	g.metrics.IncError()
+	switch out.Reason {
+	case gateway.ReasonPaused:
+		g.handleRejected(ctx, in, out.Reason)
+	case gateway.ReasonBudgetGatewayUser:
+		g.budgetNotice(ctx, in)
+	case gateway.ReasonHookDenied:
+		sessionsPrintf(g.stderr, "gateway: hook %s denied update %s: %s\n",
+			cleanArg(out.Hook), cleanArg(in.UpdateID), cleanLine(out.HookDetail))
+	case gateway.ReasonHookError:
+		g.recordHookError(ctx, out)
+	case gateway.ReasonNone, gateway.ReasonUnknownIdentity, gateway.ReasonNotAllowlisted,
+		gateway.ReasonWeakIdentity, gateway.ReasonUnknownRole, gateway.ReasonNoWorkspace,
+		gateway.ReasonMentionRequired:
+	}
+}
+
 func (h gatewayInboundHooks) Inbound(ctx context.Context, in *gateway.Inbound) (gateway.InboundDecision, error) {
 	if h.reg == nil {
 		return gateway.InboundDecision{Allow: true}, nil
@@ -33,9 +50,6 @@ func (h gatewayInboundHooks) Inbound(ctx context.Context, in *gateway.Inbound) (
 	return d, nil
 }
 
-// recordHookError is the fail-closed audit path of SPEC §4.10: the update is
-// rejected (zero LLM), the error is logged, and one hook_error event is
-// appended to the system session. Logging never includes message text.
 func (g *serveGateway) recordHookError(ctx context.Context, out *gateway.Outcome) {
 	sessionsPrintf(g.stderr, "gateway: hook %s failed: %s\n", cleanArg(out.Hook), cleanLine(out.HookDetail))
 	payload := `{"hook":` + strconv.Quote(out.Hook) + `,"event":"gateway_inbound","error":` + strconv.Quote(out.HookDetail) + `}`
