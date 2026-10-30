@@ -18,8 +18,10 @@ func TestEdgeCases(t *testing.T) {
 		fn func(*testing.T)
 	}{
 		{"EC-PLAT-002", ecPLAT002},
+		{"EC-PLAT-012", TestApprovalCardTruncatesAfterEscape},
 		{"EC-PLAT-013", ecPLAT013},
 		{"EC-PLAT-014", ecPLAT014},
+		{"EC-PLAT-018", TestAnchorValidation},
 		{"EC-PLAT-019", TestRunDeliversPersistsOffsetAndResumes},
 		{"EC-PLAT-020", ecPLAT020},
 	}
