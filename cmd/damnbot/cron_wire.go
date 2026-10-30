@@ -16,6 +16,7 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb/cronstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
 	"github.com/damnbot/damnbot/internal/gateway"
+	"github.com/damnbot/damnbot/internal/scorecard"
 )
 
 func newCronAdmin(db *ctxdb.Store, owner string, exec cron.Executor, clock cron.Clock) *cron.Admin {
@@ -293,6 +294,10 @@ type serveCron struct {
 	stderr   io.Writer
 	cancel   context.CancelFunc
 	done     chan struct{}
+	// score shares the one serve ticker: it runs at most once per ISO week
+	// and the in-memory week gate keeps the idle path free of extra queries.
+	score     *scorecard.Job
+	scoreWeek string
 }
 
 // newServeCron assembles store → executor → deliverer → incidents.
@@ -310,6 +315,7 @@ func newServeCron(db *ctxdb.Store, dataDir, configPath string, deliver bool, std
 			Incidents: incidents, Alert: out, Clock: clock, Owner: "serve",
 		},
 		db: db, clock: clock, interval: serveCronInterval, stderr: stderr, done: make(chan struct{}),
+		score: newScorecardJob(db, deliver, clock),
 	}
 }
 
@@ -360,6 +366,7 @@ func (c *serveCron) loop(ctx context.Context) {
 
 // tick skips the scheduler write transaction while no job is enabled.
 func (c *serveCron) tick(ctx context.Context) error {
+	c.tickScorecard(ctx)
 	n, err := c.db.Count(ctx, `SELECT EXISTS(SELECT 1 FROM cron_jobs WHERE enabled = 1)`)
 	if err != nil {
 		return fmt.Errorf("cron jobs probe: %w", err)
@@ -371,4 +378,21 @@ func (c *serveCron) tick(ctx context.Context) error {
 		return fmt.Errorf("cron tick: %w", err)
 	}
 	return nil
+}
+
+// tickScorecard runs the weekly job on the shared serve ticker. A failed
+// scorecard does not delay due cron slots; it is retried on the next tick.
+func (c *serveCron) tickScorecard(ctx context.Context) {
+	if c.score == nil {
+		return
+	}
+	week := scorecard.WeekKey(c.clock.Now())
+	if week == c.scoreWeek {
+		return
+	}
+	if _, _, err := c.score.Tick(ctx); err != nil {
+		sessionsPrintf(c.stderr, "scorecard: tick: %s\n", cleanLine(err.Error()))
+		return
+	}
+	c.scoreWeek = week
 }
