@@ -123,6 +123,9 @@ type cronPromptExecutor struct {
 }
 
 func (e *cronPromptExecutor) Run(ctx context.Context, j *cron.Job) (string, error) {
+	ctx = cron.WithParent(ctx, cron.Parent{
+		JobID: j.ID, At: time.Now().UTC().Truncate(time.Minute), Depth: cron.DepthFromID(j.ID),
+	})
 	if j.Prompt == "" {
 		return "", fmt.Errorf("cron: job %s has no prompt", j.ID)
 	}

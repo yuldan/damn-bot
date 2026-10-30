@@ -107,7 +107,79 @@ func (s *SelfSchedule) Schedule(ctx context.Context, parent Parent, child *Child
 // childID is the idempotency key of (parent, scheduled_at).
 func childID(p Parent) string {
 	sum := sha256.Sum256([]byte(p.JobID + "\x00" + p.At.UTC().Format(time.RFC3339Nano)))
-	return "self-" + hex.EncodeToString(sum[:8])
+	return fmt.Sprintf("self-%d-%s", p.Depth+1, hex.EncodeToString(sum[:8]))
+}
+
+// DepthFromID reads the depth encoded in a self-scheduled job id; a top-level
+// job has depth 0.
+func DepthFromID(id string) int {
+	var n int
+	if _, err := fmt.Sscanf(id, "self-%d-", &n); err != nil || n < 1 {
+		return 0
+	}
+	return n
+}
+
+type parentKey struct{}
+
+// WithParent carries the running cron job into a tool call.
+func WithParent(ctx context.Context, p Parent) context.Context {
+	return context.WithValue(ctx, parentKey{}, p)
+}
+
+// ParentFrom reports the cron job whose turn is making this call.
+func ParentFrom(ctx context.Context) (Parent, bool) {
+	p, ok := ctx.Value(parentKey{}).(Parent)
+	return p, ok
+}
+
+// AdminSpawner implements Spawner over the cron admin store.
+type AdminSpawner struct{ Store AdminStore }
+
+// Has reports whether the deterministic child id already exists.
+func (a AdminSpawner) Has(ctx context.Context, id string) (bool, error) {
+	jobs, err := a.Store.Jobs(ctx)
+	if err != nil {
+		return false, fmt.Errorf("cron: spawner jobs: %w", err)
+	}
+	for i := range jobs {
+		if jobs[i].ID == id {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// ActiveJobs counts enabled jobs of one owner.
+func (a AdminSpawner) ActiveJobs(ctx context.Context, owner string) (int, error) {
+	jobs, err := a.Store.Jobs(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("cron: spawner jobs: %w", err)
+	}
+	n := 0
+	for i := range jobs {
+		if jobs[i].Enabled && (owner == "" || jobs[i].Owner == owner) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+// Spawn persists the deterministic child job.
+func (a AdminSpawner) Spawn(ctx context.Context, spec *Spawn) (string, error) {
+	got, _, err := a.Store.Create(ctx, &Job{
+		ID: spec.ID, Name: spec.Name, Owner: spec.Owner, Schedule: spec.Schedule,
+		TZ: spec.TZ, Prompt: spec.Prompt, Cwd: spec.Cwd, Enabled: spec.Enabled,
+	})
+	if err != nil {
+		return "", fmt.Errorf("cron: spawner create: %w", err)
+	}
+	return got.ID, nil
+}
+
+// NewSelfSchedule wires the guard to an admin store.
+func NewSelfSchedule(store AdminStore) *SelfSchedule {
+	return &SelfSchedule{Spawner: AdminSpawner{Store: store}}
 }
 
 func childName(name, id string) string {

@@ -16,10 +16,18 @@ type CronJob = cron.Job
 
 const schemaCronJob = `{"name":"cronjob_manage","description":"Manage scheduled cron jobs: list, create, update, pause, resume, remove, run. Mutations need approval.","parameters":{"type":"object","properties":{"action":{"type":"string","enum":["list","create","update","pause","resume","remove","run"]},"job_id":{"type":"string","minLength":1,"maxLength":64},"name":{"type":"string","minLength":1,"maxLength":64},"schedule":{"type":"string","minLength":1,"maxLength":128},"prompt":{"type":"string","minLength":1,"maxLength":65536},"reason":{"type":"string","maxLength":500}},"required":["action"],"additionalProperties":false}}`
 
-type cronJobTool struct{ admin *cron.Admin }
+type cronJobTool struct {
+	admin *cron.Admin
+	self  *cron.SelfSchedule
+}
 
 // NewCronJob returns the cronjob_manage tool (TOOL-025).
 func NewCronJob(admin *cron.Admin) Tool { return &cronJobTool{admin: admin} }
+
+// NewCronJobWithSelf enables AUTO-011 limits for agent-created jobs.
+func NewCronJobWithSelf(admin *cron.Admin, self *cron.SelfSchedule) Tool {
+	return &cronJobTool{admin: admin, self: self}
+}
 
 func (t *cronJobTool) Name() string            { return "cronjob_manage" }
 func (t *cronJobTool) Schema() json.RawMessage { return json.RawMessage(schemaCronJob) }
@@ -71,34 +79,55 @@ func (t *cronJobTool) Run(ctx context.Context, env Env, args json.RawMessage) (R
 	case "list":
 		return t.list(ctx)
 	case "create":
-		if a.Schedule == "" || a.Prompt == "" {
-			return Result{}, toolErr(CodeInvalidArgs, "create needs schedule and prompt", "")
-		}
-		if err := validSchedule(a.Schedule); err != nil {
-			return Result{}, err
-		}
-		name := a.Name
-		if name == "" {
-			name = "job-" + strings.ReplaceAll(a.Schedule, " ", "-")
-		}
-		got, created, err := t.admin.Create(ctx, &cron.Job{Name: name, Schedule: a.Schedule, Prompt: a.Prompt, Cwd: env.Cwd, Enabled: true})
-		if err != nil {
-			if errors.Is(err, cron.ErrMinInterval) || errors.Is(err, cron.ErrJobQuota) {
-				return Result{}, toolErr(CodeInvalidArgs, err.Error(), "raise the interval or remove an active job")
-			}
-			return Result{}, fmt.Errorf("cronjob_manage: create: %w", err)
-		}
-		verb := "created"
-		if !created {
-			verb = "already exists"
-		}
-		return Result{OK: true, Content: verb + ": " + got.ID}, nil
+		return t.create(ctx, env, &a)
 	case "update":
 		return t.update(ctx, &a)
 	case "pause", "resume", "remove", "run":
 		return t.mutate(ctx, &a)
 	}
 	return Result{}, toolErr(CodeInvalidArgs, "action must be list, create, update, pause, resume, remove or run", "")
+}
+
+func (t *cronJobTool) create(ctx context.Context, env Env, a *cronArgs) (Result, error) {
+	if a.Schedule == "" || a.Prompt == "" {
+		return Result{}, toolErr(CodeInvalidArgs, "create needs schedule and prompt", "")
+	}
+	if err := validSchedule(a.Schedule); err != nil {
+		return Result{}, err
+	}
+	name := a.Name
+	if name == "" {
+		name = "job-" + strings.ReplaceAll(a.Schedule, " ", "-")
+	}
+	if t.self != nil {
+		return t.createSelf(ctx, env, name, a)
+	}
+	got, created, err := t.admin.Create(ctx, &cron.Job{Name: name, Schedule: a.Schedule, Prompt: a.Prompt, Cwd: env.Cwd, Enabled: true})
+	if err != nil {
+		if errors.Is(err, cron.ErrMinInterval) || errors.Is(err, cron.ErrJobQuota) {
+			return Result{}, toolErr(CodeInvalidArgs, err.Error(), "raise the interval or remove an active job")
+		}
+		return Result{}, fmt.Errorf("cronjob_manage: create: %w", err)
+	}
+	verb := "created"
+	if !created {
+		verb = "already exists"
+	}
+	return Result{OK: true, Content: verb + ": " + got.ID}, nil
+}
+
+func (t *cronJobTool) createSelf(ctx context.Context, env Env, name string, a *cronArgs) (Result, error) {
+	parent, ok := cron.ParentFrom(ctx)
+	if !ok {
+		parent = cron.Parent{JobID: "agent:" + env.TurnID, At: time.Now().UTC().Truncate(time.Minute)}
+	}
+	id, err := t.self.Schedule(ctx, parent, &cron.Child{
+		Name: name, Schedule: a.Schedule, Prompt: a.Prompt, Owner: "local", Cwd: env.Cwd,
+	})
+	if err != nil {
+		return Result{}, toolErr(CodeDenied, "self-schedule denied: "+err.Error(), "reduce depth or active jobs")
+	}
+	return Result{OK: true, Content: "created: " + id}, nil
 }
 
 func (t *cronJobTool) mutate(ctx context.Context, a *cronArgs) (Result, error) {
