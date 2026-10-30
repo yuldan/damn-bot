@@ -91,7 +91,7 @@ func TestParseNeverExecutes(t *testing.T) {
 }
 
 func TestDispatchMentionAndHelp(t *testing.T) {
-	c := gateway.NewCommands(gateway.CommandOptions{BotUsername: "Dammmmmnnbot"})
+	c := gateway.NewCommands(&gateway.CommandOptions{BotUsername: "Dammmmmnnbot"})
 	owner := testTicket(gateway.RoleOwner)
 
 	res := c.Dispatch(context.Background(), owner, "/status@Dammmmmnnbot")
@@ -111,7 +111,7 @@ func TestDispatchMentionAndHelp(t *testing.T) {
 }
 
 func TestDispatchStartAndWhoami(t *testing.T) {
-	c := gateway.NewCommands(gateway.CommandOptions{})
+	c := gateway.NewCommands(&gateway.CommandOptions{})
 	if res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/start"); !res.Handled || res.Reply != "" {
 		t.Fatalf("/start = %+v, want handled without reply", res)
 	}
@@ -134,35 +134,58 @@ func TestDispatchStartAndWhoami(t *testing.T) {
 // be refused for a user before implementation, and commands without an
 // implementation must say so instead of pretending to work.
 func TestDispatchRoleMatrix(t *testing.T) {
-	c := gateway.NewCommands(gateway.CommandOptions{})
-	ownerOnly := []string{
-		"status", "usage", "logs", "doctor", "resume", "lock", "restart", "pause", "resend",
-		"model", "sethome", "topic", "footer", "platform", "platforms", "cron",
-	}
-	for _, name := range ownerOnly {
-		res := c.Dispatch(context.Background(), testTicket(gateway.RoleUser), "/"+name)
-		if !res.Handled || !strings.Contains(res.Reply, "owner-only") {
-			t.Errorf("/%s as user = %+v, want owner-only", name, res)
+	c := gateway.NewCommands(&gateway.CommandOptions{})
+	checkUnsupportedOwner(t, c, "status", "usage", "logs", "doctor", "resume", "lock", "restart", "pause", "resend", "model", "platform", "platforms", "cron")
+	checkImplementedOwner(t, c)
+	checkUserCommands(t, c)
+	checkCommandsWithoutSeam(t, c)
+}
+
+func checkImplementedOwner(t *testing.T, c *gateway.Commands) {
+	t.Helper()
+	for _, name := range []string{"sethome", "footer"} {
+		checkOwnerRefusal(t, c, name)
+		if res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/"+name); !res.Handled || !strings.Contains(res.Reply, "not supported") {
+			t.Errorf("/%s without a seam = %+v, want unsupported", name, res)
 		}
-		res = c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/"+name)
-		if !res.Handled || !strings.Contains(res.Reply, "not supported") {
-			t.Errorf("/%s as owner = %+v, want unsupported", name, res)
-		}
 	}
-	users := []string{"new", "stop", "fork", "plan", "undo"}
-	for _, name := range users {
-		res := c.Dispatch(context.Background(), testTicket(gateway.RoleUser), "/"+name)
-		if !res.Handled || !strings.Contains(res.Reply, "not supported") {
+	if res := c.Dispatch(context.Background(), testTicket(gateway.RoleUser), "/topic"); !res.Handled || !strings.Contains(res.Reply, "owner-only") {
+		t.Errorf("/topic as user = %+v, want owner-only", res)
+	}
+}
+
+func checkUserCommands(t *testing.T, c *gateway.Commands) {
+	t.Helper()
+	for _, name := range []string{"new", "stop", "fork", "plan", "undo"} {
+		if res := c.Dispatch(context.Background(), testTicket(gateway.RoleUser), "/"+name); !res.Handled || !strings.Contains(res.Reply, "not supported") {
 			t.Errorf("/%s as user = %+v, want unsupported", name, res)
 		}
 	}
-	// Approval and pairing commands exist, so their absence of registry must
-	// not masquerade as an unknown command.
+}
+
+func checkCommandsWithoutSeam(t *testing.T, c *gateway.Commands) {
+	t.Helper()
 	for _, name := range []string{"approve", "deny", "pair"} {
-		res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/"+name)
-		if !res.Handled || !strings.Contains(res.Reply, "not supported") {
+		if res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/"+name); !res.Handled || !strings.Contains(res.Reply, "not supported") {
 			t.Errorf("/%s without a seam = %+v, want unsupported", name, res)
 		}
+	}
+}
+
+func checkUnsupportedOwner(t *testing.T, c *gateway.Commands, names ...string) {
+	t.Helper()
+	for _, name := range names {
+		checkOwnerRefusal(t, c, name)
+		if res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/"+name); !res.Handled || !strings.Contains(res.Reply, "not supported") {
+			t.Errorf("/%s as owner = %+v, want unsupported", name, res)
+		}
+	}
+}
+
+func checkOwnerRefusal(t *testing.T, c *gateway.Commands, name string) {
+	t.Helper()
+	if res := c.Dispatch(context.Background(), testTicket(gateway.RoleUser), "/"+name); !res.Handled || !strings.Contains(res.Reply, "owner-only") {
+		t.Errorf("/%s as user = %+v, want owner-only", name, res)
 	}
 }
 
@@ -179,7 +202,7 @@ func newApproval(t *testing.T, a *gateway.Approvals, id, chat string, now time.T
 
 func TestApproveWithoutOpenApproval(t *testing.T) {
 	a := gateway.NewApprovals(nil)
-	c := gateway.NewCommands(gateway.CommandOptions{Approvals: a})
+	c := gateway.NewCommands(&gateway.CommandOptions{Approvals: a})
 	res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/approve")
 	if !res.Handled || res.Applied || !strings.Contains(res.Reply, "no open approval") {
 		t.Fatalf("/approve with nothing open = %+v", res)
@@ -192,7 +215,7 @@ func TestApproveTwiceAppliesOnce(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	a := gateway.NewApprovals(func() time.Time { return now })
 	newApproval(t, a, "req-1", "c1", now)
-	c := gateway.NewCommands(gateway.CommandOptions{Approvals: a})
+	c := gateway.NewCommands(&gateway.CommandOptions{Approvals: a})
 	ticket := testTicket(gateway.RoleOwner)
 
 	applications := 0
@@ -215,7 +238,7 @@ func TestApproveScopedToChat(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	a := gateway.NewApprovals(func() time.Time { return now })
 	newApproval(t, a, "req-2", "c2", now)
-	c := gateway.NewCommands(gateway.CommandOptions{Approvals: a})
+	c := gateway.NewCommands(&gateway.CommandOptions{Approvals: a})
 	ticket := testTicket(gateway.RoleOwner)
 
 	if res := c.Dispatch(context.Background(), ticket, "/approve"); res.Applied || !strings.Contains(res.Reply, "no open approval") {
@@ -234,7 +257,7 @@ func TestApproveAmbiguous(t *testing.T) {
 	a := gateway.NewApprovals(func() time.Time { return now })
 	newApproval(t, a, "req-a", "c1", now)
 	newApproval(t, a, "req-b", "c1", now)
-	c := gateway.NewCommands(gateway.CommandOptions{Approvals: a})
+	c := gateway.NewCommands(&gateway.CommandOptions{Approvals: a})
 	ticket := testTicket(gateway.RoleOwner)
 
 	res := c.Dispatch(context.Background(), ticket, "/approve")
@@ -255,7 +278,7 @@ func TestApproveRequiresOwner(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	a := gateway.NewApprovals(func() time.Time { return now })
 	newApproval(t, a, "req-1", "c1", now)
-	c := gateway.NewCommands(gateway.CommandOptions{Approvals: a})
+	c := gateway.NewCommands(&gateway.CommandOptions{Approvals: a})
 
 	res := c.Dispatch(context.Background(), testTicket(gateway.RoleUser), "/approve")
 	if !res.Handled || res.Applied || !strings.Contains(res.Reply, "owner-only") {
@@ -271,7 +294,7 @@ func TestDenyAndDenyAll(t *testing.T) {
 	a := gateway.NewApprovals(func() time.Time { return now })
 	newApproval(t, a, "req-1", "c1", now)
 	newApproval(t, a, "req-2", "c1", now)
-	c := gateway.NewCommands(gateway.CommandOptions{Approvals: a})
+	c := gateway.NewCommands(&gateway.CommandOptions{Approvals: a})
 	ticket := testTicket(gateway.RoleOwner)
 
 	res := c.Dispatch(context.Background(), ticket, "/deny req-1 because it deletes data")
@@ -294,7 +317,7 @@ func TestApproveExpiredIsRejected(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	a := gateway.NewApprovals(func() time.Time { return now })
 	newApproval(t, a, "req-1", "c1", now)
-	c := gateway.NewCommands(gateway.CommandOptions{Approvals: a})
+	c := gateway.NewCommands(&gateway.CommandOptions{Approvals: a})
 	now = now.Add(11 * time.Minute)
 
 	res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/approve")
@@ -364,7 +387,7 @@ func (c *admitCommandCase) check(t *testing.T, ids map[string]gateway.Identity, 
 // unknown command still gets exactly one help reply, and a path such as
 // "/etc/hosts" stays text and is not executed.
 func TestAdmitCommandsBeforeTurn(t *testing.T) {
-	cmds := gateway.NewCommands(gateway.CommandOptions{BotUsername: "Dammmmmnnbot"})
+	cmds := gateway.NewCommands(&gateway.CommandOptions{BotUsername: "Dammmmmnnbot"})
 	ids := map[string]gateway.Identity{"telegram:o1": owner("o1"), "telegram:u1": user("u1")}
 	cases := []admitCommandCase{
 		{"known unsupported", "o1", "/status@Dammmmmnnbot", gateway.CommandHandled, "not supported", 0},
@@ -382,7 +405,7 @@ func TestAdmitCommandsBeforeTurn(t *testing.T) {
 // TestAdmitCommandDedupe: a replayed update is a Duplicate and yields no second
 // reply, so retries cannot answer a command twice.
 func TestAdmitCommandDedupe(t *testing.T) {
-	cmds := gateway.NewCommands(gateway.CommandOptions{})
+	cmds := gateway.NewCommands(&gateway.CommandOptions{})
 	g, _ := gateWithCommands(t, map[string]gateway.Identity{"telegram:o1": owner("o1")}, cmds)
 	run := &runner{}
 	in := inboundText("o1", "u:9", "/nope")
@@ -402,7 +425,7 @@ func TestAdmitCommandDedupe(t *testing.T) {
 // TestAdmitCommandsAfterAuthorization: a stranger's command is denied by the
 // gate before dispatch, so it cannot even learn the command set.
 func TestAdmitCommandsAfterAuthorization(t *testing.T) {
-	cmds := gateway.NewCommands(gateway.CommandOptions{})
+	cmds := gateway.NewCommands(&gateway.CommandOptions{})
 	g, inbox := gateWithCommands(t, nil, cmds)
 	run := &runner{}
 	out, err := g.Admit(context.Background(), inboundText("stranger", "u:1", "/status"), run.run)

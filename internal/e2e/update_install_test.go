@@ -270,3 +270,76 @@ func TestE2EUpdateInstallRejectsCorruptAsset(t *testing.T) {
 		t.Fatalf("pending written on corrupt asset: %s", pending)
 	}
 }
+
+// TestE2EUpdateRepairRollsBackCorruptInstall: an interrupted install whose
+// active binary no longer matches the signed manifest is repaired by restoring
+// .prev; the data directory is untouched.
+func TestE2EUpdateRepairRollsBackCorruptInstall(t *testing.T) {
+	e := updateInstallEnv(t)
+	old := readTestBytes(t, e.bin)
+	asset := buildAssetBinary(t)
+	feed, pub := updateFeed(t, asset, false)
+	writeUpdateFeedConfig(t, e, feed)
+	env := updateEnvForFeed(pub)
+	if res := e.ExecEnv(env, "update"); res.Code != 0 {
+		t.Fatalf("install exit %d\nstdout: %s\nstderr: %s", res.Code, res.Stdout, res.Stderr)
+	}
+	pending := findPending(t, e.home)
+	if pending == "" {
+		t.Fatal("pending.json not written")
+	}
+	dbPath, staged := corruptInstalledBinary(t, e, pending, old)
+	res := e.ExecEnv(env, "update", "--repair")
+	if res.Code != 0 || !strings.Contains(res.Stdout, "rolled back") {
+		t.Fatalf("repair exit %d\nstdout: %s\nstderr: %s", res.Code, res.Stdout, res.Stderr)
+	}
+	assertRepaired(t, e, env, old, staged, dbPath)
+}
+
+func corruptInstalledBinary(t *testing.T, e *Env, pending string, old []byte) (dbPath, staged string) {
+	t.Helper()
+	dataDir := filepath.Dir(filepath.Dir(pending))
+	dbPath = filepath.Join(dataDir, "damnbot.db")
+	if err := os.WriteFile(dbPath, []byte("db-must-survive"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The active binary is back at the old version and a corrupt staged asset
+	// remains: exactly the state repair must recover without touching the DB.
+	f, err := os.OpenFile(e.bin, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(old); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Chmod(0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	staged = filepath.Join(filepath.Dir(e.bin), "damnbot.new"+filepath.Ext(e.bin))
+	if err := os.WriteFile(staged, []byte("corrupt-asset"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dbPath, staged
+}
+
+func assertRepaired(t *testing.T, e *Env, env []string, old []byte, staged, dbPath string) {
+	t.Helper()
+	if got := hashBytes(readTestBytes(t, e.bin)); got != hashBytes(old) {
+		t.Fatalf("repaired active = %s, want old %s", got, hashBytes(old))
+	}
+	if findPending(t, e.home) != "" {
+		t.Fatal("pending.json survived repair")
+	}
+	if _, err := os.Stat(staged); !os.IsNotExist(err) {
+		t.Fatalf("staged corrupt asset survived repair: %v", err)
+	}
+	if got := string(readTestBytes(t, dbPath)); got != "db-must-survive" {
+		t.Fatalf("repair changed the database: %q", got)
+	}
+	if out := versionAt(t, e, env, e.bin); !strings.Contains(out, "damnbot dev") {
+		t.Fatalf("repaired binary version = %q, want dev", out)
+	}
+}

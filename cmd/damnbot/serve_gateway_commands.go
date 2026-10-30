@@ -165,17 +165,27 @@ func (g *serveGateway) NewSession(ctx context.Context, scope *gateway.Scope) (st
 	return g.createSession(ctx, scope)
 }
 
-// Status implements gateway.Runtime. It reads the chat queue, the supervisor
-// and the version only; it never starts work.
-func (g *serveGateway) Status(context.Context) (gateway.RuntimeStatus, error) {
+// Status implements gateway.Runtime; it reads state only.
+func (g *serveGateway) Status(ctx context.Context) (gateway.RuntimeStatus, error) {
 	queued, active := g.chats.Stats()
-	return gateway.RuntimeStatus{
+	st := gateway.RuntimeStatus{
 		Uptime:      g.now().Sub(g.started),
 		QueueDepth:  queued + len(g.inbound),
 		ActiveTurns: active,
 		SafeMode:    g.supervisor.Snapshot().State == heal.SafeMode,
 		Version:     version,
-	}, nil
+	}
+	if p, c, t, found, err := g.store.HomeChannel(ctx); err != nil {
+		return gateway.RuntimeStatus{}, fmt.Errorf("gateway: status home: %w", err)
+	} else if found {
+		st.Home = gateway.HomeName(p, c, t)
+	}
+	return st, nil
+}
+
+// TopicSession returns the forum thread's session, creating it when absent.
+func (g *serveGateway) TopicSession(ctx context.Context, scope *gateway.Scope) (string, error) {
+	return g.sessionFor(ctx, scope)
 }
 
 // Usage implements gateway.Runtime over the existing usage ledger: the session

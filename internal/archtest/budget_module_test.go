@@ -115,13 +115,13 @@ func validateModuleDirs(t *testing.T, dirs []string, line string) {
 }
 
 // checkModuleCapsAndSums memakai allowlist nama+cap yang di-hardcode: mengubah nama/cap butuh ADR
-// baru (ADR-196), bukan sekadar mengubah baris.
+// baru (ADR-196/ADR-253), bukan sekadar mengubah baris.
 func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 	t.Helper()
 	wantCaps := map[string]int{
 		"tui": 10000, "acp": 2500, "importer": 2600, "setup": 1300,
 		"doctor": 1100, "update": 1500, "profiles": 800,
-		"obs": 4000, "gateway": 9600, "gwstore": 900, "cron": 3500, "cronstore": 200,
+		"obs": 4000, "gateway": 9540, "gwstore": 960, "cron": 3500, "cronstore": 200,
 		"scorecard": 500,
 	}
 	backupCap, hasBackup := 0, false

@@ -28,6 +28,10 @@ type Runtime interface {
 	// current day. ok is false when the ledger has no row for that session, so
 	// /usage can say "no usage yet" instead of printing a zero.
 	Usage(ctx context.Context, scope *Scope) (UsageReport, bool, error)
+	// TopicSession returns the session bound to scope's forum thread, creating
+	// it when the thread has none. The caller has already rejected an empty
+	// ThreadID, so this never falls back to the parent chat.
+	TopicSession(ctx context.Context, scope *Scope) (string, error)
 }
 
 // RuntimeStatus is the read-only daemon state /status answers with.
@@ -37,6 +41,7 @@ type RuntimeStatus struct {
 	ActiveTurns int
 	SafeMode    bool
 	Version     string
+	Home        string
 }
 
 // UsageReport is the ledger totals /usage answers with: tokens and micro-USD

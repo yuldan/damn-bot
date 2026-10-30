@@ -25,6 +25,9 @@ type fakeRuntime struct {
 	usageOK       bool
 	usageErr      error
 	usageScopes   []gateway.Scope
+	topicID       string
+	topicErr      error
+	topicScopes   []gateway.Scope
 }
 
 func (f *fakeRuntime) StopTurn(_ context.Context, scope *gateway.Scope) (bool, error) {
@@ -46,6 +49,11 @@ func (f *fakeRuntime) Usage(_ context.Context, scope *gateway.Scope) (gateway.Us
 	return f.report, f.usageOK, f.usageErr
 }
 
+func (f *fakeRuntime) TopicSession(_ context.Context, scope *gateway.Scope) (string, error) {
+	f.topicScopes = append(f.topicScopes, *scope)
+	return f.topicID, f.topicErr
+}
+
 func ticketIn(role gateway.Role, chat string) *gateway.Ticket {
 	t := testTicket(role)
 	t.Scope.ChatID = chat
@@ -57,7 +65,7 @@ func ticketIn(role gateway.Role, chat string) *gateway.Ticket {
 // /stop after the runtime dropped the turn is a no-op with an honest reply.
 func TestStopCommandScopesToCallerChat(t *testing.T) {
 	rt := &fakeRuntime{stopCancelled: true}
-	c := gateway.NewCommands(gateway.CommandOptions{Runtime: rt})
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
 	chatA, chatB := ticketIn(gateway.RoleUser, "a"), ticketIn(gateway.RoleUser, "b")
 
 	res := c.Dispatch(context.Background(), chatA, "/stop")
@@ -85,7 +93,7 @@ func TestStopCommandScopesToCallerChat(t *testing.T) {
 // on the caller's own scope and says the old one is kept.
 func TestNewCommandKeepsPreviousSession(t *testing.T) {
 	rt := &fakeRuntime{newID: "s2"}
-	c := gateway.NewCommands(gateway.CommandOptions{Runtime: rt})
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
 	ticket := ticketIn(gateway.RoleUser, "c1")
 
 	res := c.Dispatch(context.Background(), ticket, "/new")
@@ -104,7 +112,7 @@ func TestStatusReportsReadOnlyState(t *testing.T) {
 	rt := &fakeRuntime{status: gateway.RuntimeStatus{
 		Uptime: 65 * time.Second, QueueDepth: 2, ActiveTurns: 1, SafeMode: true, Version: "1.2.3",
 	}}
-	c := gateway.NewCommands(gateway.CommandOptions{Runtime: rt})
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
 	g, _ := gateWithCommands(t, map[string]gateway.Identity{"telegram:o1": owner("o1")}, c)
 	run := &runner{}
 	out, err := g.Admit(context.Background(), inboundText("o1", "u:1", "/status"), run.run)
@@ -134,7 +142,7 @@ func TestStatusReportsReadOnlyState(t *testing.T) {
 // in micro-USD, and an unknown price is never presented as zero.
 func TestUsageIsHonest(t *testing.T) {
 	rt := &fakeRuntime{}
-	c := gateway.NewCommands(gateway.CommandOptions{Runtime: rt})
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
 	ticket := testTicket(gateway.RoleOwner)
 
 	res := c.Dispatch(context.Background(), ticket, "/usage")
@@ -173,7 +181,7 @@ func TestUsageIsHonest(t *testing.T) {
 // call; /new and /stop stay available to a user for their own session.
 func TestRuntimeRoleMatrix(t *testing.T) {
 	rt := &fakeRuntime{stopCancelled: true}
-	c := gateway.NewCommands(gateway.CommandOptions{Runtime: rt})
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
 	userTicket := testTicket(gateway.RoleUser)
 	for _, name := range []string{"status", "usage"} {
 		res := c.Dispatch(context.Background(), userTicket, "/"+name)
@@ -193,7 +201,7 @@ func TestRuntimeRoleMatrix(t *testing.T) {
 
 	// Without a runtime seam the four commands answer unsupported instead of
 	// pretending to act.
-	plain := gateway.NewCommands(gateway.CommandOptions{})
+	plain := gateway.NewCommands(&gateway.CommandOptions{})
 	for _, name := range []string{"status", "usage", "new", "stop"} {
 		res := plain.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/"+name)
 		if !strings.Contains(res.Reply, "not supported") {

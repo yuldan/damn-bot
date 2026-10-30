@@ -10,7 +10,7 @@ import (
 // ChatPolicyStore reads the raw per-chat override of GAP-GW-05 from the
 // temporary module_state row until the SPEC config key lands with its ADR.
 type ChatPolicyStore interface {
-	ChatOverride(ctx context.Context, platform, chatID string) (value string, found bool, err error)
+	ChatSetting(ctx context.Context, platform, chatID, name string) (value string, found bool, err error)
 }
 
 // Triggers reports whether in fires a turn: DMs always run; groups need a
@@ -40,7 +40,7 @@ func (g *Gate) needsOverride(in *Inbound) bool {
 // override resolves the per-chat require_mention value, defaulting to true
 // when the chat has no override. A malformed value is an error (fail-closed).
 func (g *Gate) override(ctx context.Context, in *Inbound) (bool, error) {
-	raw, found, err := g.chats.ChatOverride(ctx, in.Platform, in.ChatID)
+	raw, found, err := g.chats.ChatSetting(ctx, in.Platform, in.ChatID, "require_mention")
 	if err != nil {
 		return false, fmt.Errorf("gateway: chat policy %s/%s: %w", in.Platform, in.ChatID, err)
 	}

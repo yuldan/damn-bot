@@ -311,3 +311,102 @@ func TestInstallSerializesConcurrentUpdates(t *testing.T) {
 		t.Fatalf("first updater: %v", err)
 	}
 }
+
+// TestRepairRollsBackCorruptInstall pins OPS-028: a pending record whose
+// installed binary no longer matches the signed manifest restores .prev and
+// leaves the data directory alone.
+func TestRepairRollsBackCorruptInstall(t *testing.T) {
+	f := newInstallFixture(t, "2.0.0")
+	opts := f.options("1.0.0", nil)
+	if _, err := Install(t.Context(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.dataDir, "damnbot.db"), []byte("db-intact"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f.binary, []byte("corrupt-asset"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	status, err := Repair(t.Context(), opts)
+	if err != nil || !strings.Contains(status, "rolled back") {
+		t.Fatalf("Repair = %q, %v", status, err)
+	}
+	if got := f.read(t, f.binary); got != "old-binary-content" {
+		t.Fatalf("repaired binary = %q", got)
+	}
+	if got := f.read(t, filepath.Join(f.dataDir, "damnbot.db")); got != "db-intact" {
+		t.Fatalf("repair changed the database: %q", got)
+	}
+	if _, err := readPending(f.dataDir); !errors.Is(err, ErrNoPending) {
+		t.Fatal("pending survived repair")
+	}
+}
+
+// TestRepairRejectsTamperedPending rolls back when the recorded target no
+// longer matches the signed manifest, instead of trusting the corrupt target.
+func TestRepairRejectsTamperedPending(t *testing.T) {
+	f := newInstallFixture(t, "2.0.0")
+	opts := f.options("1.0.0", nil)
+	if _, err := Install(t.Context(), opts); err != nil {
+		t.Fatal(err)
+	}
+	p, err := readPending(f.dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.TargetSHA256 = strings.Repeat("f", 64)
+	if werr := writePending(f.dataDir, &p); werr != nil {
+		t.Fatal(werr)
+	}
+	status, err := Repair(t.Context(), opts)
+	if err != nil || !strings.Contains(status, "rolled back") {
+		t.Fatalf("Repair tampered = %q, %v", status, err)
+	}
+	if got := f.read(t, f.binary); got != "old-binary-content" {
+		t.Fatalf("repaired binary = %q", got)
+	}
+}
+
+// TestRepairWithoutPendingFailsClosed: nothing to repair is ErrNoPending.
+func TestRepairWithoutPendingFailsClosed(t *testing.T) {
+	f := newInstallFixture(t, "2.0.0")
+	if _, err := Repair(t.Context(), f.options("1.0.0", nil)); !errors.Is(err, ErrNoPending) {
+		t.Fatalf("Repair without pending = %v, want ErrNoPending", err)
+	}
+}
+
+// TestRepairFinalizesHealthy: a completed swap whose active binary matches the
+// signed manifest only clears pending.
+func TestRepairFinalizesHealthy(t *testing.T) {
+	f := newInstallFixture(t, "2.0.0")
+	opts := f.options("1.0.0", nil)
+	if _, err := Install(t.Context(), opts); err != nil {
+		t.Fatal(err)
+	}
+	status, err := Repair(t.Context(), opts)
+	if err != nil || !strings.Contains(status, "verified 2.0.0") {
+		t.Fatalf("Repair healthy = %q, %v", status, err)
+	}
+	if got := f.read(t, f.binary); got != string(f.newBytes) {
+		t.Fatalf("healthy repair changed the binary: %q", got)
+	}
+}
+
+// TestRepairRestoresMissingActive covers a crash between the two swap renames.
+func TestRepairRestoresMissingActive(t *testing.T) {
+	f := newInstallFixture(t, "2.0.0")
+	opts := f.options("1.0.0", nil)
+	if _, err := Install(t.Context(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(f.binary); err != nil {
+		t.Fatal(err)
+	}
+	status, err := Repair(t.Context(), opts)
+	if err != nil || !strings.Contains(status, "rolled back") {
+		t.Fatalf("Repair missing active = %q, %v", status, err)
+	}
+	if got := f.read(t, f.binary); got != "old-binary-content" {
+		t.Fatalf("restored binary = %q", got)
+	}
+}

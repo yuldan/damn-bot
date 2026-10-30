@@ -53,7 +53,7 @@ func TestPairReplies(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			f := &fakePairing{err: c.err}
-			cmds := gateway.NewCommands(gateway.CommandOptions{Pairing: f, Now: func() time.Time { return now }})
+			cmds := gateway.NewCommands(&gateway.CommandOptions{Pairing: f, Now: func() time.Time { return now }})
 			res := cmds.Dispatch(context.Background(), pairTicket(), "/pair 123456")
 			if !res.Handled || res.Applied {
 				t.Fatalf("result = %+v, want handled without approval application", res)
@@ -74,7 +74,7 @@ func TestPairReplies(t *testing.T) {
 // TestPairUsage: a bare or over-long /pair is help, not an attempt.
 func TestPairUsage(t *testing.T) {
 	f := &fakePairing{}
-	cmds := gateway.NewCommands(gateway.CommandOptions{Pairing: f})
+	cmds := gateway.NewCommands(&gateway.CommandOptions{Pairing: f})
 	for _, text := range []string{"/pair", "/pair 123456 extra"} {
 		res := cmds.Dispatch(context.Background(), pairTicket(), text)
 		if !res.Handled || !strings.Contains(res.Reply, "usage: /pair <code>") {
@@ -92,7 +92,7 @@ func TestPairUsage(t *testing.T) {
 func TestPairBruteForce(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	f := &fakePairing{}
-	cmds := gateway.NewCommands(gateway.CommandOptions{Pairing: f, Now: func() time.Time { return now }})
+	cmds := gateway.NewCommands(&gateway.CommandOptions{Pairing: f, Now: func() time.Time { return now }})
 	ticket := pairTicket()
 	for i := range 5 {
 		if res := cmds.Dispatch(context.Background(), ticket, "/pair 000000"); !res.Handled {
@@ -119,7 +119,7 @@ func TestPairBruteForce(t *testing.T) {
 func TestPairAttemptsArePerChat(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	f := &fakePairing{}
-	cmds := gateway.NewCommands(gateway.CommandOptions{Pairing: f, Now: func() time.Time { return now }})
+	cmds := gateway.NewCommands(&gateway.CommandOptions{Pairing: f, Now: func() time.Time { return now }})
 	for range 6 {
 		cmds.Dispatch(context.Background(), pairTicket(), "/pair 000000")
 	}
@@ -134,7 +134,7 @@ func TestPairAttemptsArePerChat(t *testing.T) {
 
 func pairGate(t *testing.T, f *fakePairing) (*gateway.Gate, *fakeInbox, *runner) {
 	t.Helper()
-	cmds := gateway.NewCommands(gateway.CommandOptions{Pairing: f})
+	cmds := gateway.NewCommands(&gateway.CommandOptions{Pairing: f})
 	g, inbox := gateWithCommands(t, nil, cmds)
 	return g, inbox, &runner{}
 }
@@ -187,7 +187,7 @@ func TestAdmitPairSkipsAuthorize(t *testing.T) {
 		DataDir:    t.TempDir(),
 		Identities: ids,
 		Inbox:      inbox,
-		Commands:   gateway.NewCommands(gateway.CommandOptions{Pairing: f}),
+		Commands:   gateway.NewCommands(&gateway.CommandOptions{Pairing: f}),
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -15,7 +15,7 @@ type fakeChats struct {
 	err  error
 }
 
-func (f *fakeChats) ChatOverride(_ context.Context, platform, chatID string) (string, bool, error) {
+func (f *fakeChats) ChatSetting(_ context.Context, platform, chatID, _ string) (string, bool, error) {
 	if f.err != nil {
 		return "", false, f.err
 	}
