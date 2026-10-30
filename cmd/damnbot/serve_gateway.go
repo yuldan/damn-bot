@@ -305,7 +305,9 @@ func (g *serveGateway) turn(ctx context.Context, in *telegram.Inbound, t *gatewa
 	start := time.Now()
 	sid, err := g.sessionFor(ctx, &t.Scope)
 	if err == nil {
-		err = g.runChat(ctx, in, sid, typing, ack)
+		err = g.runChat(ctx, in, sid, func(ctx context.Context, ch <-chan event.Update) error {
+			return g.streamReply(ctx, in, ch, typing, ack)
+		}, false)
 	}
 	if err != nil {
 		g.failPlaceholder(ctx, in, ack)
@@ -354,15 +356,17 @@ func (g *serveGateway) sessionFor(ctx context.Context, scope *gateway.Scope) (st
 	return sid, nil
 }
 
-func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid string, typing *gatewayTyping, ack *gatewayAck) error {
+func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid string, deliver func(context.Context, <-chan event.Update) error, local bool) error {
 	o := runOptions{
 		prompt: in.Text, model: g.modelRef, approval: "ask", configPath: g.configPath, dataDir: g.dataDir,
 		baseURL: strings.TrimSpace(os.Getenv("DAMNBOT_SERVE_BASE_URL")), apiKey: strings.TrimSpace(os.Getenv("DAMNBOT_SERVE_API_KEY")),
 		session: sid, approvalOrigin: "run", cfgOverride: &g.cfg,
 		gatewayIdentity: in.Platform + ":" + in.SenderID,
 	}
-	o.approver = gatewayLoopApprover{g: g, chat: in.ChatID, thread: in.ThreadID}
-	o.toolApprover = gatewayToolApprover{g: g, chat: in.ChatID, thread: in.ThreadID}
+	if !local {
+		o.approver = gatewayLoopApprover{g: g, chat: in.ChatID, thread: in.ThreadID}
+		o.toolApprover = gatewayToolApprover{g: g, chat: in.ChatID, thread: in.ThreadID}
+	}
 	cfg, dataDir, configDir, home, err := loadRunEnv(&o)
 	if err != nil {
 		return err
@@ -393,7 +397,7 @@ func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid st
 	if err != nil {
 		return fmt.Errorf("gateway: prompt: %w", err)
 	}
-	return g.streamReply(ctx, in, ch, typing, ack)
+	return deliver(ctx, ch)
 }
 
 // gatewayAck is the instant placeholder message shown after admission. The

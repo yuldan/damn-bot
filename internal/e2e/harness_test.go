@@ -225,6 +225,13 @@ func (e *Env) ExecStdin(input string, args ...string) Result {
 	return e.execEnv(strings.NewReader(input), nil, args...)
 }
 
+// ExecStdinEnv is ExecStdin with extra environment entries (the gateway chat
+// REPL reads its identity from the same env bootstrap as serve).
+func (e *Env) ExecStdinEnv(input string, env []string, args ...string) Result {
+	e.t.Helper()
+	return e.execEnv(strings.NewReader(input), env, args...)
+}
+
 func (e *Env) execEnv(stdin io.Reader, env []string, args ...string) Result {
 	e.t.Helper()
 	ctx, cancel := context.WithTimeout(e.t.Context(), 120*time.Second)
