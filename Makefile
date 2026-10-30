@@ -30,7 +30,7 @@ CORPORA ?= C1 C2 C3 rg
 CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORPUS_C1=$(CORPORA_DIR)/C1 \
 	DAMNBOT_CORPUS_C3=$(CORPORA_DIR)/C3 $(if $(filter C2,$(CORPORA)),DAMNBOT_CORPUS_C2=$(CORPORA_DIR)/C2)
 
-.PHONY: all build build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio \
+.PHONY: all build build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio chaos \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf perf-f4 ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
 	sqlite-engine sqlite-engine-cross skill-refs prices-gate release
@@ -177,6 +177,19 @@ ct09-nightly: TAGS += perf
 ct09-nightly:
 	DAMNBOT_TIMING=1 DAMNBOT_CT09_SETS=$(CT09_SETS) DAMNBOT_CT09_STRICT_INCONCLUSIVE=1 \
 		go test $(GOTAGS) -run '^$$' -bench '^BenchmarkCodetools/Edit1MB$$' -benchtime=100x ./internal/codetools/
+
+# F4 chaos acceptance (ROADMAP F4, SELF-HEALING §9.2): kill -9 in the middle of
+# CHAOS_ROUNDS turns, network cut, full data dir, corrupt config/DB, simulated
+# reboot, Telegram 429/5xx/drop and a non-idempotent tool pending at kill. Not
+# part of `make test`: it starts and kills real processes and takes minutes.
+# Machine limits keep the host responsive while the suite runs (GOMAXPROCS=2,
+# nice 19, 8 GiB address space); the timeout is the suite's hard budget.
+CHAOS_ROUNDS ?= 1000
+CHAOS_TIMEOUT ?= 20m
+chaos:
+	@ulimit -v 8388608 2>/dev/null || true; \
+	nice -n 19 env GOMAXPROCS=2 DAMNBOT_CHAOS_ROUNDS=$(CHAOS_ROUNDS) \
+		go test $(GOTAGS) -count=1 -timeout $(CHAOS_TIMEOUT) -run '^TestChaosF4$$' -v ./internal/e2e
 
 # GAP-REL-03: 50-client chaos untuk window nightly penuh (PR memakai default singkat).
 # `-timeout 40m` wajib: sebelum PR ini target memakai window 30 m dengan batas default

@@ -57,6 +57,34 @@ func (t *Tx) ToolPending(sid, turn string, c *ToolCall) error {
 	return err
 }
 
+// MarkToolPending moves the open journal row to tool_pending without writing a
+// second tool_dispatch: internal/loop owns that event (SEC5-9). It is called
+// immediately before Run, so a crash from here on is recovered as a tool whose
+// outcome is unknown. A missing row is a no-op: a surface without a journal
+// still runs its tools.
+func (t *Tx) MarkToolPending(sid, turn string, c *ToolCall) error {
+	var pg any
+	if c.Pgid > 0 {
+		pg = c.Pgid
+	}
+	_, err := t.Exec(`UPDATE turn_journal SET state = 'tool_pending', last_tool_call_id = ?, last_tool_name = ?, tool_class = ?, args_sha = ?,
+		target_path = ?, before_sha = ?, after_sha = ?, tool_pgid = ?, tool_pgid_start = ?, updated_at = ?
+		WHERE turn_id = ? AND session_id = ?`,
+		c.CallID, c.Name, c.Class, c.ArgsSha, nullable(c.Target), nullable(c.BeforeSha), nullable(c.AfterSha), pg, nullable(c.PgidStart),
+		t.s.clk.WallMs(), turn, sid)
+	return err
+}
+
+// ClearToolPending returns a tool_pending row to running after Run returned
+// (success, failure or cancellation). The last tool columns stay for
+// diagnostics; a later crash can no longer mistake the finished tool for an
+// in-flight one.
+func (t *Tx) ClearToolPending(turn string) error {
+	_, err := t.Exec(`UPDATE turn_journal SET state = 'running', updated_at = ? WHERE turn_id = ? AND state = 'tool_pending'`,
+		t.s.clk.WallMs(), turn)
+	return err
+}
+
 // EndTurn appends turn_end with a bare stop_reason and deletes the journal
 // row.
 func (t *Tx) EndTurn(sid, turn, stop string) error {

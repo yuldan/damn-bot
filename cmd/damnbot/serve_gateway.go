@@ -74,6 +74,12 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		return nil, errors.New("gateway: provider.model or DAMNBOT_SERVE_MODEL is required")
 	}
 	store := gwstore.Store{DB: db}
+	// A crash between claim and SentDelivery leaves a row in 'sending'. This
+	// process owns the data dir (serve flock), so every such row is orphaned:
+	// requeue it before the delivery worker starts (SELF-HEALING §3.4).
+	if rerr := reclaimOnStart(ctx, db, stderr); rerr != nil {
+		return nil, rerr
+	}
 	if serr := seedGatewayIdentities(ctx, store, owner, allow); serr != nil {
 		return nil, serr
 	}

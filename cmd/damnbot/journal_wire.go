@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -147,12 +148,63 @@ func snapshot(f *os.File, mode fs.FileMode) (*journal.Snapshot, error) {
 // on that dispatch event. The dispatcher therefore writes no second
 // transcript row: one call has exactly one dispatch/result pair
 // (SPEC §4.3 steps 8/10, REVIEW-F2-SEC5-9).
-type loopTranscript struct{}
+//
+// It does own the turn_journal state: the row moves to tool_pending in a
+// transaction committed before Run and back to running when Run returns, so a
+// kill -9 during a non-idempotent tool is recovered as outcome_unknown and is
+// never executed a second time (SELF-HEALING §3.4, P22).
+type loopTranscript struct {
+	db  *ctxdb.Store
+	sid string
+}
 
-func (loopTranscript) ToolDispatch(context.Context, string, string, string, tools.Effect, [32]byte) error {
+func (j loopTranscript) ToolDispatch(ctx context.Context, turnID, callID, tool string, effect tools.Effect, argsHash [32]byte) error {
+	if j.db == nil || j.sid == "" {
+		return nil
+	}
+	class := toolClass(effect, tool)
+	err := j.db.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.MarkToolPending(j.sid, turnID, &ctxdb.ToolCall{
+			CallID: callID, Name: tool, Class: class, ArgsSha: hex.EncodeToString(argsHash[:]),
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("turn journal: tool_pending: %w", err)
+	}
 	return nil
 }
 
-func (loopTranscript) ToolResult(context.Context, string, string, string, bool, string, string) error {
+func (j loopTranscript) ToolResult(ctx context.Context, turnID, _, _ string, _ bool, _, _ string) error {
+	if j.db == nil {
+		return nil
+	}
+	if err := j.db.Write(ctx, func(tx *ctxdb.Tx) error { return tx.ClearToolPending(turnID) }); err != nil {
+		return fmt.Errorf("turn journal: clear tool_pending: %w", err)
+	}
 	return nil
+}
+
+// toolClass maps the dispatcher's effect to turn_journal.tool_class. Unknown
+// effects fail closed as non_idempotent.
+//
+// The file tools are the exception: the journal CHECK requires target_path and
+// after_sha for an idempotent write_file/edit_file row, but the dispatcher has
+// no such image at dispatch time (codetools computes it immediately before the
+// write). They are recorded as non_idempotent so recovery asks instead of
+// auto-continuing: the edit is never repeated without confirmation, which is
+// the conservative side of P22.
+func toolClass(e tools.Effect, tool string) string {
+	class := "non_idempotent"
+	switch e {
+	case tools.EffectRead:
+		class = "read"
+	case tools.EffectIdempotent:
+		class = "idempotent"
+	case tools.EffectNonIdempotent:
+	default: // dynamic is resolved per call before the dispatcher journals it
+	}
+	if class == "idempotent" && (tool == "write_file" || tool == "edit_file") {
+		return "non_idempotent"
+	}
+	return class
 }
