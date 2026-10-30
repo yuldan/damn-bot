@@ -98,3 +98,48 @@ func fileSHA256(path string) (sha string, err error) {
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
+
+// RepairLocal recovers an interrupted install without the network: the target
+// checksum in pending.json must match the installed binary. Any mismatch or
+// failed health check restores .prev; the database is never touched.
+func RepairLocal(ctx context.Context, o *InstallOptions) (status string, err error) {
+	if o.DataDir == "" || o.BinaryPath == "" {
+		return "", errors.New("update: repair needs data dir and binary path")
+	}
+	unlock, err := acquireLock(filepath.Join(o.DataDir, "update.lock"))
+	if err != nil {
+		return "", err
+	}
+	defer func() { err = errors.Join(err, unlock()) }()
+	p, err := readPending(o.DataDir)
+	if err != nil {
+		return "", err
+	}
+	if p.PrevBinary != o.BinaryPath+".prev" {
+		return "", ErrNoPending
+	}
+	fail := func(cause string, causeErr error) (string, error) {
+		if rerr := rollbackPrevious(o.DataDir, &p); rerr != nil {
+			return "", errors.Join(causeErr, rerr)
+		}
+		return "rolled back: " + cause, nil
+	}
+	if p.TargetSHA256 == "" {
+		return fail("pending record has no target checksum", errors.New("update: pending target checksum missing"))
+	}
+	got, herr := fileSHA256(o.BinaryPath)
+	if herr != nil || got != p.TargetSHA256 {
+		return fail("installed binary failed checksum", herr)
+	}
+	health := o.HealthCheck
+	if health == nil {
+		health = quickHealth
+	}
+	if herr = health(ctx, o.BinaryPath); herr != nil {
+		return fail("health check failed", herr)
+	}
+	if err := removePending(o.DataDir); err != nil {
+		return "", err
+	}
+	return "verified " + p.TargetVersion, cleanupStaged(o.BinaryPath)
+}
