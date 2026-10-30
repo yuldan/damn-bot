@@ -11,45 +11,15 @@ import (
 	"github.com/damnbot/damnbot/internal/gateway/telegram"
 )
 
-// Delivery poll intervals: fast while rows are due, backing off while the
-// outbox stays empty. The 1 s ceiling keeps queue latency ≤ 1 s
-// (SCORECARD §1.2 idle CPU).
-const (
-	deliveryPollFast = 200 * time.Millisecond
-	deliveryPollMid  = 500 * time.Millisecond
-	deliveryPollIdle = time.Second
-)
-
 func (g *serveGateway) deliveries(ctx context.Context) {
 	runDeliveryLoop(ctx, g.claimDeliveries)
 }
 
 // runDeliveryLoop polls claim until ctx ends, resetting to the fast interval
-// whenever a poll claims work and backing off 200 → 500 → 1000 ms otherwise.
+// whenever a poll claims work and backing off 200 → 500 → 1000 ms otherwise
+// (see runPollLoop).
 func runDeliveryLoop(ctx context.Context, claim func(context.Context, time.Time) int) {
-	interval := deliveryPollFast
-	timer := time.NewTimer(interval)
-	defer timer.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-		interval = nextDeliveryInterval(interval, claim(ctx, time.Now()))
-		timer.Reset(interval)
-	}
-}
-
-// nextDeliveryInterval implements the idle backoff table.
-func nextDeliveryInterval(cur time.Duration, claimed int) time.Duration {
-	if claimed > 0 {
-		return deliveryPollFast
-	}
-	if cur < deliveryPollMid {
-		return deliveryPollMid
-	}
-	return deliveryPollIdle
+	runPollLoop(ctx, func() int { return claim(ctx, time.Now()) })
 }
 
 // claimDeliveries hands the due rows to deliverOne, one at a time, and

@@ -279,7 +279,7 @@ func cmpOr(v, def time.Duration) time.Duration {
 // appears (§11.11.7 "dicek … tiap 1 s"); busy Stores drain in preWrite.
 func (s *Store) watch(ctx context.Context) {
 	defer close(s.done)
-	tk := time.NewTicker(barrierPoll)
+	tk := time.NewTicker(barrierWatchPoll)
 	defer tk.Stop()
 	for {
 		select {

@@ -14,24 +14,24 @@ import (
 	"github.com/damnbot/damnbot/internal/obs"
 )
 
-// TestNextDeliveryInterval pins the idle backoff table: 200 → 500 → 1000 ms,
+// TestNextPollInterval pins the idle backoff table: 200 → 500 → 1000 ms,
 // and any claimed row resets to 200 ms.
-func TestNextDeliveryInterval(t *testing.T) {
+func TestNextPollInterval(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		cur     time.Duration
 		claimed int
 		want    time.Duration
 	}{
-		{deliveryPollFast, 0, deliveryPollMid},
-		{deliveryPollMid, 0, deliveryPollIdle},
-		{deliveryPollIdle, 0, deliveryPollIdle},
-		{deliveryPollIdle, 3, deliveryPollFast},
-		{deliveryPollFast, 1, deliveryPollFast},
+		{pollFast, 0, pollMid},
+		{pollMid, 0, pollIdle},
+		{pollIdle, 0, pollIdle},
+		{pollIdle, 3, pollFast},
+		{pollFast, 1, pollFast},
 	}
 	for _, c := range cases {
-		if got := nextDeliveryInterval(c.cur, c.claimed); got != c.want {
-			t.Errorf("nextDeliveryInterval(%s, %d) = %s, want %s", c.cur, c.claimed, got, c.want)
+		if got := nextPollInterval(c.cur, c.claimed); got != c.want {
+			t.Errorf("nextPollInterval(%s, %d) = %s, want %s", c.cur, c.claimed, got, c.want)
 		}
 	}
 }
@@ -68,22 +68,22 @@ func TestRunDeliveryLoopIdleBackoff(t *testing.T) {
 
 		first := next()
 		second := next()
-		if gap := second.Sub(first); gap != deliveryPollMid {
-			t.Fatalf("second poll after %s, want the %s step", gap, deliveryPollMid)
+		if gap := second.Sub(first); gap != pollMid {
+			t.Fatalf("second poll after %s, want the %s step", gap, pollMid)
 		}
 		third := next()
-		if gap := third.Sub(second); gap != deliveryPollIdle {
-			t.Fatalf("third poll after %s, want the %s step", gap, deliveryPollIdle)
+		if gap := third.Sub(second); gap != pollIdle {
+			t.Fatalf("third poll after %s, want the %s step", gap, pollIdle)
 		}
 
 		close(release)
 		claimed := next()
-		if wait := claimed.Sub(third); wait > deliveryPollIdle {
-			t.Fatalf("claimed a row %s after enqueue, want <= %s", wait, deliveryPollIdle)
+		if wait := claimed.Sub(third); wait > pollIdle {
+			t.Fatalf("claimed a row %s after enqueue, want <= %s", wait, pollIdle)
 		}
 		reset := next()
-		if gap := reset.Sub(claimed); gap != deliveryPollFast {
-			t.Fatalf("next poll after a claim = %s, want the %s fast interval", gap, deliveryPollFast)
+		if gap := reset.Sub(claimed); gap != pollFast {
+			t.Fatalf("next poll after a claim = %s, want the %s fast interval", gap, pollFast)
 		}
 		cancel()
 	})

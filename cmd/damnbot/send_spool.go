@@ -20,7 +20,8 @@ import (
 // data-dir lease. It publishes a JSON request below run/spool; serve (the lease
 // holder) applies it: a send is enqueued into the outbox, a chat runs through
 // admission and the turn loop with its answer written to run/chat/<id>.jsonl.
-const sendSpoolPoll = 200 * time.Millisecond
+// The loop is idle-backed-off by runPollLoop, so an empty spool costs nothing
+// beyond one read per second.
 
 // spoolRequest is one CLI request. Op is "send" (default for an older writer)
 // or "chat"; ID names the reply file of a chat request.
@@ -58,28 +59,23 @@ func queueSpool(dir, label, kind string, req any) error {
 }
 
 func (g *serveGateway) sendControlLoop(ctx context.Context) {
-	tick := time.NewTicker(sendSpoolPoll)
-	defer tick.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-		g.drainSendSpool(ctx)
-	}
+	runPollLoop(ctx, func() int { return g.drainSendSpool(ctx) })
 }
 
-func (g *serveGateway) drainSendSpool(ctx context.Context) {
+// drainSendSpool applies every pending request and reports how many files it
+// handled, which the poll loop uses to stay on the fast interval.
+func (g *serveGateway) drainSendSpool(ctx context.Context) int {
 	dir := spoolDir(g.dataDir)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return
+		return 0
 	}
+	handled := 0
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasPrefix(e.Name(), "send-") || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
+		handled++
 		path := filepath.Join(dir, e.Name())
 		b, aerr := os.ReadFile(path) // #nosec G304 -- path is <data-dir>/run/spool/<send-pid-nano>.json under the 0700 spool dir; the name comes from ReadDir, so it cannot carry a separator
 		var req sendSpoolRequest
@@ -103,6 +99,7 @@ func (g *serveGateway) drainSendSpool(ctx context.Context) {
 			sessionsPrintf(g.stderr, "gateway: spool: %s\n", cleanLine(rerr.Error()))
 		}
 	}
+	return handled
 }
 
 func (g *serveGateway) enqueueSend(ctx context.Context, req *sendSpoolRequest) error {
