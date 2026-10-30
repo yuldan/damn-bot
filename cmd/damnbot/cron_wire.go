@@ -307,6 +307,7 @@ type serveCron struct {
 	// and the in-memory week gate keeps the idle path free of extra queries.
 	score     *scorecard.Job
 	scoreWeek string
+	outbox    *cronOutbox
 	last      atomic.Int64
 }
 
@@ -327,7 +328,7 @@ func newServeCron(ctx context.Context, db *ctxdb.Store, dataDir, configPath stri
 			Gates: &cron.Gates{Runner: runner, Store: newCronStore(db), Fetch: fetch},
 		},
 		db: db, clock: clock, interval: serveCronInterval, stderr: stderr, done: make(chan struct{}),
-		score:  newScorecardJob(db, deliver, clock),
+		score: newScorecardJob(db, deliver, clock), outbox: out,
 		runner: runner,
 	}
 }
@@ -401,17 +402,31 @@ func (c *serveCron) loop(ctx context.Context) {
 			return
 		case <-c.clock.After(delay):
 		}
+		if ctx.Err() != nil {
+			return
+		}
 		if err := c.tick(ctx); err != nil {
 			delay = min(max(delay*2, c.interval), serveCronMaxDelay)
 			sessionsPrintf(c.stderr, "cron: tick: %s\n", cleanLine(err.Error()))
 		} else {
 			delay = c.interval
 		}
+		if ctx.Err() != nil {
+			return
+		}
+		if err := syncCronHealth(ctx, c.db, time.Now(), func(ctx context.Context, body string) error {
+			return c.outbox.enqueue(ctx, fmt.Sprintf("cron:health:%d", time.Now().UnixNano()), body)
+		}); err != nil {
+			sessionsPrintf(c.stderr, "cron: health: %s\n", cleanLine(err.Error()))
+		}
 	}
 }
 
 // tick skips the scheduler write transaction while no job is enabled.
 func (c *serveCron) tick(ctx context.Context) error {
+	if cerr := ctx.Err(); cerr != nil {
+		return fmt.Errorf("cron tick: %w", cerr)
+	}
 	c.tickScorecard(ctx)
 	c.last.Store(time.Now().UnixMilli())
 	n, err := c.db.Count(ctx, `SELECT EXISTS(SELECT 1 FROM cron_jobs WHERE enabled = 1)`)
