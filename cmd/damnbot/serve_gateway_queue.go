@@ -340,7 +340,7 @@ func (g *serveGateway) releaseChatLease(ctx context.Context, platform, chat stri
 // markQueuedStarted records that a pointer was handed to a turn. A restart
 // treats it as crashed (no replay) so it cannot block newer updates.
 func (g *serveGateway) markQueuedStarted(ctx context.Context, key string) error {
-	return g.store.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+	err := g.store.DB.Write(ctx, func(tx *ctxdb.Tx) error {
 		var raw string
 		if err := tx.Get(`SELECT value FROM module_state WHERE module_id = ?1 AND key = ?2`,
 			[]any{queueModule, key}, &raw); err != nil {
@@ -361,6 +361,10 @@ func (g *serveGateway) markQueuedStarted(ctx context.Context, key string) error 
 		}
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("gateway: mark queued %s: %w", cleanArg(key), err)
+	}
+	return nil
 }
 
 func (g *serveGateway) queuedStarted(ctx context.Context, key string) (bool, error) {
@@ -373,7 +377,7 @@ func (g *serveGateway) queuedStarted(ctx context.Context, key string) (bool, err
 		return nil
 	})
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("gateway: queued state %s: %w", cleanArg(key), err)
 	}
 	var meta struct {
 		Started bool `json:"started"`
