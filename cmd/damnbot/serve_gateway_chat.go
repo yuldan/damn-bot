@@ -192,7 +192,10 @@ func (g *serveGateway) serveChat(ctx context.Context, req *sendSpoolRequest, rep
 	}
 	out, err := g.gate.Admit(ctx, inbound, func(wctx context.Context, t gateway.Ticket) error {
 		reply.emit("status", "accepted", "")
-		turnCtx, done := g.beginTurn(wctx, &t.Scope)
+		turnCtx, done, ok := g.beginTurn(wctx, &t.Scope)
+		if !ok {
+			return errors.New("gateway: turn already active")
+		}
 		defer done()
 		return g.turnLocal(turnCtx, in, &t, reply)
 	})

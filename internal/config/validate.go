@@ -32,6 +32,7 @@ func (c *Config) Validate() error {
 		c.validateRecovery,
 		c.validateUI,
 		c.validateGateway,
+		c.validateModules,
 		c.validateProviders,
 		c.validateLog,
 		c.validateToolsets,
@@ -276,6 +277,11 @@ func (c *Config) validateGateway() error {
 	if c.Gateway.MaxParallelTurns < 1 || c.Gateway.MaxParallelTurns > 16 {
 		return invalid("gateway.max_parallel_turns", "must be in 1..16")
 	}
+	switch c.Gateway.BusyPolicy {
+	case "queue", "steer", "reject_notify":
+	default:
+		return invalid("gateway.busy_policy", "must be queue, steer or reject_notify")
+	}
 	for _, id := range slices.Sorted(maps.Keys(c.Gateway.Users)) {
 		if !validIdentity(id) {
 			return invalid("gateway.users", "identity %q must match ^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$", id)
@@ -285,6 +291,15 @@ func (c *Config) validateGateway() error {
 		}
 	}
 	return nil
+}
+
+func (c *Config) validateModules() error {
+	switch c.Modules.Gateway.Telegram.ThreadFallback {
+	case "fail", "parent":
+		return nil
+	default:
+		return invalid("modules.gateway.telegram.thread_fallback", "must be fail or parent")
+	}
 }
 
 func (c *Config) validateProviders() error {

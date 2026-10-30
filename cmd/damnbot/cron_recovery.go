@@ -33,31 +33,15 @@ func recoverCrashedRuns(ctx context.Context, db *ctxdb.Store, notify func(contex
 			return fmt.Errorf("crashed runs: %w", xerr)
 		}
 		for _, row := range rows {
-			var (
-				at   int64
-				job  string
-				name string
-			)
-			if xerr := tx.Get(`SELECT r.job_id, j.name, r.scheduled_at FROM cron_runs r
-				JOIN cron_jobs j ON j.id = r.job_id WHERE r.rowid = ?1`, []any{row}, &job, &name, &at); xerr != nil {
-				return fmt.Errorf("crashed run %d: %w", row, xerr)
-			}
-			n, xerr := tx.Exec(`UPDATE cron_runs SET outcome = 'crashed', finished_at = ?3,
-					stop_reason = coalesce(stop_reason, '') || ' crash recovered',
-					error = 'process died before finish'
-				WHERE job_id = ?1 AND scheduled_at = ?2 AND outcome IS NULL`,
-				job, at, now)
+			out, xerr := closeOpenRun(tx, row, now)
 			if xerr != nil {
-				return fmt.Errorf("close crashed run: %w", xerr)
+				return xerr
 			}
-			if n != 1 {
+			if !out.handled {
 				continue
 			}
 			closed++
-			notices = append(notices, cronNotice{
-				key:  fmt.Sprintf("cron-crash:%s:%d", job, at),
-				body: fmt.Sprintf("cron %q: slot %s crashed (proses mati); slot tidak diulang, jadwal berikutnya tetap jalan", name, time.UnixMilli(at).UTC().Format(time.RFC3339)),
-			})
+			notices = append(notices, out.notice)
 		}
 		paused, err := pauseCrashedJobs(tx, now)
 		if err != nil {
@@ -75,6 +59,64 @@ func recoverCrashedRuns(ctx context.Context, db *ctxdb.Store, notify func(contex
 		}
 	}
 	return closed, nil
+}
+
+// crashClose is the result of closing one open run.
+type crashClose struct {
+	handled bool
+	notice  cronNotice
+}
+
+// closeOpenRun marks one orphaned slot crashed, or requeues it when the job
+// opted into retry_on_crash/idempotent.
+func closeOpenRun(tx *ctxdb.Tx, row, now int64) (crashClose, error) {
+	var (
+		at          int64
+		job, name   string
+		retry, idem int64
+	)
+	if err := tx.Get(`SELECT r.job_id, j.name, r.scheduled_at, j.retry_on_crash, j.idempotent
+		FROM cron_runs r JOIN cron_jobs j ON j.id = r.job_id WHERE r.rowid = ?1`,
+		[]any{row}, &job, &name, &at, &retry, &idem); err != nil {
+		return crashClose{}, fmt.Errorf("crashed run %d: %w", row, err)
+	}
+	if retried, err := requeueCrashed(tx, job, at, retry, idem); err != nil {
+		return crashClose{}, err
+	} else if retried {
+		return crashClose{handled: true, notice: cronNotice{
+			key:  fmt.Sprintf("cron-crash:%s:%d", job, at),
+			body: fmt.Sprintf("cron %q: slot %s crashed (proses mati); retry_on_crash/idempotent aktif, slot diantre ulang", name, time.UnixMilli(at).UTC().Format(time.RFC3339)),
+		}}, nil
+	}
+	n, err := tx.Exec(`UPDATE cron_runs SET outcome = 'crashed', finished_at = ?3,
+			stop_reason = coalesce(stop_reason, '') || ' crash recovered',
+			error = 'process died before finish'
+		WHERE job_id = ?1 AND scheduled_at = ?2 AND outcome IS NULL`, job, at, now)
+	if err != nil {
+		return crashClose{}, fmt.Errorf("close crashed run: %w", err)
+	}
+	if n != 1 {
+		return crashClose{}, nil
+	}
+	return crashClose{handled: true, notice: cronNotice{
+		key:  fmt.Sprintf("cron-crash:%s:%d", job, at),
+		body: fmt.Sprintf("cron %q: slot %s crashed (proses mati); slot tidak diulang, jadwal berikutnya tetap jalan", name, time.UnixMilli(at).UTC().Format(time.RFC3339)),
+	}}, nil
+}
+
+// requeueCrashed implements the REL-09 opt-in: only retry_on_crash or
+// idempotent=true puts the crashed slot back in the queue.
+func requeueCrashed(tx *ctxdb.Tx, job string, at, retry, idem int64) (bool, error) {
+	if retry == 0 && idem == 0 {
+		return false, nil
+	}
+	if _, err := tx.Exec(`UPDATE cron_runs SET started_at = NULL, finished_at = NULL,
+			stop_reason = coalesce(stop_reason, '') || ' retry_on_crash',
+			error = 'process died; retry requested'
+		WHERE job_id = ?1 AND scheduled_at = ?2 AND outcome IS NULL`, job, at); err != nil {
+		return false, fmt.Errorf("requeue crashed run: %w", err)
+	}
+	return true, nil
 }
 
 // pauseCrashedJobs pauses jobs at pause_after_crashes consecutive crashed

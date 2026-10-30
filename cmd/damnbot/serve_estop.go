@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -70,7 +71,10 @@ func (g *serveGateway) replay(ctx context.Context, p *gwstore.Pending) bool {
 		UpdateID: p.UpdateID, Group: in.Group, Mentioned: true, ReplyToBot: true, Payload: p.Payload, Text: p.Text,
 	}
 	out, err := g.gate.AdmitPending(ctx, &msg, func(wctx context.Context, t gateway.Ticket) error {
-		turnCtx, done := g.beginTurn(wctx, &t.Scope)
+		turnCtx, done, ok := g.beginTurn(wctx, &t.Scope)
+		if !ok {
+			return errors.New("gateway: turn already active")
+		}
 		defer done()
 		return g.run(turnCtx, &in, &t)
 	})

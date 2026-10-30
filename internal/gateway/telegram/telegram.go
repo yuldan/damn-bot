@@ -103,36 +103,41 @@ type Config struct {
 	// (SEC-16). Nil disables the scan in unit tests; serve wires
 	// netx.Network.ScanText.
 	Scan func(string) error
+	// ThreadFallback is "fail" (default) or "parent". "parent" resends a
+	// send to a missing forum topic into the parent chat with a label; the
+	// default never does (GW-06).
+	ThreadFallback string
 }
 
 // Adapter is one configured Telegram bot.
 type Adapter struct {
-	base, token  string
-	account      string
-	username     string
-	botID        int64
-	doer         Doer
-	dmu          sync.RWMutex
-	rebuild      func() Doer
-	store        Store
-	clock        Clock
-	throttle     Throttle
-	send         *limiter
-	edit         *limiter
-	noCompress   bool
-	maxChunks    int
-	sendTimeout  time.Duration
-	mediaTimeout time.Duration
-	stallAfter   time.Duration
-	conflictWait time.Duration
-	conflictNote time.Duration
-	onConflict   func(time.Duration)
-	scan         func(string) error
-	conflictAt   time.Time
-	notified     bool
-	after        time.Duration
-	pending      map[string]*approval
-	mu           sync.Mutex
+	base, token    string
+	account        string
+	username       string
+	botID          int64
+	doer           Doer
+	dmu            sync.RWMutex
+	rebuild        func() Doer
+	store          Store
+	clock          Clock
+	throttle       Throttle
+	send           *limiter
+	edit           *limiter
+	noCompress     bool
+	maxChunks      int
+	sendTimeout    time.Duration
+	mediaTimeout   time.Duration
+	stallAfter     time.Duration
+	conflictWait   time.Duration
+	conflictNote   time.Duration
+	onConflict     func(time.Duration)
+	scan           func(string) error
+	threadFallback string
+	conflictAt     time.Time
+	notified       bool
+	after          time.Duration
+	pending        map[string]*approval
+	mu             sync.Mutex
 }
 
 // EgressClient returns the only netx client the gateway creates (ADR-247).
@@ -167,14 +172,15 @@ func New(cfg *Config) (*Adapter, error) {
 		clock: clock, throttle: cfg.Throttle, after: 300 * time.Second, pending: map[string]*approval{},
 		account: account, username: strings.TrimPrefix(cfg.Username, "@"),
 		noCompress: cfg.NoCompression, rebuild: cfg.Rebuild,
-		maxChunks:    cmp.Or(cfg.MaxChunksPerReply, 5),
-		sendTimeout:  sendDeadline,
-		mediaTimeout: mediaDeadline,
-		conflictWait: cmp.Or(cfg.ConflictWait, pollTimeout+5*time.Second),
-		conflictNote: cmp.Or(cfg.ConflictNotifyAfter, 5*time.Minute),
-		onConflict:   cfg.OnConflict,
-		scan:         cfg.Scan,
-		stallAfter:   2*pollTimeout + pollStallMargin,
+		maxChunks:      cmp.Or(cfg.MaxChunksPerReply, 5),
+		sendTimeout:    sendDeadline,
+		mediaTimeout:   mediaDeadline,
+		conflictWait:   cmp.Or(cfg.ConflictWait, pollTimeout+5*time.Second),
+		conflictNote:   cmp.Or(cfg.ConflictNotifyAfter, 5*time.Minute),
+		onConflict:     cfg.OnConflict,
+		scan:           cfg.Scan,
+		threadFallback: cmp.Or(cfg.ThreadFallback, "fail"),
+		stallAfter:     2*pollTimeout + pollStallMargin,
 	}
 	if id, err := strconv.ParseInt(account, 10, 64); err == nil {
 		a.botID = id

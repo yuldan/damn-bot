@@ -72,6 +72,12 @@ func (a *Adapter) deliverMedia(ctx context.Context, out *Outbound) (int64, error
 		return 0, err
 	}
 	id, sendErr := a.sendMedia(ctx, out, &at)
+	if errors.Is(sendErr, ErrThreadNotFound) && a.threadFallback == "parent" && out.ThreadID != "" {
+		parent := *out
+		parent.ThreadID = ""
+		parent.Text = "[fallback topik] " + parent.Text
+		id, sendErr = a.sendMedia(ctx, &parent, &at)
+	}
 	if sendErr != nil {
 		if out.Key != "" && uncertain(sendErr) {
 			if perr := a.store.PutMessageID(ctx, out.Key, 0); perr != nil {

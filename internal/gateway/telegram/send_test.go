@@ -327,3 +327,25 @@ func TestSendScansCaptionBeforeEgress(t *testing.T) {
 		t.Fatalf("media uploads = %d, want 1", n)
 	}
 }
+
+// TestThreadFallbackParentIsOptIn: default fail never redirects (the test
+// above); thread_fallback="parent" resends once to the parent chat with a
+// label. The second send has no message_thread_id.
+func TestThreadFallbackParentIsOptIn(t *testing.T) {
+	f := newFakeTG(t)
+	f.setFault("sendMessage", fakeFault{Status: 400, Description: "Bad Request: message thread not found", Times: 1})
+	a, _ := newTestAdapter(t, f, newMemStore(), func(c *Config) { c.ThreadFallback = "parent" })
+	if _, err := a.Send(t.Context(), &Outbound{ChatID: "-100", ThreadID: "9", Text: "rahasia"}); err != nil {
+		t.Fatalf("parent fallback send: %v", err)
+	}
+	calls := f.callsFor("sendMessage")
+	if len(calls) != 2 {
+		t.Fatalf("sendMessage calls = %d, want the failed topic call + one parent retry", len(calls))
+	}
+	if got := calls[1].Form.Get("message_thread_id"); got != "" {
+		t.Errorf("fallback thread = %q, want empty parent", got)
+	}
+	if got := calls[1].Form.Get("text"); !strings.HasPrefix(got, "[fallback topik] ") || !strings.Contains(got, "rahasia") {
+		t.Errorf("fallback text = %q, want label + body", got)
+	}
+}

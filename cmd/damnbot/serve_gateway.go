@@ -119,7 +119,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	net := netx.New(netx.Config{Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background})
 
 	var self *serveGateway
-	adapter, limiter, err := newGatewayAdapter(ctx, token, net, store, wd, metrics, stderr, func(ctx context.Context, key, body string) {
+	adapter, limiter, err := newGatewayAdapter(ctx, token, cfg.Modules.Gateway.Telegram.ThreadFallback, net, store, wd, metrics, stderr, func(ctx context.Context, key, body string) {
 		if self != nil {
 			self.notifyOwner(ctx, key, body)
 		}
@@ -177,7 +177,7 @@ func (g *serveGateway) startPlatform(ctx context.Context, o *serveOptions) error
 
 // newGatewayAdapter owns the one Telegram adapter and its outbound limiter.
 // notify receives the 409 conflict notice (REL-02).
-func newGatewayAdapter(ctx context.Context, token string, net *netx.Network, store gwstore.Store, wd *heal.Watchdog, metrics *obs.Metrics, stderr io.Writer, notify func(context.Context, string, string)) (*telegram.Adapter, *gateway.Limiter, error) {
+func newGatewayAdapter(ctx context.Context, token, threadFallback string, net *netx.Network, store gwstore.Store, wd *heal.Watchdog, metrics *obs.Metrics, stderr io.Writer, notify func(context.Context, string, string)) (*telegram.Adapter, *gateway.Limiter, error) {
 	limiter, err := gateway.NewLimiterCaps(gateway.TelegramCaps())
 	if err != nil {
 		return nil, nil, fmt.Errorf("gateway limiter: %w", err)
@@ -194,6 +194,7 @@ func newGatewayAdapter(ctx context.Context, token string, net *netx.Network, sto
 		Throttle:          limiter,
 		MaxChunksPerReply: gateway.TelegramCaps().MaxChunksPerReply,
 		Scan:              net.ScanText,
+		ThreadFallback:    threadFallback,
 		OnConflict: func(d time.Duration) {
 			notify(ctx, "poll-conflict",
 				fmt.Sprintf("getUpdates 409 selama %s: proses lain masih memegang bot; antrean tidak dibuang", d.Round(time.Second)))
@@ -318,7 +319,10 @@ func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound, recorde
 		Committed: in.Commit,
 	}
 	work := func(wctx context.Context, t gateway.Ticket) error {
-		turnCtx, done := g.beginTurn(wctx, &t.Scope)
+		turnCtx, done, ok := g.beginTurn(wctx, &t.Scope)
+		if !ok {
+			return errors.New("gateway: turn already active")
+		}
 		defer done()
 		return g.run(turnCtx, in, &t)
 	}

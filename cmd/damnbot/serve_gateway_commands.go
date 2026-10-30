@@ -25,10 +25,12 @@ type turnKey struct {
 	principal string
 }
 
-// chatTurn is the cancel of one active turn and whether /stop already used it.
+// chatTurn is the cancel of one active turn. stopped and done are guarded by
+// serveGateway.turnMu, so /stop and turn completion share one critical section.
 type chatTurn struct {
 	cancel  context.CancelFunc
 	stopped bool
+	done    bool
 }
 
 // dispatch queues one update on its chat lane. Command messages go to a
@@ -208,21 +210,29 @@ func (g *serveGateway) createSession(ctx context.Context, scope *gateway.Scope) 
 
 // beginTurn registers the turn's cancel so /stop can reach it, and returns the
 // per-chat context the runner (and the loop inside it) already honours.
-func (g *serveGateway) beginTurn(ctx context.Context, scope *gateway.Scope) (context.Context, func()) {
+func (g *serveGateway) beginTurn(ctx context.Context, scope *gateway.Scope) (context.Context, func(), bool) {
 	turnCtx, cancel := context.WithCancel(ctx)
 	key := turnKey{route: scope.Route(), principal: scope.Label()}
 	turn := &chatTurn{cancel: cancel}
 	g.turnMu.Lock()
+	if old := g.turns[key]; old != nil && !old.done {
+		// One active turn per (route, principal): a duplicate admission must
+		// never replace the live entry, or /stop would claim a phantom turn.
+		g.turnMu.Unlock()
+		cancel()
+		return turnCtx, func() {}, false
+	}
 	g.turns[key] = turn
 	g.turnMu.Unlock()
 	return turnCtx, func() {
 		g.turnMu.Lock()
+		turn.done = true
 		if g.turns[key] == turn {
 			delete(g.turns, key)
 		}
 		g.turnMu.Unlock()
 		cancel()
-	}
+	}, true
 }
 
 // StopTurn implements gateway.Runtime: cancel the caller's live turn in this
@@ -233,7 +243,7 @@ func (g *serveGateway) StopTurn(_ context.Context, scope *gateway.Scope) (bool, 
 	g.turnMu.Lock()
 	defer g.turnMu.Unlock()
 	turn := g.turns[key]
-	if turn == nil || turn.stopped {
+	if turn == nil || turn.stopped || turn.done {
 		return false, nil
 	}
 	turn.stopped = true
