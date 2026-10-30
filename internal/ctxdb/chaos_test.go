@@ -70,6 +70,13 @@ func TestChildProcess(t *testing.T) {
 		say(t, "READY")
 		t.Log(waitStdin())
 		return
+	case "slow-ready":
+		// Negative control for awaitChild: stays alive but signals READY only
+		// after the short deadline the test passes.
+		<-time.After(2 * time.Second)
+		say(t, "READY")
+		t.Log(waitStdin())
+		return
 	}
 	s, err := Open(context.Background(), &Options{Dir: dir, Kind: "tui"})
 	must(t, err)
@@ -140,9 +147,27 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
+// childReadyTimeout is a safety bound, not the readiness mechanism: READY is
+// one explicit line on the child's stdout pipe. The bound is generous because
+// Windows CI starts processes slowly under antivirus; the negative control
+// proves that a child which never signals still fails the test instead of
+// hanging it.
+const childReadyTimeout = 2 * time.Minute
+
 func startChild(t *testing.T, role, dir string) *child {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestChildProcess$", "-test.count=1") //nolint:gosec // G204: re-exec of this test binary
+	c := spawnChild(t, role, dir)
+	if err := awaitChild(c, childReadyTimeout); err != nil {
+		t.Fatalf("child %s: %v", role, err)
+	}
+	return c
+}
+
+// spawnChild starts the re-executed child without waiting for READY, so a
+// caller (or a negative control) owns the deadline.
+func spawnChild(t *testing.T, role, dir string) *child {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestChildProcess$", "-test.count=1") // #nosec G204 G702 -- re-exec of this test binary
 	cmd.Env = append(os.Environ(), childRoleEnv+"="+role, childDirEnv+"="+dir)
 	stdout, err := cmd.StdoutPipe()
 	must(t, err)
@@ -155,8 +180,12 @@ func startChild(t *testing.T, role, dir string) *child {
 		t.Log(stdin.Close())
 		c.kill9(t)
 	})
-	// The child's test framework writes its failure (t.Fatal output) to stdout before
-	// READY; keep those lines so an early exit is diagnosable instead of opaque.
+	return c
+}
+
+// awaitChild waits for the child's explicit READY line. Readiness never polls
+// wall time: the pipe is the signal, the timeout only bounds a broken child.
+func awaitChild(c *child, timeout time.Duration) error {
 	type ready struct {
 		ok  bool
 		pre []string
@@ -173,17 +202,28 @@ func startChild(t *testing.T, role, dir string) *child {
 		}
 		ch <- ready{pre: pre}
 	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
 	select {
 	case r := <-ch:
 		if !r.ok {
-			werr := cmd.Wait()
-			t.Fatalf("child %s exited before READY: %v\nstdout:\n%s\nstderr:\n%s",
-				role, werr, strings.Join(r.pre, "\n"), c.stderr.String())
+			werr := c.cmd.Wait()
+			return fmt.Errorf("exited before READY: %w\nstdout:\n%s\nstderr:\n%s",
+				werr, strings.Join(r.pre, "\n"), c.stderr.String())
 		}
-	case <-time.After(30 * time.Second):
-		t.Fatalf("child %s not ready", role)
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("not ready within %s (child still running)\nstderr:\n%s", timeout, c.stderr.String())
 	}
-	return c
+}
+
+// TestChildReadyTimeoutIsFatal is the negative control: a live child that does
+// not signal READY must fail the wait, not pass by waiting forever.
+func TestChildReadyTimeoutIsFatal(t *testing.T) {
+	c := spawnChild(t, "slow-ready", t.TempDir())
+	if err := awaitChild(c, 100*time.Millisecond); err == nil {
+		t.Fatal("awaitChild accepted a child that had not signalled READY")
+	}
 }
 
 // kill9 SIGKILLs the child and reaps it; "already finished" and the
@@ -474,15 +514,53 @@ type chaosResult struct {
 // never tolerated: that is the failure class this suite hunts.
 func chaosAppend(ctx context.Context, s *Store, sid string, n int) (retries int, err error) {
 	for {
-		_, err = s.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "chaos " + itoa(int64(n))})
+		err = chaosRetry(ctx, func() error {
+			_, aerr := s.Append(ctx, sid, nil, Event{Kind: "user_message", Content: "chaos " + itoa(int64(n))})
+			return aerr
+		})
 		if !errors.Is(err, ErrLeaseFenced) {
 			return retries, err
 		}
 		if retries++; retries > chaosFenceRetryLimit {
 			return retries, fmt.Errorf("fenced %d times in a row (limit %d): %w", retries, chaosFenceRetryLimit, err)
 		}
-		if _, aerr := s.AcquireLease(ctx, sid); aerr != nil {
+		if serr := sleepReal(ctx, chaosBackoff(retries)); serr != nil {
+			return retries, serr
+		}
+		if aerr := chaosRetry(ctx, func() error {
+			_, aerr := s.AcquireLease(ctx, sid)
+			return aerr
+		}); aerr != nil {
 			return retries, aerr
+		}
+	}
+}
+
+// chaosBackoff is the bounded exponential delay between transient retries:
+// 10, 20, 40, 80, 160 ms. Deterministic (no jitter) so the window and the
+// null results stay reproducible across runs.
+func chaosBackoff(attempt int) time.Duration {
+	d := 10 * time.Millisecond
+	for range attempt {
+		if d >= 160*time.Millisecond {
+			break
+		}
+		d *= 2
+	}
+	return d
+}
+
+// chaosRetry runs op and retries ErrDBBusy with backoff. Exhausting the bound
+// returns the error: a transient busy (WAL checkpoint, migration on Windows)
+// is absorbed, a persistent db_busy still fails the suite.
+func chaosRetry(ctx context.Context, op func() error) error {
+	for attempt := 0; ; attempt++ {
+		err := op()
+		if !errors.Is(err, ErrDBBusy) || attempt == chaosFenceRetryLimit {
+			return err
+		}
+		if serr := sleepReal(ctx, chaosBackoff(attempt)); serr != nil {
+			return serr
 		}
 	}
 }
@@ -493,7 +571,7 @@ func chaosAppend(ctx context.Context, s *Store, sid string, n int) (retries int,
 // fatal here.
 func chaosStep(ctx context.Context, s *Store, sid string, n int, next *time.Time) (retries int, err error) {
 	if !time.Now().Before(*next) {
-		if herr := s.Heartbeat(ctx, sid); herr != nil && !errors.Is(herr, ErrLeaseFenced) {
+		if herr := s.Heartbeat(ctx, sid); herr != nil && !errors.Is(herr, ErrLeaseFenced) && !errors.Is(herr, ErrDBBusy) {
 			return 0, herr
 		}
 		*next = time.Now().Add(chaosLeaseHeartbeat)
@@ -508,7 +586,7 @@ func chaosClient(dir string, i int, deadline time.Time) (retries int, err error)
 	ctx := context.Background()
 	id := &Ident{Host: "chaos", PID: i + 1, Start: "chaos", BootID: "chaos"}
 	var s *Store
-	for {
+	for attempt := 0; ; attempt++ {
 		s, err = Open(ctx, &Options{Dir: dir, Kind: "cli", Ident: id, BusyTimeout: 5 * time.Second})
 		if err == nil {
 			break
@@ -519,7 +597,7 @@ func chaosClient(dir string, i int, deadline time.Time) (retries int, err error)
 		if time.Now().After(deadline) {
 			return retries, nil // startup contention beyond the window is not a user-visible lock
 		}
-		if serr := sleepReal(ctx, 10*time.Millisecond); serr != nil {
+		if serr := sleepReal(ctx, chaosBackoff(attempt)); serr != nil {
 			return retries, serr
 		}
 	}
@@ -535,8 +613,11 @@ func chaosClient(dir string, i int, deadline time.Time) (retries int, err error)
 		if serr != nil {
 			return retries, serr
 		}
-		if _, err = s.Recall(ctx, "chaos", 5); err != nil {
-			return retries, err
+		if rerr := chaosRetry(ctx, func() error {
+			_, rerr := s.Recall(ctx, "chaos", 5)
+			return rerr
+		}); rerr != nil {
+			return retries, rerr
 		}
 	}
 	return retries, nil
@@ -624,6 +705,34 @@ func TestChaos50ClientsAcrossLeaseTTL(t *testing.T) {
 		t.Skip("set DAMNBOT_CHAOS_LONG=1 (make chaos-nightly) to cross the lease TTL")
 	}
 	runChaosClients(t, chaosDuration(t, 3*LeaseTTL*time.Millisecond+15*time.Second))
+}
+
+// TestChaosBusyRetryBound pins both sides of chaosRetry: a transient busy is
+// absorbed, a persistent one still fails. Without the second half the suite
+// could hide the exact regression it exists to catch.
+func TestChaosBusyRetryBound(t *testing.T) {
+	ctx := context.Background()
+	calls := 0
+	err := chaosRetry(ctx, func() error {
+		calls++
+		return ErrDBBusy
+	})
+	if !errors.Is(err, ErrDBBusy) {
+		t.Fatalf("persistent busy = %v, want ErrDBBusy", err)
+	}
+	if want := chaosFenceRetryLimit + 1; calls != want {
+		t.Fatalf("attempts = %d, want %d", calls, want)
+	}
+	calls = 0
+	if err := chaosRetry(ctx, func() error {
+		calls++
+		if calls < 3 {
+			return ErrDBBusy
+		}
+		return nil
+	}); err != nil || calls != 3 {
+		t.Fatalf("transient busy = %v after %d attempts, want nil after 3", err, calls)
+	}
 }
 
 // TestChaosClientRecoversFromFencing pins the failure mode the CI flake showed
