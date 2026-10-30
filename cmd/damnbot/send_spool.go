@@ -81,7 +81,7 @@ func (g *serveGateway) drainSendSpool(ctx context.Context) {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
-		b, aerr := os.ReadFile(path) //nolint:gosec // inside the 0700 spool
+		b, aerr := os.ReadFile(path) // #nosec G304 -- path is <data-dir>/run/spool/<send-pid-nano>.json under the 0700 spool dir; the name comes from ReadDir, so it cannot carry a separator
 		var req sendSpoolRequest
 		if aerr == nil {
 			aerr = json.Unmarshal(b, &req)
