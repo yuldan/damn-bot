@@ -251,6 +251,10 @@ func (a *fakeApprover) Approve(_ context.Context, req *ApprovalRequest) (Approva
 	return r, nil
 }
 
+type fakeRedactor struct{}
+
+func (fakeRedactor) Redact(s string) string { return strings.ReplaceAll(s, "sk-secret", "[REDACTED]") }
+
 type fakeSpiller struct {
 	mu    sync.Mutex
 	ref   string
@@ -265,10 +269,6 @@ func (s *fakeSpiller) Spill(_ context.Context, _ string) (string, error) {
 	return s.ref, s.err
 }
 
-type fakeRedactor struct{}
-
-func (fakeRedactor) Redact(s string) string { return strings.ReplaceAll(s, "sk-secret", "[REDACTED]") }
-
 // ---- fixture -------------------------------------------------------------
 
 type fixture struct {
@@ -280,7 +280,7 @@ type fixture struct {
 	ledger    *fakeLedger
 	carriers  *fakeCarrierStore
 	approver  *fakeApprover
-	spiller   *fakeSpiller
+	spiller   Spiller
 	redactor  Redactor
 	validate  func(string) error
 	compactor Compactor

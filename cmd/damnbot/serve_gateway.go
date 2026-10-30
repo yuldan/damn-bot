@@ -196,6 +196,9 @@ func (g *serveGateway) Start(ctx context.Context) error {
 
 func (g *serveGateway) Stop() {
 	if g != nil && g.cancel != nil {
+		if g.watchdog != nil {
+			g.watchdog.Disarm()
+		}
 		g.cancel()
 		g.chats.Close()
 		g.wg.Wait()
@@ -386,6 +389,13 @@ type replyPacer struct {
 	edits   int
 }
 
+// newReplyPacer starts one turn's flush cursor at shown bytes and start time.
+// The cursor is built per turn, so the byte/time state of an earlier reply
+// cannot suppress or delay the first flush of the next one (EC-STATE-012).
+func newReplyPacer(start time.Time, shown int) replyPacer {
+	return replyPacer{started: shown > 0, last: start, flushed: shown}
+}
+
 // observe records total reply bytes at now and reports whether they should be
 // flushed. Short replies never flush mid-stream (their single final edit is
 // enough); longer ones keep the ≥1.1 s / 1.2 s-or-80-chars cadence.
@@ -426,7 +436,7 @@ type replyOutcome struct {
 // replyEditGap; it is injected so tests advance a fake clock instead of sleeping.
 func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() time.Time, wait func(context.Context, time.Duration) error, flush func(context.Context, string) error, start time.Time, shown int) replyOutcome {
 	var answer []byte
-	pacer := replyPacer{started: shown > 0, last: start, flushed: shown}
+	pacer := newReplyPacer(start, shown)
 	var stop event.StopReason
 	var detail event.StopDetail
 	var sent string

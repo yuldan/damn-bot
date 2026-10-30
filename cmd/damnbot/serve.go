@@ -164,6 +164,11 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	return serveLoop(ctx, sigCtx, o, eps, hs, errs, db, lock, daemon, gw, gwErr, stderr)
 }
 
+// serveForceExit is the last resort of the shutdown backstop: a goroutine that
+// ignores its context must not keep the supervisor waiting, so the process
+// leaves immediately with the planned-stop code.
+func serveForceExit(code int) { os.Exit(code) }
+
 // serveLoop waits for a stop signal (or a fatal endpoint error), drains the
 // active turns, shuts the listener down and closes the store. sigCtx is the
 // signal-aware context installed by serveRun before any progress was logged.
@@ -192,6 +197,14 @@ func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps
 	}
 	if !daemon.Drain(o.drainTimeout) {
 		sessionsPrintf(stderr, "serve: drain window %s elapsed; active turns cancelled\n", o.drainTimeout)
+		// EC-TERM-008: a turn that ignores cancellation must not hold the
+		// supervisor. The grace already passed, so log which turns are stuck
+		// and leave the process without running more shutdown work they could
+		// block; a requested stop still exits clean.
+		if n := daemon.Active(); n > 0 {
+			sessionsPrintf(stderr, "serve: shutdown backstop: %d turn(s) ignored cancellation for %s; forcing exit\n", n, drainCancelGrace)
+			serveForceExit(serveExitClean)
+		}
 	}
 	gw.Stop()
 	shutCtx, cancelShut := context.WithTimeout(context.WithoutCancel(ctx), serveShutdownMax)

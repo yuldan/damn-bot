@@ -84,9 +84,11 @@ func NewWatchdog(o WatchdogOptions) (*Watchdog, error) {
 }
 
 // Beat records progress from the serving loop; it re-arms the recovery action.
+// The timestamp and the armed flag move under the same lock, so a Check that
+// is already past its fast path cannot miss this beat and fire behind it.
 func (w *Watchdog) Beat() {
-	w.last.Store(w.now().UnixNano())
 	w.mu.Lock()
+	w.last.Store(w.now().UnixNano())
 	w.armed = true
 	w.mu.Unlock()
 }
@@ -95,6 +97,18 @@ func (w *Watchdog) Beat() {
 // is not alive (GAP-REL-17).
 func (w *Watchdog) Stale() bool {
 	return w.now().Sub(time.Unix(0, w.last.Load())) > w.staleAfter
+}
+
+// Disarm gives up the pending recovery action (startup completed, or the
+// owner is shutting down) without clearing the breaker. It reports whether it
+// won the armed→disarmed transition; Check and Disarm race for the same edge
+// under mu, so exactly one of them wins (EC-TERM-010).
+func (w *Watchdog) Disarm() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	won := w.armed
+	w.armed = false
+	return won
 }
 
 // Reset clears the breaker after `damnbot service resume` (SELF-HEALING §1.1)
@@ -113,6 +127,13 @@ func (w *Watchdog) Check(ctx context.Context) bool {
 	}
 	w.mu.Lock()
 	if w.tripped || !w.armed {
+		w.mu.Unlock()
+		return false
+	}
+	// A Beat may have landed while this Check waited for the lock; it wins
+	// the armed→disarmed transition and no action fires for this episode.
+	beat = time.Unix(0, w.last.Load())
+	if now.Sub(beat) <= w.staleAfter {
 		w.mu.Unlock()
 		return false
 	}
