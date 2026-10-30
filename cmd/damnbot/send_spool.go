@@ -16,17 +16,23 @@ import (
 	"github.com/damnbot/damnbot/internal/gateway"
 )
 
-// A CLI send must not open a second write connection while serve owns the
+// A CLI command must not open a second write connection while serve owns the
 // data-dir lease. It publishes a JSON request below run/spool; serve (the lease
-// holder) enqueues it into the outbox and its worker delivers it.
+// holder) applies it: a send is enqueued into the outbox, a chat runs through
+// admission and the turn loop with its answer written to run/chat/<id>.jsonl.
 const sendSpoolPoll = 200 * time.Millisecond
 
+// spoolRequest is one CLI request. Op is "send" (default for an older writer)
+// or "chat"; ID names the reply file of a chat request.
 type sendSpoolRequest struct {
+	Op       string `json:"op,omitempty"`
 	Platform string `json:"platform"`
 	Chat     string `json:"chat"`
 	Thread   string `json:"thread,omitempty"`
+	Sender   string `json:"sender,omitempty"`
 	Text     string `json:"text"`
-	Key      string `json:"key"`
+	Key      string `json:"key,omitempty"`
+	ID       string `json:"id,omitempty"`
 }
 
 func spoolDir(dataDir string) string { return filepath.Join(dataDir, "run", "spool") }
@@ -81,13 +87,20 @@ func (g *serveGateway) drainSendSpool(ctx context.Context) {
 			aerr = json.Unmarshal(b, &req)
 		}
 		if aerr == nil {
-			aerr = g.enqueueSend(ctx, &req)
+			switch req.Op {
+			case "", "send":
+				aerr = g.enqueueSend(ctx, &req)
+			case "chat":
+				aerr = g.startChat(ctx, &req)
+			default:
+				aerr = fmt.Errorf("unknown request %s", cleanArg(req.Op))
+			}
 		}
 		if aerr != nil {
-			sessionsPrintf(g.stderr, "gateway: send spool: %s\n", cleanLine(aerr.Error()))
+			sessionsPrintf(g.stderr, "gateway: spool: %s\n", cleanLine(aerr.Error()))
 		}
 		if rerr := os.Remove(path); rerr != nil && !errors.Is(rerr, fs.ErrNotExist) {
-			sessionsPrintf(g.stderr, "gateway: send spool: %s\n", cleanLine(rerr.Error()))
+			sessionsPrintf(g.stderr, "gateway: spool: %s\n", cleanLine(rerr.Error()))
 		}
 	}
 }

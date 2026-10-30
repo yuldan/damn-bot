@@ -41,6 +41,8 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 		return gatewayStatus(args[1:], stdout, stderr)
 	case "platform":
 		return gatewayPlatform(args[1:], stdout, stderr)
+	case "chat":
+		return gatewayChat(args[1:], stdout, stderr)
 	}
 	sessionsPrintf(stderr, "gateway: unknown subcommand %q\n", cleanArg(args[0]))
 	gatewayUsage(stderr)
@@ -53,8 +55,10 @@ func gatewayUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot gateway list [--platform P] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway status [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway platform list|pause|resume <name> [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot gateway chat [--platform telegram] [--chat ID] [--thread ID] [--data-dir DIR]\n")
 	sessionsPrintf(w, "bootstrap: DAMNBOT_GATEWAY_OWNER=platform:id and DAMNBOT_GATEWAY_ALLOW=platform:id,... (or a JSON list)\n")
 	sessionsPrintf(w, "missing identities only; the database stays the source of truth.\n")
+	sessionsPrintf(w, "chat is a local REPL over a running serve; it never opens the database itself.\n")
 }
 
 // gatewayOpen opens the data dir, applies the env bootstrap and returns the
