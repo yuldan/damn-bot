@@ -85,6 +85,9 @@ func cronList(sub string, o *cronOptions, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if o.json {
+		if sub == "status" {
+			return cronStatusJSON(env.db, jobs, stdout, stderr)
+		}
 		return cronJSON(stdout, stderr, jobs)
 	}
 	if sub == "status" {
@@ -113,6 +116,17 @@ func cronList(sub string, o *cronOptions, stdout, stderr io.Writer) int {
 		}
 	}
 	return 0
+}
+
+func cronStatusJSON(db *ctxdb.Store, jobs []cron.Job, stdout, stderr io.Writer) int {
+	health, err := evaluateCronHealth(context.Background(), db, time.Now())
+	if err != nil {
+		return cronErr(stderr, "status", err)
+	}
+	return cronJSON(stdout, stderr, struct {
+		Jobs   []cron.Job            `json:"jobs"`
+		Health []cronHealthCondition `json:"health"`
+	}{jobs, health})
 }
 
 func cronNext(j *cron.Job) string {
