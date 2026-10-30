@@ -2459,13 +2459,14 @@ turn_max_input_tok   = 400000
 turn_max_output_tok  = 32000
 parallel_tools       = 4
 
-[budget]                               # P27; 0 = tanpa cap untuk level itu (kecuali turn & sesi)
+[budget]                               # P27; 0 = tanpa cap untuk level itu (kecuali turn, sesi & gateway_user_daily_usd)
 turn_usd      = 0.50
 session_usd   = 5.00
 daily_usd     = 0
 monthly_usd   = 0
 warn_at       = 0.80
 providers     = {}                     # mis. { openrouter = 20.0 } USD/bulan
+gateway_user_daily_usd = 1.00          # role user gateway, per identitas, per hari UTC; 0 < x <= 100 (GAP-GW-02)
 
 [approval]
 mode        = "ask"                    # ask | auto-edit | auto

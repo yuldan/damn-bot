@@ -162,7 +162,8 @@ Storage ledger `budget` F1 = subpaket `internal/ctxdb/ledgerstore` (ADR-074, bar
 - Chaos suite (kill -9 × 1.000 turn, network cut, disk penuh, config/DB korup, reboot VM): 0 korupsi, 0 pesan Telegram masuk hilang/diproses ganda, 0 duplikat keluar pada suite, recovery ≤ 10 s, 0 tool non-idempoten terulang tanpa konfirmasi (P22).
 - EC-PLAT Telegram (19 entri eksplisit: EC-PLAT-001, 002, 003, 007, 009..023; ADR-061) + EC-STATE-012 (ADR-080) + EC-TERM-008..010 covered (ADR-077); EC-WIN-003, 004, 006 di runner Windows (ADR-080).
 - RSS `serve` + Telegram + cron ≤ 90 MB; CPU idle ≤ 0,5% (x86).
-- Test tertunda berfase F4 (ADR-083): `TestBudgetGuardGatewayUser` (termasuk penolakan pra-turn untuk turn ke-201), `TestGatewayUserRootIsolation`, `TestGatewayUserBlobScope`.
+- `TestBudgetGuardGatewayUser` (ADR-252): cap USD/hari role `user` (`budget.gateway_user_daily_usd`, default 1,00, UTC) ditolak pra-turn dengan `budget_gateway_user` dan 0 LLM/0 tool; tepat di cap tetap jalan, owner tidak dibatasi, akumulasi lintas turn dijumlahkan (termasuk penolakan pra-turn untuk turn ke-201).
+- Test tertunda berfase F4 (ADR-083): `TestGatewayUserRootIsolation`, `TestGatewayUserBlobScope`.
 - Baseline hermes untuk dimensi ADR-065/083 berstatus F4 diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`) (ADR-083).
 - Backlog ADR-078/ADR-086 berfase F4 tertutup (ADR-083).
 

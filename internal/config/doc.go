@@ -12,7 +12,8 @@
 //	[loop]      max_iterations, max_wall_s, max_identical,
 //	            turn_max_input_tok, turn_max_output_tok, parallel_tools
 //	[budget]    turn_usd, session_usd, daily_usd, monthly_usd, warn_at,
-//	            providers, tools_session_usd, tools_daily_usd
+//	            providers, tools_session_usd, tools_daily_usd,
+//	            gateway_user_daily_usd (role user, 0 < x <= 100)
 //	[approval]  mode, shell_allow, deny_paths, add_dirs, preview_timeout_s
 //	[exec]      default_timeout_s, idle_timeout_s, allow_destructive,
 //	            kill_grace_s, env_allow, env, pass_ssh_agent

@@ -30,6 +30,10 @@ type Options struct {
 	// Chats reads per-chat mention policy overrides. nil keeps the defaults:
 	// groups require a mention, DMs always run (GAP-GW-05).
 	Chats ChatPolicyStore
+	// Budget caps the daily USD spend of role user identities (SPEC §18.4,
+	// GAP-GW-02) and is consulted before the turn. Nil means no per-identity
+	// cap; the owner is never capped by it.
+	Budget *BudgetGuard
 }
 
 // Gate admits or rejects one inbound update before any turn or LLM call. It is
@@ -41,6 +45,7 @@ type Gate struct {
 	inbox      InboxStore
 	commands   *Commands
 	chats      ChatPolicyStore
+	budget     *BudgetGuard
 }
 
 // New validates the wiring. Configuration is data, so an empty DataDir and an
@@ -65,6 +70,7 @@ func New(opts *Options) (*Gate, error) {
 		inbox:      opts.Inbox,
 		commands:   opts.Commands,
 		chats:      opts.Chats,
+		budget:     opts.Budget,
 	}, nil
 }
 
@@ -93,6 +99,9 @@ const (
 	ReasonUnknownRole     Reason = "unknown_role"     // role is neither owner nor user
 	ReasonNoWorkspace     Reason = "no_workspace"     // role user without any root
 	ReasonMentionRequired Reason = "mention_required" // group/bot message without the required mention (GAP-GW-05)
+	// ReasonBudgetGatewayUser denies a role user whose UTC-day spend already
+	// exceeds budget.gateway_user_daily_usd (SPEC §18.4); the turn never runs.
+	ReasonBudgetGatewayUser Reason = "budget_gateway_user"
 )
 
 // Ticket is the admitted work of one update. Scope is the only source of
@@ -126,7 +135,7 @@ type RunFunc func(ctx context.Context, t Ticket) error
 //
 // The steps are named helpers, in this order: admitPairCommand (pair before
 // authorization, claiming its own dedupe row), authorize (identity, status,
-// role), admitTurn (mention policy, scope, dedupe claim), dispatchCommand
+// role), admitTurn (budget, mention policy, scope, dedupe claim), dispatchCommand
 // (slash command before any turn), then the work itself.
 func (g *Gate) Admit(ctx context.Context, in *Inbound, work RunFunc) (Outcome, error) {
 	if work == nil {
@@ -193,6 +202,9 @@ func (g *Gate) authorize(ctx context.Context, in *Inbound) (Identity, Reason, er
 // dedupe row. kind is Accepted with a ticket, Duplicate without one, or
 // Rejected with the reason. Nothing is written before every policy passes.
 func (g *Gate) admitTurn(ctx context.Context, id *Identity, in *Inbound) (Ticket, Kind, Reason, error) {
+	if reason, err := g.budgetReason(ctx, id); err != nil || reason != ReasonNone {
+		return Ticket{}, Rejected, reason, err
+	}
 	if reason, err := g.mentionReason(ctx, in); err != nil || reason != ReasonNone {
 		return Ticket{}, Rejected, reason, err
 	}
@@ -211,6 +223,23 @@ func (g *Gate) admitTurn(ctx context.Context, id *Identity, in *Inbound) (Ticket
 		return Ticket{}, Duplicate, ReasonNone, nil
 	}
 	return Ticket{Identity: *id, Scope: scope}, Accepted, ReasonNone, nil
+}
+
+// budgetReason denies a role user identity whose UTC-day spend exceeds the
+// configured cap. It reads before the dedupe claim, so a denied update writes
+// nothing and a retry after the reset can still run (SPEC §18.4, GAP-GW-02).
+func (g *Gate) budgetReason(ctx context.Context, id *Identity) (Reason, error) {
+	if g.budget == nil {
+		return ReasonNone, nil
+	}
+	d, err := g.budget.Check(ctx, id)
+	if err != nil {
+		return ReasonNone, err
+	}
+	if !d.Allowed {
+		return ReasonBudgetGatewayUser, nil
+	}
+	return ReasonNone, nil
 }
 
 // dispatchCommand answers a slash command; handled=false leaves the update as

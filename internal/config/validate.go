@@ -111,6 +111,9 @@ func (c *Config) validateBudget() error {
 	if !validUSD(c.Budget.WarnAt) || c.Budget.WarnAt <= 0 || c.Budget.WarnAt > 1 {
 		return invalid("budget.warn_at", "must be in (0, 1]")
 	}
+	if v := c.Budget.GatewayUserDailyUSD; !validUSD(v) || v <= 0 || v > 100 {
+		return invalid("budget.gateway_user_daily_usd", "must be a finite value in (0, 100]")
+	}
 	for _, name := range slices.Sorted(maps.Keys(c.Budget.Providers)) {
 		if name == "" || strings.ContainsAny(name, " \t\r\n") {
 			return invalid("budget.providers", "provider name %q is empty or contains whitespace", name)

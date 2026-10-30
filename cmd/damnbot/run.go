@@ -70,12 +70,13 @@ type runOptions struct {
 	// surface seams: the TUI opens its session lazily with a pre-generated id
 	// and records its own origin (SPEC §11.2), and shares one clock with the
 	// loop so update stamps and turn timestamps come from the same timeline.
-	newSessionID   string
-	sessionOrigin  string
-	approvalOrigin string
-	approver       loop.Approver  // TUI modal; nil = deny every ask
-	toolApprover   tools.Approver // TUI modal for the dispatcher's own asks
-	now            func() time.Time
+	newSessionID    string
+	sessionOrigin   string
+	approvalOrigin  string
+	gatewayIdentity string         // usage_ledger.gateway_identity (SPEC §11.2, GAP-GW-02)
+	approver        loop.Approver  // TUI modal; nil = deny every ask
+	toolApprover    tools.Approver // TUI modal for the dispatcher's own asks
+	now             func() time.Time
 	// validate is --answer-schema compiled (SPEC §7.2); nil = no schema.
 	validate func(string) error
 	cwd      string // override for the session cwd/sandbox root (tests, eval)
@@ -435,7 +436,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		provider:  prov,
 		registry:  w.registry,
 		store:     &ctxStore{db: w.db},
-		ledger:    &ctxLedger{db: w.db, provider: provName, model: modelName},
+		ledger:    &ctxLedger{db: w.db, provider: provName, model: modelName, identity: o.gatewayIdentity},
 		sessionID: w.sid,
 		cwd:       w.cwd,
 		modelRef:  w.modelRef,
@@ -710,6 +711,7 @@ func eventPrice(p *budget.Price) *event.Price {
 type ctxLedger struct {
 	db              *ctxdb.Store
 	provider, model string
+	identity        string // usage_ledger.gateway_identity ("" outside the gateway)
 }
 
 // ttftMillis converts a measured time-to-first-token to the ledger's integer
@@ -740,7 +742,7 @@ func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, 
 	}
 	e := budget.Entry{
 		SessionID: sid, TurnID: tid, EventID: eventID, Purpose: "turn",
-		Provider: l.provider, Model: l.model, Attempts: 1,
+		Provider: l.provider, Model: l.model, GatewayIdentity: l.identity, Attempts: 1,
 		TTFTMS: ttftMillis(u.TTFT), CreatedAt: time.Now().UnixMilli(),
 	}
 	acctErr := e.Account(budget.Usage{Input: u.Input, CachedInput: u.CachedInput, Output: u.Output, CostUSD: u.CostUSD}, price, 0)

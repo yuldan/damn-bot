@@ -90,6 +90,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		return nil, fmt.Errorf("gateway watchdog: %w", err)
 	}
 	net := netx.New(netx.Config{Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background})
+
 	limiter, err := gateway.NewLimiter(gateway.Rate{PerSecond: 1, Burst: 1}, gateway.Rate{PerSecond: 30, Burst: 30})
 	if err != nil {
 		return nil, fmt.Errorf("gateway limiter: %w", err)
@@ -124,13 +125,9 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	g.started = g.now()
 	g.run = g.turn
 	commands := gateway.NewCommands(gateway.CommandOptions{Runtime: g})
-	gate, err := gateway.New(&gateway.Options{
-		DataDir: o.dataDir, Users: users,
-		Identities: telegramStore{Store: store}, Inbox: telegramStore{Store: store},
-		Commands: commands,
-	})
+	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands)
 	if err != nil {
-		return nil, fmt.Errorf("gateway admission: %w", err)
+		return nil, err
 	}
 	g.gate = gate
 	return g, nil
@@ -237,6 +234,9 @@ func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound) {
 		g.replyCommand(ctx, in, out.Reply)
 	case out.Kind == gateway.Rejected:
 		g.metrics.IncError()
+		if out.Reason == gateway.ReasonBudgetGatewayUser {
+			g.budgetNotice(ctx, in)
+		}
 	}
 }
 
@@ -337,6 +337,7 @@ func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid st
 		prompt: in.Text, model: g.modelRef, approval: "ask", configPath: g.configPath, dataDir: g.dataDir,
 		baseURL: strings.TrimSpace(os.Getenv("DAMNBOT_SERVE_BASE_URL")), apiKey: strings.TrimSpace(os.Getenv("DAMNBOT_SERVE_API_KEY")),
 		session: sid, approvalOrigin: "run", cfgOverride: &g.cfg,
+		gatewayIdentity: in.Platform + ":" + in.SenderID,
 	}
 	o.approver = gatewayLoopApprover{g: g, chat: in.ChatID, thread: in.ThreadID}
 	o.toolApprover = gatewayToolApprover{g: g, chat: in.ChatID, thread: in.ThreadID}

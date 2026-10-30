@@ -140,6 +140,22 @@ func WindowTotals(ctx context.Context, s *ctxdb.Store, fromMS, toMS int64, provi
 	return costMicros, unknown, nil
 }
 
+// GatewaySpend returns the summed known cost in micro-USD and the number of
+// rows with unknown cost of one gateway identity in [fromMS, toMS) (UTC). It
+// is the storage side of the gateway SpendSource (E-09, ADR-074): the
+// role user daily cap of SPEC §18.4 and GAP-GW-02.
+func GatewaySpend(ctx context.Context, s *ctxdb.Store, identity string, fromMS, toMS int64) (costMicros, unknown int64, err error) {
+	err = s.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT COALESCE(SUM(cost_usd_micros),0), COUNT(*) - COUNT(cost_usd_micros)
+			FROM usage_ledger WHERE gateway_identity = ?1 AND created_at >= ?2 AND created_at < ?3`,
+			[]any{identity, fromMS, toMS}, &costMicros, &unknown)
+	})
+	if err != nil {
+		return 0, 0, fmt.Errorf("ledgerstore gateway spend: %w", err)
+	}
+	return costMicros, unknown, nil
+}
+
 // Source is the budget guard's ledger view. Its one-method set matches
 // budget.TotalsSource, which is declared by the consumer (E-09).
 type Source struct{ Store *ctxdb.Store }

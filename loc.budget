@@ -142,7 +142,10 @@ heal              1500 internal/heal
 # ADR-238 (GAP-OPS-09): `[ui] notices` (default true) di struct config;
 # plafon config 1252 -> 1253 (kode terukur 1.247 -> 1.248, +1), Σ core
 # 47.510 -> 47.511 <= 47.600; tidak ada baris yang turun.
-config            1253 internal/config
+# ADR-252 (F4 GAP-GW-02): `budget.gateway_user_daily_usd` (default 1,00, range
+# (0,100]) + konstanta default di struct config + validasi; kode terukur
+# 1.249 -> 1.254, plafon config 1253 -> 1254, Σ core 47.592 -> 47.593 <= 47.600.
+config            1254 internal/config
 modules            1000 internal/modules
 hooks              700 internal/hooks
 i18n               300 internal/i18n
