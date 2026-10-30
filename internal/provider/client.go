@@ -56,6 +56,9 @@ type Config struct {
 	// Now is the call clock that selects the price in effect (GAP-COST-01);
 	// nil = time.Now. Tests inject a fixed instant.
 	Now func() time.Time
+	// Circuit, when set, supplies the shared cross-process circuit of one
+	// (provider, credential) route (GAP-COST-06); nil keeps it in-process.
+	Circuit func(provider, credential string) retry.Gate
 }
 
 // OpenAI is the openai-chat Client with retry, circuit breaking, and model
@@ -71,9 +74,10 @@ type OpenAI struct {
 	wait     func(ctx context.Context, d time.Duration) error
 	attempts int
 	now      func() time.Time
+	circuit  func(provider, credential string) retry.Gate
 
 	mu       sync.Mutex
-	breakers map[string]*retry.Breaker // per (provider, credential)
+	breakers map[string]retry.Gate // per (provider, credential)
 	drop     map[string]map[string]bool
 }
 
@@ -86,8 +90,8 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 	o := &OpenAI{
 		c: c, routes: map[string]Route{}, fallback: append([]string(nil), cfg.Fallback...),
 		onFB: cfg.OnFallback, onRetry: cfg.OnRetry, wait: cfg.Wait, attempts: cfg.Attempts,
-		guard: cfg.Guard, onBudget: cfg.OnBudget, now: cfg.Now,
-		breakers: map[string]*retry.Breaker{}, drop: map[string]map[string]bool{},
+		guard: cfg.Guard, onBudget: cfg.OnBudget, now: cfg.Now, circuit: cfg.Circuit,
+		breakers: map[string]retry.Gate{}, drop: map[string]map[string]bool{},
 	}
 	if o.now == nil {
 		o.now = time.Now
@@ -245,7 +249,7 @@ func (o *OpenAI) call(ctx context.Context, rt *Route, price *budget.Price, r *Re
 	}
 	billed := 0
 	err := retry.Do(ctx, retry.Policy{Notify: o.onRetry, Wait: o.wait, Attempts: o.attempts}, func(ctx context.Context, n int) error {
-		if err := br.Allow(); err != nil {
+		if err := br.Allow(ctx); err != nil {
 			// The breaker rejected this attempt before o.send: do not reuse
 			// the previous attempt's response when accounting billed work.
 			resp = Response{}
@@ -257,7 +261,7 @@ func (o *OpenAI) call(ctx context.Context, rt *Route, price *budget.Price, r *Re
 		attempts = n
 		var err error
 		resp, err = o.send(ctx, rt, r, est, onChunk)
-		br.Record(retry.ClassifyErr(err))
+		_ = br.Record(ctx, retry.ClassifyErr(err))
 		if err == nil {
 			captureCarriers(&resp, rt)
 			return nil
@@ -346,13 +350,17 @@ func rejectedParam(err error, r *Request, drop map[string]bool) string {
 	return ""
 }
 
-func (o *OpenAI) breaker(rt *Route) *retry.Breaker {
+func (o *OpenAI) breaker(rt *Route) retry.Gate {
 	key := rt.Provider + "\x00" + rt.CredentialID
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	b := o.breakers[key]
 	if b == nil {
-		b = new(retry.Breaker)
+		if o.circuit != nil {
+			b = o.circuit(rt.Provider, rt.CredentialID)
+		} else {
+			b = retry.Local(new(retry.Breaker))
+		}
 		o.breakers[key] = b
 	}
 	return b

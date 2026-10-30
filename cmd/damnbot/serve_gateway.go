@@ -366,6 +366,11 @@ func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid st
 		session: sid, approvalOrigin: "run", cfgOverride: &g.cfg,
 		gatewayIdentity: in.Platform + ":" + in.SenderID,
 	}
+	if tz, terr := g.Timezone(ctx, in.Platform, in.SenderID); terr == nil && tz != "" {
+		if loc, lerr := time.LoadLocation(tz); lerr == nil {
+			o.loc = loc
+		}
+	}
 	if !local {
 		o.approver = gatewayLoopApprover{g: g, chat: in.ChatID, thread: in.ThreadID}
 		o.toolApprover = gatewayToolApprover{g: g, chat: in.ChatID, thread: in.ThreadID}

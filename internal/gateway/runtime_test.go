@@ -40,6 +40,8 @@ type fakeRuntime struct {
 	cronJobs      []cron.Job
 	cronOps       []string
 	cronErr       error
+	tz            map[string]string
+	tzErr         error
 }
 
 func (f *fakeRuntime) StopTurn(_ context.Context, scope *gateway.Scope) (bool, error) {
@@ -83,6 +85,24 @@ func (f *fakeRuntime) PausePlatform(_ context.Context, name string) (gateway.Ada
 func (f *fakeRuntime) ResumePlatform(_ context.Context, name string) (gateway.AdapterStatus, error) {
 	f.platformCalls = append(f.platformCalls, "resume:"+name)
 	return f.platformOut, f.platformErr
+}
+
+func (f *fakeRuntime) Timezone(_ context.Context, platform, externalID string) (string, error) {
+	if f.tzErr != nil {
+		return "", f.tzErr
+	}
+	return f.tz[platform+":"+externalID], nil
+}
+
+func (f *fakeRuntime) SetTimezone(_ context.Context, platform, externalID, tz string) error {
+	if f.tzErr != nil {
+		return f.tzErr
+	}
+	if f.tz == nil {
+		f.tz = map[string]string{}
+	}
+	f.tz[platform+":"+externalID] = tz
+	return nil
 }
 
 func (f *fakeRuntime) CronList(context.Context) ([]cron.Job, error) {

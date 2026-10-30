@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	_ "time/tzdata"
 )
 
 // CommandOptions configures a [Commands] dispatcher.
@@ -91,7 +92,7 @@ type commandSpec struct {
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /topic [help] /restart /platforms /platform list|pause|resume [name]"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /topic [help] /tz [zone|off] /restart /platforms /platform list|pause|resume [name]"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -131,6 +132,7 @@ func commandRegistry() map[string]commandSpec {
 			owner: true,
 			run:   (*Commands).status,
 		},
+		"tz": {run: (*Commands).timezone},
 		"usage": {
 			owner: true,
 			run:   (*Commands).usage,
@@ -325,7 +327,7 @@ func (c *Commands) topic(ctx context.Context, t *Ticket, cmd Command) CommandRes
 
 // status implements the owner-only "/status" of SELF-HEALING: uptime, queue
 // depth, active turns, mode and version. It reads runtime state only.
-func (c *Commands) status(ctx context.Context, _ *Ticket, _ Command) CommandResult {
+func (c *Commands) status(ctx context.Context, t *Ticket, _ Command) CommandResult {
 	if c.runtime == nil {
 		return unsupported("status")
 	}
@@ -344,9 +346,61 @@ func (c *Commands) status(ctx context.Context, _ *Ticket, _ Command) CommandResu
 	if st.Paused {
 		stop = "on (" + st.PauseReason + ")"
 	}
+	tzName := "host"
+	if zones, ok := c.runtime.(TimeZones); ok && t != nil {
+		if zone, zerr := zones.Timezone(ctx, t.Scope.Platform, t.Scope.UserID); zerr == nil && zone != "" {
+			tzName = zone
+		}
+	}
 	return CommandResult{Handled: true, Reply: fmt.Sprintf(
-		"status: up %s, queue %d, active turns %d, emergency stop %s, mode %s, version %s%s",
-		st.Uptime.Truncate(time.Second), st.QueueDepth, st.ActiveTurns, stop, modeName(st.SafeMode), version, home)}
+		"status: up %s, queue %d, active turns %d, emergency stop %s, mode %s, version %s%s, tz %s",
+		st.Uptime.Truncate(time.Second), st.QueueDepth, st.ActiveTurns, stop, modeName(st.SafeMode), version, home, tzName)}
+}
+
+// TimeZones is the per-identity IANA zone of PROV-03. Implemented by the
+// serve runtime over gateway_identities.tz.
+type TimeZones interface {
+	Timezone(ctx context.Context, platform, externalID string) (string, error)
+	SetTimezone(ctx context.Context, platform, externalID, tz string) error
+}
+
+// timezone implements /tz [IANA|off]: every user may set their own zone.
+func (c *Commands) timezone(ctx context.Context, t *Ticket, cmd Command) CommandResult {
+	zones, ok := c.runtime.(TimeZones)
+	if !ok || t == nil {
+		return unsupported("tz")
+	}
+	current, err := zones.Timezone(ctx, t.Scope.Platform, t.Scope.UserID)
+	if err != nil {
+		return CommandResult{Handled: true, Reply: "tz unavailable"}
+	}
+	if len(cmd.Args) == 0 {
+		return CommandResult{Handled: true, Reply: tzReply(current)}
+	}
+	zone := cmd.Args[0]
+	if zone == "off" || zone == "host" || zone == "local" {
+		zone = ""
+	}
+	if zone != "" {
+		if _, lerr := time.LoadLocation(zone); lerr != nil {
+			return CommandResult{Handled: true, Reply: "tz: unknown IANA zone " + zone}
+		}
+	}
+	if err := zones.SetTimezone(ctx, t.Scope.Platform, t.Scope.UserID, zone); err != nil {
+		return CommandResult{Handled: true, Reply: "tz: could not save"}
+	}
+	return CommandResult{Handled: true, Reply: tzReply(zone)}
+}
+
+func tzReply(zone string) string {
+	if zone == "" {
+		return "tz: host"
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return "tz: " + zone
+	}
+	return "tz: " + zone + " (" + time.Now().In(loc).Format("2006-01-02 15:04 MST Mon") + ")"
 }
 
 // pause implements SLASH-021: "/pause [reason]" and "/pause off".

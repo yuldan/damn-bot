@@ -73,3 +73,34 @@ func TestScheduleSlots(t *testing.T) {
 		t.Errorf("slots = %v, want 10:15..11:00", got)
 	}
 }
+
+// TestScheduleDSTNewYork (PROV-03): "0 2 * * *" in America/New_York fires
+// exactly once on each local day across both 2026 DST transitions.
+func TestScheduleDSTNewYork(t *testing.T) {
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := ParseSchedule("0 2 * * *", loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, start := range []time.Time{
+		time.Date(2026, 3, 7, 0, 0, 0, 0, loc),
+		time.Date(2026, 10, 31, 0, 0, 0, 0, loc),
+	} {
+		end := start.AddDate(0, 0, 3)
+		perDay := map[string]int{}
+		for at := s.Next(start); !at.IsZero() && at.Before(end); at = s.Next(at) {
+			perDay[at.Format("2006-01-02")]++
+		}
+		if len(perDay) != 3 {
+			t.Fatalf("days = %v, want 3", perDay)
+		}
+		for day, n := range perDay {
+			if n != 1 {
+				t.Fatalf("%s fired %d times, want 1", day, n)
+			}
+		}
+	}
+}

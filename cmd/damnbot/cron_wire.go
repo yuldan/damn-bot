@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/cron"
@@ -300,6 +301,7 @@ type serveCron struct {
 	stderr   io.Writer
 	cancel   context.CancelFunc
 	done     chan struct{}
+	last     atomic.Int64
 }
 
 // newServeCron assembles store → executor → deliverer → incidents.
@@ -353,6 +355,15 @@ func (c *serveCron) Stop() {
 	}
 }
 
+// LastTick is the newest scheduler tick; zero before the first tick.
+func (c *serveCron) LastTick() time.Time {
+	ms := c.last.Load()
+	if ms == 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(ms)
+}
+
 // monitorFetch is the cron monitor egress point (Tool client, 1 MiB cap).
 func monitorFetch(net *netx.Network) func(context.Context, string) (string, error) {
 	client := net.Client("cron-monitor", netx.Tool)
@@ -394,6 +405,7 @@ func (c *serveCron) loop(ctx context.Context) {
 
 // tick skips the scheduler write transaction while no job is enabled.
 func (c *serveCron) tick(ctx context.Context) error {
+	c.last.Store(time.Now().UnixMilli())
 	n, err := c.db.Count(ctx, `SELECT EXISTS(SELECT 1 FROM cron_jobs WHERE enabled = 1)`)
 	if err != nil {
 		return fmt.Errorf("cron jobs probe: %w", err)

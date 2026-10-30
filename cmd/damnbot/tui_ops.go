@@ -308,7 +308,7 @@ func (r *tuiRunner) Compact(ctx context.Context, sessionID string) (string, erro
 	if err != nil {
 		return "", err
 	}
-	asm, _, err := newRunAssembler(r.deps.cfg, r.deps.red)
+	asm, _, err := newRunAssembler(r.deps.cfg, r.deps.red, nil)
 	if err != nil {
 		return "", err
 	}
