@@ -62,7 +62,7 @@ func TestE2EDoctorNetwork(t *testing.T) {
 	writeProfileConfig(t, e, "[network]\nbackground = false\n")
 	res := e.Exec("doctor", "--network")
 	res.RequireOK(t)
-	for _, want := range []string{"inference", "refs", "telegram", "update", "gateway", "api.telegram.org", "disabled (egress_disabled)", "trigger:"} {
+	for _, want := range []string{"inference", "refs", "telegram", "update", "cron-monitor", "gateway", "api.telegram.org", "disabled (egress_disabled)", "trigger:"} {
 		if !strings.Contains(res.Stdout, want) {
 			t.Errorf("doctor --network lacks %q:\n%s", want, res.Stdout)
 		}
@@ -103,14 +103,15 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
 		t.Fatalf("json: %v\n%s", err, out)
 	}
-	if doc.Background != background || len(doc.Egress) != 4 {
-		t.Fatalf("json doc = %+v, want background=%t and 4 entries", doc, background)
+	if doc.Background != background || len(doc.Egress) != 5 {
+		t.Fatalf("json doc = %+v, want background=%t and 5 entries", doc, background)
 	}
 	want := map[string]struct{ purpose, status string }{
-		"inference": {"inference", "enabled"},
-		"refs":      {"tool", "enabled"},
-		"telegram":  {"gateway", "enabled"},
-		"update":    {"background", "enabled"},
+		"inference":    {"inference", "enabled"},
+		"refs":         {"tool", "enabled"},
+		"telegram":     {"gateway", "enabled"},
+		"update":       {"background", "enabled"},
+		"cron-monitor": {"tool", "enabled"},
 	}
 	if !background {
 		want["update"] = struct{ purpose, status string }{"background", "disabled (egress_disabled)"}

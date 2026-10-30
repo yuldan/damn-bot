@@ -74,6 +74,7 @@ type runOptions struct {
 	sessionOrigin   string
 	approvalOrigin  string
 	gatewayIdentity string         // usage_ledger.gateway_identity (SPEC §11.2, GAP-GW-02)
+	loc             *time.Location // identity IANA zone for the volatile tier (PROV-03)
 	approver        loop.Approver  // TUI modal; nil = deny every ask
 	toolApprover    tools.Approver // TUI modal for the dispatcher's own asks
 	now             func() time.Time
@@ -262,7 +263,7 @@ func runWindow(ctx context.Context, model *runModel, modelRef string) int64 {
 
 // newRunAssembler builds the turn's assembler and freezes the volatile tier
 // (P15): the tier is rendered once per turn and shared by every iteration.
-func newRunAssembler(cfg *config.Config, red *redact.Redactor) (*assemble.Assembler, *assemble.Turn, error) {
+func newRunAssembler(cfg *config.Config, red *redact.Redactor, loc *time.Location) (*assemble.Assembler, *assemble.Turn, error) {
 	asm, err := assemble.New(assemble.Deps{
 		Tokens: budgetCounter{},
 		Scrub:  func(s string) string { return red.String(s) },
@@ -272,6 +273,7 @@ func newRunAssembler(cfg *config.Config, red *redact.Redactor) (*assemble.Assemb
 	}
 	turn := asm.Freeze(&assemble.VolatileInput{
 		Now:             time.Now(),
+		Loc:             loc,
 		RemainingTokens: int64(cfg.Loop.TurnMaxInputTok),
 		RemainingUSD:    cfg.Budget.TurnUSD,
 	})
@@ -350,8 +352,7 @@ func (m *runModel) close(ctx context.Context) error {
 	if m.db == nil {
 		return err
 	}
-	// The turn is over: release the lease so `damnbot undo` can take its
-	// short lease immediately (SPEC §18.1, REVIEW-F2-SEC5-5).
+	// Release the lease so `damnbot undo` can take it (SPEC §18.1).
 	return closeDB(ctx, m.db, m.sessionID, err)
 }
 
@@ -364,9 +365,7 @@ func newRunProvider(cfg *config.Config, db *ctxdb.Store, modelRef string, o *run
 	return newRunProviderWithTable(cfg, db, modelRef, o, table)
 }
 
-// newRunProviderWithTable is newRunProvider with an explicit table, so a test
-// can price a loopback route; the composition root always passes the embedded
-// default table.
+// newRunProviderWithTable is newRunProvider with an explicit price table.
 func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
 	if o.prov != nil {
 		return o.prov, nil

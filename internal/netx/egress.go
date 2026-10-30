@@ -30,6 +30,11 @@ func Registry() map[string]Egress {
 			Host:    "[update].feed_url (default https://api.github.com/repos/yuldan/damn-bot/releases)",
 			Trigger: "damnbot update; the daily check in serve (F4)",
 		},
+		"cron-monitor": {
+			Purpose: Tool,
+			Host:    "monitor.url in cron_jobs.gate",
+			Trigger: "a due cron monitor gate before the prompt runs (COST-13)",
+		},
 		"telegram": {
 			Purpose: Gateway,
 			Host:    "api.telegram.org",

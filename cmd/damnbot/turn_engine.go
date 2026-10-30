@@ -21,7 +21,7 @@ type turnEngine struct {
 
 // newTurnEngine builds one turn; it is I/O-free until the caller prompts.
 func newTurnEngine(ctx context.Context, cfg *config.Config, o *runOptions, model *runModel, modelRef string, red *redact.Redactor, spill tools.Spill) (*turnEngine, error) {
-	asm, turn, err := newRunAssembler(cfg, red)
+	asm, turn, err := newRunAssembler(cfg, red, o.loc)
 	if err != nil {
 		return nil, err
 	}

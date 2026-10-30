@@ -233,6 +233,44 @@ func (s *cronStore) GatedRuns(ctx context.Context) (int64, error) {
 	return n, nil
 }
 
+// GateHash reads the last normalized monitor hash of one job.
+func (s *cronStore) GateHash(ctx context.Context, jobID string) (string, bool, error) {
+	var raw string
+	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
+		gerr := tx.Get(`SELECT value FROM module_state WHERE module_id = 'cron' AND key = ?1`,
+			[]any{"gate_hash:" + jobID}, &raw)
+		if errors.Is(gerr, ctxdb.ErrNotFound) {
+			return nil
+		}
+		if gerr != nil {
+			return fmt.Errorf("cron gate hash: %w", gerr)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", false, fmt.Errorf("cron gate hash: %w", err)
+	}
+	return raw, raw != "", nil
+}
+
+// SetGateHash stores the last normalized monitor hash of one job.
+func (s *cronStore) SetGateHash(ctx context.Context, jobID, hash string) error {
+	err := s.db.Write(ctx, func(tx *ctxdb.Tx) error {
+		_, xerr := tx.Exec(`INSERT INTO module_state(module_id, key, value, updated_at)
+			VALUES ('cron', ?1, ?2, ?3)
+			ON CONFLICT(module_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+			"gate_hash:"+jobID, hash, time.Now().UnixMilli())
+		if xerr != nil {
+			return fmt.Errorf("cron gate hash: %w", xerr)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("cron save gate hash: %w", err)
+	}
+	return nil
+}
+
 func promptSHA(prompt string) string {
 	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(prompt), " ")))
 	return hex.EncodeToString(sum[:])

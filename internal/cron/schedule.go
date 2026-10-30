@@ -97,11 +97,19 @@ func (s Schedule) Next(t time.Time) time.Time {
 	for t.Before(limit) {
 		switch {
 		case s.month&(1<<uint(t.Month())) == 0:
-			t = time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, s.loc)
+			t = later(t, time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, s.loc))
 		case !s.dayMatches(t):
-			t = time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, s.loc)
+			t = later(t, time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, s.loc))
 		case s.hour&(1<<uint(t.Hour())) == 0:
-			t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, s.loc)
+			// Jump to the next scheduled hour; a wall-clock target can fall
+			// in a DST gap (02:00 → 01:00 in New York), where time.Date
+			// normalizes backwards and the naive loop would never advance.
+			// The gap slot fires at the first existing minute after it.
+			target := t.Hour() + 1
+			if cand, ok := s.nextHourSlot(t, target); ok {
+				return cand
+			}
+			t = later(t, time.Date(t.Year(), t.Month(), t.Day(), target, 0, 0, 0, s.loc))
 		case s.minute&(1<<uint(t.Minute())) == 0:
 			t = t.Add(time.Minute)
 		default:
@@ -109,6 +117,42 @@ func (s Schedule) Next(t time.Time) time.Time {
 		}
 	}
 	return time.Time{}
+}
+
+// nextHourSlot returns the first slot of an allowed target hour, moving a
+// DST-gap slot to the first existing minute after it.
+func (s Schedule) nextHourSlot(t time.Time, target int) (time.Time, bool) {
+	if s.hour&(1<<uint(target)) == 0 {
+		return time.Time{}, false
+	}
+	m, ok := s.nextMinute()
+	if !ok {
+		return time.Time{}, false
+	}
+	cand := time.Date(t.Year(), t.Month(), t.Day(), target, m, 0, 0, s.loc)
+	if !cand.After(t) {
+		cand = time.Date(t.Year(), t.Month(), t.Day(), target+1, m, 0, 0, s.loc)
+	}
+	return cand, cand.After(t)
+}
+
+// nextMinute returns the earliest minute bit set in the schedule.
+func (s Schedule) nextMinute() (int, bool) {
+	for m := range 60 {
+		if s.minute&(1<<uint(m)) != 0 {
+			return m, true
+		}
+	}
+	return 0, false
+}
+
+// later guarantees forward progress: a DST gap may normalize a constructed
+// time before t, and the caller must never revisit the same minute.
+func later(t, cand time.Time) time.Time {
+	if cand.After(t) {
+		return cand
+	}
+	return t.Add(time.Minute)
 }
 
 func (s Schedule) dayMatches(t time.Time) bool {

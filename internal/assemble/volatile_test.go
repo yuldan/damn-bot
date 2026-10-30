@@ -79,3 +79,23 @@ func TestVolatileTimeUTC(t *testing.T) {
 		t.Errorf("time = %q", got)
 	}
 }
+
+// TestVolatileTimeIdentityZone (PROV-03): the identity's IANA zone renders a
+// short local stamp with its abbreviation and weekday, inside CapVolTime.
+func TestVolatileTimeIdentityZone(t *testing.T) {
+	t.Parallel()
+	loc, err := time.LoadLocation("Asia/Jakarta")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := newAssembler(t, identity)
+	now := time.Date(2026, 10, 17, 7, 5, 0, 0, time.UTC)
+	turn := a.Freeze(&VolatileInput{Now: now, Loc: loc})
+	got := turn.Volatile().Time
+	if !strings.Contains(got, "2026-10-17 14:05 WIB Sat") {
+		t.Fatalf("time = %q", got)
+	}
+	if n := asciiCounter().Count(got); n > CapVolTime {
+		t.Fatalf("time = %d tokens > %d (%q)", n, CapVolTime, got)
+	}
+}
