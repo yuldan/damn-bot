@@ -138,17 +138,69 @@ func startACP(t *testing.T, e *Env, extraConfig string) *acpProc {
 	}
 	p := &acpProc{t: t, cmd: cmd, in: in, out: bufio.NewReader(out), errb: errb}
 	t.Cleanup(func() {
-		cancel()
-		if err := in.Close(); err != nil {
-			t.Errorf("close stdin: %v", err)
-		}
-		if err := cmd.Wait(); err != nil {
-			if _, exited := errors.AsType[*exec.ExitError](err); !exited && !errors.Is(err, context.Canceled) {
-				t.Errorf("wait: %v", err)
-			}
+		if err := stopACP(cmd, in.Close, cancel); err != nil {
+			t.Errorf("wait: %v\nstderr:\n%s", err, errb.String())
 		}
 	})
 	return p
+}
+
+func TestExitExpectedClassifiesWindowsKillRace(t *testing.T) {
+	cmd := exec.CommandContext(t.Context(), "true")
+	if err := exitExpected(cmd, errors.New("exec: canceling Cmd: TerminateProcess: Access is denied")); err != nil {
+		t.Fatalf("access-denied kill race = %v, want exit", err)
+	}
+	if err := exitExpected(cmd, errors.New("wait: unexpected")); err == nil {
+		t.Fatal("unrelated wait error was treated as an exit")
+	}
+}
+
+// stopACP ends one ACP child deterministically: close stdin (the server exits
+// on EOF), wait with an explicit deadline, and only cancel/kill a child that
+// ignores EOF. Waiting before cancel avoids racing Kill against Wait. Windows
+// reports a child that exited on its own first as "TerminateProcess: Access
+// is denied"; that is an exit, not a test failure.
+func stopACP(cmd *exec.Cmd, closeStdin func() error, cancel context.CancelFunc) error {
+	if err := closeStdin(); err != nil && !errors.Is(err, os.ErrClosed) {
+		return fmt.Errorf("close stdin: %w", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		cancel()
+		return exitExpected(cmd, err)
+	case <-time.After(20 * time.Second):
+		cancel()
+		select {
+		case err := <-done:
+			return exitExpected(cmd, err)
+		case <-time.After(10 * time.Second):
+			return errors.New("child did not exit after cancel")
+		}
+	}
+}
+
+// exitExpected reports nil for a reaped child (success, non-zero or killed)
+// and for the Windows access-denied kill race after the child already exited.
+func exitExpected(cmd *exec.Cmd, err error) error {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, os.ErrProcessDone) {
+		return nil
+	}
+	if _, ok := errors.AsType[*exec.ExitError](err); ok {
+		return nil
+	}
+	if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+		return nil
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "TerminateProcess") && strings.Contains(msg, "Access is denied") {
+		return nil
+	}
+	if strings.Contains(msg, "Wait was already called") {
+		return nil
+	}
+	return err
 }
 
 func (p *acpProc) send(v any) {

@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -164,14 +163,8 @@ func startFSACP(t *testing.T, e *Env, extraConfig string, extraEnv ...string) *f
 	}
 	p := &fsProc{t: t, cmd: cmd, in: in, out: bufio.NewReader(out), errb: errb, home: e.home}
 	t.Cleanup(func() {
-		cancel()
-		if cerr := in.Close(); cerr != nil {
-			t.Errorf("close stdin: %v", cerr)
-		}
-		if werr := cmd.Wait(); werr != nil {
-			if _, exited := errors.AsType[*exec.ExitError](werr); !exited && !errors.Is(werr, context.Canceled) {
-				t.Errorf("wait: %v", werr)
-			}
+		if werr := stopACP(cmd, in.Close, cancel); werr != nil {
+			t.Errorf("wait: %v\nstderr:\n%s", werr, errb.String())
 		}
 	})
 	return p
