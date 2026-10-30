@@ -256,31 +256,77 @@ func storeCounts(tx *ctxdb.Tx) (IdentityCounts, error) {
 	return c, nil
 }
 
-// ChatOverride reads the raw require_mention override of GAP-GW-05 for one
-// chat (temporary module_state row); found is false when no override is set.
-func (s Store) ChatOverride(ctx context.Context, platform, chatID string) (value string, found bool, err error) {
+func (s Store) ChatOverride(ctx context.Context, platform, chatID string) (string, bool, error) {
+	return s.ChatSetting(ctx, platform, chatID, "require_mention")
+}
+
+func (s Store) SetChatOverride(ctx context.Context, platform, chatID, value string, now int64) error {
+	return s.SetChatSetting(ctx, platform, chatID, "require_mention", value, now)
+}
+
+func (s Store) ChatSetting(ctx context.Context, platform, chatID, name string) (value string, found bool, err error) {
 	err = s.DB.Write(ctx, func(tx *ctxdb.Tx) error {
-		return tx.Get(`SELECT value FROM module_state WHERE module_id = 'gateway' AND key = ?1`, []any{"chats." + platform + ":" + chatID + ".require_mention"}, &value)
+		return tx.Get(`SELECT value FROM module_state WHERE module_id = 'gateway' AND key = ?1`,
+			[]any{"chats." + platform + ":" + chatID + "." + name}, &value)
 	})
 	if err != nil && !errors.Is(err, ctxdb.ErrNotFound) {
-		return "", false, fmt.Errorf("gwstore chat override: %w", err)
+		return "", false, fmt.Errorf("gwstore chat setting: %w", err)
 	}
 	return value, value != "", nil
 }
 
-// SetChatOverride writes the raw override; an empty value clears it (the
-// reader then reports it absent). The value is not interpreted here.
-func (s Store) SetChatOverride(ctx context.Context, platform, chatID, value string, now int64) error {
+func (s Store) SetChatSetting(ctx context.Context, platform, chatID, name, value string, now int64) error {
 	if err := s.DB.Write(ctx, func(tx *ctxdb.Tx) error {
 		_, xerr := tx.Exec(`INSERT INTO module_state(module_id, key, value, updated_at) VALUES ('gateway', ?1, ?2, ?3)
 			ON CONFLICT(module_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-			"chats."+platform+":"+chatID+".require_mention", value, now)
-		if xerr != nil {
-			return fmt.Errorf("write chat override: %w", xerr)
-		}
-		return nil
+			"chats."+platform+":"+chatID+"."+name, value, now)
+		return xerr
 	}); err != nil {
-		return fmt.Errorf("gwstore set chat override: %w", err)
+		return fmt.Errorf("gwstore set chat setting: %w", err)
 	}
 	return nil
+}
+
+// HomeChannel returns the /sethome destination (GW-005).
+func (s Store) HomeChannel(ctx context.Context) (platform, chatID, threadID string, found bool, err error) {
+	var raw string
+	err = s.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT value FROM module_state WHERE module_id = 'gateway' AND key = 'home_channel'`, nil, &raw)
+	})
+	if errors.Is(err, ctxdb.ErrNotFound) {
+		return "", "", "", false, nil
+	}
+	if err != nil {
+		return "", "", "", false, fmt.Errorf("gwstore home channel: %w", err)
+	}
+	parts := strings.SplitN(raw, "\x1f", 3)
+	if len(parts) != 3 || !validChannel(parts[0], parts[1], parts[2]) {
+		return "", "", "", false, fmt.Errorf("gwstore home channel: malformed value")
+	}
+	return parts[0], parts[1], parts[2], true, nil
+}
+
+func (s Store) SetHomeChannel(ctx context.Context, platform, chatID, threadID string, now int64) error {
+	if !validChannel(platform, chatID, threadID) {
+		return fmt.Errorf("gwstore home channel: invalid channel")
+	}
+	value := strings.Join([]string{platform, chatID, threadID}, "\x1f")
+	if err := s.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		_, xerr := tx.Exec(`INSERT INTO module_state(module_id, key, value, updated_at) VALUES ('gateway', 'home_channel', ?1, ?2)
+			ON CONFLICT(module_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+			value, now)
+		return xerr
+	}); err != nil {
+		return fmt.Errorf("gwstore set home channel: %w", err)
+	}
+	return nil
+}
+
+func validChannel(platform, chatID, threadID string) bool {
+	for _, f := range [...]string{platform, chatID, threadID} {
+		if len(f) > 512 || strings.ContainsAny(f, "\x00\r\n\x1f") {
+			return false
+		}
+	}
+	return platform != "" && chatID != ""
 }

@@ -445,3 +445,31 @@ func TestOwnerFromEnv(t *testing.T) {
 		}
 	}
 }
+
+type fakeHome struct {
+	owner Owner
+	ok    bool
+	err   error
+}
+
+func (h fakeHome) HomeChannel(context.Context) (Owner, bool, error) { return h.owner, h.ok, h.err }
+
+// TestTickNoOwnerUsesHomeChannel: an unset Owner falls back to the gateway
+// /sethome channel (GW-005), so a cron alarm still reaches the owner.
+func TestTickNoOwnerUsesHomeChannel(t *testing.T) {
+	t.Parallel()
+	clock := &fakeClock{t: monday()}
+	store, out := newFakeStore(), &fakeOutbox{}
+	runner := &fakeRunner{fn: func(Request) (Report, error) { return Report{}, errors.New("boom") }}
+	job := newJob(clock, store, runner, out)
+	job.Owner = Owner{}
+	job.Home = fakeHome{owner: Owner{Platform: "telegram", ChatID: "99"}, ok: true}
+
+	res, _, err := job.Tick(context.Background())
+	if err != nil || res.Alarm.Status != StatusOK || len(out.msgs) != 1 {
+		t.Fatalf("alarm=%+v msgs=%d err=%v", res.Alarm, len(out.msgs), err)
+	}
+	if out.msgs[0].Platform != "telegram" || out.msgs[0].ChatID != "99" {
+		t.Fatalf("alarm target = %+v, want home telegram:99", out.msgs[0])
+	}
+}

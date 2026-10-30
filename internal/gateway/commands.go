@@ -21,9 +21,12 @@ type CommandOptions struct {
 	Approvals *Approvals
 	// Pairing redeems "/pair <code>"; nil leaves it registered but unsupported.
 	Pairing PairingStore
-	// Runtime backs "/stop", "/new", "/status" and "/usage"; nil leaves the
-	// four registered but unsupported.
+	// Runtime backs "/stop", "/new", "/status", "/usage" and "/topic"; nil
+	// leaves them registered but unsupported.
 	Runtime Runtime
+	// Settings backs "/sethome" and "/footer" plus the per-chat reply toggles
+	// (GW-005, GW-020, GW-021); nil leaves the commands unsupported.
+	Settings ChatSettings
 	// Now is the pairing attempt clock and redemption timestamp; nil is time.Now.
 	Now func() time.Time
 }
@@ -52,6 +55,7 @@ type Commands struct {
 	approvals *Approvals
 	pairing   PairingStore
 	runtime   Runtime
+	settings  ChatSettings
 	now       func() time.Time
 	specs     map[string]commandSpec
 
@@ -67,8 +71,8 @@ func NewCommands(opts CommandOptions) *Commands {
 	}
 	return &Commands{
 		bot: strings.TrimPrefix(opts.BotUsername, "@"), approvals: opts.Approvals, pairing: opts.Pairing,
-		runtime: opts.Runtime,
-		now:     now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
+		runtime: opts.Runtime, settings: opts.Settings,
+		now: now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
 	}
 }
 
@@ -83,7 +87,7 @@ type commandSpec struct {
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /sethome /footer [on|off|status] /topic [help]"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -128,11 +132,14 @@ func commandRegistry() map[string]commandSpec {
 			run:   (*Commands).usage,
 		},
 
+		"sethome": {owner: true, run: (*Commands).sethome},
+		"topic":   {owner: true, run: (*Commands).topic},
+		"footer":  {owner: true, run: (*Commands).footer},
+
 		// Owner-only, not implemented by this slice.
 		"logs": {owner: true}, "doctor": {owner: true}, "resume": {owner: true},
 		"lock": {owner: true}, "restart": {owner: true}, "pause": {owner: true}, "resend": {owner: true},
-		"model": {owner: true}, "sethome": {owner: true}, "topic": {owner: true}, "footer": {owner: true},
-		"platform": {owner: true}, "platforms": {owner: true}, "cron": {owner: true},
+		"model": {owner: true}, "platform": {owner: true}, "platforms": {owner: true}, "cron": {owner: true},
 
 		// Non-owner, not implemented by this slice.
 		"fork": {}, "plan": {}, "undo": {},
@@ -230,6 +237,71 @@ func (c *Commands) newSession(ctx context.Context, t *Ticket, _ Command) Command
 	return CommandResult{Handled: true, Reply: "started a new session; the previous one is kept"}
 }
 
+func (c *Commands) sethome(ctx context.Context, t *Ticket, _ Command) CommandResult {
+	if c.settings == nil {
+		return unsupported("sethome")
+	}
+	p, cid, tid := t.Scope.Platform, t.Scope.ChatID, t.Scope.ThreadID
+	curP, curC, curT, found, err := c.settings.HomeChannel(ctx)
+	if err != nil {
+		return CommandResult{Handled: true, Reply: "home channel unavailable"}
+	}
+	if found && curP == p && curC == cid && curT == tid {
+		return CommandResult{Handled: true, Reply: "home channel already " + HomeName(p, cid, tid)}
+	}
+	if err := c.settings.SetHomeChannel(ctx, p, cid, tid, c.now().UnixMilli()); err != nil {
+		return CommandResult{Handled: true, Reply: "could not set home channel"}
+	}
+	return CommandResult{Handled: true, Reply: "home channel set to " + HomeName(p, cid, tid)}
+}
+
+func (c *Commands) footer(ctx context.Context, t *Ticket, cmd Command) CommandResult {
+	if c.settings == nil {
+		return unsupported("footer")
+	}
+	arg := "status"
+	if len(cmd.Args) > 0 {
+		arg = strings.ToLower(cmd.Args[0])
+	}
+	if len(cmd.Args) > 1 || (arg != "on" && arg != "off" && arg != "status") {
+		return usage("footer [on|off|status]")
+	}
+	if arg == "status" {
+		on, err := c.chatFlag(ctx, t, "footer")
+		if err != nil {
+			return CommandResult{Handled: true, Reply: "footer setting unavailable"}
+		}
+		if on {
+			return CommandResult{Handled: true, Reply: "footer on"}
+		}
+		return CommandResult{Handled: true, Reply: "footer off (default)"}
+	}
+	if err := c.settings.SetChatSetting(ctx, t.Scope.Platform, t.Scope.ChatID, "footer", strconv.FormatBool(arg == "on"), c.now().UnixMilli()); err != nil {
+		return CommandResult{Handled: true, Reply: "could not change footer"}
+	}
+	if arg == "on" {
+		return CommandResult{Handled: true, Reply: "footer on"}
+	}
+	return CommandResult{Handled: true, Reply: "footer off"}
+}
+
+func (c *Commands) topic(ctx context.Context, t *Ticket, cmd Command) CommandResult {
+	if len(cmd.Args) > 0 {
+		return usage("topic [help]")
+	}
+	if t.Scope.ThreadID == "" {
+		return CommandResult{Handled: true, Reply: "no topic thread in this chat; /topic needs a forum topic"}
+	}
+	if c.runtime == nil {
+		return unsupported("topic")
+	}
+	sid, err := c.runtime.TopicSession(ctx, &t.Scope)
+	if err != nil {
+		return CommandResult{Handled: true, Reply: "topic session unavailable"}
+	}
+	return CommandResult{Handled: true, Reply: fmt.Sprintf("topic %s: session %s", t.Scope.ThreadID, sid)}
+}
+
 // status implements the owner-only "/status" of SELF-HEALING: uptime, queue
 // depth, active turns, mode and version. It reads runtime state only.
 func (c *Commands) status(ctx context.Context, _ *Ticket, _ Command) CommandResult {
@@ -244,9 +316,13 @@ func (c *Commands) status(ctx context.Context, _ *Ticket, _ Command) CommandResu
 	if version == "" {
 		version = "unknown"
 	}
+	home := ""
+	if st.Home != "" {
+		home = ", home " + st.Home
+	}
 	return CommandResult{Handled: true, Reply: fmt.Sprintf(
-		"status: up %s, queue %d, active turns %d, mode %s, version %s",
-		st.Uptime.Truncate(time.Second), st.QueueDepth, st.ActiveTurns, modeName(st.SafeMode), version)}
+		"status: up %s, queue %d, active turns %d, mode %s, version %s%s",
+		st.Uptime.Truncate(time.Second), st.QueueDepth, st.ActiveTurns, modeName(st.SafeMode), version, home)}
 }
 
 // usage implements the owner-only SPEC §9.7 "/usage": the token and cost totals

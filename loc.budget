@@ -206,10 +206,14 @@ MODULE profiles     800 internal/profiles
 # ADR-244: SPEC §3.2.4:282 (`heal`+`obs` 5.500 -> obs 4.000).
 MODULE obs         4000 internal/obs
 # ADR-244: SPEC §3.2.4:286 (gateway core + gateway/telegram 10.500 -> gateway 9.600).
-MODULE gateway     9600 internal/gateway
+# F4 parity C (GW-005/GW-007/GW-020/GW-021): 60 baris pindah ke gwstore untuk
+# home channel + per-chat setting (terukur 959), gateway 9.600 -> 9.540; jumlah
+# SPEC 10.500 tidak berubah.
+MODULE gateway     9540 internal/gateway
 # ADR-245: sisa 900 baris SPEC gateway 10.500 = storage konsumen `ctxdb/gwstore` (ADR-074),
 # dibukukan sebagai MODULE agar Σ core 47.511/47.600 tidak ditembus.
-MODULE gwstore      900 internal/ctxdb/gwstore
+# F4 parity C: 900 -> 960 (home_channel + chat setting generik; terukur 959).
+MODULE gwstore      960 internal/ctxdb/gwstore
 # ADR-244: SPEC §3.2.4:287 (cron 3.500).
 MODULE cron        3500 internal/cron
 # ADR-248: storage konsumen cron_jobs/cron_runs (ADR-074) dipotong dari baris SPEC cron 3.500

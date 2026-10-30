@@ -54,6 +54,9 @@ type pending struct {
 	TargetVersion string `json:"target_version"`
 	PremigrateDB  string `json:"premigrate_db"`
 	CreatedAt     string `json:"created_at"`
+	// TargetSHA256 lets --repair match the installed binary to the signed
+	// manifest it re-resolves; older records lack it and are rolled back.
+	TargetSHA256 string `json:"target_sha256,omitempty"`
 }
 
 // Install downloads the signed asset, verifies checksum, health-checks it, and
@@ -86,6 +89,7 @@ func Install(ctx context.Context, o *InstallOptions) (version string, err error)
 		TargetVersion: r.man.Version,
 		PremigrateDB:  findPremigrate(o.DataDir),
 		CreatedAt:     time.Now().UTC().Format(time.RFC3339),
+		TargetSHA256:  r.asset.SHA256,
 	}
 	if err := writePending(o.DataDir, &p); err != nil {
 		return "", errors.Join(err, removeIfExists(newPath))
@@ -205,6 +209,11 @@ func Rollback(dataDir string, withData bool) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
+	return rollback(dataDir, withData)
+}
+
+// rollback is Rollback without the lock, for callers that already hold it.
+func rollback(dataDir string, withData bool) error {
 	p, err := readPending(dataDir)
 	if err != nil {
 		return err
@@ -234,6 +243,9 @@ func Rollback(dataDir string, withData bool) (err error) {
 }
 
 func restoreBinary(active, prev string) error {
+	if _, err := os.Stat(active); errors.Is(err, os.ErrNotExist) {
+		return os.Rename(prev, active)
+	}
 	tmp := active + ".rollback"
 	if err := os.Rename(active, tmp); err != nil {
 		return fmt.Errorf("update: save current binary: %w", err)

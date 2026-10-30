@@ -137,7 +137,7 @@ func TestDispatchRoleMatrix(t *testing.T) {
 	c := gateway.NewCommands(gateway.CommandOptions{})
 	ownerOnly := []string{
 		"status", "usage", "logs", "doctor", "resume", "lock", "restart", "pause", "resend",
-		"model", "sethome", "topic", "footer", "platform", "platforms", "cron",
+		"model", "platform", "platforms", "cron",
 	}
 	for _, name := range ownerOnly {
 		res := c.Dispatch(context.Background(), testTicket(gateway.RoleUser), "/"+name)
@@ -148,6 +148,20 @@ func TestDispatchRoleMatrix(t *testing.T) {
 		if !res.Handled || !strings.Contains(res.Reply, "not supported") {
 			t.Errorf("/%s as owner = %+v, want unsupported", name, res)
 		}
+	}
+	// Implemented owner commands still pass the role gate before any seam.
+	for _, name := range []string{"sethome", "footer"} {
+		res := c.Dispatch(context.Background(), testTicket(gateway.RoleUser), "/"+name)
+		if !res.Handled || !strings.Contains(res.Reply, "owner-only") {
+			t.Errorf("/%s as user = %+v, want owner-only", name, res)
+		}
+		res = c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/"+name)
+		if !res.Handled || !strings.Contains(res.Reply, "not supported") {
+			t.Errorf("/%s without a seam = %+v, want unsupported", name, res)
+		}
+	}
+	if res := c.Dispatch(context.Background(), testTicket(gateway.RoleUser), "/topic"); !res.Handled || !strings.Contains(res.Reply, "owner-only") {
+		t.Errorf("/topic as user = %+v, want owner-only", res)
 	}
 	users := []string{"new", "stop", "fork", "plan", "undo"}
 	for _, name := range users {

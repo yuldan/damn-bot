@@ -94,6 +94,12 @@ type Owner struct {
 	ChatID   string
 }
 
+// HomeStore resolves the gateway home channel (GW-005 /sethome). A configured
+// Owner wins; Home is the default destination when Owner is unset.
+type HomeStore interface {
+	HomeChannel(ctx context.Context) (Owner, bool, error)
+}
+
 // OwnerFromEnv parses a DAMNBOT_GATEWAY_OWNER value ("platform:id", optionally
 // comma-separated) and returns the first well-formed entry. An empty or
 // malformed value means there is no alarm target.
@@ -119,6 +125,7 @@ type Job struct {
 	Runner        Runner
 	Outbox        Outbox
 	Owner         Owner
+	Home          HomeStore
 	Seed          int64
 	DropThreshold float64
 	MaxCostUSD    float64
@@ -193,17 +200,26 @@ func (j *Job) alarm(ctx context.Context, res *Result) error {
 		res.Alarm = Alarm{Status: StatusSkipped, Reason: "no alarm condition"}
 		return nil
 	}
-	if j.Owner.Platform == "" || j.Owner.ChatID == "" {
-		res.Alarm = Alarm{Status: StatusSkipped, Reason: "no owner chat"}
-		return nil
+	owner := j.Owner
+	if owner.Platform == "" || owner.ChatID == "" {
+		home, ok, err := j.home(ctx)
+		if err != nil {
+			res.Alarm = Alarm{Status: StatusFailed, Reason: err.Error()}
+			return fmt.Errorf("scorecard: home channel: %w", err)
+		}
+		if !ok {
+			res.Alarm = Alarm{Status: StatusSkipped, Reason: "no owner chat"}
+			return nil
+		}
+		owner = home
 	}
 	if j.Outbox == nil {
 		res.Alarm = Alarm{Status: StatusFailed, Reason: ErrNoOutbox.Error()}
 		return fmt.Errorf("scorecard: %w", ErrNoOutbox)
 	}
 	err := j.Outbox.Enqueue(ctx, Message{
-		Platform: j.Owner.Platform,
-		ChatID:   j.Owner.ChatID,
+		Platform: owner.Platform,
+		ChatID:   owner.ChatID,
 		Key:      AlarmKey(res.Week),
 		Body:     Summary(res),
 	})
@@ -213,6 +229,14 @@ func (j *Job) alarm(ctx context.Context, res *Result) error {
 	}
 	res.Alarm = Alarm{Status: StatusOK, Reason: "enqueued"}
 	return nil
+}
+
+// home resolves the stored home channel; a nil store has none.
+func (j *Job) home(ctx context.Context) (Owner, bool, error) {
+	if j.Home == nil {
+		return Owner{}, false, nil
+	}
+	return j.Home.HomeChannel(ctx)
 }
 
 // regressions lists the overall score and dimensions that dropped more than

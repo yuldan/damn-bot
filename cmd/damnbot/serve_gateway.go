@@ -49,6 +49,11 @@ type serveGateway struct {
 	now                 func() time.Time
 	started             time.Time
 
+	// delayRandom/delayWait implement GW-007; tests inject a deterministic
+	// draw and a fake wait.
+	delayRandom func() time.Duration
+	delayWait   func(context.Context, time.Duration) error
+
 	// run is the one chat turn. It is a field so tests can substitute a fake
 	// runner: no command in this file needs a provider or a token.
 	run func(context.Context, *telegram.Inbound, *gateway.Ticket) error
@@ -124,7 +129,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	}
 	g.started = g.now()
 	g.run = g.turn
-	commands := gateway.NewCommands(gateway.CommandOptions{Runtime: g})
+	commands := gateway.NewCommands(gateway.CommandOptions{Runtime: g, Settings: store})
 	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands)
 	if err != nil {
 		return nil, err
@@ -294,8 +299,12 @@ func (g *serveGateway) turn(ctx context.Context, in *telegram.Inbound, t *gatewa
 }
 
 func (g *serveGateway) session(ctx context.Context, t *gateway.Ticket) (string, error) {
-	route := gwstore.Route{Platform: t.Scope.Platform, ChatID: t.Scope.ChatID, ThreadID: t.Scope.ThreadID}
-	principal := t.Scope.Label()
+	return g.sessionFor(ctx, &t.Scope)
+}
+
+func (g *serveGateway) sessionFor(ctx context.Context, scope *gateway.Scope) (string, error) {
+	route := gwstore.Route{Platform: scope.Platform, ChatID: scope.ChatID, ThreadID: scope.ThreadID}
+	principal := scope.Label()
 	sid, found, err := g.store.Session(ctx, route, principal)
 	if err != nil {
 		return "", fmt.Errorf("gateway: session: %w", err)
@@ -306,7 +315,7 @@ func (g *serveGateway) session(ctx context.Context, t *gateway.Ticket) (string, 
 	if sid, err = newSessionID(); err != nil {
 		return "", err
 	}
-	cwd := t.Scope.Workspace
+	cwd := scope.Workspace
 	if cwd == "" {
 		if cwd, err = os.Getwd(); err != nil {
 			return "", fmt.Errorf("gateway: getwd: %w", err)
@@ -440,6 +449,7 @@ type replyOutcome struct {
 	Failed bool
 	Detail event.StopDetail
 	Err    error
+	Meta   replyMeta
 }
 
 // streamReplyUpdates drains the turn events, flushing the growing answer at the
@@ -447,13 +457,15 @@ type replyOutcome struct {
 // accumulated answer, or the provider-error message when the turn failed. wait
 // paces the final flush so no two updates reach the adapter closer than
 // replyEditGap; it is injected so tests advance a fake clock instead of sleeping.
-func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() time.Time, wait func(context.Context, time.Duration) error, flush func(context.Context, string) error, start time.Time, shown int) replyOutcome {
+// decorate may append the GW-021 footer to the final text only.
+func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() time.Time, wait func(context.Context, time.Duration) error, flush func(context.Context, string) error, decorate func(string, replyOutcome) string, start time.Time, shown int) replyOutcome {
 	var answer []byte
 	pacer := newReplyPacer(start, shown)
 	var stop event.StopReason
 	var detail event.StopDetail
 	var sent string
 	var sendErr error
+	var meta replyMeta
 	for up := range ch {
 		switch up.Kind {
 		case event.UpdateTextDelta:
@@ -464,7 +476,10 @@ func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() 
 			}
 		case event.UpdateStop:
 			stop, detail = up.Stop, up.Detail
-		case event.UpdateToolCallStart, event.UpdateToolCallArgs, event.UpdateToolCallEnd, event.UpdateToolResult, event.UpdateUsage, event.UpdateNotice:
+			meta.observe(up.Usage)
+		case event.UpdateUsage:
+			meta.observe(up.Usage)
+		case event.UpdateToolCallStart, event.UpdateToolCallArgs, event.UpdateToolCallEnd, event.UpdateToolResult, event.UpdateNotice:
 		}
 	}
 	failed := stop == event.StopError || detail == event.DetailProviderError
@@ -472,9 +487,13 @@ func streamReplyUpdates(ctx context.Context, ch <-chan event.Update, now func() 
 	if failed {
 		text = "damnbot: provider error (" + string(detail) + ")"
 	}
-	out := replyOutcome{Text: text, Failed: failed, Detail: detail}
+	out := replyOutcome{Text: text, Failed: failed, Detail: detail, Meta: meta}
 	if text == "" {
 		return out
+	}
+	if decorate != nil {
+		text = decorate(text, out)
+		out.Text = text
 	}
 	if pacer.edits > 0 && text != sent {
 		if gap := replyEditGap - now().Sub(pacer.last); gap > 0 {
@@ -544,8 +563,20 @@ func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch
 		reply = g.adapter.StreamFrom(out, ack.id, gatewayAckText)
 		shown = len(gatewayAckText)
 	}
+	now := g.now
+	if now == nil {
+		now = time.Now
+	}
+	flags := g.replyFlags(ctx, "telegram", in.ChatID)
+	prefix := ""
+	if flags.timestamps {
+		prefix = timestampPrefix(now())
+	}
 	flush := func(ctx context.Context, text string) error {
-		if err := flushTyped(ctx, reply, typing, text); err != nil {
+		if err := g.humanPace(ctx, flags.humanDelay); err != nil {
+			return err
+		}
+		if err := flushTyped(ctx, reply, typing, withTimestamp(text, prefix)); err != nil {
 			return err
 		}
 		if ack != nil {
@@ -553,11 +584,14 @@ func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch
 		}
 		return nil
 	}
-	now := g.now
-	if now == nil {
-		now = time.Now
+	start := now()
+	decorate := func(text string, res replyOutcome) string {
+		if !flags.footer {
+			return text
+		}
+		return text + footerText(g.modelRef, res.Meta, now().Sub(start))
 	}
-	res := streamReplyUpdates(ctx, ch, now, waitReply, flush, now(), shown)
+	res := streamReplyUpdates(ctx, ch, now, waitReply, flush, decorate, start, shown)
 	if res.Text == "" && ack != nil && !ack.replaced {
 		res.Text = gatewayNoOutput
 		if ferr := flush(ctx, res.Text); ferr != nil {
@@ -673,6 +707,13 @@ func (g *serveGateway) feedback(ctx context.Context, chat, thread, tool, preview
 // deliveryMessage builds the outbound message of one claimed delivery,
 // resolving media_blob_sha when the row carries an attachment.
 func (g *serveGateway) deliveryMessage(ctx context.Context, d *gwstore.Delivery) (*telegram.Outbound, error) {
+	if g.chatFlag(ctx, d.Platform, d.ChatID, chatTimestamps) {
+		now := g.now
+		if now == nil {
+			now = time.Now
+		}
+		d.Body = withTimestamp(d.Body, timestampPrefix(now()))
+	}
 	out := &telegram.Outbound{ChatID: d.ChatID, ThreadID: d.ThreadID, Text: d.Body, Key: d.IdemKey}
 	if d.MediaSHA == "" {
 		return out, nil

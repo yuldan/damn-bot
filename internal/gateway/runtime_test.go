@@ -25,6 +25,9 @@ type fakeRuntime struct {
 	usageOK       bool
 	usageErr      error
 	usageScopes   []gateway.Scope
+	topicID       string
+	topicErr      error
+	topicScopes   []gateway.Scope
 }
 
 func (f *fakeRuntime) StopTurn(_ context.Context, scope *gateway.Scope) (bool, error) {
@@ -44,6 +47,11 @@ func (f *fakeRuntime) Status(context.Context) (gateway.RuntimeStatus, error) {
 func (f *fakeRuntime) Usage(_ context.Context, scope *gateway.Scope) (gateway.UsageReport, bool, error) {
 	f.usageScopes = append(f.usageScopes, *scope)
 	return f.report, f.usageOK, f.usageErr
+}
+
+func (f *fakeRuntime) TopicSession(_ context.Context, scope *gateway.Scope) (string, error) {
+	f.topicScopes = append(f.topicScopes, *scope)
+	return f.topicID, f.topicErr
 }
 
 func ticketIn(role gateway.Role, chat string) *gateway.Ticket {

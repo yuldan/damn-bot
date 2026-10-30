@@ -52,6 +52,13 @@ func (g *serveGateway) replyCommand(ctx context.Context, in *telegram.Inbound, t
 	if text == "" {
 		return
 	}
+	if g.chatFlag(ctx, "telegram", in.ChatID, chatTimestamps) {
+		now := g.now
+		if now == nil {
+			now = time.Now
+		}
+		text = withTimestamp(text, timestampPrefix(now()))
+	}
 	key := gateway.DeliveryKey("telegram", in.ChatID, "cmd:"+in.UpdateID)
 	if _, err := g.adapter.Send(ctx, &telegram.Outbound{ChatID: in.ChatID, ThreadID: in.ThreadID, Text: text, Key: key}); err != nil {
 		g.metrics.IncError()
@@ -165,17 +172,29 @@ func (g *serveGateway) NewSession(ctx context.Context, scope *gateway.Scope) (st
 	return g.createSession(ctx, scope)
 }
 
-// Status implements gateway.Runtime. It reads the chat queue, the supervisor
-// and the version only; it never starts work.
-func (g *serveGateway) Status(context.Context) (gateway.RuntimeStatus, error) {
+// Status implements gateway.Runtime. It reads the chat queue, the supervisor,
+// the version and the home channel only; it never starts work.
+func (g *serveGateway) Status(ctx context.Context) (gateway.RuntimeStatus, error) {
 	queued, active := g.chats.Stats()
-	return gateway.RuntimeStatus{
+	st := gateway.RuntimeStatus{
 		Uptime:      g.now().Sub(g.started),
 		QueueDepth:  queued + len(g.inbound),
 		ActiveTurns: active,
 		SafeMode:    g.supervisor.Snapshot().State == heal.SafeMode,
 		Version:     version,
-	}, nil
+	}
+	if p, c, t, found, err := g.store.HomeChannel(ctx); err != nil {
+		return gateway.RuntimeStatus{}, fmt.Errorf("gateway: status home: %w", err)
+	} else if found {
+		st.Home = gateway.HomeName(p, c, t)
+	}
+	return st, nil
+}
+
+// TopicSession implements gateway.Runtime: the forum thread's session, created
+// on first use. The command layer has already rejected an empty thread.
+func (g *serveGateway) TopicSession(ctx context.Context, scope *gateway.Scope) (string, error) {
+	return g.sessionFor(ctx, scope)
 }
 
 // Usage implements gateway.Runtime over the existing usage ledger: the session

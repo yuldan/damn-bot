@@ -19,7 +19,8 @@ const updateAvailableExit = 10
 func updateUsage(w io.Writer) {
 	sessionsPrintf(w, "%s", `usage: damnbot update [--check] [--channel stable|beta] [--config FILE]
        damnbot update --rollback [--data]
---check: signed target only (exit 0/10/1/2). install verifies + swaps. rollback uses pending.json. Embedded key (env only for builds without one).
+       damnbot update --repair
+--check: signed target only (exit 0/10/1/2). install verifies + swaps. rollback uses pending.json. repair verifies an interrupted install and restores .prev on failure. Embedded key (env only for builds without one).
 `)
 }
 
@@ -29,6 +30,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	check := fs.Bool("check", false, "show the newest release without installing")
 	channel := fs.String("channel", "", "stable|beta (default from [update])")
 	rollback := fs.Bool("rollback", false, "restore the previous binary from pending.json")
+	repair := fs.Bool("repair", false, "verify and recover an interrupted install")
 	withData := fs.Bool("data", false, "with --rollback: restore the paired database backup")
 	cfgPath := fs.String("config", "", "config file")
 	if err := fs.Parse(args); err != nil {
@@ -40,6 +42,9 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return 2
 	case *withData && !*rollback:
 		say(stderr, "damnbot update: --data requires --rollback\n")
+		return 2
+	case *repair && (*rollback || *check):
+		say(stderr, "damnbot update: --repair cannot be combined with --rollback or --check\n")
 		return 2
 	}
 	loader, lerr := config.New(config.OS())
@@ -78,6 +83,9 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	client := netx.New(netx.Config{Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background}).Client("update", netx.Background)
+	if *repair {
+		return runRepair(client, uc, pub, paths.DataDir, stdout, stderr)
+	}
 	if *check {
 		return runCheck(client, uc, pub, stdout, stderr)
 	}
@@ -121,6 +129,28 @@ func runInstall(client *netx.Client, uc update.Config, pub ed25519.PublicKey, da
 		return updateErrorCode(err)
 	}
 	say(stdout, "installed %s (previous %s)\n", target, version)
+	return 0
+}
+
+// runRepair recovers an interrupted install: the signed manifest is re-resolved
+// and the installed binary checked against the hash recorded in pending.json.
+func runRepair(client *netx.Client, uc update.Config, pub ed25519.PublicKey, dataDir string, stdout, stderr io.Writer) int {
+	bin, err := os.Executable()
+	if err != nil {
+		say(stderr, "damnbot update: executable: %v\n", err)
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	status, rerr := update.Repair(ctx, &update.InstallOptions{
+		Client: client, FeedURL: uc.FeedURL, Channel: uc.Channel,
+		PublicKey: pub, DataDir: dataDir, BinaryPath: bin,
+	})
+	if rerr != nil {
+		say(stderr, "damnbot update: %v\n", rerr)
+		return updateErrorCode(rerr)
+	}
+	say(stdout, "repair: %s\n", status)
 	return 0
 }
 
