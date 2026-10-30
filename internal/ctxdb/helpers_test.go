@@ -22,6 +22,20 @@ import (
 const templateEnv = "CTXDB_TEST_TEMPLATE"
 
 func TestMain(m *testing.M) {
+	// Re-executed child processes (TestChildProcess) open the data dir their
+	// parent passes and never use newEnv, so building the schema template there
+	// only repeats the whole migration ladder before the child can say READY.
+	// That cost is what made the Windows CI children miss the readiness
+	// deadline; the parent's template is inherited through the environment.
+	if os.Getenv(childRoleEnv) == "" {
+		buildTestTemplate()
+	}
+	goleak.VerifyTestMain(m)
+}
+
+// buildTestTemplate migrates one template dir for newEnv; a failure only makes
+// the suite slower and is loud on stderr (no panic/os.Exit: E-23 and forbidigo).
+func buildTestTemplate() {
 	// A template from an earlier run is removed here, not after m.Run:
 	// goleak.VerifyTestMain (E-29) exits the process. Older than an hour only,
 	// so a concurrent invocation of this package keeps its own template.
@@ -34,9 +48,6 @@ func TestMain(m *testing.M) {
 			}
 		}
 	}
-	// A template that cannot be built only makes the suite slower: newEnv
-	// falls back to a raw dir and one test fails, so the degradation is loud
-	// (no panic/os.Exit: E-23 and forbidigo).
 	dir, err := os.MkdirTemp("", "ctxdb-schema-template-*")
 	if err == nil {
 		err = buildSchemaTemplate(dir)
@@ -47,7 +58,6 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ctxdb: schema template not built, scenarios will run migrations: %v\n", err)
 	}
-	goleak.VerifyTestMain(m)
 }
 
 // buildSchemaTemplate applies every migration in dir, then closes the store so
