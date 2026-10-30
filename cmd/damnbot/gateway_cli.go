@@ -57,6 +57,8 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 		return gatewayEnroll(args[1:], stdout, stderr)
 	case "migrate":
 		return gatewayMigrate(args[1:], stdout, stderr)
+	case "migrate-legacy":
+		return gatewayMigrate([]string{"apply"}, stdout, stderr)
 	}
 	sessionsPrintf(stderr, "gateway: unknown subcommand %q\n", cleanArg(args[0]))
 	gatewayUsage(stderr)
@@ -69,10 +71,10 @@ func gatewayUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot gateway list [--platform P] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway status [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway platform list|pause|resume <name> [--data-dir DIR]\n")
-	sessionsPrintf(w, "       damnbot gateway pairing approve <code> [platform:id] | clear-pending [platform] [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot gateway pairing list [platform] | approve <code> [platform:id] | revoke <platform> <id> | clear-pending [platform] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway chat [--platform telegram] [--chat ID] [--thread ID] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway enroll <platform:id> [--data-dir DIR]\n")
-	sessionsPrintf(w, "       damnbot gateway migrate status|plan|apply [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot gateway migrate status|plan|apply | migrate-legacy [--data-dir DIR]\n")
 	sessionsPrintf(w, "bootstrap: DAMNBOT_GATEWAY_OWNER=platform:id and DAMNBOT_GATEWAY_ALLOW=platform:id,... (or a JSON list)\n")
 	sessionsPrintf(w, "missing identities only; the database stays the source of truth.\n")
 	sessionsPrintf(w, "chat is a local REPL over a running serve; it never opens the database itself.\n")
@@ -363,8 +365,12 @@ func gatewayPairing(args []string, stdout, stderr io.Writer) int {
 	defer closeFn()
 	now := time.Now().UnixMilli()
 	switch pos[0] {
+	case "list":
+		return pairingList(ctx, store, pos, stdout, stderr)
 	case "clear-pending":
 		return pairingClear(ctx, store, pos, stdout, stderr)
+	case "revoke":
+		return pairingRevoke(ctx, store, pos, now, stdout, stderr)
 	case "approve":
 		return pairingApprove(ctx, store, pos, now, stdout, stderr)
 	}
@@ -577,4 +583,52 @@ func migrateReport(sub, dataDir string, names []string, latest int, stdout, stde
 		sessionsPrintf(stdout, "schema %d/%d, pending %d\n", cur, latest, pending)
 	}
 	return 0
+}
+
+func pairingList(ctx context.Context, store gwstore.Store, pos []string, stdout, stderr io.Writer) int {
+	if len(pos) > 2 {
+		gatewayUsage(stderr)
+		return 2
+	}
+	platform := ""
+	if len(pos) == 2 {
+		platform = pos[1]
+	}
+	n, err := pendingPairings(ctx, store, platform)
+	if err != nil {
+		sessionsPrintf(stderr, "gateway pairing list: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	sessionsPrintf(stdout, "pending %d\n", n)
+	return 0
+}
+
+func pairingRevoke(ctx context.Context, store gwstore.Store, pos []string, now int64, stdout, stderr io.Writer) int {
+	if len(pos) != 3 {
+		gatewayUsage(stderr)
+		return 2
+	}
+	if err := store.SetStatus(ctx, pos[1], pos[2], "blocked", now); err != nil {
+		sessionsPrintf(stderr, "gateway pairing revoke: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	sessionsPrintf(stdout, "revoked %s:%s\n", pos[1], cleanArg(pos[2]))
+	return 0
+}
+
+// pendingPairings counts unconsumed codes via their stored JSON state.
+func pendingPairings(ctx context.Context, store gwstore.Store, platform string) (int, error) {
+	pattern := "pair:%"
+	if platform != "" {
+		pattern = "pair:" + platform + ":%"
+	}
+	var n int64
+	err := store.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT count(*) FROM module_state WHERE module_id = 'gateway' AND key LIKE ?1
+			AND COALESCE(json_extract(value, '$.used'), 0) = 0`, []any{pattern}, &n)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("pairing list: %w", err)
+	}
+	return int(n), nil
 }

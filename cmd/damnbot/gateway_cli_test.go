@@ -264,3 +264,24 @@ func TestGatewayEnrollAndMigrate(t *testing.T) {
 		}
 	}
 }
+
+// TestGatewayPairingSurface: the parity aliases list pending codes, revoke
+// blocks an identity, and migrate-legacy is an idempotent schema apply.
+func TestGatewayPairingSurface(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DAMNBOT_GATEWAY_OWNER", "telegram:1")
+	t.Setenv("DAMNBOT_GATEWAY_ALLOW", "")
+	_, out, _ := runGatewayCLI(t, "pair", "telegram", "--data-dir", dir)
+	if c, o, e := runGatewayCLI(t, "pairing", "list", "telegram", "--data-dir", dir); c != 0 || !strings.Contains(o, "pending 1") {
+		t.Fatalf("list: %d %q %q", c, o, e)
+	}
+	if c, o, e := runGatewayCLI(t, "pairing", "revoke", "telegram", "42", "--data-dir", dir); c != 0 || !strings.Contains(o, "revoked telegram:42") {
+		t.Fatalf("revoke: %d %q %q", c, o, e)
+	}
+	if c, o, e := runGatewayCLI(t, "migrate-legacy", "--data-dir", dir); c != 0 || !strings.Contains(o, "up to date") {
+		t.Fatalf("migrate-legacy: %d %q %q", c, o, e)
+	}
+	if c, o, e := runGatewayCLI(t, "pairing", "approve", pairCode(t, out), "telegram:43", "--data-dir", dir); c != 0 || !strings.Contains(o, "approved telegram:43") {
+		t.Fatalf("approve: %d %q %q", c, o, e)
+	}
+}
