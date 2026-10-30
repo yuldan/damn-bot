@@ -127,6 +127,16 @@ func (a *Adapter) handleCallback(ctx context.Context, q *callbackQuery) error {
 	if !ok || p == nil || q.Message == nil || p.chatID != strconv.FormatInt(q.Message.Chat.ID, 10) {
 		return a.call(ctx, "answerCallbackQuery", url.Values{"callback_query_id": {q.ID}, "text": {"request expired"}}, nil)
 	}
+	// GAP-SEC-13: the nonce is one-time and the claim is durable, so a
+	// replayed button (new callback query id, same nonce) is rejected even
+	// across a restart where the prompt was re-issued to another adapter.
+	claimed, err := a.store.ClaimCallback(ctx, nonceClaim(nonce))
+	if err != nil {
+		return fmt.Errorf("telegram: claim approval nonce: %w", err)
+	}
+	if !claimed {
+		return a.call(ctx, "answerCallbackQuery", url.Values{"callback_query_id": {q.ID}, "text": {"request expired"}}, nil)
+	}
 	if err := a.call(ctx, "answerCallbackQuery", url.Values{"callback_query_id": {q.ID}, "text": {"decided"}}, nil); err != nil {
 		return err
 	}
@@ -136,6 +146,10 @@ func (a *Adapter) handleCallback(ctx context.Context, q *callbackQuery) error {
 	}
 	return nil
 }
+
+// nonceClaim namespaces the durable one-time claim so it can never collide
+// with a Telegram callback query id in the same table.
+func nonceClaim(nonce string) string { return "approval:" + nonce }
 
 func parseCallback(data string) (string, Decision, bool) {
 	rest, ok := strings.CutPrefix(data, callbackPrefix)
