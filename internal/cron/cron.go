@@ -44,6 +44,7 @@ const (
 // Job is a cron_jobs row plus the runtime-only Script (ADR-248).
 type Job struct {
 	ID, Name, Schedule, TZ string
+	Prompt                 string
 	Enabled                bool
 	CatchUp, ApprovalMode  string
 	MaxCatchUp             int
@@ -146,6 +147,30 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// RunOnce claims and executes one job now, outside its schedule (CLI
+// `cron run`, cronjob_manage run and /cron run); a paused job still runs.
+func (s *Scheduler) RunOnce(ctx context.Context, jobID string) error {
+	jobs, err := s.Store.Jobs(ctx)
+	if err != nil {
+		return fmt.Errorf("cron: list jobs: %w", err)
+	}
+	for i := range jobs {
+		if jobs[i].ID != jobID {
+			continue
+		}
+		at := s.clock().Now()
+		claimed, err := s.Store.Claim(ctx, jobID, at, at, s.Owner)
+		if err != nil {
+			return fmt.Errorf("cron: claim: %w", err)
+		}
+		if !claimed {
+			return fmt.Errorf("cron: slot %s already claimed", at.Format(time.RFC3339Nano))
+		}
+		return s.execute(ctx, &jobs[i], at, at)
+	}
+	return fmt.Errorf("cron: job %q not found", jobID)
 }
 
 func (s *Scheduler) tickJob(ctx context.Context, j *Job, now time.Time) error {
