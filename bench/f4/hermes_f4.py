@@ -37,6 +37,7 @@ from pathlib import Path
 HERMES_COMMIT = "868b9f244f"
 WARMUP_S = 10.0
 WINDOW_S = 60.0
+WINDOWS = 3
 CLOCK_TICKS = 100.0  # Linux USER_HZ
 TOKEN = "424242:fake-telegram-token"
 
@@ -294,18 +295,37 @@ def main() -> int:
             return 0
 
         time.sleep(WARMUP_S)
-        first = proc_sample(child.pid)
-        time.sleep(WINDOW_S)
-        second = proc_sample(child.pid)
-        elapsed = second["at"] - first["at"]
-        cpu_pct = (second["ticks"] - first["ticks"]) / CLOCK_TICKS / elapsed * 100
+        samples = []
+        for _ in range(WINDOWS):
+            first = proc_sample(child.pid)
+            time.sleep(WINDOW_S)
+            second = proc_sample(child.pid)
+            elapsed = second["at"] - first["at"]
+            samples.append((second["ticks"] - first["ticks"]) / CLOCK_TICKS / elapsed * 100)
+        cpu_pct = sorted(samples)[len(samples) // 2]
         rss_mb = second.get("VmRSS", 0) / 1024
         peak_mb = second.get("VmHWM", 0) / 1024
+        log_text = log.read_text(errors="replace")
+        artifact["caveats"] = [
+            "hermes runs in a private Python 3.14.10 venv (bench/f3/README.md recipe), not in the repo tree",
+            "the fake Bot API implements getMe, deleteWebhook, getUpdates, setMyCommands and message CRUD only",
+            "no LLM call is made; provider warnings in the log are expected and do not affect idle CPU",
+            "the gateway's own cron/health loops are included in the process figure; they are not isolated",
+            "peak RSS is VmHWM during this idle window, not the 1 000-turn soak target",
+        ]
+        if "connect timed out" in log_text:
+            artifact["meta"]["cold_start_retry"] = True
+            artifact["caveats"].append(
+                "the first cold-start Telegram connect hit the 45 s readiness timeout against the fake Bot API; "
+                "the adapter came up on the background retry and the measurement window starts after "
+                "'Connected to Telegram'")
+        else:
+            artifact["meta"]["cold_start_retry"] = False
         artifact["status"] = "measured"
         artifact["dimensions"]["cpu_idle"] = {
             "status": "measured", "agent": "hermes", "percent": round(cpu_pct, 3),
-            "seconds": round((second["ticks"] - first["ticks"]) / CLOCK_TICKS, 3),
-            "window_s": round(elapsed, 3),
+            "samples_percent": [round(v, 3) for v in samples],
+            "windows": WINDOWS, "window_s": round(elapsed, 3),
             "method": "process-wide utime+stime delta from /proc/<pid>/stat",
         }
         artifact["dimensions"]["rss_idle"] = {
