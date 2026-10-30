@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/cron"
 	"github.com/damnbot/damnbot/internal/ctxdb"
@@ -29,6 +30,54 @@ func (g *serveGateway) CronSetEnabled(ctx context.Context, id string, enabled bo
 func (g *serveGateway) CronRemove(ctx context.Context, id string) error {
 	if err := g.cronAdmin.Remove(ctx, id); err != nil {
 		return fmt.Errorf("gateway cron remove: %w", err)
+	}
+	return nil
+}
+
+func (g *serveGateway) CronCreate(ctx context.Context, name, schedule, prompt string) (string, error) {
+	if _, err := cron.ParseSchedule(schedule, time.Local); err != nil {
+		return "", fmt.Errorf("gateway cron create: %w", err)
+	}
+	if name == "" {
+		name = "gateway-" + schedule
+	}
+	got, _, err := g.cronAdmin.Create(ctx, &cron.Job{Name: name, Schedule: schedule, Prompt: prompt, Cwd: g.dataDir, Enabled: true})
+	if err != nil {
+		return "", fmt.Errorf("gateway cron create: %w", err)
+	}
+	return got.ID, nil
+}
+
+func (g *serveGateway) CronUpdate(ctx context.Context, id, field, value string) error {
+	jobs, err := g.cronAdmin.List(ctx)
+	if err != nil {
+		return fmt.Errorf("gateway cron update: %w", err)
+	}
+	var job *cron.Job
+	for i := range jobs {
+		if jobs[i].ID == id {
+			job = &jobs[i]
+			break
+		}
+	}
+	if job == nil {
+		return fmt.Errorf("gateway cron update: job %s not found", id)
+	}
+	switch field {
+	case "name":
+		job.Name = value
+	case "schedule":
+		if _, err := cron.ParseSchedule(value, time.Local); err != nil {
+			return fmt.Errorf("gateway cron update: %w", err)
+		}
+		job.Schedule = value
+	case "prompt":
+		job.Prompt = value
+	default:
+		return fmt.Errorf("gateway cron update: unknown field %s", field)
+	}
+	if err := g.cronAdmin.Update(ctx, job); err != nil {
+		return fmt.Errorf("gateway cron update: %w", err)
 	}
 	return nil
 }

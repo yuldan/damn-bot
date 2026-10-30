@@ -128,6 +128,16 @@ func (f *fakeRuntime) CronRun(_ context.Context, id string) error {
 	return f.cronErr
 }
 
+func (f *fakeRuntime) CronCreate(_ context.Context, _, schedule, prompt string) (string, error) {
+	f.cronOps = append(f.cronOps, "add "+schedule+" "+prompt)
+	return "new-id", f.cronErr
+}
+
+func (f *fakeRuntime) CronUpdate(_ context.Context, id, field, value string) error {
+	f.cronOps = append(f.cronOps, "edit "+id+" "+field+" "+value)
+	return f.cronErr
+}
+
 func ticketIn(role gateway.Role, chat string) *gateway.Ticket {
 	t := testTicket(role)
 	t.Scope.ChatID = chat

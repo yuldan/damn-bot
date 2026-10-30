@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	_ "time/tzdata" // PROV-03: IANA zones are embedded, never a host tzdata lookup
 )
 
 // Volatile caps from SPEC §6 and ADR-067. The sub-caps sum to [CapVolatile].

@@ -118,3 +118,37 @@ func TestStatusShowsHomeChannel(t *testing.T) {
 		t.Fatalf("/status = %+v, want home", res)
 	}
 }
+
+// TestTimestampsAndDelayToggles: /timestamps and /delay write per-chat flags,
+// report status, reject bad args, and stay owner-only.
+func TestTimestampsAndDelayToggles(t *testing.T) {
+	fs := &fakeSettings{chat: map[string]string{}}
+	c := gateway.NewCommands(&gateway.CommandOptions{Settings: fs})
+	owner := testTicket(gateway.RoleOwner)
+	for _, tc := range []struct{ cmd, key, on, off string }{
+		{"/timestamps", "timestamps", "timestamps on", "timestamps off"},
+		{"/delay", "human_delay", "delay on", "delay off"},
+	} {
+		if res := c.Dispatch(context.Background(), owner, tc.cmd); !strings.Contains(res.Reply, "off") {
+			t.Fatalf("%s default = %+v", tc.cmd, res)
+		}
+		if res := c.Dispatch(context.Background(), owner, tc.cmd+" on"); !strings.Contains(res.Reply, tc.on) {
+			t.Fatalf("%s on = %+v", tc.cmd, res)
+		}
+		if got := fs.chat["telegram:c1."+tc.key]; got != "true" {
+			t.Fatalf("%s stored = %q", tc.key, got)
+		}
+		if res := c.Dispatch(context.Background(), owner, tc.cmd+" status"); !strings.Contains(res.Reply, tc.on) {
+			t.Fatalf("%s status = %+v", tc.cmd, res)
+		}
+		if res := c.Dispatch(context.Background(), owner, tc.cmd+" off"); !strings.Contains(res.Reply, tc.off) {
+			t.Fatalf("%s off = %+v", tc.cmd, res)
+		}
+		if res := c.Dispatch(context.Background(), owner, tc.cmd+" explode"); !strings.Contains(res.Reply, "usage:") {
+			t.Fatalf("%s bad arg = %+v", tc.cmd, res)
+		}
+		if res := c.Dispatch(context.Background(), testTicket(gateway.RoleUser), tc.cmd+" on"); !strings.Contains(res.Reply, "owner-only") {
+			t.Fatalf("%s as user = %+v", tc.cmd, res)
+		}
+	}
+}
