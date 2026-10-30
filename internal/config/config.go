@@ -39,6 +39,7 @@ type Config struct {
 	// Gateway and Providers are accepted and validated but have no runtime
 	// consumer until F4/F5 (ADR-197): config is data-only for them.
 	Gateway   Gateway   `toml:"gateway"`
+	Modules   Modules   `toml:"modules"`
 	Providers Providers `toml:"providers"`
 	Log       Log       `toml:"log"`
 	Storage   Storage   `toml:"storage"`
@@ -194,7 +195,26 @@ type UI struct {
 // validated but has no runtime consumer until F4.
 type Gateway struct {
 	MaxParallelTurns int                    `toml:"max_parallel_turns"`
+	BusyPolicy       string                 `toml:"busy_policy"`
 	Users            map[string]GatewayUser `toml:"users"`
+}
+
+// Modules is the compiled-in module configuration. Only keys owned by an
+// implemented module are accepted here; other [modules] keys stay
+// ErrModuleUnavailable.
+type Modules struct {
+	Gateway ModulesGateway `toml:"gateway"`
+}
+
+// ModulesGateway holds the gateway adapter configuration.
+type ModulesGateway struct {
+	Telegram ModulesTelegram `toml:"telegram"`
+}
+
+// ModulesTelegram is [modules.gateway.telegram]: thread_fallback is "fail"
+// (default) or "parent".
+type ModulesTelegram struct {
+	ThreadFallback string `toml:"thread_fallback"`
 }
 
 // GatewayUser is one identity's gateway overrides; Workspace empty means the
@@ -271,6 +291,7 @@ const DefaultGatewayUserDailyUSD = 1.00
 
 // Default returns the SPEC §12 defaults for every key exposed in F1.
 func Default() Config {
+	gateway, modules := gatewayDefaults()
 	return Config{
 		ConfigVersion: SchemaVersion,
 		Provider: Provider{
@@ -340,12 +361,10 @@ func Default() Config {
 			TotalMaxChars: 4000,
 			Embeddings:    "",
 		},
-		Recovery: Recovery{Continue: "safe_auto"},
-		UI:       UI{Language: "auto", Theme: "tern-dark", Notices: true},
-		Gateway: Gateway{
-			MaxParallelTurns: 4,
-			Users:            map[string]GatewayUser{},
-		},
+		Recovery:  Recovery{Continue: "safe_auto"},
+		UI:        UI{Language: "auto", Theme: "tern-dark", Notices: true},
+		Gateway:   gateway,
+		Modules:   modules,
 		Providers: Providers{Custom: []CustomProvider{}},
 		Update:    update.DefaultConfig(), ACP: ACP{UseClientFS: true},
 		Log: Log{
@@ -354,6 +373,11 @@ func Default() Config {
 			MessageContentTTL: Duration(24 * time.Hour),
 		},
 	}
+}
+
+func gatewayDefaults() (Gateway, Modules) {
+	return Gateway{MaxParallelTurns: 4, BusyPolicy: "queue", Users: map[string]GatewayUser{}},
+		Modules{Gateway: ModulesGateway{Telegram: ModulesTelegram{ThreadFallback: "fail"}}}
 }
 
 // defaultDenyPaths is SPEC §12 deny_paths in declaration order. The

@@ -79,6 +79,11 @@ func (a *Adapter) deliverChunks(ctx context.Context, out *Outbound, msgs []rende
 	return first, nil
 }
 
+// parentMessage labels a message moved out of a deleted forum topic.
+func parentMessage(msg render.Message) render.Message {
+	return render.Message{Text: "[fallback topik] " + msg.Text}
+}
+
 // capChunks splits msgs at max text chunks and joins the remainder into the
 // markdown attachment body. A non-positive max keeps every chunk.
 func capChunks(msgs []render.Message, maxChunks int) ([]render.Message, string) {
@@ -120,6 +125,9 @@ func (a *Adapter) deliverOne(ctx context.Context, chatID, threadID, anchor strin
 		return 0, false, waitErr
 	}
 	id, sendErr := a.sendMessage(ctx, chatID, threadID, anchor, msg, "")
+	if errors.Is(sendErr, ErrThreadNotFound) && a.threadFallback == "parent" && threadID != "" {
+		id, sendErr = a.sendMessage(ctx, chatID, "", anchor, parentMessage(msg), "")
+	}
 	if sendErr != nil {
 		if key != "" && uncertain(sendErr) {
 			if perr := a.store.PutMessageID(ctx, key, 0); perr != nil {

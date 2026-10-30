@@ -57,9 +57,7 @@ func (g *serveGateway) enqueueInbound(ctx context.Context, in *telegram.Inbound)
 	if err != nil {
 		return false, false, true, err
 	}
-	if depth >= inboundQueueLimit {
-		g.notifyChat(ctx, in.Platform, in.ChatID, "sys:busy:"+in.UpdateID,
-			fmt.Sprintf("antre %d/%d (penuh), kirim ulang setelah antrean turun", depth, inboundQueueLimit))
+	if g.busyDrop(ctx, in, depth) {
 		return false, true, true, nil
 	}
 	value, merr := json.Marshal(map[string]string{"update_id": in.UpdateID})
@@ -78,6 +76,31 @@ func (g *serveGateway) enqueueInbound(ctx context.Context, in *telegram.Inbound)
 		return false, false, true, fmt.Errorf("gateway: queue insert: %w", err)
 	}
 	return true, false, true, nil
+}
+
+// busyDrop applies gateway.busy_policy: reject_notify refuses while busy,
+// queue accepts to the bounded limit, and steer advertises its missing seam
+// once and then queues.
+func (g *serveGateway) busyDrop(ctx context.Context, in *telegram.Inbound, depth int) bool {
+	policy := g.cfg.Gateway.BusyPolicy
+	if policy == "" {
+		policy = "queue"
+	}
+	if depth > 0 && policy == "reject_notify" {
+		g.notifyChat(ctx, in.Platform, in.ChatID, "sys:busy:"+in.UpdateID,
+			fmt.Sprintf("sibuk (busy_policy=reject_notify, antre %d/%d), kirim ulang setelah turn selesai", depth, inboundQueueLimit))
+		return true
+	}
+	if depth >= inboundQueueLimit {
+		g.notifyChat(ctx, in.Platform, in.ChatID, "sys:busy:"+in.UpdateID,
+			fmt.Sprintf("antre %d/%d (penuh), kirim ulang setelah antrean turun", depth, inboundQueueLimit))
+		return true
+	}
+	if depth > 0 && policy == "steer" {
+		g.notifyChat(ctx, in.Platform, in.ChatID, "sys:steer:"+in.UpdateID,
+			fmt.Sprintf("antre %d/%d (steer: belum ada seam injeksi, pesan diantre)", depth+1, inboundQueueLimit))
+	}
+	return false
 }
 
 // queueDepth counts the FIFO pointers of one chat.

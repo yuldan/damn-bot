@@ -182,3 +182,65 @@ func TestDispatchRunsQueuedText(t *testing.T) {
 		t.Fatal("dispatch never ran the queued turn")
 	}
 }
+
+// TestBusyPolicyQueueAndSteer covers the explicit busy_policy choices:
+// queue keeps appending while busy, steer queues with one advisory notice,
+// and reject_notify refuses the second message with a system reply.
+func TestBusyPolicyQueueAndSteer(t *testing.T) {
+	for _, policy := range []string{"queue", "steer"} {
+		t.Run(policy, func(t *testing.T) {
+			gw := newTestGateway(t, "http://127.0.0.1:1")
+			allowGatewayUser(t, gw, "7")
+			gw.cfg.Gateway.BusyPolicy = policy
+			first := &telegram.Inbound{Platform: "telegram", ChatID: "7", SenderID: "7", UpdateID: "u:1", Text: "satu"}
+			second := &telegram.Inbound{Platform: "telegram", ChatID: "7", SenderID: "7", UpdateID: "u:2", Text: "dua"}
+			if queued, _, _, err := gw.enqueueInbound(t.Context(), first); err != nil || !queued {
+				t.Fatalf("first enqueue = %v, %v", queued, err)
+			}
+			queued, drop, _, err := gw.enqueueInbound(t.Context(), second)
+			if err != nil || !queued || drop {
+				t.Fatalf("%s second enqueue = %v/%v/%v, want queued", policy, queued, drop, err)
+			}
+			var notices int
+			if err := gw.store.DB.Write(t.Context(), func(tx *ctxdb.Tx) error {
+				return tx.Get(`SELECT count(*) FROM gateway_deliveries WHERE idem_key LIKE ?1`,
+					[]any{"%sys:" + map[string]string{"queue": "busy", "steer": "steer"}[policy] + ":u:2"}, &notices)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			want := 0
+			if policy == "steer" {
+				want = 1
+			}
+			if notices != want {
+				t.Fatalf("%s notices = %d, want %d", policy, notices, want)
+			}
+		})
+	}
+}
+
+// TestBusyPolicyRejectNotify: the default refuses a second message while the
+// chat is busy and answers exactly one system notice; it is never queued.
+func TestBusyPolicyRejectNotify(t *testing.T) {
+	gw := newTestGateway(t, "http://127.0.0.1:1")
+	allowGatewayUser(t, gw, "7")
+	gw.cfg.Gateway.BusyPolicy = "reject_notify"
+	first := &telegram.Inbound{Platform: "telegram", ChatID: "7", SenderID: "7", UpdateID: "u:1", Text: "satu"}
+	second := &telegram.Inbound{Platform: "telegram", ChatID: "7", SenderID: "7", UpdateID: "u:2", Text: "dua"}
+	if _, _, _, err := gw.enqueueInbound(t.Context(), first); err != nil {
+		t.Fatal(err)
+	}
+	queued, drop, _, err := gw.enqueueInbound(t.Context(), second)
+	if err != nil || queued || !drop {
+		t.Fatalf("reject_notify enqueue = %v/%v/%v, want dropped", queued, drop, err)
+	}
+	if n, depthErr := gw.queueDepth(t.Context(), "telegram", "7"); depthErr != nil || n != 1 {
+		t.Fatalf("queue depth = %d, %v; want only the first message", n, depthErr)
+	}
+	var notices int
+	if err := gw.store.DB.Write(t.Context(), func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT count(*) FROM gateway_deliveries WHERE idem_key LIKE '%sys:busy:u:2'`, nil, &notices)
+	}); err != nil || notices != 1 {
+		t.Fatalf("reject notice = %d, %v; want 1", notices, err)
+	}
+}

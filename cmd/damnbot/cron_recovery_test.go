@@ -25,14 +25,14 @@ func recoveryDB(t *testing.T) *ctxdb.Store {
 	return db
 }
 
-func seedCronJob(t *testing.T, db *ctxdb.Store, id, name string, pauseAfter int) {
+func seedCronJob(t *testing.T, db *ctxdb.Store, id, name string) {
 	t.Helper()
 	now := time.Now().UnixMilli()
 	if err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
 		if _, xerr := tx.Exec(`INSERT INTO cron_jobs(id, name, owner_identity, schedule, prompt, prompt_sha,
 				cwd, pause_after_crashes, enabled, created_at, updated_at)
 			VALUES (?1, ?2, 'serve', '@daily', 'p', ?3, '/tmp', ?4, 1, ?5, ?5)`,
-			id, name, "sha-"+id, pauseAfter, now); xerr != nil {
+			id, name, "sha-"+id, 3, now); xerr != nil {
 			return fmt.Errorf("seed job: %w", xerr)
 		}
 		return nil
@@ -59,7 +59,7 @@ func seedOpenRun(t *testing.T, db *ctxdb.Store, job string, at time.Time) {
 // recovery (restart) writes nothing. The negative control is the second call.
 func TestRecoverCrashedRunsClosesSlotOnce(t *testing.T) {
 	db := recoveryDB(t)
-	seedCronJob(t, db, "job1", "harian", 3)
+	seedCronJob(t, db, "job1", "harian")
 	at := time.UnixMilli(1_700_000_000_000)
 	seedOpenRun(t, db, "job1", at)
 
@@ -105,8 +105,8 @@ func TestRecoverCrashedRunsClosesSlotOnce(t *testing.T) {
 // notify once; two crashes (negative control) do not pause.
 func TestRecoverPausesAfterConsecutiveCrashes(t *testing.T) {
 	db := recoveryDB(t)
-	seedCronJob(t, db, "job3", "tiga", 3)
-	seedCronJob(t, db, "job2", "dua", 3)
+	seedCronJob(t, db, "job3", "tiga")
+	seedCronJob(t, db, "job2", "dua")
 	base := time.UnixMilli(1_700_000_000_000)
 	for i := range 3 {
 		seedOpenRun(t, db, "job3", base.Add(time.Duration(i)*time.Hour))
@@ -152,5 +152,46 @@ func TestRecoverPausesAfterConsecutiveCrashes(t *testing.T) {
 	}
 	if len(pauseNotes) != 1 {
 		t.Fatalf("pause notices after restart = %v, want one", pauseNotes)
+	}
+}
+
+// TestRecoverRetriesOnlyOptIn: retry_on_crash/idempotent=true requeues the
+// crashed slot (started_at NULL, outcome NULL) and notifies once; the default
+// remains at-most-once (previous tests).
+func TestRecoverRetriesOnlyOptIn(t *testing.T) {
+	for _, col := range []string{"retry_on_crash", "idempotent"} {
+		t.Run(col, func(t *testing.T) { assertRetryOptIn(t, col) })
+	}
+}
+
+func assertRetryOptIn(t *testing.T, col string) {
+	t.Helper()
+	db := recoveryDB(t)
+	seedCronJob(t, db, "job-"+col, "retry")
+	if err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
+		if _, xerr := tx.Exec(`UPDATE cron_jobs SET `+col+` = 1 WHERE id = ?1`, "job-"+col); xerr != nil {
+			return fmt.Errorf("enable %s: %w", col, xerr)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	at := time.UnixMilli(1_700_000_000_000)
+	seedOpenRun(t, db, "job-"+col, at)
+	notified := 0
+	if _, err := recoverCrashedRuns(t.Context(), db, func(context.Context, string, string) { notified++ }); err != nil {
+		t.Fatal(err)
+	}
+	var started, outcome any
+	if err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
+		return tx.Get(`SELECT started_at, outcome FROM cron_runs WHERE job_id = ?1`, []any{"job-" + col}, &started, &outcome)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if started != nil || outcome != nil {
+		t.Fatalf("%s slot started_at=%v outcome=%v, want queued for retry", col, started, outcome)
+	}
+	if notified != 1 {
+		t.Fatalf("%s notices = %d, want 1", col, notified)
 	}
 }

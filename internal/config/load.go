@@ -128,6 +128,12 @@ func (c *Config) normalize() {
 			c.Providers.Custom[i].API = "openai-chat"
 		}
 	}
+	if c.Gateway.BusyPolicy == "" {
+		c.Gateway.BusyPolicy = "queue"
+	}
+	if c.Modules.Gateway.Telegram.ThreadFallback == "" {
+		c.Modules.Gateway.Telegram.ThreadFallback = "fail"
+	}
 }
 
 // isModuleKey reports a section owned by a module that this build does not

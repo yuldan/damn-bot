@@ -82,7 +82,13 @@ config_version = 1
 
 [gateway]
   max_parallel_turns = 4
+  busy_policy = "queue"
   [gateway.users]
+
+[modules]
+  [modules.gateway]
+    [modules.gateway.telegram]
+      thread_fallback = "fail"
 
 [providers]
   custom = []
@@ -156,6 +162,7 @@ config_version = 1
 | `ui.theme` | string | `tern-dark` | `DAMNBOT_UI_THEME` |
 | `ui.notices` | bool | `true` | `DAMNBOT_UI_NOTICES` |
 | `gateway.max_parallel_turns` | int | `4` | `DAMNBOT_GATEWAY_MAX_PARALLEL_TURNS` |
+| `gateway.busy_policy` | string | `queue` | `DAMNBOT_GATEWAY_BUSY_POLICY` |
 | `log.level` | string | `info` | `DAMNBOT_LOG_LEVEL` |
 | `log.message_content` | bool | `false` | `DAMNBOT_LOG_MESSAGE_CONTENT` |
 | `log.message_content_ttl` | config.Duration | `24h0m0s` | `DAMNBOT_LOG_MESSAGE_CONTENT_TTL` |
