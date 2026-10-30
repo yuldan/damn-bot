@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"runtime"
 	"time"
 
@@ -67,6 +68,8 @@ type Options struct {
 	Fix           bool
 	// Keyring probes the OS keychain; nil uses the real one with a 2 s cap.
 	Keyring func(context.Context) (bool, error)
+	// Free reports free and total bytes; nil uses the platform statfs probe.
+	Free func(path string) (free, total int64, err error)
 }
 
 // Run executes every check and applies the SELF-HEALING §8 exit contract:
@@ -86,6 +89,7 @@ func Run(ctx context.Context, o *Options) Report {
 		checkEngine(ctx),
 		checkSecret(ctx, o),
 		checkProvider(o),
+		checkDisk(o),
 	}
 	return r.finish()
 }
@@ -216,6 +220,84 @@ func checkProvider(o *Options) Check {
 		return Check{"DOC-009", "provider", StatusWarn, "provider.model is empty; run `damnbot setup`"}
 	}
 	return Check{"DOC-009", "provider", StatusOK, o.ProviderModel + " (no network probe)"}
+}
+
+// checkDisk reports OPS-033/SELF-HEALING §4 data-dir disk status: free space
+// against the readable low-water mark plus the space used by the DB, blobs and
+// logs. A missing data dir or an unavailable probe is not a failure.
+func checkDisk(o *Options) Check {
+	const id, name = "DOC-010", "disk"
+	fi, err := os.Stat(o.DataDir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return Check{id, name, StatusOK, "data dir not created; no space report"}
+	case err != nil:
+		return Check{id, name, StatusError, fmt.Sprintf("%s: %v", o.DataDir, err)}
+	case !fi.IsDir():
+		return Check{id, name, StatusError, o.DataDir + " is not a directory"}
+	}
+	db := int64(0)
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if fi, ferr := os.Stat(filepath.Join(o.DataDir, "damnbot.db") + suffix); ferr == nil && fi.Mode().IsRegular() {
+			db += fi.Size()
+		}
+	}
+	used := fmt.Sprintf("db %s · blobs %s · logs %s", sizeText(db),
+		sizeText(dirSize(filepath.Join(o.DataDir, "blobs"))), sizeText(dirSize(filepath.Join(o.DataDir, "logs"))))
+	probe := o.Free
+	if probe == nil {
+		probe = diskFree
+	}
+	free, total, err := probe(o.DataDir)
+	if err != nil {
+		return Check{id, name, StatusOK, used + "; free space unknown (" + err.Error() + ")"}
+	}
+	if total <= 0 {
+		return Check{id, name, StatusOK, used + "; free space unknown (zero capacity)"}
+	}
+	lowWater := min(int64(1)<<30, total/20)
+	clear := lowWater + 256<<20
+	msg := fmt.Sprintf("%s free of %s (low-water %s, clears at %s); %s",
+		sizeText(free), sizeText(total), sizeText(lowWater), sizeText(clear), used)
+	switch {
+	case free < lowWater:
+		return Check{id, name, StatusError, "disk below low-water: " + msg}
+	case free < clear:
+		return Check{id, name, StatusWarn, "disk near low-water: " + msg}
+	default:
+		return Check{id, name, StatusOK, msg}
+	}
+}
+
+// dirSize sums regular files below dir; a missing dir is zero.
+func dirSize(dir string) int64 {
+	var n int64
+	if err := filepath.WalkDir(dir, func(_ string, d fs.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			if fi, ferr := d.Info(); ferr == nil {
+				n += fi.Size()
+			}
+		}
+		return nil
+	}); err != nil {
+		return n
+	}
+	return n
+}
+
+// sizeText renders bytes for the operator (binary units).
+func sizeText(n int64) string {
+	const unit = int64(1024)
+	switch {
+	case n >= unit*unit*unit:
+		return fmt.Sprintf("%.1f GiB", float64(n)/float64(unit*unit*unit))
+	case n >= unit*unit:
+		return fmt.Sprintf("%.1f MiB", float64(n)/float64(unit*unit))
+	case n >= unit:
+		return fmt.Sprintf("%.1f KiB", float64(n)/float64(unit))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }
 
 // probeKeyring caps the OS keychain call; a hung secret service must never

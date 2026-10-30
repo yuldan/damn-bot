@@ -61,7 +61,7 @@ func TestRunHealthy(t *testing.T) {
 	if rep.Exit != 0 {
 		t.Fatalf("exit = %d, want 0\n%+v", rep.Exit, rep)
 	}
-	if len(rep.Checks) != 9 || rep.Summary.OK != 9 {
+	if len(rep.Checks) != 10 || rep.Summary.OK != 10 {
 		t.Fatalf("checks = %d, ok = %d\n%+v", len(rep.Checks), rep.Summary.OK, rep)
 	}
 }
@@ -137,7 +137,7 @@ func TestReportJSON(t *testing.T) {
 		t.Fatalf("version = %v", got["version"])
 	}
 	checks, ok := got["checks"].([]any)
-	if !ok || len(checks) != 9 {
+	if !ok || len(checks) != 10 {
 		t.Fatalf("checks = %T %v", got["checks"], got["checks"])
 	}
 	first, ok := checks[0].(map[string]any)
@@ -256,5 +256,58 @@ func TestRunFixesDirPermissions(t *testing.T) {
 		if err != nil || fi.Mode().Perm() != 0o700 {
 			t.Fatalf("%s mode = %v, %v", d, fi.Mode().Perm(), err)
 		}
+	}
+}
+
+func TestCheckDiskStatus(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	for _, d := range []string{dataDir, filepath.Join(dataDir, "blobs", "aa"), filepath.Join(dataDir, "logs")} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []struct {
+		path string
+		size int
+	}{{"damnbot.db", 1 << 20}, {"blobs/aa/sha", 2 << 20}, {"logs/acp.log", 3 << 20}} {
+		if err := os.WriteFile(filepath.Join(dataDir, filepath.FromSlash(f.path)), make([]byte, f.size), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const gib = int64(1) << 30
+	for _, tc := range []struct {
+		name  string
+		free  int64
+		total int64
+		err   error
+		want  Status
+	}{
+		{"below", 0, 10 * gib, nil, StatusError},
+		{"near", 600 << 20, 10 * gib, nil, StatusWarn},
+		{"ok", 2 * gib, 10 * gib, nil, StatusOK},
+		{"probe", 0, 0, errors.New("no statfs"), StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) { assertDisk(t, dataDir, tc.name, tc.free, tc.total, tc.err, tc.want) })
+	}
+	missing := checkDisk(&Options{DataDir: filepath.Join(root, "absent"), Free: func(string) (int64, int64, error) {
+		return 2 * gib, 10 * gib, nil
+	}})
+	if missing.Status != StatusOK || !strings.Contains(missing.Message, "not created") {
+		t.Fatalf("missing data dir = %+v", missing)
+	}
+}
+
+func assertDisk(t *testing.T, dataDir, name string, free, total int64, probe error, want Status) {
+	t.Helper()
+	c := checkDisk(&Options{DataDir: dataDir, Free: func(string) (int64, int64, error) { return free, total, probe }})
+	if c.ID != "DOC-010" || c.Status != want {
+		t.Fatalf("check = %+v, want %s", c, want)
+	}
+	if name != "probe" && !strings.Contains(c.Message, "db 1.0 MiB") {
+		t.Errorf("sizes missing: %s", c.Message)
+	}
+	if name == "below" && !strings.Contains(c.Message, "low-water 512.0 MiB") {
+		t.Errorf("low-water unreadable: %s", c.Message)
 	}
 }
