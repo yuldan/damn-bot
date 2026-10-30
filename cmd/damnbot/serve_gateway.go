@@ -579,8 +579,7 @@ func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch
 	if now == nil {
 		now = time.Now
 	}
-	start := now()
-	prefix, human, decorate := g.replyHooks(ctx, in.ChatID, now, start)
+	prefix, human, decorate := g.replyHooks(ctx, in.ChatID, now, now())
 	flush := func(ctx context.Context, text string) error {
 		if err := g.humanPace(ctx, human); err != nil {
 			return err
@@ -593,7 +592,7 @@ func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch
 		}
 		return nil
 	}
-	res := streamReplyUpdates(ctx, ch, now, waitReply, flush, decorate, start, shown)
+	res := streamReplyUpdates(ctx, ch, now, waitReply, flush, decorate, now(), shown)
 	if res.Text == "" && ack != nil && !ack.replaced {
 		res.Text = gatewayNoOutput
 		if ferr := flush(ctx, res.Text); ferr != nil {
