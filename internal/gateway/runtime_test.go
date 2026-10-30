@@ -186,6 +186,16 @@ func TestStatusReportsReadOnlyState(t *testing.T) {
 	if res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/status"); !strings.Contains(res.Reply, "mode normal") {
 		t.Fatalf("/status normal = %+v", res)
 	}
+	// REL-07: a provider silent for 10 s is visible in /status, and 9 s is
+	// the negative control (no flood of "waiting" text).
+	rt.status.WaitingProvider = 9 * time.Second
+	if res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/status"); strings.Contains(res.Reply, "menunggu provider") {
+		t.Fatalf("/status at 9 s already reports a wait: %+v", res)
+	}
+	rt.status.WaitingProvider = 12 * time.Second
+	if res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/status"); !strings.Contains(res.Reply, "menunggu provider 12 s") {
+		t.Fatalf("/status at 12 s lacks the wait: %+v", res)
+	}
 	rt.statusErr = errors.New("boom")
 	if res := c.Dispatch(context.Background(), testTicket(gateway.RoleOwner), "/status"); res.Reply != "status unavailable" {
 		t.Fatalf("/status error = %+v", res)

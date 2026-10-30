@@ -649,3 +649,27 @@ func TestCopyFormSpaces(t *testing.T) {
 		}
 	}
 }
+
+// TestScanTextGateway is the SEC-16 seam used by messaging adapters: the text
+// of an outgoing message is scanned with the same DLP engine, including
+// encoded forms, because the Bot API URL itself carries the runtime token and
+// is deliberately outside the scan. Clean prose is the negative control.
+func TestScanTextGateway(t *testing.T) {
+	secret := "hunter2-vault-secret"
+	n := New(Config{Secrets: []string{secret}})
+	for _, text := range []string{
+		"kirim " + secret + " sekarang",
+		"kirim hunter2%2Dvault%2Dsecret sekarang",
+		"kirim " + base64.StdEncoding.EncodeToString([]byte(secret)),
+	} {
+		if err := n.ScanText(text); !errors.Is(err, ErrSecretEgress) {
+			t.Errorf("ScanText(%q) = %v, want ErrSecretEgress", text, err)
+		}
+	}
+	if err := n.ScanText("halo, ini pesan biasa"); err != nil {
+		t.Fatalf("clean text refused: %v", err)
+	}
+	if err := n.ScanText(""); err != nil {
+		t.Fatalf("empty text refused: %v", err)
+	}
+}

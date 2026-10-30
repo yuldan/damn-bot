@@ -344,9 +344,13 @@ func (c *Commands) status(ctx context.Context, _ *Ticket, _ Command) CommandResu
 	if st.Paused {
 		stop = "on (" + st.PauseReason + ")"
 	}
+	waiting := ""
+	if st.WaitingProvider >= ProviderWaitVisible {
+		waiting = fmt.Sprintf(", menunggu provider %d s", int64(st.WaitingProvider/time.Second))
+	}
 	return CommandResult{Handled: true, Reply: fmt.Sprintf(
-		"status: up %s, queue %d, active turns %d, emergency stop %s, mode %s, version %s%s",
-		st.Uptime.Truncate(time.Second), st.QueueDepth, st.ActiveTurns, stop, modeName(st.SafeMode), version, home)}
+		"status: up %s, queue %d, active turns %d, emergency stop %s, mode %s, version %s%s%s",
+		st.Uptime.Truncate(time.Second), st.QueueDepth, st.ActiveTurns, stop, modeName(st.SafeMode), version, home, waiting)}
 }
 
 // pause implements SLASH-021: "/pause [reason]" and "/pause off".

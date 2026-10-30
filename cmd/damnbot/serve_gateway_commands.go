@@ -176,13 +176,14 @@ func (g *serveGateway) Status(ctx context.Context) (gateway.RuntimeStatus, error
 		paused, reason = true, "state unreadable"
 	}
 	st := gateway.RuntimeStatus{
-		Uptime:      g.now().Sub(g.started),
-		QueueDepth:  queued + len(g.inbound),
-		ActiveTurns: active,
-		SafeMode:    g.supervisor.Snapshot().State == heal.SafeMode,
-		Paused:      paused,
-		PauseReason: reason,
-		Version:     version,
+		Uptime:          g.now().Sub(g.started),
+		QueueDepth:      queued + len(g.inbound),
+		ActiveTurns:     active,
+		SafeMode:        g.supervisor.Snapshot().State == heal.SafeMode,
+		Paused:          paused,
+		PauseReason:     reason,
+		Version:         version,
+		WaitingProvider: g.providerWait(),
 	}
 	if p, c, t, found, herr := g.store.HomeChannel(ctx); herr != nil {
 		return gateway.RuntimeStatus{}, fmt.Errorf("gateway: status home: %w", herr)

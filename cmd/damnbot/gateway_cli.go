@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"time"
 
@@ -118,10 +122,33 @@ func gatewayPair(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer closeFn()
-	p, err := store.CreatePairing(ctx, pos[0], gatewayCLISource, time.Now().UnixMilli(), gatewayPairTTL, gatewayPairPerHour)
+	now := time.Now()
+	evicted, notice, cerr := prunePairingPending(ctx, store, pos[0], gatewayCLISource, now)
+	if cerr != nil {
+		// Fail closed: issuing a code without the SEC-27 bounds would let a
+		// spammer fill the pending table again.
+		sessionsPrintf(stderr, "gateway pair: %s\n", cleanLine(cerr.Error()))
+		return 1
+	}
+	if evicted > 0 {
+		sessionsPrintf(stderr, "gateway pair: %d kode pending lama dihapus\n", evicted)
+	}
+	if notice {
+		notifyPairingOwner(ctx, store, pos[0], now)
+		sessionsPrintf(stderr, "gateway pair: pending %s penuh; kode tertua dihapus\n", cleanArg(pos[0]))
+	}
+	p, err := store.CreatePairing(ctx, pos[0], gatewayCLISource, now.UnixMilli(), gatewayPairTTL, gatewayPairPerHour)
 	if err != nil {
+		if errors.Is(err, gwstore.ErrPairingQuota) {
+			sum := sha256.Sum256([]byte(gatewayCLISource))
+			slog.New(slog.NewTextHandler(stderr, nil)).Warn("pairing_lockout",
+				"platform", pos[0], "identity_hash", hex.EncodeToString(sum[:]))
+		}
 		sessionsPrintf(stderr, "gateway pair: %s\n", cleanLine(err.Error()))
 		return 1
+	}
+	if rerr := recordPairingPending(ctx, store, pos[0], gatewayCLISource, p.Code, now); rerr != nil {
+		sessionsPrintf(stderr, "gateway pair: %s\n", cleanLine(rerr.Error()))
 	}
 	sessionsPrintf(stdout, "pairing code %s (role %s, expires in %s)\n", p.Code, p.Role, gatewayPairTTL)
 	return 0

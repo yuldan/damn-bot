@@ -48,7 +48,14 @@ type RuntimeStatus struct {
 	PauseReason string
 	Version     string
 	Home        string
+	// WaitingProvider is how long the oldest running turn has waited for the
+	// first provider output. /status shows it after ProviderWaitVisible.
+	WaitingProvider time.Duration
 }
+
+// ProviderWaitVisible is the REL-07 threshold: a turn silent this long is
+// reported as "menunggu provider N s".
+const ProviderWaitVisible = 10 * time.Second
 
 // UsageReport is the ledger totals /usage answers with: tokens and micro-USD
 // of the session and of today. CostKnown is false when a counted call had no
