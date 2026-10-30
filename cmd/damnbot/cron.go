@@ -20,6 +20,8 @@ type cronOptions struct {
 	configPath, dataDir, name, schedule, prompt string
 	model, baseURL, apiKey, gate                string
 	json                                        bool
+	limit                                       int
+	clear                                       bool
 }
 
 // offered: cron_jobs has no script column yet (reported, no DDL here).
@@ -37,6 +39,8 @@ func runCron(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&o.apiKey, "api-key", "", "run: internal/test provider API key")
 	fs.StringVar(&o.gate, "gate", "", "add: gate JSON (script, wake or monitor)")
 	fs.BoolVar(&o.json, "json", false, "machine-readable output")
+	fs.IntVar(&o.limit, "limit", 20, "runs/incidents: rows (max 200)")
+	fs.BoolVar(&o.clear, "clear", false, "notepad: clear")
 	pos, err := parseInterleaved(fs, args)
 	if err != nil || len(pos) == 0 {
 		cronUsage(stderr)
@@ -54,6 +58,16 @@ func runCron(args []string, stdout, stderr io.Writer) int {
 		return cronAdd(rest, &o, stdout, stderr)
 	case "pause", "resume", "rm", "run":
 		return cronAct(sub, rest, &o, stdout, stderr)
+	case "edit":
+		return cronEdit(rest, &o, stdout, stderr)
+	case "runs", "incidents":
+		return cronRunsCmd(sub, rest, &o, stdout, stderr)
+	case "notepad":
+		return cronNotepad(rest, &o, stdout, stderr)
+	case "doctor":
+		return cronDoctorCmd(&o, stdout, stderr)
+	case "tick":
+		return cronTickCmd(&o, stdout, stderr)
 	case "-h", "--help":
 		cronUsage(stdout)
 		return 0
@@ -64,18 +78,18 @@ func runCron(args []string, stdout, stderr io.Writer) int {
 }
 
 func cronUsage(w io.Writer) {
-	sessionsPrintf(w, "usage: damnbot cron <list|add|pause|resume|rm|run|status> [flags] [id]\n")
+	sessionsPrintf(w, "usage: damnbot cron <list|add|edit|runs|incidents|notepad|doctor|tick|pause|resume|rm|run|status> [flags] [id]\n")
 	sessionsPrintf(w, "  add --schedule S --prompt P   schedule a prompt job (--name)\n")
 	sessionsPrintf(w, "  pause|resume|rm|run <id>      manage one job\n")
 }
 
 func cronList(sub string, o *cronOptions, stdout, stderr io.Writer) int {
-	env, code := cronOpen(o, stderr)
+	env, code := cronOpen(context.Background(), o, stderr)
 	if env == nil {
 		return code
 	}
 	defer func() {
-		if err := env.close(); err != nil {
+		if err := env.close(context.Background()); err != nil {
 			sessionsPrintf(stderr, "cron: close: %s\n", cleanLine(err.Error()))
 		}
 	}()
@@ -158,12 +172,12 @@ func cronAdd(rest []string, o *cronOptions, stdout, stderr io.Writer) int {
 	if o.name == "" {
 		o.name = fmt.Sprintf("job-%d", time.Now().UnixNano())
 	}
-	env, code := cronOpen(o, stderr)
+	env, code := cronOpen(context.Background(), o, stderr)
 	if env == nil {
 		return code
 	}
 	defer func() {
-		if err := env.close(); err != nil {
+		if err := env.close(context.Background()); err != nil {
 			sessionsPrintf(stderr, "cron: close: %s\n", cleanLine(err.Error()))
 		}
 	}()
@@ -198,12 +212,12 @@ func cronAct(sub string, rest []string, o *cronOptions, stdout, stderr io.Writer
 		return 2
 	}
 	id := rest[0]
-	env, code := cronOpen(o, stderr)
+	env, code := cronOpen(context.Background(), o, stderr)
 	if env == nil {
 		return code
 	}
 	defer func() {
-		if err := env.close(); err != nil {
+		if err := env.close(context.Background()); err != nil {
 			sessionsPrintf(stderr, "cron: close: %s\n", cleanLine(err.Error()))
 		}
 	}()
@@ -249,15 +263,15 @@ type cronCLI struct {
 	cfg config.Config
 }
 
-func (c *cronCLI) close() error {
-	if err := c.db.CloseContext(context.Background()); err != nil {
+func (c *cronCLI) close(ctx context.Context) error {
+	if err := c.db.CloseContext(ctx); err != nil {
 		return fmt.Errorf("close cron store: %w", err)
 	}
 	return nil
 }
 
-func cronOpen(o *cronOptions, stderr io.Writer) (*cronCLI, int) {
-	env, err := openCLI(context.Background(), o.configPath, o.dataDir)
+func cronOpen(ctx context.Context, o *cronOptions, stderr io.Writer) (*cronCLI, int) {
+	env, err := openCLI(ctx, o.configPath, o.dataDir)
 	if err != nil {
 		sessionsPrintf(stderr, "cron: %s\n", cleanLine(err.Error()))
 		return nil, 1
