@@ -93,7 +93,7 @@ func (g *serveGateway) handleRejected(ctx context.Context, in *telegram.Inbound,
 		g.budgetNotice(ctx, in)
 	case gateway.ReasonNone, gateway.ReasonUnknownIdentity, gateway.ReasonNotAllowlisted,
 		gateway.ReasonWeakIdentity, gateway.ReasonUnknownRole, gateway.ReasonNoWorkspace,
-		gateway.ReasonMentionRequired:
+		gateway.ReasonMentionRequired, gateway.ReasonHookDenied, gateway.ReasonHookError:
 		g.metrics.IncError()
 	}
 }

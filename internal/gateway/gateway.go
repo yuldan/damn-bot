@@ -86,6 +86,18 @@ type Inbound struct {
 	Mentioned, ReplyToBot, Command, SenderIsBot bool
 }
 
+// InboundDecision is the gateway_inbound verdict; the zero value denies.
+type InboundDecision struct {
+	Allow  bool
+	Hook   string
+	Reason string
+}
+
+// InboundHook is the gateway_inbound filter (SPEC §4.10); errors fail closed.
+type InboundHook interface {
+	Inbound(ctx context.Context, in *Inbound) (InboundDecision, error)
+}
+
 // Closed admission errors. Compared with errors.Is.
 var (
 	// ErrInvalidInbound rejects an Inbound whose adapter fields are missing or

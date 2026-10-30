@@ -261,7 +261,7 @@ func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound) {
 	case out.Kind == gateway.CommandHandled:
 		g.replyCommand(ctx, in, out.Reply)
 	case out.Kind == gateway.Rejected:
-		g.handleRejected(ctx, in, out.Reason)
+		g.reject(ctx, in, &out)
 	}
 }
 
@@ -423,8 +423,6 @@ func (g *serveGateway) placeholder(ctx context.Context, in *telegram.Inbound) *g
 	return &gatewayAck{id: id}
 }
 
-// failPlaceholder turns the placeholder into an error message when the turn
-// failed before any reply update replaced it.
 func (g *serveGateway) failPlaceholder(ctx context.Context, in *telegram.Inbound, ack *gatewayAck) {
 	if ack == nil || ack.replaced {
 		return
@@ -503,7 +501,6 @@ func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch
 	return nil
 }
 
-// waitReply paces the final reply update without sleeping past ctx.
 func waitReply(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)
 	defer t.Stop()

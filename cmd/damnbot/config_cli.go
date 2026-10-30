@@ -30,7 +30,6 @@ type configCLI struct {
 	exists bool
 }
 
-// runConfig is `damnbot config` (SPEC §10); modules/hooks land with their engines.
 func runConfig(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		configUsage(stderr)
@@ -47,6 +46,8 @@ func runConfig(args []string, stdout, stderr io.Writer) int {
 		return configSchemaCmd(args[1:], stdout, stderr)
 	case "modules":
 		return configModules(args[1:], stdout, stderr)
+	case "hooks":
+		return configHooks(args[1:], stdout, stderr)
 	case "edit":
 		return configEdit(args[1:], stdout, stderr)
 	case "profiles":
@@ -58,7 +59,7 @@ func runConfig(args []string, stdout, stderr io.Writer) int {
 }
 
 func configUsage(w io.Writer) {
-	say(w, "usage: damnbot config show\n       damnbot config get <key>\n       damnbot config explain <key>\n       damnbot config schema <section>\n       damnbot config modules\n       damnbot config edit [--dry-run]\n       damnbot config profiles ls\n       damnbot config profiles export <name> [-o FILE]\n       damnbot config profiles import <file> [--name NAME] [--yes] [--dry-run]\n")
+	say(w, "usage: damnbot config show\n       damnbot config get <key>\n       damnbot config explain <key>\n       damnbot config schema <section>\n       damnbot config modules\n       damnbot config hooks ls|test\n       damnbot config edit [--dry-run]\n       damnbot config profiles ls\n       damnbot config profiles export <name> [-o FILE]\n       damnbot config profiles import <file> [--name NAME] [--yes] [--dry-run]\n")
 }
 
 func configFail(stderr io.Writer, cmd string, err error) int {
