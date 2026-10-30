@@ -935,14 +935,14 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | OPS-023 | Mini SWE runner | Runner tugas SWE format trajectory Hermes | `mini_swe_runner.py` | opt-in (skrip) | Docker/Modal opsional |  | F8 | planned |
 | OPS-024 | Evals | Suite evaluasi/probe perilaku | `evals/__init__.py` | dev only | — | 74 entri di `evals/` | F8 | planned |
 | OPS-025 | Verify | Deteksi resep run proyek & smoke test | `hermes_cli/verify_cmd.py`, `agent/verify` | opt-in | — | `hermes verify` | F3 | planned |
-| OPS-026 | Service manager (systemd/launchd/Windows) | Install gateway sebagai service | `hermes_cli/service_manager.py`, `hermes_cli/gateway_launchd.py`, `hermes_cli/gateway_windows.py` | opt-in | systemd/launchd/Task Scheduler |  | F4 | planned |
+| OPS-026 | Service manager (systemd/launchd/Windows) | Install gateway sebagai service | `hermes_cli/service_manager.py`, `hermes_cli/gateway_launchd.py`, `hermes_cli/gateway_windows.py` | opt-in | systemd/launchd/Task Scheduler | systemd user (ADR-250), launchd LaunchAgent (ADR-256), Task Scheduler (ADR-251) | F4 | planned |
 | OPS-027 | Startup watchdog & bootstrap | Watchdog startup, UTF-8 stdio Windows | `hermes_startup_watchdog.py`, `hermes_bootstrap.py` | on | — |  | F4 | planned |
 | OPS-028 | Install repair / early recovery | Pulihkan update yang terputus | `hermes_cli/_early_recovery.py`, `hermes_cli/_install_repair.py` | on | — |  | F4 | planned |
 | OPS-029 | Docker image & compose | Image Docker resmi | `Dockerfile`, `docker-compose.yml` | opt-in | Docker |  | F9 | planned |
 | OPS-030 | Nix flake | Paket Nix | `flake.nix` | opt-in | Nix |  | F9 | planned |
 | OPS-031 | Termux/Android | Dukungan Termux | `hermes_cli/psutil_android.py`, `pyproject.toml:439` | opt-in | Termux | extra `termux` | F9 | planned |
 | OPS-032 | Installer scripts | setup-hermes.sh / .ps1 | `setup-hermes.sh`, `setup-hermes.ps1` | — | bash/PowerShell, uv |  | F9 | planned |
-| OPS-033 | Data cleanup / disk status | Bersihkan data & laporan disk | `hermes_cli/data_cleanup.py`, `gateway/disk_status.py` | opt-in | — |  | F4 | planned |
+| OPS-033 | Data cleanup / disk status | Bersihkan data & laporan disk | `hermes_cli/data_cleanup.py`, `gateway/disk_status.py` | opt-in | — | disk status `doctor` DOC-011 (ADR-256); hapus data `sessions prune`; `doctor gc` F4 | F4 | planned |
 | OPS-034 | OpenClaw migration | Migrasi dari OpenClaw | `hermes_cli/claw.py` | opt-in | — | `hermes claw` | F3 | planned |
 | OPS-035 | Import Claude Code/Codex setup | Impor setup agent lain | `hermes_cli/agent_import.py` | opt-in | — | `hermes import-agent` | F3 | planned |
 | OPS-036 | Model/config migration | Migrasi model pensiun/setting usang | `hermes_cli/migrate.py`, `hermes_cli/xai_retirement.py` | opt-in | — | `hermes migrate` | — | dropped-with-approval (NP-15) |

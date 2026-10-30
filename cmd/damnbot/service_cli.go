@@ -11,8 +11,10 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/damnbot/damnbot/internal/config"
@@ -20,7 +22,9 @@ import (
 	"github.com/damnbot/damnbot/internal/obs"
 )
 
-// Linux systemd user unit (SELF-HEALING §1.5); launchd/Windows are refused, not stubbed.
+// Linux systemd user unit (SELF-HEALING §1.5); macOS launchd and Windows
+// Task Scheduler have their own backends in service_launchd.go and
+// service_schtasks.go.
 const (
 	serviceUnitName   = "damnbot.service"
 	serviceLedgerTail = 10
@@ -32,7 +36,11 @@ type serviceDeps struct {
 	exe       string
 	unitDir   string
 	dataDir   string
+	profile   string
+	home      string
+	uid       int
 	sysctl    func(context.Context, ...string) (string, error)
+	launchctl func(context.Context, ...string) (string, error)
 	stat      func(string) (fs.FileInfo, error)
 	readFile  func(string) ([]byte, error)
 	mkdirAll  func(string, fs.FileMode) error
@@ -56,9 +64,20 @@ func serviceDepsFrom() (*serviceDeps, error) {
 	if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
 		exe = resolved
 	}
+	home, herr := os.UserHomeDir()
+	if herr != nil {
+		home = ""
+	}
+	uid := -1
+	if u, uerr := user.Current(); uerr == nil {
+		if n, nerr := strconv.Atoi(u.Uid); nerr == nil {
+			uid = n
+		}
+	}
 	return &serviceDeps{
 		goos: runtime.GOOS, exe: exe, unitDir: filepath.Join(paths.ConfigDir, "systemd", "user"), dataDir: paths.DataDir,
-		sysctl: systemctl, stat: os.Stat, readFile: os.ReadFile,
+		profile: activeProfile(), home: home, uid: uid,
+		sysctl: systemctl, launchctl: launchctlRun, stat: os.Stat, readFile: os.ReadFile,
 		mkdirAll: os.MkdirAll, writeFile: os.WriteFile, remove: os.Remove,
 	}, nil
 }
@@ -68,6 +87,15 @@ func systemctl(ctx context.Context, args ...string) (string, error) {
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("systemctl --user %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
+func launchctlRun(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "launchctl", args...) // #nosec G204 -- fixed binary, literal args
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("launchctl %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
 }
@@ -85,16 +113,18 @@ func runService(args []string, stdout, stderr io.Writer) int {
 		sessionsPrintf(stderr, "service: %s\n", cleanLine(err.Error()))
 		return 1
 	}
-	switch args[0] {
-	case "install":
+	switch {
+	case d.goos == "darwin":
+		return runLaunchdService(context.Background(), d, args, stdout, stderr)
+	case args[0] == "install":
 		return serviceInstallCmd(context.Background(), d, args[1:], stdout, stderr)
-	case "uninstall":
+	case args[0] == "uninstall":
 		return serviceUninstallCmd(context.Background(), d, args[1:], stdout, stderr)
-	case "status":
+	case args[0] == "status":
 		return serviceStatusCmd(context.Background(), d, args[1:], stdout, stderr)
-	case "resume":
+	case args[0] == "resume":
 		return serviceResumeCmd(context.Background(), d, args[1:], stdout, stderr)
-	case "logs":
+	case args[0] == "logs":
 		return serviceLogsCmd(context.Background(), d, args[1:], stdout, stderr)
 	}
 	sessionsPrintf(stderr, "service: unknown subcommand %q\n", cleanArg(args[0]))
@@ -105,8 +135,7 @@ func runService(args []string, stdout, stderr io.Writer) int {
 func serviceUsage(w io.Writer) {
 	sessionsPrintf(w, "usage: damnbot service install [--bind ADDR] [--data-dir DIR] [--unit-dir DIR] [--enable] [--dry-run]\n")
 	sessionsPrintf(w, "       damnbot service uninstall|status|resume|logs\n")
-	sessionsPrintf(w, "Linux: systemd user unit. Windows: Task Scheduler task per profile (schtasks).\n")
-	sessionsPrintf(w, "macOS launchd is not implemented yet (F4).\n")
+	sessionsPrintf(w, "Linux: systemd user unit. macOS: launchd LaunchAgent. Windows: Task Scheduler task per profile (schtasks).\n")
 }
 
 type unitSpec struct {
