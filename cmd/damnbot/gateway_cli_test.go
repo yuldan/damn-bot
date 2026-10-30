@@ -237,3 +237,30 @@ func TestGatewayPairingApproveClear(t *testing.T) {
 		t.Fatalf("identity lost by clear: %d %q", c, o)
 	}
 }
+
+// TestGatewayEnrollAndMigrate: enroll is idempotent and allowlists; migrate
+// status/plan are read-only and apply is idempotent.
+func TestGatewayEnrollAndMigrate(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DAMNBOT_GATEWAY_OWNER", "telegram:1")
+	t.Setenv("DAMNBOT_GATEWAY_ALLOW", "")
+	for range 2 {
+		if c, o, e := runGatewayCLI(t, "enroll", "telegram:42", "--data-dir", dir); c != 0 || !strings.Contains(o, "enrolled telegram:42") {
+			t.Fatalf("enroll: %d %q %q", c, o, e)
+		}
+	}
+	if c, o, e := runGatewayCLI(t, "list", "--data-dir", dir); c != 0 || !strings.Contains(o, "telegram:42") {
+		t.Fatalf("list: %d %q %q", c, o, e)
+	}
+	if c, o, e := runGatewayCLI(t, "migrate", "status", "--data-dir", dir); c != 0 || !strings.Contains(o, "pending 0") {
+		t.Fatalf("status: %d %q %q", c, o, e)
+	}
+	if c, o, e := runGatewayCLI(t, "migrate", "plan", "--data-dir", dir); c != 0 || strings.TrimSpace(o) != "" {
+		t.Fatalf("plan: %d %q %q", c, o, e)
+	}
+	for range 2 {
+		if c, o, e := runGatewayCLI(t, "migrate", "apply", "--data-dir", dir); c != 0 || !strings.Contains(o, "up to date") {
+			t.Fatalf("apply: %d %q %q", c, o, e)
+		}
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,6 +53,10 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 		return gatewayPairing(args[1:], stdout, stderr)
 	case "chat":
 		return gatewayChat(args[1:], stdout, stderr)
+	case "enroll":
+		return gatewayEnroll(args[1:], stdout, stderr)
+	case "migrate":
+		return gatewayMigrate(args[1:], stdout, stderr)
 	}
 	sessionsPrintf(stderr, "gateway: unknown subcommand %q\n", cleanArg(args[0]))
 	gatewayUsage(stderr)
@@ -66,6 +71,8 @@ func gatewayUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot gateway platform list|pause|resume <name> [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway pairing approve <code> [platform:id] | clear-pending [platform] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway chat [--platform telegram] [--chat ID] [--thread ID] [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot gateway enroll <platform:id> [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot gateway migrate status|plan|apply [--data-dir DIR]\n")
 	sessionsPrintf(w, "bootstrap: DAMNBOT_GATEWAY_OWNER=platform:id and DAMNBOT_GATEWAY_ALLOW=platform:id,... (or a JSON list)\n")
 	sessionsPrintf(w, "missing identities only; the database stays the source of truth.\n")
 	sessionsPrintf(w, "chat is a local REPL over a running serve; it never opens the database itself.\n")
@@ -429,4 +436,145 @@ func clearPendingPairings(ctx context.Context, store gwstore.Store, platform str
 		return 0, fmt.Errorf("gateway pairing clear: %w", err)
 	}
 	return int(n), nil
+}
+
+// gatewayEnroll allowlists an identity idempotently (CLI-011 enroll).
+func gatewayEnroll(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("gateway enroll", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dataDir := fs.String("data-dir", "", "data directory")
+	pos, err := parseInterleaved(fs, args)
+	if err != nil || len(pos) != 1 {
+		gatewayUsage(stderr)
+		return 2
+	}
+	platform, id, ok := strings.Cut(pos[0], ":")
+	if !ok || !gwstore.ValidIdentity(platform) || !gwstore.ValidIdentity(id) {
+		sessionsPrintf(stderr, "gateway enroll: %q is not platform:id\n", cleanArg(pos[0]))
+		return 2
+	}
+	ctx := context.Background()
+	store, closeFn, err := gatewayOpen(ctx, *dataDir, stderr)
+	if err != nil {
+		sessionsPrintf(stderr, "gateway enroll: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	defer closeFn()
+	now := time.Now().UnixMilli()
+	if _, err := store.EnsureIdentity(ctx, platform, id, "user", "platform_authenticated", now); err != nil {
+		sessionsPrintf(stderr, "gateway enroll: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	if err := store.SetStatus(ctx, platform, id, "allowlisted", now); err != nil {
+		sessionsPrintf(stderr, "gateway enroll: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	sessionsPrintf(stdout, "enrolled %s:%s\n", platform, cleanArg(id))
+	return 0
+}
+
+// gatewayMigrate reports or applies the embedded ctxdb ladder (CLI-011).
+func gatewayMigrate(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("gateway migrate", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dataDir := fs.String("data-dir", "", "data directory")
+	pos, err := parseInterleaved(fs, args)
+	if err != nil || len(pos) != 1 {
+		gatewayUsage(stderr)
+		return 2
+	}
+	names, latest, err := ctxdb.MigrationLadder()
+	if err != nil {
+		sessionsPrintf(stderr, "gateway migrate: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	switch pos[0] {
+	case "apply":
+		return migrateApply(*dataDir, latest, stdout, stderr)
+	case "status", "plan":
+		return migrateReport(pos[0], *dataDir, names, latest, stdout, stderr)
+	}
+	gatewayUsage(stderr)
+	return 2
+}
+
+func migrateApply(dataDir string, latest int, stdout, stderr io.Writer) int {
+	loader, lerr := configos.New(configos.OS())
+	if lerr != nil {
+		sessionsPrintf(stderr, "gateway migrate apply: %s\n", cleanLine(lerr.Error()))
+		return 1
+	}
+	dir := dataDir
+	if dir == "" {
+		paths, perr := loader.Paths(activeProfile())
+		if perr != nil {
+			sessionsPrintf(stderr, "gateway migrate apply: %s\n", cleanLine(perr.Error()))
+			return 1
+		}
+		dir = paths.DataDir
+	}
+	db, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: dir, Kind: "cli"})
+	if err != nil {
+		sessionsPrintf(stderr, "gateway migrate apply: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	if err := db.Close(); err != nil {
+		sessionsPrintf(stderr, "gateway migrate apply: close: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	sessionsPrintf(stdout, "schema %d (up to date)\n", latest)
+	return 0
+}
+
+func migrateReport(sub, dataDir string, names []string, latest int, stdout, stderr io.Writer) int {
+	loader, lerr := configos.New(configos.OS())
+	if lerr != nil {
+		sessionsPrintf(stderr, "gateway migrate %s: %s\n", sub, cleanLine(lerr.Error()))
+		return 1
+	}
+	dir := dataDir
+	if dir == "" {
+		paths, perr := loader.Paths(activeProfile())
+		if perr != nil {
+			sessionsPrintf(stderr, "gateway migrate %s: %s\n", sub, cleanLine(perr.Error()))
+			return 1
+		}
+		dir = paths.DataDir
+	}
+	db, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: dir, Kind: "cli", ReadOnly: true})
+	if err != nil {
+		sessionsPrintf(stderr, "gateway migrate %s: %s\n", sub, cleanLine(err.Error()))
+		return 1
+	}
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			sessionsPrintf(stderr, "gateway migrate: close: %s\n", cleanLine(cerr.Error()))
+		}
+	}()
+	cur, err := db.SchemaVersion(context.Background())
+	if err != nil {
+		sessionsPrintf(stderr, "gateway migrate %s: %s\n", sub, cleanLine(err.Error()))
+		return 1
+	}
+	pending := 0
+	for _, name := range names {
+		if len(name) < 4 {
+			continue
+		}
+		v, serr := strconv.Atoi(name[:4])
+		if serr != nil {
+			continue
+		}
+		if v <= cur {
+			continue
+		}
+		pending++
+		if sub == "plan" {
+			sessionsPrintf(stdout, "%s\n", name)
+		}
+	}
+	if sub == "status" {
+		sessionsPrintf(stdout, "schema %d/%d, pending %d\n", cur, latest, pending)
+	}
+	return 0
 }

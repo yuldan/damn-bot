@@ -249,3 +249,24 @@ func (s *Store) migrateBlockedLong(target int) bool {
 	}
 	return s.clk.BootMs()-mb.SinceBoot >= 600_000
 }
+
+// MigrationLadder returns the embedded migration names in apply order and the
+// newest version this binary understands.
+func MigrationLadder() ([]string, int, error) {
+	migs, err := migrations()
+	if err != nil {
+		return nil, 0, err
+	}
+	names := make([]string, len(migs))
+	for i := range migs {
+		names[i] = migs[i].name
+	}
+	return names, len(migs), nil
+}
+
+// SchemaVersion reads user_version on the read pool; it never migrates.
+func (s *Store) SchemaVersion(ctx context.Context) (int, error) {
+	var v int
+	err := s.r.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v)
+	return v, wrap(err)
+}
