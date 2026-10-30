@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"time"
 
 	configos "github.com/damnbot/damnbot/internal/config"
 
+	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
 	"github.com/damnbot/damnbot/internal/gateway"
 )
@@ -46,6 +48,8 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 		return gatewayStatus(args[1:], stdout, stderr)
 	case "platform":
 		return gatewayPlatform(args[1:], stdout, stderr)
+	case "pairing":
+		return gatewayPairing(args[1:], stdout, stderr)
 	case "chat":
 		return gatewayChat(args[1:], stdout, stderr)
 	}
@@ -60,6 +64,7 @@ func gatewayUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot gateway list [--platform P] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway status [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway platform list|pause|resume <name> [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot gateway pairing approve <code> [platform:id] | clear-pending [platform] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway chat [--platform telegram] [--chat ID] [--thread ID] [--data-dir DIR]\n")
 	sessionsPrintf(w, "bootstrap: DAMNBOT_GATEWAY_OWNER=platform:id and DAMNBOT_GATEWAY_ALLOW=platform:id,... (or a JSON list)\n")
 	sessionsPrintf(w, "missing identities only; the database stays the source of truth.\n")
@@ -330,4 +335,98 @@ func printPlatforms(w io.Writer, list []gateway.AdapterStatus) {
 		}
 		sessionsPrintf(w, "%s %s\n", p.Key.String(), p.State)
 	}
+}
+
+// gatewayPairing is CLI-045: operator control over pending pairing codes.
+func gatewayPairing(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("gateway pairing", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dataDir := fs.String("data-dir", "", "data directory")
+	pos, err := parseInterleaved(fs, args)
+	if err != nil || len(pos) == 0 {
+		gatewayUsage(stderr)
+		return 2
+	}
+	ctx := context.Background()
+	store, closeFn, err := gatewayOpen(ctx, *dataDir, stderr)
+	if err != nil {
+		sessionsPrintf(stderr, "gateway pairing: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	defer closeFn()
+	now := time.Now().UnixMilli()
+	switch pos[0] {
+	case "clear-pending":
+		return pairingClear(ctx, store, pos, stdout, stderr)
+	case "approve":
+		return pairingApprove(ctx, store, pos, now, stdout, stderr)
+	}
+	gatewayUsage(stderr)
+	return 2
+}
+
+func pairingClear(ctx context.Context, store gwstore.Store, pos []string, stdout, stderr io.Writer) int {
+	if len(pos) > 2 {
+		gatewayUsage(stderr)
+		return 2
+	}
+	platform := ""
+	if len(pos) == 2 {
+		platform = pos[1]
+	}
+	n, err := clearPendingPairings(ctx, store, platform)
+	if err != nil {
+		sessionsPrintf(stderr, "gateway pairing clear-pending: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	sessionsPrintf(stdout, "cleared %d pending pairing code(s)\n", n)
+	return 0
+}
+
+func pairingApprove(ctx context.Context, store gwstore.Store, pos []string, now int64, stdout, stderr io.Writer) int {
+	if len(pos) < 2 || len(pos) > 3 {
+		gatewayUsage(stderr)
+		return 2
+	}
+	identity := configos.OS().Getenv("DAMNBOT_GATEWAY_OWNER")
+	if len(pos) == 3 {
+		identity = pos[2]
+	}
+	platform, externalID, ok := strings.Cut(identity, ":")
+	if !ok {
+		platform, externalID = "telegram", identity
+	}
+	if externalID == "" {
+		sessionsPrintf(stderr, "gateway pairing approve: identity is required (platform:id or DAMNBOT_GATEWAY_OWNER)\n")
+		return 1
+	}
+	id, err := store.RedeemPairing(ctx, platform, pos[1], externalID, "platform_authenticated", now)
+	if err != nil {
+		sessionsPrintf(stderr, "gateway pairing approve: %s\n", cleanLine(err.Error()))
+		return 1
+	}
+	sessionsPrintf(stdout, "approved %s:%s role=%s\n", platform, cleanArg(externalID), id.Role)
+	return 0
+}
+
+// clearPendingPairings deletes unconsumed codes via their stored JSON state.
+func clearPendingPairings(ctx context.Context, store gwstore.Store, platform string) (int, error) {
+	pattern := "pair:%"
+	if platform != "" {
+		pattern = "pair:" + platform + ":%"
+	}
+	var n int64
+	err := store.DB.Write(ctx, func(tx *ctxdb.Tx) error {
+		var xerr error
+		n, xerr = tx.Exec(`DELETE FROM module_state WHERE module_id = 'gateway' AND key LIKE ?1
+			AND COALESCE(json_extract(value, '$.used'), 0) = 0`, pattern)
+		if xerr != nil {
+			return fmt.Errorf("clear pairing: %w", xerr)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("gateway pairing clear: %w", err)
+	}
+	return int(n), nil
 }
