@@ -57,6 +57,9 @@ func nextDeliveryInterval(cur time.Duration, claimed int) time.Duration {
 // The read-only EXISTS probe keeps an empty outbox from opening a BEGIN
 // IMMEDIATE transaction on every poll (SCORECARD §1.2 CPU idle).
 func (g *serveGateway) claimDeliveries(ctx context.Context, now time.Time) int {
+	if g.cfg.Network.Offline {
+		return 0 // offline: keep rows queued, perform no egress
+	}
 	due, err := g.store.DB.Count(ctx, `SELECT EXISTS(SELECT 1 FROM gateway_deliveries
 		WHERE status = 'queued' AND next_at <= ?1)`, now.UnixMilli())
 	if err != nil {
