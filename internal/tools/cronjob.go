@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -82,6 +83,9 @@ func (t *cronJobTool) Run(ctx context.Context, env Env, args json.RawMessage) (R
 		}
 		got, created, err := t.admin.Create(ctx, &cron.Job{Name: name, Schedule: a.Schedule, Prompt: a.Prompt, Cwd: env.Cwd, Enabled: true})
 		if err != nil {
+			if errors.Is(err, cron.ErrMinInterval) || errors.Is(err, cron.ErrJobQuota) {
+				return Result{}, toolErr(CodeInvalidArgs, err.Error(), "raise the interval or remove an active job")
+			}
 			return Result{}, fmt.Errorf("cronjob_manage: create: %w", err)
 		}
 		verb := "created"
@@ -159,6 +163,17 @@ func (t *cronJobTool) update(ctx context.Context, a *cronArgs) (Result, error) {
 		return Result{}, toolErr(CodeNotFound, "cron job not found: "+a.JobID, "call action list")
 	}
 	job := &jobs[found]
+	applyCronUpdate(job, a)
+	if err := t.admin.Update(ctx, job); err != nil {
+		if errors.Is(err, cron.ErrMinInterval) {
+			return Result{}, toolErr(CodeInvalidArgs, err.Error(), "")
+		}
+		return Result{}, fmt.Errorf("cronjob_manage: update: %w", err)
+	}
+	return Result{OK: true, Content: "updated: " + a.JobID}, nil
+}
+
+func applyCronUpdate(job *cron.Job, a *cronArgs) {
 	if a.Name != "" {
 		job.Name = a.Name
 	}
@@ -168,10 +183,6 @@ func (t *cronJobTool) update(ctx context.Context, a *cronArgs) (Result, error) {
 	if a.Prompt != "" {
 		job.Prompt = a.Prompt
 	}
-	if err := t.admin.Update(ctx, job); err != nil {
-		return Result{}, fmt.Errorf("cronjob_manage: update: %w", err)
-	}
-	return Result{OK: true, Content: "updated: " + a.JobID}, nil
 }
 
 func validSchedule(expr string) error {

@@ -203,7 +203,7 @@ func TestCronJobOf(t *testing.T) {
 func TestServeCronAssembly(t *testing.T) {
 	t.Setenv("DAMNBOT_GATEWAY_OWNER", "telegram:7788")
 	db := openCronDB(t)
-	c := newServeCron(db, t.TempDir(), "", false, io.Discard)
+	c := newServeCron(t.Context(), db, t.TempDir(), "", false, io.Discard)
 	if c.sched.Store == nil || c.sched.Executor == nil || c.sched.Deliver == nil ||
 		c.sched.Incidents == nil || c.sched.Alert == nil || c.sched.Preflight == nil {
 		t.Fatalf("scheduler wiring incomplete: %+v", c.sched)
