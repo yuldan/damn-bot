@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -45,13 +46,17 @@ const (
 type Job struct {
 	ID, Name, Schedule, TZ string
 	Prompt                 string
+	Owner                  string
 	Enabled                bool
 	CatchUp, ApprovalMode  string
 	MaxCatchUp             int
 	Overlap                string
 	Cwd                    string
-	CreatedAt              time.Time
-	Script                 *Script
+	Gate                   string
+	// GateContext is runtime-only gate context, never stored on the row.
+	GateContext string
+	CreatedAt   time.Time
+	Script      *Script
 }
 
 // State is the newest recorded slot (catch-up watermark).
@@ -146,6 +151,8 @@ type Scheduler struct {
 	// Stopped is the emergency-stop gate (OPS-037). True claims nothing, leaving
 	// due slots to catch-up on resume; an error fails closed.
 	Stopped func(context.Context) (bool, error)
+	// Gates evaluates Job.Gate before the executor (COST-13); nil fails closed.
+	Gates GateRunner
 }
 
 // Tick evaluates every enabled job once at the clock's now.
@@ -352,6 +359,33 @@ func (s *Scheduler) drain(ctx context.Context, j *Job) error {
 	}
 }
 
+// gate parses and evaluates Job.Gate. A nil result means "wake"; the returned
+// GateResult is the skip verdict. A configured gate without a runner fails
+// closed.
+func (s *Scheduler) gate(ctx context.Context, j *Job) (*GateResult, error) {
+	if strings.TrimSpace(j.Gate) == "" {
+		return nil, nil
+	}
+	g, err := ParseGate(j.Gate)
+	if err != nil {
+		return nil, err
+	}
+	if s.Gates == nil {
+		return nil, errors.New("cron: gate runner is not wired")
+	}
+	res, err := s.Gates.Check(ctx, j, g)
+	if err != nil {
+		return nil, err
+	}
+	if !res.Wake {
+		return &res, nil
+	}
+	if res.Context != "" {
+		j.GateContext = res.Context
+	}
+	return nil, nil
+}
+
 // execute runs one claimed slot and records its monitor fields. Preflight
 // failure closes the slot as gated without touching the executor.
 func (s *Scheduler) execute(ctx context.Context, j *Job, at, started time.Time) error {
@@ -367,6 +401,24 @@ func (s *Scheduler) execute(ctx context.Context, j *Job, at, started time.Time) 
 			run.Incident = incidentKind(&run, nil)
 			return errors.Join(s.finish(ctx, j, at, &run), s.report(ctx, j, &run, nil))
 		}
+	}
+	if gate, gerr := s.gate(ctx, j); gerr != nil {
+		run.Outcome, run.Err = OutcomeFailed, "gate: "+gerr.Error()
+		run.FinishedAt = s.clock().Now()
+		run.Incident = incidentKind(&run, nil)
+		rerr := errors.Join(s.finish(ctx, j, at, &run), s.report(ctx, j, &run, nil))
+		return errors.Join(gerr, rerr)
+	} else if gate != nil {
+		// A skipped gate is an expected quiet slot: it is recorded, never an
+		// incident and never an LLM call.
+		run.Outcome, run.Err = OutcomeGated, "gate: "+gate.Reason
+		run.FinishedAt = s.clock().Now()
+		return errors.Join(s.finish(ctx, j, at, &run), s.report(ctx, j, &run, nil))
+	}
+	if j.GateContext != "" && j.Script == nil {
+		jc := *j
+		jc.Prompt = strings.TrimSuffix(jc.Prompt, "\n") + "\n\ngate context: " + j.GateContext
+		j = &jc
 	}
 	if s.Executor == nil {
 		run.Outcome, run.Exit, run.Err = OutcomeFailed, 1, "cron: no executor"

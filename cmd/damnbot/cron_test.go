@@ -76,7 +76,7 @@ func TestServeCronTicksDueJobOnce(t *testing.T) {
 	})
 	now := active.CreatedAt.Truncate(time.Minute).Add(5*time.Minute + time.Second)
 	clock := &loopClock{now: now, ticks: make(chan time.Time), waiting: make(chan struct{}, 1)}
-	loop := newServeCron(db, t.TempDir(), "", false, io.Discard)
+	loop := newServeCron(ctx, db, t.TempDir(), "", false, nil, io.Discard)
 	loop.clock = clock
 	loop.sched.Clock = clock
 	loop.sched.Executor = exec

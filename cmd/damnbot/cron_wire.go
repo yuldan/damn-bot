@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -15,14 +16,19 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/cronstore"
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
+	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/gateway"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 func newCronAdmin(db *ctxdb.Store, owner string, exec cron.Executor, clock cron.Clock) *cron.Admin {
 	if clock == nil {
 		clock = wallClock{}
 	}
-	return &cron.Admin{Store: newCronStore(db), Exec: exec, Clock: clock, Owner: owner}
+	return &cron.Admin{
+		Store: newCronStore(db), Exec: exec, Clock: clock, Owner: owner,
+		Limits: cron.Limits{MinInterval: 15 * time.Minute, MaxJobs: 20},
+	}
 }
 
 // Production cron wiring (composition root): cron stays storage-free and
@@ -287,6 +293,7 @@ const (
 
 type serveCron struct {
 	sched    *cron.Scheduler
+	runner   *exec.Runner
 	db       *ctxdb.Store
 	clock    cron.Clock
 	interval time.Duration
@@ -296,26 +303,29 @@ type serveCron struct {
 }
 
 // newServeCron assembles store → executor → deliverer → incidents.
-func newServeCron(db *ctxdb.Store, dataDir, configPath string, deliver bool, stderr io.Writer) *serveCron {
+func newServeCron(ctx context.Context, db *ctxdb.Store, dataDir, configPath string, deliver bool, fetch func(context.Context, string) (string, error), stderr io.Writer) *serveCron {
 	out := &cronOutbox{
 		store:   gwstore.Store{DB: db},
 		offline: func() bool { return !deliver },
 	}
 	incidents := &cronIncidents{db: db}
 	clock := wallClock{}
+	runner := exec.New(ctx)
 	return &serveCron{
 		sched: &cron.Scheduler{
 			Store: newCronAdapter(db), Executor: &cronPromptExecutor{configPath: configPath, dataDir: dataDir, stderr: stderr},
 			Deliver: out, Preflight: &cron.Checks{DataDir: dataDir},
 			Incidents: incidents, Alert: out, Clock: clock, Owner: "serve",
+			Gates: &cron.Gates{Runner: runner, Store: newCronStore(db), Fetch: fetch},
 		},
 		db: db, clock: clock, interval: serveCronInterval, stderr: stderr, done: make(chan struct{}),
+		runner: runner,
 	}
 }
 
 // serveCronFor builds the ticker and shares its recorder with the gateway outbox.
-func serveCronFor(gw *serveGateway, db *ctxdb.Store, dataDir, configPath string, offline bool, stderr io.Writer) *serveCron {
-	cr := newServeCron(db, dataDir, configPath, gw != nil && !offline, stderr)
+func serveCronFor(ctx context.Context, gw *serveGateway, db *ctxdb.Store, dataDir, configPath string, offline bool, fetch func(context.Context, string) (string, error), stderr io.Writer) *serveCron {
+	cr := newServeCron(ctx, db, dataDir, configPath, gw != nil && !offline, fetch, stderr)
 	if gw != nil {
 		gw.cron = cr.recorder()
 	}
@@ -338,6 +348,30 @@ func (c *serveCron) Stop() {
 		c.cancel()
 	}
 	<-c.done
+	if err := c.runner.Close(); err != nil {
+		sessionsPrintf(c.stderr, "cron: close gate runner: %s\n", cleanLine(err.Error()))
+	}
+}
+
+// monitorFetch is the cron monitor egress point (Tool client, 1 MiB cap).
+func monitorFetch(net *netx.Network) func(context.Context, string) (string, error) {
+	client := net.Client("cron-monitor", netx.Tool)
+	return func(ctx context.Context, url string) (string, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return "", fmt.Errorf("cron monitor request: %w", err)
+		}
+		resp, err := client.DoOK(req)
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if err != nil {
+			return "", fmt.Errorf("cron monitor body: %w", err)
+		}
+		return string(body), nil
+	}
 }
 
 func (c *serveCron) loop(ctx context.Context) {

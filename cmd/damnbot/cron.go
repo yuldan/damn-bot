@@ -9,13 +9,16 @@ import (
 	"os"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/cron"
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/exec"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 type cronOptions struct {
 	configPath, dataDir, name, schedule, prompt string
-	model, baseURL, apiKey                      string
+	model, baseURL, apiKey, gate                string
 	json                                        bool
 }
 
@@ -32,6 +35,7 @@ func runCron(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&o.model, "model", "", "run: provider/model reference")
 	fs.StringVar(&o.baseURL, "base-url", "", "run: internal/test provider base URL")
 	fs.StringVar(&o.apiKey, "api-key", "", "run: internal/test provider API key")
+	fs.StringVar(&o.gate, "gate", "", "add: gate JSON (script, wake or monitor)")
 	fs.BoolVar(&o.json, "json", false, "machine-readable output")
 	pos, err := parseInterleaved(fs, args)
 	if err != nil || len(pos) == 0 {
@@ -90,14 +94,19 @@ func cronList(sub string, o *cronOptions, stdout, stderr io.Writer) int {
 				active++
 			}
 		}
-		return say(stdout, "cron: %d job(s), %d active, %d paused\n", len(jobs), active, len(jobs)-active)
+		gated, gerr := newCronStore(env.db).GatedRuns(context.Background())
+		if gerr != nil {
+			sessionsPrintf(stderr, "cron status: %s\n", cleanLine(gerr.Error()))
+			return 1
+		}
+		return say(stdout, "cron: %d job(s), %d active, %d paused, %d gated\n", len(jobs), active, len(jobs)-active, gated)
 	}
 	for i := range jobs {
 		j := &jobs[i]
 		state, next := "paused", "-"
 		if j.Enabled {
 			state = "active"
-			if sched, err := cron.ParseSchedule(j.Schedule, time.Local); err == nil {
+			if sched, serr := cron.ParseSchedule(j.Schedule, time.Local); serr == nil {
 				next = sched.Next(time.Now()).Format(time.RFC3339)
 			}
 		}
@@ -114,6 +123,10 @@ func cronAdd(rest []string, o *cronOptions, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if _, err := cron.ParseSchedule(o.schedule, time.Local); err != nil {
+		sessionsPrintf(stderr, "cron add: %s\n", cleanLine(err.Error()))
+		return 2
+	}
+	if _, err := cron.ParseGate(o.gate); err != nil {
 		sessionsPrintf(stderr, "cron add: %s\n", cleanLine(err.Error()))
 		return 2
 	}
@@ -134,8 +147,12 @@ func cronAdd(rest []string, o *cronOptions, stdout, stderr io.Writer) int {
 			sessionsPrintf(stderr, "cron: close: %s\n", cleanLine(err.Error()))
 		}
 	}()
-	job, created, err := newCronStore(env.db).Create(context.Background(), &cron.Job{
-		Name: o.name, Schedule: o.schedule, Prompt: o.prompt, Cwd: cwd, Enabled: true,
+	admin := &cron.Admin{
+		Store: newCronStore(env.db), Owner: "local", Clock: wallClock{},
+		Limits: cron.Limits{MinInterval: time.Minute, MaxJobs: 20},
+	}
+	job, created, err := admin.Create(context.Background(), &cron.Job{
+		Name: o.name, Schedule: o.schedule, Prompt: o.prompt, Cwd: cwd, Gate: o.gate, Enabled: true,
 	})
 	if err != nil {
 		sessionsPrintf(stderr, "cron add: %s\n", cleanLine(err.Error()))
@@ -186,9 +203,20 @@ func cronAct(sub string, rest []string, o *cronOptions, stdout, stderr io.Writer
 		}
 		return say(stdout, "removed %s\n", id)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runner := exec.New(ctx)
+	defer func() {
+		if cerr := runner.Close(); cerr != nil {
+			sessionsPrintf(stderr, "cron: close gate runner: %s\n", cleanLine(cerr.Error()))
+		}
+	}()
 	admin := newCronAdmin(env.db, "cli", &cronPromptExecutor{
 		configPath: o.configPath, dataDir: o.dataDir, model: o.model, baseURL: o.baseURL, apiKey: o.apiKey, stderr: stderr,
-	}, nil)
+	}, wallClock{})
+	admin.Limits.MinInterval = time.Minute
+	netw := netx.New(netx.Config{Offline: env.cfg.Network.Offline, NoBackground: !env.cfg.Network.Background})
+	admin.Gates = &cron.Gates{Runner: runner, Store: newCronStore(env.db), Fetch: monitorFetch(netw)}
 	if err := admin.Run(ctx, id); err != nil {
 		sessionsPrintf(stderr, "cron run: %s\n", cleanLine(err.Error()))
 		return 1
@@ -196,7 +224,10 @@ func cronAct(sub string, rest []string, o *cronOptions, stdout, stderr io.Writer
 	return say(stdout, "ran %s\n", id)
 }
 
-type cronCLI struct{ db *ctxdb.Store }
+type cronCLI struct {
+	db  *ctxdb.Store
+	cfg config.Config
+}
 
 func (c *cronCLI) close() error {
 	if err := c.db.CloseContext(context.Background()); err != nil {
@@ -211,7 +242,7 @@ func cronOpen(o *cronOptions, stderr io.Writer) (*cronCLI, int) {
 		sessionsPrintf(stderr, "cron: %s\n", cleanLine(err.Error()))
 		return nil, 1
 	}
-	return &cronCLI{db: env.db}, 0
+	return &cronCLI{db: env.db, cfg: env.cfg}, 0
 }
 
 func cronJSON(w io.Writer, stderr io.Writer, v any) int {
