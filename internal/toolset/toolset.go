@@ -111,6 +111,9 @@ func Builtin() []Definition {
 		{Name: "hermes-acp", Description: "Coding toolkit for editor integration", Tools: acp},
 		{Name: "cronjob", Description: "Scheduled job management", Tools: []string{"cronjob_manage"}},
 		{Name: "hermes-cli", Description: "Full headless toolkit", Tools: core},
+		{Name: "hermes-cron", Description: "Default cron toolset: the full headless toolkit", Includes: []string{"hermes-cli"}},
+		{Name: "hermes-telegram", Description: "Telegram bot toolset: full access for personal use", Includes: []string{"hermes-cli"}},
+		{Name: "hermes-gateway", Description: "Gateway toolset: union of the messaging platform toolsets", Includes: []string{"hermes-telegram"}},
 		{Name: "cli", Description: "Alias of the full headless toolkit", Includes: []string{"hermes-cli"}},
 	}
 	out := make([]Definition, len(defs)) // fresh slices: no mutable package state

@@ -107,6 +107,7 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 		return serveExitFatal, fmt.Errorf("config paths: %w", err)
 	}
 	dataDir := cmp.Or(o.dataDir, paths.DataDir)
+	o.dataDir = dataDir
 	lock, err := acquireServeLock(dataDir)
 	if err != nil {
 		return serveExitFatal, err // GAP-REL-03: second instance exits 78 with the PID

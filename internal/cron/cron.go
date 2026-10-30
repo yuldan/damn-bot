@@ -122,6 +122,13 @@ type Executor interface {
 	Run(ctx context.Context, j *Job) (string, error)
 }
 
+// ExecutorFunc adapts a function to Executor (the composition root's prompt
+// runner and tests).
+type ExecutorFunc func(ctx context.Context, j *Job) (string, error)
+
+// Run implements Executor.
+func (f ExecutorFunc) Run(ctx context.Context, j *Job) (string, error) { return f(ctx, j) }
+
 // ExitStatus is implemented by executor errors that carry a process exit code.
 type ExitStatus interface{ ExitCode() int }
 

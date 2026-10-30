@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/cron"
 	"github.com/damnbot/damnbot/internal/gateway"
 )
 
@@ -36,6 +37,9 @@ type fakeRuntime struct {
 	platformOut   gateway.AdapterStatus
 	platformErr   error
 	platformCalls []string
+	cronJobs      []cron.Job
+	cronOps       []string
+	cronErr       error
 }
 
 func (f *fakeRuntime) StopTurn(_ context.Context, scope *gateway.Scope) (bool, error) {
@@ -79,6 +83,27 @@ func (f *fakeRuntime) PausePlatform(_ context.Context, name string) (gateway.Ada
 func (f *fakeRuntime) ResumePlatform(_ context.Context, name string) (gateway.AdapterStatus, error) {
 	f.platformCalls = append(f.platformCalls, "resume:"+name)
 	return f.platformOut, f.platformErr
+func (f *fakeRuntime) CronList(context.Context) ([]cron.Job, error) {
+	return append([]cron.Job(nil), f.cronJobs...), f.cronErr
+}
+
+func (f *fakeRuntime) CronSetEnabled(_ context.Context, id string, enabled bool, _ string) error {
+	op := "resume"
+	if !enabled {
+		op = "pause"
+	}
+	f.cronOps = append(f.cronOps, op+" "+id)
+	return f.cronErr
+}
+
+func (f *fakeRuntime) CronRemove(_ context.Context, id string) error {
+	f.cronOps = append(f.cronOps, "rm "+id)
+	return f.cronErr
+}
+
+func (f *fakeRuntime) CronRun(_ context.Context, id string) error {
+	f.cronOps = append(f.cronOps, "run "+id)
+	return f.cronErr
 }
 
 func ticketIn(role gateway.Role, chat string) *gateway.Ticket {

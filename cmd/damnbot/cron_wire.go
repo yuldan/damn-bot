@@ -19,6 +19,9 @@ import (
 )
 
 func newCronAdmin(db *ctxdb.Store, owner string, exec cron.Executor, clock cron.Clock) *cron.Admin {
+	if clock == nil {
+		clock = wallClock{}
+	}
 	return &cron.Admin{Store: newCronStore(db), Exec: exec, Clock: clock, Owner: owner}
 }
 
@@ -323,7 +326,6 @@ func serveCronFor(gw *serveGateway, db *ctxdb.Store, dataDir, configPath string,
 func (c *serveCron) recorder() *cron.Recorder {
 	return &cron.Recorder{Store: c.sched.Incidents, Alarm: c.sched.Alert, Clock: c.clock}
 }
-
 func (c *serveCron) Start(ctx context.Context) {
 	runCtx, cancel := context.WithCancel(ctx)
 	c.cancel = cancel
