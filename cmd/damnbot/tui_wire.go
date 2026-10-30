@@ -45,7 +45,7 @@ func runTUI(args []string) int {
 	o.newSessionID = sid
 	r := newTUIRunner(&tuiDeps{
 		cfg: &cfg, dataDir: dataDir, configDir: configDir, cfgFile: configPath, home: home,
-		noColor:  noColorMode(plain, os.Getenv("NO_COLOR"), os.Getenv("TERM"), stdoutIsTTY()),
+		noColor:  noColorMode(plain, config.OS().Getenv("NO_COLOR"), config.OS().Getenv("TERM"), stdoutIsTTY()),
 		modelRef: cfg.Provider.Model, opts: o, red: redact.New(redact.Options{}),
 	})
 	actions := &tuiActions{

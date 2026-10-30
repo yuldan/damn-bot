@@ -2,7 +2,8 @@ package main
 
 import (
 	"io"
-	"os"
+
+	configos "github.com/damnbot/damnbot/internal/config"
 
 	"github.com/damnbot/damnbot/internal/exec"
 )
@@ -12,7 +13,7 @@ import (
 // This is defense in depth only: unsetting the variable bypasses it, so the
 // shell classifier remains the primary defense.
 func maintenanceBlocked(w io.Writer, what string) bool {
-	if os.Getenv(exec.MarkerEnv) == "" {
+	if configos.OS().Getenv(exec.MarkerEnv) == "" {
 		return false
 	}
 	sessionsPrintf(w, "%s: refusing destructive maintenance from inside a damnbot shell tool (%s set); run it in your own shell\n",

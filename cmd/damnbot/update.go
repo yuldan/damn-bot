@@ -67,7 +67,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	}
 	keyText := update.EmbeddedPublicKey()
 	if keyText == "" {
-		keyText = os.Getenv("DAMNBOT_RELEASE_PUBKEY")
+		keyText = config.OS().Getenv("DAMNBOT_RELEASE_PUBKEY")
 	}
 	pub, kerr := update.ParsePublicKey(keyText)
 	if kerr != nil {

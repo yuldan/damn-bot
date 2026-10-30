@@ -80,7 +80,7 @@ type serveGateway struct {
 }
 
 func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, db *ctxdb.Store, daemon *serveDaemon, metrics *obs.Metrics, stderr io.Writer) (*serveGateway, error) {
-	token := strings.TrimSpace(os.Getenv("DAMNBOT_TELEGRAM_TOKEN"))
+	token := strings.TrimSpace(config.OS().Getenv("DAMNBOT_TELEGRAM_TOKEN"))
 	if token == "" {
 		return nil, nil
 	}
@@ -88,7 +88,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	if err != nil {
 		return nil, err
 	}
-	modelRef := cmp.Or(strings.TrimSpace(os.Getenv("DAMNBOT_SERVE_MODEL")), cfg.Provider.Model)
+	modelRef := cmp.Or(strings.TrimSpace(config.OS().Getenv("DAMNBOT_SERVE_MODEL")), cfg.Provider.Model)
 	if modelRef == "" {
 		return nil, errors.New("gateway: provider.model or DAMNBOT_SERVE_MODEL is required")
 	}
@@ -169,7 +169,7 @@ func newGatewayAdapter(ctx context.Context, token string, net *netx.Network, sto
 		return nil, nil, fmt.Errorf("gateway limiter: %w", err)
 	}
 	adapter, err := telegram.New(&telegram.Config{
-		Token: token, BaseURL: strings.TrimSpace(os.Getenv("DAMNBOT_TELEGRAM_BASE_URL")),
+		Token: token, BaseURL: strings.TrimSpace(config.OS().Getenv("DAMNBOT_TELEGRAM_BASE_URL")),
 		Doer: beatDoer{do: telegram.EgressClient(net), wd: wd}, Store: telegramStore{Store: store},
 		// EC-PLAT-016: swap the egress client on a confirmed poll stall.
 		Rebuild: func() telegram.Doer {
@@ -204,7 +204,7 @@ func (g *serveGateway) startupRecovery(ctx context.Context, db *ctxdb.Store, std
 }
 
 func gatewayEnv() (string, []string, error) {
-	owner := strings.TrimSpace(os.Getenv("DAMNBOT_GATEWAY_OWNER"))
+	owner := strings.TrimSpace(config.OS().Getenv("DAMNBOT_GATEWAY_OWNER"))
 	if owner == "" {
 		return "", nil, errors.New("gateway: DAMNBOT_GATEWAY_OWNER=platform:id is required when a bot token is set")
 	}
@@ -212,7 +212,7 @@ func gatewayEnv() (string, []string, error) {
 		return "", nil, fmt.Errorf("gateway: DAMNBOT_GATEWAY_OWNER=%q is not platform:id", cleanArg(owner))
 	}
 	var allow []string
-	for item := range strings.SplitSeq(os.Getenv("DAMNBOT_GATEWAY_ALLOW"), ",") {
+	for item := range strings.SplitSeq(config.OS().Getenv("DAMNBOT_GATEWAY_ALLOW"), ",") {
 		if item = strings.TrimSpace(item); item == "" {
 			continue
 		}
@@ -417,7 +417,7 @@ func (g *serveGateway) sessionFor(ctx context.Context, scope *gateway.Scope) (st
 func (g *serveGateway) runChat(ctx context.Context, in *telegram.Inbound, sid string, deliver func(context.Context, <-chan event.Update) error, local bool) error {
 	o := runOptions{
 		prompt: in.Text, model: g.modelRef, approval: "ask", configPath: g.configPath, dataDir: g.dataDir,
-		baseURL: strings.TrimSpace(os.Getenv("DAMNBOT_SERVE_BASE_URL")), apiKey: strings.TrimSpace(os.Getenv("DAMNBOT_SERVE_API_KEY")),
+		baseURL: strings.TrimSpace(config.OS().Getenv("DAMNBOT_SERVE_BASE_URL")), apiKey: strings.TrimSpace(config.OS().Getenv("DAMNBOT_SERVE_API_KEY")),
 		session: sid, approvalOrigin: "run", cfgOverride: &g.cfg,
 		gatewayIdentity: in.Platform + ":" + in.SenderID,
 	}

@@ -6,9 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
+
+	configos "github.com/damnbot/damnbot/internal/config"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
@@ -177,7 +178,7 @@ func recordPairingPending(ctx context.Context, store gwstore.Store, platform, so
 // notifyPairingOwner enqueues one owner notice when the pending platform cap is
 // full. It is rate-limited by prunePairingPending and keyed to the same window.
 func notifyPairingOwner(ctx context.Context, store gwstore.Store, platform string, now time.Time) {
-	owner := strings.TrimSpace(os.Getenv("DAMNBOT_GATEWAY_OWNER"))
+	owner := strings.TrimSpace(configos.OS().Getenv("DAMNBOT_GATEWAY_OWNER"))
 	p, chat, ok := strings.Cut(owner, ":")
 	if !ok || p != platform {
 		return

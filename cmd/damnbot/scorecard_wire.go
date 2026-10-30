@@ -5,8 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"time"
+
+	configos "github.com/damnbot/damnbot/internal/config"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
@@ -149,7 +150,7 @@ func (h scorecardHome) HomeChannel(ctx context.Context) (scorecard.Owner, bool, 
 // DAMNBOT_GATEWAY_OWNER bootstrap value.
 func newScorecardJob(db *ctxdb.Store, deliver bool, clock scorecard.Clock) *scorecard.Job {
 	store := gwstore.Store{DB: db}
-	owner, _ := scorecard.OwnerFromEnv(os.Getenv(scorecard.OwnerEnv))
+	owner, _ := scorecard.OwnerFromEnv(configos.OS().Getenv(scorecard.OwnerEnv))
 	return &scorecard.Job{
 		Clock: clock, Store: &scorecardStore{db: db},
 		Outbox: scorecardOutbox{store: store, offline: func() bool { return !deliver }},

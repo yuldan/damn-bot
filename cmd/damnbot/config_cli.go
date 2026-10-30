@@ -44,6 +44,8 @@ func runConfig(args []string, stdout, stderr io.Writer) int {
 		return configLookup("explain", args[1:], stdout, stderr, true)
 	case "schema":
 		return configSchemaCmd(args[1:], stdout, stderr)
+	case "reference":
+		return configReferenceCmd(args[1:], stdout, stderr)
 	case "modules":
 		return configModules(args[1:], stdout, stderr)
 	case "hooks":
@@ -59,7 +61,7 @@ func runConfig(args []string, stdout, stderr io.Writer) int {
 }
 
 func configUsage(w io.Writer) {
-	say(w, "usage: damnbot config show\n       damnbot config get <key>\n       damnbot config explain <key>\n       damnbot config schema <section>\n       damnbot config modules\n       damnbot config hooks ls|test\n       damnbot config edit [--dry-run]\n       damnbot config profiles ls\n       damnbot config profiles export <name> [-o FILE]\n       damnbot config profiles import <file> [--name NAME] [--yes] [--dry-run]\n")
+	say(w, "usage: damnbot config show\n       damnbot config get <key>\n       damnbot config explain <key>\n       damnbot config schema <section>\n       damnbot config reference [-o FILE]\n       damnbot config modules\n       damnbot config hooks ls|test\n       damnbot config edit [--dry-run]\n       damnbot config profiles ls\n       damnbot config profiles export <name> [-o FILE]\n       damnbot config profiles import <file> [--name NAME] [--yes] [--dry-run]\n")
 }
 
 func configFail(stderr io.Writer, cmd string, err error) int {
@@ -140,11 +142,10 @@ func configLookup(cmd string, args []string, stdout, stderr io.Writer, explain b
 	return 0
 }
 
-// configOrigin reports GAP-OPS-01 provenance. F3 defines one environment
-// override, DAMNBOT_NETWORK_BACKGROUND (GAP-OPS-02); flag overrides are F4.
+// configOrigin reports GAP-OPS-01 provenance: env, file or default.
 func configOrigin(c *configCLI, key string) (string, int) {
-	if key == "network.background" && c.loader.Env("DAMNBOT_NETWORK_BACKGROUND") != "" {
-		return "env DAMNBOT_NETWORK_BACKGROUND", 0
+	if env, ok := envForKey(key); ok && c.loader.Env(env) != "" {
+		return "env " + env, 0
 	}
 	var raw map[string]any
 	md, err := toml.Decode(string(c.data), &raw)
@@ -159,6 +160,15 @@ func configOrigin(c *configCLI, key string) (string, int) {
 		source = "profile"
 	}
 	return source, configKeyLine(c.data, key)
+}
+
+// envForKey derives the one generated variable name of a two-part key.
+func envForKey(key string) (string, bool) {
+	parts := strings.Split(key, ".")
+	if len(parts) != 2 {
+		return "", false
+	}
+	return config.EnvName(parts[0], parts[1]), true
 }
 
 func configKeyLine(data []byte, key string) int {
@@ -225,9 +235,9 @@ func configEdit(args []string, stdout, stderr io.Writer) int {
 
 // editInEditor validates a 0600 temp copy in $VISUAL/$EDITOR before renaming.
 func editInEditor(c *configCLI, stdout, stderr io.Writer) int {
-	editor := os.Getenv("VISUAL")
+	editor := config.OS().Getenv("VISUAL")
 	if editor == "" {
-		editor = os.Getenv("EDITOR")
+		editor = config.OS().Getenv("EDITOR")
 	}
 	if editor == "" {
 		say(stderr, "config edit: set $VISUAL or $EDITOR\n")

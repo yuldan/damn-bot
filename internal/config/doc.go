@@ -37,4 +37,6 @@
 // rejected with [ErrModuleUnavailable]; every other unknown key is
 // [ErrUnknownKey]. Values outside their SPEC range are [ErrInvalidValue].
 // Neither path panics: every error is a [*Error] that wraps a sentinel.
+//go:generate go run -tags goolm ../../cmd/damnbot config reference -o ../../docs/CONFIG-REFERENCE.md
+
 package config
