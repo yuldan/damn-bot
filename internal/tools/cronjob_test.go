@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -39,7 +40,9 @@ func (f *cronFake) Jobs(context.Context) ([]cron.Job, error) {
 
 func (f *cronFake) Create(_ context.Context, j *cron.Job) (cron.Job, bool, error) {
 	f.note("create")
-	j.ID = "job-1"
+	if j.ID == "" {
+		j.ID = "job-1"
+	}
 	f.mu.Lock()
 	f.jobs = append(f.jobs, *j)
 	f.mu.Unlock()
@@ -168,5 +171,38 @@ func TestCronEffectClasses(t *testing.T) {
 		if got := tool.Effect(json.RawMessage(c.args)); got != c.want {
 			t.Fatalf("%s effect = %s, want %s", c.args, got, c.want)
 		}
+	}
+}
+
+// TestCronJobSelfScheduleLimits wires AUTO-011: an agent cannot create a child
+// past the depth limit or the active-job quota, and an admitted child carries
+// its depth in the id.
+func TestCronJobSelfScheduleLimits(t *testing.T) {
+	store := &cronFake{}
+	admin := &cron.Admin{Store: store}
+	self := cron.NewSelfSchedule(store)
+	self.MaxDepth, self.MaxJobs = 1, 1
+	tool := NewCronJobWithSelf(admin, self)
+	args := json.RawMessage(`{"action":"create","schedule":"0 * * * *","prompt":"p"}`)
+	env := Env{Cwd: "/w", TurnID: "turn-1"}
+
+	deep := cron.WithParent(context.Background(), cron.Parent{JobID: "job-1", At: time.Unix(100, 0), Depth: 1})
+	if _, err := tool.Run(deep, env, args); err == nil {
+		t.Fatal("depth limit did not reject the child")
+	}
+	fresh := cron.WithParent(context.Background(), cron.Parent{JobID: "job-1", At: time.Unix(100, 0), Depth: 0})
+	res, err := tool.Run(fresh, env, args)
+	if err != nil {
+		t.Fatalf("admitted child: %v", err)
+	}
+	if !strings.Contains(res.Content, "self-1-") {
+		t.Fatalf("child id = %q, want depth 1", res.Content)
+	}
+	store.jobs = append(store.jobs, cron.Job{ID: "other", Owner: "local", Enabled: true})
+	self2 := cron.NewSelfSchedule(store)
+	self2.MaxJobs = 1
+	tool2 := NewCronJobWithSelf(admin, self2)
+	if _, err := tool2.Run(cron.WithParent(context.Background(), cron.Parent{JobID: "job-1", At: time.Unix(200, 0)}), env, args); err == nil {
+		t.Fatal("active-job quota did not reject the child")
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/damnbot/damnbot/internal/assemble"
 	"github.com/damnbot/damnbot/internal/codetools"
 	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/cron"
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/exec/classify"
@@ -476,7 +477,8 @@ func withCronTool(list []tools.Tool, cfg *config.Config, db *ctxdb.Store, o *run
 		configPath: o.configPath, dataDir: dataDir, model: o.model,
 		baseURL: o.baseURL, apiKey: o.apiKey, stderr: io.Discard,
 	}
-	return append(list, tools.NewCronJob(newCronAdmin(db, "local", exec, nil)))
+	admin := newCronAdmin(db, "local", exec, nil)
+	return append(list, tools.NewCronJobWithSelf(admin, cron.NewSelfSchedule(admin.Store)))
 }
 
 // cronToolsetActive reports whether the config opts into cronjob_manage. An
