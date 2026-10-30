@@ -10,12 +10,27 @@ import (
 	"github.com/damnbot/damnbot/internal/testutil/phase"
 )
 
-// TestEdgeCases catalogs the F4 gateway rows owned by this package. Per-chat
-// ordering is EC-PLAT-015.
+// TestEdgeCases catalogs the F4 gateway rows owned by this package: one
+// platform failing to start never stops its siblings (EC-PLAT-001), the router
+// binds a profile to the bot that received the update (EC-PLAT-007), per-chat
+// ordering is EC-PLAT-015, the allowlist accepts both wire forms (EC-PLAT-021)
+// and a group message needs an explicit mention (EC-PLAT-022).
 func TestEdgeCases(t *testing.T) {
 	g := phase.Current(t)
+	if g.Item(t, "EC-PLAT-001", "F4", "covered") {
+		t.Run("EC-PLAT-001", TestRegistryFailureDoesNotStopSiblings)
+	}
+	if g.Item(t, "EC-PLAT-007", "F4", "covered") {
+		t.Run("EC-PLAT-007", TestRouterLocksProfileToBot)
+	}
 	if g.Item(t, "EC-PLAT-015", "F4", "covered") {
 		t.Run("EC-PLAT-015", TestECPLAT015ChatQueueOrdering)
+	}
+	if g.Item(t, "EC-PLAT-021", "F4", "covered") {
+		t.Run("EC-PLAT-021", TestParseAllowlistJSONAndCSV)
+	}
+	if g.Item(t, "EC-PLAT-022", "F4", "covered") {
+		t.Run("EC-PLAT-022", TestGroupMentionPolicy)
 	}
 }
 
