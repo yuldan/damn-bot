@@ -92,7 +92,7 @@ func newCommandGateway(t *testing.T) (*serveGateway, *commandSends) {
 	t.Helper()
 	sends := newCommandSends(t)
 	gw := newTestGateway(t, sends.url)
-	t.Cleanup(gw.Stop)
+	t.Cleanup(func() { gw.Stop(context.Background()) })
 	return gw, sends
 }
 

@@ -28,6 +28,14 @@ type fakeRuntime struct {
 	topicID       string
 	topicErr      error
 	topicScopes   []gateway.Scope
+	restart       gateway.RestartReport
+	restartErr    error
+	restartCalls  int
+	platforms     []gateway.AdapterStatus
+	platformsErr  error
+	platformOut   gateway.AdapterStatus
+	platformErr   error
+	platformCalls []string
 }
 
 func (f *fakeRuntime) StopTurn(_ context.Context, scope *gateway.Scope) (bool, error) {
@@ -54,6 +62,25 @@ func (f *fakeRuntime) TopicSession(_ context.Context, scope *gateway.Scope) (str
 	return f.topicID, f.topicErr
 }
 
+func (f *fakeRuntime) Restart(context.Context, *gateway.Scope) (gateway.RestartReport, error) {
+	f.restartCalls++
+	return f.restart, f.restartErr
+}
+
+func (f *fakeRuntime) Platforms(context.Context) ([]gateway.AdapterStatus, error) {
+	return f.platforms, f.platformsErr
+}
+
+func (f *fakeRuntime) PausePlatform(_ context.Context, name string) (gateway.AdapterStatus, error) {
+	f.platformCalls = append(f.platformCalls, "pause:"+name)
+	return f.platformOut, f.platformErr
+}
+
+func (f *fakeRuntime) ResumePlatform(_ context.Context, name string) (gateway.AdapterStatus, error) {
+	f.platformCalls = append(f.platformCalls, "resume:"+name)
+	return f.platformOut, f.platformErr
+}
+
 func ticketIn(role gateway.Role, chat string) *gateway.Ticket {
 	t := testTicket(role)
 	t.Scope.ChatID = chat
@@ -65,7 +92,7 @@ func ticketIn(role gateway.Role, chat string) *gateway.Ticket {
 // /stop after the runtime dropped the turn is a no-op with an honest reply.
 func TestStopCommandScopesToCallerChat(t *testing.T) {
 	rt := &fakeRuntime{stopCancelled: true}
-	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt, Control: rt})
 	chatA, chatB := ticketIn(gateway.RoleUser, "a"), ticketIn(gateway.RoleUser, "b")
 
 	res := c.Dispatch(context.Background(), chatA, "/stop")
@@ -93,7 +120,7 @@ func TestStopCommandScopesToCallerChat(t *testing.T) {
 // on the caller's own scope and says the old one is kept.
 func TestNewCommandKeepsPreviousSession(t *testing.T) {
 	rt := &fakeRuntime{newID: "s2"}
-	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt, Control: rt})
 	ticket := ticketIn(gateway.RoleUser, "c1")
 
 	res := c.Dispatch(context.Background(), ticket, "/new")
@@ -112,7 +139,7 @@ func TestStatusReportsReadOnlyState(t *testing.T) {
 	rt := &fakeRuntime{status: gateway.RuntimeStatus{
 		Uptime: 65 * time.Second, QueueDepth: 2, ActiveTurns: 1, SafeMode: true, Version: "1.2.3",
 	}}
-	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt, Control: rt})
 	g, _ := gateWithCommands(t, map[string]gateway.Identity{"telegram:o1": owner("o1")}, c)
 	run := &runner{}
 	out, err := g.Admit(context.Background(), inboundText("o1", "u:1", "/status"), run.run)
@@ -142,7 +169,7 @@ func TestStatusReportsReadOnlyState(t *testing.T) {
 // in micro-USD, and an unknown price is never presented as zero.
 func TestUsageIsHonest(t *testing.T) {
 	rt := &fakeRuntime{}
-	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt, Control: rt})
 	ticket := testTicket(gateway.RoleOwner)
 
 	res := c.Dispatch(context.Background(), ticket, "/usage")
@@ -181,7 +208,7 @@ func TestUsageIsHonest(t *testing.T) {
 // call; /new and /stop stay available to a user for their own session.
 func TestRuntimeRoleMatrix(t *testing.T) {
 	rt := &fakeRuntime{stopCancelled: true}
-	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt})
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt, Control: rt})
 	userTicket := testTicket(gateway.RoleUser)
 	for _, name := range []string{"status", "usage"} {
 		res := c.Dispatch(context.Background(), userTicket, "/"+name)
@@ -247,5 +274,76 @@ func TestChatQueueStats(t *testing.T) {
 	q.Close()
 	if queued, active := q.Stats(); queued != 0 || active != 0 {
 		t.Fatalf("stats after Close = (%d queued, %d active), want (0, 0)", queued, active)
+	}
+}
+
+// TestRestartCommandDrainsWithoutCancelling: /restart is owner-only and answers
+// with the number of turns the daemon will wait for; the command itself never
+// cancels one.
+func TestRestartCommandDrainsWithoutCancelling(t *testing.T) {
+	rt := &fakeRuntime{restart: gateway.RestartReport{Active: 2}}
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt, Control: rt})
+	res := c.Dispatch(context.Background(), ticketIn(gateway.RoleOwner, "c1"), "/restart")
+	if !res.Handled || !strings.Contains(res.Reply, "2 active turn") {
+		t.Fatalf("/restart = %+v, want the active-turn count", res)
+	}
+	if rt.restartCalls != 1 {
+		t.Fatalf("restart calls = %d, want 1", rt.restartCalls)
+	}
+	res = c.Dispatch(context.Background(), ticketIn(gateway.RoleUser, "c1"), "/restart")
+	if !res.Handled || !strings.Contains(res.Reply, "owner-only") || rt.restartCalls != 1 {
+		t.Fatalf("user /restart = %+v, calls = %d; want owner-only without a runtime call", res, rt.restartCalls)
+	}
+}
+
+// TestPlatformsAndPlatformCommands: list is read-only, pause/resume reach the
+// runtime by name, the /gateway alias lists too, and every failure is spoken.
+func TestPlatformsAndPlatformCommands(t *testing.T) {
+	rt := &fakeRuntime{
+		platforms:   []gateway.AdapterStatus{{Key: gateway.Key{Platform: "telegram", Account: "1"}, State: gateway.StateRunning}},
+		platformOut: gateway.AdapterStatus{Key: gateway.Key{Platform: "telegram", Account: "1"}, State: gateway.StatePaused},
+	}
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: rt, Control: rt})
+	owner := ticketIn(gateway.RoleOwner, "c1")
+
+	if res := c.Dispatch(context.Background(), owner, "/platforms"); !strings.Contains(res.Reply, "telegram:1 running") {
+		t.Fatalf("/platforms = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), owner, "/gateway"); !strings.Contains(res.Reply, "telegram:1 running") {
+		t.Fatalf("/gateway alias = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), owner, "/platform pause telegram"); !strings.Contains(res.Reply, "telegram:1 paused") {
+		t.Fatalf("/platform pause = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), owner, "/platform resume telegram:1"); !strings.Contains(res.Reply, "telegram:1 paused") {
+		t.Fatalf("/platform resume = %+v", res)
+	}
+	if got := strings.Join(rt.platformCalls, ","); got != "pause:telegram,resume:telegram:1" {
+		t.Fatalf("platform calls = %q", got)
+	}
+	if res := c.Dispatch(context.Background(), owner, "/platform"); !strings.Contains(res.Reply, "telegram:1 running") {
+		t.Fatalf("/platform list default = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), owner, "/platform pause"); !strings.Contains(res.Reply, "usage: /platform pause|resume|list [name]") {
+		t.Fatalf("/platform pause without name = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), owner, "/platform explode x"); !strings.Contains(res.Reply, "usage:") {
+		t.Fatalf("/platform bad verb = %+v", res)
+	}
+	rt.platformErr = gateway.ErrAdapterNotFound
+	if res := c.Dispatch(context.Background(), owner, "/platform pause nope"); !strings.Contains(res.Reply, `platform "nope" not found`) {
+		t.Fatalf("unknown platform = %+v", res)
+	}
+	if res := c.Dispatch(context.Background(), ticketIn(gateway.RoleUser, "c1"), "/platforms"); !strings.Contains(res.Reply, "owner-only") {
+		t.Fatalf("user /platforms = %+v, want owner-only", res)
+	}
+}
+
+// TestPlatformListEmptyIsExplicit: an empty registry says so instead of an
+// empty reply.
+func TestPlatformListEmptyIsExplicit(t *testing.T) {
+	c := gateway.NewCommands(&gateway.CommandOptions{Runtime: &fakeRuntime{}, Control: &fakeRuntime{}})
+	if res := c.Dispatch(context.Background(), ticketIn(gateway.RoleOwner, "c1"), "/platforms"); res.Reply != "no gateway platforms" {
+		t.Fatalf("/platforms empty = %q", res.Reply)
 	}
 }

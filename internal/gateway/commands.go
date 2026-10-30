@@ -20,8 +20,13 @@ type CommandOptions struct {
 	// leaves both commands registered but unsupported.
 	Approvals *Approvals
 	// Pairing redeems "/pair <code>"; nil leaves it registered but unsupported.
-	Pairing  PairingStore
-	Runtime  Runtime
+	Pairing PairingStore
+	// Runtime backs "/stop", "/new", "/status" and "/usage"; nil leaves the
+	// four registered but unsupported.
+	Runtime Runtime
+	// Control backs "/restart", "/platforms" and "/platform"; nil leaves them
+	// registered but unsupported.
+	Control  Control
 	Settings ChatSettings
 	// Now is the pairing attempt clock and redemption timestamp; nil is time.Now.
 	Now func() time.Time
@@ -52,6 +57,7 @@ type Commands struct {
 	pairing   PairingStore
 	runtime   Runtime
 	settings  ChatSettings
+	control   Control
 	now       func() time.Time
 	specs     map[string]commandSpec
 
@@ -67,7 +73,7 @@ func NewCommands(opts *CommandOptions) *Commands {
 	}
 	return &Commands{
 		bot: strings.TrimPrefix(opts.BotUsername, "@"), approvals: opts.Approvals, pairing: opts.Pairing,
-		runtime: opts.Runtime, settings: opts.Settings,
+		runtime: opts.Runtime, settings: opts.Settings, control: opts.Control,
 		now: now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
 	}
 }
@@ -83,7 +89,7 @@ type commandSpec struct {
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /sethome /footer [on|off|status] /topic [help]"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /sethome /footer [on|off|status] /topic [help] /restart /platforms /platform list|pause|resume [name]"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -127,6 +133,10 @@ func commandRegistry() map[string]commandSpec {
 			owner: true,
 			run:   (*Commands).usage,
 		},
+		"restart":   {owner: true, run: (*Commands).restart},
+		"platforms": {owner: true, run: (*Commands).platformList},
+		"gateway":   {owner: true, run: (*Commands).platformList},
+		"platform":  {owner: true, run: (*Commands).platform},
 
 		"sethome": {owner: true, run: (*Commands).sethome},
 		"topic":   {owner: true, run: (*Commands).topic},
@@ -134,8 +144,8 @@ func commandRegistry() map[string]commandSpec {
 
 		// Owner-only, not implemented by this slice.
 		"logs": {owner: true}, "doctor": {owner: true}, "resume": {owner: true},
-		"lock": {owner: true}, "restart": {owner: true}, "pause": {owner: true}, "resend": {owner: true},
-		"model": {owner: true}, "platform": {owner: true}, "platforms": {owner: true}, "cron": {owner: true},
+		"lock": {owner: true}, "pause": {owner: true}, "resend": {owner: true},
+		"model": {owner: true}, "cron": {owner: true},
 
 		// Non-owner, not implemented by this slice.
 		"fork": {}, "plan": {}, "undo": {},
@@ -342,6 +352,73 @@ func (c *Commands) usage(ctx context.Context, t *Ticket, _ Command) CommandResul
 
 const noUsage = "no usage yet"
 
+// restart is SLASH-089: stop admission, reply, then leave once active turns end.
+func (c *Commands) restart(ctx context.Context, t *Ticket, _ Command) CommandResult {
+	if c.control == nil {
+		return unsupported("restart")
+	}
+	rep, err := c.control.Restart(ctx, &t.Scope)
+	switch {
+	case err != nil:
+		return CommandResult{Handled: true, Reply: "restart unavailable"}
+	case rep.Active > 0:
+		return CommandResult{Handled: true, Reply: fmt.Sprintf("restart scheduled after %d active turn(s) finish", rep.Active)}
+	default:
+		return CommandResult{Handled: true, Reply: "restarting"}
+	}
+}
+
+// platform is SLASH-096: pause, resume or list one adapter; both are idempotent.
+func (c *Commands) platform(ctx context.Context, _ *Ticket, cmd Command) CommandResult {
+	if c.control == nil {
+		return unsupported("platform")
+	}
+	if len(cmd.Args) == 0 || cmd.Args[0] == "list" {
+		return c.platformList(ctx, nil, Command{})
+	}
+	verb := cmd.Args[0]
+	if (verb != "pause" && verb != "resume") || len(cmd.Args) != 2 {
+		return usage("/platform pause|resume|list [name]")
+	}
+	var (
+		st  AdapterStatus
+		err error
+	)
+	if verb == "pause" {
+		st, err = c.control.PausePlatform(ctx, cmd.Args[1])
+	} else {
+		st, err = c.control.ResumePlatform(ctx, cmd.Args[1])
+	}
+	if err != nil {
+		if errors.Is(err, ErrAdapterNotFound) {
+			return CommandResult{Handled: true, Reply: fmt.Sprintf("platform %q not found", cmd.Args[1])}
+		}
+		return CommandResult{Handled: true, Reply: "could not " + verb + " platform " + cmd.Args[1]}
+	}
+	return CommandResult{Handled: true, Reply: fmt.Sprintf("platform %s %s", st.Key, st.State)}
+}
+
+func (c *Commands) platformList(ctx context.Context, _ *Ticket, _ Command) CommandResult {
+	if c.control == nil {
+		return unsupported("platforms")
+	}
+	st, err := c.control.Platforms(ctx)
+	if err != nil {
+		return CommandResult{Handled: true, Reply: "platform status unavailable"}
+	}
+	if len(st) == 0 {
+		return CommandResult{Handled: true, Reply: "no gateway platforms"}
+	}
+	rows := make([]string, len(st))
+	for i, p := range st {
+		rows[i] = p.Key.String() + " " + string(p.State)
+		if p.Err != "" {
+			rows[i] += " (" + p.Err + ")"
+		}
+	}
+	return CommandResult{Handled: true, Reply: "platforms: " + strings.Join(rows, ", ")}
+}
+
 // modeName is the /status name of the daemon mode (SELF-HEALING §1.4).
 func modeName(safe bool) string {
 	if safe {
@@ -465,5 +542,5 @@ func unsupported(name string) CommandResult {
 }
 
 func usage(u string) CommandResult {
-	return CommandResult{Handled: true, Reply: "usage: /" + u}
+	return CommandResult{Handled: true, Reply: "usage: /" + strings.TrimPrefix(u, "/")}
 }
