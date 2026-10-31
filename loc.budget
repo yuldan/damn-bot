@@ -37,17 +37,18 @@ plan               600 internal/plan
 # (terukur 2139 pada pohon rebase; Sigma core +5). Baris adapter naik ke 645
 # (terukur 638: encode 279 + decode 325 + transport 34).
 # ADR-267 (F5-06 PR A): baris baru `provider/gemini` untuk adapter native
-# generateContent (teks/usage/error/retry); terukur 404 (Sigma core 51.417).
-# ADR-267 (F5-06 PR B): adapter naik ke 616 (terukur 616: encode 337 +
-# decode 249 + transport 30) untuk tool call dan thoughtSignature per
-# function call. Sigma core 51.417 -> 51.629, plafon core 51.450 -> 51.680
-# (headroom 41); provider tetap 2.145 (terukur 2.141). Sanitasi schema
-# menyusul di PR C dengan angka ukur.
+# generateContent (teks/usage/error/retry); terukur 404 (Sigma core 51.417, plafon 51.450).
+# ADR-267 (F5-06 PR B): adapter naik ke 616 (tool call + thoughtSignature;
+# Sigma core 51.629, plafon 51.680).
+# ADR-267 (F5-06 PR C): adapter naik ke 885 (terukur 885: encode 328 +
+# decode 249 + schema 278 + transport 30) untuk sanitasi schema Gemini.
+# Sigma core 51.629 -> 51.898, plafon core 51.680 -> 51.950 (headroom 52);
+# provider tetap 2.145 (terukur 2.141).
 provider          2145 internal/provider
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses
 provider/anthropic  645 internal/provider/anthropic
-provider/gemini    616 internal/provider/gemini
+provider/gemini    885 internal/provider/gemini
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
 # ADR-128: tabel harga providers.toml + lookup base_url+model; tetap 300 (terukur 281, sisa 19; Σ tetap).
 # ADR-261 (F5-01): provider/registry 300 -> 660 untuk katalog 88 provider
