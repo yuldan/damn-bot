@@ -25,7 +25,11 @@ provider          2217 internal/provider
 # cache_ttl_max/limits/prices), loader lookup bertipe + validasi; scc Code terukur 660.
 # Sigma core 47.788 -> 48.148, plafon core 47.800 -> 48.200; baris lain tidak berubah.
 provider/registry  660 internal/provider/registry
+# ADR-263 (F5-08): baris baru netx/jsonrpc untuk framing JSON-RPC 2.0 MCP/LSP.
+# Kode terukur scc = 520 (conn 231, frame 125, http 78, jsonrpc 86); netx lama
+# tetap 1800 (terukur 1747). Sigma core 48.171 -> 48.691 <= 48.700 (headroom 9).
 netx              1800 internal/netx
+netx/jsonrpc       520 internal/netx/jsonrpc
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).
 # ADR-173: tools 2200 -> 2500 (skills_list/skill_view/skill_manage; terukur 2315; Σ core 38.090 -> 38.390 <= 47.000).
