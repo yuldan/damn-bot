@@ -13,22 +13,23 @@ import (
 
 // Row is one usage_ledger row; field-identical to budget.Entry.
 type Row struct {
-	SessionID, TurnID string
-	EventID           int64
-	Purpose, Feature  string
-	Provider, Model   string
-	CredentialID      string
-	GatewayIdentity   string
-	InputTokens       int64
-	EstInputTokens    int64
-	CachedInputTokens int64
-	OutputTokens      int64
-	CostMicros        *int64 // nil = NULL (cost unknown)
-	CostSource        string
-	PricingVersion    string
-	Attempts          int64
-	LatencyMS, TTFTMS int64 // TTFTMS < 0 = NULL
-	CreatedAt         int64
+	SessionID, TurnID   string
+	EventID             int64
+	Purpose, Feature    string
+	Provider, Model     string
+	CredentialID        string
+	GatewayIdentity     string
+	InputTokens         int64
+	EstInputTokens      int64
+	CachedInputTokens   int64
+	CacheCreationTokens int64
+	OutputTokens        int64
+	CostMicros          *int64 // nil = NULL (cost unknown)
+	CostSource          string
+	PricingVersion      string
+	Attempts            int64
+	LatencyMS, TTFTMS   int64 // TTFTMS < 0 = NULL
+	CreatedAt           int64
 }
 
 // Sample is one calibration sample; field-identical to budget.Sample.
@@ -56,13 +57,14 @@ func Insert(tx *ctxdb.Tx, r *Row) (int64, error) {
 	}
 	var id int64
 	err := tx.Get(`INSERT INTO usage_ledger(session_id, turn_id, event_id, purpose, feature, provider, model,
-		credential_id, gateway_identity, input_tokens, est_input_tokens, cached_input_tokens, output_tokens,
+		credential_id, gateway_identity, input_tokens, est_input_tokens, cached_input_tokens,
+		cache_creation_input_tokens, output_tokens,
 		cost_usd_micros, cost_source, pricing_version, attempts, latency_ms, ttft_ms, created_at)
-		VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20) RETURNING id`,
+		VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21) RETURNING id`,
 		[]any{
 			r.SessionID, turn, r.EventID, r.Purpose, r.Feature, r.Provider, r.Model, r.CredentialID,
-			r.GatewayIdentity, r.InputTokens, r.EstInputTokens, r.CachedInputTokens, r.OutputTokens,
-			r.CostMicros, r.CostSource, r.PricingVersion, r.Attempts, r.LatencyMS, ttft, r.CreatedAt,
+			r.GatewayIdentity, r.InputTokens, r.EstInputTokens, r.CachedInputTokens, r.CacheCreationTokens,
+			r.OutputTokens, r.CostMicros, r.CostSource, r.PricingVersion, r.Attempts, r.LatencyMS, ttft, r.CreatedAt,
 		}, &id)
 	if err != nil {
 		return 0, fmt.Errorf("ledgerstore insert: %w", err)

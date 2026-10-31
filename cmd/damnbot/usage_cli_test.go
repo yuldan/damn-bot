@@ -64,7 +64,7 @@ func seedUsage(t *testing.T, dataDir string) {
 	err = db.Write(ctx, func(tx *ctxdb.Tx) error {
 		if _, ierr := ledgerstore.Insert(tx, &ledgerstore.Row{
 			SessionID: "s", TurnID: "t", EventID: ids[0], Purpose: "turn", Provider: "openai",
-			Model: "gpt-test", InputTokens: 100, CachedInputTokens: 20, OutputTokens: 30,
+			Model: "gpt-test", InputTokens: 100, CachedInputTokens: 20, CacheCreationTokens: 5, OutputTokens: 30,
 			CostMicros: &micros, CostSource: "pricing_table", PricingVersion: "v1",
 			Attempts: 1, CreatedAt: time.Now().UnixMilli(),
 		}); ierr != nil {
@@ -107,7 +107,7 @@ func TestUsageAggregates(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[0]), &row); err != nil {
 		t.Fatal(err)
 	}
-	for k, want := range map[string]float64{"key": 0, "calls": 1, "input_tokens": 100, "cached_input_tokens": 20, "output_tokens": 30, "cost_usd_micros": 2500, "unknown_cost_calls": 0} {
+	for k, want := range map[string]float64{"key": 0, "calls": 1, "input_tokens": 100, "cached_input_tokens": 20, "cache_creation_input_tokens": 5, "output_tokens": 30, "cost_usd_micros": 2500, "unknown_cost_calls": 0} {
 		got, ok := row[k].(float64)
 		if k == "key" {
 			if row[k] != "gpt-test" {
@@ -118,6 +118,35 @@ func TestUsageAggregates(t *testing.T) {
 		if !ok || got != want {
 			t.Errorf("%s = %v, want %v", k, row[k], want)
 		}
+	}
+}
+
+// TestUsageCacheByOrigin (GAP-COST-03): --cache defaults to --by origin and
+// reports cache read and cache creation per origin.
+func TestUsageCacheByOrigin(t *testing.T) {
+	paths := usageHome(t)
+	seedUsage(t, paths.DataDir)
+	code, out, errOut := runArgs(t, "usage", "--cache")
+	if code != 0 {
+		t.Fatalf("usage --cache = (%d, %s)", code, errOut)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0], "ORIGIN\t") {
+		t.Fatalf("cache table = %q", out)
+	}
+	if !strings.Contains(lines[1], "headless\t1\t100\t20\t5\t20\t30\t0.002500") {
+		t.Fatalf("cache row = %q", lines[1])
+	}
+	code, out, errOut = runArgs(t, "usage", "--cache", "--format", "jsonl")
+	if code != 0 {
+		t.Fatalf("usage --cache jsonl = (%d, %s)", code, errOut)
+	}
+	var row map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &row); err != nil {
+		t.Fatal(err)
+	}
+	if row["by"] != "origin" || row["key"] != "headless" || row["cache_creation_input_tokens"] != float64(5) || row["cached_input_tokens"] != float64(20) {
+		t.Fatalf("cache json = %v", row)
 	}
 }
 

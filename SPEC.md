@@ -1170,6 +1170,7 @@ CREATE TABLE usage_ledger (
     input_tokens        INTEGER NOT NULL,
     est_input_tokens    INTEGER NOT NULL DEFAULT 0,  -- estimasi lokal sebelum call; sumber kalibrasi EMA (COST-09)
     cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0,  -- cache_control write (5m/1h; GAP-COST-03, ADR-266)
     output_tokens       INTEGER NOT NULL,
     cost_usd_micros     INTEGER,
     cost_source         TEXT    NOT NULL CHECK (cost_source IN ('provider','pricing_table','unknown')),

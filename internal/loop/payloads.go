@@ -47,15 +47,16 @@ type resultPayload struct {
 }
 
 type llmPayload struct {
-	Model        string   `json:"model"`
-	FinishReason string   `json:"finish_reason"`
-	FallbackFrom string   `json:"fallback_from,omitempty"`
-	CacheBreak   string   `json:"cache_break,omitempty"`
-	Attempts     int      `json:"attempts"`
-	Input        int64    `json:"input_tokens"`
-	CachedInput  int64    `json:"cached_input_tokens"`
-	Output       int64    `json:"output_tokens"`
-	CostUSD      *float64 `json:"cost_usd,omitempty"`
+	Model         string   `json:"model"`
+	FinishReason  string   `json:"finish_reason"`
+	FallbackFrom  string   `json:"fallback_from,omitempty"`
+	CacheBreak    string   `json:"cache_break,omitempty"`
+	Attempts      int      `json:"attempts"`
+	Input         int64    `json:"input_tokens"`
+	CachedInput   int64    `json:"cached_input_tokens"`
+	CacheCreation int64    `json:"cache_creation_input_tokens,omitempty"`
+	Output        int64    `json:"output_tokens"`
+	CostUSD       *float64 `json:"cost_usd,omitempty"`
 }
 
 type auditPayload struct {

@@ -227,7 +227,7 @@ func (t *turn) accept(ctx context.Context, reply *Reply) (*outcome, bool) {
 		Model: reply.Model, FinishReason: reply.FinishReason, FallbackFrom: reply.FallbackFrom,
 		CacheBreak: cacheBreak,
 		Attempts:   reply.Attempts, Input: reply.Usage.Input, CachedInput: reply.Usage.CachedInput,
-		Output: reply.Usage.Output, CostUSD: reply.Usage.CostUSD,
+		CacheCreation: reply.Usage.CacheCreation, Output: reply.Usage.Output, CostUSD: reply.Usage.CostUSD,
 	})})
 	if err != nil {
 		o := t.fail(ctx, event.DetailInternal, err)
@@ -725,6 +725,7 @@ func (t *turn) redact(s string) string {
 func (t *turn) addUsage(u *event.Usage) {
 	t.usage.Input += u.Input
 	t.usage.CachedInput += u.CachedInput
+	t.usage.CacheCreation += u.CacheCreation
 	t.usage.Output += u.Output
 	if u.CostUSD != nil {
 		if t.usage.CostUSD == nil {

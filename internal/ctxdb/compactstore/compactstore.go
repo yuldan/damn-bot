@@ -279,13 +279,14 @@ func events(tx *ctxdb.Tx, q, sid string, boundary int64) ([]compaction.Event, er
 
 // llmPayload mirrors the loop's llm_call payload plus the purpose.
 type llmPayload struct {
-	Purpose     string   `json:"purpose"`
-	Model       string   `json:"model"`
-	Attempts    int      `json:"attempts"`
-	Input       int64    `json:"input_tokens"`
-	CachedInput int64    `json:"cached_input_tokens"`
-	Output      int64    `json:"output_tokens"`
-	CostUSD     *float64 `json:"cost_usd,omitempty"`
+	Purpose       string   `json:"purpose"`
+	Model         string   `json:"model"`
+	Attempts      int      `json:"attempts"`
+	Input         int64    `json:"input_tokens"`
+	CachedInput   int64    `json:"cached_input_tokens"`
+	CacheCreation int64    `json:"cache_creation_input_tokens,omitempty"`
+	Output        int64    `json:"output_tokens"`
+	CostUSD       *float64 `json:"cost_usd,omitempty"`
 }
 
 type refPayload struct {
@@ -345,7 +346,8 @@ func call(tx *ctxdb.Tx, sid, turn string, c *compaction.Call, now int64) error {
 	u := &c.Usage
 	payload, err := json.Marshal(llmPayload{
 		Purpose: "compaction", Model: c.Model, Attempts: c.Attempts,
-		Input: u.Input, CachedInput: u.CachedInput, Output: u.Output, CostUSD: u.CostUSD,
+		Input: u.Input, CachedInput: u.CachedInput, CacheCreation: u.CacheCreation,
+		Output: u.Output, CostUSD: u.CostUSD,
 	})
 	if err != nil {
 		return fmt.Errorf("llm_call payload: %w", err)
@@ -358,7 +360,7 @@ func call(tx *ctxdb.Tx, sid, turn string, c *compaction.Call, now int64) error {
 	if _, err = ledgerstore.Insert(tx, &ledgerstore.Row{
 		SessionID: sid, TurnID: turn, EventID: callID, Purpose: "compaction",
 		Provider: c.Provider, Model: c.Model, InputTokens: u.Input, CachedInputTokens: u.CachedInput,
-		OutputTokens: u.Output, CostMicros: micros, CostSource: source, PricingVersion: "none",
+		CacheCreationTokens: u.CacheCreation, OutputTokens: u.Output, CostMicros: micros, CostSource: source, PricingVersion: "none",
 		Attempts: int64(max(c.Attempts, 1)), LatencyMS: c.LatencyMS, TTFTMS: -1, CreatedAt: now,
 	}); err != nil {
 		return fmt.Errorf("ledger: %w", err)

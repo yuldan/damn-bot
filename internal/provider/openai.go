@@ -45,6 +45,9 @@ type Route struct {
 	// selects the first one with a wired adapter; a listed protocol with no
 	// adapter fails at construction instead of reaching the wrong encoder.
 	Protocols []registry.Protocol
+	// CacheTTLMax is the catalog `cache_ttl_max` in seconds (0 = none); the
+	// 1h interactive breakpoint is clamped to it (GAP-COST-03).
+	CacheTTLMax int64
 	// wire is the adapter selected from Protocols; internal so a hand-built
 	// Route still defaults to openai-chat.
 	wire Wire
@@ -126,7 +129,7 @@ func encodeCarriers(rt *Route, r *Request, drop map[string]bool) ([]byte, []Carr
 	var drops []CarrierDrop
 	for i := range r.Messages {
 		cache := r.CacheBreakAfter > 0 && i == r.CacheBreakAfter-1
-		m, keep, dropped, err := encodeMessage(rt, &r.Messages[i], cache)
+		m, keep, dropped, err := encodeMessage(rt, &r.Messages[i], cache, r.Origin)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -164,7 +167,7 @@ func encodeCarriers(rt *Route, r *Request, drop map[string]bool) ([]byte, []Carr
 	return b.Bytes(), sent, drops, nil
 }
 
-func encodeMessage(rt *Route, m *Message, cache bool) (json.RawMessage, []Carrier, []CarrierDrop, error) {
+func encodeMessage(rt *Route, m *Message, cache bool, origin string) (json.RawMessage, []Carrier, []CarrierDrop, error) {
 	keep, drops, err := projectCarriers(rt, m.Carriers)
 	if err != nil {
 		return nil, nil, nil, err
@@ -189,7 +192,7 @@ func encodeMessage(rt *Route, m *Message, cache bool) (json.RawMessage, []Carrie
 		c.Function.Name, c.Function.Arguments = tc.Name, tc.ArgumentsRaw
 		w.ToolCalls = append(w.ToolCalls, c)
 	}
-	content, cerr := cacheContent(rt, m, cache)
+	content, cerr := cacheContent(rt, m, cache, origin)
 	if cerr != nil {
 		return nil, nil, nil, cerr
 	}
@@ -228,14 +231,14 @@ func encodeMessage(rt *Route, m *Message, cache bool) (json.RawMessage, []Carrie
 }
 
 // cacheContent rewrites the boundary message as an Anthropic content block
-// carrying the ephemeral cache breakpoint; other families keep the string.
-func cacheContent(rt *Route, m *Message, cache bool) (any, error) {
+// carrying the cache breakpoint; other families keep the string.
+func cacheContent(rt *Route, m *Message, cache bool, origin string) (any, error) {
 	if !cache || !anthropicFamily(rt.Family) || len(m.ToolCalls) > 0 {
 		return m.Content, nil
 	}
 	block := []map[string]any{{
 		"type": "text", "text": m.Content,
-		"cache_control": map[string]string{"type": "ephemeral"},
+		"cache_control": CacheControl(rt, origin),
 	}}
 	raw, err := marshal(block)
 	if err != nil {

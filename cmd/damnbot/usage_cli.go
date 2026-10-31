@@ -21,6 +21,7 @@ type usageJSON struct {
 	Calls             int64  `json:"calls"`
 	InputTokens       int64  `json:"input_tokens"`
 	CachedInputTokens int64  `json:"cached_input_tokens"`
+	CacheCreatedInput int64  `json:"cache_creation_input_tokens"`
 	OutputTokens      int64  `json:"output_tokens"`
 	CostUSDMicros     int64  `json:"cost_usd_micros"`
 	UnknownCostCalls  int64  `json:"unknown_cost_calls"`
@@ -32,10 +33,18 @@ type usageJSON struct {
 func runUsageCommand(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("usage", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	by := flags.String("by", "day", "day|month|model|provider|feature|tool")
+	by := flags.String("by", "day", "day|month|model|provider|feature|tool|origin")
 	format := flags.String("format", "table", "table|jsonl")
+	cache := flags.Bool("cache", false, "prompt-cache report; defaults to --by origin")
 	if err := flags.Parse(args); err != nil {
 		return 2
+	}
+	if *cache {
+		seen := false
+		flags.Visit(func(f *flag.Flag) { seen = seen || f.Name == "by" })
+		if !seen {
+			*by = "origin"
+		}
 	}
 	if flags.NArg() != 0 {
 		say(stderr, "usage: %q is not available in F3\n", cleanArg(flags.Arg(0)))
@@ -46,7 +55,7 @@ func runUsageCommand(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if !usagestore.ValidBy(*by) {
-		say(stderr, "usage: --by must be day, month, model, provider, feature, or tool\n")
+		say(stderr, "usage: --by must be day, month, model, provider, feature, tool, or origin\n")
 		return 2
 	}
 	loader, err := config.New(config.OS())
@@ -67,12 +76,12 @@ func runUsageCommand(args []string, stdout, stderr io.Writer) int {
 	if *format == "jsonl" {
 		return usageJSONLines(*by, rows, stdout, stderr)
 	}
-	return usageTable(rows, stdout)
+	return usageTable(rows, *cache, stdout)
 }
 
 func usageJSONLines(by string, rows []usagestore.Row, stdout, stderr io.Writer) int {
 	for _, r := range rows {
-		b, err := json.Marshal(usageJSON{By: by, Key: r.Key, Calls: r.Calls, InputTokens: r.Input, CachedInputTokens: r.Cached, OutputTokens: r.Output, CostUSDMicros: r.CostMicros, UnknownCostCalls: r.UnknownCalls})
+		b, err := json.Marshal(usageJSON{By: by, Key: r.Key, Calls: r.Calls, InputTokens: r.Input, CachedInputTokens: r.Cached, CacheCreatedInput: r.CacheWritten, OutputTokens: r.Output, CostUSDMicros: r.CostMicros, UnknownCostCalls: r.UnknownCalls})
 		if err != nil {
 			say(stderr, "usage: json: %s\n", cleanLine(err.Error()))
 			return 1
@@ -84,7 +93,22 @@ func usageJSONLines(by string, rows []usagestore.Row, stdout, stderr io.Writer) 
 	return 0
 }
 
-func usageTable(rows []usagestore.Row, stdout io.Writer) int {
+func usageTable(rows []usagestore.Row, cache bool, stdout io.Writer) int {
+	if cache {
+		if code := say(stdout, "ORIGIN\tCALLS\tINPUT\tCACHE_READ\tCACHE_CREATION\tHIT_PCT\tOUTPUT\tCOST_USD\n"); code != 0 {
+			return code
+		}
+		for _, r := range rows {
+			hit := int64(0)
+			if r.Input > 0 {
+				hit = 100 * r.Cached / r.Input
+			}
+			if code := say(stdout, "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%.6f\n", r.Key, r.Calls, r.Input, r.Cached, r.CacheWritten, hit, r.Output, float64(r.CostMicros)/1e6); code != 0 {
+				return code
+			}
+		}
+		return 0
+	}
 	if code := say(stdout, "KEY\tCALLS\tINPUT\tCACHED\tOUTPUT\tCOST_USD\tUNKNOWN\n"); code != 0 {
 		return code
 	}
@@ -111,5 +135,5 @@ func usageRows(ctx context.Context, dataDir, by string) ([]usagestore.Row, error
 }
 
 func usageUsage(w io.Writer) {
-	say(w, "usage: damnbot usage [--by day|month|model|provider|feature|tool] [--format table|jsonl]\n")
+	say(w, "usage: damnbot usage [--by day|month|model|provider|feature|tool|origin] [--cache] [--format table|jsonl]\n")
 }

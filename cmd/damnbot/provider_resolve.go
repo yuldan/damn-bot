@@ -105,7 +105,14 @@ func (r *providerResolver) resolveCustom(modelName string, c *config.CustomProvi
 	if c.API != "" {
 		protocols = []registry.Protocol{registry.Protocol(c.API)}
 	}
-	return r.routeFor(c.Name, modelName, base, key, c.ExtraHeaders, c.ExtraBody, attribution, protocols)
+	route, err := r.routeFor(c.Name, modelName, base, key, c.ExtraHeaders, c.ExtraBody, attribution, protocols)
+	if err != nil {
+		return provider.Route{}, err
+	}
+	if builtinOK {
+		route.CacheTTLMax = builtin.CacheTTLMax
+	}
+	return route, nil
 }
 
 // validateCustom is the SEC-24 + adapter gate of one custom entry.
@@ -117,7 +124,13 @@ func validateCustom(c *config.CustomProvider, modelName string, builtinOK bool) 
 	if protocol == "" {
 		protocol = string(registry.ProtocolOpenAIChat)
 	}
-	if protocol != string(registry.ProtocolOpenAIChat) && protocol != string(registry.ProtocolOpenAIResponses) {
+	switch protocol {
+	case string(registry.ProtocolOpenAIChat):
+	case string(registry.ProtocolOpenAIResponses):
+		if err := adapterGate(registry.ProtocolOpenAIResponses); err != nil {
+			return fmt.Errorf("%w: custom provider %q: %w", ErrProviderResolve, c.Name, err)
+		}
+	default:
 		return fmt.Errorf("%w: custom provider %q speaks %q; only openai-chat and openai-responses are wired", ErrProviderResolve, c.Name, protocol)
 	}
 	if !slicesContainsModel(c.Models, modelName) {
@@ -158,6 +171,9 @@ func (r *providerResolver) resolveBuiltin(provName, modelName string, p *registr
 	case r.overrideBase != "", r.e2eBase != "", hasProtocol(p.Protocols, registry.ProtocolOpenAIChat):
 		protocols = []registry.Protocol{registry.ProtocolOpenAIChat}
 	case hasProtocol(p.Protocols, registry.ProtocolOpenAIResponses):
+		if err := adapterGate(registry.ProtocolOpenAIResponses); err != nil {
+			return provider.Route{}, fmt.Errorf("%w: provider %q: %w", ErrProviderResolve, provName, err)
+		}
 		if !runtimeAuth(p.Auth) {
 			return provider.Route{}, fmt.Errorf("%w: provider %q auth %q needs the F5-03 transport", ErrProviderResolve, provName, p.Auth)
 		}
@@ -185,7 +201,12 @@ func (r *providerResolver) resolveBuiltin(provName, modelName string, p *registr
 			break
 		}
 	}
-	return r.routeFor(p.ID, modelName, base, key, nil, nil, p.Attribution, protocols)
+	route, err := r.routeFor(p.ID, modelName, base, key, nil, nil, p.Attribution, protocols)
+	if err != nil {
+		return provider.Route{}, err
+	}
+	route.CacheTTLMax = p.CacheTTLMax
+	return route, nil
 }
 
 // runtimeAuth reports whether the credential transport is wired (F5-02/F5-04):

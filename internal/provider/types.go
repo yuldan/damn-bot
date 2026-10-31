@@ -113,6 +113,9 @@ type Request struct {
 	// CacheBreakAfter marks the leading message whose last entry carries a
 	// prompt-cache breakpoint for families that support cache_control.
 	CacheBreakAfter int
+	// Origin is the session origin (tui, acp, web, gateway, cron, ...); it
+	// selects the prompt-cache TTL (GAP-COST-03). Empty is the 5m default.
+	Origin string
 	// Optional sampling parameters; dropped per route once the endpoint
 	// rejects them (EC-PROV-011/012).
 	Temperature     *float64
