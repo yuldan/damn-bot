@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -314,6 +315,7 @@ type serveCron struct {
 	score     *scorecard.Job
 	scoreWeek string
 	outbox    *cronOutbox
+	writes    sync.WaitGroup
 	last      atomic.Int64
 }
 
@@ -365,6 +367,7 @@ func (c *serveCron) Stop(ctx context.Context) {
 		c.cancel()
 	}
 	<-c.done
+	c.writes.Wait()
 	if err := c.periodic.Wait(ctx); err != nil {
 		sessionsPrintf(c.stderr, "periodic: wait: %s\n", cleanLine(err.Error()))
 	}
@@ -415,7 +418,10 @@ func (c *serveCron) loop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := c.tick(ctx); err != nil {
+		c.writes.Add(1)
+		err := c.tick(ctx)
+		c.writes.Done()
+		if err != nil {
 			delay = min(max(delay*2, c.interval), serveCronMaxDelay)
 			sessionsPrintf(c.stderr, "cron: tick: %s\n", cleanLine(err.Error()))
 		} else {
@@ -424,9 +430,12 @@ func (c *serveCron) loop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := syncCronHealth(ctx, c.db, time.Now(), func(ctx context.Context, body string) error {
+		c.writes.Add(1)
+		err = syncCronHealth(ctx, c.db, time.Now(), func(ctx context.Context, body string) error {
 			return c.outbox.enqueue(ctx, fmt.Sprintf("cron:health:%d", time.Now().UnixNano()), body)
-		}); err != nil {
+		})
+		c.writes.Done()
+		if err != nil {
 			sessionsPrintf(c.stderr, "cron: health: %s\n", cleanLine(err.Error()))
 		}
 	}
