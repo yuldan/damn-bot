@@ -37,7 +37,7 @@ func (wire) Encode(rt *provider.Route, r *provider.Request, drop map[string]bool
 }
 
 // Path is the Messages endpoint appended to Route.BaseURL.
-func (wire) Path() string { return "/v1/messages" }
+func (wire) Path(*provider.Route) string { return "/v1/messages" }
 
 // Sign applies the Messages transport auth: x-api-key instead of a bearer
 // token, plus the API version. A Route.Auth signer (SigV4/JWT/OAuth) takes

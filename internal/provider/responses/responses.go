@@ -21,7 +21,7 @@ func (wire) Encode(rt *provider.Route, r *provider.Request, drop map[string]bool
 }
 
 // Path is the Responses endpoint appended to Route.BaseURL.
-func (wire) Path() string { return "/responses" }
+func (wire) Path(*provider.Route) string { return "/responses" }
 
 // Read decodes a 2xx Responses event stream.
 func (wire) Read(st *netx.Stream, start time.Time, onChunk func(provider.Chunk)) (provider.Response, error) {

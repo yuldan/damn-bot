@@ -15,7 +15,7 @@ import (
 const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
-	maxCoreLOC       = 51100 // ADR-268: modules 1.000 → 1.150 untuk seam kapabilitas MCP, Σ core 51.023 (ADR-269 PR A: jsonrpc 530).
+	maxCoreLOC       = 51450 // ADR-267 PR A (rebase atas ADR-268+269): provider/gemini 404 (terukur 404), Σ core 51.427.
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
 	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)
