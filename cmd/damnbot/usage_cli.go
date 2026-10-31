@@ -136,4 +136,5 @@ func usageRows(ctx context.Context, dataDir, by string) ([]usagestore.Row, error
 
 func usageUsage(w io.Writer) {
 	say(w, "usage: damnbot usage [--by day|month|model|provider|feature|tool|origin] [--cache] [--format table|jsonl]\n")
+	say(w, "  --cache: HIT_PCT = cached_input / (input + cache_read + cache_creation); cache-write premium is not priced (cost stays unknown unless the provider reports it)\n")
 }

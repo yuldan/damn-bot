@@ -175,6 +175,11 @@ func TestCost(t *testing.T) {
 		{Usage{Input: 1000, CachedInput: 400, Output: 100, CostUSD: &zero}, p, 3420, CostPricingTable, false},
 		{Usage{Input: 1000, CachedInput: 400, Output: 100, CostUSD: &neg}, p, 3420, CostPricingTable, false},
 		{Usage{Input: 1000, CachedInput: 400, Output: 100, CostUSD: &nan}, p, 3420, CostPricingTable, false},
+		// A cache-write call has no table tier: unknown unless the provider
+		// reported its own charge (never guessed).
+		{Usage{Input: 1000, CachedInput: 400, CacheCreation: 100, Output: 100}, p, -1, CostUnknown, false},
+		{Usage{Input: 1000, CacheCreation: 100, CostUSD: &usd}, p, 12346, CostProvider, false},
+		{Usage{Input: 1, CachedInput: 1, CacheCreation: 1}, p, -1, CostUnknown, true},
 		// An unpriced route keeps ADR-125: the provider cost is the charge.
 		{Usage{Input: 10, CostUSD: &zero}, nil, 0, CostProvider, false},
 		{Usage{Input: 1, CachedInput: 2}, p, -1, CostUnknown, true},

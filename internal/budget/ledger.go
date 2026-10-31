@@ -70,6 +70,15 @@ func Cost(u Usage, p *Price) (micros *int64, src CostSource, err error) {
 	if err != nil {
 		return nil, CostUnknown, err
 	}
+	// A price row has no cache-write tier (Anthropic charges a premium), so a
+	// table-priced call with cache creation is unknown unless the provider
+	// reported its own charge: the cost is never guessed.
+	if u.CacheCreation > 0 {
+		if provider != nil {
+			return provider, CostProvider, nil
+		}
+		return nil, CostUnknown, nil
+	}
 	if p != nil {
 		table, terr := tableCost(u, p)
 		if terr != nil {
@@ -112,9 +121,7 @@ func tableCost(u Usage, p *Price) (int64, error) {
 		return 0, fmt.Errorf("%w: negative price %+v", ErrInvalidUsage, *p)
 	}
 	var sum uint64
-	// Cache creation is billed at the input rate: the premium of a vendor's
-	// cache-write tier is not part of the price row yet.
-	for _, t := range [...][2]int64{{u.Input - u.CachedInput - u.CacheCreation, p.InputPerMTok}, {u.CachedInput, cached}, {u.CacheCreation, p.InputPerMTok}, {u.Output, p.OutputPerMTok}} {
+	for _, t := range [...][2]int64{{u.Input - u.CachedInput, p.InputPerMTok}, {u.CachedInput, cached}, {u.Output, p.OutputPerMTok}} {
 		hi, lo := bits.Mul64(nonNeg(t[0]), nonNeg(t[1]))
 		var carry uint64
 		sum, carry = bits.Add64(sum, lo, 0)
