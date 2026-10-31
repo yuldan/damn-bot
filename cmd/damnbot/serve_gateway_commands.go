@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -364,4 +365,36 @@ func (g *serveGateway) Usage(ctx context.Context, scope *gateway.Scope) (gateway
 		SessionCostMicros: totals.CostMicros, SessionCostKnown: totals.UnknownCost == 0,
 		DayCostMicros: dayCost, DayCostKnown: dayUnknown == 0,
 	}, true, nil
+}
+
+// ResolveApproval answers a pending card from /approve or /deny.
+func (g *serveGateway) ResolveApproval(_ context.Context, scope *gateway.Scope, id string, allow bool) (bool, error) {
+	return g.adapter.DecideApproval(scope.ChatID, id, allow), nil
+}
+
+func (g *serveGateway) feedback(ctx context.Context, chat, thread, tool, preview string) (bool, error) {
+	preview = cmp.Or(preview, tool)
+	id, err := g.adapter.OpenApproval(ctx, chat, thread, preview)
+	if err != nil {
+		return false, fmt.Errorf("gateway: approval: %w", err)
+	}
+	if oerr := g.approvals.Open(&gateway.ApprovalRequest{
+		ID: id, Platform: "telegram", ChatID: chat, UserID: chat,
+		Summary: preview, ExpiresAt: time.Now().Add(5 * time.Minute),
+	}); oerr != nil {
+		return false, fmt.Errorf("gateway: approval registry: %w", oerr)
+	}
+	d, err := g.adapter.AwaitApproval(ctx, chat, id)
+	if err != nil {
+		return false, fmt.Errorf("gateway: approval: %w", err)
+	}
+	allow := d == telegram.DecisionAllow
+	decision := gateway.Deny
+	if allow {
+		decision = gateway.AllowOnce
+	}
+	if _, derr := g.approvals.Decide("telegram", chat, id, decision); derr != nil {
+		return false, fmt.Errorf("gateway: approval decision: %w", derr)
+	}
+	return allow, nil
 }

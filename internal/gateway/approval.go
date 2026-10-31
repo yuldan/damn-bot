@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -19,6 +20,13 @@ const (
 	Deny      Decision = iota // deny, and the value of every timeout
 	AllowOnce                 // apply the request exactly once
 )
+
+// ApprovalResolver hands a decided approval to the live transport (the inline
+// card). Without it /approve only changes the registry and never unblocks the
+// waiting tool.
+type ApprovalResolver interface {
+	ResolveApproval(ctx context.Context, scope *Scope, id string, allow bool) (bool, error)
+}
 
 // ApprovalRequest is one pending owner question (inline keyboard later). ID is
 // the callback id, unique per process.

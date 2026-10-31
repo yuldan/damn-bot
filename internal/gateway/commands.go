@@ -19,6 +19,8 @@ type CommandOptions struct {
 	// Approvals is the registry that "/approve" and "/deny" resolve. Nil
 	// leaves both commands registered but unsupported.
 	Approvals *Approvals
+	// Resolver unblocks the transport waiting on the approval id.
+	Resolver ApprovalResolver
 	// Pairing redeems "/pair <code>"; nil leaves it registered but unsupported.
 	Pairing PairingStore
 	// Runtime backs "/stop", "/new", "/status" and "/usage"; nil leaves the
@@ -55,6 +57,7 @@ type CommandResult struct {
 type Commands struct {
 	bot       string
 	approvals *Approvals
+	resolver  ApprovalResolver
 	pairing   PairingStore
 	runtime   Runtime
 	settings  ChatSettings
@@ -74,7 +77,7 @@ func NewCommands(opts *CommandOptions) *Commands {
 		now = time.Now
 	}
 	return &Commands{
-		bot: strings.TrimPrefix(opts.BotUsername, "@"), approvals: opts.Approvals, pairing: opts.Pairing,
+		bot: strings.TrimPrefix(opts.BotUsername, "@"), approvals: opts.Approvals, resolver: opts.Resolver, pairing: opts.Pairing,
 		runtime: opts.Runtime, settings: opts.Settings, control: opts.Control, estop: opts.Estop,
 		now: now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
 	}
@@ -585,7 +588,7 @@ func usd(known bool, micros int64) string {
 // open approval of this chat; several open approvals are ambiguous and change
 // nothing. Only an open approval of this chat can be resolved, and the decision
 // is applied at most once (the second try reports the existing answer).
-func (c *Commands) approve(_ context.Context, t *Ticket, cmd Command) CommandResult {
+func (c *Commands) approve(ctx context.Context, t *Ticket, cmd Command) CommandResult {
 	if c.approvals == nil {
 		return unsupported("approve")
 	}
@@ -597,13 +600,18 @@ func (c *Commands) approve(_ context.Context, t *Ticket, cmd Command) CommandRes
 		return res
 	}
 	applied, reply := c.decide(t, id, AllowOnce, "approved")
+	if applied && c.resolver != nil {
+		if ok, err := c.resolver.ResolveApproval(ctx, &t.Scope, id, true); err != nil || !ok {
+			return CommandResult{Handled: true, Reply: "approval " + id + " is no longer pending"}
+		}
+	}
 	return CommandResult{Handled: true, Applied: applied, Reply: reply}
 }
 
 // deny implements SPEC §9.7 "/deny <id> [reason]" and the parity form
 // "/deny all [reason]". The reason is accepted for compatibility but not stored:
 // the approval seam carries no reason field.
-func (c *Commands) deny(_ context.Context, t *Ticket, cmd Command) CommandResult {
+func (c *Commands) deny(ctx context.Context, t *Ticket, cmd Command) CommandResult {
 	if c.approvals == nil {
 		return unsupported("deny")
 	}
@@ -615,6 +623,11 @@ func (c *Commands) deny(_ context.Context, t *Ticket, cmd Command) CommandResult
 		return res
 	}
 	applied, reply := c.decide(t, id, Deny, "denied")
+	if applied && c.resolver != nil {
+		if ok, err := c.resolver.ResolveApproval(ctx, &t.Scope, id, false); err != nil || !ok {
+			return CommandResult{Handled: true, Reply: "approval " + id + " is no longer pending"}
+		}
+	}
 	return CommandResult{Handled: true, Applied: applied, Reply: reply}
 }
 

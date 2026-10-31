@@ -47,6 +47,7 @@ type serveGateway struct {
 	supervisor          *heal.Supervisor
 	cron                *cron.Recorder
 	cronAdmin           *cron.Admin
+	approvals           *gateway.Approvals
 	stderr              io.Writer
 	inbound             chan telegram.Inbound
 	webhook             *gatewayWebhook
@@ -139,7 +140,7 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 		metrics: metrics, watchdog: wd, supervisor: sup, stderr: stderr,
 		inbound: make(chan telegram.Inbound, 32), now: time.Now, owner: owner,
 		turns: make(map[turnKey]*chatTurn), waits: make(map[string]time.Time),
-		restartCh: make(chan struct{}, 1),
+		restartCh: make(chan struct{}, 1), approvals: gateway.NewApprovals(time.Now),
 	}
 	self = g
 	if rerr := g.startupRecovery(ctx, db, stderr); rerr != nil {
@@ -153,7 +154,9 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	g.started = g.now()
 	g.run = g.turn
 	g.wireCronAdmin(db, stderr)
-	commands := gateway.NewCommands(&gateway.CommandOptions{Runtime: g, Settings: store, Control: g, Estop: &g.estop})
+	commands := gateway.NewCommands(&gateway.CommandOptions{
+		Runtime: g, Settings: store, Control: g, Estop: &g.estop, Approvals: g.approvals, Resolver: g,
+	})
 	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands, &g.estop)
 	if err != nil {
 		g.closeWebhook()
@@ -680,15 +683,6 @@ func (a gatewayLoopApprover) Approve(ctx context.Context, req *loop.ApprovalRequ
 		return loop.ApprovalResult{Decision: loop.DecisionAllowOnce}, nil
 	}
 	return loop.ApprovalResult{Decision: loop.DecisionDeny}, nil
-}
-
-func (g *serveGateway) feedback(ctx context.Context, chat, thread, tool, preview string) (bool, error) {
-	preview = cmp.Or(preview, tool)
-	d, err := g.adapter.Approve(ctx, chat, thread, preview)
-	if err != nil {
-		return false, fmt.Errorf("gateway: approval: %w", err)
-	}
-	return d == telegram.DecisionAllow, nil
 }
 
 // loadMedia resolves gateway_deliveries.media_blob_sha to the bytes and MIME
