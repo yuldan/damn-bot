@@ -118,6 +118,7 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	}
 	dataDir := cmp.Or(o.dataDir, paths.DataDir)
 	o.dataDir = dataDir
+	earlyRecovery(ctx, dataDir, stderr)
 	lock, err := acquireServeLock(dataDir)
 	if err != nil {
 		return serveExitFatal, err // GAP-REL-03: second instance exits 78 with the PID

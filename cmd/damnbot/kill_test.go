@@ -35,7 +35,7 @@ func TestRunChildHang(t *testing.T) {
 // turn_end{crashed} + context_exclude{crashed}, and the turn leaves context.
 func TestRunKilledMidTurn(t *testing.T) {
 	t.Parallel()
-	srv := providertest.New(t, nil, providertest.Reply{Hang: true})
+	srv := providertest.New(t, nil, providertest.Reply{Hang: true}, providertest.Reply{Hang: true}, providertest.Reply{Hang: true})
 	dataDir := t.TempDir()
 	cmd, exited, waitErr, childErr := startKilledChild(t, dataDir, srv.URL)
 	turnID := waitJournal(t, dataDir, exited, childErr)
