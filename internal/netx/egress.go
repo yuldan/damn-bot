@@ -14,7 +14,7 @@ type Egress struct {
 // at the call site. A new call site must add its entry here; the package test
 // fails when a production client is missing from (or stale in) this table.
 func Registry() map[string]Egress {
-	return map[string]Egress{
+	reg := map[string]Egress{
 		"inference": {
 			Purpose: Inference,
 			Host:    "provider base URL from [provider].model, [[providers.custom]].base_url, or --base-url",
@@ -41,6 +41,8 @@ func Registry() map[string]Egress {
 			Trigger: "gateway long polling and message delivery for a user turn",
 		},
 	}
+	addAuthEgress(reg)
+	return reg
 }
 
 // String names the purpose in diagnostics.

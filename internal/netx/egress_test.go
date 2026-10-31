@@ -69,6 +69,9 @@ func scanClientCalls(t *testing.T) map[string]Purpose {
 	for _, dir := range []string{"cmd", "internal"} {
 		base := filepath.Join("..", "..", dir)
 		walkSources(t, base, func(path string, data []byte) {
+			if minimalBuild && strings.HasPrefix(string(data), "//go:build !minimal") {
+				return
+			}
 			for _, m := range clientCall.FindAllStringSubmatch(string(data), -1) {
 				p := purposeOf(m[2])
 				if old, ok := seen[m[1]]; ok && old != p {
