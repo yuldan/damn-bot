@@ -5498,3 +5498,37 @@ Batas penting: risiko ToS **bukan** temuan threat scan. Q43/ADR-033 menetapkan `
 **Di luar cakupan PR A.** `initialize`/`tools/list`/`tools/call`, cache `(server, config_sha)`, normalisasi schema, `[modules.mcp]`, approval wiring, SSE, pin tool, OAuth, security scan, `damnbot mcp serve`, dan wiring composition root.
 
 
+
+## ADR-270 — Harness gate `perf`: serialisasi eksplisit dan isolasi paket benchmark (NEW-38, E-59)
+
+**Status:** Accepted 2026-10-31 (perbaikan harness; tanpa kode produksi Go, tanpa perubahan config/migrasi/dependency). Mengamandemen *pelaksanaan* ADR-073/ADR-077 butir 4: perintah `make perf` kini menjalankan tiap paket pemilik benchmark sebagai proses `go test -p 1 -parallel 1` terpisah. **Tidak ada ambang, `-benchtime`, skala `timing` (3/2), atau warmup benchmark yang diubah, dan tidak ada retry baru.**
+
+**Konteks.** PR #547 (perubahan provider-only; `internal/codetools` tidak berubah) gagal job `extra` dua kali pada head yang sama: CT-04 `GrepToolC3` p95 41,25 ms lalu 27,27 ms (limit 22,5 ms), `BenchmarkShellSessionExec` p95 8,046 ms (limit 7,5 ms), sementara run hijau sebelumnya di runner yang sama mencatat Grep 13,2–14,4 ms. `Edit1MBJournal` set 1 sempat INVALID karena ref p95 55,2 ms (disk stall) lalu set 2 lulus 9,63 ms. Hipotesis awal: `go test -bench … ./...` menjalankan banyak paket paralel (default `-p`), sehingga benchmark IO/CPU saling mengganggu.
+
+**Temuan investigasi.**
+1. **Hipotesis paket-paralel tidak terbukti untuk eksekusi benchmark.** `cmd/go` (`go1.26.10/src/cmd/go/internal/test/test.go:1110-1121`) memaksa semua *run* test berjalan serial ketika `-bench` dipakai: run pertama menunggu seluruh build, run berikutnya menunggu cetakan run sebelumnya. Dibuktikan pada pohon `main` dengan `-json` dan `-p 4`: `internal/codetools` 17:41:35.8–55.9, `internal/ctxdb` 55.9–42:12.6, `internal/netx` 42:12.6–12.8, `internal/exec` 42:12.8–15.6 — tidak ada tumpang-tindih. A/B lokal `-p` default vs `-p 1 -parallel 1` (3 pasang, load 0,4–2,5) juga tidak berbeda: Grep p95 15,71/16,85/17,84 vs 19,46/16,74/17,77 ms; shell exec 879/1169/568 vs 698/675/1025 µs. Jadi `-p 1` sendirian **bukan** penyebab maupun perbaikan spike; ia tetap dipakai agar serialisasi tidak bergantung pada perilaku internal `cmd/go` yang tidak dijanjikan.
+2. **Yang benar-benar berjalan di jendela ukur adalah paket lain tanpa benchmark.** `make perf` memakai `./...`: seluruh test binary (67 paket) dibangun lalu dijalankan serial, termasuk `internal/e2e` yang TestMain-nya memakan **33,6 s (attempt 2) / 42,8 s (attempt 1)** di runner CI dan berjalan tepat sebelum benchmark `internal/exec`. Paket itu tidak menyumbang satu benchmark pun ke gate, tetapi memindahkan proses, direktori temp, dan aktivitas page cache ke tetangga langsung `BenchmarkShellSessionExec`. Ini interferensi antar-paket yang nyata dan dapat dihapus tanpa menyentuh ambang.
+3. **Sisa spike CI bersifat host-level.** Pada runner yang sama, perintah lama mencatat Grep 13,2–14,4 ms (hijau) dan 41,25 ms (merah) untuk kode yang sama; log attempt 2 menunjukkan outlier 100+ ms yang hanya mengenai operasi (ref tetap 2–6 ms) dan `ShellSessionExec` 8,046 ms. Ini burst CPU/disk hypervisor, bukan kontensi paket; harness tidak boleh menutupinya dengan retry atau ambang longgar.
+
+**Keputusan.**
+1. **Daftar paket eksplisit.** `PERF_PKGS` = `./internal/codetools ./internal/exec ./internal/exec/classify ./internal/ctxdb ./internal/netx`, yaitu satu-satunya paket yang mendefinisikan benchmark `PERF_BENCH` (diverifikasi dengan grep seluruh pohon). Paket tanpa benchmark tidak lagi masuk gate ini.
+2. **Build dulu, ukur kemudian.** Target `perf` menjalankan `go test -c -o /dev/null` untuk setiap `PERF_PKGS`, baru setelah semua binary selesai ia menjalankan benchmark; tidak ada kompilasi di jendela ukur.
+3. **Serial eksplisit per paket.** Setiap paket dijalankan sebagai proses `go test -p 1 -parallel 1 -run '^(TestMeasureDurableRetryMeasuresSet2)$' -bench '$(PERF_BENCH)' -benchtime=100x` tersendiri; kegagalan dikumpulkan (`rc=1`) sehingga paket sesudahnya tetap diukur dan dilaporkan.
+4. **Statistik yang di-gate terlihat.** `BenchmarkShellSpawn*` melaporkan `p95-overhead-ms` dan `BenchmarkShellSessionExec` melaporkan `p95-ms`, seperti benchmark ber-budget lain; hanya pelaporan, bukan perubahan nilai/ambang.
+5. **Tanpa pelonggaran.** `timing.Limit` tetap ×1,5 hanya di build `perf`; CT-04 15 ms (22,5 ms), CT-09 20 ms (30 ms), shell session 5 ms (7,5 ms), spawn 15 ms, `-benchtime=100x`, jeda/warmup CT-09 dan warmup `op(0)` tidak berubah. Tidak ada retry baru; retry CT-09 yang ada tetap milik ADR-127.
+
+**Dampak terukur (host lokal: Intel Xeon Gold 6152 2,10 GHz, 10 vCPU, load 0,4–2,5; runner CI tidak dapat dikendalikan).** Perintah lama (`go test ./...`, `-p` default) vs `make perf` baru, masing-masing 3 run:
+
+| Metrik (limit) | Lama: 3 run | p50 / max | Baru: 3 run | p50 / max |
+|---|---|---|---|---|
+| CT-04 Grep p95 (22,5 ms) | 15,71 / 16,85 / 17,84 ms | 16,85 / 17,84 | 16,04 / 16,41 / 16,63 ms | 16,41 / 16,63 |
+| CT-09 Edit1MB paired p95 (30 ms) | 32,19 / 32,59 / 32,30 ms | 32,30 / 32,59 | 30,93 / 30,71 / 29,47 ms | 30,71 / 30,93 |
+| CT-09 Edit1MBJournal paired p95 (30 ms) | 45,27 / 46,00 / 48,74 ms | 46,00 / 48,74 | 41,90 / 43,10 / 39,83 ms | 43,10 / 43,10 |
+| Shell session p95 (7,5 ms) | tidak dilaporkan (mean 879/1169/568 µs) | — | 1,167 / 0,783 / 1,069 ms | 1,069 / 1,167 |
+| Wall perintah | 50 / 51 / 49 s (`-p` default); **73 / 70 / 69 s** bila hanya `-p 1` ditambahkan (kompilasi serial) | — | 47,5 / 45,8 / 41,5 s | 45,8 / 47,5 |
+
+Grep menyempit dari rentang 2,1 ms menjadi 0,6 ms dan shell session kini terukur jauh di bawah limit. `Edit1MB*` tetap di sekitar/atas 30 ms **pada host ini** baik sebelum maupun sesudah (ref p95 4,9–6,6 ms; CPU/fsync host lebih lambat dari runner referensi), jadi angka itu bukan spike antar-paket dan tidak dipakai untuk menaikkan ambang. CT-05 dan DLP `pct` juga gagal di host ini pada kedua perintah (host-intrinsic), sehingga bukti yang dipakai adalah stabilitas relatif, bukan kelulusan absolut host lokal.
+
+**Konsekuensi.** (+) Gate tidak lagi menjalankan TestMain berat paket non-benchmark di antara pengukuran; wall time turun ~5–10 s lokal (e2e 4,9–9,8 s) dan puluhan detik di CI (e2e 33,6–42,8 s), sementara menambahkan `-p 1` pada satu perintah `./...` justru +20 s karena kompilasi serial — karena itu paket dipisah, bukan sekadar `-p 1`; setiap kegagalan dapat diatribusikan ke satu paket; serialisasi eksplisit tidak bergantung pada detail internal `cmd/go`. (−) `PERF_PKGS` harus diperbarui bila benchmark `PERF_BENCH` baru muncul di paket lain (komentar Makefile menyebutkannya). (−) Spike host-level (steal hypervisor/disk stall) tetap mungkin; satu-satunya perbaikan struktural adalah runner tetap `bench-ref` (ADR-127, belum ada atas keputusan owner) atau gate relatif berpasangan untuk metrik CPU, keduanya di luar cakupan ADR ini.
+
+**Di luar cakupan (belum).** Runner `bench-ref`, normalisasi/paired-reference untuk CT-04 dan §A.9, perubahan ambang atau statistik p95, dan perubahan `-benchtime`.

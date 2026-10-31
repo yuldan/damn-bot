@@ -81,7 +81,9 @@ func benchSpawn(b *testing.B, pty bool, budget time.Duration, name string) {
 		}
 	}
 	if b.N >= spawnBudgetMinRuns {
-		timing.Check(b, name, max(p95(ds)-base, 0), budget)
+		overhead := max(p95(ds)-base, 0)
+		b.ReportMetric(float64(overhead)/float64(time.Millisecond), "p95-overhead-ms") // the gated statistic
+		timing.Check(b, name, overhead, budget)
 	}
 }
 

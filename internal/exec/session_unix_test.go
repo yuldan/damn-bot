@@ -129,7 +129,9 @@ func BenchmarkShellSessionExec(b *testing.B) {
 		ds = append(ds, time.Since(t0))
 	}
 	if b.N >= spawnBudgetMinRuns {
-		timing.Check(b, "session exec p95 (§A.9)", p95(ds), 5*time.Millisecond)
+		p := p95(ds)
+		b.ReportMetric(float64(p)/float64(time.Millisecond), "p95-ms") // the gated statistic
+		timing.Check(b, "session exec p95 (§A.9)", p, 5*time.Millisecond)
 	}
 }
 

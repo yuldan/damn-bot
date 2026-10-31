@@ -25,7 +25,7 @@ PR #1 awal (650 baris, satu PR) ditolak gate `pr-size` (642 > 600) — gate beke
 | PHASE CRLF | `.gitattributes` `PHASE text eol=lf` + `Parse` toleran CRLF; `readPhase` hanya file reguler (FS case-insensitive) | `TestParse` (kasus CRLF), `TestPhaseGitattributes`, `TestPhaseFile` | PASS Windows/macOS |
 | build-matrix E-39, fuzz E-57, coverage E-58 (+AUD-059), deadcode E-53 | Makefile + `scripts/{fuzz,coverage,deadcode}.sh` | `build-matrix`, `fuzz`, `coverage`, `deadcode` | hijau |
 | flake nightly, vuln harian (AUD-071) | `nightly.yml` (flake dilewati bila 0 commit/24 jam — keputusan direktur, ADR-094 butir 4) | `flake`, `vuln` | terpasang |
-| perf (NEW-38) | `make perf -tags goolm,perf`, ×1,5 | `perf` | hijau |
+| perf (NEW-38, ADR-270) | `make perf -tags goolm,perf`, ×1,5; build dulu, lalu `PERF_PKGS` serial (`-p 1 -parallel 1`) | `perf` | hijau |
 | helper timing (NEW-35) | `internal/testutil/timing` (42/80 LOC) | `timing` | selesai |
 | Gate arsitektur (NEW-36) + E-79 + AUD-069/070 | `internal/archtest` (TestImportGraph, TestFileLength, TestGlobalAllowlist, TestGoleakMain, TestBudgetTableSum, TestCodeownersComplete, TestNolintDensity, TestWorkflowsPinned, TestMPLIsolation), CODEOWNERS, deps.mpl, Dependabot | `arch-*` (9) | hijau |
 | nohttpclient E-05 | `tools/analyzers` | `vet-custom` | merged (#2) |

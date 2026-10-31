@@ -39,7 +39,8 @@ target() {
 	case $1 in
 	depguard | lint-anchor) echo lint ;;
 	race) echo "test PKGS=$MINI" ;;
-	test | flake | perf | phase-acceptance) echo "$1 PKGS=$MINI" ;;
+	perf) echo "perf PERF_PKGS=$MINI" ;;
+	test | flake | phase-acceptance) echo "$1 PKGS=$MINI" ;;
 	timing) echo "test-timing PKGS=$MINI" ;;
 	fuzz) echo "fuzz PKGS=$MINI FUZZTIME=5s" ;;
 	coverage) echo "coverage PKGS=$MINI COVERPKG=$MINI" ;;
