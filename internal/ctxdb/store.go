@@ -513,8 +513,7 @@ func (s *Store) detach() error {
 		s.r = nil
 	}
 	if s.lock != nil {
-		err = errors.Join(err, unlockFile(s.lock))
-		s.lock = nil
+		s.lock, err = nil, errors.Join(err, unlockFile(s.lock))
 	}
 	s.tokMu.Lock()
 	clear(s.tokens) // drained processes discard lease tokens (§11.11.7)
@@ -522,13 +521,9 @@ func (s *Store) detach() error {
 	return err
 }
 
-// Close releases the holder entry, handles and barrier lock. The last
-// process out truncates the WAL (SPEC §11). "Last" is proven by taking
-// run/maint.lock exclusively (every open process holds it shared): a
-// TRUNCATE checkpoint holds the writer lock while it waits for readers, so
-// running it beside live processes stalls their BEGIN IMMEDIATE past
-// busy_timeout (root cause of SQLITE_BUSY in TestMultiProcess under -race).
-// Close is close without a caller context (the process is shutting down).
+// Close releases the holder entry, handles and barrier lock. The last process
+// out truncates the WAL under run/maint.lock; running it beside live processes
+// would stall BEGIN IMMEDIATE past busy_timeout (SQLITE_BUSY under -race).
 func (s *Store) Close() error { return s.close(context.Background()) }
 
 // CloseContext closes the store using the caller's context for the shutdown
@@ -539,7 +534,6 @@ func (s *Store) close(ctx context.Context) error {
 	if s.stop != nil {
 		s.stop()
 		<-s.done
-		s.stop = nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -548,9 +542,11 @@ func (s *Store) close(ctx context.Context) error {
 	}
 	s.closed = true
 	err := s.bgErr
+	if s.r != nil {
+		err = errors.Join(err, wrap(s.r.Close()))
+	}
 	if s.w != nil && s.lock != nil {
-		err = errors.Join(err, unlockFile(s.lock))
-		s.lock = nil
+		s.lock, err = nil, errors.Join(err, unlockFile(s.lock))
 		if last, lerr := tryLock(s.root, lockFile, true); lerr == nil {
 			_, cerr := s.w.ExecContext(context.WithoutCancel(ctx), "PRAGMA wal_checkpoint(TRUNCATE)")
 			err = errors.Join(err, wrap(cerr), unlockFile(last))
