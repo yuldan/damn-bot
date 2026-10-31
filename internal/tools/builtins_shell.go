@@ -349,7 +349,7 @@ func (t *shellTool) render(ctx context.Context, env Env, res *exec.Result, runEr
 	// would let every later shell call flood the context again
 	// (REVIEW-F1-SEC7 TL7-8, SPEC P5).
 	inlineLeft := max(env.InlineLeft, 0)
-	sum, err := summarizer.Summarize(res, inlineLeft, spill)
+	sum, err := summarizer.Summarize(res, int(inlineLeft), spill)
 	if err != nil {
 		return Result{}, &ToolError{Code: CodeInternal, Message: "shell summary: " + err.Error(), Err: err}
 	}

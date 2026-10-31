@@ -75,7 +75,10 @@ schema            1200 internal/schema
 # ADR-173: tools 2200 -> 2500 (skills_list/skill_view/skill_manage; terukur 2315; Σ core 38.090 -> 38.390 <= 47.000).
 # ADR-188: tool `memory` + `session_search` menambah baris tools (terukur 2574 pada pohon ter-commit
 # sesudah rebase ke main 44.710); tools 2500 -> 2574 = angka ukur, tanpa headroom (Σ core 44.710 -> 44.789).
-tools             3000 internal/tools
+# ADR-273 (F5-12 PR A): SessionView alias + Env.Session; Env dipadatkan ke
+# int32 (dua penghitung) agar tetap < ambang hugeParam gocritic. Kode terukur
+# 3.001, plafon 3.000 -> 3.001 (angka ukur pada pohon PR A).
+tools             3001 internal/tools
 # ADR-143: komposisi toolset deklaratif (TSET/CORE-004/005; Σ core 38.450 -> 38.850 <= 47.000).
 toolset            400 internal/toolset
 # ADR-111: codetools 4500 -> 4800 (perbaikan REVIEW-F1-SEC2; Σ core 33.900 -> 34.200 <= 47.000).
@@ -205,7 +208,12 @@ config            1510 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
-modules            1150 internal/modules
+modules            1221 internal/modules
+# ADR-273 (F5-12 PR A, GAP-REL-18): SessionView + parent/child intersection di
+# `modules/host`; kode terukur 1.221, plafon 1.150 -> 1.221 (tanpa headroom,
+# angka ukur scc pada pohon PR A). Sigma core 51.984 -> 52.056; plafon core
+# 52.010 -> 52.100. PR B menambah codetools 5.520 -> 5.540 (LeaseGuard),
+# Sigma core 52.076, headroom 24; PR C hanya menambah baris MODULE delegate.
 hooks              700 internal/hooks
 i18n               300 internal/i18n
 # Infra non-produksi, di luar Σ core (ADR-086 NEW-34): helper test (timing ≤ 80, ADR-073), matriks

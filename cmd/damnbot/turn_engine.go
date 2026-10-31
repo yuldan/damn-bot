@@ -81,6 +81,15 @@ func newTurnEngine(ctx context.Context, cfg *config.Config, o *runOptions, model
 
 // newRunDispatcher builds the single tool pipeline shared by turns and !cmd.
 func newRunDispatcher(o *runOptions, model *runModel, red *redact.Redactor, spill tools.Spill) (*tools.Dispatcher, error) {
+	// The run surface owns one session: its explicit tool and capability set
+	// is the only source the session-scoped tools may read (GAP-REL-18). A
+	// normal run may read and write user memory; it never inherits approval
+	// bypass or secret access.
+	session, err := tools.NewSessionView(model.sessionID, "", "run", model.cwd,
+		model.registry.Names(), []tools.Capability{tools.CapUserMemory})
+	if err != nil {
+		return nil, fmt.Errorf("tools session view: %w", err)
+	}
 	disp, err := tools.NewDispatcher(&tools.Config{
 		Registry:         model.registry,
 		Journal:          loopTranscript{db: model.db, sid: model.sessionID},
@@ -94,6 +103,7 @@ func newRunDispatcher(o *runOptions, model *runModel, red *redact.Redactor, spil
 		CharsPerToken:    charsPerToken(o.prompt),
 		Origin:           o.approvalOrigin,
 		Approver:         o.toolApprover,
+		Session:          session,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tools dispatcher: %w", err)

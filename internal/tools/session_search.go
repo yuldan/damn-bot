@@ -17,10 +17,18 @@ type SessionHit struct {
 	Score     float64
 }
 
-// SessionSearchBackend is the consumer seam over ctxdb.Search; cwd is the
-// caller's project and an empty one must fail closed (SEC17-1).
+// SessionScope is the caller's explicit search scope (GAP-REL-18): its own
+// session and workspace. Both fields are required and an empty one fails
+// closed; the backend searches the workspace, never every session.
+type SessionScope struct {
+	SessionID string
+	Cwd       string
+}
+
+// SessionSearchBackend is the consumer seam over ctxdb.Search. The scope is
+// always the session view received by the tool, never a process-global set.
 type SessionSearchBackend interface {
-	Search(ctx context.Context, query string, k int, cwd string) ([]SessionHit, error)
+	Search(ctx context.Context, query string, k int, scope SessionScope) ([]SessionHit, error)
 }
 
 const schemaSessionSearch = `{"name":"session_search","description":"Search past session transcripts (FTS) and return ranked snippets.","parameters":{"type":"object","properties":{"query":{"type":"string","minLength":1,"maxLength":200},"k":{"type":"integer","minimum":1,"maximum":10}},"required":["query"],"additionalProperties":false}}`
@@ -55,7 +63,15 @@ func (t *sessionSearchTool) Run(ctx context.Context, env Env, args json.RawMessa
 	if t.be == nil {
 		return Result{}, toolErr(CodeInternal, "session search unavailable", "the composition root did not wire ctxdb search")
 	}
-	if env.Cwd == "" { // fail closed: no workspace, no search (SEC17-1)
+	view, terr := requireSession(env, "session_search")
+	if terr != nil {
+		return Result{}, terr
+	}
+	cwd := env.Cwd
+	if cwd == "" {
+		cwd = view.Cwd()
+	}
+	if cwd == "" { // fail closed: no workspace, no search (SEC17-1)
 		return Result{}, toolErr(CodeInvalidArgs, "session search needs a workspace", "")
 	}
 	k := a.K
@@ -65,7 +81,7 @@ func (t *sessionSearchTool) Run(ctx context.Context, env Env, args json.RawMessa
 	if k > 10 {
 		k = 10
 	}
-	hits, err := t.be.Search(ctx, query, k, env.Cwd)
+	hits, err := t.be.Search(ctx, query, k, SessionScope{SessionID: view.SessionID(), Cwd: cwd})
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return Result{}, &ToolError{Code: CodeTimeout, Message: "session search cancelled", Err: err}

@@ -78,6 +78,10 @@ type Env struct {
 	CallID   string
 	Cwd      string
 	Approved bool // the user approved this call's outside/irreversible verdict
+	// Session is the explicit tool and capability set of the calling session
+	// (GAP-REL-18). The zero value fails closed inside a module; it is never
+	// replaced by another session's set.
+	Session SessionView
 }
 
 // Result is one module tool result as the pipeline receives it (SPEC §4.3).

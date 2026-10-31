@@ -74,7 +74,11 @@ func (t *memoryTool) Run(ctx context.Context, env Env, args json.RawMessage) (Re
 	if t.be == nil {
 		return Result{}, toolErr(CodeInternal, "memory backend unavailable", "the composition root did not wire memory")
 	}
-	scope, err := memoryScope(a.Target, env.Cwd)
+	view, terr := requireSession(env, "memory")
+	if terr != nil {
+		return Result{}, terr
+	}
+	scope, err := memoryScope(view, a.Target)
 	if err != nil {
 		return Result{}, err
 	}
@@ -96,15 +100,20 @@ func (t *memoryTool) Run(ctx context.Context, env Env, args json.RawMessage) (Re
 	}
 }
 
-// memoryScope maps the tool target to the SPEC §4.8 scope.
-func memoryScope(target, cwd string) (string, error) {
+// memoryScope maps the tool target to the SPEC §4.8 scope. The project scope
+// comes from the explicit session view, never from a process-global cwd, and
+// the user scope needs the session's CapUserMemory (GAP-REL-18).
+func memoryScope(view SessionView, target string) (string, error) {
 	switch target {
 	case "", "memory":
-		if cwd == "" {
+		if view.Cwd() == "" {
 			return "", toolErr(CodeInvalidArgs, "memory target needs a workspace", "run from a workspace directory")
 		}
-		return "project:" + cwd, nil
+		return "project:" + view.Cwd(), nil
 	case "user":
+		if !view.Can(CapUserMemory) {
+			return "", toolErr(CodeDenied, "user memory is not enabled for this session", "")
+		}
 		return "user", nil
 	}
 	return "", toolErr(CodeInvalidArgs, "target must be memory or user", "")

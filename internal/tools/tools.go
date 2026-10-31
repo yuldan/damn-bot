@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/damnbot/damnbot/internal/schema"
@@ -93,8 +94,26 @@ type Env struct {
 	CallID     string
 	Cwd        string
 	Approved   bool
-	PageChars  int
-	InlineLeft int
+	PageChars  int32
+	InlineLeft int32
+	// Session is the explicit tool and capability set of this session
+	// (GAP-REL-18). Tools that cross an agent boundary require it; the zero
+	// value fails closed and never falls back to another session's set.
+	Session SessionView
+}
+
+// int32Cap narrows a non-negative dispatcher size to the Env field width. A
+// negative value is a programming error; it becomes zero rather than wrapping
+// to a huge positive cap, and the upper clamp keeps gosec's int conversion
+// check meaningful.
+func int32Cap(n int) int32 {
+	switch {
+	case n < 0:
+		return 0
+	case n > math.MaxInt32:
+		return math.MaxInt32
+	}
+	return int32(n)
 }
 
 // Code is one value of the closed SPEC §4.3 error-code set.

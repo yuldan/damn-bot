@@ -65,6 +65,10 @@ type Config struct {
 	// Origin names the surface that asks for approval (ADR-202). Empty takes
 	// the headless `run` default; an unknown value is rejected.
 	Origin string
+	// Session is the explicit view every tool sees (GAP-REL-18). The zero
+	// value is allowed: only session-scoped tools (delegate_task,
+	// execute_code, MCP) reject it, and they fail closed.
+	Session SessionView
 }
 
 // TurnInlineCap is SPEC P5's aggregate inline cap for one turn:
@@ -144,6 +148,7 @@ type Dispatcher struct {
 	page     int
 	deferred *Deferred
 	origin   string
+	session  SessionView
 	// turnInline is the scaled aggregate inline budget of this turn
 	// (TurnInlineCap); BeginTurn keeps it.
 	turnInline int
@@ -184,7 +189,8 @@ func NewDispatcher(cfg *Config) (*Dispatcher, error) {
 		approver: cfg.Approver, red: cfg.Redactor, timeout: cfg.ToolTimeout,
 		trusted: cfg.WorkspaceTrusted, cwd: cfg.Cwd, page: cfg.PageChars, deferred: cfg.Deferred,
 		origin: origin, turnInline: TurnInlineCap(cfg.WindowTokens, cfg.CharsPerToken),
-		calls: map[string]bool{}, sessions: map[string]bool{},
+		session: cfg.Session,
+		calls:   map[string]bool{}, sessions: map[string]bool{},
 	}, nil
 }
 
@@ -288,7 +294,7 @@ func (d *Dispatcher) prepare(ctx context.Context, call Call) (Prepared, error) {
 	decision.Preview = clipPreview(decision.Preview)
 	return Prepared{
 		Call: call, Args: args, Effect: effect, Decision: decision,
-		Env:   Env{TurnID: call.TurnID, CallID: call.CallID, Cwd: d.cwd, PageChars: d.pageCap(), InlineLeft: d.inlineLeft()},
+		Env:   Env{TurnID: call.TurnID, CallID: call.CallID, Cwd: d.cwd, PageChars: int32Cap(d.pageCap()), InlineLeft: int32Cap(d.inlineLeft()), Session: d.session},
 		entry: entry,
 	}, nil
 }
