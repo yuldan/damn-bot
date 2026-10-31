@@ -58,16 +58,6 @@ func platformDataDir(raw string) (string, error) {
 	return paths.DataDir, nil
 }
 
-func (g *serveGateway) platformControlLoop(ctx context.Context) {
-	runPollLoop(ctx, func() int {
-		worked, changed := g.drainPlatformSpool(ctx)
-		if changed {
-			g.writePlatforms()
-		}
-		return worked
-	})
-}
-
 // drainPlatformSpool applies every pending request and reports how many files
 // it handled (the poll-loop pacing) and whether a platform changed (the status
 // file rewrite).

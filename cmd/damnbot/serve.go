@@ -32,7 +32,7 @@ const (
 
 const (
 	serveDrainDefault = 30 * time.Second
-	serveBeatPeriod   = time.Second
+	serveBeatPeriod   = 2 * time.Second
 	serveShutdownMax  = 5 * time.Second
 )
 
@@ -289,12 +289,24 @@ func serveForceExit(code int) { os.Exit(code) }
 // serveLoop waits for a stop signal (or a fatal endpoint error), drains the
 // active turns, shuts the listener down and closes the store. sigCtx is the
 // signal-aware context installed by serveRun before any progress was logged.
+// serveBeat gives the beat to the gateway's single idle loop; a gateway-less
+// serve gets its own slower liveness ticker (the /healthz window is 3 s).
+func serveBeat(ctx context.Context, eps *obs.Endpoints, lock *serveLock, gw *serveGateway) func() {
+	if gw == nil {
+		return eps.StartBeatLoop(ctx, serveBeatPeriod, lock.Held)
+	}
+	gw.beat = func() {
+		eps.Beat()
+		eps.Metrics().SetLeaseHeld(lock.Held())
+	}
+	return func() {}
+}
+
 func serveLoop(ctx context.Context, sigCtx context.Context, o *serveOptions, eps *obs.Endpoints, hs *http.Server, errs <-chan error, db *ctxdb.Store, lock *serveLock, daemon *serveDaemon, gw *serveGateway, cr *serveCron, gwErr error, stderr io.Writer) (int, error) {
 	if gwErr != nil {
 		return serveExitFatal, gwErr
 	}
-	stopBeat := eps.StartBeatLoop(ctx, serveBeatPeriod, lock.Held)
-	defer stopBeat()
+	defer serveBeat(ctx, eps, lock, gw)()
 	registerServeTestTurn(daemon, stderr)
 	if err := gw.Start(ctx); err != nil {
 		return serveExitFatal, err

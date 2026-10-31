@@ -43,6 +43,7 @@ type Config struct {
 // Metrics is the pull-only exposition of one serve process (GAP-REL-17).
 // Fields are atomic because handlers read while subsystems write.
 type Metrics struct {
+	idle  atomic.Uint64
 	start time.Time
 	ok    atomic.Uint64
 	fail  atomic.Uint64
@@ -74,6 +75,10 @@ func (m *Metrics) Turn(d time.Duration, ok bool) {
 
 // IncError records one operator-visible error outside a turn.
 func (m *Metrics) IncError() { m.errs.Add(1) }
+
+// IdleWakeup records one scheduled idle-loop tick. The F4 budget gate reads
+// it through /metrics; runtime-internal wakes are not counted here.
+func (m *Metrics) IdleWakeup() { m.idle.Add(1) }
 
 // SetQueue publishes the accepted-but-not-started depth.
 func (m *Metrics) SetQueue(n int) { m.queue.Store(int64(n)) }
@@ -114,6 +119,8 @@ func (m *Metrics) Render(w io.Writer) error {
 	sample("damnbot_queue_depth", "", strconv.FormatInt(m.queue.Load(), 10))
 	b.WriteString("# TYPE damnbot_lease_held gauge\n")
 	sample("damnbot_lease_held", "", strconv.FormatInt(m.lease.Load(), 10))
+	b.WriteString("# TYPE damnbot_idle_wakeups_total counter\n")
+	sample("damnbot_idle_wakeups_total", "", u(m.idle.Load()))
 	b.WriteString("# TYPE damnbot_goroutines gauge\n")
 	sample("damnbot_goroutines", "", strconv.Itoa(runtime.NumGoroutine()))
 	if _, err := io.WriteString(w, b.String()); err != nil {
@@ -243,6 +250,7 @@ func (e *Endpoints) StartBeatLoop(ctx context.Context, interval time.Duration, l
 			case <-ctx.Done():
 				return
 			case <-tick.C:
+				e.m.IdleWakeup()
 				e.Beat()
 				e.m.SetLeaseHeld(lease())
 			}

@@ -14,10 +14,6 @@ import (
 	"github.com/damnbot/damnbot/internal/gateway/telegram"
 )
 
-func (g *serveGateway) deliveries(ctx context.Context) {
-	runDeliveryLoop(ctx, g.claimDeliveries)
-}
-
 // runDeliveryLoop polls claim until ctx ends, resetting to the fast interval
 // whenever a poll claims work and backing off 200 → 500 → 1000 ms otherwise
 // (see runPollLoop).

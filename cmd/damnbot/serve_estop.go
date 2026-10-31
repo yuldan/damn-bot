@@ -4,30 +4,22 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"time"
 
 	"github.com/damnbot/damnbot/internal/ctxdb/gwstore"
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/telegram"
 )
 
-func (g *serveGateway) emergency(ctx context.Context) {
-	tick := time.NewTicker(time.Second)
-	defer tick.Stop()
-	for {
-		g.drainParked(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		}
-	}
-}
-
-func (g *serveGateway) drainParked(ctx context.Context) {
+func (g *serveGateway) drainParked(ctx context.Context) bool {
 	st, err := g.estop.Status(ctx)
-	if err != nil || st.Paused || st.PendingSince.IsZero() {
-		return
+	if err != nil {
+		return false
+	}
+	if st.Paused {
+		return true
+	}
+	if st.PendingSince.IsZero() {
+		return false
 	}
 	seen := map[string]bool{}
 	for ctx.Err() == nil {
@@ -35,7 +27,7 @@ func (g *serveGateway) drainParked(ctx context.Context) {
 		if err != nil {
 			sessionsPrintf(g.stderr, "gateway: pending inbound: %s\n", cleanLine(err.Error()))
 			g.metrics.IncError()
-			return
+			return true
 		}
 		progress := false
 		for i := range rows {
@@ -45,7 +37,7 @@ func (g *serveGateway) drainParked(ctx context.Context) {
 			}
 			seen[key], progress = true, true
 			if !g.replay(ctx, &rows[i]) {
-				return
+				return true
 			}
 		}
 		if !progress {
@@ -53,9 +45,10 @@ func (g *serveGateway) drainParked(ctx context.Context) {
 				sessionsPrintf(g.stderr, "gateway: clear pending window: %s\n", cleanLine(derr.Error()))
 				g.metrics.IncError()
 			}
-			return
+			return false
 		}
 	}
+	return ctx.Err() != nil
 }
 
 func (g *serveGateway) replay(ctx context.Context, p *gwstore.Pending) bool {

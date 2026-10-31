@@ -142,8 +142,9 @@ func TestWatchdogRunStops(t *testing.T) {
 	fired := make(chan struct{})
 	var once sync.Once
 	w, err := NewWatchdog(WatchdogOptions{
-		Interval:   5 * time.Millisecond,
-		StaleAfter: 5 * time.Millisecond,
+		Interval:     5 * time.Millisecond,
+		IdleInterval: 5 * time.Millisecond,
+		StaleAfter:   5 * time.Millisecond,
 		Action: func(context.Context) error {
 			once.Do(func() { close(fired) })
 			return nil
