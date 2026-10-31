@@ -202,13 +202,6 @@ type Gateway struct {
 	Users            map[string]GatewayUser `toml:"users"`
 }
 
-// Modules is the compiled-in module configuration. Only keys owned by an
-// implemented module are accepted here; other [modules] keys stay
-// ErrModuleUnavailable.
-type Modules struct {
-	Gateway ModulesGateway `toml:"gateway"`
-}
-
 // ModulesGateway holds the gateway adapter configuration.
 type ModulesGateway struct {
 	Telegram ModulesTelegram `toml:"telegram"`
@@ -383,7 +376,7 @@ func Default() Config {
 
 func gatewayDefaults() (Gateway, Modules) {
 	return Gateway{MaxParallelTurns: 4, BusyPolicy: "queue", Users: map[string]GatewayUser{}},
-		Modules{Gateway: ModulesGateway{Telegram: ModulesTelegram{ThreadFallback: "fail"}}}
+		defaultModules()
 }
 
 // defaultDenyPaths is SPEC §12 deny_paths in declaration order. The

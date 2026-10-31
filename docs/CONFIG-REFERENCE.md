@@ -90,6 +90,8 @@ config_version = 1
   [modules.gateway]
     [modules.gateway.telegram]
       thread_fallback = "fail"
+  [modules.mcp]
+    allow_sampling = false
 
 [providers]
   custom = []

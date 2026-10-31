@@ -190,7 +190,9 @@ heal              1500 internal/heal
 # 1.249 -> 1.254, plafon config 1253 -> 1254, Σ core 47.592 -> 47.593 <= 47.600.
 # ADR-257 (F4 GAP-OPS-01): env override generik + refgen docs; kode terukur 1254 -> 1331,
 # plafon 1254 -> 1434 (headroom 103), Sigma core 47.593 -> 47.788 <= 47.800.
-config            1434 internal/config
+# ADR-269 amandemen (PR C): [modules.mcp] schema + validasi ketat (!minimal);
+# kode terukur 1.510, plafon 1.434 -> 1.510, Sigma core 51.023 -> 51.099.
+config            1510 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.

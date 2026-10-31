@@ -294,6 +294,9 @@ func (c *Config) validateGateway() error {
 }
 
 func (c *Config) validateModules() error {
+	if err := c.Modules.validateMCP(); err != nil {
+		return err
+	}
 	switch c.Modules.Gateway.Telegram.ThreadFallback {
 	case "fail", "parent":
 		return nil

@@ -119,7 +119,6 @@ func TestConfigSpec12Example(t *testing.T) {
 func TestConfigModuleSectionsUnavailable(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ name, toml, prefix string }{
-		{"mcp", "[modules.mcp.servers.github]\ncommand = [\"github-mcp-server\", \"stdio\"]\n", "modules.mcp.servers.github"},
 		{"gateway", "[modules.gateway.telegram]\nenabled = true\n", "modules.gateway.telegram"},
 		{"obs", "[obs]\nlisten = \"127.0.0.1:7879\"\n", "obs"},
 		{"cron", "[cron]\ndefault_model = \"p/m\"\n", "cron"},
