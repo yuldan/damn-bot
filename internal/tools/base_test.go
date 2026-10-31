@@ -32,7 +32,7 @@ func TestToolErrorAndCodes(t *testing.T) {
 	if !strings.Contains(wrapped.Error(), "cause") {
 		t.Fatal("cause missing")
 	}
-	if len(CodeSet()) != 37 {
+	if len(CodeSet()) != 38 {
 		t.Fatalf("CodeSet = %d", len(CodeSet()))
 	}
 }

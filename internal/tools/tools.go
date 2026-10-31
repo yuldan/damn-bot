@@ -158,6 +158,7 @@ const (
 	CodeWriteVerifyFailed   Code = "write_verify_failed"
 	CodeEgressDisabled      Code = "egress_disabled"
 	CodeInvalidSkill        Code = "invalid_skill"
+	CodeConflict            Code = "conflict"
 	CodeInternal            Code = "internal"
 )
 
@@ -173,7 +174,7 @@ func CodeSet() map[Code]bool {
 		CodeHasForks, CodeSessionPurging, CodeSessionBusy, CodeLeaseFenced,
 		CodePurgeInProgress, CodeSchemaNewer, CodeApprovalNotPending,
 		CodeIdempotencyConflict, CodeWriteVerifyFailed, CodeEgressDisabled,
-		CodeInvalidSkill, CodeInternal,
+		CodeInvalidSkill, CodeConflict, CodeInternal,
 	}
 	set := make(map[Code]bool, len(all))
 	for _, c := range all {
