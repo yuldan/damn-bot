@@ -138,6 +138,10 @@ func (s *Store) tx(ctx context.Context, mode string, fn func(*Tx) error) (err er
 	}
 	t := &Tx{ctx: ctx, c: c, s: s, txid: fmt.Sprintf("%d-%s-%d", s.id.PID, s.id.Start, s.txSeq.Add(1))}
 	if err = s.busyRetry(ctx, "begin", func() error { return s.begin(ctx, c) }); err != nil {
+		// A cancelled BEGIN may already have opened the transaction: roll it
+		// back (never inheriting cancellation) before the conn is pooled, or
+		// the next checkpoint on this writer reports SQLITE_LOCKED.
+		_, _ = c.ExecContext(context.Background(), "ROLLBACK") //nolint:errcheck,contextcheck // ROLLBACK must not inherit cancellation; no transaction is the normal failure
 		return errors.Join(err, wrap(c.Close()))
 	}
 	began, committed := time.Now(), false
@@ -279,6 +283,9 @@ func (t *Tx) recoverOwnTrash() error {
 // preWrite enforces I8 before every write transaction (and read): a
 // maintenance marker drains this process; a replaced DB file is reopened.
 func (s *Store) preWrite(ctx context.Context) error {
+	if s.closed { // Close holds mu: no operation may start (or re-attach) after it
+		return wrap(sql.ErrConnDone)
+	}
 	if s.opt.ReadOnly {
 		return fmt.Errorf("%w: inspection store cannot be written", ErrReadOnly)
 	}
