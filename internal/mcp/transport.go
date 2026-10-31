@@ -24,10 +24,6 @@ const (
 	InitTimeout = 30 * time.Second
 	// killGrace is how long Close waits for a child after stdin EOF.
 	killGrace = 3 * time.Second
-	// maxPages bounds tools/list pagination; a server cannot loop forever.
-	maxPages = 64
-	// maxTools bounds the merged tool set of one server.
-	maxTools = 4096
 	// MCP notification and method names.
 	notifyInitialized = "notifications/initialized"
 	notifyCancelled   = "notifications/cancelled"
@@ -67,12 +63,6 @@ type Transport interface {
 	Call(ctx context.Context, method string, params, result any) error
 	Notify(ctx context.Context, method string, params any) error
 	Close() error
-}
-
-// protocolSetter lets the client report the negotiated revision to a
-// transport that echoes it on every request (Streamable HTTP).
-type protocolSetter interface {
-	setProtocol(string)
 }
 
 // stdioPipes is the optional host.Process extension a JSON-line child needs.
