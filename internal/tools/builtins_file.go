@@ -130,7 +130,7 @@ func (t *fileTool) class() string {
 // Run delegates to the engine; env.Approved carries the outside verdict and
 // env's turn/call ids key the journal record of a write.
 func (t *fileTool) Run(ctx context.Context, env Env, args json.RawMessage) (Result, error) {
-	o := codetools.Opts{Approved: env.Approved, PageChars: env.PageChars}
+	o := codetools.Opts{Approved: env.Approved, PageChars: int(env.PageChars)}
 	if t.write && t.rec != nil {
 		o.Journal = func(ctx context.Context, c *codetools.Commit) error { return t.rec(ctx, env, t.name, c) }
 	}

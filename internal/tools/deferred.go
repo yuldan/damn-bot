@@ -249,6 +249,7 @@ func (t *moduleTool) Run(ctx context.Context, env Env, args json.RawMessage) (Re
 	perr := boundary.Run(ctx, "tools.module."+t.module, func(ctx context.Context) error {
 		res, err = t.mod.Invoke(ctx, t.name, args, host.Env{
 			TurnID: env.TurnID, CallID: env.CallID, Cwd: env.Cwd, Approved: env.Approved,
+			Session: env.Session,
 		})
 		return nil
 	})
@@ -473,7 +474,7 @@ func (d *Dispatcher) planDeferredDeny(call *Call) (Prepared, bool, error) {
 	ensurePreview(call.Name, args, effect, &decision)
 	return Prepared{
 		Call: *call, Args: args, Effect: effect, Decision: decision,
-		Env:   Env{TurnID: call.TurnID, CallID: call.CallID, Cwd: d.cwd, PageChars: d.pageCap(), InlineLeft: d.inlineLeft()},
+		Env:   Env{TurnID: call.TurnID, CallID: call.CallID, Cwd: d.cwd, PageChars: int32Cap(d.pageCap()), InlineLeft: int32Cap(d.inlineLeft())},
 		entry: entry,
 	}, true, nil
 }

@@ -130,8 +130,8 @@ type ApprovalRequest struct {
 	Preview string
 	Origin  string // run|tui|acp|plan (ADR-202); never empty from the dispatcher
 	Tainted bool
-	// AllowSession is false for shell (ADR-088 butir 1), execute_code and
-	// P26 classes (irreversible/monetary/delegated_agent_bypass).
+	// AllowSession is false for shell (ADR-088 butir 1), execute_code,
+	// delegate_task and P26 classes (irreversible/monetary/delegated_agent_bypass).
 	AllowSession bool
 }
 
@@ -165,7 +165,7 @@ func PreviewRequired(effect Effect, class string) bool {
 		}
 		return false
 	}
-	return class == "write"
+	return class == "write" || class == "delegate"
 }
 
 // Validate checks the request contract before an approver sees it: the origin

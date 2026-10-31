@@ -153,7 +153,7 @@ func TestPagedToolCapDropsAfterAggregate(t *testing.T) {
 	tool := &stubTool{
 		name: "read_file", schema: echoSchema("read_file"), kind: KindRead, effect: EffectRead,
 		run: func(_ context.Context, env Env, _ json.RawMessage) (Result, error) {
-			return Result{OK: true, Content: repeated(env.PageChars)}, nil
+			return Result{OK: true, Content: repeated(int(env.PageChars))}, nil
 		},
 	}
 	j := &journalRec{}

@@ -53,7 +53,10 @@ func allowedImports() map[string][]string {
 		"internal/scorecard":     nil,
 
 		// Modul lazy (E-06).
-		"internal/mcp":                      moduleImports(),
+		"internal/mcp": moduleImports(),
+		// Delegasi (F5-12, ADR-273): orchestration over the tool pipeline; its
+		// tests exercise the codetools lease guard directly.
+		"internal/delegate":                 {"internal/tools", "internal/codetools", "internal/sandbox", "internal/redact"},
 		"internal/codeintel":                moduleImports(),
 		"internal/gateway" + moduleWildcard: moduleImports(),
 

@@ -94,6 +94,23 @@ type current struct {
 	tag string
 }
 
+// checkLease rejects a write to a path leased by another delegate child
+// (GAP-TOOL-05). It runs under the per-path edit lock, so the owner cannot
+// change between the check and the commit.
+func (e *Engine) checkLease(ctx context.Context, p string) error {
+	if e.guard == nil {
+		return nil
+	}
+	owner, leased, err := e.guard.LeasedBy(ctx, p)
+	if err != nil {
+		return &ToolError{Code: CodeInternal, Message: "lease check failed", Err: err}
+	}
+	if !leased {
+		return nil
+	}
+	return toolErr(CodeConflict, "edit another file or wait for the owner", "%s is leased by delegate %s", p, owner)
+}
+
 // openCurrent opens path and checks tag (CODE-TOOLS §5.1, §5.3 butir 1-2):
 // unknown tag or changed content → stale_read with the fresh tag (which
 // becomes valid) and the changed line ranges.
@@ -217,6 +234,9 @@ func (e *Engine) Edit(ctx context.Context, a EditArgs, o Opts) (res Result, err 
 	}
 	unlock := e.pathLock(ctx, a.Path)
 	defer unlock()
+	if lerr := e.checkLease(ctx, a.Path); lerr != nil {
+		return res, lerr
+	}
 	o.local, err = e.sourceLocal(ctx, true)
 	if err != nil {
 		return res, err
@@ -326,6 +346,9 @@ func (e *Engine) Write(ctx context.Context, a WriteArgs, o Opts) (res Result, er
 	abs := e.abs(a.Path)
 	unlock := e.pathLock(ctx, a.Path)
 	defer unlock()
+	if lerr := e.checkLease(ctx, a.Path); lerr != nil {
+		return res, lerr
+	}
 	var lerr error
 	o.local, lerr = e.sourceLocal(ctx, true)
 	if lerr != nil {

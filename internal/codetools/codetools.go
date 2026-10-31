@@ -40,6 +40,7 @@ const (
 	CodeTooLarge          Code = "too_large"
 	CodeDiskFull          Code = "disk_full"
 	CodeWriteVerifyFailed Code = "write_verify_failed"
+	CodeConflict          Code = "conflict"
 	CodeInternal          Code = "internal"
 )
 
@@ -146,6 +147,17 @@ type Config struct {
 	// OnClientFallback reports a local fallback per capability; the caller
 	// records acp_fs_fallback and dedupes per session.
 	OnClientFallback func(ctx context.Context, write bool) error
+	// Guard rejects a write to a path leased by another delegate child
+	// (GAP-TOOL-05). It is checked under the same per-path lock as the edit,
+	// so a lease cannot be granted between the check and the write. nil
+	// disables leases (a session without delegated children).
+	Guard LeaseGuard
+}
+
+// LeaseGuard reports the delegate child that owns path, if any. A write by
+// another owner fails with conflict; the owner itself may write.
+type LeaseGuard interface {
+	LeasedBy(ctx context.Context, path string) (owner string, leased bool, err error)
 }
 
 // Engine runs the file tools of one session. Close releases its caches and
@@ -160,6 +172,7 @@ type Engine struct {
 	snapshot func(ctx context.Context, resolved string, old *os.File) error
 	client   ClientFS
 	fallback func(ctx context.Context, write bool) error
+	guard    LeaseGuard
 	// hook is a test seam called at named commit points; an error aborts
 	// the write there (failure injection, CT-25 kill points).
 	hook func(point string) error
@@ -177,7 +190,7 @@ func New(cfg *Config) (*Engine, error) {
 	if cfg == nil || cfg.Sandbox == nil || len(cfg.Roots) == 0 {
 		return nil, errors.New("codetools: sandbox and roots required")
 	}
-	e := &Engine{sb: cfg.Sandbox, newEOL: "\n", fold: runtime.GOOS == "windows", snapshot: cfg.Snapshot, client: cfg.ClientFS, fallback: cfg.OnClientFallback, building: map[fileKey]bool{}, locks: map[string]*pathMu{}}
+	e := &Engine{sb: cfg.Sandbox, newEOL: "\n", fold: runtime.GOOS == "windows", snapshot: cfg.Snapshot, client: cfg.ClientFS, fallback: cfg.OnClientFallback, guard: cfg.Guard, building: map[fileKey]bool{}, locks: map[string]*pathMu{}}
 	if cfg.NewEOL == "crlf" {
 		e.newEOL = "\r\n"
 	}

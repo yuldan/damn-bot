@@ -15,7 +15,7 @@ import (
 const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
-	maxCoreLOC       = 52010 // ADR-269 PR C (rebase atas ADR-267/268/269/270): config 1.434 → 1.510, Σ core 51.984; headroom 26.
+	maxCoreLOC       = 52100 // ADR-273 (F5-12): codetools 5.540, modules 1.191, Σ core 52.045; headroom 55.
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
 	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)

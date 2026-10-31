@@ -205,7 +205,7 @@ config            1510 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
-modules            1150 internal/modules
+modules            1191 internal/modules
 hooks              700 internal/hooks
 i18n               300 internal/i18n
 # Infra non-produksi, di luar Σ core (ADR-086 NEW-34): helper test (timing ≤ 80, ADR-073), matriks
@@ -228,7 +228,7 @@ TESTONLY internal/e2e
 TOTAL           190000
 # Amandemen (retarget ke main 974eb761, 2026-10-22): codetools 5350 -> 5365 (preview undo lewat
 # sandbox.OpenResolved di #177 + retry replace Windows di #170; terukur 5353; Σ core +15).
-codetools         5520 internal/codetools
+codetools         5540 internal/codetools
 # Amandemen (W6 compaction wiring, 2026-10-23): assemble 1300 -> 1320 (view/summary block di
 # assembler adapter; terukur 1306; Σ core +20).
 # Amandemen (W7 recall/lineage, 2026-10-25): ctxdb 5816 -> 5885 (lineage CTE + Ancestor + Lineage,
@@ -279,7 +279,13 @@ MODULE cron        3500 internal/cron
 MODULE cronstore     200 internal/ctxdb/cronstore
 # ADR-244: SPEC §3.2.4:307 (scorecard job 500 dari 3.000; sisa 2.500 F8).
 MODULE scorecard    500 internal/scorecard
+# ADR-273 (F5-12): baris `codetools` 5.520 -> 5.540 untuk LeaseGuard pada
+# edit/write (GAP-TOOL-05; terukur 5.540), `modules` 1.150 -> 1.191 untuk
+# SessionView di modules/host (terukur 1.191), dan `tools` tetap 3.000
+# (terukur 2.986). Sigma core +61 -> 52.045; plafon 52.010 -> 52.100.
 # ADR-268 (F5-09 awal): SPEC §3.2.4:291 `mcp` (client + server + OAuth + pin
 # tool) 6.500; kode fondasi seam terukur 79. Sigma kelas MODULE 38.500 ->
 # 45.000 (+backup 1.467 = 46.467 <= 46.500; maxModuleLOC 40.000 -> 46.500).
 MODULE mcp         6500 internal/mcp
+# ADR-273 (F5-12): SPEC §3.2.4:290 `delegate` 2.000; terukur 964.
+MODULE delegate    2000 internal/delegate

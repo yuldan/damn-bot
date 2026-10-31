@@ -44,7 +44,7 @@ func TestMemoryToolAdd(t *testing.T) {
 	t.Parallel()
 	be := &fakeMemory{addID: 7, status: "scanned"}
 	tool := NewMemory(be)
-	res, err := tool.Run(context.Background(), Env{Cwd: "/w", CallID: "c1"}, []byte(`{"action":"add","target":"user","content":"likes tabs"}`))
+	res, err := tool.Run(context.Background(), Env{Cwd: "/w", CallID: "c1", Session: testView(t, "S")}, []byte(`{"action":"add","target":"user","content":"likes tabs"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestMemoryToolReplace(t *testing.T) {
 	t.Parallel()
 	be := &fakeMemory{addID: 8, status: "approved"}
 	tool := NewMemory(be)
-	if _, err := tool.Run(context.Background(), Env{Cwd: "/w", CallID: "c2"}, []byte(`{"action":"replace","target":"memory","id":4,"content":"new"}`)); err != nil {
+	if _, err := tool.Run(context.Background(), Env{Cwd: "/w", CallID: "c2", Session: testView(t, "S")}, []byte(`{"action":"replace","target":"memory","id":4,"content":"new"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if be.replaceID != 4 || be.replace.Scope != "project:/w" || be.replace.Content != "new" {
@@ -80,19 +80,19 @@ func TestMemoryToolReadRemove(t *testing.T) {
 	t.Parallel()
 	be := &fakeMemory{entries: []MemoryEntry{{ID: 1, Category: "fact", Scope: "user", Content: "a", Pinned: true}, {ID: 2, Category: "preference", Scope: "user", Content: "b"}}}
 	tool := NewMemory(be)
-	res, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"read","target":"user","query":"a"}`))
+	res, err := tool.Run(context.Background(), Env{Cwd: "/w", Session: testView(t, "S")}, []byte(`{"action":"read","target":"user","query":"a"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(res.Content, "[1] (fact pinned) a") || !strings.Contains(res.Content, "[2] (preference) b") {
 		t.Errorf("read content = %q", res.Content)
 	}
-	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"remove"}`)); err == nil {
+	if _, err := tool.Run(context.Background(), Env{Cwd: "/w", Session: testView(t, "S")}, []byte(`{"action":"remove"}`)); err == nil {
 		t.Error("remove without id accepted")
 	} else if terr := asToolError(t, err); terr.Code != CodeInvalidArgs {
 		t.Errorf("remove code = %s", terr.Code)
 	}
-	if _, err := tool.Run(context.Background(), Env{Cwd: "/w"}, []byte(`{"action":"remove","id":3}`)); err != nil {
+	if _, err := tool.Run(context.Background(), Env{Cwd: "/w", Session: testView(t, "S")}, []byte(`{"action":"remove","id":3}`)); err != nil {
 		t.Fatal(err)
 	}
 	if be.removeID != 3 {
@@ -106,23 +106,23 @@ func TestMemoryToolErrors(t *testing.T) {
 	t.Parallel()
 	be := &fakeMemory{err: ErrMemoryNotFound}
 	tool := NewMemory(be)
-	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"remove","id":9}`, CodeNotFound)
-	assertToolCode(t, tool, Env{}, `{"action":"add","content":"x"}`, CodeInvalidArgs)
-	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"add"}`, CodeInvalidArgs)
+	assertToolCode(t, tool, Env{Cwd: "/w", Session: testView(t, "S")}, `{"action":"remove","id":9}`, CodeNotFound)
+	assertToolCode(t, tool, Env{}, `{"action":"add","content":"x"}`, CodeInternal)
+	assertToolCode(t, tool, Env{Cwd: "/w", Session: testView(t, "S")}, `{"action":"add"}`, CodeInvalidArgs)
 	long, merr := json.Marshal(map[string]string{"action": "add", "content": strings.Repeat("x", 501)})
 	if merr != nil {
 		t.Fatalf("marshal oversized args: %v", merr)
 	}
-	assertToolCode(t, tool, Env{Cwd: "/w"}, string(long), CodeTooLarge)
-	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"explode"}`, CodeInvalidArgs)
+	assertToolCode(t, tool, Env{Cwd: "/w", Session: testView(t, "S")}, string(long), CodeTooLarge)
+	assertToolCode(t, tool, Env{Cwd: "/w", Session: testView(t, "S")}, `{"action":"explode"}`, CodeInvalidArgs)
 	be.err = ErrMemoryFull
-	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"add","content":"x"}`, CodeTooLarge)
+	assertToolCode(t, tool, Env{Cwd: "/w", Session: testView(t, "S")}, `{"action":"add","content":"x"}`, CodeTooLarge)
 	be.err = ErrMemoryInvalid
-	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"add","content":"x"}`, CodeInvalidArgs)
+	assertToolCode(t, tool, Env{Cwd: "/w", Session: testView(t, "S")}, `{"action":"add","content":"x"}`, CodeInvalidArgs)
 	be.err = ErrMemoryDenied
-	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"remove","id":9}`, CodeDenied)
+	assertToolCode(t, tool, Env{Cwd: "/w", Session: testView(t, "S")}, `{"action":"remove","id":9}`, CodeDenied)
 	be.err = errors.New("disk")
-	assertToolCode(t, tool, Env{Cwd: "/w"}, `{"action":"add","content":"x"}`, CodeInternal)
+	assertToolCode(t, tool, Env{Cwd: "/w", Session: testView(t, "S")}, `{"action":"add","content":"x"}`, CodeInternal)
 }
 
 // assertToolCode runs the tool and asserts the closed code of the failure.
