@@ -19,7 +19,15 @@ plan               600 internal/plan
 # dan extra_body custom provider (terukur 2217; Sigma core 48.148 -> 48.171 <= 48.200).
 # ADR-264 (F5-03): provider 2217 -> 2224 untuk penerapan Route.Auth signer pada
 # jalur openai-chat (terukur 2224 pada pohon rebase; Sigma core +7).
-provider          2224 internal/provider
+# ADR-265 (F5-04a): seam `provider.Wire`/`Route.Protocols` + wire `openai-responses` core.
+# Baris `provider/providertest` 182 dipisah dari baris `provider` (kode test-only E-69),
+# sehingga `provider` efektif 2224 -> 2102 (terukur 2102 pada pohon rebase; termasuk +60
+# seam wire) dan tidak ada double-count. Baris baru `provider/responses` 346 (terukur 346:
+# encode 132 + decode 257 - baris shared). Sigma core 49.675 -> 50.081,
+# plafon core 49.700 -> 50.100 (headroom 19).
+provider          2102 internal/provider
+provider/providertest 182 internal/provider/providertest
+provider/responses 346 internal/provider/responses
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
 # ADR-128: tabel harga providers.toml + lookup base_url+model; tetap 300 (terukur 281, sisa 19; Σ tetap).
 # ADR-261 (F5-01): provider/registry 300 -> 660 untuk katalog 88 provider

@@ -476,6 +476,7 @@ func liveProvider(o *evalOptions) (loop.Provider, error) {
 	client, err := provider.NewOpenAI(netx.New(netx.Config{}).Client("inference", netx.Inference), &provider.Config{
 		Routes:   []provider.Route{route},
 		Attempts: 1, UserAgent: userAgent(),
+		Wires: providerWires(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)

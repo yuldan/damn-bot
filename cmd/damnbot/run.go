@@ -394,6 +394,7 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), wireCircuit(&provider.Config{
 		Routes: routes, Fallback: fallback, UserAgent: userAgent(),
 		Attempts: o.providerAttempts,
+		Wires:    providerWires(),
 		Guard:    guard, OnBudget: func(d budget.Decision) { notes.observe(&d) },
 		OnFallback: func(fb provider.Fallback) {
 			if fb.Done {

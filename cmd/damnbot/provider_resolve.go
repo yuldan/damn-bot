@@ -101,7 +101,11 @@ func (r *providerResolver) resolveCustom(modelName string, c *config.CustomProvi
 	if builtinOK {
 		attribution = builtin.Attribution
 	}
-	return r.routeFor(c.Name, modelName, base, key, c.ExtraHeaders, c.ExtraBody, attribution)
+	var protocols []registry.Protocol
+	if c.API != "" {
+		protocols = []registry.Protocol{registry.Protocol(c.API)}
+	}
+	return r.routeFor(c.Name, modelName, base, key, c.ExtraHeaders, c.ExtraBody, attribution, protocols)
 }
 
 // validateCustom is the SEC-24 + adapter gate of one custom entry.
@@ -113,11 +117,11 @@ func validateCustom(c *config.CustomProvider, modelName string, builtinOK bool) 
 	if protocol == "" {
 		protocol = string(registry.ProtocolOpenAIChat)
 	}
-	if protocol != string(registry.ProtocolOpenAIChat) {
-		return fmt.Errorf("%w: custom provider %q speaks %q; only openai-chat is wired", ErrProviderResolve, c.Name, protocol)
+	if protocol != string(registry.ProtocolOpenAIChat) && protocol != string(registry.ProtocolOpenAIResponses) {
+		return fmt.Errorf("%w: custom provider %q speaks %q; only openai-chat and openai-responses are wired", ErrProviderResolve, c.Name, protocol)
 	}
 	if !slicesContainsModel(c.Models, modelName) {
-		return fmt.Errorf("%w: model %q is not in providers.custom[%q].models", ErrProviderResolve, modelName, c.Name)
+		return fmt.Errorf("%w: model %q is not in providers.custom[%q].models", ErrProviderResolve, c.Name, modelName)
 	}
 	return checkCustomFields(c)
 }
@@ -144,18 +148,22 @@ func (r *providerResolver) customBase(c *config.CustomProvider, builtin *registr
 	return base, nil
 }
 
-// resolveBuiltin resolves a catalog row. A protocol without an adapter is
-// refused instead of being sent to the openai-chat encoder.
+// resolveBuiltin resolves a catalog row to the wire protocol that has an
+// adapter. The F1 test/eval seam (--base-url / DAMNBOT_E2E_BASE_URL) asserts
+// an OpenAI-compatible chat endpoint and keeps the route on openai-chat, as
+// F5-02 did; a catalog preset selects its own protocol otherwise.
 func (r *providerResolver) resolveBuiltin(provName, modelName string, p *registry.Provider) (provider.Route, error) {
-	if !hasProtocol(p.Protocols, registry.ProtocolOpenAIChat) {
-		// An explicit --base-url is the operator asserting an
-		// OpenAI-compatible endpoint (F1 test/eval seam); without it the
-		// provider's own adapter is required.
-		// openai also serves /chat/completions though the catalog lists
-		// openai-responses; other responses-only presets wait for F5-04.
-		if r.overrideBase == "" && p.ID != "openai" {
-			return provider.Route{}, fmt.Errorf("%w: provider %q speaks %v; the adapter is not wired in this build", ErrProviderResolve, provName, p.Protocols)
+	var protocols []registry.Protocol
+	switch {
+	case r.overrideBase != "", r.e2eBase != "", hasProtocol(p.Protocols, registry.ProtocolOpenAIChat):
+		protocols = []registry.Protocol{registry.ProtocolOpenAIChat}
+	case hasProtocol(p.Protocols, registry.ProtocolOpenAIResponses):
+		if !runtimeAuth(p.Auth) {
+			return provider.Route{}, fmt.Errorf("%w: provider %q auth %q needs the F5-03 transport", ErrProviderResolve, provName, p.Auth)
 		}
+		protocols = []registry.Protocol{registry.ProtocolOpenAIResponses}
+	default:
+		return provider.Route{}, fmt.Errorf("%w: provider %q speaks %v; the adapter is not wired in this build", ErrProviderResolve, provName, p.Protocols)
 	}
 	base := p.BaseURL
 	if r.overrideBase != "" {
@@ -177,11 +185,18 @@ func (r *providerResolver) resolveBuiltin(provName, modelName string, p *registr
 			break
 		}
 	}
-	return r.routeFor(p.ID, modelName, base, key, nil, nil, p.Attribution)
+	return r.routeFor(p.ID, modelName, base, key, nil, nil, p.Attribution, protocols)
+}
+
+// runtimeAuth reports whether the credential transport is wired (F5-02/F5-04):
+// api-key, none, and unknown (honest catalog gap) run; oauth, github-token,
+// AWS IAM, Google ADC, and ACP wait for F5-03.
+func runtimeAuth(a registry.Auth) bool {
+	return slices.Contains([]registry.Auth{registry.AuthAPIKey, registry.AuthNone, registry.AuthUnknown}, a)
 }
 
 // routeFor builds the single wire route shared by catalog and custom rows.
-func (r *providerResolver) routeFor(provName, modelName, base, key string, extra map[string]string, body map[string]any, attribution []string) (provider.Route, error) {
+func (r *providerResolver) routeFor(provName, modelName, base, key string, extra map[string]string, body map[string]any, attribution []string, protocols []registry.Protocol) (provider.Route, error) {
 	family, err := provider.NormalizeBaseURL(base)
 	if err != nil {
 		return provider.Route{}, fmt.Errorf("%w: %w", ErrProviderResolve, err)
@@ -194,6 +209,7 @@ func (r *providerResolver) routeFor(provName, modelName, base, key string, extra
 		Provider: provName, Model: modelName, BaseURL: base, APIKey: key, Family: family,
 		ContextWindow: int64(r.cfg.Loop.TurnMaxInputTok),
 		Headers:       r.headers(extra, attribution), ExtraBody: body, Prices: prices,
+		Protocols: protocols,
 	}, nil
 }
 
