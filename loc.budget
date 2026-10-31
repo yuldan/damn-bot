@@ -298,5 +298,5 @@ MODULE scorecard    500 internal/scorecard
 MODULE mcp         6500 internal/mcp internal/ctxdb/mcpstore
 # ADR-273 (F5-12 PR B, GAP-TOOL-05): baris delegate untuk tipe/Config/Service
 # (lease, worktree, limiter) + LeaseGuard codetools; SPEC §3.2.4:290. Kode
-# terukur 453; Sigma kelas MODULE 45.000 -> 47.000 (maxModuleLOC 46.500 -> 49.000).
+# terukur 453 (PR B) -> 959 (PR C); Sigma kelas MODULE 45.000 -> 47.000 (maxModuleLOC 46.500 -> 49.000).
 MODULE delegate    2000 internal/delegate
