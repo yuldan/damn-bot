@@ -208,6 +208,30 @@ func TestContentLengthFraming(t *testing.T) {
 	}
 }
 
+func TestCancelSendsMCPNotification(t *testing.T) {
+	conn, peer := newConn(t, jsonrpc.Options{NotifyCancel: true, CancelMethod: "notifications/cancelled", CancelParam: "requestId"})
+	reader := jsonrpc.NewFrameReader(peer, jsonrpc.Options{})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- conn.Call(ctx, "slow", nil, nil) }()
+	req := readMessage(t, reader)
+	cancel()
+	note := readMessage(t, reader)
+	if note.Method != "notifications/cancelled" || string(note.ID) != "" {
+		t.Fatalf("cancel notification = %+v", note)
+	}
+	var params struct{ RequestID json.RawMessage }
+	if err := json.Unmarshal(note.Params, &params); err != nil {
+		t.Fatalf("cancel params: %v", err)
+	}
+	if string(params.RequestID) != string(req.ID) {
+		t.Fatalf("cancel requestId = %s, want %s", params.RequestID, req.ID)
+	}
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("call error = %v", err)
+	}
+}
+
 func TestContentLengthOverLimit(t *testing.T) {
 	reader := jsonrpc.NewFrameReader(bytes.NewReader([]byte("Content-Length: 99\r\n\r\n")), jsonrpc.Options{ContentLength: true, MaxFrame: 8})
 	if _, err := reader.ReadFrame(); !errors.Is(err, jsonrpc.ErrFrameTooLarge) {
