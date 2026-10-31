@@ -3,19 +3,24 @@ package ctxdb
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 )
 
-// TestCloseWithActiveReader: the read pool is closed before the TRUNCATE
-// checkpoint, so an in-flight reader cannot make shutdown return
-// SQLITE_LOCKED ("database table is locked").
-func TestCloseWithActiveReader(t *testing.T) {
+// TestCloseWithActiveReaderDoesNotLock: CloseContext must return without
+// SQLITE_LOCKED ("database table is locked") or deadlocking while a read
+// tx/rows are still open. database/sql's DB.Close does not wait for in-use
+// connections, so the invariant is a clean, prompt return — not blocking.
+// The PASSIVE checkpoint keeps the live reader from turning shutdown into a
+// lock error; after Close, new queries on the old pool must be refused.
+func TestCloseWithActiveReaderDoesNotLock(t *testing.T) {
 	s, err := Open(t.Context(), &Options{Dir: t.TempDir(), Kind: "run"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.r.BeginTx(t.Context(), &sql.TxOptions{ReadOnly: true})
+	rdb := s.r
+	tx, err := rdb.BeginTx(t.Context(), &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,19 +41,28 @@ func TestCloseWithActiveReader(t *testing.T) {
 	}()
 	done := make(chan error, 1)
 	go func() { done <- s.CloseContext(context.Background()) }()
-	<-time.After(20 * time.Millisecond)
+	select {
+	case cerr := <-done:
+		if cerr != nil {
+			if strings.Contains(cerr.Error(), "database table is locked") {
+				t.Fatalf("close with active reader hit SQLITE_LOCKED: %v", cerr)
+			}
+			t.Fatalf("close with active reader: %v", cerr)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("close did not finish with an active reader")
+	}
 	if err := rows.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.Rollback(); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case cerr := <-done:
-		if cerr != nil {
-			t.Fatalf("close with reader: %v", cerr)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("close did not finish")
+	// The closed pool must refuse new reads promptly instead of hanging.
+	qctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var n int
+	if err := rdb.QueryRowContext(qctx, `SELECT 1`).Scan(&n); err == nil {
+		t.Fatal("query on the closed read pool succeeded")
 	}
 }
