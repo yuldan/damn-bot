@@ -19,6 +19,8 @@ import (
 // Assembly bounds against a hostile or broken endpoint.
 const (
 	maxResponseBytes = 16 << 20
+	maxToolCalls     = 128
+	maxBlocks        = 256
 	maxErrorBody     = 64 << 10
 )
 
@@ -40,9 +42,12 @@ type eventMessage struct {
 }
 
 type delta struct {
-	Type       string `json:"type"`
-	Text       string `json:"text"`
-	StopReason string `json:"stop_reason"`
+	Type        string `json:"type"`
+	Text        string `json:"text"`
+	PartialJSON string `json:"partial_json"`
+	Thinking    string `json:"thinking"`
+	Signature   string `json:"signature"`
+	StopReason  string `json:"stop_reason"`
 }
 
 type wireUsage struct {
@@ -57,14 +62,30 @@ type wireError struct {
 	Message string `json:"message"`
 }
 
+// blockState is the in-flight content block at one index.
+type blockState struct {
+	kind      string
+	thinking  []byte
+	signature []byte
+	data      string
+	id, name  string
+	args      []byte
+	streamed  bool
+	done      bool
+}
+
 // assembler turns Messages events into a provider.Response (owned copies).
 type assembler struct {
-	content []byte
-	finish  string
-	usage   wireUsage
-	model   string
-	ttft    time.Duration
-	size    int
+	content    []byte
+	reasonText []byte
+	blocks     []json.RawMessage
+	states     []blockState
+	tools      []provider.ToolCall
+	finish     string
+	usage      wireUsage
+	model      string
+	ttft       time.Duration
+	size       int
 }
 
 // readStream decodes and assembles a 2xx Messages event stream.
@@ -101,10 +122,13 @@ func (a *assembler) add(e *event, raw []byte, start time.Time, onChunk func(prov
 		if e.Block == nil {
 			return &provider.Error{Class: retry.StreamBroken, Err: errors.New("content_block_start without block")}
 		}
+		return a.start(e.Index, e.Block)
 	case "content_block_delta":
 		if e.Delta != nil {
-			return a.text(e.Delta, start, onChunk)
+			return a.delta(e.Index, e.Delta, start, onChunk)
 		}
+	case "content_block_stop":
+		return a.stop(e.Index)
 	case "message_delta":
 		a.deltaMessage(e)
 	case "message_stop":
@@ -145,22 +169,108 @@ func (a *assembler) deltaMessage(e *event) {
 	}
 }
 
-// text appends one streamed fragment and records the time to first token.
-func (a *assembler) text(d *delta, start time.Time, onChunk func(provider.Chunk)) error {
-	content := []byte(d.Text)
-	if len(content) == 0 {
-		return nil
-	}
-	if a.size += len(content); a.size > maxResponseBytes {
+// start records one content block.
+func (a *assembler) start(index int, b *block) error {
+	if index < 0 || index >= maxBlocks {
 		return tooLarge()
 	}
-	a.content = append(a.content, content...)
-	if a.ttft == 0 {
-		a.ttft = time.Since(start)
+	for len(a.states) <= index {
+		a.states = append(a.states, blockState{})
 	}
-	if onChunk != nil {
-		onChunk(provider.Chunk{Content: content})
+	st := &a.states[index]
+	st.kind, st.id, st.name, st.data = b.Type, b.ID, b.Name, b.Data
+	st.thinking, st.signature, st.args, st.done = []byte(b.Thinking), []byte(b.Signature), nil, false
+	st.streamed = false
+	if len(b.Input) > 0 {
+		st.args = append(st.args, b.Input...)
 	}
+	return nil
+}
+
+// delta appends one streamed fragment. A text or reasoning fragment records
+// the time to first token and reaches onChunk.
+func (a *assembler) delta(index int, d *delta, start time.Time, onChunk func(provider.Chunk)) error {
+	content, reasoning := []byte(d.Text), []byte(d.Thinking)
+	if len(content)+len(reasoning) > 0 {
+		if a.size += len(content) + len(reasoning); a.size > maxResponseBytes {
+			return tooLarge()
+		}
+		a.content = append(a.content, content...)
+		a.reasonText = append(a.reasonText, reasoning...)
+		if a.ttft == 0 {
+			a.ttft = time.Since(start)
+		}
+		if onChunk != nil {
+			onChunk(provider.Chunk{Content: content, Reasoning: reasoning})
+		}
+	}
+	if index < 0 || index >= len(a.states) {
+		return nil
+	}
+	st := &a.states[index]
+	if len(d.PartialJSON) > 0 {
+		if a.size += len(d.PartialJSON); a.size > maxResponseBytes {
+			return tooLarge()
+		}
+		if !st.streamed { // the start block's input is a placeholder
+			st.args, st.streamed = st.args[:0], true
+		}
+		st.args = append(st.args, d.PartialJSON...)
+	}
+	st.thinking = append(st.thinking, d.Thinking...)
+	st.signature = append(st.signature, d.Signature...)
+	return nil
+}
+
+// stop finalizes one content block: a tool call, or a reasoning carrier.
+func (a *assembler) stop(index int) error {
+	if index < 0 || index >= len(a.states) {
+		return nil
+	}
+	st := &a.states[index]
+	if st.done {
+		return nil
+	}
+	st.done = true
+	switch st.kind {
+	case "tool_use":
+		if len(a.tools) >= maxToolCalls {
+			return tooLarge()
+		}
+		args := st.args
+		if len(args) == 0 {
+			args = []byte("{}")
+		}
+		a.tools = append(a.tools, provider.ToolCall{ID: st.id, Name: st.name, ArgumentsRaw: string(args)})
+	case "thinking":
+		raw, err := marshal(struct {
+			Type      string `json:"type"`
+			Thinking  string `json:"thinking"`
+			Signature string `json:"signature"`
+		}{"thinking", string(st.thinking), string(st.signature)})
+		if err != nil {
+			return fmt.Errorf("thinking carrier: %w", err)
+		}
+		return a.carrier(raw)
+	case "redacted_thinking":
+		raw, err := marshal(struct {
+			Type string `json:"type"`
+			Data string `json:"data"`
+		}{"redacted_thinking", st.data})
+		if err != nil {
+			return fmt.Errorf("redacted carrier: %w", err)
+		}
+		return a.carrier(raw)
+	}
+	return nil
+}
+
+// carrier stores one opaque block byte-identically.
+func (a *assembler) carrier(raw json.RawMessage) error {
+	if a.size += len(raw); a.size > maxResponseBytes {
+		return tooLarge()
+	}
+	a.blocks = append(a.blocks, cloneRaw(raw))
 	return nil
 }
 
@@ -179,8 +289,13 @@ func (a *assembler) result() (provider.Response, error) {
 			Input: input, CachedInput: a.usage.CacheReadInputTokens,
 			CacheCreation: a.usage.CacheCreationInputTokens, Output: a.usage.OutputTokens,
 		},
+		ToolCalls: a.tools,
 	}
-	if r.FinishReason == provider.FinishStop && strings.TrimSpace(r.Content) == "" {
+	if len(a.blocks) > 0 {
+		r.Reasoning, r.ReasoningField = joinRaw(a.blocks), "reasoning"
+		r.ReasoningText = string(a.reasonText)
+	}
+	if r.FinishReason == provider.FinishStop && strings.TrimSpace(r.Content) == "" && len(r.ToolCalls) == 0 {
 		return r, &provider.Error{Class: retry.EmptyResponse, Err: provider.ErrEmptyResponse}
 	}
 	return r, nil
@@ -227,12 +342,29 @@ func classOf(code string) retry.Class {
 		return retry.Overloaded
 	case "api_error", "timeout_error", "":
 		return retry.Server
-	case "not_found_error", "invalid_request_error":
+	case "not_found_error":
+		return retry.BadRequest
+	case "invalid_request_error":
 		return retry.BadRequest
 	default:
 		return retry.Server
 	}
 }
+
+// joinRaw builds the replay array byte-identically from validated parts.
+func joinRaw(parts []json.RawMessage) json.RawMessage {
+	out := make([]byte, 0, 2+len(parts))
+	out = append(out, '[')
+	for i, p := range parts {
+		if i > 0 {
+			out = append(out, ',')
+		}
+		out = append(out, p...)
+	}
+	return append(out, ']')
+}
+
+func cloneRaw(raw json.RawMessage) json.RawMessage { return append(json.RawMessage(nil), raw...) }
 
 func tooLarge() error {
 	return &provider.Error{Class: retry.Unclassified, Err: provider.ErrResponseTooLarge}
