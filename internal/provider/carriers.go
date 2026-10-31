@@ -58,6 +58,7 @@ func carrierKind(part json.RawMessage) (CarrierKind, bool) {
 	var obj struct {
 		Type             string          `json:"type"`
 		ThoughtSignature json.RawMessage `json:"thought_signature"`
+		CamelSignature   json.RawMessage `json:"thoughtSignature"`
 		Signature        json.RawMessage `json:"signature"`
 		EncryptedContent json.RawMessage `json:"encrypted_content"`
 		ReasoningOpaque  json.RawMessage `json:"reasoning_opaque"`
@@ -67,23 +68,25 @@ func carrierKind(part json.RawMessage) (CarrierKind, bool) {
 		return "", false
 	}
 	switch {
-	case len(obj.ThoughtSignature) > 0 && string(obj.ThoughtSignature) != "null":
+	case hasValue(obj.ThoughtSignature), hasValue(obj.CamelSignature):
 		return CarrierThoughtSignature, true
-	case len(obj.EncryptedContent) > 0 && string(obj.EncryptedContent) != "null":
+	case hasValue(obj.EncryptedContent):
 		return CarrierEncrypted, true
-	case len(obj.ReasoningOpaque) > 0 && string(obj.ReasoningOpaque) != "null":
+	case hasValue(obj.ReasoningOpaque):
 		return CarrierOpaque, true
-	case obj.Type == "redacted_thinking" && len(obj.Data) > 0 && string(obj.Data) != "null":
+	case obj.Type == "redacted_thinking" && hasValue(obj.Data):
 		return CarrierRedactedThinking, true
-	case len(obj.Signature) > 0 && string(obj.Signature) != "null":
-		switch obj.Type {
-		case "redacted_thinking":
-			return CarrierRedactedThinking, true
-		default:
-			return CarrierThinking, true
-		}
+	case hasValue(obj.Signature) && obj.Type == "redacted_thinking":
+		return CarrierRedactedThinking, true
+	case hasValue(obj.Signature):
+		return CarrierThinking, true
 	}
 	return "", false
+}
+
+// hasValue reports a present, non-null opaque field.
+func hasValue(raw json.RawMessage) bool {
+	return len(raw) > 0 && string(raw) != "null"
 }
 
 func payloadSHA(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
@@ -154,7 +157,11 @@ func isSignatureInvalid(err error) bool {
 	case "invalid_signature", "signature_invalid":
 		return true
 	}
-	return false
+	// Gemini rejects a stale thought signature with INVALID_ARGUMENT and
+	// names it only in the message; retrying without carriers is the same
+	// recovery the code-based path performs.
+	body := strings.ToLower(string(e.Body))
+	return strings.Contains(body, "thought_signature") || strings.Contains(body, "thought signature")
 }
 
 // flattenParts expands one level of nested arrays.

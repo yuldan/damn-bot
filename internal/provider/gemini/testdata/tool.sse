@@ -1,0 +1,2 @@
+data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"shell","args":{"cmd":"ls"}},"thoughtSignature":"sigA"},{"functionCall":{"name":"read","args":{"path":"a.txt"}},"thoughtSignature":"sigB"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":30,"candidatesTokenCount":8}}
+
