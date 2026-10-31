@@ -319,22 +319,11 @@ func toolResult(m *provider.Message, names map[string]string) (json.RawMessage, 
 	return marshal(out)
 }
 
-// parameters forwards a caller-supplied schema unchanged after the JSON
-// check; F5-06C lowers it to the Gemini subset.
-func parameters(raw json.RawMessage) (json.RawMessage, error) {
-	if len(raw) == 0 {
-		return json.RawMessage(`{"type":"object"}`), nil
-	}
-	if !json.Valid(raw) {
-		return nil, fmt.Errorf("parameters: invalid JSON")
-	}
-	return raw, nil
-}
-
+// toolDeclarations sanitizes every tool schema to the Gemini subset.
 func toolDeclarations(tools []provider.ToolSchema) ([]tool, error) {
 	decls := make([]declaration, len(tools))
 	for i, t := range tools {
-		params, err := parameters(t.Parameters)
+		params, err := sanitize(t.Parameters)
 		if err != nil {
 			return nil, fmt.Errorf("tool %q: %w", t.Name, err)
 		}
