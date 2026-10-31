@@ -119,6 +119,7 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 	dataDir := cmp.Or(o.dataDir, paths.DataDir)
 	o.dataDir = dataDir
 	earlyRecovery(ctx, dataDir, stderr)
+	defer serveLog(dataDir, &cfg, stderr)()
 	lock, err := acquireServeLock(dataDir)
 	if err != nil {
 		return serveExitFatal, err // GAP-REL-03: second instance exits 78 with the PID
@@ -128,7 +129,6 @@ func serveRun(ctx context.Context, o *serveOptions, stdout, stderr io.Writer) (i
 			sessionsPrintf(stderr, "serve: release data-dir lease: %s\n", cleanLine(rerr.Error()))
 		}
 	}()
-
 	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dataDir, Kind: "serve"})
 	if err != nil {
 		if errors.Is(err, ctxdb.ErrSchemaNewer) {

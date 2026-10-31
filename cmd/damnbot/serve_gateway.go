@@ -3,9 +3,12 @@ package main
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strconv"
@@ -300,6 +303,8 @@ func (g *serveGateway) Stop(ctx context.Context) {
 }
 
 func (g *serveGateway) handle(ctx context.Context, in *telegram.Inbound, recorded bool) {
+	slog.InfoContext(ctx, "gateway inbound", "platform", in.Platform, "chat_id", in.ChatID,
+		"user_id", in.SenderID, "text_len", len(in.Text), "text_sha", logShortSHA(in.Text))
 	if fields := strings.Fields(in.Text); len(fields) > 0 {
 		if command, _, _ := strings.Cut(fields[0], "@"); command == "/pair" {
 			code := ""
@@ -777,4 +782,11 @@ func (s telegramStore) Record(ctx context.Context, in *gateway.Inbound) (bool, e
 		return false, fmt.Errorf("gateway: record inbound: %w", err)
 	}
 	return ok, nil
+}
+
+// logShortSHA is the 12-hex prefix used for log correlation; the value itself
+// is never logged (GAP-SEC-11).
+func logShortSHA(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])[:12]
 }

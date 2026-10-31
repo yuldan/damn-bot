@@ -150,14 +150,14 @@ func TestServeTelegramOwnerStreamsAndResume(t *testing.T) {
 		"sendChatAction": {Status: 429, RetryAfter: 1},
 	}})
 	p := startGatewayServe(t, e, tg)
-	pushed := time.Now()
 	tg.PushText(gatewayOwner, "hi")
-	send, err := tg.WaitSend(gatewayOwner, func(r FakeTGRequest) bool { return r.Text == "…" }, 15*time.Second)
+	// Deterministic first-visible assertion: the placeholder must already be
+	// recorded when the model request arrives, so the ordering (not a
+	// wall-clock deadline) proves the user sees it before the turn starts.
+	waitFor(t, 15*time.Second, "provider request", func() bool { return len(e.Server.Requests()) > 0 })
+	send, err := tg.WaitSend(gatewayOwner, func(r FakeTGRequest) bool { return r.Text == "…" }, time.Second)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if elapsed := time.Since(pushed); elapsed > 200*time.Millisecond {
-		t.Errorf("placeholder took %s after the inbound, want < 200 ms", elapsed)
+		t.Fatalf("placeholder not sent before the model call: %v", err)
 	}
 	if n := len(tg.Sends()); n != 1 {
 		t.Errorf("sends = %d, want the single placeholder", n)

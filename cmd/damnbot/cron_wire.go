@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -448,6 +449,7 @@ func (c *serveCron) tick(ctx context.Context) error {
 	if n == 0 {
 		return nil
 	}
+	slog.InfoContext(ctx, "cron tick", "enabled_jobs", n)
 	if err := c.sched.Tick(ctx); err != nil {
 		return fmt.Errorf("cron tick: %w", err)
 	}

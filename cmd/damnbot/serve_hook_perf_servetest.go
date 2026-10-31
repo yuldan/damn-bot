@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"io"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -32,6 +33,7 @@ const perfCronJobID = "perf-f4-cron"
 func registerServePerf(ctx context.Context, dataDir string, w io.Writer) func() {
 	runCtx, cancel := context.WithCancel(ctx)
 	stopCron := runPerfCronTick(runCtx, dataDir, w)
+	leakServeLog(dataDir, w)
 	stopLoad := startPerfLoad(runCtx, w)
 	return func() {
 		cancel()
@@ -65,6 +67,31 @@ func runPerfCronTick(ctx context.Context, dataDir string, w io.Writer) func() {
 		if err := runner.CloseContext(closeCtx); err != nil {
 			sessionsPrintf(w, "servetest: cron runner close: %s\n", cleanLine(err.Error()))
 		}
+	}
+}
+
+// leakServeLog is the negative control of the GAP-SEC-11 canary test: it
+// writes one unscrubbed INFO line containing DAMNBOT_SERVE_TEST_LOG_LEAK, so
+// the scanner must find the canary. It always runs, including in the positive
+// scenario, where the env is unset and nothing is written.
+func leakServeLog(dataDir string, w io.Writer) {
+	canary := configos.OS().Getenv("DAMNBOT_SERVE_TEST_LOG_LEAK")
+	if canary == "" {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dataDir, "logs", "serve.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) // #nosec G304 -- test hook under the harness data dir
+	if err != nil {
+		sessionsPrintf(w, "servetest: leak log: %s\n", cleanLine(err.Error()))
+		return
+	}
+	defer func() {
+		if cerr := f.Close(); cerr != nil {
+			sessionsPrintf(w, "servetest: leak log close: %s\n", cleanLine(cerr.Error()))
+		}
+	}()
+	line := `{"time":"` + time.Now().UTC().Format(time.RFC3339Nano) + `","level":"INFO","msg":"servetest leak control","text":` + strconv.Quote(canary) + "}\n"
+	if _, werr := f.WriteString(line); werr != nil {
+		sessionsPrintf(w, "servetest: leak log write: %s\n", cleanLine(werr.Error()))
 	}
 }
 
