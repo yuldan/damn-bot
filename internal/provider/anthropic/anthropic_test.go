@@ -137,7 +137,6 @@ func decodeBody(t *testing.T, raw string) map[string]any {
 
 // TestFixtureText: a text stream becomes content with usage, and the request
 // goes to /v1/messages with the Messages shape.
-
 func TestFixtureText(t *testing.T) {
 	t.Parallel()
 	f := newFake(t, reply{raw: fixture(t, "text.sse")})
@@ -168,7 +167,6 @@ func TestFixtureText(t *testing.T) {
 
 // TestFixtureUsage: cache read/write tokens normalize into budget.Usage,
 // with Input = uncached + read + write (the total prompt).
-
 func TestFixtureUsage(t *testing.T) {
 	t.Parallel()
 	f := newFake(t, reply{raw: fixture(t, "usage.sse")})
@@ -184,7 +182,81 @@ func TestFixtureUsage(t *testing.T) {
 }
 
 // TestFixtureToolCall: partial_json fragments assemble into one tool call.
+func TestFixtureToolCall(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "tool.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 0)
+	req := ask("ls")
+	req.Tools = []provider.ToolSchema{{Name: "shell", Description: "run", Parameters: json.RawMessage(`{"type":"object"}`)}}
+	resp, err := c.Do(t.Context(), provider.PurposeTurn, req, nil)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if resp.FinishReason != provider.FinishToolCalls || len(resp.ToolCalls) != 1 {
+		t.Fatalf("finish/tools = %q/%+v", resp.FinishReason, resp.ToolCalls)
+	}
+	tc := resp.ToolCalls[0]
+	if tc.ID != "toolu_1" || tc.Name != "shell" || tc.ArgumentsRaw != `{"cmd":"ls"}` {
+		t.Fatalf("tool call = %+v", tc)
+	}
+	reqs, _, _ := f.requests()
+	tool, ok := decodeBody(t, reqs[0])["tools"].([]any)
+	if !ok || len(tool) != 1 {
+		t.Fatalf("tools = %v", decodeBody(t, reqs[0])["tools"])
+	}
+	if m, ok := tool[0].(map[string]any); !ok || m["name"] != "shell" || m["input_schema"] == nil {
+		t.Fatalf("tool = %v", tool[0])
+	}
+}
 
+// TestFixtureThinkingRedacted: thinking and redacted_thinking become
+// replayable carriers; the assistant turn replays them byte-identically.
+func TestFixtureThinkingRedacted(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "thinking.sse")}, reply{raw: fixture(t, "text.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 0)
+	msgs := []provider.Message{{Role: "user", Content: "hi"}}
+	resp, err := c.Do(t.Context(), provider.PurposeTurn, &provider.Request{Model: "anthropic/m", Messages: msgs}, nil)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if resp.Content != "Done" || resp.ReasoningText != "I think" {
+		t.Fatalf("response = %+v", resp)
+	}
+	if len(resp.Carriers) != 2 {
+		t.Fatalf("carriers = %+v", resp.Carriers)
+	}
+	if resp.Carriers[0].Kind != provider.CarrierThinking || resp.Carriers[1].Kind != provider.CarrierRedactedThinking {
+		t.Fatalf("carrier kinds = %v/%v", resp.Carriers[0].Kind, resp.Carriers[1].Kind)
+	}
+	if resp.Reasoning != nil {
+		t.Fatalf("reasoning not projected into carriers: %s", resp.Reasoning)
+	}
+	msgs = append(msgs, provider.Message{Role: "assistant", Content: resp.Content, Carriers: resp.Carriers})
+	if _, err := c.Do(t.Context(), provider.PurposeTurn, &provider.Request{Model: "anthropic/m", Messages: msgs}, nil); err != nil {
+		t.Fatalf("second Do: %v", err)
+	}
+	reqs, _, _ := f.requests()
+	for _, want := range []string{`"type":"thinking"`, `"signature":"sig_abc"`, `"type":"redacted_thinking"`, `"data":"redacted_blob"`} {
+		if !strings.Contains(reqs[1], want) {
+			t.Fatalf("carrier %s not replayed: %s", want, reqs[1])
+		}
+	}
+}
+
+// TestFixtureIncomplete: max_tokens maps to the length finish reason.
+func TestFixtureIncomplete(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "incomplete.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 0)
+	resp, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+	if err != nil || resp.FinishReason != provider.FinishLength || resp.Content != "partial" {
+		t.Fatalf("response = %+v, %v", resp, err)
+	}
+}
+
+// TestFixtureErrorEvent: an in-stream error event is a typed, retryable
+// provider error.
 func TestFixtureErrorEvent(t *testing.T) {
 	t.Parallel()
 	f := newFake(t, reply{raw: fixture(t, "error.sse")})
@@ -204,7 +276,6 @@ func TestFixtureErrorEvent(t *testing.T) {
 
 // TestRetryAndFallback: retry stays on the route and then the shared engine
 // switches to the fallback route; both speak Messages.
-
 func TestRetryAndFallback(t *testing.T) {
 	t.Parallel()
 	t.Run("retry", func(t *testing.T) {
@@ -232,7 +303,6 @@ func TestRetryAndFallback(t *testing.T) {
 
 // TestNoContextProbe (GAP-COST-02): constructing the adapter opens no
 // connection, and one turn sends exactly one request carrying user content.
-
 func TestNoContextProbe(t *testing.T) {
 	t.Parallel()
 	f := newFake(t, reply{raw: fixture(t, "text.sse")})
@@ -252,7 +322,6 @@ func TestNoContextProbe(t *testing.T) {
 // TestCacheTTLByOrigin (GAP-COST-03): an interactive origin asks for the 1h
 // breakpoint when the catalog allows it; every other origin keeps the 5m
 // default, and cache_ttl_max clamps a one-hour request.
-
 func TestCacheTTLByOrigin(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -301,7 +370,6 @@ func TestCacheTTLByOrigin(t *testing.T) {
 
 // TestTransportHeaders: Messages uses x-api-key and the version header, never
 // an Authorization bearer.
-
 func TestTransportHeaders(t *testing.T) {
 	t.Parallel()
 	f := newFake(t, reply{raw: fixture(t, "text.sse")})
@@ -321,7 +389,66 @@ func TestTransportHeaders(t *testing.T) {
 // TestEncodeShapes: system messages become the top-level system array, the
 // boundary carries cache_control, thinking is enabled from reasoning_effort,
 // and temperature is omitted while thinking is on.
+func TestEncodeShapes(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "text.sse")})
+	r := route("m", f.URL())
+	r.CacheTTLMax = 3600
+	c := newClient(t, []provider.Route{r}, nil, 0)
+	temp := 0.2
+	req := &provider.Request{
+		Model: "anthropic/m", MaxTokens: 8192, CacheBreakAfter: 1, Origin: "tui",
+		Messages: []provider.Message{
+			{Role: "system", Content: "stable prefix"},
+			{Role: "user", Content: "hi"},
+		},
+		Temperature:     &temp,
+		ReasoningEffort: "high",
+	}
+	if _, err := c.Do(t.Context(), provider.PurposeTurn, req, nil); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	reqs, _, _ := f.requests()
+	body := decodeBody(t, reqs[0])
+	sys, ok := body["system"].([]any)
+	if !ok || len(sys) != 1 || !strings.Contains(reqs[0], `"ttl":"1h"`) {
+		t.Fatalf("system/cache = %v: %s", body["system"], reqs[0])
+	}
+	if body["thinking"] == nil || strings.Contains(reqs[0], `"temperature"`) {
+		t.Fatalf("thinking/temperature = %s", reqs[0])
+	}
+	if msgs, ok := body["messages"].([]any); !ok || len(msgs) != 1 {
+		t.Fatalf("messages = %v", body["messages"])
+	}
+}
 
+// TestCarrierRouteMismatch: the shared carrier engine drops a block replayed
+// to a different model instead of sending it to the wrong origin.
+func TestCarrierRouteMismatch(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "thinking.sse")}, reply{raw: fixture(t, "text.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL()), route("other", f.URL())}, nil, 0)
+	msgs := []provider.Message{{Role: "user", Content: "hi"}}
+	resp, err := c.Do(t.Context(), provider.PurposeTurn, &provider.Request{Model: "anthropic/m", Messages: msgs}, nil)
+	if err != nil || len(resp.Carriers) != 2 {
+		t.Fatalf("first Do = %+v, %v", resp, err)
+	}
+	msgs = append(msgs, provider.Message{Role: "assistant", Content: resp.Content, Carriers: resp.Carriers})
+	second, err := c.Do(t.Context(), provider.PurposeTurn, &provider.Request{Model: "anthropic/other", Messages: msgs}, nil)
+	if err != nil {
+		t.Fatalf("second Do: %v", err)
+	}
+	if len(second.CarrierDrops) != 1 || second.CarrierDrops[0].Reason != "route_mismatch" || second.CarrierDrops[0].Count != 2 {
+		t.Fatalf("drops = %+v", second.CarrierDrops)
+	}
+	reqs, _, _ := f.requests()
+	if strings.Contains(reqs[1], "sig_abc") || strings.Contains(reqs[1], "redacted_blob") {
+		t.Fatalf("foreign carrier replayed: %s", reqs[1])
+	}
+}
+
+// TestMalformedStream: invalid JSON is stream_broken, a missing message_stop
+// is stream_broken, and an empty turn is empty_response.
 func TestMalformedStream(t *testing.T) {
 	t.Parallel()
 	cases := map[string]string{
@@ -347,7 +474,6 @@ func TestMalformedStream(t *testing.T) {
 
 // TestEmptyResponse: a successful stop with no text and no tool call is the
 // typed empty_response, not a silent success.
-
 func TestEmptyResponse(t *testing.T) {
 	t.Parallel()
 	raw := `data: {"type":"message_start","message":{"id":"m","model":"claude-test","usage":{"input_tokens":1,"output_tokens":1}}}

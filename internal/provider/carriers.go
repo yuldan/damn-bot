@@ -61,6 +61,7 @@ func carrierKind(part json.RawMessage) (CarrierKind, bool) {
 		Signature        json.RawMessage `json:"signature"`
 		EncryptedContent json.RawMessage `json:"encrypted_content"`
 		ReasoningOpaque  json.RawMessage `json:"reasoning_opaque"`
+		Data             json.RawMessage `json:"data"`
 	}
 	if json.Unmarshal(part, &obj) != nil {
 		return "", false
@@ -72,6 +73,8 @@ func carrierKind(part json.RawMessage) (CarrierKind, bool) {
 		return CarrierEncrypted, true
 	case len(obj.ReasoningOpaque) > 0 && string(obj.ReasoningOpaque) != "null":
 		return CarrierOpaque, true
+	case obj.Type == "redacted_thinking" && len(obj.Data) > 0 && string(obj.Data) != "null":
+		return CarrierRedactedThinking, true
 	case len(obj.Signature) > 0 && string(obj.Signature) != "null":
 		switch obj.Type {
 		case "redacted_thinking":
