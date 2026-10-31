@@ -5,8 +5,9 @@ package e2e
 import (
 	"context"
 	"os"
-	"runtime"
 	"testing"
+
+	"go.uber.org/goleak"
 
 	"github.com/damnbot/damnbot/internal/boundary"
 )
@@ -18,8 +19,12 @@ func TestSoakF4Resources(t *testing.T) {
 	if _, err := os.Stat("/proc/self/fd"); err != nil {
 		t.Skip("no /proc/self/fd")
 	}
+	// IgnoreCurrent snapshots the goroutines this process already owns (other
+	// tests in the e2e binary run alongside); only goroutines the soak itself
+	// leaves behind are reported. A pre-existing goroutine exiting later is
+	// not a leak, which the raw NumGoroutine census misreported as 119 -> 118.
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
 	beforeFD := openFDs(t)
-	beforeG := settleGoroutines()
 	for i := range 1000 {
 		runScoped(t, "cron", i)
 	}
@@ -30,12 +35,8 @@ func TestSoakF4Resources(t *testing.T) {
 		runScoped(t, "mcp-reconnect", i)
 	}
 	afterFD := openFDs(t)
-	afterG := settleGoroutines()
 	if afterFD > beforeFD+2 {
 		t.Fatalf("FD leak: %d -> %d", beforeFD, afterFD)
-	}
-	if afterG != beforeG {
-		t.Fatalf("goroutine leak: %d -> %d", beforeG, afterG)
 	}
 }
 
@@ -71,13 +72,4 @@ func openFDs(t *testing.T) int {
 		t.Fatal(err)
 	}
 	return len(entries)
-}
-
-// settleGoroutines lets finished goroutines disappear before the census.
-func settleGoroutines() int {
-	for range 50 {
-		runtime.GC()
-		runtime.Gosched()
-	}
-	return runtime.NumGoroutine()
 }
