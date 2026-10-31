@@ -88,14 +88,25 @@ func (c *Conn) Call(ctx context.Context, method string, params, result any) erro
 		return decodeResponse(&out.message, result)
 	case <-ctx.Done():
 		if c.opts.NotifyCancel {
-			if nerr := c.Notify(context.WithoutCancel(ctx), CancelMethod, struct {
-				ID json.RawMessage `json:"id"`
-			}{id}); nerr != nil {
+			if nerr := c.notifyCancel(ctx, id); nerr != nil {
 				return errors.Join(ctx.Err(), nerr)
 			}
 		}
 		return fmt.Errorf("jsonrpc call %q: %w", method, ctx.Err())
 	}
+}
+
+// notifyCancel sends the cancellation notification for id. The zero options
+// keep the LSP default; MCP overrides both the method and the id field.
+func (c *Conn) notifyCancel(ctx context.Context, id json.RawMessage) error {
+	method, param := c.opts.CancelMethod, c.opts.CancelParam
+	if method == "" {
+		method = CancelMethod
+	}
+	if param == "" {
+		param = "id"
+	}
+	return c.Notify(context.WithoutCancel(ctx), method, map[string]json.RawMessage{param: id})
 }
 
 // Notify sends one notification and does not wait for a reply.
