@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -28,7 +29,7 @@ func (h *aHost) I18n() host.Translator                  { return nil }
 func (h *aHost) LLM(string) host.Completer              { return nil }
 func (h *aHost) Storage(string) (host.Store, error)     { return nil, errors.New("unused") }
 func (h *aHost) Capabilities() host.Capabilities        { return h.caps }
-func (h *aHost) Spawn(_ context.Context, spec host.SpawnSpec) (host.Process, error) {
+func (h *aHost) Spawn(_ context.Context, spec host.SpawnSpec) (host.Process, error) { //nolint:gocritic // the Host interface fixes the value signature
 	h.spawn++
 	h.spec = spec
 	return h.proc, nil
@@ -43,7 +44,7 @@ func (s *aSecrets) ChildEnv(policy host.AllowPolicy) ([]string, error) {
 	s.policy = policy
 	env, err := policy.Env(s.parent)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("test secrets: %w", err)
 	}
 	return env, nil
 }
@@ -147,7 +148,7 @@ func (d *aDoer) Do(req *http.Request) (*http.Response, error) {
 		var err error
 		body, err = io.ReadAll(req.Body)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read body: %w", err)
 		}
 	}
 	d.mu.Lock()
@@ -159,11 +160,11 @@ func (d *aDoer) Do(req *http.Request) (*http.Response, error) {
 	}
 	var msg jsonrpc.Message
 	if err := json.Unmarshal(body, &msg); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode: %w", err)
 	}
 	payload, err := json.Marshal(jsonrpc.Message{JSONRPC: jsonrpc.Version, ID: msg.ID, Result: json.RawMessage(`{"ok":"yes"}`)})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encode: %w", err)
 	}
 	h := http.Header{"Content-Type": {"application/json"}, "Mcp-Session-Id": {"sess-1"}}
 	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(payload)), Header: h}, nil
