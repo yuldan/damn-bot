@@ -5532,3 +5532,37 @@ Grep menyempit dari rentang 2,1 ms menjadi 0,6 ms dan shell session kini terukur
 **Konsekuensi.** (+) Gate tidak lagi menjalankan TestMain berat paket non-benchmark di antara pengukuran; wall time turun ~5–10 s lokal (e2e 4,9–9,8 s) dan puluhan detik di CI (e2e 33,6–42,8 s), sementara menambahkan `-p 1` pada satu perintah `./...` justru +20 s karena kompilasi serial — karena itu paket dipisah, bukan sekadar `-p 1`; setiap kegagalan dapat diatribusikan ke satu paket; serialisasi eksplisit tidak bergantung pada detail internal `cmd/go`. (−) `PERF_PKGS` harus diperbarui bila benchmark `PERF_BENCH` baru muncul di paket lain (komentar Makefile menyebutkannya). (−) Spike host-level (steal hypervisor/disk stall) tetap mungkin; satu-satunya perbaikan struktural adalah runner tetap `bench-ref` (ADR-127, belum ada atas keputusan owner) atau gate relatif berpasangan untuk metrik CPU, keduanya di luar cakupan ADR ini.
 
 **Di luar cakupan (belum).** Runner `bench-ref`, normalisasi/paired-reference untuk CT-04 dan §A.9, perubahan ambang atau statistik p95, dan perubahan `-benchtime`.
+
+## ADR-271 — Errata dokumen: SPEC P21 menunjuk plafon core 51.100, bukan 47.600
+
+**Status:** Accepted 2026-10-31 (errata dokumen; tanpa kode, tes, config, migrasi, dependency, atau perubahan angka `loc.budget`). Menutup drift **pre-existing** (bukan dari PR terakhir): SPEC P21 dan paragraf batas `docs/ENGINEERING.md` §2.4 masih menulis plafon Σ core 47.600, sementara `loc.budget`, baris/kalimat `Total core` ENGINEERING, dan `maxCoreLOC` (`internal/archtest/repometa_test.go`) sudah memakai 51.100.
+
+**Konteks.** Plafon Σ core adalah plafon **dinamis** yang hanya dinaikkan lewat ADR anggaran. Sumber kebenaran operasionalnya satu: Σ baris core `loc.budget` (`budgetCoreSum`) dibandingkan `TestBudgetTableSum` dengan `maxCoreLOC`; `TestEngineeringTotalCoreMatchesLocBudget` menjaga baris `Total core` dan kalimat `Total core per paket` ENGINEERING §2.4 sama dengan Σ itu. SPEC P21 masih memuat angka ADR-236 (2026-10-28) karena kenaikan-kenaikan sesudahnya menyelaraskan `loc.budget`/ENGINEERING/`maxCoreLOC` tetapi tidak kembali ke sel P21. Gate sudah lama menegakkan 51.100, jadi tidak ada kode/perilaku yang berubah; teks normatif yang basi hanya menyesatkan pembaca dan penulis ADR berikutnya (dua angka "batas berlaku" untuk gate yang sama).
+
+Kenaikan plafon Σ core sejak ADR-236 ("Σ" = jumlah baris core `loc.budget` setelah ADR itu):
+
+| ADR | Plafon | Σ setelah | Catatan |
+|---|---:|---:|---|
+| ADR-211 | 47.000 → 47.200 | — | plafon awal 47.000 (ADR-086, AUD-064) |
+| ADR-225 | 47.200 → 47.400 | 47.199 | penutupan F3 |
+| ADR-236 | 47.400 → 47.600 | 47.510 | GW-07 + client fs ACP |
+| ADR-257 | 47.600 → 47.800 | 47.788 | OPS-01 config 1.254 → 1.434, provider 2.179 → 2.194 |
+| ADR-261 | 47.800 → 48.200 | 48.148 | katalog provider 300 → 660 |
+| ADR-263 | 48.200 → 48.700 | 48.691 | `netx/jsonrpc` 520 |
+| ADR-264 | 48.700 → 49.700 | 49.675 | transport auth; `provider/auth` 961, `secret` 1.261 |
+| ADR-265 | 49.700 → 50.200 | 50.170 | `provider/responses` 432 + seam `provider.Wire` |
+| ADR-266 | 50.210 → 50.900 | 50.863 | `provider/anthropic` 645 (PR A memakai 50.210 setelah #541 menambah `ctxdb` 6.008) |
+| ADR-268 | 50.900 → 51.100 | 51.013 | seam MCP; `modules` 1.000 → 1.150 + `MODULE mcp` 6.500 |
+| ADR-269 | tidak naik | 51.023 | `netx/jsonrpc` 520 → 530, masih ≤ 51.100 (PR A MCP) |
+
+ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaikan plafon). ADR-267 tidak ada di `DECISIONS.md` (nomor tidak terpakai; tidak ada keputusan anggaran). ADR-270 hanya mengubah harness `perf` (tanpa perubahan anggaran). Plafon berlaku saat ini: **51.100**, dengan Σ core **51.023** (headroom **77**).
+
+**Keputusan.**
+1. **Hanya pernyataan normatif aktif yang diperbarui.** SPEC P21 (`SPEC.md:119`) dan paragraf batas `docs/ENGINEERING.md` §2.4 (`:324`) kini menyebut **51.100** dan merujuk ADR-271 untuk riwayat. Angka Σ `loc.budget`, baris `Total core` (51.023), kalimat `Total core per paket` (51.023 ≤ 51.100), `TOTAL` 190.000, tabel SPEC §3.2.4, `maxCoreLOC`, dan plafon `MODULE` **tidak berubah**.
+2. **P21 tetap plafon dinamis.** Kenaikan berikutnya wajib lewat ADR baru dan menyelaraskan empat lokasi: SPEC P21, paragraf + angka `docs/ENGINEERING.md` §2.4, `maxCoreLOC`, dan baris `loc.budget`; SPEC tidak boleh menyebut angka yang berbeda dari gate.
+3. **Riwayat tidak diubah.** Narasi ADR lama (ADR-086/AUD-064 yang menulis ≤ 47.000, ADR-236, ADR-257, ADR-261/263/264/265/266/268) tetap catatan keputusan, begitu pula komentar historis `loc.budget` (konvensi ADR-236 butir 4). §22 SPEC yang berlabel historis, `docs/F3-ACCEPTANCE.md` (snapshot fase), dan komentar dokumentasi di `internal/archtest` juga dibiarkan; yang diperbarui hanya batas yang **berlaku sekarang**.
+4. **Kesamaan yang ditegakkan.** Σ baris core `loc.budget` = baris `Total core` ENGINEERING = kalimat `Total core per paket` = angka yang dibandingkan `maxCoreLOC`; pada ADR ini **51.023 ≤ 51.100**. `TestBudgetTableSum`, `TestEngineeringTotalCoreMatchesLocBudget`, dan `make loc` tetap menjadi gate-nya; ADR ini tidak menambah test atau melonggarkan ambang.
+
+**Dampak terukur (SPEC §20).** Dokumen saja: `SPEC.md:119`, `docs/ENGINEERING.md:324`, dan ADR ini. 0 baris Go non-test, 0 tes/kode/perilaku berubah, 0 migrasi, 0 dependency, 0 config key, 0 baris `loc.budget` berubah, `TOTAL` 190.000 dan Σ core 51.023/51.100 tetap. Gate yang dijalankan pada PR: `go test -tags goolm ./internal/archtest` (ADRUnique, ADRMonotonic, Budget, Engineering) + `scripts/pr-meta.sh` (E-80/E-81/E-82/E-84, spec-guard).
+
+**Konsekuensi.** (+) Dokumen normatif kembali konsisten dengan gate yang sudah berjalan; pembaca P21/ENGINEERING melihat angka yang sama dengan `make loc`. (+) Riwayat keputusan utuh dan dapat diaudit. (−) Drift teks ini tidak tertangkap test: gate membandingkan Σ dengan `maxCoreLOC` dan ENGINEERING dengan Σ, tetapi belum membandingkan angka di SPEC P21 dengan `maxCoreLOC`; menutup celah itu butuh perubahan `internal/archtest` (di luar cakupan docs-only ADR ini). (−) Penyelarasan plafon tetap manual di empat lokasi setiap kenaikan.
