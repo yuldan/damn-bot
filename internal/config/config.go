@@ -81,6 +81,9 @@ type Provider struct {
 	Fallback  []string `toml:"fallback"`
 	Light     string   `toml:"light"`
 	MaxOutput int      `toml:"max_output"`
+	// SendAttribution opts in to the attribution headers a provider preset
+	// declares (SEC-25); default false sends none.
+	SendAttribution bool `toml:"send_attribution" json:"send_attribution"`
 }
 
 // Loop is SPEC §12 [loop] (P2, REL-07).
@@ -244,6 +247,9 @@ type CustomProvider struct {
 	TLS                   *CustomTLS        `toml:"tls"`
 	SessionAffinityHeader string            `toml:"session_affinity_header"`
 	Streaming             *bool             `toml:"streaming"`
+	// Override lets this entry replace a built-in catalog id (SEC-24); a
+	// collision without it is a startup error.
+	Override bool `toml:"override" json:"override"`
 }
 
 // CustomModel is one model of a custom provider.

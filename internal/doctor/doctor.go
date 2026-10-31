@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -66,7 +67,11 @@ type Options struct {
 	ConfigFound   bool
 	ConfigErr     error
 	ProviderModel string
-	Fix           bool
+	// ProviderWarnings are the SEC-24 findings the composition root computed
+	// from the catalog and [[providers.custom]] (override, non-default
+	// base_url, unpriced model). A non-empty list makes DOC-009 a warning.
+	ProviderWarnings []string
+	Fix              bool
 	// Keyring probes the OS keychain; nil uses the real one with a 2 s cap.
 	Keyring func(context.Context) (bool, error)
 	// Free reports free and total bytes; nil uses the platform statfs probe.
@@ -234,6 +239,13 @@ func checkSecret(ctx context.Context, o *Options) Check {
 }
 
 func checkProvider(o *Options) Check {
+	if len(o.ProviderWarnings) > 0 {
+		msg := strings.Join(o.ProviderWarnings, "; ")
+		if o.ProviderModel != "" {
+			msg = o.ProviderModel + ": " + msg
+		}
+		return Check{"DOC-009", "provider", StatusWarn, msg}
+	}
 	if o.ProviderModel == "" {
 		return Check{"DOC-009", "provider", StatusWarn, "provider.model is empty; run `damnbot setup`"}
 	}

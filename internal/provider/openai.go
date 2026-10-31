@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,13 @@ type Route struct {
 	Headers         map[string]string // extra_headers
 	ContextWindow   int64             // 0 = unknown
 	UsageInclude    bool              // OpenRouter: usage.include for usage.cost
+	// UserAgent is the request User-Agent (SEC-25): "damnbot/<versi>", never
+	// OS or hostname. Empty keeps net/http's default (direct Route tests).
+	UserAgent string
+	// ExtraBody is the custom-provider compat table merged into the request
+	// body after the reserved fields; a reserved key is rejected, never
+	// silently overridden.
+	ExtraBody map[string]any
 	// Prices is the dated price schedule (GAP-COST-01); the entry in
 	// effect at the call start prices the guard projection and the ledger.
 	Prices budget.Prices
@@ -44,6 +52,36 @@ const (
 	paramTemperature     = "temperature"
 	paramReasoningEffort = "reasoning_effort"
 )
+
+// reservedBodyKey lists the fields encode itself owns; extra_body may add
+// provider-specific parameters but never replace one of these.
+func reservedBodyKey(k string) bool {
+	switch k {
+	case "model", "messages", "tools", "max_tokens", "stream", "stream_options",
+		paramTemperature, paramReasoningEffort, "usage":
+		return true
+	default:
+		return false
+	}
+}
+
+// encodeExtraBody appends extra_body in sorted key order so equal requests
+// stay byte-identical (P15 prefix caching).
+func encodeExtraBody(extra map[string]any, w func(string, any) error) error {
+	keys := make([]string, 0, len(extra))
+	for k := range extra {
+		if reservedBodyKey(k) {
+			return fmt.Errorf("extra_body key %q is reserved by the adapter", k)
+		}
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	var errs []error
+	for _, k := range keys {
+		errs = append(errs, w(k, extra[k]))
+	}
+	return errors.Join(errs...)
+}
 
 // encode builds the chat/completions body. Field order is fixed so equal
 // requests are byte-identical (P15 prefix caching). drop lists parameters
@@ -101,6 +139,9 @@ func encodeCarriers(rt *Route, r *Request, drop map[string]bool) ([]byte, []Carr
 	}
 	if rt.UsageInclude {
 		errs = append(errs, w("usage", map[string]bool{"include": true}))
+	}
+	if err := encodeExtraBody(rt.ExtraBody, w); err != nil {
+		errs = append(errs, err)
 	}
 	b.WriteByte('}')
 	if err := errors.Join(errs...); err != nil {
