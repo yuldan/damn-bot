@@ -9,8 +9,8 @@ import (
 // totalCoreRow reads the "| **Total core** | **N** |" table row.
 var totalCoreRow = regexp.MustCompile(`\*\*Total core\*\* \| \*\*([0-9.]+)\*\*`)
 
-// totalCoreProse reads the "Total core per paket = N ≤ 50.200" sentence.
-var totalCoreProse = regexp.MustCompile(`Total core per paket = ([0-9.]+) ≤ 50\.900`)
+// totalCoreProse reads the "Total core per paket = N ≤ 51.100" sentence.
+var totalCoreProse = regexp.MustCompile(`Total core per paket = ([0-9.]+) ≤ 51\.100`)
 
 // dotted parses the thousand-separated form the docs use (43.746).
 func dotted(t *testing.T, s string) int {

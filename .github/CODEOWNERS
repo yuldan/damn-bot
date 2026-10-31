@@ -27,6 +27,7 @@
 /internal/journal/ @yuldan
 /internal/loop/ @yuldan
 /internal/modules/ @yuldan
+/internal/mcp/ @yuldan
 /internal/memory/ @yuldan
 /internal/importer/ @yuldan
 /internal/exec/ @yuldan
