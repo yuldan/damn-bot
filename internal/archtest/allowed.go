@@ -64,6 +64,7 @@ func allowedImports() map[string][]string {
 		"internal/provider":           append([]string{"internal/provider/auth", "internal/provider/registry", "internal/schema", "internal/budget"}, groupNetx()...),
 		"internal/provider/responses": append([]string{"internal/provider", "internal/provider/registry", "internal/budget"}, groupNetx()...),
 		"internal/provider/anthropic": append([]string{"internal/provider", "internal/provider/registry", "internal/budget"}, groupNetx()...),
+		"internal/provider/gemini":    append([]string{"internal/provider", "internal/provider/registry", "internal/budget"}, groupNetx()...),
 		// Provider transport auth (F5-03): SigV4, Google JWT, OAuth store.
 		"internal/provider/auth":      {"internal/netx", "internal/secret"},
 		"internal/provider/registry":  nil,

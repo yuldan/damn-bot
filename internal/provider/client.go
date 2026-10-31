@@ -404,7 +404,7 @@ func rawEstimate(r *Request) int64 {
 // attempt sends one request and assembles the stream through the route wire.
 func attempt(ctx context.Context, c *netx.Client, rt *Route, body []byte, est int64, onChunk func(Chunk)) (resp Response, err error) {
 	w := wireOf(rt)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(rt.BaseURL, "/")+w.Path(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(rt.BaseURL, "/")+w.Path(rt), bytes.NewReader(body))
 	if err != nil {
 		return Response{}, &Error{Class: retry.BadRequest, Err: fmt.Errorf("build request: %w", err)}
 	}

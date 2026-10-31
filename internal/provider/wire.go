@@ -18,8 +18,9 @@ import (
 type Wire interface {
 	// Encode builds the request body and reports the carriers it embedded.
 	Encode(rt *Route, r *Request, drop map[string]bool) ([]byte, []Carrier, []CarrierDrop, error)
-	// Path is the endpoint appended to Route.BaseURL.
-	Path() string
+	// Path is the endpoint appended to Route.BaseURL. It receives the route
+	// because protocols such as Gemini name the model in the path.
+	Path(rt *Route) string
 	// Read decodes a 2xx event stream into a Response.
 	Read(st *netx.Stream, start time.Time, onChunk func(Chunk)) (Response, error)
 }
@@ -32,7 +33,7 @@ func (chatWire) Encode(rt *Route, r *Request, drop map[string]bool) ([]byte, []C
 	return encodeCarriers(rt, r, drop)
 }
 
-func (chatWire) Path() string { return "/chat/completions" }
+func (chatWire) Path(*Route) string { return "/chat/completions" }
 
 func (chatWire) Read(st *netx.Stream, start time.Time, onChunk func(Chunk)) (Response, error) {
 	return readStream(st, start, onChunk)

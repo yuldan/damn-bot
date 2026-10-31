@@ -5,6 +5,7 @@ package main
 import (
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/anthropic"
+	"github.com/damnbot/damnbot/internal/provider/gemini"
 	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/provider/responses"
 )
@@ -18,5 +19,6 @@ func buildWires() map[registry.Protocol]provider.Wire {
 	return map[registry.Protocol]provider.Wire{
 		registry.ProtocolOpenAIResponses:   responses.New(),
 		registry.ProtocolAnthropicMessages: anthropic.New(),
+		registry.ProtocolGemini:            gemini.New(),
 	}
 }
