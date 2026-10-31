@@ -15,11 +15,12 @@ import (
 const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
-	maxCoreLOC       = 49700 // ADR-264: 48.700 -> 49.700 (provider/auth 961 + secret 16; Σ core 49.668 setelah ADR-261/262/263/264).
-	locTotalRow      = "TOTAL"
-	locGeneratedRow  = "GENERATED"
-	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)
-	locModuleRow     = "MODULE"   // cap per-baris modul permukaan, di luar Σ core (ADR-196)
+	maxCoreLOC       = 50100 // ADR-264: Σ core 49.675, plafon 49.700; ADR-265 (F5-04a): provider/responses 346
+	// + provider/providertest 182 (dipisah dari provider 2224 -> 2102), Σ core 50.081, plafon 50.100.
+	locTotalRow     = "TOTAL"
+	locGeneratedRow = "GENERATED"
+	locTestOnlyRow  = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)
+	locModuleRow    = "MODULE"   // cap per-baris modul permukaan, di luar Σ core (ADR-196)
 )
 
 var (

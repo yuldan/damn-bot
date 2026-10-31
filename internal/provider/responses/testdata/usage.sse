@@ -1,0 +1,4 @@
+data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"delta":"ok"}
+
+data: {"type":"response.completed","response":{"id":"resp_4","model":"gpt-test","status":"completed","output":[],"usage":{"input_tokens":100,"output_tokens":10,"input_tokens_details":{"cached_tokens":40}}}}
+

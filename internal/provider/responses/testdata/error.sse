@@ -1,0 +1,4 @@
+data: {"type":"response.created","response":{"id":"resp_5","status":"in_progress"}}
+
+data: {"type":"error","code":"rate_limit_exceeded","message":"slow down","param":null}
+

@@ -16,6 +16,7 @@ import (
 	"github.com/damnbot/damnbot/internal/budget"
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/netx/retry"
+	"github.com/damnbot/damnbot/internal/provider/registry"
 )
 
 // MaxFallback is the longest fallback chain after the primary (SPEC §4.1.1).
@@ -67,6 +68,10 @@ type Config struct {
 	// UserAgent is sent on every request; empty uses DefaultUserAgent. The
 	// composition root passes "damnbot/<versi>" (SEC-25).
 	UserAgent string
+	// Wires maps protocol names to adapters (F5-04). A route whose
+	// Protocols list has no entry here and no openai-chat entry fails at
+	// construction. Empty = openai-chat for every route.
+	Wires map[registry.Protocol]Wire
 }
 
 // OpenAI is the openai-chat Client with retry, circuit breaking, and model
@@ -82,6 +87,7 @@ type OpenAI struct {
 	wait     func(ctx context.Context, d time.Duration) error
 	attempts int
 	now      func() time.Time
+	wires    map[registry.Protocol]Wire
 
 	mu       sync.Mutex
 	breakers *retry.Breakers // per (provider, credential)
@@ -103,6 +109,7 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 		onFB: cfg.OnFallback, onRetry: cfg.OnRetry, wait: cfg.Wait, attempts: cfg.Attempts,
 		guard: cfg.Guard, onBudget: cfg.OnBudget, now: cfg.Now,
 		breakers: retry.NewBreakers(cfg.Circuit), drop: map[string]map[string]bool{},
+		wires: maps.Clone(cfg.Wires),
 	}
 	if o.now == nil {
 		o.now = time.Now
@@ -114,9 +121,15 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 		}
 		r.Headers = maps.Clone(r.Headers)
 		r.ExtraBody = maps.Clone(r.ExtraBody)
+		r.Protocols = append([]registry.Protocol(nil), r.Protocols...)
 		if r.UserAgent == "" {
 			r.UserAgent = userAgent
 		}
+		w, err := pickWire(&r, o.wires)
+		if err != nil {
+			return nil, err
+		}
+		r.wire = w
 		o.routes[r.Ref()] = r
 	}
 	return o, nil
@@ -316,7 +329,7 @@ func (o *OpenAI) send(ctx context.Context, rt *Route, r *Request, est int64, onC
 	var drops []CarrierDrop
 	for {
 		drop := o.dropped(rt)
-		body, sent, dropped, err := encodeCarriers(rt, r, drop)
+		body, sent, dropped, err := wireOf(rt).Encode(rt, r, drop)
 		drops = mergeDrops(drops, dropped)
 		if err != nil {
 			return Response{CarrierDrops: drops}, &Error{Class: retry.BadRequest, Err: err}
@@ -334,7 +347,7 @@ func (o *OpenAI) send(ctx context.Context, rt *Route, r *Request, est int64, onC
 			continue
 		}
 		if err != nil && len(sent) > 0 && isSignatureInvalid(err) {
-			body2, _, dropped2, eerr := encodeCarriers(rt, withoutCarriers(r), drop)
+			body2, _, dropped2, eerr := wireOf(rt).Encode(rt, withoutCarriers(r), drop)
 			if eerr != nil {
 				return resp, &Error{Class: retry.BadRequest, Err: eerr}
 			}
@@ -388,9 +401,10 @@ func rawEstimate(r *Request) int64 {
 	return c.Raw()
 }
 
-// attempt sends one request and assembles the stream.
+// attempt sends one request and assembles the stream through the route wire.
 func attempt(ctx context.Context, c *netx.Client, rt *Route, body []byte, est int64, onChunk func(Chunk)) (resp Response, err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(rt.BaseURL, "/")+"/chat/completions", bytes.NewReader(body))
+	w := wireOf(rt)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(rt.BaseURL, "/")+w.Path(), bytes.NewReader(body))
 	if err != nil {
 		return Response{}, &Error{Class: retry.BadRequest, Err: fmt.Errorf("build request: %w", err)}
 	}
@@ -422,7 +436,14 @@ func attempt(ctx context.Context, c *netx.Client, rt *Route, body []byte, est in
 			resp, err = Response{responded: true}, toError(cerr)
 		}
 	}()
-	return readStream(st, start, onChunk)
+	resp, err = w.Read(st, start, onChunk)
+	// The upstream returned 2xx: the request was accepted and may be billed
+	// even when decoding fails (SEC6-9).
+	resp.responded = true
+	if err != nil {
+		return resp, fmt.Errorf("read stream: %w", err)
+	}
+	return resp, nil
 }
 
 // readStream decodes and assembles a 2xx stream.

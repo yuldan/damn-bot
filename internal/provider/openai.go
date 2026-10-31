@@ -13,9 +13,11 @@ import (
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/netx/retry"
 	"github.com/damnbot/damnbot/internal/provider/auth"
+	"github.com/damnbot/damnbot/internal/provider/registry"
 )
 
-// Route is one configured model endpoint of the openai-chat protocol.
+// Route is one configured model endpoint of the openai-chat protocol
+// unless Protocols names another adapter.
 type Route struct {
 	Provider, Model string
 	BaseURL         string // e.g. https://api.openai.com/v1
@@ -38,6 +40,14 @@ type Route struct {
 	// effect at the call start prices the guard projection and the ledger.
 	Prices budget.Prices
 	Family string
+	// Protocols are the catalog protocols the provider speaks, in catalog
+	// order (F5-04). Empty keeps the F1 openai-chat default. The client
+	// selects the first one with a wired adapter; a listed protocol with no
+	// adapter fails at construction instead of reaching the wrong encoder.
+	Protocols []registry.Protocol
+	// wire is the adapter selected from Protocols; internal so a hand-built
+	// Route still defaults to openai-chat.
+	wire Wire
 }
 
 // CarrierFamily is the family used for carrier replay.
