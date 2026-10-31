@@ -1,7 +1,6 @@
 package responses
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,6 +17,7 @@ import (
 // Assembly bounds against a hostile or broken endpoint.
 const (
 	maxResponseBytes = 16 << 20
+	maxToolCalls     = 128
 	maxErrorBody     = 64 << 10
 )
 
@@ -60,21 +60,24 @@ type wireError struct {
 
 // wireItem is the subset of an output item the assembler reads.
 type wireItem struct {
-	Type    string `json:"type"`
-	Content []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	CallID    string `json:"call_id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 // assembler turns Responses events into a provider.Response (owned copies).
 type assembler struct {
-	content []byte
-	finish  string
-	usage   provider.DeltaUsage
-	model   string
-	ttft    time.Duration
-	size    int
+	content     []byte
+	reasonText  []byte
+	reasonItems []json.RawMessage
+	tools       []provider.ToolCall
+	finish      string
+	usage       provider.DeltaUsage
+	model       string
+	ttft        time.Duration
+	size        int
 }
 
 // readStream decodes and assembles a 2xx Responses event stream.
@@ -87,9 +90,6 @@ func readStream(st *netx.Stream, start time.Time, onChunk func(provider.Chunk)) 
 		}
 		if err != nil {
 			return provider.Response{}, fmt.Errorf("read event: %w", err)
-		}
-		if bytes.Equal(ev.Data, []byte("[DONE]")) {
-			break
 		}
 		var se streamEvent
 		if err := json.Unmarshal(ev.Data, &se); err != nil {
@@ -108,10 +108,10 @@ func readStream(st *netx.Stream, start time.Time, onChunk func(provider.Chunk)) 
 // add applies one event. A terminal event sets a.finish.
 func (a *assembler) add(se *streamEvent, raw []byte, start time.Time, onChunk func(provider.Chunk)) error {
 	switch se.Type {
-	case "response.output_text.delta", "response.refusal.delta":
-		return a.text([]byte(se.Delta), start, onChunk)
-	case "response.output_item.done":
-		return a.outputItem(se.Item)
+	case "response.output_text.delta":
+		return a.text([]byte(se.Delta), nil, start, onChunk)
+	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+		return a.text(nil, []byte(se.Delta), start, onChunk)
 	case "response.completed", "response.incomplete":
 		return a.terminal(se.Response, false)
 	case "response.failed":
@@ -122,42 +122,50 @@ func (a *assembler) add(se *streamEvent, raw []byte, start time.Time, onChunk fu
 	return nil
 }
 
-// text appends a content delta and forwards it to onChunk.
-func (a *assembler) text(content []byte, start time.Time, onChunk func(provider.Chunk)) error {
-	if a.size += len(content); a.size > maxResponseBytes {
+// text appends a content or reasoning delta and forwards it to onChunk.
+func (a *assembler) text(content, reasoning []byte, start time.Time, onChunk func(provider.Chunk)) error {
+	if a.size += len(content) + len(reasoning); a.size > maxResponseBytes {
 		return tooLarge()
 	}
 	a.content = append(a.content, content...)
-	if a.ttft == 0 && len(content) > 0 {
+	a.reasonText = append(a.reasonText, reasoning...)
+	if a.ttft == 0 && (len(content) > 0 || len(reasoning) > 0) {
 		a.ttft = time.Since(start)
 	}
-	if onChunk != nil && len(content) > 0 {
-		onChunk(provider.Chunk{Content: content})
+	if onChunk != nil && (len(content) > 0 || len(reasoning) > 0) {
+		onChunk(provider.Chunk{Content: content, Reasoning: reasoning})
 	}
 	return nil
 }
 
-// outputItem is the fallback when a server streams the final text only on
-// done; it never duplicates a streamed delta.
+// outputItem records a function call or reasoning item; it finalizes the
+// call's id, name, and full arguments (replacing streamed fragments).
 func (a *assembler) outputItem(raw json.RawMessage) error {
-	if len(raw) == 0 || len(a.content) > 0 {
+	if len(raw) == 0 {
 		return nil
 	}
 	var it wireItem
 	if err := json.Unmarshal(raw, &it); err != nil {
 		return &provider.Error{Class: retry.StreamBroken, Err: fmt.Errorf("decode item: %w", err)}
 	}
-	if it.Type != "message" {
-		return nil
-	}
-	for _, part := range it.Content {
-		if part.Type != "output_text" {
-			continue
-		}
-		if a.size += len(part.Text); a.size > maxResponseBytes {
+	switch it.Type {
+	case "function_call":
+		if a.size += len(it.Name) + len(it.Arguments); a.size > maxResponseBytes {
 			return tooLarge()
 		}
-		a.content = append(a.content, part.Text...)
+		if len(a.tools) >= maxToolCalls {
+			return tooLarge()
+		}
+		id := it.CallID
+		if id == "" {
+			id = it.ID
+		}
+		a.tools = append(a.tools, provider.ToolCall{ID: id, Name: it.Name, ArgumentsRaw: it.Arguments})
+	case "reasoning":
+		if a.size += len(raw); a.size > maxResponseBytes {
+			return tooLarge()
+		}
+		a.addReasoning(raw)
 	}
 	return nil
 }
@@ -194,6 +202,8 @@ func (a *assembler) terminal(r *wireResponse, failed bool) error {
 		a.finish = provider.FinishLength
 	case r.Status == "incomplete" && r.IncompleteDetails != nil && r.IncompleteDetails.Reason == "content_filter":
 		a.finish = provider.FinishContentFilter
+	case len(a.tools) > 0:
+		a.finish = provider.FinishToolCalls
 	default:
 		a.finish = provider.FinishStop
 	}
@@ -211,12 +221,39 @@ func (a *assembler) result() (provider.Response, error) {
 		Model:        a.model,
 		TTFT:         a.ttft,
 		Usage:        budget.Usage{Input: a.usage.Prompt, CachedInput: a.usage.Cached, Output: a.usage.Output},
+		ToolCalls:    a.tools,
 	}
-	if r.FinishReason == provider.FinishStop && strings.TrimSpace(r.Content) == "" {
+	if len(a.reasonItems) > 0 {
+		r.Reasoning = joinRaw(a.reasonItems)
+		r.ReasoningField = "reasoning"
+		r.ReasoningText = string(a.reasonText)
+	}
+	if r.FinishReason == provider.FinishStop && strings.TrimSpace(r.Content) == "" && len(r.ToolCalls) == 0 {
 		return r, &provider.Error{Class: retry.EmptyResponse, Err: provider.ErrEmptyResponse}
 	}
 	return r, nil
 }
+
+// addReasoning stores one reasoning item byte-identically. Only the terminal
+// output list is read, so an item is never added twice.
+func (a *assembler) addReasoning(raw json.RawMessage) {
+	a.reasonItems = append(a.reasonItems, cloneRaw(raw))
+}
+
+// joinRaw builds the replay array byte-identically from validated parts.
+func joinRaw(parts []json.RawMessage) json.RawMessage {
+	out := make([]byte, 0, 2+len(parts))
+	out = append(out, '[')
+	for i, p := range parts {
+		if i > 0 {
+			out = append(out, ',')
+		}
+		out = append(out, p...)
+	}
+	return append(out, ']')
+}
+
+func cloneRaw(raw json.RawMessage) json.RawMessage { return append(json.RawMessage(nil), raw...) }
 
 func tooLarge() error {
 	return &provider.Error{Class: retry.Unclassified, Err: provider.ErrResponseTooLarge}

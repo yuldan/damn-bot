@@ -52,10 +52,17 @@ func encode(rt *provider.Route, r *provider.Request, drop map[string]bool) ([]by
 	if maxTok <= 0 {
 		maxTok = provider.DefaultMaxTokens
 	}
-	errs := []error{
-		w("model", rt.Model), w("input", inputItems(r)),
-		w("max_output_tokens", maxTok), w("stream", true), w("store", false),
+	input, sent, drops, ierr := inputItems(rt, r)
+	if ierr != nil {
+		return nil, nil, nil, ierr
 	}
+	errs := []error{w("model", rt.Model), w("input", input)}
+	if len(r.Tools) > 0 {
+		errs = append(errs, w("tools", toolItems(r.Tools)))
+	}
+	errs = append(errs, w("max_output_tokens", maxTok), w("stream", true), w("store", false),
+		// Stateless replay needs the encrypted reasoning block (GAP-PROV-01).
+		w("include", []string{"reasoning.encrypted_content"}))
 	if r.Temperature != nil && !drop[paramTemperature] {
 		errs = append(errs, w(paramTemperature, *r.Temperature))
 	}
@@ -69,38 +76,93 @@ func encode(rt *provider.Route, r *provider.Request, drop map[string]bool) ([]by
 	if err := errors.Join(errs...); err != nil {
 		return nil, nil, nil, fmt.Errorf("encode request: %w", err)
 	}
-	return b.Bytes(), nil, nil, nil
+	return b.Bytes(), sent, drops, nil
 }
 
-// inputItems maps the chat-shaped messages to Responses input items.
-func inputItems(r *provider.Request) []any {
-	items := make([]any, 0, len(r.Messages))
+// inputItems builds the Responses input array. Items are emitted as raw JSON
+// so no per-item map/interface is reflected or allocated; a reasoning carrier
+// is replayed byte-identically before the assistant message it belongs to.
+func inputItems(rt *provider.Route, r *provider.Request) (json.RawMessage, []provider.Carrier, []provider.CarrierDrop, error) {
+	var b bytes.Buffer
+	b.WriteByte('[')
+	first := true
+	add := func(raw []byte) {
+		if !first {
+			b.WriteByte(',')
+		}
+		first = false
+		b.Write(raw)
+	}
+	var sent []provider.Carrier
+	var drops []provider.CarrierDrop
 	for i := range r.Messages {
 		m := &r.Messages[i]
-		if m.Content == "" {
-			continue
+		switch m.Role {
+		case "assistant":
+			s, d, err := assistantItems(add, rt, m)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			sent = append(sent, s...)
+			drops = append(drops, d...)
+		case "tool":
+			add([]byte(fmt.Sprintf(`{"type":"function_call_output","call_id":%q,"output":%q}`, m.ToolCallID, m.Content)))
+		default:
+			role := m.Role
+			if role == "" {
+				role = "user"
+			}
+			if m.Content != "" {
+				add(messageJSON(role, "input_text", m.Content))
+			}
 		}
-		if m.Role == "assistant" {
-			items = append(items, messageItem("assistant", "output_text", m.Content))
-			continue
-		}
-		role := m.Role
-		if role == "" || role == "tool" {
-			role = "user"
-		}
-		items = append(items, messageItem(role, "input_text", m.Content))
 	}
-	return items
+	b.WriteByte(']')
+	return b.Bytes(), sent, drops, nil
 }
 
-// messageItem is one input message with a single typed content part.
-func messageItem(role, part, text string) map[string]any {
-	return map[string]any{
-		"role": role,
-		"content": []any{
-			map[string]any{"type": part, "text": text},
-		},
+// assistantItems emits the carriers, text, and function calls of one
+// assistant message through add.
+func assistantItems(add func([]byte), rt *provider.Route, m *provider.Message) ([]provider.Carrier, []provider.CarrierDrop, error) {
+	keep, drops, err := provider.ProjectCarriers(rt, m.Carriers)
+	if err != nil {
+		return nil, nil, fmt.Errorf("carrier projection: %w", err)
 	}
+	for _, c := range keep {
+		add(c.Raw)
+	}
+	if m.Content != "" {
+		add(messageJSON(m.Role, "output_text", m.Content))
+	}
+	for _, tc := range m.ToolCalls {
+		add([]byte(fmt.Sprintf(`{"type":"function_call","call_id":%q,"name":%q,"arguments":%q}`,
+			tc.ID, tc.Name, tc.ArgumentsRaw)))
+	}
+	return keep, drops, nil
+}
+
+func messageJSON(role, part, text string) []byte {
+	return []byte(fmt.Sprintf(`{"role":%q,"content":[{"type":%q,"text":%q}]}`, role, part, text))
+}
+
+// toolItems projects the request tools to the flat Responses function shape.
+func toolItems(tools []provider.ToolSchema) json.RawMessage {
+	var b bytes.Buffer
+	b.WriteByte('[')
+	for i, t := range tools {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		params := t.Parameters
+		if len(params) == 0 {
+			params = json.RawMessage(`{"type":"object","properties":{}}`)
+		}
+		fmt.Fprintf(&b, `{"type":"function","name":%q,"description":%q,"parameters":`, t.Name, t.Description)
+		b.Write(params)
+		b.WriteByte('}')
+	}
+	b.WriteByte(']')
+	return b.Bytes()
 }
 
 // encodeExtraBody appends extra_body in sorted key order.

@@ -61,3 +61,10 @@ func pickWire(rt *Route, wires map[registry.Protocol]Wire) (Wire, error) {
 	}
 	return nil, fmt.Errorf("%w: route %q speaks %v but no adapter is wired", ErrConfig, rt.Ref(), rt.Protocols)
 }
+
+// ProjectCarriers is the single GAP-PROV-01 projection exposed to wire
+// adapters: exact (family, model) replay, redacted/oversized/foreign dropped.
+// Adapters must not reimplement this rule.
+func ProjectCarriers(rt *Route, cs []Carrier) ([]Carrier, []CarrierDrop, error) {
+	return projectCarriers(rt, cs)
+}

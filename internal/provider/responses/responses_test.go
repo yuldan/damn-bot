@@ -354,23 +354,44 @@ func TestExtraBodyMerged(t *testing.T) {
 	}
 }
 
-// TestOutputItemFallback: a message item in the final output supplies the
-// text when the server sent no delta; unknown item types are ignored.
-func TestOutputItemFallback(t *testing.T) {
+// TestOutputItemIgnored: output items that are neither function calls nor
+// reasoning (message/refusal/unknown) are ignored safely. Text comes from
+// deltas; an item-only stream is an empty response, not a panic.
+func TestOutputItemIgnored(t *testing.T) {
 	t.Parallel()
-	raw := `data: {"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"final"}]}}
+	t.Run("delta-wins", func(t *testing.T) {
+		t.Parallel()
+		raw := `data: {"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"item"}]}}
 
 data: {"type":"response.output_item.done","item":{"type":"unknown","x":1}}
 
-data: {"type":"response.completed","response":{"model":"gpt-test","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"final"}]},{"type":"unknown"}],"usage":{"input_tokens":1,"output_tokens":1}}}
+data: {"type":"response.output_text.delta","delta":"final"}
+
+data: {"type":"response.completed","response":{"model":"gpt-test","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"item"}]},{"type":"unknown"}],"usage":{"input_tokens":1,"output_tokens":1}}}
 
 `
-	f := newFake(t, reply{raw: raw})
-	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 0)
-	resp, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
-	if err != nil || resp.Content != "final" {
-		t.Fatalf("response = %+v, %v", resp, err)
-	}
+		f := newFake(t, reply{raw: raw})
+		c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 0)
+		resp, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+		if err != nil || resp.Content != "final" {
+			t.Fatalf("response = %+v, %v", resp, err)
+		}
+	})
+	t.Run("item-only-is-empty", func(t *testing.T) {
+		t.Parallel()
+		raw := `data: {"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"item"}]}}
+
+data: {"type":"response.completed","response":{"model":"gpt-test","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"item"}]}]}}
+
+`
+		f := newFake(t, reply{raw: raw})
+		c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 1)
+		_, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+		var pe *provider.Error
+		if !errors.As(err, &pe) || pe.Class != retry.EmptyResponse {
+			t.Fatalf("error = %v, want empty_response", err)
+		}
+	})
 }
 
 // TestMalformedStream: invalid JSON fails as stream_broken whether it comes
@@ -477,12 +498,96 @@ func TestInputShapes(t *testing.T) {
 	}
 	reqs, _ := f.requests()
 	body := reqs[0]
-	if !strings.Contains(body, `"text":"hi there","type":"output_text"`) ||
-		!strings.Contains(body, `"text":"question","type":"input_text"`) ||
+	if !strings.Contains(body, `"type":"output_text"`) || !strings.Contains(body, `"text":"hi there"`) ||
+		!strings.Contains(body, `"type":"input_text"`) || !strings.Contains(body, `"text":"question"`) ||
 		!strings.Contains(body, `"role":"user"`) {
 		t.Fatalf("input shapes = %s", body)
 	}
 	if !strings.Contains(body, `"temperature":0.2`) || !strings.Contains(body, `"reasoning":{"effort":"low"}`) {
 		t.Fatalf("sampling parameters = %s", body)
+	}
+}
+
+// TestFixtureToolCall: streamed function_call fragments assemble into one tool
+// call without duplication from the done and completed events.
+func TestFixtureToolCall(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "tool.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 0)
+	req := ask("ls")
+	req.Tools = []provider.ToolSchema{{Name: "shell", Description: "run", Parameters: json.RawMessage(`{"type":"object"}`)}}
+	resp, err := c.Do(t.Context(), provider.PurposeTurn, req, nil)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if resp.FinishReason != provider.FinishToolCalls || len(resp.ToolCalls) != 1 {
+		t.Fatalf("finish/tools = %q/%+v", resp.FinishReason, resp.ToolCalls)
+	}
+	tc := resp.ToolCalls[0]
+	if tc.ID != "call_1" || tc.Name != "shell" || tc.ArgumentsRaw != `{"cmd":"ls"}` {
+		t.Fatalf("tool call = %+v", tc)
+	}
+	reqs, _ := f.requests()
+	tools, ok := decodeBody(t, reqs[0])["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("tools = %v", decodeBody(t, reqs[0])["tools"])
+	}
+	if tool, ok := tools[0].(map[string]any); !ok || tool["type"] != "function" || tool["name"] != "shell" {
+		t.Fatalf("tool = %v", tools[0])
+	}
+}
+
+// TestFixtureReasoningEncrypted: encrypted reasoning becomes a carrier and is
+// replayed byte-identically as an input item on the next call (GAP-PROV-01).
+func TestFixtureReasoningEncrypted(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "reasoning.sse")}, reply{raw: fixture(t, "text.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 0)
+	msgs := []provider.Message{{Role: "user", Content: "hi"}}
+	resp, err := c.Do(t.Context(), provider.PurposeTurn, &provider.Request{Model: "openai/m", Messages: msgs}, nil)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if resp.Content != "Done" || resp.ReasoningText != "Think" {
+		t.Fatalf("response = %+v", resp)
+	}
+	if len(resp.Carriers) != 1 || resp.Carriers[0].Kind != provider.CarrierEncrypted {
+		t.Fatalf("carriers = %+v", resp.Carriers)
+	}
+	if resp.Reasoning != nil {
+		t.Fatalf("reasoning not projected into carriers: %s", resp.Reasoning)
+	}
+	msgs = append(msgs, provider.Message{Role: "assistant", Content: resp.Content, Carriers: resp.Carriers})
+	if _, err := c.Do(t.Context(), provider.PurposeTurn, &provider.Request{Model: "openai/m", Messages: msgs}, nil); err != nil {
+		t.Fatalf("second Do: %v", err)
+	}
+	reqs, _ := f.requests()
+	if !strings.Contains(reqs[1], `"encrypted_content":"enc_abc"`) || !strings.Contains(reqs[1], `"type":"reasoning"`) {
+		t.Fatalf("encrypted reasoning not replayed: %s", reqs[1])
+	}
+}
+
+// TestCarrierRouteMismatch: the shared carrier engine drops a block replayed
+// to a different model instead of sending it to the wrong origin.
+func TestCarrierRouteMismatch(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "reasoning.sse")}, reply{raw: fixture(t, "text.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL()), route("other", f.URL())}, nil, 0)
+	msgs := []provider.Message{{Role: "user", Content: "hi"}}
+	resp, err := c.Do(t.Context(), provider.PurposeTurn, &provider.Request{Model: "openai/m", Messages: msgs}, nil)
+	if err != nil || len(resp.Carriers) != 1 {
+		t.Fatalf("first Do = %+v, %v", resp, err)
+	}
+	msgs = append(msgs, provider.Message{Role: "assistant", Content: resp.Content, Carriers: resp.Carriers})
+	second, err := c.Do(t.Context(), provider.PurposeTurn, &provider.Request{Model: "openai/other", Messages: msgs}, nil)
+	if err != nil {
+		t.Fatalf("second Do: %v", err)
+	}
+	if len(second.CarrierDrops) != 1 || second.CarrierDrops[0].Reason != "route_mismatch" {
+		t.Fatalf("drops = %+v", second.CarrierDrops)
+	}
+	reqs, _ := f.requests()
+	if strings.Contains(reqs[1], "enc_abc") {
+		t.Fatalf("foreign carrier replayed: %s", reqs[1])
 	}
 }
