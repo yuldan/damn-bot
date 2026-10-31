@@ -23,3 +23,1107 @@ from = "2026-10-21"
 input = 150000
 cached_input = 15000
 output = 600000
+
+# Katalog provider (SPEC §4.1, ADR-261): 88 baris docs/PROVIDERS.md + 6 server lokal.
+
+# Field kanonik: protocols, auth, env, capabilities, attribution, cache_ttl_max, limits, prices.
+
+# env = kandidat variabel kredensial berurutan (nama publik dari PROVIDERS.md; nilai tidak disimpan).
+
+# `prices = "unpriced"` berarti [[price]] route tidak member harga; cap moneter fail-closed (ADR-123).
+
+# cache_ttl_max dalam detik: 0 = tidak ada cache eksplisit yang diklaim katalog.
+
+# Alias lokal (ollama/local/vllm/llamacpp) dimiliki entri `custom` (LLM-017) agar unik global.
+
+[[provider]]
+id = "actual"
+name = "Actual Computer"
+protocols = ["openai-chat"]
+base_url = "https://api.actual.inc/v1"
+auth = "api-key"
+env = ["ACTUAL_API_KEY"]
+aliases = ["actual-computer", "actualcomputer", "aci"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "ai-gateway"
+name = "ai-gateway"
+protocols = ["openai-chat"]
+base_url = "https://ai-gateway.vercel.sh/v1"
+auth = "api-key"
+env = ["AI_GATEWAY_API_KEY"]
+aliases = ["vercel", "vercel-ai-gateway", "ai_gateway", "aigateway"]
+capabilities = ["tools"]
+attribution = ["HTTP-Referer", "X-Title"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "alibaba"
+name = "alibaba"
+protocols = ["openai-chat"]
+base_url = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+auth = "api-key"
+env = ["DASHSCOPE_API_KEY"]
+aliases = ["dashscope", "alibaba-cloud", "qwen-dashscope", "aliyun"]
+capabilities = ["cache"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "alibaba-cn"
+name = "Alibaba Cloud DashScope (China)"
+protocols = ["openai-chat"]
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+auth = "api-key"
+env = ["DASHSCOPE_API_KEY"]
+aliases = ["dashscope-cn", "alibaba-cloud-cn"]
+capabilities = ["cache"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "alibaba-token-plan"
+name = "Alibaba Cloud (Token Plan)"
+protocols = ["openai-chat"]
+base_url = "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+auth = "api-key"
+env = ["ALIBABA_TOKEN_PLAN_API_KEY"]
+aliases = ["dashscope-token-plan"]
+capabilities = ["cache"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "alibaba-token-plan-cn"
+name = "Alibaba Cloud (Token Plan, China)"
+protocols = ["openai-chat"]
+base_url = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+auth = "api-key"
+env = ["ALIBABA_TOKEN_PLAN_CN_API_KEY", "ALIBABA_TOKEN_PLAN_API_KEY"]
+aliases = ["dashscope-token-plan-cn"]
+capabilities = ["cache"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "alibaba-coding-plan"
+name = "Alibaba Cloud (Coding Plan)"
+protocols = ["openai-chat"]
+base_url = "https://coding-intl.dashscope.aliyuncs.com/v1"
+auth = "api-key"
+env = ["ALIBABA_CODING_PLAN_API_KEY", "DASHSCOPE_API_KEY"]
+aliases = ["alibaba_coding", "alibaba-coding", "dashscope-coding"]
+capabilities = ["cache"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "alibaba-coding-plan-cn"
+name = "Alibaba Cloud (Coding Plan, China)"
+protocols = ["openai-chat"]
+base_url = "https://coding.dashscope.aliyuncs.com/v1"
+auth = "api-key"
+env = ["ALIBABA_CODING_PLAN_CN_API_KEY", "ALIBABA_CODING_PLAN_API_KEY", "DASHSCOPE_API_KEY"]
+aliases = ["alibaba-coding-cn", "dashscope-coding-cn"]
+capabilities = ["cache"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "anthropic"
+name = "anthropic"
+protocols = ["anthropic-messages"]
+base_url = "https://api.anthropic.com"
+auth = "api-key"
+env = ["ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]
+aliases = ["claude", "claude-oauth", "claude-code"]
+capabilities = ["tools", "vision", "reasoning", "cache"]
+cache_ttl_max = 3600
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "arcee"
+name = "arcee"
+protocols = ["openai-chat"]
+base_url = "https://api.arcee.ai/api/v1"
+auth = "api-key"
+env = ["ARCEEAI_API_KEY"]
+aliases = ["arcee-ai", "arceeai"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "azure-foundry"
+name = "Azure Foundry"
+protocols = ["openai-chat"]
+auth = "api-key"
+env = ["AZURE_FOUNDRY_API_KEY"]
+aliases = ["azure", "azure-ai-foundry", "azure-ai"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "bedrock"
+name = "bedrock"
+protocols = ["bedrock"]
+base_url = "https://bedrock-runtime.us-east-1.amazonaws.com"
+auth = "aws-iam"
+aliases = ["aws", "aws-bedrock", "amazon-bedrock", "amazon"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "commandcode"
+name = "CommandCode"
+protocols = ["openai-chat"]
+base_url = "https://api.commandcode.ai/provider/v1"
+auth = "api-key"
+env = ["COMMANDCODE_API_KEY"]
+aliases = ["commandcode-chat"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "commandcode-anthropic"
+name = "CommandCode (Anthropic)"
+protocols = ["anthropic-messages"]
+base_url = "https://api.commandcode.ai/provider/v1"
+auth = "api-key"
+env = ["COMMANDCODE_API_KEY"]
+aliases = ["commandcode-claude"]
+capabilities = ["tools"]
+cache_ttl_max = 300
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "copilot"
+name = "copilot"
+protocols = ["openai-chat"]
+base_url = "https://api.githubcopilot.com"
+auth = "github-token"
+env = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"]
+aliases = ["github-copilot", "github-models", "github-model", "github"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "copilot-acp"
+name = "copilot-acp"
+protocols = ["openai-chat"]
+auth = "acp"
+aliases = ["github-copilot-acp", "copilot-acp-agent"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "custom"
+name = "custom"
+protocols = ["openai-chat"]
+auth = "none"
+aliases = ["ollama", "local", "vllm", "llamacpp", "llama.cpp", "llama-cpp"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "deepinfra"
+name = "DeepInfra"
+protocols = ["openai-chat"]
+base_url = "https://api.deepinfra.com/v1/openai"
+auth = "api-key"
+env = ["DEEPINFRA_API_KEY"]
+aliases = ["deep-infra", "deepinfra-ai"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "deepseek"
+name = "DeepSeek"
+protocols = ["openai-chat"]
+base_url = "https://api.deepseek.com/v1"
+auth = "api-key"
+env = ["DEEPSEEK_API_KEY"]
+aliases = ["deepseek-chat", "deep-seek"]
+capabilities = ["tools", "reasoning"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "fireworks"
+name = "Fireworks AI"
+protocols = ["openai-chat"]
+base_url = "https://api.fireworks.ai/inference/v1"
+auth = "api-key"
+env = ["FIREWORKS_API_KEY"]
+aliases = ["fireworks-ai", "fw"]
+capabilities = ["tools"]
+attribution = ["HTTP-Referer", "X-Title"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "gemini"
+name = "gemini"
+protocols = ["openai-chat"]
+base_url = "https://generativelanguage.googleapis.com/v1beta"
+auth = "api-key"
+env = ["GOOGLE_API_KEY", "GEMINI_API_KEY"]
+aliases = ["google", "google-gemini", "google-ai-studio"]
+capabilities = ["vision", "reasoning"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "gmi"
+name = "GMI Cloud"
+protocols = ["openai-chat"]
+base_url = "https://api.gmi-serving.com/v1"
+auth = "api-key"
+env = ["GMI_API_KEY"]
+aliases = ["gmi-cloud", "gmicloud"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "huggingface"
+name = "HuggingFace"
+protocols = ["openai-chat"]
+base_url = "https://router.huggingface.co/v1"
+auth = "api-key"
+env = ["HF_TOKEN"]
+aliases = ["hf", "hugging-face", "huggingface-hub"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "kilocode"
+name = "kilocode"
+protocols = ["openai-chat"]
+base_url = "https://api.kilo.ai/api/gateway"
+auth = "api-key"
+env = ["KILOCODE_API_KEY"]
+aliases = ["kilo-code", "kilo", "kilo-gateway"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "kimi-coding"
+name = "kimi-coding"
+protocols = ["openai-chat"]
+base_url = "https://api.moonshot.ai/v1"
+auth = "api-key"
+env = ["KIMI_API_KEY", "KIMI_CODING_API_KEY"]
+aliases = ["kimi", "moonshot", "kimi-for-coding"]
+capabilities = ["tools", "cache"]
+attribution = ["HTTP-Referer", "X-Title"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "kimi-coding-cn"
+name = "kimi-coding-cn"
+protocols = ["openai-chat"]
+base_url = "https://api.moonshot.cn/v1"
+auth = "api-key"
+env = ["KIMI_CN_API_KEY"]
+aliases = ["kimi-cn", "moonshot-cn"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "lmstudio"
+name = "LM Studio"
+protocols = ["openai-chat"]
+auth = "api-key"
+env = ["LM_API_KEY"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "meta-ai"
+name = "Meta Model API"
+protocols = ["openai-responses"]
+base_url = "https://api.meta.ai/v1"
+auth = "api-key"
+env = ["MODEL_API_KEY", "META_API_KEY", "META_MODEL_API_KEY"]
+aliases = ["meta", "muse", "muse-spark", "model-api", "msl"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "minimax"
+name = "minimax"
+protocols = ["anthropic-messages"]
+base_url = "https://api.minimax.io/anthropic"
+auth = "api-key"
+env = ["MINIMAX_API_KEY"]
+aliases = ["mini-max"]
+cache_ttl_max = 300
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "minimax-cn"
+name = "minimax-cn"
+protocols = ["anthropic-messages"]
+base_url = "https://api.minimaxi.com/anthropic"
+auth = "api-key"
+env = ["MINIMAX_CN_API_KEY"]
+aliases = ["minimax-china", "minimax_cn"]
+cache_ttl_max = 300
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "minimax-oauth"
+name = "MiniMax (OAuth)"
+protocols = ["anthropic-messages"]
+base_url = "https://api.minimax.io/anthropic"
+auth = "oauth"
+aliases = ["minimax_oauth", "minimax-portal", "minimax-global", "minimax-oauth-io"]
+cache_ttl_max = 300
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "nebius-token-factory"
+name = "Nebius Token Factory"
+protocols = ["openai-chat"]
+base_url = "https://api.tokenfactory.nebius.com/v1"
+auth = "api-key"
+env = ["NEBIUS_API_KEY", "NEBIUS_TOKEN_FACTORY_API_KEY"]
+aliases = ["nebius", "nebius-tokenfactory", "nebius-tf", "token-factory", "tokenfactory"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "nous"
+name = "Nous Research"
+protocols = ["openai-chat"]
+base_url = "https://inference-api.nousresearch.com/v1"
+auth = "oauth"
+env = ["NOUS_API_KEY"]
+aliases = ["nous-portal", "nousresearch"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "novita"
+name = "NovitaAI"
+protocols = ["openai-chat"]
+base_url = "https://api.novita.ai/openai/v1"
+auth = "api-key"
+env = ["NOVITA_API_KEY"]
+aliases = ["novita-ai", "novitaai"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "nvidia"
+name = "NVIDIA NIM"
+protocols = ["openai-chat"]
+base_url = "https://integrate.api.nvidia.com/v1"
+auth = "api-key"
+env = ["NVIDIA_API_KEY"]
+aliases = ["nvidia-nim", "nim", "build-nvidia", "nemotron"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "ollama-cloud"
+name = "ollama-cloud"
+protocols = ["openai-chat"]
+base_url = "https://ollama.com/v1"
+auth = "api-key"
+env = ["OLLAMA_API_KEY"]
+aliases = ["ollama_cloud"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "openai-codex"
+name = "openai-codex"
+protocols = ["openai-responses"]
+base_url = "https://chatgpt.com/backend-api/codex"
+auth = "oauth"
+aliases = ["codex", "openai_codex"]
+capabilities = ["reasoning", "cache"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "opencode-zen"
+name = "opencode-zen"
+protocols = ["openai-chat"]
+base_url = "https://opencode.ai/zen/v1"
+auth = "api-key"
+env = ["OPENCODE_ZEN_API_KEY"]
+aliases = ["opencode", "opencode_zen", "zen"]
+capabilities = ["tools"]
+attribution = ["HTTP-Referer", "X-Title"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "opencode-go"
+name = "opencode-go"
+protocols = ["openai-chat"]
+base_url = "https://opencode.ai/zen/go/v1"
+auth = "api-key"
+env = ["OPENCODE_GO_API_KEY"]
+aliases = ["opencode_go", "go", "opencode-go-sub"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "openrouter"
+name = "OpenRouter"
+protocols = ["openai-chat"]
+base_url = "https://openrouter.ai/api/v1"
+auth = "api-key"
+env = ["OPENROUTER_API_KEY"]
+aliases = ["or"]
+capabilities = ["tools", "vision", "reasoning", "cache"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "qwen-oauth"
+name = "qwen-oauth"
+protocols = ["openai-chat"]
+base_url = "https://portal.qwen.ai/v1"
+auth = "oauth"
+env = ["QWEN_API_KEY"]
+aliases = ["qwen", "qwen-portal", "qwen-cli"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "router"
+name = "Ramp Router"
+protocols = ["openai-responses"]
+base_url = "https://api.router.com/v1"
+auth = "api-key"
+env = ["RAMP_ROUTER_API_KEY", "ROUTER_API_KEY"]
+aliases = ["ramp-router", "ramp", "router.com"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "solstice"
+name = "Solstice"
+protocols = ["openai-chat"]
+base_url = "https://generativelanguage.googleapis.com/v1alpha"
+auth = "oauth"
+aliases = ["solstice-oauth"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "stepfun"
+name = "stepfun"
+protocols = ["openai-chat"]
+base_url = "https://api.stepfun.ai/step_plan/v1"
+auth = "api-key"
+env = ["STEPFUN_API_KEY"]
+aliases = ["step", "stepfun-coding-plan"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "tencent-tokenhub"
+name = "Tencent TokenHub"
+protocols = ["openai-chat"]
+auth = "api-key"
+env = ["TOKENHUB_API_KEY"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "upstage"
+name = "Upstage Solar"
+protocols = ["openai-chat"]
+base_url = "https://api.upstage.ai/v1"
+auth = "api-key"
+env = ["UPSTAGE_API_KEY"]
+aliases = ["solar"]
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "vertex"
+name = "vertex"
+protocols = ["openai-chat"]
+base_url = "https://aiplatform.googleapis.com"
+auth = "google-adc"
+aliases = ["google-vertex", "vertex-ai", "gcp-vertex", "vertexai"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "xai"
+name = "xai"
+protocols = ["openai-responses"]
+base_url = "https://api.x.ai/v1"
+auth = "api-key"
+env = ["XAI_API_KEY"]
+aliases = ["grok", "x-ai", "x.ai"]
+capabilities = ["reasoning"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "xiaomi"
+name = "xiaomi"
+protocols = ["openai-chat"]
+base_url = "https://api.xiaomimimo.com/v1"
+auth = "api-key"
+env = ["XIAOMI_API_KEY"]
+aliases = ["mimo", "xiaomi-mimo"]
+capabilities = ["tools", "reasoning"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "zai"
+name = "Z.AI (GLM)"
+protocols = ["openai-chat"]
+base_url = "https://api.z.ai/api/paas/v4"
+auth = "api-key"
+env = ["GLM_API_KEY", "ZAI_API_KEY", "Z_AI_API_KEY"]
+aliases = ["glm", "z-ai", "z.ai", "zhipu"]
+capabilities = ["reasoning"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "custom-openai-compatible"
+name = "Custom OpenAI-compatible"
+protocols = ["openai-chat"]
+auth = "none"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "abliteration"
+name = "abliteration"
+protocols = ["openai-chat"]
+base_url = "https://api.abliteration.ai/v1"
+auth = "unknown"
+env = ["ABLITERATION_API_KEY"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "aiand"
+name = "aiand"
+protocols = ["openai-chat"]
+base_url = "https://api.aiand.com/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "bedrock-mantle"
+name = "bedrock-mantle"
+protocols = ["openai-chat"]
+base_url = "https://bedrock-mantle.{region}.api.aws/openai/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "cerebras"
+name = "cerebras"
+protocols = ["openai-chat"]
+base_url = "https://api.cerebras.ai/v1"
+auth = "unknown"
+env = ["CEREBRAS_API_KEY"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "charm-hyper"
+name = "charm-hyper"
+protocols = ["openai-chat"]
+base_url = "https://hyper.charm.land/v1"
+auth = "unknown"
+env = ["CHARM_HYPER_API_KEY"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "cline-pass"
+name = "cline-pass"
+protocols = ["openai-chat"]
+base_url = "https://api.cline.bot/api/v1"
+auth = "unknown"
+env = ["CLINE_API_KEY"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "cloudflare-ai-gateway"
+name = "cloudflare-ai-gateway"
+protocols = ["anthropic-messages", "openai-chat"]
+base_url = "https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic"
+auth = "unknown"
+env = ["CLOUDFLARE_AI_GATEWAY_API_KEY"]
+cache_ttl_max = 300
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "coralbricks"
+name = "coralbricks"
+protocols = ["openai-chat"]
+base_url = "https://inference.coralbricks.ai/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "coreweave"
+name = "coreweave"
+protocols = ["openai-chat"]
+base_url = "https://api.inference.wandb.ai/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "cursor"
+name = "cursor"
+protocols = ["cursor"]
+base_url = "https://api2.cursor.sh"
+auth = "oauth"
+env = ["CURSOR_ACCESS_TOKEN"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "factory-droid"
+name = "factory-droid"
+protocols = ["factory"]
+base_url = "https://api.factory.ai/api/llm/a"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "google-antigravity"
+name = "google-antigravity"
+protocols = ["gemini"]
+auth = "oauth"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "google-gemini-cli"
+name = "google-gemini-cli"
+protocols = ["gemini"]
+base_url = "https://cloudcode-pa.googleapis.com"
+auth = "oauth"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "groq"
+name = "groq"
+protocols = ["openai-chat"]
+base_url = "https://api.groq.com/openai/v1"
+auth = "unknown"
+env = ["GROQ_API_KEY"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "helmcode"
+name = "helmcode"
+protocols = ["openai-chat"]
+auth = "unknown"
+env = ["HELMCODE_API_KEY"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "kimi-code"
+name = "kimi-code"
+protocols = ["openai-chat"]
+base_url = "https://api.kimi.com"
+auth = "oauth"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "minimax-code"
+name = "minimax-code"
+protocols = ["anthropic-messages", "openai-chat"]
+base_url = "https://api.minimax.io/anthropic"
+auth = "unknown"
+cache_ttl_max = 300
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "minimax-code-cn"
+name = "minimax-code-cn"
+protocols = ["anthropic-messages", "openai-chat"]
+base_url = "https://api.minimaxi.com/anthropic"
+auth = "unknown"
+cache_ttl_max = 300
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "mistral"
+name = "mistral"
+protocols = ["openai-chat"]
+base_url = "https://api.mistral.ai/v1"
+auth = "unknown"
+env = ["MISTRAL_API_KEY"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "nanogpt"
+name = "nanogpt"
+protocols = ["openai-chat"]
+base_url = "https://nano-gpt.com/api/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "openai"
+name = "openai"
+protocols = ["openai-responses"]
+base_url = "https://api.openai.com/v1"
+auth = "unknown"
+env = ["OPENAI_API_KEY"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "sakana"
+name = "sakana"
+protocols = ["openai-chat"]
+base_url = "https://api.sakana.ai/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "siliconflow"
+name = "siliconflow"
+protocols = ["openai-chat"]
+base_url = "https://api.siliconflow.com/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "siliconflow-cn"
+name = "siliconflow-cn"
+protocols = ["openai-chat"]
+base_url = "https://api.siliconflow.cn/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "singularityapi-dev"
+name = "singularityapi-dev"
+protocols = ["openai-chat"]
+base_url = "https://api.singularityapi.dev/v1"
+auth = "unknown"
+env = ["SINGULARITYAPI_DEV_API_KEY"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "singularityapi-tech"
+name = "singularityapi-tech"
+protocols = ["openai-chat"]
+base_url = "https://api.singularityapi.tech/v1"
+auth = "unknown"
+env = ["SINGULARITYAPI_TECH_API_KEY"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "synthetic"
+name = "synthetic"
+protocols = ["openai-chat"]
+base_url = "https://api.synthetic.new/openai/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "together"
+name = "together"
+protocols = ["openai-chat"]
+base_url = "https://api.together.xyz/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "umans"
+name = "umans"
+protocols = ["anthropic-messages"]
+auth = "unknown"
+env = ["UMANS_AI_CODING_PLAN_API_KEY"]
+cache_ttl_max = 300
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "venice"
+name = "venice"
+protocols = ["openai-chat"]
+base_url = "https://api.venice.ai/api/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "wafer"
+name = "wafer"
+protocols = ["openai-chat"]
+base_url = "https://pass.wafer.ai/v1"
+auth = "unknown"
+env = ["WAFER_SERVERLESS_API_KEY"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "xiaomi-token-plan-ams"
+name = "xiaomi-token-plan-ams"
+protocols = ["openai-chat"]
+base_url = "https://token-plan-ams.xiaomimimo.com/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "xiaomi-token-plan-cn"
+name = "xiaomi-token-plan-cn"
+protocols = ["openai-chat"]
+base_url = "https://token-plan-cn.xiaomimimo.com/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "xiaomi-token-plan-sgp"
+name = "xiaomi-token-plan-sgp"
+protocols = ["openai-chat"]
+base_url = "https://token-plan-sgp.xiaomimimo.com/v1"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "yolo-auto"
+name = "yolo-auto"
+protocols = ["openai-chat"]
+base_url = "https://yolo-auto.com/v1"
+auth = "unknown"
+env = ["YOLO_AUTO_API_KEY"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "zenmux"
+name = "zenmux"
+protocols = ["anthropic-messages", "openai-chat"]
+auth = "unknown"
+cache_ttl_max = 300
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[provider]]
+id = "zhipu-coding-plan"
+name = "zhipu-coding-plan"
+protocols = ["openai-chat"]
+base_url = "https://open.bigmodel.cn/api/coding/paas/v4"
+auth = "unknown"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+
+
+# Server lokal (PROVIDERS.md §Provider lokal). Base URL default dapat dioverride config.
+
+[[local]]
+id = "local-ollama"
+name = "Ollama (local)"
+protocols = ["openai-chat", "ollama"]
+base_url = "http://127.0.0.1:11434"
+auth = "none"
+capabilities = ["tools", "vision", "reasoning"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[local]]
+id = "local-llamacpp"
+name = "llama.cpp (local)"
+protocols = ["openai-chat", "ollama"]
+base_url = "http://127.0.0.1:8080/v1"
+auth = "none"
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[local]]
+id = "local-vllm"
+name = "vLLM (local)"
+protocols = ["openai-chat"]
+base_url = "http://127.0.0.1:8000/v1"
+auth = "none"
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[local]]
+id = "local-lmstudio"
+name = "LM Studio (local)"
+protocols = ["openai-chat"]
+base_url = "http://127.0.0.1:1234/v1"
+auth = "none"
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[local]]
+id = "local-litellm"
+name = "LiteLLM proxy (local)"
+protocols = ["openai-chat"]
+base_url = "http://localhost:4000/v1"
+auth = "none"
+capabilities = ["tools"]
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+
+[[local]]
+id = "local-apple"
+name = "Apple Foundation Models (local)"
+protocols = ["apple"]
+auth = "none"
+cache_ttl_max = 0
+prices = "unpriced"
+limits = { context_window = 0, max_output = 0 }
+

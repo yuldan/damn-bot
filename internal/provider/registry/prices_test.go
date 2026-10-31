@@ -129,7 +129,7 @@ func validEntry() priceEntry {
 	}
 }
 
-func encode(t *testing.T, f priceFile) string {
+func encode(t *testing.T, f *priceFile) string {
 	t.Helper()
 	var b strings.Builder
 	if err := toml.NewEncoder(&b).Encode(f); err != nil {
@@ -142,7 +142,7 @@ func encode(t *testing.T, f priceFile) string {
 // load, never as a silently zero or inherited price at call time.
 func TestParsePriceTableRejectsInvalid(t *testing.T) {
 	t.Parallel()
-	valid := encode(t, priceFile{Version: "t", Price: []priceEntry{validEntry()}})
+	valid := encode(t, &priceFile{Version: "t", Price: []priceEntry{validEntry()}})
 	if table, err := ParsePriceTable([]byte(valid)); err != nil {
 		t.Fatalf("valid table rejected: %v", err)
 	} else if got := table.Lookup("https://api.example.com/v1", "m"); len(got) != 1 ||
@@ -153,12 +153,12 @@ func TestParsePriceTableRejectsInvalid(t *testing.T) {
 	mutate := func(f func(*priceEntry)) string {
 		e := validEntry()
 		f(&e)
-		return encode(t, priceFile{Version: "t", Price: []priceEntry{e}})
+		return encode(t, &priceFile{Version: "t", Price: []priceEntry{e}})
 	}
 	second := func(f func(*priceEntry)) string {
 		e := validEntry()
 		f(&e)
-		return encode(t, priceFile{Version: "t", Price: []priceEntry{validEntry(), e}})
+		return encode(t, &priceFile{Version: "t", Price: []priceEntry{validEntry(), e}})
 	}
 	cases := []struct {
 		name string
@@ -166,7 +166,7 @@ func TestParsePriceTableRejectsInvalid(t *testing.T) {
 	}{
 		{"malformed TOML", "version = \"t\"\n[[price]\nid = \"x\"\n"},
 		{"unknown key", strings.Replace(valid, "input = 100", "imput = 100", 1)},
-		{"missing version", encode(t, priceFile{Price: []priceEntry{validEntry()}})},
+		{"missing version", encode(t, &priceFile{Price: []priceEntry{validEntry()}})},
 		{"missing id", mutate(func(e *priceEntry) { e.ID = "" })},
 		{"missing model", mutate(func(e *priceEntry) { e.Model = "" })},
 		{"missing source", mutate(func(e *priceEntry) { e.Source = "  " })},
@@ -198,7 +198,7 @@ func TestParsePriceTableRejectsInvalid(t *testing.T) {
 	two.ID, two.From, two.Input = "b", "2026-06-01", num(300)
 	first := validEntry()
 	first.Until = "2026-06-01"
-	if _, err := ParsePriceTable([]byte(encode(t, priceFile{Version: "t", Price: []priceEntry{two, first}}))); err != nil {
+	if _, err := ParsePriceTable([]byte(encode(t, &priceFile{Version: "t", Price: []priceEntry{two, first}}))); err != nil {
 		t.Errorf("adjacent dated entries rejected: %v", err)
 	}
 }
@@ -266,7 +266,7 @@ func checkExpiryCase(t *testing.T, now time.Time, until string, expire bool) {
 	t.Helper()
 	e := validEntry()
 	e.Until = until
-	table, err := ParsePriceTable([]byte(encode(t, priceFile{Version: "gate", Price: []priceEntry{e}})))
+	table, err := ParsePriceTable([]byte(encode(t, &priceFile{Version: "gate", Price: []priceEntry{e}})))
 	if err != nil {
 		t.Fatalf("fixture rejected: %v", err)
 	}
