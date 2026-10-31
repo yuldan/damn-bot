@@ -295,3 +295,194 @@ func TestNoAdapterFailsClosed(t *testing.T) {
 		t.Fatalf("error = %v, want ErrConfig", err)
 	}
 }
+
+// TestFixtureOversizedResponse: the assembler bound rejects a stream whose
+// kept bytes exceed 16 MiB even when every frame is below the SSЕ limit.
+func TestFixtureOversizedResponse(t *testing.T) {
+	t.Parallel()
+	chunk := strings.Repeat("x", 3<<20)
+	var raw strings.Builder
+	for range 6 {
+		raw.WriteString(`data: {"type":"response.output_text.delta","delta":"`)
+		raw.WriteString(chunk)
+		raw.WriteString("\"}\n\n")
+	}
+	f := newFake(t, reply{raw: raw.String()})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 1)
+	_, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+	if !errors.Is(err, provider.ErrResponseTooLarge) {
+		t.Fatalf("error = %v, want ErrResponseTooLarge", err)
+	}
+}
+
+// TestExtraBodyRejected: a reserved extra_body key and a non-JSON value fail
+// the request instead of silently overriding a field encode owns.
+func TestExtraBodyRejected(t *testing.T) {
+	t.Parallel()
+	for _, extra := range []map[string]any{
+		{"model": "other"},
+		{"x_bad": func() {}},
+	} {
+		f := newFake(t, reply{raw: fixture(t, "text.sse")})
+		r := route("m", f.URL())
+		r.ExtraBody = extra
+		c := newClient(t, []provider.Route{r}, nil, 1)
+		_, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+		var pe *provider.Error
+		if !errors.As(err, &pe) || pe.Class != retry.BadRequest {
+			t.Fatalf("extra %v: error = %v, want BadRequest", extra, err)
+		}
+		if reqs, _ := f.requests(); len(reqs) != 0 {
+			t.Fatalf("extra %v: %d requests sent, want 0", extra, len(reqs))
+		}
+	}
+}
+
+// TestExtraBodyMerged: a non-reserved extra_body key reaches the wire body.
+func TestExtraBodyMerged(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "text.sse")})
+	r := route("m", f.URL())
+	r.ExtraBody = map[string]any{"service_tier": "flex"}
+	c := newClient(t, []provider.Route{r}, nil, 0)
+	if _, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	reqs, _ := f.requests()
+	if !strings.Contains(reqs[0], `"service_tier":"flex"`) {
+		t.Fatalf("extra_body not merged: %s", reqs[0])
+	}
+}
+
+// TestOutputItemFallback: a message item in the final output supplies the
+// text when the server sent no delta; unknown item types are ignored.
+func TestOutputItemFallback(t *testing.T) {
+	t.Parallel()
+	raw := `data: {"type":"response.output_item.done","item":{"type":"message","content":[{"type":"output_text","text":"final"}]}}
+
+data: {"type":"response.output_item.done","item":{"type":"unknown","x":1}}
+
+data: {"type":"response.completed","response":{"model":"gpt-test","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"final"}]},{"type":"unknown"}],"usage":{"input_tokens":1,"output_tokens":1}}}
+
+`
+	f := newFake(t, reply{raw: raw})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 0)
+	resp, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+	if err != nil || resp.Content != "final" {
+		t.Fatalf("response = %+v, %v", resp, err)
+	}
+}
+
+// TestMalformedStream: invalid JSON fails as stream_broken whether it comes
+// first or after a consumed delta, and an item that is not JSON does too.
+func TestMalformedStream(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"first":  "data: not-json\n\n",
+		"later":  "data: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}\n\ndata: not-json\n\n",
+		"item":   "data: {\"type\":\"response.output_item.done\",\"item\":\"not-an-object\"}\n\n",
+		"noterm": "data: {\"type\":\"response.output_text.delta\",\"delta\":\"x\"}\n\ndata: [DONE]\n\n",
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFake(t, reply{raw: raw})
+			c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 1)
+			_, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+			var pe *provider.Error
+			if !errors.As(err, &pe) || pe.Class != retry.StreamBroken {
+				t.Fatalf("error = %v, want stream_broken", err)
+			}
+		})
+	}
+}
+
+// TestStreamErrorClasses: response.failed and error events map to the SPEC
+// failure classes, and the error body is bounded to 64 KiB.
+func TestStreamErrorClasses(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		raw  string
+		want retry.Class
+	}{
+		{`{"type":"response.failed","response":{"status":"failed","error":{"code":"server_error","message":"boom"}}}`, retry.Server},
+		{`{"type":"error","code":"overloaded_error","message":"busy"}`, retry.Overloaded},
+		{`{"type":"error","code":"context_length_exceeded","message":"long"}`, retry.ContextLength},
+		{`{"type":"error","code":"invalid_api_key","message":"key"}`, retry.Auth},
+		{`{"type":"error","code":"invalid_request_error","message":"bad"}`, retry.BadRequest},
+		{`{"type":"error","code":"weird_error","message":"?"}`, retry.Server},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.want)+"-"+tc.raw[:20], func(t *testing.T) {
+			t.Parallel()
+			f := newFake(t, reply{raw: "data: " + tc.raw + "\n\n"})
+			c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 1)
+			_, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+			var pe *provider.Error
+			if !errors.As(err, &pe) || pe.Class != tc.want {
+				t.Fatalf("error = %v, want class %v", err, tc.want)
+			}
+			if tc.want != retry.Server {
+				return
+			}
+			if len(pe.Body) > 64<<10 {
+				t.Fatalf("body = %d bytes, want <= 64 KiB", len(pe.Body))
+			}
+		})
+	}
+	t.Run("truncated-body", func(t *testing.T) {
+		t.Parallel()
+		msg := strings.Repeat("m", 70<<10)
+		f := newFake(t, reply{raw: `data: {"type":"error","code":"server_error","message":"` + msg + `"}` + "\n\n"})
+		c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 1)
+		_, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+		var pe *provider.Error
+		if !errors.As(err, &pe) || len(pe.Body) != 64<<10 {
+			t.Fatalf("error = %v, body len = %d", err, len(pe.Body))
+		}
+	})
+}
+
+// TestTerminalWithoutResponse: a terminal event without its response object is
+// stream_broken instead of a nil dereference or a silent success.
+func TestTerminalWithoutResponse(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: `data: {"type":"response.completed"}` + "\n\n"})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 1)
+	_, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+	var pe *provider.Error
+	if !errors.As(err, &pe) || pe.Class != retry.StreamBroken {
+		t.Fatalf("error = %v, want stream_broken", err)
+	}
+}
+
+// TestInputShapes: assistant text becomes output_text, an empty role becomes
+// user, and optional sampling parameters reach the body only when set.
+func TestInputShapes(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "text.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 0)
+	temp := 0.2
+	req := &provider.Request{
+		Model: "openai/m",
+		Messages: []provider.Message{
+			{Role: "assistant", Content: "hi there"},
+			{Role: "", Content: "question"},
+		},
+		Temperature:     &temp,
+		ReasoningEffort: "low",
+	}
+	if _, err := c.Do(t.Context(), provider.PurposeTurn, req, nil); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	reqs, _ := f.requests()
+	body := reqs[0]
+	if !strings.Contains(body, `"text":"hi there","type":"output_text"`) ||
+		!strings.Contains(body, `"text":"question","type":"input_text"`) ||
+		!strings.Contains(body, `"role":"user"`) {
+		t.Fatalf("input shapes = %s", body)
+	}
+	if !strings.Contains(body, `"temperature":0.2`) || !strings.Contains(body, `"reasoning":{"effort":"low"}`) {
+		t.Fatalf("sampling parameters = %s", body)
+	}
+}
