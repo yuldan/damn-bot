@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strconv"
 	"sync"
 	"sync/atomic"
 
+	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/netx/jsonrpc"
 )
 
@@ -162,6 +165,13 @@ func (t *httpTransport) post(ctx context.Context, body []byte) (*http.Response, 
 // the message whose id matches the request is returned; progress and server
 // requests on the same stream are ignored.
 func readResponse(resp *http.Response, id json.RawMessage) (jsonrpc.Message, error) {
+	media, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+	if err != nil {
+		media = ""
+	}
+	if media == "text/event-stream" {
+		return readSSE(resp.Body, id)
+	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxFrame+1))
 	if err != nil {
 		return jsonrpc.Message{}, fmt.Errorf("mcp: read response: %w", err)
@@ -177,6 +187,30 @@ func readResponse(resp *http.Response, id json.RawMessage) (jsonrpc.Message, err
 		return jsonrpc.Message{}, fmt.Errorf("%w: response id mismatch", ErrProtocol)
 	}
 	return msg, nil
+}
+
+func readSSE(body io.Reader, id json.RawMessage) (jsonrpc.Message, error) {
+	parser := netx.NewSSEParser(body, MaxFrame)
+	for range 10_000 {
+		event, err := parser.Next()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return jsonrpc.Message{}, fmt.Errorf("%w: stream ended before response", ErrProtocol)
+			}
+			return jsonrpc.Message{}, fmt.Errorf("%w: sse: %w", ErrProtocol, err)
+		}
+		if len(event.Data) == 0 {
+			continue
+		}
+		var msg jsonrpc.Message
+		if err := json.Unmarshal(event.Data, &msg); err != nil {
+			return jsonrpc.Message{}, fmt.Errorf("%w: sse message: %w", ErrProtocol, err)
+		}
+		if string(bytes.TrimSpace(msg.ID)) == string(id) {
+			return msg, nil
+		}
+	}
+	return jsonrpc.Message{}, fmt.Errorf("%w: too many SSE events", ErrProtocol)
 }
 
 func closeBody(resp *http.Response) {

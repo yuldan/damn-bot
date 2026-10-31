@@ -1,7 +1,11 @@
 package mcp
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -115,12 +119,30 @@ func (s *Server) validateHTTP() error {
 	if len(s.Command) > 0 || len(s.Env) > 0 {
 		return fmt.Errorf("%w: %s mixes http and stdio fields", ErrInvalidConfig, s.Name)
 	}
-	// Header nilai divalidasi bersama config [modules.mcp] di PR B.
+	for name, value := range s.Headers {
+		if !validHeaderName(name) || reservedHeader(name) {
+			return fmt.Errorf("%w: %s header %q", ErrInvalidConfig, s.Name, name)
+		}
+		if !strings.HasPrefix(value, "keychain:") {
+			return fmt.Errorf("%w: %s header %q must be a keychain:<id> reference", ErrInvalidConfig, s.Name, name)
+		}
+	}
 	return nil
 }
 
 // Timeout is the per-call deadline of this server.
 func (s *Server) Timeout() time.Duration { return time.Duration(s.TimeoutS) * time.Second }
+
+// ConfigSHA is the cache key component: every behaviour-affecting field is
+// canonical JSON, so a changed server never reads another server's cache.
+func (s *Server) ConfigSHA() (string, error) {
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return "", fmt.Errorf("mcp: config sha: %w", err)
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
+}
 
 // argv returns the executable and arguments passed to host.Spawn.
 func (s *Server) argv() []string {
@@ -163,4 +185,34 @@ func validEnvName(name string) bool {
 
 func validEnvValue(value string) bool {
 	return len(value) <= MaxConfigField && !strings.ContainsRune(value, 0)
+}
+
+func validHeaderName(name string) bool {
+	return name != "" && len(name) <= 128 && httpgutsValid(name)
+}
+
+// httpgutsValid is the RFC 7230 token check without importing net/http's
+// internal package.
+func httpgutsValid(name string) bool {
+	const punctuation = "!#$%&'*+-.^_`|~"
+	for i := range len(name) {
+		c := name[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case strings.ContainsRune(punctuation, rune(c)):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// reservedHeader refuses transport-owned headers: the client installs the
+// session and protocol version itself and must never be shadowed by config.
+func reservedHeader(name string) bool {
+	switch http.CanonicalHeaderKey(name) {
+	case "Content-Type", "Accept", "Mcp-Session-Id", "Mcp-Protocol-Version":
+		return true
+	}
+	return false
 }
