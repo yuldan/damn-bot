@@ -15,7 +15,7 @@ import (
 const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
-	maxCoreLOC       = 48200 // ADR-261: 47.800 -> 48.200 (registry 660; Σ core 48.148); ADR-262: provider 2217, Σ core 48.171.
+	maxCoreLOC       = 48700 // ADR-263: 48.200 -> 48.700 (netx/jsonrpc 520; Σ core 48.691 setelah ADR-261/262/263).
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
 	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)
