@@ -156,13 +156,19 @@ func (l *Loop) Prompt(ctx context.Context, sessionID string, in Input) (<-chan e
 		seen: map[[32]byte]int{},
 	}
 	// E-26: the turn goroutine starts only through boundary, which also
-	// recovers a panic into a *boundary.PanicError (the stream is closed).
+	// recovers a panic into a *boundary.PanicError. The recover/logging Run
+	// is inside the goroutine so the stream stays open until recovery has
+	// finished; otherwise a consumer can observe "turn done" (close) before
+	// the panic log is written, and a slow first log (Windows time zone
+	// init) outlives the test binary's goroutine check (E-29).
 	_ = boundary.Go(turnCtx, "loop.turn", func(ctx context.Context) error {
 		defer close(out)
 		defer cancel()
 		defer l.finish(sessionID)
-		t.run(ctx)
-		return nil
+		return boundary.Run(ctx, "loop.turn", func(ctx context.Context) error {
+			t.run(ctx)
+			return nil
+		})
 	})
 	return out, nil
 }
