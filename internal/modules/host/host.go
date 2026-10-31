@@ -4,9 +4,11 @@
 // tool pipeline, the provider or the event store. Everything it needs
 // arrives through [Host], which the composition root implements once.
 //
-// The package is a leaf contract: types and interfaces only, no I/O and no
-// behaviour beyond argument validation. Interfaces stay small (E-09: at most
-// five methods) so an implementation and a test fake are cheap.
+// The package is a leaf contract: types, interfaces, argument validation and
+// the fail-closed defaults of the capability seam, with no I/O. Interfaces stay
+// small (E-09: at most five methods) so an implementation and a test fake are
+// cheap; capabilities beyond the five Host methods live in the separate
+// [CapabilityProvider] seam (ADR-268).
 package host
 
 import (
