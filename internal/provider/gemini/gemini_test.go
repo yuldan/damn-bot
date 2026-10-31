@@ -285,8 +285,149 @@ func TestNoContextProbe(t *testing.T) {
 	}
 }
 
-// TestRequestShapes: system instruction, thinking budget, and temperature
-// reach the body in the native shape.
+// TestFixtureToolCall: functionCall parts become tool calls and their
+// thoughtSignature parts become carriers; a STOP with calls is tool_calls.
+func TestFixtureToolCall(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "tool.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 0)
+	req := ask("ls")
+	req.Tools = []provider.ToolSchema{{Name: "shell", Description: "run", Parameters: json.RawMessage(`{"type":"object"}`)}}
+	resp, err := c.Do(t.Context(), provider.PurposeTurn, req, nil)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if resp.FinishReason != provider.FinishToolCalls || len(resp.ToolCalls) != 2 {
+		t.Fatalf("finish/tools = %q/%+v", resp.FinishReason, resp.ToolCalls)
+	}
+	if resp.ToolCalls[0].Name != "shell" || resp.ToolCalls[0].ArgumentsRaw != `{"cmd":"ls"}` || resp.ToolCalls[0].ID == "" {
+		t.Fatalf("call 0 = %+v", resp.ToolCalls[0])
+	}
+	if resp.ToolCalls[1].Name != "read" || resp.ToolCalls[1].ID == resp.ToolCalls[0].ID {
+		t.Fatalf("call 1 = %+v", resp.ToolCalls[1])
+	}
+	if len(resp.Carriers) != 2 || resp.Carriers[0].Kind != provider.CarrierThoughtSignature {
+		t.Fatalf("carriers = %+v", resp.Carriers)
+	}
+}
+
+// TestCarrierSignatureReplay: every thoughtSignature is projected back onto
+// its own function call on the next turn, and the tool result becomes a
+// functionResponse named after the call.
+func TestCarrierSignatureReplay(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "tool.sse")}, reply{raw: fixture(t, "text.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 0)
+	first, err := c.Do(t.Context(), provider.PurposeTurn, ask("ls"), nil)
+	if err != nil || len(first.Carriers) != 2 {
+		t.Fatalf("first Do = %+v, %v", first, err)
+	}
+	msgs := []provider.Message{
+		{Role: "user", Content: "ls"},
+		{Role: "assistant", ToolCalls: first.ToolCalls, Carriers: first.Carriers},
+		{Role: "tool", ToolCallID: first.ToolCalls[0].ID, Content: "a.txt"},
+	}
+	if _, err := c.Do(t.Context(), provider.PurposeTurn, &provider.Request{Model: "gemini/m", Messages: msgs}, nil); err != nil {
+		t.Fatalf("second Do: %v", err)
+	}
+	reqs, _, _ := f.requests()
+	body := reqs[1]
+	for _, sig := range []string{"sigA", "sigB"} {
+		if !strings.Contains(body, sig) {
+			t.Fatalf("signature %s not replayed: %s", sig, body)
+		}
+	}
+	if strings.Count(body, `"functionCall"`) != 2 {
+		t.Fatalf("function calls duplicated or dropped: %s", body)
+	}
+	if !strings.Contains(body, `"functionResponse":{"name":"shell","response":{"result":"a.txt"}}`) {
+		t.Fatalf("function response missing name: %s", body)
+	}
+}
+
+// TestCarrierSignatureRetry: a 400 that names the thought signature drops the
+// rejected carriers once and retries, exactly like the code-based path.
+func TestCarrierSignatureRetry(t *testing.T) {
+	t.Parallel()
+	sigErr := `{"error":{"code":400,"message":"Thought signature is not valid for this function call.","status":"INVALID_ARGUMENT"}}`
+	f := newFake(t, reply{raw: fixture(t, "tool.sse")}, reply{status: http.StatusBadRequest, body: sigErr}, reply{raw: fixture(t, "text.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 1)
+	first, err := c.Do(t.Context(), provider.PurposeTurn, ask("ls"), nil)
+	if err != nil || len(first.Carriers) != 2 {
+		t.Fatalf("first Do = %+v, %v", first, err)
+	}
+	msgs := []provider.Message{
+		{Role: "user", Content: "ls"},
+		{Role: "assistant", ToolCalls: first.ToolCalls, Carriers: first.Carriers},
+	}
+	resp, err := c.Do(t.Context(), provider.PurposeTurn, &provider.Request{Model: "gemini/m", Messages: msgs}, nil)
+	if err != nil || resp.Content != "Hello world" {
+		t.Fatalf("retry response = %+v, %v", resp, err)
+	}
+	if len(resp.RejectedCarriers) != 2 {
+		t.Fatalf("rejected carriers = %+v", resp.RejectedCarriers)
+	}
+	reqs, _, _ := f.requests()
+	if len(reqs) != 3 {
+		t.Fatalf("%d requests, want 3", len(reqs))
+	}
+	if !strings.Contains(reqs[1], "sigA") || strings.Contains(reqs[2], "thoughtSignature") {
+		t.Fatalf("carrier not dropped on retry: %s\n%s", reqs[1], reqs[2])
+	}
+}
+
+// TestCarrierRouteMismatch: the shared carrier engine drops a block replayed
+// to a different model instead of sending it to the wrong origin.
+func TestCarrierRouteMismatch(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "tool.sse")}, reply{raw: fixture(t, "text.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL()), route("other", f.URL())}, nil, 0)
+	first, err := c.Do(t.Context(), provider.PurposeTurn, ask("ls"), nil)
+	if err != nil || len(first.Carriers) != 2 {
+		t.Fatalf("first Do = %+v, %v", first, err)
+	}
+	msgs := []provider.Message{
+		{Role: "user", Content: "ls"},
+		{Role: "assistant", ToolCalls: first.ToolCalls, Carriers: first.Carriers},
+	}
+	second, err := c.Do(t.Context(), provider.PurposeTurn, &provider.Request{Model: "gemini/other", Messages: msgs}, nil)
+	if err != nil {
+		t.Fatalf("second Do: %v", err)
+	}
+	if len(second.CarrierDrops) != 1 || second.CarrierDrops[0].Reason != "route_mismatch" {
+		t.Fatalf("drops = %+v", second.CarrierDrops)
+	}
+	reqs, _, _ := f.requests()
+	if strings.Contains(reqs[1], "sigA") {
+		t.Fatalf("foreign carrier replayed: %s", reqs[1])
+	}
+}
+
+// TestThoughtText: a thought summary is display-only text; its signed part is
+// still replayed byte-identically.
+func TestThoughtText(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "thought.sse")}, reply{raw: fixture(t, "text.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 0)
+	resp, err := c.Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+	if err != nil || resp.Content != "Done" || resp.ReasoningText != "Think" {
+		t.Fatalf("response = %+v, %v", resp, err)
+	}
+	if len(resp.Carriers) != 1 {
+		t.Fatalf("carriers = %+v", resp.Carriers)
+	}
+	msgs := []provider.Message{{Role: "user", Content: "hi"}, {Role: "assistant", Content: resp.Content, Carriers: resp.Carriers}}
+	if _, err := c.Do(t.Context(), provider.PurposeTurn, &provider.Request{Model: "gemini/m", Messages: msgs}, nil); err != nil {
+		t.Fatalf("second Do: %v", err)
+	}
+	reqs, _, _ := f.requests()
+	if !strings.Contains(reqs[1], `"thoughtSignature":"sigT"`) || !strings.Contains(reqs[1], `"thought":true`) {
+		t.Fatalf("thought part not replayed: %s", reqs[1])
+	}
+}
+
+// TestRequestShapes: system instruction, thinking budget, temperature, and a
+// sanitized tool schema all reach the body.
 func TestRequestShapes(t *testing.T) {
 	t.Parallel()
 	f := newFake(t, reply{raw: fixture(t, "text.sse")})
@@ -297,10 +438,17 @@ func TestRequestShapes(t *testing.T) {
 		Messages: []provider.Message{
 			{Role: "system", Content: "be brief"},
 			{Role: "user", Content: "hi"},
+			{Role: "tool", ToolCallID: "fc_known", Content: "x"},
 		},
+		Tools: []provider.ToolSchema{{
+			Name: "shell", Description: "run",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"cmd":{"type":["string","null"]}},"additionalProperties":false}`),
+		}},
 		Temperature:     &temp,
 		ReasoningEffort: "high",
 	}
+	// The tool result needs a matching call name in the history.
+	req.Messages[1].ToolCalls = []provider.ToolCall{{ID: "fc_known", Name: "shell"}}
 	if _, err := c.Do(t.Context(), provider.PurposeTurn, req, nil); err != nil {
 		t.Fatalf("Do: %v", err)
 	}
@@ -310,7 +458,8 @@ func TestRequestShapes(t *testing.T) {
 		`"systemInstruction":{"parts":[{"text":"be brief"}]}`,
 		`"thinkingConfig":{"thinkingBudget":4096,"includeThoughts":true}`,
 		`"temperature":0.2`,
-		`"maxOutputTokens":8192`,
+		`"functionDeclarations":[{"name":"shell","description":"run","parameters":{"type":"object","properties":{"cmd":{"type":["string","null"]}},"additionalProperties":false}}]`,
+		`"functionResponse":{"name":"shell","response":{"result":"x"}}`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %s:\n%s", want, body)
@@ -333,5 +482,22 @@ func TestExtraBodyRejected(t *testing.T) {
 	}
 	if reqs, _, _ := f.requests(); len(reqs) != 0 {
 		t.Fatalf("%d requests sent, want 0", len(reqs))
+	}
+}
+
+// TestMissingFunctionName: a tool result without a matching call in the
+// history fails clearly instead of sending a nameless functionResponse.
+func TestMissingFunctionName(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "text.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 1)
+	req := &provider.Request{Model: "gemini/m", Messages: []provider.Message{
+		{Role: "user", Content: "hi"},
+		{Role: "tool", ToolCallID: "who", Content: "x"},
+	}}
+	_, err := c.Do(t.Context(), provider.PurposeTurn, req, nil)
+	var pe *provider.Error
+	if !errors.As(err, &pe) || pe.Class != retry.BadRequest || !strings.Contains(err.Error(), "no matching function call name") {
+		t.Fatalf("error = %v", err)
 	}
 }

@@ -1,0 +1,4 @@
+data: {"candidates":[{"content":{"parts":[{"text":"Think","thought":true,"thoughtSignature":"sigT"}],"role":"model"}}]}
+
+data: {"candidates":[{"content":{"parts":[{"text":"Done"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":2},"modelVersion":"gemini-test"}
+

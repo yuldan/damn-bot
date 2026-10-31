@@ -3,6 +3,8 @@
 package gemini
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +22,7 @@ import (
 // Assembly bounds against a hostile or broken endpoint.
 const (
 	maxResponseBytes = 16 << 20
+	maxToolCalls     = 128
 	maxErrorBody     = 64 << 10
 )
 
@@ -58,6 +61,8 @@ type wireError struct {
 type assembler struct {
 	content []byte
 	reason  []byte
+	sigs    []json.RawMessage
+	tools   []provider.ToolCall
 	finish  string
 	usage   wireUsage
 	model   string
@@ -124,7 +129,8 @@ func (a *assembler) add(ch *streamChunk, start time.Time, onChunk func(provider.
 	return nil
 }
 
-// part records one text or thought-summary part.
+// part records one content part: text, thought text, a function call, and its
+// thought signature (kept byte-identically for replay).
 func (a *assembler) part(raw json.RawMessage, start time.Time, onChunk func(provider.Chunk)) error {
 	if a.size += len(raw); a.size > maxResponseBytes {
 		return tooLarge()
@@ -133,9 +139,26 @@ func (a *assembler) part(raw json.RawMessage, start time.Time, onChunk func(prov
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return &provider.Error{Class: retry.StreamBroken, Err: fmt.Errorf("decode part: %w", err)}
 	}
-	if p.Text == "" {
-		return nil
+	if p.FunctionCall != nil {
+		call, err := toolCall(p.FunctionCall)
+		if err != nil {
+			return err
+		}
+		if len(a.tools) >= maxToolCalls {
+			return tooLarge()
+		}
+		a.tools = append(a.tools, call)
 	}
+	if p.Text != "" {
+		a.text(p, start, onChunk)
+	}
+	if len(p.ThoughtSignature) > 0 && string(p.ThoughtSignature) != "null" {
+		a.sigs = append(a.sigs, append(json.RawMessage(nil), raw...))
+	}
+	return nil
+}
+
+func (a *assembler) text(p part, start time.Time, onChunk func(provider.Chunk)) {
 	if p.Thought {
 		a.reason = append(a.reason, p.Text...)
 		if onChunk != nil {
@@ -150,23 +173,48 @@ func (a *assembler) part(raw json.RawMessage, start time.Time, onChunk func(prov
 	if a.ttft == 0 {
 		a.ttft = time.Since(start)
 	}
-	return nil
 }
 
-// result validates and returns the assembled response.
+// toolCall names a function call with a deterministic id derived from its
+// content: the native API has no call id, and the id only has to map a later
+// functionResponse back to this call.
+func toolCall(fc *fnCall) (provider.ToolCall, error) {
+	args := fc.Args
+	if len(args) == 0 {
+		args = json.RawMessage(`{}`)
+	}
+	if !json.Valid(args) {
+		return provider.ToolCall{}, &provider.Error{Class: retry.StreamBroken, Err: fmt.Errorf("function call %q arguments are not JSON", fc.Name)}
+	}
+	sum := sha256.Sum256(append(append([]byte(fc.Name), 0), args...))
+	return provider.ToolCall{ID: "fc_" + hex.EncodeToString(sum[:8]), Name: fc.Name, ArgumentsRaw: string(args)}, nil
+}
+
+// result validates and returns the assembled response. A STOP that carries
+// function calls is a tool-call turn, as the loop expects from every wire.
 func (a *assembler) result() (provider.Response, error) {
 	if a.finish == "" {
 		return provider.Response{}, &provider.Error{Class: retry.StreamBroken, Err: provider.ErrStreamBroken}
 	}
-	r := provider.Response{
-		Content:       string(a.content),
-		FinishReason:  a.finish,
-		Model:         a.model,
-		TTFT:          a.ttft,
-		Usage:         budget.Usage{Input: a.usage.Prompt, CachedInput: a.usage.Cached, Output: a.usage.Candidates},
-		ReasoningText: string(a.reason),
+	if len(a.tools) > 0 && a.finish == provider.FinishStop {
+		a.finish = provider.FinishToolCalls
 	}
-	if r.FinishReason == provider.FinishStop && strings.TrimSpace(r.Content) == "" {
+	r := provider.Response{
+		Content:      string(a.content),
+		ToolCalls:    a.tools,
+		FinishReason: a.finish,
+		Model:        a.model,
+		TTFT:         a.ttft,
+		Usage:        budget.Usage{Input: a.usage.Prompt, CachedInput: a.usage.Cached, Output: a.usage.Candidates},
+	}
+	if len(a.sigs) > 0 {
+		r.Reasoning = joinRaw(a.sigs)
+		r.ReasoningField = "reasoning"
+	}
+	if len(a.reason) > 0 {
+		r.ReasoningText = string(a.reason)
+	}
+	if r.FinishReason == provider.FinishStop && strings.TrimSpace(r.Content) == "" && len(r.ToolCalls) == 0 {
 		return r, &provider.Error{Class: retry.EmptyResponse, Err: provider.ErrEmptyResponse}
 	}
 	return r, nil
@@ -220,6 +268,19 @@ func statusClass(status string) retry.Class {
 	default:
 		return retry.Server
 	}
+}
+
+// joinRaw builds the replay array byte-identically from validated parts.
+func joinRaw(parts []json.RawMessage) json.RawMessage {
+	out := make([]byte, 0, 2+len(parts))
+	out = append(out, '[')
+	for i, p := range parts {
+		if i > 0 {
+			out = append(out, ',')
+		}
+		out = append(out, p...)
+	}
+	return append(out, ']')
 }
 
 func tooLarge() error {
