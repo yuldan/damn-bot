@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/modules/host"
 	"github.com/damnbot/damnbot/internal/netx/jsonrpc"
@@ -87,9 +88,14 @@ func startPeer(t *testing.T, handler jsonrpc.Handler) *aProcess {
 
 func TestStdioTransportEnvCallAndClose(t *testing.T) {
 	t.Parallel()
+	notified := make(chan string, 1)
 	proc := startPeer(t, func(_ context.Context, method string, _ json.RawMessage) (any, *jsonrpc.Error) {
-		if method == "echo" {
+		switch method {
+		case "echo":
 			return map[string]string{"ok": "yes"}, nil
+		case "notifications/initialized":
+			notified <- method
+			return nil, nil
 		}
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "no"}
 	})
@@ -111,6 +117,14 @@ func TestStdioTransportEnvCallAndClose(t *testing.T) {
 	}
 	if out["ok"] != "yes" {
 		t.Errorf("result = %v", out)
+	}
+	if err := tr.Notify(context.Background(), "notifications/initialized", nil); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	select {
+	case <-notified:
+	case <-time.After(2 * time.Second):
+		t.Fatal("peer did not receive the notification")
 	}
 	if err := tr.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -177,6 +191,7 @@ func TestHTTPTransportJSONSessionAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newHTTP: %v", err)
 	}
+	tr.setProtocol("2025-06-18")
 	var out map[string]string
 	if err := tr.Call(context.Background(), "tools/list", nil, &out); err != nil {
 		t.Fatalf("Call: %v", err)
@@ -197,5 +212,8 @@ func TestHTTPTransportJSONSessionAndClose(t *testing.T) {
 	}
 	if got := doer.reqs[1].Header.Get("Mcp-Session-Id"); got != "sess-1" {
 		t.Errorf("session header = %q", got)
+	}
+	if got := doer.reqs[0].Header.Get("Mcp-Protocol-Version"); got != "2025-06-18" {
+		t.Errorf("protocol header = %q", got)
 	}
 }
