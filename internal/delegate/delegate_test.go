@@ -488,6 +488,37 @@ func TestDelegateInvalidTask(t *testing.T) {
 	}
 }
 
+// TestDelegateInvalidTaskDoesNotConsumeRate: contract validation runs before
+// the rate limiter, so a rejected task never spends the session's slot.
+// Windows shuffle exposed the opposite order (a valid call could then be
+// rate-limited by a preceding invalid one).
+func TestDelegateInvalidTaskDoesNotConsumeRate(t *testing.T) {
+	t.Parallel()
+	svc, err := delegate.New(&delegate.Config{MinCallPeriod: time.Minute},
+		func(context.Context, *delegate.Request) (delegate.Agent, error) {
+			return fakeAgent{run: func(context.Context, *delegate.Request) (delegate.AgentResult, error) {
+				return delegate.AgentResult{StopReason: "end_turn"}, nil
+			}}, nil
+		}, &memLedger{}, fixedBudget(1), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := tools.Env{Session: view(t, 0)}
+	if _, err := svc.Run(context.Background(), env, []delegate.Task{{Goal: "x", MaxIterations: 41}}, 1); !errors.Is(err, delegate.ErrInvalidConfig) {
+		t.Fatalf("invalid task = %v, want ErrInvalidConfig", err)
+	}
+	if _, err := svc.Run(context.Background(), env, nil, 1); !errors.Is(err, delegate.ErrInvalidConfig) {
+		t.Fatalf("empty tasks = %v, want ErrInvalidConfig", err)
+	}
+	if _, err := svc.Run(context.Background(), env, []delegate.Task{{Goal: "valid"}}, 1); err != nil {
+		t.Fatalf("valid call after invalid ones = %v, want success", err)
+	}
+	// Negative control: the limiter is still active for a second valid call.
+	if _, err := svc.Run(context.Background(), env, []delegate.Task{{Goal: "again"}}, 1); !errors.Is(err, delegate.ErrRateLimited) {
+		t.Fatalf("second valid call = %v, want ErrRateLimited", err)
+	}
+}
+
 func TestDelegateToolSchema(t *testing.T) {
 	t.Parallel()
 	svc, err := delegate.New(&delegate.Config{MinCallPeriod: time.Nanosecond},

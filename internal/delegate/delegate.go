@@ -92,11 +92,6 @@ func (s *Service) Run(ctx context.Context, env tools.Env, tasks []Task, maxParal
 	if err := s.preflight(ctx, view, tasks); err != nil {
 		return Batch{}, err
 	}
-	for i := range tasks {
-		if err := validateTask(&tasks[i]); err != nil {
-			return Batch{}, fmt.Errorf("%w: task %d: %w", ErrInvalidConfig, i+1, err)
-		}
-	}
 	if maxParallel <= 0 || maxParallel > s.cfg.MaxParallel {
 		maxParallel = s.cfg.MaxParallel
 	}
@@ -122,7 +117,8 @@ func (s *Service) Run(ctx context.Context, env tools.Env, tasks []Task, maxParal
 	return batch, nil
 }
 
-// preflight enforces session, depth, rate and task-count limits.
+// preflight enforces session, depth, task and rate limits, validating every
+// task before the rate limiter consumes the session's slot.
 func (s *Service) preflight(ctx context.Context, view tools.SessionView, tasks []Task) error {
 	if !view.Valid() {
 		return ErrSession
@@ -133,15 +129,22 @@ func (s *Service) preflight(ctx context.Context, view tools.SessionView, tasks [
 	if view.Depth() >= s.cfg.MaxDepth {
 		return fmt.Errorf("%w: depth %d of %d", ErrDepth, view.Depth(), s.cfg.MaxDepth)
 	}
-	if ok, wait := s.calls.take(view.SessionID(), s.cfg.Clock()); !ok {
-		s.notifyRateLimited(ctx, view.SessionID(), wait)
-		return fmt.Errorf("%w: retry in %s", ErrRateLimited, wait.Round(time.Millisecond))
-	}
 	if len(tasks) == 0 {
 		return fmt.Errorf("%w: no tasks", ErrInvalidConfig)
 	}
 	if len(tasks) > s.cfg.MaxTasks {
 		return fmt.Errorf("%w: %d tasks, limit %d", ErrInvalidConfig, len(tasks), s.cfg.MaxTasks)
+	}
+	for i := range tasks {
+		if err := validateTask(&tasks[i]); err != nil {
+			return fmt.Errorf("%w: task %d: %w", ErrInvalidConfig, i+1, err)
+		}
+	}
+	// The rate limiter is consumed last: a rejected task must not spend the
+	// session's slot and rate-limit a later valid call.
+	if ok, wait := s.calls.take(view.SessionID(), s.cfg.Clock()); !ok {
+		s.notifyRateLimited(ctx, view.SessionID(), wait)
+		return fmt.Errorf("%w: retry in %s", ErrRateLimited, wait.Round(time.Millisecond))
 	}
 	return nil
 }
