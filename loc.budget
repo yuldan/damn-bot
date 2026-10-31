@@ -290,4 +290,6 @@ MODULE scorecard    500 internal/scorecard
 # ADR-268 (F5-09 awal): SPEC §3.2.4:291 `mcp` (client + server + OAuth + pin
 # tool) 6.500; kode fondasi seam terukur 79. Sigma kelas MODULE 38.500 ->
 # 45.000 (+backup 1.467 = 46.467 <= 46.500; maxModuleLOC 40.000 -> 46.500).
-MODULE mcp         6500 internal/mcp
+# ADR-272 (F5-10): storage konsumen `ctxdb/mcpstore` (pin SEC-04, ADR-074)
+# dibukukan di grup MODULE mcp yang sama; cap 6.500 tidak berubah.
+MODULE mcp         6500 internal/mcp internal/ctxdb/mcpstore

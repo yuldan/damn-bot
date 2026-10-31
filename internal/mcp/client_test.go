@@ -11,6 +11,14 @@ import (
 	"github.com/damnbot/damnbot/internal/netx/jsonrpc"
 )
 
+// mustList primes the pins of a fresh client.
+func mustList(t *testing.T, client *Client) {
+	t.Helper()
+	if _, err := client.ListTools(context.Background()); err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+}
+
 func codeOf(t *testing.T, err error) string {
 	t.Helper()
 	var he *host.Error
@@ -95,6 +103,7 @@ func TestUntrustedToolDeniedByDefault(t *testing.T) {
 	t.Parallel()
 	srv := newFakeServer()
 	client, _ := newStdioClient(t, srv, Server{}, host.Capabilities{})
+	mustList(t, client)
 	_, err := client.CallTool(context.Background(), "echo", json.RawMessage(`{"text":"write"}`), "c1")
 	if code := codeOf(t, err); code != "denied" {
 		t.Fatalf("code = %q, want denied", code)
@@ -109,6 +118,7 @@ func TestApprovalDenyAndAllowOnce(t *testing.T) {
 	srv := newFakeServer()
 	approver := &fakeApprover{answer: host.ApprovalDeny}
 	client, _ := newStdioClient(t, srv, Server{}, host.Capabilities{Approvals: approver})
+	mustList(t, client)
 	if _, err := client.CallTool(context.Background(), "echo", json.RawMessage(`{"text":"x"}`), "c1"); codeOf(t, err) != "denied" {
 		t.Fatalf("deny = %v", err)
 	}
@@ -165,6 +175,7 @@ func TestChildCrashIsUnavailable(t *testing.T) {
 	srv := newFakeServer()
 	srv.crashOnCall = true
 	client, _ := newStdioClient(t, srv, Server{ReadOnly: map[string]bool{"echo": true}}, host.Capabilities{})
+	mustList(t, client)
 	_, err := client.CallTool(context.Background(), "echo", json.RawMessage(`{}`), "c1")
 	if code := codeOf(t, err); code != "module_unavailable" {
 		t.Fatalf("code = %q, want module_unavailable", code)
@@ -175,7 +186,9 @@ func TestCancelSendsMCPNotification(t *testing.T) {
 	t.Parallel()
 	srv := newFakeServer()
 	srv.slowTool = "slow"
+	srv.pages = [][]Tool{{{Name: "slow", InputSchema: json.RawMessage(`{"type":"object"}`)}}}
 	client, _ := newStdioClient(t, srv, Server{ReadOnly: map[string]bool{"slow": true}}, host.Capabilities{})
+	mustList(t, client)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
@@ -201,6 +214,7 @@ func TestResultOverLimit(t *testing.T) {
 		return callResult{Content: []json.RawMessage{json.RawMessage(`{"type":"text","text":"` + strings.Repeat("x", maxResultBytes+1) + `"}`)}}, nil
 	}
 	client, _ := newStdioClient(t, srv, Server{ReadOnly: map[string]bool{"echo": true}}, host.Capabilities{})
+	mustList(t, client)
 	_, err := client.CallTool(context.Background(), "echo", json.RawMessage(`{}`), "c1")
 	if code := codeOf(t, err); code != "too_large" {
 		t.Fatalf("code = %q, want too_large", code)

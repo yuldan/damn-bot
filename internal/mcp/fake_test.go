@@ -56,6 +56,57 @@ func (s *memStore) List(_ context.Context, prefix []byte) ([][]byte, error) {
 	return out, nil
 }
 
+// memPins is the pin store double.
+type memPins struct {
+	mu   sync.Mutex
+	pins map[string]Pin
+}
+
+func newPins() *memPins { return &memPins{pins: map[string]Pin{}} }
+
+func pinKey(server, tool string) string { return server + "\x00" + tool }
+
+func (p *memPins) Pin(_ context.Context, server, tool string) (Pin, bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	pin, ok := p.pins[pinKey(server, tool)]
+	return pin, ok, nil
+}
+
+func (p *memPins) Pins(_ context.Context, server string) ([]Pin, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	var out []Pin
+	for _, pin := range p.pins {
+		if pin.Server == server {
+			out = append(out, pin)
+		}
+	}
+	return out, nil
+}
+
+func (p *memPins) PutPin(_ context.Context, pin Pin) error { //nolint:gocritic // the PinStore interface fixes the value signature
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.pins[pinKey(pin.Server, pin.Tool)] = pin
+	return nil
+}
+
+func (p *memPins) ApprovePin(_ context.Context, server, tool, digest, by string, at int64) (bool, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	pin, ok := p.pins[pinKey(server, tool)]
+	if !ok || pin.SchemaSHA256 != digest || !pin.Blocked() {
+		return false, nil
+	}
+	pin.State = PinPinned
+	pin.ApprovedAt = at
+	pin.ApprovedBy = by
+	pin.Diff = `{"change":"approved"}`
+	p.pins[pinKey(server, tool)] = pin
+	return true, nil
+}
+
 // fakeHost is one in-process module host with injectable capabilities.
 type fakeHost struct {
 	mu      sync.Mutex
@@ -139,6 +190,7 @@ type fakeServer struct {
 	slowTool    string
 	crash       func()
 	cancelIDs   []json.RawMessage
+	notify      func(context.Context, string) error
 
 	mu          sync.Mutex
 	inits       int
@@ -251,6 +303,20 @@ func (s *fakeServer) call(ctx context.Context, params json.RawMessage) (any, *js
 	return callResult{Content: []json.RawMessage{json.RawMessage(`{"type":"text","text":"ok"}`)}}, nil
 }
 
+// sendNotification emits one server notification to the client.
+func (s *fakeServer) sendNotification(t *testing.T, method string) {
+	t.Helper()
+	s.mu.Lock()
+	notify := s.notify
+	s.mu.Unlock()
+	if notify == nil {
+		t.Fatal("server has no connection")
+	}
+	if err := notify(context.Background(), method); err != nil {
+		t.Fatalf("notify %s: %v", method, err)
+	}
+}
+
 func (s *fakeServer) counts() (inits, lists, calls int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -279,6 +345,9 @@ func startStdio(t *testing.T, srv *fakeServer) *fakeProcess {
 			return
 		}
 	}, jsonrpc.Options{MaxFrame: MaxFrame, Handler: srv.handler()})
+	srv.mu.Lock()
+	srv.notify = func(ctx context.Context, method string) error { return conn.Notify(ctx, method, nil) }
+	srv.mu.Unlock()
 	if srv.crashOnCall {
 		srv.crash = func() {
 			if err := s2cW.Close(); err != nil {
@@ -307,7 +376,7 @@ func newSpawnHost(t *testing.T, store *memStore, srv *fakeServer) *fakeHost {
 // mustClient builds a client and closes it at test end.
 func mustClient(t *testing.T, h *fakeHost, cfg Server) *Client { //nolint:gocritic // test helper mirrors the public value API
 	t.Helper()
-	client, err := NewClient(h, cfg, nil)
+	client, err := NewClient(h, cfg, nil, newPins())
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
@@ -319,8 +388,8 @@ func mustClient(t *testing.T, h *fakeHost, cfg Server) *Client { //nolint:gocrit
 	return client
 }
 
-// newStdioClient wires a fake host whose Spawn returns proc.
-func newStdioClient(t *testing.T, srv *fakeServer, cfg Server, caps host.Capabilities) (*Client, *fakeHost) { //nolint:gocritic // test helper mirrors the public value API
+// newPinnedStdioClient is newStdioClient with a caller-owned pin store.
+func newPinnedStdioClient(t *testing.T, srv *fakeServer, cfg Server, caps host.Capabilities, pins PinStore) (*Client, *fakeHost) { //nolint:gocritic // test helper mirrors the public value API
 	t.Helper()
 	proc := startStdio(t, srv)
 	if caps.Secrets == nil {
@@ -332,7 +401,7 @@ func newStdioClient(t *testing.T, srv *fakeServer, cfg Server, caps host.Capabil
 	if cfg.Command == nil && cfg.URL == "" {
 		cfg.Command = []string{"fake-mcp"}
 	}
-	client, err := NewClient(h, cfg, nil)
+	client, err := NewClient(h, cfg, nil, pins)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
@@ -342,4 +411,9 @@ func newStdioClient(t *testing.T, srv *fakeServer, cfg Server, caps host.Capabil
 		}
 	})
 	return client, h
+}
+
+// newStdioClient wires a fake host whose Spawn returns proc.
+func newStdioClient(t *testing.T, srv *fakeServer, cfg Server, caps host.Capabilities) (*Client, *fakeHost) { //nolint:gocritic // test helper mirrors the public value API
+	return newPinnedStdioClient(t, srv, cfg, caps, newPins())
 }

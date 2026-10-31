@@ -27,10 +27,16 @@ const (
 	// MCP notification and method names.
 	notifyInitialized = "notifications/initialized"
 	notifyCancelled   = "notifications/cancelled"
+	notifyListChanged = "notifications/tools/list_changed"
 	methodInitialize  = "initialize"
 	methodListTools   = "tools/list"
 	methodCallTool    = "tools/call"
 )
+
+// notificationSetter delivers inbound server notifications (tools/list_changed).
+type notificationSetter interface {
+	setNotifications(func(context.Context, string))
+}
 
 // Errors of the MCP client. Every security-relevant refusal is a sentinel so
 // the pipeline can map it to a closed tool error code.
@@ -77,11 +83,12 @@ type stdioTransport struct {
 	conn     *jsonrpc.Conn
 	proc     host.Process
 	in       io.WriteCloser
+	notify   func(context.Context, string)
 	once     sync.Once
 	closeErr error
 }
 
-func newStdio(ctx context.Context, h host.Host, s *Server) (*stdioTransport, error) {
+func newStdio(ctx context.Context, h host.Host, s *Server, notify func(context.Context, string)) (*stdioTransport, error) {
 	argv := s.argv()
 	env, err := host.CapabilitiesOf(h).Secrets.ChildEnv(host.AllowPolicy{
 		Inherit: inheritedEnv(),
@@ -120,9 +127,20 @@ func newStdio(ctx context.Context, h host.Host, s *Server) (*stdioTransport, err
 		NotifyCancel: true,
 		CancelMethod: notifyCancelled,
 		CancelParam:  "requestId",
+		Handler: func(ctx context.Context, method string, _ json.RawMessage) (any, *jsonrpc.Error) {
+			// MCP servers send notifications (tools/list_changed); inbound
+			// requests are not part of this client's capability set.
+			if notify != nil {
+				notify(ctx, method)
+			}
+			return nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "method not found"}
+		},
 	})
-	return &stdioTransport{conn: conn, proc: proc, in: in}, nil
+	return &stdioTransport{conn: conn, proc: proc, in: in, notify: notify}, nil
 }
+
+// setNotifications is a no-op for stdio: the handler is installed at construction.
+func (t *stdioTransport) setNotifications(func(context.Context, string)) {}
 
 func (t *stdioTransport) Call(ctx context.Context, method string, params, result any) error {
 	if err := t.conn.Call(ctx, method, params, result); err != nil {

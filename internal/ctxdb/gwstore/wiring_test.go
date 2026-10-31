@@ -57,11 +57,11 @@ func schemaDump(t *testing.T, db *ctxdb.Store) string {
 }
 
 // TestMigration0015FromEmptyDB: a fresh store reaches the newest migration
-// (0016) and the 0015 wiring columns/tables exist.
+// (0017) and the 0015 wiring columns/tables exist.
 func TestMigration0015FromEmptyDB(t *testing.T) {
 	db := open(t)
-	if v := userVersion(t, db); v != 16 {
-		t.Fatalf("user_version = %d, want 16", v)
+	if v := userVersion(t, db); v != 17 {
+		t.Fatalf("user_version = %d, want 17", v)
 	}
 	for _, tbl := range []string{"gateway_message_ids", "gateway_callbacks"} {
 		if !tableExists(t, db, tbl) {
@@ -102,8 +102,8 @@ func TestMigration0015From0014(t *testing.T) {
 	closeStore(t, old)
 
 	db := openDir(t, dir, 0)
-	if v := userVersion(t, db); v != 16 {
-		t.Fatalf("migrated user_version = %d, want 16", v)
+	if v := userVersion(t, db); v != 17 {
+		t.Fatalf("migrated user_version = %d, want 17", v)
 	}
 	if !columnExists(t, db, "gateway_inbound", "thread_id") || !tableExists(t, db, "gateway_message_ids") {
 		t.Fatal("0015 objects missing after the upgrade")
@@ -121,7 +121,7 @@ func TestMigration0015From0014(t *testing.T) {
 
 	again := openDir(t, dir, 0)
 	defer closeStore(t, again)
-	if v := userVersion(t, again); v != 16 || schemaDump(t, again) != dump {
+	if v := userVersion(t, again); v != 17 || schemaDump(t, again) != dump {
 		t.Fatalf("re-run changed the schema: version %d", v)
 	}
 	if n := count(t, again, `SELECT count(*) FROM gateway_inbound`); n != 1 {

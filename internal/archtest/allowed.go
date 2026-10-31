@@ -95,6 +95,7 @@ func allowedImports() map[string][]string {
 		"internal/ctxdb/carrierstore": storeImports(),
 		"internal/ctxdb/compactstore": append(storeImports(), "internal/compaction", "internal/ctxdb/ledgerstore"),
 		"internal/ctxdb/gwstore":      storeImports(),
+		"internal/ctxdb/mcpstore":     storeImports(),
 		"internal/ctxdb/cronstore":    storeImports(),
 		"internal/config":             {"internal/schema", "internal/toolset", "internal/update"},
 		"internal/update":             {"internal/netx"},
