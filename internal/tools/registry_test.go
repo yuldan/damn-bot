@@ -127,7 +127,7 @@ func TestErrorCodeSet(t *testing.T) {
 			t.Fatalf("%s missing from the closed set", c)
 		}
 	}
-	if len(set) != 37 {
-		t.Fatalf("closed set has %d codes, want 37", len(set))
+	if len(set) != 38 {
+		t.Fatalf("closed set has %d codes, want 38", len(set))
 	}
 }
