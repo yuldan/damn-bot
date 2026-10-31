@@ -510,6 +510,7 @@ edited internal/ctxdb/blob.go #3f9a12c0→#91cc0a7e · 1 edit · +3 -1
 - Oracle `ripgrep 15.1.0` dijalankan dengan `--no-config` dan output ke `/dev/null`.
 - Pembanding grep memakai API engine dengan `Limit=-1` (tanpa early exit, output terformat ke `io.Discard`), sehingga Damn-Bot tidak diuntungkan oleh limit.
 - `codeindex` dimatikan untuk perbandingan dengan rg.
+- Gate `make perf` membangun semua test binary lebih dulu, lalu menjalankan tiap paket pemilik benchmark sebagai proses `go test -p 1 -parallel 1` serial; paket tanpa benchmark tidak ikut di jendela ukur (ADR-270).
 
 ### 10.2 Target kinerja
 

@@ -22,6 +22,9 @@ LICENSES_ALLOWED := MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,MPL-2.0
 TARGETS := linux/amd64 linux/arm64 linux/arm darwin/amd64 darwin/arm64 windows/amd64 windows/arm64 android/arm64
 # Job perf (ADR-073, ADR-077, NEW-38): benchmark dengan budget waktu absolut.
 PERF_BENCH ?= ^(BenchmarkShellSpawn|BenchmarkShellSessionExec|BenchmarkClassify|BenchmarkIterationOverhead|BenchmarkCodetools|BenchmarkAppend|BenchmarkDLPScan|BenchmarkSummarize)
+# Paket pemilik benchmark PERF_BENCH (ADR-270). Paket lain tidak memberi benchmark ke gate ini, tetapi
+# TestMain-nya bisa berat (internal/e2e 33–43 s di runner) dan dulu berjalan di antara benchmark.
+PERF_PKGS ?= ./internal/codetools ./internal/exec ./internal/exec/classify ./internal/ctxdb ./internal/netx
 FUZZTIME ?= 60s
 SHARD ?= 1/1
 # Korpus code tools + oracle rg (CODE-TOOLS §10.1, bench/corpora.lock), dibangun `make corpora`.
@@ -156,10 +159,22 @@ flake:
 		go test $(GOTAGS) -count=$$n -shuffle=on $(PKGS); \
 	done
 
-# ADR-073/077, NEW-38: budget waktu absolut benchmark, tag perf (helper timing ×1,5 di runner bersama).
+# ADR-073/077, NEW-38, ADR-270: budget waktu absolut benchmark, tag perf (helper timing ×1,5 di runner
+# bersama). Semua test binary dibangun lebih dulu, lalu tiap paket pemilik benchmark dijalankan serial
+# (-p 1 -parallel 1) sehingga tidak ada kompilasi atau paket lain di jendela ukur. Ambang, -benchtime,
+# dan warmup di dalam benchmark tidak berubah.
 perf: TAGS += perf
 perf:
-	DAMNBOT_TIMING=1 go test $(GOTAGS) -run '^(TestMeasureDurableRetryMeasuresSet2)$$' -bench '$(PERF_BENCH)' -benchtime=100x $(PKGS)
+	@set -e; for p in $(PERF_PKGS); do \
+		echo "perf build $$p"; \
+		go test -c -o /dev/null $(GOTAGS) $$p; \
+	done
+	@rc=0; for p in $(PERF_PKGS); do \
+		echo "perf $$p (serial)"; \
+		DAMNBOT_TIMING=1 go test $(GOTAGS) -p 1 -parallel 1 -run '^(TestMeasureDurableRetryMeasuresSet2)$$' \
+			-bench '$(PERF_BENCH)' -benchtime=100x $$p || rc=1; \
+	done; \
+	exit $$rc
 
 # Acceptance performa F2 (SPEC §11 append p99, §11.6 recall p95 @1 juta event).
 # Skala penuh, tanpa pengecilan dataset; ambang absolut memakai margin ×1,5

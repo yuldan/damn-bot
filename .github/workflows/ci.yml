@@ -261,7 +261,8 @@ jobs:
         run: make fuzz SHARD=3/3
 
   # ADR-179: gate cakupan + benchmark absolut + acceptance fase dalam satu job. `make perf` dijalankan
-  # paling awal agar budget absolut diukur di runner yang belum dipakai langkah berat lain.
+  # paling awal agar budget absolut diukur di runner yang belum dipakai langkah berat lain. ADR-270:
+  # target itu build semua binary dulu lalu menjalankan tiap paket pemilik benchmark serial (-p 1).
   extra:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
