@@ -60,7 +60,7 @@ func (h *LogHandler) Enabled(ctx context.Context, l slog.Level) bool {
 // Handle applies the content policy and forwards the rebuilt record.
 func (h *LogHandler) Handle(ctx context.Context, r slog.Record) error { //nolint:gocritic // slog.Handler fixes the by-value Record signature
 	allowed := h.contentAllowed(r.Level)
-	if h.opts.MessageContent && !allowed && !h.warned.Swap(true) {
+	if h.opts.MessageContent && h.opts.Now().Sub(h.start) >= h.opts.TTL && !h.warned.Swap(true) {
 		// The TTL expired while running: log once through the same handler so
 		// the operator sees the switch back to content-free mode.
 		w := slog.NewRecord(h.opts.Now(), slog.LevelWarn, "log.message_content disabled after ttl", 0)
@@ -120,8 +120,8 @@ func (h *LogHandler) clean(a slog.Attr, contentAllowed bool) []slog.Attr {
 		}
 		return redactedAttrs(a.Key, v)
 	}
-	if isIDKey(key) && v.Kind() == slog.KindString {
-		return []slog.Attr{slog.String(a.Key, h.hmac(v.String()))}
+	if isIDKey(key) {
+		return []slog.Attr{slog.String(a.Key, h.hmac(valueText(v)))}
 	}
 	return []slog.Attr{a}
 }
@@ -148,6 +148,18 @@ func redactedAttrs(key string, v slog.Value) []slog.Attr {
 		slog.Int(key+"_len", len(raw)),
 		slog.String(key+"_sha", hex.EncodeToString(sum[:])[:12]),
 	}
+}
+
+// valueText renders any identifier value so numeric or malformed ids are
+// keyed too; an empty id hashes to a stable 12-hex value.
+func valueText(v slog.Value) string {
+	if s, ok := v.Any().(string); ok {
+		return s
+	}
+	if b, ok := v.Any().([]byte); ok {
+		return string(b)
+	}
+	return fmt.Sprint(v.Any())
 }
 
 // isContentKey is the normative SPEC §22.1 GAP-SEC-11 deny-list. A switch
