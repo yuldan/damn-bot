@@ -1,0 +1,10 @@
+data: {"type":"response.output_item.added","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":""}}
+
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":0,"delta":"{\"cmd\":"}
+
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":0,"delta":"\"ls\"}"}
+
+data: {"type":"response.output_item.done","output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":"{\"cmd\":\"ls\"}"}}
+
+data: {"type":"response.completed","response":{"id":"resp_2","model":"gpt-test","status":"completed","output":[{"id":"fc_1","type":"function_call","call_id":"call_1","name":"shell","arguments":"{\"cmd\":\"ls\"}"}],"usage":{"input_tokens":30,"output_tokens":8}}}
+
