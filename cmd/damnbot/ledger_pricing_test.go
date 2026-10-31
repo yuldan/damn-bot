@@ -204,6 +204,49 @@ func withCost(u event.Usage, c *float64) event.Usage {
 	return u
 }
 
+// TestRunLedgerRecordsCacheCreation (GAP-COST-03): Record keeps the
+// cache-write token count, and a priced route never charges it at the input
+// tier: the cost is unknown unless the provider reported its own charge
+// (ADR-266). Dropping the field here would both lose the usage --cache column
+// and overcharge a table-priced call.
+func TestRunLedgerRecordsCacheCreation(t *testing.T) {
+	t.Parallel()
+	price := &event.Price{InputPerMTok: 150_000, CachedInputPerMTok: 15_000, OutputPerMTok: 600_000, Version: teamRouterVersion}
+	f := func(v float64) *float64 { return &v }
+	cases := []struct {
+		name       string
+		cost       *float64
+		wantMicros int64 // -1 = NULL
+		wantSrc    string
+	}{
+		{"unreported cache-write charge is unknown", nil, -1, "unknown"},
+		{"provider-reported cache-write charge is kept", f(0.002), 2_000, "provider"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			db := ledgerDB(t, "S")
+			l := &ctxLedger{db: db, provider: "p", model: "m"}
+			u := event.Usage{Input: 1_000, CachedInput: 200, CacheCreation: 300, Output: 500, CostUSD: c.cost, Price: price}
+			if err := l.Record(t.Context(), "S", "T", 0, &u); err != nil {
+				t.Fatal(err)
+			}
+			var cache int64
+			if err := db.Write(t.Context(), func(tx *ctxdb.Tx) error {
+				return tx.Get("SELECT cache_creation_input_tokens FROM usage_ledger WHERE session_id = ?", []any{"S"}, &cache)
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if cache != 300 {
+				t.Errorf("cache_creation_input_tokens = %d, want 300", cache)
+			}
+			if cost, src, version := readLedger(t, db); cost != c.wantMicros || src != c.wantSrc || version != budget.PricingNone {
+				t.Errorf("cache-write row = %d %s %q, want %d %s %q", cost, src, version, c.wantMicros, c.wantSrc, budget.PricingNone)
+			}
+		})
+	}
+}
+
 // badUsageReply is a 2xx stream the parser rejects (negative prompt_tokens).
 func badUsageReply() providertest.Reply {
 	return providertest.Reply{Frames: []string{

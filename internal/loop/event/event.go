@@ -179,12 +179,13 @@ type Price struct {
 
 // Usage is one llm_call's accounting plus the turn totals.
 type Usage struct {
-	Input       int64
-	CachedInput int64
-	Output      int64
-	CostUSD     *float64 // nil when the provider did not send a cost
-	Price       *Price   // price-table entry of this call; nil when unpriced
-	Iterations  int
+	Input         int64
+	CachedInput   int64
+	CacheCreation int64
+	Output        int64
+	CostUSD       *float64 // nil when the provider did not send a cost
+	Price         *Price   // price-table entry of this call; nil when unpriced
+	Iterations    int
 	// TTFT is the time from sending the provider request to the first token
 	// (content, tool call, or reasoning). Zero means no token arrived; the
 	// usage ledger stores that as NULL (not a measured zero). It is provider

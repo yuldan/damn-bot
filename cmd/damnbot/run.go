@@ -405,7 +405,7 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)
 	}
-	return &providerAdapter{client: openai, model: modelRef, lightRef: lightRef, notes: notes, provider: provName}, nil
+	return &providerAdapter{client: openai, model: modelRef, lightRef: lightRef, notes: notes, provider: provName, origin: o.sessionOrigin}, nil
 }
 
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, configDir, home string, codec ctxdb.Codec) (*runModel, error) {
@@ -585,7 +585,7 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 
 func (p *providerAdapter) do(ctx context.Context, purpose provider.Purpose, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
 	_, model := p.routeModel(purpose, req.Model)
-	preq := &provider.Request{Model: model, MaxTokens: req.MaxTokens, CacheBreakAfter: req.CacheBreakAfter}
+	preq := &provider.Request{Model: model, MaxTokens: req.MaxTokens, CacheBreakAfter: req.CacheBreakAfter, Origin: p.origin}
 	for _, m := range req.Messages {
 		pm := provider.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, Carriers: providerCarriers(m.Carriers)}
 		for _, c := range m.ToolCalls {
@@ -616,7 +616,8 @@ func (p *providerAdapter) do(ctx context.Context, purpose provider.Purpose, req 
 	reply := loop.Reply{
 		Content: resp.Content, FinishReason: resp.FinishReason, Usage: event.Usage{
 			Input: resp.Usage.Input, CachedInput: resp.Usage.CachedInput,
-			Output: resp.Usage.Output, CostUSD: resp.Usage.CostUSD,
+			CacheCreation: resp.Usage.CacheCreation,
+			Output:        resp.Usage.Output, CostUSD: resp.Usage.CostUSD,
 			Price: eventPrice(resp.Price), TTFT: resp.TTFT,
 		},
 		Model: resp.Model, FallbackFrom: resp.FallbackFrom, Attempts: resp.Attempts,
@@ -730,12 +731,13 @@ func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, 
 		Provider: l.provider, Model: l.model, GatewayIdentity: l.identity, Attempts: 1,
 		TTFTMS: ttftMillis(u.TTFT), CreatedAt: time.Now().UnixMilli(),
 	}
-	acctErr := e.Account(budget.Usage{Input: u.Input, CachedInput: u.CachedInput, Output: u.Output, CostUSD: u.CostUSD}, price, 0)
+	acctErr := e.Account(budget.Usage{Input: u.Input, CachedInput: u.CachedInput, CacheCreation: u.CacheCreation, Output: u.Output, CostUSD: u.CostUSD}, price, 0)
 	if acctErr != nil {
 		// The call already happened and was paid for: record it as
 		// unknown-cost with clamped token counts instead of losing it.
 		e.InputTokens = max(u.Input, 0)
 		e.CachedInputTokens = min(max(u.CachedInput, 0), e.InputTokens)
+		e.CacheCreationTokens = min(max(u.CacheCreation, 0), e.InputTokens-e.CachedInputTokens)
 		e.OutputTokens = max(u.Output, 0)
 		e.CostMicros, e.CostSource, e.PricingVersion = nil, string(budget.CostUnknown), budget.PricingNone
 	}

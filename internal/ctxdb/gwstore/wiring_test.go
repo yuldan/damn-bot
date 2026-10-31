@@ -56,12 +56,12 @@ func schemaDump(t *testing.T, db *ctxdb.Store) string {
 	return query1[string](t, db, `SELECT group_concat(sql, ';') FROM (SELECT sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type, name, sql)`)
 }
 
-// TestMigration0015FromEmptyDB: a fresh store reaches 0015 and the wiring
-// columns/tables exist.
+// TestMigration0015FromEmptyDB: a fresh store reaches the newest migration
+// (0016) and the 0015 wiring columns/tables exist.
 func TestMigration0015FromEmptyDB(t *testing.T) {
 	db := open(t)
-	if v := userVersion(t, db); v != 15 {
-		t.Fatalf("user_version = %d, want 15", v)
+	if v := userVersion(t, db); v != 16 {
+		t.Fatalf("user_version = %d, want 16", v)
 	}
 	for _, tbl := range []string{"gateway_message_ids", "gateway_callbacks"} {
 		if !tableExists(t, db, tbl) {
@@ -77,8 +77,8 @@ func TestMigration0015FromEmptyDB(t *testing.T) {
 }
 
 // TestMigration0015From0014: a 0014 database with a queued inbound row upgrades
-// to 0015 (the old row gets thread_id ”), and re-running the ladder is a no-op
-// with an identical schema.
+// through 0015/0016 (the old row gets thread_id ”), and re-running the ladder is
+// a no-op with an identical schema.
 func TestMigration0015From0014(t *testing.T) {
 	dir := t.TempDir()
 	old := openDir(t, dir, 14)
@@ -102,8 +102,8 @@ func TestMigration0015From0014(t *testing.T) {
 	closeStore(t, old)
 
 	db := openDir(t, dir, 0)
-	if v := userVersion(t, db); v != 15 {
-		t.Fatalf("migrated user_version = %d, want 15", v)
+	if v := userVersion(t, db); v != 16 {
+		t.Fatalf("migrated user_version = %d, want 16", v)
 	}
 	if !columnExists(t, db, "gateway_inbound", "thread_id") || !tableExists(t, db, "gateway_message_ids") {
 		t.Fatal("0015 objects missing after the upgrade")
@@ -121,7 +121,7 @@ func TestMigration0015From0014(t *testing.T) {
 
 	again := openDir(t, dir, 0)
 	defer closeStore(t, again)
-	if v := userVersion(t, again); v != 15 || schemaDump(t, again) != dump {
+	if v := userVersion(t, again); v != 16 || schemaDump(t, again) != dump {
 		t.Fatalf("re-run changed the schema: version %d", v)
 	}
 	if n := count(t, again, `SELECT count(*) FROM gateway_inbound`); n != 1 {

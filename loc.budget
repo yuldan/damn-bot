@@ -26,7 +26,11 @@ plan               600 internal/plan
 # `provider/responses` 432 (terukur 432 setelah tool call + reasoning).
 # Sigma core 49.675 -> 50.170, plafon core 49.700 -> 50.200 (headroom 30).
 # Amandemen shutdown (ADR-246): ctxdb 6.000 -> 6.008, Sigma core 50.170 -> 50.178 (headroom 22).
-provider          2105 internal/provider
+# ADR-266 (F5-05 PR A): provider 2105 -> 2130 untuk TTL cache per origin
+# (GAP-COST-03): Route.CacheTTLMax/Request.Origin dan provider.CacheControl
+# (terukur 2127; Sigma core +25). Adapter anthropic-messages dan baris
+# provider/anthropic menyusul di PR B/C dengan angka ukur masing-masing.
+provider          2130 internal/provider
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).

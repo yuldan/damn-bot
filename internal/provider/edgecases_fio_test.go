@@ -48,7 +48,7 @@ func ecFio005(t *testing.T) {
 	}
 
 	msg := Message{Role: "assistant", Content: "x\xed\xa0\x80y"} // WTF-8 of U+D800
-	raw, _, _, err := encodeMessage(&Route{Provider: "p", Model: "m"}, &msg, false)
+	raw, _, _, err := encodeMessage(&Route{Provider: "p", Model: "m"}, &msg, false, "")
 	if err != nil {
 		t.Fatalf("encodeMessage: %v", err)
 	}

@@ -10,7 +10,7 @@ import (
 // Usage is the token and cost usage of one LLM call as reported by the
 // provider (SPEC §4.1 Response.Usage).
 type Usage struct {
-	Input, CachedInput, Output int64
+	Input, CachedInput, CacheCreation, Output int64
 	// CostUSD is the provider-reported cost (OpenRouter usage.cost); nil
 	// when the provider sent none.
 	CostUSD *float64
@@ -62,28 +62,43 @@ const (
 // ADR-125 precedence holds (provider cost, else unknown: micros = nil, the
 // token caps still apply).
 func Cost(u Usage, p *Price) (micros *int64, src CostSource, err error) {
-	if u.Input < 0 || u.Output < 0 || u.CachedInput < 0 || u.CachedInput > u.Input ||
-		u.Input > MaxTokens || u.Output > MaxTokens {
-		return nil, CostUnknown, fmt.Errorf("%w: input=%d cached=%d output=%d", ErrInvalidUsage, u.Input, u.CachedInput, u.Output)
+	if !plausibleUsage(u) {
+		return nil, CostUnknown, fmt.Errorf("%w: input=%d cached=%d creation=%d output=%d", ErrInvalidUsage, u.Input, u.CachedInput, u.CacheCreation, u.Output)
 	}
 	provider, err := providerCost(u.CostUSD)
 	if err != nil {
 		return nil, CostUnknown, err
 	}
-	if p != nil {
-		table, terr := tableCost(u, p)
-		if terr != nil {
-			return nil, CostUnknown, terr
-		}
-		if provider != nil && *provider > table {
+	return charge(u, provider, p)
+}
+
+// charge classifies a valid, provider-cost-checked usage block: a cache-write
+// call has no table tier (Anthropic charges a premium), so it is unknown
+// unless the provider reported its own charge; a priced route pays the larger
+// of the table and the provider charge (ADR-128); an unpriced route keeps
+// ADR-125 (provider charge, else unknown). The cost is never guessed.
+func charge(u Usage, provider *int64, p *Price) (*int64, CostSource, error) {
+	if u.CacheCreation > 0 || p == nil {
+		if provider != nil {
 			return provider, CostProvider, nil
 		}
-		return &table, CostPricingTable, nil
+		return nil, CostUnknown, nil
 	}
-	if provider != nil {
+	table, err := tableCost(u, p)
+	if err != nil {
+		return nil, CostUnknown, err
+	}
+	if provider != nil && *provider > table {
 		return provider, CostProvider, nil
 	}
-	return nil, CostUnknown, nil
+	return &table, CostPricingTable, nil
+}
+
+// plausibleUsage reports non-negative counts within MaxTokens, with no cache
+// tier larger than the input (LED-2/3).
+func plausibleUsage(u Usage) bool {
+	return u.Input >= 0 && u.Output >= 0 && u.CachedInput >= 0 && u.CacheCreation >= 0 &&
+		u.CachedInput+u.CacheCreation <= u.Input && u.Input <= MaxTokens && u.Output <= MaxTokens
 }
 
 // providerCost converts a provider-reported USD cost to micro-USD. It
@@ -131,22 +146,23 @@ func tableCost(u Usage, p *Price) (int64, error) {
 // transaction as its llm_call event (ctxdb/ledgerstore.Row has the same
 // fields, so the composition root converts with a plain conversion).
 type Entry struct {
-	SessionID, TurnID string
-	EventID           int64
-	Purpose, Feature  string
-	Provider, Model   string
-	CredentialID      string
-	GatewayIdentity   string
-	InputTokens       int64
-	EstInputTokens    int64 // Counts.Raw of the request (ADR-101)
-	CachedInputTokens int64
-	OutputTokens      int64
-	CostMicros        *int64 // nil = unknown
-	CostSource        string
-	PricingVersion    string
-	Attempts          int64
-	LatencyMS, TTFTMS int64 // TTFTMS < 0 = not measured (NULL)
-	CreatedAt         int64 // unix ms
+	SessionID, TurnID   string
+	EventID             int64
+	Purpose, Feature    string
+	Provider, Model     string
+	CredentialID        string
+	GatewayIdentity     string
+	InputTokens         int64
+	EstInputTokens      int64 // Counts.Raw of the request (ADR-101)
+	CachedInputTokens   int64
+	CacheCreationTokens int64
+	OutputTokens        int64
+	CostMicros          *int64 // nil = unknown
+	CostSource          string
+	PricingVersion      string
+	Attempts            int64
+	LatencyMS, TTFTMS   int64 // TTFTMS < 0 = not measured (NULL)
+	CreatedAt           int64 // unix ms
 }
 
 // Account fills the usage and cost columns of e from u, p, and raw (the
@@ -156,7 +172,7 @@ func (e *Entry) Account(u Usage, p *Price, raw int64) error {
 	if err != nil {
 		return err
 	}
-	e.InputTokens, e.CachedInputTokens, e.OutputTokens, e.EstInputTokens = u.Input, u.CachedInput, u.Output, raw
+	e.InputTokens, e.CachedInputTokens, e.CacheCreationTokens, e.OutputTokens, e.EstInputTokens = u.Input, u.CachedInput, u.CacheCreation, u.Output, raw
 	e.CostMicros, e.CostSource, e.PricingVersion = micros, string(src), PricingNone
 	if p != nil && src == CostPricingTable { // a provider charge has no table version
 		e.PricingVersion = p.Version

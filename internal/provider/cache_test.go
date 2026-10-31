@@ -230,3 +230,43 @@ func TestCacheBreakStableBody(t *testing.T) {
 		t.Errorf("zero breakpoint:\ngot  %s\nwant %s (%v)", body, want, err)
 	}
 }
+
+// TestCacheTTLByOrigin (GAP-COST-03): the openai-chat Anthropic dialect gets
+// the 1h breakpoint only for an interactive origin and only when the catalog
+// claims it; every other combination stays on the 5m default.
+func TestCacheTTLByOrigin(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		origin string
+		ttlMax int64
+		want   string
+	}{
+		{"interactive", "tui", 3600, `"ttl":"1h"`},
+		{"interactive-acp", "acp", 3600, `"ttl":"1h"`},
+		{"batch-origin", "cron", 3600, `"cache_control":{"type":"ephemeral"}`},
+		{"clamped", "tui", 300, `"cache_control":{"type":"ephemeral"}`},
+		{"no-catalog", "tui", 0, `"cache_control":{"type":"ephemeral"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rt := anthropicRoute()
+			rt.CacheTTLMax = tc.ttlMax
+			req := boundaryRequest(1)
+			req.Origin = tc.origin
+			body, err := encode(rt, req, nil)
+			if err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+			if !strings.Contains(string(body), tc.want) {
+				t.Fatalf("body lacks %q:\n%s", tc.want, body)
+			}
+			if tc.ttlMax < 3600 || tc.origin == "cron" {
+				if strings.Contains(string(body), `"ttl"`) {
+					t.Fatalf("ttl sent below the catalog claim:\n%s", body)
+				}
+			}
+		})
+	}
+}
