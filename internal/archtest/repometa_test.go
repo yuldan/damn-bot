@@ -16,10 +16,10 @@ const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
 	maxCoreLOC       = 50650 // ADR-266 PR B: provider/anthropic 390 (terukur 382) + provider 2.140, Σ core 50.603.
-	locTotalRow     = "TOTAL"
-	locGeneratedRow = "GENERATED"
-	locTestOnlyRow  = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)
-	locModuleRow    = "MODULE"   // cap per-baris modul permukaan, di luar Σ core (ADR-196)
+	locTotalRow      = "TOTAL"
+	locGeneratedRow  = "GENERATED"
+	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)
+	locModuleRow     = "MODULE"   // cap per-baris modul permukaan, di luar Σ core (ADR-196)
 )
 
 var (
