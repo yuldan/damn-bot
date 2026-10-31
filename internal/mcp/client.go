@@ -23,7 +23,17 @@ const (
 	cachePrefix = "tools/"
 	// maxResultBytes caps one tools/call result before decode.
 	maxResultBytes = host.MaxResultBytes
+	// maxPages bounds tools/list pagination; a server cannot loop forever.
+	maxPages = 64
+	// maxTools bounds the merged tool set of one server.
+	maxTools = 4096
 )
+
+// protocolSetter lets the client report the negotiated revision to a
+// transport that echoes it on every request (Streamable HTTP).
+type protocolSetter interface {
+	setProtocol(string)
+}
 
 // InitParams is the initialize request. Capabilities is always an object; an
 // empty object is the documented "no optional client features" answer.
