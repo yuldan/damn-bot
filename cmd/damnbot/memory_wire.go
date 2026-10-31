@@ -245,11 +245,14 @@ func memToolErr(err error) error {
 // (SEC17-1) and without context_exclude hits (SEC17-2).
 type ctxSearch struct{ db *ctxdb.Store }
 
-func (s ctxSearch) Search(ctx context.Context, query string, k int, cwd string) ([]tools.SessionHit, error) {
-	if cwd == "" { // fail closed: an unknown project is not "all projects"
+func (s ctxSearch) Search(ctx context.Context, query string, k int, scope tools.SessionScope) ([]tools.SessionHit, error) {
+	if scope.Cwd == "" { // fail closed: an unknown project is not "all projects"
 		return nil, errors.New("session search: no workspace scope")
 	}
-	hits, err := s.db.Search(ctx, ctxdb.Query{Text: query, Limit: k, Cwd: cwd})
+	if scope.SessionID == "" { // REL-18: no session, no transcript access
+		return nil, errors.New("session search: no session scope")
+	}
+	hits, err := s.db.Search(ctx, ctxdb.Query{Text: query, Limit: k, Cwd: scope.Cwd, SessionID: scope.SessionID})
 	if err != nil {
 		return nil, fmt.Errorf("session search: %w", err)
 	}

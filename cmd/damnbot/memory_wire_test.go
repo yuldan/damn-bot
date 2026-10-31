@@ -82,7 +82,7 @@ func TestSessionSearchBackend(t *testing.T) {
 	if _, err := db.Append(ctx, sid, nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "needle in the transcript"}); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := ctxSearch{db: db}.Search(ctx, "needle", 5, "/w")
+	hits, err := ctxSearch{db: db}.Search(ctx, "needle", 5, tools.SessionScope{SessionID: sid, Cwd: "/w"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,14 +107,14 @@ func TestSessionSearchBackendScopesProject(t *testing.T) {
 	if _, err := db.Append(ctx, "OTHER", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "SCOPEMARK-ALPHA elsewhere"}); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := ctxSearch{db: db}.Search(ctx, "SCOPEMARK-ALPHA", 5, "/w")
+	hits, err := ctxSearch{db: db}.Search(ctx, "SCOPEMARK-ALPHA", 5, tools.SessionScope{SessionID: sid, Cwd: "/w"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(hits) != 1 || hits[0].SessionID != sid {
 		t.Fatalf("project scope = %+v, want only %s", hits, sid)
 	}
-	if _, err := (ctxSearch{db: db}).Search(ctx, "SCOPEMARK-ALPHA", 5, ""); err == nil {
+	if _, err := (ctxSearch{db: db}).Search(ctx, "SCOPEMARK-ALPHA", 5, tools.SessionScope{SessionID: sid}); err == nil {
 		t.Fatal("empty cwd searched globally, want a fail-closed error")
 	}
 }
@@ -133,7 +133,7 @@ func TestSessionSearchBackendSkipsExcluded(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := ctxSearch{db: db}.Search(ctx, "EXC-NEEDLE", 5, "/w")
+	hits, err := ctxSearch{db: db}.Search(ctx, "EXC-NEEDLE", 5, tools.SessionScope{SessionID: sid, Cwd: "/w"})
 	if err != nil {
 		t.Fatal(err)
 	}
