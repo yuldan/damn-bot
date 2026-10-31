@@ -34,6 +34,13 @@ type httpTransport struct {
 	mu      sync.Mutex
 	session string
 	proto   string
+	notify  func(context.Context, string)
+}
+
+func (t *httpTransport) setNotifications(notify func(context.Context, string)) {
+	t.mu.Lock()
+	t.notify = notify
+	t.mu.Unlock()
 }
 
 func newHTTP(s *Server, doer Doer) (*httpTransport, error) {
@@ -67,7 +74,7 @@ func (t *httpTransport) Call(ctx context.Context, method string, params, result 
 	if resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent {
 		return fmt.Errorf("%w: %s returned no result", ErrProtocol, method)
 	}
-	msg, err := readResponse(resp, id)
+	msg, err := readResponse(resp, id, t.dispatch)
 	if err != nil {
 		return err
 	}
@@ -162,15 +169,16 @@ func (t *httpTransport) post(ctx context.Context, body []byte) (*http.Response, 
 }
 
 // readResponse decodes one response, from a JSON body or an SSE stream. Only
-// the message whose id matches the request is returned; progress and server
-// requests on the same stream are ignored.
-func readResponse(resp *http.Response, id json.RawMessage) (jsonrpc.Message, error) {
+// the message whose id matches the request is returned; server notifications
+// on the same stream are dispatched (tools/list_changed), other traffic is
+// ignored.
+func readResponse(resp *http.Response, id json.RawMessage, notify func(string)) (jsonrpc.Message, error) {
 	media, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
 	if err != nil {
 		media = ""
 	}
 	if media == "text/event-stream" {
-		return readSSE(resp.Body, id)
+		return readSSE(resp.Body, id, notify)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxFrame+1))
 	if err != nil {
@@ -183,13 +191,19 @@ func readResponse(resp *http.Response, id json.RawMessage) (jsonrpc.Message, err
 	if err := json.Unmarshal(body, &msg); err != nil {
 		return jsonrpc.Message{}, fmt.Errorf("%w: response body: %w", ErrProtocol, err)
 	}
+	if msg.Method != "" {
+		if notify != nil {
+			notify(msg.Method)
+		}
+		return jsonrpc.Message{}, fmt.Errorf("%w: response is a notification", ErrProtocol)
+	}
 	if string(bytes.TrimSpace(msg.ID)) != string(id) {
 		return jsonrpc.Message{}, fmt.Errorf("%w: response id mismatch", ErrProtocol)
 	}
 	return msg, nil
 }
 
-func readSSE(body io.Reader, id json.RawMessage) (jsonrpc.Message, error) {
+func readSSE(body io.Reader, id json.RawMessage, notify func(string)) (jsonrpc.Message, error) {
 	parser := netx.NewSSEParser(body, MaxFrame)
 	for range 10_000 {
 		event, err := parser.Next()
@@ -206,11 +220,27 @@ func readSSE(body io.Reader, id json.RawMessage) (jsonrpc.Message, error) {
 		if err := json.Unmarshal(event.Data, &msg); err != nil {
 			return jsonrpc.Message{}, fmt.Errorf("%w: sse message: %w", ErrProtocol, err)
 		}
+		if msg.Method != "" {
+			if notify != nil {
+				notify(msg.Method)
+			}
+			continue
+		}
 		if string(bytes.TrimSpace(msg.ID)) == string(id) {
 			return msg, nil
 		}
 	}
 	return jsonrpc.Message{}, fmt.Errorf("%w: too many SSE events", ErrProtocol)
+}
+
+func (t *httpTransport) dispatch(method string) {
+	t.mu.Lock()
+	notify := t.notify
+	ctx := context.Background()
+	t.mu.Unlock()
+	if notify != nil {
+		notify(ctx, method)
+	}
 }
 
 func closeBody(resp *http.Response) {

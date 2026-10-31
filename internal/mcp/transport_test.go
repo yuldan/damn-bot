@@ -101,7 +101,7 @@ func TestStdioTransportEnvCallAndClose(t *testing.T) {
 	})
 	secrets := &aSecrets{parent: []string{"PATH=/bin", "SECRET=leak"}}
 	h := &aHost{proc: proc, caps: host.Capabilities{Secrets: secrets}}
-	tr, err := newStdio(context.Background(), h, &Server{Name: "s", Command: []string{"mcp"}, Env: map[string]string{"TOKEN": "t"}})
+	tr, err := newStdio(context.Background(), h, &Server{Name: "s", Command: []string{"mcp"}, Env: map[string]string{"TOKEN": "t"}}, nil)
 	if err != nil {
 		t.Fatalf("newStdio: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestStdioTransportEnvCallAndClose(t *testing.T) {
 func TestStdioRequiresPipes(t *testing.T) {
 	t.Parallel()
 	h := &aHost{proc: &noPipes{done: make(chan struct{})}, caps: host.Capabilities{Secrets: &aSecrets{}}}
-	_, err := newStdio(context.Background(), h, &Server{Name: "s", Command: []string{"mcp"}})
+	_, err := newStdio(context.Background(), h, &Server{Name: "s", Command: []string{"mcp"}}, nil)
 	if !errors.Is(err, ErrStdioUnavailable) {
 		t.Fatalf("newStdio = %v", err)
 	}

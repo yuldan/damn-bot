@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/damnbot/damnbot/internal/modules/host"
@@ -95,19 +96,29 @@ type Client struct {
 	host  host.Host
 	doer  Doer
 	store host.Store
+	pins  PinStore
 	sha   string
 
 	mu     sync.Mutex
 	server Server
 	tr     Transport
 	closed bool
+	// pinMu serializes pin evaluation so a tools/list_changed refresh and a
+	// concurrent listing cannot interleave a read-modify-write.
+	pinMu      sync.Mutex
+	refreshing atomic.Bool
 }
 
 // NewClient validates cfg, opens the module store, and registers the
-// capability seam. Nothing is spawned or dialled yet.
-func NewClient(h host.Host, cfg Server, doer Doer) (*Client, error) { //nolint:gocritic // one config copied once; a value keeps call sites and the fake host simple
+// capability seam. Pins is mandatory: a client without a pin store fails
+// closed instead of dispatching unverified tool definitions (SEC-04).
+// Nothing is spawned or dialled yet.
+func NewClient(h host.Host, cfg Server, doer Doer, pins PinStore) (*Client, error) { //nolint:gocritic // one config copied once; a value keeps call sites and the fake host simple
 	if h == nil {
 		return nil, fmt.Errorf("%w: nil host", ErrInvalidConfig)
+	}
+	if pins == nil {
+		return nil, ErrPinsUnavailable
 	}
 	cfg.Normalize()
 	if err := cfg.Validate(); err != nil {
@@ -124,14 +135,27 @@ func NewClient(h host.Host, cfg Server, doer Doer) (*Client, error) { //nolint:g
 	if err != nil {
 		return nil, fmt.Errorf("mcp: open store: %w", err)
 	}
-	return &Client{host: h, doer: doer, store: store, sha: sha, server: cfg}, nil
+	return &Client{host: h, doer: doer, store: store, pins: pins, sha: sha, server: cfg}, nil
 }
 
-// ListTools returns the server's tools, from the cache when the exact
-// (server, config_sha) entry exists. Pagination is followed to the end.
+// ListTools returns the server's pinned tools, from the cache when the exact
+// (server, config_sha) entry exists. Quarantined tools are omitted; pagination
+// is followed to the end.
 func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
-	if tools, ok := c.cached(ctx); ok {
-		return tools, nil
+	return c.list(ctx, false)
+}
+
+// RefreshTools re-fetches and re-evaluates the listing even when the cache is
+// warm. A tools/list_changed notification and `damnbot mcp refresh` use this.
+func (c *Client) RefreshTools(ctx context.Context) ([]Tool, error) {
+	return c.list(ctx, true)
+}
+
+func (c *Client) list(ctx context.Context, force bool) ([]Tool, error) { //nolint:gocognit // cache + force + pin evaluation are one flow
+	if !force {
+		if tools, ok := c.cached(ctx); ok {
+			return c.pinTools(ctx, tools)
+		}
 	}
 	tr, err := c.ensure(ctx)
 	if err != nil {
@@ -172,7 +196,7 @@ func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
 		return nil, fmt.Errorf("%w: %s pagination did not terminate", ErrProtocol, c.server.Name)
 	}
 	c.storeTools(ctx, all)
-	return all, nil
+	return c.pinTools(ctx, all)
 }
 
 // CallTool approves (unless read-only) and performs one tools/call. Args must
@@ -186,6 +210,9 @@ func (c *Client) CallTool(ctx context.Context, name string, args json.RawMessage
 	}
 	if !json.Valid(args) {
 		return host.Result{}, toolError("invalid_args", "arguments are not JSON")
+	}
+	if code := c.pinGate(ctx, name); code != "" {
+		return host.Result{}, toolError("module_unavailable", code)
 	}
 	effect := host.EffectNonIdempotent
 	if c.server.ReadOnly[name] {
@@ -249,6 +276,9 @@ func (c *Client) ensure(ctx context.Context) (Transport, error) {
 	if err != nil {
 		return nil, err
 	}
+	if setter, ok := tr.(notificationSetter); ok {
+		setter.setNotifications(c.notify)
+	}
 	if err := c.handshake(ctx, tr); err != nil {
 		closeErr := tr.Close()
 		return nil, errors.Join(err, closeErr)
@@ -261,7 +291,27 @@ func (c *Client) dial(ctx context.Context) (Transport, error) {
 	if c.server.URL != "" {
 		return newHTTP(&c.server, c.doer)
 	}
-	return newStdio(ctx, c.host, &c.server)
+	return newStdio(ctx, c.host, &c.server, c.notify)
+}
+
+// notify handles one inbound server notification. Only tools/list_changed is
+// actionable: it forces a re-fetch and pin evaluation instead of trusting the
+// cached listing. A failed refresh is reported as a module error; it never
+// unblocks a quarantined tool.
+func (c *Client) notify(ctx context.Context, method string) {
+	if method != notifyListChanged || !c.refreshing.CompareAndSwap(false, true) {
+		return
+	}
+	defer c.refreshing.Store(false)
+	refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), c.server.Timeout())
+	defer cancel()
+	if _, err := c.RefreshTools(refreshCtx); err != nil {
+		// A failed refresh stays quarantined; report it best-effort.
+		_ = c.host.Emit(refreshCtx, host.Event{ //nolint:errcheck // diagnostic only
+			Kind:    host.EventModuleError,
+			Content: "mcp " + c.server.Name + ": tools/list_changed refresh failed: " + err.Error(),
+		})
+	}
 }
 
 // handshake sends initialize and notifications/initialized. A server that

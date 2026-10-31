@@ -40,7 +40,7 @@ func newHTTPClient(t *testing.T, handler http.HandlerFunc, cfg Server) *Client {
 	if cfg.TimeoutS == 0 {
 		cfg.TimeoutS = 10
 	}
-	client, err := NewClient(h, cfg, doer)
+	client, err := NewClient(h, cfg, doer, newPins())
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
@@ -180,6 +180,7 @@ func TestHTTPSSEResponse(t *testing.T) {
 		flusher.Flush()
 	}
 	client := newHTTPClient(t, httpMCPHandler(t, rec, call), Server{ReadOnly: map[string]bool{"echo": true}})
+	mustList(t, client)
 	res, err := client.CallTool(context.Background(), "echo", json.RawMessage(`{}`), "c1")
 	if err != nil || res.Content != "sse" {
 		t.Fatalf("CallTool = %+v, %v", res, err)
@@ -203,6 +204,7 @@ func TestHTTPJSONRPCError(t *testing.T) {
 		}
 	}
 	client := newHTTPClient(t, httpMCPHandler(t, rec, call), Server{ReadOnly: map[string]bool{"echo": true}})
+	mustList(t, client)
 	_, err := client.CallTool(context.Background(), "echo", json.RawMessage(`{}`), "c1")
 	if code := codeOf(t, err); code != "internal" {
 		t.Fatalf("code = %q, want internal", code)

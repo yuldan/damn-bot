@@ -69,11 +69,11 @@ func TestConfigSHADetectsChange(t *testing.T) {
 
 func TestNewClientRequiresHostAndHTTPDoer(t *testing.T) {
 	t.Parallel()
-	if _, err := NewClient(nil, Server{Name: "s", Command: []string{"x"}}, nil); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := NewClient(nil, Server{Name: "s", Command: []string{"x"}}, nil, newPins()); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("nil host = %v", err)
 	}
 	h := &fakeHost{store: newStore()}
-	if _, err := NewClient(h, Server{Name: "s", URL: "https://h/mcp"}, nil); !errors.Is(err, ErrInvalidConfig) {
+	if _, err := NewClient(h, Server{Name: "s", URL: "https://h/mcp"}, nil, newPins()); !errors.Is(err, ErrInvalidConfig) {
 		t.Fatalf("nil doer = %v", err)
 	}
 }
