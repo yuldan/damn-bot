@@ -12,6 +12,7 @@ import (
 	"github.com/damnbot/damnbot/internal/budget"
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/netx/retry"
+	"github.com/damnbot/damnbot/internal/provider/auth"
 )
 
 // Route is one configured model endpoint of the openai-chat protocol.
@@ -19,10 +20,13 @@ type Route struct {
 	Provider, Model string
 	BaseURL         string // e.g. https://api.openai.com/v1
 	APIKey          string // resolved secret; "" = no auth (local server)
-	CredentialID    string
-	Headers         map[string]string // extra_headers
-	ContextWindow   int64             // 0 = unknown
-	UsageInclude    bool              // OpenRouter: usage.include for usage.cost
+	// Auth, when set, replaces the static bearer APIKey: SigV4, Google JWT
+	// or OAuth (F5-03). It receives the exact encoded payload.
+	Auth          auth.Signer
+	CredentialID  string
+	Headers       map[string]string // extra_headers
+	ContextWindow int64             // 0 = unknown
+	UsageInclude  bool              // OpenRouter: usage.include for usage.cost
 	// UserAgent is the request User-Agent (SEC-25): "damnbot/<versi>", never
 	// OS or hostname. Empty keeps net/http's default (direct Route tests).
 	UserAgent string

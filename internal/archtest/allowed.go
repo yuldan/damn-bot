@@ -58,10 +58,12 @@ func allowedImports() map[string][]string {
 		"internal/gateway" + moduleWildcard: moduleImports(),
 
 		// Core.
-		"internal/loop":               {"internal/loop/event", "internal/boundary"}, // E-02
-		"internal/plan":               {"internal/loop/event"},
-		"internal/tools":              append([]string{"internal/schema", "internal/sandbox", "internal/codetools", "internal/redact", "internal/journal", "internal/budget", "internal/hooks", "internal/modules", "internal/modules/host", "internal/boundary", "internal/cron"}, groupExec()...),
-		"internal/provider":           append([]string{"internal/provider/registry", "internal/schema", "internal/budget"}, groupNetx()...),
+		"internal/loop":     {"internal/loop/event", "internal/boundary"}, // E-02
+		"internal/plan":     {"internal/loop/event"},
+		"internal/tools":    append([]string{"internal/schema", "internal/sandbox", "internal/codetools", "internal/redact", "internal/journal", "internal/budget", "internal/hooks", "internal/modules", "internal/modules/host", "internal/boundary", "internal/cron"}, groupExec()...),
+		"internal/provider": append([]string{"internal/provider/auth", "internal/provider/registry", "internal/schema", "internal/budget"}, groupNetx()...),
+		// Provider transport auth (F5-03): SigV4, Google JWT, OAuth store.
+		"internal/provider/auth":      {"internal/netx", "internal/secret"},
 		"internal/provider/registry":  nil,
 		"internal/assemble":           {"internal/loop/event"},
 		"internal/backup":             {"internal/ctxdb", "internal/secret"},
