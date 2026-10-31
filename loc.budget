@@ -36,10 +36,15 @@ plan               600 internal/plan
 # ADR-266 (F5-05 PR C): provider 2140 -> 2145 untuk carrier redacted_thinking
 # (terukur 2139 pada pohon rebase; Sigma core +5). Baris adapter naik ke 645
 # (terukur 638: encode 279 + decode 325 + transport 34).
+# ADR-267 (F5-06 PR A): baris baru `provider/gemini` untuk adapter native
+# generateContent (teks/usage/error/retry); terukur 404. Tool call,
+# thoughtSignature, dan sanitasi schema menyusul di PR B dengan angka ukur.
+# Sigma core 51.013 -> 51.417, plafon core 51.100 -> 51.450 (headroom 33).
 provider          2145 internal/provider
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses
 provider/anthropic  645 internal/provider/anthropic
+provider/gemini    404 internal/provider/gemini
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
 # ADR-128: tabel harga providers.toml + lookup base_url+model; tetap 300 (terukur 281, sisa 19; Σ tetap).
 # ADR-261 (F5-01): provider/registry 300 -> 660 untuk katalog 88 provider

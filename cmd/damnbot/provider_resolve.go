@@ -126,12 +126,12 @@ func validateCustom(c *config.CustomProvider, modelName string, builtinOK bool) 
 	}
 	switch protocol {
 	case string(registry.ProtocolOpenAIChat):
-	case string(registry.ProtocolOpenAIResponses), string(registry.ProtocolAnthropicMessages):
+	case string(registry.ProtocolOpenAIResponses), string(registry.ProtocolAnthropicMessages), string(registry.ProtocolGemini):
 		if err := adapterGate(registry.Protocol(protocol)); err != nil {
 			return fmt.Errorf("%w: custom provider %q: %w", ErrProviderResolve, c.Name, err)
 		}
 	default:
-		return fmt.Errorf("%w: custom provider %q speaks %q; only openai-chat, openai-responses, and anthropic-messages are wired", ErrProviderResolve, c.Name, protocol)
+		return fmt.Errorf("%w: custom provider %q speaks %q; only openai-chat, openai-responses, anthropic-messages, and gemini are wired", ErrProviderResolve, c.Name, protocol)
 	}
 	if !slicesContainsModel(c.Models, modelName) {
 		return fmt.Errorf("%w: model %q is not in providers.custom[%q].models", ErrProviderResolve, c.Name, modelName)
@@ -161,33 +161,38 @@ func (r *providerResolver) customBase(c *config.CustomProvider, builtin *registr
 	return base, nil
 }
 
+// builtinProtocols selects the first catalog protocol with a wired adapter;
+// the F1 test/eval seam keeps the route on openai-chat, and an auth transport
+// that is not wired is refused instead of being sent unauthenticated.
+func (r *providerResolver) builtinProtocols(provName string, p *registry.Provider) ([]registry.Protocol, error) {
+	if r.overrideBase != "" || r.e2eBase != "" || hasProtocol(p.Protocols, registry.ProtocolOpenAIChat) {
+		return []registry.Protocol{registry.ProtocolOpenAIChat}, nil
+	}
+	for _, want := range []registry.Protocol{
+		registry.ProtocolOpenAIResponses, registry.ProtocolAnthropicMessages, registry.ProtocolGemini,
+	} {
+		if !hasProtocol(p.Protocols, want) {
+			continue
+		}
+		if err := adapterGate(want); err != nil {
+			return nil, fmt.Errorf("%w: provider %q: %w", ErrProviderResolve, provName, err)
+		}
+		if !runtimeAuth(p.Auth) {
+			return nil, fmt.Errorf("%w: provider %q auth %q needs the F5-03 transport", ErrProviderResolve, provName, p.Auth)
+		}
+		return []registry.Protocol{want}, nil
+	}
+	return nil, fmt.Errorf("%w: provider %q speaks %v; the adapter is not wired in this build", ErrProviderResolve, provName, p.Protocols)
+}
+
 // resolveBuiltin resolves a catalog row to the wire protocol that has an
 // adapter. The F1 test/eval seam (--base-url / DAMNBOT_E2E_BASE_URL) asserts
 // an OpenAI-compatible chat endpoint and keeps the route on openai-chat, as
 // F5-02 did; a catalog preset selects its own protocol otherwise.
 func (r *providerResolver) resolveBuiltin(provName, modelName string, p *registry.Provider) (provider.Route, error) {
-	var protocols []registry.Protocol
-	switch {
-	case r.overrideBase != "", r.e2eBase != "", hasProtocol(p.Protocols, registry.ProtocolOpenAIChat):
-		protocols = []registry.Protocol{registry.ProtocolOpenAIChat}
-	case hasProtocol(p.Protocols, registry.ProtocolOpenAIResponses):
-		if err := adapterGate(registry.ProtocolOpenAIResponses); err != nil {
-			return provider.Route{}, fmt.Errorf("%w: provider %q: %w", ErrProviderResolve, provName, err)
-		}
-		if !runtimeAuth(p.Auth) {
-			return provider.Route{}, fmt.Errorf("%w: provider %q auth %q needs the F5-03 transport", ErrProviderResolve, provName, p.Auth)
-		}
-		protocols = []registry.Protocol{registry.ProtocolOpenAIResponses}
-	case hasProtocol(p.Protocols, registry.ProtocolAnthropicMessages):
-		if err := adapterGate(registry.ProtocolAnthropicMessages); err != nil {
-			return provider.Route{}, fmt.Errorf("%w: provider %q: %w", ErrProviderResolve, provName, err)
-		}
-		if !runtimeAuth(p.Auth) {
-			return provider.Route{}, fmt.Errorf("%w: provider %q auth %q needs the F5-03 transport", ErrProviderResolve, provName, p.Auth)
-		}
-		protocols = []registry.Protocol{registry.ProtocolAnthropicMessages}
-	default:
-		return provider.Route{}, fmt.Errorf("%w: provider %q speaks %v; the adapter is not wired in this build", ErrProviderResolve, provName, p.Protocols)
+	protocols, err := r.builtinProtocols(provName, p)
+	if err != nil {
+		return provider.Route{}, err
 	}
 	base := p.BaseURL
 	if r.overrideBase != "" {
