@@ -5479,3 +5479,22 @@ Batas penting: risiko ToS **bukan** temuan threat scan. Q43/ADR-033 menetapkan `
 
 **Di luar cakupan (belum).** Klien stdio/Streamable HTTP/SSE, `initialize`/`tools/list` + cache `(server, config_sha)`, normalisasi schema, pin tool (`mcp_tool_pins`), OAuth 2.1 (PKCE/device/DCR), security scan manifest, `damnbot mcp serve`, dan wiring `CapabilityProvider` di `cmd/damnbot`. ADR ini hanya menetapkan seam dan kontraknya.
 
+## ADR-269 — Klien MCP: transport stdio/Streamable HTTP dan lifecycle (F5-09 PR A)
+
+**Status:** Accepted 2026-10-31 (F5-09 PR A; SPEC §3.2.4:291, §9.6, §12, §18.2; GAP-SEC-03, PLUG-029). Kode + tes + CHANGELOG + `loc.budget` + tabel ENGINEERING §2.4. Tanpa dependency, migrasi, config key, atau perubahan `internal/archtest/allowed.go`.
+
+**Konteks.** ADR-268 menyediakan seam kapabilitas (`Approvals`, `Budget`, `Secrets`, `Clock`) dan `internal/mcp` hanya boleh mengimpor `host`, `netx` (+`jsonrpc`/`retry`), dan `schema` (E-06). Klien MCP membutuhkan dua transport dan lifecycle yang tidak dapat ditembus modul: spawn child dengan environment terfilter, framing JSON-RPC berbatas, dan shutdown yang tidak meninggalkan proses. PR ini adalah irisan pertama (transport + lifecycle); protokol `initialize`/`tools/list`/`tools/call`, cache, schema, dan config `[modules.mcp]` menyusul di PR B yang menumpang di atasnya.
+
+**Keputusan.**
+1. **stdio.** `host.Spawn` menjalankan argv `command + args`; environment hanya dari `AllowPolicy{Inherit: PATH, HOME, TMPDIR, LANG; Set: env config}` lewat `Secrets.ChildEnv` — modul tidak pernah membaca `os.Environ`. Proses host dapat mengimplementasikan ekstensi opsional `Stdio() (stdin io.WriteCloser, stdout, stderr io.Reader)`; bila tidak, klien gagal tertutup `ErrStdioUnavailable` (kontrak `Host`/`Process` tidak berubah). `Close` menutup stdin (shutdown MCP), menunggu child maksimum 3 s, lalu `Kill` dan `Wait`; `Close` idempoten. Frame dibatasi 16 MiB; `initialize` berdeadline 30 s; stderr di-drain agar tidak memblokir protokol.
+2. **Streamable HTTP.** Satu POST per pesan dengan `Accept: application/json`; balasan JSON dicocokkan per id. Hanya `Doer` (`netx.Client`, purpose `Tool`) yang di-inject: DLP/offline/redirect tetap satu gerbang, tanpa `http.Client` baru (E-05). `Mcp-Session-Id` dan `MCP-Protocol-Version` dipasang klien; `Close` mengirim DELETE best-effort. SSE menyusul di PR B.
+3. **Lifecycle/limits.** `Server` divalidasi sebelum spawn: nama, satu transport, argv/env/header sah, `trust` tertutup, `timeout_s` 1–600 (default 120). Tidak ada read environment induk, `exec.Command`, atau dialer baru.
+4. **Anggaran.** `netx/jsonrpc` terukur **530** (dua field `Options` + `notifyCancel`), plafon 520 → **530**; Σ core **51.013 → 51.023 ≤ 51.100** (headroom 75). `MODULE mcp` terukur 415 ≤ 6.500 (plafon tidak naik). TOTAL 190.000 tidak berubah.
+
+**Dampak terukur.** PR A: **568 baris Go non-test** (`pr-meta size`), di bawah 600. Tes: `TestStdioTransportEnvCallAndClose`, `TestStdioRequiresPipes`, `TestHTTPTransportJSONSessionAndClose`, `TestServerNormalizeAndValidate`, `TestServerRejects`, `TestConfigSHADetectsChange`, dan `TestCancelSendsMCPNotification` (jsonrpc). Kontrol negatif: spawn tanpa `Secrets` gagal; proses tanpa `Stdio()` ditolak; env induk `SECRET` tidak masuk child; DELETE sesi hanya dikirim setelah sesi ada.
+
+**Konsekuensi.** (+) Transport MCP nyata tanpa melonggarkan E-05/E-06; child tidak dapat mewarisi environment induk atau fd protokol. (−) Server stdio tetap gagal sampai composition root menyediakan `Process.Stdio` dan `CapabilityProvider`. (−) PR B menambahkan protokol, cache, approval, dan config; ADR ini diamandemen di sana bila anggaran/plafon berubah.
+
+**Di luar cakupan PR A.** `initialize`/`tools/list`/`tools/call`, cache `(server, config_sha)`, normalisasi schema, `[modules.mcp]`, approval wiring, SSE, pin tool, OAuth, security scan, `damnbot mcp serve`, dan wiring composition root.
+
+

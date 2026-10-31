@@ -1,7 +1,8 @@
-// Package mcp is the lazy MCP client/server module (SPEC §9.6). This package
-// started as the F5-09 seam: it never dials a server, lists tools, pins a tool,
-// or stores an OAuth token. Those arrive in later F5 slices; here the module
-// only proves that every privileged need goes through internal/modules/host.
+// Package mcp is the lazy MCP client module (SPEC §9.6). It speaks stdio and
+// Streamable HTTP through internal/netx, caches tools per (server, config_sha),
+// and proves that every privileged need goes through internal/modules/host:
+// approvals, budget, the child environment, and the clock. Tool pinning,
+// OAuth and `mcp serve` belong to later F5 slices.
 package mcp
 
 import (

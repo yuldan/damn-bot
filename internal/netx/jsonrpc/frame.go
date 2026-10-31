@@ -17,6 +17,8 @@ type Options struct {
 	MaxFrame      int     // bytes per frame; zero means DefaultMaxFrame
 	ContentLength bool    // select LSP Content-Length framing
 	NotifyCancel  bool    // send [CancelMethod] when a call's context ends
+	CancelMethod  string  // override [CancelMethod] (MCP: notifications/cancelled)
+	CancelParam   string  // id field name: "id" (LSP) or "requestId" (MCP)
 	Handler       Handler // inbound requests; nil answers "method not found"
 }
 

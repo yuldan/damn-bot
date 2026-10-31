@@ -50,6 +50,9 @@ provider/registry  660 internal/provider/registry
 # ADR-263 (F5-08): baris baru netx/jsonrpc untuk framing JSON-RPC 2.0 MCP/LSP.
 # Kode terukur scc = 520 (conn 231, frame 125, http 78, jsonrpc 86); netx lama
 # tetap 1800 (terukur 1747). Sigma core 48.171 -> 48.691 <= 48.700 (headroom 9).
+# ADR-269 (F5-09 PR A): Options.CancelMethod/CancelParam + notifyCancel untuk
+# notifications/cancelled MCP; kode terukur 530, plafon 520 -> 530,
+# Sigma core 51.013 -> 51.023 <= 51.100 (headroom 75).
 # ADR-264 (F5-03): transport auth (SigV4, Google service-account JWT, OAuth
 # device/PKCE/DCR + token store); provider/auth terukur 427 pada PR A (store/
 # OAuth B/C di bawah cap 961). `secret` 1245 -> 1261 untuk Delete named token
@@ -57,7 +60,7 @@ provider/registry  660 internal/provider/registry
 # Sigma core 48.691 -> 49.675 <= 49.700 (headroom 25).
 provider/auth      961 internal/provider/auth
 netx              1800 internal/netx
-netx/jsonrpc       520 internal/netx/jsonrpc
+netx/jsonrpc       530 internal/netx/jsonrpc
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).
 # ADR-173: tools 2200 -> 2500 (skills_list/skill_view/skill_manage; terukur 2315; Σ core 38.090 -> 38.390 <= 47.000).
