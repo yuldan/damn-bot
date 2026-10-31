@@ -398,3 +398,32 @@ func (g *serveGateway) feedback(ctx context.Context, chat, thread, tool, preview
 	}
 	return allow, nil
 }
+
+// decideApproval is the durable SEC-13 path: the first prompt for one
+// session/prompt/tool/preview fingerprint records its decision and marks it
+// executed, so a re-issued prompt after a restart resumes the stored decision
+// (deny on expiry) without a keyboard and without a second execution.
+func (g *serveGateway) decideApproval(ctx context.Context, sid, turnKey, chat, thread, tool, preview string) (bool, error) {
+	if g.approvals == nil {
+		return g.feedback(ctx, chat, thread, tool, preview)
+	}
+	id := approvalRequestID(sid, turnKey, tool, preview)
+	return g.approvals.decide(ctx, id, func(ctx context.Context, nonce string) (bool, error) {
+		text := cmp.Or(preview, tool)
+		cardID, err := g.adapter.OpenApprovalWithNonce(ctx, chat, thread, text, nonce)
+		if err != nil {
+			return false, fmt.Errorf("gateway: approval: %w", err)
+		}
+		if oerr := g.approvals.Open(&gateway.ApprovalRequest{
+			ID: cardID, Platform: "telegram", ChatID: chat, UserID: chat,
+			Summary: text, ExpiresAt: time.Now().Add(5 * time.Minute),
+		}); oerr != nil {
+			return false, fmt.Errorf("gateway: approval registry: %w", oerr)
+		}
+		d, err := g.adapter.AwaitApproval(ctx, chat, cardID)
+		if err != nil {
+			return false, fmt.Errorf("gateway: approval: %w", err)
+		}
+		return d == telegram.DecisionAllow, nil
+	})
+}

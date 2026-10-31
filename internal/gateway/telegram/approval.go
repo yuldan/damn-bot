@@ -39,7 +39,32 @@ func (a *Adapter) Approve(ctx context.Context, chatID, threadID, text string) (D
 // OpenApproval sends the approval card and returns its id. The card carries the
 // id, so an owner can answer it with /approve or /deny as well as the buttons.
 func (a *Adapter) OpenApproval(ctx context.Context, chatID, threadID, text string) (string, error) {
-	nonce := rand.Text()[:16]
+	return a.openApproval(ctx, chatID, threadID, text, rand.Text()[:16])
+}
+
+// ApproveNonce issues the card with a caller-chosen nonce so the durable
+// approval ledger can persist its hash (GAP-SEC-13). The nonce is still
+// one-time: replaying it is rejected by the durable claim.
+func (a *Adapter) ApproveNonce(ctx context.Context, chatID, threadID, text, nonce string) (Decision, error) {
+	if nonce == "" {
+		return DecisionDeny, errors.New("telegram: approval nonce is required")
+	}
+	if _, err := a.OpenApprovalWithNonce(ctx, chatID, threadID, text, nonce); err != nil {
+		return DecisionDeny, err
+	}
+	return a.AwaitApproval(ctx, chatID, nonce)
+}
+
+// OpenApprovalWithNonce sends the card under a caller-chosen nonce and returns
+// it, so the durable ledger can register the id before awaiting the answer.
+func (a *Adapter) OpenApprovalWithNonce(ctx context.Context, chatID, threadID, text, nonce string) (string, error) {
+	if nonce == "" {
+		return "", errors.New("telegram: approval nonce is required")
+	}
+	return a.openApproval(ctx, chatID, threadID, text, nonce)
+}
+
+func (a *Adapter) openApproval(ctx context.Context, chatID, threadID, text, nonce string) (string, error) {
 	a.mu.Lock()
 	a.pending[nonce] = &approval{chatID: chatID, decision: make(chan Decision, 1)}
 	a.mu.Unlock()
