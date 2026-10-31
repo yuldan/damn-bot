@@ -31,6 +31,7 @@ import (
 	"github.com/damnbot/damnbot/internal/memory"
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/provider"
+	"github.com/damnbot/damnbot/internal/provider/registry"
 	"github.com/damnbot/damnbot/internal/redact"
 )
 
@@ -462,17 +463,19 @@ func liveProvider(o *evalOptions) (loop.Provider, error) {
 	if !strings.Contains(ref, "/") {
 		ref = "openai/" + ref
 	}
-	base, apiKey, family, err := providerEndpoint(ref, &runOptions{baseURL: o.baseURL, apiKey: strings.TrimSpace(string(key))})
+	catalog, err := registry.DefaultCatalog()
+	if err != nil {
+		return nil, fmt.Errorf("provider catalog: %w", err)
+	}
+	route, err := newResolver(&config.Config{}, registry.PriceTable{}, catalog,
+		&runOptions{baseURL: o.baseURL, apiKey: strings.TrimSpace(string(key))}).resolve(ref)
 	if err != nil {
 		return nil, fmt.Errorf("provider endpoint: %w", err)
 	}
-	provName, modelName, _ := strings.Cut(ref, "/")
+	route.ContextWindow = 128000
 	client, err := provider.NewOpenAI(netx.New(netx.Config{}).Client("inference", netx.Inference), &provider.Config{
-		Routes: []provider.Route{{
-			Provider: provName, Model: modelName, BaseURL: base, APIKey: apiKey,
-			ContextWindow: 128000, Family: family,
-		}},
-		Attempts: 1,
+		Routes:   []provider.Route{route},
+		Attempts: 1, UserAgent: userAgent(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)

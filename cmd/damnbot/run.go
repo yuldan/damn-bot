@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"runtime"
 	"strings"
@@ -53,6 +54,7 @@ type runOptions struct {
 	offline          bool
 	baseURL          string
 	apiKey           string
+	confirmBaseURL   bool // SEC-24: accept a non-default base_url for an override
 	session          string
 	cont             bool
 	retry            bool
@@ -136,6 +138,7 @@ func runFlagSet(o *runOptions, out io.Writer) *flag.FlagSet {
 	fs.BoolVar(&o.offline, "offline", false, "network.offline: loopback only")
 	fs.StringVar(&o.baseURL, "base-url", "", "internal/test: provider base URL")
 	fs.StringVar(&o.apiKey, "api-key", "", "internal/test: provider API key")
+	fs.BoolVar(&o.confirmBaseURL, "confirm-base-url", false, "confirm a non-default base_url for a provider that overrides a built-in id")
 	fs.StringVar(&o.session, "session", "", "resume an existing session id")
 	fs.BoolVar(&o.cont, "continue", false, "continue the newest session in the current directory")
 	fs.BoolVar(&o.cont, "c", false, "alias for --continue")
@@ -370,29 +373,38 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	if o.prov != nil {
 		return o.prov, nil
 	}
-	base, key, family, err := providerEndpoint(modelRef, o)
+	resolver, err := newRunResolver(cfg, table, o)
 	if err != nil {
-		return nil, fmt.Errorf("provider endpoint: %w", err)
+		return nil, err
 	}
+	if verr := validateCustomOverrides(cfg, resolver.catalog); verr != nil {
+		return nil, verr
+	}
+	routes, fallback, err := resolver.routes(modelRef)
+	if err != nil {
+		return nil, err
+	}
+	lightRef := lightRoute(cfg, modelRef, &routes, resolver, fallback)
 	guard, notes, err := newBudgetGuard(cfg, db)
 	if err != nil {
 		return nil, err
 	}
-	provName, modelName, _ := strings.Cut(modelRef, "/")
-	prices, err := provider.RoutePrices(table, base, modelName)
-	if err != nil {
-		return nil, fmt.Errorf("pricing: %w", err)
-	}
+	provName, _, _ := strings.Cut(modelRef, "/")
 	net := netx.New(netx.Config{Offline: o.offline || cfg.Network.Offline, NoBackground: !cfg.Network.Background})
 	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), wireCircuit(&provider.Config{
-		Routes:   []provider.Route{{Provider: provName, Model: modelName, BaseURL: base, APIKey: key, ContextWindow: int64(cfg.Loop.TurnMaxInputTok), Family: family, Prices: prices}},
+		Routes: routes, Fallback: fallback, UserAgent: userAgent(),
 		Attempts: o.providerAttempts,
 		Guard:    guard, OnBudget: func(d budget.Decision) { notes.observe(&d) },
+		OnFallback: func(fb provider.Fallback) {
+			if fb.Done {
+				slog.Warn("provider fallback", "from", fb.From, "to", fb.To, "error", fb.Outcome)
+			}
+		},
 	}, db))
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)
 	}
-	return &providerAdapter{client: openai, model: modelRef, notes: notes, provider: provName}, nil
+	return &providerAdapter{client: openai, model: modelRef, lightRef: lightRef, notes: notes, provider: provName}, nil
 }
 
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, configDir, home string, codec ctxdb.Codec) (*runModel, error) {
@@ -408,10 +420,12 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	// (ADR-194 butir 3/4). A route that cannot name its endpoint (a pure
 	// injected provider with a non-standard ref) simply has no override.
 	var configWindows map[string]int64
-	if base, _, _, berr := providerEndpoint(w.modelRef, o); berr == nil {
-		configWindows, err = routeLimits(cfg, provName, base, modelName)
-		if err != nil {
-			return nil, w.fail(fmt.Errorf("model limits: %w", err))
+	if resolver, rerr := newRunResolver(cfg, registry.PriceTable{}, o); rerr == nil {
+		if base, berr := resolver.base(w.modelRef); berr == nil {
+			configWindows, err = routeLimits(cfg, provName, base, modelName)
+			if err != nil {
+				return nil, w.fail(fmt.Errorf("model limits: %w", err))
+			}
 		}
 	}
 	limits, err := registry.NewLimits(configWindows, nil, limitstore.Store{DB: w.db}, nil)
@@ -532,36 +546,6 @@ func loadRunConfig(loader *config.Loader, path string) (config.Config, error) {
 	return cfg, nil
 }
 
-func providerEndpoint(ref string, o *runOptions) (base, key, family string, err error) {
-	prov, _, ok := strings.Cut(ref, "/")
-	if !ok {
-		return "", "", "", fmt.Errorf("model %q is not provider/model", ref)
-	}
-	base = o.baseURL
-	if base == "" {
-		base = e2eProviderBase()
-	}
-	if base == "" {
-		switch prov {
-		case "openai":
-			base = "https://api.openai.com/v1"
-		case "openrouter":
-			base = "https://openrouter.ai/api/v1"
-		default:
-			return "", "", "", fmt.Errorf("provider %q needs --base-url in F1", prov)
-		}
-	}
-	family, err = provider.NormalizeBaseURL(base)
-	if err != nil {
-		return "", "", "", fmt.Errorf("base_url: %w", err)
-	}
-	key = o.apiKey
-	if key == "" {
-		key = config.OS().Getenv(strings.ToUpper(prov) + "_API_KEY")
-	}
-	return base, key, family, nil
-}
-
 func approvalMode(o *runOptions) tools.Mode {
 	switch o.approval {
 	case "ask":
@@ -599,7 +583,8 @@ func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit fu
 }
 
 func (p *providerAdapter) do(ctx context.Context, purpose provider.Purpose, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
-	preq := &provider.Request{Model: req.Model, MaxTokens: req.MaxTokens, CacheBreakAfter: req.CacheBreakAfter}
+	_, model := p.routeModel(purpose, req.Model)
+	preq := &provider.Request{Model: model, MaxTokens: req.MaxTokens, CacheBreakAfter: req.CacheBreakAfter}
 	for _, m := range req.Messages {
 		pm := provider.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, Carriers: providerCarriers(m.Carriers)}
 		for _, c := range m.ToolCalls {

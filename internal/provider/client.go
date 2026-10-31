@@ -21,6 +21,11 @@ import (
 // MaxFallback is the longest fallback chain after the primary (SPEC §4.1.1).
 const MaxFallback = 2
 
+// DefaultUserAgent is used when Config.UserAgent is empty. The composition
+// root passes the real "damnbot/<versi>" (SEC-25); keeping a neutral default
+// means a direct client never falls back to "Go-http-client".
+const DefaultUserAgent = "damnbot/unknown"
+
 // ErrConfig rejects an invalid provider configuration.
 var ErrConfig = errors.New("provider config")
 
@@ -59,6 +64,9 @@ type Config struct {
 	// Circuit, when set, supplies the shared cross-process circuit of one
 	// (provider, credential) route (GAP-COST-06); nil keeps it in-process.
 	Circuit func(provider, credential string) retry.Gate
+	// UserAgent is sent on every request; empty uses DefaultUserAgent. The
+	// composition root passes "damnbot/<versi>" (SEC-25).
+	UserAgent string
 }
 
 // OpenAI is the openai-chat Client with retry, circuit breaking, and model
@@ -86,6 +94,10 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 	if len(cfg.Fallback) > MaxFallback {
 		return nil, fmt.Errorf("%w: %d fallback models > %d", ErrConfig, len(cfg.Fallback), MaxFallback)
 	}
+	userAgent := cfg.UserAgent
+	if userAgent == "" {
+		userAgent = DefaultUserAgent
+	}
 	o := &OpenAI{
 		c: c, routes: map[string]Route{}, fallback: append([]string(nil), cfg.Fallback...),
 		onFB: cfg.OnFallback, onRetry: cfg.OnRetry, wait: cfg.Wait, attempts: cfg.Attempts,
@@ -101,6 +113,10 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 			return nil, fmt.Errorf("%w: route %q needs provider, model, and base_url", ErrConfig, r.Ref())
 		}
 		r.Headers = maps.Clone(r.Headers)
+		r.ExtraBody = maps.Clone(r.ExtraBody)
+		if r.UserAgent == "" {
+			r.UserAgent = userAgent
+		}
 		o.routes[r.Ref()] = r
 	}
 	return o, nil
@@ -380,6 +396,9 @@ func attempt(ctx context.Context, c *netx.Client, rt *Route, body []byte, est in
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
+	if rt.UserAgent != "" {
+		req.Header.Set("User-Agent", rt.UserAgent)
+	}
 	for k, v := range rt.Headers {
 		req.Header.Set(k, v)
 	}

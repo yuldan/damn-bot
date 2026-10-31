@@ -119,7 +119,7 @@ func TestRunStartFailureReleasesLease(t *testing.T) {
 	t.Parallel()
 	data := t.TempDir()
 	var out, errb bytes.Buffer
-	if code := run([]string{"run", "-p", "hi", "--model", "nobase/m", "--data-dir", data}, &out, &errb); code != 2 || !strings.Contains(errb.String(), "needs --base-url") {
+	if code := run([]string{"run", "-p", "hi", "--model", "nobase/m", "--data-dir", data}, &out, &errb); code != 2 || !strings.Contains(errb.String(), "unknown provider") {
 		t.Fatalf("exit %d stderr %q", code, errb.String())
 	}
 	var sessions, leases int64

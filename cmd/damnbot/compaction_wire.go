@@ -34,8 +34,12 @@ var _ compaction.Summarizer = (*compactionSummarizer)(nil)
 
 func (s *compactionSummarizer) Summarize(ctx context.Context, req *compaction.SummaryRequest) (compaction.Reply, error) {
 	start := time.Now()
+	provName, modelRef := s.provider, s.model
+	if r, ok := s.prov.(purposeRouter); ok {
+		provName, modelRef = r.routeModel(provider.PurposeCompaction, s.model)
+	}
 	reply, err := purposeStream(ctx, s.prov, provider.PurposeCompaction, &loop.Request{
-		Model:     s.model,
+		Model:     modelRef,
 		MaxTokens: req.MaxTokens,
 		Messages: []loop.Message{
 			{Role: "system", Content: s.red.String(req.System)},
@@ -48,10 +52,16 @@ func (s *compactionSummarizer) Summarize(ctx context.Context, req *compaction.Su
 	return compaction.Reply{
 		Content: reply.Content,
 		Call: compaction.Call{
-			Provider: s.provider, Model: reply.Model, Usage: reply.Usage,
+			Provider: provName, Model: reply.Model, Usage: reply.Usage,
 			Attempts: reply.Attempts, LatencyMS: time.Since(start).Milliseconds(),
 		},
 	}, nil
+}
+
+// purposeRouter is the optional light-route seam of the run provider:
+// compaction runs on provider.light when the config sets it.
+type purposeRouter interface {
+	routeModel(purpose provider.Purpose, model string) (string, string)
 }
 
 // purposeDoer is the purpose-tagged seam of the run provider: the OpenAI

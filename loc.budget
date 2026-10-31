@@ -15,7 +15,9 @@ plan               600 internal/plan
 # ADR-149: provider 2150 -> 2179 (memory nudge + cache breakpoint + cache family dari host base URL; terukur 2179; Σ core +29).
 # ADR-257 (F4 GAP-COST-06): injeksi retry.Gate lintas proses di provider; kode terukur
 # 2179 -> 2174 (cache pindah ke netx/retry), plafon 2179 -> 2194 (headroom 20).
-provider          2194 internal/provider
+# ADR-262 (F5-02): provider 2194 -> 2217 untuk User-Agent damnbot/<versi> (SEC-25)
+# dan extra_body custom provider (terukur 2217; Sigma core 48.148 -> 48.171 <= 48.200).
+provider          2217 internal/provider
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
 # ADR-128: tabel harga providers.toml + lookup base_url+model; tetap 300 (terukur 281, sisa 19; Σ tetap).
 # ADR-261 (F5-01): provider/registry 300 -> 660 untuk katalog 88 provider

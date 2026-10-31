@@ -99,6 +99,7 @@ func (budgetCounter) Count(s string) int { return int(budget.Count(s).Raw()) }
 type providerAdapter struct {
 	client   *provider.OpenAI
 	model    string
+	lightRef string // provider.light for auxiliary purposes; "" = primary
 	notes    *budgetNotes
 	provider string
 }

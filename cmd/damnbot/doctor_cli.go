@@ -12,6 +12,7 @@ import (
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/doctor"
 	"github.com/damnbot/damnbot/internal/netx"
+	"github.com/damnbot/damnbot/internal/provider/registry"
 )
 
 // runDoctor implements the F3 read-only core of `damnbot doctor`
@@ -60,9 +61,11 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		}
 		return sayEgress(&cfg, *jsonOut, stdout)
 	}
+	warnings := doctorProviderFindings(&cfg)
 	rep := doctor.Run(context.Background(), &doctor.Options{
 		ConfigDir: paths.ConfigDir, DataDir: paths.DataDir, ConfigFile: paths.ConfigFile(),
-		ConfigFound: found, ConfigErr: cfgErr, ProviderModel: cfg.Provider.Model, Fix: *fix,
+		ConfigFound: found, ConfigErr: cfgErr, ProviderModel: cfg.Provider.Model,
+		ProviderWarnings: warnings, Fix: *fix,
 	})
 	if *jsonOut {
 		b, merr := json.MarshalIndent(rep, "", "  ")
@@ -84,6 +87,21 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 	say(stdout, "\n%d ok, %d warning, %d error, %d fixed. Detail: damnbot doctor --json\n",
 		rep.Summary.OK, rep.Summary.Warn, rep.Summary.Error, rep.Summary.Fixed)
 	return rep.Exit
+}
+
+// doctorProviderFindings loads the catalog and price table for DOC-009. A
+// broken embedded table is itself a warning, not a reason to skip the rest of
+// the read-only checks.
+func doctorProviderFindings(cfg *config.Config) []string {
+	catalog, err := registry.DefaultCatalog()
+	if err != nil {
+		return []string{"provider catalog: " + err.Error()}
+	}
+	table, err := registry.DefaultPriceTable()
+	if err != nil {
+		return []string{"pricing table: " + err.Error()}
+	}
+	return providerDoctorWarnings(cfg, catalog, table)
 }
 
 func doctorUsage(w io.Writer) {

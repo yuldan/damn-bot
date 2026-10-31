@@ -12,6 +12,7 @@ config_version = 1
   fallback = []
   light = ""
   max_output = 8192
+  send_attribution = false
 
 [loop]
   max_iterations = 40
@@ -124,6 +125,7 @@ config_version = 1
 | `provider.model` | string | `` | `DAMNBOT_PROVIDER_MODEL` |
 | `provider.light` | string | `` | `DAMNBOT_PROVIDER_LIGHT` |
 | `provider.max_output` | int | `8192` | `DAMNBOT_PROVIDER_MAX_OUTPUT` |
+| `provider.send_attribution` | bool | `false` | `DAMNBOT_PROVIDER_SEND_ATTRIBUTION` |
 | `loop.max_iterations` | int | `40` | `DAMNBOT_LOOP_MAX_ITERATIONS` |
 | `loop.max_wall_s` | int | `900` | `DAMNBOT_LOOP_MAX_WALL_S` |
 | `loop.max_identical` | int | `3` | `DAMNBOT_LOOP_MAX_IDENTICAL` |
