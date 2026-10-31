@@ -55,6 +55,26 @@ func (s *Store) Get(ctx context.Context, name string) (string, error) {
 	return s.keyringGet(ctx, s.account("named:"+name))
 }
 
+// Delete removes a named value from the keychain and its index row. A missing
+// name is [ErrKeyMissing] so logout cannot report success for a value that was
+// never removed.
+func (s *Store) Delete(ctx context.Context, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx, err := s.readSecrets()
+	if err != nil {
+		return err
+	}
+	if _, exists := idx[name]; !exists {
+		return ErrKeyMissing
+	}
+	if err := s.keyringDelete(ctx, s.account("named:"+name)); err != nil {
+		return err
+	}
+	delete(idx, name)
+	return s.writeSecrets(idx)
+}
+
 // List returns the name+fingerprint index, sorted by name.
 func (s *Store) List() ([]NamedEntry, error) {
 	idx, err := s.readSecrets()

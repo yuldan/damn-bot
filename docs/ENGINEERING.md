@@ -340,7 +340,7 @@ Batas LOC paket core (pemecahan baris core, codetools, exec, dan heal SPEC §3.2
 | `boundary` | 150 | `i18n` (Go) | 300 |
 | `ctxdb/ledgerstore` (F1, ADR-074) | 300 | `ctxdb/memstore` (F2, ADR-074) | 600 |
 | `ctxdb/skillstore` (F2, ADR-074, ADR-173, ADR-124, ADR-208) | 472 | `ctxdb/journalstore` (F2, ADR-074) | 400 |
-| `ctxdb/limitstore` (F2, ADR-126) | 100 | `secret` (key store OS/file, ADR-124) | 1.245 |
+| `ctxdb/limitstore` (F2, ADR-126) | 100 | `secret` (key store OS/file, ADR-124, ADR-264) | 1.261 |
 | `ctxdb/compactstore` (F2, ADR-074, ADR-122, ADR-134, ADR-124) | 360 | `backup` (arsip `DMBK1`, ADR-124) | 1.467 |
 | `ctxdb/planstore` (F3, ADR-074, ADR-196) | 220 | `ctxdb/importstore` (F3, ADR-074, ADR-196) | 200 |
 | `ctxdb/usagestore` (F3, ADR-074, ADR-196) | 260 | | |

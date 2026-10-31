@@ -128,3 +128,28 @@ func TestNamedKeyringFailureWritesNothing(t *testing.T) {
 		t.Fatal("index written despite keyring failure")
 	}
 }
+
+func TestNamedDelete(t *testing.T) {
+	kr := &namedFakeKeyring{vals: map[string]string{}}
+	s, _ := namedStore(t, kr)
+	ctx := t.Context()
+	if err := s.Set(ctx, "oauth:alpha", "token-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set(ctx, "other", "token-b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Delete(ctx, "oauth:alpha"); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.List()
+	if err != nil || len(list) != 1 || list[0].Name != "other" {
+		t.Fatalf("List after Delete = %+v, %v", list, err)
+	}
+	if err := s.Delete(ctx, "oauth:alpha"); !errors.Is(err, ErrKeyMissing) {
+		t.Fatalf("second Delete = %v", err)
+	}
+	if _, ok := kr.vals["damnbot/at-rest:named:other"]; !ok {
+		t.Fatal("Delete removed an unrelated value")
+	}
+}
