@@ -533,7 +533,10 @@ func TestEvalRedactsErrorsInSummary(t *testing.T) {
 }
 
 // TestEvalKeyFilePermissions: the key file must not be group/other readable
-// (SEC14-6). Windows ACLs are not represented by mode bits.
+// (SEC14-6). Windows ACLs are not represented by mode bits. The --base-url
+// seam pins openai-chat, the adapter both builds wire: the openai preset
+// itself speaks openai-responses and the minimal build refuses it during
+// resolution, before this test's permission check could be reached.
 func TestEvalKeyFilePermissions(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -544,14 +547,14 @@ func TestEvalKeyFilePermissions(t *testing.T) {
 	if err := os.WriteFile(open, []byte("sk-test"), 0o644); err != nil { // #nosec G306 -- deliberately readable to test rejection
 		t.Fatal(err)
 	}
-	if _, err := liveProvider(&evalOptions{keyFile: open, model: "openai/gpt-5.4-mini"}); err == nil {
+	if _, err := liveProvider(&evalOptions{keyFile: open, model: "openai/gpt-5.4-mini", baseURL: "http://127.0.0.1:9/v1"}); err == nil {
 		t.Fatal("0644 key file accepted")
 	}
 	closed := filepath.Join(dir, "closed")
 	if err := os.WriteFile(closed, []byte("sk-test"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := liveProvider(&evalOptions{keyFile: closed, model: "openai/gpt-5.4-mini"}); err != nil {
+	if _, err := liveProvider(&evalOptions{keyFile: closed, model: "openai/gpt-5.4-mini", baseURL: "http://127.0.0.1:9/v1"}); err != nil {
 		t.Fatalf("0600 key file refused: %v", err)
 	}
 }
