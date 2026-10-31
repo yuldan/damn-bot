@@ -35,6 +35,11 @@ func Registry() map[string]Egress {
 			Host:    "monitor.url in cron_jobs.gate",
 			Trigger: "a due cron monitor gate before the prompt runs (COST-13)",
 		},
+		"auth": {
+			Purpose: Inference,
+			Host:    "the OAuth issuer's RFC 8414 endpoints (--issuer, token, device, revocation); never a wildcard",
+			Trigger: "setup auth login/logout/status device flow, token refresh, or RFC 7009 revocation",
+		},
 		"telegram": {
 			Purpose: Gateway,
 			Host:    "api.telegram.org",

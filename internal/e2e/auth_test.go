@@ -101,16 +101,28 @@ func pkceOK(verifier, challenge string) bool {
 }
 
 // authEnv is a child environment with the file token backend and a private
-// XDG data root, so the token path is deterministic.
+// data root matching config.Paths on every GOOS (Linux XDG, macOS Application
+// Support, Windows LOCALAPPDATA), so the token path is deterministic.
 func authEnv(t *testing.T) (*Env, string) {
 	t.Helper()
 	e := newEnv(t)
 	e.bin = binPaths.secret
-	return e, filepath.Join(e.home, "data")
+	switch runtime.GOOS {
+	case "windows":
+		return e, filepath.Join(e.home, "AppData", "Local")
+	case "darwin":
+		return e, filepath.Join(e.home, "Library", "Application Support")
+	default:
+		return e, filepath.Join(e.home, "data")
+	}
 }
 
 func (a *authAS) exec(e *Env, dataHome string, args ...string) Result {
-	return e.ExecEnv([]string{"DAMNBOT_TEST_KEYRING=fail", "XDG_DATA_HOME=" + dataHome}, args...)
+	env := []string{"DAMNBOT_TEST_KEYRING=fail"}
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		env = append(env, "XDG_DATA_HOME="+dataHome)
+	}
+	return e.ExecEnv(env, args...)
 }
 
 func tokenPath(dataHome string) string {
