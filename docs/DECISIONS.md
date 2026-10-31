@@ -5497,6 +5497,22 @@ Batas penting: risiko ToS **bukan** temuan threat scan. Q43/ADR-033 menetapkan `
 
 **Di luar cakupan PR A.** `initialize`/`tools/list`/`tools/call`, cache `(server, config_sha)`, normalisasi schema, `[modules.mcp]`, approval wiring, SSE, pin tool, OAuth, security scan, `damnbot mcp serve`, dan wiring composition root.
 
+## Amandemen ADR-269 (PR B) — protokol, cache, schema, approval, dan config `[modules.mcp]`
+
+**Status:** Accepted 2026-10-31 (PR B, stacked di PR A). Kode + tes + CHANGELOG + `loc.budget` + ENGINEERING §2.4.
+
+**Keputusan tambahan.**
+1. **Protokol.** `initialize` mengirim `protocolVersion=2025-06-18`, `capabilities={}`, `clientInfo`; server harus menjawab `2024-11-05|2025-03-26|2025-06-18`, lalu `notifications/initialized`. `tools/list` mengikuti `nextCursor` maksimum 64 halaman/4.096 tool. `tools/call` memetakan `isError`/transport ke kode tool tertutup; cancel mengirim `notifications/cancelled` berisi `requestId`.
+2. **Cache.** `host.Storage("module/mcp")` menyimpan `tools/<server>/<sha256>`; sha adalah JSON kanonik field server (command/args/env/url/headers/trust/timeout/read_only). Perubahan config mengganti key; cache best-effort dan entri rusak = miss.
+3. **Schema.** `NormalizeSchema` mewajibkan root `type=object`, `properties` objek, `additionalProperties=false` bila absen; schema non-objek ditolak `ErrInvalidSchema`.
+4. **Approval/keamanan.** Efek default `non_idempotent`; hanya `[tools.<tool>] read_only = true` menjadi `read`. Setiap call non-read lewat `mcp.Approve` (auto hanya read) dengan preview argumen ≤3.500 rune dan `class="mcp"`. Hasil `UntrustedSource="mcp:<server>"`, batas 8 MiB; bagian non-teks di `Meta["content"]`.
+5. **Config** dan **plafon core** dimuat di PR C yang menumpang di PR B; B tidak mengubah `internal/config` maupun `maxCoreLOC`.
+
+**Dampak terukur.** PR B: **539 baris Go non-test** (`pr-meta size` terhadap PR A), ≤600. Tes: `TestStdioListCallAndCache`, `TestStdioPagination`, `TestListToolsRejectsSchema`, `TestUntrustedToolDeniedByDefault`, `TestApprovalDenyAndAllowOnce`, `TestEnvAllowlist`, `TestChildCrashIsUnavailable`, `TestCancelSendsMCPNotification`, `TestResultOverLimit`, `TestCacheKeyedByConfigSHA`, `TestUnsupportedProtocol`, `TestHTTPSSEResponse`, `TestHTTPJSONRPCError`, `TestHTTPStatusError`, `TestNormalizeSchema`, `TestNormalizeSchemaRejects`, `TestMCPConfigStrict`, `TestMCPConfigRejects`. Kontrol negatif: non-read tanpa approver → `denied` + 0 call; header plaintext/trust asing ditolak; child mati → `module_unavailable`; schema rusak → `ErrInvalidSchema`; config berubah → cache miss.
+
+**Konsekuensi.** (+) Klien MCP lengkap untuk stdio/HTTP JSON+SSE, dengan cache dan consent fail-closed. (−) Composition root tetap harus menyediakan `Process.Stdio`, `CapabilityProvider`, dan config Raw; pin/OAuth/serve/lampiran non-teks belum.
+
+
 
 
 ## ADR-270 — Harness gate `perf`: serialisasi eksplisit dan isolasi paket benchmark (NEW-38, E-59)
