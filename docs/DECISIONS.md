@@ -5118,6 +5118,8 @@ Batas penting: risiko ToS **bukan** temuan threat scan. Q43/ADR-033 menetapkan `
 **Konsekuensi.** (+) `/readyz` memenuhi kontrak 1 s tanpa melonggarkan `busy_timeout` transaksi nyata. (+) Lapisan database tetap satu-satunya pemilik `database/sql` (E-04). (−) `ctxdb` kini punya satu API observability; cap naik 81 LOC dan headroom core turun 89 → 8, sehingga penambahan core berikutnya butuh ADR baru.
 
 
+**Amandemen 2026-10-31 (fix shutdown `SQLITE_LOCKED`).** Cap `ctxdb` 6.000 → **6.008** (kode terukur 6.008 pada pohon ter-commit) untuk rollback `BEGIN IMMEDIATE` yang gagal setelah membuka transaksi, penolakan operasi pada Store yang sudah `Close`, dan perlakuan `SQLITE_BUSY`/`SQLITE_LOCKED` sebagai kondisi checkpoint shutdown (WAL ditinggal untuk open berikutnya; error nyata tetap dikembalikan). Σ core `loc.budget` 50.170 → **50.178** (≤ 50.200, headroom 22); baris tabel dan kalimat `docs/ENGINEERING.md` §2.4 disetel ke Σ tersebut. Tidak ada perubahan SPEC, `maxCoreLOC`, `TOTAL`, atau dependency.
+
 ## ADR-247 — Purpose egress `netx.Gateway` dan adapter Telegram transport (long polling, send/edit, approval inline)
 
 **Status:** Accepted 2026-10-29 (F4, slice transport Telegram). Kode di `internal/netx`, `internal/gateway/telegram`, dan tes `cmd/damnbot`/`internal/e2e`; tanpa DDL, key config baru, atau dependency baru.

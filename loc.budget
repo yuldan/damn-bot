@@ -25,6 +25,7 @@ plan               600 internal/plan
 # seam wire + carrier engine bersama) dan tidak ada double-count. Baris baru
 # `provider/responses` 432 (terukur 432 setelah tool call + reasoning).
 # Sigma core 49.675 -> 50.170, plafon core 49.700 -> 50.200 (headroom 30).
+# Amandemen shutdown (ADR-246): ctxdb 6.000 -> 6.008, Sigma core 50.170 -> 50.178 (headroom 22).
 provider          2105 internal/provider
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses
@@ -101,7 +102,7 @@ boundary           150 internal/boundary
 # ter-commit, tanpa headroom. Tidak ada baris yang turun: Σ core 46.385 -> 46.414.
 # ADR-246 (GAP-REL-17 /readyz): Store.ProbeWrite (probe writer berbatas 250 ms) menambah baris
 # ctxdb 5919 -> 6000 = angka ukur scc 5961 + headroom 39; Σ core 47.511 -> 47.592 <= 47.600.
-ctxdb             6000 internal/ctxdb
+ctxdb             6008 internal/ctxdb
 # ADR-074: storage konsumen di internal/ctxdb/<consumer>store, dipotong dari baris konsumennya (Σ tidak berubah oleh ADR-074).
 # ctxdb/gwstore (900) dihitung dari budget gateway SPEC §3.2.4; barisnya dibukukan sebagai MODULE (ADR-245).
 ctxdb/ledgerstore  300 internal/ctxdb/ledgerstore

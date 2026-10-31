@@ -549,6 +549,12 @@ func (s *Store) close(ctx context.Context) error {
 		s.lock, err = nil, errors.Join(err, unlockFile(s.lock))
 		if last, lerr := tryLock(s.root, lockFile, true); lerr == nil {
 			_, cerr := s.w.ExecContext(context.WithoutCancel(ctx), "PRAGMA wal_checkpoint(PASSIVE)")
+			// SQLITE_BUSY/LOCKED is a live connection or an open transaction,
+			// not a close failure: leave the WAL to the next open. Only a real
+			// error (I/O, corruption) may fail Close.
+			if se, ok := cerr.(*sqlite.Error); ok && (se.Code()&0xff == codeBusy || se.Code()&0xff == codeLocked) { //nolint:errorlint // ExecContext returns the driver error unwrapped
+				cerr = nil
+			}
 			err = errors.Join(err, wrap(cerr), unlockFile(last))
 		}
 	}

@@ -39,6 +39,7 @@ var (
 // SQLite result codes used for classification (sqlite3.h).
 const (
 	codeBusy              = 5
+	codeLocked            = 6
 	codeReadOnly          = 8
 	codeFull              = 13
 	codeCantOpen          = 14
