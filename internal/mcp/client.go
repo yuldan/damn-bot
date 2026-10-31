@@ -117,9 +117,6 @@ func NewClient(h host.Host, cfg Server, doer Doer) (*Client, error) { //nolint:g
 	return &Client{host: h, doer: doer, store: store, sha: sha, server: cfg}, nil
 }
 
-// Server returns a copy of the validated server configuration.
-func (c *Client) Server() Server { return c.server }
-
 // ListTools returns the server's tools, from the cache when the exact
 // (server, config_sha) entry exists. Pagination is followed to the end.
 func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
