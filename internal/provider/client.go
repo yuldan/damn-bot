@@ -402,7 +402,12 @@ func attempt(ctx context.Context, c *netx.Client, rt *Route, body []byte, est in
 	for k, v := range rt.Headers {
 		req.Header.Set(k, v)
 	}
-	if rt.APIKey != "" {
+	switch {
+	case rt.Auth != nil:
+		if serr := rt.Auth.Sign(ctx, req, body); serr != nil {
+			return Response{}, &Error{Class: retry.Auth, Err: serr}
+		}
+	case rt.APIKey != "":
 		req.Header.Set("Authorization", "Bearer "+rt.APIKey)
 	}
 	start := time.Now()

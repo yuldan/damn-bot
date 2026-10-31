@@ -17,7 +17,9 @@ plan               600 internal/plan
 # 2179 -> 2174 (cache pindah ke netx/retry), plafon 2179 -> 2194 (headroom 20).
 # ADR-262 (F5-02): provider 2194 -> 2217 untuk User-Agent damnbot/<versi> (SEC-25)
 # dan extra_body custom provider (terukur 2217; Sigma core 48.148 -> 48.171 <= 48.200).
-provider          2217 internal/provider
+# ADR-264 (F5-03): provider 2217 -> 2224 untuk penerapan Route.Auth signer pada
+# jalur openai-chat (terukur 2224 pada pohon rebase; Sigma core +7).
+provider          2224 internal/provider
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
 # ADR-128: tabel harga providers.toml + lookup base_url+model; tetap 300 (terukur 281, sisa 19; Σ tetap).
 # ADR-261 (F5-01): provider/registry 300 -> 660 untuk katalog 88 provider
@@ -28,6 +30,12 @@ provider/registry  660 internal/provider/registry
 # ADR-263 (F5-08): baris baru netx/jsonrpc untuk framing JSON-RPC 2.0 MCP/LSP.
 # Kode terukur scc = 520 (conn 231, frame 125, http 78, jsonrpc 86); netx lama
 # tetap 1800 (terukur 1747). Sigma core 48.171 -> 48.691 <= 48.700 (headroom 9).
+# ADR-264 (F5-03): transport auth (SigV4, Google service-account JWT, OAuth
+# device/PKCE/DCR + token store); provider/auth terukur 427 pada PR A (store/
+# OAuth B/C di bawah cap 961). `secret` 1245 -> 1261 untuk Delete named token
+# (A terukur 1245; Delete di PR B). provider 2217 -> 2224 (+7 signer).
+# Sigma core 48.691 -> 49.675 <= 49.700 (headroom 25).
+provider/auth      961 internal/provider/auth
 netx              1800 internal/netx
 netx/jsonrpc       520 internal/netx/jsonrpc
 schema            1200 internal/schema
@@ -106,7 +114,7 @@ ctxdb/importstore   200 internal/ctxdb/importstore
 ctxdb/usagestore    260 internal/ctxdb/usagestore
 # ADR-124 (PR 1/1b/2a): key store at-rest + rotasi/timeout + backup X25519; terukur 806.
 # Amandemen jendela crypto (ADR-124): secret -> 1145 (terukur pada pohon langkah ini).
-secret             1245 internal/secret
+secret             1261 internal/secret
 # ADR-121: assemble 1000 -> 1200 (tier prompt F2 penuh; terukur 1.034 sesudah PR1; Σ core 36.770 -> 36.970 <= 47.000).
 # ADR-121 PR2: assemble 1200 -> 1300 (REVIEW-F2-SEC4 ASM4-1..3: wrapper <untrusted> exact, tag pembuka dinetralkan, clip sadar-wrapper; terukur 1.236; Σ core 36.970 -> 37.070 <= 47.000).
 # ADR-124 (PR 2a-2d): kontainer DMBK1, manifest, create/verify/ls, restore.
