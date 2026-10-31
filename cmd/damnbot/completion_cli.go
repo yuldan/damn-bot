@@ -21,7 +21,7 @@ func completionSubcommands() map[string][]string {
 		"import":          {"hermes", "claude-code", "codex", "openclaw", "archive"},
 		"setup":           {"auth", "secrets", "ssh", "completion"},
 		"config profiles": {"ls", "export", "import"},
-		"setup auth":      {"login", "logout"},
+		"setup auth":      {"login", "logout", "status"},
 		"setup secrets":   {"set", "rotate", "ls"},
 	}
 }

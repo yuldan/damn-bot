@@ -41,6 +41,8 @@ func setupDispatch(args []string, stdout, stderr io.Writer) (bool, int) {
 		return true, setupCompletion(args[1:], stdout, stderr)
 	case "secrets":
 		return true, setupSecrets(args[1:], stdout, stderr)
+	case "auth":
+		return true, setupAuth(args[1:], stdout, stderr)
 	}
 	return false, 0
 }
@@ -234,5 +236,5 @@ func promptLine(in io.Reader, out io.Writer, prompt string) (string, error) {
 }
 
 func setupUsage(w io.Writer) {
-	say(w, "usage: damnbot setup [--yes] [--model provider/model]\n       damnbot setup completion bash|zsh|fish|powershell\n       damnbot setup secrets set|rotate [--all-profiles]|ls [--refs]\n")
+	say(w, "usage: damnbot setup [--yes] [--model provider/model]\n       damnbot setup auth login|logout|status <provider>\n       damnbot setup completion bash|zsh|fish|powershell\n       damnbot setup secrets set|rotate [--all-profiles]|ls [--refs]\n")
 }
