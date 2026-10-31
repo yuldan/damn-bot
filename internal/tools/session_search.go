@@ -18,8 +18,8 @@ type SessionHit struct {
 }
 
 // SessionScope is the caller's explicit search scope (GAP-REL-18): its own
-// session and workspace. Both fields are required; the backend fails closed
-// rather than searching every session when one is empty.
+// session and workspace. Both fields are required and an empty one fails
+// closed; the backend searches the workspace, never every session.
 type SessionScope struct {
 	SessionID string
 	Cwd       string

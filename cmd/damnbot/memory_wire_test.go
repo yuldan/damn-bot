@@ -107,15 +107,33 @@ func TestSessionSearchBackendScopesProject(t *testing.T) {
 	if _, err := db.Append(ctx, "OTHER", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "SCOPEMARK-ALPHA elsewhere"}); err != nil {
 		t.Fatal(err)
 	}
+	// A past session of the same project stays searchable: session_search is
+	// project-scoped, not limited to the current session id.
+	if _, err := db.CreateSession(ctx, ctxdb.Session{ID: "PAST", Origin: "headless", Cwd: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Append(ctx, "PAST", nil, ctxdb.Event{Kind: "user_message", Role: "user", Content: "SCOPEMARK-ALPHA past"}); err != nil {
+		t.Fatal(err)
+	}
 	hits, err := ctxSearch{db: db}.Search(ctx, "SCOPEMARK-ALPHA", 5, tools.SessionScope{SessionID: sid, Cwd: "/w"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hits) != 1 || hits[0].SessionID != sid {
-		t.Fatalf("project scope = %+v, want only %s", hits, sid)
+	if len(hits) != 2 {
+		t.Fatalf("project scope = %+v, want the current and the past session", hits)
+	}
+	seen := map[string]bool{}
+	for _, h := range hits {
+		seen[h.SessionID] = true
+	}
+	if !seen[sid] || !seen["PAST"] || seen["OTHER"] {
+		t.Fatalf("project scope = %+v, want %s + PAST and never OTHER", hits, sid)
 	}
 	if _, err := (ctxSearch{db: db}).Search(ctx, "SCOPEMARK-ALPHA", 5, tools.SessionScope{SessionID: sid}); err == nil {
 		t.Fatal("empty cwd searched globally, want a fail-closed error")
+	}
+	if _, err := (ctxSearch{db: db}).Search(ctx, "SCOPEMARK-ALPHA", 5, tools.SessionScope{Cwd: "/w"}); err == nil {
+		t.Fatal("empty session id was accepted, want a fail-closed error")
 	}
 }
 

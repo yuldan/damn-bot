@@ -242,7 +242,9 @@ func memToolErr(err error) error {
 }
 
 // ctxSearch adapts ctxdb.Search to the session_search tool: project-scoped
-// (SEC17-1) and without context_exclude hits (SEC17-2).
+// (SEC17-1), never global, and without context_exclude hits (SEC17-2). The
+// explicit session proves the caller has a view; the query itself stays
+// project-scoped so past sessions of the same project remain searchable.
 type ctxSearch struct{ db *ctxdb.Store }
 
 func (s ctxSearch) Search(ctx context.Context, query string, k int, scope tools.SessionScope) ([]tools.SessionHit, error) {
@@ -252,7 +254,7 @@ func (s ctxSearch) Search(ctx context.Context, query string, k int, scope tools.
 	if scope.SessionID == "" { // REL-18: no session, no transcript access
 		return nil, errors.New("session search: no session scope")
 	}
-	hits, err := s.db.Search(ctx, ctxdb.Query{Text: query, Limit: k, Cwd: scope.Cwd, SessionID: scope.SessionID})
+	hits, err := s.db.Search(ctx, ctxdb.Query{Text: query, Limit: k, Cwd: scope.Cwd})
 	if err != nil {
 		return nil, fmt.Errorf("session search: %w", err)
 	}
