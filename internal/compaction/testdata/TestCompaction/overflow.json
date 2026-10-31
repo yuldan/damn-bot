@@ -6,6 +6,7 @@
   "Usage": {
    "Input": 1000,
    "CachedInput": 0,
+   "CacheCreation": 0,
    "Output": 40,
    "CostUSD": null,
    "Price": null,

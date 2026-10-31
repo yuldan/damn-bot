@@ -62,37 +62,43 @@ const (
 // ADR-125 precedence holds (provider cost, else unknown: micros = nil, the
 // token caps still apply).
 func Cost(u Usage, p *Price) (micros *int64, src CostSource, err error) {
-	if u.Input < 0 || u.Output < 0 || u.CachedInput < 0 || u.CacheCreation < 0 ||
-		u.CachedInput+u.CacheCreation > u.Input || u.Input > MaxTokens || u.Output > MaxTokens {
+	if !plausibleUsage(u) {
 		return nil, CostUnknown, fmt.Errorf("%w: input=%d cached=%d creation=%d output=%d", ErrInvalidUsage, u.Input, u.CachedInput, u.CacheCreation, u.Output)
 	}
 	provider, err := providerCost(u.CostUSD)
 	if err != nil {
 		return nil, CostUnknown, err
 	}
-	// A price row has no cache-write tier (Anthropic charges a premium), so a
-	// table-priced call with cache creation is unknown unless the provider
-	// reported its own charge: the cost is never guessed.
-	if u.CacheCreation > 0 {
+	return charge(u, provider, p)
+}
+
+// charge classifies a valid, provider-cost-checked usage block: a cache-write
+// call has no table tier (Anthropic charges a premium), so it is unknown
+// unless the provider reported its own charge; a priced route pays the larger
+// of the table and the provider charge (ADR-128); an unpriced route keeps
+// ADR-125 (provider charge, else unknown). The cost is never guessed.
+func charge(u Usage, provider *int64, p *Price) (*int64, CostSource, error) {
+	if u.CacheCreation > 0 || p == nil {
 		if provider != nil {
 			return provider, CostProvider, nil
 		}
 		return nil, CostUnknown, nil
 	}
-	if p != nil {
-		table, terr := tableCost(u, p)
-		if terr != nil {
-			return nil, CostUnknown, terr
-		}
-		if provider != nil && *provider > table {
-			return provider, CostProvider, nil
-		}
-		return &table, CostPricingTable, nil
+	table, err := tableCost(u, p)
+	if err != nil {
+		return nil, CostUnknown, err
 	}
-	if provider != nil {
+	if provider != nil && *provider > table {
 		return provider, CostProvider, nil
 	}
-	return nil, CostUnknown, nil
+	return &table, CostPricingTable, nil
+}
+
+// plausibleUsage reports non-negative counts within MaxTokens, with no cache
+// tier larger than the input (LED-2/3).
+func plausibleUsage(u Usage) bool {
+	return u.Input >= 0 && u.Output >= 0 && u.CachedInput >= 0 && u.CacheCreation >= 0 &&
+		u.CachedInput+u.CacheCreation <= u.Input && u.Input <= MaxTokens && u.Output <= MaxTokens
 }
 
 // providerCost converts a provider-reported USD cost to micro-USD. It

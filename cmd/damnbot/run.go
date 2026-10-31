@@ -731,7 +731,7 @@ func (l *ctxLedger) Record(ctx context.Context, sid, tid string, eventID int64, 
 		Provider: l.provider, Model: l.model, GatewayIdentity: l.identity, Attempts: 1,
 		TTFTMS: ttftMillis(u.TTFT), CreatedAt: time.Now().UnixMilli(),
 	}
-	acctErr := e.Account(budget.Usage{Input: u.Input, CachedInput: u.CachedInput, Output: u.Output, CostUSD: u.CostUSD}, price, 0)
+	acctErr := e.Account(budget.Usage{Input: u.Input, CachedInput: u.CachedInput, CacheCreation: u.CacheCreation, Output: u.Output, CostUSD: u.CostUSD}, price, 0)
 	if acctErr != nil {
 		// The call already happened and was paid for: record it as
 		// unknown-cost with clamped token counts instead of losing it.

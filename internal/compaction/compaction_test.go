@@ -96,6 +96,10 @@ func TestCompaction(t *testing.T) {
 	}
 }
 
+// goldenOf serializes the acceptance result. Result.Usage includes the
+// event contract's CacheCreation field (GAP-COST-03): the summary call may
+// report a provider cache write, so the golden pins it (zero for this
+// fixture's reply) instead of hiding it from the stored shape (ADR-266).
 func goldenOf(t *testing.T, fixtureTokens, before int64, res *Result, v *View, r *rig) []byte {
 	t.Helper()
 	type msg struct {
