@@ -32,21 +32,6 @@ func setupCredentials() []setupCredential {
 	}
 }
 
-func setupDispatch(args []string, stdout, stderr io.Writer) (bool, int) {
-	if len(args) == 0 {
-		return false, 0
-	}
-	switch args[0] {
-	case "completion":
-		return true, setupCompletion(args[1:], stdout, stderr)
-	case "secrets":
-		return true, setupSecrets(args[1:], stdout, stderr)
-	case "auth":
-		return true, setupAuth(args[1:], stdout, stderr)
-	}
-	return false, 0
-}
-
 // runSetup implements the ≤3-step wizard (SPEC §10, ROADMAP F3 acceptance).
 func runSetup(args []string, stdout, stderr io.Writer) int {
 	if handled, code := setupDispatch(args, stdout, stderr); handled {

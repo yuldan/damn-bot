@@ -69,6 +69,9 @@ func scanClientCalls(t *testing.T) map[string]Purpose {
 	for _, dir := range []string{"cmd", "internal"} {
 		base := filepath.Join("..", "..", dir)
 		walkSources(t, base, func(path string, data []byte) {
+			if minimalBuild && strings.HasPrefix(string(data), "//go:build !minimal") {
+				return
+			}
 			for _, m := range clientCall.FindAllStringSubmatch(string(data), -1) {
 				p := purposeOf(m[2])
 				if old, ok := seen[m[1]]; ok && old != p {
@@ -170,18 +173,5 @@ func TestGatewayPurpose(t *testing.T) {
 	}
 	if hits.Load() != 1 {
 		t.Errorf("offline gateway reached the server: %d hits", hits.Load())
-	}
-}
-
-// TestEgressAuthScoped: the auth egress is limited to the configured issuer's
-// OAuth endpoints, never a wildcard host.
-func TestEgressAuthScoped(t *testing.T) {
-	t.Parallel()
-	e, ok := Registry()["auth"]
-	if !ok || e.Purpose != Inference {
-		t.Fatalf("auth egress = %+v, ok=%t", e, ok)
-	}
-	if strings.Contains(e.Host, "*") || !strings.Contains(e.Host, "issuer") || !strings.Contains(e.Trigger, "revocation") {
-		t.Fatalf("auth egress not narrowly scoped: %+v", e)
 	}
 }

@@ -14,7 +14,7 @@ type Egress struct {
 // at the call site. A new call site must add its entry here; the package test
 // fails when a production client is missing from (or stale in) this table.
 func Registry() map[string]Egress {
-	return map[string]Egress{
+	reg := map[string]Egress{
 		"inference": {
 			Purpose: Inference,
 			Host:    "provider base URL from [provider].model, [[providers.custom]].base_url, or --base-url",
@@ -35,17 +35,14 @@ func Registry() map[string]Egress {
 			Host:    "monitor.url in cron_jobs.gate",
 			Trigger: "a due cron monitor gate before the prompt runs (COST-13)",
 		},
-		"auth": {
-			Purpose: Inference,
-			Host:    "the OAuth issuer's RFC 8414 endpoints (--issuer, token, device, revocation); never a wildcard",
-			Trigger: "setup auth login/logout/status device flow, token refresh, or RFC 7009 revocation",
-		},
 		"telegram": {
 			Purpose: Gateway,
 			Host:    "api.telegram.org",
 			Trigger: "gateway long polling and message delivery for a user turn",
 		},
 	}
+	addAuthEgress(reg)
+	return reg
 }
 
 // String names the purpose in diagnostics.

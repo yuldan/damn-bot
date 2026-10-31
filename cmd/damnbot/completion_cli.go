@@ -9,7 +9,7 @@ import (
 // completionSubcommands is the SPEC §10 subcommand vocabulary exposed to the
 // dynamic completer. It is data only: every entry is documented in SPEC §10.
 func completionSubcommands() map[string][]string {
-	return map[string][]string{
+	m := map[string][]string{
 		"sessions":        {"ls", "show", "search", "fork", "rewind", "export", "why", "prune", "backup", "restore"},
 		"checkpoints":     {"status", "list", "prune", "clear", "clear-legacy"},
 		"undo":            {"ls"},
@@ -21,9 +21,10 @@ func completionSubcommands() map[string][]string {
 		"import":          {"hermes", "claude-code", "codex", "openclaw", "archive"},
 		"setup":           {"auth", "secrets", "ssh", "completion"},
 		"config profiles": {"ls", "export", "import"},
-		"setup auth":      {"login", "logout", "status"},
 		"setup secrets":   {"set", "rotate", "ls"},
 	}
+	addAuthCompletion(m)
+	return m
 }
 
 func completionFlags() []string { return []string{"--help", "--profile", "--version"} }
