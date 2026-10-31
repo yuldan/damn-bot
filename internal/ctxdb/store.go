@@ -548,7 +548,7 @@ func (s *Store) close(ctx context.Context) error {
 	if s.w != nil && s.lock != nil {
 		s.lock, err = nil, errors.Join(err, unlockFile(s.lock))
 		if last, lerr := tryLock(s.root, lockFile, true); lerr == nil {
-			_, cerr := s.w.ExecContext(context.WithoutCancel(ctx), "PRAGMA wal_checkpoint(TRUNCATE)")
+			_, cerr := s.w.ExecContext(context.WithoutCancel(ctx), "PRAGMA wal_checkpoint(PASSIVE)")
 			err = errors.Join(err, wrap(cerr), unlockFile(last))
 		}
 	}
