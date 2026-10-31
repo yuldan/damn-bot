@@ -152,3 +152,153 @@ Terverifikasi dari diff `9415d72..90bd02b`:
 - Budget: `exec/classify 1908/1908` (ADR-167 diperbarui), masih tepat di batas.
 
 **Belum dilakukan:** probe `TestZZSec265Probe` ulang pada `90bd02b` (semua bentuk bypass dari Round 2), dan `make loc` pada head ini. Keduanya harus dijalankan sebelum verdict final jika head ini masuk merge queue.
+
+## Round 5 — 2026-10-22 — recheck #265 `b0b13241` (SEC15-5..8, 8.3, trailing dot)
+
+Lingkup: `9415d72` → `90bd02b` (SEC15-5..8) → `b0b1324` "cover Windows 8.3 and trailing-dot damnbot names". `b0b1324` hanya menambah 4 baris test; penanganan 8.3/trailing dot ada di `90bd02b` (`isDamnbotName`). Round 4 hanya menilai `90bd02b` dari diff dan belum menjalankan probe — ronde ini menjalankan semuanya sendiri pada `b0b13241`.
+
+**Verdict:**
+
+| PR | Head | Verdict |
+|---|---|---|
+| #265 klasifikasi perawatan destruktif | `b0b13241` | **REQUEST CHANGES (kecil)**: SEC15-5..8 + 8.3 + trailing dot **terverifikasi**; CI head hijau. Temuan baru **SEC15-11 (MEDIUM)** membuat gate masih bisa dilewati; sisa **SEC15-12 (MINOR, laten)** dan **SEC15-13 (MEDIUM, aturan owner — blocker merge)**. |
+
+### CI pada head
+
+Run `39758364783` (head `b0b13241`): **completed success — seluruh workflow hijau**. `test (ubuntu-latest|macos-latest|windows-latest, -race, 1)` → **success** (windows `make test RACE=-race` success); `changes`, `lint`, `deadcode`, `vet-cross`, `build-matrix`, `loc-budget`, `coverage`, `size`, `supply-chain`, `vuln`, `perf`, `bench-budget`, `bench-parity`, `phase-acceptance`, `fuzz (1..3)`, `test-timing` → success. Sebelumnya run `90bd02b`/`9415d72` **cancelled** (superseded), jadi Round 3/4 memang tanpa bukti CI.
+
+### Verifikasi tiap klaim (independen, bukan dari diff)
+
+| Item | Status | Bukti |
+|---|---|---|
+| SEC15-5 argv0 wrapper (`exec -a`, `env -a`, `env --argv0`) | **tertutup** | `wrap.go:12` menambah `env:-a`, `env:--argv0`, `exec:-a`. Probe: 6 bentuk → `destructive PPPPDD`; `TestDamnbotMaintenanceNeverAuto` lulus di kelima mode. Host benar-benar menyetel argv0: `env -a zzz sh -c 'echo $0'` → `zzz`, `env --argv0 zzz …` → `zzz`, `exec -a zzz …` → `zzz`. |
+| SEC15-6 8.3 + trailing dot | **tertutup** | `isDamnbotName` (`damnbot.go:77-86`): trim trailing `.`, trim `.exe/.cmd/.bat`, akui prefiks `damnbo~`. Probe: `DAMNBO~1.EXE`, `damnbot.`, `damnbot.exe.`, `cmd /c DAMNBO~1.EXE`, `& 'C:\tools\DAMNBO~1.EXE'` → semua `destructive PPPPDDD`. |
+| SEC15-6 alias/copy nama arbitrer | **residual tetap** | `./db` (symlink → binary) tertangkap (`TestDamnbotSymlinkAndCopies` lulus); copy bernama lain (`./x`) tidak punya identitas statis (ADR-167). |
+| SEC15-7 flag global bernilai | **sebagian** | `--profile`, `--config`, `--data-dir`, `-p` (termasuk `=`) dikonsumsi; bentuk bernilai lain → **SEC15-12**. |
+| SEC15-8 e2e kontrol positif | **tertutup** | `TestRunDamnbotMaintenanceGate` punya `positive-control` (`echo ok` harus benar-benar jalan) + 4 kasus `denied`; PASS lokal. Tetapi lihat **SEC15-13**. |
+
+### Perintah tes yang dijalankan + hasil
+
+- `nice -n 19 env GOMAXPROCS=2 GOFLAGS=-p=1 go test -count=1 -v -run 'TestDamnbot' ./internal/exec/classify/` → **PASS** (4/4: Destructive, NeverAuto, Negative, SymlinkAndCopies).
+- `… go test -tags goolm -count=1 -v -run TestRunDamnbotMaintenanceGate ./cmd/damnbot/` → **PASS** 5/5 subtest (positive-control 0.12s, purge, exec-argv0, env-argv0, env-argv0-long).
+- `make loc` (GOMEMLIMIT=1500MiB, GOMAXPROCS=2, GOFLAGS=-p=1) → **tidak ada `GAGAL`**; `exec/classify 1908/1908`, `TOTAL 33786/190000` (tail lengkap di bawah).
+- Probe `TestZZSec15R34`, `…R34b`, `…R34c`, `…R34d`, `…R34e` (ditulis lalu **dihapus**): tabel di bawah.
+
+**Kontrol negatif** (harus tetap diizinkan / tidak salah label):
+
+| Input | Kelas | Keputusan (ask,ask+allow,auto,auto+allow,headless,headless+allow,unsafe,unsafe+allow) |
+|---|---|---|
+| `damnbot sessions ls` | mutating | `QAQADAAA` |
+| `damnbot checkpoints list` | mutating | `QAQADAAA` |
+| `damnbot run --yes` | mutating | `QAQADAAA` |
+| `damnbot --help` | mutating | `QAQADAAA` |
+| `echo ok` | mutating | `QAQADAAA` (benar-benar jalan — dibuktikan e2e `positive-control`) |
+| **positif** `damnbot sessions purge --yes` | **destructive** | `PPPPDDDD` |
+
+### Probe SEC15-5..8
+
+| Perintah | Kelas | Keputusan |
+|---|---|---|
+| `exec -a x damnbot sessions purge --yes` / `… checkpoints clear --yes` | destructive | `PPPPDDDD` |
+| `env -a x damnbot sessions purge s --yes` / `env --argv0 x …` / `env --argv0=x …` | destructive | `PPPPDDDD` |
+| `command exec -a x damnbot checkpoints clear --yes` | destructive | `PPPPDDDD` |
+| `DAMNBO~1.EXE sessions purge s --yes` (Cmd), `& 'C:\tools\DAMNBO~1.EXE' …` (Pwsh) | destructive | `PPPPDDDD` |
+| `damnbot. sessions purge s --yes` (Cmd), `damnbot.exe. …` (Pwsh), `cmd /c DAMNBO~1.EXE …` | destructive | `PPPPDDDD` |
+| `damnbot --config /x sessions purge s --yes`, `-p prod …`, `--data-dir /x …` | destructive | `PPPPDDDD` |
+| `sudo -u root damnbot sessions purge --yes`, `find . -exec damnbot sessions purge --yes ;` | destructive | `PPPPDDDD` |
+| `yes \| damnbot sessions purge`, `… < /dev/null --yes`, `(…)`, `{ …; }`, `… && echo ok`, `… \| cat` | destructive | `PPPPDDDD` |
+| `echo "sessions purge --yes" \| xargs damnbot`; `… \| xargs -I{} damnbot {} purge --yes` | **unknown** | `PPPPDDDD` (aman) |
+| `damnbot $'sessions' purge --yes`, `damnbot ${G}sessions …`, `damnbot "$GROUP" …`, `G=sessions; damnbot $G …` | unknown | `PPPPDDDD` (aman) |
+
+Kontrol negatif & positif semuanya benar ✔; tidak ada dari bentuk ini yang `Mutating`/auto.
+
+### Temuan baru
+
+**SEC15-11 (MEDIUM) — token grup boleh berupa glob; gate `Destructive` terlewat → `mutating` → auto.**
+
+`damnbotWords` (`damnbot.go:41-58`) membandingkan token **mentah** dengan nama grup dan mengabaikan apakah token itu literal atau glob. Karena aturan hanya mengenali `sessions`/`checkpoints`/… persis, token yang di-*expand* shell menjadi salah satu nama itu tidak dikenali — dan perintah tetap `mutating` (bukan `unknown`), sehingga auto di `--unsafe-auto-shell` atau dengan `shell_allow` yang cocok.
+
+| Perintah (Bash) | Kelas | Keputusan |
+|---|---|---|
+| `damnbot sess* purge --yes` | **mutating** | **`QAQADAAA`** |
+| `damnbot [s]essions purge --yes` | **mutating** | `QAQADAAA` |
+| `damnbot ses[s]ions purge --yes` | **mutating** | `QAQADAAA` |
+| `damnbot ?essions purge --yes` | **mutating** | `QAQADAAA` |
+| `damnbot sessio?s purge --yes` | **mutating** | `QAQADAAA` |
+| `damnbot checkp* clear --yes` | **mutating** | `QAQADAAA` |
+| `damnbot * purge --yes` | **mutating** | `QAQADAAA` |
+| kontrol: `damnbot sessions purge --yes`, `"sessions"`, `se''ssions` | destructive | `PPPPDDDD` |
+| kontrol aman: `damnbot {sessions,} purge --yes` | unknown | `PPPPDDDD` |
+
+Bukti bahwa argv benar-benar menjadi perintah maintenance (shell mengekspansi glob):
+
+```
+$ mkdir work && cd work && touch sessions
+$ bash -c 'printf "[%s]\n" damnbot sess* purge --yes'
+[damnbot]
+[sessions]
+[purge]
+[--yes]
+$ bash -c 'printf "[%s]\n" damnbot [s]essions purge --yes'
+[damnbot]
+[sessions]
+[purge]
+[--yes]
+```
+
+Stub `damnbot` di `PATH` (echo argv) membuktikan program menerima argv identik dengan bentuk literal: `damnbot sess* purge --yes` → `argv: [sessions] [purge] [--yes]`. Tanpa file `sessions` di cwd, token tetap literal (`[sess*]` → CLI usage).
+
+Prasyarat: shell POSIX (bash/zsh) **dan** satu file di cwd bernama `sessions` (dibuat model lewat `write_file`; auto di `auto-edit`). CLI #264 meng-dispatch pada `args[0] == "sessions"` (`cmd/damnbot/main.go`), jadi begitu #264 merge, `--unsafe-auto-shell`/`shell_allow` menjalankan purge/clear **tanpa approval** dan **melewati `deny_paths`** data dir (mutasi terjadi di dalam proses `damnbot`) — persis jalur yang ditutup SEC15-2. Ini juga tidak terlihat oleh aturan "argv0/command name" karena argv0 tetap `damnbot`.
+
+**Perbaikan:** bila token grup bukan literal (mengandung `*?[` atau tanda kutip tak terurai) → naikkan `Unknown`; **atau** lebih kuat (selaras rekomendasi Round 2 untuk SEC15-6): key aturan pada **verb + `--yes`** — setiap kata posisional `purge|prune|clear|clear-legacy|archive|restore|gc` bersama `--yes` → `Destructive`, tanpa bergantung nama grup. Tambahkan `damnbot sess* purge --yes` (glob) ke `TestDamnbotMaintenanceNeverAuto` + kontrol negatif `damnbot sess* ls`.
+
+**SEC15-12 (MINOR, laten).** `damnbotWords` hanya mengonsumsi nilai `--profile/--config/--data-dir/-p`; flag global bernilai lain menggeser grup: `damnbot --log-level error sessions purge --yes`, `damnbot --format json checkpoints clear --yes`, `damnbot --timeout 5 sessions purge --yes`, `damnbot -o json sessions purge --yes` → semua **mutating `QAQADAAA`** (seharusnya `Destructive`). Belum terjangkau karena CLI sekarang hanya meng-dispatch `args[0]` (`run`/`sessions`/`checkpoints`), sehingga `--flag` di posisi itu keluar usage. Menjadi live begitu ada flag global bernilai sebelum grup. **Perbaikan:** flag `-` bernilai tak dikenal di depan grup → `Unknown`; whitelist flag global.
+
+**SEC15-13 (MEDIUM, aturan owner — blocker merge).** e2e `TestRunDamnbotMaintenanceGate` memanggil `run()` **in-process**, bukan biner asli sebagai anak proses; harness `internal/e2e` belum dipakai. #239 (`025ea0c`) sudah ada di `main` (`affe2d8`), jadi syarat owner "≥1 e2e lewat biner asli" berlaku. **Perbaikan:** satu skenario `internal/e2e` (biner asli) untuk `damnbot sessions purge --yes` / `checkpoints clear --yes` di `--unsafe-auto-shell` → `denied`, dengan kontrol positif, plus bentuk glob SEC15-11.
+
+### Budget `loc.budget` / proyeksi merge
+
+Head `b0b13241`: baris `exec/classify 1908` (ADR-167; Σ core +78 dari `1830`). Terukur `make loc`: **1908/1908**, tepat di batas. **Jika #238 (`exec/classify` → `1841`) merge lebih dulu**, rebase #265 menaikkan total menjadi **1841 + 78 = 1919** (delta kode #265 = 1908 − 1830 = 78); baris `loc.budget` kedua PR berkonflik dan Σ core harus dijumlahkan saat rebase. Perbaikan SEC15-11 sebaiknya tidak menambah LOC Go non-test; kalau perlu, amandemen ADR-167 lagi.
+
+### Verifikasi lokal pada head `b0b13241`
+
+- `go test -count=1 -v -run 'TestDamnbot' ./internal/exec/classify/` → `ok` (4/4 PASS).
+- `go test -tags goolm -count=1 -v -run TestRunDamnbotMaintenanceGate ./cmd/damnbot/` → `ok` (5/5 PASS).
+- `make loc` → tidak ada `GAGAL`. Tail lengkap:
+
+```
+SCC="go tool -modfile=tools/go.mod scc" scripts/loc-check.sh budget
+LOC ok    testutil/timing        45 /     80
+LOC ok    modules               881 /   1000
+LOC ok    config                663 /   1200
+LOC ok    exec/classify        1908 /   1908
+LOC ok    compaction            788 /    900
+LOC ok    sandbox+redact       1676 /   1700
+LOC ok    codetools            5295 /   5350
+LOC ok    netx                 1519 /   1800
+LOC ok    provider             2065 /   2100
+LOC ok    analyzers             105 /    400
+LOC ok    budget                559 /    560
+LOC ok    ctxdb/journalstore    379 /    400
+LOC ok    tools                2168 /   2200
+LOC ok    testutil               93 /    200
+LOC ok    loop                 2037 /   2050
+LOC ok    journal               557 /    560
+LOC ok    ctxdb/carrierstore    275 /    300
+LOC ok    ctxdb                3789 /   3800
+LOC ok    ctxdb/compactstore    253 /    260
+LOC ok    ctxdb/limitstore       46 /    100
+LOC ok    boundary               75 /    150
+LOC ok    ctxdb/ledgerstore     116 /    300
+LOC ok    exec                 2676 /   3400
+LOC ok    schema               1126 /   1200
+LOC ok    archtest               69 /    300
+LOC ok    ctxdb/memstore        494 /    600
+LOC ok    assemble             1236 /   1300
+LOC ok    memory+skills        1215 /   1230
+LOC ok    ctxdb/skillstore      319 /    400
+LOC ok    provider/registry      84 /    300
+LOC ok    TOTAL 33786 / 190000
+```
+
+**Ringkasan Round 5:** #265 `b0b13241` menutup SEC15-5..8 **dan** bentuk 8.3/trailing dot dengan benar (probe independen + kontrol negatif; CI linux/macOS/windows hijau on head). Yang masih terbuka: **SEC15-11 (MEDIUM)** — token grup berupa glob (`damnbot sess* purge --yes`, `[s]essions`, …) tetap `mutating` sehingga auto di `--unsafe-auto-shell`/`shell_allow`; dengan satu file `sessions` di cwd argv yang diterima benar-benar `sessions purge --yes` (dibuktikan dengan stub + ekspansi bash), jadi begitu #264 merge gate itu bocor. Ditambah SEC15-12 (laten) dan SEC15-13 (e2e biner asli). Budget `1908/1908` penuh; bila #238 merge lebih dulu → **1919**.
