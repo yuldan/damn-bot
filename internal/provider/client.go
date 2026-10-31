@@ -416,7 +416,11 @@ func attempt(ctx context.Context, c *netx.Client, rt *Route, body []byte, est in
 	for k, v := range rt.Headers {
 		req.Header.Set(k, v)
 	}
-	switch {
+	switch tw, ok := w.(transportWire); {
+	case ok:
+		if serr := tw.Sign(ctx, rt, req, body); serr != nil {
+			return Response{}, &Error{Class: retry.Auth, Err: serr}
+		}
 	case rt.Auth != nil:
 		if serr := rt.Auth.Sign(ctx, req, body); serr != nil {
 			return Response{}, &Error{Class: retry.Auth, Err: serr}

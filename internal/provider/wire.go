@@ -1,7 +1,9 @@
 package provider
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"slices"
 	"time"
 
@@ -60,6 +62,13 @@ func pickWire(rt *Route, wires map[registry.Protocol]Wire) (Wire, error) {
 		return chatWire{}, nil
 	}
 	return nil, fmt.Errorf("%w: route %q speaks %v but no adapter is wired", ErrConfig, rt.Ref(), rt.Protocols)
+}
+
+// transportWire is implemented by a protocol whose transport auth is not the
+// bearer default (Anthropic x-api-key + anthropic-version). The client calls
+// Sign instead of the Route.Auth/APIKey branch.
+type transportWire interface {
+	Sign(ctx context.Context, rt *Route, req *http.Request, body []byte) error
 }
 
 // ProjectCarriers is the single GAP-PROV-01 projection exposed to wire

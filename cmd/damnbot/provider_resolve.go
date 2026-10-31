@@ -126,12 +126,12 @@ func validateCustom(c *config.CustomProvider, modelName string, builtinOK bool) 
 	}
 	switch protocol {
 	case string(registry.ProtocolOpenAIChat):
-	case string(registry.ProtocolOpenAIResponses):
-		if err := adapterGate(registry.ProtocolOpenAIResponses); err != nil {
+	case string(registry.ProtocolOpenAIResponses), string(registry.ProtocolAnthropicMessages):
+		if err := adapterGate(registry.Protocol(protocol)); err != nil {
 			return fmt.Errorf("%w: custom provider %q: %w", ErrProviderResolve, c.Name, err)
 		}
 	default:
-		return fmt.Errorf("%w: custom provider %q speaks %q; only openai-chat and openai-responses are wired", ErrProviderResolve, c.Name, protocol)
+		return fmt.Errorf("%w: custom provider %q speaks %q; only openai-chat, openai-responses, and anthropic-messages are wired", ErrProviderResolve, c.Name, protocol)
 	}
 	if !slicesContainsModel(c.Models, modelName) {
 		return fmt.Errorf("%w: model %q is not in providers.custom[%q].models", ErrProviderResolve, c.Name, modelName)
@@ -178,6 +178,14 @@ func (r *providerResolver) resolveBuiltin(provName, modelName string, p *registr
 			return provider.Route{}, fmt.Errorf("%w: provider %q auth %q needs the F5-03 transport", ErrProviderResolve, provName, p.Auth)
 		}
 		protocols = []registry.Protocol{registry.ProtocolOpenAIResponses}
+	case hasProtocol(p.Protocols, registry.ProtocolAnthropicMessages):
+		if err := adapterGate(registry.ProtocolAnthropicMessages); err != nil {
+			return provider.Route{}, fmt.Errorf("%w: provider %q: %w", ErrProviderResolve, provName, err)
+		}
+		if !runtimeAuth(p.Auth) {
+			return provider.Route{}, fmt.Errorf("%w: provider %q auth %q needs the F5-03 transport", ErrProviderResolve, provName, p.Auth)
+		}
+		protocols = []registry.Protocol{registry.ProtocolAnthropicMessages}
 	default:
 		return provider.Route{}, fmt.Errorf("%w: provider %q speaks %v; the adapter is not wired in this build", ErrProviderResolve, provName, p.Protocols)
 	}

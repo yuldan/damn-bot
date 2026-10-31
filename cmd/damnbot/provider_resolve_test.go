@@ -248,3 +248,28 @@ func TestProtocolSelection(t *testing.T) {
 		t.Fatalf("custom protocols = %v", route.Protocols)
 	}
 }
+
+// TestProtocolAnthropic (F5-05): the Messages preset carries its protocol and
+// the catalog cache TTL; a custom api also accepts anthropic-messages.
+func TestProtocolAnthropic(t *testing.T) {
+	t.Parallel()
+	cfg := config.Default()
+	route, err := resolveTest(t, &cfg, &runOptions{apiKey: "sk-test"}, "anthropic/claude-3")
+	if err != nil {
+		t.Fatalf("anthropic: %v", err)
+	}
+	if len(route.Protocols) != 1 || route.Protocols[0] != registry.ProtocolAnthropicMessages || route.CacheTTLMax != 3600 {
+		t.Fatalf("anthropic route = %+v", route)
+	}
+	cfg.Providers.Custom = []config.CustomProvider{{
+		Name: "kantor", BaseURL: "http://127.0.0.1:8000/v1", API: "anthropic-messages",
+		APIKeyEnv: "KANTOR_KEY", Models: []config.CustomModel{{ID: "m"}},
+	}}
+	route, err = resolveTest(t, &cfg, &runOptions{}, "kantor/m")
+	if err != nil {
+		t.Fatalf("custom messages: %v", err)
+	}
+	if len(route.Protocols) != 1 || route.Protocols[0] != registry.ProtocolAnthropicMessages {
+		t.Fatalf("custom messages protocols = %v", route.Protocols)
+	}
+}

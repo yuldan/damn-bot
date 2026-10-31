@@ -30,9 +30,13 @@ plan               600 internal/plan
 # (GAP-COST-03): Route.CacheTTLMax/Request.Origin dan provider.CacheControl
 # (terukur 2127; Sigma core +25). Adapter anthropic-messages dan baris
 # provider/anthropic menyusul di PR B/C dengan angka ukur masing-masing.
-provider          2130 internal/provider
+# ADR-266 (F5-05 PR B): provider 2130 -> 2140 untuk seam transportWire
+# (x-api-key/anthropic-version) pada jalur attempt (terukur 2136). Baris baru
+# `provider/anthropic` 390 untuk adapter Messages teks/usage/error (terukur 382).
+provider          2140 internal/provider
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses
+provider/anthropic  390 internal/provider/anthropic
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
 # ADR-128: tabel harga providers.toml + lookup base_url+model; tetap 300 (terukur 281, sisa 19; Σ tetap).
 # ADR-261 (F5-01): provider/registry 300 -> 660 untuk katalog 88 provider
