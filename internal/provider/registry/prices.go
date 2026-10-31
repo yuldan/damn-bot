@@ -60,6 +60,11 @@ func DefaultPriceTable() (PriceTable, error) { return ParsePriceTable(providersT
 type priceFile struct {
 	Version string       `toml:"version"`
 	Price   []priceEntry `toml:"price"`
+	// The provider catalog (ADR-261) shares providers.toml. Its rows are
+	// decoded opaquely here; ParseCatalog owns their schema, and each parser
+	// still rejects its own unknown keys.
+	Provider []any `toml:"provider"`
+	Local    []any `toml:"local"`
 }
 
 type priceEntry struct {
@@ -88,8 +93,8 @@ func ParsePriceTable(data []byte) (PriceTable, error) {
 	if err != nil {
 		return PriceTable{}, fmt.Errorf("%w: %w", ErrPrice, err)
 	}
-	if und := md.Undecoded(); len(und) > 0 {
-		return PriceTable{}, fmt.Errorf("%w: unknown key %q", ErrPrice, und[0].String())
+	if und, ok := firstUndecoded(&md, "provider", "local"); ok {
+		return PriceTable{}, fmt.Errorf("%w: unknown key %q", ErrPrice, und.String())
 	}
 	table := strings.TrimSpace(f.Version)
 	if table == "" {

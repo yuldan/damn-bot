@@ -18,7 +18,11 @@ plan               600 internal/plan
 provider          2194 internal/provider
 # ADR-126: provider/registry 400 -> 300 + ctxdb/limitstore 100 (storage model_limits, ADR-074; Σ tetap).
 # ADR-128: tabel harga providers.toml + lookup base_url+model; tetap 300 (terukur 281, sisa 19; Σ tetap).
-provider/registry  300 internal/provider/registry
+# ADR-261 (F5-01): provider/registry 300 -> 660 untuk katalog 88 provider
+# docs/PROVIDERS.md + 6 server lokal + alias (protokol/auth/capability/attribution/
+# cache_ttl_max/limits/prices), loader lookup bertipe + validasi; scc Code terukur 660.
+# Sigma core 47.788 -> 48.148, plafon core 47.800 -> 48.200; baris lain tidak berubah.
+provider/registry  660 internal/provider/registry
 netx              1800 internal/netx
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).

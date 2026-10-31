@@ -12,3 +12,4 @@ internal/tools/golden_test.go:goldenCases table of golden cases
 internal/compaction/compaction_test.go:update test-only golden flag
 internal/e2e/harness_test.go:binPaths test-only child binary paths
 cmd/damnbot/global.go:activeInvocation process-wide --profile of one CLI invocation (single writer: run)
+internal/provider/registry/catalog.go:defaultCatalog data embedded read-only, parsed once (E-10 allowlist)
