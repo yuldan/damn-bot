@@ -426,6 +426,30 @@ func TestThoughtText(t *testing.T) {
 	}
 }
 
+// TestSchemaUnsupportedFailsClosed: a $ref (or any unsupported keyword) is a
+// clear BadRequest and the request is never sent.
+func TestSchemaUnsupportedFailsClosed(t *testing.T) {
+	t.Parallel()
+	for _, schema := range []string{
+		`{"type":"object","properties":{"a":{"$ref":"#/$defs/a"}}}`,
+		`{"type":"object","oneOf":[{"required":["a"]}]}`,
+		`{"type":"object","properties":{"a":{"type":["string","integer"]}}}`,
+	} {
+		f := newFake(t, reply{raw: fixture(t, "text.sse")})
+		c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 1)
+		req := ask("hi")
+		req.Tools = []provider.ToolSchema{{Name: "shell", Parameters: json.RawMessage(schema)}}
+		_, err := c.Do(t.Context(), provider.PurposeTurn, req, nil)
+		var pe *provider.Error
+		if !errors.As(err, &pe) || pe.Class != retry.BadRequest {
+			t.Fatalf("schema %s: error = %v, want BadRequest", schema, err)
+		}
+		if reqs, _, _ := f.requests(); len(reqs) != 0 {
+			t.Fatalf("schema %s: %d requests sent, want 0", schema, len(reqs))
+		}
+	}
+}
+
 // TestRequestShapes: system instruction, thinking budget, temperature, and a
 // sanitized tool schema all reach the body.
 func TestRequestShapes(t *testing.T) {
@@ -458,7 +482,7 @@ func TestRequestShapes(t *testing.T) {
 		`"systemInstruction":{"parts":[{"text":"be brief"}]}`,
 		`"thinkingConfig":{"thinkingBudget":4096,"includeThoughts":true}`,
 		`"temperature":0.2`,
-		`"functionDeclarations":[{"name":"shell","description":"run","parameters":{"type":"object","properties":{"cmd":{"type":["string","null"]}},"additionalProperties":false}}]`,
+		`"functionDeclarations":[{"name":"shell","description":"run","parameters":{"properties":{"cmd":{"nullable":true,"type":"string"}},"type":"object"}}]`,
 		`"functionResponse":{"name":"shell","response":{"result":"x"}}`,
 	} {
 		if !strings.Contains(body, want) {

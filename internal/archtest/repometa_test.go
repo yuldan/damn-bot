@@ -15,7 +15,7 @@ import (
 const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
-	maxCoreLOC       = 51680 // ADR-267 PR B (rebase atas ADR-268/269/270): provider/gemini 616 (terukur 616), Σ core 51.639.
+	maxCoreLOC       = 51950 // ADR-267 PR C (rebase atas ADR-268/269/270): provider/gemini 885 (terukur 885), Σ core 51.908.
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
 	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)
