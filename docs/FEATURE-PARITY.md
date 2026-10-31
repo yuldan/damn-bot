@@ -877,7 +877,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | EXEC-013 | Approval modes (smart/manual/yolo) | Approval perintah berbahaya; smart via LLM | `tools/approval.py`, `tools/approval_smart.py`, `tools/approval_yolo.py` | on (`approvals.mode: smart`) | LLM auxiliary (`auxiliary.approval`) | `/yolo`, `/approvals`; cron/unattended deny | F1 | planned |
 | EXEC-014 | Dangerous command detection | Pola perintah berbahaya & floor approval | `tools/approval_detection.py`, `tools/approval_floors.py`, `tools/threat_patterns.py` | on | — |  | F1 | planned |
 | EXEC-015 | Command allowlist & approvals suggest | Allowlist + tambang riwayat jadi usulan | `hermes_cli/approvals_suggest.py` | on (allowlist kosong) | — | `hermes approvals` | F1 | planned |
-| EXEC-016 | Approval transport eksternal | Kirim approval ke transport (builtin/eksternal) | `hermes_cli/approval_transport.py` | builtin | — | fallback deny | F4 | planned |
+| EXEC-016 | Approval transport eksternal | Kirim approval ke transport (builtin/eksternal) | `hermes_cli/approval_transport.py` | builtin | — | fallback deny | F7 | planned |
 | EXEC-017 | Gateway approval `/approve` `/deny` | Approval perintah dari chat | `gateway/platforms/base_exec_approval.py` | on (gateway) | — |  | F4 | planned |
 | EXEC-018 | Tool guardrails | Batas loop/ukuran output tool | `agent/tool_guardrails.py`, `tools/tool_output_limits.py` | on | — |  | F1 | planned |
 | EXEC-019 | Path security / file safety | Cegah tulis ke path sensitif; protected instruction files | `tools/path_security.py`, `agent/file_safety.py`, `tools/file_tools_write_guards.py` | on (`security.protected_instruction_files`) | — |  | F1 | planned |
@@ -976,7 +976,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | GW-022 | Scale-to-zero | Gateway berhenti saat idle | `gateway/scale_to_zero.py` | opt-in | — |  | F7 | planned |
 | GW-023 | Channel directory | Direktori channel lintas platform | `gateway/channel_directory.py` | on | — |  | F7 | planned |
 | GW-024 | Gateway chat CLI | Chat ke gateway dari CLI | `hermes_cli/gateway_chat.py` | opt-in | — |  | F4 | planned |
-| GW-025 | Telegram managed bot | Bot Telegram terkelola | `hermes_cli/telegram_managed_bot.py` | opt-in | Nous [INFERENCE] |  | F4 | planned |
+| GW-025 | Telegram managed bot | Bot Telegram terkelola | `hermes_cli/telegram_managed_bot.py` | opt-in | Nous [INFERENCE] |  | F7 | planned |
 | GW-026 | Handoff ke platform | Serahkan sesi CLI ke platform chat | `hermes_cli/commands.py:106` | opt-in | — | `/handoff` | F7 | planned |
 
 ## 14. CORE — agent loop & runtime (tambahan)

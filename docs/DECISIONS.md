@@ -5313,3 +5313,33 @@ Batas penting: risiko ToS **bukan** temuan threat scan. Q43/ADR-033 menetapkan `
 **Keputusan.** Tambah `gateway.busy_policy` (default `queue`) dan `modules.gateway.telegram.thread_fallback` (default `fail`). `[modules]` tetap menolak key lain sebagai `ErrModuleUnavailable`; hanya dua key ini yang dikompilasi. `steer` saat ini mengantre dengan satu notice eksplisit karena `internal/loop` belum punya seam injeksi mid-turn; `queue` mengantre sampai batas 50; `reject_notify` menolak pesan kedua saat chat sibuk dengan satu `__system__`. `parent` mengirim ulang satu kali ke chat induk dengan label `[fallback topik]`; default `fail` tidak pernah mengalihkan.
 
 **Dampak terukur.** Tanpa perubahan `loc.budget`: key baru memakai headroom `config` yang sudah dibukukan (setelah #501, plafon 1.434; terukur ≈1.358). Σ core dan `TOTAL` tidak berubah. Non-test Go PR ≤600 baris.
+
+## ADR-259 — Re-fase EXEC-016 (external approval transport) ke F7
+
+**Status:** Accepted 2026-10-30 (F4→F7, SPEC §22.1 EXEC-016, FEATURE-PARITY EXEC-016; melengkapi ADR-139). Dokumen + kolom `fase` + angka gate; tanpa kode produksi, dependency, migrasi, config key, atau perubahan `loc.budget`/`PHASE`.
+
+**Konteks.** EXEC-016 menuntut "approval transport eksternal": keputusan approval dikirim ke transport di luar proses (Slack/Teams/email/webhook) selain transport bawaan. F4 sudah menutup transport bawaan sepenuhnya: registry approval `internal/gateway/approval.go` (request id, expiry, satu keputusan), inline keyboard Telegram `internal/gateway/telegram/approval.go:24`, perintah chat `/approve`/`/deny` (`internal/gateway/commands.go:502,520`, wiring #509), TUI `internal/tui/approval.go`, dan ACP `session/request_permission`. Transport eksternal membutuhkan identitas/secret connector dan adapter platform yang belum ada di F4; permukaan itu dimiliki GW-011 (webhook subscriptions), PLAT (adapter platform), dan CLI-026 `webhook` di F7/F8.
+
+**Bukti tidak ada implementasi.** `grep -rn "approval_transport" --include=*.go .` = 0; tidak ada paket/tipe transport eksternal, tidak ada config key transport approval, dan tidak ada endpoint keluar approval di `internal/gateway`/`internal/netx`. Yang ada hanya seam bawaan di atas.
+
+**Keputusan.**
+1. EXEC-016 berfase **F7**. F4 hanya mengklaim transport bawaan (inline keyboard, TUI, ACP, `/approve`/`/deny`).
+2. `docs/FEATURE-PARITY.md` EXEC-016 `F4` → `F7`; bersama ADR-260, jumlah baris F4 **56 → 54** dan F7 **101 → 103**; `TestParityPhaseColumn` dan ROADMAP §"Pemetaan parity → fase" diselaraskan.
+3. Tidak ada perubahan kode, config, migrasi, atau `loc.budget`.
+
+**Konsekuensi.** (+) Gate F4 tidak lagi menunggu transport yang tidak dimiliki F4; ledger F4 menandai EXEC-016 `DITUNDA → F7`. (+) Transport eksternal nanti memakai `request_id`/`expires_at` yang sama, sehingga replay/idempotensi tetap satu keputusan. (−) Operator yang ingin approval di Slack/Teams harus menunggu F7; sampai itu, approval gateway hanya lewat kanal yang sudah ada.
+
+## ADR-260 — Re-fase GW-025 (Telegram managed bot) ke F7
+
+**Status:** Accepted 2026-10-30 (F4→F7, SPEC §22.1 GW-025, FEATURE-PARITY GW-025; melengkapi ADR-020/ADR-139). Dokumen + kolom `fase` + angka gate; tanpa kode produksi, dependency, migrasi, config key, atau perubahan `loc.budget`/`PHASE`.
+
+**Konteks.** GW-025 adalah "Telegram managed bot": bot yang disediakan/dikelola lewat Telegram partner/managed-bot API, dengan akun, token, dan siklus provisioning dari partner — bukan Bot API biasa. Adapter F4 (ADR-020) dibangun di atas Bot API: `getUpdates`/webhook, token bot dari env, `sendMessage`/`editMessageText`/media, inline keyboard. Tidak ada endpoint managed-bot, kredensial partner, atau alur provisioning di adapter itu. Permukaan platform lanjutan (managed bot, channel directory, relay) adalah F7.
+
+**Bukti tidak ada implementasi.** `grep -rn "telegram_managed_bot\|managed_bot\|ManagedBot" --include=*.go .` = 0; tidak ada paket/tipe managed bot, tidak ada config key partner/managed, dan tidak ada panggilan endpoint partner di `internal/gateway/telegram`. `docs/FEATURE-PARITY.md` GW-025 masih `planned` sebelum re-fase ini.
+
+**Keputusan.**
+1. GW-025 berfase **F7**. F4 tetap Bot API (long polling/webhook) untuk bot yang dikonfigurasi operator.
+2. `docs/FEATURE-PARITY.md` GW-025 `F4` → `F7`; bersama ADR-259, F4 **54**, F7 **103**; `TestParityPhaseColumn` dan ROADMAP diselaraskan.
+3. Tidak ada perubahan kode, config, migrasi, atau `loc.budget`.
+
+**Konsekuensi.** (+) F4 tidak mengklaim API partner yang tidak dimiliki; ledger F4 menandai GW-025 `DITUNDA → F7`. (+) Adapter Bot API tetap satu-satunya jalur Telegram sampai kontrak managed-bot dan akun partner tersedia. (−) Managed bot tidak bisa dipakai operator F4; kebutuhan itu pindah ke F7 bersama platform lain.
