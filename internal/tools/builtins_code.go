@@ -14,7 +14,7 @@ import (
 )
 
 // schemaExecuteCode is the execute_code schema (SPEC §9.2, ADR-089).
-const schemaExecuteCode = `{"name":"execute_code","description":"Run a short Python, JavaScript or Go program in a temporary directory. Network is denied. Approval follows exec.code_auto_languages.","parameters":{"type":"object","properties":{"language":{"type":"string","enum":["python","javascript","typescript","go"]},"code":{"type":"string","minLength":1,"maxLength":65536},"stdin":{"type":"string","maxLength":65536},"timeout_s":{"type":"integer","minimum":1,"maximum":30},"network":{"type":"string","enum":["deny"]}},"required":["language","code"],"additionalProperties":false}}`
+const schemaExecuteCode = `{"name":"execute_code","description":"Run a short Python, JavaScript or Go program in a temporary directory. Network access is blocked. Approval follows exec.code_auto_languages.","parameters":{"type":"object","properties":{"language":{"type":"string","enum":["python","javascript","typescript","go"]},"code":{"type":"string","minLength":1,"maxLength":65536},"stdin":{"type":"string","maxLength":65536},"timeout_s":{"type":"integer","minimum":1,"maximum":30},"network":{"type":"string","enum":["deny"]}},"required":["language","code"],"additionalProperties":false}}`
 
 // CodeRunner runs one execute_code request (implemented by *code.Runner).
 type CodeRunner interface {
