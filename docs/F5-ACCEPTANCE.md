@@ -79,3 +79,16 @@ Tes COST-10 tidak dibuat: `execute_code`/Starlark tidak ada di main (hanya
 `go.starlark.net` di `deps.allow:26`), jadi tidak ada perilaku yang bisa diuji
 tanpa tes palsu. Status tetap `TERBUKA` dan PR `execute_code` dicatat di
 `GAP-COST-10` atas.
+
+## 3. GAP PROV + TOOL
+
+| GAP | requirement (ringkas) | status | tes | bukti |
+| --- | --- | --- | --- | --- |
+| PROV-01 | carrier opaque 4 keluarga, byte-identik, replay hanya route asal, drop + notice | LULUS | `TestGAPF5_PROV01`, `TestGAPF5_PROV01Kinds`, `TestCarrier*` | `adapter.Encode` memuat carrier persis untuk family+model asal; model lain → `route_mismatch`, 0 byte carrier; `loop/turn.go:198-210` menulis `carrier_dropped` |
+| TOOL-04 | Windows tanpa bash; pool SSH per user/host/port | LULUS | `TestGAPF5_TOOL04` (Windows), `TestSSHPoolReuse`, `TestSSHContract` | `shell_windows.go` hanya pwsh→powershell→cmd; `ssh.go:299-395` 20 run → 1 koneksi TCP, keepalive 30 s, idle 10 m |
+| TOOL-05 | lease `tasks[].files`, worktree bersih dihapus/kotor dilaporkan | LULUS | `TestGAPF5_TOOL05`, `TestLeaseConflictDetected`, `TestWorktreeCleanup` | 3 child file sama → 1 jalan, 2 `lease_conflict` pemilik `P-d1`; worktree kotor + `files_changed` dipertahankan |
+| TOOL-08 | rate-limit notice proses ≤1/15 s, ≤4/menit/chat, global ≤15/10 s, `+N` | TERBUKA | — | Tidak ada background process/`process_*`; `shell{background}` masih `invalid_args` F1; tidak ada limiter |
+
+Tes TOOL-08 tidak dibuat karena perilakunya belum ada (bukan sekadar belum
+diuji). PR: registry proses + `process_*` + limiter notice pada gelombang
+`execute_code`.
