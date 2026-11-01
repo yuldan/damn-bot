@@ -68,7 +68,7 @@ func validScope(scope string) bool {
 }
 
 func validToken(t *Token) error {
-	if len(t.IDHash) != 64 || t.Profile == "" || t.Identity == "" || len(t.Profile) > 128 || len(t.Identity) > 128 {
+	if len(t.IDHash) != 64 || t.Identity == "" || len(t.Profile) > 128 || len(t.Identity) > 128 {
 		return fmt.Errorf("%w: identity or hash", ErrInvalidTokenRow)
 	}
 	if !validScope(t.Scope) {
@@ -103,7 +103,7 @@ func (s Store) Create(ctx context.Context, t Token) error {
 // mismatch (unknown hash, revoked row, another profile) is one error, so a
 // caller cannot distinguish "wrong token" from "revoked token".
 func (s Store) Authenticate(ctx context.Context, rawToken, profile string) (Token, error) {
-	if rawToken == "" || len(rawToken) > 512 || profile == "" {
+	if rawToken == "" || len(rawToken) > 512 || len(profile) > 128 {
 		return Token{}, ErrInvalidToken
 	}
 	var t Token
