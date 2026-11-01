@@ -22,6 +22,8 @@ func completionSubcommands() map[string][]string {
 		"setup":           {"auth", "secrets", "ssh", "completion"},
 		"config profiles": {"ls", "export", "import"},
 		"setup secrets":   {"set", "rotate", "ls"},
+		"mcp":             {"add", "list", "remove", "refresh", "review", "auth", "serve"},
+		"mcp auth":        {"login", "logout", "status"},
 	}
 	addAuthCompletion(m)
 	return m

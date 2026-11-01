@@ -162,8 +162,14 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	g.started = g.now()
 	g.run = g.turn
 	g.wireCronAdmin(db, stderr)
+	mcpReg, mcpErr := newMCPRegistry(o.configPath)
+	if mcpErr != nil {
+		g.closeWebhook()
+		return nil, fmt.Errorf("mcp registry: %w", mcpErr)
+	}
 	commands := gateway.NewCommands(&gateway.CommandOptions{
 		Runtime: g, Settings: store, Control: g, Estop: &g.estop, Approvals: g.approvals.Approvals, Resolver: g,
+		MCP: mcpReg,
 	})
 	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands, &g.estop)
 	if err != nil {

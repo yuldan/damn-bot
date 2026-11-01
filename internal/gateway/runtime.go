@@ -17,6 +17,12 @@ type Control interface {
 	ResumePlatform(ctx context.Context, name string) (AdapterStatus, error)
 }
 
+// MCPReloader reloads configured MCP servers without restarting serve. The
+// composition root owns the registry; gateway only reports the count.
+type MCPReloader interface {
+	ReloadMCP(ctx context.Context) (int, error)
+}
+
 // Runtime is the live serve state behind /stop, /new, /status and /usage.
 type Runtime interface {
 	// StopTurn cancels the active turn of scope's chat route and principal, if
