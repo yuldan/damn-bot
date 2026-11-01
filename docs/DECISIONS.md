@@ -5704,6 +5704,8 @@ ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaika
 
 **Amandemen EC-WIN-008 (control pipe Windows, 2026-11-01).** `internal/exec/pipe_windows.go` + `internal/exec/pipe_auth.go` menambahkan otentikasi peer named pipe berbasis token (DACL owner+SYSTEM, `ImpersonateNamedPipeClient` pada Read pertama, `authorizePeer` lintas-OS), sehingga baris core `exec` 3.700 → **4.020** (terukur **4.004** pada rebase di atas ADR-297: 394 baris baru `pipe_auth.go` + `pipe_windows.go`), Σ core **52.823 → 53.143**, dan plafon core **52.900 → 53.200** (`maxCoreLOC`, regex `budget_doc_test`, marker `arch-budgetsum`); `Total core` dan snapshot `docs/ENGINEERING.md` §2.4 disinkronkan. Tidak ada dependency, migrasi, config, atau perubahan `SPEC.md`.
 
+**Amandemen EC-WIN-015 (multiplexer, 2026-11-01).** `internal/exec/mux.go` + `internal/exec/mux_windows.go` menambahkan multiplexer control pipe (framing length-prefixed, mutex penulis per koneksi, goroutine baca per klien, isolasi kematian klien, backpressure tanpa antrean), sehingga baris core `exec` 4.020 → **4.290** (terukur **4.272** pada rebase di atas #595 + ADR-298/299: 260 baris baru termasuk I/O overlapped), Σ core **53.565 → 53.835**, dan plafon core **53.600 → 53.900** (`maxCoreLOC`, regex `budget_doc_test`, marker `arch-budgetsum`); `Total core` dan snapshot `docs/ENGINEERING.md` §2.4 disinkronkan. Tidak ada dependency, migrasi, config, atau perubahan `SPEC.md`.
+
 ## ADR-294 — F5 codeintel slice 1: indeks `internal/codeintel`, repo map go/ast deterministik, tanpa eksekusi kode
 
 **Status:** Accepted 2026-11-01 (slice 1 dari 4; CODE-TOOLS §2/B.4, ADR-015/089; modul lazy). Slice berikut: tree-sitter wazero, LSP client (trust gate), wiring tool `repo_map`/`code_intel`.
