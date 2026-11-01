@@ -71,7 +71,8 @@ type Options struct {
 	// from the catalog and [[providers.custom]] (override, non-default
 	// base_url, unpriced model). A non-empty list makes DOC-009 a warning.
 	ProviderWarnings []string
-	Fix              bool
+	credentialPoolOptions
+	Fix bool
 	// Keyring probes the OS keychain; nil uses the real one with a 2 s cap.
 	Keyring func(context.Context) (bool, error)
 	// Free reports free and total bytes; nil uses the platform statfs probe.
@@ -98,6 +99,7 @@ func Run(ctx context.Context, o *Options) Report {
 		checkDisk(o),
 		checkEmergencyStop(ctx, o),
 	}
+	r.Checks = append(r.Checks, credentialPoolChecks(o)...)
 	return r.finish()
 }
 

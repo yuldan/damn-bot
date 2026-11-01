@@ -23,7 +23,7 @@ func resolveTest(t *testing.T, cfg *config.Config, o *runOptions, ref string) (p
 	if err != nil {
 		t.Fatal(err)
 	}
-	return newResolver(cfg, registry.PriceTable{}, cat, o).resolve(ref)
+	return newResolver(cfg, registry.PriceTable{}, cat, o).resolve(t.Context(), ref)
 }
 
 // TestProviderResolveCustom: the 12-field custom provider resolves to a
@@ -105,7 +105,7 @@ func TestNoAttributionHeaders(t *testing.T) {
 		if p.Local || p.BaseURL == "" || strings.ContainsAny(p.BaseURL, "<>{") || !hasProtocol(p.Protocols, registry.ProtocolOpenAIChat) {
 			continue
 		}
-		route, rerr := newResolver(&cfg, registry.PriceTable{}, cat, o).resolve(p.ID + "/m")
+		route, rerr := newResolver(&cfg, registry.PriceTable{}, cat, o).resolve(t.Context(), p.ID+"/m")
 		if rerr != nil {
 			continue // a preset that needs a custom base_url is covered elsewhere
 		}
@@ -120,7 +120,7 @@ func TestNoAttributionHeaders(t *testing.T) {
 		t.Fatalf("checked %d presets, want at least 60", checked)
 	}
 	cfg.Provider.SendAttribution = true
-	route, err := newResolver(&cfg, registry.PriceTable{}, cat, o).resolve("fireworks/m")
+	route, err := newResolver(&cfg, registry.PriceTable{}, cat, o).resolve(t.Context(), "fireworks/m")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestFallbackWiredFromConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	o := &runOptions{apiKey: "sk-test"}
-	routes, fallback, err := newResolver(&cfg, registry.PriceTable{}, cat, o).routes("openrouter/primary")
+	routes, fallback, err := newResolver(&cfg, registry.PriceTable{}, cat, o).routes(t.Context(), "openrouter/primary")
 	if err != nil {
 		t.Fatalf("routes: %v", err)
 	}
@@ -194,11 +194,11 @@ func TestLightUsedForCompaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	routes, fallback, err := newResolver(&cfg, registry.PriceTable{}, cat, &runOptions{apiKey: "sk"}).routes("openrouter/primary")
+	routes, fallback, err := newResolver(&cfg, registry.PriceTable{}, cat, &runOptions{apiKey: "sk"}).routes(t.Context(), "openrouter/primary")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := lightRoute(&cfg, "openrouter/primary", &routes, newResolver(&cfg, registry.PriceTable{}, cat, &runOptions{apiKey: "sk"}), fallback)
+	ref := lightRoute(t.Context(), &cfg, "openrouter/primary", &routes, newResolver(&cfg, registry.PriceTable{}, cat, &runOptions{apiKey: "sk"}), fallback)
 	if ref != "deepseek/light" || len(routes) != 2 || routes[1].Ref() != "deepseek/light" {
 		t.Fatalf("light = %q routes = %v", ref, routes)
 	}

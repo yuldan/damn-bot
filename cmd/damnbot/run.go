@@ -360,16 +360,16 @@ func (m *runModel) close(ctx context.Context) error {
 }
 
 // newRunProvider builds the run provider or returns the injected one.
-func newRunProvider(cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions) (loop.Provider, error) {
+func newRunProvider(ctx context.Context, cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions) (loop.Provider, error) {
 	table, err := registry.DefaultPriceTable()
 	if err != nil {
 		return nil, fmt.Errorf("pricing table: %w", err)
 	}
-	return newRunProviderWithTable(cfg, db, modelRef, o, table)
+	return newRunProviderWithTable(ctx, cfg, db, modelRef, o, table)
 }
 
 // newRunProviderWithTable is newRunProvider with an explicit price table.
-func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
+func newRunProviderWithTable(ctx context.Context, cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
 	if o.prov != nil {
 		return o.prov, nil
 	}
@@ -380,28 +380,30 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	if verr := validateCustomOverrides(cfg, resolver.catalog); verr != nil {
 		return nil, verr
 	}
-	routes, fallback, err := resolver.routes(modelRef)
+	routes, fallback, err := resolver.routes(ctx, modelRef)
 	if err != nil {
 		return nil, err
 	}
-	lightRef := lightRoute(cfg, modelRef, &routes, resolver, fallback)
+	lightRef := lightRoute(ctx, cfg, modelRef, &routes, resolver, fallback)
 	guard, notes, err := newBudgetGuard(cfg, db)
 	if err != nil {
 		return nil, err
 	}
 	provName, _, _ := strings.Cut(modelRef, "/")
 	net := netx.New(netx.Config{Offline: o.offline || cfg.Network.Offline, NoBackground: !cfg.Network.Background})
-	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), wireCircuit(&provider.Config{
+	pcfg := &provider.Config{
 		Routes: routes, Fallback: fallback, UserAgent: userAgent(),
 		Attempts: o.providerAttempts,
 		Wires:    providerWires(),
 		Guard:    guard, OnBudget: func(d budget.Decision) { notes.observe(&d) },
 		OnFallback: func(fb provider.Fallback) {
 			if fb.Done {
-				slog.Warn("provider fallback", "from", fb.From, "to", fb.To, "error", fb.Outcome)
+				slog.WarnContext(ctx, "provider fallback", "from", fb.From, "to", fb.To, "error", fb.Outcome)
 			}
 		},
-	}, db))
+	}
+	configureCredentialLog(ctx, pcfg)
+	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), wireCircuit(pcfg, db))
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)
 	}
@@ -422,7 +424,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	// injected provider with a non-standard ref) simply has no override.
 	var configWindows map[string]int64
 	if resolver, rerr := newRunResolver(cfg, registry.PriceTable{}, o); rerr == nil {
-		if base, berr := resolver.base(w.modelRef); berr == nil {
+		if base, berr := resolver.base(ctx, w.modelRef); berr == nil {
 			configWindows, err = routeLimits(cfg, provName, base, modelName)
 			if err != nil {
 				return nil, w.fail(fmt.Errorf("model limits: %w", err))
@@ -442,7 +444,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		return nil, w.fail(fmt.Errorf("toolsets: %w", err))
 	}
 	withDeferredMeta(&sel, registryNames(w.registry))
-	prov, err := newRunProvider(cfg, w.db, w.modelRef, o)
+	prov, err := newRunProvider(ctx, cfg, w.db, w.modelRef, o)
 	if err != nil {
 		return nil, w.fail(err)
 	}

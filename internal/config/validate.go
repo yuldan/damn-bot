@@ -366,8 +366,13 @@ func validateProviderAuth(p *CustomProvider, key string) error {
 			return invalid(key+".key_cmd", "entries must be non-empty")
 		}
 	}
+	creds, err := credentialSources(p, key)
+	if err != nil {
+		return err
+	}
+	sources += creds
 	if sources > 1 {
-		return invalid(key+".api_key", "at most one of api_key_env, api_key and key_cmd may be set")
+		return invalid(key+".api_key", "at most one of api_key_env, api_key, key_cmd and credentials may be set")
 	}
 	return nil
 }

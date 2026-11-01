@@ -229,7 +229,8 @@ type Providers struct {
 }
 
 // CustomProvider is one PROVIDERS.md custom provider (12 fields). APIKey may
-// only be a keychain reference; Streaming nil means true.
+// only be a keychain reference; Streaming nil means true. Credentials, when
+// present, replaces api_key_env/api_key/key_cmd with a SPEC §4.1 pool.
 type CustomProvider struct {
 	Name                  string            `toml:"name"`
 	BaseURL               string            `toml:"base_url"`
@@ -237,6 +238,7 @@ type CustomProvider struct {
 	APIKeyEnv             string            `toml:"api_key_env"`
 	APIKey                string            `toml:"api_key"`
 	KeyCmd                []string          `toml:"key_cmd"`
+	providerCredentials                     // Credentials (full build only)
 	Models                []CustomModel     `toml:"models"`
 	ExtraHeaders          map[string]string `toml:"extra_headers"`
 	ExtraBody             map[string]any    `toml:"extra_body"`

@@ -62,11 +62,13 @@ func runDoctor(args []string, stdout, stderr io.Writer) int {
 		return sayEgress(&cfg, *jsonOut, stdout)
 	}
 	warnings := doctorProviderFindings(&cfg)
-	rep := doctor.Run(context.Background(), &doctor.Options{
+	opts := &doctor.Options{
 		ConfigDir: paths.ConfigDir, DataDir: paths.DataDir, ConfigFile: paths.ConfigFile(),
 		ConfigFound: found, ConfigErr: cfgErr, ProviderModel: cfg.Provider.Model,
 		ProviderWarnings: warnings, Fix: *fix,
-	})
+	}
+	attachCredentialPools(opts, &cfg)
+	rep := doctor.Run(context.Background(), opts)
 	if *jsonOut {
 		b, merr := json.MarshalIndent(rep, "", "  ")
 		if merr != nil {

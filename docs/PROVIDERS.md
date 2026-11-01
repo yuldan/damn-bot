@@ -149,6 +149,7 @@ Kunci yang dibaca hermes (`hermes_cli/runtime_provider_custom.py`, `hermes_cli/c
 | `base_url` | ya | `base_url` | `baseUrl` | Untuk alias lokal, tambahkan `/v1` bila tidak ada (pelajaran hermes #106010) |
 | `api` (protokol) | ya (default `openai-chat`) | `api_mode` / `api` | `api` (`openai-completions`, `openai-responses`, `anthropic-messages`, …) | Menentukan adapter wire |
 | `api_key_env` / `api_key` / `key_cmd` | tidak (server lokal) | `key_env`, `api_key_env`, `api_key`, `key_cmd` | `apiKey` | Server lokal butuh placeholder non-kosong (`agent/auxiliary_client.py:2850`) |
+| `credentials[]` (`id`, `secret`) | tidak | — (pool beberapa key) | — | SPEC §4.1/ADR-278: 1..16 entri, `id` unik, `secret` hanya `keychain:<id>`; saling eksklusif dengan tiga field di atas |
 | `models[]` | ya (minimal 1) | `models`, `model`, `default_model` | `models[]` | |
 | `models[].context_length` | disarankan | `context_length` | `contextWindow` | Override per model wajib dihormati (#83324) |
 | `models[].max_tokens` | disarankan | — | `maxTokens` | |

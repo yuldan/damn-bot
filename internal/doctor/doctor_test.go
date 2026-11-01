@@ -61,7 +61,7 @@ func TestRunHealthy(t *testing.T) {
 	if rep.Exit != 0 {
 		t.Fatalf("exit = %d, want 0\n%+v", rep.Exit, rep)
 	}
-	if len(rep.Checks) != 11 || rep.Summary.OK != 11 {
+	if len(rep.Checks) != 12 || rep.Summary.OK != 12 {
 		t.Fatalf("checks = %d, ok = %d\n%+v", len(rep.Checks), rep.Summary.OK, rep)
 	}
 }
@@ -137,7 +137,7 @@ func TestReportJSON(t *testing.T) {
 		t.Fatalf("version = %v", got["version"])
 	}
 	checks, ok := got["checks"].([]any)
-	if !ok || len(checks) != 11 {
+	if !ok || len(checks) != 12 {
 		t.Fatalf("checks = %T %v", got["checks"], got["checks"])
 	}
 	first, ok := checks[0].(map[string]any)

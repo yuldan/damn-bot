@@ -295,11 +295,11 @@ func TestLiveProviderBuilds(t *testing.T) {
 	if err := os.WriteFile(key, []byte("sk-test-not-real"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	prov, err := liveProvider(&evalOptions{keyFile: key, model: "openai/gpt-5.4-mini", baseURL: "https://api.teamorouter.com/v1"})
+	prov, err := liveProvider(t.Context(), &evalOptions{keyFile: key, model: "openai/gpt-5.4-mini", baseURL: "https://api.teamorouter.com/v1"})
 	if err != nil || prov == nil {
 		t.Fatalf("liveProvider = %v, %v", prov, err)
 	}
-	if _, err := liveProvider(&evalOptions{keyFile: filepath.Join(dir, "missing")}); err == nil {
+	if _, err := liveProvider(t.Context(), &evalOptions{keyFile: filepath.Join(dir, "missing")}); err == nil {
 		t.Fatal("missing key file accepted")
 	}
 }
@@ -547,14 +547,14 @@ func TestEvalKeyFilePermissions(t *testing.T) {
 	if err := os.WriteFile(open, []byte("sk-test"), 0o644); err != nil { // #nosec G306 -- deliberately readable to test rejection
 		t.Fatal(err)
 	}
-	if _, err := liveProvider(&evalOptions{keyFile: open, model: "openai/gpt-5.4-mini", baseURL: "http://127.0.0.1:9/v1"}); err == nil {
+	if _, err := liveProvider(t.Context(), &evalOptions{keyFile: open, model: "openai/gpt-5.4-mini", baseURL: "http://127.0.0.1:9/v1"}); err == nil {
 		t.Fatal("0644 key file accepted")
 	}
 	closed := filepath.Join(dir, "closed")
 	if err := os.WriteFile(closed, []byte("sk-test"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := liveProvider(&evalOptions{keyFile: closed, model: "openai/gpt-5.4-mini", baseURL: "http://127.0.0.1:9/v1"}); err != nil {
+	if _, err := liveProvider(t.Context(), &evalOptions{keyFile: closed, model: "openai/gpt-5.4-mini", baseURL: "http://127.0.0.1:9/v1"}); err != nil {
 		t.Fatalf("0600 key file refused: %v", err)
 	}
 }

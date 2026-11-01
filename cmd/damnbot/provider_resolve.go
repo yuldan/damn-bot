@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -39,6 +40,7 @@ type providerResolver struct {
 	// the config file.
 	overrideBase, overrideKey string
 	e2eBase                   string
+	resolverCredentials
 }
 
 // newRunResolver builds the resolver over the embedded catalog.
@@ -62,7 +64,7 @@ func newResolver(cfg *config.Config, table registry.PriceTable, catalog *registr
 // resolve returns the route for ref. A custom provider that shadows a
 // built-in id without override=true is refused; so is a non-default base_url
 // for an override unless --confirm-base-url was passed (SEC-24).
-func (r *providerResolver) resolve(ref string) (provider.Route, error) {
+func (r *providerResolver) resolve(ctx context.Context, ref string) (provider.Route, error) {
 	provName, modelName, ok := strings.Cut(ref, "/")
 	if !ok || provName == "" || modelName == "" {
 		return provider.Route{}, fmt.Errorf("%w: %q is not provider/model", ErrProviderResolve, ref)
@@ -71,7 +73,7 @@ func (r *providerResolver) resolve(ref string) (provider.Route, error) {
 	custom := r.customProvider(provName)
 	switch {
 	case custom != nil:
-		return r.resolveCustom(modelName, custom, &builtin, builtinOK)
+		return r.resolveCustom(ctx, modelName, custom, &builtin, builtinOK)
 	case builtinOK:
 		return r.resolveBuiltin(provName, modelName, &builtin)
 	default:
@@ -82,7 +84,7 @@ func (r *providerResolver) resolve(ref string) (provider.Route, error) {
 // resolveCustom resolves one [[providers.custom]] row. Only fields with a
 // wired runtime consumer are accepted; an unsupported field is a startup
 // error rather than a silent no-op.
-func (r *providerResolver) resolveCustom(modelName string, c *config.CustomProvider, builtin *registry.Provider, builtinOK bool) (provider.Route, error) {
+func (r *providerResolver) resolveCustom(ctx context.Context, modelName string, c *config.CustomProvider, builtin *registry.Provider, builtinOK bool) (provider.Route, error) {
 	if err := validateCustom(c, modelName, builtinOK); err != nil {
 		return provider.Route{}, err
 	}
@@ -95,7 +97,7 @@ func (r *providerResolver) resolveCustom(modelName string, c *config.CustomProvi
 		return provider.Route{}, err
 	}
 	if builtinOK && !sameBaseURL(base, builtin.BaseURL) {
-		slog.Warn("provider override uses a non-default base_url", "provider", c.Name, "base_url", base)
+		slog.WarnContext(ctx, "provider override uses a non-default base_url", "provider", c.Name, "base_url", base)
 	}
 	var attribution []string
 	if builtinOK {
@@ -111,6 +113,9 @@ func (r *providerResolver) resolveCustom(modelName string, c *config.CustomProvi
 	}
 	if builtinOK {
 		route.CacheTTLMax = builtin.CacheTTLMax
+	}
+	if err := r.attachCredentialPool(ctx, &route, c); err != nil {
+		return provider.Route{}, err
 	}
 	return route, nil
 }
@@ -250,15 +255,15 @@ func (r *providerResolver) routeFor(provName, modelName, base, key string, extra
 // routes resolves the primary reference and the configured fallback chain.
 // Fallback refs stay in the same order and are also registered as routes so
 // provider.Client.Do can switch to them (PROV-074).
-func (r *providerResolver) routes(ref string) ([]provider.Route, []string, error) {
-	primary, err := r.resolve(ref)
+func (r *providerResolver) routes(ctx context.Context, ref string) ([]provider.Route, []string, error) {
+	primary, err := r.resolve(ctx, ref)
 	if err != nil {
 		return nil, nil, err
 	}
 	out := []provider.Route{primary}
 	fallback := make([]string, 0, len(r.cfg.Provider.Fallback))
 	for _, fb := range r.cfg.Provider.Fallback {
-		route, err := r.resolve(fb)
+		route, err := r.resolve(ctx, fb)
 		if err != nil {
 			return nil, nil, fmt.Errorf("fallback %q: %w", fb, err)
 		}
@@ -301,8 +306,8 @@ func providerDoctorWarnings(cfg *config.Config, catalog *registry.Catalog, table
 
 // base resolves only the endpoint identity (no credential requirement) for
 // callers such as the model-limit override lookup.
-func (r *providerResolver) base(ref string) (string, error) {
-	route, err := r.resolve(ref)
+func (r *providerResolver) base(ctx context.Context, ref string) (string, error) {
+	route, err := r.resolve(ctx, ref)
 	if err != nil {
 		return "", err
 	}
@@ -338,6 +343,12 @@ func (r *providerResolver) customProvider(name string) *config.CustomProvider {
 func (r *providerResolver) keyFor(c *config.CustomProvider, builtin *registry.Provider, builtinOK bool) (string, error) {
 	if r.overrideKey != "" {
 		return r.overrideKey, nil
+	}
+	if hasCredentials(c) {
+		// The pool supplies the per-attempt key; never fall through to the
+		// built-in env list or a static key (config validation already
+		// rejects a combination).
+		return "", nil
 	}
 	if c.APIKeyEnv != "" {
 		if v := r.getenv(c.APIKeyEnv); v != "" {
@@ -414,14 +425,14 @@ func slicesContainsModel(models []config.CustomModel, id string) bool {
 // lightRoute registers provider.light as an auxiliary route and returns its
 // reference. It is never used for the primary turn; compaction is the first
 // auxiliary consumer (SPEC §4.1). A ref equal to the primary is ignored.
-func lightRoute(cfg *config.Config, modelRef string, routes *[]provider.Route, resolver *providerResolver, fallback []string) string {
+func lightRoute(ctx context.Context, cfg *config.Config, modelRef string, routes *[]provider.Route, resolver *providerResolver, fallback []string) string {
 	ref := cfg.Provider.Light
 	if ref == "" || ref == modelRef || slices.Contains(fallback, ref) {
 		return ""
 	}
-	route, err := resolver.resolve(ref)
+	route, err := resolver.resolve(ctx, ref)
 	if err != nil {
-		slog.Warn("provider.light is not resolvable; compaction keeps the primary model", "ref", ref, "error", err)
+		slog.WarnContext(ctx, "provider.light is not resolvable; compaction keeps the primary model", "ref", ref, "error", err)
 		return ""
 	}
 	*routes = append(*routes, route)

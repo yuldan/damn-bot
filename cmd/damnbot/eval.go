@@ -378,7 +378,7 @@ func runEvalRecall(args []string, stdout, stderr io.Writer) int {
 		printTo(stderr, "eval: %s\n", err)
 		return 2
 	}
-	inner, err := liveProvider(&o)
+	inner, err := liveProvider(context.Background(), &o)
 	if err != nil {
 		printTo(stderr, "eval: %s\n", err)
 		return 2
@@ -439,7 +439,7 @@ func runEvalWith(o *evalOptions, price evalPrice, ledger *spendLedger, inner loo
 }
 
 // liveProvider builds the OpenAI-compatible client; the key is never printed.
-func liveProvider(o *evalOptions) (loop.Provider, error) {
+func liveProvider(ctx context.Context, o *evalOptions) (loop.Provider, error) {
 	keyPath := o.keyFile
 	if rest, ok := strings.CutPrefix(keyPath, "~/"); ok {
 		home, err := os.UserHomeDir()
@@ -468,7 +468,7 @@ func liveProvider(o *evalOptions) (loop.Provider, error) {
 		return nil, fmt.Errorf("provider catalog: %w", err)
 	}
 	route, err := newResolver(&config.Config{}, registry.PriceTable{}, catalog,
-		&runOptions{baseURL: o.baseURL, apiKey: strings.TrimSpace(string(key))}).resolve(ref)
+		&runOptions{baseURL: o.baseURL, apiKey: strings.TrimSpace(string(key))}).resolve(ctx, ref)
 	if err != nil {
 		return nil, fmt.Errorf("provider endpoint: %w", err)
 	}
