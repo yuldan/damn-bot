@@ -29,10 +29,10 @@ PROV+TOOL: `test/f5-gap-prov-tool`. Semua tes bernama `TestGAPF5_<ID>`.
 | GAP-SEC-03 | LULUS-SEBAGIAN | `TestGAPF5_SEC03`; `TestUntrustedToolDeniedByDefault`, `TestToolEffectDefaultsToNonIdempotent`, `TestApprove*` | `internal/mcp/config.go:14-91` (trust default untrusted), `policy.go:12-43` (non-read selalu approval, hint server tidak menurunkan gate), `client.go:221-266` (deny sebelum dispatch), `config/modules_mcp.go:52` (read_only per tool). Tes baru: 10 tool ber-`readOnlyHint:true` → 10/10 prompt, headless 10/10 `denied`, 0 dispatch. | MCP tool belum di-wire ke turn (`modules.Register` 0 di produksi), jadi matriks mode ask/auto-edit/auto belum diuji lewat core; `trust=full` belum butuh konfirmasi eksplisit dan belum tampil di `doctor`. PR: wire modul MCP + mode matrix + trust confirmation/doctor. |
 | GAP-SEC-04 | LULUS-SEBAGIAN | `TestGAPF5_SEC04`, `TestPin*` (6 tes), `TestMCPRugPull` belum ada dengan nama itu | `internal/mcp/pin.go:120-235` (digest sha256, first-listing pin, modified/added/removed quarantine), `pinGate`, `ctxdb/mcpstore`, `mcp refresh/review`. Tes baru: deskripsi berubah + tool baru di tengah sesi → 0 tool terlihat, 0 dispatch (`mcp_tool_changed`), diff `modified`/`added`. | Diff hanya di `damnbot mcp review`; TUI/web belum menampilkan diff. PR: surface diff TUI/web. |
 | GAP-SEC-18 | LULUS-SEBAGIAN | `TestGAPF5_SEC18`, `TestOAuthRefreshRevocation`, `TestAuthLoginStatusLogoutRevoke`, `TestAuthRevokeFailureKeepsToken`, `TestAuthOfflineFails` | `internal/provider/auth/oauth.go:227-252` (RFC 7009 refresh lalu access), `cmd/damnbot/auth_cli.go:125-160` (revoke dulu, state `revoked/unsupported/failed`), `mcp_oauth.go:139-162`. Tes baru: keduanya dicabut, refresh → `invalid_grant`, offline → `ErrOffline`. | CLI hanya positional satu provider: `--provider P|--all` tidak ada; `damnbot setup --uninstall --purge-data` belum ada sehingga laporan `failed` per token tanpa jaringan belum bisa diuji. PR: flag logout + uninstall purge. |
-| GAP-SEC-20 | TERBUKA | — | Tidak ada verifikasi tanda tangan katalog; hanya updater ed25519 (`internal/update/signature.go`). | Implementasi katalog bertanda tangan (skills hub/MCP/preset), redirect same-host, anti-rollback `serial`, sha256 arsip. PR: signed catalog. |
+| GAP-SEC-20 | LULUS-SEBAGIAN | `TestGAPF5_SEC20*` (verifier), `TestGAPF5_SEC20CLI`, `TestGAPF5_SEC20ConfigKey` | `internal/mcp/catalog` (manifest `{kind,name,version,serial,entries,signature}`, ed25519 wajib, tamper/unsigned/rollback fail-closed, entry commit+sha256), `cmd/damnbot/mcp_catalog_cli.go` (`mcp catalog <file>`), `[update] catalog_public_key` divalidasi. | Fetch live + redirect max 3 same-host + penyimpanan serial lintas proses belum di-wire; verifier dan CLI sudah fail-closed. |
 | GAP-SEC-21 | LULUS-SEBAGIAN | `TestGAPF5_SEC21`, `TestRespondRefusesSelfApprovalAndP26`, `TestRespondAndOpenApprovals`, `TestServe*` (9 tes) | `ctxdb/mcpservestore` (token scope read/send/approve, approval_response exactly-once, origin≠mcp_serve, P26), `internal/mcp/serve.go` (scope filter, rate limit, approval non-read). Tes baru: 3 scope terikat profil, respond kedua `ErrNotPending`, self-origin/P26 `ErrForbidden`. | `damnbot mcp serve` belum ada (tidak ada ServeTool, token create/ls/revoke, `messages_send`, `permissions_list_open/respond`); scope token tidak diperiksa saat `Respond` (caller harus). Test tertunda `TestMCPServeCannotSelfApprove` belum ada dengan nama itu. PR: serve command + tools + scope check. |
-| GAP-SEC-22 | TERBUKA | `TestDockerRunContract`, `TestDockerRejectsEscapes` (bukan nama acceptance) | `internal/exec/backends/docker.go:142-160,267-292` (satu bind workspace, docker.sock ditolak), `cli_test.go:108,119`. | Image `ghcr.io/damnbot/damnbot` distroless/user 65532/healthcheck/Trivy belum ada (F9); `TestDockerBackendNoSocketMount` belum ada dengan nama itu. PR: image F9 + rename/acceptance test. |
-| GAP-SEC-23 | TERBUKA | `TestSSHHostKeyPin`, `TestDockerRunContract` (limit), `internal/config` backend/egress | `exec/backend.go:27-70` (`Caps.ResourceLimits`, `Require`), `backends/docker.go:85,188-206` (`--cpus/--memory/--pids`, `allow_unlimited`), `ssh.go:43-89` (known_hosts wajib), `config/exec_backends.go:89-107` (allowlist butuh egress/proxy/network). | Deteksi cgroup absen → `module_unavailable{reason:"no_resource_limits"}` tidak ada; tidak ada tes cgroup. PR: probe capability container + fail-closed reason. |
+| GAP-SEC-22 | DITUNDA-F9 | `TestDockerRunContract`, `TestDockerRejectsEscapes`, `TestDockerBackendNoSocketMount` (nama acceptance; perilaku ada) | `internal/exec/backends/docker.go:142-160,267-292` (hanya bind workspace; docker.sock/workspace socket ditolak), `cli_test.go:108,119`. | Image `ghcr.io/damnbot/damnbot` distroless/user 65532/healthcheck/Trivy adalah artefak rilis F9 (ROADMAP F9 “Docker 1 stage”); tidak ada kode backend yang perlu diubah. |
+| GAP-SEC-23 | LULUS | `TestGAPF5_SEC23DockerProbe`, `TestGAPF5_SEC23SingularityProbe`, `TestSSHHostKeyPin`, `TestDockerRunContract` | `docker.go:218-255` (`docker create` dengan limit sebelum run; gagal → `ErrCapability` “no_resource_limits”), `singularity.go:140-174` (`cgroup status` sebelum run), cache `sync.Once`, `allow_unlimited` satu-satunya opt-out; SSH host-key pin dan egress allowlist sudah ada. | — |
 | GAP-SEC-24 | LULUS | `TestGAPF5_SEC24`, `TestOverrideWithoutFlag` | `cmd/damnbot/provider_resolve.go:115-135` (override=true wajib), `:143-161` (`--confirm-base-url`), `:272-300` (`providerDoctorWarnings`), `config/config.go:246-248`. Tes baru: 2/2 override + non-default muncul di doctor; shadow tanpa flag gagal; base_url non-default butuh konfirmasi. | — |
 | GAP-SEC-25 | LULUS | `TestGAPF5_SEC25`, `TestUserAgentDefault`, `TestNoAttributionHeaders` | `provider_resolve.go:305-410` (`send_attribution` default false, `userAgent()`), `provider/client.go:25-28,103-126,413-415` (UA `damnbot/<versi>`). Tes baru: 94 preset (88+6 lokal) tanpa header atribusi; UA tanpa OS/hostname; opt-in hanya header deklarasi. | — |
 | GAP-REL-14 | LULUS-SEBAGIAN | `TestGAPF5_REL14`, `internal/gateway/render/known_defects_test.go` (10 tes) | `internal/provider` (413 typed, truncated stream `stream_broken` retry), `netx/retry/class.go:122`; render known-defects 10 skenario. | Skenario MCP gambar sebagai lampiran belum ada (`mcp.Client.mapResult` menaruh non-text di `Meta["content"]`, `host.Result` tidak punya `Attachments`); streaming-once/kanban bukan F5. Job `known-defects` belum ada. PR: attachments MCP + job. |
@@ -48,10 +48,10 @@ PROV+TOOL: `test/f5-gap-prov-tool`. Semua tes bernama `TestGAPF5_<ID>`.
 
 | item | isi | status di main |
 | --- | --- | --- |
-| AUD-050 | SPEC §9.6 scope token `read\|send` → `read\|send\|approve` | **TERBUKA**: `SPEC.md:894` masih `read|send`; DDL `0017`/`mcp_serve_tokens` sudah `approve`. |
-| NEW2-19 | field `origin` di payload `approval_request` | **LULUS-SEBAGIAN**: `tools.ApprovalRequest.Origin` ada (`internal/tools/approval.go:133`), tetapi nilai `mcp_serve` belum dipakai karena server belum ada. |
-| NEW2-20 | mapping origin cron/batch/kanban → `headless`, delegate → origin induk | **TERBUKA**: `cron_wire.go:139` memakai `approvalOrigin: "run"`. |
-| NEW3-02 | auto headless `execute_code` butuh `--unsafe-auto-shell`/`--unsafe-auto-code` atau residu eksplisit | **TERBUKA**: menunggu `execute_code`; belum ada flag/residu di TRUST-MODEL. |
+| AUD-050 | SPEC §9.6 scope token `read\|send` → `read\|send\|approve` | **LULUS**: `SPEC.md:894` kini `read|send|approve`; DDL `mcp_serve_tokens` dan `mcpservestore` sudah `approve` (`TestGAPF5_SEC21`). |
+| NEW2-19 | field `origin` di payload `approval_request` | **LULUS-SEBAGIAN / BLOKIR**: `tools.ApprovalRequest.Origin` ada (`internal/tools/approval.go:133`), `approval_bridge.go:51,64` meneruskannya; nilai `mcp_serve` belum bisa diuji karena `damnbot mcp serve` belum ada (GAP-SEC-21). |
+| NEW2-20 | mapping origin cron/batch/kanban → `headless`, delegate → origin induk | **BLOKIR**: `cron_wire.go:139` masih `approvalOrigin: "run"`, dan `tools.ValidOrigin` hanya `run|tui|acp|plan`; perlu perluasan origin + update semua pembuat approval (bukan sekadar test). |
+| NEW3-02 | auto headless `execute_code` butuh `--unsafe-auto-shell`/`--unsafe-auto-code` atau residu eksplisit | **BLOKIR**: menunggu `execute_code` (#573–#579 belum merge); belum ada flag/residu di TRUST-MODEL. |
 
 ## 1. GAP SEC
 
@@ -60,10 +60,10 @@ PROV+TOOL: `test/f5-gap-prov-tool`. Semua tes bernama `TestGAPF5_<ID>`.
 | SEC-03 | trust default untrusted; tool non-read selalu approval; read_only satu-satunya pengecualian; headless deny | LULUS-SEBAGIAN | `TestGAPF5_SEC03` | `internal/mcp/policy.go`, `config.go`, `client.go:221`; 10/10 prompt, 10/10 denied |
 | SEC-04 | pin sha256; ubah/tambah tool → quarantine, 0 dispatch, diff | LULUS-SEBAGIAN | `TestGAPF5_SEC04` | `internal/mcp/pin.go:120`; `modified`/`added`, `mcp_tool_changed` |
 | SEC-18 | revoke RFC 7009 refresh lalu access; `failed` tanpa jaringan | LULUS-SEBAGIAN | `TestGAPF5_SEC18` | `auth/oauth.go:227`; `invalid_grant`, `ErrOffline` |
-| SEC-20 | katalog bertanda tangan ed25519 + anti-rollback | TERBUKA | — | tidak ada |
+| SEC-20 | katalog bertanda tangan ed25519 + anti-rollback | LULUS-SEBAGIAN | `TestGAPF5_SEC20*`, `TestGAPF5_SEC20CLI`, `TestGAPF5_SEC20ConfigKey` | `internal/mcp/catalog`; signature wajib/tamper/rollback fail-closed; `mcp catalog <file>`; key `[update] catalog_public_key` |
 | SEC-21 | token scope + approval lintas proses; tidak menyetujui diri sendiri/P26 | LULUS-SEBAGIAN | `TestGAPF5_SEC21` | `ctxdb/mcpservestore`; exactly-once, origin, P26 |
-| SEC-22 | image distroless non-root; backend docker tidak mount socket | TERBUKA | `TestDockerRunContract`/`TestDockerRejectsEscapes` | `backends/docker.go:142,267`; image F9 |
-| SEC-23 | limit container fail-closed; host key pin; egress allowlist | TERBUKA | `TestSSHHostKeyPin`, `TestDockerRunContract` | `exec/backend.go:27`, `backends/docker.go:188`, `ssh.go:43`; cgroup probe tidak ada |
+| SEC-22 | image distroless non-root; backend docker tidak mount socket | DITUNDA-F9 | `TestDockerRunContract`/`TestDockerRejectsEscapes` | `backends/docker.go:142,267`; image F9 |
+| SEC-23 | limit container fail-closed; host key pin; egress allowlist | LULUS | `TestGAPF5_SEC23DockerProbe`, `TestGAPF5_SEC23SingularityProbe`, `TestSSHHostKeyPin` | `docker.go:218`, `singularity.go:140`; probe sebelum run, `no_resource_limits` |
 | SEC-24 | override built-in butuh `override=true`; base_url butuh konfirmasi; doctor 100% | LULUS | `TestGAPF5_SEC24` | `provider_resolve.go:115,143,272` |
 | SEC-25 | atribusi opt-in; UA `damnbot/<versi>` | LULUS | `TestGAPF5_SEC25` | `provider_resolve.go:305,390`; 94 preset |
 
@@ -77,8 +77,10 @@ PROV+TOOL: `test/f5-gap-prov-tool`. Semua tes bernama `TestGAPF5_<ID>`.
 
 Tes COST-10 tidak dibuat: `execute_code`/Starlark tidak ada di main (hanya
 `go.starlark.net` di `deps.allow:26`), jadi tidak ada perilaku yang bisa diuji
-tanpa tes palsu. Status tetap `TERBUKA` dan PR `execute_code` dicatat di
-`GAP-COST-10` atas.
+tanpa tes palsu. Nama tes acceptance yang belum ada sampai #573–#579 merge:
+`TestExecuteCodeApproval`, `TestExecuteCodeRPCNetworkDeny`, dan tes
+`tool(name, **args)` allowlist 7 tool. Status tetap `TERBUKA`; PR
+`execute_code` (G2-02) di atas.
 
 ## 3. GAP PROV + TOOL
 
@@ -90,5 +92,6 @@ tanpa tes palsu. Status tetap `TERBUKA` dan PR `execute_code` dicatat di
 | TOOL-08 | rate-limit notice proses ≤1/15 s, ≤4/menit/chat, global ≤15/10 s, `+N` | TERBUKA | — | Tidak ada background process/`process_*`; `shell{background}` masih `invalid_args` F1; tidak ada limiter |
 
 Tes TOOL-08 tidak dibuat karena perilakunya belum ada (bukan sekadar belum
-diuji). PR: registry proses + `process_*` + limiter notice pada gelombang
-`execute_code`.
+diuji). Nama tes acceptance yang belum ada: `TestProcessNotifyRateLimit`.
+PR: registry proses + `process_*` + limiter notice pada gelombang
+`execute_code` (#573–#579 belum merge ke a8258e8a).

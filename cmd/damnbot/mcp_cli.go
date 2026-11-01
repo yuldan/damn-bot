@@ -22,6 +22,7 @@ func mcpUsage(w io.Writer) {
 	sessionsPrintf(w, "  remove <name>    revoke the token, then delete the config section\n")
 	sessionsPrintf(w, "  refresh [name]   force tools/list through the pin gate\n")
 	sessionsPrintf(w, "  review [name]    approve changed tool definitions (ADR-272)\n")
+	sessionsPrintf(w, "  catalog <file>   verify a signed provider/MCP manifest (SEC-20)\n")
 	sessionsPrintf(w, "  auth login|logout|status [name]\n")
 	sessionsPrintf(w, "\ncommon flags: --json, --config <path>, --data-dir <dir>, --offline\n")
 }

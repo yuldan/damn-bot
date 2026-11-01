@@ -8,6 +8,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/exec"
 )
@@ -24,6 +26,9 @@ type SingularityConfig struct {
 type Singularity struct {
 	cfg  SingularityConfig
 	root string
+
+	probe    sync.Once
+	probeErr error
 }
 
 var _ exec.Backend = (*Singularity)(nil)
@@ -65,6 +70,9 @@ func (s *Singularity) Caps() exec.Caps {
 
 // Run starts one container; the process group is killed within the deadline.
 func (s *Singularity) Run(ctx context.Context, spec *exec.Spec) (exec.Result, error) {
+	if err := s.ensureLimits(ctx); err != nil {
+		return exec.Result{Status: exec.StatusSpawnFailed}, err
+	}
 	if spec.PTY {
 		return exec.Result{Status: exec.StatusSpawnFailed}, fmt.Errorf("%w: singularity: pty", exec.ErrCapability)
 	}
@@ -127,6 +135,42 @@ func (s *Singularity) childEnv(id string, env []string) []string {
 			"APPTAINERENV_NO_PROXY=127.0.0.1,localhost")
 	}
 	return out
+}
+
+// ensureLimits verifies cgroup delegation before a real command runs. A host
+// without delegated CPU/memory/PID controllers fails closed with
+// ErrCapability instead of starting a container without limits.
+func (s *Singularity) ensureLimits(ctx context.Context) error {
+	limits := exec.Limits{CPUMilli: s.cfg.CPUMilli, MemoryMiB: s.cfg.MemoryMiB, PIDs: s.cfg.PIDs}
+	if s.cfg.AllowUnlimited || !limits.Set() {
+		return nil
+	}
+	s.probe.Do(func() { s.probeErr = s.probeLimits(ctx) })
+	return s.probeErr
+}
+
+// probeLimits asks apptainer whether cgroups are available. The probe is a
+// read-only capability query, never a user command whose exit code could be
+// mistaken for the command's own failure.
+func (s *Singularity) probeLimits(ctx context.Context) error {
+	bin, err := ResolveBinary(s.cfg.Binary)
+	if err != nil {
+		return err
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	res, err := RunCLI(probeCtx, s.ID(), &CLISpec{
+		argv: []string{bin, "cgroup", "status"}, dir: s.root, timeout: 10 * time.Second,
+	})
+	if err != nil {
+		return fmt.Errorf("%w: singularity cgroup probe: %w", exec.ErrCapability, err)
+	}
+	if res.Status != exec.StatusExited || res.ExitCode == nil || *res.ExitCode != 0 ||
+		!strings.Contains(strings.ToLower(string(res.Output)), "cgroup") {
+		return fmt.Errorf("%w: singularity: no_resource_limits: %s", exec.ErrCapability,
+			strings.TrimSpace(string(res.Output)))
+	}
+	return nil
 }
 
 // Sweep kills the marked processes of execID (shared with local).

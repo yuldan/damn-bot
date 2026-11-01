@@ -24,6 +24,12 @@ func fakeCLI(t *testing.T, image string) (bin, logPath, envPath string) {
 	envPath = filepath.Join(dir, "env.log")
 	bin = filepath.Join(dir, "fake-cli")
 	script := `#!/bin/sh
+if [ "$FAKE_PROBE_FAIL" = "1" ]; then
+  case "$1" in
+    create|cgroup) printf 'no cgroup support\n'; exit 1;;
+  esac
+fi
+if [ "$1" = "cgroup" ] && [ "$2" = "status" ]; then printf 'cgroup: enabled\n'; exit 0; fi
 printf '%s\n' "$@" >> ` + ShellQuote(logPath) + `
 prev=''
 for a in "$@"; do
