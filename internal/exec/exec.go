@@ -72,6 +72,15 @@ type Spec struct {
 	OnOutput func([]byte)
 }
 
+// Execution describes where a call really ran (EC-TERM-003): a non-local
+// backend replaces host execution with a sandbox/remote environment and the
+// result must say so instead of presenting itself as the host.
+type Execution struct {
+	Backend   string `json:"backend"`          // local|docker|ssh|singularity|modal|daytona|vercel_sandbox
+	Sandboxed bool   `json:"sandboxed"`        // true when host execution was replaced
+	Detail    string `json:"detail,omitempty"` // fixed sentence; never contains host paths
+}
+
 // Result is the outcome of Run.
 type Result struct {
 	Status   Status
@@ -80,7 +89,9 @@ type Result struct {
 	Duration time.Duration
 	Runner   string
 	ExecID   string
-	Output   []byte // raw combined output (head + tail when Truncated)
+	// Execution reports the backend that actually ran the call (EC-TERM-003).
+	Execution Execution
+	Output    []byte // raw combined output (head + tail when Truncated)
 	// Truncated: more than OutputCap bytes were produced; Output holds the
 	// first and last OutputCap/2 bytes.
 	Truncated bool

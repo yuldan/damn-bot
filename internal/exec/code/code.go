@@ -66,6 +66,8 @@ type Result struct {
 	Backend   string
 	// Isolation states what the backend really enforced (SPEC §14.2 Meta).
 	Isolation Isolation
+	// Execution reports the backend that ran the call (EC-TERM-003).
+	Execution exec.Execution
 }
 
 // Isolation is the honest enforcement report of one call.
@@ -200,6 +202,7 @@ func (r *Runner) Run(ctx context.Context, req *Request) (out Result, err error) 
 		Status: res.Status, ExitCode: res.ExitCode, Stdout: res.Output,
 		Truncated: res.Truncated, Duration: res.Duration, Backend: r.cfg.Backend.ID(),
 		Isolation: Isolation{Network: "deny", Memory: "none"},
+		Execution: res.Execution,
 	}
 	if caps.ResourceLimits {
 		out.Isolation.Memory = "rlimit"
