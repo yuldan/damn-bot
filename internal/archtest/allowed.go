@@ -49,8 +49,7 @@ func allowedImports() map[string][]string {
 		// masih kerangka dan mendapat barisnya saat paket itu menentukan edge-nya.
 		"internal/cron":          append([]string{"internal/redact"}, groupExec()...),
 		"internal/cron/periodic": nil, // AUTO-029: stdlib only, driven by the serve ticker
-		"internal/obs":           nil,
-		"internal/scorecard":     nil,
+		"internal/obs":           nil, "internal/scorecard": nil,
 
 		// Modul lazy (E-06).
 		"internal/mcp": moduleImports(),
@@ -86,7 +85,9 @@ func allowedImports() map[string][]string {
 		"internal/codetools":         {"internal/sandbox", "internal/boundary"},
 		"internal/exec":              {"internal/exec/classify", "internal/sandbox", "internal/redact", "internal/boundary"},
 		// F5 backends (ADR-277): transport over the exec contract, plus the Exec egress point.
-		"internal/exec/backends":       {"internal/exec", "internal/netx"},
+		"internal/exec/backends": {"internal/exec", "internal/netx"},
+		// F5 execute_code contract (ADR-296): interpreter runner over exec.Backend.
+		"internal/exec/code":           {"internal/exec"},
 		"internal/exec/classify":       nil,
 		"internal/hooks":               append(groupExec(), "internal/redact"),
 		"internal/modules":             {"internal/modules/host", "internal/boundary"},

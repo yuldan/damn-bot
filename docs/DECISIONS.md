@@ -5729,3 +5729,19 @@ ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaika
 **Anggaran terukur (head slice 4).** `tools` **3.134/3.150** (3.010 → 3.150), Σ core **52.383 → 52.523** ≤ **52.600** (`maxCoreLOC`, marker `arch-budgetsum`, regex `budget_doc_test`, Total core+prosa+baris tools disinkron). `MODULE codeintel` tetap 7.000 (terukur **856** termasuk ts/lsp). Size: full **30.724.258 B** ≤52 MB (aset ter-link), minimal **21.999.778 B** ≤22.000.000.
 
 **Kontrol negatif/e2e.** `TestCodeIntelToolsReadOnly` (keduanya read/auto/no approval), `TestCodeIntelToolNegatives` (path luar roots, focus >200, action asing, bahasa tak didukung), `TestRepoMapBinary` (biner asli: simbol Go dalam hasil, JS tidak diindeks, daftar bahasa tanpa JS/Python, hasil untrusted dibungkus, `/etc` ditolak).
+
+## ADR-296 — F5 `execute_code` slice 1: kontrak `internal/exec/code`, eksekusi interpreter, network deny fail-closed, policy approval ADR-089
+
+**Status:** Accepted 2026-11-01 (slice 1 dari 4–6). Melengkapi SPEC §9.2/§14.1, EXEC-AND-CODING §B.7, ADR-076/079/089. Tidak ada perubahan config pada slice ini; `exec.code_auto_languages` masuk pada slice wiring CLI.
+
+**Keputusan.**
+1. **Paket `internal/exec/code`.** `Runner` menerima `exec.Backend` (ADR-277) dan hanya menulis satu file (`main.py`/`main.js`/`main.go`) ke temp dir 0700, menjalankan argv yang di-resolve ke path absolut lewat `PATH` environment anak, dan menghapus direktori selalu (defer). Tidak ada evaluator/VM sendiri; interpreter sistem yang menjalankan kode.
+2. **Batas.** Kode ≤ 1 MiB, timeout default/maks 30 s, `Limits{MemoryMiB:512}` hanya diteruskan bila backend mengklaim `Caps.ResourceLimits` (kalau tidak `Isolation.Memory="none"`, dilaporkan jujur, bukan diklaim). Stdin default `{}`; stdout+stderr = output backend yang sudah di-cap `exec.OutputCap`.
+3. **Network deny-only, fail-closed.** Satu-satunya nilai network sah adalah `deny`. Backend tanpa `Caps.Network` (termasuk `local`) → `ErrNetworkDeny` **sebelum** spawn, 0 proses. Ini menutup ADR-076/GAP-SEC-23 di lapisan kontrak; RPC `TestExecuteCodeRPCNetworkDeny` menyusul di slice RPC.
+4. **Approval murni ADR-089.** `Decide`/`DecideHeadless`: `ask`/`auto-edit` → ask; `auto` → auto hanya bila bahasa ∈ `AutoLanguages` **dan** workspace trusted **dan** turn tidak tainted **dan** tidak ada tulis tanpa approval; mode asing → deny; bahasa shell tidak pernah melewati `code_auto_languages` (jalur `shell`); bahasa tak didukung → `ErrLanguage` sebelum approval. `Authorize(Decision)` menolak deny sehingga jalur pemanggil tidak dapat men-spawn setelah penolakan. `Preview` memuat bahasa/ukuran/network, bukan isi kode.
+5. **Anggaran.** Tidak ada kenaikan: `internal/exec/code` terukur **265** LOC dan masuk baris core `exec` **3.155/3.400** (headroom 245). Tidak ada dependency baru, config baru, migrasi, atau perubahan SPEC §3.2.4 pada slice ini.
+6. **Rencana slice.** 2: `process_*` registry + integrasi backend; 3: tool `execute_code` + `[exec] code_auto_languages` + wiring loop/CLI + RPC/network-deny; 4: Starlark? (sesuai SPEC) atau RPC binding; 5: e2e binary (`TestExecuteCodeApproval`, `TestExecuteCodeRPCNetworkDeny`). Setiap slice ≤600 baris non-test dengan gate sendiri; full e2e di slice terakhir.
+
+**Kontrol negatif (slice 1).** `TestRunRefusesNetworkWithoutBackendCapability` (local → ErrNetworkDeny, 0 spawn), `TestRunRefusesUnsupportedLanguageAndSize`, `TestAuthorizeDenyDoesNotSpawn`, `TestDecideHeadlessDeniesWithoutAuto`, matriks policy (mode × bahasa × allowlist × trust × taint × tulis), dan smoke interpreter nyata untuk Python/JS/Go hanya bila binary tersedia.
+
+**Konsekuensi.** (+) Kontrak eksekusi dan approval dapat diuji tanpa tool/loop, network dan ukuran fail-closed. (−) Pada `local`, execute_code belum dapat berjalan sampai enforcer jaringan tersedia; itu perilaku yang diminta ADR-076, bukan regresi.
