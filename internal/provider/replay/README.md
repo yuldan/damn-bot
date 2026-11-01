@@ -33,3 +33,19 @@ CI uses this replay suite as the provider gate. A real-network smoke of at
 least 10 major providers is **not** part of CI: credentials are unavailable
 there, so such a smoke must be opt-in and must not be reported as passing
 unless it actually ran with real credentials.
+
+## Opt-in real-provider smoke
+
+`realprovider_test.go` (build tag `realprovider`) is **not** part of CI's
+provider gate. It builds `cmd/damnbot` and asks each of 10 major providers for
+a one-word answer; the child process reads credentials from the catalog env
+candidates and the harness never prints a value.
+
+```sh
+DAMNBOT_REAL_PROVIDER=1 go test -tags realprovider ./internal/provider/replay -run TestRealProviders -v
+```
+
+Without `DAMNBOT_REAL_PROVIDER=1` the test skips. A CI job that declares it
+holds provider keys must set `DAMNBOT_REAL_PROVIDER_REQUIRED=1`; then a
+missing gate or credential is a **failure**, never a skip, so a green job
+cannot claim a smoke that did not run.
