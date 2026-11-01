@@ -461,6 +461,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if list, err = withMemoryTools(list, db, red); err != nil {
 		return nil, fail(err)
 	}
+	list = withCodeIntelTools(roots, cwd, trusted, list)
 	var reg *tools.Registry
 	mods, reg, err = wireModules(list)
 	if err != nil {

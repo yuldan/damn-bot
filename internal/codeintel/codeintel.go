@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/damnbot/damnbot/internal/codeintel/ts"
 )
 
 // Limits of one index pass.
@@ -25,6 +28,8 @@ const (
 var (
 	ErrRoot     = errors.New("codeintel: invalid root")
 	ErrTooLarge = errors.New("codeintel: workspace too large")
+	// ErrUnsupportedLanguage: a requested grammar is outside {c,cpp}.
+	ErrUnsupportedLanguage = errors.New("codeintel: unsupported language")
 )
 
 // skipEntry keeps one countable skip from aborting the walk.
@@ -82,6 +87,9 @@ type Options struct {
 	MaxFiles     int
 	MaxFileBytes int64
 	Focus        string
+	// Languages selects non-Go grammars ({"c","cpp"}); empty means Go
+	// only. Other languages are ErrUnsupportedLanguage when requested.
+	Languages []string
 }
 
 // Index walks opts.Root and parses Go files without executing anything.
@@ -103,6 +111,11 @@ func Index(ctx context.Context, opts Options) (*Map, error) {
 	}
 	if st, serr := os.Stat(root); serr != nil || !st.IsDir() {
 		return nil, fmt.Errorf("%w: %s is not a directory", ErrRoot, root)
+	}
+	for _, lang := range opts.Languages {
+		if !ts.Supported(ts.Language(lang)) {
+			return nil, fmt.Errorf("%w: %q", ErrUnsupportedLanguage, lang)
+		}
 	}
 	maxFiles := opts.MaxFiles
 	if maxFiles <= 0 {
@@ -135,7 +148,8 @@ func Index(ctx context.Context, opts Options) (*Map, error) {
 			m.Skipped.Symlink++
 			return nil
 		}
-		if !strings.HasSuffix(d.Name(), ".go") {
+		lang, isGo := languageFor(d.Name(), opts.Languages)
+		if !isGo && lang == "" {
 			m.Skipped.NonGo++
 			return nil
 		}
@@ -166,7 +180,18 @@ func Index(ctx context.Context, opts Options) (*Map, error) {
 			m.Skipped.Unreadable++
 			return skipEntry()
 		}
-		f, perr := parseGo(filepath.ToSlash(rel), src)
+		var f File
+		var perr error
+		if isGo {
+			f, perr = parseGo(filepath.ToSlash(rel), src)
+		} else {
+			var syms []ts.Symbol
+			syms, perr = ts.Parse(ctx, ts.Language(lang), src, 0, 0)
+			f = File{Path: filepath.ToSlash(rel)}
+			for _, sym := range syms {
+				f.Symbols = append(f.Symbols, Symbol{Kind: SymbolKind(sym.Kind), Name: sym.Name, Line: sym.Line, Col: sym.Col})
+			}
+		}
 		if perr != nil {
 			// A file that is not valid Go is reported, not fatal: the map is
 			// a navigation aid and one broken file must not hide the repo.
@@ -208,4 +233,25 @@ func binary(src []byte) bool {
 		i += size
 	}
 	return invalid*10 > len(head)
+}
+
+// languageFor maps a file name to the selected non-Go grammar.
+func languageFor(name string, langs []string) (lang string, isGo bool) {
+	if strings.HasSuffix(name, ".go") {
+		return "", true
+	}
+	ext := strings.ToLower(filepath.Ext(name))
+	var want string
+	switch ext {
+	case ".c", ".h":
+		want = string(ts.C)
+	case ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx":
+		want = string(ts.Cpp)
+	default:
+		return "", false
+	}
+	if slices.Contains(langs, want) {
+		return want, false
+	}
+	return "", false
 }
