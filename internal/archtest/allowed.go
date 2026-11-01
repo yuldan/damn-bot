@@ -120,7 +120,13 @@ func allowedImports() map[string][]string {
 		"internal/boundary":   nil,
 
 		// Test arsitektur dan helper test (lihat testOnlyPackages).
-		"internal/archtest":              nil,
+		"internal/archtest": nil,
+
+		// Test-only fixture replay of the catalog (F5 provider parity): every
+		// row is driven through the four wired adapters. No production package
+		// imports it; see testOnlyPackages.
+		"internal/provider/replay": {"internal/provider", "internal/provider/anthropic", "internal/provider/gemini", "internal/provider/registry", "internal/provider/responses", "internal/netx", "internal/netx/retry"},
+
 		"internal/e2e":                   {"internal/boundary", "internal/budget", "internal/ctxdb", "internal/ctxdb/journalstore", "internal/ctxdb/ledgerstore", "internal/ctxdb/skillstore", "internal/gateway/telegram", "internal/journal", "internal/loop/event", "internal/netx", "internal/secret"},
 		"internal/integration":           {"internal/ctxdb", "internal/ctxdb/memstore", "internal/ctxdb/compactstore", "internal/ctxdb/skillstore", "internal/ctxdb/carrierstore", "internal/compaction", "internal/backup", "internal/secret", "internal/redact", "internal/loop/event"},
 		"internal/testutil/timing":       nil,
@@ -132,5 +138,5 @@ func allowedImports() map[string][]string {
 // testOnlyPackages hanya boleh diimpor dari file _test.go (paket internal mana pun) atau dari
 // paket test-only lain; kode produksi, termasuk cmd/damnbot, tidak pernah mengimpornya.
 func testOnlyPackages() []string {
-	return []string{"internal/testutil/timing", "internal/testutil/phase", "internal/provider/providertest", "internal/e2e", "internal/integration"}
+	return []string{"internal/testutil/timing", "internal/testutil/phase", "internal/provider/providertest", "internal/provider/replay", "internal/e2e", "internal/integration"}
 }
