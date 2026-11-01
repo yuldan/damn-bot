@@ -5,6 +5,7 @@ package backends
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -20,6 +21,8 @@ import (
 // per-test script would be open for writing while other parallel tests exec
 // their own copies; Linux then reports ETXTBSY even for distinct files. The
 // template lives for the test process; the OS reclaims the small temp dir.
+//
+//nolint:gochecknoglobals // one immutable helper is shared by every parallel test in the process
 var (
 	fakeCLIOnce sync.Once
 	fakeCLIDir  string
@@ -61,7 +64,9 @@ exec "$@"
 			fakeCLIErr = err
 			return
 		}
-		fakeCLIErr = os.Rename(tmp, bin)
+		if err := os.Rename(tmp, bin); err != nil {
+			fakeCLIErr = fmt.Errorf("install fake CLI: %w", err)
+		}
 	})
 	if fakeCLIErr != nil {
 		return "", fakeCLIErr
