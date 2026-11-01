@@ -68,7 +68,7 @@ func surface() []surfaceEntry {
 		{Name: "review", Summary: "Memory and skill quarantine review", Phase: phaseF2, Run: runReview, Usage: reviewUsage},
 		{Name: "skills", Summary: "Local skills: list, install, update, trust", Phase: phaseF2, Run: skillsCommand, Usage: skillsUsage},
 		{Name: "bundles", Summary: "Skill bundles: list, show, create, delete, reload", Phase: phaseF2, Run: runBundles, Usage: bundlesUsage},
-		{Name: "mcp", Summary: "MCP client and server", Phase: phaseF5},
+		{Name: "mcp", Summary: "MCP client and server", Phase: phaseF5, Run: runMCP, Usage: mcpUsage},
 		{Name: "gateway", Summary: "Messaging gateway", Phase: phaseF4, Run: runGateway, Usage: gatewayUsage},
 		{Name: "send", Summary: "Send one message to a configured platform", Phase: phaseF4, Run: runSend, Usage: sendUsage},
 		{Name: "cron", Summary: "Scheduler", Phase: phaseF4, Run: runCron, Usage: cronUsage},
