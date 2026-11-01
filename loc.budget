@@ -107,7 +107,10 @@ toolset            400 internal/toolset
 # ADR-213 (SEC15-11/12): token grup non-literal -> Unknown + verb+--yes; angka gabungan dengan
 # ADR-212 (SEC15-2..7) pada pohon rebase di atas #238: exec/classify 1841 -> 1946 (terukur 1946;
 # bukan 1937 dari basis #265-saja dan bukan 1948 hasil penjumlahan buta); Σ core 47.009 -> 47.114.
-exec              3400 internal/exec
+# ADR-290 (process_* slice 2, di atas execute_code slice 1): exec 3400 -> 3600
+# untuk registry background (terukur 3553 = 3101 slice 1 + 452 registry);
+# Sigma core 52.175 -> 52.375, plafon core 52.200 -> 52.500 (headroom 47).
+exec              3600 internal/exec
 exec/classify     1946 internal/exec/classify
 # ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).
 # ADR-108: sandbox+redact 1450 -> 1700 (dir-fd walk fast path; Σ core 34.650 -> 34.900 <= 47.000).
