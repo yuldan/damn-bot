@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/modules/host"
 	"github.com/damnbot/damnbot/internal/netx/jsonrpc"
@@ -192,23 +193,37 @@ type fakeServer struct {
 	cancelIDs   []json.RawMessage
 	notify      func(context.Context, string) error
 
-	mu          sync.Mutex
-	inits       int
-	initialized int
-	lists       int
-	calls       int
-	cancelled   chan struct{}
-	initOnce    sync.Once
-	started     chan struct{}
-	startOnce   sync.Once
+	mu            sync.Mutex
+	inits         int
+	initialized   int
+	lists         int
+	calls         int
+	cancelled     chan struct{}
+	initializedCh chan struct{}
+	initOnce      sync.Once
+	initNote      sync.Once
+	started       chan struct{}
+	startOnce     sync.Once
 }
 
 func newFakeServer() *fakeServer {
 	return &fakeServer{
-		name:      "fake",
-		pages:     [][]Tool{{{Name: "echo", Description: "echo", InputSchema: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}}}`)}}},
-		cancelled: make(chan struct{}),
-		started:   make(chan struct{}),
+		name:          "fake",
+		pages:         [][]Tool{{{Name: "echo", Description: "echo", InputSchema: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}}}`)}}},
+		cancelled:     make(chan struct{}),
+		initializedCh: make(chan struct{}),
+		started:       make(chan struct{}),
+	}
+}
+
+// awaitInitialized waits until the dispatcher has processed
+// notifications/initialized; the handler may run concurrently with tools/list.
+func (s *fakeServer) awaitInitialized(t *testing.T) {
+	t.Helper()
+	select {
+	case <-s.initializedCh:
+	case <-time.After(5 * time.Second):
+		t.Fatal("notifications/initialized was not processed")
 	}
 }
 
@@ -231,6 +246,7 @@ func (s *fakeServer) handler() jsonrpc.Handler {
 			s.mu.Lock()
 			s.initialized++
 			s.mu.Unlock()
+			s.initNote.Do(func() { close(s.initializedCh) })
 			return nil, nil
 		case notifyCancelled:
 			var note struct {
