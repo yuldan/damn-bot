@@ -19,3 +19,24 @@ func (c *Config) validateExecBackends() error {
 		return invalid("exec.backend", "must be local in the minimal build")
 	}
 }
+
+// ExecExtra is empty in the minimal build: execute_code is not linked and an
+// unknown code_auto_languages key is rejected by the strict decoder.
+type ExecExtra struct{}
+
+func validateExecCode(*Config) error { return nil }
+
+// defaultExec is the SPEC §12 [exec] block without exec.code_auto_languages.
+func defaultExec() Exec {
+	return Exec{
+		DefaultTimeoutS:  120,
+		IdleTimeoutS:     60,
+		AllowDestructive: false,
+		KillGraceS:       3,
+		EnvAllow:         []string{},
+		Env:              map[string]string{},
+		PassSSHAgent:     false,
+		Backend:          "local",
+		Backends:         defaultExecBackends(),
+	}
+}

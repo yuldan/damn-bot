@@ -145,7 +145,7 @@ Storage ledger `budget` F1 = subpaket `internal/ctxdb/ledgerstore` (ADR-074, bar
 **Deliverable**: `tui`, `acp`, `config`, `damnbot setup` (rekomendasi provider dari kredensial), plan mode (SPEC §18.3), preview aksi berbahaya di TUI (SPEC §18.2), slash/CLI inti, `importer` (`damnbot import hermes`: config, secrets → keychain, skills, memory, MCP, cron), profiles, release pipeline (SBOM, ed25519, reproducible), self-update + rollback, `LICENSE` MIT.
 
 **Acceptance**
-- P12 (≤ 100 ms), P13 (build `minimal` ≤ 22,05 MB; ADR-307), P17 first token TUI ≤ +30 ms.
+- P12 (≤ 100 ms), P13 (build `minimal` ≤ 22 MB), P17 first token TUI ≤ +30 ms.
 - ACP conformance transcript golden lulus; `tern acp` manual smoke terdokumentasi (Q1/Q3).
 - Wizard ≤ 3 langkah, ≤ 60 s; config minimum 2 baris.
 - Import 5 fixture `~/.hermes`: ≥ 99% item, 0 kehilangan diam-diam, idempoten.

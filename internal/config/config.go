@@ -294,32 +294,8 @@ func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil
 // identity: USD per UTC day.
 const DefaultGatewayUserDailyUSD = 1.00
 
-// defaultExec is the SPEC §12 [exec] block.
-func defaultExec() Exec {
-	e := Exec{
-		DefaultTimeoutS:  120,
-		IdleTimeoutS:     60,
-		AllowDestructive: false,
-		KillGraceS:       3,
-		EnvAllow:         []string{},
-		Env:              map[string]string{},
-		PassSSHAgent:     false,
-		Backend:          "local",
-		Backends:         defaultExecBackends(),
-	}
-	defaultExecCode(&e)
-	return e
-}
-
-// defaultSkills is the SPEC §12 [skills] block.
-func defaultSkills() Skills {
-	return Skills{
-		ProjectDiscovery: true,
-		TrustedProjects:  []string{},
-		ExternalDirs:     []string{},
-		InlineShell:      false,
-	}
-}
+// defaultExec is per build tag (exec_default_{full,minimal}.go): minimal keeps
+// the exact SPEC §12 literal, full adds exec.code_auto_languages.
 
 // Default returns the SPEC §12 defaults for every key exposed in F1.
 func Default() Config {
@@ -364,7 +340,12 @@ func Default() Config {
 		// The privacy-safe default: background egress is allowed (the daily
 		// update check in serve), offline mode is off.
 		Network: Network{Background: true},
-		Skills:  defaultSkills(),
+		Skills: Skills{
+			ProjectDiscovery: true,
+			TrustedProjects:  []string{},
+			ExternalDirs:     []string{},
+			InlineShell:      false,
+		},
 		Sessions: Sessions{
 			AutoPrune:      false,
 			PruneAfterDays: 90,

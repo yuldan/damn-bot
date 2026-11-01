@@ -10,8 +10,6 @@ type ExecExtra struct {
 	CodeAutoLanguages []string `toml:"code_auto_languages"`
 }
 
-func defaultExecCode(e *Exec) { e.CodeAutoLanguages = []string{} }
-
 func validateExecCode(c *Config) error { return validCodeLangs(c.Exec.CodeAutoLanguages) }
 
 // validCodeLangs validates exec.code_auto_languages: closed set, no shell
