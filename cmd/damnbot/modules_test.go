@@ -43,9 +43,15 @@ func TestRunAdvertisesF1Tools(t *testing.T) {
 	slices.Sort(names)
 	// main advertises the skill tools in the same wiring (skills list/view/manage),
 	// this PR adds the memory/session_search tool pair (ADR-188), and slice 4 adds
-	// the read-only codeintel tools (repo_map/code_intel, ADR-295), so those are
-	// the complete declared payload.
-	want := []string{"clarify", "code_intel", "edit_file", "glob", "grep", "memory", "read_file", "repo_map", "session_search", "shell", "skill_manage", "skill_view", "skills_list", "todo", "write_file"}
+	// the read-only codeintel tools (repo_map/code_intel, ADR-295) in the full build.
+	want := []string{"clarify", "edit_file", "glob", "grep", "memory", "read_file", "session_search", "shell", "skill_manage", "skill_view", "skills_list", "todo", "write_file"}
+	if codeIntelToolsLinked {
+		want = append(want, "code_intel", "repo_map")
+	}
+	if executeCodeLinked {
+		want = append(want, "execute_code")
+	}
+	slices.Sort(want)
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}

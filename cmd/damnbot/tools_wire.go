@@ -391,7 +391,7 @@ func terminalFallbackRecorder(db *ctxdb.Store, sid string) func(context.Context)
 // tools into a registry. Failures after the sessions exist go through the
 // returned fail closure so nothing leaks.
 //
-//nolint:funlen // the wiring order is the dependency graph; splitting it hides init order
+//nolint:funlen,gocyclo // the wiring order is the dependency graph; splitting it hides init order
 func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, configDir, home string, codec ctxdb.Codec) (*runWiring, error) {
 	db, sid, cwd, modelRef, err := openWiredSession(ctx, dataDir, modelRef, configSHAFor(cfg, o), o, codec)
 	if err != nil {
@@ -454,6 +454,12 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	list, err := journaledFileTools(db, sid, scope, engine, sb)
 	if err != nil {
 		return nil, fail(err)
+	}
+	if executeCodeLinked {
+		list, err = withExecuteCode(cfg, backend, envPolicy, list)
+		if err != nil {
+			return nil, fail(err)
+		}
 	}
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))

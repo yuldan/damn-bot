@@ -55,7 +55,7 @@ func tomlAbsPath(t *testing.T) string {
 // specExecDefaults mirrors the [exec] block of SPEC §12 field by field;
 // duplicating the production literal here is the point of the test.
 func specExecDefaults() Exec {
-	return Exec{
+	e := Exec{
 		DefaultTimeoutS:  120,
 		IdleTimeoutS:     60,
 		AllowDestructive: false,
@@ -78,6 +78,8 @@ func specExecDefaults() Exec {
 			VercelSandbox: SandboxExec{TimeoutS: 300},
 		},
 	}
+	fillExecCode(&e)
+	return e
 }
 
 // TestConfigDefaultsMatchSpec is the ROADMAP F1 acceptance hook (ADR-083):
