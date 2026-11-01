@@ -27,6 +27,9 @@ var (
 	ErrTooLarge = errors.New("codeintel: workspace too large")
 )
 
+// skipEntry keeps a counted skip from aborting the walk.
+func skipEntry() error { return nil }
+
 // SymbolKind is the closed symbol set of the repository map.
 type SymbolKind string
 
@@ -84,17 +87,19 @@ type Options struct {
 // Index walks opts.Root and parses Go files without executing anything.
 // Symlinks are never followed: a link inside the root that points outside is
 // counted in Skipped.Symlink and cannot inject outside content into the map.
+//
+//nolint:gocognit,gocyclo,funlen // one walker state machine; splitting hides skip accounting
 func Index(ctx context.Context, opts Options) (*Map, error) {
 	if opts.Root == "" {
 		return nil, fmt.Errorf("%w: empty root", ErrRoot)
 	}
 	root, err := filepath.Abs(opts.Root)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrRoot, err)
+		return nil, fmt.Errorf("%w: %w", ErrRoot, err)
 	}
 	root, err = filepath.EvalSymlinks(root)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrRoot, err)
+		return nil, fmt.Errorf("%w: %w", ErrRoot, err)
 	}
 	if st, serr := os.Stat(root); serr != nil || !st.IsDir() {
 		return nil, fmt.Errorf("%w: %s is not a directory", ErrRoot, root)
@@ -112,10 +117,10 @@ func Index(ctx context.Context, opts Options) (*Map, error) {
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			m.Skipped.Unreadable++
-			return nil
+			return skipEntry()
 		}
-		if err := ctx.Err(); err != nil {
-			return err
+		if cerr := ctx.Err(); cerr != nil {
+			return fmt.Errorf("codeintel: index: %w", cerr)
 		}
 		if d.IsDir() {
 			switch d.Name() {
@@ -140,16 +145,17 @@ func Index(ctx context.Context, opts Options) (*Map, error) {
 		info, ierr := d.Info()
 		if ierr != nil {
 			m.Skipped.Unreadable++
-			return nil
+			return skipEntry()
 		}
 		if info.Size() > maxBytes {
 			m.Skipped.Large++
 			return nil
 		}
+		//nolint:gosec // path comes from WalkDir under the canonical root
 		src, rerr := os.ReadFile(path)
 		if rerr != nil {
 			m.Skipped.Unreadable++
-			return nil
+			return skipEntry()
 		}
 		if binary(src) {
 			m.Skipped.Binary++
@@ -158,14 +164,14 @@ func Index(ctx context.Context, opts Options) (*Map, error) {
 		rel, rerr := filepath.Rel(root, path)
 		if rerr != nil {
 			m.Skipped.Unreadable++
-			return nil
+			return skipEntry()
 		}
 		f, perr := parseGo(filepath.ToSlash(rel), src)
 		if perr != nil {
 			// A file that is not valid Go is reported, not fatal: the map is
 			// a navigation aid and one broken file must not hide the repo.
 			m.Skipped.Unreadable++
-			return nil
+			return skipEntry()
 		}
 		symbols += len(f.Symbols)
 		if symbols > MaxSymbols {
@@ -176,7 +182,7 @@ func Index(ctx context.Context, opts Options) (*Map, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("codeintel: walk: %w", err)
 	}
 	sort.Slice(m.Files, func(i, j int) bool { return m.Files[i].Path < m.Files[j].Path })
 	rank(m, opts.Focus)

@@ -19,9 +19,9 @@ func write(t *testing.T, path, content string) {
 	}
 }
 
-func fixture(t *testing.T) (root, outside string) {
+func fixture(t *testing.T) string {
 	t.Helper()
-	root, outside = t.TempDir(), t.TempDir()
+	root, outside := t.TempDir(), t.TempDir()
 	write(t, filepath.Join(root, "main.go"), `package main
 import "example.com/fixture/pkg/a"
 type T struct{}
@@ -29,11 +29,11 @@ func (t *T) Run() {}
 func main() { a.New() }
 func helper() {}
 `)
-	write(t, filepath.Join(root, "pkg/a/a.go"), `package a
+	write(t, filepath.Join(root, "pkg", "a", "a.go"), `package a
 type A struct{}
 func New() *A { return &A{} }
 `)
-	write(t, filepath.Join(root, "pkg/b/b.go"), `package b
+	write(t, filepath.Join(root, "pkg", "b", "b.go"), `package b
 import "example.com/fixture/pkg/a"
 func Use() { a.New() }
 `)
@@ -42,15 +42,15 @@ func Use() { a.New() }
 	write(t, filepath.Join(root, "big.go"), "package big\n// "+strings.Repeat("x", 4096))
 	write(t, filepath.Join(root, "bin.go"), "package bin\x00\x01")
 	write(t, filepath.Join(outside, "outside.go"), "package outside\nfunc OutsideSecret() {}\n")
-	if err := os.Symlink(filepath.Join(outside), filepath.Join(root, "escape.go")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(root, "escape.go")); err != nil {
 		t.Skipf("symlink: %v", err)
 	}
-	return root, outside
+	return root
 }
 
 func TestIndexSymbolsAndDeterminism(t *testing.T) {
 	t.Parallel()
-	root, _ := fixture(t)
+	root := fixture(t)
 	m, err := Index(t.Context(), Options{Root: root, MaxFileBytes: 2048, Focus: "New"})
 	if err != nil {
 		t.Fatalf("Index: %v", err)
@@ -91,7 +91,7 @@ func TestIndexSymbolsAndDeterminism(t *testing.T) {
 
 func TestIndexSkipsUnsafeAndBinary(t *testing.T) {
 	t.Parallel()
-	root, _ := fixture(t)
+	root := fixture(t)
 	m, err := Index(t.Context(), Options{Root: root, MaxFileBytes: 2048})
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestIndexSkipsUnsafeAndBinary(t *testing.T) {
 
 func TestIndexBoundsAndContext(t *testing.T) {
 	t.Parallel()
-	root, _ := fixture(t)
+	root := fixture(t)
 	if _, err := Index(t.Context(), Options{Root: root, MaxFiles: 1}); !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("MaxFiles = %v", err)
 	}

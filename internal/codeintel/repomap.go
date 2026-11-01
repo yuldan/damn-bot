@@ -11,20 +11,17 @@ import (
 	"strings"
 )
 
-// parseGo extracts package, definitions and imports with go/ast. A panic in
-// the parser (malformed source on an exotic input) is contained and returned
-// as an error, never propagated into the session.
-func parseGo(path string, src []byte) (f File, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("codeintel: parse %s: %v", path, r)
-		}
-	}()
+// parseGo extracts package, definitions and imports with go/ast. Malformed
+// source is an error for that file, never a panic into the session.
+//
+//nolint:gocognit // one AST walk with a fixed declaration set
+func parseGo(path string, src []byte) (File, error) {
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, path, src, parser.SkipObjectResolution)
 	if err != nil {
-		return File{}, err
+		return File{}, fmt.Errorf("codeintel: parse %s: %w", path, err)
 	}
+	var f File
 	f.Path, f.Package = path, node.Name.Name
 	f.Symbols = append(f.Symbols, Symbol{Kind: KindPackage, Name: node.Name.Name, Line: fset.Position(node.Name.Pos()).Line, Col: fset.Position(node.Name.Pos()).Column})
 	for _, imp := range node.Imports {
@@ -87,6 +84,8 @@ func receiverName(expr ast.Expr) string {
 // rank computes a personalized PageRank over importer -> imported files.
 // Personalization: focus terms in path/symbol names, then files with more
 // definitions as a weak prior. Deterministic (files sorted before ranking).
+//
+//nolint:gocognit,gocyclo // one ranking pass: edges, personalization, 20 iterations
 func rank(m *Map, focus string) {
 	n := len(m.Files)
 	if n == 0 {
@@ -107,12 +106,13 @@ func rank(m *Map, focus string) {
 	var sum float64
 	for i := range m.Files {
 		w := 1.0
-		lower := strings.ToLower(m.Files[i].Path + " " + m.Files[i].Package)
+		var lower strings.Builder
+		lower.WriteString(strings.ToLower(m.Files[i].Path + " " + m.Files[i].Package))
 		for _, s := range m.Files[i].Symbols {
-			lower += " " + strings.ToLower(s.Name)
+			lower.WriteString(" " + strings.ToLower(s.Name))
 		}
 		for _, t := range terms {
-			if strings.Contains(lower, t) {
+			if strings.Contains(lower.String(), t) {
 				w += 3
 			}
 		}
@@ -172,6 +172,8 @@ func importTargets(files []File, imp string) []int {
 
 // Render writes the repository map deterministically, stopping exactly at
 // maxTokens (approximated as 4 bytes per token, conservative for o200k).
+//
+//nolint:gocognit // one render pass with an exact byte budget
 func (m *Map) Render(maxTokens int) string {
 	if maxTokens < 200 {
 		maxTokens = 200
