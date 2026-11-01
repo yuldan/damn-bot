@@ -34,7 +34,8 @@ func TestOAuthBearerHostPinned(t *testing.T) {
 	if _, err := o.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil); err == nil {
 		t.Fatal("cross-host redirect: want the 3xx surfaced as an error")
 	}
-	if got, _ := gotAuth.Load().(string); got != "Bearer sk-test" {
+	got, ok := gotAuth.Load().(string)
+	if !ok || got != "Bearer sk-test" {
 		t.Fatalf("configured host auth = %q, want the bearer", got)
 	}
 	if n := foreign.Load(); n != 0 {
