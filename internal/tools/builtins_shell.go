@@ -114,7 +114,7 @@ func (t *shellTool) Effect(args json.RawMessage) Effect {
 	}
 	// Classify with the same cwd Inspect uses: never downgrade a destructive
 	// command to idempotent because of a cwd mismatch (REVIEW-F1-SEC7 TL7-7).
-	if backgroundRequested(&a) {
+	if backgroundLinked && backgroundRequested(&a) {
 		return EffectNonIdempotent
 	}
 	v := t.classifyIn(a.Command, t.callCwd(&a))
@@ -135,8 +135,10 @@ func (t *shellTool) Inspect(_ context.Context, env Env, args json.RawMessage, pc
 	if err := validateSessionArgs(&a); err != nil {
 		return PolicyDecision{}, err
 	}
-	if err := validateBackground(&a); err != nil {
-		return PolicyDecision{}, err
+	if backgroundLinked {
+		if err := validateBackground(&a); err != nil {
+			return PolicyDecision{}, err
+		}
 	}
 	cwd := t.callCwd(&a)
 	// The child runs with this cwd: a directory outside the workspace would
@@ -238,8 +240,10 @@ func (t *shellTool) Run(ctx context.Context, env Env, args json.RawMessage) (Res
 	}
 	v := t.classifyIn(a.Command, cwd)
 	var res exec.Result
-	if res, handled, berr := t.backgroundRun(ctx, env, &a, cwd, timeout); handled {
-		return res, berr
+	if backgroundLinked {
+		if res, handled, berr := t.backgroundRun(ctx, env, &a, cwd, timeout); handled {
+			return res, berr
+		}
 	}
 	if a.Session != "" {
 		res, err = t.runSession(ctx, &a, timeout)

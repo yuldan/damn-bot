@@ -9,6 +9,9 @@ import (
 	"github.com/damnbot/damnbot/internal/exec"
 )
 
+// backgroundLinked reports whether shell background is compiled in.
+const backgroundLinked = true
+
 // shellArgs is the F5 schema input (background supported).
 type shellArgs struct {
 	Command    string `json:"command"`
