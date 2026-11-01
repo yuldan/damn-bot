@@ -89,7 +89,7 @@ marker() {
 	arch-filelength) echo 'E-14/E-71 file terlalu panjang: internal/metaviolation/long\.go' ;;
 	arch-globals) echo 'E-10 global di luar allowlist: internal/metaviolation/g\.go:Meta' ;;
 	arch-goleak) echo 'E-29 goleak: paket internal/metaviolation' ;;
-	arch-budgetsum) echo 'Σ loc\.budget core = [0-9]+ > 52400' ;;
+	arch-budgetsum) echo 'Σ loc\.budget core = [0-9]+ > 52600' ;;
 	arch-codeowners) echo 'E-79 CODEOWNERS: direktori internal/metaviolation' ;;
 	arch-nolint) echo 'E-52 nolint tanpa linter/alasan: internal/metaviolation/n\.go' ;;
 	arch-workflows) echo 'AUD-070 action tidak dipin SHA: \.github/workflows/meta-violation\.yml' ;;

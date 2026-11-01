@@ -84,7 +84,9 @@ schema            1200 internal/schema
 # config 1510 -> 1525 untuk [exec] backend (terukur 1520); exec tetap
 # 3400 (kontrak + local terukur 2834). Sigma core 52.077 -> 52.100
 # (plafon 52.100 tidak berubah; headroom 0, slice berikut butuh ADR).
-tools             3010 internal/tools
+# ADR-295 (codeintel slice 4): tools 3010 -> 3150 untuk repo_map/code_intel
+# (terukur 3134). Sigma core 52.383 -> 52.523, plafon core 52.400 -> 52.600.
+tools             3150 internal/tools
 # ADR-143: komposisi toolset deklaratif (TSET/CORE-004/005; Σ core 38.450 -> 38.850 <= 47.000).
 toolset            400 internal/toolset
 # ADR-111: codetools 4500 -> 4800 (perbaikan REVIEW-F1-SEC2; Σ core 33.900 -> 34.200 <= 47.000).
