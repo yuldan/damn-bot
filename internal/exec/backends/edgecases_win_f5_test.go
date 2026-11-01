@@ -23,14 +23,17 @@ func TestDockerVolumeDriveLetter(t *testing.T) {
 		{`C:\work`, "/c/work"},
 		{`D:/projects/app`, "/d/projects/app"},
 		{`C:\`, "/c"},
+		{`\\?\C:\work`, "/c/work"},
 	} {
 		got, err := containerPath(tc.in)
 		if err != nil || got != tc.want {
 			t.Fatalf("containerPath(%q) = %q, %v; want %q", tc.in, got, err, tc.want)
 		}
 	}
-	if _, err := containerPath(`\\server\share`); !errors.Is(err, exec.ErrCapability) {
-		t.Fatalf("UNC path = %v, want ErrCapability", err)
+	for _, unc := range []string{`\\server\share`, `\\?\UNC\server\share`} {
+		if _, err := containerPath(unc); !errors.Is(err, exec.ErrCapability) {
+			t.Fatalf("UNC path %q = %v, want ErrCapability", unc, err)
+		}
 	}
 	root := t.TempDir()
 	d, err := NewDocker(&DockerConfig{Binary: "docker", Image: "img", User: "65534:65534", Workspace: root, Network: "none"})
