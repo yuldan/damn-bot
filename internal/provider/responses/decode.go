@@ -62,6 +62,7 @@ type wireError struct {
 type wireItem struct {
 	Type      string `json:"type"`
 	ID        string `json:"id"`
+	ItemID    string `json:"item_id"`
 	CallID    string `json:"call_id"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
@@ -159,6 +160,9 @@ func (a *assembler) outputItem(raw json.RawMessage) error {
 		id := it.CallID
 		if id == "" {
 			id = it.ID
+		}
+		if id == "" {
+			id = it.ItemID
 		}
 		a.tools = append(a.tools, provider.ToolCall{ID: id, Name: it.Name, ArgumentsRaw: it.Arguments})
 	case "reasoning":
