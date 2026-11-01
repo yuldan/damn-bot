@@ -4,8 +4,8 @@ package config
 
 import "testing"
 
-// TestCodeAutoLanguagesValidation: exec.code_auto_languages is a closed set
-// of non-shell languages without duplicates (ADR-089).
+// TestCodeAutoLanguagesValidation checks that exec.code_auto_languages is a
+// closed set of non-shell languages without duplicates (ADR-089).
 func TestCodeAutoLanguagesValidation(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
