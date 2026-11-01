@@ -39,6 +39,7 @@ func TestFixedOverhead(t *testing.T) {
 	t.Parallel()
 	gates := []p1Gate{
 		{name: "f1-core", total: 4000, stable: 1000, catalog: 600, tools: 1800, catalogGroups: 0},
+		{name: "mcp-65", total: 5000, stable: 1000, catalog: 600, tools: 1800, catalogGroups: 24},
 		{name: "all-modules", total: 5000, stable: 1200, catalog: 600, tools: 2000, catalogGroups: 24},
 	}
 	for _, g := range gates {

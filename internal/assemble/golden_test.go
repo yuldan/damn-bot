@@ -36,6 +36,10 @@ func p1Fixtures() []p1Fixture {
 			capStable: 1000, capTools: 1800, capTotal: 4000, eager: 8,
 		},
 		{
+			name: "mcp-65", catalog: mcp65Catalog(), context: fixtureContext, tools: fixtureTools,
+			capStable: 1000, capTools: 1800, capTotal: 5000, eager: 8,
+		},
+		{
 			name: "all-modules", stable: StableOptions{Codeintel: true},
 			catalog: allModulesCatalog(), context: allModulesContext, tools: allModulesTools,
 			capStable: 1200, capTools: 2000, capTotal: 5000, eager: 10,
