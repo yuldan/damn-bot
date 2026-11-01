@@ -5699,6 +5699,9 @@ ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaika
 
 
 **Amandemen PR D (ssh, 2026-11-01).** `internal/exec/backends/ssh.go` + `[exec.backends.ssh]`: pool `x/crypto/ssh` per `(user,host,port)` (keepalive 30 s, idle close 10 m), `known_hosts` wajib (host-key pin, tanpa TOFU), autentikasi key/agent (tanpa password/keyboard-interactive), wrapper `setsid` + pid-file dan kill grup lewat channel kedua, timeout/Sweep/Close. `golang.org/x/crypto v0.58.0` sudah ada di `deps.allow:10` dan ENGINEERING §4. Anggaran terukur: `config` **1.728/1.730** (1.700 → 1.730), Σ core **52.275 → 52.305**, plafon **52.300 → 52.350** (`maxCoreLOC`, marker, regex); `MODULE backend` tetap 4.800. Tes: server SSH in-process (kontrak, 20 perintah → 1 koneksi TCP, timeout + pid cleanup, host-key mismatch).
+
+**Amandemen acceptance F5 (2026-11-01).** Status EC/named test F5 yang belum `covered` dan keputusan gap dicatat di [`docs/F5-ACCEPTANCE.md`](F5-ACCEPTANCE.md), bukan disebar di PR. Dokumen itu mencatat: EC-FIO-003/TCALL-004/SEC-004/PROV-027 covered (PR #585/#586/#590/#592), EC-PROV-023 `n/a` karena SPEC §4.1/§12 mendefinisikan `base_url` sebagai URL penuh dan tidak mengatur penambahan `/v1` untuk bare loopback, EC-PROV-014 terbuka (tidak ada komponen refresh token provider; 401/403 keduanya `retry.Auth` non-retry), serta EC/named test yang menunggu komponen (credential pool, execute_code, LSP, background registry, Windows pipe). `make phase-acceptance` tetap tidak dilonggarkan.
+
 ## ADR-294 — F5 codeintel slice 1: indeks `internal/codeintel`, repo map go/ast deterministik, tanpa eksekusi kode
 
 **Status:** Accepted 2026-11-01 (slice 1 dari 4; CODE-TOOLS §2/B.4, ADR-015/089; modul lazy). Slice berikut: tree-sitter wazero, LSP client (trust gate), wiring tool `repo_map`/`code_intel`.
