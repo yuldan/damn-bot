@@ -70,6 +70,12 @@ func specExecDefaults() Exec {
 				MemoryMiB: 512, PIDs: 128, Network: "none",
 			},
 			SSH: SSHExec{Port: 22, KeepAliveS: 30, IdleCloseS: 600, TimeoutS: 120, MaxConns: 4},
+			Singularity: SingularityExec{
+				Binary: "apptainer", CPUMilli: 1000, MemoryMiB: 512, PIDs: 128, Network: "none",
+			},
+			Modal:         SandboxExec{TimeoutS: 300},
+			Daytona:       SandboxExec{TimeoutS: 300},
+			VercelSandbox: SandboxExec{TimeoutS: 300},
 		},
 	}
 }
@@ -567,6 +573,37 @@ func TestExecBackendSelection(t *testing.T) {
 		}, "", true},
 		{"docker ok", func(c *Config) {
 			c.Exec.Backend, c.Exec.Backends.Docker.Image = "docker", "img"
+		}, "", true},
+		{"singularity without image", func(c *Config) { c.Exec.Backend = "singularity" }, "exec.backends.singularity.image", false},
+		{"singularity ok", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.Singularity.Image = "singularity", "img.sif"
+		}, "", true},
+		{"modal without endpoint", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.Modal.Token = "modal", "modal_key"
+		}, "exec.backends.modal.endpoint", false},
+		{"modal without token", func(c *Config) { c.Exec.Backend = "modal" }, "exec.backends.modal.token", false},
+		{"modal bad token name", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.Modal.Token = "modal", "not a name"
+		}, "exec.backends.modal.token", false},
+		{"modal ok", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.Modal.Token = "modal", "modal_key"
+			c.Exec.Backends.Modal.Endpoint = "https://sandbox.example.test"
+		}, "", true},
+		{"daytona ok default endpoint", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.Daytona.Token = "daytona", "daytona_key"
+		}, "", true},
+		{"vercel without runtime", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.VercelSandbox.Token = "vercel_sandbox", "vercel_key"
+		}, "exec.backends.vercel_sandbox.runtime", false},
+		{"vercel http remote endpoint", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.VercelSandbox.Token = "vercel_sandbox", "vercel_key"
+			c.Exec.Backends.VercelSandbox.Runtime = "node24"
+			c.Exec.Backends.VercelSandbox.Endpoint = "http://sandbox.example.test"
+		}, "exec.backends.vercel_sandbox.endpoint", false},
+		{"vercel ok loopback http", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.VercelSandbox.Token = "vercel_sandbox", "vercel_key"
+			c.Exec.Backends.VercelSandbox.Runtime = "node24"
+			c.Exec.Backends.VercelSandbox.Endpoint = "http://127.0.0.1:8080"
 		}, "", true},
 	}
 	for _, tc := range cases {

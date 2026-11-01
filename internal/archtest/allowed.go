@@ -83,7 +83,7 @@ func allowedImports() map[string][]string {
 		"internal/importer":          {"internal/ctxdb", "internal/ctxdb/importstore", "internal/memory", "internal/skills", "internal/config"},
 		"internal/codetools":         {"internal/sandbox", "internal/boundary"},
 		"internal/exec":              {"internal/exec/classify", "internal/sandbox", "internal/redact", "internal/boundary"},
-		// F5 backends (ADR-277): transport over the exec contract only.
+		// F5 backends (ADR-277): transport over the exec contract, plus the Exec egress point.
 		"internal/exec/backends":       {"internal/exec", "internal/netx"},
 		"internal/exec/classify":       nil,
 		"internal/hooks":               append(groupExec(), "internal/redact"),

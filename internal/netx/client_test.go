@@ -92,7 +92,7 @@ func TestNoNetwork(t *testing.T) {
 		t.Fatal("testing.Testing() = false in a test binary")
 	}
 	n := newNet(t, Config{})
-	for _, p := range []Purpose{Inference, Tool, Background} {
+	for _, p := range []Purpose{Inference, Tool, Background, Exec} {
 		for _, u := range []string{"http://192.0.2.1/", "https://[2001:db8::1]:8443/x?key=secret"} {
 			resp, err := n.Client("t", p).Do(get(t, u))
 			closeBody(t, resp)
@@ -104,6 +104,41 @@ func TestNoNetwork(t *testing.T) {
 				t.Errorf("error leaks the URL query: %v", err)
 			}
 		}
+	}
+}
+
+// TestExecPurpose: the execution-sandbox control plane (ADR-277) is refused
+// by network.offline, unaffected by network.background, and its own bearer is
+// not a DLP finding for that purpose (the Tool gate still blocks it).
+func TestExecPurpose(t *testing.T) {
+	t.Parallel()
+	srv, _ := server(t, func(w http.ResponseWriter, _ *http.Request) { write(w, "ok") })
+	n := newNet(t, Config{Offline: true})
+	resp, err := n.Client("exec", Exec).Do(get(t, srv.URL))
+	closeBody(t, resp)
+	if !errors.Is(err, ErrOffline) {
+		t.Fatalf("offline exec = %v", err)
+	}
+	n = newNet(t, Config{NoBackground: true, Secrets: []string{"s3cr3t"}})
+	req := get(t, srv.URL)
+	req.Header.Set("Authorization", "Bearer s3cr3t")
+	resp, err = n.Client("exec", Exec).DoOK(req)
+	if err != nil || resp == nil {
+		t.Fatalf("exec with bearer = %v", err)
+	}
+	if cerr := resp.Body.Close(); cerr != nil {
+		t.Error(cerr)
+	}
+	toolReq := get(t, srv.URL)
+	toolReq.Header.Set("Authorization", "Bearer s3cr3t")
+	toolResp, terr := n.Client("tool", Tool).DoOK(toolReq)
+	if toolResp != nil {
+		if cerr := toolResp.Body.Close(); cerr != nil {
+			t.Error(cerr)
+		}
+	}
+	if !errors.Is(terr, ErrSecretEgress) {
+		t.Fatalf("tool bearer = %v", terr)
 	}
 }
 

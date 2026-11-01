@@ -66,6 +66,8 @@ func (p Purpose) String() string {
 		return "background"
 	case Gateway:
 		return "gateway"
+	case Exec:
+		return "exec"
 	default:
 		return "unknown"
 	}
