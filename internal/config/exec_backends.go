@@ -2,14 +2,45 @@
 
 package config
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // ExecBackends is the per-backend configuration of [exec.backends]
-// (EXEC-AND-CODING §A.7, ADR-277). Selecting docker without its required
+// (EXEC-AND-CODING §A.7, ADR-277). Selecting a backend without its required
 // fields is a validation error, not a silent fallback to local.
 type ExecBackends struct {
-	Docker DockerExec `toml:"docker"`
-	SSH    SSHExec    `toml:"ssh"`
+	Docker        DockerExec      `toml:"docker"`
+	SSH           SSHExec         `toml:"ssh"`
+	Singularity   SingularityExec `toml:"singularity"`
+	Modal         SandboxExec     `toml:"modal"`
+	Daytona       SandboxExec     `toml:"daytona"`
+	VercelSandbox SandboxExec     `toml:"vercel_sandbox"`
+}
+
+// SingularityExec configures the singularity/apptainer CLI backend.
+type SingularityExec struct {
+	Binary         string   `toml:"binary"`
+	Image          string   `toml:"image"`
+	CPUMilli       int      `toml:"cpu_milli"`
+	MemoryMiB      int      `toml:"memory_mib"`
+	PIDs           int      `toml:"pids"`
+	Network        string   `toml:"network"`      // none (default) | bridge | allowlist
+	NetworkName    string   `toml:"network_name"` // isolated CNI network used by allowlist
+	EgressAllow    []string `toml:"egress_allow"`
+	ProxyURL       string   `toml:"proxy_url"`
+	AllowUnlimited bool     `toml:"allow_unlimited"`
+}
+
+// SandboxExec configures one HTTP sandbox provider; Token names a keychain
+// secret (`damnbot secrets set`), never a value.
+type SandboxExec struct {
+	Endpoint  string `toml:"endpoint"` // base URL; required by modal, defaulted otherwise
+	Token     string `toml:"token"`    // keychain secret name
+	Runtime   string `toml:"runtime"`  // vercel_sandbox runtime image
+	ProjectID string `toml:"project_id"`
+	TimeoutS  int    `toml:"timeout_s"` // sandbox hard lifetime; bounds an orphan
 }
 
 // DockerExec configures the docker CLI backend.
@@ -48,6 +79,12 @@ func defaultExecBackends() ExecBackends {
 			MemoryMiB: 512, PIDs: 128, Network: "none",
 		},
 		SSH: SSHExec{Port: 22, KeepAliveS: 30, IdleCloseS: 600, TimeoutS: 120, MaxConns: 4},
+		Singularity: SingularityExec{
+			Binary: "apptainer", CPUMilli: 1000, MemoryMiB: 512, PIDs: 128, Network: "none",
+		},
+		Modal:         SandboxExec{TimeoutS: 300},
+		Daytona:       SandboxExec{TimeoutS: 300},
+		VercelSandbox: SandboxExec{TimeoutS: 300},
 	}
 }
 
@@ -61,8 +98,16 @@ func (c *Config) validateExecBackends() error {
 		return c.validateDocker()
 	case "ssh":
 		return c.validateSSH()
+	case "singularity":
+		return c.validateSingularity()
+	case "modal":
+		return c.validateSandbox("modal", &c.Exec.Backends.Modal, true, false)
+	case "daytona":
+		return c.validateSandbox("daytona", &c.Exec.Backends.Daytona, false, false)
+	case "vercel_sandbox":
+		return c.validateSandbox("vercel_sandbox", &c.Exec.Backends.VercelSandbox, false, true)
 	default:
-		return invalid("exec.backend", "must be local or docker in this slice")
+		return invalid("exec.backend", "must be local, docker, ssh, singularity, modal, daytona or vercel_sandbox")
 	}
 }
 
@@ -108,6 +153,55 @@ func (c *Config) validateDocker() error {
 		}
 	}
 	return nil
+}
+
+// validateSingularity checks the required image; the network/allowlist
+// combination is rejected by backends.NewSingularity, which fails closed at
+// start before any command can run.
+func (c *Config) validateSingularity() error {
+	s := c.Exec.Backends.Singularity
+	switch {
+	case s.Image == "":
+		return invalid("exec.backends.singularity.image", "required for the singularity backend")
+	case s.Binary == "" || strings.ContainsAny(s.Binary, " \t\x00"):
+		return invalid("exec.backends.singularity.binary", "must be a program name")
+	}
+	return nil
+}
+
+// validateSandbox checks one HTTP sandbox provider. The token is a keychain
+// secret name, never a value; a selected provider without it is rejected so
+// the backend never starts half-configured.
+func (c *Config) validateSandbox(id string, s *SandboxExec, needEndpoint, needRuntime bool) error {
+	prefix := "exec.backends." + id
+	switch {
+	case !validSecretName(s.Token):
+		return invalid(prefix+".token", "must name a keychain secret set with `damnbot secrets set`")
+	case needEndpoint && s.Endpoint == "":
+		return invalid(prefix+".endpoint", "required: the provider has no usable default control-plane URL")
+	case needRuntime && s.Runtime == "":
+		return invalid(prefix+".runtime", "required for the vercel_sandbox backend")
+	}
+	if s.Endpoint != "" && !validEndpoint(s.Endpoint) {
+		return invalid(prefix+".endpoint", "must be https, or loopback http, with no credentials or query")
+	}
+	return nil
+}
+
+// validSecretName accepts a named-keychain reference without separators.
+func validSecretName(name string) bool {
+	return name != "" && len(name) <= 128 && !strings.ContainsAny(name, " \t\r\n/\\:*?\"'<>|\x00")
+}
+
+// validEndpoint requires https, allowing http only on loopback (tests and a
+// local gateway). Credentials in the URL and any query are refused.
+func validEndpoint(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return false
+	}
+	h := u.Hostname()
+	return u.Scheme == "https" || (u.Scheme == "http" && (h == "127.0.0.1" || h == "::1" || h == "localhost"))
 }
 
 //nolint:gocyclo // one branch per validated key keeps the config error names readable

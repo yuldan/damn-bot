@@ -34,6 +34,12 @@ const (
 	// the token in the URL path, which is itself a §14.3 secret pattern
 	// (ADR-247).
 	Gateway
+	// Exec: user-initiated egress to a configured execution sandbox control
+	// plane (exec backends modal/daytona/vercel_sandbox, ADR-277). Offline
+	// refuses it and network.background does not apply, because the user asked
+	// for the command; the DLP gate is skipped for the backend's own
+	// Authorization header, which is a credential by definition.
+	Exec
 )
 
 // Config is the network policy, copied by [New] (EC-PROV-028: later
@@ -143,7 +149,11 @@ func (n *Network) Client(name string, p Purpose) *Client {
 		// Gateway egress is a remote platform with no local analogue: offline
 		// blocks it outright, even for a loopback base URL (ADR-247).
 		c.refuse = refuse(ErrOffline)
-	case p != Inference && p != Background && p != Gateway:
+	case p == Exec && n.cfg.Offline:
+		// A cloud exec backend is remote by definition; network.background
+		// does not apply because the user asked for the command (ADR-277).
+		c.refuse = refuse(ErrOffline)
+	case p != Inference && p != Background && p != Gateway && p != Exec:
 		c.refuse = &classedError{err: fmt.Errorf("%w %d", ErrPurpose, p), class: retry.BadRequest}
 	}
 	return c

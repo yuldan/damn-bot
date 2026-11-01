@@ -1,4 +1,4 @@
-//go:build unix
+//go:build !minimal && unix
 
 package backends
 
@@ -38,9 +38,16 @@ done
 if [ "$found" = 0 ]; then exit 0; fi
 exec "$@"
 `
+	// Write beside the final name and rename: a concurrent fork in a parallel
+	// test must never inherit a write descriptor for the script we exec, or
+	// execve fails with ETXTBSY (text file busy) under -bench load.
+	tmp := bin + ".tmp"
 	//nolint:gosec // the fake CLI must be executable by the test
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+	if err := os.WriteFile(tmp, []byte(script), 0o700); err != nil {
 		t.Fatalf("write fake CLI: %v", err)
+	}
+	if err := os.Rename(tmp, bin); err != nil {
+		t.Fatalf("rename fake CLI: %v", err)
 	}
 	return bin, logPath, envPath
 }

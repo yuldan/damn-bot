@@ -259,14 +259,15 @@ type Backend interface {
 | Backend | Status | Transport | `SharesFS` | Kill pohon proses | Parity |
 |---|---|---|---|---|---|
 | `local` | core | A.1–A.4 | ya | pgid + subreaper/Job | `tools/environments/local.py` |
-| `docker` | lazy | Docker Engine API via HTTP di unix socket/named pipe (client minimal sendiri, tanpa SDK; P21); `exec` dengan `setsid` di container | bind mount workspace di path identik | `kill -- -pgid` di container; `Close` = stop container milik sesi | EXEC-002 |
-| `ssh` | lazy | `golang.org/x/crypto/ssh`; host key wajib known_hosts (tanpa TOFU diam-diam) | tidak: sinkron manifest sha (push file berubah sebelum exec, pull file berubah sesudahnya; konflik → `stale_read`) | `setsid` remote + `kill -- -pgid` lewat channel kedua | EXEC-007 |
-| `singularity` | lazy | CLI `apptainer`/`singularity exec` di runner lokal | bind mount | pgid lokal | EXEC-003 |
-| `modal`, `daytona`, `vercel` | lazy | HTTP API resmi masing-masing (`internal/netx`) | tidak: sinkron manifest | API terminate sandbox | EXEC-004…006 |
+| `docker` | lazy | CLI `docker run --rm -i` (ADR-277 amandemen C; tanpa SDK) | bind mount workspace di path identik | process group CLI + `docker rm -f` per exec id | EXEC-002 |
+| `ssh` | lazy | `golang.org/x/crypto/ssh`; host key wajib known_hosts (tanpa TOFU diam-diam) | **tidak** (sinkron manifest sha belum ada di slice ini; `SharesFS=false`) | `setsid` remote + `kill -- -pgid` lewat channel kedua, pid-file per exec id | EXEC-007 |
+| `singularity` | lazy | CLI `apptainer`/`singularity exec --containall --cleanenv`; network namespace `--net --network none` (atau CNI terisolasi + proxy untuk allowlist); cgroup `--cpus`/`--memory`/`--pids-limit` | bind mount workspace di path identik; env hanya lewat `APPTAINERENV_` setelah prefiks host dibuang | pgid lokal + marker `DAMNBOT_EXEC_ID` (Sweep bersama `local`) | EXEC-003 |
+| `modal`, `daytona`, `vercel_sandbox` | lazy | HTTP minimal per provider lewat egress `netx.Exec`: create → exec (`wait`) → stop; token = nama secret keychain, dibaca saat Run pertama | **tidak** (sinkron manifest belum ada; `SharesFS=false`); cwd remote memakai default provider; path host tidak dikirim | API stop; sandbox per call, sisa crash dibatasi `timeout_s` | EXEC-004…006 (EXEC-006 = `vercel_sandbox`) |
 
 - Detail inventaris: [FEATURE-PARITY.md](FEATURE-PARITY.md) baris EXEC-001…015.
 - Backend non-lokal yang tidak memiliki salah satu `Caps` (mis. PTY) mengembalikan `module_unavailable` dengan instruksi, tanpa fallback diam-diam ke `local`.
 - Test kontrak bersama `TestBackendContract/<id>` (spawn, timeout, kill pohon, 0 orphan via `Sweep`, exit code, sinyal) wajib lulus per backend. Backend cloud memakai fake server HTTP di CI dan diuji nyata di job nightly berkredensial.
+- **Catatan parity F5 (ADR-277 PR E).** `singularity` dan tiga sandbox HTTP sudah terpasang; `local`/`docker`/`ssh` dari slice A–D. Batasan yang disengaja: (1) sandbox HTTP tidak menyinkronkan workspace (`SharesFS=false`, cwd host diabaikan; cwd remote memakai default provider), sehingga tool file tetap memakai sandbox lokal; (2) Modal tidak menerbitkan REST control plane — `exec.backends.modal.endpoint` wajib menunjuk gateway HTTP operator dengan kontrak `POST /v1/sandboxes`, `POST /v1/sandboxes/{id}/exec`, `DELETE /v1/sandboxes/{id}` (daytona/vercel memakai default API resmi, dapat di-override); (3) sandbox HTTP tidak menerapkan PTY, sinyal, limits, atau sesi persisten (`ErrCapability`, tanpa fallback ke `local`); (4) tanpa kredensial keychain, backend gagal `module_unavailable`.
 
 ### A.8 Keamanan
 

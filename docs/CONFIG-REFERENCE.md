@@ -71,6 +71,34 @@ config_version = 1
       idle_close_s = 600
       timeout_s = 120
       max_conns = 4
+    [exec.backends.singularity]
+      binary = "apptainer"
+      image = ""
+      cpu_milli = 1000
+      memory_mib = 512
+      pids = 128
+      network = "none"
+      network_name = ""
+      proxy_url = ""
+      allow_unlimited = false
+    [exec.backends.modal]
+      endpoint = ""
+      token = ""
+      runtime = ""
+      project_id = ""
+      timeout_s = 300
+    [exec.backends.daytona]
+      endpoint = ""
+      token = ""
+      runtime = ""
+      project_id = ""
+      timeout_s = 300
+    [exec.backends.vercel_sandbox]
+      endpoint = ""
+      token = ""
+      runtime = ""
+      project_id = ""
+      timeout_s = 300
 
 [agent]
   verify_on_stop = "run"

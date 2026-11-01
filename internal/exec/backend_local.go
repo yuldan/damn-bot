@@ -40,14 +40,21 @@ func (l *Local) Run(ctx context.Context, spec *Spec) (Result, error) {
 
 // Sweep kills every remaining process carrying execID's marker (§A.4).
 func (l *Local) Sweep(ctx context.Context, execID string) (int, error) {
+	return SweepMarker(ctx, execID)
+}
+
+// SweepMarker kills every process accepted by execID's marker and reports how
+// many it killed. Local and the CLI container backends share it: the marker
+// is inherited by every descendant, so a crashed owner is also covered by the
+// startup sweep of §A.4.
+func SweepMarker(ctx context.Context, execID string) (int, error) {
 	if execID == "" {
 		return 0, errors.Join(ErrSpec, errors.New("empty exec id"))
 	}
 	if err := ctx.Err(); err != nil {
 		return 0, fmt.Errorf("exec: sweep: %w", err)
 	}
-	id := []byte(execID)
-	_, killed, err := killMarked(func(v []byte) bool { return bytes.Equal(v, id) }, true)
+	_, killed, err := killMarked(func(v []byte) bool { return bytes.Equal(v, []byte(execID)) }, true)
 	return killed, err
 }
 
