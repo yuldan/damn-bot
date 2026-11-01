@@ -231,7 +231,7 @@ heal              1500 internal/heal
 # terukur 1.730 -> 1.804, plafon 1.730 -> 1.808 = angka ukur scc pada head E
 # (tanpa headroom). Sigma core 52.305 -> 52.383; plafon core 52.350 -> 52.400.
 # ADR-298 (execute_code slice 3a): config 1808 -> 1880 ([exec]
-# code_auto_languages; terukur 1840 pada rebase main+#593).
+# code_auto_languages; terukur 1860 pada rebase main+#593).
 config            1880 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
