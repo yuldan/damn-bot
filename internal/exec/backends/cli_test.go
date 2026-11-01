@@ -5,41 +5,20 @@ package backends
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/exec"
 )
 
-// fakeCLI links a pre-written, immutable CLI helper into the test dir. A
-// per-test script would be open for writing while other parallel tests exec
-// their own copies; Linux then reports ETXTBSY even for distinct files. The
-// template lives for the test process; the OS reclaims the small temp dir.
-//
-//nolint:gochecknoglobals // one immutable helper is shared by every parallel test in the process
-var (
-	fakeCLIOnce sync.Once
-	fakeCLIDir  string
-	fakeCLIErr  error
-)
-
-func fakeCLIBinary() (string, error) {
-	fakeCLIOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "damnbot-fake-cli-")
-		if err != nil {
-			fakeCLIErr = err
-			return
-		}
-		fakeCLIDir = dir
-		// The log paths are derived from $0's directory, so one immutable
-		// script serves every test.
-		script := `#!/bin/sh
+// fakeCLIScript logs argv (and any --env-file) and then runs the argv after
+// the fake image name, emulating the container. Log paths and the image marker
+// come from $0 so one template serves every test.
+const fakeCLIScript = `#!/bin/sh
 dir=$(dirname "$0")
 image=${0##*/}
 image=${image#fake-cli-}
@@ -57,30 +36,21 @@ done
 if [ "$found" = 0 ]; then exit 0; fi
 exec "$@"
 `
-		bin := filepath.Join(dir, "fake-cli")
-		tmp := filepath.Join(dir, "fake-cli.tmp")
-		//nolint:gosec // the fake CLI must be executable by the test
-		if err := os.WriteFile(tmp, []byte(script), 0o700); err != nil {
-			fakeCLIErr = err
-			return
-		}
-		if err := os.Rename(tmp, bin); err != nil {
-			fakeCLIErr = fmt.Errorf("install fake CLI: %w", err)
-		}
-	})
-	if fakeCLIErr != nil {
-		return "", fakeCLIErr
-	}
-	return filepath.Join(fakeCLIDir, "fake-cli"), nil
-}
 
-// fakeCLI hardlinks the immutable helper into a fresh test dir and returns
-// its argv/env logs. The link name carries the image argv marker.
+// fakeCLI writes a closed, immutable CLI helper and hardlinks it into the test
+// dir. The template is never executed while open, and one fresh inode per call
+// keeps parallel tests from tripping ETXTBSY on a shared writer.
 func fakeCLI(t *testing.T, image string) (bin, logPath, envPath string) {
 	t.Helper()
-	src, err := fakeCLIBinary()
+	srcDir, err := os.MkdirTemp("", "damnbot-fake-cli-")
 	if err != nil {
 		t.Fatalf("prepare fake CLI: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(srcDir) })
+	src := filepath.Join(srcDir, "fake-cli")
+	//nolint:gosec // the fake CLI must be executable by the test
+	if err := os.WriteFile(src, []byte(fakeCLIScript), 0o700); err != nil {
+		t.Fatalf("write fake CLI: %v", err)
 	}
 	dir := t.TempDir()
 	bin = filepath.Join(dir, "fake-cli-"+image)
