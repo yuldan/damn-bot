@@ -315,4 +315,8 @@ MODULE mcp         6500 internal/mcp internal/ctxdb/mcpstore internal/ctxdb/mcps
 # internal/exec/backends (transport CLI bersama; terukur 223). Sigma MODULE
 # 47.000 -> 51.800 (+backup 1.467 = 53.267 <= 53.800); core tetap.
 MODULE backend     4800 internal/exec/backends
+# ADR-294 (F5 codeintel slice 1): baris baru `MODULE codeintel` 7000 untuk
+# internal/codeintel (SPEC §3.2.4:292; go/ast + repo map; terukur 366 pada
+# slice 1). Sigma MODULE 51.800 -> 58.800 (+backup 1.467 = 60.267 <= 61.000).
+MODULE codeintel   7000 internal/codeintel
 MODULE delegate    2000 internal/delegate
