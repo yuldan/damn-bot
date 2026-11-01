@@ -5,6 +5,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/exec"
@@ -76,10 +77,10 @@ func TestExecuteCodeApproval(t *testing.T) {
 
 func TestExecuteCodeRun(t *testing.T) {
 	t.Parallel()
-	r := &fakeCodeRunner{res: code.Result{Status: exec.StatusExited, ExitCode: new(0), Stdout: []byte("hello"), Backend: "fake", Isolation: code.Isolation{Network: "deny", Memory: "none"}}}
+	r := &fakeCodeRunner{res: code.Result{Status: exec.StatusExited, ExitCode: new(0), Stdout: []byte("hello"), Backend: "fake", Isolation: code.Isolation{Network: "deny", Memory: "none"}, Execution: exec.Execution{Backend: "docker", Sandboxed: true, Detail: "container replaces host execution"}}}
 	tool := NewExecuteCode(&ExecuteCodeConfig{Runner: r})
 	res, err := tool.Run(t.Context(), Env{}, json.RawMessage(`{"language":"python","code":"print(1)","stdin":"{}"}`))
-	if err != nil || !res.OK || res.Content != "hello" || r.calls != 1 {
+	if err != nil || !res.OK || !strings.Contains(res.Content, "hello") || !strings.Contains(res.Content, "[sandbox: docker") || r.calls != 1 {
 		t.Fatalf("Run = %+v err=%v calls=%d", res, err, r.calls)
 	}
 	r.res.ExitCode = new(3)

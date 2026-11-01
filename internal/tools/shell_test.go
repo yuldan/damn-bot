@@ -415,3 +415,36 @@ func TestShellEffectUsesCallCwd(t *testing.T) {
 		t.Fatalf("inside write = %s, want idempotent", inside)
 	}
 }
+
+type sandboxRunner struct{ e exec.Execution }
+
+func (s sandboxRunner) Run(context.Context, *exec.Spec) (exec.Result, error) {
+	return exec.Result{Status: exec.StatusExited, Output: []byte("hi"), Execution: s.e}, nil
+}
+
+func TestShellSandboxMarker(t *testing.T) {
+	t.Parallel()
+	w := newWorkspace(t)
+	tool := mustShell(t, &ShellConfig{
+		Runner: sandboxRunner{e: exec.Execution{Backend: "docker", Sandboxed: true, Detail: "container replaces host execution"}},
+		Roots:  []string{w.root}, Home: w.root, Cwd: w.root,
+		ParentEnv: os.Environ(), EnvPolicy: &exec.EnvPolicy{},
+	})
+	res, err := tool.Run(t.Context(), Env{}, json.RawMessage(`{"command":"echo hi"}`))
+	if err != nil || !strings.Contains(res.Content, "[sandbox: docker") {
+		t.Fatalf("sandbox marker = %q err=%v", res.Content, err)
+	}
+	if host, ok := res.Meta["execution"].(exec.Execution); !ok || !host.Sandboxed {
+		t.Fatalf("execution meta = %#v", res.Meta["execution"])
+	}
+	lr := exec.New(t.Context())
+	local := mustShell(t, &ShellConfig{Runner: exec.NewLocal(lr), Roots: []string{w.root}, Home: w.root, Cwd: w.root, ParentEnv: os.Environ(), EnvPolicy: &exec.EnvPolicy{}})
+	defer func() {
+		//nolint:errcheck,gosec // test cleanup
+		lr.Close()
+	}()
+	res, err = local.Run(t.Context(), Env{}, json.RawMessage(`{"command":"echo hi"}`))
+	if err != nil || strings.Contains(res.Content, "[sandbox:") {
+		t.Fatalf("local marker = %q err=%v", res.Content, err)
+	}
+}

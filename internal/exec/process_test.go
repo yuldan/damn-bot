@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/testutil/phase"
 )
 
 // trueCommand resolves the platform's true(1) (macOS keeps it in /usr/bin).
@@ -215,4 +217,26 @@ func TestPruneFinishedRespectsRetention(t *testing.T) {
 		wg.Go(func() { b.List("s") })
 	}
 	wg.Wait()
+}
+
+// TestECTERM001 (EC-TERM-001, F5): a background process that writes more
+// than a pipe buffer is drained into the log ring, not killed by a full pipe.
+func TestECTERM001(t *testing.T) {
+	g := phase.Current(t)
+	if !g.Item(t, "EC-TERM-001", "F5", "covered") {
+		return
+	}
+	b := NewBackground()
+	defer func() {
+		//nolint:errcheck,gosec // test cleanup
+		b.Close(context.Background())
+	}()
+	info := bgStart(t, b, "S", "head -c 200000 /dev/zero | tr '\\0' a")
+	if _, still, err := b.Wait(t.Context(), "S", info.ID, 10*time.Second); err != nil || still {
+		t.Fatalf("wait still=%v err=%v", still, err)
+	}
+	pr, err := b.Poll("S", info.ID, 0, 0, "")
+	if err != nil || len(pr.Output) < 200000 {
+		t.Fatalf("output=%d err=%v", len(pr.Output), err)
+	}
 }

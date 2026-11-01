@@ -212,3 +212,8 @@ func secretName(name string) bool {
 	}
 	return false
 }
+
+// sandboxExecution marks a result that did not run on the host (EC-TERM-003).
+func sandboxExecution(backend, detail string) exec.Execution {
+	return exec.Execution{Backend: backend, Sandboxed: true, Detail: detail}
+}
