@@ -6,11 +6,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+// trueCommand resolves the platform's true(1) (macOS keeps it in /usr/bin).
+func trueCommand(t *testing.T) []string {
+	t.Helper()
+	p, err := exec.LookPath("true")
+	if err != nil {
+		t.Skipf("true(1) not found: %v", err)
+	}
+	return []string{p}
+}
 
 func bgStart(t *testing.T, b *Background, session, script string) ProcessInfo {
 	t.Helper()
@@ -90,7 +101,7 @@ func TestBackgroundCapsAndKillFinal(t *testing.T) {
 		info := bgStart(t, b, "s", "sleep 30")
 		ids = append(ids, info.ID)
 	}
-	if _, err := b.Start(t.Context(), "s", []string{"/bin/true"}, "/tmp", nil); !errors.Is(err, ErrProcessLimit) {
+	if _, err := b.Start(t.Context(), "s", trueCommand(t), "/tmp", nil); !errors.Is(err, ErrProcessLimit) {
 		t.Fatalf("cap = %v", err)
 	}
 	final, err := b.Kill(t.Context(), "s", ids[0], "TERM")
@@ -98,7 +109,7 @@ func TestBackgroundCapsAndKillFinal(t *testing.T) {
 		t.Fatalf("kill = %+v err=%v", final, err)
 	}
 	// After exit the slot is free.
-	if _, err := b.Start(t.Context(), "s", []string{"/bin/true"}, "/tmp", nil); err != nil {
+	if _, err := b.Start(t.Context(), "s", trueCommand(t), "/tmp", nil); err != nil {
 		t.Fatalf("start after kill: %v", err)
 	}
 }
@@ -190,7 +201,7 @@ func TestPruneFinishedRespectsRetention(t *testing.T) {
 	b := NewBackground()
 	now := time.Now()
 	b.now = func() time.Time { return now }
-	info := bgStart(t, b, "s", "/bin/true")
+	info := bgStart(t, b, "s", "true")
 	final, still, err := b.Wait(t.Context(), "s", info.ID, 5*time.Second)
 	if err != nil || still || final.Status != ProcessExited {
 		t.Fatalf("wait = %+v still=%v err=%v", final, still, err)

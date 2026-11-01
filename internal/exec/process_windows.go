@@ -3,6 +3,7 @@
 package exec
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
@@ -12,6 +13,6 @@ import (
 // instead of detaching a process that Close cannot kill.
 var errBackgroundWindows = errors.New("exec: background processes need a Job Object (unsupported on Windows in this slice)")
 
-func startBackground(spawnSpec) (*cmdHandle, error) {
+func startBackground(context.Context, spawnSpec) (*cmdHandle, error) {
 	return nil, fmt.Errorf("%w: %w", ErrProcessLimit, errBackgroundWindows)
 }

@@ -83,7 +83,6 @@ type Background struct {
 	seq      int
 	closed   bool
 	now      func() time.Time
-	start    func(spawnSpec) (*cmdHandle, error)
 	finished int // completed entries pruned by retention/max
 }
 
@@ -111,7 +110,7 @@ type cmdHandle struct {
 func NewBackground() *Background {
 	return &Background{
 		per: map[string]map[string]*bgProc{}, all: map[string]*bgProc{},
-		now: time.Now, start: startBackground,
+		now: time.Now,
 	}
 }
 
@@ -148,7 +147,7 @@ func (b *Background) Start(ctx context.Context, session string, argv []string, d
 	id := fmt.Sprintf("p%d", b.seq)
 	b.mu.Unlock()
 	out := newRing(ProcessLogCap)
-	cmd, err := b.start(spawnSpec{argv: argv, dir: dir, env: env, out: out})
+	cmd, err := startBackground(ctx, spawnSpec{argv: argv, dir: dir, env: env, out: out})
 	if err != nil {
 		return ProcessInfo{}, err
 	}

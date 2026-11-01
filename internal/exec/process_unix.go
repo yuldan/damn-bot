@@ -12,9 +12,12 @@ import (
 
 // startBackground starts argv in its own process group with a pipe stdin
 // and ring-buffered combined output.
-func startBackground(sp spawnSpec) (*cmdHandle, error) {
+func startBackground(ctx context.Context, sp spawnSpec) (*cmdHandle, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("exec: background start: %w", err)
+	}
 	//nolint:gosec // argv comes from the approved shell call, not interpolation
-	cmd := exec.CommandContext(context.Background(), sp.argv[0], sp.argv[1:]...)
+	cmd := exec.CommandContext(context.WithoutCancel(ctx), sp.argv[0], sp.argv[1:]...)
 	cmd.Dir = sp.dir
 	cmd.Env = sp.env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
