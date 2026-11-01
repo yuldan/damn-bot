@@ -5,6 +5,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 ## Unreleased
 
 - `internal/provider/replay`/`internal/archtest` (F5 provider parity, SPEC §4.1, ROADMAP F5): gate fixture replay katalog. Paket test-only `internal/provider/replay` (`!minimal`) menjalankan setiap baris `providers.toml` lewat adapter wire sebenarnya (`openai-chat`, `openai-responses`, `anthropic-messages`, `gemini`) di listener loopback tanpa jaringan; matriks model/path/auth/body diturunkan dari katalog, bukan salinan manual. Per provider: sukses (teks/finish/usage input-output-cached), `400` non-retry, dan `429 → 200` retry, plus pemeriksaan base URL/placeholder dan User-Agent. Terukur: **85 provider replay + 3 gagal-tertutup (`bedrock`, `cursor`, `factory-droid`, protokol tanpa adapter) = 88 baris**; 75 base URL default divalidasi, 10 user-supplied di-replay di loopback. Tidak ada perubahan kode produksi; LOC tidak berubah.
+- `internal/provider/responses` (EC-TCALL-004, F5): function_call dengan alias `call_id`/`id`/`item_id` dipetakan ke satu `ToolCall`; prioritas `call_id` > `id` > `item_id`.
+
+
 - `internal/exec`, `internal/gateway/telegram`, `internal/ctxdb`, `internal/modules`, `internal/provider/auth`, `cmd/damnbot` (gate `TestNolintDensity`, E-52): konsolidasi direktif `//nolint` per-statement menjadi satu direktif deklarasi fungsi untuk kondisi yang sama (teardown SSH, kill pgid ESRCH, path G304, state machine gocognit, signature init). Densitas 118 → 109 direktif / 114.222 baris non-test; `make lint` tetap 0 issue, tidak ada perubahan perilaku.
 
 
