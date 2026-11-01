@@ -1,57 +1,53 @@
-# F5 acceptance — status EC dan named test
+# F5 acceptance — matriks final
 
-Dokumen ini mencatat item acceptance F5 yang belum `covered` agar keputusan tidak
-diam-diam. Status `covered` ditegakkan lewat `phase.Gate.Item(t, id, "F5", "covered")`
-di paket test (tidak ada `edgecases.json` di repo).
+Status `covered` hanya bila tes bernama **ada di main**. PR terbuka = `pending merge`
+(tes/pemilik ada, tetapi belum di main). Tidak ada `covered` tanpa nama tes.
 
-| ID | Status | Komponen yang kurang | Pemilik / PR | Catatan |
-|---|---|---|---|---|
-| EC-FIO-003 | covered | — | #585 | cwd host di luar mount ditolak backend container sebelum CLI |
-| EC-TCALL-004 | covered | — | #586 | alias `call_id`/`id`/`item_id`, prioritas `call_id` > `id` > `item_id` |
-| EC-PROV-003 | open | korelasi item ID yang berotasi di `provider/responses` | provider owner | perlu tabel event stream |
-| EC-PROV-014 | open — audit | tidak ada jalur refresh token di layer provider: `retry.ClassifyStatus` memetakan 401/403 ke `Auth` (non-retry), jadi 403 berhenti (sesuai EC) dan 401 juga tidak me-refresh. Refresh-401 hanya ada di MCP (`TestOAuthRefreshOn401AndBearerHeader`). Bila SPEC menuntut refresh provider, komponen baru diperlukan. | provider owner | jangan tambah retry diam-diam; keputusan spec |
-| EC-PROV-023 | n/a | `provider.NormalizeBaseURL` sengaja tidak menambah `/v1` untuk host loopback bare. SPEC §4.1 ("adapter wire") dan §12 mendefinisikan `base_url` sebagai URL penuh; tidak ada satu pun kalimat yang menyatakan bare loopback host diberi `/v1`, jadi aturan itu tidak boleh dikarang. | Main | n/a dengan alasan tertulis; bila SPEC kelak menambah aturan, item dibuka kembali |
-| EC-PROV-027 | covered | — | #592 | kapabilitas katalog `cache` → `Route.CacheMarkers`; marker hanya ke route yang mendukung, provider lain tidak menerima field asing |
-| EC-SEC-004 | open — audit | tidak ada host-pin bearer OAuth di layer provider API; token OAuth dipakai oleh issuer/login dan MCP server terkonfigurasi. Belum ada mekanisme menolak bearer saat redirect/host asing untuk provider API. | provider owner | perlu komponen host-pin |
-| EC-PROV-002 | blocked | checkpoint/resume stream Gemini | provider owner | |
-| EC-PROV-017/020/021/022/026 | blocked | credential pool SPEC §4.1 | worker baru | |
-| EC-FIO-010 | blocked | codeintel/LSP UTF-16 | exec-backends | |
-| EC-TERM-001 | blocked | background process registry | exec-backends | |
-| EC-TERM-003 | blocked | peringatan sandbox diganti | exec-backends | |
-| EC-TCALL-011 | blocked | konverter chat→Responses bersama | menyusul | |
-| EC-SEC-002/003 | blocked | kebijakan kredensial eksternal | provider owner | |
-| EC-WIN-007/008/015 | blocked | translator path docker Windows / peer token named pipe / pipe multiplexer | saya, setelah E merge | implementasi + tes Windows nyata |
-| TestExecuteCodeRPCNetworkDeny | blocked | tool `execute_code` | F5 execute_code | |
-| TestExecuteCodeApproval | blocked | tool `execute_code` | F5 execute_code | |
-| TestLSPWorkspaceTrustGate | blocked | klien LSP | exec-backends | |
-| TestMCPServeCannotSelfApprove | owned | — | mcp-oauth-b | |
+## Matriks
 
-Gate acceptance: `make phase-acceptance` = `DAMNBOT_PHASE_ACCEPTANCE=1 go test $(GOTAGS) ./...`.
-Tidak boleh hijau selama item `blocked/open` di atas belum ditutup; ambang gate tidak diubah.
+| Item | Status | Bukti (tes + PR + head) | Pemilik |
+|---|---|---|---|
+| Provider catalog replay 88 | covered | `TestProviderCatalog88`, `TestProvidersMDParity`; PR #588 `aa18f6af` (merged; 85 provider replay) | provider |
+| Custom 12-field + real smoke | pending merge | PR #602 `17cb94b1` | provider |
+| MCP client/server/OAuth/pin | pending merge | #574 `96fb9e82` merged; #581 `cf136d02` merged (manage CLI); #589 `518e713a` (serve) open | mcp-oauth-b |
+| `TestMCPServeCannotSelfApprove` | pending merge | #589 `518e713a` | mcp-oauth-b |
+| Exec backends docker/ssh | covered | #568/#570 merged; `TestBackendContract/*`, `TestSSHContract` | exec |
+| Exec backends singularity/modal/daytona/vercel | pending merge | #571 `3b41e09c`; `TestBackendContract/{singularity,vercel_sandbox}`, `TestSandboxProviders`, e2e `TestExecBackendAcrossBackends` | exec |
+| execute_code contract/approval | pending merge | #573 `db029513` | exec |
+| execute_code tool + wiring | pending merge | #576 `de10898a` | exec |
+| process registry + process_* + shell background | pending merge | #575 `13e7a3d4`, #577 `715882e4`, #578 `d63b21de`; `TestExecuteCode*`/process e2e #579 `d0daa647` | exec |
+| codeintel repo map/Golden index | covered | #580 `bada3b16` merged; `TestRepoMap*`/`TestGoSymbolIndex` | codeintel |
+| codeintel tree-sitter wazero | pending merge | #582 `435cd564` | codeintel |
+| LSP + trust gate | pending merge | #583 `4e4faed1`; `TestLSPWorkspaceTrustGate` | codeintel |
+| `repo_map`/`code_intel` tools + e2e | pending merge | #593 `b6ee739f` | codeintel |
+| Credential pool (core/rotation/config/wiring) | pending merge | #597 `56fb0849`, #599 `8b614447`, #601 `454c5286`, #607 `85959107` | pool worker |
+| EC-PROV-014 (401 refresh, 403/429) | pending merge | #609 `e86e5eac` (explicit credential sources + 401 refresh) | provider |
+| EC-PROV-017/020/021/022/026 | pending merge | #597/#599/#601/#607 | pool worker |
+| EC-PROV-003/023 | pending | tidak ada tes bernama; PROV-023 `n/a` (SPEC §4.1/§12 tidak mengatur bare-host `/v1`) | provider |
+| EC-PROV-027 | pending merge | #592 `10ee4646`; `TestCacheMarkerCapability` | provider |
+| EC-TCALL-004 | pending merge | #586 `d4696986`; `TestToolCallIDAliases` | provider |
+| EC-TCALL-011 | pending merge | #596 `b9a96760` (shared chat→Responses converter) | provider |
+| EC-FIO-003 | pending merge | #585 `d2ee8b96`; `TestContainerCwdValidated` | exec |
+| EC-FIO-010 | pending merge | #583 `4e4faed1` (LSP UTF-16) | codeintel |
+| EC-TERM-001/003 | pending merge | #575/#578 (background registry); warning sandbox belum ada tes bernama | exec |
+| EC-SEC-004 | pending merge | #590 `07ae8e00`; `TestOAuthBearerHostPinned` | provider |
+| EC-SEC-002/003 | pending | tidak ada tes bernama | provider |
+| EC-WIN-007 | pending merge | #591 `64642d7a`; `TestDockerVolumeDriveLetter` (windows) | exec |
+| EC-WIN-008/015 | pending merge | #595 `63873be7`, #598 `ed6c9e0f` | win-final |
+| `TestExecuteCodeRPCNetworkDeny` / `TestExecuteCodeApproval` | pending merge | #573/#576/#579 | exec |
+| E1 smoke 10 task | pending merge | #594 `979fd3fd` | h2h |
+| e2e F5 approval/budget | pending merge | #603 `51211677`; `TestF5ApprovalBounds`, `TestF5BudgetPreTurn` | me |
+| e2e F5 taint/skill | pending merge | #604 `f991cbcb`; `TestF5ContextTaintBounds`, `TestF5SkillQuarantineBounds` | me |
+| Audit doc | pending merge | #587 `cde7ee18` (dokumen ini) | me |
+| 201 baris FEATURE-PARITY fase F5 | pending | belum diverifikasi per baris dengan tes/PR | Main |
 
-## Audit acceptance F5 (status per item, bukti harus ada di main)
+## Gate menaikkan PHASE ke F6
 
-| Item | Status | Bukti konkret (tes + PR + head) | Sisa kerja | Pemilik |
-|---|---|---|---|---|
-| Provider registry 88 + custom 12 field | partial | `TestProviderCatalog88`, `TestProvidersMDParity`, `TestCatalogRejects*` (registry); PR #558/#531 | replay fixture 88 provider dan smoke 10 provider nyata belum ada test/artefak | provider owner |
-| MCP 65/65 `tools/list`, P1 ≤ 5.000 | pending | hanya tes klien/server MCP umum (`internal/mcp/*_test.go`); tidak ada katalog 65 server | harness 65 MCPX + hitung P1 | mcp-oauth-b |
-| Smoke E1 10 task model murah | pending | tidak ada artefak bench F5 | jalankan harness E1 | Main |
-| Exec backends docker/ssh/singularity/modal/daytona/vercel_sandbox | pending merge | #571 head 65266bb5: `TestBackendContract/{local,docker,singularity,vercel_sandbox}`, `TestSandboxProviders`, e2e PASS 758.187s | merge #571 | exec owner |
-| EC-PROV 12 (002,003,014,017..023,026,027) | partial | PROV-027 #592; PROV-018 ada di main; PROV-003/014/023/017/020/021/022/026 tidak ada tes bernama | lihat tabel EC di atas | provider owner |
-| EC-TCALL-004/011 | partial | TCALL-004 #586; TCALL-011 pending | converter chat→Responses | provider owner |
-| EC-FIO-003/010 | partial | FIO-003 #585; FIO-010 blocked LSP | #585 merge; LSP | exec-backends |
-| EC-TERM-001/003 | pending | tidak ada (registry background belum ada) | proses background + warning sandbox | exec-backends |
-| EC-SEC-002..004 | partial | SEC-004 #590; SEC-002/003 pending | kebijakan kredensial eksternal | provider owner |
-| EC-WIN-007/008/015 | partial | WIN-007 #591; WIN-008/015 dialihkan `win-final` | tes Windows CI | win-final |
-| `TestMCPServeCannotSelfApprove` | pending | tidak ada di main | tulis tes | mcp-oauth-b |
-| `TestExecuteCodeRPCNetworkDeny` / `TestExecuteCodeApproval` | pending | tool `execute_code` belum ada | komponen execute_code + tes | F5 execute_code owner |
-| `TestLSPWorkspaceTrustGate` | pending | klien LSP belum ada | komponen LSP + tes | exec-backends |
-| Backlog ADR-078/ADR-086 fase F5 | pending | belum ada bukti penutupan per item | audit per ADR | Main |
-| GAP-SEC-03/04/18/20/21/23/24/25 | pending | tidak ada tes yang menyebut ID ini; sebagian perilaku ada (approval/secret/backends) | petakan ke tes bernama atau tulis tes | security owner |
-| GAP-REL-18 | evidence | `GAP-REL-18` dirujuk di tes delegate/session (`grep` menemukan 1 file tes) | verifikasi acceptance penuh | delegate owner |
-| GAP-COST-03 | evidence | 5 file tes menyebut GAP-COST-03 (cache TTL) | — | provider owner |
-| GAP-TOOL-05 | evidence | 2 file tes menyebut GAP-TOOL-05 (lease) | — | delegate owner |
-| GAP-COST-10 / GAP-TOOL-08 | pending | tidak ada tes bernama | Starlark RPC / repo map | F5 coding owner |
-| 201 baris FEATURE-PARITY fase F5 | pending | tidak diverifikasi per baris; hanya kelompok modul yang punya tes | tabel per-baris dengan tes/PR | Main |
+Harus hijau pada main yang memuat **semua** PR di atas:
 
-**Kesimpulan:** `make phase-acceptance` (PHASE=F5) belum bisa hijau. Minimal yang memblokir: merge #571/#585/#586/#590/#591/#592, katalog MCP 65, smoke provider/E1, `execute_code` + named tests, LSP, process_* + TERM ECs, EC-WIN-008/015, dan pemetaan GAP/parity per baris. Ambang gate tidak diubah.
+1. `make phase-acceptance` dengan `PHASE=F5` (`DAMNBOT_PHASE_ACCEPTANCE=1 go test ./...`) — **belum bisa**: item `pending/pending merge` di atas, khususnya MCP 65, pool, execute_code/process, LSP, WIN, parity per baris.
+2. `make loc` — 0 `GAGAL`; saat ini hijau pada head E (`TOTAL 95.071/190.000`).
+3. `make size-check` — full ≤ 52 MB, minimal ≤ 22.000.000 B; head E minimal `21.999.778` B (headroom 222 B).
+4. Full e2e biner — `go test -tags goolm ./internal/e2e`; head E PASS `758.187s` pada kode produksi identik; suite baru #603/#604 PASS.
+
+Tidak ada ambang gate yang dilonggarkan.
