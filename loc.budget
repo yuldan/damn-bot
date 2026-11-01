@@ -301,7 +301,9 @@ MODULE scorecard    500 internal/scorecard
 # dibukukan di grup MODULE mcp yang sama; cap 6.500 tidak berubah.
 # ADR-274 (F5-11a): seam OAuth MCP (TokenSource, bearer + refresh 401, scope
 # minimal); kode terukur 1.592/6.500, cap tidak berubah.
-MODULE mcp         6500 internal/mcp internal/ctxdb/mcpstore
+# F5-11c (SEC-21): server `mcp serve` + storage token/approval
+# `ctxdb/mcpservestore`; kode terukur 2.147/6.500, cap tidak berubah.
+MODULE mcp         6500 internal/mcp internal/ctxdb/mcpstore internal/ctxdb/mcpservestore
 # ADR-273 (F5-12 PR B, GAP-TOOL-05): baris delegate untuk tipe/Config/Service
 # (lease, worktree, limiter) + LeaseGuard codetools; SPEC §3.2.4:290. Kode
 # terukur 453 (PR B) -> 959 (PR C); Sigma kelas MODULE 45.000 -> 47.000 (maxModuleLOC 46.500 -> 49.000).
