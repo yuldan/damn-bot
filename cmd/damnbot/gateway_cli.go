@@ -58,7 +58,9 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 	case "migrate":
 		return gatewayMigrate(args[1:], stdout, stderr)
 	case "migrate-legacy":
-		return gatewayMigrate([]string{"apply"}, stdout, stderr)
+		// Alias of `migrate apply` with the caller's flags (--data-dir) kept:
+		// dropping them silently migrated the profile default instead.
+		return gatewayMigrate(append([]string{"apply"}, args[1:]...), stdout, stderr)
 	}
 	sessionsPrintf(stderr, "gateway: unknown subcommand %q\n", cleanArg(args[0]))
 	gatewayUsage(stderr)

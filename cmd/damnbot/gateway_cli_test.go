@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -268,6 +269,7 @@ func TestGatewayEnrollAndMigrate(t *testing.T) {
 // TestGatewayPairingSurface: the parity aliases list pending codes, revoke
 // blocks an identity, and migrate-legacy is an idempotent schema apply.
 func TestGatewayPairingSurface(t *testing.T) {
+	usageHome(t) // isolate the profile default: no command may fall back to it
 	dir := t.TempDir()
 	t.Setenv("DAMNBOT_GATEWAY_OWNER", "telegram:1")
 	t.Setenv("DAMNBOT_GATEWAY_ALLOW", "")
@@ -283,5 +285,57 @@ func TestGatewayPairingSurface(t *testing.T) {
 	}
 	if c, o, e := runGatewayCLI(t, "pairing", "approve", pairCode(t, out), "telegram:43", "--data-dir", dir); c != 0 || !strings.Contains(o, "approved telegram:43") {
 		t.Fatalf("approve: %d %q %q", c, o, e)
+	}
+}
+
+// seedNewerSchema leaves dir at a user_version past this binary's ladder, the
+// state a newer binary (for example one carrying migration 0017) produces.
+func seedNewerSchema(t *testing.T, dir string) {
+	t.Helper()
+	ctx := context.Background()
+	db, err := ctxdb.Open(ctx, &ctxdb.Options{Dir: dir, Kind: "run"})
+	if err != nil {
+		t.Fatalf("seed newer schema: %v", err)
+	}
+	if err := db.Write(ctx, func(tx *ctxdb.Tx) error {
+		if _, xerr := tx.Exec("PRAGMA user_version = 9999"); xerr != nil {
+			return fmt.Errorf("bump user_version: %w", xerr)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("bump user_version: %v", err)
+	}
+	closeTestDB(t, db)
+}
+
+// TestGatewayMigrateLegacyHonorsDataDir: migrate-legacy aliases `migrate
+// apply`, so --data-dir must reach the store. Regression: the dispatch
+// hardcoded {"apply"} and dropped every flag, migrating the profile default
+// instead; with a default upgraded by a newer binary that surfaced as
+// `db version 17 > binary 16`.
+func TestGatewayMigrateLegacyHonorsDataDir(t *testing.T) {
+	defaults := usageHome(t) // never the developer's real profile
+	t.Setenv("DAMNBOT_GATEWAY_OWNER", "")
+	t.Setenv("DAMNBOT_GATEWAY_ALLOW", "")
+	seedNewerSchema(t, defaults.DataDir)
+	target := t.TempDir()
+	for range 2 { // idempotent: this binary reopens its own newest schema
+		if c, o, e := runGatewayCLI(t, "migrate-legacy", "--data-dir", target); c != 0 || !strings.Contains(o, "up to date") {
+			t.Fatalf("migrate-legacy: %d %q %q", c, o, e)
+		}
+	}
+	db := gatewayTestDB(t, target)
+	got, serr := db.SchemaVersion(context.Background())
+	closeTestDB(t, db)
+	_, want, lerr := ctxdb.MigrationLadder()
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	if serr != nil || got != want {
+		t.Fatalf("target user_version = %d, %v; want %d", got, serr, want)
+	}
+	// Negative control: the newer default was neither migrated nor rewritten.
+	if _, err := ctxdb.Open(context.Background(), &ctxdb.Options{Dir: defaults.DataDir, Kind: "run"}); !errors.Is(err, ctxdb.ErrSchemaNewer) {
+		t.Fatalf("default data dir open = %v, want ErrSchemaNewer (migrate-legacy touched it)", err)
 	}
 }
