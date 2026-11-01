@@ -5799,3 +5799,23 @@ ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaika
 **Anggaran terukur (scc Code, head PR direbase main `89c4858e`).** `provider` **2.219/2.220** (2.142 → 2.220, +78 untuk `conversation.go` + shim minimal), `provider/responses` **431/432** (tidak naik), Σ core **53.665 → 53.740**, plafon core **53.700 → 53.800** (`maxCoreLOC`, marker `arch-budgetsum`, regex `budget_doc_test`).
 
 **Konsekuensi.** (+) Kedua wire memakai satu aturan role/tool; divergensi yang tidak terlihat tidak mungkin lagi, dan pesan yang tidak sah gagal sebelum jaringan. (−) Role di luar empat nilai SPEC kini ditolak (tidak pernah ada pemanggil produksi yang memakainya); `provider` memakai 1 baris headroom.
+
+## ADR-302 — EC-PROV-002: checkpoint/resume stream Gemini
+
+**Status:** Accepted 2026-11-01 (F5, docs/EDGE-CASES-hermes.md EC-PROV-002; melengkapi ADR-267). Kode + tes replay + CHANGELOG + `docs/ENGINEERING.md` + `loc.budget`. Tanpa dependency baru, migrasi, config key, `nolint`, atau perubahan perilaku adapter lain.
+
+**Konteks.** `provider.OpenAI` mengulang seluruh request saat stream terputus (`retry.Do`), sehingga teks/tool call yang sudah diterima hilang dan — bila adapter native mengembalikan bagian parsial — dapat terduplikasi. `internal/provider/gemini` sudah punya perakit parts (teks, `thought`, `functionCall`, `thoughtSignature`, usage) tetapi `readStream` membuang `Response` parsial saat error.
+
+**Keputusan.**
+1. **Seam checkpoint, bukan klien kedua.** `provider.ResumeWire` (opsional) menerima `prev *Response` pada `ReadResume`; `attempt` memakainya bila retry membawa checkpoint. Wire lain tidak berubah.
+2. **Checkpoint parsial.** `readStream` Gemini mengembalikan `Response` parsial (teks, `ReasoningText`, tool call, signature raw sebagai `Reasoning`, usage, `StreamID` dari `responseId`) bersama error. `Response.StreamID` adalah identitas stream yang wajib sama pada resume; `modelVersion` juga harus konsisten.
+3. **Verifikasi prefix, bukan restart.** Asembler resume menyimpan cursor untuk teks, `thought`, urutan tool call, dan signature. Bagian yang masuk dicocokkan byte-per-byte dengan prefix checkpoint; yang cocok dilewati (tidak dikirim ke `onChunk`, tidak ditambahkan), sisa baru ditambahkan. `functionCall` dicocokkan dengan `(id,name,args)` sehingga tidak pernah dikirim dua kali; signature dicocokkan byte-identik. Stream yang lebih pendek/berbeda → `ErrCheckpointStale` (non-retryable), tidak pernah digabung.
+4. **Batas.** Maksimum `maxResumes = 2` kelanjutan per call dan TTL checkpoint `30s` (dicek sebelum attempt berikutnya); habis → `ErrResumeExhausted` (non-retryable), bukan restart yang menduplikasi. Timeout per stream tetap watchdog `netx` (TTFB/idle).
+5. **Minimal (P13).** Jalur retry full dan helper resume berada di file `!minimal`; varian `minimal` mempertahankan loop retry lama tanpa checkpoint sehingga build minimal tetap **21.999.778 B** (delta 0), dan adapter Gemini tetap tidak dikompilasi.
+6. **Fail-closed.** Checkpoint kosong, `Reasoning` rusak, `responseId`/model berbeda, atau prefix tidak lengkap → `provider.Error` kelas `Unclassified` dengan `errors.Is(..., ErrCheckpointStale)`.
+7. **Gate.** `TestResumeTruncatedText` (urutan final identik stream utuh, chunk tidak dobel, `Gate.Item EC-PROV-002`), `TestResumeToolCall` (dua call + dua carrier, tanpa duplikat), `TestResumeStaleCheckpoint`, `TestResumeBudgetExhausted`, `TestResumeCheckpointTTL`.
+8. **Anggaran.** `provider` **2.220 → 2.410** (terukur **2.404**) dan `provider/gemini` **885 → 1.040** (terukur **1.030**). Σ core **53.740 → 54.085**, plafon **53.800 → 54.100** (headroom 27). `TOTAL` tetap ≤190.000.
+
+**Dampak terukur.** `pr-meta size` hanya Go non-test; lint 0; `-race` provider/gemini; `make loc` 0 GAGAL; build minimal tidak memuat paket (0 byte). Dependency 0, migrasi 0, config key 0, `nolint` 0.
+
+**Konsekuensi.** (+) Stream Gemini yang putus di tengah part dilanjutkan dari checkpoint, bukan diulang dari nol; tool call/signature tidak terduplikasi. (−) Resume adalah replay request (API native tidak punya cursor server); bila model menghasilkan prefix berbeda, adapter gagal jelas alih-alih menebak. (−) Anggaran retry per call tetap sama; dua kelanjutan adalah batas keras.

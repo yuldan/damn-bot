@@ -263,69 +263,10 @@ func estimateMicros(price *budget.Price, r *Request, input int64) int64 {
 	return *m
 }
 
-// call runs one route through the retry policy and its breaker. The budget
-// guard is consulted inside the policy closure, so every attempt — not just
-// the first one of the route — is authorised before it can spend anything
-// (REVIEW-F2-SEC5-27).
-func (o *OpenAI) call(ctx context.Context, rt *Route, price *budget.Price, r *Request, est int64, onChunk func(Chunk)) (Response, error) {
-	br := o.breaker(rt)
-	var resp Response
-	attempts := 0
-	limit := o.attempts
-	if limit <= 0 {
-		limit = retry.MaxAttempts
-	}
-	billed := 0
-	err := retry.Do(ctx, retry.Policy{Notify: o.onRetry, Wait: o.wait, Attempts: o.attempts}, func(ctx context.Context, n int) error {
-		if err := br.Allow(ctx); err != nil {
-			// The breaker rejected this attempt before o.send: do not reuse
-			// the previous attempt's response when accounting billed work.
-			resp = Response{}
-			return fmt.Errorf("%s: %w", rt.Ref(), err)
-		}
-		if err := o.checkBudget(ctx, rt, price, r, est); err != nil {
-			return err
-		}
-		attempts = n
-		var err error
-		resp, err = o.send(ctx, rt, r, est, onChunk)
-		if rerr := br.Record(ctx, retry.ClassifyErr(err)); rerr != nil {
-			return fmt.Errorf("%s: circuit: %w", rt.Ref(), rerr)
-		}
-		if err == nil {
-			captureCarriers(&resp, rt)
-			return nil
-		}
-		if !resp.responded {
-			return err
-		}
-		billed++ // the upstream accepted the request: it may have been billed
-		if n == limit || !retry.ClassifyErr(err).Retryable() {
-			return err
-		}
-		// A retry is another logical call: project this route's price for
-		// every attempt already billed in this Do plus the next one, so a
-		// monetary cap cannot be overshot by sequential retries (PRC-5).
-		if derr := o.retryDenied(ctx, rt, o.retryProjection(rt, &resp, r, est, billed)); derr != nil {
-			return derr
-		}
-		return err
-	})
-	resp.Attempts, resp.EstInputTokens, resp.CredentialID = attempts, est, rt.CredentialID
-	resp.BilledFailed = billed
-	if resp.Model == "" {
-		resp.Model = rt.Model
-	}
-	if err != nil {
-		return resp, fmt.Errorf("%s: %w", rt.Ref(), err)
-	}
-	return resp, nil
-}
-
 // send is one attempt; a parameter the route rejects (error.param) is
 // dropped for the route and the request re-sent once without it
 // (EC-PROV-011/012, ADR-102 butir 7).
-func (o *OpenAI) send(ctx context.Context, rt *Route, r *Request, est int64, onChunk func(Chunk)) (Response, error) {
+func (o *OpenAI) send(ctx context.Context, rt *Route, r *Request, est int64, onChunk func(Chunk), prev *Response) (Response, error) {
 	var drops []CarrierDrop
 	for {
 		drop := o.dropped(rt)
@@ -334,7 +275,7 @@ func (o *OpenAI) send(ctx context.Context, rt *Route, r *Request, est int64, onC
 		if err != nil {
 			return Response{CarrierDrops: drops}, &Error{Class: retry.BadRequest, Err: err}
 		}
-		resp, err := attempt(ctx, o.c, rt, body, est, onChunk)
+		resp, err := attempt(ctx, o.c, rt, body, est, onChunk, prev)
 		resp.CarrierDrops = mergeDrops(drops, resp.CarrierDrops)
 		p := rejectedParam(err, r, drop)
 		if p != "" {
@@ -351,7 +292,7 @@ func (o *OpenAI) send(ctx context.Context, rt *Route, r *Request, est int64, onC
 			if eerr != nil {
 				return resp, &Error{Class: retry.BadRequest, Err: eerr}
 			}
-			retried, rerr := attempt(ctx, o.c, rt, body2, est, onChunk)
+			retried, rerr := attempt(ctx, o.c, rt, body2, est, onChunk, nil)
 			retried.CarrierDrops = mergeDrops(mergeDrops(drops, dropped2), retried.CarrierDrops)
 			retried.RejectedCarriers = sent
 			return retried, rerr
@@ -402,7 +343,7 @@ func rawEstimate(r *Request) int64 {
 }
 
 // attempt sends one request and assembles the stream through the route wire.
-func attempt(ctx context.Context, c *netx.Client, rt *Route, body []byte, est int64, onChunk func(Chunk)) (resp Response, err error) {
+func attempt(ctx context.Context, c *netx.Client, rt *Route, body []byte, est int64, onChunk func(Chunk), prev *Response) (resp Response, err error) {
 	w := wireOf(rt)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimSuffix(rt.BaseURL, "/")+w.Path(rt), bytes.NewReader(body))
 	if err != nil {
@@ -440,6 +381,7 @@ func attempt(ctx context.Context, c *netx.Client, rt *Route, body []byte, est in
 			resp, err = Response{responded: true}, toError(cerr)
 		}
 	}()
+	w = wireForAttempt(w, prev)
 	resp, err = w.Read(st, start, onChunk)
 	// The upstream returned 2xx: the request was accepted and may be billed
 	// even when decoding fails (SEC6-9).

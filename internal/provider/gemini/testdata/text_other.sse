@@ -1,0 +1,2 @@
+data: {"candidates":[{"content":{"parts":[{"text":"Goodbye world"}],"role":"model"},"finishReason":"STOP"}],"modelVersion":"gemini-test","responseId":"resp-1","usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":2}}
+

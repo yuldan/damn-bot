@@ -412,7 +412,7 @@ func TestRedirectNotFollowed(t *testing.T) {
 	n := netx.New(netx.Config{})
 	t.Cleanup(n.CloseIdleConnections)
 	rt := &Route{Provider: "p", Model: "m", BaseURL: origin.URL, APIKey: "sk-test", Headers: map[string]string{"api-key": "k"}}
-	_, err := attempt(t.Context(), n.Client("p", netx.Inference), rt, []byte(`{"model":"m"}`), 10, nil)
+	_, err := attempt(t.Context(), n.Client("p", netx.Inference), rt, []byte(`{"model":"m"}`), 10, nil, nil)
 	if retry.ClassifyErr(err) != retry.BadRequest || hits.Load() != 0 {
 		t.Fatalf("redirect: %v, %d requests reached the target", err, hits.Load())
 	}
@@ -433,7 +433,7 @@ func TestTooManyToolDeltasClass(t *testing.T) {
 	n := netx.New(netx.Config{})
 	t.Cleanup(n.CloseIdleConnections)
 	rt := &Route{Provider: "p", Model: "m", BaseURL: srv.URL}
-	_, err := attempt(t.Context(), n.Client("p", netx.Inference), rt, []byte(`{}`), 10, nil)
+	_, err := attempt(t.Context(), n.Client("p", netx.Inference), rt, []byte(`{}`), 10, nil, nil)
 	if !errors.Is(err, ErrResponseTooLarge) || retry.ClassifyErr(err).Retryable() {
 		t.Fatalf("%v (class %v)", err, retry.ClassifyErr(err))
 	}
