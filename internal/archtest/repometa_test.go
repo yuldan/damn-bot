@@ -15,7 +15,7 @@ import (
 const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
-	maxCoreLOC       = 54400 // ADR-303 (F5-14 A1): provider/credpool 230, Σ core 54.315; headroom 85.
+	maxCoreLOC       = 54400 // ADR-303 (F5-14 A1) + amandemen ADR-300: provider/credpool 230 dan exec 4.020 -> 4.030, Σ core 54.325; headroom 75.
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
 	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)

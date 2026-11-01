@@ -5788,6 +5788,8 @@ ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaika
 
 **Anggaran terukur (head slice 4 pada rebase main `446bf615`).** `tools` **3.571/3.600** (3.500 → 3.600), `config` **1.860/1.880**, `exec` **4.012/4.020**, Σ core caps **53.565 → 53.665** ≤ 53.700 (headroom 35; `maxCoreLOC`/marker/regex disinkron, Total core+prosa+baris tools). Binary minimal tetap **21.999.778 B** ≤ 22.000.000 (P13) karena varian background dipisah build-tag dan stub minimal digabung.
 
+**Amandemen slice 5 (EC-TERM-001/003).** `Result.Execution{Backend, Sandboxed, Detail}` (marker tempat eksekusi nyata) dan penolakan `background` Windows yang eksplisit (`ErrCapability`) menambah 12 baris non-test di `internal/exec` dan 11 di `internal/tools`; baris `exec` terukur **4.024** (dari 4.012), sehingga plafon `exec` dinaikkan **4.020 → 4.030** (headroom 6) di dalam blok ini. Σ core caps **53.665 → 53.675**, `maxCoreLOC` tetap **53.700** untuk head slice ini; `loc.budget`, tabel/prosa ENGINEERING, `budget_doc_test`, `ci-meta-test` disinkronkan. Tidak ada dependency/config/migrasi; binary minimal tetap 21.999.778 ≤ 22.000.000. Dengan ADR-301+ADR-303, Σ core caps gabungan **54.325** ≤ **54.400** (`maxCoreLOC` 54.400).
+
 ## ADR-301 — Satu konverter percakapan untuk `openai-chat` dan `openai-responses` (EC-TCALL-011)
 
 **Status:** Accepted 2026-11-01 (F5 provider parity). Melengkapi SPEC §4.1, ADR-102, ADR-265, dan EC-TCALL-011.
