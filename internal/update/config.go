@@ -1,11 +1,8 @@
 package update
 
 import (
-	"crypto/ed25519"
-	"encoding/base64"
 	"fmt"
 	"net/url"
-	"strings"
 )
 
 // Config is SPEC §12 [update] (ADR-216).
@@ -27,11 +24,8 @@ func (c Config) Validate() error {
 	if c.Channel != channelStable && c.Channel != channelBeta {
 		return fmt.Errorf("update.channel must be %q or %q", channelStable, channelBeta)
 	}
-	if c.CatalogPublicKey != "" {
-		raw, err := base64.StdEncoding.Strict().DecodeString(strings.TrimSpace(c.CatalogPublicKey))
-		if err != nil || len(raw) != ed25519.PublicKeySize {
-			return fmt.Errorf("update.catalog_public_key must be base64 ed25519 (%d bytes)", ed25519.PublicKeySize)
-		}
+	if err := validateCatalogPublicKey(c.CatalogPublicKey); err != nil {
+		return err
 	}
 	if c.FeedURL == "" {
 		return nil

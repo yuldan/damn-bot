@@ -42,13 +42,13 @@ PROV+TOOL: `test/f5-gap-prov-tool`. Semua tes bernama `TestGAPF5_<ID>`.
 | GAP-SEC-24 | LULUS | `TestGAPF5_SEC24`, `TestOverrideWithoutFlag` | `cmd/damnbot/provider_resolve.go:115-135` (override=true wajib), `:143-161` (`--confirm-base-url`), `:272-300` (`providerDoctorWarnings`), `config/config.go:246-248`. Tes baru: 2/2 override + non-default muncul di doctor; shadow tanpa flag gagal; base_url non-default butuh konfirmasi. | — |
 | GAP-SEC-25 | LULUS | `TestGAPF5_SEC25`, `TestUserAgentDefault`, `TestNoAttributionHeaders` | `provider_resolve.go:305-410` (`send_attribution` default false, `userAgent()`), `provider/client.go:25-28,103-126,413-415` (UA `damnbot/<versi>`). Tes baru: 94 preset (88+6 lokal) tanpa header atribusi; UA tanpa OS/hostname; opt-in hanya header deklarasi. | — |
 | GAP-REL-14 | LULUS-SEBAGIAN | `TestGAPF5_REL14`, `internal/gateway/render/known_defects_test.go` (10 tes) | `internal/provider` (413 typed, truncated stream `stream_broken` retry), `netx/retry/class.go:122`; render known-defects 10 skenario. | Skenario MCP gambar sebagai lampiran belum ada (`mcp.Client.mapResult` menaruh non-text di `Meta["content"]`, `host.Result` tidak punya `Attachments`); streaming-once/kanban bukan F5. Job `known-defects` belum ada. PR: attachments MCP + job. |
-| GAP-REL-18 | LULUS-SEBAGIAN | `TestGAPF5_REL18`, `TestSessionToolIsolation`, `TestSessionViewFailClosed`, `TestSessionViewChildCannotEscalate` | `internal/tools/session_view.go`, `modules/host/session.go` (view eksplisit, zero fail-closed), `delegate` meneruskan `tools.SessionView`, `TestSessionToolIsolation` 1.000 iterasi `-race`. | `internal/mcp.Client` tidak menerima/memeriksa `SessionView`/`CapMCP`; `execute_code` belum ada. PR: MCP session view + execute_code. |
+| GAP-REL-18 | LULUS-SEBAGIAN | `TestGAPF5_REL18`, `TestSessionToolIsolation`, `TestSessionViewFailClosed`, `TestSessionViewChildCannotEscalate` | `internal/tools/session_view.go`, `modules/host/session.go` (view eksplisit, zero fail-closed), `delegate` meneruskan `tools.SessionView`, `TestSessionToolIsolation` 1.000 iterasi `-race`. | `internal/mcp.Client` tidak menerima/memeriksa `SessionView`/`CapMCP`; `execute_code` belum memakai `Env.Session` (hanya approval). PR: MCP session view + execute_code session seam. |
 | GAP-COST-03 | LULUS | `TestGAPF5_COST03`, `TestCacheTTLByOrigin`, `TestUsageCacheByOrigin` | `provider/cachettl.go` (1h tui/acp/web/gateway, clamp `CacheTTLMax`), `provider/openai.go` encode ttl, `catalog.go:99,143`, `cmd/damnbot/usage_cli.go` (`--cache --by origin`). Tes baru: 9 origin × clamp. | Live replay Telegram `cached/input ≥70%` belum diukur (butuh provider nyata). |
-| GAP-COST-10 | TERBUKA | — | Tidak ada `execute_code`, tidak ada `go.starlark.net` di kode (hanya `deps.allow:26`). | Tool `execute_code` + interpreter Starlark/RPC allowlist 7 tool + `network=deny` + approval ADR-089. PR: execute_code (G2-02). |
+| GAP-COST-10 | LULUS-SEBAGIAN | `TestExecuteCodeApproval`, `TestExecuteCodeRun`, `TestRunRefusesNetworkWithoutBackendCapability` | `internal/tools/builtins_code.go`, `internal/exec/code` (Python/JS/TS/Go, network deny fail-closed, approval ADR-089), `exec.code_auto_languages`. | Starlark belum ada (`go.starlark.net` hanya di `deps.allow`); RPC binding 7 tool + `TestExecuteCodeRPCNetworkDeny` belum ada. PR: execute_code slice RPC/Starlark. |
 | GAP-PROV-01 | LULUS | `TestGAPF5_PROV01`, `TestCarrier*` (≥ 20 tes), `TestCarrierSignatureReplay`, `cmd/damnbot/carriers_wire_test.go` | `provider/carriers.go` (capture byte-identik, project hanya family+model asal), 4 adapter (`openai-chat`, `responses`, `anthropic`, `gemini`), `loop/turn.go:198-210` (event `carrier_dropped`), `ctxdb/carrierstore`. Tes baru: 4 kind (thought_signature/thinking/redacted_thinking/encrypted) di 4 adapter, replay hanya route asal, drop `route_mismatch`. | — |
 | GAP-TOOL-04 | LULUS | `TestGAPF5_TOOL04` (Windows), `TestSSHPoolReuse`, `TestShellChoiceDrivesDialect`, `TestSSHContract` | `exec/backends/ssh.go:299-395` (pool per user/host/port, keepalive, idle close), `shell_windows.go` (pwsh→powershell→cmd, tanpa bash), `proc_windows.go` (Job Object). Test baru (runner Windows): PATH berisi bash.exe tetapi tanpa pwsh/powershell → cmd, bukan bash. | — |
 | GAP-TOOL-05 | LULUS | `TestGAPF5_TOOL05`, `TestLeaseConflictDetected`, `TestWorktreeCleanup`, `TestCodetoolsLeaseGuard`, `TestWorktreeLeaseIsExclusive` | `delegate/lease.go` (lease per path, all-or-nothing, pemilik di error), `delegate/worktree.go` + `taskWorktree` (clean dihapus, kotor disimpan + `files_changed`), `codetools.LeaseGuard`. Tes baru: 3 task file sama → 1 jalan, 2 `lease_conflict` dengan pemilik; worktree kotor dilaporkan. | — |
-| GAP-TOOL-08 | TERBUKA | — | Tidak ada background process/`process_*`; `shell{background}` masih F1 `invalid_args`; tidak ada limiter notice `≤1/15s`, `≤4/menit/chat`, global `≤15/10s`/`+N`. | Registry proses + `process_*` + limiter notice + 3-strike watch. PR: process background (G2-02). |
+| GAP-TOOL-08 | LULUS-SEBAGIAN | `TestProcessToolsSessionIsolation`, `TestProcessToolsWaitTimeoutAndOutput`, `TestProcessToolsSendKillIdempotentAndApproval`, `TestProcessToolsCapAndClose`, `TestBackground*` | `internal/exec/process.go` + `internal/tools/process.go` (registry per sesi, ring 8 MiB, cap 8/32, poll/grep, kill TERM→KILL, cleanup). | Limiter notice `≤1/15s`, `≤4/menit/chat`, global `≤15/10s`/`+N` dan `TestProcessNotifyRateLimit` belum ada; watch 3-strike belum. PR: notice limiter. |
 
 ## Backlog ADR-078/ADR-086 berfase F5
 
@@ -57,7 +57,7 @@ PROV+TOOL: `test/f5-gap-prov-tool`. Semua tes bernama `TestGAPF5_<ID>`.
 | AUD-050 | SPEC §9.6 scope token `read\|send` → `read\|send\|approve` | **LULUS**: `SPEC.md:894` kini `read|send|approve`; DDL `mcp_serve_tokens` dan `mcpservestore` sudah `approve` (`TestGAPF5_SEC21`). |
 | NEW2-19 | field `origin` di payload `approval_request` | **LULUS-SEBAGIAN / BLOKIR**: `tools.ApprovalRequest.Origin` ada (`internal/tools/approval.go:133`), `approval_bridge.go:51,64` meneruskannya; nilai `mcp_serve` belum bisa diuji karena `damnbot mcp serve` belum ada (GAP-SEC-21). |
 | NEW2-20 | mapping origin cron/batch/kanban → `headless`, delegate → origin induk | **BLOKIR**: `cron_wire.go:139` masih `approvalOrigin: "run"`, dan `tools.ValidOrigin` hanya `run|tui|acp|plan`; perlu perluasan origin + update semua pembuat approval (bukan sekadar test). |
-| NEW3-02 | auto headless `execute_code` butuh `--unsafe-auto-shell`/`--unsafe-auto-code` atau residu eksplisit | **BLOKIR**: menunggu `execute_code` (#573–#579 belum merge); belum ada flag/residu di TRUST-MODEL. |
+| NEW3-02 | auto headless `execute_code` butuh `--unsafe-auto-shell`/`--unsafe-auto-code` atau residu eksplisit | **BLOKIR**: `execute_code` sudah ada (#573–#579) dan `TestExecuteCodeApproval` lulus, tetapi tidak ada flag `--unsafe-auto-code`; TRUST-MODEL §3 belum mencatat residu. |
 
 ## 1. GAP SEC
 
@@ -81,12 +81,11 @@ PROV+TOOL: `test/f5-gap-prov-tool`. Semua tes bernama `TestGAPF5_<ID>`.
 | REL-18 | SessionView eksplisit, nil fail-closed, 2 sesi paralel terisolasi | LULUS-SEBAGIAN | `TestGAPF5_REL18`, `TestSessionToolIsolation`, `TestSessionViewFailClosed` | `modules/host/session.go`, `tools/session_view.go`; zero view → `internal`, `CapUserMemory` hilang → `denied`; MCP/`execute_code` belum memakai view |
 | COST-03 | 1h untuk origin interaktif, 5m batch, clamp `cache_ttl_max`, usage per origin | LULUS | `TestGAPF5_COST03`, `TestCacheTTLByOrigin`, `TestUsageCacheByOrigin` | `provider/cachettl.go` 9 origin × clamp; `usage --cache --by origin`; hit-rate live ≥70% belum diukur |
 
-Tes COST-10 tidak dibuat: `execute_code`/Starlark tidak ada di main (hanya
-`go.starlark.net` di `deps.allow:26`), jadi tidak ada perilaku yang bisa diuji
-tanpa tes palsu. Nama tes acceptance yang belum ada sampai #573–#579 merge:
-`TestExecuteCodeApproval`, `TestExecuteCodeRPCNetworkDeny`, dan tes
-`tool(name, **args)` allowlist 7 tool. Status tetap `TERBUKA`; PR
-`execute_code` (G2-02) di atas.
+Tes COST-10: `TestExecuteCodeApproval` dan runner Python/JS/TS/Go sudah ada di
+main (#573–#579). Sisa yang belum: Starlark (`go.starlark.net` hanya di
+`deps.allow`), RPC `tool(name, **args)` allowlist 7 tool, dan
+`TestExecuteCodeRPCNetworkDeny`. Status `LULUS-SEBAGIAN`; PR execute_code
+slice RPC/Starlark.
 
 ## 3. GAP PROV + TOOL
 
@@ -95,9 +94,9 @@ tanpa tes palsu. Nama tes acceptance yang belum ada sampai #573–#579 merge:
 | PROV-01 | carrier opaque 4 keluarga, byte-identik, replay hanya route asal, drop + notice | LULUS | `TestGAPF5_PROV01`, `TestGAPF5_PROV01Kinds`, `TestCarrier*` | `adapter.Encode` memuat carrier persis untuk family+model asal; model lain → `route_mismatch`, 0 byte carrier; `loop/turn.go:198-210` menulis `carrier_dropped` |
 | TOOL-04 | Windows tanpa bash; pool SSH per user/host/port | LULUS | `TestGAPF5_TOOL04` (Windows), `TestSSHPoolReuse`, `TestSSHContract` | `shell_windows.go` hanya pwsh→powershell→cmd; `ssh.go:299-395` 20 run → 1 koneksi TCP, keepalive 30 s, idle 10 m |
 | TOOL-05 | lease `tasks[].files`, worktree bersih dihapus/kotor dilaporkan | LULUS | `TestGAPF5_TOOL05`, `TestLeaseConflictDetected`, `TestWorktreeCleanup` | 3 child file sama → 1 jalan, 2 `lease_conflict` pemilik `P-d1`; worktree kotor + `files_changed` dipertahankan |
-| TOOL-08 | rate-limit notice proses ≤1/15 s, ≤4/menit/chat, global ≤15/10 s, `+N` | TERBUKA | — | Tidak ada background process/`process_*`; `shell{background}` masih `invalid_args` F1; tidak ada limiter |
+| TOOL-08 | rate-limit notice proses ≤1/15 s, ≤4/menit/chat, global ≤15/10 s, `+N` | LULUS-SEBAGIAN | `TestProcessTools*`, `TestBackground*` | registry/process_* ada; limiter notice + `TestProcessNotifyRateLimit` belum |
 
-Tes TOOL-08 tidak dibuat karena perilakunya belum ada (bukan sekadar belum
-diuji). Nama tes acceptance yang belum ada: `TestProcessNotifyRateLimit`.
-PR: registry proses + `process_*` + limiter notice pada gelombang
-`execute_code` (#573–#579 belum merge ke a8258e8a).
+Tes TOOL-08: registry/`process_*` sudah ada dan lulus suite sesi/ring/kill
+(#573–#579). Sisa yang belum: limiter notice `≤1/15 s`, `≤4/menit/chat`,
+global `≤15/10 s`/`+N`, watch 3-strike, dan `TestProcessNotifyRateLimit`.
+Status `LULUS-SEBAGIAN`; PR notice limiter.
