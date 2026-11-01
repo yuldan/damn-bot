@@ -4,18 +4,16 @@ package code
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
-	osexec "os/exec"
-	"strings"
+	"path/filepath"
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/exec"
 )
 
 // realBackend delegates to the local runner but claims the network
-// capability, so the interpreter smoke test exercises the real argv path.
+// capability, so the integration test exercises the real argv path.
 // Network deny itself is tested negatively in code_test.go; production
 // local has Caps.Network=false and is refused.
 type realBackend struct{ l *exec.Local }
@@ -46,43 +44,40 @@ func (r realBackend) Close(ctx context.Context) error {
 	return nil
 }
 
-func TestRealInterpreterSmoke(t *testing.T) {
-	cases := []struct {
-		lang Language
-		bin  string
-		code string
-		want string
-	}{
-		{Python, "python3", "import json,sys\nprint(json.load(sys.stdin)['n']+1)", "42"},
-		{JavaScript, "node", "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).n+1))", "42"},
-		{Go, "go", "package main\nimport (\"encoding/json\";\"os\")\nfunc main(){var v struct{N int};json.NewDecoder(os.Stdin).Decode(&v);println(v.N+1)}", "42"},
+// TestRunThroughLocalBackendSpawnsStubInterpreter runs the real local backend
+// with Config.Lookup injected: no host language interpreter (python3/node/go)
+// is required, so the test is hermetic on every runner. The stub interpreter
+// is a script that echoes stdin, proving argv, stdin, output, and cleanup.
+func TestRunThroughLocalBackendSpawnsStubInterpreter(t *testing.T) {
+	dir := t.TempDir()
+	interp := filepath.Join(dir, "interp")
+	if err := os.WriteFile(interp, []byte("#!/bin/sh\ncat\n"), 0o700); err != nil { // #nosec G306 -- fixture must be executable
+		t.Fatal(err)
 	}
-	for _, tc := range cases {
-		t.Run(string(tc.lang), func(t *testing.T) {
-			_ = osexec.LookPath
-			l := exec.NewLocal(exec.New(t.Context()))
-			t.Cleanup(func() {
-				//nolint:errcheck,gosec // test cleanup
-				l.Close(context.Background())
-			})
-			r, err := New(Config{Backend: realBackend{l: l}, Env: os.Environ()})
-			if err != nil {
-				t.Fatal(err)
-			}
-			res, err := r.Run(t.Context(), &Request{Language: tc.lang, Code: tc.code, Stdin: []byte(`{"n":41}`)})
-			if errors.Is(err, exec.ErrUnavailable) {
-				// Locally a missing interpreter is a skip; CI must have it.
-				if os.Getenv("CI") != "" {
-					t.Fatalf("CI is missing %s: %v", tc.lang, err)
-				}
-				t.Skipf("%s absent: %v", tc.lang, err)
-			}
-			if err != nil {
-				t.Fatalf("Run: %v", err)
-			}
-			if !strings.Contains(string(res.Stdout), tc.want) {
-				t.Fatalf("stdout = %q", res.Stdout)
-			}
-		})
+	l := exec.NewLocal(exec.New(t.Context()))
+	t.Cleanup(func() {
+		if cerr := l.Close(context.Background()); cerr != nil {
+			t.Errorf("close: %v", cerr)
+		}
+	})
+	r, err := New(Config{
+		Backend: realBackend{l: l},
+		Env:     []string{"PATH=/usr/bin:/bin"},
+		Lookup: func(Language, []string) ([]string, error) {
+			return []string{interp}, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.Run(t.Context(), &Request{Language: Python, Code: "ignored", Stdin: []byte(`{"n":41}`)})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got, want := string(res.Stdout), `{"n":41}`; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if res.Isolation.Network != "deny" {
+		t.Fatalf("isolation = %+v", res.Isolation)
 	}
 }

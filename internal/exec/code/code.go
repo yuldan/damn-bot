@@ -145,7 +145,7 @@ func (r *Runner) interpreter(lang Language) ([]string, string, error) {
 
 // Run executes req. It refuses before spawning when the backend cannot
 // enforce the requested network policy (ADR-076, GAP-SEC-23).
-func (r *Runner) Run(ctx context.Context, req *Request) (Result, error) {
+func (r *Runner) Run(ctx context.Context, req *Request) (out Result, err error) {
 	if len(req.Code) > MaxCodeBytes {
 		return Result{}, fmt.Errorf("%w: %d > %d", ErrCodeSize, len(req.Code), MaxCodeBytes)
 	}
@@ -173,14 +173,15 @@ func (r *Runner) Run(ctx context.Context, req *Request) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("%w: temp dir: %w", ErrBackend, err)
 	}
-	//nolint:errcheck,gosec // best-effort temp cleanup
-	defer func() { _ = os.RemoveAll(dir) }()
-	//nolint:gosec // the directory needs owner execute; only the owner can enter
-	if cerr := os.Chmod(dir, 0o700); cerr != nil {
-		return Result{}, fmt.Errorf("%w: chmod: %w", ErrBackend, cerr)
+	// os.MkdirTemp creates the directory with mode 0700; only the owner can
+	// enter, and the one script file is 0600. The confined root keeps the
+	// write inside that directory even when Root is operator-configured.
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return Result{}, errors.Join(fmt.Errorf("%w: open temp dir: %w", ErrBackend, err), os.RemoveAll(dir)) // #nosec G703 -- dir is the MkdirTemp result, not a path from input
 	}
-	//nolint:gosec // dir is our 0700 temp dir and file is a fixed name
-	if err := os.WriteFile(filepath.Join(dir, file), []byte(req.Code), 0o600); err != nil {
+	defer func() { err = errors.Join(err, root.Close(), os.RemoveAll(dir)) }() // #nosec G703 -- dir is the MkdirTemp result, not a path from input
+	if err := root.WriteFile(file, []byte(req.Code), 0o600); err != nil {
 		return Result{}, fmt.Errorf("%w: write: %w", ErrBackend, err)
 	}
 	stdin := req.Stdin
@@ -195,7 +196,7 @@ func (r *Runner) Run(ctx context.Context, req *Request) (Result, error) {
 		spec.Limits = exec.Limits{MemoryMiB: MemoryMiB}
 	}
 	res, runErr := r.cfg.Backend.Run(ctx, spec)
-	out := Result{
+	out = Result{
 		Status: res.Status, ExitCode: res.ExitCode, Stdout: res.Output,
 		Truncated: res.Truncated, Duration: res.Duration, Backend: r.cfg.Backend.ID(),
 		Isolation: Isolation{Network: "deny", Memory: "none"},
@@ -250,10 +251,17 @@ func findInPath(name, path string) (string, error) {
 		if dir == "" {
 			continue
 		}
-		cand := filepath.Join(dir, name)
-		//nolint:gosec // PATH resolution is the interpreter contract
-		if info, err := os.Stat(cand); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
-			return cand, nil
+		droot, oerr := os.OpenRoot(dir)
+		if oerr != nil {
+			continue
+		}
+		info, serr := droot.Stat(name)
+		cerr := droot.Close()
+		if cerr != nil || serr != nil {
+			continue
+		}
+		if info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
+			return filepath.Join(dir, name), nil
 		}
 	}
 	return "", exec.ErrUnavailable
