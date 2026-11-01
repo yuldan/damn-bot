@@ -66,3 +66,16 @@ PROV+TOOL: `test/f5-gap-prov-tool`. Semua tes bernama `TestGAPF5_<ID>`.
 | SEC-23 | limit container fail-closed; host key pin; egress allowlist | TERBUKA | `TestSSHHostKeyPin`, `TestDockerRunContract` | `exec/backend.go:27`, `backends/docker.go:188`, `ssh.go:43`; cgroup probe tidak ada |
 | SEC-24 | override built-in butuh `override=true`; base_url butuh konfirmasi; doctor 100% | LULUS | `TestGAPF5_SEC24` | `provider_resolve.go:115,143,272` |
 | SEC-25 | atribusi opt-in; UA `damnbot/<versi>` | LULUS | `TestGAPF5_SEC25` | `provider_resolve.go:305,390`; 94 preset |
+
+## 2. GAP REL + COST
+
+| GAP | requirement (ringkas) | status | tes | bukti |
+| --- | --- | --- | --- | --- |
+| REL-14 | 413 eksplisit, stream terputus bukan jawaban, gambar MCP lampiran | LULUS-SEBAGIAN | `TestGAPF5_REL14` + `internal/gateway/render/known_defects_test.go` | `provider/client.go` menolak 413 non-retryable sebagai `provider.Error`; cut stream → `stream_broken` × `MaxAttempts`; gambar MCP tetap di `Meta["content"]`, belum `Attachments`; job `known-defects` belum ada |
+| REL-18 | SessionView eksplisit, nil fail-closed, 2 sesi paralel terisolasi | LULUS-SEBAGIAN | `TestGAPF5_REL18`, `TestSessionToolIsolation`, `TestSessionViewFailClosed` | `modules/host/session.go`, `tools/session_view.go`; zero view → `internal`, `CapUserMemory` hilang → `denied`; MCP/`execute_code` belum memakai view |
+| COST-03 | 1h untuk origin interaktif, 5m batch, clamp `cache_ttl_max`, usage per origin | LULUS | `TestGAPF5_COST03`, `TestCacheTTLByOrigin`, `TestUsageCacheByOrigin` | `provider/cachettl.go` 9 origin × clamp; `usage --cache --by origin`; hit-rate live ≥70% belum diukur |
+
+Tes COST-10 tidak dibuat: `execute_code`/Starlark tidak ada di main (hanya
+`go.starlark.net` di `deps.allow:26`), jadi tidak ada perilaku yang bisa diuji
+tanpa tes palsu. Status tetap `TERBUKA` dan PR `execute_code` dicatat di
+`GAP-COST-10` atas.
