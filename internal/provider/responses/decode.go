@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -157,13 +158,7 @@ func (a *assembler) outputItem(raw json.RawMessage) error {
 		if len(a.tools) >= maxToolCalls {
 			return tooLarge()
 		}
-		id := it.CallID
-		if id == "" {
-			id = it.ID
-		}
-		if id == "" {
-			id = it.ItemID
-		}
+		id := cmp.Or(it.CallID, it.ID, it.ItemID)
 		a.tools = append(a.tools, provider.ToolCall{ID: id, Name: it.Name, ArgumentsRaw: it.Arguments})
 	case "reasoning":
 		if a.size += len(raw); a.size > maxResponseBytes {
