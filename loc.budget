@@ -47,7 +47,10 @@ plan               600 internal/plan
 # ADR-278 (F5-14 PR A1): credential pool SPEC §4.1. Baris baru
 # `provider/credpool` (tipe/pilih/cooldown/redaksi/error; terukur 230).
 # Belum diimpor provider pada slice ini; build minimal tidak berubah.
-provider          2145 internal/provider
+# ADR-278 (F5-14 PR A2): pooled wrapper `internal/provider/pool.go` (!minimal)
+# + event credential_rotated; provider 2145 -> 2357 (terukur 2357).
+# Sigma core 52.535 -> 52.747; plafon core 52.550 -> 52.750.
+provider          2357 internal/provider
 provider/credpool  230 internal/provider/credpool
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses
