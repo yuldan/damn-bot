@@ -19,7 +19,9 @@ func groupNetx() []string {
 }
 
 // groupExec = node EXE: exec + exec/classify (ADR-081, satu baris SPEC §3.2.4).
-func groupExec() []string { return []string{"internal/exec", "internal/exec/classify"} }
+func groupExec() []string {
+	return []string{"internal/exec", "internal/exec/classify", "internal/exec/code"}
+}
 
 // moduleImports = E-06: modul lazy hanya mengimpor modules/host, netx (+ netx/jsonrpc), schema.
 func moduleImports() []string {
