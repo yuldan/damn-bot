@@ -44,7 +44,13 @@ plan               600 internal/plan
 # decode 249 + schema 278 + transport 30) untuk sanitasi schema Gemini.
 # Sigma core 51.629 -> 51.898, plafon core 51.680 -> 51.950 (headroom 52);
 # provider tetap 2.145 (terukur 2.141).
-provider          2145 internal/provider
+# ADR-278 (F5-14): credential pool SPEC §4.1. Baris baru `provider/credpool`
+# (pool, cooldown berbatas, seleksi round-robin/least-recent-failure; terukur
+# 230) dan `provider` 2145 -> 2256 untuk seam rotasi + event credential_rotated
+# (terukur 2256). Sigma core 52.305 -> 52.694; plafon core 52.350 -> 52.750
+# (maxCoreLOC, regex budget_doc_test, marker arch-budgetsum).
+provider          2256 internal/provider
+provider/credpool  230 internal/provider/credpool
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses
 provider/anthropic  645 internal/provider/anthropic
@@ -214,7 +220,9 @@ heal              1500 internal/heal
 # scopes, keychain-only client_secret) + validasi HTTPS/loopback; kode terukur
 # 1.589, plafon 1.510 -> 1.600 (headroom 11). Sigma core 52.077 -> 52.167;
 # plafon core 52.100 -> 52.200 (headroom 33).
-config            1730 internal/config
+# ADR-278 (F5-14): [providers.custom[].credentials] + validasi ketat
+# (1..16, id unik, keychain-only); terukur 1778.
+config            1778 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.

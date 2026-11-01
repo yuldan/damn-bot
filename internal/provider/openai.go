@@ -22,6 +22,7 @@ type Route struct {
 	Provider, Model string
 	BaseURL         string // e.g. https://api.openai.com/v1
 	APIKey          string // resolved secret; "" = no auth (local server)
+	poolFields             // Pool (full build only; minimal has no pool)
 	// Auth, when set, replaces the static bearer APIKey: SigV4, Google JWT
 	// or OAuth (F5-03). It receives the exact encoded payload.
 	Auth          auth.Signer

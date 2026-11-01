@@ -43,10 +43,11 @@ type Fallback struct {
 
 // Config configures [NewOpenAI].
 type Config struct {
-	Routes     []Route
-	Fallback   []string // "provider/model" refs, ≤ MaxFallback
-	OnFallback func(Fallback)
-	OnRetry    func(retry.Attempt) // WARN + event per retry (SPEC §15)
+	Routes          []Route
+	Fallback        []string // "provider/model" refs, ≤ MaxFallback
+	OnFallback      func(Fallback)
+	OnRetry         func(retry.Attempt) // WARN + event per retry (SPEC §15)
+	credentialHooks                     // OnCredential (full build only)
 	// Attempts bounds the provider retry policy; 0 = retry.MaxAttempts.
 	Attempts int
 	// Guard, when non-nil, is consulted before every route attempt (P27,
@@ -82,6 +83,7 @@ type OpenAI struct {
 	fallback []string
 	onFB     func(Fallback)
 	onRetry  func(retry.Attempt)
+	credentialState
 	guard    budget.Checker
 	onBudget func(budget.Decision)
 	wait     func(ctx context.Context, d time.Duration) error
@@ -107,7 +109,8 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 	o := &OpenAI{
 		c: c, routes: map[string]Route{}, fallback: append([]string(nil), cfg.Fallback...),
 		onFB: cfg.OnFallback, onRetry: cfg.OnRetry, wait: cfg.Wait, attempts: cfg.Attempts,
-		guard: cfg.Guard, onBudget: cfg.OnBudget, now: cfg.Now,
+		credentialState: credentialStateOf(cfg),
+		guard:           cfg.Guard, onBudget: cfg.OnBudget, now: cfg.Now,
 		breakers: retry.NewBreakers(cfg.Circuit), drop: map[string]map[string]bool{},
 		wires: maps.Clone(cfg.Wires),
 	}
@@ -118,6 +121,9 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 		r := cfg.Routes[i] // copied: the client owns its routes
 		if r.Provider == "" || r.Model == "" || r.BaseURL == "" {
 			return nil, fmt.Errorf("%w: route %q needs provider, model, and base_url", ErrConfig, r.Ref())
+		}
+		if err := validatePoolRoute(&r); err != nil {
+			return nil, err
 		}
 		r.Headers = maps.Clone(r.Headers)
 		r.ExtraBody = maps.Clone(r.ExtraBody)
@@ -263,63 +269,25 @@ func estimateMicros(price *budget.Price, r *Request, input int64) int64 {
 	return *m
 }
 
-// call runs one route through the retry policy and its breaker. The budget
-// guard is consulted inside the policy closure, so every attempt — not just
-// the first one of the route — is authorised before it can spend anything
-// (REVIEW-F2-SEC5-27).
-func (o *OpenAI) call(ctx context.Context, rt *Route, price *budget.Price, r *Request, est int64, onChunk func(Chunk)) (Response, error) {
-	br := o.breaker(rt)
-	var resp Response
-	attempts := 0
-	limit := o.attempts
-	if limit <= 0 {
-		limit = retry.MaxAttempts
+// routeAttempt runs one policy attempt: breaker gate, budget guard, wire
+// send, and breaker record. The caller owns retry and rotation decisions.
+func (o *OpenAI) routeAttempt(ctx context.Context, rt *Route, price *budget.Price, r *Request, est int64, br retry.Gate, onChunk func(Chunk)) (Response, error) {
+	if err := br.Allow(ctx); err != nil {
+		// The breaker rejected this attempt before o.send: do not reuse the
+		// previous attempt's response when accounting billed work.
+		return Response{}, fmt.Errorf("%s: %w", rt.Ref(), err)
 	}
-	billed := 0
-	err := retry.Do(ctx, retry.Policy{Notify: o.onRetry, Wait: o.wait, Attempts: o.attempts}, func(ctx context.Context, n int) error {
-		if err := br.Allow(ctx); err != nil {
-			// The breaker rejected this attempt before o.send: do not reuse
-			// the previous attempt's response when accounting billed work.
-			resp = Response{}
-			return fmt.Errorf("%s: %w", rt.Ref(), err)
-		}
-		if err := o.checkBudget(ctx, rt, price, r, est); err != nil {
-			return err
-		}
-		attempts = n
-		var err error
-		resp, err = o.send(ctx, rt, r, est, onChunk)
-		if rerr := br.Record(ctx, retry.ClassifyErr(err)); rerr != nil {
-			return fmt.Errorf("%s: circuit: %w", rt.Ref(), rerr)
-		}
-		if err == nil {
-			captureCarriers(&resp, rt)
-			return nil
-		}
-		if !resp.responded {
-			return err
-		}
-		billed++ // the upstream accepted the request: it may have been billed
-		if n == limit || !retry.ClassifyErr(err).Retryable() {
-			return err
-		}
-		// A retry is another logical call: project this route's price for
-		// every attempt already billed in this Do plus the next one, so a
-		// monetary cap cannot be overshot by sequential retries (PRC-5).
-		if derr := o.retryDenied(ctx, rt, o.retryProjection(rt, &resp, r, est, billed)); derr != nil {
-			return derr
-		}
-		return err
-	})
-	resp.Attempts, resp.EstInputTokens, resp.CredentialID = attempts, est, rt.CredentialID
-	resp.BilledFailed = billed
-	if resp.Model == "" {
-		resp.Model = rt.Model
+	if err := o.checkBudget(ctx, rt, price, r, est); err != nil {
+		return Response{}, err
 	}
-	if err != nil {
-		return resp, fmt.Errorf("%s: %w", rt.Ref(), err)
+	resp, err := o.send(ctx, rt, r, est, onChunk)
+	if rerr := br.Record(ctx, retry.ClassifyErr(err)); rerr != nil {
+		return Response{}, fmt.Errorf("%s: circuit: %w", rt.Ref(), rerr)
 	}
-	return resp, nil
+	if err == nil {
+		captureCarriers(&resp, rt)
+	}
+	return resp, err
 }
 
 // send is one attempt; a parameter the route rejects (error.param) is
