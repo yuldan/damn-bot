@@ -14,10 +14,15 @@ import (
 	"github.com/damnbot/damnbot/internal/config"
 )
 
-// runMCPImpl dispatches the auth subcommands of this slice.
+// runMCPImpl dispatches the subcommands of this slice.
 func runMCPImpl(args []string, stdout, stderr io.Writer) int {
-	if args[0] == "auth" {
+	switch args[0] {
+	case "auth":
 		return mcpAuth(args[1:], stdout, stderr)
+	case "refresh":
+		return mcpRefresh(args[1:], stdout, stderr)
+	case "review":
+		return mcpReview(args[1:], stdout, stderr)
 	}
 	sessionsPrintf(stderr, "mcp: unknown subcommand %q\n", cleanArg(args[0]))
 	mcpUsage(stderr)

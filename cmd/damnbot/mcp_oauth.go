@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/config"
@@ -31,6 +32,8 @@ type mcpTokens struct {
 	transport *auth.OAuth
 	offline   bool
 	now       func() time.Time
+
+	mu sync.Mutex
 }
 
 // openMCPTokens resolves the token store (keychain, else a 0600 file under
@@ -82,9 +85,49 @@ func openMCPTokens(ctx context.Context, srv mcp.Server, secretRef string, offlin
 	}, nil
 }
 
-// Login runs the device grant (RFC 8628 + PKCE S256, DCR when no client id is
-// configured) and verifies the granted scope. An authorization server that
-// widens the request has its token revoked instead of accepted.
+// AccessToken returns a usable bearer, refreshing an expired one.
+func (m *mcpTokens) AccessToken(ctx context.Context) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, err := m.load(ctx)
+	if err != nil {
+		return "", err
+	}
+	if t.Expired(m.now()) {
+		if t.RefreshToken == "" {
+			return "", fmt.Errorf("%w: %s token expired; run damnbot mcp auth login %s", mcp.ErrAuthRequired, m.server, m.server)
+		}
+		if err := m.transport.Refresh(ctx, &t); err != nil {
+			return "", m.refreshError(err)
+		}
+	}
+	if err := m.oauth.CheckScope(t.Scope); err != nil {
+		return "", fmt.Errorf("mcp %s: scope: %w", m.server, err)
+	}
+	return t.AccessToken, nil
+}
+
+// RefreshToken forces a refresh after a 401.
+func (m *mcpTokens) RefreshToken(ctx context.Context) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, err := m.load(ctx)
+	if err != nil {
+		return "", err
+	}
+	if t.RefreshToken == "" {
+		return "", fmt.Errorf("%w: %s has no refresh token", mcp.ErrAuthRequired, m.server)
+	}
+	if err := m.transport.Refresh(ctx, &t); err != nil {
+		return "", m.refreshError(err)
+	}
+	if err := m.oauth.CheckScope(t.Scope); err != nil {
+		return "", fmt.Errorf("mcp %s: scope: %w", m.server, err)
+	}
+	return t.AccessToken, nil
+}
+
+// Login runs the device grant (RFC 8628 + PKCE S256, DCR without a client id) and verifies scope.
 func (m *mcpTokens) Login(ctx context.Context) (auth.Token, error) {
 	t, err := m.transport.Login(ctx)
 	if err != nil {
@@ -185,4 +228,9 @@ func (m *mcpTokens) load(ctx context.Context) (auth.Token, error) {
 		return auth.Token{}, fmt.Errorf("%w: %s token issuer does not match server config", mcp.ErrAuthRequired, m.server)
 	}
 	return t, nil
+}
+
+// refreshError keeps the server classification and remains an auth failure.
+func (m *mcpTokens) refreshError(err error) error {
+	return fmt.Errorf("%w: refresh %s: %w", mcp.ErrAuthRequired, m.server, err)
 }

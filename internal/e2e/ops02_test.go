@@ -62,7 +62,7 @@ func TestE2EDoctorNetwork(t *testing.T) {
 	writeProfileConfig(t, e, "[network]\nbackground = false\n")
 	res := e.Exec("doctor", "--network")
 	res.RequireOK(t)
-	for _, want := range []string{"inference", "refs", "telegram", "update", "cron-monitor", "auth", "gateway", "api.telegram.org", "disabled (egress_disabled)", "trigger:"} {
+	for _, want := range []string{"inference", "refs", "telegram", "update", "cron-monitor", "auth", "mcp", "mcp-local", "gateway", "api.telegram.org", "disabled (egress_disabled)", "trigger:"} {
 		if !strings.Contains(res.Stdout, want) {
 			t.Errorf("doctor --network lacks %q:\n%s", want, res.Stdout)
 		}
@@ -103,8 +103,8 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
 		t.Fatalf("json: %v\n%s", err, out)
 	}
-	if doc.Background != background || len(doc.Egress) != 6 {
-		t.Fatalf("json doc = %+v, want background=%t and 6 entries", doc, background)
+	if doc.Background != background {
+		t.Fatalf("json background = %t, want %t", doc.Background, background)
 	}
 	want := map[string]struct{ purpose, status string }{
 		"inference":    {"inference", "enabled"},
@@ -113,14 +113,27 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 		"update":       {"background", "enabled"},
 		"cron-monitor": {"tool", "enabled"},
 		"auth":         {"inference", "enabled"},
+		"mcp":          {"tool", "enabled"},
+		"mcp-local":    {"inference", "enabled"},
 	}
 	if !background {
 		want["update"] = struct{ purpose, status string }{"background", "disabled (egress_disabled)"}
 	}
+	seen := make(map[string]bool, len(want))
 	for _, row := range doc.Egress {
 		exp, ok := want[row.Name]
-		if !ok || row.Purpose != exp.purpose || row.Status != exp.status {
+		if !ok {
+			t.Errorf("unexpected egress %q = {%s %s}", row.Name, row.Purpose, row.Status)
+			continue
+		}
+		seen[row.Name] = true
+		if row.Purpose != exp.purpose || row.Status != exp.status {
 			t.Errorf("egress %q = {%s %s}, want %+v", row.Name, row.Purpose, row.Status, exp)
+		}
+	}
+	for name := range want {
+		if !seen[name] {
+			t.Errorf("egress %q is missing from doctor --network --json", name)
 		}
 	}
 }
