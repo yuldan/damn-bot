@@ -5699,3 +5699,12 @@ ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaika
 
 
 **Amandemen PR D (ssh, 2026-11-01).** `internal/exec/backends/ssh.go` + `[exec.backends.ssh]`: pool `x/crypto/ssh` per `(user,host,port)` (keepalive 30 s, idle close 10 m), `known_hosts` wajib (host-key pin, tanpa TOFU), autentikasi key/agent (tanpa password/keyboard-interactive), wrapper `setsid` + pid-file dan kill grup lewat channel kedua, timeout/Sweep/Close. `golang.org/x/crypto v0.58.0` sudah ada di `deps.allow:10` dan ENGINEERING §4. Anggaran terukur: `config` **1.728/1.730** (1.700 → 1.730), Σ core **52.275 → 52.305**, plafon **52.300 → 52.350** (`maxCoreLOC`, marker, regex); `MODULE backend` tetap 4.800. Tes: server SSH in-process (kontrak, 20 perintah → 1 koneksi TCP, timeout + pid cleanup, host-key mismatch).
+
+
+## ADR-296 — F5 smoke E1: seleksi 10 task, key runtime, dan ledger per-fase
+
+**Status:** Accepted 2026-11-01 (ROADMAP F5 Acceptance; ADR-032: tanpa gate vs hermes di F5). Melengkapi ADR-062/075/085 (ledger tunggal, cap) dan ADR-294 (acceptance ledger F5).
+
+**Keputusan.** Smoke F5 memakai `bench/h2h` yang ada (bukan harness kedua). `SelectF5E1` memilih tepat **10 task E1** self-contained deterministik dengan salt `h2h-smoke/v1|E1|`; `-smoke f5` memakai model murah default `openai/gpt-4o-mini` (boleh dioverride `-model`) dan harga eksplisit `-price-in/out` tetap wajib. Key upstream dibaca **saat runtime** dari `H2H_KEY_FILE` atau `~/.config/damnbot/llm_key` (`KeyFile`), hanya di memori proxy, tidak dicetak. Ledger tunggal `bench/h2h/results/f1-spend.json` diperluas **aditif** dengan map `phases` (`F1` tetap dicerminkan ke field top-level lama); fase `F5` punya cap sendiri **US$2,00**, reservasi/spent terisolasi, dan cap tidak bisa dinaikkan dari CLI. `TestF5SmokeLivePreconditions`: opt-in `H2H_LIVE_F5=1`; bila job menyatakan live tetapi key tidak ada → test gagal, bukan skip; tanpa opt-in → skip (tidak ada belanja di suite unit). Rekaman proxy tetap melewati `TestRecordingsNoKey`.
+
+**Dampak terukur.** Kode harness ~200 baris non-test (di luar budget core/BINARY; bench punya modul sendiri). Smoke berbayar belum dijalankan pada PR ini: biaya aktual F5 **US$0,00**, F1 ledger tetap 0,92200161/2,00, F5 0/2,00. Menjalankan `h2h -smoke f5` sekali membutuhkan persetujuan user; cap F5 mencegah >US$2,00.

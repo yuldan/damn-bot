@@ -33,6 +33,14 @@ var SmokeQuota = []struct {
 // SelectSalt membuat urutan pilihan stabil dan terdokumentasi.
 const SelectSalt = "h2h-smoke/v1|"
 
+// F5SmokeSalt is the F5 E1 smoke selection (ROADMAP F5, ADR-032): ten
+// self-contained E1 tasks; no cross-agent gate in F5.
+const F5SmokeSalt = "h2h-smoke/v1|E1|"
+
+// F5CheapModel is the default cheap model of the F5 smoke (override with
+// -model; prices still come from the explicit -price-* flags).
+const F5CheapModel = "openai/gpt-4o-mini"
+
 // LoadSet membaca <dir>/<set>.jsonl.
 func LoadSet(dir, set string) ([]evals.Task, error) {
 	f, err := os.Open(filepath.Join(dir, set+".jsonl"))
@@ -267,4 +275,41 @@ func tailString(b []byte, n int) string {
 		b = b[len(b)-n:]
 	}
 	return strings.TrimSpace(string(b))
+}
+
+// SelectF5E1 memilih 10 task E1 self-contained untuk smoke F5.
+func SelectF5E1(dir string, lookPath func(string) (string, error)) ([]evals.Task, error) {
+	ts, err := LoadSet(dir, "E1")
+	if err != nil {
+		return nil, err
+	}
+	ts = slices.DeleteFunc(ts, func(t evals.Task) bool { return !Eligible(&t, lookPath) })
+	slices.SortFunc(ts, func(a, b evals.Task) int {
+		return strings.Compare(selectKeyF5(a.ID), selectKeyF5(b.ID))
+	})
+	if len(ts) < 10 {
+		return nil, fmt.Errorf("h2h: E1 hanya %d task eligible < 10", len(ts))
+	}
+	return ts[:10], nil
+}
+
+func selectKeyF5(id string) string {
+	h := sha256.Sum256([]byte(F5SmokeSalt + id))
+	return hex.EncodeToString(h[:])
+}
+
+// KeyFile resolves the runtime upstream key file: H2H_KEY_FILE, else the
+// per-user ~/.config/damnbot/llm_key. It never returns or logs the contents.
+func KeyFile(getenv func(string) string, home string) string {
+	if v := strings.TrimSpace(getenv("H2H_KEY_FILE")); v != "" {
+		return v
+	}
+	if home == "" {
+		return ""
+	}
+	p := filepath.Join(home, ".config", "damnbot", "llm_key")
+	if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
+		return p
+	}
+	return ""
 }
