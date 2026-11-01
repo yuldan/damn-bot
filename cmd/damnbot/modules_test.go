@@ -51,6 +51,9 @@ func TestRunAdvertisesF1Tools(t *testing.T) {
 	if executeCodeLinked {
 		want = append(want, "execute_code")
 	}
+	if processToolsLinked {
+		want = append(want, "process_kill", "process_list", "process_output", "process_send", "process_wait")
+	}
 	slices.Sort(want)
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v, want %v", names, want)

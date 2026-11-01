@@ -93,7 +93,10 @@ schema            1200 internal/schema
 # ADR-298 (execute_code slice 3a): tools 3150 -> 3300 untuk tool execute_code
 # + schema (terukur 3268). Sigma core caps 53.143 -> 53.365; plafon core
 # 53.200 -> 53.400.
-tools             3300 internal/tools
+# ADR-299 (process_* adapters slice 3b): tools 3300 -> 3500 untuk lima
+# adapter process_* (terukur 3478). Sigma core caps 53.365 -> 53.565;
+# plafon core 53.400 -> 53.600.
+tools             3500 internal/tools
 # ADR-143: komposisi toolset deklaratif (TSET/CORE-004/005; Σ core 38.450 -> 38.850 <= 47.000).
 toolset            400 internal/toolset
 # ADR-111: codetools 4500 -> 4800 (perbaikan REVIEW-F1-SEC2; Σ core 33.900 -> 34.200 <= 47.000).

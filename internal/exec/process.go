@@ -1,3 +1,5 @@
+//go:build !minimal
+
 // Package exec background-process registry (EXEC-AND-CODING §A.5, ADR-072,
 // EXEC-009): bounded live processes per session, ring-buffered output,
 // process_list/output/wait/send/kill semantics. Processes die with the
