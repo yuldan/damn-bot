@@ -2,9 +2,11 @@ package provider
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,7 +14,6 @@ import (
 	"github.com/damnbot/damnbot/internal/budget"
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/netx/retry"
-	"github.com/damnbot/damnbot/internal/provider/auth"
 	"github.com/damnbot/damnbot/internal/provider/registry"
 )
 
@@ -24,7 +25,7 @@ type Route struct {
 	APIKey          string // resolved secret; "" = no auth (local server)
 	// Auth, when set, replaces the static bearer APIKey: SigV4, Google JWT
 	// or OAuth (F5-03). It receives the exact encoded payload.
-	Auth          auth.Signer
+	Auth          Signer
 	CredentialID  string
 	Headers       map[string]string // extra_headers
 	ContextWindow int64             // 0 = unknown
@@ -62,6 +63,11 @@ func (r *Route) CarrierFamily() string {
 		return r.Family
 	}
 	return r.Provider
+}
+
+// Signer authenticates one outbound request (E-09; provider/auth implements).
+type Signer interface {
+	Sign(ctx context.Context, req *http.Request, payload []byte) error
 }
 
 // Ref is the "provider/model" reference of r.

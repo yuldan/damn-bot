@@ -44,7 +44,7 @@ plan               600 internal/plan
 # decode 249 + schema 278 + transport 30) untuk sanitasi schema Gemini.
 # Sigma core 51.629 -> 51.898, plafon core 51.680 -> 51.950 (headroom 52);
 # provider tetap 2.145 (terukur 2.141).
-provider          2145 internal/provider
+provider          2234 internal/provider
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses
 provider/anthropic  645 internal/provider/anthropic
@@ -67,7 +67,11 @@ provider/registry  660 internal/provider/registry
 # OAuth B/C di bawah cap 961). `secret` 1245 -> 1261 untuk Delete named token
 # (A terukur 1245; Delete di PR B). provider 2217 -> 2224 (+7 signer).
 # Sigma core 48.691 -> 49.675 <= 49.700 (headroom 25).
-provider/auth      961 internal/provider/auth
+# ADR-305 (EC-SEC-002/003): kebijakan sumber kredensial eksplisit (env exact,
+# keychain ref, key_cmd berbatas); provider/auth 961 -> 1211 (terukur 1211).
+# ADR-305 juga: provider 2145 -> 2234 (TokenRefresher, EC-PROV-014; terukur
+# 2234). Sigma core 52.383 -> 52.722 <= 52.730 (headroom 8).
+provider/auth     1211 internal/provider/auth
 netx              1800 internal/netx
 netx/jsonrpc       530 internal/netx/jsonrpc
 schema            1200 internal/schema
