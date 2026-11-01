@@ -17,12 +17,13 @@ func prepareTree(cmd *osexec.Cmd) {
 }
 
 // killTree sends TERM to the group, waits up to grace, then KILLs it.
+//
+//nolint:errcheck,gosec // ESRCH means the group is already gone
 func killTree(cmd *osexec.Cmd, grace time.Duration) {
 	if cmd.Process == nil {
 		return
 	}
 	pid := cmd.Process.Pid
-	//nolint:errcheck,gosec // ESRCH means the group is already gone.
 	syscall.Kill(-pid, syscall.SIGTERM)
 	if grace <= 0 {
 		grace = time.Second
@@ -32,7 +33,6 @@ func killTree(cmd *osexec.Cmd, grace time.Duration) {
 		t := time.NewTimer(10 * time.Millisecond)
 		<-t.C
 	}
-	//nolint:errcheck,gosec // ESRCH means the group is already gone.
 	syscall.Kill(-pid, syscall.SIGKILL)
 }
 

@@ -242,6 +242,8 @@ func (ss *Sessions) start(ctx context.Context) (*session, error) {
 
 // run sends one command and waits for its sentinel. reset reports that the
 // shell was killed (timeout without sentinel, prompt, cancel, shell exit).
+//
+//nolint:gosec // G304: every path is under the 0700 session dir
 func (s *session) run(ctx context.Context, command string, timeout time.Duration) (Result, bool, error) {
 	res := Result{Runner: RunnerPipe, ExecID: s.c.id}
 	if s.sh.pty {
@@ -252,7 +254,7 @@ func (s *session) run(ctx context.Context, command string, timeout time.Duration
 	path := filepath.Join(s.dir, "c"+strconv.Itoa(s.n)+s.sh.ext)
 	// O_EXCL: a symlink planted at the predictable command-file name by a
 	// previous command must not redirect the write (REVIEW-F1-SEC5 EX5-7).
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: path under the 0700 session dir
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return res, false, fmt.Errorf("exec: session command file: %w", err)
 	}
@@ -268,7 +270,7 @@ func (s *session) run(ctx context.Context, command string, timeout time.Duration
 	// Pre-create the cwd file with O_EXCL and require a regular file: a
 	// symlink planted at the predictable name cannot redirect the shell's
 	// `pwd -P >`/`cd >`/Set-Content (REVIEW-F1-SEC5 EX5-10).
-	cf, cerr := os.OpenFile(cwdPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // G304: path under the 0700 session dir
+	cf, cerr := os.OpenFile(cwdPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if cerr != nil {
 		return res, false, fmt.Errorf("exec: session cwd file: %w", cerr)
 	}

@@ -392,6 +392,7 @@ func sysctlValue(ctx context.Context, d *serviceDeps, args ...string) string {
 	return cleanLine(line)
 }
 
+//nolint:contextcheck,errcheck // consolidated for serviceMode
 func serviceMode(ctx context.Context, d *serviceDeps, dataDir string) string {
 	if _, err := d.stat(filepath.Join(dataDir, "damnbot.db")); err != nil {
 		return "unknown (no data dir)"
@@ -400,8 +401,7 @@ func serviceMode(ctx context.Context, d *serviceDeps, dataDir string) string {
 	if err != nil {
 		return "unknown (" + cleanLine(err.Error()) + ")"
 	}
-	//nolint:contextcheck // ctxdb.Store.Close has no context parameter
-	defer func() { _ = db.Close() }() //nolint:errcheck // status is best-effort
+	defer func() { _ = db.Close() }()
 	st, err := heal.NewBreaker(db, nil).Load(ctx)
 	switch {
 	case err != nil:
@@ -440,6 +440,7 @@ func ledgerField(m map[string]json.RawMessage, key string) string {
 	return cleanLine(strings.Trim(string(raw), `"`))
 }
 
+//nolint:contextcheck,errcheck // consolidated for serviceResumeCmd
 func serviceResumeCmd(ctx context.Context, d *serviceDeps, args []string, stdout, stderr io.Writer) int {
 	var dataDir *string
 	var noRestart *bool
@@ -467,8 +468,7 @@ func serviceResumeCmd(ctx context.Context, d *serviceDeps, args []string, stdout
 		return 1
 	}
 	_, rerr := heal.NewBreaker(db, nil).Resume(ctx)
-	//nolint:contextcheck // ctxdb.Store.Close has no context parameter
-	_ = db.Close() //nolint:errcheck // resume already succeeded
+	_ = db.Close()
 	if rerr != nil {
 		sessionsPrintf(stderr, "service resume: %s\n", cleanLine(rerr.Error()))
 		return 1

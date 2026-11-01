@@ -28,7 +28,9 @@ type Session struct {
 
 // CreateSession inserts a session and acquires its lease in the same
 // transaction (fork/rewind/delegate rule, §11.11.10). Guard P on parent_id.
-func (t *Tx) CreateSession(ss Session) (int64, error) { //nolint:gocritic // value API: callers pass a literal
+//
+//nolint:gocritic // consolidated for CreateSession
+func (t *Tx) CreateSession(ss Session) (int64, error) {
 	var parent, fork any
 	if ss.ParentID != "" {
 		parent, fork = ss.ParentID, ss.ForkSeq

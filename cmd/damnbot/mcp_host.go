@@ -61,11 +61,12 @@ func (h *mcpCLIHost) Storage(namespace string) (host.Store, error) {
 	return moduleStore{db: h.db, module: strings.TrimPrefix(namespace, "module/")}, nil
 }
 
-func (h *mcpCLIHost) Spawn(ctx context.Context, spec host.SpawnSpec) (host.Process, error) { //nolint:gocritic // one spawn spec copied once
+//nolint:gocritic,gosec // consolidated for Spawn
+func (h *mcpCLIHost) Spawn(ctx context.Context, spec host.SpawnSpec) (host.Process, error) {
 	if spec.Path == "" {
 		return nil, errors.New("mcp: empty spawn path")
 	}
-	cmd := exec.CommandContext(ctx, spec.Path, spec.Args...) //nolint:gosec // G204: path/argv come from validated [modules.mcp] config
+	cmd := exec.CommandContext(ctx, spec.Path, spec.Args...)
 	cmd.Dir = spec.Dir
 	cmd.Env = spec.Env
 	in, err := cmd.StdinPipe()
