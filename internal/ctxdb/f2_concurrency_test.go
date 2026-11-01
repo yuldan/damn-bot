@@ -84,6 +84,19 @@ func appendSharedTurn(s *Store, i int, res *multiResult) int {
 	start := time.Now()
 	deadline := start.Add(10 * time.Second)
 	for {
+		// Wait on a read connection while a live foreign owner holds the lease.
+		// A busy AcquireLease opens a write transaction, and a tight loop of
+		// those queues ahead of the owner's own Append: that is what starved
+		// the holder on the Windows -race runner (the lease itself was never
+		// leaked). Only the moment the lease looks free costs a writer.
+		if pid, held := sharedLeaseHeld(s, "SHARED"); held {
+			if time.Now().After(deadline) {
+				res.note("acquire", start, busyHeld(pid))
+				return 0
+			}
+			runtime.Gosched()
+			continue
+		}
 		_, err := s.AcquireLease(ctx, "SHARED")
 		switch {
 		case errors.Is(err, ErrSessionBusy):
@@ -110,6 +123,27 @@ func appendSharedTurn(s *Store, i int, res *multiResult) int {
 		res.note("release", start, s.ReleaseLease(ctx, "SHARED"))
 		return n
 	}
+}
+
+// sharedLeaseHeld reports a live foreign owner of sid from a read connection,
+// mirroring the busy branch of Tx.AcquireLease so a waiting contender never
+// takes the writer lock.
+func sharedLeaseHeld(s *Store, sid string) (int, bool) {
+	var x liveRec
+	var old int64
+	if err := s.get(context.Background(), s.q["lease.get"], []any{sid},
+		&old, &x.PID, &x.Start, &x.Host, &x.BootID, &x.HeartbeatAt, &x.ExpiresAt); err != nil {
+		return 0, false
+	}
+	if mine, _ := s.token(sid); mine == old || x.Ident == s.id || s.takeoverOK("lease:"+sid, x, false) {
+		return 0, false
+	}
+	return x.PID, true
+}
+
+// busyHeld is the failure the lease wait reports when its budget runs out.
+func busyHeld(pid int) error {
+	return fmt.Errorf("ctxdb: session SHARED held by pid %d: %w", pid, ErrSessionBusy)
 }
 
 // f2Worker appends turns (one user + one assistant event per turn) to its own
