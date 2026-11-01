@@ -21,13 +21,13 @@ func bindMount(root string) (string, error) {
 	return "type=bind,src=" + src + ",dst=" + dst + ",rw", nil
 }
 
-// stripExtendedPath removes the \?\ and \??\ prefixes filepath.EvalSymlinks
+// stripExtendedPath removes the \\?\ and \\??\ prefixes filepath.EvalSymlinks
 // returns on Windows; Docker Desktop accepts only drive-letter/UNC paths.
 func stripExtendedPath(host string) string {
-	for _, prefix := range []string{`\?\UNC\`, `\?\`, `\??\`} {
+	for _, prefix := range []string{`\\?\UNC\`, `\\?\`, `\\??\`} {
 		if strings.HasPrefix(host, prefix) {
 			host = strings.TrimPrefix(host, prefix)
-			if prefix == `\?\UNC\` {
+			if prefix == `\\?\UNC\` {
 				return `\\` + host
 			}
 			return host
