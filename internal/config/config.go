@@ -135,9 +135,9 @@ type Exec struct {
 	PassSSHAgent     bool              `toml:"pass_ssh_agent"`
 	Backend          string            `toml:"backend"`
 	Backends         ExecBackends      `toml:"backends"`
-	// CodeAutoLanguages is exec.code_auto_languages: the only languages
-	// execute_code may auto-approve in mode auto (ADR-089).
-	CodeAutoLanguages []string `toml:"code_auto_languages"`
+	// ExecExtra contributes build-specific [exec] keys (code_auto_languages
+	// in the full build; empty in minimal).
+	ExecExtra
 }
 
 // Agent is SPEC §12 [agent].
@@ -296,18 +296,19 @@ const DefaultGatewayUserDailyUSD = 1.00
 
 // defaultExec is the SPEC §12 [exec] block.
 func defaultExec() Exec {
-	return Exec{
-		DefaultTimeoutS:   120,
-		IdleTimeoutS:      60,
-		AllowDestructive:  false,
-		KillGraceS:        3,
-		EnvAllow:          []string{},
-		Env:               map[string]string{},
-		PassSSHAgent:      false,
-		Backend:           "local",
-		Backends:          defaultExecBackends(),
-		CodeAutoLanguages: []string{},
+	e := Exec{
+		DefaultTimeoutS:  120,
+		IdleTimeoutS:     60,
+		AllowDestructive: false,
+		KillGraceS:       3,
+		EnvAllow:         []string{},
+		Env:              map[string]string{},
+		PassSSHAgent:     false,
+		Backend:          "local",
+		Backends:         defaultExecBackends(),
 	}
+	defaultExecCode(&e)
+	return e
 }
 
 // defaultSkills is the SPEC §12 [skills] block.

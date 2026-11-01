@@ -55,7 +55,7 @@ func tomlAbsPath(t *testing.T) string {
 // specExecDefaults mirrors the [exec] block of SPEC §12 field by field;
 // duplicating the production literal here is the point of the test.
 func specExecDefaults() Exec {
-	return Exec{
+	e := Exec{
 		DefaultTimeoutS:  120,
 		IdleTimeoutS:     60,
 		AllowDestructive: false,
@@ -77,8 +77,9 @@ func specExecDefaults() Exec {
 			Daytona:       SandboxExec{TimeoutS: 300},
 			VercelSandbox: SandboxExec{TimeoutS: 300},
 		},
-		CodeAutoLanguages: []string{},
 	}
+	fillExecCode(&e)
+	return e
 }
 
 // TestConfigDefaultsMatchSpec is the ROADMAP F1 acceptance hook (ADR-083):
@@ -620,32 +621,5 @@ func TestExecBackendSelection(t *testing.T) {
 				t.Fatalf("Validate = %v, want %s", err, tc.key)
 			}
 		})
-	}
-}
-
-// TestCodeAutoLanguagesValidation: exec.code_auto_languages is a closed set
-// of non-shell languages without duplicates (ADR-089).
-func TestCodeAutoLanguagesValidation(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		langs []string
-		ok    bool
-	}{
-		{nil, true},
-		{[]string{"python", "go"}, true},
-		{[]string{"bash"}, false},
-		{[]string{"python", "python"}, false},
-		{[]string{"rust"}, false},
-	}
-	for _, tc := range cases {
-		cfg := Default()
-		cfg.Exec.CodeAutoLanguages = tc.langs
-		err := cfg.Validate()
-		if tc.ok && err != nil {
-			t.Errorf("%v: %v", tc.langs, err)
-		}
-		if !tc.ok && err == nil {
-			t.Errorf("%v: accepted", tc.langs)
-		}
 	}
 }
