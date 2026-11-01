@@ -152,7 +152,10 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.test_matrix) }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    # Batas infrastruktur, bukan gate tes: suite `make test RACE=-race` 73 paket di runner Windows
+    # lambat pernah menyentuh 25m13s dan job dibunuh timeout tanpa satu pun `--- FAIL` (bukti #595
+    # head 34f08824, job 17:58:49Z→18:24:02Z). Windows mendapat 35 menit; target lain tetap 25.
+    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 35 || 25 }}
     env:
       CGO_ENABLED: ${{ matrix.cgo }} # -race butuh cgo; build rilis tetap CGO_ENABLED=0 (job static, portability)
     steps:
