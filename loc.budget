@@ -86,6 +86,10 @@ schema            1200 internal/schema
 # (plafon 52.100 tidak berubah; headroom 0, slice berikut butuh ADR).
 # ADR-295 (codeintel slice 4): tools 3010 -> 3150 untuk repo_map/code_intel
 # (terukur 3134). Sigma core 52.383 -> 52.523, plafon core 52.400 -> 52.600.
+# ADR-277 amandemen EC-WIN-008 (control pipe Windows): exec 3700 -> 4020
+# (terukur 4004 pada rebase di atas ADR-297: 394 baris baru dari pipe_auth.go
+# + pipe_windows.go). Sigma core 52.823 -> 53.143, plafon core 52.900 -> 53.200
+# (maxCoreLOC, regex budget_doc_test, marker arch-budgetsum).
 tools             3150 internal/tools
 # ADR-143: komposisi toolset deklaratif (TSET/CORE-004/005; Σ core 38.450 -> 38.850 <= 47.000).
 toolset            400 internal/toolset
@@ -110,7 +114,7 @@ toolset            400 internal/toolset
 # ADR-297 (process_* slice 2, di atas execute_code slice 1 pada main f68dc645+#593): exec 3400 -> 3700
 # untuk registry background (terukur 3607 = 3155 slice 1 + 452 registry);
 # Sigma core caps 52.523 -> 52.823, plafon core 52.600 -> 52.900 (headroom 93 baris exec).
-exec              3700 internal/exec
+exec              4020 internal/exec
 exec/classify     1946 internal/exec/classify
 # ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).
 # ADR-108: sandbox+redact 1450 -> 1700 (dir-fd walk fast path; Σ core 34.650 -> 34.900 <= 47.000).
