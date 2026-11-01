@@ -240,3 +240,119 @@ func TestForbidden(t *testing.T) {
 		t.Fatal("tulis absolut tidak terdeteksi")
 	}
 }
+
+// TestSelectF5E1: the F5 smoke is exactly ten eligible E1 tasks, stable.
+func TestSelectF5E1(t *testing.T) {
+	t.Parallel()
+	all := func(string) (string, error) { return "/bin/true", nil }
+	a, err := SelectF5E1("../evals/v1", all)
+	if err != nil {
+		t.Skip("E1 toolchain incomplete:", err)
+	}
+	if len(a) != 10 {
+		t.Fatalf("tasks = %d", len(a))
+	}
+	for _, task := range a {
+		if task.Set != "E1" {
+			t.Fatalf("non-E1 task %s (%s)", task.ID, task.Set)
+		}
+	}
+	b, err := SelectF5E1("../evals/v1", all)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID {
+			t.Fatalf("selection unstable at %d: %s vs %s", i, a[i].ID, b[i].ID)
+		}
+	}
+}
+
+func TestKeyFileResolution(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	env := func(string) string { return "" }
+	if got := KeyFile(env, home); got != "" {
+		t.Fatalf("missing key = %q", got)
+	}
+	path := filepath.Join(home, ".config", "damnbot", "llm_key")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := KeyFile(env, home); got != path {
+		t.Fatalf("default key = %q", got)
+	}
+	env = func(k string) string {
+		if k == "H2H_KEY_FILE" {
+			return "/tmp/explicit-key"
+		}
+		return ""
+	}
+	if got := KeyFile(env, home); got != "/tmp/explicit-key" {
+		t.Fatalf("env key = %q", got)
+	}
+}
+
+// TestF5SmokeLivePreconditions is the skipOrFail gate for the paid smoke:
+// opt-in locally; a live job without a key fails instead of skipping.
+func TestF5SmokeLivePreconditions(t *testing.T) {
+	t.Parallel()
+	key := func() string {
+		home, _ := os.UserHomeDir()
+		return KeyFile(os.Getenv, home)
+	}()
+	live := os.Getenv("H2H_LIVE_F5")
+	if live == "" {
+		if key == "" {
+			t.Skip("no live smoke key (set H2H_LIVE_F5=1 with H2H_KEY_FILE)")
+		}
+		t.Skip("paid F5 smoke is opt-in (H2H_LIVE_F5=1); no spend in the unit suite")
+	}
+	if key == "" {
+		t.Fatalf("H2H_LIVE_F5=1 but no key file (H2H_KEY_FILE/~/.config/damnbot/llm_key)")
+	}
+	all := func(string) (string, error) { return "/bin/true", nil }
+	if tasks, err := SelectF5E1("../evals/v1", all); err != nil || len(tasks) != 10 {
+		t.Fatalf("live smoke selection: %d %v", len(tasks), err)
+	}
+}
+
+func TestLedgerPhaseIsolation(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "spend.json")
+	f1, err := OpenLedger(path, 2.00)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f5, err := OpenLedgerPhase(path, PhaseF5, F5CapUSD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, err := f1.Reserve(0.25, 0); err != nil {
+		t.Fatal(err)
+	} else if err := f1.Settle(id, 0.25); err != nil {
+		t.Fatal(err)
+	}
+	if id, err := f5.Reserve(0.10, 0); err != nil {
+		t.Fatal(err)
+	} else if err := f5.Settle(id, 0.10); err != nil {
+		t.Fatal(err)
+	}
+	f1b, err := OpenLedger(path, 2.00)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f5b, err := OpenLedgerPhase(path, PhaseF5, F5CapUSD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f1b.Spent() != 0.25 || f5b.Spent() != 0.10 {
+		t.Fatalf("phases: F1=%v F5=%v", f1b.Spent(), f5b.Spent())
+	}
+	if f5b.CapUSD != F5CapUSD || f1b.CapUSD != 2.00 {
+		t.Fatalf("caps: F1=%v F5=%v", f1b.CapUSD, f5b.CapUSD)
+	}
+}
