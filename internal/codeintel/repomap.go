@@ -13,8 +13,6 @@ import (
 
 // parseGo extracts package, definitions and imports with go/ast. Malformed
 // source is an error for that file, never a panic into the session.
-//
-//nolint:gocognit // one AST walk with a fixed declaration set
 func parseGo(path string, src []byte) (File, error) {
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, path, src, parser.SkipObjectResolution)
@@ -32,6 +30,19 @@ func parseGo(path string, src []byte) (File, error) {
 		f.Imports = append(f.Imports, p)
 		f.Symbols = append(f.Symbols, Symbol{Kind: KindImport, Name: p, Line: fset.Position(imp.Pos()).Line, Col: fset.Position(imp.Pos()).Column})
 	}
+	collectDecls(fset, node, &f)
+	sort.SliceStable(f.Symbols, func(i, j int) bool {
+		if f.Symbols[i].Line != f.Symbols[j].Line {
+			return f.Symbols[i].Line < f.Symbols[j].Line
+		}
+		return f.Symbols[i].Name < f.Symbols[j].Name
+	})
+	sort.Strings(f.Imports)
+	return f, nil
+}
+
+// collectDecls appends function/method/type symbols from the AST.
+func collectDecls(fset *token.FileSet, node *ast.File, f *File) {
 	for _, decl := range node.Decls {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
@@ -56,14 +67,6 @@ func parseGo(path string, src []byte) (File, error) {
 			}
 		}
 	}
-	sort.SliceStable(f.Symbols, func(i, j int) bool {
-		if f.Symbols[i].Line != f.Symbols[j].Line {
-			return f.Symbols[i].Line < f.Symbols[j].Line
-		}
-		return f.Symbols[i].Name < f.Symbols[j].Name
-	})
-	sort.Strings(f.Imports)
-	return f, nil
 }
 
 // receiverName is the method receiver type without pointer/type arguments.
