@@ -53,6 +53,7 @@ func TestStdioListCallAndCache(t *testing.T) {
 	if inits != 1 || lists != 1 || calls != 0 {
 		t.Fatalf("counts = %d/%d/%d, want one init and one list", inits, lists, calls)
 	}
+	srv.awaitInitialized(t)
 	srv.mu.Lock()
 	initialized := srv.initialized
 	srv.mu.Unlock()
