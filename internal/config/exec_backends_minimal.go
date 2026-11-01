@@ -20,6 +20,10 @@ func (c *Config) validateExecBackends() error {
 	}
 }
 
+// execCodeKey reports whether [exec] code_auto_languages exists in this build.
+const execCodeKey = false
+
+// validateExecCode is unreachable in the minimal build (execCodeKey false).
 func validateExecCode(*Config) error { return nil }
 
 // defaultExec is the SPEC §12 [exec] block without exec.code_auto_languages.

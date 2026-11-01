@@ -172,8 +172,10 @@ func (c *Config) validateExec() error {
 			return invalid("exec.env_allow", "%q is not an environment variable name", name)
 		}
 	}
-	if err := validateExecCode(c); err != nil {
-		return err
+	if execCodeKey {
+		if err := validateExecCode(c); err != nil {
+			return err
+		}
 	}
 	for name, value := range c.Exec.Env {
 		if !validEnvName(name) {

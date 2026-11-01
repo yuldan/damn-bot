@@ -455,9 +455,11 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if err != nil {
 		return nil, fail(err)
 	}
-	list, err = withExecuteCode(cfg, backend, envPolicy, list)
-	if err != nil {
-		return nil, fail(err)
+	if executeCodeLinked {
+		list, err = withExecuteCode(cfg, backend, envPolicy, list)
+		if err != nil {
+			return nil, fail(err)
+		}
 	}
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))

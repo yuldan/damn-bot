@@ -2,6 +2,9 @@
 
 package config
 
+// execCodeKey reports whether [exec] code_auto_languages exists in this build.
+const execCodeKey = true
+
 func validateExecCode(c *Config) error { return validCodeLangs(c.Exec.CodeAutoLanguages) }
 
 // validCodeLangs validates exec.code_auto_languages: closed set, no shell
