@@ -123,7 +123,8 @@ type Approval struct {
 }
 
 // Exec is SPEC §12 [exec] (ADR-072, ADR-079, ADR-081) plus the SEC-02 keys
-// exec.env_allow, exec.env and exec.pass_ssh_agent.
+// exec.env_allow, exec.env and exec.pass_ssh_agent, and the F5 backend
+// selection (ADR-275): exec.backend plus [exec.backends.<id>].
 type Exec struct {
 	DefaultTimeoutS  int               `toml:"default_timeout_s"`
 	IdleTimeoutS     int               `toml:"idle_timeout_s"`
@@ -132,6 +133,86 @@ type Exec struct {
 	EnvAllow         []string          `toml:"env_allow"`
 	Env              map[string]string `toml:"env"`
 	PassSSHAgent     bool              `toml:"pass_ssh_agent"`
+	Backend          string            `toml:"backend"`
+	Backends         ExecBackends      `toml:"backends"`
+}
+
+// ExecBackends is the per-backend configuration of [exec.backends]
+// (EXEC-AND-CODING §A.7). Selecting a backend with missing required fields
+// is a validation error, not a silent fallback to local.
+type ExecBackends struct {
+	Docker      DockerExec      `toml:"docker"`
+	SSH         SSHExec         `toml:"ssh"`
+	Singularity SingularityExec `toml:"singularity"`
+	Modal       CloudExec       `toml:"modal"`
+	Daytona     CloudExec       `toml:"daytona"`
+	Vercel      CloudExec       `toml:"vercel_sandbox"`
+}
+
+// DockerExec configures the docker CLI backend.
+type DockerExec struct {
+	Binary         string   `toml:"binary"`
+	Image          string   `toml:"image"`
+	User           string   `toml:"user"`
+	CPUMilli       int      `toml:"cpu_milli"`
+	MemoryMiB      int      `toml:"memory_mib"`
+	PIDs           int      `toml:"pids"`
+	Network        string   `toml:"network"`      // none (default) | bridge | allowlist
+	NetworkName    string   `toml:"network_name"` // isolated docker network used by allowlist
+	EgressAllow    []string `toml:"egress_allow"`
+	ProxyURL       string   `toml:"proxy_url"`
+	AllowUnlimited bool     `toml:"allow_unlimited"`
+}
+
+// SSHExec configures the SSH backend.
+type SSHExec struct {
+	Host       string `toml:"host"`
+	User       string `toml:"user"`
+	Port       int    `toml:"port"`
+	KeyFile    string `toml:"key_file"`
+	KnownHosts string `toml:"known_hosts"`
+	KeepAliveS int    `toml:"keepalive_s"`
+	IdleCloseS int    `toml:"idle_close_s"`
+	TimeoutS   int    `toml:"timeout_s"`
+	MaxConns   int    `toml:"max_conns"`
+}
+
+// SingularityExec configures the singularity/apptainer CLI backend.
+type SingularityExec struct {
+	Binary         string `toml:"binary"`
+	Image          string `toml:"image"`
+	Network        string `toml:"network"` // none (default) | host
+	Fakeroot       bool   `toml:"fakeroot"`
+	AllowUnlimited bool   `toml:"allow_unlimited"`
+}
+
+// CloudExec configures one HTTP sandbox backend (modal, daytona, vercel
+// sandbox). TokenSecret names an entry in the secret store; the token is
+// read by the composition root and never enters a child environment.
+type CloudExec struct {
+	Endpoint    string `toml:"endpoint"`
+	TokenSecret string `toml:"token_secret"`
+	Image       string `toml:"image"`
+	TimeoutS    int    `toml:"timeout_s"`
+	ProjectID   string `toml:"project_id"`
+	TeamID      string `toml:"team_id"`
+}
+
+// defaultExecBackends is the SPEC §12 [exec.backends] block (ADR-275): the
+// docker caps are the conservative defaults, cloud backends stay inert until
+// endpoint+token are supplied.
+func defaultExecBackends() ExecBackends {
+	return ExecBackends{
+		Docker: DockerExec{
+			Binary: "docker", User: "65534:65534", CPUMilli: 1000,
+			MemoryMiB: 512, PIDs: 128, Network: "none",
+		},
+		SSH:         SSHExec{Port: 22, KeepAliveS: 30, IdleCloseS: 600, TimeoutS: 120, MaxConns: 4},
+		Singularity: SingularityExec{Binary: "apptainer", Network: "none"},
+		Modal:       CloudExec{TimeoutS: 120},
+		Daytona:     CloudExec{TimeoutS: 120},
+		Vercel:      CloudExec{TimeoutS: 120},
+	}
 }
 
 // Agent is SPEC §12 [agent].
@@ -333,6 +414,8 @@ func Default() Config {
 			EnvAllow:         []string{},
 			Env:              map[string]string{},
 			PassSSHAgent:     false,
+			Backend:          "local",
+			Backends:         defaultExecBackends(),
 		},
 		Agent:   Agent{VerifyOnStop: "run"},
 		Storage: Storage{Encrypt: false},

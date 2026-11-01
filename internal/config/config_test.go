@@ -52,6 +52,32 @@ func tomlAbsPath(t *testing.T) string {
 	return tomlQuote(hostPath(t))
 }
 
+// specExecDefaults mirrors the [exec] block of SPEC §12 field by field;
+// duplicating the production literal here is the point of the test.
+func specExecDefaults() Exec {
+	return Exec{
+		DefaultTimeoutS:  120,
+		IdleTimeoutS:     60,
+		AllowDestructive: false,
+		KillGraceS:       3,
+		EnvAllow:         []string{},
+		Env:              map[string]string{},
+		PassSSHAgent:     false,
+		Backend:          "local",
+		Backends: ExecBackends{
+			Docker: DockerExec{
+				Binary: "docker", User: "65534:65534", CPUMilli: 1000,
+				MemoryMiB: 512, PIDs: 128, Network: "none",
+			},
+			SSH:         SSHExec{Port: 22, KeepAliveS: 30, IdleCloseS: 600, TimeoutS: 120, MaxConns: 4},
+			Singularity: SingularityExec{Binary: "apptainer", Network: "none"},
+			Modal:       CloudExec{TimeoutS: 120},
+			Daytona:     CloudExec{TimeoutS: 120},
+			Vercel:      CloudExec{TimeoutS: 120},
+		},
+	}
+}
+
 // TestConfigDefaultsMatchSpec is the ROADMAP F1 acceptance hook (ADR-083):
 // every default exposed in F1 equals SPEC §12 (and, for log content controls,
 // the P29/GAP-SEC-11 line).
@@ -97,15 +123,7 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 			AddDirs:         []string{},
 			PreviewTimeoutS: 600,
 		},
-		Exec: Exec{
-			DefaultTimeoutS:  120,
-			IdleTimeoutS:     60,
-			AllowDestructive: false,
-			KillGraceS:       3,
-			EnvAllow:         []string{},
-			Env:              map[string]string{},
-			PassSSHAgent:     false,
-		},
+		Exec:    specExecDefaults(),
 		Agent:   Agent{VerifyOnStop: "run"},
 		Storage: Storage{Encrypt: false},
 		Network: Network{Offline: false, Background: true},
@@ -512,6 +530,70 @@ func TestConfigUpdateValidation(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := parse(t, toml); err == nil || !strings.Contains(err.Error(), "update.") {
 				t.Fatalf("Parse(%q) = %v, want an update.* validation error", toml, err)
+			}
+		})
+	}
+}
+
+// TestExecBackendSelection: a selected backend with missing or unsafe
+// configuration is rejected; local stays the default and needs nothing.
+func TestExecBackendSelection(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		edit func(*Config)
+		key  string
+		ok   bool
+	}{
+		{"default local", func(*Config) {}, "", true},
+		{"unknown backend", func(c *Config) { c.Exec.Backend = "firecracker" }, "exec.backend", false},
+		{"docker without image", func(c *Config) { c.Exec.Backend = "docker" }, "exec.backends.docker.image", false},
+		{"docker no network", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.Docker.Image = "docker", "img"
+			c.Exec.Backends.Docker.Network = "host"
+		}, "exec.backends.docker.network", false},
+		{"docker allowlist without proxy", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.Docker.Image = "docker", "img"
+			c.Exec.Backends.Docker.Network = "allowlist"
+			c.Exec.Backends.Docker.EgressAllow = []string{"proxy.golang.org:443"}
+		}, "exec.backends.docker.proxy_url", false},
+		{"docker ok", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.Docker.Image = "docker", "img"
+		}, "", true},
+		{"ssh without known_hosts", func(c *Config) {
+			c.Exec.Backend = "ssh"
+			c.Exec.Backends.SSH.Host, c.Exec.Backends.SSH.User = "example.test", "dev"
+		}, "exec.backends.ssh.known_hosts", false},
+		{"ssh ok", func(c *Config) {
+			c.Exec.Backend = "ssh"
+			c.Exec.Backends.SSH.Host, c.Exec.Backends.SSH.User = "example.test", "dev"
+			c.Exec.Backends.SSH.KnownHosts = "/home/dev/.ssh/known_hosts"
+		}, "", true},
+		{"singularity without image", func(c *Config) { c.Exec.Backend = "singularity" }, "exec.backends.singularity.image", false},
+		{"cloud without token", func(c *Config) {
+			c.Exec.Backend = "modal"
+			c.Exec.Backends.Modal.Endpoint = "https://sandbox.example.test"
+		}, "exec.backends.modal.token_secret", false},
+		{"cloud insecure endpoint", func(c *Config) {
+			c.Exec.Backend = "daytona"
+			c.Exec.Backends.Daytona.Endpoint, c.Exec.Backends.Daytona.TokenSecret = "http://sandbox.example.test", "t"
+		}, "exec.backends.daytona.endpoint", false},
+		{"cloud ok", func(c *Config) {
+			c.Exec.Backend = "vercel_sandbox"
+			c.Exec.Backends.Vercel.Endpoint, c.Exec.Backends.Vercel.TokenSecret = "https://sandbox.example.test", "t"
+		}, "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := Default()
+			tc.edit(&cfg)
+			err := cfg.Validate()
+			switch {
+			case tc.ok && err != nil:
+				t.Fatalf("Validate = %v, want nil", err)
+			case !tc.ok && (err == nil || !strings.Contains(err.Error(), tc.key)):
+				t.Fatalf("Validate = %v, want %s", err, tc.key)
 			}
 		})
 	}

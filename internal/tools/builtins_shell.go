@@ -517,6 +517,8 @@ func shellErr(err error) error {
 		return &ToolError{Code: CodeExecFailed, Message: "command not found", Hint: "check the command name and PATH", Err: err}
 	case errors.Is(err, exec.ErrSpec):
 		return &ToolError{Code: CodeInvalidArgs, Message: err.Error(), Err: err}
+	case errors.Is(err, exec.ErrUnavailable), errors.Is(err, exec.ErrCapability):
+		return &ToolError{Code: CodeModuleUnavailable, Message: err.Error(), Hint: "configure exec.backend or omit the option", Err: err}
 	default:
 		return &ToolError{Code: CodeExecFailed, Message: "spawn failed: " + err.Error(), Err: err}
 	}

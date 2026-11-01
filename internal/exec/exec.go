@@ -56,10 +56,13 @@ type Spec struct {
 	// Argv[0] absolute, or resolved through PATH in Env. Mode (b) callers
 	// must pass classify.DirectArgv output: Prepare validates control
 	// characters but does not re-parse a shell line (EX5-8).
-	Argv        []string
-	Dir         string   // working directory (validated by the caller, SPEC §14.2)
-	Env         []string // complete child environment (see BuildEnv)
-	Stdin       []byte   // nil: /dev/null (NUL); never the parent's stdin
+	Argv  []string
+	Dir   string   // working directory (validated by the caller, SPEC §14.2)
+	Env   []string // complete child environment (see BuildEnv)
+	Stdin []byte   // nil: /dev/null (NUL); never the parent's stdin
+	// Limits are the per-call resource caps of a container backend
+	// (§A.7, GAP-SEC-23). Local ignores them (Caps.ResourceLimits false).
+	Limits      Limits
 	PTY         bool
 	Timeout     time.Duration // 0: DefaultTimeout
 	IdleTimeout time.Duration // 0: DefaultIdleTimeout; < 0: disabled

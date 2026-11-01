@@ -47,7 +47,57 @@ config_version = 1
   kill_grace_s = 3
   env_allow = []
   pass_ssh_agent = false
+  backend = "local"
   [exec.env]
+  [exec.backends]
+    [exec.backends.docker]
+      binary = "docker"
+      image = ""
+      user = "65534:65534"
+      cpu_milli = 1000
+      memory_mib = 512
+      pids = 128
+      network = "none"
+      network_name = ""
+      proxy_url = ""
+      allow_unlimited = false
+    [exec.backends.ssh]
+      host = ""
+      user = ""
+      port = 22
+      key_file = ""
+      known_hosts = ""
+      keepalive_s = 30
+      idle_close_s = 600
+      timeout_s = 120
+      max_conns = 4
+    [exec.backends.singularity]
+      binary = "apptainer"
+      image = ""
+      network = "none"
+      fakeroot = false
+      allow_unlimited = false
+    [exec.backends.modal]
+      endpoint = ""
+      token_secret = ""
+      image = ""
+      timeout_s = 120
+      project_id = ""
+      team_id = ""
+    [exec.backends.daytona]
+      endpoint = ""
+      token_secret = ""
+      image = ""
+      timeout_s = 120
+      project_id = ""
+      team_id = ""
+    [exec.backends.vercel_sandbox]
+      endpoint = ""
+      token_secret = ""
+      image = ""
+      timeout_s = 120
+      project_id = ""
+      team_id = ""
 
 [agent]
   verify_on_stop = "run"
@@ -149,6 +199,7 @@ config_version = 1
 | `exec.allow_destructive` | bool | `false` | `DAMNBOT_EXEC_ALLOW_DESTRUCTIVE` |
 | `exec.kill_grace_s` | int | `3` | `DAMNBOT_EXEC_KILL_GRACE_S` |
 | `exec.pass_ssh_agent` | bool | `false` | `DAMNBOT_EXEC_PASS_SSH_AGENT` |
+| `exec.backend` | string | `local` | `DAMNBOT_EXEC_BACKEND` |
 | `agent.verify_on_stop` | string | `run` | `DAMNBOT_AGENT_VERIFY_ON_STOP` |
 | `skills.project_discovery` | bool | `true` | `DAMNBOT_SKILLS_PROJECT_DISCOVERY` |
 | `skills.inline_shell` | bool | `false` | `DAMNBOT_SKILLS_INLINE_SHELL` |

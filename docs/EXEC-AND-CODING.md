@@ -243,16 +243,18 @@ Hasil:
 Kontrak `internal/exec.Backend`, diimplementasikan oleh setiap backend:
 
 ```go
-// Backend menjalankan perintah di lingkungan target. Implementasi wajib
-// lazy (P16): koneksi/daemon dibuka pada Exec pertama, bukan saat Register.
+// Backend menjalankan perintah di lingkungan target (ADR-275). Implementasi
+// wajib lazy (P16): koneksi/daemon dibuka pada Run pertama, bukan saat dibuat.
 type Backend interface {
     ID() string
-    Caps() Caps                                // PTY, Signals, SharesFS, ResourceLimits, Network
-    Exec(ctx context.Context, s Spec) (Proc, error) // Spec: argv, cwd, env, stdin, pty, limits
+    Caps() Caps                                     // PTY, Signals, SharesFS, ResourceLimits, Network, Sessions
+    Run(ctx context.Context, s *Spec) (Result, error) // kontrak Runner.Run: status tertutup, pohon dibunuh
     Sweep(ctx context.Context, execID string) (killed int, err error) // 0 orphan per backend
-    Close(ctx context.Context) error           // membunuh semua Proc milik backend
+    Close(ctx context.Context) error                // membunuh semua proses milik backend
 }
 ```
+
+`Spec.Limits{CPUMilli, MemoryMiB, PIDs}` (nol = tidak diset) hanya diterima backend dengan `Caps.ResourceLimits`; backend lain menolak dengan `ErrCapability` (`module_unavailable`), tidak mengabaikan. `exec.Require(b, need)` menamai setiap kapabilitas yang hilang. Seleksi backend berasal dari `[exec] backend` + `[exec.backends.<id>]`, bukan dari argumen `shell` (ADR-275 butir 5); backend yang tidak ada di build gagal start, tanpa fallback ke `local`.
 
 | Backend | Status | Transport | `SharesFS` | Kill pohon proses | Parity |
 |---|---|---|---|---|---|

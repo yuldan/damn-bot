@@ -180,7 +180,150 @@ func (c *Config) validateExec() error {
 			return invalid("exec.env."+name, "value contains NUL")
 		}
 	}
+	return c.validateExecBackends()
+}
+
+// validateExecBackends rejects a selected backend with missing or unsafe
+// configuration; a backend that cannot run is never replaced by local.
+func (c *Config) validateExecBackends() error {
+	switch c.Exec.Backend {
+	case "local":
+		return nil
+	case "docker":
+		return c.validateDocker()
+	case "ssh":
+		return c.validateSSH()
+	case "singularity":
+		return c.validateSingularity()
+	case "modal", "daytona", "vercel_sandbox":
+		cloud := c.cloudBackend()
+		return c.validateCloud(&cloud)
+	default:
+		return invalid("exec.backend", "must be local, docker, ssh, singularity, modal, daytona or vercel_sandbox")
+	}
+}
+
+//nolint:gocyclo // one branch per validated key keeps the config error names readable
+func (c *Config) validateDocker() error {
+	d := c.Exec.Backends.Docker
+	switch {
+	case d.Image == "":
+		return invalid("exec.backends.docker.image", "required for the docker backend")
+	case d.Binary == "" || strings.ContainsAny(d.Binary, " \t\x00"):
+		return invalid("exec.backends.docker.binary", "must be a program name")
+	case d.User == "" || strings.ContainsAny(d.User, " \t\x00"):
+		return invalid("exec.backends.docker.user", "must be uid[:gid] (non-root)")
+	case d.CPUMilli < 1 || d.CPUMilli > 64000:
+		return invalid("exec.backends.docker.cpu_milli", "must be in 1..64000")
+	case d.MemoryMiB < 32 || d.MemoryMiB > 65536:
+		return invalid("exec.backends.docker.memory_mib", "must be in 32..65536")
+	case d.PIDs < 1 || d.PIDs > 65535:
+		return invalid("exec.backends.docker.pids", "must be in 1..65535")
+	}
+	switch d.Network {
+	case "none":
+		if len(d.EgressAllow) > 0 || d.ProxyURL != "" {
+			return invalid("exec.backends.docker.network", "allowlist/proxy configured while network = none")
+		}
+	case "bridge":
+	case "allowlist":
+		if len(d.EgressAllow) == 0 {
+			return invalid("exec.backends.docker.egress_allow", "allowlist requires at least one host")
+		}
+		if d.ProxyURL == "" {
+			return invalid("exec.backends.docker.proxy_url", "allowlist egress requires the filtering proxy")
+		}
+		if d.NetworkName == "" || strings.ContainsAny(d.NetworkName, " \t\x00") {
+			return invalid("exec.backends.docker.network_name", "allowlist requires the isolated docker network name")
+		}
+	default:
+		return invalid("exec.backends.docker.network", "must be none, bridge or allowlist")
+	}
+	for _, host := range d.EgressAllow {
+		if !validEgressHost(host) {
+			return invalid("exec.backends.docker.egress_allow", "%q is not a host[:port]", host)
+		}
+	}
 	return nil
+}
+
+//nolint:gocyclo // one branch per validated key keeps the config error names readable
+func (c *Config) validateSSH() error {
+	s := c.Exec.Backends.SSH
+	switch {
+	case s.Host == "" || strings.ContainsAny(s.Host, " \t\x00"):
+		return invalid("exec.backends.ssh.host", "required for the ssh backend")
+	case s.User == "" || strings.ContainsAny(s.User, " \t\x00"):
+		return invalid("exec.backends.ssh.user", "required for the ssh backend")
+	case s.Port < 1 || s.Port > 65535:
+		return invalid("exec.backends.ssh.port", "must be in 1..65535")
+	case s.KnownHosts == "":
+		return invalid("exec.backends.ssh.known_hosts", "host-key pinning requires known_hosts")
+	case s.MaxConns < 1 || s.MaxConns > 64:
+		return invalid("exec.backends.ssh.max_conns", "must be in 1..64")
+	case s.TimeoutS < 1 || s.TimeoutS > 600:
+		return invalid("exec.backends.ssh.timeout_s", "must be in 1..600")
+	case s.KeepAliveS < 1 || s.KeepAliveS > 300:
+		return invalid("exec.backends.ssh.keepalive_s", "must be in 1..300")
+	case s.IdleCloseS < 1 || s.IdleCloseS > 3600:
+		return invalid("exec.backends.ssh.idle_close_s", "must be in 1..3600")
+	}
+	return nil
+}
+
+func (c *Config) validateSingularity() error {
+	s := c.Exec.Backends.Singularity
+	if s.Image == "" {
+		return invalid("exec.backends.singularity.image", "required for the singularity backend")
+	}
+	switch s.Network {
+	case "none", "host":
+		return nil
+	default:
+		return invalid("exec.backends.singularity.network", "must be none or host")
+	}
+}
+
+func (c *Config) cloudBackend() CloudExec {
+	switch c.Exec.Backend {
+	case "modal":
+		return c.Exec.Backends.Modal
+	case "daytona":
+		return c.Exec.Backends.Daytona
+	default:
+		return c.Exec.Backends.Vercel
+	}
+}
+
+func (c *Config) validateCloud(cloud *CloudExec) error {
+	key := "exec.backends." + c.Exec.Backend
+	switch {
+	case cloud.Endpoint == "":
+		return invalid(key+".endpoint", "required for the %s backend", c.Exec.Backend)
+	case cloud.TokenSecret == "":
+		return invalid(key+".token_secret", "required for the %s backend", c.Exec.Backend)
+	case cloud.TimeoutS < 1 || cloud.TimeoutS > 600:
+		return invalid(key+".timeout_s", "must be in 1..600")
+	}
+	u, err := url.Parse(cloud.Endpoint)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && (u.Scheme != "http" || !loopbackHost(u.Hostname()))) {
+		return invalid(key+".endpoint", "must be an https URL (http only for loopback)")
+	}
+	return nil
+}
+
+func validEgressHost(host string) bool {
+	if host == "" || strings.ContainsAny(host, " \t/\x00") {
+		return false
+	}
+	if strings.Contains(host, "://") || strings.HasPrefix(host, "*") {
+		return false
+	}
+	return true
+}
+
+func loopbackHost(host string) bool {
+	return host == "127.0.0.1" || host == "::1" || host == "localhost"
 }
 
 func (c *Config) validateAgent() error {

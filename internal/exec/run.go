@@ -559,6 +559,9 @@ func (s *Spec) normalize() error {
 	if s.Timeout > MaxTimeout {
 		return errors.Join(ErrSpec, errors.New("timeout above 600 s"))
 	}
+	if s.Limits.CPUMilli < 0 || s.Limits.MemoryMiB < 0 || s.Limits.PIDs < 0 {
+		return errors.Join(ErrSpec, errors.New("negative resource limits"))
+	}
 	if s.IdleTimeout == 0 {
 		s.IdleTimeout = DefaultIdleTimeout
 	}

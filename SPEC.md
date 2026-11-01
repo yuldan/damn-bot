@@ -2487,6 +2487,51 @@ default_timeout_s = 120
 idle_timeout_s    = 60
 allow_destructive = false              # tidak berlaku untuk shell; dicadangkan untuk desain F1 (tool file), default tanpa efek (ADR-079 butir 9)
 kill_grace_s      = 3                  # SIGTERM → grace → SIGKILL; 1..3, > 3 ditolak (ADR-072)
+backend           = "local"            # local | docker | ssh | singularity | modal | daytona | vercel_sandbox (ADR-275)
+
+[exec.backends.docker]                 # F5 (ADR-275); image wajib bila backend = docker
+image       = ""                       # contoh: "docker.io/library/debian:stable-slim"
+user        = "65534:65534"            # non-root
+cpu_milli   = 1000
+memory_mib  = 512
+pids        = 128
+network     = "none"                   # none | bridge | allowlist (allowlist wajib proxy_url + egress_allow + network_name)
+network_name = ""                      # jaringan docker terisolasi untuk allowlist
+proxy_url   = ""
+egress_allow = []
+
+[exec.backends.ssh]                    # F5 (ADR-275); known_hosts wajib (pin host key)
+host = ""
+user = ""
+port = 22
+key_file = ""
+known_hosts = ""
+keepalive_s = 30
+idle_close_s = 600
+timeout_s = 120
+max_conns = 4
+
+[exec.backends.singularity]            # F5 (ADR-275); image wajib bila backend = singularity
+binary  = "apptainer"
+image   = ""
+network = "none"                       # none | host
+
+[exec.backends.modal]                  # F5 (ADR-275); endpoint + token_secret wajib bila dipilih
+endpoint     = ""
+token_secret = ""
+timeout_s    = 120
+
+[exec.backends.daytona]
+endpoint     = ""
+token_secret = ""
+timeout_s    = 120
+
+[exec.backends.vercel_sandbox]
+endpoint     = ""
+token_secret = ""
+timeout_s    = 120
+project_id   = ""
+team_id      = ""
 
 [agent]
 verify_on_stop = "run"                 # off | run | repair

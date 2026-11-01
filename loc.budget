@@ -79,7 +79,7 @@ schema            1200 internal/schema
 # int32 (dua penghitung) agar tetap < ambang hugeParam gocritic. Kode terukur
 # 3.001, plafon 3.000 -> 3.001 (angka ukur pada pohon PR A). PR B menambah
 # CodeConflict (SPEC §4.3) -> terukur 3.002, plafon 3.001 -> 3.002.
-tools             3002 internal/tools
+tools             3010 internal/tools
 # ADR-143: komposisi toolset deklaratif (TSET/CORE-004/005; Σ core 38.450 -> 38.850 <= 47.000).
 toolset            400 internal/toolset
 # ADR-111: codetools 4500 -> 4800 (perbaikan REVIEW-F1-SEC2; Σ core 33.900 -> 34.200 <= 47.000).
@@ -100,6 +100,11 @@ toolset            400 internal/toolset
 # ADR-213 (SEC15-11/12): token grup non-literal -> Unknown + verb+--yes; angka gabungan dengan
 # ADR-212 (SEC15-2..7) pada pohon rebase di atas #238: exec/classify 1841 -> 1946 (terukur 1946;
 # bukan 1937 dari basis #265-saja dan bukan 1948 hasil penjumlahan buta); Σ core 47.009 -> 47.114.
+# ADR-275 (F5 exec backends): exec 3400 -> 3400 (interface + local backend
+# terukur 2834/3400, tanpa kenaikan baris); config 1510 -> 1710 untuk
+# [exec] backend + [exec.backends.*] (terukur 1705); tools 3002 -> 3010
+# (module_unavailable untuk ErrUnavailable/ErrCapability; terukur 3004).
+# Sigma core 52.077 -> 52.285, plafon core 52.100 -> 52.400 (headroom 115).
 exec              3400 internal/exec
 exec/classify     1946 internal/exec/classify
 # ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).
@@ -205,7 +210,7 @@ heal              1500 internal/heal
 # plafon 1254 -> 1434 (headroom 103), Sigma core 47.593 -> 47.788 <= 47.800.
 # ADR-269 amandemen (PR C): [modules.mcp] schema + validasi ketat (!minimal);
 # kode terukur 1.510, plafon 1.434 -> 1.510, Sigma core 51.023 -> 51.099.
-config            1510 internal/config
+config            1710 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
@@ -299,4 +304,9 @@ MODULE mcp         6500 internal/mcp internal/ctxdb/mcpstore
 # ADR-273 (F5-12 PR B, GAP-TOOL-05): baris delegate untuk tipe/Config/Service
 # (lease, worktree, limiter) + LeaseGuard codetools; SPEC §3.2.4:290. Kode
 # terukur 453 (PR B) -> 959 (PR C); Sigma kelas MODULE 45.000 -> 47.000 (maxModuleLOC 46.500 -> 49.000).
+# ADR-275 (F5 exec backends): baris baru `MODULE backend 4800` untuk docker,
+# ssh, singularity, modal, daytona, vercel_sandbox (SPEC §3.2.4:289 exec
+# backends 8.000; sisa 3.200 tetap untuk execute_code F5). Sigma kelas
+# MODULE 47.000 -> 51.800 (+backup 1.467 = 53.267 <= 53.800).
+MODULE backend     4800 internal/exec/backends
 MODULE delegate    2000 internal/delegate
