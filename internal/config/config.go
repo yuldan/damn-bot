@@ -123,7 +123,8 @@ type Approval struct {
 }
 
 // Exec is SPEC §12 [exec] (ADR-072, ADR-079, ADR-081) plus the SEC-02 keys
-// exec.env_allow, exec.env and exec.pass_ssh_agent.
+// exec.env_allow, exec.env and exec.pass_ssh_agent, and the F5 backend
+// selection (ADR-277): exec.backend plus [exec.backends.<id>].
 type Exec struct {
 	DefaultTimeoutS  int               `toml:"default_timeout_s"`
 	IdleTimeoutS     int               `toml:"idle_timeout_s"`
@@ -132,6 +133,7 @@ type Exec struct {
 	EnvAllow         []string          `toml:"env_allow"`
 	Env              map[string]string `toml:"env"`
 	PassSSHAgent     bool              `toml:"pass_ssh_agent"`
+	Backend          string            `toml:"backend"`
 }
 
 // Agent is SPEC §12 [agent].
@@ -333,6 +335,7 @@ func Default() Config {
 			EnvAllow:         []string{},
 			Env:              map[string]string{},
 			PassSSHAgent:     false,
+			Backend:          "local",
 		},
 		Agent:   Agent{VerifyOnStop: "run"},
 		Storage: Storage{Encrypt: false},

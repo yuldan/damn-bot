@@ -180,7 +180,18 @@ func (c *Config) validateExec() error {
 			return invalid("exec.env."+name, "value contains NUL")
 		}
 	}
-	return nil
+	return c.validateExecBackends()
+}
+
+// validateExecBackends accepts only the core local backend; the remote
+// backends arrive with their own slice (B onward).
+func (c *Config) validateExecBackends() error {
+	switch c.Exec.Backend {
+	case "", "local":
+		return nil
+	default:
+		return invalid("exec.backend", "must be local in this build")
+	}
 }
 
 func (c *Config) validateAgent() error {

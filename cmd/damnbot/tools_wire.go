@@ -57,14 +57,18 @@ func stopModules(ctx context.Context, mods *runModules, cause error) error {
 
 // closeWiring releases everything newRunWiring opened and joins every error
 // with the cause, so the fail path and runModel.close report identically.
-func closeWiring(ctx context.Context, cause error, mods *runModules, engine *codetools.Engine, sessions *exec.Sessions, runner *exec.Runner, db *ctxdb.Store, sid string) error {
+func closeWiring(ctx context.Context, cause error, mods *runModules, engine *codetools.Engine, sessions *exec.Sessions, backend exec.Backend, db *ctxdb.Store, sid string) error {
 	cause = stopModules(ctx, mods, cause)
 	engine.Close()
-	if cerr := sessions.Close(); cerr != nil {
-		cause = errors.Join(cause, fmt.Errorf("close sessions: %w", cerr))
+	if sessions != nil {
+		if cerr := sessions.Close(); cerr != nil {
+			cause = errors.Join(cause, fmt.Errorf("close sessions: %w", cerr))
+		}
 	}
-	if cerr := runner.CloseContext(ctx); cerr != nil {
-		cause = errors.Join(cause, fmt.Errorf("close runner: %w", cerr))
+	if backend != nil {
+		if cerr := backend.Close(ctx); cerr != nil {
+			cause = errors.Join(cause, fmt.Errorf("close backend: %w", cerr))
+		}
 	}
 	return closeDB(ctx, db, sid, cause)
 }
@@ -233,7 +237,7 @@ func assistantToolCalls(payload string) []loop.ToolCall {
 type runWiring struct {
 	db       *ctxdb.Store
 	engine   *codetools.Engine
-	runner   *exec.Runner
+	backend  exec.Backend
 	sessions *exec.Sessions
 	registry *tools.Registry
 	modules  runModules
@@ -317,6 +321,11 @@ func fallbackRecorder(db *ctxdb.Store, sid string) func(context.Context, bool) e
 	}
 }
 
+// openExecBackend builds the selected backend and its local sessions.
+func openExecBackend(cfg *config.Config, runner *exec.Runner, dataDir, cwd, configDir string, policy *exec.EnvPolicy) (exec.Backend, *exec.Sessions, error) {
+	return newExecBackend(cfg, runner, filepath.Join(dataDir, "exec", "sess"), cwd, configDir, policy.Env(os.Environ(), true, "", "", ""))
+}
+
 // shellWiring is the composition input of the shell tool (keeps
 // newRunWiring under the length gate).
 type shellWiring struct {
@@ -325,7 +334,7 @@ type shellWiring struct {
 	db                   *ctxdb.Store
 	sid                  string
 	red                  *redact.Redactor
-	runner               *exec.Runner
+	backend              exec.Backend
 	sessions             *exec.Sessions
 	allow                []classify.AllowEntry
 	roots                []string
@@ -337,7 +346,7 @@ type shellWiring struct {
 
 func newShellTool(w *shellWiring) (tools.Tool, error) {
 	cfg := &tools.ShellConfig{
-		Runner: w.runner, Sessions: w.sessions, Spill: ctxSpill{db: w.db}, Redactor: w.red, Allow: w.allow, Roots: w.roots, Home: w.home,
+		Runner: w.backend, Sessions: w.sessions, Spill: ctxSpill{db: w.db}, Redactor: w.red, Allow: w.allow, Roots: w.roots, Home: w.home,
 		Cwd: w.cwd, DenyPaths: w.cfg.DenyPaths(w.configDir), ParentEnv: os.Environ(),
 		EnvPolicy:        w.envPolicy,
 		WorkspaceTrusted: w.trusted, UnsafeAutoShell: w.o.unsafeShell, Dialect: dialectFromEnv(w.envPolicy.Env(os.Environ(), false, "", "", "")),
@@ -381,6 +390,8 @@ func terminalFallbackRecorder(db *ctxdb.Store, sid string) func(context.Context)
 // runner and its persistent sessions, then wires the shell, file, and skill
 // tools into a registry. Failures after the sessions exist go through the
 // returned fail closure so nothing leaks.
+//
+//nolint:funlen // the wiring order is the dependency graph; splitting it hides init order
 func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, configDir, home string, codec ctxdb.Codec) (*runWiring, error) {
 	db, sid, cwd, modelRef, err := openWiredSession(ctx, dataDir, modelRef, configSHAFor(cfg, o), o, codec)
 	if err != nil {
@@ -407,10 +418,17 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	runner := exec.New(ctx)
 	envPolicy := &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent}
 	// Persistent sessions share the runner but never receive secret refs (ADR-088).
-	sessions := runner.NewSessions(filepath.Join(dataDir, "exec", "sess"), envPolicy.Env(os.Environ(), true, "", "", ""))
+	backend, sessions, err := openExecBackend(cfg, runner, dataDir, cwd, configDir, envPolicy)
+	if err != nil {
+		engine.Close()
+		if cerr := runner.CloseContext(ctx); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("close runner: %w", cerr))
+		}
+		return nil, closeDB(ctx, db, sid, err)
+	}
 	var mods runModules
 	fail := func(cause error) error {
-		return closeWiring(ctx, cause, &mods, engine, sessions, runner, db, sid)
+		return closeWiring(ctx, cause, &mods, engine, sessions, backend, db, sid)
 	}
 	allow, monetary, err := shellGate(ctx, cfg, configDir, cwd)
 	if err != nil {
@@ -423,7 +441,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		return nil, fail(qerr)
 	}
 	shellTool, err := newShellTool(&shellWiring{
-		cfg: cfg, o: o, db: db, sid: sid, red: red, runner: runner, sessions: sessions, allow: allow,
+		cfg: cfg, o: o, db: db, sid: sid, red: red, backend: backend, sessions: sessions, allow: allow,
 		roots: roots, home: home, cwd: cwd, configDir: configDir, envPolicy: envPolicy, trusted: trusted, monetary: monetary,
 	})
 	if err != nil {
@@ -451,7 +469,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	return &runWiring{
 		db:        db,
 		engine:    engine,
-		runner:    runner,
+		backend:   backend,
 		sessions:  sessions,
 		registry:  reg,
 		modules:   mods,
