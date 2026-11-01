@@ -2487,6 +2487,8 @@ default_timeout_s = 120
 idle_timeout_s    = 60
 allow_destructive = false              # tidak berlaku untuk shell; dicadangkan untuk desain F1 (tool file), default tanpa efek (ADR-079 butir 9)
 kill_grace_s      = 3                  # SIGTERM → grace → SIGKILL; 1..3, > 3 ditolak (ADR-072)
+backend           = "local"            # backend eksekusi; slice ini hanya local (ADR-277)
+
 
 [agent]
 verify_on_stop = "run"                 # off | run | repair

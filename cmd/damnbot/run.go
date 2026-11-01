@@ -307,7 +307,7 @@ type runModel struct {
 	store     *ctxStore
 	ledger    *ctxLedger
 	engine    *codetools.Engine
-	runner    *exec.Runner
+	backend   exec.Backend
 	sessions  *exec.Sessions
 	modules   runModules
 	sessionID string
@@ -347,9 +347,9 @@ func (m *runModel) close(ctx context.Context) error {
 			err = errors.Join(err, fmt.Errorf("close sessions: %w", cerr))
 		}
 	}
-	if m.runner != nil {
-		if cerr := m.runner.CloseContext(ctx); cerr != nil {
-			err = errors.Join(err, fmt.Errorf("close runner: %w", cerr))
+	if m.backend != nil {
+		if cerr := m.backend.Close(ctx); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("close backend: %w", cerr))
 		}
 	}
 	if m.db == nil {
@@ -466,7 +466,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		reader:    w.reader,
 		db:        w.db,
 		engine:    w.engine,
-		runner:    w.runner,
+		backend:   w.backend,
 		sessions:  w.sessions,
 	}, nil
 }
