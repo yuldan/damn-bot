@@ -16,7 +16,12 @@ func runMCP(args []string, stdout, stderr io.Writer) int {
 
 // mcpUsage is `damnbot help mcp` and the no-argument usage.
 func mcpUsage(w io.Writer) {
-	sessionsPrintf(w, "usage: damnbot mcp auth login|logout|status [flags]\n\n")
+	sessionsPrintf(w, "usage: damnbot mcp add|list|remove|refresh|review|auth [flags]\n\n")
+	sessionsPrintf(w, "  add <name>       add [modules.mcp.servers.<name>] to config.toml\n")
+	sessionsPrintf(w, "  list             configured servers and credential state\n")
+	sessionsPrintf(w, "  remove <name>    revoke the token, then delete the config section\n")
+	sessionsPrintf(w, "  refresh [name]   force tools/list through the pin gate\n")
+	sessionsPrintf(w, "  review [name]    approve changed tool definitions (ADR-272)\n")
 	sessionsPrintf(w, "  auth login|logout|status [name]\n")
 	sessionsPrintf(w, "\ncommon flags: --json, --config <path>, --data-dir <dir>, --offline\n")
 }

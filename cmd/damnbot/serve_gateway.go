@@ -88,7 +88,7 @@ type serveGateway struct {
 	waits  map[string]time.Time
 }
 
-func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, db *ctxdb.Store, daemon *serveDaemon, metrics *obs.Metrics, stderr io.Writer) (*serveGateway, error) {
+func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, db *ctxdb.Store, daemon *serveDaemon, metrics *obs.Metrics, stderr io.Writer) (*serveGateway, error) { //nolint:funlen // one construction sequence
 	token := strings.TrimSpace(config.OS().Getenv("DAMNBOT_TELEGRAM_TOKEN"))
 	if token == "" {
 		return nil, nil
@@ -162,8 +162,13 @@ func newServeGateway(ctx context.Context, cfg *config.Config, o *serveOptions, d
 	g.started = g.now()
 	g.run = g.turn
 	g.wireCronAdmin(db, stderr)
+	mcpReg, merr := attachMCPRegistry(g, o.configPath)
+	if merr != nil {
+		return nil, merr
+	}
 	commands := gateway.NewCommands(&gateway.CommandOptions{
 		Runtime: g, Settings: store, Control: g, Estop: &g.estop, Approvals: g.approvals.Approvals, Resolver: g,
+		MCP: mcpReg,
 	})
 	gate, err := newServeGate(o, store, users, cfg.Budget.GatewayUserDailyUSD, db, commands, &g.estop)
 	if err != nil {

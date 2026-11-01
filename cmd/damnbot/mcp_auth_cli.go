@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/damnbot/damnbot/internal/config"
 )
@@ -17,6 +18,12 @@ import (
 // runMCPImpl dispatches the subcommands of this slice.
 func runMCPImpl(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
+	case "add":
+		return mcpAdd(args[1:], stdout, stderr)
+	case "list":
+		return mcpList(args[1:], stdout, stderr)
+	case "remove":
+		return mcpRemove(args[1:], stdout, stderr)
 	case "auth":
 		return mcpAuth(args[1:], stdout, stderr)
 	case "refresh":
@@ -29,23 +36,33 @@ func runMCPImpl(args []string, stdout, stderr io.Writer) int {
 	return 2
 }
 
-func openMCPConfig() (config.Config, error) {
+func openMCPConfig() (*config.Loader, config.Config, config.Paths, error) {
 	loader, err := config.New(config.OS())
 	if err != nil {
-		return config.Config{}, fmt.Errorf("config deps: %w", err)
+		return nil, config.Config{}, config.Paths{}, fmt.Errorf("config deps: %w", err)
 	}
 	paths, err := loader.Paths(activeProfile())
 	if err != nil {
-		return config.Config{}, fmt.Errorf("config paths: %w", err)
+		return nil, config.Config{}, config.Paths{}, fmt.Errorf("config paths: %w", err)
 	}
 	cfg, err := loader.Load(paths.ConfigFile())
 	if errors.Is(err, os.ErrNotExist) {
 		cfg, err = loader.Parse(nil, paths.ConfigFile())
 	}
 	if err != nil {
-		return config.Config{}, fmt.Errorf("load config: %w", err)
+		return nil, config.Config{}, config.Paths{}, fmt.Errorf("load config: %w", err)
 	}
-	return cfg, nil
+	return loader, cfg, paths, nil
+}
+
+// sliceFlag collects a repeatable string flag.
+type sliceFlag []string
+
+func (s *sliceFlag) String() string { return strings.Join(*s, ",") }
+
+func (s *sliceFlag) Set(v string) error {
+	*s = append(*s, v)
+	return nil
 }
 
 func mcpAuth(args []string, stdout, stderr io.Writer) int {
@@ -123,7 +140,7 @@ func mcpAuthStatus(args []string, stdout, stderr io.Writer) int { //nolint:gocog
 	if len(pos) > 1 {
 		return mcpUsageErr(stderr, "auth status takes at most one server name")
 	}
-	cfg, err := openMCPConfig()
+	_, cfg, _, err := openMCPConfig()
 	if err != nil {
 		return mcpFail(stderr, "auth status", err)
 	}
@@ -184,7 +201,7 @@ func tokenSuffix(s *mcpTokenStatus) string {
 
 // mcpTokensFor opens the OAuth adapter of one configured server.
 func mcpTokensFor(name string, offline bool, out io.Writer) (*mcpTokens, error) {
-	cfg, err := openMCPConfig()
+	_, cfg, _, err := openMCPConfig()
 	if err != nil {
 		return nil, err
 	}
