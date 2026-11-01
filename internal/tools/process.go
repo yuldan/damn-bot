@@ -46,17 +46,24 @@ func NewProcessTools(cfg *ProcessConfig) []Tool {
 	return out
 }
 
-// processSchemas is the closed schema of every process tool.
-var processSchemas = map[string]string{
-	"process_list":   `{"name":"process_list","description":"List background processes of this session (max 40).","parameters":{"type":"object","properties":{},"additionalProperties":false}}`,
-	"process_output": `{"name":"process_output","description":"Read buffered output of a background process.","parameters":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":32},"since":{"type":"integer","minimum":0},"tail_lines":{"type":"integer","minimum":1,"maximum":500},"grep":{"type":"string","maxLength":256}},"required":["id"],"additionalProperties":false}}`,
-	"process_wait":   `{"name":"process_wait","description":"Wait for a background process; returns still_running on timeout.","parameters":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":32},"timeout_s":{"type":"integer","minimum":1,"maximum":600}},"required":["id"],"additionalProperties":false}}`,
-	"process_send":   `{"name":"process_send","description":"Send text to a background process stdin.","parameters":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":32},"text":{"type":"string","maxLength":4096},"enter":{"type":"boolean"}},"required":["id","text"],"additionalProperties":false}}`,
-	"process_kill":   `{"name":"process_kill","description":"Signal a background process (TERM, INT or KILL).","parameters":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":32},"signal":{"type":"string","enum":["TERM","INT","KILL"]}},"required":["id"],"additionalProperties":false}}`,
+// processSchema returns the closed schema of one process tool.
+func processSchema(name string) string {
+	switch name {
+	case "process_list":
+		return `{"name":"process_list","description":"List background processes of this session (max 40).","parameters":{"type":"object","properties":{},"additionalProperties":false}}`
+	case "process_output":
+		return `{"name":"process_output","description":"Read buffered output of a background process.","parameters":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":32},"since":{"type":"integer","minimum":0},"tail_lines":{"type":"integer","minimum":1,"maximum":500},"grep":{"type":"string","maxLength":256}},"required":["id"],"additionalProperties":false}}`
+	case "process_wait":
+		return `{"name":"process_wait","description":"Wait for a background process; returns still_running on timeout.","parameters":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":32},"timeout_s":{"type":"integer","minimum":1,"maximum":600}},"required":["id"],"additionalProperties":false}}`
+	case "process_send":
+		return `{"name":"process_send","description":"Send text to a background process stdin.","parameters":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":32},"text":{"type":"string","maxLength":4096},"enter":{"type":"boolean"}},"required":["id","text"],"additionalProperties":false}}`
+	default:
+		return `{"name":"process_kill","description":"Signal a background process (TERM, INT or KILL).","parameters":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":32},"signal":{"type":"string","enum":["TERM","INT","KILL"]}},"required":["id"],"additionalProperties":false}}`
+	}
 }
 
 func (t *processTool) Name() string            { return t.name }
-func (t *processTool) Schema() json.RawMessage { return json.RawMessage(processSchemas[t.name]) }
+func (t *processTool) Schema() json.RawMessage { return json.RawMessage(processSchema(t.name)) }
 func (t *processTool) Kind() Kind              { return KindExecute }
 
 // Effect: list/output/wait are reads; send/kill are non_idempotent.
@@ -139,6 +146,8 @@ func orDefault(v, def string) string {
 }
 
 // Run dispatches to the registry; the session id comes from Env.Session.
+//
+//nolint:gocyclo // one branch per tool is the readable dispatch
 func (t *processTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Result, error) {
 	a, err := decodeProcess(t.name, raw)
 	if err != nil {
@@ -151,7 +160,10 @@ func (t *processTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Re
 	switch t.name {
 	case "process_list":
 		infos := t.reg.List(session)
-		b, _ := json.Marshal(infos)
+		b, err := json.Marshal(infos)
+		if err != nil {
+			return Result{}, toolErr(CodeInternal, "process_list encode: "+err.Error(), "")
+		}
 		return Result{OK: true, Content: string(b), Meta: map[string]any{"count": len(infos)}}, nil
 	case "process_output":
 		pr, err := t.reg.Poll(session, a.ID, a.Since, a.TailLines, a.Grep)
@@ -172,27 +184,30 @@ func (t *processTool) Run(ctx context.Context, env Env, raw json.RawMessage) (Re
 		if err != nil {
 			return Result{}, processErr(err)
 		}
-		return processResult(info, still), nil
+		return processResult(&info, still), nil
 	case "process_send":
 		enter := a.Enter == nil || *a.Enter
 		if err := t.reg.Write(session, a.ID, a.Text, enter); err != nil {
 			return Result{}, processErr(err)
 		}
-		info, _, _ := t.reg.Wait(ctx, session, a.ID, 0)
-		return processResult(info, false), nil
+		info, _, werr := t.reg.Wait(ctx, session, a.ID, 0)
+		if werr != nil {
+			return Result{}, processErr(werr)
+		}
+		return processResult(&info, false), nil
 	case "process_kill":
 		info, err := t.reg.Kill(ctx, session, a.ID, a.Signal)
 		if err != nil {
 			return Result{}, processErr(err)
 		}
-		return processResult(info, info.Status == exec.ProcessRunning), nil
+		return processResult(&info, info.Status == exec.ProcessRunning), nil
 	}
 	return Result{}, toolErr(CodeInternal, "unknown process tool", "")
 }
 
 // processResult renders one final/still-running status; a still_running
 // wait is a normal result, never a hang.
-func processResult(info exec.ProcessInfo, still bool) Result {
+func processResult(info *exec.ProcessInfo, still bool) Result {
 	status := string(info.Status)
 	if still {
 		status = "still_running"

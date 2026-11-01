@@ -22,9 +22,9 @@ func procTools(t *testing.T, reg *exec.Background) map[string]Tool {
 	return out
 }
 
-func startSleeper(t *testing.T, reg *exec.Background, session, script string) exec.ProcessInfo {
+func startSleeper(t *testing.T, reg *exec.Background, script string) exec.ProcessInfo {
 	t.Helper()
-	info, err := reg.Start(t.Context(), session, []string{"/bin/sh", "-c", script}, "/tmp", []string{"PATH=/usr/bin:/bin"})
+	info, err := reg.Start(t.Context(), "S", []string{"/bin/sh", "-c", script}, "/tmp", []string{"PATH=/usr/bin:/bin"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestProcessToolsSessionIsolation(t *testing.T) {
 		reg.Close(context.Background())
 	})
 	tools := procTools(t, reg)
-	info := startSleeper(t, reg, "S", "sleep 30")
+	info := startSleeper(t, reg, "sleep 30")
 	envOwner := Env{Session: testView(t, "S")}
 	envOther := Env{Session: testView(t, "T")}
 	out, err := tools["process_list"].Run(t.Context(), envOwner, json.RawMessage(`{}`))
@@ -70,7 +70,7 @@ func TestProcessToolsWaitTimeoutAndOutput(t *testing.T) {
 		reg.Close(context.Background())
 	})
 	tools := procTools(t, reg)
-	info := startSleeper(t, reg, "S", "printf 'a\\nb\\n'; sleep 30")
+	info := startSleeper(t, reg, "printf 'a\\nb\\n'; sleep 30")
 	env := Env{Session: testView(t, "S")}
 	deadline := time.Now().Add(2 * time.Second)
 	for {
@@ -104,6 +104,7 @@ func TestProcessToolsWaitTimeoutAndOutput(t *testing.T) {
 	}
 }
 
+//nolint:gocyclo,gocognit // one test covers send, wait, write-after-exit, kill idempotence and approval
 func TestProcessToolsSendKillIdempotentAndApproval(t *testing.T) {
 	t.Parallel()
 	reg := exec.NewBackground()
@@ -112,14 +113,17 @@ func TestProcessToolsSendKillIdempotentAndApproval(t *testing.T) {
 		reg.Close(context.Background())
 	})
 	tools := procTools(t, reg)
-	info := startSleeper(t, reg, "S", "read x; printf 'got:%s' \"$x\"")
+	info := startSleeper(t, reg, "read x; printf 'got:%s' \"$x\"")
 	env := Env{Session: testView(t, "S")}
 	if out, err := tools["process_send"].Run(t.Context(), env, json.RawMessage(`{"id":"`+info.ID+`","text":"hi"}`)); err != nil {
 		t.Fatalf("send: %v out=%+v", err, out)
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		out, _ := tools["process_wait"].Run(t.Context(), env, json.RawMessage(`{"id":"`+info.ID+`","timeout_s":1}`))
+		out, werr := tools["process_wait"].Run(t.Context(), env, json.RawMessage(`{"id":"`+info.ID+`","timeout_s":1}`))
+		if werr != nil {
+			t.Fatalf("wait: %v", werr)
+		}
 		if out.Meta["status"] != "still_running" {
 			break
 		}
@@ -140,7 +144,11 @@ func TestProcessToolsSendKillIdempotentAndApproval(t *testing.T) {
 	// Approval: kill/send ask interactively, deny headless; list is auto.
 	pc := PolicyContext{Mode: ModeAsk}
 	for _, name := range []string{"process_kill", "process_send"} {
-		d, err := tools[name].(Inspector).Inspect(t.Context(), env, json.RawMessage(`{"id":"`+info.ID+`","text":"secret","signal":"TERM"}`), pc)
+		ins, ok := tools[name].(Inspector)
+		if !ok {
+			t.Fatalf("%s is not an Inspector", name)
+		}
+		d, err := ins.Inspect(t.Context(), env, json.RawMessage(`{"id":"`+info.ID+`","text":"secret","signal":"TERM"}`), pc)
 		if err != nil || d.Requirement != RequireAsk || d.AllowSession {
 			t.Fatalf("%s inspect = %+v err=%v", name, d, err)
 		}
@@ -148,11 +156,11 @@ func TestProcessToolsSendKillIdempotentAndApproval(t *testing.T) {
 			t.Fatalf("%s preview leaks text: %q", name, d.Preview)
 		}
 	}
-	if d, err := tools["process_list"].(Inspector).Inspect(t.Context(), env, json.RawMessage(`{}`), pc); err != nil || d.Requirement != RequireAuto {
+	if d, err := mustInspect(t, tools["process_list"]).Inspect(t.Context(), env, json.RawMessage(`{}`), pc); err != nil || d.Requirement != RequireAuto {
 		t.Fatalf("list inspect = %+v err=%v", d, err)
 	}
 	hd := PolicyContext{Mode: ModeHeadless}
-	if d, _ := tools["process_kill"].(Inspector).Inspect(t.Context(), env, killArgs, hd); d.Requirement != RequireDeny {
+	if d, derr := mustInspect(t, tools["process_kill"]).Inspect(t.Context(), env, killArgs, hd); derr != nil || d.Requirement != RequireDeny {
 		t.Fatalf("headless kill = %+v", d)
 	}
 }
@@ -165,7 +173,7 @@ func TestProcessToolsCapAndClose(t *testing.T) {
 		reg.Close(context.Background())
 	}()
 	for range exec.MaxLivePerSession {
-		startSleeper(t, reg, "S", "sleep 30")
+		startSleeper(t, reg, "sleep 30")
 	}
 	if _, err := reg.Start(t.Context(), "S", []string{"/bin/sleep", "30"}, "/tmp", nil); !errors.Is(err, exec.ErrProcessLimit) {
 		t.Fatalf("cap = %v", err)
@@ -185,4 +193,13 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func mustInspect(t *testing.T, tl Tool) Inspector {
+	t.Helper()
+	ins, ok := tl.(Inspector)
+	if !ok {
+		t.Fatalf("%s is not an Inspector", tl.Name())
+	}
+	return ins
 }

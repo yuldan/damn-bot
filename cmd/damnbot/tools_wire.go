@@ -57,17 +57,12 @@ func stopModules(ctx context.Context, mods *runModules, cause error) error {
 
 // closeWiring releases everything newRunWiring opened and joins every error
 // with the cause, so the fail path and runModel.close report identically.
-func closeWiring(ctx context.Context, cause error, mods *runModules, engine *codetools.Engine, sessions *exec.Sessions, backend exec.Backend, bg *exec.Background, db *ctxdb.Store, sid string) error {
+func closeWiring(ctx context.Context, cause error, mods *runModules, engine *codetools.Engine, sessions *exec.Sessions, backend exec.Backend, db *ctxdb.Store, sid string) error {
 	cause = stopModules(ctx, mods, cause)
 	engine.Close()
 	if sessions != nil {
 		if cerr := sessions.Close(); cerr != nil {
 			cause = errors.Join(cause, fmt.Errorf("close sessions: %w", cerr))
-		}
-	}
-	if bg != nil {
-		if cerr := bg.Close(ctx); cerr != nil {
-			cause = errors.Join(cause, fmt.Errorf("close background: %w", cerr))
 		}
 	}
 	if backend != nil {
@@ -240,15 +235,15 @@ func assistantToolCalls(payload string) []loop.ToolCall {
 // run store, the sandboxed tool stack, and the registered tool set, plus the
 // cleanup closure that releases them when a later step fails.
 type runWiring struct {
-	db       *ctxdb.Store
-	engine   *codetools.Engine
-	backend  exec.Backend
-	sessions *exec.Sessions
-	proc     *exec.Background
-	registry *tools.Registry
-	modules  runModules
-	sid      string
-	cwd      string
+	db        *ctxdb.Store
+	engine    *codetools.Engine
+	backend   exec.Backend
+	sessions  *exec.Sessions
+	procClose func(context.Context) error
+	registry  *tools.Registry
+	modules   runModules
+	sid       string
+	cwd       string
 	// modelRef is the effective provider/model after resume resolution: a
 	// resumed session may supply the model when no flag or config did.
 	modelRef string
@@ -433,9 +428,8 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		return nil, closeDB(ctx, db, sid, err)
 	}
 	var mods runModules
-	bg := exec.NewBackground()
 	fail := func(cause error) error {
-		return closeWiring(ctx, cause, &mods, engine, sessions, backend, bg, db, sid)
+		return closeWiring(ctx, cause, &mods, engine, sessions, backend, db, sid)
 	}
 	allow, monetary, err := shellGate(ctx, cfg, configDir, cwd)
 	if err != nil {
@@ -468,7 +462,11 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 			return nil, fail(err)
 		}
 	}
-	list = append(list, withProcessTools(bg)...)
+	processTools, procClose, err := withProcessTools()
+	if err != nil {
+		return nil, fail(err)
+	}
+	list = append(list, processTools...)
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
 	list = withCronTool(list, cfg, db, o, dataDir)
@@ -486,7 +484,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		engine:    engine,
 		backend:   backend,
 		sessions:  sessions,
-		proc:      bg,
+		procClose: procClose,
 		registry:  reg,
 		modules:   mods,
 		sid:       sid,

@@ -3,9 +3,12 @@
 package main
 
 import (
-	"github.com/damnbot/damnbot/internal/exec"
+	"context"
+
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
-// withProcessTools is empty in the minimal build.
-func withProcessTools(*exec.Background) []tools.Tool { return nil }
+// withProcessTools is absent in the minimal build.
+func withProcessTools() ([]tools.Tool, func(context.Context) error, error) {
+	return nil, nil, nil
+}

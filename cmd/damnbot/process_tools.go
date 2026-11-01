@@ -3,12 +3,15 @@
 package main
 
 import (
+	"context"
+
 	"github.com/damnbot/damnbot/internal/exec"
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
-// withProcessTools appends the process_* adapters (F5). They are !minimal so
-// the minimal binary does not link the registry tool layer.
-func withProcessTools(bg *exec.Background) []tools.Tool {
-	return tools.NewProcessTools(&tools.ProcessConfig{Registry: bg})
+// withProcessTools creates the background registry and its adapters (F5).
+// The registry is !minimal so the minimal binary does not link it.
+func withProcessTools() ([]tools.Tool, func(context.Context) error, error) {
+	bg := exec.NewBackground()
+	return tools.NewProcessTools(&tools.ProcessConfig{Registry: bg}), bg.Close, nil
 }
