@@ -84,3 +84,28 @@ func contains(s, sub string) bool {
 	}
 	return false
 }
+
+func TestAuthorizeAllowsAsk(t *testing.T) {
+	t.Parallel()
+	if err := Authorize(Decision{Requirement: RequireAsk}); err != nil {
+		t.Fatalf("Authorize(ask) = %v", err)
+	}
+	if err := Authorize(Decision{Requirement: RequireAuto}); err != nil {
+		t.Fatalf("Authorize(auto) = %v", err)
+	}
+}
+
+func TestShellLanguageClassification(t *testing.T) {
+	t.Parallel()
+	if ShellLanguage(Python) || ShellLanguage(JavaScript) || ShellLanguage(Go) {
+		t.Fatal("code languages must not be classified as shell")
+	}
+	for _, lang := range []Language{"bash", "sh", "zsh", "pwsh", "powershell", "cmd"} {
+		if !ShellLanguage(lang) {
+			t.Fatalf("%s must be a shell language", lang)
+		}
+	}
+	if ShellLanguage("rust") {
+		t.Fatal("unknown language is not a shell language")
+	}
+}

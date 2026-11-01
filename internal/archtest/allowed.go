@@ -49,8 +49,7 @@ func allowedImports() map[string][]string {
 		// masih kerangka dan mendapat barisnya saat paket itu menentukan edge-nya.
 		"internal/cron":          append([]string{"internal/redact"}, groupExec()...),
 		"internal/cron/periodic": nil, // AUTO-029: stdlib only, driven by the serve ticker
-		"internal/obs":           nil,
-		"internal/scorecard":     nil,
+		"internal/obs":           nil, "internal/scorecard": nil,
 
 		// Modul lazy (E-06).
 		"internal/mcp": moduleImports(),
