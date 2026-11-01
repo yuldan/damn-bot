@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/exec"
-	"github.com/damnbot/damnbot/internal/exec/classify"
 )
 
 // shellArgs is the F5 schema input (background supported).
@@ -24,27 +23,27 @@ func shellSchema() string {
 	return `{"name":"shell","description":"Run one command in a process group with timeout. Asks for approval unless the exact argv matches shell_allow; background:true returns a process id.","parameters":{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":65536},"timeout_s":{"type":"integer","minimum":1,"maximum":600},"cwd":{"type":"string"},"session":{"type":"string","pattern":"^[a-z0-9_-]{1,32}$"},"stdin":{"type":"string","maxLength":65536},"background":{"type":"boolean"}},"required":["command"],"additionalProperties":false}}`
 }
 
-func backgroundRequested(a shellArgs) bool { return a.Background }
+func backgroundRequested(a *shellArgs) bool { return a.Background }
 
-func validateBackground(a shellArgs) error {
+func validateBackground(a *shellArgs) error {
 	if a.Background && a.Session != "" {
 		return toolErr(CodeInvalidArgs, "background and session cannot be combined", "omit session")
 	}
 	return nil
 }
 
-func (t *shellTool) backgroundRun(ctx context.Context, env Env, a shellArgs, cwd string, timeout time.Duration, v classify.Verdict) (Result, bool, error) {
+func (t *shellTool) backgroundRun(ctx context.Context, env Env, a *shellArgs, cwd string, timeout time.Duration) (Result, bool, error) {
 	if !a.Background {
 		return Result{}, false, nil
 	}
-	res, err := t.runBackground(ctx, env, a, cwd, timeout, v)
+	res, err := t.runBackground(ctx, env, a, cwd, timeout)
 	return res, true, err
 }
 
 // runBackground starts the approved command in the process registry and
 // returns its id (EXEC-AND-CODING §A.5, ADR-072). Output is read through
 // process_output; the process dies with the registry at shutdown.
-func (t *shellTool) runBackground(ctx context.Context, env Env, a shellArgs, cwd string, timeout time.Duration, v classify.Verdict) (Result, error) {
+func (t *shellTool) runBackground(ctx context.Context, env Env, a *shellArgs, cwd string, timeout time.Duration) (Result, error) {
 	bg, ok := t.cfg.Background.(*exec.Background)
 	if !ok || bg == nil {
 		return Result{}, toolErr(CodeModuleUnavailable, "background processes are not available", "run in the foreground with timeout_s")

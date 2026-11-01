@@ -114,10 +114,10 @@ func (t *shellTool) Effect(args json.RawMessage) Effect {
 	}
 	// Classify with the same cwd Inspect uses: never downgrade a destructive
 	// command to idempotent because of a cwd mismatch (REVIEW-F1-SEC7 TL7-7).
-	if backgroundRequested(a) {
+	if backgroundRequested(&a) {
 		return EffectNonIdempotent
 	}
-	v := t.classifyIn(a.Command, t.callCwd(a))
+	v := t.classifyIn(a.Command, t.callCwd(&a))
 	if v.Class == classify.Mutating && v.Flags == 0 {
 		return EffectIdempotent
 	}
@@ -132,13 +132,13 @@ func (t *shellTool) Inspect(_ context.Context, env Env, args json.RawMessage, pc
 	if err != nil {
 		return PolicyDecision{}, err
 	}
-	if err := validateSessionArgs(a); err != nil {
+	if err := validateSessionArgs(&a); err != nil {
 		return PolicyDecision{}, err
 	}
-	if err := validateBackground(a); err != nil {
+	if err := validateBackground(&a); err != nil {
 		return PolicyDecision{}, err
 	}
-	cwd := t.callCwd(a)
+	cwd := t.callCwd(&a)
 	// The child runs with this cwd: a directory outside the workspace would
 	// let relative paths read or write outside it after approval
 	// (REVIEW-F1-SEC7 TL7-5).
@@ -182,7 +182,7 @@ func (t *shellTool) Inspect(_ context.Context, env Env, args json.RawMessage, pc
 
 // validateSessionArgs rejects combinations a persistent session cannot honor
 // (SPEC §A.2); one-shot calls may still accept stdin.
-func validateSessionArgs(a shellArgs) error {
+func validateSessionArgs(a *shellArgs) error {
 	if a.Session == "" {
 		return nil
 	}
@@ -228,7 +228,7 @@ func (t *shellTool) Run(ctx context.Context, env Env, args json.RawMessage) (Res
 	if err != nil {
 		return Result{}, err
 	}
-	cwd := t.callCwd(a)
+	cwd := t.callCwd(&a)
 	if !cwdInRoots(cwd, t.cfg.Roots) {
 		return Result{}, toolErr(CodeOutsideWorkspace, "cwd is outside the workspace: "+cwd, "choose a cwd inside the workspace")
 	}
@@ -238,13 +238,13 @@ func (t *shellTool) Run(ctx context.Context, env Env, args json.RawMessage) (Res
 	}
 	v := t.classifyIn(a.Command, cwd)
 	var res exec.Result
-	if res, handled, err := t.backgroundRun(ctx, env, a, cwd, timeout, v); handled {
-		return res, err
+	if res, handled, berr := t.backgroundRun(ctx, env, &a, cwd, timeout); handled {
+		return res, berr
 	}
 	if a.Session != "" {
-		res, err = t.runSession(ctx, a, timeout)
+		res, err = t.runSession(ctx, &a, timeout)
 	} else {
-		res, err = t.runOneShot(ctx, env, a, cwd, timeout, v)
+		res, err = t.runOneShot(ctx, env, &a, cwd, timeout, v)
 	}
 	if err != nil {
 		// A policy refusal (e.g. the approved execution mode changed) is a
@@ -260,7 +260,7 @@ func (t *shellTool) Run(ctx context.Context, env Env, args json.RawMessage) (Res
 }
 
 // runSession runs one command in a persistent shell (§A.2).
-func (t *shellTool) runSession(ctx context.Context, a shellArgs, timeout time.Duration) (exec.Result, error) {
+func (t *shellTool) runSession(ctx context.Context, a *shellArgs, timeout time.Duration) (exec.Result, error) {
 	if t.cfg.Sessions == nil {
 		return exec.Result{}, toolErr(CodeModuleUnavailable, "persistent sessions are not configured", "omit session for a one-shot command")
 	}
@@ -273,7 +273,7 @@ func (t *shellTool) runSession(ctx context.Context, a shellArgs, timeout time.Du
 
 // runOneShot runs one command through the local runner, using execve for a
 // shell_allow match (§A.2 mode b).
-func (t *shellTool) runOneShot(ctx context.Context, env Env, a shellArgs, cwd string, timeout time.Duration, v classify.Verdict) (exec.Result, error) {
+func (t *shellTool) runOneShot(ctx context.Context, env Env, a *shellArgs, cwd string, timeout time.Duration, v classify.Verdict) (exec.Result, error) {
 	if t.cfg.Runner == nil {
 		return exec.Result{}, toolErr(CodeModuleUnavailable, "shell runner is not configured", "")
 	}
@@ -416,7 +416,7 @@ func (t *shellTool) allowMatched(command, cwd string, session bool) bool {
 
 // callCwd is the directory the child runs in: the call's cwd, else the
 // session cwd.
-func (t *shellTool) callCwd(a shellArgs) string {
+func (t *shellTool) callCwd(a *shellArgs) string {
 	if a.Cwd != "" {
 		return a.Cwd
 	}
@@ -460,7 +460,7 @@ func (t *shellTool) take(callID string) (shellApproval, bool) {
 // mode. A shell_allow match that appeared, vanished or changed argv between
 // Inspect and the spawn fails closed (REVIEW-F1-SEC7 TL7-4, ADR-079 butir
 // 3/8): approval was for one exact execution mode, not for a command string.
-func (t *shellTool) approvedDirect(env Env, a shellArgs, cwd string) ([]string, error) {
+func (t *shellTool) approvedDirect(env Env, a *shellArgs, cwd string) ([]string, error) {
 	matched := t.allowMatched(a.Command, cwd, false)
 	now, ok := t.directArgv(a.Command, matched)
 	if !ok {
