@@ -69,6 +69,7 @@ func specExecDefaults() Exec {
 				Binary: "docker", User: "65534:65534", CPUMilli: 1000,
 				MemoryMiB: 512, PIDs: 128, Network: "none",
 			},
+			SSH: SSHExec{Port: 22, KeepAliveS: 30, IdleCloseS: 600, TimeoutS: 120, MaxConns: 4},
 		},
 	}
 }
@@ -555,6 +556,15 @@ func TestExecBackendSelection(t *testing.T) {
 			c.Exec.Backends.Docker.EgressAllow = []string{"proxy.golang.org:443"}
 			c.Exec.Backends.Docker.ProxyURL = "http://127.0.0.1:8080"
 		}, "exec.backends.docker.network_name", false},
+		{"ssh without known_hosts", func(c *Config) {
+			c.Exec.Backend = "ssh"
+			c.Exec.Backends.SSH.Host, c.Exec.Backends.SSH.User = "example.test", "dev"
+		}, "exec.backends.ssh.known_hosts", false},
+		{"ssh ok", func(c *Config) {
+			c.Exec.Backend = "ssh"
+			c.Exec.Backends.SSH.Host, c.Exec.Backends.SSH.User = "example.test", "dev"
+			c.Exec.Backends.SSH.KnownHosts = "/home/dev/.ssh/known_hosts"
+		}, "", true},
 		{"docker ok", func(c *Config) {
 			c.Exec.Backend, c.Exec.Backends.Docker.Image = "docker", "img"
 		}, "", true},

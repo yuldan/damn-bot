@@ -9,6 +9,7 @@ import "strings"
 // fields is a validation error, not a silent fallback to local.
 type ExecBackends struct {
 	Docker DockerExec `toml:"docker"`
+	SSH    SSHExec    `toml:"ssh"`
 }
 
 // DockerExec configures the docker CLI backend.
@@ -26,6 +27,19 @@ type DockerExec struct {
 	AllowUnlimited bool     `toml:"allow_unlimited"`
 }
 
+// SSHExec configures the SSH backend.
+type SSHExec struct {
+	Host       string `toml:"host"`
+	User       string `toml:"user"`
+	Port       int    `toml:"port"`
+	KeyFile    string `toml:"key_file"`
+	KnownHosts string `toml:"known_hosts"`
+	KeepAliveS int    `toml:"keepalive_s"`
+	IdleCloseS int    `toml:"idle_close_s"`
+	TimeoutS   int    `toml:"timeout_s"`
+	MaxConns   int    `toml:"max_conns"`
+}
+
 // defaultExecBackends is the SPEC §12 [exec.backends] block (ADR-277).
 func defaultExecBackends() ExecBackends {
 	return ExecBackends{
@@ -33,6 +47,7 @@ func defaultExecBackends() ExecBackends {
 			Binary: "docker", User: "65534:65534", CPUMilli: 1000,
 			MemoryMiB: 512, PIDs: 128, Network: "none",
 		},
+		SSH: SSHExec{Port: 22, KeepAliveS: 30, IdleCloseS: 600, TimeoutS: 120, MaxConns: 4},
 	}
 }
 
@@ -44,6 +59,8 @@ func (c *Config) validateExecBackends() error {
 		return nil
 	case "docker":
 		return c.validateDocker()
+	case "ssh":
+		return c.validateSSH()
 	default:
 		return invalid("exec.backend", "must be local or docker in this slice")
 	}
@@ -89,6 +106,30 @@ func (c *Config) validateDocker() error {
 		if !validEgressHost(host) {
 			return invalid("exec.backends.docker.egress_allow", "%q is not a host[:port]", host)
 		}
+	}
+	return nil
+}
+
+//nolint:gocyclo // one branch per validated key keeps the config error names readable
+func (c *Config) validateSSH() error {
+	s := c.Exec.Backends.SSH
+	switch {
+	case s.Host == "" || strings.ContainsAny(s.Host, " \t\x00"):
+		return invalid("exec.backends.ssh.host", "required for the ssh backend")
+	case s.User == "" || strings.ContainsAny(s.User, " \t\x00"):
+		return invalid("exec.backends.ssh.user", "required for the ssh backend")
+	case s.Port < 1 || s.Port > 65535:
+		return invalid("exec.backends.ssh.port", "must be in 1..65535")
+	case s.KnownHosts == "":
+		return invalid("exec.backends.ssh.known_hosts", "host-key pinning requires known_hosts")
+	case s.MaxConns < 1 || s.MaxConns > 64:
+		return invalid("exec.backends.ssh.max_conns", "must be in 1..64")
+	case s.TimeoutS < 1 || s.TimeoutS > 600:
+		return invalid("exec.backends.ssh.timeout_s", "must be in 1..600")
+	case s.KeepAliveS < 1 || s.KeepAliveS > 300:
+		return invalid("exec.backends.ssh.keepalive_s", "must be in 1..300")
+	case s.IdleCloseS < 1 || s.IdleCloseS > 3600:
+		return invalid("exec.backends.ssh.idle_close_s", "must be in 1..3600")
 	}
 	return nil
 }
