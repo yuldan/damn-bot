@@ -405,7 +405,7 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	if err != nil {
 		return nil, fmt.Errorf("provider: %w", err)
 	}
-	return &providerAdapter{client: openai, model: modelRef, lightRef: lightRef, notes: notes, provider: provName, origin: o.sessionOrigin}, nil
+	return newRunAdapter(openai, cfg, modelRef, lightRef, notes, provName, o.sessionOrigin)
 }
 
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, configDir, home string, codec ctxdb.Codec) (*runModel, error) {
@@ -581,56 +581,6 @@ func charsPerToken(s string) float64 {
 
 func (p *providerAdapter) Stream(ctx context.Context, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
 	return p.do(ctx, provider.PurposeTurn, req, emit)
-}
-
-func (p *providerAdapter) do(ctx context.Context, purpose provider.Purpose, req *loop.Request, emit func(loop.Delta)) (loop.Reply, error) {
-	_, model := p.routeModel(purpose, req.Model)
-	preq := &provider.Request{Model: model, MaxTokens: req.MaxTokens, CacheBreakAfter: req.CacheBreakAfter, Origin: p.origin}
-	for _, m := range req.Messages {
-		pm := provider.Message{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID, Carriers: providerCarriers(m.Carriers)}
-		for _, c := range m.ToolCalls {
-			pm.ToolCalls = append(pm.ToolCalls, provider.ToolCall{ID: c.ID, Name: c.Name, ArgumentsRaw: c.Arguments})
-		}
-		preq.Messages = append(preq.Messages, pm)
-	}
-	for _, t := range req.Tools {
-		preq.Tools = append(preq.Tools, provider.ToolSchema{Name: t.Name, Description: t.Description, Parameters: t.Parameters})
-	}
-	var onChunk func(provider.Chunk)
-	if emit != nil {
-		onChunk = func(ch provider.Chunk) { emit(loop.Delta{Text: string(ch.Content)}) }
-	}
-	resp, err := p.client.Do(ctx, purpose, preq, onChunk)
-	warnings := p.notes.take()
-	maxTok := int64(req.MaxTokens)
-	if maxTok <= 0 {
-		maxTok = provider.DefaultMaxTokens
-	}
-	billed := billedUsage(&resp, maxTok)
-	if err != nil {
-		se := streamError(err)
-		se.Billed = resp.BilledFailed
-		se.Usage = billed
-		return loop.Reply{}, se
-	}
-	reply := loop.Reply{
-		Content: resp.Content, FinishReason: resp.FinishReason, Usage: event.Usage{
-			Input: resp.Usage.Input, CachedInput: resp.Usage.CachedInput,
-			CacheCreation: resp.Usage.CacheCreation,
-			Output:        resp.Usage.Output, CostUSD: resp.Usage.CostUSD,
-			Price: eventPrice(resp.Price), TTFT: resp.TTFT,
-		},
-		Model: resp.Model, FallbackFrom: resp.FallbackFrom, Attempts: resp.Attempts,
-		Carriers: eventCarriers(resp.Carriers), RejectedCarriers: eventCarriers(resp.RejectedCarriers),
-		CarrierDrops: eventDrops(resp.CarrierDrops), ReasoningText: resp.ReasoningText,
-		BudgetWarnings: warnings,
-		BilledFailed:   resp.BilledFailed,
-		BilledUsage:    billed,
-	}
-	for _, c := range resp.ToolCalls {
-		reply.ToolCalls = append(reply.ToolCalls, loop.ToolCall{ID: c.ID, Name: c.Name, Arguments: c.ArgumentsRaw})
-	}
-	return reply, nil
 }
 
 type redactorAdapter struct{ red *redact.Redactor }
