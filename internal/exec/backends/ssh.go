@@ -1,3 +1,5 @@
+//go:build !minimal
+
 package backends
 
 import (
@@ -31,7 +33,9 @@ type SSHConfig struct {
 	Timeout    time.Duration
 	MaxConns   int
 	Env        []string // process environment, used only to find SSH_AUTH_SOCK
-	// DialClient is a test seam; nil dials TCP.
+	// Dial dials TCP through the caller's policy (netx); nil fails closed.
+	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// DialClient is a test seam for the handshake; nil uses Dial.
 	DialClient func(ctx context.Context, cfg *ssh.ClientConfig, addr string) (*ssh.Client, error)
 }
 
@@ -67,6 +71,9 @@ func NewSSH(ctx context.Context, cfg *SSHConfig) (*SSH, error) {
 	hk, err := knownhosts.New(cfg.KnownHosts)
 	if err != nil {
 		return nil, fmt.Errorf("%w: ssh known_hosts: %w", exec.ErrUnavailable, err)
+	}
+	if cfg.Dial == nil {
+		return nil, fmt.Errorf("%w: ssh needs a dialer (netx)", exec.ErrUnavailable)
 	}
 	auth, err := sshAuth(ctx, cfg)
 	if err != nil {
@@ -357,8 +364,7 @@ func (p *sshPool) dial(ctx context.Context) (*ssh.Client, error) {
 	if p.cfg.DialClient != nil {
 		return p.cfg.DialClient(ctx, p.client, addr)
 	}
-	d := net.Dialer{Timeout: p.cfg.Timeout}
-	nc, err := d.DialContext(ctx, "tcp", addr)
+	nc, err := p.cfg.Dial(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("%w: ssh dial %s: %w", exec.ErrUnavailable, addr, err)
 	}
@@ -423,7 +429,7 @@ func sshAuth(ctx context.Context, cfg *SSHConfig) ([]ssh.AuthMethod, error) {
 		}
 		methods = append(methods, ssh.PublicKeys(signer))
 	}
-	if agent := agentAuth(ctx, cfg.Env); agent != nil {
+	if agent := agentAuth(ctx, cfg.Env, cfg.Dial); agent != nil {
 		methods = append(methods, agent)
 	}
 	if len(methods) == 0 {

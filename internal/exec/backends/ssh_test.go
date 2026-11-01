@@ -24,6 +24,7 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 
 	"github.com/damnbot/damnbot/internal/exec"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 // sshTestServer is an in-process SSH server: exec requests run through the
@@ -169,8 +170,7 @@ func sshKeyFile(t *testing.T) string {
 func passwordDialer(ctx context.Context, c *ssh.ClientConfig, addr string) (*ssh.Client, error) {
 	cc := *c
 	cc.Auth = []ssh.AuthMethod{ssh.Password("pw")}
-	d := net.Dialer{Timeout: 5 * time.Second}
-	nc, err := d.DialContext(ctx, "tcp", addr)
+	nc, err := netx.New(netx.Config{}).DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("test dial: %w", err)
 	}
@@ -197,6 +197,7 @@ func newTestSSH(t *testing.T, s *sshTestServer) *SSH {
 		Host: host, User: "tester", Port: p, KeyFile: sshKeyFile(t),
 		KnownHosts: knownHostsFile(t, s), MaxConns: 2,
 		KeepAlive: 50 * time.Millisecond, IdleClose: time.Minute,
+		Dial:       netx.New(netx.Config{}).DialContext,
 		DialClient: passwordDialer,
 	}
 	b, nerr := NewSSH(t.Context(), &cfg)
@@ -300,6 +301,7 @@ func TestSSHHostKeyPin(t *testing.T) {
 	}
 	_, err = NewSSH(t.Context(), &SSHConfig{
 		Host: host, User: "tester", Port: p, KeyFile: sshKeyFile(t), KnownHosts: path,
+		Dial: netx.New(netx.Config{}).DialContext,
 	})
 	if err != nil {
 		t.Fatalf("NewSSH: %v", err)
@@ -322,6 +324,7 @@ func newTestSSHWithKnownHosts(t *testing.T, s *sshTestServer, known string) *SSH
 	}
 	cfg := SSHConfig{
 		Host: host, User: "tester", Port: p, KeyFile: sshKeyFile(t), KnownHosts: known,
+		Dial:       netx.New(netx.Config{}).DialContext,
 		DialClient: passwordDialer,
 	}
 	b, nerr := NewSSH(t.Context(), &cfg)

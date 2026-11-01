@@ -84,7 +84,7 @@ func allowedImports() map[string][]string {
 		"internal/codetools":         {"internal/sandbox", "internal/boundary"},
 		"internal/exec":              {"internal/exec/classify", "internal/sandbox", "internal/redact", "internal/boundary"},
 		// F5 backends (ADR-277): transport over the exec contract only.
-		"internal/exec/backends":       {"internal/exec"},
+		"internal/exec/backends":       {"internal/exec", "internal/netx"},
 		"internal/exec/classify":       nil,
 		"internal/hooks":               append(groupExec(), "internal/redact"),
 		"internal/modules":             {"internal/modules/host", "internal/boundary"},

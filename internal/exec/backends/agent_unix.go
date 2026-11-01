@@ -14,13 +14,15 @@ import (
 // agentAuth uses SSH_AUTH_SOCK from the injected process environment (the
 // variable only reaches the backend when exec.pass_ssh_agent allowed it, and
 // internal/config is the only package that reads the OS environment).
-func agentAuth(ctx context.Context, env []string) ssh.AuthMethod {
+func agentAuth(ctx context.Context, env []string, dial func(context.Context, string, string) (net.Conn, error)) ssh.AuthMethod {
 	sock := envValue(env, "SSH_AUTH_SOCK")
 	if sock == "" {
 		return nil
 	}
-	d := net.Dialer{}
-	conn, err := d.DialContext(ctx, "unix", sock)
+	if dial == nil {
+		return nil
+	}
+	conn, err := dial(ctx, "unix", sock)
 	if err != nil {
 		return nil
 	}
