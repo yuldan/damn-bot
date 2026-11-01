@@ -59,6 +59,7 @@ func allowedImports() map[string][]string {
 		"internal/delegate":                 {"internal/tools", "internal/codetools", "internal/sandbox", "internal/redact"},
 		"internal/codeintel":                moduleImports(),
 		"internal/codeintel/ts":             nil,
+		"internal/codeintel/lsp":            {"internal/netx/jsonrpc"},
 		"internal/gateway" + moduleWildcard: moduleImports(),
 
 		// Core.
