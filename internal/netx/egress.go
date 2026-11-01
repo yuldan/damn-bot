@@ -35,6 +35,16 @@ func Registry() map[string]Egress {
 			Host:    "monitor.url in cron_jobs.gate",
 			Trigger: "a due cron monitor gate before the prompt runs (COST-13)",
 		},
+		"mcp": {
+			Purpose: Tool,
+			Host:    "server url from [modules.mcp.servers.<name>].url (public addresses only)",
+			Trigger: "damnbot mcp refresh/review and a turn's MCP list/call",
+		},
+		"mcp-local": {
+			Purpose: Inference,
+			Host:    "loopback server url from [modules.mcp.servers.<name>].url",
+			Trigger: "the same calls to an explicitly local MCP server",
+		},
 		"telegram": {
 			Purpose: Gateway,
 			Host:    "api.telegram.org",

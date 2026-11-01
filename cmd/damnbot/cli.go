@@ -21,6 +21,7 @@ type cliEnv struct {
 	cfg       config.Config
 	configDir string
 	db        *ctxdb.Store
+	loader    *config.Loader
 }
 
 func openCLI(ctx context.Context, configPath, dataDir string) (*cliEnv, error) {
@@ -40,7 +41,7 @@ func openCLI(ctx context.Context, configPath, dataDir string) (*cliEnv, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open ctxdb: %w", err)
 	}
-	return &cliEnv{cfg: cfg, configDir: paths.ConfigDir, db: db}, nil
+	return &cliEnv{cfg: cfg, configDir: paths.ConfigDir, db: db, loader: loader}, nil
 }
 
 // runSub runs one non-turn subcommand: a parse failure exits 2 (printed once,
