@@ -30,8 +30,11 @@ type Caps struct {
 	Signals        bool // SIGTERM → grace → SIGKILL on the command tree
 	SharesFS       bool // the backend sees the workspace at identical paths
 	ResourceLimits bool // CPU/memory/PIDs limits are enforceable
-	Network        bool // network isolation (none or allowlist) is enforceable
-	Sessions       bool // persistent shell sessions (EXEC-AND-CODING §A.2)
+	// Network reports whether the backend can enforce a network-isolation
+	// policy (none/allowlist). false means no isolation guarantee: a
+	// deny-only caller (execute_code) MUST fail closed, never assume.
+	Network  bool
+	Sessions bool // persistent shell sessions (EXEC-AND-CODING §A.2)
 }
 
 // Limits are the per-call resource caps a backend applies (zero: unset).

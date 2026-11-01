@@ -24,13 +24,17 @@ func testShell(t *testing.T, w *workspace) (Tool, func()) {
 func testShellTrusted(t *testing.T, w *workspace, trusted bool) (Tool, func()) {
 	t.Helper()
 	runner := exec.New(t.Context())
+	bg := exec.NewBackground()
 	sh := mustShell(t, &ShellConfig{
-		Runner: runner, Spill: newMemSpill(), Redactor: redact.New(redact.Options{}),
+		Runner: runner, Background: bg, Spill: newMemSpill(), Redactor: redact.New(redact.Options{}),
 		Roots: []string{w.root}, Home: w.root, Cwd: w.root,
 		ParentEnv: os.Environ(), EnvPolicy: &exec.EnvPolicy{},
 		WorkspaceTrusted: trusted,
 	})
 	return sh, func() {
+		if err := bg.Close(context.Background()); err != nil {
+			t.Error(err)
+		}
 		if err := runner.Close(); err != nil {
 			t.Error(err)
 		}
@@ -136,18 +140,6 @@ func TestShellSessionStdinRejected(t *testing.T) {
 	out := d.Dispatch(context.Background(), callOf("shell", `{"command":"cat","session":"s1","stdin":"x"}`))
 	if codeOfOutcome(out) != CodeInvalidArgs {
 		t.Fatalf("code = %s", codeOfOutcome(out))
-	}
-}
-
-func TestShellBackgroundRejected(t *testing.T) {
-	t.Parallel()
-	w := newWorkspace(t)
-	sh, closeFn := testShell(t, w)
-	defer closeFn()
-	d, _, _ := w.dispatcher(t, ModeAuto, &approverRec{answer: ApprovalAllowOnce}, sh)
-	out := d.Dispatch(context.Background(), callOf("shell", `{"command":"echo hi","background":true}`))
-	if codeOfOutcome(out) != CodeInvalidArgs {
-		t.Fatalf("code = %s (%s)", codeOfOutcome(out), out.Render())
 	}
 }
 

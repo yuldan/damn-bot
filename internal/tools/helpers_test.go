@@ -90,7 +90,7 @@ func (w *workspace) dispatcher(t *testing.T, mode Mode, appr Approver, extra ...
 	}
 	d, err := NewDispatcher(&Config{
 		Registry: reg, Journal: j, Spill: sp, Redactor: testRedactor(), Mode: mode, Approver: appr,
-		WorkspaceTrusted: true, Cwd: w.root,
+		WorkspaceTrusted: true, Cwd: w.root, Session: testView(t, "S"),
 	})
 	if err != nil {
 		t.Fatal(err)
