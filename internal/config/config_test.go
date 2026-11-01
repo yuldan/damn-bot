@@ -64,6 +64,12 @@ func specExecDefaults() Exec {
 		Env:              map[string]string{},
 		PassSSHAgent:     false,
 		Backend:          "local",
+		Backends: ExecBackends{
+			Docker: DockerExec{
+				Binary: "docker", User: "65534:65534", CPUMilli: 1000,
+				MemoryMiB: 512, PIDs: 128, Network: "none",
+			},
+		},
 	}
 }
 
@@ -536,8 +542,22 @@ func TestExecBackendSelection(t *testing.T) {
 	}{
 		{"default local", func(*Config) {}, "", true},
 		{"explicit local", func(c *Config) { c.Exec.Backend = "local" }, "", true},
-		{"remote backend not in this slice", func(c *Config) { c.Exec.Backend = "docker" }, "exec.backend", false},
+
 		{"unknown backend", func(c *Config) { c.Exec.Backend = "firecracker" }, "exec.backend", false},
+		{"docker without image", func(c *Config) { c.Exec.Backend = "docker" }, "exec.backends.docker.image", false},
+		{"docker no network", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.Docker.Image = "docker", "img"
+			c.Exec.Backends.Docker.Network = "host"
+		}, "exec.backends.docker.network", false},
+		{"docker allowlist without network", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.Docker.Image = "docker", "img"
+			c.Exec.Backends.Docker.Network = "allowlist"
+			c.Exec.Backends.Docker.EgressAllow = []string{"proxy.golang.org:443"}
+			c.Exec.Backends.Docker.ProxyURL = "http://127.0.0.1:8080"
+		}, "exec.backends.docker.network_name", false},
+		{"docker ok", func(c *Config) {
+			c.Exec.Backend, c.Exec.Backends.Docker.Image = "docker", "img"
+		}, "", true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

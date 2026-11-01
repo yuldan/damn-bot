@@ -134,6 +134,7 @@ type Exec struct {
 	Env              map[string]string `toml:"env"`
 	PassSSHAgent     bool              `toml:"pass_ssh_agent"`
 	Backend          string            `toml:"backend"`
+	Backends         ExecBackends      `toml:"backends"`
 }
 
 // Agent is SPEC §12 [agent].
@@ -290,6 +291,21 @@ func (d Duration) MarshalText() ([]byte, error) { return []byte(d.String()), nil
 // identity: USD per UTC day.
 const DefaultGatewayUserDailyUSD = 1.00
 
+// defaultExec is the SPEC §12 [exec] block.
+func defaultExec() Exec {
+	return Exec{
+		DefaultTimeoutS:  120,
+		IdleTimeoutS:     60,
+		AllowDestructive: false,
+		KillGraceS:       3,
+		EnvAllow:         []string{},
+		Env:              map[string]string{},
+		PassSSHAgent:     false,
+		Backend:          "local",
+		Backends:         defaultExecBackends(),
+	}
+}
+
 // Default returns the SPEC §12 defaults for every key exposed in F1.
 func Default() Config {
 	gateway, modules := gatewayDefaults()
@@ -327,16 +343,7 @@ func Default() Config {
 			AddDirs:         []string{},
 			PreviewTimeoutS: 600,
 		},
-		Exec: Exec{
-			DefaultTimeoutS:  120,
-			IdleTimeoutS:     60,
-			AllowDestructive: false,
-			KillGraceS:       3,
-			EnvAllow:         []string{},
-			Env:              map[string]string{},
-			PassSSHAgent:     false,
-			Backend:          "local",
-		},
+		Exec:    defaultExec(),
 		Agent:   Agent{VerifyOnStop: "run"},
 		Storage: Storage{Encrypt: false},
 		// The privacy-safe default: background egress is allowed (the daily
