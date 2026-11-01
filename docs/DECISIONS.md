@@ -5711,3 +5711,19 @@ ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaika
 **Anggaran terukur.** Baris baru `MODULE codeintel` **7.000** (SPEC §3.2.4:292; kode terukur **366**), Σ kelas MODULE **51.800 → 58.800** (+`backup` 1.467 = **60.267 ≤ 61.000**, `maxModuleLOC` 53.800 → **61.000**). Core tidak berubah. Tidak ada dependency/migrasi/config.
 
 **Kontrol negatif.** `TestIndexSkipsUnsafeAndBinary` (biner, file besar, symlink keluar/tidak diikuti, non-Go, parse gagal dihitung, simbol di luar root tidak bocor), `TestIndexBoundsAndContext` (MaxFiles → `ErrTooLarge`, cancel → `context.Canceled`, root kosong/hilang → `ErrRoot`), `TestIndexSymbolsAndDeterminism` (simbol/import benar, fokus meranking file definisi, render deterministik dan ≤ budget).
+
+## ADR-305 — Katalog bertanda tangan dan probe cgroup backend (F5; GAP-SEC-20, GAP-SEC-23)
+
+**Status:** Accepted 2026-11-01 (GAP-SEC-20/23). Kode + tes + `docs/F5-ACCEPTANCE.md` + SPEC §9.6 errata (AUD-050); tanpa dependency, migrasi, atau perubahan plafon/baris `loc.budget`.
+
+**Konteks.** ADR-272 menunda manifest katalog MCP bertanda tangan. `internal/exec/backends` sudah menerima `--cpus/--memory/--pids-limit` (docker) dan `--cgroup` (singularity), tetapi hanya mengandalkan exit non-zero perintah pengguna; daemon yang tidak dapat menegakkan cgroup bisa membuat perintah berjalan tanpa limit atau gagal di tengah. GAP-SEC-23 meminta penolakan sebelum run dengan `ErrCapability` `no_resource_limits`.
+
+**Keputusan.**
+1. **Manifest katalog.** `internal/mcp/catalog` mendefinisikan `Manifest{kind,name,version,serial,entries,signature}`; `entries[]` wajib memuat commit 40-hex dan sha256 64-hex. `SigningBytes` adalah JSON deterministik tanpa field signature. `Verify(data,pub,lastSerial)` menolak manifest unsigned (`ErrUnsigned`), signature salah/tamper (`ErrSignature`), key salah (`ErrKey`), dan serial ≤ terakhir (`ErrRollback`). `VerifyWithStore` menyimpan serial hanya setelah signature valid.
+2. **Key operator.** `[update] catalog_public_key` (base64 ed25519) divalidasi sebagai key 32 byte; kosong berarti katalog non-embedded ditolak, bukan diterima tanpa signature. `damnbot mcp catalog <file>` memverifikasi manifest (kind `provider`/`mcp`) dengan key flag `--key` atau config, dan tidak pernah mencetak entri sebelum verifikasi.
+3. **Probe cgroup.** Docker menjalankan `docker create` dengan flag limit yang sama (tanpa start), singularitas menjalankan `apptainer/singularity cgroup status`; keduanya sebelum perintah pengguna. Kegagalan/non-zero/output kosong → `ErrCapability` “no_resource_limits”, bukan fallback lokal. Hasil di-cache `sync.Once`; `allow_unlimited=true` satu-satunya opt-out; cleanup container probe best-effort.
+
+**Dampak terukur.** MODULE mcp 2.176 → **2.349/6.500** (catalog 175 baris), MODULE update 1.134 → **1.144/1.500** (key + validasi), MODULE backend 1.269 → **1.345/4.800** (probe 76 baris docker/singularity). TOTAL 95.072 → **95.365/190.000**; Σ core/`maxCoreLOC`/Σ MODULE tidak berubah. Tes: `TestGAPF5_SEC20*` (4), `TestGAPF5_SEC20CLI`, `TestGAPF5_SEC20ConfigKey`, `TestGAPF5_SEC23DockerProbe`, `TestGAPF5_SEC23SingularityProbe`, plus seluruh suite backend.
+
+**Konsekuensi.** (+) Katalog dari luar binary tidak dapat dipakai tanpa signature dan rollback terdeteksi; backend container gagal sebelum eksekusi bila limit tidak dapat dijamin. (−) Fetch live/redirect same-host dan penyimpanan serial lintas proses belum di-wire (dicatat di ledger); `apptainer cgroup status` tersedia hanya pada versi yang mendukung subcommand itu — versi lama gagal tertutup.
+
