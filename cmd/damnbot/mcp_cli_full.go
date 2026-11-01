@@ -35,6 +35,8 @@ func runMCPImpl(args []string, stdout, stderr io.Writer) int {
 		return mcpReview(args[1:], stdout, stderr)
 	case "auth":
 		return mcpAuth(args[1:], stdout, stderr)
+	case "serve":
+		return mcpServe(args[1:], stdout, stderr)
 	}
 	sessionsPrintf(stderr, "mcp: unknown subcommand %q\n", cleanArg(args[0]))
 	mcpUsage(stderr)
