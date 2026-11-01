@@ -165,6 +165,7 @@ config_version = 1
   feed_url = ""
   channel = "stable"
   auto_install = false
+  catalog_public_key = ""
 
 [acp]
   use_client_fs = true
@@ -228,5 +229,6 @@ config_version = 1
 | `update.feed_url` | string | `` | `DAMNBOT_UPDATE_FEED_URL` |
 | `update.channel` | string | `stable` | `DAMNBOT_UPDATE_CHANNEL` |
 | `update.auto_install` | bool | `false` | `DAMNBOT_UPDATE_AUTO_INSTALL` |
+| `update.catalog_public_key` | string | `` | `DAMNBOT_UPDATE_CATALOG_PUBLIC_KEY` |
 | `acp.use_client_fs` | bool | `true` | `DAMNBOT_ACP_USE_CLIENT_FS` |
 | `acp.use_client_terminal` | bool | `false` | `DAMNBOT_ACP_USE_CLIENT_TERMINAL` |

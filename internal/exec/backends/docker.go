@@ -40,6 +40,11 @@ type Docker struct {
 	cfg  DockerConfig
 	root string // canonical workspace root
 
+	probe sync.Once
+	// probeErr is the cached cgroup/limit probe result: a backend that cannot
+	// enforce CPU/memory/PID caps never runs a command (GAP-SEC-23).
+	probeErr error
+
 	mu     sync.Mutex
 	names  map[string]bool
 	closed bool
@@ -89,6 +94,9 @@ func (d *Docker) Caps() exec.Caps {
 // afterwards; the host workspace is mounted at the same path.
 func (d *Docker) Run(ctx context.Context, spec *exec.Spec) (exec.Result, error) {
 	if err := d.ready(); err != nil {
+		return exec.Result{Status: exec.StatusSpawnFailed}, err
+	}
+	if err := d.ensureLimits(ctx); err != nil {
 		return exec.Result{Status: exec.StatusSpawnFailed}, err
 	}
 	if spec.PTY {
@@ -205,6 +213,54 @@ func (d *Docker) limitArgs(limits exec.Limits) []string {
 		args = append(args, "--pids-limit="+strconv.Itoa(limits.PIDs))
 	}
 	return args
+}
+
+// ensureLimits proves the daemon accepts the cgroup limit flags before any
+// real command runs. A daemon without cgroup enforcement fails here with
+// ErrCapability, not by letting the user command fail halfway.
+func (d *Docker) ensureLimits(ctx context.Context) error {
+	limits := exec.Limits{CPUMilli: d.cfg.CPUMilli, MemoryMiB: d.cfg.MemoryMiB, PIDs: d.cfg.PIDs}
+	if d.cfg.AllowUnlimited || !limits.Set() {
+		return nil
+	}
+	d.probe.Do(func() { d.probeErr = d.probeLimits(ctx) })
+	return d.probeErr
+}
+
+// probeLimits creates a container with exactly the configured caps and never
+// starts it. A successful create proves the daemon/cgroup combination can
+// apply them; a failure is returned as a capability error.
+func (d *Docker) probeLimits(ctx context.Context) error {
+	bin, err := ResolveBinary(d.cfg.Binary)
+	if err != nil {
+		return err
+	}
+	argv := []string{bin, "create", "--network=none", "--pull=never"}
+	argv = append(argv, d.limitArgs(exec.Limits{})...)
+	argv = append(argv, d.cfg.Image)
+	res, err := RunCLI(ctx, d.ID(), &CLISpec{argv: argv, dir: d.root, timeout: exec.DefaultTimeout})
+	if err != nil {
+		return fmt.Errorf("%w: docker limit probe: %w", exec.ErrCapability, err)
+	}
+	if res.Status != exec.StatusExited || res.ExitCode == nil || *res.ExitCode != 0 {
+		return fmt.Errorf("%w: docker: no_resource_limits: %s", exec.ErrCapability,
+			strings.TrimSpace(string(res.Output)))
+	}
+	if id := strings.TrimSpace(string(res.Output)); id != "" {
+		d.removeProbe(ctx, bin, id)
+	}
+	return nil
+}
+
+// removeProbe deletes the container created by probeLimits. Cleanup is best
+// effort: the probe already proved the daemon can apply the limits, and a
+// leaked container is reported by the normal Sweep path.
+func (d *Docker) removeProbe(ctx context.Context, bin, id string) {
+	if _, err := RunCLI(context.WithoutCancel(ctx), d.ID(), &CLISpec{
+		argv: []string{bin, "rm", "-f", id}, dir: d.root, timeout: exec.DefaultTimeout,
+	}); err != nil {
+		return
+	}
 }
 
 // remove deletes the container; an absent container is not an error.
