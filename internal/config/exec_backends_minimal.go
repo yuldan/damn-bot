@@ -20,10 +20,6 @@ func (c *Config) validateExecBackends() error {
 	}
 }
 
-// ExecExtra is empty in the minimal build: execute_code is not linked and an
-// unknown code_auto_languages key is rejected by the strict decoder.
-type ExecExtra struct{}
-
 func validateExecCode(*Config) error { return nil }
 
 // defaultExec is the SPEC §12 [exec] block without exec.code_auto_languages.
