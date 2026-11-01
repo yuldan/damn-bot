@@ -91,6 +91,12 @@ func publicIP(ip netip.Addr) bool {
 // in ControlContext on the address actually being connected, after DNS
 // resolution, so a rebinding name cannot slip past it. Every dial failure
 // is a *ConnectError (nothing was sent).
+
+// DialContext dials a non-HTTP protocol (SSH) under the Network policy.
+func (n *Network) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	return dialer(dialRule{offline: n.cfg.Offline, test: testBinary()})(ctx, network, addr)
+}
+
 func dialer(rule dialRule) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	return dialerWith(rule, nil)
 }

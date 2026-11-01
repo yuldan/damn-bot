@@ -322,8 +322,8 @@ func fallbackRecorder(db *ctxdb.Store, sid string) func(context.Context, bool) e
 }
 
 // openExecBackend builds the selected backend and its local sessions.
-func openExecBackend(cfg *config.Config, runner *exec.Runner, dataDir, cwd, configDir string, policy *exec.EnvPolicy) (exec.Backend, *exec.Sessions, error) {
-	return newExecBackend(cfg, runner, filepath.Join(dataDir, "exec", "sess"), cwd, configDir, policy.Env(os.Environ(), true, "", "", ""))
+func openExecBackend(ctx context.Context, cfg *config.Config, runner *exec.Runner, dataDir, cwd, configDir string, policy *exec.EnvPolicy) (exec.Backend, *exec.Sessions, error) {
+	return newExecBackend(ctx, cfg, runner, filepath.Join(dataDir, "exec", "sess"), cwd, configDir, policy.Env(os.Environ(), true, "", "", ""))
 }
 
 // shellWiring is the composition input of the shell tool (keeps
@@ -418,7 +418,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	runner := exec.New(ctx)
 	envPolicy := &exec.EnvPolicy{Allow: cfg.Exec.EnvAllow, Set: cfg.Exec.Env, PassSSHAgent: cfg.Exec.PassSSHAgent}
 	// Persistent sessions share the runner but never receive secret refs (ADR-088).
-	backend, sessions, err := openExecBackend(cfg, runner, dataDir, cwd, configDir, envPolicy)
+	backend, sessions, err := openExecBackend(ctx, cfg, runner, dataDir, cwd, configDir, envPolicy)
 	if err != nil {
 		engine.Close()
 		if cerr := runner.CloseContext(ctx); cerr != nil {

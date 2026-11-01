@@ -61,6 +61,16 @@ config_version = 1
       network_name = ""
       proxy_url = ""
       allow_unlimited = false
+    [exec.backends.ssh]
+      host = ""
+      user = ""
+      port = 22
+      key_file = ""
+      known_hosts = ""
+      keepalive_s = 30
+      idle_close_s = 600
+      timeout_s = 120
+      max_conns = 4
 
 [agent]
   verify_on_stop = "run"
