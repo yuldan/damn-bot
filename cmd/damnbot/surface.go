@@ -52,7 +52,7 @@ func (e surfaceEntry) Status() string {
 // urutannya mengikuti tabel §10, `bundles` menyusul setelah `skills`. `help`
 // membaca tabel ini, dan gate dokumen kelak memakai fase yang sama.
 func surface() []surfaceEntry {
-	return []surfaceEntry{
+	entries := []surfaceEntry{
 		{Name: "run", Summary: "Run one headless turn", Phase: phaseF1, Run: runHeadless, Usage: runUsage},
 		{Name: "acp", Summary: "ACP server on stdio", Phase: phaseF3, Run: runACP, Usage: acpUsage},
 		{Name: "serve", Summary: "Daemon: web UI, API, gateway, cron", Phase: phaseF4, Run: runServe, Usage: serveUsage},
@@ -68,7 +68,6 @@ func surface() []surfaceEntry {
 		{Name: "review", Summary: "Memory and skill quarantine review", Phase: phaseF2, Run: runReview, Usage: reviewUsage},
 		{Name: "skills", Summary: "Local skills: list, install, update, trust", Phase: phaseF2, Run: skillsCommand, Usage: skillsUsage},
 		{Name: "bundles", Summary: "Skill bundles: list, show, create, delete, reload", Phase: phaseF2, Run: runBundles, Usage: bundlesUsage},
-		{Name: "mcp", Summary: "MCP client and server", Phase: phaseF5, Run: runMCP, Usage: mcpUsage},
 		{Name: "gateway", Summary: "Messaging gateway", Phase: phaseF4, Run: runGateway, Usage: gatewayUsage},
 		{Name: "send", Summary: "Send one message to a configured platform", Phase: phaseF4, Run: runSend, Usage: sendUsage},
 		{Name: "cron", Summary: "Scheduler", Phase: phaseF4, Run: runCron, Usage: cronUsage},
@@ -79,6 +78,7 @@ func surface() []surfaceEntry {
 		{Name: "update", Summary: "Atomic self-update with rollback and channels", Phase: phaseF3, Run: runUpdate, Usage: updateUsage},
 		{Name: "version", Summary: "Version, commit, DB schema, compiled-in modules", Phase: phaseF1, Run: runVersion, Builtin: true},
 	}
+	return append(entries, mcpSurface()...)
 }
 
 // lookupSurface mencari nama perintah persis (tanpa alias: SPEC §10 menolak

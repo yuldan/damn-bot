@@ -212,6 +212,30 @@ func (m *mcpTokens) Status(ctx context.Context) mcpTokenStatus {
 	return r
 }
 
+// PeekStatus reports the stored credential without refreshing it (used by
+// `mcp list`, which must not touch the network).
+func (m *mcpTokens) PeekStatus(ctx context.Context) mcpTokenStatus {
+	r := mcpTokenStatus{Server: m.server, State: "ok"}
+	t, err := m.load(ctx)
+	if err != nil {
+		r.State = "missing"
+		if !errors.Is(err, mcp.ErrAuthRequired) {
+			r.State = "failed"
+		}
+		r.Error = cleanLine(err.Error())
+		return r
+	}
+	r.Issuer, r.Scope, r.Expiry, r.Refresh = t.Issuer, t.Scope, expiryLabel(&t, m.now()), t.RefreshToken != ""
+	switch {
+	case !t.Expired(m.now()):
+	case t.RefreshToken == "":
+		r.State = "expired"
+	default:
+		r.State = "expired" // refreshable, but not refreshed here
+	}
+	return r
+}
+
 // load reads the token and enforces the server binding.
 func (m *mcpTokens) load(ctx context.Context) (auth.Token, error) {
 	t, err := m.store.Load(ctx, m.provider)

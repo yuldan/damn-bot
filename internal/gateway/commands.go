@@ -31,6 +31,8 @@ type CommandOptions struct {
 	Control  Control
 	Settings ChatSettings
 	Estop    *Estop
+	// MCP backs "/reload-mcp"; nil leaves it registered but unsupported.
+	MCP MCPReloader
 	// Now is the pairing attempt clock and redemption timestamp; nil is time.Now.
 	Now func() time.Time
 }
@@ -63,6 +65,7 @@ type Commands struct {
 	settings  ChatSettings
 	control   Control
 	estop     *Estop
+	mcp       MCPReloader
 	now       func() time.Time
 	specs     map[string]commandSpec
 
@@ -78,7 +81,7 @@ func NewCommands(opts *CommandOptions) *Commands {
 	}
 	return &Commands{
 		bot: strings.TrimPrefix(opts.BotUsername, "@"), approvals: opts.Approvals, resolver: opts.Resolver, pairing: opts.Pairing,
-		runtime: opts.Runtime, settings: opts.Settings, control: opts.Control, estop: opts.Estop,
+		runtime: opts.Runtime, settings: opts.Settings, control: opts.Control, estop: opts.Estop, mcp: opts.MCP,
 		now: now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
 	}
 }
@@ -94,7 +97,7 @@ type commandSpec struct {
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /timestamps [on|off|status] /delay [on|off|status] /topic [off|help|session-id] /tz [zone|off] /restart /platforms /platform list|pause|resume [name]"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /timestamps [on|off|status] /delay [on|off|status] /topic [off|help|session-id] /tz [zone|off] /restart /platforms /platform list|pause|resume [name] /reload-mcp"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -139,12 +142,13 @@ func commandRegistry() map[string]commandSpec {
 			owner: true,
 			run:   (*Commands).usage,
 		},
-		"restart":   {owner: true, run: (*Commands).restart},
-		"platforms": {owner: true, run: (*Commands).platformList},
-		"gateway":   {owner: true, run: (*Commands).platformList},
-		"platform":  {owner: true, run: (*Commands).platform},
-		"pause":     {owner: true, run: (*Commands).pause},
-		"cron":      {owner: true, run: (*Commands).cronCommand},
+		"restart":    {owner: true, run: (*Commands).restart},
+		"platforms":  {owner: true, run: (*Commands).platformList},
+		"gateway":    {owner: true, run: (*Commands).platformList},
+		"platform":   {owner: true, run: (*Commands).platform},
+		"pause":      {owner: true, run: (*Commands).pause},
+		"cron":       {owner: true, run: (*Commands).cronCommand},
+		"reload-mcp": {owner: true, run: (*Commands).reloadMCP},
 
 		"sethome":    {owner: true, run: (*Commands).sethome},
 		"topic":      {owner: true, run: (*Commands).topic},
@@ -160,6 +164,11 @@ func commandRegistry() map[string]commandSpec {
 		// Non-owner, not implemented by this slice.
 		"fork": {}, "plan": {}, "undo": {},
 	}
+}
+
+// reloadMCP is owner-only; the build-tagged result keeps clients out of minimal.
+func (c *Commands) reloadMCP(ctx context.Context, _ *Ticket, _ Command) CommandResult {
+	return c.mcpReloadResult(ctx)
 }
 
 // Dispatch classifies text and, when it is a command for this bot, answers it.
