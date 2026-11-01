@@ -23,6 +23,9 @@ func (m codeIntelMapper) RepoMap(ctx context.Context, root, focus string, maxTok
 	return idx.Render(maxTokens), nil
 }
 
+// codeIntelToolsLinked reports whether repo_map/code_intel are wired (full build).
+const codeIntelToolsLinked = true
+
 // withCodeIntelTools appends repo_map/code_intel (!minimal: the tree-sitter
 // asset is only linked in the full binary).
 func withCodeIntelTools(roots []string, cwd string, trusted bool, list []tools.Tool) []tools.Tool {

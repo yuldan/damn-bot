@@ -8,6 +8,9 @@ import (
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
+// executeCodeLinked reports whether execute_code is wired (absent in minimal).
+const executeCodeLinked = false
+
 // withExecuteCode refuses to link the tool in the minimal build.
 func withExecuteCode(_ *config.Config, _ exec.Backend, _ *exec.EnvPolicy, list []tools.Tool) ([]tools.Tool, error) {
 	return list, nil
