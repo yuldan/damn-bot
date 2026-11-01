@@ -309,6 +309,7 @@ type runModel struct {
 	engine    *codetools.Engine
 	backend   exec.Backend
 	sessions  *exec.Sessions
+	procClose func(context.Context) error
 	modules   runModules
 	sessionID string
 	cwd       string
@@ -345,6 +346,11 @@ func (m *runModel) close(ctx context.Context) error {
 	if m.sessions != nil {
 		if cerr := m.sessions.Close(); cerr != nil {
 			err = errors.Join(err, fmt.Errorf("close sessions: %w", cerr))
+		}
+	}
+	if m.procClose != nil {
+		if cerr := m.procClose(ctx); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("close background: %w", cerr))
 		}
 	}
 	if m.backend != nil {
@@ -468,6 +474,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		engine:    w.engine,
 		backend:   w.backend,
 		sessions:  w.sessions,
+		procClose: w.procClose,
 	}, nil
 }
 

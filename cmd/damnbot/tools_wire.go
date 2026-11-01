@@ -235,14 +235,15 @@ func assistantToolCalls(payload string) []loop.ToolCall {
 // run store, the sandboxed tool stack, and the registered tool set, plus the
 // cleanup closure that releases them when a later step fails.
 type runWiring struct {
-	db       *ctxdb.Store
-	engine   *codetools.Engine
-	backend  exec.Backend
-	sessions *exec.Sessions
-	registry *tools.Registry
-	modules  runModules
-	sid      string
-	cwd      string
+	db        *ctxdb.Store
+	engine    *codetools.Engine
+	backend   exec.Backend
+	sessions  *exec.Sessions
+	procClose func(context.Context) error
+	registry  *tools.Registry
+	modules   runModules
+	sid       string
+	cwd       string
 	// modelRef is the effective provider/model after resume resolution: a
 	// resumed session may supply the model when no flag or config did.
 	modelRef string
@@ -342,6 +343,7 @@ type shellWiring struct {
 	envPolicy            *exec.EnvPolicy
 	trusted              bool
 	monetary             []string
+	attach               func(*tools.ShellConfig)
 }
 
 func newShellTool(w *shellWiring) (tools.Tool, error) {
@@ -351,6 +353,9 @@ func newShellTool(w *shellWiring) (tools.Tool, error) {
 		EnvPolicy:        w.envPolicy,
 		WorkspaceTrusted: w.trusted, UnsafeAutoShell: w.o.unsafeShell, Dialect: dialectFromEnv(w.envPolicy.Env(os.Environ(), false, "", "", "")),
 		MonetaryPaths: w.monetary, Canonicalize: monetaryKey,
+	}
+	if w.attach != nil {
+		w.attach(cfg)
 	}
 	if w.o.terminal != nil {
 		cfg.Terminal = &acpTerminalRunner{term: w.o.terminal, red: w.red}
@@ -440,9 +445,14 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if _, qerr := quarantineImportedSkills(ctx, db, red, cfg, configDir, cwd); qerr != nil {
 		return nil, fail(qerr)
 	}
+	ps, err := newProcessSupport()
+	if err != nil {
+		return nil, fail(fmt.Errorf("background: %w", err))
+	}
 	shellTool, err := newShellTool(&shellWiring{
 		cfg: cfg, o: o, db: db, sid: sid, red: red, backend: backend, sessions: sessions, allow: allow,
 		roots: roots, home: home, cwd: cwd, configDir: configDir, envPolicy: envPolicy, trusted: trusted, monetary: monetary,
+		attach: ps.attach,
 	})
 	if err != nil {
 		return nil, fail(fmt.Errorf("shell tool: %w", err))
@@ -455,13 +465,11 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if err != nil {
 		return nil, fail(err)
 	}
-	if executeCodeLinked {
-		list, err = withExecuteCode(cfg, backend, envPolicy, list)
-		if err != nil {
-			return nil, fail(err)
-		}
+	list, err = withExecuteCode(cfg, backend, envPolicy, list)
+	if err != nil {
+		return nil, fail(err)
 	}
-	list = append(list, withProcessTools()...)
+	list = append(list, ps.tools...)
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
 	list = withCronTool(list, cfg, db, o, dataDir)
@@ -479,6 +487,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		engine:    engine,
 		backend:   backend,
 		sessions:  sessions,
+		procClose: ps.close,
 		registry:  reg,
 		modules:   mods,
 		sid:       sid,

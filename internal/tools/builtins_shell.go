@@ -17,9 +17,7 @@ import (
 	"github.com/damnbot/damnbot/internal/redact"
 )
 
-// schemaShell is the F1 shell schema (SPEC §5.1; background arrives with
 // F5, so it is not a property here and is rejected by additionalProperties).
-const schemaShell = `{"name":"shell","description":"Run one command in a process group with timeout. Asks for approval unless the exact argv matches shell_allow; no background in F1.","parameters":{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":65536},"timeout_s":{"type":"integer","minimum":1,"maximum":600},"cwd":{"type":"string"},"session":{"type":"string","pattern":"^[a-z0-9_-]{1,32}$"},"stdin":{"type":"string","maxLength":65536}},"required":["command"],"additionalProperties":false}}`
 
 // ShellRunner runs one process tree (implemented by *exec.Runner and by the
 // ACP client terminal adapter).
@@ -48,8 +46,11 @@ type ShellConfig struct {
 	ParentEnv        []string
 	EnvPolicy        *exec.EnvPolicy
 	WorkspaceTrusted bool
-	UnsafeAutoShell  bool
-	Dialect          classify.Dialect
+	// Background is the process registry (opaque any so the minimal binary
+	// does not reference the concrete registry); nil means unavailable.
+	Background      any
+	UnsafeAutoShell bool
+	Dialect         classify.Dialect
 	// MonetaryHosts (security.monetary_hosts) and MonetaryPaths (directories
 	// of skills declaring side_effects: [payment], skills.PaymentDirs) label
 	// commands Monetary (SEC-15).
@@ -101,7 +102,7 @@ func NewShell(cfg *ShellConfig) (Tool, error) {
 }
 
 func (t *shellTool) Name() string            { return "shell" }
-func (t *shellTool) Schema() json.RawMessage { return json.RawMessage(schemaShell) }
+func (t *shellTool) Schema() json.RawMessage { return json.RawMessage(shellSchema()) }
 func (t *shellTool) Kind() Kind              { return KindExecute }
 
 // Effect resolves the classifier's risk label per call; classification
@@ -113,19 +114,14 @@ func (t *shellTool) Effect(args json.RawMessage) Effect {
 	}
 	// Classify with the same cwd Inspect uses: never downgrade a destructive
 	// command to idempotent because of a cwd mismatch (REVIEW-F1-SEC7 TL7-7).
+	if backgroundRequested(a) {
+		return EffectNonIdempotent
+	}
 	v := t.classifyIn(a.Command, t.callCwd(a))
 	if v.Class == classify.Mutating && v.Flags == 0 {
 		return EffectIdempotent
 	}
 	return EffectNonIdempotent
-}
-
-type shellArgs struct {
-	Command  string `json:"command"`
-	TimeoutS int    `json:"timeout_s"`
-	Cwd      string `json:"cwd"`
-	Session  string `json:"session"`
-	Stdin    string `json:"stdin"`
 }
 
 // Inspect applies classify.Decide: the only auto path is an exact
@@ -137,6 +133,9 @@ func (t *shellTool) Inspect(_ context.Context, env Env, args json.RawMessage, pc
 		return PolicyDecision{}, err
 	}
 	if err := validateSessionArgs(a); err != nil {
+		return PolicyDecision{}, err
+	}
+	if err := validateBackground(a); err != nil {
 		return PolicyDecision{}, err
 	}
 	cwd := t.callCwd(a)
@@ -239,6 +238,9 @@ func (t *shellTool) Run(ctx context.Context, env Env, args json.RawMessage) (Res
 	}
 	v := t.classifyIn(a.Command, cwd)
 	var res exec.Result
+	if res, handled, err := t.backgroundRun(ctx, env, a, cwd, timeout, v); handled {
+		return res, err
+	}
 	if a.Session != "" {
 		res, err = t.runSession(ctx, a, timeout)
 	} else {
