@@ -38,25 +38,6 @@ func gatewayServeEnv(e *Env, tg *FakeTG) []string {
 	}
 }
 
-// waitFor polls until ok, failing the test at the deadline.
-func waitFor(t *testing.T, limit time.Duration, what string, ok func() bool) {
-	t.Helper()
-	deadline := time.NewTimer(limit)
-	defer deadline.Stop()
-	tick := time.NewTicker(10 * time.Millisecond)
-	defer tick.Stop()
-	for {
-		if ok() {
-			return
-		}
-		select {
-		case <-deadline.C:
-			t.Fatalf("timed out waiting for %s", what)
-		case <-tick.C:
-		}
-	}
-}
-
 // gatewayDB opens the stopped data dir to inspect the transcript.
 func gatewayDB(t *testing.T, e *Env) *ctxdb.Store {
 	t.Helper()

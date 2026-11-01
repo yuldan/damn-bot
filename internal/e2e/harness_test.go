@@ -375,3 +375,22 @@ func (e *Env) Contains(t *testing.T, i int, needle string) bool {
 	t.Helper()
 	return strings.Contains(e.RequestText(t, i), needle)
 }
+
+// waitFor polls until ok, failing the test at the deadline.
+func waitFor(t *testing.T, limit time.Duration, what string, ok func() bool) {
+	t.Helper()
+	deadline := time.NewTimer(limit)
+	defer deadline.Stop()
+	tick := time.NewTicker(10 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if ok() {
+			return
+		}
+		select {
+		case <-deadline.C:
+			t.Fatalf("timed out waiting for %s", what)
+		case <-tick.C:
+		}
+	}
+}
