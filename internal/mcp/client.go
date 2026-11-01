@@ -93,11 +93,12 @@ type callResult struct {
 // initialize/list/call), caches tools per (server, config_sha), and sends
 // every non-read call through the host approval seam.
 type Client struct {
-	host  host.Host
-	doer  Doer
-	store host.Store
-	pins  PinStore
-	sha   string
+	host   host.Host
+	doer   Doer
+	store  host.Store
+	pins   PinStore
+	tokens TokenSource
+	sha    string
 
 	mu     sync.Mutex
 	server Server
@@ -109,11 +110,20 @@ type Client struct {
 	refreshing atomic.Bool
 }
 
+// Option adjusts a client at construction. F5-11 adds the OAuth token source
+// without changing the four-argument constructor every fake relies on.
+type Option func(*Client)
+
+// WithTokenSource wires the OAuth adapter of a Streamable HTTP server. It is
+// mandatory exactly when cfg.OAuth is set, and refused otherwise, so a
+// client can never attach an unrelated credential.
+func WithTokenSource(ts TokenSource) Option { return func(c *Client) { c.tokens = ts } }
+
 // NewClient validates cfg, opens the module store, and registers the
 // capability seam. Pins is mandatory: a client without a pin store fails
 // closed instead of dispatching unverified tool definitions (SEC-04).
 // Nothing is spawned or dialled yet.
-func NewClient(h host.Host, cfg Server, doer Doer, pins PinStore) (*Client, error) { //nolint:gocritic // one config copied once; a value keeps call sites and the fake host simple
+func NewClient(h host.Host, cfg Server, doer Doer, pins PinStore, opts ...Option) (*Client, error) { //nolint:gocritic // one config copied once; a value keeps call sites and the fake host simple
 	if h == nil {
 		return nil, fmt.Errorf("%w: nil host", ErrInvalidConfig)
 	}
@@ -135,7 +145,14 @@ func NewClient(h host.Host, cfg Server, doer Doer, pins PinStore) (*Client, erro
 	if err != nil {
 		return nil, fmt.Errorf("mcp: open store: %w", err)
 	}
-	return &Client{host: h, doer: doer, store: store, pins: pins, sha: sha, server: cfg}, nil
+	c := &Client{host: h, doer: doer, store: store, pins: pins, sha: sha, server: cfg}
+	for _, opt := range opts {
+		opt(c)
+	}
+	if (cfg.OAuth != nil) != (c.tokens != nil) {
+		return nil, fmt.Errorf("%w: %s oauth needs exactly one token source", ErrInvalidConfig, cfg.Name)
+	}
+	return c, nil
 }
 
 // ListTools returns the server's pinned tools, from the cache when the exact
@@ -289,7 +306,7 @@ func (c *Client) ensure(ctx context.Context) (Transport, error) {
 
 func (c *Client) dial(ctx context.Context) (Transport, error) {
 	if c.server.URL != "" {
-		return newHTTP(&c.server, c.doer)
+		return newHTTP(&c.server, c.doer, c.tokens)
 	}
 	return newStdio(ctx, c.host, &c.server, c.notify)
 }
@@ -364,6 +381,8 @@ func (c *Client) transportError(err error) error {
 		return toolError("too_large", "MCP frame exceeds 16 MiB")
 	case errors.Is(err, ErrProtocol), errors.Is(err, ErrUnsupported):
 		return toolError("internal", err.Error())
+	case errors.Is(err, ErrUnauthorized), errors.Is(err, ErrAuthRequired), errors.Is(err, ErrScope):
+		return toolError("denied", "MCP credential rejected")
 	default:
 		return toolError("module_unavailable", c.server.Name+" is unavailable")
 	}

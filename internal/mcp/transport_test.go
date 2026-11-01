@@ -187,7 +187,7 @@ func (d *aDoer) Do(req *http.Request) (*http.Response, error) {
 func TestHTTPTransportJSONSessionAndClose(t *testing.T) {
 	t.Parallel()
 	doer := &aDoer{}
-	tr, err := newHTTP(&Server{Name: "s", URL: "https://mcp.example/mcp"}, doer)
+	tr, err := newHTTP(&Server{Name: "s", URL: "https://mcp.example/mcp"}, doer, nil)
 	if err != nil {
 		t.Fatalf("newHTTP: %v", err)
 	}
