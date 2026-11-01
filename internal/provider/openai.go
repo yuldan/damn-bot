@@ -48,6 +48,9 @@ type Route struct {
 	// CacheTTLMax is the catalog `cache_ttl_max` in seconds (0 = none); the
 	// 1h interactive breakpoint is clamped to it (GAP-COST-03).
 	CacheTTLMax int64
+	// CacheMarkers: the route accepts a cache_control breakpoint (catalog
+	// capability "cache"); otherwise the wire body carries no foreign field.
+	CacheMarkers bool
 	// wire is the adapter selected from Protocols; internal so a hand-built
 	// Route still defaults to openai-chat.
 	wire Wire
@@ -233,7 +236,7 @@ func encodeMessage(rt *Route, m *Message, cache bool, origin string) (json.RawMe
 // cacheContent rewrites the boundary message as an Anthropic content block
 // carrying the cache breakpoint; other families keep the string.
 func cacheContent(rt *Route, m *Message, cache bool, origin string) (any, error) {
-	if !cache || !anthropicFamily(rt.Family) || len(m.ToolCalls) > 0 {
+	if !cache || (!rt.CacheMarkers && !anthropicFamily(rt.Family)) || len(m.ToolCalls) > 0 {
 		return m.Content, nil
 	}
 	block := []map[string]any{{

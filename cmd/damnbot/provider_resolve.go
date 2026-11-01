@@ -111,6 +111,7 @@ func (r *providerResolver) resolveCustom(modelName string, c *config.CustomProvi
 	}
 	if builtinOK {
 		route.CacheTTLMax = builtin.CacheTTLMax
+		route.CacheMarkers = slices.Contains(builtin.Capabilities, registry.Capability("cache"))
 	}
 	return route, nil
 }
@@ -219,6 +220,7 @@ func (r *providerResolver) resolveBuiltin(provName, modelName string, p *registr
 		return provider.Route{}, err
 	}
 	route.CacheTTLMax = p.CacheTTLMax
+	route.CacheMarkers = slices.Contains(p.Capabilities, registry.Capability("cache"))
 	return route, nil
 }
 
