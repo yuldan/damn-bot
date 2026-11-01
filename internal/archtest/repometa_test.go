@@ -15,7 +15,7 @@ import (
 const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
-	maxCoreLOC       = 53600 // ADR-299 di atas ADR-298/EC-WIN-008: tools 3.300 -> 3.500, Σ core caps 53.565; ceil hundreds.
+	maxCoreLOC       = 53900 // ADR-277 amandemen EC-WIN-015 di atas ADR-299: Σ core 53.835; ceil hundreds.
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
 	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)

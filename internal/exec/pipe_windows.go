@@ -14,6 +14,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"runtime"
 	"strings"
@@ -143,13 +144,7 @@ func (s *PipeServer) Accept() (*PipeConn, error) {
 		_ = windows.CloseHandle(h)
 		return nil, err
 	}
-	f := os.NewFile(uintptr(h), s.path)
-	if f == nil {
-		_ = windows.DisconnectNamedPipe(h)
-		_ = windows.CloseHandle(h)
-		return nil, errors.New("exec: pipe handle is not a file")
-	}
-	return &PipeConn{f: f, handle: h, server: true, want: s.want}, nil
+	return &PipeConn{handle: h, server: true, want: s.want}, nil
 }
 
 // instance creates one pipe instance with the configured DACL, in overlapped
@@ -214,10 +209,16 @@ func (s *PipeServer) connect(h windows.Handle) error {
 // read data), and no byte is returned before that check passes. Read and Write
 // are plain stream operations; the multiplexer owns any framing.
 type PipeConn struct {
-	f      *os.File
 	handle windows.Handle
 	server bool
 	want   PipeIdentity
+
+	dlMu     sync.Mutex
+	deadline time.Time
+
+	opMu   sync.Mutex
+	closed bool
+	ops    sync.WaitGroup
 
 	authOnce sync.Once
 	peer     PipePeer
@@ -229,7 +230,7 @@ type PipeConn struct {
 // authenticate the peer and are withheld unless the token check passes; a
 // rejection returns ErrPeerRejected.
 func (c *PipeConn) Read(p []byte) (int, error) {
-	n, err := c.f.Read(p)
+	n, err := c.io(p, true)
 	if !c.server || n == 0 {
 		return n, err
 	}
@@ -248,7 +249,77 @@ func (c *PipeConn) Write(p []byte) (int, error) {
 			return 0, aerr
 		}
 	}
-	return c.f.Write(p)
+	return c.io(p, false)
+}
+
+// io runs one overlapped ReadFile/WriteFile with its own event, so a Read and
+// a Write may be in flight at the same time. os.File cannot host that: Go's
+// poll keeps file-offset state per File and a concurrent Read and Write on one
+// File is a data race (the Windows -race job caught it in addOffset).
+func (c *PipeConn) io(p []byte, read bool) (int, error) {
+	if !c.begin() {
+		return 0, errors.New("exec: pipe connection closed")
+	}
+	defer c.ops.Done()
+	ev, err := windows.CreateEvent(nil, 1, 0, nil)
+	if err != nil {
+		return 0, fmt.Errorf("exec: pipe event: %w", err)
+	}
+	defer func() { _ = windows.CloseHandle(ev) }()
+	ov := &windows.Overlapped{HEvent: ev}
+	var n uint32
+	if read {
+		err = windows.ReadFile(c.handle, p, &n, ov)
+	} else {
+		err = windows.WriteFile(c.handle, p, &n, ov)
+	}
+	switch {
+	case err == nil:
+		return int(n), nil
+	case !errors.Is(err, windows.ERROR_IO_PENDING):
+		return 0, fmt.Errorf("exec: pipe io: %w", err)
+	}
+	evt, err := windows.WaitForSingleObject(ev, c.timeoutMillis())
+	if err != nil {
+		return 0, fmt.Errorf("exec: wait pipe io: %w", err)
+	}
+	if evt != windows.WAIT_OBJECT_0 {
+		_ = windows.CancelIoEx(c.handle, ov)
+		var done uint32
+		_ = windows.GetOverlappedResult(c.handle, ov, &done, true)
+		return 0, os.ErrDeadlineExceeded
+	}
+	if err := windows.GetOverlappedResult(c.handle, ov, &n, false); err != nil {
+		return 0, fmt.Errorf("exec: pipe io: %w", err)
+	}
+	return int(n), nil
+}
+
+func (c *PipeConn) begin() bool {
+	c.opMu.Lock()
+	defer c.opMu.Unlock()
+	if c.closed {
+		return false
+	}
+	c.ops.Add(1)
+	return true
+}
+
+func (c *PipeConn) timeoutMillis() uint32 {
+	c.dlMu.Lock()
+	defer c.dlMu.Unlock()
+	if c.deadline.IsZero() {
+		return windows.INFINITE
+	}
+	left := time.Until(c.deadline).Milliseconds()
+	switch {
+	case left <= 0:
+		return 0
+	case left > math.MaxUint32:
+		return math.MaxUint32
+	default:
+		return uint32(left)
+	}
 }
 
 // authenticate verifies the peer once. It runs after the first read, which is
@@ -268,8 +339,8 @@ func (c *PipeConn) authenticate() error {
 // only meaningful after a successful Read on a server connection.
 func (c *PipeConn) Peer() (PipePeer, bool) { return c.peer, c.authed }
 
-// Close disconnects the server side (the peer sees a broken pipe) and closes
-// the handle. A connection that never completed the handshake closes cleanly.
+// Close disconnects the server side (the peer sees a broken pipe), cancels any
+// in-flight overlapped I/O, and closes the handle once no operation is using it.
 func (c *PipeConn) Close() error {
 	var derr error
 	if c.server {
@@ -277,15 +348,26 @@ func (c *PipeConn) Close() error {
 			derr = nil
 		}
 	}
-	cerr := c.f.Close()
+	c.opMu.Lock()
+	c.closed = true
+	c.opMu.Unlock()
+	_ = windows.CancelIoEx(c.handle, nil)
+	c.ops.Wait()
+	cerr := windows.CloseHandle(c.handle)
 	if cerr != nil && errors.Is(cerr, windows.ERROR_INVALID_HANDLE) {
 		cerr = nil // already closed by DisconnectNamedPipe
 	}
 	return errors.Join(derr, cerr)
 }
 
-// SetDeadline sets the read and write deadline of the connection.
-func (c *PipeConn) SetDeadline(t time.Time) error { return c.f.SetDeadline(t) }
+// SetDeadline bounds the wait of subsequent Read and Write operations; a zero
+// time clears it.
+func (c *PipeConn) SetDeadline(t time.Time) error {
+	c.dlMu.Lock()
+	c.deadline = t
+	c.dlMu.Unlock()
+	return nil
+}
 
 // DialPipe connects to a server pipe, retrying while every instance is busy
 // or the server has not created its first instance yet.
@@ -306,12 +388,7 @@ func DialPipe(name string, timeout time.Duration) (*PipeConn, error) {
 		h, err := windows.CreateFile(ptr, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil,
 			windows.OPEN_EXISTING, windows.FILE_FLAG_OVERLAPPED, 0)
 		if err == nil {
-			f := os.NewFile(uintptr(h), path)
-			if f == nil {
-				_ = windows.CloseHandle(h)
-				return nil, errors.New("exec: pipe handle is not a file")
-			}
-			return &PipeConn{f: f, handle: h}, nil
+			return &PipeConn{handle: h}, nil
 		}
 		if !errors.Is(err, windows.ERROR_PIPE_BUSY) && !errors.Is(err, windows.ERROR_FILE_NOT_FOUND) {
 			return nil, fmt.Errorf("exec: dial pipe: %w", err)
