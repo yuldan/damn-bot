@@ -4,7 +4,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/damnbot/damnbot/internal/config"
@@ -56,6 +58,9 @@ func (r *mcpRegistry) ReloadMCP(ctx context.Context) (int, error) {
 
 func (r *mcpRegistry) load() (int, error) {
 	cfg, err := r.loader.Load(r.path)
+	if errors.Is(err, os.ErrNotExist) {
+		cfg, err = r.loader.Parse(nil, r.path)
+	}
 	if err != nil {
 		return 0, err
 	}

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -20,6 +22,7 @@ import (
 	"github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/mcp"
 	"github.com/damnbot/damnbot/internal/modules/host"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 // mcpCLIHost is the composition root's host for non-turn MCP commands
@@ -277,11 +280,31 @@ func cliMCPHost(db *ctxdb.Store, in io.Reader, out, errOut io.Writer) *mcpCLIHos
 	return &mcpCLIHost{db: db, approve: &terminalApprovals{in: in, out: out}, secrets: envSecrets{}, clock: mcpWallClock{}, errOut: errOut}
 }
 
+// mcpDoerFor is the one HTTP edge of a configured MCP server. A loopback URL
+// is an explicit local server (like a loopback authorization server) and uses
+// the inference transport, which permits loopback; every public URL keeps the
+// tool policy (public addresses only, DLP gate).
+func mcpDoerFor(srv mcp.Server) *netx.Client {
+	if u, err := url.Parse(srv.URL); err == nil && isLoopbackHost(u.Hostname()) {
+		return netx.New(netx.Config{NoBackground: true}).Client("mcp", netx.Inference)
+	}
+	return netx.New(netx.Config{NoBackground: true}).Client("mcp", netx.Tool)
+}
+
+// isLoopbackHost reports whether host is a loopback literal or localhost.
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // newMCPClient builds one validated client for a configured server. The OAuth
 // token source is created only for the oauth section; stdio servers never get
 // one (mcp.NewClient enforces the same exclusivity).
 func newMCPClient(h *mcpCLIHost, srv mcp.Server, cfg *config.Config) (*mcp.Client, error) {
-	doer := mcpDoer()
+	doer := mcpDoerFor(srv)
 	var opts []mcp.Option
 	if srv.OAuth != nil {
 		ref := ""
