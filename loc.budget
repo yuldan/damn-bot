@@ -90,7 +90,10 @@ schema            1200 internal/schema
 # (terukur 4004 pada rebase di atas ADR-297: 394 baris baru dari pipe_auth.go
 # + pipe_windows.go). Sigma core 52.823 -> 53.143, plafon core 52.900 -> 53.200
 # (maxCoreLOC, regex budget_doc_test, marker arch-budgetsum).
-tools             3150 internal/tools
+# ADR-298 (execute_code slice 3a): tools 3150 -> 3300 untuk tool execute_code
+# + schema (terukur 3268). Sigma core caps 53.143 -> 53.365; plafon core
+# 53.200 -> 53.400.
+tools             3300 internal/tools
 # ADR-143: komposisi toolset deklaratif (TSET/CORE-004/005; Σ core 38.450 -> 38.850 <= 47.000).
 toolset            400 internal/toolset
 # ADR-111: codetools 4500 -> 4800 (perbaikan REVIEW-F1-SEC2; Σ core 33.900 -> 34.200 <= 47.000).
@@ -111,8 +114,8 @@ toolset            400 internal/toolset
 # ADR-213 (SEC15-11/12): token grup non-literal -> Unknown + verb+--yes; angka gabungan dengan
 # ADR-212 (SEC15-2..7) pada pohon rebase di atas #238: exec/classify 1841 -> 1946 (terukur 1946;
 # bukan 1937 dari basis #265-saja dan bukan 1948 hasil penjumlahan buta); Σ core 47.009 -> 47.114.
-# ADR-297 (process_* slice 2, di atas execute_code slice 1 pada main f68dc645+#593): exec 3400 -> 3700
-# untuk registry background (terukur 3607 = 3155 slice 1 + 452 registry);
+# ADR-297 (process_* slice 2, di atas execute_code slice 1 pada main+#593): exec 3400 -> 3700
+# untuk registry background (terukur 3610 = 3155 slice 1 + 455 registry);
 # Sigma core caps 52.523 -> 52.823, plafon core 52.600 -> 52.900 (headroom 93 baris exec).
 exec              4020 internal/exec
 exec/classify     1946 internal/exec/classify
@@ -227,7 +230,9 @@ heal              1500 internal/heal
 # (network/jaringan, limits, token secret name, endpoint/toolbox) menambah kode
 # terukur 1.730 -> 1.804, plafon 1.730 -> 1.808 = angka ukur scc pada head E
 # (tanpa headroom). Sigma core 52.305 -> 52.383; plafon core 52.350 -> 52.400.
-config            1808 internal/config
+# ADR-298 (execute_code slice 3a): config 1808 -> 1880 ([exec]
+# code_auto_languages; terukur 1840 pada rebase main+#593).
+config            1880 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
