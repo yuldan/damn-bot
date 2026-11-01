@@ -221,7 +221,11 @@ heal              1500 internal/heal
 # scopes, keychain-only client_secret) + validasi HTTPS/loopback; kode terukur
 # 1.589, plafon 1.510 -> 1.600 (headroom 11). Sigma core 52.077 -> 52.167;
 # plafon core 52.100 -> 52.200 (headroom 33).
-config            1730 internal/config
+# ADR-278 (F5-14 PR A3a): [[providers.custom]].credentials full-only;
+# minimal rejects the key (ErrUnknownKey), varian validateProviderAuth minimal
+# menjaga binary baseline. config 1730 -> 1828 (terukur 1828).
+# Sigma core 52.747 -> 52.845; plafon 52.750 -> 52.900.
+config            1828 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
