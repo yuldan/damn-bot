@@ -445,14 +445,17 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if _, qerr := quarantineImportedSkills(ctx, db, red, cfg, configDir, cwd); qerr != nil {
 		return nil, fail(qerr)
 	}
-	ps, err := newProcessSupport()
-	if err != nil {
-		return nil, fail(fmt.Errorf("background: %w", err))
+	var ps processSupport
+	if processToolsLinked {
+		ps, err = newProcessSupport()
+		if err != nil {
+			return nil, fail(fmt.Errorf("background: %w", err))
+		}
 	}
 	shellTool, err := newShellTool(&shellWiring{
 		cfg: cfg, o: o, db: db, sid: sid, red: red, backend: backend, sessions: sessions, allow: allow,
 		roots: roots, home: home, cwd: cwd, configDir: configDir, envPolicy: envPolicy, trusted: trusted, monetary: monetary,
-		attach: ps.attach,
+		attach: ps.attachFn(),
 	})
 	if err != nil {
 		return nil, fail(fmt.Errorf("shell tool: %w", err))
@@ -469,7 +472,9 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if err != nil {
 		return nil, fail(err)
 	}
-	list = append(list, ps.tools...)
+	if processToolsLinked {
+		list = append(list, ps.toolList()...)
+	}
 	list = append(list, shellTool, tools.NewTodo(), tools.NewClarify(nil),
 		tools.NewSkillsList(skillsMgr), tools.NewSkillView(skillsMgr), tools.NewSkillManage(skillsMgr))
 	list = withCronTool(list, cfg, db, o, dataDir)
@@ -487,7 +492,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		engine:    engine,
 		backend:   backend,
 		sessions:  sessions,
-		procClose: ps.close,
+		procClose: ps.closeFn(),
 		registry:  reg,
 		modules:   mods,
 		sid:       sid,

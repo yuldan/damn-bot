@@ -20,7 +20,7 @@ type shellArgs struct {
 }
 
 func shellSchema() string {
-	return `{"name":"shell","description":"Run one command with timeout.","parameters":{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":65536},"timeout_s":{"type":"integer","minimum":1,"maximum":600},"cwd":{"type":"string"},"session":{"type":"string","pattern":"^[a-z0-9_-]{1,32}$"},"stdin":{"type":"string","maxLength":65536}},"required":["command"],"additionalProperties":false}}`
+	return `{"name":"shell","parameters":{"type":"object","properties":{"command":{"type":"string","minLength":1,"maxLength":65536},"timeout_s":{"type":"integer","minimum":1,"maximum":600},"cwd":{"type":"string"},"session":{"type":"string"},"stdin":{"type":"string","maxLength":65536}},"required":["command"],"additionalProperties":false}}`
 }
 
 func backgroundRequested(*shellArgs) bool { return false }

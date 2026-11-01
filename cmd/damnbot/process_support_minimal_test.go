@@ -11,7 +11,7 @@ func TestMinimalProcessSupportEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ps.tools) != 0 || ps.attach != nil || ps.close != nil {
+	if len(ps.toolList()) != 0 || ps.attachFn() != nil || ps.closeFn() != nil {
 		t.Fatalf("minimal process support = %+v", ps)
 	}
 }
