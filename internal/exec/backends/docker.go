@@ -142,6 +142,14 @@ func (d *Docker) ready() error {
 // argv builds `docker run` for one call. The workspace mount is the only
 // bind mount; docker.sock is never mounted and such a workspace is refused.
 func (d *Docker) argv(id, name, cwd string, spec *exec.Spec, env []string) ([]string, string, error) {
+	mount, merr := bindMount(d.root)
+	if merr != nil {
+		return nil, "", merr
+	}
+	workdir, werr := containerPath(cwd)
+	if werr != nil {
+		return nil, "", werr
+	}
 	argv := []string{
 		d.cfg.Binary, "run", "--rm", "-i",
 		"--name", name,
@@ -152,8 +160,8 @@ func (d *Docker) argv(id, name, cwd string, spec *exec.Spec, env []string) ([]st
 		"--cap-drop=ALL",
 		"--security-opt=no-new-privileges",
 		"--user", d.cfg.User,
-		"--mount", "type=bind,src=" + d.root + ",dst=" + d.root + ",rw",
-		"--workdir", cwd,
+		"--mount", mount,
+		"--workdir", workdir,
 	}
 	argv = append(argv, d.limitArgs(spec.Limits)...)
 	envFile := ""
