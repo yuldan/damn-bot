@@ -130,6 +130,11 @@ func (t *processTool) Inspect(_ context.Context, _ Env, raw json.RawMessage, pc 
 			preview += " signal=" + orDefault(a.Signal, "TERM")
 		}
 		if pc.Mode.Headless() {
+			// Killing our own process is safe cleanup in headless auto;
+			// sending stdin is not.
+			if pc.Mode == ModeHeadlessAuto && t.name == "process_kill" {
+				return PolicyDecision{Requirement: RequireAuto, Class: t.name, Preview: preview}, nil
+			}
 			return PolicyDecision{Requirement: RequireDeny, Class: t.name, Preview: preview}, nil
 		}
 		return PolicyDecision{Requirement: RequireAsk, Class: t.name, Preview: preview, AllowSession: false}, nil
