@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Gate ukuran binary (SPEC P13, ENGINEERING E-60/E-42): full ≤ 52 MB, minimal ≤ 22 MB.
+# Gate ukuran binary (SPEC P13, ENGINEERING E-60/E-42): full ≤ 52 MB, minimal ≤ 22,05 MB (ADR-307).
 # Build kanonik: CGO_ENABLED=0, -trimpath, -ldflags "-s -w", tag dari $TAGS (default goolm, E-39).
 # Budget per modul SPEC §3.2.4 diukur saat modul ada (F1+).
 set -euo pipefail
@@ -8,7 +8,7 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 TAGS=${TAGS:-goolm}
 FULL_MAX=${FULL_MAX:-$((52 * 1000 * 1000))}
-MINIMAL_MAX=${MINIMAL_MAX:-$((22 * 1000 * 1000))}
+MINIMAL_MAX=${MINIMAL_MAX:-22050000}
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 

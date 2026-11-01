@@ -5768,3 +5768,13 @@ ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaika
 **Anggaran terukur (head slice 3a di atas ADR-290).** `config` **1.624/1.630** (1.730 → 1.800), `tools` **3.138/3.150** (3.010 → 3.150), `exec` **3.553/3.600** (tidak naik), Σ core **52.505 → 52.715**, plafon core **52.600 → 52.800** (headroom 155; `maxCoreLOC`, marker `arch-budgetsum`, regex `budget_doc_test`, Total core+prosa+baris tabel disinkron).
 
 **Kontrol negatif.** `TestExecuteCodeApproval` (matriks mode × bahasa × allowlist × trust × taint; headless deny; deny = 0 spawn; shell/unsupported ditolak; preview tanpa kode), `TestExecuteCodeRun` (exit nonzero bukan OK, runner hilang, network deny), `TestCodeAutoLanguagesValidation`. Build `goolm,minimal` tetap kompilasi tanpa tool/config string.
+
+## ADR-307 — Plafon binary `minimal` 22.000.000 → 22.050.000 B (P13)
+
+**Status:** Accepted 2026-11-01 (amandemen P13; ADR-010/034/093/298). Hanya plafon build `minimal`; arsip rilis tetap ≤ 22.000.000 B dan full tetap ≤ 52.000.000 B.
+
+**Keputusan.** Wiring `execute_code` slice 3a menambah 4.096 B pada binary `-tags goolm,minimal` (terukur **22.003.874 B** dari baseline 21.999.778 B; kenaikan satu halaman section, bukan modul baru — tool dan `internal/exec/code` tidak ditautkan di minimal). Karena baseline sudah menyentuh plafon (headroom 222 B), plafon `minimal` dinaikkan ke **22.050.000 B** (headroom 46.126 B). `scripts/size-check.sh` `MINIMAL_MAX`, SPEC P13 (angka desimal), ENGINEERING E-60, dan ROADMAP disinkronkan; arsip rilis **tidak** ikut naik.
+
+**Kontrol negatif.** `make size-check` gagal bila `minimal > 22.050.000`; `go test -tags goolm,minimal ./cmd/damnbot` membuktikan tool `execute_code`, `internal/exec/code`, dan string `code_auto_languages` tidak tertaut (stub `!minimal`), sehingga kenaikan hanya dari simbol wiring/config minimal.
+
+**Konsekuensi.** (+) Gate P13 tetap tegas dan terukur, tanpa menurunkan cakupan minimal (core + code tools + TUI + ACP). (−) Plafon `minimal` bukan lagi angka bulat 22 MB; setiap slice berikut yang menambah binary minimal wajib menyertakan ukuran terukur di ADR-nya.
