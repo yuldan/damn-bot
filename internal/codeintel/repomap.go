@@ -175,8 +175,6 @@ func importTargets(files []File, imp string) []int {
 
 // Render writes the repository map deterministically, stopping exactly at
 // maxTokens (approximated as 4 bytes per token, conservative for o200k).
-//
-//nolint:gocognit // one render pass with an exact byte budget
 func (m *Map) Render(maxTokens int) string {
 	if maxTokens < 200 {
 		maxTokens = 200
@@ -201,20 +199,28 @@ func (m *Map) Render(maxTokens int) string {
 		if f.Package != "" && !write("  package "+f.Package+"\n") {
 			break
 		}
-		for _, s := range f.Symbols {
-			if s.Kind == KindPackage || s.Kind == KindImport {
-				continue
-			}
-			var line string
-			if s.Kind == KindMethod {
-				line = "  (" + s.Receiver + ") " + s.Name + ":" + strconv.Itoa(s.Line) + "\n"
-			} else {
-				line = "  " + string(s.Kind) + " " + s.Name + ":" + strconv.Itoa(s.Line) + "\n"
-			}
-			if !write(line) {
-				return b.String()
-			}
+		if !writeSymbols(f, write) {
+			return b.String()
 		}
 	}
 	return b.String()
+}
+
+// writeSymbols renders one file's definitions; false means the budget ended.
+func writeSymbols(f *File, write func(string) bool) bool {
+	for _, s := range f.Symbols {
+		if s.Kind == KindPackage || s.Kind == KindImport {
+			continue
+		}
+		var line string
+		if s.Kind == KindMethod {
+			line = "  (" + s.Receiver + ") " + s.Name + ":" + strconv.Itoa(s.Line) + "\n"
+		} else {
+			line = "  " + string(s.Kind) + " " + s.Name + ":" + strconv.Itoa(s.Line) + "\n"
+		}
+		if !write(line) {
+			return false
+		}
+	}
+	return true
 }

@@ -27,7 +27,7 @@ var cache = wazero.NewCompilationCache() //nolint:gochecknoglobals // E-10 allow
 // Limits.
 const (
 	DefaultMemoryPages = 1024 // 64 MiB
-	DefaultTimeoutMS   = 30000
+	DefaultTimeoutMS   = 60000
 	MaxNodes           = 20000
 	MaxSourceBytes     = 1 << 20
 )
@@ -93,8 +93,8 @@ func Parse(ctx context.Context, lang Language, source []byte, memoryPages, timeo
 	if err != nil {
 		return nil, fmt.Errorf("%w: instantiate: %w", ErrParse, err)
 	}
-	p := &parser{ctx: ctx, mod: mod, src: source}
-	return p.parse(lang) //nolint:contextcheck // p.ctx is the same bounded context
+	p := &parser{mod: mod, src: source}
+	return p.parse(ctx, lang)
 }
 
 // Supported reports whether lang is in the closed grammar set.
@@ -107,17 +107,14 @@ func Supported(lang Language) bool {
 }
 
 // parser holds the wasm handles of one bounded parse.
-//
-//nolint:containedctx // one parser value lives for exactly one bounded parse
 type parser struct {
-	ctx     context.Context
 	mod     api.Module
 	src     []byte
 	visited int
 }
 
 //nolint:gocyclo // one wasm call sequence; splitting hides the handle order
-func (p *parser) parse(lang Language) ([]Symbol, error) {
+func (p *parser) parse(ctx context.Context, lang Language) ([]Symbol, error) {
 	malloc := p.mod.ExportedFunction("malloc")
 	free := p.mod.ExportedFunction("free")
 	pnew := p.mod.ExportedFunction("ts_parser_new")
@@ -143,77 +140,76 @@ func (p *parser) parse(lang Language) ([]Symbol, error) {
 	if langFn == nil {
 		return nil, fmt.Errorf("%w: missing %s", ErrParse, langFnName)
 	}
-	srcPtr, err := malloc.Call(p.ctx, uint64(len(p.src))+1)
+	srcPtr, err := malloc.Call(ctx, uint64(len(p.src))+1)
 	if err != nil {
 		return nil, fmt.Errorf("%w: alloc source: %w", ErrParse, err)
 	}
 	if !p.mod.Memory().Write(wasm32(srcPtr[0]), p.src) {
 		return nil, fmt.Errorf("%w: write source", ErrParse)
 	}
-	pv, err := pnew.Call(p.ctx)
+	pv, err := pnew.Call(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: parser: %w", ErrParse, err)
 	}
-	//nolint:errcheck // parser delete is best effort at scope exit
-	defer func() { _, _ = pdel.Call(context.Background(), pv[0]) }()
-	lv, err := langFn.Call(p.ctx)
+	defer func() { discard(pdel.Call(ctx, pv[0])) }()
+	lv, err := langFn.Call(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: language: %w", ErrParse, err)
 	}
-	setv, err := pset.Call(p.ctx, pv[0], lv[0])
+	setv, err := pset.Call(ctx, pv[0], lv[0])
 	if err != nil || setv[0] == 0 {
 		return nil, fmt.Errorf("%w: set language", ErrParse)
 	}
-	tv, err := pparse.Call(p.ctx, pv[0], 0, srcPtr[0], uint64(len(p.src)))
+	tv, err := pparse.Call(ctx, pv[0], 0, srcPtr[0], uint64(len(p.src)))
 	if err != nil {
 		return nil, fmt.Errorf("%w: parse: %w", ErrParse, err)
 	}
-	nodePtr, err := malloc.Call(p.ctx, 24)
+	nodePtr, err := malloc.Call(ctx, 24)
 	if err != nil {
 		return nil, fmt.Errorf("%w: node alloc: %w", ErrParse, err)
 	}
-	if _, err := root.Call(p.ctx, nodePtr[0], tv[0]); err != nil {
+	if _, err := root.Call(ctx, nodePtr[0], tv[0]); err != nil {
 		return nil, fmt.Errorf("%w: root: %w", ErrParse, err)
 	}
-	if _, err := free.Call(p.ctx, srcPtr[0]); err != nil {
+	if _, err := free.Call(ctx, srcPtr[0]); err != nil {
 		return nil, fmt.Errorf("%w: free: %w", ErrParse, err)
 	}
 	syms := &symbols{src: p.src}
-	if err := p.walk(nodePtr[0], ntype, startF, endF, nchild, childF, malloc, syms); err != nil {
+	if err := p.walk(ctx, nodePtr[0], ntype, startF, endF, nchild, childF, malloc, syms); err != nil {
 		return nil, err
 	}
 	return syms.out, nil
 }
 
 // walk visits named nodes up to MaxNodes/depth, collecting definitions.
-func (p *parser) walk(node uint64, ntype, start, end, nchild, child api.Function, malloc api.Function, out *symbols) error {
-	if p.visited > MaxNodes || p.ctx.Err() != nil {
+func (p *parser) walk(ctx context.Context, node uint64, ntype, start, end, nchild, child api.Function, malloc api.Function, out *symbols) error {
+	if p.visited > MaxNodes || ctx.Err() != nil {
 		return fmt.Errorf("%w: node budget", ErrParse)
 	}
 	p.visited++
-	kind, err := p.nodeString(ntype, node)
+	kind, err := p.nodeString(ctx, ntype, node)
 	if err != nil {
 		return err
 	}
 	if defKind(kind) != "" {
-		if sb, nerr := p.findName(node, ntype, start, end, nchild, child, malloc); nerr == nil && sb.line > 0 {
+		if sb, nerr := p.findName(ctx, node, ntype, start, end, nchild, child, malloc); nerr == nil && sb.line > 0 {
 			sb.kind = defKind(kind)
 			out.add(sb)
 		}
 	}
-	count, err := nchild.Call(p.ctx, node)
+	count, err := nchild.Call(ctx, node)
 	if err != nil {
 		return fmt.Errorf("%w: child count: %w", ErrParse, err)
 	}
 	for i := range count[0] {
-		buf, err := malloc.Call(p.ctx, 24)
+		buf, err := malloc.Call(ctx, 24)
 		if err != nil {
 			return fmt.Errorf("%w: child alloc: %w", ErrParse, err)
 		}
-		if _, err := child.Call(p.ctx, buf[0], node, i); err != nil {
+		if _, err := child.Call(ctx, buf[0], node, i); err != nil {
 			return fmt.Errorf("%w: child: %w", ErrParse, err)
 		}
-		if err := p.walk(buf[0], ntype, start, end, nchild, child, malloc, out); err != nil {
+		if err := p.walk(ctx, buf[0], ntype, start, end, nchild, child, malloc, out); err != nil {
 			return err
 		}
 	}
@@ -240,52 +236,52 @@ func (s *symbols) add(sym symbol) {
 	s.out = append(s.out, Symbol{Kind: sym.kind, Name: sym.name, Line: sym.line, Col: sym.col})
 }
 
-func (p *parser) findName(node uint64, ntype, start, end, nchild, child, malloc api.Function) (symbol, error) {
-	kind, err := p.nodeString(ntype, node)
+func (p *parser) findName(ctx context.Context, node uint64, ntype, start, end, nchild, child, malloc api.Function) (symbol, error) {
+	kind, err := p.nodeString(ctx, ntype, node)
 	if err != nil {
 		return symbol{}, err
 	}
 	if kind == "identifier" || kind == "field_identifier" || kind == "type_identifier" {
-		s, e, serr := p.span(start, end, node)
+		s, e, serr := p.span(ctx, start, end, node)
 		if serr != nil || s >= e || e > uint64(len(p.src)) {
 			return symbol{}, serr
 		}
 		line, col := lineCol(p.src, s)
 		return symbol{name: string(p.src[s:e]), line: line, col: col}, nil
 	}
-	count, err := nchild.Call(p.ctx, node)
+	count, err := nchild.Call(ctx, node)
 	if err != nil {
 		return symbol{}, fmt.Errorf("%w: child count: %w", ErrParse, err)
 	}
 	for i := range count[0] {
-		buf, merr := malloc.Call(p.ctx, 24)
+		buf, merr := malloc.Call(ctx, 24)
 		if merr != nil {
 			return symbol{}, fmt.Errorf("%w: child alloc: %w", ErrParse, merr)
 		}
-		if _, cerr := child.Call(p.ctx, buf[0], node, i); cerr != nil {
+		if _, cerr := child.Call(ctx, buf[0], node, i); cerr != nil {
 			return symbol{}, fmt.Errorf("%w: child: %w", ErrParse, cerr)
 		}
-		if sym, err := p.findName(buf[0], ntype, start, end, nchild, child, malloc); err == nil && sym.name != "" {
+		if sym, err := p.findName(ctx, buf[0], ntype, start, end, nchild, child, malloc); err == nil && sym.name != "" {
 			return sym, nil
 		}
 	}
 	return symbol{}, nil
 }
 
-func (p *parser) span(start, end api.Function, node uint64) (uint64, uint64, error) {
-	s, err := start.Call(p.ctx, node)
+func (p *parser) span(ctx context.Context, start, end api.Function, node uint64) (uint64, uint64, error) {
+	s, err := start.Call(ctx, node)
 	if err != nil {
 		return 0, 0, fmt.Errorf("%w: start: %w", ErrParse, err)
 	}
-	e, err := end.Call(p.ctx, node)
+	e, err := end.Call(ctx, node)
 	if err != nil {
 		return 0, 0, fmt.Errorf("%w: end: %w", ErrParse, err)
 	}
 	return s[0], e[0], nil
 }
 
-func (p *parser) nodeString(fn api.Function, node uint64) (string, error) {
-	ptr, err := fn.Call(p.ctx, node)
+func (p *parser) nodeString(ctx context.Context, fn api.Function, node uint64) (string, error) {
+	ptr, err := fn.Call(ctx, node)
 	if err != nil {
 		return "", fmt.Errorf("%w: node type: %w", ErrParse, err)
 	}
@@ -335,10 +331,10 @@ func lineCol(src []byte, off uint64) (line, col int) {
 }
 
 // closeRuntime releases the per-parse wasm runtime.
-func closeRuntime(ctx context.Context, r wazero.Runtime) {
-	//nolint:errcheck // best effort after the result is known
-	_ = r.Close(ctx)
-}
+func closeRuntime(ctx context.Context, r wazero.Runtime) { discard(nil, r.Close(ctx)) }
+
+// discard consumes teardown results that are best-effort.
+func discard(_ []uint64, _ error) {}
 
 // wasm32 narrows a wasm pointer (guaranteed 32-bit by the module ABI).
 func wasm32(v uint64) uint32 {
