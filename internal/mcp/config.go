@@ -47,6 +47,10 @@ type Server struct {
 	Headers  map[string]string `json:"headers,omitempty"`
 	Trust    Trust             `json:"trust,omitempty"`
 	TimeoutS int               `json:"timeout_s,omitempty"`
+	// OAuth authorizes a Streamable HTTP server (F5-11). It is mutually
+	// exclusive with a static Authorization header: config can not hold two
+	// credentials for one transport.
+	OAuth *OAuth `json:"oauth,omitempty"`
 	// ReadOnly is the per-tool read-only allowlist. An absent tool is
 	// non-idempotent: a server hint never lowers the gate (GAP-SEC-03).
 	ReadOnly map[string]bool `json:"read_only,omitempty"`
@@ -93,6 +97,9 @@ func (s *Server) Validate() error {
 }
 
 func (s *Server) validateCommand() error {
+	if s.OAuth != nil {
+		return fmt.Errorf("%w: %s oauth needs an http server", ErrInvalidConfig, s.Name)
+	}
 	argv := append(append([]string{}, s.Command...), s.Args...)
 	if len(argv) > MaxArgv {
 		return fmt.Errorf("%w: %s has %d argv entries", ErrInvalidConfig, s.Name, len(argv))
@@ -126,8 +133,11 @@ func (s *Server) validateHTTP() error {
 		if !strings.HasPrefix(value, "keychain:") {
 			return fmt.Errorf("%w: %s header %q must be a keychain:<id> reference", ErrInvalidConfig, s.Name, name)
 		}
+		if s.OAuth != nil && http.CanonicalHeaderKey(name) == "Authorization" {
+			return fmt.Errorf("%w: %s oauth and an Authorization header are exclusive", ErrInvalidConfig, s.Name)
+		}
 	}
-	return nil
+	return s.OAuth.Validate(s.Name)
 }
 
 // Timeout is the per-call deadline of this server.

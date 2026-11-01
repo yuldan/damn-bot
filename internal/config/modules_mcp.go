@@ -3,6 +3,7 @@
 package config
 
 import (
+	"net"
 	"net/url"
 	"strings"
 )
@@ -31,9 +32,21 @@ type ModulesMCPServer struct {
 	Env      map[string]string         `toml:"env"`
 	URL      string                    `toml:"url"`
 	Headers  map[string]string         `toml:"headers"`
+	OAuth    *ModulesMCPOAuth          `toml:"oauth"`
 	Trust    string                    `toml:"trust"`
 	TimeoutS int                       `toml:"timeout_s"`
 	Tools    map[string]ModulesMCPTool `toml:"tools"`
+}
+
+// ModulesMCPOAuth is [modules.mcp.servers.<name>.oauth] (F5-11). The issuer
+// must be HTTPS or loopback; scopes are explicit and minimal; a client secret
+// is only ever a keychain reference, never a plaintext credential. Access and
+// refresh tokens never live in config.
+type ModulesMCPOAuth struct {
+	Issuer       string   `toml:"issuer"`
+	ClientID     string   `toml:"client_id"`
+	ClientSecret string   `toml:"client_secret"`
+	Scopes       []string `toml:"scopes"`
 }
 
 // ModulesMCPTool is [modules.mcp.servers.<name>.tools.<tool>]: the only
@@ -108,6 +121,9 @@ func (s *ModulesMCPServer) validate(key string) error {
 }
 
 func (s *ModulesMCPServer) validateStdio(key string) error {
+	if s.OAuth != nil {
+		return invalid(key+".oauth", "oauth needs an http server")
+	}
 	argv := append(append([]string{}, s.Command...), s.Args...)
 	if len(argv) > 64 {
 		return invalid(key+".command", "argv has more than 64 entries")
@@ -147,8 +163,75 @@ func (s *ModulesMCPServer) validateHTTP(key string) error {
 		if !validKeyRef(value) {
 			return invalid(key+".headers."+name, "must be a keychain:<id> reference, never a plaintext secret")
 		}
+		if s.OAuth != nil && strings.EqualFold(name, "authorization") {
+			return invalid(key+".oauth", "oauth and an Authorization header are exclusive")
+		}
+	}
+	return s.validateOAuth(key)
+}
+
+// validateOAuth mirrors internal/mcp: an OAuth section on a stdio server, a
+// non-TLS issuer, an implicit scope set, or a plaintext client secret is
+// refused at load time.
+func (s *ModulesMCPServer) validateOAuth(key string) error {
+	o := s.OAuth
+	if o == nil {
+		return nil
+	}
+	if s.URL == "" {
+		return invalid(key+".oauth", "oauth needs an http server")
+	}
+	u, err := url.Parse(o.Issuer)
+	if err != nil || u.Host == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" ||
+		(u.Scheme != "https" && !(u.Scheme == "http" && loopbackHost(u.Hostname()))) {
+		return invalid(key+".oauth.issuer", "must be an https URL or a loopback authorization server")
+	}
+	if len(o.ClientID) > 256 || strings.ContainsAny(o.ClientID, "\x00\r\n") {
+		return invalid(key+".oauth.client_id", "is invalid")
+	}
+	if o.ClientSecret != "" && !validKeyRef(o.ClientSecret) {
+		return invalid(key+".oauth.client_secret", "must be a keychain:<id> reference, never a plaintext secret")
+	}
+	if len(o.Scopes) == 0 || len(o.Scopes) > 16 {
+		return invalid(key+".oauth.scopes", "must list 1..16 explicit scopes")
+	}
+	seen := make(map[string]bool, len(o.Scopes))
+	for _, scope := range o.Scopes {
+		if len(scope) > 64 || !validOAuthScope(scope) {
+			return invalid(key+".oauth.scopes", "scope %q is invalid", scope)
+		}
+		if seen[scope] {
+			return invalid(key+".oauth.scopes", "scope %q is duplicated", scope)
+		}
+		seen[scope] = true
 	}
 	return nil
+}
+
+// validOAuthScope is the RFC 6749 scope-token grammar without the wildcard.
+func validOAuthScope(s string) bool {
+	if s == "" || s == "*" {
+		return false
+	}
+	for i := range len(s) {
+		c := s[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case c == '.' || c == '_' || c == ':' || c == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// loopbackHost reports whether host is a loopback literal or localhost.
+func loopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // reservedMCPHeader refuses headers the client installs itself.
