@@ -44,7 +44,10 @@ plan               600 internal/plan
 # decode 249 + schema 278 + transport 30) untuk sanitasi schema Gemini.
 # Sigma core 51.629 -> 51.898, plafon core 51.680 -> 51.950 (headroom 52);
 # provider tetap 2.145 (terukur 2.141).
-provider          2145 internal/provider
+# ADR-295 (F5 provider parity, EC-TCALL-011): provider 2.145 -> 2.220 untuk
+# Conversation/Turn (validasi role/tool sekali untuk kedua adapter; terukur
+# 2.218 dengan shim minimal). Sigma core 52.305 -> 52.380, plafon core 52.350 -> 52.425.
+provider          2220 internal/provider
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses
 provider/anthropic  645 internal/provider/anthropic
@@ -99,6 +102,9 @@ schema            1200 internal/schema
 # ADR-300 (shell background slice 4): tools 3500 -> 3600 untuk
 # background:true + wiring registry (terukur 3565). Sigma core caps
 # 53.565 -> 53.665; plafon core 53.600 -> 53.700.
+# ADR-301 (satu konverter percakapan chat<->Responses): provider 2142 ->
+# 2220 (terukur 2219; conversation.go + shim minimal). Sigma core caps
+# 53.665 -> 53.740; plafon core 53.700 -> 53.800.
 tools             3600 internal/tools
 # ADR-143: komposisi toolset deklaratif (TSET/CORE-004/005; Σ core 38.450 -> 38.850 <= 47.000).
 toolset            400 internal/toolset
