@@ -58,6 +58,7 @@ func allowedImports() map[string][]string {
 		// tests exercise the codetools lease guard directly.
 		"internal/delegate":                 {"internal/tools", "internal/codetools", "internal/sandbox", "internal/redact"},
 		"internal/codeintel":                moduleImports(),
+		"internal/codeintel/ts":             nil,
 		"internal/gateway" + moduleWildcard: moduleImports(),
 
 		// Core.

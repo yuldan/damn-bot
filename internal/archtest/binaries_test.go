@@ -22,6 +22,7 @@ func largeFileAllow() map[string]string {
 	return map[string]string{ //nolint:gosec // G101: repository paths, not credentials
 		"bench/budget/o200k/o200k_base.tiktoken.gz": "offline o200k_base vocabulary of the P1 token harness (F0 deliverable 1)",
 		"docs/DECISIONS.md":                         "ADR log is the source of record; it crossed 1 MiB when F4 ADRs 254-256 landed",
+		"internal/codeintel/ts/ts.wasm":             "embedded tree-sitter C/C++ grammar+runtime WASM (MIT, ADR-294); runtime asset, not a build output",
 	}
 }
 

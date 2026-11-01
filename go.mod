@@ -13,6 +13,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/google/go-cmp v0.7.0
+	github.com/tetratelabs/wazero v1.12.0
 	github.com/zalando/go-keyring v0.2.7
 	go.uber.org/goleak v1.3.0
 	go.yaml.in/yaml/v3 v3.0.5

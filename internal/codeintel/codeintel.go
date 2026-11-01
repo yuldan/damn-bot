@@ -27,7 +27,7 @@ var (
 	ErrTooLarge = errors.New("codeintel: workspace too large")
 )
 
-// skipEntry keeps a counted skip from aborting the walk.
+// skipEntry keeps one countable skip from aborting the walk.
 func skipEntry() error { return nil }
 
 // SymbolKind is the closed symbol set of the repository map.
