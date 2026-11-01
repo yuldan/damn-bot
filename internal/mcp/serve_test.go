@@ -204,7 +204,7 @@ func TestNewServeValidation(t *testing.T) {
 		cfg  ServeConfig
 	}{
 		{"no_tokens", ServeConfig{Profile: "p", Tools: base}},
-		{"no_profile", ServeConfig{Tokens: fakeServeTokens{}, Tools: base}},
+		{"long_profile", ServeConfig{Tokens: fakeServeTokens{}, Profile: strings.Repeat("p", 129), Tools: base}},
 		{"dup", ServeConfig{Tokens: fakeServeTokens{}, Profile: "p", Tools: append(base, base...)}},
 		{"bad_scope", ServeConfig{Tokens: fakeServeTokens{}, Profile: "p", Tools: []ServeTool{serveTool("x", "root", host.EffectRead)}}},
 		{"nil_run", ServeConfig{Tokens: fakeServeTokens{}, Profile: "p", Tools: []ServeTool{{Name: "x", Scope: ServeScopeRead, Schema: json.RawMessage(`{"type":"object"}`)}}}},

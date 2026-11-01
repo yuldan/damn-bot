@@ -32,10 +32,27 @@ const (
 // authorization refusal (never retried with the same token) from a protocol
 // error. No message ever contains a token or tool arguments.
 const (
-	serveCodeUnauthorized = -32001
-	serveCodeForbidden    = -32003
-	serveCodeRateLimited  = -32005
+	ServeCodeUnauthorized = -32001
+	ServeCodeForbidden    = -32003
+	ServeCodeRateLimited  = -32005
 )
+
+// serveCode* are the internal spellings used by tests and the handler.
+const (
+	serveCodeUnauthorized = ServeCodeUnauthorized
+	serveCodeForbidden    = ServeCodeForbidden
+	serveCodeRateLimited  = ServeCodeRateLimited
+)
+
+// tokenContextKey carries the authenticated token to a tool implementation
+// (permissions_respond records the responder identity).
+type tokenContextKey struct{}
+
+// TokenFromContext returns the authenticated client of one tools/call.
+func TokenFromContext(ctx context.Context) (ServeToken, bool) {
+	tok, ok := ctx.Value(tokenContextKey{}).(ServeToken)
+	return tok, ok
+}
 
 // ServeToken is one authenticated client of `damnbot mcp serve`.
 type ServeToken struct {
@@ -101,8 +118,8 @@ func NewServe(cfg ServeConfig) (*Serve, error) {
 	if cfg.Tokens == nil {
 		return nil, fmt.Errorf("%w: serve needs a token store", ErrInvalidConfig)
 	}
-	if cfg.Profile == "" {
-		return nil, fmt.Errorf("%w: serve needs a profile", ErrInvalidConfig)
+	if len(cfg.Profile) > 128 {
+		return nil, fmt.Errorf("%w: serve profile", ErrInvalidConfig)
 	}
 	if cfg.Approvals == nil {
 		cfg.Approvals = host.DenyApprovals{}
@@ -277,7 +294,7 @@ func (c *ServeConn) call(ctx context.Context, params json.RawMessage) (any, *jso
 			return nil, &jsonrpc.Error{Code: serveCodeForbidden, Message: "denied by approval"}
 		}
 	}
-	text, err := tool.Run(ctx, args)
+	text, err := tool.Run(context.WithValue(ctx, tokenContextKey{}, c.token), args)
 	if err != nil {
 		return toolResult(err.Error(), true), nil
 	}
