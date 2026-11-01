@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -81,6 +82,9 @@ type Config struct {
 	Env []string
 	// Root is the parent of the per-call temp dir ("" = os.TempDir()).
 	Root string
+	// Lookup is a test seam for the interpreter resolver; nil uses the OS
+	// candidates (python3/py -3 on Windows, node, go).
+	Lookup func(lang Language, env []string) ([]string, error)
 }
 
 // Runner executes code through one backend.
@@ -94,18 +98,49 @@ func New(cfg Config) (*Runner, error) {
 	return &Runner{cfg: cfg}, nil
 }
 
-// interpreter returns the argv prefix and file name of one language.
-func interpreter(lang Language) (argv []string, file string, err error) {
+// candidates is the OS-aware interpreter attempt list of one language. The
+// first entry is the canonical name; Windows also tries python.exe/py -3.
+func candidates(lang Language, goos string) ([]string, [][]string, string, error) {
+	win := goos == "windows"
 	switch lang {
 	case Python:
-		return []string{"python3", "-I", "-B", "main.py"}, "main.py", nil
+		if win {
+			return []string{"python", "python.exe", "py"}, [][]string{{"-I", "-B"}, {"-I", "-B"}, {"-3", "-I", "-B"}}, "main.py", nil
+		}
+		return []string{"python3"}, [][]string{{"-I", "-B"}}, "main.py", nil
 	case JavaScript:
-		return []string{"node", "--no-warnings", "main.js"}, "main.js", nil
+		if win {
+			return []string{"node", "node.exe"}, [][]string{{"--no-warnings"}, {"--no-warnings"}}, "main.js", nil
+		}
+		return []string{"node"}, [][]string{{"--no-warnings"}}, "main.js", nil
 	case Go:
-		return []string{"go", "run", "main.go"}, "main.go", nil
+		if win {
+			return []string{"go", "go.exe"}, [][]string{{"run"}, {"run"}}, "main.go", nil
+		}
+		return []string{"go"}, [][]string{{"run"}}, "main.go", nil
 	default:
-		return nil, "", fmt.Errorf("%w: %q", ErrLanguage, lang)
+		return nil, nil, "", fmt.Errorf("%w: %q", ErrLanguage, lang)
 	}
+}
+
+// interpreter resolves the argv prefix of one language with a default
+// resolver (tests inject Config.Lookup).
+func (r *Runner) interpreter(lang Language) ([]string, string, error) {
+	_, _, file, err := candidates(lang, runtime.GOOS)
+	if err != nil {
+		return nil, "", err
+	}
+	lookup := r.cfg.Lookup
+	if lookup == nil {
+		lookup = func(lang Language, env []string) ([]string, error) {
+			return resolve(lang, env, runtime.GOOS)
+		}
+	}
+	prefix, err := lookup(lang, r.cfg.Env)
+	if err != nil {
+		return nil, "", err
+	}
+	return append(append([]string(nil), prefix...), file), file, nil
 }
 
 // Run executes req. It refuses before spawning when the backend cannot
@@ -114,7 +149,7 @@ func (r *Runner) Run(ctx context.Context, req *Request) (Result, error) {
 	if len(req.Code) > MaxCodeBytes {
 		return Result{}, fmt.Errorf("%w: %d > %d", ErrCodeSize, len(req.Code), MaxCodeBytes)
 	}
-	argv, file, err := interpreter(req.Language)
+	argv, file, err := r.interpreter(req.Language)
 	if err != nil {
 		return Result{}, err
 	}
@@ -143,10 +178,6 @@ func (r *Runner) Run(ctx context.Context, req *Request) (Result, error) {
 	//nolint:gosec // the directory needs owner execute; only the owner can enter
 	if cerr := os.Chmod(dir, 0o700); cerr != nil {
 		return Result{}, fmt.Errorf("%w: chmod: %w", ErrBackend, cerr)
-	}
-	argv, err = resolve(argv, r.cfg.Env)
-	if err != nil {
-		return Result{}, err
 	}
 	//nolint:gosec // dir is our 0700 temp dir and file is a fixed name
 	if err := os.WriteFile(filepath.Join(dir, file), []byte(req.Code), 0o600); err != nil {
@@ -178,12 +209,13 @@ func (r *Runner) Run(ctx context.Context, req *Request) (Result, error) {
 	return out, nil
 }
 
-// resolve makes argv[0] absolute through the child environment's PATH (the
-// exec.Spec contract); a missing interpreter fails closed before the write.
-func resolve(argv, env []string) ([]string, error) {
-	name := argv[0]
-	if strings.ContainsRune(name, os.PathSeparator) {
-		return argv, nil
+// resolve finds the first OS candidate of lang in the child PATH. A missing
+// interpreter is exec.ErrUnavailable naming every candidate, never a generic
+// language error.
+func resolve(lang Language, env []string, goos string) ([]string, error) {
+	names, args, _, err := candidates(lang, goos)
+	if err != nil {
+		return nil, err
 	}
 	path := ""
 	for _, kv := range env {
@@ -195,6 +227,25 @@ func resolve(argv, env []string) ([]string, error) {
 	if path == "" {
 		path = "/usr/local/bin:/usr/bin:/bin"
 	}
+	var tried []string
+	for i, name := range names {
+		cand, err := findInPath(name, path)
+		if err != nil {
+			tried = append(tried, strings.Join(append([]string{name}, args[i]...), " "))
+			continue
+		}
+		out := []string{cand}
+		out = append(out, args[i]...)
+		return out, nil
+	}
+	return nil, fmt.Errorf("%w: interpreter for %s not found (tried %s)", exec.ErrUnavailable, lang, strings.Join(tried, ", "))
+}
+
+// findInPath returns an executable path for name in path.
+func findInPath(name, path string) (string, error) {
+	if strings.ContainsRune(name, os.PathSeparator) {
+		return name, nil
+	}
 	for _, dir := range filepath.SplitList(path) {
 		if dir == "" {
 			continue
@@ -202,12 +253,10 @@ func resolve(argv, env []string) ([]string, error) {
 		cand := filepath.Join(dir, name)
 		//nolint:gosec // PATH resolution is the interpreter contract
 		if info, err := os.Stat(cand); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0o111 != 0 {
-			out := append([]string(nil), argv...)
-			out[0] = cand
-			return out, nil
+			return cand, nil
 		}
 	}
-	return nil, fmt.Errorf("%w: interpreter %s not found", ErrLanguage, name)
+	return "", exec.ErrUnavailable
 }
 
 // env returns the child environment; nil becomes a fixed minimal PATH so the

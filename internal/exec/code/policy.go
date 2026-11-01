@@ -61,7 +61,10 @@ func ShellLanguage(lang Language) bool {
 // before approval; shell languages never auto-approve through the code
 // allowlist.
 func Decide(lang Language, in PolicyInput) (Decision, error) {
-	if _, _, err := interpreter(lang); err != nil {
+	switch lang {
+	case Python, JavaScript, Go:
+	default:
+		err := fmt.Errorf("%w: %q", ErrLanguage, lang)
 		return Decision{Requirement: RequireDeny, Reason: err.Error()}, err
 	}
 	if ShellLanguage(lang) {

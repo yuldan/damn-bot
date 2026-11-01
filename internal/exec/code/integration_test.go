@@ -4,6 +4,7 @@ package code
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	osexec "os/exec"
@@ -58,9 +59,7 @@ func TestRealInterpreterSmoke(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.lang), func(t *testing.T) {
-			if _, err := osexec.LookPath(tc.bin); err != nil {
-				t.Skipf("%s absent", tc.bin)
-			}
+			_ = osexec.LookPath
 			l := exec.NewLocal(exec.New(t.Context()))
 			t.Cleanup(func() {
 				//nolint:errcheck,gosec // test cleanup
@@ -71,6 +70,13 @@ func TestRealInterpreterSmoke(t *testing.T) {
 				t.Fatal(err)
 			}
 			res, err := r.Run(t.Context(), &Request{Language: tc.lang, Code: tc.code, Stdin: []byte(`{"n":41}`)})
+			if errors.Is(err, exec.ErrUnavailable) {
+				// Locally a missing interpreter is a skip; CI must have it.
+				if os.Getenv("CI") != "" {
+					t.Fatalf("CI is missing %s: %v", tc.lang, err)
+				}
+				t.Skipf("%s absent: %v", tc.lang, err)
+			}
 			if err != nil {
 				t.Fatalf("Run: %v", err)
 			}
