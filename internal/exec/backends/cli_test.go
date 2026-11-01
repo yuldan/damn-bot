@@ -22,6 +22,12 @@ const fakeCLIScript = `#!/bin/sh
 dir=$(dirname "$0")
 image=${0##*/}
 image=${image#fake-cli-}
+if [ "$FAKE_PROBE_FAIL" = "1" ]; then
+  case "$1" in
+    create|cgroup) printf 'no cgroup support\n'; exit 1;;
+  esac
+fi
+if [ "$1" = "cgroup" ] && [ "$2" = "status" ]; then printf 'cgroup: enabled\n'; exit 0; fi
 printf '%s\n' "$@" >> "$dir/argv.log"
 prev=''
 for a in "$@"; do
