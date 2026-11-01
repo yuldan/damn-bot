@@ -44,7 +44,11 @@ plan               600 internal/plan
 # decode 249 + schema 278 + transport 30) untuk sanitasi schema Gemini.
 # Sigma core 51.629 -> 51.898, plafon core 51.680 -> 51.950 (headroom 52);
 # provider tetap 2.145 (terukur 2.141).
+# ADR-278 (F5-14 PR A1): credential pool SPEC §4.1. Baris baru
+# `provider/credpool` (tipe/pilih/cooldown/redaksi/error; terukur 230).
+# Belum diimpor provider pada slice ini; build minimal tidak berubah.
 provider          2145 internal/provider
+provider/credpool  230 internal/provider/credpool
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses
 provider/anthropic  645 internal/provider/anthropic

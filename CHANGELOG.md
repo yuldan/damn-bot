@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/provider/credpool` (F5-14 PR A1, SPEC §4.1, ADR-278): **credential pool core**. 1..16 kredensial per provider dengan id stabil, seleksi round-robin/least-recent-failure, cooldown berbatas (429 = `Retry-After`/60 s; 401/403 = 30 s berlipat sampai 15 m; jepit 1 s..15 m), `credential_exhausted` tipikal saat semua cooldown, dan status pool tanpa nilai. Nilai rahasia tidak muncul di `String`/`GoString`/JSON/error (tes memindai output); rotasi paralel diuji `-race`. Paket belum diimpor provider/config pada slice ini, sehingga build `minimal` tetap identik baseline (21.999.778 B) dan build minimal hanya mendukung satu kredensial (`api_key_env`/`key_cmd`) tanpa pool. Terukur: provider/credpool 230/230, Σ core 52.535 ≤ 52.550.
+
 - `internal/exec`, `internal/gateway/telegram`, `internal/ctxdb`, `internal/modules`, `internal/provider/auth`, `cmd/damnbot` (gate `TestNolintDensity`, E-52): konsolidasi direktif `//nolint` per-statement menjadi satu direktif deklarasi fungsi untuk kondisi yang sama (teardown SSH, kill pgid ESRCH, path G304, state machine gocognit, signature init). Densitas 118 → 109 direktif / 114.222 baris non-test; `make lint` tetap 0 issue, tidak ada perubahan perilaku.
 
 - `internal/exec/backends`/`internal/config`/`cmd/damnbot` (F5 exec backends PR D, SPEC §9.2/§14, ADR-277): backend ssh — pool x/crypto/ssh per user@host:port, keepalive 30 s + idle close, known_hosts wajib (pin, tanpa TOFU), key/agent, wrapper setsid + pid-file + kill grup via channel kedua, timeout/Sweep/Close; config [exec.backends.ssh] strict; minimal menolak remote. Terukur config 1728/1730, Σ core 52.305 ≤ 52.350.
