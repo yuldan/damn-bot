@@ -9,51 +9,80 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/exec"
 )
 
-// fakeCLI writes a shell script that logs its argv (and any --env-file) and
-// then runs the argv after the fake image name, emulating the container.
-func fakeCLI(t *testing.T, images ...string) (bin, logPath, envPath string) {
-	image := "fake-image"
-	if len(images) > 0 {
-		image = images[0]
-	}
-	t.Helper()
-	dir := t.TempDir()
-	logPath = filepath.Join(dir, "argv.log")
-	envPath = filepath.Join(dir, "env.log")
-	bin = filepath.Join(dir, "fake-cli")
-	script := `#!/bin/sh
-printf '%s\n' "$@" >> ` + ShellQuote(logPath) + `
+// fakeCLI links a pre-written, immutable CLI helper into the test dir. A
+// per-test script would be open for writing while other parallel tests exec
+// their own copies; Linux then reports ETXTBSY even for distinct files. The
+// template lives for the test process; the OS reclaims the small temp dir.
+var (
+	fakeCLIOnce sync.Once
+	fakeCLIDir  string
+	fakeCLIErr  error
+)
+
+func fakeCLIBinary() (string, error) {
+	fakeCLIOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "damnbot-fake-cli-")
+		if err != nil {
+			fakeCLIErr = err
+			return
+		}
+		fakeCLIDir = dir
+		// The log paths are derived from $0's directory, so one immutable
+		// script serves every test.
+		script := `#!/bin/sh
+dir=$(dirname "$0")
+image=${0##*/}
+image=${image#fake-cli-}
+printf '%s\n' "$@" >> "$dir/argv.log"
 prev=''
 for a in "$@"; do
-  if [ "$prev" = "--env-file" ]; then cp "$a" ` + ShellQuote(envPath) + ` 2>/dev/null || true; fi
+  if [ "$prev" = "--env-file" ]; then cp "$a" "$dir/env.log" 2>/dev/null || true; fi
   prev="$a"
 done
 found=0
 while [ $# -gt 0 ]; do
-  if [ "$1" = ` + ShellQuote(image) + ` ]; then found=1; shift; break; fi
+  if [ "$1" = "$image" ]; then found=1; shift; break; fi
   shift
 done
 if [ "$found" = 0 ]; then exit 0; fi
 exec "$@"
 `
-	// Write beside the final name and rename: a concurrent fork in a parallel
-	// test must never inherit a write descriptor for the script we exec, or
-	// execve fails with ETXTBSY (text file busy) under -bench load.
-	tmp := bin + ".tmp"
-	//nolint:gosec // the fake CLI must be executable by the test
-	if err := os.WriteFile(tmp, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake CLI: %v", err)
+		bin := filepath.Join(dir, "fake-cli")
+		tmp := filepath.Join(dir, "fake-cli.tmp")
+		//nolint:gosec // the fake CLI must be executable by the test
+		if err := os.WriteFile(tmp, []byte(script), 0o700); err != nil {
+			fakeCLIErr = err
+			return
+		}
+		fakeCLIErr = os.Rename(tmp, bin)
+	})
+	if fakeCLIErr != nil {
+		return "", fakeCLIErr
 	}
-	if err := os.Rename(tmp, bin); err != nil {
-		t.Fatalf("rename fake CLI: %v", err)
+	return filepath.Join(fakeCLIDir, "fake-cli"), nil
+}
+
+// fakeCLI hardlinks the immutable helper into a fresh test dir and returns
+// its argv/env logs. The link name carries the image argv marker.
+func fakeCLI(t *testing.T, image string) (bin, logPath, envPath string) {
+	t.Helper()
+	src, err := fakeCLIBinary()
+	if err != nil {
+		t.Fatalf("prepare fake CLI: %v", err)
 	}
-	return bin, logPath, envPath
+	dir := t.TempDir()
+	bin = filepath.Join(dir, "fake-cli-"+image)
+	if err := os.Link(src, bin); err != nil {
+		t.Fatalf("link fake CLI: %v", err)
+	}
+	return bin, filepath.Join(dir, "argv.log"), filepath.Join(dir, "env.log")
 }
 
 func readLog(t *testing.T, path string) string {
