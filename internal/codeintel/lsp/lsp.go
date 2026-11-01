@@ -117,8 +117,11 @@ func Start(ctx context.Context, cfg Config) (*Client, error) {
 	return c, nil
 }
 
-// Close performs the LSP shutdown/exit handshake within ShutdownTimeout and
-// then closes the transport.
+// Close performs the LSP shutdown/exit handshake and then closes the
+// transport. Shutdown is a request bounded by the caller and ShutdownTimeout;
+// exit is a notification that is always sent, even when shutdown times out or
+// the caller already canceled, because a server that never answers must still
+// see the exit before the transport goes away. Close is idempotent.
 func (c *Client) Close(ctx context.Context) error {
 	c.mu.Lock()
 	if c.closed {
@@ -133,9 +136,14 @@ func (c *Client) Close(ctx context.Context) error {
 	if err := c.conn.Call(sctx, "shutdown", nil, nil); err != nil {
 		errs = errors.Join(errs, err)
 	}
-	if err := c.conn.Notify(sctx, "exit", nil); err != nil {
+	// Exit is mandatory (LSP shutdown contract), so it gets a detached
+	// deadline: cancellation of the caller or a lost shutdown response must
+	// not swallow it.
+	ectx, ecancel := context.WithTimeout(context.WithoutCancel(ctx), ShutdownTimeout)
+	if err := c.conn.Notify(ectx, "exit", nil); err != nil {
 		errs = errors.Join(errs, err)
 	}
+	ecancel()
 	if err := c.conn.Close(); err != nil {
 		errs = errors.Join(errs, fmt.Errorf("codeintel/lsp: close: %w", err))
 	}

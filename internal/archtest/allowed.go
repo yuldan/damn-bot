@@ -56,10 +56,10 @@ func allowedImports() map[string][]string {
 		"internal/mcp": moduleImports(),
 		// Delegasi (F5-12, ADR-273): orchestration over the tool pipeline; its
 		// tests exercise the codetools lease guard directly.
-		"internal/delegate":                 {"internal/tools", "internal/codetools", "internal/sandbox", "internal/redact"},
-		"internal/codeintel":                moduleImports(),
-		"internal/codeintel/ts":             nil,
-		"internal/codeintel/lsp":            {"internal/netx/jsonrpc"},
+		"internal/delegate":  {"internal/tools", "internal/codetools", "internal/sandbox", "internal/redact"},
+		"internal/codeintel": moduleImports(),
+		// Sibling parser/client packages: ts is stdlib-only, lsp reaches netx/jsonrpc.
+		"internal/codeintel/ts": nil, "internal/codeintel/lsp": {"internal/netx/jsonrpc"},
 		"internal/gateway" + moduleWildcard: moduleImports(),
 
 		// Core.
