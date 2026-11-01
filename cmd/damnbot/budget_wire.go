@@ -103,4 +103,5 @@ type providerAdapter struct {
 	notes    *budgetNotes
 	provider string
 	origin   string // sessions.origin: selects the prompt-cache TTL (GAP-COST-03)
+	adapterPool
 }
