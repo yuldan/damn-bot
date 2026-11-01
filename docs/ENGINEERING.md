@@ -365,6 +365,7 @@ dijaga `TestLocBudgetModuleRows` + `make loc`):
 | `obs` (F4, ADR-244) | **4.000** | `scorecard` (F4, ADR-244) | **500** |
 | `gwstore` (F4, ADR-245) | **900** | `cronstore` (F4, ADR-248) | **200** |
 | `mcp` (F5, ADR-268/ADR-272/ADR-274) | **6.500** | `delegate` (F5, ADR-273) | **2.000** |
+| `backend` (F5 exec backends, ADR-277) | **4.800** | | |
 
 Baris bertanda **(infra)** **tidak dihitung** sebagai core: baris yang seluruh direktorinya `internal/testutil*`, `internal/archtest`, `internal/integration`, `internal/e2e`, atau `tools/analyzers` dikeluarkan dari Σ core (predikat `budgetCoreSum`, `internal/archtest/repometa_test.go:87-110`), begitu pula baris `TOTAL`/`GENERATED`/`TESTONLY` dan **seluruh baris kelas `MODULE`** (ADR-196, ADR-244, tabel modul di atas); baris dengan direktori campuran tetap dihitung core. `Total core` di dokumen ini **harus sama** dengan Σ core `loc.budget` (V-20/ADR-054) **dan** dengan angka pada kalimat di bawahnya; gerbang `TestEngineeringTotalCoreMatchesLocBudget` (`internal/archtest/budget_doc_test.go`, PR #320) menegakkannya, jadi jangan menyalin angka dari tabel atau dari body PR — hitung ulang dari `loc.budget` pada pohon yang di-commit. Kasus historis drift: dokumen 44.238 vs Σ 44.031 (207 baris) pada main `ef8ec40d`, dan 44.131 vs 43.631 pada `b979bc83`.
 

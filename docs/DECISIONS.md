@@ -5691,3 +5691,6 @@ ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaika
 **Anggaran terukur (scc Code, head slice A di atas ADR-274).** `exec` **2.834/3.400** (tidak naik), `config` **1.599/1.600** (plafon ADR-274, termasuk `[exec] backend`; tidak naik), `tools` **3.004/3.010** (3.002 → 3.010). Σ core **52.167 → 52.175** ≤ plafon 52.200 (headroom 25); `maxCoreLOC`, marker, dan regex tidak berubah. Slice B (docker) menaikkan `config` dan plafon core lewat amandemen ADR ini dengan angka yang diukur dari head slice B.
 
 **Konsekuensi.** (+) Tool hanya melihat satu kontrak dan kapabilitas tidak dapat diabaikan diam-diam. (−) Backend remote harus memetakan env/cwd/stdin sendiri; `Result.Cwd`/`SessionReset` hanya bermakna untuk `local`.
+
+
+**Amandemen PR B (transport, 2026-11-01).** Transport CLI bersama di `internal/exec/backends` (tag `!minimal`): process group, TERM→grace→KILL, output cap+streaming, stdin, timeout/cancel, cleanup, EnvList secret refusal, ShellQuote, ResolveBinary. Baris `MODULE backend` **4.800** (terukur 223), Sigma MODULE **47.000 → 51.800** (+backup 1.467 = 53.267 ≤ 53.800, `maxModuleLOC` 49.000 → 53.800); core tetap 52.175/52.200.

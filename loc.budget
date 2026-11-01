@@ -311,4 +311,8 @@ MODULE mcp         6500 internal/mcp internal/ctxdb/mcpstore internal/ctxdb/mcps
 # ADR-273 (F5-12 PR B, GAP-TOOL-05): baris delegate untuk tipe/Config/Service
 # (lease, worktree, limiter) + LeaseGuard codetools; SPEC §3.2.4:290. Kode
 # terukur 453 (PR B) -> 959 (PR C); Sigma kelas MODULE 45.000 -> 47.000 (maxModuleLOC 46.500 -> 49.000).
+# ADR-277 (F5 exec backends PR B): baris baru `MODULE backend` 4800 untuk
+# internal/exec/backends (transport CLI bersama; terukur 223). Sigma MODULE
+# 47.000 -> 51.800 (+backup 1.467 = 53.267 <= 53.800); core tetap.
+MODULE backend     4800 internal/exec/backends
 MODULE delegate    2000 internal/delegate
