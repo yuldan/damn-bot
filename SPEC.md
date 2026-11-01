@@ -870,10 +870,10 @@ Adapter `openai-responses`, `anthropic-messages`, `gemini` + transport SigV4/JWT
 **Tool dokumen tanpa Python (GAP TOOL-01, TOOL-02)**: modul `media` menyediakan tool deferred `doc_read` (PDF teks, DOCX, XLSX, PPTX, ODT/ODS, EPUB, CSV → teks/markdown + tabel; streaming OOXML dengan batas total uncompressed 256 MiB dan rasio kompresi ≤ 100:1 → `too_large`, anti zip-bomb) dan `doc_write` (DOCX/XLSX/PPTX/CSV dari markdown/tabel terstruktur via `archive/zip` + template XML milik sendiri; PDF teks via renderer sederhana milik sendiri). Pure Go, tanpa CGO, tanpa Python. Skill bundled hermes yang memanggil skrip Python ditulis ulang ke tool ini; skill yang tetap butuh runtime eksternal ditandai `requires:` di front matter dan diperiksa `damnbot doctor`. Verifikasi: korpus 40 dokumen (baca) + round-trip tulis→baca 20 dokumen; fixture zip-bomb 10 GB → error terkontrol, RSS < 100 MB.
 
 ### 9.3 `delegate`
-- `delegate_task{tasks:[{goal, context, files}], max_parallel}` → sesi anak (`origin=delegate`), iterasi ≤ 40, maks 3 paralel, kedalaman 1.
+- `delegate_task{tasks:[{goal, context, files, role, isolation, max_iterations, budget_usd}], max_parallel}` → sesi anak (`origin=delegate`), iterasi ≤ 40, maks 3 paralel, kedalaman ≤ 3 (default 3; ADR-273), maks 10 task.
 - Budget anak = slice eksplisit dari sisa budget induk (default 25% per anak; Σ slice aktif ≤ sisa induk); usage anak (`purpose=delegate`) **dijumlah** ke turn induk sehingga semua cap induk berlaku pada total.
 - Hasil ke induk: `{status, stop_reason, answer ≤ 2.000 char, files_changed, verification, session_id}`; transcript anak via `recall`.
-- `isolation:"worktree"` → `git worktree` sementara; hasil sebagai diff/branch, merge hanya atas permintaan. Cancel induk → anak dibatalkan (0 anak yatim).
+- `isolation:"worktree"` → `git worktree` sementara di `<state_dir>/worktrees/<id>`; hasil sebagai diff/branch, merge hanya atas permintaan. Worktree bersih dihapus; yang kotor dipertahankan dan dilaporkan (`worktree`, `files_changed`). Cancel induk → anak dibatalkan dan dibersihkan (0 anak yatim). `files` menjadi lease per path antar saudara; edit ke path milik saudara → `conflict` dengan nama pemilik (ADR-273).
 
 ### 9.4 `web`, `browser`
 - `web_search{query, k, backend?}`: 11 backend (brave, ddgs, exa, firecrawl, tavily, searxng, perplexity, parallel, xai, keenable, openai-native); ≤ 10 hasil, snippet ≤ 300 char, `<untrusted>`.

@@ -64,7 +64,7 @@ Requirement & verifikasi: SPEC §22.1 baris SEC-28.
 - Mekanisme: SPEC §9.3 (`delegate_task`). Budget anak = slice eksplisit dari sisa budget **induk**; jumlah slice aktif ≤ sisa induk; usage anak dijumlahkan ke `v_turn_usage` induk sehingga cap turn/sesi/harian berlaku pada total.
 - Hasil anak ke induk ≤ 2.000 char (`answer`) + fakta runtime; transcript anak penuh via `recall`.
 - Isolasi opsional `git worktree` per anak; perubahan dikembalikan sebagai diff/branch, merge hanya atas permintaan.
-- Maks 3 anak paralel, kedalaman 1, iterasi ≤ 40 per anak.
+- Maks 3 anak paralel, kedalaman ≤ 3 (default 3, ADR-273), iterasi ≤ 40 per anak.
 - Target: Σ usage anak ≤ budget induk pada 100% skenario; 0 anak yatim setelah cancel induk. Verifikasi: `TestDelegateBudgetSum`, `TestDelegateCancelPropagates` (PR).
 
 ## 3. Model routing & caching
