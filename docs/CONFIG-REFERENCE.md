@@ -49,6 +49,18 @@ config_version = 1
   pass_ssh_agent = false
   backend = "local"
   [exec.env]
+  [exec.backends]
+    [exec.backends.docker]
+      binary = "docker"
+      image = ""
+      user = "65534:65534"
+      cpu_milli = 1000
+      memory_mib = 512
+      pids = 128
+      network = "none"
+      network_name = ""
+      proxy_url = ""
+      allow_unlimited = false
 
 [agent]
   verify_on_stop = "run"
