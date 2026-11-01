@@ -48,6 +48,58 @@ read_only = true
 	}
 }
 
+func TestMCPOAuthConfig(t *testing.T) {
+	t.Parallel()
+	cfg, err := parse(t, `
+[modules.mcp.servers.remote]
+url = "https://mcp.example.test/v1/mcp"
+
+[modules.mcp.servers.remote.oauth]
+issuer = "https://as.example.test"
+client_id = "dcr-1"
+scopes = ["mcp.read", "mcp.tools"]
+`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	oauth := cfg.Modules.MCP.Servers["remote"].OAuth
+	if oauth == nil || oauth.Issuer != "https://as.example.test" || len(oauth.Scopes) != 2 {
+		t.Fatalf("oauth = %+v", oauth)
+	}
+	if _, err := parse(t, `
+[modules.mcp.servers.remote]
+url = "http://127.0.0.1:8080/mcp"
+[modules.mcp.servers.remote.oauth]
+issuer = "http://localhost:9090"
+scopes = ["mcp.read"]
+`); err != nil {
+		t.Fatalf("loopback oauth rejected: %v", err)
+	}
+}
+
+func TestMCPOAuthRejects(t *testing.T) {
+	t.Parallel()
+	base := "[modules.mcp.servers.s]\nurl = \"https://h/mcp\"\n"
+	tests := []struct{ name, body string }{
+		{"stdio", "[modules.mcp.servers.s]\ncommand = [\"x\"]\n[modules.mcp.servers.s.oauth]\nissuer = \"https://as\"\nscopes = [\"r\"]\n"},
+		{"plaintext_issuer", base + "[modules.mcp.servers.s.oauth]\nissuer = \"http://as.example\"\nscopes = [\"r\"]\n"},
+		{"query_issuer", base + "[modules.mcp.servers.s.oauth]\nissuer = \"https://as.example/?x=1\"\nscopes = [\"r\"]\n"},
+		{"no_scopes", base + "[modules.mcp.servers.s.oauth]\nissuer = \"https://as.example\"\n"},
+		{"wildcard", base + "[modules.mcp.servers.s.oauth]\nissuer = \"https://as.example\"\nscopes = [\"*\"]\n"},
+		{"duplicate", base + "[modules.mcp.servers.s.oauth]\nissuer = \"https://as.example\"\nscopes = [\"r\", \"r\"]\n"},
+		{"plaintext_secret", base + "[modules.mcp.servers.s.oauth]\nissuer = \"https://as.example\"\nclient_secret = \"s3cret\"\nscopes = [\"r\"]\n"},
+		{"header_conflict", "[modules.mcp.servers.s]\nurl = \"https://h/mcp\"\nheaders = { Authorization = \"keychain:t\" }\n[modules.mcp.servers.s.oauth]\nissuer = \"https://as.example\"\nscopes = [\"r\"]\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := parse(t, tc.body); err == nil {
+				t.Fatal("parse succeeded, want error")
+			}
+		})
+	}
+}
+
 func TestMCPConfigRejects(t *testing.T) {
 	t.Parallel()
 	tests := []struct{ name, body string }{

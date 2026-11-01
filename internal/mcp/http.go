@@ -30,6 +30,7 @@ type httpTransport struct {
 	url     string
 	headers map[string]string
 	doer    Doer
+	tokens  TokenSource
 	seq     atomic.Uint64
 	mu      sync.Mutex
 	session string
@@ -43,11 +44,14 @@ func (t *httpTransport) setNotifications(notify func(context.Context, string)) {
 	t.mu.Unlock()
 }
 
-func newHTTP(s *Server, doer Doer) (*httpTransport, error) {
+func newHTTP(s *Server, doer Doer, tokens TokenSource) (*httpTransport, error) {
 	if doer == nil {
 		return nil, fmt.Errorf("%w: %s has no HTTP client", ErrInvalidConfig, s.Name)
 	}
-	return &httpTransport{url: s.URL, headers: s.Headers, doer: doer}, nil
+	if (s.OAuth != nil) != (tokens != nil) {
+		return nil, fmt.Errorf("%w: %s oauth needs exactly one token source", ErrInvalidConfig, s.Name)
+	}
+	return &httpTransport{url: s.URL, headers: s.Headers, doer: doer, tokens: tokens}, nil
 }
 
 func (t *httpTransport) setProtocol(version string) {
@@ -134,6 +138,30 @@ func (t *httpTransport) Close() error {
 }
 
 func (t *httpTransport) post(ctx context.Context, body []byte) (*http.Response, error) {
+	resp, err := t.send(ctx, body)
+	if err != nil || resp.StatusCode != http.StatusUnauthorized || t.tokens == nil {
+		return resp, err
+	}
+	// One forced refresh per request: a 401 with a fresh token is a refusal,
+	// not a clock skew to retry forever. Neither branch includes the token.
+	closeBody(resp)
+	if _, rerr := t.tokens.RefreshToken(ctx); rerr != nil {
+		return nil, fmt.Errorf("%w: %s", ErrUnauthorized, t.url)
+	}
+	resp, err = t.send(ctx, body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		closeBody(resp)
+		return nil, fmt.Errorf("%w: %s", ErrUnauthorized, t.url)
+	}
+	return resp, nil
+}
+
+// send performs one POST with the current bearer token. Non-2xx statuses are
+// returned to post so a 401 can refresh before the status becomes an error.
+func (t *httpTransport) send(ctx context.Context, body []byte) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("mcp: build request: %w", err)
@@ -145,6 +173,13 @@ func (t *httpTransport) post(ctx context.Context, body []byte) (*http.Response, 
 	t.mu.Unlock()
 	for name, value := range headers {
 		req.Header.Set(name, value)
+	}
+	if t.tokens != nil {
+		token, terr := t.tokens.AccessToken(ctx)
+		if terr != nil {
+			return nil, fmt.Errorf("%w: %w", ErrAuthRequired, terr)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	if session != "" {
 		req.Header.Set("Mcp-Session-Id", session)
@@ -162,6 +197,9 @@ func (t *httpTransport) post(ctx context.Context, body []byte) (*http.Response, 
 		t.mu.Unlock()
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		if resp.StatusCode == http.StatusUnauthorized {
+			return resp, nil
+		}
 		closeBody(resp)
 		return nil, fmt.Errorf("%w: http status %d", ErrUnavailable, resp.StatusCode)
 	}
