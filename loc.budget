@@ -49,10 +49,13 @@ plan               600 internal/plan
 # 2.218 dengan shim minimal). Sigma core 52.305 -> 52.380, plafon core 52.350 -> 52.425.
 # ADR-302 (EC-PROV-002): provider 2.220 -> 2.410 (terukur 2.404), provider/gemini
 # 885 -> 1.040 (terukur 1.030). Sigma core 53.740 -> 54.085 (headroom 15).
-provider          2410 internal/provider
+provider          2620 internal/provider
 # ADR-303 (F5-14 PR A1): credential pool SPEC §4.1. Baris baru
 # `provider/credpool` (tipe/pilih/cooldown/redaksi/error; terukur 230).
 # Belum diimpor provider pada slice ini; build minimal tidak berubah.
+# ADR-303 (F5-14 PR A2): pooled wrapper `internal/provider/pool.go` (!minimal)
+# + event credential_rotated; provider 2145 -> 2358 (terukur 2358).
+# Sigma core 54.315 -> 54.525; plafon core 54.400 -> 54.600.
 provider/credpool  230 internal/provider/credpool
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses

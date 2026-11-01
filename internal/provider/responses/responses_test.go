@@ -36,6 +36,7 @@ type fake struct {
 	script []reply
 	reqs   []string
 	paths  []string
+	hdrs   []http.Header
 }
 
 func newFake(t *testing.T, script ...reply) *fake {
@@ -57,6 +58,7 @@ func (f *fake) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.reqs = append(f.reqs, string(body))
 	f.paths = append(f.paths, r.URL.Path)
+	f.hdrs = append(f.hdrs, r.Header.Clone())
 	ok := len(f.script) > 0
 	var rep reply
 	if ok {
@@ -78,6 +80,12 @@ func (f *fake) serve(w http.ResponseWriter, r *http.Request) {
 	if _, werr := io.WriteString(w, rep.raw); werr != nil {
 		return
 	}
+}
+
+func (f *fake) headers() []http.Header {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]http.Header(nil), f.hdrs...)
 }
 
 func (f *fake) requests() ([]string, []string) {
