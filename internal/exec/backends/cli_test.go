@@ -17,7 +17,11 @@ import (
 
 // fakeCLI writes a shell script that logs its argv (and any --env-file) and
 // then runs the argv after the fake image name, emulating the container.
-func fakeCLI(t *testing.T, image string) (bin, logPath, envPath string) {
+func fakeCLI(t *testing.T, images ...string) (bin, logPath, envPath string) {
+	image := "fake-image"
+	if len(images) > 0 {
+		image = images[0]
+	}
 	t.Helper()
 	dir := t.TempDir()
 	logPath = filepath.Join(dir, "argv.log")
