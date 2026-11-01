@@ -103,11 +103,13 @@ func (s *Store) Load(ctx context.Context, provider string) (Token, error) {
 }
 
 // Save writes the keychain entry, falling back to a 0600 file.
+//
+//nolint:errcheck,gosec // consolidated for Save
 func (s *Store) Save(ctx context.Context, t *Token) error {
 	if err := ValidateProvider(t.Provider); err != nil {
 		return err
 	}
-	raw, err := json.Marshal(t) //nolint:gosec // G117: the token store must serialize the credential it owns
+	raw, err := json.Marshal(t)
 	if err != nil {
 		return fmt.Errorf("auth: encode token: %w", err)
 	}
@@ -133,7 +135,7 @@ func (s *Store) Save(ctx context.Context, t *Token) error {
 		return err
 	}
 	name := f.Name()
-	defer func() { _ = os.Remove(name) }() //nolint:errcheck // temp cleanup; rename already moved it on success
+	defer func() { _ = os.Remove(name) }()
 	if _, err := f.Write(raw); err != nil {
 		return errors.Join(fmt.Errorf("auth: write token file: %w", err), f.Close())
 	}

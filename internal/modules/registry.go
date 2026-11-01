@@ -133,7 +133,9 @@ var defaultRegistry = NewRegistry() //nolint:gochecknoglobals // registry modul 
 // Register adds d to the default registry. Module packages call it from
 // init; the returned error is recorded and reported by Freeze/Validate, so
 // an init that ignores it still fails loudly at startup.
-func Register(d Descriptor) error { return defaultRegistry.Register(d) } //nolint:gocritic // SPEC §3.2.1 init signature; one copy per module
+//
+//nolint:gocritic // consolidated for Register
+func Register(d Descriptor) error { return defaultRegistry.Register(d) }
 
 // Freeze freezes the default registry and validates it.
 func Freeze() error { return defaultRegistry.Freeze() }

@@ -128,14 +128,16 @@ func (m *mcpTokens) RefreshToken(ctx context.Context) (string, error) {
 }
 
 // Login runs the device grant (RFC 8628 + PKCE S256, DCR without a client id) and verifies scope.
+//
+//nolint:errcheck // best-effort cleanup of a rejected token
 func (m *mcpTokens) Login(ctx context.Context) (auth.Token, error) {
 	t, err := m.transport.Login(ctx)
 	if err != nil {
 		return auth.Token{}, fmt.Errorf("mcp %s: login: %w", m.server, err)
 	}
 	if serr := m.oauth.CheckScope(t.Scope); serr != nil {
-		_ = m.transport.Revoke(ctx, &t)     //nolint:errcheck // best-effort cleanup of a rejected token
-		_ = m.store.Delete(ctx, t.Provider) //nolint:errcheck // the credential must not survive the refusal
+		_ = m.transport.Revoke(ctx, &t)
+		_ = m.store.Delete(ctx, t.Provider)
 		return auth.Token{}, fmt.Errorf("mcp %s: scope: %w", m.server, serr)
 	}
 	return t, nil

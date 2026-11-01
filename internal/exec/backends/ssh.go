@@ -102,7 +102,7 @@ func (s *SSH) Caps() exec.Caps {
 // Run executes one remote command. The remote wrapper records its pid so a
 // timeout kills the whole process group over a second channel.
 //
-//nolint:funlen,gocyclo // the state machine mirrors Runner.Run's select; splitting it hides the deadline/cancel contract
+//nolint:funlen,gocyclo,errcheck,gosec // one state machine; teardown errors are not actionable after a result
 func (s *SSH) Run(ctx context.Context, spec *exec.Spec) (exec.Result, error) {
 	if spec.PTY {
 		return exec.Result{Status: exec.StatusSpawnFailed}, fmt.Errorf("%w: ssh: pty", exec.ErrCapability)
@@ -128,7 +128,6 @@ func (s *SSH) Run(ctx context.Context, spec *exec.Spec) (exec.Result, error) {
 		res.Status, res.Duration = exec.StatusSpawnFailed, time.Since(start)
 		return res, fmt.Errorf("%w: ssh session: %w", exec.ErrUnavailable, err)
 	}
-	//nolint:errcheck // deferred close after Run already reported the outcome
 	defer session.Close()
 	out := &output{limit: exec.OutputCap, emit: spec.OnOutput}
 	session.Stdout, session.Stderr = out, out
@@ -154,14 +153,11 @@ func (s *SSH) Run(ctx context.Context, spec *exec.Spec) (exec.Result, error) {
 		} else {
 			timedOut = true
 		}
-		//nolint:errcheck,gosec // the session is already being torn down
 		session.Signal(ssh.SIGTERM)
-		//nolint:errcheck,gosec // the session is already being torn down
 		session.Close()
 		select {
 		case werr = <-done:
 		case <-time.After(spec.KillGrace):
-			//nolint:errcheck,gosec // the session is already being torn down
 			session.Signal(ssh.SIGKILL)
 			werr = <-done
 		}
@@ -228,12 +224,12 @@ func (s *SSH) killRemote(ctx context.Context, client *ssh.Client, id string) err
 	return err
 }
 
+//nolint:errcheck,gosec // teardown after a result is not actionable
 func (s *SSH) runShort(ctx context.Context, client *ssh.Client, script string) (string, error) {
 	session, err := client.NewSession()
 	if err != nil {
 		return "", fmt.Errorf("exec: ssh cleanup session: %w", err)
 	}
-	//nolint:errcheck // deferred close after Run already reported the outcome
 	defer session.Close()
 	buf := &lockedBuffer{}
 	session.Stdout, session.Stderr = buf, buf
@@ -243,7 +239,6 @@ func (s *SSH) runShort(ctx context.Context, client *ssh.Client, script string) (
 	case err := <-done:
 		return buf.String(), err
 	case <-ctx.Done():
-		//nolint:errcheck,gosec // the caller's context already ended
 		session.Close()
 		return buf.String(), fmt.Errorf("exec: ssh cleanup: %w", ctx.Err())
 	}

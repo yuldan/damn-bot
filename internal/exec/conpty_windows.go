@@ -16,6 +16,8 @@ import (
 // pipe kept open so reads block like a terminal; its output — VT text —
 // is the call output. CreateProcess is used directly: os.StartProcess has
 // no STARTUPINFOEX for PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE (ADR-105 butir 21).
+//
+//nolint:errcheck // close failures cannot invalidate the started process
 func startConPTY(s *Spec, in *os.File) (_ *osProc, err error) {
 	w := &osProc{}
 	defer func() {
@@ -49,7 +51,7 @@ func startConPTY(s *Spec, in *os.File) (_ *osProc, err error) {
 	}
 	// conhost holds its own duplicates of both ends; a close failure here
 	// cannot invalidate the already-started process.
-	_ = closeHandle(inR)  //nolint:errcheck // close cannot invalidate the started process
+	_ = closeHandle(inR)
 	_ = closeHandle(outW) //nolint:errcheck // close cannot invalidate the started process
 	return w, nil
 }

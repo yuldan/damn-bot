@@ -28,7 +28,9 @@ const pollStallMargin = 10 * time.Second
 var ErrPollStalled = errors.New("telegram: poll stalled")
 
 // Run long-polls getUpdates and delivers updates to in.
-func (a *Adapter) Run(ctx context.Context, in chan<- Inbound) error { //nolint:gocognit // poll loop: error classes and offset persistence are one state machine
+//
+//nolint:gocognit,nestif // consolidated for Run
+func (a *Adapter) Run(ctx context.Context, in chan<- Inbound) error {
 	offset, err := a.store.Offset(ctx, "telegram")
 	if err != nil {
 		return fmt.Errorf("telegram: load offset: %w", err)
@@ -45,7 +47,7 @@ func (a *Adapter) Run(ctx context.Context, in chan<- Inbound) error { //nolint:g
 			a.rebuildClient()
 			continue
 		}
-		if err != nil { //nolint:nestif // failure classification vs offset persistence
+		if err != nil {
 			if stopped(ctx) {
 				return nil
 			}
