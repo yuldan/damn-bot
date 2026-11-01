@@ -24,5 +24,8 @@ func withExecuteCode(_ *config.Config, _ exec.Backend, _ *exec.EnvPolicy, list [
 	return list, nil
 }
 
+// processToolsLinked reports whether the process_* adapters are wired.
+const processToolsLinked = false
+
 // withProcessTools is absent in the minimal build.
 func withProcessTools() []tools.Tool { return nil }
