@@ -48,6 +48,7 @@ config_version = 1
   env_allow = []
   pass_ssh_agent = false
   backend = "local"
+  code_auto_languages = []
   [exec.env]
   [exec.backends]
     [exec.backends.docker]
