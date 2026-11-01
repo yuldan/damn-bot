@@ -79,9 +79,10 @@ func encode(rt *provider.Route, r *provider.Request, drop map[string]bool) ([]by
 	return b.Bytes(), sent, drops, nil
 }
 
-// inputItems builds the Responses input array. Items are emitted as raw JSON
-// so no per-item map/interface is reflected or allocated; a reasoning carrier
-// is replayed byte-identically before the assistant message it belongs to.
+// inputItems builds the Responses input array from the shared conversation
+// converter (EC-TCALL-011). Roles, tool calls, and tool results are already
+// validated once, so both adapters render the same turns. Items are emitted
+// as raw JSON so no per-item map/interface is reflected or allocated.
 func inputItems(rt *provider.Route, r *provider.Request) (json.RawMessage, []provider.Carrier, []provider.CarrierDrop, error) {
 	var b bytes.Buffer
 	b.WriteByte('[')
@@ -93,28 +94,29 @@ func inputItems(rt *provider.Route, r *provider.Request) (json.RawMessage, []pro
 		first = false
 		b.Write(raw)
 	}
+	turns, err := provider.Conversation(r.Messages)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("conversation: %w", err)
+	}
 	var sent []provider.Carrier
 	var drops []provider.CarrierDrop
-	for i := range r.Messages {
-		m := &r.Messages[i]
-		switch m.Role {
+	for i := range turns {
+		t := &turns[i]
+		m := &r.Messages[t.Message]
+		switch t.Role {
 		case "assistant":
-			s, d, err := assistantItems(add, rt, m)
+			s, d, err := assistantItems(add, rt, m, t)
 			if err != nil {
 				return nil, nil, nil, err
 			}
 			sent = append(sent, s...)
 			drops = append(drops, d...)
 		case "tool":
-			add([]byte(fmt.Sprintf(`{"type":"function_call_output","call_id":%q,"output":%q}`, m.ToolCallID, m.Content)))
+			add([]byte(fmt.Sprintf(`{"type":"function_call_output","call_id":%q,"output":%q}`, t.ToolCallID, t.Content)))
 		default:
-			role := m.Role
-			if role == "" {
-				role = "user"
-			}
-			if m.Content != "" {
-				add(messageJSON(role, "input_text", m.Content))
-			}
+			// Every system/user turn becomes one message, including an empty
+			// one: a field is never dropped silently.
+			add(messageJSON(t.Role, "input_text", t.Content))
 		}
 	}
 	b.WriteByte(']')
@@ -122,8 +124,8 @@ func inputItems(rt *provider.Route, r *provider.Request) (json.RawMessage, []pro
 }
 
 // assistantItems emits the carriers, text, and function calls of one
-// assistant message through add.
-func assistantItems(add func([]byte), rt *provider.Route, m *provider.Message) ([]provider.Carrier, []provider.CarrierDrop, error) {
+// assistant turn through add.
+func assistantItems(add func([]byte), rt *provider.Route, m *provider.Message, t *provider.Turn) ([]provider.Carrier, []provider.CarrierDrop, error) {
 	keep, drops, err := provider.ProjectCarriers(rt, m.Carriers)
 	if err != nil {
 		return nil, nil, fmt.Errorf("carrier projection: %w", err)
@@ -131,10 +133,10 @@ func assistantItems(add func([]byte), rt *provider.Route, m *provider.Message) (
 	for _, c := range keep {
 		add(c.Raw)
 	}
-	if m.Content != "" {
-		add(messageJSON(m.Role, "output_text", m.Content))
+	if t.Content != "" || len(t.ToolCalls) == 0 {
+		add(messageJSON(t.Role, "output_text", t.Content))
 	}
-	for _, tc := range m.ToolCalls {
+	for _, tc := range t.ToolCalls {
 		add([]byte(fmt.Sprintf(`{"type":"function_call","call_id":%q,"name":%q,"arguments":%q}`,
 			tc.ID, tc.Name, tc.ArgumentsRaw)))
 	}

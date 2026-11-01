@@ -124,18 +124,9 @@ func encodeCarriers(rt *Route, r *Request, drop map[string]bool) ([]byte, []Carr
 	if maxTok <= 0 {
 		maxTok = DefaultMaxTokens
 	}
-	msgs := make([]json.RawMessage, len(r.Messages))
-	var sent []Carrier
-	var drops []CarrierDrop
-	for i := range r.Messages {
-		cache := r.CacheBreakAfter > 0 && i == r.CacheBreakAfter-1
-		m, keep, dropped, err := encodeMessage(rt, &r.Messages[i], cache, r.Origin)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		msgs[i] = m
-		sent = append(sent, keep...)
-		drops = mergeDrops(drops, dropped)
+	msgs, sent, drops, err := encodeMessages(rt, r)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	errs := []error{w("model", rt.Model), w("messages", msgs)}
 	if len(r.Tools) > 0 {
@@ -167,7 +158,30 @@ func encodeCarriers(rt *Route, r *Request, drop map[string]bool) ([]byte, []Carr
 	return b.Bytes(), sent, drops, nil
 }
 
-func encodeMessage(rt *Route, m *Message, cache bool, origin string) (json.RawMessage, []Carrier, []CarrierDrop, error) {
+// encodeMessages validates the shared conversation once and renders every
+// chat message from it.
+func encodeMessages(rt *Route, r *Request) ([]json.RawMessage, []Carrier, []CarrierDrop, error) {
+	turns, err := Conversation(r.Messages)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("encode request: %w", err)
+	}
+	msgs := make([]json.RawMessage, len(r.Messages))
+	var sent []Carrier
+	var drops []CarrierDrop
+	for i := range r.Messages {
+		cache := r.CacheBreakAfter > 0 && i == r.CacheBreakAfter-1
+		m, keep, dropped, err := encodeMessage(rt, &r.Messages[i], &turns[i], cache, r.Origin)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		msgs[i] = m
+		sent = append(sent, keep...)
+		drops = mergeDrops(drops, dropped)
+	}
+	return msgs, sent, drops, nil
+}
+
+func encodeMessage(rt *Route, m *Message, turn *Turn, cache bool, origin string) (json.RawMessage, []Carrier, []CarrierDrop, error) {
 	keep, drops, err := projectCarriers(rt, m.Carriers)
 	if err != nil {
 		return nil, nil, nil, err
@@ -186,8 +200,8 @@ func encodeMessage(rt *Route, m *Message, cache bool, origin string) (json.RawMe
 		ToolCalls  []call `json:"tool_calls,omitempty"`
 		ToolCallID string `json:"tool_call_id,omitempty"`
 	}
-	w := wire{Role: m.Role, Content: m.Content, ToolCallID: m.ToolCallID}
-	for _, tc := range m.ToolCalls {
+	w := wire{Role: turn.Role, Content: turn.Content, ToolCallID: turn.ToolCallID}
+	for _, tc := range turn.ToolCalls {
 		c := call{ID: tc.ID, Type: "function"}
 		c.Function.Name, c.Function.Arguments = tc.Name, tc.ArgumentsRaw
 		w.ToolCalls = append(w.ToolCalls, c)
