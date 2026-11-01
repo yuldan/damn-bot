@@ -11,7 +11,7 @@ import (
 // masuk Σ core. Preseden: baris infra non-produksi NEW-34 juga di luar Σ core; kelas MODULE selalu
 // dilewati `budgetCoreSum` dan tetap ditegakkan per-baris oleh `scripts/loc-check.sh budget`.
 const (
-	maxModuleLOC   = 49000 // Σ kelas MODULE: F3 19.800 + F4 18.700 + F5 mcp 6.500 (ADR-268) + delegate 2.000 (ADR-273) = 47.000; +backup 1.467 = 48.467 ≤ 49.000.
+	maxModuleLOC   = 53800 // Σ kelas MODULE: F3 19.800 + F4 18.700 + F5 mcp 6.500 (ADR-268) + delegate 2.000 (ADR-273) = 47.000; +backup 1.467 = 53.267 ≤ 53.800 (backend 4.800, ADR-277).
 	maxF3ModuleLOC = 21500 // ROADMAP F3 = 21.500 (tui + acp + importer/ops); F3 tanpa backup
 	maxF4ModuleLOC = 18700 // ROADMAP F4 = 20.000: heal core 1.500 + MODULE 18.700 (ADR-244, ADR-245, ADR-248)
 	maxF3OpsLOC    = 9000  // SPEC §3.2.4: importer + setup/doctor/update/profiles/backup
@@ -122,7 +122,7 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 		"tui": 10000, "acp": 2500, "importer": 2600, "setup": 1300,
 		"doctor": 1100, "update": 1500, "profiles": 800,
 		"obs": 4000, "gateway": 9500, "gwstore": 1000, "cron": 3500, "cronstore": 200,
-		"scorecard": 500, "mcp": 6500, "delegate": 2000, // mcp: SPEC §3.2.4:291, ADR-268; delegate: §3.2.4:290, ADR-273.
+		"scorecard": 500, "mcp": 6500, "delegate": 2000, "backend": 4800, // mcp: SPEC §3.2.4:291, ADR-268; delegate: §3.2.4:290, ADR-273.
 	}
 	backupCap, hasBackup := 0, false
 	opsSum, f3Sum, f4Sum := 0, 0, 0
