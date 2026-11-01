@@ -22,9 +22,7 @@ var assets embed.FS
 
 // cache is the shared, immutable wazero compilation cache: compiling the
 // 4,2 MB module once makes parallel parses bounded by parsing, not compilation.
-//
-//nolint:gochecknoglobals // immutable cache shared by every Parse call
-var cache = wazero.NewCompilationCache()
+var cache = wazero.NewCompilationCache() //nolint:gochecknoglobals // E-10 allowlist: immutable wazero compilation cache shared read-only.
 
 // Limits.
 const (

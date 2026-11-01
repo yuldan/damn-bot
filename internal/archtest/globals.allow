@@ -14,3 +14,4 @@ internal/e2e/harness_test.go:binPaths test-only child binary paths
 cmd/damnbot/global.go:activeInvocation process-wide --profile of one CLI invocation (single writer: run)
 internal/provider/registry/catalog.go:defaultCatalog data embedded read-only, parsed once (E-10 allowlist)
 internal/provider/auth/sigv4.go:signedHeaderNames immutable SigV4 signed-header rule (E-10 allowlist)
+internal/codeintel/ts/ts.go:cache immutable wazero compilation cache (E-10 allowlist)
