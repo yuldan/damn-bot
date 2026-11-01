@@ -42,12 +42,7 @@ exec "$@"
 // keeps parallel tests from tripping ETXTBSY on a shared writer.
 func fakeCLI(t *testing.T, image string) (bin, logPath, envPath string) {
 	t.Helper()
-	srcDir, err := os.MkdirTemp("", "damnbot-fake-cli-")
-	if err != nil {
-		t.Fatalf("prepare fake CLI: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(srcDir) })
-	src := filepath.Join(srcDir, "fake-cli")
+	src := filepath.Join(t.TempDir(), "fake-cli")
 	//nolint:gosec // the fake CLI must be executable by the test
 	if err := os.WriteFile(src, []byte(fakeCLIScript), 0o700); err != nil {
 		t.Fatalf("write fake CLI: %v", err)
