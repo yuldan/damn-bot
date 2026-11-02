@@ -119,8 +119,9 @@ schema            1200 internal/schema
 # 53.665 -> 53.740; plafon core 53.700 -> 53.800.
 # Amandemen ADR-300 (F5 residual COST-10/TOOL-08): tools 3600 -> 3620 untuk
 # adapter RPC Starlark (terukur 3612). exec 4300 -> 4510 untuk server RPC
-# Starlark + fallback sun_path pendek (terukur 4505). Sigma core caps
-# 55.227 -> 55.457; plafon core 55.300 -> 55.500.
+# Starlark + fallback sun_path pendek (terukur 4505). Amandemen ADR-072
+# (TOOL-08): exec 4510 -> 4600 untuk NoticeLimiter (terukur 4583). Sigma core
+# caps 55.457 -> 55.547; plafon core 55.500 -> 55.600.
 tools             3620 internal/tools
 # ADR-143: komposisi toolset deklaratif (TSET/CORE-004/005; Σ core 38.450 -> 38.850 <= 47.000).
 toolset            400 internal/toolset
@@ -150,7 +151,7 @@ toolset            400 internal/toolset
 # ADR-277 amandemen EC-WIN-015 (multiplexer): exec 4030 -> 4300 (terukur 4284
 # pada rebase di atas #595 + ADR-298..305; mux + I/O overlapped = 260 baris).
 # Sigma core 54.957 -> 55.227, plafon core 55.000 -> 55.300.
-exec              4510 internal/exec
+exec              4600 internal/exec
 exec/classify     1946 internal/exec/classify
 # ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).
 # ADR-108: sandbox+redact 1450 -> 1700 (dir-fd walk fast path; Σ core 34.650 -> 34.900 <= 47.000).
