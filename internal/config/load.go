@@ -103,7 +103,7 @@ func (l *Loader) Parse(data []byte, source string) (Config, error) {
 		kind, msg := ErrUnknownKey, "key is not part of the config"
 		if isModuleKey(key) {
 			kind = ErrModuleUnavailable
-			msg = "module is not compiled in this build (modules arrive in F4/F5)"
+			msg = "module not compiled in this build (F4/F5)"
 		}
 		return Config{}, &Error{
 			Kind: kind,
