@@ -16,13 +16,13 @@ func TestGAPF5_SEC20ConfigKey(t *testing.T) {
 	if err := (Config{Channel: channelStable}).Validate(); err != nil {
 		t.Fatalf("empty key = %v", err)
 	}
-	if err := (Config{Channel: channelStable, CatalogPublicKey: "!!!"}).Validate(); err == nil {
+	if err := ValidateCatalogPublicKey("!!!"); err == nil {
 		t.Fatal("invalid catalog key accepted")
 	}
-	if err := (Config{Channel: channelStable, CatalogPublicKey: base64.StdEncoding.EncodeToString([]byte("short"))}).Validate(); err == nil {
+	if err := ValidateCatalogPublicKey(base64.StdEncoding.EncodeToString([]byte("short"))); err == nil {
 		t.Fatal("short catalog key accepted")
 	}
-	if err := (Config{Channel: channelStable, CatalogPublicKey: base64.StdEncoding.EncodeToString(pub)}).Validate(); err != nil {
+	if err := ValidateCatalogPublicKey(base64.StdEncoding.EncodeToString(pub)); err != nil {
 		t.Fatalf("valid catalog key = %v", err)
 	}
 }

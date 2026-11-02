@@ -24,9 +24,6 @@ func (c Config) Validate() error {
 	if c.Channel != channelStable && c.Channel != channelBeta {
 		return fmt.Errorf("update.channel must be %q or %q", channelStable, channelBeta)
 	}
-	if err := validateCatalogPublicKey(c.CatalogPublicKey); err != nil {
-		return err
-	}
 	if c.FeedURL == "" {
 		return nil
 	}

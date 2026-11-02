@@ -9,10 +9,10 @@ import (
 	"strings"
 )
 
-// validateCatalogPublicKey accepts a base64 ed25519 key, or empty for the
+// ValidateCatalogPublicKey accepts a base64 ed25519 key, or empty for the
 // embedded catalog only (GAP-SEC-20). It lives in the full build so the
 // minimal binary does not link crypto/ed25519 for a catalog it cannot use.
-func validateCatalogPublicKey(text string) error {
+func ValidateCatalogPublicKey(text string) error {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}

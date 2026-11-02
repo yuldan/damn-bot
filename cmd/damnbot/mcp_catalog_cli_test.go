@@ -27,6 +27,7 @@ func TestGAPF5_SEC20CLI(t *testing.T) {
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "catalog.json")
+	seqDir := filepath.Join(dir, "seq")
 	writeRaw := func(m *catalog.Manifest) {
 		b, merr := json.Marshal(m)
 		if merr != nil {
@@ -56,14 +57,14 @@ func TestGAPF5_SEC20CLI(t *testing.T) {
 	}
 	write(&m, true)
 	var stdout, stderr bytes.Buffer
-	if code := mcpCatalog([]string{path, "--key", base64.StdEncoding.EncodeToString(pub), "--last-serial", "1"}, &stdout, &stderr); code != 0 ||
+	if code := mcpCatalog([]string{path, "--key", base64.StdEncoding.EncodeToString(pub), "--seq-dir", seqDir}, &stdout, &stderr); code != 0 ||
 		!strings.Contains(stdout.String(), "catalog mcp/demo") {
 		t.Fatalf("valid = %d %q %q", code, stdout.String(), stderr.String())
 	}
 	write(&m, false)
 	stdout.Reset()
 	stderr.Reset()
-	if code := mcpCatalog([]string{path, "--key", base64.StdEncoding.EncodeToString(pub)}, &stdout, &stderr); code == 0 ||
+	if code := mcpCatalog([]string{path, "--key", base64.StdEncoding.EncodeToString(pub), "--seq-dir", seqDir}, &stdout, &stderr); code == 0 ||
 		!strings.Contains(stderr.String(), "unsigned") {
 		t.Fatalf("unsigned = %d %q", code, stderr.String())
 	}
@@ -77,7 +78,7 @@ func TestGAPF5_SEC20CLI(t *testing.T) {
 	writeRaw(&tampered)
 	stdout.Reset()
 	stderr.Reset()
-	if code := mcpCatalog([]string{path, "--key", base64.StdEncoding.EncodeToString(pub)}, &stdout, &stderr); code == 0 ||
+	if code := mcpCatalog([]string{path, "--key", base64.StdEncoding.EncodeToString(pub), "--seq-dir", seqDir}, &stdout, &stderr); code == 0 ||
 		!strings.Contains(stderr.String(), "signature") {
 		t.Fatalf("tamper = %d %q", code, stderr.String())
 	}
