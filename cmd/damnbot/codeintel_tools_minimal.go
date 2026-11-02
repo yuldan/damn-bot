@@ -22,7 +22,7 @@ func withCodeIntelTools(_ []string, _ string, _ bool, list []tools.Tool) []tools
 const executeCodeLinked = false
 
 // withExecuteCode refuses to link the tool in the minimal build.
-func withExecuteCode(_ *config.Config, _ exec.Backend, _ *exec.EnvPolicy, list []tools.Tool) ([]tools.Tool, error) {
+func withExecuteCode(_ *config.Config, _ exec.Backend, _ *exec.EnvPolicy, _ executeRPC, list []tools.Tool) ([]tools.Tool, error) {
 	return list, nil
 }
 

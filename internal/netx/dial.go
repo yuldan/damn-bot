@@ -92,6 +92,18 @@ func publicIP(ip netip.Addr) bool {
 // resolution, so a rebinding name cannot slip past it. Every dial failure
 // is a *ConnectError (nothing was sent).
 
+// DialUnix dials a private Unix socket (execute_code tool RPC). It uses the
+// package dialer so no other package carries a net.Dialer (E-05); the path is
+// a local socket created by the parent, so the IP egress policy does not apply.
+func (n *Network) DialUnix(ctx context.Context, path string) (net.Conn, error) {
+	d := net.Dialer{Timeout: dialTimeout}
+	conn, err := d.DialContext(ctx, "unix", path)
+	if err != nil {
+		return nil, fmt.Errorf("netx: unix dial: %w", err)
+	}
+	return conn, nil
+}
+
 // DialContext dials a non-HTTP protocol (SSH) under the Network policy.
 func (n *Network) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
 	return dialer(dialRule{offline: n.cfg.Offline, test: testBinary()})(ctx, network, addr)

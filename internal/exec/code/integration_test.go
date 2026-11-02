@@ -60,7 +60,7 @@ func TestRunThroughLocalBackendSpawnsStubInterpreter(t *testing.T) {
 			t.Errorf("close: %v", cerr)
 		}
 	})
-	r, err := New(Config{
+	r, err := New(&Config{
 		Backend: realBackend{l: l},
 		Env:     []string{"PATH=/usr/bin:/bin"},
 		Lookup: func(Language, []string) ([]string, error) {

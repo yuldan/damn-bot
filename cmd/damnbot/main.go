@@ -42,6 +42,9 @@ func dispatchCommand(args []string, stdout, stderr io.Writer) (code int, ok bool
 	if args[0] == "__complete" {
 		return runComplete(args[1:], stdout), true
 	}
+	if code, ok := tryStarlark(args, stdout, stderr); ok {
+		return code, true
+	}
 	if args[0] == "send" {
 		return runSend(args[1:], stdout, stderr), true
 	}

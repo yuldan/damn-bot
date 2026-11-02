@@ -309,6 +309,7 @@ type runModel struct {
 	backend   exec.Backend
 	sessions  *exec.Sessions
 	procClose func(context.Context) error
+	execRPC   executeRPC
 	modules   runModules
 	sessionID string
 	cwd       string
@@ -434,6 +435,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		backend:   w.backend,
 		sessions:  w.sessions,
 		procClose: w.procClose,
+		execRPC:   w.execRPC,
 	}, nil
 }
 

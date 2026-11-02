@@ -44,6 +44,7 @@ func newTurnEngine(ctx context.Context, cfg *config.Config, o *runOptions, model
 	if err != nil {
 		return nil, err
 	}
+	bindExecuteRPC(model.execRPC, disp)
 	compactAt, maxInline := 75, 0
 	if degraded {
 		compactAt, maxInline = 60, 2000 // PROV-02 degraded profile (SPEC §22.1)

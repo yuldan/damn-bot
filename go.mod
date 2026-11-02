@@ -15,6 +15,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/tetratelabs/wazero v1.12.0
 	github.com/zalando/go-keyring v0.2.7
+	go.starlark.net v0.0.0-20261021141710-4f4267fb140d
 	go.uber.org/goleak v1.3.0
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/crypto v0.58.0

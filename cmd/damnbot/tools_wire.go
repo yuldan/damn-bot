@@ -240,6 +240,7 @@ type runWiring struct {
 	backend   exec.Backend
 	sessions  *exec.Sessions
 	procClose func(context.Context) error
+	execRPC   executeRPC
 	registry  *tools.Registry
 	modules   runModules
 	sid       string
@@ -452,6 +453,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 			return nil, fail(fmt.Errorf("background: %w", err))
 		}
 	}
+	rpcInvoker := newExecuteRPC()
 	shellTool, err := newShellTool(&shellWiring{
 		cfg: cfg, o: o, db: db, sid: sid, red: red, backend: backend, sessions: sessions, allow: allow,
 		roots: roots, home: home, cwd: cwd, configDir: configDir, envPolicy: envPolicy, trusted: trusted, monetary: monetary,
@@ -468,7 +470,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	if err != nil {
 		return nil, fail(err)
 	}
-	list, err = withExecuteCode(cfg, backend, envPolicy, list)
+	list, err = withExecuteCode(cfg, backend, envPolicy, rpcInvoker, list)
 	if err != nil {
 		return nil, fail(err)
 	}
@@ -493,6 +495,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 		backend:   backend,
 		sessions:  sessions,
 		procClose: ps.closeFn(),
+		execRPC:   rpcInvoker,
 		registry:  reg,
 		modules:   mods,
 		sid:       sid,
