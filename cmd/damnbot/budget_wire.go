@@ -12,7 +12,6 @@ import (
 	"github.com/damnbot/damnbot/internal/loop"
 	"github.com/damnbot/damnbot/internal/loop/event"
 	"github.com/damnbot/damnbot/internal/netx/retry"
-	"github.com/damnbot/damnbot/internal/provider"
 )
 
 // budgetNotes collects the warn_at crossings the guard reports inside
@@ -93,14 +92,3 @@ func newBudgetGuard(cfg *config.Config, db *ctxdb.Store) (*budget.Guard, *budget
 type budgetCounter struct{}
 
 func (budgetCounter) Count(s string) int { return int(budget.Count(s).Raw()) }
-
-// providerAdapter drains the budget notes the guard collected inside
-// provider.Do and hands them to the loop as budget_warning events.
-type providerAdapter struct {
-	client   *provider.OpenAI
-	model    string
-	lightRef string // provider.light for auxiliary purposes; "" = primary
-	notes    *budgetNotes
-	provider string
-	origin   string // sessions.origin: selects the prompt-cache TTL (GAP-COST-03)
-}

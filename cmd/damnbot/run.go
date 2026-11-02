@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log/slog"
 	"os"
 	"runtime"
 	"strings"
@@ -372,46 +371,6 @@ func newRunProvider(cfg *config.Config, db *ctxdb.Store, modelRef string, o *run
 		return nil, fmt.Errorf("pricing table: %w", err)
 	}
 	return newRunProviderWithTable(cfg, db, modelRef, o, table)
-}
-
-// newRunProviderWithTable is newRunProvider with an explicit price table.
-func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
-	if o.prov != nil {
-		return o.prov, nil
-	}
-	resolver, err := newRunResolver(cfg, table, o)
-	if err != nil {
-		return nil, err
-	}
-	if verr := validateCustomOverrides(cfg, resolver.catalog); verr != nil {
-		return nil, verr
-	}
-	routes, fallback, err := resolver.routes(modelRef)
-	if err != nil {
-		return nil, err
-	}
-	lightRef := lightRoute(cfg, modelRef, &routes, resolver, fallback)
-	guard, notes, err := newBudgetGuard(cfg, db)
-	if err != nil {
-		return nil, err
-	}
-	provName, _, _ := strings.Cut(modelRef, "/")
-	net := netx.New(netx.Config{Offline: o.offline || cfg.Network.Offline, NoBackground: !cfg.Network.Background})
-	openai, err := provider.NewOpenAI(net.Client("inference", netx.Inference), wireCircuit(&provider.Config{
-		Routes: routes, Fallback: fallback, UserAgent: userAgent(),
-		Attempts: o.providerAttempts,
-		Wires:    providerWires(),
-		Guard:    guard, OnBudget: func(d budget.Decision) { notes.observe(&d) },
-		OnFallback: func(fb provider.Fallback) {
-			if fb.Done {
-				slog.Warn("provider fallback", "from", fb.From, "to", fb.To, "error", fb.Outcome)
-			}
-		},
-	}, db))
-	if err != nil {
-		return nil, fmt.Errorf("provider: %w", err)
-	}
-	return &providerAdapter{client: openai, model: modelRef, lightRef: lightRef, notes: notes, provider: provName, origin: o.sessionOrigin}, nil
 }
 
 func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef string, o *runOptions, red *redact.Redactor, configDir, home string, codec ctxdb.Codec) (*runModel, error) {
