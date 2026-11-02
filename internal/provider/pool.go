@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/budget"
@@ -226,12 +227,29 @@ func (p *poolStop) Error() string           { return p.err.Error() }
 func (p *poolStop) Unwrap() error           { return p.err }
 func (p *poolStop) RetryClass() retry.Class { return retry.Unclassified }
 
-// poolReason maps a provider failure to its rotation reason. Only 401/403
-// and 429 rotate; 400, 5xx, timeout, and network errors do not.
+// billingAmbiguous reports the provider's 400 "out of extra usage" envelope:
+// the key may still be valid, so it earns a short cooldown, not a permanent
+// ban or a 15-minute auth backoff.
+func billingAmbiguous(e *Error) bool {
+	if e.Class != retry.BadRequest || e.HTTPStatus != 400 {
+		return false
+	}
+	if strings.EqualFold(e.Code, "out_of_extra_usage") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(string(e.Body)), "out of extra usage")
+}
+
+// poolReason maps a provider failure to its rotation reason. Only 401/403,
+// 429, and the ambiguous billing 400 rotate; other 400s, 5xx, timeout, and
+// network errors do not.
 func poolReason(err error) (credpool.Reason, bool) {
 	var pe *Error
 	if !errors.As(err, &pe) {
 		return "", false
+	}
+	if billingAmbiguous(pe) {
+		return credpool.ReasonBilling, true
 	}
 	switch pe.Class {
 	case retry.Auth:

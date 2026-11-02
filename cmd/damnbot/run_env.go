@@ -30,5 +30,6 @@ func loadRunEnv(o *runOptions) (cfg config.Config, dataDir, configDir, home stri
 	if dataDir == "" {
 		dataDir = paths.DataDir
 	}
+	o.dataDir = dataDir
 	return cfg, dataDir, paths.ConfigDir, homeDir(), nil
 }

@@ -39,8 +39,8 @@ type Route struct {
 	ExtraBody map[string]any
 	// Prices is the dated price schedule (GAP-COST-01); the entry in
 	// effect at the call start prices the guard projection and the ledger.
-	Prices budget.Prices
-	Family string
+	Prices         budget.Prices
+	Family, Region string // Region is the AWS scope for Bedrock routes; shared with aux routes.
 	// Protocols are the catalog protocols the provider speaks, in catalog
 	// order (F5-04). Empty keeps the F1 openai-chat default. The client
 	// selects the first one with a wired adapter; a listed protocol with no

@@ -74,7 +74,7 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 		return nil, fmt.Errorf("provider: %w", err)
 	}
 	adapter := &providerAdapter{client: openai, model: modelRef, lightRef: lightRef, notes: notes, provider: provName, origin: o.sessionOrigin}
-	pools, err := providerPools(cfg)
+	pools, err := providerPoolsAt(cfg, poolManifestAt(o.dataDir), config.OS().Getenv, keychainValue)
 	if err != nil {
 		return nil, err
 	}
@@ -92,40 +92,10 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 	return adapter, nil
 }
 
-// providerPools resolves one pool per provider that declares credentials.
-// The map is keyed by provider id, so every model/fallback/light route of
-// that provider observes the same cooldowns.
-func providerPools(cfg *config.Config) (map[string]*credpool.Pool, error) {
-	return providerPoolsWith(cfg, keychainValue)
-}
-
-// providerPoolsWith is the injectable form used by tests.
+// providerPoolsWith is the injectable form used by tests: config-only pools
+// without a persisted manifest.
 func providerPoolsWith(cfg *config.Config, get func(string) (string, error)) (map[string]*credpool.Pool, error) {
-	pools := make(map[string]*credpool.Pool)
-	for i := range cfg.Providers.Custom {
-		c := &cfg.Providers.Custom[i]
-		if c.Credentials == nil {
-			continue
-		}
-		creds := make([]credpool.Credential, 0, len(c.Credentials))
-		for _, pc := range c.Credentials {
-			id, ok := strings.CutPrefix(pc.Secret, "keychain:")
-			if !ok || id == "" {
-				return nil, fmt.Errorf("providers.custom[%q].credentials[%q]: must be a keychain:<id> reference", c.Name, pc.ID)
-			}
-			value, err := get(id)
-			if err != nil {
-				return nil, fmt.Errorf("providers.custom[%q].credentials[%q]: %w", c.Name, pc.ID, err)
-			}
-			creds = append(creds, credpool.NewCredential(pc.ID, value))
-		}
-		pool, err := credpool.New(creds)
-		if err != nil {
-			return nil, fmt.Errorf("providers.custom[%q]: %w", c.Name, err)
-		}
-		pools[c.Name] = pool
-	}
-	return pools, nil
+	return providerPoolsAt(cfg, "", func(string) string { return "" }, get)
 }
 
 // keychainValue resolves one named secret. The caller has no context at
