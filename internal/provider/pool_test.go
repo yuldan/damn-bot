@@ -15,6 +15,7 @@ import (
 	"github.com/damnbot/damnbot/internal/netx/retry"
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/credpool"
+	"github.com/damnbot/damnbot/internal/testutil/phase"
 )
 
 const poolSSE = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"}}]}\n\n" +
@@ -196,4 +197,53 @@ func TestNewPooledRejectsEmpty(t *testing.T) {
 	if _, err := provider.NewPooled(base, map[string]*credpool.Pool{"fake": nil}, nil); !errors.Is(err, provider.ErrConfig) {
 		t.Fatalf("err=%v", err)
 	}
+}
+
+// TestPoolRotationKeepsRouteHost (EC-PROV-017): the credential pool belongs
+// to a provider, not to a host. Rotating on one route keeps every request on
+// that route's base URL; a later route of the same provider rotates again but
+// still sends to its own host, so a session never jumps endpoints.
+func TestPoolRotationKeepsRouteHost(t *testing.T) {
+	t.Parallel()
+	g := phase.Current(t)
+	if !g.Item(t, "EC-PROV-017", "F5", "covered") {
+		return
+	}
+	t.Run("EC-PROV-017", func(t *testing.T) {
+		t.Parallel()
+		recA := &poolRecorder{status: []int{http.StatusUnauthorized}}
+		recB := &poolRecorder{}
+		srvA := httptest.NewServer(recA.serve(t))
+		t.Cleanup(srvA.Close)
+		srvB := httptest.NewServer(recB.serve(t))
+		t.Cleanup(srvB.Close)
+		base := client(t, &provider.Config{Routes: []provider.Route{
+			route("a", srvA.URL),
+			route("b", srvB.URL),
+		}})
+		p, err := provider.NewPooled(base, map[string]*credpool.Pool{"fake": poolOf(t, "a1", "a2")}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := p.Do(t.Context(), provider.PurposeTurn, ask("fake/a"), nil)
+		if err != nil || resp.CredentialID != "a2" {
+			t.Fatalf("route a: resp=%+v err=%v", resp, err)
+		}
+		if got := recA.seen(); fmt.Sprint(got) != "[sk-a1-secret sk-a2-secret]" {
+			t.Fatalf("route a keys = %v", got)
+		}
+		if got := recB.seen(); len(got) != 0 {
+			t.Fatalf("rotation leaked to the other host: %v", got)
+		}
+		resp, err = p.Do(t.Context(), provider.PurposeTurn, ask("fake/b"), nil)
+		if err != nil || resp.CredentialID != "a2" {
+			t.Fatalf("route b: resp=%+v err=%v", resp, err)
+		}
+		if got := recB.seen(); fmt.Sprint(got) != "[sk-a2-secret]" {
+			t.Fatalf("route b keys = %v", got)
+		}
+		if got := recA.seen(); len(got) != 2 {
+			t.Fatalf("route a received an extra request: %v", got)
+		}
+	})
 }
