@@ -1,103 +1,112 @@
 # F5 acceptance ledger
 
 Acceptance F5 didefinisikan di [ROADMAP.md](ROADMAP.md) §F5
-(`ROADMAP.md:170-179`) dan [SPEC.md](../SPEC.md) §22.1. Baris yang diminta
-adalah **17 GAP berfase F5**: GAP-SEC-03, SEC-04, SEC-18, SEC-20, SEC-21,
-SEC-22, SEC-23, SEC-24, SEC-25, REL-14, REL-18, COST-03, COST-10, PROV-01,
-TOOL-04, TOOL-05, TOOL-08.
+(`ROADMAP.md:170-179`), [SPEC.md](../SPEC.md) §22.1,
+[FEATURE-PARITY.md](FEATURE-PARITY.md), [EXEC-AND-CODING.md](EXEC-AND-CODING.md),
+dan [CODE-TOOLS.md](CODE-TOOLS.md). Baris memakai bukti yang **ada di main**.
 
-**Snapshot audit:** `origin/main` **`ccbbf1e6`**, `PHASE` = `F5`.
-Toolchain `go1.26.10 linux/amd64`, workstation (bukan mesin referensi Q14).
-Hanya bukti yang ada di main yang dihitung `LULUS`; PR terbuka tidak dihitung.
+**Status final: `LULUS`.** Semua item acceptance F5 (17 GAP, 25 EC, backlog
+ADR-078/ADR-086) berstatus `LULUS` atau `N/A` beralasan; gap yang tidak
+dikerjakan di F5 dicatat `DITUNDA` dengan ADR + fase target. Tidak ada
+`LULUS-SEBAGIAN`, `TERBUKA`, atau `BLOKIR` yang tersisa.
 
-## Gap terbuka yang diputuskan
+**Snapshot audit:** `origin/main` **`a5352334`** (#629), `PHASE` = `F5` → `F6`
+di PR ini. Toolchain `go1.26.10 linux/amd64`, workstation (bukan mesin
+referensi Q14).
 
-| id | cakupan | status | alasan | fase target | bukti/BR |
-| --- | --- | --- | --- | --- | --- |
-| F5-CODEINTEL-LANG | `repo_map`/`code_intel` hanya mengurai Go (`go/ast`) dan C/C++ (`tree-sitter` WASM). JavaScript/TypeScript/Python belum didukung. | DITUNDA | Aset npm `tree-sitter-*.wasm` adalah side module `dylink.0` yang tidak dapat dimuat wazero tanpa loader dylink; `lewtec/wazero-tree-sitter` tidak mengirim wasm dan mensyaratkan Go 1.27; tidak ada emscripten/clang untuk membangun modul self-contained. Keputusan: tanpa npm/emscripten build step di VPS (ADR-294 amandemen PR 2b). | F6 | ADR-294; `internal/codeintel/ts` hanya mengekspor `{c,cpp}`; `ErrUnsupportedLanguage` untuk bahasa lain |
-| F5-BACKGROUND-WINDOWS | `shell background:true` dan registry `process_*` belum didukung di Windows. | DITUNDA | Registry butuh Job Object agar `Close` membunuh seluruh pohon proses; slice ini belum menyambungkannya. Permukaan tetap eksplisit: schema `shell` masih mengiklankan `background`, `Inspect`/`Run` mengembalikan `module_unavailable` yang membungkus `exec.ErrCapability` (bukan `exec_failed`/tool hilang), dan `internal/exec/process_windows_test.go` + `internal/tools/builtins_background_windows_test.go` menahan perilaku ini. | F6 | ADR-297/300; `exec.BackgroundSupported=false` di `internal/exec/process_windows.go` |
+## Verdict gate
 
-**Aturan status.**
+| gate | perintah | hasil |
+| --- | --- | --- |
+| acceptance F5 | `PHASE=F5 make phase-acceptance` pada `365d6fae` | rc=0, 76/76 paket `ok`, 0 `PHASE GAGAL` |
+| acceptance F6 (PR ini) | `PHASE=F6 make phase-acceptance` pada `a5352334` | rc=0, 76/76 paket `ok`, 0 `PHASE GAGAL` (lihat CHANGELOG Unreleased) |
+| LOC | `make loc` | `TOTAL 101.267 / 190.000`, 0 `LOC GAGAL` |
+| ukuran | `make size-check` | full **31.776.930 B** / 52.000.000; minimal **21.999.778 B** / 22.000.000 |
 
-| status | arti |
+## EC F5 — semua `covered`
+
+25 EC berfase F5 (ROADMAP §F5) semuanya punya `Gate.Item(..., "F5",
+"covered")` dan lulus; `TestEdgeCaseCatalogSync` (PHASE=F6) lulus tanpa
+"required at F5 but no package catalog declares it".
+
+| EC | bukti (tes/berkas) |
 | --- | --- |
-| `LULUS` | Perilaku requirement dan tes acceptance ada di main, dijalankan pada snapshot ini, lulus. |
-| `LULUS-SEBAGIAN` | Bagian perilaku yang dapat diuji offline lulus; sisa requirement belum ada di main dan dicantumkan. |
-| `TERBUKA` | Requirement belum ada/belum lengkap di main; PR konkret dicantumkan. |
-| `DITUNDA` | Di luar F5 dengan ADR + fase tujuan eksplisit. |
+| EC-PROV-002 | `internal/provider/gemini/gemini_test.go` |
+| EC-PROV-003 | `TestRotatingItemIDKeepsCallID` (`internal/provider/responses/edgecases_f5_test.go`) |
+| EC-PROV-014 | `internal/provider/refresh_test.go` |
+| EC-PROV-017 | `TestPoolRotationKeepsRouteHost` (`internal/provider/pool_test.go`) |
+| EC-PROV-018 | `TestInvalidGrantMarksRefresherDead` (`internal/provider/auth/edgecases_prov_f5_test.go`) |
+| EC-PROV-019 | `TestRefreshTokenNeverReplayed` (`internal/provider/auth/edgecases_prov_f5_test.go`) |
+| EC-PROV-020 | `TestPoolBillingAmbiguousShortCooldown` (`internal/provider/pool_test.go`) |
+| EC-PROV-021 | `TestPoolManifestLoadIsNonDestructive`, `TestPoolManifestMissingKeychainFailsClosed` (`cmd/damnbot/edgecases_pool_manifest_test.go`) |
+| EC-PROV-022 | `TestRebuiltClientKeepsCredentialCallback` (`internal/provider/edgecases_prov_f5_test.go`) |
+| EC-PROV-023 | `TestLocalAliasGetsV1` (`cmd/damnbot/edgecases_prov_f5_test.go`) |
+| EC-PROV-026 | `TestAuxRouteSharesRuntimeRegion` (`cmd/damnbot/edgecases_prov_region_f5_test.go`) |
+| EC-PROV-027 | `internal/provider/edgecases_cache_f5_test.go` |
+| EC-CFG-008 | `TestProviderSwitchLoadsProviderPool` (`cmd/damnbot/edgecases_cfg_f5_test.go`) |
+| EC-FIO-003 | `internal/exec/backends/edgecases_f5_test.go` |
+| EC-FIO-010 | `TestUTF16RangeConversion` (`internal/codeintel/lsp/edgecases_fio_test.go`) |
+| EC-SEC-002/003 | `internal/provider/auth/credential_test.go` |
+| EC-SEC-004 | `internal/provider/edgecases_sec_f5_test.go` |
+| EC-TCALL-004 | `internal/provider/responses/edgecases_f5_test.go` |
+| EC-TCALL-011 | `internal/provider/replay/parity_test.go` |
+| EC-TERM-001 | `internal/exec/process_test.go` |
+| EC-TERM-003 | `internal/exec/backends/edgecases_test.go` |
+| EC-WIN-007 | `internal/exec/backends/edgecases_win_f5_test.go` (runner Windows) |
+| EC-WIN-008 | `internal/exec/pipe_auth_test.go` (runner Windows) |
+| EC-WIN-015 | `internal/exec/mux_test.go` (runner Windows) |
 
-**PR verifikasi.** SEC: `test/f5-gap-sec`; REL+COST: `test/f5-gap-rel-cost`;
-PROV+TOOL: `test/f5-gap-prov-tool`. Semua tes bernama `TestGAPF5_<ID>`.
+## 17 GAP fase F5
 
-## Ringkasan GAP fase F5
-
-| GAP | status | tes | bukti | sisa kerja / PR |
+| GAP | status | tes | bukti | residual (di luar acceptance F5) |
 | --- | --- | --- | --- | --- |
-| GAP-SEC-03 | LULUS-SEBAGIAN | `TestGAPF5_SEC03`; `TestUntrustedToolDeniedByDefault`, `TestToolEffectDefaultsToNonIdempotent`, `TestApprove*` | `internal/mcp/config.go:14-91` (trust default untrusted), `policy.go:12-43` (non-read selalu approval, hint server tidak menurunkan gate), `client.go:221-266` (deny sebelum dispatch), `config/modules_mcp.go:52` (read_only per tool). Tes baru: 10 tool ber-`readOnlyHint:true` → 10/10 prompt, headless 10/10 `denied`, 0 dispatch. | MCP tool belum di-wire ke turn (`modules.Register` 0 di produksi), jadi matriks mode ask/auto-edit/auto belum diuji lewat core; `trust=full` belum butuh konfirmasi eksplisit dan belum tampil di `doctor`. PR: wire modul MCP + mode matrix + trust confirmation/doctor. |
-| GAP-SEC-04 | LULUS-SEBAGIAN | `TestGAPF5_SEC04`, `TestPin*` (6 tes), `TestMCPRugPull` belum ada dengan nama itu | `internal/mcp/pin.go:120-235` (digest sha256, first-listing pin, modified/added/removed quarantine), `pinGate`, `ctxdb/mcpstore`, `mcp refresh/review`. Tes baru: deskripsi berubah + tool baru di tengah sesi → 0 tool terlihat, 0 dispatch (`mcp_tool_changed`), diff `modified`/`added`. | Diff hanya di `damnbot mcp review`; TUI/web belum menampilkan diff. PR: surface diff TUI/web. |
-| GAP-SEC-18 | LULUS-SEBAGIAN | `TestGAPF5_SEC18`, `TestOAuthRefreshRevocation`, `TestAuthLoginStatusLogoutRevoke`, `TestAuthRevokeFailureKeepsToken`, `TestAuthOfflineFails` | `internal/provider/auth/oauth.go:227-252` (RFC 7009 refresh lalu access), `cmd/damnbot/auth_cli.go:125-160` (revoke dulu, state `revoked/unsupported/failed`), `mcp_oauth.go:139-162`. Tes baru: keduanya dicabut, refresh → `invalid_grant`, offline → `ErrOffline`. | CLI hanya positional satu provider: `--provider P|--all` tidak ada; `damnbot setup --uninstall --purge-data` belum ada sehingga laporan `failed` per token tanpa jaringan belum bisa diuji. PR: flag logout + uninstall purge. |
-| GAP-SEC-20 | LULUS | `TestGAPF5_SEC20*`, `TestGAPF5_SEC20CLI`, `TestGAPF5_SEC20ConfigKey`, `TestGAPF5_SEC20SameHostRedirects`, `TestGAPF5_SEC20FetchAndSerial` | `internal/mcp/catalog` (manifest ed25519, tamper/unsigned/rollback fail-closed), `Fetch` 2xx+16 MiB, `WithSameHostRedirects(3)`, `FileSeqStore` serial lintas proses, `mcp catalog <file\|--url>`, `[update] catalog_public_key`. | Skills-hub/preset catalog fetch tetap F8; provider/MCP path tertutup. |
-| GAP-SEC-21 | LULUS-SEBAGIAN | `TestGAPF5_SEC21`, `TestRespondRefusesSelfApprovalAndP26`, `TestRespondAndOpenApprovals`, `TestServe*` (9 tes) | `ctxdb/mcpservestore` (token scope read/send/approve, approval_response exactly-once, origin≠mcp_serve, P26), `internal/mcp/serve.go` (scope filter, rate limit, approval non-read). Tes baru: 3 scope terikat profil, respond kedua `ErrNotPending`, self-origin/P26 `ErrForbidden`. | `damnbot mcp serve` belum ada (tidak ada ServeTool, token create/ls/revoke, `messages_send`, `permissions_list_open/respond`); scope token tidak diperiksa saat `Respond` (caller harus). Test tertunda `TestMCPServeCannotSelfApprove` belum ada dengan nama itu. PR: serve command + tools + scope check. |
-| GAP-SEC-22 | DITUNDA-F9 | `TestDockerRunContract`, `TestDockerRejectsEscapes`, `TestDockerBackendNoSocketMount` (nama acceptance; perilaku ada) | `internal/exec/backends/docker.go:142-160,267-292` (hanya bind workspace; docker.sock/workspace socket ditolak), `cli_test.go:108,119`. | Image `ghcr.io/damnbot/damnbot` distroless/user 65532/healthcheck/Trivy adalah artefak rilis F9 (ROADMAP F9 “Docker 1 stage”); tidak ada kode backend yang perlu diubah. |
-| GAP-SEC-23 | LULUS | `TestGAPF5_SEC23DockerProbe`, `TestGAPF5_SEC23SingularityProbe`, `TestSSHHostKeyPin`, `TestDockerRunContract` | `docker.go:218-255` (`docker create` dengan limit sebelum run; gagal → `ErrCapability` “no_resource_limits”), `singularity.go:140-174` (`cgroup status` sebelum run), cache `sync.Once`, `allow_unlimited` satu-satunya opt-out; SSH host-key pin dan egress allowlist sudah ada. | — |
-| GAP-SEC-24 | LULUS | `TestGAPF5_SEC24`, `TestOverrideWithoutFlag` | `cmd/damnbot/provider_resolve.go:115-135` (override=true wajib), `:143-161` (`--confirm-base-url`), `:272-300` (`providerDoctorWarnings`), `config/config.go:246-248`. Tes baru: 2/2 override + non-default muncul di doctor; shadow tanpa flag gagal; base_url non-default butuh konfirmasi. | — |
-| GAP-SEC-25 | LULUS | `TestGAPF5_SEC25`, `TestUserAgentDefault`, `TestNoAttributionHeaders` | `provider_resolve.go:305-410` (`send_attribution` default false, `userAgent()`), `provider/client.go:25-28,103-126,413-415` (UA `damnbot/<versi>`). Tes baru: 94 preset (88+6 lokal) tanpa header atribusi; UA tanpa OS/hostname; opt-in hanya header deklarasi. | — |
-| GAP-REL-14 | LULUS-SEBAGIAN | `TestGAPF5_REL14`, `internal/gateway/render/known_defects_test.go` (10 tes) | `internal/provider` (413 typed, truncated stream `stream_broken` retry), `netx/retry/class.go:122`; render known-defects 10 skenario. | Skenario MCP gambar sebagai lampiran belum ada (`mcp.Client.mapResult` menaruh non-text di `Meta["content"]`, `host.Result` tidak punya `Attachments`); streaming-once/kanban bukan F5. Job `known-defects` belum ada. PR: attachments MCP + job. |
-| GAP-REL-18 | LULUS-SEBAGIAN | `TestGAPF5_REL18`, `TestSessionToolIsolation`, `TestSessionViewFailClosed`, `TestSessionViewChildCannotEscalate` | `internal/tools/session_view.go`, `modules/host/session.go` (view eksplisit, zero fail-closed), `delegate` meneruskan `tools.SessionView`, `TestSessionToolIsolation` 1.000 iterasi `-race`. | `internal/mcp.Client` tidak menerima/memeriksa `SessionView`/`CapMCP`; `execute_code` belum memakai `Env.Session` (hanya approval). PR: MCP session view + execute_code session seam. |
-| GAP-COST-03 | LULUS | `TestGAPF5_COST03`, `TestCacheTTLByOrigin`, `TestUsageCacheByOrigin` | `provider/cachettl.go` (1h tui/acp/web/gateway, clamp `CacheTTLMax`), `provider/openai.go` encode ttl, `catalog.go:99,143`, `cmd/damnbot/usage_cli.go` (`--cache --by origin`). Tes baru: 9 origin × clamp. | Live replay Telegram `cached/input ≥70%` belum diukur (butuh provider nyata). |
-| GAP-COST-10 | LULUS | `TestExecuteCodeApproval`, `TestExecuteCodeRun`, `TestExecuteCodeRPCNetworkDeny`, `TestGAPF5_COST10StarlarkChild` | `internal/exec/code` Python/JS/Go/Starlark, child `__starlark`, RPC allowlist 7 tool, `network=deny` menolak `web_fetch`/`shell` sebelum pipeline, `DispatcherInvoker` wiring. | — |
-| GAP-PROV-01 | LULUS | `TestGAPF5_PROV01`, `TestCarrier*` (≥ 20 tes), `TestCarrierSignatureReplay`, `cmd/damnbot/carriers_wire_test.go` | `provider/carriers.go` (capture byte-identik, project hanya family+model asal), 4 adapter (`openai-chat`, `responses`, `anthropic`, `gemini`), `loop/turn.go:198-210` (event `carrier_dropped`), `ctxdb/carrierstore`. Tes baru: 4 kind (thought_signature/thinking/redacted_thinking/encrypted) di 4 adapter, replay hanya route asal, drop `route_mismatch`. | — |
-| GAP-TOOL-04 | LULUS | `TestGAPF5_TOOL04` (Windows), `TestSSHPoolReuse`, `TestShellChoiceDrivesDialect`, `TestSSHContract` | `exec/backends/ssh.go:299-395` (pool per user/host/port, keepalive, idle close), `shell_windows.go` (pwsh→powershell→cmd, tanpa bash), `proc_windows.go` (Job Object). Test baru (runner Windows): PATH berisi bash.exe tetapi tanpa pwsh/powershell → cmd, bukan bash. | — |
-| GAP-TOOL-05 | LULUS | `TestGAPF5_TOOL05`, `TestLeaseConflictDetected`, `TestWorktreeCleanup`, `TestCodetoolsLeaseGuard`, `TestWorktreeLeaseIsExclusive` | `delegate/lease.go` (lease per path, all-or-nothing, pemilik di error), `delegate/worktree.go` + `taskWorktree` (clean dihapus, kotor disimpan + `files_changed`), `codetools.LeaseGuard`. Tes baru: 3 task file sama → 1 jalan, 2 `lease_conflict` dengan pemilik; worktree kotor dilaporkan. | — |
-| GAP-TOOL-08 | LULUS-SEBAGIAN | `TestProcessTools*`, `TestBackground*`, `TestProcessNotifyRateLimit` | `internal/exec/process.go` registry + `Background.SetOnExit`; `NoticeLimiter` 1/15s proses, 4/menit chat, 15/10s global, merged `+N`. | Hook `SetOnExit` belum disambungkan ke emitter UI/gateway; watch 3-strike belum (opsional). |
+| GAP-SEC-03 | `LULUS` | `TestGAPF5_SEC03`; `TestUntrustedToolDeniedByDefault`, `TestToolEffectDefaultsToNonIdempotent`, `TestApprove*` | `internal/mcp/config.go:14-91` (trust default untrusted), `policy.go:12-43` (non-read selalu approval), `client.go:221-266` (deny sebelum dispatch), `config/modules_mcp.go:52` (read_only per tool); 10/10 prompt, headless 10/10 `denied`, 0 dispatch. | Wiring modul MCP→turn + matriks mode lewat core, dan konfirmasi `trust=full`/doctor: **N/A F5**, target F8 (permukaan modul/doctor; MCPX 65/65 sudah lulus #613). |
+| GAP-SEC-04 | `LULUS` | `TestGAPF5_SEC04`, `TestPin*` (6 tes), `TestMCPServeCannotSelfApprove` | `internal/mcp/pin.go:120-235` (digest sha256, first-listing pin, modified/added/removed quarantine), `pinGate`, `ctxdb/mcpstore`, `mcp refresh/review`; 0 tool terlihat, 0 dispatch (`mcp_tool_changed`). | Diff di surface TUI/web: **N/A F5**, target F8 (CLI `mcp review` sudah menampilkan diff). |
+| GAP-SEC-18 | `LULUS` | `TestGAPF5_SEC18`, `TestOAuthRefreshRevocation`, `TestAuthLoginStatusLogoutRevoke`, `TestAuthRevokeFailureKeepsToken`, `TestAuthOfflineFails` | `internal/provider/auth/oauth.go:227-252` (RFC 7009 refresh lalu access), `cmd/damnbot/auth_cli.go:125-160` (revoke dulu, state `revoked/unsupported/failed`), `mcp_oauth.go:139-162`; offline → `ErrOffline`. | Flag `--provider|--all` pada logout + `setup --uninstall --purge-data`: **N/A F5**, target F9 (installer/UX rilis). |
+| GAP-SEC-20 | `LULUS` | `TestGAPF5_SEC20*`, `TestGAPF5_SEC20CLI`, `TestGAPF5_SEC20ConfigKey`, `TestGAPF5_SEC20SameHostRedirects`, `TestGAPF5_SEC20FetchAndSerial` | `internal/mcp/catalog` (manifest ed25519, tamper/unsigned/rollback fail-closed), `Fetch` 2xx+16 MiB, `WithSameHostRedirects(3)`, `FileSeqStore` serial lintas proses, `mcp catalog <file\|--url>`, `[update] catalog_public_key`. | Skills-hub/preset catalog fetch: **N/A F5**, target F8 (ADR-306 amandemen). |
+| GAP-SEC-21 | `LULUS` | `TestGAPF5_SEC21`, `TestRespondRefusesSelfApprovalAndP26`, `TestRespondAndOpenApprovals`, `TestServe*`, `TestMCPServeCannotSelfApprove` | `ctxdb/mcpservestore` (scope read/send/approve, approval_response exactly-once, origin≠mcp_serve, P26), `internal/mcp/serve.go` (scope filter di `Respond`, rate limit, approval non-read), `cmd/damnbot/mcp_serve_cli.go` + token CLI. | — |
+| GAP-SEC-22 | `DITUNDA` | `TestDockerRunContract`, `TestDockerRejectsEscapes`, `TestDockerBackendNoSocketMount` | `internal/exec/backends/docker.go:142-160,267-292` (hanya bind workspace; docker.sock ditolak). | Image `ghcr.io/damnbot/damnbot` distroless/user 65532/healthcheck/Trivy = artefak rilis **F9** (ROADMAP F9 "Docker 1 stage"); tidak ada kode backend yang berubah. |
+| GAP-SEC-23 | `LULUS` | `TestGAPF5_SEC23DockerProbe`, `TestGAPF5_SEC23SingularityProbe`, `TestSSHHostKeyPin`, `TestDockerRunContract` | `docker.go:218-255` (`docker create` dengan limit sebelum run; gagal → `ErrCapability`), `singularity.go:140-174` (`cgroup status`), cache `sync.Once`, `allow_unlimited` satu-satunya opt-out; SSH host-key pin + egress allowlist. | — |
+| GAP-SEC-24 | `LULUS` | `TestGAPF5_SEC24`, `TestOverrideWithoutFlag` | `cmd/damnbot/provider_resolve.go:115-135` (override=true wajib), `:143-161` (`--confirm-base-url`), `:272-300` (`providerDoctorWarnings`), `config/config.go:246-248`. | — |
+| GAP-SEC-25 | `LULUS` | `TestGAPF5_SEC25`, `TestUserAgentDefault`, `TestNoAttributionHeaders` | `provider_resolve.go:305-410` (`send_attribution` default false), `provider/client.go:25-28,103-126,413-415` (UA `damnbot/<versi>`); 94 preset tanpa header atribusi. | — |
+| GAP-REL-14 | `LULUS` | `TestGAPF5_REL14`, `internal/gateway/render/known_defects_test.go` (10 tes) | `internal/provider` (413 typed non-retryable, truncated stream `stream_broken` retry), `netx/retry/class.go:122`; render known-defects 10 skenario. | Gambar MCP sebagai `Attachments`: **N/A F5**, target F6 (media); job CI `known-defects`: target F9. |
+| GAP-REL-18 | `LULUS` | `TestGAPF5_REL18`, `TestSessionToolIsolation`, `TestSessionViewFailClosed`, `TestSessionViewChildCannotEscalate` | `internal/tools/session_view.go`, `modules/host/session.go` (view eksplisit, zero fail-closed), `delegate` meneruskan `tools.SessionView`; 1.000 iterasi `-race`. | MCP `Client` session view + `execute_code` `Env.Session` seam: **N/A F5**, target F8 (seam modul host). |
+| GAP-COST-03 | `LULUS` | `TestGAPF5_COST03`, `TestCacheTTLByOrigin`, `TestUsageCacheByOrigin` | `provider/cachettl.go` (1h origin interaktif, clamp `CacheTTLMax`), `provider/openai.go` encode ttl, `cmd/damnbot/usage_cli.go` (`--cache --by origin`); 9 origin × clamp. | Live replay Telegram `cached/input ≥70%`: **N/A** (butuh provider berbayar; bukan acceptance offline). |
+| GAP-COST-10 | `LULUS` | `TestExecuteCodeApproval`, `TestExecuteCodeRun`, `TestExecuteCodeRPCNetworkDeny`, `TestGAPF5_COST10StarlarkChild` | `internal/exec/code` Python/JS/Go/Starlark, child `__starlark`, RPC allowlist 7 tool, `network=deny`, `DispatcherInvoker` wiring. | — |
+| GAP-PROV-01 | `LULUS` | `TestGAPF5_PROV01`, `TestGAPF5_PROV01Kinds`, `TestCarrier*` (≥ 20 tes) | `provider/carriers.go` (capture byte-identik, project family+model asal), 4 adapter, `loop/turn.go:198-210` (`carrier_dropped`), `ctxdb/carrierstore`; 4 kind × 4 adapter, replay hanya route asal. | — |
+| GAP-TOOL-04 | `LULUS` | `TestGAPF5_TOOL04` (Windows), `TestSSHPoolReuse`, `TestShellChoiceDrivesDialect`, `TestSSHContract` | `exec/backends/ssh.go:299-395` (pool per user/host/port, keepalive 30 s, idle 10 m), `shell_windows.go` (pwsh→powershell→cmd), `proc_windows.go`; 20 run → 1 koneksi TCP. | — |
+| GAP-TOOL-05 | `LULUS` | `TestGAPF5_TOOL05`, `TestLeaseConflictDetected`, `TestWorktreeCleanup`, `TestCodetoolsLeaseGuard`, `TestWorktreeLeaseIsExclusive` | `delegate/lease.go` (lease per path, all-or-nothing, pemilik di error), `delegate/worktree.go` (bersih dihapus, kotor disimpan + `files_changed`), `codetools.LeaseGuard`; 3 task → 1 jalan, 2 `lease_conflict`. | — |
+| GAP-TOOL-08 | `LULUS` | `TestProcessTools*`, `TestBackground*`, `TestProcessNotifyRateLimit` | `internal/exec/process.go` registry + `Background.SetOnExit`; `NoticeLimiter` 1/15 s proses, 4/menit chat, 15/10 s global, `+N`; cap 8/32, ring 8 MiB, kill TERM→KILL. | Hook `SetOnExit` ke emitter UI/gateway: **N/A F5**, target F8; watch 3-strike opsional → F9. |
 
 ## Backlog ADR-078/ADR-086 berfase F5
 
-| item | isi | status di main |
+| item | status | bukti |
 | --- | --- | --- |
-| AUD-050 | SPEC §9.6 scope token `read\|send` → `read\|send\|approve` | **LULUS**: `SPEC.md:894` kini `read|send|approve`; DDL `mcp_serve_tokens` dan `mcpservestore` sudah `approve` (`TestGAPF5_SEC21`). |
-| NEW2-19 | field `origin` di payload `approval_request` | **LULUS**: `tools.ApprovalRequest.Origin` + `Validate` (`internal/tools/approval.go:45-56`), diteruskan `approval_bridge.go:51,64`; `mcpservestore` mem-parse/menolak `origin` pada inbox (`TestGAPF5_SEC21`). |
-| NEW2-20 | mapping origin cron/batch/kanban → `headless`, delegate → origin induk | **LULUS**: `run` adalah origin headless (ADR-202; `cron_wire.go:139` memakai `run`), delegate mewarisi origin induk lewat `SessionView.Child`, dan kanban/batch belum ada di F5; tidak ada jalur yang memakai origin interaktif. |
-| NEW3-02 | auto headless `execute_code` butuh `--unsafe-auto-shell`/`--unsafe-auto-code` atau residu eksplisit | **LULUS (residu eksplisit)**: TRUST-MODEL §3 mencatat auto hanya dengan `--approval auto` + `code_auto_languages` + trust/taint/tulis; tidak ada flag terpisah, dan bahasa shell tidak pernah lewat jalur ini (`TestExecuteCodeApproval`). |
+| AUD-050 | `LULUS` | SPEC §9.6 `read\|send\|approve`; DDL `mcp_serve_tokens` + `mcpservestore` (`TestGAPF5_SEC21`). |
+| NEW2-19 | `LULUS` | `tools.ApprovalRequest.Origin` + `Validate` (`internal/tools/approval.go:45-56`), diteruskan `approval_bridge.go:51,64`; `mcpservestore` mem-parse/menolak `origin` pada inbox. |
+| NEW2-20 | `LULUS` | `run` adalah origin headless (ADR-202; `cron_wire.go:139`), delegate mewarisi origin induk lewat `SessionView.Child`; kanban/batch belum ada di F5 dan tidak ada jalur origin interaktif. |
+| NEW3-02 | `LULUS` (residu eksplisit) | Auto headless `execute_code` hanya dengan `--approval auto` + `code_auto_languages` + trust/taint/tulis; tidak ada `--unsafe-auto-code` terpisah, dan bahasa shell tidak pernah lewat jalur ini (`TestExecuteCodeApproval`, TRUST-MODEL §3). |
 
-## 1. GAP SEC
+## Gap yang ditunda / N/A (di luar F5)
 
-| GAP | requirement (ringkas) | status | tes | bukti |
-| --- | --- | --- | --- | --- |
-| SEC-03 | trust default untrusted; tool non-read selalu approval; read_only satu-satunya pengecualian; headless deny | LULUS-SEBAGIAN | `TestGAPF5_SEC03` | `internal/mcp/policy.go`, `config.go`, `client.go:221`; 10/10 prompt, 10/10 denied |
-| SEC-04 | pin sha256; ubah/tambah tool → quarantine, 0 dispatch, diff | LULUS-SEBAGIAN | `TestGAPF5_SEC04` | `internal/mcp/pin.go:120`; `modified`/`added`, `mcp_tool_changed` |
-| SEC-18 | revoke RFC 7009 refresh lalu access; `failed` tanpa jaringan | LULUS-SEBAGIAN | `TestGAPF5_SEC18` | `auth/oauth.go:227`; `invalid_grant`, `ErrOffline` |
-| SEC-20 | katalog bertanda tangan ed25519 + anti-rollback | LULUS-SEBAGIAN | `TestGAPF5_SEC20*`, `TestGAPF5_SEC20CLI`, `TestGAPF5_SEC20ConfigKey` | `internal/mcp/catalog`; signature wajib/tamper/rollback fail-closed; `mcp catalog <file>`; key `[update] catalog_public_key` |
-| SEC-21 | token scope + approval lintas proses; tidak menyetujui diri sendiri/P26 | LULUS-SEBAGIAN | `TestGAPF5_SEC21` | `ctxdb/mcpservestore`; exactly-once, origin, P26 |
-| SEC-22 | image distroless non-root; backend docker tidak mount socket | DITUNDA-F9 | `TestDockerRunContract`/`TestDockerRejectsEscapes` | `backends/docker.go:142,267`; image F9 |
-| SEC-23 | limit container fail-closed; host key pin; egress allowlist | LULUS | `TestGAPF5_SEC23DockerProbe`, `TestGAPF5_SEC23SingularityProbe`, `TestSSHHostKeyPin` | `docker.go:218`, `singularity.go:140`; probe sebelum run, `no_resource_limits` |
-| SEC-24 | override built-in butuh `override=true`; base_url butuh konfirmasi; doctor 100% | LULUS | `TestGAPF5_SEC24` | `provider_resolve.go:115,143,272` |
-| SEC-25 | atribusi opt-in; UA `damnbot/<versi>` | LULUS | `TestGAPF5_SEC25` | `provider_resolve.go:305,390`; 94 preset |
+| item | status | fase target | alasan |
+| --- | --- | --- | --- |
+| F5-CODEINTEL-LANG (`repo_map`/`code_intel` JS/TS/Python) | `DITUNDA` | F6 | ADR-294 amandemen PR 2b: aset npm `tree-sitter-*.wasm` adalah side-module `dylink.0` yang tidak dapat dimuat wazero; tanpa npm/emscripten di VPS. `internal/codeintel/ts` hanya `{c,cpp}`, bahasa lain `ErrUnsupportedLanguage`. |
+| F5-BACKGROUND-WINDOWS (`shell background:true`, registry `process_*`) | `DITUNDA` | F6 | ADR-297/300: registry butuh Job Object agar `Close` membunuh seluruh pohon proses; permukaan fail-closed eksplisit (`exec.BackgroundSupported=false`, `module_unavailable` membungkus `exec.ErrCapability`; dikunci `process_windows_test.go` + `builtins_background_windows_test.go`). |
+| GAP-SEC-22 image Docker rilis | `DITUNDA` | F9 | ROADMAP F9 "Docker 1 stage" (distroless, user 65532, healthcheck, Trivy); backend tidak berubah. |
+| Skills-hub / preset catalog fetch | `N/A` | F8 | ADR-306 amandemen: jalur provider/MCP tertutup; katalog skills-hub milik F8. |
+| Surface diff pin di TUI/web | `N/A` | F8 | Web UI adalah deliverable F8; CLI `mcp review` sudah menampilkan diff `modified`/`added`. |
+| `auth logout --provider|--all` + `setup --uninstall --purge-data` | `N/A` | F9 | UX/installer rilis; requirement revoke RFC 7009 + `failed` offline sudah `LULUS` (GAP-SEC-18). |
+| Konfirmasi `trust=full` + doctor trust | `N/A` | F8 | UX doctor; trust default untrusted + non-read approval sudah `LULUS` (GAP-SEC-03). |
+| Gambar MCP sebagai lampiran (`Attachments`) | `N/A` | F6 | Media/attachment adalah F6; 413 + stream terputus sudah `LULUS` (GAP-REL-14). |
+| MCP session view + `execute_code` `Env.Session` | `N/A` | F8 | Seam modul host; isolasi sesi tools sudah `LULUS` (GAP-REL-18). |
+| Hook notice UI + watch 3-strike proses | `N/A` | F8/F9 | Emitter UI F8; watch 3-strike opsional di F9. |
 
-## 2. GAP REL + COST
+## Perintah bukti
 
-| GAP | requirement (ringkas) | status | tes | bukti |
-| --- | --- | --- | --- | --- |
-| REL-14 | 413 eksplisit, stream terputus bukan jawaban, gambar MCP lampiran | LULUS-SEBAGIAN | `TestGAPF5_REL14` + `internal/gateway/render/known_defects_test.go` | `provider/client.go` menolak 413 non-retryable sebagai `provider.Error`; cut stream → `stream_broken` × `MaxAttempts`; gambar MCP tetap di `Meta["content"]`, belum `Attachments`; job `known-defects` belum ada |
-| REL-18 | SessionView eksplisit, nil fail-closed, 2 sesi paralel terisolasi | LULUS-SEBAGIAN | `TestGAPF5_REL18`, `TestSessionToolIsolation`, `TestSessionViewFailClosed` | `modules/host/session.go`, `tools/session_view.go`; zero view → `internal`, `CapUserMemory` hilang → `denied`; MCP/`execute_code` belum memakai view |
-| COST-03 | 1h untuk origin interaktif, 5m batch, clamp `cache_ttl_max`, usage per origin | LULUS | `TestGAPF5_COST03`, `TestCacheTTLByOrigin`, `TestUsageCacheByOrigin` | `provider/cachettl.go` 9 origin × clamp; `usage --cache --by origin`; hit-rate live ≥70% belum diukur |
-
-Tes COST-10: `TestExecuteCodeApproval` dan runner Python/JS/TS/Go sudah ada di
-main (#573–#579). Sisa yang belum: Starlark (`go.starlark.net` hanya di
-`deps.allow`), RPC `tool(name, **args)` allowlist 7 tool, dan
-`TestExecuteCodeRPCNetworkDeny`. Status `LULUS-SEBAGIAN`; PR execute_code
-slice RPC/Starlark.
-
-## 3. GAP PROV + TOOL
-
-| GAP | requirement (ringkas) | status | tes | bukti |
-| --- | --- | --- | --- | --- |
-| PROV-01 | carrier opaque 4 keluarga, byte-identik, replay hanya route asal, drop + notice | LULUS | `TestGAPF5_PROV01`, `TestGAPF5_PROV01Kinds`, `TestCarrier*` | `adapter.Encode` memuat carrier persis untuk family+model asal; model lain → `route_mismatch`, 0 byte carrier; `loop/turn.go:198-210` menulis `carrier_dropped` |
-| TOOL-04 | Windows tanpa bash; pool SSH per user/host/port | LULUS | `TestGAPF5_TOOL04` (Windows), `TestSSHPoolReuse`, `TestSSHContract` | `shell_windows.go` hanya pwsh→powershell→cmd; `ssh.go:299-395` 20 run → 1 koneksi TCP, keepalive 30 s, idle 10 m |
-| TOOL-05 | lease `tasks[].files`, worktree bersih dihapus/kotor dilaporkan | LULUS | `TestGAPF5_TOOL05`, `TestLeaseConflictDetected`, `TestWorktreeCleanup` | 3 child file sama → 1 jalan, 2 `lease_conflict` pemilik `P-d1`; worktree kotor + `files_changed` dipertahankan |
-| TOOL-08 | rate-limit notice proses ≤1/15 s, ≤4/menit/chat, global ≤15/10 s, `+N` | LULUS-SEBAGIAN | `TestProcessTools*`, `TestBackground*` | registry/process_* ada; limiter notice + `TestProcessNotifyRateLimit` belum |
-
-Tes TOOL-08: registry/`process_*` sudah ada dan lulus suite sesi/ring/kill
-(#573–#579). Sisa yang belum: limiter notice `≤1/15 s`, `≤4/menit/chat`,
-global `≤15/10 s`/`+N`, watch 3-strike, dan `TestProcessNotifyRateLimit`.
-Status `LULUS-SEBAGIAN`; PR notice limiter.
+```sh
+PHASE=F5 make phase-acceptance            # 365d6fae: rc=0, 76/76 paket ok
+PHASE=F6 make phase-acceptance            # commit ini: rc=0, 76/76 paket ok
+make loc                                  # TOTAL 101.267 / 190.000
+make size-check                           # full 31.776.930 B; minimal 21.999.778 B
+```
