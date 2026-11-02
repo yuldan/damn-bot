@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,6 +63,7 @@ type wireError struct {
 type wireItem struct {
 	Type      string `json:"type"`
 	ID        string `json:"id"`
+	ItemID    string `json:"item_id"`
 	CallID    string `json:"call_id"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
@@ -156,10 +158,7 @@ func (a *assembler) outputItem(raw json.RawMessage) error {
 		if len(a.tools) >= maxToolCalls {
 			return tooLarge()
 		}
-		id := it.CallID
-		if id == "" {
-			id = it.ID
-		}
+		id := cmp.Or(it.CallID, it.ID, it.ItemID)
 		a.tools = append(a.tools, provider.ToolCall{ID: id, Name: it.Name, ArgumentsRaw: it.Arguments})
 	case "reasoning":
 		if a.size += len(raw); a.size > maxResponseBytes {
