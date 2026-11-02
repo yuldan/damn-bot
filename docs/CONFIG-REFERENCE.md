@@ -144,6 +144,16 @@ config_version = 1
       thread_fallback = "fail"
   [modules.mcp]
     allow_sampling = false
+  [modules.web]
+    enabled = false
+  [modules.browser]
+    enabled = false
+  [modules.media]
+    enabled = false
+  [modules.voice]
+    enabled = false
+  [modules.computer_use]
+    enabled = false
 
 [providers]
   custom = []

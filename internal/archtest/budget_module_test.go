@@ -11,9 +11,10 @@ import (
 // masuk Σ core. Preseden: baris infra non-produksi NEW-34 juga di luar Σ core; kelas MODULE selalu
 // dilewati `budgetCoreSum` dan tetap ditegakkan per-baris oleh `scripts/loc-check.sh budget`.
 const (
-	maxModuleLOC   = 61000 // Σ kelas MODULE: F3 19.800 + F4 18.700 + F5 mcp 6.500 (ADR-268) + delegate 2.000 (ADR-273) = 47.000; +backup 1.467 = 60.267 ≤ 61.000 (backend 4.800 ADR-277; codeintel 7.000 ADR-294).
+	maxModuleLOC   = 85000 // Σ kelas MODULE: F3 19.800 + F4 18.700 + F5 (mcp 6.500 + delegate 2.000 + backend 4.800 + codeintel 7.000) 20.300 = 58.800; +F6 (webtools 3.000, browser 5.500, media 9.500, voice 4.500, computeruse 2.000) 24.500 = 83.300; +backup 1.467 = 84.767 ≤ 85.000 (ADR-309/ADR-310).
 	maxF3ModuleLOC = 21500 // ROADMAP F3 = 21.500 (tui + acp + importer/ops); F3 tanpa backup
 	maxF4ModuleLOC = 18700 // ROADMAP F4 = 20.000: heal core 1.500 + MODULE 18.700 (ADR-244, ADR-245, ADR-248)
+	maxF6ModuleLOC = 24500 // SPEC §3.2.4 F6: web 3.000 + browser 5.500 + media 9.500 + voice 4.500 + computer-use 2.000 (ADR-309/ADR-310)
 	maxF3OpsLOC    = 9000  // SPEC §3.2.4: importer + setup/doctor/update/profiles/backup
 )
 
@@ -28,8 +29,9 @@ type locBudgetRow struct {
 }
 
 // TestLocBudgetModuleRows menjaga kelas MODULE: format, allowlist nama+cap, direktori internal yang
-// tidak tumpang tindih dengan baris lain, Σ MODULE ≤ 21.500, family ops + `backup` ≤ 9.000, dan bukti
-// bahwa baris MODULE benar-benar di luar Σ core (budgetCoreSum tidak berubah bila baris itu dibuang).
+// tidak tumpang tindih dengan baris lain, Σ MODULE (termasuk backup) ≤ maxModuleLOC, family ops ≤
+// 9.000, dan bukti bahwa baris MODULE benar-benar di luar Σ core (budgetCoreSum tidak berubah bila
+// baris itu dibuang).
 func TestLocBudgetModuleRows(t *testing.T) {
 	t.Parallel()
 	budget := readRepoFile(t, "loc.budget")
@@ -123,9 +125,10 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 		"doctor": 1100, "update": 1500, "profiles": 800,
 		"obs": 4000, "gateway": 9500, "gwstore": 1000, "cron": 3500, "cronstore": 200,
 		"scorecard": 500, "mcp": 6500, "delegate": 2000, "backend": 4800, "codeintel": 7000, // mcp: SPEC §3.2.4:291, ADR-268; delegate: §3.2.4:290, ADR-273.
+		"webtools": 3000, "browser": 5500, "media": 9500, "voice": 4500, "computeruse": 2000, // SPEC §3.2.4, ADR-309; `web` dibangun sebagai internal/webtools.
 	}
 	backupCap, hasBackup := 0, false
-	opsSum, f3Sum, f4Sum := 0, 0, 0
+	opsSum, f3Sum, f4Sum, f6Sum := 0, 0, 0, 0
 	for _, row := range rows {
 		if !row.module {
 			if row.group == "backup" {
@@ -150,17 +153,35 @@ func checkModuleCapsAndSums(t *testing.T, rows []locBudgetRow, moduleSum int) {
 		if f4ModuleFamily(row.group) {
 			f4Sum += row.capLOC
 		}
+		if f6ModuleFamily(row.group) {
+			f6Sum += row.capLOC
+		}
 	}
 
 	if moduleSum > maxModuleLOC {
 		t.Errorf("ROADMAP F3+F4: Σ baris MODULE = %d > %d (ADR-196, ADR-244)", moduleSum, maxModuleLOC)
 	}
+	checkModuleFamilySums(t, f3Sum, f4Sum, f6Sum)
+	checkModuleBackupSums(t, moduleSum, opsSum, backupCap, hasBackup)
+}
+
+// checkModuleFamilySums menegakkan plafon Σ per fase (F3/F4/F6).
+func checkModuleFamilySums(t *testing.T, f3Sum, f4Sum, f6Sum int) {
+	t.Helper()
 	if f3Sum > maxF3ModuleLOC {
 		t.Errorf("ROADMAP F3: Σ MODULE F3 = %d > %d (ADR-196)", f3Sum, maxF3ModuleLOC)
 	}
 	if f4Sum > maxF4ModuleLOC {
 		t.Errorf("ROADMAP F4: Σ MODULE F4 = %d > %d (ADR-244)", f4Sum, maxF4ModuleLOC)
 	}
+	if f6Sum > maxF6ModuleLOC {
+		t.Errorf("ROADMAP F6: Σ MODULE F6 = %d > %d (ADR-309)", f6Sum, maxF6ModuleLOC)
+	}
+}
+
+// checkModuleBackupSums menegakkan family ops+backup dan Σ MODULE+backup.
+func checkModuleBackupSums(t *testing.T, moduleSum, opsSum, backupCap int, hasBackup bool) {
+	t.Helper()
 	if !hasBackup {
 		t.Error("loc.budget: baris core `backup` tidak ditemukan; cap family F3 ops (SPEC §3.2.4 9.000) tidak bisa diperiksa")
 		return
@@ -192,6 +213,15 @@ func f3ModuleFamily(name string) bool {
 func f4ModuleFamily(name string) bool {
 	switch name {
 	case "obs", "gateway", "gwstore", "cron", "cronstore", "scorecard":
+		return true
+	}
+	return false
+}
+
+// f6ModuleFamily: baris MODULE F6 (ADR-309/ADR-310); SPEC §3.2.4 F6 = 24.500.
+func f6ModuleFamily(name string) bool {
+	switch name {
+	case "webtools", "browser", "media", "voice", "computeruse":
 		return true
 	}
 	return false

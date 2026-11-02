@@ -8,13 +8,21 @@ import (
 	"strings"
 )
 
-// Modules is the compiled-in module configuration. Only keys owned by an
-// implemented module are accepted here; other [modules] keys stay
+// Modules is the compiled-in module configuration. Only keys owned by a
+// compiled-in module schema are accepted here; other [modules] keys stay
 // ErrModuleUnavailable. The MCP section exists only in the full build
-// (ADR-269): the minimal binary never accepts a key it cannot run.
+// (ADR-269): the minimal binary never accepts a key it cannot run. The F6
+// sections (web, browser, media, voice, computer_use) are foundation
+// placeholders that only accept enabled = false until their module lands
+// (ADR-309/ADR-310).
 type Modules struct {
-	Gateway ModulesGateway `toml:"gateway"`
-	MCP     ModulesMCP     `toml:"mcp"`
+	Gateway     ModulesGateway     `toml:"gateway"`
+	MCP         ModulesMCP         `toml:"mcp"`
+	Web         ModulesWeb         `toml:"web"`
+	Browser     ModulesBrowser     `toml:"browser"`
+	Media       ModulesMedia       `toml:"media"`
+	Voice       ModulesVoice       `toml:"voice"`
+	ComputerUse ModulesComputerUse `toml:"computer_use"`
 }
 
 // ModulesMCP is [modules.mcp]: the client-wide opt-in and one section per

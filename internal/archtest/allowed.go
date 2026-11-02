@@ -36,7 +36,7 @@ func storeImports() []string {
 
 // allowedImports mengembalikan matriks paket → impor internal yang diizinkan (produksi).
 func allowedImports() map[string][]string {
-	return map[string][]string{
+	m := map[string][]string{
 		// Frontend (E-03: tanpa ctxdb, provider, exec, codetools).
 		"internal/tui":     {"internal/loop", "internal/i18n"},
 		"internal/acp":     append([]string{"internal/loop", "internal/i18n"}, groupNetx()...),
@@ -47,8 +47,7 @@ func allowedImports() map[string][]string {
 
 		// Modul daemon/observabilitas F4 (ADR-244): `obs` sudah diimplementasikan
 		// (stdlib saja, tanpa impor internal) dan tetap tanpa edge; `cron` sudah punya
-		// API (scheduler library, ADR-248) sehingga edge-nya ditentukan; `scorecard`
-		// masih kerangka dan mendapat barisnya saat paket itu menentukan edge-nya.
+		// API (scheduler library, ADR-248) sehingga edge-nya ditentukan; `scorecard` masih kerangka.
 		"internal/cron":          append([]string{"internal/redact"}, groupExec()...),
 		"internal/cron/periodic": nil, // AUTO-029: stdlib only, driven by the serve ticker
 		"internal/obs":           nil, "internal/scorecard": nil,
@@ -117,20 +116,14 @@ func allowedImports() map[string][]string {
 		"internal/netx/retry":          nil,
 
 		// Leaf.
-		"internal/loop/event": nil,
-		"internal/schema":     nil,
-		"internal/sandbox":    nil,
-		"internal/redact":     nil,
-		"internal/secret":     nil,
-		"internal/i18n":       nil,
-		"internal/boundary":   nil,
+		"internal/loop/event": nil, "internal/schema": nil, "internal/sandbox": nil,
+		"internal/redact": nil, "internal/secret": nil, "internal/i18n": nil, "internal/boundary": nil,
 
 		// Test arsitektur dan helper test (lihat testOnlyPackages).
 		"internal/archtest": nil,
 
-		// Test-only fixture replay of the catalog (F5 provider parity): every
-		// row is driven through the four wired adapters. No production package
-		// imports it; see testOnlyPackages.
+		// Test-only fixture replay of the catalog (F5 provider parity): every row is
+		// driven through the four wired adapters; see testOnlyPackages.
 		"internal/provider/replay": {"internal/provider", "internal/provider/anthropic", "internal/provider/gemini", "internal/provider/registry", "internal/provider/responses", "internal/netx", "internal/netx/retry"},
 
 		"internal/e2e":                   {"internal/boundary", "internal/budget", "internal/ctxdb", "internal/ctxdb/journalstore", "internal/ctxdb/ledgerstore", "internal/ctxdb/skillstore", "internal/gateway/telegram", "internal/journal", "internal/loop/event", "internal/netx", "internal/secret"},
@@ -139,6 +132,19 @@ func allowedImports() map[string][]string {
 		"internal/testutil/phase":        nil,
 		"internal/provider/providertest": {"internal/provider"},
 	}
+	f6ModuleImports(m)
+	return m
+}
+
+// f6ModuleImports mendaftarkan baris modul F6 (ADR-310). SPEC §3.2.4 `web`
+// dibangun sebagai internal/webtools karena internal/web dipakai Web UI F8;
+// semua modul F6 lazy (E-06) dan edge-nya ditambah per slice.
+func f6ModuleImports(m map[string][]string) {
+	m["internal/webtools"] = []string{"internal/modules/host", "internal/netx"}
+	m["internal/browser"] = []string{"internal/modules/host", "internal/netx"}
+	m["internal/media"] = []string{"internal/modules/host"}
+	m["internal/voice"] = []string{"internal/modules/host"}
+	m["internal/computeruse"] = []string{"internal/modules/host"}
 }
 
 // testOnlyPackages hanya boleh diimpor dari file _test.go (paket internal mana pun) atau dari

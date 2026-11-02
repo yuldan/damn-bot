@@ -275,7 +275,12 @@ heal              1500 internal/heal
 # minimal rejects the key (ErrUnknownKey), varian validateProviderAuth minimal
 # menjaga binary baseline. config 1880 -> 1960 (terukur 1960).
 # Sigma core 54.525 -> 54.605; plafon 54.600 -> 54.700.
-config            1960 internal/config
+# ADR-310 (F6 foundation): lima section config F6 full-only ([modules.web],
+# [modules.browser], [modules.media], [modules.voice], [modules.computer_use];
+# hanya `enabled`, nilai false) menambah kode terukur 42 -> 2002. Sigma core
+# 55.604 -> 55.646; plafon core 55.650 tidak berubah (headroom 4).
+# Minimal tidak berubah.
+config            2002 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
@@ -381,3 +386,14 @@ MODULE backend     4800 internal/exec/backends
 # slice 1). Sigma MODULE 51.800 -> 58.800 (+backup 1.467 = 60.267 <= 61.000).
 MODULE codeintel   7000 internal/codeintel
 MODULE delegate    2000 internal/delegate
+# ADR-310 (F6 foundation), mengadopsi ADR-309: lima baris MODULE F6 dengan
+# cap persis SPEC §3.2.4: web 3.000 (paket internal/webtools; SPEC `web` tidak
+# memakai nama internal/web karena dipesan Web UI F8), browser 5.500, media
+# 9.500, voice 4.500, computer-use 2.000 (internal/computeruse).
+# Sigma MODULE 58.800 -> 83.300 (+backup 1.467 = 84.767 <= 85.000; ADR-309);
+# Σ core tidak berubah oleh baris-baris ini. Kode fondasi 0 (paket doc.go).
+MODULE webtools     3000 internal/webtools
+MODULE browser      5500 internal/browser
+MODULE media        9500 internal/media
+MODULE voice        4500 internal/voice
+MODULE computeruse  2000 internal/computeruse
