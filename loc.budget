@@ -143,7 +143,10 @@ toolset            400 internal/toolset
 # Sigma core caps 52.523 -> 52.823, plafon core 52.600 -> 52.900 (headroom 93 baris exec).
 # Amandemen ADR-300 (slice 5, EC-TERM-001/003): exec 4020 -> 4030 untuk marker Execution
 # (terukur 4022). Sigma core caps 53.665 -> 53.675; plafon core 53.700 tetap.
-exec              4030 internal/exec
+# ADR-277 amandemen EC-WIN-015 (multiplexer): exec 4030 -> 4300 (terukur 4284
+# pada rebase di atas #595 + ADR-298..305; mux + I/O overlapped = 260 baris).
+# Sigma core 54.957 -> 55.227, plafon core 55.000 -> 55.300.
+exec              4300 internal/exec
 exec/classify     1946 internal/exec/classify
 # ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).
 # ADR-108: sandbox+redact 1450 -> 1700 (dir-fd walk fast path; Σ core 34.650 -> 34.900 <= 47.000).
