@@ -150,10 +150,14 @@ func (t *executeCodeTool) Run(ctx context.Context, env Env, args json.RawMessage
 	if out == "" {
 		out = "(no output)"
 	}
+	if res.Execution.Sandboxed {
+		out = "[sandbox: " + res.Execution.Backend + " - host execution replaced]\n" + out
+	}
 	meta := map[string]any{"language": a.Language, "status": string(res.Status), "backend": res.Backend}
 	if res.ExitCode != nil {
 		meta["exit_code"] = *res.ExitCode
 	}
 	meta["isolation"] = map[string]any{"network": res.Isolation.Network, "memory": res.Isolation.Memory}
+	meta["execution"] = res.Execution
 	return Result{OK: res.Status == exec.StatusExited && res.ExitCode != nil && *res.ExitCode == 0, Content: out, Meta: meta}, nil
 }

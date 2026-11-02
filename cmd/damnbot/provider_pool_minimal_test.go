@@ -5,7 +5,7 @@ package main
 import (
 	"testing"
 
-	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/loop"
 )
 
 func TestMinimalAdapterHasNoPool(t *testing.T) {
