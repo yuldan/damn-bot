@@ -205,6 +205,7 @@ func (r *providerResolver) resolveBuiltin(provName, modelName string, p *registr
 	if base == "" {
 		return provider.Route{}, fmt.Errorf("%w: provider %q has no default base_url; add a [[providers.custom]] entry or --base-url", ErrProviderResolve, provName)
 	}
+	base = localOpenAIBase(p, base, protocols, r.overrideBase == "" && r.e2eBase == "")
 	key := r.overrideKey
 	for _, env := range p.Env {
 		if key != "" {
