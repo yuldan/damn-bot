@@ -122,6 +122,33 @@ referensi Q14).
   saat penutupan F9 sesuai ADR-064 (baris selesai bila test acceptance lulus
   **dan** benchmark speed parity memenuhi target).
 
+## Smoke E1 live (2026-11-02)
+
+`h2h -smoke f5` dijalankan end-to-end pada `origin/main` **`965fd150`** (PHASE=F6),
+workstation, `nice -n 19`, `GOMAXPROCS=2`, `GOFLAGS=-p=1`, `ulimit -v` 4 GiB.
+Key upstream dibaca runtime dari `~/.config/damnbot/llm_key` (tidak dicetak/di-commit).
+
+| item | hasil |
+| --- | --- |
+| task | 10/10 `ran` (E1-104, 105, 106, 107, 110, 113, 117, 118, 154, 157) |
+| grader | 10/10 `pass` |
+| harness error | 0 |
+| completion | 78 (8 aborted); 1.263.395 prompt / 7.621 completion / 1.142.784 cached token |
+| biaya | **US$0,12038709**; ledger F5 `0,12038709/2,00`, F1 tetap `0,92200161/2,00` |
+| model | `gpt-5.4-mini` (override `-model`; default `openai/gpt-4o-mini` dijawab upstream `model_not_available`), harga 0,15/0,015/0,60 per Mtok |
+| artefak | `bench/h2h/results/2026-11-02-f5-e1-smoke/` (`summary.json`, 10 rekaman + `background.proxy.jsonl.gz`, `ORIGIN.md`) |
+| penjaga | `TestRecordingsNoKey` lulus, `TestAttributionHeaders` lulus |
+
+Catatan historis (defect harness pada run ini): `Hermes.Run` belum mengisi
+`StopReason`/`StopDetail` (`bench/h2h/hermes.go:104-106`), sehingga `categorizeRun`
+(`bench/h2h/run.go:179-193`) memberi kategori `upstream_unavailable` pada semua task yang
+lulus dan `Runner.Run` mengulang tiap task 2× — biaya total US$0,120387 vs US$0,039806 untuk
+attempt terakhir saja (3,02×); `summary.meta.selection` masih teks kuota smoke F1 dan
+`summary.meta.hermes_commit` kosong karena `git` menolak checkout `/opt/hermes-agent`
+(dubious ownership). Perilaku itu **sudah diperbaiki oleh #636** (StopReason/categorize/
+retry/selection/hermes_commit); artefak di atas dipertahankan apa adanya sebagai bukti
+sebelum fix. Commit hermes dicatat di `ORIGIN.md`.
+
 ## Perintah bukti
 
 ```sh
