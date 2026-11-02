@@ -14,6 +14,7 @@
 /internal/acp/ @yuldan
 /internal/assemble/ @yuldan
 /internal/boundary/ @yuldan
+/internal/browser/ @yuldan
 /internal/backup/ @yuldan
 /internal/doctor/ @yuldan
 /internal/budget/ @yuldan
@@ -30,6 +31,7 @@
 /internal/modules/ @yuldan
 /internal/mcp/ @yuldan
 /internal/memory/ @yuldan
+/internal/media/ @yuldan
 /internal/importer/ @yuldan
 /internal/codeintel/ @yuldan
 /internal/exec/ @yuldan
@@ -47,8 +49,11 @@
 /internal/e2e/ @yuldan
 /internal/tools/ @yuldan
 /internal/toolset/ @yuldan
+/internal/voice/ @yuldan
+/internal/webtools/ @yuldan
 /internal/tui/ @yuldan
 /internal/cron/ @yuldan
+/internal/computeruse/ @yuldan
 /internal/gateway/ @yuldan
 /internal/hooks/ @yuldan
 /internal/obs/ @yuldan

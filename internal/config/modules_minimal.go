@@ -18,3 +18,6 @@ func (m *Modules) normalizeMCP() {}
 
 // validateMCP is a no-op: the key never decodes in this build.
 func (m *Modules) validateMCP() error { return nil }
+
+// validateF6 is a no-op: the F6 sections never decode in this build (ADR-310).
+func (m *Modules) validateF6() error { return nil }
