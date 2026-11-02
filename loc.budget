@@ -50,6 +50,10 @@ plan               600 internal/plan
 # ADR-302 (EC-PROV-002): provider 2.220 -> 2.410 (terukur 2.404), provider/gemini
 # 885 -> 1.040 (terukur 1.030). Sigma core 53.740 -> 54.085 (headroom 15).
 provider          2410 internal/provider
+# ADR-303 (F5-14 PR A1): credential pool SPEC §4.1. Baris baru
+# `provider/credpool` (tipe/pilih/cooldown/redaksi/error; terukur 230).
+# Belum diimpor provider pada slice ini; build minimal tidak berubah.
+provider/credpool  230 internal/provider/credpool
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses
 provider/anthropic  645 internal/provider/anthropic
