@@ -18,6 +18,7 @@ func fakeContainerCLI(t *testing.T, dir, image string) (binary, logPath string) 
 	logPath = filepath.Join(dir, "argv.log")
 	binary = filepath.Join(dir, "fake-container")
 	script := `#!/bin/sh
+if [ "$1" = "cgroup" ] && [ "$2" = "status" ]; then printf 'cgroup: enabled\n'; exit 0; fi
 printf '%s\n' "$@" >> ` + shellQuote(logPath) + `
 found=0
 for a in "$@"; do

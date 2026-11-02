@@ -10,6 +10,10 @@ type Config struct {
 	FeedURL     string `toml:"feed_url" json:"feed_url"`
 	Channel     string `toml:"channel" json:"channel"`
 	AutoInstall bool   `toml:"auto_install" json:"auto_install"`
+	// CatalogPublicKey is the base64 ed25519 key that signs provider/MCP
+	// catalog manifests (GAP-SEC-20). Empty means non-embedded catalogs are
+	// refused, never accepted unsigned.
+	CatalogPublicKey string `toml:"catalog_public_key" json:"catalog_public_key"`
 }
 
 // DefaultConfig returns the safe SPEC §12 defaults.
@@ -19,6 +23,9 @@ func DefaultConfig() Config { return Config{Channel: channelStable} }
 func (c Config) Validate() error {
 	if c.Channel != channelStable && c.Channel != channelBeta {
 		return fmt.Errorf("update.channel must be %q or %q", channelStable, channelBeta)
+	}
+	if err := validateCatalogPublicKey(c.CatalogPublicKey); err != nil {
+		return err
 	}
 	if c.FeedURL == "" {
 		return nil
