@@ -216,26 +216,6 @@ type Providers struct {
 	Custom []CustomProvider `toml:"custom"`
 }
 
-// CustomProvider is one PROVIDERS.md custom provider (12 fields). APIKey may
-// only be a keychain reference; Streaming nil means true.
-type CustomProvider struct {
-	Name                  string            `toml:"name"`
-	BaseURL               string            `toml:"base_url"`
-	API                   string            `toml:"api"`
-	APIKeyEnv             string            `toml:"api_key_env"`
-	APIKey                string            `toml:"api_key"`
-	KeyCmd                []string          `toml:"key_cmd"`
-	Models                []CustomModel     `toml:"models"`
-	ExtraHeaders          map[string]string `toml:"extra_headers"`
-	ExtraBody             map[string]any    `toml:"extra_body"`
-	TLS                   *CustomTLS        `toml:"tls"`
-	SessionAffinityHeader string            `toml:"session_affinity_header"`
-	Streaming             *bool             `toml:"streaming"`
-	// Override lets this entry replace a built-in catalog id (SEC-24); a
-	// collision without it is a startup error.
-	Override bool `toml:"override" json:"override"`
-}
-
 // CustomModel is one model of a custom provider.
 type CustomModel struct {
 	ID            string   `toml:"id"`
