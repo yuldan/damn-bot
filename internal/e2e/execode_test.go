@@ -63,8 +63,9 @@ func TestExecuteCodeNetworkDenyBinary(t *testing.T) {
 	}
 }
 
-// TestExecuteCodeApprovalBinary: ask/auto-edit and untrusted auto never spawn;
-// the trusted auto+allowlist path runs only through docker (skipOrFail).
+// TestExecuteCodeApprovalBinary: ask/auto-edit and untrusted auto never spawn.
+// The trusted docker-positive path lives in execode_docker_test.go (tag
+// e2e_docker) so only the fixture job compiles it.
 func TestExecuteCodeApprovalBinary(t *testing.T) {
 	t.Parallel()
 	code := `{"language":"python","code":"print('e2e-code-ok')"}`
@@ -95,15 +96,6 @@ func TestExecuteCodeApprovalBinary(t *testing.T) {
 			}
 		})
 	}
-	t.Run("auto trusted docker", func(t *testing.T) {
-		image := dockerOrFail(t)
-		e := NewTrusted(t, ToolCallReply("c1", "execute_code", code), providertest.Text("done"))
-		writeExecConfig(t, e, "[exec]\nbackend = \"docker\"\ncode_auto_languages = [\"python\"]\n[exec.backends.docker]\nbinary = \"docker\"\nimage = \""+image+"\"\nuser = \"65534:65534\"\nnetwork = \"none\"\n")
-		res := e.Run("run code", "--approval", "auto")
-		if res.Code != 0 || !strings.Contains(e.RequestText(t, 1), "e2e-code-ok") {
-			t.Fatalf("docker execute_code failed: %+v", res)
-		}
-	})
 }
 
 // TestProcessBinarySmoke: shell background -> process_list -> process_wait ->
