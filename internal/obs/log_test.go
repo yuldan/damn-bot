@@ -2,6 +2,9 @@ package obs
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -205,25 +208,54 @@ func TestLogHandlerEdgeValues(t *testing.T) {
 // content-free at INFO and only carries body at DEBUG with the flag on; the
 // per-install salt is stable and 32 bytes.
 func TestSetupLogWritesContentFreeFile(t *testing.T) {
-	const canary = "FILE-CANARY-77"
+	const (
+		canary = "FILE-CANARY-77"
+		chatID = "123"
+	)
 	dir := t.TempDir()
+	// SetupLog installs the handler as slog's process-wide default. Restore the
+	// previous default even when an assertion fails before stop, so this test
+	// cannot leak logger state into later tests of this binary.
+	prior := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prior) })
 	stop, err := SetupLog(dir, "serve", "debug", true, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
-	slog.Info("info", "text", canary, "chat_id", "123")
+	stopped := false
+	t.Cleanup(func() {
+		// Only reached when a Fatal above skipped the explicit stop; the test
+		// already failed, but report a close error instead of swallowing it.
+		if !stopped {
+			if cerr := stop(); cerr != nil {
+				t.Errorf("stop: %v", cerr)
+			}
+		}
+	})
+	slog.Info("info", "text", canary, "chat_id", chatID)
 	slog.Debug("debug", "text", canary)
-	if cerr := stop(); cerr != nil {
+	cerr := stop()
+	stopped = true
+	if cerr != nil {
 		t.Fatal(cerr)
 	}
-	assertLogContent(t, dir, canary)
 	salt := assertSalt(t, dir)
-	_ = salt
+	assertLogContent(t, dir, salt, canary, chatID)
 	assertLogModes(t, dir)
 }
 
+// hmacID mirrors the handler's keyed identifier format: HMAC-SHA256 truncated
+// to 12 hex chars. Comparing against it keeps the assertion deterministic; a
+// substring check (strings.Contains(id, raw)) false-positives whenever the hex
+// digest happens to contain the raw digits.
+func hmacID(salt []byte, value string) string {
+	m := hmac.New(sha256.New, salt)
+	m.Write([]byte(value))
+	return hex.EncodeToString(m.Sum(nil))[:12]
+}
+
 // assertLogContent checks the INFO redaction and the DEBUG body.
-func assertLogContent(t *testing.T, dir, canary string) {
+func assertLogContent(t *testing.T, dir string, salt []byte, canary, rawID string) {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(dir, "logs", "serve.log")) // #nosec G304 -- temp data dir
 	if err != nil {
@@ -244,8 +276,10 @@ func assertLogContent(t *testing.T, dir, canary string) {
 	if _, ok := info["text"]; ok {
 		t.Fatalf("INFO line kept text: %v", info)
 	}
-	if id := mapStr(t, info, "chat_id"); strings.Contains(id, "123") {
-		t.Fatalf("INFO line kept chat id: %v", info)
+	id := mapStr(t, info, "chat_id")
+	if want := hmacID(salt, rawID); id != want {
+		t.Fatalf("INFO line kept chat id: chat_id = %q, want keyed hash %q of %q: %v",
+			id, want, rawID, info)
 	}
 	if body := mapStr(t, debug, "text"); body != canary {
 		t.Fatalf("DEBUG body = %q, want canary", body)
