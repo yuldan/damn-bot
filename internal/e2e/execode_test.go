@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -36,7 +37,7 @@ func dockerOrFail(t *testing.T) string {
 	if err == nil && image != "" {
 		return image
 	}
-	t.Skipf("docker/image unavailable: %v image=%q", err, image)
+	skipOrFail(t, fmt.Sprintf("docker/image unavailable: %v image=%q", err, image))
 	return ""
 }
 

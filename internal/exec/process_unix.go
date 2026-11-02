@@ -10,6 +10,9 @@ import (
 	"syscall"
 )
 
+// BackgroundSupported is true where startBackground can own the process tree.
+const BackgroundSupported = true
+
 // startBackground starts argv in its own process group with a pipe stdin
 // and ring-buffered combined output.
 func startBackground(ctx context.Context, sp spawnSpec) (*cmdHandle, error) {
