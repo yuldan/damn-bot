@@ -21,6 +21,7 @@ import (
 	"github.com/damnbot/damnbot/internal/provider"
 	"github.com/damnbot/damnbot/internal/provider/gemini"
 	"github.com/damnbot/damnbot/internal/provider/registry"
+	"github.com/damnbot/damnbot/internal/testutil/phase"
 )
 
 // reply is one scripted fake generateContent response.
@@ -107,13 +108,22 @@ func route(model, base string) provider.Route {
 }
 
 func newClient(t *testing.T, routes []provider.Route, fallback []string, attempts int) *provider.OpenAI {
+	return newClientWith(t, routes, fallback, attempts, nil, nil)
+}
+
+// newClientWith injects the call clock and retry wait so a checkpoint TTL is
+// testable without sleeping.
+func newClientWith(t *testing.T, routes []provider.Route, fallback []string, attempts int, now func() time.Time, wait func(context.Context, time.Duration) error) *provider.OpenAI {
 	t.Helper()
 	n := netx.New(netx.Config{})
 	t.Cleanup(n.CloseIdleConnections)
+	if wait == nil {
+		wait = func(context.Context, time.Duration) error { return nil }
+	}
 	o, err := provider.NewOpenAI(n.Client("provider", netx.Inference), &provider.Config{
 		Routes: routes, Fallback: fallback, Attempts: attempts, UserAgent: "damnbot/test",
 		Wires: map[registry.Protocol]provider.Wire{registry.ProtocolGemini: gemini.New()},
-		Wait:  func(context.Context, time.Duration) error { return nil },
+		Wait:  wait, Now: now,
 	})
 	if err != nil {
 		t.Fatalf("NewOpenAI: %v", err)
@@ -523,5 +533,114 @@ func TestMissingFunctionName(t *testing.T) {
 	var pe *provider.Error
 	if !errors.As(err, &pe) || pe.Class != retry.BadRequest || !strings.Contains(err.Error(), "no matching function call name") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+// TestResumeTruncatedText (EC-PROV-002): a drop after a complete text part is
+// resumed from that checkpoint; the final answer equals the uninterrupted
+// stream and the prefix is not emitted twice.
+func TestResumeTruncatedText(t *testing.T) {
+	t.Parallel()
+	phase.Current(t).Item(t, "EC-PROV-002", "F5", "covered")
+	full := newFake(t, reply{raw: fixture(t, "text.sse")})
+	want, err := newClient(t, []provider.Route{route("m", full.URL())}, nil, 0).Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+	if err != nil {
+		t.Fatalf("uninterrupted Do: %v", err)
+	}
+	f := newFake(t, reply{raw: fixture(t, "text_partial.sse")}, reply{raw: fixture(t, "text.sse")})
+	var chunks []string
+	resp, err := newClient(t, []provider.Route{route("m", f.URL())}, nil, 2).Do(t.Context(), provider.PurposeTurn, ask("hi"), func(c provider.Chunk) {
+		chunks = append(chunks, string(c.Content))
+	})
+	if err != nil {
+		t.Fatalf("resumed Do: %v", err)
+	}
+	if resp.Content != want.Content || resp.FinishReason != want.FinishReason {
+		t.Fatalf("resumed = %+v, want %+v", resp, want)
+	}
+	if resp.Content != "Hello world" || strings.Count(resp.Content, "Hello") != 1 {
+		t.Fatalf("duplicated content: %q", resp.Content)
+	}
+	if joined := strings.Join(chunks, ""); joined != "Hello world" {
+		t.Fatalf("streamed chunks = %q, want the full text once", joined)
+	}
+	if reqs, _, _ := f.requests(); len(reqs) != 2 || resp.Attempts != 2 {
+		t.Fatalf("requests/attempts = %d/%d, want 2/2", len(reqs), resp.Attempts)
+	}
+}
+
+// TestResumeToolCall: function calls and their signatures already received
+// are verified against the checkpoint and not appended twice.
+func TestResumeToolCall(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "tool_partial.sse")}, reply{raw: fixture(t, "tool.sse")})
+	c := newClient(t, []provider.Route{route("m", f.URL())}, nil, 2)
+	req := ask("ls")
+	req.Tools = []provider.ToolSchema{{Name: "shell", Parameters: json.RawMessage(`{"type":"object"}`)}}
+	resp, err := c.Do(t.Context(), provider.PurposeTurn, req, nil)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	if len(resp.ToolCalls) != 2 {
+		t.Fatalf("tool calls = %+v, want 2", resp.ToolCalls)
+	}
+	names := []string{resp.ToolCalls[0].Name, resp.ToolCalls[1].Name}
+	if names[0] != "shell" || names[1] != "read" {
+		t.Fatalf("tool call order = %v", names)
+	}
+	if len(resp.Carriers) != 2 {
+		t.Fatalf("carriers = %d, want 2", len(resp.Carriers))
+	}
+}
+
+// TestResumeStaleCheckpoint: a resumed stream that does not replay the
+// checkpoint fails closed with ErrCheckpointStale, never a doubled answer.
+func TestResumeStaleCheckpoint(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "text_partial.sse")}, reply{raw: fixture(t, "text_other.sse")})
+	resp, err := newClient(t, []provider.Route{route("m", f.URL())}, nil, 2).Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+	if !errors.Is(err, provider.ErrCheckpointStale) {
+		t.Fatalf("error = %v, want ErrCheckpointStale", err)
+	}
+	var pe *provider.Error
+	if !errors.As(err, &pe) || pe.Class != retry.Unclassified {
+		t.Fatalf("error = %v, want non-retryable provider error", err)
+	}
+	if strings.Contains(resp.Content, "Goodbye") || strings.Count(resp.Content, "Hello") > 1 {
+		t.Fatalf("stale checkpoint merged output: %q", resp.Content)
+	}
+}
+
+// TestResumeBudgetExhausted: the resume chain is bounded; a third break is a
+// clear failure, not a silent fresh restart that would duplicate content.
+func TestResumeBudgetExhausted(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "text_partial.sse")}, reply{raw: fixture(t, "text_partial.sse")}, reply{raw: fixture(t, "text_partial.sse")})
+	_, err := newClient(t, []provider.Route{route("m", f.URL())}, nil, 5).Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+	if !errors.Is(err, provider.ErrResumeExhausted) {
+		t.Fatalf("error = %v, want ErrResumeExhausted", err)
+	}
+	if reqs, _, _ := f.requests(); len(reqs) != 3 {
+		t.Fatalf("%d requests, want 3 (initial + 2 resumes)", len(reqs))
+	}
+}
+
+// TestResumeCheckpointTTL: a checkpoint older than the TTL is refused instead
+// of being replayed into a stale answer.
+func TestResumeCheckpointTTL(t *testing.T) {
+	t.Parallel()
+	f := newFake(t, reply{raw: fixture(t, "text_partial.sse")}, reply{raw: fixture(t, "text.sse")})
+	now := time.Unix(1_700_000_000, 0)
+	clock := func() time.Time { return now }
+	wait := func(context.Context, time.Duration) error {
+		now = now.Add(31 * time.Second)
+		return nil
+	}
+	_, err := newClientWith(t, []provider.Route{route("m", f.URL())}, nil, 2, clock, wait).Do(t.Context(), provider.PurposeTurn, ask("hi"), nil)
+	if !errors.Is(err, provider.ErrResumeExhausted) {
+		t.Fatalf("error = %v, want ErrResumeExhausted", err)
+	}
+	if reqs, _, _ := f.requests(); len(reqs) != 1 {
+		t.Fatalf("%d requests, want 1 (expired checkpoint not replayed)", len(reqs))
 	}
 }

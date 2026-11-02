@@ -52,3 +52,11 @@ func (wire) Sign(ctx context.Context, rt *provider.Route, req *http.Request, bod
 func (wire) Read(st *netx.Stream, start time.Time, onChunk func(provider.Chunk)) (provider.Response, error) {
 	return readStream(st, start, onChunk)
 }
+
+func (wire) ReadResume(st *netx.Stream, start time.Time, onChunk func(provider.Chunk), prev *provider.Response) (provider.Response, error) {
+	a, err := newAssembler(prev)
+	if err != nil {
+		return *prev, err
+	}
+	return a.read(st, start, onChunk)
+}

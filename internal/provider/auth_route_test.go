@@ -30,7 +30,7 @@ func TestRouteAuthSigner(t *testing.T) {
 		Provider: "custom", Model: "m", BaseURL: srv.URL, APIKey: "static-key",
 		Auth: auth.Bearer("signed-token"),
 	}
-	if _, err := attempt(context.Background(), c, rt, []byte(`{}`), 1, nil); err != nil {
+	if _, err := attempt(context.Background(), c, rt, []byte(`{}`), 1, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got.Get("Authorization") != "Bearer signed-token" {
@@ -44,7 +44,7 @@ func TestRouteAuthFailureIsAuthClass(t *testing.T) {
 	t.Parallel()
 	c := netx.New(netx.Config{}).Client("test", netx.Inference)
 	rt := &Route{Provider: "custom", Model: "m", BaseURL: "http://127.0.0.1:1", Auth: auth.Bearer("")}
-	_, err := attempt(context.Background(), c, rt, []byte(`{}`), 1, nil)
+	_, err := attempt(context.Background(), c, rt, []byte(`{}`), 1, nil, nil)
 	var perr *Error
 	if !errors.As(err, &perr) || perr.Class != retry.Auth {
 		t.Fatalf("err = %v, want auth class", err)

@@ -1,0 +1,2 @@
+data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"shell","args":{"cmd":"ls"}},"thoughtSignature":"sigA"}],"role":"model"},"index":0}],"modelVersion":"gemini-test","responseId":"resp-tool"}
+

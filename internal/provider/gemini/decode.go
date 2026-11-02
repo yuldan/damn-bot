@@ -3,12 +3,14 @@
 package gemini
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -33,6 +35,7 @@ type streamChunk struct {
 	PromptFeedback *promptFeedback `json:"promptFeedback"`
 	UsageMetadata  *wireUsage      `json:"usageMetadata"`
 	ModelVersion   string          `json:"modelVersion"`
+	ResponseID     string          `json:"responseId"`
 	Error          *wireError      `json:"error"`
 }
 
@@ -57,45 +60,95 @@ type wireError struct {
 	Message string `json:"message"`
 }
 
+type checkpoint struct {
+	content  string
+	contentN int
+	reason   string
+	reasonN  int
+	tools    []provider.ToolCall
+	toolN    int
+	sigs     []json.RawMessage
+	sigN     int
+	streamID string
+	model    string
+}
+
 // assembler turns generateContent chunks into a provider.Response.
 type assembler struct {
-	content []byte
-	reason  []byte
-	sigs    []json.RawMessage
-	tools   []provider.ToolCall
-	finish  string
-	usage   wireUsage
-	model   string
-	ttft    time.Duration
-	size    int
+	content  []byte
+	reason   []byte
+	sigs     []json.RawMessage
+	tools    []provider.ToolCall
+	finish   string
+	usage    wireUsage
+	model    string
+	streamID string
+	ttft     time.Duration
+	size     int
+	cp       *checkpoint
 }
 
 // readStream decodes and assembles a 2xx generateContent event stream.
 func readStream(st *netx.Stream, start time.Time, onChunk func(provider.Chunk)) (provider.Response, error) {
-	a := &assembler{}
+	return (&assembler{}).read(st, start, onChunk)
+}
+
+func newAssembler(prev *provider.Response) (*assembler, error) {
+	if prev == nil {
+		return &assembler{}, nil
+	}
+	if len(prev.Content) == 0 && len(prev.ReasoningText) == 0 && len(prev.ToolCalls) == 0 && len(prev.Reasoning) == 0 {
+		return nil, stale("empty checkpoint")
+	}
+	cp := &checkpoint{
+		content: prev.Content, reason: prev.ReasoningText,
+		tools: slices.Clone(prev.ToolCalls), streamID: prev.StreamID, model: prev.Model,
+	}
+	if len(prev.Reasoning) > 0 && prev.ReasoningField == "reasoning" {
+		if err := json.Unmarshal(prev.Reasoning, &cp.sigs); err != nil {
+			return nil, stale("reasoning checkpoint: %v", err)
+		}
+	}
+	a := &assembler{
+		content: append([]byte(nil), prev.Content...), reason: append([]byte(nil), prev.ReasoningText...),
+		sigs: slices.Clone(cp.sigs), tools: slices.Clone(prev.ToolCalls),
+		usage: wireUsage{Prompt: prev.Usage.Input, Candidates: prev.Usage.Output, Cached: prev.Usage.CachedInput},
+		model: prev.Model, streamID: prev.StreamID, ttft: prev.TTFT,
+		size: len(prev.Content) + len(prev.ReasoningText) + len(prev.Reasoning) + len(prev.ToolCalls),
+		cp:   cp,
+	}
+	return a, nil
+}
+
+func (a *assembler) read(st *netx.Stream, start time.Time, onChunk func(provider.Chunk)) (provider.Response, error) {
 	for {
 		ev, err := st.Next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return provider.Response{}, fmt.Errorf("read event: %w", err)
+			return a.partial(), fmt.Errorf("read event: %w", err)
 		}
 		if string(ev.Data) == "[DONE]" {
 			break
 		}
 		var ch streamChunk
 		if err := json.Unmarshal(ev.Data, &ch); err != nil {
-			return provider.Response{}, &provider.Error{Class: retry.StreamBroken, Err: fmt.Errorf("decode event: %w", err)}
+			return a.partial(), &provider.Error{Class: retry.StreamBroken, Err: fmt.Errorf("decode event: %w", err)}
 		}
 		if ch.Error != nil {
-			return provider.Response{}, streamError(ev.Data, ch.Error)
+			return a.partial(), streamError(ev.Data, ch.Error)
 		}
 		if err := a.add(&ch, start, onChunk); err != nil {
-			return provider.Response{}, err
+			return a.partial(), err
 		}
 		if a.finish != "" {
 			break
+		}
+	}
+	if a.cp != nil {
+		if err := a.cp.done(); err != nil {
+			return a.partial(), err
 		}
 	}
 	return a.result()
@@ -103,7 +156,17 @@ func readStream(st *netx.Stream, start time.Time, onChunk func(provider.Chunk)) 
 
 // add applies one chunk: usage, candidate parts, then the finish reason.
 func (a *assembler) add(ch *streamChunk, start time.Time, onChunk func(provider.Chunk)) error {
+	if ch.ResponseID != "" {
+		if a.streamID == "" {
+			a.streamID = ch.ResponseID
+		} else if a.streamID != ch.ResponseID {
+			return stale("response id %q != %q", ch.ResponseID, a.streamID)
+		}
+	}
 	if ch.ModelVersion != "" {
+		if a.model != "" && a.model != ch.ModelVersion {
+			return stale("model %q != %q", ch.ModelVersion, a.model)
+		}
 		a.model = ch.ModelVersion
 	}
 	if ch.UsageMetadata != nil {
@@ -130,7 +193,6 @@ func (a *assembler) add(ch *streamChunk, start time.Time, onChunk func(provider.
 }
 
 // part records one content part: text, thought text, a function call, and its
-// thought signature (kept byte-identically for replay).
 func (a *assembler) part(raw json.RawMessage, start time.Time, onChunk func(provider.Chunk)) error {
 	if a.size += len(raw); a.size > maxResponseBytes {
 		return tooLarge()
@@ -139,40 +201,114 @@ func (a *assembler) part(raw json.RawMessage, start time.Time, onChunk func(prov
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return &provider.Error{Class: retry.StreamBroken, Err: fmt.Errorf("decode part: %w", err)}
 	}
-	if p.FunctionCall != nil {
-		call, err := toolCall(p.FunctionCall)
+	if err := a.function(p.FunctionCall); err != nil {
+		return err
+	}
+	if err := a.textPart(p, start, onChunk); err != nil {
+		return err
+	}
+	return a.signature(raw, p)
+}
+
+func (a *assembler) function(fc *fnCall) error {
+	if fc == nil {
+		return nil
+	}
+	call, err := toolCall(fc)
+	if err != nil {
+		return err
+	}
+	if a.cp != nil && a.cp.toolN < len(a.cp.tools) {
+		if a.cp.tools[a.cp.toolN] != call {
+			return stale("function call %q", call.Name)
+		}
+		a.cp.toolN++
+		return nil
+	}
+	if len(a.tools) >= maxToolCalls {
+		return tooLarge()
+	}
+	a.tools = append(a.tools, call)
+	return nil
+}
+
+func (a *assembler) textPart(p part, start time.Time, onChunk func(provider.Chunk)) error {
+	if p.Text == "" {
+		return nil
+	}
+	text := p.Text
+	if a.cp != nil {
+		var err error
+		if p.Thought {
+			text, err = a.cp.consume(&a.cp.reason, &a.cp.reasonN, text)
+		} else {
+			text, err = a.cp.consume(&a.cp.content, &a.cp.contentN, text)
+		}
 		if err != nil {
 			return err
 		}
-		if len(a.tools) >= maxToolCalls {
-			return tooLarge()
-		}
-		a.tools = append(a.tools, call)
 	}
-	if p.Text != "" {
-		a.text(p, start, onChunk)
-	}
-	if len(p.ThoughtSignature) > 0 && string(p.ThoughtSignature) != "null" {
-		a.sigs = append(a.sigs, append(json.RawMessage(nil), raw...))
+	if text != "" {
+		a.text(p.Thought, text, start, onChunk)
 	}
 	return nil
 }
 
-func (a *assembler) text(p part, start time.Time, onChunk func(provider.Chunk)) {
-	if p.Thought {
-		a.reason = append(a.reason, p.Text...)
+func (a *assembler) signature(raw json.RawMessage, p part) error {
+	if len(p.ThoughtSignature) == 0 || string(p.ThoughtSignature) == "null" {
+		return nil
+	}
+	if a.cp != nil && a.cp.sigN < len(a.cp.sigs) {
+		if !bytes.Equal(raw, a.cp.sigs[a.cp.sigN]) {
+			return stale("thought signature")
+		}
+		a.cp.sigN++
+		return nil
+	}
+	a.sigs = append(a.sigs, append(json.RawMessage(nil), raw...))
+	return nil
+}
+
+func (a *assembler) text(thought bool, s string, start time.Time, onChunk func(provider.Chunk)) {
+	if thought {
+		a.reason = append(a.reason, s...)
 		if onChunk != nil {
-			onChunk(provider.Chunk{Reasoning: []byte(p.Text)})
+			onChunk(provider.Chunk{Reasoning: []byte(s)})
 		}
 	} else {
-		a.content = append(a.content, p.Text...)
+		a.content = append(a.content, s...)
 		if onChunk != nil {
-			onChunk(provider.Chunk{Content: []byte(p.Text)})
+			onChunk(provider.Chunk{Content: []byte(s)})
 		}
 	}
 	if a.ttft == 0 {
 		a.ttft = time.Since(start)
 	}
+}
+
+func (c *checkpoint) consume(expected *string, pos *int, in string) (string, error) {
+	if *pos >= len(*expected) {
+		return in, nil
+	}
+	rem := (*expected)[*pos:]
+	n := min(len(rem), len(in))
+	if in[:n] != rem[:n] {
+		return "", stale("content prefix")
+	}
+	*pos += n
+	return in[n:], nil
+}
+
+func (c *checkpoint) done() error {
+	if c.contentN != len(c.content) || c.reasonN != len(c.reason) ||
+		c.toolN != len(c.tools) || c.sigN != len(c.sigs) {
+		return stale("prefix not replayed")
+	}
+	return nil
+}
+
+func stale(format string, args ...any) error {
+	return &provider.Error{Class: retry.Unclassified, Err: fmt.Errorf("%w: %s", provider.ErrCheckpointStale, fmt.Sprintf(format, args...))}
 }
 
 // toolCall names a function call with a deterministic id derived from its
@@ -190,22 +326,20 @@ func toolCall(fc *fnCall) (provider.ToolCall, error) {
 	return provider.ToolCall{ID: "fc_" + hex.EncodeToString(sum[:8]), Name: fc.Name, ArgumentsRaw: string(args)}, nil
 }
 
-// result validates and returns the assembled response. A STOP that carries
-// function calls is a tool-call turn, as the loop expects from every wire.
-func (a *assembler) result() (provider.Response, error) {
-	if a.finish == "" {
-		return provider.Response{}, &provider.Error{Class: retry.StreamBroken, Err: provider.ErrStreamBroken}
-	}
-	if len(a.tools) > 0 && a.finish == provider.FinishStop {
-		a.finish = provider.FinishToolCalls
-	}
+func (a *assembler) partial() provider.Response {
+	r := a.snapshot()
+	r.FinishReason = a.finish
+	return r
+}
+
+func (a *assembler) snapshot() provider.Response {
 	r := provider.Response{
-		Content:      string(a.content),
-		ToolCalls:    a.tools,
-		FinishReason: a.finish,
-		Model:        a.model,
-		TTFT:         a.ttft,
-		Usage:        budget.Usage{Input: a.usage.Prompt, CachedInput: a.usage.Cached, Output: a.usage.Candidates},
+		Content:   string(a.content),
+		ToolCalls: slices.Clone(a.tools),
+		Model:     a.model,
+		StreamID:  a.streamID,
+		TTFT:      a.ttft,
+		Usage:     budget.Usage{Input: a.usage.Prompt, CachedInput: a.usage.Cached, Output: a.usage.Candidates},
 	}
 	if len(a.sigs) > 0 {
 		r.Reasoning = joinRaw(a.sigs)
@@ -214,6 +348,18 @@ func (a *assembler) result() (provider.Response, error) {
 	if len(a.reason) > 0 {
 		r.ReasoningText = string(a.reason)
 	}
+	return r
+}
+
+func (a *assembler) result() (provider.Response, error) {
+	if a.finish == "" {
+		return a.partial(), &provider.Error{Class: retry.StreamBroken, Err: provider.ErrStreamBroken}
+	}
+	if len(a.tools) > 0 && a.finish == provider.FinishStop {
+		a.finish = provider.FinishToolCalls
+	}
+	r := a.snapshot()
+	r.FinishReason = a.finish
 	if r.FinishReason == provider.FinishStop && strings.TrimSpace(r.Content) == "" && len(r.ToolCalls) == 0 {
 		return r, &provider.Error{Class: retry.EmptyResponse, Err: provider.ErrEmptyResponse}
 	}

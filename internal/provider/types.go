@@ -122,8 +122,7 @@ type Request struct {
 	ReasoningEffort string
 }
 
-// Response is the assembled result of a call.
-type Response struct {
+type responseFull struct {
 	Content      string
 	ToolCalls    []ToolCall
 	FinishReason string
@@ -135,6 +134,7 @@ type Response struct {
 	Usage          budget.Usage
 	EstInputTokens int64 // budget Counts.Raw of the request (ADR-101)
 	Model          string
+	StreamID       string
 	Attempts       int
 	FallbackFrom   string
 	CredentialID   string
