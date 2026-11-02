@@ -179,6 +179,76 @@ func TestBackgroundSpawnRace(t *testing.T) {
 	}
 }
 
+// TestBackgroundStartReapRace spawns 200 short-lived processes and reads
+// their state through Start/Poll/Wait while reap records the final status.
+// Run under -race: the recorded state must be guarded by the registry lock,
+// not read through the bgProc the reaper is mutating.
+func TestBackgroundStartReapRace(t *testing.T) {
+	t.Parallel()
+	b := NewBackground()
+	t.Cleanup(func() {
+		if err := b.Close(context.Background()); err != nil {
+			t.Logf("close: %v", err)
+		}
+	})
+	for i := range 200 {
+		startAndDrain(t, b, i)
+	}
+	assertBackgroundIsolationAndCap(t, b)
+}
+
+// startAndDrain starts one short-lived process and reads its state through
+// Poll/Wait while reap publishes the final status.
+func startAndDrain(t *testing.T, b *Background, i int) {
+	t.Helper()
+	session := fmt.Sprintf("s%d", i%4)
+	info, err := b.Start(t.Context(), session, []string{"/bin/sh", "-c", "sleep 0.01"}, "/tmp",
+		[]string{"PATH=/bin:/usr/bin"})
+	if err != nil {
+		t.Fatalf("start %d: %v", i, err)
+	}
+	if info.Status != ProcessRunning {
+		t.Fatalf("start %d status = %s", i, info.Status)
+	}
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for range 20 {
+			pr, err := b.Poll(session, info.ID, 0, 0, "")
+			if err != nil || pr.Info.Status != ProcessRunning {
+				return
+			}
+		}
+	})
+	wg.Go(func() {
+		if _, still, err := b.Wait(t.Context(), session, info.ID, 5*time.Second); err != nil || still {
+			t.Errorf("wait %d: still=%v err=%v", i, still, err)
+		}
+	})
+	wg.Wait()
+}
+
+// assertBackgroundIsolationAndCap pins the negative controls: session
+// isolation and the per-session live-process cap.
+func assertBackgroundIsolationAndCap(t *testing.T, b *Background) {
+	t.Helper()
+	owner := bgStart(t, b, "owner", "sleep 30")
+	if _, err := b.Poll("other", owner.ID, 0, 0, ""); !errors.Is(err, ErrProcessNotFound) {
+		t.Fatalf("foreign poll = %v", err)
+	}
+	if _, err := b.Kill(t.Context(), "other", owner.ID, "KILL"); !errors.Is(err, ErrProcessNotFound) {
+		t.Fatalf("foreign kill = %v", err)
+	}
+	if _, _, err := b.Wait(t.Context(), "other", owner.ID, time.Second); !errors.Is(err, ErrProcessNotFound) {
+		t.Fatalf("foreign wait = %v", err)
+	}
+	for range MaxLivePerSession {
+		bgStart(t, b, "cap", "sleep 30")
+	}
+	if _, err := b.Start(t.Context(), "cap", trueCommand(t), "/tmp", nil); !errors.Is(err, ErrProcessLimit) {
+		t.Fatalf("cap = %v", err)
+	}
+}
+
 func TestRingBoundedAndOffsets(t *testing.T) {
 	t.Parallel()
 	r := newRing(16)
