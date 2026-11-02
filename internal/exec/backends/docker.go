@@ -123,6 +123,7 @@ func (d *Docker) Run(ctx context.Context, spec *exec.Spec) (exec.Result, error) 
 	if envFile != "" {
 		removeTemp(envFile)
 	}
+	res.Execution = sandboxExecution(d.ID(), "container replaces host execution")
 	return res, rerr
 }
 

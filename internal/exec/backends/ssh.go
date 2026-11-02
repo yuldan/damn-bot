@@ -115,7 +115,7 @@ func (s *SSH) Run(ctx context.Context, spec *exec.Spec) (exec.Result, error) {
 		return exec.Result{Status: exec.StatusSpawnFailed}, err
 	}
 	id := exec.NewExecID()
-	res := exec.Result{ExecID: id, Runner: s.ID(), Status: exec.StatusExited}
+	res := exec.Result{ExecID: id, Runner: s.ID(), Status: exec.StatusExited, Execution: sandboxExecution(s.ID(), "remote host replaces local execution")}
 	client, release, err := s.pool.acquire(ctx)
 	if err != nil {
 		res.Status = exec.StatusSpawnFailed

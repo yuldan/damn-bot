@@ -360,11 +360,15 @@ func (t *shellTool) render(ctx context.Context, env Env, res *exec.Result, runEr
 		return Result{}, &ToolError{Code: CodeInternal, Message: "shell summary: " + err.Error(), Err: err}
 	}
 	content := sum.Header
+	if res.Execution.Sandboxed {
+		content = "[sandbox: " + res.Execution.Backend + " - host execution replaced]\n" + content
+	}
 	if sum.Text != "" {
 		content += "\n" + sum.Text
 	}
 	meta := map[string]any{
 		"status": string(res.Status), "runner": res.Runner,
+		"execution":   res.Execution,
 		"duration_ms": res.Duration.Milliseconds(), "bytes_raw": res.BytesRaw,
 		"truncated": res.Truncated,
 	}

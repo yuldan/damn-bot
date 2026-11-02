@@ -35,7 +35,9 @@ func (l *Local) Run(ctx context.Context, spec *Spec) (Result, error) {
 	if spec.Limits.Set() {
 		return Result{Status: StatusSpawnFailed}, fmt.Errorf("%w: local: resource_limits", ErrCapability)
 	}
-	return l.Runner.Run(ctx, spec)
+	res, err := l.Runner.Run(ctx, spec)
+	res.Execution = Execution{Backend: "local"}
+	return res, err
 }
 
 // Sweep kills every remaining process carrying execID's marker (§A.4).
