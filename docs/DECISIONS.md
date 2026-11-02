@@ -5932,3 +5932,47 @@ ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaika
 **Konsekuensi.** (+) F5 ditutup dengan bukti yang dapat dijalankan dan residual yang eksplisit, bukan `LULUS-SEBAGIAN` yang menggantung. (+) Gate inkremental F6 langsung menuntut EC F5 yang sama pada setiap PR. (−) Dua gap F5 (bahasa codeintel JS/TS/Python dan background Windows) tetap harus ditutup di F6; SEC-22 tetap artefak rilis F9.
 
 **Amandemen 2026-11-02 (status baris parity F5).** `docs/FEATURE-PARITY.md` memiliki **201 baris berfase F5** (Σ baris penyebut gate 837; dikunci `TestParityPhaseColumn` dan ROADMAP §"Pemetaan parity → fase"), seluruhnya `planned`. Kolom `status` parity adalah cakupan (`planned`/`dropped-with-approval`/`external-bridge`), bukan status implementasi; tidak ada nilai `covered` yang perlu diisi di F5, dan tidak ada baris yang diubah. Gate parity 837/837 baru dijalankan di F9 (ADR-054). Fakta ini dicatat di `docs/F5-ACCEPTANCE.md` §"Baris parity F5". Tanpa kode, dependency, config, migrasi, atau `loc.budget`.
+
+## ADR-309 — Nama paket modul F6, pemetaan modul → paket, dan baris `MODULE` anggaran F6
+
+**Status:** **Proposed** (usulan docs-only, 2026-11-02). Belum Accepted; tidak mengubah kode, `loc.budget`, SPEC, dependency, config key, atau migrasi. Usulan ini menjadi keputusan berlaku hanya bila PR fondasi F6 mengubah statusnya menjadi Accepted (amandemen ADR ini) dan merealisasikan baris, konstanta, serta matriks yang disebut di bawah.
+
+**Konteks.**
+1. SPEC §3.2.4 menetapkan lima baris modul F6 dengan plafon per baris (SPEC.md:293-297): `web` 0,6 MB/3.000, `browser` 1,2 MB/5.500, `media` 1,2 MB/9.500, `voice` 0,8 MB/4.500, `computer-use` 0,4 MB/2.000 — Σ **24.500 LOC** dan **4,2 MB**, sudah termasuk Σ tabel (SPEC.md:308: 48,4 MB ≤ 52 MB; 184.900 ≤ 190.000). ROADMAP F6 memakai angka Σ yang sama (docs/ROADMAP.md:17,185).
+2. Nama `internal/web` sudah dipakai frontend web UI F8 (docs/ENGINEERING.md:162) dan terikat matriks import sebagai frontend (internal/archtest/allowed.go:43). Modul SPEC `web` karena itu tidak boleh memakai path itu: tanpa keputusan, slice pertama gagal `TestImportGraph` atau menabrak budget F8.
+3. `loc.budget` belum punya baris F6. Gate `TestLocBudgetModuleRows` membatasi Σ `MODULE` pada `maxModuleLOC` **61.000** (internal/archtest/budget_module_test.go:14) sedangkan Σ baris sekarang **58.800** — sisa 2.200, dan **733** setelah `backup` 1.467 (loc.budget:214). Menambah 24.500 tanpa ADR berarti gate merah; nama dan cap `MODULE` baru juga harus masuk allowlist `wantCaps` (internal/archtest/budget_module_test.go:121-127) lewat ADR, bukan sekadar sunting baris.
+4. Ruang core untuk wiring F6 hanya **46 baris**: Σ core `loc.budget` 55.604 vs `maxCoreLOC` 55.650 (internal/archtest/repometa_test.go:18).
+5. `modules.Descriptor` membatasi ID ke `[a-z0-9_-]` (internal/modules/registry.go:310-333) dan mewajibkan `ConfigKey` ber-prefix `modules.` (internal/modules/registry.go:287-288). Nama paket, ID modul, grup katalog, dan section config karena itu diputuskan bersama-sama.
+
+**Keputusan.**
+1. **Pemetaan modul → paket (root wajib).** Nama paket mengikuti fungsi, bukan nama section SPEC, karena `internal/web` sudah menjadi milik F8.
+
+| Modul SPEC | Baris SPEC | Paket root | ID / Group | ConfigKey | Tool deferred (contoh, bukan pembekuan schema) |
+|---|---|---|---|---|---|
+| `web` | SPEC.md:293 | `internal/webtools` | `web` / `web` | `modules.web` | `web_search`, `web_extract` |
+| `browser` | SPEC.md:294 | `internal/browser` | `browser` / `browser` | `modules.browser` | 11 tool `browser_*`, `browser_cdp`, `browser_dialog`, `browser_exec` |
+| `media` | SPEC.md:295 | `internal/media` | `media` / `media` | `modules.media` | `doc_read`, `doc_write`, `vision_analyze`, `image_generate`, `video_*` |
+| `voice` | SPEC.md:296 | `internal/voice` | `voice` / `voice` | `modules.voice` | `text_to_speech` (voice mode bukan tool) |
+| `computer-use` | SPEC.md:297 | `internal/computeruse` | `computer_use` / `computer_use` | `modules.computer_use` | `computer_use` |
+
+2. **`internal/web` tetap milik F8.** Modul F6 tidak boleh menaruh kode, test, atau config key di `internal/web`; ADR ini tidak mengubah baris F8 maupun plafon web UI SPEC §3.2.4.
+3. **Subpaket daun yang diizinkan.** Root di atas boleh dipecah hanya ke direktori berikut, agar matriks import dan baris budget dapat dibekukan sekarang: `internal/browser/cdp` (framing/target CDP), `internal/media/doc` (`doc_read`/`doc_write` + batas streaming), `internal/media/preflight` (resize/MIME/limit), `internal/media/gen` (backend image/video via HTTP), `internal/voice/stt` (provider + chunking), `internal/voice/tts` (provider + streaming), `internal/voice/wake` (engine eksternal). Setiap direktori mendapat barisnya sendiri di `internal/archtest/allowed.go`; root boleh mengimpor daunnya, daun hanya boleh mengimpor `moduleImports()` (modules/host, netx + netx/jsonrpc + netx/retry, schema) dan tidak boleh mengimpor root atau daun saudara. Subpaket tambahan di luar daftar ini memerlukan amandemen ADR, bukan sekadar baris matriks baru (E-06).
+4. **Baris `loc.budget` yang diusulkan** (ditambahkan utuh oleh PR fondasi; angka = SPEC §3.2.4 apa adanya):
+
+```text
+MODULE webtools     3000 internal/webtools
+MODULE browser      5500 internal/browser internal/browser/cdp
+MODULE media        9500 internal/media internal/media/doc internal/media/preflight internal/media/gen
+MODULE voice        4500 internal/voice internal/voice/stt internal/voice/tts internal/voice/wake
+MODULE computeruse  2000 internal/computeruse
+```
+
+   Σ lima baris = **24.500**. Σ kelas `MODULE` 58.800 → **83.300**; dengan `backup` 1.467 → **84.767 ≤ 85.000**. PR fondasi karena itu menaikkan `maxModuleLOC` 61.000 → **85.000** (headroom 233) dan menambah cek keluarga F6 `maxF6ModuleLOC = 24500` seperti keluarga F3/F4, plus lima entri `wantCaps` di atas. `TOTAL` 190.000, tabel SPEC §3.2.4, dan `maxCoreLOC` tidak berubah oleh ADR ini.
+5. **Wiring core dibukukan terukur.** Perubahan yang tidak bisa ditaruh di paket modul (config section full/minimal, registry deferred/toolset, netx egress, budget guard, assemble retention, host seam) dibukukan pada baris core yang ada dengan angka `scc` terukur; bila melewati headroom 46 baris, PR fondasi menaikkan `maxCoreLOC` lewat amandemen ADR ini dengan angka ukur (pola ADR-271), atau membukukannya sebagai sub-baris `MODULE` (preseden ADR-268/272). Tidak ada kenaikan `maxCoreLOC` yang diklaim di draf ini.
+6. **Verifikasi PR fondasi.** `TestImportGraph`, `TestLocBudgetModuleRows` (termasuk cap/allowlist baru), `TestBudgetTableSum`, `TestDirectDeps` (tetap ≤ 28; F6 memakai dependency yang sudah ada), `make loc`, dan `make size-check` harus lulus sebelum status ADR ini menjadi Accepted. Deskriptor modul boleh mendarat tanpa tool (katalog kosong) pada PR yang sama; tool dan test per baris menyusul di slice masing-masing.
+
+**Bukan keputusan ADR ini.** Kanon nama tool (`web_extract` vs `web_fetch`; `browser_screenshot`/`browser_eval`/`browser_tabs` di SPEC §9.4 vs `browser_console`/`browser_vision`/`browser_vault` di FEATURE-PARITY), mekanisme transport WebSocket CDP (langsung `coder/websocket` vs seam `netx`), field config tiap modul, dan pemetaan MEDIA-030 ke paket gateway diputuskan di slice browser/web/config terkait dengan errata/ADR sendiri.
+
+**Dampak terukur.** PR ini docs-only: 0 baris Go, 0 binary, 0 dependency, 0 config key, 0 migrasi; baris `loc.budget` di atas baru usulan dan belum ditegakkan. Setelah PR fondasi: Σ `MODULE` 83.300 + `backup` 1.467 = 84.767 ≤ 85.000; `TOTAL` 190.000 tetap.
+
+**Konsekuensi.** (+) Nama paket F6 tidak bertabrakan dengan web UI F8 dan dapat langsung dipetakan ke matriks import serta baris budget. (+) Angka F6 mempunyai rumah penegakan (Σ baris + keluarga F6), bukan hanya tabel SPEC. (−) `85.000` adalah plafon baru yang harus disinkronkan di `loc.budget`, `internal/archtest/budget_module_test.go`, dan prosa ENGINEERING §2.4 pada PR fondasi; bila satu slice F6 melewati cap barisnya, diperlukan ADR baru, bukan geser antar-baris.
