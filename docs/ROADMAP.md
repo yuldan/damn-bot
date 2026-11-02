@@ -191,6 +191,7 @@ Storage ledger `budget` F1 = subpaket `internal/ctxdb/ledgerstore` (ADR-074, bar
 - EC-PROV-024 covered (ADR-077).
 - Test tertunda berfase F6 (ADR-083): `TestBudgetGuardTools`.
 - Baseline hermes untuk dimensi ADR-065/083 berstatus F6 diukur dengan harness yang sama untuk kedua agent (artefak `bench/…/results/hermes-868b9f244f-<fase>.json`) (ADR-083).
+- Ledger acceptance (86 baris parity, 9 GAP, EC, budget, baseline): [`F6-ACCEPTANCE.md`](F6-ACCEPTANCE.md) (ADR-309).
 
 ## F7 — Platform lain, API server, kanban
 
