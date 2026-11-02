@@ -16,7 +16,7 @@ import (
 // mustRunner builds a Runner for a test backend.
 func mustRunner(t *testing.T, b exec.Backend, env []string) *Runner {
 	t.Helper()
-	r, err := New(Config{Backend: b, Env: env, Lookup: stubLookup})
+	r, err := New(&Config{Backend: b, Env: env, Lookup: stubLookup})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestRunMissingInterpreterNamesCandidatesAndCleans(t *testing.T) {
 	t.Parallel()
 	b := newFake()
 	root := t.TempDir()
-	r, err := New(Config{Backend: b, Root: root, Lookup: func(Language, []string) ([]string, error) {
+	r, err := New(&Config{Backend: b, Root: root, Lookup: func(Language, []string) ([]string, error) {
 		return nil, fmt.Errorf("%w: interpreter for python not found (tried python3)", exec.ErrUnavailable)
 	}})
 	if err != nil {
@@ -185,7 +185,7 @@ func TestRunPropagatesBackendFailure(t *testing.T) {
 	if _, err := r.Run(t.Context(), &Request{Language: Python, Code: "1"}); err == nil {
 		t.Fatal("want error")
 	}
-	if _, err := New(Config{}); !errors.Is(err, ErrBackend) {
+	if _, err := New(&Config{}); !errors.Is(err, ErrBackend) {
 		t.Fatalf("nil backend = %v", err)
 	}
 }

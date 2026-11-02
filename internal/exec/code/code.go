@@ -7,6 +7,7 @@ package code
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -34,6 +35,7 @@ const (
 	Python     Language = "python"
 	JavaScript Language = "javascript"
 	Go         Language = "go"
+	Starlark   Language = "starlark"
 )
 
 // Errors.
@@ -76,6 +78,11 @@ type Isolation struct {
 	Memory  string // "rlimit" | "none"
 }
 
+// ToolInvoker dispatches one approved RPC tool call for Starlark.
+type ToolInvoker interface {
+	Tool(ctx context.Context, name string, args json.RawMessage) (json.RawMessage, error)
+}
+
 // Config wires the runner.
 type Config struct {
 	Backend exec.Backend // required
@@ -87,17 +94,23 @@ type Config struct {
 	// Lookup is a test seam for the interpreter resolver; nil uses the OS
 	// candidates (python3/py -3 on Windows, node, go).
 	Lookup func(lang Language, env []string) ([]string, error)
+	// Self is the damnbot executable used for the embedded Starlark child
+	// (__starlark). Empty uses os.Executable().
+	Self string
+	// Tool is the RPC pipeline seam for Starlark tool() calls; nil fails
+	// closed with module_unavailable.
+	Tool ToolInvoker
 }
 
 // Runner executes code through one backend.
 type Runner struct{ cfg Config }
 
 // New returns a Runner; a nil backend is rejected (fail closed).
-func New(cfg Config) (*Runner, error) {
-	if cfg.Backend == nil {
+func New(cfg *Config) (*Runner, error) {
+	if cfg == nil || cfg.Backend == nil {
 		return nil, fmt.Errorf("%w: nil backend", ErrBackend)
 	}
-	return &Runner{cfg: cfg}, nil
+	return &Runner{cfg: *cfg}, nil
 }
 
 // candidates is the OS-aware interpreter attempt list of one language. The
@@ -120,6 +133,8 @@ func candidates(lang Language, goos string) ([]string, [][]string, string, error
 			return []string{"go", "go.exe"}, [][]string{{"run"}, {"run"}}, "main.go", nil
 		}
 		return []string{"go"}, [][]string{{"run"}}, "main.go", nil
+	case Starlark:
+		return nil, nil, "main.star", nil
 	default:
 		return nil, nil, "", fmt.Errorf("%w: %q", ErrLanguage, lang)
 	}
@@ -132,6 +147,13 @@ func (r *Runner) interpreter(lang Language) ([]string, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	if lang == Starlark {
+		prefix, cerr := r.starlarkCommand()
+		if cerr != nil {
+			return nil, "", cerr
+		}
+		return append(append([]string(nil), prefix...), file), file, nil
+	}
 	lookup := r.cfg.Lookup
 	if lookup == nil {
 		lookup = func(lang Language, env []string) ([]string, error) {
@@ -143,6 +165,20 @@ func (r *Runner) interpreter(lang Language) ([]string, string, error) {
 		return nil, "", err
 	}
 	return append(append([]string(nil), prefix...), file), file, nil
+}
+
+// childEnv builds the backend environment and starts the private tool socket
+// for Starlark. The stop function is always safe to call.
+func (r *Runner) childEnv(ctx context.Context, dir string, lang Language, network string) ([]string, func(), error) {
+	childEnv := env(r.cfg.Env)
+	if lang != Starlark {
+		return childEnv, func() {}, nil
+	}
+	sock, stop, err := r.startToolServer(ctx, dir, network)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	return append(childEnv, "DAMNBOT_TOOL_SOCKET="+sock), stop, nil
 }
 
 // Run executes req. It refuses before spawning when the backend cannot
@@ -178,20 +214,25 @@ func (r *Runner) Run(ctx context.Context, req *Request) (out Result, err error) 
 	// os.MkdirTemp creates the directory with mode 0700; only the owner can
 	// enter, and the one script file is 0600. The confined root keeps the
 	// write inside that directory even when Root is operator-configured.
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return Result{}, errors.Join(fmt.Errorf("%w: open temp dir: %w", ErrBackend, err), os.RemoveAll(dir)) // #nosec G703 -- dir is the MkdirTemp result, not a path from input
+	root, rootErr := os.OpenRoot(dir)
+	if rootErr != nil {
+		return Result{}, errors.Join(fmt.Errorf("%w: open temp dir: %w", ErrBackend, rootErr), os.RemoveAll(dir)) // #nosec G703 -- dir is the MkdirTemp result, not a path from input
 	}
 	defer func() { err = errors.Join(err, root.Close(), os.RemoveAll(dir)) }() // #nosec G703 -- dir is the MkdirTemp result, not a path from input
-	if err := root.WriteFile(file, []byte(req.Code), 0o600); err != nil {
-		return Result{}, fmt.Errorf("%w: write: %w", ErrBackend, err)
+	if werr := root.WriteFile(file, []byte(req.Code), 0o600); werr != nil {
+		return Result{}, fmt.Errorf("%w: write: %w", ErrBackend, werr)
 	}
 	stdin := req.Stdin
 	if stdin == nil {
 		stdin = []byte("{}")
 	}
+	childEnv, stopTools, err := r.childEnv(ctx, dir, req.Language, req.Network)
+	if err != nil {
+		return Result{}, err
+	}
+	defer stopTools()
 	spec := &exec.Spec{
-		Argv: argv, Dir: dir, Env: env(r.cfg.Env), Stdin: stdin,
+		Argv: argv, Dir: dir, Env: childEnv, Stdin: stdin,
 		Timeout: timeout, IdleTimeout: timeout, KillGrace: exec.DefaultKillGrace,
 	}
 	if caps.ResourceLimits {

@@ -49,7 +49,7 @@ type Decision struct {
 // code_auto_languages (ADR-089 butir 1).
 func ShellLanguage(lang Language) bool {
 	switch lang {
-	case Python, JavaScript, Go:
+	case Python, JavaScript, Go, Starlark:
 		return false
 	case "bash", "sh", "zsh", "pwsh", "powershell", "cmd":
 		return true
@@ -62,7 +62,7 @@ func ShellLanguage(lang Language) bool {
 // allowlist.
 func Decide(lang Language, in PolicyInput) (Decision, error) {
 	switch lang {
-	case Python, JavaScript, Go:
+	case Python, JavaScript, Go, Starlark:
 	default:
 		err := fmt.Errorf("%w: %q", ErrLanguage, lang)
 		return Decision{Requirement: RequireDeny, Reason: err.Error()}, err

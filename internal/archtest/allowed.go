@@ -90,7 +90,7 @@ func allowedImports() map[string][]string {
 		// F5 backends (ADR-277): transport over the exec contract, plus the Exec egress point.
 		"internal/exec/backends": {"internal/exec", "internal/netx"},
 		// F5 execute_code contract (ADR-296): interpreter runner over exec.Backend.
-		"internal/exec/code":           {"internal/exec"},
+		"internal/exec/code":           {"internal/exec", "internal/netx"},
 		"internal/exec/classify":       nil,
 		"internal/hooks":               append(groupExec(), "internal/redact"),
 		"internal/modules":             {"internal/modules/host", "internal/boundary"},
