@@ -3,11 +3,35 @@
 package e2e
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
+
+// dockerOrFail returns the image for the positive execute_code path: local
+// run skips, CI fails instead of skipping silently (network isolation is
+// only real through an isolating backend).
+func dockerOrFail(t *testing.T) string {
+	t.Helper()
+	image := os.Getenv("DAMNBOT_E2E_DOCKER_IMAGE")
+	_, err := exec.LookPath("docker")
+	if err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err = exec.CommandContext(ctx, "docker", "info", "--format", "{{.ServerVersion}}").Run()
+	}
+	if err == nil && image != "" {
+		return image
+	}
+	skipOrFail(t, fmt.Sprintf("docker/image unavailable: %v image=%q", err, image))
+	return ""
+}
 
 // TestExecuteCodeDockerPositive runs only in the CI fixture job (tag
 // e2e_docker), which builds internal/e2e/testdata and exports
