@@ -49,7 +49,10 @@ plan               600 internal/plan
 # 2.218 dengan shim minimal). Sigma core 52.305 -> 52.380, plafon core 52.350 -> 52.425.
 # ADR-302 (EC-PROV-002): provider 2.220 -> 2.410 (terukur 2.404), provider/gemini
 # 885 -> 1.040 (terukur 1.030). Sigma core 53.740 -> 54.085 (headroom 15).
-provider          2620 internal/provider
+# ADR-305 (EC-SEC-002/003): provider/auth 961 -> 1211 (terukur 1211), provider
+# 2620 -> 2712 (TokenRefresher/refresh; terukur 2712). Sigma core 54.605 -> 54.947
+# <= 55.000 (headroom 53).
+provider          2712 internal/provider
 # ADR-303 (F5-14 PR A1): credential pool SPEC §4.1. Baris baru
 # `provider/credpool` (tipe/pilih/cooldown/redaksi/error; terukur 230).
 # Belum diimpor provider pada slice ini; build minimal tidak berubah.
@@ -79,7 +82,7 @@ provider/registry  660 internal/provider/registry
 # OAuth B/C di bawah cap 961). `secret` 1245 -> 1261 untuk Delete named token
 # (A terukur 1245; Delete di PR B). provider 2217 -> 2224 (+7 signer).
 # Sigma core 48.691 -> 49.675 <= 49.700 (headroom 25).
-provider/auth      961 internal/provider/auth
+provider/auth     1211 internal/provider/auth
 netx              1800 internal/netx
 netx/jsonrpc       530 internal/netx/jsonrpc
 schema            1200 internal/schema
