@@ -202,3 +202,20 @@ func TestConcurrentRotation(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestBillingCooldown (EC-PROV-020): the ambiguous billing reason always
+// yields the short fixed cooldown, regardless of a server hint.
+func TestBillingCooldown(t *testing.T) {
+	t.Parallel()
+	for _, hint := range []time.Duration{0, time.Second, time.Hour} {
+		p := pool(t, "a")
+		if got := p.Fail("a", ReasonBilling, hint, baseTime()); got != DefaultBillingCooldown {
+			t.Errorf("billing cooldown with hint %s = %s, want %s", hint, got, DefaultBillingCooldown)
+		}
+	}
+	p := pool(t, "a", "b")
+	p.Fail("a", ReasonBilling, 0, baseTime())
+	if c, ok := p.Acquire(baseTime()); !ok || c.ID != "b" {
+		t.Fatalf("billing failure did not rotate: %q/%t", c.ID, ok)
+	}
+}

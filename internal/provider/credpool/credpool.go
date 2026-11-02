@@ -24,6 +24,10 @@ type Reason string
 const (
 	ReasonAuth        Reason = "auth"         // 401 or 403
 	ReasonRateLimited Reason = "rate_limited" // 429
+	// ReasonBilling is a 400 whose body names an exhausted billing/extra-usage
+	// budget. The signal is ambiguous (the same 400 can be a content filter),
+	// so it cools the credential down briefly instead of retiring it.
+	ReasonBilling Reason = "billing"
 )
 
 // Pool bounds and cooldowns.
@@ -33,6 +37,10 @@ const (
 	// DefaultRateCooldown is SPEC §4.1's cooldown when the server sends no
 	// Retry-After hint.
 	DefaultRateCooldown = 60 * time.Second
+	// DefaultBillingCooldown is the short cooldown of an ambiguous 400
+	// billing/extra-usage refusal (EC-PROV-020); it rotates the credential
+	// without treating it as exhausted.
+	DefaultBillingCooldown = 60 * time.Second
 	// MinCooldown floors a server hint so a rotation cannot hot-loop.
 	MinCooldown = time.Second
 	// MaxCooldown caps every cooldown (bounded backoff).
@@ -224,6 +232,8 @@ func cooldown(reason Reason, retryAfter time.Duration, failures int) time.Durati
 		if d <= 0 {
 			d = DefaultRateCooldown
 		}
+	case ReasonBilling:
+		d = DefaultBillingCooldown
 	case ReasonAuth:
 		d = authCooldownBase
 		for range failures - 1 {

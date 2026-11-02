@@ -40,6 +40,7 @@ type poolRecorder struct {
 	mu     sync.Mutex
 	keys   []string
 	status []int
+	body   string
 }
 
 func (r *poolRecorder) serve(t *testing.T) http.HandlerFunc {
@@ -55,7 +56,11 @@ func (r *poolRecorder) serve(t *testing.T) http.HandlerFunc {
 		}
 		if status != http.StatusOK {
 			w.WriteHeader(status)
-			if _, err := io.WriteString(w, `{"error":{"message":"fake","type":"invalid_request_error","code":"invalid_api_key"}}`); err != nil {
+			body := r.body
+			if body == "" {
+				body = `{"error":{"message":"fake","type":"invalid_request_error","code":"invalid_api_key"}}`
+			}
+			if _, err := io.WriteString(w, body); err != nil {
 				t.Errorf("write body: %v", err)
 			}
 			return
@@ -246,4 +251,65 @@ func TestPoolRotationKeepsRouteHost(t *testing.T) {
 			t.Fatalf("route a received an extra request: %v", got)
 		}
 	})
+}
+
+// TestBillingAmbiguous400Rotates (EC-PROV-020): a 400 that names an exhausted
+// billing/extra-usage budget is ambiguous, so the pool rotates the credential
+// with the short billing cooldown instead of freezing it. A plain 400
+// bad_request still stays on the current key, and a 429/401 keeps its own
+// reason even when the body carries billing wording.
+func TestBillingAmbiguous400Rotates(t *testing.T) {
+	t.Parallel()
+	g := phase.Current(t)
+	if !g.Item(t, "EC-PROV-020", "F5", "covered") {
+		return
+	}
+	t.Run("EC-PROV-020", func(t *testing.T) {
+		t.Parallel()
+		cases := []poolBillingCase{
+			{"out-of-extra-usage", http.StatusBadRequest, `{"error":{"message":"You are out of extra usage. Add credits.","type":"invalid_request_error","code":"out_of_extra_usage"}}`, credpool.ReasonBilling, true},
+			{"plain-bad-request", http.StatusBadRequest, `{"error":{"message":"invalid request","type":"invalid_request_error","code":"invalid_request"}}`, "", false},
+			{"rate-limit-wins", http.StatusTooManyRequests, `{"error":{"message":"out of extra usage","type":"rate_limit_error"}}`, credpool.ReasonRateLimited, true},
+			{"auth-wins", http.StatusUnauthorized, `{"error":{"message":"out of extra usage","type":"authentication_error"}}`, credpool.ReasonAuth, true},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				checkPoolBillingCase(t, tc)
+			})
+		}
+	})
+}
+
+type poolBillingCase struct {
+	name   string
+	status int
+	body   string
+	reason credpool.Reason
+	rotate bool
+}
+
+// checkPoolBillingCase runs one EC-PROV-020 classification through the pool.
+func checkPoolBillingCase(t *testing.T, tc poolBillingCase) {
+	t.Helper()
+	rec := &poolRecorder{status: []int{tc.status}, body: tc.body}
+	var events []provider.CredentialEvent
+	p := pooledClient(t, rec, poolOf(t, "a", "b"), &events)
+	resp, err := p.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil)
+	if !tc.rotate {
+		if err == nil || len(events) != 0 || len(rec.seen()) != 1 {
+			t.Fatalf("plain 400 rotated or succeeded: resp=%+v err=%v events=%+v keys=%v",
+				resp, err, events, rec.seen())
+		}
+		return
+	}
+	if err != nil || resp.CredentialID != "b" {
+		t.Fatalf("resp=%+v err=%v keys=%v", resp, err, rec.seen())
+	}
+	if len(events) != 1 || events[0].Reason != tc.reason {
+		t.Fatalf("events=%+v, want reason %s", events, tc.reason)
+	}
+	if tc.reason == credpool.ReasonBilling && events[0].Cooldown != credpool.DefaultBillingCooldown {
+		t.Fatalf("billing cooldown=%s, want %s", events[0].Cooldown, credpool.DefaultBillingCooldown)
+	}
 }

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/budget"
@@ -226,12 +228,16 @@ func (p *poolStop) Error() string           { return p.err.Error() }
 func (p *poolStop) Unwrap() error           { return p.err }
 func (p *poolStop) RetryClass() retry.Class { return retry.Unclassified }
 
-// poolReason maps a provider failure to its rotation reason. Only 401/403
-// and 429 rotate; 400, 5xx, timeout, and network errors do not.
+// poolReason maps a provider failure to its rotation reason. Only 401/403,
+// 429 and an ambiguous 400 billing/extra-usage refusal rotate; every other
+// 400, 5xx, timeout, and network error does not.
 func poolReason(err error) (credpool.Reason, bool) {
 	var pe *Error
 	if !errors.As(err, &pe) {
 		return "", false
+	}
+	if billingAmbiguous(pe) {
+		return credpool.ReasonBilling, true
 	}
 	switch pe.Class {
 	case retry.Auth:
@@ -244,6 +250,23 @@ func poolReason(err error) (credpool.Reason, bool) {
 		return "", false
 	}
 	return "", false
+}
+
+// billingAmbiguous reports the EC-PROV-020 envelope: HTTP 400 whose code or
+// body names an exhausted billing/extra-usage budget. The wording is
+// ambiguous (a content filter can return the same status), so it never
+// retires the credential; it only earns the short billing cooldown.
+func billingAmbiguous(e *Error) bool {
+	if e.HTTPStatus != http.StatusBadRequest {
+		return false
+	}
+	text := strings.ToLower(e.Code + " " + string(e.Body))
+	for _, marker := range []string{"out of extra usage", "out_of_extra_usage", "extra_usage", "billing_error"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // retryAfter exposes the provider Retry-After hint, if any.

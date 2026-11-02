@@ -18,6 +18,9 @@ var (
 	ErrRefreshCooldown = errors.New("auth: refresh cooldown")
 	// ErrRefreshFailed hides the underlying token endpoint error.
 	ErrRefreshFailed = errors.New("auth: refresh failed")
+	// ErrRefreshDead marks a credential whose grant was revoked: refresh can
+	// never succeed again, so it must not re-enter rotation or cooldown.
+	ErrRefreshDead = errors.New("auth: refresh grant revoked")
 )
 
 // RefreshFunc renews one credential.
@@ -33,6 +36,7 @@ type CooldownRefresher struct {
 	mu       sync.Mutex
 	until    time.Time
 	failures int
+	dead     bool
 }
 
 // NewCooldownRefresher builds a refresher; cooldown <= 0 defaults to 30 s.
@@ -53,6 +57,14 @@ func (c *CooldownRefresher) Failures() int {
 	return c.failures
 }
 
+// Dead reports whether the grant was permanently revoked. A dead credential
+// never calls the token endpoint again and is never put back into rotation.
+func (c *CooldownRefresher) Dead() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.dead
+}
+
 // Epoch is the generation captured before a request attempt.
 func (c *CooldownRefresher) Epoch() uint64 { return c.gen.Load() }
 
@@ -60,6 +72,9 @@ func (c *CooldownRefresher) Epoch() uint64 { return c.gen.Load() }
 func (c *CooldownRefresher) Refresh(ctx context.Context, since uint64) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.dead {
+		return fmt.Errorf("%w: %w", ErrRefreshFailed, ErrRefreshDead)
+	}
 	if c.gen.Load() != since {
 		return nil // another request already renewed the credential
 	}
@@ -68,6 +83,14 @@ func (c *CooldownRefresher) Refresh(ctx context.Context, since uint64) error {
 		return fmt.Errorf("%w: %s", ErrRefreshCooldown, c.until.Sub(now).Round(time.Second))
 	}
 	if err := c.fn(ctx); err != nil {
+		if errors.Is(err, ErrInvalidGrant) {
+			// invalid_grant means the authorization server revoked the grant
+			// (RFC 6749 §5.2). No retry can repair it, so the credential is
+			// dead for the rest of the process: not a cooldown, not rotation.
+			c.dead = true
+			c.until = time.Time{}
+			return fmt.Errorf("%w: %w", ErrRefreshFailed, ErrRefreshDead)
+		}
 		c.failures++
 		c.until = now.Add(c.cooldown)
 		return ErrRefreshFailed
