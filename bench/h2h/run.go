@@ -77,7 +77,7 @@ func (r *Runner) Run(ctx context.Context, tasks []evals.Task) []TaskResult {
 		}
 		for attempt := 0; ; attempt++ {
 			r.runOne(ctx, t, &res)
-			if res.Category != "upstream_unavailable" || attempt >= r.TaskRetries {
+			if !retryable(res.Category) || attempt >= r.TaskRetries {
 				break
 			}
 			fmt.Fprintf(r.Log, "%s: upstream unavailable, retry %d/%d\n", t.ID, attempt+1, r.TaskRetries)
@@ -175,11 +175,19 @@ func (r *Runner) runOne(ctx context.Context, t *evals.Task, res *TaskResult) {
 	res.Category = categorizeRun(run, res.Usage, runErr)
 }
 
+// retryable: hanya kegagalan upstream yang layak diulang. Kategori lain — termasuk
+// harness_error akibat StopReason kosong — tidak boleh membakar cap dengan attempt identik.
+func retryable(category string) bool { return category == "upstream_unavailable" }
+
 func categorizeRun(run AgentRun, usage Usage, runErr error) string {
 	switch {
-	case run.TimedOut:
+	case run.TimedOut, run.StopReason == "timeout":
 		return "task_timeout"
 	case runErr != nil:
+		return "harness_error"
+	// Driver tanpa kontrak stop (mis. Hermes sebelum fix) tidak boleh disalahartikan
+	// sebagai upstream mati: itu memicu retry 2x dan melipatgandakan biaya.
+	case run.StopReason == "":
 		return "harness_error"
 	case run.StopReason == "error":
 		return "upstream_unavailable"
@@ -190,7 +198,7 @@ func categorizeRun(run AgentRun, usage Usage, runErr error) string {
 	case run.StopReason == "end_turn":
 		return "model_other"
 	default:
-		return "upstream_unavailable"
+		return "harness_error"
 	}
 }
 
