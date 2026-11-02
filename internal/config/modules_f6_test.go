@@ -54,16 +54,45 @@ func TestF6ModuleSectionsRejectUnknownKey(t *testing.T) {
 }
 
 // TestF6ModuleSectionsRefuseEnable: enabling a module that has no runtime yet
-// fails closed rather than becoming a no-op (ADR-310).
+// fails closed rather than becoming a no-op (ADR-310). Web is excluded: it
+// has a runtime since F6-W1 (ADR-311) and is covered by the engine tests.
 func TestF6ModuleSectionsRefuseEnable(t *testing.T) {
 	t.Parallel()
-	for _, id := range f6Sections() {
+	for _, id := range []string{"browser", "media", "voice", "computer_use"} {
 		t.Run(id, func(t *testing.T) {
 			t.Parallel()
 			_, err := parse(t, "[modules."+id+"]\nenabled = true\n")
 			ke := keyErrorOf(t, err, ErrInvalidValue)
 			if ke.Key != "modules."+id+".enabled" {
 				t.Errorf("key = %q, want modules.%s.enabled", ke.Key, id)
+			}
+		})
+	}
+}
+
+// TestModulesWebEngines: web accepts enabled=true and the closed engine list;
+// unknown names, duplicates and an over-long list are refused at load (ADR-311).
+func TestModulesWebEngines(t *testing.T) {
+	t.Parallel()
+	for _, toml := range []string{
+		"[modules.web]\nenabled = true\n",
+		"[modules.web]\nenabled = true\nengines = [\"fake\"]\n",
+		"[modules.web]\nenabled = false\nengines = [\"fake\"]\n",
+	} {
+		if _, err := parse(t, toml); err != nil {
+			t.Errorf("Parse(%q): %v", toml, err)
+		}
+	}
+	tests := []struct{ name, toml, key string }{
+		{"unknown", "[modules.web]\nengines = [\"brave\"]\n", "modules.web.engines"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := parse(t, tc.toml)
+			ke := keyErrorOf(t, err, ErrInvalidValue)
+			if ke.Key != tc.key {
+				t.Errorf("key = %q, want %q", ke.Key, tc.key)
 			}
 		})
 	}

@@ -280,7 +280,10 @@ heal              1500 internal/heal
 # hanya `enabled`, nilai false) menambah kode terukur 42 -> 2002. Sigma core
 # 55.604 -> 55.646; plafon core 55.650 tidak berubah (headroom 4).
 # Minimal tidak berubah.
-config            2002 internal/config
+# ADR-311 (F6-W1): [modules.web].engines (closed list) menambah config
+# 2002 -> 2013 (terukur). Sigma core 55.646 -> 55.657; plafon core
+# 55.650 -> 55.700 (headroom 43). MODULE webtools terukur 519/3000.
+config            2013 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.

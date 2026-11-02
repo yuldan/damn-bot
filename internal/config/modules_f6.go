@@ -6,7 +6,8 @@ package config
 // `web`, implemented by package internal/webtools; ADR-310). No feature is
 // wired in the foundation slice, so the only accepted key is the opt-in flag.
 type ModulesWeb struct {
-	Enabled bool `toml:"enabled"`
+	Enabled bool     `toml:"enabled"`
+	Engines []string `toml:"engines"`
 }
 
 // ModulesBrowser is [modules.browser]: the F6 CDP browser module (ADR-310).
@@ -34,13 +35,16 @@ type ModulesComputerUse struct {
 // validateF6 keeps the foundation sections honest: the keys decode (so a typo
 // is still a key error, not a missing-module error) and `enabled = false` is
 // the only accepted value until the module itself lands. Accepting `true`
-// would be a silent no-op, which this repository never ships.
+// would be a silent no-op, which this repository never ships. Web is the
+// exception since F6-W1 (ADR-311): it has a runtime and valid engines.
 func (m *Modules) validateF6() error {
+	if err := m.validateWeb(); err != nil {
+		return err
+	}
 	for _, section := range []struct {
 		id      string
 		enabled bool
 	}{
-		{"web", m.Web.Enabled},
 		{"browser", m.Browser.Enabled},
 		{"media", m.Media.Enabled},
 		{"voice", m.Voice.Enabled},
@@ -48,6 +52,15 @@ func (m *Modules) validateF6() error {
 	} {
 		if section.enabled {
 			return invalid("modules."+section.id+".enabled", "module is not implemented in this build (F6 foundation, ADR-310)")
+		}
+	}
+	return nil
+}
+
+func (m *Modules) validateWeb() error {
+	for _, id := range m.Web.Engines {
+		if id != "fake" {
+			return invalid("modules.web.engines", "engine %q is not supported", id)
 		}
 	}
 	return nil
