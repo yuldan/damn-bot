@@ -142,7 +142,9 @@ func allowedImports() map[string][]string {
 func f6ModuleImports(m map[string][]string) {
 	m["internal/webtools"] = []string{"internal/modules/host", "internal/netx"}
 	m["internal/browser"] = []string{"internal/modules/host", "internal/netx"}
-	m["internal/media"] = []string{"internal/modules/host"}
+	m["internal/media"] = []string{"internal/modules/host", "internal/media/doc"}
+	// Daun media (ADR-309): stdlib-only document parser.
+	m["internal/media/doc"] = nil
 	m["internal/voice"] = []string{"internal/modules/host"}
 	m["internal/computeruse"] = []string{"internal/modules/host"}
 }
