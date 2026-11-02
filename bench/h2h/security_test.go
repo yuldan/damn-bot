@@ -124,13 +124,20 @@ func resultsFiles(t *testing.T) []string {
 
 func keyForms(t *testing.T) []string {
 	t.Helper()
-	path := os.Getenv("H2H_KEY_FILE")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	// Resolve the same runtime key the smoke uses: H2H_KEY_FILE, else
+	// ~/.config/damnbot/llm_key (ADR-304). Committed artifacts must never
+	// contain any form of it.
+	path := KeyFile(os.Getenv, home)
 	if path == "" {
 		return nil
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("H2H_KEY_FILE: %v", err)
+		t.Fatalf("key file %s: %v", path, err)
 	}
 	key := strings.TrimSpace(string(b))
 	if key == "" {

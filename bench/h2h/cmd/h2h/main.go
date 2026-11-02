@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damnbot/damnbot/bench/evals"
 	"github.com/damnbot/damnbot/bench/h2h"
 )
 
@@ -99,15 +100,30 @@ func run() error {
 	home := flag.String("hermes-home", "/tmp/hm_h2h", "HERMES_HOME (di-reset per task)")
 	work := flag.String("work", "/tmp/h2h_work", "root workdir task")
 	only := flag.String("only", "", "subset ID dipisah koma (debug)")
+	smoke := flag.String("smoke", "f1", "f1 = smoke F1 campuran E1–E6; f5 = 10 task E1 (ROADMAP F5)")
 	flag.Parse()
+	if *keyFile == "" {
+		home, _ := os.UserHomeDir()
+		*keyFile = h2h.KeyFile(os.Getenv, home)
+	}
+	if *smoke == "f5" && *model == "" {
+		*model = h2h.F5CheapModel
+	}
 	if *out == "" || *upstream == "" || *keyFile == "" || *model == "" || (*hermesDir == "" && *damnbotBin == "") {
-		return errors.New("h2h: -out, -upstream, -key-file, -model and one of -hermes/-damnbot are required")
+		return errors.New("h2h: -out, -upstream, -key-file (or H2H_KEY_FILE/~/.config/damnbot/llm_key), -model and one of -hermes/-damnbot are required")
+	}
+	if *smoke != "f1" && *smoke != "f5" {
+		return errors.New("h2h: -smoke must be f1 or f5")
 	}
 	price := h2h.Price{Input: *priceIn, CachedInput: *priceCached, Output: *priceOut}
 	if !price.Valid() {
 		return errors.New("h2h: -price-in dan -price-out wajib > 0, -price-cached ≥ 0 (ADR-075/085: harga 0 mematikan cap)")
 	}
-	ledger, err := h2h.OpenLedger(*ledgerPath, F1CapUSD)
+	phase, phaseCap := h2h.PhaseF1, h2h.F1CapUSD
+	if *smoke == "f5" {
+		phase, phaseCap = h2h.PhaseF5, h2h.F5CapUSD
+	}
+	ledger, err := h2h.OpenLedgerPhase(*ledgerPath, phase, phaseCap)
 	if err != nil {
 		return err
 	}
@@ -123,7 +139,12 @@ func run() error {
 		return err
 	}
 
-	tasks, err := h2h.Select(*evalDir, exec.LookPath)
+	var tasks []evals.Task
+	if *smoke == "f5" {
+		tasks, err = h2h.SelectF5E1(*evalDir, exec.LookPath)
+	} else {
+		tasks, err = h2h.Select(*evalDir, exec.LookPath)
+	}
 	if err != nil {
 		return err
 	}
