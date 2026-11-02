@@ -191,3 +191,11 @@ go test -run 'TestF6HermesBaseline|TestNoLLMBaselineCoverage' ./bench/speed
 ```
 
 Aturan perubahan ledger: ubah `BELUM` → `LULUS` hanya bersama tes bernama di PR yang sama; `N/A` wajib menyebut fase target dan alasan di kolom catatan. Angka budget tidak diubah di sini; plafon dan baris `MODULE` F6 mengikuti ADR-309 pada PR fondasi.
+
+## 12. Open item — `BenchmarkImagePreflight` 12 MP (F6-03a)
+
+`internal/media/preflight` sudah men-decode JPEG/PNG, mengabaikan orientasi EXIF (tidak ada rotasi/pertukaran dimensi), menurunkan sisi terpanjang/MP/byte ke preset (`Default`: 2048 px, 12 MP, 3,75 MB, JPEG q85), dan `TestF6ImageSuite50` membuktikan 50 gambar → 0 penolakan ukuran. Baris "Ukuran gambar" tetap **`BELUM`** karena target waktu belum terpenuhi di host ini.
+
+`BenchmarkImagePreflight` (JPEG 4000×3000, host 2026-11-02) terukur **≈0,9 s/op** dengan 10 CPU dan **≈6,4 s/op** di bawah `GOMAXPROCS=2`/`nice -n 19`; komponen di bawah batas yang sama: decode ≈0,43–1,61 s, resize ≈0,26–0,57 s (fast path `*image.YCbCr` + box-average paralel), encode ≈0,13–0,18 s. Target SPEC §17 (≤150 ms) diukur di mesin referensi Q14; host ini jauh lebih lambat dan decode stdlib + encode sudah melewati 150 ms tanpa resize. **Open item**, bukan klaim lulus.
+
+Usulan slice optimasi berikutnya: decode JPEG ber-skalasi DCT-domain 1/2–1/8 (hindari decode 12 MP penuh), resize paralel per baris dengan buffer terpisah, dan ukur ulang `BenchmarkImagePreflight` di Q14. Sampai itu mendarat, baris acceptance tetap `BELUM` dan tidak ada asersi tes yang diturunkan.
