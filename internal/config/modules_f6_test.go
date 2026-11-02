@@ -71,20 +71,22 @@ func TestF6ModuleSectionsRefuseEnable(t *testing.T) {
 }
 
 // TestModulesWebEngines: web accepts enabled=true and the closed engine list;
-// unknown names, duplicates and an over-long list are refused at load (ADR-311).
+// unknown names and malformed blocklist entries are refused at load (ADR-311/312).
 func TestModulesWebEngines(t *testing.T) {
 	t.Parallel()
 	for _, toml := range []string{
 		"[modules.web]\nenabled = true\n",
 		"[modules.web]\nenabled = true\nengines = [\"fake\"]\n",
-		"[modules.web]\nenabled = false\nengines = [\"fake\"]\n",
+		"[modules.web]\nenabled = false\nengines = [\"fake\", \"brave\", \"tavily\", \"exa\"]\n",
+		"[modules.web]\nblocklist = [\"example.com\", \"example.org/private\"]\n",
 	} {
 		if _, err := parse(t, toml); err != nil {
 			t.Errorf("Parse(%q): %v", toml, err)
 		}
 	}
 	tests := []struct{ name, toml, key string }{
-		{"unknown", "[modules.web]\nengines = [\"brave\"]\n", "modules.web.engines"},
+		{"unknown", "[modules.web]\nengines = [\"nope\"]\n", "modules.web.engines"},
+		{"bad_blocklist", "[modules.web]\nblocklist = [\"https://example.com\"]\n", "modules.web.blocklist"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

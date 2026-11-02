@@ -10,18 +10,18 @@ import (
 
 func TestNewRegistryClosedSet(t *testing.T) {
 	t.Parallel()
-	reg, err := newRegistry([]string{"fake"})
+	reg, err := newRegistry([]string{"fake"}, backendConfig{})
 	if err != nil || reg == nil {
 		t.Fatalf("registry = %v, err = %v", reg, err)
 	}
-	if _, err := newRegistry([]string{"brave"}); !errors.Is(err, errUnknownEngine) {
+	if _, err := newRegistry([]string{"nope"}, backendConfig{}); !errors.Is(err, errUnknownEngine) {
 		t.Errorf("unknown err = %v", err)
 	}
 }
 
 func TestRegistrySearch(t *testing.T) {
 	t.Parallel()
-	reg, err := newRegistry([]string{"fake"})
+	reg, err := newRegistry([]string{"fake"}, backendConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,14 +38,14 @@ func TestRegistrySearch(t *testing.T) {
 
 func TestRegistryEmptyAndCancel(t *testing.T) {
 	t.Parallel()
-	reg, err := newRegistry(nil)
+	reg, err := newRegistry(nil, backendConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, _, serr := reg.Search(context.Background(), "x", 1); !errors.Is(serr, errNoEngine) {
 		t.Errorf("empty err = %v", serr)
 	}
-	reg, err = newRegistry([]string{"fake"})
+	reg, err = newRegistry([]string{"fake"}, backendConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}

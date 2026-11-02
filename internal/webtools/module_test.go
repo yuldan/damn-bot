@@ -14,11 +14,11 @@ import (
 	"github.com/damnbot/damnbot/internal/modules/host"
 )
 
-func webConfig() Config {
-	return Config{Enabled: true, Engines: []string{"fake"}, UserAgent: "damnbot/test", policy: allowLoopback}
+func webConfig() *Config {
+	return &Config{Enabled: true, Engines: []string{"fake"}, UserAgent: "damnbot/test", policy: allowLoopback}
 }
 
-func startModule(t *testing.T, cfg Config) *Module {
+func startModule(t *testing.T, cfg *Config) *Module {
 	t.Helper()
 	m, err := New(testClient(), cfg)
 	if err != nil {
@@ -60,7 +60,7 @@ func TestToolsAreReadAndClosedSchema(t *testing.T) {
 
 func TestModuleDisabledFailsClosed(t *testing.T) {
 	t.Parallel()
-	m, err := New(nil, Config{})
+	m, err := New(nil, &Config{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestModuleDisabledFailsClosed(t *testing.T) {
 
 func TestModuleRejectsUnknownEngine(t *testing.T) {
 	t.Parallel()
-	if _, err := New(nil, Config{Engines: []string{"nope"}}); !errors.Is(err, errUnknownEngine) {
+	if _, err := New(nil, &Config{Engines: []string{"nope"}}); !errors.Is(err, errUnknownEngine) {
 		t.Fatalf("err = %v", err)
 	}
 }

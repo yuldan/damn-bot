@@ -24,8 +24,8 @@ func TestExtractMarkdown(t *testing.T) {
 		t.Fatalf("Extract: %v", err)
 	}
 	for _, want := range []string{
-		"Heading", "Hello bold and [link](https://example.test/x)",
-		"```", "a < b", "| A | B |", "|---|---|", "| 1 | 2 |", "one", "two",
+		"# Heading", "Hello bold and [link](https://example.test/x)",
+		"```", "a < b", "| A | B |", "|---|---|", "| 1 | 2 |", "- one", "- two",
 	} {
 		if !strings.Contains(doc.Markdown, want) {
 			t.Errorf("markdown missing %q:\n%s", want, doc.Markdown)

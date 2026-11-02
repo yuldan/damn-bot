@@ -5,10 +5,14 @@ package webtools
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/modules/host"
 	"github.com/damnbot/damnbot/internal/netx"
@@ -21,6 +25,14 @@ type Config struct {
 	UserAgent        string
 	MaxOutput        int
 	policy           hostPolicy
+	key              func(string) (string, error)
+	base             map[string]string
+	blocklist        []string
+	cacheEntries     int
+	cacheBytes       int
+	now              func() time.Time
+	searchTTL        time.Duration
+	fetchTTL         time.Duration
 }
 
 // Tool is one deferred catalog entry with effect "read".
@@ -50,21 +62,33 @@ type Module struct {
 	registry *registry
 	extract  *extractor
 	fetcher  *fetcher
+	cache    *cache
 	status   host.Status
 }
 
+type fetched struct {
+	page page
+	doc  document
+}
+
+type searched struct {
+	hits   []searchResult
+	engine string
+}
+
 // New validates cfg; unknown engines fail even when the module is disabled.
-func New(client *netx.Client, cfg Config) (*Module, error) {
-	if cfg.Enabled && client == nil {
-		return nil, fmt.Errorf("%w: nil netx client", errBadConfig)
+func New(client *netx.Client, cfg *Config) (*Module, error) {
+	if cfg == nil || cfg.Enabled && client == nil {
+		return nil, fmt.Errorf("%w: nil config or client", errBadConfig)
 	}
-	reg, err := newRegistry(cfg.Engines)
+	reg, err := newRegistry(cfg.Engines, backendConfig{client: client, key: cfg.key, base: cfg.base})
 	if err != nil {
 		return nil, err
 	}
 	return &Module{
-		client: client, cfg: cfg, registry: reg,
-		extract: newExtractor(0), status: host.StatusStopped,
+		client: client, cfg: *cfg, registry: reg, extract: newExtractor(cfg.MaxOutput),
+		cache:  newCache(cfg.cacheEntries, cfg.cacheBytes, cfg.now),
+		status: host.StatusStopped,
 	}, nil
 }
 
@@ -99,20 +123,20 @@ func (m *Module) Stop(context.Context) error {
 }
 
 // Invoke dispatches one approved read call.
-func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, _ host.Env) (host.Result, error) {
+func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, env host.Env) (host.Result, error) {
 	if m.status != host.StatusReady || m.fetcher == nil {
 		return host.Result{}, &host.Error{Code: "module_unavailable", Message: "web module is not enabled: " + tool}
 	}
 	switch tool {
 	case "web_fetch":
-		return m.fetch(ctx, args)
+		return m.fetch(ctx, env, args)
 	case "web_search":
-		return m.search(ctx, args)
+		return m.search(ctx, env, args)
 	}
 	return host.Result{}, &host.Error{Code: "unknown_tool", Message: "unknown web tool: " + tool}
 }
 
-func (m *Module) fetch(ctx context.Context, raw json.RawMessage) (host.Result, error) {
+func (m *Module) fetch(ctx context.Context, env host.Env, raw json.RawMessage) (host.Result, error) {
 	var a struct {
 		URL string `json:"url"`
 	}
@@ -122,21 +146,34 @@ func (m *Module) fetch(ctx context.Context, raw json.RawMessage) (host.Result, e
 	if a.URL == "" || len(a.URL) > 2048 {
 		return host.Result{}, invalidArgs(errors.New("url must be 1..2048 characters"))
 	}
-	page, err := m.fetcher.Fetch(ctx, a.URL)
+	if m.blocked(a.URL) {
+		return host.Result{}, &host.Error{Code: "blocked_host", Message: "URL is blocked by [modules.web].blocklist"}
+	}
+	value, cached, err := m.load(env, "fetch", a.URL, m.ttl(m.cfg.fetchTTL, 60*time.Minute), func() (any, int, error) {
+		page, ferr := m.fetcher.Fetch(ctx, a.URL)
+		if ferr != nil {
+			return nil, 0, ferr
+		}
+		doc, xerr := m.extract.Extract(page.ContentType, page.Body)
+		if xerr != nil {
+			return nil, 0, xerr
+		}
+		return fetched{page: page, doc: doc}, len(page.Body) + len(doc.Markdown), nil
+	})
 	if err != nil {
 		return host.Result{}, fetchError(err)
 	}
-	doc, err := m.extract.Extract(page.ContentType, page.Body)
-	if err != nil {
-		return host.Result{}, fetchError(err)
+	f, ok := value.(fetched)
+	if !ok {
+		return host.Result{}, &host.Error{Code: "internal", Message: "web cache type mismatch"}
 	}
-	return host.Result{Content: doc.Markdown, Meta: map[string]any{
-		"url": page.URL, "status": page.Status, "content_type": page.ContentType,
-		"charset": doc.Charset, "truncated": doc.Truncated,
-	}, UntrustedSource: "web:" + page.Host}, nil
+	return host.Result{Content: f.doc.Markdown, Meta: map[string]any{
+		"url": f.page.URL, "status": f.page.Status, "content_type": f.page.ContentType,
+		"charset": f.doc.Charset, "truncated": f.doc.Truncated, "cached": cached,
+	}, UntrustedSource: "web:" + f.page.Host}, nil
 }
 
-func (m *Module) search(ctx context.Context, raw json.RawMessage) (host.Result, error) {
+func (m *Module) search(ctx context.Context, env host.Env, raw json.RawMessage) (host.Result, error) {
 	var a struct {
 		Query string `json:"query"`
 		Limit int    `json:"limit"`
@@ -155,20 +192,73 @@ func (m *Module) search(ctx context.Context, raw json.RawMessage) (host.Result, 
 	if limit < 1 || limit > 20 {
 		return host.Result{}, invalidArgs(errors.New("limit must be in 1..20"))
 	}
-	hits, engine, err := m.registry.Search(ctx, query, limit)
+	detail := query + "|" + strconv.Itoa(limit)
+	value, cached, err := m.load(env, "search", detail, m.ttl(m.cfg.searchTTL, 20*time.Minute), func() (any, int, error) {
+		hits, engine, serr := m.registry.Search(ctx, query, limit)
+		if serr != nil {
+			return nil, 0, serr
+		}
+		size := 0
+		for _, hit := range hits {
+			size += len(hit.Title) + len(hit.URL) + len(hit.Snippet)
+		}
+		return searched{hits: hits, engine: engine}, size, nil
+	})
 	if err != nil {
-		if errors.Is(err, errNoEngine) {
-			return host.Result{}, &host.Error{Code: "module_unavailable", Message: "no search engine is configured"}
+		if errors.Is(err, errNoEngine) || errors.Is(err, errEngineUnavailable) {
+			return host.Result{}, &host.Error{Code: "module_unavailable", Message: err.Error()}
 		}
 		return host.Result{}, &host.Error{Code: "network", Message: err.Error()}
 	}
+	s, ok := value.(searched)
+	if !ok {
+		return host.Result{}, &host.Error{Code: "internal", Message: "web cache type mismatch"}
+	}
 	var b strings.Builder
-	for i, hit := range hits {
+	for i, hit := range s.hits {
 		fmt.Fprintf(&b, "%d. %s\n   %s\n   %s\n", i+1, hit.Title, hit.URL, hit.Snippet)
 	}
 	return host.Result{Content: strings.TrimRight(b.String(), "\n"), Meta: map[string]any{
-		"count": len(hits), "engine": engine,
-	}, UntrustedSource: "web_search:" + engine}, nil
+		"count": len(s.hits), "engine": s.engine, "cached": cached,
+	}, UntrustedSource: "web_search:" + s.engine}, nil
+}
+
+// load caches by (session, kind, detail); without a valid session view it
+// never caches, so tenants cannot share a hit (GAP-COST-12).
+func (m *Module) load(env host.Env, kind, detail string, ttl time.Duration, fn func() (any, int, error)) (any, bool, error) {
+	if !env.Session.Valid() {
+		value, _, err := fn()
+		return value, false, err
+	}
+	digest := sha256.Sum256([]byte(env.Session.SessionID() + "|" + kind + "|" + detail))
+	return m.cache.load(string(digest[:]), ttl, fn)
+}
+
+func (m *Module) ttl(value, fallback time.Duration) time.Duration {
+	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+// blocked matches a host (and subdomains) or host/path prefix from config.
+func (m *Module) blocked(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host, path := strings.ToLower(u.Hostname()), u.EscapedPath()
+	for _, entry := range m.cfg.blocklist {
+		entry = strings.ToLower(strings.TrimSpace(entry))
+		blockHost, blockPath, hasPath := strings.Cut(entry, "/")
+		if host != blockHost && !strings.HasSuffix(host, "."+blockHost) {
+			continue
+		}
+		if !hasPath || strings.HasPrefix(path, "/"+blockPath) {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeArgs(raw json.RawMessage, dst any) error {
@@ -179,7 +269,9 @@ func decodeArgs(raw json.RawMessage, dst any) error {
 	}
 	return nil
 }
+
 func invalidArgs(err error) error { return &host.Error{Code: "invalid_args", Message: err.Error()} }
+
 func fetchError(err error) error {
 	code := "network"
 	switch {
