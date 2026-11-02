@@ -102,6 +102,26 @@ referensi Q14).
 | MCP session view + `execute_code` `Env.Session` | `N/A` | F8 | Seam modul host; isolasi sesi tools sudah `LULUS` (GAP-REL-18). |
 | Hook notice UI + watch 3-strike proses | `N/A` | F8/F9 | Emitter UI F8; watch 3-strike opsional di F9. |
 
+## Baris parity F5
+
+- `docs/FEATURE-PARITY.md` memuat **201 baris berfase F5** dari 854 baris.
+  ROADMAP §"Pemetaan parity → fase" dan `TestParityPhaseColumn` mengunci angka
+  itu (F1 46, F2 59, F3 135, F4 54, **F5 201**, F6 86, F7 103, F8 148, F9 5;
+  Σ baris penyebut gate 837). Angka "200" bukan angka yang dipakai repo;
+  sumbernya 201.
+- Kolom `status` parity **bukan** status implementasi: nilai yang sah hanya
+  `planned`, `dropped-with-approval`, dan `external-bridge`. Seluruh **201
+  baris F5 berstatus `planned`** (0 dropped, 0 external-bridge). Tidak ada
+  nilai `covered`/`n/a` di kolom ini, jadi tidak ada baris F5 yang dapat
+  direklasifikasi tanpa bukti dan tidak ada baris yang diubah oleh PR ini.
+- Gate parity **837/837** baru ditegakkan di **F9** (ROADMAP F9 acceptance;
+  ADR-054), bukan di acceptance F5. Acceptance F5 menegakkan 25 EC F5 dan 17
+  GAP seperti tabel di atas.
+- Baris F5 yang fiturnya sudah punya tes di main tetap `planned` sampai gate
+  F9; daftar per-baris (tes acceptance + benchmark speed parity) dilampirkan
+  saat penutupan F9 sesuai ADR-064 (baris selesai bila test acceptance lulus
+  **dan** benchmark speed parity memenuhi target).
+
 ## Perintah bukti
 
 ```sh
