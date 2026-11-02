@@ -69,6 +69,7 @@ type PollResult struct {
 
 // bgProc is one registered process.
 type bgProc struct {
+	infoMu  sync.Mutex // guards info; lock order is b.mu then infoMu
 	info    ProcessInfo
 	cmd     *cmdHandle
 	buf     *ring
@@ -167,9 +168,10 @@ func (b *Background) Start(ctx context.Context, session string, argv []string, d
 	}
 	b.per[session][id] = p
 	b.all[id] = p
+	info := p.snapshot() // copy before reap may publish the final state
 	b.mu.Unlock()
 	go b.reap(p)
-	return p.info, nil
+	return info, nil
 }
 
 // SetOnExit installs one callback invoked after a process reaches its final
@@ -184,6 +186,7 @@ func (b *Background) SetOnExit(fn func(ProcessInfo)) {
 func (b *Background) reap(p *bgProc) {
 	code, sig, err := p.cmd.wait()
 	b.mu.Lock()
+	p.infoMu.Lock()
 	p.exited, p.exitErr = true, err
 	p.info.Status = ProcessExited
 	if sig != "" {
@@ -194,6 +197,7 @@ func (b *Background) reap(p *bgProc) {
 	}
 	p.info.RuntimeMS = b.now().Sub(p.info.Started).Milliseconds()
 	info, onExit := p.info, b.onExit
+	p.infoMu.Unlock()
 	close(p.done)
 	b.mu.Unlock()
 	if onExit != nil {
@@ -357,8 +361,10 @@ func (b *Background) Close(ctx context.Context) error {
 	return errs
 }
 
-// snapshot copies the state under the registry lock.
+// snapshot copies the state under the per-process info lock.
 func (p *bgProc) snapshot() ProcessInfo {
+	p.infoMu.Lock()
+	defer p.infoMu.Unlock()
 	return p.info
 }
 
@@ -457,20 +463,23 @@ func (b *Background) pruneFinished() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	type ent struct {
-		p   *bgProc
-		end time.Time
+		info ProcessInfo
+		end  time.Time
 	}
 	var done []ent
 	for _, p := range b.all {
-		if p.isExited() {
-			done = append(done, ent{p, p.info.Started.Add(time.Duration(p.info.RuntimeMS) * time.Millisecond)})
+		if !p.isExited() {
+			continue
 		}
+		info := p.snapshot()
+		done = append(done, ent{info, info.Started.Add(time.Duration(info.RuntimeMS) * time.Millisecond)})
 	}
 	slices.SortFunc(done, func(a, b ent) int { return a.end.Compare(b.end) })
-	for i, e := range done {
+	for i := range done {
+		e := &done[i]
 		if b.now().Sub(e.end) > ProcessRetention || len(done)-i > MaxFinishedProc {
-			delete(b.all, e.p.info.ID)
-			delete(b.per[e.p.info.Session], e.p.info.ID)
+			delete(b.all, e.info.ID)
+			delete(b.per[e.info.Session], e.info.ID)
 			b.finished++
 		}
 	}
