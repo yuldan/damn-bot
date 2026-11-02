@@ -103,7 +103,23 @@ func (h *Hermes) Run(ctx context.Context, workdir, prompt, proxyURL string, time
 	}
 	run.Answer = finalAnswer(stdout.String())
 	run.Stderr = tailString(stderr.Bytes(), 2000)
+	stopReasonFromRun(&run)
 	return run, nil
+}
+
+// stopReasonFromRun mengisi kontrak stop yang sama dengan driver Damn-Bot, supaya
+// categorizeRun tidak menebak dari field kosong. Exit 0 = proses `chat` selesai normal;
+// deadline = timeout; kegagalan proses lain = error (dipetakan ke upstream_unavailable
+// oleh categorizeRun, satu-satunya kategori yang di-retry).
+func stopReasonFromRun(run *AgentRun) {
+	switch {
+	case run.TimedOut:
+		run.StopReason, run.StopDetail = "timeout", ""
+	case run.ExitCode == 0:
+		run.StopReason, run.StopDetail = "end_turn", "completed"
+	default:
+		run.StopReason, run.StopDetail = "error", ""
+	}
 }
 
 // StopHomeProcesses menghentikan (SIGTERM, lalu SIGKILL setelah 5 s) semua proses milik

@@ -79,6 +79,30 @@ type summary struct {
 // F1CapUSD: lihat h2h.F1CapUSD.
 const F1CapUSD = h2h.F1CapUSD
 
+// selectionText mencatat seleksi yang benar-benar dipakai: `-smoke f5` memilih 10 task
+// E1 dengan salt F5, bukan kuota campuran smoke F1.
+func selectionText(smoke string) string {
+	if smoke == "f5" {
+		return fmt.Sprintf("10 task E1 eligible dengan sha256(%q+id) terkecil", h2h.F5SmokeSalt)
+	}
+	return fmt.Sprintf("per set %v: task eligible dengan sha256(%q+id) terkecil", h2h.SmokeQuota, h2h.SelectSalt)
+}
+
+// hermesCommit membaca HEAD checkout hermes. Git menolak repo milik user lain
+// ("dubious ownership"), jadi path di-allowlist hanya untuk invocation ini — bukan
+// mengubah config global. Path absolut wajib untuk safe.directory.
+func hermesCommit(dir string) string {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return ""
+	}
+	b, err := exec.Command("git", "-c", "safe.directory="+abs, "-C", abs, "rev-parse", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
 func run() error {
 	hermesDir := flag.String("hermes", "", "checkout hermes-agent (read-only; empty = Damn-Bot only)")
 	damnbotBin := flag.String("damnbot", "", "binary cmd/damnbot (empty = hermes only)")
@@ -211,12 +235,10 @@ func run() error {
 	s.Meta.Upstream, s.Meta.Model, s.Meta.Price, s.Meta.PriceSource, s.Meta.CapUSD = up.String(), *model, price, *priceSrc, rec.Cap()
 	s.Meta.Ledger = *ledgerPath
 	s.Meta.EvalSet = "evalset/v1 " + *evalDir
-	s.Meta.Selection = fmt.Sprintf("per set %v: task eligible dengan sha256(%q+id) terkecil", h2h.SmokeQuota, h2h.SelectSalt)
+	s.Meta.Selection = selectionText(*smoke)
 	s.Meta.TimeoutS, s.Meta.MaxTurns, s.Meta.GOOS, s.Meta.GOARCH = timeout.Seconds(), *maxTurns, runtime.GOOS, runtime.GOARCH
 	if *hermesDir != "" {
-		if b, err := exec.Command("git", "-C", *hermesDir, "rev-parse", "HEAD").Output(); err == nil {
-			s.Meta.HermesCommit = strings.TrimSpace(string(b))
-		}
+		s.Meta.HermesCommit = hermesCommit(*hermesDir)
 	}
 	s.Damnbot = h2h.DamnbotNA
 	if *damnbotBin != "" {

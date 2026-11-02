@@ -6,6 +6,10 @@ Acceptance: **ADR-062** (smoke LLM F1).
 
 Binary: `/home/dan/.cache/damnbot/final-damnbot` built with `go build -tags goolm ./cmd/damnbot`. Provider `https://api.teamorouter.com/v1`, model `gpt-5.4-mini`, declared prices $0.15/$0.015/$0.6 per Mtok. Caps for all runs: GOMAXPROCS=1, GOFLAGS=-p=1, `ulimit -v` 3 GiB, `nice 15`. No product code was changed for this report.
 
+## Model default F5 (2026-11-02)
+
+`-smoke f5` memakai default `openai/gpt-4o-mini` (ADR-304), tetapi model itu **tidak tersedia** di gateway `https://api.teamorouter.com`: `POST /v1/chat/completions` menjawab HTTP 400 `model_not_available` dan id tersebut tidak ada di `/v1/models`. Rekomendasi: override `-model gpt-5.4-mini` (operator-contracted, $0,15/$0,015/$0,60 per Mtok). Smoke E1 F5 pada `main` `965fd150` dengan model itu: 10/10 task `pass`, 0 harness error, biaya aktual **US$0,12038709**; artefak `bench/h2h/results/2026-11-02-f5-e1-smoke/`.
+
 ## Final 10-task h2h smoke
 
 | task | status | exit | stop | pass | calls | USD | harness errors |
@@ -116,6 +120,11 @@ cd bench && go run ./h2h/cmd/h2h -damnbot ~/.cache/damnbot/final-damnbot \
   -key-file ~/.config/damnbot/llm_key -upstream https://api.teamorouter.com \
   -model gpt-5.4-mini -price-in 0.15 -price-cached 0.015 -price-out 0.60 \
   -out h2h/results/2026-10-21-llm-smoke-final
+# F5 E1 smoke (default openai/gpt-4o-mini is unavailable at this gateway; pass -model)
+cd bench && go run ./h2h/cmd/h2h -smoke f5 -hermes /opt/hermes-agent \
+  -upstream https://api.teamorouter.com -model gpt-5.4-mini \
+  -price-in 0.15 -price-cached 0.015 -price-out 0.60 \
+  -out h2h/results/2026-11-02-f5-e1-smoke
 # direct scenario (example)
 damnbot run --output json --approval auto --data-dir /tmp/db-case \
   --model openai/gpt-5.4-mini --base-url https://api.teamorouter.com/v1 \
