@@ -4,11 +4,13 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -111,6 +113,76 @@ func TestRefreshTokenNeverReplayed(t *testing.T) {
 		}
 		if got := f.tokens(); len(got) != 3 || got[2] != "refresh-3" {
 			t.Fatalf("third refresh sent %v, want refresh-3", got)
+		}
+	})
+}
+
+// testRefresher stores one token behind endpoint and returns its refresher.
+func testRefresher(t *testing.T, endpoint, refresh string) *CooldownRefresher {
+	t.Helper()
+	store := fileStore(t)
+	tok := Token{
+		Provider: "fake", AccessToken: "access-1", RefreshToken: refresh,
+		TokenEndpoint: endpoint, ClientID: "client",
+	}
+	if err := store.Save(t.Context(), &tok); err != nil {
+		t.Fatal(err)
+	}
+	o, err := NewOAuth(&OAuthConfig{
+		Provider: "fake", Store: store, Client: testClient(),
+		Now: func() time.Time { return time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return o.Refresher(0)
+}
+
+// TestInvalidGrantMarksRefresherDead (EC-PROV-018): a revoked/expired grant
+// is permanent, so the refresher reports DEAD and never calls the token
+// endpoint again. A transient 500 is not DEAD: it sets a cooldown and may
+// retry later.
+func TestInvalidGrantMarksRefresherDead(t *testing.T) {
+	t.Parallel()
+	g := phase.Current(t)
+	if !g.Item(t, "EC-PROV-018", "F5", "covered") {
+		return
+	}
+	t.Run("EC-PROV-018", func(t *testing.T) {
+		t.Parallel()
+		f := newRefreshFixture(t)
+		refresher := testRefresher(t, f.srv.URL, "revoked")
+		for i := range 2 {
+			if err := refresher.Refresh(t.Context(), refresher.Epoch()); !errors.Is(err, ErrInvalidGrant) {
+				t.Fatalf("refresh %d = %v, want ErrInvalidGrant", i+1, err)
+			}
+		}
+		if !refresher.Dead() {
+			t.Fatal("refresher is not DEAD after invalid_grant")
+		}
+		if got := f.tokens(); len(got) != 1 {
+			t.Fatalf("dead refresher called the token endpoint %d times, want 1: %v", len(got), got)
+		}
+		// Negative control: a transient failure keeps the cooldown path and
+		// is not promoted to DEAD.
+		var calls atomic.Int32
+		flaky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			calls.Add(1)
+			http.Error(w, `{"error":"server_error"}`, http.StatusInternalServerError)
+		}))
+		t.Cleanup(flaky.Close)
+		transient := testRefresher(t, flaky.URL, "refresh-1")
+		if err := transient.Refresh(t.Context(), transient.Epoch()); !errors.Is(err, ErrRefreshFailed) {
+			t.Fatalf("transient refresh = %v, want ErrRefreshFailed", err)
+		}
+		if transient.Dead() {
+			t.Fatal("transient failure marked the refresher DEAD")
+		}
+		if err := transient.Refresh(t.Context(), transient.Epoch()); !errors.Is(err, ErrRefreshCooldown) {
+			t.Fatalf("cooled refresh = %v, want ErrRefreshCooldown", err)
+		}
+		if calls.Load() != 1 {
+			t.Fatalf("cooldown called the token endpoint %d times, want 1", calls.Load())
 		}
 	})
 }

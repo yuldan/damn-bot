@@ -40,6 +40,7 @@ type poolRecorder struct {
 	mu     sync.Mutex
 	keys   []string
 	status []int
+	body   string
 }
 
 func (r *poolRecorder) serve(t *testing.T) http.HandlerFunc {
@@ -55,7 +56,11 @@ func (r *poolRecorder) serve(t *testing.T) http.HandlerFunc {
 		}
 		if status != http.StatusOK {
 			w.WriteHeader(status)
-			if _, err := io.WriteString(w, `{"error":{"message":"fake","type":"invalid_request_error","code":"invalid_api_key"}}`); err != nil {
+			body := r.body
+			if body == "" {
+				body = `{"error":{"message":"fake","type":"invalid_request_error","code":"invalid_api_key"}}`
+			}
+			if _, err := io.WriteString(w, body); err != nil {
 				t.Errorf("write body: %v", err)
 			}
 			return
@@ -244,6 +249,37 @@ func TestPoolRotationKeepsRouteHost(t *testing.T) {
 		}
 		if got := recA.seen(); len(got) != 2 {
 			t.Fatalf("route a received an extra request: %v", got)
+		}
+	})
+}
+
+// TestPoolBillingAmbiguousShortCooldown (EC-PROV-020): a 400 whose body says
+// "out of extra usage" rotates the key but applies only the short billing
+// cooldown, so an ambiguous overage never freezes a credential for the
+// 15-minute auth backoff. A plain 400 still does not rotate.
+func TestPoolBillingAmbiguousShortCooldown(t *testing.T) {
+	t.Parallel()
+	g := phase.Current(t)
+	if !g.Item(t, "EC-PROV-020", "F5", "covered") {
+		return
+	}
+	t.Run("EC-PROV-020", func(t *testing.T) {
+		t.Parallel()
+		rec := &poolRecorder{
+			status: []int{http.StatusBadRequest},
+			body:   `{"error":{"message":"You are out of extra usage","type":"invalid_request_error"}}`,
+		}
+		var events []provider.CredentialEvent
+		p := pooledClient(t, rec, poolOf(t, "a", "b"), &events)
+		resp, err := p.Do(t.Context(), provider.PurposeTurn, ask("fake/m"), nil)
+		if err != nil || resp.CredentialID != "b" {
+			t.Fatalf("resp=%+v err=%v", resp, err)
+		}
+		if len(events) != 1 || events[0].Reason != credpool.ReasonBilling {
+			t.Fatalf("events=%+v, want one billing rotation", events)
+		}
+		if events[0].Cooldown <= 0 || events[0].Cooldown > credpool.DefaultBillingCooldown {
+			t.Fatalf("billing cooldown = %s, want 0 < d <= %s", events[0].Cooldown, credpool.DefaultBillingCooldown)
 		}
 	})
 }

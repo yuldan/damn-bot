@@ -33,6 +33,7 @@ type CooldownRefresher struct {
 	mu       sync.Mutex
 	until    time.Time
 	failures int
+	dead     bool
 }
 
 // NewCooldownRefresher builds a refresher; cooldown <= 0 defaults to 30 s.
@@ -53,6 +54,14 @@ func (c *CooldownRefresher) Failures() int {
 	return c.failures
 }
 
+// Dead reports a permanently rejected grant (RFC 6749 invalid_grant): the
+// refresher no longer calls the token endpoint and never re-enters rotation.
+func (c *CooldownRefresher) Dead() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.dead
+}
+
 // Epoch is the generation captured before a request attempt.
 func (c *CooldownRefresher) Epoch() uint64 { return c.gen.Load() }
 
@@ -63,11 +72,18 @@ func (c *CooldownRefresher) Refresh(ctx context.Context, since uint64) error {
 	if c.gen.Load() != since {
 		return nil // another request already renewed the credential
 	}
+	if c.dead {
+		return ErrInvalidGrant
+	}
 	now := c.now()
 	if now.Before(c.until) {
 		return fmt.Errorf("%w: %s", ErrRefreshCooldown, c.until.Sub(now).Round(time.Second))
 	}
 	if err := c.fn(ctx); err != nil {
+		if errors.Is(err, ErrInvalidGrant) {
+			c.dead = true // revoked/expired grant: retrying can never succeed
+			return ErrInvalidGrant
+		}
 		c.failures++
 		c.until = now.Add(c.cooldown)
 		return ErrRefreshFailed

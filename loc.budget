@@ -52,14 +52,14 @@ plan               600 internal/plan
 # ADR-305 (EC-SEC-002/003): provider/auth 961 -> 1211 (terukur 1211), provider
 # 2620 -> 2712 (TokenRefresher/refresh; terukur 2712). Sigma core 54.605 -> 54.947
 # <= 55.000 (headroom 53).
-provider          2712 internal/provider
+provider          2730 internal/provider
 # ADR-303 (F5-14 PR A1): credential pool SPEC §4.1. Baris baru
 # `provider/credpool` (tipe/pilih/cooldown/redaksi/error; terukur 230).
 # Belum diimpor provider pada slice ini; build minimal tidak berubah.
 # ADR-303 (F5-14 PR A2): pooled wrapper `internal/provider/pool.go` (!minimal)
 # + event credential_rotated; provider 2145 -> 2358 (terukur 2358).
 # Sigma core 54.315 -> 54.525; plafon core 54.400 -> 54.600.
-provider/credpool  230 internal/provider/credpool
+provider/credpool  240 internal/provider/credpool
 provider/providertest 182 internal/provider/providertest
 provider/responses 432 internal/provider/responses
 provider/anthropic  645 internal/provider/anthropic
@@ -82,7 +82,7 @@ provider/registry  660 internal/provider/registry
 # OAuth B/C di bawah cap 961). `secret` 1245 -> 1261 untuk Delete named token
 # (A terukur 1245; Delete di PR B). provider 2217 -> 2224 (+7 signer).
 # Sigma core 48.691 -> 49.675 <= 49.700 (headroom 25).
-provider/auth     1211 internal/provider/auth
+provider/auth     1230 internal/provider/auth
 netx              1810 internal/netx
 netx/jsonrpc       530 internal/netx/jsonrpc
 schema            1200 internal/schema
@@ -123,6 +123,10 @@ schema            1200 internal/schema
 # (TOOL-08): exec 4510 -> 4600 untuk NoticeLimiter (terukur 4583). Amandemen
 # ADR-306 (SEC-20 fetch): netx 1800 -> 1810 (terukur 1803). Sigma core caps
 # 55.457 -> 55.557; plafon core 55.500 -> 55.600.
+# ADR-307 (F5 EC behavior): provider 2712 -> 2730 (billing 400 + region),
+# provider/auth 1211 -> 1230 (invalid_grant DEAD), provider/credpool
+# 230 -> 240 (billing short cooldown). Sigma core caps 55.557 -> 55.604;
+# plafon core 55.600 -> 55.650.
 tools             3620 internal/tools
 # ADR-143: komposisi toolset deklaratif (TSET/CORE-004/005; Σ core 38.450 -> 38.850 <= 47.000).
 toolset            400 internal/toolset

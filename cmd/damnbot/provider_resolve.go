@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -243,7 +244,7 @@ func (r *providerResolver) routeFor(provName, modelName, base, key string, extra
 		return provider.Route{}, fmt.Errorf("pricing: %w", err)
 	}
 	return provider.Route{
-		Provider: provName, Model: modelName, BaseURL: base, APIKey: key, Family: family,
+		Provider: provName, Model: modelName, BaseURL: base, APIKey: key, Family: family, Region: routeRegion(base),
 		ContextWindow: int64(r.cfg.Loop.TurnMaxInputTok),
 		Headers:       r.headers(extra, attribution), ExtraBody: body, Prices: prices,
 		Protocols: protocols,
@@ -427,8 +428,37 @@ func lightRoute(cfg *config.Config, modelRef string, routes *[]provider.Route, r
 		slog.Warn("provider.light is not resolvable; compaction keeps the primary model", "ref", ref, "error", err)
 		return ""
 	}
-	*routes = append(*routes, route)
+	*routes = append(*routes, shareRegion(&(*routes)[0], &route))
 	return ref
+}
+
+// routeRegion extracts the AWS region from a Bedrock runtime endpoint.
+func routeRegion(base string) string {
+	u, err := url.Parse(base)
+	if err != nil {
+		return ""
+	}
+	rest, ok := strings.CutPrefix(u.Hostname(), "bedrock-runtime.")
+	if !ok {
+		return ""
+	}
+	for _, suffix := range []string{".amazonaws.com.cn", ".amazonaws.com"} {
+		if region, ok := strings.CutSuffix(rest, suffix); ok && region != "" && !strings.Contains(region, ".") {
+			return region
+		}
+	}
+	return ""
+}
+
+// shareRegion makes an auxiliary route sign for the same AWS region as the
+// main runtime route (EC-PROV-026): the aux client must not resolve its own
+// region from a different endpoint. Routes that are not Bedrock are unchanged.
+func shareRegion(primary, aux *provider.Route) provider.Route {
+	out := *aux
+	if primary.Region != "" && out.Region != "" {
+		out.Region = primary.Region
+	}
+	return out
 }
 
 // routeModel returns the provider/model an auxiliary purpose runs on. Only
