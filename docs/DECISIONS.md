@@ -5914,3 +5914,17 @@ ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaika
 **Dampak terukur.** `scc` Code: `provider` 2.712 → **2.725/2.730**, `provider/auth` 1.211 → **1.224/1.230**, `provider/credpool` 230 → **234/240**; `codeintel` (MODULE 7.000) tetap di bawah cap. Σ core caps 55.557 → **55.604** ≤ `maxCoreLOC` **55.650**; `TOTAL` tetap ≤190.000. Kelima angka disinkronkan di `loc.budget`, `internal/archtest/repometa_test.go`, regex `budget_doc_test.go`, marker `scripts/ci-meta-test.sh`, dan tabel/prosa `docs/ENGINEERING.md` §2.4. Binary minimal tetap **21.999.778 B** (semua kode baru full-only). Tes: `TestInvalidGrantMarksRefresherDead`, `TestPoolBillingAmbiguousShortCooldown`, `TestPoolManifestLoadIsNonDestructive`, `TestAuxRouteSharesRuntimeRegion`, `TestUTF16RangeConversion`.
 
 **Konsekuensi.** (+) Lima baris katalog F5 punya perilaku yang dapat diuji, bukan deklarasi kosong. (+) Kegagalan permanen tidak lagi diulang tiap jam; error billing ambigu tidak membekukan key. (−) Manifest pool adalah file data baru di data dir; operator yang menghapus keychain tetap mendapat error start (fail-closed), bukan pool kosong diam-diam.
+
+## ADR-308 — Acceptance F5 final dan penaikan `PHASE` ke F6
+
+**Status:** Accepted 2026-11-02 (ROADMAP F5 acceptance, ADR-077/ADR-080/ADR-083). Dokumen + `PHASE` saja; tanpa kode, dependency, config key, migrasi, atau `loc.budget`.
+
+**Konteks.** Seluruh rangkaian F5 sudah merge di main (termasuk #573–#579, #580–#583, #585–#593, #596–#613, #621–#623, #626–#629); `docs/F5-ACCEPTANCE.md` masih memakai status antara (`LULUS-SEBAGIAN`, `BLOKIR`) dan `PHASE` masih `F5`. ADR-080 butir 2 mewajibkan acceptance fase dijalankan saat `PHASE` dinaikkan dari Fx ke Fx+1 dan semua item fase ≤ Fx `covered`/`n/a`.
+
+**Keputusan.**
+1. **Status final ledger.** `docs/F5-ACCEPTANCE.md` ditulis ulang dengan status final: 16/17 GAP `LULUS`, GAP-SEC-22 `DITUNDA` ke F9 (image Docker rilis), dan residual yang bukan acceptance F5 dipindahkan ke tabel `N/A` beralasan dengan fase target eksplisit. `F5-CODEINTEL-LANG` dan `F5-BACKGROUND-WINDOWS` tetap `DITUNDA` ke F6 sesuai ADR-294 amandemen PR 2b dan ADR-297/300. Backlog ADR-078/ADR-086 (AUD-050, NEW2-19, NEW2-20, NEW3-02) semuanya `LULUS`.
+2. **EC F5.** 25 EC berfase F5 `covered` (PROV 12, CFG-008, FIO-003/010, SEC-002..004, TCALL-004/011, TERM-001/003, WIN-007/008/015); `TestEdgeCaseCatalogSync` dengan `DAMNBOT_PHASE_ACCEPTANCE=1` tidak lagi melaporkan EC F5 tanpa baris katalog.
+3. **Bukti gate.** `PHASE=F5 make phase-acceptance` pada `365d6fae` = rc=0, 76/76 paket `ok`, 0 `PHASE GAGAL`; `PHASE=F6 make phase-acceptance` pada `a5352334` = rc=0, 76/76 paket `ok`, 0 `PHASE GAGAL` (tanpa `ulimit -v`; batas 4 GiB memicu `mustMalloc` di chaos client, bukan bug). `make loc` = `TOTAL 101.267 / 190.000`; `make size-check` = full 31.776.930 B ≤ 52 MB, minimal 21.999.778 B ≤ 22.000.000.
+4. **Penaikan fase.** `PHASE` menjadi `F6`; acceptance F6 (EC F6, test tertunda F6, baseline hermes F6) dimulai dan tidak diklaim oleh ADR ini.
+
+**Konsekuensi.** (+) F5 ditutup dengan bukti yang dapat dijalankan dan residual yang eksplisit, bukan `LULUS-SEBAGIAN` yang menggantung. (+) Gate inkremental F6 langsung menuntut EC F5 yang sama pada setiap PR. (−) Dua gap F5 (bahasa codeintel JS/TS/Python dan background Windows) tetap harus ditutup di F6; SEC-22 tetap artefak rilis F9.
