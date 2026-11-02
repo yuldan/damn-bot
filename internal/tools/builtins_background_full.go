@@ -29,8 +29,19 @@ func shellSchema() string {
 func backgroundRequested(a *shellArgs) bool { return a.Background }
 
 func validateBackground(a *shellArgs) error {
-	if a.Background && a.Session != "" {
+	if !a.Background {
+		return nil
+	}
+	if a.Session != "" {
 		return toolErr(CodeInvalidArgs, "background and session cannot be combined", "omit session")
+	}
+	if !exec.BackgroundSupported {
+		return &ToolError{
+			Code:    CodeModuleUnavailable,
+			Message: "background shell needs a Job Object, unsupported on Windows in this slice",
+			Hint:    "run in the foreground with timeout_s",
+			Err:     exec.ErrCapability,
+		}
 	}
 	return nil
 }
