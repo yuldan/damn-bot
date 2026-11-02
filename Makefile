@@ -36,7 +36,7 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 .PHONY: all build build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio chaos \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf perf-f4 ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
-	sqlite-engine sqlite-engine-cross skill-refs prices-gate release
+	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker release
 
 all: check
 
@@ -71,6 +71,12 @@ skill-refs:
 # The failure names every stale entry (version, base_url, model, until).
 prices-gate:
 	go test $(GOTAGS) -count=1 -run '^TestPricingTableNotExpired$$' ./internal/provider/registry
+
+# Docker-positive execute_code e2e (F5 slice 5). The workflow builds the
+# fixture image and exports DAMNBOT_E2E_DOCKER_IMAGE; the test is compiled
+# only under e2e_docker and stays skipOrFail-hard when CI has the image.
+e2e-docker:
+	go test -tags "$(TAGSCSV),e2e_docker" -count=1 -timeout 10m -run '^TestExecuteCodeDockerPositive$$' ./internal/e2e
 
 lint:
 	$(GOTOOL) golangci-lint run --build-tags "$(TAGSCSV)" ./...

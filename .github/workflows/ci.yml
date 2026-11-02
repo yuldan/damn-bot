@@ -303,6 +303,33 @@ jobs:
       - name: Coverage per paket critical (E-58, AUD-059)
         run: make coverage
 
+  # Docker-positive execute_code e2e (F5 slice 5): the fixture image is built
+  # locally so the runner never depends on a registry image tag. The test is
+  # compiled under `e2e_docker` only (normal `make test` jobs do not see it) and
+  # keeps skipOrFail hard: once this job exports the image, a broken docker
+  # fixture fails CI instead of skipping. Platforms without docker are out of
+  # scope here; the rest of the e2e suite still runs in `test`/`test-timing`.
+  e2e:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Build e2e docker fixture
+        timeout-minutes: 10
+        run: docker build -t damnbot-e2e:ci internal/e2e/testdata
+      - name: execute_code docker positive (skipOrFail)
+        env:
+          DAMNBOT_E2E_DOCKER_IMAGE: damnbot-e2e:ci
+        run: make e2e-docker
+
   # E-58 (+ AUD-059) E-59 perf, ADR-080 acceptance fase.
   # CODE-TOOLS §10.3 CT-21 + NEW2-07 (modul bench): parity grep vs rg 15.1.0 di korpus nyata C1+C3
   # (`bench/corpora.lock`; tanpa korpus test gagal, bukan skip: DAMNBOT_REQUIRE_CORPORA=1) dan seluruh test
@@ -478,6 +505,7 @@ jobs:
       - portability
       - fuzz
       - extra
+      - e2e
       - bench
       - supply
       - smoke
