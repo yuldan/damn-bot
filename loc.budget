@@ -83,7 +83,7 @@ provider/registry  660 internal/provider/registry
 # (A terukur 1245; Delete di PR B). provider 2217 -> 2224 (+7 signer).
 # Sigma core 48.691 -> 49.675 <= 49.700 (headroom 25).
 provider/auth     1211 internal/provider/auth
-netx              1800 internal/netx
+netx              1810 internal/netx
 netx/jsonrpc       530 internal/netx/jsonrpc
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).
@@ -120,8 +120,9 @@ schema            1200 internal/schema
 # Amandemen ADR-300 (F5 residual COST-10/TOOL-08): tools 3600 -> 3620 untuk
 # adapter RPC Starlark (terukur 3612). exec 4300 -> 4510 untuk server RPC
 # Starlark + fallback sun_path pendek (terukur 4505). Amandemen ADR-072
-# (TOOL-08): exec 4510 -> 4600 untuk NoticeLimiter (terukur 4583). Sigma core
-# caps 55.457 -> 55.547; plafon core 55.500 -> 55.600.
+# (TOOL-08): exec 4510 -> 4600 untuk NoticeLimiter (terukur 4583). Amandemen
+# ADR-306 (SEC-20 fetch): netx 1800 -> 1810 (terukur 1803). Sigma core caps
+# 55.457 -> 55.557; plafon core 55.500 -> 55.600.
 tools             3620 internal/tools
 # ADR-143: komposisi toolset deklaratif (TSET/CORE-004/005; Σ core 38.450 -> 38.850 <= 47.000).
 toolset            400 internal/toolset
