@@ -1795,6 +1795,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC P2, P24, §3.5, §4.2, §4.3 (daftar kode error), §5.1 (`shell`), §12 (`exec.kill_grace_s`), §13.3 (pemetaan ACP), §22.1 GAP-REL-06; EXEC-AND-CODING §A.2, §A.3, §A.4, §A.5, §A.10; ROADMAP F1. Setiap passage mengutip ADR-072.
 
+**Amandemen F5 residual (TOOL-08).** `exec.NoticeLimiter` membatasi notice proses 1/15 s per proses, 4/menit per chat, 15/10 s global dan menggabungkan sisanya sebagai `+N`; `Background.SetOnExit` memanggil hook di luar lock registry. `exec` **4.510 → 4.600** (terukur **4.583**), Σ core caps **55.457 → 55.547** ≤ `maxCoreLOC` **55.600** (headroom 53); `loc.budget`, tabel/prosa ENGINEERING, `budget_doc_test`, dan `ci-meta-test` disinkronkan. Binary minimal tetap **21.999.778 B**.
+
 **Keputusan.**
 1. **`content_filtered` (AUD-018).** stop_reason baru `content_filtered` (ACP `refusal`), dipicu `finish_reason=content_filter` atau padanan typed per adapter. Tanpa retry dan tanpa fallback. Konten parsial disimpan sebagai event `assistant_message` dengan `filtered: true` dan tidak dipakai sebagai jawaban final. `damnbot run` exit 2. Test: `TestContentFilterStop`.
 2. **Kode error (AUD-019).** Daftar tertutup §4.3 ditambah `write_verify_failed` (TOOL-03), `egress_disabled` (OPS-02), dan `invalid_skill` (SEC-26). `TestErrorCodesClosed` memakai daftar ini.

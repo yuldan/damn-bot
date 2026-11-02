@@ -85,7 +85,8 @@ type Background struct {
 	seq      int
 	closed   bool
 	now      func() time.Time
-	finished int // completed entries pruned by retention/max
+	finished int               // completed entries pruned by retention/max
+	onExit   func(ProcessInfo) // optional process-exit notice hook
 }
 
 type spawnSpec struct {
@@ -171,11 +172,18 @@ func (b *Background) Start(ctx context.Context, session string, argv []string, d
 	return p.info, nil
 }
 
+// SetOnExit installs one callback invoked after a process reaches its final
+// state. The callback runs outside the registry lock and must not block.
+func (b *Background) SetOnExit(fn func(ProcessInfo)) {
+	b.mu.Lock()
+	b.onExit = fn
+	b.mu.Unlock()
+}
+
 // reap waits for the process once and records the final state.
 func (b *Background) reap(p *bgProc) {
 	code, sig, err := p.cmd.wait()
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	p.exited, p.exitErr = true, err
 	p.info.Status = ProcessExited
 	if sig != "" {
@@ -185,7 +193,12 @@ func (b *Background) reap(p *bgProc) {
 		p.info.ExitCode = &code
 	}
 	p.info.RuntimeMS = b.now().Sub(p.info.Started).Milliseconds()
+	info, onExit := p.info, b.onExit
 	close(p.done)
+	b.mu.Unlock()
+	if onExit != nil {
+		onExit(info)
+	}
 }
 
 // lookup returns a process only for its owning session (isolation).
