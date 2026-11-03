@@ -66,6 +66,18 @@ type BlobRef struct {
 	MIME string
 	Size int64
 	Path string
+	// Kind and Name identify an attachment blob (GAP-REL-14); empty for
+	// ordinary spill blobs.
+	Kind string
+	Name string
+}
+
+// Attachment is one binary module result before the dispatcher spills it.
+type Attachment struct {
+	Kind string
+	Name string
+	MIME string
+	Data []byte
 }
 
 // Result is a successful tool result (SPEC §4.3). Content is the
@@ -76,6 +88,9 @@ type Result struct {
 	Err         *ToolError
 	Meta        map[string]any
 	Attachments []BlobRef
+	// PendingAttachments are binary module results; the dispatcher spills
+	// them and moves the refs into Attachments. They never enter Content.
+	PendingAttachments []Attachment
 	// Spilled is the blob holding the full result when the tool spilled it
 	// internally (shell exec summary); dispatcher promotes it to the event.
 	Spilled *BlobRef

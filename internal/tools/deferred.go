@@ -267,7 +267,14 @@ func (t *moduleTool) Run(ctx context.Context, env Env, args json.RawMessage) (Re
 	if verr := res.Validate(); verr != nil {
 		return Result{}, &ToolError{Code: CodeInternal, Message: "module returned an invalid result", Err: verr}
 	}
-	return Result{OK: true, Content: res.Content, Meta: res.Meta, UntrustedSource: res.UntrustedSource}, nil
+	pending := make([]Attachment, len(res.Attachments))
+	for i, a := range res.Attachments {
+		pending[i] = Attachment{Kind: string(a.Kind), Name: a.Name, MIME: a.MIME, Data: a.Data}
+	}
+	return Result{
+		OK: true, Content: res.Content, Meta: res.Meta, UntrustedSource: res.UntrustedSource,
+		PendingAttachments: pending,
+	}, nil
 }
 
 // moduleToolError maps a module failure onto the closed tool-code set. A
