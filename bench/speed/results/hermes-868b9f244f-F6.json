@@ -9,8 +9,8 @@
   "machine": "workstation (not Q14)",
   "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
   "kernel": "Linux 6.8.0-147-generic",
-  "damnbot_commit": "eb176348",
-  "damnbot_dirty": "15",
+  "damnbot_commit": "754d2676",
+  "damnbot_dirty": "0",
   "caveats": {
    "image": "4000x3000 JPEG with the 2048 px / 3.75 MB / q85 preset; Damn-Bot uses stdlib stages, Hermes uses Pillow stages",
    "verdict": "pass requires measured rows and all targets; image also requires machine Q14",
@@ -27,19 +27,19 @@
      "status": "measured",
      "machine": "workstation (not Q14)",
      "runs": 3,
-     "decode_ms": 136.988518,
-     "resize_ms": 18.822104,
-     "encode_ms": 94.201602,
-     "total_ms": 271.507721
+     "decode_ms": 128.588461,
+     "resize_ms": 20.731877,
+     "encode_ms": 96.876751,
+     "total_ms": 265.000032
     },
     "hermes": {
      "status": "measured",
      "machine": "workstation (not Q14)",
      "runs": 3,
-     "decode_ms": 51.49759799678577,
-     "resize_ms": 237.76074399938807,
-     "encode_ms": 10.906939001870342,
-     "total_ms": 444.6914439977263
+     "decode_ms": 52.577565002138726,
+     "resize_ms": 245.63391099945875,
+     "encode_ms": 10.93841400142992,
+     "total_ms": 453.5357360000489
     }
    },
    "verdict": "fail"
@@ -53,15 +53,15 @@
     "damnbot": {
      "status": "measured",
      "runs": 3,
-     "overhead_ms": 0.069,
-     "tts_start_ms": 0.041
+     "overhead_ms": 0.076,
+     "tts_start_ms": 0.049
     },
     "hermes": {
      "status": "measured",
      "machine": "workstation (not Q14)",
      "runs": 3,
-     "overhead_ms": 1.14263899740763,
-     "tts_start_ms": 1.14263899740763
+     "overhead_ms": 1.5969410014804453,
+     "tts_start_ms": 1.5969410014804453
     }
    },
    "verdict": "pass"
