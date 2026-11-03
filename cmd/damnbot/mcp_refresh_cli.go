@@ -97,7 +97,7 @@ func mcpReview(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func mcpReviewServer(host *mcpCLIHost, cfg *config.Config, srv *mcp.Server, tool string, stdout, stderr io.Writer) bool {
+func mcpReviewServer(host *cliHost, cfg *config.Config, srv *mcp.Server, tool string, stdout, stderr io.Writer) bool {
 	client, cerr := newMCPClient(host, *srv, cfg)
 	if cerr != nil {
 		sessionsPrintf(stderr, "mcp review %s: %s\n", srv.Name, cleanLine(cerr.Error()))

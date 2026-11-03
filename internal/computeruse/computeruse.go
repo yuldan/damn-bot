@@ -235,6 +235,20 @@ func (m *Module) Start(ctx context.Context) error {
 	return nil
 }
 
+// Stop releases the backend. It is safe when never started.
+func (m *Module) Stop(ctx context.Context) error {
+	if m == nil || m.backend == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.started = false
+	if err := m.backend.Stop(ctx); err != nil {
+		return fmt.Errorf("%w: %w", ErrBackend, err)
+	}
+	return nil
+}
+
 // Act validates, approves and executes one action. A denial runs no action.
 func (m *Module) Act(ctx context.Context, callID string, a *Action) (host.Result, error) {
 	res, err := m.run(ctx, callID, a)

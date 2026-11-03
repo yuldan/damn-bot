@@ -25,8 +25,8 @@ import (
 	"github.com/damnbot/damnbot/internal/netx"
 )
 
-// mcpCLIHost is the composition root's host for non-turn MCP commands.
-type mcpCLIHost struct {
+// cliHost is the composition root's host for non-turn MCP commands.
+type cliHost struct {
 	db      *ctxdb.Store
 	approve host.Approvals
 	secrets host.Secrets
@@ -35,11 +35,11 @@ type mcpCLIHost struct {
 }
 
 // Capabilities is fail-closed: the CLI never spends tokens for sampling.
-func (h *mcpCLIHost) Capabilities() host.Capabilities {
+func (h *cliHost) Capabilities() host.Capabilities {
 	return host.Capabilities{Approvals: h.approve, Secrets: h.secrets, Clock: h.clock}
 }
 
-func (h *mcpCLIHost) Emit(_ context.Context, ev host.Event) error {
+func (h *cliHost) Emit(_ context.Context, ev host.Event) error {
 	if h.errOut != nil && ev.Kind == event.ModuleError {
 		sessionsPrintf(h.errOut, "mcp: %s\n", cleanLine(ev.Content))
 	}
@@ -47,11 +47,11 @@ func (h *mcpCLIHost) Emit(_ context.Context, ev host.Event) error {
 }
 
 // I18n returns nil: user-facing strings of this command are plain Go text.
-func (*mcpCLIHost) I18n() host.Translator { return nil }
+func (*cliHost) I18n() host.Translator { return nil }
 
-func (*mcpCLIHost) LLM(string) host.Completer { return nil }
+func (*cliHost) LLM(string) host.Completer { return nil }
 
-func (h *mcpCLIHost) Storage(namespace string) (host.Store, error) {
+func (h *cliHost) Storage(namespace string) (host.Store, error) {
 	if h.db == nil {
 		return nil, errors.New("mcp: no database")
 	}
@@ -62,7 +62,7 @@ func (h *mcpCLIHost) Storage(namespace string) (host.Store, error) {
 }
 
 //nolint:gocritic,gosec // consolidated for Spawn
-func (h *mcpCLIHost) Spawn(ctx context.Context, spec host.SpawnSpec) (host.Process, error) {
+func (h *cliHost) Spawn(ctx context.Context, spec host.SpawnSpec) (host.Process, error) {
 	if spec.Path == "" {
 		return nil, errors.New("mcp: empty spawn path")
 	}
@@ -112,7 +112,8 @@ func (p *cliProcess) startWait() {
 }
 
 func (p *cliProcess) Stdio() (io.WriteCloser, io.Reader, io.Reader) {
-	p.startWait()
+	// Wait is started only after the caller finishes reading: cmd.Wait closes
+	// the pipes, so starting it here would race a fast child's stdout.
 	return p.in, p.out, p.errp
 }
 
@@ -273,8 +274,8 @@ type mcpWallClock struct{}
 func (mcpWallClock) Now() (time.Time, error) { return time.Now(), nil }
 
 // cliMCPHost builds the host used by mcp list/refresh/review.
-func cliMCPHost(db *ctxdb.Store, loader *config.Loader, in io.Reader, out, errOut io.Writer) *mcpCLIHost {
-	return &mcpCLIHost{db: db, approve: &terminalApprovals{in: in, out: out}, secrets: envSecrets{getenv: loader.Env}, clock: mcpWallClock{}, errOut: errOut}
+func cliMCPHost(db *ctxdb.Store, loader *config.Loader, in io.Reader, out, errOut io.Writer) *cliHost {
+	return &cliHost{db: db, approve: &terminalApprovals{in: in, out: out}, secrets: envSecrets{getenv: loader.Env}, clock: mcpWallClock{}, errOut: errOut}
 }
 
 // mcpDoerFor keeps loopback on the inference edge and public on the tool edge.
@@ -295,7 +296,7 @@ func isLoopbackHost(host string) bool {
 }
 
 // newMCPClient builds one validated client; OAuth is wired only for `oauth`.
-func newMCPClient(h *mcpCLIHost, srv mcp.Server, cfg *config.Config) (*mcp.Client, error) { //nolint:gocritic // one validated server converted once
+func newMCPClient(h *cliHost, srv mcp.Server, cfg *config.Config) (*mcp.Client, error) { //nolint:gocritic // one validated server converted once
 	doer := mcpDoerFor(srv)
 	var opts []mcp.Option
 	if srv.OAuth != nil {
