@@ -62,7 +62,7 @@ func TestE2EDoctorNetwork(t *testing.T) {
 	writeProfileConfig(t, e, "[network]\nbackground = false\n")
 	res := e.Exec("doctor", "--network")
 	res.RequireOK(t)
-	for _, want := range []string{"inference", "refs", "telegram", "update", "cron-monitor", "auth", "mcp", "mcp-local", "gateway", "api.telegram.org", "disabled (egress_disabled)", "trigger:"} {
+	for _, want := range []string{"inference", "refs", "telegram", "update", "cron-monitor", "auth", "mcp", "mcp-local", "media", "image_endpoint", "video_create_url", "image_generate", "gateway", "api.telegram.org", "disabled (egress_disabled)", "trigger:"} {
 		if !strings.Contains(res.Stdout, want) {
 			t.Errorf("doctor --network lacks %q:\n%s", want, res.Stdout)
 		}
@@ -115,6 +115,7 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 		"auth":         {"inference", "enabled"},
 		"mcp":          {"tool", "enabled"},
 		"mcp-local":    {"inference", "enabled"},
+		"media":        {"tool", "enabled"},
 	}
 	if !background {
 		want["update"] = struct{ purpose, status string }{"background", "disabled (egress_disabled)"}
