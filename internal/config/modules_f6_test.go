@@ -109,6 +109,39 @@ func TestModulesBrowserCDPURL(t *testing.T) {
 	}
 }
 
+// TestModulesBrowserEngines: the engine catalog and its endpoints are
+// validated at load; local_profile and engine stay opt-in (ADR-321).
+func TestModulesBrowserEngines(t *testing.T) {
+	t.Parallel()
+	cfg, err := parse(t, "[modules.browser]\nenabled = true\nengine = \"camofox\"\ncamofox_url = \"http://127.0.0.1:9377\"\nallow_origins = [\"https://app.example\"]\n")
+	if err != nil || cfg.Modules.Browser.Engine != "camofox" || cfg.Modules.Browser.LocalProfile {
+		t.Fatalf("camofox = %+v, %v", cfg.Modules.Browser, err)
+	}
+	for _, body := range []string{
+		"engine = \"webkit\"",
+		"engine = \"camofox\"\ncamofox_url = \"http://camofox.example\"",
+		"engine = \"cloud\"\ncloud_url = \"http://browser.example\"",
+		"engine = \"cloud\"\ncloud_url = \"https://u:p@browser.example\"",
+		"engine = \"lightpanda\"\nlightpanda_bin = \"lightpanda\"",
+		"camofox_url = \"http://127.0.0.1:9377\"\ncloud_url = \"https://browser.example\"",
+	} {
+		if _, err := parse(t, "[modules.browser]\n"+body+"\n"); err == nil {
+			t.Errorf("section %q loaded", body)
+		}
+	}
+	absBin := strconv.Quote(filepath.Join(t.TempDir(), "lightpanda"))
+	for _, body := range []string{
+		"engine = \"lightpanda\"\nlightpanda_bin = " + absBin,
+		"engine = \"cloud\"\ncloud_url = \"https://browser.example\"",
+		"engine = \"cloud\"\ncloud_url = \"http://127.0.0.1:8080\"",
+		"engine = \"cdp\"\ncdp_url = \"ws://127.0.0.1:9222/x\"",
+	} {
+		if _, err := parse(t, "[modules.browser]\n"+body+"\n"); err != nil {
+			t.Errorf("section %q: %v", body, err)
+		}
+	}
+}
+
 // TestModulesMedia: media accepts the opt-in and the closed backend/key/URL
 // pairing; a public backend without its key or video URLs fails at load.
 func TestModulesMedia(t *testing.T) {
