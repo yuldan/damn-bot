@@ -41,6 +41,12 @@ func Tools() []Tool {
 		newTool("browser_scroll", "Scroll the page at coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"delta_x":{"type":"number","minimum":-10000,"maximum":10000},"delta_y":{"type":"number","minimum":-10000,"maximum":10000}},"required":["delta_x","delta_y"],"additionalProperties":false}`),
 		newTool("browser_hover", "Move the pointer to viewport coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"],"additionalProperties":false}`),
 		newTool("browser_drag", "Drag from one viewport point to another after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"end_x":{"type":"number"},"end_y":{"type":"number"}},"required":["x","y","end_x","end_y"],"additionalProperties":false}`),
+		newTool("browser_press", "Press one keyboard key after approval", "non_idempotent", `{"type":"object","properties":{"key":{"type":"string","maxLength":32}},"required":["key"],"additionalProperties":false}`),
+		newTool("browser_select", "Set a control value by selector after approval", "non_idempotent", `{"type":"object","properties":{"selector":{"type":"string","maxLength":1024},"value":{"type":"string","maxLength":4096}},"required":["selector","value"],"additionalProperties":false}`),
+		newTool("browser_upload", "Set a file input from a workspace file after approval", "non_idempotent", `{"type":"object","properties":{"selector":{"type":"string","maxLength":1024},"path":{"type":"string","maxLength":1024}},"required":["selector","path"],"additionalProperties":false}`),
+		newTool("browser_download", "Download an allowlisted URL into a workspace file after approval", "non_idempotent", `{"type":"object","properties":{"url":{"type":"string","maxLength":2048},"path":{"type":"string","maxLength":1024}},"required":["url","path"],"additionalProperties":false}`),
+		newTool("browser_wait_for", "Wait until a JavaScript expression is truthy or the timeout expires", "read", `{"type":"object","properties":{"expression":{"type":"string","maxLength":4096},"timeout_ms":{"type":"integer","minimum":0,"maximum":30000}},"required":["expression"],"additionalProperties":false}`),
+		newTool("browser_pdf", "Render the current page as PDF", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
 	}
 }
 
@@ -245,23 +251,50 @@ func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, 
 	if m == nil || !m.cfg.Enabled || m.engineName() == "" {
 		return host.Result{}, &host.Error{Code: "module_unavailable", Message: "browser module is unavailable: " + tool}
 	}
+	if res, ok, err := m.invokeRead(ctx, tool, args); ok {
+		return res, err
+	}
+	return m.invokeAction(ctx, tool, args, env)
+}
+
+func (m *Module) invokeRead(ctx context.Context, tool string, args json.RawMessage) (host.Result, bool, error) {
 	switch tool {
 	case "browser_navigate":
-		return m.navigate(ctx, args)
+		res, err := m.navigate(ctx, args)
+		return res, true, err
 	case "browser_eval":
-		return m.evaluate(ctx, args)
+		res, err := m.evaluate(ctx, args)
+		return res, true, err
 	case "browser_screenshot":
-		return m.screenshot(ctx)
+		res, err := m.screenshot(ctx)
+		return res, true, err
 	case "browser_snapshot":
-		return m.snapshot(ctx)
+		res, err := m.snapshot(ctx)
+		return res, true, err
+	case "browser_wait_for":
+		res, err := m.waitFor(ctx, args)
+		return res, true, err
+	case "browser_pdf":
+		res, err := m.pdf(ctx)
+		return res, true, err
+	}
+	return host.Result{}, false, nil
+}
+
+func (m *Module) invokeAction(ctx context.Context, tool string, args json.RawMessage, env host.Env) (host.Result, error) {
+	switch tool {
 	case "browser_click":
 		return m.click(ctx, args, env)
 	case "browser_type":
 		return m.typeText(ctx, args, env)
 	case "browser_back":
 		return m.back(ctx, env)
-	case "browser_hover", "browser_drag", "browser_scroll":
+	case "browser_hover", "browser_drag", "browser_scroll", "browser_press", "browser_select":
 		return m.action(ctx, tool, args, env)
+	case "browser_upload":
+		return m.upload(ctx, args, env)
+	case "browser_download":
+		return m.download(ctx, args, env)
 	}
 	return host.Result{}, &host.Error{Code: "unknown_tool", Message: "unknown browser tool: " + tool}
 }
@@ -430,7 +463,7 @@ func decodeAction(tool string, raw json.RawMessage) (*Action, string, error) {
 	case "browser_click", "browser_type", "browser_hover", "browser_drag":
 		return decodePointer(tool, raw)
 	case "browser_scroll", "browser_press", "browser_select":
-		return decodeInput(raw)
+		return decodeInput(tool, raw)
 	}
 	return nil, "", fmt.Errorf("%w: %s", errBadConfig, tool)
 }
@@ -456,21 +489,33 @@ func decodePointer(tool string, raw json.RawMessage) (*Action, string, error) {
 		fmt.Sprintf("browser_drag (%.0f,%.0f)->(%.0f,%.0f)", a.X, a.Y, a.EndX, a.EndY), nil
 }
 
-func decodeInput(raw json.RawMessage) (*Action, string, error) {
+func decodeInput(tool string, raw json.RawMessage) (*Action, string, error) {
 	var a struct {
-		X      float64 `json:"x"`
-		Y      float64 `json:"y"`
-		DeltaX float64 `json:"delta_x"`
-		DeltaY float64 `json:"delta_y"`
+		X        float64 `json:"x"`
+		Y        float64 `json:"y"`
+		DeltaX   float64 `json:"delta_x"`
+		DeltaY   float64 `json:"delta_y"`
+		Key      string  `json:"key"`
+		Selector string  `json:"selector"`
+		Value    string  `json:"value"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return nil, "", err
 	}
-	if a.DeltaX < -10000 || a.DeltaX > 10000 || a.DeltaY < -10000 || a.DeltaY > 10000 {
-		return nil, "", fmt.Errorf("%w: scroll deltas", errBadConfig)
+	switch tool {
+	case "browser_scroll":
+		if a.DeltaX < -10000 || a.DeltaX > 10000 || a.DeltaY < -10000 || a.DeltaY > 10000 {
+			return nil, "", fmt.Errorf("%w: scroll deltas", errBadConfig)
+		}
+		return &Action{X: a.X, Y: a.Y, DeltaX: a.DeltaX, DeltaY: a.DeltaY},
+			fmt.Sprintf("browser_scroll (%.0f,%.0f)", a.DeltaX, a.DeltaY), nil
+	case "browser_press":
+		if !knownKey(a.Key) {
+			return nil, "", fmt.Errorf("%w: key %q", errBadConfig, a.Key)
+		}
+		return &Action{Key: a.Key}, "browser_press " + a.Key, nil
 	}
-	return &Action{X: a.X, Y: a.Y, DeltaX: a.DeltaX, DeltaY: a.DeltaY},
-		fmt.Sprintf("browser_scroll (%.0f,%.0f)", a.DeltaX, a.DeltaY), nil
+	return &Action{Selector: a.Selector, Value: a.Value}, "browser_select " + a.Selector, nil
 }
 
 func (m *Module) back(ctx context.Context, env host.Env) (host.Result, error) {
@@ -484,6 +529,35 @@ func (m *Module) back(ctx context.Context, env host.Env) (host.Result, error) {
 		}
 		m.host = urlHost(final)
 		return host.Result{Content: "back to " + final, Meta: map[string]any{"url": final}}, nil
+	})
+}
+
+func (m *Module) waitFor(ctx context.Context, raw json.RawMessage) (host.Result, error) {
+	var a struct {
+		Expression string `json:"expression"`
+		TimeoutMS  int    `json:"timeout_ms"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return host.Result{}, invalidArgs(err)
+	}
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		if err := p.WaitFor(ctx, a.Expression, time.Duration(a.TimeoutMS)*time.Millisecond); err != nil {
+			return host.Result{}, err
+		}
+		return host.Result{Content: "condition met"}, nil
+	})
+}
+
+func (m *Module) pdf(ctx context.Context) (host.Result, error) {
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		reply, err := p.read(ctx, ReadOp{Kind: "pdf", Limit: p.cfg.MaxBlob})
+		if err != nil {
+			return host.Result{}, pageError(err)
+		}
+		if len(reply.Blob) > p.cfg.MaxBlob {
+			return host.Result{}, fmt.Errorf("%w: pdf %d > %d bytes", errTooLarge, len(reply.Blob), p.cfg.MaxBlob)
+		}
+		return host.Result{Content: fmt.Sprintf("pdf %d bytes", len(reply.Blob)), Meta: map[string]any{"bytes": len(reply.Blob)}}, nil
 	})
 }
 

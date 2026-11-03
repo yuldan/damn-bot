@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
@@ -34,12 +35,14 @@ type Config struct {
 	LoadTimeout   time.Duration
 	MaxResult     int
 	MaxScreenshot int
+	MaxBlob       int
 }
 
 func (c Config) normalize() Config {
 	c.LoadTimeout = cmp.Or(c.LoadTimeout, 20*time.Second)
 	c.MaxResult = cmp.Or(c.MaxResult, 64<<10)
 	c.MaxScreenshot = cmp.Or(c.MaxScreenshot, 2<<20)
+	c.MaxBlob = cmp.Or(c.MaxBlob, 8<<20)
 	return c
 }
 
@@ -293,6 +296,10 @@ func (p *Page) cdpRead(ctx context.Context, op ReadOp) (Reply, error) {
 		return p.cdpSnapshot(ctx)
 	case "back":
 		return p.cdpBack(ctx, op.Guard)
+	case "pdf":
+		return p.cdpPDF(ctx)
+	case "download":
+		return p.cdpDownload(ctx, op)
 	}
 	return Reply{}, fmt.Errorf("%w: %s", errBadConfig, op.Kind)
 }
@@ -319,6 +326,53 @@ func (p *Page) Back(ctx context.Context) (string, error) {
 		return "", errNoHistory
 	}
 	return reply.Name, nil
+}
+
+func (p *Page) cdpPDF(ctx context.Context) (Reply, error) {
+	raw, err := p.conn.Call(ctx, "Page.printToPDF", map[string]any{"printBackground": true})
+	if err != nil {
+		return Reply{}, fmt.Errorf("browser: pdf: %w", err)
+	}
+	var res struct {
+		Data string `json:"data"`
+	}
+	if uerr := json.Unmarshal(raw, &res); uerr != nil {
+		return Reply{}, errPage
+	}
+	pdf, derr := base64.StdEncoding.DecodeString(res.Data)
+	if derr != nil {
+		return Reply{}, errPage
+	}
+	return Reply{Blob: pdf}, nil
+}
+
+func (p *Page) cdpDownload(ctx context.Context, op ReadOp) (Reply, error) {
+	u, err := url.Parse(op.URL)
+	if err != nil || u.Host == "" {
+		return Reply{}, fmt.Errorf("%w: download url", errBadConfig)
+	}
+	expr := `(async () => { const r = await fetch(` + quote(op.URL) + `); const b = await r.arrayBuffer();` +
+		` const u = new Uint8Array(b); let s = ""; for (let i = 0; i < u.length; i += 0x8000) { s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); } return btoa(s); })()`
+	value, err := p.conn.Call(ctx, "Runtime.evaluate", map[string]any{"expression": expr, "returnByValue": true, "awaitPromise": true})
+	if err != nil {
+		return Reply{}, fmt.Errorf("browser: download: %w", err)
+	}
+	var res struct {
+		Result struct {
+			Value string `json:"value"`
+		} `json:"result"`
+	}
+	if uerr := json.Unmarshal(value, &res); uerr != nil {
+		return Reply{}, fmt.Errorf("%w: download reply", errPage)
+	}
+	blob, derr := base64.StdEncoding.DecodeString(res.Result.Value)
+	if derr != nil {
+		return Reply{}, fmt.Errorf("%w: download decode", errPage)
+	}
+	if op.Limit > 0 && len(blob) > op.Limit {
+		return Reply{}, fmt.Errorf("%w: download %d > %d bytes", errTooLarge, len(blob), op.Limit)
+	}
+	return Reply{Blob: blob, Name: path.Base(u.Path)}, nil
 }
 
 func (p *Page) cdpSnapshot(ctx context.Context) (Reply, error) {
@@ -425,6 +479,22 @@ func (p *Page) Run(ctx context.Context, tool string, a *Action, approved bool) e
 	if !approved {
 		return fmt.Errorf("%w: %s", errApproval, tool)
 	}
+	if tool == "browser_select" {
+		return p.selectValue(ctx, a.Selector, a.Value)
+	}
+	if err := actionKind(tool, a); err != nil {
+		return err
+	}
+	if p.eng != nil {
+		if err := p.eng.Act(ctx, a); err != nil {
+			return fmt.Errorf("browser: %s: %w", tool, err)
+		}
+		return nil
+	}
+	return p.cdpAct(ctx, a)
+}
+
+func actionKind(tool string, a *Action) error {
 	switch tool {
 	case "browser_click":
 		a.Kind = "click"
@@ -439,16 +509,15 @@ func (p *Page) Run(ctx context.Context, tool string, a *Action, approved bool) e
 		if a.DeltaX < -10000 || a.DeltaX > 10000 || a.DeltaY < -10000 || a.DeltaY > 10000 {
 			return fmt.Errorf("%w: scroll deltas", errBadConfig)
 		}
+	case "browser_press":
+		if !knownKey(a.Key) {
+			return fmt.Errorf("%w: key %q", errBadConfig, a.Key)
+		}
+		a.Kind = "press"
 	default:
 		return fmt.Errorf("%w: %s", errBadConfig, tool)
 	}
-	if p.eng != nil {
-		if err := p.eng.Act(ctx, a); err != nil {
-			return fmt.Errorf("browser: %s: %w", tool, err)
-		}
-		return nil
-	}
-	return p.cdpAct(ctx, a)
+	return nil
 }
 
 func (p *Page) cdpAct(ctx context.Context, a *Action) error {
@@ -463,6 +532,13 @@ func (p *Page) cdpAct(ctx context.Context, a *Action) error {
 			return err
 		}
 		return p.mouse(ctx, "mouseReleased", a.EndX, a.EndY, "left")
+	case "press":
+		for _, kind := range []string{"keyDown", "keyUp"} {
+			if _, err := p.conn.Call(ctx, "Input.dispatchKeyEvent", map[string]string{"type": kind, "key": a.Key}); err != nil {
+				return fmt.Errorf("browser: press: %w", err)
+			}
+		}
+		return nil
 	case "scroll":
 		_, err := p.conn.Call(ctx, "Input.dispatchMouseEvent", map[string]any{
 			"type": "mouseWheel", "x": a.X, "y": a.Y, "deltaX": a.DeltaX, "deltaY": a.DeltaY,
@@ -486,6 +562,97 @@ func (p *Page) mouse(ctx context.Context, kind string, x, y float64, button stri
 	return nil
 }
 
+func truthy(value string) bool {
+	switch value {
+	case "", "null", "false", "0", `""`, "[]":
+		return false
+	}
+	return true
+}
+
+func (p *Page) selectValue(ctx context.Context, selector, value string) error {
+	expr := `(() => { const e = document.querySelector(` + quote(selector) + `); if (!e) return false;` +
+		` e.value = ` + quote(value) + `; e.dispatchEvent(new Event("change", {bubbles: true})); return true; })()`
+	got, err := p.Eval(ctx, expr)
+	if err != nil {
+		return err
+	}
+	if got != "true" {
+		return fmt.Errorf("%w: selector %s", errBadConfig, selector)
+	}
+	return nil
+}
+
+func quote(s string) string {
+	out, err := json.Marshal(s)
+	if err != nil {
+		return `""`
+	}
+	return string(out)
+}
+
+func knownKey(key string) bool {
+	if len(key) == 1 && (key[0] >= 'a' && key[0] <= 'z' || key[0] >= '0' && key[0] <= '9') {
+		return true
+	}
+	switch key {
+	case "Enter", "Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Space":
+		return true
+	}
+	return false
+}
+
+// FileRef is one upload payload: the module bounds and reads it.
+type FileRef struct {
+	Name string
+	Data []byte
+}
+
+// WaitFor polls expression until it is truthy or the timeout expires.
+func (p *Page) WaitFor(ctx context.Context, expression string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, cmp.Or(timeout, 5*time.Second))
+	defer cancel()
+	for {
+		value, err := p.Eval(ctx, expression)
+		if err != nil {
+			return err
+		}
+		if truthy(value) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w: wait_for: %w", errTimeout, ctx.Err())
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+// Upload sets a file input from a workspace file already bounded by the module.
+func (p *Page) Upload(ctx context.Context, selector string, file FileRef, approved bool) error {
+	if !approved {
+		return fmt.Errorf("%w: browser_upload", errApproval)
+	}
+	if selector == "" || len(file.Data) > p.cfg.MaxBlob {
+		return fmt.Errorf("%w: upload", errBadConfig)
+	}
+	b64 := base64.StdEncoding.EncodeToString(file.Data)
+	expr := `(() => { const e = document.querySelector(` + quote(selector) + `); if (!e) return false;` +
+		` const s = atob(` + quote(b64) + `); const u = new Uint8Array(s.length);` +
+		` for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);` +
+		` const d = new DataTransfer(); d.items.add(new File([u], ` + quote(file.Name) + `));` +
+		` e.files = d.files; e.dispatchEvent(new Event("change", {bubbles: true})); return true; })()`
+	got, err := p.Eval(ctx, expr)
+	if err != nil {
+		return err
+	}
+	if got != "true" {
+		return fmt.Errorf("%w: upload selector", errBadConfig)
+	}
+	return nil
+}
+
+// Type inserts text into the focused element; it is non-read and needs approval.
 // Type inserts text into the focused element; it is non-read and needs approval.
 func (p *Page) Type(ctx context.Context, text string, approved bool) error {
 	if !approved {

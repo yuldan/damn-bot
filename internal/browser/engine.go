@@ -10,14 +10,19 @@ import (
 // asks for approval before the engine sees it; an engine that cannot perform
 // the kind returns errUnsupported.
 type Action struct {
-	Kind   string  `json:"kind"`
-	X      float64 `json:"x,omitempty"`
-	Y      float64 `json:"y,omitempty"`
-	EndX   float64 `json:"end_x,omitempty"`
-	EndY   float64 `json:"end_y,omitempty"`
-	DeltaX float64 `json:"delta_x,omitempty"`
-	DeltaY float64 `json:"delta_y,omitempty"`
-	Text   string  `json:"text,omitempty"`
+	Kind     string  `json:"kind"`
+	X        float64 `json:"x,omitempty"`
+	Y        float64 `json:"y,omitempty"`
+	EndX     float64 `json:"end_x,omitempty"`
+	EndY     float64 `json:"end_y,omitempty"`
+	DeltaX   float64 `json:"delta_x,omitempty"`
+	DeltaY   float64 `json:"delta_y,omitempty"`
+	Key      string  `json:"key,omitempty"`
+	Selector string  `json:"selector,omitempty"`
+	Value    string  `json:"value,omitempty"`
+	Name     string  `json:"name,omitempty"`
+	Text     string  `json:"text,omitempty"`
+	Data     []byte  `json:"data,omitempty"`
 }
 
 // ReadOp is one page read. Limit bounds any blob reply; Page enforces its own
