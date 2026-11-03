@@ -47,10 +47,15 @@ type ModulesVoice struct {
 	TTSKeyEnv    string `toml:"tts_key_env"`
 }
 
-// ModulesComputerUse is [modules.computer_use]: the F6 computer-use module
-// (ADR-309).
+// ModulesComputerUse is [modules.computer_use]: the F6 external computer-use
+// backend (ADR-309, ADR-314). Command is an explicit argv whose first
+// element is an absolute path. Zero limits mean the module default.
 type ModulesComputerUse struct {
-	Enabled bool `toml:"enabled"`
+	Enabled            bool     `toml:"enabled"`
+	Command            []string `toml:"command"`
+	Env                []string `toml:"env"`
+	ActionTimeoutMS    int      `toml:"action_timeout_ms"`
+	MaxScreenshotBytes int      `toml:"max_screenshot_bytes"`
 }
 
 // validateF6 keeps the foundation sections honest: the keys decode (so a typo
@@ -71,7 +76,6 @@ func (m *Modules) validateF6() error {
 	}{
 		{"media", m.Media.Enabled},
 		{"voice", m.Voice.Enabled},
-		{"computer_use", m.ComputerUse.Enabled},
 	} {
 		if section.enabled {
 			return invalid("modules."+section.id+".enabled", "module is not implemented in this build (F6 foundation, ADR-310)")

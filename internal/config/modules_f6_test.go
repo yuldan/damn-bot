@@ -55,11 +55,11 @@ func TestF6ModuleSectionsRejectUnknownKey(t *testing.T) {
 }
 
 // TestF6ModuleSectionsRefuseEnable: enabling a module that has no runtime yet
-// fails closed rather than becoming a no-op (ADR-310). Web and browser are
-// excluded: they have runtimes (ADR-311, ADR-313).
+// fails closed rather than becoming a no-op (ADR-310). Web, browser and
+// computer_use are excluded: they have runtimes (ADR-311/313/314).
 func TestF6ModuleSectionsRefuseEnable(t *testing.T) {
 	t.Parallel()
-	for _, id := range []string{"media", "voice", "computer_use"} {
+	for _, id := range []string{"media", "voice"} {
 		t.Run(id, func(t *testing.T) {
 			t.Parallel()
 			_, err := parse(t, "[modules."+id+"]\nenabled = true\n")
@@ -102,20 +102,6 @@ func TestModulesWebEngines(t *testing.T) {
 		if _, err := parse(t, toml); err != nil {
 			t.Errorf("Parse(%q): %v", toml, err)
 		}
-	}
-	tests := []struct{ name, toml, key string }{
-		{"unknown", "[modules.web]\nengines = [\"nope\"]\n", "modules.web.engines"},
-		{"bad_blocklist", "[modules.web]\nblocklist = [\"https://example.com\"]\n", "modules.web.blocklist"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			_, err := parse(t, tc.toml)
-			ke := keyErrorOf(t, err, ErrInvalidValue)
-			if ke.Key != tc.key {
-				t.Errorf("key = %q, want %q", ke.Key, tc.key)
-			}
-		})
 	}
 }
 

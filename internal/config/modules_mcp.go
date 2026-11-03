@@ -66,8 +66,9 @@ type ModulesMCPTool struct {
 // defaultModules builds the zero module configuration of this build.
 func defaultModules() Modules {
 	return Modules{
-		Gateway: ModulesGateway{Telegram: ModulesTelegram{ThreadFallback: "fail"}},
-		Browser: ModulesBrowser{AllowOrigins: []string{}},
+		Gateway:     ModulesGateway{Telegram: ModulesTelegram{ThreadFallback: "fail"}},
+		Browser:     ModulesBrowser{AllowOrigins: []string{}},
+		ComputerUse: ModulesComputerUse{Command: []string{}, Env: []string{}},
 	}
 }
 

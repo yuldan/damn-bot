@@ -108,8 +108,9 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 		UI:       UI{Language: "auto", Theme: "tern-dark", Notices: true},
 		Gateway:  Gateway{MaxParallelTurns: 4, BusyPolicy: "queue", Users: map[string]GatewayUser{}},
 		Modules: Modules{
-			Gateway: ModulesGateway{Telegram: ModulesTelegram{ThreadFallback: "fail"}},
-			Browser: ModulesBrowser{AllowOrigins: []string{}},
+			Gateway:     ModulesGateway{Telegram: ModulesTelegram{ThreadFallback: "fail"}},
+			Browser:     ModulesBrowser{AllowOrigins: []string{}},
+			ComputerUse: ModulesComputerUse{Command: []string{}, Env: []string{}},
 		},
 		Providers: Providers{Custom: []CustomProvider{}},
 		Log:       Log{Level: "info", MessageContent: false, MessageContentTTL: Duration(24 * time.Hour)},
