@@ -300,8 +300,21 @@ func (p *Page) Invoke(ctx context.Context, tool string, raw json.RawMessage, env
 }
 
 func pageError(err error) error {
-	if errors.Is(err, errApproval) {
-		return &host.Error{Code: "denied", Message: err.Error()}
+	if _, ok := errors.AsType[*host.Error](err); ok {
+		return err
 	}
-	return &host.Error{Code: "network", Message: err.Error()}
+	code := "network"
+	switch {
+	case errors.Is(err, errApproval):
+		code = "denied"
+	case errors.Is(err, errBadConfig):
+		code = "invalid_args"
+	case errors.Is(err, errBlockedHost), errors.Is(err, errBlockedOrigin):
+		code = "blocked_host"
+	case errors.Is(err, errTooLarge):
+		code = "too_large"
+	case errors.Is(err, errTimeout):
+		code = "timeout"
+	}
+	return &host.Error{Code: code, Message: err.Error()}
 }

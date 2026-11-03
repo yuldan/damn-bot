@@ -19,9 +19,12 @@ type ModulesWeb struct {
 
 // ModulesBrowser is [modules.browser]: the F6 CDP browser module (ADR-310,
 // ADR-313). Origins are default-deny; an enabled module with no origin fails
-// every Invoke with module_unavailable.
+// every Invoke with module_unavailable. CDPURL is the page WebSocket
+// (ws/wss) or the HTTP discovery base of a loopback DevTools endpoint; an
+// empty value fails closed instead of guessing a port.
 type ModulesBrowser struct {
 	Enabled      bool     `toml:"enabled"`
+	CDPURL       string   `toml:"cdp_url"`
 	AllowOrigins []string `toml:"allow_origins"`
 	LocalProfile bool     `toml:"local_profile"`
 }
@@ -69,6 +72,9 @@ func (m *Modules) validateF6() error {
 	if err := m.validateWeb(); err != nil {
 		return err
 	}
+	if err := m.validateBrowser(); err != nil {
+		return err
+	}
 	if err := m.validateVoice(); err != nil {
 		return err
 	}
@@ -86,6 +92,31 @@ func (m *Modules) validateF6() error {
 	return nil
 }
 
+// validateBrowser keeps the CDP endpoint on loopback and in the two reviewed
+// transports: a page WebSocket or an HTTP discovery base. A public or
+// malformed endpoint is a load error, never a silent no-op; empty stays legal
+// and fails closed at Invoke.
+func (m *Modules) validateBrowser() error {
+	raw := m.Browser.CDPURL
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return invalid("modules.browser.cdp_url", "must be an absolute ws, wss, http or https URL")
+	}
+	switch u.Scheme {
+	case "ws", "wss", "http", "https":
+	default:
+		return invalid("modules.browser.cdp_url", "must be an absolute ws, wss, http or https URL")
+	}
+	if !loopbackHost(u.Hostname()) {
+		return invalid("modules.browser.cdp_url", "must point at a loopback DevTools endpoint")
+	}
+	return nil
+}
+
+// validateWeb keeps the engine catalog and the blocklist honest.
 func (m *Modules) validateWeb() error {
 	for _, id := range m.Web.Engines {
 		switch id {

@@ -148,6 +148,7 @@ config_version = 1
     enabled = false
   [modules.browser]
     enabled = false
+    cdp_url = ""
     allow_origins = []
     local_profile = false
   [modules.media]

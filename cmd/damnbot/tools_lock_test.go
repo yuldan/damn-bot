@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -42,7 +43,28 @@ type toolsLockEntry struct {
 func TestToolsLockComplete(t *testing.T) {
 	t.Parallel()
 	lock := readToolsLock(t, filepath.Join("..", "..", "tools.lock"))
-	reg := modules.Default()
+	for _, problem := range toolsLockProblems(lock, modules.Default()) {
+		t.Error(problem)
+	}
+}
+
+// TestToolsLockRejectsMissingBrowserTool is the negative control of
+// TestToolsLockComplete: dropping one browser line (W2) must fail, so a
+// green lock test proves the five entries are actually compared.
+func TestToolsLockRejectsMissingBrowserTool(t *testing.T) {
+	t.Parallel()
+	lock := readToolsLock(t, filepath.Join("..", "..", "tools.lock"))
+	delete(lock, "browser_click")
+	problems := toolsLockProblems(lock, modules.Default())
+	if len(problems) != 1 || !strings.Contains(problems[0], `"browser_click"`) {
+		t.Fatalf("problems = %v, want the missing browser_click", problems)
+	}
+}
+
+// toolsLockProblems compares the declarative inventory with the frozen F6
+// descriptors and returns one message per mismatch.
+func toolsLockProblems(lock map[string]toolsLockEntry, reg *modules.Registry) []string {
+	var out []string
 	registered := make(map[string]toolsLockEntry)
 	for _, desc := range reg.Descriptors() {
 		if !isF6Group(desc.Group) {
@@ -57,18 +79,19 @@ func TestToolsLockComplete(t *testing.T) {
 		got, ok := lock[name]
 		switch {
 		case !ok:
-			t.Errorf("tool %q (%s) is registered but missing from tools.lock", name, want.Module)
+			out = append(out, fmt.Sprintf("tool %q (%s) is registered but missing from tools.lock", name, want.Module))
 		case got.Module != want.Module:
-			t.Errorf("tool %q: lock module %q, registered module %q", name, got.Module, want.Module)
+			out = append(out, fmt.Sprintf("tool %q: lock module %q, registered module %q", name, got.Module, want.Module))
 		case got.SHA256 != want.SHA256:
-			t.Errorf("tool %q: schema hash %s in tools.lock, registered %s", name, got.SHA256, want.SHA256)
+			out = append(out, fmt.Sprintf("tool %q: schema hash %s in tools.lock, registered %s", name, got.SHA256, want.SHA256))
 		}
 	}
 	for name, entry := range lock {
 		if _, ok := registered[name]; !ok {
-			t.Errorf("tools.lock names %q (%s) but no F6 descriptor contributes it", name, entry.Module)
+			out = append(out, fmt.Sprintf("tools.lock names %q (%s) but no F6 descriptor contributes it", name, entry.Module))
 		}
 	}
+	return out
 }
 
 // readToolsLock parses the declarative inventory. Blank lines and `#`

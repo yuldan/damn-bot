@@ -71,21 +71,46 @@ func TestF6ModuleSectionsRefuseEnable(t *testing.T) {
 	}
 }
 
-// TestModulesBrowserOrigin: browser accepts the opt-in, allowlist and local
-// profile keys; an empty allowlist stays legal here and fails at Invoke
-// (ADR-313).
+// TestModulesBrowserOrigin: browser accepts the opt-in, CDP endpoint,
+// allowlist and local profile keys; an empty allowlist or endpoint stays
+// legal here and fails closed at Invoke (ADR-313).
 func TestModulesBrowserOrigin(t *testing.T) {
 	t.Parallel()
-	cfg, err := parse(t, "[modules.browser]\nenabled = true\nallow_origins = [\"https://app.example\"]\nlocal_profile = true\n")
+	cfg, err := parse(t, "[modules.browser]\nenabled = true\ncdp_url = \"ws://127.0.0.1:9222/devtools/page/AB\"\nallow_origins = [\"https://app.example\"]\nlocal_profile = true\n")
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
 	if !cfg.Modules.Browser.Enabled || !cfg.Modules.Browser.LocalProfile ||
-		len(cfg.Modules.Browser.AllowOrigins) != 1 {
+		len(cfg.Modules.Browser.AllowOrigins) != 1 ||
+		cfg.Modules.Browser.CDPURL != "ws://127.0.0.1:9222/devtools/page/AB" {
 		t.Fatalf("browser = %+v", cfg.Modules.Browser)
 	}
 	if _, err := parse(t, "[modules.browser]\nenabled = true\n"); err != nil {
-		t.Fatalf("enabled without allowlist must load: %v", err)
+		t.Fatalf("enabled without allowlist or endpoint must load: %v", err)
+	}
+	for _, raw := range []string{"http://127.0.0.1:9222", "https://localhost:9222/json", "wss://[::1]:9222/devtools/page/x"} {
+		if _, err := parse(t, "[modules.browser]\ncdp_url = \""+raw+"\"\n"); err != nil {
+			t.Errorf("loopback endpoint %q: %v", raw, err)
+		}
+	}
+}
+
+// TestModulesBrowserCDPURL: the endpoint is loopback-only and limited to the
+// two reviewed transports; a public host or unknown scheme fails at load.
+func TestModulesBrowserCDPURL(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{
+		"ws://browser.example:9222/devtools/page/x",
+		"http://10.0.0.1:9222",
+		"ftp://127.0.0.1/",
+		"ws://user@127.0.0.1:9222/devtools/page/x",
+		"ws://127.0.0.1:9222/devtools/page/x?q=1",
+		"/devtools/page/x",
+	} {
+		_, err := parse(t, "[modules.browser]\ncdp_url = \""+raw+"\"\n")
+		if ke := keyErrorOf(t, err, ErrInvalidValue); ke.Key != "modules.browser.cdp_url" {
+			t.Errorf("cdp_url %q: key = %q, want modules.browser.cdp_url", raw, ke.Key)
+		}
 	}
 }
 
