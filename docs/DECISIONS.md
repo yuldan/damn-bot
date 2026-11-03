@@ -6109,3 +6109,19 @@ MODULE computeruse  2000 internal/computeruse
 **Dampak terukur.** `MODULE webtools` **1.321/3.000**; `config` **2.114/2.114** dan Σ core **55.878/55.900** tidak berubah; `TOTAL 107.388/190.000`. Dependency 0; `//nolint` 0. Tes: `TestSearchBackends` (11 fake server: bentuk request, sukses, HTML strip, URL non-http dibuang), `TestResponsesBackends`, `TestBackendMissingCredential`, `TestBackendHTTPErrorClasses` (401/429 × 11), `TestBackendOversizedBody`, `TestBackendTimeout`, `TestBackendCredentialAndFallback`, `TestSearchNormalization`, `TestRegistryClosedSet`, `TestModuleSearchErrorMapping`.
 
 **Konsekuensi.** (+) Semua backend SPEC punya jalur HTTP dan kontrak hasil yang sama; kredensial hilang terlihat, bukan disubstitusi. (+) Respons vendor tidak bisa melampaui memori/limit hasil. (−) `searxng` membutuhkan `Base` dari wiring. (−) Fallback hanya untuk kegagalan runtime, sehingga operator harus mengurutkan engine yang kredensialnya tersedia. (−) Empat backend Bearer baru berfungsi penuh setelah PR netx (ADR-317).
+
+## ADR-317 — F6 netx: pengecualian header auth runtime dari pemindaian DLP Tool
+
+**Status:** Accepted 2026-11-03 (F6 slice W3b; melengkapi SPEC §14.3/§14.5, GAP-SEC-16, ADR-311/312/316). Tanpa dependency baru, migrasi, kunci config baru, atau `//nolint`.
+
+**Konteks.** Empat backend pencarian (Firecrawl, Perplexity, xAI, OpenAI native) mewajibkan `Authorization: Bearer <key>`. Gerbang DLP `netx.Tool` memindai semua header, sehingga pola §14.3 memblokir kredensial yang dipasang runtime sendiri. SPEC/GAP-SEC-16 mengizinkan pengecualian hanya untuk header auth runtime ke host pemilik kredensial.
+
+**Keputusan.**
+1. **Seam eksplisit.** `netx.WithAuthHeaders(ctx, names...)` menandai header yang dipasang runtime untuk satu request. `appendScannedHeaders` melewati header itu saja; URL, body, trailer, dan header lain tetap dipindai. Varian `minimal` tidak mengekspor seam dan tetap memindai semua header.
+2. **Tidak ada bypass implisit.** Tanpa panggilan seam, `Authorization` yang disuntikkan user tetap `ErrSecretEgress`; secret di URL, body, atau header lain juga tetap gagal. `TestDLPAuthHeaderExemption` memuat keempat kontrol negatif itu.
+3. **Pemakaian.** `webtools.httpBackend.do` menandai nama header yang ia set sendiri sebelum `DoOK`; tidak ada jalur model yang dapat menamai header.
+4. **Config.** `[modules.web].engines` menerima sebelas nama SPEC pada baris yang sudah ada (tanpa kunci/field baru; `config` tetap 2.114/2.114).
+
+**Dampak terukur.** `netx` **1.856/1.856** (cap 1.810 → 1.856, +46 atas ADR-315); `MODULE webtools` **1.326/3.000**; `config` **2.114/2.114**; Σ core **55.924 ≤ 55.950** (headroom 26); `TOTAL 107.442/190.000`. Build minimal **21.942.434 B** ≤ 22.000.000. Tes: `TestDLPAuthHeaderExemption` (header seam lolos; header user, URL, body, dan header lain tetap diblok), `TestModulesWebEngines`.
+
+**Konsekuensi.** (+) Backend Bearer berfungsi tanpa melemahkan gerbang DLP untuk input model. (−) Seam menambah permukaan API netx; hanya kode runtime tepercaya yang boleh memanggilnya. (−) Nama engine baru baru dapat dikonfigurasi setelah PR ini mendarat.

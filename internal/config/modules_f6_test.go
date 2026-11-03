@@ -96,11 +96,17 @@ func TestModulesWebEngines(t *testing.T) {
 	for _, toml := range []string{
 		"[modules.web]\nenabled = true\n",
 		"[modules.web]\nenabled = true\nengines = [\"fake\"]\n",
-		"[modules.web]\nenabled = false\nengines = [\"fake\", \"brave\", \"tavily\", \"exa\"]\n",
+		"[modules.web]\nenabled = false\nengines = [\"fake\", \"brave\", \"ddgs\", \"exa\", \"firecrawl\", \"tavily\", \"searxng\", \"perplexity\", \"parallel\", \"xai\", \"keenable\", \"openai-native\"]\n",
 		"[modules.web]\nblocklist = [\"example.com\", \"example.org/private\"]\n",
 	} {
 		if _, err := parse(t, toml); err != nil {
 			t.Errorf("Parse(%q): %v", toml, err)
+		}
+	}
+	for _, engine := range []string{"bing", "openai_native", ""} {
+		_, err := parse(t, "[modules.web]\nengines = [\""+engine+"\"]\n")
+		if ke := keyErrorOf(t, err, ErrInvalidValue); ke.Key != "modules.web.engines" {
+			t.Errorf("engine %q: key = %q, want modules.web.engines", engine, ke.Key)
 		}
 	}
 }

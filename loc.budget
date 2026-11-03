@@ -83,7 +83,7 @@ provider/registry  660 internal/provider/registry
 # (A terukur 1245; Delete di PR B). provider 2217 -> 2224 (+7 signer).
 # Sigma core 48.691 -> 49.675 <= 49.700 (headroom 25).
 provider/auth     1230 internal/provider/auth
-netx              1810 internal/netx
+netx              1856 internal/netx
 netx/jsonrpc       530 internal/netx/jsonrpc
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).
@@ -302,6 +302,9 @@ heal              1500 internal/heal
 # Amandemen ADR-310 (F6 M5 vision): Route.Vision + preflight attachment dan
 # gate sebelum request menambah provider 2.730 -> 2.850 (terukur 2.848).
 # Sigma core 55.756 -> 55.876; plafon core 55.800 -> 55.900.
+# ADR-317 (F6 netx auth headers): WithAuthHeaders + filter header full/minimal
+# menambah netx 1807 -> 1856 (terukur 1856). Sigma core 55.878 -> 55.924;
+# plafon core 55.900 -> 55.950 (headroom 26).
 # ADR-314 amandemen slice B1: backend/endpoint menambah config 2112 -> 2114
 # (terukur). Sigma core 55.876 -> 55.878; plafon 55.900.
 config            2114 internal/config
