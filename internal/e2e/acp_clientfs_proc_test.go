@@ -117,21 +117,7 @@ func fsChildEnv(e *Env, extra []string) []string {
 // one scenario; building here keeps TestMain free of a second exit path.
 func acpE2EBin(t *testing.T) string {
 	t.Helper()
-	root, err := moduleRoot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	name := "damnbot-acpe2e"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	out := filepath.Join(t.TempDir(), name)
-	build := exec.CommandContext(t.Context(), "go", "build", "-tags", "goolm,acpe2e", "-o", out, "./cmd/damnbot") // #nosec G204 -- fixed go tool
-	build.Dir = root
-	if b, berr := build.CombinedOutput(); berr != nil {
-		t.Fatalf("build acpe2e: %v\n%s", berr, b)
-	}
-	return out
+	return buildE2EBin(t, "goolm,acpe2e", "damnbot-acpe2e")
 }
 
 // startFSACP writes the isolated config and starts `damnbot acp` in Workdir.

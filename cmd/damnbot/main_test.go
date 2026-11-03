@@ -24,6 +24,10 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "test: isolate session bus: %v\n", err)
 		os.Exit(1)
 	}
+	if err := registerModules(); err != nil {
+		fmt.Fprintf(os.Stderr, "test: module registry: %v\n", err)
+		os.Exit(1)
+	}
 	goleak.VerifyTestMain(m)
 }
 

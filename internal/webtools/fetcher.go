@@ -61,7 +61,7 @@ func newFetcher(client *netx.Client, cfg fetchConfig) (*fetcher, error) {
 		cfg.Timeout = 20 * time.Second
 	}
 	if cfg.policy == nil {
-		cfg.policy = publicHost
+		cfg.policy = defaultPolicy()
 	}
 	return &fetcher{client: client, cfg: cfg}, nil
 }
