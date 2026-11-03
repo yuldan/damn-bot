@@ -22,26 +22,11 @@ import (
 	"github.com/damnbot/damnbot/internal/exec/classify"
 	"github.com/damnbot/damnbot/internal/loop"
 	loopevent "github.com/damnbot/damnbot/internal/loop/event"
-	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/redact"
 	"github.com/damnbot/damnbot/internal/sandbox"
 	"github.com/damnbot/damnbot/internal/tools"
 	"github.com/damnbot/damnbot/internal/toolset"
 )
-
-// wireModules builds the deferred catalog of the frozen module registry and
-// appends its meta tools to list (ADR-119), so newRunWiring stays short.
-func wireModules(list []tools.Tool) (runModules, *tools.Registry, error) {
-	mods, err := newRunModules(modules.Default(), nil)
-	if err != nil {
-		return runModules{}, nil, err
-	}
-	reg, err := tools.NewRegistry(append(list, mods.meta...)...)
-	if err != nil {
-		return runModules{}, nil, fmt.Errorf("registry: %w", err)
-	}
-	return mods, reg, nil
-}
 
 // stopModules shuts the module runtime down and joins the cause, so the fail
 // path of newRunWiring and runModel.close release modules the same way.
@@ -485,7 +470,7 @@ func newRunWiring(ctx context.Context, cfg *config.Config, dataDir, modelRef str
 	}
 	list = withCodeIntelTools(roots, cwd, trusted, list)
 	var reg *tools.Registry
-	mods, reg, err = wireModules(list)
+	mods, reg, err = wireModules(list, cfg, db, sid)
 	if err != nil {
 		return nil, fail(err)
 	}

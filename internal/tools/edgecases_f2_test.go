@@ -9,14 +9,16 @@ import (
 )
 
 // Status `n/a` beralasan (ADR-080) menggantikan `pending:F2`: pada F2 tidak ada satu pun
-// modul/tool deferred yang dapat di-wire pada `run` — `newRunModules(modules.Default(), nil)`
-// (cmd/damnbot/run.go:364) memakai registry default yang kosong (terukur: descriptors=0, tools=[]),
-// tidak ada `modules.Register` di jalur biner, dan tidak ada flag/config yang menyalakannya — sehingga
-// e2e lewat biner asli akan vakum (ia hanya membuktikan "tidak ada schema deferred karena tidak ada
-// modul", bukan properti EC-TCALL-010). Invariannya dipatok in-process di file ini:
+// modul/tool deferred yang dapat di-wire pada `run` — registry default kosong (terukur: descriptors=0,
+// tools=[]), tidak ada `modules.Register` di jalur biner F2, dan tidak ada flag/config yang
+// menyalakannya — sehingga e2e lewat biner asli akan vakum (ia hanya membuktikan "tidak ada schema
+// deferred karena tidak ada modul", bukan properti EC-TCALL-010). F6-W1 mendaftarkan modul `web`,
+// tetapi default `[modules.web].enabled=false` membuat katalog run tetap kosong; properti yang sama
+// kini juga dibuktikan e2e `TestF6WebModuleDisabledE2E` dan `TestF6WebModuleE2E`. Invariannya dipatok
+// in-process di file ini:
 // `TestDeferredSchemaNotInPayload` (baris 23) — payload yang dideklarasikan ke provider tidak memuat
-// schema deferred. e2e lewat biner asli WAJIB ditambahkan begitu modul pertama benar-benar di-wire
-// (MCP, F5); lihat ADR-077/ADR-080 amandemen 2026-10-22 dan CHANGELOG.
+// schema deferred. e2e lewat biner asli untuk EC-TCALL-010 ada di F6 (web); lihat
+// ADR-077/ADR-080 amandemen 2026-10-22 dan CHANGELOG.
 // TestEdgeCasesF2 records EC-TCALL-010 as `n/a` with the reason above: the
 // composition root does wire tool_search/tool_invoke (#174), but no module is
 // registered in F2, so the run-level property cannot be shown end to end; the

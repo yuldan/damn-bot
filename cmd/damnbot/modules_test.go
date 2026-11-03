@@ -124,18 +124,44 @@ func (nopJournal) ToolResult(context.Context, string, string, string, bool, stri
 	return nil
 }
 
+// TestRunModulesDisabledContributesNoTool: a registered module that config
+// disables contributes no catalog entry, so tool_search/tool_invoke stay out
+// of the payload; the same registry enabled contributes the pair.
+func TestRunModulesDisabledContributesNoTool(t *testing.T) {
+	t.Parallel()
+	off := func(string) bool { return false }
+	m, err := newRunModules(moduleDeps{Registry: demoRegistry(t), Host: testHost{}, Enabled: off})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.deferred != nil || m.runtime != nil || len(m.meta) != 0 {
+		t.Fatalf("disabled module wired a catalog: %+v", m)
+	}
+	on := func(id string) bool { return id == "demo" }
+	m, err = newRunModules(moduleDeps{Registry: demoRegistry(t), Host: testHost{}, Enabled: on})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.deferred == nil || len(m.meta) != 2 {
+		t.Fatalf("enabled module did not wire the meta-tools: %+v", m)
+	}
+	if err := m.runtime.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestRunModulesWiring: zero module tools wire nothing; module tools
 // without a host refuse to start; with a host tool_search finds the tool and
 // tool_invoke runs it through the dispatcher pipeline.
 func TestRunModulesWiring(t *testing.T) {
 	t.Parallel()
-	if m, err := newRunModules(modules.NewRegistry(), nil); err != nil || m.deferred != nil || m.runtime != nil || len(m.meta) != 0 {
+	if m, err := newRunModules(moduleDeps{Registry: modules.NewRegistry()}); err != nil || m.deferred != nil || m.runtime != nil || len(m.meta) != 0 {
 		t.Fatalf("zero modules = %+v, %v", m, err)
 	}
-	if _, err := newRunModules(demoRegistry(t), nil); !errors.Is(err, errNoModuleHost) {
+	if _, err := newRunModules(moduleDeps{Registry: demoRegistry(t)}); !errors.Is(err, errNoModuleHost) {
 		t.Fatalf("no host: %v", err)
 	}
-	m, err := newRunModules(demoRegistry(t), testHost{})
+	m, err := newRunModules(moduleDeps{Registry: demoRegistry(t), Host: testHost{}})
 	if err != nil {
 		t.Fatal(err)
 	}

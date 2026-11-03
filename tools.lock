@@ -1,0 +1,17 @@
+# damnbot tools.lock — GAP-TOOL-06, F6-W1.
+#
+# Declarative inventory of every tool the F6 modules contribute to the
+# deferred catalog. One line per tool:
+#
+#   <module> <tool> <version> <sha256(schema bytes)>
+#
+# `TestToolsLockComplete` fails when a registered F6 tool is missing here,
+# when an entry names a tool that is not registered, or when the schema hash
+# and the module constant drift apart. A schema edit therefore updates this
+# file in the same commit as the module.
+#
+# Slots: browser, media, voice and computeruse add their lines when their
+# registration lands (ADR-309). No entry means no registered tool.
+
+web web_fetch 1 3ac7ae3f9db723190ede39c5cd4bb5cf767572ba5abc24e22e9618a826b88db4
+web web_search 1 352c73605024ec4588e7ab4f66fb86b6c971c4be90c017f597c18c03ce6324ac

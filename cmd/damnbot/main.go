@@ -18,6 +18,12 @@ var version = "dev"
 
 func main() {
 	utf8Console() // EC-WIN-017: the attached console speaks UTF-8 before anything prints
+	if err := registerModules(); err != nil {
+		if _, werr := fmt.Fprintf(os.Stderr, "damnbot: module registry: %v\n", err); werr != nil {
+			os.Exit(1)
+		}
+		os.Exit(1)
+	}
 	os.Exit(start(modules.Freeze(), os.Args[1:], os.Stdout, os.Stderr))
 }
 

@@ -257,11 +257,12 @@ func TestProfileArchiveImportOverwriteAndDryRun(t *testing.T) {
 	}
 }
 
-func TestConfigModulesEmpty(t *testing.T) {
+func TestConfigModulesRegistered(t *testing.T) {
 	configTestHome(t, cleanProfileConfig)
 	code, out, stderr := runArgs(t, "config", "modules")
-	if code != 0 || out != "no modules registered in this build\n" {
-		t.Fatalf("modules = (%d, %q, %s)", code, out, stderr)
+	want := wantConfigModules()
+	if code != 0 || out != want {
+		t.Fatalf("modules = (%d, %q, %s), want %q", code, out, stderr, want)
 	}
 	code, out, stderr = runArgs(t, "config", "modules", "restart", "x")
 	if code != 2 || out != "" || !strings.Contains(stderr, "serve/restart is F4") {

@@ -54,6 +54,10 @@ type Config struct {
 	// Log receives DEBUG request metadata (never bodies or queries); nil
 	// discards it.
 	Log *slog.Logger
+	// TestDial lets the Tool edge dial loopback. Only the `webtest` e2e build
+	// sets it (through the web module); every production caller leaves it
+	// false and the anti-SSRF rule stays closed.
+	TestDial bool
 }
 
 // blockedField replaces host and path in the log line of a DLP-blocked request.
@@ -80,7 +84,7 @@ type Network struct {
 
 // New builds a Network. Dials from test binaries are loopback-only (E-69).
 func New(cfg Config) *Network {
-	test := testBinary()
+	test := testBinary() || cfg.TestDial
 	cfg.Secrets = slices.Clone(cfg.Secrets)
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)

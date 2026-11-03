@@ -260,13 +260,14 @@ func TestConfigProfilesImportDryRun(t *testing.T) {
 	}
 }
 
-func TestConfigModulesEmpty(t *testing.T) {
+func TestConfigModulesRegistered(t *testing.T) {
 	t.Parallel()
 	e := New(t)
 	res := e.Exec("config", "modules")
 	res.RequireOK(t)
-	if res.Stdout != "no modules registered in this build\n" {
-		t.Fatalf("modules stdout = %q", res.Stdout)
+	want := "id\tgroup\tconfig\ttools\tenabled\nweb\tweb\tmodules.web\t2\tfalse\n"
+	if res.Stdout != want {
+		t.Fatalf("modules stdout = %q, want %q", res.Stdout, want)
 	}
 	res = e.Exec("config", "modules", "restart", "x")
 	if res.Code != 2 || res.Stdout != "" || !strings.Contains(res.Stderr, "serve/restart is F4") {

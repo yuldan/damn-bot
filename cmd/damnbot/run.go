@@ -428,6 +428,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 		sb:        w.sb,
 		net:       netx.New(netx.Config{Offline: o.offline || cfg.Network.Offline, NoBackground: !cfg.Network.Background}),
 		toolsets:  sel,
+		modules:   w.modules,
 		trusted:   w.trusted,
 		reader:    w.reader,
 		db:        w.db,
