@@ -60,7 +60,6 @@ type Module struct {
 }
 
 // NewFromConfig decodes one strict section and wires the host kv store.
-// NewFromConfig decodes one strict section and wires the host kv store.
 func NewFromConfig(h host.Host, raw json.RawMessage, deps Deps) (*Module, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, fmt.Errorf("%w: empty [modules.media] section", errBadConfig)

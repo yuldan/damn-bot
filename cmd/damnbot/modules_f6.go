@@ -86,7 +86,6 @@ func webToolDescriptors() []modules.ToolDescriptor {
 	return out
 }
 
-// mediaToolDescriptors is the same mapping for the media module.
 func mediaToolDescriptors() []modules.ToolDescriptor {
 	tools := media.Tools()
 	out := make([]modules.ToolDescriptor, 0, len(tools))
@@ -141,7 +140,6 @@ type moduleBrowserSection struct {
 	LocalProfile bool     `json:"local_profile"`
 }
 
-// usdMicros converts one USD cap to micro-USD; zero keeps "no cap".
 func usdMicros(v float64) int64 {
 	if v <= 0 {
 		return 0

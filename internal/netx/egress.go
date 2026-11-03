@@ -45,6 +45,11 @@ func Registry() map[string]Egress {
 			Host:    "loopback server url from [modules.mcp.servers.<name>].url",
 			Trigger: "the same calls to an explicitly local MCP server",
 		},
+		"media": {
+			Purpose: Tool,
+			Host:    "image_endpoint or video_create_url from [modules.media] (loopback endpoints use the local lane)",
+			Trigger: "image_generate or video_generate after approval and the tool cap check",
+		},
 		"telegram": {
 			Purpose: Gateway,
 			Host:    "api.telegram.org",

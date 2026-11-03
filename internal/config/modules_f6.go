@@ -29,10 +29,7 @@ type ModulesBrowser struct {
 	LocalProfile bool     `toml:"local_profile"`
 }
 
-// ModulesMedia is [modules.media]: the F6 vision/image/video/doc module
-// (ADR-310, ADR-318). Every generation backend is explicit (GAP-TOOL-09): an
-// empty id never means autodetect, and a backend without a resolved key fails
-// closed as module_unavailable. Doc tools need no key.
+// ModulesMedia is [modules.media] (ADR-310, ADR-318): explicit image/video backends, key-gated.
 type ModulesMedia struct {
 	Enabled       bool   `toml:"enabled"`
 	ImageBackend  string `toml:"image_backend"`
@@ -138,8 +135,7 @@ func (m *Modules) validateMedia() error {
 	if md.ImageBackend != "" && !isEnvName(md.ImageKeyEnv) {
 		return invalid("modules.media.image_key_env", "must be an environment variable name")
 	}
-	if md.VideoBackend != "" && (!isEnvName(md.VideoKeyEnv) || md.VideoCreate == "" ||
-		md.VideoStatus == "" || !strings.Contains(md.VideoStatus, "%s")) {
+	if md.VideoBackend != "" && (!isEnvName(md.VideoKeyEnv) || md.VideoCreate == "" || md.VideoStatus == "" || !strings.Contains(md.VideoStatus, "%s")) {
 		return invalid("modules.media.video_key_env", "video backend needs a key env and create/status URLs with a %%s id")
 	}
 	return nil
