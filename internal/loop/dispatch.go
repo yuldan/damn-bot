@@ -620,10 +620,15 @@ func (t *turn) recordResult(ctx context.Context, c ToolCall, res *ToolResult, co
 			Status: res.Status, Tainted: res.Tainted, BlobSHA: res.BlobSHA, Error: te, Meta: res.Meta,
 		}),
 	}
+	for _, a := range res.Attachments {
+		if a.BlobSHA != "" {
+			ev.Attach = append(ev.Attach, a.BlobSHA)
+		}
+	}
 	if _, err := t.append(resultCtx(ctx), ev); err != nil {
 		return err
 	}
-	t.history = append(t.history, Message{Role: "tool", Content: content, ToolCallID: c.ID})
+	t.history = append(t.history, Message{Role: "tool", Content: content, ToolCallID: c.ID, Attachments: res.Attachments})
 	t.emit(&event.Update{Kind: event.UpdateToolResult, ToolCallID: c.ID, ToolName: c.Name, Text: content, Status: res.Status})
 	return nil
 }

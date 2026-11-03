@@ -585,7 +585,7 @@ func (d *Dispatcher) spillAttachments(ctx context.Context, as []Attachment) ([]B
 		if err != nil {
 			return nil, spillErr("attachment", err)
 		}
-		ref.Kind, ref.Name, ref.MIME = a.Kind, a.Name, a.MIME
+		ref.Kind, ref.Name, ref.MIME, ref.Data = a.Kind, a.Name, a.MIME, a.Data
 		out = append(out, ref)
 	}
 	return out, nil

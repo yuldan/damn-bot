@@ -70,6 +70,8 @@ type BlobRef struct {
 	// ordinary spill blobs.
 	Kind string
 	Name string
+	// Data is the current-turn payload; it is not persisted in the ref.
+	Data []byte
 }
 
 // Attachment is one binary module result before the dispatcher spills it.
