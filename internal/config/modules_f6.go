@@ -35,6 +35,7 @@ type ModulesBrowser struct {
 	CloudURL      string   `toml:"cloud_url"`
 	AllowOrigins  []string `toml:"allow_origins"`
 	LocalProfile  bool     `toml:"local_profile"`
+	DialogAllow   []string `toml:"dialog_allow"`
 }
 
 // ModulesMedia is [modules.media] (ADR-310, ADR-318): explicit image/video backends, key-gated.
@@ -126,7 +127,10 @@ func (m *Modules) validateBrowser() error {
 		(len(bin) > 1024 || !filepath.IsAbs(bin) || strings.ContainsAny(bin, "\x00\r\n")) {
 		return invalid("modules.browser.lightpanda_bin", "must be an absolute path without control characters")
 	}
-	return browserAmbiguous(&b)
+	if err := browserAmbiguous(&b); err != nil {
+		return err
+	}
+	return browserDialogs(b.DialogAllow)
 }
 
 func browserEndpoint(field, raw string, loopback, ws, tlsPublic bool) error {
@@ -147,6 +151,22 @@ func browserEndpoint(field, raw string, loopback, ws, tlsPublic bool) error {
 	}
 	if tlsPublic && !local && u.Scheme != "https" {
 		return invalid("modules.browser."+field, "a public endpoint must use https")
+	}
+	return nil
+}
+
+// browserDialogs keeps the operator's dialog policy a closed set: a type the
+// module does not know can never be left open for an answer.
+func browserDialogs(allow []string) error {
+	if len(allow) > 3 {
+		return invalid("modules.browser.dialog_allow", "must list at most three dialog types")
+	}
+	for _, kind := range allow {
+		switch kind {
+		case "alert", "confirm", "prompt":
+		default:
+			return invalid("modules.browser.dialog_allow", "dialog type %q is not supported", kind)
+		}
 	}
 	return nil
 }

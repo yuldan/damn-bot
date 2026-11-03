@@ -155,6 +155,7 @@ config_version = 1
     cloud_url = ""
     allow_origins = []
     local_profile = false
+    dialog_allow = []
   [modules.media]
     enabled = false
     image_backend = ""

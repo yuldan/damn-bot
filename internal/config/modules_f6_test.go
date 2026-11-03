@@ -124,6 +124,8 @@ func TestModulesBrowserEngines(t *testing.T) {
 		"engine = \"cloud\"\ncloud_url = \"https://u:p@browser.example\"",
 		"engine = \"lightpanda\"\nlightpanda_bin = \"lightpanda\"",
 		"camofox_url = \"http://127.0.0.1:9377\"\ncloud_url = \"https://browser.example\"",
+		"dialog_allow = [\"nonsense\"]",
+		"dialog_allow = [\"alert\", \"confirm\", \"prompt\", \"alert\"]",
 	} {
 		if _, err := parse(t, "[modules.browser]\n"+body+"\n"); err == nil {
 			t.Errorf("section %q loaded", body)
@@ -135,6 +137,7 @@ func TestModulesBrowserEngines(t *testing.T) {
 		"engine = \"cloud\"\ncloud_url = \"https://browser.example\"",
 		"engine = \"cloud\"\ncloud_url = \"http://127.0.0.1:8080\"",
 		"engine = \"cdp\"\ncdp_url = \"ws://127.0.0.1:9222/x\"",
+		"dialog_allow = [\"alert\", \"confirm\"]",
 	} {
 		if _, err := parse(t, "[modules.browser]\n"+body+"\n"); err != nil {
 			t.Errorf("section %q: %v", body, err)
@@ -144,6 +147,20 @@ func TestModulesBrowserEngines(t *testing.T) {
 
 // TestModulesMedia: media accepts the opt-in and the closed backend/key/URL
 // pairing; a public backend without its key or video URLs fails at load.
+// TestModulesBrowserDialogPolicy: dialog_allow is a closed set; an operator
+// opts a type in, never a free-form name (TOOL-018).
+func TestModulesBrowserDialogPolicy(t *testing.T) {
+	t.Parallel()
+	cfg, err := parse(t, "[modules.browser]\ndialog_allow = [\"confirm\", \"prompt\"]\n")
+	if err != nil || len(cfg.Modules.Browser.DialogAllow) != 2 {
+		t.Fatalf("dialog_allow = %+v, %v", cfg.Modules.Browser.DialogAllow, err)
+	}
+	_, err = parse(t, "[modules.browser]\ndialog_allow = [\"beforeunload\"]\n")
+	if ke := keyErrorOf(t, err, ErrInvalidValue); ke.Key != "modules.browser.dialog_allow" {
+		t.Fatalf("key = %q, want modules.browser.dialog_allow", ke.Key)
+	}
+}
+
 func TestModulesMedia(t *testing.T) {
 	t.Parallel()
 	cfg, err := parse(t, "[modules.media]\nenabled = true\nimage_backend = \"openai\"\nimage_key_env = \"OPENAI_API_KEY\"\nvideo_backend = \"fal\"\nvideo_key_env = \"FAL_KEY\"\nvideo_create_url = \"http://127.0.0.1:9/v\"\nvideo_status_url = \"http://127.0.0.1:9/v/%s\"\n")

@@ -37,7 +37,9 @@ func Tools() []Tool {
 		newTool("browser_snapshot", "Return the accessibility tree with stable element refs as JSON", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
 		newTool("browser_console", "Read the buffered page console log; bounded, never evaluates page script", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
 		newTool("browser_get_images", "List the images of the current page with their natural size", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
+		newTool("browser_vision", "Capture the viewport and hand the PNG to the vision model", "read", `{"type":"object","properties":{"question":{"type":"string","maxLength":1000}},"additionalProperties":false}`),
 		newTool("browser_click", "Click the current page at viewport coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"integer"},"y":{"type":"integer"}},"required":["x","y"],"additionalProperties":false}`),
+		newTool("browser_dialog", "Inspect an open native dialog, or answer it after approval", "non_idempotent", `{"type":"object","properties":{"action":{"type":"string","enum":["status","accept","dismiss"]},"text":{"type":"string","maxLength":1024}},"additionalProperties":false}`),
 		newTool("browser_type", "Insert text into the focused element after approval", "non_idempotent", `{"type":"object","properties":{"text":{"type":"string","maxLength":4096}},"required":["text"],"additionalProperties":false}`),
 		newTool("browser_back", "Go back one history entry after approval", "non_idempotent", `{"type":"object","properties":{},"additionalProperties":false}`),
 		newTool("browser_scroll", "Scroll the page at coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"delta_x":{"type":"number","minimum":-10000,"maximum":10000},"delta_y":{"type":"number","minimum":-10000,"maximum":10000}},"required":["delta_x","delta_y"],"additionalProperties":false}`),
@@ -68,6 +70,7 @@ type ModuleConfig struct {
 	CloudURL      string
 	AllowOrigins  []string
 	LocalProfile  bool
+	DialogsAllow  []string
 	Offline       bool
 	NoBackground  bool
 }
@@ -126,6 +129,13 @@ func validateEngineConfig(cfg *ModuleConfig) error {
 	case "", "cdp", "camofox", "lightpanda", "cloud":
 	default:
 		return fmt.Errorf("%w: engine %q", errBadConfig, cfg.Engine)
+	}
+	for _, kind := range cfg.DialogsAllow {
+		switch kind {
+		case "alert", "confirm", "prompt":
+		default:
+			return fmt.Errorf("%w: dialog type %q", errBadConfig, kind)
+		}
 	}
 	if err := validateEndpoints(cfg); err != nil {
 		return err
@@ -276,6 +286,9 @@ func (m *Module) invokeRead(ctx context.Context, tool string, args json.RawMessa
 	case "browser_get_images":
 		res, err := m.getImages(ctx)
 		return res, true, err
+	case "browser_vision":
+		res, err := m.vision(ctx, args)
+		return res, true, err
 	case "browser_snapshot":
 		res, err := m.snapshot(ctx)
 		return res, true, err
@@ -291,6 +304,8 @@ func (m *Module) invokeRead(ctx context.Context, tool string, args json.RawMessa
 
 func (m *Module) invokeAction(ctx context.Context, tool string, args json.RawMessage, env host.Env) (host.Result, error) {
 	switch tool {
+	case "browser_dialog":
+		return m.dialog(ctx, args, env)
 	case "browser_click":
 		return m.click(ctx, args, env)
 	case "browser_type":
@@ -597,7 +612,10 @@ func (m *Module) open(ctx context.Context) (*Page, error) {
 	if m.page != nil {
 		return m.page, nil
 	}
-	cfg := Config{AllowOrigins: m.cfg.AllowOrigins, LocalProfile: m.cfg.LocalProfile}.normalize()
+	cfg := Config{
+		AllowOrigins: m.cfg.AllowOrigins, LocalProfile: m.cfg.LocalProfile,
+		DialogsAllow: m.cfg.DialogsAllow,
+	}.normalize()
 	if m.engineName() == "cdp" {
 		if m.cfg.CDPURL == "" {
 			return nil, fmt.Errorf("%w: cdp_url is empty", errUnavailable)

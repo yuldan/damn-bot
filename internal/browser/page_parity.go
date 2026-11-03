@@ -42,10 +42,12 @@ type consoleEntry struct{ level, text string }
 // dialog policy. It is separate from Config so NewPage stays cheap and the
 // CDP page, an engine page and a test fake all share one implementation.
 type parityState struct {
-	mu      sync.Mutex
-	logs    []consoleEntry
-	logSize int
-	logsOn  bool
+	mu        sync.Mutex
+	logs      []consoleEntry
+	logSize   int
+	logsOn    bool
+	dialogsOn bool
+	dialog    *Dialog
 }
 
 func newParityState() *parityState { return &parityState{} }
@@ -61,7 +63,7 @@ func (p *Page) Console(ctx context.Context) (string, error) {
 	if err := p.enableConsole(ctx); err != nil {
 		return "", err
 	}
-	p.drain()
+	p.drain(ctx)
 	return p.consoleText(), nil
 }
 
@@ -88,14 +90,14 @@ func (p *Page) enableConsole(ctx context.Context) error {
 // drain consumes every already-queued event without blocking. Load events are
 // discarded: a console read never owns a navigation, and the next WaitLoad
 // arms the page by navigating first.
-func (p *Page) drain() {
+func (p *Page) drain(ctx context.Context) {
 	for range maxDrainEvents {
 		select {
 		case ev, ok := <-p.conn.Events():
 			if !ok {
 				return
 			}
-			p.ingest(ev)
+			p.ingest(ctx, ev)
 		default:
 			return
 		}
@@ -105,7 +107,7 @@ func (p *Page) drain() {
 // ingest records one unsolicited event. Only the three console sources are
 // mapped; every other method is ignored, so an unrelated event can never
 // change the buffer.
-func (p *Page) ingest(ev cdp.Event) {
+func (p *Page) ingest(ctx context.Context, ev cdp.Event) {
 	if len(ev.Params) > maxEventParams {
 		return
 	}
@@ -144,6 +146,19 @@ func (p *Page) ingest(ev cdp.Event) {
 			text = d
 		}
 		p.appendLog("exception", text)
+	case "Page.javascriptDialogOpening":
+		var msg struct {
+			Type          string `json:"type"`
+			Message       string `json:"message"`
+			DefaultPrompt string `json:"defaultPrompt"`
+		}
+		if err := json.Unmarshal(ev.Params, &msg); err != nil {
+			return
+		}
+		p.openDialog(ctx, Dialog{
+			Type: clip(msg.Type, 32), Message: clip(msg.Message, maxDialogMessage),
+			DefaultPrompt: clip(msg.DefaultPrompt, maxDialogPrompt),
+		})
 	case "Log.entryAdded":
 		var msg struct {
 			Entry struct {
