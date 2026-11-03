@@ -327,7 +327,11 @@ heal              1500 internal/heal
 # endpoint loopback, argv absolut, limit) menambah config 2159 -> 2225
 # (terukur scc). Sigma core 55.979 -> 56.045; plafon core 56.000 -> 56.100
 # (ceil ratusan, headroom 55). MODULE computeruse terukur 770/2000.
-config            2225 internal/config
+# ADR-321 (F6 browser engines): [modules.browser].engine/camofox_url/
+# lightpanda_bin/cloud_url + validasi menambah config 2225 -> 2279 (terukur
+# scc); registry egress `browser` menambah netx 1866 -> 1871 (terukur).
+# Sigma core 56.045 -> 56.104; plafon core 56.100 -> 56.200 (ceil ratusan).
+config            2279 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
@@ -440,6 +444,7 @@ MODULE delegate    2000 internal/delegate
 # Sigma MODULE 58.800 -> 83.300 (+backup 1.467 = 84.767 <= 85.000; ADR-309);
 # Σ core tidak berubah oleh baris-baris ini. Kode fondasi 0 (paket doc.go).
 MODULE webtools     3000 internal/webtools
+# ADR-321: seam engine + Camoufox/Lightpanda/cloud wire; terukur 1406/5500.
 MODULE browser      5500 internal/browser internal/browser/cdp
 MODULE media        9500 internal/media
 MODULE voice        4500 internal/voice

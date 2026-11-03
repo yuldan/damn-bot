@@ -1,6 +1,6 @@
-// Package browser is the F6 CDP browser module (SPEC §3.2.4): a page
-// transport over internal/browser/cdp, a default-deny origin allowlist and
-// approval-gated page actions (ADR-313).
+// Package browser is the F6 browser module (SPEC §3.2.4): an engine seam over
+// CDP, Camoufox, Lightpanda and cloud HTTP providers, a default-deny origin
+// allowlist and approval-gated page actions (ADR-313, ADR-321).
 package browser
 
 import (
@@ -20,7 +20,7 @@ import (
 	"github.com/damnbot/damnbot/internal/modules/host"
 )
 
-// Transport is the subset of *Conn the page uses.
+// Transport is the subset of *cdp.Conn the CDP engine uses.
 type Transport interface {
 	Call(ctx context.Context, method string, params any) (json.RawMessage, error)
 	Events() <-chan cdp.Event
@@ -36,36 +36,73 @@ type Config struct {
 	MaxScreenshot int
 }
 
-// Page is one CDP page target and the module-facing browser engine.
+func (c Config) normalize() Config {
+	c.LoadTimeout = cmp.Or(c.LoadTimeout, 20*time.Second)
+	c.MaxResult = cmp.Or(c.MaxResult, 64<<10)
+	c.MaxScreenshot = cmp.Or(c.MaxScreenshot, 2<<20)
+	return c
+}
+
+// Page is one bound engine plus the module policy: allowlist, bounds, approval.
 type Page struct {
+	eng   Engine
 	conn  Transport
 	allow *Allowlist
 	cfg   Config
 }
 
-// NewPage binds the transport and validates the allowlist.
-func NewPage(conn Transport, cfg Config) (*Page, error) {
+// NewPage binds an engine and validates the allowlist.
+func NewPage(eng Engine, cfg Config) (*Page, error) {
 	allow, err := NewAllowlist(cfg.AllowOrigins)
 	if err != nil {
 		return nil, err
 	}
-	cfg.LoadTimeout = cmp.Or(cfg.LoadTimeout, 20*time.Second)
-	cfg.MaxResult = cmp.Or(cfg.MaxResult, 64<<10)
-	cfg.MaxScreenshot = cmp.Or(cfg.MaxScreenshot, 2<<20)
-	return &Page{conn: conn, allow: allow, cfg: cfg}, nil
+	return &Page{eng: eng, allow: allow, cfg: cfg.normalize()}, nil
 }
 
-// Navigate opens an allowlisted http(s) URL and waits for the load event.
+// NewCDPPage binds a CDP transport to the page policy.
+func NewCDPPage(conn Transport, cfg Config) (*Page, error) {
+	p, err := NewPage(nil, cfg)
+	if err != nil {
+		return nil, err
+	}
+	p.conn = conn
+	return p, nil
+}
+
+// Close closes the bound engine or CDP transport.
+func (p *Page) Close() error {
+	if p.eng != nil {
+		if err := p.eng.Close(); err != nil {
+			return fmt.Errorf("browser: close: %w", err)
+		}
+		return nil
+	}
+	if p.conn == nil {
+		return nil
+	}
+	if err := p.conn.Close(); err != nil {
+		return fmt.Errorf("browser: close: %w", err)
+	}
+	return nil
+}
+
+// Navigate opens an allowlisted http(s) URL and returns the final URL. The
+// guard runs before the call and on every redirect the engine reports.
 func (p *Page) Navigate(ctx context.Context, rawURL string) (string, error) {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return "", fmt.Errorf("%w: %s", errBadConfig, rawURL)
+	u, err := p.checkURL(rawURL)
+	if err != nil {
+		return "", err
 	}
-	if !p.cfg.LocalProfile && localHost(u.Hostname()) {
-		return "", fmt.Errorf("%w: %s", errBlockedHost, u.Hostname())
-	}
-	if !p.allow.set[originOf(u)] {
-		return "", fmt.Errorf("%w: %s", errBlockedOrigin, originOf(u))
+	if p.eng != nil {
+		final, nerr := p.eng.Navigate(ctx, u.String(), p.guard)
+		if nerr != nil {
+			return "", fmt.Errorf("browser: navigate: %w", nerr)
+		}
+		if _, cerr := p.checkURL(final); cerr != nil {
+			return "", cerr
+		}
+		return final, nil
 	}
 	raw, err := p.conn.Call(ctx, "Page.navigate", map[string]string{"url": u.String()})
 	if err != nil {
@@ -80,14 +117,50 @@ func (p *Page) Navigate(ctx context.Context, rawURL string) (string, error) {
 	if res.ErrorText != "" {
 		return "", fmt.Errorf("%w: %s", errPage, res.ErrorText)
 	}
-	if err := p.WaitLoad(ctx); err != nil {
+	if err := p.waitLoad(ctx); err != nil {
 		return "", err
 	}
 	return u.String(), nil
 }
 
-// WaitLoad waits for the next load event, bounded by LoadTimeout.
+// guard adapts checkURL to the engine callback.
+func (p *Page) guard(u *url.URL) error {
+	_, err := p.checkURL(u.String())
+	return err
+}
+
+// checkURL is the default-deny policy shared by the page and its engines.
+func (p *Page) checkURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return nil, fmt.Errorf("%w: %s", errBadConfig, raw)
+	}
+	if !p.cfg.LocalProfile && localHost(u.Hostname()) {
+		return nil, fmt.Errorf("%w: %s", errBlockedHost, u.Hostname())
+	}
+	if !p.allow.set[originOf(u)] {
+		return nil, fmt.Errorf("%w: %s", errBlockedOrigin, originOf(u))
+	}
+	return u, nil
+}
+
+// WaitLoad waits for the next load event when the engine reports them; the
+// synchronous engines have nothing to wait for. Bounded by LoadTimeout.
 func (p *Page) WaitLoad(ctx context.Context) error {
+	if p.eng == nil {
+		return p.waitLoad(ctx)
+	}
+	waiter, ok := p.eng.(interface{ WaitLoad(context.Context) error })
+	if !ok {
+		return nil
+	}
+	if err := waiter.WaitLoad(ctx); err != nil {
+		return fmt.Errorf("browser: wait load: %w", err)
+	}
+	return nil
+}
+
+func (p *Page) waitLoad(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, p.cfg.LoadTimeout)
 	defer cancel()
 	for {
@@ -128,14 +201,21 @@ func (p *Page) target(ev cdp.Event) error {
 		return nil
 	}
 	u, err := url.Parse(frame.Frame.URL)
-	if err != nil || u.Host == "" || !p.allow.set[originOf(u)] {
+	if err != nil || u.Host == "" {
 		return errBlockedOrigin
 	}
-	return nil
+	return p.guard(u)
 }
 
 // Eval evaluates expression and returns the JSON value, capped at MaxResult.
 func (p *Page) Eval(ctx context.Context, expression string) (string, error) {
+	if p.eng != nil {
+		out, err := p.eng.Eval(ctx, expression)
+		if err != nil {
+			return "", fmt.Errorf("browser: evaluate: %w", err)
+		}
+		return p.evalValue(out)
+	}
 	raw, err := p.conn.Call(ctx, "Runtime.evaluate", map[string]any{
 		"expression": expression, "returnByValue": true, "awaitPromise": true,
 	})
@@ -147,20 +227,31 @@ func (p *Page) Eval(ctx context.Context, expression string) (string, error) {
 			Value json.RawMessage `json:"value"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal(raw, &res); err != nil {
-		return "", fmt.Errorf("%w: evaluate: %w", errPage, err)
+	if uerr := json.Unmarshal(raw, &res); uerr != nil {
+		return "", fmt.Errorf("%w: evaluate: %w", errPage, uerr)
 	}
-	if len(res.Result.Value) == 0 {
-		return "null", nil
+	return p.evalValue(res.Result.Value)
+}
+
+func (p *Page) evalValue(value []byte) (string, error) {
+	if len(value) == 0 {
+		value = []byte("null")
 	}
-	if len(res.Result.Value) > p.cfg.MaxResult {
-		return "", fmt.Errorf("%w: %d > %d bytes", errTooLarge, len(res.Result.Value), p.cfg.MaxResult)
+	if len(value) > p.cfg.MaxResult {
+		return "", fmt.Errorf("%w: %d > %d bytes", errTooLarge, len(value), p.cfg.MaxResult)
 	}
-	return string(res.Result.Value), nil
+	return string(value), nil
 }
 
 // Screenshot captures the viewport as PNG, capped at MaxScreenshot bytes.
 func (p *Page) Screenshot(ctx context.Context) ([]byte, error) {
+	if p.eng != nil {
+		out, err := p.eng.Screenshot(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("browser: screenshot: %w", err)
+		}
+		return p.screenshotValue(out)
+	}
 	raw, err := p.conn.Call(ctx, "Page.captureScreenshot", map[string]string{"format": "png"})
 	if err != nil {
 		return nil, fmt.Errorf("browser: screenshot: %w", err)
@@ -171,10 +262,14 @@ func (p *Page) Screenshot(ctx context.Context) ([]byte, error) {
 	if uerr := json.Unmarshal(raw, &res); uerr != nil {
 		return nil, errPage
 	}
-	png, err := base64.StdEncoding.DecodeString(res.Data)
-	if err != nil {
+	png, derr := base64.StdEncoding.DecodeString(res.Data)
+	if derr != nil {
 		return nil, errPage
 	}
+	return p.screenshotValue(png)
+}
+
+func (p *Page) screenshotValue(png []byte) ([]byte, error) {
 	if len(png) > p.cfg.MaxScreenshot {
 		return nil, fmt.Errorf("%w: screenshot %d > %d bytes", errTooLarge, len(png), p.cfg.MaxScreenshot)
 	}
@@ -185,6 +280,12 @@ func (p *Page) Screenshot(ctx context.Context) ([]byte, error) {
 func (p *Page) Click(ctx context.Context, x, y float64, approved bool) error {
 	if !approved {
 		return fmt.Errorf("%w: browser_click at (%.0f, %.0f)", errApproval, x, y)
+	}
+	if p.eng != nil {
+		if err := p.eng.Act(ctx, Action{Kind: "click", X: x, Y: y}); err != nil {
+			return fmt.Errorf("browser: click: %w", err)
+		}
+		return nil
 	}
 	for _, kind := range []string{"mouseMoved", "mousePressed", "mouseReleased"} {
 		params := map[string]any{"type": kind, "x": x, "y": y, "button": "left", "clickCount": 1}
@@ -199,6 +300,12 @@ func (p *Page) Click(ctx context.Context, x, y float64, approved bool) error {
 func (p *Page) Type(ctx context.Context, text string, approved bool) error {
 	if !approved {
 		return fmt.Errorf("%w: browser_type %d characters", errApproval, len(text))
+	}
+	if p.eng != nil {
+		if err := p.eng.Act(ctx, Action{Kind: "type", Text: text}); err != nil {
+			return fmt.Errorf("browser: type: %w", err)
+		}
+		return nil
 	}
 	if _, err := p.conn.Call(ctx, "Input.insertText", map[string]string{"text": text}); err != nil {
 		return fmt.Errorf("browser: type: %w", err)
@@ -215,6 +322,9 @@ var (
 	errClosed        = errors.New("browser: page connection closed")
 	errPage          = errors.New("browser: protocol failure")
 	errApproval      = errors.New("browser: approval required")
+	errDenied        = errors.New("browser: engine denied the request")
+	errUnavailable   = errors.New("browser: engine unavailable")
+	errUnsupported   = errors.New("browser: engine does not support the operation")
 )
 
 // Allowlist is a default-deny set of canonical origins.
@@ -271,7 +381,7 @@ func localHost(host string) bool {
 // Invoke dispatches one approval-gated page action. A nil page or an empty
 // allowlist returns module_unavailable.
 func (p *Page) Invoke(ctx context.Context, tool string, raw json.RawMessage, env host.Env) (host.Result, error) {
-	if p == nil || p.conn == nil || len(p.cfg.AllowOrigins) == 0 {
+	if p == nil || (p.eng == nil && p.conn == nil) || len(p.cfg.AllowOrigins) == 0 {
 		return host.Result{}, &host.Error{Code: "module_unavailable", Message: "browser module is unavailable: " + tool}
 	}
 	switch tool {
@@ -305,7 +415,7 @@ func pageError(err error) error {
 	}
 	code := "network"
 	switch {
-	case errors.Is(err, errApproval):
+	case errors.Is(err, errApproval), errors.Is(err, errDenied):
 		code = "denied"
 	case errors.Is(err, errBadConfig):
 		code = "invalid_args"
@@ -315,6 +425,8 @@ func pageError(err error) error {
 		code = "too_large"
 	case errors.Is(err, errTimeout):
 		code = "timeout"
+	case errors.Is(err, errUnavailable), errors.Is(err, errUnsupported):
+		code = "module_unavailable"
 	}
 	return &host.Error{Code: code, Message: err.Error()}
 }
