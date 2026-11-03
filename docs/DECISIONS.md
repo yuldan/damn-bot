@@ -5996,6 +5996,8 @@ MODULE computeruse  2000 internal/computeruse
 
 **Konsekuensi.** (+) Nama F6 dan F8 tidak lagi bertabrakan, dan setiap modul F6 punya cap, direktori, baris matriks, owner, serta skema config sebelum baris kode pertamanya. (+) Menyalakan modul yang belum ada gagal keras, bukan diam. (−) `internal/config` hanya menyisakan headroom 4 LOC terhadap `maxCoreLOC`; slice F6 berikutnya yang menyentuh config harus menaikkan plafon lewat ADR. (−) `media`/`voice`/`computeruse` belum punya edge `netx`/`schema`; edge itu ditambahkan saat kode pertama membutuhkannya, bukan sekarang.
 
+**Amandemen 2026-11-02 (F6 media slice 3).** `internal/media/preflight` mendarat sebagai daun stdlib-only (`internal/media/preflight`) dengan baris matriks di `allowed.go`. `BenchmarkImagePreflight` 12 MP pada host pengembangan terukur ≈0,9 s (decode ≈430 ms + resize ≈257 ms + encode ≈133 ms), **belum** memenuhi target SPEC §17 ≤150 ms yang diukur di Q14; baris acceptance "Ukuran gambar" di `docs/F6-ACCEPTANCE.md` tetap `BELUM` dan slice optimasi (scaled JPEG decode 1/2–1/8 + parallel resize) dicatat sebagai open item. Tidak ada dependency, config key, migrasi, atau `//nolint` baru.
+
 ## ADR-311 — F6-W1: inti `internal/webtools` (fetch, extract, search) dan kenaikan plafon core
 
 **Status:** Accepted 2026-11-02 (F6 slice W1, ROADMAP F6; melengkapi SPEC §3.2.4, ADR-100, ADR-269, ADR-309, ADR-310). Tanpa dependency baru, migrasi, wiring composition root, atau `//nolint` baru.
