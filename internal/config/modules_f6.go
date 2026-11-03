@@ -4,6 +4,7 @@ package config
 
 import (
 	"net/url"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -17,16 +18,23 @@ type ModulesWeb struct {
 	Blocklist []string `toml:"blocklist"`
 }
 
-// ModulesBrowser is [modules.browser]: the F6 CDP browser module (ADR-310,
-// ADR-313). Origins are default-deny; an enabled module with no origin fails
-// every Invoke with module_unavailable. CDPURL is the page WebSocket
-// (ws/wss) or the HTTP discovery base of a loopback DevTools endpoint; an
-// empty value fails closed instead of guessing a port.
+// ModulesBrowser is [modules.browser]: the F6 browser module (ADR-310,
+// ADR-313, ADR-321). Origins are default-deny; an enabled module with no
+// origin fails every Invoke with module_unavailable. Engine selects the
+// backend explicitly; without it exactly one configured endpoint may select
+// it. CDPURL is the page WebSocket (ws/wss) or the HTTP discovery base of a
+// loopback DevTools endpoint, CamofoxURL a loopback HTTP sidecar, CloudURL a
+// public https gateway and LightpandaBin an absolute CLI path. An empty
+// endpoint fails closed instead of guessing a port or another engine.
 type ModulesBrowser struct {
-	Enabled      bool     `toml:"enabled"`
-	CDPURL       string   `toml:"cdp_url"`
-	AllowOrigins []string `toml:"allow_origins"`
-	LocalProfile bool     `toml:"local_profile"`
+	Enabled       bool     `toml:"enabled"`
+	Engine        string   `toml:"engine"`
+	CDPURL        string   `toml:"cdp_url"`
+	CamofoxURL    string   `toml:"camofox_url"`
+	LightpandaBin string   `toml:"lightpanda_bin"`
+	CloudURL      string   `toml:"cloud_url"`
+	AllowOrigins  []string `toml:"allow_origins"`
+	LocalProfile  bool     `toml:"local_profile"`
 }
 
 // ModulesMedia is [modules.media] (ADR-310, ADR-318): explicit image/video backends, key-gated.
@@ -90,28 +98,81 @@ func (m *Modules) validateF6() error {
 	return nil
 }
 
-// validateBrowser keeps the CDP endpoint on loopback and in the two reviewed
-// transports: a page WebSocket or an HTTP discovery base. A public or
-// malformed endpoint is a load error, never a silent no-op; empty stays legal
-// and fails closed at Invoke.
+// validateBrowser keeps the engine selection and every endpoint honest. Empty
+// values stay legal and fail closed at Invoke; several endpoints without an
+// explicit engine are ambiguous.
 func (m *Modules) validateBrowser() error {
-	raw := m.Browser.CDPURL
+	b := m.Browser
+	switch b.Engine {
+	case "", "cdp", "camofox", "lightpanda", "cloud":
+	default:
+		return invalid("modules.browser.engine", "engine %q is not supported", b.Engine)
+	}
+	for _, ep := range []struct {
+		field             string
+		raw               string
+		loopback, ws, tls bool
+	}{
+		{"cdp_url", b.CDPURL, true, true, false},
+		{"camofox_url", b.CamofoxURL, true, false, false},
+		{"cloud_url", b.CloudURL, false, false, true},
+	} {
+		if err := browserEndpoint(ep.field, ep.raw, ep.loopback, ep.ws, ep.tls); err != nil {
+			return err
+		}
+	}
+	if bin := b.LightpandaBin; bin != "" &&
+		(len(bin) > 1024 || !filepath.IsAbs(bin) || strings.ContainsAny(bin, "\x00\r\n")) {
+		return invalid("modules.browser.lightpanda_bin", "must be an absolute path without control characters")
+	}
+	return browserAmbiguous(&b)
+}
+
+func browserEndpoint(field, raw string, loopback, ws, tlsPublic bool) error {
 	if raw == "" {
 		return nil
 	}
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return invalid("modules.browser.cdp_url", "must be an absolute ws, wss, http or https URL")
+	u, err := browserURL(raw)
+	if err != nil {
+		return invalid("modules.browser."+field, "must be an absolute URL")
 	}
-	switch u.Scheme {
-	case "ws", "wss", "http", "https":
-	default:
-		return invalid("modules.browser.cdp_url", "must be an absolute ws, wss, http or https URL")
+	schemeOK := u.Scheme == "http" || u.Scheme == "https" || (ws && (u.Scheme == "ws" || u.Scheme == "wss"))
+	if !schemeOK {
+		return invalid("modules.browser."+field, "scheme %q is not supported", u.Scheme)
 	}
-	if !loopbackHost(u.Hostname()) {
-		return invalid("modules.browser.cdp_url", "must point at a loopback DevTools endpoint")
+	local := loopbackHost(u.Hostname())
+	if loopback && !local {
+		return invalid("modules.browser."+field, "must point at a loopback endpoint")
+	}
+	if tlsPublic && !local && u.Scheme != "https" {
+		return invalid("modules.browser."+field, "a public endpoint must use https")
 	}
 	return nil
+}
+
+func browserAmbiguous(b *ModulesBrowser) error {
+	if b.Engine != "" {
+		return nil
+	}
+	n := 0
+	for _, on := range []bool{b.CDPURL != "", b.CamofoxURL != "", b.LightpandaBin != "", b.CloudURL != ""} {
+		if on {
+			n++
+		}
+	}
+	if n > 1 {
+		return invalid("modules.browser.engine", "several endpoints configured; set engine explicitly")
+	}
+	return nil
+}
+
+// browserURL parses an endpoint with no credentials, query or fragment.
+func browserURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return nil, ErrInvalidValue
+	}
+	return u, nil
 }
 
 func (m *Modules) validateMedia() error {

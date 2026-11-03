@@ -293,3 +293,67 @@ func toolResultText(t *testing.T, raw []byte) string {
 	}
 	return b.String()
 }
+
+// writeCamofoxConfig writes a [modules.browser] section that selects the
+// Camoufox HTTP engine (ADR-321).
+func writeCamofoxConfig(t *testing.T, e *Env, base, pageOrigin string) {
+	t.Helper()
+	body := "[modules.browser]\nenabled = true\nengine = \"camofox\"\ncamofox_url = \"" + base + "\"\nallow_origins = [\"" + pageOrigin + "\"]\n"
+	if err := os.WriteFile(e.cfg, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+}
+
+// TestF6BrowserCamofoxE2E is the engine-seam proof outside CDP: the real
+// binary talks to a fake Camoufox sidecar over loopback HTTP, and navigate plus
+// screenshot land in the provider transcript with the same taint.
+func TestF6BrowserCamofoxE2E(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/v1/navigate":
+			if _, err := w.Write([]byte(`{"url":"https://app.example/dashboard"}`)); err != nil {
+				t.Errorf("fake camofox: %v", err)
+			}
+		case "/v1/screenshot":
+			w.Header().Set("Content-Type", "image/png")
+			if _, err := w.Write([]byte("\x89PNG\r\n\x1a\npng")); err != nil {
+				t.Errorf("fake camofox: %v", err)
+			}
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	e := New(t,
+		ToolCallReply("s1", "tool_search", `{"query":"browser_navigate"}`),
+		ToolCallReply("n1", "tool_invoke", `{"name":"browser_navigate","arguments":{"url":"https://app.example/"}}`),
+		ToolCallReply("p1", "tool_invoke", `{"name":"browser_screenshot","arguments":{}}`),
+		providertest.Text("done"),
+	)
+	writeCamofoxConfig(t, e, srv.URL, "https://app.example")
+	res := e.Exec(browserRunArgs(e, "open the fake camofox page")...)
+	res.RequireOK(t)
+	reqs := e.Requests()
+	if len(reqs) != 4 {
+		t.Fatalf("provider requests = %d, want 4\nstdout:\n%s\nstderr:\n%s", len(reqs), res.Stdout, res.Stderr)
+	}
+	mu.Lock()
+	got := append([]string(nil), paths...)
+	mu.Unlock()
+	if len(got) != 2 || got[0] != "/v1/navigate" || got[1] != "/v1/screenshot" {
+		t.Fatalf("camofox paths = %v", got)
+	}
+	transcript := string(reqs[3])
+	for _, want := range []string{`untrusted source=\"browser:app.example\"`, "screenshot 11 bytes"} {
+		if !strings.Contains(transcript, want) {
+			t.Errorf("transcript lacks %q", want)
+			logTranscript(t, reqs[3])
+		}
+	}
+}

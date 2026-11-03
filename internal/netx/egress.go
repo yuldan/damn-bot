@@ -55,6 +55,11 @@ func Registry() map[string]Egress {
 			Host:    "tts_endpoint from [modules.voice] (loopback endpoints use the local lane)",
 			Trigger: "speak after approval; transcribe runs the local whisper binary only",
 		},
+		"browser": {
+			Purpose: Tool,
+			Host:    "cloud_url from [modules.browser] (Camoufox and loopback cloud gateways use the local lane)",
+			Trigger: "browser_navigate and the other page tools after approval",
+		},
 		"telegram": {
 			Purpose: Gateway,
 			Host:    "api.telegram.org",

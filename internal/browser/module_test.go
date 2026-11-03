@@ -39,7 +39,7 @@ func dialTo(f Transport) DialFunc {
 	return func(context.Context, string, time.Duration) (Transport, error) { return f, nil }
 }
 
-func newModule(ctx context.Context, t *testing.T, cfg ModuleConfig, deps Deps) *Module {
+func newModule(ctx context.Context, t *testing.T, cfg *ModuleConfig, deps Deps) *Module {
 	t.Helper()
 	m, err := New(cfg, deps)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestModuleUnavailableWithoutEndpoint(t *testing.T) {
 	cfg := moduleConfig()
 	cfg.CDPURL = ""
 	f := newFake()
-	m := newModule(ctx, t, cfg, Deps{Dial: dialTo(f)})
+	m := newModule(ctx, t, &cfg, Deps{Dial: dialTo(f)})
 	_, err := m.Invoke(ctx, "browser_navigate", json.RawMessage(`{"url":"https://app.example/"}`), host.Env{})
 	var he *host.Error
 	if !errors.As(err, &he) || he.Code != "module_unavailable" {
@@ -103,7 +103,7 @@ func TestModuleNewRejectsEndpoint(t *testing.T) {
 	for _, raw := range []string{"ftp://127.0.0.1/x", "ws:///x", "ws://user@127.0.0.1/x", "not a url"} {
 		cfg := moduleConfig()
 		cfg.CDPURL = raw
-		if _, err := New(cfg, Deps{}); !errors.Is(err, errBadConfig) {
+		if _, err := New(&cfg, Deps{}); !errors.Is(err, errBadConfig) {
 			t.Errorf("New(%q) = %v, want errBadConfig", raw, err)
 		}
 	}
@@ -115,7 +115,8 @@ func TestModuleNavigateAndScreenshotTaint(t *testing.T) {
 	f := newFake()
 	navEvents("https://app.example/dashboard")(f)
 	f.results["Page.captureScreenshot"] = json.RawMessage(`{"data":"cG5n"}`)
-	m := newModule(ctx, t, moduleConfig(), Deps{Dial: dialTo(f)})
+	cfg := moduleConfig()
+	m := newModule(ctx, t, &cfg, Deps{Dial: dialTo(f)})
 
 	res, err := m.Invoke(ctx, "browser_navigate", json.RawMessage(`{"url":"https://app.example/"}`), host.Env{})
 	if err != nil {
@@ -140,7 +141,8 @@ func TestModuleBlockedOrigin(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	f := newFake()
-	m := newModule(ctx, t, moduleConfig(), Deps{Dial: dialTo(f)})
+	cfg := moduleConfig()
+	m := newModule(ctx, t, &cfg, Deps{Dial: dialTo(f)})
 	_, err := m.Invoke(context.Background(), "browser_navigate", json.RawMessage(`{"url":"https://evil.example/"}`), host.Env{})
 	var he *host.Error
 	if !errors.As(err, &he) || he.Code != "blocked_host" {
@@ -167,7 +169,8 @@ func TestModuleClickApproval(t *testing.T) {
 			t.Parallel()
 			f := newFake()
 			appr := &fakeApprovals{answer: tc.answer}
-			m := newModule(ctx, t, moduleConfig(), Deps{Dial: dialTo(f), Approvals: appr})
+			cfg := moduleConfig()
+			m := newModule(ctx, t, &cfg, Deps{Dial: dialTo(f), Approvals: appr})
 			_, err := m.Invoke(ctx, "browser_click", json.RawMessage(`{"x":10,"y":20}`), host.Env{CallID: "c1"})
 			if !tc.sent {
 				var he *host.Error
@@ -198,7 +201,8 @@ func TestModuleTypeApprovalHidesContent(t *testing.T) {
 	ctx := context.Background()
 	f := newFake()
 	appr := &fakeApprovals{answer: host.ApprovalDeny}
-	m := newModule(ctx, t, moduleConfig(), Deps{Dial: dialTo(f), Approvals: appr})
+	cfg := moduleConfig()
+	m := newModule(ctx, t, &cfg, Deps{Dial: dialTo(f), Approvals: appr})
 	if _, err := m.Invoke(ctx, "browser_type", json.RawMessage(`{"text":"hunter2"}`), host.Env{CallID: "c2"}); err == nil {
 		t.Fatal("unapproved type succeeded")
 	}
@@ -214,7 +218,8 @@ func TestModuleTypeApprovalHidesContent(t *testing.T) {
 func TestModuleDecodeArgsStrict(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	m := newModule(ctx, t, moduleConfig(), Deps{Dial: dialTo(newFake())})
+	cfg := moduleConfig()
+	m := newModule(ctx, t, &cfg, Deps{Dial: dialTo(newFake())})
 	_, err := m.Invoke(ctx, "browser_navigate", json.RawMessage(`{"url":"https://app.example/","x":1}`), host.Env{})
 	var he *host.Error
 	if !errors.As(err, &he) || he.Code != "invalid_args" {
@@ -227,7 +232,8 @@ func TestModuleEvaluate(t *testing.T) {
 	ctx := context.Background()
 	f := newFake()
 	f.results["Runtime.evaluate"] = json.RawMessage(`{"result":{"type":"string","value":"ok"}}`)
-	m := newModule(ctx, t, moduleConfig(), Deps{Dial: dialTo(f)})
+	cfg := moduleConfig()
+	m := newModule(ctx, t, &cfg, Deps{Dial: dialTo(f)})
 	res, err := m.Invoke(ctx, "browser_eval", json.RawMessage(`{"expression":"1+1"}`), host.Env{})
 	if err != nil || res.Content != `"ok"` || res.UntrustedSource != "browser:page" {
 		t.Fatalf("eval = %+v, %v", res, err)
@@ -256,7 +262,7 @@ func TestModuleDiscover(t *testing.T) {
 	cfg.CDPURL = srv.URL + "/devtools"
 	f := newFake()
 	navEvents(page)(f)
-	m := newModule(ctx, t, cfg, Deps{Dial: dialTo(f)})
+	m := newModule(ctx, t, &cfg, Deps{Dial: dialTo(f)})
 	if _, err := m.Invoke(ctx, "browser_navigate", json.RawMessage(`{"url":"https://app.example/"}`), host.Env{}); err != nil {
 		t.Fatalf("discovered navigate: %v", err)
 	}
@@ -273,7 +279,7 @@ func TestModuleDiscoverFailures(t *testing.T) {
 		}))
 		cfg := moduleConfig()
 		cfg.CDPURL = srv.URL
-		m := newModule(ctx, t, cfg, Deps{Dial: dialTo(newFake())})
+		m := newModule(ctx, t, &cfg, Deps{Dial: dialTo(newFake())})
 		if _, err := m.Invoke(ctx, "browser_navigate", json.RawMessage(`{"url":"https://app.example/"}`), host.Env{}); err == nil {
 			t.Errorf("discovery %q succeeded", body)
 		}
@@ -285,7 +291,7 @@ func TestModuleDiscoverFailures(t *testing.T) {
 	defer srv.Close()
 	cfg := moduleConfig()
 	cfg.CDPURL = srv.URL
-	m := newModule(ctx, t, cfg, Deps{Dial: dialTo(newFake())})
+	m := newModule(ctx, t, &cfg, Deps{Dial: dialTo(newFake())})
 	if _, err := m.Invoke(ctx, "browser_navigate", json.RawMessage(`{"url":"https://app.example/"}`), host.Env{}); err == nil {
 		t.Fatal("500 discovery succeeded")
 	}
@@ -313,7 +319,7 @@ func TestModuleDisabledAndDialError(t *testing.T) {
 	ctx := context.Background()
 	cfg := moduleConfig()
 	cfg.Enabled = false
-	m, err := New(cfg, Deps{})
+	m, err := New(&cfg, Deps{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +337,8 @@ func TestModuleDisabledAndDialError(t *testing.T) {
 	}
 
 	dialErr := errors.New("dial refused")
-	broken, err := New(moduleConfig(), Deps{Dial: func(context.Context, string, time.Duration) (Transport, error) {
+	mc := moduleConfig()
+	broken, err := New(&mc, Deps{Dial: func(context.Context, string, time.Duration) (Transport, error) {
 		return nil, dialErr
 	}})
 	if err != nil {
@@ -350,7 +357,8 @@ func TestModuleTypeApprovalAllowOnce(t *testing.T) {
 	t.Parallel()
 	f := newFake()
 	appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
-	m := newModule(t.Context(), t, moduleConfig(), Deps{Dial: dialTo(f), Approvals: appr})
+	cfg := moduleConfig()
+	m := newModule(t.Context(), t, &cfg, Deps{Dial: dialTo(f), Approvals: appr})
 	if _, err := m.Invoke(t.Context(), "browser_type", json.RawMessage(`{"text":"ok"}`), host.Env{CallID: "c3"}); err != nil {
 		t.Fatalf("type: %v", err)
 	}
@@ -365,7 +373,7 @@ func TestModuleNewAllowlistError(t *testing.T) {
 		func() ModuleConfig { c := moduleConfig(); c.AllowOrigins = []string{"not an origin"}; return c }(),
 		func() ModuleConfig { c := moduleConfig(); c.CDPURL = "ws://127.0.0.1/x?q=1"; return c }(),
 	} {
-		if _, err := New(cfg, Deps{}); err == nil {
+		if _, err := New(&cfg, Deps{}); err == nil {
 			t.Errorf("New(%+v) succeeded", cfg)
 		}
 	}
