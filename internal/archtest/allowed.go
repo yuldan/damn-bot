@@ -156,7 +156,7 @@ func f6ModuleImports(m map[string][]string) {
 	m["internal/voice/stt"] = nil
 	m["internal/voice/tts"] = nil
 	m["internal/voice/wake"] = nil
-	m["internal/computeruse"] = []string{"internal/modules/host"}
+	m["internal/computeruse"] = []string{"internal/modules/host", "internal/netx"}
 }
 
 // testOnlyPackages hanya boleh diimpor dari file _test.go (paket internal mana pun) atau dari

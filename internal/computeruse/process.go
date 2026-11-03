@@ -22,7 +22,7 @@ type processBackend struct {
 	unavailable error
 }
 
-func newProcessBackend(cfg Config, deps Deps) (*processBackend, error) {
+func newProcessBackend(cfg *Config, deps Deps) (*processBackend, error) {
 	b := &processBackend{spawn: deps.Spawn, max: cfg.MaxScreenshotBytes}
 	if len(cfg.Command) == 0 {
 		return b, nil
