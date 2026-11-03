@@ -157,6 +157,8 @@ config_version = 1
     local_profile = false
     dialog_allow = []
     use_bin = ""
+    vault_user_env = ""
+    vault_password_env = ""
   [modules.media]
     enabled = false
     image_backend = ""

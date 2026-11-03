@@ -38,6 +38,7 @@ func Tools() []Tool {
 		newTool("browser_get_images", "List the images of the current page with their natural size", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
 		newTool("browser_vision", "Capture the viewport and hand the PNG to the vision model", "read", `{"type":"object","properties":{"question":{"type":"string","maxLength":1000}},"additionalProperties":false}`),
 		newTool("browser_click", "Click the current page at viewport coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"integer"},"y":{"type":"integer"}},"required":["x","y"],"additionalProperties":false}`),
+		newTool("browser_vault", "Fill a login form from the credential vault after approval", "non_idempotent", `{"type":"object","properties":{"user_selector":{"type":"string","maxLength":1024},"password_selector":{"type":"string","maxLength":1024},"submit":{"type":"boolean"}},"required":["user_selector","password_selector"],"additionalProperties":false}`),
 		newTool("browser_cdp", "Send one reviewed Chrome DevTools Protocol method after approval", "non_idempotent", `{"type":"object","properties":{"method":{"type":"string","maxLength":128},"params":{"type":"object"}},"required":["method"],"additionalProperties":false}`),
 		newTool("browser_exec", "Run one Python helper through the Browser Use CLI after approval", "non_idempotent", `{"type":"object","properties":{"script":{"type":"string","maxLength":8192},"timeout_ms":{"type":"integer","minimum":1000,"maximum":120000}},"required":["script"],"additionalProperties":false}`),
 		newTool("browser_dialog", "Inspect an open native dialog, or answer it after approval", "non_idempotent", `{"type":"object","properties":{"action":{"type":"string","enum":["status","accept","dismiss"]},"text":{"type":"string","maxLength":1024}},"additionalProperties":false}`),
@@ -72,6 +73,8 @@ type ModuleConfig struct {
 	AllowOrigins  []string
 	LocalProfile  bool
 	DialogsAllow  []string
+	VaultUserEnv  string
+	VaultPassEnv  string
 	UseBin        string
 	Offline       bool
 	NoBackground  bool
@@ -80,6 +83,7 @@ type ModuleConfig struct {
 // Deps carries the core-owned seams; every field is optional in tests.
 type Deps struct {
 	Approvals host.Approvals
+	Secrets   host.Secrets
 	Dial      DialFunc
 	Run       RunFunc
 	HTTP      *http.Client
@@ -139,6 +143,12 @@ func validateEngineConfig(cfg *ModuleConfig) error {
 	}
 	if cfg.UseBin != "" && cfg.Engine != "" && cfg.Engine != "browser-use" {
 		return fmt.Errorf("%w: use_bin needs engine browser-use", errBadConfig)
+	}
+	if (cfg.VaultUserEnv == "") != (cfg.VaultPassEnv == "") {
+		return fmt.Errorf("%w: vault_user_env and vault_password_env must be set together", errBadConfig)
+	}
+	if cfg.VaultUserEnv != "" && cfg.VaultUserEnv == cfg.VaultPassEnv {
+		return fmt.Errorf("%w: the two vault variables must differ", errBadConfig)
 	}
 	if err := validateEndpoints(cfg); err != nil {
 		return err
@@ -320,6 +330,8 @@ func (m *Module) invokeAction(ctx context.Context, tool string, args json.RawMes
 	switch tool {
 	case "browser_dialog":
 		return m.dialog(ctx, args, env)
+	case "browser_vault":
+		return m.vault(ctx, args, env)
 	case "browser_cdp":
 		return m.rawCDP(ctx, args, env)
 	case "browser_exec":

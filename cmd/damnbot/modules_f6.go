@@ -52,8 +52,9 @@ func registerModules() error {
 			Tools:     browserToolDescriptors(),
 			ConfigKey: "modules.browser",
 			Factory: func(h host.Host, cfg host.Config) (modules.Module, error) {
+				caps := host.CapabilitiesOf(h)
 				return browser.NewFromConfig(cfg.Raw, browser.Deps{
-					Approvals: host.CapabilitiesOf(h).Approvals,
+					Approvals: caps.Approvals, Secrets: caps.Secrets,
 				})
 			},
 		},
@@ -194,6 +195,8 @@ type moduleBrowserSection struct {
 	AllowOrigins  []string `json:"allow_origins"`
 	LocalProfile  bool     `json:"local_profile"`
 	DialogAllow   []string `json:"dialog_allow"`
+	VaultUserEnv  string   `json:"vault_user_env"`
+	VaultPassEnv  string   `json:"vault_password_env"`
 	UseBin        string   `json:"use_bin"`
 	Offline       bool     `json:"offline"`
 	NoBackground  bool     `json:"no_background"`
@@ -244,6 +247,7 @@ func moduleConfig(cfg *config.Config) func(string) host.Config {
 		CamofoxURL: br.CamofoxURL, LightpandaBin: br.LightpandaBin, CloudURL: br.CloudURL,
 		AllowOrigins: br.AllowOrigins, LocalProfile: br.LocalProfile,
 		DialogAllow: br.DialogAllow, UseBin: br.UseBin,
+		VaultUserEnv: br.VaultUserEnv, VaultPassEnv: br.VaultPasswordEnv,
 		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
 	})
 	mdRaw, mdErr := json.Marshal(media.Section{

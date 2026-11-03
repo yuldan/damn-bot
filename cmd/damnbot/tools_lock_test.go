@@ -54,7 +54,7 @@ func TestToolsLockComplete(t *testing.T) {
 // entry is actually compared.
 func TestToolsLockRejectsMissingModuleTool(t *testing.T) {
 	t.Parallel()
-	for _, tool := range []string{"browser_click", "browser_console", "browser_dialog", "browser_cdp", "image_generate", "speak", "computer_use"} {
+	for _, tool := range []string{"browser_click", "browser_console", "browser_dialog", "browser_cdp", "browser_vault", "image_generate", "speak", "computer_use"} {
 		lock := readToolsLock(t, filepath.Join("..", "..", "tools.lock"))
 		delete(lock, tool)
 		problems := toolsLockProblems(lock, modules.Default())
