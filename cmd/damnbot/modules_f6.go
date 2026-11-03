@@ -5,9 +5,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"github.com/damnbot/damnbot/internal/browser"
 	"github.com/damnbot/damnbot/internal/config"
+	"github.com/damnbot/damnbot/internal/media"
 	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/modules/host"
 	"github.com/damnbot/damnbot/internal/webtools"
@@ -18,6 +20,7 @@ import (
 const (
 	f6WebModuleID     = "web"
 	f6BrowserModuleID = "browser"
+	f6MediaModuleID   = "media"
 )
 
 // registerModules registers every module this build compiles in. It runs once
@@ -50,6 +53,17 @@ func registerModules() error {
 				})
 			},
 		},
+		{
+			ID:        f6MediaModuleID,
+			Group:     "media",
+			Catalog:   "- media: read/write docs, generate image or video",
+			Tools:     mediaToolDescriptors(),
+			ConfigKey: "modules.media",
+			Factory: func(h host.Host, cfg host.Config) (modules.Module, error) {
+				caps := host.CapabilitiesOf(h)
+				return media.NewFromConfig(h, cfg.Raw, media.Deps{Approvals: caps.Approvals, Secrets: caps.Secrets})
+			},
+		},
 	} {
 		if err := modules.Register(desc); err != nil {
 			return fmt.Errorf("register %s module: %w", desc.ID, err)
@@ -67,6 +81,18 @@ func webToolDescriptors() []modules.ToolDescriptor {
 		out = append(out, modules.ToolDescriptor{
 			Name: tool.Name, Description: tool.Description, Schema: tool.Schema,
 			Effect: tool.Effect, Tags: webToolTags(tool.Name),
+		})
+	}
+	return out
+}
+
+func mediaToolDescriptors() []modules.ToolDescriptor {
+	tools := media.Tools()
+	out := make([]modules.ToolDescriptor, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, modules.ToolDescriptor{
+			Name: tool.Name, Description: tool.Description, Schema: tool.Schema,
+			Effect: tool.Effect, Tags: tool.Tags,
 		})
 	}
 	return out
@@ -114,17 +140,26 @@ type moduleBrowserSection struct {
 	LocalProfile bool     `json:"local_profile"`
 }
 
+func usdMicros(v float64) int64 {
+	if v <= 0 {
+		return 0
+	}
+	return int64(math.Round(v * 1e6))
+}
+
 // moduleGate maps [modules.*] onto the runtime's enable/config predicates.
 // A module without a wired slice is disabled: enabling it in config must not
 // build a catalog entry for a module that cannot serve calls.
 func moduleGate(cfg *config.Config) (func(string) bool, func(string) host.Config) {
-	web, br := cfg.Modules.Web, cfg.Modules.Browser
+	web, br, md := cfg.Modules.Web, cfg.Modules.Browser, cfg.Modules.Media
 	enabled := func(id string) bool {
 		switch id {
 		case f6WebModuleID:
 			return web.Enabled
 		case f6BrowserModuleID:
 			return br.Enabled
+		case f6MediaModuleID:
+			return md.Enabled
 		}
 		return false
 	}
@@ -137,12 +172,21 @@ func moduleGate(cfg *config.Config) (func(string) bool, func(string) host.Config
 		Enabled: br.Enabled, CDPURL: br.CDPURL,
 		AllowOrigins: br.AllowOrigins, LocalProfile: br.LocalProfile,
 	})
+	mdRaw, mdErr := json.Marshal(media.Section{
+		Enabled: md.Enabled, ImageBackend: md.ImageBackend, ImageEndpoint: md.ImageEndpoint,
+		ImageKeyEnv: md.ImageKeyEnv, VideoBackend: md.VideoBackend, VideoCreate: md.VideoCreate,
+		VideoStatus: md.VideoStatus, VideoKeyEnv: md.VideoKeyEnv,
+		SessionMicros: usdMicros(cfg.Budget.ToolsSessionUSD), DailyMicros: usdMicros(cfg.Budget.ToolsDailyUSD),
+		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
+	})
 	conf := func(id string) host.Config {
 		switch {
 		case id == f6WebModuleID && webErr == nil:
 			return host.Config{Key: "modules.web", Raw: webRaw}
 		case id == f6BrowserModuleID && brErr == nil:
 			return host.Config{Key: "modules.browser", Raw: brRaw}
+		case id == f6MediaModuleID && mdErr == nil:
+			return host.Config{Key: "modules.media", Raw: mdRaw}
 		}
 		return host.Config{Key: "modules." + id}
 	}

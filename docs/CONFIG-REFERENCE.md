@@ -153,6 +153,13 @@ config_version = 1
     local_profile = false
   [modules.media]
     enabled = false
+    image_backend = ""
+    image_endpoint = ""
+    image_key_env = ""
+    video_backend = ""
+    video_create_url = ""
+    video_status_url = ""
+    video_key_env = ""
   [modules.voice]
     enabled = false
     stt_backend = ""

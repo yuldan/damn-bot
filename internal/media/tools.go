@@ -12,8 +12,10 @@ import (
 
 // Deferred tool names (ADR-309, SPEC §9.5).
 const (
-	ToolDocRead  = "doc_read"
-	ToolDocWrite = "doc_write"
+	ToolDocRead       = "doc_read"
+	ToolDocWrite      = "doc_write"
+	ToolImageGenerate = "image_generate"
+	ToolVideoGenerate = "video_generate"
 )
 
 // ToolSpec is the module-facing metadata of one deferred tool. The
@@ -36,6 +38,20 @@ func Tools() []ToolSpec {
 			Tags:        []string{"document", "pdf", "docx", "xlsx", "pptx", "extract"},
 			Effect:      "read",
 			Schema:      json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":512}},"required":["path"],"additionalProperties":false}`),
+		},
+		{
+			Name:        ToolImageGenerate,
+			Description: "Generate one image with the configured backend after price approval.",
+			Tags:        []string{"image", "picture", "generate", "draw"},
+			Effect:      "non_idempotent",
+			Schema:      json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000},"size":{"type":"string","maxLength":16}},"required":["prompt"],"additionalProperties":false}`),
+		},
+		{
+			Name:        ToolVideoGenerate,
+			Description: "Generate one video with the configured backend after price approval.",
+			Tags:        []string{"video", "generate", "clip", "movie"},
+			Effect:      "non_idempotent",
+			Schema:      json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000},"duration_s":{"type":"integer","minimum":1,"maximum":60}},"required":["prompt"],"additionalProperties":false}`),
 		},
 		{
 			Name:        ToolDocWrite,

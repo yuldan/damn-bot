@@ -29,10 +29,16 @@ type ModulesBrowser struct {
 	LocalProfile bool     `toml:"local_profile"`
 }
 
-// ModulesMedia is [modules.media]: the F6 vision/image/video/doc module
-// (ADR-310).
+// ModulesMedia is [modules.media] (ADR-310, ADR-318): explicit image/video backends, key-gated.
 type ModulesMedia struct {
-	Enabled bool `toml:"enabled"`
+	Enabled       bool   `toml:"enabled"`
+	ImageBackend  string `toml:"image_backend"`
+	ImageEndpoint string `toml:"image_endpoint"`
+	ImageKeyEnv   string `toml:"image_key_env"`
+	VideoBackend  string `toml:"video_backend"`
+	VideoCreate   string `toml:"video_create_url"`
+	VideoStatus   string `toml:"video_status_url"`
+	VideoKeyEnv   string `toml:"video_key_env"`
 }
 
 // ModulesVoice is [modules.voice]: the F6 STT/TTS/voice-mode module
@@ -75,6 +81,9 @@ func (m *Modules) validateF6() error {
 	if err := m.validateBrowser(); err != nil {
 		return err
 	}
+	if err := m.validateMedia(); err != nil {
+		return err
+	}
 	if err := m.validateVoice(); err != nil {
 		return err
 	}
@@ -82,7 +91,6 @@ func (m *Modules) validateF6() error {
 		id      string
 		enabled bool
 	}{
-		{"media", m.Media.Enabled},
 		{"voice", m.Voice.Enabled},
 	} {
 		if section.enabled {
@@ -114,6 +122,30 @@ func (m *Modules) validateBrowser() error {
 		return invalid("modules.browser.cdp_url", "must point at a loopback DevTools endpoint")
 	}
 	return nil
+}
+
+func (m *Modules) validateMedia() error {
+	md := m.Media
+	if err := mediaBackend("image_backend", md.ImageBackend, "codex", "deepinfra", "fal", "krea", "meta", "openai", "openrouter", "xai"); err != nil {
+		return err
+	}
+	if err := mediaBackend("video_backend", md.VideoBackend, "deepinfra", "fal", "openrouter", "xai"); err != nil {
+		return err
+	}
+	if md.ImageBackend != "" && !isEnvName(md.ImageKeyEnv) {
+		return invalid("modules.media.image_key_env", "must be an environment variable name")
+	}
+	if md.VideoBackend != "" && (!isEnvName(md.VideoKeyEnv) || md.VideoCreate == "" || md.VideoStatus == "" || !strings.Contains(md.VideoStatus, "%s")) {
+		return invalid("modules.media.video_key_env", "video backend needs a key env and create/status URLs with a %%s id")
+	}
+	return nil
+}
+
+func mediaBackend(field, value string, allowed ...string) error {
+	if value == "" || slices.Contains(allowed, value) {
+		return nil
+	}
+	return invalid("modules.media."+field, "backend %q is not supported", value)
 }
 
 // validateWeb keeps the engine catalog and the blocklist honest.

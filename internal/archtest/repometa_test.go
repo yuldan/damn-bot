@@ -15,7 +15,7 @@ import (
 const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
-	maxCoreLOC       = 55950 // ADR-307: Σ 55.604; ADR-310 +42 = 55.646; ADR-311 +11 = 55.657; ADR-312 +12 = 55.669; ADR-313 +2 = 55.671; ADR-310 amendment F6-V1 +81 = 55.752; ADR-314 +4 = 55.756; F6-M5 vision +120 = 55.876; ADR-314 B1 +2 = 55.878; ADR-317 +45 = 55.924; ADR-310 amendment F6-W2 +23 = 55.947; headroom 3.
+	maxCoreLOC       = 56000 // ADR-307: Σ 55.604; ADR-310 +42 = 55.646; ADR-311 +11 = 55.657; ADR-312 +12 = 55.669; ADR-313 +2 = 55.671; ADR-310 amendment F6-V1 +81 = 55.752; ADR-314 +4 = 55.756; F6-M5 vision +120 = 55.876; ADR-314 B1 +2 = 55.878; ADR-317 +45 = 55.924; ADR-310 amendment F6-W2 +23 = 55.947; ADR-318 media +32 = 55.979; ADR-318 amendment egress +5 = 55.984; headroom 16.
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
 	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)

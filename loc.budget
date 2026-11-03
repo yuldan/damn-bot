@@ -83,7 +83,7 @@ provider/registry  660 internal/provider/registry
 # (A terukur 1245; Delete di PR B). provider 2217 -> 2224 (+7 signer).
 # Sigma core 48.691 -> 49.675 <= 49.700 (headroom 25).
 provider/auth     1230 internal/provider/auth
-netx              1856 internal/netx
+netx              1861 internal/netx
 netx/jsonrpc       530 internal/netx/jsonrpc
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).
@@ -310,7 +310,13 @@ heal              1500 internal/heal
 # Amandemen ADR-310 (F6-W2 browser wiring): [modules.browser].cdp_url +
 # validasi loopback menambah config 2114 -> 2137 (terukur scc). Sigma core
 # 55.924 -> 55.947; plafon core 55.950 tetap (headroom 3).
-config            2137 internal/config
+# ADR-318 (F6-W3 media wiring): [modules.media] image/video backend, endpoint,
+# key_env menambah config 2137 -> 2169 (terukur scc). Sigma core 55.947 ->
+# 55.979; plafon core 55.950 -> 55.979 (tanpa headroom).
+# ADR-318 amandemen (egress media): registry egress `media` di internal/netx
+# menambah netx 1856 -> 1861 (terukur). Sigma core 55.979 -> 55.984; plafon
+# core 55.979 -> 56.000 (ceil ratusan, headroom 16).
+config            2169 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
