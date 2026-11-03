@@ -83,7 +83,7 @@ provider/registry  660 internal/provider/registry
 # (A terukur 1245; Delete di PR B). provider 2217 -> 2224 (+7 signer).
 # Sigma core 48.691 -> 49.675 <= 49.700 (headroom 25).
 provider/auth     1230 internal/provider/auth
-netx              1866 internal/netx
+netx              1871 internal/netx
 netx/jsonrpc       530 internal/netx/jsonrpc
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).
@@ -328,6 +328,11 @@ heal              1500 internal/heal
 # lightpanda_bin/cloud_url + validasi menambah config 2225 -> 2279 (terukur
 # scc); registry egress `browser` menambah netx 1866 -> 1871 (terukur).
 # Sigma core 56.045 -> 56.104; plafon core 56.100 -> 56.200 (ceil ratusan).
+# ADR-321 amandemen PR-2 (wire camofox/cloud/lightpanda): engine HTTP + CLI
+# (http_engine.go, lightpanda.go) dan wiring module menambah MODULE browser
+# 1.117 -> 1.425 (terukur scc) tanpa kunci config baru; registry egress
+# `browser` di internal/netx terpasang, netx 1866 -> 1871. Sigma core tetap
+# 56.104; plafon core 56.200 tetap (headroom 96).
 config            2279 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;

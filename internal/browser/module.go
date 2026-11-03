@@ -63,6 +63,12 @@ type ModuleConfig struct {
 type Deps struct {
 	Approvals host.Approvals
 	Dial      DialFunc
+	// HTTP builds the client for one HTTP engine: camofox passes loopback
+	// true, cloud false (unless its configured gateway is loopback). Nil
+	// selects the netx lane for that endpoint.
+	HTTP func(loopback bool) Doer
+	// Run runs the Lightpanda CLI; nil uses exec.CommandContext.
+	Run RunFunc
 }
 
 // DialFunc opens one CDP page transport, so tests can inject a fake.
@@ -74,6 +80,7 @@ type DialFunc func(ctx context.Context, rawURL string, timeout time.Duration) (T
 type Module struct {
 	cfg    ModuleConfig
 	deps   Deps
+	net    *netx.Network
 	mu     sync.Mutex
 	page   *Page
 	host   string
@@ -101,7 +108,16 @@ func New(cfg *ModuleConfig, deps Deps) (*Module, error) {
 			return conn, nil
 		}
 	}
-	return &Module{cfg: *cfg, deps: deps, status: host.StatusStopped}, nil
+	network := netx.New(netx.Config{Offline: cfg.Offline, NoBackground: cfg.NoBackground})
+	if deps.HTTP == nil {
+		deps.HTTP = func(loopback bool) Doer {
+			if loopback {
+				return netx.LoopbackClient()
+			}
+			return network.Client("browser", netx.Tool)
+		}
+	}
+	return &Module{cfg: *cfg, deps: deps, net: network, status: host.StatusStopped}, nil
 }
 
 // validateEngineConfig keeps the engine and every endpoint honest. More than
@@ -223,6 +239,9 @@ func (m *Module) Stop(context.Context) error {
 	var err error
 	if m.page != nil {
 		err = m.page.Close()
+	}
+	if m.net != nil {
+		m.net.CloseIdleConnections()
 	}
 	m.page, m.host, m.status = nil, "", host.StatusStopped
 	if err != nil {
@@ -382,15 +401,42 @@ func (m *Module) approve(ctx context.Context, tool, class, preview string, env h
 	return nil
 }
 
-// open returns the shared page, constructing the engine on first use (caller
-// holds m.mu). A missing endpoint fails with module_unavailable; no fallback.
+// open returns the shared page, constructing the selected engine on first use
+// (caller holds m.mu). A missing endpoint fails with module_unavailable; there
+// is never a guessed port or a fallback to another engine.
 func (m *Module) open(ctx context.Context) (*Page, error) {
 	if m.page != nil {
 		return m.page, nil
 	}
-	if m.engineName() != "cdp" {
-		return nil, fmt.Errorf("%w: engine %q is not compiled in this slice", errUnavailable, m.engineName())
+	cfg := Config{
+		AllowOrigins: m.cfg.AllowOrigins,
+		LocalProfile: m.cfg.LocalProfile,
+	}.normalize()
+	var (
+		page *Page
+		err  error
+	)
+	switch m.engineName() {
+	case "cdp":
+		page, err = m.openCDP(ctx, cfg)
+	case "camofox":
+		page, err = m.openHTTP("camofox", m.cfg.CamofoxURL, cfg)
+	case "cloud":
+		page, err = m.openHTTP("cloud", m.cfg.CloudURL, cfg)
+	case "lightpanda":
+		page, err = m.openCLI(cfg)
+	default:
+		err = fmt.Errorf("%w: engine %q is not compiled in this slice", errUnavailable, m.engineName())
 	}
+	if err != nil {
+		return nil, err
+	}
+	m.page = page
+	return page, nil
+}
+
+// openCDP dials the configured DevTools endpoint and shares one page.
+func (m *Module) openCDP(ctx context.Context, cfg Config) (*Page, error) {
 	if m.cfg.CDPURL == "" {
 		return nil, fmt.Errorf("%w: cdp_url is empty", errUnavailable)
 	}
@@ -398,13 +444,37 @@ func (m *Module) open(ctx context.Context) (*Page, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg := Config{AllowOrigins: m.cfg.AllowOrigins, LocalProfile: m.cfg.LocalProfile}.normalize()
 	p, err := NewCDPPage(conn, cfg)
 	if err != nil {
 		return nil, errors.Join(err, conn.Close())
 	}
-	m.page = p
 	return p, nil
+}
+
+// openHTTP binds the camofox or cloud wire; an empty endpoint fails closed.
+// A loopback gateway uses the local lane, everything else Tool egress.
+func (m *Module) openHTTP(kind, endpoint string, cfg Config) (*Page, error) {
+	if endpoint == "" {
+		return nil, fmt.Errorf("%w: %s_url is empty", errUnavailable, kind)
+	}
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s_url", errBadConfig, kind)
+	}
+	eng, err := newHTTPEngine(kind, endpoint, cfg, m.deps.HTTP(localHost(u.Hostname())))
+	if err != nil {
+		return nil, err
+	}
+	return NewPage(eng, cfg)
+}
+
+// openCLI binds the Lightpanda command; an empty binary fails closed.
+func (m *Module) openCLI(cfg Config) (*Page, error) {
+	eng, err := newCLIEngine(m.cfg.LightpandaBin, cfg, m.deps.Run)
+	if err != nil {
+		return nil, err
+	}
+	return NewPage(eng, cfg)
 }
 
 // dialCDP resolves the discovery base and dials the page WebSocket.
