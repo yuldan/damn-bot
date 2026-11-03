@@ -320,7 +320,11 @@ heal              1500 internal/heal
 # menurunkan config 2169 -> 2158 (terukur); registry egress `voice` menambah
 # netx 1861 -> 1866; wiring cmd menahan
 # Sigma core 55.984 -> 55.979. Plafon core 56.000 tetap (headroom 21).
-config            2159 internal/config
+# ADR-320 (F6-W5 computer-use wiring): validateComputerUse (backend tertutup,
+# endpoint loopback, argv absolut, limit) menambah config 2159 -> 2225
+# (terukur scc). Sigma core 55.979 -> 56.045; plafon core 56.000 -> 56.100
+# (ceil ratusan, headroom 55). MODULE computeruse terukur 770/2000.
+config            2225 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.

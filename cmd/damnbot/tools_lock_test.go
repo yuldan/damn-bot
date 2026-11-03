@@ -49,11 +49,12 @@ func TestToolsLockComplete(t *testing.T) {
 }
 
 // TestToolsLockRejectsMissingModuleTool is the negative control of
-// TestToolsLockComplete: dropping one browser line (W2) must fail, so a
-// green lock test proves the five entries are actually compared.
+// TestToolsLockComplete: dropping one registered line (browser W2, media W3,
+// voice W4, computer-use W5) must fail, so a green lock test proves every
+// entry is actually compared.
 func TestToolsLockRejectsMissingModuleTool(t *testing.T) {
 	t.Parallel()
-	for _, tool := range []string{"browser_click", "image_generate", "speak"} {
+	for _, tool := range []string{"browser_click", "image_generate", "speak", "computer_use"} {
 		lock := readToolsLock(t, filepath.Join("..", "..", "tools.lock"))
 		delete(lock, tool)
 		problems := toolsLockProblems(lock, modules.Default())

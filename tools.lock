@@ -10,8 +10,8 @@
 # and the module constant drift apart. A schema edit therefore updates this
 # file in the same commit as the module.
 #
-# Slots: computeruse adds its lines when its registration lands (ADR-309).
-# Web (W1), browser (W2), media (W3) and voice (W4) are registered.
+# Web (W1), browser (W2), media (W3), voice (W4) and computer-use (W5) are
+# registered; tools.lock names every deferred tool of the five F6 modules.
 
 web web_fetch 1 3ac7ae3f9db723190ede39c5cd4bb5cf767572ba5abc24e22e9618a826b88db4
 web web_search 1 352c73605024ec4588e7ab4f66fb86b6c971c4be90c017f597c18c03ce6324ac
@@ -26,3 +26,4 @@ media image_generate 1 2f9b4799448b52922c148f55e0500a3dbac9d8226934b8f234abca136
 media video_generate 1 be2617210d39923dad595ebcab4501b8ddc553b189a9529494acd5c1e91ec451
 voice transcribe 1 dad886f26d462164b119728ea2c00655c9589336ad8f2e28b5736b9656422fb6
 voice speak 1 e48f752de231d8337216a31bcbaea9b2c3b0a920aef0fe97f333dfeb17383f85
+computer_use computer_use 1 186a3b6ec14df7cdc3e67c5c3ec11812206cf40cfef0e02839aa454b875eaac1
