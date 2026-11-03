@@ -187,3 +187,40 @@ func TestModulesVoiceConfig(t *testing.T) {
 		})
 	}
 }
+
+// TestModulesComputerUse: the section accepts the opt-in, an absolute argv,
+// env names, a loopback endpoint and the reviewed limits; a foreign backend,
+// relative binary, public endpoint or out-of-range limit fails at load
+// (ADR-314, ADR-320).
+func TestModulesComputerUse(t *testing.T) {
+	t.Parallel()
+	for _, toml := range []string{
+		"[modules.computer_use]\nenabled = true\n",
+		"[modules.computer_use]\nenabled = true\nbackend = \"process\"\ncommand = [\"/usr/local/bin/cua\", \"--fast\"]\nenv = [\"DISPLAY\"]\naction_timeout_ms = 5000\nmax_screenshot_bytes = 65536\n",
+		"[modules.computer_use]\nbackend = \"http\"\nendpoint = \"http://127.0.0.1:9410\"\n",
+	} {
+		if _, err := parse(t, toml); err != nil {
+			t.Errorf("Parse(%q): %v", toml, err)
+		}
+	}
+	tests := []struct{ name, toml, key string }{
+		{"backend", "[modules.computer_use]\nbackend = \"vnc\"\n", "modules.computer_use.backend"},
+		{"endpoint_public", "[modules.computer_use]\nendpoint = \"http://10.0.0.2:9410\"\n", "modules.computer_use.endpoint"},
+		{"endpoint_scheme", "[modules.computer_use]\nendpoint = \"ftp://127.0.0.1/\"\n", "modules.computer_use.endpoint"},
+		{"command_relative", "[modules.computer_use]\ncommand = [\"cua\"]\n", "modules.computer_use.command"},
+		{"command_too_many", "[modules.computer_use]\ncommand = [\"/bin/cua\", \"1\", \"2\", \"3\", \"4\", \"5\", \"6\", \"7\", \"8\", \"9\", \"10\", \"11\", \"12\", \"13\", \"14\", \"15\", \"16\"]\n", "modules.computer_use.command"},
+		{"env_name", "[modules.computer_use]\nenv = [\"BAD-NAME\"]\n", "modules.computer_use.env"},
+		{"timeout", "[modules.computer_use]\naction_timeout_ms = 99\n", "modules.computer_use.action_timeout_ms"},
+		{"screenshot", "[modules.computer_use]\nmax_screenshot_bytes = 4095\n", "modules.computer_use.max_screenshot_bytes"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := parse(t, tc.toml)
+			ke := keyErrorOf(t, err, ErrInvalidValue)
+			if ke.Key != tc.key {
+				t.Errorf("key = %q, want %q", ke.Key, tc.key)
+			}
+		})
+	}
+}

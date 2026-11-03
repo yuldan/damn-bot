@@ -170,6 +170,8 @@ type Module struct {
 
 	mu      sync.Mutex
 	started bool
+	enabled bool
+	status  host.Status
 }
 
 // New builds the process backend; a missing command fails closed at runtime.
@@ -210,7 +212,9 @@ func New(cfg *Config, deps Deps) (*Module, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Module{cfg: *cfg, deps: deps, backend: backend}, nil
+	// New is the direct constructor: callers that reached it already opted in.
+	// NewFromConfig narrows this to `[modules.computer_use].enabled`.
+	return &Module{cfg: *cfg, deps: deps, backend: backend, enabled: true, status: host.StatusStopped}, nil
 }
 
 func (m *Module) timeout() time.Duration { return cmp.Or(m.cfg.Timeout, DefaultActionTimeout) }
@@ -223,16 +227,30 @@ func (m *Module) Start(ctx context.Context) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if !m.enabled {
+		m.status = host.StatusStopped
+		return nil
+	}
 	if m.started {
+		m.status = host.StatusReady
 		return nil
 	}
 	sctx, cancel := context.WithTimeout(ctx, m.timeout())
 	defer cancel()
 	if err := m.backend.Start(sctx); err != nil {
+		m.status = host.StatusStopped
 		return fmt.Errorf("computeruse: start: %w", err)
 	}
 	m.started = true
+	m.status = host.StatusReady
 	return nil
+}
+
+// Status reports the lifecycle state.
+func (m *Module) Status() host.Status {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.status
 }
 
 // Stop releases the backend. It is safe when never started.
@@ -243,6 +261,7 @@ func (m *Module) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.started = false
+	m.status = host.StatusStopped
 	if err := m.backend.Stop(ctx); err != nil {
 		return fmt.Errorf("%w: %w", ErrBackend, err)
 	}
@@ -260,10 +279,13 @@ func (m *Module) Act(ctx context.Context, callID string, a *Action) (host.Result
 	}
 	return host.Result{
 		Content:         fmt.Sprintf("screenshot %d bytes", len(res.Image)),
-		Meta:            map[string]any{"action": string(a.Kind), "bytes": len(res.Image)},
-		UntrustedSource: "computer_use:screenshot",
+		Meta:            map[string]any{"action": string(a.Kind), "bytes": len(res.Image), "backend": m.backendName()},
+		UntrustedSource: "computer_use:" + m.backendName(),
 	}, nil
 }
+
+// backendName is the configured transport; empty means the process backend.
+func (m *Module) backendName() string { return cmp.Or(m.cfg.Backend, "process") }
 
 // Screenshot captures one bounded PNG without approval; Invoke taints it.
 func (m *Module) Screenshot(ctx context.Context) ([]byte, error) {
@@ -310,6 +332,9 @@ func (m *Module) run(ctx context.Context, callID string, a *Action) (Result, err
 // Invoke is the modules.Module adapter for `computer_use`; it fails closed on
 // unknown tools, unknown fields and invalid actions.
 func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, env host.Env) (host.Result, error) {
+	if m == nil || !m.enabled {
+		return host.Result{}, &host.Error{Code: "module_unavailable", Message: "computer_use is not enabled: " + tool}
+	}
 	if tool != ToolName {
 		return host.Result{}, &host.Error{Code: "unknown_tool", Message: "unknown computeruse tool: " + tool}
 	}
