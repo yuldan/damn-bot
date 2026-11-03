@@ -20,28 +20,63 @@ type backend interface {
 	Search(ctx context.Context, query string, limit int) ([]searchResult, error)
 }
 
-type registry struct{ engines []backend }
+type engine struct {
+	id      string
+	backend backend
+}
 
-func newRegistry(ids []string) (*registry, error) {
+type registry struct{ engines []engine }
+
+func newRegistry(ids []string, cfg backendConfig) (*registry, error) {
 	reg := &registry{}
 	for _, id := range ids {
-		if id != "fake" {
-			return nil, fmt.Errorf("%w: %q", errUnknownEngine, id)
+		b, err := builtinBackend(id, cfg)
+		if err != nil {
+			return nil, err
 		}
-		reg.engines = append(reg.engines, fakeSearch{})
+		reg.engines = append(reg.engines, engine{id: id, backend: b})
 	}
 	return reg, nil
 }
 
+func builtinBackend(id string, cfg backendConfig) (backend, error) {
+	if id == "fake" {
+		return fakeSearch{}, nil
+	}
+	base := cfg.base[id]
+	if base == "" {
+		base = defaultBase(id)
+	}
+	if base == "" {
+		return nil, fmt.Errorf("%w: %q", errUnknownEngine, id)
+	}
+	shared := keyedBackend{id: id, client: cfg.client, key: cfg.key, base: strings.TrimRight(base, "/")}
+	switch id {
+	case "brave":
+		return braveBackend{shared}, nil
+	case "tavily":
+		return tavilyBackend{shared}, nil
+	case "exa":
+		return exaBackend{shared}, nil
+	}
+	return nil, fmt.Errorf("%w: %q", errUnknownEngine, id)
+}
+
+// Search tries the configured engines in order. An engine without a
+// credential is skipped; the last error is returned when all fail.
 func (r *registry) Search(ctx context.Context, query string, limit int) ([]searchResult, string, error) {
 	if len(r.engines) == 0 {
 		return nil, "", errNoEngine
 	}
-	hits, err := r.engines[0].Search(ctx, query, limit)
-	if err != nil {
-		return nil, "fake", fmt.Errorf("webtools: search: %w", err)
+	var last error
+	for _, e := range r.engines {
+		hits, err := e.backend.Search(ctx, query, min(limit, 10))
+		if err == nil {
+			return hits, e.id, nil
+		}
+		last = fmt.Errorf("webtools: %s: %w", e.id, err)
 	}
-	return hits, "fake", nil
+	return nil, "", last
 }
 
 type fakeSearch struct{}

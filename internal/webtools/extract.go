@@ -31,6 +31,7 @@ func newExtractor(maxOutput int) *extractor {
 		`(?is)<tr\b.*?</tr\s*>`, `(?is)<t[hd]\b[^>]*>(.*?)</t[hd]\s*>`,
 		`(?is)<a\b[^>]*\bhref\s*=\s*["']([^"']*)["'][^>]*>(.*?)</a\s*>`, `(?is)<code\b[^>]*>(.*?)</code\s*>`,
 		`(?i)</?(?:p|div|section|article|header|footer|main|nav|aside|form|figure|blockquote|ul|ol|li|table|tr|br)\b[^>]*>`, `(?s)<[^>]*>`,
+		`(?is)<h([1-6])\b[^>]*>(.*?)</h[1-6]\s*>`, `(?i)<li\b[^>]*>`,
 	}
 	e := &extractor{MaxOutput: maxOutput, re: make([]*regexp.Regexp, len(patterns))}
 	for i, p := range patterns {
@@ -85,6 +86,11 @@ func (e *extractor) markdown(src string) string {
 	md = e.re[7].ReplaceAllStringFunc(md, func(s string) string {
 		return "`" + e.re[7].FindStringSubmatch(s)[1] + "`"
 	})
+	md = e.re[10].ReplaceAllStringFunc(md, func(s string) string {
+		m := e.re[10].FindStringSubmatch(s)
+		return "\n" + strings.Repeat("#", int(m[1][0]-'0')) + " " + m[2] + "\n"
+	})
+	md = e.re[11].ReplaceAllString(md, "\n- ")
 	md = e.re[8].ReplaceAllString(md, "\n")
 	md = e.re[9].ReplaceAllString(md, "")
 	return cleanup(stdhtml.UnescapeString(md))

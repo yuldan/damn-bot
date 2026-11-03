@@ -2,12 +2,15 @@
 
 package config
 
+import "strings"
+
 // ModulesWeb is [modules.web]: the F6 web search/extract module (SPEC §3.2.4
 // `web`, implemented by package internal/webtools; ADR-310). No feature is
 // wired in the foundation slice, so the only accepted key is the opt-in flag.
 type ModulesWeb struct {
-	Enabled bool     `toml:"enabled"`
-	Engines []string `toml:"engines"`
+	Enabled   bool     `toml:"enabled"`
+	Engines   []string `toml:"engines"`
+	Blocklist []string `toml:"blocklist"`
 }
 
 // ModulesBrowser is [modules.browser]: the F6 CDP browser module (ADR-310).
@@ -59,8 +62,18 @@ func (m *Modules) validateF6() error {
 
 func (m *Modules) validateWeb() error {
 	for _, id := range m.Web.Engines {
-		if id != "fake" {
+		switch id {
+		case "fake", "brave", "tavily", "exa":
+		default:
 			return invalid("modules.web.engines", "engine %q is not supported", id)
+		}
+	}
+	if len(m.Web.Blocklist) > 8 {
+		return invalid("modules.web.blocklist", "must have at most 8 entries")
+	}
+	for _, entry := range m.Web.Blocklist {
+		if entry == "" || strings.Contains(entry, "://") || strings.ContainsAny(entry, " \t\r\n") {
+			return invalid("modules.web.blocklist", "entry %q must be host or host/path", entry)
 		}
 	}
 	return nil
