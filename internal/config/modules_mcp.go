@@ -67,6 +67,7 @@ type ModulesMCPTool struct {
 func defaultModules() Modules {
 	return Modules{
 		Gateway: ModulesGateway{Telegram: ModulesTelegram{ThreadFallback: "fail"}},
+		Browser: ModulesBrowser{AllowOrigins: []string{}},
 	}
 }
 

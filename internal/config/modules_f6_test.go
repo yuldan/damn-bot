@@ -54,11 +54,11 @@ func TestF6ModuleSectionsRejectUnknownKey(t *testing.T) {
 }
 
 // TestF6ModuleSectionsRefuseEnable: enabling a module that has no runtime yet
-// fails closed rather than becoming a no-op (ADR-310). Web is excluded: it
-// has a runtime since F6-W1 (ADR-311) and is covered by the engine tests.
+// fails closed rather than becoming a no-op (ADR-310). Web and browser are
+// excluded: they have runtimes (ADR-311, ADR-313).
 func TestF6ModuleSectionsRefuseEnable(t *testing.T) {
 	t.Parallel()
-	for _, id := range []string{"browser", "media", "voice", "computer_use"} {
+	for _, id := range []string{"media", "voice", "computer_use"} {
 		t.Run(id, func(t *testing.T) {
 			t.Parallel()
 			_, err := parse(t, "[modules."+id+"]\nenabled = true\n")
@@ -67,6 +67,24 @@ func TestF6ModuleSectionsRefuseEnable(t *testing.T) {
 				t.Errorf("key = %q, want modules.%s.enabled", ke.Key, id)
 			}
 		})
+	}
+}
+
+// TestModulesBrowserOrigin: browser accepts the opt-in, allowlist and local
+// profile keys; an empty allowlist stays legal here and fails at Invoke
+// (ADR-313).
+func TestModulesBrowserOrigin(t *testing.T) {
+	t.Parallel()
+	cfg, err := parse(t, "[modules.browser]\nenabled = true\nallow_origins = [\"https://app.example\"]\nlocal_profile = true\n")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !cfg.Modules.Browser.Enabled || !cfg.Modules.Browser.LocalProfile ||
+		len(cfg.Modules.Browser.AllowOrigins) != 1 {
+		t.Fatalf("browser = %+v", cfg.Modules.Browser)
+	}
+	if _, err := parse(t, "[modules.browser]\nenabled = true\n"); err != nil {
+		t.Fatalf("enabled without allowlist must load: %v", err)
 	}
 }
 

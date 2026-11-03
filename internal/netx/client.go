@@ -127,6 +127,11 @@ func (n *Network) CloseIdleConnections() {
 	n.tool.CloseIdleConnections()
 }
 
+// LoopbackClient is a proxy-free client for loopback control endpoints (ADR-313).
+func LoopbackClient() *http.Client {
+	return &http.Client{Transport: transport(dialRule{offline: true}, nil)}
+}
+
 // Client is one registered egress point. Its zero value is not usable.
 type Client struct {
 	n      *Network

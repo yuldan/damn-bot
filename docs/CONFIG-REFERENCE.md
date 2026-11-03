@@ -148,6 +148,8 @@ config_version = 1
     enabled = false
   [modules.browser]
     enabled = false
+    allow_origins = []
+    local_profile = false
   [modules.media]
     enabled = false
   [modules.voice]
