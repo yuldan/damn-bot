@@ -48,7 +48,7 @@ func registerModules() error {
 		{
 			ID:        f6BrowserModuleID,
 			Group:     "browser",
-			Catalog:   "- browser: navigate, eval, screenshot, click, type",
+			Catalog:   "- browser: navigate, snapshot, eval, screenshot, page actions",
 			Tools:     browserToolDescriptors(),
 			ConfigKey: "modules.browser",
 			Factory: func(h host.Host, cfg host.Config) (modules.Module, error) {

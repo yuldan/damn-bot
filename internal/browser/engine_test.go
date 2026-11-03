@@ -387,3 +387,45 @@ func TestCloudEngineUsesInjectedClient(t *testing.T) {
 		t.Fatalf("eval = %+v, %v", res, err)
 	}
 }
+
+// TestCamofoxReadWire: snapshot, back, pdf and download use the shared
+// /v1/read wire; a provider-reported back URL is re-checked by the guard.
+func TestCamofoxReadWire(t *testing.T) {
+	t.Parallel()
+	rec := &recorded{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.add(r)
+		writeBody(t, w, `{"value":[{"ref":1,"role":"button","name":"Go"}],"data":"cGRm","name":"https://app.example/a"}`)
+	}))
+	defer srv.Close()
+	cfg := camofoxConfig(srv.URL)
+	m := newModule(t.Context(), t, &cfg, Deps{HTTP: srv.Client()})
+	res, err := invoke(t, m, host.Env{}, "browser_snapshot", `{}`)
+	if err != nil || !strings.Contains(res.Content, `"role":"button"`) {
+		t.Fatalf("snapshot = %+v, %v", res, err)
+	}
+	if _, _, body := rec.last(); !strings.Contains(body, `"kind":"snapshot"`) {
+		t.Fatalf("snapshot body = %s", body)
+	}
+	res, err = invoke(t, m, host.Env{}, "browser_pdf", `{}`)
+	if err != nil || !strings.Contains(res.Content, "pdf 3 bytes") {
+		t.Fatalf("pdf = %+v, %v", res, err)
+	}
+	appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
+	m.deps.Approvals = appr
+	res, err = invoke(t, m, host.Env{}, "browser_back", `{}`)
+	if err != nil || !strings.Contains(res.Content, "https://app.example/a") {
+		t.Fatalf("back = %+v, %v", res, err)
+	}
+	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec.add(r)
+		writeBody(t, w, `{"name":"https://evil.example/x"}`)
+	})
+	cfg = camofoxConfig(srv.URL)
+	m2 := newModule(t.Context(), t, &cfg, Deps{HTTP: srv.Client(), Approvals: appr})
+	_, err = invoke(t, m2, host.Env{}, "browser_back", `{}`)
+	var he *host.Error
+	if !errors.As(err, &he) || he.Code != "blocked_host" {
+		t.Fatalf("foreign back = %v, want blocked_host", err)
+	}
+}
