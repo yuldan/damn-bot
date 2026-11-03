@@ -145,6 +145,11 @@ func NewOpenAI(c *netx.Client, cfg *Config) (*OpenAI, error) {
 // (REVIEW-F2-SEC5-27).
 func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chunk)) (Response, error) {
 	chain := append([]string{r.Model}, o.fallback...)
+	req, images, err := o.visionRequest(r, chain)
+	if err != nil {
+		return Response{}, err
+	}
+	r = req
 	est, at := rawEstimate(r), o.now()
 	var lastErr error
 	var billed int
@@ -158,6 +163,9 @@ func (o *OpenAI) Do(ctx context.Context, _ Purpose, r *Request, onChunk func(Chu
 			return Response{BilledFailed: billed}, &Error{Class: retry.BadRequest, Err: fmt.Errorf("%w %q", ErrNoRoute, ref)}
 		case !ok, i > 0 && rt.ContextWindow > 0 && est > rt.ContextWindow:
 			continue // EC-PROV-015, EC-PROV-025
+		case images && !rt.Vision:
+			lastErr = ErrNoVision
+			continue
 		}
 		price := rt.Prices.At(at)
 		// The guard is consulted inside call(), per attempt (SEC5-27), so it is

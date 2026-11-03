@@ -81,8 +81,11 @@ type CarrierDrop struct {
 
 // Message is one chat message.
 type Message struct {
-	Role       string // system|user|assistant|tool
-	Content    string
+	Role    string // system|user|assistant|tool
+	Content string
+	// Images are user attachments. They are preflighted before the request
+	// and only a vision route may receive them (EC-PROV-024).
+	Images     []Image
 	ToolCalls  []ToolCall // assistant
 	ToolCallID string     // tool
 	// Reasoning is replayed byte-identically under ReasoningField.
@@ -90,6 +93,16 @@ type Message struct {
 	ReasoningField string // "reasoning_content" | "reasoning"
 	// Carriers are replayed only to the origin (family + model).
 	Carriers []Carrier
+}
+
+// Image is one preflighted image attachment.
+type Image struct {
+	Name, MIME                    string
+	Data                          []byte
+	Width, Height                 int
+	OriginalWidth, OriginalHeight int
+	OriginalBytes                 int
+	Resized, Untrusted            bool
 }
 
 // ToolCall is a model tool call; arguments stay raw for the P3 gate.

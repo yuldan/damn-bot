@@ -18,7 +18,7 @@ Aturan gate:
 | Ukuran gambar | 0 penolakan ukuran pada suite 50 gambar; resize 12 MP ≤ 150 ms | `BenchmarkImagePreflight`, `TestF6ImageSuite50` | BELUM |
 | Voice latency | overhead ujung-ucapan→audio-pertama ≤ 200 ms; TTS streaming mulai ≤ 300 ms setelah kalimat pertama LLM | `TestVoicePipelineLatency` (fake STT/LLM/TTS bertanda waktu) | BELUM |
 | Smoke E3 | 10 task E3 dengan model murah lulus harness; artefak tersimpan | `TestF6E3Smoke10` + `bench/evals/results/F6-e3.json` | BELUM |
-| EC-PROV-024 | gate kapabilitas vision sebelum routing gambar; model teks-only tidak pernah menerima gambar | `TestEdgeCases/EC-PROV-024` | BELUM |
+| EC-PROV-024 | gate kapabilitas vision sebelum routing gambar; model teks-only tidak pernah menerima gambar | `TestEdgeCases/EC-PROV-024` | LULUS |
 | Test tertunda ADR-083 | cap tool non-LLM ditegakkan sebelum dispatch | `TestBudgetGuardTools` | BELUM |
 | Baseline hermes F6 | dimensi ADR-065/083 berstatus F6 diukur untuk kedua agent | `TestF6HermesBaseline` + `bench/speed/results/hermes-868b9f244f-F6.json` | BELUM |
 | GAP F6 (9) | sembilan baris SPEC §22.1 lulus verifikasinya | tabel §6 | BELUM |
@@ -160,7 +160,7 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 
 | Item | Kriteria | Tes / artefak | Status |
 |---|---|---|---|
-| EC-PROV-024 | gambar tidak pernah dikirim ke model teks-only; gate `capabilities.vision` terjadi sebelum routing; fallback vision eksplisit | `TestEdgeCases/EC-PROV-024` (katalog `pending:F6` → `covered`) | BELUM |
+| EC-PROV-024 | gambar tidak pernah dikirim ke model teks-only; gate `capabilities.vision` terjadi sebelum routing; fallback vision eksplisit | `TestEdgeCases/EC-PROV-024` (katalog `pending:F6` → `covered`) | LULUS |
 | TestBudgetGuardTools (ADR-083) | 0 panggilan vendor setelah cap 100%; peringatan 80%; `budget_tools` membawa angka/periode/perintah naik; fake clock/usage | `TestBudgetGuardTools` | BELUM |
 | Smoke E3 | 10 task E3 self-contained deterministik, model murah, dijalankan lewat harness yang ada; artefak hasil disimpan | `TestF6E3Smoke10`, `bench/evals/results/F6-e3.json` | BELUM |
 | Baseline hermes F6 | `Voice end-to-end` dan `Image preflight` diukur dengan harness yang sama untuk hermes dan Damn-Bot | `TestF6HermesBaseline`, `bench/speed/results/hermes-868b9f244f-F6.json` | BELUM |

@@ -114,7 +114,21 @@ func (r *providerResolver) resolveCustom(modelName string, c *config.CustomProvi
 		route.CacheTTLMax = builtin.CacheTTLMax
 		route.CacheMarkers = slices.Contains(builtin.Capabilities, registry.Capability("cache"))
 	}
+	route.Vision = modelVision(c, modelName) && openAIChat(protocols)
 	return route, nil
+}
+
+func modelVision(c *config.CustomProvider, model string) bool {
+	for i := range c.Models {
+		if c.Models[i].ID == model {
+			return slices.Contains(c.Models[i].Capabilities, "vision")
+		}
+	}
+	return false
+}
+
+func openAIChat(protocols []registry.Protocol) bool {
+	return len(protocols) == 0 || slices.Contains(protocols, registry.ProtocolOpenAIChat)
 }
 
 // validateCustom is the SEC-24 + adapter gate of one custom entry.
@@ -223,6 +237,7 @@ func (r *providerResolver) resolveBuiltin(provName, modelName string, p *registr
 	}
 	route.CacheTTLMax = p.CacheTTLMax
 	route.CacheMarkers = slices.Contains(p.Capabilities, registry.Capability("cache"))
+	route.Vision = slices.Contains(p.Capabilities, registry.CapVision) && openAIChat(protocols)
 	return route, nil
 }
 
