@@ -53,7 +53,7 @@ func TestToolsLockComplete(t *testing.T) {
 // green lock test proves the five entries are actually compared.
 func TestToolsLockRejectsMissingModuleTool(t *testing.T) {
 	t.Parallel()
-	for _, tool := range []string{"browser_click", "image_generate"} {
+	for _, tool := range []string{"browser_click", "image_generate", "speak"} {
 		lock := readToolsLock(t, filepath.Join("..", "..", "tools.lock"))
 		delete(lock, tool)
 		problems := toolsLockProblems(lock, modules.Default())
