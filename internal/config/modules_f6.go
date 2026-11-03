@@ -13,9 +13,13 @@ type ModulesWeb struct {
 	Blocklist []string `toml:"blocklist"`
 }
 
-// ModulesBrowser is [modules.browser]: the F6 CDP browser module (ADR-310).
+// ModulesBrowser is [modules.browser]: the F6 CDP browser module (ADR-310,
+// ADR-313). Origins are default-deny; an enabled module with no origin fails
+// every Invoke with module_unavailable.
 type ModulesBrowser struct {
-	Enabled bool `toml:"enabled"`
+	Enabled      bool     `toml:"enabled"`
+	AllowOrigins []string `toml:"allow_origins"`
+	LocalProfile bool     `toml:"local_profile"`
 }
 
 // ModulesMedia is [modules.media]: the F6 vision/image/video/doc module
@@ -38,8 +42,8 @@ type ModulesComputerUse struct {
 // validateF6 keeps the foundation sections honest: the keys decode (so a typo
 // is still a key error, not a missing-module error) and `enabled = false` is
 // the only accepted value until the module itself lands. Accepting `true`
-// would be a silent no-op, which this repository never ships. Web is the
-// exception since F6-W1 (ADR-311): it has a runtime and valid engines.
+// would be a silent no-op, which this repository never ships. Web and browser
+// are the exceptions: their slices landed (ADR-311, ADR-313).
 func (m *Modules) validateF6() error {
 	if err := m.validateWeb(); err != nil {
 		return err
@@ -48,7 +52,6 @@ func (m *Modules) validateF6() error {
 		id      string
 		enabled bool
 	}{
-		{"browser", m.Browser.Enabled},
 		{"media", m.Media.Enabled},
 		{"voice", m.Voice.Enabled},
 		{"computer_use", m.ComputerUse.Enabled},

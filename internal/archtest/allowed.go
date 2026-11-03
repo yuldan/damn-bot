@@ -141,7 +141,9 @@ func allowedImports() map[string][]string {
 // semua modul F6 lazy (E-06) dan edge-nya ditambah per slice.
 func f6ModuleImports(m map[string][]string) {
 	m["internal/webtools"] = []string{"internal/modules/host", "internal/netx"}
-	m["internal/browser"] = []string{"internal/modules/host", "internal/netx"}
+	m["internal/browser"] = []string{"internal/modules/host", "internal/netx", "internal/browser/cdp"}
+	// Browser leaf (ADR-309/ADR-313): coder/websocket framing; netx supplies the loopback client (E-05).
+	m["internal/browser/cdp"] = []string{"internal/netx"}
 	m["internal/media"] = []string{"internal/modules/host", "internal/media/doc", "internal/media/preflight", "internal/media/gen"}
 	// Daun media (ADR-309): document parser, resize core, generation core.
 	m["internal/media/doc"] = nil

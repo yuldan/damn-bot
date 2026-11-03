@@ -286,7 +286,10 @@ heal              1500 internal/heal
 # ADR-312 (F6-W2): [modules.web].blocklist menambah config 2013 -> 2025
 # (terukur). Sigma core 55.657 -> 55.669; plafon 55.700 tetap (headroom 31).
 # MODULE webtools terukur 920/3000 setelah backends + cache.
-config            2025 internal/config
+# ADR-313 (F6-B1): [modules.browser].allow_origins/local_profile menambah config
+# 2025 -> 2027 (terukur). Sigma core 55.669 -> 55.671; plafon 55.700 tetap.
+# netx terukur 1.806 (cap 1.810 tidak berubah) untuk LoopbackClient CDP.
+config            2027 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
@@ -399,7 +402,7 @@ MODULE delegate    2000 internal/delegate
 # Sigma MODULE 58.800 -> 83.300 (+backup 1.467 = 84.767 <= 85.000; ADR-309);
 # Σ core tidak berubah oleh baris-baris ini. Kode fondasi 0 (paket doc.go).
 MODULE webtools     3000 internal/webtools
-MODULE browser      5500 internal/browser
+MODULE browser      5500 internal/browser internal/browser/cdp
 MODULE media        9500 internal/media
 MODULE voice        4500 internal/voice
 MODULE computeruse  2000 internal/computeruse
