@@ -40,6 +40,7 @@ type Document struct {
 	Kind     Kind
 	MIME     string
 	Markdown string
+	Pages    int
 }
 
 // ErrorCode is a typed document failure.
@@ -145,7 +146,7 @@ func ReadBytes(data []byte) (Document, error) {
 	case KindText:
 		doc = Document{Markdown: strings.TrimPrefix(string(data), "\ufeff")}
 	case KindPDF:
-		err = fail(CodeUnsupported, "PDF reader is not part of this stacked slice", "")
+		doc, err = readPDF(data)
 	case KindDOCX, KindXLSX, KindPPTX:
 		doc, err = readOOXML(data, kind)
 	default:
