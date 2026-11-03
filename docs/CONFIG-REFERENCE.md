@@ -154,6 +154,13 @@ config_version = 1
     enabled = false
   [modules.voice]
     enabled = false
+    stt_backend = ""
+    tts_backend = ""
+    whisper_bin = ""
+    whisper_model = ""
+    tts_endpoint = ""
+    tts_voice = ""
+    tts_key_env = ""
   [modules.computer_use]
     enabled = false
 

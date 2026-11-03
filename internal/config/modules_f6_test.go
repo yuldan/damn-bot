@@ -4,6 +4,7 @@ package config
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -105,6 +106,41 @@ func TestModulesWebEngines(t *testing.T) {
 	tests := []struct{ name, toml, key string }{
 		{"unknown", "[modules.web]\nengines = [\"nope\"]\n", "modules.web.engines"},
 		{"bad_blocklist", "[modules.web]\nblocklist = [\"https://example.com\"]\n", "modules.web.blocklist"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := parse(t, tc.toml)
+			ke := keyErrorOf(t, err, ErrInvalidValue)
+			if ke.Key != tc.key {
+				t.Errorf("key = %q, want %q", ke.Key, tc.key)
+			}
+		})
+	}
+}
+
+// TestModulesVoiceConfig: the voice section accepts the closed backend sets
+// and validates the executable paths, endpoint, and secret name at load
+// (ADR-310 amendment). Enabled=true stays refused until the module is wired.
+func TestModulesVoiceConfig(t *testing.T) {
+	t.Parallel()
+	for _, toml := range []string{
+		"[modules.voice]\n",
+		"[modules.voice]\nstt_backend = \"whispercpp\"\nwhisper_bin = \"/usr/local/bin/whisper-cli\"\nwhisper_model = \"/models/ggml-base.bin\"\n",
+		"[modules.voice]\ntts_backend = \"openai\"\ntts_endpoint = \"https://api.openai.com/v1/audio/speech\"\ntts_voice = \"alloy\"\ntts_key_env = \"OPENAI_API_KEY\"\n",
+		"[modules.voice]\nstt_backend = \"deepinfra\"\ntts_backend = \"piper\"\n",
+	} {
+		if _, err := parse(t, toml); err != nil {
+			t.Errorf("Parse(%q): %v", toml, err)
+		}
+	}
+	tests := []struct{ name, toml, key string }{
+		{"stt_unknown", "[modules.voice]\nstt_backend = \"nope\"\n", "modules.voice.stt_backend"},
+		{"tts_unknown", "[modules.voice]\ntts_backend = \"nope\"\n", "modules.voice.tts_backend"},
+		{"whisper_incomplete", "[modules.voice]\nstt_backend = \"whispercpp\"\n", "modules.voice.whisper_bin"},
+		{"bad_endpoint", "[modules.voice]\ntts_endpoint = \"ftp://example.com/speech\"\n", "modules.voice.tts_endpoint"},
+		{"bad_env", "[modules.voice]\ntts_key_env = \"1BAD-NAME\"\n", "modules.voice.tts_key_env"},
+		{"long_voice", "[modules.voice]\ntts_voice = \"" + strings.Repeat("a", 65) + "\"\n", "modules.voice.tts_voice"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
