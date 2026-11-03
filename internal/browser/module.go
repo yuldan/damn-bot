@@ -63,6 +63,8 @@ type ModuleConfig struct {
 type Deps struct {
 	Approvals host.Approvals
 	Dial      DialFunc
+	Run       RunFunc
+	HTTP      *http.Client
 }
 
 // DialFunc opens one CDP page transport, so tests can inject a fake.
@@ -388,23 +390,72 @@ func (m *Module) open(ctx context.Context) (*Page, error) {
 	if m.page != nil {
 		return m.page, nil
 	}
-	if m.engineName() != "cdp" {
-		return nil, fmt.Errorf("%w: engine %q is not compiled in this slice", errUnavailable, m.engineName())
+	cfg := Config{AllowOrigins: m.cfg.AllowOrigins, LocalProfile: m.cfg.LocalProfile}.normalize()
+	if m.engineName() == "cdp" {
+		if m.cfg.CDPURL == "" {
+			return nil, fmt.Errorf("%w: cdp_url is empty", errUnavailable)
+		}
+		conn, err := m.dialCDP(ctx)
+		if err != nil {
+			return nil, err
+		}
+		p, err := NewCDPPage(conn, cfg)
+		if err != nil {
+			return nil, errors.Join(err, conn.Close())
+		}
+		m.page = p
+		return p, nil
 	}
-	if m.cfg.CDPURL == "" {
-		return nil, fmt.Errorf("%w: cdp_url is empty", errUnavailable)
-	}
-	conn, err := m.dialCDP(ctx)
+	eng, err := m.newEngine(cfg)
 	if err != nil {
 		return nil, err
 	}
-	cfg := Config{AllowOrigins: m.cfg.AllowOrigins, LocalProfile: m.cfg.LocalProfile}.normalize()
-	p, err := NewCDPPage(conn, cfg)
+	p, err := NewPage(eng, cfg)
 	if err != nil {
-		return nil, errors.Join(err, conn.Close())
+		return nil, errors.Join(err, eng.Close())
 	}
 	m.page = p
 	return p, nil
+}
+
+func (m *Module) newEngine(cfg Config) (Engine, error) {
+	switch name := m.engineName(); name {
+	case "":
+		return nil, fmt.Errorf("%w: no browser engine configured", errUnavailable)
+	case "camofox":
+		if m.cfg.CamofoxURL == "" {
+			return nil, fmt.Errorf("%w: camofox_url is empty", errUnavailable)
+		}
+		return newHTTPEngine(name, m.cfg.CamofoxURL, cfg, m.httpDoer(netx.LoopbackClient()))
+	case "cloud":
+		if m.cfg.CloudURL == "" {
+			return nil, fmt.Errorf("%w: cloud_url is empty", errUnavailable)
+		}
+		return newHTTPEngine(name, m.cfg.CloudURL, cfg, m.httpDoer(m.toolClient(m.cfg.CloudURL)))
+	case "lightpanda":
+		if m.cfg.LightpandaBin == "" {
+			return nil, fmt.Errorf("%w: lightpanda_bin is empty", errUnavailable)
+		}
+		return newCLIEngine(m.cfg.LightpandaBin, cfg, m.deps.Run)
+	}
+	return nil, fmt.Errorf("%w: engine %q", errBadConfig, m.engineName())
+}
+
+// httpDoer prefers the injected test client over the production lane.
+func (m *Module) httpDoer(fallback Doer) Doer {
+	if m.deps.HTTP != nil {
+		return m.deps.HTTP
+	}
+	return fallback
+}
+
+// toolClient is the Tool-egress lane; a loopback gateway stays local.
+func (m *Module) toolClient(base string) Doer {
+	if u, err := url.Parse(base); err == nil && localHost(u.Hostname()) {
+		return netx.LoopbackClient()
+	}
+	network := netx.New(netx.Config{Offline: m.cfg.Offline, NoBackground: m.cfg.NoBackground})
+	return network.Client("browser", netx.Tool)
 }
 
 // dialCDP resolves the discovery base and dials the page WebSocket.

@@ -117,6 +117,7 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 		"mcp-local":    {"inference", "enabled"},
 		"media":        {"tool", "enabled"},
 		"voice":        {"tool", "enabled"},
+		"browser":      {"tool", "enabled"},
 	}
 	if !background {
 		want["update"] = struct{ purpose, status string }{"background", "disabled (egress_disabled)"}
