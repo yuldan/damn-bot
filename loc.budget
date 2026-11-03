@@ -289,7 +289,14 @@ heal              1500 internal/heal
 # ADR-313 (F6-B1): [modules.browser].allow_origins/local_profile menambah config
 # 2025 -> 2027 (terukur). Sigma core 55.669 -> 55.671; plafon 55.700 tetap.
 # netx terukur 1.806 (cap 1.810 tidak berubah) untuk LoopbackClient CDP.
-config            2027 internal/config
+# Amandemen ADR-310 (F6-V1): [modules.voice] stt_backend/tts_backend/
+# whisper_bin/whisper_model/tts_endpoint/tts_voice/tts_key_env + validasi
+# menambah config 2027 -> 2108 (terukur scc pada pohon ini). Sigma core
+# 55.671 -> 55.752; plafon core 55.700 -> 55.800.
+# MODULE voice terukur 308/4500 pada PR A1 (root+kontrak+STT inti), 375
+# setelah A2 (chunking), 767 pada head slice penuh (+TTS/pipeline/wake);
+# cap tetap 4500.
+config            2108 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
