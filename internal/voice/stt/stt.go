@@ -5,10 +5,12 @@ package stt
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +21,10 @@ import (
 const (
 	// MaxAudioBytes is the largest accepted input (25 MiB).
 	MaxAudioBytes = 25 << 20
+	// DefaultChunkSeconds is the time boundary of one whisper call.
+	DefaultChunkSeconds = 600
+	// MaxChunks bounds total duration (12 × 600 s = 2 h).
+	MaxChunks = 12
 	// DefaultTimeout bounds one whisper invocation.
 	DefaultTimeout = 5 * time.Minute
 	maxJSON        = 8 << 20
@@ -38,7 +44,8 @@ var (
 	// errProcess is a whisper process that exited non-zero.
 	errProcess = errors.New("voice/stt: whisper failed")
 	// errOutput is a missing or unreadable whisper JSON document.
-	errOutput = errors.New("voice/stt: unreadable whisper output")
+	errOutput           = errors.New("voice/stt: unreadable whisper output")
+	errUnsupportedAudio = errors.New("voice/stt: audio format cannot be chunked")
 )
 
 // Segment is one timestamped span of a transcript, relative to the recording.
@@ -59,8 +66,9 @@ type Transcript struct {
 
 // Options are the per-call knobs of a transcription.
 type Options struct {
-	Timeout  time.Duration
-	MaxBytes int64
+	Timeout      time.Duration
+	ChunkSeconds int
+	MaxBytes     int64
 }
 
 // Provider is one speech-to-text backend from the closed catalog.
@@ -121,7 +129,7 @@ func (w *Whisper) Transcribe(ctx context.Context, r io.Reader, o Options) (tr Tr
 		return Transcript{}, fmt.Errorf("voice/stt: temp dir: %w", err)
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
-	f, _, err := spool(dir, r, o.MaxBytes)
+	f, size, err := spool(dir, r, o.MaxBytes)
 	if err != nil {
 		return Transcript{}, err
 	}
@@ -136,12 +144,22 @@ func (w *Whisper) Transcribe(ctx context.Context, r io.Reader, o Options) (tr Tr
 	if tr.MIME == "" {
 		tr.MIME = "application/octet-stream"
 	}
-	tr.Chunks = 1
-	segs, rerr := w.run(ctx, dir, f.Name(), o, 0)
-	if rerr != nil {
-		return Transcript{}, rerr
+	plans, err := planChunks(f, size, tr.MIME, dir, o.ChunkSeconds)
+	if err != nil {
+		return Transcript{}, err
 	}
-	tr.Segments = segs
+	tr.Chunks = len(plans)
+	for i, c := range plans {
+		segs, rerr := w.run(ctx, dir, c.path, o, i)
+		if rerr != nil {
+			return Transcript{}, rerr
+		}
+		for _, s := range segs {
+			s.Start += c.offset
+			s.End += c.offset
+			tr.Segments = append(tr.Segments, s)
+		}
+	}
 	var b strings.Builder
 	for _, s := range tr.Segments {
 		if b.Len() > 0 {
@@ -175,10 +193,112 @@ func spool(dir string, r io.Reader, max int64) (*os.File, int64, error) {
 	return f, n, nil
 }
 
+type wavHeader struct {
+	codec, channels, blockAlign, bits uint16
+	sampleRate, byteRate              uint32
+	dataLen                           int64
+}
+
+// readWAV reads a canonical 44-byte PCM header; ok is false for other layouts.
+func readWAV(f *os.File, size int64) (wavHeader, bool) {
+	var h wavHeader
+	var b [44]byte
+	if size < 44 {
+		return h, false
+	}
+	if _, err := f.ReadAt(b[:], 0); err != nil {
+		return h, false
+	}
+	if string(b[:4]) != "RIFF" || string(b[8:12]) != "WAVE" || string(b[12:16]) != "fmt " || string(b[36:40]) != "data" {
+		return h, false
+	}
+	h.codec, h.channels = binary.LittleEndian.Uint16(b[20:]), binary.LittleEndian.Uint16(b[22:])
+	h.sampleRate, h.byteRate = binary.LittleEndian.Uint32(b[24:]), binary.LittleEndian.Uint32(b[28:])
+	h.blockAlign, h.bits = binary.LittleEndian.Uint16(b[32:]), binary.LittleEndian.Uint16(b[34:])
+	h.dataLen = min(int64(binary.LittleEndian.Uint32(b[40:])), size-44)
+	return h, true
+}
+
+// chunk is one spill file and the recording offset of its first sample.
+type chunk struct {
+	path   string
+	offset time.Duration
+}
+
+// planChunks returns one plan unless the input is long canonical WAV PCM.
+func planChunks(f *os.File, size int64, mime, dir string, seconds int) ([]chunk, error) {
+	if mime != "audio/wav" {
+		return []chunk{{path: f.Name()}}, nil
+	}
+	h, ok := readWAV(f, size)
+	if !ok || time.Duration(h.dataLen)*time.Second/time.Duration(h.byteRate) <= time.Duration(seconds)*time.Second {
+		return []chunk{{path: f.Name()}}, nil
+	}
+	return splitWAV(f, h, dir, seconds)
+}
+
+// splitWAV writes at most MaxChunks valid WAV files on frame boundaries.
+func splitWAV(f *os.File, h wavHeader, dir string, seconds int) ([]chunk, error) {
+	if (h.codec != 1 && h.codec != 3) || h.blockAlign == 0 || h.sampleRate == 0 || seconds <= 0 {
+		return nil, fmt.Errorf("%w: WAV codec 0x%04x cannot be split", errUnsupportedAudio, h.codec)
+	}
+	framesPer := int64(seconds) * int64(h.sampleRate)
+	total := h.dataLen / int64(h.blockAlign)
+	n := (total + framesPer - 1) / framesPer
+	if n > MaxChunks {
+		return nil, fmt.Errorf("%w: %d chunks > %d", ErrTooLarge, n, MaxChunks)
+	}
+	out := make([]chunk, 0, n)
+	for i := range n {
+		frames := min(framesPer, total-i*framesPer)
+		path, err := writeChunk(f, h, dir, 44+i*framesPer*int64(h.blockAlign), frames*int64(h.blockAlign))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, chunk{path: path, offset: time.Duration(i*framesPer) * time.Second / time.Duration(h.sampleRate)})
+	}
+	return out, nil
+}
+
+// writeChunk copies the canonical header and the source frames.
+func writeChunk(f *os.File, h wavHeader, dir string, start, length int64) (string, error) {
+	if length < 0 || length > math.MaxUint32-36 {
+		return "", fmt.Errorf("%w: chunk length %d", ErrTooLarge, length)
+	}
+	tf, err := os.CreateTemp(dir, "chunk-*.wav")
+	if err != nil {
+		return "", fmt.Errorf("voice/stt: chunk: %w", err)
+	}
+	b := make([]byte, 44)
+	copy(b, "RIFF")
+	binary.LittleEndian.PutUint32(b[4:], uint32(36+length))
+	copy(b[8:], "WAVEfmt ")
+	binary.LittleEndian.PutUint32(b[16:], 16)
+	binary.LittleEndian.PutUint16(b[20:], h.codec)
+	binary.LittleEndian.PutUint16(b[22:], h.channels)
+	binary.LittleEndian.PutUint32(b[24:], h.sampleRate)
+	binary.LittleEndian.PutUint32(b[28:], h.byteRate)
+	binary.LittleEndian.PutUint16(b[32:], h.blockAlign)
+	binary.LittleEndian.PutUint16(b[34:], h.bits)
+	copy(b[36:], "data")
+	binary.LittleEndian.PutUint32(b[40:], uint32(length))
+	_, werr := tf.Write(b)
+	if werr == nil {
+		_, werr = io.CopyN(tf, io.NewSectionReader(f, start, length), length)
+	}
+	if err := errors.Join(werr, tf.Close()); err != nil {
+		return "", fmt.Errorf("voice/stt: chunk: %w", err)
+	}
+	return tf.Name(), nil
+}
+
 // withDefaults resolves the zero-value knobs once.
 func (o Options) withDefaults() Options {
 	if o.Timeout <= 0 {
 		o.Timeout = DefaultTimeout
+	}
+	if o.ChunkSeconds <= 0 {
+		o.ChunkSeconds = DefaultChunkSeconds
 	}
 	if o.MaxBytes <= 0 {
 		o.MaxBytes = MaxAudioBytes
