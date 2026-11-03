@@ -41,6 +41,15 @@ const F5SmokeSalt = "h2h-smoke/v1|E1|"
 // -model; prices still come from the explicit -price-* flags).
 const F5CheapModel = "openai/gpt-4o-mini"
 
+// F6E3SmokeSalt is the F6 E3 smoke selection (ROADMAP F6): ten cheap,
+// self-contained E3 tasks served by the local page server. It is a distinct
+// salt so the selection never drifts when F5's E1 pool changes.
+const F6E3SmokeSalt = "h2h-smoke/v1|E3|"
+
+// F6E3CheapModel is the default model of the F6 E3 smoke. The harness still
+// requires explicit -price-* flags, so a model change cannot disable the cap.
+const F6E3CheapModel = F5CheapModel
+
 // LoadSet membaca <dir>/<set>.jsonl.
 func LoadSet(dir, set string) ([]evals.Task, error) {
 	f, err := os.Open(filepath.Join(dir, set+".jsonl"))
@@ -295,6 +304,29 @@ func SelectF5E1(dir string, lookPath func(string) (string, error)) ([]evals.Task
 
 func selectKeyF5(id string) string {
 	h := sha256.Sum256([]byte(F5SmokeSalt + id))
+	return hex.EncodeToString(h[:])
+}
+
+// SelectF6E3 memilih 10 task E3 self-contained untuk smoke F6. E3 tasks are
+// local-page tasks, so every task is eligible and the choice is purely the
+// documented hash order; a shorter set is a hard error, never a partial run.
+func SelectF6E3(dir string, lookPath func(string) (string, error)) ([]evals.Task, error) {
+	ts, err := LoadSet(dir, "E3")
+	if err != nil {
+		return nil, err
+	}
+	ts = slices.DeleteFunc(ts, func(t evals.Task) bool { return !Eligible(&t, lookPath) })
+	slices.SortFunc(ts, func(a, b evals.Task) int {
+		return strings.Compare(selectKeyF6E3(a.ID), selectKeyF6E3(b.ID))
+	})
+	if len(ts) < 10 {
+		return nil, fmt.Errorf("h2h: E3 hanya %d task eligible < 10", len(ts))
+	}
+	return ts[:10], nil
+}
+
+func selectKeyF6E3(id string) string {
+	h := sha256.Sum256([]byte(F6E3SmokeSalt + id))
 	return hex.EncodeToString(h[:])
 }
 

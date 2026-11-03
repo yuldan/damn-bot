@@ -80,12 +80,43 @@ type summary struct {
 const F1CapUSD = h2h.F1CapUSD
 
 // selectionText mencatat seleksi yang benar-benar dipakai: `-smoke f5` memilih 10 task
-// E1 dengan salt F5, bukan kuota campuran smoke F1.
+// E1 dengan salt F5, `-smoke f6e3` 10 task E3 dengan salt F6, bukan kuota campuran F1.
 func selectionText(smoke string) string {
-	if smoke == "f5" {
+	switch smoke {
+	case "f5":
 		return fmt.Sprintf("10 task E1 eligible dengan sha256(%q+id) terkecil", h2h.F5SmokeSalt)
+	case "f6e3":
+		return fmt.Sprintf("10 task E3 eligible dengan sha256(%q+id) terkecil", h2h.F6E3SmokeSalt)
+	default:
+		return fmt.Sprintf("per set %v: task eligible dengan sha256(%q+id) terkecil", h2h.SmokeQuota, h2h.SelectSalt)
 	}
-	return fmt.Sprintf("per set %v: task eligible dengan sha256(%q+id) terkecil", h2h.SmokeQuota, h2h.SelectSalt)
+}
+
+// smokePhase maps a smoke name to its ledger phase and cap. A wrong mapping
+// would let one phase spend another phase's budget, so it is a hard error.
+func smokePhase(smoke string) (string, float64, error) {
+	switch smoke {
+	case "f1":
+		return h2h.PhaseF1, h2h.F1CapUSD, nil
+	case "f5":
+		return h2h.PhaseF5, h2h.F5CapUSD, nil
+	case "f6e3":
+		return h2h.PhaseF6, h2h.F6CapUSD, nil
+	default:
+		return "", 0, errors.New("h2h: -smoke must be f1, f5 or f6e3")
+	}
+}
+
+// smokeModel is the default cheap model for the fixed task-set smokes.
+func smokeModel(smoke string) string {
+	switch smoke {
+	case "f5":
+		return h2h.F5CheapModel
+	case "f6e3":
+		return h2h.F6E3CheapModel
+	default:
+		return ""
+	}
 }
 
 // hermesCommit membaca HEAD checkout hermes. Git menolak repo milik user lain
@@ -124,28 +155,25 @@ func run() error {
 	home := flag.String("hermes-home", "/tmp/hm_h2h", "HERMES_HOME (di-reset per task)")
 	work := flag.String("work", "/tmp/h2h_work", "root workdir task")
 	only := flag.String("only", "", "subset ID dipisah koma (debug)")
-	smoke := flag.String("smoke", "f1", "f1 = smoke F1 campuran E1–E6; f5 = 10 task E1 (ROADMAP F5)")
+	smoke := flag.String("smoke", "f1", "f1 = smoke F1 campuran E1–E6; f5 = 10 task E1 (ROADMAP F5); f6e3 = 10 task E3 (ROADMAP F6)")
 	flag.Parse()
 	if *keyFile == "" {
 		home, _ := os.UserHomeDir()
 		*keyFile = h2h.KeyFile(os.Getenv, home)
 	}
-	if *smoke == "f5" && *model == "" {
-		*model = h2h.F5CheapModel
+	if *model == "" {
+		*model = smokeModel(*smoke)
 	}
 	if *out == "" || *upstream == "" || *keyFile == "" || *model == "" || (*hermesDir == "" && *damnbotBin == "") {
 		return errors.New("h2h: -out, -upstream, -key-file (or H2H_KEY_FILE/~/.config/damnbot/llm_key), -model and one of -hermes/-damnbot are required")
 	}
-	if *smoke != "f1" && *smoke != "f5" {
-		return errors.New("h2h: -smoke must be f1 or f5")
+	phase, phaseCap, err := smokePhase(*smoke)
+	if err != nil {
+		return err
 	}
 	price := h2h.Price{Input: *priceIn, CachedInput: *priceCached, Output: *priceOut}
 	if !price.Valid() {
 		return errors.New("h2h: -price-in dan -price-out wajib > 0, -price-cached ≥ 0 (ADR-075/085: harga 0 mematikan cap)")
-	}
-	phase, phaseCap := h2h.PhaseF1, h2h.F1CapUSD
-	if *smoke == "f5" {
-		phase, phaseCap = h2h.PhaseF5, h2h.F5CapUSD
 	}
 	ledger, err := h2h.OpenLedgerPhase(*ledgerPath, phase, phaseCap)
 	if err != nil {
@@ -164,9 +192,12 @@ func run() error {
 	}
 
 	var tasks []evals.Task
-	if *smoke == "f5" {
+	switch *smoke {
+	case "f5":
 		tasks, err = h2h.SelectF5E1(*evalDir, exec.LookPath)
-	} else {
+	case "f6e3":
+		tasks, err = h2h.SelectF6E3(*evalDir, exec.LookPath)
+	default:
 		tasks, err = h2h.Select(*evalDir, exec.LookPath)
 	}
 	if err != nil {
