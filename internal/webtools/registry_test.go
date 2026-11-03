@@ -8,14 +8,21 @@ import (
 	"testing"
 )
 
-func TestNewRegistryClosedSet(t *testing.T) {
+func TestRegistryClosedSet(t *testing.T) {
 	t.Parallel()
-	reg, err := newRegistry([]string{"fake"}, backendConfig{})
-	if err != nil || reg == nil {
-		t.Fatalf("registry = %v, err = %v", reg, err)
+	if got := len(knownEngines()); got != 11 {
+		t.Fatalf("production engines = %d, want the SPEC §9.4 eleven", got)
 	}
-	if _, err := newRegistry([]string{"nope"}, backendConfig{}); !errors.Is(err, errUnknownEngine) {
-		t.Errorf("unknown err = %v", err)
+	cfg := backendConfig{client: testClient(), key: func(string) (string, error) { return "secret", nil }}
+	for _, id := range append(knownEngines(), "fake") {
+		if _, err := newRegistry([]string{id}, cfg); err != nil {
+			t.Errorf("known engine %q: %v", id, err)
+		}
+	}
+	for _, id := range []string{"", "bing", "openai_native", "Brave", "nope"} {
+		if _, err := newRegistry([]string{id}, cfg); !errors.Is(err, errUnknownEngine) {
+			t.Errorf("unknown engine %q: err = %v", id, err)
+		}
 	}
 }
 

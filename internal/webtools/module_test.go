@@ -122,7 +122,7 @@ func TestModuleWebSearch(t *testing.T) {
 		strings.Contains(res.Content, "Result 3") {
 		t.Errorf("content = %q", res.Content)
 	}
-	if res.UntrustedSource != "web_search:fake" || res.Meta["engine"] != "fake" {
+	if res.UntrustedSource != "web_search:fake" || res.Meta["backend"] != "fake" {
 		t.Errorf("taint/meta = %q %v", res.UntrustedSource, res.Meta)
 	}
 }
@@ -152,4 +152,61 @@ func TestModuleInvalidArgsAndStop(t *testing.T) {
 	}
 	_, err = m.Invoke(context.Background(), "web_fetch", json.RawMessage(`{"url":"https://example.test"}`), host.Env{})
 	wantCode(t, err, "module_unavailable")
+}
+
+func TestModuleSearchErrorMapping(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, key, wantCode, wantText string
+		status                        int
+	}{
+		{"auth", "secret", "auth_required", "", http.StatusUnauthorized},
+		{"rate", "secret", "network", "rate_limited", http.StatusTooManyRequests},
+		{"no_key", "", "module_unavailable", "", http.StatusOK},
+		{"oversize", "secret", "too_large", "", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if tc.status == 0 {
+					writeTestBody(t, w, strings.Repeat("x", maxSearchBody+1))
+					return
+				}
+				w.WriteHeader(tc.status)
+			}))
+			defer srv.Close()
+			cfg := webConfig()
+			cfg.Engines = []string{"brave"}
+			cfg.Key = func(string) (string, error) { return tc.key, nil }
+			cfg.Base = map[string]string{"brave": srv.URL}
+			m := startModule(t, cfg)
+			_, err := m.Invoke(context.Background(), "web_search", json.RawMessage(`{"query":"x"}`), host.Env{})
+			he, ok := errors.AsType[*host.Error](err)
+			if !ok || he.Code != tc.wantCode {
+				t.Fatalf("err = %v, want code %q", err, tc.wantCode)
+			}
+			if tc.wantText != "" && !strings.Contains(he.Message, tc.wantText) {
+				t.Errorf("message = %q, want %q", he.Message, tc.wantText)
+			}
+		})
+	}
+}
+
+func TestModuleDDGSToS(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeTestBody(t, w, `<a class="result__a" href="https://e.test/1">T</a><a class="result__snippet">S</a>`)
+	}))
+	defer srv.Close()
+	cfg := webConfig()
+	cfg.Engines = []string{"ddgs"}
+	cfg.Base = map[string]string{"ddgs": srv.URL}
+	m := startModule(t, cfg)
+	res, err := m.Invoke(context.Background(), "web_search", json.RawMessage(`{"query":"x"}`), host.Env{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Meta["backend"] != "ddgs" || res.Meta["tos_risk"] != "unofficial" {
+		t.Errorf("meta = %v", res.Meta)
+	}
 }
