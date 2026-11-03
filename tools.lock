@@ -10,9 +10,9 @@
 # and the module constant drift apart. A schema edit therefore updates this
 # file in the same commit as the module.
 #
-# Slots: media, voice and computeruse add their lines when their registration
-# lands (ADR-309). No entry means no registered tool. Web (W1) and browser
-# (W2) are registered.
+# Slots: voice and computeruse add their lines when their registration lands
+# (ADR-309). No entry means no registered tool. Web (W1), browser (W2) and
+# media (W3) are registered.
 
 web web_fetch 1 3ac7ae3f9db723190ede39c5cd4bb5cf767572ba5abc24e22e9618a826b88db4
 web web_search 1 352c73605024ec4588e7ab4f66fb86b6c971c4be90c017f597c18c03ce6324ac
@@ -21,3 +21,7 @@ browser browser_eval 1 4ac6b3d5b0899f58250ed2947b54ac4c7645eb86872560a85117e7ad5
 browser browser_screenshot 1 32062bdb9024160d3b9816f12ba2f337808ee107449f8bf08d55b0026944f51e
 browser browser_click 1 a5c34cc8a24c121df8790a2c7e2f4956224e28b2eacbc5fb82188d9c5db7a5ae
 browser browser_type 1 b98bf09a02d174f3b16e0714b5e5084a811da50610f4be5aa16a7f017370c71f
+media doc_read 1 dad886f26d462164b119728ea2c00655c9589336ad8f2e28b5736b9656422fb6
+media doc_write 1 160b353ee5618b0b40e480f0b73983b6c7b2dc39d28a03eb95a81dbdf44f1b61
+media image_generate 1 2f9b4799448b52922c148f55e0500a3dbac9d8226934b8f234abca136fc8baa4
+media video_generate 1 be2617210d39923dad595ebcab4501b8ddc553b189a9529494acd5c1e91ec451

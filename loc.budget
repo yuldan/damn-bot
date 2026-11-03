@@ -310,7 +310,10 @@ heal              1500 internal/heal
 # Amandemen ADR-310 (F6-W2 browser wiring): [modules.browser].cdp_url +
 # validasi loopback menambah config 2114 -> 2137 (terukur scc). Sigma core
 # 55.924 -> 55.947; plafon core 55.950 tetap (headroom 3).
-config            2137 internal/config
+# ADR-318 (F6-W3 media wiring): [modules.media] image/video backend, endpoint,
+# key_env menambah config 2137 -> 2169 (terukur scc). Sigma core 55.947 ->
+# 55.979; plafon core 55.950 -> 55.979 (tanpa headroom).
+config            2169 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.

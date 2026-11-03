@@ -55,11 +55,11 @@ func TestF6ModuleSectionsRejectUnknownKey(t *testing.T) {
 }
 
 // TestF6ModuleSectionsRefuseEnable: enabling a module that has no runtime yet
-// fails closed rather than becoming a no-op (ADR-310). Web, browser and
-// computer_use are excluded: they have runtimes (ADR-311/313/314).
+// fails closed rather than becoming a no-op (ADR-310). Web, browser, media and
+// computer_use are excluded: they have runtimes (ADR-311/313/314/318).
 func TestF6ModuleSectionsRefuseEnable(t *testing.T) {
 	t.Parallel()
-	for _, id := range []string{"media", "voice"} {
+	for _, id := range []string{"voice"} {
 		t.Run(id, func(t *testing.T) {
 			t.Parallel()
 			_, err := parse(t, "[modules."+id+"]\nenabled = true\n")
@@ -110,6 +110,30 @@ func TestModulesBrowserCDPURL(t *testing.T) {
 		_, err := parse(t, "[modules.browser]\ncdp_url = \""+raw+"\"\n")
 		if ke := keyErrorOf(t, err, ErrInvalidValue); ke.Key != "modules.browser.cdp_url" {
 			t.Errorf("cdp_url %q: key = %q, want modules.browser.cdp_url", raw, ke.Key)
+		}
+	}
+}
+
+// TestModulesMedia: media accepts the opt-in and the closed backend/key/URL
+// pairing; a public backend without its key or video URLs fails at load.
+func TestModulesMedia(t *testing.T) {
+	t.Parallel()
+	cfg, err := parse(t, "[modules.media]\nenabled = true\nimage_backend = \"openai\"\nimage_key_env = \"OPENAI_API_KEY\"\nvideo_backend = \"fal\"\nvideo_key_env = \"FAL_KEY\"\nvideo_create_url = \"http://127.0.0.1:9/v\"\nvideo_status_url = \"http://127.0.0.1:9/v/%s\"\n")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !cfg.Modules.Media.Enabled || cfg.Modules.Media.ImageBackend != "openai" ||
+		cfg.Modules.Media.VideoBackend != "fal" {
+		t.Fatalf("media = %+v", cfg.Modules.Media)
+	}
+	for _, bad := range []string{
+		"[modules.media]\nimage_backend = \"nope\"\n",
+		"[modules.media]\nimage_backend = \"openai\"\n",
+		"[modules.media]\nvideo_backend = \"fal\"\nvideo_key_env = \"FAL_KEY\"\n",
+		"[modules.media]\nimage_backend = \"openai\"\nimage_key_env = \"1bad\"\n",
+	} {
+		if _, err := parse(t, bad); err == nil {
+			t.Errorf("config accepted: %q", bad)
 		}
 	}
 }

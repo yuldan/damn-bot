@@ -48,16 +48,18 @@ func TestToolsLockComplete(t *testing.T) {
 	}
 }
 
-// TestToolsLockRejectsMissingBrowserTool is the negative control of
+// TestToolsLockRejectsMissingModuleTool is the negative control of
 // TestToolsLockComplete: dropping one browser line (W2) must fail, so a
 // green lock test proves the five entries are actually compared.
-func TestToolsLockRejectsMissingBrowserTool(t *testing.T) {
+func TestToolsLockRejectsMissingModuleTool(t *testing.T) {
 	t.Parallel()
-	lock := readToolsLock(t, filepath.Join("..", "..", "tools.lock"))
-	delete(lock, "browser_click")
-	problems := toolsLockProblems(lock, modules.Default())
-	if len(problems) != 1 || !strings.Contains(problems[0], `"browser_click"`) {
-		t.Fatalf("problems = %v, want the missing browser_click", problems)
+	for _, tool := range []string{"browser_click", "image_generate"} {
+		lock := readToolsLock(t, filepath.Join("..", "..", "tools.lock"))
+		delete(lock, tool)
+		problems := toolsLockProblems(lock, modules.Default())
+		if len(problems) != 1 || !strings.Contains(problems[0], `"`+tool+`"`) {
+			t.Fatalf("%s: problems = %v, want the missing entry", tool, problems)
+		}
 	}
 }
 

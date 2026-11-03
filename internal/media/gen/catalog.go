@@ -52,3 +52,39 @@ func NewVideoBackend(name string, doer Doer, createURL, statusURL, key string) (
 	}
 	return nil, fmt.Errorf("%w: video backend %q", ErrCapability, name)
 }
+
+// ImageModel returns the fixed model id of one image backend.
+func ImageModel(name string) (string, bool) {
+	switch name {
+	case "codex", "openai":
+		return "gpt-image-1", true
+	case "fal":
+		return "fal-ai/flux/dev", true
+	case "openrouter":
+		return "google/gemini-2.5-flash-image", true
+	case "xai":
+		return "grok-imagine-image", true
+	case "deepinfra":
+		return "black-forest-labs/FLUX-1-schnell", true
+	case "krea":
+		return "krea-2", true
+	case "meta":
+		return "muse-image", true
+	}
+	return "", false
+}
+
+// VideoModel returns the fixed model id of one video backend.
+func VideoModel(name string) (string, bool) {
+	switch name {
+	case "fal":
+		return "fal-ai/veo3", true
+	case "xai":
+		return "grok-imagine-video", true
+	case "openrouter":
+		return "google/veo-3", true
+	case "deepinfra":
+		return "Wan-AI/Wan2.1-T2V-14B", true
+	}
+	return "", false
+}
