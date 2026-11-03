@@ -4,6 +4,7 @@ package config
 
 import (
 	"net/url"
+	"slices"
 	"strings"
 )
 
@@ -144,10 +145,8 @@ func voiceBackend(field, value string, allowed ...string) error {
 	if value == "" {
 		return nil
 	}
-	for _, id := range allowed {
-		if value == id {
-			return nil
-		}
+	if slices.Contains(allowed, value) {
+		return nil
 	}
 	return invalid("modules.voice."+field, "backend %q is not supported", value)
 }

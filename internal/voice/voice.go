@@ -11,21 +11,25 @@ import (
 
 	"github.com/damnbot/damnbot/internal/voice/stt"
 	"github.com/damnbot/damnbot/internal/voice/tts"
-	"github.com/damnbot/damnbot/internal/voice/wake"
 )
 
 // Public contracts, aliased so implementations live in leaf packages that
 // never import this root (ADR-309 import matrix).
 type (
-	Transcript        = stt.Transcript
-	Segment           = stt.Segment
+	// Transcript is one recognised recording.
+	Transcript = stt.Transcript
+	// Segment is one timestamped span of a transcript.
+	Segment = stt.Segment
+	// TranscriptOptions are the per-call STT knobs.
 	TranscriptOptions = stt.Options
-	STT               = stt.Provider
-	Audio             = tts.Audio
-	SynthOptions      = tts.Options
-	TTS               = tts.Provider
-	WakeConfig        = wake.Config
-	WakeEngine        = wake.Engine
+	// STT is one speech-to-text provider.
+	STT = stt.Provider
+	// Audio is one synthesized clip with an honest MIME type.
+	Audio = tts.Audio
+	// SynthOptions are the per-call TTS knobs.
+	SynthOptions = tts.Options
+	// TTS is one text-to-speech provider.
+	TTS = tts.Provider
 )
 
 // Provider selection failures.
@@ -37,6 +41,7 @@ var (
 // Kind is a provider capability; the set is closed.
 type Kind string
 
+// Provider kinds.
 const (
 	KindSTT Kind = "stt"
 	KindTTS Kind = "tts"
@@ -75,22 +80,4 @@ func (c *Config) NewSTT() (STT, error) {
 		return nil, fmt.Errorf("%w: %w", ErrModuleUnavailable, err)
 	}
 	return w, nil
-}
-
-// NewTTS builds the configured text-to-speech provider.
-func (c *Config) NewTTS() (TTS, error) {
-	if !slices.Contains(Catalog(KindTTS), c.TTSBackend) {
-		return nil, fmt.Errorf("%w: tts backend %q", ErrUnknownProvider, c.TTSBackend)
-	}
-	if c.TTSBackend != "openai" {
-		return nil, fmt.Errorf("%w: tts backend %q", ErrModuleUnavailable, c.TTSBackend)
-	}
-	h, err := tts.NewHTTP(&tts.Config{
-		Endpoint: c.TTSEndpoint, Key: c.TTSKey, Model: c.TTSModel,
-		Voice: c.TTSVoice, Format: c.TTSFormat, Doer: c.Doer,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrModuleUnavailable, err)
-	}
-	return h, nil
 }
