@@ -187,9 +187,14 @@ func TestEdgeCases(t *testing.T) {
 		{"EC-PROV-015", ecFallbackSkipsBroken},
 		{"EC-PROV-016", ecBackToPrimary},
 		{"EC-PROV-025", ecFallbackWindow},
+		{"EC-PROV-024", ecVisionGate},
 	}
 	for _, c := range cases {
-		if g.Item(t, c.id, "F1", "covered") {
+		p := "F1"
+		if c.id == "EC-PROV-024" {
+			p = "F6"
+		}
+		if g.Item(t, c.id, p, "covered") {
 			t.Run(c.id, c.fn)
 		}
 	}

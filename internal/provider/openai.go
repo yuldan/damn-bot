@@ -52,6 +52,10 @@ type Route struct {
 	// CacheMarkers: the route accepts a cache_control breakpoint (catalog
 	// capability "cache"); otherwise the wire body carries no foreign field.
 	CacheMarkers bool
+	// Vision declares that this route accepts image input. It is true only
+	// for a wired openai-chat multimodal encoder (EC-PROV-024); a text-only
+	// route never receives an image.
+	Vision bool
 	// wire is the adapter selected from Protocols; internal so a hand-built
 	// Route still defaults to openai-chat.
 	wire Wire
@@ -209,6 +213,9 @@ func encodeMessage(rt *Route, m *Message, turn *Turn, cache bool, origin string)
 	content, cerr := cacheContent(rt, m, cache, origin)
 	if cerr != nil {
 		return nil, nil, nil, cerr
+	}
+	if len(m.Images) > 0 {
+		content = imageContent(rt, m, cache, origin)
 	}
 	w.Content = content
 	out, err := marshal(w)
