@@ -34,8 +34,13 @@ func Tools() []Tool {
 		newTool("browser_navigate", "Open one allowlisted http(s) URL in the CDP page", "read", `{"type":"object","properties":{"url":{"type":"string","maxLength":2048}},"required":["url"],"additionalProperties":false}`),
 		newTool("browser_eval", "Evaluate a JavaScript expression in the current page and return its JSON value", "read", `{"type":"object","properties":{"expression":{"type":"string","maxLength":4096}},"required":["expression"],"additionalProperties":false}`),
 		newTool("browser_screenshot", "Capture the current viewport as a PNG", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
+		newTool("browser_snapshot", "Return the accessibility tree with stable element refs as JSON", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
 		newTool("browser_click", "Click the current page at viewport coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"integer"},"y":{"type":"integer"}},"required":["x","y"],"additionalProperties":false}`),
 		newTool("browser_type", "Insert text into the focused element after approval", "non_idempotent", `{"type":"object","properties":{"text":{"type":"string","maxLength":4096}},"required":["text"],"additionalProperties":false}`),
+		newTool("browser_back", "Go back one history entry after approval", "non_idempotent", `{"type":"object","properties":{},"additionalProperties":false}`),
+		newTool("browser_scroll", "Scroll the page at coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"delta_x":{"type":"number","minimum":-10000,"maximum":10000},"delta_y":{"type":"number","minimum":-10000,"maximum":10000}},"required":["delta_x","delta_y"],"additionalProperties":false}`),
+		newTool("browser_hover", "Move the pointer to viewport coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}},"required":["x","y"],"additionalProperties":false}`),
+		newTool("browser_drag", "Drag from one viewport point to another after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"end_x":{"type":"number"},"end_y":{"type":"number"}},"required":["x","y","end_x","end_y"],"additionalProperties":false}`),
 	}
 }
 
@@ -247,10 +252,16 @@ func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, 
 		return m.evaluate(ctx, args)
 	case "browser_screenshot":
 		return m.screenshot(ctx)
+	case "browser_snapshot":
+		return m.snapshot(ctx)
 	case "browser_click":
 		return m.click(ctx, args, env)
 	case "browser_type":
 		return m.typeText(ctx, args, env)
+	case "browser_back":
+		return m.back(ctx, env)
+	case "browser_hover", "browser_drag", "browser_scroll":
+		return m.action(ctx, tool, args, env)
 	}
 	return host.Result{}, &host.Error{Code: "unknown_tool", Message: "unknown browser tool: " + tool}
 }
@@ -362,6 +373,120 @@ func (m *Module) typeText(ctx context.Context, raw json.RawMessage, env host.Env
 
 // approve raises one approval request. Only allow-once passes: a session
 // approval can never widen a page action (SPEC §18.2, ADR-313).
+func (m *Module) withPage(ctx context.Context, fn func(*Page) (host.Result, error)) (host.Result, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, err := m.open(ctx)
+	if err != nil {
+		return host.Result{}, pageError(err)
+	}
+	res, err := fn(p)
+	if err != nil {
+		return host.Result{}, pageError(err)
+	}
+	res.UntrustedSource = m.taint()
+	return res, nil
+}
+
+func (m *Module) snapshot(ctx context.Context) (host.Result, error) {
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		reply, err := p.read(ctx, ReadOp{Kind: "snapshot", Limit: p.cfg.MaxResult})
+		if err != nil {
+			return host.Result{}, pageError(err)
+		}
+		if len(reply.Value) > p.cfg.MaxResult {
+			return host.Result{}, fmt.Errorf("%w: snapshot %d > %d bytes", errTooLarge, len(reply.Value), p.cfg.MaxResult)
+		}
+		return host.Result{Content: string(reply.Value)}, nil
+	})
+}
+
+func (m *Module) action(ctx context.Context, tool string, raw json.RawMessage, env host.Env) (host.Result, error) {
+	a, preview, err := decodeAction(tool, raw)
+	if err != nil {
+		return host.Result{}, invalidArgs(err)
+	}
+	class := "browser:" + strings.TrimPrefix(tool, "browser_")
+	if aerr := m.approve(ctx, tool, class, preview, env, raw); aerr != nil {
+		return host.Result{}, aerr
+	}
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		if err := p.Run(ctx, tool, a, true); err != nil {
+			return host.Result{}, err
+		}
+		content := preview
+		switch tool {
+		case "browser_click":
+			content = fmt.Sprintf("clicked at (%.0f, %.0f)", a.X, a.Y)
+		case "browser_type":
+			content = fmt.Sprintf("typed %d characters", len(a.Text))
+		}
+		return host.Result{Content: content}, nil
+	})
+}
+
+func decodeAction(tool string, raw json.RawMessage) (*Action, string, error) {
+	switch tool {
+	case "browser_click", "browser_type", "browser_hover", "browser_drag":
+		return decodePointer(tool, raw)
+	case "browser_scroll", "browser_press", "browser_select":
+		return decodeInput(raw)
+	}
+	return nil, "", fmt.Errorf("%w: %s", errBadConfig, tool)
+}
+
+func decodePointer(tool string, raw json.RawMessage) (*Action, string, error) {
+	var a struct {
+		X    float64 `json:"x"`
+		Y    float64 `json:"y"`
+		EndX float64 `json:"end_x"`
+		EndY float64 `json:"end_y"`
+		Text string  `json:"text"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, "", err
+	}
+	switch tool {
+	case "browser_click", "browser_hover":
+		return &Action{X: a.X, Y: a.Y}, fmt.Sprintf("%s at (%.0f, %.0f)", tool, a.X, a.Y), nil
+	case "browser_type":
+		return &Action{Text: a.Text}, fmt.Sprintf("browser_type %d characters", len(a.Text)), nil
+	}
+	return &Action{X: a.X, Y: a.Y, EndX: a.EndX, EndY: a.EndY},
+		fmt.Sprintf("browser_drag (%.0f,%.0f)->(%.0f,%.0f)", a.X, a.Y, a.EndX, a.EndY), nil
+}
+
+func decodeInput(raw json.RawMessage) (*Action, string, error) {
+	var a struct {
+		X      float64 `json:"x"`
+		Y      float64 `json:"y"`
+		DeltaX float64 `json:"delta_x"`
+		DeltaY float64 `json:"delta_y"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, "", err
+	}
+	if a.DeltaX < -10000 || a.DeltaX > 10000 || a.DeltaY < -10000 || a.DeltaY > 10000 {
+		return nil, "", fmt.Errorf("%w: scroll deltas", errBadConfig)
+	}
+	return &Action{X: a.X, Y: a.Y, DeltaX: a.DeltaX, DeltaY: a.DeltaY},
+		fmt.Sprintf("browser_scroll (%.0f,%.0f)", a.DeltaX, a.DeltaY), nil
+}
+
+func (m *Module) back(ctx context.Context, env host.Env) (host.Result, error) {
+	if err := m.approve(ctx, "browser_back", "browser:back", "browser_back one history entry", env, nil); err != nil {
+		return host.Result{}, err
+	}
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		final, err := p.Back(ctx)
+		if err != nil {
+			return host.Result{}, err
+		}
+		m.host = urlHost(final)
+		return host.Result{Content: "back to " + final, Meta: map[string]any{"url": final}}, nil
+	})
+}
+
 func (m *Module) approve(ctx context.Context, tool, class, preview string, env host.Env, args json.RawMessage) error {
 	req := &host.ApprovalRequest{
 		Tool: tool, CallID: env.CallID, Effect: host.EffectNonIdempotent,

@@ -3,6 +3,7 @@ package browser
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -45,7 +46,7 @@ func (e *httpEngine) Navigate(ctx context.Context, rawURL string, guard func(*ur
 	var res struct {
 		URL string `json:"url"`
 	}
-	if err := e.call(ctx, http.MethodPost, "/v1/navigate", map[string]string{"url": rawURL}, &res, 64<<10); err != nil {
+	if err := e.call(ctx, "/v1/navigate", map[string]string{"url": rawURL}, &res, 64<<10); err != nil {
 		return "", err
 	}
 	final := res.URL
@@ -65,43 +66,96 @@ func (e *httpEngine) Navigate(ctx context.Context, rawURL string, guard func(*ur
 // WaitLoad is synchronous: Navigate returns after load.
 func (e *httpEngine) WaitLoad(context.Context) error { return nil }
 
-// Eval returns the JSON value of one expression.
-func (e *httpEngine) Eval(ctx context.Context, expression string) (json.RawMessage, error) {
-	var res struct {
-		Value json.RawMessage `json:"value"`
+// Read dispatches one page read over the provider wire.
+func (e *httpEngine) Read(ctx context.Context, op ReadOp) (Reply, error) {
+	switch op.Kind {
+	case "eval":
+		var res struct {
+			Value json.RawMessage `json:"value"`
+		}
+		if err := e.call(ctx, "/v1/eval", map[string]string{"expression": op.Expression}, &res, e.cfg.MaxResult); err != nil {
+			return Reply{}, err
+		}
+		if len(res.Value) == 0 {
+			res.Value = json.RawMessage("null")
+		}
+		return Reply{Value: res.Value}, nil
+	case "screenshot":
+		png, err := e.do(ctx, http.MethodGet, "/v1/screenshot", nil, e.cfg.MaxScreenshot)
+		if err != nil {
+			return Reply{}, err
+		}
+		if !bytes.HasPrefix(png, []byte("\x89PNG\r\n\x1a\n")) {
+			return Reply{}, fmt.Errorf("%w: %s screenshot is not PNG", errPage, e.kind)
+		}
+		return Reply{Blob: png}, nil
+	case "pdf", "snapshot", "back", "download":
+		return e.callRead(ctx, op)
 	}
-	if err := e.call(ctx, http.MethodPost, "/v1/eval", map[string]string{"expression": expression}, &res, e.cfg.MaxResult); err != nil {
-		return nil, err
-	}
-	if len(res.Value) == 0 {
-		return json.RawMessage("null"), nil
-	}
-	return res.Value, nil
+	return Reply{}, fmt.Errorf("%w: %s", errBadConfig, op.Kind)
 }
 
-// Screenshot fetches one PNG, bounded by MaxScreenshot.
-func (e *httpEngine) Screenshot(ctx context.Context) ([]byte, error) {
-	png, err := e.do(ctx, http.MethodGet, "/v1/screenshot", nil, e.cfg.MaxScreenshot)
-	if err != nil {
-		return nil, err
+func (e *httpEngine) callRead(ctx context.Context, op ReadOp) (Reply, error) {
+	var res struct {
+		Value json.RawMessage `json:"value"`
+		Data  string          `json:"data"`
+		Name  string          `json:"name"`
 	}
-	if !bytes.HasPrefix(png, []byte("\x89PNG\r\n\x1a\n")) {
-		return nil, fmt.Errorf("%w: %s screenshot is not PNG", errPage, e.kind)
+	limit := op.Limit
+	if limit <= 0 {
+		limit = e.cfg.MaxResult
 	}
-	return png, nil
+	if err := e.call(ctx, "/v1/read", op, &res, limit); err != nil {
+		return Reply{}, err
+	}
+	reply := Reply{Value: res.Value, Name: res.Name}
+	if res.Data != "" {
+		blob, err := base64.StdEncoding.DecodeString(res.Data)
+		if err != nil {
+			return Reply{}, fmt.Errorf("%w: %s read data", errPage, e.kind)
+		}
+		if op.Limit > 0 && len(blob) > op.Limit {
+			return Reply{}, fmt.Errorf("%w: %s read %d > %d bytes", errTooLarge, e.kind, len(blob), op.Limit)
+		}
+		reply.Blob = blob
+	}
+	if op.Kind == "back" {
+		if err := e.guardBack(op, res.Name); err != nil {
+			return Reply{}, err
+		}
+	}
+	return reply, nil
+}
+
+func (e *httpEngine) guardBack(op ReadOp, raw string) error {
+	if raw == "" {
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("%w: %s back url", errBadConfig, e.kind)
+	}
+	if op.Guard == nil {
+		return nil
+	}
+	if err := op.Guard(u); err != nil {
+		return fmt.Errorf("browser: %s back: %w", e.kind, err)
+	}
+	return nil
 }
 
 // Act sends one input action.
-func (e *httpEngine) Act(ctx context.Context, a Action) error {
-	if a.Kind != "click" && a.Kind != "type" {
-		return fmt.Errorf("%w: %s", errBadConfig, a.Kind)
+func (e *httpEngine) Act(ctx context.Context, a *Action) error {
+	switch a.Kind {
+	case "click", "type", "hover", "drag", "scroll", "press":
+		return e.call(ctx, "/v1/act", a, nil, 0)
 	}
-	return e.call(ctx, http.MethodPost, "/v1/act", a, nil, 0)
+	return fmt.Errorf("%w: %s", errBadConfig, a.Kind)
 }
 
 func (e *httpEngine) Close() error { return nil }
 
-func (e *httpEngine) call(ctx context.Context, method, path string, body, dst any, limit int) error {
+func (e *httpEngine) call(ctx context.Context, path string, body, dst any, limit int) error {
 	var data []byte
 	if body != nil {
 		enc, err := json.Marshal(body)
@@ -110,7 +164,7 @@ func (e *httpEngine) call(ctx context.Context, method, path string, body, dst an
 		}
 		data = enc
 	}
-	out, err := e.do(ctx, method, path, data, limit)
+	out, err := e.do(ctx, http.MethodPost, path, data, limit)
 	if err != nil {
 		return err
 	}

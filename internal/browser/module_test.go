@@ -66,9 +66,10 @@ func moduleConfig() ModuleConfig {
 func TestModuleTools(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
-		"browser_navigate": "read", "browser_eval": "read",
-		"browser_screenshot": "read", "browser_click": "non_idempotent",
-		"browser_type": "non_idempotent",
+		"browser_navigate": "read", "browser_eval": "read", "browser_screenshot": "read",
+		"browser_snapshot": "read", "browser_click": "non_idempotent", "browser_type": "non_idempotent",
+		"browser_back": "non_idempotent", "browser_scroll": "non_idempotent",
+		"browser_hover": "non_idempotent", "browser_drag": "non_idempotent",
 	}
 	tools := Tools()
 	if len(tools) != len(want) {

@@ -209,28 +209,24 @@ func (p *Page) target(ev cdp.Event) error {
 
 // Eval evaluates expression and returns the JSON value, capped at MaxResult.
 func (p *Page) Eval(ctx context.Context, expression string) (string, error) {
-	if p.eng != nil {
-		out, err := p.eng.Eval(ctx, expression)
-		if err != nil {
-			return "", fmt.Errorf("browser: evaluate: %w", err)
-		}
-		return p.evalValue(out)
-	}
-	raw, err := p.conn.Call(ctx, "Runtime.evaluate", map[string]any{
-		"expression": expression, "returnByValue": true, "awaitPromise": true,
-	})
+	reply, err := p.read(ctx, ReadOp{Kind: "eval", Expression: expression, Limit: p.cfg.MaxResult})
 	if err != nil {
 		return "", fmt.Errorf("browser: evaluate: %w", err)
 	}
-	var res struct {
-		Result struct {
-			Value json.RawMessage `json:"value"`
-		} `json:"result"`
+	return p.evalValue(reply.Value)
+}
+
+// read dispatches a read to the engine, or to the CDP transport when the page
+// is bound directly to CDP.
+func (p *Page) read(ctx context.Context, op ReadOp) (Reply, error) {
+	if p.eng != nil {
+		reply, err := p.eng.Read(ctx, op)
+		if err != nil {
+			return Reply{}, fmt.Errorf("browser: read: %w", err)
+		}
+		return reply, nil
 	}
-	if uerr := json.Unmarshal(raw, &res); uerr != nil {
-		return "", fmt.Errorf("%w: evaluate: %w", errPage, uerr)
-	}
-	return p.evalValue(res.Result.Value)
+	return p.cdpRead(ctx, op)
 }
 
 func (p *Page) evalValue(value []byte) (string, error) {
@@ -245,28 +241,11 @@ func (p *Page) evalValue(value []byte) (string, error) {
 
 // Screenshot captures the viewport as PNG, capped at MaxScreenshot bytes.
 func (p *Page) Screenshot(ctx context.Context) ([]byte, error) {
-	if p.eng != nil {
-		out, err := p.eng.Screenshot(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("browser: screenshot: %w", err)
-		}
-		return p.screenshotValue(out)
-	}
-	raw, err := p.conn.Call(ctx, "Page.captureScreenshot", map[string]string{"format": "png"})
+	reply, err := p.read(ctx, ReadOp{Kind: "screenshot", Limit: p.cfg.MaxScreenshot})
 	if err != nil {
 		return nil, fmt.Errorf("browser: screenshot: %w", err)
 	}
-	var res struct {
-		Data string `json:"data"`
-	}
-	if uerr := json.Unmarshal(raw, &res); uerr != nil {
-		return nil, errPage
-	}
-	png, derr := base64.StdEncoding.DecodeString(res.Data)
-	if derr != nil {
-		return nil, errPage
-	}
-	return p.screenshotValue(png)
+	return p.screenshotValue(reply.Blob)
 }
 
 func (p *Page) screenshotValue(png []byte) ([]byte, error) {
@@ -276,13 +255,158 @@ func (p *Page) screenshotValue(png []byte) ([]byte, error) {
 	return png, nil
 }
 
+func (p *Page) cdpRead(ctx context.Context, op ReadOp) (Reply, error) {
+	switch op.Kind {
+	case "eval":
+		raw, err := p.conn.Call(ctx, "Runtime.evaluate", map[string]any{
+			"expression": op.Expression, "returnByValue": true, "awaitPromise": true,
+		})
+		if err != nil {
+			return Reply{}, fmt.Errorf("browser: evaluate: %w", err)
+		}
+		var res struct {
+			Result struct {
+				Value json.RawMessage `json:"value"`
+			} `json:"result"`
+		}
+		if uerr := json.Unmarshal(raw, &res); uerr != nil {
+			return Reply{}, fmt.Errorf("%w: evaluate: %w", errPage, uerr)
+		}
+		return Reply{Value: res.Result.Value}, nil
+	case "screenshot":
+		raw, err := p.conn.Call(ctx, "Page.captureScreenshot", map[string]string{"format": "png"})
+		if err != nil {
+			return Reply{}, fmt.Errorf("browser: screenshot: %w", err)
+		}
+		var res struct {
+			Data string `json:"data"`
+		}
+		if uerr := json.Unmarshal(raw, &res); uerr != nil {
+			return Reply{}, errPage
+		}
+		png, derr := base64.StdEncoding.DecodeString(res.Data)
+		if derr != nil {
+			return Reply{}, errPage
+		}
+		return Reply{Blob: png}, nil
+	case "snapshot":
+		return p.cdpSnapshot(ctx)
+	case "back":
+		return p.cdpBack(ctx, op.Guard)
+	}
+	return Reply{}, fmt.Errorf("%w: %s", errBadConfig, op.Kind)
+}
+
+// Snapshot returns the accessibility tree as compact JSON.
+func (p *Page) Snapshot(ctx context.Context) (string, error) {
+	reply, err := p.read(ctx, ReadOp{Kind: "snapshot", Limit: p.cfg.MaxResult})
+	if err != nil {
+		return "", fmt.Errorf("browser: snapshot: %w", err)
+	}
+	if len(reply.Value) > p.cfg.MaxResult {
+		return "", fmt.Errorf("%w: snapshot %d > %d bytes", errTooLarge, len(reply.Value), p.cfg.MaxResult)
+	}
+	return string(reply.Value), nil
+}
+
+// Back navigates one history entry back; no entry is a typed error.
+func (p *Page) Back(ctx context.Context) (string, error) {
+	reply, err := p.read(ctx, ReadOp{Kind: "back", Guard: p.guard})
+	if err != nil {
+		return "", fmt.Errorf("browser: back: %w", err)
+	}
+	if reply.Name == "" {
+		return "", errNoHistory
+	}
+	return reply.Name, nil
+}
+
+func (p *Page) cdpSnapshot(ctx context.Context) (Reply, error) {
+	raw, err := p.conn.Call(ctx, "Accessibility.getFullAXTree", nil)
+	if err != nil {
+		return Reply{}, fmt.Errorf("browser: snapshot: %w", err)
+	}
+	var res struct {
+		Nodes []struct {
+			Role struct {
+				Value string `json:"value"`
+			} `json:"role"`
+			Name struct {
+				Value string `json:"value"`
+			} `json:"name"`
+			Backend int `json:"backendDOMNodeId"`
+		} `json:"nodes"`
+	}
+	if uerr := json.Unmarshal(raw, &res); uerr != nil {
+		return Reply{}, fmt.Errorf("%w: snapshot: %w", errPage, uerr)
+	}
+	out := make([]map[string]any, 0, len(res.Nodes))
+	for _, n := range res.Nodes {
+		if n.Role.Value == "" && n.Name.Value == "" {
+			continue
+		}
+		node := map[string]any{"ref": n.Backend, "role": n.Role.Value}
+		if !sensitiveRole(n.Role.Value) {
+			node["name"] = n.Name.Value
+		}
+		out = append(out, node)
+	}
+	value, merr := json.Marshal(out)
+	if merr != nil {
+		return Reply{}, fmt.Errorf("%w: snapshot encode: %w", errPage, merr)
+	}
+	return Reply{Value: value}, nil
+}
+
+func sensitiveRole(role string) bool {
+	switch role {
+	case "textbox", "searchbox", "password", "spinbutton":
+		return true
+	}
+	return false
+}
+
+func (p *Page) cdpBack(ctx context.Context, guard func(*url.URL) error) (Reply, error) {
+	raw, err := p.conn.Call(ctx, "Page.getNavigationHistory", nil)
+	if err != nil {
+		return Reply{}, fmt.Errorf("browser: back: %w", err)
+	}
+	var res struct {
+		CurrentIndex int `json:"currentIndex"`
+		Entries      []struct {
+			ID  int    `json:"id"`
+			URL string `json:"url"`
+		} `json:"entries"`
+	}
+	if uerr := json.Unmarshal(raw, &res); uerr != nil {
+		return Reply{}, fmt.Errorf("%w: back: %w", errPage, uerr)
+	}
+	if res.CurrentIndex <= 0 || res.CurrentIndex > len(res.Entries) {
+		return Reply{}, errNoHistory
+	}
+	target := res.Entries[res.CurrentIndex-1]
+	u, perr := url.Parse(target.URL)
+	if perr != nil || u.Host == "" {
+		return Reply{}, fmt.Errorf("%w: %s", errBlockedOrigin, target.URL)
+	}
+	if guard != nil {
+		if gerr := guard(u); gerr != nil {
+			return Reply{}, gerr
+		}
+	}
+	if _, cerr := p.conn.Call(ctx, "Page.navigateToHistoryEntry", map[string]int{"entryId": target.ID}); cerr != nil {
+		return Reply{}, fmt.Errorf("browser: back: %w", cerr)
+	}
+	return Reply{Name: target.URL}, nil
+}
+
 // Click dispatches a left click; without approval it fails with a preview.
 func (p *Page) Click(ctx context.Context, x, y float64, approved bool) error {
 	if !approved {
 		return fmt.Errorf("%w: browser_click at (%.0f, %.0f)", errApproval, x, y)
 	}
 	if p.eng != nil {
-		if err := p.eng.Act(ctx, Action{Kind: "click", X: x, Y: y}); err != nil {
+		if err := p.eng.Act(ctx, &Action{Kind: "click", X: x, Y: y}); err != nil {
 			return fmt.Errorf("browser: click: %w", err)
 		}
 		return nil
@@ -296,13 +420,79 @@ func (p *Page) Click(ctx context.Context, x, y float64, approved bool) error {
 	return nil
 }
 
+// Run performs one non-read pointer or keyboard action after approval.
+func (p *Page) Run(ctx context.Context, tool string, a *Action, approved bool) error {
+	if !approved {
+		return fmt.Errorf("%w: %s", errApproval, tool)
+	}
+	switch tool {
+	case "browser_click":
+		a.Kind = "click"
+	case "browser_type":
+		a.Kind = "type"
+	case "browser_hover":
+		a.Kind = "hover"
+	case "browser_drag":
+		a.Kind = "drag"
+	case "browser_scroll":
+		a.Kind = "scroll"
+		if a.DeltaX < -10000 || a.DeltaX > 10000 || a.DeltaY < -10000 || a.DeltaY > 10000 {
+			return fmt.Errorf("%w: scroll deltas", errBadConfig)
+		}
+	default:
+		return fmt.Errorf("%w: %s", errBadConfig, tool)
+	}
+	if p.eng != nil {
+		if err := p.eng.Act(ctx, a); err != nil {
+			return fmt.Errorf("browser: %s: %w", tool, err)
+		}
+		return nil
+	}
+	return p.cdpAct(ctx, a)
+}
+
+func (p *Page) cdpAct(ctx context.Context, a *Action) error {
+	switch a.Kind {
+	case "hover":
+		return p.mouse(ctx, "mouseMoved", a.X, a.Y, "")
+	case "drag":
+		if err := p.mouse(ctx, "mousePressed", a.X, a.Y, "left"); err != nil {
+			return err
+		}
+		if err := p.mouse(ctx, "mouseMoved", a.EndX, a.EndY, "left"); err != nil {
+			return err
+		}
+		return p.mouse(ctx, "mouseReleased", a.EndX, a.EndY, "left")
+	case "scroll":
+		_, err := p.conn.Call(ctx, "Input.dispatchMouseEvent", map[string]any{
+			"type": "mouseWheel", "x": a.X, "y": a.Y, "deltaX": a.DeltaX, "deltaY": a.DeltaY,
+		})
+		if err != nil {
+			return fmt.Errorf("browser: scroll: %w", err)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: %s", errBadConfig, a.Kind)
+}
+
+func (p *Page) mouse(ctx context.Context, kind string, x, y float64, button string) error {
+	params := map[string]any{"type": kind, "x": x, "y": y, "clickCount": 1}
+	if button != "" {
+		params["button"] = button
+	}
+	if _, err := p.conn.Call(ctx, "Input.dispatchMouseEvent", params); err != nil {
+		return fmt.Errorf("browser: %s: %w", kind, err)
+	}
+	return nil
+}
+
 // Type inserts text into the focused element; it is non-read and needs approval.
 func (p *Page) Type(ctx context.Context, text string, approved bool) error {
 	if !approved {
 		return fmt.Errorf("%w: browser_type %d characters", errApproval, len(text))
 	}
 	if p.eng != nil {
-		if err := p.eng.Act(ctx, Action{Kind: "type", Text: text}); err != nil {
+		if err := p.eng.Act(ctx, &Action{Kind: "type", Text: text}); err != nil {
 			return fmt.Errorf("browser: type: %w", err)
 		}
 		return nil
@@ -323,6 +513,7 @@ var (
 	errPage          = errors.New("browser: protocol failure")
 	errApproval      = errors.New("browser: approval required")
 	errDenied        = errors.New("browser: engine denied the request")
+	errNoHistory     = errors.New("browser: no history entry")
 	errUnavailable   = errors.New("browser: engine unavailable")
 	errUnsupported   = errors.New("browser: engine does not support the operation")
 )
@@ -417,7 +608,7 @@ func pageError(err error) error {
 	switch {
 	case errors.Is(err, errApproval), errors.Is(err, errDenied):
 		code = "denied"
-	case errors.Is(err, errBadConfig):
+	case errors.Is(err, errBadConfig), errors.Is(err, errNoHistory):
 		code = "invalid_args"
 	case errors.Is(err, errBlockedHost), errors.Is(err, errBlockedOrigin):
 		code = "blocked_host"
