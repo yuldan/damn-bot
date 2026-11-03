@@ -11,7 +11,10 @@ import (
 	"fmt"
 	stdimage "image"
 	"image/png"
+	"io"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -488,4 +491,249 @@ func dialogPolicyClosed(t *testing.T) {
 	if _, err := New(&cfg, Deps{}); !errors.Is(err, errBadConfig) {
 		t.Fatalf("New = %v, want errBadConfig", err)
 	}
+}
+
+// TestF6TOOL017BrowserCDP (TOOL-017): only reviewed methods pass, every call
+// needs one allow-once approval, a session approval never widens it, and the
+// preview exposes neither parameter values nor page content.
+func TestF6TOOL017BrowserCDP(t *testing.T) {
+	t.Parallel()
+	t.Run("safe method runs after approval", func(t *testing.T) {
+		t.Parallel()
+		f := newFake()
+		f.results["Page.getLayoutMetrics"] = json.RawMessage(`{"layoutViewport":{"clientWidth":800}}`)
+		appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
+		m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f), Approvals: appr})
+		res, err := m.Invoke(t.Context(), "browser_cdp", json.RawMessage(`{"method":"Page.getLayoutMetrics"}`), host.Env{CallID: "c1"})
+		if err != nil || !strings.Contains(res.Content, "clientWidth") || res.UntrustedSource != "browser:page" {
+			t.Fatalf("cdp = %q, %v", res.Content, err)
+		}
+		reqs := appr.requests()
+		if len(reqs) != 1 || reqs[0].Effect != host.EffectNonIdempotent || reqs[0].CallID != "c1" {
+			t.Fatalf("approvals = %+v", reqs)
+		}
+		if !strings.Contains(reqs[0].Preview, "read-only") {
+			t.Fatalf("preview does not name the class: %q", reqs[0].Preview)
+		}
+		if res.Meta["sensitive"] != false {
+			t.Fatalf("meta = %v", res.Meta)
+		}
+	})
+	t.Run("sensitive method rejects a session approval", func(t *testing.T) {
+		t.Parallel()
+		f := newFake()
+		appr := &fakeApprovals{answer: host.ApprovalAllowSession}
+		m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f), Approvals: appr})
+		_, err := m.Invoke(t.Context(), "browser_cdp", json.RawMessage(`{"method":"Network.getCookies"}`), host.Env{})
+		var he *host.Error
+		if !errors.As(err, &he) || he.Code != "denied" {
+			t.Fatalf("err = %v, want denied", err)
+		}
+		if f.called("Network.getCookies") {
+			t.Fatalf("session approval reached the method: %v", f.calls)
+		}
+	})
+	t.Run("negative control: unreviewed method never reaches approval", func(t *testing.T) {
+		t.Parallel()
+		f := newFake()
+		appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
+		m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f), Approvals: appr})
+		for _, method := range []string{"Page.navigate", "Page.captureScreenshot", "Emulation.setDeviceMetricsOverride", "nonsense", "Runtime.evaluate(", "Network.setBypassCSP"} {
+			_, err := m.Invoke(t.Context(), "browser_cdp", json.RawMessage(`{"method":"`+method+`"}`), host.Env{})
+			var he *host.Error
+			if !errors.As(err, &he) || he.Code != "denied" {
+				t.Fatalf("%s: err = %v, want denied", method, err)
+			}
+		}
+		if len(appr.requests()) != 0 {
+			t.Fatalf("unreviewed methods asked for approval: %+v", appr.requests())
+		}
+		if len(f.calls) != 0 {
+			t.Fatalf("unreviewed methods reached the transport: %v", f.calls)
+		}
+	})
+	t.Run("file upload is sensitive and its preview hides the path", func(t *testing.T) {
+		t.Parallel()
+		f := newFake()
+		f.results["DOM.setFileInputFiles"] = json.RawMessage(`{}`)
+		appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
+		m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f), Approvals: appr})
+		params := `{"nodeId":1,"files":["file:///etc/passwd"]}`
+		if _, err := m.Invoke(t.Context(), "browser_cdp", json.RawMessage(`{"method":"DOM.setFileInputFiles","params":`+params+`}`), host.Env{}); err != nil {
+			t.Fatalf("cdp: %v", err)
+		}
+		reqs := appr.requests()
+		if len(reqs) != 1 {
+			t.Fatalf("approvals = %+v", reqs)
+		}
+		if strings.Contains(reqs[0].Preview, "passwd") || strings.Contains(reqs[0].Preview, "file:") {
+			t.Fatalf("preview leaked parameters: %q", reqs[0].Preview)
+		}
+	})
+	t.Run("negative control: malformed parameters", func(t *testing.T) {
+		t.Parallel()
+		f := newFake()
+		m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f)})
+		if _, err := m.Invoke(t.Context(), "browser_cdp", json.RawMessage(`{"method":"Page.getLayoutMetrics","params":{"x":`), host.Env{}); err == nil {
+			t.Fatal("malformed parameters accepted")
+		}
+	})
+	t.Run("method allowlist is closed", func(t *testing.T) {
+		t.Parallel()
+		for method, want := range map[string]struct{ sensitive, allowed bool }{
+			"Page.getLayoutMetrics":    {false, true},
+			"Network.getCookies":       {true, true},
+			"Storage.getCookies":       {true, true},
+			"Debugger.enable":          {true, true},
+			"Target.getTargets":        {true, true},
+			"Browser.getVersion":       {true, true},
+			"Page.navigate":            {false, false},
+			"Runtime.consoleAPICalled": {false, false},
+		} {
+			sensitive, allowed := cdpMethodClass(method)
+			if sensitive != want.sensitive || allowed != want.allowed {
+				t.Errorf("%s: sensitive=%v allowed=%v, want %+v", method, sensitive, allowed, want)
+			}
+		}
+	})
+}
+
+// fakeProcess is a spawner-owned process with real pipes.
+type fakeProcess struct {
+	in    nopWriteCloser
+	out   []byte
+	done  chan struct{}
+	waits int
+}
+
+type nopWriteCloser struct{ buf bytes.Buffer }
+
+func (n *nopWriteCloser) Write(p []byte) (int, error) { return n.buf.Write(p) }
+func (n *nopWriteCloser) Close() error                { return nil }
+
+func (p *fakeProcess) Stdio() (io.WriteCloser, io.ReadCloser, io.ReadCloser) {
+	return &p.in, io.NopCloser(bytes.NewReader(p.out)), io.NopCloser(strings.NewReader(""))
+}
+func (p *fakeProcess) Done() <-chan struct{}  { return p.done }
+func (p *fakeProcess) Wait() error            { p.waits++; return nil }
+func (p *fakeProcess) Signal(os.Signal) error { return nil }
+func (p *fakeProcess) Kill() error            { return nil }
+
+// TestF6TOOL019BrowserExec (TOOL-019): browser_exec exists only for the
+// browser-use backend, replaces every page tool, and fails closed without the
+// CLI, the spawner or an approval.
+func TestF6TOOL019BrowserExec(t *testing.T) {
+	t.Parallel()
+	useConfig := func(t *testing.T) ModuleConfig {
+		t.Helper()
+		cfg := moduleConfig()
+		cfg.Engine = "browser-use"
+		cfg.CDPURL = ""
+		cfg.UseBin = filepath.Join(t.TempDir(), "browser-use")
+		return cfg
+	}
+	t.Run("runs the helper through stdin", func(t *testing.T) {
+		t.Parallel()
+		cfg := useConfig(t)
+		proc := &fakeProcess{out: []byte("clicked #login"), done: make(chan struct{})}
+		appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
+		var spawned *host.SpawnSpec
+		m := newModule(t.Context(), t, &cfg, Deps{
+			Approvals: appr,
+			Spawn: func(_ context.Context, spec host.SpawnSpec) (host.Process, error) {
+				spawned = &spec
+				return proc, nil
+			},
+		})
+		res, err := m.Invoke(t.Context(), "browser_exec", json.RawMessage(`{"script":"print(1)"}`), host.Env{CallID: "c1"})
+		if err != nil || res.Content != "clicked #login" || res.UntrustedSource != "browser:browser-use" {
+			t.Fatalf("exec = %q, %v", res.Content, err)
+		}
+		if spawned == nil || spawned.Path != cfg.UseBin {
+			t.Fatalf("spawn = %+v", spawned)
+		}
+		if got := proc.in.buf.String(); got != "print(1)" {
+			t.Fatalf("stdin = %q", got)
+		}
+		reqs := appr.requests()
+		if len(reqs) != 1 || strings.Contains(reqs[0].Preview, "print(1)") {
+			t.Fatalf("preview leaked the script: %+v", reqs)
+		}
+		if !strings.Contains(reqs[0].Preview, "browser-use") {
+			t.Fatalf("preview does not name the backend: %q", reqs[0].Preview)
+		}
+	})
+	t.Run("replaces the page tools", func(t *testing.T) {
+		t.Parallel()
+		cfg := useConfig(t)
+		m := newModule(t.Context(), t, &cfg, Deps{Spawn: func(context.Context, host.SpawnSpec) (host.Process, error) {
+			return &fakeProcess{done: make(chan struct{})}, nil
+		}})
+		for _, tool := range []string{"browser_navigate", "browser_screenshot", "browser_cdp", "browser_dialog"} {
+			_, err := m.Invoke(t.Context(), tool, json.RawMessage(`{}`), host.Env{})
+			var he *host.Error
+			if !errors.As(err, &he) || he.Code != "module_unavailable" {
+				t.Fatalf("%s: err = %v, want module_unavailable", tool, err)
+			}
+		}
+	})
+	t.Run("negative control: no CLI or spawner", func(t *testing.T) {
+		t.Parallel()
+		cfg := useConfig(t)
+		cfg.UseBin = ""
+		m := newModule(t.Context(), t, &cfg, Deps{})
+		_, err := m.Invoke(t.Context(), "browser_exec", json.RawMessage(`{"script":"print(1)"}`), host.Env{})
+		var he *host.Error
+		if !errors.As(err, &he) || he.Code != "module_unavailable" {
+			t.Fatalf("err = %v, want module_unavailable", err)
+		}
+	})
+	t.Run("negative control: denied approval never spawns", func(t *testing.T) {
+		t.Parallel()
+		cfg := useConfig(t)
+		spawned := false
+		m := newModule(t.Context(), t, &cfg, Deps{
+			Approvals: &fakeApprovals{answer: host.ApprovalDeny},
+			Spawn: func(context.Context, host.SpawnSpec) (host.Process, error) {
+				spawned = true
+				return &fakeProcess{done: make(chan struct{})}, nil
+			},
+		})
+		if _, err := m.Invoke(t.Context(), "browser_exec", json.RawMessage(`{"script":"print(1)"}`), host.Env{}); err == nil {
+			t.Fatal("unapproved exec ran")
+		}
+		if spawned {
+			t.Fatal("denied exec spawned the CLI")
+		}
+	})
+	t.Run("negative control: exec is refused on the CDP engine", func(t *testing.T) {
+		t.Parallel()
+		f := newFake()
+		appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
+		m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f), Approvals: appr})
+		_, err := m.Invoke(t.Context(), "browser_exec", json.RawMessage(`{"script":"print(1)"}`), host.Env{})
+		var he *host.Error
+		if !errors.As(err, &he) || he.Code != "module_unavailable" {
+			t.Fatalf("err = %v, want module_unavailable", err)
+		}
+		if len(appr.requests()) != 0 {
+			t.Fatalf("exec asked for approval on CDP: %+v", appr.requests())
+		}
+	})
+	t.Run("negative control: oversize output", func(t *testing.T) {
+		t.Parallel()
+		cfg := useConfig(t)
+		proc := &fakeProcess{out: bytes.Repeat([]byte("x"), maxExecOutput+1), done: make(chan struct{})}
+		m := newModule(t.Context(), t, &cfg, Deps{
+			Approvals: &fakeApprovals{answer: host.ApprovalAllowOnce},
+			Spawn: func(context.Context, host.SpawnSpec) (host.Process, error) {
+				return proc, nil
+			},
+		})
+		_, err := m.Invoke(t.Context(), "browser_exec", json.RawMessage(`{"script":"print(1)"}`), host.Env{})
+		var he *host.Error
+		if !errors.As(err, &he) || he.Code != "too_large" {
+			t.Fatalf("err = %v, want too_large", err)
+		}
+	})
 }

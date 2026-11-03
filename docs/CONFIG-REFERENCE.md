@@ -156,6 +156,7 @@ config_version = 1
     allow_origins = []
     local_profile = false
     dialog_allow = []
+    use_bin = ""
   [modules.media]
     enabled = false
     image_backend = ""

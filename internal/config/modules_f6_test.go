@@ -126,6 +126,8 @@ func TestModulesBrowserEngines(t *testing.T) {
 		"camofox_url = \"http://127.0.0.1:9377\"\ncloud_url = \"https://browser.example\"",
 		"dialog_allow = [\"nonsense\"]",
 		"dialog_allow = [\"alert\", \"confirm\", \"prompt\", \"alert\"]",
+		"engine = \"browser-use\"\nuse_bin = \"browser-use\"",
+		"engine = \"cdp\"\ncdp_url = \"ws://127.0.0.1:9222/x\"\nuse_bin = \"/usr/local/bin/browser-use\"",
 	} {
 		if _, err := parse(t, "[modules.browser]\n"+body+"\n"); err == nil {
 			t.Errorf("section %q loaded", body)
@@ -138,6 +140,7 @@ func TestModulesBrowserEngines(t *testing.T) {
 		"engine = \"cloud\"\ncloud_url = \"http://127.0.0.1:8080\"",
 		"engine = \"cdp\"\ncdp_url = \"ws://127.0.0.1:9222/x\"",
 		"dialog_allow = [\"alert\", \"confirm\"]",
+		"engine = \"browser-use\"\nuse_bin = " + absBin,
 	} {
 		if _, err := parse(t, "[modules.browser]\n"+body+"\n"); err != nil {
 			t.Errorf("section %q: %v", body, err)

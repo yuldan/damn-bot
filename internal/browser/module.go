@@ -3,7 +3,6 @@
 package browser
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -39,6 +38,8 @@ func Tools() []Tool {
 		newTool("browser_get_images", "List the images of the current page with their natural size", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
 		newTool("browser_vision", "Capture the viewport and hand the PNG to the vision model", "read", `{"type":"object","properties":{"question":{"type":"string","maxLength":1000}},"additionalProperties":false}`),
 		newTool("browser_click", "Click the current page at viewport coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"integer"},"y":{"type":"integer"}},"required":["x","y"],"additionalProperties":false}`),
+		newTool("browser_cdp", "Send one reviewed Chrome DevTools Protocol method after approval", "non_idempotent", `{"type":"object","properties":{"method":{"type":"string","maxLength":128},"params":{"type":"object"}},"required":["method"],"additionalProperties":false}`),
+		newTool("browser_exec", "Run one Python helper through the Browser Use CLI after approval", "non_idempotent", `{"type":"object","properties":{"script":{"type":"string","maxLength":8192},"timeout_ms":{"type":"integer","minimum":1000,"maximum":120000}},"required":["script"],"additionalProperties":false}`),
 		newTool("browser_dialog", "Inspect an open native dialog, or answer it after approval", "non_idempotent", `{"type":"object","properties":{"action":{"type":"string","enum":["status","accept","dismiss"]},"text":{"type":"string","maxLength":1024}},"additionalProperties":false}`),
 		newTool("browser_type", "Insert text into the focused element after approval", "non_idempotent", `{"type":"object","properties":{"text":{"type":"string","maxLength":4096}},"required":["text"],"additionalProperties":false}`),
 		newTool("browser_back", "Go back one history entry after approval", "non_idempotent", `{"type":"object","properties":{},"additionalProperties":false}`),
@@ -71,6 +72,7 @@ type ModuleConfig struct {
 	AllowOrigins  []string
 	LocalProfile  bool
 	DialogsAllow  []string
+	UseBin        string
 	Offline       bool
 	NoBackground  bool
 }
@@ -81,6 +83,8 @@ type Deps struct {
 	Dial      DialFunc
 	Run       RunFunc
 	HTTP      *http.Client
+	// Spawn starts the Browser Use CLI for browser_exec through the host seam.
+	Spawn func(ctx context.Context, spec host.SpawnSpec) (host.Process, error)
 }
 
 // DialFunc opens one CDP page transport, so tests can inject a fake.
@@ -126,19 +130,22 @@ func New(cfg *ModuleConfig, deps Deps) (*Module, error) {
 // one endpoint without an explicit engine is ambiguous, not picked silently.
 func validateEngineConfig(cfg *ModuleConfig) error {
 	switch cfg.Engine {
-	case "", "cdp", "camofox", "lightpanda", "cloud":
+	case "", "cdp", "camofox", "lightpanda", "cloud", "browser-use":
 	default:
 		return fmt.Errorf("%w: engine %q", errBadConfig, cfg.Engine)
 	}
 	if _, err := ParseDialogs(cfg.DialogsAllow); err != nil {
 		return err
 	}
+	if cfg.UseBin != "" && cfg.Engine != "" && cfg.Engine != "browser-use" {
+		return fmt.Errorf("%w: use_bin needs engine browser-use", errBadConfig)
+	}
 	if err := validateEndpoints(cfg); err != nil {
 		return err
 	}
 	if cfg.Engine == "" {
 		n := 0
-		for _, on := range []bool{cfg.CDPURL != "", cfg.CamofoxURL != "", cfg.LightpandaBin != "", cfg.CloudURL != ""} {
+		for _, on := range []bool{cfg.CDPURL != "", cfg.CamofoxURL != "", cfg.LightpandaBin != "", cfg.CloudURL != "", cfg.UseBin != ""} {
 			if on {
 				n++
 			}
@@ -173,6 +180,9 @@ func validateEndpoints(cfg *ModuleConfig) error {
 	}
 	if cfg.LightpandaBin != "" && !filepath.IsAbs(cfg.LightpandaBin) {
 		return fmt.Errorf("%w: lightpanda_bin must be absolute", errBadConfig)
+	}
+	if cfg.UseBin != "" && (!filepath.IsAbs(cfg.UseBin) || len(cfg.UseBin) > 1024) {
+		return fmt.Errorf("%w: use_bin must be an absolute path of at most 1024 bytes", errBadConfig)
 	}
 	return nil
 }
@@ -210,6 +220,8 @@ func (m *Module) engineName() string {
 		return "lightpanda"
 	case m.cfg.CloudURL != "":
 		return "cloud"
+	case m.cfg.UseBin != "":
+		return "browser-use"
 	}
 	return ""
 }
@@ -259,6 +271,12 @@ func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, 
 	if m == nil || !m.cfg.Enabled || m.engineName() == "" {
 		return host.Result{}, &host.Error{Code: "module_unavailable", Message: "browser module is unavailable: " + tool}
 	}
+	if m.engineName() == "browser-use" && tool != "browser_exec" {
+		return host.Result{}, &host.Error{
+			Code: "module_unavailable", Message: "engine browser-use replaces the page tools: " + tool,
+			Hint: "call browser_exec",
+		}
+	}
 	if res, ok, err := m.invokeRead(ctx, tool, args); ok {
 		return res, err
 	}
@@ -302,6 +320,10 @@ func (m *Module) invokeAction(ctx context.Context, tool string, args json.RawMes
 	switch tool {
 	case "browser_dialog":
 		return m.dialog(ctx, args, env)
+	case "browser_cdp":
+		return m.rawCDP(ctx, args, env)
+	case "browser_exec":
+		return m.execScript(ctx, args, env)
 	case "browser_click":
 		return m.click(ctx, args, env)
 	case "browser_type":
@@ -702,24 +724,6 @@ func (m *Module) dialCDP(ctx context.Context) (Transport, error) {
 	return conn, nil
 }
 
-// taint labels every browser result with the navigated host of the current
-// page (SPEC §14.5, ADR-070).
-func (m *Module) taint() string {
-	host := m.host
-	if host == "" {
-		host = "page"
-	}
-	return "browser:" + host
-}
-
-func urlHost(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return ""
-	}
-	return strings.ToLower(u.Hostname())
-}
-
 const (
 	// cdpCallTimeout bounds one dial and one discovery request.
 	cdpCallTimeout = 10 * time.Second
@@ -773,20 +777,4 @@ func discover(ctx context.Context, base string) (out string, err error) {
 		return endpointURL(target.WebSocketDebuggerURL)
 	}
 	return "", fmt.Errorf("%w: no page target", errPage)
-}
-
-func decodeArgs(raw json.RawMessage, dst any) error {
-	if len(bytes.TrimSpace(raw)) == 0 {
-		raw = json.RawMessage(`{}`)
-	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		return fmt.Errorf("%w: %w", errBadConfig, err)
-	}
-	return nil
-}
-
-func invalidArgs(err error) error {
-	return &host.Error{Code: "invalid_args", Message: err.Error()}
 }

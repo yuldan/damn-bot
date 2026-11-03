@@ -36,6 +36,7 @@ type ModulesBrowser struct {
 	AllowOrigins  []string `toml:"allow_origins"`
 	LocalProfile  bool     `toml:"local_profile"`
 	DialogAllow   []string `toml:"dialog_allow"`
+	UseBin        string   `toml:"use_bin"`
 }
 
 // ModulesMedia is [modules.media] (ADR-310, ADR-318): explicit image/video backends, key-gated.
@@ -106,7 +107,7 @@ func (m *Modules) validateF6() error {
 func (m *Modules) validateBrowser() error {
 	b := m.Browser
 	switch b.Engine {
-	case "", "cdp", "camofox", "lightpanda", "cloud":
+	case "", "cdp", "camofox", "lightpanda", "cloud", "browser-use":
 	default:
 		return invalid("modules.browser.engine", "engine %q is not supported", b.Engine)
 	}
@@ -126,6 +127,14 @@ func (m *Modules) validateBrowser() error {
 	if bin := b.LightpandaBin; bin != "" &&
 		(len(bin) > 1024 || !filepath.IsAbs(bin) || strings.ContainsAny(bin, "\x00\r\n")) {
 		return invalid("modules.browser.lightpanda_bin", "must be an absolute path without control characters")
+	}
+	if bin := b.UseBin; bin != "" {
+		if len(bin) > 1024 || !filepath.IsAbs(bin) || strings.ContainsAny(bin, "\x00\r\n") {
+			return invalid("modules.browser.use_bin", "must be an absolute path without control characters")
+		}
+		if b.Engine != "" && b.Engine != "browser-use" {
+			return invalid("modules.browser.use_bin", "requires engine browser-use")
+		}
 	}
 	if err := browserAmbiguous(&b); err != nil {
 		return err
@@ -176,7 +185,7 @@ func browserAmbiguous(b *ModulesBrowser) error {
 		return nil
 	}
 	n := 0
-	for _, on := range []bool{b.CDPURL != "", b.CamofoxURL != "", b.LightpandaBin != "", b.CloudURL != ""} {
+	for _, on := range []bool{b.CDPURL != "", b.CamofoxURL != "", b.LightpandaBin != "", b.CloudURL != "", b.UseBin != ""} {
 		if on {
 			n++
 		}

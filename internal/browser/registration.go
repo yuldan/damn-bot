@@ -22,6 +22,7 @@ type Section struct {
 	AllowOrigins  []string `json:"allow_origins"`
 	LocalProfile  bool     `json:"local_profile"`
 	DialogsAllow  []string `json:"dialog_allow"`
+	UseBin        string   `json:"use_bin"`
 	Offline       bool     `json:"offline"`
 	NoBackground  bool     `json:"no_background"`
 }
