@@ -24,7 +24,7 @@ import (
 // runtime already swallows a lost notice, so a store failure is reported and
 // returned rather than retried.
 type runModuleHost struct {
-	*mcpCLIHost
+	*cliHost
 	db  *ctxdb.Store
 	sid string
 }
@@ -41,7 +41,7 @@ func newRunModuleHost(db *ctxdb.Store, sid string) host.Host {
 		return nil
 	}
 	return &runModuleHost{
-		mcpCLIHost: &mcpCLIHost{
+		cliHost: &cliHost{
 			db:      db,
 			approve: &terminalApprovals{in: os.Stdin, out: os.Stderr},
 			secrets: envSecrets{getenv: loader.Env},
