@@ -339,6 +339,23 @@ type assemblerAdapter struct {
 	store       *ctxStore
 }
 
+func attachHistory(history, out []loop.Message) {
+	byCall := make(map[string][]loop.Attachment, len(history))
+	for _, m := range history {
+		if m.Role == "tool" && len(m.Attachments) > 0 {
+			byCall[m.ToolCallID] = m.Attachments
+		}
+	}
+	for i := range out {
+		if out[i].Role != "tool" {
+			continue
+		}
+		if as, ok := byCall[out[i].ToolCallID]; ok {
+			out[i].Attachments = as
+		}
+	}
+}
+
 func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleRequest) (loop.Prompt, error) {
 	if a.compactor == nil {
 		return loop.Prompt{}, errors.New("assembler: compaction view required")
@@ -395,6 +412,7 @@ func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleReque
 		}
 		out.Messages = append(out.Messages, lm)
 	}
+	attachHistory(req.History, out.Messages)
 	// The assembler appends the history verbatim after the system tiers, so
 	// the view's assistant messages land at a fixed offset: their stored
 	// carriers go back on the request, minus the ones the provider rejected.

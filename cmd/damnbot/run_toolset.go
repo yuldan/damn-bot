@@ -99,6 +99,11 @@ func (t *toolsetAdapter) Dispatch(ctx context.Context, p *loop.Prepared) (loop.T
 	if out.Spilled != nil {
 		res.BlobSHA = out.Spilled.SHA
 	}
+	for _, a := range out.Attachments {
+		res.Attachments = append(res.Attachments, loop.Attachment{
+			Kind: a.Kind, Name: a.Name, MIME: a.MIME, BlobSHA: a.SHA, Size: a.Size, Data: a.Data,
+		})
+	}
 	if out.Denied {
 		res.Err = &loop.ToolError{Code: loop.CodeDenied, Message: "denied"}
 	}

@@ -22,6 +22,8 @@ type Message struct {
 	ToolCalls  []ToolCall
 	ToolCallID string
 	Carriers   []event.Carrier
+	// Attachments are tool-result blobs for the next provider request.
+	Attachments []Attachment
 }
 
 // ToolCall is a native model tool call. Arguments stay raw; schema
@@ -225,20 +227,24 @@ const (
 // error from Dispatch is fatal to the turn (tool_error). Tainted marks
 // untrusted output: every later non-read action is forced to ask (ADR-070).
 type ToolResult struct {
-	Content string
-	Err     *ToolError
-	Status  string // ExecStatus where the tool defines one (ADR-082)
-	Tainted bool
-	BlobSHA string
-	Meta    json.RawMessage
+	Content     string
+	Err         *ToolError
+	Status      string // ExecStatus where the tool defines one (ADR-082)
+	Tainted     bool
+	BlobSHA     string
+	Meta        json.RawMessage
+	Attachments []Attachment
 }
 
 // Attachment is one input attachment reference. The Assembler resolves it.
 type Attachment struct {
+	Kind    string
 	Name    string
 	MIME    string
 	BlobSHA string
 	Size    int64
+	// Data is the current-turn bytes; persisted history may only have BlobSHA.
+	Data []byte
 }
 
 // Input is one user prompt (SPEC §4.2).
