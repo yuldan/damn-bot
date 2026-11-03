@@ -25,6 +25,29 @@ func TestSelectionText(t *testing.T) {
 	if !strings.Contains(f1, "per set") || strings.Contains(f1, h2h.F5SmokeSalt) {
 		t.Fatalf("F1 selection = %q", f1)
 	}
+	f6 := selectionText("f6e3")
+	if !strings.Contains(f6, "10 task E3") || !strings.Contains(f6, h2h.F6E3SmokeSalt) {
+		t.Fatalf("F6 E3 selection = %q", f6)
+	}
+}
+
+// TestSmokeF6E3Phase pins the ledger phase/cap and cheap default model so a
+// smoke cannot spend F5 budget or run without the documented model.
+func TestSmokeF6E3Phase(t *testing.T) {
+	t.Parallel()
+	phase, cap, err := smokePhase("f6e3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if phase != h2h.PhaseF6 || cap != h2h.F6CapUSD {
+		t.Fatalf("phase = %s cap = %v, want F6/%v", phase, cap, h2h.F6CapUSD)
+	}
+	if got := smokeModel("f6e3"); got != h2h.F6E3CheapModel || got == "" {
+		t.Fatalf("model = %q", got)
+	}
+	if _, _, err := smokePhase("nope"); err == nil {
+		t.Fatal("unknown smoke must fail")
+	}
 }
 
 // TestHermesCommit: commit checkout hermes dibaca lewat `git -c safe.directory=<abs>`, dan

@@ -297,36 +297,117 @@ func TestKeyFileResolution(t *testing.T) {
 }
 
 // skipOrFail skips a paid live gate when it is not requested, but fails when
-// the job declares it has the prerequisite (H2H_LIVE_F5=1): a CI that claims
-// it can run the F5 smoke must not silently pass without a key.
-func skipOrFail(t *testing.T, reason string) {
+// the job declares it has the prerequisite (liveEnv=1): a CI that claims it
+// can run the smoke must not silently pass without a key.
+func skipOrFail(t *testing.T, liveEnv, reason string) {
 	t.Helper()
-	if os.Getenv("H2H_LIVE_F5") != "" {
+	if os.Getenv(liveEnv) != "" {
 		t.Fatal(reason)
 	}
 	t.Skip(reason)
+}
+
+// liveKey resolves the runtime key and never prints it.
+func liveKey() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return KeyFile(os.Getenv, home)
 }
 
 // TestF5SmokeLivePreconditions is the skipOrFail gate for the paid smoke:
 // opt-in locally; a live job without a key fails instead of skipping.
 func TestF5SmokeLivePreconditions(t *testing.T) {
 	t.Parallel()
-	key := func() string {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		return KeyFile(os.Getenv, home)
-	}()
 	if os.Getenv("H2H_LIVE_F5") == "" {
-		skipOrFail(t, "paid F5 smoke is opt-in (H2H_LIVE_F5=1); no spend in the unit suite")
+		skipOrFail(t, "H2H_LIVE_F5", "paid F5 smoke is opt-in (H2H_LIVE_F5=1); no spend in the unit suite")
 	}
-	if key == "" {
-		skipOrFail(t, "H2H_LIVE_F5=1 but no key file (H2H_KEY_FILE/~/.config/damnbot/llm_key)")
+	if liveKey() == "" {
+		skipOrFail(t, "H2H_LIVE_F5", "H2H_LIVE_F5=1 but no key file (H2H_KEY_FILE/~/.config/damnbot/llm_key)")
 	}
 	all := func(string) (string, error) { return "/bin/true", nil }
 	if tasks, err := SelectF5E1("../evals/v1", all); err != nil || len(tasks) != 10 {
 		t.Fatalf("live smoke selection: %d %v", len(tasks), err)
+	}
+}
+
+// TestF6E3Smoke10 pins the deterministic ten-task E3 selection and the
+// skipOrFail/key rules of the opt-in F6 smoke.
+func TestF6E3Smoke10(t *testing.T) {
+	t.Parallel()
+	all := func(string) (string, error) { return "/bin/true", nil }
+	got, err := SelectF6E3("../evals/v1", all)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"E3-012", "E3-016", "E3-001", "E3-026", "E3-010", "E3-020", "E3-018", "E3-009", "E3-013", "E3-017"}
+	if len(got) != len(want) {
+		t.Fatalf("tasks = %d, want %d", len(got), len(want))
+	}
+	for i, task := range got {
+		if task.ID != want[i] || task.Set != "E3" {
+			t.Fatalf("task %d = %s (%s), want %s (E3)", i, task.ID, task.Set, want[i])
+		}
+	}
+	again, err := SelectF6E3("../evals/v1", all)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range got {
+		if got[i].ID != again[i].ID {
+			t.Fatalf("selection unstable at %d: %s vs %s", i, got[i].ID, again[i].ID)
+		}
+	}
+	if _, err := SelectF6E3(t.TempDir(), all); err == nil {
+		t.Fatal("E3 must fail rather than return a short selection")
+	}
+}
+
+// TestF6E3LivePreconditions is the paid-run gate: locally it skips, but a job
+// that sets H2H_LIVE_F6=1 without a key fails instead of passing silently.
+func TestF6E3LivePreconditions(t *testing.T) {
+	t.Parallel()
+	if os.Getenv("H2H_LIVE_F6") == "" {
+		skipOrFail(t, "H2H_LIVE_F6", "paid F6 E3 smoke is opt-in (H2H_LIVE_F6=1); no spend in the unit suite")
+	}
+	if liveKey() == "" {
+		skipOrFail(t, "H2H_LIVE_F6", "H2H_LIVE_F6=1 but no key file (H2H_KEY_FILE/~/.config/damnbot/llm_key)")
+	}
+	all := func(string) (string, error) { return "/bin/true", nil }
+	if tasks, err := SelectF6E3("../evals/v1", all); err != nil || len(tasks) != 10 {
+		t.Fatalf("live E3 selection: %d %v", len(tasks), err)
+	}
+}
+
+// TestF6E3KeyResolution covers the key rules the F6 smoke relies on: an
+// explicit H2H_KEY_FILE wins, the per-user default is used when present, and
+// a missing key resolves to empty (never to a logged or guessed value).
+func TestF6E3KeyResolution(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	empty := func(string) string { return "" }
+	if got := KeyFile(empty, home); got != "" {
+		t.Fatalf("missing key = %q", got)
+	}
+	path := filepath.Join(home, ".config", "damnbot", "llm_key")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := KeyFile(empty, home); got != path {
+		t.Fatalf("default key = %q", got)
+	}
+	env := func(k string) string {
+		if k == "H2H_KEY_FILE" {
+			return "/tmp/explicit-key"
+		}
+		return ""
+	}
+	if got := KeyFile(env, home); got != "/tmp/explicit-key" {
+		t.Fatalf("explicit key = %q", got)
 	}
 }
 
@@ -364,5 +445,59 @@ func TestLedgerPhaseIsolation(t *testing.T) {
 	}
 	if f5b.CapUSD != F5CapUSD || f1b.CapUSD != 2.00 {
 		t.Fatalf("caps: F1=%v F5=%v", f1b.CapUSD, f5b.CapUSD)
+	}
+}
+
+// TestF6LedgerPhaseIsolation proves the F6 smoke cannot spend F1/F5 budget and
+// that an older ledger without an F6 phase gets one at OpenLedgerPhase time.
+func TestF6LedgerPhaseIsolation(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "spend.json")
+	f1, err := OpenLedger(path, F1CapUSD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f5, err := OpenLedgerPhase(path, PhaseF5, F5CapUSD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f6, err := OpenLedgerPhase(path, PhaseF6, F6CapUSD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spend := func(l *Ledger, usd float64) {
+		t.Helper()
+		id, err := l.Reserve(usd, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := l.Settle(id, usd); err != nil {
+			t.Fatal(err)
+		}
+	}
+	spend(f1, 0.25)
+	spend(f5, 0.10)
+	spend(f6, 0.05)
+
+	f6b, err := OpenLedgerPhase(path, PhaseF6, F6CapUSD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f5b, err := OpenLedgerPhase(path, PhaseF5, F5CapUSD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f1b, err := OpenLedger(path, F1CapUSD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f6b.Spent() != 0.05 || f5b.Spent() != 0.10 || f1b.Spent() != 0.25 {
+		t.Fatalf("phases spent: F6=%v F5=%v F1=%v", f6b.Spent(), f5b.Spent(), f1b.Spent())
+	}
+	if f6b.CapUSD != F6CapUSD || f5b.CapUSD != F5CapUSD || f1b.CapUSD != F1CapUSD {
+		t.Fatalf("caps: F6=%v F5=%v F1=%v", f6b.CapUSD, f5b.CapUSD, f1b.CapUSD)
+	}
+	if _, err := f6b.Reserve(F6CapUSD, 0); err == nil {
+		t.Fatal("F6 must reject a reserve over its own remaining cap")
 	}
 }

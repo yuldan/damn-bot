@@ -199,6 +199,8 @@ func TestVoicePipelineLatency(t *testing.T) {
 		t.Errorf("TTS start = %s > 300ms", ttsStart)
 	}
 	t.Logf("overhead=%s tts_start=%s", overhead, ttsStart)
+	t.Logf("F6-VOICE-LATENCY {\"overhead_ms\":%.3f,\"tts_start_ms\":%.3f,\"runs\":1}",
+		float64(overhead.Microseconds())/1000, float64(ttsStart.Microseconds())/1000)
 }
 
 func TestVoicePipelineNegativeControls(t *testing.T) {

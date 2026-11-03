@@ -1,0 +1,70 @@
+{
+ "meta": {
+  "phase": "F6",
+  "date": "2026-11-03",
+  "hermes_commit": "868b9f244f5aa3ad238e494048046fe4f29c28ba",
+  "harness": "bench/f6/run.sh: BenchmarkImagePreflightStages + TestVoicePipelineLatency (shared fake STT/LLM/TTS protocol) + hermes_image.py/hermes_voice.py",
+  "llm": "0 calls (fake STT/LLM/TTS and local image work; no provider traffic)",
+  "reference_machine": "Q14",
+  "machine": "workstation (not Q14)",
+  "cpu": "Intel(R) Xeon(R) Gold 6152 CPU @ 2.10GHz",
+  "kernel": "Linux 6.8.0-147-generic",
+  "damnbot_commit": "eb176348",
+  "damnbot_dirty": "15",
+  "caveats": {
+   "image": "4000x3000 JPEG with the 2048 px / 3.75 MB / q85 preset; Damn-Bot uses stdlib stages, Hermes uses Pillow stages",
+   "verdict": "pass requires measured rows and all targets; image also requires machine Q14",
+   "voice": "fake 10 ms TTS and timestamped fake LLM; playback is a no-op, so provider/audio-device latency is excluded by design"
+  }
+ },
+ "dimensions": {
+  "image_preflight": {
+   "target": {
+    "total_ms": 150
+   },
+   "agents": {
+    "damnbot": {
+     "status": "measured",
+     "machine": "workstation (not Q14)",
+     "runs": 3,
+     "decode_ms": 136.988518,
+     "resize_ms": 18.822104,
+     "encode_ms": 94.201602,
+     "total_ms": 271.507721
+    },
+    "hermes": {
+     "status": "measured",
+     "machine": "workstation (not Q14)",
+     "runs": 3,
+     "decode_ms": 51.49759799678577,
+     "resize_ms": 237.76074399938807,
+     "encode_ms": 10.906939001870342,
+     "total_ms": 444.6914439977263
+    }
+   },
+   "verdict": "fail"
+  },
+  "voice_end_to_end": {
+   "target": {
+    "overhead_ms": 200,
+    "tts_start_ms": 300
+   },
+   "agents": {
+    "damnbot": {
+     "status": "measured",
+     "runs": 3,
+     "overhead_ms": 0.069,
+     "tts_start_ms": 0.041
+    },
+    "hermes": {
+     "status": "measured",
+     "machine": "workstation (not Q14)",
+     "runs": 3,
+     "overhead_ms": 1.14263899740763,
+     "tts_start_ms": 1.14263899740763
+    }
+   },
+   "verdict": "pass"
+  }
+ }
+}

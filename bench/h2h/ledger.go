@@ -23,12 +23,15 @@ const F1LedgerPath = "h2h/results/f1-spend.json"
 // F1CapUSD adalah cap total biaya LLM F1 saat ledger dibuat (ADR-062 butir 3).
 const F1CapUSD = 2.00
 
-// Phase F5 smoke (ROADMAP F5, ADR-032) has its own small cap in the same
-// committed ledger file; F1's historical fields stay the default phase.
+// Phase F5 smoke (ROADMAP F5, ADR-032) and the F6 E3 smoke have their own
+// small caps in the same committed ledger file; F1's historical fields stay
+// the default phase. A phase can never spend another phase's budget.
 const (
 	PhaseF1  = "F1"
 	PhaseF5  = "F5"
+	PhaseF6  = "F6"
 	F5CapUSD = 2.00
+	F6CapUSD = 2.00
 )
 
 // Ledger adalah biaya LLM kumulatif lintas run dan lintas proses untuk satu cap (ADR-062 butir 3,
@@ -91,6 +94,7 @@ func OpenLedgerPhase(path, phase string, capUSD float64) (*Ledger, error) {
 				CapUSD: F1CapUSD, Phases: map[string]*phaseFile{
 					PhaseF1: {CapUSD: F1CapUSD},
 					PhaseF5: {CapUSD: F5CapUSD},
+					PhaseF6: {CapUSD: F6CapUSD},
 				},
 			}
 			if ph := nf.Phases[phase]; ph != nil {

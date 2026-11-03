@@ -4,12 +4,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"hash/crc32"
 	"image"
 	"image/jpeg"
 	"image/png"
 	"testing"
-	"time"
 )
 
 func gradient(w, h int) *image.NRGBA {
@@ -257,6 +257,29 @@ func TestPreflightResultString(t *testing.T) {
 	}
 }
 
+// specImageTargetMS is the SPEC §17 / F6 acceptance target for a 12 MP
+// preflight. It is measured on the Q14 reference machine; a faster or slower
+// development host must never lower it or claim the target was met.
+const (
+	specImageTargetMS         = 150
+	specImageReferenceMachine = "Q14"
+)
+
+// TestImagePreflightTargetNotLowered pins the acceptance target and preset:
+// changing either is a spec decision, not a benchmark tweak.
+func TestImagePreflightTargetNotLowered(t *testing.T) {
+	t.Parallel()
+	if specImageTargetMS != 150 || specImageReferenceMachine != "Q14" {
+		t.Fatalf("target = %d ms on %s, want 150 ms on Q14", specImageTargetMS, specImageReferenceMachine)
+	}
+	if got := Default().MaxPixels; got != 12_000_000 {
+		t.Fatalf("MaxPixels = %d, want 12 MP", got)
+	}
+}
+
+// BenchmarkImagePreflight reports the end-to-end 12 MP preflight. The target
+// metric is metadata only: `go test -bench` does not fail a slow host, and
+// this host is not Q14, so a passing benchmark is not acceptance evidence.
 func BenchmarkImagePreflight(b *testing.B) {
 	src := encodeJPEG(b, gradient(4000, 3000), 80)
 	lim := Default()
@@ -264,15 +287,61 @@ func BenchmarkImagePreflight(b *testing.B) {
 	b.SetBytes(int64(len(src)))
 	b.ResetTimer()
 	for b.Loop() {
-		start := time.Now()
 		res, err := Preflight(src, lim)
-		elapsed := time.Since(start)
 		if err != nil {
 			b.Fatalf("Preflight: %v", err)
 		}
 		if res.Width > lim.MaxSide || len(res.Data) == 0 {
 			b.Fatalf("bad result: %+v", res)
 		}
-		b.ReportMetric(float64(elapsed.Microseconds())/1000, "ms/op")
 	}
+	b.ReportMetric(float64(b.Elapsed().Microseconds())/float64(b.N)/1000, "ms/op")
+	b.ReportMetric(specImageTargetMS, "target_ms")
+}
+
+// BenchmarkImagePreflightStages splits the same 12 MP JPEG into decode,
+// resize, encode and total so a slow stage is visible. The target stays
+// 150 ms on Q14; the numbers below are per-host measurements, not a pass.
+func BenchmarkImagePreflightStages(b *testing.B) {
+	src := encodeJPEG(b, gradient(4000, 3000), 80)
+	lim := Default()
+	img, _, pngOut, _, err := load(src, lim)
+	if err != nil {
+		b.Fatalf("load: %v", err)
+	}
+	scaled := scaleImage(img, lim)
+	stage := func(name string, fn func() error) {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if err := fn(); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+	stage("decode", func() error {
+		_, _, _, _, err := load(src, lim)
+		return err
+	})
+	stage("resize", func() error {
+		if scaleImage(img, lim) == nil {
+			return fmt.Errorf("nil resize")
+		}
+		return nil
+	})
+	stage("encode", func() error {
+		_, _, _, _, err := fit(scaled, pngOut, lim)
+		return err
+	})
+	b.Run("total", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(src)))
+		for b.Loop() {
+			if _, err := Preflight(src, lim); err != nil {
+				b.Fatal(err)
+			}
+		}
+		b.ReportMetric(specImageTargetMS, "target_ms")
+	})
 }
