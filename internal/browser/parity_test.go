@@ -1,0 +1,237 @@
+//go:build !minimal
+
+package browser
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/url"
+	"strings"
+	"testing"
+
+	"github.com/damnbot/damnbot/internal/modules/host"
+)
+
+// failingTransport fails one method so the error path of a parity read is
+// exercised without touching the fake transport other tests share.
+type failingTransport struct {
+	Transport
+	method string
+	err    error
+}
+
+func (f failingTransport) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	if method == f.method {
+		return nil, fmt.Errorf("browser: %s: %w", method, f.err)
+	}
+	raw, err := f.Transport.Call(ctx, method, params)
+	if err != nil {
+		return nil, fmt.Errorf("browser: %s: %w", method, err)
+	}
+	return raw, nil
+}
+
+func consoleResult(t *testing.T, content string) int {
+	t.Helper()
+	if content == "no console messages" {
+		return 0
+	}
+	return strings.Count(content, "\n") + 1
+}
+
+// TestF6TOOL008BrowserConsole (TOOL-008): browser_console only reads the
+// bounded console buffer, never evaluates page script, and taints the result.
+func TestF6TOOL008BrowserConsole(t *testing.T) {
+	t.Parallel()
+	t.Run("reads buffered events without evaluating", consoleCaseReadsBufferedEventsWithoutEvaluating1)
+	t.Run("buffer is bounded", consoleCaseBufferIsBounded2)
+	t.Run("negative control: one entry is clipped", consoleCaseNegativeControlOneEntryIsClipped3)
+	t.Run("enable failure is a typed error", consoleCaseEnableFailureIsATypedError4)
+	t.Run("engine page without a CDP transport is unsupported", consoleCaseEnginePageWithoutATransportIsUnsupported5)
+}
+
+func TestF6TOOL009BrowserGetImages(t *testing.T) {
+	t.Parallel()
+	t.Run("lists images with size", imagesCaseListsImagesWithSize1)
+	t.Run("result is capped at maxImages", imagesCaseResultIsCappedAtMaxMages2)
+	t.Run("negative control: empty page", imagesCaseNegativeControlEmptyPage3)
+	t.Run("negative control: a non-array reply fails", imagesCaseNegativeControlANonArrayReplyFails4)
+}
+
+func consoleCaseReadsBufferedEventsWithoutEvaluating1(t *testing.T) {
+	t.Parallel()
+	f := newFake()
+	emit(f, "Runtime.consoleAPICalled", `{"type":"log","args":[{"type":"string","value":"hello"}]}`)
+	emit(f, "Log.entryAdded", `{"entry":{"level":"warning","text":"careful"}}`)
+	emit(f, "Runtime.exceptionThrown", `{"exceptionDetails":{"text":"boom"}}`)
+	m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f)})
+	res, err := m.Invoke(t.Context(), "browser_console", json.RawMessage(`{}`), host.Env{})
+	if err != nil {
+		t.Fatalf("console: %v", err)
+	}
+	for _, want := range []string{`[log] "hello"`, "[warning] careful", "[exception] boom"} {
+		if !strings.Contains(res.Content, want) {
+			t.Fatalf("content = %q, want %q", res.Content, want)
+		}
+	}
+	if res.UntrustedSource != "browser:page" {
+		t.Fatalf("taint = %q", res.UntrustedSource)
+	}
+	for _, method := range []string{"Runtime.enable", "Log.enable"} {
+		if !f.called(method) {
+			t.Fatalf("calls = %v, want %s", f.calls, method)
+		}
+	}
+	if f.called("Runtime.evaluate") {
+		t.Fatalf("console evaluated page script: %v", f.calls)
+	}
+}
+
+func consoleCaseBufferIsBounded2(t *testing.T) {
+	t.Parallel()
+	f := newFake()
+	m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f)})
+	for range 20 {
+		for range 16 {
+			emit(f, "Runtime.consoleAPICalled", `{"type":"log","args":[{"type":"string","value":"line"}]}`)
+		}
+		if _, err := m.Invoke(t.Context(), "browser_console", json.RawMessage(`{}`), host.Env{}); err != nil {
+			t.Fatalf("console: %v", err)
+		}
+	}
+	res, err := m.Invoke(t.Context(), "browser_console", json.RawMessage(`{}`), host.Env{})
+	if err != nil {
+		t.Fatalf("console: %v", err)
+	}
+	if got := consoleResult(t, res.Content); got > maxConsoleLines {
+		t.Fatalf("buffer kept %d lines > %d", got, maxConsoleLines)
+	}
+}
+
+func consoleCaseNegativeControlOneEntryIsClipped3(t *testing.T) {
+	t.Parallel()
+	f := newFake()
+	emit(f, "Runtime.consoleAPICalled", `{"type":"log","args":[{"type":"string","value":"`+strings.Repeat("x", 5000)+`"}]}`)
+	m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f)})
+	res, err := m.Invoke(t.Context(), "browser_console", json.RawMessage(`{}`), host.Env{})
+	if err != nil {
+		t.Fatalf("console: %v", err)
+	}
+	if n := len([]rune(res.Content)); n > maxConsoleLine+len("[log] ")+2 {
+		t.Fatalf("entry kept %d runes, want at most %d", n, maxConsoleLine)
+	}
+}
+
+func consoleCaseEnableFailureIsATypedError4(t *testing.T) {
+	t.Parallel()
+	f := newFake()
+	broken := failingTransport{Transport: f, method: "Runtime.enable", err: errors.New("socket closed")}
+	m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(broken)})
+	_, err := m.Invoke(t.Context(), "browser_console", json.RawMessage(`{}`), host.Env{})
+	var he *host.Error
+	if !errors.As(err, &he) || he.Code != "network" {
+		t.Fatalf("err = %v, want network", err)
+	}
+}
+
+func consoleCaseEnginePageWithoutATransportIsUnsupported5(t *testing.T) {
+	t.Parallel()
+	p, err := NewPage(stubEngine{}, Config{AllowOrigins: []string{"https://app.example"}})
+	if err != nil {
+		t.Fatalf("NewPage: %v", err)
+	}
+	if _, err := p.Console(context.Background()); !errors.Is(err, errUnsupported) {
+		t.Fatalf("Console = %v, want errUnsupported", err)
+	}
+}
+
+func imagesCaseListsImagesWithSize1(t *testing.T) {
+	t.Parallel()
+	f := newFake()
+	f.results["Runtime.evaluate"] = imagesReply(t, `[{"src":"https://app.example/a.png","alt":"logo","width":10,"height":20}]`)
+	m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f)})
+	res, err := m.Invoke(t.Context(), "browser_get_images", json.RawMessage(`{}`), host.Env{})
+	if err != nil {
+		t.Fatalf("get_images: %v", err)
+	}
+	for _, want := range []string{"https://app.example/a.png", "(10x20)", `alt="logo"`} {
+		if !strings.Contains(res.Content, want) {
+			t.Fatalf("content = %q, want %q", res.Content, want)
+		}
+	}
+	if res.UntrustedSource != "browser:page" {
+		t.Fatalf("taint = %q", res.UntrustedSource)
+	}
+	if got := res.Meta["images"]; got != 1 {
+		t.Fatalf("meta images = %v", got)
+	}
+}
+
+func imagesCaseResultIsCappedAtMaxMages2(t *testing.T) {
+	t.Parallel()
+	var many []string
+	for i := range 150 {
+		many = append(many, `{"src":"https://app.example/`+strings.Repeat("i", i%3)+`.png","width":1,"height":1}`)
+	}
+	f := newFake()
+	f.results["Runtime.evaluate"] = imagesReply(t, "["+strings.Join(many, ",")+"]")
+	m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f)})
+	res, err := m.Invoke(t.Context(), "browser_get_images", json.RawMessage(`{}`), host.Env{})
+	if err != nil {
+		t.Fatalf("get_images: %v", err)
+	}
+	if got := consoleResult(t, res.Content); got > maxImages {
+		t.Fatalf("listed %d images > %d", got, maxImages)
+	}
+}
+
+func imagesCaseNegativeControlEmptyPage3(t *testing.T) {
+	t.Parallel()
+	f := newFake()
+	f.results["Runtime.evaluate"] = imagesReply(t, `[]`)
+	m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f)})
+	res, err := m.Invoke(t.Context(), "browser_get_images", json.RawMessage(`{}`), host.Env{})
+	if err != nil || res.Content != "no images on the page" {
+		t.Fatalf("get_images = %q, %v", res.Content, err)
+	}
+}
+
+func imagesCaseNegativeControlANonArrayReplyFails4(t *testing.T) {
+	t.Parallel()
+	f := newFake()
+	f.results["Runtime.evaluate"] = imagesReply(t, `{"not":"an array"}`)
+	m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f)})
+	if _, err := m.Invoke(t.Context(), "browser_get_images", json.RawMessage(`{}`), host.Env{}); err == nil {
+		t.Fatal("non-array image reply succeeded")
+	}
+}
+
+// imagesReply is a Runtime.evaluate reply carrying one JSON value.
+func imagesReply(t *testing.T, value string) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{"result": map[string]any{"value": json.RawMessage(value)}})
+	if err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	return raw
+}
+
+// TestF6TOOL009BrowserGetImages (TOOL-009): the image list is bounded, carries
+// the natural size, and every result is tainted.
+// stubEngine is the smallest Engine: enough to prove the parity reads fail
+// closed on an engine page instead of reaching for a CDP transport.
+type stubEngine struct{}
+
+func (stubEngine) Navigate(_ context.Context, rawURL string, _ func(*url.URL) error) (string, error) {
+	return rawURL, nil
+}
+
+func (stubEngine) Read(context.Context, ReadOp) (Reply, error) {
+	return Reply{Value: json.RawMessage("null")}, nil
+}
+
+func (stubEngine) Act(context.Context, *Action) error { return nil }
+
+func (stubEngine) Close() error { return nil }

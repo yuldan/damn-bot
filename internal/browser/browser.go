@@ -48,10 +48,11 @@ func (c Config) normalize() Config {
 
 // Page is one bound engine plus the module policy: allowlist, bounds, approval.
 type Page struct {
-	eng   Engine
-	conn  Transport
-	allow *Allowlist
-	cfg   Config
+	eng    Engine
+	conn   Transport
+	allow  *Allowlist
+	cfg    Config
+	parity *parityState
 }
 
 // NewPage binds an engine and validates the allowlist.
@@ -60,7 +61,7 @@ func NewPage(eng Engine, cfg Config) (*Page, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Page{eng: eng, allow: allow, cfg: cfg.normalize()}, nil
+	return &Page{eng: eng, allow: allow, cfg: cfg.normalize(), parity: newParityState()}, nil
 }
 
 // NewCDPPage binds a CDP transport to the page policy.

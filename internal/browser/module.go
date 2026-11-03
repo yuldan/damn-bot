@@ -35,6 +35,8 @@ func Tools() []Tool {
 		newTool("browser_eval", "Evaluate a JavaScript expression in the current page and return its JSON value", "read", `{"type":"object","properties":{"expression":{"type":"string","maxLength":4096}},"required":["expression"],"additionalProperties":false}`),
 		newTool("browser_screenshot", "Capture the current viewport as a PNG", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
 		newTool("browser_snapshot", "Return the accessibility tree with stable element refs as JSON", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
+		newTool("browser_console", "Read the buffered page console log; bounded, never evaluates page script", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
+		newTool("browser_get_images", "List the images of the current page with their natural size", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
 		newTool("browser_click", "Click the current page at viewport coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"integer"},"y":{"type":"integer"}},"required":["x","y"],"additionalProperties":false}`),
 		newTool("browser_type", "Insert text into the focused element after approval", "non_idempotent", `{"type":"object","properties":{"text":{"type":"string","maxLength":4096}},"required":["text"],"additionalProperties":false}`),
 		newTool("browser_back", "Go back one history entry after approval", "non_idempotent", `{"type":"object","properties":{},"additionalProperties":false}`),
@@ -267,6 +269,12 @@ func (m *Module) invokeRead(ctx context.Context, tool string, args json.RawMessa
 		return res, true, err
 	case "browser_screenshot":
 		res, err := m.screenshot(ctx)
+		return res, true, err
+	case "browser_console":
+		res, err := m.console(ctx)
+		return res, true, err
+	case "browser_get_images":
+		res, err := m.getImages(ctx)
 		return res, true, err
 	case "browser_snapshot":
 		res, err := m.snapshot(ctx)

@@ -48,8 +48,8 @@ Aturan gate:
 |---|---|---|---|---|---|
 | TOOL-006 | `browser_back` | kembali satu riwayat; tanpa riwayat → error typed, bukan no-op | `TestF6TOOL006BrowserBack` | BELUM | F6-04c |
 | TOOL-007 | `browser_click` | klik berdasarkan ref snapshot; ref basi/asing → error tanpa klik | `TestF6TOOL007BrowserClick` | BELUM | F6-04c |
-| TOOL-008 | `browser_console` | hanya membaca log console/buffer terbatas; body lewat redaksi; tidak mengeksekusi halaman | `TestF6TOOL008BrowserConsole` | BELUM | F6-04c |
-| TOOL-009 | `browser_get_images` | daftar gambar + ukuran; hasil `<untrusted>` | `TestF6TOOL009BrowserGetImages` | BELUM | F6-04c |
+| TOOL-008 | `browser_console` | hanya membaca log console/buffer terbatas; body lewat redaksi; tidak mengeksekusi halaman | `TestF6TOOL008BrowserConsole` | LULUS | F6-04c |
+| TOOL-009 | `browser_get_images` | daftar gambar + ukuran; hasil `<untrusted>` | `TestF6TOOL009BrowserGetImages` | LULUS | F6-04c |
 | TOOL-010 | `browser_navigate` | tolak loopback/privat/link-local/CGNAT/metadata dan blocklist; dial ke IP tervalidasi; hasil `<untrusted>` | `TestF6TOOL010BrowserNavigate` | BELUM | F6-04c, F6-01e |
 | TOOL-011 | `browser_press` | tombol key didispatch ke halaman; key tak dikenal → `invalid_args` | `TestF6TOOL011BrowserPress` | BELUM | F6-04c |
 | TOOL-012 | `browser_scroll` | scroll halaman/elemen dengan clamp batas; tanpa layout → error jelas | `TestF6TOOL012BrowserScroll` | BELUM | F6-04c |
