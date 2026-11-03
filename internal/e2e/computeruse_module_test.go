@@ -2,7 +2,9 @@ package e2e
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,30 +12,48 @@ import (
 	"github.com/damnbot/damnbot/internal/provider/providertest"
 )
 
-// writeCuaFixture writes the external cua backend the scenarios drive. It
-// appends every argv to $CUA_LOG and answers screenshot with a 5.008-byte PNG
-// (magic + filler), so the module's byte cap can be exercised without a real
-// screen.
+// cuaFixtureSource is the external cua backend the scenarios drive. It appends
+// every argv to $CUA_LOG and answers screenshot with a 5.008-byte PNG (magic +
+// filler), so the module's byte cap can be exercised without a real screen.
+const cuaFixtureSource = `package main
+
+import (
+	"os"
+	"strings"
+)
+
+func main() {
+	f, err := os.OpenFile(os.Getenv("CUA_LOG"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		os.Exit(1)
+	}
+	_, _ = f.WriteString(strings.Join(os.Args[1:], " ") + "\n")
+	_ = f.Close()
+	if len(os.Args) > 1 && os.Args[1] == "screenshot" {
+		_, _ = os.Stdout.WriteString("\x89PNG\r\n\x1a\n" + strings.Repeat("0123456789", 500))
+		return
+	}
+	_, _ = os.Stdout.WriteString("ok")
+}
+`
+
+// writeCuaFixture builds cuaFixtureSource into a native binary (".exe" on
+// Windows) so the process backend runs the same fixture on every CI OS.
 func writeCuaFixture(t *testing.T) (bin, log string) {
 	t.Helper()
 	dir := t.TempDir()
-	bin, log = filepath.Join(dir, "cua"), filepath.Join(dir, "cua.log")
-	script := `#!/bin/sh
-printf '%s\n' "$*" >> "$CUA_LOG"
-if [ "$1" = "screenshot" ]; then
-  printf '\211PNG\r\n\032\n'
-  i=0
-  while [ "$i" -lt 500 ]; do
-    printf '0123456789'
-    i=$((i + 1))
-  done
-  exit 0
-fi
-printf 'ok'
-`
-	// #nosec G306 -- test fixture must be executable
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
+	src := filepath.Join(dir, "cua_fixture.go")
+	if err := os.WriteFile(src, []byte(cuaFixtureSource), 0o600); err != nil {
 		t.Fatalf("write cua fixture: %v", err)
+	}
+	name := "cua"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	bin, log = filepath.Join(dir, name), filepath.Join(dir, "cua.log")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, src) // #nosec G204 -- fixed go tool
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build cua fixture: %v\n%s", err, out)
 	}
 	return bin, log
 }
@@ -44,7 +64,8 @@ func writeComputerUseConfig(t *testing.T, e *Env, enabled bool, bin string, capB
 	t.Helper()
 	body := "[modules.computer_use]\nenabled = false\n"
 	if enabled {
-		body = "[modules.computer_use]\nenabled = true\ncommand = [\"" + bin + "\"]\nenv = [\"CUA_LOG\"]\nmax_screenshot_bytes = " + strconv.Itoa(capBytes) + "\n"
+		// strconv.Quote + ToSlash keeps Windows paths valid TOML basic strings.
+		body = "[modules.computer_use]\nenabled = true\ncommand = [" + strconv.Quote(filepath.ToSlash(bin)) + "]\nenv = [\"CUA_LOG\"]\nmax_screenshot_bytes = " + strconv.Itoa(capBytes) + "\n"
 	}
 	if err := os.WriteFile(e.cfg, []byte(body), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
