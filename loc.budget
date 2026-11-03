@@ -296,7 +296,10 @@ heal              1500 internal/heal
 # MODULE voice terukur 308/4500 pada PR A1 (root+kontrak+STT inti), 375
 # setelah A2 (chunking), 767 pada head slice penuh (+TTS/pipeline/wake);
 # cap tetap 4500.
-config            2108 internal/config
+# ADR-314 (F6 computer-use slice A): [modules.computer_use] command/env/
+# action_timeout_ms/max_screenshot_bytes + default slice kosong menambah
+# config 2108 -> 2112 (terukur). Sigma core 55.752 -> 55.756; plafon 55.800.
+config            2112 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.

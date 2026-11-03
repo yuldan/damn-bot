@@ -163,6 +163,10 @@ config_version = 1
     tts_key_env = ""
   [modules.computer_use]
     enabled = false
+    command = []
+    env = []
+    action_timeout_ms = 0
+    max_screenshot_bytes = 0
 
 [providers]
   custom = []
