@@ -4,6 +4,7 @@ package config
 
 import (
 	"net/url"
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -72,11 +73,9 @@ type ModulesComputerUse struct {
 	MaxScreenshotBytes int      `toml:"max_screenshot_bytes"`
 }
 
-// validateF6 keeps the foundation sections honest: the keys decode (so a typo
-// is still a key error, not a missing-module error) and `enabled = false` is
-// the only accepted value until the module itself lands. Accepting `true`
-// would be a silent no-op, which this repository never ships. Web and browser
-// are the exceptions: their slices landed (ADR-311, ADR-313).
+// validateF6 keeps the module sections honest: every key decodes (a typo is a
+// key error, not a missing-module error) and each landed module validates its
+// own closed catalog, limits and paths at load (ADR-311/313/318/319/320).
 func (m *Modules) validateF6() error {
 	if err := m.validateWeb(); err != nil {
 		return err
@@ -88,6 +87,9 @@ func (m *Modules) validateF6() error {
 		return err
 	}
 	if err := m.validateVoice(); err != nil {
+		return err
+	}
+	if err := m.validateComputerUse(); err != nil {
 		return err
 	}
 	return nil
@@ -224,6 +226,77 @@ func cleanVoiceValue(field, value string, max int) error {
 		if r < 0x20 || r == 0x7f {
 			return invalid("modules.voice."+field, "must not contain control characters")
 		}
+	}
+	return nil
+}
+
+// validateComputerUse keeps the closed backend set, the loopback endpoint,
+// the explicit argv and the reviewed limits honest at load (ADR-314/320). An
+// empty backend or endpoint stays legal: the module fails closed on use.
+func (m *Modules) validateComputerUse() error {
+	cu := m.ComputerUse
+	if err := validateCUBackend(&cu); err != nil {
+		return err
+	}
+	if err := validateCUCommand(cu.Command); err != nil {
+		return err
+	}
+	if err := validateCUEnv(cu.Env); err != nil {
+		return err
+	}
+	return validateCULimits(&cu)
+}
+
+func validateCUBackend(cu *ModulesComputerUse) error {
+	switch cu.Backend {
+	case "", "process", "http":
+	default:
+		return invalid("modules.computer_use.backend", "backend %q is not supported", cu.Backend)
+	}
+	if cu.Endpoint == "" {
+		return nil
+	}
+	u, err := url.Parse(cu.Endpoint)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
+		(u.Scheme != "http" && u.Scheme != "https") || !loopbackHost(u.Hostname()) {
+		return invalid("modules.computer_use.endpoint", "must be an absolute loopback http(s) URL")
+	}
+	return nil
+}
+
+func validateCUCommand(command []string) error {
+	if len(command) > 16 {
+		return invalid("modules.computer_use.command", "must have at most 16 arguments")
+	}
+	if len(command) > 0 && !filepath.IsAbs(command[0]) {
+		return invalid("modules.computer_use.command", "command[0] must be an absolute path")
+	}
+	for _, arg := range command {
+		if len(arg) > 4096 || strings.ContainsRune(arg, 0) {
+			return invalid("modules.computer_use.command", "argument must be at most 4096 bytes without NUL")
+		}
+	}
+	return nil
+}
+
+func validateCUEnv(env []string) error {
+	if len(env) > 32 {
+		return invalid("modules.computer_use.env", "must have at most 32 names")
+	}
+	for _, name := range env {
+		if !isEnvName(name) {
+			return invalid("modules.computer_use.env", "entry %q must be an environment variable name", name)
+		}
+	}
+	return nil
+}
+
+func validateCULimits(cu *ModulesComputerUse) error {
+	if cu.ActionTimeoutMS != 0 && (cu.ActionTimeoutMS < 100 || cu.ActionTimeoutMS > 120000) {
+		return invalid("modules.computer_use.action_timeout_ms", "must be 0 or 100..120000")
+	}
+	if cu.MaxScreenshotBytes != 0 && (cu.MaxScreenshotBytes < 4096 || cu.MaxScreenshotBytes > 16777216) {
+		return invalid("modules.computer_use.max_screenshot_bytes", "must be 0 or 4096..16777216")
 	}
 	return nil
 }

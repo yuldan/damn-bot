@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/damnbot/damnbot/internal/browser"
+	"github.com/damnbot/damnbot/internal/computeruse"
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/media"
 	"github.com/damnbot/damnbot/internal/modules"
@@ -23,6 +24,7 @@ const (
 	f6BrowserModuleID = "browser"
 	f6MediaModuleID   = "media"
 	f6VoiceModuleID   = "voice"
+	f6ComputerUseID   = "computer_use"
 )
 
 // registerModules registers every module this build compiles in. It runs once
@@ -75,6 +77,16 @@ func registerModules() error {
 			Factory: func(h host.Host, cfg host.Config) (modules.Module, error) {
 				caps := host.CapabilitiesOf(h)
 				return media.NewFromConfig(h, cfg.Raw, media.Deps{Approvals: caps.Approvals, Secrets: caps.Secrets})
+			},
+		},
+		{
+			ID:        f6ComputerUseID,
+			Group:     "computer_use",
+			Catalog:   "- computer_use: screenshot the desktop and send input actions",
+			Tools:     computerUseToolDescriptors(),
+			ConfigKey: "modules.computer_use",
+			Factory: func(h host.Host, cfg host.Config) (modules.Module, error) {
+				return computeruse.NewFromConfig(cfg.Raw, computeruse.DepsFromHost(h))
 			},
 		},
 	} {
@@ -136,6 +148,19 @@ func browserToolDescriptors() []modules.ToolDescriptor {
 	return out
 }
 
+// computerUseToolDescriptors is the same mapping for the computer-use module.
+func computerUseToolDescriptors() []modules.ToolDescriptor {
+	tools := computeruse.Tools()
+	out := make([]modules.ToolDescriptor, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, modules.ToolDescriptor{
+			Name: tool.Name, Description: tool.Description, Schema: tool.Schema,
+			Effect: tool.Effect, Tags: tool.Tags,
+		})
+	}
+	return out
+}
+
 // webToolTags gives tool_search the synonyms a model is likely to use.
 func webToolTags(name string) []string {
 	switch name {
@@ -178,8 +203,12 @@ func usdMicros(v float64) int64 {
 // A module without a wired slice is disabled: enabling it in config must not
 // build a catalog entry for a module that cannot serve calls.
 func moduleGate(cfg *config.Config) (func(string) bool, func(string) host.Config) {
-	web, br, md, vc := cfg.Modules.Web, cfg.Modules.Browser, cfg.Modules.Media, cfg.Modules.Voice
-	enabled := func(id string) bool {
+	return moduleEnabled(cfg), moduleConfig(cfg)
+}
+
+func moduleEnabled(cfg *config.Config) func(string) bool {
+	web, br, md, vc, cu := cfg.Modules.Web, cfg.Modules.Browser, cfg.Modules.Media, cfg.Modules.Voice, cfg.Modules.ComputerUse
+	return func(id string) bool {
 		switch id {
 		case f6WebModuleID:
 			return web.Enabled
@@ -189,9 +218,15 @@ func moduleGate(cfg *config.Config) (func(string) bool, func(string) host.Config
 			return md.Enabled
 		case f6VoiceModuleID:
 			return vc.Enabled
+		case f6ComputerUseID:
+			return cu.Enabled
 		}
 		return false
 	}
+}
+
+func moduleConfig(cfg *config.Config) func(string) host.Config {
+	web, br, md, vc, cu := cfg.Modules.Web, cfg.Modules.Browser, cfg.Modules.Media, cfg.Modules.Voice, cfg.Modules.ComputerUse
 	webRaw, webErr := json.Marshal(moduleWebSection{
 		Enabled: web.Enabled, Engines: web.Engines, Blocklist: web.Blocklist,
 		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
@@ -214,7 +249,12 @@ func moduleGate(cfg *config.Config) (func(string) bool, func(string) host.Config
 		TTSEndpoint: vc.TTSEndpoint, TTSVoice: vc.TTSVoice, TTSKeyEnv: vc.TTSKeyEnv,
 		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
 	})
-	conf := func(id string) host.Config {
+	cuRaw, cuErr := json.Marshal(computeruse.Section{
+		Enabled: cu.Enabled, Backend: cu.Backend, Endpoint: cu.Endpoint,
+		Command: cu.Command, Env: cu.Env, ActionTimeoutMS: cu.ActionTimeoutMS,
+		MaxScreenshotBytes: cu.MaxScreenshotBytes,
+	})
+	return func(id string) host.Config {
 		switch {
 		case id == f6WebModuleID && webErr == nil:
 			return host.Config{Key: "modules.web", Raw: webRaw}
@@ -224,8 +264,9 @@ func moduleGate(cfg *config.Config) (func(string) bool, func(string) host.Config
 			return host.Config{Key: "modules.media", Raw: mdRaw}
 		case id == f6VoiceModuleID && vcErr == nil:
 			return host.Config{Key: "modules.voice", Raw: vcRaw}
+		case id == f6ComputerUseID && cuErr == nil:
+			return host.Config{Key: "modules.computer_use", Raw: cuRaw}
 		}
 		return host.Config{Key: "modules." + id}
 	}
-	return enabled, conf
 }

@@ -124,6 +124,32 @@ func cuaProcessReadChecks(t *testing.T, cfg string) {
 
 func cuaProcessInputChecks(t *testing.T, cfg string) {
 	t.Helper()
+	cuaProcessLifecycleChecks(t, cfg)
+	cuaProcessActionChecks(t, cfg)
+}
+
+func cuaProcessLifecycleChecks(t *testing.T, cfg string) {
+	t.Helper()
+	code, _, stderr := runCuaCLI(t, "start", "--config", cfg)
+	if code != cuaExitDenied || !strings.Contains(stderr, "computer_use start backend=process") {
+		t.Fatalf("unapproved start = %d, err = %q", code, stderr)
+	}
+	code, stdout, stderr := runCuaCLI(t, "start", "--config", cfg, "--yes")
+	if code != cuaExitOK || !strings.Contains(stdout, "started") {
+		t.Fatalf("approved start = %d, out = %q, err = %q", code, stdout, stderr)
+	}
+	code, _, stderr = runCuaCLI(t, "stop", "--config", cfg)
+	if code != cuaExitDenied || !strings.Contains(stderr, "computer_use stop backend=process") {
+		t.Fatalf("unapproved stop = %d, err = %q", code, stderr)
+	}
+	code, stdout, stderr = runCuaCLI(t, "stop", "--config", cfg, "--yes")
+	if code != cuaExitOK || !strings.Contains(stdout, "stopped") {
+		t.Fatalf("approved stop = %d, out = %q, err = %q", code, stdout, stderr)
+	}
+}
+
+func cuaProcessActionChecks(t *testing.T, cfg string) {
+	t.Helper()
 	code, _, stderr := runCuaCLI(t, "click", "--config", cfg, "--x", "1", "--y", "2")
 	if code != cuaExitDenied || !strings.Contains(stderr, "computer_use click at (1, 2)") {
 		t.Fatalf("unapproved click = %d, err = %q", code, stderr)
@@ -142,8 +168,8 @@ func cuaProcessInputChecks(t *testing.T, cfg string) {
 	}
 }
 
-func TestCuaCLIHTTPBackend(t *testing.T) {
-	t.Parallel()
+func newCuaHTTPBackend(t *testing.T) (*httptest.Server, *atomic.Bool, *atomic.Bool) {
+	t.Helper()
 	var started, stopped atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -165,11 +191,12 @@ func TestCuaCLIHTTPBackend(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
-	defer srv.Close()
-	cfg := writeCuaConfig(t, `[modules.computer_use]
-enabled = true
-backend = "http"
-endpoint = `+strconv.Quote(srv.URL)+"\n")
+	t.Cleanup(srv.Close)
+	return srv, &started, &stopped
+}
+
+func cuaHTTPChecks(t *testing.T, cfg string, started, stopped *atomic.Bool) {
+	t.Helper()
 	code, stdout, stderr := runCuaCLI(t, "status", "--config", cfg)
 	if code != cuaExitOK || !strings.Contains(stdout, "backend=http") || !started.Load() {
 		t.Fatalf("status = %d, out = %q, err = %q started=%v", code, stdout, stderr, started.Load())
@@ -178,9 +205,24 @@ endpoint = `+strconv.Quote(srv.URL)+"\n")
 	if code != cuaExitOK || strings.TrimSpace(stdout) != "acted" {
 		t.Fatalf("click = %d, out = %q", code, stdout)
 	}
-	if code, _, _ = runCuaCLI(t, "stop", "--config", cfg); code != cuaExitOK || !stopped.Load() {
+	code, _, stderr = runCuaCLI(t, "stop", "--config", cfg)
+	if code != cuaExitDenied || stopped.Load() || !strings.Contains(stderr, "computer_use stop backend=http") {
+		t.Fatalf("unapproved stop = %d, stopped=%v, err = %q", code, stopped.Load(), stderr)
+	}
+	code, _, _ = runCuaCLI(t, "stop", "--config", cfg, "--yes")
+	if code != cuaExitOK || !stopped.Load() {
 		t.Fatalf("stop = %d, stopped=%v", code, stopped.Load())
 	}
+}
+
+func TestCuaCLIHTTPBackend(t *testing.T) {
+	t.Parallel()
+	srv, started, stopped := newCuaHTTPBackend(t)
+	cfg := writeCuaConfig(t, `[modules.computer_use]
+enabled = true
+backend = "http"
+endpoint = `+strconv.Quote(srv.URL)+"\n")
+	cuaHTTPChecks(t, cfg, started, stopped)
 }
 
 func TestCuaCLIHTTPUnavailable(t *testing.T) {

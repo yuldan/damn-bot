@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -42,10 +43,10 @@ func runCua(args []string, stdout, stderr io.Writer) int {
 }
 
 func cuaUsage(w io.Writer) {
-	sessionsPrintf(w, "usage: damnbot cua status|start|stop|screenshot [flags]\n")
-	sessionsPrintf(w, "       damnbot cua click --x N --y N --yes\n")
-	sessionsPrintf(w, "       damnbot cua type --text STRING --yes\n")
-	sessionsPrintf(w, "\ncommon flags: --config <path>. Input actions need --yes; screenshot is read-only and needs --out.\n")
+	sessionsPrintf(w, "usage: damnbot cua status|screenshot [flags]\n")
+	sessionsPrintf(w, "       damnbot cua start|stop|click|type --yes\n")
+	sessionsPrintf(w, "\ncommon flags: --config <path>. start, stop and input actions need --yes;\n")
+	sessionsPrintf(w, "status and screenshot are read-only and need no approval (screenshot needs --out).\n")
 }
 
 // cuaApprovals prints the request preview and allows only this one action when
@@ -66,6 +67,32 @@ func (a cuaApprovals) Approve(_ context.Context, req *host.ApprovalRequest) (hos
 	return host.ApprovalAllowOnce, nil
 }
 
+// cuaApproveLifecycle asks once before a backend lifecycle change. The preview
+// names the backend and never carries screen content; only allow-once permits
+// the command, so there is no session-wide grant.
+func cuaApproveLifecycle(ctx context.Context, appr cuaApprovals, action, backend string) error {
+	name := backend
+	if name == "" {
+		name = "process"
+	}
+	req := &host.ApprovalRequest{
+		Tool: computeruse.ToolName, Effect: host.EffectNonIdempotent,
+		Class: "computer_use:" + action, Preview: "computer_use " + action + " backend=" + name,
+		Args: json.RawMessage(`{"kind":"` + action + `"}`),
+	}
+	if err := req.Validate(); err != nil {
+		return fmt.Errorf("cua: %w", err)
+	}
+	answer, err := appr.Approve(ctx, req)
+	if err != nil {
+		return fmt.Errorf("cua: %w", err)
+	}
+	if answer != host.ApprovalAllowOnce {
+		return fmt.Errorf("%w: %s", computeruse.ErrDenied, req.Class)
+	}
+	return nil
+}
+
 func cuaCommand(cmd string, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("cua "+cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -84,17 +111,18 @@ func cuaCommand(cmd string, args []string, stdout, stderr io.Writer) int {
 		cuaUsage(stderr)
 		return cuaExitUsage
 	}
-	m, cfg, code := cuaOpen(cmd, *configPath, yes, stderr)
+	appr := cuaApprovals{out: stderr, yes: yes}
+	m, cfg, code := cuaOpen(cmd, *configPath, appr, stderr)
 	if m == nil {
 		return code
 	}
-	if err := cuaExecute(cmd, m, &action, out, stdout, cfg); err != nil {
+	if err := cuaExecute(cmd, m, &action, out, appr, stdout, cfg); err != nil {
 		return cuaFail(cmd, err, stderr)
 	}
 	return cuaExitOK
 }
 
-func cuaOpen(cmd, configPath string, yes bool, stderr io.Writer) (*computeruse.Module, *config.Config, int) {
+func cuaOpen(cmd, configPath string, appr cuaApprovals, stderr io.Writer) (*computeruse.Module, *config.Config, int) {
 	loader, cfg, err := cuaLoad(configPath)
 	if err != nil {
 		sessionsPrintf(stderr, "cua %s: %s\n", cmd, cleanLine(err.Error()))
@@ -105,7 +133,7 @@ func cuaOpen(cmd, configPath string, yes bool, stderr io.Writer) (*computeruse.M
 		return nil, nil, cuaExitUnavailable
 	}
 	h := &cliHost{
-		approve: cuaApprovals{out: stderr, yes: yes},
+		approve: appr,
 		secrets: envSecrets{getenv: loader.Env},
 		clock:   mcpWallClock{},
 		errOut:  stderr,
@@ -136,10 +164,12 @@ func cuaRegister(fs *flag.FlagSet, cmd string, action *computeruse.Action, yes *
 		fs.BoolVar(yes, "yes", false, "approve this one type action")
 	case "screenshot":
 		fs.StringVar(out, "out", "", "write the PNG here instead of printing metadata")
+	case "start", "stop":
+		fs.BoolVar(yes, "yes", false, "approve this one backend lifecycle action")
 	}
 }
 
-func cuaExecute(cmd string, m *computeruse.Module, action *computeruse.Action, out string, stdout io.Writer, cfg *config.Config) error {
+func cuaExecute(cmd string, m *computeruse.Module, action *computeruse.Action, out string, appr cuaApprovals, stdout io.Writer, cfg *config.Config) error {
 	ctx := context.Background()
 	switch cmd {
 	case "status":
@@ -149,12 +179,18 @@ func cuaExecute(cmd string, m *computeruse.Module, action *computeruse.Action, o
 		sessionsPrintf(stdout, "computer_use: backend=%s available=true\n", cfg.Modules.ComputerUse.Backend)
 		return nil
 	case "start":
+		if err := cuaApproveLifecycle(ctx, appr, cmd, cfg.Modules.ComputerUse.Backend); err != nil {
+			return err
+		}
 		if err := m.Start(ctx); err != nil {
 			return fmt.Errorf("cua: %w", err)
 		}
 		sessionsPrintf(stdout, "computer_use: backend=%s started\n", cfg.Modules.ComputerUse.Backend)
 		return nil
 	case "stop":
+		if err := cuaApproveLifecycle(ctx, appr, cmd, cfg.Modules.ComputerUse.Backend); err != nil {
+			return err
+		}
 		if err := m.Stop(ctx); err != nil {
 			return fmt.Errorf("cua: %w", err)
 		}

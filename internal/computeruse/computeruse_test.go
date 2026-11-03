@@ -171,7 +171,7 @@ func testModule(t *testing.T, b Backend, approvals host.Approvals, max int) *Mod
 	return &Module{
 		cfg:     Config{Timeout: time.Second, MaxScreenshotBytes: max},
 		deps:    Deps{Approvals: approvals, Secrets: host.DenySecrets{}},
-		backend: b,
+		backend: b, enabled: true, status: host.StatusStopped,
 	}
 }
 
@@ -250,7 +250,7 @@ func TestReadActionsSkipApproval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("screenshot: %v", err)
 	}
-	if res.UntrustedSource != "computer_use:screenshot" {
+	if res.UntrustedSource != "computer_use:process" {
 		t.Fatalf("untrusted source = %q", res.UntrustedSource)
 	}
 	if len(appr.requests()) != 0 {
@@ -278,7 +278,7 @@ func TestActionTimeout(t *testing.T) {
 	m := &Module{
 		cfg:     Config{Timeout: 20 * time.Millisecond, MaxScreenshotBytes: 1024},
 		deps:    Deps{Approvals: &fakeApprovals{answer: host.ApprovalAllowOnce}},
-		backend: backend,
+		backend: backend, enabled: true, status: host.StatusStopped,
 	}
 	_, err := m.Act(context.Background(), "c", &Action{Kind: ActionClick})
 	if !errors.Is(err, ErrTimeout) && !errors.Is(err, context.DeadlineExceeded) {
@@ -603,7 +603,7 @@ func TestF6TOOL023ComputerUse(t *testing.T) {
 	backend := &fakeBackend{png: []byte("png")}
 	m := testModule(t, backend, &fakeApprovals{answer: host.ApprovalDeny}, 1024)
 	res, err := m.Invoke(context.Background(), ToolName, json.RawMessage(`{"kind":"screenshot"}`), host.Env{})
-	if err != nil || res.UntrustedSource != "computer_use:screenshot" {
+	if err != nil || res.UntrustedSource != "computer_use:process" {
 		t.Fatalf("screenshot = %+v, %v", res, err)
 	}
 }
@@ -620,5 +620,80 @@ func TestInvalidConfig(t *testing.T) {
 		if _, err := New(&cfg, Deps{}); !errors.Is(err, ErrInvalid) {
 			t.Errorf("New(%+v) = %v, want ErrInvalid", cfg, err)
 		}
+	}
+}
+
+// TestToolsMetadata pins the single deferred tool: the name of TOOL-023, a
+// non-idempotent effect and a schema the catalog compiles.
+func TestToolsMetadata(t *testing.T) {
+	t.Parallel()
+	tools := Tools()
+	if len(tools) != 1 || tools[0].Name != ToolName || tools[0].Effect != "non_idempotent" {
+		t.Fatalf("tools = %+v", tools)
+	}
+	var probe map[string]any
+	if err := json.Unmarshal(tools[0].Schema, &probe); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	if probe["additionalProperties"] != false {
+		t.Fatalf("schema = %s", tools[0].Schema)
+	}
+	if tools[0].Tags == nil || tools[0].Description == "" {
+		t.Fatalf("metadata = %+v", tools[0])
+	}
+}
+
+// TestNewFromConfig: the section is strict, maps onto Config and keeps the
+// enabled bit, so a disabled module never serves an Invoke.
+func TestNewFromConfig(t *testing.T) {
+	t.Parallel()
+	raw := json.RawMessage(`{"enabled":false,"backend":"http","endpoint":"http://127.0.0.1:9410","env":["DISPLAY"],"action_timeout_ms":5000,"max_screenshot_bytes":65536}`)
+	m, err := NewFromConfig(raw, Deps{Approvals: &fakeApprovals{}})
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	if m.enabled || m.cfg.Backend != "http" || m.cfg.Timeout != 5*time.Second || m.cfg.MaxScreenshotBytes != 65536 {
+		t.Fatalf("module = %+v", m)
+	}
+	if status := m.Status(); status != host.StatusStopped {
+		t.Fatalf("status = %q", status)
+	}
+	_, err = m.Invoke(context.Background(), ToolName, json.RawMessage(`{"kind":"screenshot"}`), host.Env{})
+	var he *host.Error
+	if !errors.As(err, &he) || he.Code != "module_unavailable" {
+		t.Fatalf("disabled Invoke = %v", err)
+	}
+	for _, bad := range []string{
+		`{`,
+		`{"enabled":true,"bogus":1}`,
+		`{"enabled":true,"command":["relative"]}`,
+	} {
+		if _, err := NewFromConfig(json.RawMessage(bad), Deps{}); !errors.Is(err, ErrInvalid) {
+			t.Errorf("NewFromConfig(%s) = %v, want ErrInvalid", bad, err)
+		}
+	}
+	if _, err := NewFromConfig(nil, Deps{}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("empty section = %v", err)
+	}
+}
+
+// TestStatusLifecycle: Start publishes ready, Stop returns to stopped, and a
+// disabled module stays stopped without touching the backend.
+func TestStatusLifecycle(t *testing.T) {
+	t.Parallel()
+	backend := &fakeBackend{}
+	m := testModule(t, backend, &fakeApprovals{}, 1024)
+	if err := m.Start(context.Background()); err != nil || m.Status() != host.StatusReady {
+		t.Fatalf("start = %v, status = %q", err, m.Status())
+	}
+	if err := m.Stop(context.Background()); err != nil || m.Status() != host.StatusStopped {
+		t.Fatalf("stop = %v, status = %q", err, m.Status())
+	}
+	m.enabled = false
+	if err := m.Start(context.Background()); err != nil || m.Status() != host.StatusStopped {
+		t.Fatalf("disabled start = %v, status = %q", err, m.Status())
+	}
+	if backend.started != 1 {
+		t.Fatalf("backend starts = %d, want 1", backend.started)
 	}
 }
