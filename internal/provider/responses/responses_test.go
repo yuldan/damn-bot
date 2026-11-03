@@ -1,3 +1,5 @@
+//go:build !minimal
+
 package responses_test
 
 import (

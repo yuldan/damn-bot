@@ -33,7 +33,7 @@ CORPORA ?= C1 C2 C3 rg
 CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORPUS_C1=$(CORPORA_DIR)/C1 \
 	DAMNBOT_CORPUS_C3=$(CORPORA_DIR)/C3 $(if $(filter C2,$(CORPORA)),DAMNBOT_CORPUS_C2=$(CORPORA_DIR)/C2)
 
-.PHONY: all build build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio chaos \
+.PHONY: all build build-minimal-all build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio chaos \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf perf-f4 ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
 	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker release
@@ -42,6 +42,11 @@ all: check
 
 build:
 	CGO_ENABLED=0 go build $(GOTAGS) ./...
+
+# E-39: tag `minimal` wajib mengompilasi SELURUH paket, bukan hanya `cmd/damnbot` (yang dibangun
+# `size-check`). Paket yang memakai simbol full-only tanpa `//go:build !minimal` dulu lolos gate ukuran.
+build-minimal-all:
+	CGO_ENABLED=0 go build -tags "$(TAGSCSV),minimal" ./...
 
 # E-39/E-65: CGO_ENABLED=0 untuk 8 target kanonik.
 build-matrix:

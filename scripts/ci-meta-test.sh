@@ -17,7 +17,7 @@ trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work"' EXIT
 PATH="$(cd "$root" && go env GOROOT)/bin:$PATH"
 export GOTOOLCHAIN=local
 GATES=(
-	lint depguard lint-anchor vet-custom test race timing vet-cross build-matrix fuzz coverage deadcode flake perf
+	lint depguard lint-anchor vet-custom test race timing vet-cross build-matrix build-minimal-all fuzz coverage deadcode flake perf
 	size-check loc loc-unmapped loc-ratio loc-ratio-testonly deps-check vuln licenses tidy-check mod-verify bench-budget
 	sqlite-engine skill-refs
 	phase-file phase-acceptance
@@ -66,6 +66,7 @@ marker() {
 	timing) echo 'timing budget meta tx' ;;
 	vet-cross) echo 'undefined: undefinedMetaCross' ;;
 	build-matrix) echo 'undefined: undefinedMetaAndroid' ;;
+	build-minimal-all) echo 'has no field or method Message' ;;
 	fuzz) echo 'FUZZ GAGAL .*FuzzMeta' ;;
 	coverage) echo 'COVERAGE GAGAL .*metaviolation' ;;
 	deadcode) echo 'DEADCODE GAGAL internal/metaviolation/v\.go:[0-9]+: Dead' ;;
@@ -241,6 +242,18 @@ EOF
 	build-matrix)
 		# E-39: target android/arm64 hanya ada di build-matrix (vet-cross tidak mencakupnya).
 		printf 'package metaviolation\n\nvar _ = undefinedMetaAndroid\n' | gofile "$d/internal/metaviolation/v_android.go"
+		;;
+	build-minimal-all)
+		# E-39: `provider.Turn.Message` hanya ada di build full; build default tetap hijau, build
+		# `-tags goolm,minimal ./...` (bukan hanya cmd/damnbot) harus gagal.
+		gofile "$d/internal/metaviolation/full.go" <<'EOF'
+package metaviolation
+
+import "github.com/damnbot/damnbot/internal/provider"
+
+// MessageIndex memakai field yang hanya dimiliki build full (E-39).
+func MessageIndex(t provider.Turn) int { return t.Message }
+EOF
 		;;
 	timing)
 		# Operasi nyata 300 ms terhadap budget 200 ms lewat helper tunggal internal/testutil/timing

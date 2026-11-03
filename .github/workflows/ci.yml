@@ -214,6 +214,10 @@ jobs:
         run: make loc-ratio
       - name: Ukuran binary + arsip (E-62)
         run: make size-check
+      # E-39: `size-check` hanya membangun `cmd/damnbot`, jadi paket yang memakai simbol full-only
+      # tanpa `//go:build !minimal` tidak terlihat. Gate ini mengompilasi seluruh paket.
+      - name: Semua paket kompilasi dengan tag minimal (E-39)
+        run: make build-minimal-all
       - name: Kode mati, 3 GOOS digabung (E-53)
         run: make deadcode
       # GAP-COST-01 (ADR-125 butir 4): a price past its Until leaves the route

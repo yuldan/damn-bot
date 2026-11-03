@@ -1,4 +1,4 @@
-//go:build !webtest
+//go:build !minimal && !webtest
 
 package webtools
 
