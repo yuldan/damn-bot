@@ -12,6 +12,7 @@ import (
 	"github.com/damnbot/damnbot/internal/media"
 	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/modules/host"
+	"github.com/damnbot/damnbot/internal/voice"
 	"github.com/damnbot/damnbot/internal/webtools"
 )
 
@@ -21,6 +22,7 @@ const (
 	f6WebModuleID     = "web"
 	f6BrowserModuleID = "browser"
 	f6MediaModuleID   = "media"
+	f6VoiceModuleID   = "voice"
 )
 
 // registerModules registers every module this build compiles in. It runs once
@@ -54,6 +56,17 @@ func registerModules() error {
 			},
 		},
 		{
+			ID:        f6VoiceModuleID,
+			Group:     "voice",
+			Catalog:   "- voice: transcribe audio, speak text",
+			Tools:     voiceToolDescriptors(),
+			ConfigKey: "modules.voice",
+			Factory: func(h host.Host, cfg host.Config) (modules.Module, error) {
+				caps := host.CapabilitiesOf(h)
+				return voice.NewFromConfig(cfg.Raw, voice.Deps{Approvals: caps.Approvals, Secrets: caps.Secrets})
+			},
+		},
+		{
 			ID:        f6MediaModuleID,
 			Group:     "media",
 			Catalog:   "- media: read/write docs, generate image or video",
@@ -81,6 +94,18 @@ func webToolDescriptors() []modules.ToolDescriptor {
 		out = append(out, modules.ToolDescriptor{
 			Name: tool.Name, Description: tool.Description, Schema: tool.Schema,
 			Effect: tool.Effect, Tags: webToolTags(tool.Name),
+		})
+	}
+	return out
+}
+
+// voiceToolDescriptors is the same mapping for the voice module.
+func voiceToolDescriptors() []modules.ToolDescriptor {
+	tools := voice.Tools()
+	out := make([]modules.ToolDescriptor, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, modules.ToolDescriptor{
+			Name: tool.Name, Description: tool.Description, Schema: tool.Schema, Effect: tool.Effect,
 		})
 	}
 	return out
@@ -153,7 +178,7 @@ func usdMicros(v float64) int64 {
 // A module without a wired slice is disabled: enabling it in config must not
 // build a catalog entry for a module that cannot serve calls.
 func moduleGate(cfg *config.Config) (func(string) bool, func(string) host.Config) {
-	web, br, md := cfg.Modules.Web, cfg.Modules.Browser, cfg.Modules.Media
+	web, br, md, vc := cfg.Modules.Web, cfg.Modules.Browser, cfg.Modules.Media, cfg.Modules.Voice
 	enabled := func(id string) bool {
 		switch id {
 		case f6WebModuleID:
@@ -162,6 +187,8 @@ func moduleGate(cfg *config.Config) (func(string) bool, func(string) host.Config
 			return br.Enabled
 		case f6MediaModuleID:
 			return md.Enabled
+		case f6VoiceModuleID:
+			return vc.Enabled
 		}
 		return false
 	}
@@ -181,6 +208,12 @@ func moduleGate(cfg *config.Config) (func(string) bool, func(string) host.Config
 		SessionMicros: usdMicros(cfg.Budget.ToolsSessionUSD), DailyMicros: usdMicros(cfg.Budget.ToolsDailyUSD),
 		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
 	})
+	vcRaw, vcErr := json.Marshal(voice.Section{
+		Enabled: vc.Enabled, STTBackend: vc.STTBackend, TTSBackend: vc.TTSBackend,
+		WhisperBin: vc.WhisperBin, WhisperModel: vc.WhisperModel,
+		TTSEndpoint: vc.TTSEndpoint, TTSVoice: vc.TTSVoice, TTSKeyEnv: vc.TTSKeyEnv,
+		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
+	})
 	conf := func(id string) host.Config {
 		switch {
 		case id == f6WebModuleID && webErr == nil:
@@ -189,6 +222,8 @@ func moduleGate(cfg *config.Config) (func(string) bool, func(string) host.Config
 			return host.Config{Key: "modules.browser", Raw: brRaw}
 		case id == f6MediaModuleID && mdErr == nil:
 			return host.Config{Key: "modules.media", Raw: mdRaw}
+		case id == f6VoiceModuleID && vcErr == nil:
+			return host.Config{Key: "modules.voice", Raw: vcRaw}
 		}
 		return host.Config{Key: "modules." + id}
 	}

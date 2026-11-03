@@ -90,16 +90,6 @@ func (m *Modules) validateF6() error {
 	if err := m.validateVoice(); err != nil {
 		return err
 	}
-	for _, section := range []struct {
-		id      string
-		enabled bool
-	}{
-		{"voice", m.Voice.Enabled},
-	} {
-		if section.enabled {
-			return invalid("modules."+section.id+".enabled", "module is not implemented in this build (F6 foundation, ADR-310)")
-		}
-	}
 	return nil
 }
 

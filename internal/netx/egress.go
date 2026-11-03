@@ -50,6 +50,11 @@ func Registry() map[string]Egress {
 			Host:    "image_endpoint or video_create_url from [modules.media] (loopback endpoints use the local lane)",
 			Trigger: "image_generate or video_generate after approval and the tool cap check",
 		},
+		"voice": {
+			Purpose: Tool,
+			Host:    "tts_endpoint from [modules.voice] (loopback endpoints use the local lane)",
+			Trigger: "speak after approval; transcribe runs the local whisper binary only",
+		},
 		"telegram": {
 			Purpose: Gateway,
 			Host:    "api.telegram.org",
