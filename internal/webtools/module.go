@@ -25,8 +25,8 @@ type Config struct {
 	UserAgent        string
 	MaxOutput        int
 	policy           hostPolicy
-	key              func(string) (string, error)
-	base             map[string]string
+	Key              func(engine string) (string, error)
+	Base             map[string]string
 	blocklist        []string
 	cacheEntries     int
 	cacheBytes       int
@@ -81,7 +81,7 @@ func New(client *netx.Client, cfg *Config) (*Module, error) {
 	if cfg == nil || cfg.Enabled && client == nil {
 		return nil, fmt.Errorf("%w: nil config or client", errBadConfig)
 	}
-	reg, err := newRegistry(cfg.Engines, backendConfig{client: client, key: cfg.key, base: cfg.base})
+	reg, err := newRegistry(cfg.Engines, backendConfig{client: client, key: cfg.Key, base: cfg.Base})
 	if err != nil {
 		return nil, err
 	}
@@ -205,10 +205,7 @@ func (m *Module) search(ctx context.Context, env host.Env, raw json.RawMessage) 
 		return searched{hits: hits, engine: engine}, size, nil
 	})
 	if err != nil {
-		if errors.Is(err, errNoEngine) || errors.Is(err, errEngineUnavailable) {
-			return host.Result{}, &host.Error{Code: "module_unavailable", Message: err.Error()}
-		}
-		return host.Result{}, &host.Error{Code: "network", Message: err.Error()}
+		return host.Result{}, searchError(err)
 	}
 	s, ok := value.(searched)
 	if !ok {
@@ -218,9 +215,32 @@ func (m *Module) search(ctx context.Context, env host.Env, raw json.RawMessage) 
 	for i, hit := range s.hits {
 		fmt.Fprintf(&b, "%d. %s\n   %s\n   %s\n", i+1, hit.Title, hit.URL, hit.Snippet)
 	}
-	return host.Result{Content: strings.TrimRight(b.String(), "\n"), Meta: map[string]any{
-		"count": len(s.hits), "engine": s.engine, "cached": cached,
-	}, UntrustedSource: "web_search:" + s.engine}, nil
+	meta := map[string]any{"count": len(s.hits), "backend": s.engine, "cached": cached}
+	if s.engine == "ddgs" {
+		meta["tos_risk"] = "unofficial"
+	}
+	return host.Result{
+		Content: strings.TrimRight(b.String(), "\n"), Meta: meta,
+		UntrustedSource: "web_search:" + s.engine,
+	}, nil
+}
+
+// searchError maps the engine error chain onto the closed tool-code set.
+func searchError(err error) error {
+	code, msg, hint := "network", err.Error(), ""
+	switch {
+	case errors.Is(err, errNoEngine), errors.Is(err, errEngineUnavailable):
+		code = "module_unavailable"
+	case errors.Is(err, errSearchAuth):
+		code = "auth_required"
+	case errors.Is(err, errRateLimited):
+		msg, hint = "rate_limited: "+msg, "retry later"
+	case errors.Is(err, errTimeout):
+		code = "timeout"
+	case errors.Is(err, errTooLarge):
+		code = "too_large"
+	}
+	return &host.Error{Code: code, Message: msg, Hint: hint}
 }
 
 // load caches by (session, kind, detail); without a valid session view it
