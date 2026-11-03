@@ -129,8 +129,9 @@ func TestModulesBrowserEngines(t *testing.T) {
 			t.Errorf("section %q loaded", body)
 		}
 	}
+	absBin := strconv.Quote(filepath.Join(t.TempDir(), "lightpanda"))
 	for _, body := range []string{
-		"engine = \"lightpanda\"\nlightpanda_bin = \"/opt/lightpanda\"",
+		"engine = \"lightpanda\"\nlightpanda_bin = " + absBin,
 		"engine = \"cloud\"\ncloud_url = \"https://browser.example\"",
 		"engine = \"cloud\"\ncloud_url = \"http://127.0.0.1:8080\"",
 		"engine = \"cdp\"\ncdp_url = \"ws://127.0.0.1:9222/x\"",
