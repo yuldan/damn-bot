@@ -112,6 +112,11 @@ func (b httpBackend) do(ctx context.Context, method, path string, payload []byte
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	auth := make([]string, 0, len(hdr))
+	for k := range hdr {
+		auth = append(auth, k)
+	}
+	ctx = netx.WithAuthHeaders(ctx, auth...)
 	var body io.Reader
 	if payload != nil {
 		body = bytes.NewReader(payload)

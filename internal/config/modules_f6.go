@@ -89,7 +89,7 @@ func (m *Modules) validateF6() error {
 func (m *Modules) validateWeb() error {
 	for _, id := range m.Web.Engines {
 		switch id {
-		case "fake", "brave", "tavily", "exa":
+		case "fake", "brave", "ddgs", "exa", "firecrawl", "tavily", "searxng", "perplexity", "parallel", "xai", "keenable", "openai-native":
 		default:
 			return invalid("modules.web.engines", "engine %q is not supported", id)
 		}

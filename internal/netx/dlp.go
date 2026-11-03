@@ -214,13 +214,7 @@ func (d *dlp) check(req *http.Request) error {
 	buf.WriteByte('\n')
 	buf.WriteString(req.Host)
 	buf.WriteByte('\n')
-	for _, h := range []http.Header{req.Header, req.Trailer} {
-		for name, vals := range h {
-			for _, v := range vals {
-				buf.WriteString(name + ": " + v + "\n")
-			}
-		}
-	}
+	appendScannedHeaders(&buf, req)
 	if req.Body != nil && req.Body != http.NoBody {
 		body, err := io.ReadAll(io.LimitReader(req.Body, dlpMaxBody+1))
 		if cerr := req.Body.Close(); err == nil {
