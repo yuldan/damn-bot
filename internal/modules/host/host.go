@@ -91,6 +91,9 @@ type Result struct {
 	Content         string
 	Meta            map[string]any
 	UntrustedSource string
+	// Attachments are bounded binary results (GAP-REL-14); the core spills
+	// them to blobs and never inlines base64 in the prompt.
+	Attachments []Attachment
 }
 
 // Error is a module tool failure in the closed tool-code vocabulary of

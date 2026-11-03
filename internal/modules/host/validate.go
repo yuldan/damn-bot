@@ -115,6 +115,9 @@ func (r Result) Validate() error {
 			return fmt.Errorf("%w: meta key", ErrInvalidResult)
 		}
 	}
+	if err := validateAttachments(r.Attachments); err != nil {
+		return err
+	}
 	return nil
 }
 

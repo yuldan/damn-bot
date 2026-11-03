@@ -428,6 +428,11 @@ func (d *Dispatcher) execute(ctx context.Context, p *Prepared) Outcome {
 		d.record(ctx, call, &out)
 		return out
 	}
+	if err := d.attach(ctx, &res); err != nil {
+		out := fromError(err)
+		d.record(ctx, call, &out)
+		return out
+	}
 	// Reads that leave the workspace (or any read in an untrusted
 	// workspace) are data, never instructions (SPEC §14.5, ADR-069/070).
 	// The workspace fallback only fills a blank source: a tool that already
@@ -558,6 +563,32 @@ func paged(name string) bool {
 		return true
 	}
 	return false
+}
+
+func (d *Dispatcher) attach(ctx context.Context, res *Result) error {
+	if len(res.PendingAttachments) == 0 {
+		return nil
+	}
+	refs, err := d.spillAttachments(ctx, res.PendingAttachments)
+	if err != nil {
+		return err
+	}
+	res.Attachments = append(res.Attachments, refs...)
+	res.PendingAttachments = nil
+	return nil
+}
+
+func (d *Dispatcher) spillAttachments(ctx context.Context, as []Attachment) ([]BlobRef, error) {
+	out := make([]BlobRef, 0, len(as))
+	for _, a := range as {
+		ref, err := d.spill.Put(ctx, a.Data)
+		if err != nil {
+			return nil, spillErr("attachment", err)
+		}
+		ref.Kind, ref.Name, ref.MIME = a.Kind, a.Name, a.MIME
+		out = append(out, ref)
+	}
+	return out, nil
 }
 
 // spillResult spills an oversized non-paged result and returns the preview.

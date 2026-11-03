@@ -127,7 +127,7 @@ schema            1200 internal/schema
 # provider/auth 1211 -> 1230 (invalid_grant DEAD), provider/credpool
 # 230 -> 240 (billing short cooldown). Sigma core caps 55.557 -> 55.604;
 # plafon core 55.600 -> 55.650.
-tools             3620 internal/tools
+tools             3660 internal/tools
 # ADR-143: komposisi toolset deklaratif (TSET/CORE-004/005; Σ core 38.450 -> 38.850 <= 47.000).
 toolset            400 internal/toolset
 # ADR-111: codetools 4500 -> 4800 (perbaikan REVIEW-F1-SEC2; Σ core 33.900 -> 34.200 <= 47.000).
@@ -316,6 +316,9 @@ heal              1500 internal/heal
 # ADR-318 amandemen (egress media): registry egress `media` di internal/netx
 # menambah netx 1856 -> 1861 (terukur). Sigma core 55.979 -> 55.984; plafon
 # core 55.979 -> 56.000 (ceil ratusan, headroom 16).
+# ADR-322 (M7 A/B, GAP-REL-14): host/MCP/tools/loop attachment + spill
+# menambah modules 1.221 -> 1.320 (terukur 1.319) dan tools 3.620 -> 3.660
+# (terukur 3.657). Sigma core 56.045 -> 56.184; plafon core 56.100 -> 56.200.
 # ADR-319 (F6-W4 voice wiring): menghapus penolakan foundation [modules.voice]
 # menurunkan config 2169 -> 2158 (terukur); registry egress `voice` menambah
 # netx 1861 -> 1866; wiring cmd menahan
@@ -328,7 +331,7 @@ config            2225 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
-modules            1221 internal/modules
+modules            1320 internal/modules
 # ADR-273 (F5-12 PR A, GAP-REL-18): SessionView + parent/child intersection di
 # `modules/host`; kode terukur 1.221, plafon 1.150 -> 1.221 (tanpa headroom,
 # angka ukur scc pada pohon PR A). Sigma core 51.984 -> 52.056; plafon core

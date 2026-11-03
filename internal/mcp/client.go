@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -80,8 +82,10 @@ type callParams struct {
 }
 
 type contentPart struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string `json:"type"`
+	Text     string `json:"text"`
+	MimeType string `json:"mimeType"`
+	Data     string `json:"data"`
 }
 
 type callResult struct {
@@ -395,6 +399,7 @@ func (c *Client) mapResult(name string, raw json.RawMessage) (host.Result, error
 	}
 	var texts []string
 	var other []json.RawMessage
+	var attachments []host.Attachment
 	for _, part := range out.Content {
 		var p contentPart
 		if err := json.Unmarshal(part, &p); err != nil {
@@ -402,6 +407,14 @@ func (c *Client) mapResult(name string, raw json.RawMessage) (host.Result, error
 		}
 		if p.Type == "text" {
 			texts = append(texts, p.Text)
+			continue
+		}
+		if p.Type == "image" {
+			att, err := mcpImage(name, c.server.Name, p, len(attachments))
+			if err != nil {
+				return host.Result{}, err
+			}
+			attachments = append(attachments, att)
 			continue
 		}
 		other = append(other, part)
@@ -417,6 +430,7 @@ func (c *Client) mapResult(name string, raw json.RawMessage) (host.Result, error
 		Content:         text,
 		UntrustedSource: "mcp:" + c.server.Name,
 		Meta:            map[string]any{"server": c.server.Name, "tool": name},
+		Attachments:     attachments,
 	}
 	if len(other) > 0 {
 		res.Meta["content"] = other
@@ -425,6 +439,25 @@ func (c *Client) mapResult(name string, raw json.RawMessage) (host.Result, error
 		return host.Result{}, toolError("too_large", "MCP result exceeds the module limit")
 	}
 	return res, nil
+}
+
+func mcpImage(tool, server string, p contentPart, index int) (host.Attachment, error) {
+	if int64(base64.StdEncoding.DecodedLen(len(p.Data))) > host.MaxAttachmentBytes(host.AttachmentImage) {
+		return host.Attachment{}, toolError("too_large", "MCP image exceeds the attachment limit")
+	}
+	raw, err := base64.StdEncoding.DecodeString(p.Data)
+	if err != nil {
+		return host.Attachment{}, toolError("invalid_args", "MCP image is not base64")
+	}
+	mime := p.MimeType
+	if mime == "" {
+		mime = http.DetectContentType(raw)
+	}
+	return host.Attachment{
+		Kind: host.AttachmentImage,
+		Name: fmt.Sprintf("mcp:%s:%s:image%d", server, tool, index),
+		MIME: mime, Data: raw,
+	}, nil
 }
 
 // preview renders the call arguments for the approver; the preview is the
