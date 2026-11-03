@@ -54,20 +54,13 @@ func TestF6ModuleSectionsRejectUnknownKey(t *testing.T) {
 	}
 }
 
-// TestF6ModuleSectionsRefuseEnable: enabling a module that has no runtime yet
-// fails closed rather than becoming a no-op (ADR-310). Web, browser, media and
-// computer_use are excluded: they have runtimes (ADR-311/313/314/318).
-func TestF6ModuleSectionsRefuseEnable(t *testing.T) {
+// TestF6ModuleVoiceEnable: voice now has a runtime, so the opt-in loads while
+// the provider keys stay optional until a backend is selected (ADR-319).
+func TestF6ModuleVoiceEnable(t *testing.T) {
 	t.Parallel()
-	for _, id := range []string{"voice"} {
-		t.Run(id, func(t *testing.T) {
-			t.Parallel()
-			_, err := parse(t, "[modules."+id+"]\nenabled = true\n")
-			ke := keyErrorOf(t, err, ErrInvalidValue)
-			if ke.Key != "modules."+id+".enabled" {
-				t.Errorf("key = %q, want modules.%s.enabled", ke.Key, id)
-			}
-		})
+	cfg, err := parse(t, "[modules.voice]\nenabled = true\n")
+	if err != nil || !cfg.Modules.Voice.Enabled {
+		t.Fatalf("voice enable = %+v, %v", cfg.Modules.Voice, err)
 	}
 }
 

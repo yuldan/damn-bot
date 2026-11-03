@@ -149,10 +149,11 @@ func f6ModuleImports(m map[string][]string) {
 	m["internal/media/doc"] = nil
 	m["internal/media/preflight"] = nil
 	m["internal/media/gen"] = []string{"internal/modules/host"}
+	// Voice root (ADR-319): host seam, netx TTS egress, and the three leaves.
 	// Daun voice (ADR-309, F6-V1): provider contracts and implementations.
 	// The root aliases their types and imports all three; leaves import only
 	// the standard library.
-	m["internal/voice"] = []string{"internal/modules/host", "internal/voice/stt", "internal/voice/tts", "internal/voice/wake"}
+	m["internal/voice"] = []string{"internal/modules/host", "internal/netx", "internal/voice/stt", "internal/voice/tts", "internal/voice/wake"}
 	m["internal/voice/stt"] = nil
 	m["internal/voice/tts"] = nil
 	m["internal/voice/wake"] = nil
