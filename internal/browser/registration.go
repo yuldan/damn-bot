@@ -10,12 +10,19 @@ import (
 
 // Section is the JSON form of [modules.browser] handed to the module through
 // host.Config.Raw. It is the module's own schema: the core copies these keys
-// without interpreting them.
+// without interpreting them. The field order matches ModuleConfig so the
+// conversion stays exhaustive when a key is added.
 type Section struct {
-	Enabled      bool     `json:"enabled"`
-	CDPURL       string   `json:"cdp_url"`
-	AllowOrigins []string `json:"allow_origins"`
-	LocalProfile bool     `json:"local_profile"`
+	Enabled       bool     `json:"enabled"`
+	Engine        string   `json:"engine"`
+	CDPURL        string   `json:"cdp_url"`
+	CamofoxURL    string   `json:"camofox_url"`
+	LightpandaBin string   `json:"lightpanda_bin"`
+	CloudURL      string   `json:"cloud_url"`
+	AllowOrigins  []string `json:"allow_origins"`
+	LocalProfile  bool     `json:"local_profile"`
+	Offline       bool     `json:"offline"`
+	NoBackground  bool     `json:"no_background"`
 }
 
 // NewFromConfig decodes one [modules.browser] section and builds the module.
@@ -31,5 +38,6 @@ func NewFromConfig(raw json.RawMessage, deps Deps) (*Module, error) {
 	if err := dec.Decode(&section); err != nil {
 		return nil, fmt.Errorf("%w: %w", errBadConfig, err)
 	}
-	return New(ModuleConfig(section), deps)
+	cfg := ModuleConfig(section)
+	return New(&cfg, deps)
 }

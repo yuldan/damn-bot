@@ -148,7 +148,11 @@ config_version = 1
     enabled = false
   [modules.browser]
     enabled = false
+    engine = ""
     cdp_url = ""
+    camofox_url = ""
+    lightpanda_bin = ""
+    cloud_url = ""
     allow_origins = []
     local_profile = false
   [modules.media]

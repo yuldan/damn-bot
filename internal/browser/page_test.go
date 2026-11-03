@@ -73,12 +73,12 @@ func emit(f *fakeTransport, method, params string) {
 
 func mustPage(t *testing.T, f Transport, cfg Config) *Page {
 	t.Helper()
-	p, err := NewPage(f, cfg)
+	p, err := NewCDPPage(f, cfg)
 	if err != nil {
 		t.Fatalf("NewPage: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := p.conn.Close(); err != nil {
+		if err := p.eng.Close(); err != nil {
 			t.Errorf("close: %v", err)
 		}
 	})
