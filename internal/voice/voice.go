@@ -11,6 +11,7 @@ import (
 
 	"github.com/damnbot/damnbot/internal/voice/stt"
 	"github.com/damnbot/damnbot/internal/voice/tts"
+	"github.com/damnbot/damnbot/internal/voice/wake"
 )
 
 // Public contracts, aliased so implementations live in leaf packages that
@@ -30,6 +31,10 @@ type (
 	SynthOptions = tts.Options
 	// TTS is one text-to-speech provider.
 	TTS = tts.Provider
+	// WakeConfig is the external wake-word engine configuration.
+	WakeConfig = wake.Config
+	// WakeEngine is one wake-word source.
+	WakeEngine = wake.Engine
 )
 
 // Provider selection failures.
@@ -80,4 +85,22 @@ func (c *Config) NewSTT() (STT, error) {
 		return nil, fmt.Errorf("%w: %w", ErrModuleUnavailable, err)
 	}
 	return w, nil
+}
+
+// NewTTS builds the configured text-to-speech provider.
+func (c *Config) NewTTS() (TTS, error) {
+	if !slices.Contains(Catalog(KindTTS), c.TTSBackend) {
+		return nil, fmt.Errorf("%w: tts backend %q", ErrUnknownProvider, c.TTSBackend)
+	}
+	if c.TTSBackend != "openai" {
+		return nil, fmt.Errorf("%w: tts backend %q", ErrModuleUnavailable, c.TTSBackend)
+	}
+	h, err := tts.NewHTTP(&tts.Config{
+		Endpoint: c.TTSEndpoint, Key: c.TTSKey, Model: c.TTSModel,
+		Voice: c.TTSVoice, Format: c.TTSFormat, Doer: c.Doer,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrModuleUnavailable, err)
+	}
+	return h, nil
 }
