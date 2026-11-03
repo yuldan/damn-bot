@@ -6,36 +6,54 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/damnbot/damnbot/internal/browser"
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/modules"
 	"github.com/damnbot/damnbot/internal/modules/host"
 	"github.com/damnbot/damnbot/internal/webtools"
 )
 
-// f6WebModuleID is the descriptor id of SPEC §3.2.4 `web`. The package is
-// internal/webtools because internal/web is the F8 Web UI (ADR-310).
-const f6WebModuleID = "web"
+// Descriptor ids of SPEC §3.2.4. The web package is internal/webtools because
+// internal/web is the F8 Web UI (ADR-310).
+const (
+	f6WebModuleID     = "web"
+	f6BrowserModuleID = "browser"
+)
 
 // registerModules registers every module this build compiles in. It runs once
 // from main (and from the package TestMain) before modules.Freeze; main turns
-// a returned error into exit 1 instead of losing it. The web module registers
-// one descriptor from the composition root (E-06 keeps internal/webtools free
-// of an internal/modules import). Registration only records data: nothing
-// starts, opens or dials (P16), and `run` decides activation from
-// [modules.web].enabled.
+// a returned error into exit 1 instead of losing it. Each module registers one
+// descriptor from the composition root (E-06 keeps the module packages free of
+// an internal/modules import). Registration only records data: nothing starts,
+// opens or dials (P16), and `run` decides activation from [modules.*].enabled.
 func registerModules() error {
-	err := modules.Register(modules.Descriptor{
-		ID:        f6WebModuleID,
-		Group:     "web",
-		Catalog:   "- web: fetch a page or search the web",
-		Tools:     webToolDescriptors(),
-		ConfigKey: "modules.web",
-		Factory: func(_ host.Host, cfg host.Config) (modules.Module, error) {
-			return webtools.NewFromConfig(cfg.Raw)
+	for _, desc := range []modules.Descriptor{
+		{
+			ID:        f6WebModuleID,
+			Group:     "web",
+			Catalog:   "- web: fetch a page or search the web",
+			Tools:     webToolDescriptors(),
+			ConfigKey: "modules.web",
+			Factory: func(_ host.Host, cfg host.Config) (modules.Module, error) {
+				return webtools.NewFromConfig(cfg.Raw)
+			},
 		},
-	})
-	if err != nil {
-		return fmt.Errorf("register web module: %w", err)
+		{
+			ID:        f6BrowserModuleID,
+			Group:     "browser",
+			Catalog:   "- browser: navigate, eval, screenshot, click, type",
+			Tools:     browserToolDescriptors(),
+			ConfigKey: "modules.browser",
+			Factory: func(h host.Host, cfg host.Config) (modules.Module, error) {
+				return browser.NewFromConfig(cfg.Raw, browser.Deps{
+					Approvals: host.CapabilitiesOf(h).Approvals,
+				})
+			},
+		},
+	} {
+		if err := modules.Register(desc); err != nil {
+			return fmt.Errorf("register %s module: %w", desc.ID, err)
+		}
 	}
 	return nil
 }
@@ -49,6 +67,18 @@ func webToolDescriptors() []modules.ToolDescriptor {
 		out = append(out, modules.ToolDescriptor{
 			Name: tool.Name, Description: tool.Description, Schema: tool.Schema,
 			Effect: tool.Effect, Tags: webToolTags(tool.Name),
+		})
+	}
+	return out
+}
+
+// browserToolDescriptors is the same mapping for the browser module.
+func browserToolDescriptors() []modules.ToolDescriptor {
+	tools := browser.Tools()
+	out := make([]modules.ToolDescriptor, 0, len(tools))
+	for _, tool := range tools {
+		out = append(out, modules.ToolDescriptor{
+			Name: tool.Name, Description: tool.Description, Schema: tool.Schema, Effect: tool.Effect,
 		})
 	}
 	return out
@@ -76,22 +106,45 @@ type moduleWebSection struct {
 	UserAgent    string   `json:"user_agent"`
 }
 
+// moduleBrowserSection is the JSON form of [modules.browser].
+type moduleBrowserSection struct {
+	Enabled      bool     `json:"enabled"`
+	CDPURL       string   `json:"cdp_url"`
+	AllowOrigins []string `json:"allow_origins"`
+	LocalProfile bool     `json:"local_profile"`
+}
+
 // moduleGate maps [modules.*] onto the runtime's enable/config predicates.
 // A module without a wired slice is disabled: enabling it in config must not
 // build a catalog entry for a module that cannot serve calls.
 func moduleGate(cfg *config.Config) (func(string) bool, func(string) host.Config) {
-	web := cfg.Modules.Web
-	enabled := func(id string) bool { return id == f6WebModuleID && web.Enabled }
-	raw, err := json.Marshal(moduleWebSection{
+	web, br := cfg.Modules.Web, cfg.Modules.Browser
+	enabled := func(id string) bool {
+		switch id {
+		case f6WebModuleID:
+			return web.Enabled
+		case f6BrowserModuleID:
+			return br.Enabled
+		}
+		return false
+	}
+	webRaw, webErr := json.Marshal(moduleWebSection{
 		Enabled: web.Enabled, Engines: web.Engines, Blocklist: web.Blocklist,
 		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
 		UserAgent: userAgent(),
 	})
+	brRaw, brErr := json.Marshal(moduleBrowserSection{
+		Enabled: br.Enabled, CDPURL: br.CDPURL,
+		AllowOrigins: br.AllowOrigins, LocalProfile: br.LocalProfile,
+	})
 	conf := func(id string) host.Config {
-		if id != f6WebModuleID || err != nil {
-			return host.Config{Key: "modules." + id}
+		switch {
+		case id == f6WebModuleID && webErr == nil:
+			return host.Config{Key: "modules.web", Raw: webRaw}
+		case id == f6BrowserModuleID && brErr == nil:
+			return host.Config{Key: "modules.browser", Raw: brRaw}
 		}
-		return host.Config{Key: "modules.web", Raw: raw}
+		return host.Config{Key: "modules." + id}
 	}
 	return enabled, conf
 }

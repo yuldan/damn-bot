@@ -265,7 +265,7 @@ func TestConfigModulesRegistered(t *testing.T) {
 	e := New(t)
 	res := e.Exec("config", "modules")
 	res.RequireOK(t)
-	want := "id\tgroup\tconfig\ttools\tenabled\nweb\tweb\tmodules.web\t2\tfalse\n"
+	want := "id\tgroup\tconfig\ttools\tenabled\nbrowser\tbrowser\tmodules.browser\t5\tfalse\nweb\tweb\tmodules.web\t2\tfalse\n"
 	if res.Stdout != want {
 		t.Fatalf("modules stdout = %q, want %q", res.Stdout, want)
 	}
