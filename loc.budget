@@ -329,8 +329,9 @@ heal              1500 internal/heal
 # (ceil ratusan, headroom 55). MODULE computeruse terukur 770/2000.
 # ADR-321 (F6 browser engines): [modules.browser].engine/camofox_url/
 # lightpanda_bin/cloud_url + validasi menambah config 2225 -> 2279 (terukur
-# scc); registry egress `browser` menambah netx 1866 -> 1871 (terukur).
-# Sigma core 56.045 -> 56.104; plafon core 56.100 -> 56.200 (ceil ratusan).
+# scc). netx tidak berubah (1866, egress `browser` menyusul bersama cloud
+# engine). Sigma core 56.184 -> 56.238; plafon core 56.200 -> 56.300 (ceil
+# ratusan, headroom 62). MODULE browser terukur 1117/5500.
 config            2279 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
