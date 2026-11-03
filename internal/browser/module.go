@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -42,18 +43,23 @@ func newTool(name, description, effect, schema string) Tool {
 	return Tool{Name: name, Description: description, Effect: effect, Schema: json.RawMessage(schema)}
 }
 
-// ModuleConfig is the normalised [modules.browser] section plus the CDP
-// endpoint. An enabled module without CDPURL starts but every call fails
-// closed with module_unavailable (never a guessed port).
+// ModuleConfig is the normalised [modules.browser] section plus the engine
+// endpoints. A selected engine without an endpoint fails closed at Invoke;
+// there is never a guessed port or a fallback to another engine.
 type ModuleConfig struct {
-	Enabled      bool
-	CDPURL       string
-	AllowOrigins []string
-	LocalProfile bool
+	Enabled       bool
+	Engine        string
+	CDPURL        string
+	CamofoxURL    string
+	LightpandaBin string
+	CloudURL      string
+	AllowOrigins  []string
+	LocalProfile  bool
+	Offline       bool
+	NoBackground  bool
 }
 
-// Deps carries the core-owned seam and the transport constructor; both are
-// optional in tests.
+// Deps carries the core-owned seams; every field is optional in tests.
 type Deps struct {
 	Approvals host.Approvals
 	Dial      DialFunc
@@ -70,18 +76,18 @@ type Module struct {
 	deps   Deps
 	mu     sync.Mutex
 	page   *Page
-	conn   Transport
 	host   string
 	status host.Status
 }
 
-// New validates the endpoint shape and the origin allowlist. Validation runs
-// even when the module is disabled, so a broken section fails at wiring time.
-func New(cfg ModuleConfig, deps Deps) (*Module, error) {
-	if cfg.CDPURL != "" {
-		if _, err := endpointURL(cfg.CDPURL); err != nil {
-			return nil, err
-		}
+// New validates the engine selection, endpoint shapes and allowlist, even when
+// disabled; an empty endpoint stays legal and fails closed at Invoke.
+func New(cfg *ModuleConfig, deps Deps) (*Module, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("%w: nil config", errBadConfig)
+	}
+	if err := validateEngineConfig(cfg); err != nil {
+		return nil, err
 	}
 	if _, err := NewAllowlist(cfg.AllowOrigins); err != nil {
 		return nil, err
@@ -95,7 +101,96 @@ func New(cfg ModuleConfig, deps Deps) (*Module, error) {
 			return conn, nil
 		}
 	}
-	return &Module{cfg: cfg, deps: deps, status: host.StatusStopped}, nil
+	return &Module{cfg: *cfg, deps: deps, status: host.StatusStopped}, nil
+}
+
+// validateEngineConfig keeps the engine and every endpoint honest. More than
+// one endpoint without an explicit engine is ambiguous, not picked silently.
+func validateEngineConfig(cfg *ModuleConfig) error {
+	switch cfg.Engine {
+	case "", "cdp", "camofox", "lightpanda", "cloud":
+	default:
+		return fmt.Errorf("%w: engine %q", errBadConfig, cfg.Engine)
+	}
+	if err := validateEndpoints(cfg); err != nil {
+		return err
+	}
+	if cfg.Engine == "" {
+		n := 0
+		for _, on := range []bool{cfg.CDPURL != "", cfg.CamofoxURL != "", cfg.LightpandaBin != "", cfg.CloudURL != ""} {
+			if on {
+				n++
+			}
+		}
+		if n > 1 {
+			return fmt.Errorf("%w: several browser endpoints configured without engine", errBadConfig)
+		}
+	}
+	return nil
+}
+
+func validateEndpoints(cfg *ModuleConfig) error {
+	if cfg.CDPURL != "" {
+		raw, err := endpointURL(cfg.CDPURL)
+		if err != nil {
+			return err
+		}
+		u, perr := url.Parse(raw)
+		if perr != nil || !localHost(u.Hostname()) {
+			return fmt.Errorf("%w: cdp_url must be loopback", errBadConfig)
+		}
+	}
+	if cfg.CamofoxURL != "" {
+		if err := httpEndpoint(cfg.CamofoxURL, true); err != nil {
+			return fmt.Errorf("%w: camofox_url", err)
+		}
+	}
+	if cfg.CloudURL != "" {
+		if err := httpEndpoint(cfg.CloudURL, false); err != nil {
+			return fmt.Errorf("%w: cloud_url", err)
+		}
+	}
+	if cfg.LightpandaBin != "" && !filepath.IsAbs(cfg.LightpandaBin) {
+		return fmt.Errorf("%w: lightpanda_bin must be absolute", errBadConfig)
+	}
+	return nil
+}
+
+// httpEndpoint accepts http(s); loopback sidecars must be local and a public
+// cloud endpoint must use TLS.
+func httpEndpoint(raw string, loopback bool) error {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
+		(u.Scheme != "http" && u.Scheme != "https") {
+		return errBadConfig
+	}
+	local := localHost(u.Hostname())
+	if loopback && !local {
+		return errBadConfig
+	}
+	if !loopback && !local && u.Scheme != "https" {
+		return errBadConfig
+	}
+	return nil
+}
+
+// engineName: an explicit engine wins, otherwise the single endpoint selects
+// the backend; empty means no engine.
+func (m *Module) engineName() string {
+	if m.cfg.Engine != "" {
+		return m.cfg.Engine
+	}
+	switch {
+	case m.cfg.CDPURL != "":
+		return "cdp"
+	case m.cfg.CamofoxURL != "":
+		return "camofox"
+	case m.cfg.LightpandaBin != "":
+		return "lightpanda"
+	case m.cfg.CloudURL != "":
+		return "cloud"
+	}
+	return ""
 }
 
 // Start publishes the configured endpoint; it dials on the first call so a
@@ -121,15 +216,15 @@ func (m *Module) Status() host.Status {
 	return m.status
 }
 
-// Stop closes the page connection and is idempotent.
+// Stop closes the engine and is idempotent.
 func (m *Module) Stop(context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var err error
-	if m.conn != nil {
-		err = m.conn.Close()
+	if m.page != nil {
+		err = m.page.Close()
 	}
-	m.page, m.conn, m.host, m.status = nil, nil, "", host.StatusStopped
+	m.page, m.host, m.status = nil, "", host.StatusStopped
 	if err != nil {
 		return fmt.Errorf("browser: close: %w", err)
 	}
@@ -140,7 +235,7 @@ func (m *Module) Stop(context.Context) error {
 // always raise a host approval request first, with a preview that never
 // contains page content, and only allow-once permits the action.
 func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, env host.Env) (host.Result, error) {
-	if m == nil || !m.cfg.Enabled || m.cfg.CDPURL == "" {
+	if m == nil || !m.cfg.Enabled || m.engineName() == "" {
 		return host.Result{}, &host.Error{Code: "module_unavailable", Message: "browser module is unavailable: " + tool}
 	}
 	switch tool {
@@ -287,12 +382,33 @@ func (m *Module) approve(ctx context.Context, tool, class, preview string, env h
 	return nil
 }
 
-// open returns the shared page, dialing (and for an HTTP endpoint,
-// discovering) on first use. The caller holds m.mu.
+// open returns the shared page, constructing the engine on first use (caller
+// holds m.mu). A missing endpoint fails with module_unavailable; no fallback.
 func (m *Module) open(ctx context.Context) (*Page, error) {
 	if m.page != nil {
 		return m.page, nil
 	}
+	if m.engineName() != "cdp" {
+		return nil, fmt.Errorf("%w: engine %q is not compiled in this slice", errUnavailable, m.engineName())
+	}
+	if m.cfg.CDPURL == "" {
+		return nil, fmt.Errorf("%w: cdp_url is empty", errUnavailable)
+	}
+	conn, err := m.dialCDP(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cfg := Config{AllowOrigins: m.cfg.AllowOrigins, LocalProfile: m.cfg.LocalProfile}.normalize()
+	p, err := NewCDPPage(conn, cfg)
+	if err != nil {
+		return nil, errors.Join(err, conn.Close())
+	}
+	m.page = p
+	return p, nil
+}
+
+// dialCDP resolves the discovery base and dials the page WebSocket.
+func (m *Module) dialCDP(ctx context.Context) (Transport, error) {
 	rawURL, err := endpointURL(m.cfg.CDPURL)
 	if err != nil {
 		return nil, err
@@ -305,16 +421,9 @@ func (m *Module) open(ctx context.Context) (*Page, error) {
 	}
 	conn, err := m.deps.Dial(ctx, rawURL, cdpCallTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("browser: dial: %w", err)
+		return nil, err
 	}
-	p, err := NewPage(conn, Config{
-		AllowOrigins: m.cfg.AllowOrigins, LocalProfile: m.cfg.LocalProfile,
-	})
-	if err != nil {
-		return nil, errors.Join(err, conn.Close())
-	}
-	m.page, m.conn = p, conn
-	return p, nil
+	return conn, nil
 }
 
 // taint labels every browser result with the navigated host of the current
