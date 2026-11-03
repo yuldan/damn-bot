@@ -22,7 +22,7 @@ GATES=(
 	sqlite-engine skill-refs
 	phase-file phase-acceptance
 	arch-importgraph arch-filelength arch-globals arch-goleak arch-budgetsum arch-codeowners arch-nolint
-	arch-workflows arch-mpl
+	arch-conflict-marker arch-workflows arch-mpl
 	pr-title pr-changelog adrgate adrgate-spec pr-size spec-guard
 )
 [[ $# -gt 0 ]] && GATES=("$@")
@@ -92,6 +92,7 @@ marker() {
 	arch-budgetsum) echo 'Σ loc\.budget core = [0-9]+ > 55900' ;;
 	arch-codeowners) echo 'E-79 CODEOWNERS: direktori internal/metaviolation' ;;
 	arch-nolint) echo 'E-52 nolint tanpa linter/alasan: internal/metaviolation/n\.go' ;;
+	arch-conflict-marker) echo 'CONFLICT MARKER: internal/metaviolation/conflict\.md:1' ;;
 	arch-workflows) echo 'AUD-070 action tidak dipin SHA: \.github/workflows/meta-violation\.yml' ;;
 	arch-mpl) echo 'E-40 MPL-2\.0 di luar deps\.mpl: example\.com/metampl' ;;
 	pr-title) echo 'PR-META GAGAL title' ;;
@@ -528,6 +529,11 @@ EOF
 		;;
 	arch-nolint)
 		printf 'package metaviolation\n\n// F melanggar E-52.\nfunc F() {} //nolint\n' | gofile "$d/internal/metaviolation/n.go"
+		;;
+	arch-conflict-marker)
+		# Penanda konflik Git yang belum diselesaikan di file sementara (gate memindai filesystem,
+		# sehingga file tidak perlu di-track).
+		printf '<<<<<<< HEAD\nalpha\n=======\nbeta\n>>>>>>> meta\n' | gofile "$d/internal/metaviolation/conflict.md"
 		;;
 	arch-workflows)
 		printf 'name: meta\non: push\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n' \
