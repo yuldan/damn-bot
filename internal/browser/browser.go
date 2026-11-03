@@ -6,6 +6,7 @@ package browser
 import (
 	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,12 +34,14 @@ type Config struct {
 	LoadTimeout   time.Duration
 	MaxResult     int
 	MaxScreenshot int
+	MaxBlob       int
 }
 
 func (c Config) normalize() Config {
 	c.LoadTimeout = cmp.Or(c.LoadTimeout, 20*time.Second)
 	c.MaxResult = cmp.Or(c.MaxResult, 64<<10)
 	c.MaxScreenshot = cmp.Or(c.MaxScreenshot, 2<<20)
+	c.MaxBlob = cmp.Or(c.MaxBlob, 8<<20)
 	return c
 }
 
@@ -117,10 +120,11 @@ func (p *Page) WaitLoad(ctx context.Context) error {
 
 // Eval evaluates expression and returns the JSON value, capped at MaxResult.
 func (p *Page) Eval(ctx context.Context, expression string) (string, error) {
-	value, err := p.eng.Eval(ctx, expression)
+	reply, err := p.eng.Read(ctx, ReadOp{Kind: "eval", Expression: expression, Limit: p.cfg.MaxResult})
 	if err != nil {
 		return "", fmt.Errorf("browser: evaluate: %w", err)
 	}
+	value := reply.Value
 	if len(value) > p.cfg.MaxResult {
 		return "", fmt.Errorf("%w: %d > %d bytes", errTooLarge, len(value), p.cfg.MaxResult)
 	}
@@ -129,10 +133,11 @@ func (p *Page) Eval(ctx context.Context, expression string) (string, error) {
 
 // Screenshot captures the viewport as PNG, capped at MaxScreenshot bytes.
 func (p *Page) Screenshot(ctx context.Context) ([]byte, error) {
-	png, err := p.eng.Screenshot(ctx)
+	reply, err := p.eng.Read(ctx, ReadOp{Kind: "screenshot", Limit: p.cfg.MaxScreenshot})
 	if err != nil {
 		return nil, fmt.Errorf("browser: screenshot: %w", err)
 	}
+	png := reply.Blob
 	if len(png) > p.cfg.MaxScreenshot {
 		return nil, fmt.Errorf("%w: screenshot %d > %d bytes", errTooLarge, len(png), p.cfg.MaxScreenshot)
 	}
@@ -144,8 +149,146 @@ func (p *Page) Click(ctx context.Context, x, y float64, approved bool) error {
 	if !approved {
 		return fmt.Errorf("%w: browser_click at (%.0f, %.0f)", errApproval, x, y)
 	}
-	if err := p.eng.Act(ctx, Action{Kind: "click", X: x, Y: y}); err != nil {
+	if err := p.eng.Act(ctx, &Action{Kind: "click", X: x, Y: y}); err != nil {
 		return fmt.Errorf("browser: click: %w", err)
+	}
+	return nil
+}
+
+// Back navigates one history entry back; no entry is a typed error.
+func (p *Page) Back(ctx context.Context) (string, error) {
+	reply, err := p.eng.Read(ctx, ReadOp{Kind: "back", Guard: p.guard})
+	if err != nil {
+		return "", fmt.Errorf("browser: back: %w", err)
+	}
+	if reply.Name == "" {
+		return "", errNoHistory
+	}
+	return reply.Name, nil
+}
+
+// WaitFor polls expression until it is truthy or the timeout expires.
+func (p *Page) WaitFor(ctx context.Context, expression string, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, cmp.Or(timeout, 5*time.Second))
+	defer cancel()
+	for {
+		value, err := p.Eval(ctx, expression)
+		if err != nil {
+			return err
+		}
+		if truthy(value) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w: wait_for: %w", errTimeout, ctx.Err())
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+func truthy(value string) bool {
+	switch value {
+	case "", "null", "false", "0", `""`, "[]":
+		return false
+	}
+	return true
+}
+
+// Run performs one non-read pointer or keyboard action after approval.
+func (p *Page) Run(ctx context.Context, tool string, a *Action, approved bool) error {
+	if !approved {
+		return fmt.Errorf("%w: %s", errApproval, tool)
+	}
+	if tool == "browser_select" {
+		return p.selectValue(ctx, a.Selector, a.Value)
+	}
+	switch tool {
+	case "browser_click":
+		a.Kind = "click"
+	case "browser_type":
+		a.Kind = "type"
+	case "browser_hover":
+		a.Kind = "hover"
+	case "browser_drag":
+		a.Kind = "drag"
+	case "browser_scroll":
+		a.Kind = "scroll"
+		if a.DeltaX < -10000 || a.DeltaX > 10000 || a.DeltaY < -10000 || a.DeltaY > 10000 {
+			return fmt.Errorf("%w: scroll deltas", errBadConfig)
+		}
+	case "browser_press":
+		if !knownKey(a.Key) {
+			return fmt.Errorf("%w: key %q", errBadConfig, a.Key)
+		}
+		a.Kind = "press"
+	default:
+		return fmt.Errorf("%w: %s", errBadConfig, tool)
+	}
+	if err := p.eng.Act(ctx, a); err != nil {
+		return fmt.Errorf("browser: %s: %w", tool, err)
+	}
+	return nil
+}
+
+func (p *Page) selectValue(ctx context.Context, selector, value string) error {
+	expr := `(() => { const e = document.querySelector(` + quote(selector) + `); if (!e) return false;` +
+		` e.value = ` + quote(value) + `; e.dispatchEvent(new Event("change", {bubbles: true})); return true; })()`
+	got, err := p.Eval(ctx, expr)
+	if err != nil {
+		return err
+	}
+	if got != "true" {
+		return fmt.Errorf("%w: selector %s", errBadConfig, selector)
+	}
+	return nil
+}
+
+func quote(s string) string {
+	out, err := json.Marshal(s)
+	if err != nil {
+		return `""`
+	}
+	return string(out)
+}
+
+func knownKey(key string) bool {
+	if len(key) == 1 && (key[0] >= 'a' && key[0] <= 'z' || key[0] >= '0' && key[0] <= '9') {
+		return true
+	}
+	switch key {
+	case "Enter", "Tab", "Escape", "Backspace", "Delete", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown", "Space":
+		return true
+	}
+	return false
+}
+
+// FileRef is one upload payload: Path is used by CDP, Data by HTTP engines.
+type FileRef struct {
+	Name string
+	Data []byte
+}
+
+// Upload sets a file input from a workspace file already bounded by the module.
+func (p *Page) Upload(ctx context.Context, selector string, file FileRef, approved bool) error {
+	if !approved {
+		return fmt.Errorf("%w: browser_upload", errApproval)
+	}
+	if selector == "" || len(file.Data) > p.cfg.MaxBlob {
+		return fmt.Errorf("%w: upload", errBadConfig)
+	}
+	b64 := base64.StdEncoding.EncodeToString(file.Data)
+	expr := `(() => { const e = document.querySelector(` + quote(selector) + `); if (!e) return false;` +
+		` const s = atob(` + quote(b64) + `); const u = new Uint8Array(s.length);` +
+		` for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i);` +
+		` const d = new DataTransfer(); d.items.add(new File([u], ` + quote(file.Name) + `));` +
+		` e.files = d.files; e.dispatchEvent(new Event("change", {bubbles: true})); return true; })()`
+	got, err := p.Eval(ctx, expr)
+	if err != nil {
+		return err
+	}
+	if got != "true" {
+		return fmt.Errorf("%w: upload selector", errBadConfig)
 	}
 	return nil
 }
@@ -155,7 +298,7 @@ func (p *Page) Type(ctx context.Context, text string, approved bool) error {
 	if !approved {
 		return fmt.Errorf("%w: browser_type %d characters", errApproval, len(text))
 	}
-	if err := p.eng.Act(ctx, Action{Kind: "type", Text: text}); err != nil {
+	if err := p.eng.Act(ctx, &Action{Kind: "type", Text: text}); err != nil {
 		return fmt.Errorf("browser: type: %w", err)
 	}
 	return nil
@@ -171,6 +314,7 @@ var (
 	errPage          = errors.New("browser: protocol failure")
 	errApproval      = errors.New("browser: approval required")
 	errDenied        = errors.New("browser: engine denied the request")
+	errNoHistory     = errors.New("browser: no history entry")
 	errUnavailable   = errors.New("browser: engine unavailable")
 	errUnsupported   = errors.New("browser: engine does not support the operation")
 )
@@ -265,7 +409,7 @@ func pageError(err error) error {
 	switch {
 	case errors.Is(err, errApproval), errors.Is(err, errDenied):
 		code = "denied"
-	case errors.Is(err, errBadConfig):
+	case errors.Is(err, errBadConfig), errors.Is(err, errNoHistory):
 		code = "invalid_args"
 	case errors.Is(err, errBlockedHost), errors.Is(err, errBlockedOrigin):
 		code = "blocked_host"

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -25,22 +26,6 @@ import (
 type Tool struct {
 	Name, Description, Effect string
 	Schema                    json.RawMessage
-}
-
-// Tools returns the module's deferred tools in stable order: the three reads
-// first, then the two approval-gated page actions.
-func Tools() []Tool {
-	return []Tool{
-		newTool("browser_navigate", "Open one allowlisted http(s) URL in the CDP page", "read", `{"type":"object","properties":{"url":{"type":"string","maxLength":2048}},"required":["url"],"additionalProperties":false}`),
-		newTool("browser_eval", "Evaluate a JavaScript expression in the current page and return its JSON value", "read", `{"type":"object","properties":{"expression":{"type":"string","maxLength":4096}},"required":["expression"],"additionalProperties":false}`),
-		newTool("browser_screenshot", "Capture the current viewport as a PNG", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
-		newTool("browser_click", "Click the current page at viewport coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"integer"},"y":{"type":"integer"}},"required":["x","y"],"additionalProperties":false}`),
-		newTool("browser_type", "Insert text into the focused element after approval", "non_idempotent", `{"type":"object","properties":{"text":{"type":"string","maxLength":4096}},"required":["text"],"additionalProperties":false}`),
-	}
-}
-
-func newTool(name, description, effect, schema string) Tool {
-	return Tool{Name: name, Description: description, Effect: effect, Schema: json.RawMessage(schema)}
 }
 
 // ModuleConfig is the normalised [modules.browser] section plus the engine
@@ -241,17 +226,48 @@ func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, 
 	if m == nil || !m.cfg.Enabled || m.engineName() == "" {
 		return host.Result{}, &host.Error{Code: "module_unavailable", Message: "browser module is unavailable: " + tool}
 	}
+	if res, ok, err := m.invokeRead(ctx, tool, args); ok {
+		return res, err
+	}
+	return m.invokeAction(ctx, tool, args, env)
+}
+
+func (m *Module) invokeRead(ctx context.Context, tool string, args json.RawMessage) (host.Result, bool, error) {
 	switch tool {
 	case "browser_navigate":
-		return m.navigate(ctx, args)
+		res, err := m.navigate(ctx, args)
+		return res, true, err
 	case "browser_eval":
-		return m.evaluate(ctx, args)
+		res, err := m.evaluate(ctx, args)
+		return res, true, err
 	case "browser_screenshot":
-		return m.screenshot(ctx)
-	case "browser_click":
-		return m.click(ctx, args, env)
-	case "browser_type":
-		return m.typeText(ctx, args, env)
+		res, err := m.screenshot(ctx)
+		return res, true, err
+	case "browser_snapshot":
+		res, err := m.snapshot(ctx)
+		return res, true, err
+	case "browser_wait_for":
+		res, err := m.waitFor(ctx, args)
+		return res, true, err
+	case "browser_pdf":
+		res, err := m.pdf(ctx)
+		return res, true, err
+	}
+	return host.Result{}, false, nil
+}
+
+func (m *Module) invokeAction(ctx context.Context, tool string, args json.RawMessage, env host.Env) (host.Result, error) {
+	switch tool {
+	case "browser_click", "browser_type":
+		return m.action(ctx, tool, args, env)
+	case "browser_back":
+		return m.back(ctx, env)
+	case "browser_hover", "browser_drag", "browser_scroll", "browser_press", "browser_select":
+		return m.action(ctx, tool, args, env)
+	case "browser_upload":
+		return m.upload(ctx, args, env)
+	case "browser_download":
+		return m.download(ctx, args, env)
 	}
 	return host.Result{}, &host.Error{Code: "unknown_tool", Message: "unknown browser tool: " + tool}
 }
@@ -263,21 +279,29 @@ func (m *Module) navigate(ctx context.Context, raw json.RawMessage) (host.Result
 	if err := decodeArgs(raw, &a); err != nil {
 		return host.Result{}, invalidArgs(err)
 	}
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		final, err := p.Navigate(ctx, a.URL)
+		if err != nil {
+			return host.Result{}, err
+		}
+		m.host = urlHost(final)
+		return host.Result{Content: "navigated to " + final, Meta: map[string]any{"url": final}}, nil
+	})
+}
+
+func (m *Module) withPage(ctx context.Context, fn func(*Page) (host.Result, error)) (host.Result, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p, err := m.open(ctx)
 	if err != nil {
 		return host.Result{}, pageError(err)
 	}
-	final, err := p.Navigate(ctx, a.URL)
+	res, err := fn(p)
 	if err != nil {
 		return host.Result{}, pageError(err)
 	}
-	m.host = urlHost(final)
-	return host.Result{
-		Content: "navigated to " + final, Meta: map[string]any{"url": final},
-		UntrustedSource: m.taint(),
-	}, nil
+	res.UntrustedSource = m.taint()
+	return res, nil
 }
 
 func (m *Module) evaluate(ctx context.Context, raw json.RawMessage) (host.Result, error) {
@@ -287,82 +311,274 @@ func (m *Module) evaluate(ctx context.Context, raw json.RawMessage) (host.Result
 	if err := decodeArgs(raw, &a); err != nil {
 		return host.Result{}, invalidArgs(err)
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	p, err := m.open(ctx)
-	if err != nil {
-		return host.Result{}, pageError(err)
-	}
-	value, err := p.Eval(ctx, a.Expression)
-	if err != nil {
-		return host.Result{}, pageError(err)
-	}
-	return host.Result{Content: value, UntrustedSource: m.taint()}, nil
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		value, err := p.Eval(ctx, a.Expression)
+		return host.Result{Content: value}, err
+	})
 }
 
 func (m *Module) screenshot(ctx context.Context) (host.Result, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	p, err := m.open(ctx)
-	if err != nil {
-		return host.Result{}, pageError(err)
-	}
-	png, err := p.Screenshot(ctx)
-	if err != nil {
-		return host.Result{}, pageError(err)
-	}
-	return host.Result{
-		Content: fmt.Sprintf("screenshot %d bytes", len(png)), Meta: map[string]any{"bytes": len(png)},
-		UntrustedSource: m.taint(),
-	}, nil
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		png, err := p.Screenshot(ctx)
+		if err != nil {
+			return host.Result{}, err
+		}
+		return host.Result{Content: fmt.Sprintf("screenshot %d bytes", len(png)), Meta: map[string]any{"bytes": len(png)}}, nil
+	})
 }
 
-func (m *Module) click(ctx context.Context, raw json.RawMessage, env host.Env) (host.Result, error) {
-	var a struct{ X, Y float64 }
-	if err := decodeArgs(raw, &a); err != nil {
-		return host.Result{}, invalidArgs(err)
-	}
-	preview := fmt.Sprintf("browser_click at (%.0f, %.0f) in the current page", a.X, a.Y)
-	if err := m.approve(ctx, "browser_click", "browser:click", preview, env, raw); err != nil {
-		return host.Result{}, err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	p, err := m.open(ctx)
-	if err != nil {
-		return host.Result{}, pageError(err)
-	}
-	if err := p.Click(ctx, a.X, a.Y, true); err != nil {
-		return host.Result{}, pageError(err)
-	}
-	return host.Result{Content: fmt.Sprintf("clicked at (%.0f, %.0f)", a.X, a.Y), UntrustedSource: m.taint()}, nil
+func (m *Module) snapshot(ctx context.Context) (host.Result, error) {
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		reply, err := p.eng.Read(ctx, ReadOp{Kind: "snapshot", Limit: p.cfg.MaxResult})
+		if err != nil {
+			return host.Result{}, pageError(err)
+		}
+		if len(reply.Value) > p.cfg.MaxResult {
+			return host.Result{}, fmt.Errorf("%w: snapshot %d > %d bytes", errTooLarge, len(reply.Value), p.cfg.MaxResult)
+		}
+		return host.Result{Content: string(reply.Value)}, nil
+	})
 }
 
-func (m *Module) typeText(ctx context.Context, raw json.RawMessage, env host.Env) (host.Result, error) {
+func (m *Module) waitFor(ctx context.Context, raw json.RawMessage) (host.Result, error) {
 	var a struct {
-		Text string `json:"text"`
+		Expression string `json:"expression"`
+		TimeoutMS  int    `json:"timeout_ms"`
 	}
 	if err := decodeArgs(raw, &a); err != nil {
 		return host.Result{}, invalidArgs(err)
 	}
-	preview := fmt.Sprintf("browser_type %d characters into the focused element", len(a.Text))
-	if err := m.approve(ctx, "browser_type", "browser:type", preview, env, raw); err != nil {
-		return host.Result{}, err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	p, err := m.open(ctx)
-	if err != nil {
-		return host.Result{}, pageError(err)
-	}
-	if err := p.Type(ctx, a.Text, true); err != nil {
-		return host.Result{}, pageError(err)
-	}
-	return host.Result{Content: fmt.Sprintf("typed %d characters", len(a.Text)), UntrustedSource: m.taint()}, nil
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		if err := p.WaitFor(ctx, a.Expression, time.Duration(a.TimeoutMS)*time.Millisecond); err != nil {
+			return host.Result{}, err
+		}
+		return host.Result{Content: "condition met"}, nil
+	})
 }
 
-// approve raises one approval request. Only allow-once passes: a session
-// approval can never widen a page action (SPEC §18.2, ADR-313).
+func (m *Module) pdf(ctx context.Context) (host.Result, error) {
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		reply, err := p.eng.Read(ctx, ReadOp{Kind: "pdf", Limit: p.cfg.MaxBlob})
+		if err != nil {
+			return host.Result{}, pageError(err)
+		}
+		if len(reply.Blob) > p.cfg.MaxBlob {
+			return host.Result{}, fmt.Errorf("%w: pdf %d > %d bytes", errTooLarge, len(reply.Blob), p.cfg.MaxBlob)
+		}
+		return host.Result{Content: fmt.Sprintf("pdf %d bytes", len(reply.Blob)), Meta: map[string]any{"bytes": len(reply.Blob)}}, nil
+	})
+}
+
+func (m *Module) action(ctx context.Context, tool string, raw json.RawMessage, env host.Env) (host.Result, error) {
+	a, preview, err := decodeAction(tool, raw)
+	if err != nil {
+		return host.Result{}, invalidArgs(err)
+	}
+	class := "browser:" + strings.TrimPrefix(tool, "browser_")
+	if aerr := m.approve(ctx, tool, class, preview, env, raw); aerr != nil {
+		return host.Result{}, aerr
+	}
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		if err := p.Run(ctx, tool, a, true); err != nil {
+			return host.Result{}, err
+		}
+		content := preview
+		switch tool {
+		case "browser_click":
+			content = fmt.Sprintf("clicked at (%.0f, %.0f)", a.X, a.Y)
+		case "browser_type":
+			content = fmt.Sprintf("typed %d characters", len(a.Text))
+		}
+		return host.Result{Content: content}, nil
+	})
+}
+
+func decodeAction(tool string, raw json.RawMessage) (*Action, string, error) {
+	switch tool {
+	case "browser_click", "browser_type", "browser_hover", "browser_drag":
+		return decodePointer(tool, raw)
+	case "browser_scroll", "browser_press", "browser_select":
+		return decodeInput(tool, raw)
+	}
+	return nil, "", fmt.Errorf("%w: %s", errBadConfig, tool)
+}
+
+func decodePointer(tool string, raw json.RawMessage) (*Action, string, error) {
+	var a struct {
+		X    float64 `json:"x"`
+		Y    float64 `json:"y"`
+		EndX float64 `json:"end_x"`
+		EndY float64 `json:"end_y"`
+		Text string  `json:"text"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, "", err
+	}
+	switch tool {
+	case "browser_click", "browser_hover":
+		return &Action{X: a.X, Y: a.Y}, fmt.Sprintf("%s at (%.0f, %.0f)", tool, a.X, a.Y), nil
+	case "browser_type":
+		return &Action{Text: a.Text}, fmt.Sprintf("browser_type %d characters", len(a.Text)), nil
+	}
+	return &Action{X: a.X, Y: a.Y, EndX: a.EndX, EndY: a.EndY},
+		fmt.Sprintf("browser_drag (%.0f,%.0f)->(%.0f,%.0f)", a.X, a.Y, a.EndX, a.EndY), nil
+}
+
+func decodeInput(tool string, raw json.RawMessage) (*Action, string, error) {
+	var a struct {
+		X        float64 `json:"x"`
+		Y        float64 `json:"y"`
+		DeltaX   float64 `json:"delta_x"`
+		DeltaY   float64 `json:"delta_y"`
+		Key      string  `json:"key"`
+		Selector string  `json:"selector"`
+		Value    string  `json:"value"`
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return nil, "", err
+	}
+	switch tool {
+	case "browser_scroll":
+		if a.DeltaX < -10000 || a.DeltaX > 10000 || a.DeltaY < -10000 || a.DeltaY > 10000 {
+			return nil, "", fmt.Errorf("%w: scroll deltas", errBadConfig)
+		}
+		return &Action{X: a.X, Y: a.Y, DeltaX: a.DeltaX, DeltaY: a.DeltaY},
+			fmt.Sprintf("browser_scroll (%.0f,%.0f)", a.DeltaX, a.DeltaY), nil
+	case "browser_press":
+		if !knownKey(a.Key) {
+			return nil, "", fmt.Errorf("%w: key %q", errBadConfig, a.Key)
+		}
+		return &Action{Key: a.Key}, "browser_press " + a.Key, nil
+	}
+	return &Action{Selector: a.Selector, Value: a.Value}, "browser_select " + a.Selector, nil
+}
+
+func (m *Module) back(ctx context.Context, env host.Env) (host.Result, error) {
+	if err := m.approve(ctx, "browser_back", "browser:back", "browser_back one history entry", env, nil); err != nil {
+		return host.Result{}, err
+	}
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		final, err := p.Back(ctx)
+		if err != nil {
+			return host.Result{}, err
+		}
+		m.host = urlHost(final)
+		return host.Result{Content: "back to " + final, Meta: map[string]any{"url": final}}, nil
+	})
+}
+
+func (m *Module) upload(ctx context.Context, raw json.RawMessage, env host.Env) (host.Result, error) {
+	var a struct {
+		Selector, Path string
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return host.Result{}, invalidArgs(err)
+	}
+	file, err := readWorkspaceFile(env, a.Path)
+	if err != nil {
+		return host.Result{}, err
+	}
+	if aerr := m.approve(ctx, "browser_upload", "browser:upload", fmt.Sprintf("browser_upload %s (%d bytes)", a.Path, len(file.Data)), env, raw); aerr != nil {
+		return host.Result{}, aerr
+	}
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		if err := p.Upload(ctx, a.Selector, file, true); err != nil {
+			return host.Result{}, err
+		}
+		return host.Result{Content: fmt.Sprintf("uploaded %s (%d bytes)", a.Path, len(file.Data))}, nil
+	})
+}
+
+func (m *Module) download(ctx context.Context, raw json.RawMessage, env host.Env) (host.Result, error) {
+	var a struct {
+		URL, Path string
+	}
+	if err := decodeArgs(raw, &a); err != nil {
+		return host.Result{}, invalidArgs(err)
+	}
+	if err := m.approve(ctx, "browser_download", "browser:download", "browser_download "+a.Path, env, raw); err != nil {
+		return host.Result{}, err
+	}
+	return m.withPage(ctx, func(p *Page) (host.Result, error) {
+		u, err := p.checkURL(a.URL)
+		if err != nil {
+			return host.Result{}, err
+		}
+		reply, err := p.eng.Read(ctx, ReadOp{Kind: "download", URL: u.String(), Limit: p.cfg.MaxBlob, Guard: p.guard})
+		if err != nil {
+			return host.Result{}, pageError(err)
+		}
+		blob := reply.Blob
+		if len(blob) > p.cfg.MaxBlob {
+			return host.Result{}, fmt.Errorf("%w: download %d > %d bytes", errTooLarge, len(blob), p.cfg.MaxBlob)
+		}
+		if werr := writeWorkspaceFile(env, a.Path, blob); werr != nil {
+			return host.Result{}, werr
+		}
+		return host.Result{
+			Content: fmt.Sprintf("downloaded %d bytes to %s", len(blob), a.Path),
+			Meta:    map[string]any{"bytes": len(blob), "name": reply.Name},
+		}, nil
+	})
+}
+
+// maxWorkspaceBlob bounds upload and download payloads (ADR-322).
+const maxWorkspaceBlob = 8 << 20
+
+// workspaceRoot opens the session workspace; every upload/download path is
+// resolved through it, so an absolute or escaping path cannot leave the tree.
+func workspaceRoot(env host.Env) (*os.Root, error) {
+	cwd := env.Cwd
+	if cwd == "" {
+		cwd = env.Session.Cwd()
+	}
+	if cwd == "" {
+		return nil, &host.Error{Code: "invalid_args", Message: "workspace is not accessible"}
+	}
+	root, err := os.OpenRoot(cwd)
+	if err != nil {
+		return nil, &host.Error{Code: "invalid_args", Message: "workspace is not accessible"}
+	}
+	return root, nil
+}
+
+func readWorkspaceFile(env host.Env, path string) (out FileRef, err error) {
+	root, err := workspaceRoot(env)
+	if err != nil {
+		return FileRef{}, err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	if path == "" || filepath.IsAbs(path) {
+		return FileRef{}, &host.Error{Code: "invalid_args", Message: "upload path must be relative"}
+	}
+	data, rerr := root.ReadFile(path)
+	if rerr != nil {
+		return FileRef{}, &host.Error{Code: "invalid_args", Message: "upload path is not readable"}
+	}
+	if len(data) > maxWorkspaceBlob {
+		return FileRef{}, &host.Error{Code: "too_large", Message: "upload exceeds 8 MiB"}
+	}
+	return FileRef{Name: filepath.Base(path), Data: data}, nil
+}
+
+func writeWorkspaceFile(env host.Env, path string, blob []byte) (err error) {
+	if len(blob) > maxWorkspaceBlob {
+		return &host.Error{Code: "too_large", Message: "download exceeds 8 MiB"}
+	}
+	if path == "" || filepath.IsAbs(path) {
+		return &host.Error{Code: "invalid_args", Message: "download path must be relative"}
+	}
+	root, err := workspaceRoot(env)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	if werr := root.WriteFile(path, blob, 0o600); werr != nil {
+		return &host.Error{Code: "invalid_args", Message: "download path is not writable"}
+	}
+	return nil
+}
+
 func (m *Module) approve(ctx context.Context, tool, class, preview string, env host.Env, args json.RawMessage) error {
 	req := &host.ApprovalRequest{
 		Tool: tool, CallID: env.CallID, Effect: host.EffectNonIdempotent,
