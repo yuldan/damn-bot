@@ -154,6 +154,8 @@ type Deps struct {
 
 // Config is the normalised [modules.computer_use] configuration.
 type Config struct {
+	Backend            string
+	Endpoint           string
 	Command            []string
 	Env                []string
 	Timeout            time.Duration
@@ -171,7 +173,7 @@ type Module struct {
 }
 
 // New builds the process backend; a missing command fails closed at runtime.
-func New(cfg Config, deps Deps) (*Module, error) {
+func New(cfg *Config, deps Deps) (*Module, error) {
 	cfg.Timeout = cmp.Or(cfg.Timeout, DefaultActionTimeout)
 	cfg.MaxScreenshotBytes = cmp.Or(cfg.MaxScreenshotBytes, DefaultMaxScreenshot)
 	if deps.Approvals == nil {
@@ -193,11 +195,22 @@ func New(cfg Config, deps Deps) (*Module, error) {
 			return nil, fmt.Errorf("%w: env name %q", ErrInvalid, name)
 		}
 	}
-	backend, err := newProcessBackend(cfg, deps)
+	var (
+		backend Backend
+		err     error
+	)
+	switch cfg.Backend {
+	case "", "process":
+		backend, err = newProcessBackend(cfg, deps)
+	case "http":
+		backend, err = newHTTPBackend(cfg)
+	default:
+		return nil, fmt.Errorf("%w: backend %q", ErrInvalid, cfg.Backend)
+	}
 	if err != nil {
 		return nil, err
 	}
-	return &Module{cfg: cfg, deps: deps, backend: backend}, nil
+	return &Module{cfg: *cfg, deps: deps, backend: backend}, nil
 }
 
 func (m *Module) timeout() time.Duration { return cmp.Or(m.cfg.Timeout, DefaultActionTimeout) }

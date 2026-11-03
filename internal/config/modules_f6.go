@@ -52,6 +52,8 @@ type ModulesVoice struct {
 // element is an absolute path. Zero limits mean the module default.
 type ModulesComputerUse struct {
 	Enabled            bool     `toml:"enabled"`
+	Backend            string   `toml:"backend"`
+	Endpoint           string   `toml:"endpoint"`
 	Command            []string `toml:"command"`
 	Env                []string `toml:"env"`
 	ActionTimeoutMS    int      `toml:"action_timeout_ms"`

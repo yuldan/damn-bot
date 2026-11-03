@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -295,7 +297,7 @@ func TestUnavailable(t *testing.T) {
 		{},
 		{Command: []string{filepath.Join(t.TempDir(), "absent")}},
 	} {
-		m, err := New(cfg, Deps{})
+		m, err := New(&cfg, Deps{})
 		if err != nil {
 			t.Fatalf("New(%+v): %v", cfg, err)
 		}
@@ -386,7 +388,7 @@ func TestProcessBackendArgvAndStdin(t *testing.T) {
 		return p, nil
 	}
 	secrets := &fakeSecrets{values: map[string]string{"DISPLAY": ":0"}}
-	m, err := New(Config{
+	m, err := New(&Config{
 		Command: []string{exe, "--driver"}, Env: []string{"DISPLAY"},
 		Timeout: time.Second, MaxScreenshotBytes: 1024,
 	}, Deps{Spawn: spawn, Secrets: secrets, Approvals: &fakeApprovals{answer: host.ApprovalAllowOnce}})
@@ -439,7 +441,7 @@ func TestProcessBackendScreenshot(t *testing.T) {
 	spawn := func(_ context.Context, _ host.SpawnSpec) (host.Process, error) {
 		return newStaticProcess(png), nil
 	}
-	m, err := New(Config{Command: []string{exe}, Timeout: time.Second, MaxScreenshotBytes: 1024},
+	m, err := New(&Config{Command: []string{exe}, Timeout: time.Second, MaxScreenshotBytes: 1024},
 		Deps{Spawn: spawn, Secrets: &fakeSecrets{}})
 	if err != nil {
 		t.Fatal(err)
@@ -450,6 +452,130 @@ func TestProcessBackendScreenshot(t *testing.T) {
 	}
 	if !bytes.Equal(got, png) {
 		t.Fatalf("png = %q", got)
+	}
+}
+
+func cuaHTTPHandler(mu *sync.Mutex, requests *[]string, actions *[]Action, png []byte) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		*requests = append(*requests, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/start", "/stop":
+			w.WriteHeader(http.StatusNoContent)
+		case "/act":
+			var a Action
+			if err := json.NewDecoder(r.Body).Decode(&a); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			*actions = append(*actions, a)
+			mu.Unlock()
+			if _, werr := w.Write([]byte(`{"output":"clicked"}`)); werr != nil {
+				return
+			}
+		case "/screenshot":
+			if _, werr := w.Write(png); werr != nil {
+				return
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}
+}
+
+func TestHTTPBackend(t *testing.T) {
+	t.Parallel()
+	var (
+		mu       sync.Mutex
+		requests []string
+		actions  []Action
+	)
+	png := []byte("\x89PNG\r\n\x1a\nfake")
+	srv := httptest.NewServer(cuaHTTPHandler(&mu, &requests, &actions, png))
+	defer srv.Close()
+	m, err := New(&Config{Backend: "http", Endpoint: srv.URL, Timeout: time.Second, MaxScreenshotBytes: 1024},
+		Deps{Approvals: &fakeApprovals{answer: host.ApprovalAllowOnce}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if serr := m.Start(context.Background()); serr != nil {
+		t.Fatalf("Start: %v", serr)
+	}
+	res, err := m.Act(context.Background(), "c", &Action{Kind: ActionClick, X: 1, Y: 2})
+	if err != nil || res.Content != "clicked" {
+		t.Fatalf("Act = %+v, %v", res, err)
+	}
+	got, err := m.Screenshot(context.Background())
+	if err != nil || !bytes.Equal(got, png) {
+		t.Fatalf("Screenshot = %q, %v", got, err)
+	}
+	if err := m.backend.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"POST /start", "POST /act", "GET /screenshot", "POST /stop"}
+	if strings.Join(requests, ",") != strings.Join(want, ",") {
+		t.Fatalf("requests = %v, want %v", requests, want)
+	}
+	if len(actions) != 1 || actions[0].Kind != ActionClick || actions[0].X != 1 {
+		t.Fatalf("actions = %+v", actions)
+	}
+}
+
+func TestHTTPUnavailableAndOversize(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/screenshot" {
+			if _, werr := w.Write(bytes.Repeat([]byte("x"), 5000)); werr != nil {
+				return
+			}
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	base := srv.URL
+	srv.Close()
+	m, err := New(&Config{Backend: "http", Endpoint: base, Timeout: time.Second, MaxScreenshotBytes: 4096},
+		Deps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if serr := m.Start(context.Background()); !errors.Is(serr, ErrUnavailable) {
+		t.Fatalf("Start on a closed endpoint: %v, want ErrUnavailable", serr)
+	}
+
+	big := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, werr := w.Write(bytes.Repeat([]byte("x"), 5000)); werr != nil {
+			return
+		}
+	}))
+	defer big.Close()
+	m, err = New(&Config{Backend: "http", Endpoint: big.URL, Timeout: time.Second, MaxScreenshotBytes: 4096},
+		Deps{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Screenshot(context.Background()); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("oversize screenshot: %v, want ErrTooLarge", err)
+	}
+}
+
+func TestHTTPTimeout(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+	m, err := New(&Config{Backend: "http", Endpoint: srv.URL, Timeout: 20 * time.Millisecond, MaxScreenshotBytes: 1024},
+		Deps{Approvals: &fakeApprovals{answer: host.ApprovalAllowOnce}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Act(context.Background(), "c", &Action{Kind: ActionClick}); !errors.Is(err, ErrTimeout) {
+		t.Fatalf("Act: %v, want ErrTimeout", err)
 	}
 }
 
@@ -491,7 +617,7 @@ func TestInvalidConfig(t *testing.T) {
 		{Timeout: -1},
 		{MaxScreenshotBytes: -1},
 	} {
-		if _, err := New(cfg, Deps{}); !errors.Is(err, ErrInvalid) {
+		if _, err := New(&cfg, Deps{}); !errors.Is(err, ErrInvalid) {
 			t.Errorf("New(%+v) = %v, want ErrInvalid", cfg, err)
 		}
 	}

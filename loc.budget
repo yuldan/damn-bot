@@ -302,7 +302,9 @@ heal              1500 internal/heal
 # Amandemen ADR-310 (F6 M5 vision): Route.Vision + preflight attachment dan
 # gate sebelum request menambah provider 2.730 -> 2.850 (terukur 2.848).
 # Sigma core 55.756 -> 55.876; plafon core 55.800 -> 55.900.
-config            2112 internal/config
+# ADR-314 amandemen slice B1: backend/endpoint menambah config 2112 -> 2114
+# (terukur). Sigma core 55.876 -> 55.878; plafon 55.900.
+config            2114 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.

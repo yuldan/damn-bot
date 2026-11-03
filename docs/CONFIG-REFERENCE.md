@@ -163,6 +163,8 @@ config_version = 1
     tts_key_env = ""
   [modules.computer_use]
     enabled = false
+    backend = ""
+    endpoint = ""
     command = []
     env = []
     action_timeout_ms = 0
