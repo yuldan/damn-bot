@@ -67,13 +67,14 @@ func TestModuleTools(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
 		"browser_navigate": "read", "browser_eval": "read", "browser_screenshot": "read",
+		"browser_console": "read", "browser_get_images": "read", "browser_vision": "read",
 		"browser_snapshot": "read", "browser_click": "non_idempotent", "browser_type": "non_idempotent",
 		"browser_back": "non_idempotent", "browser_scroll": "non_idempotent",
 		"browser_hover": "non_idempotent", "browser_drag": "non_idempotent",
 		"browser_press": "non_idempotent", "browser_select": "non_idempotent",
 		"browser_upload": "non_idempotent", "browser_download": "non_idempotent",
+		"browser_dialog":   "non_idempotent",
 		"browser_wait_for": "read", "browser_pdf": "read",
-		"browser_console": "read", "browser_get_images": "read",
 	}
 	tools := Tools()
 	if len(tools) != len(want) {
@@ -304,10 +305,13 @@ func TestModuleDiscoverFailures(t *testing.T) {
 
 func TestNewFromConfig(t *testing.T) {
 	t.Parallel()
-	raw := json.RawMessage(`{"enabled":true,"cdp_url":"ws://127.0.0.1:9222/devtools/page/x","allow_origins":["https://app.example"],"local_profile":true}`)
+	raw := json.RawMessage(`{"enabled":true,"cdp_url":"ws://127.0.0.1:9222/devtools/page/x","allow_origins":["https://app.example"],"local_profile":true,"dialog_allow":["confirm"]}`)
 	m, err := NewFromConfig(raw, Deps{Dial: dialTo(newFake())})
 	if err != nil || !m.cfg.Enabled || m.cfg.CDPURL == "" {
 		t.Fatalf("NewFromConfig = %+v, %v", m, err)
+	}
+	if len(m.cfg.DialogsAllow) != 1 || m.cfg.DialogsAllow[0] != "confirm" {
+		t.Fatalf("dialog policy = %v", m.cfg.DialogsAllow)
 	}
 	for _, bad := range []json.RawMessage{
 		nil, json.RawMessage(`{`), json.RawMessage(`{"bogus":1}`),

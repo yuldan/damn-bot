@@ -193,6 +193,7 @@ type moduleBrowserSection struct {
 	CloudURL      string   `json:"cloud_url"`
 	AllowOrigins  []string `json:"allow_origins"`
 	LocalProfile  bool     `json:"local_profile"`
+	DialogAllow   []string `json:"dialog_allow"`
 	Offline       bool     `json:"offline"`
 	NoBackground  bool     `json:"no_background"`
 }
@@ -241,7 +242,8 @@ func moduleConfig(cfg *config.Config) func(string) host.Config {
 		Enabled: br.Enabled, Engine: br.Engine, CDPURL: br.CDPURL,
 		CamofoxURL: br.CamofoxURL, LightpandaBin: br.LightpandaBin, CloudURL: br.CloudURL,
 		AllowOrigins: br.AllowOrigins, LocalProfile: br.LocalProfile,
-		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
+		DialogAllow: br.DialogAllow,
+		Offline:     cfg.Network.Offline, NoBackground: !cfg.Network.Background,
 	})
 	mdRaw, mdErr := json.Marshal(media.Section{
 		Enabled: md.Enabled, ImageBackend: md.ImageBackend, ImageEndpoint: md.ImageEndpoint,

@@ -56,9 +56,9 @@ Aturan gate:
 | TOOL-013 | `browser_snapshot` | accessibility tree ringkas ≤ P5; ref stabil; field sensitif diredaksi | `TestF6TOOL013BrowserSnapshot` | BELUM | F6-04b |
 | TOOL-014 | `browser_type` | teks masuk ke field; nilai tidak muncul di log/event; effect `non_idempotent` | `TestF6TOOL014BrowserType` | BELUM | F6-04c |
 | TOOL-015 | `browser_vault` | autofill hanya dari vault; nilai secret tidak pernah dicetak; approval setiap call; profil nyata opt-in | `TestF6TOOL015BrowserVault` | BELUM | F6-04c |
-| TOOL-016 | `browser_vision` | screenshot → vision model; preflight ukuran; hasil `<untrusted>` | `TestF6TOOL016BrowserVision` | BELUM | F6-04c, F6-03a |
+| TOOL-016 | `browser_vision` | screenshot → vision model; preflight ukuran; hasil `<untrusted>` | `TestF6TOOL016BrowserVision` | LULUS | F6-04c, F6-03a |
 | TOOL-017 | `browser_cdp` | allowlist method aman; method sensitif (`Network.*Cookies`, `Storage.*`, `Runtime.evaluate`, `Debugger.*`, `Fetch.*`, `Target.*`, `Browser.*`) approval per call tanpa `allow_session`; `file:` butuh approval | `TestCDPAllowlist`, `TestF6TOOL017BrowserCDP` | BELUM | F6-04d |
-| TOOL-018 | `browser_dialog` | alert/confirm/prompt dijawab; teks dialog tidak dieksekusi; default dismiss | `TestF6TOOL018BrowserDialog` | BELUM | F6-04d |
+| TOOL-018 | `browser_dialog` | alert/confirm/prompt dijawab; teks dialog tidak dieksekusi; default dismiss | `TestF6TOOL018BrowserDialog` | LULUS | F6-04d |
 | TOOL-019 | `browser_exec` | hanya aktif saat backend `browser-use`; menggantikan tool browser lain; backend absen → fail-closed | `TestF6TOOL019BrowserExec` | BELUM | F6-04i |
 | TOOL-023 | `computer_use` | setiap aksi input butuh approval kecuali `approval.mode=auto` + `allow_auto`; screenshot diredaksi | `TestF6TOOL023ComputerUse` | BELUM | F6-06b |
 | TOOL-054 | `image_generate` | backend eksplisit; preview harga + approval; hasil blob; field `backend`; cap tool berlaku | `TestF6TOOL054ImageGenerate` | BELUM | F6-03c, F6-03g |

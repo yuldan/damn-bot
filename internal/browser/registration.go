@@ -21,6 +21,7 @@ type Section struct {
 	CloudURL      string   `json:"cloud_url"`
 	AllowOrigins  []string `json:"allow_origins"`
 	LocalProfile  bool     `json:"local_profile"`
+	DialogsAllow  []string `json:"dialog_allow"`
 	Offline       bool     `json:"offline"`
 	NoBackground  bool     `json:"no_background"`
 }

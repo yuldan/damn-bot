@@ -109,7 +109,7 @@ func TestConfigDefaultsMatchSpec(t *testing.T) {
 		Gateway:  Gateway{MaxParallelTurns: 4, BusyPolicy: "queue", Users: map[string]GatewayUser{}},
 		Modules: Modules{
 			Gateway:     ModulesGateway{Telegram: ModulesTelegram{ThreadFallback: "fail"}},
-			Browser:     ModulesBrowser{AllowOrigins: []string{}},
+			Browser:     ModulesBrowser{AllowOrigins: []string{}, DialogAllow: []string{}},
 			ComputerUse: ModulesComputerUse{Command: []string{}, Env: []string{}},
 		},
 		Providers: Providers{Custom: []CustomProvider{}},
