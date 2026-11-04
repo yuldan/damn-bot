@@ -70,6 +70,7 @@ jobs:
       code: ${{ steps.filter.outputs.code }}
       tier: ${{ steps.filter.outputs.tier }}
       test_matrix: ${{ steps.filter.outputs.test_matrix }}
+      sqlite_matrix: ${{ steps.filter.outputs.sqlite_matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -89,14 +90,20 @@ jobs:
           # windows/arm64 tanpa -race, ADR-073).
           full='{"include":[{"os":"ubuntu-latest","race":"-race","cgo":"1"},{"os":"ubuntu-24.04-arm","race":"-race","cgo":"1"},{"os":"macos-latest","race":"-race","cgo":"1"},{"os":"macos-15-intel","race":"-race","cgo":"1"},{"os":"windows-latest","race":"-race","cgo":"1"},{"os":"windows-11-arm","race":"","cgo":"0"}]}'
           reduced='{"include":[{"os":"ubuntu-latest","race":"-race","cgo":"1"},{"os":"windows-latest","race":"-race","cgo":"1"}]}'
+          # ADR-324 amandemen: `sqlite-engine` (GAP-REL-04) tetap gate wajib di semua tier, tetapi
+          # matrix-nya dikecilkan di PR. PR hanya membuktikan tiga target Linux/QEMU-kanonik; lima
+          # leg berrunner mahal (ubuntu-24.04-arm, darwin/arm64, darwin/amd64, windows/amd64,
+          # windows/arm64) dipindah ke tier `full` (merge_group/nightly/workflow_dispatch).
+          sqlite_pr='{"include":[{"os":"ubuntu-latest","target":"linux/amd64","mode":"run"},{"os":"ubuntu-latest","target":"linux/arm","mode":"cross"},{"os":"ubuntu-latest","target":"android/arm64","mode":"cross"}]}'
+          sqlite_full='{"include":[{"os":"ubuntu-latest","target":"linux/amd64","mode":"run"},{"os":"ubuntu-24.04-arm","target":"linux/arm64","mode":"run"},{"os":"ubuntu-latest","target":"linux/arm","mode":"cross"},{"os":"macos-latest","target":"darwin/arm64","mode":"run"},{"os":"macos-15-intel","target":"darwin/amd64","mode":"run"},{"os":"windows-latest","target":"windows/amd64","mode":"run"},{"os":"windows-11-arm","target":"windows/arm64","mode":"run"},{"os":"ubuntu-latest","target":"android/arm64","mode":"cross"}]}'
           # Gate berat (fuzz, bench-parity, coverage, perf, test-timing, deadcode, vet-cross,
           # build-matrix) hanya tier `full`. `push main` tier `smoke` sengaja tidak menjalankan gate
           # PR/berat: run main tidak bisa dibatalkan dan antreannya tidak boleh macet. Daftar gate
           # wajib per konteks ditegakkan `ci-required` (gate wajib harus sukses, bukan skipped).
           case "$EVENT" in
-            pull_request) tier=pr; echo "test_matrix=$reduced" >>"$GITHUB_OUTPUT" ;;
-            push) tier=smoke; echo "test_matrix=$reduced" >>"$GITHUB_OUTPUT" ;;
-            *) tier=full; echo "test_matrix=$full" >>"$GITHUB_OUTPUT" ;;
+            pull_request) tier=pr; echo "test_matrix=$reduced" >>"$GITHUB_OUTPUT"; echo "sqlite_matrix=$sqlite_pr" >>"$GITHUB_OUTPUT" ;;
+            push) tier=smoke; echo "test_matrix=$reduced" >>"$GITHUB_OUTPUT"; echo "sqlite_matrix=$sqlite_pr" >>"$GITHUB_OUTPUT" ;;
+            *) tier=full; echo "test_matrix=$full" >>"$GITHUB_OUTPUT"; echo "sqlite_matrix=$sqlite_full" >>"$GITHUB_OUTPUT" ;;
           esac
           echo "tier=$tier" >>"$GITHUB_OUTPUT"
           if [ "$tier" != pr ]; then
@@ -552,24 +559,18 @@ jobs:
 
   # GAP-REL-04 (ADR-132/ADR-187): the embedded SQLite engine must satisfy
   # REL-04 (>= 3.51.3 + FTS5/trigram/json_valid) on all 8 canonical E-39
-  # targets. Six targets have hosted runners; linux/arm and android/arm64 have
-  # none (QEMU is the F9 item, ADR-073), so those legs cross-compile the
-  # engine test as the target-coverage proof until then.
+  # targets. Enam target punya hosted runner; linux/arm dan android/arm64
+  # memakai cross-compile sampai QEMU (F9, ADR-073). ADR-324 amandemen: tier
+  # `pr` hanya tiga target Linux (linux/amd64 run + linux/arm & android/arm64
+  # cross); lima leg berrunner mahal (arm64 Linux, dua macOS, dua Windows) ikut
+  # tier `full` karena matrix ini bukan lagi gate murah. Job dan nama gate tidak
+  # berubah; `ci-required` tetap mewajibkannya di `pr` dan `full`.
   sqlite-engine:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - {os: ubuntu-latest, target: linux/amd64, mode: run}
-          - {os: ubuntu-24.04-arm, target: linux/arm64, mode: run}
-          - {os: ubuntu-latest, target: linux/arm, mode: cross}
-          - {os: macos-latest, target: darwin/arm64, mode: run}
-          - {os: macos-15-intel, target: darwin/amd64, mode: run}
-          - {os: windows-latest, target: windows/amd64, mode: run}
-          - {os: windows-11-arm, target: windows/arm64, mode: run}
-          - {os: ubuntu-latest, target: android/arm64, mode: cross}
+      matrix: ${{ fromJSON(needs.changes.outputs.sqlite_matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
