@@ -11,59 +11,60 @@ import (
 // cdpMethodPattern is the shape of a protocol method name.
 var cdpMethodPattern = regexp.MustCompile(`^[A-Z][A-Za-z]*\.[a-z][A-Za-z]*$`)
 
-// cdpSafeMethods is the reviewed read-only allowlist of browser_cdp
-// (TOOL-017): no JavaScript execution, no cookies/storage, no navigation, no
-// debugger, fetch interception or target control.
-var cdpSafeMethods = map[string]bool{
-	"Page.getLayoutMetrics":     true,
-	"Page.getNavigationHistory": true,
-	"Page.getFrameTree":         true,
-	"DOM.getDocument":           true,
-	"DOM.describeNode":          true,
-	"DOM.getBoxModel":           true,
+// cdpSafe reports whether method is on the reviewed read-only allowlist of
+// browser_cdp (TOOL-017): no JavaScript execution, no cookies/storage, no
+// navigation, no debugger, fetch interception or target control.
+func cdpSafe(method string) bool {
+	switch method {
+	case "Page.getLayoutMetrics", "Page.getNavigationHistory", "Page.getFrameTree",
+		"DOM.getDocument", "DOM.describeNode", "DOM.getBoxModel":
+		return true
+	}
+	return false
 }
 
-// cdpSensitiveMethods is the reviewed allowlist of methods that reach
-// credentials, page script or the browser itself. Each one needs the same
-// per-call approval the tool always asks for; none is reachable with a session
-// approval.
-var cdpSensitiveMethods = map[string]bool{
-	"Network.getCookies":          true,
-	"Network.getAllCookies":       true,
-	"Network.setCookie":           true,
-	"Network.setCookies":          true,
-	"Network.deleteCookies":       true,
-	"Network.clearBrowserCookies": true,
-	"Runtime.evaluate":            true,
-	"Runtime.callFunctionOn":      true,
-	"Runtime.compileScript":       true,
-	"Runtime.runScript":           true,
-	"DOM.setFileInputFiles":       true,
+// cdpSensitiveMethod reports whether method is on the reviewed allowlist of
+// calls that reach credentials, page script or the browser itself. Each one
+// needs the same per-call approval the tool always asks for; none is reachable
+// with a session approval.
+func cdpSensitiveMethod(method string) bool {
+	switch method {
+	case "Network.getCookies", "Network.getAllCookies", "Network.setCookie",
+		"Network.setCookies", "Network.deleteCookies", "Network.clearBrowserCookies",
+		"Runtime.evaluate", "Runtime.callFunctionOn", "Runtime.compileScript",
+		"Runtime.runScript", "DOM.setFileInputFiles":
+		return true
+	}
+	return false
 }
 
-// cdpSensitivePrefixes are whole domains that own credentials, page script,
-// interception or the browser target.
-var cdpSensitivePrefixes = []string{"Storage.", "Debugger.", "Fetch.", "Target.", "Browser."}
+// cdpSensitiveDomain reports whether method belongs to a whole domain that owns
+// credentials, page script, interception or the browser target.
+func cdpSensitiveDomain(method string) bool {
+	domain, _, ok := strings.Cut(method, ".")
+	if !ok {
+		return false
+	}
+	switch domain {
+	case "Storage", "Debugger", "Fetch", "Target", "Browser":
+		return true
+	}
+	return false
+}
 
 // cdpMethodClass reports whether method is on the reviewed allowlist and
 // whether it is sensitive. A method outside the allowlist is refused: raw CDP
 // is not a generic escape hatch around the page policy.
 func cdpMethodClass(method string) (sensitive, allowed bool) {
-	if !cdpMethodPattern.MatchString(method) {
-		return false, false
-	}
 	switch {
-	case cdpSafeMethods[method]:
+	case !cdpMethodPattern.MatchString(method):
+		return false, false
+	case cdpSafe(method):
 		return false, true
-	case cdpSensitiveMethods[method]:
+	case cdpSensitiveMethod(method), cdpSensitiveDomain(method):
 		return true, true
 	case strings.HasPrefix(method, "Network.") && strings.Contains(method, "Cookie"):
 		return true, true
-	}
-	for _, prefix := range cdpSensitivePrefixes {
-		if strings.HasPrefix(method, prefix) {
-			return true, true
-		}
 	}
 	return false, false
 }

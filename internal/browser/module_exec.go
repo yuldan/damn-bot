@@ -76,6 +76,14 @@ func (m *Module) execScript(ctx context.Context, raw json.RawMessage, env host.E
 	}, nil
 }
 
+// killProcess stops a spawned CLI whose call already failed. The process may
+// have exited on its own; the call keeps its original error either way.
+func killProcess(p host.Process) {
+	if err := p.Kill(); err != nil {
+		return
+	}
+}
+
 // execDefaultTimeout is the run time of one browser_exec call.
 const execDefaultTimeout = 60 * time.Second
 
@@ -91,32 +99,36 @@ func (m *Module) runBrowserUse(ctx context.Context, script []byte, timeout time.
 	}
 	pipes, ok := p.(stdioProcess)
 	if !ok {
-		_ = p.Kill()
+		killProcess(p)
 		return nil, &host.Error{Code: "module_unavailable", Message: "browser_exec: spawner has no stdio pipes"}
 	}
 	stdin, stdout, stderr := pipes.Stdio()
 	if stdin == nil || stdout == nil {
-		_ = p.Kill()
+		killProcess(p)
 		return nil, &host.Error{Code: "module_unavailable", Message: "browser_exec: nil stdio pipes"}
 	}
 	if stderr != nil {
-		go func() { _, _ = io.Copy(io.Discard, io.LimitReader(stderr, 4096)) }()
+		go func() {
+			if _, err := io.Copy(io.Discard, io.LimitReader(stderr, 4096)); err != nil {
+				return
+			}
+		}()
 	}
 	if _, werr := stdin.Write(script); werr != nil {
-		_ = p.Kill()
+		killProcess(p)
 		return nil, &host.Error{Code: "internal", Message: "browser_exec: stdin: " + werr.Error()}
 	}
 	if cerr := stdin.Close(); cerr != nil {
-		_ = p.Kill()
+		killProcess(p)
 		return nil, &host.Error{Code: "internal", Message: "browser_exec: stdin close: " + cerr.Error()}
 	}
 	data, rerr := io.ReadAll(io.LimitReader(stdout, maxExecOutput+1))
 	if rerr != nil {
-		_ = p.Kill()
+		killProcess(p)
 		return nil, &host.Error{Code: "internal", Message: "browser_exec: read: " + rerr.Error()}
 	}
 	if len(data) > maxExecOutput {
-		_ = p.Kill()
+		killProcess(p)
 		return nil, &host.Error{Code: "too_large", Message: fmt.Sprintf("browser_exec: output %d > %d bytes", len(data), maxExecOutput)}
 	}
 	werr := p.Wait()
