@@ -173,7 +173,7 @@ func ecCtx005(t *testing.T) {
 func ecCtx008(t *testing.T) {
 	b := transcript{t: t}
 	for i := range 4 {
-		b.user(fmt.Sprintf("shot %d", i), fmt.Sprintf("%064d", i))
+		b.userSized(fmt.Sprintf("shot %d", i), []int64{20 << 20}, fmt.Sprintf("%064d", i))
 		b.assistant("ok")
 	}
 	r := newRig(t, fit(b.events), replyWith(validSummary))
@@ -184,7 +184,7 @@ func ecCtx008(t *testing.T) {
 	for _, m := range v.Messages {
 		sent += len(m.Images)
 	}
-	if sent != keepImageTurns || !strings.Contains(v.Messages[0].Content, "[image 000000000000 omitted]") {
+	if sent != 1 || !strings.Contains(v.Messages[0].Content, ImageStub(fmt.Sprintf("%064d", 0))) {
 		t.Fatalf("images sent = %d, first = %q", sent, v.Messages[0].Content)
 	}
 }

@@ -584,7 +584,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | MEM-034 | Prompt caching | Breakpoint cache prompt (Anthropic dll.) | `agent/prompt_caching.py`, `agent/prompt_cache_boundary.py` | on (auto per provider) | — |  | F2 | planned |
 | MEM-035 | Learning journey / graph | Timeline skill & memori yang dipelajari | `agent/learning_graph.py`, `hermes_cli/journey.py` | opt-in (`hermes journey`, `/journey`) | — |  | F8 | planned |
 | MEM-036 | Side question `/btw` | Pertanyaan sampingan tanpa mengganggu konteks utama | `agent/side_question.py` | opt-in | LLM |  | F3 | planned |
-| MEM-037 | Image eviction/replay | Batasi gambar lama di konteks; replay N terakhir | `agent/image_eviction_policy.py`, `agent/image_replay.py` | on (`vision.replay_recent_images: 3`) | — |  | F6 | planned |
+| MEM-037 | Image eviction/replay | Batasi gambar lama di konteks; replay N terakhir | `agent/image_eviction_policy.py`, `agent/image_replay.py` | on (`vision.replay_recent_images: 3`) | — |  | F6 | LULUS |
 
 ## 6a. SKILL — sistem skill
 | ID | Fitur | Deskripsi singkat (≤15 kata) | Sumber hermes | Default di hermes | Dependensi eksternal | Catatan | fase | status |

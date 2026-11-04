@@ -16,8 +16,8 @@ const (
 	MaxInputBytes  = 16 << 20
 	MaxOutputBytes = 8 << 20
 	MaxWriteBytes  = 16 << 20
-	maxZipEntries  = 1000
-	maxZipTotal    = 64 << 20
+	maxZipEntries  = 10_000
+	maxZipTotal    = 256 << 20
 	maxXMLDepth    = 256
 	maxPDFTotal    = 64 << 20
 	maxPDFStreams  = 5000

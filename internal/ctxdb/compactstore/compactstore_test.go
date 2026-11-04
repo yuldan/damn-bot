@@ -84,14 +84,14 @@ func TestLoadCommitRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []compaction.Event{
-		{Seq: 1, Kind: event.UserMessage, TurnID: "t1", Role: "user", Content: "look", Payload: "{}", Images: []string{png}},
+		{Seq: 1, Kind: event.UserMessage, TurnID: "t1", Role: "user", Content: "look", Payload: "{}", Images: []string{png}, ImageBytes: []int64{9}},
 		{
 			Seq: 4, Kind: event.AssistantMessage, TurnID: "t1", Role: "assistant",
-			Payload: `{"tool_calls":[{"id":"c1","name":"read_file","arguments":"{\"path\":\"a\"}"}]}`, Images: []string{},
+			Payload: `{"tool_calls":[{"id":"c1","name":"read_file","arguments":"{\"path\":\"a\"}"}]}`, Images: []string{}, ImageBytes: []int64{},
 		},
 		{
 			Seq: 5, Kind: event.ToolResult, TurnID: "t1", Role: "tool", Content: "data", ToolCallID: "c1", ToolName: "read_file",
-			Payload: "{}", Images: []string{},
+			Payload: "{}", Images: []string{}, ImageBytes: []int64{},
 		},
 	}
 	if len(snap.Summaries) != 0 || snap.Task != nil || snap.Compacted || snap.LastCall != nil || !reflect.DeepEqual(snap.Events, want) {

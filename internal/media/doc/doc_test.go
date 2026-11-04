@@ -34,8 +34,8 @@ func zipBytes(files map[string][]byte, store bool) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func mustZip(files map[string][]byte, store bool) []byte {
-	data, err := zipBytes(files, store)
+func mustZip(files map[string][]byte) []byte {
+	data, err := zipBytes(files, false)
 	if err != nil {
 		return nil
 	}
@@ -60,7 +60,7 @@ func docxFixture() []byte {
 			`<w:tbl><w:tr><w:tc><w:p><w:r><w:t>A</w:t></w:r></w:p></w:tc>` +
 			`<w:tc><w:p><w:r><w:t>B</w:t></w:r></w:p></w:tc></w:tr></w:tbl>` +
 			`</w:body></w:document>`),
-	}, false)
+	})
 }
 
 func xlsxFixture() []byte {
@@ -72,7 +72,7 @@ func xlsxFixture() []byte {
 			`<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>` +
 			`<row r="2"><c r="A2"><v>10</v></c><c r="B2"><v>20</v></c></row>` +
 			`</sheetData></worksheet>`),
-	}, false)
+	})
 }
 
 func pptxFixture() []byte {
@@ -83,7 +83,7 @@ func pptxFixture() []byte {
 			`<a:p><a:r><a:t>Slide title</a:t></a:r></a:p>` +
 			`<a:p><a:r><a:t>Slide body</a:t></a:r></a:p>` +
 			`</p:txBody></p:sp></p:spTree></p:cSld></p:sld>`),
-	}, false)
+	})
 }
 
 func codeOf(t *testing.T, err error) ErrorCode {
@@ -161,7 +161,7 @@ func TestZipBombGuards(t *testing.T) {
 	})
 	t.Run("entries", func(t *testing.T) {
 		files := map[string][]byte{}
-		for i := range 1001 {
+		for i := range 10_001 {
 			files[fmt.Sprintf("f%04d.txt", i)] = []byte("x")
 		}
 		if _, err := ReadBytes(zipFiles(t, files)); codeOf(t, err) != CodeTooLarge {
@@ -169,12 +169,12 @@ func TestZipBombGuards(t *testing.T) {
 		}
 	})
 	t.Run("total", func(t *testing.T) {
-		chunk := bytes.Repeat([]byte("0123456789abcdef"), 1<<16)
+		chunk := make([]byte, 1<<20)
 		files := map[string][]byte{}
-		for i := range 65 {
-			files[fmt.Sprintf("blob%02d.bin", i)] = chunk
+		for i := range 257 {
+			files[fmt.Sprintf("blob%03d.bin", i)] = chunk
 		}
-		if _, err := ReadBytes(mustZip(files, true)); codeOf(t, err) != CodeTooLarge {
+		if _, err := ReadBytes(mustZip(files)); codeOf(t, err) != CodeTooLarge {
 			t.Fatalf("code = %v", codeOf(t, err))
 		}
 	})

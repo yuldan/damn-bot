@@ -16,7 +16,7 @@ func openZip(data []byte) (*zip.Reader, error) {
 		return nil, fail(CodeUnsupported, "invalid zip container", "")
 	}
 	if len(zr.File) > maxZipEntries {
-		return nil, fail(CodeTooLarge, "zip has more than 1000 entries", "")
+		return nil, fail(CodeTooLarge, "zip has more than 10000 entries", "")
 	}
 	var total uint64
 	for _, f := range zr.File {
@@ -29,7 +29,7 @@ func openZip(data []byte) (*zip.Reader, error) {
 			return nil, fail(CodeTooLarge, "zip entry "+name+" exceeds a zip-bomb limit", "")
 		}
 		if total += f.UncompressedSize64; total > maxZipTotal {
-			return nil, fail(CodeTooLarge, "zip expands beyond 64 MiB", "")
+			return nil, fail(CodeTooLarge, "zip expands beyond 256 MiB", "")
 		}
 	}
 	return zr, nil
@@ -42,7 +42,7 @@ type zbuf struct {
 
 func (b *zbuf) get(name string) ([]byte, error) {
 	if b.left <= 0 {
-		return nil, fail(CodeTooLarge, "zip expands beyond 64 MiB", "")
+		return nil, fail(CodeTooLarge, "zip expands beyond 256 MiB", "")
 	}
 	for _, f := range b.zr.File {
 		if f.Name != name {
@@ -55,7 +55,7 @@ func (b *zbuf) get(name string) ([]byte, error) {
 		data, readErr := io.ReadAll(io.LimitReader(rc, b.left+1))
 		closeErr := rc.Close()
 		if readErr != nil || closeErr != nil || int64(len(data)) > b.left {
-			return nil, fail(CodeTooLarge, "zip entry "+name+" exceeds 64 MiB", "")
+			return nil, fail(CodeTooLarge, "zip entry "+name+" exceeds 256 MiB", "")
 		}
 		b.left -= int64(len(data))
 		return data, nil

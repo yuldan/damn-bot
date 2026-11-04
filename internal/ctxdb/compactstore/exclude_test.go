@@ -33,18 +33,18 @@ func TestLoadSkipsExcluded(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []compaction.Event{
-		{Seq: 1, Kind: "user_message", TurnID: "t1", Role: "user", Content: "look", Payload: "{}", Images: []string{png}},
+		{Seq: 1, Kind: "user_message", TurnID: "t1", Role: "user", Content: "look", Payload: "{}", Images: []string{png}, ImageBytes: []int64{9}},
 		{
 			Seq: 4, Kind: "assistant_message", TurnID: "t1", Role: "assistant",
-			Payload: `{"tool_calls":[{"id":"c1","name":"read_file","arguments":"{\"path\":\"a\"}"}]}`, Images: []string{},
+			Payload: `{"tool_calls":[{"id":"c1","name":"read_file","arguments":"{\"path\":\"a\"}"}]}`, Images: []string{}, ImageBytes: []int64{},
 		},
 		{
 			Seq: 5, Kind: "tool_result", TurnID: "t1", Role: "tool", Content: "data", ToolCallID: "c1", ToolName: "read_file",
-			Payload: "{}", Images: []string{},
+			Payload: "{}", Images: []string{}, ImageBytes: []int64{},
 		},
 		// SEC11-4: a span marker with no turn_id excludes nothing.
-		{Seq: 9, Kind: "user_message", Role: "user", Content: "span poison", Payload: "{}", Images: []string{}},
-		{Seq: 10, Kind: "assistant_message", Role: "assistant", Content: "span partial", Payload: "{}", Images: []string{}},
+		{Seq: 9, Kind: "user_message", Role: "user", Content: "span poison", Payload: "{}", Images: []string{}, ImageBytes: []int64{}},
+		{Seq: 10, Kind: "assistant_message", Role: "assistant", Content: "span partial", Payload: "{}", Images: []string{}, ImageBytes: []int64{}},
 	}
 	if !reflect.DeepEqual(snap.Events, want) {
 		t.Fatalf("events = %+v", snap.Events)

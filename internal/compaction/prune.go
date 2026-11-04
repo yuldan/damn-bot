@@ -11,7 +11,6 @@ import (
 const (
 	keepResults    = 6   // rule 3: newest tool results kept whole
 	keepIterations = 10  // rule 4: newest assistant messages kept whole
-	keepImageTurns = 2   // rule 5: newest user turns whose images are sent
 	trimRunes      = 200 // rule 4 length
 	shortSHA       = 12
 )
@@ -43,7 +42,7 @@ func prune(items []item, pins []int64) PruneStats {
 		Stale:   stale(items, pending),
 		Old:     old(items, pending),
 		Trimmed: trim(items),
-		Images:  images(items),
+		Images:  evictImages(items),
 	}
 	restorePinned(items, saved)
 	return st
@@ -220,31 +219,6 @@ func trim(items []item) int {
 		r := []rune(it.Content)
 		it.Content = string(r[:trimRunes-1]) + "…"
 		n++
-	}
-	return n
-}
-
-// images is rule 5: images of user turns older than the newest
-// keepImageTurns are replaced by a text stub naming the blob.
-func images(items []item) int {
-	turn, n := 0, 0
-	for i := len(items) - 1; i >= 0; i-- {
-		it := &items[i]
-		if it.Role != "user" {
-			continue
-		}
-		turn++
-		if turn <= keepImageTurns {
-			continue
-		}
-		for _, sha := range it.Images {
-			if it.Content != "" {
-				it.Content += "\n"
-			}
-			it.Content += "[image " + sha[:min(len(sha), shortSHA)] + " omitted]"
-			n++
-		}
-		it.Images = nil
 	}
 	return n
 }

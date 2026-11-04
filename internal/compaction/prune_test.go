@@ -26,10 +26,18 @@ func (b *transcript) add(e *Event) int64 {
 	return e.Seq
 }
 
-func (b *transcript) user(text string, images ...string) {
+func (b *transcript) user(text string) {
 	b.turn++
 	b.add(&Event{Kind: event.TurnStart, Payload: `{}`})
-	b.add(&Event{Kind: event.UserMessage, Role: "user", Content: text, Images: images})
+	b.add(&Event{Kind: event.UserMessage, Role: "user", Content: text})
+}
+
+// userSized records image attachments with their encoded sizes so the
+// footprint eviction sees the same numbers the store would report.
+func (b *transcript) userSized(text string, sizes []int64, images ...string) {
+	b.turn++
+	b.add(&Event{Kind: event.TurnStart, Payload: `{}`})
+	b.add(&Event{Kind: event.UserMessage, Role: "user", Content: text, Images: images, ImageBytes: sizes})
 }
 
 func (b *transcript) assistant(text string, calls ...ToolCall) int64 {
@@ -140,17 +148,18 @@ func TestPruneTrimAndImages(t *testing.T) {
 	t.Parallel()
 	b := transcript{t: t}
 	long := strings.Repeat("é", 300)
-	b.user("one", "1111111111111111aaaa", "2222222222222222bbbb")
+	first, second := strings.Repeat("1", 64), strings.Repeat("2", 64)
+	b.userSized("one", []int64{15 << 20, 15 << 20}, first, second)
 	oldSeq := b.assistant(long, ToolCall{ID: "k0", Name: "glob", Arguments: `{}`})
 	b.result("k0", "glob", "a", `{}`)
 	answerSeq := b.assistant(long)
-	b.user("two", "3333333333333333cccc")
+	b.userSized("two", []int64{10 << 20}, strings.Repeat("3", 64))
 	for i := 1; i <= keepIterations; i++ {
 		id := fmt.Sprintf("k%d", i)
 		b.assistant(long, ToolCall{ID: id, Name: "glob", Arguments: `{}`})
 		b.result(id, "glob", "a", `{}`)
 	}
-	b.user("three", "4444444444444444dddd")
+	b.userSized("three", []int64{10 << 20}, strings.Repeat("4", 64))
 	msgs, st := Prune(b.events)
 	items, _ := history(b.events)
 	for i, it := range items {
@@ -165,14 +174,15 @@ func TestPruneTrimAndImages(t *testing.T) {
 			}
 		}
 	}
-	if msgs[0].Content != "one\n[image 111111111111 omitted]\n[image 222222222222 omitted]" || msgs[0].Images != nil {
+	wantStub := "one\n" + ImageStub(first) + "\n" + ImageStub(second)
+	if msgs[0].Content != wantStub || msgs[0].Images != nil {
 		t.Errorf("old images = %q %v", msgs[0].Content, msgs[0].Images)
 	}
 	last := msgs[len(msgs)-1]
-	if len(last.Images) != 1 || msgs[4].Role != "user" || len(msgs[4].Images) != 1 {
-		t.Errorf("images of the newest %d turns were dropped", keepImageTurns)
+	if len(last.Images) != 1 || msgs[4].Role != "user" || len(msgs[4].Images) != 0 {
+		t.Errorf("live turn images were dropped or an old batch survived: last=%v middle=%v", last.Images, msgs[4].Images)
 	}
-	if st.Trimmed != 1 || st.Images != 2 {
+	if st.Trimmed != 1 || st.Images != 3 {
 		t.Errorf("stats = %+v", st)
 	}
 }
