@@ -15,7 +15,7 @@ import (
 const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
-	maxCoreLOC       = 56400 // ADR-307: Σ 55.604; … ADR-321 amandemen engines netx +5 = 56.243; ADR-321 PR B+C config +68/netx +8 = 56.319; PR B reserve (STT/TTS provider config) ≤ 56.350; cap ceil ratusan 56.400.
+	maxCoreLOC       = 56400 // ADR-307: Σ 55.604; … ADR-321 amandemen engines netx +5 = 56.243; ADR-321 PR B+C+D config +78/netx +8 = 56.329; PR B reserve (STT/TTS provider config) ≤ 56.350; cap ceil ratusan 56.400.
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
 	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)
