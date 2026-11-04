@@ -56,7 +56,7 @@ const (
 func Catalog(kind Kind) []string {
 	switch kind {
 	case KindSTT:
-		return []string{"whispercpp", "local_command", "groq", "openai", "mistral", "xai", "elevenlabs", "deepinfra"}
+		return stt.Catalog()
 	case KindTTS:
 		return []string{"edge", "elevenlabs", "openai", "minimax", "xai", "mistral", "gemini", "neutts", "kittentts", "piper", "deepinfra"}
 	}
@@ -67,6 +67,8 @@ func Catalog(kind Kind) []string {
 type Config struct {
 	STTBackend, TTSBackend        string
 	WhisperBin, WhisperModel      string
+	STTEndpoint, STTKey, STTModel string
+	STTCommand                    []string
 	TTSEndpoint, TTSKey, TTSModel string
 	TTSVoice, TTSFormat           string
 	Doer                          tts.Doer
@@ -77,14 +79,16 @@ func (c *Config) NewSTT() (STT, error) {
 	if !slices.Contains(Catalog(KindSTT), c.STTBackend) {
 		return nil, fmt.Errorf("%w: stt backend %q", ErrUnknownProvider, c.STTBackend)
 	}
-	if c.STTBackend != "whispercpp" {
-		return nil, fmt.Errorf("%w: stt backend %q", ErrModuleUnavailable, c.STTBackend)
+	f := &stt.Factory{
+		Endpoint: c.STTEndpoint, Key: c.STTKey, Model: c.STTModel,
+		WhisperBin: c.WhisperBin, WhisperModel: c.WhisperModel,
+		Command: c.STTCommand, Doer: c.Doer,
 	}
-	w, err := stt.NewWhisper(c.WhisperBin, c.WhisperModel)
+	p, err := f.New(c.STTBackend)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrModuleUnavailable, err)
 	}
-	return w, nil
+	return p, nil
 }
 
 // NewTTS builds the configured text-to-speech provider.

@@ -215,7 +215,7 @@ func TestTranscribeHonoursCancel(t *testing.T) {
 	}
 }
 
-func TestF6MEDIA011WhisperCPPChunking(t *testing.T) {
+func TestF6MEDIA011WhisperChunking(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	bin := fakeWhisper(t, dir, `prefix=""
@@ -250,6 +250,24 @@ printf '%s' '{"transcription":[{"offsets":{"from":0,"to":1200},"text":" hello wo
 	}
 	if tr.Text != "hello world hello world hello world" {
 		t.Errorf("text = %q", tr.Text)
+	}
+	// 80 MiB / 60 min at 11 kHz mono is split by time boundary without
+	// ffmpeg: 6 chunks of 600 s.
+	big := wavBytes(t, 11025, 11025*3600)
+	if want := int64(96 << 20); int64(len(big)) > want {
+		t.Fatalf("fixture %d > cap %d", len(big), want)
+	}
+	tr, err = w.Transcribe(t.Context(), bytes.NewReader(big), Options{})
+	if err != nil {
+		t.Fatalf("80 MiB Transcribe: %v", err)
+	}
+	if tr.Chunks != 6 || tr.MIME != "audio/wav" {
+		t.Fatalf("80 MiB chunks = %d mime = %q", tr.Chunks, tr.MIME)
+	}
+	// M4A/MP4 needs ffmpeg: fail closed with module_unavailable.
+	m4a := append([]byte("\x00\x00\x00\x18ftypM4A "), make([]byte, 64)...)
+	if _, err := w.Transcribe(t.Context(), bytes.NewReader(m4a), Options{}); !errors.Is(err, ErrContainerUnavailable) {
+		t.Fatalf("m4a err = %v, want ErrContainerUnavailable", err)
 	}
 }
 

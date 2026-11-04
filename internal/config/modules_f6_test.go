@@ -224,6 +224,8 @@ func TestModulesVoiceConfig(t *testing.T) {
 		"[modules.voice]\nstt_backend = \"deepinfra\"\ntts_backend = \"piper\"\n",
 		"[modules.voice]\nchat_mode = \"chained\"\n",
 		"[modules.voice]\nchat_mode = \"gpt_live\"\nlive_endpoint = \"https://api.openai.com/v1/realtime\"\nlive_key_env = \"OPENAI_API_KEY\"\nlive_model = \"gpt-4o-realtime-preview\"\nlive_voice = \"alloy\"\n",
+		"[modules.voice]\nstt_backend = \"openai\"\nstt_endpoint = \"https://api.openai.com/v1/audio/transcriptions\"\nstt_key_env = \"OPENAI_API_KEY\"\nstt_model = \"whisper-1\"\n",
+		"[modules.voice]\nstt_backend = \"local_command\"\nstt_command = [\"/usr/bin/whisper\", \"{audio}\"]\n",
 	} {
 		if _, err := parse(t, toml); err != nil {
 			t.Errorf("Parse(%q): %v", toml, err)
@@ -234,7 +236,10 @@ func TestModulesVoiceConfig(t *testing.T) {
 		{"tts_unknown", "[modules.voice]\ntts_backend = \"nope\"\n", "modules.voice.tts_backend"},
 		{"whisper_incomplete", "[modules.voice]\nstt_backend = \"whispercpp\"\n", "modules.voice.whisper_bin"},
 		{"bad_endpoint", "[modules.voice]\ntts_endpoint = \"ftp://example.com/speech\"\n", "modules.voice.tts_endpoint"},
+		{"bad_stt_endpoint", "[modules.voice]\nstt_endpoint = \"ftp://example.com/stt\"\n", "modules.voice.stt_endpoint"},
 		{"bad_env", "[modules.voice]\ntts_key_env = \"1BAD-NAME\"\n", "modules.voice.tts_key_env"},
+		{"bad_stt_env", "[modules.voice]\nstt_key_env = \"1BAD-NAME\"\n", "modules.voice.stt_key_env"},
+		{"empty_stt_argv0", "[modules.voice]\nstt_command = [\"\"]\n", "modules.voice.stt_command"},
 		{"long_voice", "[modules.voice]\ntts_voice = \"" + strings.Repeat("a", 65) + "\"\n", "modules.voice.tts_voice"},
 		{"chat_unknown", "[modules.voice]\nchat_mode = \"autodetect\"\n", "modules.voice.chat_mode"},
 		{"live_without_optin", "[modules.voice]\nchat_mode = \"gpt_live\"\n", "modules.voice.chat_mode"},

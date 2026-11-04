@@ -264,6 +264,7 @@ func moduleConfig(cfg *config.Config) func(string) host.Config {
 	vcRaw, vcErr := json.Marshal(voice.Section{
 		Enabled: vc.Enabled, STTBackend: vc.STTBackend, TTSBackend: vc.TTSBackend,
 		WhisperBin: vc.WhisperBin, WhisperModel: vc.WhisperModel,
+		STTEndpoint: vc.STTEndpoint, STTKeyEnv: vc.STTKeyEnv, STTModel: vc.STTModel, STTCommand: vc.STTCommand,
 		TTSEndpoint: vc.TTSEndpoint, TTSVoice: vc.TTSVoice, TTSKeyEnv: vc.TTSKeyEnv,
 		ChatMode: vc.ChatMode, LiveEndpoint: vc.LiveEndpoint, LiveKeyEnv: vc.LiveKeyEnv,
 		LiveModel: vc.LiveModel, LiveVoice: vc.LiveVoice,

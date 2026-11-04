@@ -58,19 +58,23 @@ type ModulesMedia struct {
 // autodetect. The whisper paths and the TTS endpoint are data for the module's
 // own constructors; no network or executable is touched at load.
 type ModulesVoice struct {
-	Enabled      bool   `toml:"enabled"`
-	STTBackend   string `toml:"stt_backend"`
-	TTSBackend   string `toml:"tts_backend"`
-	WhisperBin   string `toml:"whisper_bin"`
-	WhisperModel string `toml:"whisper_model"`
-	TTSEndpoint  string `toml:"tts_endpoint"`
-	TTSVoice     string `toml:"tts_voice"`
-	TTSKeyEnv    string `toml:"tts_key_env"`
-	ChatMode     string `toml:"chat_mode"`
-	LiveEndpoint string `toml:"live_endpoint"`
-	LiveKeyEnv   string `toml:"live_key_env"`
-	LiveModel    string `toml:"live_model"`
-	LiveVoice    string `toml:"live_voice"`
+	Enabled      bool     `toml:"enabled"`
+	STTBackend   string   `toml:"stt_backend"`
+	TTSBackend   string   `toml:"tts_backend"`
+	WhisperBin   string   `toml:"whisper_bin"`
+	WhisperModel string   `toml:"whisper_model"`
+	STTEndpoint  string   `toml:"stt_endpoint"`
+	STTKeyEnv    string   `toml:"stt_key_env"`
+	STTModel     string   `toml:"stt_model"`
+	STTCommand   []string `toml:"stt_command"`
+	TTSEndpoint  string   `toml:"tts_endpoint"`
+	TTSVoice     string   `toml:"tts_voice"`
+	TTSKeyEnv    string   `toml:"tts_key_env"`
+	ChatMode     string   `toml:"chat_mode"`
+	LiveEndpoint string   `toml:"live_endpoint"`
+	LiveKeyEnv   string   `toml:"live_key_env"`
+	LiveModel    string   `toml:"live_model"`
+	LiveVoice    string   `toml:"live_voice"`
 }
 
 // ModulesComputerUse is [modules.computer_use]: the F6 external computer-use
@@ -292,6 +296,9 @@ func validateVoiceValues(v *ModulesVoice) error {
 	}{
 		{"whisper_bin", v.WhisperBin, 1024},
 		{"whisper_model", v.WhisperModel, 1024},
+		{"stt_endpoint", v.STTEndpoint, 2048},
+		{"stt_model", v.STTModel, 128},
+		{"stt_key_env", v.STTKeyEnv, 128},
 		{"tts_endpoint", v.TTSEndpoint, 2048},
 		{"tts_voice", v.TTSVoice, 64},
 		{"tts_key_env", v.TTSKeyEnv, 128},
@@ -306,7 +313,7 @@ func validateVoiceValues(v *ModulesVoice) error {
 	return nil
 }
 
-// validateVoiceLive keeps chat mode, endpoints and secret names honest.
+// validateVoiceLive keeps chat mode, endpoints, secret names and argv honest.
 func validateVoiceLive(v *ModulesVoice) error {
 	switch v.ChatMode {
 	case "", "chained":
@@ -319,6 +326,7 @@ func validateVoiceLive(v *ModulesVoice) error {
 	}
 	for _, ep := range []struct{ key, value string }{
 		{"live_endpoint", v.LiveEndpoint},
+		{"stt_endpoint", v.STTEndpoint},
 		{"tts_endpoint", v.TTSEndpoint},
 	} {
 		if err := voiceURL(ep.key, ep.value); err != nil {
@@ -327,11 +335,15 @@ func validateVoiceLive(v *ModulesVoice) error {
 	}
 	for _, env := range []struct{ key, value string }{
 		{"live_key_env", v.LiveKeyEnv},
+		{"stt_key_env", v.STTKeyEnv},
 		{"tts_key_env", v.TTSKeyEnv},
 	} {
 		if env.value != "" && !isEnvName(env.value) {
 			return invalid("modules.voice."+env.key, "must be an environment variable name")
 		}
+	}
+	if err := cleanArgv("stt_command", v.STTCommand); err != nil {
+		return err
 	}
 	if v.STTBackend == "whispercpp" && (v.WhisperBin == "" || v.WhisperModel == "") {
 		return invalid("modules.voice.whisper_bin", "whispercpp needs whisper_bin and whisper_model")
@@ -360,6 +372,23 @@ func voiceBackend(field, value string, allowed ...string) error {
 		return nil
 	}
 	return invalid("modules.voice."+field, "backend %q is not supported", value)
+}
+
+// cleanArgv bounds one external-command argv (no shell). Each element is one
+// argument, so a path or text with spaces stays a single element.
+func cleanArgv(key string, argv []string) error {
+	if len(argv) > 32 {
+		return invalid("modules.voice."+key, "must have at most 32 arguments")
+	}
+	for i, arg := range argv {
+		if err := cleanVoiceValue(key, arg, 4096); err != nil {
+			return err
+		}
+		if i == 0 && arg == "" {
+			return invalid("modules.voice."+key, "command[0] must not be empty")
+		}
+	}
+	return nil
 }
 
 // cleanVoiceValue bounds one string value and refuses control characters, so
