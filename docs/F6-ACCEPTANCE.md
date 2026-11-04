@@ -15,15 +15,17 @@ Aturan gate:
 
 | Item ROADMAP F6 | Kriteria | Tes yang harus ada | Status |
 |---|---|---|---|
-| MEDIA 29/31 | 29 baris MEDIA F6 `LULUS`; MEDIA-029 (Discord voice) dan MEDIA-031 (silk) `N/A` → F7 | tabel §7 + `TestParityPhaseColumn` | BELUM |
+| MEDIA 29/31 | 29 baris MEDIA F6 `LULUS`; MEDIA-029 (Discord voice) dan MEDIA-031 (silk) `N/A` → F7 | tabel §6 (29 baris; semuanya `BELUM` di head ini) + `TestParityPhaseColumn`; MEDIA-029/031 `N/A — fase F7 di FEATURE-PARITY.md:862,864, bukan baris ledger F6 (carryover F7)` | BELUM |
 | Ukuran gambar | 0 penolakan ukuran pada suite 50 gambar; resize 12 MP ≤ 150 ms | `BenchmarkImagePreflight`, `TestF6ImageSuite50`, `TestImagePreflightTargetNotLowered` | N/A — hardware: target 150 ms hanya sah di Q14; host ini 265–290 ms (carryover F7, tanpa klaim lulus) |
 | Voice latency | overhead ujung-ucapan→audio-pertama ≤ 200 ms; TTS streaming mulai ≤ 300 ms setelah kalimat pertama LLM | `TestVoicePipelineLatency`, `TestF6VoiceLatencyBudget` (fake STT/LLM/TTS bertanda waktu) | LULUS |
 | Smoke E3 | 10 task E3 dengan model murah lulus harness; artefak tersimpan | `TestF6E3Smoke10` + `bench/evals/results/F6-e3.json` | BELUM |
 | EC-PROV-024 | gate kapabilitas vision sebelum routing gambar; model teks-only tidak pernah menerima gambar | `TestEdgeCases/EC-PROV-024` | LULUS |
 | Test tertunda ADR-083 | cap tool non-LLM ditegakkan sebelum dispatch | `TestBudgetGuardTools` | BELUM |
-| Baseline hermes F6 | dimensi ADR-065/083 berstatus F6 diukur untuk kedua agent | `TestF6HermesBaseline` + `bench/speed/results/hermes-868b9f244f-F6.json` | BELUM |
-| GAP F6 (9) | sembilan baris SPEC §22.1 lulus verifikasinya | tabel §6 | BELUM |
-| Carryover F5→F6 | tiga item DITUNDA/N/A F5 ditutup | tabel §9 | BELUM |
+| Baseline hermes F6 | dimensi ADR-065/083 berstatus F6 diukur untuk kedua agent | `TestF6HermesBaseline`, `TestF6BaselineArtifactSchema` + `bench/speed/results/hermes-868b9f244f-F6.json` | LULUS |
+| GAP F6 (9) | sembilan baris SPEC §22.1 lulus verifikasinya | tabel §8; anggota (`BELUM` di head ini): `GAP-SEC-05`, `GAP-COST-05`, `GAP-COST-11`, `GAP-COST-12`, `GAP-TOOL-01`, `GAP-TOOL-02`, `GAP-TOOL-06`, `GAP-TOOL-07`, `GAP-TOOL-09` | BELUM |
+| Carryover F5→F6 | tiga item DITUNDA/N/A F5 ditutup | tabel §10; anggota (`BELUM` di head ini): `F5-CODEINTEL-LANG`, `F5-BACKGROUND-WINDOWS`, `GAP-REL-14 residual` | BELUM |
+
+Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengkap** (dua dimensi ADR-065/083 × dua agen, `TestF6HermesBaseline` + `TestF6BaselineArtifactSchema` hijau), bukan klaim target waktu tercapai. Artefak `bench/speed/results/hermes-868b9f244f-F6.json` diukur di workstation, bukan Q14. Verdict `image_preflight` = `fail`: Damn-Bot 265,0 ms dan hermes 453,5 ms terhadap target 150 ms yang hanya sah di Q14; target itu tetap `N/A — hardware` (ADR-323, §12) dan pengukuran Q14 tetap carryover F7. Verdict `voice_end_to_end` = `pass`: Damn-Bot 0,08 ms overhead / 0,05 ms TTS start, hermes 1,60 ms / 1,60 ms.
 
 ## 2. Ledger parity F6 — CLI (2)
 
@@ -99,7 +101,7 @@ Aturan gate:
 
 ## 6. Ledger parity F6 — MEDIA (29)
 
-Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** dihitung; sisanya 29 baris ada di bawah (FEATURE-PARITY.md:830-860).
+Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** dihitung; sisanya 29 baris ada di bawah (FEATURE-PARITY.md:830-860). Keputusan per ID, dapat diverifikasi di tabel parity: `MEDIA-029 — N/A — fase F7 di FEATURE-PARITY.md:862, tidak ada baris ledger F6 (carryover F7)`; `MEDIA-031 — N/A — fase F7 di FEATURE-PARITY.md:864, tidak ada baris ledger F6 (carryover F7)`. Keduanya bukan `LULUS` dan tidak menutup baris agregat "MEDIA 29/31".
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
@@ -167,7 +169,9 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | EC-PROV-024 | gambar tidak pernah dikirim ke model teks-only; gate `capabilities.vision` terjadi sebelum routing; fallback vision eksplisit | `TestEdgeCases/EC-PROV-024` (katalog `pending:F6` → `covered`) | LULUS |
 | TestBudgetGuardTools (ADR-083) | 0 panggilan vendor setelah cap 100%; peringatan 80%; `budget_tools` membawa angka/periode/perintah naik; fake clock/usage | `TestBudgetGuardTools` | BELUM |
 | Smoke E3 | 10 task E3 self-contained deterministik, model murah, dijalankan lewat harness yang ada; artefak hasil disimpan | `TestF6E3Smoke10`, `bench/evals/results/F6-e3.json` | BELUM |
-| Baseline hermes F6 | `Voice end-to-end` dan `Image preflight` diukur dengan harness yang sama untuk hermes dan Damn-Bot | `TestF6HermesBaseline`, `bench/speed/results/hermes-868b9f244f-F6.json` | BELUM |
+| Baseline hermes F6 | `Voice end-to-end` dan `Image preflight` diukur dengan harness yang sama untuk hermes dan Damn-Bot | `TestF6HermesBaseline`, `TestF6BaselineArtifactSchema`, `bench/speed/results/hermes-868b9f244f-F6.json` | LULUS |
+
+Catatan **Baseline hermes F6** (§9): baris ini `LULUS` untuk kelengkapan artefak (dua dimensi × dua agen, diukur harness yang sama), **bukan** untuk target waktu. Sesuai §1, verdict `image_preflight` = `fail` terhadap target 150 ms yang hanya sah di Q14 (`N/A — hardware`, ADR-323); verdict `voice_end_to_end` = `pass`. Tidak ada klaim bahwa target image tercapai di workstation ini.
 
 ## 10. Carryover F5→F6 (3)
 
@@ -193,8 +197,9 @@ go test -count=1 -run 'TestF6LedgerClosed|TestParityPhaseColumn|TestF6LedgerGate
 make loc
 make size-check
 
-# Baseline F6 (dua agent, artefak yang sama).
-go test -run 'TestF6HermesBaseline|TestNoLLMBaselineCoverage' ./bench/speed
+# Baseline F6 (dua agent, artefak yang sama) + skema artefak. `bench` adalah modul terpisah.
+(cd bench && go test -count=1 -run 'TestF6HermesBaseline|TestF6BaselineArtifactSchema|TestF6BaselineVerdictRules' ./f6)
+(cd bench && go test -count=1 -run 'TestNoLLMBaselineCoverage' ./speed)
 ```
 
 Aturan perubahan ledger (ADR-323): ubah `BELUM` → `LULUS` hanya bersama tes bernama di PR yang sama **dan** baris parity F6 `planned`→`LULUS`; `N/A` wajib menyebut fase target dan alasan teknis di kolom catatan (`N/A — <alasan> (carryover F7)`), tidak boleh telanjang. Baris agregat hanya `LULUS` setelah semua anggota tertutup. Angka budget tidak diubah di sini; plafon dan baris `MODULE` F6 mengikuti ADR-309 pada PR fondasi.
