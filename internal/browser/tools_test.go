@@ -60,6 +60,7 @@ func TestPointerActions(t *testing.T) {
 	t.Parallel()
 	appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
 	f := newFake()
+	scrollable(f)
 	cfg := moduleConfig()
 	m := newModule(t.Context(), t, &cfg, Deps{Dial: dialTo(f), Approvals: appr})
 	env := host.Env{CallID: "c1"}
@@ -121,6 +122,7 @@ func TestPressSelectHoverDragScroll(t *testing.T) {
 	t.Parallel()
 	appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
 	f := newFake()
+	scrollable(f)
 	f.results["Runtime.evaluate"] = json.RawMessage(`{"result":{"value":true}}`)
 	cfg := moduleConfig()
 	m := newModule(t.Context(), t, &cfg, Deps{Dial: dialTo(f), Approvals: appr})

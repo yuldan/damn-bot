@@ -357,3 +357,50 @@ func TestF6BrowserCamofoxE2E(t *testing.T) {
 		}
 	}
 }
+
+// writeSSRFConfig allows every blocked origin explicitly, so a refusal proves
+// the host policy itself (not the allowlist) stops the navigation.
+func writeSSRFConfig(t *testing.T, e *Env, cdpURL, pageOrigin string) {
+	t.Helper()
+	body := "[modules.browser]\nenabled = true\ncdp_url = \"" + cdpURL + "\"\n" +
+		"allow_origins = [\"" + pageOrigin + "\", \"http://169.254.169.254\", \"http://10.0.0.5\", " +
+		"\"http://100.64.0.1\", \"http://127.0.0.1:9\"]\n"
+	if err := os.WriteFile(e.cfg, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+}
+
+// TestF6BrowserNavigateSSRFE2E is the TOOL-010 boundary proof outside the
+// package: the real binary refuses link-local metadata, private, CGNAT and
+// loopback targets before it issues a single Page.navigate.
+func TestF6BrowserNavigateSSRFE2E(t *testing.T) {
+	t.Parallel()
+	pageURL, cdpURL, fake := browserPage(t)
+	targets := []string{
+		"http://169.254.169.254/latest/meta-data/",
+		"http://10.0.0.5/",
+		"http://100.64.0.1/",
+		"http://127.0.0.1:9/",
+	}
+	replies := []providertest.Reply{ToolCallReply("s1", "tool_search", `{"query":"browser_navigate"}`)}
+	for i, target := range targets {
+		replies = append(replies, ToolCallReply("n"+strconv.Itoa(i), "tool_invoke",
+			`{"name":"browser_navigate","arguments":{"url":"`+target+`"}}`))
+	}
+	replies = append(replies, providertest.Text("done"))
+	e := New(t, replies...)
+	writeSSRFConfig(t, e, cdpURL, pageURL)
+	res := e.Exec(browserRunArgs(e, "open a blocked address")...)
+	res.RequireOK(t)
+	reqs := e.Requests()
+	if len(reqs) != len(replies) {
+		t.Fatalf("provider requests = %d, want %d\nstdout:\n%s\nstderr:\n%s", len(reqs), len(replies), res.Stdout, res.Stderr)
+	}
+	if got := fake.count("Page.navigate"); got != 0 {
+		t.Fatalf("Page.navigate called %d times for blocked targets: %v", got, fake.methods)
+	}
+	last := string(reqs[len(reqs)-1])
+	if got := strings.Count(last, `"code\":\"blocked_host\"`); got != len(targets) {
+		t.Fatalf("blocked_host results = %d, want %d:\n%.2000s", got, len(targets), last)
+	}
+}

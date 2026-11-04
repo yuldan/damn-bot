@@ -22,6 +22,7 @@ type fakeTransport struct {
 	mu      sync.Mutex
 	calls   []string
 	onCall  func(method string, params any)
+	reply   func(method string, params any) (json.RawMessage, bool)
 	results map[string]json.RawMessage
 	events  chan cdp.Event
 	done    chan struct{}
@@ -40,10 +41,16 @@ func (f *fakeTransport) Call(_ context.Context, method string, params any) (json
 	f.mu.Lock()
 	f.calls = append(f.calls, method)
 	hook := f.onCall
+	dynamic := f.reply
 	res, ok := f.results[method]
 	f.mu.Unlock()
 	if hook != nil {
 		hook(method, params)
+	}
+	if dynamic != nil {
+		if out, hit := dynamic(method, params); hit {
+			return out, nil
+		}
 	}
 	if ok {
 		return res, nil
@@ -69,6 +76,28 @@ func (f *fakeTransport) called(method string) bool {
 
 func emit(f *fakeTransport, method, params string) {
 	f.events <- cdp.Event{Method: method, Params: json.RawMessage(params)}
+}
+
+// scrollable answers the layout read the scroll clamp performs before it
+// dispatches a wheel event, while leaving other evaluations untouched.
+func scrollable(f *fakeTransport) {
+	f.reply = func(method string, params any) (json.RawMessage, bool) {
+		if method != "Runtime.evaluate" {
+			return nil, false
+		}
+		args, ok := params.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		expr, ok := args["expression"].(string)
+		if !ok {
+			return nil, false
+		}
+		if !strings.Contains(expr, "scrollingElement") {
+			return nil, false
+		}
+		return json.RawMessage(`{"result":{"value":{"x":0,"y":0,"maxX":10000,"maxY":10000}}}`), true
+	}
 }
 
 func mustPage(t *testing.T, f Transport, cfg Config) *Page {

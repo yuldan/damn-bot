@@ -48,9 +48,46 @@ type parityState struct {
 	logsOn    bool
 	dialogsOn bool
 	dialog    *Dialog
+	refs      map[int]struct{}
 }
 
 func newParityState() *parityState { return &parityState{} }
+
+// rememberRefs records the element refs of the latest snapshot. The refs are
+// the page's stable backend node ids; a ref from an older snapshot or another
+// page is not in this set and can never be clicked.
+func (p *Page) rememberRefs(value []byte) {
+	refs := map[int]struct{}{}
+	var nodes []struct {
+		Ref int `json:"ref"`
+	}
+	if err := json.Unmarshal(value, &nodes); err == nil {
+		for _, node := range nodes {
+			if node.Ref > 0 {
+				refs[node.Ref] = struct{}{}
+			}
+		}
+	}
+	p.parity.mu.Lock()
+	p.parity.refs = refs
+	p.parity.mu.Unlock()
+}
+
+// clearRefs drops every ref after a navigation or a history move: the old
+// accessibility tree no longer describes the document.
+func (p *Page) clearRefs() {
+	p.parity.mu.Lock()
+	p.parity.refs = nil
+	p.parity.mu.Unlock()
+}
+
+// refKnown reports whether ref belongs to the latest snapshot of this page.
+func (p *Page) refKnown(ref int) bool {
+	p.parity.mu.Lock()
+	defer p.parity.mu.Unlock()
+	_, ok := p.parity.refs[ref]
+	return ok
+}
 
 // Console returns the buffered console log with the Runtime and Log domains
 // enabled, capped by maxConsoleLines/maxConsoleLine/maxConsoleBytes. It never
