@@ -350,6 +350,9 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TOOL-082 | `video_generate` (toolset `video_gen`) | Generate video teks/gambar/referensi-ke-video | `tools/video_generation_tool.py:371` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `check_video_generation_requirements` | F6 | planned |
 | TOOL-083 | `xai_video_edit` (toolset `video_gen`) | Edit video via xAI Grok Imagine | `tools/xai_video_tools.py:110` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `_check_xai_video_requirements` | F6 | planned |
 | TOOL-084 | `xai_video_extend` (toolset `video_gen`) | Perpanjang video via xAI Grok Imagine | `tools/xai_video_tools.py:114` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `_check_xai_video_requirements` | F6 | planned |
+| TOOL-085 | `vision_analyze` (toolset `vision`) | Analisis gambar (URL/path) dengan model vision | `tools/vision_tools.py:1030` | opt-in | Model vision (auxiliary.vision) | check_fn `check_vision_requirements` | F6 | planned |
+| TOOL-086 | `web_extract` (toolset `web`) | Ekstrak konten halaman web menjadi markdown | `tools/web_tools.py:566` | opt-in | API key backend search (Exa/Tavily/Parallel/Perplexity/Firecrawl/Keenable) atau backend keyless (ddgs/SearXNG/Brave free) | check_fn `check_web_api_key` | F6 | LULUS |
+| TOOL-087 | `web_search` (toolset `web`) | Pencarian web via backend search terpilih | `tools/web_tools.py:560` | opt-in | API key backend search (Exa/Tavily/Parallel/Perplexity/Firecrawl/Keenable) atau backend keyless (ddgs/SearXNG/Brave free) | check_fn `check_web_api_key` | F6 | LULUS |
 | TOOL-085 | `vision_analyze` (toolset `vision`) | Analisis gambar (URL/path) dengan model vision | `tools/vision_tools.py:1030` | opt-in | Model vision (auxiliary.vision) | check_fn `check_vision_requirements` | F6 | LULUS |
 | TOOL-086 | `web_extract` (toolset `web`) | Ekstrak konten halaman web menjadi markdown | `tools/web_tools.py:566` | opt-in | API key backend search (Exa/Tavily/Parallel/Perplexity/Firecrawl/Keenable) atau backend keyless (ddgs/SearXNG/Brave free) | check_fn `check_web_api_key` | F6 | planned |
 | TOOL-087 | `web_search` (toolset `web`) | Pencarian web via backend search terpilih | `tools/web_tools.py:560` | opt-in | API key backend search (Exa/Tavily/Parallel/Perplexity/Firecrawl/Keenable) atau backend keyless (ddgs/SearXNG/Brave free) | check_fn `check_web_api_key` | F6 | planned |
@@ -388,11 +391,11 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TSET-027 | toolset `video_gen` | 3 tool | `toolsets.py:89` | off (default-off) | — | tools: video_generate, xai_video_edit, xai_video_extend; available saat inventaris=False | F6 | planned |
 | TSET-028 | toolset `vision` | 1 tool | `toolsets.py:86` | on/sesuai tool | — | tools: vision_analyze; available saat inventaris=False | F6 | LULUS |
 | TSET-029 | toolset `video` | 1 tool | `toolsets.py:87` | off (default-off) | — | tools: video_analyze; available saat inventaris=False | F6 | planned |
-| TSET-030 | toolset `web` | 2 tool | `toolsets.py:76` | on/sesuai tool | — | tools: web_search, web_extract; available saat inventaris=True | F6 | planned |
+| TSET-030 | toolset `web` | 2 tool | `toolsets.py:76` | on/sesuai tool | — | tools: web_search, web_extract; available saat inventaris=True | F6 | LULUS |
 | TSET-031 | toolset `x_search` | 1 tool | `toolsets.py:78` | off (default-off) | — | tools: x_search; available saat inventaris=False | F8 | planned |
 | TSET-032 | toolset `hermes-yuanbao` | 5 tool | `toolsets.py:225` | on/sesuai tool | — | tools: yb_query_group_info, yb_query_group_members, yb_send_dm, yb_search_sticker, yb_send_sticker; available saat inventaris=False | F7 | planned |
 | TSET-033 | toolset `a2a` | 5 tool | `plugins/platforms/a2a/tools.py` (registry) | off (default-off) | — | tools: a2a_discover, a2a_call, a2a_list, a2a_history, a2a_orchestrate; available saat inventaris=False | F7 | planned |
-| TSET-034 | toolset `search` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:77` | sesuai platform/posture | — |  | F6 | planned |
+| TSET-034 | toolset `search` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:77` | sesuai platform/posture | — |  | F6 | LULUS |
 | TSET-035 | toolset `context_engine` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:130` | sesuai platform/posture | — | tanpa tool registry sendiri | F2 | planned |
 | TSET-036 | toolset `bot_room` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:134` | sesuai platform/posture | — | tanpa tool registry sendiri | F7 | planned |
 | TSET-037 | toolset `yuanbao` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:169` | sesuai platform/posture | — |  | — | dropped-with-approval (NP-07) |
@@ -748,7 +751,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | PLUG-025 | Plugin: security-guidance | Peringatan keamanan pada hasil write file | `plugins/security-guidance/plugin.yaml`, `plugins/security-guidance/patterns.py` | opt-in | — |  | F8 | planned |
 | PLUG-026 | Plugin: teams_pipeline | Pipeline rapat Microsoft Teams via Graph | `plugins/teams_pipeline/plugin.yaml`, `plugins/teams_pipeline/pipeline.py` | opt-in | Microsoft Graph creds |  | F8 | planned |
 | PLUG-027 | Plugin: video_gen | 4 backend generate video | `plugins/video_gen/xai/plugin.yaml` | opt-in | lihat MEDIA |  | F6 | planned |
-| PLUG-028 | Plugin: web | 11 backend web search/extract | `plugins/web/__init__.py` | auto (`web.backend: ""`) | lihat EXEC/TOOL |  | F6 | planned |
+| PLUG-028 | Plugin: web | 11 backend web search/extract | `plugins/web/__init__.py` | auto (`web.backend: ""`) | lihat EXEC/TOOL |  | F6 | LULUS |
 | PLUG-029 | MCP client | Koneksi server MCP stdio/HTTP/SSE → tool dinamis | `tools/mcp_tool.py`, `tools/mcp_tool_transport.py`, `tools/mcp_tool_registration.py` | on (bila `mcp` dikonfigurasi) | extra `mcp` | auto reload saat config berubah | F5 | planned |
 | PLUG-030 | MCP OAuth (PKCE, device, DCR) | OAuth untuk server MCP remote | `tools/mcp_oauth_manager.py`, `tools/mcp_oauth_device.py` | on bila perlu | browser | `hermes mcp login` | F5 | planned |
 | PLUG-031 | MCP sampling | Server MCP dapat meminta sampling LLM | `tools/mcp_tool_sampling.py` | opt-in [INFERENCE] | LLM |  | F5 | planned |
@@ -907,9 +910,9 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | EXEC-039 | Browser engine: Lightpanda | Browser headless ringan + fallback | `tools/browser_lightpanda.py`, `tools/browser_tool_lightpanda_fallback.py` | opt-in | Lightpanda binary |  | F6 | planned |
 | EXEC-040 | Browser real profile / CDP connect | Pakai profil browser asli user via CDP | `tools/browser_tool_real_profile.py`, `hermes_cli/browser_connect.py` | opt-in (`/browser connect`) | Chrome/Brave/Edge |  | F6 | planned |
 | EXEC-041 | Browser extension control | Kontrol via ekstensi browser | `tools/browser_extension_router.py` | off (`browser.extension_control.enabled`) | Ekstensi browser |  | F6 | planned |
-| EXEC-042 | Web backends (11) | Backend web_search/extract plugin | `plugins/web/__init__.py` | auto | brave_free, ddgs, exa, firecrawl, keenable, openai_native, parallel, perplexity, searxng, tavily, xai |  | F6 | planned |
+| EXEC-042 | Web backends (11) | Backend web_search/extract plugin | `plugins/web/__init__.py` | auto | brave_free, ddgs, exa, firecrawl, keenable, openai_native, parallel, perplexity, searxng, tavily, xai |  | F6 | LULUS |
 | EXEC-043 | Supply-chain audit (OSV) | Audit venv/plugin/MCP terhadap OSV.dev | `tools/osv_check.py`, `hermes_cli/security_audit.py` | opt-in (`hermes security`) | OSV.dev | advisori startup | F5 | planned |
-| EXEC-044 | Website blocklist | Blok domain tertentu | `tools/website_policy.py` | off | — |  | F6 | planned |
+| EXEC-044 | Website blocklist | Blok domain tertentu | `tools/website_policy.py` | off | — |  | F6 | LULUS |
 
 ## 12. OPS — operasional
 | ID | Fitur | Deskripsi singkat (≤15 kata) | Sumber hermes | Default di hermes | Dependensi eksternal | Catatan | fase | status |

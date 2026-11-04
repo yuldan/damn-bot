@@ -23,7 +23,7 @@ func load(t *testing.T) ([]Row, Catalog) {
 	return ParseParity(string(p)), cat
 }
 
-// TestParseParityCounts: 854 baris, 17 dropped-with-approval (FEATURE-PARITY "Konvensi kolom").
+// TestParseParityCounts: 857 baris, 17 dropped-with-approval (FEATURE-PARITY "Konvensi kolom").
 func TestParseParityCounts(t *testing.T) {
 	t.Parallel()
 	rows, _ := load(t)
@@ -33,8 +33,8 @@ func TestParseParityCounts(t *testing.T) {
 			dropped++
 		}
 	}
-	if len(rows) != 854 || dropped != 17 {
-		t.Fatalf("rows=%d dropped=%d, want 854/17", len(rows), dropped)
+	if len(rows) != 857 || dropped != 17 {
+		t.Fatalf("rows=%d dropped=%d, want 857/17", len(rows), dropped)
 	}
 }
 

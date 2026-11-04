@@ -170,7 +170,7 @@ func computerUseToolDescriptors() []modules.ToolDescriptor {
 func webToolTags(name string) []string {
 	switch name {
 	case "web_fetch":
-		return []string{"fetch", "http", "url", "page", "html"}
+		return []string{"fetch", "extract", "web_extract", "http", "url", "page", "html"}
 	case "web_search":
 		return []string{"search", "engine", "internet"}
 	}
