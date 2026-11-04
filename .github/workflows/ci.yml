@@ -16,16 +16,18 @@
 # `lint` tetap job tersendiri untuk umpan balik cepat; ADR-324 memisahkan `test-timing` dan gate berat
 # lain ke tier penuh dengan job masing-masing.
 #
-# ADR-324 (dua tingkat, 2026-11-04; menggantikan ADR-181 dan ADR-179 butir 8): `pull_request` = tier
-# `pr` — matrix `test` dua target (ubuntu-latest dan windows-latest, keduanya `-race`/cgo) + gate murah
-# yang tetap per-PR (`lint`, `static`, `phase`, `e2e`, `bench`, `supply`, `skill-refs`, `sqlite-engine`).
-# `merge_group`, push `main`, nightly (`workflow_call`), dan `workflow_dispatch` = tier `full` — matrix
-# enam target + seluruh gate berat (`test-timing`, `deadcode`, `portability` = vet-cross + build-matrix,
-# `fuzz`, `perf`, `coverage`, `bench-parity`). Cakupan gate tidak berkurang: merge queue menjalankan
-# tier penuh terhadap commit merge-group SEBELUM merge, jadi kegagalan OS-spesifik tetap memblokir merge,
-# hanya tidak lagi dijalankan ulang di setiap PR. Tier `smoke` dihapus karena push `main` kini memakai
-# tier penuh. `ci-required` memeriksa himpunan gate yang WAJIB per konteks: gate wajib harus `success`,
-# gate di luar konteks harus `skipped` — skip tanpa alasan menggagalkan agregat.
+# ADR-324 (dua tingkat + smoke, 2026-11-04; menggantikan ADR-179 butir 8): `pull_request` = tier `pr`
+# — matrix `test` dua target (ubuntu-latest dan windows-latest, keduanya `-race`/cgo) + gate murah
+# (`lint`, `static`, `phase`, `e2e`, `bench`, `supply`, `skill-refs`, `sqlite-engine`). `push: main` =
+# tier `smoke` (ADR-181): `lint`, `static`, `smoke` (`make build`, `make vet-cross`, suite paket inti
+# cepat) = 5 instance `ci` — bukan tier penuh, karena run main tidak bisa dibatalkan dan tidak boleh
+# menyerap biaya gate PR. `merge_group`, nightly (`workflow_call`), dan `workflow_dispatch` = tier
+# `full`: matrix enam target + seluruh gate berat (`test-timing`, `deadcode`, `portability` =
+# vet-cross + build-matrix, `fuzz`, `perf`, `coverage`, `bench-parity`). Merge queue menjalankan tier
+# penuh SEBELUM merge; selama queue belum aktif (repo user-owned), regresi OS-spesifik/gate berat
+# terdeteksi di nightly + `workflow_dispatch`, dan `push main` boleh dinaikkan ke tier penuh saat queue
+# diaktifkan. `ci-required` memeriksa himpunan gate yang WAJIB per konteks (`pr`/`smoke`/`full`): gate
+# wajib harus `success`, gate di luar konteks harus `skipped` — skip tanpa alasan menggagalkan agregat.
 name: ci
 
 on:
@@ -81,17 +83,19 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD: ${{ github.sha }}
         run: |
-          # ADR-324: dua tingkat. `pull_request` = tier `pr`, dua target (ubuntu-latest dan
-          # windows-latest, `-race`/cgo 1). `merge_group`, push main, `workflow_call` (nightly), dan
-          # `workflow_dispatch` = tier `full`, enam target berrunner (ADR-073: linux amd64/arm64,
-          # darwin arm64/amd64, windows amd64/arm64; windows/arm64 tanpa -race).
+          # ADR-324: tiga tier. `pull_request` = `pr` (dua target); `push: main` = `smoke` (matrix
+          # tidak dipakai karena `test` dilewati); `merge_group`/nightly/`workflow_dispatch` = `full`
+          # (enam target berrunner: linux amd64/arm64, darwin arm64/amd64, windows amd64/arm64;
+          # windows/arm64 tanpa -race, ADR-073).
           full='{"include":[{"os":"ubuntu-latest","race":"-race","cgo":"1"},{"os":"ubuntu-24.04-arm","race":"-race","cgo":"1"},{"os":"macos-latest","race":"-race","cgo":"1"},{"os":"macos-15-intel","race":"-race","cgo":"1"},{"os":"windows-latest","race":"-race","cgo":"1"},{"os":"windows-11-arm","race":"","cgo":"0"}]}'
           reduced='{"include":[{"os":"ubuntu-latest","race":"-race","cgo":"1"},{"os":"windows-latest","race":"-race","cgo":"1"}]}'
           # Gate berat (fuzz, bench-parity, coverage, perf, test-timing, deadcode, vet-cross,
-          # build-matrix) hanya berjalan di tier `full`; gate murah tetap di kedua tier. Daftar gate
+          # build-matrix) hanya tier `full`. `push main` tier `smoke` sengaja tidak menjalankan gate
+          # PR/berat: run main tidak bisa dibatalkan dan antreannya tidak boleh macet. Daftar gate
           # wajib per konteks ditegakkan `ci-required` (gate wajib harus sukses, bukan skipped).
           case "$EVENT" in
             pull_request) tier=pr; echo "test_matrix=$reduced" >>"$GITHUB_OUTPUT" ;;
+            push) tier=smoke; echo "test_matrix=$reduced" >>"$GITHUB_OUTPUT" ;;
             *) tier=full; echo "test_matrix=$full" >>"$GITHUB_OUTPUT" ;;
           esac
           echo "tier=$tier" >>"$GITHUB_OUTPUT"
@@ -150,11 +154,11 @@ jobs:
   # android/arm64 di QEMU tetap F9, ADR-073). ADR-090: ctxdb Windows termasuk TestFileLockSemantics,
   # S023, S044, TestPlatformNAList. windows/arm64 tanpa -race (Go tidak punya race detector di sana).
   # ADR-324: tier `pr` cukup ubuntu-latest + windows-latest (keduanya amd64, `-race`/cgo); tier `full`
-  # (merge_group, push main, nightly/workflow_dispatch) menjalankan keenam target. macOS dan target arm
-  # tetap memblokir merge lewat merge queue, bukan lewat setiap PR.
+  # (merge_group, nightly/workflow_dispatch) menjalankan keenam target; tier `smoke` (push main) tidak
+  # menjalankan `test` (suite inti ada di job `smoke`).
   test:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.test_matrix) }}
@@ -307,7 +311,7 @@ jobs:
   # transisi fase, bukan matrix OS.
   phase:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -386,7 +390,7 @@ jobs:
   # scope here; the rest of the e2e suite still runs in `test`/`test-timing`.
   e2e:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -409,7 +413,7 @@ jobs:
   # ADR-324: `bench-budget` (NEW2-07) tetap per-PR — cepat dan menjaga seluruh test modul bench.
   bench:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -456,7 +460,7 @@ jobs:
   # Satu job (ADR-179): semuanya membaca modul/ketergantungan yang sama. ADR-324: tetap per-PR.
   supply:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -496,12 +500,42 @@ jobs:
           retry make release-test
           retry make vuln
 
+  # ADR-181/ADR-324: tier `smoke` untuk `push: main`. Run main tidak bisa dibatalkan (ADR-135 butir 1)
+  # dan isinya sudah diverifikasi PR yang di-squash + merge queue/nightly, jadi main hanya menjalankan
+  # gate cepat yang menangkap kerusakan merge: kompilasi seluruh paket (`make build`, E-39), `go vet`
+  # lintas OS/arch (`make vet-cross`, ADR-073), dan suite paket inti cepat (`make test RACE=-race
+  # PKGS=…`, E-55) di luar paket ber-fixture berat (ctxdb, exec, codetools, e2e) yang tetap dijalankan
+  # nightly. `lint` dan `static` berjalan di semua tier; `meta-test` datang dari meta.yml. Bila merge
+  # queue diaktifkan, `push main` boleh dinaikkan ke tier `full` (ADR-324).
+  smoke:
+    needs: changes
+    if: needs.changes.outputs.tier == 'smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Kompilasi seluruh paket, CGO_ENABLED=0 -tags goolm (E-39)
+        run: make build
+      - name: go vet lintas OS/arch (ADR-073)
+        run: make vet-cross
+      - name: Suite paket inti cepat (E-55)
+        env:
+          CGO_ENABLED: "1" # ADR-181 amandemen: -race butuh cgo (pola sama dengan job `test` tier PR)
+        run: make test RACE="-race" PKGS="./cmd/... ./internal/archtest/... ./internal/assemble/... ./internal/boundary/... ./internal/budget/... ./internal/compaction/... ./internal/config/... ./internal/journal/... ./internal/loop/... ./internal/memory/... ./internal/modules/... ./internal/netx/... ./internal/provider/... ./internal/redact/... ./internal/sandbox/... ./internal/schema/... ./internal/skills/... ./internal/testutil/... ./internal/tools/..."
+
   # GAP-SEC-26 (ADR-133/ADR-187): builtin skills carry no dangling requires,
   # skill:// links or script paths. The suite is empty today; the rule fires
   # the moment a builtin skill is added.
   skill-refs:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -523,7 +557,7 @@ jobs:
   # engine test as the target-coverage proof until then.
   sqlite-engine:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     strategy:
       fail-fast: false
       matrix:
@@ -561,6 +595,7 @@ jobs:
   # berjalan (termasuk docs-only) dan lulus hanya bila gate yang WAJIB untuk konteks ini `success`
   # dan gate di luar konteks `skipped`. Sebelumnya `skipped` diterima untuk semua gate, sehingga gate
   # yang salah kondisi bisa lolos diam-diam; sekarang skip tanpa alasan tier/path menggagalkan agregat.
+  # Tiga himpunan: `pr`, `smoke` (push main), `full` (merge_group/nightly/workflow_dispatch).
   ci-required:
     if: always()
     needs:
@@ -581,44 +616,19 @@ jobs:
       - supply
       - skill-refs
       - sqlite-engine
+      - smoke
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
+          persist-credentials: false
+      - name: Uji logika himpunan gate per tier (ADR-324)
+        run: make ci-required-test
       - name: Rekap gate dan himpunan wajib per tier (E-78, ADR-324)
         env:
           NEEDS: ${{ toJSON(needs) }}
           TIER: ${{ needs.changes.outputs.tier }}
           CODE: ${{ needs.changes.outputs.code }}
-        run: |
-          printf '%s\n' "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          if [ "$TIER" != pr ] && [ "$TIER" != full ]; then
-            echo "::error::tier tidak dikenal (${TIER:-kosong}): job changes gagal atau tidak menghasilkan output"
-            exit 1
-          fi
-          if [ "$CODE" != true ] && [ "$CODE" != false ]; then
-            echo "::error::output code tidak dikenal (${CODE:-kosong})"
-            exit 1
-          fi
-          # ADR-324: gate murah per-PR (dan tetap di tier full); gate berat hanya tier full.
-          common="lint test static phase e2e bench supply skill-refs sqlite-engine"
-          deep="test-timing deadcode portability fuzz perf coverage bench-parity"
-          expected=""
-          if [ "$CODE" = true ]; then
-            expected="$common"
-            if [ "$TIER" = full ]; then expected="$expected $deep"; fi
-          fi
-          fail=0
-          for job in $(printf '%s\n' "$NEEDS" | jq -r 'keys[]' | grep -vx ci-required); do
-            result=$(printf '%s\n' "$NEEDS" | jq -r --arg j "$job" '.[$j].result')
-            if [ "$job" = changes ] || [[ " $expected " == *" $job "* ]]; then
-              want=success
-            else
-              want=skipped
-            fi
-            if [ "$result" != "$want" ]; then
-              echo "::error::gate $job=$result, diharapkan $want (tier=$TIER, code=$CODE)"
-              fail=1
-            fi
-          done
-          if [ "$fail" -ne 0 ]; then exit 1; fi
-          echo "E-78: seluruh gate wajib tier $TIER sukses; gate di luar tier dilewati sah"
+        run: make ci-required

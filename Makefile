@@ -36,7 +36,7 @@ CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORP
 .PHONY: all build build-minimal-all build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio chaos \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf perf-f4 ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
-	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker release
+	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker release ci-required ci-required-test
 
 all: check
 
@@ -249,6 +249,14 @@ pr-meta:
 # ADR-080 butir 2: semua item fase ≤ PHASE wajib covered (dijalankan saat file PHASE berubah).
 phase-acceptance:
 	DAMNBOT_PHASE_ACCEPTANCE=1 go test $(GOTAGS) -count=1 -timeout $(TEST_TIMEOUT) $(PKGS)
+
+# ADR-324 (E-78): agregat ci-required memeriksa himpunan gate per tier (pr/smoke/full); gate wajib
+# harus success, gate di luar tier harus skipped. Uji logikanya dijalankan di job yang sama.
+ci-required:
+	scripts/ci-required.sh
+
+ci-required-test:
+	scripts/ci-required.sh --self-test
 
 size-check:
 	TAGS="$(TAGSCSV)" scripts/size-check.sh
