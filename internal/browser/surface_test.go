@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/modules/host"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 func envFor(t *testing.T, id string) host.Env {
@@ -232,7 +233,7 @@ func TestF6PLUG012BrowserBackends(t *testing.T) {
 	if _, xerr := reg.New("", &Config{}, BackendEnv{Endpoint: "https://cloud.example", Key: "k"}, nil); !errors.Is(xerr, errBadConfig) {
 		t.Fatalf("empty backend = %v, want errBadConfig (no autodetect)", xerr)
 	}
-	if _, xerr := reg.New("browserbase", &Config{}, BackendEnv{Endpoint: "https://cloud.example"}, http.DefaultClient); !errors.Is(xerr, errUnavailable) {
+	if _, xerr := reg.New("browserbase", &Config{}, BackendEnv{Endpoint: "https://cloud.example"}, netx.LoopbackClient()); !errors.Is(xerr, errUnavailable) {
 		t.Fatalf("missing key = %v, want errUnavailable", xerr)
 	}
 
