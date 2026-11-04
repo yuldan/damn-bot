@@ -4,6 +4,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -84,7 +85,8 @@ func roadmapPhases(t *testing.T, text string) map[string][]string {
 func TestParityPhaseColumn(t *testing.T) {
 	t.Parallel()
 	allowed := roadmapPhases(t, readRepoFile(t, "docs/ROADMAP.md"))
-	r := scanParity(t, readRepoFile(t, "docs/FEATURE-PARITY.md"), allowed)
+	parityText := readRepoFile(t, "docs/FEATURE-PARITY.md")
+	r := scanParity(t, parityText, allowed)
 
 	if r.total != parityRows {
 		t.Errorf("baris ID = %d, want %d", r.total, parityRows)
@@ -107,6 +109,10 @@ func TestParityPhaseColumn(t *testing.T) {
 	want := map[string]int{"F1": 46, "F2": 59, "F3": 135, "F4": 54, "F5": 201, "F6": 86, "F7": 103, "F8": 148, "F9": 5}
 	if !maps.Equal(r.perPhase, want) {
 		t.Errorf("jumlah per fase %v, want %v (ubah lewat ADR + ROADMAP)", r.perPhase, want)
+	}
+	// ADR-323: baris F6 yang masih `planned` menahan penaikan PHASE ke F7.
+	if f6Closed(readRepoFile(t, "PHASE")) {
+		report("baris F6 masih `planned` setelah F6 ditutup (ADR-323)", parityPlannedF6(parityText))
 	}
 }
 
@@ -163,5 +169,147 @@ func (r *parityScan) row(pfx string, cells []string) {
 	r.perPhase[fase]++
 	if !slices.Contains(ok, fase) {
 		r.badPhase = append(r.badPhase, id+"="+fase)
+	}
+}
+
+// F6 phase gate (ADR-323): setelah PHASE melewati F6 tidak boleh ada baris
+// parity F6 berstatus `planned` dan tidak boleh ada baris ledger F6 `BELUM`.
+// Gate tidak aktif selama PHASE=F6 karena ledger memang hidup di fase itu.
+const (
+	f6Phase     = "F6"
+	f6LedgerDoc = "docs/F6-ACCEPTANCE.md"
+)
+
+func f6Closed(phase string) bool {
+	order := []string{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9"}
+	return slices.Index(order, strings.TrimSpace(phase)) > slices.Index(order, f6Phase)
+}
+
+// parityPlannedF6 mengembalikan ID baris fase F6 yang masih `planned`.
+func parityPlannedF6(text string) []string {
+	var out []string
+	faseIdx, statusIdx := -1, -1
+	for line := range strings.Lines(text) {
+		cells := tableCells(line)
+		if len(cells) == 0 {
+			faseIdx, statusIdx = -1, -1
+			continue
+		}
+		if cells[0] == "ID" {
+			faseIdx, statusIdx = slices.Index(cells, "fase"), slices.Index(cells, "status")
+			continue
+		}
+		m := parityIDRe.FindStringSubmatch(line)
+		if m == nil || faseIdx < 0 || statusIdx < 0 || faseIdx >= len(cells) || statusIdx >= len(cells) {
+			continue
+		}
+		if cells[faseIdx] == f6Phase && cells[statusIdx] == "planned" {
+			out = append(out, cells[0])
+		}
+	}
+	return out
+}
+
+// ledgerOpenRows mengembalikan ID yang masih `BELUM` dan baris N/A tanpa
+// alasan teknis. Status dibaca dari kolom `Status` pada header tabel, bukan
+// dari sel terakhir (tabel parity punya kolom Catatan setelahnya).
+func ledgerOpenRows(text string) (open, badNA []string) {
+	statusIdx := -1
+	seen := map[string]bool{}
+	note := func(dst *[]string, id string) {
+		if !seen[id] {
+			seen[id] = true
+			*dst = append(*dst, id)
+		}
+	}
+	for line := range strings.Lines(text) {
+		cells := tableCells(line)
+		if len(cells) == 0 {
+			statusIdx = -1
+			continue
+		}
+		if cells[0] == "ID" || cells[0] == "GAP" || strings.HasPrefix(cells[0], "Item") {
+			statusIdx = slices.Index(cells, "Status")
+			continue
+		}
+		if statusIdx < 0 || statusIdx >= len(cells) {
+			continue
+		}
+		id, st := cells[0], cells[statusIdx]
+		switch {
+		case st == "BELUM":
+			note(&open, id)
+		case strings.HasPrefix(st, "N/A"):
+			reason := strings.TrimSpace(strings.TrimPrefix(strings.Join(cells[statusIdx:], " "), "N/A"))
+			if len([]rune(reason)) < 8 {
+				note(&badNA, id)
+			}
+		}
+	}
+	return open, badNA
+}
+
+// f6LedgerViolations adalah gate murni agar bisa diuji dengan dokumen sintetis.
+func f6LedgerViolations(phase, parityText, ledgerText string) []string {
+	if !f6Closed(phase) {
+		return nil
+	}
+	var out []string
+	if ids := parityPlannedF6(parityText); len(ids) > 0 {
+		out = append(out, "FEATURE-PARITY: baris F6 masih planned ("+strconv.Itoa(len(ids))+"): "+strings.Join(ids, ", "))
+	}
+	open, badNA := ledgerOpenRows(ledgerText)
+	if len(open) > 0 {
+		out = append(out, "F6-ACCEPTANCE: baris masih BELUM ("+strconv.Itoa(len(open))+"): "+strings.Join(open, ", "))
+	}
+	if len(badNA) > 0 {
+		out = append(out, "F6-ACCEPTANCE: N/A tanpa alasan teknis ("+strconv.Itoa(len(badNA))+"): "+strings.Join(badNA, ", "))
+	}
+	return out
+}
+
+// TestF6LedgerClosed menolak penaikan PHASE ke F7 selama ledger F6 belum
+// ditutup. Selama PHASE=F6 gate ini tidak aktif (ledger hidup).
+func TestF6LedgerClosed(t *testing.T) {
+	t.Parallel()
+	phase := readRepoFile(t, "PHASE")
+	for _, v := range f6LedgerViolations(phase, readRepoFile(t, "docs/FEATURE-PARITY.md"), readRepoFile(t, f6LedgerDoc)) {
+		t.Error(v)
+	}
+}
+
+// TestF6LedgerGateRules adalah kontrol negatif gate: fase F6 tidak menuduh,
+// fase F7 menuduh baris planned/BELUM, dan LULUS/N/A-beralasan bersih.
+func TestF6LedgerGateRules(t *testing.T) {
+	t.Parallel()
+	const parityOpen = `| ID | Fitur | fase | status |
+|---|---|---|---|
+| TOOL-001 | x | F6 | planned |
+| TOOL-002 | x | F6 | LULUS |`
+	const ledgerOpen = `| ID | Fitur | Kriteria | Tes | Status | Catatan |
+|---|---|---|---|---|---|
+| TOOL-001 | x | x | x | BELUM | x |
+| TOOL-002 | x | x | x | LULUS | x |
+| TOOL-003 | x | x | x | N/A | x |`
+	const ledgerClosed = `| ID | Fitur | Kriteria | Tes | Status | Catatan |
+|---|---|---|---|---|---|
+| TOOL-001 | x | x | x | LULUS | x |
+| TOOL-002 | x | x | x | N/A — Q14 tidak tersedia | carryover F7 |`
+
+	if got := f6LedgerViolations("F6", parityOpen, ledgerOpen); len(got) != 0 {
+		t.Fatalf("gate aktif sebelum F6 ditutup: %v", got)
+	}
+	got := f6LedgerViolations("F7", parityOpen, ledgerOpen)
+	if len(got) != 3 {
+		t.Fatalf("pelanggaran = %d, want 3: %v", len(got), got)
+	}
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{"TOOL-001", "BELUM", "N/A tanpa alasan"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("laporan gate tidak memuat %q: %s", want, joined)
+		}
+	}
+	if got := f6LedgerViolations("F7", strings.Replace(parityOpen, "planned", "LULUS", 1), ledgerClosed); len(got) != 0 {
+		t.Fatalf("ledger tertutup masih ditolak: %v", got)
 	}
 }
