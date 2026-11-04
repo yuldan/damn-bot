@@ -20,13 +20,14 @@ var ErrSurfaceStopped = errors.New("voice: synthesis stopped")
 type SurfaceConfig struct {
 	Enabled bool
 
-	TTSBackend  string
-	TTSEndpoint string
-	TTSKey      string
-	TTSModel    string
-	TTSVoice    string
-	TTSCommand  []string
-	Doer        tts.Doer
+	TTSBackend         string
+	TTSEndpoint        string
+	TTSKey             string
+	TTSModel           string
+	TTSVoice           string
+	TTSCommand         []string
+	TTSAllowUnofficial bool
+	Doer               tts.Doer
 
 	WakeEngine   string
 	WakeBinary   string
@@ -76,7 +77,7 @@ func NewSurface(c *SurfaceConfig) *Surface {
 		s.tts, s.ttsErr = (&Config{
 			TTSBackend: c.TTSBackend, TTSEndpoint: c.TTSEndpoint, TTSKey: c.TTSKey,
 			TTSModel: c.TTSModel, TTSVoice: c.TTSVoice, TTSCommand: c.TTSCommand,
-			Doer: c.Doer,
+			TTSAllowUnofficial: c.TTSAllowUnofficial, Doer: c.Doer,
 		}).NewTTS()
 	}
 	switch c.WakeEngine {

@@ -106,7 +106,7 @@ func TestF6TOOL080TextToSpeech(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	base := &Factory{Key: "sk-tool080", Command: []string{fixture, "{out}", "{text}", payload, "ID3fake-mp3"}, Doer: server.Client(), Voice: "alloy", Endpoint: server.url}
+	base := &Factory{Key: "sk-tool080", Command: []string{fixture, "{out}", "{text}", payload, "ID3fake-mp3"}, Doer: server.Client(), Voice: "alloy", Endpoint: server.url, AllowUnofficial: true}
 	for _, id := range ids {
 		checkTTSProvider(t, id, base, payload, cwd)
 	}
@@ -248,5 +248,45 @@ func TestF6MEDIA009TTSCommandArgv(t *testing.T) {
 	}
 	if _, berr := bad.Synthesize(t.Context(), "x", Options{}); !errors.Is(berr, ErrBadAudio) {
 		t.Fatalf("non-audio err = %v", berr)
+	}
+}
+
+// TestF6MEDIA007TTSProviders: all 11 catalogued providers construct and
+// synthesize through their explicit wire, and the unofficial edge endpoint
+// requires an explicit opt-in.
+func TestF6MEDIA007TTSProviders(t *testing.T) {
+	t.Parallel()
+	want := "edge,elevenlabs,openai,minimax,xai,mistral,gemini,neutts,kittentts,piper,deepinfra"
+	if got := strings.Join(Catalog(), ","); got != want {
+		t.Fatalf("catalog = %s", got)
+	}
+	fixture := buildTTSFixture(t)
+	rec := newSpeechRecorder(t, http.StatusOK, "RIFF0000WAVE")
+	for _, spec := range providers() {
+		t.Run(spec.ID, func(t *testing.T) {
+			f := &Factory{AllowUnofficial: true}
+			switch spec.Wire {
+			case WireCommand:
+				f.Command = []string{fixture, "{out}", "{text}", "halo", "RIFF0000WAVE"}
+			case WireOpenAI:
+				f.Endpoint, f.Doer = rec.url, rec.Client()
+			default:
+				t.Fatalf("%s has no wire", spec.ID)
+			}
+			p, err := f.New(spec.ID)
+			if err != nil {
+				t.Fatalf("New(%s): %v", spec.ID, err)
+			}
+			audio, err := p.Synthesize(t.Context(), "halo", Options{})
+			if err != nil {
+				t.Fatalf("Synthesize(%s): %v", spec.ID, err)
+			}
+			if audio.Backend != spec.ID || audio.MIME != "audio/wav" {
+				t.Fatalf("audio = %+v, want backend %s", audio, spec.ID)
+			}
+		})
+	}
+	if _, err := (&Factory{Command: []string{fixture, "{out}", "{text}", "halo", "RIFF0000WAVE"}}).New("edge"); !errors.Is(err, ErrNotConfigured) {
+		t.Fatalf("unofficial edge without opt-in err = %v", err)
 	}
 }

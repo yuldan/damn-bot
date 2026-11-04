@@ -29,10 +29,11 @@ const (
 
 // Spec is one provider's explicit defaults.
 type Spec struct {
-	ID    string
-	Wire  Wire
-	Model string
-	Voice string
+	ID         string
+	Wire       Wire
+	Model      string
+	Voice      string
+	Unofficial bool // edge-tts speaks to an endpoint Microsoft does not publish
 }
 
 // providers is the closed TTS catalog (MEDIA-007 / TOOL-080). The OpenAI
@@ -40,7 +41,7 @@ type Spec struct {
 // invoked through an explicit [modules.voice] tts_command argv.
 func providers() []Spec {
 	return []Spec{
-		{ID: "edge", Wire: WireCommand},
+		{ID: "edge", Wire: WireCommand, Unofficial: true},
 		{ID: "elevenlabs", Wire: WireCommand},
 		{ID: "openai", Wire: WireOpenAI, Model: "tts-1", Voice: "alloy"},
 		{ID: "minimax", Wire: WireCommand},
@@ -81,15 +82,19 @@ type Factory struct {
 	Doer                                Doer
 	MaxBytes                            int64
 	Timeout                             time.Duration
+	AllowUnofficial                     bool
 }
 
 // New returns the provider named by id. A provider whose wire needs an
-// endpoint or a command that is not configured fails closed with
+// endpoint, an argv or an unofficial-service acknowledgement fails closed with
 // [ErrNotConfigured]; there is no silent fallback to another provider.
 func (f *Factory) New(id string) (Provider, error) {
 	spec, ok := SpecOf(id)
 	if !ok {
 		return nil, fmt.Errorf("voice/tts: unknown provider %q", id)
+	}
+	if spec.Unofficial && (f == nil || !f.AllowUnofficial) {
+		return nil, fmt.Errorf("%w: %s uses an unofficial endpoint; set tts_allow_unofficial", ErrNotConfigured, id)
 	}
 	switch spec.Wire {
 	case WireOpenAI:
