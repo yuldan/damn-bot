@@ -171,8 +171,11 @@ func (s moduleStore) Get(ctx context.Context, key []byte) ([]byte, bool, error) 
 		found = true
 		return nil
 	})
-	if err != nil || !found {
+	if err != nil {
 		return nil, false, fmt.Errorf("mcp: read module state: %w", err)
+	}
+	if !found {
+		return nil, false, nil
 	}
 	return []byte(value), true, nil
 }

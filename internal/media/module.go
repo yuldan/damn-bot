@@ -168,6 +168,10 @@ func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, 
 		return m.video(ctx, args, env)
 	case ToolVisionAnalyze:
 		return m.analyze(ctx, tool, args, env)
+	case ToolXAIVideoEdit:
+		return m.xaiVideo(ctx, args, env, false)
+	case ToolXAIVideoExtend:
+		return m.xaiVideo(ctx, args, env, true)
 	}
 	return host.Result{}, &host.Error{Code: "unknown_tool", Message: "unknown media tool: " + tool}
 }
@@ -278,6 +282,72 @@ func (m *Module) video(ctx context.Context, args json.RawMessage, env host.Env) 
 		Meta:            map[string]any{"backend": res.Backend, "model": res.Model, "url": res.URL, "mime": res.MIME},
 		UntrustedSource: "media:video/" + res.Backend,
 	}, nil
+}
+
+func (m *Module) xaiVideo(ctx context.Context, args json.RawMessage, env host.Env, extend bool) (host.Result, error) {
+	var a struct {
+		Prompt    string `json:"prompt"`
+		VideoURL  string `json:"video_url"`
+		DurationS int    `json:"duration_s"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		return host.Result{}, &host.Error{Code: "invalid_args", Message: err.Error()}
+	}
+	tool := ToolXAIVideoEdit
+	if extend {
+		tool = ToolXAIVideoExtend
+		if a.DurationS == 0 {
+			a.DurationS = 6
+		}
+		if err := gen.ValidateExtendDuration(a.DurationS); err != nil {
+			return host.Result{}, genError(err)
+		}
+	}
+	if a.Prompt == "" || a.VideoURL == "" {
+		return host.Result{}, &host.Error{Code: "invalid_args", Message: tool + " needs prompt and video_url"}
+	}
+	if err := gen.ValidateVideoSource(a.VideoURL); err != nil {
+		return host.Result{}, genError(err)
+	}
+	model, backend, err := m.xaiEditor(tool)
+	if err != nil {
+		return host.Result{}, err
+	}
+	res, err := m.service.EditVideo(ctx, backend, &gen.VideoRequest{
+		SessionID: env.Session.SessionID(), CallID: env.CallID,
+		Model: model, Prompt: a.Prompt, DurationS: a.DurationS, SourceURL: a.VideoURL,
+	}, extend)
+	if err != nil {
+		return host.Result{}, genError(err)
+	}
+	verb := "edited"
+	if extend {
+		verb = "extended"
+	}
+	return host.Result{
+		Content:         fmt.Sprintf("%s %s %s video", verb, res.Backend, res.Model),
+		Meta:            map[string]any{"backend": res.Backend, "model": res.Model, "url": res.URL, "mime": res.MIME},
+		UntrustedSource: "media:video/" + res.Backend,
+	}, nil
+}
+
+func (m *Module) xaiEditor(tool string) (string, gen.VideoEditGen, error) {
+	if m.cfg.VideoBackend != "xai" {
+		return "", nil, unavailable(tool)
+	}
+	model, ok := gen.VideoModel(m.cfg.VideoBackend)
+	if !ok {
+		return "", nil, unavailable(tool)
+	}
+	key, err := m.secret(m.cfg.VideoKeyEnv)
+	if err != nil {
+		return "", nil, unavailable(tool)
+	}
+	backend, err := gen.NewXAIVideoEditor(m.doer(m.cfg.VideoCreate), m.cfg.VideoCreate, m.cfg.VideoStatus, key)
+	if err != nil {
+		return "", nil, genError(err)
+	}
+	return model, backend, nil
 }
 
 func (m *Module) imageBackend() (string, gen.ImageGen, error) {

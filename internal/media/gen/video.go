@@ -2,6 +2,7 @@ package gen
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,16 @@ import (
 const (
 	videoPollEvery = 100 * time.Millisecond
 	videoPollMax   = 60
+
+	// defaultEditSeconds is the conservative price preview for one edit,
+	// whose output length is fixed by the source clip.
+	defaultEditSeconds = 5
+	// minExtendSeconds and maxExtendSeconds bound xAI's extension duration.
+	minExtendSeconds = 2
+	maxExtendSeconds = 10
+	// maxVideoSourceBytes bounds an inline data URI source.
+	maxVideoSourceBytes = 8 << 20
+	maxVideoSourceURL   = 4096
 )
 
 type httpVideo struct {
@@ -22,6 +33,8 @@ type httpVideo struct {
 	doer        Doer
 	createURL   string
 	statusURL   string
+	editURL     string
+	extendURL   string
 	auth        string
 	create      func(*VideoRequest) any
 	poll        time.Duration
@@ -36,7 +49,46 @@ func (v *httpVideo) Generate(ctx context.Context, req *VideoRequest) (VideoResul
 	if req.DurationS <= 0 {
 		return VideoResult{}, fmt.Errorf("%w: video duration", ErrInvalidRequest)
 	}
-	data, err := postJSON(ctx, v.doer, v.createURL, v.auth, req.IdempotencyKey, v.create(req))
+	return v.submit(ctx, req, v.createURL, v.create)
+}
+
+// Edit applies one prompt to the source video; xAI keeps the input length.
+func (v *httpVideo) Edit(ctx context.Context, req *VideoRequest) (VideoResult, error) {
+	if err := ValidateVideoSource(req.SourceURL); err != nil {
+		return VideoResult{}, err
+	}
+	if v.editURL == "" {
+		return VideoResult{}, fmt.Errorf("%w: video edit endpoint", ErrCapability)
+	}
+	return v.submit(ctx, req, v.editURL, func(req *VideoRequest) any {
+		return map[string]any{
+			"model": req.Model, "prompt": req.Prompt,
+			"video": map[string]string{"url": req.SourceURL},
+		}
+	})
+}
+
+// Extend appends 2..10 seconds to the source video.
+func (v *httpVideo) Extend(ctx context.Context, req *VideoRequest) (VideoResult, error) {
+	if err := ValidateVideoSource(req.SourceURL); err != nil {
+		return VideoResult{}, err
+	}
+	if err := ValidateExtendDuration(req.DurationS); err != nil {
+		return VideoResult{}, err
+	}
+	if v.extendURL == "" {
+		return VideoResult{}, fmt.Errorf("%w: video extension endpoint", ErrCapability)
+	}
+	return v.submit(ctx, req, v.extendURL, func(req *VideoRequest) any {
+		return map[string]any{
+			"model": req.Model, "prompt": req.Prompt,
+			"video": map[string]string{"url": req.SourceURL}, "duration": req.DurationS,
+		}
+	})
+}
+
+func (v *httpVideo) submit(ctx context.Context, req *VideoRequest, endpoint string, create func(*VideoRequest) any) (VideoResult, error) {
+	data, err := postJSON(ctx, v.doer, endpoint, v.auth, req.IdempotencyKey, create(req))
 	if err != nil {
 		return VideoResult{}, err
 	}
@@ -73,6 +125,42 @@ func (v *httpVideo) Generate(ctx context.Context, req *VideoRequest) (VideoResul
 		}
 	}
 	return VideoResult{}, fmt.Errorf("%w: video poll exhausted", ErrUncertain)
+}
+
+// ValidateExtendDuration bounds the seconds added by one extension.
+func ValidateExtendDuration(seconds int) error {
+	if seconds < minExtendSeconds || seconds > maxExtendSeconds {
+		return fmt.Errorf("%w: extension duration %d s", ErrInvalidRequest, seconds)
+	}
+	return nil
+}
+
+// ValidateVideoSource accepts xAI's public HTTPS .mp4 URL or an inline
+// video/mp4 data URI, and rejects anything else before any egress.
+func ValidateVideoSource(raw string) error {
+	if raw == "" {
+		return fmt.Errorf("%w: video edit needs a source video", ErrInvalidRequest)
+	}
+	if strings.HasPrefix(raw, "data:") {
+		const prefix = "data:video/mp4;base64,"
+		if !strings.HasPrefix(raw, prefix) {
+			return fmt.Errorf("%w: video source data URI", ErrInvalidRequest)
+		}
+		raw, err := base64.StdEncoding.DecodeString(raw[len(prefix):])
+		if err != nil || len(raw) > maxVideoSourceBytes {
+			return fmt.Errorf("%w: video source size", ErrInvalidRequest)
+		}
+		return nil
+	}
+	if len(raw) > maxVideoSourceURL {
+		return fmt.Errorf("%w: video source URL too long", ErrInvalidRequest)
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil ||
+		!strings.HasSuffix(strings.ToLower(u.Path), ".mp4") {
+		return fmt.Errorf("%w: video source must be an https .mp4 URL", ErrInvalidRequest)
+	}
+	return nil
 }
 
 func getJSON(ctx context.Context, doer Doer, endpoint, authorization string) ([]byte, error) {
@@ -135,7 +223,7 @@ func videoStatus(data []byte) (VideoResult, bool, error) {
 		state = strings.ToLower(out.State)
 	}
 	switch state {
-	case "failed", "error", "cancelled":
+	case "failed", "error", "cancelled", "expired":
 		return VideoResult{}, false, fmt.Errorf("%w: video job %s", ErrInvalidRequest, state)
 	case "completed", "succeeded", "done", "ready":
 	default:
@@ -219,4 +307,41 @@ func NewDeepInfraVideo(doer Doer, createURL, statusURL, key string) (VideoGen, e
 		func(req *VideoRequest) any {
 			return map[string]any{"model": req.Model, "prompt": req.Prompt, "duration": req.DurationS}
 		})
+}
+
+// NewXAIVideoEditor is xAI's edit/extend backend. The operation URLs derive
+// from the generation URL, so a custom endpoint is honoured without a new
+// config key. The key is only ever placed in the Authorization header.
+func NewXAIVideoEditor(doer Doer, createURL, statusURL, key string) (VideoEditGen, error) {
+	if createURL == "" {
+		createURL, statusURL = "https://api.x.ai/v1/videos/generations", "https://api.x.ai/v1/videos/%s"
+	}
+	if key == "" || doer == nil {
+		return nil, fmt.Errorf("%w: xai video edit needs a key and egress client", ErrModuleUnavailable)
+	}
+	if !strings.Contains(statusURL, "%s") {
+		return nil, fmt.Errorf("%w: xai video status URL needs a %%s id", ErrCapability)
+	}
+	editURL, err := xaiVideoOpURL(createURL, "edits")
+	if err != nil {
+		return nil, err
+	}
+	extendURL, err := xaiVideoOpURL(createURL, "extensions")
+	if err != nil {
+		return nil, err
+	}
+	return &httpVideo{
+		name: "xai", model: "grok-imagine-video", doer: doer,
+		createURL: createURL, statusURL: statusURL, editURL: editURL, extendURL: extendURL,
+		auth: "Bearer " + key, price: Price{PerSecond: 300_000},
+		poll: videoPollEvery, maxPolls: videoPollMax,
+	}, nil
+}
+
+func xaiVideoOpURL(createURL, op string) (string, error) {
+	const suffix = "/generations"
+	if !strings.HasSuffix(createURL, suffix) {
+		return "", fmt.Errorf("%w: xai video %s needs a create URL ending in /generations", ErrCapability, op)
+	}
+	return strings.TrimSuffix(createURL, suffix) + "/" + op, nil
 }

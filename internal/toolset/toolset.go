@@ -109,6 +109,8 @@ func Builtin() []Definition {
 		{Name: "context_engine", Description: "Runtime tools exposed by the active context engine"}, // data-only slot
 		{Name: "debugging", Description: "Debugging toolkit", Tools: []string{"shell"}, Includes: []string{"web", "file"}},
 		{Name: "safe", Description: "Safe toolkit without terminal access", Tools: []string{"vision_analyze", "image_generate"}, Includes: []string{"web"}},
+		{Name: "image_gen", Description: "Image generation with the configured backend", Tools: []string{"image_generate"}},
+		{Name: "video_gen", Description: "Video generation, edit and extend (default off)", Tools: []string{"video_generate", "xai_video_edit", "xai_video_extend"}},
 		{Name: "coding", Description: "Coding toolkit: files, shell, web, skills, todo, memory, session_search, clarify", Tools: coding},
 		{Name: "hermes-acp", Description: "Coding toolkit for editor integration", Tools: acp},
 		{Name: "cronjob", Description: "Scheduled job management", Tools: []string{"cronjob_manage"}},
