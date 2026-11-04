@@ -89,6 +89,9 @@ self_test() {
 	deep=$(printf '%s' "$pr_common" | jq -c '. + {"test-timing":"success","deadcode":"success","portability":"success","fuzz":"success","perf":"success","coverage":"success","bench-parity":"success"}')
 
 	run_case "pr hijau" pr true 0 "$(fixture "$pr_common")"
+	# ADR-324 amandemen: matrix sqlite-engine mengecil di PR (3 leg) tetapi job/gate tetap wajib.
+	run_case "sqlite-engine pr-tier success" pr true 0 "$(fixture "$pr_common")"
+	run_case "sqlite-engine pr-tier skipped" pr true 1 "$(fixture "$(printf '%s' "$pr_common" | jq -c 'del(."sqlite-engine")')")"
 	run_case "pr gate berat ikut jalan (harus skipped)" pr true 1 "$(fixture "$deep")"
 	run_case "pr test skipped" pr true 1 "$(fixture "$(printf '%s' "$pr_common" | jq -c 'del(.test)')")"
 	run_case "pr fuzz failure" pr true 1 "$(fixture "$(printf '%s' "$pr_common" | jq -c '. + {"fuzz":"failure"}')")"
