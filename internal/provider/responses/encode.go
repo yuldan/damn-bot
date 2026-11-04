@@ -1,7 +1,5 @@
-// Package responses is the OpenAI Responses wire adapter (F5-04). It only
-// translates a request and a 2xx event stream; retry, circuit, budget,
-// fallback, and carrier projection/capture stay in provider.OpenAI over the
-// injected netx client (E-05).
+//go:build !minimal
+
 package responses
 
 import (
