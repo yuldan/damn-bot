@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
@@ -27,12 +28,46 @@ type runModuleHost struct {
 	*cliHost
 	db  *ctxdb.Store
 	sid string
+
+	mu          sync.Mutex
+	llm         host.Completer
+	vision      bool
+	visionModel string
+}
+
+// SetMedia publishes the ledger-backed vision completer and its route facts
+// after the run provider exists. The media module asks for it through
+// LLM("media") and Capabilities at its first call, so late wiring is safe.
+func (h *runModuleHost) SetMedia(c host.Completer, vision bool, model string) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.llm, h.vision, h.visionModel = c, vision, model
+	h.mu.Unlock()
+}
+
+// LLM exposes only the media purpose; other purposes keep the CLI's nil.
+func (h *runModuleHost) LLM(purpose string) host.Completer {
+	if h == nil || purpose != "media" {
+		return nil
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.llm
+}
+
+// VisionRoute reports the resolved vision route of this run.
+func (h *runModuleHost) VisionRoute() (string, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.visionModel, h.vision
 }
 
 // newRunModuleHost builds the host for one session. A nil store has no host:
 // modules refuse to start rather than receive a half-wired capability seam
 // (errNoModuleHost).
-func newRunModuleHost(db *ctxdb.Store, sid string) host.Host {
+func newRunModuleHost(db *ctxdb.Store, sid string) *runModuleHost {
 	if db == nil || sid == "" {
 		return nil
 	}

@@ -34,6 +34,9 @@ type runModules struct {
 	deferred *tools.Deferred
 	runtime  *modules.Runtime
 	meta     []tools.Tool
+	// setMedia publishes the run's vision completer after the provider is
+	// built; nil when this build or run has no module host.
+	setMedia func(host.Completer, bool, string)
 }
 
 // moduleDeps is the composition-root input of newRunModules. Enabled and

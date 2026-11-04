@@ -16,13 +16,15 @@ import (
 // carries the ledger store, the transcript event sink and the capability seam.
 func wireModules(list []tools.Tool, cfg *config.Config, db *ctxdb.Store, sid string) (runModules, *tools.Registry, error) {
 	enabled, moduleConfig := moduleGate(cfg)
+	mh := newRunModuleHost(db, sid)
 	mods, err := newRunModules(moduleDeps{
-		Registry: modules.Default(), Host: newRunModuleHost(db, sid),
+		Registry: modules.Default(), Host: mh,
 		Enabled: enabled, Config: moduleConfig,
 	})
 	if err != nil {
 		return runModules{}, nil, err
 	}
+	mods.setMedia = mh.SetMedia
 	reg, err := tools.NewRegistry(append(list, mods.meta...)...)
 	if err != nil {
 		return runModules{}, nil, fmt.Errorf("registry: %w", err)

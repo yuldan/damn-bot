@@ -34,7 +34,15 @@ type providerAdapter struct {
 	notes    *budgetNotes
 	provider string
 	origin   string
+	// visionModel is the first vision-capable route of the run's chain; the
+	// media module sends image/video analysis there. vision is false when the
+	// chain has no such route (EC-PROV-024).
+	vision      bool
+	visionModel string
 }
+
+// mediaRoute reports the vision route facts to the composition root's host.
+func (p *providerAdapter) mediaRoute() (string, bool) { return p.visionModel, p.vision }
 
 // newRunProviderWithTable is newRunProvider with an explicit price table.
 func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef string, o *runOptions, table registry.PriceTable) (loop.Provider, error) {
@@ -74,6 +82,12 @@ func newRunProviderWithTable(cfg *config.Config, db *ctxdb.Store, modelRef strin
 		return nil, fmt.Errorf("provider: %w", err)
 	}
 	adapter := &providerAdapter{client: openai, model: modelRef, lightRef: lightRef, notes: notes, provider: provName, origin: o.sessionOrigin}
+	for i := range routes {
+		if routes[i].Vision {
+			adapter.vision, adapter.visionModel = true, routes[i].Ref()
+			break
+		}
+	}
 	pools, err := providerPoolsAt(cfg, poolManifestAt(o.dataDir), config.OS().Getenv, keychainValue)
 	if err != nil {
 		return nil, err

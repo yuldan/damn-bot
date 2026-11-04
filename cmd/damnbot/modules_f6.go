@@ -77,7 +77,11 @@ func registerModules() error {
 			ConfigKey: "modules.media",
 			Factory: func(h host.Host, cfg host.Config) (modules.Module, error) {
 				caps := host.CapabilitiesOf(h)
-				return media.NewFromConfig(h, cfg.Raw, media.Deps{Approvals: caps.Approvals, Secrets: caps.Secrets})
+				model, vision := host.VisionOf(h)
+				return media.NewFromConfig(h, cfg.Raw, media.Deps{
+					Approvals: caps.Approvals, Secrets: caps.Secrets,
+					LLM: h.LLM("media"), Vision: vision, VisionModel: model,
+				})
 			},
 		},
 		{

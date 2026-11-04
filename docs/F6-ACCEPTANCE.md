@@ -67,7 +67,7 @@ Aturan gate:
 | TOOL-082 | `video_generate` | selalu approval + preview harga; cap dicek sebelum dispatch; kunci idempotensi; kegagalan tak pasti = `uncertain` tanpa retry | `TestF6TOOL082VideoGenerate` | BELUM | F6-03d, F6-03g |
 | TOOL-083 | `xai_video_edit` | hanya backend xAI; approval + harga; hasil blob | `TestF6TOOL083XAIVideoEdit` | BELUM | F6-03d |
 | TOOL-084 | `xai_video_extend` | perpanjang video xAI; approval + harga; batas durasi | `TestF6TOOL084XAIVideoExtend` | BELUM | F6-03d |
-| TOOL-085 | `vision_analyze` | gate `capabilities.vision`; preflight resize; usage `purpose=media`; model teks-only → penolakan sebelum panggilan | `TestF6TOOL085VisionAnalyze` | BELUM | F6-03b |
+| TOOL-085 | `vision_analyze` | gate `capabilities.vision`; preflight resize; usage `purpose=media`; model teks-only → penolakan sebelum panggilan | `TestF6TOOL085VisionAnalyze` | LULUS | F6-03b |
 | TOOL-086 | `web_extract` | 11 backend; markdown; `backend` + `cached` di hasil; `<untrusted>`; blocklist/SSRF | `TestF6TOOL086WebExtract` | BELUM | F6-01d, F6-01e |
 | TOOL-087 | `web_search` | ≤10 hasil; snippet ≤300 char; `backend` di hasil; `<untrusted>`; single-flight | `TestF6TOOL087WebSearch` | BELUM | F6-01b, F6-01c, F6-01e |
 
@@ -82,7 +82,7 @@ Aturan gate:
 | TSET-019 | toolset `image_gen` | 1 tool, inventaris=false, backend tersedia | `TestF6TSET019ImageGen` | BELUM | F6-03c |
 | TSET-026 | toolset `tts` | 1 tool, inventaris=true, provider default eksplisit | `TestF6TSET026TTS` | BELUM | F6-05c |
 | TSET-027 | toolset `video_gen` | 3 tool, default off | `TestF6TSET027VideoGen` | BELUM | F6-03d |
-| TSET-028 | toolset `vision` | 1 tool, inventaris=false | `TestF6TSET028Vision` | BELUM | F6-03b |
+| TSET-028 | toolset `vision` | 1 tool, inventaris=false | `TestF6TSET028Vision` | LULUS | F6-03b |
 | TSET-029 | toolset `video` | 1 tool, default off | `TestF6TSET029Video` | BELUM | F6-03e |
 | TSET-030 | toolset `web` | 2 tool, inventaris=true | `TestF6TSET030Web` | BELUM | F6-01d |
 | TSET-034 | toolset komposit `search` | bundle menyertakan `web`; 0 tool tak dikenal/duplikat | `TestF6TSET034SearchBundle` | BELUM | F6-00a |
@@ -111,8 +111,8 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | MEDIA-009 | TTS command provider | argv tanpa shell; timeout; output audio divalidasi MIME | `TestF6MEDIA009TTSCommand` | BELUM | F6-05c |
 | MEDIA-010 | STT 8 provider | 8 provider terdaftar; transkripsi pesan suara; backend eksplisit | `TestF6MEDIA010STTProviders` | BELUM | F6-05a |
 | MEDIA-011 | STT whisper.cpp + chunking | whisper.cpp via executable; audio 80 MB/60 menit terchunk tanpa ffmpeg; M4A tanpa ffmpeg → `module_unavailable` | `TestF6MEDIA011WhisperCPPChunking` | BELUM | F6-05b |
-| MEDIA-012 | Vision (`vision_analyze`) | gambar dianalisis model vision; gambar dari user dilampirkan bila `capabilities.vision`; else tool | `TestF6MEDIA012Vision` | BELUM | F6-03b |
-| MEDIA-013 | Image routing native | multi-gambar dihormati sampai limit route; 0 penolakan ukuran | `TestF6MEDIA013ImageRouting` | BELUM | F6-03a, F6-03b |
+| MEDIA-012 | Vision (`vision_analyze`) | gambar dianalisis model vision; gambar dari user dilampirkan bila `capabilities.vision`; else tool | `TestF6MEDIA012VisionAnalyze` | LULUS | F6-03b |
+| MEDIA-013 | Image routing native | multi-gambar dihormati sampai limit route; 0 penolakan ukuran | `TestF6MEDIA013ImageRouting` | LULUS | F6-03a, F6-03b |
 | MEDIA-014 | Video analyze | video dianalisis model multimodal; batas ukuran/durasi jelas | `TestF6MEDIA014VideoAnalyze` | BELUM | F6-03e |
 | MEDIA-015 | Image generation | `image_generate` memakai registry 8 backend; hasil blob + path | `TestF6MEDIA015ImageGeneration` | BELUM | F6-03c |
 | MEDIA-016 | Image backend FAL | fixture FAL; 1 attempt (tanpa retry SDK); harga dicatat | `TestF6MEDIA016ImageFAL` | BELUM | F6-03c |

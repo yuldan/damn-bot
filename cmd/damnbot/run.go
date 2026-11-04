@@ -412,6 +412,7 @@ func startRunModel(ctx context.Context, cfg *config.Config, dataDir, modelRef st
 	if err != nil {
 		return nil, w.fail(err)
 	}
+	wireRunMedia(w.modules.setMedia, prov)
 	return &runModel{
 		provider:  prov,
 		registry:  w.registry,

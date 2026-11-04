@@ -16,6 +16,7 @@ const (
 	ToolDocWrite      = "doc_write"
 	ToolImageGenerate = "image_generate"
 	ToolVideoGenerate = "video_generate"
+	ToolVisionAnalyze = "vision_analyze"
 )
 
 // ToolSpec is the module-facing metadata of one deferred tool. The
@@ -52,6 +53,13 @@ func Tools() []ToolSpec {
 			Tags:        []string{"video", "generate", "clip", "movie"},
 			Effect:      "non_idempotent",
 			Schema:      json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000},"duration_s":{"type":"integer","minimum":1,"maximum":60}},"required":["prompt"],"additionalProperties":false}`),
+		},
+		{
+			Name:        ToolVisionAnalyze,
+			Description: "Analyze one image from the workspace or an http(s) URL with the configured vision model.",
+			Tags:        []string{"image", "vision", "picture", "describe", "analyze", "ocr"},
+			Effect:      "read",
+			Schema:      json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":512},"url":{"type":"string","minLength":8,"maxLength":2048},"prompt":{"type":"string","maxLength":2000}},"additionalProperties":false}`),
 		},
 		{
 			Name:        ToolDocWrite,
