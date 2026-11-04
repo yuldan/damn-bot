@@ -38,7 +38,7 @@ func validateBackground(a *shellArgs) error {
 	if !exec.BackgroundSupported {
 		return &ToolError{
 			Code:    CodeModuleUnavailable,
-			Message: "background shell needs a Job Object, unsupported on Windows in this slice",
+			Message: "background processes are not available on this platform",
 			Hint:    "run in the foreground with timeout_s",
 			Err:     exec.ErrCapability,
 		}

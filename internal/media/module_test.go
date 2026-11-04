@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/media/gen"
 	"github.com/damnbot/damnbot/internal/modules/host"
 )
 
@@ -339,5 +340,29 @@ func TestModuleVideoUnavailableWithoutKey(t *testing.T) {
 	var he *host.Error
 	if !errors.As(err, &he) || he.Code != "module_unavailable" {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// TestMediaBudgetErrorPayload pins how the typed tool-budget denial becomes
+// a tool-result payload: the closed code stays budget_exhausted, and the
+// message carries `budget_tools`, the period, the numbers, and the command
+// that raises the cap so the model never has to guess.
+func TestMediaBudgetErrorPayload(t *testing.T) {
+	t.Parallel()
+	he := genError(&gen.BudgetError{
+		Period: "daily", ProjectedMicros: 1_040_000,
+		LimitMicros: 1_000_000, Raise: "damnbot usage budget set tools_daily_usd 15",
+	})
+	var hostErr *host.Error
+	if !errors.As(he, &hostErr) || hostErr.Code != "budget_exhausted" {
+		t.Fatalf("payload = %v", he)
+	}
+	for _, want := range []string{"budget_tools", "tools_daily", "1040000", "1000000", "damnbot usage budget set tools_daily_usd 15"} {
+		if !strings.Contains(hostErr.Message, want) {
+			t.Errorf("message %q lacks %q", hostErr.Message, want)
+		}
+	}
+	if !strings.Contains(hostErr.Hint, "tools_session_usd") || !strings.Contains(hostErr.Hint, "tools_daily_usd") {
+		t.Fatalf("hint = %q", hostErr.Hint)
 	}
 }

@@ -5,17 +5,17 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/damnbot/damnbot/internal/exec"
 )
 
-// TestShellBackgroundWindowsCapability pins the explicit Windows refusal:
-// the schema still advertises background, Inspect rejects it as a missing
-// capability before approval, and a direct Run maps the registry's
-// ErrCapability to module_unavailable instead of exec_failed.
+// TestShellBackgroundWindowsCapability pins the F5 Windows surface: the
+// schema advertises background, Inspect accepts it (the Job Object makes the
+// capability real), and Run returns a registry process id served by the
+// process_* tools.
 func TestShellBackgroundWindowsCapability(t *testing.T) {
 	t.Parallel()
 	w := newWorkspace(t)
@@ -25,14 +25,29 @@ func TestShellBackgroundWindowsCapability(t *testing.T) {
 		t.Fatalf("schema lost background: %s", sh.Schema())
 	}
 	args := json.RawMessage(`{"command":"echo hi","background":true}`)
-	_, err := sh.(Inspector).Inspect(context.Background(), Env{Session: testView(t, "S")}, args, PolicyContext{Mode: ModeAsk})
-	var te *ToolError
-	if !errors.As(err, &te) || te.Code != CodeModuleUnavailable || !errors.Is(err, exec.ErrCapability) {
-		t.Fatalf("Inspect = %v, want module_unavailable wrapping ErrCapability", err)
+	if _, err := sh.(Inspector).Inspect(context.Background(), Env{Session: testView(t, "S")}, args, PolicyContext{Mode: ModeAsk}); err != nil {
+		t.Fatalf("Inspect = %v, want background accepted on Windows", err)
 	}
 	res, err := sh.Run(context.Background(), Env{Session: testView(t, "S")}, args)
-	var runErr *ToolError
-	if !errors.As(err, &runErr) || runErr.Code != CodeModuleUnavailable || !errors.Is(err, exec.ErrCapability) {
-		t.Fatalf("Run = %+v err=%v, want module_unavailable wrapping ErrCapability", res, err)
+	if err != nil || !res.OK {
+		t.Fatalf("Run = %+v err=%v", res, err)
+	}
+	id, _ := res.Meta["process_id"].(string)
+	if id == "" {
+		t.Fatalf("meta = %+v", res.Meta)
+	}
+	bg, ok := sh.(*shellTool).cfg.Background.(*exec.Background)
+	if !ok {
+		t.Fatal("registry is not exec.Background")
+	}
+	for range 100 {
+		pr, perr := bg.Poll("S", id, 0, 0, "")
+		if perr == nil && strings.Contains(string(pr.Output), "hi") {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, err := bg.Kill(context.Background(), "S", id, "KILL"); err != nil {
+		t.Fatalf("kill: %v", err)
 	}
 }

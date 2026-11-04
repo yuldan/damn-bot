@@ -453,9 +453,40 @@ func (g *Guard) Check(ctx context.Context, estimate int64) error {
 		g.Warn("session", projected, g.Caps.SessionMicros)
 	}
 	if g.Caps.SessionMicros > 0 && projected >= g.Caps.SessionMicros {
-		return fmt.Errorf("%w: session cap %d reached", ErrBudget, g.Caps.SessionMicros)
+		return &BudgetError{
+			Period: "session", ProjectedMicros: projected,
+			LimitMicros: g.Caps.SessionMicros, Raise: raiseCommand("session"),
+		}
 	}
 	return nil
+}
+
+// BudgetError is a paid-tool denial (GAP-COST-11, stop `budget_tools`). It
+// carries the numbers, the period and the command that raises the cap so the
+// tool-result payload never needs a second lookup. Unwrap keeps errors.Is.
+type BudgetError struct {
+	Period          string
+	ProjectedMicros int64
+	LimitMicros     int64
+	Reset           time.Time
+	Raise           string
+}
+
+// Error implements error.
+func (e *BudgetError) Error() string {
+	reset := ""
+	if !e.Reset.IsZero() {
+		reset = ", reset " + e.Reset.UTC().Format(time.RFC3339)
+	}
+	return fmt.Sprintf("budget_tools: tools_%s cap reached (%d of %d µUSD%s); raise it with %#q",
+		e.Period, e.ProjectedMicros, e.LimitMicros, reset, e.Raise)
+}
+
+// Unwrap maps the typed denial to ErrBudget.
+func (e *BudgetError) Unwrap() error { return ErrBudget }
+
+func raiseCommand(period string) string {
+	return "damnbot usage budget set tools_" + period + "_usd 15"
 }
 
 func (g *Guard) checkPeriod(ctx context.Context, name string, limit, estimate int64, from, to time.Time) error {
@@ -480,7 +511,10 @@ func (g *Guard) checkPeriod(ctx context.Context, name string, limit, estimate in
 		g.Warn(name, projected, limit)
 	}
 	if projected >= limit {
-		return fmt.Errorf("%w: %s cap %d reached", ErrBudget, name, limit)
+		return &BudgetError{
+			Period: name, ProjectedMicros: projected, LimitMicros: limit,
+			Reset: to, Raise: raiseCommand(name),
+		}
 	}
 	return nil
 }
