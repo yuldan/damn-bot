@@ -6267,3 +6267,69 @@ MODULE computeruse  2000 internal/computeruse
 **Dampak terukur.** Gate berada di `internal/archtest/parity_phase_test.go` (test-only), jadi tidak ada penambahan baris Go non-test: `loc.budget`, Σ core, `MODULE`, dan `TOTAL` tidak berubah pada pohon ini; `pr-meta size` = 0 baris. Dokumen berubah: `docs/DECISIONS.md` (blok ini), `docs/F6-ACCEPTANCE.md` (aturan), `docs/FEATURE-PARITY.md` (legenda), `CHANGELOG.md`. Tes: `TestF6LedgerClosed`, `TestF6LedgerGateRules`, `TestParityPhaseColumn` (hijau pada `PHASE=F6`; menolak `PHASE=F7` dengan baris `planned`/`BELUM`).
 
 **Konsekuensi.** (+) Penutupan F6 punya definisi yang dapat dieksekusi dan gate `PHASE`→F7 tidak lagi dekoratif. (+) Pekerjaan tersisa terbagi ke 13 PR ≤600 LOC dengan tes bernama dan kontrol negatif. (−) `PHASE` tidak boleh dinaikkan ke F7 sebelum 106 baris selesai atau `N/A` beralasan. (−) `N/A` "Ukuran gambar" adalah keputusan hardware yang disetujui, bukan klaim lulus: target 150 ms dan asersi `TestImagePreflightTargetNotLowered` tidak diubah, dan pengukuran Q14 tetap carryover F7.
+
+## ADR-324 — Tiga tier CI: PR cepat, `push main` smoke, `merge_group`/nightly penuh, dan kesiapan merge queue
+
+**Status:** Accepted 2026-11-04 (owner menyetujui "PR cepat, main/merge_group penuh" lalu mengoreksi: `push main` **tetap** tier `smoke` sampai merge queue aktif). Mempertahankan tier `smoke` ADR-181 dan mengamandemen ADR-135 butir 3/5 serta ADR-179 butir 8 (matrix OS per-PR dipangkas karena tier penuh berjalan di `merge_group`/nightly). Tanpa perubahan Go non-test, dependency, `deps.allow`, `loc.budget`, SPEC, config, atau setting repo.
+
+**Konteks.** Antrean CI adalah bottleneck, bukan durasi kerja. Pada `origin/main` `04a8e628`, satu PR Go menjadwalkan **23 instance job `ci`** (matrix `test` 3 OS termasuk `macos-latest` yang tertagih ×10, `fuzz`, `bench` = parity + budget, `extra` = perf + coverage + phase, `portability` = vet-cross + build-matrix, `supply`, `sqlite-engine` ×8) ditambah `meta-test` dan `pr-meta` = **25 check**. Dengan ~20 slot runner dan ~30 PR terbuka, setiap PR memesan slot untuk gate yang hasilnya jarang berubah, dan job agregat `ci-required` mengantre di belakang job PR lain. Dua kegagalan nyata yang pernah terjadi hanya di Windows (#242) membuktikan matrix OS tidak boleh hilang dari gate merge; solusinya bukan menghapus gate, melainkan memindahkan eksekusi penuh ke `merge_group` (sebelum merge, saat queue aktif) dan nightly, sementara PR memakai subset cepat yang tetap menangkap mayoritas regresi dan `push main` tetap smoke.
+
+**Koreksi desain (owner, 2026-11-04).** Draf pertama membuat `push main` tier penuh. Itu ditolak: tanpa merge queue, main menerima satu run per squash-merge; 26 merge × 30 instance ≈ **780 job yang tidak bisa dibatalkan** (ADR-135 butir 1), tepat kemacetan yang ingin dihindari. Karena itu `push main` kembali ke tier `smoke` ADR-181 (5 instance `ci`: `changes`, `lint`, `static`, `smoke`, `ci-required`); tier `full` hanya untuk `merge_group`, nightly (`workflow_call`), dan `workflow_dispatch`. Saat merge queue diaktifkan (butuh transfer repo ke organisasi), `push main` boleh dinaikkan ke `full` karena hasil merge sudah diverifikasi antrean.
+
+**Blocker merge queue (terverifikasi read-only, 2026-11-04).** `yuldan/damn-bot` adalah repo **publik milik akun personal** (`owner.type=User`), bukan organisasi, pada plan Free. Merge queue GitHub hanya tersedia untuk repo yang dimiliki organisasi (publik) atau repo privat GHEC; ruleset `merge_queue` ditolak `422`, dan toggle merge queue tidak muncul di UI. Snapshot setting sekarang: **branch protection klasik** dengan required checks `meta-test`, `pr-meta`, `ci-required`, `strict=false`, review wajib 0, merge/squash/rebase aktif, `allow_auto_merge=false`. Karena itu PR ini hanya **menyiapkan** trigger dan gate merge-group; aktivasi adalah aksi owner di luar repo (transfer ke organisasi) dan tidak dilakukan di sini.
+
+**Keputusan.**
+1. **Tiga tier, dihitung `changes` dari `github.event_name`.** `pull_request` = `pr`: matrix `test` **dua target** — `ubuntu-latest` dan `windows-latest`, keduanya `-race`/`CGO_ENABLED=1`. `push: main` = `smoke` (ADR-181): `changes`, `lint`, `static`, `smoke`, `ci-required` = **5 instance**; `smoke` menjalankan `make build` (E-39), `make vet-cross` (ADR-073), dan suite paket inti cepat `make test RACE=-race PKGS=…` (E-55); `test` matrix, `phase`, `e2e`, `bench`, `supply`, `skill-refs`, `sqlite-engine` tidak berjalan di main. `merge_group`, `workflow_call` (nightly), dan `workflow_dispatch` = `full`: matrix **enam target** (linux amd64/arm64, darwin arm64/amd64, windows amd64/arm64; windows/arm64 tanpa `-race`) + seluruh gate berat.
+2. **Gate murah tetap per-PR** (tier `pr` dan `full`): `lint`, `static` (`make loc`, `loc-ratio`, `size-check`, `build-minimal-all`, `prices-gate`), `phase` (`phase-acceptance` hanya bila `PHASE` berubah), `e2e`, `bench` (`bench-budget`), `supply` (tidy/verify/deps/licenses/release-test/`vuln`), `skill-refs`, `sqlite-engine`, dan `test` dua target. **Gate berat hanya tier `full`**: `test-timing`, `deadcode`, `portability` (`vet-cross` + `build-matrix`), `fuzz` (3 shard), `perf` (+ `perf-acceptance`), `coverage`, `bench-parity`.
+3. **`ci-required` mengikat tiga himpunan ekspektasi.** Nama job tetap persis `ci-required`. Logika berada di `scripts/ci-required.sh` (dipanggil `make ci-required`), membaca `tier`/`code` dari `changes`, lalu untuk setiap job: gate wajib = `success`, gate di luar tier/path = `skipped`. Himpunan: `pr` = `lint test static phase e2e bench supply skill-refs sqlite-engine`; `smoke` = `lint static smoke`; `full` = himpunan `pr` + `test-timing deadcode portability fuzz perf coverage bench-parity`. Mismatch, tier tak dikenal, atau output `changes` kosong = gagal. `scripts/ci-required.sh --self-test` (dijalankan sebagai langkah pertama job yang sama, `make ci-required-test`) menguji 16 skenario, termasuk **docs-only pada `push main` (tier `smoke`)** dan **docs-only pada `merge_group` (tier `full`)**, gate berat yang salah jalan, gate wajib yang `skipped`, dan `changes` gagal.
+4. **Trigger `merge_group` siap-aktif.** `ci.yml`, `meta.yml`, dan `pr-meta.yml` menerima `merge_group`; semua checkout memakai `ref: ${{ github.sha }}` (merge commit, bukan ref sintetis). `changes`/`meta` memakai `merge_group.base_sha` sebagai basis diff. `pr-meta` tidak membawa metadata PR pada payload merge-group (`github.event.pull_request.*` null), jadi langkah PR-nya dijaga `if: github.event_name != 'merge_group'` dan job tetap berjalan serta sukses dengan pesan eksplisit; gate judul/label/ukuran sudah dievaluasi pada run `pull_request` sebelum PR boleh masuk antrean.
+5. **Cakupan gate tidak hilang, biaya main tidak melonjak.** Setiap gate yang dipindah dari PR tetap ada di `merge_group`, nightly, dan `workflow_dispatch`; `ci-required` tier `full` mewajibkan semuanya `success` (bukan `skipped`). `push main` sengaja tetap smoke (5 instance) sampai merge queue aktif; menaikkannya ke full sebelum itu berarti ~30 instance tak-bisa-dibatalkan per merge dan antrean PR kembali macet. Setiap target Makefile tetap dipanggil tepat sekali dengan perintah/tag yang sama. `ci-required`, `meta-test`, dan `pr-meta` tidak berganti nama.
+6. **Mitigasi wajib.** (a) **Auto-revert**: squash commit yang membuat `main` merah di-revert (otomatis atau oleh owner dalam ≤ 1 jam kerja) sebelum PR berikutnya merge; status merah `main` memblokir merge berikutnya selama `strict` dipertahankan. (b) **Nightly wajib**: `nightly.yml` tetap memanggil workflow `ci` penuh setiap hari; kegagalan nightly menjadi blocker harian, bukan laporan opsional. (c) Selama queue belum aktif, macOS/arm64 dan gate berat diverifikasi nightly; `workflow_dispatch` tier penuh dipakai untuk verifikasi manual pada PR berisiko sebelum merge. (d) Saat queue aktif, `push main` boleh dinaikkan ke `full`; perubahan itu terpisah dan harus disertai amendemen ADR ini.
+
+**Aktivasi merge queue (owner, setelah transfer repo ke organisasi).** Tidak ada setting yang diubah oleh PR ini. Perintah persis yang dijalankan setelah repo menjadi milik organisasi:
+
+```bash
+gh api --method POST repos/yuldan/damn-bot/rulesets --input - <<'JSON'
+{
+  "name": "main-merge-queue",
+  "target": "branch",
+  "enforcement": "active",
+  "conditions": {"ref_name": {"include": ["refs/heads/main"], "exclude": []}},
+  "rules": [
+    {"type": "merge_queue", "parameters": {
+      "merge_method": "SQUASH",
+      "grouping_strategy": "ALLGREEN",
+      "max_entries_to_build": 5,
+      "min_entries_to_merge": 1,
+      "max_entries_to_merge": 5,
+      "min_entries_to_merge_wait_minutes": 5,
+      "check_response_timeout_minutes": 60
+    }}
+  ]
+}
+JSON
+gh api repos/yuldan/damn-bot/rulesets
+gh api repos/yuldan/damn-bot/branches/main/protection/required_status_checks
+```
+
+Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`, `pr-meta`); ketiga workflow sudah menerima `merge_group`, sehingga antrean tidak menggantung "Expected". `grouping_strategy` boleh `ALLGREEN` (semua entry hijau) atau `HEADGREEN` (head run hijau) sesuai beban; nilai lain ditolak API.
+
+**Dampak terukur (job dan runner-menit).** Job instance yang benar-benar memakai slot per PR Go: **23 → 19**; check yang terlapor per PR (termasuk `meta-test`/`pr-meta`): **25 → 21**; 7 definisi job berat tetap terlapor sebagai `skipped` (0 slot). Definisi job YAML `ci.yml`: 15 → 19 (gate berat dipisah agar `ci-required` bisa membedakan wajib/skipped). `push main` tetap **5 instance** (`changes`, `lint`, `static`, `smoke`, `ci-required`), bukan 30. Pohon `origin/main` sebenarnya menjalankan **14** instance di push main karena `skill-refs` dan `sqlite-engine` (8 leg) tidak dibatasi tier meski ADR-181 menyebut 5; ADR-324 membatasi keduanya ke tier `pr`/`full` sehingga main benar-benar 5. Tier `full` = **30 instance**, hanya di `merge_group`, nightly, dan `workflow_dispatch`.
+
+| Konteks | Sebelum | Sesudah | Catatan |
+|---|---:|---:|---|
+| Job berjalan per PR Go | 23 | 19 | `test` 3 → 2 target; 8 gate berat pindah tier |
+| Check per PR (+`meta-test`,`pr-meta`) | 25 | 21 | nama wajib tidak berubah |
+| Runner-menit tertimbang per PR¹ | ≈ 204 | ≈ 70 | macOS arm64 ×10 hilang dari PR |
+| Job `push main` | 14 | **5** | smoke; `skill-refs`/`sqlite-engine` kini hanya PR/full |
+| Runner-menit tertimbang `push main`¹ | ≈ 55 | ≈ 15 | tidak ada biaya gate PR yang dipindah ke main |
+| Job `merge_group` | — | 30 | full, hanya saat antrean aktif |
+| Runner-menit tertimbang `merge_group`¹ | — | ≈ 319 | sekali per entry antrean |
+| Job nightly | 26 | 30 | gate set sama; job berat dipisah |
+| Runner-menit tertimbang nightly¹ | ≈ 319 | ≈ 319 | beban gate tidak berubah |
+
+¹ Estimasi dari durasi terukur ADR-179/181 (test ubuntu 5,5 mnt, windows 6 mnt, macOS 9,4 mnt; sqlite-engine 1,5 mnt/leg; bobot billing linux ×1, windows ×2, macOS ×10) dan batas timeout job. Bukan tagihan aktual; angka billing harus dibaca dari laporan Actions. Aritmetikanya: **billing PR turun ~66 %**, `push main` tidak berubah, dan biaya full hanya muncul di nightly (sudah ada sebelumnya) serta `merge_group` saat queue aktif. Tidak ada pemindahan biaya ke run `main` yang tidak bisa dibatalkan; menaikkan `push main` ke full sebelum queue aktif akan menambah ~301 runner-menit tertimbang per merge dan mengulang kemacetan yang dihindari.
+
+**Bukti.** `python3 -c "import yaml; yaml.safe_load(...)"` lulus untuk `ci.yml`, `meta.yml`, `pr-meta.yml`; `actionlint` (tanpa menambah dependency ke `deps.allow`) lulus; `make ci-required-test` = **16/16 skenario** (termasuk docs-only `push main` dan docs-only `merge_group`); `make lint`, `make archtest`, `make loc`, `make size-check`, `make pr-meta` hijau; `make meta-test` 49/49 (di bawah `ulimit -v 4194304`, hanya `deadcode` dan `vuln` OOM lalu keduanya DETECTED saat diulang tanpa batas virtual). Nama job `ci-required`, `meta-test`, `pr-meta` diverifikasi tetap ada di YAML dan tidak berubah.
+
+**Konsekuensi.** (+) PR selesai lebih cepat dan memakai slot lebih sedikit; `push main` tetap 5 instance sehingga tidak ada ~780 job tak-bisa-dibatalkan; `ci-required` tidak lagi mengantre di belakang ribuan job gate berat; docs-only tidak berubah. (+) Seluruh gate tetap memblokir merge di `merge_group` begitu antrean aktif, dan tetap ditegakkan di nightly + `workflow_dispatch` sekarang. (−) Sampai repo dipindah ke organisasi, macOS/arm64 dan gate berat baru terlihat di nightly atau verifikasi manual, **bukan sebelum merge**; mitigasi auto-revert + nightly wajib + `workflow_dispatch` pada PR berisiko. (−) `push main` smoke tidak mengulang suite penuh, jadi main adalah sinyal cepat, bukan pengganti nightly. (−) Check `skipped` bertambah di daftar PR; agregat ketat mencegah skip tanpa alasan, tetapi pembaca harus melihat log `ci-required` untuk membedakan tier. (−) Merge queue tetap tidak bisa diaktifkan sampai repo menjadi milik organisasi (aksi owner); trigger dan perintah aktivasi sudah siap.

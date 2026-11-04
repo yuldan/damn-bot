@@ -12,26 +12,31 @@
 #
 # ADR-179 (slot runner): setiap gate Makefile tetap berjalan tepat sekali dengan perintah dan tag yang
 # sama; yang berubah hanya pengemasan job. Gate pendek yang tidak saling bergantung dijalankan berurutan
-# di dalam satu job (`static`, `portability`, `bench`, `supply`, `extra`) dan tiga shard fuzz berjalan di
-# satu job, sehingga satu PR-run memakai 13 job (dari 20) tanpa menghapus satu pun gate. `lint` dan
-# `test-timing` tetap job tersendiri: keduanya memberi umpan balik cepat dan `test-timing` mengukur budget
-# waktu dinding yang sebaiknya tidak dibagi dengan langkah berat lain.
+# di dalam satu job (`static`, `portability`, `supply`) dan tiga shard fuzz berjalan di satu job.
+# `lint` tetap job tersendiri untuk umpan balik cepat; ADR-324 memisahkan `test-timing` dan gate berat
+# lain ke tier penuh dengan job masing-masing.
 #
-# ADR-181 (pemisahan beban `main`): tier ketiga `smoke` untuk `push: main`. Setiap merge memicu run `main`
-# yang tidak bisa dibatalkan (ADR-135 butir 1) dan isinya hampir seluruhnya sudah diverifikasi PR yang
-# di-squash, sehingga ia hanya bersaing dengan PR di plafon runner. Push `main` kini menjalankan `changes`,
-# `lint`, `static`, `smoke` (`make build`, `make vet-cross`, `make test` untuk paket inti cepat) dan
-# `ci-required`; matriks penuh (6 target OS `-race`, `test-timing`, `fuzz`, `coverage`, `perf`, `bench`,
-# `supply`) tetap jalan **di PR** (3 target OS) dan **di nightly/`workflow_dispatch`** (6 target,
-# `nightly.yml` memanggil workflow ini lewat `workflow_call`). Tier PR tidak berubah sedikit pun.
+# ADR-324 (dua tingkat + smoke, 2026-11-04; menggantikan ADR-179 butir 8): `pull_request` = tier `pr`
+# — matrix `test` dua target (ubuntu-latest dan windows-latest, keduanya `-race`/cgo) + gate murah
+# (`lint`, `static`, `phase`, `e2e`, `bench`, `supply`, `skill-refs`, `sqlite-engine`). `push: main` =
+# tier `smoke` (ADR-181): `lint`, `static`, `smoke` (`make build`, `make vet-cross`, suite paket inti
+# cepat) = 5 instance `ci` — bukan tier penuh, karena run main tidak bisa dibatalkan dan tidak boleh
+# menyerap biaya gate PR. `merge_group`, nightly (`workflow_call`), dan `workflow_dispatch` = tier
+# `full`: matrix enam target + seluruh gate berat (`test-timing`, `deadcode`, `portability` =
+# vet-cross + build-matrix, `fuzz`, `perf`, `coverage`, `bench-parity`). Merge queue menjalankan tier
+# penuh SEBELUM merge; selama queue belum aktif (repo user-owned), regresi OS-spesifik/gate berat
+# terdeteksi di nightly + `workflow_dispatch`, dan `push main` boleh dinaikkan ke tier penuh saat queue
+# diaktifkan. `ci-required` memeriksa himpunan gate yang WAJIB per konteks (`pr`/`smoke`/`full`): gate
+# wajib harus `success`, gate di luar konteks harus `skipped` — skip tanpa alasan menggagalkan agregat.
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
+  merge_group: # ADR-324: merge queue menjalankan tier penuh terhadap merge commit (github.sha).
   workflow_call: # ADR-135: nightly menjalankan matrix PENUH lewat workflow ini.
-  workflow_dispatch: # ADR-181: verifikasi tier penuh atas permintaan (branch mana pun).
+  workflow_dispatch: # ADR-324: verifikasi tier penuh atas permintaan (branch mana pun).
 
 permissions:
   contents: read
@@ -68,25 +73,29 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
           fetch-depth: 0
       - name: PR docs-only?
         id: filter
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD: ${{ github.sha }}
         run: |
-          # ADR-135 butir 3: matrix `test` bertingkat. PR = 3 target (ubuntu race, macOS arm64, Windows
-          # amd64); push main dan workflow_call (nightly) = 6 target berrunner.
+          # ADR-324: tiga tier. `pull_request` = `pr` (dua target); `push: main` = `smoke` (matrix
+          # tidak dipakai karena `test` dilewati); `merge_group`/nightly/`workflow_dispatch` = `full`
+          # (enam target berrunner: linux amd64/arm64, darwin arm64/amd64, windows amd64/arm64;
+          # windows/arm64 tanpa -race, ADR-073).
           full='{"include":[{"os":"ubuntu-latest","race":"-race","cgo":"1"},{"os":"ubuntu-24.04-arm","race":"-race","cgo":"1"},{"os":"macos-latest","race":"-race","cgo":"1"},{"os":"macos-15-intel","race":"-race","cgo":"1"},{"os":"windows-latest","race":"-race","cgo":"1"},{"os":"windows-11-arm","race":"","cgo":"0"}]}'
-          reduced='{"include":[{"os":"ubuntu-latest","race":"-race","cgo":"1"},{"os":"macos-latest","race":"-race","cgo":"1"},{"os":"windows-latest","race":"-race","cgo":"1"}]}'
-          # ADR-181: tier ketiga untuk push `main`. Smoke = gate cepat yang menangkap kerusakan merge
-          # (build, vet lintas-OS, paket inti, lint, loc/size/deadcode); matriks penuh dijalankan PR dan
-          # nightly/workflow_dispatch.
+          reduced='{"include":[{"os":"ubuntu-latest","race":"-race","cgo":"1"},{"os":"windows-latest","race":"-race","cgo":"1"}]}'
+          # Gate berat (fuzz, bench-parity, coverage, perf, test-timing, deadcode, vet-cross,
+          # build-matrix) hanya tier `full`. `push main` tier `smoke` sengaja tidak menjalankan gate
+          # PR/berat: run main tidak bisa dibatalkan dan antreannya tidak boleh macet. Daftar gate
+          # wajib per konteks ditegakkan `ci-required` (gate wajib harus sukses, bukan skipped).
           case "$EVENT" in
             pull_request) tier=pr; echo "test_matrix=$reduced" >>"$GITHUB_OUTPUT" ;;
-            push) tier=smoke ;;
+            push) tier=smoke; echo "test_matrix=$reduced" >>"$GITHUB_OUTPUT" ;;
             *) tier=full; echo "test_matrix=$full" >>"$GITHUB_OUTPUT" ;;
           esac
           echo "tier=$tier" >>"$GITHUB_OUTPUT"
@@ -128,6 +137,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -143,8 +153,9 @@ jobs:
   # E-55: 6 target berrunner — linux amd64/arm64, darwin arm64/amd64, windows amd64/arm64 (linux/arm +
   # android/arm64 di QEMU tetap F9, ADR-073). ADR-090: ctxdb Windows termasuk TestFileLockSemantics,
   # S023, S044, TestPlatformNAList. windows/arm64 tanpa -race (Go tidak punya race detector di sana).
-  # ADR-135 butir 3: PR cukup ubuntu-latest + macos-latest (arm64) + windows-latest (amd64); push main
-  # dan nightly menjalankan keenam target.
+  # ADR-324: tier `pr` cukup ubuntu-latest + windows-latest (keduanya amd64, `-race`/cgo); tier `full`
+  # (merge_group, nightly/workflow_dispatch) menjalankan keenam target; tier `smoke` (push main) tidak
+  # menjalankan `test` (suite inti ada di job `smoke`).
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
@@ -162,6 +173,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -175,14 +187,17 @@ jobs:
   # ADR-048 (TS-P08): budget waktu dinding tanpa -race; cek kebenaran skenario yang sama tetap berjalan
   # di job `test` (-race). Job tersendiri (bukan digabung seperti gate lain, ADR-179): asersi waktu dinding
   # tidak dibagi dengan langkah berat lain di runner yang sama.
+  # ADR-324: `test-timing` dipindah dari PR ke tier `full` (merge_group, push main, nightly) — budget
+  # waktu dinding tetap ditegakkan sebelum merge di antrean, tanpa membebani setiap PR.
   test-timing:
     needs: changes
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -190,9 +205,8 @@ jobs:
           cache-dependency-path: go.sum
       - run: make test-timing
 
-  # ADR-179: gate statis pendek dalam satu job — E-19/E-61/E-70 (`make loc`, `make loc-ratio`), E-62
-  # (`make size-check`), E-53 (`make deadcode`). Tidak ada gate yang hilang: perintahnya sama persis
-  # dengan job terpisah sebelumnya, hanya berbagi satu checkout/setup-go.
+  # ADR-324: gate statis murah yang tetap per-PR — E-19/E-61/E-70 (`make loc`, `make loc-ratio`), E-62
+  # (`make size-check`), E-39 (`make build-minimal-all`), GAP-COST-01 (`make prices-gate`).
   static:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -201,6 +215,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -218,24 +233,45 @@ jobs:
       # tanpa `//go:build !minimal` tidak terlihat. Gate ini mengompilasi seluruh paket.
       - name: Semua paket kompilasi dengan tag minimal (E-39)
         run: make build-minimal-all
-      - name: Kode mati, 3 GOOS digabung (E-53)
-        run: make deadcode
       # GAP-COST-01 (ADR-125 butir 4): a price past its Until leaves the route
       # unpriced, so a monetary cap fails closed. Named gate: the failure lists
       # the stale entries.
       - name: Harga registry belum kedaluwarsa (GAP-COST-01)
         run: make prices-gate
 
+  # ADR-324: E-53 dipindah ke tier `full` (merge_group, push main, nightly) karena `deadcode -test`
+  # untuk tiga GOOS lebih berat daripada gate statis lain dan tetap memblokir merge lewat antrean.
+  deadcode:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            tools/go.sum
+      - name: Kode mati, 3 GOOS digabung (E-53)
+        run: make deadcode
+
   # ADR-073 (AUD-033) + E-39/E-65: `go vet` lintas OS/arch dan build 8 target kanonik
-  # (CGO_ENABLED=0 -tags goolm). Dua perintah berbeda, satu job (ADR-179).
+  # (CGO_ENABLED=0 -tags goolm). ADR-324: dipindah dari PR ke tier `full`; keduanya memblokir merge
+  # lewat merge queue dan tetap berjalan di push main + nightly.
   portability:
     needs: changes
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -246,16 +282,18 @@ jobs:
       - name: Build 8 target kanonik (E-39, E-65)
         run: make build-matrix
 
-  # E-57: 60 s per target Fuzz*, tiga shard. Shard berjalan berurutan di satu job (ADR-179): target dan
-  # FUZZTIME identik dengan tiga job paralel sebelumnya, hanya jumlah slot runner yang turun.
+  # E-57: 60 s per target Fuzz*, tiga shard. Shard berjalan berurutan di satu job (ADR-179), dan
+  # ADR-324 memindahkannya ke tier `full` (merge_group, push main, nightly): fuzz memblokir merge
+  # lewat antrean, bukan dijalankan ulang di setiap PR.
   fuzz:
     needs: changes
-    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -268,31 +306,28 @@ jobs:
       - name: Fuzz shard 3/3 (E-57)
         run: make fuzz SHARD=3/3
 
-  # ADR-179: gate cakupan + benchmark absolut + acceptance fase dalam satu job. `make perf` dijalankan
-  # paling awal agar budget absolut diukur di runner yang belum dipakai langkah berat lain. ADR-270:
-  # target itu build semua binary dulu lalu menjalankan tiap paket pemilik benchmark serial (-p 1).
-  extra:
+  # ADR-324: acceptance fase tetap per-PR dan hanya berjalan bila `PHASE` berubah, jadi biayanya kecil
+  # (satu checkout + satu `go test` fase). Gate ini tidak dipindah ke merge queue karena ia menjaga
+  # transisi fase, bukan matrix OS.
+  phase:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache-dependency-path: go.sum
-      - name: Budget absolut benchmark (-tags goolm,perf; NEW-38, ADR-077)
-        run: make perf
-      - name: Acceptance performa F2 (recall p95 @1M, append p99; SPEC §11.6/§11)
-        run: make perf-acceptance
       - name: PHASE berubah?
         id: phase
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD: ${{ github.sha }}
         run: |
           if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
@@ -305,6 +340,45 @@ jobs:
           fi
       - if: steps.phase.outputs.run == 'true'
         run: make phase-acceptance
+
+  # ADR-324: budget absolut benchmark + acceptance performa F2 dipindah ke tier `full`. Job tersendiri
+  # supaya `make perf` (ADR-270: build semua binary lalu tiap paket pemilik benchmark serial `-p 1`)
+  # diukur di runner yang belum dipakai langkah berat lain (ADR-179 butir 5).
+  perf:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Budget absolut benchmark (-tags goolm,perf; NEW-38, ADR-077)
+        run: make perf
+      - name: Acceptance performa F2 (recall p95 @1M, append p99; SPEC §11.6/§11)
+        run: make perf-acceptance
+
+  # ADR-324: coverage paket kritis dipindah ke tier `full`; tetap memblokir merge lewat antrean dan
+  # berjalan di push main + nightly (E-58, AUD-059).
+  coverage:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
       - name: Coverage per paket critical (E-58, AUD-059)
         run: make coverage
 
@@ -322,6 +396,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -335,19 +410,38 @@ jobs:
           DAMNBOT_E2E_DOCKER_IMAGE: damnbot-e2e:ci
         run: make e2e-docker
 
-  # E-58 (+ AUD-059) E-59 perf, ADR-080 acceptance fase.
-  # CODE-TOOLS §10.3 CT-21 + NEW2-07 (modul bench): parity grep vs rg 15.1.0 di korpus nyata C1+C3
-  # (`bench/corpora.lock`; tanpa korpus test gagal, bukan skip: DAMNBOT_REQUIRE_CORPORA=1) dan seluruh test
-  # modul bench. Satu job (ADR-179); korpus + rg tetap di-cache. CT-01/02/03 dan CT-11 berjalan di nightly
-  # bench-codetools.
+  # ADR-324: `bench-budget` (NEW2-07) tetap per-PR — cepat dan menjaga seluruh test modul bench.
   bench:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            bench/go.sum
+      - name: Seluruh test modul bench (NEW2-07)
+        run: make bench-budget
+
+  # ADR-324: CT-21 parity grep vs rg 15.1.0 di korpus nyata C1+C3 (`bench/corpora.lock`; tanpa korpus
+  # test gagal, bukan skip: DAMNBOT_REQUIRE_CORPORA=1) dipindah ke tier `full`. Korpus + rg di-cache.
+  # CT-01/02/03 dan CT-11 berjalan di nightly bench-codetools.
+  bench-parity:
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -361,11 +455,9 @@ jobs:
           key: corpora-c1c3-${{ hashFiles('bench/corpora.lock', 'scripts/corpora.sh', 'bench/gencorpus/**') }}
       - name: Parity grep vs rg di korpus C1+C3 (CT-21, E-59)
         run: make bench-parity CORPORA="C1 C3 rg" CORPORA_DIR="$RUNNER_TEMP/damnbot-corpora"
-      - name: Seluruh test modul bench (NEW2-07)
-        run: make bench-budget
 
   # E-46/E-47/E-50 (tidy, verify, deps.allow, go-licenses + TestMPLIsolation) dan E-54 (govulncheck).
-  # Satu job (ADR-179): semuanya membaca modul/ketergantungan yang sama.
+  # Satu job (ADR-179): semuanya membaca modul/ketergantungan yang sama. ADR-324: tetap per-PR.
   supply:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
@@ -374,6 +466,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -407,13 +500,13 @@ jobs:
           retry make release-test
           retry make vuln
 
-  # ADR-181: tier `smoke` untuk `push: main`. Yang diperiksa: kompilasi seluruh paket (`make build`,
-  # E-39), `go vet` lintas OS/arch (`make vet-cross`, ADR-073), dan suite paket inti yang cepat
-  # (`make test RACE=-race PKGS=…`, E-55) di luar paket ber-fixture berat (ctxdb, exec, codetools, e2e)
-  # yang sudah diverifikasi PR yang di-squash dan tetap dijalankan nightly. `lint` dan `static`
-  # (loc, loc-ratio, size-check, deadcode) berjalan di semua tier; `meta-test` datang dari meta.yml.
-  # ADR-181 amandemen (2026-10-23): langkah suite E-55 menimpa `CGO_ENABLED=1` (`-race` butuh cgo);
-  # env workflow tetap `CGO_ENABLED=0` dan `make build` tetap memaku 0 di resepnya (E-39).
+  # ADR-181/ADR-324: tier `smoke` untuk `push: main`. Run main tidak bisa dibatalkan (ADR-135 butir 1)
+  # dan isinya sudah diverifikasi PR yang di-squash + merge queue/nightly, jadi main hanya menjalankan
+  # gate cepat yang menangkap kerusakan merge: kompilasi seluruh paket (`make build`, E-39), `go vet`
+  # lintas OS/arch (`make vet-cross`, ADR-073), dan suite paket inti cepat (`make test RACE=-race
+  # PKGS=…`, E-55) di luar paket ber-fixture berat (ctxdb, exec, codetools, e2e) yang tetap dijalankan
+  # nightly. `lint` dan `static` berjalan di semua tier; `meta-test` datang dari meta.yml. Bila merge
+  # queue diaktifkan, `push main` boleh dinaikkan ke tier `full` (ADR-324).
   smoke:
     needs: changes
     if: needs.changes.outputs.tier == 'smoke'
@@ -422,6 +515,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -441,12 +535,13 @@ jobs:
   # the moment a builtin skill is added.
   skill-refs:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -462,7 +557,7 @@ jobs:
   # engine test as the target-coverage proof until then.
   sqlite-engine:
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.tier != 'smoke'
     strategy:
       fail-fast: false
       matrix:
@@ -480,6 +575,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -495,10 +591,11 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: make sqlite-engine-cross GOOS="${TARGET%/*}" GOARCH="${TARGET#*/}"
 
-  # ADR-135 butir 2: satu-satunya status `ci` yang wajib di branch protection. Selalu berjalan (termasuk
-  # docs-only dan PR matrix yang diperkecil) dan lulus bila setiap gate sukses atau dilewati sah; job
-  # matrix yang sengaja tidak ada di tier PR tidak lagi meninggalkan "Expected — waiting".
-  # ADR-179/ADR-181: `needs` mengikuti pengemasan job dan tier; setiap gate Makefile tetap terwakili.
+  # ADR-135 butir 2 + ADR-324: satu-satunya status `ci` yang wajib di branch protection. Selalu
+  # berjalan (termasuk docs-only) dan lulus hanya bila gate yang WAJIB untuk konteks ini `success`
+  # dan gate di luar konteks `skipped`. Sebelumnya `skipped` diterima untuk semua gate, sehingga gate
+  # yang salah kondisi bisa lolos diam-diam; sekarang skip tanpa alasan tier/path menggagalkan agregat.
+  # Tiga himpunan: `pr`, `smoke` (push main), `full` (merge_group/nightly/workflow_dispatch).
   ci-required:
     if: always()
     needs:
@@ -507,26 +604,31 @@ jobs:
       - test
       - test-timing
       - static
+      - deadcode
       - portability
       - fuzz
-      - extra
+      - phase
+      - perf
+      - coverage
       - e2e
       - bench
+      - bench-parity
       - supply
-      - smoke
       - skill-refs
       - sqlite-engine
+      - smoke
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Rekap gate (E-78)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }} # ADR-324: merge_group memakai merge commit, bukan ref sintetis.
+          persist-credentials: false
+      - name: Uji logika himpunan gate per tier (ADR-324)
+        run: make ci-required-test
+      - name: Rekap gate dan himpunan wajib per tier (E-78, ADR-324)
         env:
           NEEDS: ${{ toJSON(needs) }}
-        run: |
-          printf '%s\n' "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          failed=$(printf '%s\n' "$NEEDS" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key)=\(.value.result)"')
-          if [ -n "$failed" ]; then
-            printf '::error::gate gagal atau dibatalkan: %s\n' "$(printf '%s' "$failed" | tr '\n' ' ')"
-            exit 1
-          fi
-          echo "E-78: semua gate PR hijau atau dilewati sah"
+          TIER: ${{ needs.changes.outputs.tier }}
+          CODE: ${{ needs.changes.outputs.code }}
+        run: make ci-required

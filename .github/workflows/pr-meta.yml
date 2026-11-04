@@ -8,6 +8,7 @@ on:
     types: [opened, edited, synchronize, reopened, labeled, unlabeled]
   pull_request_review:
     types: [submitted, dismissed]
+  merge_group: # ADR-324: required check harus terlapor pada commit merge-group.
 
 permissions:
   contents: read
@@ -28,6 +29,7 @@ jobs:
           fetch-depth: 0
       - name: Approval (review terakhir per reviewer = APPROVED)
         id: reviews
+        if: github.event_name != 'merge_group'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -37,6 +39,7 @@ jobs:
             jq -s 'add // [] | map(select(.state != "COMMENTED")) | group_by(.user.login) | map(last) | map(select(.state == "APPROVED")) | length')
           echo "approvals=$n" >>"$GITHUB_OUTPUT"
       - name: make pr-meta
+        if: github.event_name != 'merge_group'
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.sha }}
@@ -45,3 +48,10 @@ jobs:
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
           PR_APPROVALS: ${{ steps.reviews.outputs.approvals }}
         run: make pr-meta
+      # ADR-324: merge_group tidak membawa metadata PR (judul, label, body, review). Gate E-80..E-84
+      # sudah dievaluasi pada run `pull_request` sebelum PR boleh masuk antrean; konteks ini hanya
+      # perlu terlapor `success` agar merge queue tidak menunggu status yang tidak akan datang.
+      - name: Merge queue (metadata PR sudah divalidasi di run pull_request)
+        if: github.event_name == 'merge_group'
+        run: |
+          echo 'merge_group: pr-meta tidak dievaluasi ulang; gunakan hasil run pull_request'
