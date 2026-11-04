@@ -135,6 +135,37 @@ func TestF6MediaImageCapE2E(t *testing.T) {
 	}
 }
 
+// TestF6MediaVisionGateE2E: a text-only session rejects vision_analyze before
+// the media file is read and before the provider sees an attachment. The
+// local path never reaches the transcript.
+func TestF6MediaVisionGateE2E(t *testing.T) {
+	t.Parallel()
+	e := NewTrusted(t,
+		ToolCallReply("s1", "tool_search", `{"query":"vision_analyze"}`),
+		ToolCallReply("v1", "tool_invoke", `{"name":"vision_analyze","arguments":{"path":"secret.png"}}`),
+		providertest.Text("done"),
+	)
+	if err := os.WriteFile(filepath.Join(e.Workdir, "secret.png"), []byte("SENTINEL-IMAGE-BYTES"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeMediaConfig(t, e, true, "")
+	res := e.Exec(mediaRunArgs(e, "describe the image")...)
+	res.RequireOK(t)
+	reqs := e.Requests()
+	if len(reqs) != 3 {
+		t.Fatalf("provider requests = %d, want 3 (the gate must not call the model)\nstderr:\n%s", len(reqs), res.Stderr)
+	}
+	last := string(reqs[len(reqs)-1])
+	if !strings.Contains(last, "module_unavailable") {
+		t.Fatalf("vision gate denial missing from transcript:\n%.1500s", last)
+	}
+	for i, raw := range reqs {
+		if strings.Contains(string(raw), "SENTINEL-IMAGE-BYTES") {
+			t.Fatalf("media bytes reached request %d", i)
+		}
+	}
+}
+
 // TestF6MediaDisabledE2E: disabled keeps every media tool out of the catalog.
 func TestF6MediaDisabledE2E(t *testing.T) {
 	t.Parallel()
@@ -150,7 +181,7 @@ func TestF6MediaDisabledE2E(t *testing.T) {
 		t.Fatalf("provider requests = %d", len(reqs))
 	}
 	declared := webToolNames(t, reqs[0])
-	for _, name := range []string{"tool_search", "tool_invoke", "doc_read", "doc_write", "image_generate", "video_generate"} {
+	for _, name := range []string{"tool_search", "tool_invoke", "doc_read", "doc_write", "image_generate", "video_generate", "vision_analyze", "video_analyze"} {
 		if declared[name] {
 			t.Errorf("%s advertised with media disabled: %v", name, declared)
 		}

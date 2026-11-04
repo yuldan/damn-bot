@@ -350,7 +350,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TOOL-082 | `video_generate` (toolset `video_gen`) | Generate video teks/gambar/referensi-ke-video | `tools/video_generation_tool.py:371` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `check_video_generation_requirements` | F6 | planned |
 | TOOL-083 | `xai_video_edit` (toolset `video_gen`) | Edit video via xAI Grok Imagine | `tools/xai_video_tools.py:110` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `_check_xai_video_requirements` | F6 | planned |
 | TOOL-084 | `xai_video_extend` (toolset `video_gen`) | Perpanjang video via xAI Grok Imagine | `tools/xai_video_tools.py:114` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `_check_xai_video_requirements` | F6 | planned |
-| TOOL-085 | `vision_analyze` (toolset `vision`) | Analisis gambar (URL/path) dengan model vision | `tools/vision_tools.py:1030` | opt-in | Model vision (auxiliary.vision) | check_fn `check_vision_requirements` | F6 | planned |
+| TOOL-085 | `vision_analyze` (toolset `vision`) | Analisis gambar (URL/path) dengan model vision | `tools/vision_tools.py:1030` | opt-in | Model vision (auxiliary.vision) | check_fn `check_vision_requirements` | F6 | LULUS |
 | TOOL-086 | `web_extract` (toolset `web`) | Ekstrak konten halaman web menjadi markdown | `tools/web_tools.py:566` | opt-in | API key backend search (Exa/Tavily/Parallel/Perplexity/Firecrawl/Keenable) atau backend keyless (ddgs/SearXNG/Brave free) | check_fn `check_web_api_key` | F6 | planned |
 | TOOL-087 | `web_search` (toolset `web`) | Pencarian web via backend search terpilih | `tools/web_tools.py:560` | opt-in | API key backend search (Exa/Tavily/Parallel/Perplexity/Firecrawl/Keenable) atau backend keyless (ddgs/SearXNG/Brave free) | check_fn `check_web_api_key` | F6 | planned |
 | TOOL-088 | `x_search` (toolset `x_search`) | Cari post/thread X (Twitter) via xAI x_search | `tools/x_search_tool.py:340` | off (default-off toolset) | XAI_API_KEY atau SuperGrok OAuth | check_fn `check_x_search_requirements` | F8 | planned |
@@ -386,7 +386,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TSET-025 | toolset `skills` | 3 tool | `toolsets.py:103` | on/sesuai tool | — | tools: skill_manage, skills_list, skill_view; available saat inventaris=True | F2 | planned |
 | TSET-026 | toolset `tts` | 1 tool | `toolsets.py:127` | on/sesuai tool | — | tools: text_to_speech; available saat inventaris=True | F6 | planned |
 | TSET-027 | toolset `video_gen` | 3 tool | `toolsets.py:89` | off (default-off) | — | tools: video_generate, xai_video_edit, xai_video_extend; available saat inventaris=False | F6 | planned |
-| TSET-028 | toolset `vision` | 1 tool | `toolsets.py:86` | on/sesuai tool | — | tools: vision_analyze; available saat inventaris=False | F6 | planned |
+| TSET-028 | toolset `vision` | 1 tool | `toolsets.py:86` | on/sesuai tool | — | tools: vision_analyze; available saat inventaris=False | F6 | LULUS |
 | TSET-029 | toolset `video` | 1 tool | `toolsets.py:87` | off (default-off) | — | tools: video_analyze; available saat inventaris=False | F6 | planned |
 | TSET-030 | toolset `web` | 2 tool | `toolsets.py:76` | on/sesuai tool | — | tools: web_search, web_extract; available saat inventaris=True | F6 | planned |
 | TSET-031 | toolset `x_search` | 1 tool | `toolsets.py:78` | off (default-off) | — | tools: x_search; available saat inventaris=False | F8 | planned |
@@ -842,8 +842,8 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | MEDIA-009 | TTS command provider | TTS via perintah eksternal | `tools/tts_command_provider.py` | opt-in | binary eksternal |  | F6 | planned |
 | MEDIA-010 | STT (8 provider built-in) | Transkripsi pesan suara & voice mode | `agent/transcription_registry.py:23`, `tools/transcription_tools.py` | on (`stt.enabled`) | faster-whisper lokal / whisper.cpp / API cloud | provider: local, local_command, groq, openai, mistral, xai, elevenlabs, deepinfra | F6 | planned |
 | MEDIA-011 | STT whisper.cpp & chunking | Backend whisper.cpp, chunk audio panjang | `tools/transcription_whisper_cpp.py`, `tools/transcription_chunking.py` | opt-in | whisper.cpp binary, ffmpeg [INFERENCE] |  | F6 | planned |
-| MEDIA-012 | Vision (vision_analyze) | Analisis gambar via model vision auxiliary | `tools/vision_tools.py`, `agent/vision_message_prep.py` | on (core) | Model vision, Pillow |  | F6 | planned |
-| MEDIA-013 | Image routing native | Kirim gambar native ke model multimodal | `agent/image_routing.py` | on | — |  | F6 | planned |
+| MEDIA-012 | Vision (vision_analyze) | Analisis gambar via model vision auxiliary | `tools/vision_tools.py`, `agent/vision_message_prep.py` | on (core) | Model vision, Pillow |  | F6 | LULUS |
+| MEDIA-013 | Image routing native | Kirim gambar native ke model multimodal | `agent/image_routing.py` | on | — |  | F6 | LULUS |
 | MEDIA-014 | Video analyze | Analisis video | `tools/vision_tools.py:2` | off (toolset `video`) | Model multimodal |  | F6 | planned |
 | MEDIA-015 | Image generation | image_generate dengan 8 backend plugin | `tools/image_generation_tool.py`, `agent/image_gen_registry.py` | on (core) bila backend tersedia | lihat backend |  | F6 | planned |
 | MEDIA-016 | Image backend: FAL | flux, nano-banana, gpt-image dsb. | `plugins/image_gen/fal/plugin.yaml` | opt-in | FAL_KEY, extra `fal` |  | F6 | planned |

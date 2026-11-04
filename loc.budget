@@ -340,7 +340,9 @@ config            2357 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
-modules            1320 internal/modules
+# ADR-323 amandemen (F6 PR #683, vision_analyze): terukur 1.338; plafon
+# 1.320 -> 1.338. Sigma core 56.280 -> 56.298; plafon core 56.300 tetap.
+modules            1338 internal/modules
 # ADR-273 (F5-12 PR A, GAP-REL-18): SessionView + parent/child intersection di
 # `modules/host`; kode terukur 1.221, plafon 1.150 -> 1.221 (tanpa headroom,
 # angka ukur scc pada pohon PR A). Sigma core 51.984 -> 52.056; plafon core

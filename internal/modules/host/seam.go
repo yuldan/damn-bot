@@ -252,6 +252,25 @@ type Capabilities struct {
 	Clock     Clock
 }
 
+// VisionProvider is the optional route seam of a host: it reports the
+// session's first vision-capable route and its "provider/model" reference. A
+// media module rejects analysis before the completer when vision is false
+// (EC-PROV-024).
+type VisionProvider interface {
+	VisionRoute() (model string, vision bool)
+}
+
+// VisionOf returns the vision route of h; a host without the seam has none.
+func VisionOf(h Host) (string, bool) {
+	if h == nil {
+		return "", false
+	}
+	if vp, ok := h.(VisionProvider); ok {
+		return vp.VisionRoute()
+	}
+	return "", false
+}
+
 // CapabilityProvider is implemented once by the composition root. It is
 // separate from [Host] so the stable five-method Host contract (E-09) and
 // existing test fakes keep working.

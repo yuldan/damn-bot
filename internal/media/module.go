@@ -44,6 +44,12 @@ type Section struct {
 type Deps struct {
 	Approvals host.Approvals
 	Secrets   host.Secrets
+	// LLM is the purpose=media completer of the composition root; Vision and
+	// VisionModel are its route facts. A nil or non-vision completer leaves
+	// vision_analyze fail-closed.
+	LLM         host.Completer
+	Vision      bool
+	VisionModel string
 }
 
 // Module is the F6 media module.
@@ -160,6 +166,8 @@ func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, 
 		return m.image(ctx, args, env)
 	case ToolVideoGenerate:
 		return m.video(ctx, args, env)
+	case ToolVisionAnalyze:
+		return m.analyze(ctx, tool, args, env)
 	}
 	return host.Result{}, &host.Error{Code: "unknown_tool", Message: "unknown media tool: " + tool}
 }

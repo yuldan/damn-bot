@@ -183,10 +183,22 @@ type Completer interface {
 	Complete(ctx context.Context, req Request) (Response, error)
 }
 
-// Message is one provider-neutral chat message.
+// Message is one provider-neutral chat message. Images are attachments of
+// this message; only a vision-capable completer receives them (the module
+// never sends media to a text-only route).
 type Message struct {
 	Role    string
 	Content string
+	Images  []Image
+}
+
+// Image is one preflighted image attachment. Data is bounded by the caller
+// and never placed in the prompt as base64 by the module.
+type Image struct {
+	Name, MIME    string
+	Data          []byte
+	Width, Height int
+	Untrusted     bool
 }
 
 // Request is one completer call. Schema, when non-nil, is a JSON Schema the
