@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/media/cache"
 	"github.com/damnbot/damnbot/internal/media/doc"
 	"github.com/damnbot/damnbot/internal/media/gen"
 	"github.com/damnbot/damnbot/internal/modules/host"
@@ -57,6 +58,7 @@ type Module struct {
 	cfg     Section
 	deps    Deps
 	store   host.Store
+	cache   *cache.Store
 	tool    gen.Doer
 	loop    gen.Doer
 	service *gen.Service
@@ -83,6 +85,9 @@ func NewFromConfig(h host.Host, raw json.RawMessage, deps Deps) (*Module, error)
 	if h != nil {
 		if st, serr := h.Storage("module/media"); serr == nil {
 			m.store = st
+			if c, cerr := cache.New(st); cerr == nil {
+				m.cache = c
+			}
 		}
 	}
 	return m, nil

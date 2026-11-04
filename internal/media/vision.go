@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/damnbot/damnbot/internal/media/cache"
 	"github.com/damnbot/damnbot/internal/media/preflight"
 	"github.com/damnbot/damnbot/internal/media/video"
 	"github.com/damnbot/damnbot/internal/modules/host"
@@ -91,16 +92,20 @@ func (m *Module) analyzeImage(ctx context.Context, in analysisArgs, cwd string) 
 	if err != nil {
 		return host.Result{}, &host.Error{Code: "invalid_args", Message: "image failed preflight", Hint: "use JPEG or PNG under the provider preset"}
 	}
+	meta := map[string]any{
+		"kind": "image", "mime": res.MIME, "bytes": len(data),
+		"width": res.Width, "height": res.Height, "resized": res.Resized,
+	}
+	if entry := m.cacheInbound(ctx, "image", res.MIME, data); entry != nil {
+		meta["cache_sha"] = entry.SHA
+	}
 	return m.complete(ctx, ToolVisionAnalyze, in.Prompt, &host.Message{
 		Role: "user", Content: in.Prompt,
 		Images: []host.Image{{
 			Name: name, MIME: res.MIME, Data: res.Data,
 			Width: res.Width, Height: res.Height, Untrusted: true,
 		}},
-	}, map[string]any{
-		"kind": "image", "mime": res.MIME, "bytes": len(data),
-		"width": res.Width, "height": res.Height, "resized": res.Resized,
-	})
+	}, meta)
 }
 
 func (m *Module) analyzeVideo(ctx context.Context, in analysisArgs, cwd string, env host.Env, args json.RawMessage) (host.Result, error) {
@@ -124,14 +129,18 @@ func (m *Module) analyzeVideo(ctx context.Context, in analysisArgs, cwd string, 
 	if err := video.Check(info); err != nil {
 		return host.Result{}, videoError(err)
 	}
+	meta := map[string]any{
+		"kind": "video", "mime": info.MIME, "bytes": len(data), "duration_s": info.DurationS,
+	}
+	if entry := m.cacheInbound(ctx, "video", info.MIME, data); entry != nil {
+		meta["cache_sha"] = entry.SHA
+	}
 	return m.complete(ctx, ToolVideoAnalyze, in.Prompt, &host.Message{
 		Role: "user", Content: in.Prompt,
 		Videos: []host.Video{{
 			Name: name, MIME: info.MIME, Data: data, DurationS: info.DurationS, Untrusted: true,
 		}},
-	}, map[string]any{
-		"kind": "video", "mime": info.MIME, "bytes": len(data), "duration_s": info.DurationS,
-	})
+	}, meta)
 }
 
 // complete performs the one provider call and labels the text untrusted; it
@@ -209,6 +218,21 @@ func (m *Module) headSize(ctx context.Context, rawURL string) (int64, bool) {
 		return 0, false
 	}
 	return resp.ContentLength, true
+}
+
+// cacheInbound records the inbound bytes in the media cache. A cache failure
+// never fails the analysis; the entry's SHA is exposed for observability.
+func (m *Module) cacheInbound(ctx context.Context, kind, mime string, data []byte) *cache.Entry {
+	if m.cache == nil {
+		return nil
+	}
+	entry, err := m.cache.Put(ctx, cache.PutRequest{
+		Kind: kind, MIME: mime, Data: data, Params: map[string]string{"usage": "inbound"},
+	})
+	if err != nil {
+		return nil
+	}
+	return &entry
 }
 
 func (m *Module) fetchMedia(ctx context.Context, rawURL string, max int64) (data []byte, err error) {

@@ -132,7 +132,7 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | MEDIA-026 | Video backend xAI | Grok Imagine video + edit/extend | `TestF6MEDIA026VideoXAI` | LULUS | F6-03d |
 | MEDIA-027 | Video backend OpenRouter | `/api/v1/videos`; polling terbatas | `TestF6MEDIA027VideoOpenRouter` | LULUS | F6-03d |
 | MEDIA-028 | Video backend DeepInfra | text/image-to-video; batas ukuran | `TestF6MEDIA028VideoDeepInfra` | LULUS | F6-03d |
-| MEDIA-030 | Media cache & repair gateway | unduh/cache inbound dengan batas ukuran + MIME sniff; repair idempoten; dedupe blob; tidak mengekstrak dokumen otomatis | `TestF6MEDIA030MediaCache` | BELUM | F6-03h |
+| MEDIA-030 | Media cache & repair gateway | unduh/cache inbound dengan batas ukuran + MIME sniff; repair idempoten; dedupe blob; tidak mengekstrak dokumen otomatis | `TestF6MEDIA030MediaCacheRepair` | LULUS | F6-03h |
 
 ## 7. Ledger parity F6 — EXEC (8)
 
