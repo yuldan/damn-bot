@@ -3,7 +3,6 @@
 package hooks
 
 import (
-	"context"
 	"testing"
 )
 
@@ -16,7 +15,7 @@ func TestLookupAppendsExe(t *testing.T) {
 	if err != nil || h.Problem != "" {
 		t.Fatalf("Lookup(allow) = %+v, %v; want the .exe fixture", h, err)
 	}
-	res, err := reg.Run(context.Background(), "allow", EventGatewayInbound, map[string]any{
+	res, err := runHook(t, reg, "allow", map[string]any{
 		"platform": "telegram", "chat_id": "1", "user_id": "2", "text": "hi",
 	})
 	if err != nil || res.Decision != DecisionAllow {

@@ -3,7 +3,6 @@
 package backends
 
 import (
-	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -32,7 +31,7 @@ func TestGAPF5_SEC23DockerProbe(t *testing.T) {
 	t.Run("rejects", func(t *testing.T) {
 		t.Setenv("FAKE_PROBE_FAIL", "1")
 		d := newBackend(false)
-		_, err := d.Run(context.Background(), &exec.Spec{Argv: []string{"/bin/true"}, Dir: root, Timeout: 5 * time.Second})
+		_, err := runBackend(t, d, &exec.Spec{Argv: []string{"/bin/true"}, Dir: root, Timeout: 5 * time.Second})
 		if !errors.Is(err, exec.ErrCapability) || !strings.Contains(err.Error(), "no_resource_limits") {
 			t.Fatalf("Run = %v, want ErrCapability no_resource_limits", err)
 		}
@@ -40,7 +39,7 @@ func TestGAPF5_SEC23DockerProbe(t *testing.T) {
 	t.Run("accepts-and-caches", func(t *testing.T) {
 		d := newBackend(false)
 		for range 2 {
-			if _, err := d.Run(context.Background(), &exec.Spec{Argv: []string{"/bin/true"}, Dir: root, Timeout: 5 * time.Second}); err != nil {
+			if _, err := runBackend(t, d, &exec.Spec{Argv: []string{"/bin/true"}, Dir: root, Timeout: 5 * time.Second}); err != nil {
 				t.Fatalf("Run: %v", err)
 			}
 		}
@@ -50,7 +49,7 @@ func TestGAPF5_SEC23DockerProbe(t *testing.T) {
 	})
 	t.Run("allow-unlimited-skips", func(t *testing.T) {
 		t.Setenv("FAKE_PROBE_FAIL", "1")
-		if _, err := newBackend(true).Run(context.Background(), &exec.Spec{Argv: []string{"/bin/true"}, Dir: root, Timeout: 5 * time.Second}); err != nil {
+		if _, err := runBackend(t, newBackend(true), &exec.Spec{Argv: []string{"/bin/true"}, Dir: root, Timeout: 5 * time.Second}); err != nil {
 			t.Fatalf("allow_unlimited Run: %v", err)
 		}
 	})
@@ -76,13 +75,13 @@ func TestGAPF5_SEC23SingularityProbe(t *testing.T) {
 	}
 	t.Run("rejects", func(t *testing.T) {
 		t.Setenv("FAKE_PROBE_FAIL", "1")
-		_, err := newBackend(false).Run(context.Background(), &exec.Spec{Argv: []string{"/bin/true"}, Dir: root, Timeout: 5 * time.Second})
+		_, err := runBackend(t, newBackend(false), &exec.Spec{Argv: []string{"/bin/true"}, Dir: root, Timeout: 5 * time.Second})
 		if !errors.Is(err, exec.ErrCapability) || !strings.Contains(err.Error(), "no_resource_limits") {
 			t.Fatalf("Run = %v, want ErrCapability no_resource_limits", err)
 		}
 	})
 	t.Run("accepts", func(t *testing.T) {
-		if _, err := newBackend(false).Run(context.Background(), &exec.Spec{Argv: []string{"/bin/true"}, Dir: root, Timeout: 5 * time.Second}); err != nil {
+		if _, err := runBackend(t, newBackend(false), &exec.Spec{Argv: []string{"/bin/true"}, Dir: root, Timeout: 5 * time.Second}); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
 	})

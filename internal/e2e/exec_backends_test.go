@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/provider/providertest"
+	"github.com/damnbot/damnbot/internal/testutil"
 )
 
 // fakeContainerCLI writes a CLI that logs every argv and then runs the argv
@@ -28,15 +29,8 @@ done
 if [ "$found" = 0 ]; then exit 0; fi
 exec "$@"
 `
-	// Rename after writing so a concurrent fork cannot inherit a write
-	// descriptor for the script and make execve fail with ETXTBSY.
-	tmp := binary + ".tmp"
-	//nolint:gosec // the fake CLI must be executable by the test
-	if err := os.WriteFile(tmp, []byte(script), 0o700); err != nil {
+	if err := testutil.WriteExecutable(binary, []byte(script), 0o700); err != nil {
 		t.Fatalf("write fake CLI: %v", err)
-	}
-	if err := os.Rename(tmp, binary); err != nil {
-		t.Fatalf("rename fake CLI: %v", err)
 	}
 	return binary, logPath
 }

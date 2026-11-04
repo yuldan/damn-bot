@@ -81,7 +81,7 @@ func TestBackendContract(t *testing.T) {
 			if f.name == "local" || f.name == "docker" || f.name == "singularity" {
 				spec.Argv = []string{"/bin/sh", "-c", "printf " + f.want + "; exit 5"}
 			}
-			res, err := b.Run(t.Context(), spec)
+			res, err := runBackend(t, b, spec)
 			if err != nil {
 				t.Fatalf("Run: %v", err)
 			}
@@ -91,7 +91,7 @@ func TestBackendContract(t *testing.T) {
 			if string(res.Output) != f.want {
 				t.Fatalf("output = %q, want %q", res.Output, f.want)
 			}
-			res, err = b.Run(t.Context(), &exec.Spec{Argv: []string{"/bin/sh", "-c", "sleep 20"}, Dir: root, Timeout: 150 * time.Millisecond})
+			res, err = runBackend(t, b, &exec.Spec{Argv: []string{"/bin/sh", "-c", "sleep 20"}, Dir: root, Timeout: 150 * time.Millisecond})
 			if err != nil || res.Status != exec.StatusTimeout {
 				t.Fatalf("timeout = %+v, %v", res, err)
 			}

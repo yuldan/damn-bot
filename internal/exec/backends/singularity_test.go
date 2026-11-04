@@ -38,7 +38,7 @@ func TestSingularityRunContract(t *testing.T) {
 	}
 	bin, argvLog, _ := fakeCLI(t, "fake.sif")
 	s := newTestSingularity(t, bin, root)
-	res, err := s.Run(t.Context(), &exec.Spec{
+	res, err := runBackend(t, s, &exec.Spec{
 		Argv: []string{"/bin/sh", "-c", "printf run-ok; exit 7"},
 		Dir:  root, Env: []string{"LANG=C"}, Timeout: 10 * time.Second,
 	})
@@ -76,13 +76,13 @@ func TestSingularityEnvAndRejections(t *testing.T) {
 	if env := s.childEnv("2.x", nil); slices.Contains(env, "APPTAINERENV_SECRET=leak") {
 		t.Fatalf("host APPTAINERENV_ leak kept: %v", env)
 	}
-	if _, err := s.Run(t.Context(), &exec.Spec{Argv: []string{"true"}, Dir: "/tmp"}); !errors.Is(err, exec.ErrCapability) {
+	if _, err := runBackend(t, s, &exec.Spec{Argv: []string{"true"}, Dir: "/tmp"}); !errors.Is(err, exec.ErrCapability) {
 		t.Fatalf("outside cwd = %v", err)
 	}
-	if _, err := s.Run(t.Context(), &exec.Spec{Argv: []string{"true"}, Dir: root, PTY: true}); !errors.Is(err, exec.ErrCapability) {
+	if _, err := runBackend(t, s, &exec.Spec{Argv: []string{"true"}, Dir: root, PTY: true}); !errors.Is(err, exec.ErrCapability) {
 		t.Fatalf("pty = %v", err)
 	}
-	res, err := s.Run(t.Context(), &exec.Spec{Argv: []string{"/bin/sh", "-c", "sleep 30"}, Dir: root, Timeout: 200 * time.Millisecond})
+	res, err := runBackend(t, s, &exec.Spec{Argv: []string{"/bin/sh", "-c", "sleep 30"}, Dir: root, Timeout: 200 * time.Millisecond})
 	if err != nil || res.Status != exec.StatusTimeout {
 		t.Fatalf("timeout = %+v, %v", res, err)
 	}

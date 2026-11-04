@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/damnbot/damnbot/internal/testutil"
 )
 
 func hooksTestHome(t *testing.T) string {
@@ -35,7 +37,7 @@ func hookExe(name string) string {
 
 func TestConfigHooksListValidatesExecutable(t *testing.T) {
 	dir := hooksTestHome(t)
-	if err := os.WriteFile(filepath.Join(dir, hookExe("allow")), []byte("#!/bin/sh\n"), 0o700); err != nil { // #nosec G306 -- fixture must be executable
+	if err := testutil.WriteExecutable(filepath.Join(dir, hookExe("allow")), []byte("#!/bin/sh\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "plain"), []byte("x"), 0o600); err != nil {
@@ -58,7 +60,7 @@ func TestConfigHooksTestRejectsBadNamesWithoutExecuting(t *testing.T) {
 	outside := filepath.Join(filepath.Dir(dir), "outside")
 	marker := filepath.Join(t.TempDir(), "ran")
 	script := "#!/bin/sh\ntouch " + marker + "\nprintf '{\"decision\":\"allow\"}'\n"
-	if err := os.WriteFile(outside, []byte(script), 0o700); err != nil { // #nosec G306 -- fixture must be executable
+	if err := testutil.WriteExecutable(outside, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"../outside", "../hooks/../outside", "a/b", ".."} {
@@ -88,7 +90,7 @@ gateway_inbound:*damnbot.hook/v1*) printf '{"decision":"allow"}' ;;
 *) printf '{"decision":"deny"}' ;;
 esac
 `
-	if err := os.WriteFile(filepath.Join(dir, "check"), []byte(script), 0o700); err != nil { // #nosec G306 -- fixture must be executable
+	if err := testutil.WriteExecutable(filepath.Join(dir, "check"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer

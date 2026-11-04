@@ -14,6 +14,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/damnbot/damnbot/internal/testutil"
 )
 
 func updateInstallEnv(t *testing.T) *Env {
@@ -305,17 +307,10 @@ func corruptInstalledBinary(t *testing.T, e *Env, pending string, old []byte) (d
 	}
 	// The active binary is back at the old version and a corrupt staged asset
 	// remains: exactly the state repair must recover without touching the DB.
-	f, err := os.OpenFile(e.bin, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.Write(old); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.Chmod(0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.Close(); err != nil {
+	// Write through a sibling temp file: truncating the path in place would
+	// share its inode with binPaths.main (updateInstallEnv hardlinks it) and a
+	// concurrent fork could make every exec of that binary fail ETXTBSY.
+	if err := testutil.WriteExecutable(e.bin, old, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	staged = filepath.Join(filepath.Dir(e.bin), "damnbot.new"+filepath.Ext(e.bin))

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/damnbot/damnbot/internal/testutil"
 )
 
 // runEnv runs o (mode a when Direct is nil) and returns the child's
@@ -20,7 +22,13 @@ func runEnv(t *testing.T, o *OneShot) (map[string]string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := newTestRunner(t).Run(t.Context(), &spec)
+	r := newTestRunner(t)
+	var res Result
+	err = testutil.ExecRetry(t.Context(), func() error {
+		var rerr error
+		res, rerr = r.Run(t.Context(), &spec)
+		return rerr
+	})
 	if err != nil || res.Status != StatusExited {
 		t.Fatalf("%v %s %q", err, res.Status, res.Output)
 	}
@@ -145,7 +153,7 @@ func TestSecretRefIdentity(t *testing.T) {
 	}
 	dir := t.TempDir()
 	local := "#!/bin/sh\nexec " + envBin + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "env"), []byte(local), 0o700); err != nil { //nolint:gosec // G306: must be executable
+	if err := testutil.WriteExecutable(filepath.Join(dir, "env"), []byte(local), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	got, _ = runEnv(t, &OneShot{Direct: []string{"./env"}, Dir: dir, Parent: parent, Policy: policy, Root: dir})
@@ -153,7 +161,7 @@ func TestSecretRefIdentity(t *testing.T) {
 		t.Errorf("workspace ./env: leaked=%q ran=%v", got["GH_TOKEN"], got["PATH"] != "")
 	}
 	shadow := t.TempDir()
-	if err := os.WriteFile(filepath.Join(shadow, "env"), []byte(local), 0o700); err != nil { //nolint:gosec // G306: must be executable
+	if err := testutil.WriteExecutable(filepath.Join(shadow, "env"), []byte(local), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	shadowParent := []string{"PATH=" + shadow + string(filepath.ListSeparator) + os.Getenv("PATH")}

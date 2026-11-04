@@ -128,6 +128,7 @@ func allowedImports() map[string][]string {
 
 		"internal/e2e":                   {"internal/boundary", "internal/budget", "internal/ctxdb", "internal/ctxdb/journalstore", "internal/ctxdb/ledgerstore", "internal/ctxdb/skillstore", "internal/gateway/telegram", "internal/journal", "internal/loop/event", "internal/netx", "internal/secret"},
 		"internal/integration":           {"internal/ctxdb", "internal/ctxdb/memstore", "internal/ctxdb/compactstore", "internal/ctxdb/skillstore", "internal/ctxdb/carrierstore", "internal/compaction", "internal/backup", "internal/secret", "internal/redact", "internal/loop/event"},
+		"internal/testutil":              nil,
 		"internal/testutil/timing":       nil,
 		"internal/testutil/phase":        nil,
 		"internal/provider/providertest": {"internal/provider"},
@@ -163,5 +164,5 @@ func f6ModuleImports(m map[string][]string) {
 // testOnlyPackages hanya boleh diimpor dari file _test.go (paket internal mana pun) atau dari
 // paket test-only lain; kode produksi, termasuk cmd/damnbot, tidak pernah mengimpornya.
 func testOnlyPackages() []string {
-	return []string{"internal/testutil/timing", "internal/testutil/phase", "internal/provider/providertest", "internal/provider/replay", "internal/e2e", "internal/integration"}
+	return []string{"internal/testutil", "internal/testutil/timing", "internal/testutil/phase", "internal/provider/providertest", "internal/provider/replay", "internal/e2e", "internal/integration"}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/testutil"
 )
 
 // TestMain doubles as the hook program: tests copy the test binary into the
@@ -89,11 +92,28 @@ func writeBytes(b []byte) {
 	}
 }
 
+// runHook executes a registered hook and retries only ETXTBSY: hookFile copies
+// the test binary, and a fork from a parallel test can still hold the writer
+// when the child is exec'd.
+func runHook(t *testing.T, reg *Registry, name string, fields map[string]any) (Result, error) {
+	t.Helper()
+	var res Result
+	err := testutil.ExecRetry(context.Background(), func() error {
+		var rerr error
+		res, rerr = reg.Run(context.Background(), name, EventGatewayInbound, fields)
+		return rerr
+	})
+	if err != nil {
+		return res, fmt.Errorf("hook %s: %w", name, err)
+	}
+	return res, nil
+}
+
 func TestRunAllow(t *testing.T) {
 	t.Parallel()
 	reg, dir := testRegistry(t)
 	hookFile(t, dir, "allow")
-	res, err := reg.Run(context.Background(), "allow", EventGatewayInbound, map[string]any{
+	res, err := runHook(t, reg, "allow", map[string]any{
 		"platform": "telegram", "chat_id": "1", "user_id": "2", "text": "hi",
 	})
 	if err != nil {
@@ -108,7 +128,7 @@ func TestRunDeny(t *testing.T) {
 	t.Parallel()
 	reg, dir := testRegistry(t)
 	hookFile(t, dir, "deny")
-	res, err := reg.Run(context.Background(), "deny", EventGatewayInbound, nil)
+	res, err := runHook(t, reg, "deny", nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -121,7 +141,7 @@ func TestRunExitFailsClosed(t *testing.T) {
 	t.Parallel()
 	reg, dir := testRegistry(t)
 	hookFile(t, dir, "exit")
-	res, err := reg.Run(context.Background(), "exit", EventGatewayInbound, nil)
+	res, err := runHook(t, reg, "exit", nil)
 	if !errors.Is(err, ErrExit) {
 		t.Fatalf("err = %v, want ErrExit", err)
 	}
@@ -136,7 +156,7 @@ func TestRunTimeout(t *testing.T) {
 	reg.timeout = 100 * time.Millisecond
 	hookFile(t, dir, "timeout")
 	start := time.Now()
-	res, err := reg.Run(context.Background(), "timeout", EventGatewayInbound, nil)
+	res, err := runHook(t, reg, "timeout", nil)
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("err = %v, want ErrTimeout", err)
 	}
@@ -153,7 +173,7 @@ func TestRunTruncatesOutput(t *testing.T) {
 	reg, dir := testRegistry(t)
 	reg.maxOutput = 32
 	hookFile(t, dir, "truncate")
-	res, err := reg.Run(context.Background(), "truncate", EventGatewayInbound, nil)
+	res, err := runHook(t, reg, "truncate", nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -169,7 +189,7 @@ func TestRunEnvHasNoSecret(t *testing.T) {
 	t.Parallel()
 	reg, dir := testRegistry(t)
 	hookFile(t, dir, "env")
-	res, err := reg.Run(context.Background(), "env", EventGatewayInbound, nil)
+	res, err := runHook(t, reg, "env", nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -183,7 +203,7 @@ func TestRunRedactsKnownSecrets(t *testing.T) {
 	t.Setenv("HOOK_TEST_SECRET", "redact-me-123456")
 	reg, dir := testRegistry(t)
 	hookFile(t, dir, "redact")
-	res, err := reg.Run(context.Background(), "redact", EventGatewayInbound, nil)
+	res, err := runHook(t, reg, "redact", nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -196,7 +216,7 @@ func TestRunInvalidJSON(t *testing.T) {
 	t.Parallel()
 	reg, dir := testRegistry(t)
 	hookFile(t, dir, "garbage")
-	if _, err := reg.Run(context.Background(), "garbage", EventGatewayInbound, nil); !errors.Is(err, ErrResponse) {
+	if _, err := runHook(t, reg, "garbage", nil); !errors.Is(err, ErrResponse) {
 		t.Fatalf("err = %v, want ErrResponse", err)
 	}
 }
@@ -312,20 +332,7 @@ func hookFile(t *testing.T, dir, mode string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmp, err := os.CreateTemp(dir, ".hook-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tmp.Write(data); err != nil {
-		t.Fatal(err)
-	}
-	if err := tmp.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(tmp.Name(), 0o700); err != nil { // #nosec G302 -- fixture must be executable
-		t.Fatal(err)
-	}
-	if err := os.Rename(tmp.Name(), filepath.Join(dir, name)); err != nil {
+	if err := testutil.WriteExecutable(filepath.Join(dir, name), data, 0o700); err != nil {
 		t.Fatal(err)
 	}
 }
