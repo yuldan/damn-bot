@@ -387,7 +387,10 @@ TOTAL           190000
 # sandbox.OpenResolved di #177 + retry replace Windows di #170; terukur 5353; Σ core +15).
 # ADR-273 (F5-12 PR B): Guard/LeaseGuard pada Edit/Write + CodeConflict;
 # kode terukur 5.540, plafon 5.520 -> 5.540. Sigma core 52.056 -> 52.077.
-codetools         5540 internal/codetools
+# fix(codetools) identitas file untuk kunci edit CT27-5: Windows memakai
+# volume serial+file index dari handle; terukur 5.612, plafon 5.540 -> 5.612
+# (Sigma core 56.628 -> 56.700, plafon 56.700).
+codetools         5612 internal/codetools
 # Amandemen (W6 compaction wiring, 2026-10-23): assemble 1300 -> 1320 (view/summary block di
 # assembler adapter; terukur 1306; Σ core +20).
 # Amandemen (W7 recall/lineage, 2026-10-25): ctxdb 5816 -> 5885 (lineage CTE + Ancestor + Lineage,

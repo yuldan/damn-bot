@@ -45,44 +45,83 @@ type pathMu struct {
 	n int
 }
 
-// pathLock serializes edits of one file inside this process (CT27-5): the
-// key is the symlink-resolved path, case-folded where file systems
-// usually are (Windows, macOS), so aliases share a lock; a hard-linked
-// file, rewritten in place, is keyed by its device+inode so every name of
-// it shares one lock. Unused locks are dropped.
-func (e *Engine) pathLock(ctx context.Context, p string) func() {
-	key := e.abs(p)
-	if v, r, err := e.sb.Check(ctx, key, sandbox.OpRead); err == nil {
-		key = r
-		if fi, serr := os.Stat(r); v == sandbox.HardLinked && serr == nil {
-			// Unix: device+inode. Windows has no inode in os.FileInfo, but all
-			// names of one inode share size and mtime, so that pair serializes
-			// hard links too (unrelated same-stat files merely share a lock).
-			k := keyOf(r, fi)
-			key = fmt.Sprintf("\x00%d:%d:%d", k.dev, k.sdev, k.ino)
+// pathLock serializes edits of one file inside this process (CT27-5). Two
+// keys are taken: the symlink-resolved path, which keeps one name
+// serialized even while a commit replaces the object, and the OS identity
+// of the file (device+inode; volume serial+file index on Windows), which
+// makes every alias of one object — symlinks, hard links, case variants —
+// share the lock. Distinct files never share either key, whatever their
+// size, mtime or creation tick. A target that does not exist yet has only
+// a path key. An identity that cannot be read fails closed: no size+mtime
+// substitute is used. Unused locks are dropped.
+func (e *Engine) pathLock(ctx context.Context, p string) (func(), error) {
+	keys, err := e.lockKeys(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	ms := make([]*pathMu, len(keys))
+	for i, key := range keys {
+		e.mu.Lock()
+		m := e.locks[key]
+		if m == nil {
+			m = &pathMu{}
+			e.locks[key] = m
+		}
+		m.n++
+		e.mu.Unlock()
+		ms[i] = m
+		m.Lock()
+	}
+	e.touch()
+	return func() {
+		for i, m := range ms {
+			m.Unlock()
+			e.mu.Lock()
+			if m.n--; m.n == 0 {
+				delete(e.locks, keys[i])
+			}
+			e.mu.Unlock()
+		}
+	}, nil
+}
+
+// lockKeys returns the lock keys of p in acquisition order: its resolved
+// path first, then, for a file the sandbox has classified inside a root,
+// its OS identity. That fixed order keeps two pathLock calls sharing a key
+// from deadlocking. When the sandbox cannot classify p the lexical path
+// stands in (the operation fails later at open); a present file whose
+// identity read fails other than by absence returns IdentityError, so no
+// stat tuple stands in.
+func (e *Engine) lockKeys(ctx context.Context, p string) ([]string, error) {
+	keys := []string{e.abs(p)}
+	if v, r, err := e.sb.Check(ctx, keys[0], sandbox.OpRead); err == nil {
+		keys[0] = r
+		if id, ierr := fileIdentity(v, r); ierr == nil {
+			keys = append(keys, fmt.Sprintf("\x00%d:%d:%d", id.Vol, id.Hi, id.Lo))
+		} else if !errors.Is(ierr, fs.ErrNotExist) {
+			return nil, ierr
 		}
 	}
 	if e.fold || runtime.GOOS == "darwin" {
-		key = strings.ToLower(key)
-	}
-	e.mu.Lock()
-	m := e.locks[key]
-	if m == nil {
-		m = &pathMu{}
-		e.locks[key] = m
-	}
-	m.n++
-	e.mu.Unlock()
-	e.touch()
-	m.Lock()
-	return func() {
-		m.Unlock()
-		e.mu.Lock()
-		if m.n--; m.n == 0 {
-			delete(e.locks, key)
+		for i := range keys {
+			keys[i] = strings.ToLower(keys[i])
 		}
-		e.mu.Unlock()
 	}
+	return keys, nil
+}
+
+// fileIdentity returns the identity of sandbox-classified path r, or the
+// zero fileID when v says r is outside every root (no handle is opened
+// outside the sandbox).
+func fileIdentity(v sandbox.Verdict, r string) (fileID, error) {
+	if v != sandbox.Inside && v != sandbox.HardLinked {
+		return fileID{}, nil
+	}
+	id, err := identify(r)
+	if err == nil && id == (fileID{}) {
+		return fileID{}, &IdentityError{Path: r, Err: errors.New("zero file identity")}
+	}
+	return id, err
 }
 
 // current is a target opened for an edit with its verified bytes.
@@ -231,10 +270,13 @@ func (e *Engine) Edit(ctx context.Context, a EditArgs, o Opts) (res Result, err 
 	case len(a.Edits) == 0 || len(a.Edits) > maxEdits:
 		return res, toolErr(CodeInvalidArgs, "", "/edits: 1..%d items", maxEdits)
 	}
-	unlock := e.pathLock(ctx, a.Path)
-	defer unlock()
-	if lerr := e.checkLease(ctx, a.Path); lerr != nil {
+	unlock, lerr := e.pathLock(ctx, a.Path)
+	if lerr != nil {
 		return res, lerr
+	}
+	defer unlock()
+	if cerr := e.checkLease(ctx, a.Path); cerr != nil {
+		return res, cerr
 	}
 	o.local, err = e.sourceLocal(ctx, true)
 	if err != nil {
@@ -343,12 +385,14 @@ func (e *Engine) Write(ctx context.Context, a WriteArgs, o Opts) (res Result, er
 		return res, terr
 	}
 	abs := e.abs(a.Path)
-	unlock := e.pathLock(ctx, a.Path)
-	defer unlock()
-	if lerr := e.checkLease(ctx, a.Path); lerr != nil {
+	unlock, lerr := e.pathLock(ctx, a.Path)
+	if lerr != nil {
 		return res, lerr
 	}
-	var lerr error
+	defer unlock()
+	if cerr := e.checkLease(ctx, a.Path); cerr != nil {
+		return res, cerr
+	}
 	o.local, lerr = e.sourceLocal(ctx, true)
 	if lerr != nil {
 		return res, lerr

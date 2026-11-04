@@ -4,6 +4,7 @@ Format: Konteks / Keputusan / Konsekuensi. Status semua ADR: **diterima** kecual
 
 ---
 
+- Amandemen (ADR-273, PR fix(codetools) identitas file CT27-5): `loc.budget` codetools 5.540 → 5.612 disamakan ke nilai terukur (Σ core 56.700 ≤ 56.700); invariant kunci edit tidak berubah — satu path selalu serial, semua nama satu objek berbagi lock, objek berbeda tidak pernah berbagi.
 - Amandemen (rantai at-rest/backup ADR-124, PR ini): fix(secret): crash-safe KEK rotation and bounded keyring calls; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
 - Amandemen (rantai at-rest/backup ADR-124, PR ini): feat(backup): add X25519 backup keys and authenticated DMBK1 header; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
 - Amandemen (rantai at-rest/backup ADR-124, PR ini): feat(backup): stream DMBK1 payload chunks; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
@@ -6391,3 +6392,12 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 **Amandemen (sqlite-engine per tier, 2026-11-04).** GAP-REL-04 tetap gate wajib, tetapi matrix `sqlite-engine` dipersempit di `pr`: tiga leg Linux (`linux/amd64` run, `linux/arm` cross, `android/arm64` cross). Lima leg berrunner mahal (`ubuntu-24.04-arm`, `darwin/arm64`, `darwin/amd64`, `windows/amd64`, `windows/arm64`) hanya berjalan di tier `full` (`merge_group`, nightly, `workflow_dispatch`). `changes` menghasilkan `sqlite_matrix` per tier; job `sqlite-engine` dan namanya tidak berubah, dan `ci-required` tetap mewajibkannya `success` di `pr` dan `full` (self-test ditambah kasus `sqlite-engine pr-tier success` dan `sqlite-engine pr-tier skipped` → 18 kasus).
 
 **Dampak amandemen.** PR: **19 → 14 instance** (8 → 3 leg sqlite), check **21 → 16**, estimasi runner-menit tertimbang **≈70 → ≈34**. `full` tetap 30 instance/8 leg; `push main` tetap 5. Catatan aritmetik: brief menyebut 19→16 dan ±50; 8−3=5 leg berarti 19−5=**14** dan penghematan bobot macOS/Windows ≈36 menit. Angka 16 hanya berlaku bila tiga leg dipindah, bukan lima. Tidak ada gate yang dihapus: seluruh 8 target tetap dijalankan di `full`, dan tiga target Linux tetap di PR.
+## ADR-325 — Plafon binary `minimal` 22,1 MB untuk perbaikan identitas file CT27-5
+
+**Konteks.** P13 (`SPEC.md` §2) dan E-60 menetapkan `-tags goolm,minimal` ≤ 22.000.000 B desimal. Pada main `6e9a2875` build minimal terukur **21.999.778 B** — headroom **222 B** (99,999% plafon terpakai). Perbaikan korektnes Windows untuk kunci edit (`CT27-5`) mengganti identitas `dev/ino` yang gagal dengan `VolumeSerialNumber`+`FileIndexHigh/Low` lewat handle; kode ini dibutuhkan juga di build minimal (code tools ikut tertaut), sehingga binary minimal menjadi **22.007.970 B** dan gate `make size-check` gagal **+7.970 B**.
+
+**Keputusan.** Plafon minimal P13/E-60 dinaikkan **22.000.000 → 22.100.000 B** (±100 KB headroom). Full tetap **52.000.000 B**; arsip rilis tetap **22.000.000 B**; plafon LOC/Σ core tidak berubah. `scripts/size-check.sh` memakai `MINIMAL_MAX=22100000`, `SPEC.md` P13/§2/§18 dan `docs/ENGINEERING.md` E-60 disinkronkan ke angka itu.
+
+**Konsekuensi.** (+) Perbaikan identitas tetap ada di build minimal, bukan hanya build penuh; ambang P13 tetap konservatif (0,45% di atas pemakaian nyata). (−) Headroom bertambah ~92 KB; setiap PR wajib melaporkan angka `make size-check` minimal, dan tren kenaikan harus diikuti PR penghematan (pola ADR-302: kode fitur baru di-gate `!minimal` bila tidak dibutuhkan build ringkas).
+
+**Bukti.** Isolasi pada worktree `origin/main` + hanya `internal/codetools/{ident*.go,edittool.go}`: minimal 21.999.778 → **22.007.970 B**; delta section `.text` +1.984 B, `.rodata` +544 B, `.gopclntab` +1.604 B, `.typelink`/`.itablink` +16 B, sisanya alignment halaman. Simbol baru ~1.775 B (`lockKeys` 843, `identify` 330, `fileIdentity` 326, `IdentityError` eq/Error/itab/Unwrap ~276). `make size-check` head #708 setelah amandemen: full **33.341.602 B**/52.000.000, minimal **22.007.970 B**/22.100.000.
