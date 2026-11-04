@@ -17,6 +17,7 @@ Format: Konteks / Keputusan / Konsekuensi. Status semua ADR: **diterima** kecual
 - Amandemen (rantai at-rest/backup ADR-124, PR ini): test(e2e): encrypt, backup, restore and continue the real binary; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
 - Amandemen (rantai at-rest/backup ADR-124, PR ini): test(ctxdb): satisfy lint in the encrypted layout tests; baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
 - Amandemen (rantai at-rest/backup ADR-124, PR ini): test(e2e): spill tool output through the real binary (SEC7-66/68); baris `loc.budget` yang disentuh disamakan ke nilai terukur pada pohon langkah ini.
+
 ## ADR-001 — Bahasa implementasi: Go
 
 **Konteks.** Target: single static binary, startup ≤ 100 ms, RSS idle ≤ 50 MB, cross-compile Linux/macOS/Windows amd64+arm64. Toolchain terpasang: Go 1.26.8; Rust dan Bun tidak. Hermes (Python + Node) butuh 1,6–2,1 s hanya untuk import (BASELINE §6).
@@ -6315,6 +6316,7 @@ MODULE computeruse  2000 internal/computeruse
 - Amandemen (ADR-323, PR MEDIA-007): mem-flip `MEDIA-007` ke `LULUS` dengan `TestF6MEDIA007TTSProviders` (11 provider dipanggil lewat wire eksplisit, termasuk HTTP fake dan fixture argv) dan opt-in `tts_allow_unofficial` untuk backend tidak resmi `edge`; baris parity `MEDIA-007` menjadi `LULUS`. Terukur pada rebase di atas main `754febe1`: `config` 2425 → **2426**, Σ core **56.627 → 56.628**, plafon core **56.700 tetap**.
 - Amandemen (ADR-323, PR #689): P4b cache/docs/audio menutup MEM-037, GAP-COST-05, GAP-TOOL-01/02/07 di `docs/F6-ACCEPTANCE.md` (MEM-037 parity `planned`→`LULUS`). Eviksi gambar per batch 80%→50% dengan stub `blob_sha` dan replay terverifikasi; batas zip 256 MiB/10.000 entri; korpus 40 dokumen; MP3 80 MB terchunk internal (M4A memakai gate `ErrContainerUnavailable` main); DOC-013 ffmpeg hint. `loc.budget` `compaction 900→1000` (terukur 987); Σ core 56.521→56.621, plafon 56.600→56.700.
 - Amandemen (ADR-323, PR #690): P4b slash/UI menutup SLASH-098, SLASH-099, dan UI-008 di `docs/F6-ACCEPTANCE.md` serta baris parity F6 yang sama (`planned`→`LULUS`). `/paste` dan `/image` membaca gambar via seam host (clipboard eksternal/workspace gate + preflight), hanya metadata masuk transkrip, dan `attachImages` mengirim byte ke provider vision; gateway menjawab CLI-only. Tanpa kenaikan budget core.
+- Amandemen (ADR-323, PR #696): baris "Smoke E3" pada §1 dan §9 `BELUM`→`LULUS` setelah run berbayar 10/10 task E3 lewat `bench/h2h` dengan artefak `bench/evals/results/F6-e3.json` dan penjaga skema `TestF6E3Artifact`; kriteria, cap, model default, dan harga tidak berubah.
 
 **Dampak terukur.** Gate berada di `internal/archtest/parity_phase_test.go` (test-only), jadi tidak ada penambahan baris Go non-test: `loc.budget`, Σ core, `MODULE`, dan `TOTAL` tidak berubah pada pohon ini; `pr-meta size` = 0 baris. Dokumen berubah: `docs/DECISIONS.md` (blok ini), `docs/F6-ACCEPTANCE.md` (aturan), `docs/FEATURE-PARITY.md` (legenda), `CHANGELOG.md`. Tes: `TestF6LedgerClosed`, `TestF6LedgerGateRules`, `TestParityPhaseColumn` (hijau pada `PHASE=F6`; menolak `PHASE=F7` dengan baris `planned`/`BELUM`).
 
