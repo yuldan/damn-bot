@@ -55,7 +55,7 @@ Aturan gate:
 | TOOL-012 | `browser_scroll` | scroll halaman/elemen dengan clamp batas; tanpa layout → error jelas | `TestF6TOOL012BrowserScroll` | BELUM | F6-04c |
 | TOOL-013 | `browser_snapshot` | accessibility tree ringkas ≤ P5; ref stabil; field sensitif diredaksi | `TestF6TOOL013BrowserSnapshot` | BELUM | F6-04b |
 | TOOL-014 | `browser_type` | teks masuk ke field; nilai tidak muncul di log/event; effect `non_idempotent` | `TestF6TOOL014BrowserType` | BELUM | F6-04c |
-| TOOL-015 | `browser_vault` | autofill hanya dari vault; nilai secret tidak pernah dicetak; approval setiap call; profil nyata opt-in | `TestF6TOOL015BrowserVault` | BELUM | F6-04c |
+| TOOL-015 | `browser_vault` | autofill hanya dari vault; nilai secret tidak pernah dicetak; approval setiap call; profil nyata opt-in | `TestF6TOOL015BrowserVault` | LULUS | F6-04c |
 | TOOL-016 | `browser_vision` | screenshot → vision model; preflight ukuran; hasil `<untrusted>` | `TestF6TOOL016BrowserVision` | LULUS | F6-04c, F6-03a |
 | TOOL-017 | `browser_cdp` | allowlist method aman; method sensitif (`Network.*Cookies`, `Storage.*`, `Runtime.evaluate`, `Debugger.*`, `Fetch.*`, `Target.*`, `Browser.*`) approval per call tanpa `allow_session`; `file:` butuh approval | `TestCDPAllowlist`, `TestF6TOOL017BrowserCDP` | LULUS | F6-04d |
 | TOOL-018 | `browser_dialog` | alert/confirm/prompt dijawab; teks dialog tidak dieksekusi; default dismiss | `TestF6TOOL018BrowserDialog` | LULUS | F6-04d |

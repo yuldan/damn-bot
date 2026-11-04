@@ -128,6 +128,9 @@ func TestModulesBrowserEngines(t *testing.T) {
 		"dialog_allow = [\"alert\", \"confirm\", \"prompt\", \"alert\"]",
 		"engine = \"browser-use\"\nuse_bin = \"browser-use\"",
 		"engine = \"cdp\"\ncdp_url = \"ws://127.0.0.1:9222/x\"\nuse_bin = \"/usr/local/bin/browser-use\"",
+		"vault_user_env = \"VAULT_USER\"",
+		"vault_user_env = \"VAULT_USER\"\nvault_password_env = \"VAULT_USER\"",
+		"vault_user_env = \"VAULT USER\"\nvault_password_env = \"VAULT_PASS\"",
 	} {
 		if _, err := parse(t, "[modules.browser]\n"+body+"\n"); err == nil {
 			t.Errorf("section %q loaded", body)
@@ -141,6 +144,7 @@ func TestModulesBrowserEngines(t *testing.T) {
 		"engine = \"cdp\"\ncdp_url = \"ws://127.0.0.1:9222/x\"",
 		"dialog_allow = [\"alert\", \"confirm\"]",
 		"engine = \"browser-use\"\nuse_bin = " + absBin,
+		"vault_user_env = \"VAULT_USER\"\nvault_password_env = \"VAULT_PASS\"",
 	} {
 		if _, err := parse(t, "[modules.browser]\n"+body+"\n"); err != nil {
 			t.Errorf("section %q: %v", body, err)

@@ -332,7 +332,7 @@ heal              1500 internal/heal
 # scc). netx 1866 -> 1871 (egress `browser`, +5). Sigma core 56.184 ->
 # 56.243; plafon core 56.200 -> 56.300 (ceil ratusan, headroom 57).
 # MODULE browser terukur 1410/5500.
-config            2305 internal/config
+config            2316 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.

@@ -27,16 +27,18 @@ type ModulesWeb struct {
 // public https gateway and LightpandaBin an absolute CLI path. An empty
 // endpoint fails closed instead of guessing a port or another engine.
 type ModulesBrowser struct {
-	Enabled       bool     `toml:"enabled"`
-	Engine        string   `toml:"engine"`
-	CDPURL        string   `toml:"cdp_url"`
-	CamofoxURL    string   `toml:"camofox_url"`
-	LightpandaBin string   `toml:"lightpanda_bin"`
-	CloudURL      string   `toml:"cloud_url"`
-	AllowOrigins  []string `toml:"allow_origins"`
-	LocalProfile  bool     `toml:"local_profile"`
-	DialogAllow   []string `toml:"dialog_allow"`
-	UseBin        string   `toml:"use_bin"`
+	Enabled          bool     `toml:"enabled"`
+	Engine           string   `toml:"engine"`
+	CDPURL           string   `toml:"cdp_url"`
+	CamofoxURL       string   `toml:"camofox_url"`
+	LightpandaBin    string   `toml:"lightpanda_bin"`
+	CloudURL         string   `toml:"cloud_url"`
+	AllowOrigins     []string `toml:"allow_origins"`
+	LocalProfile     bool     `toml:"local_profile"`
+	DialogAllow      []string `toml:"dialog_allow"`
+	UseBin           string   `toml:"use_bin"`
+	VaultUserEnv     string   `toml:"vault_user_env"`
+	VaultPasswordEnv string   `toml:"vault_password_env"`
 }
 
 // ModulesMedia is [modules.media] (ADR-310, ADR-318): explicit image/video backends, key-gated.
@@ -83,20 +85,11 @@ type ModulesComputerUse struct {
 // key error, not a missing-module error) and each landed module validates its
 // own closed catalog, limits and paths at load (ADR-311/313/318/319/320).
 func (m *Modules) validateF6() error {
-	if err := m.validateWeb(); err != nil {
-		return err
-	}
-	if err := m.validateBrowser(); err != nil {
-		return err
-	}
-	if err := m.validateMedia(); err != nil {
-		return err
-	}
-	if err := m.validateVoice(); err != nil {
-		return err
-	}
-	if err := m.validateComputerUse(); err != nil {
-		return err
+	checks := []func() error{m.validateWeb, m.validateBrowser, m.validateMedia, m.validateVoice, m.validateComputerUse}
+	for _, check := range checks {
+		if err := check(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -128,18 +121,38 @@ func (m *Modules) validateBrowser() error {
 		(len(bin) > 1024 || !filepath.IsAbs(bin) || strings.ContainsAny(bin, "\x00\r\n")) {
 		return invalid("modules.browser.lightpanda_bin", "must be an absolute path without control characters")
 	}
-	if bin := b.UseBin; bin != "" {
-		if len(bin) > 1024 || !filepath.IsAbs(bin) || strings.ContainsAny(bin, "\x00\r\n") {
-			return invalid("modules.browser.use_bin", "must be an absolute path without control characters")
-		}
-		if b.Engine != "" && b.Engine != "browser-use" {
-			return invalid("modules.browser.use_bin", "requires engine browser-use")
-		}
+	if err := browserOptions(&b); err != nil {
+		return err
 	}
 	if err := browserAmbiguous(&b); err != nil {
 		return err
 	}
 	return browserDialogs(b.DialogAllow)
+}
+
+// browserOptions keeps the credential seam variables honest (both or neither,
+// valid names, two different variables) and the Browser Use CLI path explicit.
+func browserOptions(b *ModulesBrowser) error {
+	if (b.VaultUserEnv == "") != (b.VaultPasswordEnv == "") {
+		return invalid("modules.browser.vault_user_env", "vault_user_env and vault_password_env must be set together")
+	}
+	if b.VaultUserEnv != "" && (!isEnvName(b.VaultUserEnv) || !isEnvName(b.VaultPasswordEnv)) {
+		return invalid("modules.browser.vault_user_env", "must be environment variable names")
+	}
+	if b.VaultUserEnv != "" && b.VaultUserEnv == b.VaultPasswordEnv {
+		return invalid("modules.browser.vault_user_env", "the two vault variables must differ")
+	}
+	bin := b.UseBin
+	if bin == "" {
+		return nil
+	}
+	if len(bin) > 1024 || !filepath.IsAbs(bin) || strings.ContainsAny(bin, "\x00\r\n") {
+		return invalid("modules.browser.use_bin", "must be an absolute path without control characters")
+	}
+	if b.Engine != "" && b.Engine != "browser-use" {
+		return invalid("modules.browser.use_bin", "requires engine browser-use")
+	}
+	return nil
 }
 
 func browserEndpoint(field, raw string, loopback, ws, tlsPublic bool) error {
