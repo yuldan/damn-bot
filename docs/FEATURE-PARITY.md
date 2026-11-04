@@ -28,6 +28,10 @@ Checklist parity resmi Damn-Bot 1.0 terhadap `hermes-agent` (snapshot `868b9f244
 
 Angka kunci terverifikasi: **88 tool** (= `get_all_tool_names()`), **33 toolset** registry, **27 adapter** `plugins/platforms/` (+3 surface `gateway/platforms/`), **50 profil provider** (41 direktori), **72 subcommand** top-level, **103 slash command**, **58** skill bawaan + **153** optional skill, **65** optional MCP, **645** entri plugin-catalog, **17** bahasa i18n.
 
+## Status baris F6 (ADR-323)
+
+Baris berfase F6 memakai status `planned` sampai PR penutupnya mendarat. Sebuah baris F6 hanya boleh menjadi `LULUS` bila PR yang sama menambah tes bernama di `docs/F6-ACCEPTANCE.md`, menjalankannya hijau, dan mengubah baris ledger `BELUM`→`LULUS`. Baris yang tidak dapat dibuktikan memakai `N/A — <alasan teknis> (carryover F7)`. Setelah `PHASE` > F6, `TestParityPhaseColumn` menolak baris F6 yang masih `planned` dan `TestF6LedgerClosed` menolak ledger yang masih `BELUM`; selama `PHASE=F6` gate tidak aktif.
+
 ## Metode inventaris
 
 Snapshot sumber: `hermes-agent` commit `868b9f244f` (2026-10-17). Repo hermes hanya dibaca. Semua skrip dijalankan dengan
