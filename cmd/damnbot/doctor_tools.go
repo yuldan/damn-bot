@@ -19,6 +19,7 @@ type doctorToolsArgs struct {
 	name       string
 	positional []string
 	jsonOut    bool
+	yes        bool
 }
 
 // runDoctorTools implements `damnbot doctor tools ls|fetch|verify` (SPEC §10,
@@ -38,6 +39,8 @@ func runDoctorTools(args []string, stdout, stderr io.Writer) int {
 		return doctorToolsList(parsed, stdout, stderr)
 	case "verify":
 		return doctorToolsVerify(parsed, stdout, stderr)
+	case "fetch":
+		return runDoctorToolsFetch(parsed, stdout, stderr)
 	default:
 		say(stderr, "doctor tools: unknown subcommand %q\n", cleanArg(parsed.sub))
 		doctorToolsUsage(stderr)
@@ -50,6 +53,7 @@ func parseDoctorTools(args []string, stderr io.Writer) (doctorToolsArgs, bool) {
 	flags := flag.NewFlagSet("doctor tools "+parsed.sub, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	jsonOut := flags.Bool("json", false, "machine-readable status")
+	yes := flags.Bool("yes", false, "confirm the displayed license for fetch")
 	// Flags may follow the subcommand (Go's flag package stops at the first
 	// positional), so split them out before parsing.
 	flagsOnly := make([]string, 0, len(args))
@@ -63,7 +67,7 @@ func parseDoctorTools(args []string, stderr io.Writer) (doctorToolsArgs, bool) {
 	if err := flags.Parse(flagsOnly); err != nil {
 		return parsed, false
 	}
-	parsed.jsonOut = *jsonOut
+	parsed.jsonOut, parsed.yes = *jsonOut, *yes
 	if len(parsed.positional) > 1 {
 		doctorToolsUsage(stderr)
 		return parsed, false
@@ -163,7 +167,7 @@ func printToolStatuses(list []doctor.ToolStatus, asJSON bool, stdout, stderr io.
 }
 
 func doctorToolsUsage(w io.Writer) {
-	say(w, "usage: damnbot doctor tools <ls|verify> [<name>] [--json]\n")
+	say(w, "usage: damnbot doctor tools <ls|fetch|verify> [<name>] [--json] [--yes]\n")
 }
 
 // doctorDataDir resolves the same data dir the rest of doctor uses.

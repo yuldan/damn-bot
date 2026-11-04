@@ -26,47 +26,6 @@ Aturan gate:
 | Carryover F5→F6 | tiga item DITUNDA/N/A F5 ditutup | tabel §10; anggota (`BELUM` di head ini): `F5-CODEINTEL-LANG`, `F5-BACKGROUND-WINDOWS`, `GAP-REL-14 residual` | BELUM |
 
 Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengkap** (dua dimensi ADR-065/083 × dua agen, `TestF6HermesBaseline` + `TestF6BaselineArtifactSchema` hijau), bukan klaim target waktu tercapai. Artefak `bench/speed/results/hermes-868b9f244f-F6.json` diukur di workstation, bukan Q14. Verdict `image_preflight` = `fail`: Damn-Bot 265,0 ms dan hermes 453,5 ms terhadap target 150 ms yang hanya sah di Q14; target itu tetap `N/A — hardware` (ADR-323, §12) dan pengukuran Q14 tetap carryover F7. Verdict `voice_end_to_end` = `pass`: Damn-Bot 0,08 ms overhead / 0,05 ms TTS start, hermes 1,60 ms / 1,60 ms.
-
-## 2. Ledger parity F6 — CLI (2)
-
-| ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
-|---|---|---|---|---|---|
-| CLI-006 | `browser` (close-profile) | profil Chromium yang mengunci direktori ditutup; profil lain tidak disentuh; tanpa browser → error jelas, bukan panic | `TestF6CLI006BrowserCloseProfile` (unit) + `TestF6CLI006BrowserCloseProfileE2E` | LULUS | F6-04j |
-| CLI-054 | `computer-use` (install, status, doctor, permissions, screen) | lima subperintah berjalan; install idempoten di data dir dengan verifikasi SHA-256, doctor tidak memulai backend, `permissions` read-only tanpa grant; `screen` butuh approval per capture | `TestF6CLI054CUASubcommands` | LULUS | F6-06c |
-
-## 3. Ledger parity F6 — SLASH (5)
-
-| ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
-|---|---|---|---|---|---|
-| SLASH-063 | `/voice` on/off/tts/status | toggle tersimpan di config; status jujur; tanpa executable audio → `module_unavailable` | `TestF6SLASH063Voice` | LULUS | F6-05h |
-| SLASH-064 | `/wake` on/off/status | listener hanya aktif opt-in; engine eksternal hilang → pesan instalasi | `TestF6SLASH064Wake` | LULUS | F6-05g |
-| SLASH-084 | `/browser` connect/disconnect/status/use | koneksi CDP nyata/fake; `real_profile` butuh approval per sesi; disconnect menutup sesi | `TestF6SLASH084Browser` (TUI + gateway) | LULUS | F6-04h, F6-04j |
-| SLASH-098 | `/paste` | gambar clipboard dibaca lewat executable eksternal; tidak ada gambar → pesan; isi tidak bocor ke log | `TestF6SLASH098Paste` | LULUS | F6-03a |
-| SLASH-099 | `/image <path>` | gambar lokal dilampirkan dan melewati preflight; path di luar workspace mengikuti gate path | `TestF6SLASH099Image` | LULUS | F6-03a |
-
-## 4. Ledger parity F6 — TOOL (24)
-
-| ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
-|---|---|---|---|---|---|
-| TOOL-006 | `browser_back` | kembali satu riwayat; tanpa riwayat → error typed, bukan no-op | `TestF6TOOL006BrowserBack` | LULUS | F6-04c |
-| TOOL-007 | `browser_click` | klik berdasarkan ref snapshot; ref basi/asing → error tanpa klik | `TestF6TOOL007BrowserClick` | LULUS | F6-04c |
-| TOOL-008 | `browser_console` | hanya membaca log console/buffer terbatas; body lewat redaksi; tidak mengeksekusi halaman | `TestF6TOOL008BrowserConsole` | LULUS | F6-04c |
-| TOOL-009 | `browser_get_images` | daftar gambar + ukuran; hasil `<untrusted>` | `TestF6TOOL009BrowserGetImages` | LULUS | F6-04c |
-| TOOL-010 | `browser_navigate` | tolak loopback/privat/link-local/CGNAT/metadata dan blocklist; dial ke IP tervalidasi; hasil `<untrusted>` | `TestF6TOOL010BrowserNavigate` | LULUS | F6-04c, F6-01e |
-| TOOL-011 | `browser_press` | tombol key didispatch ke halaman; key tak dikenal → `invalid_args` | `TestF6TOOL011BrowserPress` | LULUS | F6-04c |
-| TOOL-012 | `browser_scroll` | scroll halaman/elemen dengan clamp batas; tanpa layout → error jelas | `TestF6TOOL012BrowserScroll` | LULUS | F6-04c |
-| TOOL-013 | `browser_snapshot` | accessibility tree ringkas ≤ P5; ref stabil; field sensitif diredaksi | `TestF6TOOL013BrowserSnapshot` | LULUS | F6-04b |
-| TOOL-014 | `browser_type` | teks masuk ke field; nilai tidak muncul di log/event; effect `non_idempotent` | `TestF6TOOL014BrowserType` | LULUS | F6-04c |
-| TOOL-015 | `browser_vault` | autofill hanya dari vault; nilai secret tidak pernah dicetak; approval setiap call; profil nyata opt-in | `TestF6TOOL015BrowserVault` | LULUS | F6-04c |
-| TOOL-016 | `browser_vision` | screenshot → vision model; preflight ukuran; hasil `<untrusted>` | `TestF6TOOL016BrowserVision` | LULUS | F6-04c, F6-03a |
-| TOOL-017 | `browser_cdp` | allowlist method aman; method sensitif (`Network.*Cookies`, `Storage.*`, `Runtime.evaluate`, `Debugger.*`, `Fetch.*`, `Target.*`, `Browser.*`) approval per call tanpa `allow_session`; `file:` butuh approval | `TestCDPAllowlist`, `TestF6TOOL017BrowserCDP` | LULUS | F6-04d |
-| TOOL-018 | `browser_dialog` | alert/confirm/prompt dijawab; teks dialog tidak dieksekusi; default dismiss | `TestF6TOOL018BrowserDialog` | LULUS | F6-04d |
-| TOOL-019 | `browser_exec` | hanya aktif saat backend `browser-use`; menggantikan tool browser lain; backend absen → fail-closed | `TestF6TOOL019BrowserExec` | LULUS | F6-04i |
-| TOOL-023 | `computer_use` | setiap aksi input butuh approval kecuali `approval.mode=auto` + `allow_auto` (build ini selalu approval, tanpa jalur auto); screenshot diredaksi dari prompt dan dilampirkan sebagai attachment ter-taint | `TestF6TOOL023ComputerUseApproval` | LULUS | F6-06b |
-| TOOL-054 | `image_generate` | backend eksplisit; preview harga + approval; hasil blob; field `backend`; cap tool berlaku | `TestF6TOOL054ImageGenerate` | LULUS | F6-03c, F6-03g |
-| TOOL-080 | `text_to_speech` | 11 provider; MIME/ekstensi jujur; Opus/OGG diprioritaskan; provider command tanpa shell + timeout | `TestF6TOOL080TextToSpeech` | LULUS | F6-05c |
-| TOOL-081 | `video_analyze` | toolset `video` default off; video multimodal; hasil `<untrusted>`; ukuran dibatasi | `TestF6TOOL081VideoAnalyze` | LULUS | F6-03e |
-| TOOL-082 | `video_generate` | selalu approval + preview harga; cap dicek sebelum dispatch; kunci idempotensi; kegagalan tak pasti = `uncertain` tanpa retry | `TestF6TOOL082VideoGenerate` | LULUS | F6-03d, F6-03g |
 | TOOL-083 | `xai_video_edit` | hanya backend xAI; approval + harga; hasil blob | `TestF6TOOL083XAIVideoEdit` | LULUS | F6-03d |
 | TOOL-084 | `xai_video_extend` | perpanjang video xAI; approval + harga; batas durasi | `TestF6TOOL084XAIVideoExtend` | LULUS | F6-03d |
 | TOOL-085 | `vision_analyze` | gate `capabilities.vision`; preflight resize; usage `purpose=media`; model teks-only → penolakan sebelum panggilan | `TestF6TOOL085VisionAnalyze` | BELUM | F6-03b |
@@ -157,7 +116,7 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | GAP-COST-12 | 3 subagent query identik → 1 panggilan vendor; 2 profil query sama → 0 hit silang; TTL 20/60 menit; `cached=true`; kunci setelah gerbang SSRF | `TestWebCacheIsolation` | LULUS |
 | GAP-TOOL-01 | korpus 40 dokumen terbaca; round-trip tulis→baca 20 dokumen; `no_text_layer`/`unsupported`/`too_large` typed | `TestF6DocCorpus`, `FuzzDocRead` | LULUS |
 | GAP-TOOL-02 | zip-bomb 10 GB uncompressed → error terkontrol, RSS < 100 MB; batas 256 MiB/100:1/10.000 entri/kedalaman 256; PDF ≤ 5.000 objek/halaman | `TestF6DocLimits` | LULUS |
-| GAP-TOOL-06 | `doctor tools fetch/verify/ls` dengan lockfile sha256; byte rusak ditolak; lisensi dikonfirmasi; model tidak diunduh | `TestToolsLockComplete`, `TestF6ToolsFetch` | BELUM |
+| GAP-TOOL-06 | `doctor tools fetch/verify/ls` dengan lockfile sha256; byte rusak ditolak; lisensi dikonfirmasi; model tidak diunduh | `TestToolsLockComplete`, `TestF6GAPTOOL06DoctorTools` | LULUS |
 | GAP-TOOL-07 | host tanpa ffmpeg: 0 MIME salah; MP3 80 MB terchunk internal; M4A → `module_unavailable`; hint `doctor tools fetch ffmpeg` | `TestF6AudioMIME` | LULUS |
 | GAP-TOOL-09 | matriks env acak → backend identik; 100% hasil memuat `backend`; fallback hanya dari config + label; backend tidak resmi `tos_risk` opt-in dan bukan default | `TestF6BackendSelection` | LULUS |
 
