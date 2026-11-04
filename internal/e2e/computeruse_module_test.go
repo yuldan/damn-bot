@@ -13,14 +13,17 @@ import (
 )
 
 // cuaFixtureSource is the external cua backend the scenarios drive. It appends
-// every argv to $CUA_LOG and answers screenshot with a 5.008-byte PNG (magic +
-// filler), so the module's byte cap can be exercised without a real screen.
+// every argv to $CUA_LOG and answers screenshot with a decodable 5.008-byte
+// PNG, so both the module byte cap and the provider image preflight run
+// without a real screen.
 const cuaFixtureSource = `package main
 
 import (
 	"os"
 	"strings"
 )
+
+const basePNG = "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xae\x42\x60\x82"
 
 func main() {
 	f, err := os.OpenFile(os.Getenv("CUA_LOG"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
@@ -30,7 +33,7 @@ func main() {
 	_, _ = f.WriteString(strings.Join(os.Args[1:], " ") + "\n")
 	_ = f.Close()
 	if len(os.Args) > 1 && os.Args[1] == "screenshot" {
-		_, _ = os.Stdout.WriteString("\x89PNG\r\n\x1a\n" + strings.Repeat("0123456789", 500))
+		_, _ = os.Stdout.WriteString(basePNG + strings.Repeat("0", 5008-len(basePNG)))
 		return
 	}
 	_, _ = os.Stdout.WriteString("ok")
@@ -98,12 +101,12 @@ func cuaLogLines(t *testing.T, path string) []string {
 	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
 
-// TestF6ComputerUseE2E is the W5 proof on the real binary: activation starts
-// the external backend, a denied click runs zero actions, an approved click
-// reaches it, a bounded screenshot lands tainted as
-// <untrusted source="computer_use:process">, and the CLI start/stop lifecycle
-// asks once before opening or closing it.
-func TestF6ComputerUseE2E(t *testing.T) {
+// TestF6EXEC036CUAApproval is the EXEC-036 proof on the real binary:
+// activation starts the external backend, a denied click runs zero actions, an
+// approved click reaches it, a bounded screenshot lands tainted as
+// <untrusted source="computer_use:process">, and the CLI start/stop and screen
+// commands ask once before touching it.
+func TestF6EXEC036CUAApproval(t *testing.T) {
 	t.Parallel()
 	bin, log := writeCuaFixture(t)
 	e := NewTrusted(t,
@@ -122,7 +125,13 @@ func TestF6ComputerUseE2E(t *testing.T) {
 	if !strings.Contains(last, `\"code\":\"denied\"`) {
 		t.Fatalf("denial missing from transcript:\n%.1200s", last)
 	}
-	// The CLI lifecycle asks once before touching the backend.
+	cuaCLISurface(t, e, log)
+}
+
+// cuaCLISurface proves the CLI lifecycle and screen capture ask once before
+// touching the backend.
+func cuaCLISurface(t *testing.T, e *Env, log string) {
+	t.Helper()
 	if start := e.Exec("cua", "start", "--config", e.cfg); start.Code != 4 ||
 		!strings.Contains(start.Stderr, "computer_use start backend=process") {
 		t.Fatalf("unapproved start = %+v", start)
@@ -132,6 +141,29 @@ func TestF6ComputerUseE2E(t *testing.T) {
 	}
 	if stop := e.Exec("cua", "stop", "--config", e.cfg, "--yes"); stop.Code != 0 || !strings.Contains(stop.Stdout, "stopped") {
 		t.Fatalf("approved stop = %+v", stop)
+	}
+	cuaScreenSurface(t, e, log)
+}
+
+func cuaScreenSurface(t *testing.T, e *Env, log string) {
+	t.Helper()
+	shot := filepath.Join(t.TempDir(), "screen.png")
+	if deny := e.ExecEnv([]string{"CUA_LOG=" + log}, "cua", "screen", "--config", e.cfg, "--out", shot); deny.Code != 4 ||
+		!strings.Contains(deny.Stderr, "computer_use screen backend=process") {
+		t.Fatalf("unapproved screen = %+v", deny)
+	}
+	if lines := cuaLogLines(t, log); len(lines) != 0 {
+		t.Fatalf("unapproved screen reached the backend: %v", lines)
+	}
+	ok := e.ExecEnv([]string{"CUA_LOG=" + log}, "cua", "screen", "--config", e.cfg, "--out", shot, "--yes")
+	if ok.Code != 0 || !strings.Contains(ok.Stdout, `untrusted source="computer_use:process"`) {
+		t.Fatalf("approved screen = %+v", ok)
+	}
+	if lines := cuaLogLines(t, log); len(lines) != 1 || lines[0] != "screenshot" {
+		t.Fatalf("screen backend argv = %v", lines)
+	}
+	if png, err := os.ReadFile(shot); err != nil || len(png) != 5008 { // #nosec G304,G703 -- fixture path under t.TempDir()
+		t.Fatalf("screen attachment = %d bytes, %v", len(png), err)
 	}
 }
 
@@ -147,6 +179,16 @@ func TestF6ComputerUseApprovedE2E(t *testing.T) {
 		providertest.Text("done"),
 	)
 	writeComputerUseConfig(t, e, true, bin, 8192)
+	// The screenshot result is an image attachment, so the primary route must
+	// declare vision; a text-only route correctly refuses it (EC-PROV-024).
+	body, err := os.ReadFile(e.cfg) // #nosec G304 -- harness config under t.TempDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vision := string(body) + "\n[[providers.custom]]\nname = \"openai\"\noverride = true\nbase_url = " + strconv.Quote(e.Server.URL) + "\nmodels = [{id = \"gpt-fake\", capabilities = [\"vision\"]}]\n"
+	if err := os.WriteFile(e.cfg, []byte(vision), 0o600); err != nil { // #nosec G703 -- harness config under t.TempDir()
+		t.Fatal(err)
+	}
 	res := e.ExecStdinEnv("y\n", []string{"CUA_LOG=" + log}, cuaRunArgs(e, "click and capture")...)
 	res.RequireOK(t)
 	lines := cuaLogLines(t, log)

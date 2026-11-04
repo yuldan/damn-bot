@@ -277,10 +277,15 @@ func (m *Module) Act(ctx context.Context, callID string, a *Action) (host.Result
 	if a.Kind != ActionScreenshot {
 		return host.Result{Content: cmp.Or(strings.TrimSpace(res.Output), summary(a))}, nil
 	}
+	att := host.Attachment{Kind: host.AttachmentImage, Name: "screenshot.png", MIME: "image/png", Data: res.Image}
+	if err := att.Validate(); err != nil {
+		return host.Result{}, fmt.Errorf("%w: %w", ErrBackend, err)
+	}
 	return host.Result{
 		Content:         fmt.Sprintf("screenshot %d bytes", len(res.Image)),
 		Meta:            map[string]any{"action": string(a.Kind), "bytes": len(res.Image), "backend": m.backendName()},
 		UntrustedSource: "computer_use:" + m.backendName(),
+		Attachments:     []host.Attachment{att},
 	}, nil
 }
 
