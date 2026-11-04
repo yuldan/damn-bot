@@ -78,7 +78,9 @@ func surface() []surfaceEntry {
 		{Name: "update", Summary: "Atomic self-update with rollback and channels", Phase: phaseF3, Run: runUpdate, Usage: updateUsage},
 		{Name: "version", Summary: "Version, commit, DB schema, compiled-in modules", Phase: phaseF1, Run: runVersion, Builtin: true},
 	}
-	return append(append(entries, mcpSurface()...), cuaSurface()...)
+	entries = append(entries, mcpSurface()...)
+	entries = append(entries, cuaSurface()...)
+	return append(entries, browserSurface()...)
 }
 
 // lookupSurface mencari nama perintah persis (tanpa alias: SPEC §10 menolak
