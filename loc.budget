@@ -446,7 +446,7 @@ MODULE delegate    2000 internal/delegate
 # Σ core tidak berubah oleh baris-baris ini. Kode fondasi 0 (paket doc.go).
 MODULE webtools     3000 internal/webtools
 # ADR-321: seam engine + Camoufox/Lightpanda/cloud wire; terukur 1117/5500.
-# Amandemen paritas PR A (TOOL-008/009 console+get_images): terukur 2377/5500 di atas rantai #668/#669/#671.
+# Amandemen paritas PR A (TOOL-008/009 console+get_images): terukur 2376/5500 di atas rantai #668/#669/#671.
 MODULE browser      5500 internal/browser internal/browser/cdp
 MODULE media        9500 internal/media
 MODULE voice        4500 internal/voice
