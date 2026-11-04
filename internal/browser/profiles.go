@@ -13,7 +13,7 @@ import (
 // ErrInvalidProfile marks a profile name outside the closed catalog.
 var ErrInvalidProfile = errors.New("browser: unknown profile")
 
-// Profile is one browser profile name and its directory.
+// Profile is one Chromium-family profile directory.
 type Profile struct{ Name, Dir string }
 
 // DefaultProfiles returns the closed profile catalog of this host.
@@ -43,14 +43,14 @@ func DefaultProfiles() []Profile {
 	return out
 }
 
-// ProfileHooks are the host-owned process seams used by CloseProfile.
+// ProfileHooks are the OS operations CloseProfile needs.
 type ProfileHooks struct {
 	LockPID func(dir string) (int, error)
 	Owns    func(pid int, dir string) (bool, error)
 	Stop    func(pid int) error
 }
 
-// ProfileResult reports which profile was closed and whether it was already idle.
+// ProfileResult is the outcome of one close-profile call.
 type ProfileResult struct {
 	Name, Dir             string
 	PID                   int
