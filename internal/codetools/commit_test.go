@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -216,9 +217,59 @@ func aliasEditRace(t *testing.T, v *env, p string, i int) {
 	}
 }
 
-// TestPathLockAliases is CT27-5 without timing luck: while one name of a
-// file holds its edit lock, locking any other name of it (symlink, hard
-// link) blocks; an unrelated file does not.
+// aliasShared reports whether locking held and other would share any lock
+// key: true for two names of one object (symlink, hard link), false for
+// unrelated files, whatever their size, mtime or creation tick.
+func aliasShared(t *testing.T, e *Engine, held, other string) bool {
+	t.Helper()
+	ka, err := e.lockKeys(context.Background(), held)
+	if err != nil {
+		t.Fatalf("%s: %v", held, err)
+	}
+	kb, err := e.lockKeys(context.Background(), other)
+	if err != nil {
+		t.Fatalf("%s: %v", other, err)
+	}
+	return slices.ContainsFunc(ka, func(k string) bool { return slices.Contains(kb, k) })
+}
+
+// lockCompletes locks held, then reports whether locking other finishes
+// within wait; both locks are released either way. Only the wait is timed:
+// a slow CI goroutine stretches a passing case, it never fakes a shared
+// key.
+func lockCompletes(t *testing.T, e *Engine, held, other string, wait time.Duration) bool {
+	t.Helper()
+	unlock, err := e.pathLock(context.Background(), held)
+	if err != nil {
+		t.Fatalf("%s: %v", held, err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		u, lerr := e.pathLock(context.Background(), other)
+		if lerr == nil {
+			u()
+		}
+		done <- lerr
+	}()
+	select {
+	case lerr := <-done:
+		unlock()
+		if lerr != nil {
+			t.Fatalf("%s: %v", other, lerr)
+		}
+		return true
+	case <-time.After(wait):
+	}
+	unlock()
+	if lerr := <-done; lerr != nil {
+		t.Fatalf("%s: %v", other, lerr)
+	}
+	return false
+}
+
+// TestPathLockAliases is CT27-5: while one name of a file holds its edit
+// lock, locking any other name of it (symlink, hard link) blocks; an
+// unrelated file does not.
 func TestPathLockAliases(t *testing.T) {
 	t.Parallel()
 	v := newEnv(t)
@@ -230,29 +281,24 @@ func TestPathLockAliases(t *testing.T) {
 	if err := os.Link(h, filepath.Join(v.root, "hard.txt")); err != nil {
 		t.Skipf("Link: %v", err)
 	}
-	ctx := context.Background()
 	for _, c := range []struct {
 		held, other string
 		block       bool
 	}{{"f.txt", "sym.txt", true}, {"h.txt", "hard.txt", true}, {"f.txt", "h.txt", false}} {
-		unlock := v.e.pathLock(ctx, c.held)
-		got := make(chan struct{})
-		go func() {
-			v.e.pathLock(ctx, c.other)()
-			close(got)
-		}()
-		select {
-		case <-got:
-			if c.block {
-				t.Errorf("%s: not serialized with %s", c.other, c.held)
-			}
-		case <-time.After(100 * time.Millisecond):
-			if !c.block {
-				t.Errorf("%s: blocked by %s", c.other, c.held)
-			}
+		if shared := aliasShared(t, v.e, c.held, c.other); shared != c.block {
+			t.Fatalf("%s vs %s: shared lock key = %v, want %v", c.other, c.held, shared, c.block)
 		}
-		unlock()
-		<-got
+		wait := 100 * time.Millisecond
+		if !c.block {
+			wait = 5 * time.Second
+		}
+		early := lockCompletes(t, v.e, c.held, c.other, wait)
+		switch {
+		case early && c.block:
+			t.Errorf("%s: not serialized with %s", c.other, c.held)
+		case !early && !c.block:
+			t.Errorf("%s: blocked by %s", c.other, c.held)
+		}
 	}
 }
 
