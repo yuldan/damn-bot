@@ -3,7 +3,6 @@ package browser
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -60,15 +59,11 @@ func (e *cliEngine) Navigate(ctx context.Context, rawURL string, guard func(*url
 
 func (e *cliEngine) WaitLoad(context.Context) error { return nil }
 
-func (e *cliEngine) Eval(context.Context, string) (json.RawMessage, error) {
-	return nil, e.unsupported("eval")
+func (e *cliEngine) Read(context.Context, ReadOp) (Reply, error) {
+	return Reply{}, e.unsupported("read")
 }
 
-func (e *cliEngine) Screenshot(context.Context) ([]byte, error) {
-	return nil, e.unsupported("screenshot")
-}
-
-func (e *cliEngine) Act(context.Context, Action) error { return e.unsupported("action") }
+func (e *cliEngine) Act(context.Context, *Action) error { return e.unsupported("action") }
 
 func (e *cliEngine) Close() error { return nil }
 
