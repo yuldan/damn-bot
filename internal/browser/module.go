@@ -130,12 +130,8 @@ func validateEngineConfig(cfg *ModuleConfig) error {
 	default:
 		return fmt.Errorf("%w: engine %q", errBadConfig, cfg.Engine)
 	}
-	for _, kind := range cfg.DialogsAllow {
-		switch kind {
-		case "alert", "confirm", "prompt":
-		default:
-			return fmt.Errorf("%w: dialog type %q", errBadConfig, kind)
-		}
+	if _, err := ParseDialogs(cfg.DialogsAllow); err != nil {
+		return err
 	}
 	if err := validateEndpoints(cfg); err != nil {
 		return err
@@ -612,9 +608,13 @@ func (m *Module) open(ctx context.Context) (*Page, error) {
 	if m.page != nil {
 		return m.page, nil
 	}
+	dialogs, dialogErr := ParseDialogs(m.cfg.DialogsAllow)
+	if dialogErr != nil {
+		return nil, dialogErr
+	}
 	cfg := Config{
 		AllowOrigins: m.cfg.AllowOrigins, LocalProfile: m.cfg.LocalProfile,
-		DialogsAllow: m.cfg.DialogsAllow,
+		DialogsAllow: dialogs,
 	}.normalize()
 	if m.engineName() == "cdp" {
 		if m.cfg.CDPURL == "" {

@@ -6,6 +6,53 @@ import (
 	"fmt"
 )
 
+// DialogPolicy is the operator's closed set of dialog types that may stay open
+// for an explicit answer. The zero value allows nothing, so every dialog is
+// dismissed automatically (default deny).
+type DialogPolicy uint8
+
+const (
+	// DialogAlert allows an alert (display-only) dialog to stay open.
+	DialogAlert DialogPolicy = 1 << iota
+	// DialogConfirm allows a confirm dialog to stay open.
+	DialogConfirm
+	// DialogPrompt allows a prompt dialog to stay open.
+	DialogPrompt
+)
+
+// ParseDialogs maps the configured dialog types onto the policy. An unknown
+// type is an error so a typo can never widen the policy.
+func ParseDialogs(kinds []string) (DialogPolicy, error) {
+	var p DialogPolicy
+	for _, kind := range kinds {
+		bit, ok := dialogBit(kind)
+		if !ok {
+			return 0, fmt.Errorf("%w: dialog type %q", errBadConfig, kind)
+		}
+		p |= bit
+	}
+	return p, nil
+}
+
+// dialogBit maps one dialog type onto its policy bit.
+func dialogBit(kind string) (DialogPolicy, bool) {
+	switch kind {
+	case "alert":
+		return DialogAlert, true
+	case "confirm":
+		return DialogConfirm, true
+	case "prompt":
+		return DialogPrompt, true
+	}
+	return 0, false
+}
+
+// Allows reports whether kind may stay open for an explicit answer.
+func (p DialogPolicy) Allows(kind string) bool {
+	bit, ok := dialogBit(kind)
+	return ok && p&bit != 0
+}
+
 // errNoDialog reports that no native dialog is waiting for an answer.
 var errNoDialog = errors.New("browser: no dialog is open")
 
@@ -28,12 +75,7 @@ type Dialog struct {
 // open for an explicit answer. The zero policy allows nothing, so every dialog
 // is dismissed automatically (default deny).
 func (p *Page) dialogAllowed(kind string) bool {
-	for _, allowed := range p.cfg.DialogsAllow {
-		if allowed == kind {
-			return true
-		}
-	}
-	return false
+	return p.cfg.DialogsAllow.Allows(kind)
 }
 
 // enableDialogs turns the Page domain on once so dialog opening events arrive.
@@ -70,7 +112,9 @@ func (p *Page) openDialog(ctx context.Context, d Dialog) {
 	// The dialog may already be gone (page navigated away); a failed dismiss
 	// only means nothing is left to answer, so it is not an error of the call
 	// that happened to drain the event.
-	_, _ = p.conn.Call(ctx, "Page.handleJavaScriptDialog", map[string]any{"accept": false})
+	if _, err := p.conn.Call(ctx, "Page.handleJavaScriptDialog", map[string]any{"accept": false}); err != nil {
+		return
+	}
 }
 
 // DialogStatus drains queued events and reports the dialog that policy keeps

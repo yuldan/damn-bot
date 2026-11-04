@@ -32,7 +32,7 @@ type Transport interface {
 type Config struct {
 	AllowOrigins  []string
 	LocalProfile  bool
-	DialogsAllow  []string
+	DialogsAllow  DialogPolicy
 	LoadTimeout   time.Duration
 	MaxResult     int
 	MaxScreenshot int
