@@ -41,7 +41,7 @@ func TestCodeIntelToolsReadOnly(t *testing.T) {
 		t.Fatalf("untrusted source = %q", res.UntrustedSource)
 	}
 	out, err := list[1].Run(t.Context(), Env{Cwd: root}, json.RawMessage(`{"action":"languages"}`))
-	if err != nil || !strings.Contains(out.Content, "go, c, cpp") {
+	if err != nil || !strings.Contains(out.Content, "go, c, cpp") || !strings.Contains(out.Content, "javascript") {
 		t.Fatalf("languages = %+v err=%v", out, err)
 	}
 }
@@ -59,7 +59,7 @@ func TestCodeIntelToolNegatives(t *testing.T) {
 	if _, err := list[1].Run(t.Context(), Env{}, json.RawMessage(`{"action":"rename"}`)); codeOf(err) != CodeInvalidArgs {
 		t.Fatalf("action = %v", err)
 	}
-	m.err = errors.New("codeintel: unsupported language: \"javascript\"")
+	m.err = errors.New("codeintel: unsupported language: \"ruby\"")
 	rm, ok := list[0].(*repoMapTool)
 	if !ok {
 		t.Fatal("not repo_map")

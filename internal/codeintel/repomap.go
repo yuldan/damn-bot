@@ -213,7 +213,7 @@ func writeSymbols(f *File, write func(string) bool) bool {
 			continue
 		}
 		var line string
-		if s.Kind == KindMethod {
+		if s.Kind == KindMethod && s.Receiver != "" {
 			line = "  (" + s.Receiver + ") " + s.Name + ":" + strconv.Itoa(s.Line) + "\n"
 		} else {
 			line = "  " + string(s.Kind) + " " + s.Name + ":" + strconv.Itoa(s.Line) + "\n"

@@ -11,8 +11,8 @@ import (
 )
 
 // TestRepoMapBinary: the real binary exposes repo_map/code_intel read-only,
-// wraps untrusted workspace content, lists only Go/C/C++ languages, and
-// refuses a path outside the workspace.
+// wraps untrusted workspace content, lists Go/C/C++/JS/TS/Python languages,
+// indexes JavaScript alongside Go, and refuses a path outside the workspace.
 func TestRepoMapBinary(t *testing.T) {
 	t.Parallel()
 	e := New(t,
@@ -33,12 +33,12 @@ func TestRepoMapBinary(t *testing.T) {
 	if !strings.Contains(first, "func Alpha") || !strings.Contains(first, "untrusted source") {
 		t.Fatalf("repo_map result missing symbol/untrusted wrap:\n%s", first[:min(len(first), 1200)])
 	}
-	if strings.Contains(first, "jsSymbol") {
-		t.Fatalf("unsupported language indexed:\n%s", first)
+	if !strings.Contains(first, "func jsSymbol") {
+		t.Fatalf("JavaScript symbol missing:\n%s", first[:min(len(first), 1200)])
 	}
 	second := e.RequestText(t, 2)
 	langs := toolResult(t, second, "c2")
-	if !strings.Contains(langs, "go, c, cpp") || strings.Contains(langs, "javascript") {
+	if !strings.Contains(langs, "go, c, cpp") || !strings.Contains(langs, "javascript") || !strings.Contains(langs, "python") {
 		t.Fatalf("languages = %s", langs)
 	}
 	third := e.RequestText(t, 3)

@@ -4,6 +4,7 @@
 package codeintel
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,7 +29,8 @@ const (
 var (
 	ErrRoot     = errors.New("codeintel: invalid root")
 	ErrTooLarge = errors.New("codeintel: workspace too large")
-	// ErrUnsupportedLanguage: a requested grammar is outside {c,cpp}.
+	// ErrUnsupportedLanguage: a requested grammar is outside the closed set
+	// {c,cpp,javascript,typescript,tsx,python}.
 	ErrUnsupportedLanguage = errors.New("codeintel: unsupported language")
 )
 
@@ -87,7 +89,8 @@ type Options struct {
 	MaxFiles     int
 	MaxFileBytes int64
 	Focus        string
-	// Languages selects non-Go grammars ({"c","cpp"}); empty means Go
+	// Languages selects non-Go grammars
+	// ({"c","cpp","javascript","typescript","tsx","python"}); empty means Go
 	// only. Other languages are ErrUnsupportedLanguage when requested.
 	Languages []string
 }
@@ -148,7 +151,12 @@ func Index(ctx context.Context, opts Options) (*Map, error) {
 			m.Skipped.Symlink++
 			return nil
 		}
-		lang, isGo := languageFor(d.Name(), opts.Languages)
+		lang, isGo, known := extensionLanguage(d.Name())
+		if !known {
+			if sh := shebangLanguage(path); sh != "" && slices.Contains(opts.Languages, sh) {
+				lang = sh
+			}
+		}
 		if !isGo && lang == "" {
 			m.Skipped.NonGo++
 			return nil
@@ -235,23 +243,76 @@ func binary(src []byte) bool {
 	return invalid*10 > len(head)
 }
 
-// languageFor maps a file name to the selected non-Go grammar.
-func languageFor(name string, langs []string) (lang string, isGo bool) {
+// extensionLanguage maps a file name to a grammar by extension. known is
+// false when the extension is outside the closed set; lang is empty when the
+// known language was not selected by the caller.
+func extensionLanguage(name string) (lang string, isGo, known bool) {
 	if strings.HasSuffix(name, ".go") {
-		return "", true
+		return "", true, true
 	}
-	ext := strings.ToLower(filepath.Ext(name))
-	var want string
-	switch ext {
+	switch strings.ToLower(filepath.Ext(name)) {
 	case ".c", ".h":
-		want = string(ts.C)
+		return string(ts.C), false, true
 	case ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx":
-		want = string(ts.Cpp)
-	default:
-		return "", false
+		return string(ts.Cpp), false, true
+	case ".js", ".mjs", ".cjs", ".jsx":
+		return string(ts.JS), false, true
+	case ".ts", ".mts", ".cts":
+		return string(ts.TS), false, true
+	case ".tsx":
+		return string(ts.TSX), false, true
+	case ".py", ".pyi", ".pyw":
+		return string(ts.Python), false, true
 	}
-	if slices.Contains(langs, want) {
-		return want, false
-	}
-	return "", false
+	return "", false, false
 }
+
+// shebangLanguage detects an interpreter from the first line of an
+// extensionless script. Unknown interpreters return "".
+func shebangLanguage(path string) string {
+	//nolint:gosec // path comes from WalkDir under the canonical root
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer func() { discard(f.Close()) }()
+	var buf [256]byte
+	n, rerr := f.Read(buf[:])
+	if rerr != nil && n == 0 {
+		return ""
+	}
+	line := buf[:n]
+	if i := bytes.IndexByte(line, '\n'); i >= 0 {
+		line = line[:i]
+	}
+	line = bytes.TrimSuffix(line, []byte("\r"))
+	if !bytes.HasPrefix(line, []byte("#!")) {
+		return ""
+	}
+	fields := strings.Fields(string(line[2:]))
+	if len(fields) == 0 {
+		return ""
+	}
+	interp := filepath.Base(fields[0])
+	if interp == "env" {
+		for _, f := range fields[1:] {
+			if strings.HasPrefix(f, "-") {
+				continue
+			}
+			interp = filepath.Base(f)
+			break
+		}
+	}
+	switch strings.TrimSuffix(interp, ".exe") {
+	case "node", "nodejs":
+		return string(ts.JS)
+	case "ts-node", "tsx", "deno":
+		return string(ts.TS)
+	case "python", "python2", "python3", "pypy", "pypy3":
+		return string(ts.Python)
+	}
+	return ""
+}
+
+// discard consumes teardown results that are best-effort.
+func discard(_ error) {}

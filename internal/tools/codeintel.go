@@ -32,11 +32,11 @@ func NewCodeIntelTools(cfg *CodeIntelConfig) []Tool {
 	return []Tool{&repoMapTool{cfg: *cfg}, &codeIntelTool{cfg: *cfg}}
 }
 
-const codeIntelLanguages = "go, c, cpp"
+const codeIntelLanguages = "go, c, cpp, javascript, typescript, tsx, python"
 
-const schemaRepoMap = `{"name":"repo_map","description":"Deterministic repository map. Indexes Go (go/ast) and C/C++ (tree-sitter WASM); JavaScript/TypeScript/Python are unsupported and reported as an error.","parameters":{"type":"object","properties":{"focus":{"type":"string","maxLength":200},"path":{"type":"string"},"max_tokens":{"type":"integer","minimum":200,"maximum":1000}},"additionalProperties":false}}`
+const schemaRepoMap = `{"name":"repo_map","description":"Deterministic repository map. Indexes Go (go/ast) and C/C++/JS/TS/Python (tree-sitter WASM); other languages are an error.","parameters":{"type":"object","properties":{"focus":{"type":"string","maxLength":200},"path":{"type":"string"},"max_tokens":{"type":"integer","minimum":200,"maximum":1000}},"additionalProperties":false}}`
 
-const schemaCodeIntel = `{"name":"code_intel","description":"Read-only code intelligence. Indexes Go (go/ast) and C/C++ (tree-sitter WASM); other languages are unsupported. action=languages lists the supported set.","parameters":{"type":"object","properties":{"action":{"type":"string","enum":["repo_map","languages"]},"focus":{"type":"string","maxLength":200},"path":{"type":"string"},"max_tokens":{"type":"integer","minimum":200,"maximum":1000}},"required":["action"],"additionalProperties":false}}`
+const schemaCodeIntel = `{"name":"code_intel","description":"Read-only code intelligence. Indexes Go (go/ast) and C/C++/JS/TS/Python (tree-sitter WASM); action=languages lists supported languages.","parameters":{"type":"object","properties":{"action":{"type":"string","enum":["repo_map","languages"]},"focus":{"type":"string","maxLength":200},"path":{"type":"string"},"max_tokens":{"type":"integer","minimum":200,"maximum":1000}},"required":["action"],"additionalProperties":false}}`
 
 type repoMapTool struct{ cfg CodeIntelConfig }
 

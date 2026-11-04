@@ -1,6 +1,6 @@
 # Atribusi aset pihak ketiga
 
-Daftar file di repo yang disalin atau diturunkan dari proyek pihak ketiga (ADR-018 (c), ENGINEERING E-50). Teks lisensi lengkap ada di `third_party/manual/*.txt`. Semua file di bawah adalah data benchmark/test; tidak ada yang di-embed di binary `damnbot`.
+Daftar file di repo yang disalin atau diturunkan dari proyek pihak ketiga (ADR-018 (c), ENGINEERING E-50). Teks lisensi lengkap ada di `third_party/manual/*.txt`. Sebagian besar file di bawah adalah data benchmark/test; satu aset WASM (`internal/codeintel/ts/ts.wasm`) di-embed di binary `damnbot` dan provenance-nya ada di `internal/codeintel/ts/ORIGIN.md`.
 
 Header asal ADR-018 (b) untuk file data = sidecar `ORIGIN.md` di direktori file itu (sumber, commit, lisensi, SHA-256 per file; ADR-099). Glob kolom File = himpunan yang diperiksa `TestAttributionHeaders` (`**` = nol atau lebih segmen).
 
@@ -13,4 +13,5 @@ Header asal ADR-018 (b) untuk file data = sidecar `ORIGIN.md` di direktori file 
 | `bench/evals/sources/swe-bench-verified.ids` | `instance_id` SWE-bench Verified (hanya ID) | MIT (proyek SWE-bench) | `third_party/manual/swe-bench.txt` |
 | `bench/evals/sources/terminal-bench-core-0.1.1.ids` | ID task Terminal-Bench core v0.1.1 (hanya ID) | Apache-2.0 | `third_party/manual/terminal-bench.txt` |
 | `internal/schema/testdata/jsts/*.json` | JSON-Schema-Test-Suite @ `55719286c3` (`tests/draft2020-12/`, subset keyword SPEC §4.4) | MIT, © 2012 Julian Berman | `third_party/manual/json-schema-test-suite.txt` |
+| `internal/codeintel/ts/ts.wasm` | tree-sitter runtime v0.24.x + grammar C/C++/JavaScript/TypeScript/TSX/Python via malivvan/tree-sitter v0.0.1 @ `5aa45b3d` | MIT, © 2025 malivvan; runtime © 2018-2024 Max Brunsfeld; grammar © Max Brunsfeld | `third_party/manual/codeintel-tree-sitter.txt` |
 | `internal/redact/testdata/gitleaks-*.tsv` | sampel sintetis berformat rule `gitleaks.toml` gitleaks v8.28.0 @ `4fb43823ef` | MIT, © 2019 Zachary Rice | `third_party/manual/gitleaks.txt` |
