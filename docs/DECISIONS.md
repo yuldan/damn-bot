@@ -6150,7 +6150,7 @@ MODULE computeruse  2000 internal/computeruse
 
 **Konsekuensi.** (+) Tiga permukaan media berbagi satu gerbang approval/cap dan satu jalur fail-closed. (+) Cap harian/bulanan bertahan lintas proses lewat `module_state`. (−) `module_state` bukan transaksi atomik untuk increment meter; dua proses yang menulis total yang sama dapat kehilangan satu increment (cap menjadi sedikit longgar). (−) Hasil media belum menjadi blob/attachment, sehingga URL vendor yang kedaluwarsa tidak disimpan.
 
-**Amandemen (ADR-323, PR #TBD).** `vision_analyze` kini terdaftar di descriptor `media` sebagai tool `read` (bukan lagi di luar slice): ia memakai `host.Completer` `purpose=media` yang diterbitkan `runModuleHost` dari route vision run, sehingga teks-only ditolak `module_unavailable` sebelum berkas dibaca/URL diunduh dan sebelum request provider. Citra melewati `preflight` 2048 px/12 MP/3,75 MB. Toolset `vision` ditambahkan. Tes: `TestF6TOOL085VisionAnalyze`, `TestF6TSET028Vision`, `TestF6MEDIA012VisionAnalyze`.
+**Amandemen (ADR-323, PR #683).** `vision_analyze` kini terdaftar di descriptor `media` sebagai tool `read` (bukan lagi di luar slice): ia memakai `host.Completer` `purpose=media` yang diterbitkan `runModuleHost` dari route vision run, sehingga teks-only ditolak `module_unavailable` sebelum berkas dibaca/URL diunduh dan sebelum request provider. Citra melewati `preflight` 2048 px/12 MP/3,75 MB. Toolset `vision` ditambahkan. Tes: `TestF6TOOL085VisionAnalyze`, `TestF6TSET028Vision`, `TestF6MEDIA012VisionAnalyze`.
 
 ## ADR-319 — F6-W4: registrasi modul `voice` (transcribe, speak) tanpa kunci config baru
 
@@ -6230,7 +6230,7 @@ MODULE computeruse  2000 internal/computeruse
 
 **Konsekuensi.** (+) MCP image menjadi blob dengan MIME jujur dan batas keras, bukan JSON/base64 di prompt, lalu mencapai provider vision pada putaran yang sama. (+) Teks hasil tool tidak berubah. (−) Attachment user (bukan tool) belum memakai kanal ini; baris GAP-REL-14 memakai nama tes ledger `TestF6MCPImageAttachment` sampai alias/e2e MCP ditambahkan.
 
-**Amandemen (ADR-323, PR #TBD).** `host.Message` membawa `Images`, sehingga `vision_analyze` memakai kanal attachment yang sama dengan turn; `runModuleHost.SetMedia` menerbitkan `host.Completer` `purpose=media` setelah provider run dibangun, dan adapter provider memetakan `Kind=image` ke `provider.Message.Images`. Gate `Route.Vision`/`ErrNoVision` dan preflight tetap satu-satunya gerbang. Tes: `TestF6MEDIA013ImageRouting`.
+**Amandemen (ADR-323, PR #683).** `host.Message` membawa `Images`, sehingga `vision_analyze` memakai kanal attachment yang sama dengan turn; `runModuleHost.SetMedia` menerbitkan `host.Completer` `purpose=media` setelah provider run dibangun, dan adapter provider memetakan `Kind=image` ke `provider.Message.Images`. Gate `Route.Vision`/`ErrNoVision` dan preflight tetap satu-satunya gerbang. Tes: `TestF6MEDIA013ImageRouting`.
 
 ## ADR-323 — Program penutupan ledger F6
 
@@ -6268,6 +6268,7 @@ MODULE computeruse  2000 internal/computeruse
 
 **Amandemen.**
 - Amandemen (ADR-323, PR ini): menormalkan aturan gate/§11 dan legenda status `LULUS`/`N/A`; menutup baris "Ukuran gambar" sebagai `N/A — hardware` (Q14) tanpa mengubah target/asersi; "Smoke E3" tetap `BELUM` untuk run berbayar terpisah.
+- Amandemen (ADR-323, PR #683): flip `TOOL-085`, `TSET-028`, `MEDIA-012`, `MEDIA-013` ke `LULUS` setelah tes bernama lulus; selaraskan nama tes ledger `MEDIA-012` menjadi `TestF6MEDIA012VisionAnalyze`. `TOOL-081`, `TSET-029`, `MEDIA-014` (video) dan `MEDIA-030` (cache) ditutup pada PR bertumpuk.
 - Amandemen (ADR-323, PR #TBD): flip `TOOL-085`, `TSET-028`, `MEDIA-012`, `MEDIA-013` ke `LULUS` setelah tes bernama lulus; selaraskan nama tes ledger `MEDIA-012` menjadi `TestF6MEDIA012VisionAnalyze`. `TOOL-081`, `TSET-029`, `MEDIA-014` (video) dan `MEDIA-030` (cache) ditutup pada PR bertumpuk.
 - Amandemen (ADR-323, PR P6a mode/live): mem-flip `MEDIA-001`, `MEDIA-002`, `MEDIA-003`, `MEDIA-008`, dan baris §1 "Voice latency" ke `LULUS` dengan tes bernama `TestF6MEDIA001VoiceMode`, `TestF6MEDIA001BargeIn`, `TestF6MEDIA002GPTLiveOptIn`, `TestF6MEDIA003WakeOptIn`, `TestF6MEDIA008StreamingLatency`, `TestF6VoiceLatencyBudget` (ditambah `TestVoicePipelineLatency` yang tetap), serta baris parity `MEDIA-001/002/003/008` menjadi `LULUS`. Tidak ada baris `N/A` baru; `MEDIA-007` dan `MEDIA-009` tetap bukan milik PR ini.
 - Amandemen (ADR-323, PR #672): docs/FEATURE-PARITY.md TOOL-008/TOOL-009 `planned`→`LULUS` (paket P1a residual console/get_images); docs/F6-ACCEPTANCE.md TOOL-008/009 `BELUM`→`LULUS`; legenda `LULUS` + rekap planned 836→834.
