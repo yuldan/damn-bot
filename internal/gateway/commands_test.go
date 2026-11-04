@@ -439,3 +439,16 @@ func TestAdmitCommandsAfterAuthorization(t *testing.T) {
 		t.Fatalf("inbox=%d run=%d, want 0/0", inbox.calls, run.calls)
 	}
 }
+
+// TestSlashPasteImageCLIOnly: chat registers both commands and answers with an
+// explicit CLI-only message; neither starts a turn nor claims an attachment.
+func TestSlashPasteImageCLIOnly(t *testing.T) {
+	t.Parallel()
+	c := gateway.NewCommands(&gateway.CommandOptions{})
+	for _, text := range []string{"/paste", "/image", "/image shots/a.png"} {
+		res := c.Dispatch(t.Context(), testTicket(gateway.RoleOwner), text)
+		if !res.Handled || !strings.Contains(res.Reply, "CLI-only") {
+			t.Fatalf("%q = %+v, want handled CLI-only reply", text, res)
+		}
+	}
+}

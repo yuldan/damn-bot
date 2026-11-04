@@ -113,9 +113,26 @@ type Shell interface {
 	Bang(ctx context.Context, sessionID, command string, planMode bool) (BangResult, error)
 }
 
-// Clipboard writes text to the user's clipboard (may be unavailable).
+// Clipboard writes text and reads an image through external utilities (may be
+// unavailable). ReadImage never returns a partially decoded bitmap.
 type Clipboard interface {
 	Copy(text string) error
+	ReadImage() (ClipboardImage, error)
+}
+
+// ClipboardImage is one image read from the system clipboard. Data is the
+// encoded image; the caller preflights it before it reaches a provider.
+type ClipboardImage struct {
+	Data []byte
+	MIME string
+}
+
+// Resources persists user attachments as blobs for the next prompt. AttachFile
+// applies the workspace path gate and AttachImage preflights the bitmap; both
+// return a reference, never inline bytes.
+type Resources interface {
+	AttachImage(ctx context.Context, name string, data []byte) (Attachment, error)
+	AttachFile(ctx context.Context, path string) (Attachment, error)
 }
 
 // BrowserControl is the `/browser` management seam. Every method answers with
@@ -164,6 +181,8 @@ type Host struct {
 	// Voice backs /voice and /wake; nil leaves them unavailable (minimal
 	// builds and compositions without the voice module).
 	Voice Voice
+
+	Resources Resources
 	// Notices is the non-critical notice gate; nil disables such notices
 	// ([ui] notices = false or a frontend without one). Critical notices do
 	// not depend on it (GAP-OPS-09).
@@ -193,6 +212,8 @@ func (h *Host) validate() error {
 		return fmt.Errorf("tui: host without shell")
 	case h.Clipboard == nil:
 		return fmt.Errorf("tui: host without clipboard")
+	case h.Resources == nil:
+		return fmt.Errorf("tui: host without resources")
 	}
 	return nil
 }

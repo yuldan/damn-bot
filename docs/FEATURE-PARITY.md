@@ -255,8 +255,8 @@ Sumber: `hermes_cli/commands.py` (103 `CommandDef`). Deskripsi verbatim hermes, 
 | SLASH-095 | `/platforms` | Show gateway/messaging platform status | `hermes_cli/commands.py:328` | tersedia (CLI-only); kategori Info | — | alias: /gateway | F4 | planned |
 | SLASH-096 | `/platform` | Pause, resume, or list a failing gateway platform | `hermes_cli/commands.py:330` | tersedia (gateway-only); kategori Info | — | args `<pause\\|resume\\|list> [name]` | F4 | planned |
 | SLASH-097 | `/copy` | Copy the last assistant response to clipboard | `hermes_cli/commands.py:332` | tersedia (CLI-only); kategori Info | — | args `[number]` | F3 | planned |
-| SLASH-098 | `/paste` | Attach clipboard image from your clipboard | `hermes_cli/commands.py:334` | tersedia (CLI-only); kategori Info | — |  | F6 | planned |
-| SLASH-099 | `/image` | Attach a local image file for your next prompt | `hermes_cli/commands.py:336` | tersedia (CLI-only); kategori Info | — | args `<path>` | F6 | planned |
+| SLASH-098 | `/paste` | Attach clipboard image from your clipboard | `hermes_cli/commands.py:334` | tersedia (CLI-only); kategori Info | — |  | F6 | LULUS |
+| SLASH-099 | `/image` | Attach a local image file for your next prompt | `hermes_cli/commands.py:336` | tersedia (CLI-only); kategori Info | — | args `<path>` | F6 | LULUS |
 | SLASH-100 | `/update` | Update Hermes Agent to the latest version | `hermes_cli/commands.py:338` | tersedia (CLI + gateway); kategori Info | — |  | F3 | planned |
 | SLASH-101 | `/version` | Show Hermes Agent version | `hermes_cli/commands.py:340` | tersedia (CLI + gateway); kategori Info | — | alias: /v | F3 | planned |
 | SLASH-102 | `/debug` | Upload debug report (system info + logs) and get shareable links | `hermes_cli/commands.py:342` | tersedia (CLI + gateway); kategori Info | — | args `[nous\\|local]` | F8 | planned |
@@ -699,7 +699,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | UI-005 | Status bar / battery / timestamps / focus view | Elemen tampilan REPL yang bisa di-toggle | `hermes_cli/cli_status_bar_mixin.py`, `agent/battery.py`, `hermes_cli/focus_view.py` | status bar on; lain off | — |  | F3 | planned |
 | UI-006 | Bang shell `!cmd` | Eksekusi shell langsung dari prompt | `hermes_cli/bang_shell.py` | on | — |  | F3 | planned |
 | UI-007 | Command palette | Palette fuzzy (Ctrl+P) | `hermes_cli/commands.py:315` | on | — |  | F3 | planned |
-| UI-008 | Clipboard image / paste collapse | Tempel gambar clipboard; lipat paste panjang | `hermes_cli/clipboard.py`, `hermes_cli/pt_input_extras.py` | on | xclip/wl-paste/pbpaste [INFERENCE] | `/paste`, `/image` | F6 | planned |
+| UI-008 | Clipboard image / paste collapse | Tempel gambar clipboard; lipat paste panjang | `hermes_cli/clipboard.py`, `hermes_cli/pt_input_extras.py` | on | xclip/wl-paste/pbpaste [INFERENCE] | `/paste`, `/image` | F6 | LULUS |
 | UI-009 | External editor `/prompt` | Tulis prompt di $EDITOR | `hermes_cli/commands.py:101` | opt-in | $EDITOR | alias `/compose` | F3 | planned |
 | UI-010 | Pets (petdex) | Maskot animasi di terminal; generate pet | `agent/pet/__init__.py`, `hermes_cli/pets.py` | off (`display.pet.enabled`) | — | `/pet`, `/hatch` | F8 | planned |
 | UI-011 | Personalities | Persona preset | `hermes_cli/personality.py` | opt-in (`/personality`) | — |  | F8 | planned |

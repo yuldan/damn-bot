@@ -109,11 +109,18 @@ type Model struct {
 	queue        []string
 	busyPolicy   string
 	// busy marks a turn between submit and the Runner closing its stream.
-	input  textinput.Model
-	draft  []string // completed lines of the current multi-line prompt
-	busy   bool
-	stream <-chan Update
-	cancel context.CancelFunc
+	input textinput.Model
+	draft []string // completed lines of the current multi-line prompt
+	// pendingAttachments are images attached to the next prompt by /paste or
+	// /image; they are cleared only when that prompt starts.
+	pendingAttachments []Attachment
+	// pasted holds a long bracketed paste collapsed to pastePlaceholder in the
+	// input; submit expands it once so the model still receives every rune.
+	pasted           string
+	pastePlaceholder string
+	busy             bool
+	stream           <-chan Update
+	cancel           context.CancelFunc
 	// pendingAt is the newest Update.At folded in since the previous frame;
 	// renderedAt is the clock stamp of the last frame that carried one.
 	pendingAt  time.Time
@@ -141,6 +148,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case StreamMsg:
 		m.apply(&msg.Update)
+		return m, nil
+	case tea.PasteMsg:
+		m.handlePaste(msg.Content)
 		return m, nil
 	case streamReadyMsg:
 		m.stream = msg.ch
@@ -183,6 +193,8 @@ func (m *Model) handleResult(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	case approvalDoneMsg:
 	case sessionDoneMsg:
 		m.applySessionDone(msg)
+	case attachmentMsg:
+		m.applyAttachment(msg)
 	case copyDoneMsg:
 		if msg.err != nil {
 			m.appendNotice("clipboard unavailable: " + msg.err.Error())
@@ -408,6 +420,10 @@ func (m *Model) inputArea() string {
 // submit starts one turn; a single-line slash is dispatched locally.
 func (m *Model) submit() tea.Cmd {
 	text := strings.TrimSpace(strings.Join(append(m.draft, m.input.Value()), "\n"))
+	if m.pasted != "" {
+		text = strings.Replace(text, m.pastePlaceholder, m.pasted, 1)
+		m.pasted, m.pastePlaceholder = "", ""
+	}
 	if text == "" {
 		return nil
 	}
@@ -437,12 +453,18 @@ func (m *Model) startTurn(text string) tea.Cmd {
 	m.stop, m.detail = "", ""
 	m.usage, m.turnSettled = Usage{}, false
 	m.busy = true
-	m.appendBlock(&Block{Kind: BlockUser, Text: text, At: m.host.Clock.Now()})
+	atts := m.pendingAttachments
+	m.pendingAttachments = nil
+	preview := make([]string, len(atts))
+	for i := range atts {
+		preview[i] = attachmentPreview(atts[i])
+	}
+	m.appendBlock(&Block{Kind: BlockUser, Text: text, Attachments: preview, At: m.host.Clock.Now()})
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	runner, sid, plan := m.host.Runner, m.sessionID, m.plan
 	return func() tea.Msg {
-		ch, err := runner.Prompt(ctx, sid, Input{Text: text, PlanMode: plan})
+		ch, err := runner.Prompt(ctx, sid, Input{Text: text, PlanMode: plan, Attachments: atts})
 		if err != nil {
 			return promptFailedMsg{err: err}
 		}
@@ -743,44 +765,6 @@ func (chatPanel) body(m *Model) string {
 		left = m.styles.hint.Render("no messages yet")
 	}
 	return m.chatLayout(left)
-}
-
-// renderBlockAt applies turn spacing, hierarchy, and the navigation marker.
-func (m *Model) renderBlockAt(i int) string {
-	b := &m.blocks[i]
-	ts := ""
-	if !b.At.IsZero() {
-		ts = m.styles.dim.Render(b.At.Format("15:04:05") + " ")
-	}
-	text := b.Text
-	if m.collapsed[i] {
-		text = collapseLine(text)
-	}
-	var body string
-	switch b.Kind {
-	case BlockUser:
-		body = m.styles.user.Render("you> " + text)
-	case BlockAssistant:
-		body = m.styles.fg.Render(text)
-	case BlockTool:
-		if m.collapsed[i] {
-			body = m.toolHeader(b)
-		} else {
-			body = m.toolBlock(b)
-		}
-	case BlockNotice:
-		body = m.styles.notice.Render("! " + text)
-	default:
-		body = m.styles.fg.Render(text)
-	}
-	line := ts + body
-	if b.Kind == BlockUser && i > 0 {
-		line = "\n" + line
-	}
-	if m.navMode && i == m.navIndex {
-		return "▸ " + line
-	}
-	return line
 }
 
 // collapseLine keeps the first line of a block body.

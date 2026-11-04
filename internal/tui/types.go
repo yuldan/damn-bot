@@ -100,6 +100,9 @@ type Block struct {
 	ActionID   int64  // journal action, 0 = not undoable
 	ExitCode   *int   // shell exit code when the result carries one
 	At         time.Time
+	// Attachments is the metadata-only preview of images attached to a user
+	// block; binary content never enters the transcript (UI-008).
+	Attachments []string
 }
 
 // Attachment is one input resource persisted with the user message. BlobSHA

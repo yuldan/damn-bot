@@ -172,9 +172,11 @@ func (s *fakeSessions) lastCall() string {
 
 // fakeClipboard records the copied text (or simulates an unavailable utility).
 type fakeClipboard struct {
-	mu   sync.Mutex
-	text string
-	err  error
+	mu     sync.Mutex
+	text   string
+	err    error
+	img    ClipboardImage
+	imgErr error
 }
 
 // Copy implements Clipboard.
@@ -186,6 +188,54 @@ func (c *fakeClipboard) Copy(text string) error {
 	}
 	c.text = text
 	return nil
+}
+
+// ReadImage implements Clipboard; imgErr stands for an absent image.
+func (c *fakeClipboard) ReadImage() (ClipboardImage, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.imgErr != nil {
+		return ClipboardImage{}, c.imgErr
+	}
+	return c.img, nil
+}
+
+// fakeResources spills attachments without touching a database.
+type fakeResources struct {
+	mu       sync.Mutex
+	image    Attachment
+	file     Attachment
+	err      error
+	lastPath string
+	lastData []byte
+}
+
+// AttachImage implements Resources.
+func (r *fakeResources) AttachImage(_ context.Context, name string, data []byte) (Attachment, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.err != nil {
+		return Attachment{}, r.err
+	}
+	r.lastData = append([]byte(nil), data...)
+	if r.image.Name != "" {
+		return r.image, nil
+	}
+	return Attachment{Name: name, MIME: "image/png", BlobSHA: strings.Repeat("a", 64), Size: int64(len(data))}, nil
+}
+
+// AttachFile implements Resources.
+func (r *fakeResources) AttachFile(_ context.Context, path string) (Attachment, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.err != nil {
+		return Attachment{}, r.err
+	}
+	r.lastPath = path
+	if r.file.Name != "" {
+		return r.file, nil
+	}
+	return Attachment{Name: path, MIME: "image/jpeg", BlobSHA: strings.Repeat("b", 64), Size: 321}, nil
 }
 
 func (c *fakeClipboard) copied() string {
@@ -264,7 +314,7 @@ func (f *fakeFiles) Write(_ context.Context, path string, data []byte) (string, 
 // testHost builds a complete host over the package fakes.
 func testHost(clk Clock, runner Runner, cfg ConfigSource) *Host {
 	rt := &fakeRuntime{}
-	return &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: &fakeSessions{}, Runtime: rt, Actions: rt, Files: &fakeFiles{}, Shell: &fakeShell{}, Clipboard: &fakeClipboard{}}
+	return &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: &fakeSessions{}, Runtime: rt, Actions: rt, Files: &fakeFiles{}, Shell: &fakeShell{}, Clipboard: &fakeClipboard{}, Resources: &fakeResources{}}
 }
 
 // newTestApp assembles a model over the fakes.
@@ -291,15 +341,16 @@ func TestNewAppRejectsIncompleteHost(t *testing.T) {
 		host    *Host
 	}{
 		{"empty session", "", base},
-		{"no clock", "sess-1", &Host{Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard}},
-		{"no runner", "sess-1", &Host{Clock: clk, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard}},
-		{"no config", "sess-1", &Host{Clock: clk, Runner: runner, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard}},
-		{"no sessions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard}},
-		{"no runtime", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Clipboard: base.Clipboard}},
-		{"no actions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Files: base.Files, Clipboard: base.Clipboard}},
-		{"no files", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Shell: base.Shell, Clipboard: base.Clipboard}},
-		{"no shell", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Clipboard: base.Clipboard}},
-		{"no clipboard", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell}},
+		{"no clock", "sess-1", &Host{Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard, Resources: base.Resources}},
+		{"no runner", "sess-1", &Host{Clock: clk, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard, Resources: base.Resources}},
+		{"no config", "sess-1", &Host{Clock: clk, Runner: runner, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard, Resources: base.Resources}},
+		{"no sessions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard, Resources: base.Resources}},
+		{"no runtime", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Clipboard: base.Clipboard, Resources: base.Resources}},
+		{"no actions", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Files: base.Files, Clipboard: base.Clipboard, Resources: base.Resources}},
+		{"no files", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Shell: base.Shell, Clipboard: base.Clipboard, Resources: base.Resources}},
+		{"no shell", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Clipboard: base.Clipboard, Resources: base.Resources}},
+		{"no clipboard", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Resources: base.Resources}},
+		{"no resources", "sess-1", &Host{Clock: clk, Runner: runner, Config: cfg, Sessions: base.Sessions, Runtime: base.Runtime, Actions: base.Actions, Files: base.Files, Shell: base.Shell, Clipboard: base.Clipboard}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
