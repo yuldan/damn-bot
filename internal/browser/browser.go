@@ -107,6 +107,7 @@ func (p *Page) Navigate(ctx context.Context, rawURL string) (string, error) {
 		if _, cerr := p.checkURL(final); cerr != nil {
 			return "", cerr
 		}
+		p.clearRefs()
 		return final, nil
 	}
 	raw, err := p.conn.Call(ctx, "Page.navigate", map[string]string{"url": u.String()})
@@ -125,6 +126,7 @@ func (p *Page) Navigate(ctx context.Context, rawURL string) (string, error) {
 	if err := p.waitLoad(ctx); err != nil {
 		return "", err
 	}
+	p.clearRefs()
 	return u.String(), nil
 }
 
@@ -224,14 +226,25 @@ func (p *Page) Eval(ctx context.Context, expression string) (string, error) {
 // read dispatches a read to the engine, or to the CDP transport when the page
 // is bound directly to CDP.
 func (p *Page) read(ctx context.Context, op ReadOp) (Reply, error) {
+	var (
+		reply Reply
+		err   error
+	)
 	if p.eng != nil {
-		reply, err := p.eng.Read(ctx, op)
+		reply, err = p.eng.Read(ctx, op)
 		if err != nil {
 			return Reply{}, fmt.Errorf("browser: read: %w", err)
 		}
-		return reply, nil
+	} else {
+		reply, err = p.cdpRead(ctx, op)
+		if err != nil {
+			return Reply{}, err
+		}
 	}
-	return p.cdpRead(ctx, op)
+	if op.Kind == "snapshot" {
+		p.rememberRefs(reply.Value)
+	}
+	return reply, nil
 }
 
 func (p *Page) evalValue(value []byte) (string, error) {
@@ -327,6 +340,7 @@ func (p *Page) Back(ctx context.Context) (string, error) {
 	if reply.Name == "" {
 		return "", errNoHistory
 	}
+	p.clearRefs()
 	return reply.Name, nil
 }
 
@@ -456,26 +470,6 @@ func (p *Page) cdpBack(ctx context.Context, guard func(*url.URL) error) (Reply, 
 	return Reply{Name: target.URL}, nil
 }
 
-// Click dispatches a left click; without approval it fails with a preview.
-func (p *Page) Click(ctx context.Context, x, y float64, approved bool) error {
-	if !approved {
-		return fmt.Errorf("%w: browser_click at (%.0f, %.0f)", errApproval, x, y)
-	}
-	if p.eng != nil {
-		if err := p.eng.Act(ctx, &Action{Kind: "click", X: x, Y: y}); err != nil {
-			return fmt.Errorf("browser: click: %w", err)
-		}
-		return nil
-	}
-	for _, kind := range []string{"mouseMoved", "mousePressed", "mouseReleased"} {
-		params := map[string]any{"type": kind, "x": x, "y": y, "button": "left", "clickCount": 1}
-		if _, err := p.conn.Call(ctx, "Input.dispatchMouseEvent", params); err != nil {
-			return fmt.Errorf("browser: click: %w", err)
-		}
-	}
-	return nil
-}
-
 // Run performs one non-read pointer or keyboard action after approval.
 func (p *Page) Run(ctx context.Context, tool string, a *Action, approved bool) error {
 	if !approved {
@@ -542,8 +536,12 @@ func (p *Page) cdpAct(ctx context.Context, a *Action) error {
 		}
 		return nil
 	case "scroll":
-		_, err := p.conn.Call(ctx, "Input.dispatchMouseEvent", map[string]any{
-			"type": "mouseWheel", "x": a.X, "y": a.Y, "deltaX": a.DeltaX, "deltaY": a.DeltaY,
+		dx, dy, err := p.clampScroll(ctx, a.DeltaX, a.DeltaY)
+		if err != nil {
+			return err
+		}
+		_, err = p.conn.Call(ctx, "Input.dispatchMouseEvent", map[string]any{
+			"type": "mouseWheel", "x": a.X, "y": a.Y, "deltaX": dx, "deltaY": dy,
 		})
 		if err != nil {
 			return fmt.Errorf("browser: scroll: %w", err)
@@ -551,17 +549,6 @@ func (p *Page) cdpAct(ctx context.Context, a *Action) error {
 		return nil
 	}
 	return fmt.Errorf("%w: %s", errBadConfig, a.Kind)
-}
-
-func (p *Page) mouse(ctx context.Context, kind string, x, y float64, button string) error {
-	params := map[string]any{"type": kind, "x": x, "y": y, "clickCount": 1}
-	if button != "" {
-		params["button"] = button
-	}
-	if _, err := p.conn.Call(ctx, "Input.dispatchMouseEvent", params); err != nil {
-		return fmt.Errorf("browser: %s: %w", kind, err)
-	}
-	return nil
 }
 
 func truthy(value string) bool {
@@ -735,7 +722,17 @@ func localHost(host string) bool {
 		return false
 	}
 	ip = ip.Unmap()
-	return !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		return true
+	}
+	// RFC 6598 shared address space (100.64.0.0/10) is carrier-grade NAT, not
+	// a public destination; metadata endpoints such as 100.100.100.200 live
+	// there. netip reports it as global unicast, so it is named explicitly.
+	if ip.Is4() {
+		b := ip.As4()
+		return b[0] == 100 && b[1]&0xc0 == 64
+	}
+	return false
 }
 
 // Invoke dispatches one approval-gated page action. A nil page or an empty

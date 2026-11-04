@@ -48,15 +48,15 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| TOOL-006 | `browser_back` | kembali satu riwayat; tanpa riwayat → error typed, bukan no-op | `TestF6TOOL006BrowserBack` | BELUM | F6-04c |
-| TOOL-007 | `browser_click` | klik berdasarkan ref snapshot; ref basi/asing → error tanpa klik | `TestF6TOOL007BrowserClick` | BELUM | F6-04c |
+| TOOL-006 | `browser_back` | kembali satu riwayat; tanpa riwayat → error typed, bukan no-op | `TestF6TOOL006BrowserBack` | LULUS | F6-04c |
+| TOOL-007 | `browser_click` | klik berdasarkan ref snapshot; ref basi/asing → error tanpa klik | `TestF6TOOL007BrowserClick` | LULUS | F6-04c |
 | TOOL-008 | `browser_console` | hanya membaca log console/buffer terbatas; body lewat redaksi; tidak mengeksekusi halaman | `TestF6TOOL008BrowserConsole` | LULUS | F6-04c |
 | TOOL-009 | `browser_get_images` | daftar gambar + ukuran; hasil `<untrusted>` | `TestF6TOOL009BrowserGetImages` | LULUS | F6-04c |
-| TOOL-010 | `browser_navigate` | tolak loopback/privat/link-local/CGNAT/metadata dan blocklist; dial ke IP tervalidasi; hasil `<untrusted>` | `TestF6TOOL010BrowserNavigate` | BELUM | F6-04c, F6-01e |
-| TOOL-011 | `browser_press` | tombol key didispatch ke halaman; key tak dikenal → `invalid_args` | `TestF6TOOL011BrowserPress` | BELUM | F6-04c |
-| TOOL-012 | `browser_scroll` | scroll halaman/elemen dengan clamp batas; tanpa layout → error jelas | `TestF6TOOL012BrowserScroll` | BELUM | F6-04c |
-| TOOL-013 | `browser_snapshot` | accessibility tree ringkas ≤ P5; ref stabil; field sensitif diredaksi | `TestF6TOOL013BrowserSnapshot` | BELUM | F6-04b |
-| TOOL-014 | `browser_type` | teks masuk ke field; nilai tidak muncul di log/event; effect `non_idempotent` | `TestF6TOOL014BrowserType` | BELUM | F6-04c |
+| TOOL-010 | `browser_navigate` | tolak loopback/privat/link-local/CGNAT/metadata dan blocklist; dial ke IP tervalidasi; hasil `<untrusted>` | `TestF6TOOL010BrowserNavigate` | LULUS | F6-04c, F6-01e |
+| TOOL-011 | `browser_press` | tombol key didispatch ke halaman; key tak dikenal → `invalid_args` | `TestF6TOOL011BrowserPress` | LULUS | F6-04c |
+| TOOL-012 | `browser_scroll` | scroll halaman/elemen dengan clamp batas; tanpa layout → error jelas | `TestF6TOOL012BrowserScroll` | LULUS | F6-04c |
+| TOOL-013 | `browser_snapshot` | accessibility tree ringkas ≤ P5; ref stabil; field sensitif diredaksi | `TestF6TOOL013BrowserSnapshot` | LULUS | F6-04b |
+| TOOL-014 | `browser_type` | teks masuk ke field; nilai tidak muncul di log/event; effect `non_idempotent` | `TestF6TOOL014BrowserType` | LULUS | F6-04c |
 | TOOL-015 | `browser_vault` | autofill hanya dari vault; nilai secret tidak pernah dicetak; approval setiap call; profil nyata opt-in | `TestF6TOOL015BrowserVault` | LULUS | F6-04c |
 | TOOL-016 | `browser_vision` | screenshot → vision model; preflight ukuran; hasil `<untrusted>` | `TestF6TOOL016BrowserVision` | LULUS | F6-04c, F6-03a |
 | TOOL-017 | `browser_cdp` | allowlist method aman; method sensitif (`Network.*Cookies`, `Storage.*`, `Runtime.evaluate`, `Debugger.*`, `Fetch.*`, `Target.*`, `Browser.*`) approval per call tanpa `allow_session`; `file:` butuh approval | `TestCDPAllowlist`, `TestF6TOOL017BrowserCDP` | LULUS | F6-04d |
@@ -82,7 +82,7 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 |---|---|---|---|---|---|
 | TSET-003 | toolset `browser-cdp` | 2 tool, deferred, `available` saat inventaris=false | `TestF6TSET003BrowserCDP` | LULUS | F6-04d |
 | TSET-004 | toolset `browser-use` | 1 tool; menggantikan tool browser lain; inventaris=false | `TestF6TSET004BrowserUse` | LULUS | F6-04i |
-| TSET-005 | toolset `browser` | 11 tool komposisi, deferred, tanpa duplikat | `TestF6TSET005Browser` | BELUM | F6-04c |
+| TSET-005 | toolset `browser` | 11 tool komposisi, deferred, tanpa duplikat | `TestF6TSET005Browser` | LULUS | F6-04c |
 | TSET-009 | toolset `computer_use` | 1 tool, inventaris=false, approval default | `TestF6TSET009ComputerUse` | BELUM | F6-06b |
 | TSET-019 | toolset `image_gen` | 1 tool, inventaris=false, backend tersedia | `TestF6TSET019ImageGen` | BELUM | F6-03c |
 | TSET-026 | toolset `tts` | 1 tool, inventaris=true, provider default eksplisit | `TestF6TSET026TTS` | BELUM | F6-05c |

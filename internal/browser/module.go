@@ -37,7 +37,7 @@ func Tools() []Tool {
 		newTool("browser_console", "Read the buffered page console log; bounded, never evaluates page script", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
 		newTool("browser_get_images", "List the images of the current page with their natural size", "read", `{"type":"object","properties":{},"additionalProperties":false}`),
 		newTool("browser_vision", "Capture the viewport and hand the PNG to the vision model", "read", `{"type":"object","properties":{"question":{"type":"string","maxLength":1000}},"additionalProperties":false}`),
-		newTool("browser_click", "Click the current page at viewport coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"integer"},"y":{"type":"integer"}},"required":["x","y"],"additionalProperties":false}`),
+		newTool("browser_click", "Click a snapshot element ref or viewport coordinates after approval", "non_idempotent", `{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"ref":{"type":"integer","minimum":1}},"additionalProperties":false}`),
 		newTool("browser_vault", "Fill a login form from the credential vault after approval", "non_idempotent", `{"type":"object","properties":{"user_selector":{"type":"string","maxLength":1024},"password_selector":{"type":"string","maxLength":1024},"submit":{"type":"boolean"}},"required":["user_selector","password_selector"],"additionalProperties":false}`),
 		newTool("browser_cdp", "Send one reviewed Chrome DevTools Protocol method after approval", "non_idempotent", `{"type":"object","properties":{"method":{"type":"string","maxLength":128},"params":{"type":"object"}},"required":["method"],"additionalProperties":false}`),
 		newTool("browser_exec", "Run one Python helper through the Browser Use CLI after approval", "non_idempotent", `{"type":"object","properties":{"script":{"type":"string","maxLength":8192},"timeout_ms":{"type":"integer","minimum":1000,"maximum":120000}},"required":["script"],"additionalProperties":false}`),
@@ -413,27 +413,6 @@ func (m *Module) screenshot(ctx context.Context) (host.Result, error) {
 	}, nil
 }
 
-func (m *Module) click(ctx context.Context, raw json.RawMessage, env host.Env) (host.Result, error) {
-	var a struct{ X, Y float64 }
-	if err := decodeArgs(raw, &a); err != nil {
-		return host.Result{}, invalidArgs(err)
-	}
-	preview := fmt.Sprintf("browser_click at (%.0f, %.0f) in the current page", a.X, a.Y)
-	if err := m.approve(ctx, "browser_click", "browser:click", preview, env, raw); err != nil {
-		return host.Result{}, err
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	p, err := m.open(ctx)
-	if err != nil {
-		return host.Result{}, pageError(err)
-	}
-	if err := p.Click(ctx, a.X, a.Y, true); err != nil {
-		return host.Result{}, pageError(err)
-	}
-	return host.Result{Content: fmt.Sprintf("clicked at (%.0f, %.0f)", a.X, a.Y), UntrustedSource: m.taint()}, nil
-}
-
 func (m *Module) typeText(ctx context.Context, raw json.RawMessage, env host.Env) (host.Result, error) {
 	var a struct {
 		Text string `json:"text"`
@@ -442,7 +421,9 @@ func (m *Module) typeText(ctx context.Context, raw json.RawMessage, env host.Env
 		return host.Result{}, invalidArgs(err)
 	}
 	preview := fmt.Sprintf("browser_type %d characters into the focused element", len(a.Text))
-	if err := m.approve(ctx, "browser_type", "browser:type", preview, env, raw); err != nil {
+	// The typed text is never sent to the approver or an event log: only the
+	// length is shown, and Args stays empty rather than repeating the payload.
+	if err := m.approve(ctx, "browser_type", "browser:type", preview, env, nil); err != nil {
 		return host.Result{}, err
 	}
 	m.mu.Lock()
