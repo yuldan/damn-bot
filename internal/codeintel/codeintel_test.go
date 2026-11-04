@@ -150,3 +150,108 @@ func paths(files []File) []string {
 	}
 	return out
 }
+
+func indexByPath(t *testing.T, opts Options) (map[string]File, *Map) {
+	t.Helper()
+	m, err := Index(t.Context(), opts)
+	if err != nil {
+		t.Fatalf("Index: %v", err)
+	}
+	byPath := map[string]File{}
+	for _, f := range m.Files {
+		byPath[f.Path] = f
+	}
+	return byPath, m
+}
+
+func TestF6CodeintelJSTS(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write(t, filepath.Join(root, "app.js"), `const answer = 42;
+function run() { return answer; }
+class App { start() {} }
+`)
+	write(t, filepath.Join(root, "lib", "util.ts"), `interface Opts { name: string; }
+export function load(o: Opts): void {}
+class Store { get() {} }
+`)
+	write(t, filepath.Join(root, "view", "view.tsx"), "const View = () => <div/>;\nfunction Page() { return <View/>; }\n")
+	write(t, filepath.Join(root, "bin", "run"), "#!/usr/bin/env node\nconst main = () => 1;\n")
+	write(t, filepath.Join(root, "README.md"), "# not source\n")
+	files, m := indexByPath(t, Options{Root: root, Languages: []string{"javascript", "typescript", "tsx"}})
+	want := map[string]map[string]SymbolKind{
+		"app.js":        {"answer": SymbolKind("const"), "run": KindFunc, "App": SymbolKind("class"), "start": KindMethod},
+		"lib/util.ts":   {"Opts": KindType, "load": KindFunc, "Store": SymbolKind("class"), "get": KindMethod},
+		"view/view.tsx": {"View": SymbolKind("const"), "Page": KindFunc},
+		"bin/run":       {"main": SymbolKind("const")},
+	}
+	for path, wantSyms := range want {
+		f, ok := files[path]
+		if !ok {
+			t.Fatalf("missing %s in %v", path, paths(m.Files))
+		}
+		if len(f.Symbols) == 0 {
+			t.Fatalf("%s has no symbols", path)
+		}
+		for name, kind := range wantSyms {
+			if !has(f.Symbols, kind, name, "") {
+				t.Fatalf("%s symbols = %+v (want %s=%s)", path, f.Symbols, name, kind)
+			}
+		}
+	}
+	if _, ok := files["README.md"]; ok {
+		t.Fatalf("README.md indexed: %v", paths(m.Files))
+	}
+	if !strings.Contains(m.Render(600), "const answer:1") {
+		t.Fatalf("render = %q", m.Render(600))
+	}
+}
+
+func TestF6CodeintelPython(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write(t, filepath.Join(root, "app.py"), `class Widget:
+    def render(self):
+        pass
+def helper():
+    pass
+`)
+	write(t, filepath.Join(root, "bin", "tool"), "#!/usr/bin/env -S python3 -u\nclass Job:\n    def run(self):\n        pass\n")
+	files, m := indexByPath(t, Options{Root: root, Languages: []string{"python"}})
+	for path, wantSyms := range map[string]map[string]SymbolKind{
+		"app.py":   {"Widget": SymbolKind("class"), "render": KindMethod, "helper": KindFunc},
+		"bin/tool": {"Job": SymbolKind("class"), "run": KindMethod},
+	} {
+		f, ok := files[path]
+		if !ok {
+			t.Fatalf("missing %s in %v", path, paths(m.Files))
+		}
+		for name, kind := range wantSyms {
+			if !has(f.Symbols, kind, name, "") {
+				t.Fatalf("%s symbols = %+v (want %s=%s)", path, f.Symbols, name, kind)
+			}
+		}
+	}
+}
+
+func TestF6CodeintelLanguageControls(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write(t, filepath.Join(root, "bin.js"), "const x = 1;\x00\x01")
+	write(t, filepath.Join(root, "big.py"), "def f():\n    return 1\n"+strings.Repeat("#", 256))
+	write(t, filepath.Join(root, "notes.rb"), "puts :x\n")
+	files, m := indexByPath(t, Options{Root: root, MaxFileBytes: 64, Languages: []string{"javascript", "python"}})
+	if len(files) != 0 {
+		t.Fatalf("indexed = %v", paths(m.Files))
+	}
+	if m.Skipped.Binary != 1 || m.Skipped.Large != 1 || m.Skipped.NonGo != 1 {
+		t.Fatalf("skipped = %+v", m.Skipped)
+	}
+	if _, err := Index(t.Context(), Options{Root: root, Languages: []string{"ruby"}}); !errors.Is(err, ErrUnsupportedLanguage) {
+		t.Fatalf("unsupported = %v", err)
+	}
+	// An unknown extension alone is skipped, not an error.
+	if _, err := Index(t.Context(), Options{Root: root, Languages: []string{"javascript"}}); err != nil {
+		t.Fatalf("unknown extension aborted index: %v", err)
+	}
+}

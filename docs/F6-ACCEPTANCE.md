@@ -176,7 +176,7 @@ Catatan **Baseline hermes F6** (§9): baris ini `LULUS` untuk kelengkapan artefa
 
 | Item | Kriteria | Tes yang harus ada | Status |
 |---|---|---|---|
-| F5-CODEINTEL-LANG (JS/TS/Python) | `repo_map`/`code_intel` bekerja untuk js/ts/py; bahasa lain tetap `ErrUnsupportedLanguage`; aset wasm dimuat wazero tanpa CGO | `TestF6CodeintelJSTS`, `TestF6CodeintelPython` | BELUM |
+| F5-CODEINTEL-LANG (JS/TS/Python) | `repo_map`/`code_intel` bekerja untuk js/ts/py; bahasa lain tetap `ErrUnsupportedLanguage`; aset wasm dimuat wazero tanpa CGO | `TestF6CodeintelJSTS`, `TestF6CodeintelPython`; kontrol `TestF5CodeintelLanguageJS/TS/Python`, `TestF5CodeintelLanguageGrammarUnavailable`, `TestF6CodeintelLanguageControls` | LULUS |
 | F5-BACKGROUND-WINDOWS | `shell background:true` + registry `process_*` tersedia di Windows; `Close` membunuh seluruh pohon via Job Object; tidak ada proses yatim | `TestF6JobObjectKillsTree` (runner Windows), `TestF6BackgroundSupported` | BELUM |
 | GAP-REL-14 residual | hasil gambar MCP menjadi `Attachments` blob, bukan teks; bila model teks-only → gate vision (EC-PROV-024) | `TestF6MCPImageAttachment` | BELUM |
 

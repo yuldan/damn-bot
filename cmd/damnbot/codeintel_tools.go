@@ -15,7 +15,8 @@ type codeIntelMapper struct{ cwd string }
 
 func (m codeIntelMapper) RepoMap(ctx context.Context, root, focus string, maxTokens int) (string, error) {
 	idx, err := codeintel.Index(ctx, codeintel.Options{
-		Root: root, Focus: focus, Languages: []string{"c", "cpp"},
+		Root: root, Focus: focus,
+		Languages: []string{"c", "cpp", "javascript", "typescript", "tsx", "python"},
 	})
 	if err != nil {
 		return "", fmt.Errorf("codeintel: %w", err)
