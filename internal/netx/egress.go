@@ -65,6 +65,11 @@ func Registry() map[string]Egress {
 			Host:    "cloud_url from [modules.browser] (Camoufox and loopback cloud gateways use the local lane)",
 			Trigger: "browser_navigate and the other page tools after approval",
 		},
+		"doctor-tools-fetch": {
+			Purpose: Tool,
+			Host:    "pinned https release URL from the embedded tools lock (public addresses only)",
+			Trigger: "damnbot doctor tools fetch <name> after the license confirmation",
+		},
 		"telegram": {
 			Purpose: Gateway,
 			Host:    "api.telegram.org",

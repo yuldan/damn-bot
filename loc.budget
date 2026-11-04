@@ -83,7 +83,9 @@ provider/registry  660 internal/provider/registry
 # (A terukur 1245; Delete di PR B). provider 2217 -> 2224 (+7 signer).
 # Sigma core 48.691 -> 49.675 <= 49.700 (headroom 25).
 provider/auth     1230 internal/provider/auth
-netx              1879 internal/netx
+# ADR-323 P8a fetch: egress registry `doctor-tools-fetch` +5 LOC terukur
+# (1884); netx 1879 -> 1890, Sigma core 56.700 -> 56.711, plafon 56.800.
+netx              1890 internal/netx
 netx/jsonrpc       530 internal/netx/jsonrpc
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).

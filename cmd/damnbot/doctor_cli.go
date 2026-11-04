@@ -32,7 +32,7 @@ func doctorProviderFindings(cfg *config.Config) []string {
 
 func doctorUsage(w io.Writer) {
 	say(w, "usage: damnbot doctor [--json] [--fix [--yes]] [--quick] [--network]\n")
-	say(w, "       damnbot doctor tools <ls|verify> [<name>] [--json]\n")
+	say(w, "       damnbot doctor tools <ls|fetch|verify> [<name>] [--json] [--yes]\n")
 }
 
 // networkRow is one egress registry line of `doctor --network`.

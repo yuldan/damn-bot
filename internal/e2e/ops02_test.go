@@ -107,18 +107,19 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 		t.Fatalf("json background = %t, want %t", doc.Background, background)
 	}
 	want := map[string]struct{ purpose, status string }{
-		"inference":    {"inference", "enabled"},
-		"refs":         {"tool", "enabled"},
-		"telegram":     {"gateway", "enabled"},
-		"update":       {"background", "enabled"},
-		"cron-monitor": {"tool", "enabled"},
-		"auth":         {"inference", "enabled"},
-		"mcp":          {"tool", "enabled"},
-		"mcp-local":    {"inference", "enabled"},
-		"media":        {"tool", "enabled"},
-		"voice":        {"tool", "enabled"},
-		"voice-live":   {"inference", "enabled"},
-		"browser":      {"tool", "enabled"},
+		"inference":          {"inference", "enabled"},
+		"refs":               {"tool", "enabled"},
+		"telegram":           {"gateway", "enabled"},
+		"update":             {"background", "enabled"},
+		"cron-monitor":       {"tool", "enabled"},
+		"auth":               {"inference", "enabled"},
+		"mcp":                {"tool", "enabled"},
+		"mcp-local":          {"inference", "enabled"},
+		"media":              {"tool", "enabled"},
+		"voice":              {"tool", "enabled"},
+		"voice-live":         {"inference", "enabled"},
+		"browser":            {"tool", "enabled"},
+		"doctor-tools-fetch": {"tool", "enabled"},
 	}
 	if !background {
 		want["update"] = struct{ purpose, status string }{"background", "disabled (egress_disabled)"}
