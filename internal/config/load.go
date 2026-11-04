@@ -43,6 +43,16 @@ func OS() Deps {
 	}
 }
 
+// LookupSecret reads one named environment variable for a composition-root
+// secret. The value must never be logged or stored in config; OPS-01 keeps
+// direct os.Getenv calls inside this package.
+func LookupSecret(name string) string {
+	if name == "" {
+		return ""
+	}
+	return os.Getenv(name)
+}
+
 // Loader loads config files with injected I/O. It is immutable and safe for
 // concurrent use.
 type Loader struct {

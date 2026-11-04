@@ -63,7 +63,7 @@ func runTUI(args []string) int {
 		Clock: r, Runner: r, Config: r, Runtime: r, Actions: r, Shell: r,
 		Sessions: actions, Files: filesAdapter{}, Clipboard: clipboardAdapter{},
 		Browser: r,
-		Notices: noticeGateFor(&cfg, dataDir),
+		Notices: noticeGateFor(&cfg, dataDir), Voice: newTUIVoice(&cfg),
 	})
 	if err == nil {
 		benchTrace("app-built")

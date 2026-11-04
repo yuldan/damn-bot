@@ -26,7 +26,9 @@ func TestParseSlash(t *testing.T) {
 		{"/undo", true, slashUndo, "/undo", nil},
 		{"/plan", true, slashPlan, "/plan", nil},
 		{"  /plan  ", true, slashPlan, "/plan", nil},
-		{"/voice", true, slashUnknown, "/voice", nil},
+		{"/voice", true, slashVoice, "/voice", nil},
+		{"/voice tts halo", true, slashVoice, "/voice", []string{"tts", "halo"}},
+		{"/wake", true, slashWake, "/wake", nil},
 		{"/", true, slashUnknown, "/", nil},
 		{"hello /plan", false, 0, "", nil},
 		{"/plan\nmore", false, 0, "", nil},
@@ -155,7 +157,8 @@ func TestSlashRejections(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"/rewind", "usage: /rewind"},
 		{"/undo 3", "usage: /undo"},
-		{"/voice", "unknown command /voice"},
+		{"/voice", "module_unavailable: voice surface is not wired"},
+		{"/wake on", "module_unavailable: voice surface is not wired"},
 	}
 	for _, tc := range cases {
 		m.input.SetValue(tc.in)
