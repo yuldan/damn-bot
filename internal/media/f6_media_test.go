@@ -58,6 +58,17 @@ func pngFixture(t *testing.T, w, h int) []byte {
 	return buf.Bytes()
 }
 
+// pathArgs marshals a path safely: Windows paths contain backslashes, which
+// are invalid inside a hand-built JSON string.
+func pathArgs(t *testing.T, path string) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(map[string]string{"path": path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
 func visionModule(t *testing.T, comp host.Completer, vision bool) *Module {
 	t.Helper()
 	return testModule(t, &Section{Enabled: true}, Deps{
@@ -248,7 +259,7 @@ func TestF6MEDIA014VideoAnalyze(t *testing.T) {
 			comp := &fakeCompleter{content: "must not run"}
 			m := visionModule(t, comp, true)
 			_, err := m.Invoke(context.Background(), ToolVideoAnalyze,
-				json.RawMessage(`{"path":"`+filepath.Base(file)+`"}`), host.Env{Cwd: dir})
+				pathArgs(t, filepath.Base(file)), host.Env{Cwd: dir})
 			var he *host.Error
 			if !errors.As(err, &he) || he.Code != tc.code {
 				t.Fatalf("%s = %v, want %s", tc.name, err, tc.code)
@@ -293,7 +304,7 @@ func TestF6MediaVideoApproval(t *testing.T) {
 		Approvals: approvals, LLM: comp, Vision: true, VisionModel: "fake/vision",
 	}, newMemStore())
 	_, err := m.Invoke(context.Background(), ToolVideoAnalyze,
-		json.RawMessage(`{"path":"`+outside+`"}`), host.Env{Cwd: dir})
+		pathArgs(t, outside), host.Env{Cwd: dir})
 	var he *host.Error
 	if !errors.As(err, &he) || he.Code != "denied" {
 		t.Fatalf("outside without approval = %v", err)
@@ -307,7 +318,7 @@ func TestF6MediaVideoApproval(t *testing.T) {
 	}
 	approvals.answer = host.ApprovalAllowOnce
 	if _, err := m.Invoke(context.Background(), ToolVideoAnalyze,
-		json.RawMessage(`{"path":"`+outside+`"}`), host.Env{Cwd: dir}); err != nil {
+		pathArgs(t, outside), host.Env{Cwd: dir}); err != nil {
 		t.Fatalf("approved outside video: %v", err)
 	}
 	if comp.calls() != 1 {
