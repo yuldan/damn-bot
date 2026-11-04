@@ -40,6 +40,10 @@ type fakeTG struct {
 	pollWait time.Duration
 	// cancelled counts hanging requests the client abandoned by cancelling.
 	cancelled atomic.Int64
+	// cancelObserved receives one token per hanging request whose cancellation
+	// the handler observed. Tests synchronize on this channel instead of
+	// polling the counter, so the assertion never races the handler goroutine.
+	cancelObserved chan struct{}
 	// hold parks the next getUpdates until its request context is cancelled;
 	// holdStart closes once the handler is waiting.
 	hold      bool
@@ -74,11 +78,12 @@ type fakeFault struct {
 func newFakeTG(t *testing.T) *fakeTG {
 	t.Helper()
 	f := &fakeTG{
-		token:      "424242:fake-telegram-token",
-		notify:     make(chan struct{}),
-		faults:     map[string][]fakeFault{},
-		nth:        map[string]map[int]fakeFault{},
-		seenMethod: map[string]int{},
+		token:          "424242:fake-telegram-token",
+		notify:         make(chan struct{}),
+		faults:         map[string][]fakeFault{},
+		nth:            map[string]map[int]fakeFault{},
+		seenMethod:     map[string]int{},
+		cancelObserved: make(chan struct{}, 8),
 	}
 	f.Server = httptest.NewServer(http.HandlerFunc(f.handle))
 	t.Cleanup(f.Close)
@@ -256,7 +261,7 @@ func (f *fakeTG) applyFault(w http.ResponseWriter, r *http.Request, fault fakeFa
 		case <-timer.C:
 			return false // the delayed normal response follows
 		case <-r.Context().Done():
-			f.cancelled.Add(1)
+			f.cancelSignal()
 			return true // the client gave up: never answer
 		}
 	}
@@ -300,8 +305,33 @@ func (f *fakeTG) parkUpdate(r *http.Request) bool {
 	}
 	close(start)
 	<-r.Context().Done()
-	f.cancelled.Add(1)
+	f.cancelSignal()
 	return true
+}
+
+// cancelSignal records one abandoned hanging request and hands waiting tests a
+// token, so assertions synchronize with the handler instead of reading the
+// counter while it is still being updated.
+func (f *fakeTG) cancelSignal() {
+	f.cancelled.Add(1)
+	select {
+	case f.cancelObserved <- struct{}{}:
+	default: // never block a handler on a slow reader
+	}
+}
+
+// waitCancelled blocks until n hanging requests have observed cancellation,
+// failing after a hard deadline. It replaces reading the counter right after
+// Run returns, which races the handler goroutine on a loaded macOS runner.
+func (f *fakeTG) waitCancelled(t *testing.T, n int) {
+	t.Helper()
+	for range n {
+		select {
+		case <-f.cancelObserved:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("cancelled stalled requests = %d, want at least %d", f.cancelled.Load(), n)
+		}
+	}
 }
 
 // pollWindow caps the server-side long poll in tests that need a stall

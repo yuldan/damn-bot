@@ -83,6 +83,11 @@ func TestECPLAT016PollStallRebuildsAdapter(t *testing.T) {
 	if got := rebuilds.Load(); got < 2 {
 		t.Fatalf("client rebuilds = %d, want at least 2", got)
 	}
+	// EC-PLAT-016: the counter is written by the handler goroutine that
+	// observes the cancellation, so wait for both handshakes before reading it.
+	// Reading it immediately after Run returned made the test depend on macOS
+	// scheduling (observed as "cancelled stalled requests = 1").
+	f.waitCancelled(t, 2)
 	if got := f.cancelled.Load(); got < 2 {
 		t.Fatalf("cancelled stalled requests = %d, want at least 2", got)
 	}
