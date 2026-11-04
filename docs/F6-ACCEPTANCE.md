@@ -18,7 +18,7 @@ Aturan gate:
 | MEDIA 29/31 | 29 baris MEDIA F6 `LULUS`; MEDIA-029 (Discord voice) dan MEDIA-031 (silk) `N/A` → F7 | tabel §6 (29 baris; semuanya `BELUM` di head ini) + `TestParityPhaseColumn`; MEDIA-029/031 `N/A — fase F7 di FEATURE-PARITY.md:862,864, bukan baris ledger F6 (carryover F7)` | BELUM |
 | Ukuran gambar | 0 penolakan ukuran pada suite 50 gambar; resize 12 MP ≤ 150 ms | `BenchmarkImagePreflight`, `TestF6ImageSuite50`, `TestImagePreflightTargetNotLowered` | N/A — hardware: target 150 ms hanya sah di Q14; host ini 265–290 ms (carryover F7, tanpa klaim lulus) |
 | Voice latency | overhead ujung-ucapan→audio-pertama ≤ 200 ms; TTS streaming mulai ≤ 300 ms setelah kalimat pertama LLM | `TestVoicePipelineLatency`, `TestF6VoiceLatencyBudget` (fake STT/LLM/TTS bertanda waktu) | LULUS |
-| Smoke E3 | 10 task E3 dengan model murah lulus harness; artefak tersimpan | `TestF6E3Smoke10` + `bench/evals/results/F6-e3.json` | BELUM |
+| Smoke E3 | 10 task E3 dengan model murah lulus harness; artefak tersimpan | `TestF6E3Smoke10` + `TestF6E3Artifact` + `bench/evals/results/F6-e3.json` | LULUS |
 | EC-PROV-024 | gate kapabilitas vision sebelum routing gambar; model teks-only tidak pernah menerima gambar | `TestEdgeCases/EC-PROV-024` | LULUS |
 | Test tertunda ADR-083 | cap tool non-LLM ditegakkan sebelum dispatch | `TestBudgetGuardTools` | BELUM |
 | Baseline hermes F6 | dimensi ADR-065/083 berstatus F6 diukur untuk kedua agent | `TestF6HermesBaseline`, `TestF6BaselineArtifactSchema` + `bench/speed/results/hermes-868b9f244f-F6.json` | LULUS |
@@ -167,7 +167,7 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 |---|---|---|---|
 | EC-PROV-024 | gambar tidak pernah dikirim ke model teks-only; gate `capabilities.vision` terjadi sebelum routing; fallback vision eksplisit | `TestEdgeCases/EC-PROV-024` (katalog `pending:F6` → `covered`) | LULUS |
 | TestBudgetGuardTools (ADR-083) | 0 panggilan vendor setelah cap 100%; peringatan 80%; `budget_tools` membawa angka/periode/perintah naik; fake clock/usage | `TestBudgetGuardTools` | BELUM |
-| Smoke E3 | 10 task E3 self-contained deterministik, model murah, dijalankan lewat harness yang ada; artefak hasil disimpan | `TestF6E3Smoke10`, `bench/evals/results/F6-e3.json` | BELUM |
+| Smoke E3 | 10 task E3 self-contained deterministik, model murah, dijalankan lewat harness yang ada; artefak hasil disimpan | `TestF6E3Smoke10`, `TestF6E3Artifact`, `bench/evals/results/F6-e3.json` | LULUS |
 | Baseline hermes F6 | `Voice end-to-end` dan `Image preflight` diukur dengan harness yang sama untuk hermes dan Damn-Bot | `TestF6HermesBaseline`, `TestF6BaselineArtifactSchema`, `bench/speed/results/hermes-868b9f244f-F6.json` | LULUS |
 
 Catatan **Baseline hermes F6** (§9): baris ini `LULUS` untuk kelengkapan artefak (dua dimensi × dua agen, diukur harness yang sama), **bukan** untuk target waktu. Sesuai §1, verdict `image_preflight` = `fail` terhadap target 150 ms yang hanya sah di Q14 (`N/A — hardware`, ADR-323); verdict `voice_end_to_end` = `pass`. Tidak ada klaim bahwa target image tercapai di workstation ini.
@@ -210,3 +210,32 @@ Aturan perubahan ledger (ADR-323): ubah `BELUM` → `LULUS` hanya bersama tes be
 `BenchmarkImagePreflight` (JPEG 4000×3000, host 2026-11-02) terukur **≈0,9 s/op** dengan 10 CPU dan **≈6,4 s/op** di bawah `GOMAXPROCS=2`/`nice -n 19`; komponen di bawah batas yang sama: decode ≈0,43–1,61 s, resize ≈0,26–0,57 s (fast path `*image.YCbCr` + box-average paralel), encode ≈0,13–0,18 s. Target SPEC §17 (≤150 ms) diukur di mesin referensi Q14; host ini jauh lebih lambat dan decode stdlib + encode sudah melewati 150 ms tanpa resize. **Open item**, bukan klaim lulus.
 
 Usulan slice optimasi berikutnya: decode JPEG ber-skalasi DCT-domain 1/2–1/8 (hindari decode 12 MP penuh), resize paralel per baris dengan buffer terpisah, dan ukur ulang `BenchmarkImagePreflight` di Q14. Baris acceptance tetap `N/A — hardware` sampai pengukuran Q14 tersedia, dan tidak ada asersi tes yang diturunkan.
+
+## 13. Smoke E3 live (2026-11-04) — Amandemen (ADR-323)
+
+**Amandemen (ADR-323, PR #696).** Baris "Smoke E3" di §1 dan §9 menjadi **`LULUS`** karena artefak run nyata, tes seleksi, dan tes skema artefak mendarat di PR yang sama. Kriteria baris tidak berubah: 10 task E3 deterministik, model murah, dijalankan lewat harness `bench/h2h`, lulus grader, artefak tersimpan.
+
+| item | hasil |
+| --- | --- |
+| commit Damn-Bot | `8ca678df` (`origin/main` saat run, 2026-11-04; PR ini rebase di atas `f1b52bca`) |
+| host | workstation, `nice -n 19`, `GOMAXPROCS=2`, `GOFLAGS=-p=1`, `ulimit -v` 4 GiB |
+| task | 10/10 `ran`: E3-012, E3-016, E3-001, E3-026, E3-010, E3-020, E3-018, E3-009, E3-013, E3-017 |
+| grader | 10/10 `pass` |
+| harness error | 0 |
+| agent | hermes `868b9f244f5aa3ad238e494048046fe4f29c28ba` (diverifikasi lewat blob SHA GitHub; checkout lokal tanpa `.git`); harness mencatat sisi Damn-Bot `N/A` |
+| model | `claude-haiku-5-5`, harga `0,0286 / 0,00286 / 0,143` USD per Mtok (`https://teamorouter.cn/pricing`, dibaca 2026-11-04) |
+| completion | 46 calls (2 aborted); 1.938.866 prompt / 5.267 completion / 0 cached token |
+| biaya run | **US$0,05620475**; ledger F6 `0,07720813/2,00` (termasuk percobaan yang dibuang, lihat di bawah) |
+| artefak | `bench/evals/results/F6-e3.json` (sha256 `3d0eeb7362176104dabd740ce4ce536bcf89cc0bc88d5d192de6420dd7956ee6`) |
+| penjaga | `TestF6E3Smoke10` (seleksi deterministik) dan `TestF6E3Artifact` (menolak artefak kosong/placeholder; menolak `passed` tanpa exit/stop, calls, token, biaya, dan hash rekaman) |
+
+Percobaan yang dibuang dicatat di `meta.attempts` artefak, bukan disembunyikan: kedua model gratis termurah (`deepseek-v4-flash-free`, `glm-5.3-flash-free`) dijawab upstream HTTP 402 "high demand" pada semua attempt (0 completion, 0 grader pass); `qwen3.7-flash` lulus 8/10 — E3-012 dan E3-018 menjawab angka sensus yang benar tetapi bertanda ribuan (`49,604` / `195,667`), yang ditolak regex grader; `claude-haiku-5-5` lulus 2/2 pada subset diagnostik itu lalu 10/10 pada run penerimaan. Rekaman mentah (`summary.json`, 10 `*.proxy.jsonl.gz`) diarsipkan di host run `/home/dan/.cache/damnbot/f6e3-raw-2026-11-04/` dan tidak di-commit; hash per task ada di artefak.
+
+Perintah (kunci dibaca runtime dari `~/.config/damnbot/llm_key`, tidak pernah dicetak; `python3` menunjuk venv hermes):
+
+```sh
+cd bench && h2h -smoke f6e3 -hermes ~/.cache/damnbot/f2-inputs/hermes-src \
+  -upstream https://api.teamorouter.com -model claude-haiku-5-5 \
+  -price-in 0.0286 -price-cached 0.00286 -price-out 0.143 \
+  -out h2h/results/2026-11-04-f6-e3-smoke -evals evals/v1 -timeout 300s -max-turns 20
+```

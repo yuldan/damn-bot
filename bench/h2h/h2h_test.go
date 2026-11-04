@@ -341,7 +341,7 @@ func TestF6E3Smoke10(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"E3-012", "E3-016", "E3-001", "E3-026", "E3-010", "E3-020", "E3-018", "E3-009", "E3-013", "E3-017"}
+	want := f6e3SmokeIDs
 	if len(got) != len(want) {
 		t.Fatalf("tasks = %d, want %d", len(got), len(want))
 	}
