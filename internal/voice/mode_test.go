@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 // fakeCapture is one push-to-talk track; closed records the device release.
@@ -240,7 +242,7 @@ func checkLiveFallback(t *testing.T) {
 	dead.Close()
 	fallbackTTS := &fakeTTS{}
 	fp := &Pipeline{STT: &fakeSTT{tr: Transcript{Text: "halo"}}, TTS: fallbackTTS, LLM: &fakeLLM{sentences: []string{"jatuh."}}}
-	fm, err := NewMode(ModeGPTLive, fp, &fakeCapture{audio: "audio"}, &LiveConfig{Endpoint: deadURL, Client: http.DefaultClient})
+	fm, err := NewMode(ModeGPTLive, fp, &fakeCapture{audio: "audio"}, &LiveConfig{Endpoint: deadURL, Client: netx.LoopbackClient()})
 	if err != nil {
 		t.Fatalf("NewMode fallback: %v", err)
 	}
