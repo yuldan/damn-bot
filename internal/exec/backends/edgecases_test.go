@@ -40,7 +40,7 @@ func TestECTERM003(t *testing.T) {
 			//nolint:errcheck,gosec // test cleanup
 			d.Close(context.Background())
 		}()
-		res, err := d.Run(t.Context(), &exec.Spec{Argv: []string{"/bin/echo", "hi"}, Dir: root, Timeout: 5e9})
+		res, err := runBackend(t, d, &exec.Spec{Argv: []string{"/bin/echo", "hi"}, Dir: root, Timeout: 5e9})
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/provider/providertest"
+	"github.com/damnbot/damnbot/internal/testutil"
 )
 
 const modelRef = "openai/gpt-fake"
@@ -240,14 +241,18 @@ func (e *Env) execEnv(stdin io.Reader, env []string, args ...string) Result {
 	if bin == "" {
 		bin = binPaths.main
 	}
-	cmd := exec.CommandContext(ctx, bin, args...) //nolint:gosec // binary path is this package's temp build or the copied asset
-	cmd.Dir = e.Workdir
-	cmd.Stdin = stdin
-	cmd.Env = e.childEnv()
-	cmd.Env = append(cmd.Env, env...)
 	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	err := cmd.Run()
+	err := testutil.ExecRetry(ctx, func() error {
+		out.Reset()
+		errb.Reset()
+		cmd := exec.CommandContext(ctx, bin, args...) // #nosec G204 -- binary path is this package's temp build or the copied asset
+		cmd.Dir = e.Workdir
+		cmd.Stdin = stdin
+		cmd.Env = e.childEnv()
+		cmd.Env = append(cmd.Env, env...)
+		cmd.Stdout, cmd.Stderr = &out, &errb
+		return cmd.Run()
+	})
 	res := Result{Stdout: out.String(), Stderr: errb.String()}
 	if err != nil {
 		var exit *exec.ExitError

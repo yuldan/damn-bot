@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/exec"
+	"github.com/damnbot/damnbot/internal/testutil"
 )
 
 // fakeCLIScript logs argv (and any --env-file) and then runs the argv after
@@ -43,20 +44,15 @@ if [ "$found" = 0 ]; then exit 0; fi
 exec "$@"
 `
 
-// fakeCLI writes a closed, immutable CLI helper and hardlinks it into the test
-// dir. The template is never executed while open, and one fresh inode per call
-// keeps parallel tests from tripping ETXTBSY on a shared writer.
+// fakeCLI writes one closed, immutable CLI helper per test. The destination is
+// produced through a temporary file and rename, so the executed name never has
+// a writer; ExecRetry absorbs the fork window that rename cannot close.
 func fakeCLI(t *testing.T, image string) (bin, logPath, envPath string) {
 	t.Helper()
-	src := filepath.Join(t.TempDir(), "fake-cli")
-	//nolint:gosec // the fake CLI must be executable by the test
-	if err := os.WriteFile(src, []byte(fakeCLIScript), 0o700); err != nil {
-		t.Fatalf("write fake CLI: %v", err)
-	}
 	dir := t.TempDir()
 	bin = filepath.Join(dir, "fake-cli-"+image)
-	if err := os.Link(src, bin); err != nil {
-		t.Fatalf("link fake CLI: %v", err)
+	if err := testutil.WriteExecutable(bin, []byte(fakeCLIScript), 0o700); err != nil {
+		t.Fatalf("write fake CLI: %v", err)
 	}
 	return bin, filepath.Join(dir, "argv.log"), filepath.Join(dir, "env.log")
 }
@@ -95,7 +91,7 @@ func TestDockerRunContract(t *testing.T) {
 		d.Close(context.Background())
 	})
 
-	res, err := d.Run(t.Context(), &exec.Spec{
+	res, err := runBackend(t, d, &exec.Spec{
 		Argv: []string{"/bin/sh", "-c", "printf 'out:%s' \"$DAMNBOT_TEST\"; exit 3"},
 		Dir:  root, Env: []string{"DAMNBOT_TEST=hello"}, Timeout: 10 * time.Second,
 	})
@@ -142,15 +138,15 @@ func TestDockerRejectsEscapes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDocker: %v", err)
 	}
-	if _, err := d.Run(t.Context(), &exec.Spec{Argv: []string{"/bin/true"}, Dir: "/tmp"}); !errors.Is(err, exec.ErrCapability) {
+	if _, err := runBackend(t, d, &exec.Spec{Argv: []string{"/bin/true"}, Dir: "/tmp"}); !errors.Is(err, exec.ErrCapability) {
 		t.Fatalf("outside cwd = %v", err)
 	}
-	if _, err := d.Run(t.Context(), &exec.Spec{
+	if _, err := runBackend(t, d, &exec.Spec{
 		Argv: []string{"/bin/true"}, Dir: root, Env: []string{"OPENAI_API_KEY=sk-x"},
 	}); !errors.Is(err, exec.ErrCapability) {
 		t.Fatalf("secret env = %v", err)
 	}
-	if _, err := d.Run(t.Context(), &exec.Spec{Argv: []string{"/bin/true"}, Limits: exec.Limits{PIDs: 1}, Dir: root}); err != nil {
+	if _, err := runBackend(t, d, &exec.Spec{Argv: []string{"/bin/true"}, Limits: exec.Limits{PIDs: 1}, Dir: root}); err != nil {
 		// limits are supported, not rejected; this call must reach the fake CLI.
 		t.Fatalf("limits: %v", err)
 	}
@@ -190,7 +186,7 @@ func TestDockerTimeoutCleansContainer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDocker: %v", err)
 	}
-	res, err := d.Run(t.Context(), &exec.Spec{
+	res, err := runBackend(t, d, &exec.Spec{
 		Argv: []string{"/bin/sh", "-c", "sleep 30"}, Dir: root,
 		Timeout: 300 * time.Millisecond, KillGrace: time.Second,
 	})

@@ -5,11 +5,11 @@ package code
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/exec"
+	"github.com/damnbot/damnbot/internal/testutil"
 )
 
 // realBackend delegates to the local runner but claims the network
@@ -51,7 +51,7 @@ func (r realBackend) Close(ctx context.Context) error {
 func TestRunThroughLocalBackendSpawnsStubInterpreter(t *testing.T) {
 	dir := t.TempDir()
 	interp := filepath.Join(dir, "interp")
-	if err := os.WriteFile(interp, []byte("#!/bin/sh\ncat\n"), 0o700); err != nil { // #nosec G306 -- fixture must be executable
+	if err := testutil.WriteExecutable(interp, []byte("#!/bin/sh\ncat\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	l := exec.NewLocal(exec.New(t.Context()))
@@ -70,7 +70,12 @@ func TestRunThroughLocalBackendSpawnsStubInterpreter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := r.Run(t.Context(), &Request{Language: Python, Code: "ignored", Stdin: []byte(`{"n":41}`)})
+	var res Result
+	err = testutil.ExecRetry(t.Context(), func() error {
+		var rerr error
+		res, rerr = r.Run(t.Context(), &Request{Language: Python, Code: "ignored", Stdin: []byte(`{"n":41}`)})
+		return rerr
+	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

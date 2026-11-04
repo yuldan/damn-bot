@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/testutil"
 )
 
 // TestServeEarlyRecoveryRollback (OPS-028): a pending install whose target
@@ -32,11 +34,8 @@ func prepareRecovery(t *testing.T) (string, string) {
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
-	if werr := os.WriteFile(bin, orig, 0o600); werr != nil { // #nosec G703
+	if werr := testutil.WriteExecutable(bin, orig, 0o700); werr != nil { // #nosec G703 -- path from t.TempDir
 		t.Fatal(werr)
-	}
-	if cerr := os.Chmod(bin, 0o700); cerr != nil { // #nosec G302
-		t.Fatal(cerr)
 	}
 	if werr := os.WriteFile(bin+".prev", []byte("prev-binary"), 0o600); werr != nil { // #nosec G703
 		t.Fatal(werr)
@@ -66,7 +65,7 @@ func TestServeEarlyRecoveryRollback(t *testing.T) {
 	cmd.Env = e.childEnv()
 	var stderr lockedBuffer
 	cmd.Stderr = &stderr
-	if serr := cmd.Start(); serr != nil {
+	if serr := testutil.ExecRetry(t.Context(), cmd.Start); serr != nil {
 		t.Fatal(serr)
 	}
 	waitLog(t, &stderr, "early recovery: rolled back")

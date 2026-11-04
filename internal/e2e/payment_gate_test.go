@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/provider/providertest"
+	"github.com/damnbot/damnbot/internal/testutil"
 )
 
 // markerScript writes the script the scenario runs into dir/scripts and
@@ -22,17 +23,14 @@ func markerScript(t *testing.T, dir, marker string) string {
 	if runtime.GOOS == "windows" {
 		p := filepath.Join(dir, "scripts", "charge.ps1")
 		body := "New-Item -ItemType File -Path '" + strings.ReplaceAll(marker, "'", "''") + "' -Force | Out-Null\n"
-		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		if err := testutil.WriteExecutable(p, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		return "& '" + p + "'"
 	}
 	p := filepath.Join(dir, "scripts", "charge.sh")
 	body := "#!/bin/sh\ntouch '" + strings.ReplaceAll(marker, "'", `'\''`) + "'\n"
-	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(p, 0o700); err != nil { //nolint:gosec // test executable needs the exec bit
+	if err := testutil.WriteExecutable(p, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return "'" + p + "'"

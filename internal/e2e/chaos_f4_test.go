@@ -36,6 +36,7 @@ import (
 	"github.com/damnbot/damnbot/internal/ctxdb"
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/provider/providertest"
+	"github.com/damnbot/damnbot/internal/testutil"
 )
 
 // TestChaosF4 is the F4 chaos acceptance suite. It is not part of `make test`:
@@ -938,7 +939,7 @@ func chaosStubNPM(t *testing.T, e *Env, port int, hold bool) string {
 	if hold {
 		stub += "sleep 30\n"
 	}
-	if err := os.WriteFile(filepath.Join(dir, "npm"), []byte(stub), 0o700); err != nil { // #nosec G306 -- the npm stub must be executable to stand in for the real tool
+	if err := testutil.WriteExecutable(filepath.Join(dir, "npm"), []byte(stub), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return dir

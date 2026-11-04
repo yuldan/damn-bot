@@ -29,7 +29,7 @@ func TestContainerCwdValidated(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewDocker: %v", err)
 		}
-		if _, err := d.Run(t.Context(), &exec.Spec{Argv: []string{"/bin/true"}, Dir: "/tmp"}); !errors.Is(err, exec.ErrCapability) {
+		if _, err := runBackend(t, d, &exec.Spec{Argv: []string{"/bin/true"}, Dir: "/tmp"}); !errors.Is(err, exec.ErrCapability) {
 			t.Fatalf("host cwd outside mount = %v, want ErrCapability", err)
 		}
 	})

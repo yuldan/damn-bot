@@ -5,12 +5,33 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/damnbot/damnbot/internal/testutil"
 )
+
+// transcribe runs one whisper call and retries only ETXTBSY: the fixture
+// script is written by the test process, so a fork from a parallel test can
+// still hold its writer when whisper is exec'd.
+func transcribe(ctx context.Context, t *testing.T, w *Whisper, r io.Reader, o Options) (Transcript, error) {
+	t.Helper()
+	var tr Transcript
+	err := testutil.ExecRetry(ctx, func() error {
+		var rerr error
+		tr, rerr = w.Transcribe(ctx, r, o)
+		return rerr
+	})
+	if err != nil {
+		return tr, fmt.Errorf("transcribe: %w", err)
+	}
+	return tr, nil
+}
 
 // wavBytes builds a mono PCM16 WAV of samples frames at rate Hz.
 func wavBytes(t *testing.T, rate, samples uint32) []byte {
@@ -42,7 +63,7 @@ func fakeWhisper(t *testing.T, dir, body string) string {
 		t.Skip("POSIX shell fixture")
 	}
 	path := filepath.Join(dir, "fake-whisper")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body), 0o600); err != nil {
+	if err := testutil.WriteExecutable(path, []byte("#!/bin/sh\n"+body), 0o600); err != nil {
 		t.Fatalf("write script: %v", err)
 	}
 	makeExec(t, path)
@@ -76,7 +97,7 @@ func TestWhisperTranscribe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWhisper: %v", err)
 	}
-	tr, err := w.Transcribe(t.Context(), bytes.NewReader(wavBytes(t, 16000, 16000)), Options{})
+	tr, err := transcribe(t.Context(), t, w, bytes.NewReader(wavBytes(t, 16000, 16000)), Options{})
 	if err != nil {
 		t.Fatalf("Transcribe: %v", err)
 	}
@@ -100,7 +121,7 @@ func TestWhisperTimeout(t *testing.T) {
 		t.Fatalf("NewWhisper: %v", err)
 	}
 	start := time.Now()
-	_, err = w.Transcribe(t.Context(), bytes.NewReader(wavBytes(t, 8000, 8000)), Options{Timeout: 100 * time.Millisecond})
+	_, err = transcribe(t.Context(), t, w, bytes.NewReader(wavBytes(t, 8000, 8000)), Options{Timeout: 100 * time.Millisecond})
 	if !errors.Is(err, ErrTimeout) {
 		t.Fatalf("err = %v, want ErrTimeout", err)
 	}
@@ -130,13 +151,13 @@ func TestWhisperEmptyAndOversized(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWhisper: %v", err)
 	}
-	if _, err := w.Transcribe(t.Context(), bytes.NewReader(nil), Options{}); !errors.Is(err, ErrEmptyAudio) {
+	if _, err := transcribe(t.Context(), t, w, bytes.NewReader(nil), Options{}); !errors.Is(err, ErrEmptyAudio) {
 		t.Errorf("empty err = %v", err)
 	}
-	if _, err := w.Transcribe(t.Context(), bytes.NewReader(make([]byte, 100)), Options{MaxBytes: 10}); !errors.Is(err, ErrTooLarge) {
+	if _, err := transcribe(t.Context(), t, w, bytes.NewReader(make([]byte, 100)), Options{MaxBytes: 10}); !errors.Is(err, ErrTooLarge) {
 		t.Errorf("oversize err = %v", err)
 	}
-	if _, err := w.Transcribe(t.Context(), nil, Options{}); !errors.Is(err, ErrEmptyAudio) {
+	if _, err := transcribe(t.Context(), t, w, nil, Options{}); !errors.Is(err, ErrEmptyAudio) {
 		t.Errorf("nil reader err = %v", err)
 	}
 }
@@ -149,7 +170,7 @@ func TestWhisperNonWAVAndMalformedWAV(t *testing.T) {
 		t.Fatalf("NewWhisper: %v", err)
 	}
 	mp3 := append([]byte("ID3\x04\x00\x00\x00\x00\x00\x00"), make([]byte, 64)...)
-	tr, err := w.Transcribe(t.Context(), bytes.NewReader(mp3), Options{MaxBytes: 1 << 20})
+	tr, err := transcribe(t.Context(), t, w, bytes.NewReader(mp3), Options{MaxBytes: 1 << 20})
 	if err != nil {
 		t.Fatalf("mp3: %v", err)
 	}
@@ -158,7 +179,7 @@ func TestWhisperNonWAVAndMalformedWAV(t *testing.T) {
 	}
 	// A non-canonical WAV is sent whole, never guessed at or rewritten.
 	broken := append([]byte("RIFF\x00\x00\x00\x00WAVE"), make([]byte, 40)...)
-	tr, err = w.Transcribe(t.Context(), bytes.NewReader(broken), Options{})
+	tr, err = transcribe(t.Context(), t, w, bytes.NewReader(broken), Options{})
 	if err != nil || tr.Chunks != 1 || tr.MIME != "audio/wav" {
 		t.Errorf("non-canonical wav = %+v, err = %v", tr, err)
 	}
@@ -175,7 +196,7 @@ printf '%s' 'not json' > "$prefix.json"
 	if err != nil {
 		t.Fatalf("NewWhisper: %v", err)
 	}
-	if _, err := w.Transcribe(t.Context(), bytes.NewReader(wavBytes(t, 8000, 800)), Options{}); !errors.Is(err, errOutput) {
+	if _, err := transcribe(t.Context(), t, w, bytes.NewReader(wavBytes(t, 8000, 800)), Options{}); !errors.Is(err, errOutput) {
 		t.Fatalf("err = %v, want errOutput", err)
 	}
 }
@@ -189,7 +210,7 @@ func TestTranscribeHonoursCancel(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := w.Transcribe(ctx, bytes.NewReader(wavBytes(t, 8000, 800)), Options{}); !errors.Is(err, context.Canceled) {
+	if _, err := transcribe(ctx, t, w, bytes.NewReader(wavBytes(t, 8000, 800)), Options{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 }
@@ -211,7 +232,7 @@ printf '%s' '{"transcription":[{"offsets":{"from":0,"to":1200},"text":" hello wo
 		t.Fatalf("NewWhisper: %v", err)
 	}
 	// 5 s at 8 kHz, 2 s chunks -> 3 calls at 0, 2 s, 4 s.
-	tr, err := w.Transcribe(t.Context(), bytes.NewReader(wavBytes(t, 8000, 40000)), Options{ChunkSeconds: 2})
+	tr, err := transcribe(t.Context(), t, w, bytes.NewReader(wavBytes(t, 8000, 40000)), Options{ChunkSeconds: 2})
 	if err != nil {
 		t.Fatalf("Transcribe: %v", err)
 	}
@@ -240,7 +261,7 @@ func TestWhisperTooManyChunks(t *testing.T) {
 		t.Fatalf("NewWhisper: %v", err)
 	}
 	// 13 s at 8 kHz with 1 s chunks = 13 > MaxChunks.
-	_, err = w.Transcribe(t.Context(), bytes.NewReader(wavBytes(t, 8000, 13*8000)), Options{ChunkSeconds: 1})
+	_, err = transcribe(t.Context(), t, w, bytes.NewReader(wavBytes(t, 8000, 13*8000)), Options{ChunkSeconds: 1})
 	if !errors.Is(err, ErrTooLarge) {
 		t.Fatalf("err = %v, want ErrTooLarge", err)
 	}

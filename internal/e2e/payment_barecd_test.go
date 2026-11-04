@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/provider/providertest"
+	"github.com/damnbot/damnbot/internal/testutil"
 )
 
 // workspaceScript writes a script INSIDE the child's workspace and returns the
@@ -20,8 +21,9 @@ func workspaceScript(t *testing.T, e *Env, marker string) string {
 			strings.ReplaceAll(marker, "'", "''")+"' -Force | Out-Null\n")
 		return `.\rel.ps1`
 	}
-	p := e.WriteFile("rel.sh", "#!/bin/sh\ntouch '"+strings.ReplaceAll(marker, "'", `'\''`)+"'\n")
-	if err := os.Chmod(p, 0o700); err != nil { //nolint:gosec // test executable needs the exec bit
+	p := filepath.Join(e.Workdir, "rel.sh")
+	body := "#!/bin/sh\ntouch '" + strings.ReplaceAll(marker, "'", `'\''`) + "'\n"
+	if err := testutil.WriteExecutable(p, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	return "./rel.sh"
