@@ -110,6 +110,8 @@ func Builtin() []Definition {
 		{Name: "coding", Description: "Coding toolkit: files, shell, web, skills, todo, memory, session_search, clarify", Tools: coding},
 		{Name: "hermes-acp", Description: "Coding toolkit for editor integration", Tools: acp},
 		{Name: "cronjob", Description: "Scheduled job management", Tools: []string{"cronjob_manage"}},
+		{Name: "browser-cdp", Description: "Raw DevTools protocol and native dialog tools", Tools: []string{"browser_cdp", "browser_dialog"}},
+		{Name: "browser-use", Description: "Browser Use CLI control tool", Tools: []string{"browser_exec"}},
 		{Name: "hermes-cli", Description: "Full headless toolkit", Tools: core},
 		{Name: "hermes-cron", Description: "Default cron toolset: the full headless toolkit", Includes: []string{"hermes-cli"}},
 		{Name: "hermes-telegram", Description: "Telegram bot toolset: full access for personal use", Includes: []string{"hermes-cli"}},
