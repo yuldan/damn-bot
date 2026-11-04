@@ -202,3 +202,51 @@ func (r *speechRecorder) lastFormat() string {
 	defer r.mu.Unlock()
 	return r.body["response_format"]
 }
+
+// TestF6MEDIA009TTSCommandArgv pins the command wire (MEDIA-009): the text is
+// exactly one argv element and never reaches a shell, one call is bounded by
+// its timeout, and the response is accepted only by magic bytes.
+func TestF6MEDIA009TTSCommandArgv(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX argv fixture")
+	}
+	fixture := buildTTSFixture(t)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	text := "halo; touch SHOULD_NOT_EXIST $(touch SHOULD_NOT_EXIST2) | tee SHOULD_NOT_EXIST3"
+	p, err := (&Factory{Command: []string{fixture, "{out}", "{text}", text, "RIFF0000WAVE"}}).New("piper")
+	if err != nil {
+		t.Fatalf("New piper: %v", err)
+	}
+	audio, err := p.Synthesize(t.Context(), text, Options{})
+	if err != nil {
+		t.Fatalf("Synthesize: %v", err)
+	}
+	if audio.MIME != "audio/wav" || audio.Ext != ".wav" || audio.Backend != "piper" {
+		t.Fatalf("audio = %+v", audio)
+	}
+	for _, name := range []string{"SHOULD_NOT_EXIST", "SHOULD_NOT_EXIST2", "SHOULD_NOT_EXIST3"} {
+		if _, serr := os.Stat(filepath.Join(cwd, name)); !errors.Is(serr, os.ErrNotExist) {
+			t.Fatalf("%s exists: text reached a shell", name)
+		}
+	}
+
+	slow, err := (&Factory{Command: []string{fixture, "{out}", "{text}", "slow", "SLEEP"}}).New("piper")
+	if err != nil {
+		t.Fatalf("New slow: %v", err)
+	}
+	if _, terr := slow.Synthesize(t.Context(), "slow", Options{Timeout: 50 * time.Millisecond}); !errors.Is(terr, ErrTimeout) {
+		t.Fatalf("timeout err = %v", terr)
+	}
+
+	bad, err := (&Factory{Command: []string{fixture, "{out}", "{text}", "x", "not-audio"}}).New("piper")
+	if err != nil {
+		t.Fatalf("New bad: %v", err)
+	}
+	if _, berr := bad.Synthesize(t.Context(), "x", Options{}); !errors.Is(berr, ErrBadAudio) {
+		t.Fatalf("non-audio err = %v", berr)
+	}
+}

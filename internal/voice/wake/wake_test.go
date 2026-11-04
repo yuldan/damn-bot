@@ -19,7 +19,7 @@ func shell(t *testing.T, body string) []string {
 	return []string{"/bin/sh", "-c", body}
 }
 
-func engine(t *testing.T, cfg Config) *External {
+func engine(t *testing.T, cfg *Config) *External {
 	t.Helper()
 	e, err := New(cfg)
 	if err != nil {
@@ -30,7 +30,7 @@ func engine(t *testing.T, cfg Config) *External {
 
 func TestDisabledByDefault(t *testing.T) {
 	t.Parallel()
-	e := engine(t, Config{})
+	e := engine(t, &Config{})
 	if e.Enabled() {
 		t.Fatal("engine enabled without opt-in")
 	}
@@ -41,7 +41,7 @@ func TestDisabledByDefault(t *testing.T) {
 
 func TestEnabledNeedsCommand(t *testing.T) {
 	t.Parallel()
-	if _, err := New(Config{Enabled: true}); !errors.Is(err, ErrNotConfigured) {
+	if _, err := New(&Config{Enabled: true}); !errors.Is(err, ErrNotConfigured) {
 		t.Fatalf("err = %v, want ErrNotConfigured", err)
 	}
 }
@@ -60,7 +60,7 @@ func TestExitStatusContract(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			e := engine(t, Config{Enabled: true, Command: shell(t, tc.body)})
+			e := engine(t, &Config{Enabled: true, Command: shell(t, tc.body)})
 			err := e.Wait(t.Context())
 			if tc.want == nil && err != nil {
 				t.Fatalf("err = %v, want nil", err)
@@ -74,7 +74,7 @@ func TestExitStatusContract(t *testing.T) {
 
 func TestEngineTimeout(t *testing.T) {
 	t.Parallel()
-	e := engine(t, Config{Enabled: true, Command: shell(t, "exec sleep 5"), Timeout: 100 * time.Millisecond})
+	e := engine(t, &Config{Enabled: true, Command: shell(t, "exec sleep 5"), Timeout: 100 * time.Millisecond})
 	start := time.Now()
 	if err := e.Wait(t.Context()); !errors.Is(err, ErrTimeout) {
 		t.Fatalf("err = %v, want ErrTimeout", err)
@@ -86,13 +86,13 @@ func TestEngineTimeout(t *testing.T) {
 
 func TestMissingAndCanceled(t *testing.T) {
 	t.Parallel()
-	e := engine(t, Config{Enabled: true, Command: []string{filepath.Join(t.TempDir(), "nope")}})
+	e := engine(t, &Config{Enabled: true, Command: []string{filepath.Join(t.TempDir(), "nope")}})
 	if err := e.Wait(t.Context()); !errors.Is(err, ErrCommand) {
 		t.Errorf("missing binary err = %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	e = engine(t, Config{Enabled: true, Command: shell(t, "exit 0")})
+	e = engine(t, &Config{Enabled: true, Command: shell(t, "exit 0")})
 	if err := e.Wait(ctx); !errors.Is(err, context.Canceled) {
 		t.Errorf("canceled err = %v", err)
 	}
@@ -102,14 +102,14 @@ func TestMissingAndCanceled(t *testing.T) {
 // explicit opt-in runs a command (exit 0 = wake, 1 = silence).
 func TestExternalWakeOptIn(t *testing.T) {
 	t.Parallel()
-	e := engine(t, Config{})
+	e := engine(t, &Config{})
 	if e.Enabled() {
 		t.Fatal("engine enabled without opt-in")
 	}
 	if err := e.Wait(t.Context()); !errors.Is(err, ErrDisabled) {
 		t.Fatalf("err = %v", err)
 	}
-	e = engine(t, Config{Enabled: true, Command: shell(t, "exit 0")})
+	e = engine(t, &Config{Enabled: true, Command: shell(t, "exit 0")})
 	if err := e.Wait(t.Context()); err != nil {
 		t.Fatalf("wake err = %v", err)
 	}

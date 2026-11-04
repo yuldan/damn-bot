@@ -80,6 +80,11 @@ type ModulesVoice struct {
 	LiveKeyEnv   string   `toml:"live_key_env"`
 	LiveModel    string   `toml:"live_model"`
 	LiveVoice    string   `toml:"live_voice"`
+	WakeEngine   string   `toml:"wake_engine"`
+	WakeBinary   string   `toml:"wake_binary"`
+	WakeModel    string   `toml:"wake_model"`
+	WakeKeywords []string `toml:"wake_keywords"`
+	WakeKeyEnv   string   `toml:"wake_key_env"`
 }
 
 // ModulesComputerUse is [modules.computer_use]: the F6 external computer-use
@@ -287,6 +292,19 @@ func (m *Modules) validateVoice() error {
 	if err := voiceBackend("tts_backend", v.TTSBackend, "edge", "elevenlabs", "openai", "minimax", "xai", "mistral", "gemini", "neutts", "kittentts", "piper", "deepinfra"); err != nil {
 		return err
 	}
+	switch v.WakeEngine {
+	case "", "openwakeword", "sherpa-onnx", "porcupine":
+	default:
+		return invalid("modules.voice.wake_engine", "engine %q is not supported", v.WakeEngine)
+	}
+	if len(v.WakeKeywords) > 16 {
+		return invalid("modules.voice.wake_keywords", "must have at most 16 keywords")
+	}
+	for _, kw := range v.WakeKeywords {
+		if err := cleanVoiceValue("wake_keywords", kw, 64); err != nil {
+			return err
+		}
+	}
 	if err := validateVoiceValues(&v); err != nil {
 		return err
 	}
@@ -311,6 +329,9 @@ func validateVoiceValues(v *ModulesVoice) error {
 		{"live_endpoint", v.LiveEndpoint, 2048},
 		{"live_model", v.LiveModel, 128},
 		{"live_voice", v.LiveVoice, 64},
+		{"wake_binary", v.WakeBinary, 1024},
+		{"wake_model", v.WakeModel, 1024},
+		{"wake_key_env", v.WakeKeyEnv, 128},
 	} {
 		if err := cleanVoiceValue(field.key, field.value, field.max); err != nil {
 			return err
@@ -343,6 +364,7 @@ func validateVoiceLive(v *ModulesVoice) error {
 		{"live_key_env", v.LiveKeyEnv},
 		{"stt_key_env", v.STTKeyEnv},
 		{"tts_key_env", v.TTSKeyEnv},
+		{"wake_key_env", v.WakeKeyEnv},
 	} {
 		if env.value != "" && !isEnvName(env.value) {
 			return invalid("modules.voice."+env.key, "must be an environment variable name")

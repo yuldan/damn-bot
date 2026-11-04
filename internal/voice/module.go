@@ -20,6 +20,7 @@ import (
 	"github.com/damnbot/damnbot/internal/netx"
 	"github.com/damnbot/damnbot/internal/voice/stt"
 	"github.com/damnbot/damnbot/internal/voice/tts"
+	"github.com/damnbot/damnbot/internal/voice/wake"
 )
 
 var errBadConfig = errors.New("voice: invalid configuration")
@@ -45,6 +46,11 @@ type Section struct {
 	LiveKeyEnv   string   `json:"live_key_env"`
 	LiveModel    string   `json:"live_model"`
 	LiveVoice    string   `json:"live_voice"`
+	WakeEngine   string   `json:"wake_engine"`
+	WakeBinary   string   `json:"wake_binary"`
+	WakeModel    string   `json:"wake_model"`
+	WakeKeywords []string `json:"wake_keywords"`
+	WakeKeyEnv   string   `json:"wake_key_env"`
 	Offline      bool     `json:"offline"`
 	NoBackground bool     `json:"no_background"`
 }
@@ -90,6 +96,9 @@ func New(s *Section, deps Deps) (*Module, error) {
 	}
 	if s.TTSBackend != "" && !contains(Catalog(KindTTS), s.TTSBackend) {
 		return nil, fmt.Errorf("%w: tts backend %q", errBadConfig, s.TTSBackend)
+	}
+	if s.WakeEngine != "" && !contains(wake.EngineNames(), s.WakeEngine) {
+		return nil, fmt.Errorf("%w: wake engine %q", errBadConfig, s.WakeEngine)
 	}
 	switch s.ChatMode {
 	case "", ModeChained:
@@ -271,6 +280,24 @@ func (m *Module) ttsProvider() (TTS, error) {
 		TTSCommand: m.cfg.TTSCommand, TTSKey: key, Doer: m.doer(m.cfg.TTSEndpoint),
 	}
 	return cfg.NewTTS()
+}
+
+// wakeEngine builds the configured preset with the access key read only from
+// the secret seam. A missing binary or asset is an error, never a fallback and
+// never an automatic download.
+func (m *Module) wakeEngine() (*wake.External, error) {
+	key, err := m.secret(m.cfg.WakeKeyEnv)
+	if err != nil {
+		return nil, err
+	}
+	ext, err := wake.New(&wake.Config{
+		Enabled: true, Engine: m.cfg.WakeEngine, Binary: m.cfg.WakeBinary,
+		Model: m.cfg.WakeModel, Keywords: m.cfg.WakeKeywords, AccessKey: key,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("voice: wake engine: %w", err)
+	}
+	return ext, nil
 }
 
 func (m *Module) doer(endpoint string) tts.Doer {

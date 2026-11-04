@@ -108,12 +108,12 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | MEDIA-001 | Voice mode CLI/TUI | push-to-talk → STT → agent → TTS; barge-in; tanpa device → fail-closed | `TestF6MEDIA001VoiceMode`, `TestF6MEDIA001BargeIn` | LULUS | F6-05e |
 | MEDIA-002 | Voice live (GPT realtime) | `gpt_live` opt-in; default `chained`; gagal realtime kembali ke chained dengan label | `TestF6MEDIA002GPTLiveOptIn` | LULUS | F6-05e |
 | MEDIA-003 | Wake word | listener hanya saat enabled; membuka sesi baru tanpa mengirim audio mentah ke model | `TestF6MEDIA003WakeOptIn` | LULUS | F6-05g |
-| MEDIA-004 | Wake engine openWakeWord | engine terpilih dari config; binary/model absen → pesan | `TestF6MEDIA004WakeOpenWakeWord` | BELUM | F6-05g |
-| MEDIA-005 | Wake engine sherpa-onnx KWS | engine terpilih; kosakata dari config; absen → pesan | `TestF6MEDIA005WakeSherpa` | BELUM | F6-05g |
-| MEDIA-006 | Wake engine Porcupine | access key hanya dari secret; absen → pesan | `TestF6MEDIA006WakePorcupine` | BELUM | F6-05g |
+| MEDIA-004 | Wake engine openWakeWord | engine terpilih dari config; binary/model absen → pesan | `TestF6MEDIA004OpenWakeWord` | LULUS | F6-05g |
+| MEDIA-005 | Wake engine sherpa-onnx KWS | engine terpilih; kosakata dari config; absen → pesan | `TestF6MEDIA005SherpaKWS` | LULUS | F6-05g |
+| MEDIA-006 | Wake engine Porcupine | access key hanya dari secret; absen → pesan | `TestF6MEDIA006Porcupine`, `TestF6MEDIA006PorcupineUsesSecret` | LULUS | F6-05g |
 | MEDIA-007 | TTS 11 provider | 11 provider terdaftar; default eksplisit; backend tidak resmi `tos_risk` opt-in | `TestF6MEDIA007TTSProviders` | BELUM | F6-05c |
 | MEDIA-008 | TTS streaming | audio pertama ≤ 300 ms setelah kalimat pertama; potong per kalimat; batal menutup stream | `TestF6MEDIA008StreamingLatency` | LULUS | F6-05d |
-| MEDIA-009 | TTS command provider | argv tanpa shell; timeout; output audio divalidasi MIME | `TestF6MEDIA009TTSCommand` | BELUM | F6-05c |
+| MEDIA-009 | TTS command provider | argv tanpa shell; timeout; output audio divalidasi MIME | `TestF6MEDIA009TTSCommandArgv` | LULUS | F6-05c |
 | MEDIA-010 | STT 8 provider | 8 provider terdaftar; transkripsi pesan suara; backend eksplisit | `TestF6MEDIA010STTProviders`, `TestF6MEDIA010STTEmptyAudio` | LULUS | F6-05a |
 | MEDIA-011 | STT whisper.cpp + chunking | whisper.cpp via executable; audio 80 MB/60 menit terchunk tanpa ffmpeg; M4A tanpa ffmpeg → `module_unavailable` | `TestF6MEDIA011WhisperChunking` | LULUS | F6-05b |
 | MEDIA-012 | Vision (`vision_analyze`) | gambar dianalisis model vision; gambar dari user dilampirkan bila `capabilities.vision`; else tool | `TestF6MEDIA012VisionAnalyze` | LULUS | F6-03b |
