@@ -66,6 +66,11 @@ type ModulesVoice struct {
 	TTSEndpoint  string `toml:"tts_endpoint"`
 	TTSVoice     string `toml:"tts_voice"`
 	TTSKeyEnv    string `toml:"tts_key_env"`
+	ChatMode     string `toml:"chat_mode"`
+	LiveEndpoint string `toml:"live_endpoint"`
+	LiveKeyEnv   string `toml:"live_key_env"`
+	LiveModel    string `toml:"live_model"`
+	LiveVoice    string `toml:"live_voice"`
 }
 
 // ModulesComputerUse is [modules.computer_use]: the F6 external computer-use
@@ -273,6 +278,14 @@ func (m *Modules) validateVoice() error {
 	if err := voiceBackend("tts_backend", v.TTSBackend, "edge", "elevenlabs", "openai", "minimax", "xai", "mistral", "gemini", "neutts", "kittentts", "piper", "deepinfra"); err != nil {
 		return err
 	}
+	if err := validateVoiceValues(&v); err != nil {
+		return err
+	}
+	return validateVoiceLive(&v)
+}
+
+// validateVoiceValues bounds every string field of the section.
+func validateVoiceValues(v *ModulesVoice) error {
 	for _, field := range []struct {
 		key, value string
 		max        int
@@ -282,22 +295,57 @@ func (m *Modules) validateVoice() error {
 		{"tts_endpoint", v.TTSEndpoint, 2048},
 		{"tts_voice", v.TTSVoice, 64},
 		{"tts_key_env", v.TTSKeyEnv, 128},
+		{"live_endpoint", v.LiveEndpoint, 2048},
+		{"live_model", v.LiveModel, 128},
+		{"live_voice", v.LiveVoice, 64},
 	} {
 		if err := cleanVoiceValue(field.key, field.value, field.max); err != nil {
 			return err
 		}
 	}
-	if v.TTSEndpoint != "" {
-		u, err := url.Parse(v.TTSEndpoint)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return invalid("modules.voice.tts_endpoint", "must be an http(s) URL")
+	return nil
+}
+
+// validateVoiceLive keeps chat mode, endpoints and secret names honest.
+func validateVoiceLive(v *ModulesVoice) error {
+	switch v.ChatMode {
+	case "", "chained":
+	case "gpt_live":
+		if v.LiveEndpoint == "" || v.LiveKeyEnv == "" {
+			return invalid("modules.voice.chat_mode", "gpt_live needs live_endpoint and live_key_env")
+		}
+	default:
+		return invalid("modules.voice.chat_mode", "must be chained or gpt_live")
+	}
+	for _, ep := range []struct{ key, value string }{
+		{"live_endpoint", v.LiveEndpoint},
+		{"tts_endpoint", v.TTSEndpoint},
+	} {
+		if err := voiceURL(ep.key, ep.value); err != nil {
+			return err
 		}
 	}
-	if v.TTSKeyEnv != "" && !isEnvName(v.TTSKeyEnv) {
-		return invalid("modules.voice.tts_key_env", "must be an environment variable name")
+	for _, env := range []struct{ key, value string }{
+		{"live_key_env", v.LiveKeyEnv},
+		{"tts_key_env", v.TTSKeyEnv},
+	} {
+		if env.value != "" && !isEnvName(env.value) {
+			return invalid("modules.voice."+env.key, "must be an environment variable name")
+		}
 	}
 	if v.STTBackend == "whispercpp" && (v.WhisperBin == "" || v.WhisperModel == "") {
 		return invalid("modules.voice.whisper_bin", "whispercpp needs whisper_bin and whisper_model")
+	}
+	return nil
+}
+
+// voiceURL accepts an empty value or one absolute http(s) URL.
+func voiceURL(key, value string) error {
+	if value == "" {
+		return nil
+	}
+	if u, err := url.Parse(value); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return invalid("modules.voice."+key, "must be an http(s) URL")
 	}
 	return nil
 }

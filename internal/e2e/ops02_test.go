@@ -117,6 +117,7 @@ func checkDoctorNetworkJSON(t *testing.T, out string, background bool) {
 		"mcp-local":    {"inference", "enabled"},
 		"media":        {"tool", "enabled"},
 		"voice":        {"tool", "enabled"},
+		"voice-live":   {"inference", "enabled"},
 		"browser":      {"tool", "enabled"},
 	}
 	if !background {

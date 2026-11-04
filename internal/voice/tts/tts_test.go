@@ -149,6 +149,7 @@ func TestHTTPStatusAndBodyFailures(t *testing.T) {
 				writeBody(t, w, "bad key")
 			},
 			want: ErrStatus,
+			cfg:  Config{Key: "sk-do-not-leak"},
 		},
 		{
 			name: "html",
@@ -179,8 +180,12 @@ func TestHTTPStatusAndBodyFailures(t *testing.T) {
 			t.Parallel()
 			s := newSpeechServer(t, tc.handler)
 			h := newBackend(t, s, &tc.cfg)
-			if _, err := h.Synthesize(t.Context(), "halo", Options{}); !errors.Is(err, tc.want) {
+			_, err := h.Synthesize(t.Context(), "halo", Options{})
+			if !errors.Is(err, tc.want) {
 				t.Fatalf("err = %v, want %v", err, tc.want)
+			}
+			if err != nil && strings.Contains(err.Error(), "sk-do-not-leak") {
+				t.Errorf("error leaked the key: %v", err)
 			}
 		})
 	}

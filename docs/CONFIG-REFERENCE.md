@@ -177,6 +177,11 @@ config_version = 1
     tts_endpoint = ""
     tts_voice = ""
     tts_key_env = ""
+    chat_mode = ""
+    live_endpoint = ""
+    live_key_env = ""
+    live_model = ""
+    live_voice = ""
   [modules.computer_use]
     enabled = false
     backend = ""

@@ -17,7 +17,7 @@ Aturan gate:
 |---|---|---|---|
 | MEDIA 29/31 | 29 baris MEDIA F6 `LULUS`; MEDIA-029 (Discord voice) dan MEDIA-031 (silk) `N/A` → F7 | tabel §7 + `TestParityPhaseColumn` | BELUM |
 | Ukuran gambar | 0 penolakan ukuran pada suite 50 gambar; resize 12 MP ≤ 150 ms | `BenchmarkImagePreflight`, `TestF6ImageSuite50`, `TestImagePreflightTargetNotLowered` | N/A — hardware: target 150 ms hanya sah di Q14; host ini 265–290 ms (carryover F7, tanpa klaim lulus) |
-| Voice latency | overhead ujung-ucapan→audio-pertama ≤ 200 ms; TTS streaming mulai ≤ 300 ms setelah kalimat pertama LLM | `TestVoicePipelineLatency` (fake STT/LLM/TTS bertanda waktu) | BELUM |
+| Voice latency | overhead ujung-ucapan→audio-pertama ≤ 200 ms; TTS streaming mulai ≤ 300 ms setelah kalimat pertama LLM | `TestVoicePipelineLatency`, `TestF6VoiceLatencyBudget` (fake STT/LLM/TTS bertanda waktu) | LULUS |
 | Smoke E3 | 10 task E3 dengan model murah lulus harness; artefak tersimpan | `TestF6E3Smoke10` + `bench/evals/results/F6-e3.json` | BELUM |
 | EC-PROV-024 | gate kapabilitas vision sebelum routing gambar; model teks-only tidak pernah menerima gambar | `TestEdgeCases/EC-PROV-024` | LULUS |
 | Test tertunda ADR-083 | cap tool non-LLM ditegakkan sebelum dispatch | `TestBudgetGuardTools` | BELUM |
@@ -100,14 +100,14 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| MEDIA-001 | Voice mode CLI/TUI | push-to-talk → STT → agent → TTS; barge-in; tanpa device → fail-closed | `TestF6MEDIA001VoiceMode` | BELUM | F6-05e |
-| MEDIA-002 | Voice live (GPT realtime) | `gpt_live` opt-in; default `chained`; gagal realtime kembali ke chained dengan label | `TestF6MEDIA002VoiceLive` | BELUM | F6-05e |
-| MEDIA-003 | Wake word | listener hanya saat enabled; membuka sesi baru tanpa mengirim audio mentah ke model | `TestF6MEDIA003WakeWord` | BELUM | F6-05g |
+| MEDIA-001 | Voice mode CLI/TUI | push-to-talk → STT → agent → TTS; barge-in; tanpa device → fail-closed | `TestF6MEDIA001VoiceMode`, `TestF6MEDIA001BargeIn` | LULUS | F6-05e |
+| MEDIA-002 | Voice live (GPT realtime) | `gpt_live` opt-in; default `chained`; gagal realtime kembali ke chained dengan label | `TestF6MEDIA002GPTLiveOptIn` | LULUS | F6-05e |
+| MEDIA-003 | Wake word | listener hanya saat enabled; membuka sesi baru tanpa mengirim audio mentah ke model | `TestF6MEDIA003WakeOptIn` | LULUS | F6-05g |
 | MEDIA-004 | Wake engine openWakeWord | engine terpilih dari config; binary/model absen → pesan | `TestF6MEDIA004WakeOpenWakeWord` | BELUM | F6-05g |
 | MEDIA-005 | Wake engine sherpa-onnx KWS | engine terpilih; kosakata dari config; absen → pesan | `TestF6MEDIA005WakeSherpa` | BELUM | F6-05g |
 | MEDIA-006 | Wake engine Porcupine | access key hanya dari secret; absen → pesan | `TestF6MEDIA006WakePorcupine` | BELUM | F6-05g |
 | MEDIA-007 | TTS 11 provider | 11 provider terdaftar; default eksplisit; backend tidak resmi `tos_risk` opt-in | `TestF6MEDIA007TTSProviders` | BELUM | F6-05c |
-| MEDIA-008 | TTS streaming | audio pertama ≤ 300 ms setelah kalimat pertama; potong per kalimat; batal menutup stream | `TestF6MEDIA008TTSStreaming` | BELUM | F6-05d |
+| MEDIA-008 | TTS streaming | audio pertama ≤ 300 ms setelah kalimat pertama; potong per kalimat; batal menutup stream | `TestF6MEDIA008StreamingLatency` | LULUS | F6-05d |
 | MEDIA-009 | TTS command provider | argv tanpa shell; timeout; output audio divalidasi MIME | `TestF6MEDIA009TTSCommand` | BELUM | F6-05c |
 | MEDIA-010 | STT 8 provider | 8 provider terdaftar; transkripsi pesan suara; backend eksplisit | `TestF6MEDIA010STTProviders` | BELUM | F6-05a |
 | MEDIA-011 | STT whisper.cpp + chunking | whisper.cpp via executable; audio 80 MB/60 menit terchunk tanpa ffmpeg; M4A tanpa ffmpeg → `module_unavailable` | `TestF6MEDIA011WhisperCPPChunking` | BELUM | F6-05b |

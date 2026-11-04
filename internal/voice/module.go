@@ -34,6 +34,11 @@ type Section struct {
 	TTSEndpoint  string `json:"tts_endpoint"`
 	TTSVoice     string `json:"tts_voice"`
 	TTSKeyEnv    string `json:"tts_key_env"`
+	ChatMode     string `json:"chat_mode"`
+	LiveEndpoint string `json:"live_endpoint"`
+	LiveKeyEnv   string `json:"live_key_env"`
+	LiveModel    string `json:"live_model"`
+	LiveVoice    string `json:"live_voice"`
 	Offline      bool   `json:"offline"`
 	NoBackground bool   `json:"no_background"`
 }
@@ -48,6 +53,7 @@ type Deps struct {
 type Module struct {
 	cfg    Section
 	deps   Deps
+	net    *netx.Network
 	tool   tts.Doer
 	loop   tts.Doer
 	mu     sync.Mutex
@@ -79,6 +85,15 @@ func New(s *Section, deps Deps) (*Module, error) {
 	if s.TTSBackend != "" && !contains(Catalog(KindTTS), s.TTSBackend) {
 		return nil, fmt.Errorf("%w: tts backend %q", errBadConfig, s.TTSBackend)
 	}
+	switch s.ChatMode {
+	case "", ModeChained:
+	case ModeGPTLive:
+		if s.LiveEndpoint == "" || s.LiveKeyEnv == "" {
+			return nil, fmt.Errorf("%w: gpt_live needs live_endpoint and live_key_env", errBadConfig)
+		}
+	default:
+		return nil, fmt.Errorf("%w: chat mode %q", errBadConfig, s.ChatMode)
+	}
 	if deps.Approvals == nil {
 		deps.Approvals = host.DenyApprovals{}
 	}
@@ -87,12 +102,31 @@ func New(s *Section, deps Deps) (*Module, error) {
 	}
 	network := netx.New(netx.Config{Offline: s.Offline, NoBackground: s.NoBackground})
 	return &Module{
-		cfg: *s, deps: deps, status: host.StatusStopped,
+		cfg: *s, deps: deps, status: host.StatusStopped, net: network,
 		tool: network.Client("voice", netx.Tool), loop: netx.LoopbackClient(),
 	}, nil
 }
 
 func contains(list []string, want string) bool { return slices.Contains(list, want) }
+
+// NewMode builds the voice runtime for one push-to-talk key. The realtime
+// opt-in reads its key through the same secret seam as TTS and dials through
+// the registered voice-live egress point.
+func (m *Module) NewMode(p *Pipeline, capture Capture) (*Mode, error) {
+	chat := m.cfg.ChatMode
+	var live *LiveConfig
+	if chat == ModeGPTLive || m.cfg.LiveEndpoint != "" {
+		key, err := m.secret(m.cfg.LiveKeyEnv)
+		if err != nil {
+			return nil, err
+		}
+		live = &LiveConfig{
+			Endpoint: m.cfg.LiveEndpoint, Key: key, Model: m.cfg.LiveModel,
+			Voice: m.cfg.LiveVoice, Client: m.net.WebSocketClient("voice-live", netx.Inference),
+		}
+	}
+	return NewMode(chat, p, capture, live)
+}
 
 // Start publishes the configured providers; the binary is checked on use.
 func (m *Module) Start(ctx context.Context) error {

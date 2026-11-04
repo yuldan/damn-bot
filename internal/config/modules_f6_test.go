@@ -222,6 +222,8 @@ func TestModulesVoiceConfig(t *testing.T) {
 		"[modules.voice]\nstt_backend = \"whispercpp\"\nwhisper_bin = \"/usr/local/bin/whisper-cli\"\nwhisper_model = \"/models/ggml-base.bin\"\n",
 		"[modules.voice]\ntts_backend = \"openai\"\ntts_endpoint = \"https://api.openai.com/v1/audio/speech\"\ntts_voice = \"alloy\"\ntts_key_env = \"OPENAI_API_KEY\"\n",
 		"[modules.voice]\nstt_backend = \"deepinfra\"\ntts_backend = \"piper\"\n",
+		"[modules.voice]\nchat_mode = \"chained\"\n",
+		"[modules.voice]\nchat_mode = \"gpt_live\"\nlive_endpoint = \"https://api.openai.com/v1/realtime\"\nlive_key_env = \"OPENAI_API_KEY\"\nlive_model = \"gpt-4o-realtime-preview\"\nlive_voice = \"alloy\"\n",
 	} {
 		if _, err := parse(t, toml); err != nil {
 			t.Errorf("Parse(%q): %v", toml, err)
@@ -234,6 +236,10 @@ func TestModulesVoiceConfig(t *testing.T) {
 		{"bad_endpoint", "[modules.voice]\ntts_endpoint = \"ftp://example.com/speech\"\n", "modules.voice.tts_endpoint"},
 		{"bad_env", "[modules.voice]\ntts_key_env = \"1BAD-NAME\"\n", "modules.voice.tts_key_env"},
 		{"long_voice", "[modules.voice]\ntts_voice = \"" + strings.Repeat("a", 65) + "\"\n", "modules.voice.tts_voice"},
+		{"chat_unknown", "[modules.voice]\nchat_mode = \"autodetect\"\n", "modules.voice.chat_mode"},
+		{"live_without_optin", "[modules.voice]\nchat_mode = \"gpt_live\"\n", "modules.voice.chat_mode"},
+		{"live_bad_endpoint", "[modules.voice]\nchat_mode = \"gpt_live\"\nlive_endpoint = \"ftp://example.com/ws\"\nlive_key_env = \"OPENAI_API_KEY\"\n", "modules.voice.live_endpoint"},
+		{"live_bad_env", "[modules.voice]\nchat_mode = \"gpt_live\"\nlive_endpoint = \"https://example.com/ws\"\nlive_key_env = \"1BAD-NAME\"\n", "modules.voice.live_key_env"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

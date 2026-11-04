@@ -261,6 +261,8 @@ func moduleConfig(cfg *config.Config) func(string) host.Config {
 		Enabled: vc.Enabled, STTBackend: vc.STTBackend, TTSBackend: vc.TTSBackend,
 		WhisperBin: vc.WhisperBin, WhisperModel: vc.WhisperModel,
 		TTSEndpoint: vc.TTSEndpoint, TTSVoice: vc.TTSVoice, TTSKeyEnv: vc.TTSKeyEnv,
+		ChatMode: vc.ChatMode, LiveEndpoint: vc.LiveEndpoint, LiveKeyEnv: vc.LiveKeyEnv,
+		LiveModel: vc.LiveModel, LiveVoice: vc.LiveVoice,
 		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
 	})
 	cuRaw, cuErr := json.Marshal(computeruse.Section{

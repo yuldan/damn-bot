@@ -168,6 +168,13 @@ func (n *Network) Client(name string, p Purpose) *Client {
 	return c
 }
 
+// WebSocketClient is the transport client for a WebSocket egress point. The
+// DLP gate cannot inspect frames, so callers scan text payloads with
+// [Network.ScanText] before writing them and never send a resolved secret.
+func (n *Network) WebSocketClient(name string, p Purpose) *http.Client {
+	return n.Client(name, p).hc
+}
+
 // maxRedirects is net/http's default chain limit.
 const maxRedirects = 10
 

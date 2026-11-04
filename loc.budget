@@ -83,7 +83,7 @@ provider/registry  660 internal/provider/registry
 # (A terukur 1245; Delete di PR B). provider 2217 -> 2224 (+7 signer).
 # Sigma core 48.691 -> 49.675 <= 49.700 (headroom 25).
 provider/auth     1230 internal/provider/auth
-netx              1871 internal/netx
+netx              1879 internal/netx
 netx/jsonrpc       530 internal/netx/jsonrpc
 schema            1200 internal/schema
 # ADR-119: tools 1800 -> 2200 (tool_search/tool_invoke + adaptor tool modul; Σ core 25.880 -> 26.408 <= 47.000).
@@ -332,7 +332,11 @@ heal              1500 internal/heal
 # scc). netx 1866 -> 1871 (egress `browser`, +5). Sigma core 56.184 ->
 # 56.243; plafon core 56.200 -> 56.300 (ceil ratusan, headroom 57).
 # MODULE browser terukur 1410/5500.
-config            2316 internal/config
+# Amandemen ADR-323 (P6a PR A, MEDIA-001/002/003/008): [modules.voice]
+# chat_mode/live_endpoint/live_key_env/live_model/live_voice + validasi
+# menambah config ke 2357 (terukur scc pada rebase di atas ADR-321 PR B+C+D); netx 1879
+# untuk WebSocketClient (egress voice-live). Sigma core 56.329.
+config            2357 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
