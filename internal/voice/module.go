@@ -36,8 +36,10 @@ type Section struct {
 	STTModel     string   `json:"stt_model"`
 	STTCommand   []string `json:"stt_command"`
 	TTSEndpoint  string   `json:"tts_endpoint"`
-	TTSVoice     string   `json:"tts_voice"`
 	TTSKeyEnv    string   `json:"tts_key_env"`
+	TTSModel     string   `json:"tts_model"`
+	TTSVoice     string   `json:"tts_voice"`
+	TTSCommand   []string `json:"tts_command"`
 	ChatMode     string   `json:"chat_mode"`
 	LiveEndpoint string   `json:"live_endpoint"`
 	LiveKeyEnv   string   `json:"live_key_env"`
@@ -265,7 +267,8 @@ func (m *Module) ttsProvider() (TTS, error) {
 	}
 	cfg := &Config{
 		TTSBackend: m.cfg.TTSBackend, TTSEndpoint: m.cfg.TTSEndpoint,
-		TTSVoice: m.cfg.TTSVoice, TTSKey: key, Doer: m.doer(m.cfg.TTSEndpoint),
+		TTSModel: m.cfg.TTSModel, TTSVoice: m.cfg.TTSVoice,
+		TTSCommand: m.cfg.TTSCommand, TTSKey: key, Doer: m.doer(m.cfg.TTSEndpoint),
 	}
 	return cfg.NewTTS()
 }

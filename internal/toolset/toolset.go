@@ -100,6 +100,7 @@ func Builtin() []Definition {
 		{Name: "search", Description: "Search bundle: web research tools", Includes: []string{"web"}},
 		{Name: "file", Description: "File manipulation tools: read, write, edit, glob, grep", Tools: file},
 		{Name: "terminal", Description: "Terminal/command execution", Tools: []string{"shell"}},
+		{Name: "tts", Description: "Text-to-speech synthesis", Tools: []string{"speak"}},
 		{Name: "todo", Description: "Task planning and tracking", Tools: []string{"todo"}},
 		{Name: "clarify", Description: "Ask the user one clarifying question", Tools: []string{"clarify"}},
 		{Name: "memory", Description: "Persistent memory across sessions", Tools: []string{"memory"}},

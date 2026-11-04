@@ -339,7 +339,7 @@ heal              1500 internal/heal
 # ADR-323 amandemen (F6 P2b surface): real_profile/extension keys menambah
 # config 2383 -> 2386 (terukur scc pada rebase main e870972c). Sigma core
 # 56.373 -> 56.376; plafon core 56.400 tetap.
-config            2386 internal/config
+config            2397 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.

@@ -195,3 +195,37 @@ func TestContextEngineIsDataOnly(t *testing.T) {
 		t.Fatalf("context_engine exposed %+v", sel)
 	}
 }
+
+// TestF6TSET026TTS: the tts toolset has exactly one member (speak), exposes it
+// when the voice module registered it, and never silently drops it (inventory
+// on = the member is listed, inventory off = it is reported unavailable).
+func TestF6TSET026TTS(t *testing.T) {
+	t.Parallel()
+	var def Definition
+	found := false
+	for _, d := range Builtin() {
+		if d.Name == "tts" {
+			def, found = d, true
+		}
+	}
+	if !found {
+		t.Fatal("builtin toolset tts missing")
+	}
+	if !slices.Equal(def.Tools, []string{"speak"}) {
+		t.Fatalf("tts tools = %v", def.Tools)
+	}
+	sel, err := Resolve(Config{Active: []string{"tts"}}, "linux", available("speak"))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !slices.Equal(sel.Tools, []string{"speak"}) || len(sel.Unavailable) != 0 || !sel.Allowed["speak"] {
+		t.Fatalf("selection = %+v", sel)
+	}
+	off, err := Resolve(Config{Active: []string{"tts"}}, "linux", available("read_file"))
+	if err != nil {
+		t.Fatalf("Resolve inventory off: %v", err)
+	}
+	if len(off.Tools) != 0 || !slices.Equal(off.Unavailable, []string{"speak"}) {
+		t.Fatalf("inventory off selection = %+v", off)
+	}
+}

@@ -58,7 +58,7 @@ func Catalog(kind Kind) []string {
 	case KindSTT:
 		return stt.Catalog()
 	case KindTTS:
-		return []string{"edge", "elevenlabs", "openai", "minimax", "xai", "mistral", "gemini", "neutts", "kittentts", "piper", "deepinfra"}
+		return tts.Catalog()
 	}
 	return nil
 }
@@ -71,40 +71,42 @@ type Config struct {
 	STTCommand                    []string
 	TTSEndpoint, TTSKey, TTSModel string
 	TTSVoice, TTSFormat           string
+	TTSCommand                    []string
 	Doer                          tts.Doer
 }
 
 // NewSTT builds the configured speech-to-text provider.
 func (c *Config) NewSTT() (STT, error) {
-	if !slices.Contains(Catalog(KindSTT), c.STTBackend) {
-		return nil, fmt.Errorf("%w: stt backend %q", ErrUnknownProvider, c.STTBackend)
-	}
-	f := &stt.Factory{
-		Endpoint: c.STTEndpoint, Key: c.STTKey, Model: c.STTModel,
-		WhisperBin: c.WhisperBin, WhisperModel: c.WhisperModel,
-		Command: c.STTCommand, Doer: c.Doer,
-	}
-	p, err := f.New(c.STTBackend)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrModuleUnavailable, err)
-	}
-	return p, nil
+	return buildProvider(c.STTBackend, Catalog(KindSTT), func() (STT, error) {
+		f := &stt.Factory{
+			Endpoint: c.STTEndpoint, Key: c.STTKey, Model: c.STTModel,
+			WhisperBin: c.WhisperBin, WhisperModel: c.WhisperModel,
+			Command: c.STTCommand, Doer: c.Doer,
+		}
+		return f.New(c.STTBackend)
+	})
 }
 
 // NewTTS builds the configured text-to-speech provider.
 func (c *Config) NewTTS() (TTS, error) {
-	if !slices.Contains(Catalog(KindTTS), c.TTSBackend) {
-		return nil, fmt.Errorf("%w: tts backend %q", ErrUnknownProvider, c.TTSBackend)
-	}
-	if c.TTSBackend != "openai" {
-		return nil, fmt.Errorf("%w: tts backend %q", ErrModuleUnavailable, c.TTSBackend)
-	}
-	h, err := tts.NewHTTP(&tts.Config{
-		Endpoint: c.TTSEndpoint, Key: c.TTSKey, Model: c.TTSModel,
-		Voice: c.TTSVoice, Format: c.TTSFormat, Doer: c.Doer,
+	return buildProvider(c.TTSBackend, Catalog(KindTTS), func() (TTS, error) {
+		f := &tts.Factory{
+			Endpoint: c.TTSEndpoint, Key: c.TTSKey, Model: c.TTSModel,
+			Voice: c.TTSVoice, Format: c.TTSFormat, Command: c.TTSCommand, Doer: c.Doer,
+		}
+		return f.New(c.TTSBackend)
 	})
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrModuleUnavailable, err)
+}
+
+// buildProvider validates the explicit id once for both provider kinds.
+func buildProvider[P any](id string, catalog []string, mk func() (P, error)) (P, error) {
+	var zero P
+	if !slices.Contains(catalog, id) {
+		return zero, fmt.Errorf("%w: backend %q", ErrUnknownProvider, id)
 	}
-	return h, nil
+	p, err := mk()
+	if err != nil {
+		return zero, fmt.Errorf("%w: %w", ErrModuleUnavailable, err)
+	}
+	return p, nil
 }

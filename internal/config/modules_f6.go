@@ -71,8 +71,10 @@ type ModulesVoice struct {
 	STTModel     string   `toml:"stt_model"`
 	STTCommand   []string `toml:"stt_command"`
 	TTSEndpoint  string   `toml:"tts_endpoint"`
-	TTSVoice     string   `toml:"tts_voice"`
 	TTSKeyEnv    string   `toml:"tts_key_env"`
+	TTSModel     string   `toml:"tts_model"`
+	TTSVoice     string   `toml:"tts_voice"`
+	TTSCommand   []string `toml:"tts_command"`
 	ChatMode     string   `toml:"chat_mode"`
 	LiveEndpoint string   `toml:"live_endpoint"`
 	LiveKeyEnv   string   `toml:"live_key_env"`
@@ -303,6 +305,7 @@ func validateVoiceValues(v *ModulesVoice) error {
 		{"stt_model", v.STTModel, 128},
 		{"stt_key_env", v.STTKeyEnv, 128},
 		{"tts_endpoint", v.TTSEndpoint, 2048},
+		{"tts_model", v.TTSModel, 128},
 		{"tts_voice", v.TTSVoice, 64},
 		{"tts_key_env", v.TTSKeyEnv, 128},
 		{"live_endpoint", v.LiveEndpoint, 2048},
@@ -345,8 +348,16 @@ func validateVoiceLive(v *ModulesVoice) error {
 			return invalid("modules.voice."+env.key, "must be an environment variable name")
 		}
 	}
-	if err := cleanArgv("stt_command", v.STTCommand); err != nil {
-		return err
+	for _, argv := range []struct {
+		key   string
+		value []string
+	}{
+		{"stt_command", v.STTCommand},
+		{"tts_command", v.TTSCommand},
+	} {
+		if err := cleanArgv(argv.key, argv.value); err != nil {
+			return err
+		}
 	}
 	if v.STTBackend == "whispercpp" && (v.WhisperBin == "" || v.WhisperModel == "") {
 		return invalid("modules.voice.whisper_bin", "whispercpp needs whisper_bin and whisper_model")

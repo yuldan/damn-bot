@@ -273,7 +273,7 @@ func moduleConfig(cfg *config.Config) func(string) host.Config {
 		TTSEndpoint: vc.TTSEndpoint, TTSVoice: vc.TTSVoice, TTSKeyEnv: vc.TTSKeyEnv,
 		ChatMode: vc.ChatMode, LiveEndpoint: vc.LiveEndpoint, LiveKeyEnv: vc.LiveKeyEnv,
 		LiveModel: vc.LiveModel, LiveVoice: vc.LiveVoice,
-		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
+		TTSModel: vc.TTSModel, TTSCommand: vc.TTSCommand, Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
 	})
 	cuRaw, cuErr := json.Marshal(computeruse.Section{
 		Enabled: cu.Enabled, Backend: cu.Backend, Endpoint: cu.Endpoint,
