@@ -13,20 +13,23 @@ import (
 // without interpreting them. The field order matches ModuleConfig so the
 // conversion stays exhaustive when a key is added.
 type Section struct {
-	Enabled       bool     `json:"enabled"`
-	Engine        string   `json:"engine"`
-	CDPURL        string   `json:"cdp_url"`
-	CamofoxURL    string   `json:"camofox_url"`
-	LightpandaBin string   `json:"lightpanda_bin"`
-	CloudURL      string   `json:"cloud_url"`
-	AllowOrigins  []string `json:"allow_origins"`
-	LocalProfile  bool     `json:"local_profile"`
-	DialogsAllow  []string `json:"dialog_allow"`
-	VaultUserEnv  string   `json:"vault_user_env"`
-	VaultPassEnv  string   `json:"vault_password_env"`
-	UseBin        string   `json:"use_bin"`
-	Offline       bool     `json:"offline"`
-	NoBackground  bool     `json:"no_background"`
+	Enabled           bool     `json:"enabled"`
+	Engine            string   `json:"engine"`
+	CDPURL            string   `json:"cdp_url"`
+	CamofoxURL        string   `json:"camofox_url"`
+	LightpandaBin     string   `json:"lightpanda_bin"`
+	CloudURL          string   `json:"cloud_url"`
+	AllowOrigins      []string `json:"allow_origins"`
+	LocalProfile      bool     `json:"local_profile"`
+	RealProfile       bool     `json:"real_profile"`
+	ExtensionControl  bool     `json:"extension_control"`
+	ExtensionManifest string   `json:"extension_manifest"`
+	DialogsAllow      []string `json:"dialog_allow"`
+	VaultUserEnv      string   `json:"vault_user_env"`
+	VaultPassEnv      string   `json:"vault_password_env"`
+	UseBin            string   `json:"use_bin"`
+	Offline           bool     `json:"offline"`
+	NoBackground      bool     `json:"no_background"`
 }
 
 // NewFromConfig decodes one [modules.browser] section and builds the module.

@@ -190,20 +190,23 @@ type moduleWebSection struct {
 
 // moduleBrowserSection is the JSON form of [modules.browser].
 type moduleBrowserSection struct {
-	Enabled       bool     `json:"enabled"`
-	Engine        string   `json:"engine"`
-	CDPURL        string   `json:"cdp_url"`
-	CamofoxURL    string   `json:"camofox_url"`
-	LightpandaBin string   `json:"lightpanda_bin"`
-	CloudURL      string   `json:"cloud_url"`
-	AllowOrigins  []string `json:"allow_origins"`
-	LocalProfile  bool     `json:"local_profile"`
-	DialogAllow   []string `json:"dialog_allow"`
-	VaultUserEnv  string   `json:"vault_user_env"`
-	VaultPassEnv  string   `json:"vault_password_env"`
-	UseBin        string   `json:"use_bin"`
-	Offline       bool     `json:"offline"`
-	NoBackground  bool     `json:"no_background"`
+	Enabled           bool     `json:"enabled"`
+	Engine            string   `json:"engine"`
+	CDPURL            string   `json:"cdp_url"`
+	CamofoxURL        string   `json:"camofox_url"`
+	LightpandaBin     string   `json:"lightpanda_bin"`
+	CloudURL          string   `json:"cloud_url"`
+	AllowOrigins      []string `json:"allow_origins"`
+	LocalProfile      bool     `json:"local_profile"`
+	RealProfile       bool     `json:"real_profile"`
+	ExtensionControl  bool     `json:"extension_control"`
+	ExtensionManifest string   `json:"extension_manifest"`
+	DialogAllow       []string `json:"dialog_allow"`
+	VaultUserEnv      string   `json:"vault_user_env"`
+	VaultPassEnv      string   `json:"vault_password_env"`
+	UseBin            string   `json:"use_bin"`
+	Offline           bool     `json:"offline"`
+	NoBackground      bool     `json:"no_background"`
 }
 
 func usdMicros(v float64) int64 {
@@ -250,7 +253,9 @@ func moduleConfig(cfg *config.Config) func(string) host.Config {
 		Enabled: br.Enabled, Engine: br.Engine, CDPURL: br.CDPURL,
 		CamofoxURL: br.CamofoxURL, LightpandaBin: br.LightpandaBin, CloudURL: br.CloudURL,
 		AllowOrigins: br.AllowOrigins, LocalProfile: br.LocalProfile,
-		DialogAllow: br.DialogAllow, UseBin: br.UseBin,
+		RealProfile: br.RealProfile, ExtensionControl: br.ExtensionControl,
+		ExtensionManifest: br.ExtensionManifest,
+		DialogAllow:       br.DialogAllow, UseBin: br.UseBin,
 		VaultUserEnv: br.VaultUserEnv, VaultPassEnv: br.VaultPasswordEnv,
 		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
 	})

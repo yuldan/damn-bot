@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -64,20 +63,23 @@ func newTool(name, description, effect, schema string) Tool {
 // endpoints. A selected engine without an endpoint fails closed at Invoke;
 // there is never a guessed port or a fallback to another engine.
 type ModuleConfig struct {
-	Enabled       bool
-	Engine        string
-	CDPURL        string
-	CamofoxURL    string
-	LightpandaBin string
-	CloudURL      string
-	AllowOrigins  []string
-	LocalProfile  bool
-	DialogsAllow  []string
-	VaultUserEnv  string
-	VaultPassEnv  string
-	UseBin        string
-	Offline       bool
-	NoBackground  bool
+	Enabled           bool
+	Engine            string
+	CDPURL            string
+	CamofoxURL        string
+	LightpandaBin     string
+	CloudURL          string
+	AllowOrigins      []string
+	LocalProfile      bool
+	RealProfile       bool
+	ExtensionControl  bool
+	ExtensionManifest string
+	DialogsAllow      []string
+	VaultUserEnv      string
+	VaultPassEnv      string
+	UseBin            string
+	Offline           bool
+	NoBackground      bool
 }
 
 // Deps carries the core-owned seams; every field is optional in tests.
@@ -104,6 +106,11 @@ type Module struct {
 	page   *Page
 	host   string
 	status host.Status
+	// realGrants caches only allow_session answers, keyed by session id and
+	// profile name. An allow_session answer for one profile never authorises
+	// another profile or another session.
+	realGrants map[string]bool
+	extension  bool
 }
 
 // New validates the engine selection, endpoint shapes and allowlist, even when
@@ -127,7 +134,7 @@ func New(cfg *ModuleConfig, deps Deps) (*Module, error) {
 			return conn, nil
 		}
 	}
-	return &Module{cfg: *cfg, deps: deps, status: host.StatusStopped}, nil
+	return &Module{cfg: *cfg, deps: deps, status: host.StatusStopped, realGrants: make(map[string]bool)}, nil
 }
 
 // validateEngineConfig keeps the engine and every endpoint honest. More than
@@ -163,36 +170,6 @@ func validateEngineConfig(cfg *ModuleConfig) error {
 		if n > 1 {
 			return fmt.Errorf("%w: several browser endpoints configured without engine", errBadConfig)
 		}
-	}
-	return nil
-}
-
-func validateEndpoints(cfg *ModuleConfig) error {
-	if cfg.CDPURL != "" {
-		raw, err := endpointURL(cfg.CDPURL)
-		if err != nil {
-			return err
-		}
-		u, perr := url.Parse(raw)
-		if perr != nil || !localHost(u.Hostname()) {
-			return fmt.Errorf("%w: cdp_url must be loopback", errBadConfig)
-		}
-	}
-	if cfg.CamofoxURL != "" {
-		if err := httpEndpoint(cfg.CamofoxURL, true); err != nil {
-			return fmt.Errorf("%w: camofox_url", err)
-		}
-	}
-	if cfg.CloudURL != "" {
-		if err := httpEndpoint(cfg.CloudURL, false); err != nil {
-			return fmt.Errorf("%w: cloud_url", err)
-		}
-	}
-	if cfg.LightpandaBin != "" && !filepath.IsAbs(cfg.LightpandaBin) {
-		return fmt.Errorf("%w: lightpanda_bin must be absolute", errBadConfig)
-	}
-	if cfg.UseBin != "" && (!filepath.IsAbs(cfg.UseBin) || len(cfg.UseBin) > 1024) {
-		return fmt.Errorf("%w: use_bin must be an absolute path of at most 1024 bytes", errBadConfig)
 	}
 	return nil
 }
@@ -268,6 +245,8 @@ func (m *Module) Stop(context.Context) error {
 		err = m.page.Close()
 	}
 	m.page, m.host, m.status = nil, "", host.StatusStopped
+	m.realGrants = make(map[string]bool)
+	m.extension = false
 	if err != nil {
 		return fmt.Errorf("browser: close: %w", err)
 	}

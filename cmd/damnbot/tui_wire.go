@@ -46,7 +46,7 @@ func runTUI(args []string) int {
 	r := newTUIRunner(&tuiDeps{
 		cfg: &cfg, dataDir: dataDir, configDir: configDir, cfgFile: configPath, home: home,
 		noColor:  noColorMode(plain, config.OS().Getenv("NO_COLOR"), config.OS().Getenv("TERM"), stdoutIsTTY()),
-		modelRef: cfg.Provider.Model, opts: o, red: redact.New(redact.Options{}),
+		modelRef: cfg.Provider.Model, opts: o, red: redact.New(redact.Options{}), bridge: bridge,
 	})
 	actions := &tuiActions{
 		db: func(ctx context.Context) (*ctxdb.Store, error) {
@@ -62,6 +62,7 @@ func runTUI(args []string) int {
 	app, err := tui.NewApp(sid, &tui.Host{
 		Clock: r, Runner: r, Config: r, Runtime: r, Actions: r, Shell: r,
 		Sessions: actions, Files: filesAdapter{}, Clipboard: clipboardAdapter{},
+		Browser: r,
 		Notices: noticeGateFor(&cfg, dataDir),
 	})
 	if err == nil {
@@ -105,14 +106,15 @@ type tuiDeps struct {
 
 // tuiRunner is the Runner, Clock, and ConfigSource over the lazy loop.
 type tuiRunner struct {
-	ensureMu sync.Mutex
-	mu       sync.Mutex
-	snapMu   sync.RWMutex
-	snapshot tui.Config
-	cfgHash  string
-	deps     tuiDeps
-	model    *runModel
-	loop     *loop.Loop
+	ensureMu   sync.Mutex
+	mu         sync.Mutex
+	snapMu     sync.RWMutex
+	snapshot   tui.Config
+	cfgHash    string
+	deps       tuiDeps
+	model      *runModel
+	loop       *loop.Loop
+	browserCtl browserControl
 }
 
 // newTUIRunner injects the same clock into loop.Config.Now (E-72).

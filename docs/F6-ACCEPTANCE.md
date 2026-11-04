@@ -31,7 +31,7 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| CLI-006 | `browser` (close-profile) | profil Chromium yang mengunci direktori ditutup; profil lain tidak disentuh; tanpa browser → error jelas, bukan panic | `TestF6CLI006BrowserCloseProfile` (e2e binary) | BELUM | F6-04j |
+| CLI-006 | `browser` (close-profile) | profil Chromium yang mengunci direktori ditutup; profil lain tidak disentuh; tanpa browser → error jelas, bukan panic | `TestF6CLI006BrowserCloseProfile` (unit) + `TestF6CLI006BrowserCloseProfileE2E` | LULUS | F6-04j |
 | CLI-054 | `computer-use` (install, status, doctor, permissions, screen) | lima subperintah berjalan; tanpa cua-driver → `module_unavailable`; `permissions`/`screen` read-only | `TestF6CLI054ComputerUse` | BELUM | F6-06c |
 
 ## 3. Ledger parity F6 — SLASH (5)
@@ -40,7 +40,7 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 |---|---|---|---|---|---|
 | SLASH-063 | `/voice` on/off/tts/status | toggle tersimpan di config; status jujur; tanpa executable audio → `module_unavailable` | `TestF6SLASH063Voice` | BELUM | F6-05h |
 | SLASH-064 | `/wake` on/off/status | listener hanya aktif opt-in; engine eksternal hilang → pesan instalasi | `TestF6SLASH064Wake` | BELUM | F6-05g |
-| SLASH-084 | `/browser` connect/disconnect/status/use | koneksi CDP nyata/fake; `real_profile` butuh approval per sesi; disconnect menutup sesi | `TestF6SLASH084BrowserConnect` | BELUM | F6-04h, F6-04j |
+| SLASH-084 | `/browser` connect/disconnect/status/use | koneksi CDP nyata/fake; `real_profile` butuh approval per sesi; disconnect menutup sesi | `TestF6SLASH084Browser` (TUI + gateway) | LULUS | F6-04h, F6-04j |
 | SLASH-098 | `/paste` | gambar clipboard dibaca lewat executable eksternal; tidak ada gambar → pesan; isi tidak bocor ke log | `TestF6SLASH098Paste` | BELUM | F6-03a |
 | SLASH-099 | `/image <path>` | gambar lokal dilampirkan dan melewati preflight; path di luar workspace mengikuti gate path | `TestF6SLASH099Image` | BELUM | F6-03a |
 
@@ -93,7 +93,7 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | TSET-034 | toolset komposit `search` | bundle menyertakan `web`; 0 tool tak dikenal/duplikat | `TestF6TSET034SearchBundle` | LULUS | F6-00a |
 | MEM-037 | Image eviction/replay | retire batch pada 80% limit, stub `sha`, 1 cache break/batch; sesi 30 screenshot full-miss ≤ 2 | `TestF6MEM037ImageEviction` | BELUM | F6-03f |
 | UI-008 | Clipboard image / paste collapse | paste gambar via executable eksternal; paste panjang dilipat; tanpa clipboard → pesan | `TestF6UI008ClipboardPaste` | BELUM | F6-03a |
-| PLUG-012 | Plugin browser backends (Browserbase, Browser Use, Firecrawl) | tiga backend cloud dapat dipilih; tanpa env autodetect; kredensial keychain | `TestF6PLUG012BrowserBackends` | BELUM | F6-04f |
+| PLUG-012 | Plugin browser backends (Browserbase, Browser Use, Firecrawl) | tiga backend cloud dapat dipilih; tanpa env autodetect; kredensial keychain | `TestF6PLUG012BrowserBackends` | LULUS | F6-04f |
 | PLUG-013 | Plugin computer_use (cua) | backend cua terdeteksi; absen → fail-closed | `TestF6PLUG013ComputerUseCua` | BELUM | F6-06a |
 | PLUG-020 | Plugin image_gen (8 backend) | matriks 8 backend lengkap, masing-masing satu fixture | `TestF6PLUG020ImageGenBackends` | BELUM | F6-03c |
 | PLUG-027 | Plugin video_gen (4 backend) | matriks 4 backend lengkap + xAI edit/extend | `TestF6PLUG027VideoGenBackends` | BELUM | F6-03d |
@@ -143,8 +143,8 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | EXEC-037 | Browser engine lokal | Chromium lokal terkelola; profil terisolasi default; startup/gagal jelas | `TestF6EXEC037BrowserLocalEngine` | LULUS | F6-04e |
 | EXEC-038 | Browser engine Camofox | engine Camofox opt-in; endpoint/port divalidasi | `TestF6EXEC038Camofox` | LULUS | F6-04g |
 | EXEC-039 | Browser engine Lightpanda | Lightpanda + fallback eksplisit, bukan diam | `TestF6EXEC039LightpandaFallback` | LULUS | F6-04g |
-| EXEC-040 | Real profile / CDP connect | profil nyata hanya `real_profile=true` + approval per sesi; default profil terisolasi | `TestF6EXEC040RealProfileCDP` | BELUM | F6-04h |
-| EXEC-041 | Browser extension control | default off; kontrol ekstensi tidak melebarkan akses profil nyata | `TestF6EXEC041BrowserExtension` | BELUM | F6-04h |
+| EXEC-040 | Real profile / CDP connect | profil nyata hanya `real_profile=true` + approval per sesi; default profil terisolasi | `TestF6EXEC040RealProfileApproval` | LULUS | F6-04h |
+| EXEC-041 | Browser extension control | default off; kontrol ekstensi tidak melebarkan akses profil nyata | `TestF6EXEC041BrowserExtension` | LULUS | F6-04h |
 | EXEC-042 | Web backends 11 | matriks env acak → backend identik; tanpa autodetect; keyless vs keyed eksplisit | `TestF6EXEC042WebBackendsMatrix`, `TestF6EXEC042WebBackendMatrix` | LULUS | F6-01a..01c |
 | EXEC-044 | Website blocklist | domain terblokir ditolak sebelum dial, termasuk redirect; daftar dari config | `TestF6EXEC044WebsiteBlocklist`, `TestF6EXEC044SiteBlocklist` | LULUS | F6-01e |
 
