@@ -51,6 +51,11 @@ func (c mediaCompleter) Complete(ctx context.Context, req host.Request) (host.Re
 				Kind: "image", Name: img.Name, MIME: img.MIME, Data: img.Data,
 			})
 		}
+		for _, vid := range m.Videos {
+			lm.Attachments = append(lm.Attachments, loop.Attachment{
+				Kind: "video", Name: vid.Name, MIME: vid.MIME, Data: vid.Data,
+			})
+		}
 		out.Messages = append(out.Messages, lm)
 	}
 	reply, err := purposeStream(ctx, c.prov, provider.PurposeMedia, out)

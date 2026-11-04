@@ -66,7 +66,7 @@ func allowedImports() map[string][]string {
 		"internal/loop":               {"internal/loop/event", "internal/boundary"}, // E-02
 		"internal/plan":               {"internal/loop/event"},
 		"internal/tools":              append([]string{"internal/schema", "internal/sandbox", "internal/codetools", "internal/redact", "internal/journal", "internal/budget", "internal/hooks", "internal/modules", "internal/modules/host", "internal/boundary", "internal/cron"}, groupExec()...),
-		"internal/provider":           append([]string{"internal/provider/auth", "internal/provider/credpool", "internal/provider/registry", "internal/schema", "internal/budget", "internal/media/preflight"}, groupNetx()...),
+		"internal/provider":           append([]string{"internal/provider/auth", "internal/provider/credpool", "internal/provider/registry", "internal/schema", "internal/budget", "internal/media/preflight", "internal/media/video"}, groupNetx()...),
 		"internal/provider/credpool":  nil,
 		"internal/provider/responses": append([]string{"internal/provider", "internal/provider/credpool", "internal/provider/registry", "internal/budget"}, groupNetx()...),
 		"internal/provider/anthropic": append([]string{"internal/provider", "internal/provider/credpool", "internal/provider/registry", "internal/budget"}, groupNetx()...),
@@ -145,10 +145,12 @@ func f6ModuleImports(m map[string][]string) {
 	m["internal/browser"] = []string{"internal/modules/host", "internal/netx", "internal/browser/cdp"}
 	// Browser leaf (ADR-309/ADR-313): coder/websocket framing; netx supplies the loopback client (E-05).
 	m["internal/browser/cdp"] = []string{"internal/netx"}
-	m["internal/media"] = []string{"internal/modules/host", "internal/netx", "internal/media/doc", "internal/media/preflight", "internal/media/gen"}
+	m["internal/media"] = []string{"internal/modules/host", "internal/netx", "internal/media/doc", "internal/media/preflight", "internal/media/gen", "internal/media/video"}
 	// Daun media (ADR-309): document parser, resize core, generation core.
 	m["internal/media/doc"] = nil
 	m["internal/media/preflight"] = nil
+	// Video container header probe (TOOL-081/MEDIA-014): standard library only.
+	m["internal/media/video"] = nil
 	m["internal/media/gen"] = []string{"internal/modules/host"}
 	// Voice root (ADR-319): host seam, netx TTS egress, and the three leaves.
 	// Daun voice (ADR-309, F6-V1): provider contracts and implementations.

@@ -17,6 +17,7 @@ const (
 	ToolImageGenerate  = "image_generate"
 	ToolVideoGenerate  = "video_generate"
 	ToolVisionAnalyze  = "vision_analyze"
+	ToolVideoAnalyze   = "video_analyze"
 	ToolXAIVideoEdit   = "xai_video_edit"
 	ToolXAIVideoExtend = "xai_video_extend"
 )
@@ -76,6 +77,13 @@ func Tools() []ToolSpec {
 			Tags:        []string{"video", "extend", "xai", "grok"},
 			Effect:      "non_idempotent",
 			Schema:      json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000},"video_url":{"type":"string","minLength":1,"maxLength":4096},"duration_s":{"type":"integer","minimum":2,"maximum":10}},"required":["prompt","video_url"],"additionalProperties":false}`),
+		},
+		{
+			Name:        ToolVideoAnalyze,
+			Description: "Analyze one video from the workspace or an http(s) URL with the configured multimodal model.",
+			Tags:        []string{"video", "clip", "movie", "multimodal", "analyze"},
+			Effect:      "read",
+			Schema:      json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":512},"url":{"type":"string","minLength":8,"maxLength":2048},"prompt":{"type":"string","maxLength":2000}},"additionalProperties":false}`),
 		},
 		{
 			Name:        ToolDocWrite,

@@ -7,6 +7,8 @@ import (
 
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/ctxdb"
+	"github.com/damnbot/damnbot/internal/loop"
+	"github.com/damnbot/damnbot/internal/modules/host"
 	"github.com/damnbot/damnbot/internal/tools"
 )
 
@@ -20,3 +22,6 @@ func wireModules(list []tools.Tool, _ *config.Config, _ *ctxdb.Store, _ string) 
 	}
 	return runModules{}, reg, nil
 }
+
+// wireRunMedia is a no-op in the minimal build: the media module is full-only.
+func wireRunMedia(func(host.Completer, bool, string), loop.Provider) {}

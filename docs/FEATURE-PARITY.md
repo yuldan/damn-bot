@@ -346,7 +346,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TOOL-078 | `terminal` (toolset `terminal`) | Jalankan perintah shell di backend terminal terpilih | `tools/terminal_tool.py:1646` | opt-in | Shell lokal; Docker/Singularity/Modal/Daytona/SSH/Vercel untuk backend lain | check_fn `check_terminal_requirements` | F1 | planned |
 | TOOL-079 | `todo_list` (toolset `todo`) | Daftar tugas/checklist untuk kerja multi-langkah | `tools/todo_tool.py:333` | opt-in; deferred via tool_search | — | check_fn `check_todo_requirements`; alias legacy `todo`; diintersep agent loop (`model_tools.py:607`) | F1 | planned |
 | TOOL-080 | `text_to_speech` (toolset `tts`) | Ubah teks menjadi audio via provider TTS | `tools/tts_tool.py:674` | opt-in | edge-tts (default, gratis) / ElevenLabs / OpenAI / xAI / lokal (Piper, NeuTTS, KittenTTS) | check_fn `check_tts_requirements` | F6 | planned |
-| TOOL-081 | `video_analyze` (toolset `video`) | Analisis/pahami video dengan model multimodal | `tools/vision_tools.py:1185` | off (default-off toolset) | Model multimodal video | check_fn `check_video_requirements` | F6 | planned |
+| TOOL-081 | `video_analyze` (toolset `video`) | Analisis/pahami video dengan model multimodal | `tools/vision_tools.py:1185` | off (default-off toolset) | Model multimodal video | check_fn `check_video_requirements` | F6 | LULUS |
 | TOOL-082 | `video_generate` (toolset `video_gen`) | Generate video teks/gambar/referensi-ke-video | `tools/video_generation_tool.py:371` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `check_video_generation_requirements` | F6 | LULUS |
 | TOOL-083 | `xai_video_edit` (toolset `video_gen`) | Edit video via xAI Grok Imagine | `tools/xai_video_tools.py:110` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `_check_xai_video_requirements` | F6 | LULUS |
 | TOOL-084 | `xai_video_extend` (toolset `video_gen`) | Perpanjang video via xAI Grok Imagine | `tools/xai_video_tools.py:114` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `_check_xai_video_requirements` | F6 | LULUS |
@@ -390,7 +390,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TSET-026 | toolset `tts` | 1 tool | `toolsets.py:127` | on/sesuai tool | — | tools: text_to_speech; available saat inventaris=True | F6 | planned |
 | TSET-027 | toolset `video_gen` | 3 tool | `toolsets.py:89` | off (default-off) | — | tools: video_generate, xai_video_edit, xai_video_extend; available saat inventaris=False | F6 | LULUS |
 | TSET-028 | toolset `vision` | 1 tool | `toolsets.py:86` | on/sesuai tool | — | tools: vision_analyze; available saat inventaris=False | F6 | LULUS |
-| TSET-029 | toolset `video` | 1 tool | `toolsets.py:87` | off (default-off) | — | tools: video_analyze; available saat inventaris=False | F6 | planned |
+| TSET-029 | toolset `video` | 1 tool | `toolsets.py:87` | off (default-off) | — | tools: video_analyze; available saat inventaris=False | F6 | LULUS |
 | TSET-030 | toolset `web` | 2 tool | `toolsets.py:76` | on/sesuai tool | — | tools: web_search, web_extract; available saat inventaris=True | F6 | LULUS |
 | TSET-031 | toolset `x_search` | 1 tool | `toolsets.py:78` | off (default-off) | — | tools: x_search; available saat inventaris=False | F8 | planned |
 | TSET-032 | toolset `hermes-yuanbao` | 5 tool | `toolsets.py:225` | on/sesuai tool | — | tools: yb_query_group_info, yb_query_group_members, yb_send_dm, yb_search_sticker, yb_send_sticker; available saat inventaris=False | F7 | planned |
@@ -847,7 +847,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | MEDIA-011 | STT whisper.cpp & chunking | Backend whisper.cpp, chunk audio panjang | `tools/transcription_whisper_cpp.py`, `tools/transcription_chunking.py` | opt-in | whisper.cpp binary, ffmpeg [INFERENCE] |  | F6 | LULUS |
 | MEDIA-012 | Vision (vision_analyze) | Analisis gambar via model vision auxiliary | `tools/vision_tools.py`, `agent/vision_message_prep.py` | on (core) | Model vision, Pillow |  | F6 | LULUS |
 | MEDIA-013 | Image routing native | Kirim gambar native ke model multimodal | `agent/image_routing.py` | on | — |  | F6 | LULUS |
-| MEDIA-014 | Video analyze | Analisis video | `tools/vision_tools.py:2` | off (toolset `video`) | Model multimodal |  | F6 | planned |
+| MEDIA-014 | Video analyze | Analisis video | `tools/vision_tools.py:2` | off (toolset `video`) | Model multimodal |  | F6 | LULUS |
 | MEDIA-015 | Image generation | image_generate dengan 8 backend plugin | `tools/image_generation_tool.py`, `agent/image_gen_registry.py` | on (core) bila backend tersedia | lihat backend |  | F6 | LULUS |
 | MEDIA-016 | Image backend: FAL | flux, nano-banana, gpt-image dsb. | `plugins/image_gen/fal/plugin.yaml` | opt-in | FAL_KEY, extra `fal` |  | F6 | LULUS |
 | MEDIA-017 | Image backend: OpenAI | GPT Image | `plugins/image_gen/openai/plugin.yaml` | opt-in | OPENAI_API_KEY |  | F6 | LULUS |

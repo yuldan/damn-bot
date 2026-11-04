@@ -562,8 +562,14 @@ func (p *providerAdapter) do(ctx context.Context, purpose provider.Purpose, req 
 			pm.ToolCalls = append(pm.ToolCalls, provider.ToolCall{ID: c.ID, Name: c.Name, ArgumentsRaw: c.Arguments})
 		}
 		for _, a := range m.Attachments {
-			if a.Kind == "image" && len(a.Data) > 0 {
+			if len(a.Data) == 0 {
+				continue
+			}
+			switch a.Kind {
+			case "image":
 				pm.Images = append(pm.Images, provider.Image{Name: a.Name, MIME: a.MIME, Data: a.Data, Untrusted: true})
+			case "video":
+				pm.Videos = append(pm.Videos, provider.Video{Name: a.Name, MIME: a.MIME, Data: a.Data, Untrusted: true})
 			}
 		}
 		preq.Messages = append(preq.Messages, pm)

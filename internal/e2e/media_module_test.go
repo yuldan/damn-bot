@@ -1,6 +1,8 @@
 package e2e
 
 import (
+	"encoding/binary"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,6 +25,27 @@ func writeMediaConfig(t *testing.T, e *Env, enabled bool, extra string) {
 	if err := os.WriteFile(e.cfg, []byte(body), 0o600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
+}
+
+// mp4Bytes writes a minimal MP4 whose mvhd reports durationMS milliseconds.
+func mp4Bytes(t *testing.T, durationMS uint32) []byte {
+	t.Helper()
+	ftyp := make([]byte, 24)
+	binary.BigEndian.PutUint32(ftyp[0:4], 24)
+	copy(ftyp[4:8], "ftyp")
+	copy(ftyp[8:12], "isom")
+	binary.BigEndian.PutUint32(ftyp[12:16], 0x200)
+	copy(ftyp[16:20], "isom")
+	copy(ftyp[20:24], "iso2")
+	mvhd := make([]byte, 28)
+	binary.BigEndian.PutUint32(mvhd[0:4], 28)
+	copy(mvhd[4:8], "mvhd")
+	binary.BigEndian.PutUint32(mvhd[20:24], 1000)
+	binary.BigEndian.PutUint32(mvhd[24:28], durationMS)
+	moov := make([]byte, 8, 8+len(mvhd))
+	binary.BigEndian.PutUint32(moov[0:4], 36)
+	copy(moov[4:8], "moov")
+	return append(append(ftyp, moov...), mvhd...)
 }
 
 func mediaRunArgs(e *Env, prompt string) []string {
@@ -162,6 +185,54 @@ func TestF6MediaVisionGateE2E(t *testing.T) {
 	for i, raw := range reqs {
 		if strings.Contains(string(raw), "SENTINEL-IMAGE-BYTES") {
 			t.Fatalf("media bytes reached request %d", i)
+		}
+	}
+}
+
+// TestF6MediaVideoBoundsE2E: a video above the duration bound is rejected
+// before the provider call; its bytes never reach the transcript.
+func TestF6MediaVideoBoundsE2E(t *testing.T) {
+	t.Parallel()
+	e := NewTrusted(t,
+		ToolCallReply("s1", "tool_search", `{"query":"video_analyze"}`),
+		ToolCallReply("v1", "tool_invoke", `{"name":"video_analyze","arguments":{"path":"long.mp4"}}`),
+		providertest.Text("done"),
+	)
+	data := append(mp4Bytes(t, 121000), []byte("SENTINEL-VIDEO-BYTES")...)
+	if err := os.WriteFile(filepath.Join(e.Workdir, "long.mp4"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`[provider]
+model = "kantor/m"
+
+[modules.media]
+enabled = true
+
+[[providers.custom]]
+name = "kantor"
+base_url = %q
+api = "openai-chat"
+api_key_env = "KANTOR_KEY"
+models = [{ id = "m", context_length = 32768, max_tokens = 1024, capabilities = ["tools", "vision"] }]
+`, e.Server.URL)
+	if err := os.WriteFile(e.cfg, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res := e.ExecEnv([]string{"KANTOR_KEY=sk-e2e"},
+		"run", "-p", "describe the video", "--config", e.cfg,
+		"--data-dir", e.DataDir, "--approval", "auto", "--output", "json")
+	res.RequireOK(t)
+	reqs := e.Requests()
+	if len(reqs) != 3 {
+		t.Fatalf("provider requests = %d, want 3 (the bound must precede the model)\nstderr:\n%s", len(reqs), res.Stderr)
+	}
+	last := string(reqs[len(reqs)-1])
+	if !strings.Contains(last, "too_large") {
+		t.Fatalf("duration bound denial missing:\n%.1500s", last)
+	}
+	for i, raw := range reqs {
+		if strings.Contains(string(raw), "SENTINEL-VIDEO-BYTES") {
+			t.Fatalf("video bytes reached request %d", i)
 		}
 	}
 }

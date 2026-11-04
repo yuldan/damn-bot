@@ -85,7 +85,10 @@ type Message struct {
 	Content string
 	// Images are user attachments. They are preflighted before the request
 	// and only a vision route may receive them (EC-PROV-024).
-	Images     []Image
+	Images []Image
+	// Videos are probed video attachments; the same vision route gate applies
+	// and the container bounds are checked before the request.
+	Videos     []Video
 	ToolCalls  []ToolCall // assistant
 	ToolCallID string     // tool
 	// Reasoning is replayed byte-identically under ReasoningField.
@@ -103,6 +106,15 @@ type Image struct {
 	OriginalWidth, OriginalHeight int
 	OriginalBytes                 int
 	Resized, Untrusted            bool
+}
+
+// Video is one probed video attachment. Data is forwarded only to a vision
+// route; DurationS is the container header duration.
+type Video struct {
+	Name, MIME string
+	Data       []byte
+	DurationS  float64
+	Untrusted  bool
 }
 
 // ToolCall is a model tool call; arguments stay raw for the P3 gate.
