@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -256,12 +257,19 @@ endpoint = `+strconv.Quote(base)+"\n")
 // doctor, permissions and screen all work without a screen, and every
 // mutating command refuses without --yes.
 func TestF6CLI054CUASubcommands(t *testing.T) {
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("LOCALAPPDATA", dataHome)
+	t.Setenv("APPDATA", dataHome)
 	t.Setenv("CUA_HELPER", "1")
 	log := filepath.Join(t.TempDir(), "cua.log")
 	t.Setenv("CUA_LOG", log)
 	cfg := cuaHelperConfig(t, "")
-	dest := filepath.Join(os.Getenv("XDG_DATA_HOME"), "damnbot", "cua", "cua-driver")
+	name := "cua-driver"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	dest := filepath.Join(dataHome, "damnbot", "cua", name)
 	source := filepath.Join(t.TempDir(), "cua-driver")
 	if err := os.WriteFile(source, []byte("driver-v1"), 0o700); err != nil { // #nosec G306 -- fixture must look executable
 		t.Fatal(err)
