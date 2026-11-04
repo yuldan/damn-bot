@@ -31,12 +31,12 @@ type Doer interface {
 }
 
 func newHTTPEngine(kind, base string, cfg Config, client Doer) (*httpEngine, error) {
-	return newHTTPEngineAuth(kind, base, "", cfg, client)
+	return newHTTPEngineAuth(kind, base, "", &cfg, client)
 }
 
 // newHTTPEngineAuth adds a bearer credential for a cloud provider. The value is
 // held only in memory and never rendered by any error or status.
-func newHTTPEngineAuth(kind, base, auth string, cfg Config, client Doer) (*httpEngine, error) {
+func newHTTPEngineAuth(kind, base, auth string, cfg *Config, client Doer) (*httpEngine, error) {
 	u, err := url.Parse(base)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
 		(u.Scheme != "http" && u.Scheme != "https") {
@@ -45,7 +45,7 @@ func newHTTPEngineAuth(kind, base, auth string, cfg Config, client Doer) (*httpE
 	if client == nil {
 		return nil, fmt.Errorf("%w: %s client", errUnavailable, kind)
 	}
-	return &httpEngine{kind: kind, base: strings.TrimRight(u.String(), "/"), client: client, cfg: cfg, auth: auth}, nil
+	return &httpEngine{kind: kind, base: strings.TrimRight(u.String(), "/"), client: client, cfg: *cfg, auth: auth}, nil
 }
 
 // Navigate opens rawURL and guards the reported final URL.

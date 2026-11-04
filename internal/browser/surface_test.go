@@ -5,10 +5,14 @@ package browser
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -195,6 +199,68 @@ func extensionNoProfile(t *testing.T) {
 	}
 	if len(appr.requests()) != 0 || len(f.calls) != 0 {
 		t.Fatalf("approvals = %d, CDP calls = %d, want 0", len(appr.requests()), len(f.calls))
+	}
+}
+
+// TestF6PLUG012BrowserBackends (PLUG-012): the registry accepts only the
+// reviewed cloud catalog, constructs with an explicit credential, and never
+// autodetects a backend.
+func TestF6PLUG012BrowserBackends(t *testing.T) {
+	t.Parallel()
+	reg, err := NewBackendRegistry(BuiltinBackends())
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	if got, want := reg.Names(), []string{"browser-use", "browserbase", "firecrawl"}; !slices.Equal(got, want) {
+		t.Fatalf("names = %v, want %v", got, want)
+	}
+	if env := reg.Env("browserbase"); !slices.Contains(env, "BROWSERBASE_API_KEY") {
+		t.Fatalf("browserbase env = %v", env)
+	}
+	for _, tc := range []struct {
+		name string
+		set  []Backend
+	}{
+		{"outside catalog", []Backend{{Name: "webkit", New: func(*Config, BackendEnv, Doer) (Engine, error) { return nil, nil }}}},
+		{"nil constructor", []Backend{{Name: "firecrawl"}}},
+		{"duplicate", []Backend{BuiltinBackends()[0], BuiltinBackends()[0]}},
+	} {
+		if _, xerr := NewBackendRegistry(tc.set); !errors.Is(xerr, errBadConfig) {
+			t.Errorf("%s: err = %v, want errBadConfig", tc.name, xerr)
+		}
+	}
+	if _, xerr := reg.New("", &Config{}, BackendEnv{Endpoint: "https://cloud.example", Key: "k"}, nil); !errors.Is(xerr, errBadConfig) {
+		t.Fatalf("empty backend = %v, want errBadConfig (no autodetect)", xerr)
+	}
+	if _, xerr := reg.New("browserbase", &Config{}, BackendEnv{Endpoint: "https://cloud.example"}, http.DefaultClient); !errors.Is(xerr, errUnavailable) {
+		t.Fatalf("missing key = %v, want errUnavailable", xerr)
+	}
+
+	var (
+		mu  sync.Mutex
+		got string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		got = r.Header.Get("Authorization")
+		mu.Unlock()
+		if _, werr := w.Write([]byte(`{"url":"https://app.example/"}`)); werr != nil {
+			t.Errorf("write reply: %v", werr)
+		}
+	}))
+	defer srv.Close()
+	eng, xerr := reg.New("browserbase", &Config{}, BackendEnv{Endpoint: srv.URL, Key: "secret-key"}, srv.Client())
+	if xerr != nil {
+		t.Fatalf("construct: %v", xerr)
+	}
+	defer eng.Close() //nolint:errcheck // test cleanup
+	if _, xerr := eng.Navigate(t.Context(), "https://app.example/", func(*url.URL) error { return nil }); xerr != nil {
+		t.Fatalf("navigate: %v", xerr)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if got != "Bearer secret-key" {
+		t.Fatalf("Authorization = %q", got)
 	}
 }
 
