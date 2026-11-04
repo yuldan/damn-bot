@@ -127,6 +127,26 @@ type BrowserControl interface {
 	BrowserEngine(ctx context.Context, sessionID, engine string) string
 }
 
+// VoiceStatus is the honest state of /voice and /wake.
+type VoiceStatus struct {
+	Enabled    bool
+	Wake       bool
+	TTSBackend string
+	TTSReason  string
+	WakeEngine string
+	WakeReason string
+}
+
+// Voice is the runtime surface behind /voice and /wake. Off must cancel a
+// running synthesis; an unavailable backend reports its reason instead of a
+// fake on. A nil Voice leaves both commands explicitly unsupported.
+type Voice interface {
+	Status(ctx context.Context) VoiceStatus
+	SetVoice(ctx context.Context, on bool) VoiceStatus
+	SetWake(ctx context.Context, on bool) VoiceStatus
+	Speak(ctx context.Context, text string) (string, error)
+}
+
 // Host bundles the services the composition root injects. Every field is
 // mandatory: the TUI performs no I/O of its own (E-09).
 type Host struct {
@@ -141,6 +161,9 @@ type Host struct {
 	Clipboard Clipboard
 	// Browser is optional: nil means `/browser` reports module_unavailable.
 	Browser BrowserControl
+	// Voice backs /voice and /wake; nil leaves them unavailable (minimal
+	// builds and compositions without the voice module).
+	Voice Voice
 	// Notices is the non-critical notice gate; nil disables such notices
 	// ([ui] notices = false or a frontend without one). Critical notices do
 	// not depend on it (GAP-OPS-09).

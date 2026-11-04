@@ -228,6 +228,12 @@ func (m *Model) handleA7Result(msg tea.Msg) bool {
 		default:
 			m.appendNotice(msg.text)
 		}
+	case voiceDoneMsg:
+		if msg.err != nil {
+			m.appendNotice("voice tts refused: " + msg.err.Error())
+		} else {
+			m.appendNotice("voice tts: " + msg.text)
+		}
 	case fileWrittenMsg:
 		if msg.err != nil {
 			m.appendNotice("write refused: " + msg.err.Error())

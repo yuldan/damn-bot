@@ -38,8 +38,8 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| SLASH-063 | `/voice` on/off/tts/status | toggle tersimpan di config; status jujur; tanpa executable audio → `module_unavailable` | `TestF6SLASH063Voice` | BELUM | F6-05h |
-| SLASH-064 | `/wake` on/off/status | listener hanya aktif opt-in; engine eksternal hilang → pesan instalasi | `TestF6SLASH064Wake` | BELUM | F6-05g |
+| SLASH-063 | `/voice` on/off/tts/status | toggle tersimpan di config; status jujur; tanpa executable audio → `module_unavailable` | `TestF6SLASH063Voice` | LULUS | F6-05h |
+| SLASH-064 | `/wake` on/off/status | listener hanya aktif opt-in; engine eksternal hilang → pesan instalasi | `TestF6SLASH064Wake` | LULUS | F6-05g |
 | SLASH-084 | `/browser` connect/disconnect/status/use | koneksi CDP nyata/fake; `real_profile` butuh approval per sesi; disconnect menutup sesi | `TestF6SLASH084Browser` (TUI + gateway) | LULUS | F6-04h, F6-04j |
 | SLASH-098 | `/paste` | gambar clipboard dibaca lewat executable eksternal; tidak ada gambar → pesan; isi tidak bocor ke log | `TestF6SLASH098Paste` | BELUM | F6-03a |
 | SLASH-099 | `/image <path>` | gambar lokal dilampirkan dan melewati preflight; path di luar workspace mengikuti gate path | `TestF6SLASH099Image` | BELUM | F6-03a |
