@@ -291,7 +291,7 @@ func TestSplitSentence(t *testing.T) {
 	}
 }
 
-func TestF6MEDIA010STTProviders(t *testing.T) {
+func TestSTTCatalogClosed(t *testing.T) {
 	t.Parallel()
 	if got := strings.Join(Catalog(KindSTT), ","); got != "whispercpp,local_command,groq,openai,mistral,xai,elevenlabs,deepinfra" {
 		t.Fatalf("stt catalog = %s", got)

@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	// MaxAudioBytes is the largest accepted input (25 MiB).
-	MaxAudioBytes = 25 << 20
+	// MaxAudioBytes is the largest accepted input (96 MiB; an 80 MiB WAV is
+	// one hour at 11 kHz mono 16-bit and is split by time boundary).
+	MaxAudioBytes = 96 << 20
 	// DefaultChunkSeconds is the time boundary of one whisper call.
 	DefaultChunkSeconds = 600
 	// MaxChunks bounds total duration (12 × 600 s = 2 h).
@@ -41,6 +42,9 @@ var (
 	ErrTooLarge = errors.New("voice/stt: audio exceeds the limit")
 	// ErrTimeout is a whisper call that outlived its budget.
 	ErrTimeout = errors.New("voice/stt: transcription timed out")
+	// ErrContainerUnavailable is an audio container this build cannot split
+	// without ffmpeg; the module fails closed instead of guessing.
+	ErrContainerUnavailable = errors.New("module_unavailable: audio container needs ffmpeg")
 	// errProcess is a whisper process that exited non-zero.
 	errProcess = errors.New("voice/stt: whisper failed")
 	// errOutput is a missing or unreadable whisper JSON document.
@@ -74,6 +78,19 @@ type Options struct {
 // Provider is one speech-to-text backend from the closed catalog.
 type Provider interface {
 	Transcribe(ctx context.Context, audio io.Reader, opts Options) (Transcript, error)
+}
+
+// needsFFmpeg reports an ISO-BMFF (M4A/MP4) container: without an external
+// decoder this build cannot chunk it, so the caller fails closed.
+func needsFFmpeg(head []byte) bool {
+	if len(head) < 12 || string(head[4:8]) != "ftyp" {
+		return false
+	}
+	switch string(head[8:12]) {
+	case "M4A ", "M4B ", "M4P ", "f4a ", "mp42", "isom", "iso2", "avc1", "qt  ":
+		return true
+	}
+	return false
 }
 
 func mimeOf(head []byte) string {
@@ -139,6 +156,9 @@ func (w *Whisper) Transcribe(ctx context.Context, r io.Reader, o Options) (tr Tr
 	n, rerr := f.ReadAt(head[:], 0)
 	if rerr != nil && !errors.Is(rerr, io.EOF) {
 		return Transcript{}, fmt.Errorf("voice/stt: header: %w", rerr)
+	}
+	if needsFFmpeg(head[:n]) {
+		return Transcript{}, ErrContainerUnavailable
 	}
 	tr = Transcript{Backend: "whispercpp", MIME: mimeOf(head[:n]), Chunks: 1}
 	if tr.MIME == "" {

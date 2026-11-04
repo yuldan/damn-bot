@@ -26,21 +26,25 @@ var errBadConfig = errors.New("voice: invalid configuration")
 
 // Section is [modules.voice] plus core network flags (ADR-319).
 type Section struct {
-	Enabled      bool   `json:"enabled"`
-	STTBackend   string `json:"stt_backend"`
-	TTSBackend   string `json:"tts_backend"`
-	WhisperBin   string `json:"whisper_bin"`
-	WhisperModel string `json:"whisper_model"`
-	TTSEndpoint  string `json:"tts_endpoint"`
-	TTSVoice     string `json:"tts_voice"`
-	TTSKeyEnv    string `json:"tts_key_env"`
-	ChatMode     string `json:"chat_mode"`
-	LiveEndpoint string `json:"live_endpoint"`
-	LiveKeyEnv   string `json:"live_key_env"`
-	LiveModel    string `json:"live_model"`
-	LiveVoice    string `json:"live_voice"`
-	Offline      bool   `json:"offline"`
-	NoBackground bool   `json:"no_background"`
+	Enabled      bool     `json:"enabled"`
+	STTBackend   string   `json:"stt_backend"`
+	TTSBackend   string   `json:"tts_backend"`
+	WhisperBin   string   `json:"whisper_bin"`
+	WhisperModel string   `json:"whisper_model"`
+	STTEndpoint  string   `json:"stt_endpoint"`
+	STTKeyEnv    string   `json:"stt_key_env"`
+	STTModel     string   `json:"stt_model"`
+	STTCommand   []string `json:"stt_command"`
+	TTSEndpoint  string   `json:"tts_endpoint"`
+	TTSVoice     string   `json:"tts_voice"`
+	TTSKeyEnv    string   `json:"tts_key_env"`
+	ChatMode     string   `json:"chat_mode"`
+	LiveEndpoint string   `json:"live_endpoint"`
+	LiveKeyEnv   string   `json:"live_key_env"`
+	LiveModel    string   `json:"live_model"`
+	LiveVoice    string   `json:"live_voice"`
+	Offline      bool     `json:"offline"`
+	NoBackground bool     `json:"no_background"`
 }
 
 // Deps is the core-owned seam of the voice module.
@@ -242,7 +246,15 @@ func (m *Module) speak(ctx context.Context, args json.RawMessage, env host.Env) 
 }
 
 func (m *Module) sttProvider() (STT, error) {
-	cfg := &Config{STTBackend: m.cfg.STTBackend, WhisperBin: m.cfg.WhisperBin, WhisperModel: m.cfg.WhisperModel}
+	key, err := m.secret(m.cfg.STTKeyEnv)
+	if err != nil {
+		return nil, err
+	}
+	cfg := &Config{
+		STTBackend: m.cfg.STTBackend, WhisperBin: m.cfg.WhisperBin, WhisperModel: m.cfg.WhisperModel,
+		STTEndpoint: m.cfg.STTEndpoint, STTKey: key, STTModel: m.cfg.STTModel,
+		STTCommand: m.cfg.STTCommand, Doer: m.doer(m.cfg.STTEndpoint),
+	}
 	return cfg.NewSTT()
 }
 
@@ -324,6 +336,8 @@ func voiceError(err error) error {
 		return &host.Error{Code: "too_large", Message: err.Error()}
 	case errors.Is(err, stt.ErrEmptyAudio), errors.Is(err, tts.ErrEmptyText), errors.Is(err, tts.ErrTextTooLong):
 		return &host.Error{Code: "invalid_args", Message: err.Error()}
+	case errors.Is(err, stt.ErrContainerUnavailable):
+		return &host.Error{Code: "module_unavailable", Message: err.Error()}
 	case errors.Is(err, stt.ErrTimeout):
 		return &host.Error{Code: "timeout", Message: err.Error()}
 	default:

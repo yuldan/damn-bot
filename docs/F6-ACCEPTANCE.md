@@ -114,11 +114,10 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | MEDIA-007 | TTS 11 provider | 11 provider terdaftar; default eksplisit; backend tidak resmi `tos_risk` opt-in | `TestF6MEDIA007TTSProviders` | BELUM | F6-05c |
 | MEDIA-008 | TTS streaming | audio pertama ≤ 300 ms setelah kalimat pertama; potong per kalimat; batal menutup stream | `TestF6MEDIA008StreamingLatency` | LULUS | F6-05d |
 | MEDIA-009 | TTS command provider | argv tanpa shell; timeout; output audio divalidasi MIME | `TestF6MEDIA009TTSCommand` | BELUM | F6-05c |
-| MEDIA-010 | STT 8 provider | 8 provider terdaftar; transkripsi pesan suara; backend eksplisit | `TestF6MEDIA010STTProviders` | BELUM | F6-05a |
-| MEDIA-011 | STT whisper.cpp + chunking | whisper.cpp via executable; audio 80 MB/60 menit terchunk tanpa ffmpeg; M4A tanpa ffmpeg → `module_unavailable` | `TestF6MEDIA011WhisperCPPChunking` | BELUM | F6-05b |
+| MEDIA-010 | STT 8 provider | 8 provider terdaftar; transkripsi pesan suara; backend eksplisit | `TestF6MEDIA010STTProviders`, `TestF6MEDIA010STTEmptyAudio` | LULUS | F6-05a |
+| MEDIA-011 | STT whisper.cpp + chunking | whisper.cpp via executable; audio 80 MB/60 menit terchunk tanpa ffmpeg; M4A tanpa ffmpeg → `module_unavailable` | `TestF6MEDIA011WhisperChunking` | LULUS | F6-05b |
 | MEDIA-012 | Vision (`vision_analyze`) | gambar dianalisis model vision; gambar dari user dilampirkan bila `capabilities.vision`; else tool | `TestF6MEDIA012VisionAnalyze` | LULUS | F6-03b |
-| MEDIA-013 | Image routing native | multi-gambar dihormati sampai limit route; 0 penolakan ukuran | `TestF6MEDIA013ImageRouting` | LULUS | F6-03a, F6-03b |
-| MEDIA-014 | Video analyze | video dianalisis model multimodal; batas ukuran/durasi jelas | `TestF6MEDIA014VideoAnalyze` | BELUM | F6-03e |
+| MEDIA-013 | Image routing native | multi-gambar dihormati sampai limit route; 0 penolakan ukuran | `TestF6MEDIA013ImageRouting` | LULUS | F6-03a, F6-03b || MEDIA-014 | Video analyze | video dianalisis model multimodal; batas ukuran/durasi jelas | `TestF6MEDIA014VideoAnalyze` | BELUM | F6-03e |
 | MEDIA-015 | Image generation | `image_generate` memakai registry 8 backend; hasil blob + path | `TestF6MEDIA015ImageGeneration` | BELUM | F6-03c |
 | MEDIA-016 | Image backend FAL | fixture FAL; 1 attempt (tanpa retry SDK); harga dicatat | `TestF6MEDIA016ImageFAL` | BELUM | F6-03c |
 | MEDIA-017 | Image backend OpenAI | fixture GPT Image; dimensi/format divalidasi | `TestF6MEDIA017ImageOpenAI` | BELUM | F6-03c |
