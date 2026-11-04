@@ -61,30 +61,31 @@ type ModulesMedia struct {
 // autodetect. The whisper paths and the TTS endpoint are data for the module's
 // own constructors; no network or executable is touched at load.
 type ModulesVoice struct {
-	Enabled      bool     `toml:"enabled"`
-	STTBackend   string   `toml:"stt_backend"`
-	TTSBackend   string   `toml:"tts_backend"`
-	WhisperBin   string   `toml:"whisper_bin"`
-	WhisperModel string   `toml:"whisper_model"`
-	STTEndpoint  string   `toml:"stt_endpoint"`
-	STTKeyEnv    string   `toml:"stt_key_env"`
-	STTModel     string   `toml:"stt_model"`
-	STTCommand   []string `toml:"stt_command"`
-	TTSEndpoint  string   `toml:"tts_endpoint"`
-	TTSKeyEnv    string   `toml:"tts_key_env"`
-	TTSModel     string   `toml:"tts_model"`
-	TTSVoice     string   `toml:"tts_voice"`
-	TTSCommand   []string `toml:"tts_command"`
-	ChatMode     string   `toml:"chat_mode"`
-	LiveEndpoint string   `toml:"live_endpoint"`
-	LiveKeyEnv   string   `toml:"live_key_env"`
-	LiveModel    string   `toml:"live_model"`
-	LiveVoice    string   `toml:"live_voice"`
-	WakeEngine   string   `toml:"wake_engine"`
-	WakeBinary   string   `toml:"wake_binary"`
-	WakeModel    string   `toml:"wake_model"`
-	WakeKeywords []string `toml:"wake_keywords"`
-	WakeKeyEnv   string   `toml:"wake_key_env"`
+	Enabled            bool     `toml:"enabled"`
+	STTBackend         string   `toml:"stt_backend"`
+	TTSBackend         string   `toml:"tts_backend"`
+	WhisperBin         string   `toml:"whisper_bin"`
+	WhisperModel       string   `toml:"whisper_model"`
+	STTEndpoint        string   `toml:"stt_endpoint"`
+	STTKeyEnv          string   `toml:"stt_key_env"`
+	STTModel           string   `toml:"stt_model"`
+	STTCommand         []string `toml:"stt_command"`
+	TTSEndpoint        string   `toml:"tts_endpoint"`
+	TTSKeyEnv          string   `toml:"tts_key_env"`
+	TTSModel           string   `toml:"tts_model"`
+	TTSVoice           string   `toml:"tts_voice"`
+	TTSCommand         []string `toml:"tts_command"`
+	TTSAllowUnofficial bool     `toml:"tts_allow_unofficial"`
+	ChatMode           string   `toml:"chat_mode"`
+	LiveEndpoint       string   `toml:"live_endpoint"`
+	LiveKeyEnv         string   `toml:"live_key_env"`
+	LiveModel          string   `toml:"live_model"`
+	LiveVoice          string   `toml:"live_voice"`
+	WakeEngine         string   `toml:"wake_engine"`
+	WakeBinary         string   `toml:"wake_binary"`
+	WakeModel          string   `toml:"wake_model"`
+	WakeKeywords       []string `toml:"wake_keywords"`
+	WakeKeyEnv         string   `toml:"wake_key_env"`
 }
 
 // ModulesComputerUse is [modules.computer_use]: the F6 external computer-use

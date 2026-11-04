@@ -72,6 +72,7 @@ type Config struct {
 	TTSEndpoint, TTSKey, TTSModel string
 	TTSVoice, TTSFormat           string
 	TTSCommand                    []string
+	TTSAllowUnofficial            bool
 	Doer                          tts.Doer
 }
 
@@ -93,6 +94,7 @@ func (c *Config) NewTTS() (TTS, error) {
 		f := &tts.Factory{
 			Endpoint: c.TTSEndpoint, Key: c.TTSKey, Model: c.TTSModel,
 			Voice: c.TTSVoice, Format: c.TTSFormat, Command: c.TTSCommand, Doer: c.Doer,
+			AllowUnofficial: c.TTSAllowUnofficial,
 		}
 		return f.New(c.TTSBackend)
 	})

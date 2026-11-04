@@ -184,6 +184,7 @@ config_version = 1
     tts_key_env = ""
     tts_model = ""
     tts_voice = ""
+    tts_allow_unofficial = false
     chat_mode = ""
     live_endpoint = ""
     live_key_env = ""

@@ -273,7 +273,7 @@ func moduleConfig(cfg *config.Config) func(string) host.Config {
 		TTSEndpoint: vc.TTSEndpoint, TTSVoice: vc.TTSVoice, TTSKeyEnv: vc.TTSKeyEnv,
 		ChatMode: vc.ChatMode, LiveEndpoint: vc.LiveEndpoint, LiveKeyEnv: vc.LiveKeyEnv,
 		LiveModel: vc.LiveModel, LiveVoice: vc.LiveVoice,
-		TTSModel: vc.TTSModel, TTSCommand: vc.TTSCommand,
+		TTSModel: vc.TTSModel, TTSCommand: vc.TTSCommand, TTSAllowUnofficial: vc.TTSAllowUnofficial,
 		WakeEngine: vc.WakeEngine, WakeBinary: vc.WakeBinary, WakeModel: vc.WakeModel,
 		WakeKeywords: vc.WakeKeywords, WakeKeyEnv: vc.WakeKeyEnv,
 		Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,

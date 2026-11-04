@@ -23,7 +23,7 @@ func newVoiceSurface(cfg *config.Config) *voice.Surface {
 		Enabled:    v.Enabled,
 		TTSBackend: v.TTSBackend, TTSEndpoint: v.TTSEndpoint,
 		TTSKey: config.LookupSecret(v.TTSKeyEnv), TTSModel: v.TTSModel, TTSVoice: v.TTSVoice,
-		TTSCommand: v.TTSCommand,
+		TTSCommand: v.TTSCommand, TTSAllowUnofficial: v.TTSAllowUnofficial,
 		Doer:       net.Client("voice", netx.Tool),
 		WakeEngine: v.WakeEngine, WakeBinary: v.WakeBinary, WakeModel: v.WakeModel,
 		WakeKeywords: v.WakeKeywords, WakeKey: config.LookupSecret(v.WakeKeyEnv),

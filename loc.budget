@@ -350,7 +350,8 @@ heal              1500 internal/heal
 # Amandemen ADR-323 P6b slash (SLASH-063/064): config.LookupSecret dipakai
 # voice_wire menambah config 2419 -> 2425 (terukur scc pada rebase di atas
 # main cf55c132). Sigma core 56.621 -> 56.627; plafon core 56.700 tetap.
-config            2425 internal/config
+# ADR-323 P6b MEDIA-007: tts_allow_unofficial +1 (terukur scc pada rebase main 754febe1).
+config            2426 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.

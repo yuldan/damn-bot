@@ -27,32 +27,33 @@ var errBadConfig = errors.New("voice: invalid configuration")
 
 // Section is [modules.voice] plus core network flags (ADR-319).
 type Section struct {
-	Enabled      bool     `json:"enabled"`
-	STTBackend   string   `json:"stt_backend"`
-	TTSBackend   string   `json:"tts_backend"`
-	WhisperBin   string   `json:"whisper_bin"`
-	WhisperModel string   `json:"whisper_model"`
-	STTEndpoint  string   `json:"stt_endpoint"`
-	STTKeyEnv    string   `json:"stt_key_env"`
-	STTModel     string   `json:"stt_model"`
-	STTCommand   []string `json:"stt_command"`
-	TTSEndpoint  string   `json:"tts_endpoint"`
-	TTSKeyEnv    string   `json:"tts_key_env"`
-	TTSModel     string   `json:"tts_model"`
-	TTSVoice     string   `json:"tts_voice"`
-	TTSCommand   []string `json:"tts_command"`
-	ChatMode     string   `json:"chat_mode"`
-	LiveEndpoint string   `json:"live_endpoint"`
-	LiveKeyEnv   string   `json:"live_key_env"`
-	LiveModel    string   `json:"live_model"`
-	LiveVoice    string   `json:"live_voice"`
-	WakeEngine   string   `json:"wake_engine"`
-	WakeBinary   string   `json:"wake_binary"`
-	WakeModel    string   `json:"wake_model"`
-	WakeKeywords []string `json:"wake_keywords"`
-	WakeKeyEnv   string   `json:"wake_key_env"`
-	Offline      bool     `json:"offline"`
-	NoBackground bool     `json:"no_background"`
+	Enabled            bool     `json:"enabled"`
+	STTBackend         string   `json:"stt_backend"`
+	TTSBackend         string   `json:"tts_backend"`
+	WhisperBin         string   `json:"whisper_bin"`
+	WhisperModel       string   `json:"whisper_model"`
+	STTEndpoint        string   `json:"stt_endpoint"`
+	STTKeyEnv          string   `json:"stt_key_env"`
+	STTModel           string   `json:"stt_model"`
+	STTCommand         []string `json:"stt_command"`
+	TTSEndpoint        string   `json:"tts_endpoint"`
+	TTSKeyEnv          string   `json:"tts_key_env"`
+	TTSModel           string   `json:"tts_model"`
+	TTSVoice           string   `json:"tts_voice"`
+	TTSCommand         []string `json:"tts_command"`
+	TTSAllowUnofficial bool     `json:"tts_allow_unofficial"`
+	ChatMode           string   `json:"chat_mode"`
+	LiveEndpoint       string   `json:"live_endpoint"`
+	LiveKeyEnv         string   `json:"live_key_env"`
+	LiveModel          string   `json:"live_model"`
+	LiveVoice          string   `json:"live_voice"`
+	WakeEngine         string   `json:"wake_engine"`
+	WakeBinary         string   `json:"wake_binary"`
+	WakeModel          string   `json:"wake_model"`
+	WakeKeywords       []string `json:"wake_keywords"`
+	WakeKeyEnv         string   `json:"wake_key_env"`
+	Offline            bool     `json:"offline"`
+	NoBackground       bool     `json:"no_background"`
 }
 
 // Deps is the core-owned seam of the voice module.
@@ -277,7 +278,8 @@ func (m *Module) ttsProvider() (TTS, error) {
 	cfg := &Config{
 		TTSBackend: m.cfg.TTSBackend, TTSEndpoint: m.cfg.TTSEndpoint,
 		TTSModel: m.cfg.TTSModel, TTSVoice: m.cfg.TTSVoice,
-		TTSCommand: m.cfg.TTSCommand, TTSKey: key, Doer: m.doer(m.cfg.TTSEndpoint),
+		TTSCommand: m.cfg.TTSCommand, TTSAllowUnofficial: m.cfg.TTSAllowUnofficial,
+		TTSKey: key, Doer: m.doer(m.cfg.TTSEndpoint),
 	}
 	return cfg.NewTTS()
 }

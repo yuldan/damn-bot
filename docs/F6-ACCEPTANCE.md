@@ -111,7 +111,7 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | MEDIA-004 | Wake engine openWakeWord | engine terpilih dari config; binary/model absen → pesan | `TestF6MEDIA004OpenWakeWord` | LULUS | F6-05g |
 | MEDIA-005 | Wake engine sherpa-onnx KWS | engine terpilih; kosakata dari config; absen → pesan | `TestF6MEDIA005SherpaKWS` | LULUS | F6-05g |
 | MEDIA-006 | Wake engine Porcupine | access key hanya dari secret; absen → pesan | `TestF6MEDIA006Porcupine`, `TestF6MEDIA006PorcupineUsesSecret` | LULUS | F6-05g |
-| MEDIA-007 | TTS 11 provider | 11 provider terdaftar; default eksplisit; backend tidak resmi `tos_risk` opt-in | `TestF6MEDIA007TTSProviders` | BELUM | F6-05c |
+| MEDIA-007 | TTS 11 provider | 11 provider terdaftar; default eksplisit; backend tidak resmi `tos_risk` opt-in | `TestF6MEDIA007TTSProviders` | LULUS | F6-05c |
 | MEDIA-008 | TTS streaming | audio pertama ≤ 300 ms setelah kalimat pertama; potong per kalimat; batal menutup stream | `TestF6MEDIA008StreamingLatency` | LULUS | F6-05d |
 | MEDIA-009 | TTS command provider | argv tanpa shell; timeout; output audio divalidasi MIME | `TestF6MEDIA009TTSCommandArgv` | LULUS | F6-05c |
 | MEDIA-010 | STT 8 provider | 8 provider terdaftar; transkripsi pesan suara; backend eksplisit | `TestF6MEDIA010STTProviders`, `TestF6MEDIA010STTEmptyAudio` | LULUS | F6-05a |
