@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -76,6 +77,9 @@ type Options struct {
 	Keyring func(context.Context) (bool, error)
 	// Free reports free and total bytes; nil uses the platform statfs probe.
 	Free func(path string) (free, total int64, err error)
+	// LookPath resolves an optional external tool; nil uses exec.LookPath.
+	// Tests inject it to prove the hint appears only when the tool is absent.
+	LookPath func(file string) (string, error)
 }
 
 // Run executes every check and applies the SELF-HEALING §8 exit contract:
@@ -96,6 +100,7 @@ func Run(ctx context.Context, o *Options) Report {
 		checkSecret(ctx, o),
 		checkProvider(o),
 		checkDisk(o),
+		checkTools(o),
 		checkEmergencyStop(ctx, o),
 	}
 	return r.finish()
@@ -123,6 +128,25 @@ func (r *Report) finish() Report {
 		r.Exit = 3
 	}
 	return *r
+}
+
+// checkTools reports optional external binaries as informational. A missing
+// binary must not turn into StatusWarn: the doctor exit contract maps any
+// warning to exit 2, which would block `update` from a healthy install. The
+// ffmpeg message is the GAP-TOOL-07 install hint instead.
+func checkTools(o *Options) Check {
+	look := o.LookPath
+	if look == nil {
+		look = exec.LookPath
+	}
+	path, err := look("ffmpeg")
+	if err != nil || strings.TrimSpace(path) == "" {
+		return Check{
+			ID: "DOC-013", Name: "external tools", Status: StatusOK,
+			Message: "ffmpeg not found; optional — install it with `damnbot doctor tools fetch ffmpeg` for M4A/voice-note conversion",
+		}
+	}
+	return Check{ID: "DOC-013", Name: "external tools", Status: StatusOK, Message: "ffmpeg found at " + path}
 }
 
 // checkEmergencyStop reports the process-wide stop (OPS-037).

@@ -247,6 +247,9 @@ type chunk struct {
 
 // planChunks returns one plan unless the input is long canonical WAV PCM.
 func planChunks(f *os.File, size int64, mime, dir string, seconds int) ([]chunk, error) {
+	if mime == "audio/mpeg" {
+		return splitMP3(f, size, dir, seconds)
+	}
 	if mime != "audio/wav" {
 		return []chunk{{path: f.Name()}}, nil
 	}

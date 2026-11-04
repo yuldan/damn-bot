@@ -91,7 +91,7 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | TSET-029 | toolset `video` | 1 tool, default off | `TestF6TSET029Video` | LULUS | F6-03e |
 | TSET-030 | toolset `web` | 2 tool, inventaris=true | `TestF6TSET030Web` | LULUS | F6-01d |
 | TSET-034 | toolset komposit `search` | bundle menyertakan `web`; 0 tool tak dikenal/duplikat | `TestF6TSET034SearchBundle` | LULUS | F6-00a |
-| MEM-037 | Image eviction/replay | retire batch pada 80% limit, stub `sha`, 1 cache break/batch; sesi 30 screenshot full-miss ≤ 2 | `TestF6MEM037ImageEviction` | BELUM | F6-03f |
+| MEM-037 | Image eviction/replay | retire batch pada 80% limit, stub `sha`, 1 cache break/batch; sesi 30 screenshot full-miss ≤ 2 | `TestF6MEM037ImageEviction` | LULUS | F6-03f |
 | UI-008 | Clipboard image / paste collapse | paste gambar via executable eksternal; paste panjang dilipat; tanpa clipboard → pesan | `TestF6UI008ClipboardPaste` | BELUM | F6-03a |
 | PLUG-012 | Plugin browser backends (Browserbase, Browser Use, Firecrawl) | tiga backend cloud dapat dipilih; tanpa env autodetect; kredensial keychain | `TestF6PLUG012BrowserBackends` | LULUS | F6-04f |
 | PLUG-013 | Plugin computer_use (cua) | backend cua terdeteksi; absen → fail-closed | `TestF6PLUG013CUA` | LULUS | F6-06a |
@@ -152,13 +152,13 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | GAP | Kriteria verifikasi | Tes yang harus ada | Status |
 |---|---|---|---|
 | GAP-SEC-05 | fixture injection 20 varian → 0 cookie keluar; 100% method sensitif minta approval | `TestCDPAllowlist` | BELUM |
-| GAP-COST-05 | sesi 30 screenshot: full cache miss ≤ 2; 0 penolakan batas gambar; retire batch 80%→50% + stub `sha` | `TestF6MEM037ImageEviction`, `TestF6ImageSuite50` | BELUM |
+| GAP-COST-05 | sesi 30 screenshot: full cache miss ≤ 2; 0 penolakan batas gambar; retire batch 80%→50% + stub `sha` | `TestF6MEM037ImageEviction`, `TestF6ImageSuite50` | LULUS |
 | GAP-COST-11 | panggilan video > cap ditolak sebelum dispatch; retry jaringan → 1 job vendor per kunci; `uncertain` tanpa retry; approval + preview harga | `TestBudgetGuardTools`, `TestF6COST11VideoIdempotency` | BELUM |
 | GAP-COST-12 | 3 subagent query identik → 1 panggilan vendor; 2 profil query sama → 0 hit silang; TTL 20/60 menit; `cached=true`; kunci setelah gerbang SSRF | `TestWebCacheIsolation` | LULUS |
-| GAP-TOOL-01 | korpus 40 dokumen terbaca; round-trip tulis→baca 20 dokumen; `no_text_layer`/`unsupported`/`too_large` typed | `TestF6DocCorpus`, `FuzzDocRead` | BELUM |
-| GAP-TOOL-02 | zip-bomb 10 GB uncompressed → error terkontrol, RSS < 100 MB; batas 256 MiB/100:1/10.000 entri/kedalaman 256; PDF ≤ 5.000 objek/halaman | `TestF6DocLimits` | BELUM |
+| GAP-TOOL-01 | korpus 40 dokumen terbaca; round-trip tulis→baca 20 dokumen; `no_text_layer`/`unsupported`/`too_large` typed | `TestF6DocCorpus`, `FuzzDocRead` | LULUS |
+| GAP-TOOL-02 | zip-bomb 10 GB uncompressed → error terkontrol, RSS < 100 MB; batas 256 MiB/100:1/10.000 entri/kedalaman 256; PDF ≤ 5.000 objek/halaman | `TestF6DocLimits` | LULUS |
 | GAP-TOOL-06 | `doctor tools fetch/verify/ls` dengan lockfile sha256; byte rusak ditolak; lisensi dikonfirmasi; model tidak diunduh | `TestToolsLockComplete`, `TestF6ToolsFetch` | BELUM |
-| GAP-TOOL-07 | host tanpa ffmpeg: 0 MIME salah; MP3 80 MB terchunk internal; M4A → `module_unavailable`; hint `doctor tools fetch ffmpeg` | `TestF6AudioMIME` | BELUM |
+| GAP-TOOL-07 | host tanpa ffmpeg: 0 MIME salah; MP3 80 MB terchunk internal; M4A → `module_unavailable`; hint `doctor tools fetch ffmpeg` | `TestF6AudioMIME` | LULUS |
 | GAP-TOOL-09 | matriks env acak → backend identik; 100% hasil memuat `backend`; fallback hanya dari config + label; backend tidak resmi `tos_risk` opt-in dan bukan default | `TestF6BackendSelection` | LULUS |
 
 ## 9. EC, test tertunda, E3, dan baseline hermes

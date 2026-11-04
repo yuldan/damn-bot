@@ -51,6 +51,9 @@ func healthyDB(t *testing.T, dataDir string) {
 func run(t *testing.T, o *Options) Report {
 	t.Helper()
 	o.Keyring = func(context.Context) (bool, error) { return false, nil }
+	if o.LookPath == nil {
+		o.LookPath = func(string) (string, error) { return "/usr/bin/ffmpeg", nil }
+	}
 	return Run(t.Context(), o)
 }
 
@@ -61,7 +64,7 @@ func TestRunHealthy(t *testing.T) {
 	if rep.Exit != 0 {
 		t.Fatalf("exit = %d, want 0\n%+v", rep.Exit, rep)
 	}
-	if len(rep.Checks) != 11 || rep.Summary.OK != 11 {
+	if len(rep.Checks) != 12 || rep.Summary.OK != 12 {
 		t.Fatalf("checks = %d, ok = %d\n%+v", len(rep.Checks), rep.Summary.OK, rep)
 	}
 }
@@ -137,7 +140,7 @@ func TestReportJSON(t *testing.T) {
 		t.Fatalf("version = %v", got["version"])
 	}
 	checks, ok := got["checks"].([]any)
-	if !ok || len(checks) != 11 {
+	if !ok || len(checks) != 12 {
 		t.Fatalf("checks = %T %v", got["checks"], got["checks"])
 	}
 	first, ok := checks[0].(map[string]any)

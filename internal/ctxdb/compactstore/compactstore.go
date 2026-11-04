@@ -56,6 +56,8 @@ const eventCols = `json_object('seq', e.seq, 'kind', e.kind, 'turn', coalesce(e.
 	'call', coalesce(e.tool_call_id, ''),
 	'tool', coalesce(e.tool_name, ''), 'blob', coalesce(e.blob_sha, ''),
 	'images', json((SELECT json_group_array(x.blob_sha) FROM (SELECT a.blob_sha FROM event_attachments a
+		JOIN blobs b ON b.sha256 = a.blob_sha WHERE a.event_id = e.id AND b.mime LIKE 'image/%' ORDER BY a.ord) x)),
+	'image_bytes', json((SELECT json_group_array(x.size) FROM (SELECT b.size FROM event_attachments a
 		JOIN blobs b ON b.sha256 = a.blob_sha WHERE a.event_id = e.id AND b.mime LIKE 'image/%' ORDER BY a.ord) x)))`
 
 // notExcluded drops the events of a turn marked by an append-only
@@ -120,6 +122,7 @@ type eventRow struct {
 	Payload    string   `json:"payload"`
 	Blob       string   `json:"blob"`
 	Images     []string `json:"images"`
+	ImageBytes []int64  `json:"image_bytes"`
 }
 
 // Load returns every summary of a visible session, its Run history, the
@@ -271,7 +274,8 @@ func events(tx *ctxdb.Tx, q, sid string, boundary int64) ([]compaction.Event, er
 		}
 		out[i] = compaction.Event{
 			Seq: r.Seq, Kind: event.Kind(r.Kind), TurnID: r.Turn, Role: r.Role, Content: content,
-			ToolCallID: r.Call, ToolName: r.Tool, Payload: payload, BlobSHA: r.Blob, Images: r.Images,
+			ToolCallID: r.Call, ToolName: r.Tool, Payload: payload, BlobSHA: r.Blob,
+			Images: r.Images, ImageBytes: r.ImageBytes,
 		}
 	}
 	return out, nil

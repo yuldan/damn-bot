@@ -23,6 +23,7 @@ type Event struct {
 	Payload    string   // JSON object (events.payload)
 	BlobSHA    string   // events.blob_sha (spilled tool output)
 	Images     []string // sha256 of image attachments, in order
+	ImageBytes []int64  // encoded size per Images entry; missing sizes stay 0
 }
 
 // ToolCall is one assistant tool call of the request view.
@@ -49,6 +50,7 @@ type Message struct {
 type item struct {
 	Message
 	seq     int64  // first event that produced the message
+	turn    string // turn id of the first event (live-turn protection)
 	tool    string // tool name of a tool result
 	args    string // raw arguments of the matching call
 	path    string // "path" argument of the matching call, verbatim
@@ -56,6 +58,9 @@ type item struct {
 	failed  bool   // the tool reported an error
 	tainted bool   // untrusted content (SPEC §14.5, ADR-070)
 	stubbed bool   // a stage-1 rule already replaced the content
+	// imageBytes mirrors Images so the eviction footprint stays deterministic
+	// without a second blob lookup (MEM-037/GAP-COST-05).
+	imageBytes []int64
 }
 
 // history turns events into model-visible messages. A tool result is paired
@@ -71,14 +76,17 @@ func history(events []Event) (items []item, orphans int) {
 		e := &events[i]
 		switch e.Kind { //nolint:exhaustive // only chat kinds become messages; llm_call, turn_start, summary_ref, … are bookkeeping
 		case event.UserMessage:
-			items = append(items, item{Message: Message{Role: "user", Content: e.Content, Images: slices.Clone(e.Images)}, seq: e.Seq})
+			items = append(items, item{
+				Message: Message{Role: "user", Content: e.Content, Images: slices.Clone(e.Images)},
+				seq:     e.Seq, turn: e.TurnID, imageBytes: slices.Clone(e.ImageBytes),
+			})
 		case event.AssistantMessage:
 			m := Message{Role: "assistant", Content: e.Content, ToolCalls: decodeCalls(e.Payload)}
 			for _, c := range m.ToolCalls {
 				calls[c.ID] = c
 				delete(results, c.ID) // a reused id starts a new pair
 			}
-			items = append(items, item{Message: m, seq: e.Seq})
+			items = append(items, item{Message: m, seq: e.Seq, turn: e.TurnID})
 		case event.ToolResult:
 			c, ok := calls[e.ToolCallID]
 			if !ok {

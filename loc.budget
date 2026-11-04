@@ -213,7 +213,7 @@ secret             1261 internal/secret
 # Amandemen jendela crypto (ADR-124): backup -> 1122 (terukur pada pohon langkah ini).
 backup             1467 internal/backup
 assemble          1320 internal/assemble
-compaction         900 internal/compaction
+compaction        1000 internal/compaction
 # ADR-175: memory+skills 1230 -> 1400 (sumber skill lokal: discovery proyek + skills.external_dirs di internal/skills; terukur 1324; Σ core +170).
 # ADR-168: memory+skills 1400 -> 1500 (SKILL-004 preprocess.go: template + inline shell opt-in; terukur 1427; Sigma core +100).
 # ADR-168 + ADR-184: memory+skills 1400 -> 1800 (SKILL-004 preprocess + karantina/ledger/index/bundle/discovery di internal/skills; terukur 1800 pada kepala rantai f2-skills; Sigma core +400).
@@ -331,6 +331,9 @@ heal              1500 internal/heal
 # lightpanda_bin/cloud_url + validasi menambah config 2225 -> 2279 (terukur
 # scc). netx 1866 -> 1871 (egress `browser`, +5). Sigma core 56.184 ->
 # 56.243; plafon core 56.200 -> 56.300 (ceil ratusan, headroom 57).
+# ADR-323 P4b (MEM-037/GAP-COST-05): compaction 900 -> 1000 untuk eviksi
+# gambar per batch (terukur 987). Sigma core 56.521 -> 56.621; plafon core
+# 56.500 -> 56.700 (ceil ratusan).
 # MODULE browser terukur 1410/5500.
 # Amandemen ADR-323 (P6a PR A, MEDIA-001/002/003/008): [modules.voice]
 # chat_mode/live_endpoint/live_key_env/live_model/live_voice + validasi
