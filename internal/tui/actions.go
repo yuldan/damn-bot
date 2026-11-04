@@ -24,7 +24,9 @@ func (m *Model) runSlash(cmd slashCommand) tea.Cmd {
 		}
 		m.appendNotice("plan mode " + state + " for the next turn")
 	case slashUnknown:
-		m.appendNotice("unknown command " + cmd.name + "; available: /new /fork /rewind /undo /plan /theme /model /budget /modules /context /reload /compact /export /diff /btw /init /review /queue /steer /busy")
+		m.appendNotice("unknown command " + cmd.name + "; available: /new /fork /rewind /undo /plan /theme /model /budget /modules /context /reload /compact /export /diff /btw /init /review /queue /steer /busy /browser")
+	case slashBrowser:
+		return m.browserSlash(cmd)
 	case slashTheme, slashModel, slashBudget, slashModules, slashContext, slashReload, slashQueue, slashSteer, slashBusy:
 		return m.configSlash(cmd)
 	case slashCompact, slashDiff, slashExport, slashInit, slashBtw, slashReview:
@@ -41,6 +43,58 @@ func (m *Model) needArgs(cmd slashCommand, n int, usage string) bool {
 		return false
 	}
 	return true
+}
+
+// browserSlash implements SLASH-084. The call runs off the UI loop so an
+// approval prompt can be answered; the controller returns the one line shown.
+func (m *Model) browserSlash(cmd slashCommand) tea.Cmd {
+	sub := "status"
+	if len(cmd.args) > 0 {
+		sub = cmd.args[0]
+	}
+	if len(cmd.args) > 2 {
+		m.appendNotice("usage: /browser status|connect <engine>|close|engine <name>")
+		return nil
+	}
+	switch sub {
+	case "status":
+		if len(cmd.args) > 1 {
+			m.appendNotice("usage: /browser " + sub)
+			return nil
+		}
+	case "close":
+		if len(cmd.args) != 1 {
+			m.appendNotice("usage: /browser " + sub)
+			return nil
+		}
+	case "connect", "engine":
+		if len(cmd.args) != 2 {
+			m.appendNotice("usage: /browser " + sub + " <engine>")
+			return nil
+		}
+	default:
+		m.appendNotice("usage: /browser status|connect <engine>|close|engine <name>")
+		return nil
+	}
+	control := m.host.Browser
+	if control == nil {
+		m.appendNotice("browser: module_unavailable: browser control is not wired")
+		return nil
+	}
+	sid := m.sessionID
+	return func() tea.Msg {
+		ctx := context.Background()
+		switch sub {
+		case "status":
+			return actionDoneMsg{label: "browser", text: control.BrowserStatus(ctx, sid)}
+		case "close":
+			return actionDoneMsg{label: "browser", text: control.BrowserClose(ctx, sid)}
+		case "connect":
+			return actionDoneMsg{label: "browser", text: control.BrowserConnect(ctx, sid, cmd.args[1])}
+		default:
+			return actionDoneMsg{label: "browser", text: control.BrowserEngine(ctx, sid, cmd.args[1])}
+		}
+	}
 }
 
 func (m *Model) configSlash(cmd slashCommand) tea.Cmd {
@@ -328,7 +382,7 @@ func (m *Model) sessionSlash(cmd slashCommand) tea.Cmd {
 		return m.undoCmd("")
 	case slashPlan, slashUnknown, slashTheme, slashModel, slashBudget, slashModules, slashContext,
 		slashReload, slashCompact, slashExport, slashDiff, slashBtw, slashInit, slashReview,
-		slashQueue, slashSteer, slashBusy:
+		slashQueue, slashSteer, slashBusy, slashBrowser:
 		return nil
 	}
 	return nil

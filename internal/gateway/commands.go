@@ -33,6 +33,8 @@ type CommandOptions struct {
 	Estop    *Estop
 	// MCP backs "/reload-mcp"; nil leaves it registered but unsupported.
 	MCP MCPReloader
+	// Browser backs "/browser"; nil answers module_unavailable.
+	Browser BrowserControl
 	// Now is the pairing attempt clock and redemption timestamp; nil is time.Now.
 	Now func() time.Time
 }
@@ -66,6 +68,7 @@ type Commands struct {
 	control   Control
 	estop     *Estop
 	mcp       MCPReloader
+	browser   BrowserControl
 	now       func() time.Time
 	specs     map[string]commandSpec
 
@@ -82,7 +85,8 @@ func NewCommands(opts *CommandOptions) *Commands {
 	return &Commands{
 		bot: strings.TrimPrefix(opts.BotUsername, "@"), approvals: opts.Approvals, resolver: opts.Resolver, pairing: opts.Pairing,
 		runtime: opts.Runtime, settings: opts.Settings, control: opts.Control, estop: opts.Estop, mcp: opts.MCP,
-		now: now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
+		browser: opts.Browser,
+		now:     now, specs: commandRegistry(), pairAttempts: make(map[string][]time.Time),
 	}
 }
 
@@ -149,6 +153,7 @@ func commandRegistry() map[string]commandSpec {
 		"pause":      {owner: true, run: (*Commands).pause},
 		"cron":       {owner: true, run: (*Commands).cronCommand},
 		"reload-mcp": {owner: true, run: (*Commands).reloadMCP},
+		"browser":    {owner: true, run: (*Commands).browserCommand},
 
 		"sethome":    {owner: true, run: (*Commands).sethome},
 		"topic":      {owner: true, run: (*Commands).topic},
@@ -164,6 +169,59 @@ func commandRegistry() map[string]commandSpec {
 		// Non-owner, not implemented by this slice.
 		"fork": {}, "plan": {}, "undo": {},
 	}
+}
+
+// BrowserControl is the `/browser` management seam. Each method answers with
+// the one line shown to the chat; no endpoint or credential is ever printed.
+type BrowserControl interface {
+	BrowserStatus(ctx context.Context, sessionID string) string
+	BrowserConnect(ctx context.Context, sessionID, engine string) string
+	BrowserClose(ctx context.Context, sessionID string) string
+	BrowserEngine(ctx context.Context, sessionID, engine string) string
+}
+
+// browserCommand implements SLASH-084. It manages the browser module of the
+// process; the approval for a real profile is scoped to this chat's session.
+func (c *Commands) browserCommand(ctx context.Context, t *Ticket, cmd Command) CommandResult {
+	if c.browser == nil {
+		return CommandResult{Handled: true, Reply: "browser: module_unavailable: browser control is not wired"}
+	}
+	sub := "status"
+	if len(cmd.Args) > 0 {
+		sub = cmd.Args[0]
+	}
+	if len(cmd.Args) > 2 {
+		return usage("browser status|connect <engine>|close|engine <name>")
+	}
+	switch sub {
+	case "status":
+		if len(cmd.Args) > 1 {
+			return usage("browser " + sub)
+		}
+	case "close":
+		if len(cmd.Args) != 1 {
+			return usage("browser " + sub)
+		}
+	case "connect", "engine":
+		if len(cmd.Args) != 2 {
+			return usage("browser " + sub + " <engine>")
+		}
+	default:
+		return usage("browser status|connect <engine>|close|engine <name>")
+	}
+	sid := t.Scope.Label()
+	var reply string
+	switch sub {
+	case "status":
+		reply = c.browser.BrowserStatus(ctx, sid)
+	case "close":
+		reply = c.browser.BrowserClose(ctx, sid)
+	case "connect":
+		reply = c.browser.BrowserConnect(ctx, sid, cmd.Args[1])
+	default:
+		reply = c.browser.BrowserEngine(ctx, sid, cmd.Args[1])
+	}
+	return CommandResult{Handled: true, Reply: reply}
 }
 
 // reloadMCP is owner-only; the build-tagged result keeps clients out of minimal.

@@ -118,6 +118,15 @@ type Clipboard interface {
 	Copy(text string) error
 }
 
+// BrowserControl is the `/browser` management seam. Every method answers with
+// one line; the composition root owns the module and never prints an endpoint.
+type BrowserControl interface {
+	BrowserStatus(ctx context.Context, sessionID string) string
+	BrowserConnect(ctx context.Context, sessionID, engine string) string
+	BrowserClose(ctx context.Context, sessionID string) string
+	BrowserEngine(ctx context.Context, sessionID, engine string) string
+}
+
 // Host bundles the services the composition root injects. Every field is
 // mandatory: the TUI performs no I/O of its own (E-09).
 type Host struct {
@@ -130,6 +139,8 @@ type Host struct {
 	Files     Files
 	Shell     Shell
 	Clipboard Clipboard
+	// Browser is optional: nil means `/browser` reports module_unavailable.
+	Browser BrowserControl
 	// Notices is the non-critical notice gate; nil disables such notices
 	// ([ui] notices = false or a frontend without one). Critical notices do
 	// not depend on it (GAP-OPS-09).

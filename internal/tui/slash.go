@@ -28,6 +28,7 @@ const (
 	slashQueue
 	slashSteer
 	slashBusy
+	slashBrowser
 )
 
 // slashCommand is one parsed single-line slash invocation.
@@ -65,6 +66,7 @@ func slashCatalog() []slashItem {
 		{"/queue", "queue prompt/list/edit/rm/move/clear", slashQueue},
 		{"/steer", "inject mid-turn (refused: no seam)", slashSteer},
 		{"/busy", "busy input mode (queue)", slashBusy},
+		{"/browser", "browser status/connect/close/engine", slashBrowser},
 	}
 }
 

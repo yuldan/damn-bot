@@ -27,18 +27,21 @@ type ModulesWeb struct {
 // public https gateway and LightpandaBin an absolute CLI path. An empty
 // endpoint fails closed instead of guessing a port or another engine.
 type ModulesBrowser struct {
-	Enabled          bool     `toml:"enabled"`
-	Engine           string   `toml:"engine"`
-	CDPURL           string   `toml:"cdp_url"`
-	CamofoxURL       string   `toml:"camofox_url"`
-	LightpandaBin    string   `toml:"lightpanda_bin"`
-	CloudURL         string   `toml:"cloud_url"`
-	AllowOrigins     []string `toml:"allow_origins"`
-	LocalProfile     bool     `toml:"local_profile"`
-	DialogAllow      []string `toml:"dialog_allow"`
-	UseBin           string   `toml:"use_bin"`
-	VaultUserEnv     string   `toml:"vault_user_env"`
-	VaultPasswordEnv string   `toml:"vault_password_env"`
+	Enabled           bool     `toml:"enabled"`
+	Engine            string   `toml:"engine"`
+	CDPURL            string   `toml:"cdp_url"`
+	CamofoxURL        string   `toml:"camofox_url"`
+	LightpandaBin     string   `toml:"lightpanda_bin"`
+	CloudURL          string   `toml:"cloud_url"`
+	AllowOrigins      []string `toml:"allow_origins"`
+	LocalProfile      bool     `toml:"local_profile"`
+	RealProfile       bool     `toml:"real_profile"`
+	ExtensionControl  bool     `toml:"extension_control"`
+	ExtensionManifest string   `toml:"extension_manifest"`
+	DialogAllow       []string `toml:"dialog_allow"`
+	UseBin            string   `toml:"use_bin"`
+	VaultUserEnv      string   `toml:"vault_user_env"`
+	VaultPasswordEnv  string   `toml:"vault_password_env"`
 }
 
 // ModulesMedia is [modules.media] (ADR-310, ADR-318): explicit image/video backends, key-gated.

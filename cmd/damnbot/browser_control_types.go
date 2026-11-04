@@ -2,8 +2,6 @@ package main
 
 import "context"
 
-var _ browserControl = browserControlUnavailable{}
-
 // browserControl is the `/browser` surface seam shared by the TUI and gateway.
 type browserControl interface {
 	BrowserStatus(ctx context.Context, sessionID string) string
