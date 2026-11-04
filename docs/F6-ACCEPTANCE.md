@@ -140,9 +140,9 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
 | EXEC-036 | Computer use | backend cua eksternal; setiap input approval (kecuali auto+allow_auto) | `TestF6EXEC036ComputerUse` | BELUM | F6-06a |
-| EXEC-037 | Browser engine lokal | Chromium lokal terkelola; profil terisolasi default; startup/gagal jelas | `TestF6EXEC037BrowserLocalEngine` | BELUM | F6-04e |
-| EXEC-038 | Browser engine Camofox | engine Camofox opt-in; endpoint/port divalidasi | `TestF6EXEC038Camofox` | BELUM | F6-04g |
-| EXEC-039 | Browser engine Lightpanda | Lightpanda + fallback eksplisit, bukan diam | `TestF6EXEC039LightpandaFallback` | BELUM | F6-04g |
+| EXEC-037 | Browser engine lokal | Chromium lokal terkelola; profil terisolasi default; startup/gagal jelas | `TestF6EXEC037BrowserLocalEngine` | LULUS | F6-04e |
+| EXEC-038 | Browser engine Camofox | engine Camofox opt-in; endpoint/port divalidasi | `TestF6EXEC038Camofox` | LULUS | F6-04g |
+| EXEC-039 | Browser engine Lightpanda | Lightpanda + fallback eksplisit, bukan diam | `TestF6EXEC039LightpandaFallback` | LULUS | F6-04g |
 | EXEC-040 | Real profile / CDP connect | profil nyata hanya `real_profile=true` + approval per sesi; default profil terisolasi | `TestF6EXEC040RealProfileCDP` | BELUM | F6-04h |
 | EXEC-041 | Browser extension control | default off; kontrol ekstensi tidak melebarkan akses profil nyata | `TestF6EXEC041BrowserExtension` | BELUM | F6-04h |
 | EXEC-042 | Web backends 11 | matriks env acak → backend identik; tanpa autodetect; keyless vs keyed eksplisit | `TestF6EXEC042WebBackendsMatrix`, `TestF6EXEC042WebBackendMatrix` | LULUS | F6-01a..01c |
