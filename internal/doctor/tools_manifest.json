@@ -1,0 +1,83 @@
+{
+  "schema": "damnbot.tools/v1",
+  "tools": [
+    {
+      "name": "gh",
+      "version": "2.103.3",
+      "license": "MIT",
+      "license_url": "https://github.com/cli/cli/blob/trunk/LICENSE",
+      "artifacts": [
+        {
+          "os": "linux",
+          "arch": "amd64",
+          "url": "https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_linux_amd64.tar.gz",
+          "sha256": "4c806978ffce1cec70853302a56d70ac6da4f19bae7adca4e1a8ab00633dd91d",
+          "binary_sha256": "b768184570b12536be4ac1528893f6340d1c6a7b40b56ad45bca9cd0e87ad34d",
+          "size": 15031972,
+          "archive": "tar.gz",
+          "binary": "gh_2.103.3_linux_amd64/bin/gh"
+        },
+        {
+          "os": "darwin",
+          "arch": "arm64",
+          "url": "https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_macOS_arm64.zip",
+          "sha256": "d700207eae9ae98fe2b89535c2c087c07823d4628c56364695a5a07ef311c062",
+          "binary_sha256": "5f8d7527e2bdf584249b030cdd1550c91d75e8afb40aa3c11573d416817a1260",
+          "size": 14106091,
+          "archive": "zip",
+          "binary": "gh_2.103.3_macOS_arm64/bin/gh"
+        },
+        {
+          "os": "windows",
+          "arch": "amd64",
+          "url": "https://github.com/cli/cli/releases/download/v2.103.3/gh_2.103.3_windows_amd64.zip",
+          "sha256": "98d0cfa794721665d7973dd728c78aff7bd836d58f10f6d7a03568eccb0a22e0",
+          "binary_sha256": "d303d8ac3f5e9438bf7c977b64dd6425513eae46218f8881d30694f28c1d0dfd",
+          "size": 15197187,
+          "archive": "zip",
+          "binary": "bin/gh.exe"
+        }
+      ]
+    },
+    {
+      "name": "ffmpeg",
+      "version": "",
+      "license": "LGPL-2.1-or-later",
+      "license_url": "https://ffmpeg.org/legal.html",
+      "note": "upstream publishes source only; install the distribution package",
+      "artifacts": []
+    },
+    {
+      "name": "whisper.cpp",
+      "version": "",
+      "license": "MIT",
+      "license_url": "https://github.com/ggml-org/whisper.cpp/blob/master/LICENSE",
+      "note": "upstream publishes source only; build from source and point modules.voice.whisper_bin at it",
+      "artifacts": []
+    },
+    {
+      "name": "piper",
+      "version": "",
+      "license": "MIT",
+      "license_url": "https://github.com/rhasspy/piper/blob/master/LICENSE.md",
+      "note": "release assets are not published with a checksum; install manually and point modules.voice.tts_binary at it",
+      "artifacts": []
+    },
+    {
+      "name": "chromium-headless-shell",
+      "version": "",
+      "license": "BSD-3-Clause",
+      "license_url": "https://chromium.googlesource.com/chromium/src/+/main/LICENSE",
+      "note": "install Chrome for Testing from the vendor and point modules.browser.chromium_bin at it",
+      "artifacts": []
+    },
+    {
+      "name": "lightpanda",
+      "version": "",
+      "license": "AGPL-3.0-only",
+      "license_url": "https://github.com/lightpanda-io/browser/blob/main/LICENSE",
+      "note": "release assets are not published with a checksum; build from source and point modules.browser.lightpanda_bin at it",
+      "artifacts": []
+    }
+  ]
+}
