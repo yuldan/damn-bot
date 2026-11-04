@@ -69,6 +69,7 @@ type Doer interface {
 // HTTP is the OpenAI-compatible speech backend.
 type HTTP struct {
 	endpoint, key, model, voice, format string
+	backend                             string
 	max                                 int64
 	doer                                Doer
 }
@@ -76,6 +77,7 @@ type HTTP struct {
 // Config is one HTTP backend; MaxBytes is a test override.
 type Config struct {
 	Endpoint, Key, Model, Voice, Format string
+	Backend                             string
 	MaxBytes                            int64
 	Doer                                Doer
 }
@@ -92,7 +94,7 @@ func NewHTTP(c *Config) (*HTTP, error) {
 	if c.Doer == nil {
 		return nil, fmt.Errorf("%w: no HTTP doer", ErrNotConfigured)
 	}
-	h := &HTTP{endpoint: ep, key: c.Key, model: cmp(c.Model, "tts-1"), voice: cmp(c.Voice, "alloy"), format: cmp(c.Format, "mp3"), max: c.MaxBytes, doer: c.Doer}
+	h := &HTTP{endpoint: ep, key: c.Key, model: cmp(c.Model, "tts-1"), voice: cmp(c.Voice, "alloy"), format: cmp(c.Format, "mp3"), backend: cmp(c.Backend, "openai"), max: c.MaxBytes, doer: c.Doer}
 	if h.max <= 0 {
 		h.max = MaxAudioBytes
 	}
@@ -153,7 +155,7 @@ func (h *HTTP) Synthesize(ctx context.Context, text string, o Options) (Audio, e
 	if err != nil {
 		return Audio{}, err
 	}
-	a.Backend = "openai"
+	a.Backend = h.backend
 	return a, nil
 }
 

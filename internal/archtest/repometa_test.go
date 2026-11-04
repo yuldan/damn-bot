@@ -15,7 +15,7 @@ import (
 const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
-	maxCoreLOC       = 56500 // ADR-307: Σ 55.604; … ADR-323 P6a B1 on main 83a418a7 config 2383/netx 1879 = 56.373; cap ceil ratusan 56.400; ADR-323 P4a video provider 2.850→2.900/modules 1.338→1.400 = 56.488, cap 56.500.
+	maxCoreLOC       = 56500 // ADR-307: Σ 55.604; … ADR-323 P6a B1 on main 83a418a7 config 2383/netx 1879 = 56.373; cap ceil ratusan 56.400; ADR-323 P4a video provider 2.850→2.900/modules 1.338→1.400 = 56.488; ADR-323 P6a B2 on main 1bb98243 config 2397 = 56.499; cap ceil 56.500.
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
 	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)

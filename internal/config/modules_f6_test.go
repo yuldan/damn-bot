@@ -226,6 +226,7 @@ func TestModulesVoiceConfig(t *testing.T) {
 		"[modules.voice]\nchat_mode = \"gpt_live\"\nlive_endpoint = \"https://api.openai.com/v1/realtime\"\nlive_key_env = \"OPENAI_API_KEY\"\nlive_model = \"gpt-4o-realtime-preview\"\nlive_voice = \"alloy\"\n",
 		"[modules.voice]\nstt_backend = \"openai\"\nstt_endpoint = \"https://api.openai.com/v1/audio/transcriptions\"\nstt_key_env = \"OPENAI_API_KEY\"\nstt_model = \"whisper-1\"\n",
 		"[modules.voice]\nstt_backend = \"local_command\"\nstt_command = [\"/usr/bin/whisper\", \"{audio}\"]\n",
+		"[modules.voice]\ntts_backend = \"piper\"\ntts_command = [\"/usr/bin/piper\", \"--output_file\", \"{out}\"]\n",
 	} {
 		if _, err := parse(t, toml); err != nil {
 			t.Errorf("Parse(%q): %v", toml, err)
@@ -245,6 +246,7 @@ func TestModulesVoiceConfig(t *testing.T) {
 		{"live_without_optin", "[modules.voice]\nchat_mode = \"gpt_live\"\n", "modules.voice.chat_mode"},
 		{"live_bad_endpoint", "[modules.voice]\nchat_mode = \"gpt_live\"\nlive_endpoint = \"ftp://example.com/ws\"\nlive_key_env = \"OPENAI_API_KEY\"\n", "modules.voice.live_endpoint"},
 		{"live_bad_env", "[modules.voice]\nchat_mode = \"gpt_live\"\nlive_endpoint = \"https://example.com/ws\"\nlive_key_env = \"1BAD-NAME\"\n", "modules.voice.live_key_env"},
+		{"bad_tts_argv", "[modules.voice]\ntts_command = [\"ok\", \"a\\u0000b\"]\n", "modules.voice.tts_command"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
