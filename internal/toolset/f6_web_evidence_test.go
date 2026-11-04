@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func builtin(t *testing.T, name string) Definition {
+func webBuiltin(t *testing.T, name string) Definition {
 	t.Helper()
 	for _, d := range Builtin() {
 		if d.Name == name {
@@ -22,7 +22,7 @@ func builtin(t *testing.T, name string) Definition {
 // silently dropped or auto-approved.
 func TestF6TSET030Web(t *testing.T) {
 	t.Parallel()
-	def := builtin(t, "web")
+	def := webBuiltin(t, "web")
 	if want := []string{"web_search", "web_fetch"}; !slices.Equal(def.Tools, want) {
 		t.Fatalf("web tools = %v, want %v", def.Tools, want)
 	}
@@ -55,7 +55,7 @@ func TestF6TSET030Web(t *testing.T) {
 // own), includes web, and resolves no unknown or duplicate member.
 func TestF6TSET034SearchBundle(t *testing.T) {
 	t.Parallel()
-	def := builtin(t, "search")
+	def := webBuiltin(t, "search")
 	if len(def.Tools) != 0 || !slices.Equal(def.Includes, []string{"web"}) {
 		t.Fatalf("search bundle = %+v", def)
 	}

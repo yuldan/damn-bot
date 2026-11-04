@@ -11,8 +11,8 @@ import (
 
 // Angka gate parity (FEATURE-PARITY "Konvensi kolom", ROADMAP F9).
 const (
-	parityRows      = 854
-	parityGateRows  = 837
+	parityRows      = 857
+	parityGateRows  = 840
 	droppedStatus   = "dropped-with-approval"
 	droppedPhase    = "—"
 	roadmapHeadCell = "Prefix (jumlah)"
@@ -106,7 +106,7 @@ func TestParityPhaseColumn(t *testing.T) {
 	// Jumlah per fase = ADR-064 butir 3 (koreksi EXEC-009) dan ROADMAP §"Pemetaan parity → fase":
 	// memindahkan baris antar fase yang sama-sama diizinkan prefixnya tetap terlihat (ADR-086 NEW-43).
 	// ADR-139: 19 permukaan slash ke F3, MEM-022 ke F5, MEM-023/PLUG-014 ke F8.
-	want := map[string]int{"F1": 46, "F2": 59, "F3": 135, "F4": 54, "F5": 201, "F6": 86, "F7": 103, "F8": 148, "F9": 5}
+	want := map[string]int{"F1": 46, "F2": 59, "F3": 135, "F4": 54, "F5": 201, "F6": 89, "F7": 103, "F8": 148, "F9": 5}
 	if !maps.Equal(r.perPhase, want) {
 		t.Errorf("jumlah per fase %v, want %v (ubah lewat ADR + ROADMAP)", r.perPhase, want)
 	}
