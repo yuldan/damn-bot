@@ -214,7 +214,7 @@ func encodeMessage(rt *Route, m *Message, turn *Turn, cache bool, origin string)
 	if cerr != nil {
 		return nil, nil, nil, cerr
 	}
-	if len(m.Images) > 0 {
+	if hasMedia(m) {
 		content = imageContent(rt, m, cache, origin)
 	}
 	w.Content = content

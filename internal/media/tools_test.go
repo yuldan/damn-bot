@@ -20,14 +20,14 @@ func isCode(err error, code doc.ErrorCode) bool {
 func TestToolsMetadata(t *testing.T) {
 	t.Parallel()
 	tools := Tools()
-	if len(tools) != 7 {
-		t.Fatalf("Tools = %d, want 7", len(tools))
+	if len(tools) != 8 {
+		t.Fatalf("Tools = %d, want 8", len(tools))
 	}
 	want := map[string]string{
 		ToolDocRead: "read", ToolDocWrite: "non_idempotent",
 		ToolImageGenerate: "non_idempotent", ToolVideoGenerate: "non_idempotent",
-		ToolVisionAnalyze: "read",
-		ToolXAIVideoEdit:  "non_idempotent", ToolXAIVideoExtend: "non_idempotent",
+		ToolVisionAnalyze: "read", ToolVideoAnalyze: "read",
+		ToolXAIVideoEdit: "non_idempotent", ToolXAIVideoExtend: "non_idempotent",
 	}
 	for _, spec := range tools {
 		if got, ok := want[spec.Name]; !ok || got != spec.Effect {

@@ -65,7 +65,7 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | TOOL-023 | `computer_use` | setiap aksi input butuh approval kecuali `approval.mode=auto` + `allow_auto`; screenshot diredaksi | `TestF6TOOL023ComputerUse` | BELUM | F6-06b |
 | TOOL-054 | `image_generate` | backend eksplisit; preview harga + approval; hasil blob; field `backend`; cap tool berlaku | `TestF6TOOL054ImageGenerate` | LULUS | F6-03c, F6-03g |
 | TOOL-080 | `text_to_speech` | 11 provider; MIME/ekstensi jujur; Opus/OGG diprioritaskan; provider command tanpa shell + timeout | `TestF6TOOL080TTS` | BELUM | F6-05c |
-| TOOL-081 | `video_analyze` | toolset `video` default off; video multimodal; hasil `<untrusted>`; ukuran dibatasi | `TestF6TOOL081VideoAnalyze` | BELUM | F6-03e |
+| TOOL-081 | `video_analyze` | toolset `video` default off; video multimodal; hasil `<untrusted>`; ukuran dibatasi | `TestF6TOOL081VideoAnalyze` | LULUS | F6-03e |
 | TOOL-082 | `video_generate` | selalu approval + preview harga; cap dicek sebelum dispatch; kunci idempotensi; kegagalan tak pasti = `uncertain` tanpa retry | `TestF6TOOL082VideoGenerate` | LULUS | F6-03d, F6-03g |
 | TOOL-083 | `xai_video_edit` | hanya backend xAI; approval + harga; hasil blob | `TestF6TOOL083XAIVideoEdit` | LULUS | F6-03d |
 | TOOL-084 | `xai_video_extend` | perpanjang video xAI; approval + harga; batas durasi | `TestF6TOOL084XAIVideoExtend` | LULUS | F6-03d |
@@ -88,7 +88,7 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | TSET-026 | toolset `tts` | 1 tool, inventaris=true, provider default eksplisit | `TestF6TSET026TTS` | BELUM | F6-05c |
 | TSET-027 | toolset `video_gen` | 3 tool, default off | `TestF6TSET027VideoGen` | LULUS | F6-03d |
 | TSET-028 | toolset `vision` | 1 tool, inventaris=false | `TestF6TSET028Vision` | LULUS | F6-03b |
-| TSET-029 | toolset `video` | 1 tool, default off | `TestF6TSET029Video` | BELUM | F6-03e |
+| TSET-029 | toolset `video` | 1 tool, default off | `TestF6TSET029Video` | LULUS | F6-03e |
 | TSET-030 | toolset `web` | 2 tool, inventaris=true | `TestF6TSET030Web` | LULUS | F6-01d |
 | TSET-034 | toolset komposit `search` | bundle menyertakan `web`; 0 tool tak dikenal/duplikat | `TestF6TSET034SearchBundle` | LULUS | F6-00a |
 | MEM-037 | Image eviction/replay | retire batch pada 80% limit, stub `sha`, 1 cache break/batch; sesi 30 screenshot full-miss ≤ 2 | `TestF6MEM037ImageEviction` | BELUM | F6-03f |

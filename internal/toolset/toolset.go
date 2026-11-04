@@ -105,6 +105,7 @@ func Builtin() []Definition {
 		{Name: "memory", Description: "Persistent memory across sessions", Tools: []string{"memory"}},
 		{Name: "session_search", Description: "Search and recall past conversations", Tools: []string{"session_search"}},
 		{Name: "vision", Description: "Image analysis with a vision-capable model", Tools: []string{"vision_analyze"}},
+		{Name: "video", Description: "Video analysis with a multimodal model", Tools: []string{"video_analyze"}},
 		{Name: "skills", Description: "Access and manage skill documents", Tools: skills},
 		{Name: "context_engine", Description: "Runtime tools exposed by the active context engine"}, // data-only slot
 		{Name: "debugging", Description: "Debugging toolkit", Tools: []string{"shell"}, Includes: []string{"web", "file"}},

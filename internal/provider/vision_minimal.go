@@ -13,3 +13,5 @@ func (o *OpenAI) visionRequest(r *Request, _ []string) (*Request, bool, error) {
 }
 
 func imageContent(_ *Route, m *Message, _ bool, _ string) any { return m.Content }
+
+func hasMedia(m *Message) bool { return len(m.Images) > 0 || len(m.Videos) > 0 }

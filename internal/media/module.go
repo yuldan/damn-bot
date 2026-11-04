@@ -46,7 +46,7 @@ type Deps struct {
 	Secrets   host.Secrets
 	// LLM is the purpose=media completer of the composition root; Vision and
 	// VisionModel are its route facts. A nil or non-vision completer leaves
-	// vision_analyze fail-closed.
+	// vision_analyze/video_analyze fail-closed.
 	LLM         host.Completer
 	Vision      bool
 	VisionModel string
@@ -166,7 +166,7 @@ func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, 
 		return m.image(ctx, args, env)
 	case ToolVideoGenerate:
 		return m.video(ctx, args, env)
-	case ToolVisionAnalyze:
+	case ToolVisionAnalyze, ToolVideoAnalyze:
 		return m.analyze(ctx, tool, args, env)
 	case ToolXAIVideoEdit:
 		return m.xaiVideo(ctx, args, env, false)
