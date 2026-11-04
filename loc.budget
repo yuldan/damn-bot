@@ -52,7 +52,7 @@ plan               600 internal/plan
 # ADR-305 (EC-SEC-002/003): provider/auth 961 -> 1211 (terukur 1211), provider
 # 2620 -> 2712 (TokenRefresher/refresh; terukur 2712). Sigma core 54.605 -> 54.947
 # <= 55.000 (headroom 53).
-provider          2850 internal/provider
+provider          2900 internal/provider
 # ADR-303 (F5-14 PR A1): credential pool SPEC §4.1. Baris baru
 # `provider/credpool` (tipe/pilih/cooldown/redaksi/error; terukur 230).
 # Belum diimpor provider pada slice ini; build minimal tidak berubah.
@@ -345,7 +345,7 @@ config            2386 internal/config
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
 # ADR-323 amandemen (F6 PR #683, vision_analyze): terukur 1.338; plafon
 # 1.320 -> 1.338. Sigma core 56.280 -> 56.298; plafon core 56.300 tetap.
-modules            1338 internal/modules
+modules            1400 internal/modules
 # ADR-273 (F5-12 PR A, GAP-REL-18): SessionView + parent/child intersection di
 # `modules/host`; kode terukur 1.221, plafon 1.150 -> 1.221 (tanpa headroom,
 # angka ukur scc pada pohon PR A). Sigma core 51.984 -> 52.056; plafon core

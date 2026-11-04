@@ -6245,7 +6245,7 @@ MODULE computeruse  2000 internal/computeruse
 
 **Amandemen (ADR-323, PR #683).** `host.Message` membawa `Images`, sehingga `vision_analyze` memakai kanal attachment yang sama dengan turn; `runModuleHost.SetMedia` menerbitkan `host.Completer` `purpose=media` setelah provider run dibangun, dan adapter provider memetakan `Kind=image` ke `provider.Message.Images`. Gate `Route.Vision`/`ErrNoVision` dan preflight tetap satu-satunya gerbang. Tes: `TestF6MEDIA013ImageRouting`.
 
-**Amandemen (ADR-323, PR #688).** Kanal attachment diperluas ke video: `host.Message`/`provider.Message` membawa `Videos`, adapter provider memetakan `Kind=video` ke `provider.Video`, dan wire openai-chat mengirim content part `video_url` di bawah gate `Route.Vision`/`ErrNoVision` yang sama. `provider.PrepareVideos` memprobe header dan menolak video >32 MiB atau >120 s sebelum satu request pun. Tes: `TestF6MediaVideoProviderGate`.
+**Amandemen (ADR-323, PR #688).** Kanal attachment diperluas ke video: `host.Message`/`provider.Message` membawa `Videos`, adapter provider memetakan `Kind=video` ke `provider.Video`, dan wire openai-chat mengirim content part `video_url` di bawah gate `Route.Vision`/`ErrNoVision` yang sama. `provider.PrepareVideos` memprobe header dan menolak video >32 MiB atau >120 s sebelum satu request pun. Anggaran terukur (rebase `83a418a7`): `provider` **2.850 → 2.900** (terukur 2.899), `modules` **1.338 → 1.400** (terukur 1.345), Σ core **56.376 → 56.488**, `maxCoreLOC` **56.400 → 56.500** (ceil ratusan), marker `arch-budgetsum` `> 56500`, regex prosa `≤ 56.500`; `MODULE media` **3.233/9.500**, `TOTAL 113.231/190.000`. Tes: `TestF6MediaVideoProviderGate`.
 
 ## ADR-323 — Program penutupan ledger F6
 
