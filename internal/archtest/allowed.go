@@ -145,12 +145,14 @@ func f6ModuleImports(m map[string][]string) {
 	m["internal/browser"] = []string{"internal/modules/host", "internal/netx", "internal/browser/cdp"}
 	// Browser leaf (ADR-309/ADR-313): coder/websocket framing; netx supplies the loopback client (E-05).
 	m["internal/browser/cdp"] = []string{"internal/netx"}
-	m["internal/media"] = []string{"internal/modules/host", "internal/netx", "internal/media/doc", "internal/media/preflight", "internal/media/gen", "internal/media/video"}
+	m["internal/media"] = []string{"internal/modules/host", "internal/netx", "internal/media/doc", "internal/media/preflight", "internal/media/gen", "internal/media/video", "internal/media/cache"}
 	// Daun media (ADR-309): document parser, resize core, generation core.
 	m["internal/media/doc"] = nil
 	m["internal/media/preflight"] = nil
 	// Video container header probe (TOOL-081/MEDIA-014): standard library only.
 	m["internal/media/video"] = nil
+	// Cache/repair gateway (MEDIA-030): module host store, stdlib only.
+	m["internal/media/cache"] = []string{"internal/modules/host"}
 	m["internal/media/gen"] = []string{"internal/modules/host"}
 	// Voice root (ADR-319): host seam, netx TTS egress, and the three leaves.
 	// Daun voice (ADR-309, F6-V1): provider contracts and implementations.
