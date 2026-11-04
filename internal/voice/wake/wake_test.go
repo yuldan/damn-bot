@@ -98,9 +98,9 @@ func TestMissingAndCanceled(t *testing.T) {
 	}
 }
 
-// TestF6MEDIA003WakeWord: the external engine is off by default and only the
+// TestExternalWakeOptIn: the external engine is off by default and only the
 // explicit opt-in runs a command (exit 0 = wake, 1 = silence).
-func TestF6MEDIA003WakeWord(t *testing.T) {
+func TestExternalWakeOptIn(t *testing.T) {
 	t.Parallel()
 	e := engine(t, Config{})
 	if e.Enabled() {

@@ -19,7 +19,7 @@ import (
 
 // clientCall matches a production egress call site with a literal name and
 // purpose, e.g. net.Client("refs", netx.Tool).
-var clientCall = regexp.MustCompile(`\.Client\("([^"]+)",\s*(?:netx\.)?(Inference|Tool|Background|Gateway)\)`)
+var clientCall = regexp.MustCompile(`\.(?:WebSocket)?Client\("([^"]+)",\s*(?:netx\.)?(Inference|Tool|Background|Gateway)\)`)
 
 func purposeOf(name string) Purpose {
 	switch name {

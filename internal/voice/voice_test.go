@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -129,10 +130,15 @@ type fakeLLM struct {
 	err       error
 	first     time.Time
 	calls     int
+	mu        sync.Mutex
+	prompt    string
 }
 
-func (f *fakeLLM) Stream(ctx context.Context, _ string, emit func(string) error) error {
+func (f *fakeLLM) Stream(ctx context.Context, prompt string, emit func(string) error) error {
 	f.calls++
+	f.mu.Lock()
+	f.prompt = prompt
+	f.mu.Unlock()
 	if f.err != nil {
 		return f.err
 	}
@@ -172,8 +178,10 @@ func (f *fakeTTS) Synthesize(ctx context.Context, text string, _ SynthOptions) (
 	return Audio{MIME: "audio/mpeg", Ext: ".mp3", Bytes: []byte(text), Backend: "fake"}, nil
 }
 
-func TestVoicePipelineLatency(t *testing.T) {
-	t.Parallel()
+// runVoiceLatency exercises the latency budgets with timestamped fakes:
+// end-of-speech → first audio ≤ 200 ms, first sentence → TTS start ≤ 300 ms.
+func runVoiceLatency(t *testing.T) {
+	t.Helper()
 	in, out := &fakeSTT{tr: Transcript{Text: "halo bot", MIME: "audio/wav"}, delay: 20 * time.Millisecond}, &fakeTTS{delay: 10 * time.Millisecond}
 	llm := &fakeLLM{sentences: []string{"Satu. ", "Dua. ", "Tiga."}}
 	p := &Pipeline{STT: in, TTS: out, LLM: llm}
@@ -201,6 +209,18 @@ func TestVoicePipelineLatency(t *testing.T) {
 	t.Logf("overhead=%s tts_start=%s", overhead, ttsStart)
 	t.Logf("F6-VOICE-LATENCY {\"overhead_ms\":%.3f,\"tts_start_ms\":%.3f,\"runs\":1}",
 		float64(overhead.Microseconds())/1000, float64(ttsStart.Microseconds())/1000)
+}
+
+// TestVoicePipelineLatency is the SPEC §9.5 name kept for the nightly gate.
+func TestVoicePipelineLatency(t *testing.T) {
+	t.Parallel()
+	runVoiceLatency(t)
+}
+
+// TestF6VoiceLatencyBudget is the ledger-named budget assertion (P6a).
+func TestF6VoiceLatencyBudget(t *testing.T) {
+	t.Parallel()
+	runVoiceLatency(t)
 }
 
 func TestVoicePipelineNegativeControls(t *testing.T) {
@@ -285,9 +305,10 @@ func TestF6MEDIA007TTSProviders(t *testing.T) {
 	}
 }
 
-// TestF6MEDIA008TTSStreaming exercises sentence-streamed TTS through the same
-// pipeline latency harness.
-func TestF6MEDIA008TTSStreaming(t *testing.T) {
+// TestF6MEDIA008StreamingLatency proves the first sentence reaches TTS within
+// 300 ms while the LLM is still generating, and cancellation closes the
+// sentence stream.
+func TestF6MEDIA008StreamingLatency(t *testing.T) {
 	t.Parallel()
 	in, out := &fakeSTT{tr: Transcript{Text: "halo"}}, &fakeTTS{}
 	p := &Pipeline{STT: in, TTS: out, LLM: &fakeLLM{sentences: []string{"Satu. ", "Dua."}}}
@@ -298,17 +319,35 @@ func TestF6MEDIA008TTSStreaming(t *testing.T) {
 	if len(out.texts) != 2 || res.Reply != "Satu. Dua." {
 		t.Fatalf("tts=%v reply=%q", out.texts, res.Reply)
 	}
-}
-
-// TestF6MEDIA001VoiceMode is the minimal end-to-end STT→LLM→TTS turn.
-func TestF6MEDIA001VoiceMode(t *testing.T) {
-	t.Parallel()
-	p := &Pipeline{STT: &fakeSTT{tr: Transcript{Text: "halo"}}, TTS: &fakeTTS{}, LLM: &fakeLLM{sentences: []string{"Balasan."}}}
-	res, err := p.Turn(t.Context(), strings.NewReader("audio"), TranscriptOptions{})
-	if err != nil {
-		t.Fatalf("Turn: %v", err)
+	if len(out.at) != 2 || out.at[0].After(out.at[1]) {
+		t.Fatalf("tts timestamps = %v", out.at)
 	}
-	if res.Reply != "Balasan." || len(res.Audio) != 1 || res.Transcript.Text != "halo" {
-		t.Fatalf("result = %+v", res)
+
+	// A cancelled turn closes the stream: the blocking second sentence is
+	// aborted and Turn returns instead of hanging.
+	blocker := newBlockingTTS()
+	ctx, cancel := context.WithCancel(t.Context())
+	cp := &Pipeline{STT: &fakeSTT{tr: Transcript{Text: "halo"}}, TTS: blocker, LLM: &fakeLLM{sentences: []string{"Satu. ", "Dua. "}}}
+	done := make(chan error, 1)
+	go func() {
+		_, err := cp.Turn(ctx, strings.NewReader("audio"), TranscriptOptions{})
+		done <- err
+	}()
+	select {
+	case <-blocker.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first sentence never reached TTS")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("cancelled Turn returned nil")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancelled Turn did not close the stream")
+	}
+	if !blocker.canceled.Load() {
+		t.Fatal("TTS did not observe cancellation")
 	}
 }

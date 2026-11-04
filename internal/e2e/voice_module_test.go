@@ -98,6 +98,13 @@ func TestF6VoiceTranscribeE2E(t *testing.T) {
 			logTranscript(t, reqs[2])
 		}
 	}
+	// Security boundary: only the transcript reaches the model, never the
+	// raw track bytes.
+	for i, raw := range reqs {
+		if strings.Contains(string(raw), "RIFF0000WAVE") {
+			t.Errorf("request %d carries raw audio bytes", i)
+		}
+	}
 }
 
 func TestF6VoiceSpeakApprovalE2E(t *testing.T) {

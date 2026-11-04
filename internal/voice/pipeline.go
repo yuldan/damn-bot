@@ -27,6 +27,13 @@ type Result struct {
 	Transcript Transcript
 	Reply      string
 	Audio      []Audio
+	// Mode is the backend that produced the turn (chained or gpt_live).
+	Mode string
+	// FallbackFrom is set when a realtime session failed and the turn was
+	// completed by the chained pipeline instead.
+	FallbackFrom string
+	// Session is the monotonic turn id, one per completed push.
+	Session uint64
 }
 
 // Pipeline is the minimal voice mode: STT → LLM → sentence-streamed TTS.
@@ -46,6 +53,15 @@ func (p *Pipeline) Turn(ctx context.Context, audio io.Reader, opts TranscriptOpt
 	if err != nil {
 		return Result{}, fmt.Errorf("voice: transcribe: %w", err)
 	}
+	return p.FromTranscript(ctx, &tr)
+}
+
+// FromTranscript runs the agent and sentence-streamed TTS for an existing
+// transcript. It is the chained half reused by the realtime fallback.
+func (p *Pipeline) FromTranscript(ctx context.Context, tr *Transcript) (Result, error) {
+	if p == nil || p.TTS == nil || p.LLM == nil {
+		return Result{}, ErrPipelineNotConfigured
+	}
 	if strings.TrimSpace(tr.Text) == "" {
 		return Result{}, ErrEmptyTranscript
 	}
@@ -57,7 +73,7 @@ func (p *Pipeline) Turn(ctx context.Context, audio io.Reader, opts TranscriptOpt
 		defer close(sentences)
 		streamErr <- p.stream(runCtx, tr.Text, sentences)
 	}()
-	res := Result{Transcript: tr}
+	res := Result{Transcript: *tr}
 	var reply strings.Builder
 	for s := range sentences {
 		reply.WriteString(s)

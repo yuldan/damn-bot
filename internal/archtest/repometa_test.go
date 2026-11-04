@@ -15,7 +15,7 @@ import (
 const (
 	maxBinaryTenthMB = 520 // 52,0 MB dalam satuan 0,1 MB
 	maxTotalLOC      = 190000
-	maxCoreLOC       = 56300 // ADR-307: Σ 55.604; ADR-310 +42 = 55.646; ADR-311 +11 = 55.657; ADR-312 +12 = 55.669; ADR-313 +2 = 55.671; ADR-310 amendment F6-V1 +81 = 55.752; ADR-314 +4 = 55.756; F6-M5 vision +120 = 55.876; ADR-314 B1 +2 = 55.878; ADR-317 +45 = 55.924; ADR-310 amendment F6-W2 +23 = 55.947; ADR-318 media +32 = 55.979; ADR-318 amendment egress +5 = 55.984; ADR-319 voice net -5 = 55.979; ADR-320 computer-use validate +66 = 56.045; plafon 56.100 (ceil ratusan, headroom 55); ADR-322 M7 attachment +106 = 56.184; ADR-321 browser engines config +54 = 56.238; ADR-321 amandemen engines netx +5 = 56.243; cap ceil ratusan 56.300. ADR-321 amendment (browser dialog policy +17) = 56.260; amendment (browser-use/use_bin +9) = 56.269; amendment (vault env +11) = 56.280; cap ceil ratusan 56.300.
+	maxCoreLOC       = 56400 // ADR-307: Σ 55.604; … ADR-321 amandemen engines netx +5 = 56.243; ADR-323 P6a PR A config +42/netx +8 = 56.293; PR B reserve (STT/TTS provider config) ≤ 56.350; cap ceil ratusan 56.400.
 	locTotalRow      = "TOTAL"
 	locGeneratedRow  = "GENERATED"
 	locTestOnlyRow   = "TESTONLY" // dikecualikan dari rasio E-70 (ADR-098)
