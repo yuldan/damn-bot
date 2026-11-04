@@ -2,12 +2,16 @@
 # gagal pada pelanggaran sintetis. Workflow berjalan di SETIAP PR dan push main sehingga statusnya
 # selalu terlapor (required check, E-78); job menjalankan `make meta-test` (≈ 15 menit) hanya bila
 # ada berkas pendefinisi gate yang berubah, dan selalu pada jadwal nightly / workflow_dispatch.
+# ADR-324: `merge_group` ikut dipicu karena `meta-test` adalah required check — merge queue menunggu
+# konteks ini pada commit merge-group. Diff dihitung terhadap `merge_group.base_sha`, jadi meta-test
+# hanya berjalan bila PR di antrean menyentuh path gate.
 name: meta
 
 on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
   schedule:
     - cron: "17 2 * * *"
   workflow_dispatch:
@@ -35,7 +39,7 @@ jobs:
         id: gate
         env:
           EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
           HEAD: ${{ github.sha }}
         run: |
           # Path pendefinisi gate (ADR-085 butir 1; ADR-094: analyzer di tools/analyzers, helper timing di
