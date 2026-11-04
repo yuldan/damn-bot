@@ -32,7 +32,7 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
 | CLI-006 | `browser` (close-profile) | profil Chromium yang mengunci direktori ditutup; profil lain tidak disentuh; tanpa browser → error jelas, bukan panic | `TestF6CLI006BrowserCloseProfile` (unit) + `TestF6CLI006BrowserCloseProfileE2E` | LULUS | F6-04j |
-| CLI-054 | `computer-use` (install, status, doctor, permissions, screen) | lima subperintah berjalan; tanpa cua-driver → `module_unavailable`; `permissions`/`screen` read-only | `TestF6CLI054ComputerUse` | BELUM | F6-06c |
+| CLI-054 | `computer-use` (install, status, doctor, permissions, screen) | lima subperintah berjalan; install idempoten di data dir dengan verifikasi SHA-256, doctor tidak memulai backend, `permissions` read-only tanpa grant; `screen` butuh approval per capture | `TestF6CLI054CUASubcommands` | LULUS | F6-06c |
 
 ## 3. Ledger parity F6 — SLASH (5)
 
@@ -62,7 +62,7 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | TOOL-017 | `browser_cdp` | allowlist method aman; method sensitif (`Network.*Cookies`, `Storage.*`, `Runtime.evaluate`, `Debugger.*`, `Fetch.*`, `Target.*`, `Browser.*`) approval per call tanpa `allow_session`; `file:` butuh approval | `TestCDPAllowlist`, `TestF6TOOL017BrowserCDP` | LULUS | F6-04d |
 | TOOL-018 | `browser_dialog` | alert/confirm/prompt dijawab; teks dialog tidak dieksekusi; default dismiss | `TestF6TOOL018BrowserDialog` | LULUS | F6-04d |
 | TOOL-019 | `browser_exec` | hanya aktif saat backend `browser-use`; menggantikan tool browser lain; backend absen → fail-closed | `TestF6TOOL019BrowserExec` | LULUS | F6-04i |
-| TOOL-023 | `computer_use` | setiap aksi input butuh approval kecuali `approval.mode=auto` + `allow_auto`; screenshot diredaksi | `TestF6TOOL023ComputerUse` | BELUM | F6-06b |
+| TOOL-023 | `computer_use` | setiap aksi input butuh approval kecuali `approval.mode=auto` + `allow_auto` (build ini selalu approval, tanpa jalur auto); screenshot diredaksi dari prompt dan dilampirkan sebagai attachment ter-taint | `TestF6TOOL023ComputerUseApproval` | LULUS | F6-06b |
 | TOOL-054 | `image_generate` | backend eksplisit; preview harga + approval; hasil blob; field `backend`; cap tool berlaku | `TestF6TOOL054ImageGenerate` | LULUS | F6-03c, F6-03g |
 | TOOL-080 | `text_to_speech` | 11 provider; MIME/ekstensi jujur; Opus/OGG diprioritaskan; provider command tanpa shell + timeout | `TestF6TOOL080TextToSpeech` | LULUS | F6-05c |
 | TOOL-081 | `video_analyze` | toolset `video` default off; video multimodal; hasil `<untrusted>`; ukuran dibatasi | `TestF6TOOL081VideoAnalyze` | LULUS | F6-03e |
@@ -83,7 +83,7 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | TSET-003 | toolset `browser-cdp` | 2 tool, deferred, `available` saat inventaris=false | `TestF6TSET003BrowserCDP` | LULUS | F6-04d |
 | TSET-004 | toolset `browser-use` | 1 tool; menggantikan tool browser lain; inventaris=false | `TestF6TSET004BrowserUse` | LULUS | F6-04i |
 | TSET-005 | toolset `browser` | 11 tool komposisi, deferred, tanpa duplikat | `TestF6TSET005Browser` | LULUS | F6-04c |
-| TSET-009 | toolset `computer_use` | 1 tool, inventaris=false, approval default | `TestF6TSET009ComputerUse` | BELUM | F6-06b |
+| TSET-009 | toolset `computer_use` | 1 tool, inventaris=false, approval default | `TestF6TSET009ComputerUse` | LULUS | F6-06b |
 | TSET-019 | toolset `image_gen` | 1 tool, inventaris=false, backend tersedia | `TestF6TSET019ImageGen` | LULUS | F6-03c |
 | TSET-026 | toolset `tts` | 1 tool, inventaris=true, provider default eksplisit | `TestF6TSET026TTS` | LULUS | F6-05c |
 | TSET-027 | toolset `video_gen` | 3 tool, default off | `TestF6TSET027VideoGen` | LULUS | F6-03d |
@@ -94,7 +94,7 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | MEM-037 | Image eviction/replay | retire batch pada 80% limit, stub `sha`, 1 cache break/batch; sesi 30 screenshot full-miss ≤ 2 | `TestF6MEM037ImageEviction` | BELUM | F6-03f |
 | UI-008 | Clipboard image / paste collapse | paste gambar via executable eksternal; paste panjang dilipat; tanpa clipboard → pesan | `TestF6UI008ClipboardPaste` | BELUM | F6-03a |
 | PLUG-012 | Plugin browser backends (Browserbase, Browser Use, Firecrawl) | tiga backend cloud dapat dipilih; tanpa env autodetect; kredensial keychain | `TestF6PLUG012BrowserBackends` | LULUS | F6-04f |
-| PLUG-013 | Plugin computer_use (cua) | backend cua terdeteksi; absen → fail-closed | `TestF6PLUG013ComputerUseCua` | BELUM | F6-06a |
+| PLUG-013 | Plugin computer_use (cua) | backend cua terdeteksi; absen → fail-closed | `TestF6PLUG013CUA` | LULUS | F6-06a |
 | PLUG-020 | Plugin image_gen (8 backend) | matriks 8 backend lengkap, masing-masing satu fixture | `TestF6PLUG020ImageGenBackends` | LULUS | F6-03c |
 | PLUG-027 | Plugin video_gen (4 backend) | matriks 4 backend lengkap + xAI edit/extend | `TestF6PLUG027VideoGenBackends` | LULUS | F6-03d |
 | PLUG-028 | Plugin web (11 backend) | matriks 11 backend; backend eksplisit; `tos_risk` untuk tidak resmi | `TestF6PLUG028WebBackends`, `TestF6PLUG028WebPlugin` | LULUS | F6-01a..01c |
@@ -138,7 +138,7 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| EXEC-036 | Computer use | backend cua eksternal; setiap input approval (kecuali auto+allow_auto) | `TestF6EXEC036ComputerUse` | BELUM | F6-06a |
+| EXEC-036 | Computer use | backend cua eksternal; setiap input approval (kecuali auto+allow_auto) | `TestF6EXEC036CUAApproval` | LULUS | F6-06a |
 | EXEC-037 | Browser engine lokal | Chromium lokal terkelola; profil terisolasi default; startup/gagal jelas | `TestF6EXEC037BrowserLocalEngine` | LULUS | F6-04e |
 | EXEC-038 | Browser engine Camofox | engine Camofox opt-in; endpoint/port divalidasi | `TestF6EXEC038Camofox` | LULUS | F6-04g |
 | EXEC-039 | Browser engine Lightpanda | Lightpanda + fallback eksplisit, bukan diam | `TestF6EXEC039LightpandaFallback` | LULUS | F6-04g |

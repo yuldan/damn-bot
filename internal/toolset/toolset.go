@@ -123,6 +123,7 @@ func Builtin() []Definition {
 		}},
 		{Name: "browser-cdp", Description: "Raw DevTools protocol and native dialog tools", Tools: []string{"browser_cdp", "browser_dialog"}},
 		{Name: "browser-use", Description: "Browser Use CLI control tool", Tools: []string{"browser_exec"}},
+		{Name: "computer_use", Description: "Desktop control through the external cua backend", Tools: []string{"computer_use"}},
 		{Name: "hermes-cli", Description: "Full headless toolkit", Tools: core},
 		{Name: "hermes-cron", Description: "Default cron toolset: the full headless toolkit", Includes: []string{"hermes-cli"}},
 		{Name: "hermes-telegram", Description: "Telegram bot toolset: full access for personal use", Includes: []string{"hermes-cli"}},

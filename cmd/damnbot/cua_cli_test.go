@@ -55,7 +55,7 @@ func cuaHelperConfig(t *testing.T, extra string) string {
 enabled = true
 backend = "process"
 command = [%s, "-test.run=TestCuaHelperProcess", "--"]
-env = ["CUA_HELPER"]
+env = ["CUA_HELPER", "CUA_LOG"]
 %s`, strconv.Quote(exe), extra))
 }
 
@@ -74,6 +74,18 @@ func TestCuaHelperProcess(*testing.T) {
 	}
 	if len(args) == 0 {
 		os.Exit(2)
+	}
+	if path := os.Getenv("CUA_LOG"); path != "" {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) // #nosec G304,G703 -- fixture log
+		if err != nil {
+			os.Exit(1)
+		}
+		if _, werr := f.WriteString(strings.Join(args, " ") + "\n"); werr != nil {
+			os.Exit(1)
+		}
+		if cerr := f.Close(); cerr != nil {
+			os.Exit(1)
+		}
 	}
 	var out []byte
 	switch args[0] {
@@ -237,5 +249,103 @@ endpoint = `+strconv.Quote(base)+"\n")
 	code, _, stderr := runCuaCLI(t, "status", "--config", cfg)
 	if code != cuaExitUnavailable || !strings.Contains(stderr, "module_unavailable") {
 		t.Fatalf("status = %d, err = %q", code, stderr)
+	}
+}
+
+// TestF6CLI054CUASubcommands is the CLI-054 acceptance row: install, status,
+// doctor, permissions and screen all work without a screen, and every
+// mutating command refuses without --yes.
+func TestF6CLI054CUASubcommands(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("CUA_HELPER", "1")
+	log := filepath.Join(t.TempDir(), "cua.log")
+	t.Setenv("CUA_LOG", log)
+	cfg := cuaHelperConfig(t, "")
+	dest := filepath.Join(os.Getenv("XDG_DATA_HOME"), "damnbot", "cua", "cua-driver")
+	source := filepath.Join(t.TempDir(), "cua-driver")
+	if err := os.WriteFile(source, []byte("driver-v1"), 0o700); err != nil { // #nosec G306 -- fixture must look executable
+		t.Fatal(err)
+	}
+	cuaInstallChecks(t, cfg, source, dest)
+	cuaDoctorPermissionsChecks(t, cfg, log)
+	cuaScreenChecks(t, cfg, log)
+	// A missing driver is module_unavailable, not a fake success.
+	absent := writeCuaConfig(t, fmt.Sprintf("[modules.computer_use]\nenabled = true\ncommand = [%s]\n",
+		strconv.Quote(filepath.Join(t.TempDir(), "absent"))))
+	if code, stdout, stderr := runCuaCLI(t, "doctor", "--config", absent); code != cuaExitUnavailable ||
+		!strings.Contains(stdout, "check driver fail") {
+		t.Fatalf("doctor absent = %d, out = %q, err = %q", code, stdout, stderr)
+	}
+}
+
+func cuaInstallChecks(t *testing.T, cfg, source, dest string) {
+	t.Helper()
+	if code, _, stderr := runCuaCLI(t, "install", "--config", cfg, "--source", source); code != cuaExitDenied ||
+		!strings.Contains(stderr, "computer_use install source=cua-driver") {
+		t.Fatalf("unapproved install = %d, err = %q", code, stderr)
+	}
+	if _, err := os.Stat(dest); !os.IsNotExist(err) { // #nosec G703 -- fixture path under XDG_DATA_HOME
+		t.Fatalf("unapproved install wrote %s", dest)
+	}
+	wrong := strings.Repeat("a", 64)
+	if code, _, stderr := runCuaCLI(t, "install", "--config", cfg, "--source", source, "--sha256", wrong, "--yes"); code != cuaExitFail ||
+		!strings.Contains(stderr, "checksum") {
+		t.Fatalf("checksum install = %d, err = %q", code, stderr)
+	}
+	entries, err := os.ReadDir(filepath.Dir(dest))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("partial install files: %v", entries)
+	}
+	if code, stdout, stderr := runCuaCLI(t, "install", "--config", cfg, "--source", source, "--yes"); code != cuaExitOK ||
+		!strings.Contains(stdout, "installed") {
+		t.Fatalf("install = %d, out = %q, err = %q", code, stdout, stderr)
+	}
+	if got, err := os.ReadFile(dest); err != nil || string(got) != "driver-v1" { // #nosec G304,G703 -- fixture path
+		t.Fatalf("installed = %q, %v", got, err)
+	}
+	if code, stdout, _ := runCuaCLI(t, "install", "--config", cfg, "--source", source, "--yes"); code != cuaExitOK ||
+		!strings.Contains(stdout, "already installed") {
+		t.Fatalf("idempotent install = %d, out = %q", code, stdout)
+	}
+}
+
+func cuaDoctorPermissionsChecks(t *testing.T, cfg, log string) {
+	t.Helper()
+	if code, stdout, stderr := runCuaCLI(t, "doctor", "--config", cfg); code != cuaExitOK ||
+		!strings.Contains(stdout, "check driver ok") || !strings.Contains(stdout, "check permissions ok") {
+		t.Fatalf("doctor = %d, out = %q, err = %q", code, stdout, stderr)
+	}
+	if code, stdout, _ := runCuaCLI(t, "permissions", "--config", cfg); code != cuaExitOK ||
+		!strings.Contains(stdout, "read_only=true") {
+		t.Fatalf("permissions = %d, out = %q", code, stdout)
+	}
+	if code, _, _ := runCuaCLI(t, "permissions", "--config", cfg, "--grant"); code != cuaExitUsage {
+		t.Fatalf("permissions --grant = %d, want usage", code)
+	}
+	if b, err := os.ReadFile(log); err == nil && len(b) != 0 { // #nosec G304,G703 -- fixture log
+		t.Fatalf("read-only commands spawned the backend: %q", b)
+	}
+}
+
+func cuaScreenChecks(t *testing.T, cfg, log string) {
+	t.Helper()
+	if code, _, stderr := runCuaCLI(t, "screen", "--config", cfg, "--out", filepath.Join(t.TempDir(), "s.png")); code != cuaExitDenied ||
+		!strings.Contains(stderr, "computer_use screen backend=process") {
+		t.Fatalf("unapproved screen = %d, err = %q", code, stderr)
+	}
+	shot := filepath.Join(t.TempDir(), "screen.png")
+	code, stdout, stderr := runCuaCLI(t, "screen", "--config", cfg, "--out", shot, "--yes")
+	if code != cuaExitOK || !strings.Contains(stdout, `untrusted source="computer_use:process"`) {
+		t.Fatalf("screen = %d, out = %q, err = %q", code, stdout, stderr)
+	}
+	if png, err := os.ReadFile(shot); err != nil || !strings.HasPrefix(string(png), "\x89PNG") { // #nosec G304,G703 -- fixture path
+		t.Fatalf("screen file = %q, %v", png, err)
+	}
+	b, rerr := os.ReadFile(log) // #nosec G304,G703 -- fixture log
+	if rerr != nil || !strings.Contains(string(b), "screenshot") {
+		t.Fatalf("approved screen did not reach the backend: %q, %v", b, rerr)
 	}
 }

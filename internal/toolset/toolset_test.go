@@ -229,3 +229,34 @@ func TestF6TSET026TTS(t *testing.T) {
 		t.Fatalf("inventory off selection = %+v", off)
 	}
 }
+
+// TestF6TSET009ComputerUse pins the computer_use toolset: one builtin member,
+// no duplicates, and a declared-but-unregistered member is reported as
+// unavailable rather than dropped (the deferred catalog keeps the slot).
+func TestF6TSET009ComputerUse(t *testing.T) {
+	t.Parallel()
+	var def *Definition
+	for _, d := range Builtin() {
+		if d.Name == "computer_use" {
+			dd := d
+			def = &dd
+		}
+	}
+	if def == nil || len(def.Tools) != 1 || def.Tools[0] != "computer_use" || len(def.Includes) != 0 {
+		t.Fatalf("computer_use definition = %+v", def)
+	}
+	sel, err := Resolve(Config{Active: []string{"computer_use"}}, "linux", available("computer_use", "read_file"))
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if !slices.Equal(sel.Tools, []string{"computer_use"}) || len(sel.Active) != 1 {
+		t.Fatalf("selection = %+v", sel)
+	}
+	off, err := Resolve(Config{Active: []string{"computer_use"}}, "linux", available("read_file"))
+	if err != nil {
+		t.Fatalf("Resolve without tool: %v", err)
+	}
+	if len(off.Tools) != 0 || !slices.Equal(off.Unavailable, []string{"computer_use"}) {
+		t.Fatalf("unavailable selection = %+v", off)
+	}
+}

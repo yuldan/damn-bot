@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -235,7 +236,7 @@ func TestApprovalAllowSessionDenied(t *testing.T) {
 
 func TestReadActionsSkipApproval(t *testing.T) {
 	t.Parallel()
-	backend := &fakeBackend{output: "ok", png: []byte("png")}
+	backend := &fakeBackend{output: "ok", png: []byte("\x89PNG\r\n\x1a\n")}
 	appr := &fakeApprovals{answer: host.ApprovalDeny}
 	m := testModule(t, backend, appr, 1024)
 	for _, a := range []Action{
@@ -579,10 +580,11 @@ func TestHTTPTimeout(t *testing.T) {
 	}
 }
 
-// TestF6TOOL023ComputerUse is the acceptance row test: every input action asks
-// for approval, a denial executes zero actions, and a screenshot is read-only
-// but tainted.
-func TestF6TOOL023ComputerUse(t *testing.T) {
+// TestF6TOOL023ComputerUseApproval is the acceptance row test: every input
+// action asks for approval, a denial executes zero actions, an allow-session
+// answer is refused, and a screenshot is read-only but tainted and returned as
+// a bounded image attachment.
+func TestF6TOOL023ComputerUseApproval(t *testing.T) {
 	t.Parallel()
 	for _, a := range []Action{
 		{Kind: ActionClick},
@@ -600,11 +602,24 @@ func TestF6TOOL023ComputerUse(t *testing.T) {
 			t.Fatalf("%s executed after denial", a.Kind)
 		}
 	}
-	backend := &fakeBackend{png: []byte("png")}
-	m := testModule(t, backend, &fakeApprovals{answer: host.ApprovalDeny}, 1024)
+	backend := &fakeBackend{png: []byte("\x89PNG\r\n\x1a\n")}
+	session := &fakeApprovals{answer: host.ApprovalAllowSession}
+	m := testModule(t, backend, session, 1024)
+	if _, err := m.Act(context.Background(), "c", &Action{Kind: ActionClick}); !errors.Is(err, ErrDenied) || backend.count() != 0 {
+		t.Fatalf("allow-session click = %v, backend calls = %d", err, backend.count())
+	}
+	read := &fakeApprovals{answer: host.ApprovalDeny}
+	m = testModule(t, backend, read, 1024)
 	res, err := m.Invoke(context.Background(), ToolName, json.RawMessage(`{"kind":"screenshot"}`), host.Env{})
 	if err != nil || res.UntrustedSource != "computer_use:process" {
 		t.Fatalf("screenshot = %+v, %v", res, err)
+	}
+	if len(res.Attachments) != 1 || res.Attachments[0].Kind != host.AttachmentImage ||
+		res.Attachments[0].MIME != "image/png" || len(res.Attachments[0].Data) == 0 {
+		t.Fatalf("screenshot attachment = %+v", res.Attachments)
+	}
+	if len(read.requests()) != 0 {
+		t.Fatalf("screenshot asked for approval: %+v", read.requests())
 	}
 }
 
@@ -695,5 +710,47 @@ func TestStatusLifecycle(t *testing.T) {
 	}
 	if backend.started != 1 {
 		t.Fatalf("backend starts = %d, want 1", backend.started)
+	}
+}
+
+// TestF6PLUG013CUA pins the cua plugin surface: the backend is detected only
+// from explicit config, and an absent binary or endpoint fails closed before
+// any action, with no fallback transport.
+func TestF6PLUG013CUA(t *testing.T) {
+	t.Parallel()
+	abs, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	spawn := func(context.Context, host.SpawnSpec) (host.Process, error) { return nil, errors.New("no spawn") }
+	present, err := New(&Config{Command: []string{abs}}, Deps{Approvals: &fakeApprovals{}, Spawn: spawn})
+	if err != nil {
+		t.Fatalf("present backend: %v", err)
+	}
+	if serr := present.Start(context.Background()); serr != nil {
+		t.Fatalf("detected backend unavailable: %v", serr)
+	}
+	absent, err := New(&Config{Command: []string{filepath.Join(t.TempDir(), "cua-driver")}}, Deps{})
+	if err != nil {
+		t.Fatalf("absent backend: %v", err)
+	}
+	_, err = absent.Invoke(context.Background(), ToolName, json.RawMessage(`{"kind":"click"}`), host.Env{})
+	var he *host.Error
+	if !errors.As(err, &he) || he.Code != "module_unavailable" {
+		t.Fatalf("absent Invoke = %v, want module_unavailable", err)
+	}
+	noEndpoint, err := New(&Config{Backend: "http"}, Deps{})
+	if err != nil {
+		t.Fatalf("empty http endpoint: %v", err)
+	}
+	if serr := noEndpoint.Start(context.Background()); !errors.Is(serr, ErrUnavailable) {
+		t.Fatalf("empty endpoint Start = %v, want ErrUnavailable", serr)
+	}
+	disabled, err := NewFromConfig(json.RawMessage(`{"enabled":false,"command":[`+strconv.Quote(abs)+`]}`), Deps{})
+	if err != nil {
+		t.Fatalf("disabled: %v", err)
+	}
+	if _, err := disabled.Invoke(context.Background(), ToolName, json.RawMessage(`{"kind":"click"}`), host.Env{}); err == nil {
+		t.Fatal("disabled module served an action")
 	}
 }
