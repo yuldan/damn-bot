@@ -73,6 +73,7 @@ func TestModuleTools(t *testing.T) {
 		"browser_press": "non_idempotent", "browser_select": "non_idempotent",
 		"browser_upload": "non_idempotent", "browser_download": "non_idempotent",
 		"browser_wait_for": "read", "browser_pdf": "read",
+		"browser_console": "read", "browser_get_images": "read",
 	}
 	tools := Tools()
 	if len(tools) != len(want) {
