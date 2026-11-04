@@ -189,6 +189,10 @@ config_version = 1
     live_key_env = ""
     live_model = ""
     live_voice = ""
+    wake_engine = ""
+    wake_binary = ""
+    wake_model = ""
+    wake_key_env = ""
   [modules.computer_use]
     enabled = false
     backend = ""

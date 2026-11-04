@@ -2,9 +2,7 @@ package e2e
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -44,21 +42,8 @@ func main() {
 // Windows) so the process backend runs the same fixture on every CI OS.
 func writeCuaFixture(t *testing.T) (bin, log string) {
 	t.Helper()
-	dir := t.TempDir()
-	src := filepath.Join(dir, "cua_fixture.go")
-	if err := os.WriteFile(src, []byte(cuaFixtureSource), 0o600); err != nil {
-		t.Fatalf("write cua fixture: %v", err)
-	}
-	name := "cua"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
-	bin, log = filepath.Join(dir, name), filepath.Join(dir, "cua.log")
-	build := exec.CommandContext(t.Context(), "go", "build", "-o", bin, src) // #nosec G204 -- fixed go tool
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build cua fixture: %v\n%s", err, out)
-	}
-	return bin, log
+	bin, dir := buildGoFixture(t, cuaFixtureSource, "cua")
+	return bin, filepath.Join(dir, "cua.log")
 }
 
 // writeComputerUseConfig writes the [modules.computer_use] section used by the

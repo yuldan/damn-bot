@@ -86,7 +86,7 @@ func TestProviderSelection(t *testing.T) {
 
 func TestWakeDisabledByDefault(t *testing.T) {
 	t.Parallel()
-	e, err := wake.New(WakeConfig{})
+	e, err := wake.New(&WakeConfig{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestWakeDisabledByDefault(t *testing.T) {
 	if err := e.Wait(t.Context()); !errors.Is(err, wake.ErrDisabled) {
 		t.Fatalf("err = %v, want ErrDisabled", err)
 	}
-	if _, err := wake.New(WakeConfig{Enabled: true}); err == nil {
+	if _, err := wake.New(&WakeConfig{Enabled: true}); err == nil {
 		t.Fatal("enabled engine without command must fail")
 	}
 }

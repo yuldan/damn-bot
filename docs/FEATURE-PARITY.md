@@ -837,12 +837,12 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | MEDIA-001 | Voice mode (CLI/TUI) | Rekam suara → STT → agent → TTS; push-to-talk | `tools/voice_mode.py`, `hermes_cli/cli_voice_mixin.py` | off (`/voice` toggle) | extra `voice` (sounddevice, numpy, faster-whisper) | record_key ctrl+b, barge-in | F6 | LULUS |
 | MEDIA-002 | Voice live (GPT realtime) | Mode voice chat realtime `gpt_live` | `tools/voice_live.py` | opt-in (`voice.voice_chat_mode`) | OpenAI realtime API | default mode `chained` | F6 | LULUS |
 | MEDIA-003 | Wake word | Listener "hey hermes" membuka sesi | `tools/wake_word.py`, `tools/wake_word_engines.py:40` | off (`wake_word.enabled`) | extra `wake` (openWakeWord / sherpa-onnx / Porcupine) | `/wake` | F6 | LULUS |
-| MEDIA-004 | Wake engine: openWakeWord | Model wake word hey_hermes | `tools/wake_word_engines.py:78` | auto | pyopen-wakeword |  | F6 | planned |
-| MEDIA-005 | Wake engine: sherpa-onnx KWS | Keyword spotting kosakata terbuka | `tools/wake_word_engines.py:177` | auto | sherpa-onnx + model unduhan |  | F6 | planned |
-| MEDIA-006 | Wake engine: Porcupine | Picovoice Porcupine | `tools/wake_word_engines.py:257` | auto | pvporcupine + access key |  | F6 | planned |
+| MEDIA-004 | Wake engine: openWakeWord | Model wake word hey_hermes | `tools/wake_word_engines.py:78` | auto | pyopen-wakeword |  | F6 | LULUS |
+| MEDIA-005 | Wake engine: sherpa-onnx KWS | Keyword spotting kosakata terbuka | `tools/wake_word_engines.py:177` | auto | sherpa-onnx + model unduhan |  | F6 | LULUS |
+| MEDIA-006 | Wake engine: Porcupine | Picovoice Porcupine | `tools/wake_word_engines.py:257` | auto | pvporcupine + access key |  | F6 | LULUS |
 | MEDIA-007 | TTS (11 provider built-in) | text_to_speech + auto TTS balasan | `agent/tts_registry.py:25`, `tools/tts_tool.py`, `tools/tts_tool_providers.py` | on, provider `edge` | per provider; lokal: piper/neutts/kittentts | provider: edge, elevenlabs, openai, minimax, xai, mistral, gemini, neutts, kittentts, piper, deepinfra | F6 | planned |
 | MEDIA-008 | TTS streaming | Streaming audio TTS (gateway/voice) | `tools/tts_streaming.py`, `gateway/platforms/base_streaming_tts.py` | on bila didukung | — |  | F6 | LULUS |
-| MEDIA-009 | TTS command provider | TTS via perintah eksternal | `tools/tts_command_provider.py` | opt-in | binary eksternal |  | F6 | planned |
+| MEDIA-009 | TTS command provider | TTS via perintah eksternal | `tools/tts_command_provider.py` | opt-in | binary eksternal |  | F6 | LULUS |
 | MEDIA-010 | STT (8 provider built-in) | Transkripsi pesan suara & voice mode | `agent/transcription_registry.py:23`, `tools/transcription_tools.py` | on (`stt.enabled`) | faster-whisper lokal / whisper.cpp / API cloud | provider: local, local_command, groq, openai, mistral, xai, elevenlabs, deepinfra | F6 | LULUS |
 | MEDIA-011 | STT whisper.cpp & chunking | Backend whisper.cpp, chunk audio panjang | `tools/transcription_whisper_cpp.py`, `tools/transcription_chunking.py` | opt-in | whisper.cpp binary, ffmpeg [INFERENCE] |  | F6 | LULUS |
 | MEDIA-012 | Vision (vision_analyze) | Analisis gambar via model vision auxiliary | `tools/vision_tools.py`, `agent/vision_message_prep.py` | on (core) | Model vision, Pillow |  | F6 | LULUS |
