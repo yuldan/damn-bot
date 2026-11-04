@@ -63,12 +63,12 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | TOOL-018 | `browser_dialog` | alert/confirm/prompt dijawab; teks dialog tidak dieksekusi; default dismiss | `TestF6TOOL018BrowserDialog` | LULUS | F6-04d |
 | TOOL-019 | `browser_exec` | hanya aktif saat backend `browser-use`; menggantikan tool browser lain; backend absen → fail-closed | `TestF6TOOL019BrowserExec` | LULUS | F6-04i |
 | TOOL-023 | `computer_use` | setiap aksi input butuh approval kecuali `approval.mode=auto` + `allow_auto`; screenshot diredaksi | `TestF6TOOL023ComputerUse` | BELUM | F6-06b |
-| TOOL-054 | `image_generate` | backend eksplisit; preview harga + approval; hasil blob; field `backend`; cap tool berlaku | `TestF6TOOL054ImageGenerate` | BELUM | F6-03c, F6-03g |
+| TOOL-054 | `image_generate` | backend eksplisit; preview harga + approval; hasil blob; field `backend`; cap tool berlaku | `TestF6TOOL054ImageGenerate` | LULUS | F6-03c, F6-03g |
 | TOOL-080 | `text_to_speech` | 11 provider; MIME/ekstensi jujur; Opus/OGG diprioritaskan; provider command tanpa shell + timeout | `TestF6TOOL080TTS` | BELUM | F6-05c |
 | TOOL-081 | `video_analyze` | toolset `video` default off; video multimodal; hasil `<untrusted>`; ukuran dibatasi | `TestF6TOOL081VideoAnalyze` | BELUM | F6-03e |
-| TOOL-082 | `video_generate` | selalu approval + preview harga; cap dicek sebelum dispatch; kunci idempotensi; kegagalan tak pasti = `uncertain` tanpa retry | `TestF6TOOL082VideoGenerate` | BELUM | F6-03d, F6-03g |
-| TOOL-083 | `xai_video_edit` | hanya backend xAI; approval + harga; hasil blob | `TestF6TOOL083XAIVideoEdit` | BELUM | F6-03d |
-| TOOL-084 | `xai_video_extend` | perpanjang video xAI; approval + harga; batas durasi | `TestF6TOOL084XAIVideoExtend` | BELUM | F6-03d |
+| TOOL-082 | `video_generate` | selalu approval + preview harga; cap dicek sebelum dispatch; kunci idempotensi; kegagalan tak pasti = `uncertain` tanpa retry | `TestF6TOOL082VideoGenerate` | LULUS | F6-03d, F6-03g |
+| TOOL-083 | `xai_video_edit` | hanya backend xAI; approval + harga; hasil blob | `TestF6TOOL083XAIVideoEdit` | LULUS | F6-03d |
+| TOOL-084 | `xai_video_extend` | perpanjang video xAI; approval + harga; batas durasi | `TestF6TOOL084XAIVideoExtend` | LULUS | F6-03d |
 | TOOL-085 | `vision_analyze` | gate `capabilities.vision`; preflight resize; usage `purpose=media`; model teks-only → penolakan sebelum panggilan | `TestF6TOOL085VisionAnalyze` | BELUM | F6-03b |
 | TOOL-086 | `web_extract` | 11 backend; markdown; `backend` + `cached` di hasil; `<untrusted>`; blocklist/SSRF | `TestF6TOOL086WebExtract` | LULUS | F6-01d, F6-01e; registry `web_fetch` (SPEC §3.2.4), alias `web_extract` |
 | TOOL-087 | `web_search` | ≤10 hasil; snippet ≤300 char; `backend` di hasil; `<untrusted>`; single-flight | `TestF6TOOL087WebSearch` | LULUS | F6-01b, F6-01c, F6-01e |
@@ -84,9 +84,9 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | TSET-004 | toolset `browser-use` | 1 tool; menggantikan tool browser lain; inventaris=false | `TestF6TSET004BrowserUse` | LULUS | F6-04i |
 | TSET-005 | toolset `browser` | 11 tool komposisi, deferred, tanpa duplikat | `TestF6TSET005Browser` | LULUS | F6-04c |
 | TSET-009 | toolset `computer_use` | 1 tool, inventaris=false, approval default | `TestF6TSET009ComputerUse` | BELUM | F6-06b |
-| TSET-019 | toolset `image_gen` | 1 tool, inventaris=false, backend tersedia | `TestF6TSET019ImageGen` | BELUM | F6-03c |
+| TSET-019 | toolset `image_gen` | 1 tool, inventaris=false, backend tersedia | `TestF6TSET019ImageGen` | LULUS | F6-03c |
 | TSET-026 | toolset `tts` | 1 tool, inventaris=true, provider default eksplisit | `TestF6TSET026TTS` | BELUM | F6-05c |
-| TSET-027 | toolset `video_gen` | 3 tool, default off | `TestF6TSET027VideoGen` | BELUM | F6-03d |
+| TSET-027 | toolset `video_gen` | 3 tool, default off | `TestF6TSET027VideoGen` | LULUS | F6-03d |
 | TSET-028 | toolset `vision` | 1 tool, inventaris=false | `TestF6TSET028Vision` | LULUS | F6-03b |
 | TSET-029 | toolset `video` | 1 tool, default off | `TestF6TSET029Video` | BELUM | F6-03e |
 | TSET-030 | toolset `web` | 2 tool, inventaris=true | `TestF6TSET030Web` | LULUS | F6-01d |
@@ -95,8 +95,8 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | UI-008 | Clipboard image / paste collapse | paste gambar via executable eksternal; paste panjang dilipat; tanpa clipboard → pesan | `TestF6UI008ClipboardPaste` | BELUM | F6-03a |
 | PLUG-012 | Plugin browser backends (Browserbase, Browser Use, Firecrawl) | tiga backend cloud dapat dipilih; tanpa env autodetect; kredensial keychain | `TestF6PLUG012BrowserBackends` | BELUM | F6-04f |
 | PLUG-013 | Plugin computer_use (cua) | backend cua terdeteksi; absen → fail-closed | `TestF6PLUG013ComputerUseCua` | BELUM | F6-06a |
-| PLUG-020 | Plugin image_gen (8 backend) | matriks 8 backend lengkap, masing-masing satu fixture | `TestF6PLUG020ImageGenBackends` | BELUM | F6-03c |
-| PLUG-027 | Plugin video_gen (4 backend) | matriks 4 backend lengkap + xAI edit/extend | `TestF6PLUG027VideoGenBackends` | BELUM | F6-03d |
+| PLUG-020 | Plugin image_gen (8 backend) | matriks 8 backend lengkap, masing-masing satu fixture | `TestF6PLUG020ImageGenBackends` | LULUS | F6-03c |
+| PLUG-027 | Plugin video_gen (4 backend) | matriks 4 backend lengkap + xAI edit/extend | `TestF6PLUG027VideoGenBackends` | LULUS | F6-03d |
 | PLUG-028 | Plugin web (11 backend) | matriks 11 backend; backend eksplisit; `tos_risk` untuk tidak resmi | `TestF6PLUG028WebBackends`, `TestF6PLUG028WebPlugin` | LULUS | F6-01a..01c |
 
 ## 6. Ledger parity F6 — MEDIA (29)
@@ -118,20 +118,20 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | MEDIA-011 | STT whisper.cpp + chunking | whisper.cpp via executable; audio 80 MB/60 menit terchunk tanpa ffmpeg; M4A tanpa ffmpeg → `module_unavailable` | `TestF6MEDIA011WhisperChunking` | LULUS | F6-05b |
 | MEDIA-012 | Vision (`vision_analyze`) | gambar dianalisis model vision; gambar dari user dilampirkan bila `capabilities.vision`; else tool | `TestF6MEDIA012VisionAnalyze` | LULUS | F6-03b |
 | MEDIA-013 | Image routing native | multi-gambar dihormati sampai limit route; 0 penolakan ukuran | `TestF6MEDIA013ImageRouting` | LULUS | F6-03a, F6-03b || MEDIA-014 | Video analyze | video dianalisis model multimodal; batas ukuran/durasi jelas | `TestF6MEDIA014VideoAnalyze` | BELUM | F6-03e |
-| MEDIA-015 | Image generation | `image_generate` memakai registry 8 backend; hasil blob + path | `TestF6MEDIA015ImageGeneration` | BELUM | F6-03c |
-| MEDIA-016 | Image backend FAL | fixture FAL; 1 attempt (tanpa retry SDK); harga dicatat | `TestF6MEDIA016ImageFAL` | BELUM | F6-03c |
-| MEDIA-017 | Image backend OpenAI | fixture GPT Image; dimensi/format divalidasi | `TestF6MEDIA017ImageOpenAI` | BELUM | F6-03c |
-| MEDIA-018 | Image backend OpenAI Codex OAuth | OAuth token dipakai tanpa mencetak; absen → fail-closed | `TestF6MEDIA018ImageCodex` | BELUM | F6-03c |
-| MEDIA-019 | Image backend OpenRouter/Nous | chat-completions image; `backend` di hasil | `TestF6MEDIA019ImageOpenRouter` | BELUM | F6-03c |
-| MEDIA-020 | Image backend xAI | `grok-imagine-image`; parameter valid | `TestF6MEDIA020ImageXAI` | BELUM | F6-03c |
-| MEDIA-021 | Image backend DeepInfra | FLUX/Qwen-Image; ukuran hasil divalidasi | `TestF6MEDIA021ImageDeepInfra` | BELUM | F6-03c |
-| MEDIA-022 | Image backend Krea | Krea 2; endpoint/path benar | `TestF6MEDIA022ImageKrea` | BELUM | F6-03c |
-| MEDIA-023 | Image backend Meta AI | muse-image; key hanya dari secret | `TestF6MEDIA023ImageMeta` | BELUM | F6-03c |
-| MEDIA-024 | Video generation | `video_generate` + registry 4 backend; hasil blob | `TestF6MEDIA024VideoGeneration` | BELUM | F6-03d |
-| MEDIA-025 | Video backend FAL | Veo/Kling/Pixverse; harga + approval; 1 job per retry | `TestF6MEDIA025VideoFAL` | BELUM | F6-03d |
-| MEDIA-026 | Video backend xAI | Grok Imagine video + edit/extend | `TestF6MEDIA026VideoXAI` | BELUM | F6-03d |
-| MEDIA-027 | Video backend OpenRouter | `/api/v1/videos`; polling terbatas | `TestF6MEDIA027VideoOpenRouter` | BELUM | F6-03d |
-| MEDIA-028 | Video backend DeepInfra | text/image-to-video; batas ukuran | `TestF6MEDIA028VideoDeepInfra` | BELUM | F6-03d |
+| MEDIA-015 | Image generation | `image_generate` memakai registry 8 backend; hasil blob + path | `TestF6MEDIA015ImageGeneration` | LULUS | F6-03c |
+| MEDIA-016 | Image backend FAL | fixture FAL; 1 attempt (tanpa retry SDK); harga dicatat | `TestF6MEDIA016ImageFAL` | LULUS | F6-03c |
+| MEDIA-017 | Image backend OpenAI | fixture GPT Image; dimensi/format divalidasi | `TestF6MEDIA017ImageOpenAI` | LULUS | F6-03c |
+| MEDIA-018 | Image backend OpenAI Codex OAuth | OAuth token dipakai tanpa mencetak; absen → fail-closed | `TestF6MEDIA018ImageCodex` | LULUS | F6-03c |
+| MEDIA-019 | Image backend OpenRouter/Nous | chat-completions image; `backend` di hasil | `TestF6MEDIA019ImageOpenRouter` | LULUS | F6-03c |
+| MEDIA-020 | Image backend xAI | `grok-imagine-image`; parameter valid | `TestF6MEDIA020ImageXAI` | LULUS | F6-03c |
+| MEDIA-021 | Image backend DeepInfra | FLUX/Qwen-Image; ukuran hasil divalidasi | `TestF6MEDIA021ImageDeepInfra` | LULUS | F6-03c |
+| MEDIA-022 | Image backend Krea | Krea 2; endpoint/path benar | `TestF6MEDIA022ImageKrea` | LULUS | F6-03c |
+| MEDIA-023 | Image backend Meta AI | muse-image; key hanya dari secret | `TestF6MEDIA023ImageMeta` | LULUS | F6-03c |
+| MEDIA-024 | Video generation | `video_generate` + registry 4 backend; hasil blob | `TestF6MEDIA024VideoGeneration` | LULUS | F6-03d |
+| MEDIA-025 | Video backend FAL | Veo/Kling/Pixverse; harga + approval; 1 job per retry | `TestF6MEDIA025VideoFAL` | LULUS | F6-03d |
+| MEDIA-026 | Video backend xAI | Grok Imagine video + edit/extend | `TestF6MEDIA026VideoXAI` | LULUS | F6-03d |
+| MEDIA-027 | Video backend OpenRouter | `/api/v1/videos`; polling terbatas | `TestF6MEDIA027VideoOpenRouter` | LULUS | F6-03d |
+| MEDIA-028 | Video backend DeepInfra | text/image-to-video; batas ukuran | `TestF6MEDIA028VideoDeepInfra` | LULUS | F6-03d |
 | MEDIA-030 | Media cache & repair gateway | unduh/cache inbound dengan batas ukuran + MIME sniff; repair idempoten; dedupe blob; tidak mengekstrak dokumen otomatis | `TestF6MEDIA030MediaCache` | BELUM | F6-03h |
 
 ## 7. Ledger parity F6 — EXEC (8)

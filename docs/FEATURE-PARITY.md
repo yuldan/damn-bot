@@ -67,7 +67,7 @@ ls locales/*.yaml | grep -v tui              # 17 bahasa
 ```
 
 Konvensi kolom:
-- **status** (ditambahkan integrasi Spec 1.0, ADR-022/033/034): `planned` = wajib ada di 1.0; `LULUS` = baris dibangun dan ditutup oleh ledger acceptance fase-nya (ADR-323); `dropped-with-approval (NP-xx)` = di-drop dengan persetujuan user tercatat di ADR-022 (tabel NP di akhir dokumen); `external-bridge (ADR-034)` = dipenuhi lewat proses terpisah opsional di luar binary `damnbot`. Rekap: planned 804, LULUS 35, dropped-with-approval 17, external-bridge 1 (total 857). Penyebut gate parity SCORECARD [I] = 857 − 17 = 840 (planned + LULUS + external-bridge). Kolom `status` selalu sel terakhir baris. Kolom `fase` diisi per baris dari tabel "Pemetaan parity → fase" di ROADMAP (ADR-063 N-33, ADR-064) dan dicek `TestParityPhaseColumn` (840/840); keputusan judgement per baris tercatat di ADR-064. Kolom `modul` diturunkan dari prefix lewat SPEC §8; kolom `test`/`bench` diisi saat fase pembangunnya (aturan di SPEC §8).
+- **status** (ditambahkan integrasi Spec 1.0, ADR-022/033/034): `planned` = wajib ada di 1.0; `LULUS` = baris dibangun dan ditutup oleh ledger acceptance fase-nya (ADR-323); `dropped-with-approval (NP-xx)` = di-drop dengan persetujuan user tercatat di ADR-022 (tabel NP di akhir dokumen); `external-bridge (ADR-034)` = dipenuhi lewat proses terpisah opsional di luar binary `damnbot`. Rekap: planned 780, LULUS 59, dropped-with-approval 17, external-bridge 1 (total 857). Penyebut gate parity SCORECARD [I] = 857 − 17 = 840 (planned + LULUS + external-bridge). Kolom `status` selalu sel terakhir baris. Kolom `fase` diisi per baris dari tabel "Pemetaan parity → fase" di ROADMAP (ADR-063 N-33, ADR-064) dan dicek `TestParityPhaseColumn` (840/840); keputusan judgement per baris tercatat di ADR-064. Kolom `modul` diturunkan dari prefix lewat SPEC §8; kolom `test`/`bench` diisi saat fase pembangunnya (aturan di SPEC §8).
 - **fase** (ADR-064): `F1`..`F9` = fase pembangun baris; nilainya wajib salah satu fase yang selnya tidak kosong untuk prefix baris itu di tabel "Pemetaan parity → fase" ROADMAP. `—` = baris `dropped-with-approval` (tidak dibangun). Letaknya tepat sebelum kolom `status`. ADR-139: baris permukaan slash yang kapabilitasnya sudah ada di F2 berfase F3 (REPL/TUI), dan tiga baris F2 dipindah (MEM-022 → F5; MEM-023, PLUG-014 → F8).
 - **Sumber**: `path:line` bila spesifik (baris dihitung otomatis dari pola definisi), path saja bila fitur berbasis modul.
 - **Default**: dari `hermes_cli/config_defaults.py` (kunci config dikutip), `toolsets.py` (`_HERMES_CORE_TOOLS`), dan `hermes_cli/tools_config.py:110` (`_DEFAULT_OFF_TOOLSETS`). "opt-in" = harus dipanggil/diaktifkan pengguna; "tersedia" = command selalu ada.
@@ -319,7 +319,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TOOL-051 | `yb_search_sticker` (toolset `hermes-yuanbao`) | Cari stiker Yuanbao | `tools/yuanbao_tools.py:417` | on hanya di bundle platform terkait | Platform Yuanbao aktif | check_fn `_check_yuanbao`; nama toolset di TOOLSETS: `yuanbao`/`hermes-yuanbao` | F7 | planned |
 | TOOL-052 | `yb_send_dm` (toolset `hermes-yuanbao`) | Kirim DM Yuanbao | `tools/yuanbao_tools.py:349` | on hanya di bundle platform terkait | Platform Yuanbao aktif | check_fn `_check_yuanbao`; nama toolset di TOOLSETS: `yuanbao`/`hermes-yuanbao` | F7 | planned |
 | TOOL-053 | `yb_send_sticker` (toolset `hermes-yuanbao`) | Kirim stiker Yuanbao | `tools/yuanbao_tools.py:448` | on hanya di bundle platform terkait | Platform Yuanbao aktif | check_fn `_check_yuanbao`; nama toolset di TOOLSETS: `yuanbao`/`hermes-yuanbao` | F7 | planned |
-| TOOL-054 | `image_generate` (toolset `image_gen`) | Generate gambar teks-ke-gambar via backend terpilih | `tools/image_generation_tool.py:991` | opt-in; deferred via tool_search | Backend image_gen (FAL_KEY/OPENAI/XAI/OpenRouter/DeepInfra/Krea/Meta) | check_fn `check_image_generation_requirements` | F6 | planned |
+| TOOL-054 | `image_generate` (toolset `image_gen`) | Generate gambar teks-ke-gambar via backend terpilih | `tools/image_generation_tool.py:991` | opt-in; deferred via tool_search | Backend image_gen (FAL_KEY/OPENAI/XAI/OpenRouter/DeepInfra/Krea/Meta) | check_fn `check_image_generation_requirements` | F6 | LULUS |
 | TOOL-055 | `kanban_attach` (toolset `kanban`) | Lampirkan file ke task kanban | `tools/kanban_tools.py:986` | off (default-off toolset) | Dispatcher kanban (env HERMES_KANBAN_TASK) | check_fn `_check_kanban_mode` | F7 | planned |
 | TOOL-056 | `kanban_attach_url` (toolset `kanban`) | Lampirkan URL ke task kanban | `tools/kanban_tools.py:1042` | off (default-off toolset) | Dispatcher kanban (env HERMES_KANBAN_TASK) | check_fn `_check_kanban_mode` | F7 | planned |
 | TOOL-057 | `kanban_attachments` (toolset `kanban`) | Daftar lampiran task kanban | `tools/kanban_tools.py:1064` | off (default-off toolset) | Dispatcher kanban (env HERMES_KANBAN_TASK) | check_fn `_check_kanban_mode` | F7 | planned |
@@ -347,9 +347,9 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TOOL-079 | `todo_list` (toolset `todo`) | Daftar tugas/checklist untuk kerja multi-langkah | `tools/todo_tool.py:333` | opt-in; deferred via tool_search | — | check_fn `check_todo_requirements`; alias legacy `todo`; diintersep agent loop (`model_tools.py:607`) | F1 | planned |
 | TOOL-080 | `text_to_speech` (toolset `tts`) | Ubah teks menjadi audio via provider TTS | `tools/tts_tool.py:674` | opt-in | edge-tts (default, gratis) / ElevenLabs / OpenAI / xAI / lokal (Piper, NeuTTS, KittenTTS) | check_fn `check_tts_requirements` | F6 | planned |
 | TOOL-081 | `video_analyze` (toolset `video`) | Analisis/pahami video dengan model multimodal | `tools/vision_tools.py:1185` | off (default-off toolset) | Model multimodal video | check_fn `check_video_requirements` | F6 | planned |
-| TOOL-082 | `video_generate` (toolset `video_gen`) | Generate video teks/gambar/referensi-ke-video | `tools/video_generation_tool.py:371` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `check_video_generation_requirements` | F6 | planned |
-| TOOL-083 | `xai_video_edit` (toolset `video_gen`) | Edit video via xAI Grok Imagine | `tools/xai_video_tools.py:110` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `_check_xai_video_requirements` | F6 | planned |
-| TOOL-084 | `xai_video_extend` (toolset `video_gen`) | Perpanjang video via xAI Grok Imagine | `tools/xai_video_tools.py:114` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `_check_xai_video_requirements` | F6 | planned |
+| TOOL-082 | `video_generate` (toolset `video_gen`) | Generate video teks/gambar/referensi-ke-video | `tools/video_generation_tool.py:371` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `check_video_generation_requirements` | F6 | LULUS |
+| TOOL-083 | `xai_video_edit` (toolset `video_gen`) | Edit video via xAI Grok Imagine | `tools/xai_video_tools.py:110` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `_check_xai_video_requirements` | F6 | LULUS |
+| TOOL-084 | `xai_video_extend` (toolset `video_gen`) | Perpanjang video via xAI Grok Imagine | `tools/xai_video_tools.py:114` | off (default-off toolset) | Backend video_gen (FAL/xAI/OpenRouter/DeepInfra) API key | check_fn `_check_xai_video_requirements` | F6 | LULUS |
 | TOOL-085 | `vision_analyze` (toolset `vision`) | Analisis gambar (URL/path) dengan model vision | `tools/vision_tools.py:1030` | opt-in | Model vision (auxiliary.vision) | check_fn `check_vision_requirements` | F6 | planned |
 | TOOL-086 | `web_extract` (toolset `web`) | Ekstrak konten halaman web menjadi markdown | `tools/web_tools.py:566` | opt-in | API key backend search (Exa/Tavily/Parallel/Perplexity/Firecrawl/Keenable) atau backend keyless (ddgs/SearXNG/Brave free) | check_fn `check_web_api_key` | F6 | LULUS |
 | TOOL-087 | `web_search` (toolset `web`) | Pencarian web via backend search terpilih | `tools/web_tools.py:560` | opt-in | API key backend search (Exa/Tavily/Parallel/Perplexity/Firecrawl/Keenable) atau backend keyless (ddgs/SearXNG/Brave free) | check_fn `check_web_api_key` | F6 | LULUS |
@@ -380,7 +380,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TSET-016 | toolset `feishu_doc` | 1 tool | `toolsets.py:170` | on/sesuai tool | — | tools: feishu_doc_read; available saat inventaris=False | F8 | planned |
 | TSET-017 | toolset `feishu_drive` | 4 tool | `toolsets.py:171` | on/sesuai tool | — | tools: feishu_drive_list_comments, feishu_drive_list_comment_replies, feishu_drive_reply_comment, feishu_drive_add_comment; available saat inventaris=False | F8 | planned |
 | TSET-018 | toolset `file` | 4 tool | `toolsets.py:122` | on/sesuai tool | — | tools: read_file, write_file, patch, search_files; available saat inventaris=True | F1 | planned |
-| TSET-019 | toolset `image_gen` | 1 tool | `toolsets.py:88` | on/sesuai tool | — | tools: image_generate; available saat inventaris=False | F6 | planned |
+| TSET-019 | toolset `image_gen` | 1 tool | `toolsets.py:88` | on/sesuai tool | — | tools: image_generate; available saat inventaris=False | F6 | LULUS |
 | TSET-020 | toolset `kanban` | 15 tool | `toolsets.py:157` | off (default-off) | — | tools: kanban_show, kanban_list, kanban_complete, kanban_block, kanban_schedule, kanban_request_review, kanban_request_changes, kanban_heartbeat, kanban_comment, kanban_attach, kanban_attach_url, kanban_attachments, kanban_create, kanban_unblock, kanban_link; available saat inventaris=False | F7 | planned |
 | TSET-021 | toolset `memory` | 1 tool | `toolsets.py:129` | on/sesuai tool | — | tools: memory; available saat inventaris=True | F2 | planned |
 | TSET-022 | toolset `project` | 1 tool | `toolsets.py:133` | client-surface (GUI) | — | tools: desktop_project; available saat inventaris=True | F8 | planned |
@@ -388,7 +388,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TSET-024 | toolset `onboarding` | 1 tool | `toolsets.py:146` | client-surface (GUI) | — | tools: setup_beat; available saat inventaris=True | F8 | planned |
 | TSET-025 | toolset `skills` | 3 tool | `toolsets.py:103` | on/sesuai tool | — | tools: skill_manage, skills_list, skill_view; available saat inventaris=True | F2 | planned |
 | TSET-026 | toolset `tts` | 1 tool | `toolsets.py:127` | on/sesuai tool | — | tools: text_to_speech; available saat inventaris=True | F6 | planned |
-| TSET-027 | toolset `video_gen` | 3 tool | `toolsets.py:89` | off (default-off) | — | tools: video_generate, xai_video_edit, xai_video_extend; available saat inventaris=False | F6 | planned |
+| TSET-027 | toolset `video_gen` | 3 tool | `toolsets.py:89` | off (default-off) | — | tools: video_generate, xai_video_edit, xai_video_extend; available saat inventaris=False | F6 | LULUS |
 | TSET-028 | toolset `vision` | 1 tool | `toolsets.py:86` | on/sesuai tool | — | tools: vision_analyze; available saat inventaris=False | F6 | LULUS |
 | TSET-029 | toolset `video` | 1 tool | `toolsets.py:87` | off (default-off) | — | tools: video_analyze; available saat inventaris=False | F6 | planned |
 | TSET-030 | toolset `web` | 2 tool | `toolsets.py:76` | on/sesuai tool | — | tools: web_search, web_extract; available saat inventaris=True | F6 | LULUS |
@@ -743,14 +743,14 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | PLUG-017 | Plugin: disk-cleanup | Bersihkan file ephemeral | `plugins/disk-cleanup/disk_cleanup.py` | opt-in | — |  | F8 | planned |
 | PLUG-018 | Plugin: google_meet | Join Google Meet, transkripsi caption, bicara realtime | `plugins/google_meet/plugin.yaml`, `plugins/google_meet/meet_bot.py` | opt-in | extra `google-meet` (playwright), Node |  | F8 | planned |
 | PLUG-019 | Plugin: hermes-achievements | Achievement/gamifikasi di dashboard | `plugins/hermes-achievements/README.md` | opt-in | — |  | F8 | planned |
-| PLUG-020 | Plugin: image_gen | 8 backend generate gambar | `plugins/image_gen/_common.py` | opt-in | lihat MEDIA |  | F6 | planned |
+| PLUG-020 | Plugin: image_gen | 8 backend generate gambar | `plugins/image_gen/_common.py` | opt-in | lihat MEDIA |  | F6 | LULUS |
 | PLUG-021 | Plugin: kanban (dashboard, systemd) | UI dashboard kanban & unit systemd | `plugins/kanban/dashboard`, `plugins/kanban/systemd` | opt-in | systemd |  | F7 | planned |
 | PLUG-022 | Plugin: memory | Slot/plugin memory provider (Honcho) (V-30/ADR-054; byterover/retaindb = MEM-006/MEM-007, NP-21) | `plugins/memory/__init__.py` | off | lihat MEM |  | F8 | planned |
 | PLUG-023 | Plugin: model-providers | 41 direktori profil provider model | `plugins/model-providers/README.md` | on (bundled) | lihat PROV |  | F5 | planned |
 | PLUG-024 | Plugin: platforms | 27 adapter platform chat | `gateway/platforms/ADDING_A_PLATFORM.md` | per-platform | lihat PLAT |  | F7 | planned |
 | PLUG-025 | Plugin: security-guidance | Peringatan keamanan pada hasil write file | `plugins/security-guidance/plugin.yaml`, `plugins/security-guidance/patterns.py` | opt-in | — |  | F8 | planned |
 | PLUG-026 | Plugin: teams_pipeline | Pipeline rapat Microsoft Teams via Graph | `plugins/teams_pipeline/plugin.yaml`, `plugins/teams_pipeline/pipeline.py` | opt-in | Microsoft Graph creds |  | F8 | planned |
-| PLUG-027 | Plugin: video_gen | 4 backend generate video | `plugins/video_gen/xai/plugin.yaml` | opt-in | lihat MEDIA |  | F6 | planned |
+| PLUG-027 | Plugin: video_gen | 4 backend generate video | `plugins/video_gen/xai/plugin.yaml` | opt-in | lihat MEDIA |  | F6 | LULUS |
 | PLUG-028 | Plugin: web | 11 backend web search/extract | `plugins/web/__init__.py` | auto (`web.backend: ""`) | lihat EXEC/TOOL |  | F6 | LULUS |
 | PLUG-029 | MCP client | Koneksi server MCP stdio/HTTP/SSE → tool dinamis | `tools/mcp_tool.py`, `tools/mcp_tool_transport.py`, `tools/mcp_tool_registration.py` | on (bila `mcp` dikonfigurasi) | extra `mcp` | auto reload saat config berubah | F5 | planned |
 | PLUG-030 | MCP OAuth (PKCE, device, DCR) | OAuth untuk server MCP remote | `tools/mcp_oauth_manager.py`, `tools/mcp_oauth_device.py` | on bila perlu | browser | `hermes mcp login` | F5 | planned |
@@ -848,20 +848,20 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | MEDIA-012 | Vision (vision_analyze) | Analisis gambar via model vision auxiliary | `tools/vision_tools.py`, `agent/vision_message_prep.py` | on (core) | Model vision, Pillow |  | F6 | LULUS |
 | MEDIA-013 | Image routing native | Kirim gambar native ke model multimodal | `agent/image_routing.py` | on | — |  | F6 | LULUS |
 | MEDIA-014 | Video analyze | Analisis video | `tools/vision_tools.py:2` | off (toolset `video`) | Model multimodal |  | F6 | planned |
-| MEDIA-015 | Image generation | image_generate dengan 8 backend plugin | `tools/image_generation_tool.py`, `agent/image_gen_registry.py` | on (core) bila backend tersedia | lihat backend |  | F6 | planned |
-| MEDIA-016 | Image backend: FAL | flux, nano-banana, gpt-image dsb. | `plugins/image_gen/fal/plugin.yaml` | opt-in | FAL_KEY, extra `fal` |  | F6 | planned |
-| MEDIA-017 | Image backend: OpenAI | GPT Image | `plugins/image_gen/openai/plugin.yaml` | opt-in | OPENAI_API_KEY |  | F6 | planned |
-| MEDIA-018 | Image backend: OpenAI Codex OAuth | gpt-image via OAuth ChatGPT | `plugins/image_gen/openai-codex/plugin.yaml` | opt-in | Codex OAuth |  | F6 | planned |
-| MEDIA-019 | Image backend: OpenRouter/Nous | Image via chat completions OpenRouter/Nous | `plugins/image_gen/openrouter/plugin.yaml` | opt-in | OPENROUTER_API_KEY |  | F6 | planned |
-| MEDIA-020 | Image backend: xAI | grok-imagine-image | `plugins/image_gen/xai/plugin.yaml` | opt-in | XAI_API_KEY |  | F6 | planned |
-| MEDIA-021 | Image backend: DeepInfra | FLUX, Qwen-Image | `plugins/image_gen/deepinfra/plugin.yaml` | opt-in | DEEPINFRA_API_KEY |  | F6 | planned |
-| MEDIA-022 | Image backend: Krea | Krea 2 | `plugins/image_gen/krea/plugin.yaml` | opt-in | KREA_API_KEY |  | F6 | planned |
-| MEDIA-023 | Image backend: Meta AI | muse-image | `plugins/image_gen/meta-ai/plugin.yaml` | opt-in | META_MODEL_API_KEY |  | F6 | planned |
-| MEDIA-024 | Video generation | video_generate (+ xAI edit/extend) | `tools/video_generation_tool.py`, `agent/video_gen_registry.py` | off (toolset `video_gen`) | lihat backend |  | F6 | planned |
-| MEDIA-025 | Video backend: FAL | Veo 3.1, Kling, Pixverse | `plugins/video_gen/fal/plugin.yaml` | opt-in | FAL_KEY |  | F6 | planned |
-| MEDIA-026 | Video backend: xAI | Grok Imagine video (edit/extend) | `plugins/video_gen/xai/plugin.yaml` | opt-in | XAI_API_KEY |  | F6 | planned |
-| MEDIA-027 | Video backend: OpenRouter | /api/v1/videos (Veo, Sora, Kling…) | `plugins/video_gen/openrouter/plugin.yaml` | opt-in | OPENROUTER_API_KEY |  | F6 | planned |
-| MEDIA-028 | Video backend: DeepInfra | text/image-to-video | `plugins/video_gen/deepinfra/plugin.yaml` | opt-in | DEEPINFRA_API_KEY |  | F6 | planned |
+| MEDIA-015 | Image generation | image_generate dengan 8 backend plugin | `tools/image_generation_tool.py`, `agent/image_gen_registry.py` | on (core) bila backend tersedia | lihat backend |  | F6 | LULUS |
+| MEDIA-016 | Image backend: FAL | flux, nano-banana, gpt-image dsb. | `plugins/image_gen/fal/plugin.yaml` | opt-in | FAL_KEY, extra `fal` |  | F6 | LULUS |
+| MEDIA-017 | Image backend: OpenAI | GPT Image | `plugins/image_gen/openai/plugin.yaml` | opt-in | OPENAI_API_KEY |  | F6 | LULUS |
+| MEDIA-018 | Image backend: OpenAI Codex OAuth | gpt-image via OAuth ChatGPT | `plugins/image_gen/openai-codex/plugin.yaml` | opt-in | Codex OAuth |  | F6 | LULUS |
+| MEDIA-019 | Image backend: OpenRouter/Nous | Image via chat completions OpenRouter/Nous | `plugins/image_gen/openrouter/plugin.yaml` | opt-in | OPENROUTER_API_KEY |  | F6 | LULUS |
+| MEDIA-020 | Image backend: xAI | grok-imagine-image | `plugins/image_gen/xai/plugin.yaml` | opt-in | XAI_API_KEY |  | F6 | LULUS |
+| MEDIA-021 | Image backend: DeepInfra | FLUX, Qwen-Image | `plugins/image_gen/deepinfra/plugin.yaml` | opt-in | DEEPINFRA_API_KEY |  | F6 | LULUS |
+| MEDIA-022 | Image backend: Krea | Krea 2 | `plugins/image_gen/krea/plugin.yaml` | opt-in | KREA_API_KEY |  | F6 | LULUS |
+| MEDIA-023 | Image backend: Meta AI | muse-image | `plugins/image_gen/meta-ai/plugin.yaml` | opt-in | META_MODEL_API_KEY |  | F6 | LULUS |
+| MEDIA-024 | Video generation | video_generate (+ xAI edit/extend) | `tools/video_generation_tool.py`, `agent/video_gen_registry.py` | off (toolset `video_gen`) | lihat backend |  | F6 | LULUS |
+| MEDIA-025 | Video backend: FAL | Veo 3.1, Kling, Pixverse | `plugins/video_gen/fal/plugin.yaml` | opt-in | FAL_KEY |  | F6 | LULUS |
+| MEDIA-026 | Video backend: xAI | Grok Imagine video (edit/extend) | `plugins/video_gen/xai/plugin.yaml` | opt-in | XAI_API_KEY |  | F6 | LULUS |
+| MEDIA-027 | Video backend: OpenRouter | /api/v1/videos (Veo, Sora, Kling…) | `plugins/video_gen/openrouter/plugin.yaml` | opt-in | OPENROUTER_API_KEY |  | F6 | LULUS |
+| MEDIA-028 | Video backend: DeepInfra | text/image-to-video | `plugins/video_gen/deepinfra/plugin.yaml` | opt-in | DEEPINFRA_API_KEY |  | F6 | LULUS |
 | MEDIA-029 | Discord voice channel | Join voice channel Discord, STT/TTS, voice mixer | `plugins/platforms/discord/voice_mixer.py`, `gateway/run_voice.py` | opt-in | discord.py[voice], ffmpeg, opus |  | F7 | planned |
 | MEDIA-030 | Media cache & repair gateway | Unduh/cache/perbaiki media inbound | `gateway/platforms/media_cache.py`, `gateway/media_repair.py` | on | ffmpeg [INFERENCE] |  | F6 | planned |
 | MEDIA-031 | Silk audio (WeChat/QQ) | Dekode audio SILK | `pyproject.toml:342` | opt-in | extra `silk` (pilk) |  | F7 | planned |

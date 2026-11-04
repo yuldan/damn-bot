@@ -12,11 +12,13 @@ import (
 
 // Deferred tool names (ADR-309, SPEC §9.5).
 const (
-	ToolDocRead       = "doc_read"
-	ToolDocWrite      = "doc_write"
-	ToolImageGenerate = "image_generate"
-	ToolVideoGenerate = "video_generate"
-	ToolVisionAnalyze = "vision_analyze"
+	ToolDocRead        = "doc_read"
+	ToolDocWrite       = "doc_write"
+	ToolImageGenerate  = "image_generate"
+	ToolVideoGenerate  = "video_generate"
+	ToolVisionAnalyze  = "vision_analyze"
+	ToolXAIVideoEdit   = "xai_video_edit"
+	ToolXAIVideoExtend = "xai_video_extend"
 )
 
 // ToolSpec is the module-facing metadata of one deferred tool. The
@@ -60,6 +62,20 @@ func Tools() []ToolSpec {
 			Tags:        []string{"image", "vision", "picture", "describe", "analyze", "ocr"},
 			Effect:      "read",
 			Schema:      json.RawMessage(`{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":512},"url":{"type":"string","minLength":8,"maxLength":2048},"prompt":{"type":"string","maxLength":2000}},"additionalProperties":false}`),
+		},
+		{
+			Name:        ToolXAIVideoEdit,
+			Description: "Edit one existing video with xAI Grok Imagine after price approval.",
+			Tags:        []string{"video", "edit", "xai", "grok"},
+			Effect:      "non_idempotent",
+			Schema:      json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000},"video_url":{"type":"string","minLength":1,"maxLength":4096}},"required":["prompt","video_url"],"additionalProperties":false}`),
+		},
+		{
+			Name:        ToolXAIVideoExtend,
+			Description: "Extend one existing video by 2-10 seconds with xAI after price approval.",
+			Tags:        []string{"video", "extend", "xai", "grok"},
+			Effect:      "non_idempotent",
+			Schema:      json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","minLength":1,"maxLength":4000},"video_url":{"type":"string","minLength":1,"maxLength":4096},"duration_s":{"type":"integer","minimum":2,"maximum":10}},"required":["prompt","video_url"],"additionalProperties":false}`),
 		},
 		{
 			Name:        ToolDocWrite,

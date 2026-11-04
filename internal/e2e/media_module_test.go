@@ -190,3 +190,46 @@ func TestF6MediaDisabledE2E(t *testing.T) {
 		t.Errorf("direct call was not refused:\n%.1200s", reqs[1])
 	}
 }
+
+// TestF6MediaImageGenerateE2E proves the paid image path end to end on the
+// real binary: tool_search → image_generate (approval auto) → the vendor
+// result reaches the next prompt as <untrusted source="media:image/openai">.
+func TestF6MediaImageGenerateE2E(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int64
+	var path, auth string
+	vendor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		path, auth = r.URL.Path, r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write([]byte(`{"data":[{"b64_json":"iVBORw0KGgo="}]}`)); err != nil {
+			t.Errorf("write vendor response: %v", err)
+		}
+	}))
+	defer vendor.Close()
+	e := NewTrusted(t,
+		ToolCallReply("s1", "tool_search", `{"query":"image_generate"}`),
+		ToolCallReply("i1", "tool_invoke", `{"name":"image_generate","arguments":{"prompt":"cat","size":"1024x1024"}}`),
+		providertest.Text("done"),
+	)
+	writeMediaConfig(t, e, true, "image_backend = \"openai\"\nimage_endpoint = \""+vendor.URL+"/v1/images/generations\"\nimage_key_env = \"MEDIA_TEST_KEY\"\n")
+	res := e.ExecStdinEnv("y\n", []string{"MEDIA_TEST_KEY=test-key"}, mediaRunArgs(e, "generate an image")...)
+	res.RequireOK(t)
+	if got := calls.Load(); got != 1 || path != "/v1/images/generations" || auth != "Bearer test-key" {
+		t.Fatalf("vendor calls = %d at %q auth %q", got, path, auth)
+	}
+	reqs := e.Requests()
+	if len(reqs) != 3 {
+		t.Fatalf("provider requests = %d, want 3\nstderr:\n%s", len(reqs), res.Stderr)
+	}
+	last := string(reqs[2])
+	for _, want := range []string{"generated openai gpt-image-1 image", `untrusted source=\"media:image/openai\"`} {
+		if !strings.Contains(last, want) {
+			t.Errorf("transcript lacks %q", want)
+			logTranscript(t, reqs[2])
+		}
+	}
+	if strings.Contains(last, "test-key") {
+		t.Errorf("API key leaked into the prompt:\n%.800s", last)
+	}
+}

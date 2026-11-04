@@ -48,7 +48,8 @@ type (
 		URL     string
 		MIME    string
 	}
-	// VideoRequest is one paid video generation or analysis.
+	// VideoRequest is one paid video generation, edit, extension or analysis.
+	// SourceURL carries the existing video for edit/extension only.
 	VideoRequest struct {
 		SessionID      string
 		CallID         string
@@ -56,6 +57,7 @@ type (
 		Model          string
 		Prompt         string
 		DurationS      int
+		SourceURL      string
 	}
 	// VideoResult is one generated video.
 	VideoResult struct {
@@ -97,6 +99,14 @@ type VideoGen interface {
 	Name() string
 	Price(model string) (Price, bool)
 	Generate(ctx context.Context, req *VideoRequest) (VideoResult, error)
+}
+
+// VideoEditGen is one backend that edits or extends an existing video.
+type VideoEditGen interface {
+	Name() string
+	Price(model string) (Price, bool)
+	Edit(ctx context.Context, req *VideoRequest) (VideoResult, error)
+	Extend(ctx context.Context, req *VideoRequest) (VideoResult, error)
 }
 
 // VideoAnalyzer is one read-only video analysis backend.
@@ -211,7 +221,7 @@ func (s *Service) Video(ctx context.Context, backend VideoGen, req *VideoRequest
 	}
 	req.IdempotencyKey = key
 	before := func(ctx context.Context, micros int64) error {
-		return s.approve(ctx, req, backend.Name(), micros)
+		return s.approve(ctx, req, "video_generate", backend.Name(), micros)
 	}
 	v, err := s.run(ctx, key, estimate, before, func() (any, error) {
 		return backend.Generate(ctx, req)
@@ -222,6 +232,63 @@ func (s *Service) Video(ctx context.Context, backend VideoGen, req *VideoRequest
 	res, ok := v.(VideoResult)
 	if !ok {
 		return VideoResult{}, fmt.Errorf("%w: video result", ErrInvalidRequest)
+	}
+	return res, nil
+}
+
+// EditVideo edits (extend=false) or extends (extend=true) one video. It is
+// approval + price-preview gated, idempotent per key, and never retries an
+// uncertain vendor outcome.
+func (s *Service) EditVideo(ctx context.Context, backend VideoEditGen, req *VideoRequest, extend bool) (VideoResult, error) {
+	if backend == nil {
+		return VideoResult{}, fmt.Errorf("%w: nil video editor", ErrInvalidRequest)
+	}
+	if req.DurationS <= 0 {
+		if extend {
+			return VideoResult{}, fmt.Errorf("%w: extension duration", ErrInvalidRequest)
+		}
+		req.DurationS = defaultEditSeconds
+	}
+	if req.SourceURL == "" || req.Prompt == "" {
+		return VideoResult{}, fmt.Errorf("%w: video edit needs a source and prompt", ErrInvalidRequest)
+	}
+	if err := ValidateVideoSource(req.SourceURL); err != nil {
+		return VideoResult{}, err
+	}
+	if extend {
+		if err := ValidateExtendDuration(req.DurationS); err != nil {
+			return VideoResult{}, err
+		}
+	}
+	key, err := idemKey(req.SessionID, req.CallID, req.IdempotencyKey)
+	if err != nil {
+		return VideoResult{}, err
+	}
+	price, ok := backend.Price(req.Model)
+	if !ok {
+		return VideoResult{}, fmt.Errorf("%w: price for %s/%s", ErrCapability, backend.Name(), req.Model)
+	}
+	estimate, err := price.EstimateVideo(req.DurationS)
+	if err != nil {
+		return VideoResult{}, err
+	}
+	req.IdempotencyKey = key
+	tool := "xai_video_edit"
+	call := func() (any, error) { return backend.Edit(ctx, req) }
+	if extend {
+		tool = "xai_video_extend"
+		call = func() (any, error) { return backend.Extend(ctx, req) }
+	}
+	before := func(ctx context.Context, micros int64) error {
+		return s.approve(ctx, req, tool, backend.Name(), micros)
+	}
+	v, err := s.run(ctx, key, estimate, before, call, "tool:"+backend.Name())
+	if err != nil {
+		return VideoResult{}, err
+	}
+	res, ok := v.(VideoResult)
+	if !ok {
+		return VideoResult{}, fmt.Errorf("%w: video edit result", ErrInvalidRequest)
 	}
 	return res, nil
 }
@@ -258,13 +325,13 @@ func (s *Service) AnalyzeVideo(ctx context.Context, backend VideoAnalyzer, req *
 	return res, nil
 }
 
-func (s *Service) approve(ctx context.Context, req *VideoRequest, backend string, micros int64) error {
+func (s *Service) approve(ctx context.Context, req *VideoRequest, tool, backend string, micros int64) error {
 	a := s.Approval
 	if a == nil {
 		a = host.DenyApprovals{}
 	}
 	ar := &host.ApprovalRequest{
-		Tool: "video_generate", CallID: req.CallID, Effect: host.EffectNonIdempotent,
+		Tool: tool, CallID: req.CallID, Effect: host.EffectNonIdempotent,
 		Preview: fmt.Sprintf("%s %s: %d s, estimated $%.4f", backend, req.Model, req.DurationS, float64(micros)/1e6),
 	}
 	answer, err := a.Approve(ctx, ar)
