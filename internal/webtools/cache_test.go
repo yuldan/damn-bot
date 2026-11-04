@@ -5,6 +5,7 @@ package webtools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -103,6 +104,77 @@ func TestWebCacheIsolation(t *testing.T) {
 	if got := hits.Load(); got != 2 {
 		t.Fatalf("other tenant shared cache: %d calls", got)
 	}
+
+	webCacheProfileScope(t, srv)
+}
+
+// webCacheProfileScope pins GAP-COST-12: sibling subagents of one profile
+// share a cache entry, profiles never do, and the 20/60-minute TTLs hold.
+func webCacheProfileScope(t *testing.T, srv *httptest.Server) {
+	// GAP-COST-12: three delegate siblings of one profile share one vendor
+	// call, while two independent profiles never share a hit.
+	var searchCalls atomic.Int32
+	searchSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		searchCalls.Add(1)
+		writeTestBody(t, w, `{"results":[{"title":"T","url":"https://e.test/1","description":"S"}]}`)
+	}))
+	defer searchSrv.Close()
+	scfg := webConfig()
+	scfg.Engines = []string{"brave"}
+	scfg.Key = func(string) (string, error) { return "secret", nil }
+	scfg.Base = map[string]string{"brave": searchSrv.URL}
+	sm := startModule(t, scfg)
+	root := session(t, "profile-root")
+	raw := json.RawMessage(`{"query":"siblings","limit":3}`)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range 3 {
+		view, err := root.Session.Child(fmt.Sprintf("child-%d", i), []string{"web_fetch"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		child := host.Env{Session: view}
+		wg.Go(func() {
+			<-start
+			if _, err := sm.Invoke(context.Background(), "web_search", raw, child); err != nil {
+				t.Errorf("child search: %v", err)
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	if got := searchCalls.Load(); got != 1 {
+		t.Fatalf("3 sibling subagents made %d vendor calls, want 1", got)
+	}
+	if _, err := sm.Invoke(context.Background(), "web_search", raw, session(t, "other-profile")); err != nil {
+		t.Fatal(err)
+	}
+	if got := searchCalls.Load(); got != 2 {
+		t.Fatalf("other profile shared a search hit: %d calls", got)
+	}
+
+	// Defaults are 20 minutes for search and 60 minutes for extract; the key
+	// is only consulted after the SSRF/blocklist gate above.
+	now := time.Unix(5000, 0)
+	ttlCfg := webConfig()
+	ttlCfg.now = func() time.Time { return now }
+	ttl := startModule(t, ttlCfg)
+	envTTL := session(t, "ttl")
+	step := func(tool string, args json.RawMessage, advance time.Duration, want bool) {
+		now = now.Add(advance)
+		res, err := ttl.Invoke(context.Background(), tool, args, envTTL)
+		if err != nil || res.Meta["cached"] != want {
+			t.Fatalf("%s after %s: cached = %v err = %v, want %v", tool, advance, res.Meta["cached"], err, want)
+		}
+	}
+	searchRaw := json.RawMessage(`{"query":"ttl","limit":1}`)
+	step("web_search", searchRaw, 0, false)
+	step("web_search", searchRaw, 19*time.Minute, true)
+	step("web_search", searchRaw, 2*time.Minute, false)
+	fetchRaw := json.RawMessage(fmt.Sprintf(`{"url":%q}`, srv.URL))
+	step("web_fetch", fetchRaw, 0, false)
+	step("web_fetch", fetchRaw, 59*time.Minute, true)
+	step("web_fetch", fetchRaw, 2*time.Minute, false)
 }
 
 func TestWebSearchCache(t *testing.T) {

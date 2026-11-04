@@ -97,6 +97,7 @@ func Builtin() []Definition {
 	acp := slices.DeleteFunc(slices.Clone(coding), func(t string) bool { return t == "clarify" })
 	defs := []Definition{
 		{Name: "web", Description: "Web research and content extraction tools", Tools: web},
+		{Name: "search", Description: "Search bundle: web research tools", Includes: []string{"web"}},
 		{Name: "file", Description: "File manipulation tools: read, write, edit, glob, grep", Tools: file},
 		{Name: "terminal", Description: "Terminal/command execution", Tools: []string{"shell"}},
 		{Name: "todo", Description: "Task planning and tracking", Tools: []string{"todo"}},

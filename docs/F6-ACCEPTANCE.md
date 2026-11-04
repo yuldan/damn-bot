@@ -67,6 +67,9 @@ Aturan gate:
 | TOOL-082 | `video_generate` | selalu approval + preview harga; cap dicek sebelum dispatch; kunci idempotensi; kegagalan tak pasti = `uncertain` tanpa retry | `TestF6TOOL082VideoGenerate` | BELUM | F6-03d, F6-03g |
 | TOOL-083 | `xai_video_edit` | hanya backend xAI; approval + harga; hasil blob | `TestF6TOOL083XAIVideoEdit` | BELUM | F6-03d |
 | TOOL-084 | `xai_video_extend` | perpanjang video xAI; approval + harga; batas durasi | `TestF6TOOL084XAIVideoExtend` | BELUM | F6-03d |
+| TOOL-085 | `vision_analyze` | gate `capabilities.vision`; preflight resize; usage `purpose=media`; model teks-only → penolakan sebelum panggilan | `TestF6TOOL085VisionAnalyze` | BELUM | F6-03b |
+| TOOL-086 | `web_extract` | 11 backend; markdown; `backend` + `cached` di hasil; `<untrusted>`; blocklist/SSRF | `TestF6TOOL086WebExtract` | LULUS | F6-01d, F6-01e; registry `web_fetch` (SPEC §3.2.4), alias `web_extract` |
+| TOOL-087 | `web_search` | ≤10 hasil; snippet ≤300 char; `backend` di hasil; `<untrusted>`; single-flight | `TestF6TOOL087WebSearch` | LULUS | F6-01b, F6-01c, F6-01e |
 | TOOL-085 | `vision_analyze` | gate `capabilities.vision`; preflight resize; usage `purpose=media`; model teks-only → penolakan sebelum panggilan | `TestF6TOOL085VisionAnalyze` | LULUS | F6-03b |
 | TOOL-086 | `web_extract` | 11 backend; markdown; `backend` + `cached` di hasil; `<untrusted>`; blocklist/SSRF | `TestF6TOOL086WebExtract` | BELUM | F6-01d, F6-01e |
 | TOOL-087 | `web_search` | ≤10 hasil; snippet ≤300 char; `backend` di hasil; `<untrusted>`; single-flight | `TestF6TOOL087WebSearch` | BELUM | F6-01b, F6-01c, F6-01e |
@@ -84,15 +87,15 @@ Aturan gate:
 | TSET-027 | toolset `video_gen` | 3 tool, default off | `TestF6TSET027VideoGen` | BELUM | F6-03d |
 | TSET-028 | toolset `vision` | 1 tool, inventaris=false | `TestF6TSET028Vision` | LULUS | F6-03b |
 | TSET-029 | toolset `video` | 1 tool, default off | `TestF6TSET029Video` | BELUM | F6-03e |
-| TSET-030 | toolset `web` | 2 tool, inventaris=true | `TestF6TSET030Web` | BELUM | F6-01d |
-| TSET-034 | toolset komposit `search` | bundle menyertakan `web`; 0 tool tak dikenal/duplikat | `TestF6TSET034SearchBundle` | BELUM | F6-00a |
+| TSET-030 | toolset `web` | 2 tool, inventaris=true | `TestF6TSET030Web` | LULUS | F6-01d |
+| TSET-034 | toolset komposit `search` | bundle menyertakan `web`; 0 tool tak dikenal/duplikat | `TestF6TSET034SearchBundle` | LULUS | F6-00a |
 | MEM-037 | Image eviction/replay | retire batch pada 80% limit, stub `sha`, 1 cache break/batch; sesi 30 screenshot full-miss ≤ 2 | `TestF6MEM037ImageEviction` | BELUM | F6-03f |
 | UI-008 | Clipboard image / paste collapse | paste gambar via executable eksternal; paste panjang dilipat; tanpa clipboard → pesan | `TestF6UI008ClipboardPaste` | BELUM | F6-03a |
 | PLUG-012 | Plugin browser backends (Browserbase, Browser Use, Firecrawl) | tiga backend cloud dapat dipilih; tanpa env autodetect; kredensial keychain | `TestF6PLUG012BrowserBackends` | BELUM | F6-04f |
 | PLUG-013 | Plugin computer_use (cua) | backend cua terdeteksi; absen → fail-closed | `TestF6PLUG013ComputerUseCua` | BELUM | F6-06a |
 | PLUG-020 | Plugin image_gen (8 backend) | matriks 8 backend lengkap, masing-masing satu fixture | `TestF6PLUG020ImageGenBackends` | BELUM | F6-03c |
 | PLUG-027 | Plugin video_gen (4 backend) | matriks 4 backend lengkap + xAI edit/extend | `TestF6PLUG027VideoGenBackends` | BELUM | F6-03d |
-| PLUG-028 | Plugin web (11 backend) | matriks 11 backend; backend eksplisit; `tos_risk` untuk tidak resmi | `TestF6PLUG028WebBackends` | BELUM | F6-01a..01c |
+| PLUG-028 | Plugin web (11 backend) | matriks 11 backend; backend eksplisit; `tos_risk` untuk tidak resmi | `TestF6PLUG028WebBackends`, `TestF6PLUG028WebPlugin` | LULUS | F6-01a..01c |
 
 ## 6. Ledger parity F6 — MEDIA (29)
 
@@ -140,8 +143,8 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | EXEC-039 | Browser engine Lightpanda | Lightpanda + fallback eksplisit, bukan diam | `TestF6EXEC039LightpandaFallback` | BELUM | F6-04g |
 | EXEC-040 | Real profile / CDP connect | profil nyata hanya `real_profile=true` + approval per sesi; default profil terisolasi | `TestF6EXEC040RealProfileCDP` | BELUM | F6-04h |
 | EXEC-041 | Browser extension control | default off; kontrol ekstensi tidak melebarkan akses profil nyata | `TestF6EXEC041BrowserExtension` | BELUM | F6-04h |
-| EXEC-042 | Web backends 11 | matriks env acak → backend identik; tanpa autodetect; keyless vs keyed eksplisit | `TestF6EXEC042WebBackendsMatrix` | BELUM | F6-01a..01c |
-| EXEC-044 | Website blocklist | domain terblokir ditolak sebelum dial, termasuk redirect; daftar dari config | `TestF6EXEC044WebsiteBlocklist` | BELUM | F6-01e |
+| EXEC-042 | Web backends 11 | matriks env acak → backend identik; tanpa autodetect; keyless vs keyed eksplisit | `TestF6EXEC042WebBackendsMatrix`, `TestF6EXEC042WebBackendMatrix` | LULUS | F6-01a..01c |
+| EXEC-044 | Website blocklist | domain terblokir ditolak sebelum dial, termasuk redirect; daftar dari config | `TestF6EXEC044WebsiteBlocklist`, `TestF6EXEC044SiteBlocklist` | LULUS | F6-01e |
 
 ## 8. GAP F6 (9) — SPEC §22.1
 
@@ -150,12 +153,12 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | GAP-SEC-05 | fixture injection 20 varian → 0 cookie keluar; 100% method sensitif minta approval | `TestCDPAllowlist` | BELUM |
 | GAP-COST-05 | sesi 30 screenshot: full cache miss ≤ 2; 0 penolakan batas gambar; retire batch 80%→50% + stub `sha` | `TestF6MEM037ImageEviction`, `TestF6ImageSuite50` | BELUM |
 | GAP-COST-11 | panggilan video > cap ditolak sebelum dispatch; retry jaringan → 1 job vendor per kunci; `uncertain` tanpa retry; approval + preview harga | `TestBudgetGuardTools`, `TestF6COST11VideoIdempotency` | BELUM |
-| GAP-COST-12 | 3 subagent query identik → 1 panggilan vendor; 2 profil query sama → 0 hit silang; TTL 20/60 menit; `cached=true`; kunci setelah gerbang SSRF | `TestWebCacheIsolation` | BELUM |
+| GAP-COST-12 | 3 subagent query identik → 1 panggilan vendor; 2 profil query sama → 0 hit silang; TTL 20/60 menit; `cached=true`; kunci setelah gerbang SSRF | `TestWebCacheIsolation` | LULUS |
 | GAP-TOOL-01 | korpus 40 dokumen terbaca; round-trip tulis→baca 20 dokumen; `no_text_layer`/`unsupported`/`too_large` typed | `TestF6DocCorpus`, `FuzzDocRead` | BELUM |
 | GAP-TOOL-02 | zip-bomb 10 GB uncompressed → error terkontrol, RSS < 100 MB; batas 256 MiB/100:1/10.000 entri/kedalaman 256; PDF ≤ 5.000 objek/halaman | `TestF6DocLimits` | BELUM |
 | GAP-TOOL-06 | `doctor tools fetch/verify/ls` dengan lockfile sha256; byte rusak ditolak; lisensi dikonfirmasi; model tidak diunduh | `TestToolsLockComplete`, `TestF6ToolsFetch` | BELUM |
 | GAP-TOOL-07 | host tanpa ffmpeg: 0 MIME salah; MP3 80 MB terchunk internal; M4A → `module_unavailable`; hint `doctor tools fetch ffmpeg` | `TestF6AudioMIME` | BELUM |
-| GAP-TOOL-09 | matriks env acak → backend identik; 100% hasil memuat `backend`; fallback hanya dari config + label; backend tidak resmi `tos_risk` opt-in dan bukan default | `TestF6BackendSelection` | BELUM |
+| GAP-TOOL-09 | matriks env acak → backend identik; 100% hasil memuat `backend`; fallback hanya dari config + label; backend tidak resmi `tos_risk` opt-in dan bukan default | `TestF6BackendSelection` | LULUS |
 
 ## 9. EC, test tertunda, E3, dan baseline hermes
 

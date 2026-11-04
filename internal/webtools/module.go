@@ -128,7 +128,10 @@ func (m *Module) Invoke(ctx context.Context, tool string, args json.RawMessage, 
 		return host.Result{}, &host.Error{Code: "module_unavailable", Message: "web module is not enabled: " + tool}
 	}
 	switch tool {
-	case "web_fetch":
+	// SPEC §3.2.4 names the extract tool web_fetch; parity TOOL-086 calls it
+	// web_extract. The catalog keeps the SPEC name and the alias dispatches to
+	// the same implementation (ADR-323 mapping, documented in the PR).
+	case "web_fetch", "web_extract":
 		return m.fetch(ctx, env, args)
 	case "web_search":
 		return m.search(ctx, env, args)
@@ -170,6 +173,9 @@ func (m *Module) fetch(ctx context.Context, env host.Env, raw json.RawMessage) (
 	return host.Result{Content: f.doc.Markdown, Meta: map[string]any{
 		"url": f.page.URL, "status": f.page.Status, "content_type": f.page.ContentType,
 		"charset": f.doc.Charset, "truncated": f.doc.Truncated, "cached": cached,
+		// GAP-TOOL-09: every result names the backend that produced it. The
+		// extractor is the built-in Go pipeline, not a search vendor.
+		"backend": "native",
 	}, UntrustedSource: "web:" + f.page.Host}, nil
 }
 
@@ -250,7 +256,14 @@ func (m *Module) load(env host.Env, kind, detail string, ttl time.Duration, fn f
 		value, _, err := fn()
 		return value, false, err
 	}
-	digest := sha256.Sum256([]byte(env.Session.SessionID() + "|" + kind + "|" + detail))
+	// GAP-COST-12 keys the cache per profile, not per agent session: delegate
+	// children share their parent's cache entry (siblings hit the same vendor
+	// once), while two independent root sessions never see each other's hits.
+	scope := env.Session.SessionID()
+	if parent := env.Session.ParentID(); parent != "" {
+		scope = parent
+	}
+	digest := sha256.Sum256([]byte(scope + "|" + kind + "|" + detail))
 	return m.cache.load(string(digest[:]), ttl, fn)
 }
 
