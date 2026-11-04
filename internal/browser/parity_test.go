@@ -824,195 +824,254 @@ func (f fakeSecrets) ChildEnv(policy host.AllowPolicy) ([]string, error) {
 	return out, nil
 }
 
+// vault test credentials: neither may ever appear in a result, preview or error.
+const (
+	vaultUserValue = "hunter2-user"
+	vaultPassValue = "s3cret-pass"
+	vaultLoginArgs = `{"user_selector":"#user","password_selector":"#pass"}`
+)
+
 // TestF6TOOL015BrowserVault (TOOL-015): credentials come only from the secret
 // seam, never appear in a result, preview or error, and every call needs an
 // allow-once approval on an explicit local profile.
 func TestF6TOOL015BrowserVault(t *testing.T) {
 	t.Parallel()
-	const (
-		userValue = "hunter2-user"
-		passValue = "s3cret-pass"
-	)
-	vaultConfig := func(t *testing.T) ModuleConfig {
-		t.Helper()
-		cfg := moduleConfig()
-		cfg.VaultUserEnv = "VAULT_USER"
-		cfg.VaultPassEnv = "VAULT_PASS"
-		return cfg
+	cases := []struct {
+		name string
+		run  func(*testing.T)
+	}{
+		{"fills both fields without printing values", vaultFillsFields},
+		{"submit is opt-in and uses the form of the password field", vaultSubmits},
+		{"negative control: real profile is opt-in", vaultNeedsProfile},
+		{"negative control: missing vault config", vaultNeedsConfig},
+		{"negative control: denied approval fills nothing", vaultDenied},
+		{"negative control: missing field fails before typing", vaultMissingField},
+		{"negative control: no secret seam", vaultNoSeam},
+		{"negative control: half a vault config is refused at load", vaultHalfConfig},
 	}
-	secrets := fakeSecrets{env: map[string]string{"VAULT_USER": userValue, "VAULT_PASS": passValue}}
-	loginArgs := `{"user_selector":"#user","password_selector":"#pass"}`
-	t.Run("fills both fields without printing values", func(t *testing.T) {
-		t.Parallel()
-		f := newFake()
-		var (
-			typed []string
-			evals []string
-			mu    sync.Mutex
-		)
-		f.onCall = func(method string, params any) {
-			mu.Lock()
-			defer mu.Unlock()
-			switch method {
-			case "Input.insertText":
-				inserted, _ := params.(map[string]string)
-				typed = append(typed, inserted["text"])
-			case "Runtime.evaluate":
-				evaluated, _ := params.(map[string]any)
-				expression, _ := evaluated["expression"].(string)
-				evals = append(evals, expression)
-			}
+	for _, tc := range cases {
+		t.Run(tc.name, tc.run)
+	}
+}
+
+// vaultConfig returns a config that names both credential variables.
+func vaultConfig(t *testing.T) ModuleConfig {
+	t.Helper()
+	cfg := moduleConfig()
+	cfg.VaultUserEnv = "VAULT_USER"
+	cfg.VaultPassEnv = "VAULT_PASS"
+	return cfg
+}
+
+// vaultSecretsFake serves only the two configured vault variables.
+func vaultSecretsFake() fakeSecrets {
+	return fakeSecrets{env: map[string]string{"VAULT_USER": vaultUserValue, "VAULT_PASS": vaultPassValue}}
+}
+
+// vaultRecorder records the text typed and the page expressions evaluated.
+type vaultRecorder struct {
+	mu    sync.Mutex
+	typed []string
+	evals []string
+}
+
+// hook returns the transport callback that fills the recorder.
+func (r *vaultRecorder) hook(t *testing.T) func(string, any) {
+	return func(method string, params any) {
+		switch method {
+		case "Input.insertText":
+			r.recordInsert(t, params)
+		case "Runtime.evaluate":
+			r.recordEval(t, params)
 		}
-		f.results["Runtime.evaluate"] = json.RawMessage(`{"result":{"value":true}}`)
-		appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
-		cfg := vaultConfig(t)
-		m := newModule(t.Context(), t, &cfg, Deps{Dial: dialTo(f), Approvals: appr, Secrets: secrets})
-		res, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(loginArgs), host.Env{CallID: "c1"})
-		if err != nil {
-			t.Fatalf("vault: %v", err)
+	}
+}
+
+func (r *vaultRecorder) recordInsert(t *testing.T, params any) {
+	inserted, ok := params.(map[string]string)
+	if !ok {
+		t.Errorf("insertText params = %T", params)
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.typed = append(r.typed, inserted["text"])
+}
+
+func (r *vaultRecorder) recordEval(t *testing.T, params any) {
+	evaluated, ok := params.(map[string]any)
+	if !ok {
+		t.Errorf("evaluate params = %T", params)
+		return
+	}
+	expression, ok := evaluated["expression"].(string)
+	if !ok {
+		t.Errorf("evaluate expression = %T", evaluated["expression"])
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.evals = append(r.evals, expression)
+}
+
+// vaultFillsFields proves both credentials reach the fields and neither the
+// result, the meta map, the preview nor a page expression.
+func vaultFillsFields(t *testing.T) {
+	t.Helper()
+	f := newFake()
+	rec := &vaultRecorder{}
+	f.onCall = rec.hook(t)
+	f.results["Runtime.evaluate"] = json.RawMessage(`{"result":{"value":true}}`)
+	appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
+	cfg := vaultConfig(t)
+	m := newModule(t.Context(), t, &cfg, Deps{Dial: dialTo(f), Approvals: appr, Secrets: vaultSecretsFake()})
+	res, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(vaultLoginArgs), host.Env{CallID: "c1"})
+	if err != nil {
+		t.Fatalf("vault: %v", err)
+	}
+	if res.UntrustedSource != "browser:page" || !strings.Contains(res.Content, "submitted=false") {
+		t.Fatalf("result = %+v", res)
+	}
+	if !slices.Equal(rec.typed, []string{vaultUserValue, vaultPassValue}) {
+		t.Fatalf("typed = %v, want the two credentials", rec.typed)
+	}
+	for _, leaked := range []string{res.Content, fmt.Sprint(res.Meta)} {
+		if strings.Contains(leaked, vaultUserValue) || strings.Contains(leaked, vaultPassValue) {
+			t.Fatalf("result leaked a credential: %q", leaked)
 		}
-		if res.UntrustedSource != "browser:page" || !strings.Contains(res.Content, "submitted=false") {
-			t.Fatalf("result = %+v", res)
+	}
+	reqs := appr.requests()
+	if len(reqs) != 1 || reqs[0].Effect != host.EffectNonIdempotent {
+		t.Fatalf("approvals = %+v", reqs)
+	}
+	if strings.Contains(reqs[0].Preview, vaultUserValue) || strings.Contains(reqs[0].Preview, vaultPassValue) {
+		t.Fatalf("preview leaked a credential: %q", reqs[0].Preview)
+	}
+	for _, expression := range rec.evals {
+		if strings.Contains(expression, vaultUserValue) || strings.Contains(expression, vaultPassValue) {
+			t.Fatalf("credential entered a page expression: %q", expression)
 		}
-		if !slices.Equal(typed, []string{userValue, passValue}) {
-			t.Fatalf("typed = %v, want the two credentials", typed)
-		}
-		for _, leaked := range []string{res.Content, fmt.Sprint(res.Meta)} {
-			if strings.Contains(leaked, userValue) || strings.Contains(leaked, passValue) {
-				t.Fatalf("result leaked a credential: %q", leaked)
-			}
-		}
-		reqs := appr.requests()
-		if len(reqs) != 1 || reqs[0].Effect != host.EffectNonIdempotent {
-			t.Fatalf("approvals = %+v", reqs)
-		}
-		if strings.Contains(reqs[0].Preview, userValue) || strings.Contains(reqs[0].Preview, passValue) {
-			t.Fatalf("preview leaked a credential: %q", reqs[0].Preview)
-		}
-		for _, expression := range evals {
-			if strings.Contains(expression, userValue) || strings.Contains(expression, passValue) {
-				t.Fatalf("credential entered a page expression: %q", expression)
-			}
-		}
+	}
+}
+
+// vaultSubmits proves submit is opt-in and uses the password field's form.
+func vaultSubmits(t *testing.T) {
+	t.Helper()
+	f := newFake()
+	rec := &vaultRecorder{}
+	f.onCall = rec.hook(t)
+	f.results["Runtime.evaluate"] = json.RawMessage(`{"result":{"value":true}}`)
+	cfg := vaultConfig(t)
+	m := newModule(t.Context(), t, &cfg, Deps{
+		Dial: dialTo(f), Approvals: &fakeApprovals{answer: host.ApprovalAllowOnce}, Secrets: vaultSecretsFake(),
 	})
-	t.Run("submit is opt-in and uses the form of the password field", func(t *testing.T) {
-		t.Parallel()
-		f := newFake()
-		var (
-			evals []string
-			mu    sync.Mutex
-		)
-		f.onCall = func(method string, params any) {
-			if method != "Runtime.evaluate" {
-				return
-			}
-			m, _ := params.(map[string]any)
-			expression, _ := m["expression"].(string)
-			mu.Lock()
-			evals = append(evals, expression)
-			mu.Unlock()
+	if _, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(`{"user_selector":"#user","password_selector":"#pass","submit":true}`), host.Env{}); err != nil {
+		t.Fatalf("vault: %v", err)
+	}
+	submitted := false
+	for _, expression := range rec.evals {
+		if strings.Contains(expression, "requestSubmit") {
+			submitted = true
 		}
-		f.results["Runtime.evaluate"] = json.RawMessage(`{"result":{"value":true}}`)
-		cfg := vaultConfig(t)
-		m := newModule(t.Context(), t, &cfg, Deps{
-			Dial: dialTo(f), Approvals: &fakeApprovals{answer: host.ApprovalAllowOnce}, Secrets: secrets,
-		})
-		if _, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(`{"user_selector":"#user","password_selector":"#pass","submit":true}`), host.Env{}); err != nil {
-			t.Fatalf("vault: %v", err)
+		if strings.Contains(expression, vaultPassValue) {
+			t.Fatalf("credential entered a page expression: %q", expression)
 		}
-		submitted := false
-		for _, expression := range evals {
-			if strings.Contains(expression, "requestSubmit") {
-				submitted = true
-			}
-			if strings.Contains(expression, passValue) {
-				t.Fatalf("credential entered a page expression: %q", expression)
-			}
-		}
-		if !submitted {
-			t.Fatalf("no submit expression in %v", evals)
-		}
+	}
+	if !submitted {
+		t.Fatalf("no submit expression in %v", rec.evals)
+	}
+}
+
+// vaultNeedsProfile proves browser_vault is denied without local_profile.
+func vaultNeedsProfile(t *testing.T) {
+	t.Helper()
+	f := newFake()
+	cfg := vaultConfig(t)
+	cfg.LocalProfile = false
+	appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
+	m := newModule(t.Context(), t, &cfg, Deps{Dial: dialTo(f), Approvals: appr, Secrets: vaultSecretsFake()})
+	_, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(vaultLoginArgs), host.Env{})
+	var he *host.Error
+	if !errors.As(err, &he) || he.Code != "denied" {
+		t.Fatalf("err = %v, want denied", err)
+	}
+	if len(f.calls) != 0 || len(appr.requests()) != 0 {
+		t.Fatalf("calls = %v, approvals = %+v", f.calls, appr.requests())
+	}
+}
+
+// vaultNeedsConfig proves browser_vault fails closed without the two names.
+func vaultNeedsConfig(t *testing.T) {
+	t.Helper()
+	f := newFake()
+	m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f), Secrets: vaultSecretsFake()})
+	_, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(vaultLoginArgs), host.Env{})
+	var he *host.Error
+	if !errors.As(err, &he) || he.Code != "module_unavailable" {
+		t.Fatalf("err = %v, want module_unavailable", err)
+	}
+}
+
+// vaultDenied proves a denied approval fills nothing.
+func vaultDenied(t *testing.T) {
+	t.Helper()
+	f := newFake()
+	f.results["Runtime.evaluate"] = json.RawMessage(`{"result":{"value":true}}`)
+	cfg := vaultConfig(t)
+	m := newModule(t.Context(), t, &cfg, Deps{
+		Dial: dialTo(f), Approvals: &fakeApprovals{answer: host.ApprovalDeny}, Secrets: vaultSecretsFake(),
 	})
-	t.Run("negative control: real profile is opt-in", func(t *testing.T) {
-		t.Parallel()
-		f := newFake()
-		cfg := vaultConfig(t)
-		cfg.LocalProfile = false
-		appr := &fakeApprovals{answer: host.ApprovalAllowOnce}
-		m := newModule(t.Context(), t, &cfg, Deps{Dial: dialTo(f), Approvals: appr, Secrets: secrets})
-		_, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(loginArgs), host.Env{})
-		var he *host.Error
-		if !errors.As(err, &he) || he.Code != "denied" {
-			t.Fatalf("err = %v, want denied", err)
-		}
-		if len(f.calls) != 0 || len(appr.requests()) != 0 {
-			t.Fatalf("calls = %v, approvals = %+v", f.calls, appr.requests())
-		}
+	if _, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(vaultLoginArgs), host.Env{}); err == nil {
+		t.Fatal("unapproved vault ran")
+	}
+	if len(f.calls) != 0 {
+		t.Fatalf("denied vault called CDP: %v", f.calls)
+	}
+}
+
+// vaultMissingField proves a missing field fails before any text is typed.
+func vaultMissingField(t *testing.T) {
+	t.Helper()
+	f := newFake()
+	f.results["Runtime.evaluate"] = json.RawMessage(`{"result":{"value":false}}`)
+	cfg := vaultConfig(t)
+	m := newModule(t.Context(), t, &cfg, Deps{
+		Dial: dialTo(f), Approvals: &fakeApprovals{answer: host.ApprovalAllowOnce}, Secrets: vaultSecretsFake(),
 	})
-	t.Run("negative control: missing vault config", func(t *testing.T) {
-		t.Parallel()
-		f := newFake()
-		m := newModule(t.Context(), t, new(moduleConfig()), Deps{Dial: dialTo(f), Secrets: secrets})
-		_, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(loginArgs), host.Env{})
-		var he *host.Error
-		if !errors.As(err, &he) || he.Code != "module_unavailable" {
-			t.Fatalf("err = %v, want module_unavailable", err)
-		}
+	_, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(vaultLoginArgs), host.Env{})
+	var he *host.Error
+	if !errors.As(err, &he) || he.Code != "invalid_args" {
+		t.Fatalf("err = %v, want invalid_args", err)
+	}
+	if f.called("Input.insertText") {
+		t.Fatalf("typed into a missing field: %v", f.calls)
+	}
+}
+
+// vaultNoSeam proves a missing secret seam fails closed without leaking a value.
+func vaultNoSeam(t *testing.T) {
+	t.Helper()
+	f := newFake()
+	cfg := vaultConfig(t)
+	m := newModule(t.Context(), t, &cfg, Deps{
+		Dial: dialTo(f), Approvals: &fakeApprovals{answer: host.ApprovalAllowOnce},
 	})
-	t.Run("negative control: denied approval fills nothing", func(t *testing.T) {
-		t.Parallel()
-		f := newFake()
-		f.results["Runtime.evaluate"] = json.RawMessage(`{"result":{"value":true}}`)
-		cfg := vaultConfig(t)
-		m := newModule(t.Context(), t, &cfg, Deps{
-			Dial: dialTo(f), Approvals: &fakeApprovals{answer: host.ApprovalDeny}, Secrets: secrets,
-		})
-		if _, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(loginArgs), host.Env{}); err == nil {
-			t.Fatal("unapproved vault ran")
-		}
-		if len(f.calls) != 0 {
-			t.Fatalf("denied vault called CDP: %v", f.calls)
-		}
-	})
-	t.Run("negative control: missing field fails before typing", func(t *testing.T) {
-		t.Parallel()
-		f := newFake()
-		f.results["Runtime.evaluate"] = json.RawMessage(`{"result":{"value":false}}`)
-		cfg := vaultConfig(t)
-		m := newModule(t.Context(), t, &cfg, Deps{
-			Dial: dialTo(f), Approvals: &fakeApprovals{answer: host.ApprovalAllowOnce}, Secrets: secrets,
-		})
-		_, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(loginArgs), host.Env{})
-		var he *host.Error
-		if !errors.As(err, &he) || he.Code != "invalid_args" {
-			t.Fatalf("err = %v, want invalid_args", err)
-		}
-		if f.called("Input.insertText") {
-			t.Fatalf("typed into a missing field: %v", f.calls)
-		}
-	})
-	t.Run("negative control: no secret seam", func(t *testing.T) {
-		t.Parallel()
-		f := newFake()
-		cfg := vaultConfig(t)
-		m := newModule(t.Context(), t, &cfg, Deps{
-			Dial: dialTo(f), Approvals: &fakeApprovals{answer: host.ApprovalAllowOnce},
-		})
-		_, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(loginArgs), host.Env{})
-		var he *host.Error
-		if !errors.As(err, &he) || he.Code != "module_unavailable" {
-			t.Fatalf("err = %v, want module_unavailable", err)
-		}
-		if strings.Contains(err.Error(), userValue) {
-			t.Fatalf("error leaked a credential: %v", err)
-		}
-	})
-	t.Run("negative control: half a vault config is refused at load", func(t *testing.T) {
-		t.Parallel()
-		cfg := vaultConfig(t)
-		cfg.VaultPassEnv = ""
-		if _, err := New(&cfg, Deps{}); !errors.Is(err, errBadConfig) {
-			t.Fatalf("New = %v, want errBadConfig", err)
-		}
-	})
+	_, err := m.Invoke(t.Context(), "browser_vault", json.RawMessage(vaultLoginArgs), host.Env{})
+	var he *host.Error
+	if !errors.As(err, &he) || he.Code != "module_unavailable" {
+		t.Fatalf("err = %v, want module_unavailable", err)
+	}
+	if strings.Contains(err.Error(), vaultUserValue) {
+		t.Fatalf("error leaked a credential: %v", err)
+	}
+}
+
+// vaultHalfConfig proves half a vault config is refused at load.
+func vaultHalfConfig(t *testing.T) {
+	t.Helper()
+	cfg := vaultConfig(t)
+	cfg.VaultPassEnv = ""
+	if _, err := New(&cfg, Deps{}); !errors.Is(err, errBadConfig) {
+		t.Fatalf("New = %v, want errBadConfig", err)
+	}
 }
