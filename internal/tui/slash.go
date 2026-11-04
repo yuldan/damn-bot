@@ -31,6 +31,9 @@ const (
 	slashBrowser
 	slashVoice
 	slashWake
+
+	slashPaste
+	slashImage
 )
 
 // slashCommand is one parsed single-line slash invocation.
@@ -71,6 +74,9 @@ func slashCatalog() []slashItem {
 		{"/browser", "browser status/connect/close/engine", slashBrowser},
 		{"/voice", "voice mode on|off|tts|status", slashVoice},
 		{"/wake", "wake listener on|off|status", slashWake},
+
+		{"/paste", "attach an image from the clipboard", slashPaste},
+		{"/image", "attach a local image for the next prompt", slashImage},
 	}
 }
 

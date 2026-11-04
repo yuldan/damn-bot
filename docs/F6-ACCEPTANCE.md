@@ -41,8 +41,8 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | SLASH-063 | `/voice` on/off/tts/status | toggle tersimpan di config; status jujur; tanpa executable audio → `module_unavailable` | `TestF6SLASH063Voice` | LULUS | F6-05h |
 | SLASH-064 | `/wake` on/off/status | listener hanya aktif opt-in; engine eksternal hilang → pesan instalasi | `TestF6SLASH064Wake` | LULUS | F6-05g |
 | SLASH-084 | `/browser` connect/disconnect/status/use | koneksi CDP nyata/fake; `real_profile` butuh approval per sesi; disconnect menutup sesi | `TestF6SLASH084Browser` (TUI + gateway) | LULUS | F6-04h, F6-04j |
-| SLASH-098 | `/paste` | gambar clipboard dibaca lewat executable eksternal; tidak ada gambar → pesan; isi tidak bocor ke log | `TestF6SLASH098Paste` | BELUM | F6-03a |
-| SLASH-099 | `/image <path>` | gambar lokal dilampirkan dan melewati preflight; path di luar workspace mengikuti gate path | `TestF6SLASH099Image` | BELUM | F6-03a |
+| SLASH-098 | `/paste` | gambar clipboard dibaca lewat executable eksternal; tidak ada gambar → pesan; isi tidak bocor ke log | `TestF6SLASH098Paste` | LULUS | F6-03a |
+| SLASH-099 | `/image <path>` | gambar lokal dilampirkan dan melewati preflight; path di luar workspace mengikuti gate path | `TestF6SLASH099Image` | LULUS | F6-03a |
 
 ## 4. Ledger parity F6 — TOOL (24)
 
@@ -92,7 +92,7 @@ Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengka
 | TSET-030 | toolset `web` | 2 tool, inventaris=true | `TestF6TSET030Web` | LULUS | F6-01d |
 | TSET-034 | toolset komposit `search` | bundle menyertakan `web`; 0 tool tak dikenal/duplikat | `TestF6TSET034SearchBundle` | LULUS | F6-00a |
 | MEM-037 | Image eviction/replay | retire batch pada 80% limit, stub `sha`, 1 cache break/batch; sesi 30 screenshot full-miss ≤ 2 | `TestF6MEM037ImageEviction` | LULUS | F6-03f |
-| UI-008 | Clipboard image / paste collapse | paste gambar via executable eksternal; paste panjang dilipat; tanpa clipboard → pesan | `TestF6UI008ClipboardPaste` | BELUM | F6-03a |
+| UI-008 | Clipboard image / paste collapse | paste gambar via executable eksternal; paste panjang dilipat; tanpa clipboard → pesan | `TestF6UI008ClipboardImage` | LULUS | F6-03a |
 | PLUG-012 | Plugin browser backends (Browserbase, Browser Use, Firecrawl) | tiga backend cloud dapat dipilih; tanpa env autodetect; kredensial keychain | `TestF6PLUG012BrowserBackends` | LULUS | F6-04f |
 | PLUG-013 | Plugin computer_use (cua) | backend cua terdeteksi; absen → fail-closed | `TestF6PLUG013CUA` | LULUS | F6-06a |
 | PLUG-020 | Plugin image_gen (8 backend) | matriks 8 backend lengkap, masing-masing satu fixture | `TestF6PLUG020ImageGenBackends` | LULUS | F6-03c |

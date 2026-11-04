@@ -250,3 +250,44 @@ func clipRunes(s string, n int) string {
 	}
 	return s
 }
+
+// renderBlockAt applies turn spacing, hierarchy, and the navigation marker.
+func (m *Model) renderBlockAt(i int) string {
+	b := &m.blocks[i]
+	ts := ""
+	if !b.At.IsZero() {
+		ts = m.styles.dim.Render(b.At.Format("15:04:05") + " ")
+	}
+	text := b.Text
+	if m.collapsed[i] {
+		text = collapseLine(text)
+	}
+	var body string
+	switch b.Kind {
+	case BlockUser:
+		if len(b.Attachments) > 0 {
+			text += "\n" + strings.Join(b.Attachments, "\n")
+		}
+		body = m.styles.user.Render("you> " + text)
+	case BlockAssistant:
+		body = m.styles.fg.Render(text)
+	case BlockTool:
+		if m.collapsed[i] {
+			body = m.toolHeader(b)
+		} else {
+			body = m.toolBlock(b)
+		}
+	case BlockNotice:
+		body = m.styles.notice.Render("! " + text)
+	default:
+		body = m.styles.fg.Render(text)
+	}
+	line := ts + body
+	if b.Kind == BlockUser && i > 0 {
+		line = "\n" + line
+	}
+	if m.navMode && i == m.navIndex {
+		return "▸ " + line
+	}
+	return line
+}

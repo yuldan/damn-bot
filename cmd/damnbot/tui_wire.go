@@ -62,8 +62,8 @@ func runTUI(args []string) int {
 	app, err := tui.NewApp(sid, &tui.Host{
 		Clock: r, Runner: r, Config: r, Runtime: r, Actions: r, Shell: r,
 		Sessions: actions, Files: filesAdapter{}, Clipboard: clipboardAdapter{},
-		Browser: r,
-		Notices: noticeGateFor(&cfg, dataDir), Voice: newTUIVoice(&cfg),
+		Browser: r, Voice: newTUIVoice(&cfg), Resources: r,
+		Notices: noticeGateFor(&cfg, dataDir),
 	})
 	if err == nil {
 		benchTrace("app-built")
@@ -99,6 +99,9 @@ type tuiDeps struct {
 	opts      *runOptions
 	red       *redact.Redactor
 	now       func() time.Time
+	// workspace roots /image inside the directory the TUI was started in;
+	// tests inject a temp root, production leaves it empty (os.Getwd).
+	workspace string
 	// bridge is the ACP session's approval transport (GAP-UX-01); nil on
 	// the TUI path, which builds its own.
 	bridge *approvalBridge
@@ -164,7 +167,7 @@ func (r *tuiRunner) Prompt(ctx context.Context, sid string, in tui.Input) (<-cha
 	r.mu.Unlock()
 	atts := make([]loop.Attachment, len(in.Attachments))
 	for i, a := range in.Attachments {
-		atts[i] = loop.Attachment{Name: a.Name, MIME: a.MIME, BlobSHA: a.BlobSHA, Size: a.Size}
+		atts[i] = loop.Attachment{Kind: "image", Name: a.Name, MIME: a.MIME, BlobSHA: a.BlobSHA, Size: a.Size}
 	}
 	stream, err := eng.loop.Prompt(ctx, sid, loop.Input{Text: opts.prompt, PlanMode: in.PlanMode, Attachments: atts, Meta: in.Meta})
 	if err != nil {

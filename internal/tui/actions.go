@@ -11,6 +11,7 @@ import (
 )
 
 func (m *Model) runSlash(cmd slashCommand) tea.Cmd {
+	//exhaustive:ignore
 	switch cmd.kind {
 	case slashPlan:
 		if len(cmd.args) != 0 {
@@ -24,7 +25,7 @@ func (m *Model) runSlash(cmd slashCommand) tea.Cmd {
 		}
 		m.appendNotice("plan mode " + state + " for the next turn")
 	case slashUnknown:
-		m.appendNotice("unknown command " + cmd.name + "; available: /new /fork /rewind /undo /plan /theme /model /budget /modules /context /reload /compact /export /diff /btw /init /review /queue /steer /busy /browser /voice /wake")
+		m.appendNotice("unknown command " + cmd.name + "; available: /new /fork /rewind /undo /plan /theme /model /budget /modules /context /reload /compact /export /diff /btw /init /review /queue /steer /busy /browser /voice /wake /paste /image")
 	case slashBrowser:
 		return m.browserSlash(cmd)
 	case slashTheme, slashModel, slashBudget, slashModules, slashContext, slashReload, slashQueue, slashSteer, slashBusy:
@@ -35,8 +36,16 @@ func (m *Model) runSlash(cmd slashCommand) tea.Cmd {
 		return m.actionSlash(cmd)
 	case slashNew, slashFork, slashRewind, slashUndo:
 		return m.sessionSlash(cmd)
+	case slashPaste, slashImage:
+		return m.imageSlash(cmd)
 	}
 	return nil
+}
+
+// attachmentMsg is the asynchronous result of /paste or /image.
+type attachmentMsg struct {
+	att Attachment
+	err error
 }
 
 func (m *Model) needArgs(cmd slashCommand, n int, usage string) bool {
@@ -100,6 +109,7 @@ func (m *Model) browserSlash(cmd slashCommand) tea.Cmd {
 }
 
 func (m *Model) configSlash(cmd slashCommand) tea.Cmd {
+	//exhaustive:ignore -- handlers are selected by kind guards below.
 	if cmd.kind == slashTheme {
 		return m.cmdTheme(cmd.args)
 	}
@@ -363,6 +373,7 @@ func (m *Model) sessionSlash(cmd slashCommand) tea.Cmd {
 		m.appendNotice(cmd.name + " refused: a turn is running; cancel it first")
 		return nil
 	}
+	//exhaustive:ignore
 	switch cmd.kind {
 	case slashNew:
 		return func() tea.Msg {

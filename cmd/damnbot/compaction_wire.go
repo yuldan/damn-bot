@@ -413,6 +413,11 @@ func (a *assemblerAdapter) Assemble(ctx context.Context, req *loop.AssembleReque
 		out.Messages = append(out.Messages, lm)
 	}
 	attachHistory(req.History, out.Messages)
+	// User images survive compaction as blob shas; the provider can only send
+	// bytes, so resolve them here (MEM-037 replay boundary).
+	if err := a.attachImages(ctx, hist, len(out.Messages)-len(history), out.Messages); err != nil {
+		return loop.Prompt{}, err
+	}
 	// The assembler appends the history verbatim after the system tiers, so
 	// the view's assistant messages land at a fixed offset: their stored
 	// carriers go back on the request, minus the ones the provider rejected.

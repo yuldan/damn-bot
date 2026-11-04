@@ -105,7 +105,7 @@ type commandSpec struct {
 
 // commandHelp is the one-line help an unknown command gets (SPEC §9.7: a
 // command message never reaches the LLM).
-const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /timestamps [on|off|status] /delay [on|off|status] /topic [off|help|session-id] /tz [zone|off] /restart /platforms /platform list|pause|resume [name] /reload-mcp /voice [on|off|tts <text>|status] /wake [on|off|status]"
+const commandHelp = "commands: /start /whoami /approve [id] /deny [id|all] [reason] /pair <code> /new /stop /status /usage /pause [reason|off] /sethome /footer [on|off|status] /timestamps [on|off|status] /delay [on|off|status] /topic [off|help|session-id] /tz [zone|off] /restart /platforms /platform list|pause|resume [name] /reload-mcp /voice [on|off|tts <text>|status] /wake [on|off|status] /paste /image"
 
 // commandRegistry is the closed command set of this slice. Sources:
 //   - SPEC §9.7 "Perintah chat": /new /stop /fork /model /usage /plan /undo
@@ -171,6 +171,9 @@ func commandRegistry() map[string]commandSpec {
 		"logs": {owner: true}, "doctor": {owner: true}, "resume": {owner: true},
 		"lock": {owner: true}, "resend": {owner: true},
 		"model": {owner: true},
+
+		"paste": {run: (*Commands).pasteCommand},
+		"image": {run: (*Commands).imageCommand},
 
 		// Non-owner, not implemented by this slice.
 		"fork": {}, "plan": {}, "undo": {},
@@ -269,6 +272,21 @@ func (c *Commands) addresses(text string) (Command, bool) {
 		return Command{}, false
 	}
 	return cmd, true
+}
+
+// pasteCommand and imageCommand are the CLI-only attachment commands
+// (SLASH-098/099). Chat has no clipboard and no workspace path to trust, so
+// the honest answer points at the TUI and the platform attachment channel
+// instead of pretending an attachment was queued.
+func (c *Commands) pasteCommand(_ context.Context, _ *Ticket, _ Command) CommandResult {
+	return CommandResult{Handled: true, Reply: "command /paste is CLI-only: clipboard images are read by the local TUI. Attach the image to your message here instead."}
+}
+
+func (c *Commands) imageCommand(_ context.Context, _ *Ticket, cmd Command) CommandResult {
+	if len(cmd.Args) != 1 {
+		return CommandResult{Handled: true, Reply: "usage: /image <path> (CLI-only: the local TUI attaches a workspace image)"}
+	}
+	return CommandResult{Handled: true, Reply: "command /image is CLI-only: the local TUI attaches a workspace image. Attach the image to your message here instead."}
 }
 
 func (c *Commands) emergency(text string) bool {
