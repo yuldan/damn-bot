@@ -92,7 +92,7 @@ referensi Q14).
 | item | status | fase target | alasan |
 | --- | --- | --- | --- |
 | F5-CODEINTEL-LANG (`repo_map`/`code_intel` JS/TS/Python) | `LULUS (F6)` | F6 | Ditutup F6: `ts.wasm` dibangun ulang dari sumber runtime yang sama + grammar JS/TS/TSX/Python (self-contained, tanpa dylink), `internal/codeintel/ts` mendukung `{c,cpp,javascript,typescript,tsx,python}`; `TestF6CodeintelJSTS`/`TestF6CodeintelPython`. Riwayat: ADR-294 amandemen PR 2b menunda karena aset npm adalah side-module `dylink.0`. |
-| F5-BACKGROUND-WINDOWS (`shell background:true`, registry `process_*`) | `DITUNDA` | F6 | ADR-297/300: registry butuh Job Object agar `Close` membunuh seluruh pohon proses; permukaan fail-closed eksplisit (`exec.BackgroundSupported=false`, `module_unavailable` membungkus `exec.ErrCapability`; dikunci `process_windows_test.go` + `builtins_background_windows_test.go`). |
+| F5-BACKGROUND-WINDOWS (`shell background:true`, registry `process_*`) | `LULUS` (F6) | — | Ditutup di F6: `startBackground` Windows memakai Job Object + `KILL_ON_JOB_CLOSE`, `exec.BackgroundSupported=true`; `TestF5BackgroundWindowsJobObject` membuktikan `Close` membunuh leader + keturunan (kontrol negatif: proses saksi di luar job tetap hidup) dan job `test (windows-latest, -race, 1)` hijau pada head `e0b0d62c`. |
 | GAP-SEC-22 image Docker rilis | `DITUNDA` | F9 | ROADMAP F9 "Docker 1 stage" (distroless, user 65532, healthcheck, Trivy); backend tidak berubah. |
 | Skills-hub / preset catalog fetch | `N/A` | F8 | ADR-306 amandemen: jalur provider/MCP tertutup; katalog skills-hub milik F8. |
 | Surface diff pin di TUI/web | `N/A` | F8 | Web UI adalah deliverable F8; CLI `mcp review` sudah menampilkan diff `modified`/`added`. |

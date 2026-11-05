@@ -23,7 +23,7 @@ Aturan gate:
 | Test tertunda ADR-083 | cap tool non-LLM ditegakkan sebelum dispatch | `TestBudgetGuardTools`, `TestF6ADR083ToolCap` | LULUS |
 | Baseline hermes F6 | dimensi ADR-065/083 berstatus F6 diukur untuk kedua agent | `TestF6HermesBaseline`, `TestF6BaselineArtifactSchema` + `bench/speed/results/hermes-868b9f244f-F6.json` | LULUS |
 | GAP F6 (9) | sembilan baris SPEC §22.1 lulus verifikasinya | tabel §8; anggota (`BELUM` di head ini): `GAP-SEC-05`, `GAP-COST-05`, `GAP-COST-11`, `GAP-COST-12`, `GAP-TOOL-01`, `GAP-TOOL-02`, `GAP-TOOL-06`, `GAP-TOOL-07`, `GAP-TOOL-09` | BELUM |
-| Carryover F5→F6 | tiga item DITUNDA/N/A F5 ditutup | tabel §10; anggota (`BELUM` di head ini): `F5-CODEINTEL-LANG`, `F5-BACKGROUND-WINDOWS`, `GAP-REL-14 residual` | BELUM |
+| Carryover F5→F6 | tiga item DITUNDA/N/A F5 ditutup | tabel §10; ketiga anggota `LULUS`: `F5-CODEINTEL-LANG`, `F5-BACKGROUND-WINDOWS`, `GAP-REL-14 residual` | LULUS |
 
 Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengkap** (dua dimensi ADR-065/083 × dua agen, `TestF6HermesBaseline` + `TestF6BaselineArtifactSchema` hijau), bukan klaim target waktu tercapai. Artefak `bench/speed/results/hermes-868b9f244f-F6.json` diukur di workstation, bukan Q14. Verdict `image_preflight` = `fail`: Damn-Bot 265,0 ms dan hermes 453,5 ms terhadap target 150 ms yang hanya sah di Q14; target itu tetap `N/A — hardware` (ADR-323, §12) dan pengukuran Q14 tetap carryover F7. Verdict `voice_end_to_end` = `pass`: Damn-Bot 0,08 ms overhead / 0,05 ms TTS start, hermes 1,60 ms / 1,60 ms.
 | TOOL-083 | `xai_video_edit` | hanya backend xAI; approval + harga; hasil blob | `TestF6TOOL083XAIVideoEdit` | LULUS | F6-03d |
@@ -136,7 +136,7 @@ Catatan **Baseline hermes F6** (§9): baris ini `LULUS` untuk kelengkapan artefa
 | Item | Kriteria | Tes yang harus ada | Status |
 |---|---|---|---|
 | F5-CODEINTEL-LANG (JS/TS/Python) | `repo_map`/`code_intel` bekerja untuk js/ts/py; bahasa lain tetap `ErrUnsupportedLanguage`; aset wasm dimuat wazero tanpa CGO | `TestF6CodeintelJSTS`, `TestF6CodeintelPython`; kontrol `TestF5CodeintelLanguageJS/TS/Python`, `TestF5CodeintelLanguageGrammarUnavailable`, `TestF6CodeintelLanguageControls` | LULUS |
-| F5-BACKGROUND-WINDOWS | `shell background:true` + registry `process_*` tersedia di Windows; `Close` membunuh seluruh pohon via Job Object; tidak ada proses yatim | `TestF5BackgroundWindowsJobObject` (runner Windows), `TestShellBackgroundWindowsCapability` | BELUM — implementasi + tes ada; menunggu job `test (windows-latest, -race, 1)` hijau di head PR |
+| F5-BACKGROUND-WINDOWS | `shell background:true` + registry `process_*` tersedia di Windows; `Close` membunuh seluruh pohon via Job Object; tidak ada proses yatim | `TestF5BackgroundWindowsJobObject` (runner Windows), `TestShellBackgroundWindowsCapability` | LULUS |
 | GAP-REL-14 residual | hasil gambar MCP menjadi `Attachments` blob, bukan teks; bila model teks-only → gate vision (EC-PROV-024) | `TestF6GAPREL14MCPAttachment`, `TestEdgeCases/EC-PROV-024` | LULUS |
 
 ## 11. Perintah bukti
