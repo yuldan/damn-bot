@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/damnbot/damnbot/internal/config"
 )
 
 // writeCuaConfig writes one strict-config file for a cua CLI test.
@@ -98,6 +100,8 @@ func TestCuaHelperProcess(*testing.T) {
 			os.Exit(1)
 		}
 		out = []byte("typed " + string(data))
+	case "permissions":
+		out = []byte(`{"accessibility":true,"screen_recording":true}`)
 	case "click", "key", "scroll", "move", "wait":
 		out = []byte("ok")
 	default:
@@ -258,6 +262,10 @@ endpoint = `+strconv.Quote(base)+"\n")
 // mutating command refuses without --yes.
 func TestF6CLI054CUASubcommands(t *testing.T) {
 	dataHome := t.TempDir()
+	// Every platform resolver (XDG, macOS Application Support, Windows
+	// LOCALAPPDATA) must point at the same temporary home.
+	t.Setenv("HOME", dataHome)
+	t.Setenv("USERPROFILE", dataHome)
 	t.Setenv("XDG_DATA_HOME", dataHome)
 	t.Setenv("LOCALAPPDATA", dataHome)
 	t.Setenv("APPDATA", dataHome)
@@ -269,7 +277,15 @@ func TestF6CLI054CUASubcommands(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
-	dest := filepath.Join(dataHome, "damnbot", "cua", name)
+	loader, err := config.New(config.OS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := loader.Paths(activeProfile())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(paths.DataDir, "cua", name)
 	source := filepath.Join(t.TempDir(), "cua-driver")
 	if err := os.WriteFile(source, []byte("driver-v1"), 0o700); err != nil { // #nosec G306 -- fixture must look executable
 		t.Fatal(err)
@@ -333,8 +349,16 @@ func cuaDoctorPermissionsChecks(t *testing.T, cfg, log string) {
 	if code, _, _ := runCuaCLI(t, "permissions", "--config", cfg, "--grant"); code != cuaExitUsage {
 		t.Fatalf("permissions --grant = %d, want usage", code)
 	}
-	if b, err := os.ReadFile(log); err == nil && len(b) != 0 { // #nosec G304,G703 -- fixture log
-		t.Fatalf("read-only commands spawned the backend: %q", b)
+	b, rerr := os.ReadFile(log) // #nosec G304,G703 -- fixture log
+	if rerr != nil && !os.IsNotExist(rerr) {
+		t.Fatal(rerr)
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(string(b)), "\n") {
+		// macOS reads TCC through the documented read-only probe; no other
+		// command may spawn the backend.
+		if line != "" && (runtime.GOOS != "darwin" || line != "permissions status --json") {
+			t.Fatalf("read-only commands spawned %q (log %q)", line, b)
+		}
 	}
 }
 
