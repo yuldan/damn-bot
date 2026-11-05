@@ -1,6 +1,6 @@
 # F6-ACCEPTANCE — Ledger acceptance F6 (web, browser, media, voice, computer-use)
 
-Status: **ledger hidup** untuk `PHASE=F6` pada `origin/main` `c4c62f82`. Semua baris F6 sudah `LULUS` atau `N/A` beralasan kecuali `GAP-SEC-05` (§8) yang tetap `BELUM`. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; tidak ada status yang diubah oleh dokumen saja.
+Status: **ledger hidup** untuk `PHASE=F6` pada `origin/main` `6e9cdfe5`. Semua baris F6 sudah `LULUS` atau `N/A` beralasan. Satu baris hanya boleh berubah menjadi `LULUS` (atau `N/A` dengan alasan tertulis) pada PR yang benar-benar menambahkan tes bernama di kolom "Tes yang harus ada" dan tes itu lulus; tidak ada status yang diubah oleh dokumen saja.
 
 Sumber normatif: ROADMAP F6 (docs/ROADMAP.md:183-193), 86 baris parity berfase F6 (seluruhnya `LULUS` pada `c4c62f82`; docs/FEATURE-PARITY.md), kontrak modul SPEC §9.4/§9.5 (SPEC.md:878-887), 9 baris GAP F6 (SPEC.md:2924,2982,2988-2989,2999-3000,3004-3005,3007; docs/ROADMAP.md:236), EC F6 (docs/ROADMAP.md:58; docs/EDGE-CASES-hermes.md:77), dan carryover F5 (docs/F5-ACCEPTANCE.md:72,94-95,101). Nama paket dan baris budget mengikuti usulan ADR-309 (docs/DECISIONS.md).
 
@@ -22,7 +22,7 @@ Aturan gate:
 | EC-PROV-024 | gate kapabilitas vision sebelum routing gambar; model teks-only tidak pernah menerima gambar | `TestEdgeCases/EC-PROV-024` | LULUS |
 | Test tertunda ADR-083 | cap tool non-LLM ditegakkan sebelum dispatch | `TestBudgetGuardTools`, `TestF6ADR083ToolCap` | LULUS |
 | Baseline hermes F6 | dimensi ADR-065/083 berstatus F6 diukur untuk kedua agent | `TestF6HermesBaseline`, `TestF6BaselineArtifactSchema` + `bench/speed/results/hermes-868b9f244f-F6.json` | LULUS |
-| GAP F6 (9) | sembilan baris SPEC §22.1 lulus verifikasinya | tabel §8; anggota terbuka: `GAP-SEC-05` (`BELUM`); delapan lainnya `LULUS` (`GAP-COST-05`, `GAP-COST-11`, `GAP-COST-12`, `GAP-TOOL-01`, `GAP-TOOL-02`, `GAP-TOOL-06`, `GAP-TOOL-07`, `GAP-TOOL-09`) | BELUM |
+| GAP F6 (9) | sembilan baris SPEC §22.1 lulus verifikasinya | tabel §8; kesembilan anggota `LULUS` di head ini (`GAP-SEC-05`, `GAP-COST-05`, `GAP-COST-11`, `GAP-COST-12`, `GAP-TOOL-01`, `GAP-TOOL-02`, `GAP-TOOL-06`, `GAP-TOOL-07`, `GAP-TOOL-09`) | LULUS |
 | Carryover F5→F6 | tiga item DITUNDA/N/A F5 ditutup | tabel §10; ketiga anggota `LULUS` (`F5-CODEINTEL-LANG`, `F5-BACKGROUND-WINDOWS`, `GAP-REL-14 residual`) | LULUS |
 
 Catatan **Baseline hermes F6**: `LULUS` di sini berarti **artefak terukur lengkap** (dua dimensi ADR-065/083 × dua agen, `TestF6HermesBaseline` + `TestF6BaselineArtifactSchema` hijau), bukan klaim target waktu tercapai. Artefak `bench/speed/results/hermes-868b9f244f-F6.json` diukur di workstation, bukan Q14. Verdict `image_preflight` = `fail`: Damn-Bot 265,0 ms dan hermes 453,5 ms terhadap target 150 ms yang hanya sah di Q14; target itu tetap `N/A — hardware` (ADR-323, §12) dan pengukuran Q14 tetap carryover F7. Verdict `voice_end_to_end` = `pass`: Damn-Bot 0,08 ms overhead / 0,05 ms TTS start, hermes 1,60 ms / 1,60 ms.
@@ -149,7 +149,7 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 
 | GAP | Kriteria verifikasi | Tes yang harus ada | Status |
 |---|---|---|---|
-| GAP-SEC-05 | fixture injection 20 varian → 0 cookie keluar; 100% method sensitif minta approval | `TestCDPAllowlist` | BELUM |
+| GAP-SEC-05 | fixture injection 20 varian → 0 cookie keluar; 100% method sensitif minta approval | `TestCDPAllowlist`, `TestF6GAPSEC05InjectionCorpus`, `TestF6GAPSEC05SensitiveApproval` | LULUS |
 | GAP-COST-05 | sesi 30 screenshot: full cache miss ≤ 2; 0 penolakan batas gambar; retire batch 80%→50% + stub `sha` | `TestF6MEM037ImageEviction`, `TestF6ImageSuite50` | LULUS |
 | GAP-COST-11 | panggilan video > cap ditolak sebelum dispatch; retry jaringan → 1 job vendor per kunci; `uncertain` tanpa retry; approval + preview harga | `TestBudgetGuardTools`, `TestF6GAPCOST11BudgetToolsPayload`, `TestF6COST11VideoIdempotency` | LULUS |
 | GAP-COST-12 | 3 subagent query identik → 1 panggilan vendor; 2 profil query sama → 0 hit silang; TTL 20/60 menit; `cached=true`; kunci setelah gerbang SSRF | `TestWebCacheIsolation` | LULUS |

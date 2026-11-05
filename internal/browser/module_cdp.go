@@ -17,13 +17,14 @@ const maxCDPParams = 64 << 10
 // every call raises one allow-once approval whose preview names the method and
 // the number of parameter fields, never a parameter value or page content, and
 // a session approval can never widen it. Methods outside the reviewed
-// allowlist are refused before approval.
+// allowlist and refused payloads are rejected before approval.
 func (m *Module) rawCDP(ctx context.Context, raw json.RawMessage, env host.Env) (host.Result, error) {
 	var a cdpParams
 	if err := decodeArgs(raw, &a); err != nil {
 		return host.Result{}, invalidArgs(err)
 	}
-	if _, allowed := cdpMethodClass(a.Method); !allowed {
+	sensitive, allowed := cdpMethodClass(a.Method)
+	if !allowed {
 		return host.Result{}, &host.Error{
 			Code: "denied", Message: "browser_cdp: " + a.Method + " is outside the reviewed CDP allowlist",
 			Hint: "use the dedicated browser tools, or a method from the reviewed allowlist",
@@ -32,7 +33,12 @@ func (m *Module) rawCDP(ctx context.Context, raw json.RawMessage, env host.Env) 
 	if len(a.Params) > maxCDPParams {
 		return host.Result{}, &host.Error{Code: "invalid_args", Message: "browser_cdp: parameters too large"}
 	}
-	sensitive := cdpSensitive(a.Method, a.Params)
+	if cdpPayloadDenied(a.Method, a.Params) {
+		return host.Result{}, &host.Error{
+			Code: "denied", Message: "browser_cdp: " + a.Method + " parameters are refused by the CDP policy",
+			Hint: "parameters may not carry script, data, traversal or private target URLs",
+		}
+	}
 	preview := fmt.Sprintf("browser_cdp %s (%s) with %d parameter field(s)",
 		a.Method, cdpClassLabel(sensitive), paramFields(a.Params))
 	if err := m.approve(ctx, "browser_cdp", "browser:cdp", preview, env, raw); err != nil {
