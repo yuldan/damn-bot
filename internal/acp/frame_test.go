@@ -165,8 +165,17 @@ func TestFrame100MBBounded(t *testing.T) {
 	}
 	rssDelta := rssBytes() - rssBefore
 	t.Logf("100 MB frame: took=%v heap_delta=%d KiB rss_delta=%d KiB", took, heapDelta/1024, rssDelta/1024)
-	if took > 10*time.Second {
-		t.Fatalf("100 MB frame took %v", took)
+	// The wall-clock bound only guards against unbounded buffering: the
+	// functional assertions below (error code, heap, RSS) are what prove the
+	// cap. -race roughly doubles the copy time and macOS runners are slower
+	// still (10.29 s measured on macos-15-intel in the F6 full run), so the
+	// budget is scaled while the memory bounds stay fixed.
+	budget := 10 * time.Second
+	if raceEnabled || runtime.GOOS == "darwin" {
+		budget = 30 * time.Second
+	}
+	if took > budget {
+		t.Fatalf("100 MB frame took %v (budget %v)", took, budget)
 	}
 	if heapDelta > 48<<20 {
 		t.Fatalf("heap grew by %d bytes for a capped frame", heapDelta)
