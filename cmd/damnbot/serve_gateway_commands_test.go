@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -274,6 +275,51 @@ func TestGatewayCommandsNeverRunTheRunner(t *testing.T) {
 	defer mu.Unlock()
 	if calls != 0 {
 		t.Fatalf("runner calls = %d, want 0 for commands", calls)
+	}
+}
+
+// TestDecideApprovalSendFailureLeavesNoRegistryEntry: the request is registered
+// before the card goes out, so a failed send must withdraw it. A nonce from a
+// card that never reached the chat can then be neither listed nor decided (in
+// the registry or in the adapter) and leaves no durable record behind.
+func TestDecideApprovalSendFailureLeavesNoRegistryEntry(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/sendMessage") {
+			w.WriteHeader(http.StatusInternalServerError)
+			if _, err := io.WriteString(w, `{"ok":false,"error_code":500,"description":"Internal Server Error"}`); err != nil {
+				return
+			}
+			return
+		}
+		if _, err := io.WriteString(w, `{"ok":true,"result":true}`); err != nil {
+			return
+		}
+	}))
+	t.Cleanup(srv.Close)
+	gw := newTestGateway(t, srv.URL)
+	const nonce = "card-never-sent"
+	gw.approvals.newNonce = func() string { return nonce }
+
+	allow, err := gw.decideApproval(t.Context(), "sess-1", "run it", "7788", "", "shell", "printf x")
+	if err == nil || allow {
+		t.Fatalf("decideApproval = %v, %v; want the failed card send", allow, err)
+	}
+	if !strings.Contains(err.Error(), "sendMessage: 500") {
+		t.Fatalf("error %q does not name the failed send", err)
+	}
+	if pending := gw.approvals.Pending("telegram", "7788"); len(pending) != 0 {
+		t.Fatalf("registry kept %+v after a failed card send", pending)
+	}
+	if _, derr := gw.approvals.Decide("telegram", "7788", nonce, gateway.Deny); !errors.Is(derr, gateway.ErrApprovalNotFound) {
+		t.Fatalf("decide(unsent nonce) = %v, want ErrApprovalNotFound", derr)
+	}
+	if gw.adapter.DecideApproval("7788", nonce, false) {
+		t.Fatal("adapter still holds the approval of an unsent card")
+	}
+	rec, found, lerr := gw.approvals.ledger.Load(t.Context(), approvalRequestID("sess-1", "run it", "shell", "printf x"))
+	if lerr != nil || found {
+		t.Fatalf("durable record after a failed prompt = %+v, found=%v, err=%v", rec, found, lerr)
 	}
 }
 
