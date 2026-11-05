@@ -419,10 +419,11 @@ func (s *FakeTG) signal() {
 func (s *FakeTG) seen(method string, chatID int64) string {
 	var count int
 	var last string
-	for _, req := range s.RequestsFor(method) {
-		if req.ChatID == chatID {
+	requests := s.RequestsFor(method)
+	for i := range requests {
+		if requests[i].ChatID == chatID {
 			count++
-			last = req.Text
+			last = requests[i].Text
 		}
 	}
 	if count == 0 {

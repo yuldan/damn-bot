@@ -22,61 +22,76 @@ var approvalIDRE = regexp.MustCompile(`approval: ([A-Za-z0-9_-]+)`)
 // TestServeTelegramApproveCommand (SLASH-022): the text command denies or allows
 // the live tool card, and a replayed approval cannot execute twice.
 func TestServeTelegramApproveCommand(t *testing.T) {
-	run := func(t *testing.T, verb string, wantFile bool, replay bool) {
+	run := func(t *testing.T, verb string, wantFile, replay bool) {
 		t.Helper()
 		e := NewTrusted(t, ToolCallReply("c1", "shell", `{"command":"printf x >> out.txt","timeout_s":10}`), providertest.Text("done"))
 		tg := NewFakeTG(t, FakeTGOptions{})
 		p := startGatewayServe(t, e, tg)
-		tg.PushText(gatewayOwner, "run it")
-		prompt, err := tg.WaitSend(gatewayOwner, func(r FakeTGRequest) bool { return r.Params["reply_markup"] != "" }, 15*time.Second)
-		if err != nil {
-			t.Fatal(err)
-		}
-		m := approvalIDRE.FindStringSubmatch(prompt.Text)
-		if m == nil {
-			t.Fatalf("approval card has no id: %q", prompt.Text)
-		}
-		tg.PushText(gatewayOwner, "/"+verb+" "+m[1])
+		id := openApprovalCard(t, tg)
+		tg.PushText(gatewayOwner, "/"+verb+" "+id)
 		if replay {
-			tg.PushText(gatewayOwner, "/"+verb+" "+m[1])
+			tg.PushText(gatewayOwner, "/"+verb+" "+id)
 		}
-		// WaitEdit wakes on the fake's request signal, so the answer is checked
-		// the moment it is recorded instead of on a polling tick.
-		edit, werr := tg.WaitEdit(gatewayOwner, func(r FakeTGRequest) bool { return r.Text == "done" }, 15*time.Second)
-		if werr != nil {
-			t.Fatalf("%v\nstderr:\n%s", werr, p.stderr.String())
-		}
-		if edit.ChatID != gatewayOwner || edit.MessageID == 0 {
-			t.Fatalf("answer edit = %+v, want chat %d on a message id", edit, gatewayOwner)
-		}
-		// The command must resolve the card it names. A miss here is the
-		// gateway rejecting the answer to a prompt it has already put in the
-		// chat, which leaves the turn waiting for the approval timeout.
-		for _, s := range tg.Sends() {
-			if unresolvedApproval(s.Text) {
-				t.Fatalf("/%s %s was not resolved: gateway replied %q", verb, m[1], s.Text)
-			}
-		}
+		awaitAnswer(t, tg, p, verb, id)
 		gatewayStop(t, p)
-		body, rerr := os.ReadFile(filepath.Join(e.Workdir, "out.txt"))
-		if wantFile {
-			if rerr != nil || string(body) != "x" {
-				t.Fatalf("out.txt = %q err=%v, want one execution", body, rerr)
-			}
-			return
-		}
-		if !os.IsNotExist(rerr) {
-			t.Fatalf("denied tool executed: %v %q", rerr, body)
-		}
+		assertExecutions(t, e, wantFile)
 	}
 	t.Run("deny", func(t *testing.T) { run(t, "deny", false, false) })
 	t.Run("allow", func(t *testing.T) { run(t, "approve", true, false) })
-	t.Run("replay", func(t *testing.T) {
-		run(t, "approve", true, true)
-		if testing.Short() {
-			return
+	t.Run("replay", func(t *testing.T) { run(t, "approve", true, true) })
+}
+
+// openApprovalCard prompts the gateway with one tool call and returns the
+// approval id its card carries.
+func openApprovalCard(t *testing.T, tg *FakeTG) string {
+	t.Helper()
+	tg.PushText(gatewayOwner, "run it")
+	prompt, err := tg.WaitSend(gatewayOwner, func(r FakeTGRequest) bool { return r.Params["reply_markup"] != "" }, 15*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := approvalIDRE.FindStringSubmatch(prompt.Text)
+	if m == nil {
+		t.Fatalf("approval card has no id: %q", prompt.Text)
+	}
+	return m[1]
+}
+
+// awaitAnswer waits for the turn's answer edit and fails with the gateway's own
+// reply when the command did not resolve the card it named. WaitEdit wakes on
+// the fake's request signal, so the answer is checked the moment it is
+// recorded instead of on a polling tick.
+func awaitAnswer(t *testing.T, tg *FakeTG, p *serveProc, verb, id string) {
+	t.Helper()
+	edit, werr := tg.WaitEdit(gatewayOwner, func(r FakeTGRequest) bool { return r.Text == "done" }, 15*time.Second)
+	if werr != nil {
+		t.Fatalf("%v\nstderr:\n%s", werr, p.stderr.String())
+	}
+	if edit.ChatID != gatewayOwner || edit.MessageID == 0 {
+		t.Fatalf("answer edit = %+v, want chat %d on a message id", edit, gatewayOwner)
+	}
+	sends := tg.Sends()
+	for i := range sends {
+		if unresolvedApproval(sends[i].Text) {
+			t.Fatalf("/%s %s was not resolved: gateway replied %q", verb, id, sends[i].Text)
 		}
-	})
+	}
+}
+
+// assertExecutions checks the one-shot shell side effect of the turn: one line
+// when the tool was allowed, no file when it was denied.
+func assertExecutions(t *testing.T, e *Env, wantFile bool) {
+	t.Helper()
+	body, rerr := os.ReadFile(filepath.Join(e.Workdir, "out.txt"))
+	if !wantFile {
+		if !os.IsNotExist(rerr) {
+			t.Fatalf("denied tool executed: %v %q", rerr, body)
+		}
+		return
+	}
+	if rerr != nil || string(body) != "x" {
+		t.Fatalf("out.txt = %q err=%v, want one execution", body, rerr)
+	}
 }
 
 // TestServeTelegramApproveAnsweredOnArrival pins the ordering between the card
