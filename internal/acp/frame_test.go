@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/testutil/phase"
+	"github.com/damnbot/damnbot/internal/testutil/timing"
 )
 
 // repeatReader emits n copies of b without allocating n bytes.
@@ -98,6 +99,33 @@ func TestFrameCapBoundary(t *testing.T) {
 	}
 }
 
+// TestFrameCapDefaultBoundary pins the production 16 MiB cap: the payload at
+// the cap is accepted, one byte more is rejected, and the stream resynchronises
+// on the next LF.
+func TestFrameCapDefaultBoundary(t *testing.T) {
+	t.Parallel()
+	exact := io.MultiReader(&repeatReader{n: MaxFrameBytes, b: 'a'}, strings.NewReader("\n"))
+	frame, err := NewReader(exact).ReadFrame()
+	if err != nil || len(frame) != MaxFrameBytes {
+		t.Fatalf("frame at cap = %d bytes, %v; want %d, nil", len(frame), err, MaxFrameBytes)
+	}
+	over := io.MultiReader(
+		&repeatReader{n: MaxFrameBytes + 1, b: 'a'},
+		strings.NewReader("\n"+`{"jsonrpc":"2.0","id":3,"method":"next"}`+"\n"),
+	)
+	r := NewReader(over)
+	if _, rerr := r.ReadFrame(); !errors.Is(rerr, ErrFrameTooLarge) {
+		t.Fatalf("cap+1 = %v, want ErrFrameTooLarge", rerr)
+	}
+	next, err := r.ReadFrame()
+	if err != nil {
+		t.Fatalf("resync after cap+1: %v", err)
+	}
+	if req, rpcErr := ParseRequest(next); rpcErr != nil || req.Method != "next" {
+		t.Fatalf("resync = %+v, %v", req, rpcErr)
+	}
+}
+
 func TestFrameTrailingPartialAccepted(t *testing.T) {
 	t.Parallel()
 	r := NewReader(strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"x"}`))
@@ -125,6 +153,33 @@ func TestConnSkipsBlankLines(t *testing.T) {
 type discardWriter struct{}
 
 func (discardWriter) WriteFrame(context.Context, []byte) error { return nil }
+
+// countingReader reports whether Next touched the stream at all.
+type countingReader struct{ read bool }
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	r.read = true
+	return 0, io.EOF
+}
+
+// TestConnNextCanceledBeforeRead is the negative control for cancellation:
+// a canceled context must stop Next before it reads or parses anything.
+func TestConnNextCanceledBeforeRead(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	src := &countingReader{}
+	_, rpcErr, err := NewConn(src, discardWriter{}).Next(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if rpcErr != nil {
+		t.Fatalf("rpcErr = %+v, want nil", rpcErr)
+	}
+	if src.read {
+		t.Fatal("Next read the stream after ctx was canceled")
+	}
+}
 
 // TestFrame100MBBounded is the real 100 MB line: the reader must return
 // -32600, keep memory bounded, resynchronise on the next LF, and leave the
@@ -165,8 +220,18 @@ func TestFrame100MBBounded(t *testing.T) {
 	}
 	rssDelta := rssBytes() - rssBefore
 	t.Logf("100 MB frame: took=%v heap_delta=%d KiB rss_delta=%d KiB", took, heapDelta/1024, rssDelta/1024)
-	if took > 10*time.Second {
-		t.Fatalf("100 MB frame took %v", took)
+	// The wall-clock bound guards against unbounded buffering, not against the
+	// machine: the functional assertions below (error code, heap, RSS) are what
+	// prove the cap. The detector costs ~14x on Linux, and macos-15-intel adds
+	// another ~4.7x on top (10.29 s measured under -race on 994db9fc), so the
+	// budget is scaled while the frame size and memory bounds stay fixed
+	// (ADR-201 amendment, 2026-11-05).
+	budget := 10 * time.Second
+	if timing.RaceEnabled || runtime.GOOS == "darwin" {
+		budget = 30 * time.Second
+	}
+	if took > budget {
+		t.Fatalf("100 MB frame took %v (budget %v)", took, budget)
 	}
 	if heapDelta > 48<<20 {
 		t.Fatalf("heap grew by %d bytes for a capped frame", heapDelta)
