@@ -18,11 +18,18 @@ import (
 
 // transcribe runs one whisper call and retries only ETXTBSY: the fixture
 // script is written by the test process, so a fork from a parallel test can
-// still hold its writer when whisper is exec'd.
+// still hold its writer when whisper is exec'd. Transcribe spools (consumes)
+// the reader before exec, so a retried attempt must rewind a seekable reader;
+// otherwise the retry would see EOF and mask ETXTBSY as ErrEmptyAudio.
 func transcribe(ctx context.Context, t *testing.T, w *Whisper, r io.Reader, o Options) (Transcript, error) {
 	t.Helper()
 	var tr Transcript
 	err := testutil.ExecRetry(ctx, func() error {
+		if s, ok := r.(io.Seeker); ok {
+			if _, serr := s.Seek(0, io.SeekStart); serr != nil {
+				return fmt.Errorf("rewind: %w", serr)
+			}
+		}
 		var rerr error
 		tr, rerr = w.Transcribe(ctx, r, o)
 		return rerr
