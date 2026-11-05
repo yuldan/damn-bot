@@ -374,17 +374,21 @@ func (g *serveGateway) ResolveApproval(_ context.Context, scope *gateway.Scope, 
 
 func (g *serveGateway) feedback(ctx context.Context, chat, thread, tool, preview string) (bool, error) {
 	preview = cmp.Or(preview, tool)
-	id, err := g.adapter.OpenApproval(ctx, chat, thread, preview)
-	if err != nil {
-		return false, fmt.Errorf("gateway: approval: %w", err)
-	}
+	nonce := randomNonce()
+	// Same rule as decideApproval: the registry must know the id before the
+	// card can be answered, otherwise a /deny or /approve arriving with the
+	// card misses the registry and the tool waits for its timeout.
 	if oerr := g.approvals.Open(&gateway.ApprovalRequest{
-		ID: id, Platform: "telegram", ChatID: chat, UserID: chat,
+		ID: nonce, Platform: "telegram", ChatID: chat, UserID: chat,
 		Summary: preview, ExpiresAt: time.Now().Add(5 * time.Minute),
 	}); oerr != nil {
 		return false, fmt.Errorf("gateway: approval registry: %w", oerr)
 	}
-	d, err := g.adapter.AwaitApproval(ctx, chat, id)
+	if _, err := g.adapter.OpenApprovalWithNonce(ctx, chat, thread, preview, nonce); err != nil {
+		g.approvals.Withdraw(nonce) // the card never reached the chat
+		return false, fmt.Errorf("gateway: approval: %w", err)
+	}
+	d, err := g.adapter.AwaitApproval(ctx, chat, nonce)
 	if err != nil {
 		return false, fmt.Errorf("gateway: approval: %w", err)
 	}
@@ -393,7 +397,7 @@ func (g *serveGateway) feedback(ctx context.Context, chat, thread, tool, preview
 	if allow {
 		decision = gateway.AllowOnce
 	}
-	if _, derr := g.approvals.Decide("telegram", chat, id, decision); derr != nil {
+	if _, derr := g.approvals.Decide("telegram", chat, nonce, decision); derr != nil {
 		return false, fmt.Errorf("gateway: approval decision: %w", derr)
 	}
 	return allow, nil

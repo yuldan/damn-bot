@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -278,14 +279,26 @@ func TestGatewayCommandsNeverRunTheRunner(t *testing.T) {
 	}
 }
 
-// TestDecideApprovalSendFailureLeavesNoRegistryEntry: the request is registered
-// before the card goes out, so a failed send must withdraw it. A nonce from a
-// card that never reached the chat can then be neither listed nor decided (in
-// the registry or in the adapter) and leaves no durable record behind.
-func TestDecideApprovalSendFailureLeavesNoRegistryEntry(t *testing.T) {
+// approvalCallbackRE reads the approval id a card keyboard carries.
+var approvalCallbackRE = regexp.MustCompile(`approve:([A-Za-z0-9_-]+):allow`)
+
+// failingCardAPI is a Bot API that rejects every sendMessage, so a card never
+// reaches the chat. It records the keyboard of the rejected card so a test can
+// name the nonce the prompt tried to register.
+func failingCardAPI(t *testing.T) (url string, keyboard func() string) {
+	t.Helper()
+	var mu sync.Mutex
+	var markup string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if strings.HasSuffix(r.URL.Path, "/sendMessage") {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, `{"ok":false}`, http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			markup = r.PostForm.Get("reply_markup")
+			mu.Unlock()
 			w.WriteHeader(http.StatusInternalServerError)
 			if _, err := io.WriteString(w, `{"ok":false,"error_code":500,"description":"Internal Server Error"}`); err != nil {
 				return
@@ -297,29 +310,97 @@ func TestDecideApprovalSendFailureLeavesNoRegistryEntry(t *testing.T) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	gw := newTestGateway(t, srv.URL)
-	const nonce = "card-never-sent"
-	gw.approvals.newNonce = func() string { return nonce }
+	return srv.URL, func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return markup
+	}
+}
 
-	allow, err := gw.decideApproval(t.Context(), "sess-1", "run it", "7788", "", "shell", "printf x")
-	if err == nil || allow {
-		t.Fatalf("decideApproval = %v, %v; want the failed card send", allow, err)
+// cardNonce extracts the approval id the rejected card carried.
+func cardNonce(t *testing.T, markup string) string {
+	t.Helper()
+	m := approvalCallbackRE.FindStringSubmatch(markup)
+	if m == nil {
+		t.Fatalf("card keyboard %q carries no approval id", markup)
 	}
-	if !strings.Contains(err.Error(), "sendMessage: 500") {
-		t.Fatalf("error %q does not name the failed send", err)
+	return m[1]
+}
+
+// TestApprovalSendFailureLeavesNoRegistryEntry: both prompt paths (the durable
+// decideApproval and the feedback fallback) register the request before the
+// card goes out, so a failed send must withdraw it. A nonce from a card that
+// never reached the chat can then be neither listed nor decided, in the
+// registry or in the adapter, and leaves no durable decision behind.
+func TestApprovalSendFailureLeavesNoRegistryEntry(t *testing.T) {
+	const requestID = "sess-1"
+	cases := []struct {
+		name      string
+		ask       func(t *testing.T, gw *serveGateway) error
+		durableID string // non-empty: the path records a durable decision
+	}{
+		{
+			name: "decideApproval",
+			ask: func(t *testing.T, gw *serveGateway) error {
+				t.Helper()
+				allow, err := gw.decideApproval(t.Context(), requestID, "run it", "7788", "", "shell", "printf x")
+				if allow {
+					t.Fatal("decideApproval allowed a tool whose card never reached the chat")
+				}
+				return err
+			},
+			durableID: approvalRequestID(requestID, "run it", "shell", "printf x"),
+		},
+		{
+			name: "feedback",
+			ask: func(t *testing.T, gw *serveGateway) error {
+				t.Helper()
+				allow, err := gw.feedback(t.Context(), "7788", "", "shell", "printf x")
+				if allow {
+					t.Fatal("feedback allowed a tool whose card never reached the chat")
+				}
+				return err
+			},
+		},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			url, keyboard := failingCardAPI(t)
+			gw := newTestGateway(t, url)
+			err := tc.ask(t, gw)
+			if err == nil || !strings.Contains(err.Error(), "sendMessage: 500") {
+				t.Fatalf("prompt without a delivered card: err=%v, want the failed send", err)
+			}
+			assertNoApprovalLeft(t, gw, cardNonce(t, keyboard()))
+			if tc.durableID != "" {
+				assertNoDurableDecision(t, gw, tc.durableID)
+			}
+		})
+	}
+}
+
+// assertNoApprovalLeft proves the unsent nonce is unknown to both stores, so a
+// command or button can never answer a card that never reached the chat.
+func assertNoApprovalLeft(t *testing.T, gw *serveGateway, nonce string) {
+	t.Helper()
 	if pending := gw.approvals.Pending("telegram", "7788"); len(pending) != 0 {
 		t.Fatalf("registry kept %+v after a failed card send", pending)
 	}
 	if _, derr := gw.approvals.Decide("telegram", "7788", nonce, gateway.Deny); !errors.Is(derr, gateway.ErrApprovalNotFound) {
-		t.Fatalf("decide(unsent nonce) = %v, want ErrApprovalNotFound", derr)
+		t.Fatalf("decide(unsent nonce %q) = %v, want ErrApprovalNotFound", nonce, derr)
 	}
 	if gw.adapter.DecideApproval("7788", nonce, false) {
 		t.Fatal("adapter still holds the approval of an unsent card")
 	}
-	rec, found, lerr := gw.approvals.ledger.Load(t.Context(), approvalRequestID("sess-1", "run it", "shell", "printf x"))
-	if lerr != nil || found {
-		t.Fatalf("durable record after a failed prompt = %+v, found=%v, err=%v", rec, found, lerr)
+}
+
+// assertNoDurableDecision proves a failed prompt recorded no SEC-13 decision,
+// so a retry still asks instead of resuming a decision nobody made.
+func assertNoDurableDecision(t *testing.T, gw *serveGateway, requestID string) {
+	t.Helper()
+	rec, found, err := gw.approvals.ledger.Load(t.Context(), requestID)
+	if err != nil || found {
+		t.Fatalf("durable record after a failed prompt = %+v, found=%v, err=%v", rec, found, err)
 	}
 }
 
