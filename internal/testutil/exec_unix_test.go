@@ -2,12 +2,20 @@
 
 package testutil
 
+// The retry path of ExecRetry is identical on every unix, but the kernel
+// evidence differs: Linux returns ETXTBSY while a fixture writer is still open,
+// whereas macOS (like the BSDs) commonly allows execve and starts the program
+// anyway. The real-kernel proofs therefore live in exec_linux_test.go
+// (//go:build linux); here the errno is injected exactly as os/exec wraps it,
+// so darwin/BSD CI still covers the attempt limit, backoff, error
+// pass-through, and cancellation every test caller depends on. ExecRetry is
+// not platform-gated, so neither is this contract.
+
 import (
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
@@ -15,79 +23,109 @@ import (
 	"time"
 )
 
-// busyExecutable writes a script and keeps it open for writing, which is the
-// exact state that makes execve fail with ETXTBSY.
-func busyExecutable(t *testing.T) (*os.File, string) {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "busy")
-	if err := WriteExecutable(path, []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	fd, err := os.OpenFile(path, os.O_WRONLY, 0) // #nosec G304 -- fixture path from t.TempDir
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if cerr := fd.Close(); cerr != nil && !errors.Is(cerr, os.ErrClosed) {
-			t.Errorf("close busy executable: %v", cerr)
-		}
-	})
-	return fd, path
+// injectedETXTBSY is the error os/exec returns for a busy executable: the errno
+// wrapped in *fs.PathError. Injecting it keeps the retry contract testable on
+// kernels whose execve does not enforce the Linux ETXTBSY window.
+func injectedETXTBSY() error {
+	return &fs.PathError{Op: "fork/exec", Path: "fixture", Err: syscall.ETXTBSY}
 }
 
-// TestExecRetryReleasesRealETXTBSY proves the helper against the kernel: the
-// first execve runs while the writer is open and the retry runs after it closes.
-func TestExecRetryReleasesRealETXTBSY(t *testing.T) {
-	fd, path := busyExecutable(t)
+// execBackoffTotal is the sum of the waits before the final attempt:
+// execBackoff<<0 through execBackoff<<(execRetries-1).
+func execBackoffTotal() time.Duration {
+	var total time.Duration
+	for attempt := range execRetries {
+		total += execBackoff << attempt
+	}
+	return total
+}
+
+// TestExecRetryWrappedETXTBSY: os/exec wraps the errno in *fs.PathError; the
+// helper must see through it and retry exactly once.
+func TestExecRetryWrappedETXTBSY(t *testing.T) {
 	attempts := 0
 	err := ExecRetry(t.Context(), func() error {
 		attempts++
-		rerr := exec.CommandContext(t.Context(), path).Run() // #nosec G204 -- fixture written by this test
-		if errors.Is(rerr, syscall.ETXTBSY) && attempts == 1 {
-			if cerr := fd.Close(); cerr != nil {
-				t.Fatalf("close busy executable: %v", cerr)
-			}
-		}
-		if rerr != nil {
-			return fmt.Errorf("exec %s: %w", path, rerr)
+		if attempts == 1 {
+			return injectedETXTBSY()
 		}
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("ExecRetry: %v", err)
-	}
-	if attempts != 2 {
-		t.Fatalf("attempts = %d, want 2 (ETXTBSY then success)", attempts)
+	if err != nil || attempts != 2 {
+		t.Fatalf("err = %v, attempts = %d; want nil and 2", err, attempts)
 	}
 }
 
 // TestExecRetryHonoursAttemptLimit always fails with ETXTBSY: one call plus
 // exactly execRetries retries, and the last error is returned verbatim.
 func TestExecRetryHonoursAttemptLimit(t *testing.T) {
-	_, path := busyExecutable(t)
+	last := injectedETXTBSY()
 	attempts := 0
-	start := time.Now()
 	err := ExecRetry(t.Context(), func() error {
 		attempts++
-		if rerr := exec.CommandContext(t.Context(), path).Run(); rerr != nil { // #nosec G204 -- fixture written by this test
-			return fmt.Errorf("exec %s: %w", path, rerr)
-		}
-		return nil
+		return last
 	})
-	if !errors.Is(err, syscall.ETXTBSY) {
-		t.Fatalf("err = %v, want ETXTBSY", err)
+	if !errors.Is(err, syscall.ETXTBSY) || !errors.Is(err, last) {
+		t.Fatalf("err = %v, want the final ETXTBSY preserved", err)
 	}
 	if attempts != 1+execRetries {
 		t.Fatalf("attempts = %d, want %d", attempts, 1+execRetries)
 	}
-	if elapsed := time.Since(start); elapsed < 25*time.Millisecond {
-		t.Fatalf("retries did not back off: %s", elapsed)
+}
+
+// TestExecRetryBacksOff: retry n waits execBackoff<<n before calling fn again,
+// so a busy executable is not hammered.
+func TestExecRetryBacksOff(t *testing.T) {
+	var stamps []time.Time
+	attempts := 0
+	err := ExecRetry(t.Context(), func() error {
+		attempts++
+		stamps = append(stamps, time.Now())
+		return injectedETXTBSY()
+	})
+	if !errors.Is(err, syscall.ETXTBSY) {
+		t.Fatalf("err = %v, want ETXTBSY", err)
+	}
+	if attempts != 1+execRetries || len(stamps) != attempts {
+		t.Fatalf("attempts = %d (stamps %d), want %d", attempts, len(stamps), 1+execRetries)
+	}
+	for i := 1; i < len(stamps); i++ {
+		want := execBackoff << (i - 1)
+		if gap := stamps[i].Sub(stamps[i-1]); gap < want {
+			t.Fatalf("gap before attempt %d = %s, want >= %s", i+1, gap, want)
+		}
 	}
 }
 
-// TestExecRetryPassesOtherErrors: a missing executable is not ETXTBSY and must
-// fail on the first attempt.
-func TestExecRetryPassesOtherErrors(t *testing.T) {
+// TestExecRetryNeverRetriesOtherErrors is the negative control: only ETXTBSY is
+// transient, so any other failure is returned unchanged on the first attempt.
+func TestExecRetryNeverRetriesOtherErrors(t *testing.T) {
+	cases := map[string]error{
+		"permission denied": &fs.PathError{Op: "fork/exec", Path: "fixture", Err: syscall.EACCES},
+		"missing fixture":   &fs.PathError{Op: "fork/exec", Path: "fixture", Err: fs.ErrNotExist},
+		"bad executable":    &fs.PathError{Op: "fork/exec", Path: "fixture", Err: syscall.ENOEXEC},
+		"bare EAGAIN":       syscall.EAGAIN,
+	}
+	for name, want := range cases {
+		t.Run(name, func(t *testing.T) {
+			attempts := 0
+			err := ExecRetry(t.Context(), func() error {
+				attempts++
+				return want
+			})
+			if !errors.Is(err, want) {
+				t.Fatalf("err = %v, want the injected error unchanged", err)
+			}
+			if attempts != 1 {
+				t.Fatalf("attempts = %d, want 1 (non-ETXTBSY errors are final)", attempts)
+			}
+		})
+	}
+}
+
+// TestExecRetryPassesRealMissingExecutable: os/exec's own ENOENT wrapping is
+// not ETXTBSY on any unix and must fail on the first attempt.
+func TestExecRetryPassesRealMissingExecutable(t *testing.T) {
 	attempts := 0
 	err := ExecRetry(t.Context(), func() error {
 		attempts++
@@ -114,7 +152,28 @@ func TestExecRetryStopsOnCancel(t *testing.T) {
 	err := ExecRetry(ctx, func() error {
 		attempts++
 		cancel()
-		return &fs.PathError{Op: "fork/exec", Path: "fixture", Err: syscall.ETXTBSY}
+		return injectedETXTBSY()
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("attempts = %d, want 1", attempts)
+	}
+}
+
+// TestExecRetryStopsDuringBackoff: cancellation interrupts the backoff wait
+// instead of sleeping through it.
+func TestExecRetryStopsDuringBackoff(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	attempts := 0
+	err := ExecRetry(ctx, func() error {
+		attempts++
+		if attempts == 1 {
+			time.AfterFunc(time.Millisecond, cancel)
+		}
+		return injectedETXTBSY()
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
@@ -135,21 +194,5 @@ func TestExecRetryCancelledBeforeStart(t *testing.T) {
 	})
 	if !errors.Is(err, context.Canceled) || attempts != 0 {
 		t.Fatalf("err = %v, attempts = %d; want context.Canceled and 0", err, attempts)
-	}
-}
-
-// TestExecRetryWrappedETXTBSY: os/exec wraps the errno in *fs.PathError; the
-// helper must see through it and retry exactly once.
-func TestExecRetryWrappedETXTBSY(t *testing.T) {
-	attempts := 0
-	err := ExecRetry(t.Context(), func() error {
-		attempts++
-		if attempts == 1 {
-			return &fs.PathError{Op: "fork/exec", Path: "fixture", Err: syscall.ETXTBSY}
-		}
-		return nil
-	})
-	if err != nil || attempts != 2 {
-		t.Fatalf("err = %v, attempts = %d; want nil and 2", err, attempts)
 	}
 }
