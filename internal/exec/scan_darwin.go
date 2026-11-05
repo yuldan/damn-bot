@@ -10,7 +10,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// markerPids lists this user's processes whose environment carries
+// markerPids lists this user's live processes whose environment carries
 // MarkerEnv with a value accepted by match (kern.procargs2, §A.4).
 func markerPids(match func(val []byte) bool) ([]int, error) {
 	procs, err := unix.SysctlKinfoProcSlice("kern.proc.uid", os.Getuid())
@@ -21,7 +21,11 @@ func markerPids(match func(val []byte) bool) ([]int, error) {
 	var pids []int
 	for i := range procs {
 		pid := int(procs[i].Proc.P_pid)
-		if pid == self || pid <= 0 {
+		// P_stat 5 is SZOMB: the process has exited and waits for its parent
+		// to reap it. kern.proc.uid still lists it and kern.procargs2 still
+		// returns its environment, but it cannot be killed: counting it as a
+		// survivor turns a successful sweep into a cleanup error.
+		if pid == self || pid <= 0 || procs[i].Proc.P_stat == 5 {
 			continue
 		}
 		raw, err := unix.SysctlRaw("kern.procargs2", pid)

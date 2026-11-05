@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -50,6 +51,9 @@ type Runner struct {
 	red *redact.Redactor
 	// closeTask is the retained Close waiter; a later Close waits on it.
 	closeTask *boundary.Task
+	// killTrace observes the kill order (TERM=true, KILL=false); tests
+	// assert the order and the grace without a wall-clock bound.
+	killTrace func(term bool)
 }
 
 // New returns a Runner whose goroutines stop when ctx is canceled.
@@ -59,6 +63,7 @@ func New(ctx context.Context) *Runner {
 	return &Runner{
 		g: g, prompts: newPromptRules(), stop: make(chan struct{}),
 		live: map[string]chan struct{}{}, red: redact.New(redact.Options{}),
+		killTrace: func(bool) {},
 	}
 }
 
@@ -118,12 +123,7 @@ func (r *Runner) CloseContext(ctx context.Context) error {
 func (r *Runner) Live() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	ids := make([]string, 0, len(r.live))
-	for id := range r.live {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids)
-	return ids
+	return slices.Sorted(maps.Keys(r.live))
 }
 
 // call is the state of one Run.
@@ -368,7 +368,7 @@ func (c *call) check(now time.Time, w *watch, res *Result) Status {
 // cancelled runs the kill order with a 1 s result deadline (REL-06); the tree is confirmed dead or returned still_running (kill continues, Result.Done).
 func (c *call) cancelled(ctx context.Context, res *Result) {
 	deadline := time.Now().Add(CancelDeadline)
-	c.note(c.p.terminate())
+	c.terminate()
 	if c.waitDead(deadline) {
 		c.finish()
 		res.Status = StatusCancelledConfirmed
@@ -394,11 +394,17 @@ func (c *call) cancelled(ctx context.Context, res *Result) {
 
 // killTree is the kill order of §A.4: TERM to the tree, up to grace, then KILL.
 func (c *call) killTree(grace time.Duration) {
-	c.note(c.p.terminate())
+	c.terminate()
 	if !c.waitDead(time.Now().Add(grace)) {
-		c.note(c.p.kill())
+		c.kill()
 	}
 }
+
+// terminate sends TERM to the tree and reports the step to the trace.
+func (c *call) terminate() { c.r.killTrace(true); c.note(c.p.terminate()) }
+
+// kill sends KILL to the tree and reports the step to the trace.
+func (c *call) kill() { c.r.killTrace(false); c.note(c.p.kill()) }
 
 // waitDead reaps the leader and polls the tree until it is gone or the deadline passes.
 func (c *call) waitDead(deadline time.Time) bool {
@@ -428,7 +434,7 @@ func (c *call) finish() {
 	// A live tree may still be forking or exec'ing an escapee: the marker
 	// sweep then needs a settle scan (see sweep).
 	hadTree := c.p.treeAlive()
-	c.note(c.p.kill())
+	c.kill()
 	c.sweep(hadTree)
 	if !c.gone {
 		c.ex = <-c.exit
@@ -463,7 +469,7 @@ const sweepQuiet = 2 * pollEvery
 // confirmation of killMarked: one clean scan does not prove the tree is gone
 // — an escapee between two execve calls reports an empty environ — so the
 // sweep waits for a quiet window (sweepQuiet) after the last kill and
-// reports processes still visible at sweepWait as a cleanup failure. settle
+// reports processes still live at sweepWait as a cleanup failure. settle
 // covers a tree that was alive at kill time; a call with no descendants
 // keeps the single-scan fast path (P24.3 spawn budget).
 func (c *call) sweep(settle bool) {
@@ -477,11 +483,13 @@ func (c *call) sweep(settle bool) {
 
 // killMarked kills every process accepted by match and returns once a scan
 // sees none for sweepQuiet, bounded by sweepWait. It returns the pids still
-// visible at the bound (empty when the sweep confirmed them gone) and the
-// number of kills it issued. settle requires the quiet window even when the
-// first scan is clean, for a caller that had a tree at kill time; a scan
-// that finds (and kills) processes requires it in any case, so a caller
-// never returns straight from a kill without observing its effect.
+// live at the bound (empty when the sweep confirmed them gone) and the
+// number of kills it issued; a process killed by this pass is not a
+// survivor even while its zombie still carries the marker. settle requires
+// the quiet window even when the first scan is clean, for a caller that had
+// a tree at kill time; a scan that finds (and kills) processes requires it
+// in any case, so a caller never returns straight from a kill without
+// observing its effect.
 func killMarked(match func([]byte) bool, settle bool) (left []int, killed int, err error) {
 	deadline := time.Now().Add(sweepWait)
 	var quietSince time.Time
@@ -512,7 +520,13 @@ func killMarked(match func([]byte) bool, settle bool) (left []int, killed int, e
 			return nil, killed, err
 		}
 		if !now.Before(deadline) {
-			return pids, killed, err
+			// The scan above may list a process this pass just killed: a
+			// killed process is a zombie until its parent reaps it, and
+			// macOS keeps a zombie's marker visible to kern.procargs2.
+			// Only a fresh scan can tell a survivor from a kill that is
+			// already in effect.
+			left, lerr := markerPids(match)
+			return left, killed, errors.Join(err, lerr)
 		}
 		// A timer, not time.Sleep: the clock rule of E-30/E-72.
 		pause := time.NewTimer(pollEvery)

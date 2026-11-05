@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -55,6 +56,84 @@ func TestSweepStaleConfirmsKill(t *testing.T) {
 		if killed == 0 {
 			t.Fatalf("iteration %d: SweepStale returned without killing the marked process", i)
 		}
+	}
+}
+
+// TestSweepSkipsZombie (P24.1): macOS keeps returning an exited-but-
+// unreaped process (P_stat SZOMB) in kern.proc.uid and its environment in
+// kern.procargs2, and killing a zombie is a no-op — so the sweep used to
+// count it as a survivor and turn a successful cleanup into
+// "marked processes survived". A zombie is not a live process.
+func TestSweepSkipsZombie(t *testing.T) {
+	t.Parallel()
+	id := newExecID()
+	zombie := exec.CommandContext(context.Background(), "/bin/sh", "-c", "exit 0")
+	zombie.Env = append(os.Environ(), MarkerEnv+"="+id)
+	if serr := zombie.Start(); serr != nil {
+		t.Fatal(serr)
+	}
+	t.Cleanup(func() {
+		var ee *exec.ExitError
+		if werr := zombie.Wait(); werr != nil && !errors.As(werr, &ee) {
+			t.Errorf("cleanup wait: %v", werr)
+		}
+	})
+	waitZombie(t, zombie.Process.Pid)
+
+	left, killed, serr := killMarked(func(v []byte) bool { return string(v) == id }, false)
+	if serr != nil {
+		t.Fatalf("sweep of a zombie: %v", serr)
+	}
+	if len(left) > 0 || killed > 0 {
+		t.Fatalf("zombie %d counted by the sweep: left %v, killed %d", zombie.Process.Pid, left, killed)
+	}
+}
+
+// TestSweepKeepsLiveMarked is the negative control of TestSweepSkipsZombie:
+// skipping zombies must not drop a live marked process from the scan, and
+// the sweep must still kill it.
+func TestSweepKeepsLiveMarked(t *testing.T) {
+	t.Parallel()
+	id := newExecID()
+	live := exec.CommandContext(context.Background(), "/bin/sh", "-c", "exec sleep 30")
+	live.Env = append(os.Environ(), MarkerEnv+"="+id)
+	if lerr := live.Start(); lerr != nil {
+		t.Fatal(lerr)
+	}
+	t.Cleanup(func() {
+		if kerr := live.Process.Kill(); kerr != nil && !errors.Is(kerr, os.ErrProcessDone) {
+			t.Errorf("cleanup kill: %v", kerr)
+		}
+		var ee *exec.ExitError
+		if _, werr := live.Process.Wait(); werr != nil && !errors.As(werr, &ee) {
+			t.Errorf("cleanup wait: %v", werr)
+		}
+	})
+	waitMarked(t, id)
+	pids, merr := markerPids(func(v []byte) bool { return string(v) == id })
+	if merr != nil {
+		t.Fatal(merr)
+	}
+	if !slices.Contains(pids, live.Process.Pid) {
+		t.Fatalf("live marked process %d not found: %v", live.Process.Pid, pids)
+	}
+	left, killed, serr := killMarked(func(v []byte) bool { return string(v) == id }, false)
+	if serr != nil || len(left) > 0 || killed == 0 {
+		t.Fatalf("live marked process not swept: left %v, killed %d, err %v", left, killed, serr)
+	}
+}
+
+// waitZombie waits until pid is an exited process its parent has not
+// reaped yet.
+func waitZombie(t *testing.T, pid int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !isZombie(pid) {
+		if time.Now().After(deadline) {
+			t.Fatalf("pid %d never became a zombie", pid)
+		}
+		pause := time.NewTimer(5 * time.Millisecond)
+		<-pause.C
 	}
 }
 

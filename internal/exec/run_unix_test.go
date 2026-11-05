@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -166,6 +167,92 @@ func TestRunTimeout(t *testing.T) {
 	assertNoMarker(t, res.ExecID)
 }
 
+// killEvent is one kill-order signal observed through Runner.killTrace.
+type killEvent struct {
+	term bool
+	at   time.Time
+}
+
+// checkKillOrder proves the timeout kill order semantically: TERM reached
+// the tree first, and the first KILL was issued no earlier than a full
+// grace after TERM. It returns an error instead of failing so the negative
+// controls of TestCheckKillOrder can show each violation is caught.
+func checkKillOrder(events []killEvent, grace time.Duration) error {
+	term, kill := -1, -1
+	for i, e := range events {
+		if e.term && term < 0 {
+			term = i
+		}
+		if !e.term && kill < 0 {
+			kill = i
+		}
+	}
+	switch {
+	case term < 0:
+		return errors.New("kill order: TERM was never sent")
+	case kill < 0:
+		return errors.New("kill order: KILL was never sent")
+	case kill < term:
+		return errors.New("kill order: KILL before TERM")
+	}
+	if gap := events[kill].at.Sub(events[term].at); gap < grace {
+		return fmt.Errorf("kill order: KILL %v after TERM, grace %v", gap, grace)
+	}
+	return nil
+}
+
+// drainKillTrace returns the signals recorded so far.
+func drainKillTrace(trace chan killEvent) []killEvent {
+	var events []killEvent
+	for {
+		select {
+		case e := <-trace:
+			events = append(events, e)
+		default:
+			return events
+		}
+	}
+}
+
+// TestCheckKillOrder is the negative control of
+// TestRunTimeoutIgnoresTERM: a missing TERM, an early KILL, a reversed
+// order and a missing KILL are all rejected.
+func TestCheckKillOrder(t *testing.T) {
+	t.Parallel()
+	base := time.Unix(0, 0)
+	grace := time.Second
+	cases := map[string]struct {
+		events []killEvent
+		ok     bool
+	}{
+		"term then kill after grace": {[]killEvent{{true, base}, {false, base.Add(grace)}}, true},
+		"kill after grace plus retry": {[]killEvent{
+			{true, base}, {false, base.Add(grace)}, {false, base.Add(2 * grace)},
+		}, true},
+		"no term":           {[]killEvent{{false, base.Add(grace)}}, false},
+		"no kill":           {[]killEvent{{true, base}}, false},
+		"no signals":        {nil, false},
+		"kill before grace": {[]killEvent{{true, base}, {false, base.Add(grace - time.Millisecond)}}, false},
+		"kill before term":  {[]killEvent{{false, base}, {true, base.Add(time.Millisecond)}}, false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			err := checkKillOrder(tc.events, grace)
+			if (err == nil) != tc.ok {
+				t.Fatalf("checkKillOrder(%v) = %v, want ok=%v", tc.events, err, tc.ok)
+			}
+		})
+	}
+}
+
+// killOrderHangGuard only turns a hang into a test failure instead of a
+// package timeout. It is not a timing assertion: the kill order itself is
+// proven by the traced signals, and the expected duration is about
+// timeout + grace + sweepWait + drain (1.3–1.5 s for this fixture). 30 s
+// is more than 20× that, so runner load cannot trip it.
+const killOrderHangGuard = 30 * time.Second
+
 func TestRunTimeoutIgnoresTERM(t *testing.T) {
 	t.Parallel()
 	// The property needs the fixture to have installed its TERM trap before
@@ -175,21 +262,34 @@ func TestRunTimeoutIgnoresTERM(t *testing.T) {
 	// test with "timeout \"SIGTERM\"" on macos-15-intel. Retry the setup
 	// with a longer startup allowance until the fixture reports that it
 	// armed; from there the assertions are exact.
+	//
+	// Order and grace are asserted from the signals the runner issued
+	// (Runner.killTrace), not from Result.Duration: the duration also
+	// covers spawn, sweep and drain, which a loaded runner stretches, while
+	// the grace deadline in killTree is monotonic and cannot be shortened.
 	for _, timeout := range []time.Duration{300 * time.Millisecond, time.Second, 3 * time.Second} {
 		armed := false
+		trace := make(chan killEvent, 16)
+		r := newTestRunner(t)
+		r.killTrace = func(term bool) { trace <- killEvent{term, time.Now()} }
 		s := sh(t, `trap '' TERM; echo armed; while :; do sleep 1; done`)
 		s.OnOutput = func(b []byte) { armed = armed || strings.Contains(string(b), "armed") }
 		s.Timeout, s.KillGrace = timeout, time.Second
-		res := run(t.Context(), t, newTestRunner(t), s)
+		res := run(t.Context(), t, r, s)
 		if res.Signal == "SIGTERM" && !armed {
 			continue // the shell had not reached its trap yet: not this property
 		}
 		if res.Status != StatusTimeout || res.Signal != "SIGKILL" {
 			t.Fatalf("%s %q (armed %v, timeout %v)", res.Status, res.Signal, armed, timeout)
 		}
-		if res.Duration < s.Timeout+s.KillGrace || res.Duration > s.Timeout+s.KillGrace+time.Second {
-			t.Fatalf("kill order timing %v", res.Duration)
+		events := drainKillTrace(trace)
+		if err := checkKillOrder(events, s.KillGrace); err != nil {
+			t.Fatalf("%v (timeout %v, armed %v, events %v)", err, timeout, armed, events)
 		}
+		if res.Duration > killOrderHangGuard {
+			t.Fatalf("kill order did not finish: %v", res.Duration)
+		}
+		// The negative control: KILL really killed every marked process.
 		assertNoMarker(t, res.ExecID)
 		return
 	}
