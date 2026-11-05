@@ -158,7 +158,10 @@ toolset            400 internal/toolset
 # ADR-277 amandemen EC-WIN-015 (multiplexer): exec 4030 -> 4300 (terukur 4284
 # pada rebase di atas #595 + ADR-298..305; mux + I/O overlapped = 260 baris).
 # Sigma core 54.957 -> 55.227, plafon core 55.000 -> 55.300.
-exec              4600 internal/exec
+# ADR-072 amendment F6 (F5-BACKGROUND-WINDOWS): Windows background Job Object
+# (`assignAndResume`, `bgJob`, output pipe) menambah 84 LOC terukur
+# 4.583 -> 4.684; cap 4.600 -> 4.700, Sigma core 56.711 -> 56.811.
+exec              4700 internal/exec
 exec/classify     1946 internal/exec/classify
 # ADR-097 butir 12: sandbox+redact 1300 -> 1450 (S16-7, codetools deny fast path, redact prefilter; Σ core 33.750 -> 33.900).
 # ADR-108: sandbox+redact 1450 -> 1700 (dir-fd walk fast path; Σ core 34.650 -> 34.900 <= 47.000).

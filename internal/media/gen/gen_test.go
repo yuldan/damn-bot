@@ -156,10 +156,21 @@ func TestBudgetGuardTools(t *testing.T) {
 	t.Parallel()
 	img := &fakeImage{price: imagePriceFixture(), known: true}
 	svc := &Service{Guard: &Guard{Caps: Caps{DailyMicros: 100}, Spend: staticSpend(100)}}
-	if _, err := svc.Image(context.Background(), img, &ImageRequest{
+	_, err := svc.Image(context.Background(), img, &ImageRequest{
 		IdempotencyKey: "cap", Model: "fake-model", Prompt: "x", Size: "1024x1024",
-	}); !errors.Is(err, ErrBudget) {
+	})
+	if !errors.Is(err, ErrBudget) {
 		t.Fatalf("daily cap = %v", err)
+	}
+	var be *BudgetError
+	if !errors.As(err, &be) || be.Period != "daily" || be.LimitMicros != 100 ||
+		be.ProjectedMicros < be.LimitMicros || !strings.Contains(be.Raise, "tools_daily_usd") {
+		t.Fatalf("denial payload = %+v", be)
+	}
+	for _, want := range []string{"budget_tools", "tools_daily", "µUSD", "damnbot usage budget set tools_daily_usd 15"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("denial message %q lacks %q", err, want)
+		}
 	}
 	if img.calls != 0 {
 		t.Fatalf("vendor calls after cap = %d", img.calls)
@@ -285,5 +296,104 @@ func TestVideoAnalyze(t *testing.T) {
 		IdempotencyKey: "a2", Model: "fake-video-model", Prompt: "x",
 	}); !errors.Is(err, ErrCapability) {
 		t.Fatalf("unpriced analysis = %v", err)
+	}
+}
+
+// TestF6ADR083ToolCap (ADR-083 deferred test, GAP-COST-11): with a fake clock
+// and fake usage the 80% crossing warns and the 100% projection rejects the
+// call before the vendor, with a payload that names the period, the numbers,
+// the reset, and the command that raises the cap.
+func TestF6ADR083ToolCap(t *testing.T) {
+	t.Parallel()
+	t.Run("daily", checkDailyToolCap)
+	t.Run("session", checkSessionToolCap)
+}
+
+func capClock() time.Time { return time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC) }
+
+func checkDailyToolCap(t *testing.T) {
+	var warns []string
+	img := &fakeImage{price: imagePriceFixture(), known: true}
+	guard := &Guard{
+		Caps: Caps{DailyMicros: 1_000_000},
+		Spend: func(context.Context, time.Time, time.Time) (int64, error) {
+			return 700_000, nil
+		},
+		Now:  capClock,
+		Warn: func(period string, _, _ int64) { warns = append(warns, period) },
+	}
+	if err := guard.Check(context.Background(), 100_000); err != nil || len(warns) != 1 || warns[0] != "daily" {
+		t.Fatalf("80%% check = %v, warns %v", err, warns)
+	}
+	guard.Spend = staticSpend(1_000_000)
+	err := guard.Check(context.Background(), 40_000)
+	var be *BudgetError
+	if !errors.Is(err, ErrBudget) || !errors.As(err, &be) {
+		t.Fatalf("100%% check = %v", err)
+	}
+	wantReset := time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
+	if be.Period != "daily" || be.LimitMicros != 1_000_000 || be.ProjectedMicros != 1_040_000 || !be.Reset.Equal(wantReset) {
+		t.Fatalf("payload = %+v", be)
+	}
+	if !strings.Contains(err.Error(), "2026-11-05T00:00:00Z") {
+		t.Errorf("message lacks reset: %v", err)
+	}
+	svc := &Service{Guard: guard}
+	_, derr := svc.Image(context.Background(), img, &ImageRequest{
+		IdempotencyKey: "cap-100", Model: "fake-model", Prompt: "x", Size: "1024x1024",
+	})
+	if !errors.Is(derr, ErrBudget) || img.calls != 0 {
+		t.Fatalf("dispatch at 100%% = %v, vendor calls %d", derr, img.calls)
+	}
+}
+
+func checkSessionToolCap(t *testing.T) {
+	session := &Guard{Caps: Caps{SessionMicros: 1_000}, Now: capClock}
+	session.Record(900)
+	err := session.Check(context.Background(), 100)
+	var be *BudgetError
+	if !errors.As(err, &be) || be.Period != "session" || !strings.Contains(be.Raise, "tools_session_usd") || !be.Reset.IsZero() {
+		t.Fatalf("session payload = %+v, %v", be, err)
+	}
+}
+
+// TestF6GAPCOST11BudgetToolsPayload pins the approval half of GAP-COST-11:
+// the cap check runs before approval (0 vendor calls, 0 approval prompts),
+// a paid call always asks with a price preview, and a denial is never turned
+// into an approval by the budget path.
+func TestF6GAPCOST11BudgetToolsPayload(t *testing.T) {
+	t.Parallel()
+	video := &fakeVideo{price: videoPrice()}
+	approval := &fakeApproval{answer: host.ApprovalAllowOnce}
+	svc := &Service{
+		Guard:    &Guard{Caps: Caps{DailyMicros: 100}, Spend: staticSpend(100)},
+		Approval: approval,
+	}
+	_, err := svc.Video(context.Background(), video, &VideoRequest{
+		IdempotencyKey: "v-cap", Model: "fake-video-model", Prompt: "x", DurationS: 5, CallID: "c1",
+	})
+	var be *BudgetError
+	if !errors.As(err, &be) || be.Period != "daily" || video.calls != 0 || approval.calls != 0 {
+		t.Fatalf("cap = %v, vendor %d, approval %d", err, video.calls, approval.calls)
+	}
+	if be.LimitMicros != 100 || be.ProjectedMicros != 5_100 || be.Reset.IsZero() {
+		t.Fatalf("payload numbers = %+v", be)
+	}
+	for _, want := range []string{"budget_tools", "tools_daily", "5100", "100", "damnbot usage budget set tools_daily_usd 15"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("payload %q lacks %q", err, want)
+		}
+	}
+	approval.answer = host.ApprovalDeny
+	svc = &Service{Guard: &Guard{}, Approval: approval}
+	_, err = svc.Video(context.Background(), video, &VideoRequest{
+		IdempotencyKey: "v-deny", Model: "fake-video-model", Prompt: "x", DurationS: 5, CallID: "c2",
+	})
+	if !errors.Is(err, ErrApprovalDenied) || video.calls != 0 {
+		t.Fatalf("deny = %v, vendor calls %d", err, video.calls)
+	}
+	if approval.req == nil || approval.req.Effect != host.EffectNonIdempotent ||
+		!strings.Contains(approval.req.Preview, "estimated $") {
+		t.Fatalf("approval preview = %+v", approval.req)
 	}
 }

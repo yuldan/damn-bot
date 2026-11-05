@@ -1797,6 +1797,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 
 **Aturan penerapan.** Teks diterapkan (2026-10-18): SPEC P2, P24, §3.5, §4.2, §4.3 (daftar kode error), §5.1 (`shell`), §12 (`exec.kill_grace_s`), §13.3 (pemetaan ACP), §22.1 GAP-REL-06; EXEC-AND-CODING §A.2, §A.3, §A.4, §A.5, §A.10; ROADMAP F1. Setiap passage mengutip ADR-072.
 
+**Amandemen F6 (F5-BACKGROUND-WINDOWS).** `exec.startBackground` Windows kini memakai Job Object `KILL_ON_JOB_CLOSE`: proses mulai `CREATE_SUSPENDED`, di-assign lalu di-resume lewat helper yang sama dengan runner foreground (`assignAndResume`), output dialirkan ke ring, dan `cmdHandle.wait` menutup job setelah leader keluar sehingga seluruh keturunan mati sebelum status final. `exec.BackgroundSupported` menjadi `true` di Windows; kontrak `Background`/`process_*` tidak berubah. `TestF5BackgroundWindowsJobObject` (runner Windows) membuktikan tree kill dan kontrol negatif proses saksi di luar job; `TestShellBackgroundWindowsCapability` membuktikan `shell background:true` menerima call.
+
 **Amandemen F5 residual (TOOL-08).** `exec.NoticeLimiter` membatasi notice proses 1/15 s per proses, 4/menit per chat, 15/10 s global dan menggabungkan sisanya sebagai `+N`; `Background.SetOnExit` memanggil hook di luar lock registry. `exec` **4.510 → 4.600** (terukur **4.583**), Σ core caps **55.457 → 55.547** ≤ `maxCoreLOC` **55.600** (headroom 53); `loc.budget`, tabel/prosa ENGINEERING, `budget_doc_test`, dan `ci-meta-test` disinkronkan. Binary minimal tetap **21.999.778 B**.
 
 **Keputusan.**
@@ -2119,6 +2121,8 @@ Metode hitung backlog (F0-REPORT): gabungan (a) baris MINOR REVIEW-1.0 yang tida
 6. F0-REPORT baris #4 diperbaiki: pengecualian = semua dimensi berstatus Fx di ADR-065/083 (bukan hanya install VM); dimensi LLM diatur ADR-032 (bukan ADR-065).
 
 **Dampak terukur (SPEC §20).** Token/latensi/LOC produksi/binary/dependency 0.
+
+**Amandemen F6 (test tertunda `TestBudgetGuardTools`).** Test yang ditunda ke F6 kini ada dan lulus: `TestBudgetGuardTools` (cap, 80% warning, 0 vendor pada 100%), `TestF6ADR083ToolCap` (fake clock + fake usage, reset harian deterministik), `TestF6GAPCOST11BudgetToolsPayload` (cap sebelum approval, preview harga, deny bukan auto-approve). `gen.BudgetError` membawa `Period`, `ProjectedMicros`, `LimitMicros`, `Reset`, dan `Raise`; adapter media memetakannya ke `budget_exhausted` dengan pesan lengkap.
 
 **Konsekuensi.** (+) Kewajiban baseline dan test tertunda dapat diperiksa per fase; artefak terbaca mesin. (−) Acceptance setiap fase lebih panjang.
 
@@ -5801,6 +5805,8 @@ ADR-262 menaikkan Σ 48.148 → 48.171 **di dalam** plafon 48.200 (tanpa kenaika
 
 **Amandemen F5 residual (COST-10/TOOL-08).** Adapter RPC Starlark menambah `tools` **3.600 → 3.620** (terukur **3.612**) dan `exec` **4.300 → 4.510** (terukur **4.505**: server RPC Starlark, dial Unix, dan fallback `sun_path` pendek). Σ core caps **55.227 → 55.457** ≤ `maxCoreLOC` **55.500** (headroom 53); `loc.budget`, tabel/prosa ENGINEERING, `budget_doc_test`, dan `ci-meta-test` disinkronkan. Binary minimal tetap **21.999.778 B** ≤ 22.000.000.
 
+**Amandemen F6 carryover (F5-BACKGROUND-WINDOWS).** Varian Windows slice 4 yang ditunda kini tersedia: `exec.BackgroundSupported=true`, `startBackground` memakai Job Object + `KILL_ON_JOB_CLOSE` (bukan stub `ErrCapability`), dan `validateBackground` hanya menolak platform tanpa registry. Permukaan `shell background:true`/`process_*` identik dengan Unix; tidak ada perubahan schema atau kunci config. Bukti: `TestF5BackgroundWindowsJobObject`, `TestShellBackgroundWindowsCapability`.
+
 ## ADR-301 — Satu konverter percakapan untuk `openai-chat` dan `openai-responses` (EC-TCALL-011)
 
 **Status:** Accepted 2026-11-01 (F5 provider parity). Melengkapi SPEC §4.1, ADR-102, ADR-265, dan EC-TCALL-011.
@@ -6260,6 +6266,8 @@ MODULE computeruse  2000 internal/computeruse
 
 **Amandemen (ADR-323, PR #688).** Kanal attachment diperluas ke video: `host.Message`/`provider.Message` membawa `Videos`, adapter provider memetakan `Kind=video` ke `provider.Video`, dan wire openai-chat mengirim content part `video_url` di bawah gate `Route.Vision`/`ErrNoVision` yang sama. `provider.PrepareVideos` memprobe header dan menolak video >32 MiB atau >120 s sebelum satu request pun. Anggaran terukur (rebase `83a418a7`): `provider` **2.850 → 2.900** (terukur 2.899), `modules` **1.338 → 1.400** (terukur 1.345), Σ core **56.376 → 56.488**, `maxCoreLOC` **56.400 → 56.500** (ceil ratusan), marker `arch-budgetsum` `> 56500`, regex prosa `≤ 56.500`; `MODULE media` **3.233/9.500**, `TOTAL 113.231/190.000`. Tes: `TestF6MediaVideoProviderGate`.
 
+**Amandemen F6 (GAP-REL-14 residual).** Baris ledger ditutup dengan `TestF6GAPREL14MCPAttachment`: hasil MCP `image` → `host.Attachment`/blob (0 base64 di `Content`/`Meta`), dan gate route teks-only tetap `TestEdgeCases/EC-PROV-024` (0 request); route `Vision` menerima satu `image_url`. Nama tes ledger `TestF6MCPImageAttachment` diganti nama bernama di atas.
+
 ## ADR-323 — Program penutupan ledger F6
 
 **Status:** Accepted 2026-11-04 (F6 closing programme; melengkapi ADR-309, ADR-176, ADR-083, ROADMAP F6). Menetapkan aturan penutupan baris, gate mesin `PHASE`→F7, dan pembagian 107 baris `BELUM` menjadi 8 paket kerja. Tidak ada baris ledger yang di-flip di PR ini dan tidak ada kode non-test baru.
@@ -6297,6 +6305,7 @@ MODULE computeruse  2000 internal/computeruse
 
 **Amandemen.**
 - Amandemen (ADR-323, PR ini P8a): menutup `GAP-TOOL-06` (`doctor tools ls|fetch|verify` + `TestF6GAPTOOL06DoctorTools`); egress `doctor-tools-fetch` (netx `Tool`) didaftarkan sehingga `netx` 1.879 → 1.890, Σ core 56.700 → 56.711, plafon 56.800.
+- Amandemen (ADR-323, PR #699): menutup `GAP-REL-14 residual` (`TestF6GAPREL14MCPAttachment`), `GAP-COST-11` (`TestBudgetGuardTools`, `TestF6GAPCOST11BudgetToolsPayload`, `TestF6COST11VideoIdempotency`) dan baris §1/§9 ADR-083 (`TestF6ADR083ToolCap`); `F5-BACKGROUND-WINDOWS` tetap `BELUM` sampai log job Windows hijau, dengan bukti tes `TestF5BackgroundWindowsJobObject`.
 - Amandemen (ADR-323, PR ini): menormalkan aturan gate/§11 dan legenda status `LULUS`/`N/A`; menutup baris "Ukuran gambar" sebagai `N/A — hardware` (Q14) tanpa mengubah target/asersi; "Smoke E3" tetap `BELUM` untuk run berbayar terpisah.
 - Amandemen (ADR-323, PR #701): menutup baris §1/§9 "Baseline hermes F6" ke `LULUS` untuk artefak terukur 2 dimensi × 2 agen (`TestF6HermesBaseline` + `TestF6BaselineArtifactSchema`), tanpa klaim target: verdict `image_preflight` tetap `fail` terhadap target 150 ms Q14 dan target itu tetap `N/A — hardware` (ADR-323); menandai `MEDIA-029`/`MEDIA-031` `N/A — fase F7, bukan baris ledger F6 (carryover F7)`; baris agregat "MEDIA 29/31", "GAP F6 (9)", dan "Carryover F5→F6" tetap `BELUM` karena anggota belum tertutup di head yang sama; "GAP-COST-11/12", "TestBudgetGuardTools", "Test tertunda ADR-083", dan "Voice latency" tidak disentuh karena ditutup PR pemiliknya.
 - Amandemen (ADR-323, PR #678): paket P3 web evidence. `TOOL-086` memetakan parity `web_extract` ke registry `web_fetch` (SPEC §3.2.4) lewat alias dispatch dan tag `tool_search`, dan hasil ekstrak kini memuat `backend=native`; bundle toolset `search` ditambahkan sebagai include `web`; kunci cache memakai sesi induk sehingga tiga subagent satu profil berbagi satu panggilan vendor. Sembilan baris ledger (`TOOL-086/087`, `TSET-030/034`, `EXEC-042/044`, `PLUG-028`, `GAP-COST-12`, `GAP-TOOL-09`) dan tujuh baris parity F6 menjadi `LULUS` dengan tes bernama `TestF6TOOL086WebExtract`, `TestF6TOOL087WebSearch`, `TestF6TSET030Web`, `TestF6TSET034SearchBundle`, `TestF6EXEC042WebBackends*`, `TestF6EXEC044*Blocklist`, `TestF6PLUG028Web*`, `TestWebCacheIsolation`, `TestF6BackendSelection` serta kontrol negatif SSRF/blocklist/katalog/`tos_risk`.

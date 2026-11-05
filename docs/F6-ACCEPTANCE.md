@@ -20,7 +20,7 @@ Aturan gate:
 | Voice latency | overhead ujung-ucapan→audio-pertama ≤ 200 ms; TTS streaming mulai ≤ 300 ms setelah kalimat pertama LLM | `TestVoicePipelineLatency`, `TestF6VoiceLatencyBudget` (fake STT/LLM/TTS bertanda waktu) | LULUS |
 | Smoke E3 | 10 task E3 dengan model murah lulus harness; artefak tersimpan | `TestF6E3Smoke10` + `TestF6E3Artifact` + `bench/evals/results/F6-e3.json` | LULUS |
 | EC-PROV-024 | gate kapabilitas vision sebelum routing gambar; model teks-only tidak pernah menerima gambar | `TestEdgeCases/EC-PROV-024` | LULUS |
-| Test tertunda ADR-083 | cap tool non-LLM ditegakkan sebelum dispatch | `TestBudgetGuardTools` | BELUM |
+| Test tertunda ADR-083 | cap tool non-LLM ditegakkan sebelum dispatch | `TestBudgetGuardTools`, `TestF6ADR083ToolCap` | LULUS |
 | Baseline hermes F6 | dimensi ADR-065/083 berstatus F6 diukur untuk kedua agent | `TestF6HermesBaseline`, `TestF6BaselineArtifactSchema` + `bench/speed/results/hermes-868b9f244f-F6.json` | LULUS |
 | GAP F6 (9) | sembilan baris SPEC §22.1 lulus verifikasinya | tabel §8; anggota (`BELUM` di head ini): `GAP-SEC-05`, `GAP-COST-05`, `GAP-COST-11`, `GAP-COST-12`, `GAP-TOOL-01`, `GAP-TOOL-02`, `GAP-TOOL-06`, `GAP-TOOL-07`, `GAP-TOOL-09` | BELUM |
 | Carryover F5→F6 | tiga item DITUNDA/N/A F5 ditutup | tabel §10; anggota (`BELUM` di head ini): `F5-CODEINTEL-LANG`, `F5-BACKGROUND-WINDOWS`, `GAP-REL-14 residual` | BELUM |
@@ -112,7 +112,7 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 |---|---|---|---|
 | GAP-SEC-05 | fixture injection 20 varian → 0 cookie keluar; 100% method sensitif minta approval | `TestCDPAllowlist` | BELUM |
 | GAP-COST-05 | sesi 30 screenshot: full cache miss ≤ 2; 0 penolakan batas gambar; retire batch 80%→50% + stub `sha` | `TestF6MEM037ImageEviction`, `TestF6ImageSuite50` | LULUS |
-| GAP-COST-11 | panggilan video > cap ditolak sebelum dispatch; retry jaringan → 1 job vendor per kunci; `uncertain` tanpa retry; approval + preview harga | `TestBudgetGuardTools`, `TestF6COST11VideoIdempotency` | BELUM |
+| GAP-COST-11 | panggilan video > cap ditolak sebelum dispatch; retry jaringan → 1 job vendor per kunci; `uncertain` tanpa retry; approval + preview harga | `TestBudgetGuardTools`, `TestF6GAPCOST11BudgetToolsPayload`, `TestF6COST11VideoIdempotency` | LULUS |
 | GAP-COST-12 | 3 subagent query identik → 1 panggilan vendor; 2 profil query sama → 0 hit silang; TTL 20/60 menit; `cached=true`; kunci setelah gerbang SSRF | `TestWebCacheIsolation` | LULUS |
 | GAP-TOOL-01 | korpus 40 dokumen terbaca; round-trip tulis→baca 20 dokumen; `no_text_layer`/`unsupported`/`too_large` typed | `TestF6DocCorpus`, `FuzzDocRead` | LULUS |
 | GAP-TOOL-02 | zip-bomb 10 GB uncompressed → error terkontrol, RSS < 100 MB; batas 256 MiB/100:1/10.000 entri/kedalaman 256; PDF ≤ 5.000 objek/halaman | `TestF6DocLimits` | LULUS |
@@ -125,7 +125,7 @@ Baris MEDIA-029 (Discord voice) dan MEDIA-031 (silk) berada di F7 dan **tidak** 
 | Item | Kriteria | Tes / artefak | Status |
 |---|---|---|---|
 | EC-PROV-024 | gambar tidak pernah dikirim ke model teks-only; gate `capabilities.vision` terjadi sebelum routing; fallback vision eksplisit | `TestEdgeCases/EC-PROV-024` (katalog `pending:F6` → `covered`) | LULUS |
-| TestBudgetGuardTools (ADR-083) | 0 panggilan vendor setelah cap 100%; peringatan 80%; `budget_tools` membawa angka/periode/perintah naik; fake clock/usage | `TestBudgetGuardTools` | BELUM |
+| TestBudgetGuardTools (ADR-083) | 0 panggilan vendor setelah cap 100%; peringatan 80%; `budget_tools` membawa angka/periode/perintah naik; fake clock/usage | `TestBudgetGuardTools`, `TestF6ADR083ToolCap` | LULUS |
 | Smoke E3 | 10 task E3 self-contained deterministik, model murah, dijalankan lewat harness yang ada; artefak hasil disimpan | `TestF6E3Smoke10`, `TestF6E3Artifact`, `bench/evals/results/F6-e3.json` | LULUS |
 | Baseline hermes F6 | `Voice end-to-end` dan `Image preflight` diukur dengan harness yang sama untuk hermes dan Damn-Bot | `TestF6HermesBaseline`, `TestF6BaselineArtifactSchema`, `bench/speed/results/hermes-868b9f244f-F6.json` | LULUS |
 
@@ -136,8 +136,8 @@ Catatan **Baseline hermes F6** (§9): baris ini `LULUS` untuk kelengkapan artefa
 | Item | Kriteria | Tes yang harus ada | Status |
 |---|---|---|---|
 | F5-CODEINTEL-LANG (JS/TS/Python) | `repo_map`/`code_intel` bekerja untuk js/ts/py; bahasa lain tetap `ErrUnsupportedLanguage`; aset wasm dimuat wazero tanpa CGO | `TestF6CodeintelJSTS`, `TestF6CodeintelPython`; kontrol `TestF5CodeintelLanguageJS/TS/Python`, `TestF5CodeintelLanguageGrammarUnavailable`, `TestF6CodeintelLanguageControls` | LULUS |
-| F5-BACKGROUND-WINDOWS | `shell background:true` + registry `process_*` tersedia di Windows; `Close` membunuh seluruh pohon via Job Object; tidak ada proses yatim | `TestF6JobObjectKillsTree` (runner Windows), `TestF6BackgroundSupported` | BELUM |
-| GAP-REL-14 residual | hasil gambar MCP menjadi `Attachments` blob, bukan teks; bila model teks-only → gate vision (EC-PROV-024) | `TestF6MCPImageAttachment` | BELUM |
+| F5-BACKGROUND-WINDOWS | `shell background:true` + registry `process_*` tersedia di Windows; `Close` membunuh seluruh pohon via Job Object; tidak ada proses yatim | `TestF5BackgroundWindowsJobObject` (runner Windows), `TestShellBackgroundWindowsCapability` | BELUM — implementasi + tes ada; menunggu job `test (windows-latest, -race, 1)` hijau di head PR |
+| GAP-REL-14 residual | hasil gambar MCP menjadi `Attachments` blob, bukan teks; bila model teks-only → gate vision (EC-PROV-024) | `TestF6GAPREL14MCPAttachment`, `TestEdgeCases/EC-PROV-024` | LULUS |
 
 ## 11. Perintah bukti
 

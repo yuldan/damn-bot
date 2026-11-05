@@ -91,18 +91,25 @@ func newJob() (windows.Handle, error) {
 }
 
 // attach assigns the suspended leader to the job and resumes it.
-func (w *osProc) attach() (err error) {
-	pid, err := pidU32(w.p.Pid)
+func (w *osProc) attach() error {
+	return assignAndResume(w.job, w.p.Pid)
+}
+
+// assignAndResume puts a suspended process into job and resumes every
+// thread. The foreground runner and the background registry share it, so
+// both own the whole tree (EXEC-AND-CODING §A.4).
+func assignAndResume(job windows.Handle, pid int) (err error) {
+	u32, err := pidU32(pid)
 	if err != nil {
 		return err
 	}
 	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE|
-		windows.PROCESS_SUSPEND_RESUME, false, pid)
+		windows.PROCESS_SUSPEND_RESUME, false, u32)
 	if err != nil {
 		return fmt.Errorf("exec: open process: %w", err)
 	}
 	defer func() { err = errors.Join(err, windows.CloseHandle(h)) }()
-	if err := windows.AssignProcessToJobObject(w.job, h); err != nil {
+	if err := windows.AssignProcessToJobObject(job, h); err != nil {
 		return fmt.Errorf("exec: assign job: %w", err)
 	}
 	// NtResumeProcess resumes every thread of the suspended process; the
