@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
+	"net/http"
 	"testing"
 )
 
@@ -75,6 +76,62 @@ func TestProbeOctetStreamFtypFallback(t *testing.T) {
 	info, err := Probe(data)
 	if err != nil || info.MIME != "video/mp4" || info.DurationS != 2 {
 		t.Fatalf("Probe = %+v, %v", info, err)
+	}
+}
+
+// A brand carrying "mp4" makes net/http sniff video/mp4, so Probe takes the
+// sniffed-MIME branch instead of the octet-stream ftyp fallback.
+func TestProbeSniffedMP4Mime(t *testing.T) {
+	t.Parallel()
+	valid := append(ftyp("mp41"), mkBox(36, "moov", mvhdV0(4000))...)
+	if got := http.DetectContentType(valid); got != "video/mp4" {
+		t.Fatalf("sniff = %q, want video/mp4", got)
+	}
+	info, err := Probe(valid)
+	if err != nil || info.MIME != "video/mp4" || info.DurationS != 4 {
+		t.Fatalf("Probe = %+v, %v; want 4s", info, err)
+	}
+	// A sniffed MP4 without an mvhd must still fail closed as corrupt.
+	if _, err := Probe(ftyp("mp41")); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("Probe(ftyp only) = %v, want ErrCorrupt", err)
+	}
+}
+
+// moov boxes routinely carry trak children before mvhd; the walk must skip
+// them instead of giving up on the first child.
+func TestMp4DurationSkipsNonMvhdChild(t *testing.T) {
+	t.Parallel()
+	moov := mkBox(52, "moov", append(mkBox(16, "trak", make([]byte, 8)), mvhdV0(1500)...))
+	if d, ok := mp4Duration(append(ftyp("isom"), moov...)); !ok || d != 1.5 {
+		t.Fatalf("mp4Duration = %v, %v; want 1.5, true", d, ok)
+	}
+	if info, err := Probe(append(ftyp("isom"), moov...)); err != nil || info.DurationS != 1.5 {
+		t.Fatalf("Probe = %+v, %v; want 1.5s", info, err)
+	}
+}
+
+// A mvhd payload shorter than its version word, or than the 64-bit version 1
+// layout, has no readable duration and must surface ErrCorrupt.
+func TestMvhdDurationShortBoxGuards(t *testing.T) {
+	t.Parallel()
+
+	// Fewer than four payload bytes: the version word itself is missing.
+	if d, ok := mvhdDuration([]byte{0, 0, 0}); ok || d != 0 {
+		t.Fatalf("short version word = %v, %v; want 0, false", d, ok)
+	}
+	shortVersion := append(ftyp("isom"), mkBox(19, "moov", mkBox(11, "mvhd", []byte{0, 0, 0}))...)
+	if _, err := Probe(shortVersion); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("Probe(short version word) = %v, want ErrCorrupt", err)
+	}
+
+	// Version 1 needs 28 payload bytes after the version word; 20 is not enough.
+	truncatedV1 := append([]byte{1}, make([]byte, 19)...)
+	if d, ok := mvhdDuration(truncatedV1); ok || d != 0 {
+		t.Fatalf("truncated v1 = %v, %v; want 0, false", d, ok)
+	}
+	v1File := append(ftyp("isom"), mkBox(36, "moov", mkBox(28, "mvhd", truncatedV1))...)
+	if _, err := Probe(v1File); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("Probe(truncated v1) = %v, want ErrCorrupt", err)
 	}
 }
 
