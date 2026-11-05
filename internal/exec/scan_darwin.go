@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"slices"
 
 	"golang.org/x/sys/unix"
 )
@@ -49,4 +50,13 @@ func procEnv(raw []byte) []byte {
 		_, rest, _ = bytes.Cut(rest, []byte{0})
 	}
 	return rest
+}
+
+// groupLive reports whether process group pgid still has a member that is
+// not a zombie (P_stat 5 = SZOMB in <sys/proc.h>). macOS returns EPERM when
+// killpg(2) finds only zombies, so the group signal result alone cannot tell
+// a dead group from a live one; kern.proc.pgrp can.
+func groupLive(pgid int) bool {
+	ks, err := unix.SysctlKinfoProcSlice("kern.proc.pgrp", pgid)
+	return err != nil || slices.ContainsFunc(ks, func(k unix.KinfoProc) bool { return k.Proc.P_stat != 5 })
 }

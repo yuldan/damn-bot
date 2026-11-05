@@ -53,7 +53,20 @@ func startBackground(ctx context.Context, sp spawnSpec) (*cmdHandle, error) {
 			case "KILL":
 				sig = syscall.SIGKILL
 			}
-			return syscall.Kill(-cmd.Process.Pid, sig)
+			err := syscall.Kill(-cmd.Process.Pid, sig)
+			return groupKillError(cmd.Process.Pid, err, errors.Is(err, syscall.EPERM) && groupLive(cmd.Process.Pid))
 		},
 	}, nil
+}
+
+// groupKillError classifies a failed group signal. A group that is already
+// gone is not a failure: Linux reports ESRCH for an empty group, macOS
+// reports EPERM while the leader is an unreaped zombie (killpg1 skips SZOMB
+// and POSIX maps "nothing found" to EPERM, ADR-105 butir 18). EPERM for a
+// group that still has a live member stays an error.
+func groupKillError(pgid int, err error, alive bool) error {
+	if err == nil || errors.Is(err, syscall.ESRCH) || (errors.Is(err, syscall.EPERM) && !alive) {
+		return nil
+	}
+	return fmt.Errorf("exec: kill -%d: %w", pgid, err)
 }
