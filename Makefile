@@ -104,6 +104,8 @@ RACE ?= -race
 # Paket terberat (cmd/damnbot, internal/ctxdb) terukur 57–99,4% dari 600 s di
 # run hijau dan sudah panic 600 s di windows-latest/macos-15-intel; variasi
 # 1,7× pada SHA yang sama. Tidak ada tes, asersi, -race, atau cakupan berubah.
+# ADR-324 amandemen: default 20m untuk lokal/Linux; job `test` di CI mengekspor
+# TEST_TIMEOUT=30m untuk runner macOS (variabel environment menimpa `?=`).
 TEST_TIMEOUT ?= 20m
 SCENARIO_PKGS ?= ./internal/ctxdb
 test:

@@ -177,6 +177,12 @@ jobs:
     timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 35 || (startsWith(matrix.os, 'macos') && 40 || 25) }}
     env:
       CGO_ENABLED: ${{ matrix.cgo }} # -race butuh cgo; build rilis tetap CGO_ENABLED=0 (job static, portability)
+      # ADR-324 amandemen (batas infrastruktur, bukan gate tes): plafon `go test -timeout` per binary
+      # paket dinaikkan hanya di runner macOS. `cmd/damnbot` di `macos-15-intel` selesai 1065,132 s
+      # (SHA c46d06e3, run 41962495294) tetapi SHA f1c9504c (run 41968483834, attempt 1&2) panic
+      # `test timed out after 20m0s` — margin hanya ~135 s pada runner yang sama. Default 20m tetap
+      # untuk lokal dan Linux (Makefile `TEST_TIMEOUT ?= 20m`); asersi/`t.Skip` tidak berubah.
+      TEST_TIMEOUT: ${{ startsWith(matrix.os, 'macos') && '30m' || '20m' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
