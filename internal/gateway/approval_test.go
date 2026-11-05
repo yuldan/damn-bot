@@ -67,6 +67,41 @@ func TestApprovalTimeoutDenies(t *testing.T) {
 	}
 }
 
+// TestApprovalWithdrawClosesUnsentPrompt: a prompt whose card never reached
+// the chat leaves nothing behind, while a decided request stays readable.
+func TestApprovalWithdrawClosesUnsentPrompt(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	a := gateway.NewApprovals(func() time.Time { return now })
+	if err := a.Open(approval(t, "req-1", now)); err != nil {
+		t.Fatal(err)
+	}
+	if !a.Withdraw("req-1") {
+		t.Fatal("Withdraw(open) = false")
+	}
+	if pending := a.Pending("telegram", "c1"); len(pending) != 0 {
+		t.Fatalf("pending after withdraw = %+v", pending)
+	}
+	if _, err := a.Decide("telegram", "c1", "req-1", gateway.Deny); !errors.Is(err, gateway.ErrApprovalNotFound) {
+		t.Fatalf("decide after withdraw = %v", err)
+	}
+	if a.Withdraw("req-1") {
+		t.Fatal("Withdraw(removed) = true")
+	}
+
+	if err := a.Open(approval(t, "req-2", now)); err != nil {
+		t.Fatal(err)
+	}
+	if applied, err := a.Callback("req-2", gateway.AllowOnce); err != nil || !applied {
+		t.Fatalf("allow: applied=%v err=%v", applied, err)
+	}
+	if a.Withdraw("req-2") {
+		t.Fatal("Withdraw(decided) removed a recorded decision")
+	}
+	if d, ok := a.Decision("req-2"); !ok || d != gateway.AllowOnce {
+		t.Fatalf("decided request after withdraw = %v, ok=%v", d, ok)
+	}
+}
+
 func TestApprovalRejectsInvalid(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	a := gateway.NewApprovals(func() time.Time { return now })

@@ -146,6 +146,20 @@ func (a *Approvals) callback(p *approval, d Decision) (bool, error) {
 	return true, nil
 }
 
+// Withdraw removes an open request whose prompt never reached the chat, so a
+// send failure cannot leave an approval a command could target. A decided
+// request stays: its answer is already recorded and must remain readable.
+func (a *Approvals) Withdraw(id string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	p, ok := a.pending[id]
+	if !ok || p.decided {
+		return false
+	}
+	delete(a.pending, id)
+	return true
+}
+
 // Pending returns the open approvals of one chat, ordered by expiry and then
 // id. An expired request resolves (and stays) Deny and is not returned, so a
 // command can never approve a request the clock already rejected.

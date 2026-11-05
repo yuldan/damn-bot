@@ -196,9 +196,14 @@ type FakeTG struct {
 	nextUpdateID  int64
 	nextMessageID int64
 	notify        chan struct{}
-	reqs          []FakeTGRequest
-	seq           int
-	active        int
+	// changed is closed and replaced whenever a request is recorded or its
+	// response is complete, so expectation waits block on it instead of
+	// sleeping through a fixed interval.
+	changed chan struct{}
+	onCall  func(FakeTGRequest)
+	reqs    []FakeTGRequest
+	seq     int
+	active  int
 }
 
 // NewFakeTG starts the fake on a loopback listener and closes it when tb ends.
@@ -234,6 +239,7 @@ func NewFakeTG(tb testing.TB, opts FakeTGOptions) *FakeTG {
 		faulted:      make(map[string]int),
 		callbackData: make(map[string]string),
 		notify:       make(chan struct{}),
+		changed:      make(chan struct{}),
 	}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.handle))
 	s.client = s.Client()
@@ -343,17 +349,25 @@ func (s *FakeTG) successful(method string) []FakeTGRequest {
 
 // WaitSend blocks until a successful send to chatID matches pred (nil = any).
 func (s *FakeTG) WaitSend(chatID int64, pred func(FakeTGRequest) bool, timeout time.Duration) (FakeTGRequest, error) {
-	return s.waitOutbound("send", chatID, pred, timeout, s.Sends)
+	return s.waitOutbound("send", "sendMessage", chatID, pred, timeout, s.Sends)
 }
 
 // WaitEdit blocks until a successful edit to chatID matches pred (nil = any).
 func (s *FakeTG) WaitEdit(chatID int64, pred func(FakeTGRequest) bool, timeout time.Duration) (FakeTGRequest, error) {
-	return s.waitOutbound("edit", chatID, pred, timeout, s.Edits)
+	return s.waitOutbound("edit", "editMessageText", chatID, pred, timeout, s.Edits)
 }
 
-func (s *FakeTG) waitOutbound(kind string, chatID int64, pred func(FakeTGRequest) bool, timeout time.Duration, list func() []FakeTGRequest) (FakeTGRequest, error) {
-	deadline := time.Now().Add(timeout)
+// waitOutbound wakes on the fake's request signal instead of polling: the
+// expectation is checked as soon as a request is recorded or its response
+// completes, so a matching call is returned without a fixed tick of latency.
+// The timeout is a failure deadline, not the mechanism.
+func (s *FakeTG) waitOutbound(kind, method string, chatID int64, pred func(FakeTGRequest) bool, timeout time.Duration, list func() []FakeTGRequest) (FakeTGRequest, error) {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
 	for {
+		// Take the signal before the scan: an event between the two closes the
+		// captured channel, so the wakeup is never lost.
+		changed := s.change()
 		requests := list()
 		for i := range requests {
 			req := &requests[i]
@@ -361,12 +375,63 @@ func (s *FakeTG) waitOutbound(kind string, chatID int64, pred func(FakeTGRequest
 				return *req, nil
 			}
 		}
-		if time.Now().After(deadline) {
-			return FakeTGRequest{}, fmt.Errorf("fake telegram: no matching %s to chat %d within %s", kind, chatID, timeout)
+		select {
+		case <-changed:
+		case <-deadline.C:
+			return FakeTGRequest{}, fmt.Errorf("fake telegram: no matching %s to chat %d within %s; saw %s in %d request(s)",
+				kind, chatID, timeout, s.seen(method, chatID), len(s.Requests()))
 		}
-		timer := time.NewTimer(5 * time.Millisecond)
-		<-timer.C
 	}
+}
+
+// OnCall installs a hook that runs once per recorded Bot API call, on the
+// handler goroutine and before the response is written. It may queue updates:
+// a scenario answers a card the instant its send is recorded instead of after
+// the response has travelled back to the gateway. The request is a read-only
+// snapshot and the hook must not block.
+func (s *FakeTG) OnCall(fn func(FakeTGRequest)) {
+	s.mu.Lock()
+	s.onCall = fn
+	s.mu.Unlock()
+}
+
+func (s *FakeTG) callHook() func(FakeTGRequest) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.onCall
+}
+
+// change returns the channel closed by the next recorded or completed request.
+func (s *FakeTG) change() <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.changed
+}
+
+// signal wakes every waiter; s.mu must be held.
+func (s *FakeTG) signal() {
+	close(s.changed)
+	s.changed = make(chan struct{})
+}
+
+// seen summarizes the request history of one method for a failed wait, so the
+// error names what the gateway did send instead of only what was missing.
+func (s *FakeTG) seen(method string, chatID int64) string {
+	var count int
+	var last string
+	for _, req := range s.RequestsFor(method) {
+		if req.ChatID == chatID {
+			count++
+			last = req.Text
+		}
+	}
+	if count == 0 {
+		return "no " + method
+	}
+	if runes := []rune(last); len(runes) > 48 {
+		last = string(runes[:48]) + "…"
+	}
+	return fmt.Sprintf("%d %s (last text %q)", count, method, last)
 }
 
 // Drain waits (default 2s) until no handler is in flight and the request count
@@ -529,15 +594,20 @@ func (s *FakeTG) Active() int {
 
 // WaitIdle waits until no handler is in flight, or returns the last error.
 func (s *FakeTG) WaitIdle(timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for s.Active() > 0 {
-		if time.Now().After(deadline) {
-			return fmt.Errorf("fake telegram: %d handler(s) still active after %s", s.Active(), timeout)
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+		changed := s.change()
+		active := s.Active()
+		if active == 0 {
+			return nil
 		}
-		timer := time.NewTimer(2 * time.Millisecond)
-		<-timer.C
+		select {
+		case <-changed:
+		case <-deadline.C:
+			return fmt.Errorf("fake telegram: %d handler(s) still active after %s", active, timeout)
+		}
 	}
-	return nil
 }
 
 // DecodeFakeTGError decodes an error envelope; ok responses are an error.
@@ -575,6 +645,7 @@ func (s *FakeTG) begin() func() {
 	return func() {
 		s.mu.Lock()
 		s.active--
+		s.signal()
 		s.mu.Unlock()
 	}
 }
@@ -633,6 +704,9 @@ func (s *FakeTG) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	req := s.record(r, method)
 	seq = req.Seq
+	if hook := s.callHook(); hook != nil {
+		hook(*req)
+	}
 	if !s.waitDelay(r.Context(), s.delays[method]) {
 		return
 	}
@@ -650,6 +724,7 @@ func (s *FakeTG) finishRequest(seq, status int) {
 	if seq > 0 && seq <= len(s.reqs) {
 		s.reqs[seq-1].Status = status
 	}
+	s.signal()
 }
 
 func (s *FakeTG) setResultMessageID(seq int, messageID int64) {
@@ -699,6 +774,7 @@ func (s *FakeTG) record(r *http.Request, method string) *FakeTGRequest {
 	s.seq++
 	req.Seq = s.seq
 	s.reqs = append(s.reqs, req)
+	s.signal()
 	s.mu.Unlock()
 	return &req
 }
