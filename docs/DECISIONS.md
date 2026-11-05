@@ -4281,7 +4281,7 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Keputusan.**
 1. **Batas paket.** `internal/acp` hanya mengimpor standard library pada PR ini. `loop`/`loop/event` baru dibutuhkan oleh server/sesi (S6-2); edge matriks `acp → loop/event` **belum** ditambahkan di sini dan akan diputuskan bersama wiring berikutnya. Tidak ada `tools`, `ctxdb`, `provider`, atau `exec` di paket ini (E-03); dispatcher/taint tetap milik composition root dan tidak pernah dibagi antar sesi.
 2. **Framing.** `Reader.ReadFrame` memakai `bufio.ReadSlice('\n')` inkremental: potongan diakumulasi sampai cap 16 MiB (payload di luar LF), lalu sisa baris **dikuras** sehingga frame berikutnya mulai pada batas baru. Frame > cap menghasilkan `ErrFrameTooLarge`; `Conn.Next` memetakannya ke `-32600` dengan id null. Baris kosong/spasi dilewati; frame terakhir tanpa LF diterima (klien yang menutup stream); batch (`[`) dan `jsonrpc ≠ "2.0"`/method kosong ditolak `-32600`; JSON rusak `-32700`.
-3. **Batas memori.** Pembaca tidak pernah menyimpan payload di atas cap: buffer parsial dilepas sebelum pengurasan. Uji nyata 100 MB mengukur waktu, `HeapAlloc` setelah GC, dan RSS (`/proc/self/statm` bila ada); ambang uji heap 48 MiB, RSS 128 MiB.
+3. **Batas memori.** Pembaca tidak pernah menyimpan payload di atas cap: buffer parsial dilepas sebelum pengurasan. Uji nyata 100 MB mengukur waktu, `HeapAlloc` setelah GC, dan RSS (`/proc/self/statm` bila ada); ambang uji heap 48 MiB, RSS 256 MiB.
 4. **Write deadline.** `FrameWriter` menerima konteks; `Conn` membungkusnya dengan `WithTimeout(10 s)` (dapat di-override tes) dan memetakan `context.DeadlineExceeded`/`ErrWriteTimeout` ke `ErrWriteTimeout`. `FileWriter` menerapkan deadline ke `*os.File` (`SetWriteDeadline`), menulis penuh, lalu menghapus deadline. Pipe Unix diuji nyata; writer pemblokir generik diuji lintas platform tanpa goroutine.
 5. **Error tidak membocorkan input.** Semua pesan error adalah teks tetap (`parse error`, `invalid request`, `method not found`, `invalid params`, `internal error`); method/params/argumen klien tidak pernah di-echo. `Data` hanya diisi pemanggil dengan nilai non-rahasia (mis. `event_id` di S6-2).
 6. **Registry sesi.** `Session` punya state tertutup `new → active → closed` (close idempoten, terminal), validasi id ASCII token ≤128, dan **tepat satu outbox** berkapasitas tetap. `Send` tidak pernah memblokir (penuh ⇒ `ErrOutboxFull`); `Registry` aman konkuren, menolak id duplikat, dan `CloseAll` menutup semua. Tidak ada state dispatcher/taint/transcript di sini; isolasi sesi ditegakkan dengan memisahkan objek per sesi, bukan dengan map global.
@@ -4291,6 +4291,19 @@ Keputusan owner lain yang mengikat konteks ini: enkripsi at-rest bersifat **opsi
 **Bukti terukur (pada head PR).** `TestFrame100MBBounded`: 100 MB frame nyata → `-32600`, resync ke frame berikutnya; waktu dan RSS dicatat di log tes (lihat body PR). `go test ./internal/acp`: hijau, termasuk goleak (E-29). `internal/archtest` penuh hijau (E-01/E-14/E-79). Non-test Go: 592 baris (doc 10, frame 209, rpc 130, session 243) = `MODULE acp 2500` tanpa kenaikan.
 
 **Konsekuensi.** (+) Framing/error/session dapat diuji tanpa klien dan tanpa `cmd`; batas memori/deadline tidak bergantung pada asumsi klien. (+) Error aman terhadap injeksi secret lewat params. (−) Server belum berbicara ACP; `Conn.Next` masih dipakai manual oleh loop server S6-2. (−) `FileWriter` pada stdout berupa file reguler tidak punya deadline OS; penanganan watchdog ditentukan di wiring S6-5.
+
+**Amandemen 2026-11-05 (budget waktu 100 MB pada `-race`/macOS).** `TestFrame100MBBounded` gagal di CI full `macos-15-intel` (`-race`, main `994db9fc`) dengan `100 MB frame took 10.294777134s` terhadap budget 10 s. Pengukuran ulang (Go 1.26.10, `GOMAXPROCS=2`, `nice -n 19`, frame 100 MB tidak diubah):
+
+| Konfigurasi | Waktu | Rasio |
+|---|---|---|
+| linux/amd64, tanpa `-race`, 3 run | 131,4 / 152,1 / 152,3 ms | 1× |
+| linux/amd64, `-race`, 3 run | 2,125 / 2,110 / 2,337 s | ≈ 14–15× |
+| macos-15-intel, `-race` (main `994db9fc`) | 10,2948 s | ≈ 68–78× non-race; ≈ 4,4–4,9× Linux `-race` |
+| macos-15-intel, `-race` (nightly 2026-10-28) | 10,5512 s | ≈ 4,5–5,0× Linux `-race` |
+
+Jalur produksi **linear, bukan O(n²)**: `ReadFrame` memakai `bufio.ReadSlice('\n')` 64 KiB, `accumulator` menyalin paling banyak cap 16 MiB lalu `over` membuat `add` O(1) per chunk (sisa 84 MB hanya dikuras). Probe skala sementara (dihapus setelah pengukuran) pada 25/50/100/200 MB dengan `-race`: 0,82 / 1,23 / 2,17 / 3,77 s (≈ 16,8 ms/MB, linear); pembaca tanpa isi per-byte (`zeroReader`) tetap 0,36–0,38 s pada semua ukuran, jadi biaya tetap = GC/append cap, bukan pertumbuhan kuadratik. Pada runner macOS throughput efektif ≈ 9,7 MB/s (100 MB / 10,29 s) — batas mesin + detektor, bukan algoritme.
+
+**Keputusan amandemen.** Budget dinding 10 s → **30 s** bila `timing.RaceEnabled || runtime.GOOS == "darwin"` (≈ 2,9× margin atas 10,29 s); frame uji tetap 100 MB, error `-32600`, resync, `heap_delta ≤ 48 MiB`, dan `rss_delta ≤ 256 MiB` tidak berubah (angka RSS di butir 3 dikoreksi dari 128 MiB; kode selalu 256 MiB sejak `54ac1e6c`). Budget tetap diassert di semua build (bukan `timing.Enforced`, ADR-048) karena tujuannya menangkap pembungkusan tak terbatas: O(n²) pada 100 MB akan jauh melewati 30 s bahkan di runner lambat. Kontrol negatif batas ditambah: `TestFrameCapDefaultBoundary` (payload tepat `MaxFrameBytes` diterima, +1 byte ditolak, frame berikutnya terbaca) dan `TestConnNextCanceledBeforeRead` (ctx batal menghentikan `Next` sebelum satu byte pun dibaca).
 
 ## ADR-202 — Kontrak approval: origin permukaan dan preview wajib untuk aksi berbahaya
 
