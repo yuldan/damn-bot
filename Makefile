@@ -33,7 +33,7 @@ CORPORA ?= C1 C2 C3 rg
 CORPUS_ENV = DAMNBOT_REQUIRE_CORPORA=1 DAMNBOT_RG=$(CORPORA_DIR)/rg DAMNBOT_CORPUS_C1=$(CORPORA_DIR)/C1 \
 	DAMNBOT_CORPUS_C3=$(CORPORA_DIR)/C3 $(if $(filter C2,$(CORPORA)),DAMNBOT_CORPUS_C2=$(CORPORA_DIR)/C2)
 
-.PHONY: all build build-minimal-all build-matrix lint vet-custom test test-timing archtest vet-cross size-check loc loc-ratio chaos \
+.PHONY: all build build-minimal-all build-matrix lint vet-custom test test-windows-evidence test-timing archtest vet-cross size-check loc loc-ratio chaos \
 	deps-check tidy-check mod-verify vuln licenses release-test check meta-test bench-budget fuzz coverage deadcode \
 	flake perf perf-f4 ct09-nightly pr-meta phase-acceptance corpora bench-parity bench-codetools \
 	sqlite-engine sqlite-engine-cross skill-refs prices-gate e2e-docker release ci-required ci-required-test
@@ -111,6 +111,13 @@ test:
 ifeq ($(PKGS),./...)
 	go test $(GOTAGS) $(RACE) -shuffle=on -timeout $(TEST_TIMEOUT) -run '^TestScenario$$' $(SCENARIO_PKGS)
 endif
+
+# Bukti bernama untuk acceptance ledger (ADR-165; amandemen ADR-324): `make test` hanya mencetak
+# ringkasan paket (`ok <pkg> <durasi>`), sehingga log Windows tidak membuktikan tes bernama dijalankan
+# dan bukan skip. `scripts/windows-test-evidence.sh` menjalankan kelima tes, mencetak namanya, dan
+# GAGAL bila ada yang hilang/SKIP. Bukan gate suite; `make test` tetap gate, `RACE` ikut matrix.
+test-windows-evidence:
+	TAGSCSV="$(TAGSCSV)" RACE="$(RACE)" scripts/windows-test-evidence.sh
 
 # ADR-048 (TS-P08): asersi budget waktu dinding (I11 ≤ 200 ms/txn dll.) hanya ditegakkan di build
 # tanpa -race, lewat satu helper internal/testutil/timing (ADR-073, NEW-35). Suite yang sama juga

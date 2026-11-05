@@ -190,6 +190,12 @@ jobs:
         if: runner.os == 'Windows'
         run: command -v make || choco install make -y --no-progress
       - run: make test RACE="${{ matrix.race }}"
+      # Amandemen ADR-324 (bukti acceptance, ADR-165): `make test` hanya mencetak `ok <pkg> <durasi>`,
+      # jadi tes Windows yang bernama tidak terlihat di log. Step ini hanya mencetak nama tes yang
+      # benar-benar dieksekusi; `make test` di atas tetap gate suite satu-satunya, tanpa `-race` tambahan.
+      - name: Bukti eksekusi tes Windows (nama tes di log)
+        if: runner.os == 'Windows'
+        run: make test-windows-evidence RACE="${{ matrix.race }}"
 
   # ADR-048 (TS-P08): budget waktu dinding tanpa -race; cek kebenaran skenario yang sama tetap berjalan
   # di job `test` (-race). Job tersendiri (bukan digabung seperti gate lain, ADR-179): asersi waktu dinding
