@@ -22,8 +22,8 @@ func TestF6CLI006BrowserCloseProfileE2E(t *testing.T) {
 	}
 
 	ok := e.Exec("browser", "close-profile", "chrome", "--yes")
-	if runtime.GOOS == "windows" {
-		assertWindowsUnavailable(t, ok)
+	if runtime.GOOS != "linux" {
+		assertNonLinuxUnavailable(t, ok)
 	} else {
 		if ok.Code != 0 {
 			t.Fatalf("with --yes exit = %d, want 0\nstdout:\n%s\nstderr:\n%s", ok.Code, ok.Stdout, ok.Stderr)
@@ -39,14 +39,15 @@ func TestF6CLI006BrowserCloseProfileE2E(t *testing.T) {
 	}
 }
 
-// assertWindowsUnavailable proves the real-profile lock is Linux-only: Windows
-// must fail closed with module_unavailable (exit 3) and close nothing.
-func assertWindowsUnavailable(t *testing.T, res Result) {
+// assertNonLinuxUnavailable proves the real-profile lock is Linux-only: every
+// other platform (Windows, macOS) must fail closed with module_unavailable
+// (exit 3) and close nothing.
+func assertNonLinuxUnavailable(t *testing.T, res Result) {
 	t.Helper()
 	if res.Code != 3 || !strings.Contains(strings.ToLower(res.Stderr), "unavailable") {
-		t.Fatalf("windows --yes exit = %d, want 3 with module_unavailable\nstdout:\n%s\nstderr:\n%s", res.Code, res.Stdout, res.Stderr)
+		t.Fatalf("%s --yes exit = %d, want 3 with module_unavailable\nstdout:\n%s\nstderr:\n%s", runtime.GOOS, res.Code, res.Stdout, res.Stderr)
 	}
 	if strings.Contains(res.Stdout, "closed (pid") || strings.Contains(res.Stdout, "already closed") {
-		t.Fatalf("windows --yes closed a profile: %q", res.Stdout)
+		t.Fatalf("%s --yes closed a profile: %q", runtime.GOOS, res.Stdout)
 	}
 }
