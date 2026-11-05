@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -176,6 +177,62 @@ func TestBackgroundSpawnRace(t *testing.T) {
 	}
 	if got := len(b.List("s0")) + len(b.List("s1")) + len(b.List("s2")) + len(b.List("s3")); got == 0 {
 		t.Fatal("no entries")
+	}
+}
+
+// TestBackgroundKillAfterLeaderExit kills the group after the leader has been
+// reaped: the group is empty, so Linux reports ESRCH (macOS reports ESRCH too
+// once the zombie is gone; its zombie-time EPERM is classified by
+// groupKillError). Before the fix the raw errno surfaced as a Kill failure.
+// No sleep: p.done closes when wait(2) has returned.
+func TestBackgroundKillAfterLeaderExit(t *testing.T) {
+	t.Parallel()
+	b := NewBackground()
+	t.Cleanup(func() {
+		//nolint:errcheck,gosec // test cleanup
+		b.Close(context.Background())
+	})
+	info := bgStart(t, b, "s5", "exit 0")
+	p, err := b.lookup("s5", info.ID)
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	select {
+	case <-p.done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("leader did not exit")
+	}
+	if err := p.cmd.kill("KILL"); err != nil {
+		t.Fatalf("kill after leader exit = %v, want nil", err)
+	}
+	if err := b.Close(context.Background()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+// TestBackgroundKillStillAliveGroupReturnsError pins the other side of
+// ADR-105 butir 18: EPERM from a group that still has a live member is a
+// real failure — the caller may not signal it, but the group is not empty.
+func TestBackgroundKillStillAliveGroupReturnsError(t *testing.T) {
+	t.Parallel()
+	if err := groupKillError(42, syscall.EPERM, true); err == nil {
+		t.Fatal("EPERM with a live group member = nil, want error")
+	}
+	if err := groupKillError(42, syscall.EINVAL, false); err == nil {
+		t.Fatal("EINVAL = nil, want error")
+	}
+	for _, tc := range []struct {
+		name  string
+		err   error
+		alive bool
+	}{
+		{"success", nil, true},
+		{"empty group", syscall.ESRCH, true},
+		{"zombie group", syscall.EPERM, false},
+	} {
+		if err := groupKillError(42, tc.err, tc.alive); err != nil {
+			t.Errorf("%s: %v, want nil", tc.name, err)
+		}
 	}
 }
 
