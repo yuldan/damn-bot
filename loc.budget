@@ -434,11 +434,14 @@ MODULE obs         4000 internal/obs
 # ADR-244: SPEC §3.2.4:286 (gateway core + gateway/telegram 10.500 -> gateway 9.600).
 # ADR-253 + ADR-254: total SPEC gateway 10.500 = gateway 9.500 + gwstore 1.000
 # (parity C settings/home + emergency-stop replay; tidak ada perubahan SPEC).
-MODULE gateway     9500 internal/gateway
+# ADR-326 P1a: gateway 9.500 -> 9.300 (outq + renderer platform + caps SEC-10)
+# dan gwstore 1.000 -> 1.200 (pairing lintas proses, EC-PLAT-008); total tetap 10.500.
+MODULE gateway     9300 internal/gateway
 # ADR-245: sisa SPEC gateway 10.500 = storage konsumen `ctxdb/gwstore` (ADR-074),
 # dibukukan sebagai MODULE agar Σ core 47.511/47.600 tidak ditembus.
 # ADR-253/254: 900 -> 1.000 (home channel, chat setting, replay window; terukur).
-MODULE gwstore     1000 internal/ctxdb/gwstore
+# ADR-326 P1a: 1.000 -> 1.200 (serialisasi pairing lintas proses, EC-PLAT-008).
+MODULE gwstore     1200 internal/ctxdb/gwstore
 # ADR-244: SPEC §3.2.4:287 (cron 3.500).
 MODULE cron        3500 internal/cron
 # ADR-248: storage konsumen cron_jobs/cron_runs (ADR-074) dipotong dari baris SPEC cron 3.500
@@ -480,3 +483,12 @@ MODULE browser      5500 internal/browser internal/browser/cdp
 MODULE media        9500 internal/media
 MODULE voice        4500 internal/voice
 MODULE computeruse  2000 internal/computeruse
+
+# ADR-326 (F7 selubung): enam baris MODULE baru di luar Sigma core. P1a membukukan
+# lima baris (gwpeer dibukukan paket P8); direktori dibangun bertahap oleh P2..P11.
+# Sigma kelas MODULE 83.300 -> 108.400 + backup 1.467 = 109.867 <= maxModuleLOC 111.000.
+MODULE gwplat    13000 internal/gwplat
+MODULE gwapi      3000 internal/gwapi
+MODULE gwwa        600 internal/gwwa
+MODULE gwmatrix   1500 internal/gwmatrix
+MODULE kanban     3000 internal/kanban
