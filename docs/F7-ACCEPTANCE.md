@@ -55,7 +55,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-023 | WeCom | smart robot WS + callback app; XML parser hardened (tanpa entity eksternal) | `TestF7PLAT023WeCom`, `TestF7WeComXML` | BELUM | dua surface |
 | PLAT-024 | Weixin/WeChat | iLink long-poll; kursor persist; audio SILK → MEDIA-031 | `TestF7PLAT024Weixin` | BELUM | — |
 | PLAT-025 | WhatsApp Web (bridge) | klien `damnbot.bridge/v1`; inbound-only; `send_message` cold ke JID tanpa inbound → `cold_outbound_denied` 0 request; ack ban risk tunggal; `health.reason` dipetakan ke breaker | `TestWhatsAppWebGuards`, `TestBridgeProtocolConformance`, `TestF7PLAT025WABridge` | BELUM | parity `external-bridge (ADR-034)` wajib di-flip `LULUS`; GAP-GW-01/11 |
-| PLAT-026 | WhatsApp Cloud | API resmi Meta; verify token + HMAC `X-Hub-Signature-256`; jendela 24 jam dihormati | `TestF7PLAT026WhatsAppCloud`, `TestF7WACloudSignature` | BELUM | satu-satunya mode wizard |
+| PLAT-026 | WhatsApp Cloud | API resmi Meta; verify token + HMAC `X-Hub-Signature-256`; jendela 24 jam dihormati | `TestF7PLAT026WhatsAppCloud`, `TestF7WACloudSignature` | LULUS | satu-satunya mode wizard |
 | PLAT-027 | Yuanbao | WS bot app id/secret; grup/DM mapping | `TestF7PLAT027Yuanbao` | BELUM | §8 tools |
 | PLUG-024 | Plugin: platforms | 27 descriptor adapter terdaftar, semuanya `default-off`, aktivasi eksplisit, 0 autodetect env | `TestF7PLUG024PlatformPlugins`, `TestF7PlatformRegistryClosed` | BELUM | kontrol: nama asing ditolak |
 

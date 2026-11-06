@@ -1,8 +1,10 @@
 // Package whatsapp_cloud is the official Meta WhatsApp Business Cloud API
 // adapter (PLAT-026, GAP-GW-01). Inbound is a signed webhook: the verify
 // token answers the GET handshake and `X-Hub-Signature-256` is an HMAC-SHA256
-// of the raw body with the app secret. Secrets come from the gwplat secret
-// seam and never appear in an error or a log line.
+// of the raw body with the app secret. Outbound free-form text is legal only
+// inside the 24-hour customer service window opened by an inbound message;
+// a template is the only message allowed after it closes. Secrets come from
+// the gwplat secret seam and never appear in an error or a log line.
 package whatsapp_cloud
 
 import (
@@ -15,7 +17,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/damnbot/damnbot/internal/gateway"
@@ -52,8 +56,12 @@ func mediaLimit(kind string) (int64, bool) {
 type Config struct {
 	Enabled       bool
 	PhoneNumberID string
-	Log           *slog.Logger
-	Now           func() time.Time
+	APIVersion    string
+	// BaseURL overrides the Graph root; it must be https or loopback.
+	BaseURL    string
+	HTTPClient *http.Client
+	Log        *slog.Logger
+	Now        func() time.Time
 }
 
 // Adapter is the Cloud API webhook adapter: inbound is pushed by the gateway
@@ -68,8 +76,13 @@ type Adapter struct {
 
 	appSecret   string
 	verifyToken string
+	accessToken string
+	client      *http.Client
 
 	dedupe *gwplat.Dedupe
+	mu     sync.Mutex
+	// lastInbound is the 24-hour window state per chat id.
+	lastInbound map[string]time.Time
 }
 
 // Errors of the adapter. Compared with errors.Is.
@@ -80,6 +93,8 @@ var (
 	ErrWebhookTooBig  = errors.New("whatsapp_cloud: webhook body too large")
 	ErrMediaTooLarge  = errors.New("whatsapp_cloud: media exceeds the Cloud API limit")
 	ErrInvalidPayload = errors.New("whatsapp_cloud: invalid webhook payload")
+	ErrWindowClosed   = errors.New("whatsapp_cloud: session window closed; template required")
+	ErrGraph          = errors.New("whatsapp_cloud: graph API error")
 )
 
 // New validates explicitly enabled config, loads the three declared secrets
@@ -97,6 +112,9 @@ func New(ctx context.Context, cfg *Config, desc *gwplat.Descriptor, secrets gwpl
 	if err := validateConfig(cfg); err != nil {
 		return nil, err
 	}
+	if err := validateBase(cfg); err != nil {
+		return nil, err
+	}
 	if out == nil || h == nil {
 		return nil, fmt.Errorf("%w: outbox and handler are required", ErrConfig)
 	}
@@ -112,12 +130,19 @@ func New(ctx context.Context, cfg *Config, desc *gwplat.Descriptor, secrets gwpl
 	if now == nil {
 		now = time.Now
 	}
-	return &Adapter{
+	a := &Adapter{
 		cfg: *cfg, desc: desc, out: out, h: h, log: logger, now: now,
 		appSecret:   values["whatsapp_cloud_app_secret"],
 		verifyToken: values["whatsapp_cloud_verify_token"],
+		accessToken: values["whatsapp_cloud_access_token"],
 		dedupe:      gwplat.NewDedupe(4096, 30*time.Minute),
-	}, nil
+		lastInbound: make(map[string]time.Time),
+	}
+	a.client = cfg.HTTPClient
+	if a.client == nil {
+		a.client = defaultClient(a.baseURL())
+	}
+	return a, nil
 }
 
 func validateConfig(cfg *Config) error {
@@ -197,6 +222,9 @@ func (a *Adapter) admit(ctx context.Context, msg *inboundMessage) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("%w: %w", ErrInvalidPayload, err)
 	}
+	a.mu.Lock()
+	a.lastInbound[msg.From] = msg.sentAt(a.now())
+	a.mu.Unlock()
 	text, command := msg.text()
 	in := &gateway.Inbound{
 		Platform:  a.desc.Name,
@@ -309,6 +337,14 @@ func (m *inboundMessage) text() (string, bool) {
 		text = m.Interactive.ListReply.Title
 	}
 	return text, strings.HasPrefix(strings.TrimSpace(text), "/")
+}
+
+func (m *inboundMessage) sentAt(fallback time.Time) time.Time {
+	seconds, err := strconv.ParseInt(m.Timestamp, 10, 64)
+	if err != nil || seconds < 0 {
+		return fallback
+	}
+	return time.Unix(seconds, 0)
 }
 
 func (m *inboundMessage) mediaParts() ([]MediaPart, error) {
