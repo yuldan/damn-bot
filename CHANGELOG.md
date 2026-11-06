@@ -4,6 +4,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/kanban` (F7 P9 slice 3, ADR-326): **state machine task**. Transisi `backlog→ready→in_progress→review→done`, `blocked`, `archive` lewat flag edit append-only; edit/set-model/specify/schedule, komentar append-only, link/unlink dengan deteksi siklus, handoff completion, record run idempoten, serta switch `DAMNBOT_KANBAN_*` default off.
 - `internal/kanban` (F7 P9 slice 2, ADR-326): **storage board**. Baca/tulis `kanban_tasks` + `kanban_task_events` append-only, metadata turunan (link, lampiran, lease, run) dari payload event, idempotensi `(board, slug)`, serta guard path/link; tidak ada migrasi atau DDL baru.
 - `internal/gwplat/irc` (F7 P3c-2, PLAT-009/GAP-SEC-10, ADR-326): **adapter IRC SASL**. Koneksi IRC dengan negosiasi CAP dan SASL PLAIN/EXTERNAL; tanpa `sasl`+`account-tag` (atau saat SASL ditolak) adapter mengembalikan `module_unavailable{irc_no_account_auth}` dan mendispatch 0 pesan. Identitas sesi selalu tag `account` (nick tidak pernah identitas), PRIVMSG tanpa tag `account` di-drop, `msgid` didedupe lintas reconnect, channel grup butuh mention, outbound lewat `gwplat.Outbox` (render plain → outq), dan reconnect berbackoff ctx-aware. Tes: `TestF7PLAT009IRC`, `TestIRCAccountAuth`, `TestParseLine`. Baris `PLAT-009` dan `GAP-SEC-10` menjadi `LULUS`.
 
