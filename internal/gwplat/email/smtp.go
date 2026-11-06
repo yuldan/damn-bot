@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
 	"strings"
 	"time"
 )
@@ -50,8 +49,7 @@ func randomID() string {
 func sendSMTP(ctx context.Context, cfg *Config, password, to string, msg []byte) error {
 	dial := cfg.Dial
 	if dial == nil {
-		d := net.Dialer{Timeout: cfg.Timeout}
-		dial = d.DialContext
+		return fmt.Errorf("%w: injected dialer is required (E-05)", ErrSMTP)
 	}
 	conn, err := dial(ctx, "tcp", cfg.SMTPAddr)
 	if err != nil {
