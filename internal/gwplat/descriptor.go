@@ -218,6 +218,14 @@ func platformDescriptors() []Descriptor {
 			DefaultOff: true,
 		},
 		{
+			Name:       "yuanbao",
+			Transport:  TransportWS,
+			Caps:       capsOf("yuanbao"),
+			Render:     render.PlatformPlain,
+			Secrets:    []string{"yuanbao_app_secret"},
+			DefaultOff: true,
+		},
+		{
 			Name:       "photon",
 			Transport:  TransportLongPoll,
 			Caps:       capsOf("photon"),
