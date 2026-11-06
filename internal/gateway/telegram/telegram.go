@@ -90,6 +90,10 @@ type Config struct {
 	// MaxChunksPerReply caps text chunks per reply; the remainder travels as
 	// one markdown attachment (GAP-GW-03, default 5).
 	MaxChunksPerReply int
+	// MinEditInterval and MaxEditsPerMessage are the GAP-GW-10 edit stream
+	// declaration; zero uses the Telegram defaults (1.5 s, 20 edits).
+	MinEditInterval    time.Duration
+	MaxEditsPerMessage int
 	// ConflictWait is the pause after a getUpdates 409 before the next poll:
 	// the opponent's long poll plus 5 s (REL-02). Zero uses pollTimeout + 5 s.
 	ConflictWait time.Duration
@@ -125,6 +129,7 @@ type Adapter struct {
 	edit           *limiter
 	noCompress     bool
 	maxChunks      int
+	maxEdits       int
 	sendTimeout    time.Duration
 	mediaTimeout   time.Duration
 	stallAfter     time.Duration
@@ -173,6 +178,7 @@ func New(cfg *Config) (*Adapter, error) {
 		account: account, username: strings.TrimPrefix(cfg.Username, "@"),
 		noCompress: cfg.NoCompression, rebuild: cfg.Rebuild,
 		maxChunks:      cmp.Or(cfg.MaxChunksPerReply, 5),
+		maxEdits:       cmp.Or(cfg.MaxEditsPerMessage, 20),
 		sendTimeout:    sendDeadline,
 		mediaTimeout:   mediaDeadline,
 		conflictWait:   cmp.Or(cfg.ConflictWait, pollTimeout+5*time.Second),
@@ -186,7 +192,7 @@ func New(cfg *Config) (*Adapter, error) {
 		a.botID = id
 	}
 	a.send = &limiter{clock: clock, per: time.Second, next: map[string]time.Time{}}
-	a.edit = &limiter{clock: clock, per: 1500 * time.Millisecond, next: map[string]time.Time{}}
+	a.edit = &limiter{clock: clock, per: cmp.Or(cfg.MinEditInterval, 1500*time.Millisecond), next: map[string]time.Time{}}
 	return a, nil
 }
 

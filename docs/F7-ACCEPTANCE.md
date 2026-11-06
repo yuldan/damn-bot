@@ -174,20 +174,20 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | GAP-GW-01 | wizard hanya Cloud API; Web hanya lewat `--accept-ban-risk` dengan satu ack + event audit; guard cold outbound `cold_outbound_denied` 0 request; pacing 100 pesan ≥ 297 s fake clock | `TestWhatsAppWebGuards`, `TestSetupNoWebWithoutAck` | BELUM |
 | GAP-GW-03 | `gateway/outq` token bucket per chat/grup/platform dari `Caps.Rate`; replay 200 balasan → 0×429; `MaxChunksPerReply` dihormati semua adapter; 0 `time.Sleep` inline (forbidigo) | `TestF7GAPGW03OutqReplay`, `TestPlatformAdapterContract`, `TestF7NoInlineSleep` | LULUS |
 | GAP-GW-04 | satu parse AST → renderer Telegram entities/Slack mrkdwn/WhatsApp/Discord/Matrix HTML/plain; fence terpotong dibuka ulang; `FuzzRenderTelegram` 10.000 input 0 penolakan; golden per renderer | `FuzzRenderTelegram`, `TestF7RenderGoldens` | BELUM |
-| GAP-GW-05 | matriks `TestGroupMentionPolicy` semua adapter: pesan grup tanpa mention → 0 turn (default); `stt_echo` default `dm` | `TestGroupMentionPolicy` | BELUM |
+| GAP-GW-05 | matriks `TestGroupMentionPolicy` semua adapter: pesan grup tanpa mention → 0 turn (default); `stt_echo` default `dm` | `TestGroupMentionPolicy` | LULUS |
 | GAP-GW-08 | Email XOAUTH2; kursor `UIDVALIDITY`+`UID` di `gateway_cursors`; `BODY.PEEK[]` tanpa `\Seen`; email ditolak tetap UNSEEN; IDLE dipakai ulang; login/hari < 10 | `TestF7GAPGW08EmailIMAP`, `TestF7EmailCursorPersist` | BELUM |
 | GAP-GW-09 | segmen GSM-7 160/153 dan UCS-2 70/67; cap 3 segmen + "balas MORE"; biaya per segmen masuk ledger `tool:sms`; `damnbot usage --by feature` menampilkannya | `TestF7GAPGW09SMSSegments`, `TestF7SMSLedger` | BELUM |
-| GAP-GW-10 | `Caps.MinEditInterval`/`MaxEditsPerMessage` dideklarasikan dan dipatuhi; Telegram 1,5 s; Matrix tanpa edit-stream | `TestF7GAPGW10EditStreamCaps`, `TestF7MatrixNoEditStream` | BELUM |
+| GAP-GW-10 | `Caps.MinEditInterval`/`MaxEditsPerMessage` dideklarasikan dan dipatuhi; Telegram 1,5 s; Matrix tanpa edit-stream | `TestF7GAPGW10EditStreamCaps`, `TestF7MatrixNoEditStream` | LULUS |
 | GAP-GW-11 | breaker per kelas disconnect (`logged_out`/`banned`/401/Discord 4004) → berhenti reconnect + `needs_attention` + notice owner; disconnect 10 menit ≤ 15 percobaan; `TestBridgeProtocolConformance` memetakan `health.reason`; 0 fetch versi protokol WA saat runtime | `TestF7GAPGW11Breaker`, `TestBridgeProtocolConformance` | BELUM |
 
 ## 10. EC F7 (9)
 
 | Item | Kriteria | Tes / artefak | Status |
 |---|---|---|---|
-| EC-PLAT-004 | turn dengan `api_calls>0` tanpa teks final tetap mengirim notifikasi (bukan senyap) | `TestEdgeCases/EC-PLAT-004` (`TestF7ECPLAT004EmptyReplyNotice`) | BELUM |
-| EC-PLAT-005 | pesan baru setelah `/stop` selalu diproses (generasi baru), tidak dibuang | `TestEdgeCases/EC-PLAT-005` (`TestF7ECPLAT005AfterStop`) | BELUM |
-| EC-PLAT-006 | media hanya dari turn saat ini; gambar turn lama tidak menempel | `TestEdgeCases/EC-PLAT-006` (`TestF7ECPLAT006MediaIsolation`) | BELUM |
-| EC-PLAT-008 | edit pairing store diserialisasi lintas proses (dua proses, 0 lost update) | `TestEdgeCases/EC-PLAT-008` (`TestF7ECPLAT008PairingLock`) | BELUM |
+| EC-PLAT-004 | turn dengan `api_calls>0` tanpa teks final tetap mengirim notifikasi (bukan senyap) | `TestEdgeCases/EC-PLAT-004` (`TestF7ECPLAT004EmptyReplyNotice`) | LULUS |
+| EC-PLAT-005 | pesan baru setelah `/stop` selalu diproses (generasi baru), tidak dibuang | `TestEdgeCases/EC-PLAT-005` (`TestF7ECPLAT005AfterStop`) | LULUS |
+| EC-PLAT-006 | media hanya dari turn saat ini; gambar turn lama tidak menempel | `TestEdgeCases/EC-PLAT-006` (`TestF7ECPLAT006MediaIsolation`) | LULUS |
+| EC-PLAT-008 | edit pairing store diserialisasi lintas proses (dua proses, 0 lost update) | `TestEdgeCases/EC-PLAT-008` (`TestF7ECPLAT008PairingLock`) | LULUS |
 | EC-PLAT-024 | timeout baca body bridge tidak melepas ownership sesi; request lambat tetap milik satu owner | `TestEdgeCases/EC-PLAT-024` (`TestF7ECPLAT024BridgeOwnership`) | BELUM |
 | EC-STATE-004 | multiplex banyak profil tidak menembus batas koneksi; EMFILE → fallback ke writer, bukan 500 | `TestEdgeCases/EC-STATE-004` (`TestF7ECSTATE004ReadPool`) | BELUM |
 | EC-TERM-004 | task id sama lintas profil tidak berbagi sandbox/cwd; kunci dikualifikasi per profil/sesi | `TestEdgeCases/EC-TERM-004` (`TestF7ECTERM004SandboxKey`) | BELUM |

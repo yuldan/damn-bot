@@ -69,3 +69,57 @@ func (g *Gate) mentionReason(ctx context.Context, in *Inbound) (Reason, error) {
 	}
 	return ReasonMentionRequired, nil
 }
+
+// STTEcho is the transcript echo policy of GAP-GW-05. The default is "dm":
+// a voice transcript is echoed in direct messages, never in a group.
+type STTEcho string
+
+// STT echo modes.
+const (
+	STTEchoOff STTEcho = "off"
+	STTEchoDM  STTEcho = "dm"
+	STTEchoAll STTEcho = "all"
+)
+
+// DefaultSTTEcho is the configuration default (off in groups, on in DMs).
+const DefaultSTTEcho = STTEchoDM
+
+// Valid reports whether m is a known mode.
+func (m STTEcho) Valid() bool {
+	return m == STTEchoOff || m == STTEchoDM || m == STTEchoAll
+}
+
+// Echo reports whether a transcript is echoed in this conversation. A
+// malformed or empty mode fails closed (no echo).
+func (m STTEcho) Echo(group bool) bool {
+	switch m {
+	case STTEchoAll:
+		return true
+	case STTEchoDM:
+		return !group
+	case STTEchoOff:
+		return false
+	}
+	return false
+}
+
+// STTEcho resolves the transcript echo mode of a chat: the per-chat
+// stt_echo override, else the "dm" default. A malformed override is an error
+// (fail-closed).
+func (g *Gate) STTEcho(ctx context.Context, platform, chatID string) (STTEcho, error) {
+	if g.chats == nil {
+		return DefaultSTTEcho, nil
+	}
+	raw, found, err := g.chats.ChatSetting(ctx, platform, chatID, "stt_echo")
+	if err != nil {
+		return STTEchoOff, fmt.Errorf("gateway: chat policy %s/%s: %w", platform, chatID, err)
+	}
+	if !found {
+		return DefaultSTTEcho, nil
+	}
+	mode := STTEcho(strings.TrimSpace(raw))
+	if !mode.Valid() {
+		return STTEchoOff, fmt.Errorf("gateway: chat policy %s/%s: invalid stt_echo %q", platform, chatID, raw)
+	}
+	return mode, nil
+}

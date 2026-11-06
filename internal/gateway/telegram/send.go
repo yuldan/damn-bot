@@ -216,7 +216,15 @@ type Stream struct {
 	msgID   int64
 	extras  []int64
 	started bool
+	// edits counts edits per platform message and continuations counts the
+	// messages opened after a budget was spent (GAP-GW-10).
+	edits         map[int64]int
+	continuations int
 }
+
+// errEditBudget signals that one message reached MaxEditsPerMessage; the
+// caller opens a continuation message instead of editing again.
+var errEditBudget = errors.New("telegram: edit budget exhausted")
 
 // Stream opens a streaming reply; no I/O happens until the first Update.
 func (a *Adapter) Stream(out *Outbound) *Stream {
@@ -280,23 +288,59 @@ func (s *Stream) push(ctx context.Context, text string) error {
 }
 
 func (s *Stream) pushFirst(ctx context.Context, msg render.Message, started bool) error {
+	if !started {
+		return s.pushNew(ctx, msg)
+	}
 	s.mu.Lock()
 	msgID := s.msgID
 	s.mu.Unlock()
-	if !started {
-		id, fresh, err := s.a.deliverOne(ctx, s.out.ChatID, s.out.ThreadID, anchorField(s.out.Anchor), msg, s.out.Key)
-		if err != nil {
-			return err
-		}
-		s.mu.Lock()
-		s.msgID, s.started = id, true
-		s.mu.Unlock()
-		if !fresh { // a retry found the message already sent; bring it current
-			return s.replace(ctx, id, msg)
-		}
-		return nil
+	if err := s.replace(ctx, msgID, msg); errors.Is(err, errEditBudget) {
+		return s.pushContinuation(ctx, msg)
+	} else if err != nil {
+		return err
 	}
-	return s.replace(ctx, msgID, msg)
+	return nil
+}
+
+// pushNew sends the first message of a stream (or a retry's missing one).
+func (s *Stream) pushNew(ctx context.Context, msg render.Message) error {
+	id, fresh, err := s.a.deliverOne(ctx, s.out.ChatID, s.out.ThreadID, anchorField(s.out.Anchor), msg, s.out.Key)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.msgID, s.started = id, true
+	s.mu.Unlock()
+	if !fresh { // a retry found the message already sent; bring it current
+		return s.replace(ctx, id, msg)
+	}
+	return nil
+}
+
+// pushContinuation sends the rest of a reply as a fresh message once the
+// previous message spent its edit budget (GAP-GW-10). It then edits that new
+// message under a fresh budget.
+func (s *Stream) pushContinuation(ctx context.Context, msg render.Message) error {
+	s.mu.Lock()
+	n := s.continuations
+	s.continuations++
+	key := s.out.Key
+	s.mu.Unlock()
+	if key != "" {
+		key += "#cont" + strconv.Itoa(n)
+	}
+	id, fresh, err := s.a.deliverOne(ctx, s.out.ChatID, s.out.ThreadID, "", msg, key)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.msgID = id
+	s.started = true
+	s.mu.Unlock()
+	if !fresh {
+		return s.replace(ctx, id, msg)
+	}
+	return nil
 }
 
 // pushExtra appends chunk i once, then edits that message on later updates.
@@ -310,7 +354,12 @@ func (s *Stream) pushExtra(ctx context.Context, i int, msg render.Message) error
 	case i-1 < len(s.extras):
 		id := s.extras[i-1]
 		s.mu.Unlock()
-		return s.replace(ctx, id, msg)
+		if err := s.replace(ctx, id, msg); errors.Is(err, errEditBudget) {
+			return s.pushExtraContinuation(ctx, i, msg)
+		} else if err != nil {
+			return err
+		}
+		return nil
 	case key != "":
 		s.mu.Unlock()
 		id, fresh, err := s.a.deliverOne(ctx, s.out.ChatID, s.out.ThreadID, "", msg, key)
@@ -337,10 +386,42 @@ func (s *Stream) pushExtra(ctx context.Context, i int, msg render.Message) error
 	}
 }
 
-// replace edits one streamed message, pacing edits per message. A 429 is
+// pushExtraContinuation sends chunk i as a fresh message after its previous
+// message exhausted the edit budget.
+func (s *Stream) pushExtraContinuation(ctx context.Context, i int, msg render.Message) error {
+	s.mu.Lock()
+	n := s.continuations
+	s.continuations++
+	key := s.out.Key
+	s.mu.Unlock()
+	if key != "" {
+		key = chunkKey(key, i) + "#cont" + strconv.Itoa(n)
+	}
+	id, _, err := s.a.deliverOne(ctx, s.out.ChatID, s.out.ThreadID, "", msg, key)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.extras[i-1] = id
+	s.mu.Unlock()
+	return nil
+}
+
+// replace edits one streamed message, pacing edits per message and enforcing
+// the declared MaxEditsPerMessage (GAP-GW-10). A 429 is
 // waited out once (the penalty already blocks the chat's other sends), so the
 // final text lands in the same message instead of a duplicate (EC-PLAT-014).
 func (s *Stream) replace(ctx context.Context, messageID int64, msg render.Message) error {
+	s.mu.Lock()
+	if s.edits == nil {
+		s.edits = make(map[int64]int)
+	}
+	if s.edits[messageID] >= s.a.maxEdits {
+		s.mu.Unlock()
+		return errEditBudget
+	}
+	s.edits[messageID]++
+	s.mu.Unlock()
 	key := "edit:" + s.out.ChatID + ":" + strconv.FormatInt(messageID, 10)
 	if err := s.a.edit.wait(ctx, key); err != nil {
 		return err
