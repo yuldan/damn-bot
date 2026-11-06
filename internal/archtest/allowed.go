@@ -65,7 +65,8 @@ func allowedImports() map[string][]string {
 		"internal/gwplat" + moduleWildcard:  append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...),
 		// Klien protokol bridge eksternal (ADR-034) tanpa impor gateway: adapter
 		// di internal/gwplat/whatsapp_web yang memetakan event ke gateway.Inbound.
-		"internal/gwwa": nil,
+		"internal/gwwa":                nil,
+		"internal/gwplat/whatsapp_web": {"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat", "internal/gwwa"},
 
 		// Core.
 		"internal/loop":               {"internal/loop/event", "internal/boundary"}, // E-02
