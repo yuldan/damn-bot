@@ -60,22 +60,37 @@ func TestF7TOOL051YuanbaoSearchSticker(t *testing.T) {
 	}
 }
 
+func invokeYBTool(t *testing.T, ad *Adapter, name, args string) (string, error) {
+	t.Helper()
+	tool, ok := ad.Tool(name)
+	if !ok {
+		t.Fatalf("tool %s missing", name)
+	}
+	return tool.Invoke(t.Context(), json.RawMessage(args))
+}
+
+func assertYBToolSend(t *testing.T, f *fakeServer, ad *Adapter, name, okArgs, badArgs string, frameOK func(Frame) bool, wantErr error) {
+	t.Helper()
+	out, err := invokeYBTool(t, ad, name, okArgs)
+	if err != nil || out != "sent" {
+		t.Fatalf("%s = %q, %v", name, out, err)
+	}
+	if frame := waitFrame(t, f.fromClient); !frameOK(frame) {
+		t.Fatalf("%s frame = %+v", name, frame)
+	}
+	if _, err := invokeYBTool(t, ad, name, badArgs); !errors.Is(err, wantErr) {
+		t.Fatalf("%s rejection = %v, want %v", name, err, wantErr)
+	}
+}
+
 // TestF7TOOL052YuanbaoSendDM covers the allowlisted DM send and its denial.
 func TestF7TOOL052YuanbaoSendDM(t *testing.T) {
 	t.Parallel()
 	f := newFakeServer(t)
 	ad, _ := testAdapter(t, f, &Config{})
-	tool, _ := ad.Tool(ToolSendDM)
-	out, err := tool.Invoke(t.Context(), json.RawMessage(`{"user":"u1","text":"hi"}`))
-	if err != nil || out != "sent" {
-		t.Fatalf("send dm = %q, %v", out, err)
-	}
-	if frame := waitFrame(t, f.fromClient); frame.ChatID != "dm:u1" {
-		t.Fatalf("dm frame = %+v", frame)
-	}
-	if _, err := tool.Invoke(t.Context(), json.RawMessage(`{"user":"stranger","text":"hi"}`)); !errors.Is(err, ErrDMNotAllowed) {
-		t.Fatalf("non-allowlisted = %v", err)
-	}
+	assertYBToolSend(t, f, ad, ToolSendDM,
+		`{"user":"u1","text":"hi"}`, `{"user":"stranger","text":"hi"}`,
+		func(frame Frame) bool { return frame.ChatID == "dm:u1" }, ErrDMNotAllowed)
 }
 
 // TestF7TOOL053YuanbaoSendSticker covers the catalogued sticker send and the
@@ -84,15 +99,7 @@ func TestF7TOOL053YuanbaoSendSticker(t *testing.T) {
 	t.Parallel()
 	f := newFakeServer(t)
 	ad, _ := testAdapter(t, f, &Config{})
-	tool, _ := ad.Tool(ToolSendSticker)
-	out, err := tool.Invoke(t.Context(), json.RawMessage(`{"chat":"g1","sticker_id":"s1"}`))
-	if err != nil || out != "sent" {
-		t.Fatalf("sticker = %q, %v", out, err)
-	}
-	if frame := waitFrame(t, f.fromClient); frame.StickerID != "s1" {
-		t.Fatalf("sticker frame = %+v", frame)
-	}
-	if _, err := tool.Invoke(t.Context(), json.RawMessage(`{"chat":"g1","sticker_id":"foreign"}`)); !errors.Is(err, ErrStickerUnknown) {
-		t.Fatalf("foreign = %v", err)
-	}
+	assertYBToolSend(t, f, ad, ToolSendSticker,
+		`{"chat":"g1","sticker_id":"s1"}`, `{"chat":"g1","sticker_id":"foreign"}`,
+		func(frame Frame) bool { return frame.StickerID == "s1" }, ErrStickerUnknown)
 }
