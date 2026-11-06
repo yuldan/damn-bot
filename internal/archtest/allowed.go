@@ -51,6 +51,8 @@ func allowedImports() map[string][]string {
 		"internal/cron":          append([]string{"internal/redact"}, groupExec()...),
 		"internal/cron/periodic": nil, // AUTO-029: stdlib only, driven by the serve ticker
 		"internal/obs":           nil, "internal/scorecard": nil,
+		// API server F7 (PLAT-028): wire protocol only, no internal imports.
+		"internal/gwapi": nil,
 		// Modul lazy (E-06).
 		"internal/mcp":         moduleImports(),
 		"internal/mcp/catalog": nil, // signature verifier: stdlib only

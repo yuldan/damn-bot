@@ -6456,6 +6456,8 @@ Required checks tetap dari branch protection klasik (`ci-required`, `meta-test`,
 7. **Amandemen wajib.** Setiap PR yang mengubah `docs/F7-ACCEPTANCE.md` atau baris F7 `docs/FEATURE-PARITY.md` menambah satu butir di blok ini: `- Amandemen (ADR-326, PR #NNN): <perubahan docs dan baris yang di-flip>`. Perubahan perilaku tetap mengamandemen blok ADR pemilik surface (ADR-020, ADR-034, ADR-244, ADR-253, ADR-310/321) seperti konvensi yang berlaku. Nomor ADR tidak dipakai ulang; PR yang butuh ADR baru memakai nomor bebas berikutnya.
 8. **Urutan wave.** W0: ADR-326 + ledger + gate (PR ini; nol flip status). W1: P1, P2, P8 (fondasi, surface HTTP, peer). W2: P3, P4, P9, P10. W3: P5, P6, P7, P11. W4: P12 (agregat, carryover, `PHASE`→F8). Setiap PR menjalankan `make lint`, `make archtest`, `make loc`, `make size-check`, `make pr-meta` (`BASE=$(git merge-base origin/main HEAD)`), `make meta-test` (di bawah `ulimit -v unlimited` untuk `deadcode`/`vuln`), dan tes baris yang disentuh. W4 menjalankan `TestF7LedgerClosed` dengan `PHASE=F8` di worktree uji sebelum PR penaikan `PHASE` disiapkan.
 
+- Amandemen (ADR-326, PR ini P2a): `internal/gwapi` memakai baris `MODULE gwapi 3000` yang sudah dibukukan P1 (terukur 552 pada slice A, Σ core tetap 56.811); `allowed.go` menambah baris stdlib-only dan `CODEOWNERS` menambah `/internal/gwapi/`.
+
 ### Paket kerja F7 (12 paket, 28 PR-slice)
 
 | Paket | PR-slice | Baris ledger yang ditutup | File/komponen | Tes bernama | Kontrol negatif | Dep | Est. LOC non-test | Baris budget |

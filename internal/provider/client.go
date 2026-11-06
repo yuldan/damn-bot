@@ -405,7 +405,7 @@ func readStream(st *netx.Stream, start time.Time, onChunk func(Chunk)) (Response
 // observe records the time to first token and forwards text to onChunk.
 func observe(a *assembler, d *Delta, start time.Time, onChunk func(Chunk)) {
 	if a.ttft == 0 && (len(d.Content) > 0 || len(d.ToolCalls) > 0 || len(d.Reasoning) > 0) {
-		a.ttft = time.Since(start)
+		a.ttft = max(time.Since(start), time.Nanosecond)
 	}
 	if onChunk != nil && (len(d.Content) > 0 || len(d.Reasoning) > 0) {
 		onChunk(Chunk{Content: d.Content, Reasoning: d.Reasoning})
