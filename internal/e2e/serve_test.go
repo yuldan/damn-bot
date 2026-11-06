@@ -3,10 +3,12 @@
 package e2e
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -32,6 +34,9 @@ type serveProc struct {
 	addr   string
 	wait   chan error
 	exited chan struct{}
+	// lines is the stdout signal: one value per line the child writes, so a
+	// readiness wait never polls a growing buffer (flaky under a loaded job).
+	lines chan string
 }
 
 var serveAddrRE = regexp.MustCompile(`observability listening on ([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+)`)
@@ -49,13 +54,20 @@ func startServe(t *testing.T, e *Env, bin string, env []string, extra ...string)
 		stderr: &lockedBuffer{},
 		wait:   make(chan error, 1),
 		exited: make(chan struct{}),
+		lines:  make(chan string, 256),
 	}
-	cmd.Stdout, cmd.Stderr = p.stdout, p.stderr
+	pr, pw := io.Pipe()
+	cmd.Stdout, cmd.Stderr = io.MultiWriter(p.stdout, pw), p.stderr
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start serve: %v", err)
 	}
+	go p.scanLines(pr)
 	go func() {
-		p.wait <- cmd.Wait()
+		err := cmd.Wait()
+		if cerr := pw.Close(); cerr != nil {
+			t.Logf("close serve stdout pipe: %v", cerr)
+		}
+		p.wait <- err
 		close(p.exited)
 	}()
 	t.Cleanup(p.stop)
@@ -63,24 +75,85 @@ func startServe(t *testing.T, e *Env, bin string, env []string, extra ...string)
 	return p
 }
 
-// awaitAddr polls the child's stdout for the listening line.
+// scanLines turns the child's stdout into a signal channel. Sends never block
+// the copier: readiness is the first line, and diagnostics stay in stdout.
+func (p *serveProc) scanLines(r io.Reader) {
+	defer close(p.lines)
+	sc := bufio.NewScanner(r)
+	for sc.Scan() {
+		select {
+		case p.lines <- sc.Text():
+		default:
+		}
+	}
+}
+
+// awaitAddr waits for the listening signal on stdout instead of polling the
+// buffer; the bound exists only to turn a hung child into a test failure.
 func (p *serveProc) awaitAddr(limit time.Duration) string {
 	p.t.Helper()
 	deadline := time.NewTimer(limit)
 	defer deadline.Stop()
-	tick := time.NewTicker(5 * time.Millisecond)
-	defer tick.Stop()
 	for {
-		if m := serveAddrRE.FindStringSubmatch(p.stdout.String()); m != nil {
-			return m[1]
-		}
 		select {
+		case line, ok := <-p.lines:
+			if !ok {
+				p.t.Fatalf("serve exited before listening\nstdout:\n%s\nstderr:\n%s", p.stdout.String(), p.stderr.String())
+			}
+			if m := serveAddrRE.FindStringSubmatch(line); m != nil {
+				return m[1]
+			}
 		case <-p.exited:
 			p.t.Fatalf("serve exited before listening\nstdout:\n%s\nstderr:\n%s", p.stdout.String(), p.stderr.String())
 		case <-deadline.C:
 			p.t.Fatalf("serve did not report a listener in %s\nstdout:\n%s\nstderr:\n%s", limit, p.stdout.String(), p.stderr.String())
-		case <-tick.C:
 		}
+	}
+}
+
+// TestServeListenerBindFailureIsFast is the negative control for the signal
+// wait: a serve whose observability port is already taken must exit with a
+// clear bind error in well under one second, not sit until the readiness bound.
+func TestServeListenerBindFailureIsFast(t *testing.T) {
+	e := New(t)
+	var lc net.ListenConfig
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if cerr := ln.Close(); cerr != nil {
+			t.Errorf("close occupied listener: %v", cerr)
+		}
+	}()
+	cmd := exec.CommandContext(t.Context(), binPaths.main, "serve", "--config", e.cfg, "--data-dir", e.DataDir, //nolint:gosec // package temp binary + loopback address
+		"--bind", ln.Addr().String())
+	cmd.Dir = e.Workdir
+	cmd.Env = e.childEnv()
+	cmd.Stdout = io.Discard
+	var stderr lockedBuffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start serve: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case werr := <-done:
+		if werr == nil {
+			t.Fatal("serve exited 0 with an occupied bind port")
+		}
+		if !strings.Contains(stderr.String(), "address already in use") {
+			t.Fatalf("bind error = %q, want address already in use", stderr.String())
+		}
+	case <-time.After(time.Second):
+		if kerr := cmd.Process.Kill(); kerr != nil && !errors.Is(kerr, os.ErrProcessDone) {
+			t.Logf("kill after bind timeout: %v", kerr)
+		}
+		if werr := <-done; werr == nil {
+			t.Fatal("serve exited 0 after the bind timeout")
+		}
+		t.Fatalf("serve did not fail within 1s on an occupied port\nstderr:\n%s", stderr.String())
 	}
 }
 
