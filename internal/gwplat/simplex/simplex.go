@@ -33,7 +33,6 @@ type Config struct {
 type Adapter struct {
 	cfg     Config
 	desc    *gwplat.Descriptor
-	out     *gwplat.Outbox
 	handler gwplat.Handler
 	dedupe  *gwplat.Dedupe
 	log     *slog.Logger
@@ -57,14 +56,8 @@ func New(cfg *Config, desc *gwplat.Descriptor, out *gwplat.Outbox, h gwplat.Hand
 	if err := gwplat.RequireEnabled(desc.Name, cfg.Enabled); err != nil {
 		return nil, fmt.Errorf("simplex: activation: %w", err)
 	}
-	parsed, err := url.Parse(cfg.URL)
-	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Scheme != "ws" {
-		return nil, fmt.Errorf("%w: daemon URL", ErrConfig)
-	}
-	host := parsed.Hostname()
-	ip := net.ParseIP(host)
-	if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
-		return nil, fmt.Errorf("%w: daemon URL must be ws:// loopback", ErrConfig)
+	if err := validateDaemon(cfg); err != nil {
+		return nil, err
 	}
 	if out == nil || h == nil {
 		return nil, fmt.Errorf("%w: outbox and handler are required", ErrConfig)
@@ -78,14 +71,25 @@ func New(cfg *Config, desc *gwplat.Descriptor, out *gwplat.Outbox, h gwplat.Hand
 		now = time.Now
 	}
 	return &Adapter{
-		cfg: *cfg, desc: desc, out: out, handler: h,
+		cfg: *cfg, desc: desc, handler: h,
 		dedupe: gwplat.NewDedupe(4096, 30*time.Minute),
 		log:    logger, now: now,
 	}, nil
 }
 
-// Outbox exposes the shared outbound seam to the wiring.
-func (a *Adapter) Outbox() *gwplat.Outbox { return a.out }
+// validateDaemon requires a ws:// loopback daemon URL.
+func validateDaemon(cfg *Config) error {
+	parsed, err := url.Parse(cfg.URL)
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.Scheme != "ws" {
+		return fmt.Errorf("%w: daemon URL", ErrConfig)
+	}
+	host := parsed.Hostname()
+	ip := net.ParseIP(host)
+	if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+		return fmt.Errorf("%w: daemon URL must be ws:// loopback", ErrConfig)
+	}
+	return nil
+}
 
 // Run holds the daemon WebSocket, reconnecting with capped backoff.
 func (a *Adapter) Run(ctx context.Context) error {
