@@ -27,38 +27,37 @@ func checkChatEnvelope(t *testing.T, h http.Handler, eng *fakeEngine) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	checkEnvelopeFields(t, &resp)
-	checkEnvelopeTurn(t, eng)
-}
-
-func checkEnvelopeFields(t *testing.T, resp *ChatResponse) {
-	t.Helper()
-	if resp.ID != "chatcmpl-test" || resp.Object != "chat.completion" || resp.Model != "damnbot" || resp.Created != 1700000000 {
-		t.Errorf("envelope = %+v", resp)
-	}
-	if len(resp.Choices) != 1 || resp.Choices[0].Message == nil {
-		t.Fatalf("choices = %+v", resp.Choices)
-	}
-	choice := resp.Choices[0]
-	if choice.Message.Content != "hello" {
-		t.Errorf("content = %q", choice.Message.Content)
-	}
-	if choice.FinishReason == nil || *choice.FinishReason != "stop" {
-		t.Errorf("finish_reason = %v", choice.FinishReason)
-	}
+	checkEnvelope(t, &resp)
+	checkChoice(t, resp.Choices)
 	if resp.Usage == nil || resp.Usage.TotalTokens != 5 {
 		t.Errorf("usage = %+v", resp.Usage)
 	}
-}
-
-func checkEnvelopeTurn(t *testing.T, eng *fakeEngine) {
-	t.Helper()
 	if eng.count() != 1 {
 		t.Fatalf("engine runs = %d, want 1", eng.count())
 	}
 	turn := eng.last()
 	if turn.Model != "damnbot" || len(turn.Messages) != 1 || turn.Meta["origin"] != "api_server" || turn.Meta["tainted"] != "true" {
 		t.Errorf("turn = %+v", turn)
+	}
+}
+
+func checkEnvelope(t *testing.T, resp *ChatResponse) {
+	t.Helper()
+	if resp.ID != "chatcmpl-test" || resp.Object != "chat.completion" || resp.Model != "damnbot" || resp.Created != 1700000000 {
+		t.Errorf("envelope = %+v", resp)
+	}
+}
+
+func checkChoice(t *testing.T, choices []Choice) {
+	t.Helper()
+	if len(choices) != 1 || choices[0].Message == nil {
+		t.Fatalf("choices = %+v", choices)
+	}
+	if choices[0].Message.Content != "hello" {
+		t.Errorf("content = %q", choices[0].Message.Content)
+	}
+	if choices[0].FinishReason == nil || *choices[0].FinishReason != "stop" {
+		t.Errorf("finish_reason = %v", choices[0].FinishReason)
 	}
 }
 

@@ -19,14 +19,14 @@ func TestAPIServerAuthAndLimits(t *testing.T) {
 	cfg := testConfig()
 	cfg.BodyLimit = 160
 	h := newTestServer(t, eng, nil, cfg).Handler()
-	t.Run("missing bearer", func(t *testing.T) { checkMissingBearer(t, h) })
-	t.Run("wrong bearer", func(t *testing.T) { checkWrongBearer(t, h) })
-	t.Run("payload over limit", func(t *testing.T) { checkPayloadLimit(t, h, eng) })
-	t.Run("unknown model", func(t *testing.T) { checkUnknownModel(t, h, eng) })
-	t.Run("CORS is off", func(t *testing.T) { checkCORSOff(t, h) })
-	t.Run("rate limit", func(t *testing.T) { checkRateLimit(t) })
-	t.Run("explicit unauthenticated", func(t *testing.T) { checkUnauthenticatedAllowed(t) })
-	t.Run("token never in errors", func(t *testing.T) { checkTokenNotLeaked(t, h) })
+	checkMissingBearer(t, h)
+	checkWrongBearer(t, h)
+	checkPayloadLimit(t, h, eng)
+	checkUnknownModel(t, h, eng)
+	checkCORS(t, h)
+	checkRateLimit(t)
+	checkExplicitUnauthenticated(t)
+	checkTokenNotLeaked(t, h)
 }
 
 func checkMissingBearer(t *testing.T, h http.Handler) {
@@ -76,7 +76,7 @@ func checkUnknownModel(t *testing.T, h http.Handler, eng *fakeEngine) {
 	}
 }
 
-func checkCORSOff(t *testing.T, h http.Handler) {
+func checkCORS(t *testing.T, h http.Handler) {
 	t.Helper()
 	rec := postJSON(t, h, chatterBody(""), authHeaders())
 	if rec.Header().Get("Access-Control-Allow-Origin") != "" {
@@ -89,11 +89,11 @@ func checkCORSOff(t *testing.T, h http.Handler) {
 	}
 }
 
-func checkUnauthenticatedAllowed(t *testing.T) {
+func checkExplicitUnauthenticated(t *testing.T) {
 	t.Helper()
-	open := testConfig()
-	open.APIKey, open.AllowUnauthenticated = "", true
-	if rec := postJSON(t, newTestServer(t, &fakeEngine{}, nil, open).Handler(), chatterBody(""), nil); rec.Code != http.StatusOK {
+	cfg := testConfig()
+	cfg.APIKey, cfg.AllowUnauthenticated = "", true
+	if rec := postJSON(t, newTestServer(t, &fakeEngine{}, nil, cfg).Handler(), chatterBody(""), nil); rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200", rec.Code)
 	}
 }
@@ -205,4 +205,48 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(b[i:])
+}
+
+// TestF7UIOpenAISDK drives the endpoint with the exact JSON shape the
+// official OpenAI SDK emits and decodes the reply into SDK-shaped types.
+func TestF7UIOpenAISDK(t *testing.T) {
+	t.Parallel()
+	eng := &fakeEngine{}
+	h := newTestServer(t, eng, nil, testConfig()).Handler()
+	body := `{"model":"damnbot","messages":[{"role":"user","content":"hello sdk"}],"stream":false}`
+	rec := postJSON(t, h, body, authHeaders())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var sdk struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		Created int64  `json:"created"`
+		Model   string `json:"model"`
+		Choices []struct {
+			Index   int `json:"index"`
+			Message struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int64 `json:"prompt_tokens"`
+			CompletionTokens int64 `json:"completion_tokens"`
+			TotalTokens      int64 `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &sdk); err != nil {
+		t.Fatalf("decode SDK response: %v", err)
+	}
+	if sdk.Object != "chat.completion" || sdk.Model != "damnbot" || len(sdk.Choices) != 1 {
+		t.Errorf("sdk response = %+v", sdk)
+	}
+	if sdk.Choices[0].Message.Role != "assistant" || sdk.Choices[0].Message.Content != "hello" || sdk.Choices[0].FinishReason != "stop" {
+		t.Errorf("choice = %+v", sdk.Choices[0])
+	}
+	if sdk.Usage.TotalTokens != 5 || eng.last().Messages[0].Content != "hello sdk" {
+		t.Errorf("usage = %+v turn = %+v", sdk.Usage, eng.last())
+	}
 }
