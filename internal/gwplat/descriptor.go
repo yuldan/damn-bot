@@ -20,6 +20,9 @@ const (
 	TransportSSE      Transport = "sse"
 	TransportJSONRPC  Transport = "jsonrpc"
 	TransportLongPoll Transport = "long_poll"
+	// TransportWebhook is an HTTP callback surface the platform calls; the
+	// adapter verifies the request before it admits anything.
+	TransportWebhook Transport = "webhook"
 )
 
 // Descriptor declares one adapter surface: identity strength (SEC-10),
@@ -62,7 +65,7 @@ func (d *Descriptor) Validate() error {
 		return fmt.Errorf("%w: %q caps diverge from the SEC-10 table", ErrDescriptor, d.Name)
 	}
 	switch d.Transport {
-	case TransportWS, TransportSSE, TransportJSONRPC, TransportLongPoll:
+	case TransportWS, TransportSSE, TransportJSONRPC, TransportLongPoll, TransportWebhook:
 	default:
 		return fmt.Errorf("%w: %q has transport %q", ErrDescriptor, d.Name, d.Transport)
 	}
@@ -182,6 +185,14 @@ func Descriptors() []Descriptor {
 			Transport:  TransportLongPoll,
 			Caps:       capsOf("raft"),
 			Render:     render.PlatformPlain,
+			DefaultOff: true,
+		},
+		{
+			Name:       "whatsapp_cloud",
+			Transport:  TransportWebhook,
+			Caps:       capsOf("whatsapp_cloud"),
+			Render:     render.PlatformWhatsApp,
+			Secrets:    []string{"whatsapp_cloud_access_token", "whatsapp_cloud_app_secret", "whatsapp_cloud_verify_token"},
 			DefaultOff: true,
 		},
 		{
