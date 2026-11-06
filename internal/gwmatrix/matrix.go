@@ -114,10 +114,11 @@ func New(ctx context.Context, cfg *Config, desc *gwplat.Descriptor, secrets gwpl
 	if now == nil {
 		now = time.Now
 	}
-	client := cfg.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
+	if cfg.HTTPClient == nil {
+		// Egress is injected (E-05): the composition root supplies a netx client.
+		return nil, fmt.Errorf("%w: HTTP client is required", ErrConfig)
 	}
+	client := cfg.HTTPClient
 	local := *cfg
 	if local.SyncTimeout <= 0 {
 		local.SyncTimeout = 30 * time.Second

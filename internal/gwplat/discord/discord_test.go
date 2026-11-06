@@ -18,6 +18,7 @@ import (
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/outq"
 	"github.com/damnbot/damnbot/internal/gwplat"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 type allowPacer struct{}
@@ -257,7 +258,7 @@ func TestF7PLAT005Discord(t *testing.T) {
 func testDiscordActivation(t *testing.T) {
 	t.Helper()
 	gw := newFakeGateway(t, 0)
-	cfg := &Config{Enabled: true, GatewayURL: gw.url(), BaseURL: gw.srv.URL}
+	cfg := &Config{Enabled: true, GatewayURL: gw.url(), BaseURL: gw.srv.URL, HTTPClient: netx.LoopbackClient()}
 	if _, _, err := buildAdapter(t, cfg, secrets{}, newRecorder(), newScheduler(t)); !errors.Is(err, gwplat.ErrMissingSecret) {
 		t.Fatalf("missing secret = %v, want ErrMissingSecret", err)
 	}
@@ -275,7 +276,7 @@ func testDiscordInbound(t *testing.T) {
 	gw := newFakeGateway(t, 0)
 	rest := newFakeREST(t)
 	rec := newRecorder()
-	ad, _ := newAdapter(t, &Config{Enabled: true, GatewayURL: gw.url(), BaseURL: rest.srv.URL}, secrets{"discord_bot_token": "tok"}, rec, newScheduler(t))
+	ad, _ := newAdapter(t, &Config{Enabled: true, GatewayURL: gw.url(), HTTPClient: netx.LoopbackClient(), BaseURL: rest.srv.URL}, secrets{"discord_bot_token": "tok"}, rec, newScheduler(t))
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
@@ -383,7 +384,7 @@ func assertDiscordSend(t *testing.T, ad *Adapter, rest *fakeREST) {
 func testDiscordClose(t *testing.T) {
 	t.Helper()
 	gw := newFakeGateway(t, closeAuthFailed)
-	ad, desc := newAdapter(t, &Config{Enabled: true, GatewayURL: gw.url()}, secrets{"discord_bot_token": "tok"}, newRecorder(), newScheduler(t))
+	ad, desc := newAdapter(t, &Config{Enabled: true, GatewayURL: gw.url(), HTTPClient: netx.LoopbackClient()}, secrets{"discord_bot_token": "tok"}, newRecorder(), newScheduler(t))
 	if desc.Name != "discord" || !desc.Caps.SupportsEditStream() {
 		t.Fatalf("descriptor = %+v", desc)
 	}
@@ -405,7 +406,7 @@ func testDiscordClose(t *testing.T) {
 // MESSAGE_CONTENT bit is never implicit.
 func TestF7DiscordIntents(t *testing.T) {
 	gw := newFakeGateway(t, closeAuthFailed)
-	ad, _ := newAdapter(t, &Config{Enabled: true, GatewayURL: gw.url()}, secrets{"discord_bot_token": "tok"}, newRecorder(), newScheduler(t))
+	ad, _ := newAdapter(t, &Config{Enabled: true, GatewayURL: gw.url(), HTTPClient: netx.LoopbackClient()}, secrets{"discord_bot_token": "tok"}, newRecorder(), newScheduler(t))
 	want := IntentGuilds | IntentGuildMessages | IntentDirectMessages
 	if got := ad.Intents(); got != want {
 		t.Fatalf("minimal intents = %d, want %d", got, want)
@@ -428,7 +429,7 @@ func TestF7DiscordIntents(t *testing.T) {
 		t.Fatal("adapter never identified")
 	}
 
-	privileged, _ := newAdapter(t, &Config{Enabled: true, GatewayURL: gw.url(), MessageContent: true, Intents: IntentGuilds}, secrets{"discord_bot_token": "tok"}, newRecorder(), newScheduler(t))
+	privileged, _ := newAdapter(t, &Config{Enabled: true, GatewayURL: gw.url(), HTTPClient: netx.LoopbackClient(), MessageContent: true, Intents: IntentGuilds}, secrets{"discord_bot_token": "tok"}, newRecorder(), newScheduler(t))
 	if got := privileged.Intents(); got != want|IntentMessageContent {
 		t.Fatalf("content intents = %d, want %d", got, want|IntentMessageContent)
 	}

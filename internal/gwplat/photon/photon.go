@@ -84,10 +84,9 @@ func New(ctx context.Context, cfg *Config, desc *gwplat.Descriptor, secrets gwpl
 	client := cfg.HTTPClient
 	if client == nil {
 		if cfg.SocketPath != "" {
-			client = &http.Client{Transport: &http.Transport{DialContext: unixDial(cfg.SocketPath)}, Timeout: 30 * time.Second}
-		} else {
-			client = netx.LoopbackClient()
+			return nil, fmt.Errorf("%w: HTTP client is required for a unix sidecar (E-05)", ErrConfig)
 		}
+		client = netx.LoopbackClient()
 	}
 	return &Adapter{
 		cfg: *cfg, out: out, handler: h, token: values["photon_project_secret"],
@@ -129,13 +128,6 @@ func validateLoopback(raw string) error {
 		return fmt.Errorf("%w: sidecar URL must be loopback http", ErrConfig)
 	}
 	return nil
-}
-
-func unixDial(path string) func(context.Context, string, string) (net.Conn, error) {
-	return func(ctx context.Context, _, _ string) (net.Conn, error) {
-		d := net.Dialer{}
-		return d.DialContext(ctx, "unix", path)
-	}
 }
 
 // Outbox exposes the shared outbound seam to the wiring.

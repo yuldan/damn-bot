@@ -78,10 +78,10 @@ func New(ctx context.Context, cfg *Config, desc *gwplat.Descriptor, secrets gwpl
 	if now == nil {
 		now = time.Now
 	}
-	client := cfg.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: 90 * time.Second}
+	if cfg.HTTPClient == nil {
+		return nil, fmt.Errorf("%w: HTTP client is required (E-05)", ErrConfig)
 	}
+	client := cfg.HTTPClient
 	ad := &Adapter{
 		cfg: *cfg, out: out, handler: h, token: values["weixin_token"],
 		dedupe: gwplat.NewDedupe(8192, 30*time.Minute), log: logger, now: now, client: client,

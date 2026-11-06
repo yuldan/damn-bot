@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/coder/websocket"
 )
@@ -93,11 +92,10 @@ func validateVoiceURL(raw string) error {
 
 // Join opens the voice WebSocket and waits for op 2 (session description).
 func (v *DiscordVoice) Join(ctx context.Context) error {
-	client := v.cfg.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: 20 * time.Second}
+	if v.cfg.HTTPClient == nil {
+		return fmt.Errorf("%w: HTTP client is required (E-05)", ErrPipelineNotConfigured)
 	}
-	conn, resp, err := websocket.Dial(ctx, v.cfg.WSURL, &websocket.DialOptions{HTTPClient: client})
+	conn, resp, err := websocket.Dial(ctx, v.cfg.WSURL, &websocket.DialOptions{HTTPClient: v.cfg.HTTPClient})
 	if resp != nil && resp.Body != nil {
 		defer func() {
 			if cerr := resp.Body.Close(); cerr != nil {
