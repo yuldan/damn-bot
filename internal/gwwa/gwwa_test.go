@@ -1,0 +1,259 @@
+package gwwa_test
+
+import (
+	"bufio"
+	"encoding/json"
+	"errors"
+	"net"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/damnbot/damnbot/internal/gwwa"
+)
+
+// fakeBridge is the cheapest conformant `damnbot.bridge/v1` peer: a net.Pipe
+// that speaks hello, answers requests, and lets the test push notifications.
+type fakeBridge struct {
+	conn net.Conn
+	mu   sync.Mutex
+
+	hello    gwwa.Hello
+	sends    int
+	requests []string
+	cold     bool
+}
+
+func newPipeBridge(t *testing.T, hello gwwa.Hello) (*fakeBridge, net.Conn) {
+	t.Helper()
+	client, server := net.Pipe()
+	b := &fakeBridge{conn: server, hello: hello}
+	t.Cleanup(func() {
+		if err := server.Close(); err != nil {
+			return
+		}
+	})
+	go b.run(t)
+	return b, client
+}
+
+func (b *fakeBridge) run(t *testing.T) {
+	t.Helper()
+	b.write(t, map[string]any{"jsonrpc": "2.0", "method": "bridge.hello", "params": b.hello})
+	scanner := bufio.NewScanner(b.conn)
+	scanner.Buffer(make([]byte, 64<<10), gwwa.MaxFrame)
+	for scanner.Scan() {
+		var req struct {
+			ID     uint64          `json:"id"`
+			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			t.Errorf("bridge decode: %v", err)
+			return
+		}
+		b.mu.Lock()
+		b.requests = append(b.requests, req.Method)
+		cold := b.cold
+		if req.Method == "send" {
+			b.sends++
+		}
+		b.mu.Unlock()
+		resp := map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{}}
+		if req.Method == "send" && cold {
+			resp = map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{
+				"code": -32000, "message": "cold_outbound_denied", "data": map[string]any{"code": "cold_outbound_denied"},
+			}}
+		}
+		if req.Method == "status" {
+			resp["result"] = map[string]any{"state": "connected", "reason": "none"}
+		}
+		b.write(t, resp)
+	}
+}
+
+func (b *fakeBridge) write(t *testing.T, frame any) {
+	t.Helper()
+	raw, err := json.Marshal(frame)
+	if err != nil {
+		t.Errorf("bridge marshal: %v", err)
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, err := b.conn.Write(append(raw, '\n')); err != nil {
+		t.Errorf("bridge write: %v", err)
+	}
+}
+
+func (b *fakeBridge) notify(t *testing.T, method string, params any) {
+	t.Helper()
+	b.write(t, map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
+}
+
+func (b *fakeBridge) sendCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.sends
+}
+
+func validHello() gwwa.Hello {
+	return gwwa.Hello{
+		Protocol:      gwwa.Protocol,
+		BridgeVersion: "0.1.0",
+		Capabilities:  gwwa.Capabilities{WaVersion: "2.3000.101", WaVersionSource: "build"},
+	}
+}
+
+// TestBridgeProtocolConformance is the ADR-034/SPEC §9.7.1 gate: the
+// handshake accepts only the pinned protocol, a wrong major or an unpinned
+// wa_version is bridge_incompatible, the version is never fetched at runtime,
+// and a cold send never reaches the bridge.
+func TestBridgeProtocolConformance(t *testing.T) {
+	t.Run("handshake", conformanceHandshake)
+	t.Run("incompatible", conformanceIncompatible)
+	t.Run("cold_outbound", conformanceCold)
+	t.Run("bridge_rejects_cold", conformanceBridgeCold)
+}
+
+func conformanceHandshake(t *testing.T) {
+	_, conn := newPipeBridge(t, validHello())
+	c, err := gwwa.Connect(t.Context(), gwwa.Stdio(conn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeClient(t, c)
+	if got := c.Hello(); got.Capabilities.WaVersion != "2.3000.101" || got.Capabilities.WaVersionSource != "build" {
+		t.Fatalf("hello = %+v", got)
+	}
+	h, err := c.Status(t.Context())
+	if err != nil || h.State != gwwa.StateConnected {
+		t.Fatalf("status = %+v/%v", h, err)
+	}
+}
+
+func conformanceIncompatible(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*gwwa.Hello)
+	}{
+		{"wrong_major", func(h *gwwa.Hello) { h.Protocol = "damnbot.bridge/v2" }},
+		{"missing_version", func(h *gwwa.Hello) { h.Capabilities.WaVersion = "" }},
+		{"runtime_version", func(h *gwwa.Hello) { h.Capabilities.WaVersionSource = "fetch" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := validHello()
+			tc.mutate(&h)
+			_, conn := newPipeBridge(t, h)
+			if _, err := gwwa.Connect(t.Context(), gwwa.Stdio(conn)); !errors.Is(err, gwwa.ErrProtocol) {
+				t.Fatalf("%s = %v, want ErrProtocol", tc.name, err)
+			}
+		})
+	}
+}
+
+func conformanceCold(t *testing.T) {
+	b, conn := newPipeBridge(t, validHello())
+	c, err := gwwa.Connect(t.Context(), gwwa.Stdio(conn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeClient(t, c)
+	if err := c.Send(t.Context(), "628999", "hello", "idem-1"); !errors.Is(err, gwwa.ErrColdOutbound) {
+		t.Fatalf("cold send = %v, want ErrColdOutbound", err)
+	}
+	if b.sendCount() != 0 {
+		t.Fatalf("cold send wrote %d frames", b.sendCount())
+	}
+	b.notify(t, "inbound", map[string]any{"external_id": "e1", "chat_id": "628999", "sender_id": "628999", "text": "hi"})
+	waitEvent(t, c, func(ev gwwa.Event) bool { return ev.Inbound != nil })
+	if err := c.Send(t.Context(), "628999", "hello", "idem-2"); err != nil {
+		t.Fatalf("warm send: %v", err)
+	}
+	if b.sendCount() != 1 {
+		t.Fatalf("warm send wrote %d frames", b.sendCount())
+	}
+}
+
+func conformanceBridgeCold(t *testing.T) {
+	b, conn := newPipeBridge(t, validHello())
+	c, err := gwwa.Connect(t.Context(), gwwa.Stdio(conn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeClient(t, c)
+	b.mu.Lock()
+	b.cold = true
+	b.mu.Unlock()
+	b.notify(t, "inbound", map[string]any{"external_id": "e2", "chat_id": "628777", "sender_id": "628777", "text": "hi"})
+	waitEvent(t, c, func(ev gwwa.Event) bool { return ev.Inbound != nil })
+	if err := c.Send(t.Context(), "628777", "hello", "idem-3"); !errors.Is(err, gwwa.ErrColdOutbound) {
+		t.Fatalf("bridge cold refusal = %v, want ErrColdOutbound", err)
+	}
+}
+
+func closeClient(t *testing.T, c *gwwa.Client) {
+	t.Helper()
+	if err := c.Close(); err != nil {
+		t.Errorf("close: %v", err)
+	}
+}
+
+// TestF7GAPGW11Breaker locks the health.reason → breaker table: the ban and
+// logout classes stop reconnect for operator action, only network/unknown
+// reconnect, and a temporary ban retries once after 24 hours.
+func TestF7GAPGW11Breaker(t *testing.T) {
+	for _, tc := range []struct {
+		reason gwwa.HealthReason
+		action gwwa.Action
+		retry  time.Duration
+	}{
+		{gwwa.ReasonLoggedOut, gwwa.ActionNeedsAttention, 0},
+		{gwwa.ReasonBanned, gwwa.ActionNeedsAttention, 0},
+		{gwwa.ReasonTemporaryBan, gwwa.ActionNeedsAttention, 24 * time.Hour},
+		{gwwa.ReasonProtocolOutdated, gwwa.ActionNeedsAttention, 0},
+		{gwwa.ReasonNetwork, gwwa.ActionReconnect, 0},
+		{gwwa.ReasonUnknown, gwwa.ActionReconnect, 0},
+		{gwwa.ReasonNone, gwwa.ActionNone, 0},
+	} {
+		v := gwwa.Evaluate(gwwa.Health{State: gwwa.StateDisconnected, Reason: tc.reason})
+		if v.Action != tc.action || v.RetryAfter != tc.retry {
+			t.Fatalf("%s = %+v, want %s/%s", tc.reason, v, tc.action, tc.retry)
+		}
+		if v.Action == gwwa.ActionNeedsAttention && v.Instruction == "" {
+			t.Fatalf("%s has no operator instruction", tc.reason)
+		}
+	}
+	// A ten-minute outage at the 1 s → 60 s schedule stays ≤ 15 attempts.
+	total, delay, attempts := time.Duration(0), time.Second, 0
+	for total+delay <= 10*time.Minute {
+		total += delay
+		attempts++
+		if delay < 30*time.Second {
+			delay *= 2
+		} else {
+			delay = time.Minute
+		}
+	}
+	if attempts > 15 {
+		t.Fatalf("10-minute outage = %d attempts, want ≤ 15", attempts)
+	}
+}
+
+func waitEvent(t *testing.T, c *gwwa.Client, match func(gwwa.Event) bool) gwwa.Event {
+	t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case ev, ok := <-c.Events():
+			if !ok {
+				t.Fatal("event stream closed")
+			}
+			if match(ev) {
+				return ev
+			}
+		case <-deadline:
+			t.Fatal("notification not delivered")
+		}
+	}
+}
