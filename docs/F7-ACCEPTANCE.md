@@ -83,11 +83,11 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | GW-015 | Bot mode / relay | mode bot DM + relay antar profil; loop dicegah (maks 2 hop); relay ke profil non-allowlist ditolak | `TestF7GW015BotRelay`, `TestF7RelayLoopGuard` | LULUS | — |
 | GW-016 | Profile routing / multiplex | satu gateway melayani banyak profil; routing per bot/identitas; EC-STATE-004 (koneksi read-pool berbatas); EC-TERM-004/005 (sandbox & policy per profil, fail-closed) | `TestF7GW016ProfileRouting`, `TestEdgeCases/EC-STATE-004`, `TestEdgeCases/EC-TERM-004`, `TestEdgeCases/EC-TERM-005` | LULUS | EC §10 |
 | GW-022 | Scale-to-zero | idle > ambang → proses gateway berhenti bersih; pesan masuk pertama membangunkan tanpa kehilangan/duplikasi; 0 pesan diparkir hilang | `TestF7GW022ScaleToZero`, `TestF7ScaleToZeroWakeNoLoss` | LULUS | — |
-| GW-023 | Channel directory | direktori channel lintas platform; 0 token/secret; entri hilang → baris kosong bukan panic | `TestF7GW023ChannelDirectory` | BELUM | — |
-| GW-025 | Telegram managed bot | provisioning bot terkelola opt-in; tanpa kredensial → `module_unavailable`; 0 panggilan jaringan saat default | `TestF7GW025ManagedBot` | BELUM | default off |
-| GW-026 | Handoff ke platform | serahkan sesi CLI ke platform chat; transcript ringkas; konfirmasi idempoten (retry 1× tidak menggandakan) | `TestF7GW026Handoff` | BELUM | SLASH-012 |
-| SLASH-012 | `/handoff <platform>` | argumen platform divalidasi; tanpa adapter aktif → pesan, 0 turn; handoff tercatat di sesi | `TestF7SLASH012Handoff` | BELUM | — |
-| EXEC-016 | Approval transport eksternal | approval dikirim ke transport (builtin/eksternal); transport gagal → `deny` (fail-closed); kelas P26 tetap butuh kanal interaktif | `TestF7EXEC016ApprovalTransport`, `TestF7ApprovalTransportFailClosed` | BELUM | TRUST-MODEL |
+| GW-023 | Channel directory | direktori channel lintas platform; 0 token/secret; entri hilang → baris kosong bukan panic | `TestF7GW023ChannelDirectory` | LULUS | — |
+| GW-025 | Telegram managed bot | provisioning bot terkelola opt-in; tanpa kredensial → `module_unavailable`; 0 panggilan jaringan saat default | `TestF7GW025ManagedBot` | LULUS | default off |
+| GW-026 | Handoff ke platform | serahkan sesi CLI ke platform chat; transcript ringkas; konfirmasi idempoten (retry 1× tidak menggandakan) | `TestF7GW026Handoff` | LULUS | SLASH-012 |
+| SLASH-012 | `/handoff <platform>` | argumen platform divalidasi; tanpa adapter aktif → pesan, 0 turn; handoff tercatat di sesi | `TestF7SLASH012Handoff` | LULUS | — |
+| EXEC-016 | Approval transport eksternal | approval dikirim ke transport (builtin/eksternal); transport gagal → `deny` (fail-closed); kelas P26 tetap butuh kanal interaktif | `TestF7EXEC016ApprovalTransport`, `TestF7ApprovalTransportFailClosed` | LULUS | TRUST-MODEL |
 | TSET-036 | bundle `bot_room` | komposit; hanya tool room + tool inti read-only; 0 shell | `TestF7TSET036BotRoomBundle` | LULUS | — |
 
 ## 5. Ledger parity F7 — CLI adapter dan bundle toolset platform (18)
