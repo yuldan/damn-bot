@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/gwplat/yuanbao` tools (F7 P10c-2, TOOL-049..053/TSET-032): lima tool yb_* + toolset hermes-yuanbao default-off, DM non-allowlist & stiker asing ditolak; tes TestF7TOOL049..053, TestF7TSET032Yuanbao.
+
 - `internal/gwplat/yuanbao` (F7 P10c-1, PLAT-027): adapter WS app id/secret dari seam, grup/DM mapping, dedupe event_id, outbound render→outq, ws loopback-only; tes TestF7PLAT027Yuanbao.
 
 - `internal/gwplat/a2a` tools (F7 P10a-4, TOOL-001..005/TSET-033): lima tool a2a_* + toolset a2a default-off + e2e inbound→prompt/tool outbound; tes TestF7TOOL001..005, TestF7A2AOrchestrateDepth, TestF7TSET033A2A, TestF7A2AInboundPrompt.

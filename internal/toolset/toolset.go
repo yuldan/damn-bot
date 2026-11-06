@@ -118,6 +118,9 @@ func Builtin() []Definition {
 		{Name: "a2a", Description: "Agent-to-Agent: discover, call, history, list, orchestrate (default off)", Tools: []string{
 			"a2a_call", "a2a_discover", "a2a_history", "a2a_list", "a2a_orchestrate",
 		}},
+		{Name: "hermes-yuanbao", Description: "Yuanbao bundle: group info/members, sticker search, DM and sticker send", Tools: []string{
+			"yb_query_group_info", "yb_query_group_members", "yb_search_sticker", "yb_send_dm", "yb_send_sticker",
+		}},
 		{Name: "cronjob", Description: "Scheduled job management", Tools: []string{"cronjob_manage"}},
 		{Name: "browser", Description: "Managed browser page tools: navigate, snapshot, click, type, scroll, back, press, images, vision, console, vault", Tools: []string{
 			"browser_navigate", "browser_snapshot", "browser_click", "browser_type",
