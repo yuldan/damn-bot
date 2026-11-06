@@ -201,6 +201,7 @@ Storage ledger `budget` F1 = subpaket `internal/ctxdb/ledgerstore` (ADR-074, bar
 - PLAT 30/30 lulus fake server; smoke nyata nightly untuk adapter yang punya akun uji.
 - EC-PLAT (non-Telegram: EC-PLAT-004, 005, 006, 008, 024; ADR-061), EC-STATE-004 (ADR-080), EC-TERM-004/005, EC-SEC-006 covered (ADR-077).
 - Kontribusi binary adapter ≤ budget SPEC §3.2.4; P13 full ≤ 52 MB.
+- Ledger acceptance (103 baris parity, 10 GAP, 9 EC, budget, carryover F6): [`F7-ACCEPTANCE.md`](F7-ACCEPTANCE.md) (ADR-326).
 
 ## F8 — Web UI, ekosistem, otomatisasi
 
