@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/gwplat/irc` (F7 P3c-2, PLAT-009/GAP-SEC-10, ADR-326): **adapter IRC SASL**. Koneksi IRC dengan negosiasi CAP dan SASL PLAIN/EXTERNAL; tanpa `sasl`+`account-tag` (atau saat SASL ditolak) adapter mengembalikan `module_unavailable{irc_no_account_auth}` dan mendispatch 0 pesan. Identitas sesi selalu tag `account` (nick tidak pernah identitas), PRIVMSG tanpa tag `account` di-drop, `msgid` didedupe lintas reconnect, channel grup butuh mention, outbound lewat `gwplat.Outbox` (render plain → outq), dan reconnect berbackoff ctx-aware. Tes: `TestF7PLAT009IRC`, `TestIRCAccountAuth`, `TestParseLine`. Baris `PLAT-009` dan `GAP-SEC-10` menjadi `LULUS`.
+
 - `internal/gwplat/irc` (F7 P3c-1, slice persiapan, ADR-326): **parser baris IRCv3**. `parseLine` menangani tag `@key=value` dengan escape set IRCv3 (`\s \: \\ \r \n`), prefix nick/server, command, dan trailing parameter; `lastParam` dipakai adapter. Slice ini tidak menutup baris ledger; adapter SASL yang memakainya ada di P3c-2 pada stack yang sama. Tes: `TestParseLine`.
 
 - `internal/gwplat/buzz` (F7 P3b, PLAT-003, ADR-326): **adapter relay Buzz/Nostr**. Langganan dan publish relay WS NIP-01 dengan tanda tangan BIP340 (vektor referensi BIP340 diuji), kunci privat hanya dari seam `secret.Store` dan tidak pernah masuk log/error, dedupe id event yang bertahan lintas reconnect, backoff reconnect ctx-aware tanpa `time.Sleep`, dan outbound lewat `gwplat.Outbox` (render plain → outq). Endpoint `ws://` hanya diterima untuk loopback; URL bertoken ditolak. Tes: `TestF7PLAT003Buzz`, `TestSchnorrBIP340Vectors`, `TestBuzzActivationGate`, `TestBuzzPublishWithoutConnection`. Baris `PLAT-003` menjadi `LULUS`.

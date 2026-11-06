@@ -39,7 +39,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-006 | Email | IMAP polling + SMTP reply; MIME multipart; dedupe `Message-ID`; BODY.PEEK (GW-08) | `TestF7PLAT006Email` | BELUM | GAP-GW-08 |
 | PLAT-007 | Feishu/Lark | WS long connection + webhook fallback; tenant token cache; dedupe `event_id` | `TestF7PLAT007Feishu` | BELUM | — |
 | PLAT-008 | Google Chat | callback HTTP terverifikasi (JWT Google) atau Pub/Sub pull; payload tak terverifikasi → 0 turn | `TestF7PLAT008GoogleChat`, `TestF7GoogleChatVerify` | BELUM | — |
-| PLAT-009 | IRC | wajib SASL PLAIN/EXTERNAL + CAP `account-notify`/`account-tag`; tanpa itu `module_unavailable{irc_no_account_auth}` | `TestF7PLAT009IRC`, `TestIRCAccountAuth` | BELUM | GAP-SEC-10 |
+| PLAT-009 | IRC | wajib SASL PLAIN/EXTERNAL + CAP `account-notify`/`account-tag`; tanpa itu `module_unavailable{irc_no_account_auth}` | `TestF7PLAT009IRC`, `TestIRCAccountAuth` | LULUS | GAP-SEC-10 |
 | PLAT-010 | LINE | webhook HMAC-SHA256 constant-time; reply token sekali pakai | `TestF7PLAT010LINE`, `TestF7LINEHMAC` | BELUM | — |
 | PLAT-011 | Matrix | homeserver + access token; E2EE pure Go (`goolm`); edit-stream default mati (GW-10) | `TestF7PLAT011Matrix`, `TestF7MatrixNoEditStream` | BELUM | budget `gwmatrix` |
 | PLAT-012 | Mattermost | REST v4 + WebSocket; token dari secret; reconnect backoff netx | `TestF7PLAT012Mattermost` | BELUM | — |
@@ -169,7 +169,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 
 | GAP | Kriteria verifikasi | Tes yang harus ada | Status |
 |---|---|---|---|
-| GAP-SEC-10 | tabel identity strength lengkap untuk 30 adapter; identitas `weak` tidak bisa allowlist/pair (fail-closed); IRC wajib SASL + `account-tag`; PRIVMSG tanpa tag `account` → 0 LLM/tool call | `TestIdentityStrengthTable`, `TestIRCAccountAuth` | BELUM |
+| GAP-SEC-10 | tabel identity strength lengkap untuk 30 adapter; identitas `weak` tidak bisa allowlist/pair (fail-closed); IRC wajib SASL + `account-tag`; PRIVMSG tanpa tag `account` → 0 LLM/tool call | `TestIdentityStrengthTable`, `TestIRCAccountAuth` | LULUS |
 | GAP-REL-14 | suite `known-defects` ≥ 10 skenario lulus 100% per PR: payload > batas → 413 eksplisit, streaming 1× per pesan, biaya kartu kanban 1× per run, stream terputus retry/error, gambar MCP tetap lampiran | `TestKnownDefectsSuite` (agregat 10 `TestKnownDefect*` + `TestF7KanbanCostOnce` + `TestF7APIStream413`) | BELUM |
 | GAP-GW-01 | wizard hanya Cloud API; Web hanya lewat `--accept-ban-risk` dengan satu ack + event audit; guard cold outbound `cold_outbound_denied` 0 request; pacing 100 pesan ≥ 297 s fake clock | `TestWhatsAppWebGuards`, `TestSetupNoWebWithoutAck` | BELUM |
 | GAP-GW-03 | `gateway/outq` token bucket per chat/grup/platform dari `Caps.Rate`; replay 200 balasan → 0×429; `MaxChunksPerReply` dihormati semua adapter; 0 `time.Sleep` inline (forbidigo) | `TestF7GAPGW03OutqReplay`, `TestPlatformAdapterContract`, `TestF7NoInlineSleep` | LULUS |
