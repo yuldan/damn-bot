@@ -972,7 +972,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | GW-010 | Send CLI `hermes send` | Kirim pesan ke platform dari skrip/CI | `hermes_cli/send_cmd.py` | opt-in | Platform terkonfigurasi |  | F4 | planned |
 | GW-011 | Webhook platform & subscriptions | Terima webhook (toolset aman) + subscription dinamis | `gateway/platforms/webhook.py`, `hermes_cli/webhook.py` | opt-in | — | toolset `hermes-webhook` | F7 | planned |
 | GW-012 | MS Graph webhook | Webhook Microsoft Graph | `gateway/platforms/msgraph_webhook.py` | opt-in | MS Graph |  | F7 | planned |
-| GW-013 | Peer gateways (bot-to-bot DM) | DM antar gateway Hermes lintas mesin | `gateway/hosted_room_peer.py`, `hermes_cli/subcommands/peer.py` | opt-in | Network | `hermes peer` | F7 | planned |
+| GW-013 | Peer gateways (bot-to-bot DM) | DM antar gateway Hermes lintas mesin | `gateway/hosted_room_peer.py`, `hermes_cli/subcommands/peer.py` | opt-in | Network | `hermes peer` | F7 | LULUS |
 | GW-014 | Hosted rooms / group chat | Ruang multi-agent terhost | `gateway/hosted_rooms.py` | opt-in | — | toolset `bot_room` | F7 | planned |
 | GW-015 | Bot mode / relay | Mode bot DM dan relay antar profil | `tools/bot_relay.py`, `tools/bot_mode_dm.py` | opt-in | — |  | F7 | planned |
 | GW-016 | Profile routing / multiplex | Satu gateway melayani banyak profil | `gateway/profile_routing.py`, `hermes_cli/gateway_multiplex_mode.py` | on (`gateway.auto_multiplex_migration`) | s6 (opsional) |  | F7 | planned |
