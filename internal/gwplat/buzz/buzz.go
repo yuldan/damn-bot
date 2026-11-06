@@ -40,7 +40,6 @@ type Config struct {
 type Adapter struct {
 	cfg     Config
 	desc    *gwplat.Descriptor
-	out     *gwplat.Outbox
 	handler gwplat.Handler
 	priv    [32]byte
 	pub     string
@@ -101,7 +100,6 @@ func New(ctx context.Context, cfg *Config, desc *gwplat.Descriptor, secrets gwpl
 	return &Adapter{
 		cfg:     *cfg,
 		desc:    desc,
-		out:     out,
 		handler: h,
 		priv:    priv,
 		pub:     hex.EncodeToString(pubKey[:]),
@@ -305,9 +303,6 @@ func (a *Adapter) setConn(conn *websocket.Conn) {
 	defer a.mu.Unlock()
 	a.conn = conn
 }
-
-// Outbox exposes the shared outbound seam to the wiring.
-func (a *Adapter) Outbox() *gwplat.Outbox { return a.out }
 
 // closeResponse closes a handshake response; websocket.Dial sets Body to nil
 // on success, so only a refused handshake carries one.
