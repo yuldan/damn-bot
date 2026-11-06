@@ -107,7 +107,7 @@ func TestF7PeerReplay(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+secret)
 		req.Header.Set(peerAuthHeader, "a")
-		resp, derr := http.DefaultClient.Do(req)
+		resp, derr := b.Client().Do(req)
 		if derr != nil {
 			t.Fatal(derr)
 		}
