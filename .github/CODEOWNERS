@@ -57,6 +57,7 @@
 /internal/gateway/ @yuldan
 /internal/gwpeer/ @yuldan
 /internal/gwplat/ @yuldan
+/internal/kanban/ @yuldan
 /internal/hooks/ @yuldan
 /internal/obs/ @yuldan
 /internal/scorecard/ @yuldan

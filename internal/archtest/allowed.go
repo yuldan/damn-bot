@@ -44,7 +44,6 @@ func allowedImports() map[string][]string {
 		"internal/gateway": {"internal/loop", "internal/modules/host", "internal/i18n", "internal/cron"},
 		// Adapter Telegram memakai renderer Telegram bersama (GAP-GW-04).
 		"internal/gateway/telegram": append(moduleImports(), "internal/gateway/render"),
-
 		// Modul daemon/observabilitas F4 (ADR-244): `obs` sudah diimplementasikan
 		// (stdlib saja, tanpa impor internal) dan tetap tanpa edge; `cron` sudah punya
 		// API (scheduler library, ADR-248) sehingga edge-nya ditentukan; `scorecard` masih kerangka.
@@ -113,6 +112,7 @@ func allowedImports() map[string][]string {
 		"internal/config":              {"internal/schema", "internal/toolset", "internal/update"},
 		"internal/update":              {"internal/netx"},
 		"internal/toolset":             nil, // pure composition data (ADR-139): no internal deps
+		"internal/kanban":              {"internal/ctxdb"},
 		"internal/netx":                {"internal/netx/jsonrpc", "internal/netx/retry", "internal/redact"},
 		"internal/netx/jsonrpc":        {"internal/netx", "internal/netx/retry", "internal/redact"},
 		"internal/netx/retry":          nil,
