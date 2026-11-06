@@ -173,7 +173,7 @@ Sumber: `hermes_cli/commands.py` (103 `CommandDef`). Deskripsi verbatim hermes, 
 | SLASH-009 | `/prompt` | Compose your next prompt in $EDITOR (markdown), then send it | `hermes_cli/commands.py:101` | tersedia (CLI-only); kategori Session | — | alias: /compose; args `[initial text]` | F3 | planned |
 | SLASH-010 | `/undo` | Back up N user turns and re-prompt (default 1) | `hermes_cli/commands.py:103` | tersedia (CLI + gateway); kategori Session | — | args `[N]` | F3 | planned |
 | SLASH-011 | `/title` | Set a title for the current session | `hermes_cli/commands.py:105` | tersedia (CLI + gateway); kategori Session | — | args `[name]` | F3 | planned |
-| SLASH-012 | `/handoff` | Hand off this session to a messaging platform (Telegram, Discord, etc.) | `hermes_cli/commands.py:106` | tersedia (CLI-only); kategori Session | — | args `<platform>` | F7 | planned |
+| SLASH-012 | `/handoff` | Hand off this session to a messaging platform (Telegram, Discord, etc.) | `hermes_cli/commands.py:106` | tersedia (CLI-only); kategori Session | — | args `<platform>` | F7 | LULUS |
 | SLASH-013 | `/branch` | Branch the current session (new thread on Discord/Telegram/Slack/Matrix; --here stays here) | `hermes_cli/commands.py:108` | tersedia (CLI + gateway); kategori Session | — | alias: /fork; args `[--here] [name]` | F3 | planned |
 | SLASH-014 | `/worktree` | Show, list, create, or prune isolated git worktrees | `hermes_cli/commands.py:110` | tersedia (CLI-only); kategori Session | — | sub: new, list, prune; args `[new [name]\\|list\\|prune [--dry-run]]` | F5 | planned |
 | SLASH-015 | `/compress` | Compress conversation context (add 'here [N]' to keep recent N turns; --preview shows what would … | `hermes_cli/commands.py:113` | tersedia (CLI + gateway); kategori Session | — | alias: /compact; args `[here [N] \\| focus topic \\| --preview\\|--dry-run]` | F3 | planned |
@@ -885,7 +885,7 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | EXEC-013 | Approval modes (smart/manual/yolo) | Approval perintah berbahaya; smart via LLM | `tools/approval.py`, `tools/approval_smart.py`, `tools/approval_yolo.py` | on (`approvals.mode: smart`) | LLM auxiliary (`auxiliary.approval`) | `/yolo`, `/approvals`; cron/unattended deny | F1 | planned |
 | EXEC-014 | Dangerous command detection | Pola perintah berbahaya & floor approval | `tools/approval_detection.py`, `tools/approval_floors.py`, `tools/threat_patterns.py` | on | — |  | F1 | planned |
 | EXEC-015 | Command allowlist & approvals suggest | Allowlist + tambang riwayat jadi usulan | `hermes_cli/approvals_suggest.py` | on (allowlist kosong) | — | `hermes approvals` | F1 | planned |
-| EXEC-016 | Approval transport eksternal | Kirim approval ke transport (builtin/eksternal) | `hermes_cli/approval_transport.py` | builtin | — | fallback deny | F7 | planned |
+| EXEC-016 | Approval transport eksternal | Kirim approval ke transport (builtin/eksternal) | `hermes_cli/approval_transport.py` | builtin | — | fallback deny | F7 | LULUS |
 | EXEC-017 | Gateway approval `/approve` `/deny` | Approval perintah dari chat | `gateway/platforms/base_exec_approval.py` | on (gateway) | — |  | F4 | planned |
 | EXEC-018 | Tool guardrails | Batas loop/ukuran output tool | `agent/tool_guardrails.py`, `tools/tool_output_limits.py` | on | — |  | F1 | planned |
 | EXEC-019 | Path security / file safety | Cegah tulis ke path sensitif; protected instruction files | `tools/path_security.py`, `agent/file_safety.py`, `tools/file_tools_write_guards.py` | on (`security.protected_instruction_files`) | — |  | F1 | planned |
@@ -982,10 +982,10 @@ Sumber: `optional-mcps/*/manifest.yaml`. Semua transport `http`.
 | GW-020 | Message timestamps | Prefix timestamp ke pesan | `gateway/message_timestamps.py` | off | — |  | F4 | planned |
 | GW-021 | Runtime footer | Footer metadata runtime di balasan | `gateway/runtime_footer.py` | off | — | `/footer` | F4 | planned |
 | GW-022 | Scale-to-zero | Gateway berhenti saat idle | `gateway/scale_to_zero.py` | opt-in | — |  | F7 | LULUS |
-| GW-023 | Channel directory | Direktori channel lintas platform | `gateway/channel_directory.py` | on | — |  | F7 | planned |
+| GW-023 | Channel directory | Direktori channel lintas platform | `gateway/channel_directory.py` | on | — |  | F7 | LULUS |
 | GW-024 | Gateway chat CLI | Chat ke gateway dari CLI | `hermes_cli/gateway_chat.py` | opt-in | — |  | F4 | planned |
-| GW-025 | Telegram managed bot | Bot Telegram terkelola | `hermes_cli/telegram_managed_bot.py` | opt-in | Nous [INFERENCE] |  | F7 | planned |
-| GW-026 | Handoff ke platform | Serahkan sesi CLI ke platform chat | `hermes_cli/commands.py:106` | opt-in | — | `/handoff` | F7 | planned |
+| GW-025 | Telegram managed bot | Bot Telegram terkelola | `hermes_cli/telegram_managed_bot.py` | opt-in | Nous [INFERENCE] |  | F7 | LULUS |
+| GW-026 | Handoff ke platform | Serahkan sesi CLI ke platform chat | `hermes_cli/commands.py:106` | opt-in | — | `/handoff` | F7 | LULUS |
 
 ## 14. CORE — agent loop & runtime (tambahan)
 | ID | Fitur | Deskripsi singkat (≤15 kata) | Sumber hermes | Default di hermes | Dependensi eksternal | Catatan | fase | status |
