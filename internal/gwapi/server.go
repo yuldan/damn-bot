@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -40,6 +42,7 @@ type Server struct {
 	cfg    Config
 	engine Engine
 	tools  map[string]ToolSpec
+	rl     *rateLimiter
 }
 
 // NewServer validates the envelope and returns the handler source.
@@ -74,13 +77,14 @@ func NewServer(cfg *Config, engine Engine, toolbox Toolbox) (*Server, error) {
 			}
 		}
 	}
-	return &Server{cfg: c, engine: engine, tools: tools}, nil
+	return &Server{cfg: c, engine: engine, tools: tools, rl: newRateLimiter(c.RequestsPerMinute)}, nil
 }
 
 // Handler returns the HTTP handler. CORS is off by default: no
 // Access-Control-Allow-* header is ever emitted.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/chat/completions", s.handleChat)
 	mux.HandleFunc("GET /v1/models", s.handleModels)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleHealthz)
@@ -119,6 +123,16 @@ func (s *Server) authenticate(r *http.Request) *apiError {
 		return &apiError{status: 401, typ: TypeAuthentication, code: "invalid_api_key", message: "invalid bearer token"}
 	}
 	return nil
+}
+
+func (s *Server) checkModel(model string) *apiError {
+	if len(model) > 128 {
+		return errInvalid("model", "invalid_model", "model name is too long")
+	}
+	if len(s.cfg.Models) == 0 || slices.Contains(s.cfg.Models, model) {
+		return nil
+	}
+	return &apiError{status: 404, typ: TypeNotFound, code: "model_not_found", param: "model", message: "model is not configured: " + model}
 }
 
 func errInvalid(param, code, msg string) *apiError {
@@ -162,4 +176,31 @@ func writeError(w http.ResponseWriter, scrub func(string) string, e *apiError) {
 	writeJSON(w, e.status, ErrorResponse{Error: ErrorBody{
 		Message: scrub(e.message), Type: defaultString(e.typ, TypeServer), Param: e.param, Code: e.code,
 	}})
+}
+
+// rateLimiter is a fixed one-minute window driven by the injected clock.
+type rateLimiter struct {
+	limit int
+	mu    sync.Mutex
+	start time.Time
+	used  int
+}
+
+func newRateLimiter(limit int) *rateLimiter { return &rateLimiter{limit: limit} }
+
+func (l *rateLimiter) allow(now time.Time) *apiError {
+	if l.limit <= 0 {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.start.IsZero() || now.Sub(l.start) >= time.Minute {
+		l.start, l.used = now, 0
+	}
+	if l.used >= l.limit {
+		retry := max(60-int(now.Sub(l.start).Seconds()), 1)
+		return &apiError{status: 429, typ: TypeRateLimit, code: "rate_limited", message: "request rate exceeded", retryAfter: retry}
+	}
+	l.used++
+	return nil
 }

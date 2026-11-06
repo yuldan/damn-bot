@@ -22,3 +22,5 @@ internal/tools/testdata/** -text
 internal/loop/testdata/** -text
 # Golden compaction P8 (E-68) dibandingkan byte-persis; checkout Windows tidak boleh CRLF.
 internal/compaction/testdata/** -text
+# Golden API server P2 (conformance JSON/SSE) dibandingkan byte-persis; checkout Windows tidak boleh CRLF.
+internal/gwapi/testdata/** -text
