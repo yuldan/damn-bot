@@ -51,7 +51,7 @@ func allowedImports() map[string][]string {
 		"internal/cron":          append([]string{"internal/redact"}, groupExec()...),
 		"internal/cron/periodic": nil, // AUTO-029: stdlib only, driven by the serve ticker
 		"internal/obs":           nil, "internal/scorecard": nil,
-		// Modul lazy (E-06).
+
 		"internal/mcp":         moduleImports(),
 		"internal/mcp/catalog": nil, // signature verifier: stdlib only
 		// Delegasi (F5-12, ADR-273): orchestration over the tool pipeline; its
