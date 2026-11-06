@@ -73,7 +73,9 @@ func TestF7TOOL002A2ADiscover(t *testing.T) {
 	}
 
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"name":"bad","description":"x","url":"https://x","version":"1","protocolVersion":"9.0"}`))
+		if _, werr := w.Write([]byte(`{"name":"bad","description":"x","url":"https://x","version":"1","protocolVersion":"9.0"}`)); werr != nil {
+			t.Errorf("write card: %v", werr)
+		}
 	}))
 	t.Cleanup(bad.Close)
 	bc := toolsClient(t, url, Peer{Name: "bad", URL: bad.URL})

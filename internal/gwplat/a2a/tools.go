@@ -112,10 +112,10 @@ func (c *Client) invokeCall(ctx context.Context, raw json.RawMessage) (string, e
 			return "", err
 		}
 	}
-	return renderTask(task)
+	return renderTask(&task)
 }
 
-func renderTask(task Task) (string, error) {
+func renderTask(task *Task) (string, error) {
 	if task.State == StateFailed {
 		return "", fmt.Errorf("a2a: task %s failed: %s", task.ID, task.Error)
 	}
@@ -202,11 +202,9 @@ func (c *Client) invokeOrchestrate(ctx context.Context, raw json.RawMessage) (st
 	results := make([]orchestrateResult, len(args.Agents))
 	var wg sync.WaitGroup
 	for i, agent := range args.Agents {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			results[i] = c.orchestrateOne(ctx, agent, args.Task)
-		}()
+		})
 	}
 	wg.Wait()
 	return marshalResult(results)
