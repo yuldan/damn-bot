@@ -3,11 +3,12 @@
 package main
 
 import (
-	configos "github.com/damnbot/damnbot/internal/config"
 	"io"
 	"os"
 	"path/filepath"
 	"time"
+
+	configos "github.com/damnbot/damnbot/internal/config"
 )
 
 // registerServeTestTurn makes the drain path observable from an end-to-end

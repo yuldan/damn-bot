@@ -95,6 +95,8 @@ func Builtin() []Definition {
 		return false
 	})
 	acp := slices.DeleteFunc(slices.Clone(coding), func(t string) bool { return t == "clarify" })
+	room := []string{"room_send", "room_history", "room_members"}
+	botRoom := slices.Concat(room, []string{"read_file", "glob", "grep", "session_search"})
 	defs := []Definition{
 		{Name: "web", Description: "Web research and content extraction tools", Tools: web},
 		{Name: "search", Description: "Search bundle: web research tools", Includes: []string{"web"}},
@@ -124,6 +126,7 @@ func Builtin() []Definition {
 		{Name: "browser-cdp", Description: "Raw DevTools protocol and native dialog tools", Tools: []string{"browser_cdp", "browser_dialog"}},
 		{Name: "browser-use", Description: "Browser Use CLI control tool", Tools: []string{"browser_exec"}},
 		{Name: "computer_use", Description: "Desktop control through the external cua backend", Tools: []string{"computer_use"}},
+		{Name: "bot_room", Description: "Hosted room tools plus read-only core; no shell, write, or edit", Tools: botRoom},
 		{Name: "hermes-cli", Description: "Full headless toolkit", Tools: core},
 		{Name: "hermes-cron", Description: "Default cron toolset: the full headless toolkit", Includes: []string{"hermes-cli"}},
 		{Name: "hermes-telegram", Description: "Telegram bot toolset: full access for personal use", Includes: []string{"hermes-cli"}},

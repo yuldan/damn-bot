@@ -77,10 +77,10 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| CLI-027 | `damnbot peer` | tujuh sub: `add`, `list`, `remove`, `dm`, `run`, `status`, `stop`; `dm` mengirim ke peer terdaftar; peer asing ditolak | `TestF7CLI027Peer` | BELUM | — |
+| CLI-027 | `damnbot peer` | tujuh sub: `add`, `list`, `remove`, `dm`, `run`, `status`, `stop`; `dm` mengirim ke peer terdaftar; peer asing ditolak | `TestF7CLI027Peer` | LULUS | — |
 | GW-013 | Peer gateways | DM bot-ke-bot lintas mesin; envelope bertanda tangan; replay ditolak; identitas peer `cryptographic` | `TestF7GW013PeerDM`, `TestF7PeerReplay` | LULUS | SEC-10 |
-| GW-014 | Hosted rooms | ruang multi-agent; urutan turn per room; biaya dipisah per agen; anggota asing tidak bisa join | `TestF7GW014HostedRooms` | BELUM | TSET-036 |
-| GW-015 | Bot mode / relay | mode bot DM + relay antar profil; loop dicegah (maks 2 hop); relay ke profil non-allowlist ditolak | `TestF7GW015BotRelay`, `TestF7RelayLoopGuard` | BELUM | — |
+| GW-014 | Hosted rooms | ruang multi-agent; urutan turn per room; biaya dipisah per agen; anggota asing tidak bisa join | `TestF7GW014HostedRooms` | LULUS | TSET-036 |
+| GW-015 | Bot mode / relay | mode bot DM + relay antar profil; loop dicegah (maks 2 hop); relay ke profil non-allowlist ditolak | `TestF7GW015BotRelay`, `TestF7RelayLoopGuard` | LULUS | — |
 | GW-016 | Profile routing / multiplex | satu gateway melayani banyak profil; routing per bot/identitas; EC-STATE-004 (koneksi read-pool berbatas); EC-TERM-004/005 (sandbox & policy per profil, fail-closed) | `TestF7GW016ProfileRouting`, `TestEdgeCases/EC-STATE-004`, `TestEdgeCases/EC-TERM-004`, `TestEdgeCases/EC-TERM-005` | BELUM | EC §10 |
 | GW-022 | Scale-to-zero | idle > ambang → proses gateway berhenti bersih; pesan masuk pertama membangunkan tanpa kehilangan/duplikasi; 0 pesan diparkir hilang | `TestF7GW022ScaleToZero`, `TestF7ScaleToZeroWakeNoLoss` | BELUM | — |
 | GW-023 | Channel directory | direktori channel lintas platform; 0 token/secret; entri hilang → baris kosong bukan panic | `TestF7GW023ChannelDirectory` | BELUM | — |
@@ -88,7 +88,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | GW-026 | Handoff ke platform | serahkan sesi CLI ke platform chat; transcript ringkas; konfirmasi idempoten (retry 1× tidak menggandakan) | `TestF7GW026Handoff` | BELUM | SLASH-012 |
 | SLASH-012 | `/handoff <platform>` | argumen platform divalidasi; tanpa adapter aktif → pesan, 0 turn; handoff tercatat di sesi | `TestF7SLASH012Handoff` | BELUM | — |
 | EXEC-016 | Approval transport eksternal | approval dikirim ke transport (builtin/eksternal); transport gagal → `deny` (fail-closed); kelas P26 tetap butuh kanal interaktif | `TestF7EXEC016ApprovalTransport`, `TestF7ApprovalTransportFailClosed` | BELUM | TRUST-MODEL |
-| TSET-036 | bundle `bot_room` | komposit; hanya tool room + tool inti read-only; 0 shell | `TestF7TSET036BotRoomBundle` | BELUM | — |
+| TSET-036 | bundle `bot_room` | komposit; hanya tool room + tool inti read-only; 0 shell | `TestF7TSET036BotRoomBundle` | LULUS | — |
 
 ## 5. Ledger parity F7 — CLI adapter dan bundle toolset platform (18)
 
