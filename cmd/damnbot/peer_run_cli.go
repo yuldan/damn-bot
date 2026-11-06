@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/gwpeer"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 // peerRunState is the 0600 run record `status` and `stop` read. The stop token
@@ -162,8 +163,7 @@ func stopPeer(ctx context.Context, state *peerRunState) error {
 		return fmt.Errorf("build stop request: %w", err)
 	}
 	req.Header.Set("X-Damnbot-Stop", state.StopToken)
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := netx.LoopbackClient().Do(req)
 	if err != nil {
 		return fmt.Errorf("stop %s: %w", state.ID, err)
 	}
