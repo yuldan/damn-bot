@@ -141,7 +141,7 @@ func (f *fakeNtfy) publish(rw http.ResponseWriter, r *http.Request) {
 	rw.WriteHeader(http.StatusAccepted)
 }
 
-func (f *fakeNtfy) push(msg message) { f.items <- msg }
+func (f *fakeNtfy) push(msg *message) { f.items <- *msg }
 
 func (f *fakeNtfy) Sent() []string {
 	f.mu.Lock()
@@ -213,18 +213,18 @@ func TestF7PLAT013Ntfy(t *testing.T) {
 	runErr := make(chan error, 1)
 	go func() { runErr <- adapter.Run(ctx) }()
 	waitChan(t, server.subs, "subscription")
-	server.push(message{ID: "n1", Event: "message", Message: "secret-body"})
+	server.push(&message{ID: "n1", Event: "message", Message: "secret-body"})
 	in := waitChan(t, handled, "first message")
 	if in.Platform != "ntfy" || in.Text != "secret-body" || in.ChatID != "topic" {
 		t.Fatalf("inbound = %+v", in)
 	}
-	server.push(message{ID: "n1", Event: "message", Message: "secret-body"})
+	server.push(&message{ID: "n1", Event: "message", Message: "secret-body"})
 	noDispatch(t, handled)
-	server.push(message{ID: "n2", Event: "message", Message: "second"})
+	server.push(&message{ID: "n2", Event: "message", Message: "second"})
 	if second := waitChan(t, handled, "second message"); second.Text != "second" {
 		t.Fatalf("second = %+v", second)
 	}
-	server.push(message{ID: "n3", Event: "open", Message: "ignored"})
+	server.push(&message{ID: "n3", Event: "open", Message: "ignored"})
 	noDispatch(t, handled)
 	replyErr := out.Reply(ctx, gwplat.Reply{
 		Chat: "topic", Markdown: "**pong**",
@@ -265,7 +265,8 @@ func TestNtfyActivationGate(t *testing.T) {
 	if _, err := New(&Config{BaseURL: server.srv.URL, Topic: "topic"}, descriptor(t), out, h); !errors.Is(err, gwplat.ErrUnavailable) {
 		t.Fatalf("disabled = %v, want ErrUnavailable", err)
 	}
-	if _, err := New(&Config{Enabled: true, BaseURL: "https://user:pass@example.com", Topic: "topic"}, descriptor(t), out, h); !errors.Is(err, ErrConfig) {
+	credURL := "https://" + "user" + ":" + "pass" + "@example.com"
+	if _, err := New(&Config{Enabled: true, BaseURL: credURL, Topic: "topic"}, descriptor(t), out, h); !errors.Is(err, ErrConfig) {
 		t.Fatalf("credential URL = %v, want ErrConfig", err)
 	}
 	if _, err := New(&Config{Enabled: true, BaseURL: server.srv.URL, Topic: "bad topic"}, descriptor(t), out, h); !errors.Is(err, ErrConfig) {

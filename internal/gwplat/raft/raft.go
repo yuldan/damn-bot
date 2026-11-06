@@ -33,7 +33,6 @@ type Config struct {
 type Adapter struct {
 	cfg     Config
 	desc    *gwplat.Descriptor
-	out     *gwplat.Outbox
 	handler gwplat.Handler
 	dedupe  *gwplat.Dedupe
 	log     *slog.Logger
@@ -57,17 +56,11 @@ func New(cfg *Config, desc *gwplat.Descriptor, out *gwplat.Outbox, h gwplat.Hand
 	if err := gwplat.RequireEnabled(desc.Name, cfg.Enabled); err != nil {
 		return nil, fmt.Errorf("raft: activation: %w", err)
 	}
-	base, err := url.Parse(cfg.BaseURL)
-	if err != nil || base.Host == "" || base.User != nil {
-		return nil, fmt.Errorf("%w: base URL", ErrConfig)
+	if err := validateBridge(cfg); err != nil {
+		return nil, err
 	}
-	host := base.Hostname()
-	ip := net.ParseIP(host)
-	if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
-		return nil, fmt.Errorf("%w: base URL must be loopback", ErrConfig)
-	}
-	if cfg.Profile == "" || out == nil || h == nil {
-		return nil, fmt.Errorf("%w: profile, outbox and handler are required", ErrConfig)
+	if out == nil || h == nil {
+		return nil, fmt.Errorf("%w: outbox and handler are required", ErrConfig)
 	}
 	logger := cfg.Log
 	if logger == nil {
@@ -82,14 +75,28 @@ func New(cfg *Config, desc *gwplat.Descriptor, out *gwplat.Outbox, h gwplat.Hand
 		client = netx.LoopbackClient()
 	}
 	return &Adapter{
-		cfg: *cfg, desc: desc, out: out, handler: h,
+		cfg: *cfg, desc: desc, handler: h,
 		dedupe: gwplat.NewDedupe(4096, 30*time.Minute),
 		log:    logger, now: now, client: client,
 	}, nil
 }
 
-// Outbox exposes the shared outbound seam to the wiring.
-func (a *Adapter) Outbox() *gwplat.Outbox { return a.out }
+// validateBridge requires a loopback base URL and a profile.
+func validateBridge(cfg *Config) error {
+	base, err := url.Parse(cfg.BaseURL)
+	if err != nil || base.Host == "" || base.User != nil {
+		return fmt.Errorf("%w: base URL", ErrConfig)
+	}
+	host := base.Hostname()
+	ip := net.ParseIP(host)
+	if !strings.EqualFold(host, "localhost") && (ip == nil || !ip.IsLoopback()) {
+		return fmt.Errorf("%w: base URL must be loopback", ErrConfig)
+	}
+	if cfg.Profile == "" {
+		return fmt.Errorf("%w: profile is required", ErrConfig)
+	}
+	return nil
+}
 
 // Run polls the bridge. A missing bridge is a permanent module_unavailable
 // with installation guidance; transient failures back off.

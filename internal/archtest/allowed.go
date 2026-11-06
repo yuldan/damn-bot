@@ -148,6 +148,10 @@ func f7ModuleImports(m map[string][]string) {
 	m["internal/gwpeer"] = []string{"internal/config", "internal/gateway"}
 	m["internal/gwplat"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render"}
 	m["internal/gwplat"+moduleWildcard] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}
+	// ntfy dan raft memakai klien netx (loopback/SSE + bridge lokal); edge eksplisit
+	// agar wildcard gwplat tidak diperluas untuk semua adapter.
+	m["internal/gwplat/ntfy"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
+	m["internal/gwplat/raft"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
 }
 
 // f6ModuleImports mendaftarkan baris modul F6 (ADR-310). SPEC §3.2.4 `web`
