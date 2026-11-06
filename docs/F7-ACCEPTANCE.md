@@ -117,8 +117,8 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| MEDIA-029 | Discord voice channel | join/leave voice channel; PCM 48 kHz mixer; STT/TTS lewat pipeline F6; tanpa opus/ffmpeg → `module_unavailable` 0 join; barge-in menutup stream | `TestF7MEDIA029DiscordVoice`, `TestF7DiscordVoiceNoOpus` | BELUM | carryover F6 (F6-ACCEPTANCE §6) |
-| MEDIA-031 | Silk audio (WeChat/QQ) | decode SILK/SILKv3 → PCM16 untuk STT; payload rusak → error typed, bukan crash; 0 dependency CGO | `TestF7MEDIA031Silk`, `TestF7SilkCorruptPayload` | BELUM | carryover F6 |
+| MEDIA-029 | Discord voice channel | join/leave voice channel; PCM 48 kHz mixer; STT/TTS lewat pipeline F6; tanpa opus/ffmpeg → `module_unavailable` 0 join; barge-in menutup stream | `TestF7MEDIA029DiscordVoice`, `TestF7DiscordVoiceNoOpus` | LULUS | carryover F6 (F6-ACCEPTANCE §6) |
+| MEDIA-031 | Silk audio (WeChat/QQ) | decode SILK/SILKv3 → PCM16 untuk STT; payload rusak → error typed, bukan crash; 0 dependency CGO | `TestF7MEDIA031Silk`, `TestF7SilkCorruptPayload` | N/A — tidak ada decoder SILK pure-Go; CGO dilarang ADR-001 (carryover F8) | carryover F8 |
 
 ## 7. Ledger parity F7 — kanban (23)
 
@@ -200,7 +200,7 @@ Katalog EC dibaca lewat `internal/testutil/phase` (`g.Item(t, "<EC-ID>", "F7", "
 
 | Item | Kriteria | Tes yang harus ada | Status |
 |---|---|---|---|
-| MEDIA-029/031 | dua baris media F6 yang ditandai `N/A — fase F7` ditutup di §6 | `TestF7MEDIA029DiscordVoice`, `TestF7MEDIA031Silk` | BELUM |
+| MEDIA-029/031 | dua baris media F6 yang ditandai `N/A — fase F7` ditutup di §6 | `TestF7MEDIA029DiscordVoice`, `TestF7MEDIA031Silk` | LULUS |
 | Q14 image preflight | `BenchmarkImagePreflight` 12 MP ≤ 150 ms diukur di mesin Q14; angka target dan `TestImagePreflightTargetNotLowered` tidak berubah | pengukuran Q14 + artefak `bench/speed/results/` + `TestF7ImagePreflightQ14Artifact` | BELUM |
 | GAP-REL-14 F7 slice | suite `known-defects` diperluas ke permukaan F7 (api-server 413, kanban biaya 1×, stream diskon) | `TestKnownDefectsSuite` | BELUM |
 
