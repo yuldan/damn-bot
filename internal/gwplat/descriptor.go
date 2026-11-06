@@ -222,6 +222,22 @@ func Descriptors() []Descriptor {
 			Render:     render.PlatformPlain,
 			DefaultOff: true,
 		},
+		{
+			Name:       "photon",
+			Transport:  TransportLongPoll,
+			Caps:       capsOf("photon"),
+			Render:     render.PlatformPlain,
+			Secrets:    []string{"photon_project_secret"},
+			DefaultOff: true,
+		},
+		{
+			Name:       "weixin",
+			Transport:  TransportLongPoll,
+			Caps:       capsOf("weixin"),
+			Render:     render.PlatformPlain,
+			Secrets:    []string{"weixin_token"},
+			DefaultOff: true,
+		},
 	}
 }
 
