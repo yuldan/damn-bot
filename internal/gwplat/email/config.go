@@ -18,7 +18,9 @@ type Config struct {
 	TLS      *tls.Config
 	Dial     func(ctx context.Context, network, addr string) (net.Conn, error)
 	Interval time.Duration
+	IDLE     time.Duration
 	Timeout  time.Duration
+	Cursors  CursorStore
 	Wait     func(ctx context.Context, d time.Duration) error
 	Log      *slog.Logger
 	Now      func() time.Time

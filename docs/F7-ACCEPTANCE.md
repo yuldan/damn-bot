@@ -36,7 +36,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-003 | Buzz (Nostr relay) | subscribe/publish relay WS; private key hanya dari secret; 0 key di log/error | `TestF7PLAT003Buzz` | LULUS | — |
 | PLAT-004 | DingTalk Stream | WS client id/secret; ack ≤ 3 s; dedupe `msgId` (replay 2× → 1 turn) | `TestF7PLAT004DingTalk`, `TestF7DingTalkDedupe` | BELUM | — |
 | PLAT-005 | Discord | Gateway WS + REST; intents minimal; thread/DM mapping; slash command; 4004 → needs_attention (GW-11) | `TestF7PLAT005Discord`, `TestF7DiscordIntents` | LULUS | voice MEDIA-029 |
-| PLAT-006 | Email | IMAP polling + SMTP reply; MIME multipart; dedupe `Message-ID`; BODY.PEEK (GW-08) | `TestF7PLAT006Email` | BELUM | GAP-GW-08 |
+| PLAT-006 | Email | IMAP polling + SMTP reply; MIME multipart; dedupe `Message-ID`; BODY.PEEK (GW-08) | `TestF7PLAT006Email` | LULUS | GAP-GW-08 |
 | PLAT-007 | Feishu/Lark | WS long connection + webhook fallback; tenant token cache; dedupe `event_id` | `TestF7PLAT007Feishu` | BELUM | — |
 | PLAT-008 | Google Chat | callback HTTP terverifikasi (JWT Google) atau Pub/Sub pull; payload tak terverifikasi → 0 turn | `TestF7PLAT008GoogleChat`, `TestF7GoogleChatVerify` | BELUM | — |
 | PLAT-009 | IRC | wajib SASL PLAIN/EXTERNAL + CAP `account-notify`/`account-tag`; tanpa itu `module_unavailable{irc_no_account_auth}` | `TestF7PLAT009IRC`, `TestIRCAccountAuth` | LULUS | GAP-SEC-10 |
@@ -175,7 +175,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | GAP-GW-03 | `gateway/outq` token bucket per chat/grup/platform dari `Caps.Rate`; replay 200 balasan → 0×429; `MaxChunksPerReply` dihormati semua adapter; 0 `time.Sleep` inline (forbidigo) | `TestF7GAPGW03OutqReplay`, `TestPlatformAdapterContract`, `TestF7NoInlineSleep` | LULUS |
 | GAP-GW-04 | satu parse AST → renderer Telegram entities/Slack mrkdwn/WhatsApp/Discord/Matrix HTML/plain; fence terpotong dibuka ulang; `FuzzRenderTelegram` 10.000 input 0 penolakan; golden per renderer | `FuzzRenderTelegram`, `TestF7RenderGoldens` | LULUS |
 | GAP-GW-05 | matriks `TestGroupMentionPolicy` semua adapter: pesan grup tanpa mention → 0 turn (default); `stt_echo` default `dm` | `TestGroupMentionPolicy` | LULUS |
-| GAP-GW-08 | Email XOAUTH2; kursor `UIDVALIDITY`+`UID` di `gateway_cursors`; `BODY.PEEK[]` tanpa `\Seen`; email ditolak tetap UNSEEN; IDLE dipakai ulang; login/hari < 10 | `TestF7GAPGW08EmailIMAP`, `TestF7EmailCursorPersist` | BELUM |
+| GAP-GW-08 | Email XOAUTH2; kursor `UIDVALIDITY`+`UID` di `gateway_cursors`; `BODY.PEEK[]` tanpa `\Seen`; email ditolak tetap UNSEEN; IDLE dipakai ulang; login/hari < 10 | `TestF7GAPGW08EmailIMAP`, `TestF7EmailCursorPersist` | LULUS |
 | GAP-GW-09 | segmen GSM-7 160/153 dan UCS-2 70/67; cap 3 segmen + "balas MORE"; biaya per segmen masuk ledger `tool:sms`; `damnbot usage --by feature` menampilkannya | `TestF7GAPGW09SMSSegments`, `TestF7SMSLedger` | BELUM |
 | GAP-GW-10 | `Caps.MinEditInterval`/`MaxEditsPerMessage` dideklarasikan dan dipatuhi; Telegram 1,5 s; Matrix tanpa edit-stream | `TestF7GAPGW10EditStreamCaps`, `TestF7MatrixNoEditStream` | LULUS |
 | GAP-GW-11 | breaker per kelas disconnect (`logged_out`/`banned`/401/Discord 4004) → berhenti reconnect + `needs_attention` + notice owner; disconnect 10 menit ≤ 15 percobaan; `TestBridgeProtocolConformance` memetakan `health.reason`; 0 fetch versi protokol WA saat runtime | `TestF7GAPGW11Breaker`, `TestBridgeProtocolConformance` | LULUS |

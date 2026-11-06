@@ -124,7 +124,7 @@ func testClient(t *testing.T, body []byte) (*client, *fakeIMAP) {
 		t.Fatalf("dial: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := c.logout(); err != nil && !errors.Is(err, ErrIMAP) {
+		if err := c.logout(t.Context()); err != nil && !errors.Is(err, ErrIMAP) {
 			t.Errorf("logout: %v", err)
 		}
 	})
