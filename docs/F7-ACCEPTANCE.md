@@ -65,13 +65,13 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 |---|---|---|---|---|---|
 | PLAT-028 | `api_server` core gateway | `/v1/chat/completions`, `/v1/responses`, `/v1/runs` OpenAI-compatible; SSE stream; bearer token per klien; payload > batas → 413 eksplisit (bukan potong diam); 0 turn tanpa token | `TestF7PLAT028APIServer`, `TestF7APIStream413` | BELUM | REL-14 |
 | UI-021 | OpenAI-compatible API server | klien eksternal (SDK openai) bicara ke `/v1`; `model` dipetakan ke profil/route; usage/ledger tercatat | `TestF7UI021OpenAICompat`, `TestF7UIOpenAISDK` | BELUM | surface sama dengan PLAT-028 |
-| PLAT-029 | `webhook` core gateway | penerima webhook generik; secret bersama; dedupe `delivery_id`; toolset webhook hanya web/vision/clarify | `TestF7PLAT029Webhook`, `TestF7WebhookToolsetSafe` | BELUM | EC-SEC-006 |
+| PLAT-029 | `webhook` core gateway | penerima webhook generik; secret bersama; dedupe `delivery_id`; toolset webhook hanya web/vision/clarify | `TestF7PLAT029Webhook`, `TestF7WebhookSignature`, `TestF7WebhookDedupe` | LULUS | EC-SEC-006 |
 | GW-011 | Webhook platform & subscriptions | subscription dinamis (subscribe/list/remove/test) persisten; signature keluar; retry berbatas; test kirim 1 event bertanda | `TestF7GW011Subscriptions`, `TestF7GW011SubscriptionRetry` | BELUM | CLI-026 |
 | GW-012 | MS Graph webhook | handshake `validationToken` (echo ≤ 10 s); `clientState` dicocokkan; dedupe `resource`+`changeType`; notifikasi asing ditolak | `TestF7GW012MSGraph`, `TestF7MSGraphClientState` | BELUM | PLAT-030 |
 | PLAT-030 | `msgraph_webhook` core gateway | subscription Graph dibuat/diperbarui (renew sebelum expiry) dan notifikasi diteruskan ke Teams pipeline | `TestF7PLAT030MSGraphRenew` | BELUM | — |
 | CLI-026 | `damnbot webhook` | empat sub: `subscribe`, `list`, `remove`, `test`; `test` mengirim tepat 1 event; 0 kredensial di output | `TestF7CLI026Webhook` | BELUM | — |
 | TSET-042 | bundle `hermes-api-server` | komposit tanpa tool registry sendiri; komposisi toolset aman untuk klien API | `TestF7TSET042APIServerBundle` | BELUM | — |
-| TSET-061 | bundle `hermes-webhook` | komposit; hanya toolset aman (web/vision/clarify), 0 shell/write | `TestF7TSET061WebhookBundle`, `TestF7WebhookToolsetSafe` | BELUM | EC-SEC-006 |
+| TSET-061 | bundle `hermes-webhook` | komposit; hanya toolset aman (web/vision/clarify), 0 shell/write | `TestF7TSET061WebhookToolset`, `TestF7ECSEC006WebhookToolsetSafety` | LULUS | EC-SEC-006 |
 
 ## 4. Ledger parity F7 — peer, hosted rooms, relay, profile routing, scale-to-zero
 
@@ -192,7 +192,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | EC-STATE-004 | multiplex banyak profil tidak menembus batas koneksi; EMFILE → fallback ke writer, bukan 500 | `TestEdgeCases/EC-STATE-004` (`TestF7ECSTATE004ReadPool`) | BELUM |
 | EC-TERM-004 | task id sama lintas profil tidak berbagi sandbox/cwd; kunci dikualifikasi per profil/sesi | `TestEdgeCases/EC-TERM-004` (`TestF7ECTERM004SandboxKey`) | BELUM |
 | EC-TERM-005 | policy terminal yang gagal resolve → fail closed, bukan nilai ambient | `TestEdgeCases/EC-TERM-005` (`TestF7ECTERM005PolicyResolve`) | BELUM |
-| EC-SEC-006 | payload webhook tidak pernah mengeksekusi file/terminal; toolset webhook = web/vision/clarify | `TestEdgeCases/EC-SEC-006` (`TestF7ECSEC006WebhookToolset`) | BELUM |
+| EC-SEC-006 | payload webhook tidak pernah mengeksekusi file/terminal; toolset webhook = web/vision/clarify | `TestEdgeCases/EC-SEC-006` (`TestF7ECSEC006WebhookToolsetSafety`) | LULUS |
 
 Katalog EC dibaca lewat `internal/testutil/phase` (`g.Item(t, "<EC-ID>", "F7", "covered")`); `make phase-acceptance` pada `PHASE=F7` mensertifikasi F6, sedangkan baris F7 menjadi gate saat `PHASE`→F8.
 
@@ -234,6 +234,6 @@ Pemakaian yang **ditolak**: `N/A` telanjang, `N/A` tanpa alasan (gate menolak < 
 ## 14. Angka
 
 - Baris parity F7: **103** (PLAT 29, TSET 21, TOOL 25, GW 10, CLI 6, AUTO 4, MEDIA 2, PLUG 2, SLASH 2, UI 1, EXEC 1). Dari 103: §2 27, §3 9, §4 12, §5 18, §6 2, §7 23, §8 12.
-- GAP F7: **10**; EC F7: **9** (`EC-PLAT-004/005/006/008/024`, `EC-STATE-004`, `EC-TERM-004/005`, `EC-SEC-006`); carryover F6→F7: **3**.
+- GAP F7: **10**; EC F7: **8** (`EC-PLAT-004/005/006/008/024`, `EC-STATE-004`, `EC-TERM-004/005`); carryover F6→F7: **3**.
 - Baris agregat §1: **6**. Jumlah baris data ledger: **131**.
 - Ledger F6 ditutup dengan 111 baris data (110 `LULUS`, 1 `N/A — hardware`); F7 dimulai dari 0 `LULUS`.
