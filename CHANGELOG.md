@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/gwplat/a2a` server (F7 P10a-2, PLAT-001): task/send|get|cancel, SSE, kartu /.well-known/agent.json, bearer dari seam secret, id task idempoten, hasil <untrusted>; tes TestF7PLAT001A2A/TestF7A2AAgentCard/TestF7A2ATaskLifecycle/TestF7A2AIdempotentTaskID/TestF7A2ACancel.
+
 - `internal/gwplat/a2a` (F7 P10a-1, slice persiapan PLAT-001): agent card v1.0 + tabel task idempoten; tes TestA2ACardValidate/TestA2ARequestValidate/TestA2ATaskStore.
 
 - `internal/gwplat/feishu`/`internal/gwplat/googlechat` (F7 P4c, PLAT-007/008, ADR-326): **Feishu/Lark dan Google Chat**. Feishu webhook token + WS long connection, cache tenant token, dedupe `event_id`. Google Chat JWT RS256 issuer/audience/exp sebelum callback. Tes: `TestF7PLAT007Feishu`, `TestF7PLAT008GoogleChat`, `TestF7GoogleChatVerify`; baris `PLAT-007`, `PLAT-008` menjadi `LULUS`.
