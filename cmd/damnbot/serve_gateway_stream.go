@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/telegram"
 	"github.com/damnbot/damnbot/internal/loop/event"
 )
@@ -66,6 +67,38 @@ func (p *replyPacer) observe(now time.Time, total int) bool {
 	p.last, p.flushed = now, total
 	p.edits++
 	return true
+}
+
+// needsNoOutputNotice reports whether an empty reply still deserves a visible
+// notice (EC-PLAT-004): a turn that called the provider (api_calls > 0) must
+// never finish silently, whether or not its placeholder survived.
+func needsNoOutputNotice(res *replyOutcome, ack *gatewayAck) bool {
+	if res.Text != "" {
+		return false
+	}
+	return res.Meta.Iterations > 0 || (ack != nil && !ack.replaced)
+}
+
+// ensureNoOutput gives an empty reply a visible notice (EC-PLAT-004): edit the
+// placeholder when it exists, otherwise open one fresh message. A turn that
+// never called the provider stays silent.
+func (g *serveGateway) ensureNoOutput(ctx context.Context, in *telegram.Inbound, res *replyOutcome, ack *gatewayAck, flush func(context.Context, string) error) {
+	if !needsNoOutputNotice(res, ack) {
+		return
+	}
+	if ack != nil && !ack.replaced {
+		res.Text = gatewayNoOutput
+		if err := flush(ctx, res.Text); err != nil {
+			res.Err = err
+		}
+		return
+	}
+	if _, err := g.adapter.Send(ctx, &telegram.Outbound{
+		ChatID: in.ChatID, ThreadID: in.ThreadID, Text: gatewayNoOutput,
+		Key: gateway.DeliveryKey("telegram", in.ChatID, "notice:"+in.UpdateID),
+	}); err != nil {
+		res.Err = err
+	}
 }
 
 // replyOutcome is the final state of one streamed reply.

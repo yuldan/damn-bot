@@ -71,8 +71,9 @@ type serveGateway struct {
 
 	// turns maps the live turn of each (route, principal) to its cancel, so
 	// /stop cancels exactly that chat's turn and never a sibling's.
-	turnMu sync.Mutex
-	turns  map[turnKey]*chatTurn
+	turnMu  sync.Mutex
+	turnGen uint64
+	turns   map[turnKey]*chatTurn
 
 	// beat refreshes the observability liveness timestamp from the one idle
 	// loop (nil in tests that never start serve); see serveLoop.
@@ -194,7 +195,8 @@ func (g *serveGateway) startPlatform(ctx context.Context, o *serveOptions) error
 // newGatewayAdapter owns the one Telegram adapter and its outbound limiter.
 // notify receives the 409 conflict notice (REL-02).
 func newGatewayAdapter(ctx context.Context, token, threadFallback string, net *netx.Network, store gwstore.Store, wd *heal.Watchdog, metrics *obs.Metrics, stderr io.Writer, notify func(context.Context, string, string)) (*telegram.Adapter, *gateway.Limiter, error) {
-	limiter, err := gateway.NewLimiterCaps(gateway.TelegramCaps())
+	tcaps := gateway.TelegramCaps()
+	limiter, err := gateway.NewLimiterCaps(&tcaps)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gateway limiter: %w", err)
 	}
@@ -207,10 +209,12 @@ func newGatewayAdapter(ctx context.Context, token, threadFallback string, net *n
 			metrics.IncError()
 			return beatDoer{do: telegram.EgressClient(net), wd: wd}
 		},
-		Throttle:          limiter,
-		MaxChunksPerReply: gateway.TelegramCaps().MaxChunksPerReply,
-		Scan:              net.ScanText,
-		ThreadFallback:    threadFallback,
+		Throttle:           limiter,
+		MaxChunksPerReply:  gateway.TelegramCaps().MaxChunksPerReply,
+		MinEditInterval:    gateway.TelegramCaps().MinEditInterval,
+		MaxEditsPerMessage: gateway.TelegramCaps().MaxEditsPerMessage,
+		Scan:               net.ScanText,
+		ThreadFallback:     threadFallback,
 		OnConflict: func(d time.Duration) {
 			notify(ctx, "poll-conflict",
 				fmt.Sprintf("getUpdates 409 selama %s: proses lain masih memegang bot; antrean tidak dibuang", d.Round(time.Second)))
@@ -594,12 +598,7 @@ func (g *serveGateway) streamReply(ctx context.Context, in *telegram.Inbound, ch
 	}
 	res := streamReplyUpdates(ctx, ch, now, waitReply, flush, decorate, now(), shown,
 		func(event.Update) { g.endProviderWait(in.UpdateID) })
-	if res.Text == "" && ack != nil && !ack.replaced {
-		res.Text = gatewayNoOutput
-		if ferr := flush(ctx, res.Text); ferr != nil {
-			res.Err = ferr
-		}
-	}
+	g.ensureNoOutput(ctx, in, &res, ack, flush)
 	if res.Err != nil {
 		if res.Text != "" {
 			// The reply key already stores the placeholder message id, so a

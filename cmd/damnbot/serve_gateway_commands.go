@@ -30,6 +30,7 @@ type turnKey struct {
 // serveGateway.turnMu, so /stop and turn completion share one critical section.
 type chatTurn struct {
 	cancel  context.CancelFunc
+	gen     uint64
 	stopped bool
 	done    bool
 }
@@ -223,6 +224,8 @@ func (g *serveGateway) beginTurn(ctx context.Context, scope *gateway.Scope) (con
 		cancel()
 		return turnCtx, func() {}, false
 	}
+	g.turnGen++
+	turn.gen = g.turnGen
 	g.turns[key] = turn
 	g.turnMu.Unlock()
 	return turnCtx, func() {

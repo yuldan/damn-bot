@@ -61,13 +61,14 @@ type Limiter struct {
 // NewLimiter builds a per-chat plus global limiter; the per-group bucket is the
 // per-chat rate. Adapters that declare the §9.7 caps use NewLimiterCaps.
 func NewLimiter(perChat, global Rate) (*Limiter, error) {
-	return NewLimiterCaps(Caps{Rate: RateCaps{PerChat: perChat, PerGroup: perChat, Global: global}})
+	caps := Caps{Rate: RateCaps{PerChat: perChat, PerGroup: perChat, Global: global}}
+	return NewLimiterCaps(&caps)
 }
 
 // NewLimiterCaps builds a limiter from the adapter's declared Caps. Rates are
 // fixed for the process lifetime; adapters with different limits get one
 // limiter per platform.
-func NewLimiterCaps(caps Caps) (*Limiter, error) {
+func NewLimiterCaps(caps *Caps) (*Limiter, error) {
 	for _, f := range [...]struct {
 		rate  Rate
 		label string

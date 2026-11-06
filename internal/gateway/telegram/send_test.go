@@ -349,3 +349,23 @@ func TestThreadFallbackParentIsOptIn(t *testing.T) {
 		t.Errorf("fallback text = %q, want label + body", got)
 	}
 }
+
+// TestStreamEditBudgetOpensNewMessage is GAP-GW-10 at the Telegram adapter:
+// after MaxEditsPerMessage the stream opens a fresh message instead of editing
+// the old one again.
+func TestStreamEditBudgetOpensNewMessage(t *testing.T) {
+	f := newFakeTG(t)
+	a, _ := newTestAdapter(t, f, newMemStore(), func(c *Config) { c.MaxEditsPerMessage = 2 })
+	s := a.Stream(&Outbound{ChatID: "7", Key: "stream-budget"})
+	for _, text := range []string{"a", "ab", "abc", "abcd", "abcde", "abcdef"} {
+		if err := s.Update(t.Context(), text); err != nil {
+			t.Fatalf("update %q: %v", text, err)
+		}
+	}
+	if got := len(f.callsFor("sendMessage")); got != 2 {
+		t.Fatalf("sendMessage calls = %d, want 2 (initial + continuation)", got)
+	}
+	if got := len(f.callsFor("editMessageText")); got != 4 {
+		t.Fatalf("editMessageText calls = %d, want 4 (two per message)", got)
+	}
+}

@@ -118,7 +118,8 @@ func TestLimiterValidation(t *testing.T) {
 // NewLimiterCaps(TelegramCaps) must wait 3 s.
 func TestLimiterCapsGroupBucket(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
-	l, err := gateway.NewLimiterCaps(gateway.TelegramCaps())
+	tcaps := gateway.TelegramCaps()
+	l, err := gateway.NewLimiterCaps(&tcaps)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,8 @@ func TestLimiterCapsGroupBucket(t *testing.T) {
 // no two sends are closer than the 20/min bucket. That is the replay the fake
 // Telegram limit would otherwise answer with 429.
 func TestLimiterReplay200GroupReplies(t *testing.T) {
-	l, err := gateway.NewLimiterCaps(gateway.TelegramCaps())
+	tcaps := gateway.TelegramCaps()
+	l, err := gateway.NewLimiterCaps(&tcaps)
 	if err != nil {
 		t.Fatal(err)
 	}

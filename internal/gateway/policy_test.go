@@ -75,6 +75,21 @@ func TestGroupMentionPolicy(t *testing.T) {
 	}
 }
 
+// TestGroupMentionPolicyAllPlatforms applies the GAP-GW-05 default to all 30
+// platform surfaces, not only Telegram.
+func TestGroupMentionPolicyAllPlatforms(t *testing.T) {
+	for _, platform := range gateway.PlatformNames() {
+		group := gateway.Inbound{Platform: platform, Group: true}
+		if group.Triggers(true) {
+			t.Errorf("%s: group message without mention triggers a turn", platform)
+		}
+		dm := gateway.Inbound{Platform: platform}
+		if !dm.Triggers(true) {
+			t.Errorf("%s: direct message without mention does not trigger", platform)
+		}
+	}
+}
+
 // TestMentionPolicyStoreFailureDenies: a failing override lookup never falls
 // back to "no mention required"; admission fails with the store error and the
 // runner sees nothing.
