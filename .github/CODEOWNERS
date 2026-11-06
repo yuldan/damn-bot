@@ -55,6 +55,7 @@
 /internal/cron/ @yuldan
 /internal/computeruse/ @yuldan
 /internal/gateway/ @yuldan
+/internal/gwpeer/ @yuldan
 /internal/hooks/ @yuldan
 /internal/obs/ @yuldan
 /internal/scorecard/ @yuldan
