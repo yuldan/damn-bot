@@ -62,6 +62,7 @@ func allowedImports() map[string][]string {
 		"internal/codeintel/ts": nil, "internal/codeintel/lsp": {"internal/netx/jsonrpc"},
 		"internal/gateway" + moduleWildcard: moduleImports(),
 		"internal/gwplat":                   {"internal/gateway", "internal/gateway/outq", "internal/gateway/render"},
+		"internal/gwmatrix":                 append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...),
 		"internal/gwplat" + moduleWildcard:  append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...),
 
 		// Core.

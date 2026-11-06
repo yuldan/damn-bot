@@ -187,6 +187,14 @@ func Descriptors() []Descriptor {
 			DefaultOff: true,
 		},
 		{
+			Name:       "matrix",
+			Transport:  TransportLongPoll,
+			Caps:       capsOf("matrix"),
+			Render:     render.PlatformMatrix,
+			Secrets:    []string{"matrix_access_token"},
+			DefaultOff: true,
+		},
+		{
 			Name:       "ntfy",
 			Transport:  TransportSSE,
 			Caps:       capsOf("ntfy"),
