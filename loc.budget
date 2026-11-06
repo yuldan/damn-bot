@@ -356,7 +356,9 @@ heal              1500 internal/heal
 # voice_wire menambah config 2419 -> 2425 (terukur scc pada rebase di atas
 # main cf55c132). Sigma core 56.621 -> 56.627; plafon core 56.700 tetap.
 # ADR-323 P6b MEDIA-007: tts_allow_unofficial +1 (terukur scc pada rebase main 754febe1).
-config            2426 internal/config
+# ADR-326 P6 (P6b-3b): [modules.gateway.whatsapp_web] enabled/ack_ban_risk_at +
+# validasi RFC3339 menambah config 2426 -> 2446 (terukur scc); cap 2426 -> 2450.
+config            2450 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.

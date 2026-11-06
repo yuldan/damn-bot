@@ -53,6 +53,8 @@ func runGateway(args []string, stdout, stderr io.Writer) int {
 		return gatewayPairing(args[1:], stdout, stderr)
 	case "chat":
 		return gatewayChat(args[1:], stdout, stderr)
+	case "whatsapp-web":
+		return gatewayWhatsAppWeb(args[1:], stdout, stderr)
 	case "enroll":
 		return gatewayEnroll(args[1:], stdout, stderr)
 	case "migrate":
@@ -75,6 +77,7 @@ func gatewayUsage(w io.Writer) {
 	sessionsPrintf(w, "       damnbot gateway platform list|pause|resume <name> [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway pairing list [platform] | approve <code> [platform:id] | revoke <platform> <id> | clear-pending [platform] [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway chat [--platform telegram] [--chat ID] [--thread ID] [--data-dir DIR]\n")
+	sessionsPrintf(w, "       damnbot gateway whatsapp-web enable --accept-ban-risk | disable | status\n")
 	sessionsPrintf(w, "       damnbot gateway enroll <platform:id> [--data-dir DIR]\n")
 	sessionsPrintf(w, "       damnbot gateway migrate status|plan|apply | migrate-legacy [--data-dir DIR]\n")
 	sessionsPrintf(w, "bootstrap: DAMNBOT_GATEWAY_OWNER=platform:id and DAMNBOT_GATEWAY_ALLOW=platform:id,... (or a JSON list)\n")
