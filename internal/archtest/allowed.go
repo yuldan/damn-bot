@@ -61,6 +61,9 @@ func allowedImports() map[string][]string {
 		// Sibling parser/client packages: ts is stdlib-only, lsp reaches netx/jsonrpc.
 		"internal/codeintel/ts": nil, "internal/codeintel/lsp": {"internal/netx/jsonrpc"},
 		"internal/gateway" + moduleWildcard: moduleImports(),
+		"internal/gwplat":                   {"internal/gateway", "internal/gateway/outq", "internal/gateway/render"},
+		"internal/gwmatrix":                 append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...),
+		"internal/gwplat" + moduleWildcard:  append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...),
 
 		// Core.
 		"internal/loop":               {"internal/loop/event", "internal/boundary"}, // E-02
@@ -134,21 +137,12 @@ func allowedImports() map[string][]string {
 		"internal/provider/providertest": {"internal/provider"},
 	}
 	f6ModuleImports(m)
-	f7AdapterImports(m)
 	return m
 }
 
 // f6ModuleImports mendaftarkan baris modul F6 (ADR-310). SPEC §3.2.4 `web`
 // dibangun sebagai internal/webtools karena internal/web dipakai Web UI F8;
 // semua modul F6 lazy (E-06) dan edge-nya ditambah per slice.
-// f7AdapterImports registers the F7 adapter surfaces (ADR-326).
-func f7AdapterImports(m map[string][]string) {
-	m["internal/gwplat"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render"}
-	m["internal/gwmatrix"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...)
-	m["internal/gwmatrix/e2ee"] = nil
-	m["internal/gwplat"+moduleWildcard] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...)
-}
-
 func f6ModuleImports(m map[string][]string) {
 	m["internal/webtools"] = []string{"internal/modules/host", "internal/netx"}
 	m["internal/browser"] = []string{"internal/modules/host", "internal/netx", "internal/browser/cdp"}
