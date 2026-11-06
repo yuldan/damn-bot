@@ -34,7 +34,7 @@ func (s secrets) Get(_ context.Context, name string) (string, error) {
 // outq/render outbound seam. Adapter-specific wire tests live next to each
 // adapter.
 func TestPlatformAdapterContract(t *testing.T) {
-	names := []string{"buzz", "discord", "email", "irc", "matrix", "ntfy", "photon", "raft", "signal", "simplex", "weixin"}
+	names := []string{"bluebubbles", "buzz", "dingtalk", "discord", "email", "feishu", "googlechat", "irc", "line", "matrix", "mattermost", "ntfy", "photon", "qqbot", "raft", "signal", "simplex", "slack", "sms", "teams", "wecom", "weixin"}
 	reg, err := gwplat.NewDefaultRegistry()
 	if err != nil {
 		t.Fatal(err)

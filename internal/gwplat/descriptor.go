@@ -20,6 +20,8 @@ const (
 	TransportSSE      Transport = "sse"
 	TransportJSONRPC  Transport = "jsonrpc"
 	TransportLongPoll Transport = "long_poll"
+	// TransportHTTP is the webhook callback surface of REST adapters.
+	TransportHTTP Transport = "http"
 )
 
 // Descriptor declares one adapter surface: identity strength (SEC-10),
@@ -62,7 +64,7 @@ func (d *Descriptor) Validate() error {
 		return fmt.Errorf("%w: %q caps diverge from the SEC-10 table", ErrDescriptor, d.Name)
 	}
 	switch d.Transport {
-	case TransportWS, TransportSSE, TransportJSONRPC, TransportLongPoll:
+	case TransportWS, TransportSSE, TransportJSONRPC, TransportLongPoll, TransportHTTP:
 	default:
 		return fmt.Errorf("%w: %q has transport %q", ErrDescriptor, d.Name, d.Transport)
 	}
@@ -153,7 +155,7 @@ func (r *Registry) Len() int {
 // Descriptors returns the adapters this slice ships. It is a function, not a
 // variable, so the registry stays the only registration path.
 func Descriptors() []Descriptor {
-	return []Descriptor{
+	out := []Descriptor{
 		{
 			Name:       "buzz",
 			Transport:  TransportWS,
@@ -215,6 +217,7 @@ func Descriptors() []Descriptor {
 			DefaultOff: true,
 		},
 	}
+	return append(out, p4Descriptors()...)
 }
 
 // simple is the descriptor of a plain-text adapter without secrets.
