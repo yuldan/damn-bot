@@ -16,6 +16,7 @@ import (
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/outq"
 	"github.com/damnbot/damnbot/internal/gwplat"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 type allowPacer struct{}
@@ -160,7 +161,7 @@ func buildAdapter(t *testing.T, cfg *Config, src gwplat.SecretSource, h gwplat.H
 
 func mustAdapter(t *testing.T, srv *fakeHomeserver, h gwplat.Handler, crypto Encrypted) *Adapter {
 	t.Helper()
-	cfg := &Config{Enabled: true, Homeserver: srv.srv.URL, Crypto: crypto, SyncTimeout: time.Second}
+	cfg := &Config{Enabled: true, Homeserver: srv.srv.URL, Crypto: crypto, SyncTimeout: time.Second, HTTPClient: netx.LoopbackClient()}
 	ad, err := buildAdapter(t, cfg, secrets{"matrix_access_token": "tok"}, h, newScheduler(t))
 	if err != nil {
 		t.Fatal(err)
@@ -232,14 +233,14 @@ func TestMatrixClientPlaintext(t *testing.T) {
 
 func testMatrixActivation(t *testing.T) {
 	srv := newFakeHomeserver(t, `{"next_batch":"s1"}`)
-	cfg := &Config{Enabled: true, Homeserver: srv.srv.URL}
+	cfg := &Config{Enabled: true, Homeserver: srv.srv.URL, HTTPClient: netx.LoopbackClient()}
 	if _, err := buildAdapter(t, cfg, secrets{}, newRecorder(), newScheduler(t)); !errors.Is(err, gwplat.ErrMissingSecret) {
 		t.Fatalf("missing secret = %v, want ErrMissingSecret", err)
 	}
 	if _, _, _, requests := srv.snapshot(); requests != 0 {
 		t.Fatalf("missing secret made %d requests", requests)
 	}
-	disabled := &Config{Enabled: false}
+	disabled := &Config{Enabled: false, HTTPClient: netx.LoopbackClient()}
 	if _, err := buildAdapter(t, disabled, secrets{"matrix_access_token": "tok"}, newRecorder(), newScheduler(t)); !errors.Is(err, gwplat.ErrUnavailable) {
 		t.Fatalf("disabled = %v, want module_unavailable", err)
 	}

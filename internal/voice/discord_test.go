@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 type fakeVoiceGateway struct {
@@ -95,7 +97,7 @@ func (b *blockingTrack) Close() error {
 func newDiscordVoice(t *testing.T, gw *fakeVoiceGateway, codec Codec) *DiscordVoice {
 	t.Helper()
 	v, err := NewDiscordVoice(&DiscordConfig{
-		WSURL: gw.url(), GuildID: "g1", ChannelID: "c1", UserID: "u1", SessionID: "s1", Token: "tok",
+		WSURL: gw.url(), GuildID: "g1", ChannelID: "c1", UserID: "u1", SessionID: "s1", Token: "tok", HTTPClient: netx.LoopbackClient(),
 		Codec:    codec,
 		Pipeline: &Pipeline{STT: &fakeSTT{tr: Transcript{Text: "hello"}}, TTS: &fakeTTS{}, LLM: &fakeLLM{sentences: []string{"hi. "}}},
 	})
@@ -224,7 +226,7 @@ func testDiscordBargeIn(t *testing.T) {
 func TestF7DiscordVoiceNoOpus(t *testing.T) {
 	gw := newFakeVoiceGateway(t)
 	_, err := NewDiscordVoice(&DiscordConfig{
-		WSURL: gw.url(), GuildID: "g1", ChannelID: "c1", UserID: "u1", SessionID: "s1", Token: "tok",
+		WSURL: gw.url(), GuildID: "g1", ChannelID: "c1", UserID: "u1", SessionID: "s1", Token: "tok", HTTPClient: netx.LoopbackClient(),
 		Pipeline: &Pipeline{},
 	})
 	if !errors.Is(err, ErrNoOpus) || !strings.Contains(err.Error(), "module_unavailable{discord_voice_no_opus}") {

@@ -41,8 +41,7 @@ type client struct {
 func dialIMAP(ctx context.Context, cfg *Config, password string) (*client, error) {
 	dial := cfg.Dial
 	if dial == nil {
-		d := net.Dialer{Timeout: cfg.Timeout}
-		dial = d.DialContext
+		return nil, fmt.Errorf("%w: injected dialer is required (E-05)", ErrIMAP)
 	}
 	conn, err := dial(ctx, "tcp", cfg.IMAPAddr)
 	if err != nil {

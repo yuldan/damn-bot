@@ -153,6 +153,21 @@ func (r *Registry) Len() int {
 // Descriptors returns the adapters this slice ships. It is a function, not a
 // variable, so the registry stays the only registration path.
 func Descriptors() []Descriptor {
+	return append(plainDescriptors(), platformDescriptors()...)
+}
+
+// plainDescriptors is the secret-less plain-text group.
+func plainDescriptors() []Descriptor {
+	return []Descriptor{
+		simple("ntfy", TransportSSE),
+		simple("raft", TransportLongPoll),
+		simple("signal", TransportJSONRPC),
+		simple("simplex", TransportWS),
+	}
+}
+
+// platformDescriptors carries the adapter rows; each P5 slice appends its own.
+func platformDescriptors() []Descriptor {
 	return []Descriptor{
 		{
 			Name:       "buzz",
@@ -195,34 +210,6 @@ func Descriptors() []Descriptor {
 			DefaultOff: true,
 		},
 		{
-			Name:       "ntfy",
-			Transport:  TransportSSE,
-			Caps:       capsOf("ntfy"),
-			Render:     render.PlatformPlain,
-			DefaultOff: true,
-		},
-		{
-			Name:       "raft",
-			Transport:  TransportLongPoll,
-			Caps:       capsOf("raft"),
-			Render:     render.PlatformPlain,
-			DefaultOff: true,
-		},
-		{
-			Name:       "signal",
-			Transport:  TransportJSONRPC,
-			Caps:       capsOf("signal"),
-			Render:     render.PlatformPlain,
-			DefaultOff: true,
-		},
-		{
-			Name:       "simplex",
-			Transport:  TransportWS,
-			Caps:       capsOf("simplex"),
-			Render:     render.PlatformPlain,
-			DefaultOff: true,
-		},
-		{
 			Name:       "photon",
 			Transport:  TransportLongPoll,
 			Caps:       capsOf("photon"),
@@ -239,6 +226,11 @@ func Descriptors() []Descriptor {
 			DefaultOff: true,
 		},
 	}
+}
+
+// simple is the descriptor of a plain-text adapter without secrets.
+func simple(name string, transport Transport) Descriptor {
+	return Descriptor{Name: name, Transport: transport, Caps: capsOf(name), Render: render.PlatformPlain, DefaultOff: true}
 }
 
 func capsOf(name string) gateway.Caps {
