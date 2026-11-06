@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/damnbot/damnbot/internal/gwmatrix/e2ee"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 type pickleStore struct{ pickled []byte }
@@ -105,7 +106,7 @@ func TestF7PLAT011Matrix(t *testing.T) {
 		fmt.Sprintf(`{"joined":{%q:{},%q:{}}}`, bot, peer),
 	)
 	rec := newRecorder()
-	ad, err := buildAdapter(t, &Config{Enabled: true, Homeserver: srv.srv.URL, Crypto: botCrypto, Keys: botCrypto, SyncTimeout: time.Second}, secrets{"matrix_access_token": "tok"}, rec, newScheduler(t))
+	ad, err := buildAdapter(t, &Config{Enabled: true, Homeserver: srv.srv.URL, Crypto: botCrypto, Keys: botCrypto, SyncTimeout: time.Second, HTTPClient: netx.LoopbackClient()}, secrets{"matrix_access_token": "tok"}, rec, newScheduler(t))
 	if err != nil {
 		t.Fatal(err)
 	}

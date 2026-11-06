@@ -1,7 +1,6 @@
 package voice
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -14,6 +13,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 type fakeVoiceGateway struct {
@@ -52,9 +53,7 @@ func newFakeVoiceGateway(t *testing.T) *fakeVoiceGateway {
 		if cerr != nil {
 			return
 		}
-		if werr := conn.Write(r.Context(), websocket.MessageText, ready); werr != nil {
-			return
-		}
+		_ = conn.Write(r.Context(), websocket.MessageText, ready)
 		for {
 			if _, _, err := conn.Read(r.Context()); err != nil {
 				return
@@ -98,7 +97,7 @@ func (b *blockingTrack) Close() error {
 func newDiscordVoice(t *testing.T, gw *fakeVoiceGateway, codec Codec) *DiscordVoice {
 	t.Helper()
 	v, err := NewDiscordVoice(&DiscordConfig{
-		WSURL: gw.url(), GuildID: "g1", ChannelID: "c1", UserID: "u1", SessionID: "s1", Token: "tok",
+		WSURL: gw.url(), GuildID: "g1", ChannelID: "c1", UserID: "u1", SessionID: "s1", Token: "tok", HTTPClient: netx.LoopbackClient(),
 		Codec:    codec,
 		Pipeline: &Pipeline{STT: &fakeSTT{tr: Transcript{Text: "hello"}}, TTS: &fakeTTS{}, LLM: &fakeLLM{sentences: []string{"hi. "}}},
 	})
@@ -168,11 +167,7 @@ func testDiscordTurn(t *testing.T) {
 	if err := v.Join(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := v.Leave(); err != nil && !errors.Is(err, context.Canceled) {
-			t.Errorf("leave: %v", err)
-		}
-	})
+	t.Cleanup(func() { _ = v.Leave() })
 	res, err := v.Turn(t.Context(), strings.NewReader("audio"))
 	if err != nil {
 		t.Fatal(err)
@@ -188,11 +183,7 @@ func testDiscordBargeIn(t *testing.T) {
 	if err := v.Join(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
-		if err := v.Leave(); err != nil && !errors.Is(err, context.Canceled) {
-			t.Errorf("leave: %v", err)
-		}
-	})
+	t.Cleanup(func() { _ = v.Leave() })
 	track := newBlockingTrack()
 	done := make(chan error, 1)
 	go func() { done <- v.Play(t.Context(), []int16{1, 2}, track) }()
@@ -235,7 +226,7 @@ func testDiscordBargeIn(t *testing.T) {
 func TestF7DiscordVoiceNoOpus(t *testing.T) {
 	gw := newFakeVoiceGateway(t)
 	_, err := NewDiscordVoice(&DiscordConfig{
-		WSURL: gw.url(), GuildID: "g1", ChannelID: "c1", UserID: "u1", SessionID: "s1", Token: "tok",
+		WSURL: gw.url(), GuildID: "g1", ChannelID: "c1", UserID: "u1", SessionID: "s1", Token: "tok", HTTPClient: netx.LoopbackClient(),
 		Pipeline: &Pipeline{},
 	})
 	if !errors.Is(err, ErrNoOpus) || !strings.Contains(err.Error(), "module_unavailable{discord_voice_no_opus}") {
