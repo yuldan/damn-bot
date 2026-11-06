@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -166,8 +167,8 @@ func checkSandboxKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d1 == d2 || d1 != "/work/profile-a/session-1" {
-		t.Fatalf("sandbox dirs = %q %q", d1, d2)
+	if want := filepath.Join("/work", "profile-a", "session-1"); d1 == d2 || d1 != want {
+		t.Fatalf("sandbox dirs = %q %q, want %q", d1, d2, want)
 	}
 	if _, err := SandboxKey("..", "session", "task"); !errors.Is(err, ErrInvalidSandbox) {
 		t.Fatalf("traversal key = %v, want ErrInvalidSandbox", err)
