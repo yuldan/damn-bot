@@ -5,7 +5,7 @@ import "strings"
 const (
 	// maxNodes bounds the AST; scans keeps closer searching linear.
 	maxNodes = 20000
-	specials = "`*_["
+	specials = "`*_[~"
 )
 
 type budget struct{ nodes, scans int }
@@ -47,8 +47,11 @@ func (p *parser) block() (*Node, error) {
 	if f, ok := opener(p.lines[p.i]); ok {
 		return p.fenced(f), nil
 	}
+	if tableStart(p.lines, p.i) {
+		return p.table()
+	}
 	if _, _, ok := marker(p.lines[p.i]); ok {
-		return p.list()
+		return p.listAt(leadingSpaces(p.lines[p.i]))
 	}
 	return p.paragraph()
 }
@@ -66,6 +69,9 @@ func (p *parser) paragraph() (*Node, error) {
 		if _, _, l := marker(s); l {
 			break
 		}
+		if tableStart(p.lines, p.i) {
+			break
+		}
 		if b.Len() > 0 {
 			b.WriteByte('\n')
 		}
@@ -76,32 +82,136 @@ func (p *parser) paragraph() (*Node, error) {
 	return &Node{Kind: Paragraph, Kids: kids}, err
 }
 
-// list reads simple marker lines; an indented line continues the item.
-func (p *parser) list() (*Node, error) {
+// listAt reads marker lines at one indentation; an indented marker after an
+// item starts a nested list. Deeper levels recurse, bounded by the node budget.
+func (p *parser) listAt(base int) (*Node, error) {
 	n := &Node{Kind: List}
 	for p.i < len(p.lines) {
 		mark, rest, ok := marker(p.lines[p.i])
-		if !ok {
+		if !ok || leadingSpaces(p.lines[p.i]) != base {
 			break
 		}
 		p.i++
-		var b strings.Builder
-		b.WriteString(rest)
-		for p.i < len(p.lines) && p.lines[p.i] != "" && (p.lines[p.i][0] == ' ' || p.lines[p.i][0] == '\t') {
-			if _, _, nested := marker(p.lines[p.i]); nested {
-				break
-			}
-			b.WriteByte('\n')
-			b.WriteString(strings.TrimSpace(p.lines[p.i]))
-			p.i++
-		}
-		kids, err := inlines(b.String(), p.b)
+		item := &Node{Kind: Item, Text: mark}
+		text := p.itemText(base, rest)
+		kids, err := inlines(text, p.b)
 		if err != nil {
 			return nil, err
 		}
-		n.Kids = append(n.Kids, &Node{Kind: Item, Text: mark, Kids: kids})
+		item.Kids = kids
+		if sub, serr := p.nestedList(base); serr != nil {
+			return nil, serr
+		} else if sub != nil {
+			item.Kids = append(item.Kids, sub)
+		}
+		n.Kids = append(n.Kids, item)
 	}
 	return n, nil
+}
+
+// itemText collects the continuation lines of one item up to its nested list.
+func (p *parser) itemText(base int, rest string) string {
+	var b strings.Builder
+	b.WriteString(rest)
+	for p.i < len(p.lines) && p.lines[p.i] != "" && leadingSpaces(p.lines[p.i]) > base {
+		if _, _, nested := marker(p.lines[p.i]); nested {
+			break
+		}
+		b.WriteByte('\n')
+		b.WriteString(strings.TrimSpace(p.lines[p.i]))
+		p.i++
+	}
+	return b.String()
+}
+
+// nestedList parses an indented sub-list at the current position, if any.
+func (p *parser) nestedList(base int) (*Node, error) {
+	if p.i >= len(p.lines) {
+		return nil, nil
+	}
+	_, _, nested := marker(p.lines[p.i])
+	if !nested || leadingSpaces(p.lines[p.i]) <= base {
+		return nil, nil
+	}
+	return p.listAt(leadingSpaces(p.lines[p.i]))
+}
+
+// leadingSpaces counts the indentation of s (tabs count as one column).
+func leadingSpaces(s string) int {
+	n := 0
+	for n < len(s) && (s[n] == ' ' || s[n] == '\t') {
+		n++
+	}
+	return n
+}
+
+// table parses a GFM pipe table: a header row, a separator row, then body rows
+// until a blank or non-table line.
+func (p *parser) table() (*Node, error) {
+	head, err := p.row()
+	if err != nil {
+		return nil, err
+	}
+	p.i++ // separator
+	n := &Node{Kind: Table, Kids: []*Node{head}}
+	for p.i < len(p.lines) && strings.Contains(p.lines[p.i], "|") && strings.TrimSpace(p.lines[p.i]) != "" {
+		r, rerr := p.row()
+		if rerr != nil {
+			return nil, rerr
+		}
+		n.Kids = append(n.Kids, r)
+	}
+	return n, nil
+}
+
+func (p *parser) row() (*Node, error) {
+	r := &Node{Kind: Row}
+	for _, cell := range splitRow(p.lines[p.i]) {
+		kids, err := inlines(cell, p.b)
+		if err != nil {
+			return nil, err
+		}
+		r.Kids = append(r.Kids, &Node{Kind: Cell, Kids: kids})
+	}
+	p.i++
+	return r, nil
+}
+
+func tableStart(lines []string, i int) bool {
+	if i+1 >= len(lines) || !strings.Contains(lines[i], "|") {
+		return false
+	}
+	cells := splitRow(lines[i+1])
+	if len(cells) == 0 {
+		return false
+	}
+	for _, c := range cells {
+		if !tableSepCell(c) {
+			return false
+		}
+	}
+	return true
+}
+
+func tableSepCell(s string) bool {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, ":")
+	s = strings.TrimSuffix(s, ":")
+	return len(s) >= 3 && strings.Trim(s, "-") == ""
+}
+
+func splitRow(s string) []string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "|")
+	s = strings.TrimSuffix(s, "|")
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, "|")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return parts
 }
 
 // fenced consumes a code block; an unclosed fence runs to EOF.
@@ -206,6 +316,8 @@ func inlines(s string, b *budget) ([]*Node, error) {
 			n, next, ok = codeSpan(s, pos, b)
 		case '*', '_':
 			n, next, ok = emphasis(s, pos, b)
+		case '~':
+			n, next, ok = strike(s, pos, b)
 		case '[':
 			n, next, ok = link(s, pos, b)
 		}
@@ -282,6 +394,22 @@ func closer(s string, from int, mark string, b *budget) int {
 		}
 	}
 	return -1
+}
+
+// strike parses ~~struck~~ text.
+func strike(s string, pos int, b *budget) (*Node, int, bool) {
+	if run(s, pos) < 2 {
+		return nil, pos, false
+	}
+	start := pos + 2
+	if start >= len(s) || s[start] == ' ' || s[start] == '\n' {
+		return nil, pos, false
+	}
+	end := closer(s, start, "~~", b)
+	if end < 0 {
+		return nil, pos, false
+	}
+	return &Node{Kind: Strike, Kids: []*Node{{Kind: Text, Text: s[start:end]}}}, end + 2, true
 }
 
 // link parses `[label](url)` with an http, https or tg URL.

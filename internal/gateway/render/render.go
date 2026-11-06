@@ -5,6 +5,7 @@ package render
 import (
 	"cmp"
 	"errors"
+	"html"
 	"math"
 	"slices"
 	"strconv"
@@ -45,6 +46,9 @@ const (
 type Message struct {
 	Text     string
 	Entities []Entity
+	// HTML is the Matrix HTML subset (or an escaped plain fallback); empty for
+	// every other platform.
+	HTML string
 }
 
 // Limits bound one reply; zero means MaxLen and DefaultMaxChunks.
@@ -75,7 +79,11 @@ const (
 	Code
 	Bold
 	Italic
+	Strike
 	Link
+	Table
+	Row
+	Cell
 )
 
 // Node is one AST node.
@@ -112,6 +120,11 @@ func isControl(r rune) bool {
 	return (r < 0x20 && r != '\t' && r != '\n' && r != '\r') || r == 0x7f || (r >= 0x80 && r <= 0x9f)
 }
 
+// EscapeHTML escapes s for the Matrix HTML subset.
+func EscapeHTML(s string) string { return htmlEscape(s) }
+
+func htmlEscape(s string) string { return html.EscapeString(s) }
+
 // Units is the UTF-16 length of s (EC-PLAT-011).
 func Units(s string) int {
 	n := 0
@@ -147,6 +160,11 @@ func render(src string) Message {
 	if err != nil {
 		return Message{Text: Escape(src)}
 	}
+	return renderDoc(doc)
+}
+
+// renderDoc renders a parsed document to Telegram entities.
+func renderDoc(doc *Node) Message {
 	var w writer
 	sep := ""
 	for _, n := range doc.Kids {
@@ -198,6 +216,10 @@ func (w *writer) node(n *Node) {
 			typ = EntityItalic
 		}
 		w.span(typ, "", "", func() { w.nodes(n.Kids) })
+	case Strike:
+		w.nodes(n.Kids)
+	case Table:
+		w.table(n)
 	case Link:
 		w.span(EntityTextLink, n.Text, "", func() { w.nodes(n.Kids) })
 	case CodeBlock:
@@ -207,14 +229,41 @@ func (w *writer) node(n *Node) {
 		}
 		w.span(EntityPre, "", lang, func() { w.nodes(n.Kids) })
 	case List:
-		for i, it := range n.Kids {
-			if i > 0 {
-				w.write("\n")
-			}
-			w.write(it.Text)
-			w.nodes(it.Kids)
+		w.list(n)
+	case Row, Cell, Item: // rendered by the enclosing Table/List
+	}
+}
+
+// table writes one pipe table, one row per line.
+func (w *writer) table(n *Node) {
+	for i, row := range n.Kids {
+		if i > 0 {
+			w.write("\n")
 		}
-	case Item: // rendered by the enclosing List
+		for j, cell := range row.Kids {
+			if j > 0 {
+				w.write(" | ")
+			}
+			w.nodes(cell.Kids)
+		}
+	}
+}
+
+// list writes items one per line; a nested list is indented by two spaces.
+func (w *writer) list(n *Node) {
+	for i, it := range n.Kids {
+		if i > 0 {
+			w.write("\n")
+		}
+		w.write(it.Text)
+		for _, k := range it.Kids {
+			if k.Kind == List {
+				w.write("\n  ")
+				w.nodes(k.Kids)
+				continue
+			}
+			w.node(k)
+		}
 	}
 }
 
