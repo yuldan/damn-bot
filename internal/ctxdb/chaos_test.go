@@ -88,6 +88,14 @@ func TestChildProcess(t *testing.T) {
 			t.Log(waitStdin())
 			return nil
 		}))
+	case "hold-lease":
+		// Negative control for waitSharedLease: own the SHARED lease and never
+		// release it, so only a guard can end the waiter's handshake.
+		if _, err := s.AcquireLease(context.Background(), "SHARED"); err != nil {
+			must(t, err)
+		}
+		say(t, "READY")
+		t.Log(waitStdin())
 	case "chaos":
 		say(t, "READY")
 		chaosLoop(t, s, 1<<30)
@@ -226,20 +234,21 @@ func TestChildReadyTimeoutIsFatal(t *testing.T) {
 	}
 }
 
-// kill9 SIGKILLs the child and reaps it; "already finished" and the
-// "signal: killed" exit status are the expected outcomes. A kill error is
-// only real if the child is still running afterwards: Windows reports a
-// child that exited on its own (TerminateProcess → "Access is denied") or
-// was already reaped ("invalid argument") as an error.
+// kill9 terminates the child and reaps it. Any outcome where Wait collected an
+// exit status is fine: the child may have exited on its own (cleanup closes its
+// stdin first), our Kill may have won, or the two may have raced. On Windows
+// the loser of that race reports "TerminateProcess: Access is denied." — also
+// from the exec context watcher, whose kill error Wait returns even though the
+// exit status was collected. A kill error is only real when the child was not
+// reaped at all, i.e. it is still running and would leak.
 func (c *child) kill9(t *testing.T) {
 	t.Helper()
 	kerr := c.cmd.Process.Kill()
-	var ee *exec.ExitError
 	werr := c.cmd.Wait()
-	reaped := werr == nil || errors.As(werr, &ee) || strings.Contains(werr.Error(), "Wait was already called")
-	if !reaped {
-		t.Fatal(errors.Join(kerr, werr))
+	if c.cmd.ProcessState != nil {
+		return // reaped: killed, clean exit, or both at once — all expected here
 	}
+	t.Fatalf("child not reaped: %v", errors.Join(kerr, werr))
 }
 
 // result reads the child's RESULT line and waits for a clean exit.
