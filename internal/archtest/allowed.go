@@ -61,9 +61,6 @@ func allowedImports() map[string][]string {
 		// Sibling parser/client packages: ts is stdlib-only, lsp reaches netx/jsonrpc.
 		"internal/codeintel/ts": nil, "internal/codeintel/lsp": {"internal/netx/jsonrpc"},
 		"internal/gateway" + moduleWildcard: moduleImports(),
-		"internal/gwplat":                   {"internal/gateway", "internal/gateway/outq", "internal/gateway/render"},
-		"internal/gwmatrix":                 append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...),
-		"internal/gwplat" + moduleWildcard:  append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...),
 
 		"internal/loop":               {"internal/loop/event", "internal/boundary"}, // E-02
 		"internal/plan":               {"internal/loop/event"},
@@ -136,6 +133,7 @@ func allowedImports() map[string][]string {
 		"internal/provider/providertest": {"internal/provider"},
 	}
 	f6ModuleImports(m)
+	f7AdapterImports(m)
 	return m
 }
 
@@ -165,6 +163,14 @@ func f6ModuleImports(m map[string][]string) {
 	m["internal/voice/tts"] = nil
 	m["internal/voice/wake"] = nil
 	m["internal/computeruse"] = []string{"internal/modules/host", "internal/netx"}
+}
+
+// f7AdapterImports registers the F7 adapter surfaces (ADR-326).
+func f7AdapterImports(m map[string][]string) {
+	m["internal/gwplat"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render"}
+	m["internal/gwmatrix"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwmatrix/e2ee", "internal/gwplat"}, groupNetx()...)
+	m["internal/gwmatrix/e2ee"] = nil
+	m["internal/gwplat"+moduleWildcard] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}, groupNetx()...)
 }
 
 // testOnlyPackages hanya boleh diimpor dari file _test.go (paket internal mana pun) atau dari
