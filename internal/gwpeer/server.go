@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -44,35 +43,6 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/peer/v1/dm", s.handleDM)
 	return mux
-}
-
-// Serve runs the server on ln until ctx is cancelled or the admin stop
-// endpoint fires.
-func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
-	srv := &http.Server{
-		Handler:           s.Handler(),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       time.Minute,
-	}
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-ctx.Done():
-			shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
-			defer cancel()
-			if err := srv.Shutdown(shutdown); err != nil {
-				return
-			}
-		case <-done:
-		}
-	}()
-	if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("gwpeer: serve: %w", err)
-	}
-	return nil
 }
 
 func (s *Server) handleDM(w http.ResponseWriter, r *http.Request) {

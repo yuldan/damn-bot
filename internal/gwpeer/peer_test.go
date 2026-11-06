@@ -161,3 +161,33 @@ func TestEnvelopeRejectsStaleAndMalformed(t *testing.T) {
 		t.Fatalf("bad version = %v, want ErrInvalidEnvelope", err)
 	}
 }
+
+// TestPeerValidateURL keeps the registry entry fail-closed: HTTPS anywhere,
+// plaintext HTTP only on loopback, and never credentials in the URL.
+func TestPeerValidateURL(t *testing.T) {
+	t.Parallel()
+	key := testKey(t).Public().(ed25519.PublicKey)
+	base := Peer{ID: "b", TokenRef: "B_TOKEN", PublicKey: key}
+	for _, tc := range []struct {
+		name string
+		url  string
+		ok   bool
+	}{
+		{"https", "https://peer.example:8443", true},
+		{"loopback-http", "http://127.0.0.1:8788", true},
+		{"localhost-http", "http://localhost:8788", true},
+		{"public-http", "http://peer.example", false},
+		{"credentials", "https://user:pass@peer.example", false},
+		{"scheme", "ftp://peer.example", false},
+	} {
+		p := base
+		p.URL = tc.url
+		err := p.Validate()
+		if tc.ok && err != nil {
+			t.Errorf("%s: Validate(%q) = %v, want ok", tc.name, tc.url, err)
+		}
+		if !tc.ok && !errors.Is(err, ErrInvalidPeer) {
+			t.Errorf("%s: Validate(%q) = %v, want ErrInvalidPeer", tc.name, tc.url, err)
+		}
+	}
+}
