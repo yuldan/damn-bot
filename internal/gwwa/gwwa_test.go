@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +23,8 @@ type fakeBridge struct {
 	sends    int
 	requests []string
 	cold     bool
+	// failMethod makes the bridge answer that method with an RPCError.
+	failMethod string
 }
 
 func newPipeBridge(t *testing.T, hello gwwa.Hello) (*fakeBridge, net.Conn) {
@@ -55,11 +58,17 @@ func (b *fakeBridge) run(t *testing.T) {
 		b.mu.Lock()
 		b.requests = append(b.requests, req.Method)
 		cold := b.cold
+		fail := b.failMethod
 		if req.Method == "send" {
 			b.sends++
 		}
 		b.mu.Unlock()
 		resp := map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{}}
+		if req.Method == fail && fail != "" {
+			resp = map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{
+				"code": -32000, "message": "bridge_error",
+			}}
+		}
 		if req.Method == "send" && cold {
 			resp = map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{
 				"code": -32000, "message": "cold_outbound_denied", "data": map[string]any{"code": "cold_outbound_denied"},
@@ -89,6 +98,12 @@ func (b *fakeBridge) write(t *testing.T, frame any) {
 func (b *fakeBridge) notify(t *testing.T, method string, params any) {
 	t.Helper()
 	b.write(t, map[string]any{"jsonrpc": "2.0", "method": method, "params": params})
+}
+
+func (b *fakeBridge) methods() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.requests...)
 }
 
 func (b *fakeBridge) sendCount() int {
@@ -256,4 +271,58 @@ func waitEvent(t *testing.T, c *gwwa.Client, match func(gwwa.Event) bool) gwwa.E
 			t.Fatal("notification not delivered")
 		}
 	}
+}
+
+// TestBridgeAckAndLogout walks the acknowledgement and logout calls of the
+// client surface, including the case where the bridge answers with an RPCError.
+func TestBridgeAckAndLogout(t *testing.T) {
+	t.Run("ok", ackAndLogoutOK)
+	t.Run("bridge_error", ackAndLogoutError)
+}
+
+func ackAndLogoutOK(t *testing.T) {
+	b, conn := newPipeBridge(t, validHello())
+	c, err := gwwa.Connect(t.Context(), gwwa.Stdio(conn))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeClient(t, c)
+	if err := c.Ack(t.Context(), "wamid.x"); err != nil {
+		t.Fatalf("ack: %v", err)
+	}
+	if err := c.Logout(t.Context()); err != nil {
+		t.Fatalf("logout: %v", err)
+	}
+	if got := b.methods(); !containsMethod(got, "ack") || !containsMethod(got, "logout") {
+		t.Fatalf("bridge saw %v, want ack and logout", got)
+	}
+}
+
+func ackAndLogoutError(t *testing.T) {
+	for _, method := range []string{"ack", "logout"} {
+		t.Run(method, func(t *testing.T) {
+			b, conn := newPipeBridge(t, validHello())
+			b.mu.Lock()
+			b.failMethod = method
+			b.mu.Unlock()
+			c, err := gwwa.Connect(t.Context(), gwwa.Stdio(conn))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer closeClient(t, c)
+			var rpc *gwwa.RPCError
+			if method == "ack" {
+				err = c.Ack(t.Context(), "wamid.y")
+			} else {
+				err = c.Logout(t.Context())
+			}
+			if !errors.As(err, &rpc) || rpc.Code != -32000 {
+				t.Fatalf("%s = %v, want *RPCError", method, err)
+			}
+		})
+	}
+}
+
+func containsMethod(methods []string, want string) bool {
+	return slices.Contains(methods, want)
 }
