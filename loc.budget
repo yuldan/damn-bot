@@ -485,10 +485,14 @@ MODULE voice        4500 internal/voice
 MODULE computeruse  2000 internal/computeruse
 
 # ADR-326 (F7 selubung): enam baris MODULE baru di luar Sigma core. P1a membukukan
-# lima baris (gwpeer dibukukan paket P8); direktori dibangun bertahap oleh P2..P11.
-# Sigma kelas MODULE 83.300 -> 108.400 + backup 1.467 = 109.867 <= maxModuleLOC 111.000.
+# lima baris; `MODULE gwpeer` dibukukan paket P8 di sini. Direktori dibangun
+# bertahap oleh P2..P11. Sigma kelas MODULE 83.300 -> 108.400 + backup 1.467
+# = 109.867 <= maxModuleLOC 111.000.
 MODULE gwplat    13000 internal/gwplat
 MODULE gwapi      3000 internal/gwapi
 MODULE gwwa        600 internal/gwwa
 MODULE gwmatrix   1500 internal/gwmatrix
 MODULE kanban     3000 internal/kanban
+# Baris top-level agar tidak di-shadow `MODULE gateway`; cap 4.000 dari
+# SPEC §3.2.4 F7 (ADR-326 butir 5). Kode diukur bertahap oleh slice P8a..e.
+MODULE gwpeer     4000 internal/gwpeer

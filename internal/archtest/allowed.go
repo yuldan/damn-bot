@@ -134,7 +134,16 @@ func allowedImports() map[string][]string {
 		"internal/provider/providertest": {"internal/provider"},
 	}
 	f6ModuleImports(m)
+	f7ModuleImports(m)
 	return m
+}
+
+// f7ModuleImports mendaftarkan baris modul F7 (ADR-326). internal/gwpeer
+// adalah baris top-level agar tidak di-shadow `MODULE gateway`; kawat peer dan
+// model room/relay hanya memakai stdlib, sedangkan multiplex membaca tipe
+// route gateway dan identitas token membaca config.OS.
+func f7ModuleImports(m map[string][]string) {
+	m["internal/gwpeer"] = []string{"internal/config", "internal/gateway"}
 }
 
 // f6ModuleImports mendaftarkan baris modul F6 (ADR-310). SPEC §3.2.4 `web`
