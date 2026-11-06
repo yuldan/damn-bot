@@ -42,6 +42,7 @@ type Server struct {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/peer/v1/dm", s.handleDM)
+	mux.HandleFunc("/peer/v1/stop", s.handleStop)
 	return mux
 }
 
