@@ -87,6 +87,17 @@ func TestAPIServerResponseCancelIdempotent(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("engine never started")
 	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		g := get(t, h, "/v1/responses/resp_test", authHeaders())
+		if strings.Contains(g.Body.String(), `"status":"in_progress"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("response never became in_progress: %d %s", g.Code, g.Body.String())
+		}
+		<-time.After(time.Millisecond)
+	}
 	for range 2 {
 		c := postPath(t, h, "/v1/responses/resp_test/cancel", `{}`)
 		if c.Code != http.StatusOK || !strings.Contains(c.Body.String(), `"status":"cancelled"`) {
