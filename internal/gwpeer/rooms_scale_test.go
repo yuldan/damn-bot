@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 )
 
 func TestF7GW014HostedRooms(t *testing.T) {
@@ -101,21 +100,4 @@ func TestF7GW014RoomOrder(t *testing.T) {
 	if got := maxSeen.Load(); got != 1 {
 		t.Errorf("simultaneous turns in one room = %d, want 1", got)
 	}
-}
-
-type fakeClock struct {
-	mu sync.Mutex
-	t  time.Time
-}
-
-func (c *fakeClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.t
-}
-
-func (c *fakeClock) Advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.t = c.t.Add(d)
 }
