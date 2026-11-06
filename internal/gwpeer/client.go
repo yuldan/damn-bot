@@ -21,9 +21,18 @@ type Client struct {
 	LocalID string
 	Key     ed25519.PrivateKey
 	Tokens  TokenSource
-	HTTP    *http.Client
+	HTTP    Doer
 	Now     func() time.Time
 }
+
+// Doer is the HTTP transport seam (E-05): the composition root injects a netx
+// client, and gwpeer never constructs one itself.
+type Doer interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+// ErrNoTransport refuses a send without an injected transport.
+var ErrNoTransport = errors.New("gwpeer: no HTTP transport")
 
 // Send signs env and posts it to peer.URL. A duplicate answer (the receiver
 // already delivered this message id) is returned as ErrDuplicate; a caller
@@ -68,7 +77,10 @@ func (c *Client) post(ctx context.Context, peer *Peer, env *Envelope) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set(peerAuthHeader, c.LocalID)
-	resp, err := c.client().Do(req)
+	if c.HTTP == nil {
+		return ErrNoTransport
+	}
+	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return fmt.Errorf("gwpeer: send %s: %w", peer.ID, err)
 	}
@@ -86,13 +98,6 @@ func (c *Client) post(ctx context.Context, peer *Peer, env *Envelope) error {
 	default:
 		return fmt.Errorf("gwpeer: peer %s answered %d: %s", peer.ID, resp.StatusCode, strings.TrimSpace(string(reply)))
 	}
-}
-
-func (c *Client) client() *http.Client {
-	if c.HTTP != nil {
-		return c.HTTP
-	}
-	return &http.Client{Timeout: 15 * time.Second}
 }
 
 func (c *Client) now() time.Time {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/damnbot/damnbot/internal/config"
 	"github.com/damnbot/damnbot/internal/gwpeer"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 // runPeer implements `damnbot peer` (CLI-027): add, list, remove, dm, run,
@@ -204,7 +205,10 @@ func peerDM(args []string, stdout, stderr io.Writer) int {
 		sessionsPrintf(stderr, "peer dm: %v\n", err)
 		return 1
 	}
-	client := &gwpeer.Client{LocalID: *local, Key: key, Tokens: gwpeer.EnvTokens{}}
+	client := &gwpeer.Client{
+		LocalID: *local, Key: key, Tokens: gwpeer.EnvTokens{},
+		HTTP: netx.New(netx.Config{}).Client("peer-dm", netx.Gateway),
+	}
 	env, err := client.Send(context.Background(), &peer, *chat, *text)
 	if gwpeer.IsDuplicate(err) {
 		sessionsPrintf(stdout, "delivered %s (already)\n", env.ID)

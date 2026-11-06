@@ -88,7 +88,7 @@ func TestF7GW013PeerDM(t *testing.T) {
 	d := &dispatcher{}
 	b := testServer(t, "b", peersA, tokens, d)
 
-	a := &Client{LocalID: "a", Key: aKey, Tokens: tokens, HTTP: http.DefaultClient, Now: time.Now}
+	a := &Client{LocalID: "a", Key: aKey, Tokens: tokens, HTTP: b.Client(), Now: time.Now}
 	env, err := a.Send(t.Context(), &Peer{
 		ID: "b", URL: b.URL, TokenRef: "B_TOKEN", PublicKey: pub(t, bKey),
 	}, "dm-1", "hello peer")
@@ -104,7 +104,7 @@ func TestF7GW013PeerDM(t *testing.T) {
 	if verr := d.last.Verify(pub(t, aKey)); verr != nil {
 		t.Fatalf("dispatched signature: %v", verr)
 	}
-	bad := &Client{LocalID: "a", Key: aKey, Tokens: tokenMap{"B_TOKEN": "wrong"}, HTTP: http.DefaultClient}
+	bad := &Client{LocalID: "a", Key: aKey, Tokens: tokenMap{"B_TOKEN": "wrong"}, HTTP: b.Client()}
 	if _, berr := bad.Send(t.Context(), &Peer{
 		ID: "b", URL: b.URL, TokenRef: "B_TOKEN", PublicKey: pub(t, bKey),
 	}, "dm-2", "must not arrive"); !errors.Is(berr, ErrUnauthorized) {
