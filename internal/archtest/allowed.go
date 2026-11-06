@@ -35,6 +35,13 @@ func storeImports() []string {
 }
 
 // allowedImports mengembalikan matriks paket → impor internal yang diizinkan (produksi).
+// p6ModuleImports registers the F7 P6 (WhatsApp) module edges.
+func p6ModuleImports(m map[string][]string) {
+	m["internal/gwwa"] = []string{"internal/netx"}
+	m["internal/gwplat/whatsapp_cloud"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gwplat", "internal/netx"}
+	m["internal/gwplat/whatsapp_web"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gwplat", "internal/gwwa"}
+}
+
 func allowedImports() map[string][]string {
 	m := map[string][]string{
 		// Frontend (E-03: tanpa ctxdb, provider, exec, codetools).
@@ -112,12 +119,10 @@ func allowedImports() map[string][]string {
 		"internal/config":              {"internal/schema", "internal/toolset", "internal/update"},
 		"internal/update":              {"internal/netx"},
 		"internal/toolset":             nil, // pure composition data (ADR-139): no internal deps
-		// F7 kanban surface (ADR-326): storage consumer plus the tool contract
-		// and platform renderer for the notifier.
-		"internal/kanban":       {"internal/ctxdb", "internal/netx", "internal/tools", "internal/toolset", "internal/gateway/render"},
-		"internal/netx":         {"internal/netx/jsonrpc", "internal/netx/retry", "internal/redact"},
-		"internal/netx/jsonrpc": {"internal/netx", "internal/netx/retry", "internal/redact"},
-		"internal/netx/retry":   nil,
+		"internal/kanban":              {"internal/ctxdb", "internal/netx", "internal/tools", "internal/toolset", "internal/gateway/render"},
+		"internal/netx":                {"internal/netx/jsonrpc", "internal/netx/retry", "internal/redact"},
+		"internal/netx/jsonrpc":        {"internal/netx", "internal/netx/retry", "internal/redact"},
+		"internal/netx/retry":          nil,
 
 		// Leaf.
 		"internal/loop/event": nil, "internal/schema": nil, "internal/sandbox": nil,
@@ -130,15 +135,15 @@ func allowedImports() map[string][]string {
 		// driven through the four wired adapters; see testOnlyPackages.
 		"internal/provider/replay": {"internal/provider", "internal/provider/anthropic", "internal/provider/gemini", "internal/provider/registry", "internal/provider/responses", "internal/netx", "internal/netx/retry"},
 
-		"internal/e2e":                   {"internal/boundary", "internal/budget", "internal/ctxdb", "internal/ctxdb/journalstore", "internal/ctxdb/ledgerstore", "internal/ctxdb/skillstore", "internal/gateway/telegram", "internal/journal", "internal/loop/event", "internal/netx", "internal/secret", "internal/voice"},
-		"internal/integration":           {"internal/ctxdb", "internal/ctxdb/memstore", "internal/ctxdb/compactstore", "internal/ctxdb/skillstore", "internal/ctxdb/carrierstore", "internal/compaction", "internal/backup", "internal/secret", "internal/redact", "internal/loop/event"},
-		"internal/testutil":              nil,
-		"internal/testutil/timing":       nil,
+		"internal/e2e":         {"internal/boundary", "internal/budget", "internal/ctxdb", "internal/ctxdb/journalstore", "internal/ctxdb/ledgerstore", "internal/ctxdb/skillstore", "internal/gateway/telegram", "internal/journal", "internal/loop/event", "internal/netx", "internal/secret", "internal/voice"},
+		"internal/integration": {"internal/ctxdb", "internal/ctxdb/memstore", "internal/ctxdb/compactstore", "internal/ctxdb/skillstore", "internal/ctxdb/carrierstore", "internal/compaction", "internal/backup", "internal/secret", "internal/redact", "internal/loop/event"},
+		"internal/testutil":    nil, "internal/testutil/timing": nil,
 		"internal/testutil/phase":        nil,
 		"internal/provider/providertest": {"internal/provider"},
 	}
 	f6ModuleImports(m)
 	f7ModuleImports(m)
+	p6ModuleImports(m)
 	return m
 }
 
@@ -150,8 +155,7 @@ func f7ModuleImports(m map[string][]string) {
 	m["internal/gwpeer"] = []string{"internal/config", "internal/gateway"}
 	m["internal/gwplat"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render"}
 	m["internal/gwplat"+moduleWildcard] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}
-	// ntfy dan raft memakai klien netx (loopback/SSE + bridge lokal); edge eksplisit
-	// agar wildcard gwplat tidak diperluas untuk semua adapter.
+	// ntfy/raft memakai klien netx; edge eksplisit agar wildcard gwplat tetap sempit.
 	m["internal/gwplat/ntfy"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
 	m["internal/gwplat/raft"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
 	m["internal/gwplat/signal"] = append([]string{"internal/gateway", "internal/gateway/outq", "internal/gwplat"}, groupNetx()...)
