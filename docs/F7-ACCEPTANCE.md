@@ -44,7 +44,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-011 | Matrix | homeserver + access token; E2EE pure Go (`goolm`); edit-stream default mati (GW-10) | `TestF7PLAT011Matrix`, `TestF7MatrixNoEditStream` | BELUM | budget `gwmatrix` |
 | PLAT-012 | Mattermost | REST v4 + WebSocket; token dari secret; reconnect backoff netx | `TestF7PLAT012Mattermost` | BELUM | — |
 | PLAT-013 | ntfy | subscribe topic + publish; topic dari config; isi pesan tidak masuk log INFO | `TestF7PLAT013Ntfy` | LULUS | — |
-| PLAT-014 | Photon (iMessage) | sidecar HTTP; project id/secret; sidecar absen → `module_unavailable` 0 network | `TestF7PLAT014Photon` | BELUM | — |
+| PLAT-014 | Photon (iMessage) | sidecar HTTP; project id/secret; sidecar absen → `module_unavailable` 0 network | `TestF7PLAT014Photon` | LULUS | — |
 | PLAT-015 | QQ Bot | API v2 WS + REST; refresh token; dedupe event | `TestF7PLAT015QQBot` | BELUM | — |
 | PLAT-016 | Raft | wake-channel bridge lokal; `RAFT_PROFILE`; bridge absen → pesan instalasi | `TestF7PLAT016Raft` | LULUS | — |
 | PLAT-017 | Signal | daemon signal-cli (SSE + JSON-RPC); account → session key; plaintext tidak dipersist | `TestF7PLAT017Signal` | LULUS | — |
@@ -53,7 +53,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-020 | SMS (Twilio) | REST send + webhook signature; segmen GSM-7/UCS-2 (GW-09) | `TestF7PLAT020SMS`, `TestF7GAPGW09SMSSegments` | BELUM | GAP-GW-09 |
 | PLAT-021 | Microsoft Teams | Bot Framework JWT (issuer/audience/exp) divalidasi; activity dedupe; tenant allowlist | `TestF7PLAT021Teams`, `TestF7TeamsJWT` | BELUM | — |
 | PLAT-023 | WeCom | smart robot WS + callback app; XML parser hardened (tanpa entity eksternal) | `TestF7PLAT023WeCom`, `TestF7WeComXML` | BELUM | dua surface |
-| PLAT-024 | Weixin/WeChat | iLink long-poll; kursor persist; audio SILK → MEDIA-031 | `TestF7PLAT024Weixin` | BELUM | — |
+| PLAT-024 | Weixin/WeChat | iLink long-poll; kursor persist; audio SILK → MEDIA-031 | `TestF7PLAT024Weixin` | LULUS | — |
 | PLAT-025 | WhatsApp Web (bridge) | klien `damnbot.bridge/v1`; inbound-only; `send_message` cold ke JID tanpa inbound → `cold_outbound_denied` 0 request; ack ban risk tunggal; `health.reason` dipetakan ke breaker | `TestWhatsAppWebGuards`, `TestBridgeProtocolConformance`, `TestF7PLAT025WABridge` | BELUM | parity `external-bridge (ADR-034)` wajib di-flip `LULUS`; GAP-GW-01/11 |
 | PLAT-026 | WhatsApp Cloud | API resmi Meta; verify token + HMAC `X-Hub-Signature-256`; jendela 24 jam dihormati | `TestF7PLAT026WhatsAppCloud`, `TestF7WACloudSignature` | BELUM | satu-satunya mode wizard |
 | PLAT-027 | Yuanbao | WS bot app id/secret; grup/DM mapping | `TestF7PLAT027Yuanbao` | BELUM | §8 tools |
