@@ -185,7 +185,7 @@ func TestEnvTokens(t *testing.T) {
 // plaintext HTTP only on loopback, and never credentials in the URL.
 func TestPeerValidateURL(t *testing.T) {
 	t.Parallel()
-	key := testKey(t).Public().(ed25519.PublicKey)
+	key := pub(t, testKey(t))
 	base := Peer{ID: "b", TokenRef: "B_TOKEN", PublicKey: key}
 	for _, tc := range []struct {
 		name string
