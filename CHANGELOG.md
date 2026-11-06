@@ -4,6 +4,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/id/1.1.0/). Bagian `Unrele
 
 ## Unreleased
 
+- `internal/gwplat/a2a` server (F7 P10a-2, PLAT-001): task/send|get|cancel, SSE, kartu /.well-known/agent.json, bearer dari seam secret, id task idempoten, hasil <untrusted>; tes TestF7PLAT001A2A/TestF7A2AAgentCard/TestF7A2ATaskLifecycle/TestF7A2AIdempotentTaskID/TestF7A2ACancel.
+
 - `internal/gwplat/a2a` (F7 P10a-1, slice persiapan PLAT-001): agent card v1.0 + tabel task idempoten; tes TestA2ACardValidate/TestA2ARequestValidate/TestA2ATaskStore.
 
 - `internal/gwplat/a2a` (F7 P10a-1, slice persiapan PLAT-001, ADR-326): **tipe agent card dan tabel task A2A**. Paket baru memuat kartu agen v1.0 (`.well-known/agent.json`) dengan validasi tertutup (protokol 1.x, URL http(s) tanpa userinfo, skill id unik), permintaan `task/send` yang hanya menerima part teks dan menolak metadata `shell`/`exec`/`command`/`tool` + payload non-teks sebagai `ErrShellRequest`/`ErrUnsupported`, state task `submitted|working|completed|failed|canceled` dengan tabel idempoten (id diulang = satu eksekusi) dan pembungkus hasil `<untrusted source="a2a">`. Slice ini tidak menutup baris ledger; server dan client menyusul pada stack yang sama. Tes: `TestA2ACardValidate`, `TestA2ARequestValidate`, `TestA2ATaskStore`.
