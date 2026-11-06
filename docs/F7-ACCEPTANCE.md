@@ -78,7 +78,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
 | CLI-027 | `damnbot peer` | tujuh sub: `add`, `list`, `remove`, `dm`, `run`, `status`, `stop`; `dm` mengirim ke peer terdaftar; peer asing ditolak | `TestF7CLI027Peer` | BELUM | — |
-| GW-013 | Peer gateways | DM bot-ke-bot lintas mesin; envelope bertanda tangan; replay ditolak; identitas peer `cryptographic` | `TestF7GW013PeerDM`, `TestF7PeerReplay` | BELUM | SEC-10 |
+| GW-013 | Peer gateways | DM bot-ke-bot lintas mesin; envelope bertanda tangan; replay ditolak; identitas peer `cryptographic` | `TestF7GW013PeerDM`, `TestF7PeerReplay` | LULUS | SEC-10 |
 | GW-014 | Hosted rooms | ruang multi-agent; urutan turn per room; biaya dipisah per agen; anggota asing tidak bisa join | `TestF7GW014HostedRooms` | BELUM | TSET-036 |
 | GW-015 | Bot mode / relay | mode bot DM + relay antar profil; loop dicegah (maks 2 hop); relay ke profil non-allowlist ditolak | `TestF7GW015BotRelay`, `TestF7RelayLoopGuard` | BELUM | — |
 | GW-016 | Profile routing / multiplex | satu gateway melayani banyak profil; routing per bot/identitas; EC-STATE-004 (koneksi read-pool berbatas); EC-TERM-004/005 (sandbox & policy per profil, fail-closed) | `TestF7GW016ProfileRouting`, `TestEdgeCases/EC-STATE-004`, `TestEdgeCases/EC-TERM-004`, `TestEdgeCases/EC-TERM-005` | BELUM | EC §10 |

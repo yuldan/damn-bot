@@ -77,6 +77,44 @@ func testServer(t *testing.T, id string, peers map[string]Peer, tokens tokenMap,
 	return ts
 }
 
+func TestF7GW013PeerDM(t *testing.T) {
+	t.Parallel()
+	aKey, bKey := testKey(t), testKey(t)
+	secret := NewID()
+	tokens := tokenMap{"A_TOKEN": secret, "B_TOKEN": secret}
+	peersA := map[string]Peer{"a": {
+		ID: "a", URL: "https://a.invalid", TokenRef: "A_TOKEN", PublicKey: pub(t, aKey),
+	}}
+	d := &dispatcher{}
+	b := testServer(t, "b", peersA, tokens, d)
+
+	a := &Client{LocalID: "a", Key: aKey, Tokens: tokens, HTTP: b.Client(), Now: time.Now}
+	env, err := a.Send(t.Context(), &Peer{
+		ID: "b", URL: b.URL, TokenRef: "B_TOKEN", PublicKey: pub(t, bKey),
+	}, "dm-1", "hello peer")
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if d.total() != 1 {
+		t.Fatalf("dispatch count = %d, want 1", d.total())
+	}
+	if d.last.ID != env.ID || d.last.Text != "hello peer" || d.last.From != "a" {
+		t.Fatalf("dispatched envelope = %+v", d.last)
+	}
+	if verr := d.last.Verify(pub(t, aKey)); verr != nil {
+		t.Fatalf("dispatched signature: %v", verr)
+	}
+	bad := &Client{LocalID: "a", Key: aKey, Tokens: tokenMap{"B_TOKEN": "wrong"}, HTTP: b.Client()}
+	if _, berr := bad.Send(t.Context(), &Peer{
+		ID: "b", URL: b.URL, TokenRef: "B_TOKEN", PublicKey: pub(t, bKey),
+	}, "dm-2", "must not arrive"); !errors.Is(berr, ErrUnauthorized) {
+		t.Fatalf("wrong token error = %v, want ErrUnauthorized", berr)
+	}
+	if d.total() != 1 {
+		t.Fatalf("dispatch after unauthorized = %d, want 1", d.total())
+	}
+}
+
 func TestF7PeerReplay(t *testing.T) {
 	t.Parallel()
 	aKey := testKey(t)

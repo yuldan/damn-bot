@@ -75,6 +75,11 @@ func Registry() map[string]Egress {
 			Host:    "api.telegram.org",
 			Trigger: "gateway long polling and message delivery for a user turn",
 		},
+		"peer-dm": {
+			Purpose: Gateway,
+			Host:    "peer url from the local peer book (<data-dir>/peer/peers.json)",
+			Trigger: "damnbot peer dm to a registered peer gateway (GW-013)",
+		},
 	}
 	addAuthEgress(reg)
 	return reg
