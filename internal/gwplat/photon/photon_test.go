@@ -15,6 +15,7 @@ import (
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/outq"
 	"github.com/damnbot/damnbot/internal/gwplat"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 type allowPacer struct{}
@@ -144,7 +145,7 @@ func TestF7PLAT014Photon(t *testing.T) {
 	t.Run("missing_secret", func(t *testing.T) { assertPhotonSecret(t, sidecar) })
 	t.Run("poll_and_send", func(t *testing.T) {
 		rec := newRecorder()
-		cfg := &Config{Enabled: true, BaseURL: sidecar.srv.URL, ProjectID: "proj", Present: func() error { return nil }}
+		cfg := &Config{Enabled: true, BaseURL: sidecar.srv.URL, ProjectID: "proj", HTTPClient: netx.LoopbackClient(), Present: func() error { return nil }}
 		ad, err := buildAdapter(t, cfg, secrets{"photon_project_secret": "s"}, rec, newScheduler(t))
 		if err != nil {
 			t.Fatal(err)
@@ -170,7 +171,7 @@ func TestF7PLAT014Photon(t *testing.T) {
 func assertPhotonAbsent(t *testing.T, sidecar *fakeSidecar) {
 	t.Helper()
 	cfg := &Config{
-		Enabled: true, BaseURL: sidecar.srv.URL, ProjectID: "proj",
+		Enabled: true, BaseURL: sidecar.srv.URL, ProjectID: "proj", HTTPClient: netx.LoopbackClient(),
 		Present: func() error { return errors.New("socket missing") },
 	}
 	_, err := buildAdapter(t, cfg, secrets{"photon_project_secret": "s"}, newRecorder(), newScheduler(t))
@@ -184,7 +185,7 @@ func assertPhotonAbsent(t *testing.T, sidecar *fakeSidecar) {
 
 func assertPhotonSecret(t *testing.T, sidecar *fakeSidecar) {
 	t.Helper()
-	cfg := &Config{Enabled: true, BaseURL: sidecar.srv.URL, ProjectID: "proj", Present: func() error { return nil }}
+	cfg := &Config{Enabled: true, BaseURL: sidecar.srv.URL, ProjectID: "proj", HTTPClient: netx.LoopbackClient(), Present: func() error { return nil }}
 	if _, err := buildAdapter(t, cfg, secrets{}, newRecorder(), newScheduler(t)); !errors.Is(err, gwplat.ErrMissingSecret) {
 		t.Fatalf("missing secret = %v", err)
 	}

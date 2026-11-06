@@ -15,6 +15,7 @@ import (
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/outq"
 	"github.com/damnbot/damnbot/internal/gwplat"
+	"github.com/damnbot/damnbot/internal/netx"
 )
 
 type allowPacer struct{}
@@ -179,7 +180,7 @@ func TestF7PLAT024Weixin(t *testing.T) {
 
 func assertWeixinActivation(t *testing.T) {
 	srv := newFakeILink(t)
-	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct"}
+	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient()}
 	if _, err := buildAdapter(t, cfg, secrets{}, newRecorder(), newScheduler(t)); !errors.Is(err, gwplat.ErrMissingSecret) {
 		t.Fatalf("missing secret = %v", err)
 	}
@@ -192,7 +193,7 @@ func assertWeixinRestart(t *testing.T) {
 	t.Helper()
 	srv := newFakeILink(t)
 	cursor := &memCursor{c: "c1", found: true}
-	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", Cursor: cursor}
+	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(), Cursor: cursor}
 	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, newRecorder(), newScheduler(t))
 	if err != nil {
 		t.Fatal(err)
@@ -213,7 +214,7 @@ func assertWeixinPoll(t *testing.T) {
 	t.Helper()
 	srv := newFakeILink(t)
 	cursor := &memCursor{}
-	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", Cursor: cursor}
+	cfg := &Config{Enabled: true, BaseURL: srv.srv.URL, Account: "acct", HTTPClient: netx.LoopbackClient(), Cursor: cursor}
 	rec := newRecorder()
 	ad, err := buildAdapter(t, cfg, secrets{"weixin_token": "tok"}, rec, newScheduler(t))
 	if err != nil {
