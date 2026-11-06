@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -205,9 +206,21 @@ func peerDM(args []string, stdout, stderr io.Writer) int {
 		sessionsPrintf(stderr, "peer dm: %v\n", err)
 		return 1
 	}
+	loader, err := config.New(config.OS())
+	if err != nil {
+		sessionsPrintf(stderr, "peer dm: config: %v\n", err)
+		return 1
+	}
+	cfg, err := loader.LoadProfile(activeProfile())
+	if err != nil && !errors.Is(err, config.ErrRead) {
+		sessionsPrintf(stderr, "peer dm: config: %v\n", err)
+		return 1
+	}
 	client := &gwpeer.Client{
 		LocalID: *local, Key: key, Tokens: gwpeer.EnvTokens{},
-		HTTP: peerDMClient(netx.New(netx.Config{})),
+		HTTP: peerDMClient(netx.New(netx.Config{
+			Offline: cfg.Network.Offline, NoBackground: !cfg.Network.Background,
+		})),
 	}
 	env, err := client.Send(context.Background(), &peer, *chat, *text)
 	if gwpeer.IsDuplicate(err) {
