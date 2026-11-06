@@ -113,6 +113,16 @@ type TaskSpec struct {
 	Links    []string
 }
 
+// ChildSpec is one decomposed card.
+type ChildSpec struct {
+	Title    string   `json:"title"`
+	Body     string   `json:"body,omitempty"`
+	Assignee string   `json:"assignee,omitempty"`
+	Priority *int     `json:"priority,omitempty"`
+	Labels   []string `json:"labels,omitempty"`
+	Links    []string `json:"links,omitempty"`
+}
+
 // Filter narrows Tasks.
 type Filter struct {
 	Status   Status
