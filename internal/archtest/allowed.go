@@ -144,6 +144,8 @@ func allowedImports() map[string][]string {
 // route gateway dan identitas token membaca config.OS.
 func f7ModuleImports(m map[string][]string) {
 	m["internal/gwpeer"] = []string{"internal/config", "internal/gateway"}
+	m["internal/gwplat"] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render"}
+	m["internal/gwplat"+moduleWildcard] = []string{"internal/gateway", "internal/gateway/outq", "internal/gateway/render", "internal/gwplat"}
 }
 
 // f6ModuleImports mendaftarkan baris modul F6 (ADR-310). SPEC §3.2.4 `web`
