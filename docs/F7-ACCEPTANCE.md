@@ -142,9 +142,9 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | TOOL-068 | `kanban_show` | detail task + komentar + lampiran; field sensitif diredaksi | `TestF7TOOL068KanbanShow` | LULUS | — |
 | TOOL-069 | `kanban_unblock` | buka blokir; hanya orkestrator; transisi valid | `TestF7TOOL069KanbanUnblock` | LULUS | — |
 | TSET-020 | toolset `kanban` | 15 tool, default off, tersedia saat inventaris=false | `TestF7TSET020Kanban` | LULUS | — |
-| AUTO-017 | Kanban dispatcher | dispatch task ke worker profil; `kanban.dispatch_in_gateway` default off; satu task satu worker (lease) | `TestF7AUTO017KanbanDispatch`, `TestF7KanbanDispatchLease` | BELUM | unit test ada; wiring gateway menyusul (slice P9-12) |
-| AUTO-018 | Kanban auto-decompose | task besar dipecah via LLM auxiliary; `kanban.auto_decompose` default off; hasil decompose divalidasi schema | `TestF7AUTO018KanbanDecompose` | BELUM | unit test ada; wiring gateway menyusul (slice P9-12) |
-| AUTO-019 | Kanban notifier/watchers | perubahan task → notifikasi gateway; `kanban.notify_in_gateway`; rate-limited 1/menit/task | `TestF7AUTO019KanbanNotify` | BELUM | unit test ada; wiring gateway menyusul (slice P9-12) |
+| AUTO-017 | Kanban dispatcher | dispatch task ke worker profil; `kanban.dispatch_in_gateway` default off; satu task satu worker (lease) | `TestF7AUTO017KanbanDispatch`, `TestF7KanbanDispatchLease` | LULUS | gateway tick; e2e `TestF7KanbanGatewayDispatchE2E` |
+| AUTO-018 | Kanban auto-decompose | task besar dipecah via LLM auxiliary; `kanban.auto_decompose` default off; hasil decompose divalidasi schema | `TestF7AUTO018KanbanDecompose` | LULUS | plan tervalidasi; seam produksi `TestF7AUTO018KanbanDecomposeProd` |
+| AUTO-019 | Kanban notifier/watchers | perubahan task → notifikasi gateway; `kanban.notify_in_gateway`; rate-limited 1/menit/task | `TestF7AUTO019KanbanNotify` | LULUS | outbox + renderer; e2e `TestF7KanbanGatewayNotifyE2E` |
 | AUTO-020 | Kanban swarm/workflow/PR acceptance | alur multi-agent + penerimaan PR; opt-in; merge hanya setelah bukti verify | `TestF7AUTO020KanbanSwarm` | LULUS | — |
 | PLUG-021 | Plugin kanban (dashboard, systemd) | data dashboard (board/task/run) tersedia read-only; unit systemd dihasilkan tanpa path rahasia | `TestF7PLUG021KanbanDashboard` | LULUS | data saja, UI di F8 |
 

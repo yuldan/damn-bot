@@ -7,27 +7,27 @@ import (
 	"testing"
 
 	"github.com/damnbot/damnbot/internal/ctxdb"
-	"github.com/damnbot/damnbot/internal/gateway/render"
 	"github.com/damnbot/damnbot/internal/kanban"
 )
 
 type notifySender struct {
-	mu   sync.Mutex
-	msgs int
-	text string
+	mu               sync.Mutex
+	msgs             int
+	text, key        string
+	platform, chatID string
 }
 
-func (f *notifySender) Send(_ context.Context, _, _ string, msgs []render.Message) error {
+func (f *notifySender) Send(_ context.Context, platform, chat, key, body string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.msgs++
-	if len(msgs) > 0 {
-		f.text = msgs[0].Text
-	}
+	f.text, f.key, f.platform, f.chatID = body, key, platform, chat
 	return nil
 }
 
-// TestF7AUTO019KanbanNotify verifies the rendered, rate-limited watcher.
+// TestF7AUTO019KanbanNotify verifies the markdown, rate-limited watcher. The
+// platform renderer runs in the gateway delivery pipeline (see the e2e
+// scenario), so the sender receives markdown source, never a fmt string.
 func TestF7AUTO019KanbanNotify(t *testing.T) {
 	t.Parallel()
 	db, err := ctxdb.Open(t.Context(), &ctxdb.Options{Dir: t.TempDir(), Kind: "cli"})
@@ -55,8 +55,10 @@ func TestF7AUTO019KanbanNotify(t *testing.T) {
 	if err := n.Notify(t.Context(), task, "moved"); err != nil {
 		t.Fatal(err)
 	}
-	if sender.msgs != 1 || strings.Contains(sender.text, "**") {
-		t.Fatalf("msgs=%d text=%q", sender.msgs, sender.text)
+	if sender.msgs != 1 || !strings.Contains(sender.text, "**kanban**") ||
+		!strings.Contains(sender.text, task.ID) || sender.platform != "telegram" || sender.chatID != "42" ||
+		!strings.HasPrefix(sender.key, "kanban:"+task.ID+":") {
+		t.Fatalf("msgs=%d platform=%q chat=%q key=%q text=%q", sender.msgs, sender.platform, sender.chatID, sender.key, sender.text)
 	}
 	if err := n.Notify(t.Context(), task, "again"); err != nil {
 		t.Fatal(err)

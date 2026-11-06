@@ -13,14 +13,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/damnbot/damnbot/internal/gateway/render"
 	"github.com/damnbot/damnbot/internal/kanban"
 )
 
-// Sender is the gateway's rendered-message seam. The notifier never sends a
-// fmt string: it builds markdown and hands renderer messages to Sender.
+// Sender is the gateway's delivery seam. The notifier never sends a fmt
+// string: it builds markdown and hands that body to Sender, which enqueues it
+// in the gateway outbox where the platform renderer runs once.
 type Sender interface {
-	Send(ctx context.Context, platform, chat string, messages []render.Message) error
+	Send(ctx context.Context, platform, chat, key, body string) error
 }
 
 // Subscription is one persistent watcher target.
@@ -66,12 +66,12 @@ func (n *Notifier) Notify(ctx context.Context, t *kanban.Task, change string) er
 	if change != "" {
 		md += "\n\n" + change
 	}
-	msgs := render.RenderTelegram(md, render.Limits{MaxLen: 3800, MaxChunks: 2})
 	platform, chat := "telegram", subs[0].Target
 	if p, c, ok := strings.Cut(subs[0].Target, ":"); ok {
 		platform, chat = p, c
 	}
-	if serr := n.Sender.Send(ctx, platform, chat, msgs); serr != nil {
+	key := fmt.Sprintf("kanban:%s:%d", t.ID, now.UnixNano())
+	if serr := n.Sender.Send(ctx, platform, chat, key, md); serr != nil {
 		return fmt.Errorf("notify: %w", serr)
 	}
 	return nil

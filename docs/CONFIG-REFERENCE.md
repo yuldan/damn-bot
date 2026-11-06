@@ -229,6 +229,11 @@ config_version = 1
 [acp]
   use_client_fs = true
   use_client_terminal = false
+
+[kanban]
+  dispatch_in_gateway = false
+  auto_decompose = false
+  notify_in_gateway = false
 ```
 
 ## Keys
@@ -291,3 +296,6 @@ config_version = 1
 | `update.catalog_public_key` | string | `` | `DAMNBOT_UPDATE_CATALOG_PUBLIC_KEY` |
 | `acp.use_client_fs` | bool | `true` | `DAMNBOT_ACP_USE_CLIENT_FS` |
 | `acp.use_client_terminal` | bool | `false` | `DAMNBOT_ACP_USE_CLIENT_TERMINAL` |
+| `kanban.dispatch_in_gateway` | bool | `false` | `DAMNBOT_KANBAN_DISPATCH_IN_GATEWAY` |
+| `kanban.auto_decompose` | bool | `false` | `DAMNBOT_KANBAN_AUTO_DECOMPOSE` |
+| `kanban.notify_in_gateway` | bool | `false` | `DAMNBOT_KANBAN_NOTIFY_IN_GATEWAY` |

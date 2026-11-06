@@ -356,7 +356,10 @@ heal              1500 internal/heal
 # voice_wire menambah config 2419 -> 2425 (terukur scc pada rebase di atas
 # main cf55c132). Sigma core 56.621 -> 56.627; plafon core 56.700 tetap.
 # ADR-323 P6b MEDIA-007: tts_allow_unofficial +1 (terukur scc pada rebase main 754febe1).
-config            2426 internal/config
+# ADR-326 P9-12 (kanban gateway automation): [kanban] dispatch_in_gateway/
+# auto_decompose/notify_in_gateway (default false) menambah config 2426 -> 2432
+# (terukur scc). Sigma core 56.811 -> 56.817 <= 56.900; maxCoreLOC tetap.
+config            2432 internal/config
 # ADR-268 (F5-09): seam kapabilitas MCP di `modules/host` (Approvals, Budget,
 # Secrets/EnvAllowlist, Clock; default fail-closed). Kode terukur 1.069;
 # plafon 1.000 -> 1.150. Sigma core 50.863 -> 51.013 <= 51.100.
