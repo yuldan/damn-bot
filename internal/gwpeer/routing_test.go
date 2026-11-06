@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -167,8 +168,10 @@ func checkSandboxKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join("/work", "profile-a", "session-1"); d1 == d2 || d1 != want {
-		t.Fatalf("sandbox dirs = %q %q, want %q", d1, d2, want)
+	want := filepath.Join("work", "profile-a", "session-1")
+	rel := strings.TrimPrefix(strings.TrimPrefix(d1, filepath.VolumeName(d1)), string(filepath.Separator))
+	if d1 == d2 || rel != want {
+		t.Fatalf("sandbox dirs = %q %q, want relative %q", d1, d2, want)
 	}
 	if _, err := SandboxKey("..", "session", "task"); !errors.Is(err, ErrInvalidSandbox) {
 		t.Fatalf("traversal key = %v, want ErrInvalidSandbox", err)
