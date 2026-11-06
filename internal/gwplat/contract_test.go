@@ -9,6 +9,7 @@ import (
 
 	"github.com/damnbot/damnbot/internal/gateway"
 	"github.com/damnbot/damnbot/internal/gateway/outq"
+	"github.com/damnbot/damnbot/internal/gateway/render"
 	"github.com/damnbot/damnbot/internal/gwplat"
 )
 
@@ -33,7 +34,7 @@ func (s secrets) Get(_ context.Context, name string) (string, error) {
 // outq/render outbound seam. Adapter-specific wire tests live next to each
 // adapter.
 func TestPlatformAdapterContract(t *testing.T) {
-	names := []string{"buzz", "irc", "ntfy", "raft", "signal", "simplex"}
+	names := []string{"buzz", "discord", "irc", "ntfy", "raft", "signal", "simplex"}
 	reg, err := gwplat.NewDefaultRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -255,7 +256,10 @@ func contractOutbox(t *testing.T, d *gwplat.Descriptor) {
 	}
 	select {
 	case text := <-sent:
-		if !strings.Contains(text, "world") || strings.Contains(text, "**") {
+		if !strings.Contains(text, "world") {
+			t.Fatalf("outbox lost the reply body: %q", text)
+		}
+		if d.Render == render.PlatformPlain && strings.Contains(text, "**") {
 			t.Fatalf("plain renderer leaked markup: %q", text)
 		}
 	case <-time.After(5 * time.Second):
