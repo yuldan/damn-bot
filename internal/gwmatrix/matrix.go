@@ -465,38 +465,9 @@ func (a *Adapter) shareRoomKey(ctx context.Context, roomID string, key *e2ee.Roo
 	if err := a.do(ctx, http.MethodPost, "/_matrix/client/v3/keys/query", map[string]any{"device_keys": requested}, &query); err != nil {
 		return err
 	}
-	messages := map[string]map[string]json.RawMessage{}
-	for user, devices := range query.DeviceKeys {
-		for deviceID, device := range devices {
-			curve := device.Keys["curve25519:"+deviceID]
-			if curve == "" {
-				continue
-			}
-			otk, err := a.claimKey(ctx, user, deviceID)
-			if err != nil {
-				return err
-			}
-			plaintext, err := json.Marshal(map[string]any{
-				"type":   "m.room_key",
-				"sender": a.userID,
-				"content": map[string]string{"algorithm": e2ee.AlgorithmMegolm, "room_id": roomID,
-					"session_id": key.SessionID, "session_key": key.SessionKey},
-			})
-			if err != nil {
-				return fmt.Errorf("gwmatrix: encode room key: %w", err)
-			}
-			sealed, err := a.cfg.Keys.EncryptToDevice(ctx, &e2ee.Device{
-				UserID: user, DeviceID: deviceID, Curve25519: curve,
-				Ed25519: device.Keys["ed25519:"+deviceID], OneTimeKey: otk,
-			}, plaintext)
-			if err != nil {
-				return fmt.Errorf("gwmatrix: seal room key: %w", err)
-			}
-			if messages[user] == nil {
-				messages[user] = map[string]json.RawMessage{}
-			}
-			messages[user][deviceID] = sealed
-		}
+	messages, err := a.sealForDevices(ctx, roomID, key, query.DeviceKeys)
+	if err != nil {
+		return err
 	}
 	if len(messages) == 0 {
 		return nil
@@ -505,6 +476,49 @@ func (a *Adapter) shareRoomKey(ctx context.Context, roomID string, key *e2ee.Roo
 	path := "/_matrix/client/v3/sendToDevice/m.room.encrypted/damnbot" + fmt.Sprint(a.txn)
 	var out map[string]any
 	return a.do(ctx, http.MethodPut, path, map[string]any{"messages": messages}, &out)
+}
+
+// sealForDevices wraps the room key for every device of the queried users.
+func (a *Adapter) sealForDevices(ctx context.Context, roomID string, key *e2ee.RoomKey, devices map[string]map[string]struct {
+	Keys map[string]string `json:"keys"`
+},
+) (map[string]map[string]json.RawMessage, error) {
+	messages := map[string]map[string]json.RawMessage{}
+	for user, deviceSet := range devices {
+		for deviceID, device := range deviceSet {
+			curve := device.Keys["curve25519:"+deviceID]
+			if curve == "" {
+				continue
+			}
+			otk, err := a.claimKey(ctx, user, deviceID)
+			if err != nil {
+				return nil, err
+			}
+			plaintext, err := json.Marshal(map[string]any{
+				"type":   "m.room_key",
+				"sender": a.userID,
+				"content": map[string]string{
+					"algorithm": e2ee.AlgorithmMegolm, "room_id": roomID,
+					"session_id": key.SessionID, "session_key": key.SessionKey,
+				},
+			})
+			if err != nil {
+				return nil, fmt.Errorf("gwmatrix: encode room key: %w", err)
+			}
+			sealed, err := a.cfg.Keys.EncryptToDevice(ctx, &e2ee.Device{
+				UserID: user, DeviceID: deviceID, Curve25519: curve,
+				Ed25519: device.Keys["ed25519:"+deviceID], OneTimeKey: otk,
+			}, plaintext)
+			if err != nil {
+				return nil, fmt.Errorf("gwmatrix: seal room key: %w", err)
+			}
+			if messages[user] == nil {
+				messages[user] = map[string]json.RawMessage{}
+			}
+			messages[user][deviceID] = sealed
+		}
+	}
+	return messages, nil
 }
 
 func (a *Adapter) claimKey(ctx context.Context, userID, deviceID string) (string, error) {

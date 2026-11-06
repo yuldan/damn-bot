@@ -194,34 +194,10 @@ func Descriptors() []Descriptor {
 			Secrets:    []string{"matrix_access_token"},
 			DefaultOff: true,
 		},
-		{
-			Name:       "ntfy",
-			Transport:  TransportSSE,
-			Caps:       capsOf("ntfy"),
-			Render:     render.PlatformPlain,
-			DefaultOff: true,
-		},
-		{
-			Name:       "raft",
-			Transport:  TransportLongPoll,
-			Caps:       capsOf("raft"),
-			Render:     render.PlatformPlain,
-			DefaultOff: true,
-		},
-		{
-			Name:       "signal",
-			Transport:  TransportJSONRPC,
-			Caps:       capsOf("signal"),
-			Render:     render.PlatformPlain,
-			DefaultOff: true,
-		},
-		{
-			Name:       "simplex",
-			Transport:  TransportWS,
-			Caps:       capsOf("simplex"),
-			Render:     render.PlatformPlain,
-			DefaultOff: true,
-		},
+		simple("ntfy", TransportSSE),
+		simple("raft", TransportLongPoll),
+		simple("signal", TransportJSONRPC),
+		simple("simplex", TransportWS),
 		{
 			Name:       "photon",
 			Transport:  TransportLongPoll,
@@ -239,6 +215,11 @@ func Descriptors() []Descriptor {
 			DefaultOff: true,
 		},
 	}
+}
+
+// simple is the descriptor of a plain-text adapter without secrets.
+func simple(name string, transport Transport) Descriptor {
+	return Descriptor{Name: name, Transport: transport, Caps: capsOf(name), Render: render.PlatformPlain, DefaultOff: true}
 }
 
 func capsOf(name string) gateway.Caps {

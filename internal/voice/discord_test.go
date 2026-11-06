@@ -1,6 +1,7 @@
 package voice
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -51,7 +52,9 @@ func newFakeVoiceGateway(t *testing.T) *fakeVoiceGateway {
 		if cerr != nil {
 			return
 		}
-		_ = conn.Write(r.Context(), websocket.MessageText, ready)
+		if werr := conn.Write(r.Context(), websocket.MessageText, ready); werr != nil {
+			return
+		}
 		for {
 			if _, _, err := conn.Read(r.Context()); err != nil {
 				return
@@ -165,7 +168,11 @@ func testDiscordTurn(t *testing.T) {
 	if err := v.Join(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = v.Leave() })
+	t.Cleanup(func() {
+		if err := v.Leave(); err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("leave: %v", err)
+		}
+	})
 	res, err := v.Turn(t.Context(), strings.NewReader("audio"))
 	if err != nil {
 		t.Fatal(err)
@@ -181,7 +188,11 @@ func testDiscordBargeIn(t *testing.T) {
 	if err := v.Join(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = v.Leave() })
+	t.Cleanup(func() {
+		if err := v.Leave(); err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("leave: %v", err)
+		}
+	})
 	track := newBlockingTrack()
 	done := make(chan error, 1)
 	go func() { done <- v.Play(t.Context(), []int16{1, 2}, track) }()
