@@ -43,12 +43,6 @@ func ParseDoc(platform Platform, doc *Node, lim Limits) []Message {
 	return pack(platform, styledPieces(platform, doc), lim.norm())
 }
 
-// Card is the approval/preview entry point: the same renderer as normal
-// replies, so cards can never drift from message markup.
-func Card(platform Platform, src string, lim Limits) []Message {
-	return Format(platform, src, lim)
-}
-
 type piece struct {
 	text     string
 	html     string
