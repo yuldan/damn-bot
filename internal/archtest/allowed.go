@@ -41,7 +41,7 @@ func allowedImports() map[string][]string {
 		"internal/tui":     {"internal/loop", "internal/i18n"},
 		"internal/acp":     append([]string{"internal/loop", "internal/i18n"}, groupNetx()...),
 		"internal/web":     {"internal/loop", "internal/i18n"},
-		"internal/gateway": {"internal/loop", "internal/modules/host", "internal/i18n", "internal/cron"},
+		"internal/gateway": {"internal/loop", "internal/modules/host", "internal/i18n", "internal/cron", "internal/gateway/render"},
 		// Adapter Telegram memakai renderer Telegram bersama (GAP-GW-04).
 		"internal/gateway/telegram": append(moduleImports(), "internal/gateway/render"),
 		// Modul daemon/observabilitas F4 (ADR-244): `obs` sudah diimplementasikan
@@ -112,10 +112,12 @@ func allowedImports() map[string][]string {
 		"internal/config":              {"internal/schema", "internal/toolset", "internal/update"},
 		"internal/update":              {"internal/netx"},
 		"internal/toolset":             nil, // pure composition data (ADR-139): no internal deps
-		"internal/kanban":              {"internal/ctxdb", "internal/netx", "internal/gateway/render"},
-		"internal/netx":                {"internal/netx/jsonrpc", "internal/netx/retry", "internal/redact"},
-		"internal/netx/jsonrpc":        {"internal/netx", "internal/netx/retry", "internal/redact"},
-		"internal/netx/retry":          nil,
+		// F7 kanban surface (ADR-326): storage consumer plus the tool contract
+		// and platform renderer for the notifier.
+		"internal/kanban":       {"internal/ctxdb", "internal/netx", "internal/tools", "internal/toolset", "internal/gateway/render"},
+		"internal/netx":         {"internal/netx/jsonrpc", "internal/netx/retry", "internal/redact"},
+		"internal/netx/jsonrpc": {"internal/netx", "internal/netx/retry", "internal/redact"},
+		"internal/netx/retry":   nil,
 
 		// Leaf.
 		"internal/loop/event": nil, "internal/schema": nil, "internal/sandbox": nil,

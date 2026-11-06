@@ -124,29 +124,29 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| CLI-029 | `damnbot kanban` (45 sub) | sub inti (init, boards, create, list, show, assign, set-model, reclaim, reassign, diagnostics, link, unlink, claim, comment, attach, attachments, attach-rm, complete, edit, block, schedule, unblock, request-review, request-changes, reopen-review, promote, archive, tail, dispatch, daemon, watch, stats, notify-*, log, runs, heartbeat, assignees, context, specify, decompose, gc, repair, swarm) berjalan; sub tak dikenal → exit 2 | `TestF7CLI029Kanban`, `TestF7CLI029KanbanSubcommands` | BELUM | board SQLite |
-| SLASH-080 | `/kanban` | subset sub gateway berjalan di chat; otorisasi owner untuk mutasi; output ≤ batas renderer | `TestF7SLASH080Kanban` | BELUM | — |
-| TOOL-055 | `kanban_attach` | lampirkan file workspace; path di luar workspace ditolak; ukuran dibatasi | `TestF7TOOL055KanbanAttach` | BELUM | — |
-| TOOL-056 | `kanban_attach_url` | lampirkan URL https; URL privat/loopback ditolak sebelum fetch | `TestF7TOOL056KanbanAttachURL` | BELUM | SSRF |
-| TOOL-057 | `kanban_attachments` | daftar lampiran + ukuran; tanpa akses → kosong, bukan error bocor | `TestF7TOOL057KanbanAttachments` | BELUM | — |
-| TOOL-058 | `kanban_block` | tandai terblokir + alasan wajib; state machine menolak transisi ilegal | `TestF7TOOL058KanbanBlock` | BELUM | — |
-| TOOL-059 | `kanban_comment` | komentar append-only; 0 edit riwayat | `TestF7TOOL059KanbanComment` | BELUM | — |
-| TOOL-060 | `kanban_complete` | selesai dengan handoff terstruktur (file/commit/verify); biaya run ditagih 1× (REL-14) | `TestF7TOOL060KanbanComplete`, `TestF7KanbanCostOnce` | BELUM | — |
-| TOOL-061 | `kanban_create` | buat task anak dengan dependency; idempoten pada kunci `(board, slug)` | `TestF7TOOL061KanbanCreate` | BELUM | — |
-| TOOL-062 | `kanban_heartbeat` | heartbeat worker tercatat; timeout memicu `needs_attention` | `TestF7TOOL062KanbanHeartbeat` | BELUM | — |
-| TOOL-063 | `kanban_link` | link dependensi; siklus ditolak | `TestF7TOOL063KanbanLink` | BELUM | — |
-| TOOL-064 | `kanban_list` | daftar task board; hanya mode orkestrator | `TestF7TOOL064KanbanList` | BELUM | — |
-| TOOL-065 | `kanban_request_changes` | kembalikan task review dengan alasan; transisi valid | `TestF7TOOL065KanbanRequestChanges` | BELUM | — |
-| TOOL-066 | `kanban_request_review` | ajukan ke review; tidak bisa dari state tertutup | `TestF7TOOL066KanbanRequestReview` | BELUM | — |
-| TOOL-067 | `kanban_schedule` | jadwalkan task (RFC 3339); jadwal lampau ditolak | `TestF7TOOL067KanbanSchedule` | BELUM | — |
-| TOOL-068 | `kanban_show` | detail task + komentar + lampiran; field sensitif diredaksi | `TestF7TOOL068KanbanShow` | BELUM | — |
-| TOOL-069 | `kanban_unblock` | buka blokir; hanya orkestrator; transisi valid | `TestF7TOOL069KanbanUnblock` | BELUM | — |
-| TSET-020 | toolset `kanban` | 15 tool, default off, tersedia saat inventaris=false | `TestF7TSET020Kanban` | BELUM | — |
-| AUTO-017 | Kanban dispatcher | dispatch task ke worker profil; `kanban.dispatch_in_gateway` default off; satu task satu worker (lease) | `TestF7AUTO017KanbanDispatch`, `TestF7KanbanDispatchLease` | BELUM | — |
-| AUTO-018 | Kanban auto-decompose | task besar dipecah via LLM auxiliary; `kanban.auto_decompose` default off; hasil decompose divalidasi schema | `TestF7AUTO018KanbanDecompose` | BELUM | — |
-| AUTO-019 | Kanban notifier/watchers | perubahan task → notifikasi gateway; `kanban.notify_in_gateway`; rate-limited 1/menit/task | `TestF7AUTO019KanbanNotify` | BELUM | — |
-| AUTO-020 | Kanban swarm/workflow/PR acceptance | alur multi-agent + penerimaan PR; opt-in; merge hanya setelah bukti verify | `TestF7AUTO020KanbanSwarm` | BELUM | — |
-| PLUG-021 | Plugin kanban (dashboard, systemd) | data dashboard (board/task/run) tersedia read-only; unit systemd dihasilkan tanpa path rahasia | `TestF7PLUG021KanbanDashboard` | BELUM | data saja, UI di F8 |
+| CLI-029 | `damnbot kanban` (45 sub) | sub inti (init, boards, create, list, show, assign, set-model, reclaim, reassign, diagnostics, link, unlink, claim, comment, attach, attachments, attach-rm, complete, edit, block, schedule, unblock, request-review, request-changes, reopen-review, promote, archive, tail, dispatch, daemon, watch, stats, notify-*, log, runs, heartbeat, assignees, context, specify, decompose, gc, repair, swarm) berjalan; sub tak dikenal → exit 2 | `TestF7CLI029Kanban`, `TestF7CLI029KanbanSubcommands` | LULUS | board SQLite |
+| SLASH-080 | `/kanban` | subset sub gateway berjalan di chat; otorisasi owner untuk mutasi; output ≤ batas renderer | `TestF7SLASH080Kanban` | LULUS | — |
+| TOOL-055 | `kanban_attach` | lampirkan file workspace; path di luar workspace ditolak; ukuran dibatasi | `TestF7TOOL055KanbanAttach` | LULUS | — |
+| TOOL-056 | `kanban_attach_url` | lampirkan URL https; URL privat/loopback ditolak sebelum fetch | `TestF7TOOL056KanbanAttachURL` | LULUS | SSRF |
+| TOOL-057 | `kanban_attachments` | daftar lampiran + ukuran; tanpa akses → kosong, bukan error bocor | `TestF7TOOL057KanbanAttachments` | LULUS | — |
+| TOOL-058 | `kanban_block` | tandai terblokir + alasan wajib; state machine menolak transisi ilegal | `TestF7TOOL058KanbanBlock` | LULUS | — |
+| TOOL-059 | `kanban_comment` | komentar append-only; 0 edit riwayat | `TestF7TOOL059KanbanComment` | LULUS | — |
+| TOOL-060 | `kanban_complete` | selesai dengan handoff terstruktur (file/commit/verify); biaya run ditagih 1× (REL-14) | `TestF7TOOL060KanbanComplete`, `TestF7KanbanCostOnce` | LULUS | — |
+| TOOL-061 | `kanban_create` | buat task anak dengan dependency; idempoten pada kunci `(board, slug)` | `TestF7TOOL061KanbanCreate` | LULUS | — |
+| TOOL-062 | `kanban_heartbeat` | heartbeat worker tercatat; timeout memicu `needs_attention` | `TestF7TOOL062KanbanHeartbeat` | LULUS | — |
+| TOOL-063 | `kanban_link` | link dependensi; siklus ditolak | `TestF7TOOL063KanbanLink` | LULUS | — |
+| TOOL-064 | `kanban_list` | daftar task board; hanya mode orkestrator | `TestF7TOOL064KanbanList` | LULUS | — |
+| TOOL-065 | `kanban_request_changes` | kembalikan task review dengan alasan; transisi valid | `TestF7TOOL065KanbanRequestChanges` | LULUS | — |
+| TOOL-066 | `kanban_request_review` | ajukan ke review; tidak bisa dari state tertutup | `TestF7TOOL066KanbanRequestReview` | LULUS | — |
+| TOOL-067 | `kanban_schedule` | jadwalkan task (RFC 3339); jadwal lampau ditolak | `TestF7TOOL067KanbanSchedule` | LULUS | — |
+| TOOL-068 | `kanban_show` | detail task + komentar + lampiran; field sensitif diredaksi | `TestF7TOOL068KanbanShow` | LULUS | — |
+| TOOL-069 | `kanban_unblock` | buka blokir; hanya orkestrator; transisi valid | `TestF7TOOL069KanbanUnblock` | LULUS | — |
+| TSET-020 | toolset `kanban` | 15 tool, default off, tersedia saat inventaris=false | `TestF7TSET020Kanban` | LULUS | — |
+| AUTO-017 | Kanban dispatcher | dispatch task ke worker profil; `kanban.dispatch_in_gateway` default off; satu task satu worker (lease) | `TestF7AUTO017KanbanDispatch`, `TestF7KanbanDispatchLease` | BELUM | unit test ada; wiring gateway menyusul (slice P9-12) |
+| AUTO-018 | Kanban auto-decompose | task besar dipecah via LLM auxiliary; `kanban.auto_decompose` default off; hasil decompose divalidasi schema | `TestF7AUTO018KanbanDecompose` | BELUM | unit test ada; wiring gateway menyusul (slice P9-12) |
+| AUTO-019 | Kanban notifier/watchers | perubahan task → notifikasi gateway; `kanban.notify_in_gateway`; rate-limited 1/menit/task | `TestF7AUTO019KanbanNotify` | BELUM | unit test ada; wiring gateway menyusul (slice P9-12) |
+| AUTO-020 | Kanban swarm/workflow/PR acceptance | alur multi-agent + penerimaan PR; opt-in; merge hanya setelah bukti verify | `TestF7AUTO020KanbanSwarm` | LULUS | — |
+| PLUG-021 | Plugin kanban (dashboard, systemd) | data dashboard (board/task/run) tersedia read-only; unit systemd dihasilkan tanpa path rahasia | `TestF7PLUG021KanbanDashboard` | LULUS | data saja, UI di F8 |
 
 ## 8. Ledger parity F7 — A2A dan Yuanbao (12)
 

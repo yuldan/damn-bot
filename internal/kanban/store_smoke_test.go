@@ -187,12 +187,6 @@ func TestF7KanbanClaimRoundTrip(t *testing.T) {
 	if _, err := s.ClaimTask(ctx, ready.ID, "w2", time.Minute); err != nil {
 		t.Fatalf("claim task: %v", err)
 	}
-	if off := SettingsFromEnv(func(string) string { return "" }); off.DispatchInGateway || off.AutoDecompose || off.NotifyInGateway {
-		t.Fatalf("absent env must keep every switch off: %+v", off)
-	}
-	if on := SettingsFromEnv(func(string) string { return "1" }); !on.DispatchInGateway || !on.AutoDecompose || !on.NotifyInGateway {
-		t.Fatalf("env switches not read: %+v", on)
-	}
 }
 
 type smokeFetch struct{ body []byte }

@@ -119,6 +119,11 @@ func Builtin() []Definition {
 		{Name: "coding", Description: "Coding toolkit: files, shell, web, skills, todo, memory, session_search, clarify", Tools: coding},
 		{Name: "hermes-acp", Description: "Coding toolkit for editor integration", Tools: acp},
 		{Name: "cronjob", Description: "Scheduled job management", Tools: []string{"cronjob_manage"}},
+		{Name: "kanban", Description: "Kanban board tasks, comments, links and attachments (default off)", Tools: []string{
+			"kanban_attach", "kanban_attach_url", "kanban_attachments", "kanban_block", "kanban_comment",
+			"kanban_complete", "kanban_create", "kanban_heartbeat", "kanban_link", "kanban_list",
+			"kanban_request_changes", "kanban_request_review", "kanban_schedule", "kanban_show", "kanban_unblock",
+		}},
 		{Name: "browser", Description: "Managed browser page tools: navigate, snapshot, click, type, scroll, back, press, images, vision, console, vault", Tools: []string{
 			"browser_navigate", "browser_snapshot", "browser_click", "browser_type",
 			"browser_scroll", "browser_back", "browser_press", "browser_get_images",
