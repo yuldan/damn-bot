@@ -153,18 +153,11 @@ type Media struct {
 	Size     int64  `json:"size"`
 }
 
-// Delivery is one `delivery` notification.
-type Delivery struct {
-	IdemKey string `json:"idem_key"`
-	State   string `json:"state"`
-}
-
 // Event is a decoded bridge notification.
 type Event struct {
-	Method   string
-	Inbound  *Inbound
-	Health   *Health
-	Delivery *Delivery
+	Method  string
+	Inbound *Inbound
+	Health  *Health
 }
 
 // RPCError is the JSON-RPC 2.0 error object.
