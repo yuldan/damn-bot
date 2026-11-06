@@ -51,9 +51,9 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-016 | Raft | wake-channel bridge lokal; `RAFT_PROFILE`; bridge absen → pesan instalasi | `TestF7PLAT016Raft` | LULUS | — |
 | PLAT-017 | Signal | daemon signal-cli (SSE + JSON-RPC); account → session key; plaintext tidak dipersist | `TestF7PLAT017Signal` | LULUS | — |
 | PLAT-018 | SimpleX | daemon WS lokal; reconnect; 0 tulis plaintext | `TestF7PLAT018Simplex` | LULUS | — |
-| PLAT-019 | Slack | Socket Mode; ack < 3 s; retry envelope didedupe; mrkdwn renderer | `TestF7PLAT019Slack`, `TestF7SlackAck` | BELUM | renderer GW-04 |
+| PLAT-019 | Slack | Socket Mode; ack < 3 s; retry envelope didedupe; mrkdwn renderer | `TestF7PLAT019Slack`, `TestF7SlackAck` | LULUS | renderer GW-04 |
 | PLAT-020 | SMS (Twilio) | REST send + webhook signature; segmen GSM-7/UCS-2 (GW-09) | `TestF7PLAT020SMS`, `TestF7GAPGW09SMSSegments` | LULUS | GAP-GW-09 |
-| PLAT-021 | Microsoft Teams | Bot Framework JWT (issuer/audience/exp) divalidasi; activity dedupe; tenant allowlist | `TestF7PLAT021Teams`, `TestF7TeamsJWT` | BELUM | — |
+| PLAT-021 | Microsoft Teams | Bot Framework JWT (issuer/audience/exp) divalidasi; activity dedupe; tenant allowlist | `TestF7PLAT021Teams`, `TestF7TeamsJWT` | LULUS | — |
 | PLAT-023 | WeCom | smart robot WS + callback app; XML parser hardened (tanpa entity eksternal) | `TestF7PLAT023WeCom`, `TestF7WeComXML` | LULUS | dua surface |
 | PLAT-024 | Weixin/WeChat | iLink long-poll; kursor persist; audio SILK → MEDIA-031 | `TestF7PLAT024Weixin` | LULUS | — |
 | PLAT-025 | WhatsApp Web (bridge) | klien `damnbot.bridge/v1`; inbound-only; `send_message` cold ke JID tanpa inbound → `cold_outbound_denied` 0 request; ack ban risk tunggal; `health.reason` dipetakan ke breaker | `TestWhatsAppWebGuards`, `TestBridgeProtocolConformance`, `TestF7PLAT025WABridge` | LULUS | parity `external-bridge (ADR-034)` di-flip `LULUS`; catatan ADR-034 tetap; GAP-GW-01/11 |
