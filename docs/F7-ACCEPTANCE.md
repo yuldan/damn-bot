@@ -41,7 +41,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 | PLAT-008 | Google Chat | callback HTTP terverifikasi (JWT Google) atau Pub/Sub pull; payload tak terverifikasi → 0 turn | `TestF7PLAT008GoogleChat`, `TestF7GoogleChatVerify` | BELUM | — |
 | PLAT-009 | IRC | wajib SASL PLAIN/EXTERNAL + CAP `account-notify`/`account-tag`; tanpa itu `module_unavailable{irc_no_account_auth}` | `TestF7PLAT009IRC`, `TestIRCAccountAuth` | LULUS | GAP-SEC-10 |
 | PLAT-010 | LINE | webhook HMAC-SHA256 constant-time; reply token sekali pakai | `TestF7PLAT010LINE`, `TestF7LINEHMAC` | BELUM | — |
-| PLAT-011 | Matrix | homeserver + access token; E2EE pure Go (`goolm`); edit-stream default mati (GW-10) | `TestF7PLAT011Matrix`, `TestF7MatrixNoEditStream` | BELUM | budget `gwmatrix` |
+| PLAT-011 | Matrix | homeserver + access token; E2EE pure Go (`goolm`); edit-stream default mati (GW-10) | `TestF7PLAT011Matrix`, `TestF7MatrixNoEditStream` | LULUS | budget `gwmatrix` |
 | PLAT-012 | Mattermost | REST v4 + WebSocket; token dari secret; reconnect backoff netx | `TestF7PLAT012Mattermost` | BELUM | — |
 | PLAT-013 | ntfy | subscribe topic + publish; topic dari config; isi pesan tidak masuk log INFO | `TestF7PLAT013Ntfy` | LULUS | — |
 | PLAT-014 | Photon (iMessage) | sidecar HTTP; project id/secret; sidecar absen → `module_unavailable` 0 network | `TestF7PLAT014Photon` | LULUS | — |
