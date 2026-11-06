@@ -170,6 +170,14 @@ func plainDescriptors() []Descriptor {
 func platformDescriptors() []Descriptor {
 	return []Descriptor{
 		{
+			Name:       "a2a",
+			Transport:  TransportJSONRPC,
+			Caps:       capsOf("a2a"),
+			Render:     render.PlatformPlain,
+			Secrets:    []string{"a2a_token"},
+			DefaultOff: true,
+		},
+		{
 			Name:       "buzz",
 			Transport:  TransportWS,
 			Caps:       capsOf("buzz"),

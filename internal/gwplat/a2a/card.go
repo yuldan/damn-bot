@@ -125,6 +125,27 @@ func (c *AgentCard) validateSkills() error {
 	return nil
 }
 
+// RPCError is one JSON-RPC error returned by a peer.
+type RPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// Error implements error.
+func (e *RPCError) Error() string { return fmt.Sprintf("a2a: rpc %d: %s", e.Code, e.Message) }
+
+// Unwrap maps the closed task errors onto their sentinels.
+func (e *RPCError) Unwrap() error {
+	switch e.Code {
+	case codeTaskNotFound:
+		return ErrTaskNotFound
+	case codeNoExecutor:
+		return ErrNoExecutor
+	default:
+		return nil
+	}
+}
+
 // Part is one content part of a task message. Only text parts are accepted:
 // a tool/exec part would turn the inbound server into a remote executor.
 type Part struct {

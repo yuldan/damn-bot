@@ -31,7 +31,7 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| PLAT-001 | A2A | server inbound A2A v1.0 (task/send, task/get) + agent card; adapter default-off; card absen → error typed | `TestF7PLAT001A2A`, `TestF7A2AAgentCard` | BELUM | §8 tools |
+| PLAT-001 | A2A | server inbound A2A v1.0 (task/send, task/get) + agent card; adapter default-off; card absen → error typed | `TestF7PLAT001A2A`, `TestF7A2AAgentCard` | LULUS | §8 tools; server+tools di stack P10 |
 | PLAT-002 | BlueBubbles | kirim REST + terima webhook; password hanya dari secret; URL wajib https atau loopback | `TestF7PLAT002BlueBubbles` | BELUM | server macOS, fake HTTP |
 | PLAT-003 | Buzz (Nostr relay) | subscribe/publish relay WS; private key hanya dari secret; 0 key di log/error | `TestF7PLAT003Buzz` | LULUS | — |
 | PLAT-004 | DingTalk Stream | WS client id/secret; ack ≤ 3 s; dedupe `msgId` (replay 2× → 1 turn) | `TestF7PLAT004DingTalk`, `TestF7DingTalkDedupe` | BELUM | — |
