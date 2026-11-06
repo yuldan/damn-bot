@@ -54,12 +54,8 @@ func New(cfg *Config, desc *gwplat.Descriptor, out *gwplat.Outbox, h gwplat.Hand
 	if err := gwplat.RequireEnabled(desc.Name, cfg.Enabled); err != nil {
 		return nil, fmt.Errorf("ntfy: activation: %w", err)
 	}
-	base, err := url.Parse(cfg.BaseURL)
-	if err != nil || base.Host == "" || (base.Scheme != "https" && base.Scheme != "http") {
-		return nil, fmt.Errorf("%w: base URL", ErrConfig)
-	}
-	if base.User != nil || cfg.Topic == "" || strings.ContainsAny(cfg.Topic, " \x00\r\n/") {
-		return nil, fmt.Errorf("%w: topic/base URL", ErrConfig)
+	if err := validateTarget(cfg); err != nil {
+		return nil, err
 	}
 	if out == nil || h == nil {
 		return nil, fmt.Errorf("%w: outbox and handler are required", ErrConfig)
@@ -81,6 +77,18 @@ func New(cfg *Config, desc *gwplat.Descriptor, out *gwplat.Outbox, h gwplat.Hand
 		dedupe: gwplat.NewDedupe(4096, 30*time.Minute),
 		log:    logger, now: now, client: client,
 	}, nil
+}
+
+// validateTarget checks the base URL and topic before any connection.
+func validateTarget(cfg *Config) error {
+	base, err := url.Parse(cfg.BaseURL)
+	if err != nil || base.Host == "" || (base.Scheme != "https" && base.Scheme != "http") {
+		return fmt.Errorf("%w: base URL", ErrConfig)
+	}
+	if base.User != nil || cfg.Topic == "" || strings.ContainsAny(cfg.Topic, " \x00\r\n/") {
+		return fmt.Errorf("%w: topic/base URL", ErrConfig)
+	}
+	return nil
 }
 
 // Outbox exposes the shared outbound seam to the wiring.
