@@ -63,14 +63,14 @@ Kontrak yang sama untuk semua baris: descriptor adapter di registry tertutup, `d
 
 | ID | Fitur | Kriteria lulus | Tes yang harus ada | Status | Catatan |
 |---|---|---|---|---|---|
-| PLAT-028 | `api_server` core gateway | `/v1/chat/completions`, `/v1/responses`, `/v1/runs` OpenAI-compatible; SSE stream; bearer token per klien; payload > batas → 413 eksplisit (bukan potong diam); 0 turn tanpa token | `TestF7PLAT028APIServer`, `TestF7APIStream413` | BELUM | REL-14 |
-| UI-021 | OpenAI-compatible API server | klien eksternal (SDK openai) bicara ke `/v1`; `model` dipetakan ke profil/route; usage/ledger tercatat | `TestF7UI021OpenAICompat`, `TestF7UIOpenAISDK` | BELUM | surface sama dengan PLAT-028 |
+| PLAT-028 | `api_server` core gateway | `/v1/chat/completions`, `/v1/responses`, `/v1/runs` OpenAI-compatible; SSE stream; bearer token per klien; payload > batas → 413 eksplisit (bukan potong diam); 0 turn tanpa token | `TestF7PLAT028APIServer`, `TestF7APIStream413` | BELUM | REL-14; chat completions selesai, responses/runs di #740 |
+| UI-021 | OpenAI-compatible API server | klien eksternal (SDK openai) bicara ke `/v1`; `model` dipetakan ke profil/route; usage/ledger tercatat | `TestF7UI021OpenAICompat`, `TestF7UIOpenAISDK` | BELUM | surface sama dengan PLAT-028 (#740) |
 | PLAT-029 | `webhook` core gateway | penerima webhook generik; secret bersama; dedupe `delivery_id`; toolset webhook hanya web/vision/clarify | `TestF7PLAT029Webhook`, `TestF7WebhookToolsetSafe` | BELUM | EC-SEC-006 |
 | GW-011 | Webhook platform & subscriptions | subscription dinamis (subscribe/list/remove/test) persisten; signature keluar; retry berbatas; test kirim 1 event bertanda | `TestF7GW011Subscriptions`, `TestF7GW011SubscriptionRetry` | BELUM | CLI-026 |
 | GW-012 | MS Graph webhook | handshake `validationToken` (echo ≤ 10 s); `clientState` dicocokkan; dedupe `resource`+`changeType`; notifikasi asing ditolak | `TestF7GW012MSGraph`, `TestF7MSGraphClientState` | BELUM | PLAT-030 |
 | PLAT-030 | `msgraph_webhook` core gateway | subscription Graph dibuat/diperbarui (renew sebelum expiry) dan notifikasi diteruskan ke Teams pipeline | `TestF7PLAT030MSGraphRenew` | BELUM | — |
 | CLI-026 | `damnbot webhook` | empat sub: `subscribe`, `list`, `remove`, `test`; `test` mengirim tepat 1 event; 0 kredensial di output | `TestF7CLI026Webhook` | BELUM | — |
-| TSET-042 | bundle `hermes-api-server` | komposit tanpa tool registry sendiri; komposisi toolset aman untuk klien API | `TestF7TSET042APIServerBundle` | BELUM | — |
+| TSET-042 | bundle `hermes-api-server` | komposit tanpa tool registry sendiri; komposisi toolset aman untuk klien API | `TestF7TSET042APIServerBundle` | LULUS | — |
 | TSET-061 | bundle `hermes-webhook` | komposit; hanya toolset aman (web/vision/clarify), 0 shell/write | `TestF7TSET061WebhookBundle`, `TestF7WebhookToolsetSafe` | BELUM | EC-SEC-006 |
 
 ## 4. Ledger parity F7 — peer, hosted rooms, relay, profile routing, scale-to-zero

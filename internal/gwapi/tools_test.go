@@ -31,12 +31,12 @@ func TestAPIServerToolCalls(t *testing.T) {
 	}
 	eng := &fakeEngine{run: func(_ context.Context, _ *Turn) (<-chan Update, error) { return toolStreamUpdates(), nil }}
 	h := newTestServer(t, eng, tb, testConfig()).Handler()
-	t.Run("approval required is refused", func(t *testing.T) { checkApprovalRefused(t, h, eng) })
-	t.Run("unknown tool is rejected", func(t *testing.T) { checkUnknownToolRejected(t, h, eng) })
-	t.Run("safe tool is forwarded and called once", func(t *testing.T) { checkSafeToolForwarded(t, h, eng) })
-	t.Run("stream tool delta", func(t *testing.T) { checkStreamToolDelta(t, h) })
-	t.Run("client tool history is not executed", func(t *testing.T) { checkToolHistoryNotExecuted(t, h, eng) })
-	t.Run("tool_choice none disables tools", func(t *testing.T) { checkToolChoiceNone(t, h, eng) })
+	checkApprovalRefused(t, h, eng)
+	checkUnknownTool(t, h, eng)
+	checkSafeTool(t, h, eng)
+	checkStreamToolDelta(t, h)
+	checkClientToolHistory(t, h, eng)
+	checkToolChoiceNone(t, h, eng)
 }
 
 func checkApprovalRefused(t *testing.T, h http.Handler, eng *fakeEngine) {
@@ -54,7 +54,7 @@ func checkApprovalRefused(t *testing.T, h http.Handler, eng *fakeEngine) {
 	}
 }
 
-func checkUnknownToolRejected(t *testing.T, h http.Handler, eng *fakeEngine) {
+func checkUnknownTool(t *testing.T, h http.Handler, eng *fakeEngine) {
 	t.Helper()
 	body := `{"model":"damnbot","messages":[{"role":"user","content":"go"}],"tools":[{"type":"function","function":{"name":"nuke"}}]}`
 	rec := postJSON(t, h, body, authHeaders())
@@ -66,7 +66,7 @@ func checkUnknownToolRejected(t *testing.T, h http.Handler, eng *fakeEngine) {
 	}
 }
 
-func checkSafeToolForwarded(t *testing.T, h http.Handler, eng *fakeEngine) {
+func checkSafeTool(t *testing.T, h http.Handler, eng *fakeEngine) {
 	t.Helper()
 	rec := postJSON(t, h, toolRequest(""), authHeaders())
 	if rec.Code != http.StatusOK {
@@ -104,7 +104,7 @@ func checkStreamToolDelta(t *testing.T, h http.Handler) {
 	}
 }
 
-func checkToolHistoryNotExecuted(t *testing.T, h http.Handler, eng *fakeEngine) {
+func checkClientToolHistory(t *testing.T, h http.Handler, eng *fakeEngine) {
 	t.Helper()
 	before := eng.count()
 	body := `{"model":"damnbot","messages":[` +

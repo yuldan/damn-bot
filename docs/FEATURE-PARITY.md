@@ -404,7 +404,7 @@ Diambil dari `model_tools.get_all_tool_names()` = **88 tool**; toolset dari `get
 | TSET-039 | toolset `safe` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:175` | sesuai platform/posture | — |  | F2 | planned |
 | TSET-040 | toolset `coding` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:181` | sesuai platform/posture | — |  | F2 | planned |
 | TSET-041 | toolset `hermes-acp` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:191` | sesuai platform/posture | — |  | F2 | planned |
-| TSET-042 | toolset `hermes-api-server` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:196` | sesuai platform/posture | — |  | F7 | planned |
+| TSET-042 | toolset `hermes-api-server` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:196` | sesuai platform/posture | — |  | F7 | LULUS |
 | TSET-043 | toolset `hermes-cli` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:201` | sesuai platform/posture | — |  | F2 | planned |
 | TSET-044 | toolset `hermes-cron` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:205` | sesuai platform/posture | — |  | F4 | planned |
 | TSET-045 | toolset `hermes-telegram` (komposit/bundle) | Toolset komposit/bundle platform (bukan toolset registry) | `toolsets.py:206` | sesuai platform/posture | — |  | F4 | planned |
