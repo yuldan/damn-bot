@@ -225,6 +225,14 @@ func Descriptors() []Descriptor {
 			Secrets:    []string{"webhook_secret"},
 			DefaultOff: true,
 		},
+		{
+			Name:       "msgraph_webhook",
+			Transport:  TransportWebhook,
+			Caps:       capsOf("msgraph_webhook"),
+			Render:     render.PlatformPlain,
+			Secrets:    []string{"msgraph_client_state"},
+			DefaultOff: true,
+		},
 	}
 }
 
