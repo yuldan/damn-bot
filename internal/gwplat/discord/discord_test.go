@@ -74,13 +74,17 @@ type fakeGateway struct {
 	identify  chan map[string]any
 	closeWith websocket.StatusCode
 	connects  atomic.Int64
+	stop      chan struct{}
 }
 
 func newFakeGateway(t *testing.T, closeWith websocket.StatusCode) *fakeGateway {
 	t.Helper()
-	g := &fakeGateway{t: t, events: make(chan []byte, 16), identify: make(chan map[string]any, 4), closeWith: closeWith}
+	g := &fakeGateway{t: t, events: make(chan []byte, 16), identify: make(chan map[string]any, 4), closeWith: closeWith, stop: make(chan struct{})}
 	g.srv = httptest.NewServer(http.HandlerFunc(g.serve))
-	t.Cleanup(g.srv.Close)
+	t.Cleanup(func() {
+		close(g.stop)
+		g.srv.Close()
+	})
 	return g
 }
 
@@ -136,6 +140,8 @@ func (g *fakeGateway) replay(ctx context.Context, conn *websocket.Conn) {
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-g.stop:
 			return
 		case event := <-g.events:
 			if err := conn.Write(ctx, websocket.MessageText, event); err != nil {
