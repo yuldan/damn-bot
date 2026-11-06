@@ -80,22 +80,7 @@ func TestF7A2AInboundPrompt(t *testing.T) {
 	hs := httptest.NewServer(srv.Handler())
 	t.Cleanup(hs.Close)
 
-	// No bearer: 401 and zero prompts.
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, hs.URL, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"task/send","params":{"taskId":"x","message":{"role":"user","parts":[{"kind":"text","text":"halo"}]}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cerr := resp.Body.Close(); cerr != nil {
-		t.Fatal(cerr)
-	}
-	if resp.StatusCode != http.StatusUnauthorized || prompts.Load() != 0 {
-		t.Fatalf("unauthenticated = %d prompts=%d", resp.StatusCode, prompts.Load())
-	}
-
+	assertA2AUnauthed(t, hs.URL, &prompts)
 	client, err := a2a.NewClient(t.Context(), &a2a.ClientConfig{
 		Peers: []a2a.Peer{{Name: "agent", URL: hs.URL}}, Token: bearer, AllowLoopback: true,
 	})
@@ -144,5 +129,24 @@ func assertA2AToolOutbound(t *testing.T, client *a2a.Client, bearer string, prom
 	}
 	if strings.Contains(out, bearer) {
 		t.Fatal("tool output leaked the bearer token")
+	}
+}
+
+func assertA2AUnauthed(t *testing.T, url string, prompts *atomic.Int64) {
+	t.Helper()
+	// No bearer: 401 and zero prompts.
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, url, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"task/send","params":{"taskId":"x","message":{"role":"user","parts":[{"kind":"text","text":"halo"}]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, derr := http.DefaultClient.Do(req)
+	if derr != nil {
+		t.Fatal(derr)
+	}
+	if cerr := resp.Body.Close(); cerr != nil {
+		t.Fatal(cerr)
+	}
+	if resp.StatusCode != http.StatusUnauthorized || prompts.Load() != 0 {
+		t.Fatalf("unauthenticated = %d prompts=%d", resp.StatusCode, prompts.Load())
 	}
 }
