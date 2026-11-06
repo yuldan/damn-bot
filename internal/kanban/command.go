@@ -2,11 +2,9 @@ package kanban
 
 import (
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 )
 
@@ -130,81 +128,4 @@ func parse(fs *flag.FlagSet, args []string) error {
 		return fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	return nil
-}
-
-// Summary renders a short, renderer-safe text answer for the chat surface.
-func Summary(v any) string {
-	if s := summaryCard(v); s != "" {
-		return s
-	}
-	if s := summaryMeta(v); s != "" {
-		return s
-	}
-	b, err := json.Marshal(v)
-	if err != nil {
-		return ""
-	}
-	return string(b)
-}
-
-func summaryCard(v any) string {
-	switch x := v.(type) {
-	case Board:
-		return x.Name + "\t" + x.ID
-	case []Board:
-		return lines(len(x), func(i int) string { return x[i].Name + "\t" + x[i].ID })
-	case *Task:
-		return taskLine(x)
-	case Task:
-		return taskLine(&x)
-	case []Task:
-		return lines(len(x), func(i int) string { return taskLine(&x[i]) })
-	case []*Task:
-		return lines(len(x), func(i int) string { return taskLine(x[i]) })
-	}
-	return ""
-}
-
-func summaryMeta(v any) string {
-	switch x := v.(type) {
-	case Event:
-		return eventLine(&x)
-	case []Event:
-		return lines(len(x), func(i int) string { return eventLine(&x[i]) })
-	case Attachment:
-		return x.Name + "\t" + strconv.FormatInt(x.Size, 10)
-	case []Attachment:
-		return lines(len(x), func(i int) string { return x[i].Name + "\t" + strconv.FormatInt(x[i].Size, 10) })
-	case Stats:
-		return "open=" + strconv.Itoa(x.Open) + " done=" + strconv.Itoa(x.Counts[StatusDone]) +
-			" blocked=" + strconv.Itoa(x.Counts[StatusBlocked]) + " runs=" + strconv.Itoa(x.Runs)
-	case BoardContext:
-		return lines(len(x.Tasks), func(i int) string {
-			return x.Tasks[i].ID + "\t" + string(x.Tasks[i].Status) + "\t" + x.Tasks[i].Title
-		})
-	case []Run:
-		return lines(len(x), func(i int) string { return x[i].ID + "\t" + x[i].Outcome })
-	case []AssigneeStat:
-		return lines(len(x), func(i int) string { return x[i].Assignee + "\t" + strconv.Itoa(x[i].Count) })
-	}
-	return ""
-}
-
-func lines(n int, f func(int) string) string {
-	out := make([]string, 0, n)
-	for i := range n {
-		out = append(out, f(i))
-	}
-	return strings.Join(out, "\n")
-}
-
-func taskLine(t *Task) string {
-	if t == nil {
-		return ""
-	}
-	return t.ID + "\t" + string(t.Status) + "\t" + t.Title
-}
-
-func eventLine(e *Event) string {
-	return strconv.FormatInt(e.ID, 10) + "\t" + e.Kind + "\t" + e.Actor + "\t" + string(e.Payload)
 }
